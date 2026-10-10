@@ -1,6 +1,6 @@
 ===============================================================================
  TS MATCH MODE -- COMMAND REFERENCE
- Plugin: ts_matchmode.amxx        Build: 1.35-roam
+ Plugin: ts_matchmode.amxx        Build: 1.41-halt
 ===============================================================================
 
  Keep this file current. When a command is added, renamed or removed in
@@ -115,6 +115,28 @@
 
  amx_match_score
      Print the current score.
+
+ amx_match_continue
+     Override a halt and play the match out with the sides as they are.
+     Keeps the round counter and the score; amx_match_start would zero both,
+     because that one begins a new match.
+
+     A round HALTS when somebody leaves and the sides end up uneven by more
+     than tsm_balance_gap. Everyone goes back to ready-up, that round is
+     replayed from the start, and the rounds already won are kept. Play
+     resumes when the sides are even again and everyone has typed .ready --
+     or immediately, with this command.
+
+     Only does anything while a match is halted; it says so otherwise, and
+     amx_tsm_debug prints the halt state on its own line. The override holds
+     for the REST OF THAT MATCH, so the next person to leave cannot stop a
+     match an admin has already said to play out, and it is cleared when the
+     match ends.
+
+     Three cvars govern the halt, all documented in ts_matchmode.cfg:
+     tsm_halt_on_leave (1 = on), tsm_halt_delay (grace period before the
+     sides are counted, so rcbot can refill one first) and tsm_halt_bypass
+     (1 = never halt at all).
 
 
 ===============================================================================
@@ -254,6 +276,42 @@
 
 
 ===============================================================================
+ CLASS IDENTIFICATION  (models and icons)
+===============================================================================
+
+ MODELS are barely usable for this, and the limits are in the mod, not here:
+ a team gets at most 3 entries in mp_teammodels, each capped at 15 usable
+ characters (a longer name overruns the next slot), and TS picks among them
+ at RANDOM on every userinfo change via CTSGameRules::GetPlayerModel().
+
+ Worse, the handler that does it is reached unconditionally, and writing the
+ "model" key is what triggers that handler -- so a write from a pre hook is
+ always overwritten. tsm_model_post 1 answers that by writing the class model
+ from a POST hook, after TS has had its say, and superceding the re-entry our
+ own write causes so the mod cannot answer twice.
+
+ ICONS carry the same information without any of those limits:
+
+     tsm_class_icons 1     a sprite above each head showing their class,
+                           visible ONLY to that player's own side
+     tsm_icon_height 52.0  units above the player's origin
+     tsm_icon_scale  0.25  sprite scale; the sheet is 64x64 per frame
+
+ Per-viewer visibility is done in AddToFullPack, which the engine asks once
+ per (viewer, entity) pair -- the only place a thing can be shown to one
+ player and withheld from another on the same frame. The hide is written into
+ the entity STATE, never into pev_effects, so the real entity is untouched.
+
+ sprites/tsm_class.spr is NOT part of TS. It is built by
+ tools/make-class-icons.py and shipped in the package. CLIENTS NEED THE FILE
+ -- with sv_allowdownload on they fetch it on connect, or serve it from
+ fastdl. A client without it draws nothing where the icon should be.
+
+ One frame per class, in class order, so adding a class to the table means
+ adding a frame to the sheet and nothing else.
+
+
+===============================================================================
  NO ECONOMY  (why weapons cannot be bought)
 ===============================================================================
 
@@ -390,14 +448,26 @@
                                    class models at once.
  Everything is in a bad state      amx_match_cancel
 
+ A round stopped, score kept       somebody left and the sides went uneven.
+                                   amx_tsm_debug, read the halt line. The way
+                                   on is .ready from both sides once they are
+                                   even, or amx_match_continue to play it out
+                                   as it stands. See tsm_halt_on_leave in
+                                   ts_matchmode.cfg
+
  Bots still shoot their own side   amx_tsm_debug, read the bots block:
                                    seen=0   the traceline hook never sees bots
                                    hidden=0 it sees them but never onto a teammate
                                    both >0  it is working; the cause is elsewhere
 
- A body vanishes on death          amx_tsm_debug, read death-pin frames held.
-                                   0 means the body is not being held and will
-                                   vanish when TS respawns the player.
+ A body vanishes on death          The body is NOT the player entity. TS has its
+                                   own `deadcorpse` entity and spawns one during
+                                   the death sequence, so the corpse persists by
+                                   itself and this plugin must not interfere.
+                                   Every attempt to hold the body was the bug --
+                                   refusing the respawn delayed TS's corpse by
+                                   exactly tsm_death_linger, so it appeared that
+                                   late with its animation already over.
 
  Deeper death detail               tsm_debug_log 2, then read deathtrace lines in
                                    logs/tsm_debug.log. They show solid, nodraw,

@@ -120,6 +120,14 @@ if exist "%EX%\rcbot\dlls\rcbot_mm.so" (
     echo   rcbot\dlls\rcbot_mm.so  ^(STOCK -- see the READ-ME beside it^)
 )
 
+REM ---- class-icon sprite ---------------------------------------------------
+REM Built by tools\make-class-icons.py, not shipped with TS. Clients need it or the
+REM icons draw nothing, so it goes in the package next to the configs.
+if exist "%SRC%sprites" (
+    xcopy /y /i /e /q "%SRC%sprites" "%EX%\ts\sprites" >nul
+    echo   ts\sprites\ ^(class icons^)
+)
+
 REM ---- compts -------------------------------------------------- compts-patch-block
 REM Follows the rcbot-patch pattern: the real copy lives OUTSIDE export, so a clean
 REM build cannot wipe it, and it is synced in on every successful build.
