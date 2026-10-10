@@ -1,0 +1,61 @@
+<!-- html5 boilerplate -->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>The Specialists &middot; {{ title }}</title>
+    <link rel="stylesheet" href="/static/bootstrap.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/jquery-3.7.1.min.js"></script>
+    <script src="/static/moment.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <div class="row mb-4">
+            <div class="col-md-6 col-12">
+                <h1><a href="/"><img src="/static/logo_ts.png" /></a></h1>
+            </div>
+            <div class="col-lg-6 col-12">
+                <p>The Specialists is a free Half-Life mod<br>Steam install <a href="steam://launch/70/Dialog">Half-Life</a> then install <a href="https://www.mediafire.com/folder/gjta3v5kw7yjl/ts">TS</a></p>
+                <a href="https://discord.gg/NcS8wrcc8t">Discord</a> &middot; <a href="https://github.com/The-Specialists-Archive">Resources</a> &middot; <a href="https://web.archive.org/web/20071008034150/http://www.specialistsmod.net/">Official Site</a>
+            </div>
+        </div>
+
+        {% block content %}{% endblock %}
+
+        <footer id="footer">
+            <div class="row mt-4">
+                <div class="col-lg-12 text-end text-muted">
+                    yet another thing by <a href="https://xji.ro/steam">xjiro</a>
+                </div>
+            </div>
+        </footer>
+    </div>
+    <script>
+        $(function () {
+            $('*[data-datetime]').each(function () {
+                const date = new Date($(this).data('datetime') * 1000);
+                const datevalues = [
+                    date.getFullYear(),
+                    date.getMonth(),
+                    date.getDate(),
+                    date.getHours(),
+                    date.getMinutes(),
+                    date.getSeconds(),
+                ];
+                $(this).text(new Date(...datevalues).toLocaleString());
+            });
+
+            $('*[data-timeago]').each(function () {
+                const date = new Date($(this).data('timeago') * 1000);
+                $(this).text(moment(date).fromNow());
+            });
+        });
+    </script>
+</body>
+</html>

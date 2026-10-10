@@ -1,0 +1,110 @@
+diff --git a/dlls/bot.cpp b/dlls/bot.cpp
+index bdc592f..bbe672b 100644
+--- a/dlls/bot.cpp
++++ b/dlls/bot.cpp
+@@ -721,7 +721,14 @@ void CBot::EnemyFound(edict_t* pEnemy)
+ 			Impulse(SAYING_4);
+ 		break;
+ 	case MOD_TS:
+-		FakeClientCommand(m_pEdict, "usepowerup");
++		// Honour the server's nopowerup setting.
++		//
++		// Bots fired usepowerup unconditionally on sighting an enemy, so a server that
++		// had turned powerups off still had its bots using them -- and nothing on the
++		// server side can stop that, because a fake client sends no client commands for
++		// a plugin to intercept.
++		if (CVAR_GET_FLOAT("nopowerup") <= 0.0f)
++			FakeClientCommand(m_pEdict, "usepowerup");
+ 
+ 		// more chance of using special if good skilled
+ 		if (m_pCurrentWeapon && m_pCurrentWeapon->GetID() != 36 && DistanceFrom(pEnemy->v.origin) > 200 && RANDOM_LONG(0, 100) < m_Profile.m_iSkill)
+@@ -2710,6 +2717,33 @@ void CBot::Think()
+ // Bot think
+ // without this function... bots will do nothing!
+ {
++	// ---------------------------------------------------------------------
++	// The Specialists: drop a weapon that is completely dry.
++	//
++	// CanReload() for TS is  !m_iClip && *m_iAmmo1 > 0 , so a weapon with no clip
++	// AND no reserve is OutOfAmmo() and cannot be reloaded. Stock rcbot has no
++	// answer for that state: it keeps the empty weapon selected and keeps pulling
++	// the trigger, which is why bots stand there doing nothing with a gun raised.
++	//
++	// Dropping it makes the game hand them the next weapon they are carrying, and
++	// when there is nothing left that is bare hands -- which is at least a weapon.
++	//
++	// Rate limited per bot. 'drop' is a client command and spamming it every frame
++	// would throw away a weapon the moment it was picked up. The stamp is a static
++	// array rather than a new CBot member so this patch does not touch bot.h.
++	if (gBotGlobals.IsMod(MOD_TS) && m_pCurrentWeapon != nullptr
++		&& m_pCurrentWeapon->OutOfAmmo() && !m_pCurrentWeapon->CanReload())
++	{
++		static float s_fNextDryDrop[33] = { 0.0f };
++		const int iDryIdx = ENTINDEX(m_pEdict);
++
++		if (iDryIdx > 0 && iDryIdx < 33 && s_fNextDryDrop[iDryIdx] < gpGlobals->time)
++		{
++			s_fNextDryDrop[iDryIdx] = gpGlobals->time + 3.0f;
++			FakeClientCommand(m_pEdict, "drop");
++		}
++	}
++
+ 	static TraceResult tr;
+ 
+ 	m_f3dVelocity = (pev->velocity + pev->basevelocity).Length();
+@@ -8147,9 +8181,10 @@ bool CBot::CanPickup(const edict_t* pPickup) const
+ 	{
+ 		const char* szClassname = const_cast<char*>(STRING(pPickup->v.classname));
+ 
+-		// quad damage etc..
++		// quad damage etc.. but not when the server has switched them off, or bots
++		// spend the round walking to pickups they are not allowed to have.
+ 		if (std::strncmp(szClassname, "ts_powerup", 10) == 0)
+-			return true;
++			return CVAR_GET_FLOAT("nopowerup") <= 0.0f;
+ 		if (std::strcmp(szClassname, "ts_groundweapon") == 0)
+ 			return true;
+ 	}
+@@ -8922,6 +8957,25 @@ bool CBot::IsEnemy(edict_t* pEntity)
+ 
+ 		if (pEntity->v.flags & FL_CLIENT)
+ 		{
++			// Teams, before anything else.
++			//
++			// Everything below decides whether two players share a side by comparing their
++			// MODEL STRINGS -- teammates only when the models are identical. mp_teammodels
++			// takes a list per team, so several models on one side is normal and every such
++			// pair reads as an enemy. That is why bots hunt their own team in TS.
++			//
++			// Deliberately OUTSIDE the isMapType(NON_TS_TEAMPLAY) || m_bTeamPlay gate just
++			// below. Inside it, this is dead code whenever that flag is false -- and that
++			// flag is set by code which compares instead of assigning, so it cannot be
++			// relied on. Fixing the flag instead would switch on team-join, team-balance
++			// and squad paths this mod has never run.
++			//
++			// pev->team is the engine's own field. Stock TS leaves it 0, so this is skipped
++			// and nothing changes; a plugin that owns the teams sets it, and then it is
++			// simply correct.
++			if (pev->team > 0 && pEntity->v.team > 0)
++				return pev->team != pEntity->v.team;
++
+ 			if (gBotGlobals.isMapType(NON_TS_TEAMPLAY) || gBotGlobals.m_bTeamPlay)
+ 			{
+ 				char* infobuffer1 = (*g_engfuncs.pfnGetInfoKeyBuffer)(m_pEdict);
+diff --git a/dlls/util.cpp b/dlls/util.cpp
+index d780582..0241a66 100644
+--- a/dlls/util.cpp
++++ b/dlls/util.cpp
+@@ -927,6 +927,12 @@ int UTIL_GetTeam(edict_t* pEntity)
+ 		return pEntity->v.team;
+ 	case MOD_TS:
+ 	{
++		// The engine's own team field, when the server sets it. Stock TS never does,
++		// so this reads 0 and the guesses below still apply. Read by the squad and
++		// chat code; the enemy test in bot.cpp no longer depends on it.
++		if (pEntity->v.team > 0)
++			return pEntity->v.team;
++
+ 		// Check if the map name starts with "tm_"
+ 		if (std::strncmp("tm_", STRING(gpGlobals->mapname), 3) == 0)
+ 		{

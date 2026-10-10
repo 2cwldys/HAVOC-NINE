@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% set title = "Player" %}
+{% block content %}
+{{ steamid }}
+
+<div class="row">
+    <div class="col-lg-12">
+
+        <img src="{{ player.avatar }}" class="float-start pe-4">
+
+        <ul style="list-style-type: none;">
+            <li>
+                NAME: {{ player.name }}
+
+            </li>
+            <li>
+                ELO: {{ player.elo }}
+            </li>
+            <li>
+                LASTSEEN: <span data-datetime="{{ player.lastseen }}"></span> (<span data-timeago="{{ player.lastseen }}"></span>)
+            </li>
+            <li>
+                <a href="{{ player.url }}">{{ player.url }}</a>
+            </li>
+        </ul>
+
+    </div>
+</div>
+
+{% endblock %}

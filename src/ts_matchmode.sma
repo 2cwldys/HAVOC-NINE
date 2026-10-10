@@ -1,0 +1,9569 @@
+/*
+ * ts_matchmode.sma -- team elimination match mode for The Specialists 3.0
+ *
+ * TS is deathmatch with infinite respawn and no round concept. This adds:
+ * warmup -> ready-up -> best-of-X rounds -> match end, where a round ends when one
+ * team has nobody left alive.
+ *
+ * ---------------------------------------------------------------------------
+ * DESIGN NOTE -- why this does NOT use observer mode
+ *
+ * The obvious way to hold a player out of a round is to make them a spectator.
+ * Testing on TS showed that writing pev_iuser1 makes the mod reclassify the player
+ * as a spectator and MOVE THEM OFF THEIR TEAM, with no reliable way to put them
+ * back. That breaks alive-counting, team chat and the scoreboard at once.
+ *
+ * So nothing here ever touches iuser1. An eliminated player is left exactly as TS
+ * made them -- alive, on their own team -- and is instead REMOVED FROM PLAY:
+ * teleported to a holding spot, hidden, made non-solid and immune, and frozen.
+ * Following a teammate is done by moving their view, not by spectating.
+ *
+ * The cost is that they are technically "alive"; the benefit is that the mod never
+ * fights us and nobody ever loses their team.
+ * ---------------------------------------------------------------------------
+ *
+ * Modules: amxmodx, amxmisc, fakemeta only. No hamsandwich (unverified for TS) and
+ * no tsx dependency, so this cannot fail to load for want of a module.
+ *
+ * Written deliberately conservatively for a strict compiler: explicit Float: tags on
+ * float entvars, braces on every block, and no backslash escapes in strings.
+ */
+
+#include <amxmodx>
+#include <amxmisc>
+#include <fakemeta>
+#include <fun>
+#include <tsfun>
+#include <newmenus>
+#include <file>
+
+/*
+ * Required, not optional.
+ *
+ * Friendly fire used to be undone from register_event("Damage"), which is driven
+ * by the network message sent to the damaged CLIENT. A bot is a fake client and is
+ * sent no messages at all, so that handler never fired once for a bot victim --
+ * bot-on-bot friendly fire was completely unprotected for the entire life of this
+ * plugin, which is why bots kept killing their own side.
+ *
+ * Ham_TakeDamage is the game DLL's own function. It fires for everyone, bots
+ * included, and it can refuse the damage outright instead of handing it back
+ * afterwards.
+ *
+ * hamsandwich must be listed in addons/amxmodx/configs/modules.ini or this plugin
+ * will not load.
+ */
+#include <hamsandwich>
+
+#define PLUGIN  "TS Match Mode"
+#define VERSION "0.7"
+#define AUTHOR  "tsm"
+
+#define MAXPL 33
+
+// Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
+// which build is actually loaded -- which has already cost us two rounds of chasing
+// symptoms that were fixed in source but not on the server.
+#define TSM_BUILD "1.37-corpse"
+
+/*
+ * Lent to a player for as long as g_issuing is set -- the tkw/tka writes and the
+ * respawn that applies them -- and taken straight back afterwards.
+ *
+ * Three times TS's own default initial_cash, so no loadout can be short-changed, but
+ * still inside a signed 16-bit field: TS sends cash to the client in its own TSCash
+ * message, and a value that does not fit would be displayed as garbage.
+ */
+#define TSM_ARM_CASH 32000
+
+/* ---- match states ------------------------------------------------------- */
+#define ST_WARMUP    0
+#define ST_READYUP   1
+#define ST_FREEZE    2
+#define ST_LIVE      3
+#define ST_ROUNDEND  4
+#define ST_MATCHEND  5
+
+/* ---- entvar values we set (own names: the includes may already define these,
+        and this compiler objects to redefinition) ---------------------------- */
+#define TSM_SOLID_NOT        0
+#define TSM_SOLID_BBOX       2
+
+/*
+ * What a live player must be.
+ *
+ * SOLID_BBOX collides but does not SLIDE along surfaces, so a player restored to it
+ * jams against the floor: the engine keeps applying velocity and they never
+ * translate. That reads in-game as being frozen, which is why it survived three
+ * rounds of fixes aimed at the hold. Players are SOLID_SLIDEBOX; only brushes and
+ * props are SOLID_BBOX.
+ */
+#define TSM_SOLID_SLIDEBOX   3
+#define TSM_MOVETYPE_NONE    0
+#define TSM_MOVETYPE_WALK    3
+#define TSM_MOVETYPE_NOCLIP  8
+#define TSM_EF_NODRAW        128
+#define TSM_DAMAGE_NO        0.0
+#define TSM_DAMAGE_AIM       2.0
+
+// Engine-level freeze. The player movement code refuses to move an entity carrying
+// this flag, which is what makes it the right mechanism here: it does not touch the
+// time base, so animations run at normal speed and clearing the bit fully undoes it.
+#define TSM_FL_FROZEN        67108864
+#define TSM_FL_KILLME        536870912
+
+// kRenderTransTexture with zero alpha. EF_NODRAW alone was not making players
+// invisible in TS, so the hide applies both.
+#define TSM_RENDER_NORMAL    0
+#define TSM_RENDER_TEXTURE   2
+
+/*
+ * TS stores a player's team name with strncpy(dst, src, 16) into a 16-byte buffer.
+ * At exactly 16 characters there is no room for the terminator, the stored name runs
+ * past its end, and every later comparison against it fails -- the mod then treats the
+ * player as being on no valid team and shows them as a spectator with no team model.
+ *
+ * "insurrectionists" is exactly 16. That is why that side could never be joined by
+ * anyone, human or bot, regardless of which command was used to try.
+ */
+#define TSM_MAX_TEAMNAME     15
+
+#define TSM_MAXCLASS         10
+#define TSM_MAXWPN           6
+#define TSM_PERK_NONE        0
+#define TSM_PERK_ENGINEER    1
+#define TSM_PERK_BREACHER    2
+#define TSM_PERK_MEDIC       3
+#define TSM_PERK_OFFICER     4
+
+// Glow shell, for the medic's heal. renderfx is a separate field from rendermode,
+// so this does not disturb the hide that runs off rendermode and renderamt.
+//
+// 19 is kRenderFxGlowShell. It is NOT 3 -- 3 is kRenderFxPulseSlowWide, a subtle
+// brightness pulse that looks like nothing at all, which is what the first attempt
+// at this drew.
+#define TSM_RENDERFX_NONE    0
+#define TSM_RENDERFX_GLOW    19
+
+// HL door spawnflag: the door refuses to be touched open and answers only +USE.
+#define TSM_SF_DOOR_USE_ONLY 256
+
+/* ---- how an eliminated player is disarmed (cvar tsm_disarm) -------------- */
+#define DISARM_CMDSTART  1   // zero the usercmd buttons (preferred)
+#define DISARM_SPEED     2   // zero maxspeed as well, so they cannot act or move
+#define DISARM_NONE      3   // rely on the holding area alone
+
+new g_state = ST_WARMUP;
+new g_round = 0;
+new g_score[3];              // [1] team1, [2] team2
+new bool:g_resetting = false;
+new g_start_alive[3];        // players per team when the round went live
+new bool:g_warned_empty = false;
+new g_prethink_calls = 0;
+new g_speed_fixes = 0;        // restores from the post-PreThink hook
+new g_speed_fixes_post = 0;   // restores from the post-PostThink hook    // diagnostic: is FM_PlayerPreThink even firing in TS?
+
+new bool:g_elim[MAXPL];      // eliminated for THIS round
+new bool:g_ready[MAXPL];
+new g_match_team[MAXPL];     // OUR authoritative team, never the mod's live value
+new g_spec_target[MAXPL];    // who an eliminated player is watching
+new g_last_buttons[MAXPL];
+
+// Death tracking that does not rely on DeathMsg. TS respawns players automatically,
+// so polling is_user_alive() on a one-second tick can miss a death entirely: the
+// player is already back up by the time we look. These watch for the alive->dead
+// TRANSITION per frame, so a death cannot be missed however briefly it lasts.
+new bool:g_was_alive[MAXPL];
+new Float:g_pending_elim[MAXPL];
+
+// Saved presentation, so a player is always restorable.
+new bool:g_frozen[MAXPL];          // we are holding this player right now
+new Float:g_save_maxspeed[MAXPL];  // their speed before we clamped it
+
+new bool:g_saved[MAXPL];
+new g_save_solid[MAXPL];
+new g_save_movetype[MAXPL];
+new g_save_effects[MAXPL];
+new Float:g_save_takedamage[MAXPL];
+new Float:g_save_origin[MAXPL][3];
+
+// Spawn points, collected once per map, then split into two clusters so the teams
+// do not spawn mixed together. TS has no team spawns, so the clusters are derived
+// geometrically -- see partition_spawns().
+new Float:g_spawns[64][3];
+new g_spawn_count = 0;
+
+new Float:g_spawn_t1[64][3];
+new g_spawn_t1_count = 0;
+new Float:g_spawn_t2[64][3];
+new g_spawn_t2_count = 0;
+
+new g_cv_enabled, g_cv_rounds, g_cv_freeze, g_cv_roundtime, g_cv_minteam;
+new g_cv_disarm, g_cv_report, g_cv_reporthp, g_cv_health;
+new g_cv_team1name, g_cv_team2name, g_cv_teammode;
+new g_cv_holdz;
+new g_cv_warmhold;
+new g_cv_warmhide;
+new g_cv_reloadout;
+new g_cv_loadout;
+new g_cv_spawnmode;
+new g_cv_solo;
+new g_cv_dbglog;
+new g_cv_nospec;
+new g_cv_balgap, g_cv_balmode;
+new g_cv_freezemethod;
+new g_cv_forcespeed;
+new g_cv_gamedesc;
+new g_cv_teamlock;
+new g_cv_forcespawn;
+new g_cv_classes, g_cv_defclass, g_cv_modelmode;
+new g_cv_nocash, g_cv_blockbuy;
+new g_cv_engrange, g_cv_engclips, g_cv_engents;
+new g_cv_breachents, g_cv_breachrange;
+new g_cv_armorder;
+new g_cv_blindff;
+new g_cv_bodyrestore;
+new g_cv_modelverify;
+new g_cv_modelfallback;
+new g_cv_prune, g_cv_prunedist;
+new g_cv_botreload;
+new g_cv_hoverinfo, g_cv_hoverrange;
+new g_cv_medheal, g_cv_medcool, g_cv_medrange, g_cv_medglow, g_cv_medshell;
+new g_cv_deathlinger;
+new g_cv_squadmax, g_cv_squaddist, g_cv_squadwarp, g_cv_squadspeed;
+new g_cv_squadform, g_cv_squadspread, g_cv_squadsteer;
+new g_cv_endelay;
+new g_cv_botresup;
+new g_bot_resup_rr = 0;        // round-robin, so only one bot is topped up per tick
+new Float:g_bot_resup_at[MAXPL];
+new Float:g_ff_told_at[MAXPL];   // rate limit on the friendly-fire warning
+
+/*
+ * Cached, because fw_traceline runs on a very hot path.
+ *
+ * is_user_bot() per traceline would mean a native call for every line of sight
+ * every bot tests every frame. This is written once when they join.
+ */
+new bool:g_is_bot[MAXPL];
+new g_blinded = 0;             // diagnostic: traces hidden from a bot so far
+new g_traces_seen = 0;         // diagnostic: traces where a BOT was the tracer
+new g_pinned = 0;              // diagnostic: frames a dead body was held in place
+new Float:g_deathtrace_at[MAXPL];  // diagnostic: log a death's visibility for a few seconds
+new Float:g_end_pending_at = 0.0;   // when the win condition was first met
+new g_end_pending_winner = 0;
+new g_cv_botnames, g_cv_botname1, g_cv_botname2;
+
+// Class tables, parsed once from the tsm_classN cvars.
+new g_class_count = 0;
+new g_class_name[TSM_MAXCLASS][32];
+/*
+ * Per team, and each side may hold a comma-separated list to pick from.
+ *
+ * Index 1 is MSR, index 2 the Insurgents, matching g_class_wpn. 96 is sized for
+ * the longest list (the Insurgent Assault's three).
+ */
+new g_class_model[TSM_MAXCLASS][3][96];
+new g_model_pick[MAXPL];      // which entry of the list this player drew, 1-based
+new g_precached = 0;          // class models precached at map load
+new g_model_last[MAXPL][32];  // the model we last wrote for this player
+new Float:g_model_at[MAXPL];  // when we wrote it
+new g_model_writes = 0;       // diagnostic: real model writes since map load
+new g_model_want_idx[MAXPL];  // model index the engine must draw for this player
+new bool:g_roaming[MAXPL];    // .roam -- out of the match, free to walk the map
+new g_body_logged[MAXPL];      // how many body-restore samples taken for this death
+new Float:g_bot_reload_at[MAXPL];  // last forced reload, so it is not every frame
+new g_class_wpn[TSM_MAXCLASS][3][TSM_MAXWPN];
+new g_class_clips[TSM_MAXCLASS][3][TSM_MAXWPN];
+new g_class_wcount[TSM_MAXCLASS][3];
+new g_class_hp[TSM_MAXCLASS];
+new g_class_ap[TSM_MAXCLASS];
+new g_class_perk[TSM_MAXCLASS];
+new Float:g_class_speed[TSM_MAXCLASS];   // movement multiplier, 1.0 = normal
+new g_class_menu = 0;
+new g_team_menu = 0;
+new g_legend_menu = 0;
+
+new bool:g_spectator[MAXPL];      // chose to sit out rather than pick a side
+new Float:g_team_menu_at[MAXPL];  // last time the team menu was put up for them
+
+new g_player_class[MAXPL];     // 0 = not picked; locked for the whole match
+new bool:g_eng_used[MAXPL];    // engineer has spent their resupply THIS ROUND
+new Float:g_medic_at[MAXPL];  // when this medic last healed, for the cooldown
+new Float:g_perk_at[MAXPL];   // when perk_use last ran, to dedupe button vs command
+new g_squad_leader[MAXPL];    // for a BOT: the officer it is following, 0 = nobody
+new Float:g_death_org[MAXPL][3];  // where they fell, so a fast respawn cannot move the body
+new g_bot_prethinks[MAXPL];   // diagnostic: does PlayerPreThink fire for bots at all?
+new bool:g_locked_out[MAXPL];  // joined mid-match; sits out until the match ends
+new g_last_use[MAXPL];
+new bool:g_in_userinfo[MAXPL];
+new g_gamedesc[64];
+
+// Facing for each team spawn. Only meaningful for config-placed spawns -- the
+// entity scan has no angles to copy, so it leaves players looking wherever they
+// already were.
+new Float:g_ang_t1[64][3];
+new Float:g_ang_t2[64][3];
+new bool:g_spawns_have_angles = false;
+new g_cfg_spawns = 0;        // how many spawns the per-map cfg supplied
+
+// Placed at a spawn for the CURRENT round. Lets the freeze tick pick up anyone
+// who was dead when the round started and respawned during the countdown.
+new bool:g_placed[MAXPL];
+
+new g_dbgfile[64];
+new g_mapname[32];
+
+new g_freeze_left = 0;
+new g_round_left = 0;
+new g_cv_showtimer;
+new g_cv_t1short, g_cv_t2short;
+new g_cv_forceteams, g_cv_forcemodels;
+new g_cv_t1label, g_cv_t2label;
+new g_cv_menudelay;
+new g_cv_blockvgui;
+new g_cv_wpnmode;
+new g_cv_clipbonus, g_cv_clipcap;
+new g_cv_specteam;
+new g_cv_armdelay;
+new g_cv_giveammo;
+new g_cv_defaultspec;
+new g_cv_cleandrops;
+new g_cv_friendlyfire;
+new g_cv_autofill;
+new g_cv_deathdelay;
+new Float:g_elim_at[MAXPL];   // when this player was eliminated
+new g_cv_sweepdrops;
+new g_cv_nopowerups;
+new g_cv_botreturn;
+new g_cv_bots, g_cv_botteams, g_cv_botclass, g_cv_botready;
+
+/*
+ * The flag string every get_players() call uses.
+ *
+ * "c" means SKIP BOTS (amxmodx.inc:329). The whole plugin passed it, so a bot was
+ * invisible to team counts, ready-up, alive counting, round-end, the hold, loadouts
+ * and kill reports alike. Chosen once here rather than hardcoded at 29 call sites --
+ * 29 places to get wrong is 29 places to revert.
+ */
+new g_bots_were = -1;    // last tsm_bots value pushed to rcbot
+new bool:g_bots_parked = false;  // bots sit out until the next match begins
+new Float:g_botfill_at[MAXPL];   // last fill attempt, so a refused move is not spammed
+new g_bot_slot[MAXPL];           // this bot's number within its side, 0 = none
+new g_pf[4] = "c";      // all players
+new g_pfa[4] = "ac";    // alive players only
+
+new g_bot_class_rr = 0;  // round-robin cursor for spreading bots across classes
+
+// Ground weapons that belong to the MAP, recorded once after it spawns. Anything not
+// in here is something a player dropped.
+new g_map_items[128];
+new g_map_item_count = 0;
+new g_arm_pending[MAXPL];
+new Float:g_connect_at[MAXPL];
+new Float:g_class_menu_at[MAXPL];
+new Float:g_reassert_at[MAXPL];
+new bool:g_issuing[MAXPL];   // we are writing this player's armament right now
+new g_join_tries[MAXPL];     // jointeam attempts for the current pick
+new g_teaminfo_seen = 0;     // TeamInfo messages from the mod since map load
+
+/* ======================================================================== */
+
+/* ---- debug log ----------------------------------------------------------- */
+
+/*
+ * Writes to addons/amxmodx/logs/tsm_debug.log, which is a file you can tail while
+ * playing. tsm_debug_log 2 also echoes to the server console. Kept separate from
+ * log_amx() deliberately: the AMXX log interleaves with every other plugin and with
+ * chat, and that mixing is what made the round-start ordering unreadable.
+ */
+/*
+ * Verbose trace. Only writes at tsm_debug_log 3 or higher, so it can be left in.
+ * Used for the per-tick detail that would drown the normal log.
+ */
+dbgv(const fmt[], any:...)
+{
+	if (get_pcvar_num(g_cv_dbglog) < 3)
+	{
+		return;
+	}
+
+	new msg[256];
+	vformat(msg, charsmax(msg), fmt, 2);
+	log_to_file(g_dbgfile, "[v][state %d] %s", g_state, msg);
+
+	if (get_pcvar_num(g_cv_dbglog) >= 4)
+	{
+		server_print("[TSMv] %s", msg);
+	}
+}
+
+dbg(const fmt[], any:...)
+{
+	new mode = get_pcvar_num(g_cv_dbglog);
+	if (mode < 1)
+	{
+		return;
+	}
+
+	new msg[256];
+	vformat(msg, charsmax(msg), fmt, 2);
+
+	log_to_file(g_dbgfile, "[state %d] %s", g_state, msg);
+
+	if (mode >= 2)
+	{
+		server_print("[TSM] %s", msg);
+	}
+}
+
+/*
+ * The spectator team's real 1-based position in the LIVE mp_teamlist, or 0 if it is
+ * not there at all.
+ *
+ * Trusting a configured index is dangerous: jointeam with an out-of-range index does
+ * not fail quietly -- TS resolves it to an empty team name, which it treats as "put me
+ * on the side with fewest players". So a stale index does the opposite of what it was
+ * asked and drops the player straight into a team. mp_teamlist is also only parsed at
+ * map load, so a server that has not restarted since the spectator team was configured
+ * will still have a two-team table while the cvar reads three.
+ */
+/*
+ * Is this player sitting out?
+ *
+ * The plugin's own team assignment WINS over what the mod reports, exactly as
+ * tsm_live_team_of() does. Without that priority, picking a side left a player held
+ * and invisible forever: g_match_team said team 1, but TS still had them on the
+ * spectator team, and the spectator check believed TS over us.
+ */
+/*
+ * Puts a bot on a side and gives it a class, without any interaction.
+ *
+ * A bot cannot use a menu or run a client command, so everything a human does by
+ * choosing is done here by assignment. g_match_team is authoritative, so no jointeam
+ * is needed or attempted.
+ */
+/*
+ * Names a bot after the side it is on: "Enforcer 3", "Insurgent 1".
+ *
+ * The number is a slot the PLUGIN owns, not something read back out of the other
+ * bots' names.
+ *
+ * Deriving it from names could never work. The engine renames duplicates itself, so
+ * the moment two bots were both called "Insurgent 1" it rewrote the second one to
+ * "(1)Insurgent 1" -- which no longer begins with the prefix, so the scan for taken
+ * numbers found none and handed out 1 again to every bot after it. The scoreboard
+ * showing "(1)", "(2)", "(3)" was the engine disambiguating a name collision we had
+ * created, not a numbering scheme.
+ */
+rename_bot(id)
+{
+	if (!is_user_bot(id) || !get_pcvar_num(g_cv_botnames))
+	{
+		return;
+	}
+
+	new team = g_match_team[id];
+	if (team != 1 && team != 2)
+	{
+		// Back in spectator: give the number up so the next bot on that side can use it.
+		g_bot_slot[id] = 0;
+		return;
+	}
+
+	new prefix[32];
+	get_pcvar_string(team == 1 ? g_cv_botname1 : g_cv_botname2, prefix, charsmax(prefix));
+	if (!prefix[0])
+	{
+		return;   // blank prefix means leave this side's names alone
+	}
+
+	// Which numbers the other bots on this side are holding.
+	new taken[33], players[32], pnum, n;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		if (players[i] == id
+			|| !is_user_bot(players[i])
+			|| g_match_team[players[i]] != team)
+		{
+			continue;
+		}
+
+		n = g_bot_slot[players[i]];
+		if (n >= 1 && n <= 32)
+		{
+			taken[n] = 1;
+		}
+	}
+
+	// Keep the number already held unless someone else now has it -- a bot should not
+	// be renumbered every time this runs.
+	new slot = g_bot_slot[id];
+	if (slot < 1 || slot > 32 || taken[slot])
+	{
+		slot = 1;
+		while (slot < 32 && taken[slot])
+		{
+			slot++;
+		}
+	}
+	g_bot_slot[id] = slot;
+
+	new want[40];
+	formatex(want, charsmax(want), "%s %d", prefix, slot);
+
+	new have[32];
+	have[0] = 0;
+	get_user_name(id, have, charsmax(have));
+	if (equal(have, want))
+	{
+		return;
+	}
+
+	/*
+	 * Written straight into the infokey buffer, not with a "name" client command.
+	 *
+	 * A fake client has no client process to run a stuffcmd -- the same reason every
+	 * team move here goes through engclient_cmd. SetClientKeyValue re-enters the
+	 * userinfo forward, so this borrows the guard that protects the team write.
+	 */
+	new bool:was = g_in_userinfo[id];
+	g_in_userinfo[id] = true;
+	new buf = engfunc(EngFunc_GetInfoKeyBuffer, id);
+	engfunc(EngFunc_SetClientKeyValue, id, buf, "name", want);
+	g_in_userinfo[id] = was;
+
+	dbg("renamed bot %d: '%s' -> '%s' (slot %d, team %d)", id, have, want, slot, team);
+}
+
+/// How many HUMANS are on a playing side right now.
+humans_playing()
+{
+	new players[32], pnum, n = 0;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		if (!is_user_bot(players[i])
+			&& (g_match_team[players[i]] == 1 || g_match_team[players[i]] == 2))
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+assign_bot(id)
+{
+	if (!bot_player(id))
+	{
+		return;
+	}
+
+	/*
+	 * No bot takes a side until a human has taken one.
+	 *
+	 * They are actively parked rather than just left alone: TS puts every
+	 * connecting client on the side with fewest players, so doing nothing here
+	 * leaves a server already split across both teams before anyone arrives, and
+	 * the first person to join then has to be shuffled into it.
+	 *
+	 * Not during a live round -- moving a player then respawns them, which throws
+	 * away the loadout they are holding.
+	 */
+	if (humans_playing() < 1)
+	{
+		if (g_state != ST_LIVE && g_state != ST_FREEZE && !on_spectator_team(id))
+		{
+			force_spectator(id);
+			dbg("bot %d parked: no human has picked a side yet", id);
+		}
+		return;
+	}
+
+	// Never parked as a spectator, and never locked out -- a bot is here to play.
+	g_spectator[id] = false;
+	g_locked_out[id] = false;
+
+	/*
+	 * Follow TS first.
+	 *
+	 * rcbot chooses its bots' teams and uses TS's team for target selection and
+	 * spawning. Overriding that in g_match_team alone put the two views out of step --
+	 * bots shot their own side and spawned at the other team's points. So if the mod
+	 * already has this bot on a recognised side, that IS its side.
+	 */
+	new tsname[32];
+	tsname[0] = 0;
+	get_user_team(id, tsname, charsmax(tsname));
+
+	new from_mod = tsm_team_from_name(tsname);
+	if (from_mod == 1 || from_mod == 2)
+	{
+		if (g_match_team[id] != from_mod)
+		{
+			g_match_team[id] = from_mod;
+			g_player_class[id] = 0;
+			dbg("bot %d follows the mod onto team %d", id, from_mod);
+		}
+	}
+	else
+	{
+		/*
+		 * The mod does not have this bot on a playing side, whatever g_match_team
+		 * says -- and the mod is the side that counts.
+		 *
+		 * This used to also require g_match_team to be unset, which stranded bots
+		 * for good: set_ts_team writes the side we WANTED before TS has agreed, so
+		 * a single refused jointeam left our value reading team 1 while the mod
+		 * still had the bot spectating -- and the condition to try again was then
+		 * false forever. That is why bots never picked sides again once a finished
+		 * match had parked them.
+		 */
+		new mode[8];
+		get_pcvar_string(g_cv_botteams, mode, charsmax(mode));
+
+		new team;
+		if (equali(mode, "1"))
+		{
+			team = 1;
+		}
+		else if (equali(mode, "2"))
+		{
+			team = 2;
+		}
+		else
+		{
+			// Whichever side is short, so bots fill BOTH rather than stacking one.
+			team = (count_on_team(1) <= count_on_team(2)) ? 1 : 2;
+		}
+
+		// Through set_ts_team, so rcbot and TS see the move too. A bot placed only in
+		// g_match_team is still on its old side to rcbot -- which is why bots were
+		// shooting their own teammates.
+		set_ts_team(id, team);
+		dbg("bot %d assigned to team %d", id, team);
+	}
+
+	rename_bot(id);
+
+	if (!g_player_class[id] && g_class_count)
+	{
+		new cmode[12];
+		get_pcvar_string(g_cv_botclass, cmode, charsmax(cmode));
+
+		if (equali(cmode, "spread"))
+		{
+			// Round-robin, so a bot side is not four identical Assaults.
+			g_bot_class_rr = (g_bot_class_rr + 1) % g_class_count;
+			g_player_class[id] = g_bot_class_rr + 1;
+		}
+		else
+		{
+			new fixed = str_to_num(cmode);
+			g_player_class[id] = (fixed >= 1 && fixed <= g_class_count)
+				? fixed
+				: resolved_class(id);
+		}
+
+		dbg("bot %d given class %d", id, g_player_class[id]);
+	}
+}
+
+bool:is_spectating(id)
+{
+	if (g_match_team[id] == 1 || g_match_team[id] == 2)
+	{
+		return false;
+	}
+	return (g_spectator[id] || on_spectator_team(id));
+}
+
+live_spectator_index()
+{
+	new want[32];
+	get_pcvar_string(g_cv_specteam, want, charsmax(want));
+	if (!want[0])
+	{
+		return 0;
+	}
+
+	new list[96];
+	get_cvar_string("mp_teamlist", list, charsmax(list));
+	if (!list[0])
+	{
+		return 0;
+	}
+
+	new rest[96], carry[96], name[32];
+	copy(rest, charsmax(rest), list);
+
+	for (new slot = 1; slot <= 4 && rest[0]; slot++)
+	{
+		strtok(rest, name, charsmax(name), carry, charsmax(carry), ';', 0);
+		copy(rest, charsmax(rest), carry);
+
+		if (name[0] && equali(name, want))
+		{
+			return slot;
+		}
+	}
+
+	return 0;
+}
+
+/*
+ * Moves a player onto a side -- for real, on BOTH sides of the fence.
+ *
+ * client_cmd() does not execute anything. It asks the CLIENT to run a command and send
+ * it back, which is unreliable for a human and impossible for a bot (a fake client has
+ * no client process to run it). Every team change in this plugin used to go through it,
+ * which is why joining the Insurrectionists never worked and why bots ended up on sides
+ * TS disagreed with.
+ *
+ * engclient_cmd (amxmodx.inc:381) runs the command server-side, immediately, and its
+ * own documentation says it works for "players and bots". It is the same thing rcbot
+ * does internally with FakeClientCommand.
+ *
+ * g_match_team is set here and ONLY here for a real side, so the plugin can never
+ * believe in a move it did not make.
+ */
+set_ts_team(id, team)
+{
+	if (!is_user_connected(id) || team < 1 || team > 2)
+	{
+		return;
+	}
+
+	new idx[8];
+	num_to_str(team, idx, charsmax(idx));
+
+	// The one that actually does it.
+	engclient_cmd(id, "jointeam", idx);
+
+	// And the stuffcmd as well for humans -- it is the path TS's own menu uses, and a
+	// second attempt costs nothing. A bot simply ignores it.
+	if (!is_user_bot(id))
+	{
+		client_cmd(id, "jointeam %d", team);
+	}
+
+	g_match_team[id] = team;
+	g_spectator[id] = false;
+
+	/*
+	 * The engine's own team field, written as well as TS's.
+	 *
+	 * TS does not use pev->team, so it sits at 0 for everyone -- and a bot that
+	 * reads the standard field to decide who is a teammate therefore sees one big
+	 * team, or none at all. Costs nothing to keep correct and it is the field any
+	 * outside code would look at first.
+	 */
+	set_pev(id, pev_team, team);
+
+	// Confirmed and retried, because a refusal is silent.
+	g_join_tries[id] = 0;
+	remove_task(id + 4000);
+	set_task(1.0, "task_verify_join", id + 4000);
+
+	dbg("set_ts_team: %d -> team %d", id, team);
+}
+
+/// The same, for moving someone out of play onto the spectator side.
+set_ts_spectator(id)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+
+	new spec = live_spectator_index();
+	if (spec > 0)
+	{
+		new idx[8];
+		num_to_str(spec, idx, charsmax(idx));
+		engclient_cmd(id, "jointeam", idx);
+
+		if (!is_user_bot(id))
+		{
+			client_cmd(id, "jointeam %d", spec);
+		}
+	}
+
+	g_match_team[id] = 0;
+	remove_task(id + 4000);
+}
+
+/// True when this is a bot AND bot support is switched on.
+/*
+ * True once an eliminated player's body may be hidden.
+ *
+ * The hide is re-asserted every frame, so delaying only the initial call would be
+ * undone immediately -- the per-frame paths have to respect the grace period too.
+ */
+bool:elim_hide_due(id)
+{
+	if (g_elim_at[id] <= 0.0)
+	{
+		return true;
+	}
+
+	new Float:since = get_gametime() - g_elim_at[id];
+
+	/*
+	 * A MINIMUM, before anything else gets a say.
+	 *
+	 * Keying purely off "are they alive again" looked right and was not: TS is a
+	 * deathmatch mod and respawns a dead player almost immediately, so that test
+	 * passed within a fraction of a second and the body was hidden before it had
+	 * finished falling. That is the whole of the "my body disappears instantly"
+	 * complaint -- the respawn was not a sign the corpse had gone, it was the thing
+	 * taking the corpse away.
+	 */
+	if (since < get_pcvar_float(g_cv_deathlinger))
+	{
+		return false;
+	}
+
+	// Past the linger, being back on their feet means there is no corpse left to
+	// interrupt, so that is the moment to take them out of play.
+	if (is_user_alive(id))
+	{
+		return true;
+	}
+
+	// Ceiling, not a delay: if TS never respawns them they cannot be left solid and
+	// visible in the middle of a live round forever.
+	return (since >= get_pcvar_float(g_cv_deathdelay));
+}
+
+bool:bot_player(id)
+{
+	if (!get_pcvar_num(g_cv_bots))
+	{
+		return false;
+	}
+	return (is_user_bot(id) != 0);
+}
+
+/*
+ * Holds a player at zero TS cash, and lends it back only while we are the buyer.
+ *
+ * WHY CASH, when the buy commands are already blocked.
+ *
+ * Blocking tkw/tka/tki stops the equipment menu writing a NEW saved loadout, and
+ * that is all it stops. TS keeps the saved armament in the player's own config and
+ * BuyArmament re-applies it from there on every spawn -- so anyone who bought a
+ * loadout before the block went on still spawned holding it, dropped it, took the
+ * class loadout on top, and collected the first one again. Two primaries, and the
+ * command block never saw anything, because no buy command was ever sent.
+ *
+ * An empty wallet leaves BuyArmament nothing to spend, so the saved loadout cannot
+ * be applied at all. usecash deliberately stays ON: the menu is SLOT-limited rather
+ * than cash-limited, so switching cash off makes buying free instead of impossible.
+ *
+ * The one purchase that must still go through is ours, down that same BuyArmament
+ * path -- so the money exists for exactly as long as g_issuing is set.
+ *
+ * Written only when it is not already right: this runs every frame for every player,
+ * and ts_setusercash sends the client a TSCash update.
+ */
+hold_cash(id)
+{
+	if (!get_pcvar_num(g_cv_nocash) || !is_user_connected(id))
+	{
+		return;
+	}
+
+	new want = g_issuing[id] ? TSM_ARM_CASH : 0;
+
+	if (ts_getusercash(id) != want)
+	{
+		ts_setusercash(id, want);
+	}
+}
+
+/*
+ * Switches off the three places TS hands out cash on its own: initial_cash at spawn,
+ * cashforwin and cashforlose at the end of a round.
+ *
+ * hold_cash() already takes any of it back within a frame, but a frame is long enough
+ * for the menu to spend it, so the sources are shut off too.
+ *
+ * These three names are not guesses -- they sit in TS's own cvar table beside
+ * nopowerup and roundtime. What has no cvar is a map's own handouts: the victorycash
+ * and defeatcash keyvalues on a ts_wingiver entity are baked into the .bsp. That is
+ * why the per-frame hold is the actual guarantee and this only narrows the window.
+ */
+kill_ts_cash_cvars()
+{
+	if (!get_pcvar_num(g_cv_nocash))
+	{
+		return;
+	}
+
+	// ON, deliberately. A purchase can only be refused if there is an economy to
+	// refuse it: with usecash 0, CashBased() is false, nothing is ever charged, and
+	// the equipment menu -- which is slot-limited, not cash-limited -- is free.
+	set_cvar_num("usecash", 1);
+
+	set_cvar_num("initial_cash", 0);
+	set_cvar_num("cashforwin",   0);
+	set_cvar_num("cashforlose",  0);
+}
+
+/* ---- classes: definitions and selection menu ----------------------------- */
+
+/*
+ * Parses one weapon list -- "5:3,22:2" -- into a class/team slot.
+ *
+ * Each entry is tsweaponid:extraclips. IDs are TS's own, from ts/ts_fgd.fgd:
+ *   5 M4A1    9 Socom Mk23   13 AK47    18 Barrett M82   22 Glock 20
+ *   23 HK UMP  25 Combat Knife  32 M60   34 Katana
+ * 8, 10, 16 and 29 are gaps in TS's own list, not typos.
+ */
+parse_weapon_list(idx, team, const field[])
+{
+	g_class_wcount[idx][team] = 0;
+
+	new rest[96], carry[96], pair[32], wpart[16], cpart[16];
+	copy(rest, charsmax(rest), field);
+
+	// Iteration cap: strtok cannot shrink an input it fails to split, so a malformed
+	// cvar would spin here forever without it.
+	for (new guard = 0; guard < TSM_MAXWPN && rest[0]; guard++)
+	{
+		strtok(rest, pair, charsmax(pair), carry, charsmax(carry), ',', 0);
+		copy(rest, charsmax(rest), carry);
+		if (!pair[0])
+		{
+			continue;
+		}
+
+		strtok(pair, wpart, charsmax(wpart), cpart, charsmax(cpart), ':', 0);
+		new wid = str_to_num(wpart);
+		if (wid < 1 || wid > 36)
+		{
+			log_amx("[TSM] class %d team %d: ignoring out-of-range weapon id %d", idx + 1, team, wid);
+			continue;
+		}
+
+		new n = g_class_wcount[idx][team];
+		g_class_wpn[idx][team][n]   = wid;
+		g_class_clips[idx][team][n] = str_to_num(cpart);
+		g_class_wcount[idx][team]   = n + 1;
+	}
+}
+
+/*
+ * Parses one tsm_classN cvar.
+ *
+ * Format:  Name;team1weapons;team2weapons;model;health;armour;perk
+ *
+ * The two weapon lists let one class be asymmetric -- Assault carries an M4A1 for MSR
+ * and an AK47 for the Insurrectionists -- without needing two separate classes and two
+ * menu entries. A blank team2 list means both teams carry the same thing.
+ */
+parse_class(idx, const spec[])
+{
+	new rest[224], carry[224], field[96];
+	copy(rest, charsmax(rest), spec);
+
+	// 1: display name
+	strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
+	copy(g_class_name[idx], charsmax(g_class_name[]), field);
+	copy(rest, charsmax(rest), carry);
+
+	// 2: team 1 weapons
+	strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
+	parse_weapon_list(idx, 1, field);
+	copy(rest, charsmax(rest), carry);
+
+	// 3: team 2 weapons, or a copy of team 1 when left blank
+	strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
+	copy(rest, charsmax(rest), carry);
+	if (field[0])
+	{
+		parse_weapon_list(idx, 2, field);
+	}
+	else
+	{
+		g_class_wcount[idx][2] = g_class_wcount[idx][1];
+		for (new i = 0; i < g_class_wcount[idx][1]; i++)
+		{
+			g_class_wpn[idx][2][i]   = g_class_wpn[idx][1][i];
+			g_class_clips[idx][2][i] = g_class_clips[idx][1][i];
+		}
+	}
+
+	/*
+	 * 4: models, as team1|team2, each one a comma-separated list to pick from.
+	 *
+	 *     repuheavy|XCCPSoldier-wartorn,XCCPmutant
+	 *
+	 * | splits the two sides, matching mp_teammodels, where | also separates teams.
+	 * Random choices are listed with , rather than mp_teammodels' ; because ; is
+	 * already this table's field separator and cannot be reused.
+	 *
+	 * A blank side falls back to that side's Assault model, resolved at apply time
+	 * rather than copied here, so editing Assault updates everything that leans on
+	 * it.
+	 */
+	strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
+	copy(rest, charsmax(rest), carry);
+
+	new mt1[96], mt2[96];
+	strtok(field, mt1, charsmax(mt1), mt2, charsmax(mt2), '|', 0);
+	copy(g_class_model[idx][1], charsmax(g_class_model[][]), mt1);
+	copy(g_class_model[idx][2], charsmax(g_class_model[][]), mt2);
+
+	// 5: health
+	strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
+	g_class_hp[idx] = str_to_num(field);
+	if (g_class_hp[idx] < 1)
+	{
+		g_class_hp[idx] = 100;
+	}
+	copy(rest, charsmax(rest), carry);
+
+	// 6: armour
+	strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
+	g_class_ap[idx] = str_to_num(field);
+	copy(rest, charsmax(rest), carry);
+
+	// 7: perk
+	strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
+	g_class_perk[idx] = str_to_num(field);
+	copy(rest, charsmax(rest), carry);
+
+	// 8: speed multiplier, optional. Absent or 0 means normal speed.
+	g_class_speed[idx] = str_to_float(rest);
+	if (g_class_speed[idx] <= 0.0)
+	{
+		g_class_speed[idx] = 1.0;
+	}
+}
+
+load_classes()
+{
+	g_class_count = 0;
+
+	new cvname[24], spec[224];
+	for (new i = 0; i < TSM_MAXCLASS; i++)
+	{
+		formatex(cvname, charsmax(cvname), "tsm_class%d", i + 1);
+
+		new pc = get_cvar_pointer(cvname);
+		if (!pc)
+		{
+			continue;
+		}
+		get_pcvar_string(pc, spec, charsmax(spec));
+		if (!spec[0])
+		{
+			continue;
+		}
+
+		parse_class(g_class_count, spec);
+		log_amx("[TSM] class %d '%s': t1=%d wpn t2=%d wpn, models t1='%s' t2='%s', %dhp %dap, perk %d, speed x%.2f",
+			g_class_count + 1, g_class_name[g_class_count],
+			g_class_wcount[g_class_count][1], g_class_wcount[g_class_count][2],
+			g_class_model[g_class_count][1], g_class_model[g_class_count][2],
+			g_class_hp[g_class_count],
+			g_class_ap[g_class_count], g_class_perk[g_class_count],
+			g_class_speed[g_class_count]);
+		g_class_count++;
+	}
+
+	if (!g_class_count)
+	{
+		log_amx("[TSM] No classes defined. Set tsm_class1 and up, or classes stay off.");
+	}
+}
+
+public class_menu_handler(id, menu, item)
+{
+	if (item == MENU_EXIT || item < 0)
+	{
+		close_menu(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (item < g_class_count)
+	{
+		// Locked for the rest of the match: the class IS the loadout, so swapping it
+		// mid-match would be the economy this replaced.
+		if (g_player_class[id] && g_state != ST_WARMUP && g_state != ST_READYUP)
+		{
+			client_print(id, print_chat, "[MATCH] You are already %s for this match.",
+				g_class_name[g_player_class[id] - 1]);
+		}
+		else
+		{
+			g_player_class[id] = item + 1;
+			client_print(id, print_chat, "[MATCH] You are %s. That is your class for the whole match.",
+				g_class_name[item]);
+
+			/*
+			 * The loadout for this round was already written, using the default class,
+			 * before the menu was shown -- so it is rewritten now or the pick would not
+			 * take effect until the next round.
+			 *
+			 * Dispatched by task name rather than called directly: issue_armament() is
+			 * defined further down the file and this compiler rejects forward references.
+			 */
+			if (g_state == ST_FREEZE)
+			{
+				set_task(0.1, "task_reissue_armament", id + 5000);
+			}
+
+			/*
+			 * And the model, now, in every state.
+			 *
+			 * Picking a class only rewrote the WEAPONS, and only during the freeze. The
+			 * model was left for whatever happened to touch it next, so choosing a
+			 * loadout visibly did not change how you looked.
+			 */
+			new bool:cwas = g_in_userinfo[id];
+			g_in_userinfo[id] = true;
+			set_class_model(id, g_player_class[id] - 1);
+			g_in_userinfo[id] = cwas;
+		}
+	}
+
+	close_menu(id);
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * menu_cancel() guarded.
+ *
+ * Calling it for a player who is not fully in game raises an AMXX run-time error
+ * ("Played N is not in game"), which was filling the error log whenever a menu was
+ * dismissed around a connect or a disconnect.
+ */
+close_menu(id)
+{
+	if (is_user_connected(id))
+	{
+		menu_cancel(id);
+	}
+}
+
+public team_menu_handler(id, menu, item)
+{
+	if (item == MENU_EXIT || item < 0)
+	{
+		close_menu(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (item == 0 || item == 1)
+	{
+		// Sides are fixed for the duration of a match. A late joiner waits it out.
+		if (g_state != ST_WARMUP && g_state != ST_READYUP)
+		{
+			client_print(id, print_chat, "[MATCH] A match is already in progress -- you are in when it finishes.");
+			close_menu(id);
+			return PLUGIN_HANDLED;
+		}
+
+		new team = item + 1;
+		new name[32];
+		team_rawname(team, name, charsmax(name));
+
+		/*
+		 * Refuse a pick that would unbalance the sides.
+		 *
+		 * Checked here rather than only at ready-up, because being told "the teams are
+		 * uneven" after everyone has already picked is no use -- this steers people to
+		 * the side that needs them while they are still choosing.
+		 */
+		new bmode[16];
+		get_pcvar_string(g_cv_balmode, bmode, charsmax(bmode));
+
+		if (!equali(bmode, "off") && !equali(bmode, "warn"))
+		{
+			new n1 = count_on_team(1);
+			new n2 = count_on_team(2);
+
+			// Their own arrival counts towards the gap.
+			if (team == 1) { n1++; } else { n2++; }
+
+			new gap = n1 - n2;
+			if (gap < 0)
+			{
+				gap = -gap;
+			}
+
+			if (gap > get_pcvar_num(g_cv_balgap))
+			{
+				new other[32];
+				team_rawname(team == 1 ? 2 : 1, other, charsmax(other));
+				client_print(id, print_chat,
+					"[MATCH] %s is full relative to %s. Join %s instead.", name, other, other);
+				dbg("balance: refused %d joining team %d (would be %d v %d)", id, team, n1, n2);
+
+				g_team_menu_at[id] = 0.0;
+				set_task(0.5, "task_show_side", id + 2000);
+				close_menu(id);
+				return PLUGIN_HANDLED;
+			}
+		}
+
+		g_spectator[id] = false;
+		remove_task(id + 1000);   // no longer waiting to be parked as a spectator
+
+		// One call that moves them on BOTH sides. See set_ts_team().
+
+		new shown[48];
+		get_pcvar_string(team == 1 ? g_cv_t1label : g_cv_t2label, shown, charsmax(shown));
+		if (!shown[0])
+		{
+			copy(shown, charsmax(shown), name);
+		}
+
+		/*
+		 * jointeam takes an INDEX, not a name. TS's own client sends "jointeam %d" --
+		 * 1 to 4 for the four teams in mp_teamlist. Sending the team NAME parses as
+		 * index 0 and is silently ignored, which is why picking a side did nothing.
+		 */
+		set_ts_team(id, team);
+		client_print(id, print_chat, "[MATCH] Joining %s...", shown);
+
+		/*
+		 * Straight on to the class menu, the same way the side menu itself arrives.
+		 * Waiting for the warmup tick to notice meant the class menu depended on a
+		 * different code path to the one that demonstrably works, and it never showed.
+		 * Chaining them makes the second menu as reliable as the first.
+		 */
+
+
+		dbg("team menu: %d -> jointeam %d (%s)", id, team, name);
+	}
+	else
+	{
+		g_spectator[id] = true;
+		set_ts_spectator(id);
+
+		client_print(id, print_chat, "[MATCH] Spectating. Type .team when you want to play.");
+		dbg("team menu: %d -> spectate", id);
+	}
+
+	close_menu(id);
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * Built from the live team names rather than hardcoded, and rebuilt whenever those
+ * names are re-forced, so the menu can never offer a team the mod does not have.
+ */
+build_team_menu()
+{
+	if (g_team_menu)
+	{
+		menu_destroy(g_team_menu);
+		g_team_menu = 0;
+	}
+
+	new t1[32], t2[32];
+	team_rawname(1, t1, charsmax(t1));
+	team_rawname(2, t2, charsmax(t2));
+	if (!t1[0] || !t2[0])
+	{
+		return;
+	}
+
+	g_team_menu = menu_create("Pick a side", "team_menu_handler");
+
+	// Displayed names fall back to the join names when no long label is configured,
+	// so the menu still reads sensibly on a server that never set them.
+	new l1[48], l2[48];
+	get_pcvar_string(g_cv_t1label, l1, charsmax(l1));
+	get_pcvar_string(g_cv_t2label, l2, charsmax(l2));
+	if (!l1[0])
+	{
+		copy(l1, charsmax(l1), t1);
+	}
+	if (!l2[0])
+	{
+		copy(l2, charsmax(l2), t2);
+	}
+
+	new label[64];
+	formatex(label, charsmax(label), "Join %s", l1);
+	menu_additem(g_team_menu, label, "1", 0);
+	formatex(label, charsmax(label), "Join %s", l2);
+	menu_additem(g_team_menu, label, "2", 0);
+	menu_additem(g_team_menu, "Spectate Match", "0", 0);
+}
+
+show_team_menu(id)
+{
+	// A bot can never answer a menu -- these are re-offered on a timer, which
+	// would otherwise retry against it forever.
+	if (bot_player(id))
+	{
+		return;
+	}
+
+	if (!is_user_connected(id) || !g_team_menu)
+	{
+		return;
+	}
+	// Sides can be changed freely during warmup and are locked once a match starts.
+	// The old rule refused the menu to anyone already on a side, which meant a player
+	// could never switch -- including off an over-full team the balance check was
+	// complaining about.
+	if ((g_match_team[id] == 1 || g_match_team[id] == 2)
+		&& g_state != ST_WARMUP && g_state != ST_READYUP)
+	{
+		return;
+	}
+	g_team_menu_at[id] = get_gametime();
+
+	// The counts matter when picking: the balance rule will refuse the fuller side,
+	// and without this the refusal arrives with no warning.
+	new sn1[32], sn2[32];
+	team_short(1, sn1, charsmax(sn1));
+	team_short(2, sn2, charsmax(sn2));
+	client_print(id, print_chat, "[MATCH] Sides: %s %d -- %d %s",
+		sn1, count_on_team(1), count_on_team(2), sn2);
+
+	menu_display(id, g_team_menu, 0);
+	dbg("showed side menu to %d", id);
+	client_print(id, print_chat, "[MATCH] Close any TS menu first, then press a number. Type .team to bring this back.");
+}
+
+build_class_menu()
+{
+	if (g_class_menu)
+	{
+		menu_destroy(g_class_menu);
+		g_class_menu = 0;
+	}
+	if (!g_class_count)
+	{
+		return;
+	}
+
+	g_class_menu = menu_create("TS Match -- pick your class", "class_menu_handler");
+
+	new label[64], info[8];
+	for (new i = 0; i < g_class_count; i++)
+	{
+		formatex(label, charsmax(label), "%s  [%d hp]", g_class_name[i], g_class_hp[i]);
+		num_to_str(i, info, charsmax(info));
+		menu_additem(g_class_menu, label, info, 0);
+	}
+}
+
+/*
+ * Confirms a side pick actually took on the mod's side, and retries if it did not.
+ *
+ * jointeam is fire-and-forget: it is a client command, it can be refused silently,
+ * and TS gives no feedback either way. Issuing it once and assuming it worked is why
+ * players could sit on the spectator team while the plugin believed otherwise.
+ */
+public task_verify_join(taskid)
+{
+	new id = taskid - 4000;
+
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+
+	new want = g_match_team[id];
+	if (want != 1 && want != 2)
+	{
+		return;   // they are not trying to be on a side any more
+	}
+
+	new wantname[32];
+	team_rawname(want, wantname, charsmax(wantname));
+
+	new live[32];
+	live[0] = 0;
+	new livenum = get_user_team(id, live, charsmax(live));
+
+	if (live[0] && equali(live, wantname))
+	{
+		dbg("join confirmed: %d is on '%s' after %d attempt(s)", id, live, g_join_tries[id]);
+		g_join_tries[id] = 0;
+		return;
+	}
+
+	g_join_tries[id]++;
+
+	if (g_join_tries[id] > 3)
+	{
+		// The plugin still counts them as playing -- g_match_team is authoritative --
+		// so the match works. Only TS's own scoreboard and team chat will disagree.
+		log_amx("[TSM] jointeam %d did not take for player %d after 3 tries (mod reports #%d '%s').",
+			want, id, livenum, live);
+
+		/*
+		 * A team index of -1 with an EMPTY name is the signature of non-teamplay
+		 * gamerules. TS picks its gamerules once per map load, and on CHalfLifeMultiplay
+		 * the team functions are inherited stubs: GetTeamIndex always returns -1 and
+		 * ChangePlayerTeam is a no-op, so no jointeam can ever succeed.
+		 */
+		if (livenum == -1 && !live[0])
+		{
+			log_amx("[TSM] This server is running NON-TEAMPLAY gamerules, so jointeam cannot work at all.");
+			log_amx("[TSM] mp_teamplay must be 1 BEFORE the map loads. server.cfg is too late on a dedicated server -- put it in ts/game.cfg, then changelevel.");
+		}
+
+		/*
+		 * Adopt whatever TS says rather than holding a value it disagrees with.
+		 *
+		 * A wrong-but-consistent team is playable: spawns, models, kill reports and
+		 * rcbot's own target selection all line up. A SPLIT view is not -- that is what
+		 * put players on spectator wearing the wrong model, and had bots shooting their
+		 * own teammates.
+		 */
+		new adopted = tsm_team_from_name(live);
+		if (adopted == 1 || adopted == 2)
+		{
+			g_match_team[id] = adopted;
+			log_amx("[TSM] Adopting the mod's answer: player %d is on team %d.", id, adopted);
+		}
+		g_join_tries[id] = 0;
+		return;
+	}
+
+	dbg("join retry %d for %d: wanted '%s', mod reports #%d '%s'",
+		g_join_tries[id], id, wantname, livenum, live);
+
+	/*
+	 * Deferred rather than sent, while a loadout is being written.
+	 *
+	 * TS respawns a player as part of changing their team, which discards the armament
+	 * that was just applied -- weapons and ammunition both. A re-join landing in the
+	 * middle of the round-start loadout is how players ended up with no ammo.
+	 */
+	if (g_issuing[id] || g_state == ST_FREEZE)
+	{
+		set_task(1.0, "task_verify_join", taskid);
+		return;
+	}
+
+	// engclient_cmd, not client_cmd: it executes server-side and works for bots.
+	new ridx[8];
+	num_to_str(want, ridx, charsmax(ridx));
+	engclient_cmd(id, "jointeam", ridx);
+
+	if (!is_user_bot(id))
+	{
+		client_cmd(id, "jointeam %d", want);
+	}
+
+	set_task(1.0, "task_verify_join", taskid);
+}
+
+public task_show_side(taskid)
+{
+	new id = taskid - 2000;
+	if (!is_user_connected(id) || tsm_live_team_of(id))
+	{
+		return;
+	}
+	show_team_menu(id);
+}
+
+public task_show_class(id)
+{
+	if (!is_user_connected(id) || g_player_class[id])
+	{
+		return;
+	}
+	show_class_menu(id);
+}
+
+show_class_menu(id)
+{
+	// A bot can never answer a menu -- these are re-offered on a timer, which
+	// would otherwise retry against it forever.
+	if (bot_player(id))
+	{
+		return;
+	}
+
+	if (!is_user_connected(id) || !g_class_menu || !g_class_count)
+	{
+		return;
+	}
+	// Locked only once a match is under way. During warmup a class can be changed as
+	// often as you like -- the previous rule treated the class auto-assigned at
+	// go-live as a deliberate pick, which then blocked the menu for good.
+	if (g_player_class[id] && g_state != ST_WARMUP && g_state != ST_READYUP)
+	{
+		return;
+	}
+	g_class_menu_at[id] = get_gametime();
+	menu_display(id, g_class_menu, 0);
+	dbg("showed class menu to %d", id);
+}
+
+/*
+ * Precaches one player model if it is actually on disk.
+ *
+ * Precaching a path that does not exist takes the server down, so the check is not
+ * optional. A name that is in the class table but not installed is skipped and logged
+ * rather than being allowed to kill the map load.
+ */
+precache_player_model(const name[])
+{
+	if (!name[0])
+	{
+		return;
+	}
+
+	new path[160];
+	formatex(path, charsmax(path), "models/player/%s/%s.mdl", name, name);
+
+	if (!file_exists(path))
+	{
+		log_amx("[TSM] WARNING: class model '%s' is not installed (%s) -- players assigned it will fall back to the default model.",
+			name, path);
+		return;
+	}
+
+	precache_model(path);
+	g_precached++;
+}
+
+/// Precaches every model named in one class spec's model field.
+precache_models_in_spec(const spec[])
+{
+	new rest[224], carry[224], field[96];
+	copy(rest, charsmax(rest), spec);
+
+	// Fields 1-3 are name and the two weapon lists; field 4 is the models.
+	for (new skip = 0; skip < 3; skip++)
+	{
+		strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
+		copy(rest, charsmax(rest), carry);
+	}
+	strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
+
+	// field is now team1|team2, each a comma-separated list.
+	new sides[2][96], one[96], two[96];
+	strtok(field, one, charsmax(one), two, charsmax(two), '|', 0);
+	copy(sides[0], charsmax(sides[]), one);
+	copy(sides[1], charsmax(sides[]), two);
+
+	for (new t = 0; t < 2; t++)
+	{
+		new list[96], item[64], tail[96];
+		copy(list, charsmax(list), sides[t]);
+
+		for (new guard = 0; guard < 8 && list[0]; guard++)
+		{
+			strtok(list, item, charsmax(item), tail, charsmax(tail), ',', 0);
+			copy(list, charsmax(list), tail);
+			precache_player_model(item);
+		}
+	}
+}
+
+/*
+ * Precaches every model the class table can hand out.
+ *
+ * WHY THIS EXISTS
+ *
+ * mp_teammodels was being trusted to do this, and it does not. Models past the first
+ * few on a side never got precached, so writing one of those names at runtime gave the
+ * client a model index it had never been told about -- which renders as the default
+ * player model. That is the "some insurgent models load null and show as gordon" bug:
+ * the names were correct and the files were present, they had simply never been
+ * precached.
+ *
+ * The config FILE is read rather than the cvars, because plugin_precache runs long
+ * before amxx execs ts_matchmode.cfg -- at this point the cvars still hold their
+ * compiled-in defaults, which are not necessarily what the server is running.
+ */
+precache_class_models()
+{
+	new cfg[128];
+	get_configsdir(cfg, charsmax(cfg));
+	formatex(cfg, charsmax(cfg), "%s/ts_matchmode.cfg", cfg);
+
+	if (!file_exists(cfg))
+	{
+		log_amx("[TSM] %s not found at precache time -- falling back to the built-in class defaults.", cfg);
+	}
+
+	new line[256], spec[224], len;
+	for (new i = 0; i < 10; i++)
+	{
+		new want[16];
+		formatex(want, charsmax(want), "tsm_class%d", i + 1);
+
+		spec[0] = 0;
+
+		// The live value from the config file, if it is there.
+		if (file_exists(cfg))
+		{
+			new ln = 0;
+			while (read_file(cfg, ln++, line, charsmax(line), len))
+			{
+				trim(line);
+				if (line[0] == ';' || (line[0] == '/' && line[1] == '/'))
+				{
+					continue;
+				}
+				if (containi(line, want) != 0)
+				{
+					continue;
+				}
+
+				// Everything between the first and last quote on the line.
+				new q1 = -1, q2 = -1;
+				for (new c = 0; line[c]; c++)
+				{
+					if (line[c] == '"')
+					{
+						if (q1 < 0) { q1 = c; } else { q2 = c; }
+					}
+				}
+				if (q1 >= 0 && q2 > q1 + 1)
+				{
+					copy(spec, (q2 - q1 - 1 < charsmax(spec)) ? (q2 - q1 - 1) : charsmax(spec), line[q1 + 1]);
+					break;
+				}
+			}
+		}
+
+		if (spec[0])
+		{
+			precache_models_in_spec(spec);
+		}
+	}
+
+	log_amx("[TSM] Precached %d class model(s).", g_precached);
+	audit_class_models();
+}
+
+/*
+ * Warns about any class model that is NOT listed in mp_teammodels.
+ *
+ * The two have to agree and nothing enforces it, which is the trap that has already
+ * taken this server down once: a weapon or player model TS never precached is a fatal
+ * Host_Error the moment something tries to set it, and the server closes rather than
+ * logging and carrying on.
+ *
+ * This only warns -- the plugin precaches its own class models, so a name missing from
+ * mp_teammodels is usually survivable. It is logged because finding it afterwards from
+ * a silent close is miserable, and because adding a model to the class table while
+ * forgetting the cvar is the obvious mistake to make.
+ */
+audit_class_models()
+{
+	new teamlist[256];
+	get_cvar_string("mp_teammodels", teamlist, charsmax(teamlist));
+
+	if (!teamlist[0])
+	{
+		log_amx("[TSM] WARNING: mp_teammodels is empty. Teams have no models of their own.");
+		return;
+	}
+
+	new missing = 0;
+
+	for (new c = 0; c < g_class_count; c++)
+	{
+		for (new t = 1; t <= 2; t++)
+		{
+			new list[96], item[48], tail[96];
+			copy(list, charsmax(list), g_class_model[c][t]);
+
+			for (new guard = 0; guard < 8 && list[0]; guard++)
+			{
+				strtok(list, item, charsmax(item), tail, charsmax(tail), ',', 0);
+				copy(list, charsmax(list), tail);
+
+				if (!item[0] || containi(teamlist, item) != -1)
+				{
+					continue;
+				}
+
+				log_amx("[TSM] WARNING: class %d '%s' team %d uses model '%s', which is NOT in mp_teammodels. Add it, or TS will not precache it.",
+					c + 1, g_class_name[c], t, item);
+				missing++;
+			}
+		}
+	}
+
+	if (!missing)
+	{
+		log_amx("[TSM] Class models all present in mp_teammodels.");
+	}
+}
+
+/*
+ * Precaches every TS weapon world model.
+ *
+ * THIS IS WHAT CRASHED THE SERVER.
+ *
+ *     Host_Error: PF_setmodel_I: no precache: models/w_glock18.mdl
+ *
+ * Host_Error is fatal -- the server does not log and carry on, it closes. TS only
+ * precaches the weapons a map actually needs, so handing someone a weapon the map
+ * never contained kills the server the instant the model is set. The Officer class
+ * carries a Glock 18, bots take classes round-robin, and the first bot to roll
+ * Officer took the whole server down with it.
+ *
+ * The directory is SCANNED rather than listed by hand, so a class table that later
+ * uses a weapon nobody thought of is covered without anyone remembering to come
+ * back here. 35 models is nothing against the engine's limit.
+ *
+ * World models only. The crash named w_, and p_/v_ would add another 90-odd slots
+ * for no demonstrated need.
+ */
+precache_weapon_models()
+{
+	new path[64], file[64];
+	new dir = open_dir("models", file, charsmax(file));
+	if (!dir)
+	{
+		log_amx("[TSM] WARNING: could not scan models/ -- weapon models are NOT precached, and a weapon the map does not use will crash the server.");
+		return;
+	}
+
+	new n = 0;
+	do
+	{
+		// w_ is the world/ground model, which is the one PF_setmodel_I was refusing.
+		if (file[0] != 'w' || file[1] != '_')
+		{
+			continue;
+		}
+
+		new len = strlen(file);
+		if (len < 5 || !equali(file[len - 4], ".mdl"))
+		{
+			continue;
+		}
+
+		formatex(path, charsmax(path), "models/%s", file);
+		if (file_exists(path))
+		{
+			precache_model(path);
+			n++;
+		}
+	}
+	while (next_file(dir, file, charsmax(file)));
+
+	close_dir(dir);
+	log_amx("[TSM] Precached %d weapon world model(s).", n);
+}
+
+public plugin_precache()
+{
+	/*
+	 * Has to happen HERE. A model precached any later shifts the model index table
+	 * that clients were already sent, which is the "Bad model on beam (not sprite)"
+	 * crash this plugin has hit before.
+	 */
+	precache_class_models();
+	precache_weapon_models();
+}
+
+public plugin_init()
+{
+	register_plugin(PLUGIN, VERSION, AUTHOR);
+
+	g_cv_enabled   = register_cvar("tsm_enabled",     "1");
+	g_cv_rounds    = register_cvar("tsm_rounds",      "9");    // best-of, so first to 5
+	g_cv_freeze    = register_cvar("tsm_freezetime",  "6");
+	g_cv_roundtime = register_cvar("tsm_roundtime",   "300");  // seconds, 0 = no limit
+	g_cv_showtimer = register_cvar("tsm_show_timer",  "1");    // draw the round clock
+
+	// Scoreboard abbreviations. Blank = first three letters of the team name.
+	g_cv_t1short   = register_cvar("tsm_team1_short", "");
+	g_cv_t2short   = register_cvar("tsm_team2_short", "");
+
+	// Re-assert mp_teamlist after the map has loaded. See force_team_list().
+	g_cv_forceteams  = register_cvar("tsm_force_teamlist", "1");
+	g_cv_forcemodels = register_cvar("tsm_force_teammodels", "");
+
+	// Long names, for the team menu only. The mod is still joined by the short team
+	// name in tsm_team1_name / tsm_team2_name -- these are purely what people read.
+	g_cv_t1label   = register_cvar("tsm_team1_label", "the Middle Sea Republic");
+	g_cv_t2label   = register_cvar("tsm_team2_label", "the Insurrectionists");
+
+	// The index TS uses for "no team". Its own menu sends jointeam 1-4 for the four
+	// teams and jointeam 5 separately, which is the spectate button.
+	// Accepted and ignored. The slot is now worked out from the live mp_teamlist by
+	// live_spectator_index(), because a hardcoded index that no longer matches the
+	// real team list auto-assigns the player to a playing side instead of failing.
+	register_cvar("tsm_spectate_index", "3");
+
+	// Seconds to wait after someone joins before offering the side menu. TS opens its
+	// own buy menu on spawn, and that is a VGUI panel which holds keyboard focus -- an
+	// AMXX menu drawn underneath it renders but never receives a keypress, which is
+	// exactly why the side menu appeared and then ignored all input.
+	g_cv_menudelay = register_cvar("tsm_menu_delay",     "3");
+
+	// Refuse the command that opens TS's own team panel. See cmd_block_changeteam.
+	g_cv_blockvgui = register_cvar("tsm_block_teamvgui", "1");
+
+	/*
+	 * 0 = classes set health, armour, model and perk but hand out NO weapons
+	 * 1 = classes also arm the player from a ts_groundweapon
+	 *
+	 * Defaults to 0 because arming crashed clients with "Bad model on beam (not
+	 * sprite)". Spawning a ts_groundweapon mid-game makes TS precache that weapon's
+	 * assets at runtime, and a runtime precache shifts the model index table out of
+	 * step with what clients already hold -- so the client reads a studio model where
+	 * it expects a sprite. plugin_precache() below front-loads every weapon at map
+	 * load to make this safe; set to 1 to test that.
+	 */
+	/*
+	 * 0 = no weapons given and none stripped
+	 * 2 = write TS's own armament and respawn  (DEFAULT)
+	 *
+	 * Mode 1 -- spawning a ts_groundweapon per weapon -- has been REMOVED. Creating
+	 * those entities floods every client with entity traffic in a single frame, which
+	 * overran the network buffer with a full server (SZ_GetSpace: overflow) and left
+	 * clients reading the truncated message as a beam: "Bad model on beam (not
+	 * sprite)". Precaching the weapons did not help; the precache table was never the
+	 * problem. No weapon entity is created anywhere in this plugin now.
+	 */
+	g_cv_wpnmode   = register_cvar("tsm_weapon_mode",    "2");
+
+	// Spare magazines added to every weapon on top of what its class line asks for,
+	// and a hard ceiling on the total so no class can hand out a silly amount.
+	g_cv_clipbonus = register_cvar("tsm_clip_bonus",     "2");
+	g_cv_clipcap   = register_cvar("tsm_clip_max",       "6");
+
+	/*
+	 * A real third team for people who are not playing.
+	 *
+	 * Without one, "not on a team" and "watching" are the same state to TS, and a
+	 * player sitting in it is still a live body in the world. Giving spectators their
+	 * own team means the mod agrees with the plugin about who is in the match.
+	 */
+	g_cv_specteam  = register_cvar("tsm_spectator_team", "spectator");
+
+	/*
+	 * Seconds between writing the armament and the respawn that applies it.
+	 *
+	 * rst_cfg and tkw are CLIENT commands: the server tells the client to run them and
+	 * the client sends them back. That round trip is not instant, so respawning too
+	 * soon runs BuyArmament before the last tkw has arrived -- which hands out a
+	 * partial loadout, and the magazines attached to the missing entries with it.
+	 */
+	g_cv_armdelay  = register_cvar("tsm_arm_delay",      "2.5");
+
+	/*
+	 * Magazines handed out per ammo type alongside the weapons.
+	 *
+	 * The clip count in "tkw id_clips" is the weapon's own extra-clip field, which on
+	 * its own was not producing spare ammunition. tka is TS's separate ammo command
+	 * (AddAmmoToArmament), so it is issued explicitly.
+	 *
+	 * Every type is given rather than only the matching one, because the weapon-to-
+	 * ammotype mapping lives in the mod's weapon table and is not reachable from a
+	 * plugin. Only the types a player's weapons actually use get consumed, so a small
+	 * number here stays modest in practice. 0 disables it.
+	 */
+	g_cv_giveammo  = register_cvar("tsm_ammo_mags",      "2");
+
+	/*
+	 * Put anyone who arrives without a side onto the spectator team.
+	 *
+	 * Joining used to leave people simply teamless, which is NOT the same thing: TS
+	 * still had them as a live body in the world with no team, so they could wander
+	 * around during a match. On the spectator team they are held and invisible like
+	 * any other non-participant, and the side menu is what lets them in.
+	 */
+	g_cv_defaultspec = register_cvar("tsm_default_spectator", "1");
+
+	/*
+	 * Remove the weapon TS drops at a player's feet when their class loadout arrives.
+	 *
+	 * PlayerSpawn hands out the mod's default kit and THEN applies the armament, so a
+	 * player who is given a class sidearm ends up holding two pistols, and TS drops
+	 * the one that will not fit. The dropped entity is a live pickup that anyone can
+	 * take, so it is cleared rather than left lying there.
+	 */
+	/*
+	 * OFF by default. The sweep cannot tell a dropped DEFAULT weapon from a dropped
+	 * CLASS weapon -- tsweaponid is a private member of the entity, not an entvar, so
+	 * a plugin cannot read it -- and it was removing sidearms players were supposed to
+	 * keep. Stripping before the respawn removes the overflow that caused the drop in
+	 * the first place, so this is no longer needed.
+	 */
+	g_cv_cleandrops = register_cvar("tsm_clean_drops",   "0");
+
+	/*
+	 * 0 = teammates cannot hurt each other (DEFAULT), 1 = they can.
+	 *
+	 * Enforced by this plugin rather than by mp_friendlyfire, because the plugin owns
+	 * team membership -- TS may not agree about who is on whose side, so its own
+	 * friendly-fire check cannot be relied on here.
+	 */
+	g_cv_friendlyfire = register_cvar("tsm_friendlyfire", "0");
+
+	/*
+	 * Fill a side that is short at the start of a round.
+	 *
+	 * 0 = never
+	 * 1 = pull in late joiners who are sitting the match out (DEFAULT)
+	 * 2 = late joiners first, then people who chose to spectate
+	 *
+	 * Someone disconnecting mid-match otherwise leaves the round 2v1 for the rest of
+	 * the match, because sides are locked once it starts.
+	 */
+	g_cv_autofill  = register_cvar("tsm_autofill",       "1");
+
+	/*
+	 * Seconds a body stays visible after being eliminated.
+	 *
+	 * Removal from play hides the player outright, and doing that the instant they die
+	 * means the killer never sees them fall -- the target just vanishes mid-animation,
+	 * which reads as a glitch rather than a kill.
+	 */
+	/*
+	 * A CEILING, not a delay.
+	 *
+	 * The real trigger for going invisible is TS respawning the player. This only
+	 * exists so a body cannot lie there forever if that never happens, so it should be
+	 * comfortably longer than a respawn takes -- 2.5s was short enough that it fired
+	 * first and still looked instant.
+	 */
+	g_cv_deathdelay = register_cvar("tsm_death_delay",   "10.0");
+
+	/*
+	 * Remove weapons players dropped, at the start of every round.
+	 *
+	 * Buying is already refused, but that does not stop someone dropping what they
+	 * are holding during warmup and collecting it once the round is live -- which
+	 * smuggles a whole extra loadout past the class system.
+	 *
+	 * Only DROPPED items are removed. Weapons the mapper placed are recorded when the
+	 * map spawns and are left alone.
+	 */
+	g_cv_sweepdrops = register_cvar("tsm_sweep_drops",   "1");
+
+	/*
+	 * Remove TS's powerups from match play.
+	 *
+	 * Powerups are a deathmatch feature -- whoever happens to be standing near one when
+	 * a round starts gets an advantage nobody chose. Both the pickups and the command
+	 * that activates them are taken out.
+	 */
+	g_cv_nopowerups = register_cvar("tsm_no_powerups",   "1");
+
+	/*
+	 * Seconds bots sit out after a match before picking sides again.
+	 *
+	 * They are parked at match end so sides are re-picked rather than inherited, but
+	 * they have to come back on their own: a bot cannot use the side menu, and waiting
+	 * for the next match to start deadlocks -- the match needs players on both sides
+	 * to begin, and every bot is sitting out.
+	 */
+	g_cv_botreturn  = register_cvar("tsm_bot_return",    "6.0");
+
+	// ---- bots ----
+	//
+	// OFF by default. With tsm_bots 0 every enumeration keeps skipping bots and the
+	// match mode behaves exactly as it does without any of this.
+	g_cv_bots       = register_cvar("tsm_bots",          "0");
+
+	// both | 1 | 2 -- which side(s) bots are put on.
+	g_cv_botteams   = register_cvar("tsm_bot_teams",     "both");
+
+	// 0 = tsm_default_class for all, spread = round-robin, or a fixed class number.
+	g_cv_botclass   = register_cvar("tsm_bot_class",     "0");
+
+	// Arm bots from their class. Uses the entity path, since a bot cannot run the
+	// client commands the armament path depends on.
+	// Accepted and ignored. Bots are armed by rcbot itself; this plugin creates no
+	// weapon entities for anyone.
+	register_cvar("tsm_bot_loadout", "0");
+
+	// A bot cannot type .ready, so without this a side holding one never becomes ready.
+	g_cv_botready   = register_cvar("tsm_bot_ready",     "1");
+	g_cv_minteam   = register_cvar("tsm_min_per_team","1");
+	g_cv_disarm    = register_cvar("tsm_disarm",      "2");    // DISARM_SPEED
+	g_cv_report    = register_cvar("tsm_report_kills","1");
+	g_cv_reporthp  = register_cvar("tsm_report_hp",   "1");
+	g_cv_health    = register_cvar("tsm_spawn_health","100");
+	g_cv_teammode  = register_cvar("tsm_team_mode",   "auto"); // auto | name | number
+	g_cv_team1name = register_cvar("tsm_team1_name",  "");
+	g_cv_team2name = register_cvar("tsm_team2_name",  "");
+	g_cv_holdz     = register_cvar("tsm_hold_height", "900");
+	g_cv_warmhold  = register_cvar("tsm_warmup_hold", "1");   // 0 = free play in warmup
+	g_cv_warmhide  = register_cvar("tsm_warmup_hide", "1");   // hide players during warmup
+	/*
+	 * OFF by default while the "cannot move, cannot attack" fault is open.
+	 *
+	 * This plugin strips every player at the start of every round, and TS derives
+	 * player speed from the equipped weapon -- so a player left with no valid active
+	 * weapon reads maxspeed 0 and cannot fire, which is every reported symptom at
+	 * once. strip_user_weapons comes from the fun module and is generic HL stripping;
+	 * TS has its own slot and dual-wield handling that it may not unwind cleanly.
+	 *
+	 * Turn back on once movement is confirmed working with it off.
+	 */
+	g_cv_reloadout = register_cvar("tsm_reset_loadout", "0");
+	// Accepted and ignored, so configs written for the old kill-and-respawn reset
+	// still load without an unknown-cvar error.
+	register_cvar("tsm_reset_delay", "1.0");
+
+	// Weapons handed out at the start of each round, as "id:clips" pairs.
+	// Default: MK23 with 3 clips plus a combat knife. IDs are the TSW_* enum.
+	g_cv_loadout   = register_cvar("tsm_loadout",   "9:3,25:0");
+
+	// auto   - per-map cfg spawns if present, otherwise scan map entities
+	// config - ONLY per-map cfg spawns; refuses to guess
+	// entity - ignore the cfg and always scan entities
+	g_cv_spawnmode = register_cvar("tsm_spawn_mode", "auto");
+
+	// Solo testing: lets a match run with only one team occupied.
+	g_cv_solo      = register_cvar("tsm_test_solo",  "0");
+
+	// 0 off, 1 write tsm_debug.log, 2 also echo to the server console.
+	g_cv_dbglog    = register_cvar("tsm_debug_log",  "1");
+
+	/*
+	 * OFF by default now that the plugin owns team membership.
+	 *
+	 * This re-wrote the "team" userinfo key every tick whenever TS's own team index
+	 * disagreed with ours -- and TS answers a team userinfo change by re-applying the
+	 * player's model via SET_CLIENT_KEY_VALUE("model", GetPlayerModel(player)). A
+	 * model applied at runtime that was not precached at map load shifts the model
+	 * index table, and the client then reads a studio model where it expects a sprite:
+	 * "Bad model on beam (not sprite)". Nothing depends on this cosmetically.
+	 */
+	g_cv_nospec    = register_cvar("tsm_block_spectator", "0");
+
+	// Largest allowed difference in team sizes before the match is held up.
+	// 1, not 2. A gap of 2 permits 2v0 -- which passes the balance check and then
+	// cannot start a match, because a side with nobody on it never becomes ready.
+	g_cv_balgap    = register_cvar("tsm_balance_gap",  "1");
+	// off | warn | block (hold ready-up) | shuffle (also attempt a forced move)
+	g_cv_balmode   = register_cvar("tsm_balance_mode", "block");
+
+	// How a held player is stopped. 1 is the engine freeze flag and is what works;
+	// 2 clamps maxspeed; 3 is the old ts_set_speed call, kept only so the
+	// slow-motion behaviour can be reproduced on demand.
+	// 2 = clamp maxspeed from the post hooks (DEFAULT, and the only one that holds)
+	// 1 = FL_FROZEN alone, which TS ignores
+	g_cv_freezemethod = register_cvar("tsm_freeze_method", "2");
+
+	// Restore a released player's maxspeed when TS leaves it at 0. Applied from the
+	// POST PlayerPreThink hook, which is the only place it survives.
+	g_cv_forcespeed   = register_cvar("tsm_force_maxspeed", "1");
+
+	// The "Game" column in the server browser. Blank leaves TS's own text alone.
+	g_cv_gamedesc     = register_cvar("tsm_gamedesc", "Match Mode");
+
+	// Refuse team changes once a match is under way. Deliberately its own cvar and
+	// not part of tsm_block_spectator, so turning that off for a model test cannot
+	// quietly unlock teams mid-match.
+	g_cv_teamlock     = register_cvar("tsm_lock_teams", "1");
+
+	// Respawn anyone still dead when a round starts, rather than leaving them to sit
+	// out until the mod gets round to it.
+	g_cv_forcespawn   = register_cvar("tsm_force_spawn", "1");
+
+	// ---- classes ----
+	g_cv_classes   = register_cvar("tsm_classes",       "1");
+	g_cv_defclass  = register_cvar("tsm_default_class", "1");
+
+	// force    - set the model per class and re-assert it when TS reverts
+	// teamonly - leave TS's own mp_teammodels alone (DEFAULT)
+	g_cv_modelmode = register_cvar("tsm_model_mode",    "teamonly");
+
+	// There is no economy: you pick a class and keep it for the match.
+	g_cv_nocash    = register_cvar("tsm_nocash",        "1");
+
+	// Off by default. Refusing the buy commands did not stop a purchase and only
+	// produced chat spam -- starving the cash does the job properly.
+	g_cv_blockbuy  = register_cvar("tsm_block_buy",     "1");
+
+	// ---- combat engineer ----
+	g_cv_engrange  = register_cvar("tsm_eng_range",     "96");
+	g_cv_engclips  = register_cvar("tsm_eng_clips",     "3");
+	g_cv_engents   = register_cvar("tsm_eng_entities",  "");
+
+	// What a Breacher can force open. Doors by default; add a map's own locked
+	// entities, or the MASTER that locks them, here.
+	g_cv_breachents  = register_cvar("tsm_breach_entities",
+		"func_door,func_door_rotating,func_wall_toggle,func_button");
+	g_cv_breachrange = register_cvar("tsm_breach_range", "96");
+	g_cv_armorder    = register_cvar("tsm_arm_order", "1");
+	g_cv_blindff     = register_cvar("tsm_bot_blind_ff", "1");
+
+	/*
+	 * ON. The crash at round go-live was the friendly-fire cone, which has since
+	 *
+	 * been removed outright. This was switched off alongside it only because both
+	 * ran in the same place and either could have been responsible.
+	 */
+	g_cv_bodyrestore = register_cvar("tsm_body_restore", "1");
+
+	// Seconds between re-checking whether TS moved a player's model. 0 = never,
+	// which is the default: the re-check IS the model-flipping-every-few-seconds
+	// problem, because TS moves it and we move it back.
+	g_cv_modelverify = register_cvar("tsm_model_verify", "0");
+
+	// Which class a blank model field borrows from, per side. 1 is Assault.
+	g_cv_modelfallback = register_cvar("tsm_model_fallback_class", "1");
+
+	// Keep the map's own spawn points out of the custom set.
+	g_cv_prune     = register_cvar("tsm_spawn_prune", "1");
+	g_cv_prunedist = register_cvar("tsm_spawn_prune_dist", "64");
+
+	// Seconds between forcing a bot to reload. 0 turns it off.
+	//
+	// Not aggressive on purpose: a short interval interrupts them mid-burst, since
+	// a reload they did not ask for cancels the shot they were taking.
+	g_cv_botreload   = register_cvar("tsm_bot_reload", "5.0");
+
+	// Look at a teammate and their class and health are shown. 0 turns it off.
+	g_cv_hoverinfo   = register_cvar("tsm_hover_info", "1");
+	g_cv_hoverrange  = register_cvar("tsm_hover_range", "640");
+
+	g_cv_medheal  = register_cvar("tsm_medic_heal",     "50");
+	g_cv_medcool  = register_cvar("tsm_medic_cooldown", "15.0");
+	g_cv_medrange = register_cvar("tsm_medic_range",    "96");
+	g_cv_medglow  = register_cvar("tsm_medic_glow",     "1.5");
+	g_cv_medshell = register_cvar("tsm_medic_shell",    "16");
+
+	/*
+	 * Long enough for the death animation to be seen.
+	 *
+	 * This is the window in which an eliminated player is NOT hidden. At 0 the NODRAW
+	 * lands on the frame of death and eats the animation entirely -- you kill someone
+	 * and they blink out mid-fall.
+	 *
+	 * tsm_body_restore actively clears NODRAW every frame of this window, so nothing
+	 * else can hide them during it either. When the window ends they are hidden and
+	 * become a spectator.
+	 */
+	g_cv_deathlinger = register_cvar("tsm_death_linger", "3.0");
+
+	g_cv_squadmax   = register_cvar("tsm_squad_max",   "4");
+	g_cv_squaddist  = register_cvar("tsm_squad_dist",  "160");
+	g_cv_squadwarp  = register_cvar("tsm_squad_warp",  "1200");
+	g_cv_squadspeed = register_cvar("tsm_squad_speed", "240");
+
+	// rcbot's own squad system does the following properly -- see cmd_squad_follow.
+	g_cv_squadform   = register_cvar("tsm_squad_formation", "wedge");
+	g_cv_squadspread = register_cvar("tsm_squad_spread",    "100");
+	g_cv_squadsteer  = register_cvar("tsm_squad_steer",     "0");
+
+	g_cv_endelay    = register_cvar("tsm_roundend_delay", "4.0");
+	g_cv_botresup   = register_cvar("tsm_bot_resupply", "20.0");
+
+	g_cv_botnames  = register_cvar("tsm_bot_names",  "1");
+	g_cv_botname1  = register_cvar("tsm_bot_name1",  "Enforcer");
+	g_cv_botname2  = register_cvar("tsm_bot_name2",  "Insurgent");
+
+	// Class definitions. See ts_matchmode.cfg for the format.
+	// Name ; team1 weapons ; team2 weapons ; model ; hp ; armour ; perk
+	// Weapon ids are TS's own: 5 M4A1, 13 AK47, 22 Glock 20, 25 Combat Knife,
+	// 23 HK UMP, 18 Barrett M82, 32 M60.
+	register_cvar("tsm_class1", "Assault;5:3,22:2;13:3,22:2;repuheavy|XCCPSoldier-wartorn,XCCPmutant;100;0;0");
+	register_cvar("tsm_class2", "Combat Engineer;23:3,22:2;23:3,22:2;scda_Spy02|XCCPsgts;100;0;1");
+	register_cvar("tsm_class3", "Marksman;18:2,22:2;18:2,22:2;;85;0;0");
+	register_cvar("tsm_class4", "Heavy;32:2,22:2;32:2,22:2;repuheavyw|XCCPsgg;125;50;0;0.75");
+
+	// 4 = Benelli M3. Perk 2 forces locked doors, which no other class can open.
+	register_cvar("tsm_class5", "Breacher;4:4,22:2;4:4,22:2;;110;0;2");
+
+	// Sidearm only -- no primary. 22 = Glock 20. Perk 3 heals a teammate on +USE.
+	register_cvar("tsm_class6", "Medic;22:4;22:4;repuheavym|XCCPRurik;100;0;3");
+
+	// 1 = Glock 18, 34 = Katana (melee, so no spare clips). Perk 4 commands bots.
+	register_cvar("tsm_class7", "Officer;1:4,34:0;1:4,34:0;reputengu|;100;0;4");
+
+	register_event("DeathMsg", "ev_death", "a");
+
+	// Damage taken, from any source. Used to undo friendly fire.
+	register_event("Damage", "ev_damage", "b", "2!0");
+
+	/*
+	 * The real friendly-fire block. See the hamsandwich include at the top.
+	 *
+	 * The Damage event above is left registered because it still carries the hit
+	 * information used for kill reports, but it is no longer what stops the damage.
+	 */
+	RegisterHam(Ham_TakeDamage, "player", "fw_takedamage");
+
+	// Pre-hook, so the respawn can be refused before it happens.
+	RegisterHam(Ham_Spawn, "player", "fw_player_spawn", 0);
+
+	/*
+	 * Definitive gamerules test.
+	 *
+	 * CHalfLifeTeamplay sends TeamInfo from InitHUD and from ChangePlayerTeam.
+	 * CHalfLifeMultiplay -- where every team function is an inherited stub and
+	 * jointeam is a no-op -- never sends it at all. So a zero count here means the
+	 * server is NOT running teamplay, whatever mp_teamplay reads.
+	 */
+	new msg_teaminfo = get_user_msgid("TeamInfo");
+	if (msg_teaminfo)
+	{
+		register_message(msg_teaminfo, "msg_teaminfo");
+	}
+
+	register_forward(FM_CmdStart,       "fw_cmdstart");
+	register_forward(FM_PlayerPreThink, "fw_prethink");
+
+	// Registered POST (the trailing 1), so it runs AFTER the game DLL's own
+	// PlayerPreThink. The pre hook sets maxspeed and TS then overwrites it to 0
+	// before movement runs, so the pre hook could never win that exchange.
+	register_forward(FM_PlayerPreThink, "fw_prethink_post", 1);
+
+	// A second restore site, after player movement has run. If TS writes maxspeed
+	// during the move itself rather than in PreThink, the post-PreThink hook is still
+	// too early and only this one lands.
+	register_forward(FM_PlayerPostThink, "fw_postthink_post", 1);
+
+	register_forward(FM_GetGameDescription, "fw_gamedesc");
+	register_forward(FM_ClientUserInfoChanged, "fw_userinfo");
+
+	/*
+	 * POST, so the engine has already filled the trace in and there is a result to
+	 * rewrite. See fw_traceline -- this is what stops bots targeting their own side.
+	 */
+	register_forward(FM_TraceLine, "fw_traceline", 1);
+
+	// Powerups, blocked where a BOT can actually be caught. See fw_touch.
+	register_forward(FM_Touch, "fw_touch");
+
+	register_clcmd("say",      "hook_say");
+	register_clcmd("say_team", "hook_say");
+
+	register_concmd("amx_match_start",   "cmd_start",   ADMIN_CFG, " - force the match live");
+	register_concmd("amx_match_cancel",  "cmd_cancel",  ADMIN_CFG, " - abort and return to warmup");
+	register_concmd("amx_match_restart", "cmd_restart", ADMIN_CFG, " - restart the match from round 1");
+	register_concmd("amx_match_score",   "cmd_score",   ADMIN_CFG, " - print the score");
+	register_concmd("amx_tsm_fix",       "cmd_fix",     ADMIN_CFG, " <target> - force-restore a stuck player");
+	register_concmd("amx_tsm_debug",     "cmd_debug",   ADMIN_CFG, " - why is nothing happening: teams, spawns, ready state");
+	register_concmd("amx_tsm_unfreeze",  "cmd_unfreeze",ADMIN_CFG, " - force-release everyone (diagnostic)");
+
+	// Spawn editing. Stand where you want a spawn and add it; save writes the
+	// per-map cfg that is re-read automatically on every map load.
+	register_concmd("amx_tsm_spawn_add",   "cmd_spawn_add",   ADMIN_CFG, " <1|2> - add a spawn for that team where you stand");
+	register_concmd("amx_tsm_spawn_clear", "cmd_spawn_clear", ADMIN_CFG, " <1|2|0> - clear that team's spawns (0 = both)");
+	register_concmd("amx_tsm_spawn_del",   "cmd_spawn_del",   ADMIN_CFG, " <1|2> <n> - remove one spawn");
+	register_concmd("amx_tsm_spawn_list",  "cmd_spawn_list",  ADMIN_CFG, " - list configured spawns");
+	register_concmd("amx_tsm_spawn_save",  "cmd_spawn_save",  ADMIN_CFG, " - write the per-map spawn cfg");
+	register_concmd("amx_tsm_spawn_tp",    "cmd_spawn_tp",    ADMIN_CFG, " <1|2> <n> - teleport to a spawn to check it");
+
+	// Solo testing without a second player.
+	register_concmd("amx_tsm_simwin",      "cmd_simwin",      ADMIN_CFG, " <1|2> - award the current round to a team");
+	register_concmd("amx_tsm_simelim",     "cmd_simelim",     ADMIN_CFG, " [target] - eliminate a player as if they were killed");
+
+	// Called by the per-map spawn cfg. Not for humans.
+	register_srvcmd("tsm_spawn", "srv_spawn");
+
+	/*
+	 * TS has no server-side "buy" command -- the buy menu is client-side VGUI in
+	 * cl_dlls/client.dll reading tsbuylist.tsa. What it SENDS are these, and those do
+	 * reach the server, so blocking them is what actually stops buying. Zeroing cash
+	 * is not enough on its own: the equipment menu is slot-limited and always
+	 * available, and usecash only layers an economy on top of it.
+	 */
+	register_clcmd("tkw",     "cmd_blockbuy");   // take weapon
+	register_clcmd("tka",     "cmd_blockbuy");   // take ammo
+	register_clcmd("tki",     "cmd_blockbuy");   // take item
+	register_clcmd("rst_cfg", "cmd_blockbuy");   // reset saved equipment config
+	register_clcmd("cashala", "cmd_blockbuy");   // undocumented, console-only
+
+	// TS powerups: the command that activates one, and the cheat that grants one.
+	register_clcmd("usepowerup", "cmd_blockpowerup");
+	register_clcmd("powerup",    "cmd_blockpowerup");
+
+	register_clcmd("say .class", "cmd_class");
+	register_clcmd("say .team",  "cmd_team");
+	register_clcmd("say .menu",  "cmd_legend");
+	register_clcmd("say .roam",  "cmd_roam_say");
+
+	// Pass-through watchers. These return PLUGIN_CONTINUE so TS still handles the
+	// command -- they exist only to prove whether it reaches the server at all.
+	register_clcmd("jointeam",   "cmd_watch_join");
+	register_clcmd("changeteam", "cmd_block_changeteam");
+
+	register_concmd("amx_tsm_shuffle", "cmd_shuffle", ADMIN_CFG, " - attempt to even the teams out");
+	register_concmd("amx_tsm_teaminfo", "cmd_teaminfo", ADMIN_CFG, " - dump the mod-side team state");
+	register_concmd("amx_tsm_menu",     "cmd_menu",     ADMIN_CFG, " <side|class> - force a menu up for testing");
+	register_concmd("amx_tsm_whystuck", "cmd_whystuck", ADMIN_CFG, " [target] - dump everything that can stop a player moving");
+	register_concmd("amx_tsm_unstick",  "cmd_unstick",  ADMIN_CFG, " [target] - clear every hold and lift them clear of the floor");
+
+	get_mapname(g_mapname, charsmax(g_mapname));
+	copy(g_dbgfile, charsmax(g_dbgfile), "tsm_debug.log");
+
+	log_amx("[TSM] %s build %s loaded.", PLUGIN, TSM_BUILD);
+	set_task(1.0, "task_tick", 0, "", 0, "b");
+
+	// Squad steering runs far faster than the main tick: rcbot re-decides where its
+	// bots are going every frame, so a once-a-second nudge would be overwritten long
+	// before it moved anyone. Cheap while nobody has given an order -- the loop exits
+	// on the first check for every bot without a leader.
+	set_task(0.1, "task_squad", 11, "", 0, "b");
+
+	// Teammate class/health readout. See task_hover_info.
+	set_task(0.25, "task_hover_info", 12, "", 0, "b");
+}
+
+public plugin_cfg()
+{
+	// Load our own config rather than relying on someone remembering to exec it.
+	// AMXX only auto-execs amxx.cfg, so a plugin-specific cfg is inert unless the
+	// plugin asks for it. server_exec() forces the queued commands through now, so
+	// the cvars are actually in effect before anything below reads them.
+	new cfgdir[64], cfgfile[160];
+	get_configsdir(cfgdir, charsmax(cfgdir));
+	formatex(cfgfile, charsmax(cfgfile), "%s/ts_matchmode.cfg", cfgdir);
+
+	if (file_exists(cfgfile))
+	{
+		server_cmd("exec %s", cfgfile);
+		server_exec();
+		log_amx("[TSM] Executed %s", cfgfile);
+	}
+	else
+	{
+		log_amx("[TSM] No config at %s -- using defaults. Teams will NOT work until tsm_team1_name and tsm_team2_name are set.", cfgfile);
+	}
+
+	get_mapname(g_mapname, charsmax(g_mapname));
+	refresh_gamedesc();
+	kill_ts_cash_cvars();
+	load_classes();
+	build_class_menu();
+	build_team_menu();
+
+	// Once now, and again shortly after, because the map's own worldspawn keyvalues
+	// are applied around this point and would otherwise win the race.
+	check_team_names();
+	force_team_list();
+	set_task(3.0, "task_force_teams", 6);
+	collect_spawns();
+
+	// Dispatched by task name: record_map_items() is defined further down the file and
+	// this compiler rejects forward references. The short delay also lets any entity
+	// the map spawns late settle first.
+	set_task(0.5, "task_record_map_items", 7);
+	dbg("plugin_cfg done on %s: build %s", g_mapname, TSM_BUILD);
+}
+
+public plugin_end()
+{
+	// Never leave anyone hidden, frozen or non-solid because the plugin unloaded.
+	restore_all();
+}
+
+/* ---- spawn points -------------------------------------------------------- */
+
+/*
+ * Records every ground weapon and ammo box the MAP placed.
+ *
+ * Taken once, after the map has spawned its entities and before anyone can drop
+ * anything, so the sweep below can tell a mapper's pickup from a player's discard.
+ * Entity indices are safe to compare against: map entities are never removed, so a
+ * dropped weapon can never inherit one of their slots while they still exist.
+ */
+public task_record_map_items()
+{
+	record_map_items();
+}
+
+record_map_items()
+{
+	g_map_item_count = 0;
+
+	new ent;
+	for (new pass = 0; pass < 2; pass++)
+	{
+		ent = -1;
+		for (new guard = 0; guard < 256 && g_map_item_count < sizeof(g_map_items); guard++)
+		{
+			ent = engfunc(EngFunc_FindEntityByString, ent, "classname",
+				pass == 0 ? "ts_groundweapon" : "ts_groundammo");
+			if (ent <= 0)
+			{
+				break;
+			}
+			g_map_items[g_map_item_count] = ent;
+			g_map_item_count++;
+		}
+	}
+
+	log_amx("[TSM] Recorded %d map-placed weapon/ammo pickup(s).", g_map_item_count);
+}
+
+bool:is_map_item(ent)
+{
+	for (new i = 0; i < g_map_item_count; i++)
+	{
+		if (g_map_items[i] == ent)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/// Clears everything players dropped, leaving the map's own pickups in place.
+/// Clears TS powerup pickups out of the arena.
+sweep_powerups()
+{
+	if (!get_pcvar_num(g_cv_nopowerups))
+	{
+		return;
+	}
+
+	new ent = -1, removed = 0;
+	for (new guard = 0; guard < 128; guard++)
+	{
+		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "ts_powerup");
+		if (ent <= 0)
+		{
+			break;
+		}
+		if (!pev_valid(ent))
+		{
+			continue;
+		}
+
+		// Hidden and intangible rather than deleted, so the map's own respawn logic has
+		// nothing to trip over and the entity can come back if this is switched off.
+		set_pev(ent, pev_effects, pev(ent, pev_effects) | TSM_EF_NODRAW);
+		set_pev(ent, pev_solid, TSM_SOLID_NOT);
+		removed++;
+	}
+
+	if (removed)
+	{
+		dbgv("round start: hid %d powerup pickup(s)", removed);
+	}
+}
+
+sweep_dropped_items()
+{
+	if (!get_pcvar_num(g_cv_sweepdrops))
+	{
+		return;
+	}
+
+	/*
+	 * Not while bots are playing.
+	 *
+	 * rcbot arms its bots by spawning a ts_groundweapon for them to walk into
+	 * (UTIL_makeTSweapon). That is indistinguishable from a weapon a player dropped --
+	 * both are ts_groundweapon entities that were not present when the map loaded --
+	 * so this sweep was deleting bots' guns before they could pick them up, which is
+	 * why they ran at people punching.
+	 *
+	 * The warmup-drop exploit this guards against is the lesser problem of the two, and
+	 * it only exists on servers with humans to exploit it.
+	 */
+	if (get_pcvar_num(g_cv_bots))
+	{
+		dbgv("drop sweep skipped: bots are enabled and rcbot arms them with ground weapons");
+		return;
+	}
+
+	new ent, removed = 0;
+	for (new pass = 0; pass < 2; pass++)
+	{
+		ent = -1;
+		for (new guard = 0; guard < 256; guard++)
+		{
+			ent = engfunc(EngFunc_FindEntityByString, ent, "classname",
+				pass == 0 ? "ts_groundweapon" : "ts_groundammo");
+			if (ent <= 0)
+			{
+				break;
+			}
+			if (!pev_valid(ent) || is_map_item(ent))
+			{
+				continue;
+			}
+
+			set_pev(ent, pev_flags, pev(ent, pev_flags) | TSM_FL_KILLME);
+			removed++;
+		}
+	}
+
+	if (removed)
+	{
+		dbg("round start: swept %d dropped weapon/ammo pickup(s)", removed);
+	}
+}
+
+collect_spawns()
+{
+	new mode[16];
+	get_pcvar_string(g_cv_spawnmode, mode, charsmax(mode));
+
+	// The per-map cfg wins whenever it has anything to say. Scanning map entities is
+	// a fallback for maps nobody has placed spawns on yet: TS maps are deathmatch
+	// maps, so their spawn pool was never authored with two teams in mind and the
+	// geometric split below is a guess by nature.
+	if (!equali(mode, "entity"))
+	{
+		if (load_spawn_cfg() > 0)
+		{
+			g_spawn_count = 0;
+			log_amx("[TSM] Using configured spawns for %s (team1=%d team2=%d).",
+				g_mapname, g_spawn_t1_count, g_spawn_t2_count);
+			return;
+		}
+
+		if (equali(mode, "config"))
+		{
+			log_amx("[TSM] tsm_spawn_mode is 'config' and %s has no spawn cfg. Place spawns with amx_tsm_spawn_add then amx_tsm_spawn_save.", g_mapname);
+			return;
+		}
+	}
+
+	g_spawn_count = 0;
+	new ent = -1;
+	new Float:org[3];
+
+	// Standard HL1 deathmatch spawns. Collected once so round reset can place
+	// players without having to kill them and wait for the mod to respawn them.
+	while (g_spawn_count < sizeof(g_spawns))
+	{
+		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "info_player_deathmatch");
+		if (ent <= 0)
+		{
+			break;
+		}
+		pev(ent, pev_origin, org);
+		g_spawns[g_spawn_count][0] = org[0];
+		g_spawns[g_spawn_count][1] = org[1];
+		g_spawns[g_spawn_count][2] = org[2];
+		g_spawn_count++;
+	}
+
+	new dm_count = g_spawn_count;
+
+	// info_player_start as well, ALWAYS rather than only as a fallback. The first
+	// run found exactly one deathmatch spawn, which is far too few to separate two
+	// teams -- so every candidate classname gets gathered and counted.
+	ent = -1;
+	while (g_spawn_count < sizeof(g_spawns))
+	{
+		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "info_player_start");
+		if (ent <= 0)
+		{
+			break;
+		}
+		pev(ent, pev_origin, org);
+		g_spawns[g_spawn_count][0] = org[0];
+		g_spawns[g_spawn_count][1] = org[1];
+		g_spawns[g_spawn_count][2] = org[2];
+		g_spawn_count++;
+	}
+	new start_count = g_spawn_count - dm_count;
+
+	log_amx("[TSM] Spawns: info_player_deathmatch=%d info_player_start=%d total=%d",
+		dm_count, start_count, g_spawn_count);
+	if (g_spawn_count < 2)
+	{
+		log_amx("[TSM] WARNING: fewer than 2 spawn points. Both teams will share them, so they will spawn on top of each other. This map may use a spawn entity this plugin does not know about.");
+	}
+	partition_spawns();
+}
+
+/*
+ * Splits the spawn points into two team clusters.
+ *
+ * TS is deathmatch, so its maps have one undifferentiated pool of spawns. Dropping
+ * both teams into that pool means they can spawn on top of each other, which breaks
+ * a round before it starts.
+ *
+ * So: find the two spawns furthest apart and treat them as the two "ends" of the
+ * map, then assign every spawn to whichever end it is closer to. Entirely
+ * map-agnostic and needs no per-map configuration, which matters for a mod whose
+ * maps were never authored with teams in mind.
+ */
+partition_spawns()
+{
+	g_spawn_t1_count = 0;
+	g_spawn_t2_count = 0;
+
+	if (g_spawn_count < 2)
+	{
+		// Nothing to split. Both teams share what little there is.
+		for (new i = 0; i < g_spawn_count; i++)
+		{
+			copy_vec(g_spawn_t1[g_spawn_t1_count], g_spawns[i]);
+			g_spawn_t1_count++;
+			copy_vec(g_spawn_t2[g_spawn_t2_count], g_spawns[i]);
+			g_spawn_t2_count++;
+		}
+		log_amx("[TSM] Only %d spawn(s) -- teams share them.", g_spawn_count);
+		return;
+	}
+
+	// The most distant pair becomes the two anchors.
+	new best_a = 0, best_b = 1;
+	new Float:best_d = 0.0;
+	for (new i = 0; i < g_spawn_count; i++)
+	{
+		for (new j = i + 1; j < g_spawn_count; j++)
+		{
+			new Float:d = get_distance_f(g_spawns[i], g_spawns[j]);
+			if (d > best_d)
+			{
+				best_d = d;
+				best_a = i;
+				best_b = j;
+			}
+		}
+	}
+
+	for (new k = 0; k < g_spawn_count; k++)
+	{
+		new Float:da = get_distance_f(g_spawns[k], g_spawns[best_a]);
+		new Float:db = get_distance_f(g_spawns[k], g_spawns[best_b]);
+		if (da <= db)
+		{
+			if (g_spawn_t1_count < sizeof(g_spawn_t1))
+			{
+				copy_vec(g_spawn_t1[g_spawn_t1_count], g_spawns[k]);
+				g_spawn_t1_count++;
+			}
+		}
+		else
+		{
+			if (g_spawn_t2_count < sizeof(g_spawn_t2))
+			{
+				copy_vec(g_spawn_t2[g_spawn_t2_count], g_spawns[k]);
+				g_spawn_t2_count++;
+			}
+		}
+	}
+
+	log_amx("[TSM] Spawn clusters: team1=%d team2=%d (anchors %.0f units apart).",
+		g_spawn_t1_count, g_spawn_t2_count, best_d);
+}
+
+copy_vec(Float:dest[3], const Float:src[3])
+{
+	dest[0] = src[0];
+	dest[1] = src[1];
+	dest[2] = src[2];
+}
+
+/*
+ * Whether warmup should hold players.
+ *
+ * Hard safety rule: if the team names are not configured, tsm_live_team_of() returns
+ * 0 for everybody, nobody can ever satisfy ready-up, and holding players would brick
+ * the server with no way out. So the hold is REFUSED until teams are usable, and the
+ * reason is said out loud rather than left as a mystery.
+ */
+/* ---- team assignment ----------------------------------------------------- */
+
+/*
+ * Attempts to move a player onto a team.
+ *
+ * No TS native does this -- tsfun, tsx and tsconst contain no team setter at all --
+ * so this tries the two generic mechanisms and records which one stuck. Treat a
+ * success here as discovered rather than assumed: tsm_debug.log has the answer.
+ */
+bool:try_set_team(id, team)
+{
+	if (!is_user_connected(id) || team < 1 || team > 2)
+	{
+		return false;
+	}
+
+	new name[32];
+	team_rawname(team, name, charsmax(name));
+
+	new before = tsm_live_team_of(id);
+
+	// 1. the team userinfo key
+	if (name[0])
+	{
+		new buf = engfunc(EngFunc_GetInfoKeyBuffer, id);
+		engfunc(EngFunc_SetClientKeyValue, id, buf, "team", name);
+	}
+
+	// 2. the entvar
+	set_pev(id, pev_team, team);
+
+	new after = tsm_live_team_of(id);
+	dbg("try_set_team %N -> %d: live team was %d, now %d", id, team, before, after);
+
+	return (after == team);
+}
+
+/*
+ * The mod moves a player to spectator in some situations -- staying dead was the one
+ * that bit us. Our own g_match_team stays authoritative regardless, so round logic
+ * never breaks, but the player's scoreboard and team chat do, so put them back.
+ */
+reassert_team(id)
+{
+	if (!get_pcvar_num(g_cv_nospec))
+	{
+		return;
+	}
+	if (!is_user_connected(id) || g_match_team[id] < 1)
+	{
+		return;
+	}
+
+	// Advisory only. g_match_team is authoritative now, so this exists purely to nudge
+	// TS's own display back into agreement and must never write to g_match_team.
+	//
+	// Rate limited hard: each attempt rewrites the team userinfo key, and TS responds
+	// by re-applying the player's model. Doing that once a second is a model reload
+	// once a second.
+	if (get_user_team(id) != g_match_team[id]
+		&& (get_gametime() - g_reassert_at[id]) > 30.0)
+	{
+		g_reassert_at[id] = get_gametime();
+		dbgv("reassert_team: %d live=%d ours=%d -- rewriting team key",
+			id, get_user_team(id), g_match_team[id]);
+		try_set_team(id, g_match_team[id]);
+	}
+}
+
+/* ---- team balance -------------------------------------------------------- */
+
+/*
+ * The team's display name. Server team names arrive lowercase ("msr"), which reads
+ * like a typo in a HUD. upper is for the all-caps HUD; otherwise just the first
+ * letter is capitalised, for chat.
+ */
+team_label(team, out[], len, bool:upper)
+{
+	if (team == 1)
+	{
+		get_pcvar_string(g_cv_team1name, out, len);
+	}
+	else
+	{
+		get_pcvar_string(g_cv_team2name, out, len);
+	}
+
+	if (!out[0])
+	{
+		formatex(out, len, "Team %d", team);
+	}
+
+	if (upper)
+	{
+		strtoupper(out);
+	}
+	else if (out[0] >= 'a' && out[0] <= 'z')
+	{
+		out[0] -= 32;
+	}
+}
+
+count_on_team(team)
+{
+	new n = 0;
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		if (tsm_live_team_of(players[i]) == team)
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/*
+ * True when the teams are close enough in size to play. "off" always passes, "warn"
+ * passes but complains, "block" and "shuffle" hold the match up.
+ */
+bool:balance_ok()
+{
+	new mode[16];
+	get_pcvar_string(g_cv_balmode, mode, charsmax(mode));
+	if (equali(mode, "off"))
+	{
+		return true;
+	}
+
+	new gap = count_on_team(1) - count_on_team(2);
+	if (gap < 0)
+	{
+		gap = -gap;
+	}
+
+	if (gap <= get_pcvar_num(g_cv_balgap))
+	{
+		return true;
+	}
+
+	return (equali(mode, "warn") != 0);
+}
+
+/*
+ * The team name EXACTLY as configured, for anything that writes it back to the mod.
+ *
+ * team_label() capitalises for display -- "msr" becomes "Msr" -- which is correct on a
+ * HUD and wrong everywhere else. Writing the prettified form into the team userinfo
+ * key put players on a team name that is not in mp_teamlist, which dropped them off
+ * the scoreboard and stopped them joining a team at all.
+ */
+team_rawname(team, out[], len)
+{
+	if (team == 1)
+	{
+		get_pcvar_string(g_cv_team1name, out, len);
+	}
+	else
+	{
+		get_pcvar_string(g_cv_team2name, out, len);
+	}
+}
+
+/// Maps a team NAME back to our 1 or 2, or 0 if it is neither side.
+tsm_team_from_name(const name[])
+{
+	if (!name[0])
+	{
+		return 0;
+	}
+
+	new t1[32], t2[32];
+	team_rawname(1, t1, charsmax(t1));
+	team_rawname(2, t2, charsmax(t2));
+
+	if (t1[0] && equali(name, t1))
+	{
+		return 1;
+	}
+	if (t2[0] && equali(name, t2))
+	{
+		return 2;
+	}
+	return 0;
+}
+
+/*
+ * A short team name for the score line. "INSURRECTIONISTS 0 -- 0 MSR" does not fit a
+ * HUD, so a long name is cut to three letters unless an explicit abbreviation is set.
+ */
+/*
+ * The full name for chat: 'the Middle Sea Republic' rather than 'Msr'.
+ *
+ * team_label() returns the short JOIN name, which is what the mod needs and what a
+ * scoreboard wants, but reads like a typo in a sentence.
+ */
+team_display(team, out[], len)
+{
+	if (team == 1)
+	{
+		get_pcvar_string(g_cv_t1label, out, len);
+	}
+	else
+	{
+		get_pcvar_string(g_cv_t2label, out, len);
+	}
+
+	if (!out[0])
+	{
+		team_label(team, out, len, false);
+	}
+}
+
+team_short(team, out[], len)
+{
+	if (team == 1)
+	{
+		get_pcvar_string(g_cv_t1short, out, len);
+	}
+	else
+	{
+		get_pcvar_string(g_cv_t2short, out, len);
+	}
+
+	if (out[0])
+	{
+		strtoupper(out);
+		return;
+	}
+
+	team_label(team, out, len, true);
+	if (strlen(out) > 4)
+	{
+		out[3] = 0;
+	}
+}
+
+/// True when the mod has this player on the spectator team.
+bool:on_spectator_team(id)
+{
+	new sp[32];
+	get_pcvar_string(g_cv_specteam, sp, charsmax(sp));
+	if (!sp[0])
+	{
+		return false;
+	}
+
+	new tname[32];
+	tname[0] = 0;
+	get_user_team(id, tname, charsmax(tname));
+
+	return (tname[0] != 0 && equali(tname, sp));
+}
+
+/*
+ * Parks a player as a spectator: off both sides, out of the match, held and hidden.
+ *
+ * Shared by joining, by the Spectate menu option and by the end of a match, so those
+ * three cannot drift apart.
+ */
+force_spectator(id)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+
+	if (!on_spectator_team(id))
+	{
+		if (live_spectator_index() <= 0)
+		{
+			// Sending an unresolvable jointeam would auto-assign them to a PLAYING side,
+			// the exact opposite of spectating, so it is not sent at all.
+			log_amx("[TSM] WARNING: spectator team is not in mp_teamlist. Add it and change map -- mp_teamlist is only read at map load.");
+		}
+	}
+
+	g_spectator[id] = true;
+	set_ts_spectator(id);
+	g_player_class[id] = 0;
+
+	// Cleared so the side menu will offer itself again.
+	g_team_menu_at[id] = 0.0;
+	g_class_menu_at[id] = 0.0;
+}
+
+/// First connected player who is not on a recognised team, or 0 if everyone is.
+id_of_first_teamless()
+{
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		if (!tsm_live_team_of(players[i]))
+		{
+			return players[i];
+		}
+	}
+	return 0;
+}
+
+/// The team that needs people, or 0 when the teams are even enough.
+balance_short_team()
+{
+	new n1 = count_on_team(1);
+	new n2 = count_on_team(2);
+	new allowed = get_pcvar_num(g_cv_balgap);
+
+	if (n1 - n2 > allowed)
+	{
+		return 2;
+	}
+	if (n2 - n1 > allowed)
+	{
+		return 1;
+	}
+	return 0;
+}
+
+/*
+ * Brings people in to even up the sides, between rounds.
+ *
+ * Run at round start rather than the moment someone leaves: dropping a player into a
+ * round already in progress is worse than playing it short, and the next round starts
+ * seconds later anyway.
+ */
+
+autofill_teams()
+{
+	new mode = get_pcvar_num(g_cv_autofill);
+	if (!mode)
+	{
+		return;
+	}
+
+	new allowed = get_pcvar_num(g_cv_balgap);
+	if (allowed < 1)
+	{
+		allowed = 1;
+	}
+
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+
+	// Two passes: people who were locked out of the match first, because they were
+	// trying to play. Only then anyone who deliberately chose to spectate.
+	for (new pass = 0; pass < 2; pass++)
+	{
+		if (pass == 1 && mode < 2)
+		{
+			break;
+		}
+
+		for (new i = 0; i < pnum; i++)
+		{
+			new id = players[i];
+
+			if (g_match_team[id] == 1 || g_match_team[id] == 2)
+			{
+				continue;   // already playing
+			}
+			if (pass == 0 && !g_locked_out[id])
+			{
+				continue;
+			}
+
+			new n1 = count_on_team(1);
+			new n2 = count_on_team(2);
+			new gap = n1 - n2;
+			if (gap < 0)
+			{
+				gap = -gap;
+			}
+
+			// Both sides are fine, or neither has anyone -- nothing to fill.
+			if (gap <= allowed && n1 > 0 && n2 > 0)
+			{
+				return;
+			}
+
+			new short_team = (n1 <= n2) ? 1 : 2;
+
+			g_locked_out[id] = false;
+			g_spectator[id] = false;
+			g_player_class[id] = 0;
+			set_ts_team(id, short_team);
+
+			new shown[48];
+			team_display(short_team, shown, charsmax(shown));
+			client_print(id, print_chat, "[MATCH] A side was short -- you are in, on %s.", shown);
+
+			new nm[32];
+			get_user_name(id, nm, charsmax(nm));
+			all_print("[MATCH] %s joins %s to even the sides.", nm, shown);
+			dbg("autofill: %d -> team %d (was %d v %d)", id, short_team, n1, n2);
+		}
+	}
+}
+
+public cmd_shuffle(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new short_team = balance_short_team();
+	if (!short_team)
+	{
+		console_print(id, "[TSM] Teams are already within tsm_balance_gap (%d).", get_pcvar_num(g_cv_balgap));
+		return PLUGIN_HANDLED;
+	}
+
+	new big = 1;
+	if (short_team == 1)
+	{
+		big = 2;
+	}
+
+	new players[32], pnum, moved = 0;
+	get_players(players, pnum, g_pf);
+
+	for (new i = 0; i < pnum; i++)
+	{
+		if (!balance_short_team())
+		{
+			break;
+		}
+		if (tsm_live_team_of(players[i]) != big)
+		{
+			continue;
+		}
+		if (try_set_team(players[i], short_team))
+		{
+			moved++;
+		}
+	}
+
+	if (moved)
+	{
+		console_print(id, "[TSM] Moved %d player(s) to team %d.", moved, short_team);
+		all_print("[MATCH] Teams shuffled for balance.");
+	}
+	else
+	{
+		console_print(id, "[TSM] Could not move anyone. TS exposes no team setter, so this has to be done by hand -- see tsm_debug.log for what was tried.");
+	}
+	return PLUGIN_HANDLED;
+}
+
+/* ---- configured spawn points -------------------------------------------- */
+
+add_cfg_spawn(team, const Float:org[3], const Float:ang[3])
+{
+	if (team == 1 && g_spawn_t1_count < sizeof(g_spawn_t1))
+	{
+		copy_vec(g_spawn_t1[g_spawn_t1_count], org);
+		copy_vec(g_ang_t1[g_spawn_t1_count], ang);
+		g_spawn_t1_count++;
+	}
+	else if (team == 2 && g_spawn_t2_count < sizeof(g_spawn_t2))
+	{
+		copy_vec(g_spawn_t2[g_spawn_t2_count], org);
+		copy_vec(g_ang_t2[g_spawn_t2_count], ang);
+		g_spawn_t2_count++;
+	}
+	else
+	{
+		return 0;
+	}
+
+	g_cfg_spawns++;
+	g_spawns_have_angles = true;
+
+	// The map's own spawn entities are retired the moment this map has one custom
+	// position. Without this, spawns added mid-map left the earlier entity scan in
+	// place and a team with no custom positions kept using the map's.
+	g_spawn_count = 0;
+
+	return 1;
+}
+
+/*
+ * tsm_spawn <team> <x> <y> <z> [pitch] [yaw]
+ *
+ * A server command rather than a set of cvars: a map needs an arbitrary number of
+ * spawns per team, which fixed cvars cannot express. The per-map cfg is just a list
+ * of these, and exec'ing that file is what loads them.
+ */
+public srv_spawn()
+{
+	if (read_argc() < 5)
+	{
+		server_print("[TSM] usage: tsm_spawn <team 1|2> <x> <y> <z> [pitch] [yaw]");
+		return PLUGIN_HANDLED;
+	}
+
+	new a[16];
+	read_argv(1, a, charsmax(a));
+	new team = str_to_num(a);
+
+	new Float:org[3], Float:ang[3];
+	read_argv(2, a, charsmax(a));
+	org[0] = str_to_float(a);
+	read_argv(3, a, charsmax(a));
+	org[1] = str_to_float(a);
+	read_argv(4, a, charsmax(a));
+	org[2] = str_to_float(a);
+
+	if (read_argc() > 5)
+	{
+		read_argv(5, a, charsmax(a));
+		ang[0] = str_to_float(a);
+	}
+	if (read_argc() > 6)
+	{
+		read_argv(6, a, charsmax(a));
+		ang[1] = str_to_float(a);
+	}
+
+	if (team < 1 || team > 2)
+	{
+		server_print("[TSM] tsm_spawn: team must be 1 or 2, got %d", team);
+		return PLUGIN_HANDLED;
+	}
+
+	if (!add_cfg_spawn(team, org, ang))
+	{
+		server_print("[TSM] tsm_spawn: team %d spawn list is full", team);
+	}
+	return PLUGIN_HANDLED;
+}
+
+spawn_cfg_path(path[], len)
+{
+	new cfgdir[64];
+	get_configsdir(cfgdir, charsmax(cfgdir));
+	formatex(path, len, "%s/tsm_spawns_%s.cfg", cfgdir, g_mapname);
+}
+
+load_spawn_cfg()
+{
+	g_cfg_spawns = 0;
+	g_spawn_t1_count = 0;
+	g_spawn_t2_count = 0;
+	g_spawns_have_angles = false;
+
+	new path[160];
+	spawn_cfg_path(path, charsmax(path));
+
+	if (!file_exists(path))
+	{
+		dbg("no spawn cfg at %s", path);
+		return 0;
+	}
+
+	server_cmd("exec %s", path);
+	server_exec();
+	log_amx("[TSM] Loaded %d spawn(s) from %s (team1=%d team2=%d)",
+		g_cfg_spawns, path, g_spawn_t1_count, g_spawn_t2_count);
+
+	prune_map_spawns();
+	return g_cfg_spawns;
+}
+
+/// True when this position sits on top of one of the map's own spawn entities.
+bool:is_map_spawn(const Float:org[3])
+{
+	new Float:limit = get_pcvar_float(g_cv_prunedist);
+	if (limit <= 0.0)
+	{
+		return false;
+	}
+
+	for (new i = 0; i < g_spawn_count; i++)
+	{
+		new Float:d[3];
+		d[0] = org[0] - g_spawns[i][0];
+		d[1] = org[1] - g_spawns[i][1];
+		d[2] = org[2] - g_spawns[i][2];
+
+		if (vector_length(d) <= limit)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/*
+ * Drops any custom spawn that sits on one of the map's own spawn entities.
+ *
+ * Adding a spawn while standing on an info_player_start records the map's position as
+ * though it were a deliberate choice -- and doing it for both sides puts both teams on
+ * the same point, which is how the two teams ended up spawning on top of each other.
+ * The custom set exists to REPLACE the map's spawns, so a copy of one in it is always
+ * a mistake rather than a preference.
+ *
+ * Run after loading the per-map cfg, so an old file with the mistake already baked in
+ * is cleaned up without anyone having to notice.
+ */
+prune_map_spawns()
+{
+	if (!g_spawn_count || !get_pcvar_num(g_cv_prune))
+	{
+		return 0;
+	}
+
+	new dropped = 0;
+
+	for (new team = 1; team <= 2; team++)
+	{
+		new count = (team == 1) ? g_spawn_t1_count : g_spawn_t2_count;
+
+		for (new i = count - 1; i >= 0; i--)
+		{
+			new Float:org[3];
+			if (team == 1)
+			{
+				copy_vec(org, g_spawn_t1[i]);
+			}
+			else
+			{
+				copy_vec(org, g_spawn_t2[i]);
+			}
+
+			if (!is_map_spawn(org))
+			{
+				continue;
+			}
+
+			// Shuffle the rest down over the hole, exactly as amx_tsm_spawn_del does.
+			for (new k = i; k < count - 1; k++)
+			{
+				if (team == 1)
+				{
+					copy_vec(g_spawn_t1[k], g_spawn_t1[k + 1]);
+					copy_vec(g_ang_t1[k], g_ang_t1[k + 1]);
+				}
+				else
+				{
+					copy_vec(g_spawn_t2[k], g_spawn_t2[k + 1]);
+					copy_vec(g_ang_t2[k], g_ang_t2[k + 1]);
+				}
+			}
+
+			count--;
+			dropped++;
+			log_amx("[TSM] Pruned team %d spawn #%d at %.0f %.0f %.0f -- it is one of the map's own spawn points.",
+				team, i + 1, org[0], org[1], org[2]);
+		}
+
+		if (team == 1)
+		{
+			g_spawn_t1_count = count;
+		}
+		else
+		{
+			g_spawn_t2_count = count;
+		}
+	}
+
+	if (dropped)
+	{
+		g_cfg_spawns = g_spawn_t1_count + g_spawn_t2_count;
+		log_amx("[TSM] Pruned %d map spawn(s) from the custom set. Run amx_tsm_spawn_save to keep it that way.",
+			dropped);
+	}
+	return dropped;
+}
+
+public cmd_spawn_add(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 2))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (!is_user_connected(id))
+	{
+		console_print(id, "[TSM] Run this in-game -- it records where you are standing.");
+		return PLUGIN_HANDLED;
+	}
+
+	new a[8];
+	read_argv(1, a, charsmax(a));
+	new team = str_to_num(a);
+	if (team < 1 || team > 2)
+	{
+		console_print(id, "[TSM] usage: amx_tsm_spawn_add <1|2>");
+		return PLUGIN_HANDLED;
+	}
+
+	new Float:org[3], Float:ang[3];
+	pev(id, pev_origin, org);
+	pev(id, pev_v_angle, ang);
+
+	/*
+	 * Refused on the map's own spawn points.
+	 *
+	 * Standing on an info_player_start and adding it records the map's position as a
+	 * deliberate choice, and doing it for both sides puts both teams on one point. The
+	 * custom set exists to replace the map's spawns, so this is always a mistake --
+	 * and catching it here is better than pruning it later, because the admin finds
+	 * out while they are still standing there.
+	 */
+	if (is_map_spawn(org))
+	{
+		console_print(id, "[TSM] Refused: you are standing on one of the map's own spawn points.");
+		console_print(id, "[TSM] Move away and try again. tsm_spawn_prune 0 overrides this.");
+		return PLUGIN_HANDLED;
+	}
+
+	if (!add_cfg_spawn(team, org, ang))
+	{
+		console_print(id, "[TSM] Team %d spawn list is full.", team);
+		return PLUGIN_HANDLED;
+	}
+
+	new n = g_spawn_t2_count;
+	if (team == 1)
+	{
+		n = g_spawn_t1_count;
+	}
+	console_print(id, "[TSM] Team %d spawn #%d added at %.0f %.0f %.0f. Run amx_tsm_spawn_save to keep it.",
+		team, n, org[0], org[1], org[2]);
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * Removes ONE spawn point, so a bad entry can be dropped without clearing the set.
+ *
+ * The common mistake is adding a spawn while standing on the map's own
+ * info_player_start -- it then sits in the custom list looking like a deliberate
+ * choice, and both teams end up sharing it.
+ */
+public cmd_spawn_del(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 2))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new a[8];
+	read_argv(1, a, charsmax(a));
+	new team = str_to_num(a);
+	read_argv(2, a, charsmax(a));
+	new n = str_to_num(a);
+
+	new count = (team == 1) ? g_spawn_t1_count : g_spawn_t2_count;
+	if (team < 1 || team > 2 || n < 1 || n > count)
+	{
+		console_print(id, "[TSM] usage: amx_tsm_spawn_del <1|2> <1..%d>", count);
+		return PLUGIN_HANDLED;
+	}
+
+	// Shuffle the rest down over the hole.
+	for (new i = n - 1; i < count - 1; i++)
+	{
+		if (team == 1)
+		{
+			copy_vec(g_spawn_t1[i], g_spawn_t1[i + 1]);
+			copy_vec(g_ang_t1[i], g_ang_t1[i + 1]);
+		}
+		else
+		{
+			copy_vec(g_spawn_t2[i], g_spawn_t2[i + 1]);
+			copy_vec(g_ang_t2[i], g_ang_t2[i + 1]);
+		}
+	}
+
+	if (team == 1)
+	{
+		g_spawn_t1_count--;
+	}
+	else
+	{
+		g_spawn_t2_count--;
+	}
+	g_cfg_spawns = g_spawn_t1_count + g_spawn_t2_count;
+
+	console_print(id, "[TSM] Removed team %d spawn #%d. team1=%d team2=%d. Run amx_tsm_spawn_save to keep it.",
+		team, n, g_spawn_t1_count, g_spawn_t2_count);
+	return PLUGIN_HANDLED;
+}
+
+public cmd_spawn_clear(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new a[8];
+	read_argv(1, a, charsmax(a));
+	new team = str_to_num(a);
+
+	if (team != 2)
+	{
+		g_spawn_t1_count = 0;
+	}
+	if (team != 1)
+	{
+		g_spawn_t2_count = 0;
+	}
+
+	g_cfg_spawns = g_spawn_t1_count + g_spawn_t2_count;
+	console_print(id, "[TSM] Cleared. team1=%d team2=%d. Run amx_tsm_spawn_save to persist.",
+		g_spawn_t1_count, g_spawn_t2_count);
+	return PLUGIN_HANDLED;
+}
+
+public cmd_spawn_list(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new angnote[8] = "no";
+	if (g_spawns_have_angles)
+	{
+		copy(angnote, charsmax(angnote), "yes");
+	}
+
+	console_print(id, "[TSM] Map %s -- %d configured spawn(s), facing stored: %s",
+		g_mapname, g_cfg_spawns, angnote);
+
+	for (new i = 0; i < g_spawn_t1_count; i++)
+	{
+		console_print(id, "  T1 #%d  %.0f %.0f %.0f  yaw %.0f",
+			i + 1, g_spawn_t1[i][0], g_spawn_t1[i][1], g_spawn_t1[i][2], g_ang_t1[i][1]);
+	}
+	for (new i = 0; i < g_spawn_t2_count; i++)
+	{
+		console_print(id, "  T2 #%d  %.0f %.0f %.0f  yaw %.0f",
+			i + 1, g_spawn_t2[i][0], g_spawn_t2[i][1], g_spawn_t2[i][2], g_ang_t2[i][1]);
+	}
+	return PLUGIN_HANDLED;
+}
+
+public cmd_spawn_save(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new path[160];
+	spawn_cfg_path(path, charsmax(path));
+
+	if (file_exists(path))
+	{
+		delete_file(path);
+	}
+
+	new line[160];
+	formatex(line, charsmax(line), "// ts_matchmode spawn points for %s -- written by amx_tsm_spawn_save", g_mapname);
+	write_file(path, line);
+	write_file(path, "// tsm_spawn <team> <x> <y> <z> <pitch> <yaw>");
+
+	/*
+	 * The map's own spawn points are NOT written out.
+	 *
+	 * On a map with no custom set, partition_spawns() fills both team lists from the
+	 * map's info_player_start / info_player_deathmatch entities so that teams at least
+	 * start apart. Those are a runtime fallback, not a choice anybody made -- and
+	 * saving afterwards wrote the whole list, so every map spawn ended up in the cfg
+	 * alongside the handful that were actually placed by hand.
+	 *
+	 * Skipping them here means amx_tsm_spawn_save writes exactly what was added with
+	 * amx_tsm_spawn_add, which is what the file is for.
+	 */
+	new written = 0, skipped = 0;
+
+	for (new i = 0; i < g_spawn_t1_count; i++)
+	{
+		if (is_map_spawn(g_spawn_t1[i]))
+		{
+			skipped++;
+			continue;
+		}
+		formatex(line, charsmax(line), "tsm_spawn 1 %.2f %.2f %.2f %.2f %.2f",
+			g_spawn_t1[i][0], g_spawn_t1[i][1], g_spawn_t1[i][2], g_ang_t1[i][0], g_ang_t1[i][1]);
+		write_file(path, line);
+		written++;
+	}
+	for (new i = 0; i < g_spawn_t2_count; i++)
+	{
+		if (is_map_spawn(g_spawn_t2[i]))
+		{
+			skipped++;
+			continue;
+		}
+		formatex(line, charsmax(line), "tsm_spawn 2 %.2f %.2f %.2f %.2f %.2f",
+			g_spawn_t2[i][0], g_spawn_t2[i][1], g_spawn_t2[i][2], g_ang_t2[i][0], g_ang_t2[i][1]);
+		write_file(path, line);
+		written++;
+	}
+
+	console_print(id, "[TSM] Saved %d spawn(s) to %s", written, path);
+	if (skipped)
+	{
+		console_print(id, "[TSM] Left out %d of the map's own spawn points -- those are a fallback, not yours.",
+			skipped);
+	}
+	if (!written)
+	{
+		console_print(id, "[TSM] NOTHING was saved: every position was a map spawn. Add some with amx_tsm_spawn_add first.");
+	}
+
+	log_amx("[TSM] Spawn cfg written: %s (%d saved, %d map spawns skipped)", path, written, skipped);
+	return PLUGIN_HANDLED;
+}
+
+public cmd_spawn_tp(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 2))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (!is_user_alive(id))
+	{
+		console_print(id, "[TSM] You need to be alive to teleport.");
+		return PLUGIN_HANDLED;
+	}
+
+	new a[8];
+	read_argv(1, a, charsmax(a));
+	new team = str_to_num(a);
+	read_argv(2, a, charsmax(a));
+	new n = str_to_num(a);
+
+	new count = g_spawn_t2_count;
+	if (team == 1)
+	{
+		count = g_spawn_t1_count;
+	}
+
+	if (team < 1 || team > 2 || n < 1 || n > count)
+	{
+		console_print(id, "[TSM] usage: amx_tsm_spawn_tp <1|2> <1..%d>", count);
+		return PLUGIN_HANDLED;
+	}
+
+	new Float:org[3];
+	if (team == 1)
+	{
+		copy_vec(org, g_spawn_t1[n - 1]);
+	}
+	else
+	{
+		copy_vec(org, g_spawn_t2[n - 1]);
+	}
+
+	engfunc(EngFunc_SetOrigin, id, org);
+	console_print(id, "[TSM] Teleported to team %d spawn #%d.", team, n);
+	return PLUGIN_HANDLED;
+}
+
+/* ---- solo testing ------------------------------------------------------- */
+
+/*
+ * Everything that can stop a player moving, in one place.
+ *
+ * Written because "still frozen" has now had three different causes -- a time-scale
+ * native that did not reverse, a corpse that was never alive, and the hold flag --
+ * and guessing between them from a description costs a server restart each time.
+ */
+dump_player_state(viewer, target, const when[])
+{
+	if (!is_user_connected(target))
+	{
+		return;
+	}
+
+	new Float:vel[3], Float:org[3];
+	pev(target, pev_velocity, vel);
+	pev(target, pev_origin, org);
+
+	new flags = pev(target, pev_flags);
+	new line1[192], line2[192];
+
+	// The name is fetched rather than formatted with %N: that specifier is not
+	// supported here, and it printed a literal "N" while consuming no argument, which
+	// shifted every field after it by one and made the first dump read as the exact
+	// opposite of the truth.
+	new who[32];
+	get_user_name(target, who, charsmax(who));
+
+	formatex(line1, charsmax(line1),
+		"[%s] %s: frozen=%d elim=%d placed=%d alive=%d team=%d",
+		when, who, g_frozen[target] ? 1 : 0, g_elim[target] ? 1 : 0,
+		g_placed[target] ? 1 : 0, is_user_alive(target) ? 1 : 0, g_match_team[target]);
+
+	formatex(line2, charsmax(line2),
+		"[%s] %s: FL_FROZEN=%d movetype=%d solid=%d maxspeed=%.0f vel=%.0f org=%.0f %.0f %.0f effects=%d",
+		when, who,
+		(flags & TSM_FL_FROZEN) ? 1 : 0,
+		pev(target, pev_movetype),
+		pev(target, pev_solid),
+		Float:pev(target, pev_maxspeed),
+		vector_length(vel),
+		org[0], org[1], org[2],
+		pev(target, pev_effects));
+
+	dbg("%s", line1);
+	dbg("%s", line2);
+
+	if (viewer)
+	{
+		console_print(viewer, "[TSM] %s", line1);
+		console_print(viewer, "[TSM] %s", line2);
+	}
+}
+
+public cmd_whystuck(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new target = id;
+	if (read_argc() > 1)
+	{
+		new a[32];
+		read_argv(1, a, charsmax(a));
+		target = cmd_target(id, a, CMDTARGET_ALLOW_SELF);
+		if (!target)
+		{
+			return PLUGIN_HANDLED;
+		}
+	}
+
+	console_print(id, "[TSM] state=%d round=%d freeze_method=%d force_maxspeed=%d sv_maxspeed=%.0f",
+		g_state, g_round, get_pcvar_num(g_cv_freezemethod),
+		get_pcvar_num(g_cv_forcespeed), get_cvar_float("sv_maxspeed"));
+	console_print(id, "[TSM] maxspeed restored: %d from post-PreThink, %d from post-PostThink (0 and 0 means TS never zeroed it).",
+		g_speed_fixes, g_speed_fixes_post);
+	dump_player_state(id, target, "whystuck");
+	console_print(id, "[TSM] A live player should read movetype=3 and solid=3.");
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * Last resort. Clears our holds, restores normal movement, and lifts the player
+ * clear of the floor in case they were made solid again inside world geometry --
+ * which looks identical to being frozen and is a real risk on a map whose only
+ * spawn point both teams share.
+ */
+public cmd_unstick(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 2))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new target = id;
+	if (read_argc() > 1)
+	{
+		new a[32];
+		read_argv(1, a, charsmax(a));
+		target = cmd_target(id, a, CMDTARGET_ALLOW_SELF);
+		if (!target)
+		{
+			return PLUGIN_HANDLED;
+		}
+	}
+
+	dump_player_state(id, target, "before unstick");
+
+	g_frozen[target] = false;
+	g_elim[target] = false;
+	release_player(target);
+	set_pev(target, pev_movetype, TSM_MOVETYPE_WALK);
+	set_pev(target, pev_solid, TSM_SOLID_SLIDEBOX);
+	set_user_maxspeed(target, 320.0);
+
+	new Float:org[3];
+	pev(target, pev_origin, org);
+	org[2] = org[2] + 24.0;
+	engfunc(EngFunc_SetOrigin, target, org);
+
+	dump_player_state(id, target, "after unstick");
+	console_print(id, "[TSM] Unstuck %N.", target);
+	return PLUGIN_HANDLED;
+}
+
+/// Dumps everyone shortly after go-live, so a stuck round explains itself.
+public task_live_audit()
+{
+	if (g_state != ST_LIVE)
+	{
+		return;
+	}
+
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		dump_player_state(0, players[i], "1s after live");
+	}
+}
+
+/*
+ * Refuses a purchase. These are the client commands TS's client-side buy menu sends;
+ * there is no server-side "buy" command to block, so this is the only layer that can
+ * stop it. Allowed during warmup so people can still look at the menu.
+ */
+/*
+ * Refuses a powerup activation while tsm_no_powerups is on.
+ *
+ * This is also the command TS sends when E is pressed, which is the same key the
+ * perks use -- so a medic pressing E to heal was being told powerups were off
+ * instead. The perk runs from here as well as from the IN_USE button, because
+ * whichever of the two TS actually delivers, the perk has to work.
+ */
+public cmd_blockpowerup(id)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_nopowerups))
+	{
+		return PLUGIN_CONTINUE;
+	}
+
+	new bool:has_perk = false;
+	if (g_class_count && is_user_alive(id) && g_state == ST_LIVE)
+	{
+		new ci = resolved_class(id) - 1;
+		has_perk = (g_class_perk[ci] != TSM_PERK_NONE);
+	}
+
+	if (has_perk)
+	{
+		// Deduped against the button path, so a key that delivers both does not run
+		// the perk twice and burn the cooldown on the second one.
+		if ((get_gametime() - g_perk_at[id]) > 0.2)
+		{
+			perk_use(id);
+		}
+		return PLUGIN_HANDLED;   // still no powerup, but silently
+	}
+
+	client_print(id, print_chat, "[MATCH] Powerups are off in match mode.");
+	return PLUGIN_HANDLED;
+}
+
+public cmd_blockbuy(id)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_blockbuy))
+	{
+		return PLUGIN_CONTINUE;
+	}
+	/*
+	 * Blocked in EVERY state, warmup included.
+	 *
+	 * Allowing purchases during warmup was the whole exploit: buy a second loadout,
+	 * drop it on the floor, and collect it once the round is live. Blocking only
+	 * during the match closed the door after the guns were already outside.
+	 *
+	 * This blocks the menu writing a loadout. It does NOT stop a loadout already saved
+	 * in the player's config from being re-applied at spawn -- that is what hold_cash()
+	 * is for. The two together are what closes the exploit; neither does it alone.
+	 */
+	if (g_issuing[id])
+	{
+		// Our own loadout write coming back from the client. Logged so a partial
+		// loadout can be told apart from a loadout that never finished arriving.
+		new cmd[32], arg[32];
+		read_argv(0, cmd, charsmax(cmd));
+		read_argv(1, arg, charsmax(arg));
+		dbgv("armament echo from %d: %s %s", id, cmd, arg);
+
+		// Only tkw is counted. The ammo commands are fire-and-forget: a missing
+		// magazine is cosmetic, a missing weapon is not, so the respawn waits only on
+		// the weapons.
+		if (equali(cmd, "tkw") && g_arm_pending[id] > 0)
+		{
+			g_arm_pending[id]--;
+		}
+		return PLUGIN_CONTINUE;
+	}
+
+	// Silent. This fires once per item the menu touches, so a message here is spam.
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * The buy menu also submits a combined numeric form, "13_3", which cannot be
+ * registered as a fixed command name -- so it is caught here instead.
+ */
+public client_command(id)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_blockbuy))
+	{
+		return PLUGIN_CONTINUE;
+	}
+	/*
+	 * Blocked in EVERY state, warmup included.
+	 *
+	 * Allowing purchases during warmup was the whole exploit: buy a second loadout,
+	 * drop it on the floor, and collect it once the round is live. Blocking only
+	 * during the match closed the door after the guns were already outside.
+	 *
+	 * This blocks the menu writing a loadout. It does NOT stop a loadout already saved
+	 * in the player's config from being re-applied at spawn -- that is what hold_cash()
+	 * is for. The two together are what closes the exploit; neither does it alone.
+	 */
+
+	new cmd[32];
+	read_argv(0, cmd, charsmax(cmd));
+
+	// digits, one underscore, digits -- and nothing else.
+	new seen_sep = 0, digits = 0;
+	for (new i = 0; cmd[i]; i++)
+	{
+		if (cmd[i] == '_')
+		{
+			seen_sep++;
+		}
+		else if (cmd[i] >= '0' && cmd[i] <= '9')
+		{
+			digits++;
+		}
+		else
+		{
+			return PLUGIN_CONTINUE;
+		}
+	}
+
+	if (seen_sep == 1 && digits >= 2)
+	{
+		return PLUGIN_HANDLED;
+	}
+	return PLUGIN_CONTINUE;
+}
+
+/*
+ * Logs a team-join attempt without interfering with it.
+ *
+ * Whether this fires is the question that matters: if it does, the command reaches
+ * the server and TS is declining the join, which points at the mod's team table. If
+ * it does not, the command never leaves the client.
+ */
+/*
+ * Refuses "changeteam", which is the ONLY thing that opens TS's team panel.
+ *
+ * That panel is modal and it eats input. TeamFortressViewport::KeyInput returns 0 for
+ * every digit while a team or class panel is open, so the client never runs slot1..9
+ * and never sends "menuselect N" -- which is precisely why an AMXX menu renders but
+ * ignores every keypress. Worse, ESC only closes it once the client-side g_iTeamNumber
+ * is non-zero, so a player whose join did not register can be trapped in it.
+ *
+ * The plugin's own side menu replaces it entirely.
+ */
+public cmd_block_changeteam(id)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_blockvgui))
+	{
+		return PLUGIN_CONTINUE;
+	}
+
+	client_print(id, print_chat, "[MATCH] Use .team to pick a side.");
+	show_team_menu(id);
+	return PLUGIN_HANDLED;
+}
+
+public cmd_watch_join(id)
+{
+	new cmd[32], arg[32];
+	read_argv(0, cmd, charsmax(cmd));
+	read_argv(1, arg, charsmax(arg));
+
+	new before[32];
+	before[0] = 0;
+	new bnum = get_user_team(id, before, charsmax(before));
+
+	new list[64];
+	get_cvar_string("mp_teamlist", list, charsmax(list));
+
+	dbg("JOIN WATCH: %d sent '%s %s' -- team was #%d '%s', mp_teamlist='%s'",
+		id, cmd, arg, bnum, before, list);
+	log_amx("[TSM] JOIN WATCH: player %d sent '%s %s' (team was #%d '%s')",
+		id, cmd, arg, bnum, before);
+
+	set_task(0.5, "task_join_result", id);
+	return PLUGIN_CONTINUE;
+}
+
+public task_join_result(id)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+	new after[32];
+	after[0] = 0;
+	new anum = get_user_team(id, after, charsmax(after));
+	dbg("JOIN WATCH: %d is now team #%d '%s' (resolved=%d)",
+		id, anum, after, tsm_live_team_of(id));
+	log_amx("[TSM] JOIN WATCH: player %d is now team #%d '%s'", id, anum, after);
+}
+
+/*
+ * Forces a menu up on demand, so "the menu did not appear" can be told apart from
+ * "the menu appeared and ate my keys" without waiting on warmup state.
+ */
+public cmd_menu(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new which[16];
+	read_argv(1, which, charsmax(which));
+
+	if (equali(which, "class"))
+	{
+		console_print(id, "[TSM] class menu: built=%d classes=%d yours=%d",
+			g_class_menu ? 1 : 0, g_class_count, g_player_class[id]);
+		g_player_class[id] = 0;
+		show_class_menu(id);
+		return PLUGIN_HANDLED;
+	}
+
+	console_print(id, "[TSM] side menu: built=%d your team=%d spectator=%d",
+		g_team_menu ? 1 : 0, g_match_team[id], g_spectator[id] ? 1 : 0);
+	g_spectator[id] = false;
+	g_team_menu_at[id] = 0.0;
+	show_team_menu(id);
+	return PLUGIN_HANDLED;
+}
+
+public legend_menu_handler(id, menu, item)
+{
+	if (item == MENU_EXIT || item < 0)
+	{
+		close_menu(id);
+		return PLUGIN_HANDLED;
+	}
+
+	close_menu(id);
+
+	switch (item)
+	{
+		case 0:
+		{
+			g_spectator[id] = false;
+			g_team_menu_at[id] = 0.0;
+
+			// Released first, so the balance check does not count them on the side they
+			// are trying to leave.
+			if (g_state == ST_WARMUP || g_state == ST_READYUP)
+			{
+				g_match_team[id] = 0;
+				g_player_class[id] = 0;
+			}
+
+			show_team_menu(id);
+		}
+		case 1:
+		{
+			if (!tsm_live_team_of(id))
+			{
+				client_print(id, print_chat, "[MATCH] Pick a side first.");
+				g_team_menu_at[id] = 0.0;
+				show_team_menu(id);
+			}
+			else
+			{
+				g_class_menu_at[id] = 0.0;
+				show_class_menu(id);
+			}
+		}
+		default:
+		{
+			// Match status. The spectate option was removed deliberately: dropping out
+			// of a match mid-way is not something a player should do to their team.
+			print_status(id);
+		}
+	}
+
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * The one menu that leads to all the others, so a player who dismissed something has a
+ * way back to it without needing to know a command for each.
+ *
+ * Built on first use rather than at startup: it calls print_status(), which is defined
+ * further down the file, and this compiler rejects forward references.
+ */
+public cmd_legend(id)
+{
+	if (!g_legend_menu)
+	{
+		g_legend_menu = menu_create("TS Match -- menus", "legend_menu_handler");
+		menu_additem(g_legend_menu, "Pick a side",        "0", 0);
+		menu_additem(g_legend_menu, "Pick a class",       "1", 0);
+		menu_additem(g_legend_menu, "Match status",       "3", 0);
+	}
+
+	menu_display(id, g_legend_menu, 0);
+	return PLUGIN_HANDLED;
+}
+
+public cmd_teaminfo(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new list[64], models[96];
+	get_cvar_string("mp_teamlist", list, charsmax(list));
+	get_cvar_string("mp_teammodels", models, charsmax(models));
+
+	console_print(id, "[TSM] mp_teamlist     = '%s'", list);
+	console_print(id, "[TSM] mp_teammodels   = '%s'", models);
+	console_print(id, "[TSM] mp_teamplay     = %d   teamplay = %d",
+		get_cvar_num("mp_teamplay"), get_cvar_num("teamplay"));
+	console_print(id, "[TSM] TeamInfo msgs   = %d %s",
+		g_teaminfo_seen,
+		g_teaminfo_seen > 0
+			? "(teamplay gamerules ACTIVE)"
+			: "(ZERO -- gamerules are NOT teamplay, jointeam cannot work)");
+
+	new spname[32];
+	get_pcvar_string(g_cv_specteam, spname, charsmax(spname));
+	new spidx = live_spectator_index();
+	console_print(id, "[TSM] spectator team  = '%s' -> slot %d %s",
+		spname, spidx,
+		spidx > 0 ? "(ok)" : "(NOT IN mp_teamlist -- add it and change map)");
+	console_print(id, "[TSM] mp_teamoverride = %d", get_cvar_num("mp_teamoverride"));
+	console_print(id, "[TSM] tsm_force_teamlist = %d (set 0 to stop the plugin touching it)",
+		get_pcvar_num(g_cv_forceteams));
+
+	new players[32], pnum, nm[32], tn[32];
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		get_user_name(players[i], nm, charsmax(nm));
+		tn[0] = 0;
+		new num = get_user_team(players[i], tn, charsmax(tn));
+		console_print(id, "[TSM]   %-20s team#=%d name='%s' resolved=%d alive=%d",
+			nm, num, tn, tsm_live_team_of(players[i]), is_user_alive(players[i]) ? 1 : 0);
+	}
+
+	console_print(id, "[TSM] Try: jointeam 1   then run this again. Watch logs/tsm_debug.log for JOIN WATCH lines.");
+	return PLUGIN_HANDLED;
+}
+
+public cmd_team(id)
+{
+	// Clear the current side first so the balance check sees the player as unassigned
+	// -- otherwise they are counted on the team they are trying to leave.
+	if (g_state == ST_WARMUP || g_state == ST_READYUP)
+	{
+		g_match_team[id] = 0;
+		g_player_class[id] = 0;
+	}
+
+	if (g_state != ST_WARMUP && g_state != ST_READYUP)
+	{
+		client_print(id, print_chat, "[MATCH] A match is already in progress -- you are in when it finishes.");
+		return PLUGIN_HANDLED;
+	}
+	if (!g_team_menu)
+	{
+		client_print(id, print_chat, "[MATCH] Team names are not configured yet.");
+		return PLUGIN_HANDLED;
+	}
+	g_spectator[id] = false;
+	remove_task(id + 1000);   // cancel any pending spectator parking
+	show_team_menu(id);
+	return PLUGIN_HANDLED;
+}
+
+public cmd_class(id)
+{
+	if (!g_class_count)
+	{
+		client_print(id, print_chat, "[MATCH] No classes are configured on this server.");
+		return PLUGIN_HANDLED;
+	}
+	if (g_player_class[id])
+	{
+		client_print(id, print_chat, "[MATCH] You are %s for this match. Classes are locked once picked.",
+			g_class_name[g_player_class[id] - 1]);
+		return PLUGIN_HANDLED;
+	}
+
+	show_class_menu(id);
+	return PLUGIN_HANDLED;
+}
+
+public cmd_simwin(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 2))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (g_state != ST_LIVE)
+	{
+		console_print(id, "[TSM] Not in a live round (state %d).", g_state);
+		return PLUGIN_HANDLED;
+	}
+
+	new a[8];
+	read_argv(1, a, charsmax(a));
+	new team = str_to_num(a);
+	if (team < 1 || team > 2)
+	{
+		console_print(id, "[TSM] usage: amx_tsm_simwin <1|2>");
+		return PLUGIN_HANDLED;
+	}
+
+	dbg("simwin: round %d awarded to team %d by admin", g_round, team);
+	end_round(team);
+	return PLUGIN_HANDLED;
+}
+
+public cmd_simelim(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 2))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new target = id;
+	if (read_argc() > 1)
+	{
+		new a[32];
+		read_argv(1, a, charsmax(a));
+		target = cmd_target(id, a, CMDTARGET_ALLOW_SELF);
+		if (!target)
+		{
+			return PLUGIN_HANDLED;
+		}
+	}
+
+	if (g_elim[target])
+	{
+		console_print(id, "[TSM] %N is already eliminated.", target);
+		return PLUGIN_HANDLED;
+	}
+
+	dbg("simelim: %N eliminated by admin", target);
+	g_elim[target] = true;
+	remove_from_play(target);
+	check_round_end();
+	console_print(id, "[TSM] Eliminated %N.", target);
+	return PLUGIN_HANDLED;
+}
+
+/* ---- classes: arming, models and perks ----------------------------------- */
+
+/// One DispatchKeyValue, through fakemeta so no engine module is required.
+kv_set(ent, const classname[], const key[], const value[])
+{
+	set_kvd(0, KV_ClassName, classname);
+	set_kvd(0, KV_KeyName,   key);
+	set_kvd(0, KV_Value,     value);
+	set_kvd(0, KV_fHandled,  0);
+	dllfunc(DLLFunc_KeyValue, ent, 0);
+}
+
+/*
+ * Per-class models.
+ *
+ * TS does use the standard "model" userinfo key, but it is server-authoritative:
+ * CTSGameRules::GetPlayerModel() re-applies the team model on ClientUserInfoChanged
+ * and on spawn, so a plain SetClientKeyValue is reverted within about 30 frames.
+ * "force" therefore re-asserts from fw_userinfo as well; "teamonly" leaves TS's own
+ * mp_teammodels alone and classes simply do not change how you look.
+ */
+set_class_model(id, ci)
+{
+	new mode[16];
+	get_pcvar_string(g_cv_modelmode, mode, charsmax(mode));
+	if (!equali(mode, "force"))
+	{
+		return;
+	}
+
+	new team = g_match_team[id];
+	if (team != 1 && team != 2)
+	{
+		return;
+	}
+
+	// A class with no model of its own wears what Assault wears on that side.
+	/*
+	 * A class with no model of its own borrows another class's, per side.
+	 *
+	 * Which class that is comes from tsm_model_fallback_class rather than being fixed
+	 * at Assault, so a blank model field is a deliberate "same as <that class>" rather
+	 * than a hole. Leave a class blank and it follows whatever the fallback wears,
+	 * including that class's random picks.
+	 */
+	new list[96];
+	copy(list, charsmax(list), g_class_model[ci][team]);
+
+	if (!list[0] && g_class_count > 0)
+	{
+		new fb = get_pcvar_num(g_cv_modelfallback);
+		if (fb < 1 || fb > g_class_count)
+		{
+			fb = 1;
+		}
+		copy(list, charsmax(list), g_class_model[fb - 1][team]);
+	}
+	if (!list[0])
+	{
+		return;
+	}
+
+	/*
+	 * Pick one, and keep it for the whole match.
+	 *
+	 * Rolling per spawn would change a player's appearance every round, which makes
+	 * people unrecognisable mid-match. g_model_pick is cleared with the rest of the
+	 * per-MATCH state, not per round.
+	 */
+	new chosen[32], carry[96], rest[96];
+	copy(rest, charsmax(rest), list);
+
+	new count = 1;
+	for (new i = 0; list[i]; i++)
+	{
+		if (list[i] == ',')
+		{
+			count++;
+		}
+	}
+
+	if (g_model_pick[id] < 1 || g_model_pick[id] > count)
+	{
+		g_model_pick[id] = random_num(1, count);
+	}
+
+	for (new n = 0; n < g_model_pick[id]; n++)
+	{
+		strtok(rest, chosen, charsmax(chosen), carry, charsmax(carry), ',', 0);
+		copy(rest, charsmax(rest), carry);
+	}
+	if (!chosen[0])
+	{
+		return;
+	}
+
+	/*
+	 * Record the model index we want, ALWAYS, before any of the write throttling
+	 * below gets a say.
+	 *
+	 * This is the half that actually sticks. The userinfo "model" key is a request:
+	 * CTSGameRules::GetPlayerModel answers it by re-applying its own mp_teammodels
+	 * pick, and because every key write raises ClientUserInfoChanged, arguing with it
+	 * produced the model visibly cycling. pev->modelindex is what the engine DRAWS,
+	 * and writing it raises nothing at all -- so it is enforced per frame in
+	 * fw_postthink_post instead, silently, and TS is welcome to keep the key.
+	 */
+	new mpath[96];
+	formatex(mpath, charsmax(mpath), "models/player/%s/%s.mdl", chosen, chosen);
+
+	if (file_exists(mpath))
+	{
+		g_model_want_idx[id] = engfunc(EngFunc_ModelIndex, mpath);
+	}
+	else
+	{
+		g_model_want_idx[id] = 0;
+		log_amx("[TSM] WARNING: model '%s' is not installed (%s) -- leaving TS's choice alone.",
+			chosen, mpath);
+	}
+
+	// Any model written at runtime that was not precached at map load will shift the
+	// model index table and crash clients with "Bad model on beam (not sprite)" --
+	// so every name used here must also be in mp_teammodels.
+	dbgv("set_class_model: wants '%s' (idx %d) for %d (team %d, pick %d of %d)",
+		chosen, g_model_want_idx[id], id, team, g_model_pick[id], count);
+	new buf = engfunc(EngFunc_GetInfoKeyBuffer, id);
+
+	/*
+	 * Write only when the WANTED model changes; verify only rarely.
+	 *
+	 * Reading the infokey back and comparing was not enough. Several callers reach
+	 * this function -- the loadout, the userinfo forward, round start -- and every
+	 * write raises ClientUserInfoChanged, which brings us straight back in. The log
+	 * showed the same model written to the same four players several times a second.
+	 *
+	 * So the authority is what WE last wrote, kept in g_model_last. If the wanted
+	 * model has not changed there is nothing to do, and we do not even read the
+	 * infokey -- no read, no write, no event, no loop, however many callers arrive.
+	 *
+	 * TS can still move it, so every tsm_model_verify seconds we do read the live
+	 * value and correct it if it has drifted. Once in a while per player, instead of
+	 * a fight, and it is now the only path that can produce a repeat write.
+	 */
+	new Float:mnow = get_gametime();
+	// equali returns an untagged cell, so the comparison makes the tag explicit.
+	new bool:same_want = (equali(g_model_last[id], chosen) != 0);
+
+	/*
+	 * 0 means never re-check, and that is the default.
+	 *
+	 * The periodic re-check was the visible model change every few seconds: TS moves
+	 * the model on its own schedule, we notice and write ours back, and the player
+	 * watches it flip. Writing only when something actually happens -- a class is
+	 * picked, a round starts, userinfo changes -- means one write per event and no
+	 * cycling.
+	 *
+	 * If TS then wins and the model is wrong, that is a stable, visible problem to
+	 * solve rather than a fight to referee.
+	 */
+	new Float:verify = get_pcvar_float(g_cv_modelverify);
+	if (same_want && (verify <= 0.0 || (mnow - g_model_at[id]) < verify))
+	{
+		return;
+	}
+
+	if (same_want)
+	{
+		// Due a verification. Only write if TS has actually moved it.
+		new live[32];
+		live[0] = 0;
+		engfunc(EngFunc_InfoKeyValue, buf, "model", live, charsmax(live));
+		g_model_at[id] = mnow;
+
+		if (equali(live, chosen))
+		{
+			return;
+		}
+	}
+
+	copy(g_model_last[id], charsmax(g_model_last[]), chosen);
+	g_model_at[id] = mnow;
+	g_model_writes++;
+	dbgv("set_class_model: WROTE '%s' for %d (team %d, pick %d of %d)",
+		chosen, id, team, g_model_pick[id], count);
+	engfunc(EngFunc_SetClientKeyValue, id, buf, "model", chosen);
+
+	// The rendered model is not set here. g_model_want_idx was recorded above and is
+	// enforced every frame in fw_postthink_post -- a one-off write here would just be
+	// overruled by the next spawn, which is the whole history of this bug.
+}
+
+/// The class a player will actually play, falling back to tsm_default_class.
+resolved_class(id)
+{
+	new c = g_player_class[id];
+	if (c < 1 || c > g_class_count)
+	{
+		c = get_pcvar_num(g_cv_defclass);
+	}
+	if (c < 1 || c > g_class_count)
+	{
+		c = 1;
+	}
+	return c;
+}
+
+/*
+ * Strips and re-arms a player for their class.
+ *
+ * Called from task_go_live immediately before the release, and never as a deferred
+ * task. That ordering is a hard requirement: TS derives player speed from the weapon
+ * slots the loadout consumes (CBasePlayer::GetSpeedBySlots), so a player with no
+ * weapons has ZERO maxspeed. Leaving a gap between the strip and the re-arm is what
+ * produced the long-running "cannot move, cannot attack, maxspeed 0" fault.
+ */
+apply_class(id)
+{
+	if (!get_pcvar_num(g_cv_classes) || !g_class_count)
+	{
+		return;
+	}
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		return;
+	}
+
+	new c = resolved_class(id);
+	new ci = c - 1;
+
+	if (!g_player_class[id])
+	{
+		g_player_class[id] = c;
+		client_print(id, print_chat, "[MATCH] No class picked -- you are %s for this match.",
+			g_class_name[ci]);
+	}
+
+	// Weapons are per team: Assault carries an M4A1 for MSR and an AK47 for the
+	// Insurrectionists, off one class and one menu entry.
+	new team = g_match_team[id];
+	if (team != 1 && team != 2)
+	{
+		team = 1;
+	}
+
+	/*
+	 * Stripping and re-arming are ONE operation and must never be separated.
+	 *
+	 * TS derives player speed from the weapon slots the loadout consumes
+	 * (CBasePlayer::GetSpeedBySlots), so a player holding nothing has zero maxspeed --
+	 * and with no weapon there is also nothing to fire, scroll or select. Stripping
+	 * while tsm_weapon_mode is 0 therefore left players unable to move or act at all.
+	 */
+	/*
+	 * NO weapon entities are created here, by design.
+	 *
+	 * Spawning ts_groundweapon entities to hand out a loadout floods every connected
+	 * client with entity traffic in a single frame -- with ten players that overran
+	 * the network buffer (SZ_GetSpace: overflow) and the truncated message was then
+	 * read as a beam, crashing clients with "Bad model on beam (not sprite)".
+	 * Precaching the weapons did not help, because the precache table was never the
+	 * problem.
+	 *
+	 * Humans are armed through TS's own armament commands in issue_armament(), which
+	 * creates nothing. Bots keep whatever rcbot gives them.
+	 */
+
+	set_user_health(id, g_class_hp[ci]);
+	if (g_class_ap[ci] > 0)
+	{
+		set_user_armor(id, g_class_ap[ci]);
+	}
+
+	/*
+	 * Guarded, because SetClientKeyValue inside raises ClientUserInfoChanged, and
+	 * fw_userinfo answers that by calling set_class_model again. Without the flag the
+	 * two bounced off each other and the model was rewritten in a burst -- which is
+	 * what the once-a-second model change in game actually was.
+	 */
+	new bool:was_ui = g_in_userinfo[id];
+	g_in_userinfo[id] = true;
+	set_class_model(id, ci);
+	g_in_userinfo[id] = was_ui;
+
+	dbgv("apply_class done for %d", id);
+	dbg("armed %d as '%s' team %d (%d weapons, %dhp)",
+		id, g_class_name[ci], team, g_class_wcount[ci][team], g_class_hp[ci]);
+}
+
+/*
+ * Writes a class loadout into TS's own armament, then respawns the player so
+ * BuyArmament equips it.
+ *
+ * No entity is created, so nothing is precached at runtime -- which is the whole
+ * point. The commands are TS's own and are not cheat-gated.
+ */
+issue_armament(id)
+{
+	if (!is_user_connected(id) || !g_class_count)
+	{
+		return;
+	}
+
+	new ci = resolved_class(id) - 1;
+	new team = g_match_team[id];
+	if (team != 1 && team != 2)
+	{
+		team = 1;
+	}
+
+	// Our own commands must not be refused by our own buy blocker.
+	g_issuing[id] = true;
+
+	/*
+	 * engclient_cmd, not client_cmd.
+	 *
+	 * client_cmd asks the CLIENT to run the command and send it back, which a bot has
+	 * no client to do -- which is why bots ended up with no weapons at all and resorted
+	 * to kung fu. engclient_cmd executes it server-side for players and bots alike, and
+	 * creates no entities, so it avoids the ts_groundweapon flood that crashed clients.
+	 */
+	engclient_cmd(id, "rst_cfg");
+
+	new bonus = get_pcvar_num(g_cv_clipbonus);
+	new cap = get_pcvar_num(g_cv_clipcap);
+	if (cap < 1)
+	{
+		cap = 1;
+	}
+
+	/*
+	 * Written BACK TO FRONT, so the primary is the last weapon handed over.
+	 *
+	 * TS leaves the most recently given weapon selected, and the class lines read
+	 * primary-first because that is the sane way to write them -- which meant the
+	 * sidearm was always the last thing issued and everyone, bots included, spawned
+	 * holding a pistol with a rifle on their back.
+	 *
+	 * tsm_arm_order 0 restores the literal order if this ever needs inverting.
+	 */
+	new wn = g_class_wcount[ci][team];
+	new bool:reverse = (get_pcvar_num(g_cv_armorder) != 0);
+
+	for (new step = 0; step < wn; step++)
+	{
+		new i = reverse ? (wn - 1 - step) : step;
+
+		// The class line sets the baseline, tsm_clip_bonus tops every weapon up, and
+		// tsm_clip_max stops any combination turning into an ammo dump.
+		new clips = g_class_clips[ci][team][i] + bonus;
+		if (clips > cap)
+		{
+			clips = cap;
+		}
+		if (clips < 0)
+		{
+			clips = 0;
+		}
+
+		new warg[24];
+		formatex(warg, charsmax(warg), "%d_%d", g_class_wpn[ci][team][i], clips);
+		engclient_cmd(id, "tkw", warg);
+
+		dbgv("armament: %d <- weapon %d with %d spare clip(s)",
+			id, g_class_wpn[ci][team][i], clips);
+	}
+
+	new mags = get_pcvar_num(g_cv_giveammo);
+	if (mags > 0)
+	{
+		if (mags > cap)
+		{
+			mags = cap;
+		}
+
+		// Ammo types 1..11, matching the mags1..mags11 keyvalues TS's own
+		// ts_groundammo entity exposes.
+		new aarg[24];
+		for (new t = 1; t <= 11; t++)
+		{
+			formatex(aarg, charsmax(aarg), "%d_%d", t, mags);
+			engclient_cmd(id, "tka", aarg);
+		}
+		dbgv("armament: %d <- %d magazine(s) of each ammo type", id, mags);
+	}
+
+	dbg("armament written for %d as '%s' (team %d, %d weapon(s), %d mag(s) each)",
+		id, g_class_name[ci], team, g_class_wcount[ci][team], mags);
+
+	/*
+	 * Nothing to wait for now.
+	 *
+	 * engclient_cmd runs the command immediately on the server, so there is no client
+	 * round trip that could arrive after the respawn. The counter that used to track
+	 * those echoes is zeroed rather than removed, so the respawn path stays unchanged.
+	 */
+	g_arm_pending[id] = 0;
+
+	new Float:delay = get_pcvar_float(g_cv_armdelay);
+	if (delay < 0.5)
+	{
+		delay = 0.5;
+	}
+
+	// The client has to round-trip those commands before a respawn can apply them.
+	remove_task(id);
+	set_task(delay, "task_arm_respawn", id);
+}
+
+/*
+ * Clears weapons TS dropped at a player's feet while applying their loadout.
+ *
+ * Deliberately a tight radius and only run in the moment after arming, so a weapon the
+ * mapper placed near a spawn point is not swept up with it.
+ */
+public task_clean_drops(taskid)
+{
+	new id = taskid - 3000;
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		return;
+	}
+
+	new Float:porg[3], Float:eorg[3];
+	pev(id, pev_origin, porg);
+
+	// Bounded rather than while(1): a search that never terminates would hang the
+	// server, and the compiler objects to the constant test anyway.
+	new ent = -1, removed = 0;
+	for (new guard = 0; guard < 256; guard++)
+	{
+		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "ts_groundweapon");
+		if (ent <= 0)
+		{
+			break;
+		}
+		if (!pev_valid(ent))
+		{
+			continue;
+		}
+
+		pev(ent, pev_origin, eorg);
+		if (get_distance_f(porg, eorg) > 72.0)
+		{
+			continue;
+		}
+
+		set_pev(ent, pev_flags, pev(ent, pev_flags) | TSM_FL_KILLME);
+		removed++;
+	}
+
+	if (removed)
+	{
+		dbgv("cleaned %d dropped weapon(s) around %d", removed, id);
+	}
+}
+
+/*
+ * Rewrites a player's loadout after a late class pick, so the choice applies to the
+ * round that is already counting down rather than the next one.
+ */
+public task_reissue_armament(taskid)
+{
+	new id = taskid - 5000;
+
+	if (!is_user_connected(id) || g_state != ST_FREEZE)
+	{
+		return;
+	}
+	if (get_pcvar_num(g_cv_wpnmode) != 2 || !get_pcvar_num(g_cv_classes))
+	{
+		return;
+	}
+
+	dbg("re-issuing loadout for %d after a late class pick", id);
+	issue_armament(id);
+}
+
+public task_arm_respawn(id)
+{
+	if (!is_user_connected(id) || g_state != ST_FREEZE)
+	{
+		g_issuing[id] = false;
+		g_arm_pending[id] = 0;
+		return;
+	}
+
+	/*
+	 * If the client has not sent everything back yet, wait another beat rather than
+	 * respawning into a half-written armament. Capped so a dropped command cannot
+	 * stall the round -- a partial loadout still beats no round.
+	 */
+	if (g_arm_pending[id] > 0 && g_freeze_left > 2)
+	{
+		dbgv("armament: %d still has %d command(s) outstanding, waiting", id, g_arm_pending[id]);
+		set_task(0.5, "task_arm_respawn", id);
+		return;
+	}
+
+	if (g_arm_pending[id] > 0)
+	{
+		dbg("armament: %d respawned with %d command(s) unconfirmed -- loadout may be short",
+			id, g_arm_pending[id]);
+	}
+	g_arm_pending[id] = 0;
+
+	/*
+	 * Wiped immediately before the respawn, in the same frame, so every round starts
+	 * from nothing.
+	 *
+	 * Without this the armament is applied ON TOP of what the player already held:
+	 * ammunition accumulated round on round (60, then 90, then more), and the weapons
+	 * overflowed the slot limit so TS dropped whichever would not fit -- which is why
+	 * a sidearm could vanish while the primary survived.
+	 *
+	 * Safe only because the respawn follows on the very next line: a stripped player
+	 * has zero maxspeed in TS, so there must never be a gap where they are both
+	 * weaponless and able to act.
+	 */
+	strip_user_weapons(id);
+
+	// BuyArmament runs inside PlayerSpawn, so a respawn is what equips the loadout and
+	// refills ammunition.
+	spawn(id);
+
+	new ci = resolved_class(id) - 1;
+	set_user_health(id, g_class_hp[ci]);
+	if (g_class_ap[ci] > 0)
+	{
+		set_user_armor(id, g_class_ap[ci]);
+	}
+
+	place_at_spawn(id);
+	hold_player(id, false);
+	g_issuing[id] = false;
+
+	/*
+	 * Offered HERE, after the respawn, and nowhere else.
+	 *
+	 * The respawn that applies the loadout sends ResetHUD, which wipes any open menu
+	 * off the client -- so a menu shown before it never survived. This is also the
+	 * moment the player would call the start of the round.
+	 */
+	if (g_class_count && get_pcvar_num(g_cv_classes))
+	{
+		g_class_menu_at[id] = 0.0;
+		set_task(0.3, "task_show_class", id);
+	}
+
+	// After placement, so the sweep happens where the player actually ended up.
+	if (get_pcvar_num(g_cv_cleandrops))
+	{
+		set_task(0.4, "task_clean_drops", id + 3000);
+	}
+
+	dbgv("armament: respawned and placed %d", id);
+}
+
+/*
+ * Combat engineer resupply. Spawns a ts_groundammo and makes the target touch it.
+ *
+ * Every magazine slot is filled rather than matching their held weapon, because
+ * reading someone's current weapon needs ts_getuserwpn and this plugin does not call
+ * tsfun natives. TS applies what is relevant to what they carry.
+ */
+give_ammo_to(target)
+{
+	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "ts_groundammo"));
+	if (!ent)
+	{
+		dbg("resupply: could not create ts_groundammo");
+		return 0;
+	}
+
+	new key[12], v[8];
+	num_to_str(get_pcvar_num(g_cv_engclips), v, charsmax(v));
+	for (new m = 1; m <= 11; m++)
+	{
+		formatex(key, charsmax(key), "mags%d", m);
+		kv_set(ent, "ts_groundammo", key, v);
+	}
+
+	new Float:org[3];
+	pev(target, pev_origin, org);
+	engfunc(EngFunc_SetOrigin, ent, org);
+
+	dllfunc(DLLFunc_Spawn, ent);
+
+	/*
+	 * Touch AND Use.
+	 *
+	 * TS ground items end their Spawn with SetTouch(NULL), so a Touch dispatched
+	 * after DispatchSpawn lands on nothing. Use is what actually transfers. Both go
+	 * out because neither costs anything and the two differ by item type.
+	 */
+	dllfunc(DLLFunc_Touch, ent, target);
+	dllfunc(DLLFunc_Use, ent, target, target, 2, 0.0);
+
+	/*
+	 * REMOVED, always, picked up or not.
+	 *
+	 * This leaked an edict on every resupply -- nothing in this plugin ever removed
+	 * one. With bots topped up on a timer the server ran out of entity slots within
+	 * minutes: first "could not create ts_groundammo", and then no loadout weapons
+	 * either, because weapons need edicts too. That is the missing-equipment-on-a-
+	 * new-round bug and the resupply failure, same cause.
+	 *
+	 * Nothing is lost by removing it: the transfer above has already happened or
+	 * already failed, and an uncollected pickup lying around is not wanted.
+	 */
+	if (pev_valid(ent))
+	{
+		engfunc(EngFunc_RemoveEntity, ent);
+	}
+
+	return 1;
+}
+
+/*
+ * Clears the medic's glow shell off a player.
+ *
+ * renderfx is restored rather than rendermode, because the elimination hide owns
+ * rendermode and renderamt -- writing those back from here would un-hide the body
+ * of someone who died while still glowing.
+ */
+public task_clear_glow(taskid)
+{
+	new id = taskid - 8000;
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+
+	set_pev(id, pev_renderfx, TSM_RENDERFX_NONE);
+	set_pev(id, pev_renderamt, 0.0);
+}
+
+/*
+ * A medic's heal: top a teammate up, on a cooldown, and glow them red while it
+ * lands so both of them can see that it happened.
+ *
+ * Capped at the target's own class health. A Heavy's 125 is part of what that
+ * class costs, so being able to top anyone past their own ceiling would undo the
+ * class table.
+ */
+medic_heal(id, target)
+{
+	new Float:now = get_gametime();
+	new Float:cool = get_pcvar_float(g_cv_medcool);
+
+	if (g_medic_at[id] > 0.0 && (now - g_medic_at[id]) < cool)
+	{
+		client_print(id, print_center, "Medkit ready in %.0fs", cool - (now - g_medic_at[id]));
+		return;
+	}
+
+	new ci = resolved_class(target) - 1;
+	new maxhp = g_class_hp[ci];
+	if (maxhp < 1)
+	{
+		maxhp = 100;
+	}
+
+	new cur = get_user_health(target);
+	if (cur >= maxhp)
+	{
+		// Refused WITHOUT spending the cooldown. Charging a medic for a heal that did
+		// nothing would just teach them to check health bars before pressing use.
+		client_print(id, print_center, "They are already at full health");
+		return;
+	}
+
+	new after = cur + get_pcvar_num(g_cv_medheal);
+	if (after > maxhp)
+	{
+		after = maxhp;
+	}
+
+	set_user_health(target, after);
+	g_medic_at[id] = now;
+
+	/*
+	 * Red glow shell, for as long as tsm_medic_glow says.
+	 *
+	 * renderamt is the SHELL THICKNESS for a glow shell, not an alpha -- leaving it
+	 * at zero sets up a shell with no thickness, which is exactly as invisible as
+	 * not setting the glow at all. That is why the first version drew nothing.
+	 */
+	new Float:col[3];
+	col[0] = 255.0;
+	col[1] = 0.0;
+	col[2] = 0.0;
+	set_pev(target, pev_renderfx, TSM_RENDERFX_GLOW);
+	set_pev(target, pev_rendercolor, col);
+	set_pev(target, pev_renderamt, float(get_pcvar_num(g_cv_medshell)));
+	set_pev(target, pev_rendermode, TSM_RENDER_NORMAL);
+
+	remove_task(target + 8000);
+	set_task(get_pcvar_float(g_cv_medglow), "task_clear_glow", target + 8000);
+
+	new a[32], b[32];
+	get_user_name(id, a, charsmax(a));
+	get_user_name(target, b, charsmax(b));
+	client_print(id,     print_chat, "[MATCH] You healed %s to %d hp.", b, after);
+	client_print(target, print_chat, "[MATCH] %s healed you to %d hp.", a, after);
+	dbg("medic %d healed %d: %d -> %d", id, target, cur, after);
+}
+
+/*
+ * .follow -- take the bots on your side under command.
+ *
+ * Officer only, and only while a round is live. Bots already following someone
+ * else are left alone rather than poached, so two officers do not spend the round
+ * taking the same squad off each other.
+ */
+cmd_squad_follow(id)
+{
+	if (!is_officer(id))
+	{
+		client_print(id, print_chat, "[MATCH] Only an Officer can give orders, and only during a round.");
+		return;
+	}
+
+	if (is_user_bot(id))
+	{
+		return;   // rcbot's squad menu is a menu; a bot cannot answer one
+	}
+
+	/*
+	 * rcbot has a squad system of its own, and it is better than anything this
+	 * plugin can do: real pathing, real formations, and the bots stay bots rather
+	 * than being shoved around by an outside force.
+	 *
+	 * It was missed first time round because its docs never say "follow" -- the
+	 * feature is called squad, and searching for the wrong word found nothing.
+	 *
+	 * Squad membership is chosen in rcbot's own menu, so that is opened here rather
+	 * than guessed at. Formation and spread ARE settable from the console, so they
+	 * are applied first and the menu comes up already configured.
+	 */
+	new form[16], spread[8];
+	get_pcvar_string(g_cv_squadform, form, charsmax(form));
+	get_pcvar_string(g_cv_squadspread, spread, charsmax(spread));
+
+	if (form[0])
+	{
+		server_cmd("rcbot squad formation %s", form);
+	}
+	if (spread[0])
+	{
+		server_cmd("rcbot squad spread %s", spread);
+	}
+	server_exec();
+
+	// client_cmd, not engclient_cmd: this has to reach the CLIENT, because what it
+	// opens is a menu for a person to answer.
+	client_cmd(id, "rcbot squad_menu");
+	client_print(id, print_chat,
+		"[MATCH] Squad menu open -- choose 'more options' then 'squad' to pick who follows you.");
+	client_print(id, print_chat,
+		"[MATCH] Formation %s, spread %s. Type .unfollow to stand them down.", form, spread);
+	dbg("officer %d: opened rcbot squad menu (formation %s spread %s)", id, form, spread);
+
+	if (!get_pcvar_num(g_cv_squadsteer))
+	{
+		return;
+	}
+
+	// Fallback steering, off by default now that rcbot does this properly.
+
+	new cap = get_pcvar_num(g_cv_squadmax);
+	new have = squad_size(id);
+	if (have >= cap)
+	{
+		client_print(id, print_chat, "[MATCH] Your squad is full (%d). Type .unfollow to stand them down.", have);
+		return;
+	}
+
+	new players[32], pnum, took = 0;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum && have + took < cap; i++)
+	{
+		new b = players[i];
+		if (!is_user_bot(b) || !is_user_alive(b) || g_elim[b])
+		{
+			continue;
+		}
+		if (g_match_team[b] != g_match_team[id] || g_squad_leader[b])
+		{
+			continue;
+		}
+
+		g_squad_leader[b] = id;
+		took++;
+	}
+
+	if (!took)
+	{
+		client_print(id, print_chat, "[MATCH] Nobody available to take -- no free bots on your side.");
+		return;
+	}
+
+	new name[32];
+	get_user_name(id, name, charsmax(name));
+	client_print(id, print_chat, "[MATCH] %d on you. Squad is %d of %d. Type .unfollow to stand them down.",
+		took, have + took, cap);
+	team_print(g_match_team[id], "[MATCH] %s has taken %d under command.", name, took);
+	dbg("officer %d took %d bot(s) under command", id, took);
+}
+
+/// .unfollow -- stand the whole squad down.
+cmd_squad_dismiss(id)
+{
+	if (!is_user_bot(id))
+	{
+		// Same menu lets them empty the squad again.
+		client_cmd(id, "rcbot squad_menu");
+	}
+
+	new n = disband_squad(id);
+	if (!n)
+	{
+		client_print(id, print_chat, "[MATCH] Nobody is following you.");
+		return;
+	}
+
+	client_print(id, print_chat, "[MATCH] %d stood down.", n);
+	dbg("officer %d dismissed %d bot(s)", id, n);
+}
+
+/*
+ * Tops ONE bot up with ammunition, once a second at most.
+ *
+ * Bots run dry and then keep pulling the trigger, because rcbot never sees the
+ * weapons we hand out: the class loadout is written through TS's own buy commands
+ * (tkw/tka) and applied by BuyArmament at spawn, so no pickup ever happens for
+ * rcbot to observe. Its ammo tracking, its reload decision and its "switch to
+ * something that still has rounds" decision are all working from an inventory it
+ * does not have.
+ *
+ * Keeping them topped up sidesteps all three: a bot that never runs out never
+ * needs to reload or switch. It does not make rcbot correct, it makes being wrong
+ * cost nothing.
+ *
+ * ONE per tick, round-robin, because this creates a ts_groundammo entity per call
+ * -- and spawning a batch of entities in one frame is what flooded clients with
+ * SZ_GetSpace: overflow when the loadout used to be handed out that way.
+ */
+resupply_one_bot()
+{
+	new Float:every = get_pcvar_float(g_cv_botresup);
+	if (every <= 0.0 || g_state != ST_LIVE || !get_pcvar_num(g_cv_bots))
+	{
+		return;
+	}
+
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+	if (!pnum)
+	{
+		return;
+	}
+
+	new Float:now = get_gametime();
+
+	// Starts where it left off, so every bot comes round in turn instead of the
+	// first one in the list being topped up over and over.
+	for (new n = 0; n < pnum; n++)
+	{
+		g_bot_resup_rr = (g_bot_resup_rr + 1) % pnum;
+		new id = players[g_bot_resup_rr];
+
+		if (!is_user_bot(id) || !is_user_alive(id) || g_elim[id])
+		{
+			continue;
+		}
+		if (g_match_team[id] != 1 && g_match_team[id] != 2)
+		{
+			continue;
+		}
+		if (g_bot_resup_at[id] > 0.0 && (now - g_bot_resup_at[id]) < every)
+		{
+			continue;
+		}
+
+		g_bot_resup_at[id] = now;
+		give_ammo_to(id);
+		dbgv("bot resupply: topped up %d", id);
+		return;   // one per tick, deliberately
+	}
+}
+
+/*
+ * Refuses the respawn that would end a killed player's linger.
+ *
+ * TS is a deathmatch mod: it respawns a dead player almost immediately, and in
+ * GoldSrc the corpse IS the player entity -- so the respawn does not leave a body
+ * behind, it carries it off to the spawn point. That is what takes the body away,
+ * not anything to do with visibility.
+ *
+ * SECOND LINE OF DEFENCE ONLY. Ham_Spawn is not delivered in this mod, so this is
+ * never actually called; the respawn is stopped in fw_prethink instead, by clearing
+ * the attack button TS waits on. This is kept registered because it costs nothing
+ * and is the cleaner block of the two wherever the hook does arrive.
+ */
+public fw_player_spawn(id)
+{
+	if (!get_pcvar_num(g_cv_enabled) || g_state != ST_LIVE)
+	{
+		return HAM_IGNORED;
+	}
+	if (!g_elim[id] || g_elim_at[id] <= 0.0)
+	{
+		return HAM_IGNORED;   // not a death we are holding -- round starts included
+	}
+
+	if ((get_gametime() - g_elim_at[id]) < get_pcvar_float(g_cv_deathlinger))
+	{
+		dbgv("held %d dead: %.1fs of linger left", id,
+			get_pcvar_float(g_cv_deathlinger) - (get_gametime() - g_elim_at[id]));
+		return HAM_SUPERCEDE;
+	}
+
+	return HAM_IGNORED;
+}
+
+/*
+ * Refuses damage between players on the same side.
+ *
+ * Decided on g_match_team rather than on TS's own view, because this plugin owns
+ * team membership -- and on rcbot's side of the fence TS's teams are exactly what
+ * cannot be relied on.
+ *
+ * SUPERCEDE, not a refund: the damage never lands, so there is no health to give
+ * back, no armour lost, no hit sound and no pain animation. A refund after the
+ * fact could never have worked for bots anyway.
+ */
+public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
+{
+	if (!get_pcvar_num(g_cv_enabled) || get_pcvar_num(g_cv_friendlyfire))
+	{
+		return HAM_IGNORED;
+	}
+
+	if (victim < 1 || victim >= MAXPL || attacker < 1 || attacker >= MAXPL)
+	{
+		return HAM_IGNORED;   // world damage, falls, map hazards
+	}
+	if (victim == attacker)
+	{
+		return HAM_IGNORED;   // self damage is their own business
+	}
+
+	new vt = g_match_team[victim];
+	if (vt < 1 || vt != g_match_team[attacker])
+	{
+		return HAM_IGNORED;
+	}
+
+	// Only humans are told. A bot cannot read it, and ten bots bumping into each
+	// other would otherwise bury the chat.
+	if (!is_user_bot(attacker) && (get_gametime() - g_ff_told_at[attacker]) > 2.0)
+	{
+		g_ff_told_at[attacker] = get_gametime();
+		client_print(attacker, print_chat, "[MATCH] Friendly fire is off -- that is a teammate.");
+	}
+
+	dbgv("friendly fire blocked: %d -> %d for %.0f", attacker, victim, damage);
+	return HAM_SUPERCEDE;
+}
+
+/*
+ * Shows a teammate's class and health when you look at them.
+ *
+ * Run four times a second rather than per frame: the trace is cheap but it is one
+ * per living human, and a HUD message that refreshes faster than it is read is
+ * just network traffic. The hold time is slightly longer than the interval so the
+ * text does not blink between refreshes.
+ *
+ * Humans only -- a bot has no screen to put it on.
+ */
+public task_hover_info()
+{
+	if (!get_pcvar_num(g_cv_hoverinfo) || g_state != ST_LIVE)
+	{
+		return;
+	}
+
+	new Float:range = float(get_pcvar_num(g_cv_hoverrange));
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+
+	for (new i = 0; i < pnum; i++)
+	{
+		new id = players[i];
+		if (is_user_bot(id) || !is_user_alive(id) || g_elim[id])
+		{
+			continue;
+		}
+
+		new team = g_match_team[id];
+		if (team != 1 && team != 2)
+		{
+			continue;
+		}
+
+		new Float:start[3], Float:vo[3], Float:ang[3], Float:fwd[3], Float:dest[3];
+		pev(id, pev_origin, start);
+		pev(id, pev_view_ofs, vo);
+		start[0] += vo[0];
+		start[1] += vo[1];
+		start[2] += vo[2];
+
+		pev(id, pev_v_angle, ang);
+		engfunc(EngFunc_MakeVectors, ang);
+		global_get(glb_v_forward, fwd);
+
+		dest[0] = start[0] + fwd[0] * range;
+		dest[1] = start[1] + fwd[1] * range;
+		dest[2] = start[2] + fwd[2] * range;
+
+		engfunc(EngFunc_TraceLine, start, dest, 0, id, 0);
+		new hit = get_tr2(0, TR_pHit);
+
+		if (hit < 1 || hit >= MAXPL || hit == id
+			|| !is_user_connected(hit) || !is_user_alive(hit) || g_elim[hit])
+		{
+			continue;
+		}
+		if (g_match_team[hit] != team)
+		{
+			continue;   // only your own side
+		}
+
+		new cname[32];
+		cname[0] = 0;
+		if (g_class_count)
+		{
+			new ci = resolved_class(hit) - 1;
+			if (ci >= 0 && ci < g_class_count)
+			{
+				copy(cname, charsmax(cname), g_class_name[ci]);
+			}
+		}
+		if (!cname[0])
+		{
+			copy(cname, charsmax(cname), "No class");
+		}
+
+		new hname[32];
+		get_user_name(hit, hname, charsmax(hname));
+
+		// Channel 5: 1-4 are already taken by the round timer, score, kill reports
+		// and the spectator HUD, and sharing a channel makes both messages flicker.
+		set_hudmessage(120, 220, 120, -1.0, 0.56, 0, 0.0, 0.4, 0.0, 0.0, 5);
+		show_hudmessage(id, "%s^n%s^n%d HP", hname, cname, get_user_health(hit));
+	}
+}
+
+/*
+ * Writes every player's class model once, shortly after the round has gone live.
+ *
+ * The round-start write happens during the FREEZE, before TS has spawned anyone --
+ * and TS re-applies its own mp_teammodels pick on spawn, so our model was being set
+ * and then thrown away a moment later. The log shows the correct model written
+ * ('reputengu' for the MSR Officer, 'repuheavy' for MSR Assault) while the player
+ * still ends up wearing something else.
+ *
+ * A ONE-SHOT, not a timer. The periodic re-check this replaces is what made the model
+ * visibly cycle every few seconds, because it traded writes with TS forever. One write
+ * per player per round, placed after the spawn that would have undone it.
+ */
+public task_models_after_spawn()
+{
+	if (!get_pcvar_num(g_cv_classes))
+	{
+		return;
+	}
+
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+
+	for (new i = 0; i < pnum; i++)
+	{
+		new id = players[i];
+		if (!is_user_connected(id) || g_match_team[id] < 1)
+		{
+			continue;
+		}
+
+		// Forget what we think we last wrote: TS has moved it since, and the cache
+		// would otherwise decide there is nothing to do.
+		g_model_last[id][0] = 0;
+
+		new bool:was = g_in_userinfo[id];
+		g_in_userinfo[id] = true;
+		set_class_model(id, resolved_class(id) - 1);
+		g_in_userinfo[id] = was;
+	}
+}
+
+/*
+ * .roam -- walk the map freely, then go back to being held.
+ *
+ * Placing spawn points means walking to each position and running
+ * amx_tsm_spawn_add there, which the warmup hold makes impossible: it clamps
+ * maxspeed to 1 and you cannot leave the spot you spawned on. Doing it during a live
+ * round instead means doing it while being shot at.
+ *
+ * So this lifts every hold for one player and hands them normal movement. Toggling it
+ * again puts them back under whatever hold the current state calls for -- should_hold()
+ * decides that fresh every frame, so there is no saved state to restore and no way for
+ * the two to disagree.
+ *
+ * Deliberately NOT admin-gated in the same breath as the spawn commands: those already
+ * require ADMIN_CFG, and a roaming player is frozen out of the match anyway.
+ */
+public cmd_roam_say(id)
+{
+	cmd_roam(id);
+	return PLUGIN_HANDLED;
+}
+
+cmd_roam(id)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+
+	g_roaming[id] = !g_roaming[id];
+
+	if (g_roaming[id])
+	{
+		/*
+		 * Released immediately rather than waiting for the next frame to notice.
+		 *
+		 * release_player() undoes the maxspeed clamp and the frozen flag; without it
+		 * the hold stays applied until something else happens to lift it, which during
+		 * warmup is never.
+		 */
+		g_frozen[id] = false;
+		release_player(id);
+		set_pev(id, pev_movetype, TSM_MOVETYPE_WALK);
+		set_pev(id, pev_solid, TSM_SOLID_SLIDEBOX);
+
+		client_print(id, print_chat, "[MATCH] Roaming. You are out of the match -- walk the map and place spawns.");
+		client_print(id, print_chat, "[MATCH] amx_tsm_spawn_add 1 / 2 where you stand, then .roam again to go back.");
+		dbg("roam: %d is now roaming", id);
+	}
+	else
+	{
+		// Nothing to restore: should_hold() recomputes from the match state, so the
+		// next frame applies exactly the hold this state calls for.
+		client_print(id, print_chat, "[MATCH] Roaming off -- back to normal.");
+		dbg("roam: %d is back under match control", id);
+	}
+}
+
+/// Is this player an Officer, right now, in a live round?
+bool:is_officer(id)
+{
+	if (!g_class_count || !is_user_connected(id) || !is_user_alive(id))
+	{
+		return false;
+	}
+	if (g_state != ST_LIVE || g_elim[id])
+	{
+		return false;
+	}
+
+	return (g_class_perk[resolved_class(id) - 1] == TSM_PERK_OFFICER);
+}
+
+/// Drops every bot following this officer.
+disband_squad(leader)
+{
+	new n = 0;
+	for (new i = 1; i < MAXPL; i++)
+	{
+		if (g_squad_leader[i] == leader)
+		{
+			g_squad_leader[i] = 0;
+			n++;
+		}
+	}
+	return n;
+}
+
+/// How many bots are following this officer.
+squad_size(leader)
+{
+	new n = 0;
+	for (new i = 1; i < MAXPL; i++)
+	{
+		if (g_squad_leader[i] == leader && is_user_connected(i))
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/*
+ * Steers the squad, once every tenth of a second.
+ *
+ * rcbot has no follow command -- there is nothing in its command set to order a
+ * bot to a player -- so the bots are steered from here instead, by writing their
+ * velocity towards the officer. rcbot is still driving them on its own frames, so
+ * this is a tug of war rather than a handover: expect them to trail along rather
+ * than form up neatly.
+ *
+ * Run from a task rather than per-frame on purpose. Whether PlayerPreThink fires
+ * at all for an rcbot fake client is still unconfirmed, and the one-second poll
+ * demonstrably does reach them -- so the mechanism that is known to work is the
+ * one this is built on.
+ */
+public task_squad()
+{
+	/*
+	 * Off by default. rcbot's own squad system handles following now, and this
+	 * fought it: writing a bot's velocity from outside means two things are
+	 * steering at once, and the teleport that caught stragglers was only ever there
+	 * because velocity nudging could not beat rcbot's pathing.
+	 *
+	 * Kept for servers where rcbot's squads are disabled.
+	 */
+	if (!get_pcvar_num(g_cv_squadsteer))
+	{
+		return;
+	}
+
+	new Float:want = float(get_pcvar_num(g_cv_squaddist));
+	new Float:warp = float(get_pcvar_num(g_cv_squadwarp));
+	new Float:speed = float(get_pcvar_num(g_cv_squadspeed));
+
+	for (new bot = 1; bot < MAXPL; bot++)
+	{
+		new leader = g_squad_leader[bot];
+		if (!leader)
+		{
+			continue;
+		}
+
+		// The order dies with the officer, with the round, or if they swap class.
+		if (!is_user_connected(bot) || !is_user_alive(bot) || g_elim[bot]
+			|| !is_officer(leader)
+			|| g_match_team[bot] != g_match_team[leader])
+		{
+			g_squad_leader[bot] = 0;
+			continue;
+		}
+
+		new Float:bo[3], Float:lo[3];
+		pev(bot, pev_origin, bo);
+		pev(leader, pev_origin, lo);
+
+		new Float:d[3];
+		d[0] = lo[0] - bo[0];
+		d[1] = lo[1] - bo[1];
+		d[2] = lo[2] - bo[2];
+		new Float:dist = vector_length(d);
+
+		if (dist <= want)
+		{
+			continue;   // close enough; leave them to rcbot entirely
+		}
+
+		/*
+		 * Lost them completely: put them back.
+		 *
+		 * Without this a bot that rcbot has walked into another room simply never
+		 * comes back, because nudging a velocity cannot beat rcbot's own pathing
+		 * over a long distance. A warp is blunt but it is the difference between the
+		 * order working and the order being decorative.
+		 */
+		if (dist > warp)
+		{
+			new Float:dest[3];
+			dest[0] = lo[0];
+			dest[1] = lo[1];
+			dest[2] = lo[2] + 8.0;
+			engfunc(EngFunc_SetOrigin, bot, dest);
+			dbgv("squad: warped bot %d back to officer %d (%.0f units)", bot, leader, dist);
+			continue;
+		}
+
+		if (dist < 1.0)
+		{
+			continue;
+		}
+
+		new Float:vel[3];
+		vel[0] = (d[0] / dist) * speed;
+		vel[1] = (d[1] / dist) * speed;
+		pev(bot, pev_velocity, vel[2]);   // leave vertical motion to the engine
+		set_pev(bot, pev_velocity, vel);
+	}
+}
+
+/// True when classname appears in that cvar's comma-separated list.
+bool:classname_in_list(pcvar, const classname[])
+{
+	new list[192];
+	get_pcvar_string(pcvar, list, charsmax(list));
+	if (!list[0] || !classname[0])
+	{
+		return false;
+	}
+
+	new rest[192], carry[192], item[48];
+	copy(rest, charsmax(rest), list);
+
+	for (new guard = 0; guard < 24 && rest[0]; guard++)
+	{
+		strtok(rest, item, charsmax(item), carry, charsmax(carry), ',', 0);
+		copy(rest, charsmax(rest), carry);
+		if (item[0] && equali(item, classname))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/*
+ * Hides teammates from a bot's line of sight.
+ *
+ * THIS is what stops bots shooting their own side. Everything before it failed,
+ * and all of it failed for the same reason: it tried to reach a decision that is
+ * made inside rcbot's compiled binary. rcbot picks its own targets, its team
+ * support for TS is broken upstream, and no setting it exposes changes that.
+ *
+ * So this does not argue with the decision -- it removes the input. A bot asks the
+ * engine whether it can see a player by tracing a line to them. When that trace
+ * comes back empty the teammate is not a candidate, and no team logic is needed
+ * anywhere.
+ *
+ * The trace is reported CLEAR rather than blocked, so bots shoot straight through
+ * a teammate at whatever is behind them. That is deliberate. Reporting a wall
+ * instead would make bots hold fire every time a teammate crossed their line, and
+ * friendly damage is already refused outright by fw_takedamage, so a bullet that
+ * passes through costs nothing.
+ *
+ * Cost matters here: this fires for every line of sight every bot tests, so the
+ * guards are ordered cheapest first and the bot lookup is a cached array rather
+ * than a native call. tsm_bot_blind_ff 0 switches it off live.
+ */
+public fw_traceline(const Float:start[3], const Float:end[3], noMonsters, skip, tr)
+{
+	// Plain array reads first, then a cvar, then anything that touches an entity.
+	if (skip < 1 || skip >= MAXPL || !g_is_bot[skip])
+	{
+		return FMRES_IGNORED;
+	}
+	g_traces_seen++;
+
+	new team = g_match_team[skip];
+	if (team != 1 && team != 2 || g_state != ST_LIVE)
+	{
+		return FMRES_IGNORED;
+	}
+	if (!get_pcvar_num(g_cv_blindff))
+	{
+		return FMRES_IGNORED;
+	}
+
+	new hit = get_tr2(tr, TR_pHit);
+	if (hit < 1 || hit >= MAXPL || g_match_team[hit] != team)
+	{
+		return FMRES_IGNORED;
+	}
+
+	// Clear through: no hit, full fraction, and the end point the caller asked for.
+	set_tr2(tr, TR_pHit, 0);
+	set_tr2(tr, TR_flFraction, 1.0);
+	set_tr2(tr, TR_vecEndPos, end);
+	g_blinded++;
+
+	return FMRES_IGNORED;
+}
+
+/*
+ * Refuses a powerup pickup.
+ *
+ * Touch is an entity call the server makes itself, which is the only reason this
+ * works on bots. The usepowerup command hook next to it never saw one: a fake
+ * client sends no client commands, so register_clcmd can never fire for a bot.
+ * That is the same mistake that left friendly fire unblocked for bots, and it is
+ * why they were helping themselves to powerups while players could not.
+ */
+public fw_touch(touched, toucher)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_nopowerups))
+	{
+		return FMRES_IGNORED;
+	}
+	if (toucher < 1 || toucher >= MAXPL || !pev_valid(touched))
+	{
+		return FMRES_IGNORED;
+	}
+
+	new cls[32];
+	cls[0] = 0;
+	pev(touched, pev_classname, cls, charsmax(cls));
+	if (!equal(cls, "ts_powerup"))
+	{
+		return FMRES_IGNORED;
+	}
+
+	dbgv("powerup pickup refused for %d", toucher);
+	return FMRES_SUPERCEDE;
+}
+
+
+/*
+ * Forces one entity open for a Breacher.
+ *
+ * HL locks a door in two different ways, and only one of them is reachable from
+ * here:
+ *
+ *   SF_DOOR_USE_ONLY in spawnflags -- the door will not be touched open and answers
+ *   only +USE. That lives in entvars, so it is cleared below, and clearing it is
+ *   what makes an otherwise sealed door respond at all.
+ *
+ *   A master entity (the "master" keyvalue, usually a multisource). That is in the
+ *   door's private data, NOT in entvars, so it can be neither read nor cleared from
+ *   a plugin. For those doors, put the master or the trigger that feeds it in
+ *   tsm_breach_entities instead of the door itself -- firing the master is what
+ *   unlocks the door, and a master IS reachable.
+ */
+breach_entity(id, ent)
+{
+	if (ent < 1)
+	{
+		return;
+	}
+
+	new flags = pev(ent, pev_spawnflags);
+	if (flags & TSM_SF_DOOR_USE_ONLY)
+	{
+		set_pev(ent, pev_spawnflags, flags & ~TSM_SF_DOOR_USE_ONLY);
+	}
+
+	dllfunc(DLLFunc_Use, ent, id, id, 2, 0.0);   // 2 = USE_TOGGLE
+
+	/*
+	 * Then whatever it targets.
+	 *
+	 * A door is frequently a shell that fires the real mover, and double doors are
+	 * two entities that each open the other -- forcing only the brush under the
+	 * crosshair leaves half the doorway shut.
+	 */
+	new tgt[64];
+	tgt[0] = 0;
+	pev(ent, pev_target, tgt, charsmax(tgt));
+	if (tgt[0])
+	{
+		new linked = -1;
+		for (new guard = 0; guard < 16; guard++)
+		{
+			linked = engfunc(EngFunc_FindEntityByString, linked, "targetname", tgt);
+			if (linked <= 0)
+			{
+				break;
+			}
+			dllfunc(DLLFunc_Use, linked, id, id, 2, 0.0);
+		}
+	}
+}
+
+/*
+ * What +USE does for a class with a perk: resupply a teammate as a Combat Engineer,
+ * or force an entity open as a Breacher.
+ *
+ * Deliberately open-ended -- tsm_eng_entities is empty by default, so until maps ship
+ * entities meant for this, +USE against the world behaves exactly as stock TS.
+ */
+perk_use(id)
+{
+	if (!is_user_alive(id) || !g_class_count)
+	{
+		return;
+	}
+
+	g_perk_at[id] = get_gametime();
+
+	new ci = resolved_class(id) - 1;
+	new perk = g_class_perk[ci];
+	if (perk != TSM_PERK_ENGINEER && perk != TSM_PERK_BREACHER && perk != TSM_PERK_MEDIC)
+	{
+		return;
+	}
+
+	new Float:start[3], Float:vo[3], Float:ang[3], Float:fwd[3], Float:dest[3];
+	pev(id, pev_origin, start);
+	pev(id, pev_view_ofs, vo);
+	start[0] += vo[0];
+	start[1] += vo[1];
+	start[2] += vo[2];
+
+	pev(id, pev_v_angle, ang);
+	engfunc(EngFunc_MakeVectors, ang);
+	global_get(glb_v_forward, fwd);
+
+	new reach = g_cv_engrange;
+	if (perk == TSM_PERK_BREACHER)
+	{
+		reach = g_cv_breachrange;
+	}
+	else if (perk == TSM_PERK_MEDIC)
+	{
+		reach = g_cv_medrange;
+	}
+	new Float:range = float(get_pcvar_num(reach));
+	dest[0] = start[0] + fwd[0] * range;
+	dest[1] = start[1] + fwd[1] * range;
+	dest[2] = start[2] + fwd[2] * range;
+
+	engfunc(EngFunc_TraceLine, start, dest, 0, id, 0);
+	new hit = get_tr2(0, TR_pHit);
+	if (hit < 1)
+	{
+		return;
+	}
+
+	// A teammate. The engineer resupplies one, the medic heals one, and the
+	// breacher has nothing to do with one.
+	if (hit < MAXPL && is_user_connected(hit))
+	{
+		if (perk != TSM_PERK_ENGINEER && perk != TSM_PERK_MEDIC)
+		{
+			return;
+		}
+
+		if (hit == id || !is_user_alive(hit) || g_elim[hit] || g_locked_out[hit])
+		{
+			return;
+		}
+		if (g_match_team[hit] != g_match_team[id] || !g_match_team[id])
+		{
+			return;
+		}
+
+		if (perk == TSM_PERK_MEDIC)
+		{
+			medic_heal(id, hit);
+			return;
+		}
+
+		if (g_eng_used[id])
+		{
+			client_print(id, print_chat, "[MATCH] You have already resupplied someone this round.");
+			return;
+		}
+
+		g_eng_used[id] = true;
+		give_ammo_to(hit);
+
+		new a[32], b[32];
+		get_user_name(id, a, charsmax(a));
+		get_user_name(hit, b, charsmax(b));
+		client_print(id,  print_chat, "[MATCH] You resupplied %s. That is your one for this round.", b);
+		client_print(hit, print_chat, "[MATCH] %s resupplied you.", a);
+		dbg("engineer %d resupplied %d", id, hit);
+		return;
+	}
+
+	// A map entity, but only one the server allows.
+	new cls[48];
+	pev(hit, pev_classname, cls, charsmax(cls));
+
+	if (perk == TSM_PERK_BREACHER)
+	{
+		if (!classname_in_list(g_cv_breachents, cls))
+		{
+			dbgv("breach: '%s' is not in tsm_breach_entities", cls);
+			return;
+		}
+
+		breach_entity(id, hit);
+		client_print(id, print_center, "Breached.");
+		dbg("breacher %d forced '%s' (ent %d)", id, cls, hit);
+		return;
+	}
+
+	if (classname_in_list(g_cv_engents, cls))
+	{
+		dllfunc(DLLFunc_Use, hit, id, id, 2, 0.0);
+		dbg("engineer %d used entity '%s'", id, cls);
+	}
+}
+
+bool:warmup_hold_active()
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_warmhold))
+	{
+		return false;
+	}
+
+	new t1[32], t2[32], mode[16];
+	get_pcvar_string(g_cv_team1name, t1, charsmax(t1));
+	get_pcvar_string(g_cv_team2name, t2, charsmax(t2));
+	get_pcvar_string(g_cv_teammode, mode, charsmax(mode));
+
+	// Number mode does not need names, so it is allowed to hold.
+	if (equali(mode, "number"))
+	{
+		return true;
+	}
+	if (!t1[0] || !t2[0])
+	{
+		return false;
+	}
+	return true;
+}
+
+/*
+ * Learns the team names (or confirms the numbers) by LOOKING at who is connected,
+ * instead of demanding they be configured by hand.
+ *
+ * Requiring manual config for something observable was the original sin here: with
+ * the names blank, every team lookup returned 0, which silently disabled the warmup
+ * hold, made ready-up uncountable and stopped any round from ever starting. Four
+ * symptoms, one unset cvar.
+ *
+ * Returns true once teams are usable.
+ */
+bool:autodetect_teams()
+{
+	new mode[16];
+	get_pcvar_string(g_cv_teammode, mode, charsmax(mode));
+
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	if (pnum < 1)
+	{
+		return false;
+	}
+
+	// Collect the distinct non-zero numbers and non-empty names in play.
+	new nums[4], nnum = 0;
+	new names[4][32], nname = 0;
+	new tname[32], tnum;
+
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		tname[0] = 0;
+		tnum = get_user_team(id, tname, charsmax(tname));
+
+		if (tnum > 0 && nnum < sizeof(nums))
+		{
+			new bool:seen = false;
+			for (new k = 0; k < nnum; k++)
+			{
+				if (nums[k] == tnum) { seen = true; }
+			}
+			if (!seen)
+			{
+				nums[nnum] = tnum;
+				nnum++;
+			}
+		}
+
+		if (tname[0] && nname < sizeof(names))
+		{
+			new bool:seenn = false;
+			for (new k = 0; k < nname; k++)
+			{
+				if (equali(names[k], tname)) { seenn = true; }
+			}
+			if (!seenn)
+			{
+				copy(names[nname], charsmax(names[]), tname);
+				nname++;
+			}
+		}
+	}
+
+	// Explicit modes are respected; only "auto" is allowed to decide.
+	if (equali(mode, "number"))
+	{
+		return (nnum >= 2);
+	}
+
+	new t1[32], t2[32];
+	get_pcvar_string(g_cv_team1name, t1, charsmax(t1));
+	get_pcvar_string(g_cv_team2name, t2, charsmax(t2));
+
+	if (t1[0] && t2[0])
+	{
+		return true;   // already configured, nothing to learn
+	}
+
+	// Two distinct names seen: adopt them and say so loudly, because silently
+	// guessing team identity is the kind of thing that should never be invisible.
+	if (nname >= 2)
+	{
+		set_pcvar_string(g_cv_team1name, names[0]);
+		set_pcvar_string(g_cv_team2name, names[1]);
+		set_pcvar_string(g_cv_teammode, "name");
+		log_amx("[TSM] Auto-detected teams: team1='%s' team2='%s'. Set tsm_team1_name/tsm_team2_name in the cfg to pin these.", names[0], names[1]);
+		client_print(0, print_chat, "[MATCH] Teams detected: %s vs %s", names[0], names[1]);
+		return true;
+	}
+
+	return false;
+}
+
+/* ---- team identity ------------------------------------------------------- */
+
+/*
+ * The mod's live team value is only consulted ONCE, when the match goes live, and
+ * cached into g_match_team. Everything afterwards uses the cache, so a player whose
+ * team the mod changes mid-round cannot corrupt the round.
+ *
+ * Numbers vs names is still an open question on TS (get_user_team() was observed
+ * returning 0 with a meaningful name), so both are supported and chosen by cvar.
+ */
+tsm_live_team_of(id)
+{
+	/*
+	 * The plugin's own assignment wins.
+	 *
+	 * Every TS-side route to joining a team failed on this server -- jointeam by name,
+	 * jointeam by index, set_pev(pev_team) and the team userinfo key -- leaving
+	 * get_user_team() at -1 with an empty name for everyone. Since g_match_team[] is
+	 * already what round logic, alive counting, spawns, kill reports, balance and
+	 * classes all read, it simply becomes the source of truth. TS is still told, but
+	 * the match no longer depends on TS agreeing.
+	 */
+	if (g_match_team[id] == 1 || g_match_team[id] == 2)
+	{
+		return g_match_team[id];
+	}
+
+	new tname[32], mode[16];
+	tname[0] = 0;
+	new tnum = get_user_team(id, tname, charsmax(tname));
+
+	get_pcvar_string(g_cv_teammode, mode, charsmax(mode));
+
+	if (equali(mode, "number"))
+	{
+		if (tnum == 1 || tnum == 2)
+		{
+			return tnum;
+		}
+		return 0;
+	}
+
+	// "auto" resolves to name matching once autodetect_teams() has filled the names in.
+	// name mode
+	new t1[32], t2[32];
+	get_pcvar_string(g_cv_team1name, t1, charsmax(t1));
+	get_pcvar_string(g_cv_team2name, t2, charsmax(t2));
+
+	if (t1[0] && equali(tname, t1))
+	{
+		return 1;
+	}
+	if (t2[0] && equali(tname, t2))
+	{
+		return 2;
+	}
+	return 0;
+}
+
+/// Snapshots everyone's team at match start. This is the only time the mod is asked.
+cache_teams()
+{
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+
+		// Never overwrite an assignment the player made themselves. This used to
+		// re-read TS every round, which would wipe a plugin-side team back to 0 the
+		// moment TS reported nothing.
+		if (g_match_team[id] == 1 || g_match_team[id] == 2)
+		{
+			continue;
+		}
+		g_match_team[id] = tsm_live_team_of(id);
+	}
+}
+
+count_alive(team)
+{
+	new n = 0;
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if (g_match_team[id] == team && !g_elim[id] && is_user_alive(id))
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/*
+ * Applies the warmup presentation: hidden, non-solid, immune.
+ *
+ * Driven from the 1-second task rather than from PlayerPreThink, because PreThink is
+ * suspect in this mod exactly as CmdStart turned out to be -- and the freeze proves
+ * the timer path works. One second of granularity is irrelevant for something that
+ * only has to be true for the whole of warmup.
+ */
+apply_warmup_hide(id)
+{
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		return;
+	}
+	set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
+	if (get_pcvar_num(g_cv_warmhide))
+	{
+		set_pev(id, pev_effects, pev(id, pev_effects) | TSM_EF_NODRAW);
+		set_pev(id, pev_solid, TSM_SOLID_NOT);
+	}
+}
+
+/*
+ * Freezing, done with TS's own native rather than the engine.
+ *
+ * FM_CmdStart does NOT fire in this mod -- proven twice: the disarm test never
+ * stopped anyone attacking, and the warmup hold reported active while players moved
+ * freely. Zeroing the usercmd is therefore dead code here.
+ *
+ * tsfun gives ts_set_speed(), whose own include says "0.0 for speed will freeze
+ * people". It carries a duration, so a hold has to be RENEWED while it applies --
+ * task_tick does that every second.
+ */
+/*
+ * Holds a player in place.
+ *
+ * This used to take a duration, because ts_set_speed takes one, and that native was
+ * the wrong tool twice over: it scales the player's whole time base, so a held
+ * player's animations crawl and dying while held plays the death in slow motion --
+ * and ts_set_speed(id, 1.0, ...) does not reverse ts_set_speed(id, 0.0, ...), so the
+ * hold never lifted at all. The hold is now a flag re-asserted every frame in
+ * fw_prethink, which is confirmed to fire in TS, so there is nothing to expire and
+ * nothing to renew.
+ */
+hold_player(id, bool:disarm)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+
+	if (!g_frozen[id])
+	{
+		g_save_maxspeed[id] = Float:pev(id, pev_maxspeed);
+		if (g_save_maxspeed[id] <= 0.0)
+		{
+			g_save_maxspeed[id] = 320.0;
+		}
+	}
+
+	g_frozen[id] = true;
+	apply_freeze(id);
+
+	// Weapons are only taken from players who are OUT of a round. During warmup a
+	// frozen player cannot act anyway, and stripping them would throw away the
+	// loadout they are about to need.
+	if (disarm)
+	{
+		strip_user_weapons(id);
+	}
+}
+
+/*
+ * Whether this player should be held RIGHT NOW, derived purely from match state.
+ *
+ * The hold used to be a flag set by a one-second timer, which left gaps: anyone who
+ * spawned just after a tick had up to a full second of free movement, and start_round
+ * releases everybody before the freeze begins, so there was a guaranteed gap at the
+ * top of every countdown. Deriving it per frame closes both.
+ */
+bool:should_hold(id)
+{
+	if (!is_user_connected(id))
+	{
+		return false;
+	}
+
+	/*
+	 * Roaming beats every other reason to hold.
+	 *
+	 * .roam exists for placing spawn points: walking the map to pick positions is
+	 * impossible while the warmup hold has you clamped in place, and doing it with a
+	 * live match running means doing it under fire.
+	 *
+	 * Checked first so it overrides the spectator hold, the warmup hold and the freeze
+	 * alike -- a roamer is deliberately outside all of them.
+	 */
+	if (g_roaming[id])
+	{
+		return false;
+	}
+
+	// Spectators are held in every state. They are not in the match and must never be
+	// able to act in it, but they stay in the world so they can still watch -- and the
+	// hold only clamps movement and attack, so menus still work for them.
+	if (is_spectating(id))
+	{
+		return true;
+	}
+
+	// Locked out for the whole match: held in every state until it ends.
+	if (g_locked_out[id])
+	{
+		return (g_state != ST_WARMUP && g_state != ST_READYUP);
+	}
+
+	if (g_state == ST_FREEZE || g_state == ST_ROUNDEND)
+	{
+		return (tsm_live_team_of(id) != 0);
+	}
+
+	if (g_state == ST_WARMUP || g_state == ST_READYUP)
+	{
+		// Teamless players are never held -- they still have to reach the side menu.
+		return (warmup_hold_active() && tsm_live_team_of(id) != 0);
+	}
+
+	if (g_state == ST_LIVE)
+	{
+		return g_elim[id];
+	}
+
+	return false;
+}
+
+/// Re-applies whichever hold mechanism tsm_freeze_method selects.
+apply_freeze(id)
+{
+	new Float:zero[3];
+	set_pev(id, pev_velocity, zero);
+
+	switch (get_pcvar_num(g_cv_freezemethod))
+	{
+		case 1:
+		{
+			// Kept selectable, but it does not actually hold anyone in TS: players
+			// were measured walking around during warmup with this flag set.
+			set_pev(id, pev_flags, pev(id, pev_flags) | TSM_FL_FROZEN);
+		}
+		default:
+		{
+			// Default. The flag is set as well because it costs nothing, but the
+			// clamp that does the work is re-applied from the POST hooks, after TS
+			// has written its own value for the frame.
+			set_pev(id, pev_flags, pev(id, pev_flags) | TSM_FL_FROZEN);
+			set_pev(id, pev_maxspeed, 1.0);
+		}
+	}
+}
+
+release_player(id)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+	g_frozen[id] = false;
+
+	// Undo EVERY hold mechanism, not just the one tsm_freeze_method currently
+	// selects. Otherwise a player held under one setting stays held forever after
+	// the cvar changes, which is exactly how a stuck player goes unexplained.
+	set_pev(id, pev_flags, pev(id, pev_flags) & ~TSM_FL_FROZEN);
+
+	// MOVETYPE_NONE cannot move at all, and an eliminated player is left on
+	// MOVETYPE_NOCLIP. Either one survives into the next round as "frozen in place"
+	// that no amount of flag-clearing explains, so normal walking movement is
+	// asserted rather than assumed.
+	new mt = pev(id, pev_movetype);
+	if (mt != TSM_MOVETYPE_WALK)
+	{
+		set_pev(id, pev_movetype, TSM_MOVETYPE_WALK);
+	}
+
+	set_pev(id, pev_maxspeed, wanted_speed());
+	set_user_maxspeed(id, wanted_speed());
+
+	/*
+	 * ts_set_speed is NOT called here, and that is the point.
+	 *
+	 * Players could move freely during warmup -- where hold_player runs every second
+	 * and never calls ts_set_speed -- and froze the instant the round went live,
+	 * which is the only moment release_player runs. The call meant to free them was
+	 * freezing them. tsfun documents the speed argument and not the duration, so
+	 * whatever ts_set_speed(id, 1.0, 0.0, 0.0) means to TS, it is not "restore".
+	 *
+	 * It is only used now when tsm_freeze_method is 3, which exists to reproduce the
+	 * old behaviour deliberately.
+	 */
+
+	// Undo the warmup hide explicitly. Leaving this to the normal restore path would
+	// mean anyone hidden during warmup walks into the round still invisible, which is
+	// strictly worse than not hiding them at all.
+	set_pev(id, pev_effects, pev(id, pev_effects) & ~TSM_EF_NODRAW);
+	set_pev(id, pev_rendermode, TSM_RENDER_NORMAL);
+	set_pev(id, pev_renderamt, 255.0);
+	set_pev(id, pev_solid, TSM_SOLID_SLIDEBOX);
+	set_pev(id, pev_takedamage, TSM_DAMAGE_AIM);
+
+	new rname[32];
+	get_user_name(id, rname, charsmax(rname));
+	dbg("released %s: movetype %d -> %d, maxspeed -> %.0f, FL_FROZEN cleared",
+		rname, mt, pev(id, pev_movetype), Float:pev(id, pev_maxspeed));
+}
+
+/* ---- presentation: removing a player from play --------------------------- */
+
+save_presentation(id)
+{
+	if (g_saved[id])
+	{
+		return;
+	}
+	g_save_solid[id]      = pev(id, pev_solid);
+	g_save_movetype[id]   = pev(id, pev_movetype);
+	g_save_effects[id]    = pev(id, pev_effects);
+	g_save_takedamage[id] = Float:pev(id, pev_takedamage);
+	pev(id, pev_origin, g_save_origin[id]);
+	g_saved[id] = true;
+}
+
+restore_presentation(id)
+{
+	if (!is_user_connected(id))
+	{
+		g_saved[id] = false;
+		return;
+	}
+
+	if (g_saved[id])
+	{
+		set_pev(id, pev_solid,      g_save_solid[id]);
+		set_pev(id, pev_movetype,   g_save_movetype[id]);
+		set_pev(id, pev_effects,    g_save_effects[id]);
+		set_pev(id, pev_takedamage, g_save_takedamage[id]);
+	}
+	else
+	{
+		// No snapshot: apply normal player values rather than leave them broken.
+		set_pev(id, pev_solid,      TSM_SOLID_SLIDEBOX);
+		set_pev(id, pev_movetype,   TSM_MOVETYPE_WALK);
+		set_pev(id, pev_effects,    pev(id, pev_effects) & ~TSM_EF_NODRAW);
+		set_pev(id, pev_takedamage, TSM_DAMAGE_AIM);
+	}
+	set_pev(id, pev_maxspeed, 320.0);
+	release_player(id);
+	g_saved[id] = false;
+}
+
+/// Parks an eliminated player out of the fight. Never touches iuser1 -- see header.
+remove_from_play(id)
+{
+	save_presentation(id);
+
+	set_pev(id, pev_solid,      TSM_SOLID_NOT);
+	set_pev(id, pev_movetype,   TSM_MOVETYPE_NOCLIP);
+	set_pev(id, pev_effects,    pev(id, pev_effects) | TSM_EF_NODRAW);
+	set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
+
+	// Frozen and disarmed through TS's own natives, because the engine-level route
+	// does not work in this mod.
+	hold_player(id, get_pcvar_num(g_cv_disarm) != DISARM_NONE);
+
+	pick_spec_target(id);
+}
+
+/* ---- following a teammate, without spectator mode ------------------------ */
+
+/*
+ * True when this viewer may watch that player.
+ *
+ * An ELIMINATED player watches their own side only -- they are still in the match
+ * and must not become a camera pointed at the enemy.
+ *
+ * Someone who CHOSE to spectate has no side at all, and the old test compared their
+ * team (0) against each candidate's, so it matched nobody and they could not follow
+ * anyone. They get to watch both teams, which is the entire point of spectating.
+ */
+bool:may_watch(viewer, cand)
+{
+	if (cand == viewer || g_elim[cand] || !is_user_alive(cand))
+	{
+		return false;
+	}
+	if (g_match_team[cand] != 1 && g_match_team[cand] != 2)
+	{
+		return false;   // not playing, nothing to watch
+	}
+
+	new vteam = g_match_team[viewer];
+	if (vteam != 1 && vteam != 2)
+	{
+		return true;    // no side of their own: anyone will do
+	}
+	return (g_match_team[cand] == vteam);
+}
+
+pick_spec_target(id)
+{
+	new players[32], pnum, cand;
+	get_players(players, pnum, g_pfa);   // alive
+	for (new i = 0; i < pnum; i++)
+	{
+		cand = players[i];
+		if (may_watch(id, cand))
+		{
+			g_spec_target[id] = cand;
+			return;
+		}
+	}
+	g_spec_target[id] = 0;
+}
+
+cycle_spec_target(id)
+{
+	new players[32], pnum, cand;
+	new found_current = 0;
+	get_players(players, pnum, g_pfa);
+
+	// Walk past the current target, then take the next eligible one.
+	for (new pass = 0; pass < 2; pass++)
+	{
+		for (new i = 0; i < pnum; i++)
+		{
+			cand = players[i];
+			if (!may_watch(id, cand))
+			{
+				continue;
+			}
+			if (pass == 0)
+			{
+				if (cand == g_spec_target[id])
+				{
+					found_current = 1;
+				}
+				else if (found_current)
+				{
+					g_spec_target[id] = cand;
+					return;
+				}
+			}
+			else
+			{
+				// Wrapped around.
+				g_spec_target[id] = cand;
+				return;
+			}
+		}
+	}
+}
+
+/* ---- hooks --------------------------------------------------------------- */
+
+public fw_cmdstart(id, uc_handle, seed)
+{
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return FMRES_IGNORED;
+	}
+
+	// Warmup hold: players cannot move or act until the match is readied up. This is
+	// what makes the plugin visibly in control instead of apparently absent.
+	if ((g_state == ST_WARMUP || g_state == ST_READYUP) && warmup_hold_active())
+	{
+		set_uc(uc_handle, UC_Buttons, 0);
+		set_uc(uc_handle, UC_Impulse, 0);
+		set_uc(uc_handle, UC_ForwardMove, 0.0);
+		set_uc(uc_handle, UC_SideMove, 0.0);
+		set_uc(uc_handle, UC_UpMove, 0.0);
+		return FMRES_IGNORED;
+	}
+
+	// Freeze time: nobody moves or acts.
+	if (g_state == ST_FREEZE)
+	{
+		set_uc(uc_handle, UC_Buttons, 0);
+		set_uc(uc_handle, UC_Impulse, 0);
+		set_uc(uc_handle, UC_ForwardMove, 0.0);
+		set_uc(uc_handle, UC_SideMove, 0.0);
+		set_uc(uc_handle, UC_UpMove, 0.0);
+		return FMRES_IGNORED;
+	}
+
+	if (g_state != ST_LIVE || !g_elim[id])
+	{
+		return FMRES_IGNORED;
+	}
+
+	// Read intent BEFORE stripping it, so the same hook that disarms is where the
+	// spectator-cycle keypress is noticed.
+	new buttons = get_uc(uc_handle, UC_Buttons);
+	if ((buttons & IN_ATTACK) && !(g_last_buttons[id] & IN_ATTACK))
+	{
+		cycle_spec_target(id);
+	}
+	g_last_buttons[id] = buttons;
+
+	if (get_pcvar_num(g_cv_disarm) != DISARM_NONE)
+	{
+		set_uc(uc_handle, UC_Buttons, 0);
+		set_uc(uc_handle, UC_Impulse, 0);
+		set_uc(uc_handle, UC_ForwardMove, 0.0);
+		set_uc(uc_handle, UC_SideMove, 0.0);
+		set_uc(uc_handle, UC_UpMove, 0.0);
+	}
+
+	return FMRES_IGNORED;
+}
+
+/*
+ * The "Game" column in the server browser.
+ *
+ * That column is the mod's game description, which the engine asks the game DLL for
+ * on every server query -- it is not the hostname and not a cvar TS exposes. This is
+ * how the custom modes in the browser list (Fu/Stunt/Boost, Zombie TDM, TSRP) get
+ * their own entry: they supersede the DLL's answer.
+ *
+ * The string is cached rather than read per call, because this fires on every
+ * incoming A2S_INFO query and a busy public server gets a lot of them.
+ */
+public fw_gamedesc()
+{
+	if (!g_gamedesc[0])
+	{
+		return FMRES_IGNORED;
+	}
+
+	forward_return(FMV_STRING, g_gamedesc);
+	return FMRES_SUPERCEDE;
+}
+
+/*
+ * Keeps a released player's maxspeed usable.
+ *
+ * Measured repeatedly at 0 during a live round with FL_FROZEN clear, movetype WALK,
+ * solid SLIDEBOX and our own hold flag down -- motionless with zero velocity. A zero
+ * maxspeed cannot move, so this is the last clamp standing. Whether TS zeroes it
+ * deliberately or it is residue from a ts_set_speed freeze set by an earlier build is
+ * unresolved; running post-DLL makes the question moot, because whatever TS writes is
+ * already written by the time this runs.
+ */
+public fw_prethink_post(id)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_forcespeed))
+	{
+		return FMRES_IGNORED;
+	}
+	if (!is_user_alive(id))
+	{
+		return FMRES_IGNORED;
+	}
+
+	// Holding and releasing are the same job from here: whatever TS wrote this frame
+	// has already been written, so this is the only place either value survives.
+	if (g_frozen[id] || g_elim[id])
+	{
+		set_pev(id, pev_maxspeed, 1.0);
+		return FMRES_IGNORED;
+	}
+
+	new Float:mult = class_speed_for(id);
+	new Float:target = wanted_speed() * mult;
+
+	/*
+	 * A class that is slower than normal has to be written EVERY frame, not just when
+	 * the value looks broken -- TS sets maxspeed from the held weapon each frame, so a
+	 * one-off write is overwritten immediately.
+	 */
+	if (mult != 1.0)
+	{
+		set_pev(id, pev_maxspeed, target);
+	}
+	else if (Float:pev(id, pev_maxspeed) <= 1.0)
+	{
+		set_pev(id, pev_maxspeed, target);
+		g_speed_fixes++;
+	}
+
+	return FMRES_IGNORED;
+}
+
+public fw_postthink_post(id)
+{
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return FMRES_IGNORED;
+	}
+
+	/*
+	 * NOT guarded on is_user_alive here, deliberately.
+	 *
+	 * A corpse is not alive, so an alive-only guard at the top would skip the one
+	 * thing below that exists to act on corpses -- the visibility restore. That guard
+	 * used to be here and would have made this whole fix dead code.
+	 *
+	 * The speed clamp further down keeps its own alive check instead.
+	 */
+	if (!is_user_connected(id))
+	{
+		return FMRES_IGNORED;
+	}
+
+	/*
+	 * Enforce the class model, every frame, SILENTLY.
+	 *
+	 * This is what finally makes class models stick. Writing the userinfo "model" key
+	 * only asks: TS answers on spawn and on every userinfo change by re-applying its
+	 * own mp_teammodels pick, and since each key write raises another userinfo change,
+	 * arguing with it is what made the model cycle every few seconds.
+	 *
+	 * pev->modelindex is the model the engine actually draws, and writing it raises no
+	 * event whatsoever. So TS keeps the key, we keep the picture, and neither provokes
+	 * the other. One integer compare per player per frame, a write only when TS has
+	 * just moved it.
+	 */
+	if (g_model_want_idx[id] > 0 && pev(id, pev_modelindex) != g_model_want_idx[id])
+	{
+		set_pev(id, pev_modelindex, g_model_want_idx[id]);
+	}
+
+	/*
+	 * Hold a killed player where they fell, AFTER the game DLL has had the frame.
+	 *
+	 * This is the whole "people go invisible the instant they are killed" bug, and
+	 * it was a hook-ordering mistake of exactly the kind the maxspeed clamp below
+	 * already exists to work around.
+	 *
+	 * TS is a deathmatch mod and respawns a dead player almost immediately, which
+	 * teleports them to a spawn point. From everyone else's view the body does not
+	 * fall -- it simply stops existing, and the corpse TS leaves behind turns up a
+	 * moment later with no death attached to it.
+	 *
+	 * The first attempt at this pinned the origin from the PRE hook, which runs
+	 * BEFORE the DLL. The DLL moved them anyway and the pin was overwritten on the
+	 * same frame, which is precisely the reported flicker of a body vanishing and
+	 * something reappearing shortly after. Written from the POST hook it lands
+	 * after the DLL has finished, so it is the value that survives the frame.
+	 *
+	 * Refusing the respawn outright through Ham_Spawn would be cleaner, and that is
+	 * what 0.99 tried. The debug log proves that hook never fires once in this mod:
+	 * zero hits across a whole session with verbose logging on, while the
+	 * PlayerPreThink path logged 28,565. So this is built on the hook that is
+	 * demonstrably delivered rather than the one that ought to be.
+	 */
+	/*
+	 * The body is kept visible by FORCE, every frame, for the whole linger.
+	 *
+	 * Declining to hide it was not enough. The plugin's own paths were audited and
+	 * the deathtrace shows nodraw staying clear for the full three seconds, yet the
+	 * body was still reported vanishing -- so something outside those paths can
+	 * clear it, and arguing about which is a waste of time. Asserting the visible
+	 * state here, after the game DLL has had the frame, means whatever did it is
+	 * undone before anyone sees it.
+	 *
+	 * Scoped to eliminated players inside the linger ONLY, so it cannot un-hide a
+	 * spectator or anyone held during warmup.
+	 */
+	if (get_pcvar_num(g_cv_bodyrestore)
+		&& g_elim[id]
+		&& g_elim_at[id] > 0.0
+		&& (get_gametime() - g_elim_at[id]) < get_pcvar_float(g_cv_deathlinger))
+	{
+		set_pev(id, pev_effects, pev(id, pev_effects) & ~TSM_EF_NODRAW);
+		set_pev(id, pev_rendermode, TSM_RENDER_NORMAL);
+		set_pev(id, pev_renderamt, 255.0);
+
+		if (pev(id, pev_solid) == TSM_SOLID_NOT)
+		{
+			set_pev(id, pev_solid, TSM_SOLID_SLIDEBOX);
+		}
+	}
+
+	if (get_pcvar_num(g_cv_bodyrestore)
+		&& g_elim[id]
+		&& g_elim_at[id] > 0.0
+		&& (get_gametime() - g_elim_at[id]) < get_pcvar_float(g_cv_deathlinger)
+		&& (g_death_org[id][0] || g_death_org[id][1] || g_death_org[id][2]))
+	{
+		new Float:still[3];
+		still[0] = 0.0;
+		still[1] = 0.0;
+		still[2] = 0.0;
+
+		engfunc(EngFunc_SetOrigin, id, g_death_org[id]);
+		set_pev(id, pev_velocity, still);
+		g_pinned++;
+	}
+
+	if (!get_pcvar_num(g_cv_forcespeed) || !is_user_alive(id))
+	{
+		return FMRES_IGNORED;
+	}
+
+	if (g_frozen[id] || g_elim[id])
+	{
+		set_pev(id, pev_maxspeed, 1.0);
+		return FMRES_IGNORED;
+	}
+
+	new Float:pmult = class_speed_for(id);
+	new Float:ptarget = wanted_speed() * pmult;
+
+	if (pmult != 1.0)
+	{
+		set_pev(id, pev_maxspeed, ptarget);
+	}
+	else if (Float:pev(id, pev_maxspeed) <= 1.0)
+	{
+		set_pev(id, pev_maxspeed, ptarget);
+		g_speed_fixes_post++;
+	}
+
+	return FMRES_IGNORED;
+}
+
+/// Normal running speed for this server, with a sane fallback.
+/*
+ * The movement multiplier this player's class imposes, or 1.0.
+ *
+ * Only while a round is LIVE, because that is the only time the class loadout is
+ * actually in their hands -- a Heavy should not be lumbering around warmup before
+ * they have been handed the M60.
+ */
+Float:class_speed_for(id)
+{
+	if (g_state != ST_LIVE || !get_pcvar_num(g_cv_classes) || !g_class_count)
+	{
+		return 1.0;
+	}
+
+	new c = g_player_class[id];
+	if (c < 1 || c > g_class_count)
+	{
+		return 1.0;
+	}
+
+	return g_class_speed[c - 1];
+}
+
+Float:wanted_speed()
+{
+	new Float:want = get_cvar_float("sv_maxspeed");
+	if (want <= 1.0)
+	{
+		want = 320.0;
+	}
+	return want;
+}
+
+/*
+ * Holds a player on the team they started the round with.
+ *
+ * TS changes team from the userinfo "team" key, so the change arrives here before
+ * anything else sees it and can simply be written back. Doing it here rather than on
+ * the one-second tick matters: a correction a second later still lets someone switch,
+ * shoot, and switch back, and alive-counting is wrong for every frame in between.
+ */
+public fw_userinfo(id, buffer)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_teamlock))
+	{
+		return FMRES_IGNORED;
+	}
+
+	// Teams are only fixed once a match is actually running. Warmup is when people
+	// are supposed to be picking sides.
+	if (g_state != ST_FREEZE && g_state != ST_LIVE && g_state != ST_ROUNDEND)
+	{
+		return FMRES_IGNORED;
+	}
+
+	if (!is_user_connected(id) || g_match_team[id] < 1)
+	{
+		return FMRES_IGNORED;
+	}
+
+	// SetClientKeyValue re-enters this forward, so without the guard the write below
+	// would recurse until the stack gave out.
+	if (g_in_userinfo[id])
+	{
+		return FMRES_IGNORED;
+	}
+
+	new want[32];
+	team_rawname(g_match_team[id], want, charsmax(want));
+	if (!want[0])
+	{
+		return FMRES_IGNORED;   // nothing reliable to put them back on
+	}
+
+	new got[32];
+	engfunc(EngFunc_InfoKeyValue, buffer, "team", got, charsmax(got));
+
+	/*
+	 * The class model is re-asserted on EVERY userinfo change, not only the ones that
+	 * also needed the team key corrected.
+	 *
+	 * TS re-applies its own mp_teammodels pick from CTSGameRules::GetPlayerModel on
+	 * this same event. The re-assert used to sit BELOW the early return just under
+	 * this comment, so whenever the team key was already right -- which is nearly
+	 * always -- the function returned and TS random team model stood. That is why
+	 * everyone wore a random team model instead of the one their class specifies.
+	 */
+	if (g_player_class[id] > 0)
+	{
+		g_in_userinfo[id] = true;
+		set_class_model(id, g_player_class[id] - 1);
+		g_in_userinfo[id] = false;
+	}
+
+	if (!got[0] || equali(got, want))
+	{
+		return FMRES_IGNORED;
+	}
+
+	g_in_userinfo[id] = true;
+	engfunc(EngFunc_SetClientKeyValue, id, buffer, "team", want);
+
+	// TS re-applies its team model on this same event, so a class model has to be
+	// re-asserted here or it reverts within about thirty frames.
+	if (g_player_class[id] > 0)
+	{
+		set_class_model(id, g_player_class[id] - 1);
+	}
+	g_in_userinfo[id] = false;
+
+	client_print(id, print_chat, "[MATCH] Teams are locked until the match ends. You are staying on %s.", want);
+	dbg("team lock: %d tried to move to '%s', put back on '%s'", id, got, want);
+
+	// NOT superceded. Superceding stops the mod processing the userinfo change at all,
+	// which breaks the scoreboard and team assignment outright. The value has already
+	// been corrected above, so letting TS handle it is both safe and necessary.
+	return FMRES_IGNORED;
+}
+
+/*
+ * Re-applies mp_teamlist (and optionally mp_teammodels) after the map has loaded.
+ *
+ * teamlist, teammodels, mapteams and defaultteam are worldspawn KEYVALUES, so the map
+ * sets them when it spawns -- which is after server.cfg and listenserver.cfg have run.
+ * With mp_teamoverride 1 the map wins, and correctly quoted config lines are simply
+ * discarded a moment later. That is why mp_teamlist kept reverting to names nobody
+ * configured and mp_teammodels kept emptying.
+ *
+ * The list is built from tsm_team1_name / tsm_team2_name, so the mod's teams and the
+ * plugin's idea of the teams cannot drift apart -- which is the root of most of the
+ * team-detection trouble this plugin has had.
+ */
+/*
+ * Refuses to let a team name be long enough to break TS's own storage.
+ *
+ * Silent corruption is the worst kind: the join appears to succeed, the plugin and
+ * the mod disagree, and every symptom points somewhere else. Worth a loud line at
+ * every map load.
+ */
+check_team_names()
+{
+	new n[32];
+
+	for (new t = 1; t <= 2; t++)
+	{
+		team_rawname(t, n, charsmax(n));
+		if (n[0] && strlen(n) > TSM_MAX_TEAMNAME)
+		{
+			log_amx("[TSM] *** TEAM NAME TOO LONG: '%s' is %d characters. TS truncates team names to %d.",
+				n, strlen(n), TSM_MAX_TEAMNAME);
+			log_amx("[TSM] *** Nobody will be able to join that side -- the mod will show them as spectators.");
+			log_amx("[TSM] *** Shorten tsm_team%d_name and mp_teamlist, then change map. Use tsm_team%d_label for the long display name.",
+				t, t);
+		}
+	}
+}
+
+force_team_list()
+{
+	if (!get_pcvar_num(g_cv_forceteams))
+	{
+		return;
+	}
+
+	new t1[32], t2[32];
+	team_rawname(1, t1, charsmax(t1));
+	team_rawname(2, t2, charsmax(t2));
+
+	if (!t1[0] || !t2[0])
+	{
+		return;   // nothing trustworthy to force
+	}
+
+	new sp[32];
+	get_pcvar_string(g_cv_specteam, sp, charsmax(sp));
+
+	// Quoted: an unquoted semicolon ends the command early in the engine's command
+	// buffer, which silently drops everything after the first team.
+	if (sp[0])
+	{
+		server_cmd("mp_teamlist ^"%s;%s;%s^"", t1, t2, sp);
+	}
+	else
+	{
+		server_cmd("mp_teamlist ^"%s;%s^"", t1, t2);
+	}
+
+	new models[96];
+	get_pcvar_string(g_cv_forcemodels, models, charsmax(models));
+	if (models[0])
+	{
+		server_cmd("mp_teammodels ^"%s^"", models);
+	}
+
+	server_exec();
+
+	/*
+	 * Read back rather than reconstructed. This line used to print "t1;t2" from the
+	 * local variables regardless of what was actually sent, so it reported a two-team
+	 * list while the command above was setting three -- the log was wrong, not the code.
+	 */
+	new live[96];
+	get_cvar_string("mp_teamlist", live, charsmax(live));
+	log_amx("[TSM] mp_teamlist is now '%s' (spectator slot %d).", live, live_spectator_index());
+
+	/*
+	 * BOTH menus are rebuilt here, not just the team one.
+	 *
+	 * This runs once at plugin_cfg and again on a short delay. The side menu worked
+	 * and the class menu did not, from near-identical code -- the only difference was
+	 * that the side menu got this second, later build and the class menu was only ever
+	 * created during plugin_cfg.
+	 */
+	build_team_menu();
+	build_class_menu();
+
+	log_amx("[TSM] Menus built: side=%d class=%d (%d class(es) parsed).",
+		g_team_menu, g_class_menu, g_class_count);
+}
+
+public task_force_teams()
+{
+	force_team_list();
+}
+
+refresh_gamedesc()
+{
+	get_pcvar_string(g_cv_gamedesc, g_gamedesc, charsmax(g_gamedesc));
+}
+
+public fw_prethink(id)
+{
+	g_prethink_calls++;
+
+	// Counted per player because the bot fixes that run from here are worthless if
+	// this forward never fires for a fake client, and that is not something the
+	// global counter above can show.
+	if (id >= 1 && id < MAXPL)
+	{
+		g_bot_prethinks[id]++;
+	}
+
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return FMRES_IGNORED;
+	}
+
+	// Above every early return below, so a held, spectating, eliminated or dead player
+	// is kept broke as well.
+	hold_cash(id);
+
+	// The hold is asserted here, before any state check, so it can never be skipped
+	// by an early return further down. This is the whole mechanism now -- there is no
+	// timer to renew and nothing to expire.
+	/*
+	 * Read the buttons BEFORE anything strips them.
+	 *
+	 * Spectator cycling used to live in fw_cmdstart, which never fires in TS -- so it
+	 * has never worked. Moving it here needs the raw value, because the hold below
+	 * clears the attack bits and an eliminated player is always held.
+	 */
+	new raw_buttons = pev(id, pev_button);
+
+
+	/*
+	 * Bots are made to reload on a timer.
+	 *
+	 * They run dry and then keep pulling the trigger: rcbot never saw the weapons
+	 * we handed out, because the loadout is written through TS's own buy commands
+	 * and applied by BuyArmament at spawn, so no pickup ever happened for it to
+	 * observe. Its ammo count, its reload decision and its decision to switch are
+	 * all working from an inventory it does not have.
+	 *
+	 * IN_RELOAD costs nothing when the clip is already full -- the weapon code
+	 * ignores it -- so this does not need to know how much ammo they have, which
+	 * is just as well because that lives in private data we cannot read.
+	 *
+	 * Set in the PRE hook, because the DLL turns pev->button into the pressed edge
+	 * the weapon code acts on. Driven from here rather than a task because
+	 * PlayerPreThink is the one path the logs prove reaches a fake client.
+	 */
+	if (g_state == ST_LIVE
+		&& is_user_bot(id)
+		&& is_user_alive(id)
+		&& !g_elim[id])
+	{
+		new Float:every = get_pcvar_float(g_cv_botreload);
+		if (every > 0.0 && (get_gametime() - g_bot_reload_at[id]) >= every)
+		{
+			g_bot_reload_at[id] = get_gametime();
+			set_pev(id, pev_button, pev(id, pev_button) | IN_RELOAD);
+		}
+	}
+
+	new bool:want_hold = should_hold(id);
+
+	if (want_hold)
+	{
+		// Picked up the instant they need holding, including the frame they respawn.
+		if (!g_frozen[id])
+		{
+			g_save_maxspeed[id] = Float:pev(id, pev_maxspeed);
+			if (g_save_maxspeed[id] <= 0.0)
+			{
+				g_save_maxspeed[id] = 320.0;
+			}
+			g_frozen[id] = true;
+			dbgv("hold engaged on %d (state %d)", id, g_state);
+		}
+
+		apply_freeze(id);
+
+		/*
+		 * Only the ATTACK bits are cleared, in the pre hook, because the game DLL's own
+		 * PlayerPreThink is what turns pev->button into the pressed/released edges that
+		 * weapon code acts on in PostThink -- clearing them first means the DLL never
+		 * sees the press.
+		 *
+		 * Deliberately NOT the whole button field and NOT pev_impulse. Movement is
+		 * already stopped by the maxspeed clamp, and wiping impulse every frame broke
+		 * menu input, including the team menu -- which left players unable to join a
+		 * team at all.
+		 */
+		set_pev(id, pev_button, pev(id, pev_button) & ~(IN_ATTACK | IN_ATTACK2));
+	}
+	else if (g_frozen[id])
+	{
+		// Released the frame the state stops calling for a hold, rather than waiting
+		// on whichever timer happens to run next.
+		dbgv("hold lifted on %d (state %d)", id, g_state);
+		release_player(id);
+	}
+
+	/*
+	 * No shooting outside a live round -- warmup, the freeze countdown, round end and
+	 * match end alike. Only the attack bits are cleared, so players can still walk
+	 * around and use menus during warmup; clearing every button would freeze them.
+	 */
+	if (g_state != ST_LIVE)
+	{
+		set_pev(id, pev_button, pev(id, pev_button) & ~(IN_ATTACK | IN_ATTACK2));
+	}
+
+	// Watch for deaths every frame. A suicide sends no useful DeathMsg and TS respawns
+	// players on its own, so without this a player can die and be back on their feet
+	// before any poll notices -- which is why a last-man suicide never ended the round.
+	if (g_state == ST_LIVE && !g_elim[id] && !g_locked_out[id] && g_match_team[id] > 0)
+	{
+		new bool:now_alive = (is_user_alive(id) != 0);
+
+		if (g_was_alive[id] && !now_alive && g_pending_elim[id] <= 0.0)
+		{
+			g_pending_elim[id] = get_gametime();
+		}
+		g_was_alive[id] = now_alive;
+
+		// Short grace so DeathMsg, which knows who the killer was, gets first refusal.
+		if (g_pending_elim[id] > 0.0 && (get_gametime() - g_pending_elim[id]) >= 0.3)
+		{
+			g_pending_elim[id] = 0.0;
+			g_elim[id] = true;
+			g_elim_at[id] = get_gametime();
+			g_body_logged[id] = 0;
+			pev(id, pev_origin, g_death_org[id]);
+			set_task(get_pcvar_float(g_cv_deathdelay), "task_remove_from_play", id + 7000);
+			// Same lookup as ev_death: a suicide genuinely has no killer, but a death
+			// that simply produced no DeathMsg usually does.
+			report_elimination(get_user_attacker(id), id);
+			dbg("frame watcher eliminated %d (no DeathMsg -- suicide or world death)", id);
+			check_round_end();
+		}
+	}
+
+	// Combat engineer. Read before the eliminated-player branch below, because that
+	// branch returns early for everyone who is still playing.
+	if (g_state == ST_LIVE && !g_elim[id] && !g_locked_out[id] && is_user_alive(id))
+	{
+		new btn = pev(id, pev_button);
+		if ((btn & IN_USE) && !(g_last_use[id] & IN_USE))
+		{
+			perk_use(id);
+		}
+		g_last_use[id] = btn;
+	}
+
+	// Spectators are invisible and intangible in every state, the same presentation an
+	// eliminated player gets -- they are in the world only to watch.
+	if (is_spectating(id))
+	{
+		if (is_user_alive(id))
+		{
+			set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
+			set_pev(id, pev_effects, pev(id, pev_effects) | TSM_EF_NODRAW);
+			set_pev(id, pev_rendermode, TSM_RENDER_TEXTURE);
+			set_pev(id, pev_renderamt, 0.0);
+			set_pev(id, pev_solid, TSM_SOLID_NOT);
+		}
+		return FMRES_IGNORED;
+	}
+
+	// Held in warmup: immune so a held player cannot be farmed, and hidden plus
+	// non-solid so nobody can body-block or shoot anyone before the match starts.
+	if ((g_state == ST_WARMUP || g_state == ST_READYUP) && warmup_hold_active())
+	{
+		// Same reasoning as the tick: someone with no team is still picking one, and
+		// hiding or freezing them stops them ever doing it.
+		if (!tsm_live_team_of(id))
+		{
+			return FMRES_IGNORED;
+		}
+
+		if (is_user_alive(id))
+		{
+			set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
+			if (get_pcvar_num(g_cv_warmhide))
+			{
+				// EF_NODRAW on its own was not hiding players in TS, so the alpha
+				// is zeroed as well. One of the two reliably takes.
+				set_pev(id, pev_effects, pev(id, pev_effects) | TSM_EF_NODRAW);
+				set_pev(id, pev_rendermode, TSM_RENDER_TEXTURE);
+				set_pev(id, pev_renderamt, 0.0);
+				set_pev(id, pev_solid, TSM_SOLID_NOT);
+			}
+		}
+		return FMRES_IGNORED;
+	}
+
+	if (g_state != ST_LIVE)
+	{
+		return FMRES_IGNORED;
+	}
+	if (!g_elim[id] || !is_user_connected(id))
+	{
+		return FMRES_IGNORED;
+	}
+
+	/*
+	 * Nothing at all happens to a player who is still dying.
+	 *
+	 * The hide was already deferred to elim_hide_due(), but the camera below was
+	 * not -- so from the frame of death the body was being SetOrigin'd to a point
+	 * above a teammate while it was still visible and solid. That is what put the
+	 * corpse inside whoever it had picked to follow, and it stayed there until the
+	 * body finally went away.
+	 *
+	 * Dying is left completely alone now. Spectating begins when the corpse does
+	 * go -- the moment TS puts them back on their feet, or the tsm_death_delay
+	 * ceiling if it never does.
+	 */
+	if (!elim_hide_due(id))
+	{
+		/*
+		 * THIS is what keeps the body on the floor.
+		 *
+		 * TS respawns a dead player the moment they press fire -- its own HUD message
+		 * says so: "%i seconds left for respawn, press Fire to Play!". A player almost
+		 * always dies with the trigger held, so CBasePlayer::PreThink computes
+		 * m_afButtonPressed with IN_ATTACK set, PlayerDeathThink respawns them on that
+		 * very frame, and the corpse goes with them -- in GoldSrc the corpse IS the
+		 * player entity, so a respawn does not leave one behind, it takes it away.
+		 *
+		 * Cleared from the PRE hook, which runs before CBasePlayer::PreThink derives
+		 * m_afButtonPressed from pev->button, so the DLL sees no attack at all this
+		 * frame. m_afButtonLast is reloaded from the same cleared value at the end of
+		 * that function, so there is no edge left for a later frame to find either.
+		 *
+		 * The Ham_Spawn refusal in fw_player_spawn cannot do this job: that hook is
+		 * never delivered in this mod -- zero hits across a whole session, which is the
+		 * same reason the friendly-fire cone and Ham_TakeDamage were abandoned.
+		 */
+		set_pev(id, pev_button, pev(id, pev_button) & ~(IN_ATTACK | IN_ATTACK2));
+
+		/*
+		 * Keep the body visible, from the PRE hook as well as the post one.
+		 *
+		 * CBasePlayer::PostThink returns early for a dead player, so a restore that
+		 * lives only in the PostThink hook may never run for a corpse -- which would
+		 * leave tsm_body_restore doing nothing whatsoever, exactly as reported.
+		 * PreThink has no such early-out and demonstrably runs for everyone.
+		 *
+		 * Three writes per dead player per frame, for three seconds. Cheap.
+		 */
+		if (get_pcvar_num(g_cv_bodyrestore))
+		{
+			new was_hidden = (pev(id, pev_effects) & TSM_EF_NODRAW) ? 1 : 0;
+
+			set_pev(id, pev_effects, pev(id, pev_effects) & ~TSM_EF_NODRAW);
+			set_pev(id, pev_rendermode, TSM_RENDER_NORMAL);
+			set_pev(id, pev_renderamt, 255.0);
+
+			/*
+			 * One line per death, at NORMAL log level rather than verbose.
+			 *
+			 * Whether this restore runs at all has been unanswerable: the per-frame
+			 * deathtrace only writes at tsm_debug_log 2, and with it off there is no
+			 * record either way. This fires once, on the first frame of each death, and
+			 * says whether something had already hidden the body before we got here.
+			 */
+			/*
+			 * Sampled twice: the frame of death, and again a moment later.
+			 *
+			 * The first sample already proved the body is NOT hidden -- was_hidden=0,
+			 * solid, valid modelindex, death animation playing -- and yet it is reported
+			 * as vanishing. A visible body that has MOVED looks identical to one that
+			 * disappeared, and origin is the one field never recorded. The second sample
+			 * says whether it stayed where it fell.
+			 */
+			if (g_body_logged[id] < 2)
+			{
+				new Float:bnow = get_gametime() - g_elim_at[id];
+
+				if ((g_body_logged[id] == 0) || (g_body_logged[id] == 1 && bnow >= 0.5))
+				{
+					new Float:borg[3];
+					pev(id, pev_origin, borg);
+
+					dbg("body restore: %d t=%.2f hidden=%d solid=%d mdl=%d seq=%d org=%.0f %.0f %.0f (died at %.0f %.0f %.0f)",
+						id, bnow, was_hidden, pev(id, pev_solid),
+						pev(id, pev_modelindex), pev(id, pev_sequence),
+						borg[0], borg[1], borg[2],
+						g_death_org[id][0], g_death_org[id][1], g_death_org[id][2]);
+
+					g_body_logged[id]++;
+				}
+			}
+		}
+
+		/*
+		 * The origin is left entirely alone while the body is on show. Pinning it was
+		 * treating the symptom: the body was not being moved, it was being respawned,
+		 * and a pin only dragged the respawned player back to the death spot -- which
+		 * is the flicker of a corpse replaced by a standing player.
+		 *
+		 * The trace below records the fields that CAN hide a player, every frame, for
+		 * as long as the body is meant to be up. It is kept because it is what showed
+		 * nodraw staying clear for the full linger while the body still went -- which
+		 * is what pointed at the respawn rather than at visibility.
+		 */
+		if (g_deathtrace_at[id] > 0.0 && get_pcvar_num(g_cv_dbglog) >= 2)
+		{
+			new Float:age = get_gametime() - g_deathtrace_at[id];
+			if (age > 4.0)
+			{
+				g_deathtrace_at[id] = 0.0;
+			}
+			else
+			{
+				// modelindex is the one that matters when nodraw is clear and the body is
+				// still not drawn: a model that was never precached has no index to send.
+				dbg("deathtrace %d t=%.2f alive=%d solid=%d nodraw=%d rm=%d ra=%.0f seq=%d modelindex=%d deadflag=%d movetype=%d",
+					id, age, is_user_alive(id) ? 1 : 0, pev(id, pev_solid),
+					(pev(id, pev_effects) & TSM_EF_NODRAW) ? 1 : 0,
+					pev(id, pev_rendermode), Float:pev(id, pev_renderamt),
+					pev(id, pev_sequence), pev(id, pev_modelindex),
+					pev(id, pev_deadflag), pev(id, pev_movetype));
+			}
+		}
+
+		g_last_buttons[id] = raw_buttons;
+		return FMRES_IGNORED;
+	}
+
+	/*
+	 * Attack = watch the next teammate. Edge-detected on the raw buttons captured at
+	 * the top, since the hold has already cleared them by now.
+	 */
+	if ((raw_buttons & IN_ATTACK) && !(g_last_buttons[id] & IN_ATTACK))
+	{
+		cycle_spec_target(id);
+	}
+	if ((raw_buttons & IN_ATTACK2) && !(g_last_buttons[id] & IN_ATTACK2))
+	{
+		cycle_spec_target(id);
+	}
+	g_last_buttons[id] = raw_buttons;
+
+	/*
+	 * Respawned after being eliminated: this is the moment they become a spectator.
+	 * save_presentation() inside remove_from_play() is guarded against running twice,
+	 * so calling it on the frame they come back is safe.
+	 */
+	if (g_elim_at[id] > 0.0 && is_user_alive(id) && pev(id, pev_solid) != TSM_SOLID_NOT)
+	{
+		dbgv("%d respawned after elimination -- taking them out of play now", id);
+		g_elim_at[id] = 0.0;
+		remove_from_play(id);
+	}
+
+	// Eliminated players are disarmed the same way the held ones are -- attack bits
+	// only, so their spectate controls and menus keep working.
+	set_pev(id, pev_button, pev(id, pev_button) & ~(IN_ATTACK | IN_ATTACK2));
+
+	// Re-asserted every frame because the mod re-applies its own values on respawn
+	// and whenever it feels like it. Past the guard above, the body is already due
+	// to be gone.
+	set_pev(id, pev_solid,      TSM_SOLID_NOT);
+	set_pev(id, pev_effects,    pev(id, pev_effects) | TSM_EF_NODRAW);
+	set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
+
+	new t = g_spec_target[id];
+	if (t && is_user_connected(t) && is_user_alive(t) && !g_elim[t])
+	{
+		// Follow by moving the view, not by spectating.
+		new Float:org[3];
+		pev(t, pev_origin, org);
+		org[2] = org[2] + 40.0;
+		engfunc(EngFunc_SetOrigin, id, org);
+
+		new Float:ang[3];
+		pev(t, pev_v_angle, ang);
+		set_pev(id, pev_angles, ang);
+		set_pev(id, pev_v_angle, ang);
+		set_pev(id, pev_fixangle, 1);
+	}
+	else
+	{
+		pick_spec_target(id);
+		if (!g_spec_target[id])
+		{
+			// Nobody left to watch: park them high above the map instead of
+			// leaving them loose in the arena.
+			new Float:org[3];
+			org[0] = g_save_origin[id][0];
+			org[1] = g_save_origin[id][1];
+			org[2] = g_save_origin[id][2] + float(get_pcvar_num(g_cv_holdz));
+			engfunc(EngFunc_SetOrigin, id, org);
+		}
+	}
+
+	return FMRES_IGNORED;
+}
+
+public msg_teaminfo(msgid, dest, ent)
+{
+	g_teaminfo_seen++;
+	if (g_teaminfo_seen == 1)
+	{
+		log_amx("[TSM] First TeamInfo seen -- this server IS running teamplay gamerules.");
+	}
+	return PLUGIN_CONTINUE;
+}
+
+/*
+ * Undoes damage between teammates.
+ *
+ * The damage is given back rather than prevented: stopping it outright needs a hook
+ * on the entity's TakeDamage, which lives in hamsandwich -- not loaded on this server
+ * -- and TS's own mp_friendlyfire keys off ITS idea of teams, which can disagree with
+ * ours. Healing on the Damage event needs neither.
+ *
+ * Knockback still applies; only the health loss is reversed.
+ */
+public ev_damage(id)
+{
+	if (!get_pcvar_num(g_cv_enabled) || get_pcvar_num(g_cv_friendlyfire))
+	{
+		return;
+	}
+	if (g_state != ST_LIVE || !is_user_alive(id))
+	{
+		return;
+	}
+
+	new attacker = get_user_attacker(id);
+	if (attacker < 1 || attacker >= MAXPL || attacker == id)
+	{
+		return;   // world damage, or self-inflicted -- both stand
+	}
+
+	new team = g_match_team[id];
+	if (team < 1 || g_match_team[attacker] != team)
+	{
+		return;   // not a teammate
+	}
+
+	new dmg = read_data(2);
+	if (dmg <= 0)
+	{
+		return;
+	}
+
+	// Capped at the class's own health so this can never be used to heal past maximum.
+	new cap = get_pcvar_num(g_cv_health);
+	if (g_class_count)
+	{
+		new ci = resolved_class(id) - 1;
+		if (ci >= 0 && ci < g_class_count)
+		{
+			cap = g_class_hp[ci];
+		}
+	}
+
+	new hp = get_user_health(id) + dmg;
+	if (hp > cap)
+	{
+		hp = cap;
+	}
+	set_user_health(id, hp);
+
+	client_print(attacker, print_chat, "[MATCH] Friendly fire is off -- that was a teammate.");
+	dbgv("friendly fire: %d hit %d for %d, refunded", attacker, id, dmg);
+}
+
+public ev_death()
+{
+	if (!get_pcvar_num(g_cv_enabled) || g_resetting)
+	{
+		return;
+	}
+
+	new killer = read_data(1);
+	new victim = read_data(2);
+
+	/*
+	 * DeathMsg does not always carry a usable killer here, and without one the report
+	 * falls through to the no-killer branch -- which is told to BOTH sides and carries
+	 * no health, which is exactly what a global, 0hp/0ap report looks like.
+	 *
+	 * The engine tracks the last entity to damage a player independently, so it is
+	 * used whenever DeathMsg comes up empty.
+	 */
+	if (killer < 1 || killer >= MAXPL || killer == victim)
+	{
+		new attacker = get_user_attacker(victim);
+		if (attacker >= 1 && attacker < MAXPL && attacker != victim)
+		{
+			dbgv("death: DeathMsg killer was %d, using attacker %d instead", killer, attacker);
+			killer = attacker;
+		}
+	}
+
+	if (victim < 1 || victim >= MAXPL)
+	{
+		return;
+	}
+	if (g_state != ST_LIVE)
+	{
+		return;   // warmup deaths are none of our business
+	}
+	if (g_elim[victim])
+	{
+		return;   // already out; this is TS re-killing a parked player
+	}
+
+	// The frame watcher may already have this death queued. Clear it so the same
+	// death is not reported twice -- DeathMsg wins because it knows the killer.
+	g_pending_elim[victim] = 0.0;
+
+	/*
+	 * Marked out IMMEDIATELY so round-end counting is correct this frame, but not
+	 * hidden until tsm_death_delay has passed -- the body should be seen to fall.
+	 */
+	g_elim[victim] = true;
+	g_elim_at[victim] = get_gametime();
+	g_body_logged[victim] = 0;
+	pev(victim, pev_origin, g_death_org[victim]);
+
+	// Watch what happens to the body for the next few seconds. If it vanishes and
+	// nothing here did it, the mod did -- and the log says which.
+	g_deathtrace_at[victim] = get_gametime();
+	set_task(get_pcvar_float(g_cv_deathdelay), "task_remove_from_play", victim + 7000);
+
+	report_elimination(killer, victim);
+	check_round_end();
+}
+
+/* ---- team-scoped kill reporting ----------------------------------------- */
+
+report_elimination(killer, victim)
+{
+	if (!get_pcvar_num(g_cv_report))
+	{
+		return;
+	}
+
+	new vname[32], kname[32];
+	get_user_name(victim, vname, charsmax(vname));
+
+	new vteam = g_match_team[victim];
+	new bool:has_killer = (killer >= 1 && killer < MAXPL && killer != victim && is_user_connected(killer));
+	new kteam = 0;
+
+	new hp[32];
+	hp[0] = 0;
+
+	if (has_killer)
+	{
+		get_user_name(killer, kname, charsmax(kname));
+		kteam = g_match_team[killer];
+
+		if (get_pcvar_num(g_cv_reporthp))
+		{
+			// Both are float entvars, so the Float: tag override is required.
+			new Float:fhp = Float:pev(killer, pev_health);
+			new Float:fap = Float:pev(killer, pev_armorvalue);
+			new khp = floatround(fhp);
+			new kap = floatround(fap);
+
+			/*
+			 * Only reported when it is believable. A killer who is somehow on 0hp is a
+			 * reading we failed to take, not a real state -- and '0hp / 0ap' is worse
+			 * than saying nothing, because it reads as hard intel and is wrong.
+			 */
+			if (khp > 0)
+			{
+				if (kap > 0)
+				{
+					formatex(hp, charsmax(hp), " -- on %dhp / %dap", khp, kap);
+				}
+				else
+				{
+					formatex(hp, charsmax(hp), " -- on %dhp", khp);
+				}
+			}
+			else
+			{
+				dbgv("kill report: could not read %d's health (got %d/%d)", killer, khp, kap);
+			}
+		}
+	}
+
+	if (!has_killer)
+	{
+		team_print(vteam, "[MATCH] %s was eliminated.", vname);
+		team_print(vteam == 1 ? 2 : 1, "[MATCH] %s was eliminated.", vname);
+	}
+	else if (kteam == vteam)
+	{
+		// Team kill: told only to the team it happened to, and not dressed up.
+		team_print(vteam, "[MATCH] TEAMKILL: %s eliminated %s.", kname, vname);
+	}
+	else
+	{
+		// The killer's side learns the trade and their own man's condition.
+		team_print(kteam, "[MATCH] %s eliminated %s%s", kname, vname, hp);
+		// The victim's side learns who did it and how hurt they are -- the
+		// actionable half, and the reason this is team-scoped.
+		team_print(vteam, "[MATCH] %s was eliminated by %s%s", vname, kname, hp);
+	}
+
+	new a1 = count_alive(1);
+	new a2 = count_alive(2);
+	team_print(1, "[MATCH] %d alive vs %d alive", a1, a2);
+	team_print(2, "[MATCH] %d alive vs %d alive", a2, a1);
+}
+
+team_print(team, const fmt[], any:...)
+{
+	if (team != 1 && team != 2)
+	{
+		return;
+	}
+	new msg[192];
+	vformat(msg, charsmax(msg), fmt, 3);
+
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if (g_match_team[id] == team)
+		{
+			client_print(id, print_chat, "%s", msg);
+		}
+	}
+}
+
+all_print(const fmt[], any:...)
+{
+	new msg[192];
+	vformat(msg, charsmax(msg), fmt, 2);
+	client_print(0, print_chat, "%s", msg);
+}
+
+/* ---- round flow ---------------------------------------------------------- */
+
+check_round_end()
+{
+	if (g_state != ST_LIVE)
+	{
+		return;
+	}
+
+	// A side that began the round with nobody has not been "eliminated" -- there was
+	// never anyone to eliminate. Without this the round ends the instant it starts,
+	// forever, which also leaves everyone permanently frozen and weaponless because
+	// the freeze and the loadout reset are re-run on every cycle.
+	if (!g_start_alive[1] || !g_start_alive[2])
+	{
+		return;
+	}
+
+	new a1 = count_alive(1);
+	new a2 = count_alive(2);
+
+	if (a1 > 0 && a2 > 0)
+	{
+		return;
+	}
+
+	new winner = 0;
+	if (a1 > 0)
+	{
+		winner = 1;
+	}
+	else if (a2 > 0)
+	{
+		winner = 2;
+	}
+
+	/*
+	 * Held for tsm_roundend_delay before the round actually ends.
+	 *
+	 * Ending on the frame the last enemy dies froze and hid everyone mid-kill --
+	 * the shot that won the round and the round ending were the same instant, so
+	 * nobody got to see it happen. The delay is also what lets the last death play
+	 * out, because ST_ROUNDEND holds every player the moment it starts.
+	 */
+	if (g_end_pending_at <= 0.0)
+	{
+		g_end_pending_at = get_gametime();
+		g_end_pending_winner = winner;
+		dbg("round won by %d -- holding %.1fs before ending it",
+			winner, get_pcvar_float(g_cv_endelay));
+		return;
+	}
+
+	if ((get_gametime() - g_end_pending_at) < get_pcvar_float(g_cv_endelay))
+	{
+		return;
+	}
+
+	// The winner is the one from when the condition was FIRST met. Re-reading it
+	// here would let a late respawn inside the delay change who won.
+	new decided = g_end_pending_winner;
+	g_end_pending_at = 0.0;
+	g_end_pending_winner = 0;
+	end_round(decided);
+}
+
+end_round(winner)
+{
+	// Belt and braces against a second entry before the state change lands: a
+	// duplicated end would double-count the score and queue two next-rounds, which
+	// is one way a match can blow straight past its win total.
+	if (g_state != ST_LIVE)
+	{
+		return;
+	}
+
+	g_state = ST_ROUNDEND;
+	remove_task(2);
+	remove_task(4);
+
+	// Cleared here as well, so a round ended any OTHER way (time up, a forfeit, an
+	// admin command) does not leave a stale hold to trip the next round's check.
+	g_end_pending_at = 0.0;
+	g_end_pending_winner = 0;
+
+	if (winner)
+	{
+		g_score[winner]++;
+		new wonname[32];
+		team_display(winner, wonname, charsmax(wonname));
+		all_print("[MATCH] Round %d won by %s. Score: %d -- %d.",
+			g_round, wonname, g_score[1], g_score[2]);
+	}
+	else
+	{
+		all_print("[MATCH] Round %d drawn. Score: %d -- %d.", g_round, g_score[1], g_score[2]);
+	}
+
+	show_score_hud();
+
+	new need = (get_pcvar_num(g_cv_rounds) / 2) + 1;
+	if (need < 1)
+	{
+		need = 1;   // a nonsense tsm_rounds must not mean "never end"
+	}
+	if (g_score[1] >= need || g_score[2] >= need)
+	{
+		set_task(3.0, "task_match_end", 4);
+	}
+	else
+	{
+		set_task(3.0, "task_next_round", 4);
+	}
+}
+
+public task_next_round()
+{
+	start_round();
+}
+
+public task_match_end()
+{
+	g_state = ST_MATCHEND;
+	new w = (g_score[1] > g_score[2]) ? 1 : 2;
+	new wname[32];
+	team_display(w, wname, charsmax(wname));
+	all_print("[MATCH] MATCH OVER -- %s wins, %d -- %d.", wname, g_score[1], g_score[2]);
+	restore_all();
+	set_task(5.0, "task_to_warmup");
+}
+
+/*
+ * Clears everything that belongs to a match rather than to a round.
+ *
+ * Kept as one function so the three ways a match can end -- finishing, being
+ * cancelled, being restarted -- cannot drift apart. They had: cancelling returned to
+ * warmup but left players still classed and late joiners still locked out of a match
+ * that no longer existed.
+ */
+clear_match_state()
+{
+	for (new i = 1; i < MAXPL; i++)
+	{
+		g_locked_out[i] = false;
+		g_player_class[i] = 0;
+		g_class_menu_at[i] = 0.0;
+		g_team_menu_at[i] = 0.0;
+		g_eng_used[i] = false;
+		g_medic_at[i] = 0.0;
+		g_squad_leader[i] = 0;
+
+		// Per MATCH, not per round: a player who changed appearance every round
+		// would be unrecognisable to their own side.
+		g_model_pick[i] = 0;
+		g_arm_pending[i] = 0;
+		g_issuing[i] = false;
+		g_elim[i] = false;
+		g_start_alive[1] = 0;
+		g_start_alive[2] = 0;
+		remove_task(i);          // any pending armament respawn
+	}
+	g_warned_empty = false;
+}
+
+/*
+ * Lets bots pick sides again after a match.
+ *
+ * g_match_team was cleared when they were parked, so assign_bot() places each of them
+ * fresh -- which is the point of parking them at all: sides are rebalanced rather than
+ * carried over from the match that just finished.
+ */
+public task_unpark_bots()
+{
+	if (!get_pcvar_num(g_cv_bots))
+	{
+		return;
+	}
+
+	g_bots_parked = false;
+
+	new bp[32], bnum, n = 0;
+	get_players(bp, bnum, g_pf);
+	for (new i = 0; i < bnum; i++)
+	{
+		if (is_user_bot(bp[i]))
+		{
+			assign_bot(bp[i]);
+			n++;
+		}
+	}
+
+	if (n)
+	{
+		all_print("[MATCH] %d bot(s) back in and picking sides.", n);
+		dbg("unparked %d bot(s) after the match", n);
+	}
+}
+
+public task_to_warmup()
+{
+	// The match is over, so the lockout ends here -- everyone becomes eligible again.
+	clear_match_state();
+
+	g_state = ST_WARMUP;
+
+	/*
+	 * Everyone goes back to spectator between matches and opts in again.
+	 *
+	 * Sides are re-picked rather than carried over, so the balance check gets a say
+	 * before the next match instead of inheriting whatever the last one ended with.
+	 */
+	/*
+	 * Bots are parked too, and STAY parked.
+	 *
+	 * Without the flag the one-second poll put them straight back on a side, so they
+	 * never actually sat out -- sides carried over from the finished match and the
+	 * balance check never got a say. They are brought back in by begin_match().
+	 */
+	g_bots_parked = true;
+
+	// They come back on their own after a breather -- see task_unpark_bots.
+	remove_task(9);
+	set_task(get_pcvar_float(g_cv_botreturn), "task_unpark_bots", 9);
+
+	new wp[32], wnum;
+	get_players(wp, wnum, g_pf);
+	for (new i = 0; i < wnum; i++)
+	{
+		force_spectator(wp[i]);
+
+		// Only humans get the menu -- a bot cannot answer one.
+		if (!is_user_bot(wp[i]))
+		{
+			set_task(2.0, "task_show_side", wp[i] + 2000);
+		}
+	}
+	all_print("[MATCH] Everyone is spectating. Pick a side to play the next match, or type .menu.");
+	g_round = 0;
+	g_score[1] = 0;
+	g_score[2] = 0;
+	reset_ready();
+	all_print("[MATCH] Back in warmup. Type .ready when you are.");
+}
+
+start_round()
+{
+	g_round++;
+	g_resetting = true;
+
+	// Re-forced every round: cashforwin and cashforlose are read at the END of one,
+	// and a map change or an rcon set in between would have put them back.
+	kill_ts_cash_cvars();
+
+	// Even the sides up before anything else reads them -- a disconnect mid-match
+	// would otherwise leave the rest of the match short-handed.
+	autofill_teams();
+
+	// Bots that connected mid-match get their side and class here.
+	new bp[32], bnum;
+	get_players(bp, bnum, g_pf);
+	for (new i = 0; i < bnum; i++)
+	{
+		assign_bot(bp[i]);
+	}
+
+	// Anything dropped during warmup or the previous round goes now, so it cannot be
+	// collected once the round is live.
+	sweep_dropped_items();
+	sweep_powerups();
+
+	// Teams are re-read at the START of each round rather than only once at match
+	// start. That stabilises them WITHIN a round (so a mid-round change cannot
+	// corrupt alive-counting) while still picking up players who joined or switched
+	// between rounds -- who would otherwise be invisible to the whole system.
+	cache_teams();
+
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		g_elim[id] = false;
+		g_spec_target[id] = 0;
+		g_last_buttons[id] = 0;
+		g_elim_at[id] = 0.0;
+		g_was_alive[id] = (is_user_alive(id) != 0);
+		g_pending_elim[id] = 0.0;
+		g_last_use[id] = 0;
+
+		// The engineer's resupply, the medic's cooldown and any standing squad order
+		// are per-ROUND budgets; the class itself is picked once and kept for the
+		// whole match.
+		g_eng_used[id] = false;
+		g_medic_at[id] = 0.0;
+		g_squad_leader[id] = 0;
+
+		// Zeroed so the first tick of the round tops bots up straight away rather
+		// than making them wait out a full interval with whatever BuyArmament left them.
+		g_bot_resup_at[id] = 0.0;
+
+		restore_presentation(id);
+	}
+
+	/*
+	 * Loadout reset.
+	 *
+	 * This used to kill everyone and let TS respawn them with its default kit. That
+	 * was wrong three ways over: ts_set_speed scales a player's whole time base, so
+	 * dying while held produced a slow-motion death; the corpse was still dead when
+	 * the round went live, which made count_alive() report zero for both teams and
+	 * suspended round-end checking; and a player who stays dead gets moved to
+	 * spectator by the mod, knocking them off their team.
+	 *
+	 * ts_giveweapon and strip_user_weapons do the same job without any of that, so
+	 * nobody dies at a round start any more.
+	 */
+	/*
+	 * Everything goes, every round.
+	 *
+	 * Whatever is sitting in a player's TS purchase cart must not survive into a
+	 * round -- the class is the only source of equipment. Safe only because players
+	 * are frozen for the whole freeze countdown and re-armed by apply_class() in the
+	 * same function that releases them: TS derives player speed from the weapon slots
+	 * the loadout consumes, so a stripped player has zero maxspeed and must never be
+	 * mobile in that state.
+	 */
+	// Nothing is stripped here any more. The armament path strips and re-arms as one
+	// operation inside task_arm_respawn; stripping separately would leave players
+	// weaponless -- and in TS a player holding nothing has zero maxspeed.
+
+	finish_round_start();
+}
+
+public task_finish_round_start()
+{
+	finish_round_start();
+}
+
+finish_round_start()
+{
+	new players[32], pnum, id, still_dead = 0;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		g_placed[id] = false;
+
+		if (!is_user_alive(id))
+		{
+			// Still a corpse at round start. Spawn them rather than let them miss the
+			// round: the freeze countdown would eventually catch them, but only once
+			// the mod decided to respawn them, which is not guaranteed to happen
+			// before the round is already live.
+			if (get_pcvar_num(g_cv_forcespawn) && g_match_team[id] > 0)
+			{
+				dllfunc(DLLFunc_Spawn, id);
+				dbg("force-spawned %d at round start", id);
+			}
+
+			if (!is_user_alive(id))
+			{
+				still_dead++;
+				continue;
+			}
+		}
+		set_pev(id, pev_health, float(get_pcvar_num(g_cv_health)));
+		place_at_spawn(id);
+
+		// Written now, during the freeze, so the respawn that applies it lands well
+		// before the round goes live.
+		//
+		// Bots included -- engclient_cmd reaches them, so they get their class loadout
+		// the same way humans do.
+		if (get_pcvar_num(g_cv_wpnmode) == 2 && get_pcvar_num(g_cv_classes))
+		{
+			issue_armament(id);
+		}
+
+		/*
+		 * Bots get their class model here, once per round.
+		 *
+		 * ClientUserInfoChanged never fires for a fake client, so the re-assert that
+		 * keeps humans looking right cannot reach a bot. This is the one place that
+		 * runs for every bot on every round -- one write each, instead of the
+		 * per-second loop that was rewriting everyone's model forever.
+		 *
+		 * Guarded against re-entry for the same reason the loadout call is.
+		 */
+		if (is_user_bot(id))
+		{
+			/*
+			 * resolved_class, not g_player_class.
+			 *
+			 * A bot whose class was never assigned has g_player_class 0, and the old test
+			 * skipped it entirely -- so it kept whatever model TS handed it and never fell
+			 * back to its side's Assault model. resolved_class falls back to
+			 * tsm_default_class, so there is always an answer.
+			 */
+			new bool:bwas = g_in_userinfo[id];
+			g_in_userinfo[id] = true;
+			set_class_model(id, resolved_class(id) - 1);
+			g_in_userinfo[id] = bwas;
+		}
+
+		// An Officer's whole perk is two chat commands, so it is invisible unless we
+		// say so. Humans only -- a bot cannot read it and cannot type one.
+		if (!is_user_bot(id)
+			&& g_class_count
+			&& g_class_perk[resolved_class(id) - 1] == TSM_PERK_OFFICER)
+		{
+			client_print(id, print_chat,
+				"[MATCH] Officer: type .follow to take bots on your side under command, .unfollow to release them.");
+		}
+	}
+
+	if (still_dead)
+	{
+		dbg("round %d: %d player(s) dead at placement time; freeze tick will place them", g_round, still_dead);
+	}
+
+	g_resetting = false;
+	g_state = ST_FREEZE;
+
+	all_print("[MATCH] Round %d starting -- %d second freeze.", g_round, get_pcvar_num(g_cv_freeze));
+
+	// A freeze with no visible timer reads as the server having hung, even when it
+	// is working perfectly. The countdown is the difference between "broken" and
+	// "about to start".
+	// Class pick happens once, during the first freeze of the match.
+	if (g_round == 1 && g_class_count && get_pcvar_num(g_cv_classes))
+	{
+		new mp[32], mnum, shown = 0;
+		get_players(mp, mnum, g_pf);
+		for (new i = 0; i < mnum; i++)
+		{
+			g_class_menu_at[mp[i]] = 0.0;
+			if (!g_player_class[mp[i]])
+			{
+				show_class_menu(mp[i]);
+				shown++;
+			}
+		}
+		dbg("class menu offered to %d of %d player(s) (menu built=%d, classes=%d)",
+			shown, mnum, g_class_menu ? 1 : 0, g_class_count);
+		all_print("[MATCH] Pick your class. Anyone who does not gets %s.",
+			g_class_name[resolved_class(0) - 1]);
+	}
+
+	g_freeze_left = get_pcvar_num(g_cv_freeze);
+	remove_task(3);
+	set_task(1.0, "task_freeze_tick", 3, "", 0, "b");
+
+	set_task(float(get_pcvar_num(g_cv_freeze)), "task_go_live");
+}
+
+place_at_spawn(id)
+{
+	new team = g_match_team[id];
+	new Float:org[3], Float:ang[3];
+	new bool:has_ang = false;
+
+	if (team == 1 && g_spawn_t1_count > 0)
+	{
+		new pick = random_num(0, g_spawn_t1_count - 1);
+		copy_vec(org, g_spawn_t1[pick]);
+		copy_vec(ang, g_ang_t1[pick]);
+		has_ang = g_spawns_have_angles;
+	}
+	else if (team == 2 && g_spawn_t2_count > 0)
+	{
+		new pick = random_num(0, g_spawn_t2_count - 1);
+		copy_vec(org, g_spawn_t2[pick]);
+		copy_vec(ang, g_ang_t2[pick]);
+		has_ang = g_spawns_have_angles;
+	}
+	else if (g_cfg_spawns > 0)
+	{
+		/*
+		 * Configured spawns exist, but not for this side.
+		 *
+		 * Borrow from the other side rather than dropping back to the map's own spawn
+		 * entities. Once a map has custom positions those are the ONLY acceptable
+		 * places to put someone -- the map's deathmatch spawns are what the custom ones
+		 * were created to replace, so falling back to them silently undoes the whole
+		 * point.
+		 */
+		if (g_spawn_t1_count > 0)
+		{
+			new pick = random_num(0, g_spawn_t1_count - 1);
+			copy_vec(org, g_spawn_t1[pick]);
+			copy_vec(ang, g_ang_t1[pick]);
+			has_ang = g_spawns_have_angles;
+		}
+		else if (g_spawn_t2_count > 0)
+		{
+			new pick = random_num(0, g_spawn_t2_count - 1);
+			copy_vec(org, g_spawn_t2[pick]);
+			copy_vec(ang, g_ang_t2[pick]);
+			has_ang = g_spawns_have_angles;
+		}
+		else
+		{
+			return;
+		}
+
+		dbg("place: team %d has no configured spawns, borrowed one. Add some with amx_tsm_spawn_add %d.",
+			team, team);
+	}
+	else if (g_spawn_count > 0)
+	{
+		// No custom spawns on this map at all, so the map's own entities are the
+		// fallback -- which is the only situation they should ever be used in.
+		copy_vec(org, g_spawns[random_num(0, g_spawn_count - 1)]);
+	}
+	else
+	{
+		dbg("place: no spawn available for player %d (team %d)", id, team);
+		return;
+	}
+
+	engfunc(EngFunc_SetOrigin, id, org);
+	g_placed[id] = true;
+
+	if (has_ang)
+	{
+		// fixangle snaps the client's view to match instead of letting it lerp.
+		set_pev(id, pev_angles,  ang);
+		set_pev(id, pev_v_angle, ang);
+		set_pev(id, pev_fixangle, 1);
+	}
+	// Clear momentum, or they arrive still carrying their old velocity.
+	new Float:zero[3];
+	zero[0] = 0.0;
+	zero[1] = 0.0;
+	zero[2] = 0.0;
+	set_pev(id, pev_velocity, zero);
+}
+
+public task_freeze_tick()
+{
+	if (g_state != ST_FREEZE)
+	{
+		remove_task(3);
+		return;
+	}
+
+	// Same renewal requirement as the warmup hold.
+	new fp[32], fnum, fid;
+	get_players(fp, fnum, g_pf);
+	for (new i = 0; i < fnum; i++)
+	{
+		fid = fp[i];
+		hold_player(fid, false);
+		reassert_team(fid);
+
+		/*
+		 * Re-offered for the whole countdown rather than shown once at round start.
+		 * A single menu_display is fragile: anything that takes keyboard focus -- a TS
+		 * VGUI panel, another menu -- swallows it and it never comes back, which is
+		 * why the class menu appeared to never show at all.
+		 */
+		if (g_class_count
+			&& get_pcvar_num(g_cv_classes)
+			&& !g_player_class[fid]
+			&& !g_spectator[fid]
+			&& tsm_live_team_of(fid)
+			&& (get_gametime() - g_class_menu_at[fid]) > 4.0)
+		{
+			dbgv("freeze tick: offering class menu to %d", fid);
+			show_class_menu(fid);
+		}
+
+		// Anyone who was a corpse when the round started and has since respawned,
+		// plus anyone who joined during the countdown. Without this they play the
+		// round from wherever TS dropped them, which on a deathmatch map can be
+		// inside the other team.
+		if (!g_placed[fid] && is_user_alive(fid))
+		{
+			if (g_match_team[fid] < 1)
+			{
+				g_match_team[fid] = tsm_live_team_of(fid);
+			}
+			set_pev(fid, pev_health, float(get_pcvar_num(g_cv_health)));
+			place_at_spawn(fid);
+			dbgv("freeze tick: placed %d late (team %d)", fid, g_match_team[fid]);
+		}
+	}
+
+	dbgv("freeze tick: %d left, %d player(s)", g_freeze_left, fnum);
+
+	if (g_freeze_left > 0)
+	{
+		// Channel 2: the freeze countdown. Hold exceeds the 1.0s refresh so there is
+		// no gap between redraws, which is half of what the blinking was.
+		set_hudmessage(255, 180, 0, -1.0, 0.28, 0, 0.0, 1.5, 0.0, 0.0, 2);
+		new ft1[32], ft2[32];
+		team_short(1, ft1, charsmax(ft1));
+		team_short(2, ft2, charsmax(ft2));
+		show_hudmessage(0, "ROUND %d^nStarting in %d...^n^n%s %d  --  %d %s",
+			g_round, g_freeze_left, ft1, g_score[1], g_score[2], ft2);
+		g_freeze_left--;
+	}
+	else
+	{
+		// Same blank, for the case where the tick reaches zero before go-live does.
+		set_hudmessage(0, 0, 0, -1.0, 0.28, 0, 0.0, 0.05, 0.0, 0.0, 2);
+		show_hudmessage(0, " ");
+		remove_task(3);
+	}
+}
+
+/// Score and round shown on its own HUD channel so it cannot stomp the countdown.
+/*
+ * The round clock. Counts down from tsm_roundtime and is the only on-screen thing
+ * during a live round, so it sits high enough to stay clear of the weapon HUD.
+ */
+/*
+ * Tells anyone watching whose side they are on and who they are following.
+ *
+ * An eliminated player has no HUD of their own and no weapon, so without this there
+ * is nothing on screen telling them which team they are still part of -- or that the
+ * attack key moves between teammates.
+ */
+show_spectator_hud()
+{
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+
+		new bool:watching = (g_elim[id] || g_locked_out[id] || is_spectating(id));
+		if (!watching)
+		{
+			continue;
+		}
+
+		new side[48];
+		if (g_match_team[id] == 1 || g_match_team[id] == 2)
+		{
+			team_display(g_match_team[id], side, charsmax(side));
+		}
+		else
+		{
+			copy(side, charsmax(side), "no side");
+		}
+
+		new target = g_spec_target[id];
+		new watching_name[32];
+		if (target && is_user_connected(target))
+		{
+			get_user_name(target, watching_name, charsmax(watching_name));
+		}
+		else
+		{
+			copy(watching_name, charsmax(watching_name), "nobody");
+		}
+
+		// Channel 3, which the live round does not otherwise use -- the round timer is
+		// on 1 and transient banners on 4.
+		set_hudmessage(200, 200, 200, -1.0, 0.72, 0, 0.0, 1.5, 0.0, 0.0, 3);
+		show_hudmessage(id, "Your side: %s^nWatching: %s^nAttack to switch player",
+			side, watching_name);
+	}
+}
+
+show_round_timer()
+{
+	if (!get_pcvar_num(g_cv_showtimer) || g_round_left < 0)
+	{
+		return;
+	}
+
+	new t1[32], t2[32];
+	team_short(1, t1, charsmax(t1));
+	team_short(2, t2, charsmax(t2));
+
+	new mins = g_round_left / 60;
+	new secs = g_round_left % 60;
+
+	// Red for the last fifteen seconds, which is when it actually matters.
+	if (g_round_left <= 15)
+	{
+		set_hudmessage(255, 60, 60, -1.0, 0.03, 0, 0.0, 1.5, 0.0, 0.0, 1);
+	}
+	else
+	{
+		set_hudmessage(0, 200, 255, -1.0, 0.03, 0, 0.0, 1.5, 0.0, 0.0, 1);
+	}
+
+	if (get_pcvar_num(g_cv_roundtime) > 0)
+	{
+		show_hudmessage(0, "ROUND %d -- %d:%02d^n%s %d  --  %d %s",
+			g_round, mins, secs, t1, g_score[1], g_score[2], t2);
+
+		if (g_round_left <= 0)
+		{
+			// Resolved from the counter the player can actually see, rather than from
+			// a separate task. The two could disagree, and when the task declined to
+			// act the clock just sat at 0:00 looking hung.
+			round_time_expired();
+			return;
+		}
+		g_round_left--;
+	}
+	else
+	{
+		show_hudmessage(0, "ROUND %d^n%s %d  --  %d %s",
+			g_round, t1, g_score[1], g_score[2], t2);
+	}
+}
+
+show_score_hud()
+{
+	set_hudmessage(0, 220, 120, -1.0, 0.18, 0, 0.0, 4.0, 0.2, 0.3, 3);
+	show_hudmessage(0, "Round %d  --  %d : %d  (first to %d).",
+		g_round, g_score[1], g_score[2], (get_pcvar_num(g_cv_rounds) / 2) + 1);
+}
+
+public task_go_live()
+{
+	remove_task(3);
+	g_state = ST_LIVE;
+
+	// Hand control back. Logged, because "are players actually being released"
+	// has been guesswork twice and the log can simply answer it.
+	new rp[32], rnum;
+	get_players(rp, rnum, g_pf);
+	for (new i = 0; i < rnum; i++)
+	{
+		// Armed immediately before the release, never as a deferred task: TS derives
+		// player speed from the weapon slots the loadout consumes, so a player with no
+		// weapons has zero maxspeed and cannot move or shoot.
+		apply_class(rp[i]);
+		release_player(rp[i]);
+	}
+	log_amx("[TSM] Round %d LIVE: released %d player(s).", g_round, rnum);
+	dbg("round %d live: released %d, alive t1=%d t2=%d, placed-check follows",
+		g_round, rnum, count_alive(1), count_alive(2));
+	all_print("[MATCH] LIVE -- round %d.", g_round);
+
+	/*
+	 * Models, once, a moment after the spawn.
+	 *
+	 * Every other model write happens during the freeze, and TS re-applies its own
+	 * mp_teammodels pick when it spawns the player -- so those writes were correct and
+	 * then discarded. This one lands after that, which is the only place it can stick.
+	 */
+	remove_task(13);
+	set_task(0.5, "task_models_after_spawn", 13);
+
+	// Snapshot the starting strength of each side. check_round_end() needs it to tell
+	// "this team has been wiped out" apart from "this team never had anybody", which
+	// are completely different situations that look identical from an alive count.
+	g_start_alive[1] = count_alive(1);
+	g_start_alive[2] = count_alive(2);
+
+	/*
+	 * Wipe the countdown off channel 2 first.
+	 *
+	 * Its last draw holds for 1.5 seconds -- deliberately longer than the one-second
+	 * refresh, so the countdown does not flicker -- which means the yellow "Starting
+	 * in 1" is still on screen when the round actually begins. Blanking the channel
+	 * lets LIVE stand on its own.
+	 */
+	set_hudmessage(0, 0, 0, -1.0, 0.28, 0, 0.0, 0.05, 0.0, 0.0, 2);
+	show_hudmessage(0, " ");
+
+	set_hudmessage(0, 255, 0, -1.0, 0.32, 0, 0.0, 1.5, 0.0, 0.3, 4);
+	show_hudmessage(0, "LIVE");
+
+	if (!g_start_alive[1] || !g_start_alive[2])
+	{
+		if (!g_warned_empty)
+		{
+			g_warned_empty = true;
+			if (get_pcvar_num(g_cv_solo))
+			{
+				all_print("[MATCH] Solo test mode -- rounds will not end by themselves. Use amx_tsm_simwin <1|2>.");
+			}
+			else
+			{
+				all_print("[MATCH] Only one side has players -- rounds will not resolve until both teams are occupied.");
+			}
+			log_amx("[TSM] Round %d went live with team1=%d team2=%d alive. Round-end checks are suspended.", g_round, g_start_alive[1], g_start_alive[2]);
+		}
+	}
+	else
+	{
+		g_warned_empty = false;
+	}
+
+	// One second in, every player's movement state goes to the debug log. If anyone
+	// is still held, this says exactly which mechanism is holding them.
+	set_task(1.0, "task_live_audit", 5);
+
+	g_round_left = get_pcvar_num(g_cv_roundtime);
+
+	new rt = get_pcvar_num(g_cv_roundtime);
+	if (rt > 0)
+	{
+		set_task(float(rt), "task_round_timeout", 2);
+	}
+}
+
+public task_round_timeout()
+{
+	round_time_expired();
+}
+
+/*
+ * The round ran out of time, so it is decided on who is left standing.
+ *
+ * Unlike check_round_end() this does NOT refuse to act when a side started empty. That
+ * guard exists to stop an elimination check declaring a winner the instant a round
+ * begins, and looping forever. A timeout cannot loop -- it happens once, at a fixed
+ * time -- so refusing here just left the clock sitting at 0:00 with nothing happening.
+ */
+round_time_expired()
+{
+	if (g_state != ST_LIVE)
+	{
+		return;
+	}
+
+	remove_task(2);
+
+	new a1 = count_alive(1);
+	new a2 = count_alive(2);
+
+	all_print("[MATCH] Time up -- %d alive versus %d.", a1, a2);
+
+	if (a1 == a2)
+	{
+		end_round(0);
+	}
+	else
+	{
+		end_round(a1 > a2 ? 1 : 2);
+	}
+}
+
+/* ---- ready-up ------------------------------------------------------------ */
+
+reset_ready()
+{
+	for (new i = 1; i < MAXPL; i++)
+	{
+		g_ready[i] = false;
+	}
+}
+
+public hook_say(id)
+{
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return PLUGIN_CONTINUE;
+	}
+
+	new args[64];
+	read_args(args, charsmax(args));
+	remove_quotes(args);
+
+	if (equali(args, ".ready"))
+	{
+		if (g_state != ST_WARMUP && g_state != ST_READYUP)
+		{
+			client_print(id, print_chat, "[MATCH] A match is already in progress.");
+			return PLUGIN_HANDLED;
+		}
+
+		/*
+		 * Readying up before being spawned in left the match waiting on a player the
+		 * round could never start with: the ready flag was set, but there was no live
+		 * body to freeze, place or count.
+		 */
+		if (!tsm_live_team_of(id))
+		{
+			client_print(id, print_chat, "[MATCH] Pick a side first -- type .team.");
+			return PLUGIN_HANDLED;
+		}
+		if (!is_user_alive(id))
+		{
+			client_print(id, print_chat, "[MATCH] You are not in the game yet. Spawn in, then type .ready.");
+			return PLUGIN_HANDLED;
+		}
+		g_ready[id] = true;
+		g_state = ST_READYUP;
+		new name[32];
+		get_user_name(id, name, charsmax(name));
+		all_print("[MATCH] %s is ready.", name);
+		check_all_ready();
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".unready"))
+	{
+		g_ready[id] = false;
+		new name[32];
+		get_user_name(id, name, charsmax(name));
+		all_print("[MATCH] %s is NOT ready.", name);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".status"))
+	{
+		print_status(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".roam"))
+	{
+		cmd_roam(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".follow") || equali(args, ".squad"))
+	{
+		cmd_squad_follow(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".unfollow") || equali(args, ".dismiss"))
+	{
+		cmd_squad_dismiss(id);
+		return PLUGIN_HANDLED;
+	}
+
+	return PLUGIN_CONTINUE;
+}
+
+print_status(id)
+{
+	client_print(id, print_chat, "[MATCH] State %d, round %d, score %d - %d",
+		g_state, g_round, g_score[1], g_score[2]);
+
+	new players[32], pnum, p, name[32];
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		p = players[i];
+		get_user_name(p, name, charsmax(name));
+		client_print(id, print_chat, "[MATCH]   %s  team %d  %s",
+			name, tsm_live_team_of(p), g_ready[p] ? "READY" : "not ready");
+	}
+}
+
+check_all_ready()
+{
+	new players[32], pnum, id;
+	new n1 = 0, n2 = 0, r1 = 0, r2 = 0;
+	get_players(players, pnum, g_pf);
+
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		new t = tsm_live_team_of(id);
+		// A bot cannot type .ready, so it is counted as ready or a side holding one
+		// could never satisfy the gate.
+		new bool:rdy = (g_ready[id] || (bot_player(id) && get_pcvar_num(g_cv_botready) != 0));
+
+		if (t == 1)
+		{
+			n1++;
+			if (rdy) { r1++; }
+		}
+		else if (t == 2)
+		{
+			n2++;
+			if (rdy) { r2++; }
+		}
+	}
+
+	new need = get_pcvar_num(g_cv_minteam);
+	new bool:solo = (get_pcvar_num(g_cv_solo) != 0);
+
+	// Solo testing: one occupied team is enough. Round-end checking already refuses
+	// to resolve a round for a side that started it with nobody, so the match simply
+	// will not end on its own -- use amx_tsm_simwin to walk the score.
+	if (solo)
+	{
+		if ((n1 + n2) < 1 || (r1 + r2) < (n1 + n2))
+		{
+			return;
+		}
+	}
+	else
+	{
+		if (n1 < need || n2 < need)
+		{
+			return;
+		}
+		if (r1 < n1 || r2 < n2)
+		{
+			return;
+		}
+		if (!balance_ok())
+		{
+			return;
+		}
+	}
+
+	begin_match();
+}
+
+begin_match()
+{
+	cache_teams();
+
+	/*
+	 * Economy ON, wallet empty.
+	 *
+	 * usecash 0 does NOT stop buying -- it makes CashBased() false, so nothing is ever
+	 * charged and TS's equipment menu, which is slot-limited rather than cash-limited,
+	 * hands weapons out for free. The economy has to be ON for a purchase to be
+	 * refusable, and the wallet has to be empty for it to be refused every time. TS
+	 * does the refusing itself, with its own message.
+	 *
+	 * The class loadout runs down that same BuyArmament path, so it would be refused
+	 * too -- hold_cash() lends the money for the few frames that takes, keyed on
+	 * g_issuing, and takes it straight back.
+	 */
+	if (get_pcvar_num(g_cv_nocash))
+	{
+		kill_ts_cash_cvars();
+		dbg("economy on with an empty wallet: usecash 1, every cash source zeroed");
+	}
+
+	// Classes are per match, so selections clear here and nowhere else.
+	for (new i = 1; i < MAXPL; i++)
+	{
+		g_player_class[i] = 0;
+		g_class_menu_at[i] = 0.0;
+	}
+
+	// Bots come back in for this match, assigned fresh so the sides are balanced from
+	// the start rather than inherited from the last one.
+	g_bots_parked = false;
+
+	new bp[32], bnum;
+	get_players(bp, bnum, g_pf);
+	for (new i = 0; i < bnum; i++)
+	{
+		if (is_user_bot(bp[i]))
+		{
+			assign_bot(bp[i]);
+		}
+	}
+
+	g_round = 0;
+	g_score[1] = 0;
+	g_score[2] = 0;
+	all_print("[MATCH] All ready -- best of %d. Good luck.", get_pcvar_num(g_cv_rounds));
+	start_round();
+}
+
+/* ---- admin -------------------------------------------------------------- */
+
+public cmd_start(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1)) { return PLUGIN_HANDLED; }
+
+	new n1 = 0, n2 = 0, t;
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		t = tsm_live_team_of(players[i]);
+		if (t == 1) { n1++; }
+		else if (t == 2) { n2++; }
+	}
+	if (!n1 || !n2)
+	{
+		console_print(id, "[TSM] Forcing live with team1=%d team2=%d players.", n1, n2);
+		console_print(id, "[TSM] Rounds will NOT resolve while a side is empty -- that is deliberate, not a hang.");
+	}
+
+	g_warned_empty = false;
+	begin_match();
+	return PLUGIN_HANDLED;
+}
+
+public cmd_cancel(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1)) { return PLUGIN_HANDLED; }
+	remove_task(2);
+	remove_task(3);
+	remove_task(4);
+	remove_task(5);
+	g_state = ST_WARMUP;
+	g_round = 0;
+	g_score[1] = 0;
+	g_score[2] = 0;
+	g_freeze_left = 0;
+	g_round_left = 0;
+	reset_ready();
+
+	// Restore first, then wipe match state -- restore_all() reads g_elim to decide
+	// what to put back.
+	restore_all();
+	clear_match_state();
+
+	all_print("[MATCH] Match cancelled -- back to warmup. Pick a side and type .ready.");
+	dbg("match cancelled by admin: round counter and all per-match state cleared");
+	return PLUGIN_HANDLED;
+}
+
+public cmd_restart(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1)) { return PLUGIN_HANDLED; }
+	remove_task(2);
+	remove_task(3);
+	remove_task(4);
+	remove_task(5);
+	restore_all();
+	clear_match_state();
+	begin_match();
+	return PLUGIN_HANDLED;
+}
+
+public cmd_score(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1)) { return PLUGIN_HANDLED; }
+	client_print(id, print_console, "[MATCH] Round %d, score %d - %d, state %d",
+		g_round, g_score[1], g_score[2], g_state);
+	return PLUGIN_HANDLED;
+}
+
+public cmd_fix(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 2)) { return PLUGIN_HANDLED; }
+	new arg[32];
+	read_argv(1, arg, charsmax(arg));
+	new target = cmd_target(id, arg, CMDTARGET_ALLOW_SELF);
+	if (!target)
+	{
+		console_print(id, "[MATCH] No such player.");
+		return PLUGIN_HANDLED;
+	}
+	g_elim[target] = false;
+	restore_presentation(target);
+	console_print(id, "[MATCH] Restored.");
+	return PLUGIN_HANDLED;
+}
+
+public cmd_debug(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1)) { return PLUGIN_HANDLED; }
+
+	new t1[32], t2[32], mode[16];
+	get_pcvar_string(g_cv_team1name, t1, charsmax(t1));
+	get_pcvar_string(g_cv_team2name, t2, charsmax(t2));
+	get_pcvar_string(g_cv_teammode, mode, charsmax(mode));
+
+	console_print(id, "[TSM] BUILD %s", TSM_BUILD);
+	console_print(id, "[TSM] state=%d round=%d score=%d-%d  start_alive=%d/%d",
+		g_state, g_round, g_score[1], g_score[2], g_start_alive[1], g_start_alive[2]);
+	console_print(id, "[TSM] rounds cvar=%d -> need %d to win",
+		get_pcvar_num(g_cv_rounds), (get_pcvar_num(g_cv_rounds) / 2) + 1);
+	console_print(id, "[TSM] team_mode='%s' team1='%s' team2='%s'", mode, t1, t2);
+
+	new live_list[64];
+	get_cvar_string("mp_teamlist", live_list, charsmax(live_list));
+	console_print(id, "[TSM] mp_teamlist is now '%s' (force_teamlist=%d)",
+		live_list, get_pcvar_num(g_cv_forceteams));
+	console_print(id, "[TSM] warmup_hold_active=%d  spawns: total=%d t1=%d t2=%d",
+		warmup_hold_active() ? 1 : 0, g_spawn_count, g_spawn_t1_count, g_spawn_t2_count);
+
+	new smode[16], bmode[16];
+	get_pcvar_string(g_cv_spawnmode, smode, charsmax(smode));
+	get_pcvar_string(g_cv_balmode, bmode, charsmax(bmode));
+
+	new spath[160];
+	spawn_cfg_path(spath, charsmax(spath));
+	console_print(id, "[TSM] spawn_mode='%s' from_cfg=%d facing=%d  cfg=%s (%s)",
+		smode, g_cfg_spawns, g_spawns_have_angles ? 1 : 0, spath,
+		file_exists(spath) ? "exists" : "MISSING");
+
+	console_print(id, "[TSM] balance: mode='%s' gap<=%d  t1=%d t2=%d  ok=%d short=%d",
+		bmode, get_pcvar_num(g_cv_balgap), count_on_team(1), count_on_team(2),
+		balance_ok() ? 1 : 0, balance_short_team());
+
+	new mmode[16];
+	get_pcvar_string(g_cv_modelmode, mmode, charsmax(mmode));
+	console_print(id, "[TSM] weapon_mode=%d  (0 = no weapons given AND none stripped, 1 = strip and arm)",
+		get_pcvar_num(g_cv_wpnmode));
+	console_print(id, "[TSM] classes=%d parsed  default=%d  model_mode='%s'  nocash=%d  block_buy=%d",
+		g_class_count, get_pcvar_num(g_cv_defclass), mmode,
+		get_pcvar_num(g_cv_nocash), get_pcvar_num(g_cv_blockbuy));
+
+	console_print(id, "[TSM] solo_test=%d  loadout_reset=%d  block_spectator=%d  lock_teams=%d",
+		get_pcvar_num(g_cv_solo), get_pcvar_num(g_cv_reloadout),
+		get_pcvar_num(g_cv_nospec), get_pcvar_num(g_cv_teamlock));
+
+	new ldspec[128];
+	get_pcvar_string(g_cv_loadout, ldspec, charsmax(ldspec));
+	console_print(id, "[TSM] loadout='%s'  debug_log=%d -> logs/%s",
+		ldspec, get_pcvar_num(g_cv_dbglog), g_dbgfile);
+	console_print(id, "[TSM] PlayerPreThink calls since load: %d  %s",
+		g_prethink_calls,
+		g_prethink_calls ? "(hook works)" : "(HOOK IS DEAD -- same as CmdStart; per-frame features cannot work)");
+
+	new players[32], pnum, p, pname[32], rawname[32], rawnum, resolved;
+	get_players(players, pnum, g_pf);
+	console_print(id, "[TSM] --- players (%d) ---", pnum);
+	for (new i = 0; i < pnum; i++)
+	{
+		p = players[i];
+		get_user_name(p, pname, charsmax(pname));
+		rawname[0] = 0;
+		rawnum = get_user_team(p, rawname, charsmax(rawname));
+		resolved = tsm_live_team_of(p);
+		console_print(id, "[TSM]   %-20s raw#=%d raw='%s' -> resolved=%d  %s%s",
+			pname, rawnum, rawname, resolved,
+			g_ready[p] ? "READY" : "notready",
+			(resolved == 0) ? "  <-- NOT ON A RECOGNISED TEAM" : "");
+	}
+
+	// Bots get their own block: the common failures (stuck spectating, never
+	// renamed, a refused move being retried forever) are all invisible in the line
+	// above, which shows only where they ended up and not why.
+	new bots = 0;
+	for (new i = 0; i < pnum; i++)
+	{
+		if (is_user_bot(players[i]))
+		{
+			bots++;
+		}
+	}
+
+	if (bots)
+	{
+		console_print(id, "[TSM] --- bots (%d)  parked=%d  humans_on_a_side=%d ---",
+			bots, g_bots_parked ? 1 : 0, humans_playing());
+
+		// If this is 0 while bots are alive and fighting, the traceline hook is not
+		// reaching them and they will still be targeting their own side.
+		console_print(id, "[TSM] blind_ff=%d  bot traces seen: %d  teammate traces hidden: %d",
+			get_pcvar_num(g_cv_blindff), g_traces_seen, g_blinded);
+		console_print(id, "[TSM] death-pin frames held: %d", g_pinned);
+		if (!g_traces_seen)
+		{
+			console_print(id, "[TSM]   seen=0 -- the traceline hook is not seeing bots at all.");
+		}
+		else if (!g_blinded)
+		{
+			console_print(id, "[TSM]   seen>0 but hidden=0 -- bots trace, but never onto a teammate we agree with.");
+		}
+
+		for (new i = 0; i < pnum; i++)
+		{
+			p = players[i];
+			if (!is_user_bot(p))
+			{
+				continue;
+			}
+
+			get_user_name(p, pname, charsmax(pname));
+			rawname[0] = 0;
+			get_user_team(p, rawname, charsmax(rawname));
+
+			console_print(id, "[TSM]   %-20s mod='%s' ours=%d slot=%d class=%d prethinks=%d%s%s",
+				pname, rawname, g_match_team[p], g_bot_slot[p], g_player_class[p],
+				g_bot_prethinks[p],
+				(g_match_team[p] != 1 && g_match_team[p] != 2) ? "  <-- NOT PLACED" : "",
+				(g_bot_prethinks[p] == 0) ? "  <-- PreThink NEVER FIRES: no per-frame fix can reach this bot" : "");
+		}
+
+		if (humans_playing() < 1)
+		{
+			console_print(id, "[TSM] No human is on a side, so every bot is held in spectator by design. Join one.");
+		}
+	}
+
+	console_print(id, "[TSM] If any player resolves to 0, ready-up can never complete.");
+	if (get_pcvar_num(g_cv_solo))
+	{
+		console_print(id, "[TSM] Solo test mode is ON: one team is enough, and rounds end only via amx_tsm_simwin <1|2>.");
+	}
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * Emergency / diagnostic release.
+ *
+ * Isolates the two possible causes of "still frozen when the round starts": if this
+ * frees you, release_player() works and simply was not reached. If it does NOT free
+ * you, ts_set_speed() cannot restore movement and the freeze needs a different
+ * mechanism entirely.
+ */
+public cmd_unfreeze(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1)) { return PLUGIN_HANDLED; }
+
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		g_elim[players[i]] = false;
+		release_player(players[i]);
+	}
+	console_print(id, "[TSM] Released %d player(s) and cleared elimination flags.", pnum);
+	console_print(id, "[TSM] If you can move now, release_player() works and was simply not called.");
+	console_print(id, "[TSM] If you still cannot move, ts_set_speed cannot undo the freeze.");
+	log_amx("[TSM] amx_tsm_unfreeze: released %d player(s).", pnum);
+	return PLUGIN_HANDLED;
+}
+
+/* ---- safety ------------------------------------------------------------- */
+
+restore_all()
+{
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		g_elim[players[i]] = false;
+		g_spec_target[players[i]] = 0;
+		g_locked_out[players[i]] = false;
+		release_player(players[i]);
+		restore_presentation(players[i]);
+	}
+}
+
+public client_putinserver(id)
+{
+	// Cached once here. fw_traceline runs on a hot path and must not call a native
+	// to answer this for every line of sight every bot tests.
+	g_is_bot[id] = (is_user_bot(id) != 0);
+
+	g_elim[id] = false;
+	g_ready[id] = false;
+	g_saved[id] = false;
+	g_spec_target[id] = 0;
+	g_last_buttons[id] = 0;
+	g_match_team[id] = 0;
+
+	g_player_class[id] = 0;
+	g_eng_used[id] = false;
+	g_medic_at[id] = 0.0;
+	g_last_use[id] = 0;
+	g_was_alive[id] = false;
+	g_pending_elim[id] = 0.0;
+	g_spectator[id] = false;
+	g_team_menu_at[id] = 0.0;
+	g_connect_at[id] = get_gametime();
+
+	/*
+	 * Anyone arriving while a match is running sits the WHOLE match out, not just the
+	 * current round. Set immediately rather than on the deferred task, so there is no
+	 * window where they can act -- the old three-second delay was long enough to join
+	 * a firefight.
+	 */
+	g_locked_out[id] = (g_state != ST_WARMUP && g_state != ST_READYUP);
+
+	if (g_locked_out[id])
+	{
+		set_task(3.0, "task_late_join", id);
+	}
+
+	// Offset task id so this cannot collide with the armament respawn, which keys its
+	// task on the bare player index.
+	// Bots are put straight onto a side instead -- they cannot use the side menu, so
+	// parking them as spectators would strand them there for good.
+	if (bot_player(id))
+	{
+		set_task(1.0, "task_assign_bot", id + 6000);
+		return;
+	}
+
+	new Float:wait = float(get_pcvar_num(g_cv_menudelay));
+	if (wait < 1.0)
+	{
+		wait = 1.0;
+	}
+	set_task(wait, "task_default_spectator", id + 1000);
+}
+
+/*
+ * Parks a player with no side on the spectator team, then offers them the side menu.
+ *
+ * Deferred rather than done on connect because TS has not finished setting the player
+ * up at that point -- the same reason task_late_join waits.
+ */
+public task_assign_bot(taskid)
+{
+	new id = taskid - 6000;
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+	assign_bot(id);
+}
+
+public task_default_spectator(taskid)
+{
+	new id = taskid - 1000;
+
+	if (!is_user_connected(id) || !get_pcvar_num(g_cv_defaultspec))
+	{
+		return;
+	}
+
+	/*
+	 * Everyone STARTS as a spectator and picks in -- but only if they have not already
+	 * picked.
+	 *
+	 * This used to wipe g_match_team unconditionally. It runs on a delay, and if it
+	 * ever fired a second time (a re-entry of client_putinserver, a late task) it tore
+	 * a player off the side they had already chosen and dumped them back on spectator
+	 * with the wrong model -- long after they had joined.
+	 */
+	if (g_match_team[id] == 1 || g_match_team[id] == 2)
+	{
+		dbgv("default-spectator skipped for %d: already on side %d", id, g_match_team[id]);
+		return;
+	}
+
+	g_match_team[id] = 0;
+
+	force_spectator(id);
+	dbg("defaulting %d to the spectator team", id);
+
+	client_print(id, print_chat, "[MATCH] You are spectating. Pick a side to play, or type .menu.");
+	show_team_menu(id);
+}
+
+public task_late_join(id)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+	g_match_team[id] = tsm_live_team_of(id);
+
+	// Held out regardless of whether a team resolved. The old version only acted when
+	// a team was known, so anyone TS had not finished assigning played the round free.
+	if (g_locked_out[id])
+	{
+		g_elim[id] = true;
+		remove_from_play(id);
+		client_print(id, print_chat, "[MATCH] A match is in progress -- you are in once it finishes.");
+	}
+}
+
+public client_disconnected(id)
+{
+	g_elim[id] = false;
+	g_ready[id] = false;
+	g_saved[id] = false;
+	g_frozen[id] = false;
+	g_placed[id] = false;
+	g_in_userinfo[id] = false;
+	g_locked_out[id] = false;
+	g_spectator[id] = false;
+	remove_task(id + 1000);
+	g_arm_pending[id] = 0;
+	g_issuing[id] = false;
+	g_team_menu_at[id] = 0.0;
+	g_player_class[id] = 0;
+	g_eng_used[id] = false;
+	g_last_use[id] = 0;
+
+	// Frees the number for the next bot on that side, so the set stays dense.
+	g_is_bot[id] = false;
+	g_bot_slot[id] = 0;
+	g_model_pick[id] = 0;
+	g_medic_at[id] = 0.0;
+
+	// Both directions: whoever was following THIS officer is released, and this
+	// player stops following anyone.
+	disband_squad(id);
+	g_squad_leader[id] = 0;
+	remove_task(id + 8000);   // any glow still pending on them
+	g_botfill_at[id] = 0.0;
+	g_was_alive[id] = false;
+	g_pending_elim[id] = 0.0;
+	g_match_team[id] = 0;
+	g_last_buttons[id] = 0;
+
+	// Anyone watching the departed needs a new target, or they would be stuck
+	// following a dead index forever.
+	for (new i = 1; i < MAXPL; i++)
+	{
+		if (g_spec_target[i] == id)
+		{
+			g_spec_target[i] = 0;
+		}
+	}
+	g_spec_target[id] = 0;
+
+	/*
+	 * Deferred, not immediate.
+	 *
+	 * client_disconnected fires while the player is often still present in
+	 * get_players(), so a synchronous check still counts them as alive and the round
+	 * looks healthy -- which is why a side emptying by disconnect never ended it.
+	 * A fraction of a second later they are genuinely gone.
+	 */
+	if (g_state == ST_LIVE)
+	{
+		set_task(0.3, "task_round_check");
+	}
+}
+
+/*
+ * Ends the match outright when a side has nobody left on it.
+ *
+ * Losing a round because everyone on your side died is normal. Losing every PLAYER
+ * on a side is not a round outcome at all -- there is no opposition left to play the
+ * remaining rounds against, so continuing just runs the best-of out against an empty
+ * team. The surviving side takes it by forfeit.
+ *
+ * Returns true when it ended the match, so the caller stops.
+ */
+bool:check_match_viable()
+{
+	if (g_state != ST_FREEZE && g_state != ST_LIVE && g_state != ST_ROUNDEND)
+	{
+		return false;
+	}
+
+	if (count_on_team(1) > 0 && count_on_team(2) > 0)
+	{
+		return false;
+	}
+
+	// Give the bench a chance before calling it -- a spectator or a locked-out late
+	// joiner standing by is a better outcome than ending the match.
+	autofill_teams();
+
+	new n1 = count_on_team(1);
+	new n2 = count_on_team(2);
+	if (n1 > 0 && n2 > 0)
+	{
+		all_print("[MATCH] A side was left empty and has been filled. Play on.");
+		return false;
+	}
+
+	remove_task(2);
+	remove_task(3);
+	remove_task(4);
+	remove_task(5);
+
+	new w = 0;
+	if (n1 > 0)
+	{
+		w = 1;
+	}
+	else if (n2 > 0)
+	{
+		w = 2;
+	}
+
+	if (w)
+	{
+		new wname[48];
+		team_display(w, wname, charsmax(wname));
+		g_score[w]++;
+		all_print("[MATCH] MATCH OVER -- the other side has no players left. %s wins by forfeit, %d -- %d.",
+			wname, g_score[1], g_score[2]);
+		log_amx("[TSM] Match forfeited to team %d: opposing side empty.", w);
+	}
+	else
+	{
+		all_print("[MATCH] MATCH OVER -- nobody left to play.");
+		log_amx("[TSM] Match abandoned: both sides empty.");
+	}
+
+	g_state = ST_MATCHEND;
+	restore_all();
+	set_task(5.0, "task_to_warmup");
+	return true;
+}
+
+public task_remove_from_play(taskid)
+{
+	new id = taskid - 7000;
+	if (!is_user_connected(id) || !g_elim[id])
+	{
+		return;
+	}
+
+	// The ceiling fired. Normally elim_hide_due() has already triggered this from the
+	// per-frame path the moment TS put them back on their feet.
+	remove_from_play(id);
+}
+
+public task_round_check()
+{
+	// A side being EMPTY is a different thing from a side being dead, and it ends the
+	// whole match rather than the round -- so it is checked first.
+	if (check_match_viable())
+	{
+		return;
+	}
+
+	if (g_state == ST_LIVE)
+	{
+		check_round_end();
+	}
+}
+
+
+/// Safety net: catches a round that should have ended but whose DeathMsg was missed.
+/// Keeps the enumeration flags in step with tsm_bots.
+refresh_player_flags()
+{
+	/*
+	 * Who is a bot, refreshed by POLLING rather than from client_putinserver.
+	 *
+	 * This is the same trap the bot assignment below already documents, and the
+	 * traceline fix walked straight into it: rcbot creates its bots with MDLL_
+	 * macros that talk to the gamedll without going through Metamod, so AMXX's
+	 * connect forwards never fire for them. g_is_bot was only ever written in
+	 * client_putinserver, so it stayed false for every rcbot bot -- and
+	 * fw_traceline, which tests it first of all, bailed out every single time and
+	 * hid nothing at all.
+	 *
+	 * The cache itself is still worth having; fw_traceline runs on a very hot path
+	 * and must not call a native per trace. It just has to be filled from somewhere
+	 * a bot actually reaches.
+	 */
+	new pl[32], pnum;
+	get_players(pl, pnum, "");   // no flags: bots included, whatever tsm_bots says
+	for (new i = 0; i < pnum; i++)
+	{
+		g_is_bot[pl[i]] = (is_user_bot(pl[i]) != 0);
+	}
+
+	new on = get_pcvar_num(g_cv_bots);
+
+	if (on)
+	{
+		copy(g_pf, charsmax(g_pf), "");
+		copy(g_pfa, charsmax(g_pfa), "a");
+	}
+	else
+	{
+		copy(g_pf, charsmax(g_pf), "c");
+		copy(g_pfa, charsmax(g_pfa), "ac");
+	}
+
+	if (on == g_bots_were)
+	{
+		return;   // only act on a change
+	}
+	g_bots_were = on;
+
+	/*
+	 * Tell rcbot as well.
+	 *
+	 * tsm_bots only controlled whether THIS plugin counted bots -- rcbot kept adding
+	 * them regardless, so turning it off left bots wandering a match that ignored
+	 * them. Its quota cvars are set to match, and existing bots are removed.
+	 */
+	if (!on)
+	{
+		// There is no kickall command. Per rcbot's own docs, a bot is kicked whenever
+		// the bot count exceeds min_bots -- so zeroing the quota empties the server.
+		server_cmd("rcbot config min_bots 0");
+		server_cmd("rcbot config max_bots 0");
+		server_exec();
+
+		/*
+		 * And kick the ones already here.
+		 *
+		 * Zeroing the quota only stops NEW bots. rcbot's docs say a bot is kicked once
+		 * the count exceeds min_bots, but that is rcbot's own housekeeping on its own
+		 * schedule -- turning the cvar off and watching ten bots carry on playing is not
+		 * what anyone means by off.
+		 *
+		 * By userid, because the bot names this plugin assigns contain a space.
+		 */
+		new kp[32], knum, kicked = 0;
+		get_players(kp, knum, "");   // no flags, so bots are included
+		for (new i = 0; i < knum; i++)
+		{
+			if (!is_user_bot(kp[i]))
+			{
+				continue;
+			}
+			server_cmd("kick #%d", get_user_userid(kp[i]));
+			kicked++;
+		}
+		if (kicked)
+		{
+			server_exec();
+		}
+		log_amx("[TSM] tsm_bots 0 -- rcbot quota zeroed and %d bot(s) kicked.", kicked);
+	}
+	else
+	{
+		/*
+		 * rcbot balances its OWN bots, which this plugin cannot.
+		 *
+		 * Moving a bot plugin-side only changed our view: rcbot still had it on the old
+		 * side, so its new teammates looked like enemies and it shot them, and it kept
+		 * using the old side's spawn points. rcbot moving its own bots keeps every view
+		 * in agreement.
+		 */
+		server_cmd("rcbot config balance_teams 1");
+		server_exec();
+		log_amx("[TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).");
+	}
+}
+
+public task_tick()
+{
+	refresh_player_flags();
+
+	// Behind the per-frame hold in fw_prethink, which does not run for a player the
+	// engine has not started thinking -- which is exactly when initial_cash lands.
+	new cp[32], cnum;
+	get_players(cp, cnum, "");   // no flags: bots carry cash too
+	for (new i = 0; i < cnum; i++)
+	{
+		hold_cash(cp[i]);
+	}
+
+	/*
+	 * Bots are picked up by POLLING, not by client_putinserver.
+	 *
+	 * rcbot creates its bots with MDLL_ClientConnect / MDLL_ClientPutInServer, and
+	 * those macros are documented as talking straight to the gamedll without being
+	 * multiplexed through Metamod to the other plugins -- so AMXX's connect forwards
+	 * do not fire for them. Anything hung off those forwards would simply never run,
+	 * and the bot would sit on no side forever.
+	 *
+	 * One pass a second is cheap and cannot be missed.
+	 */
+	/*
+	 * Keep TS's idea of a player's team in step with ours.
+	 *
+	 * g_match_team is authoritative for the match, but TS's team is what drives the
+	 * MODEL (through mp_teammodels) and the scoreboard. When the two drift, a player
+	 * gets the right loadout wearing the wrong side's model -- which is worse than
+	 * either being wrong on its own, because it reads as the other team.
+	 */
+	new sp[32], snum, sid;
+	get_players(sp, snum, g_pf);
+	for (new i = 0; i < snum; i++)
+	{
+		sid = sp[i];
+
+		if (is_user_bot(sid) || g_match_team[sid] < 1 || g_match_team[sid] > 2)
+		{
+			continue;
+		}
+		if ((get_gametime() - g_reassert_at[sid]) < 10.0)
+		{
+			continue;   // rate limited; a jointeam makes TS re-apply the model
+		}
+
+		new want[32], live[32];
+		team_rawname(g_match_team[sid], want, charsmax(want));
+		live[0] = 0;
+		get_user_team(sid, live, charsmax(live));
+
+		if (want[0] && live[0] && !equali(live, want))
+		{
+			g_reassert_at[sid] = get_gametime();
+			dbg("team drift: %d is '%s' to the mod but '%s' to us -- re-joining", sid, live, want);
+
+			g_join_tries[sid] = 0;
+			remove_task(sid + 4000);
+			set_task(0.2, "task_verify_join", sid + 4000);
+		}
+	}
+
+	resupply_one_bot();
+
+	if (get_pcvar_num(g_cv_bots))
+	{
+		new bp[32], bnum, bid, blive[32], bteam;
+		get_players(bp, bnum, g_pf);
+		new humans = humans_playing();
+
+		for (new i = 0; i < bnum; i++)
+		{
+			bid = bp[i];
+			if (g_bots_parked || !is_user_bot(bid))
+			{
+				continue;
+			}
+
+			/*
+			 * Measured against what the mod REPORTS, not against g_match_team.
+			 *
+			 * Checking our own value could never recover from a refused jointeam,
+			 * because set_ts_team has already written the side we asked for -- see
+			 * assign_bot. Asking TS costs one string compare a second and it is the
+			 * only answer that drives models, spawn points and rcbot's targeting.
+			 */
+			blive[0] = 0;
+			get_user_team(bid, blive, charsmax(blive));
+			bteam = tsm_team_from_name(blive);
+
+			if ((bteam == 1 || bteam == 2) && humans > 0)
+			{
+				// Settled where the mod wants it. Only act if we disagree.
+				if (g_match_team[bid] != bteam)
+				{
+					assign_bot(bid);
+				}
+				else
+				{
+					// Cheap, and it returns immediately once the name is right. Without
+					// it a bot that missed its rename kept its profile name for good,
+					// because assign_bot is not called again once a bot has settled.
+					rename_bot(bid);
+				}
+				continue;
+			}
+
+			// Rate limited, because a jointeam respawns the bot and a mod that is
+			// refusing the move should not be asked once a second forever.
+			if ((get_gametime() - g_botfill_at[bid]) >= 2.0)
+			{
+				g_botfill_at[bid] = get_gametime();
+				assign_bot(bid);
+			}
+		}
+
+		// Sides are evened out by rcbot itself (balance_teams), not here. Moving a bot
+		// plugin-side only desynced us from the mod.
+	}
+
+	/*
+	 * Re-swept every second, not just at round start.
+	 *
+	 * A map respawns its own powerups on a timer, so a single sweep at the start of
+	 * the round left them coming back solid partway through -- which is how bots were
+	 * still picking them up with tsm_no_powerups on. Blocking the usepowerup command
+	 * was never going to cover a bot either: a fake client sends no client commands,
+	 * so a clcmd hook cannot see one.
+	 */
+	if (g_state != ST_WARMUP)
+	{
+		sweep_powerups();
+	}
+
+	// Picked up once a second so changing tsm_gamedesc takes effect without a
+	// restart. Cheap, and it keeps the query path itself free of cvar reads.
+	refresh_gamedesc();
+
+	if (g_state == ST_LIVE)
+	{
+		// Eliminated players' freeze also expires and has to be renewed.
+		new lp[32], lnum;
+		get_players(lp, lnum, g_pf);
+		for (new i = 0; i < lnum; i++)
+		{
+			// Nobody should be drifting to spectator now that round starts no longer
+			// kill anyone, but this is cheap and the drift was silent when it happened.
+			reassert_team(lp[i]);
+
+			if (g_elim[lp[i]])
+			{
+				hold_player(lp[i], false);
+				// Re-asserted here too, not only in PreThink, for the same reason the
+				// warmup hide moved: the per-frame hook may not run at all.
+				if (is_user_connected(lp[i]) && elim_hide_due(lp[i]))
+				{
+					set_pev(lp[i], pev_solid, TSM_SOLID_NOT);
+					set_pev(lp[i], pev_effects, pev(lp[i], pev_effects) | TSM_EF_NODRAW);
+					set_pev(lp[i], pev_takedamage, TSM_DAMAGE_NO);
+				}
+			}
+		}
+		show_round_timer();
+		show_spectator_hud();
+		check_round_end();
+		return;
+	}
+
+	if (g_state != ST_WARMUP && g_state != ST_READYUP)
+	{
+		return;
+	}
+
+	// Teams are learned from whoever is connected, so the plugin works out of the box
+	// instead of sitting inert behind an unset cvar.
+	autodetect_teams();
+
+	/*
+	 * The side menu is offered here, ahead of every early return below.
+	 *
+	 * It used to be inside the player loop further down, which only runs once
+	 * warmup_hold_active() passes -- and that guard fails precisely when nobody is on
+	 * a team yet, which is the one situation the menu exists for. The menu was
+	 * unreachable exactly when it was needed.
+	 */
+	new mp[32], mnum, mid;
+	get_players(mp, mnum, g_pf);
+	for (new i = 0; i < mnum; i++)
+	{
+		mid = mp[i];
+
+		if ((get_gametime() - g_connect_at[mid]) < float(get_pcvar_num(g_cv_menudelay)))
+		{
+			continue;   // let TS's own menus settle first
+		}
+
+		if (!tsm_live_team_of(mid))
+		{
+			// No side yet. Re-offered rather than shown once, because a menu is easy
+			// to miss or dismiss by accident.
+			if (g_team_menu_at[mid] <= 0.0 || (get_gametime() - g_team_menu_at[mid]) > 20.0)
+			{
+				show_team_menu(mid);
+			}
+			continue;
+		}
+
+		// The class menu is deliberately NOT offered here. It is shown once, at the
+		// start of a round, from task_arm_respawn -- offering it in warmup as well
+		// meant seeing it twice: once on joining a side and again when the round began.
+	}
+
+	if (!warmup_hold_active())
+	{
+		// Say exactly WHAT is missing. "Nothing happens" is the worst possible
+		// failure message, and it was the one this plugin gave.
+		set_hudmessage(255, 60, 60, -1.0, 0.22, 0, 0.0, 1.5, 0.0, 0.0, 2);
+		show_hudmessage(0, "MATCH MODE IDLE^n^nWaiting for two teams to be detected.^nPlayers are needed on two different teams.");
+		return;
+	}
+
+	// Counted PER TEAM, because that is what actually gates the start. The old
+	// global "1 / 1 ready" display looked complete while the real requirement --
+	// players on BOTH teams -- was unmet, which made the plugin look broken when it
+	// was working exactly as written.
+	new n1 = 0, n2 = 0, r1 = 0, r2 = 0;
+	new players[32], pnum, id, t;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+
+		// The freeze carries a duration, so it must be renewed or it lapses and
+		// players quietly regain control. 1.5s against a 1s tick leaves overlap.
+		t = tsm_live_team_of(id);
+
+		/*
+		 * Only hold players who are actually ON a team.
+		 *
+		 * Holding everyone deadlocked the server: a player is released when the match
+		 * starts, the match cannot start until everyone has readied up, readying up
+		 * needs a team -- and a held player cannot reach the team menu to join one.
+		 * Someone with no team is still choosing, so they are left alone.
+		 */
+		if (t)
+		{
+			hold_player(id, false);
+			apply_warmup_hide(id);
+		}
+		else
+		{
+			// Teamless players are never held -- they still have to reach the side
+			// menu. The menu itself is offered above, before any early return.
+			release_player(id);
+		}
+		// A bot cannot type .ready, so it is counted as ready or a side holding one
+		// could never satisfy the gate.
+		new bool:rdy = (g_ready[id] || (bot_player(id) && get_pcvar_num(g_cv_botready) != 0));
+
+		if (t == 1)
+		{
+			n1++;
+			if (rdy) { r1++; }
+		}
+		else if (t == 2)
+		{
+			n2++;
+			if (rdy) { r2++; }
+		}
+	}
+
+	new need = get_pcvar_num(g_cv_minteam);
+	new t1[32], t2[32];
+	team_label(1, t1, charsmax(t1), true);
+	team_label(2, t2, charsmax(t2), true);
+
+	new bool:solo = (get_pcvar_num(g_cv_solo) != 0);
+
+	new reason[96];
+	if (solo && (n1 + n2) > 0 && (r1 + r2) >= (n1 + n2))
+	{
+		copy(reason, charsmax(reason), "SOLO TEST MODE. STARTING...");
+	}
+	else if (solo)
+	{
+		copy(reason, charsmax(reason), "SOLO TEST MODE. TYPE .ready WHEN YOU ARE.");
+	}
+	else if (id_of_first_teamless())
+	{
+		copy(reason, charsmax(reason), "SOMEONE HAS NOT PICKED A TEAM YET.");
+	}
+	else if (n1 < need || n2 < need)
+	{
+		if (need == 1)
+		{
+			copy(reason, charsmax(reason), "NEED A PLAYER ON EACH TEAM.");
+		}
+		else
+		{
+			formatex(reason, charsmax(reason), "NEED %d PLAYERS ON EACH TEAM.", need);
+		}
+	}
+	else if (!balance_ok())
+	{
+		new short_team = balance_short_team();
+		new shortname[32];
+		if (short_team == 1)
+		{
+			copy(shortname, charsmax(shortname), t1);
+		}
+		else
+		{
+			copy(shortname, charsmax(shortname), t2);
+		}
+		formatex(reason, charsmax(reason), "TEAMS UNEVEN BY MORE THAN %d. SOMEONE SWITCH TO %s.",
+			get_pcvar_num(g_cv_balgap), shortname);
+	}
+	else if (r1 < n1 || r2 < n2)
+	{
+		copy(reason, charsmax(reason), "WAITING FOR EVERYONE TO TYPE .ready");
+	}
+	else
+	{
+		copy(reason, charsmax(reason), "STARTING...");
+	}
+
+	// Channel 2 as well: warmup and the freeze countdown are different states and
+	// never draw at the same time, so they can share without fighting.
+	set_hudmessage(0, 180, 255, -1.0, 0.20, 0, 0.0, 1.5, 0.0, 0.0, 2);
+	show_hudmessage(0, "WARMUP -- PLAYERS HELD^n%s^n^n%s: %d/%d ready^n%s: %d/%d ready",
+		reason, t1, r1, n1, t2, r2, n2);
+}

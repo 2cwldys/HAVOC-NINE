@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% set title = "Ranking" %}
+{% block content %}
+
+<div class="row">
+    <div class="col-lg-6 col-12">
+        <h1>Ranking</h1>
+        <table class="table table-hover table-borderless">
+            <thead>
+                <th width="1%"></th>
+                <th width="1%"></th>
+                <th></th>
+                <th width="1%"></th>
+            </thead>
+            <tbody>
+                {% for player in players %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td><img src="{{ player.avatar }}" class="small-avatar"></td>
+                    <td><a href="{{ player.url }}">{{ player.name }}</a></td>
+                    <td>{{ player.elo }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {#
+    <div class="col-lg-6 col-12">
+        <h1>Recent Matches</h1>
+        <table class="table table-hover table-borderless">
+            <thead>
+                <th width="1%"></th>
+                <th width="1%"></th>
+                <th width="1%"></th>
+                <th></th>
+                <th></th>
+                <th width="1%"></th>
+                <th width="1%"></th>
+                <th width="1%"></th>
+            </thead>
+            <tbody>
+
+                <tr>
+                    <td></td>
+                    <td><i class="fa-solid fa-shield-halved" alt="VAC Secured"></i></td>
+                    <td>
+                        <i class="fa-brands fa-windows" alt="Windows"></i>
+
+                    </td>
+                    <td><a href="steam://connect/62.146.177.139:27016">ETKCompute.cloud 24/7 Painball NEW TS MAP FastDL!</a></td>
+                    <td>ts_painball</td>
+                    <td>0</td>
+                    <td>/</td>
+                    <td>24</td>
+                    </a>
+                </tr>
+
+
+                <tr>
+                    <td></td>
+                    <td><i class="fa-solid fa-shield-halved" alt="VAC Secured"></i></td>
+                    <td>
+                        <i class="fa-brands fa-windows" alt="Windows"></i>
+
+                    </td>
+                    <td><a href="steam://connect/62.146.177.139:27015">ETKCompute.cloud TSDM</a></td>
+                    <td>ts_casa</td>
+                    <td>0</td>
+                    <td>/</td>
+                    <td>24</td>
+                    </a>
+                </tr>
+
+
+                <tr>
+                    <td></td>
+                    <td><i class="fa-solid fa-shield-halved" alt="VAC Secured"></i></td>
+                    <td>
+                        <i class="fa-brands fa-windows" alt="Windows"></i>
+
+                    </td>
+                    <td><a href="steam://connect/62.146.177.139:27017">ETKCompute.cloud 24/7 Knives Dojo!</a></td>
+                    <td>ts_dojo</td>
+                    <td>0</td>
+                    <td>/</td>
+                    <td>24</td>
+                    </a>
+                </tr>
+
+
+                <tr>
+                    <td><i class="fa-solid fa-lock" alt="Password"></i></td>
+                    <td><i class="fa-solid fa-shield-halved" alt="VAC Secured"></i></td>
+                    <td>
+
+                        <i class="fa-brands fa-linux" alt="Linux"></i>
+                    </td>
+                    <td><a href="steam://connect/65.60.153.167:27020">TSDEV</a></td>
+                    <td>ts_lobby</td>
+                    <td>0</td>
+                    <td>/</td>
+                    <td>24</td>
+                    </a>
+                </tr>
+
+
+                <tr>
+                    <td><i class="fa-solid fa-lock" alt="Password"></i></td>
+                    <td></td>
+                    <td>
+
+                        <i class="fa-brands fa-linux" alt="Linux"></i>
+                    </td>
+                    <td><a href="steam://connect/71.135.0.49:27015">The Gastroenterologists</a></td>
+                    <td>ts_antrodome</td>
+                    <td>0</td>
+                    <td>/</td>
+                    <td>16</td>
+                    </a>
+                </tr>
+
+
+                <tr>
+                    <td></td>
+                    <td></td>
+                    <td>
+                        <i class="fa-brands fa-windows" alt="Windows"></i>
+
+                    </td>
+                    <td><a href="steam://connect/125.63.48.188:27013">[AU] 2 Cunts Gaming - FFA Botz 24/7</a></td>
+                    <td>ts_metro</td>
+                    <td>4</td>
+                    <td>/</td>
+                    <td>12</td>
+                    </a>
+                </tr>
+
+                <tr>
+                    <td colspan="3"></td>
+                    <td class="text-muted">
+                        <ul class="playerlist">
+
+                            <li>kruze</li>
+
+                            <li>Paolo</li>
+
+                            <li>w00tman123</li>
+
+                            <li>Sean</li>
+
+                    </td>
+                    <td colspan="4"></td>
+                </tr>
+
+
+            </tbody>
+        </table>
+    </div> #}
+</div>
+{% endblock %}

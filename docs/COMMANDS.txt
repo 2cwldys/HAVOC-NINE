@@ -1,0 +1,408 @@
+===============================================================================
+ TS MATCH MODE -- COMMAND REFERENCE
+ Plugin: ts_matchmode.amxx        Build: 1.35-roam
+===============================================================================
+
+ Keep this file current. When a command is added, renamed or removed in
+ ts_matchmode.sma, change it here in the same edit -- a reference that is only
+ sometimes right is worse than none, because it gets trusted.
+
+ Cvars are NOT listed here. They live in ts_matchmode.cfg, which documents each
+ one next to its value. This file is commands only.
+
+ EDIT CONFIGS IN D:\Downloads\TSM. build.bat copies ts_matchmode.cfg over the
+ server's copy on every build, so changes made server-side are overwritten.
+
+ build.bat also regenerates D:\Downloads\TSM\export -- a drop-in server package
+ for setting this up on another machine. It is GENERATED; never edit it by hand.
+ See export\README.txt for what is in it and how to install it.
+
+
+===============================================================================
+ PLAYER COMMANDS  (typed in chat, available to everyone)
+===============================================================================
+
+ .menu
+     Opens the menu of menus: pick a side, pick a class, match status.
+     The way back to anything dismissed by accident.
+
+ .team
+     Opens the side menu (MSR / Insurrectionists / Spectate).
+     During warmup this also RELEASES your current side first, so you can
+     switch. Once a match is running it refuses -- sides are locked.
+
+ .class
+     Opens the class menu. Classes are locked once a match is running; during
+     warmup you can change as often as you like.
+
+     Two classes do something with +USE:
+
+       Combat Engineer   +USE on a teammate resupplies them. Once per round.
+       Breacher          +USE on a door forces it open, including doors locked
+                         against every other class. Carries the Benelli M3.
+       Officer           Commands bots with .follow and .unfollow. Carries the
+                         Glock 18 and a Katana.
+       Medic             +USE on a teammate heals them 50hp on a 15s cooldown,
+                         capped at that teammate's own class health. They glow
+                         red while it lands. Sidearm only, no primary.
+
+     Each perk does one thing. A Breacher cannot heal or resupply, a Medic cannot
+     breach, and so on.
+
+ .ready
+     Mark yourself ready. Requires a side and requires being spawned in.
+     Refused with a reason if either is missing.
+
+ .unready
+     Withdraw your ready state.
+
+ .status
+     Print the current match state to chat.
+
+ .roam
+     Toggle free movement. Lifts every hold -- warmup, freeze, spectator -- and
+     gives you normal movement so you can walk the map.
+
+     This is how you place spawn points. The warmup hold clamps maxspeed to 1, so
+     without it you cannot leave the spot you spawned on; doing it during a live
+     round instead means doing it under fire.
+
+         .roam
+         walk to a position, amx_tsm_spawn_add 1   (or 2)
+         repeat
+         amx_tsm_spawn_save
+         .roam                                     (back to normal)
+
+     Nothing is saved and restored: the hold is recomputed from the match state
+     every frame, so switching it off simply lets that take over again.
+
+ .follow   /   .squad          (Officer class only, during a round)
+     Take up to tsm_squad_max free bots on your side under command. They
+     follow you until you dismiss them or the round ends.
+
+     Opens RCBOT OWN SQUAD MENU. Choose "more options", then "squad", to pick
+     who follows you. Formation and spread come from tsm_squad_formation and
+     tsm_squad_spread and are applied before the menu opens.
+
+     rcbot has had a squad system all along -- its docs just never call it
+     "follow". It paths and holds formation properly, which the plugin steering
+     trail along rather than forming up, and a bot that gets too far away is
+     it replaced never could.
+
+     An Officer is told about both commands in chat when the round starts, so
+     the perk is not invisible.
+
+ .unfollow /   .dismiss        (Officer class only)
+     Stand the whole squad down.
+
+
+===============================================================================
+ MATCH CONTROL  (admin, ADMIN_CFG)
+===============================================================================
+
+ amx_match_start
+     Force the match live without waiting for ready-up. Warns if a side is
+     empty -- rounds will not resolve while one is.
+
+ amx_match_cancel
+     FULL reset to warmup. Round counter to 0, score to 0-0, ready flags
+     cleared, classes cleared, late-join lockouts cleared, everyone restored.
+     This is the "put everything back" command.
+
+ amx_match_restart
+     Score and round counter to 0, then start round 1 immediately. Skips
+     warmup and ready-up.
+
+ amx_match_score
+     Print the current score.
+
+
+===============================================================================
+ SPAWN POINTS  (admin, ADMIN_CFG)
+===============================================================================
+
+ Custom spawns are per map, saved to:
+     addons/amxmodx/configs/tsm_spawns_<mapname>.cfg
+ and reloaded automatically every time that map loads.
+
+ Once a map has ANY custom spawn, the map's own spawn entities are no longer
+ used at all. They are only a fallback for maps with no custom set.
+
+ amx_tsm_spawn_add <1|2>
+     Add a spawn for that team where you are standing, facing where you look.
+     Custom spawns store facing; map entities cannot.
+
+     CAUTION: do not run this while standing on the map's own spawn point, or
+     you will record it as a custom spawn -- and if you do it for both teams
+     they will share that position.
+
+ amx_tsm_spawn_list
+     List every configured spawn with its position and facing.
+
+ amx_tsm_spawn_tp <1|2> <n>
+     Teleport to spawn n of that team, to check placement.
+
+ amx_tsm_spawn_del <1|2> <n>
+     Remove one spawn. Use this to drop a bad entry without clearing the set.
+
+ amx_tsm_spawn_clear <1|2|0>
+     Clear that team's spawns. 0 clears both.
+
+ amx_tsm_spawn_save
+     Write the current set to the per-map cfg. Nothing is persisted until you
+     run this.
+
+ tsm_spawn <team> <x> <y> <z> <pitch> <yaw>          (server command)
+     Defines one spawn. This is what the saved cfg is made of; it is not meant
+     to be typed by hand.
+
+
+===============================================================================
+ DIAGNOSTICS  (admin, ADMIN_CFG)
+===============================================================================
+
+ amx_tsm_debug
+     The first thing to run when nothing is happening. Build stamp, match
+     state, round and score, team mode and names, live mp_teamlist, spawn
+     source, balance state, class count, weapon mode, bot settings, whether
+     PlayerPreThink fires, and every player's resolved team and ready state.
+
+ amx_tsm_teaminfo
+     Everything about teams from the mod's side: mp_teamlist, mp_teammodels,
+     mp_teamplay, mp_teamoverride, the spectator team's resolved slot, how
+     many TeamInfo messages the mod has sent, and each player's team as TS
+     reports it versus as the plugin resolves it.
+
+     TeamInfo msgs = 0 means the server is NOT running teamplay gamerules, and
+     no team join can possibly work. mp_teamplay must be 1 BEFORE the map
+     loads -- that is what ts/game.cfg is for.
+
+ amx_tsm_whystuck [target]
+     Dumps everything that can stop a player moving: our hold flag, FL_FROZEN,
+     movetype, solid, maxspeed, velocity, origin, effects, and how often
+     maxspeed had to be restored.
+
+     A healthy live player reads movetype=3 and solid=3. solid=2 cannot slide
+     along the floor and looks exactly like being frozen.
+
+ amx_tsm_unstick [target]
+     Last resort. Clears every hold, forces normal movement, and lifts the
+     player clear of the floor in case they were made solid inside geometry.
+
+ amx_tsm_unfreeze
+     Force-release everyone. Diagnostic.
+
+ amx_tsm_fix <target>
+     Force-restore one player to normal: visible, solid, armed, able to move.
+
+ amx_tsm_menu <side|class>
+     Force a menu up and report why it might not have shown (built or not,
+     class count, current assignment). Tells "never sent" apart from "sent and
+     swallowed" -- the latter happens when a TS VGUI panel holds keyboard
+     focus, because it eats every digit before the client can send menuselect.
+
+
+===============================================================================
+ TESTING  (admin, ADMIN_CFG)
+===============================================================================
+
+ amx_tsm_simwin <1|2>
+     Award the current round to a team. With tsm_test_solo 1 this is how you
+     walk a whole best-of-X on your own.
+
+ amx_tsm_simelim [target]
+     Eliminate a player as though they had been killed. Exercises the
+     elimination, spectate-follow and kill-report paths without needing a
+     second player to shoot.
+
+ amx_tsm_shuffle
+     Attempt to even the sides out.
+
+
+===============================================================================
+ COMMANDS THIS PLUGIN INTERCEPTS
+===============================================================================
+
+ These are not for you to type -- they are TS's own commands that the plugin
+ watches or blocks. Listed so the behaviour is not a mystery.
+
+ tkw / tka / tki / rst_cfg / cashala
+     TS's buy-menu commands. Refused when tsm_block_buy is 1, in every state,
+     warmup included.
+
+     This is only HALF of the block, and not the half that matters. Refusing
+     these stops the menu saving a NEW loadout; it does nothing about one
+     already saved in a player's config, because TS re-applies that from the
+     config at every spawn and sends no command for this to catch. That is
+     what tsm_nocash is for -- see NO ECONOMY below. Leave both switched on.
+
+     The plugin's OWN loadout writes use these same commands and are allowed
+     through by a bypass flag.
+
+ changeteam
+     Refused while tsm_block_teamvgui is 1. It is the only thing that opens
+     TS's team panel, and that panel is modal: it swallows every digit, so an
+     AMXX menu shown while it is up renders and never receives a keypress.
+     The plugin's own side menu replaces it.
+
+ jointeam
+     Watched, not blocked. Logged to tsm_debug.log so a failed join can be
+     told apart from one that never arrived.
+
+ say / say_team
+     Parsed for the player commands at the top of this file.
+
+
+===============================================================================
+ NO ECONOMY  (why weapons cannot be bought)
+===============================================================================
+
+ TS's equipment menu is SLOT-limited, not cash-limited, and it is client-side
+ VGUI -- there is no server-side "buy" command to refuse. usecash 0 does not
+ close it either: with the economy off, CashBased() is false, nothing is ever
+ charged, and the menu becomes FREE.
+
+ So the economy is left ON and the wallet is kept empty, and TS does the
+ refusing itself with its own message. tsm_nocash 1 sets:
+
+     usecash 1          economy on, so a purchase is refusable at all
+     initial_cash 0     no cash at spawn
+     cashforwin 0       no cash for the winning side at round end
+     cashforlose 0      no cash for the losing side either
+
+ and then holds every player's cash at 0 every frame, which is the part that
+ actually guarantees it: a MAP can hand out cash directly through the
+ victorycash and defeatcash keyvalues on a ts_wingiver entity, and those are
+ baked into the .bsp where no cvar reaches them.
+
+ The class loadout is applied down that same purchase path, so it would be
+ refused too. The money is lent for the few frames that takes and taken
+ straight back, keyed on the same bypass flag the buy block uses.
+
+ The four cvars above are also set in ts/game.cfg, which TS execs at the top of
+ every map load -- before any plugin runs, so the first map of a session is
+ covered too.
+
+
+===============================================================================
+ REQUIRED MODULES
+===============================================================================
+
+ addons/amxmodx/configs/modules.ini MUST list:
+
+     hamsandwich
+     tsfun
+
+ The plugin will not load without hamsandwich. Ham_TakeDamage is the only
+ friendly-fire block that works on bots -- register_event("Damage") is driven by
+ the network message sent to the damaged client, and a fake client is sent none,
+ so bot-on-bot friendly fire was never blocked at all.
+
+ tsfun provides ts_getusercash / ts_setusercash, which is how the wallet is held
+ at zero. Both are in the auto-detect list in a stock modules.ini.
+
+
+===============================================================================
+ RCBOT  (separate Metamod plugin, not part of this one)
+===============================================================================
+
+ Full reference: half-life/rcbot/rcbot_commands.txt
+
+ rcbot addbot                         add one bot
+ rcbot config min_bots <n>            bot quota; a bot is kicked when the
+ rcbot config max_bots <n>            count exceeds min_bots
+ rcbot config balance_teams <0|1>     rcbot evens its own bots across sides
+ rcbot autowaypoint <0|1|2>           drop waypoints as you walk
+ rcbot waypoint on|off|add|delete     manual waypointing
+ rcbot pathwaypoint ...               path editing
+
+ Waypoints live in  half-life/rcbot/waypoints/ts/<mapname>.rcw  and are
+ REQUIRED -- bots will not navigate a map without them. 45 TS maps ship with
+ rcbot; h9_te_neuropolis is not one of them.
+
+ tsm_bots 0 zeroes rcbot's quota as well, so no bots join at all.
+ tsm_bots 1 also sets balance_teams 1, because only rcbot can move its own
+ bots in a way TS agrees with -- moving them plugin-side made bots shoot their
+ own teammates and use the wrong spawn points.
+
+ With tsm_bots 1 the bots sit in SPECTATOR until a human picks a side. Filling
+ starts from that point, so the first person to join is not dropped into a server
+ whose teams were already settled without them. If nothing is happening and the
+ server is all bots, that is why -- join a side.
+
+ WHAT THE PLUGIN CAN AND CANNOT MAKE BOTS DO
+
+ Can:  put them on the right side, name them, give them a class loadout, keep them
+       supplied with ammunition, stop them damaging their own team, and order them
+       to follow an Officer.
+
+ Can:  stop them TARGETING a teammate, indirectly. rcbot picks its own targets and
+       its team support for TS is broken upstream, so there is no way to tell it a
+       player is a teammate -- but the line it traces to ask whether it can SEE one
+       goes through the engine, and that is reachable. tsm_bot_blind_ff makes those
+       traces come back empty, so a teammate is never a candidate.
+
+       The trade: bots shoot through teammates at enemies behind them. Harmless,
+       since friendly damage is refused anyway. Set tsm_bot_blind_ff 0 to undo it.
+
+ Cannot:  make them reload or switch weapons sensibly. rcbot never saw the weapons
+       we gave them, because the loadout is written through TS buy commands rather
+       than picked up off the floor. tsm_bot_resupply works around it by keeping
+       them from ever running dry.
+
+ Bots are renamed after the side they land on: Enforcer 1, Insurgent 1 and so on
+ (tsm_bot_names, tsm_bot_name1, tsm_bot_name2). Set tsm_bot_names 0 to keep
+ rcbot's own profile names.
+
+
+===============================================================================
+ ORDER OF OPERATIONS FOR A NEW MAP
+===============================================================================
+
+ 1. Load the map.
+ 2. amx_tsm_spawn_add 1   at several positions on one side
+    amx_tsm_spawn_add 2   at several positions on the other
+    -- do NOT stand on the map's own spawn when you add the first one
+ 3. amx_tsm_spawn_list    confirm no position appears under both teams
+ 4. amx_tsm_spawn_save
+ 5. rcbot autowaypoint 1, walk the map, save per rcbot's docs
+ 6. Restart, then amx_tsm_debug to confirm the spawn cfg loaded
+
+
+===============================================================================
+ WHEN SOMETHING IS WRONG -- WHAT TO RUN FIRST
+===============================================================================
+
+ Nothing happens at all            amx_tsm_debug
+ Cannot join a team                amx_tsm_teaminfo    (check TeamInfo msgs)
+ Bots sit in spectator             expected until a human picks a side
+ Bots never come back after a match  amx_tsm_debug, check tsm_bot_return
+ A Breacher cannot open a door     the door is master-locked; see
+                                   tsm_breach_entities in ts_matchmode.cfg
+ Cannot move                       amx_tsm_whystuck
+ A menu will not appear            amx_tsm_menu side   (check built=)
+ Someone is stuck invisible        amx_tsm_unstick <name>
+
+ A model is wrong or clients crash amx_tsm_teaminfo, compare mp_teammodels against
+                                   the tsm_classN model fields. Every model a class
+                                   can wear must be in mp_teammodels or it is never
+                                   precached. tsm_model_mode teamonly disables all
+                                   class models at once.
+ Everything is in a bad state      amx_match_cancel
+
+ Bots still shoot their own side   amx_tsm_debug, read the bots block:
+                                   seen=0   the traceline hook never sees bots
+                                   hidden=0 it sees them but never onto a teammate
+                                   both >0  it is working; the cause is elsewhere
+
+ A body vanishes on death          amx_tsm_debug, read death-pin frames held.
+                                   0 means the body is not being held and will
+                                   vanish when TS respawns the player.
+
+ Deeper death detail               tsm_debug_log 2, then read deathtrace lines in
+                                   logs/tsm_debug.log. They show solid, nodraw,
+                                   rendermode and renderamt every frame after a
+                                   death, so whatever hides the body names itself.
+
+ Verbose tracing: tsm_debug_log 3 writes per-tick detail to
+ addons/amxmodx/logs/tsm_debug.log. Level 4 also echoes to the console.

@@ -1,0 +1,9 @@
+discord_invite: https://discord.gg/aaaaaaaaaaa
+discord_webhook: https://discord.com/api/webhooks/aaaaaaaaaaaa
+steam_webapi_key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+apikeys:
+  # server owner 1
+  - AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  # server owner 2
+  - BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+PORT: 8030

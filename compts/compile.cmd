@@ -1,0 +1,1 @@
+.\scripting\amxxpc.exe compts.pwn -ocompts.amxx

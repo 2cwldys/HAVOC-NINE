@@ -1,0 +1,8 @@
+This .so is STOCK rcbot and does NOT contain the TS team fix.
+
+On linux, bots go back to attacking their own team: stock rcbot decides
+The Specialists teams by comparing player model strings, so teammates in
+different models read as enemies.
+
+To build one: clone rcbotold at the commit in ..\..\rcbot-patch\BASE-COMMIT.txt,
+apply rcbot-ts-teams.patch, build with the AMBuildScript in the repo root.

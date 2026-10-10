@@ -1,0 +1,50 @@
+html {
+    font-family: 'CPMono_v07 Plain';
+    font-weight: normal;
+    font-style: normal;
+}
+
+#logo {
+    width: 3em;
+    height: 3em;
+}
+
+#menu_user>img {
+    width: 3em;
+    height: 3em;
+}
+
+.avatar {
+    border-radius: 0.25rem;
+}
+
+.small-avatar {
+    border-radius: 0.25rem;
+    width: 2em;
+}
+
+body {
+    padding-top: 40px;
+}
+
+#footbrand {
+    opacity: 0.3;
+    height: 3em;
+    width: 3em;
+}
+
+.table-borderless {
+    border: 0;
+}
+
+.playerlist {
+    margin-bottom: 0;
+}
+
+.playerlist>li {
+    list-style-type: none;
+}
+
+td {
+    vertical-align: middle;
+}
