@@ -64,7 +64,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.47-rearm"
+#define TSM_BUILD "1.48-nobuy"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -357,6 +357,7 @@ new g_cv_sweepdrops;
 new g_cv_nopowerups;
 new g_cv_modelpost;
 new g_cv_icons, g_cv_iconhigh, g_cv_iconscale;
+new g_cv_stripbuy;
 new g_cv_botreturn;
 new g_cv_bots, g_cv_botteams, g_cv_botclass, g_cv_botready;
 
@@ -1996,6 +1997,7 @@ public plugin_init()
 	 */
 	g_cv_nopowerups = register_cvar("tsm_no_powerups",   "1");
 	g_cv_modelpost  = register_cvar("tsm_model_post",     "1");
+	g_cv_stripbuy   = register_cvar("tsm_strip_buypoints", "1");
 	g_cv_icons      = register_cvar("tsm_class_icons",    "1");
 	g_cv_iconhigh   = register_cvar("tsm_icon_height",    "52.0");
 	g_cv_iconscale  = register_cvar("tsm_icon_scale",     "0.25");
@@ -2636,8 +2638,65 @@ public task_record_map_items()
 	record_map_items();
 }
 
+/*
+ * Removes the map's ts_groundweapon entities, and with them the ability to buy.
+ *
+ * THIS is what stops purchasing in TS, and nothing else does.
+ *
+ * There is no abstract shop. A player buys FROM a ts_groundweapon entity the mapper
+ * placed -- mapping.txt describes racks and tables of them in spawn, and the Buyable
+ * and team attributes that gate a purchase are attributes OF those entities. The
+ * client-side menu is only the interface to them. So with the entities gone there is
+ * nothing left to buy from, and the menu has nothing to sell.
+ *
+ * Every other route was checked and is a dead end: CashBased() is hardcoded to return
+ * 0, so cash can never gate a purchase in any mode; initial_cash, cashforwin and
+ * cashforlose are not even registered with the engine; tsbuylist.tsa is read only by
+ * cl_dlls/client.dll, so it is the client's own copy and editing the server's does
+ * nothing; and no cvar in the mod's table disables the menu.
+ *
+ * Ammo pickups are left alone. They are a separate classname, they do not sell
+ * weapons, and a map's ammo is part of how it plays.
+ */
+strip_buy_points()
+{
+	if (!get_pcvar_num(g_cv_stripbuy))
+	{
+		return;
+	}
+
+	new ent = -1, gone = 0;
+
+	// Bounded like the other entity sweeps in this file: a runaway loop here would
+	// hang the whole server on map load.
+	for (new guard = 0; guard < 512; guard++)
+	{
+		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "ts_groundweapon");
+		if (ent <= 0)
+		{
+			break;
+		}
+		if (!pev_valid(ent))
+		{
+			continue;
+		}
+		engfunc(EngFunc_RemoveEntity, ent);
+		gone++;
+		ent = -1;   // the list shifts under a removal, so restart the walk
+	}
+
+	if (gone)
+	{
+		log_amx("[TSM] Removed %d map buy point(s) -- weapons cannot be purchased.", gone);
+	}
+}
+
 record_map_items()
 {
+	// Before the record, so the pickups that have just been removed are not recorded
+	// as map items the dropped-weapon sweeper then tries to protect.
+	strip_buy_points();
+
 	g_map_item_count = 0;
 
 	new ent;
