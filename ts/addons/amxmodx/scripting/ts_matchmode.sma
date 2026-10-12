@@ -64,7 +64,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.48-nobuy"
+#define TSM_BUILD "1.48-squad"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -255,7 +255,7 @@ new g_cv_hoverinfo, g_cv_hoverrange;
 new g_cv_medheal, g_cv_medcool, g_cv_medrange, g_cv_medglow, g_cv_medshell;
 new g_cv_deathlinger;
 new g_cv_squadmax, g_cv_squaddist, g_cv_squadwarp, g_cv_squadspeed;
-new g_cv_squadform, g_cv_squadspread, g_cv_squadsteer;
+new g_cv_squadsteer, g_cv_squadreach;
 new g_cv_endelay;
 new g_cv_botresup;
 new g_bot_resup_rr = 0;        // round-robin, so only one bot is topped up per tick
@@ -357,7 +357,6 @@ new g_cv_sweepdrops;
 new g_cv_nopowerups;
 new g_cv_modelpost;
 new g_cv_icons, g_cv_iconhigh, g_cv_iconscale;
-new g_cv_stripbuy;
 new g_cv_botreturn;
 new g_cv_bots, g_cv_botteams, g_cv_botclass, g_cv_botready;
 
@@ -1507,6 +1506,42 @@ public task_show_class(id)
 	show_class_menu(id);
 }
 
+/*
+ * Whether a class pick can take effect right now.
+ *
+ * ONLY during the freeze countdown. That is where issue_armament() runs, so it is the
+ * only moment choosing a class does anything -- outside it the pick was accepted, the
+ * player was told "that is your class for the whole match", and then begin_match()
+ * zeroed it on the way in. They were being lied to.
+ *
+ * Ready-up matters more than it looks: halt_for_imbalance() parks a LIVE match in
+ * ST_READYUP with the score intact, so "we are in ready-up" does not mean "no match is
+ * running". Letting a pick through there let someone re-pick mid-match, and that one
+ * survived, because resume_match() deliberately leaves classes alone.
+ *
+ * One predicate, used by every route in, so the next route added cannot forget.
+ */
+bool:may_pick_class(id)
+{
+	if (!is_user_connected(id) || !g_class_count || !g_class_menu)
+	{
+		return false;
+	}
+	if (!get_pcvar_num(g_cv_classes))
+	{
+		return false;
+	}
+	if (g_state != ST_FREEZE)
+	{
+		return false;
+	}
+	if (g_locked_out[id] || !tsm_live_team_of(id))
+	{
+		return false;
+	}
+	return true;
+}
+
 show_class_menu(id)
 {
 	// A bot can never answer a menu -- these are re-offered on a timer, which
@@ -1516,14 +1551,21 @@ show_class_menu(id)
 		return;
 	}
 
+	// Everything funnels through here, so this is where the state rule lives. The
+	// routes that a player drives say WHY they were refused; this one is the backstop
+	// and stays silent.
+	if (!may_pick_class(id))
+	{
+		return;
+	}
+
 	if (!is_user_connected(id) || !g_class_menu || !g_class_count)
 	{
 		return;
 	}
-	// Locked only once a match is under way. During warmup a class can be changed as
-	// often as you like -- the previous rule treated the class auto-assigned at
-	// go-live as a deliberate pick, which then blocked the menu for good.
-	if (g_player_class[id] && g_state != ST_WARMUP && g_state != ST_READYUP)
+	// Locked once picked. The freeze is the only state that reaches here now, so there
+	// is no warmup exemption to make: a class is chosen once per match.
+	if (g_player_class[id])
 	{
 		return;
 	}
@@ -1997,7 +2039,6 @@ public plugin_init()
 	 */
 	g_cv_nopowerups = register_cvar("tsm_no_powerups",   "1");
 	g_cv_modelpost  = register_cvar("tsm_model_post",     "1");
-	g_cv_stripbuy   = register_cvar("tsm_strip_buypoints", "1");
 	g_cv_icons      = register_cvar("tsm_class_icons",    "1");
 	g_cv_iconhigh   = register_cvar("tsm_icon_height",    "52.0");
 	g_cv_iconscale  = register_cvar("tsm_icon_scale",     "0.25");
@@ -2220,10 +2261,8 @@ public plugin_init()
 	g_cv_squadwarp  = register_cvar("tsm_squad_warp",  "1200");
 	g_cv_squadspeed = register_cvar("tsm_squad_speed", "240");
 
-	// rcbot's own squad system does the following properly -- see cmd_squad_follow.
-	g_cv_squadform   = register_cvar("tsm_squad_formation", "wedge");
-	g_cv_squadspread = register_cvar("tsm_squad_spread",    "100");
-	g_cv_squadsteer  = register_cvar("tsm_squad_steer",     "0");
+	g_cv_squadsteer  = register_cvar("tsm_squad_steer",     "1");
+	g_cv_squadreach  = register_cvar("tsm_squad_reach",     "400");
 
 	g_cv_endelay    = register_cvar("tsm_roundend_delay", "4.0");
 	g_cv_botresup   = register_cvar("tsm_bot_resupply", "20.0");
@@ -2245,7 +2284,7 @@ public plugin_init()
 	register_cvar("tsm_class5", "Breacher;4:4,22:2;4:4,22:2;;110;0;2");
 
 	// Sidearm only -- no primary. 22 = Glock 20. Perk 3 heals a teammate on +USE.
-	register_cvar("tsm_class6", "Medic;22:4;22:4;repuheavym|XCCPRurik;100;0;3");
+	register_cvar("tsm_class6", "Medic;22:4;22:4;repuheavym|ins_medic_belt;100;0;3");
 
 	// 1 = Glock 18, 34 = Katana (melee, so no spare clips). Perk 4 commands bots.
 	register_cvar("tsm_class7", "Officer;1:4,34:0;1:4,34:0;reputengu|;100;0;4");
@@ -2638,65 +2677,8 @@ public task_record_map_items()
 	record_map_items();
 }
 
-/*
- * Removes the map's ts_groundweapon entities, and with them the ability to buy.
- *
- * THIS is what stops purchasing in TS, and nothing else does.
- *
- * There is no abstract shop. A player buys FROM a ts_groundweapon entity the mapper
- * placed -- mapping.txt describes racks and tables of them in spawn, and the Buyable
- * and team attributes that gate a purchase are attributes OF those entities. The
- * client-side menu is only the interface to them. So with the entities gone there is
- * nothing left to buy from, and the menu has nothing to sell.
- *
- * Every other route was checked and is a dead end: CashBased() is hardcoded to return
- * 0, so cash can never gate a purchase in any mode; initial_cash, cashforwin and
- * cashforlose are not even registered with the engine; tsbuylist.tsa is read only by
- * cl_dlls/client.dll, so it is the client's own copy and editing the server's does
- * nothing; and no cvar in the mod's table disables the menu.
- *
- * Ammo pickups are left alone. They are a separate classname, they do not sell
- * weapons, and a map's ammo is part of how it plays.
- */
-strip_buy_points()
-{
-	if (!get_pcvar_num(g_cv_stripbuy))
-	{
-		return;
-	}
-
-	new ent = -1, gone = 0;
-
-	// Bounded like the other entity sweeps in this file: a runaway loop here would
-	// hang the whole server on map load.
-	for (new guard = 0; guard < 512; guard++)
-	{
-		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "ts_groundweapon");
-		if (ent <= 0)
-		{
-			break;
-		}
-		if (!pev_valid(ent))
-		{
-			continue;
-		}
-		engfunc(EngFunc_RemoveEntity, ent);
-		gone++;
-		ent = -1;   // the list shifts under a removal, so restart the walk
-	}
-
-	if (gone)
-	{
-		log_amx("[TSM] Removed %d map buy point(s) -- weapons cannot be purchased.", gone);
-	}
-}
-
 record_map_items()
 {
-	// Before the record, so the pickups that have just been removed are not recorded
-	// as map items the dropped-weapon sweeper then tries to protect.
-	strip_buy_points();
-
 	g_map_item_count = 0;
 
 	new ent;
@@ -4303,8 +4285,20 @@ public cmd_menu(id, level, cid)
 
 	if (equali(which, "class"))
 	{
-		console_print(id, "[TSM] class menu: built=%d classes=%d yours=%d",
-			g_class_menu ? 1 : 0, g_class_count, g_player_class[id]);
+		console_print(id, "[TSM] class menu: built=%d classes=%d yours=%d state=%d may_pick=%d",
+			g_class_menu ? 1 : 0, g_class_count, g_player_class[id],
+			g_state, may_pick_class(id) ? 1 : 0);
+
+		// This clears the admin's own locked class so the menu will open. That is a
+		// debugging tool, so it stays -- but only where a pick can take effect, or it
+		// drops the class and then shows nothing, which reads as the command failing.
+		if (!may_pick_class(id))
+		{
+			console_print(id, "[TSM] not during state %d -- classes are picked in the freeze (state %d).",
+				g_state, ST_FREEZE);
+			return PLUGIN_HANDLED;
+		}
+
 		g_player_class[id] = 0;
 		show_class_menu(id);
 		return PLUGIN_HANDLED;
@@ -4352,6 +4346,10 @@ public legend_menu_handler(id, menu, item)
 				client_print(id, print_chat, "[MATCH] Pick a side first.");
 				g_team_menu_at[id] = 0.0;
 				show_team_menu(id);
+			}
+			else if (!may_pick_class(id))
+			{
+				client_print(id, print_chat, "[MATCH] Classes are picked during the countdown before a round, not now.");
 			}
 			else
 			{
@@ -4474,6 +4472,29 @@ public cmd_class(id)
 	{
 		client_print(id, print_chat, "[MATCH] You are %s for this match. Classes are locked once picked.",
 			g_class_name[g_player_class[id] - 1]);
+		return PLUGIN_HANDLED;
+	}
+
+	// Say why, rather than opening a menu whose answer would be thrown away. A class
+	// picked outside the freeze never reached the loadout and begin_match() cleared it.
+	if (!may_pick_class(id))
+	{
+		if (!get_pcvar_num(g_cv_classes))
+		{
+			client_print(id, print_chat, "[MATCH] Classes are switched off on this server.");
+		}
+		else if (!tsm_live_team_of(id))
+		{
+			client_print(id, print_chat, "[MATCH] Pick a side first -- type .team.");
+		}
+		else if (g_locked_out[id])
+		{
+			client_print(id, print_chat, "[MATCH] You joined mid-match -- you are in at the next one.");
+		}
+		else
+		{
+			client_print(id, print_chat, "[MATCH] Classes are picked during the countdown before a round, not now.");
+		}
 		return PLUGIN_HANDLED;
 	}
 
@@ -5309,47 +5330,18 @@ cmd_squad_follow(id)
 	}
 
 	/*
-	 * rcbot has a squad system of its own, and it is better than anything this
-	 * plugin can do: real pathing, real formations, and the bots stay bots rather
-	 * than being shoved around by an outside force.
+	 * Taken by PROXIMITY, here, rather than handed to rcbot's own squad menu.
 	 *
-	 * It was missed first time round because its docs never say "follow" -- the
-	 * feature is called squad, and searching for the wrong word found nothing.
+	 * The menu was the previous answer and it is a reasonable one -- rcbot paths and
+	 * holds formation properly, which steering from outside cannot. What it cannot do
+	 * is answer the question an officer is actually asking in an elimination round:
+	 * "these men, with me, now". Its squad is chosen from a list, it is not scoped to
+	 * who is standing beside you, and it re-decides on its own schedule.
 	 *
-	 * Squad membership is chosen in rcbot's own menu, so that is opened here rather
-	 * than guessed at. Formation and spread ARE settable from the console, so they
-	 * are applied first and the menu comes up already configured.
+	 * So the men near him come under command and the steering in task_squad holds
+	 * them. The cost is pathing, and it is paid for in task_squad by handing a bot
+	 * back to rcbot whenever it cannot see its officer -- see the note there.
 	 */
-	new form[16], spread[8];
-	get_pcvar_string(g_cv_squadform, form, charsmax(form));
-	get_pcvar_string(g_cv_squadspread, spread, charsmax(spread));
-
-	if (form[0])
-	{
-		server_cmd("rcbot squad formation %s", form);
-	}
-	if (spread[0])
-	{
-		server_cmd("rcbot squad spread %s", spread);
-	}
-	server_exec();
-
-	// client_cmd, not engclient_cmd: this has to reach the CLIENT, because what it
-	// opens is a menu for a person to answer.
-	client_cmd(id, "rcbot squad_menu");
-	client_print(id, print_chat,
-		"[MATCH] Squad menu open -- choose 'more options' then 'squad' to pick who follows you.");
-	client_print(id, print_chat,
-		"[MATCH] Formation %s, spread %s. Type .unfollow to stand them down.", form, spread);
-	dbg("officer %d: opened rcbot squad menu (formation %s spread %s)", id, form, spread);
-
-	if (!get_pcvar_num(g_cv_squadsteer))
-	{
-		return;
-	}
-
-	// Fallback steering, off by default now that rcbot does this properly.
-
 	new cap = get_pcvar_num(g_cv_squadmax);
 	new have = squad_size(id);
 	if (have >= cap)
@@ -5358,27 +5350,89 @@ cmd_squad_follow(id)
 		return;
 	}
 
-	new players[32], pnum, took = 0;
+	new Float:reach = get_pcvar_float(g_cv_squadreach);
+	new Float:me[3];
+	pev(id, pev_origin, me);
+
+	// Gathered first and sorted by distance, so a cap of four takes the four NEAREST
+	// rather than the four lowest entity indices -- which is what taking them in
+	// get_players order quietly did.
+	new cand[32], Float:dist[32], n = 0, owned = 0;
+	new players[32], pnum;
 	get_players(players, pnum, g_pf);
-	for (new i = 0; i < pnum && have + took < cap; i++)
+
+	for (new i = 0; i < pnum; i++)
 	{
 		new b = players[i];
 		if (!is_user_bot(b) || !is_user_alive(b) || g_elim[b])
 		{
 			continue;
 		}
-		if (g_match_team[b] != g_match_team[id] || g_squad_leader[b])
+		if (g_match_team[b] != g_match_team[id])
 		{
 			continue;
 		}
 
-		g_squad_leader[b] = id;
+		new Float:him[3];
+		pev(b, pev_origin, him);
+		new Float:d = get_distance_f(me, him);
+		if (d > reach)
+		{
+			continue;
+		}
+
+		// Already somebody else's. Counted so he is told, and left alone: two officers
+		// steering one bot would pull it between them every frame.
+		if (g_squad_leader[b] && g_squad_leader[b] != id)
+		{
+			owned++;
+			continue;
+		}
+		if (g_squad_leader[b] == id)
+		{
+			continue;   // already his
+		}
+
+		cand[n] = b;
+		dist[n] = d;
+		n++;
+	}
+
+	// Insertion sort: at most 32 and usually a handful, so nothing cleverer is worth
+	// the lines.
+	for (new i = 1; i < n; i++)
+	{
+		new c = cand[i];
+		new Float:dv = dist[i];
+		new j = i - 1;
+		while (j >= 0 && dist[j] > dv)
+		{
+			cand[j + 1] = cand[j];
+			dist[j + 1] = dist[j];
+			j--;
+		}
+		cand[j + 1] = c;
+		dist[j + 1] = dv;
+	}
+
+	new took = 0;
+	for (new i = 0; i < n && have + took < cap; i++)
+	{
+		g_squad_leader[cand[i]] = id;
 		took++;
 	}
 
 	if (!took)
 	{
-		client_print(id, print_chat, "[MATCH] Nobody available to take -- no free bots on your side.");
+		if (owned)
+		{
+			client_print(id, print_chat, "[MATCH] %d nearby %s already being commanded by another officer.",
+				owned, owned == 1 ? "is" : "are");
+		}
+		else
+		{
+			client_print(id, print_chat, "[MATCH] Nobody within %.0f units on your side.", reach);
+		}
 		return;
 	}
 
@@ -5386,17 +5440,25 @@ cmd_squad_follow(id)
 	get_user_name(id, name, charsmax(name));
 	client_print(id, print_chat, "[MATCH] %d on you. Squad is %d of %d. Type .unfollow to stand them down.",
 		took, have + took, cap);
+	if (owned)
+	{
+		client_print(id, print_chat, "[MATCH] %d more nearby %s already being commanded by another officer.",
+			owned, owned == 1 ? "is" : "are");
+	}
 	team_print(g_match_team[id], "[MATCH] %s has taken %d under command.", name, took);
-	dbg("officer %d took %d bot(s) under command", id, took);
+	dbg("officer %d took %d bot(s) within %.0f units, %d already owned", id, took, reach, owned);
 }
 
 /// .unfollow -- stand the whole squad down.
 cmd_squad_dismiss(id)
 {
-	if (!is_user_bot(id))
+	// Guarded like .follow is. Without this any player at all could type .unfollow --
+	// harmless once it stopped opening rcbot's menu at them, but it answered as though
+	// they could have had a squad.
+	if (!is_officer(id))
 	{
-		// Same menu lets them empty the squad again.
-		client_cmd(id, "rcbot squad_menu");
+		client_print(id, print_chat, "[MATCH] Only an Officer gives orders, and only during a round.");
+		return;
 	}
 
 	new n = disband_squad(id);
@@ -5800,12 +5862,14 @@ squad_size(leader)
 public task_squad()
 {
 	/*
-	 * Off by default. rcbot's own squad system handles following now, and this
-	 * fought it: writing a bot's velocity from outside means two things are
-	 * steering at once, and the teleport that caught stragglers was only ever there
-	 * because velocity nudging could not beat rcbot's pathing.
+	 * This is what actually makes .follow follow, so it runs by default now.
 	 *
-	 * Kept for servers where rcbot's squads are disabled.
+	 * It is in tension with rcbot, which re-decides where its bots are going every
+	 * frame -- two things steering one bot. The tension is resolved below by LINE OF
+	 * SIGHT: in sight the plugin steers, out of sight it does not touch the bot at
+	 * all and rcbot's pathing brings it back. That keeps what steering is good at
+	 * (being immediate, close in) and leaves rcbot what it is good at (getting there
+	 * around corners), instead of fighting it the whole way.
 	 */
 	if (!get_pcvar_num(g_cv_squadsteer))
 	{
@@ -5846,6 +5910,29 @@ public task_squad()
 		if (dist <= want)
 		{
 			continue;   // close enough; leave them to rcbot entirely
+		}
+
+		/*
+		 * Out of sight, hands off.
+		 *
+		 * Steering is a straight pull toward the officer, so through a wall it pulls a
+		 * bot INTO the wall and holds it there -- worse than not helping. rcbot can
+		 * path around that; this cannot. So the plugin only steers where it can see,
+		 * and otherwise leaves the bot entirely alone to find its own way.
+		 *
+		 * IGNORE_MONSTERS deliberately: the test is whether the WORLD is in the way,
+		 * not whether another player is standing between them. It also keeps this out
+		 * of the way of tsm_bot_blind_ff, which hooks FM_TraceLine to hide teammates
+		 * from rcbot -- an officer is a teammate, so a trace that tested bodies could
+		 * be answered by our own blinding rather than by the map.
+		 */
+		new tr = 0;
+		engfunc(EngFunc_TraceLine, bo, lo, IGNORE_MONSTERS, bot, tr);
+		new Float:frac;
+		get_tr2(tr, TR_flFraction, frac);
+		if (frac < 1.0)
+		{
+			continue;
 		}
 
 		/*

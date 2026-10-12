@@ -1,0 +1,1560 @@
+diff --git a/common/port.h b/common/port.h
+index 61c764d..da64654 100644
+--- a/common/port.h
++++ b/common/port.h
+@@ -32,7 +32,11 @@ GNU General Public License for more details.
+ 	#define OS_LIB_EXT    "dylib"
+ 	#define OPEN_COMMAND  "open"
+ #elif XASH_POSIX
+-	#define OS_LIB_EXT    "so"
++	#if XASH_EMSCRIPTEN
++		#define OS_LIB_EXT    "wasm"
++	#else
++		#define OS_LIB_EXT    "so"
++	#endif
+ 	#define OPEN_COMMAND  "xdg-open"
+ #elif XASH_WIN32
+ 	#define HSPRITE WINAPI_HSPRITE
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+index 39e4f9c..d95c0cb 100644
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -24,6 +24,7 @@ GNU General Public License for more details.
+ #include "vid_common.h"
+ #include "pm_local.h"
+ #include "multi_emulator.h"
++#include "msr_webauth.h"
+ 
+ #define CL_CONNECTION_TIMEOUT 15.0f
+ #define CL_CONNECTION_RETRIES 5
+@@ -1177,7 +1178,41 @@ static void CL_GetCDKey( char *protinfo, size_t protinfosize )
+ 	Info_SetValueForKey( protinfo, "cdkey", key, protinfosize );
+ }
+ 
+-static void CL_WriteSteamTicket( sizebuf_t *send )
++/*
++=======================
++CL_WriteWebTicket
++
++msr-web: a server that issues its own player ids hands out a credential (see msr_webauth.h),
++which the page stores as .msr_web in the game folder. With it the client proves who it is
++instead of sending an emulated Steam ticket.
++======================
++*/
++static qboolean CL_WriteWebTicket( sizebuf_t *send, int challenge )
++{
++	byte ticket[MSRW_TICKET_SIZE];
++	fs_offset_t len = 0;
++	byte *cred = FS_LoadFile( ".msr_web", &len, false );
++
++	if( !cred )
++		return false;
++
++	if( len != MSRW_CRED_SIZE )
++	{
++		Mem_Free( cred );
++		return false;
++	}
++
++	msrw_ticket( ticket, cred, (uint32_t)challenge );
++	MSG_WriteBytes( send, ticket, sizeof( ticket ));
++
++	// the id the server will know us by: account number, individual account in the public universe
++	*(uint32_t*)cls.steamid = LittleLong( *(uint32_t*)cred );
++	*(uint32_t*)(cls.steamid + 4) = LittleLong( 0x01100001 );
++	Mem_Free( cred );
++	return true;
++}
++
++static void CL_WriteSteamTicket( sizebuf_t *send, int challenge )
+ {
+ 	string key;
+ 	netadr_t adr = { .type = NA_LOOPBACK, }; // goldsrc servers don't get unique key as xashid isn't sent raw to them
+@@ -1191,6 +1226,9 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
+ 		return;
+ 	}
+ 
++	if( CL_WriteWebTicket( send, challenge ))
++		return;
++
+ 	ID_GetMD5ForAddress( key, adr, sizeof( key ));
+ 	CRC32_Init( &crc );
+ 	CRC32_ProcessBuffer( &crc, key, Q_strlen( key ));
+@@ -1225,7 +1263,7 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
+ 		PROTOCOL_GOLDSRC_VERSION, challenge, protinfo, cls.userinfo );
+ 	MSG_SeekToBit( &send, -8, SEEK_CUR ); // rewrite null terminator
+ 	if( ticket == NULL )
+-		CL_WriteSteamTicket( &send );
++		CL_WriteSteamTicket( &send, challenge );
+ 	else
+ 		MSG_WriteBytes( &send, ticket, ticketlen );
+ 
+diff --git a/engine/client/cl_steam.c b/engine/client/cl_steam.c
+index 51b5def..36e6782 100644
+--- a/engine/client/cl_steam.c
++++ b/engine/client/cl_steam.c
+@@ -484,6 +484,11 @@ void SteamBroker_TerminateGameConnection( void )
+ 
+ void SteamBroker_Frame( void )
+ {
++#if XASH_EMSCRIPTEN
++	// msr-web: a browser cannot reach a local Steam broker; without this an installed game's
++	// cl_ticket_generator "steam" retries a WebSocket connection every five seconds
++	return;
++#endif
+ 	if( FBitSet( cl_steam_broker_addr.flags | cl_ticket_generator.flags, FCVAR_CHANGED ))
+ 	{
+ 		ClearBits( cl_ticket_generator.flags, FCVAR_CHANGED );
+diff --git a/engine/client/dll_int/ref_common.c b/engine/client/dll_int/ref_common.c
+index 8ea38dc..c5f9f64 100644
+--- a/engine/client/dll_int/ref_common.c
++++ b/engine/client/dll_int/ref_common.c
+@@ -704,6 +704,9 @@ static void R_CollectRendererNames( void )
+ #if XASH_REF_GL4ES_ENABLED
+ 		"gl4es",
+ #endif
++#if XASH_REF_WEBGL2_ENABLED
++		"webgl2",
++#endif
+ #if XASH_REF_GLES3COMPAT_ENABLED
+ 		"gles3compat",
+ #endif
+@@ -727,6 +730,9 @@ static void R_CollectRendererNames( void )
+ #if XASH_REF_GL4ES_ENABLED
+ 		"GL4ES",
+ #endif
++#if XASH_REF_WEBGL2_ENABLED
++		"WebGL2 (gl2_shim)",
++#endif
+ #if XASH_REF_GLES3COMPAT_ENABLED
+ 		"GLES3 (gl2_shim)",
+ #endif
+diff --git a/engine/client/identification.c b/engine/client/identification.c
+index dd28842..a9856ca 100644
+--- a/engine/client/identification.c
++++ b/engine/client/identification.c
+@@ -13,6 +13,9 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ */
+ 
++#if XASH_EMSCRIPTEN
++#include <unistd.h> // getentropy
++#endif
+ #include "build.h"
+ #include <inttypes.h>
+ #if XASH_LINUX
+@@ -757,9 +760,17 @@ void ID_Init( void )
+ 		{
+ 			sscanf( buf, "%016"PRIX64, &id );
+ 			id ^= GAME_XOR_MASK;
++#if !XASH_EMSCRIPTEN // nothing to check it against, see below
+ 			ID_Check();
++#endif
+ 		}
+ 	}
++#if XASH_EMSCRIPTEN
++	// A page has no hardware to identify, so the generated id would be the same for every player.
++	// It is random instead, and the page keeps .xash_id between visits.
++	if( !id )
++		getentropy( &id, sizeof( id ));
++#endif
+ 	if( !id )
+ 		id = ID_GenerateRawId();
+ 
+diff --git a/engine/common/cmd.c b/engine/common/cmd.c
+index 075eea0..c2f64ae 100644
+--- a/engine/common/cmd.c
++++ b/engine/common/cmd.c
+@@ -98,6 +98,10 @@ Cbuf_AddText
+ Adds command text at the end of the buffer
+ ============
+ */
++#if XASH_EMSCRIPTEN
++#include <emscripten.h>
++EMSCRIPTEN_KEEPALIVE // the page queues commands here; they run in the engine's own frame
++#endif
+ void Cbuf_AddText( const char *text )
+ {
+ 	Cbuf_AddTextToBuffer( &cmd_text, text );
+@@ -962,7 +966,12 @@ static void Cmd_ExecuteStringWithPrivilegeCheck( const char *text, qboolean isPr
+ 	}
+ }
+ 
++#if XASH_EMSCRIPTEN
++#include <emscripten.h>
++EMSCRIPTEN_KEEPALIVE void Cmd_ExecuteString( const char *text )
++#else
+ void Cmd_ExecuteString( const char *text )
++#endif
+ {
+ 	Cmd_ExecuteStringWithPrivilegeCheck( text, true );
+ }
+diff --git a/engine/common/host.c b/engine/common/host.c
+index f726046..2c92f94 100644
+--- a/engine/common/host.c
++++ b/engine/common/host.c
+@@ -1166,6 +1166,16 @@ static void Sys_Quit_f( void )
+ 	Sys_Quit( Cmd_Argc() > 1 ? Cmd_Argv( 1 ) : "command" );
+ }
+ 
++#if XASH_EMSCRIPTEN
++static void Host_MainLoop( void *userdata )
++{
++	double *poldtime = (double *)userdata;
++	double newtime = Sys_DoubleTime();
++	COM_Frame( newtime - *poldtime );
++	*poldtime = newtime;
++}
++#endif
++
+ /*
+ =================
+ Host_Main
+@@ -1180,8 +1190,10 @@ int EXPORT Host_Main( int argc, char **argv, const char *progname, int bChangeGa
+ 	pChangeGame = NULL;
+ #endif
+ 
++#if !XASH_EMSCRIPTEN
+ 	if( setjmp( return_from_main_buf ))
+ 		return error_on_exit;
++#endif
+ 
+ 	host.starttime = Platform_DoubleTime();
+ 
+@@ -1335,6 +1347,7 @@ int EXPORT Host_Main( int argc, char **argv, const char *progname, int bChangeGa
+ 	// check after all configs were executed
+ 	HPAK_CheckIntegrity( hpk_custom_file.string );
+ 
++#if !XASH_EMSCRIPTEN
+ 	// main window message loop
+ 	while( host.status != HOST_CRASHED )
+ 	{
+@@ -1342,6 +1355,10 @@ int EXPORT Host_Main( int argc, char **argv, const char *progname, int bChangeGa
+ 		COM_Frame( newtime - oldtime );
+ 		oldtime = newtime;
+ 	}
++#else // XASH_EMSCRIPTEN
++EM_ASM( { Module.callbacks?.gameReady?.() } );
++emscripten_set_main_loop_arg( Host_MainLoop, &oldtime, 0, false );
++#endif // XASH_EMSCRIPTEN
+ 
+ 	return 0;
+ }
+diff --git a/engine/common/msr_webauth.h b/engine/common/msr_webauth.h
+new file mode 100644
+index 0000000..629696e
+--- /dev/null
++++ b/engine/common/msr_webauth.h
+@@ -0,0 +1,215 @@
++/*
++msr_webauth.h - tickets for players who join without Steam (msr-web)
++
++The same file is used by the client (Xash3D) and by the game server (MSR-ReHLDS).
++
++A service next to the game server (tools/bridge) gives a player a credential:
++
++	id      32 bit account number, from a range Steam does not use
++	expiry  unix time after which the credential is refused
++	secret  HMAC-SHA256( server key, head )           head = "MSRW" 1 id expiry
++
++To connect, the client sends a ticket in the place of the Steam ticket:
++
++	head | HMAC-SHA256( secret, challenge )
++
++The challenge is the number the server handed out for this connection attempt, so a
++ticket seen on the wire is useless for another attempt and the secret is never sent
++to the game server. The server recomputes the secret from its key and checks the proof.
++
++All integers are little endian.
++*/
++#ifndef MSR_WEBAUTH_H
++#define MSR_WEBAUTH_H
++
++#include <stdint.h>
++#include <stddef.h>
++#include <string.h>
++
++#define MSRW_HEAD_SIZE   13
++#define MSRW_HASH_SIZE   32
++#define MSRW_TICKET_SIZE ( MSRW_HEAD_SIZE + MSRW_HASH_SIZE )
++#define MSRW_CRED_SIZE   ( 8 + MSRW_HASH_SIZE ) // id, expiry, secret: what the client keeps
++#define MSRW_ID_MIN      0xF0000000u // Steam's account numbers are far below this
++
++typedef struct
++{
++	uint32_t h[8];
++	uint8_t  buf[64];
++	uint64_t len;
++	uint32_t n;
++} msrw_sha256_t;
++
++#define MSRW_ROR( x, n ) ((( x ) >> ( n )) | (( x ) << ( 32 - ( n ))))
++
++static inline void msrw_sha256_block( msrw_sha256_t *s, const uint8_t *p )
++{
++	static const uint32_t k[64] =
++	{
++	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
++	0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
++	0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
++	0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
++	0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
++	0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
++	0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
++	0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
++	};
++	uint32_t w[64], v[8], t1, t2;
++	int i;
++
++	for( i = 0; i < 16; i++ )
++		w[i] = (uint32_t)p[4 * i] << 24 | (uint32_t)p[4 * i + 1] << 16 | (uint32_t)p[4 * i + 2] << 8 | (uint32_t)p[4 * i + 3];
++	for( ; i < 64; i++ )
++	{
++		uint32_t s0 = MSRW_ROR( w[i - 15], 7 ) ^ MSRW_ROR( w[i - 15], 18 ) ^ ( w[i - 15] >> 3 );
++		uint32_t s1 = MSRW_ROR( w[i - 2], 17 ) ^ MSRW_ROR( w[i - 2], 19 ) ^ ( w[i - 2] >> 10 );
++		w[i] = w[i - 16] + s0 + w[i - 7] + s1;
++	}
++
++	memcpy( v, s->h, sizeof( v ));
++	for( i = 0; i < 64; i++ )
++	{
++		t1 = v[7] + ( MSRW_ROR( v[4], 6 ) ^ MSRW_ROR( v[4], 11 ) ^ MSRW_ROR( v[4], 25 )) + (( v[4] & v[5] ) ^ ( ~v[4] & v[6] )) + k[i] + w[i];
++		t2 = ( MSRW_ROR( v[0], 2 ) ^ MSRW_ROR( v[0], 13 ) ^ MSRW_ROR( v[0], 22 )) + (( v[0] & v[1] ) ^ ( v[0] & v[2] ) ^ ( v[1] & v[2] ));
++		v[7] = v[6]; v[6] = v[5]; v[5] = v[4]; v[4] = v[3] + t1;
++		v[3] = v[2]; v[2] = v[1]; v[1] = v[0]; v[0] = t1 + t2;
++	}
++	for( i = 0; i < 8; i++ )
++		s->h[i] += v[i];
++}
++
++static inline void msrw_sha256_init( msrw_sha256_t *s )
++{
++	static const uint32_t h[8] = { 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19 };
++
++	memcpy( s->h, h, sizeof( h ));
++	s->len = 0;
++	s->n = 0;
++}
++
++static inline void msrw_sha256_update( msrw_sha256_t *s, const void *data, size_t len )
++{
++	const uint8_t *p = (const uint8_t *)data;
++
++	s->len += len;
++	while( len-- )
++	{
++		s->buf[s->n++] = *p++;
++		if( s->n == 64 )
++		{
++			msrw_sha256_block( s, s->buf );
++			s->n = 0;
++		}
++	}
++}
++
++static inline void msrw_sha256_final( msrw_sha256_t *s, uint8_t out[MSRW_HASH_SIZE] )
++{
++	uint64_t bits = s->len * 8;
++	uint8_t pad = 0x80, zero = 0, lenbuf[8];
++	int i;
++
++	msrw_sha256_update( s, &pad, 1 );
++	while( s->n != 56 )
++		msrw_sha256_update( s, &zero, 1 );
++	for( i = 0; i < 8; i++ )
++		lenbuf[i] = (uint8_t)( bits >> ( 56 - 8 * i ));
++	msrw_sha256_update( s, lenbuf, 8 );
++	for( i = 0; i < 8; i++ )
++	{
++		out[4 * i] = (uint8_t)( s->h[i] >> 24 );
++		out[4 * i + 1] = (uint8_t)( s->h[i] >> 16 );
++		out[4 * i + 2] = (uint8_t)( s->h[i] >> 8 );
++		out[4 * i + 3] = (uint8_t)s->h[i];
++	}
++}
++
++static inline void msrw_hmac( const uint8_t *key, size_t keylen, const void *msg, size_t msglen, uint8_t out[MSRW_HASH_SIZE] )
++{
++	uint8_t k[64] = { 0 }, pad[64], inner[MSRW_HASH_SIZE];
++	msrw_sha256_t s;
++	int i;
++
++	if( keylen > sizeof( k ))
++	{
++		msrw_sha256_init( &s );
++		msrw_sha256_update( &s, key, keylen );
++		msrw_sha256_final( &s, k );
++	}
++	else memcpy( k, key, keylen );
++
++	for( i = 0; i < 64; i++ )
++		pad[i] = k[i] ^ 0x36;
++	msrw_sha256_init( &s );
++	msrw_sha256_update( &s, pad, sizeof( pad ));
++	msrw_sha256_update( &s, msg, msglen );
++	msrw_sha256_final( &s, inner );
++
++	for( i = 0; i < 64; i++ )
++		pad[i] = k[i] ^ 0x5c;
++	msrw_sha256_init( &s );
++	msrw_sha256_update( &s, pad, sizeof( pad ));
++	msrw_sha256_update( &s, inner, sizeof( inner ));
++	msrw_sha256_final( &s, out );
++}
++
++static inline void msrw_put32( uint8_t *p, uint32_t v )
++{
++	p[0] = (uint8_t)v; p[1] = (uint8_t)( v >> 8 ); p[2] = (uint8_t)( v >> 16 ); p[3] = (uint8_t)( v >> 24 );
++}
++
++static inline uint32_t msrw_get32( const uint8_t *p )
++{
++	return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
++}
++
++static inline void msrw_head( uint8_t head[MSRW_HEAD_SIZE], uint32_t id, uint32_t expiry )
++{
++	memcpy( head, "MSRW", 4 );
++	head[4] = 1; // format version
++	msrw_put32( head + 5, id );
++	msrw_put32( head + 9, expiry );
++}
++
++static inline void msrw_proof( const uint8_t secret[MSRW_HASH_SIZE], uint32_t challenge, uint8_t out[MSRW_HASH_SIZE] )
++{
++	uint8_t c[4];
++
++	msrw_put32( c, challenge );
++	msrw_hmac( secret, MSRW_HASH_SIZE, c, sizeof( c ), out );
++}
++
++// client: cred is what the service handed out (MSRW_CRED_SIZE bytes)
++static inline void msrw_ticket( uint8_t ticket[MSRW_TICKET_SIZE], const uint8_t *cred, uint32_t challenge )
++{
++	msrw_head( ticket, msrw_get32( cred ), msrw_get32( cred + 4 ));
++	msrw_proof( cred + 8, challenge, ticket + MSRW_HEAD_SIZE );
++}
++
++// server: 0 = not one of our tickets, 1 = valid (*id is set), -1 = ours and refused
++static inline int msrw_verify( const uint8_t *ticket, size_t len, const uint8_t *key, size_t keylen, uint32_t challenge, uint32_t now, uint32_t *id )
++{
++	uint8_t secret[MSRW_HASH_SIZE], proof[MSRW_HASH_SIZE], diff = 0;
++	uint32_t expiry;
++	int i;
++
++	if( len < 4 || memcmp( ticket, "MSRW", 4 ))
++		return 0;
++	if( len < MSRW_TICKET_SIZE || ticket[4] != 1 || !key || keylen < 16 )
++		return -1;
++
++	*id = msrw_get32( ticket + 5 );
++	expiry = msrw_get32( ticket + 9 );
++	if( *id < MSRW_ID_MIN || expiry < now )
++		return -1;
++
++	msrw_hmac( key, keylen, ticket, MSRW_HEAD_SIZE, secret );
++	msrw_proof( secret, challenge, proof );
++	for( i = 0; i < MSRW_HASH_SIZE; i++ )
++		diff |= proof[i] ^ ticket[MSRW_HEAD_SIZE + i];
++
++	return diff ? -1 : 1;
++}
++
++#endif // MSR_WEBAUTH_H
+diff --git a/engine/common/net_ws.c b/engine/common/net_ws.c
+index d139dff..55a5360 100644
+--- a/engine/common/net_ws.c
++++ b/engine/common/net_ws.c
+@@ -25,6 +25,10 @@ GNU General Public License for more details.
+ #include <SDL_thread.h>
+ #endif
+ 
++#if XASH_EMSCRIPTEN
++#include "platform/emscripten/net_emscripten.h"
++#endif
++
+ #define NET_USE_FRAGMENTS
+ 
+ #define MAX_LOOPBACK		4
+diff --git a/engine/platform/emscripten/cxx_anchor.cpp b/engine/platform/emscripten/cxx_anchor.cpp
+new file mode 100644
+index 0000000..64c8eb5
+--- /dev/null
++++ b/engine/platform/emscripten/cxx_anchor.cpp
+@@ -0,0 +1,3 @@
++// spike: forces the dedicated server to link as C++ so side modules find the C++ runtime
++#include <exception>
++extern "C" int XashSpike_CxxAnchor(void) { try { throw 1; } catch (int v) { return v; } }
+diff --git a/engine/platform/emscripten/lib_emscripten.c b/engine/platform/emscripten/lib_emscripten.c
+new file mode 100644
+index 0000000..be42ccd
+--- /dev/null
++++ b/engine/platform/emscripten/lib_emscripten.c
+@@ -0,0 +1,36 @@
++/*
++lib_emscripten.c - dladdr workaround for emscripten
++Copyright (C) 2025 ololoken
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++*/
++
++#include "lib_emscripten.h"
++#include <emscripten.h>
++
++const char *EMSCRIPTEN_GetFuncName(void *hInstance, void *address)
++{
++    return EM_ASM_PTR({
++        const hInstance = $0;
++        const address = $1;
++        const funcJsRef = getWasmTableEntry(address).name;
++        const exports = Object.entries(LDSO.loadedLibsByHandle[hInstance]?.exports ?? {});
++        for (const [fn, { name }] of exports)
++            if (name === funcJsRef)
++                return stringToUTF8OnStack(fn);
++        return 0;
++    }, hInstance, address);
++}
++
++#include <errno.h>
++
++EMSCRIPTEN_KEEPALIVE
++int* getErrnoLocation(void) {
++    return __errno_location();
++}
+diff --git a/engine/platform/emscripten/lib_emscripten.h b/engine/platform/emscripten/lib_emscripten.h
+new file mode 100644
+index 0000000..4059022
+--- /dev/null
++++ b/engine/platform/emscripten/lib_emscripten.h
+@@ -0,0 +1,23 @@
++/*
++lib_emscripten.h - dladdr workaround for emscripten
++Copyright (C) 2025 ololoken
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++*/
++
++#if XASH_EMSCRIPTEN
++#ifndef LIB_EMSCRIPTEN_H
++#define LIB_EMSCRIPTEN_H
++
++#define Platform_POSIX_GetFuncName( x, y ) EMSCRIPTEN_GetFuncName(( x ), ( y ))
++
++const char *EMSCRIPTEN_GetFuncName(void *, void *);
++
++#endif // DLADDR_EMSCRIPTEN_H
++#endif
+\ No newline at end of file
+diff --git a/engine/platform/emscripten/net_emscripten.h b/engine/platform/emscripten/net_emscripten.h
+new file mode 100644
+index 0000000..4add790
+--- /dev/null
++++ b/engine/platform/emscripten/net_emscripten.h
+@@ -0,0 +1,56 @@
++/*
++net_emscripten.h - BSD sockets to js proxy
++Copyright (C) 2025 ololoken
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++*/
++#ifndef NET_EMSCRIPTEN_H
++#define NET_EMSCRIPTEN_H
++
++#include <netdb.h>
++
++#define gethostbyname emscripten_net_gethostbyname
++
++#undef ioctlsocket
++#undef closesocket
++
++#define recvfrom emscripten_net_recvfrom
++#define sendto emscripten_net_sendto
++#define sendto_batch emscripten_net_sendto_batch
++#define socket emscripten_net_socket
++#define ioctlsocket(...) 0
++#define setsockopt(...) 0
++#define gethostname emscripten_net_gethostname
++#define getsockname emscripten_net_getsockname
++#define connect emscripten_net_connect
++#define send emscripten_net_send
++#define recv emscripten_net_recv
++#define bind emscripten_net_bind
++#define closesocket emscripten_net_closesocket
++#define select emscripten_net_select
++#define getaddrinfo emscripten_net_getaddrinfo
++
++extern int emscripten_net_recvfrom( int, void *__restrict, size_t, int, struct sockaddr *__restrict, int *__restrict );
++extern int emscripten_net_sendto ( int, const void *, size_t, int, const struct sockaddr *, int );
++extern int emscripten_net_sendto_batch ( int, char *packets[], int sizes[], int, int, const struct sockaddr_storage *to, int );
++extern int emscripten_net_socket( int, int, int );
++extern struct hostent *emscripten_net_gethostbyname( const char * );
++extern int emscripten_net_gethostname( char *, size_t );
++extern int emscripten_net_getsockname( int, struct sockaddr *__restrict, int *__restrict );
++extern int emscripten_net_send( int, const void *, size_t, int );
++extern int emscripten_net_recv( int, void *, size_t, int );
++extern int emscripten_net_connect( int, const struct sockaddr *, int );
++extern int emscripten_net_bind( int, const struct sockaddr *, int );
++extern int emscripten_net_closesocket( int );
++extern int emscripten_net_select( int, fd_set *__restrict, fd_set *__restrict, fd_set *__restrict, struct timeval *__restrict );
++extern int emscripten_net_getaddrinfo (const char *__restrict, const char *__restrict, const struct addrinfo *__restrict, struct addrinfo **__restrict);
++
++#endif // NET_EMSCRIPTEN_H
+diff --git a/engine/platform/emscripten/net_emscripten.js b/engine/platform/emscripten/net_emscripten.js
+new file mode 100644
+index 0000000..922c0dc
+--- /dev/null
++++ b/engine/platform/emscripten/net_emscripten.js
+@@ -0,0 +1,52 @@
++addToLibrary({
++    emscripten_net_recvfrom: (fd, buf, len, flags, sockaddr, socklen) =>
++        Module.net?.recvfrom?.(fd, buf, len, flags, sockaddr, socklen) ?? -1,
++
++    emscripten_net_sendto: (fd, buf, len, flags, sockaddr, socklen) =>
++        Module.net?.sendto?.(fd, buf, len, flags, sockaddr, socklen) ?? -1,
++
++    emscripten_net_sendto_batch: (fd, bufs, lens, flags, sockaddr, socklen) =>
++        Module.net?.sendto_batch?.(fd, bufs, lens, flags, sockaddr, socklen) ?? -1,
++
++    // What the hooks need from the runtime is handed to Module.net when the first socket is made:
++    // heap() is the engine's memory (a new array after memory grows), and setErrno() reports why a
++    // call failed ("no packet yet" above all); the engine reads errno after every failed call.
++    emscripten_net_socket__deps: ['__errno_location'],
++    emscripten_net_socket: (family, type, protocol) => {
++        if (Module.net) {
++            Module.net.heap ??= () => HEAPU8;
++            Module.net.setErrno ??= (e) => { HEAP32[___errno_location() >> 2] = e; };
++        }
++        return Module.net?.socket?.(family, type, protocol) ?? -1;
++    },
++
++    emscripten_net_gethostbyname: (hostname) =>
++        Module.net?.gethostbyname?.(hostname) ?? 0,
++
++    emscripten_net_gethostname: (name, namelen) =>
++        Module.net?.gethostname?.(name, namelen) ?? -1,
++
++    emscripten_net_getsockname: (fd, sockaddr, socklen) =>
++        Module.net?.getsockname?.(fd, sockaddr, socklen) ?? -1,
++
++    emscripten_net_connect: (fd, sockaddr, socklen) =>
++        Module.net?.connect?.(fd, sockaddr, socklen) ?? -1,
++
++    emscripten_net_send: (fd, buf, len, flags) =>
++        Module.net?.send?.(fd, buf, len, flags) ?? -1,
++
++    emscripten_net_recv: (fd, buf, len, flags) =>
++        Module.net?.recv?.(fd, buf, len, flags) ?? -1,
++
++    emscripten_net_bind: (fd, sockaddr, socklen) =>
++        Module.net?.bind?.(fd, sockaddr, socklen) ?? -1,
++
++    emscripten_net_closesocket: (fd) =>
++        Module.net?.closesocket?.(fd) ?? -1,
++
++    emscripten_net_select: (n, rfds, wfds, efds, tv) =>
++        Module.net?.select?.(n, rfds, wfds, efds, tv) ?? -1,
++
++    emscripten_net_getaddrinfo: (hostnamePtr, restrictPrt, hintsPtr, addrinfoPtr) =>
++        Module.net?.getaddrinfo?.(hostnamePtr, restrictPrt, hintsPtr, addrinfoPtr) ?? -1,
++});
+diff --git a/engine/platform/posix/lib_posix.c b/engine/platform/posix/lib_posix.c
+index 3698d2e..bc3e49c 100644
+--- a/engine/platform/posix/lib_posix.c
++++ b/engine/platform/posix/lib_posix.c
+@@ -31,11 +31,15 @@ GNU General Public License for more details.
+ #ifdef XASH_IRIX
+ #include "platform/irix/dladdr.h"
+ #endif
++
+ #include "common.h"
+ #include "library.h"
+ #include "filesystem.h"
+ #include "server.h"
+ #include "platform/android/lib_android.h"
++#if XASH_EMSCRIPTEN
++#include "platform/emscripten/lib_emscripten.h"
++#endif
+ 
+ #ifdef XASH_NO_LIBDL
+ void *dlsym( void *handle, const char *symbol )
+@@ -360,12 +364,19 @@ void *COM_FunctionFromName( void *hInstance, const char *pName )
+ 
+ const char *COM_NameForFunction( void *hInstance, void *function )
+ {
++#ifdef XASH_EMSCRIPTEN && Platform_POSIX_GetFuncName
++	{
++		const char *sname = Platform_POSIX_GetFuncName( hInstance, function );
++		if ( sname )
++			return COM_GetPlatformNeutralName( sname );
++	}
++#else
+ 	// NOTE: dladdr() is a glibc extension
+ 	Dl_info info = {0};
+ 	int ret = dladdr( (void*)function, &info );
+ 	if( ret && info.dli_sname )
+ 		return COM_GetPlatformNeutralName( info.dli_sname );
+-
++#endif
+ #ifdef XASH_ALLOW_SAVERESTORE_OFFSETS
+ 	return COM_OffsetNameForFunction( function );
+ #else
+diff --git a/engine/studio.h b/engine/studio.h
+index 22b9030..167b3b1 100644
+--- a/engine/studio.h
++++ b/engine/studio.h
+@@ -83,6 +83,7 @@ Studio models are position independent, so the cache manager can move them.
+ #define STUDIO_NF_ALPHASOLID		0x0800	// use with STUDIO_NF_MASKED to have solid alphatest surfaces for env_static
+ #define STUDIO_NF_TWOSIDE		0x1000	// render mesh as twosided
+ #define STUDIO_NF_HEIGHTMAP		0x2000
++#define STUDIO_NF_FLOW		0x4000	// msr-web: the light of this texture travels along it and flickers (lightning in a blade)
+ 
+ #define STUDIO_NF_NODRAW		(1U<<16)	// failed to create shader for this mesh
+ #define STUDIO_NF_NODLIGHT		(1U<<17)	// failed to create dlight shader for this mesh
+diff --git a/engine/wscript b/engine/wscript
+index a544774..55d4c41 100644
+--- a/engine/wscript
++++ b/engine/wscript
+@@ -231,14 +231,26 @@ def build(bld):
+ 		# but dedicated server is enabled. They're both called 'xash' in this case
+ 		server_source = copy(source)
+ 		server_libs = copy(libs)
++		# msr-web: the dedicated server as a Node program (configure with --emscripten --dedicated), for tools/test:
++		# the real file system, Module.net from tools/net_node.js, and a factory so the caller drives the frames
++		ded_em = bld.env.DEST_OS == 'emscripten'
+ 		bld.program(
+-			source = server_source,
++			source = server_source + (['platform/emscripten/cxx_anchor.cpp'] if ded_em else []),
++			features = 'cxx c' if ded_em else '',
+ 			target = 'xash',
+ 			use = server_libs,
+ 			includes = includes,
+ 			defines = 'XASH_ENABLE_MAIN=1 XASH_DEDICATED=1',
+ 			rpath = bld.env.DEFAULT_RPATH,
+-			install_path = bld.env.BINDIR,
++			install_path = None if ded_em else bld.env.BINDIR,
++			linkflags = ['-sENVIRONMENT=node', '-sNODERAWFS=1', '-sALLOW_MEMORY_GROWTH=1',
++				'--js-library=../engine/platform/emscripten/net_emscripten.js',
++				'--pre-js=../../tools/net_node.js', '-sINITIAL_MEMORY=256mb', '-sSTACK_SIZE=16mb',
++				'-O2', '--profiling-funcs', '-sASSERTIONS=1', '-fexceptions',
++				'-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall,wasmExports',
++				# what the caller steps and seeds: one frame of a given length, and the random numbers
++				'-sEXPORTED_FUNCTIONS=_main,_COM_Frame,_COM_SetRandomSeed',
++				'-sMODULARIZE', '-sEXPORT_NAME=Xash3D'] if ded_em else [],
+ 		)
+ 
+ 		# the execution stucks on macOS, disable for now
+@@ -299,16 +311,18 @@ def build(bld):
+ 		linkflags = []
+ 
+ 		if bld.env.DEST_OS == 'emscripten':
+-			linkflags = ['-sINITIAL_MEMORY=134217728', '-sALLOW_MEMORY_GROWTH=1', '-sSTACK_SIZE=16777216']
+-
+-			linkflags += ['-sASYNCIFY=1']
+-
+-			node = bld.srcnode.find_node('rodir')
+-			if not node:
+-				bld.fatal('Put game data into rodir folder in source tree root')
+-			linkflags += ['--preload-file', '%s@/rodir' % node.path_from(bld.bldnode)]
+-
+-		f(source = source,
++			linkflags = [ '-sENVIRONMENT=web', '-sAUTO_JS_LIBRARIES=0',
++						  '-lidbfs.js', '-lwebgl.js', '-lopenal.js', '-lasync.js', '-sNO_POLYFILL',
++						  '--js-library=../engine/platform/emscripten/net_emscripten.js',
++						  '-sINITIAL_MEMORY=512mb', '-sALLOW_MEMORY_GROWTH=1', '-sSTACK_SIZE=16mb',
++						  # msr-web: readable build with C++ exceptions for the MSR libraries (the fork used -Oz --closure 1 --minify-wasm-imports)
++						  '-O2', '--profiling-funcs', '-sASSERTIONS=1', '-fexceptions',
++						  '-sMAX_WEBGL_VERSION=2', '-sMIN_WEBGL_VERSION=2', '-sFULL_ES2', # works ok with gl2shim
++						  '-sEXPORTED_RUNTIME_METHODS=callMain,addRunDependency,removeRunDependency,FS,ccall',
++						  '-sMODULARIZE', '-sEXPORT_NAME=Xash3D']
++
++		# msr-web: the anchor links the engine as C++, so side modules find the C++ runtime
++		f(source = source + (['platform/emscripten/cxx_anchor.cpp'] if bld.env.DEST_OS == 'emscripten' else []),
+ 			target = 'xash',
+ 			includes = includes,
+ 			features = 'cxx c',
+diff --git a/filesystem/sys.c b/filesystem/sys.c
+index 712c3e4..b7df0c6 100644
+--- a/filesystem/sys.c
++++ b/filesystem/sys.c
+@@ -502,6 +502,10 @@ int FS_SetCurrentDirectory( const char *path )
+ 		return false;
+ 	}
+ #elif XASH_POSIX
++	// msr-web: the browser's root directory is "/", which reaches here as an empty string once its slash is stripped
++	if( !path[0] )
++		path = "/";
++
+ 	if( chdir( path ) < 0 )
+ 	{
+ 		Sys_Error( "Changing directory to %s failed: %s\n", path, strerror( errno ));
+diff --git a/ref/gl/gl2_shim/fragment.glsl.inc b/ref/gl/gl2_shim/fragment.glsl.inc
+index 803bc2b..8ecdcad 100644
+--- a/ref/gl/gl2_shim/fragment.glsl.inc
++++ b/ref/gl/gl2_shim/fragment.glsl.inc
+@@ -25,6 +25,7 @@
+ "#endif\n"
+ "#if FEAT_FOG\n"
+ "uniform PREC vec4 uFog;\n"
++"uniform PREC vec3 uFogRange;\n"
+ "#endif\n"
+ "uniform PREC vec4 uColor;\n"
+ "#if ATTR_COLOR\n"
+@@ -63,7 +64,11 @@
+ "#endif\n"
+ "#if FEAT_FOG\n"
+ "float fogDist = gl_FragCoord.z / gl_FragCoord.w;\n"
+-"float fogRate = clamp(exp(-uFog.w * fogDist), 0.0, 1.0);\n"
++"float fogRate;\n"
++"if(uFogRange.z > 1.5) fogRate = exp(-uFog.w * uFog.w * fogDist * fogDist);\n"
++"else if(uFogRange.z > 0.5) fogRate = (uFogRange.y - 1.0 / gl_FragCoord.w) / max(uFogRange.y - uFogRange.x, 0.001);\n"
++"else fogRate = exp(-uFog.w * fogDist);\n"
++"fogRate = clamp(fogRate, 0.0, 1.0);\n"
+ "c.rgb = mix(uFog.rgb, c.rgb, fogRate);\n"
+ "#endif\n"
+ "oFragColor = c;\n"
+diff --git a/ref/gl/gl2_shim/gl2_shim.c b/ref/gl/gl2_shim/gl2_shim.c
+index 91541c9..1de458a 100644
+--- a/ref/gl/gl2_shim/gl2_shim.c
++++ b/ref/gl/gl2_shim/gl2_shim.c
+@@ -69,6 +69,7 @@ typedef struct
+ 	GLint utex0;
+ 	GLint utex1;
+ 	GLint ufog;
++	GLint ufogrange;
+ 	GLint uMVP;
+ 	GLuint *vao_begin;
+ } gl2wrap_prog_t;
+@@ -96,6 +97,7 @@ static struct
+ 	GLenum prim;
+ 	GLfloat color[4];
+ 	GLfloat fog[4]; // color + density
++	GLfloat fogrange[3]; // msr-web: start, end, mode (0 exp, 1 linear, 2 exp2). The game's map fog is linear
+ 	GLfloat alpharef;
+ 	gl2wrap_prog_t progs[MAX_PROGS];
+ 	gl2wrap_prog_t *cur_prog;
+@@ -227,6 +229,10 @@ static GLuint GL2_GenerateShader( gl2wrap_prog_t *prog, GLenum type )
+ 
+ 	Q_snprintf( shader, MAX_SHADERLEN, "#version %d%s\n", version, version >= 300 && version < 330 ? " es" : "" );
+ 
++#if XASH_EMSCRIPTEN
++	Q_strncat( shader, "precision highp float;\n", MAX_SHADERLEN );
++#endif
++
+ 	Q_snprintf( tmp, sizeof( tmp ), "#define VER %d\n", version );
+ 	Q_strncat( shader, tmp, MAX_SHADERLEN );
+ 
+@@ -366,6 +372,7 @@ static gl2wrap_prog_t *GL2_GetProg( const GLuint flags )
+ 	prog->utex0  = pglGetUniformLocationARB( glprog, "uTex0" );
+ 	prog->utex1  = pglGetUniformLocationARB( glprog, "uTex1" );
+ 	prog->ufog   = pglGetUniformLocationARB( glprog, "uFog" );
++	prog->ufogrange = pglGetUniformLocationARB( glprog, "uFogRange" );
+ 	prog->uMVP   = pglGetUniformLocationARB( glprog, "uMVP" );
+ 
+ 	if( gl2wrap_config.vao_mandatory )
+@@ -427,6 +434,8 @@ static gl2wrap_prog_t *GL2_SetProg( const GLuint flags )
+ 				pglUniform4fvARB( prog->ucolor, 1, gl2wrap.color );
+ 			if( prog->ufog >= 0 )
+ 				pglUniform4fvARB( prog->ufog, 1, gl2wrap.fog );
++			if( prog->ufogrange >= 0 )
++				pglUniform3fARB( prog->ufogrange, gl2wrap.fogrange[0], gl2wrap.fogrange[1], gl2wrap.fogrange[2] );
+ 			gl2wrap.uchanged = GL_FALSE;
+ 		}
+ 		GL2_UpdateMVP( prog );
+@@ -1211,6 +1220,11 @@ static void APIENTRY GL2_Fogf( GLenum param, GLfloat val )
+ 		gl2wrap.fog[3] = val;
+ 		gl2wrap.uchanged = GL_TRUE;
+ 	}
++	else if( param == GL_FOG_START || param == GL_FOG_END )
++	{
++		gl2wrap.fogrange[param == GL_FOG_END] = val;
++		gl2wrap.uchanged = GL_TRUE;
++	}
+ }
+ 
+ static void APIENTRY GL2_Fogfv( GLenum param, const GLfloat *val )
+@@ -1783,6 +1797,11 @@ static void APIENTRY GL2_TexEnvf(GLenum target, GLenum pname, GLfloat param)
+ 
+ static void APIENTRY GL2_Fogi(GLenum pname, GLint param)
+ {
++	if( pname == GL_FOG_MODE )
++	{
++		gl2wrap.fogrange[2] = param == GL_LINEAR ? 1.0f : param == GL_EXP2 ? 2.0f : 0.0f;
++		gl2wrap.uchanged = GL_TRUE;
++	}
+ }
+ 
+ static void APIENTRY GL2_ShadeModel(GLenum mode)
+@@ -1803,12 +1822,6 @@ static void APIENTRY GL2_DrawBuffer(GLenum mode)
+ }
+ #endif
+ 
+-#if XASH_EMSCRIPTEN
+-static void GL2_PolygonOffset( GLfloat factor, GLfloat units )
+-{
+-}
+-#endif // XASH_EMSCRIPTEN
+-
+ void GL2_ShimInstall( void )
+ {
+ 	GL2_OVERRIDE_PTR( Vertex2f )
+@@ -1856,9 +1869,6 @@ void GL2_ShimInstall( void )
+ 		GL2_OVERRIDE_PTR_B( TexImage2D )
+ 		GL2_OVERRIDE_PTR_B( TexParameteri )
+ 	}
+-#if XASH_EMSCRIPTEN
+-	GL2_OVERRIDE_PTR( PolygonOffset )
+-#endif // XASH_EMSCRIPTEN
+ 	GL2_OVERRIDE_PTR_B( IsEnabled )
+ 	GL2_OVERRIDE_PTR_B( DrawRangeElements )
+ 	GL2_OVERRIDE_PTR_B( DrawElements )
+diff --git a/ref/gl/gl_fbo.c b/ref/gl/gl_fbo.c
+index 4d063a6..8104c09 100644
+--- a/ref/gl/gl_fbo.c
++++ b/ref/gl/gl_fbo.c
+@@ -123,8 +123,13 @@ GL_FreeRenderTargets
+ deletes all render targets, rendering goes directly to the window afterwards
+ ================
+ */
++static void GL_FreeGlowTargets( void );
++static void GL_CreateGlowTargets( int samples );
++static void GL_ComposeGlow( void );
++
+ void GL_FreeRenderTargets( void )
+ {
++	GL_FreeGlowTargets();
+ 	GL_FreeRenderTarget( &tr.targets.msaa );
+ 	GL_FreeRenderTarget( &tr.targets.scene );
+ 	GL_FreeRenderTarget( &tr.targets.screen );
+@@ -133,7 +138,10 @@ void GL_FreeRenderTargets( void )
+ 
+ static int GL_SceneTargetSamples( void )
+ {
+-	if( glConfig.max_multisamples <= 1 || !gl_msaa.value )
++	// msr-web: r_scene_msaa asks for it here, whatever the window itself has
++	int want = r_scene_msaa.value >= 2.0f ? (int)r_scene_msaa.value : r_scene_msaa.value >= 1.0f ? 4 : ( glConfig.max_multisamples > 1 && gl_msaa.value ? glConfig.max_multisamples : 0 );
++
++	if( !want )
+ 		return 0;
+ 
+ 	if( !GL_Support( GL_FRAMEBUFFER_MULTISAMPLE_EXT ) || !GL_Support( GL_FRAMEBUFFER_BLIT_EXT ))
+@@ -142,7 +150,7 @@ static int GL_SceneTargetSamples( void )
+ 	GLint max_samples = 0;
+ 	pglGetIntegerv( GL_MAX_SAMPLES, &max_samples );
+ 
+-	return Q_min( glConfig.max_multisamples, max_samples );
++	return Q_min( want, max_samples );
+ }
+ 
+ static void GL_GetWindowSize( int *width, int *height )
+@@ -198,13 +206,17 @@ void GL_CheckRenderTargets( void )
+ {
+ 	int width, height;
+ 	float scale = bound( 0.1f, r_scene_scale.value, 8.0f );
+-	qboolean wanted = scale != 1.0f;
++	qboolean bloom = r_bloom.value != 0.0f;
++	// msr-web: bloom and r_scene_msaa need the scene off screen too
++	qboolean wanted = scale != 1.0f || bloom || r_scene_msaa.value >= 1.0f;
+ 
+ 	GL_GetWindowSize( &width, &height );
+ 
+-	if( FBitSet( r_scene_scale.flags, FCVAR_CHANGED ))
++	if( FBitSet( r_scene_scale.flags|r_bloom.flags|r_scene_msaa.flags, FCVAR_CHANGED ))
+ 	{
+ 		ClearBits( r_scene_scale.flags, FCVAR_CHANGED );
++		ClearBits( r_bloom.flags, FCVAR_CHANGED );
++		ClearBits( r_scene_msaa.flags, FCVAR_CHANGED );
+ 		tr.targets.failed = false;
+ 
+ 		if( wanted && !GL_Support( GL_FRAMEBUFFER_OBJECT_EXT ))
+@@ -223,8 +235,9 @@ void GL_CheckRenderTargets( void )
+ 
+ 	if( GL_RenderTargetsActive( ) && tr.targets.scene.width == scene_width && tr.targets.scene.height == scene_height
+ 		&& tr.targets.screen.width == width && tr.targets.screen.height == height
+-		&& tr.targets.msaa.samples == samples )
++		&& tr.targets.msaa.samples == samples && ( tr.targets.glow.fbo != 0 ) == bloom )
+ 	{
++		tr.targets.glowDrawn = false;
+ 		pglBindFramebuffer( GL_FRAMEBUFFER, tr.targets.screen.fbo );
+ 		glState.sceneTargetDrawn = false;
+ 		return;
+@@ -255,7 +268,10 @@ void GL_CheckRenderTargets( void )
+ 		return;
+ 	}
+ 
+-	gEngfuncs.Con_Reportf( "%s: scene %dx%d (%dx MSAA), screen %dx%d\n", __func__, scene_width, scene_height, samples, width, height );
++	if( bloom )
++		GL_CreateGlowTargets( samples );
++
++	gEngfuncs.Con_Reportf( "%s: scene %dx%d (%dx MSAA), screen %dx%d%s\n", __func__, scene_width, scene_height, samples, width, height, tr.targets.glow.fbo ? ", bloom" : "" );
+ 
+ 	pglBindFramebuffer( GL_FRAMEBUFFER, tr.targets.screen.fbo );
+ }
+@@ -313,6 +329,208 @@ static void GL_BlitTarget( const gl_rendertarget_t *src, GLuint dst_fbo, int dst
+ 	pglBlitFramebuffer( 0, 0, src->width, src->height, 0, 0, dst_width, dst_height, GL_COLOR_BUFFER_BIT, filter );
+ }
+ 
++/*
++================
++msr-web: bloom
++
++What a model draws additively (a blade of ice, lightning, flames) is drawn a second time
++into a target of its own, which shares the scene's depth so that a wall still hides it.
++Before the scene goes to the screen that target is shrunk to a quarter, blurred there and
++added over the scene. The blur is drawn with the same textured quads as everything else.
++================
++*/
++#define GLOW_SHRINK 4
++#define GLOW_TAPS   4
++
++// a target that draws into its own colour and tests against somebody else's depth
++static qboolean GL_CreateGlowTarget( gl_rendertarget_t *rt, const char *name, int width, int height, int samples, GLuint depth )
++{
++	pglGenFramebuffers( 1, &rt->fbo );
++	pglBindFramebuffer( GL_FRAMEBUFFER, rt->fbo );
++
++	if( samples )
++	{
++		rt->color = GL_CreateRenderbuffer( GL_RGBA8, width, height, samples );
++		pglFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rt->color );
++	}
++	else
++	{
++		rt->texnum = GL_CreateTexture( name, width, height, NULL, TF_NOMIPMAP|TF_CLAMP|TF_HAS_ALPHA );
++		if( !rt->texnum )
++		{
++			pglBindFramebuffer( GL_FRAMEBUFFER, 0 );
++			GL_FreeRenderTarget( rt );
++			return false;
++		}
++		pglFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, R_GetTexture( rt->texnum )->texnum, 0 );
++	}
++
++	if( depth ) // not ours: rt->depth stays 0, so that freeing this target leaves it alone
++		pglFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth );
++
++	GLenum status = pglCheckFramebufferStatus( GL_FRAMEBUFFER );
++
++	pglBindRenderbuffer( GL_RENDERBUFFER, 0 );
++	pglBindFramebuffer( GL_FRAMEBUFFER, 0 );
++
++	if( status != GL_FRAMEBUFFER_COMPLETE )
++	{
++		gEngfuncs.Con_Printf( S_ERROR "%s: %s is incomplete (0x%x)\n", __func__, name, status );
++		GL_FreeRenderTarget( rt );
++		return false;
++	}
++
++	rt->width = width;
++	rt->height = height;
++	rt->samples = samples;
++	return true;
++}
++
++static void GL_FreeGlowTargets( void )
++{
++	GL_FreeRenderTarget( &tr.targets.glow_msaa );
++	GL_FreeRenderTarget( &tr.targets.glow );
++	GL_FreeRenderTarget( &tr.targets.blur[0] );
++	GL_FreeRenderTarget( &tr.targets.blur[1] );
++	tr.targets.glowDrawn = false;
++}
++
++static void GL_CreateGlowTargets( int samples )
++{
++	const gl_rendertarget_t *scene = &tr.targets.scene;
++	int w = Q_max( 1, scene->width / GLOW_SHRINK ), h = Q_max( 1, scene->height / GLOW_SHRINK );
++	qboolean ok;
++
++	if( samples )
++		ok = GL_CreateGlowTarget( &tr.targets.glow_msaa, "*fbo_glow_msaa", scene->width, scene->height, samples, tr.targets.msaa.depth )
++			&& GL_CreateGlowTarget( &tr.targets.glow, "*fbo_glow", scene->width, scene->height, 0, 0 );
++	else ok = GL_CreateGlowTarget( &tr.targets.glow, "*fbo_glow", scene->width, scene->height, 0, scene->depth );
++
++	ok = ok && GL_CreateGlowTarget( &tr.targets.blur[0], "*fbo_blur0", w, h, 0, 0 )
++		&& GL_CreateGlowTarget( &tr.targets.blur[1], "*fbo_blur1", w, h, 0, 0 );
++
++	if( !ok )
++	{
++		gEngfuncs.Con_Printf( S_WARN "r_bloom: can't create its render targets, continuing without\n" );
++		GL_FreeGlowTargets();
++	}
++}
++
++/*
++================
++GL_GlowBegin
++
++binds the target the glowing parts of a model are drawn into a second time;
++false when there is no bloom, and then nothing was bound
++================
++*/
++qboolean GL_GlowBegin( void )
++{
++	if( !tr.targets.glow.fbo || !glState.sceneTargetDrawn )
++		return false;
++
++	pglBindFramebuffer( GL_FRAMEBUFFER, tr.targets.glow_msaa.fbo ? tr.targets.glow_msaa.fbo : tr.targets.glow.fbo );
++
++	if( !tr.targets.glowDrawn )
++	{
++		// colour only: the depth is the scene's
++		pglClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
++		pglClear( GL_COLOR_BUFFER_BIT );
++		pglClearColor( 0.5f, 0.5f, 0.5f, 1.0f );
++		tr.targets.glowDrawn = true;
++	}
++	return true;
++}
++
++void GL_GlowEnd( void )
++{
++	pglBindFramebuffer( GL_FRAMEBUFFER, tr.targets.msaa.fbo ? tr.targets.msaa.fbo : tr.targets.scene.fbo );
++}
++
++// one target's picture added into the bound one, several times side by side: a blur along (du, dv)
++static void GL_GlowPass( const gl_rendertarget_t *dst, const gl_rendertarget_t *src, float du, float dv, float gain, qboolean clear )
++{
++	// a bell over 2 * GLOW_TAPS + 1 samples; the weights add up to 1
++	static const float weights[GLOW_TAPS + 1] = { 0.2270270270f, 0.1945945946f, 0.1216216216f, 0.0540540541f, 0.0162162162f };
++	matrix4x4 m;
++
++	pglBindFramebuffer( GL_FRAMEBUFFER, dst->fbo );
++	pglViewport( 0, 0, dst->width, dst->height );
++
++	if( clear )
++	{
++		pglClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
++		pglClear( GL_COLOR_BUFFER_BIT );
++		pglClearColor( 0.5f, 0.5f, 0.5f, 1.0f );
++	}
++
++	Matrix4x4_CreateOrtho( m, 0, 1, 1, 0, -99999, 99999 );
++	pglMatrixMode( GL_PROJECTION );
++	GL_LoadMatrix( m );
++	Matrix4x4_LoadIdentity( m );
++	pglMatrixMode( GL_MODELVIEW );
++	GL_LoadMatrix( m );
++
++	GL_Bind( XASH_TEXTURE0, src->texnum );
++	pglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
++	pglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
++
++	for( int i = -GLOW_TAPS; i <= GLOW_TAPS; i++ )
++	{
++		float w = ( du == 0.0f && dv == 0.0f ) ? ( i ? 0.0f : gain ) : weights[i < 0 ? -i : i] * gain;
++		float u = i * du, v = i * dv;
++
++		if( w <= 0.0f )
++			continue;
++
++		pglColor4f( w, w, w, 1.0f );
++		pglBegin( GL_QUADS );
++			pglTexCoord2f( 0.0f + u, 1.0f + v );
++			pglVertex2f( 0.0f, 0.0f );
++			pglTexCoord2f( 1.0f + u, 1.0f + v );
++			pglVertex2f( 1.0f, 0.0f );
++			pglTexCoord2f( 1.0f + u, 0.0f + v );
++			pglVertex2f( 1.0f, 1.0f );
++			pglTexCoord2f( 0.0f + u, 0.0f + v );
++			pglVertex2f( 0.0f, 1.0f );
++		pglEnd();
++	}
++}
++
++// the glowing parts, blurred, added over the scene (which by now is resolved, if it was multisampled)
++static void GL_ComposeGlow( void )
++{
++	gl_rendertarget_t *glow = &tr.targets.glow, *a = &tr.targets.blur[0], *b = &tr.targets.blur[1];
++	float gain = bound( 0.0f, r_bloom_scale.value, 4.0f ), wide = bound( 0.25f, r_bloom_radius.value, 4.0f );
++
++	tr.targets.glowDrawn = false;
++
++	if( tr.targets.glow_msaa.fbo )
++		GL_BlitTarget( &tr.targets.glow_msaa, glow->fbo, glow->width, glow->height, GL_NEAREST );
++
++	GL_Cull( GL_NONE );
++	pglDisable( GL_DEPTH_TEST );
++	pglDepthMask( GL_FALSE );
++	pglDisable( GL_ALPHA_TEST );
++	pglDisable( GL_FOG );
++	pglEnable( GL_BLEND );
++	pglBlendFunc( GL_ONE, GL_ONE );
++
++	// shrink, then blur across and down, twice: the second time twice as far
++	GL_GlowPass( a, glow, 0.0f, 0.0f, 1.0f, true );
++	GL_GlowPass( b, a, wide * 1.2f / a->width, 0.0f, 1.0f, true );
++	GL_GlowPass( a, b, 0.0f, wide * 1.2f / a->height, 1.0f, true );
++	GL_GlowPass( b, a, wide * 2.6f / a->width, 0.0f, 1.0f, true );
++	GL_GlowPass( a, b, 0.0f, wide * 2.6f / a->height, 1.0f, true );
++
++	// over the scene
++	GL_GlowPass( &tr.targets.scene, a, 0.0f, 0.0f, gain, false );
++
++	pglColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
++	pglBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
++	pglDisable( GL_BLEND );
++}
++
+ /*
+ ================
+ GL_BindSceneTarget
+@@ -370,6 +588,9 @@ void GL_BindScreenTarget( void )
+ 		if( tr.targets.msaa.fbo )
+ 			GL_BlitTarget( &tr.targets.msaa, tr.targets.scene.fbo, tr.targets.scene.width, tr.targets.scene.height, GL_NEAREST );
+ 
++		if( tr.targets.glowDrawn )
++			GL_ComposeGlow();
++
+ 		if( GL_Support( GL_FRAMEBUFFER_BLIT_EXT ))
+ 		{
+ 			GL_BlitTarget( &tr.targets.scene, screen->fbo, screen->width, screen->height, filter );
+diff --git a/ref/gl/gl_local.h b/ref/gl/gl_local.h
+index 1e4d23e..a0025b6 100644
+--- a/ref/gl/gl_local.h
++++ b/ref/gl/gl_local.h
+@@ -200,6 +200,11 @@ typedef struct
+ 	gl_rendertarget_t msaa;   // 3D passes when multisampling, resolved into scene
+ 	gl_rendertarget_t scene;  // 3D passes, sized by r_scene_scale
+ 	gl_rendertarget_t screen; // 2D pass, sized like the window
++	// msr-web, bloom: what glows is drawn again into glow (through glow_msaa when multisampling), blurred in blur[]
++	gl_rendertarget_t glow_msaa;
++	gl_rendertarget_t glow;
++	gl_rendertarget_t blur[2];
++	qboolean glowDrawn;
+ 	qboolean failed;
+ } gl_rendertargets_t;
+ 
+@@ -353,7 +358,11 @@ void GL_BindSceneTarget( void );
+ void GL_BindScreenTarget( void );
+ void GL_BindWindowTarget( void );
+ void GL_PresentScreenTarget( void );
++qboolean GL_GlowBegin( void );
++void GL_GlowEnd( void );
+ #else
++static inline qboolean GL_GlowBegin( void ) { return false; }
++static inline void GL_GlowEnd( void ) { }
+ static inline void GL_CheckRenderTargets( void ) { }
+ static inline void GL_FreeRenderTargets( void ) { }
+ static inline void GL_BindSceneTarget( void ) { }
+@@ -811,6 +820,10 @@ extern convar_t r_ripple_updatetime;
+ extern convar_t r_ripple_spawntime;
+ extern convar_t r_large_lightmaps;
+ extern convar_t r_scene_scale;
++extern convar_t r_scene_msaa;
++extern convar_t r_bloom;
++extern convar_t r_bloom_scale;
++extern convar_t r_bloom_radius;
+ 
+ //
+ // engine shared convars
+diff --git a/ref/gl/gl_opengl.c b/ref/gl/gl_opengl.c
+index f05a3dd..3da6da0 100644
+--- a/ref/gl/gl_opengl.c
++++ b/ref/gl/gl_opengl.c
+@@ -41,6 +41,12 @@ CVAR_DEFINE_AUTO( r_ripple_updatetime, "0.05", FCVAR_GLCONFIG, "how fast ripple
+ CVAR_DEFINE_AUTO( r_ripple_spawntime, "0.1", FCVAR_GLCONFIG, "how fast new ripples spawn" );
+ CVAR_DEFINE_AUTO( r_large_lightmaps, "0", FCVAR_GLCONFIG|FCVAR_LATCH, "enable larger lightmap atlas textures (might break custom renderer mods)" );
+ CVAR_DEFINE_AUTO( r_scene_scale, "1.0", FCVAR_GLCONFIG, "render the 3D scene at this fraction of the window resolution (0.1 to 8.0), HUD is unaffected" );
++// msr-web
++// msr-web: these two are on unless the player turns them off (Video options), and are kept with the player's settings
++CVAR_DEFINE_AUTO( r_scene_msaa, "4", FCVAR_ARCHIVE, "multisample the 3D scene off screen (0 off, 1 or 4 for 4 samples, 2 or 8), HUD is unaffected" );
++CVAR_DEFINE_AUTO( r_bloom, "1", FCVAR_ARCHIVE, "a soft light round what models draw additively (ice, lightning, flames)" );
++CVAR_DEFINE_AUTO( r_bloom_scale, "1.0", FCVAR_ARCHIVE, "how strong r_bloom is (0 to 4)" );
++CVAR_DEFINE_AUTO( r_bloom_radius, "1.0", FCVAR_ARCHIVE, "how far r_bloom spreads (0.25 to 4)" );
+ 
+ 
+ gl_globals_t	tr;
+@@ -793,6 +799,9 @@ static void GL_InitExtensionsGLES( void )
+ #elif XASH_GLES3COMPAT
+ 	glConfig.context = CONTEXT_TYPE_GLES_2_X;
+ 	glConfig.wrapper = GLES_WRAPPER_NONE;
++#elif XASH_WEBGL
++	glConfig.context = CONTEXT_TYPE_GL_CORE;
++	glConfig.wrapper = GLES_WRAPPER_NONE;
+ #else
+ 	#error "unknown gles wrapper"
+ #endif
+@@ -1245,6 +1254,10 @@ static void GL_InitCommands( void )
+ 	gEngfuncs.Cvar_RegisterVariable( &r_vbo_detail );
+ 	gEngfuncs.Cvar_RegisterVariable( &r_large_lightmaps );
+ 	gEngfuncs.Cvar_RegisterVariable( &r_scene_scale );
++	gEngfuncs.Cvar_RegisterVariable( &r_scene_msaa );
++	gEngfuncs.Cvar_RegisterVariable( &r_bloom );
++	gEngfuncs.Cvar_RegisterVariable( &r_bloom_scale );
++	gEngfuncs.Cvar_RegisterVariable( &r_bloom_radius );
+ 
+ 	gEngfuncs.Cvar_RegisterVariable( &gl_extensions );
+ 	gEngfuncs.Cvar_RegisterVariable( &gl_texture_nearest );
+diff --git a/ref/gl/gl_studio.c b/ref/gl/gl_studio.c
+index 39873fb..603faa6 100644
+--- a/ref/gl/gl_studio.c
++++ b/ref/gl/gl_studio.c
+@@ -1428,11 +1428,34 @@ static void R_LightLambert( vec4_t light[MAX_LOCALLIGHTS], const vec3_t normal,
+ 	}
+ }
+ 
++// msr-web: a mesh whose texture has STUDIO_NF_FLOW. Waves of light run across its picture (the two
++// scales turn a vertex's texture pixel into 0..1, so the wave is as long on a small copy of the picture)
++// and the whole of it flickers. Zero when the mesh being drawn is not one. The lab's page draws the same
++// (lab/index.html): change both.
++static float g_flow_s, g_flow_t;
++
++static float R_StudioFlow( const short *ptricmds )
++{
++	float time = g_studio.time;
++	float wave = sin( 6.2831853f * ( 5.0f * ( ptricmds[2] * g_flow_s + ptricmds[3] * g_flow_t ) - 0.9f * time ));
++	float flicker = 0.82f + 0.18f * sin( time * 31.0f ) * sin( time * 7.3f );
++
++	wave = wave > 0.0f ? wave * wave : 0.0f;
++	return ( 0.3f + 0.7f * wave ) * flicker;
++}
++
+ static void R_StudioSetColorArray( short *ptricmds, vec3_t *pstudionorms, byte *color )
+ {
+ 	float	*lv = (float *)g_studio.lightvalues[ptricmds[1]];
+ 
+ 	color[3] = tr.blend * 255;
++	if( g_flow_s != 0.0f )
++	{
++		// its own light: the room's does not dim it
++		int v = (int)( 255.0f * R_StudioFlow( ptricmds ));
++		color[0] = color[1] = color[2] = v;
++		return;
++	}
+ 	R_LightLambert( g_studio.lightpos[ptricmds[0]], pstudionorms[ptricmds[1]], lv, color );
+ }
+ 
+@@ -2109,7 +2132,19 @@ static void R_StudioDrawPoints( void )
+ 
+ 		R_StudioSetupSkin( m_pStudioHeader, pskinref[pmesh->skinref] );
+ 
++		if( FBitSet( g_nFaceFlags, STUDIO_NF_FLOW ) && !FBitSet( g_nFaceFlags, STUDIO_NF_CHROME ))
++		{
++			g_flow_s = s;
++			g_flow_t = t;
++		}
+ 		R_StudioSubmitMesh( ptricmds, pstudionorms, s, t, shellscale, 0 );
++		// msr-web, bloom: what is drawn additively goes a second time into the target that is blurred over the scene
++		if( FBitSet( g_nFaceFlags, STUDIO_NF_ADDITIVE ) && GL_GlowBegin( ))
++		{
++			R_StudioSubmitMesh( ptricmds, pstudionorms, s, t, shellscale, 0 );
++			GL_GlowEnd();
++		}
++		g_flow_s = g_flow_t = 0.0f;
+ 
+ 		if( FBitSet( g_nFaceFlags, STUDIO_NF_MASKED ))
+ 		{
+diff --git a/ref/gl/wscript b/ref/gl/wscript
+index c6503a6..1520825 100644
+--- a/ref/gl/wscript
++++ b/ref/gl/wscript
+@@ -61,6 +61,11 @@ def build(bld):
+ 			'libs':    [],
+ 			'defines': ['XASH_GLES3COMPAT=1'],
+ 		},
++		'ref_webgl2': {
++			'enable':  bld.env.WEBGL2,
++			'libs':    ['DL', 'LOG'],
++			'defines': ['XASH_WEBGL=1', 'XASH_GLES=1'],
++		},
+ 	}
+ 
+ 	for k,v in targets.items():
+diff --git a/scripts/waifulib/c_emscripten.py b/scripts/waifulib/c_emscripten.py
+new file mode 100644
+index 0000000..4a7b6d1
+--- /dev/null
++++ b/scripts/waifulib/c_emscripten.py
+@@ -0,0 +1,97 @@
++#!/usr/bin/env python
++# -*- coding: utf-8 vi:ts=4:noexpandtab
++
++from waflib.Tools import ccroot, gcc, gxx
++from waflib.Configure import conf
++from waflib.TaskGen import feature, after_method
++from waflib import Utils
++
++@conf
++def get_emscripten_version(conf, cc):
++	k = conf.get_cc_version(cc, clang=True)
++
++	if '__EMSCRIPTEN__' not in k:
++		conf.fatal('Could not determine the emscripten compiler version')
++
++	conf.env.DEST_OS = 'emscripten'
++	conf.env.DEST_CPU = 'wasm'
++
++@conf
++def find_emcc(conf):
++	cc = conf.find_program(['emcc'], var='CC')
++	conf.get_emscripten_version(cc)
++	conf.env.CC_NAME = 'clang'
++
++@conf
++def find_emxx(conf):
++	cxx = conf.find_program(['em++'], var='CXX')
++	conf.get_emscripten_version(cxx)
++	conf.env.CXX_NAME = 'clang'
++
++@conf
++def gcc_modifier_emscripten(conf):
++	v = conf.env
++
++	conf.env.cshlib_PATTERN = 'lib%s.wasm'
++	conf.env.cprogram_PATTERN = '%s.js'
++
++	conf.env.CFLAGS_cshlib = ['-fPIC', '-sSIDE_MODULE=1', '-Oz']
++	conf.env.CFLAGS_cstlib = ['-fPIC']
++	conf.env.CFLAGS_cprogram = ['-sMAIN_MODULE=1']
++
++	conf.env.LINKFLAGS_cshlib = ['-sSIDE_MODULE=1', '-Oz']
++	conf.env.LINKFLAGS_cprogram = ['-sMAIN_MODULE=1']
++
++@conf
++def gxx_modifier_emscripten(conf):
++	v = conf.env
++
++	conf.env.cxxshlib_PATTERN = 'lib%s.wasm'
++	conf.env.cxxprogram_PATTERN = '%s.js'
++	conf.env.CXXFLAGS_cxxshlib = ['-fPIC', '-sSIDE_MODULE=1', '-Oz']
++	conf.env.CXXFLAGS_cxxstlib = ['-fPIC']
++	conf.env.CXXFLAGS_cxxprogram = ['-sMAIN_MODULE=1']
++
++	conf.env.LINKFLAGS_cxxshlib = ['-sSIDE_MODULE=1', '-Oz']
++	conf.env.LINKFLAGS_cxxprogram = ['-sMAIN_MODULE=1']
++
++@feature('cxxprogram', 'cprogram')
++@after_method('apply_link')
++def apply_indexhtml(self):
++	if self.env.DEST_OS != 'emscripten':
++		return
++
++	tsk = self.link_task
++	node = tsk.outputs[0]
++
++	tsk.outputs.append(node.change_ext('.js'))
++	tsk.outputs.append(node.change_ext('.wasm'))
++
++	if '--preload-file' in getattr(self, 'linkflags', []) + self.env.LINKFLAGS:
++		tsk.outputs.append(node.change_ext('.data'))
++
++	inst_to = getattr(self, 'special_install_path', None)
++	if inst_to:
++		self.add_install_files(install_to=inst_to,
++			install_from=tsk.outputs[1:], chmod=Utils.O644, task=tsk)
++
++def configure(conf):
++	if not conf.env.CC:
++		conf.find_emcc()
++		conf.gcc_common_flags()
++		conf.gcc_modifier_platform()
++		conf.cc_load_tools()
++		conf.cc_add_flags()
++		conf.link_add_flags()
++
++	if not conf.env.AR:
++		conf.find_program(['emar'], var='AR')
++		conf.find_ar()
++
++	if not conf.env.CXX:
++		conf.find_emxx()
++		conf.gxx_common_flags()
++		conf.gxx_modifier_platform()
++		conf.cxx_load_tools()
++		conf.cxx_add_flags()
++		conf.link_add_flags()
+diff --git a/scripts/waifulib/xcompile.py b/scripts/waifulib/xcompile.py
+index 8a7c8f1..b10fecd 100644
+--- a/scripts/waifulib/xcompile.py
++++ b/scripts/waifulib/xcompile.py
+@@ -652,7 +652,7 @@ def options(opt):
+ 		help='enable building for iOS Simulator [default: %(default)s]')
+ 
+ def configure(conf):
+-	if 'CROSS_COMPILE' in conf.environ:
++	if 'CROSS_COMPILE' in conf.environ and not conf.options.EMSCRIPTEN:
+ 		toolchain_path = conf.environ['CROSS_COMPILE']
+ 		conf.environ['CC'] = toolchain_path + 'cc'
+ 		conf.environ['CXX'] = toolchain_path + 'c++'
+@@ -745,6 +745,17 @@ def configure(conf):
+ 		conf.env.LIB_M = ['m']
+ 		conf.env.VRTLD = ['vrtld']
+ 		conf.env.DEST_OS = 'psvita'
++	elif conf.options.EMSCRIPTEN:
++		# Emscripten compiler is just wrapper to clang
++		# But we need to setup platform modifiers, they all are contained inside c_emscripten.py for now
++		# In future, that could be upstreamed to waf itself and this wouldn't be needed
++		ext = '.exe' if sys.platform == 'win32' else ''
++		conf.environ['CC'] = 'emcc' + ext
++		conf.environ['CXX'] = 'em++' + ext
++		conf.environ['AR'] = 'emar' + ext
++		conf.environ['STRIP'] = 'emstrip' + ext
++		conf.environ['OBJCOPY'] = 'llvm-objcopy'
++		conf.load('c_emscripten')
+ 	elif conf.options.PSP_OPTS:
+ 		values = conf.options.PSP_OPTS.split(',')
+ 		if len(values) != 3:
+diff --git a/wscript b/wscript
+index ffb4aad..4d448ae 100644
+--- a/wscript
++++ b/wscript
+@@ -118,7 +118,7 @@ def register_define(self, conf):
+ 	Subproject('3rdparty/gl-wes-v2',    lambda x: x.env.CLIENT and x.env.GLWES),
+ 	Subproject('3rdparty/gl4es',        lambda x: x.env.CLIENT and x.env.GL4ES),
+ 	Subproject('ref/common',            lambda x: x.env.CLIENT),
+-	Subproject('ref/gl',                lambda x: x.env.CLIENT and (x.env.GL or x.env.NANOGL or x.env.GLWES or x.env.GL4ES or x.env.GLES3COMPAT)),
++	Subproject('ref/gl',                lambda x: x.env.CLIENT and (x.env.GL or x.env.NANOGL or x.env.GLWES or x.env.GL4ES or x.env.GLES3COMPAT or x.env.WEBGL2)),
+ 	Subproject('ref/soft',              lambda x: x.env.CLIENT and x.env.SOFT),
+ 	Subproject('ref/null',              lambda x: x.env.CLIENT and x.env.NULL),
+ 	Subproject('3rdparty/bzip2',        lambda x: x.env.CLIENT and not x.env.HAVE_SYSTEM_BZ2),
+@@ -313,6 +313,9 @@ def configure(conf):
+ 		conf.load('psvita')
+ 
+ 	# HACKHACK: override msvc DEST_CPU value by something that we understand
++	# msr-web: waf does not name the CPU for WebAssembly and leaves an empty list, which breaks string tests in subprojects
++	if not conf.env.DEST_CPU:
++		conf.env.DEST_CPU = 'wasm'
+ 	if conf.env.DEST_CPU == 'amd64':
+ 		conf.env.DEST_CPU = 'x86_64'
+ 
+@@ -349,6 +352,9 @@ def configure(conf):
+ 		enforce_pic = False
+ 	elif conf.env.MSVC_WINE:
+ 		conf.options.BUILD_BUNDLED_DEPS = True
++	elif conf.env.DEST_OS == 'emscripten':
++		conf.options.GL               = False
++		conf.options.WEBGL2           = True
+ 
+ 	# psvita needs -fPIC set manually and static builds are incompatible with -fPIC
+ 	enforce_pic = conf.env.DEST_OS != 'psvita' and not conf.env.STATIC_LINKING
+@@ -521,6 +527,10 @@ def configure(conf):
+ 		else:
+ 			conf.env.DEFAULT_RPATH = '$ORIGIN'
+ 
++	# Add webgl2 renderer for emscripten builds
++	if conf.env.DEST_OS == 'emscripten':
++		REFDLLS.insert(-1, RefDll('webgl2', False, 'WEBGL2'))
++
+ 	setattr(conf, 'refdlls', REFDLLS)
+ 
+ 	for refdll in REFDLLS:

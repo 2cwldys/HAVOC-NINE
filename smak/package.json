@@ -1,0 +1,45 @@
+{
+  "name": "smak",
+  "version": "0.2.0",
+  "description": "SMAK, the Studio Model Agent Kit: GoldSrc studio models (.mdl) read, made, changed, checked and drawn from Node, by an AI agent, with no decompiler, no studiomdl and no dependencies.",
+  "type": "module",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./workshop": "./src/workshop.mjs",
+    "./kits/*": "./kits/*.mjs",
+    "./src/*": "./src/*.mjs"
+  },
+  "bin": {
+    "smak": "bin/smak.mjs"
+  },
+  "scripts": {
+    "test": "node test/selftest.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin",
+    "src",
+    "kits",
+    "viewer",
+    "examples",
+    "docs",
+    "test/selftest.mjs",
+    "README.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "goldsrc",
+    "half-life",
+    "xash3d",
+    "mdl",
+    "studiomdl",
+    "modding"
+  ],
+  "license": "MIT",
+  "private": true
+}

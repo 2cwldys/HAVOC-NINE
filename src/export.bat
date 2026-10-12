@@ -44,6 +44,10 @@ copy /y "%~dp0build.bat"         "%EX%\src\"                 >nul && echo   src\
 copy /y "%~dp0export.bat"        "%EX%\src\"                 >nul && echo   src\export.bat
 copy /y "%~dp0COMMANDS.txt"      "%EX%\docs\"                >nul && echo   docs\COMMANDS.txt
 
+REM At the package root, beside README.txt, because that is where someone setting up
+REM a second machine will look for it rather than in src\.
+copy /y "%~dp0install-rcbot.bat" "%EX%\"                     >nul && echo   install-rcbot.bat
+
 REM ---- compiled plugin -----------------------------------------------------
 REM From compiled\, not from the server's plugins folder: a failed build leaves
 REM the old binary deployed, and shipping that is how a stale plugin travels to

@@ -32,8 +32,17 @@
      switch. Once a match is running it refuses -- sides are locked.
 
  .class
-     Opens the class menu. Classes are locked once a match is running; during
-     warmup you can change as often as you like.
+     Opens the class menu, DURING THE FREEZE COUNTDOWN BEFORE A ROUND and at no
+     other time. That is when the loadout is handed out, so it is the only
+     moment a pick does anything.
+
+     Outside it you are told why rather than shown a menu. A class chosen in
+     warmup or ready-up used to be accepted, confirmed, and then thrown away by
+     the match starting -- the menu worked and the choice did not.
+
+     Note that a match HALTED for an uneven side sits in ready-up with the score
+     intact, so "we are in ready-up" does not mean no match is running. Picks
+     are refused there too.
 
      Two classes do something with +USE:
 
@@ -77,23 +86,24 @@
      every frame, so switching it off simply lets that take over again.
 
  .follow   /   .squad          (Officer class only, during a round)
-     Take up to tsm_squad_max free bots on your side under command. They
-     follow you until you dismiss them or the round ends.
+     Take the bots standing NEAR you under command -- the nearest first, up to
+     tsm_squad_max, from within tsm_squad_reach. They hold on you until you
+     dismiss them or the round ends.
 
-     Opens RCBOT OWN SQUAD MENU. Choose "more options", then "squad", to pick
-     who follows you. Formation and spread come from tsm_squad_formation and
-     tsm_squad_spread and are applied before the menu opens.
+     A bot already commanded by another Officer is left alone and you are told
+     so. It is never taken off him: two Officers steering one bot would drag it
+     between them every frame.
 
-     rcbot has had a squad system all along -- its docs just never call it
-     "follow". It paths and holds formation properly, which the plugin steering
-     trail along rather than forming up, and a bot that gets too far away is
-     it replaced never could.
+     They are held by steering, which only runs WHERE THEY CAN SEE YOU. Out of
+     sight the plugin does not touch them and rcbot own pathing brings them
+     round, because steering is a straight pull and through a wall it would
+     only pull them into it.
 
      An Officer is told about both commands in chat when the round starts, so
      the perk is not invisible.
 
  .unfollow /   .dismiss        (Officer class only)
-     Stand the whole squad down.
+     Stand the whole squad down. Releases only YOUR bots.
 
 
 ===============================================================================

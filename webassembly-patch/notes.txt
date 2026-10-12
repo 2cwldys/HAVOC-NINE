@@ -1,0 +1,1 @@
+engine.patch is the patch that gives webassembly support to xash3d-fwgs
