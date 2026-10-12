@@ -3,6 +3,8 @@
 // A change to a file is made by appending: new vertices, normals, triangles, textures, animations or tables go at the
 // end and the file's own tables are pointed at them. Everything else (bones, the other submodels, what was not asked
 // to change) is left byte for byte as it was. Every function that changes a model takes a Buffer and returns a new one.
+// What a function returns has its textures moved to the file's end, in their table's order (layout.mjs): a dedicated
+// server's engine reads them so, and dies on a change of level over a file left as the appending makes it.
 //
 //   reading     readMdl readMesh textureOf skinFamilies bodyOf bones boneParents sequences readSequence frameValues
 //               events attachments hitboxes drawnCorners
@@ -12,6 +14,7 @@
 //   animations  replaceSequence addSequence setEvents addBones
 //   whole       writeMdl
 
+import { engineLayout } from "./layout.mjs";
 const str = (b, o, n) => { const e = b.indexOf(0, o); return b.toString("latin1", o, e < 0 || e > o + n ? o + n : e); };
 const i32 = (b, o) => b.readInt32LE(o);
 
@@ -119,7 +122,7 @@ export function replaceMesh(src, where, mesh, texture) {
   head.writeInt32LE(ref, old.at + 8); head.writeInt32LE(mesh.norms.length, old.at + 12);
 
   head.writeInt32LE(size, H.length);
-  return Buffer.concat(parts);
+  return engineLayout(Buffer.concat(parts));
 }
 
 /**
@@ -147,7 +150,7 @@ export function retexture(src, where, texture, uvOf) {
   }); });
   head.writeInt32LE(tris.length, mesh.at); head.writeInt32LE(add(cmds), mesh.at + 4); head.writeInt32LE(refs, mesh.at + 8);
   head.writeInt32LE(size, H.length);
-  return Buffer.concat(parts);
+  return engineLayout(Buffer.concat(parts));
 }
 
 /**
@@ -162,7 +165,7 @@ export function addMesh(src, where) {
   table.writeInt32LE(at + n * 20 + 20, n * 20 + 4); // no triangles: its commands are the two zero bytes after the table
   const out = Buffer.concat([src, Buffer.alloc(pad), table]);
   out.writeInt32LE(n + 1, model.at + M.nummesh); out.writeInt32LE(at, model.at + M.meshindex); out.writeInt32LE(out.length, H.length);
-  return out;
+  return engineLayout(out);
 }
 
 /**
@@ -179,7 +182,7 @@ export function addModel(src, bodypart, name) {
   table.writeInt32LE(at + mesh + 20, mesh + 4); // no triangles yet: its commands are the zero after the mesh
   const out = Buffer.concat([src, Buffer.alloc(pad), table]);
   out.writeInt32LE(n + 1, bp + 64); out.writeInt32LE(at, bp + 72); out.writeInt32LE(out.length, H.length);
-  return out;
+  return engineLayout(out);
 }
 
 /** Returns a copy of the file with one mesh left without triangles (its normals stay, so the others keep their turn). */
@@ -187,7 +190,7 @@ export function emptyMesh(src, where) {
   const mesh = readMdl(src).bodyparts[where.bodypart].models[where.model].meshes[where.mesh];
   const pad = (4 - src.length % 4) % 4, out = Buffer.concat([src, Buffer.alloc(pad + 4)]);
   out.writeInt32LE(0, mesh.at); out.writeInt32LE(src.length + pad, mesh.at + 4); out.writeInt32LE(out.length, H.length);
-  return out;
+  return engineLayout(out);
 }
 
 /**
@@ -201,7 +204,7 @@ export function filterMesh(src, where, keep) {
   tris.forEach((t, i) => { cmds.writeInt16LE(3, i * 26); t.forEach((c, k) => c.forEach((v, n) => cmds.writeInt16LE(v, i * 26 + 2 + k * 8 + n * 2))); });
   const pad = (4 - src.length % 4) % 4, out = Buffer.concat([src, Buffer.alloc(pad), cmds]);
   out.writeInt32LE(tris.length, mesh.at); out.writeInt32LE(src.length + pad, mesh.at + 4); out.writeInt32LE(out.length, H.length);
-  return out;
+  return engineLayout(out);
 }
 
 /**
@@ -313,7 +316,7 @@ export function addBones(src, bones) {
     head.writeInt32LE(add(Buffer.concat([table, ...data])), s + 124);
   }
   head.writeInt32LE(size, H.length);
-  return Buffer.concat(parts);
+  return engineLayout(Buffer.concat(parts));
 }
 
 /**
@@ -376,7 +379,7 @@ export function writeMdl({ name, bones, sequences, textures, skins = null, bodyp
   head.writeInt32LE(refs, H.numskinref); head.writeInt32LE(fams.length, H.numskinfamilies); head.writeInt32LE(add(skin), H.skinindex);
   textures.forEach((t, i) => { const e = i * 80; table.write(t.name, e, 63, "latin1"); table.writeInt32LE(t.flags ?? 0, e + 64); table.writeInt32LE(t.width, e + 68); table.writeInt32LE(t.height, e + 72); const at = add(Buffer.concat([Buffer.from(t.pixels), Buffer.from(t.palette)])); table.writeInt32LE(at, e + 76); if (!i) head.writeInt32LE(at, 188); });
   head.writeInt32LE(size, H.length);
-  return Buffer.concat(parts);
+  return engineLayout(Buffer.concat(parts));
 }
 
 // ── pictures read and changed ──────────────────────────────────────────────
@@ -407,7 +410,7 @@ export function replaceTexture(src, which, texture) {
   }
   if (texture.name !== undefined && texture.name !== old.name) { out.fill(0, e, e + 64); out.write(texture.name, e, 63, "latin1"); }
   if (texture.flags !== undefined) out.writeInt32LE(texture.flags, e + 64);
-  return out;
+  return engineLayout(out);
 }
 /**
  * A model whose textures are kept in a file of their own (`name`t.mdl beside `name`.mdl: the model itself says it has none),
@@ -423,7 +426,7 @@ export function withTextures(src, tfile) {
   const refs = i32(tfile, H.numskinref), fams = i32(tfile, H.numskinfamilies);
   head.writeInt32LE(refs, H.numskinref); head.writeInt32LE(fams, H.numskinfamilies); head.writeInt32LE(add(tfile.subarray(i32(tfile, H.skinindex), i32(tfile, H.skinindex) + refs * fams * 2)), H.skinindex);
   head.writeInt32LE(size, H.length);
-  return Buffer.concat(parts);
+  return engineLayout(Buffer.concat(parts));
 }
 /** The skin families: for each, which texture (its number) each mesh's `skinref` means. A model shown with `skin` n wears family n. */
 export function skinFamilies(b) {
@@ -542,7 +545,7 @@ export function replaceSequence(src, which, { frames, blends = frames && [frames
   }
   if (fps !== undefined) out.writeFloatLE(fps, s + 32);
   if (loops !== undefined) out.writeInt32LE(loops ? i32(out, s + 36) | 1 : i32(out, s + 36) & ~1, s + 36);
-  return out;
+  return engineLayout(out);
 }
 /**
  * Returns a copy of the file with one more animation after the ones it has (its number is the old count, so the ones the game
@@ -558,7 +561,7 @@ export function addSequence(src, { name, fps = 30, loops = false, frames, blends
   let out = Buffer.concat([src, Buffer.alloc(pad), table]);
   out.writeInt32LE(n + 1, 164); out.writeInt32LE(at, 168); out.writeInt32LE(out.length, H.length);
   out = replaceSequence(out, n, { frames, blends, loops });
-  return evs?.length ? setEvents(out, n, evs) : out;
+  return engineLayout(evs?.length ? setEvents(out, n, evs) : out);
 }
 
 // ── what an animation sets off, and where things are fastened ──────────────
@@ -575,7 +578,7 @@ export function setEvents(src, which, list) {
   [...list].sort((a, b) => a.frame - b.frame).forEach((ev, i) => { table.writeInt32LE(ev.frame, i * 76); table.writeInt32LE(ev.event, i * 76 + 4); table.writeInt32LE(ev.type ?? 0, i * 76 + 8); table.write(String(ev.options ?? ""), i * 76 + 12, 63, "latin1"); });
   const out = Buffer.concat([src, Buffer.alloc(pad), table]);
   out.writeInt32LE(list.length, s + 48); out.writeInt32LE(src.length + pad, s + 52); out.writeInt32LE(out.length, H.length);
-  return out;
+  return engineLayout(out);
 }
 /** The model's attachments: [{ name, bone (its number), pos [x, y, z] in that bone's space }]: where a muzzle flash, a shell or a held thing goes. */
 export function attachments(b) {

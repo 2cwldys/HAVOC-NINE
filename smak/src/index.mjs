@@ -8,5 +8,6 @@ export * from "./fit.mjs";
 export * from "./build.mjs";
 export * from "./render.mjs";
 export * from "./check.mjs";
+export * from "./layout.mjs";
 export * from "./place.mjs";
 export * as workshop from "./workshop.mjs";

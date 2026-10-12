@@ -2,8 +2,10 @@
 
 SMAK (Studio Model Agent Kit) is a set of JavaScript modules for making and changing GoldSrc studio models: the
 `.mdl` files Half-Life and its mods use for weapons, players, monsters and props. You, an AI agent, are its user.
-There is no editor and no GUI: you write short Node scripts over the library, run them, look at the pictures the kit
-draws, and repeat until the model is right. The person you work for sees the result in their game.
+You write short Node scripts over the library, run them, look at the pictures the kit draws, and repeat until the
+model is right. The person you work for sees the result in their game. They also have a page for touching up
+animations, events and textures by hand (`smak edit`); when they use it, the two of you share a project file, and
+`editor/AGENTS.md` says how you work on it.
 
 This file is the whole briefing. `docs/API.md` lists every function; `docs/ENGINES.md` covers GoldSrc against Xash.
 
@@ -20,7 +22,7 @@ First thing on a new machine, from this folder:
 node test/selftest.mjs
 ```
 
-It makes a model from nothing and exercises every part of the kit. If all 21 tests pass, the kit works here.
+It makes a model from nothing and exercises every part of the kit. If all 28 tests pass, the kit works here.
 
 ## What it can and cannot do
 
@@ -35,6 +37,7 @@ It makes a model from nothing and exercises every part of the kit. If all 21 tes
 | Check a model against GoldSrc's and Xash's limits | |
 | Draw a model from any side, or as the player sees a weapon, into a PNG | |
 | Paint a model by where a point is on its body, across all its textures | Give the two sides of a body different marks where they share the same pixels of a texture |
+| Add a body again as a new body in a texture of its own, and paint a garment on chosen islands of it | |
 | Find a model's loose pieces and take them off; move a part between models on one skeleton | Put a body under armour that has none: taking such a piece off leaves a gap |
 | Show models side by side in the person's browser, turning and animated | |
 
@@ -64,11 +67,13 @@ node bin/smak.mjs render <mdl> -o r.png --yaw 30 --pitch 15 [--view first]
 node bin/smak.mjs strip <mdl> -o a.png --seq reload --count 12 [--view first]
 node bin/smak.mjs textures <mdl> -o dir [--bmp]    every texture as a file
 node bin/smak.mjs uv <mdl> -o dir                  every texture with the triangles that wear it drawn over it
+node bin/smak.mjs islands <mdl> [-o dir] [--body n]  the islands each picture is cut into, listed; with -o, drawn tinted and numbered
 node bin/smak.mjs retexture <mdl> <texture> <picture> -o out.mdl
 node bin/smak.mjs sequence <mdl> <anim> -o a.json  /  sequence-set  /  sequence-add
 node bin/smak.mjs inline <mdl> -o out.mdl          put the textures of <name>t.mdl inside the model
-node bin/smak.mjs pieces <mdl>                     its loose pieces, each with its number, place and size
+node bin/smak.mjs pieces <mdl> [--body n]          its loose pieces, each with its number, place and size (--body: that body's only)
 node bin/smak.mjs view <folder|mdl> [more ...]     the viewer, for the person: two models side by side in the browser
+node bin/smak.mjs edit <folder|mdl>                the editor, for the person: animations, events and textures by hand
 ```
 
 `view` keeps running until stopped: start it in the background, give the person the address it prints, and stop
@@ -80,6 +85,13 @@ it when they are done. It is for them to look and compare; your own checking is 
 
 **If a picture comes out empty**, the body number shows an empty submodel. Many models keep a blank submodel at
 body 0. `info` lists the body number of each submodel; pass it with `--body`.
+
+**Which way is the front depends on the pose.** Yaw 0 looks at `+x`, and a model faces `+x` *as its animations
+stand it*. Its rest pose (`--seq rest`, `seq: null`) can be turned from that: one armour's bones rest a quarter
+turn from frame 0 of its animation, so that "front" at rest showed its side, and a point measured at rest was
+not where the animated model had it. Draw, measure and paint in a pose the game shows (`--seq 0`, or
+`{ seq: "idle", frame: 0 }`), use the same pose for every step of a job, and compare one picture at rest with
+one animated before trusting either.
 
 ## How a studio model is put together
 
@@ -102,7 +114,7 @@ You need this model in your head; the API mirrors it exactly.
 
 | | |
 | --- | --- |
-| Axes | `+x` forward, `+y` left, `+z` up. A model faces `+x`. |
+| Axes | `+x` forward, `+y` left, `+z` up. A model faces `+x` as its animations stand it; its rest pose may be turned from that (see "The command line"). |
 | Units | About an inch. A player is 72 tall; a pistol about 8 long. |
 | First-person models | The eye is at the model's origin looking along `+x`. |
 | Matrices | 3 rows of 4 (`[[r r r t] ×3]`), taking a bone's space to the model's. `mul34`, `apply34`, `inverse34`. |
@@ -122,8 +134,11 @@ You need this model in your head; the API mirrors it exactly.
 3. **Keep an animation's frame count and rate close to the original** when the game times something by it (a
    reload that fills the magazine when the animation ends). If you change its length, tell the person.
 4. **Keep to the engine's limits.** Run `check` for `goldsrc` unless told the target is Xash only. The ones you
-   will meet: 2048 vertices and 2048 normals a submodel, 128 bones, textures 512 pixels at most and a power of
-   two on each side (256x256 or 512x256 are the safe sizes).
+   will meet: 2048 vertices and 2048 normals a submodel, and 128 bones (errors). A texture may be of any size,
+   and the games' own files have sizes like 488x498: GoldSrc stretches a side that is not a power of two to one
+   when it loads the model, a little softer (`check` only notes it), and draws a side over 512 shrunk (a
+   warning). So a texture you replace keeps the size it had, whatever that is; for a new one, 256x256 and
+   512x256 are the sizes drawn exactly as painted.
 5. **Keep texture names unique** inside one file, and end them in `.bmp` as the format expects.
 6. **Never write over the mod's original files.** Write to a working folder; the person installs the result.
 7. **Do not copy a game's models or textures into this kit** or into anything that is shared: they belong to the
@@ -225,14 +240,68 @@ const { mdl, shared } = paint(src, ({ p, n, rgb, tex }) => {
 ```
 
 - `p` is in model space (units; `+z` up), `n` the way the surface faces, `rgb` the colour there now, 0 to 1.
-  Return nothing to leave a pixel alone.
+  Return nothing to leave a pixel alone. The function is also told where it is in the model's own terms: `bone`
+  (the name of the bone the point follows), `where`, `body` and `tri` (its mesh, body number and triangle),
+  `tex`, `u`, `v` (the pixel) and `island` (the patch of the picture it is in): see the next recipe.
 - Make stages by building each from the **original** with more in the function, not by painting over the last.
 - **Read `shared`.** It gives, for each texture, the share of its pixels that two places of the body both wear.
   Arms, legs and gear are often mirrored like that: a mark on the left shows on the right. Tell the person when a
   one-sided mark they asked for cannot be one-sided. Trousers and torsos are usually not shared.
-- Textures keep their size and are cut back to 256 colours each. A masked texture keeps its holes.
+- Textures keep their size and are cut back to 256 colours each, once a call. A masked texture keeps its holes.
+  Painting the result again cuts it again: for several layers give one call a list of passes (next recipe).
 - The palette alone (recipe "A new texture") is still the way to change a colour everywhere: a team colour, a
   camouflage. Turn only the colours that are clearly coloured and leave the greys, or the reverse.
+
+### A garment painted on one island, in passes, with soft edges
+
+How a game adds an armour or a uniform: the same body again as a new body, wearing a texture of its own. The
+picture of a body is cut into **islands** (the trunk's front, its back, a sleeve, a boot), and a garment belongs
+on some of them and not on the rest.
+
+```js
+import { copyBody, uvIslands, paint, textureOf, workshop as W } from "./smak/src/index.mjs";
+
+// the armour again as a new body in a texture of its own, which begins as a copy of the old one
+const base = copyBody(src, "armor", "templar", { ...textureOf(src, "armor1.bmp"), name: "templar.bmp" });
+const body = 40, pose = { seq: 0, frame: 0, body };            // its number: `info` lists it, after the bodies that were there
+// its islands: `smak islands base.mdl --body 40 -o dir` draws them numbered; here the trunk's two are found by place
+const mine = uvIslands(base, pose).list.filter((e) => e.tex === "templar.bmp" && e.uses.some((u) => u.body === body));
+const trunk = mine.filter((e) => e.tris > 40 && e.bones[0].startsWith("Bip01 Spine")).map((e) => e.id);
+const { mdl, shared } = paint(base, [
+  ({ rgb, blur }) => W.mix(rgb, blur(5), 0.85),            // 1. the plate's ridges and rivets lost, its broad light and shade kept
+  { soft: 3, fn: ({ p, rgb, edge }) => {                    // 2. the cloth over that light, a cross on it, a darker stitched rim
+    const light = 0.5 + 0.6 * (0.3 * rgb[0] + 0.59 * rgb[1] + 0.11 * rgb[2]), cross = Math.abs(p[2] - 55) < 7 && (Math.abs(p[1]) < 1.3 || Math.abs(p[2] - 57) < 1.3) && Math.abs(p[1]) < 5;
+    return W.times(cross ? [0.55, 0.11, 0.09] : [0.8, 0.76, 0.66], light * (edge < 3 ? 0.6 : 1));
+  } },
+], { pose, only: ["templar.bmp"], islands: trunk });
+```
+
+- **Look at the islands first**: `smak islands <mdl> --body n -o dir` writes each texture with its islands tinted
+  and numbered, and lists their ids, boxes, bones, places and the way each faces. `uvIslands(src, pose).list` is
+  the same list for a script: choose by `id` read off the picture, or by `tex`, `bones`, `mid`, `n` (`n[0] > 0.5`
+  looks forwards) and `tris`. An id holds until the file's meshes change; a body added after the others moves none.
+- `islands: [ids]` paints those and nothing else, as `only` does for textures. Without it a rule by place alone
+  spills: a skirt's rim hangs on the leg bones, and a trunk and its arms are one piece in space.
+- **Passes.** A list in place of the function: each pass sees in `rgb` what the one before left, in full colour,
+  and the picture is cut to 256 colours once, after the last. A pass is a function, or `{ fn, islands, only,
+  soft, pose }` where it differs from the call's options. Do not chain `paint(paint(...).mdl, ...)` for layers.
+- **`soft: 3`** asks the function at 3x3 points inside each pixel and averages: the edge of any shape decided by
+  `p`, `u`, `v` or `edge` comes out soft instead of as a staircase. It costs nine calls a pixel; use it on the
+  pass that draws shapes.
+- **`edge`** is how far the pixel is from its island's border, in pixels: `edge < 3` is a rim three pixels wide,
+  `W.step(0, 12, edge)` grime that fades in from the border. `open` is the same to the nearest *open* stretch of
+  border, where no triangle goes on across it in space (a hem, an armhole, a neckline; Infinity when the island
+  has none), so a hem line is `open < 2` and the side seams stay clean. `per` is the units a pixel covers
+  there: `edge * per` is the distance in units, near enough. `smak islands` draws open borders white.
+- **`blur(r)`** is the picture as it stood before the pass, smoothed over `r` pixels about this one and taken
+  from this island only, so nothing of a neighbour on the picture bleeds in. `at(u, v)` reads any other pixel of
+  it. With them an old picture's fine detail (the "ghost" of what the cloth covers) is lost and its shading kept.
+- A pixel or so past an island's border is painted too, so that no seam of the old colour shows; where two
+  islands touch on the picture, that pixel is the neighbour's edge.
+- `copyBody` takes the body by its submodel's name or by its body number, and the texture as a name already in
+  the file, a texture, or `{ name, ...image }`. The new body's number is the old count of submodels of that
+  bodypart (times the bodypart's `base`): tell the person, since the game's scripts choose bodies by number.
+- Read `shared` as before, and draw the result from four sides in the pose you painted in.
 
 ### Taking pieces off, and moving parts between models
 
@@ -247,7 +316,9 @@ const helmetOff = graft(dropTriangles(src, (t) => HELMET.includes(P.of(t)), pose
 - A piece is a group of triangles that touch. Tell what each is from its place and size, then **draw the model
   without it before trusting it**: what looks like armour is often the body itself, with no limb under it.
   A gap in the picture means the piece has to stay.
-- `dropTriangles` also takes any rule on a triangle's place: `(t) => t.mid[2] > 60`.
+- `dropTriangles` also takes any rule on a triangle's place: `(t) => t.mid[2] > 60`, or on the island of the
+  picture it is in: `const I = uvIslands(src); dropTriangles(src, (t) => I.of(t) === 12)`.
+- `smak pieces <mdl>` lists every submodel's pieces; `--body n` lists those of the submodels that body shows.
 - `graft` needs both models on the same skeleton and finds bones **by name**, so the two files may number them
   differently. It throws when a bone is missing. Draw a run or a jump afterwards: a part on the wrong bone shows
   at once in motion.

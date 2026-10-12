@@ -39,7 +39,7 @@ if not exist "%PLUGINS%" (
 if not exist "%OUT%" mkdir "%OUT%"
 
 if "%~1"=="" (
-    set "TARGETS=ts_matchmode ts_probe"
+    set "TARGETS=ts_matchmode ts_probe ts_advertise"
 ) else (
     if /i "%~1"=="all" (
         set "TARGETS="
@@ -58,9 +58,21 @@ for %%n in (!TARGETS!) do (
         if errorlevel 1 (echo [FAIL] could not sync %%n.sma) else (echo   synced %%n.sma)
     )
 )
+REM ts_advertise.cfg HOLDS THE DISCORD BOT TOKEN, so it is only ever created, never
+REM overwritten. Syncing it like the others would wipe the token on every build, and
+REM the only symptom would be the plugin saying Discord is not configured.
 for %%c in ("%SRC%*.cfg") do (
-    copy /y "%%c" "%CONFIGS%\%%~nxc" >nul
-    if errorlevel 1 (echo [FAIL] could not sync %%~nxc) else (echo   synced %%~nxc)
+    if /i "%%~nxc"=="ts_advertise.cfg" (
+        if exist "%CONFIGS%\%%~nxc" (
+            echo   kept    %%~nxc  ^(holds your token; not overwritten^)
+        ) else (
+            copy /y "%%c" "%CONFIGS%\%%~nxc" >nul
+            echo   created %%~nxc  ^(put the token in it^)
+        )
+    ) else (
+        copy /y "%%c" "%CONFIGS%\%%~nxc" >nul
+        if errorlevel 1 (echo [FAIL] could not sync %%~nxc) else (echo   synced %%~nxc)
+    )
 )
 echo.
 
@@ -95,6 +107,64 @@ for %%n in (!TARGETS!) do (
         echo.
     )
 )
+
+REM ---- the AmxxEasyHttp module ---------------------------------------------
+REM ts_advertise cannot load without it: Discord is HTTPS only and AMXX has no TLS
+REM of its own. Both files are vendored in compts\, so this is a copy rather than a
+REM download. Only ever created, never refreshed, so a newer one put there by hand
+REM is not quietly reverted on the next build.
+REM
+REM WITHOUT THE .pem every request fails certificate validation and reports it as a
+REM connection error rather than as a missing file.
+if not exist "%TSROOT%\modules\easy_http_amxx.dll" (
+    if exist "%SRC%compts	sddonsmxmodx\modules\easy_http_amxx.dll" (
+        copy /y "%SRC%compts	sddonsmxmodx\modules\easy_http_amxx.dll" "%TSROOT%\modules\" >nul
+        echo   installed easy_http_amxx.dll
+    )
+)
+if not exist "%TSROOT%\datamxx_easy_http_cacert.pem" (
+    if exist "%SRC%compts	sddonsmxmodx\datamxx_easy_http_cacert.pem" (
+        copy /y "%SRC%compts	sddonsmxmodx\datamxx_easy_http_cacert.pem" "%TSROOT%\data\" >nul
+        echo   installed amxx_easy_http_cacert.pem
+    )
+)
+
+REM ---- register the plugins with AMXX --------------------------------------
+REM Deploying the .amxx is NOT enough. AMXX only loads what plugins.ini lists, so a
+REM freshly built plugin sits in the plugins folder doing nothing and its chat
+REM command produces no response whatsoever -- not an error, not a refusal, just
+REM silence, which reads exactly like a broken command.
+for %%n in (!TARGETS!) do (
+    if exist "%PLUGINS%\%%n.amxx" (
+        findstr /i /c:"%%n.amxx" "%CONFIGS%\plugins.ini" >nul 2>&1
+        if errorlevel 1 (
+            >> "%CONFIGS%\plugins.ini" echo %%n.amxx
+            echo   registered %%n.amxx in plugins.ini
+        )
+    )
+)
+echo.
+
+REM ---- the Half-Life folder, not the mod folder ----------------------------
+REM Everything above deploys into ts\addons\amxmodx. The launcher and the Discord
+REM bot do NOT live there: ts.bat sits beside hlds.exe because that is what it runs,
+REM and discord-bot\ sits beside ts\ because the bot finds the plugin's config at
+REM ..\ts\addons\amxmodx\configs. Deployed here so the live install matches the
+REM package instead of only the export folder having them.
+for %%i in ("%TSROOT%\..\..\..") do set "HLROOT=%%~fi"
+if exist "%HLROOT%\hlds.exe" (
+    if exist "%SRC%ts.bat" (
+        copy /y "%SRC%ts.bat" "%HLROOT%\" >nul && echo   deployed ts.bat          ^-^> %HLROOT%
+    )
+    if exist "%SRC%discord-bot" (
+        REM No /purge: rsvp.json and __pycache__ are written there at runtime and are
+        REM not ours to delete.
+        xcopy /y /i /e /q "%SRC%discord-bot" "%HLROOT%\discord-bot" >nul && echo   deployed discord-bot\    ^-^> %HLROOT%\discord-bot
+    )
+) else (
+    echo   [WARN] no hlds.exe at %HLROOT% -- ts.bat and discord-bot\ not deployed
+)
+echo.
 
 REM ---- keep the server package in step -------------------------------------
 REM Only on a clean build. Exporting after a failure would ship the previous

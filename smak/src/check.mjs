@@ -8,6 +8,7 @@
 import { readMdl, readMesh, sequences, bones, frameValues, drawnCorners, skinFamilies } from "./mdl.mjs";
 import { sub, dot, cross } from "./vec.mjs";
 import { FRONT } from "./mesh.mjs";
+import { isEngineLayout } from "./layout.mjs";
 
 /** What each engine holds. `verts`: points and normals of one submodel, and the corners it draws. */
 export const LIMITS = {
@@ -23,6 +24,7 @@ export function check(src, engine = "goldsrc") {
   let info;
   try { info = readMdl(src); } catch (e) { return { errors: [e.message], warnings, facts }; }
   if (src.readInt32LE(72) !== src.length) errors.push(`the file says it is ${src.readInt32LE(72)} bytes long and is ${src.length}`);
+  if (!isEngineLayout(src)) errors.push("the texture table does not come before the textures, or they are not in its order: a dedicated server (HLDS, ReHLDS) reads it wrongly and dies on a change of level. Pass the model through engineLayout before writing it");
   const nb = info.bones.length, seqs = sequences(src), fams = skinFamilies(src), refs = fams[0]?.length ?? 0;
   if (nb > L.bones) errors.push(`${nb} bones: the engine holds ${L.bones}`);
   if (!nb) warnings.push("no bones");

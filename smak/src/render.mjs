@@ -17,7 +17,8 @@ export const TEXTURE = { flat: 1, chrome: 2, fullbright: 4, additive: 32, masked
 
 /**
  * The model's triangles as it is shown: { seq (a name or a number; null: the bones at rest), frame (may fall between two),
- * pose (matrices of its own, instead), body, skin }. Each triangle: { tex, c: [{ p, n, u, v }] } in model space, u and v in pixels.
+ * pose (matrices of its own, instead), body, skin }. Each triangle: { tex, where, tri, c: [{ p, n, u, v, bone }] } in model space, u and v
+ * in pixels; `where` is its mesh ({ bodypart, model, mesh }), `tri` its number in that mesh (as readMesh lists them), `bone` a bone's number.
  */
 export function posed(src, { seq = 0, frame = 0, pose, body = 0, skin = 0 } = {}) {
   const info = readMdl(src), seqs = sequences(src), q = seq === null ? -1 : sequenceAt(src, seq);
@@ -26,11 +27,11 @@ export function posed(src, { seq = 0, frame = 0, pose, body = 0, skin = 0 } = {}
   const fams = skinFamilies(src), fam = fams[skin] ?? fams[0] ?? [], pick = bodyOf(src, body), tris = [];
   info.bodyparts.forEach((bp, i) => {
     const m = bp.models[pick[i]]; if (!m) return;
-    for (const x of m.meshes) {
-      if (!x.numtris) continue;
-      const tex = info.textures[fam[x.skinref]] ?? x.texture ?? null;
-      for (const t of readMesh(src, m, x)) tris.push({ tex, c: t.map((c) => ({ p: apply34(P[c.bone], c.p), n: P[c.bone].map((r) => r[0] * c.n[0] + r[1] * c.n[1] + r[2] * c.n[2]), u: c.s, v: c.t })) });
-    }
+    m.meshes.forEach((x, k) => {
+      if (!x.numtris) return;
+      const tex = info.textures[fam[x.skinref]] ?? x.texture ?? null, where = { bodypart: i, model: pick[i], mesh: k };
+      readMesh(src, m, x).forEach((t, tri) => tris.push({ tex, where, tri, c: t.map((c) => ({ p: apply34(P[c.bone], c.p), n: P[c.bone].map((r) => r[0] * c.n[0] + r[1] * c.n[1] + r[2] * c.n[2]), u: c.s, v: c.t, bone: c.bone })) }));
+    });
   });
   return { info, tris, pose: P };
 }

@@ -61,6 +61,16 @@ engines read by those tables, so both are indifferent to the unused bytes left b
 - A tool that rebuilds the file from a decompile (Crowbar, then studiomdl) drops the unused bytes and may
   renumber things. Do not mix the two routes on one file without checking it again.
 
+One part of the file is not read by its tables alone. A dedicated server (HLDS, ReHLDS) loads a model by copying
+the file up to where the textures begin, then reading the textures one after another to the file's end, in the
+order of their table. It expects the table, and everything that is not a texture, before them. A file with
+textures or anything else appended after the first textures is read wrongly there: nothing shows on the first
+map, and the server dies on a change of level. The clients (GoldSrc's and Xash's) draw such a file without
+complaint, so it is found late. Every function here that changes a model therefore returns it with its textures
+moved to the end, in their table's order (`engineLayout`, `src/layout.mjs`), and `check` refuses a file that is
+not laid out so. A model made by SMAK 0.2.0 or by another tool can be mended by passing it through `engineLayout`:
+its submodels, bones, animations and textures keep their numbers and their bytes.
+
 ## Moving a mod to Xash later
 
 Nothing made with SMAK for GoldSrc needs redoing. What opens up is room: more vertices in a submodel and larger
@@ -75,7 +85,10 @@ textures. Raise them only for models that will never be loaded by GoldSrc, and c
 | Replacing textures, replacing and adding animations, events | New in 0.1.0: read back and drawn on 255 models, **not yet loaded by any engine** |
 | Anything in Steam GoldSrc | Not yet |
 | Working by place: `paint`, `pieces`, `dropTriangles`, `graft` | New in 0.2.0: read back, checked and drawn on 13 player models of The Specialists, **not yet loaded by any engine** |
-| Models from The Specialists | 13 player models read, checked and drawn; 20 variants made from them pass `check`. **None loaded by the game yet** |
+| Models from The Specialists | 13 player models read, checked and drawn; 20 variants made from them. A modder of that game reports the variants load and are in use (which of them, and whether on a dedicated server, was not recorded) |
+| The editor (`smak edit`) | New in 0.3.0: driven in a browser on a sword of Master Sword Classic (keys, events, textures, save) and opened on a player of The Specialists. **A model saved by it has not been loaded by any engine yet** |
+| Islands, `paint` in passes and with `soft`, `edge`, `blur`; `copyBody` | New in 0.4.0: the same calls of `paint` as 0.3.0 give the same bytes on 13 models of Master Sword Classic (168 calls); the new ones were read back, checked and drawn on one of its armours. **Nothing made with them has been loaded by any engine yet** |
+| The editor's texture sliders by keyboard, number and hex | New in 0.4.0: driven in a browser (`editor/test/drive.mjs`) |
 
 So treat the first model you install in a GoldSrc game as the test of the route, start with a reskin because it
 changes least, and try one changed animation in the game before making many.

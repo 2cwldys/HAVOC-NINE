@@ -4,8 +4,10 @@ Tools for making and changing GoldSrc models (`.mdl`: Half-Life and its mods), b
 coding agent such as Claude Code. You say what you want; the agent writes small scripts with this kit, draws the
 result into pictures to check its own work, and hands you a `.mdl` to try in the game.
 
-Version 0.2.0. An early release: there is no editor, and working it by hand is not practical. It has a viewer:
-a page in the browser that shows any two models side by side, turning and playing their animations together.
+Version 0.4.0. An early release, made for an agent to work. For the person it has two pages in the browser: a
+**viewer** that shows any two models side by side, turning and playing their animations together, and an
+**editor** for touching up a model by hand (its animations, events and textures; not its shape), on a project
+file the agent can work on too (`editor/README.md`).
 
 ## What it does
 
@@ -13,7 +15,8 @@ a page in the browser that shows any two models side by side, turning and playin
 - **Shapes**: replaces a weapon or item inside an existing model, keeping its hands, skeleton and animations;
   or writes a whole new model for a prop or pickup.
 - **Animations**: reads them, changes them, replaces them in place or adds new ones, with their sound events.
-- **By place**: paints wear, damage or markings where a point is on the body, across every texture it has; finds
+- **By place**: paints wear, damage or markings where a point is on the body, across every texture it has, or a
+  garment on chosen islands of a picture, in passes and with soft edges; adds a body again in another texture; finds
   a model's loose pieces (a pack, a pouch, a helmet) and takes them off; moves a part from one model to another
   that shares its skeleton.
 - **Checking**: tells whether a model stays inside what GoldSrc, or Xash3D, can load.
@@ -30,7 +33,7 @@ It reads and writes the `.mdl` file directly. No decompiler, no studiomdl, no Bl
 ## Starting
 
 1. Unpack this folder somewhere, for example next to your working folder.
-2. Check it runs: `node test/selftest.mjs` should end with `21 passed, 0 failed`.
+2. Check it runs: `node test/selftest.mjs` should end with `28 passed, 0 failed`.
 3. Open your agent in a working folder and tell it where the kit is:
 
    > Read `smak/AGENTS.md`. I want to work on models for my GoldSrc mod; its models are in `C:\…\ts\models`.
@@ -77,6 +80,7 @@ body 0: `info` shows the body numbers, and `--body N` picks one.
 | `src/` | The library: the model reader and writer, pictures, fitting, drawing, checking, working by place, and the workshop for building shapes and painting textures. |
 | `kits/` | Builders for swords and knives, axes, blunt weapons and bows. |
 | `viewer/` | The page that shows models side by side, and its small server. |
+| `editor/` | The page for re-timing and re-posing animations, events and textures by hand, its server, and the same edits from a terminal. |
 | `examples/` | Five scripts, one for each kind of work. |
 | `test/selftest.mjs` | The kit checking itself. |
 
@@ -96,15 +100,36 @@ body 0: `info` shows the body numbers, and `--body N` picks one.
 - Many models give the left and right side of the body the same pixels of a texture. A mark painted on one side
   then shows on the other; the kit reports how much of each texture is shared.
 
-## What changed in 0.2.0
+## What changed in 0.4.0
 
-- Working by place (`src/place.mjs`): `paint`, `surface`, `spot`, `pieces`, `dropTriangles`, `graft`.
-- The viewer: `smak view <folders>`.
-- `smak pieces <mdl>`, `lineup` for before-and-after pictures, `workshop.fbm3` and `workshop.seeded`.
-- `examples/05-by-place.mjs`.
-- First run against The Specialists' player models (see `docs/ENGINES.md`, "What was and was not tested").
+Out of an agent's first armour texture made with the kit, and what got in its way.
 
-Nothing that 0.1.0 had was changed or removed: scripts written for it run as they are.
+- **`paint` tells its function where it is painting**: beside the point, the normal, the colour and the texture,
+  now the bone the point follows, its mesh, body and triangle, the pixel's `u` and `v`, and the **island** of the
+  picture it is in (a trunk's front, a sleeve), with how far the pixel is from that island's border (`edge`) and
+  from the nearest open stretch of it, a hem or an armhole (`open`).
+- **Islands**: `uvIslands(src, pose)` lists them (texture, box, bones, place, the way each faces, how much of its
+  border is open), `islandMap` and `smak islands <mdl> -o dir` draw each texture with its islands tinted and
+  numbered, and `paint`'s new `islands` option paints the chosen ones only.
+- **Soft edges**: `paint(..., { soft: 3 })` asks the function at 3x3 points inside each pixel and averages them.
+- **Passes**: `paint(src, [pass, pass], options)` paints several layers in full colour and cuts each picture to
+  256 colours once, at the end. A pass can read the picture as it stood before it at any pixel (`at`) and
+  smoothed within its island (`blur`), to lose an old picture's fine detail and keep its light and shade.
+- **`copyBody(src, body, name, texture)`**: a body again, as a new body after the others, wearing another texture.
+- `smak pieces <mdl> --body n` lists that body's pieces (it listed every submodel's); `pieces` gives each piece's
+  mesh (`where`), `dropTriangles` each triangle's number (`tri`), `posed` both and each corner's bone.
+- The editor's texture sliders: a focused slider takes the arrow keys (they stepped the timeline instead), each
+  has a number box beside it and the tint colour a box for its hex digits, and one change of the tint is one line
+  of the project's log.
+- `AGENTS.md` now says what is true of texture sizes (any size loads; `check` notes what GoldSrc stretches or
+  shrinks) and that a model's rest pose can be turned from its animated one.
+- The editor's browser tests take their models and their Playwright from `SMAK_MODELS` and `SMAK_PLAYWRIGHT`.
+
+Nothing that 0.3.0 had was changed or removed: the same calls of `paint` write the same bytes, and scripts
+written for it run as they are. One thing behaves otherwise in the editor's page: letting a slider go where it
+stood no longer writes a revision that changes nothing.
+
+Earlier versions, and what a model made with one of them needs: `CHANGELOG.md`.
 
 ## Where it comes from
 

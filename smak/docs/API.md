@@ -132,10 +132,53 @@ The parts it is made of, for when you need them separately:
 | --- | --- |
 | `surface(src, pose)` | `[{ p, n, tex }]`, one a triangle: its middle, the way it faces, its texture's name. |
 | `spot(surface, near, facing?, on?)` | The place of the surface nearest `near` that looks towards `facing` and wears one of the textures `on`; or null. |
-| `paint(src, fn, { pose, only, apart = 3 })` | `{ mdl, shared }`. `fn({ p, n, rgb, tex })` returns the new colour of the pixel that colours point `p` (0 to 1), or nothing. `only`: texture names. `shared[name]`: the share of that texture's pixels worn by two places more than `apart` units from each other. |
-| `pieces(src, pose)` | `{ list: [{ id, tex, part, model, tris, mn, mx, mid }], of(t) }`: the groups of triangles that touch, mesh by mesh. `of` takes what `dropTriangles` hands its rule. |
-| `dropTriangles(src, drop, pose)` | `{ mdl, gone }`: without the triangles `drop({ p, mid, tex, part, model, where })` accepts. |
+| `paint(src, fn, { pose, only, islands, soft = 1, apart = 3 })` | `{ mdl, shared }`. `fn(place)` returns the new colour (0 to 1) of the pixel that colours the point `place.p`, or nothing to leave it. `only`: texture names; `islands`: island ids (see `uvIslands`); `soft`: see below. `shared[name]`: the share of that texture's painted pixels worn by two places more than `apart` units from each other. A list in place of `fn` paints several passes: see below. |
+| `uvIslands(src, pose)` | `{ list, of(t) }`: the islands of the model's pictures, each the triangles of one texture joined through the edges they share in it. `list[id]`: `{ id, tex, tris, box: [x0, y0, x1, y1], uses: [{ bodypart, model, mesh, body, part, name, tris }], bones: [names], mn, mx, mid, n, border, open }`. `of(t)`: the id for anything with `where` and `tri` (a triangle of `posed`, what `dropTriangles` and `paint` hand over). |
+| `islandMap(src, which, { scale, body })` | A picture, as `uvMap`: the texture greyed, each island tinted and numbered, open borders white and seams in the island's colour. Also returns `scale`, `texture`, `islands` (the ids drawn). `body`: only what that body number's submodels use. |
+| `pieces(src, pose)` | `{ list: [{ id, tex, part, model, where, tris, mn, mx, mid }], of(t) }`: the groups of triangles that touch, mesh by mesh, of every submodel. `of` takes what `dropTriangles` hands its rule. |
+| `dropTriangles(src, drop, pose)` | `{ mdl, gone }`: without the triangles `drop({ p, mid, tex, part, model, where, tri })` accepts. |
 | `graft(to, from, pick, where = { bodypart: 0, model: 0 }, move?)` | `to` with the meshes of `from` that `pick(mesh, model, bodypart)` accepts added to the submodel `where`, their textures with them. Bones are matched by name. |
+| `copyBody(src, body, name, texture, { instead, bodypart = 0 })` | The model with one body again as a new submodel called `name`, after the others of its bodypart, wearing `texture`: the same points on the same bones. `body`: a submodel's name, or a body number (of `bodypart`). `texture`: the name of one in the file, a texture, or an image with a `name` (cut to 256 colours; of another size, the corners follow). `instead`: which of the old body's textures it takes the place of, when the body wears several. The new body's number is the bodypart's old count of submodels times its `base`. |
+
+What `paint` hands its function, one object a call:
+
+| Field | |
+| --- | --- |
+| `p`, `n` | The point of the body the pixel colours, in model space as the model stands in `pose`, and the way the surface faces there. |
+| `rgb` | The colour there now, 0 to 1. In a later pass: as the passes before left it. |
+| `tex`, `u`, `v` | The texture's name and the place in it, in pixels from its top left: the middle of the pixel (`x + 0.5`), or with `soft` the point inside it that is asked about. Not wrapped: a corner laid outside the picture gives a `u` outside it. |
+| `bone`, `boneIndex` | The bone the point follows, by name and by number: that of the nearest of the triangle's corners. |
+| `where`, `body`, `tri` | Its mesh `{ bodypart, model, mesh }`, the body number that shows that submodel, and the triangle's number in the mesh (the order of `readMesh`). |
+| `island` | The id of the island of the picture the triangle is in (`uvIslands`). |
+| `edge` | How far the pixel is from its island's border, in pixels: 0 on it, growing inwards. The border is that of the island within the triangle's own mesh. |
+| `open` | The same to the nearest *open* stretch of the border: an edge that no triangle of the submodel goes on across in space (a hem, an armhole). The rest of a border is seams, where the surface goes on in another island or on the far side of this one. `Infinity` when the island has no open border. |
+| `per` | Units of the model that a pixel covers in this triangle: `edge * per` and `open * per` are those distances in units, near enough (the scale is this triangle's, not that of every triangle on the way). |
+| `at(u, v)` | The colour (0 to 1) of this texture at another pixel, as it stood before this pass. |
+| `blur(r)` | That picture smoothed about this pixel with a bell `r` pixels wide each way, over the pixels this island lies on (those of the pass's triangles) and no others. A hole of a masked texture is left out. |
+
+`edge`, `open`, `at` and `blur` cost nothing unless the function reads them.
+
+`soft: n` (2, 3, 4...) asks the function at `n` by `n` points inside each pixel, each with its own `p`, `n`, `u`,
+`v`, `edge` and `open`, and writes the average; a point for which it returns nothing counts with the colour the
+pixel had. So the edge of any shape comes out soft instead of as a staircase. It multiplies the calls by `n * n`.
+
+Several passes: `paint(src, [pass, pass, ...], options)`. A pass is a function, or `{ fn, only, islands, pose,
+soft, apart }`: what it leaves out is taken from `options`. Every pass sees the picture as the one before left
+it, in full colour (8 bits a channel), in `rgb`, `at` and `blur`; each texture is cut to 256 colours once, after
+the last. Painting in two calls instead cuts twice, and the second call sees no more than 256 colours.
+
+```js
+const ids = uvIslands(src, pose).list.filter((e) => e.tex === "coat.bmp" && e.n[0] > 0.5).map((e) => e.id);
+const { mdl } = paint(src, [({ blur }) => blur(4), { soft: 3, fn: ({ p, rgb, edge }) => (edge < 2 ? [0, 0, 0] : p[2] > 50 ? [0.6, 0.1, 0.1] : rgb) }], { pose, islands: ids });
+```
+
+Islands are numbered through the whole model, texture after texture, in the order their first triangle comes in
+the file, and by the textures of the first skin family. Two submodels that lay the same triangles on a picture
+share an island (`uses` lists both); `mn`, `mx`, `mid` and `n` are taken over all of them. `border` and `open`
+are lengths in pixels. The command line draws them: `smak islands <mdl> [-o dir] [--texture t] [--body n]`.
+
+`copyBody`, like `addModel`, adds to one bodypart's count of submodels. The body numbers of the bodyparts after it
+are counted from that, so in a model of several bodyparts add to the last one only.
 
 ## Pictures and files (`src/image.mjs`)
 
@@ -165,7 +208,7 @@ All return `{ width, height, rgba }`; write with `png(img.width, img.height, img
 | `tile(images, cols, names)` | Pictures of one size side by side, named. For before and after. |
 | `lineup([[name, model], ...], { yaws = [20, 200], pitch, zoom, width, height, cols, target, seq, frame })` | Several models to one scale, each from the same sides. |
 | `label(img, text, x, y)` | Writes on a picture. |
-| `posed(src, options)` | No picture: the triangles in model space as shown, `{ info, tris, pose }`. |
+| `posed(src, options)` | No picture: the triangles in model space as shown, `{ info, tris, pose }`. A triangle: `{ tex, where, tri, c: [{ p, n, u, v, bone } ×3] }` (`where`: its mesh; `tri`: its number in it; `u`, `v` in pixels; `bone` a number). |
 | `framing(src, [options])` | `{ mid, far }` over several poses, for `within`. |
 
 Options of `render` (and the others pass them on):
@@ -176,7 +219,7 @@ Options of `render` (and the others pass them on):
 | `yaw`, `pitch` | 30, 15 | Degrees. Yaw 0 looks at the front, 90 at the left side, 180 at the back. Pitch 90 looks down. |
 | `zoom`, `target`, `within` | 1 | Closer or farther; the point looked at; a shared framing. |
 | `fov` | 90 | First person: degrees across. |
-| `seq`, `frame` | 0, 0 | The animation (a name, a number, `null` for the rest pose) and the frame. |
+| `seq`, `frame` | 0, 0 | The animation (a name, a number, `null` for the rest pose) and the frame. The rest pose may be turned from the animated one (a quarter turn in some models): yaw 0 is the front of the model as it is animated. |
 | `pose` | | Matrices of your own instead (from `poseOf`). |
 | `body`, `skin` | 0, 0 | Which submodels and which skin family. |
 | `width`, `height` | 512² (640×480 first person) | |
@@ -191,6 +234,10 @@ Options of `render` (and the others pass them on):
 `check(src, engine = "goldsrc")` → `{ errors, warnings, facts }`, lists of sentences. `engine` is `"goldsrc"`
 or `"xash"`. `LIMITS` holds the numbers. An error is something that crashes the engine or cannot be drawn; a
 warning is something it will put up with. See `docs/ENGINES.md`.
+
+`engineLayout(src)` → the same model with its textures at the file's end in their table's order, as a dedicated
+server reads them (`src/layout.mjs`); `isEngineLayout(src)` says whether it is so already. The functions that
+change a model call it themselves: use it on files that came from elsewhere.
 
 ## The viewer (`viewer/serve.mjs`)
 

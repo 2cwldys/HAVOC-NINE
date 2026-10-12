@@ -15,14 +15,22 @@ const HELP = `smak <command> <model.mdl> [...]        (node bin/smak.mjs ...)
         (render, sheet and strip all take --seq --frame --body --skin --width --height --no-light --no-cull)
   textures <mdl> -o <folder> [--bmp]        every texture as a file (PNG; --bmp: 8-bit BMP with its palette as it is)
   uv <mdl> -o <folder> [--texture name|n]   every texture (or one) enlarged, with the triangles that wear it drawn over it
+  islands <mdl> [-o <folder>] [--texture name|n] [--body n] [--min 1] [--seq n]
+                                            the islands each picture is cut into: their ids, boxes, bones, places and open borders;
+                                            with -o, every texture (or one) with its islands tinted and numbered
+                                            (--body: only the islands that body's submodels use)
   retexture <mdl> <texture name|n> <picture.png|.bmp> -o out.mdl [--holes] [--flags n]
                                             another picture on that texture (any size; cut to 256 colours unless an 8-bit BMP)
   sequence <mdl> <name|n> -o seq.json       an animation as numbers: for each frame, for each bone, [x, y, z, about x, about y, about z]
   sequence-set <mdl> <name|n> seq.json -o out.mdl      the same file put back (frames, fps, loops), in the place it had
   sequence-add <mdl> seq.json -o out.mdl    as a new animation after the others (seq.json: { name, fps, loops, frames })
   inline <mdl> -o out.mdl                   a model whose textures are in <name>t.mdl, with them put inside it
-  pieces <mdl> [--min 6] [--seq n]          its loose pieces (a pouch, a plate, a pack), each with its number, place and size
+  pieces <mdl> [--min 6] [--seq n] [--body n]   its loose pieces (a pouch, a plate, a pack), each with its number, place and size
+                                            (every submodel's; with --body, those of the submodels that body number shows)
   view <folder|mdl> [more ...] [--port 8098]   a page in the browser: any two models side by side, turned and animated together
+  edit <folder|mdl> [--port 8097] [--work smak-projects] [--engine goldsrc|xash]
+                                            the editor, a page in the browser: animations re-timed and re-posed, events, textures
+                                            (the models are only read; projects and saved models go to the --work folder)
 `;
 
 const argv = process.argv.slice(2), flags = {}, args = [];
@@ -39,6 +47,7 @@ if (!cmd || cmd === "help" || flags.help) { console.log(HELP); process.exit(0); 
 if (!file) fail(HELP);
 if (!existsSync(file)) fail(`no such file: ${file}`);
 if (cmd === "view") { const { view } = await import("../viewer/serve.mjs"); for (const r of rest) if (!existsSync(r)) fail(`no such file: ${r}`); await view([file, ...rest], Number(flags.port) || 8098); await new Promise(() => {}); }
+if (cmd === "edit") { const { serve } = await import("../editor/serve.mjs"); await serve(file, { port: Number(flags.port) || 8097, work: flags.work === true ? undefined : flags.work, engine: flags.engine === true ? undefined : flags.engine }); await new Promise(() => {}); }
 const num = (v) => (v === undefined || v === true ? undefined : isNaN(v) ? v : Number(v));
 const which = (v) => (/^\d+$/.test(String(v)) ? Number(v) : v);
 const save = (to, data) => { mkdirSync(dirname(to) || ".", { recursive: true }); writeFileSync(to, data); };
@@ -130,10 +139,21 @@ switch (cmd) {
     break;
   }
   case "pieces": {
-    const min = num(flags.min) ?? 6, list = S.pieces(src, { seq: flags.seq === undefined ? (S.sequences(src).length ? 0 : null) : which(flags.seq) }).list;
+    const min = num(flags.min) ?? 6, body = num(flags.body), shown = body === undefined ? null : S.bodyOf(src, body);
+    const list = S.pieces(src, { seq: flags.seq === undefined ? (S.sequences(src).length ? 0 : null) : which(flags.seq) }).list.filter((p) => !shown || shown[p.where.bodypart] === p.where.model);
     console.log("  id  texture                 tris   middle (x y z)        size (x y z)");
     for (const p of list.filter((x) => x.tris >= min)) console.log(`${String(p.id).padStart(4)}  ${String(p.tex).padEnd(22)} ${String(p.tris).padStart(5)}   ${p.mid.join(" ").padEnd(20)}  ${p.mx.map((v, a) => (v - p.mn[a]).toFixed(1)).join(" ")}`);
-    console.log(`${list.length} pieces, ${list.filter((x) => x.tris < min).length} of them under ${min} triangles and not listed`);
+    console.log(`${list.length} pieces${shown ? ` of body ${body}` : ""}, ${list.filter((x) => x.tris < min).length} of them under ${min} triangles and not listed`);
+    break;
+  }
+  case "islands": {
+    const min = num(flags.min) ?? 1, body = num(flags.body), shown = body === undefined ? null : S.bodyOf(src, body), info = S.readMdl(src), one = flags.texture === undefined ? null : S.textureOf(src, which(flags.texture)).name;
+    const list = S.uvIslands(src, { seq: flags.seq === undefined ? (S.sequences(src).length ? 0 : null) : which(flags.seq) }).list.filter((e) => (!one || e.tex === one) && (!shown || e.uses.some((u) => shown[u.bodypart] === u.model)));
+    const wide = Math.max(7, ...list.map((e) => e.tex.length)), few = (l, n) => `${l.slice(0, n).join(", ")}${l.length > n ? ` and ${l.length - n} more` : ""}`;
+    console.log(`  id  ${"texture".padEnd(wide)}  tris  box in pixels        border (open)  middle (x y z)        faces (x y z)      bodies; bones`);
+    for (const e of list.filter((x) => x.tris >= min)) console.log(`${String(e.id).padStart(4)}  ${e.tex.padEnd(wide)} ${String(e.tris).padStart(5)}  ${`${e.box[0]},${e.box[1]} to ${e.box[2]},${e.box[3]}`.padEnd(20)} ${`${e.border} (${e.open})`.padEnd(14)} ${e.mid.join(" ").padEnd(20)}  ${e.n.join(" ").padEnd(18)} ${few([...new Set(e.uses.map((u) => u.body))], 6)}; ${few(e.bones, 4)}`);
+    console.log(`${list.length} islands${shown ? ` of body ${body}` : ""}, ${list.filter((x) => x.tris < min).length} of them under ${min} triangles and not listed`);
+    if (flags.o) for (const n of new Set(list.map((e) => info.textures.findIndex((t) => t.name === e.tex)))) { const m = S.islandMap(src, n, { body }), to = join(flags.o, `islands_${safe(m.texture.name)}.png`); save(to, S.png(m.width, m.height, m.rgba)); console.log(`${to}  ${m.texture.width}x${m.texture.height} x${m.scale}, islands ${m.islands.join(" ")}; an open border is white, a seam in the island's colour`); }
     break;
   }
   default: fail(`no command ${cmd}\n\n${HELP}`);

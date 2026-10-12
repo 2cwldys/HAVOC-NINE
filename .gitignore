@@ -1,0 +1,12 @@
+# ts_advertise.cfg holds the Discord bot token. Never commit it.
+#
+# The token is the whole bot account, not access to one channel.
+# If it ever lands in a commit, Reset Token in the Discord developer portal:
+# removing the file afterwards does not help, the history keeps it.
+ts/addons/amxmodx/configs/ts_advertise.cfg
+
+# Runtime state written by the bot, not source.
+discord-bot/rsvp.json
+discord-bot/bot.log
+discord-bot/bot.err
+discord-bot/__pycache__/

@@ -1852,6 +1852,20 @@ public plugin_precache()
 	}
 }
 
+/**
+ * The one thing this plugin tells anyone else: ts_advertise reads it to say in its
+ * Discord embed whether a match is running. Nothing here depends on it being read.
+ *
+ * It MUST be registered here and not in plugin_init. AMXX resolves every plugin's
+ * natives before it runs any plugin_init, so a native registered there does not exist
+ * yet when the plugin that wants it is being linked -- and that plugin is refused with
+ * "uses an unknown function", naming a native that is plainly in the source.
+ */
+public plugin_natives()
+{
+	register_native("tsm_match_info", "native_match_info");
+}
+
 public plugin_init()
 {
 	register_plugin(PLUGIN, VERSION, AUTHOR);
@@ -9017,6 +9031,25 @@ public hook_say(id)
 	}
 
 	return PLUGIN_CONTINUE;
+}
+
+/**
+ * tsm_match_info(out[4]) -- state, round, team 1 score, team 2 score.
+ *
+ * The only native this plugin provides. Read-only and without side effects, so there is
+ * nothing a caller can do with it except report. ts_advertise reads it for its Discord
+ * embed and reaches it through a native filter, so neither plugin needs the other to be
+ * loaded.
+ */
+public native_match_info(plugin, params)
+{
+	new out[4];
+	out[0] = g_state;
+	out[1] = g_round;
+	out[2] = g_score[1];
+	out[3] = g_score[2];
+	set_array(1, out, 4);
+	return 1;
 }
 
 print_status(id)

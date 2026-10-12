@@ -68,6 +68,32 @@
  .status
      Print the current match state to chat.
 
+ .advertise  /  .ad          (ts_advertise -- a separate plugin)
+     Post to Discord that a match is being organised. The bot posts an embed with
+     the map, how many are on, how many of those are bots, what the match is doing
+     and a connect line.
+
+     ONE EVERY THIRTY MINUTES FOR THE WHOLE SERVER, not per player, and it survives
+     a map change -- the next map does not hand anybody a fresh one. Anyone refused
+     is told how long is left.
+
+     It pings a Discord role, so it is deliberately hard to do often.
+
+     The clock only starts once Discord has ACCEPTED the post. A failed advert does
+     not cost anyone the next half hour.
+
+     Needs tsm_ad_token and tsm_ad_channel set in ts_advertise_local.cfg and the
+     AmxxEasyHttp module installed; without them it says so in chat and posts
+     nothing.
+
+     THE DISCORD BOT DOES NOT HAVE TO BE RUNNING for this. A bot token is a
+     credential rather than a connection, so the game server posts by itself.
+     Running discord-bot	s_bot.py adds what has to come back the other way:
+     the bot showing online, the /who /status /advertise slash commands, and the
+     RSVP buttons on an advert.
+
+     Setup, layout and what the failures mean: discord-bot\README.md
+
  .roam
      Toggle free movement. Lifts every hold -- warmup, freeze, spectator -- and
      gives you normal movement so you can walk the map.

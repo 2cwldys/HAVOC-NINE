@@ -40,6 +40,7 @@ for %%d in (
 REM ---- source of truth: this folder ----------------------------------------
 copy /y "%~dp0ts_matchmode.sma"  "%EX%\src\"                 >nul && echo   src\ts_matchmode.sma
 copy /y "%~dp0ts_probe.sma"      "%EX%\src\"                 >nul && echo   src\ts_probe.sma
+copy /y "%~dp0ts_advertise.sma"  "%EX%\src\"                 >nul && echo   src\ts_advertise.sma
 copy /y "%~dp0build.bat"         "%EX%\src\"                 >nul && echo   src\build.bat
 copy /y "%~dp0export.bat"        "%EX%\src\"                 >nul && echo   src\export.bat
 copy /y "%~dp0COMMANDS.txt"      "%EX%\docs\"                >nul && echo   docs\COMMANDS.txt
@@ -59,9 +60,26 @@ if exist "%~dp0compiled\ts_matchmode.amxx" (
     echo   [WARN] no compiled\ts_matchmode.amxx -- package has no plugin binary
 )
 
+if exist "%~dp0compiled\ts_advertise.amxx" (
+    copy /y "%~dp0compiled\ts_advertise.amxx" "%EX%\ts\addons\amxmodx\plugins\" >nul
+    echo   ts\addons\amxmodx\plugins\ts_advertise.amxx
+) else (
+    echo   [WARN] no compiled\ts_advertise.amxx -- package has no Discord advert plugin
+)
+
 REM ---- configs -------------------------------------------------------------
 copy /y "%~dp0ts_matchmode.cfg" "%EX%\ts\addons\amxmodx\configs\"  >nul && echo   configs\ts_matchmode.cfg
 copy /y "%~dp0ts_matchmode.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
+copy /y "%~dp0ts_advertise.cfg" "%EX%\ts\addons\amxmodx\configs\"  >nul && echo   configs\ts_advertise.cfg
+copy /y "%~dp0ts_advertise.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
+
+REM easy_http.inc is needed to COMPILE ts_advertise and is not part of AMXX, so it
+REM travels with the package or the next machine cannot rebuild it.
+if not exist "%EX%\ts\addons\amxmodx\scripting\include" mkdir "%EX%\ts\addons\amxmodx\scripting\include" >nul 2>&1
+if exist "%~dp0compts\scripting\include\easy_http.inc" (
+    copy /y "%~dp0compts\scripting\include\easy_http.inc" "%EX%\ts\addons\amxmodx\scripting\include\" >nul
+    echo   scripting\include\easy_http.inc
+)
 
 REM Per-map spawn sets live only in the game folder -- they are written there by
 REM amx_tsm_spawn_save, so this is the only copy.
@@ -123,6 +141,43 @@ if exist "%EX%\rcbot\dlls\rcbot_mm.so" (
     echo apply rcbot-ts-teams.patch, build with the AMBuildScript in the repo root.>> "%EX%\rcbot\dlls\READ-ME-rcbot_mm.so.txt"
     echo   rcbot\dlls\rcbot_mm.so  ^(STOCK -- see the READ-ME beside it^)
 )
+
+REM ---- Discord bot ---------------------------------------------------------
+REM Sits BESIDE ts\ rather than inside it, because the bot finds the plugin's config
+REM by looking at ..\ts\addons\amxmodx\configs -- one copy of the token, in the file
+REM that already holds it, rather than a second config of its own to forget to rotate.
+REM
+REM ts.bat goes at the package root: it is what someone runs, and it starts the bot,
+REM runs hlds and stops the bot again. A plugin cannot start a program, so the
+REM launcher does it.
+if exist "%~dp0discord-bot" (
+    xcopy /y /i /e /q "%~dp0discord-bot" "%EX%\discord-bot" >nul
+    echo   discord-bot\ ^(gateway bot: presence, slash commands, RSVP^)
+)
+if exist "%~dp0ts.bat" (
+    copy /y "%~dp0ts.bat" "%EX%\" >nul && echo   ts.bat  ^(starts the bot, then hlds^)
+)
+
+REM ---- .gitignore ----------------------------------------------------------
+REM Written here rather than kept as a file so that EVERY export has one, including
+REM the first on a fresh machine.
+REM
+REM ts_advertise.cfg is the one that matters: it holds the BOT TOKEN, which is the
+REM entire bot account -- whoever has it can act as the bot in every guild it is in,
+REM until it is reset, and there is nothing else to revoke.
+> "%EX%\.gitignore" echo # ts_advertise.cfg holds the Discord bot token. Never commit it.
+>> "%EX%\.gitignore" echo #
+>> "%EX%\.gitignore" echo # The token is the whole bot account, not access to one channel.
+>> "%EX%\.gitignore" echo # If it ever lands in a commit, Reset Token in the Discord developer portal:
+>> "%EX%\.gitignore" echo # removing the file afterwards does not help, the history keeps it.
+>> "%EX%\.gitignore" echo ts/addons/amxmodx/configs/ts_advertise.cfg
+>> "%EX%\.gitignore" echo.
+>> "%EX%\.gitignore" echo # Runtime state written by the bot, not source.
+>> "%EX%\.gitignore" echo discord-bot/rsvp.json
+>> "%EX%\.gitignore" echo discord-bot/bot.log
+>> "%EX%\.gitignore" echo discord-bot/bot.err
+>> "%EX%\.gitignore" echo discord-bot/__pycache__/
+echo   .gitignore
 
 REM ---- class-icon sprite ---------------------------------------------------
 REM Built by tools\make-class-icons.py, not shipped with TS. Clients need it or the
