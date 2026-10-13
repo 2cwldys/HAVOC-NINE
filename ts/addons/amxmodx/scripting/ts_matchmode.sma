@@ -22,8 +22,9 @@
  * fights us and nobody ever loses their team.
  * ---------------------------------------------------------------------------
  *
- * Modules: amxmodx, amxmisc, fakemeta only. No hamsandwich (unverified for TS) and
- * no tsx dependency, so this cannot fail to load for want of a module.
+ * Modules: amxmodx, amxmisc, fakemeta, fun, tsfun, newmenus, file and hamsandwich.
+ * All REQUIRED -- hamsandwich and tsfun must both be listed in modules.ini or this
+ * plugin will not load. (It began as fakemeta-only and that is no longer true.)
  *
  * Written deliberately conservatively for a strict compiler: explicit Float: tags on
  * float entvars, braces on every block, and no backslash escapes in strings.
@@ -150,12 +151,39 @@
 #define TSM_MAX_TEAMNAME     15
 
 #define TSM_MAXCLASS         10
+
+/*
+ * How much room a class's model list gets.
+ *
+ * ONE SIDE'S comma-separated list, and the whole team1|team2 field that holds two of
+ * them. These were 96 everywhere, which was comfortable until the insurgent Assault
+ * pool grew to five names and landed on EXACTLY 96 characters -- and a Pawn [96] holds
+ * 95 plus the terminator, so the last model silently lost its final letter and every
+ * player who rolled it fell back to TS's default. Nothing errors; the name is simply
+ * wrong by one character.
+ *
+ * Raised a second time when a seventh insurgent Assault model took the list to exactly
+ * 127, which a [128] holds with nothing to spare -- the same knife edge as before, one
+ * character from silently dropping a name again.
+ *
+ * At seven names the PARSER'S GUARD OF 8 is now the binding limit rather than this
+ * buffer. One more model on a side and the loops in precache_models_in_spec and in the
+ * precache walk have to come up with it, or the extra name is simply never read.
+ */
+#define TSM_MODELLIST       160
+#define TSM_MODELFIELD      344
 #define TSM_MAXWPN           6
 #define TSM_PERK_NONE        0
 #define TSM_PERK_ENGINEER    1
 #define TSM_PERK_BREACHER    2
 #define TSM_PERK_MEDIC       3
 #define TSM_PERK_OFFICER     4
+#define TSM_PERK_REGEN       5
+
+// The regeneration tick's task id. A server-wide task, so it needs an id that cannot
+// collide with the per-player ones, which are all a player index plus a round
+// thousand (1000 through 8000).
+#define TSM_TASK_REGEN       90210
 
 // Glow shell, for the medic's heal. renderfx is a separate field from rendermode,
 // so this does not disturb the hide that runs off rendermode and renderamt.
@@ -232,7 +260,7 @@ new g_cv_reloadout;
 new g_cv_loadout;
 new g_cv_spawnmode;
 new g_cv_solo;
-new g_cv_dbglog;
+new g_cv_dbglog, g_cv_logging;
 new g_cv_nospec;
 new g_cv_balgap, g_cv_balmode;
 new g_cv_haltleave, g_cv_haltdelay, g_cv_haltbypass;
@@ -244,6 +272,10 @@ new g_cv_forcespawn;
 new g_cv_classes, g_cv_defclass, g_cv_modelmode;
 new g_cv_nocash, g_cv_blockbuy;
 new g_cv_engrange, g_cv_engclips, g_cv_engents;
+new g_cv_engglow, g_cv_engshell;
+new g_cv_medsound, g_cv_engsound;
+new g_cv_regenamt, g_cv_regenevery, g_cv_regenpause;
+new Float:g_last_hit[MAXPL];    // gametime they were last damaged, for the regen pause
 new g_cv_breachents, g_cv_breachrange;
 new g_cv_armorder;
 new g_cv_blindff;
@@ -285,13 +317,15 @@ new g_class_name[TSM_MAXCLASS][32];
  * Index 1 is MSR, index 2 the Insurgents, matching g_class_wpn. 96 is sized for
  * the longest list (the Insurgent Assault's three).
  */
-new g_class_model[TSM_MAXCLASS][3][96];
+new g_class_model[TSM_MAXCLASS][3][TSM_MODELLIST];
 new g_model_pick[MAXPL];      // which entry of the list this player drew, 1-based
 new g_precached = 0;          // class models precached at map load
 new g_model_last[MAXPL][32];  // the model we last wrote for this player
 new Float:g_model_at[MAXPL];  // when we wrote it
 new g_model_writes = 0;       // diagnostic: real model writes since map load
 new g_model_want_idx[MAXPL];  // model index the engine must draw for this player
+new g_model_chosen[MAXPL][32];// the name the class table picked, before it was checked
+new g_model_ok[MAXPL];        // whether that name resolved to a file on disk
 new bool:g_roaming[MAXPL];    // .roam -- out of the match, free to walk the map
 new Float:g_bot_reload_at[MAXPL];  // last forced reload, so it is not every frame
 new g_class_wpn[TSM_MAXCLASS][3][TSM_MAXWPN];
@@ -344,9 +378,9 @@ new g_cv_menudelay;
 new g_cv_blockvgui;
 new g_cv_wpnmode;
 new g_cv_clipbonus, g_cv_clipcap;
+new g_cv_giveammo;
 new g_cv_specteam;
 new g_cv_armdelay;
-new g_cv_giveammo;
 new g_cv_defaultspec;
 new g_cv_cleandrops;
 new g_cv_friendlyfire;
@@ -399,16 +433,47 @@ new g_teaminfo_seen = 0;     // TeamInfo messages from the mod since map load
 /*
  * Writes to addons/amxmodx/logs/tsm_debug.log, which is a file you can tail while
  * playing. tsm_debug_log 2 also echoes to the server console. Kept separate from
- * log_amx() deliberately: the AMXX log interleaves with every other plugin and with
+ * tlog() deliberately: the AMXX log interleaves with every other plugin and with
  * chat, and that mixing is what made the round-start ordering unreadable.
  */
 /*
  * Verbose trace. Only writes at tsm_debug_log 3 or higher, so it can be left in.
  * Used for the per-tick detail that would drown the normal log.
  */
+/*
+ * EVERY LINE THIS PLUGIN EMITS GOES THROUGH ONE SWITCH, tsm_logging, and it is OFF
+ * by default.
+ *
+ * At tsm_debug_log 3 the verbose trace writes on every tick for every player, and on
+ * a dedicated server that is a wall of text that buries anything else being logged and
+ * costs real time in the frame. Off by default means a server that nobody is debugging
+ * says nothing at all.
+ *
+ * tsm_logging 1 restores whatever tsm_debug_log asks for. The two are deliberately
+ * separate: the master switch is what you reach for, and the level is how much you
+ * want once it is on.
+ *
+ * NOTE that this silences the misconfiguration warnings too -- a missing class model,
+ * an empty mp_teammodels. If something looks wrong, turn tsm_logging on BEFORE
+ * concluding that nothing is being reported.
+ *
+ * Replies to a typed console command, such as tsm_spawn's usage text, are not logging
+ * and are not gated: a command that answers nothing looks broken.
+ */
+tlog(const fmt[], any:...)
+{
+	if (g_cv_logging == 0 || !get_pcvar_num(g_cv_logging))
+	{
+		return;
+	}
+	new msg[256];
+	vformat(msg, charsmax(msg), fmt, 2);
+	log_amx("%s", msg);
+}
+
 dbgv(const fmt[], any:...)
 {
-	if (get_pcvar_num(g_cv_dbglog) < 3)
+	if (g_cv_logging == 0 || !get_pcvar_num(g_cv_logging) || get_pcvar_num(g_cv_dbglog) < 3)
 	{
 		return;
 	}
@@ -425,6 +490,10 @@ dbgv(const fmt[], any:...)
 
 dbg(const fmt[], any:...)
 {
+	if (g_cv_logging == 0 || !get_pcvar_num(g_cv_logging))
+	{
+		return;
+	}
 	new mode = get_pcvar_num(g_cv_dbglog);
 	if (mode < 1)
 	{
@@ -969,7 +1038,7 @@ parse_weapon_list(idx, team, const field[])
 		new wid = str_to_num(wpart);
 		if (wid < 1 || wid > 36)
 		{
-			log_amx("[TSM] class %d team %d: ignoring out-of-range weapon id %d", idx + 1, team, wid);
+			tlog("[TSM] class %d team %d: ignoring out-of-range weapon id %d", idx + 1, team, wid);
 			continue;
 		}
 
@@ -991,7 +1060,7 @@ parse_weapon_list(idx, team, const field[])
  */
 parse_class(idx, const spec[])
 {
-	new rest[224], carry[224], field[96];
+	new rest[224], carry[224], field[TSM_MODELFIELD];
 	copy(rest, charsmax(rest), spec);
 
 	// 1: display name
@@ -1037,7 +1106,7 @@ parse_class(idx, const spec[])
 	strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
 	copy(rest, charsmax(rest), carry);
 
-	new mt1[96], mt2[96];
+	new mt1[TSM_MODELLIST], mt2[TSM_MODELLIST];
 	strtok(field, mt1, charsmax(mt1), mt2, charsmax(mt2), '|', 0);
 	copy(g_class_model[idx][1], charsmax(g_class_model[][]), mt1);
 	copy(g_class_model[idx][2], charsmax(g_class_model[][]), mt2);
@@ -1090,7 +1159,7 @@ load_classes()
 		}
 
 		parse_class(g_class_count, spec);
-		log_amx("[TSM] class %d '%s': t1=%d wpn t2=%d wpn, models t1='%s' t2='%s', %dhp %dap, perk %d, speed x%.2f",
+		tlog("[TSM] class %d '%s': t1=%d wpn t2=%d wpn, models t1='%s' t2='%s', %dhp %dap, perk %d, speed x%.2f",
 			g_class_count + 1, g_class_name[g_class_count],
 			g_class_wcount[g_class_count][1], g_class_wcount[g_class_count][2],
 			g_class_model[g_class_count][1], g_class_model[g_class_count][2],
@@ -1102,7 +1171,7 @@ load_classes()
 
 	if (!g_class_count)
 	{
-		log_amx("[TSM] No classes defined. Set tsm_class1 and up, or classes stay off.");
+		tlog("[TSM] No classes defined. Set tsm_class1 and up, or classes stay off.");
 	}
 }
 
@@ -1425,7 +1494,7 @@ public task_verify_join(taskid)
 	{
 		// The plugin still counts them as playing -- g_match_team is authoritative --
 		// so the match works. Only TS's own scoreboard and team chat will disagree.
-		log_amx("[TSM] jointeam %d did not take for player %d after 3 tries (mod reports #%d '%s').",
+		tlog("[TSM] jointeam %d did not take for player %d after 3 tries (mod reports #%d '%s').",
 			want, id, livenum, live);
 
 		/*
@@ -1436,8 +1505,8 @@ public task_verify_join(taskid)
 		 */
 		if (livenum == -1 && !live[0])
 		{
-			log_amx("[TSM] This server is running NON-TEAMPLAY gamerules, so jointeam cannot work at all.");
-			log_amx("[TSM] mp_teamplay must be 1 BEFORE the map loads. server.cfg is too late on a dedicated server -- put it in ts/game.cfg, then changelevel.");
+			tlog("[TSM] This server is running NON-TEAMPLAY gamerules, so jointeam cannot work at all.");
+			tlog("[TSM] mp_teamplay must be 1 BEFORE the map loads. server.cfg is too late on a dedicated server -- put it in ts/game.cfg, then changelevel.");
 		}
 
 		/*
@@ -1452,7 +1521,7 @@ public task_verify_join(taskid)
 		if (adopted == 1 || adopted == 2)
 		{
 			g_match_team[id] = adopted;
-			log_amx("[TSM] Adopting the mod's answer: player %d is on team %d.", id, adopted);
+			tlog("[TSM] Adopting the mod's answer: player %d is on team %d.", id, adopted);
 		}
 		g_join_tries[id] = 0;
 		return;
@@ -1593,8 +1662,31 @@ precache_player_model(const name[])
 
 	if (!file_exists(path))
 	{
-		log_amx("[TSM] WARNING: class model '%s' is not installed (%s) -- players assigned it will fall back to the default model.",
+		tlog("[TSM] WARNING: class model '%s' is not installed (%s) -- players assigned it will fall back to the default model.",
 			name, path);
+		return;
+	}
+
+	/*
+	 * TS BUILDS THIS PATH INTO 64 BYTES OF ITS OWN and does not check it.
+	 *
+	 * Our buffer is 160 and precaches fine, so nothing fails here. The kill comes later,
+	 * when TS re-applies its own model pick: it formats models/player/<name>/<name>.mdl
+	 * into a 64-byte buffer, a long name loses its tail, and the engine takes the whole
+	 * server down with
+	 *
+	 *     FATAL ERROR (shutting down): Mod_NumForName: models/player/X/X not found
+	 *
+	 * on a path that is cut mid-word. There is no plugin error and nothing in the AMXX
+	 * log, just a server that restarts the map over and over.
+	 *
+	 * 19 characters of fixed text plus the name twice has to fit in 63, so the name has
+	 * to be 22 or fewer. XCCPsgts_wrecked_gear_lost was 26 and did exactly this.
+	 */
+	if (strlen(path) > 63)
+	{
+		log_amx("[TSM] FATAL-IF-USED: class model '%s' makes a %d character path and TS truncates at 63. Rename the folder and file to 22 characters or fewer. NOT precaching it.",
+			name, strlen(path));
 		return;
 	}
 
@@ -1605,7 +1697,7 @@ precache_player_model(const name[])
 /// Precaches every model named in one class spec's model field.
 precache_models_in_spec(const spec[])
 {
-	new rest[224], carry[224], field[96];
+	new rest[224], carry[224], field[TSM_MODELFIELD];
 	copy(rest, charsmax(rest), spec);
 
 	// Fields 1-3 are name and the two weapon lists; field 4 is the models.
@@ -1617,14 +1709,14 @@ precache_models_in_spec(const spec[])
 	strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
 
 	// field is now team1|team2, each a comma-separated list.
-	new sides[2][96], one[96], two[96];
+	new sides[2][TSM_MODELLIST], one[TSM_MODELLIST], two[TSM_MODELLIST];
 	strtok(field, one, charsmax(one), two, charsmax(two), '|', 0);
 	copy(sides[0], charsmax(sides[]), one);
 	copy(sides[1], charsmax(sides[]), two);
 
 	for (new t = 0; t < 2; t++)
 	{
-		new list[96], item[64], tail[96];
+		new list[TSM_MODELLIST], item[64], tail[TSM_MODELLIST];
 		copy(list, charsmax(list), sides[t]);
 
 		for (new guard = 0; guard < 8 && list[0]; guard++)
@@ -1660,7 +1752,7 @@ precache_class_models()
 
 	if (!file_exists(cfg))
 	{
-		log_amx("[TSM] %s not found at precache time -- falling back to the built-in class defaults.", cfg);
+		tlog("[TSM] %s not found at precache time -- falling back to the built-in class defaults.", cfg);
 	}
 
 	new line[256], spec[224], len;
@@ -1710,7 +1802,7 @@ precache_class_models()
 		}
 	}
 
-	log_amx("[TSM] Precached %d class model(s).", g_precached);
+	tlog("[TSM] Precached %d class model(s).", g_precached);
 	audit_class_models();
 }
 
@@ -1734,7 +1826,7 @@ audit_class_models()
 
 	if (!teamlist[0])
 	{
-		log_amx("[TSM] WARNING: mp_teammodels is empty. Teams have no models of their own.");
+		tlog("[TSM] WARNING: mp_teammodels is empty. Teams have no models of their own.");
 		return;
 	}
 
@@ -1744,7 +1836,7 @@ audit_class_models()
 	{
 		for (new t = 1; t <= 2; t++)
 		{
-			new list[96], item[48], tail[96];
+			new list[TSM_MODELLIST], item[48], tail[TSM_MODELLIST];
 			copy(list, charsmax(list), g_class_model[c][t]);
 
 			for (new guard = 0; guard < 8 && list[0]; guard++)
@@ -1757,7 +1849,7 @@ audit_class_models()
 					continue;
 				}
 
-				log_amx("[TSM] WARNING: class %d '%s' team %d uses model '%s', which is NOT in mp_teammodels. Add it, or TS will not precache it.",
+				tlog("[TSM] WARNING: class %d '%s' team %d uses model '%s', which is NOT in mp_teammodels. Add it, or TS will not precache it.",
 					c + 1, g_class_name[c], t, item);
 				missing++;
 			}
@@ -1766,7 +1858,7 @@ audit_class_models()
 
 	if (!missing)
 	{
-		log_amx("[TSM] Class models all present in mp_teammodels.");
+		tlog("[TSM] Class models all present in mp_teammodels.");
 	}
 }
 
@@ -1796,7 +1888,7 @@ precache_weapon_models()
 	new dir = open_dir("models", file, charsmax(file));
 	if (!dir)
 	{
-		log_amx("[TSM] WARNING: could not scan models/ -- weapon models are NOT precached, and a weapon the map does not use will crash the server.");
+		tlog("[TSM] WARNING: could not scan models/ -- weapon models are NOT precached, and a weapon the map does not use will crash the server.");
 		return;
 	}
 
@@ -1825,11 +1917,48 @@ precache_weapon_models()
 	while (next_file(dir, file, charsmax(file)));
 
 	close_dir(dir);
-	log_amx("[TSM] Precached %d weapon world model(s).", n);
+	tlog("[TSM] Precached %d weapon world model(s).", n);
 }
 
 public plugin_precache()
 {
+	/*
+	 * REGISTERED HERE, not in plugin_init, because this forward runs first and already
+	 * logs -- the missing-sprite warning below. A cvar registered in plugin_init does
+	 * not exist yet at this point, so anything logging from precache would be dropped
+	 * even with tsm_logging on, and would have been passing an unset handle to
+	 * get_pcvar_num before that.
+	 */
+	g_cv_logging = register_cvar("tsm_logging", "0");
+
+	/*
+	 * The perk sounds, registered and precached here because precaching is only legal
+	 * in this forward and a cvar registered in plugin_init does not exist yet.
+	 *
+	 * STOCK HALF-LIFE SOUNDS, deliberately, rather than generated ones. A custom wav
+	 * has to reach every client before they can hear it -- without fastdl they get
+	 * silence -- and precaching a path that does not exist is a fatal Host_Error on
+	 * map load, which is the same crash this plugin already precaches weapon models to
+	 * avoid. These two ship with the game.
+	 *
+	 * Replacing them with your own is supported, and the file then has to exist on the
+	 * server AND be downloadable, or the server will not start.
+	 */
+	g_cv_medsound = register_cvar("tsm_medic_sound", "items/medshot4.wav");
+	g_cv_engsound = register_cvar("tsm_eng_sound",   "items/9mmclip1.wav");
+
+	new snd[64];
+	get_pcvar_string(g_cv_medsound, snd, charsmax(snd));
+	if (snd[0])
+	{
+		precache_sound(snd);
+	}
+	get_pcvar_string(g_cv_engsound, snd, charsmax(snd));
+	if (snd[0])
+	{
+		precache_sound(snd);
+	}
+
 	/*
 	 * Has to happen HERE. A model precached any later shifts the model index table
 	 * that clients were already sent, which is the "Bad model on beam (not sprite)"
@@ -1848,7 +1977,7 @@ public plugin_precache()
 	}
 	else
 	{
-		log_amx("[TSM] WARNING: %s is missing -- class icons are off for this map.", TSM_ICON_SPR);
+		tlog("[TSM] WARNING: %s is missing -- class icons are off for this map.", TSM_ICON_SPR);
 	}
 }
 
@@ -1954,16 +2083,17 @@ public plugin_init()
 	g_cv_armdelay  = register_cvar("tsm_arm_delay",      "2.5");
 
 	/*
-	 * Magazines handed out per ammo type alongside the weapons.
+	 * Magazines of every ammo type handed out with the loadout.
 	 *
-	 * The clip count in "tkw id_clips" is the weapon's own extra-clip field, which on
-	 * its own was not producing spare ammunition. tka is TS's separate ammo command
-	 * (AddAmmoToArmament), so it is issued explicitly.
+	 * This used to go through TS's tka command, which is a PURCHASE and so was refused
+	 * outright by weaponrestriction 1 -- players got weapons with nothing to put in
+	 * them. It is now given the same way the combat engineer's resupply is, with a
+	 * ts_groundammo entity that is created, handed over and removed in one call.
 	 *
-	 * Every type is given rather than only the matching one, because the weapon-to-
-	 * ammotype mapping lives in the mod's weapon table and is not reachable from a
-	 * plugin. Only the types a player's weapons actually use get consumed, so a small
-	 * number here stays modest in practice. 0 disables it.
+	 * Still every type rather than only the matching one: the weapon-to-ammotype
+	 * mapping lives in the mod's weapon table and is not reachable from a plugin. Only
+	 * what a player's weapons actually use gets consumed, so a small number here stays
+	 * modest in practice. 0 disables it.
 	 */
 	g_cv_giveammo  = register_cvar("tsm_ammo_mags",      "2");
 
@@ -2212,6 +2342,26 @@ public plugin_init()
 	// ---- combat engineer ----
 	g_cv_engrange  = register_cvar("tsm_eng_range",     "96");
 	g_cv_engclips  = register_cvar("tsm_eng_clips",     "3");
+
+	// Yellow glow on whoever was resupplied, mirroring the medic's red one. Without
+	// it the engineer's perk is the only one that does its work invisibly -- nobody
+	// can tell they have been given anything.
+	g_cv_engglow   = register_cvar("tsm_eng_glow",      "1.5");
+	g_cv_engshell  = register_cvar("tsm_eng_shell",     "16");
+
+	/*
+	 * Slow health regeneration, for whatever class carries TSM_PERK_REGEN.
+	 *
+	 * 10 every 15 seconds is two thirds of a point a second -- it cannot out-heal
+	 * anything being shot at it, which is the point. It is what lets a Heavy who
+	 * breaks contact come back, not what keeps one alive in a firefight.
+	 *
+	 * The pause is counted from the last time they were HIT AT ALL, enemy fire or a
+	 * fall, so a player under fire never ticks.
+	 */
+	g_cv_regenamt   = register_cvar("tsm_regen_amount",   "10");
+	g_cv_regenevery = register_cvar("tsm_regen_interval", "15.0");
+	g_cv_regenpause = register_cvar("tsm_regen_pause",    "15.0");
 	g_cv_engents   = register_cvar("tsm_eng_entities",  "");
 
 	// What a Breacher can force open. Doors by default; add a map's own locked
@@ -2419,6 +2569,8 @@ public plugin_init()
 	register_clcmd("cashala", "cmd_blockbuy");   // undocumented, console-only
 
 	// TS powerups: the command that activates one, and the cheat that grants one.
+	register_clcmd("tsm_model", "cmd_model");
+
 	register_clcmd("usepowerup", "cmd_blockpowerup");
 	register_clcmd("powerup",    "cmd_blockpowerup");
 
@@ -2441,7 +2593,7 @@ public plugin_init()
 	get_mapname(g_mapname, charsmax(g_mapname));
 	copy(g_dbgfile, charsmax(g_dbgfile), "tsm_debug.log");
 
-	log_amx("[TSM] %s build %s loaded.", PLUGIN, TSM_BUILD);
+	tlog("[TSM] %s build %s loaded.", PLUGIN, TSM_BUILD);
 	set_task(1.0, "task_tick", 0, "", 0, "b");
 
 	// Squad steering runs far faster than the main tick: rcbot re-decides where its
@@ -2468,11 +2620,11 @@ public plugin_cfg()
 	{
 		server_cmd("exec %s", cfgfile);
 		server_exec();
-		log_amx("[TSM] Executed %s", cfgfile);
+		tlog("[TSM] Executed %s", cfgfile);
 	}
 	else
 	{
-		log_amx("[TSM] No config at %s -- using defaults. Teams will NOT work until tsm_team1_name and tsm_team2_name are set.", cfgfile);
+		tlog("[TSM] No config at %s -- using defaults. Teams will NOT work until tsm_team1_name and tsm_team2_name are set.", cfgfile);
 	}
 
 	get_mapname(g_mapname, charsmax(g_mapname));
@@ -2494,6 +2646,10 @@ public plugin_cfg()
 	// the map spawns late settle first.
 	set_task(0.5, "task_record_map_items", 7);
 	dbg("plugin_cfg done on %s: build %s", g_mapname, TSM_BUILD);
+	// Started once, here rather than in plugin_init, so the interval it arms with is
+	// the one ts_matchmode.cfg asked for rather than the registration default.
+	remove_task(TSM_TASK_REGEN);
+	set_task(regen_interval(), "task_regen", TSM_TASK_REGEN);
 }
 
 public plugin_end()
@@ -2533,7 +2689,7 @@ icon_entity(id)
 	if (!ent)
 	{
 		g_icon_ent[id] = 0;
-		log_amx("[TSM] WARNING: could not create a class icon for %d -- out of edicts?", id);
+		tlog("[TSM] WARNING: could not create a class icon for %d -- out of edicts?", id);
 		return 0;
 	}
 
@@ -2712,7 +2868,7 @@ record_map_items()
 		}
 	}
 
-	log_amx("[TSM] Recorded %d map-placed weapon/ammo pickup(s).", g_map_item_count);
+	tlog("[TSM] Recorded %d map-placed weapon/ammo pickup(s).", g_map_item_count);
 }
 
 bool:is_map_item(ent)
@@ -2829,14 +2985,14 @@ collect_spawns()
 		if (load_spawn_cfg() > 0)
 		{
 			g_spawn_count = 0;
-			log_amx("[TSM] Using configured spawns for %s (team1=%d team2=%d).",
+			tlog("[TSM] Using configured spawns for %s (team1=%d team2=%d).",
 				g_mapname, g_spawn_t1_count, g_spawn_t2_count);
 			return;
 		}
 
 		if (equali(mode, "config"))
 		{
-			log_amx("[TSM] tsm_spawn_mode is 'config' and %s has no spawn cfg. Place spawns with amx_tsm_spawn_add then amx_tsm_spawn_save.", g_mapname);
+			tlog("[TSM] tsm_spawn_mode is 'config' and %s has no spawn cfg. Place spawns with amx_tsm_spawn_add then amx_tsm_spawn_save.", g_mapname);
 			return;
 		}
 	}
@@ -2882,11 +3038,11 @@ collect_spawns()
 	}
 	new start_count = g_spawn_count - dm_count;
 
-	log_amx("[TSM] Spawns: info_player_deathmatch=%d info_player_start=%d total=%d",
+	tlog("[TSM] Spawns: info_player_deathmatch=%d info_player_start=%d total=%d",
 		dm_count, start_count, g_spawn_count);
 	if (g_spawn_count < 2)
 	{
-		log_amx("[TSM] WARNING: fewer than 2 spawn points. Both teams will share them, so they will spawn on top of each other. This map may use a spawn entity this plugin does not know about.");
+		tlog("[TSM] WARNING: fewer than 2 spawn points. Both teams will share them, so they will spawn on top of each other. This map may use a spawn entity this plugin does not know about.");
 	}
 	partition_spawns();
 }
@@ -2918,7 +3074,7 @@ partition_spawns()
 			copy_vec(g_spawn_t2[g_spawn_t2_count], g_spawns[i]);
 			g_spawn_t2_count++;
 		}
-		log_amx("[TSM] Only %d spawn(s) -- teams share them.", g_spawn_count);
+		tlog("[TSM] Only %d spawn(s) -- teams share them.", g_spawn_count);
 		return;
 	}
 
@@ -2961,7 +3117,7 @@ partition_spawns()
 		}
 	}
 
-	log_amx("[TSM] Spawn clusters: team1=%d team2=%d (anchors %.0f units apart).",
+	tlog("[TSM] Spawn clusters: team1=%d team2=%d (anchors %.0f units apart).",
 		g_spawn_t1_count, g_spawn_t2_count, best_d);
 }
 
@@ -3254,7 +3410,7 @@ force_spectator(id)
 		{
 			// Sending an unresolvable jointeam would auto-assign them to a PLAYING side,
 			// the exact opposite of spectating, so it is not sent at all.
-			log_amx("[TSM] WARNING: spectator team is not in mp_teamlist. Add it and change map -- mp_teamlist is only read at map load.");
+			tlog("[TSM] WARNING: spectator team is not in mp_teamlist. Add it and change map -- mp_teamlist is only read at map load.");
 		}
 	}
 
@@ -3539,7 +3695,7 @@ load_spawn_cfg()
 
 	server_cmd("exec %s", path);
 	server_exec();
-	log_amx("[TSM] Loaded %d spawn(s) from %s (team1=%d team2=%d)",
+	tlog("[TSM] Loaded %d spawn(s) from %s (team1=%d team2=%d)",
 		g_cfg_spawns, path, g_spawn_t1_count, g_spawn_t2_count);
 
 	prune_map_spawns();
@@ -3629,7 +3785,7 @@ prune_map_spawns()
 
 			count--;
 			dropped++;
-			log_amx("[TSM] Pruned team %d spawn #%d at %.0f %.0f %.0f -- it is one of the map's own spawn points.",
+			tlog("[TSM] Pruned team %d spawn #%d at %.0f %.0f %.0f -- it is one of the map's own spawn points.",
 				team, i + 1, org[0], org[1], org[2]);
 		}
 
@@ -3646,7 +3802,7 @@ prune_map_spawns()
 	if (dropped)
 	{
 		g_cfg_spawns = g_spawn_t1_count + g_spawn_t2_count;
-		log_amx("[TSM] Pruned %d map spawn(s) from the custom set. Run amx_tsm_spawn_save to keep it that way.",
+		tlog("[TSM] Pruned %d map spawn(s) from the custom set. Run amx_tsm_spawn_save to keep it that way.",
 			dropped);
 	}
 	return dropped;
@@ -3891,7 +4047,7 @@ public cmd_spawn_save(id, level, cid)
 		console_print(id, "[TSM] NOTHING was saved: every position was a map spawn. Add some with amx_tsm_spawn_add first.");
 	}
 
-	log_amx("[TSM] Spawn cfg written: %s (%d saved, %d map spawns skipped)", path, written, skipped);
+	tlog("[TSM] Spawn cfg written: %s (%d saved, %d map spawns skipped)", path, written, skipped);
 	return PLUGIN_HANDLED;
 }
 
@@ -4098,6 +4254,67 @@ public task_live_audit()
  * instead. The perk runs from here as well as from the IN_USE button, because
  * whichever of the two TS actually delivers, the perk has to work.
  */
+/*
+ * tsm_model -- what the gamemode has this player wearing, right now.
+ *
+ * It reports the DECISION and the RESULT separately, because the interesting failure is
+ * when those disagree: the class table picks a name, the name turns out not to resolve
+ * to a file, and the player quietly keeps whatever TS gave them. Printing only the final
+ * model would show the fallback and hide the cause.
+ *
+ * It also prints the pick as "n of m", which is what tells you whether the list is being
+ * read whole. A list that always reports the same small m is a list being truncated
+ * somewhere before it gets here.
+ */
+public cmd_model(id)
+{
+	if (!is_user_connected(id))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new ci = resolved_class(id) - 1;
+	new team = g_match_team[id];
+
+	console_print(id, "[TSM] ---- your model ----");
+	console_print(id, "[TSM] class      : %s", (ci >= 0 && ci < g_class_count) ? g_class_name[ci] : "none");
+	console_print(id, "[TSM] side       : %d", team);
+
+	if (!g_model_chosen[id][0])
+	{
+		console_print(id, "[TSM] chosen     : nothing yet -- the gamemode has not assigned you one this round.");
+		return PLUGIN_HANDLED;
+	}
+
+	console_print(id, "[TSM] chosen     : %s", g_model_chosen[id]);
+	console_print(id, "[TSM] on disk    : %s", g_model_ok[id] ? "yes" : "NO -- you are wearing TS's default instead");
+	console_print(id, "[TSM] model index: %d", g_model_want_idx[id]);
+	console_print(id, "[TSM] last written: %s", g_model_last[id][0] ? g_model_last[id] : "(none)");
+
+	// The list it was drawn from, so a truncated list is visible from in game.
+	if (ci >= 0 && ci < g_class_count && team >= 1 && team <= 2)
+	{
+		new list[TSM_MODELLIST];
+		copy(list, charsmax(list), g_class_model[ci][team]);
+		if (!list[0])
+		{
+			new fb = get_pcvar_num(g_cv_modelfallback);
+			if (fb < 1 || fb > g_class_count) { fb = 1; }
+			copy(list, charsmax(list), g_class_model[fb - 1][team]);
+			console_print(id, "[TSM] (your class has no models of its own, so it follows %s)", g_class_name[fb - 1]);
+		}
+		new count = 1;
+		for (new i = 0; list[i]; i++)
+		{
+			if (list[i] == ',') { count++; }
+		}
+		console_print(id, "[TSM] pick       : %d of %d", g_model_pick[id], count);
+		console_print(id, "[TSM] list       : %s", list);
+	}
+
+	return PLUGIN_HANDLED;
+}
+
 public cmd_blockpowerup(id)
 {
 	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_nopowerups))
@@ -4262,7 +4479,7 @@ public cmd_watch_join(id)
 
 	dbg("JOIN WATCH: %d sent '%s %s' -- team was #%d '%s', mp_teamlist='%s'",
 		id, cmd, arg, bnum, before, list);
-	log_amx("[TSM] JOIN WATCH: player %d sent '%s %s' (team was #%d '%s')",
+	tlog("[TSM] JOIN WATCH: player %d sent '%s %s' (team was #%d '%s')",
 		id, cmd, arg, bnum, before);
 
 	set_task(0.5, "task_join_result", id);
@@ -4280,7 +4497,7 @@ public task_join_result(id)
 	new anum = get_user_team(id, after, charsmax(after));
 	dbg("JOIN WATCH: %d is now team #%d '%s' (resolved=%d)",
 		id, anum, after, tsm_live_team_of(id));
-	log_amx("[TSM] JOIN WATCH: player %d is now team #%d '%s'", id, anum, after);
+	tlog("[TSM] JOIN WATCH: player %d is now team #%d '%s'", id, anum, after);
 }
 
 /*
@@ -4620,7 +4837,7 @@ set_class_model(id, ci)
 	 * than a hole. Leave a class blank and it follows whatever the fallback wears,
 	 * including that class's random picks.
 	 */
-	new list[96];
+	new list[TSM_MODELLIST];
 	copy(list, charsmax(list), g_class_model[ci][team]);
 
 	if (!list[0] && g_class_count > 0)
@@ -4644,7 +4861,19 @@ set_class_model(id, ci)
 	 * people unrecognisable mid-match. g_model_pick is cleared with the rest of the
 	 * per-MATCH state, not per round.
 	 */
-	new chosen[32], carry[96], rest[96];
+	/*
+	 * carry and rest HOLD THE WHOLE LIST and must be sized with it.
+	 *
+	 * These two were left at 96 when everything else moved to TSM_MODELLIST, and they are
+	 * what walks the list to pick a name. At 96 the copy stops after 95 characters, which
+	 * landed eight characters into "ins_proletarian" and handed the picker "ins_prol" --
+	 * a model that does not exist, so the player silently got TS's default and the server
+	 * logged the same warning every frame.
+	 *
+	 * The name buffer is fine at 32: no single model name comes close. It is the LIST
+	 * that overflows, and it grows every time a model is added to a class.
+	 */
+	new chosen[32], carry[TSM_MODELLIST], rest[TSM_MODELLIST];
 	copy(rest, charsmax(rest), list);
 
 	new count = 1;
@@ -4685,14 +4914,20 @@ set_class_model(id, ci)
 	new mpath[96];
 	formatex(mpath, charsmax(mpath), "models/player/%s/%s.mdl", chosen, chosen);
 
+	// Kept whatever happens, so tsm_model can say what was picked even when the pick was
+	// not usable -- "it chose X and X is missing" is the answer worth having.
+	copy(g_model_chosen[id], charsmax(g_model_chosen[]), chosen);
+
 	if (file_exists(mpath))
 	{
 		g_model_want_idx[id] = engfunc(EngFunc_ModelIndex, mpath);
+		g_model_ok[id] = 1;
 	}
 	else
 	{
 		g_model_want_idx[id] = 0;
-		log_amx("[TSM] WARNING: model '%s' is not installed (%s) -- leaving TS's choice alone.",
+		g_model_ok[id] = 0;
+		tlog("[TSM] WARNING: model '%s' is not installed (%s) -- leaving TS's choice alone.",
 			chosen, mpath);
 	}
 
@@ -4871,6 +5106,96 @@ apply_class(id)
  * No entity is created, so nothing is precached at runtime -- which is the whole
  * point. The commands are TS's own and are not cheat-gated.
  */
+/*
+ * Hands the class loadout over directly, with no purchase involved.
+ *
+ * MUST BE CALLED AFTER THE RESPAWN. strip_user_weapons() and spawn() both clear the
+ * inventory, so anything given before them is gone a moment later.
+ *
+ * ts_giveweapon goes nowhere near TS's buy path, which is the entire point: the
+ * server runs weaponrestriction 1 because blocking buy commands from a plugin does
+ * not actually stop people buying, and the old tkw path was refused by it along with
+ * every other purchase. Verified with ts_probe_give before this was written.
+ *
+ * The weapon ids need no translation -- the class table already uses TS's own, the
+ * ones tsconst.inc names TSW_GLOCK18 = 1, TSW_AK47 = 13, TSW_M82A1 = 18.
+ */
+give_class_weapons(id)
+{
+	if (!is_user_connected(id) || !is_user_alive(id) || !g_class_count)
+	{
+		return;
+	}
+
+	new ci = resolved_class(id) - 1;
+	if (ci < 0)
+	{
+		return;
+	}
+
+	new team = g_match_team[id];
+	if (team != 1 && team != 2)
+	{
+		team = 1;
+	}
+
+	new bonus = get_pcvar_num(g_cv_clipbonus);
+	new cap = get_pcvar_num(g_cv_clipcap);
+	if (cap < 1)
+	{
+		cap = 1;
+	}
+
+	/*
+	 * Given BACK TO FRONT, so the primary is the last weapon handed over.
+	 *
+	 * TS leaves the most recently given weapon selected, and class lines read
+	 * primary-first because that is the sane way to write them -- which meant the
+	 * sidearm was always issued last and everyone, bots included, spawned holding a
+	 * pistol with a rifle on their back.
+	 *
+	 * tsm_arm_order 0 restores the literal order if this ever needs inverting.
+	 */
+	new wn = g_class_wcount[ci][team];
+	new bool:reverse = (get_pcvar_num(g_cv_armorder) != 0);
+	new given = 0;
+
+	for (new step = 0; step < wn; step++)
+	{
+		new i = reverse ? (wn - 1 - step) : step;
+
+		// The class line sets the baseline, tsm_clip_bonus tops every weapon up, and
+		// tsm_clip_max stops any combination turning into an ammo dump.
+		/*
+		 * The class line sets the baseline, tsm_clip_bonus tops it up and tsm_clip_max is
+		 * the ceiling nothing passes.
+		 *
+		 * AN EXPLICIT ZERO IS LEFT ALONE. A class line that asks for :0 means the weapon
+		 * comes with exactly what it holds and no spares -- the Heavy's single frag
+		 * grenade, the Officer's katana. Adding the bonus to those turned one grenade into
+		 * as many as the bonus, which is a quietly large change to how the Heavy plays and
+		 * nothing anyone asked for.
+		 */
+		new base = g_class_clips[ci][team][i];
+		new clips = (base > 0) ? (base + bonus) : 0;
+		if (clips > cap)
+		{
+			clips = cap;
+		}
+		if (clips < 0)
+		{
+			clips = 0;
+		}
+
+		ts_giveweapon(id, g_class_wpn[ci][team][i], clips, 0);
+		given++;
+
+		dbgv("give: %d <- weapon %d with %d spare clip(s)", id, g_class_wpn[ci][team][i], clips);
+	}
+
+	dbg("gave %d weapon(s) to %d as '%s' (team %d)", given, id, g_class_name[ci], team);
+}
+
 issue_armament(id)
 {
 	if (!is_user_connected(id) || !g_class_count)
@@ -4885,99 +5210,56 @@ issue_armament(id)
 		team = 1;
 	}
 
-	// Our own commands must not be refused by our own buy blocker.
-	g_issuing[id] = true;
-
 	/*
-	 * Funded from HERE, not from the respawn alone.
+	 * NOTHING IS BOUGHT HERE ANY MORE.
 	 *
-	 * The tkw and tka writes below go through TS's own purchase path and are
-	 * charged like any other purchase, so an empty wallet refuses them and the
-	 * class loadout silently comes out empty. The loan therefore has to be open
-	 * for the writes as well as for the BuyArmament that applies them.
+	 * This used to write the loadout with TS's own tkw and tka commands, which go
+	 * through the PURCHASE path -- they write the player's saved armament, and
+	 * BuyArmament bought it on the respawn below. That is why weaponrestriction 1
+	 * emptied every loadout: as far as TS was concerned the plugin was a customer,
+	 * and a restricted weapon is refused to customers.
 	 *
-	 * This does not reopen the buy exploit: what let players buy was g_issuing
-	 * waving their commands past cmd_blockbuy, and that flag is still closed the
-	 * moment our own writes are done. Money with every buy command refused buys
-	 * nothing.
+	 * The weapons are now handed over directly with ts_giveweapon, AFTER the respawn,
+	 * in give_class_weapons(). Measured with ts_probe_give: it arrives with
+	 * weaponrestriction 1 set, which the purchase path never could.
+	 *
+	 * The server needs that cvar on, because blocking the buy commands from a plugin
+	 * does not actually stop people buying. So the loadout had to stop being a
+	 * purchase rather than the restriction being turned off.
 	 */
-	g_cash_lend[id] = true;
+
+	// Still ours as far as cmd_blockbuy is concerned, for the rst_cfg below.
+	g_issuing[id] = true;
 
 	/*
 	 * engclient_cmd, not client_cmd.
 	 *
 	 * client_cmd asks the CLIENT to run the command and send it back, which a bot has
-	 * no client to do -- which is why bots ended up with no weapons at all and resorted
-	 * to kung fu. engclient_cmd executes it server-side for players and bots alike, and
-	 * creates no entities, so it avoids the ts_groundweapon flood that crashed clients.
+	 * no client to do. engclient_cmd executes it server-side for players and bots
+	 * alike.
+	 *
+	 * rst_cfg stays even though nothing is bought now: it clears whatever the player
+	 * had saved, so BuyArmament has nothing of THEIRS to re-apply when the respawn
+	 * below runs.
 	 */
 	engclient_cmd(id, "rst_cfg");
 
-	new bonus = get_pcvar_num(g_cv_clipbonus);
-	new cap = get_pcvar_num(g_cv_clipcap);
-	if (cap < 1)
-	{
-		cap = 1;
-	}
-
 	/*
-	 * Written BACK TO FRONT, so the primary is the last weapon handed over.
+	 * The blanket ammunition top-up is gone with the rest of the purchase path.
 	 *
-	 * TS leaves the most recently given weapon selected, and the class lines read
-	 * primary-first because that is the sane way to write them -- which meant the
-	 * sidearm was always the last thing issued and everyone, bots included, spawned
-	 * holding a pistol with a rifle on their back.
+	 * tka handed out magazines of all eleven ammo types, and like tkw it was a
+	 * purchase, so weaponrestriction refused it too. ts_giveweapon has no equivalent:
+	 * it takes a spare-clip count PER WEAPON, which is what give_class_weapons() now
+	 * passes -- the class line's own figure, topped up by tsm_clip_bonus and capped by
+	 * tsm_clip_max, exactly as before.
 	 *
-	 * tsm_arm_order 0 restores the literal order if this ever needs inverting.
+	 * tsm_ammo_mags therefore no longer does anything. It is left registered rather
+	 * than removed so that a server.cfg still setting it does not error, and it is
+	 * marked dead in ts_matchmode.cfg.
 	 */
-	new wn = g_class_wcount[ci][team];
-	new bool:reverse = (get_pcvar_num(g_cv_armorder) != 0);
 
-	for (new step = 0; step < wn; step++)
-	{
-		new i = reverse ? (wn - 1 - step) : step;
-
-		// The class line sets the baseline, tsm_clip_bonus tops every weapon up, and
-		// tsm_clip_max stops any combination turning into an ammo dump.
-		new clips = g_class_clips[ci][team][i] + bonus;
-		if (clips > cap)
-		{
-			clips = cap;
-		}
-		if (clips < 0)
-		{
-			clips = 0;
-		}
-
-		new warg[24];
-		formatex(warg, charsmax(warg), "%d_%d", g_class_wpn[ci][team][i], clips);
-		engclient_cmd(id, "tkw", warg);
-
-		dbgv("armament: %d <- weapon %d with %d spare clip(s)",
-			id, g_class_wpn[ci][team][i], clips);
-	}
-
-	new mags = get_pcvar_num(g_cv_giveammo);
-	if (mags > 0)
-	{
-		if (mags > cap)
-		{
-			mags = cap;
-		}
-
-		// Ammo types 1..11, matching the mags1..mags11 keyvalues TS's own
-		// ts_groundammo entity exposes.
-		new aarg[24];
-		for (new t = 1; t <= 11; t++)
-		{
-			formatex(aarg, charsmax(aarg), "%d_%d", t, mags);
-			engclient_cmd(id, "tka", aarg);
-		}
-		dbgv("armament: %d <- %d magazine(s) of each ammo type", id, mags);
-	}
-
-	dbg("armament written for %d as '%s' (team %d, %d weapon(s), %d mag(s) each)",
-		id, g_class_name[ci], team, g_class_wcount[ci][team], mags);
+	dbg("armament prepared for %d as '%s' (team %d, %d weapon(s) to give after the respawn)",
+		id, g_class_name[ci], team, g_class_wcount[ci][team]);
 
 	/*
 	 * Nothing to wait for now.
@@ -5129,16 +5411,36 @@ public task_arm_respawn(id)
 	strip_user_weapons(id);
 
 	/*
-	 * BuyArmament runs inside PlayerSpawn, so a respawn is what equips the loadout and
-	 * refills ammunition -- and it is charged for it like any other purchase.
+	 * The respawn no longer equips anything -- it just puts the player back on their
+	 * feet. BuyArmament still runs inside PlayerSpawn, but rst_cfg left it an empty
+	 * armament to apply, and the wallet is no longer opened for it.
 	 *
-	 * The funds exist for these two lines only. Any other spawn, including the ones TS
-	 * performs on its own, finds an empty wallet and so cannot re-apply an armament a
-	 * player bought for themselves.
+	 * NOT LENDING THE CASH HERE IS DELIBERATE. The loan existed so BuyArmament could
+	 * afford our loadout, and it was the one window in which a player's OWN saved
+	 * armament could also be re-applied, because the money happened to be there.
+	 * Nothing is bought now, so the window closes.
 	 */
-	g_cash_lend[id] = true;
 	spawn(id);
-	g_cash_lend[id] = false;
+
+	/*
+	 * AFTER the spawn, never before it.
+	 *
+	 * strip_user_weapons() above and spawn() itself both clear the inventory, so a
+	 * weapon given any earlier is thrown away a moment later -- and the loadout comes
+	 * out empty again, for a completely different reason that looks exactly the same.
+	 */
+	give_class_weapons(id);
+
+	/*
+	 * And something to put in them.
+	 *
+	 * ts_giveweapon takes a spare-clip count, but the clip field on TS's own buy
+	 * command was never what produced spare ammunition either -- that is why tka
+	 * existed alongside tkw in the first place. So ammunition is handed over
+	 * separately, exactly as the engineer's resupply does it, and for the same reason:
+	 * it is a pickup rather than a purchase, so weaponrestriction has no say in it.
+	 */
+	give_ammo_to(id, get_pcvar_num(g_cv_giveammo));
 
 	new ci = resolved_class(id) - 1;
 	set_user_health(id, g_class_hp[ci]);
@@ -5174,14 +5476,28 @@ public task_arm_respawn(id)
 }
 
 /*
- * Combat engineer resupply. Spawns a ts_groundammo and makes the target touch it.
+ * Spawns a ts_groundammo and makes the target touch it. `mags` magazines of every
+ * ammo type.
  *
- * Every magazine slot is filled rather than matching their held weapon, because
- * reading someone's current weapon needs ts_getuserwpn and this plugin does not call
- * tsfun natives. TS applies what is relevant to what they carry.
+ * USED FOR TWO THINGS: the combat engineer's resupply, and the spare ammunition that
+ * comes with a class loadout. The loadout used to get its ammunition from TS's tka
+ * command, but that is a PURCHASE and weaponrestriction 1 refuses it -- this creates
+ * an entity and hands it over instead, so nothing is bought and nothing is refused.
+ *
+ * Every magazine slot is filled rather than matching their held weapon, because the
+ * weapon-to-ammotype mapping lives in the mod's weapon table and is not reachable
+ * from a plugin. TS applies what is relevant to what they carry, so the rest is
+ * simply ignored.
+ *
+ * The entity is created and removed inside this call, so however many players are
+ * armed in one frame, only ever one exists at a time.
  */
-give_ammo_to(target)
+give_ammo_to(target, mags)
 {
+	if (mags < 1)
+	{
+		return 0;
+	}
 	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "ts_groundammo"));
 	if (!ent)
 	{
@@ -5190,7 +5506,7 @@ give_ammo_to(target)
 	}
 
 	new key[12], v[8];
-	num_to_str(get_pcvar_num(g_cv_engclips), v, charsmax(v));
+	num_to_str(mags, v, charsmax(v));
 	for (new m = 1; m <= 11; m++)
 	{
 		formatex(key, charsmax(key), "mags%d", m);
@@ -5234,7 +5550,154 @@ give_ammo_to(target)
 }
 
 /*
- * Clears the medic's glow shell off a player.
+ * Puts a coloured glow shell on a player for a few seconds.
+ *
+ * Shared by the medic's heal (red) and the engineer's resupply (yellow), so that the
+ * two cannot drift apart -- and because the one detail that matters here is easy to
+ * get wrong twice.
+ *
+ * THAT DETAIL: renderamt is the SHELL THICKNESS for a glow shell, not an alpha.
+ * Leaving it at zero sets up a shell with no thickness, which is exactly as invisible
+ * as not setting the glow at all. That is why the first version of the medic's glow
+ * drew nothing.
+ *
+ * ONE TASK ID FOR BOTH, deliberately. If a medic heals someone and an engineer
+ * resupplies them a moment later, the second glow replaces the first and a single
+ * timer clears it. Giving them separate ids instead leaves two timers racing, and the
+ * earlier one strips a glow the later one had just set.
+ */
+/*
+ * Slow health regeneration for anyone whose class carries TSM_PERK_REGEN.
+ *
+ * One server-wide repeating task rather than a task per player: it walks everyone
+ * once per interval, which is cheaper than up to 32 timers and means a player
+ * changing class or dying needs no bookkeeping to cancel anything.
+ *
+ * It RE-ARMS ITSELF from the cvar rather than using a repeating task, so changing
+ * tsm_regen_interval takes effect on the next tick instead of needing a map change.
+ *
+ * Capped at the class's own health, so a Heavy stops at 200 and nothing creeps past
+ * what its class line asks for.
+ */
+public task_regen()
+{
+	set_task(regen_interval(), "task_regen", TSM_TASK_REGEN);
+
+	if (!get_pcvar_num(g_cv_enabled) || !g_class_count)
+	{
+		return;
+	}
+
+	new amount = get_pcvar_num(g_cv_regenamt);
+	if (amount < 1)
+	{
+		return;
+	}
+
+	new Float:pause = get_pcvar_float(g_cv_regenpause);
+	new Float:now = get_gametime();
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if (!is_user_alive(id) || g_elim[id] || g_locked_out[id])
+		{
+			continue;
+		}
+
+		new ci = resolved_class(id) - 1;
+		if (ci < 0 || g_class_perk[ci] != TSM_PERK_REGEN)
+		{
+			continue;
+		}
+
+		// Hit too recently. Skipped entirely rather than healed by a smaller amount:
+		// "it stops while you are being shot at" is the behaviour asked for.
+		if ((now - g_last_hit[id]) < pause)
+		{
+			continue;
+		}
+
+		new cur = get_user_health(id);
+		new top = g_class_hp[ci];
+		if (cur >= top)
+		{
+			continue;
+		}
+
+		new after = cur + amount;
+		if (after > top)
+		{
+			after = top;
+		}
+		set_user_health(id, after);
+		dbgv("regen: %d %d -> %d (cap %d)", id, cur, after, top);
+	}
+}
+
+Float:regen_interval()
+{
+	new Float:every = get_pcvar_float(g_cv_regenevery);
+	// Never zero or negative: a task that re-arms itself at 0.0 is an infinite loop
+	// inside one frame, and the server does not come back from it.
+	if (every < 1.0)
+	{
+		every = 15.0;
+	}
+	return every;
+}
+
+/*
+ * Plays a perk's sound ON the player it was used on, so everyone nearby hears it.
+ *
+ * Emitted from the target entity at ATTN_NORM, which is what makes it carry a sensible
+ * distance and fall off -- a sound sent only to the two players involved would be
+ * silent to the squad standing around them, and the point of these is that the people
+ * nearby know a medic or an engineer is working.
+ */
+perk_sound(target, pcvar)
+{
+	if (!is_user_connected(target))
+	{
+		return;
+	}
+	new snd[64];
+	get_pcvar_string(pcvar, snd, charsmax(snd));
+	if (!snd[0])
+	{
+		return;
+	}
+	emit_sound(target, CHAN_ITEM, snd, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
+}
+
+glow_player(target, Float:r, Float:g, Float:b, Float:secs, shell)
+{
+	if (!is_user_connected(target) || !is_user_alive(target))
+	{
+		return;
+	}
+	if (shell < 1)
+	{
+		shell = 16;
+	}
+
+	new Float:col[3];
+	col[0] = r;
+	col[1] = g;
+	col[2] = b;
+	set_pev(target, pev_renderfx, TSM_RENDERFX_GLOW);
+	set_pev(target, pev_rendercolor, col);
+	set_pev(target, pev_renderamt, float(shell));
+	set_pev(target, pev_rendermode, TSM_RENDER_NORMAL);
+
+	remove_task(target + 8000);
+	set_task(secs, "task_clear_glow", target + 8000);
+}
+
+/*
+ * Clears a glow shell off a player.
  *
  * renderfx is restored rather than rendermode, because the elimination hide owns
  * rendermode and renderamt -- writing those back from here would un-hide the body
@@ -5296,24 +5759,10 @@ medic_heal(id, target)
 	set_user_health(target, after);
 	g_medic_at[id] = now;
 
-	/*
-	 * Red glow shell, for as long as tsm_medic_glow says.
-	 *
-	 * renderamt is the SHELL THICKNESS for a glow shell, not an alpha -- leaving it
-	 * at zero sets up a shell with no thickness, which is exactly as invisible as
-	 * not setting the glow at all. That is why the first version drew nothing.
-	 */
-	new Float:col[3];
-	col[0] = 255.0;
-	col[1] = 0.0;
-	col[2] = 0.0;
-	set_pev(target, pev_renderfx, TSM_RENDERFX_GLOW);
-	set_pev(target, pev_rendercolor, col);
-	set_pev(target, pev_renderamt, float(get_pcvar_num(g_cv_medshell)));
-	set_pev(target, pev_rendermode, TSM_RENDER_NORMAL);
-
-	remove_task(target + 8000);
-	set_task(get_pcvar_float(g_cv_medglow), "task_clear_glow", target + 8000);
+	// Red, for a heal.
+	glow_player(target, 255.0, 0.0, 0.0,
+		get_pcvar_float(g_cv_medglow), get_pcvar_num(g_cv_medshell));
+	perk_sound(target, g_cv_medsound);
 
 	new a[32], b[32];
 	get_user_name(id, a, charsmax(a));
@@ -5542,7 +5991,7 @@ resupply_one_bot()
 		}
 
 		g_bot_resup_at[id] = now;
-		give_ammo_to(id);
+		give_ammo_to(id, get_pcvar_num(g_cv_engclips));
 		dbgv("bot resupply: topped up %d", id);
 		return;   // one per tick, deliberately
 	}
@@ -5595,6 +6044,23 @@ public fw_player_spawn(id)
  */
 public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 {
+	/*
+	 * Stamped FIRST, ahead of every guard below.
+	 *
+	 * This records that the victim was hit, for the regeneration pause, and it has to
+	 * happen before anything returns -- almost all damage is from an ENEMY, which the
+	 * friendly-fire guards below let through on the very first test. Stamping after
+	 * them would record only teammate damage, and a Heavy under fire would regenerate
+	 * happily all the way through it.
+	 *
+	 * World damage and falls count too: the test is "has anything hurt you lately",
+	 * not "has anybody shot you".
+	 */
+	if (victim > 0 && victim < MAXPL && damage > 0.0)
+	{
+		g_last_hit[victim] = get_gametime();
+	}
+
 	if (!get_pcvar_num(g_cv_enabled) || get_pcvar_num(g_cv_friendlyfire))
 	{
 		return HAM_IGNORED;
@@ -6238,7 +6704,12 @@ perk_use(id)
 		}
 
 		g_eng_used[id] = true;
-		give_ammo_to(hit);
+		give_ammo_to(hit, get_pcvar_num(g_cv_engclips));
+
+		// Yellow, for ammunition. Red is the medic's.
+		glow_player(hit, 255.0, 220.0, 0.0,
+			get_pcvar_float(g_cv_engglow), get_pcvar_num(g_cv_engshell));
+		perk_sound(hit, g_cv_engsound);
 
 		new a[32], b[32];
 		get_user_name(id, a, charsmax(a));
@@ -6383,7 +6854,7 @@ bool:autodetect_teams()
 		set_pcvar_string(g_cv_team1name, names[0]);
 		set_pcvar_string(g_cv_team2name, names[1]);
 		set_pcvar_string(g_cv_teammode, "name");
-		log_amx("[TSM] Auto-detected teams: team1='%s' team2='%s'. Set tsm_team1_name/tsm_team2_name in the cfg to pin these.", names[0], names[1]);
+		tlog("[TSM] Auto-detected teams: team1='%s' team2='%s'. Set tsm_team1_name/tsm_team2_name in the cfg to pin these.", names[0], names[1]);
 		client_print(0, print_chat, "[MATCH] Teams detected: %s vs %s", names[0], names[1]);
 		return true;
 	}
@@ -7361,10 +7832,10 @@ check_team_names()
 		team_rawname(t, n, charsmax(n));
 		if (n[0] && strlen(n) > TSM_MAX_TEAMNAME)
 		{
-			log_amx("[TSM] *** TEAM NAME TOO LONG: '%s' is %d characters. TS truncates team names to %d.",
+			tlog("[TSM] *** TEAM NAME TOO LONG: '%s' is %d characters. TS truncates team names to %d.",
 				n, strlen(n), TSM_MAX_TEAMNAME);
-			log_amx("[TSM] *** Nobody will be able to join that side -- the mod will show them as spectators.");
-			log_amx("[TSM] *** Shorten tsm_team%d_name and mp_teamlist, then change map. Use tsm_team%d_label for the long display name.",
+			tlog("[TSM] *** Nobody will be able to join that side -- the mod will show them as spectators.");
+			tlog("[TSM] *** Shorten tsm_team%d_name and mp_teamlist, then change map. Use tsm_team%d_label for the long display name.",
 				t, t);
 		}
 	}
@@ -7416,7 +7887,7 @@ force_team_list()
 	 */
 	new live[96];
 	get_cvar_string("mp_teamlist", live, charsmax(live));
-	log_amx("[TSM] mp_teamlist is now '%s' (spectator slot %d).", live, live_spectator_index());
+	tlog("[TSM] mp_teamlist is now '%s' (spectator slot %d).", live, live_spectator_index());
 
 	/*
 	 * BOTH menus are rebuilt here, not just the team one.
@@ -7429,7 +7900,7 @@ force_team_list()
 	build_team_menu();
 	build_class_menu();
 
-	log_amx("[TSM] Menus built: side=%d class=%d (%d class(es) parsed).",
+	tlog("[TSM] Menus built: side=%d class=%d (%d class(es) parsed).",
 		g_team_menu, g_class_menu, g_class_count);
 }
 
@@ -7819,7 +8290,7 @@ public msg_teaminfo(msgid, dest, ent)
 	g_teaminfo_seen++;
 	if (g_teaminfo_seen == 1)
 	{
-		log_amx("[TSM] First TeamInfo seen -- this server IS running teamplay gamerules.");
+		tlog("[TSM] First TeamInfo seen -- this server IS running teamplay gamerules.");
 	}
 	return PLUGIN_CONTINUE;
 }
@@ -8838,7 +9309,7 @@ public task_go_live()
 		apply_class(rp[i]);
 		release_player(rp[i]);
 	}
-	log_amx("[TSM] Round %d LIVE: released %d player(s).", g_round, rnum);
+	tlog("[TSM] Round %d LIVE: released %d player(s).", g_round, rnum);
 	dbg("round %d live: released %d, alive t1=%d t2=%d, placed-check follows",
 		g_round, rnum, count_alive(1), count_alive(2));
 	all_print("[MATCH] LIVE -- round %d.", g_round);
@@ -8886,7 +9357,7 @@ public task_go_live()
 			{
 				all_print("[MATCH] Only one side has players -- rounds will not resolve until both teams are occupied.");
 			}
-			log_amx("[TSM] Round %d went live with team1=%d team2=%d alive. Round-end checks are suspended.", g_round, g_start_alive[1], g_start_alive[2]);
+			tlog("[TSM] Round %d went live with team1=%d team2=%d alive. Round-end checks are suspended.", g_round, g_start_alive[1], g_start_alive[2]);
 		}
 	}
 	else
@@ -9293,7 +9764,7 @@ public cmd_continue(id, level, cid)
 	g_halt_waived = true;
 
 	all_print("[MATCH] An admin is playing this match out as it stands -- the sides stay as they are.");
-	log_amx("[TSM] Halt bypassed by admin at round %d, score %d-%d; no further halts this match.",
+	tlog("[TSM] Halt bypassed by admin at round %d, score %d-%d; no further halts this match.",
 		g_round, g_score[1], g_score[2]);
 	resume_match();
 	return PLUGIN_HANDLED;
@@ -9480,7 +9951,7 @@ public cmd_unfreeze(id, level, cid)
 	console_print(id, "[TSM] Released %d player(s) and cleared elimination flags.", pnum);
 	console_print(id, "[TSM] If you can move now, release_player() works and was simply not called.");
 	console_print(id, "[TSM] If you still cannot move, ts_set_speed cannot undo the freeze.");
-	log_amx("[TSM] amx_tsm_unfreeze: released %d player(s).", pnum);
+	tlog("[TSM] amx_tsm_unfreeze: released %d player(s).", pnum);
 	return PLUGIN_HANDLED;
 }
 
@@ -9774,12 +10245,12 @@ bool:check_match_viable()
 		g_score[w]++;
 		all_print("[MATCH] MATCH OVER -- the other side has no players left. %s wins by forfeit, %d -- %d.",
 			wname, g_score[1], g_score[2]);
-		log_amx("[TSM] Match forfeited to team %d: opposing side empty.", w);
+		tlog("[TSM] Match forfeited to team %d: opposing side empty.", w);
 	}
 	else
 	{
 		all_print("[MATCH] MATCH OVER -- nobody left to play.");
-		log_amx("[TSM] Match abandoned: both sides empty.");
+		tlog("[TSM] Match abandoned: both sides empty.");
 	}
 
 	g_state = ST_MATCHEND;
@@ -9918,7 +10389,7 @@ bool:halt_for_imbalance()
 		g_score[1], g_score[2], shortname);
 	all_print("[MATCH] Admins: amx_match_continue plays the match out as it stands.");
 
-	log_amx("[TSM] Match halted at round %d (%d v %d); score %d-%d kept.",
+	tlog("[TSM] Match halted at round %d (%d v %d); score %d-%d kept.",
 		g_round, n1, n2, g_score[1], g_score[2]);
 	dbg("halted round %d over a %d v %d imbalance; back to ready-up with the score kept",
 		g_round, n1, n2);
@@ -9947,7 +10418,7 @@ resume_match()
 
 	all_print("[MATCH] Resuming at round %d. Score: %d -- %d.",
 		g_round + 1, g_score[1], g_score[2]);
-	log_amx("[TSM] Halted match resumed at round %d with the score at %d-%d.",
+	tlog("[TSM] Halted match resumed at round %d with the score at %d-%d.",
 		g_round + 1, g_score[1], g_score[2]);
 	dbg("resuming a halted match at round %d, score kept at %d-%d",
 		g_round + 1, g_score[1], g_score[2]);
@@ -10069,7 +10540,7 @@ refresh_player_flags()
 		{
 			server_exec();
 		}
-		log_amx("[TSM] tsm_bots 0 -- rcbot quota zeroed and %d bot(s) kicked.", kicked);
+		tlog("[TSM] tsm_bots 0 -- rcbot quota zeroed and %d bot(s) kicked.", kicked);
 	}
 	else
 	{
@@ -10083,7 +10554,7 @@ refresh_player_flags()
 		 */
 		server_cmd("rcbot config balance_teams 1");
 		server_exec();
-		log_amx("[TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).");
+		tlog("[TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).");
 	}
 }
 

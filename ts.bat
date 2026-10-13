@@ -49,10 +49,47 @@ if exist "discord-bot\bot.pid" (
 
 :run
 echo.
-hlds.exe -console -port 27015 -game ts +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
+
+REM -condebug makes the engine mirror its console to qconsole.log. Without it a crash
+REM leaves NOTHING behind: the AMXX log records the map change and stops there, and a
+REM hard crash writes no minidump either, so there is no evidence of what happened.
+REM It is cleared first so whatever is in it belongs to this run and no other.
+if exist qconsole.log del /q qconsole.log
+
+hlds.exe -console -condebug -port 27015 -game ts +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
+set "HLDSEXIT=%ERRORLEVEL%"
 
 REM hlds has exited -- by quit, by crash, or by this window being closed. Take the
 REM bot with it.
 if exist "discord-bot\stop-bot.bat" call "discord-bot\stop-bot.bat" quiet
+
+echo.
+echo ===============================================================
+echo  hlds exited with code %HLDSEXIT%
+echo ===============================================================
+
+REM The tail of the console is where the engine says what killed it. A Host_Error
+REM names itself; a silent stop with no FATAL line is an access violation, and the
+REM last lines still say what it was doing at the time.
+if not exist qconsole.log goto :nolog
+echo.
+echo ---- last 40 lines of qconsole.log ----
+powershell -NoProfile -Command "Get-Content qconsole.log -Tail 40"
+echo ---- end ----
+echo.
+echo ---- lines that look fatal ----
+powershell -NoProfile -Command "Select-String -Path qconsole.log -Pattern 'FATAL|Host_Error|Sys_Error|Mod_NumForName|not precached|SZ_GetSpace|overflow|Bad model' | Select-Object -Last 15 | ForEach-Object { $_.Line }"
+echo ---- end ----
+echo.
+echo  The whole console is in qconsole.log beside hlds.exe.
+goto :held
+
+:nolog
+echo  No qconsole.log was written, so it died before the engine opened one.
+
+:held
+echo.
+echo  This window is staying open on purpose so the above can be read.
+pause
 
 endlocal

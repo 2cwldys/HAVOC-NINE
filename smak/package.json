@@ -1,12 +1,13 @@
 {
   "name": "smak",
-  "version": "0.4.0",
-  "description": "SMAK, the Studio Model Agent Kit: GoldSrc studio models (.mdl) read, made, changed, checked and drawn from Node, by an AI agent, with no decompiler, no studiomdl and no dependencies.",
+  "version": "0.8.0",
+  "description": "SMAK, the Studio Model Agent Kit: GoldSrc studio models (.mdl) and maps (.bsp, .map, .wad) read, made, changed, checked and drawn from Node, by an AI agent, with no decompiler, no studiomdl and no dependencies.",
   "type": "module",
   "main": "src/index.mjs",
   "exports": {
     ".": "./src/index.mjs",
     "./workshop": "./src/workshop.mjs",
+    "./maps": "./src/maps/index.mjs",
     "./kits/*": "./kits/*.mjs",
     "./src/*": "./src/*.mjs"
   },
@@ -14,16 +15,19 @@
     "smak": "bin/smak.mjs"
   },
   "scripts": {
-    "test": "node test/selftest.mjs"
+    "test": "node test/selftest.mjs",
+    "format": "npx prettier@3.3.3 --write \"**/*.mjs\""
   },
   "engines": {
     "node": ">=18"
   },
   "files": [
+    ".prettierrc.json",
     "bin",
     "src",
     "kits",
     "viewer",
+    "mcp",
     "editor/serve.mjs",
     "editor/project.mjs",
     "editor/core.mjs",
@@ -33,7 +37,7 @@
     "editor/AGENTS.md",
     "examples",
     "docs",
-    "test/selftest.mjs",
+    "test",
     "README.md",
     "CHANGELOG.md",
     "AGENTS.md",

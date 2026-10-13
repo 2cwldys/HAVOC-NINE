@@ -10,4 +10,7 @@ export * from "./render.mjs";
 export * from "./check.mjs";
 export * from "./layout.mjs";
 export * from "./place.mjs";
+export * from "./wear.mjs";
+export * from "./obj.mjs";
 export * as workshop from "./workshop.mjs";
+export * as maps from "./maps/index.mjs";

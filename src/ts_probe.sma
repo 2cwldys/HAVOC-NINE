@@ -32,6 +32,24 @@
 #include <amxmisc>
 #include <fakemeta>
 
+/*
+ * tsfun, DECLARED BY HAND RATHER THAN INCLUDED.
+ *
+ * #include <tsfun> would make this plugin fail to load outright on a server without
+ * the module, and the header above is explicit about why that is unacceptable: a
+ * diagnostic that cannot load tells you nothing. Declaring the two natives and
+ * filtering them keeps the plugin loadable everywhere and lets ts_probe_give report
+ * "tsfun is not loaded" instead of taking the whole plugin down with it.
+ *
+ * The filter has to be installed in plugin_natives(), not plugin_init(): AMXX links
+ * every plugin's natives before it runs any plugin_init, so a filter set there
+ * arrives after the decision it is meant to influence.
+ */
+native ts_giveweapon(index, weapon, clips, extra);
+native ts_getuserwpn(index, &clip = 0, &ammo = 0, &mode = 0, &extra = 0);
+
+new bool:g_has_tsfun = true;
+
 #define PLUGIN  "TS Probe"
 #define VERSION "1.0"
 #define AUTHOR  "diagnostic"
@@ -89,6 +107,32 @@ new Float:g_save_takedamage[33];
 new g_save_teamnum[33];
 new g_save_teamname[33][32];
 
+public plugin_natives()
+{
+	set_native_filter("native_filter");
+}
+
+/**
+ * Lets the tsfun natives be absent instead of refusing to load.
+ *
+ * `trap` is 0 while the plugin is being linked and 1 when a missing native is really
+ * called. PLUGIN_HANDLED in both cases means "dealt with", and the call returns 0
+ * rather than throwing.
+ */
+public native_filter(const name[], index, trap)
+{
+	if (!trap)
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (equal(name, "ts_giveweapon") || equal(name, "ts_getuserwpn"))
+	{
+		g_has_tsfun = false;
+		return PLUGIN_HANDLED;
+	}
+	return PLUGIN_CONTINUE;
+}
+
 public plugin_init()
 {
 	register_plugin(PLUGIN, VERSION, AUTHOR);
@@ -117,6 +161,7 @@ public plugin_init()
 	register_concmd("ts_probe_dead",  "cmd_dead",  ADMIN_CFG, " <target> - FULL dead treatment: observer + hidden + non-solid + immune");
 	register_concmd("ts_probe_undead","cmd_undead",ADMIN_CFG, " <target> - undoes ts_probe_dead / ts_probe_obs");
 	register_concmd("ts_probe_team",  "cmd_team",  ADMIN_CFG, " <target> <team> - tries every team-set mechanism and reports which works");
+	register_concmd("ts_probe_give",  "cmd_give",  ADMIN_CFG, " <target> <weapon id> [clips] - does ts_giveweapon beat weaponrestriction?");
 	register_concmd("ts_probe_help",  "cmd_help",  ADMIN_CFG, " - lists the probe commands");
 
 	plog("==================================================");
@@ -874,6 +919,144 @@ public cmd_model(id, level, cid)
 
 /* ------------------------------------------------------------------------- */
 
+/*
+ * Does ts_giveweapon get past weaponrestriction?
+ *
+ * THE ONE QUESTION THAT DECIDES HOW LOADOUTS GET HANDED OUT.
+ *
+ * ts_matchmode does not give weapons today -- it BUYS them, by sending TS's own tkw
+ * and tka commands, which write the player's saved armament for BuyArmament to
+ * purchase on the next spawn. That is why weaponrestriction 1 empties every loadout:
+ * as far as TS is concerned the plugin is a customer like any other.
+ *
+ * ts_giveweapon is a module native that should hand the weapon over directly, nowhere
+ * near the purchase path. "Should" is the whole problem, so this measures it instead
+ * of assuming it. Run it with weaponrestriction 1 set.
+ *
+ * It reports the weapon BEFORE, immediately AFTER, and again a second later, because
+ * there are three different failures and they look alike from a chat message: the give
+ * being refused outright, the give working and TS taking it back on the next frame, and
+ * the give working perfectly while the weapon is in a slot the player is not holding.
+ */
+new g_give_want[33];           // weapon id handed to ts_giveweapon, 0 = not testing
+new g_give_by[33];             // who asked, so the delayed report goes back to them
+
+public cmd_give(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 3))
+		return PLUGIN_HANDLED;
+
+	new arg[32], warg[8], carg[8];
+	read_argv(1, arg, charsmax(arg));
+	read_argv(2, warg, charsmax(warg));
+	read_argv(3, carg, charsmax(carg));
+
+	if (!warg[0])
+	{
+		console_print(id, "[TS-PROBE] Usage: ts_probe_give <target> <weapon id> [clips]");
+		console_print(id, "[TS-PROBE] TS weapon ids: 1 Glock18, 5 M4A1, 13 AK47, 18 Barrett, 22 Glock 20, 25 Knife, 32 M60");
+		console_print(id, "[TS-PROBE] Set weaponrestriction 1 first -- that is the point of the test.");
+		return PLUGIN_HANDLED;
+	}
+
+	if (!g_has_tsfun)
+	{
+		console_print(id, "[TS-PROBE] tsfun is NOT loaded -- ts_giveweapon does not exist here.");
+		console_print(id, "[TS-PROBE] Add tsfun to modules.ini, or this approach is not available on this server.");
+		plog("give: tsfun absent, cannot test");
+		return PLUGIN_HANDLED;
+	}
+
+	new target = cmd_target(id, arg, CMDTARGET_ALLOW_SELF);
+	if (!target)
+	{
+		console_print(id, "[TS-PROBE] No such player.");
+		return PLUGIN_HANDLED;
+	}
+	if (!is_user_alive(target))
+	{
+		console_print(id, "[TS-PROBE] %d is not alive -- a give to a dead player proves nothing.", target);
+		return PLUGIN_HANDLED;
+	}
+
+	new wpn = str_to_num(warg);
+	new clips = carg[0] ? str_to_num(carg) : 2;
+	new restrict = get_cvar_num("weaponrestriction");
+	new tname[32];
+	get_user_name(target, tname, charsmax(tname));
+
+	new bclip, bammo, bmode, bextra;
+	new before = ts_getuserwpn(target, bclip, bammo, bmode, bextra);
+
+	ts_giveweapon(target, wpn, clips, 0);
+
+	new aclip, aammo, amode, aextra;
+	new after = ts_getuserwpn(target, aclip, aammo, amode, aextra);
+
+	console_print(id, "[TS-PROBE] ts_giveweapon(%s, weapon %d, %d clips) with weaponrestriction %d",
+		tname, wpn, clips, restrict);
+	console_print(id, "[TS-PROBE]   holding before: weapon %d (clip %d, ammo %d)", before, bclip, bammo);
+	console_print(id, "[TS-PROBE]   holding after : weapon %d (clip %d, ammo %d)", after, aclip, aammo);
+
+	if (after == wpn)
+	{
+		console_print(id, "[TS-PROBE]   -> ARRIVED and SELECTED.");
+	}
+	else
+	{
+		console_print(id, "[TS-PROBE]   -> not selected. It may still be in another slot -- look at %s's weapons.", tname);
+	}
+
+	plog("give: target %s weapon %d clips %d restriction %d | before %d after %d",
+		tname, wpn, clips, restrict, before, after);
+
+	// A second later, because a weapon TS intends to take back is still there on the
+	// frame it was handed over.
+	g_give_want[target] = wpn;
+	g_give_by[target] = id;
+	set_task(1.0, "task_give_check", target + 7000);
+	console_print(id, "[TS-PROBE]   checking again in one second...");
+	return PLUGIN_HANDLED;
+}
+
+public task_give_check(taskid)
+{
+	new target = taskid - 7000;
+	new want = g_give_want[target];
+	g_give_want[target] = 0;
+
+	new asker = g_give_by[target];
+	if (!want || !is_user_connected(target))
+	{
+		return;
+	}
+
+	new clip, ammo, mode, extra;
+	new now = is_user_alive(target) ? ts_getuserwpn(target, clip, ammo, mode, extra) : -1;
+
+	new tname[32];
+	get_user_name(target, tname, charsmax(tname));
+
+	if (now == -1)
+	{
+		plog("give: %s died before the one-second check", tname);
+	}
+	else if (now == want)
+	{
+		plog("give: %s STILL holding weapon %d after 1s (clip %d, ammo %d) -- it stuck", tname, want, clip, ammo);
+	}
+	else
+	{
+		plog("give: %s now holding %d, not the %d given -- either swapped slot or taken back", tname, now, want);
+	}
+
+	if (asker > 0 && is_user_connected(asker))
+	{
+		console_print(asker, "[TS-PROBE]   one second later: holding weapon %d (gave %d, clip %d, ammo %d)",
+			now, want, clip, ammo);
+	}
+}
+
 public cmd_help(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 1))
@@ -887,6 +1070,7 @@ public cmd_help(id, level, cid)
 	console_print(id, "  ts_probe_dead <target> - FULL dead treatment: hidden, non-solid, immune, disarmed");
 	console_print(id, "  ts_probe_undead <t>    - undo the above (also fixes ts_probe_obs)");
 	console_print(id, "  ts_probe_team <t> <tm> - finds which team-set mechanism works");
+	console_print(id, "  ts_probe_give <t> <w>  - does ts_giveweapon beat weaponrestriction 1?");
 	console_print(id, "Death/respawn data is collected automatically -- just die once.");
 	console_print(id, "Everything is logged to amxmodx/logs/%s", LOGFILE);
 	return PLUGIN_HANDLED;

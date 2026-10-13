@@ -32,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -165,12 +166,10 @@ class Bot(discord.Client):
         await self.tree.sync()
         print("[bot] commands synced", flush=True)
         self.loop.create_task(watch_server(self))
+        self.loop.create_task(presence_loop(self))
 
     async def on_ready(self):
         print(f"[bot] online as {self.user}", flush=True)
-        await self.change_presence(
-            activity=discord.Activity(type=discord.ActivityType.watching, name="for matches"),
-        )
 
     # ---- the game server -------------------------------------------------
 
@@ -198,6 +197,72 @@ class Bot(discord.Client):
             return info, players
         except (OSError, asyncio.TimeoutError, Exception):   # noqa: BLE001
             return None
+
+
+PRESENCE_EVERY = 30         # how often the server is asked
+PRESENCE_REASSERT = 300     # re-push even when nothing changed
+
+
+def presence_for(got):
+    """
+    The status dot and the activity line for what the server just said.
+
+        green (online)  Watching 3 players, 5 bots
+        green (online)  Watching 3 players            -- when no bots are running
+        green (online)  Watching 0 players, 7 bots    -- bots on, nobody in
+        green (online)  Watching 0 players            -- nothing at all
+        red   (dnd)     Watching server offline
+
+    Humans and bots are shown SEPARATELY because the total on its own is misleading:
+    a server with nine bots and nobody in it reads as busy, and anyone who joins on
+    the strength of that finds an empty game.
+    """
+    if got is None:
+        return discord.Status.dnd, "server offline"
+
+    info, _players = got
+    bots = max(0, getattr(info, "bot_count", 0))
+    humans = max(0, info.player_count - bots)
+
+    # THE PLAYER COUNT IS ALWAYS SHOWN, including when it is zero. Hiding "0 players"
+    # because bots are on looks tidier and is worse: "7 bots" alone does not say
+    # whether anybody is actually in there, which is the one thing someone reading it
+    # wants to know.
+    line = f"{humans} player" + ("" if humans == 1 else "s")
+    if bots:
+        line += f", {bots} bot" + ("" if bots == 1 else "s")
+    return discord.Status.online, line
+
+
+async def presence_loop(bot):
+    """
+    Keeps the bot's presence showing what the server is doing.
+
+    It re-pushes every PRESENCE_REASSERT seconds even when nothing has changed. A
+    gateway re-IDENTIFY -- after a reconnect, which happens on its own schedule --
+    drops presence back to Discord's default, and without a periodic re-assert the
+    bot sits there plain green claiming nothing for as long as the server runs.
+    """
+    await bot.wait_until_ready()
+    last = None
+    pushed = 0.0
+    while not bot.is_closed():
+        try:
+            status, line = presence_for(await bot.query())
+            now = time.monotonic()
+            if (status, line) != last or now - pushed >= PRESENCE_REASSERT:
+                await bot.change_presence(
+                    status=status,
+                    activity=discord.Activity(type=discord.ActivityType.watching, name=line),
+                )
+                if (status, line) != last:
+                    print(f"[bot] presence: {line}", flush=True)
+                last, pushed = (status, line), now
+        except Exception as exc:                            # noqa: BLE001
+            # Never let a bad poll end the loop: presence going stale is a nuisance,
+            # a loop that has quietly died is the bot looking permanently wrong.
+            print(f"[bot] presence update failed: {exc}", flush=True)
+        await asyncio.sleep(PRESENCE_EVERY)
 
 
 class RsvpView(discord.ui.View):

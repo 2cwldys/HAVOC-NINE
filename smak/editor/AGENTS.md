@@ -56,10 +56,53 @@ on the command line and in **radians** in the file.
 | `dup <anim> <name>` | The animation again as a new one after the last. Prints its number. |
 | `events <anim> [--add frame,event,text] [--del i] [--move i,frame] [--text i,text] [--clear] [--source]` | Lists; changes. `--source`: as the original has them. |
 | `texture <tex> [--file p.png] [--brightness n] [--contrast n] [--saturation n] [--hue deg] [--tint r,g,b,amount] [--no-adjust] [--no-file] [--export out.png]` | Replace from a picture (copied beside the project), adjust through the palette, export as the project has it. |
+| `texture <tex> --select r,g,b` / `--select-at x,y` `[--tolerance n] [--invert]` | The adjustments apply only to the palette colours like that one (`--select-at`: the colour under that pixel of the picture before its adjustments). `--tolerance`: how like, 20 unless told, 0 for that colour alone. `--invert`: to every colour **but** those; `--no-invert` back. Prints how many of the picture's colours and what share of its pixels are taken. See "Some colours only". |
+| `texture <tex> --all-colours` | The whole picture again (the adjustments stay). `--no-adjust` drops the adjustments and the selection. |
+| `texture <tex> --mask out.png` | The texture with what the selection leaves alone dimmed: look at it before you bake. |
+| `texture <tex> --export out.png --plain` | The picture without its adjustments (replaced or not): the one to paint on and put back with `--file` while the adjustments stand. Without `--plain` the export is adjusted, and put back it would be adjusted twice. |
 | `diff <anim>` | The furthest any bone is from the source's animation. |
 | `bake [-o out.mdl] [--engine xash\|goldsrc]` | Bake, write, check. Exit code 1 on an error from the check. Refuses to write over the source. |
-| `render -o p.png --anim a --frame f [--view first\|orbit] [--body n] [--yaw d] [--pitch d] [--source]` | One frame, drawn by smak from the baked project. |
+| `render -o p.png --anim a --frame f [--view first\|orbit] [--body n] [--yaw d] [--pitch d] [--source] [--both]` | One frame, drawn by smak from the baked project. `--both`: both sides of every triangle, so a face that is inside out shows as a face and not as a hole (compare the two pictures to find one). |
 | `strip -o p.png --anim a [--count n] [--from f] [--to f] [--body n] [--view ...] [--compare]` | Frames side by side; `--compare` puts the source's above. |
+
+## Some colours only
+
+A texture's adjustments change its whole palette unless the project names a colour for them
+(`adjust.select`). Then only the palette colours like that one change: a steel helmet goes to copper and the
+brass of its face frame stays.
+
+```
+node editor/cli.mjs $P texture helmet.bmp --select-at 40,22 --hue 25 --saturation 40      the colour under a pixel of the steel
+node editor/cli.mjs $P texture helmet.bmp --mask build/mask.png                           look: what is dimmed is left alone
+node editor/cli.mjs $P texture helmet.bmp --tolerance 28                                  wider, or narrower
+node editor/cli.mjs $P texture helmet.bmp --select 201,160,70 --invert                    or name the brass and change all but it
+```
+
+- The colour is read from the picture **before** its adjustments (the replaced picture if there is one), and so
+  is what counts as like it: changing the sliders never changes which colours are chosen.
+- How like two colours are is `colourGap` in `editor/core.mjs`: their hue and its strength count in full, their
+  brightness by half. A metal's light and dark shades are within about 20 of one another; another metal of the
+  same brightness is past 35. Very dark colours of any hue are near one another: look at the mask.
+- `uv` islands play no part: it is the colour that is chosen, wherever it lies in the picture. Two parts in the
+  same colours cannot be told apart this way; that needs `paint` in the kit (`AGENTS.md`).
+- One selection a texture. For a second group of colours: `--export` the adjusted picture, put it back with
+  `--file`, `--no-adjust`, and select again.
+
+In the page the person clicks a pixel of the texture's picture (*Textures* tab) and has the same three things:
+*how like*, *every colour but those*, *All colours*.
+
+## What the person can see in the page
+
+Worth knowing when they describe something to you, or you ask them to look:
+
+- *both sides* (key F): both sides of every triangle. A face of yours that is inside out is a hole without
+  it and a face with it.
+- *second body* (key V): another body of the same model beside the first, from the same camera at the same
+  frame: your new armour beside the game's own.
+- *smak's picture*: beside their view, the picture you would get of the same frame from their camera.
+- A double click on the model in Orbit: the camera turns about that point.
+- The page's address opens it in a state: `?model=p_helmets.mdl&body=22&body2=2&second=1&both=1&cam=orbit&anim=0&frame=0&tab=textures&tex=3`
+  (`body2`: the second view's body; `second`, `both`, `compare`, `bones`, `onion`: 1 or 0).
 
 ## Keys
 
@@ -101,7 +144,8 @@ The file's animations hold every bone at every frame. In the project:
   "25": { "name": "attack1_slow", "copyOf": 2, "frames": 84, "fps": 30, "loops": false, "interp": "smooth", "keys": {}, "events": [] }
  },
  "textures": {
-  "55": { "name": "sword_lab.bmp", "file": "v_1hswords.tex/55_painted.png", "adjust": { "hue": 150, "brightness": 10 } }
+  "55": { "name": "sword_lab.bmp", "file": "v_1hswords.tex/55_painted.png", "adjust": { "hue": 150, "brightness": 10 } },
+  "3": { "name": "helmet.bmp", "adjust": { "hue": 25, "saturation": 40, "select": { "colour": [142, 146, 150], "tolerance": 20 } } }
  },
  "log": [ { "rev": 13, "by": "agent", "at": "2026-10-11T10:00:00.000Z", "what": "key: attack1 / Bip01 R Hand / frame 22" } ]
 }
@@ -123,6 +167,7 @@ The file's animations hold every bone at every frame. In the project:
 | `anims[n].keys` | `{ "<bone name>": { "<frame>": [x, y, z, rx, ry, rz] } }`, radians. A bone not listed, or listed with no keys, plays the source. Do not write a frame at or beyond the length: it would still bend the curve before it. |
 | `anims[n].events` | The animation's **whole** list of events when present; absent: the source's. `event` is the number the game's code knows (5004: play the sound in `options` on the client), `type` is 0, `options` at most 63 letters. |
 | `textures` | Keyed by the texture's **number**. `name` is a note. `file`: a PNG or BMP that replaces the picture (any size; cut to 256 colours, or 255 and the hole for a masked texture; an 8-bit BMP keeps its palette index for index). `adjust`: `brightness`, `contrast`, `saturation` (each -100 to 100), `hue` (degrees), `tint` `[r, g, b]` with `tintAmount` (0 to 100), applied to the palette after any replacement. The texture's name and flags never change. |
+| `textures[n].adjust.select` | Absent: the adjustments apply to every colour. `{ "colour": [r, g, b], "tolerance": 20, "invert": true }`: only to the palette colours within `tolerance` of `colour` (0: that colour alone; `colourGap` in `core.mjs`), read on the palette before the adjustments; with `invert` (absent when not), to every colour but those. The hole's colour of a masked texture is never changed. A `select` with no adjustment beside it changes nothing. |
 | `log` | The last 60 changes: `rev`, `by` (`"person"` or `"agent"`), `at`, `what`. Written by the tools. |
 
 What `bake` does with it, in order, always from the source: each texture with `file` or `adjust` through smak's
@@ -145,7 +190,7 @@ an added one; then `check`. Animations are never removed or reordered.
    alone the bones and animations they are in the middle of, unless that is what they asked you about.
 4. **Say what you did** in the same terms the log uses (animation, bone, frame), and show the picture
    (`strip --compare`). They will see your change appear in the page; they should not have to guess why.
-5. **Undo your own changes by the opposite change** (`unkey`, `set`, `events --source`, `texture --no-adjust`).
+5. **Undo your own changes by the opposite change** (`unkey`, `set`, `events --source`, `texture --no-adjust`, `texture --all-colours`).
    The page's undo belongs to the person: it puts back exactly the values their own edit replaced.
 6. Prefer `dup` for an experiment: a new animation at the end disturbs nothing the game or the person uses.
 

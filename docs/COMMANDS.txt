@@ -47,13 +47,35 @@
      Two classes do something with +USE:
 
        Combat Engineer   +USE on a teammate resupplies them. Once per round.
+                         They glow YELLOW while it lands and it is audible to
+                         anyone nearby.
        Breacher          +USE on a door forces it open, including doors locked
                          against every other class. Carries the Benelli M3.
        Officer           Commands bots with .follow and .unfollow. Carries the
                          Glock 18 and a Katana.
        Medic             +USE on a teammate heals them 50hp on a 15s cooldown,
                          capped at that teammate's own class health. They glow
-                         red while it lands. Sidearm only, no primary.
+                         RED while it lands, also audible nearby. Sidearm only,
+                         no primary.
+
+     Both of those sounds come off the player being worked on rather than being
+     sent to the two involved, so the squad standing around them hears it too --
+     that is the point of them.
+
+     Two classes do something you do not press a key for:
+
+       Marksman          Barrett M82 and a Glock 20. On MSR they wear the
+                         msr_ghillie suit; an Insurrectionist marksman falls
+                         back to that side's Assault model.
+       Heavy             200hp and noticeably slower, with one frag grenade, and
+                         recovers 10hp every 15 seconds on his own.
+
+                         THAT RECOVERY STOPS THE MOMENT HE IS HIT and does not
+                         start again until 15 seconds after the last hit --
+                         enemy fire, a fall, a grenade, all of it. It is what
+                         lets a Heavy who breaks contact come back, not
+                         something that keeps one alive in a firefight. It stops
+                         at his own 200 and never climbs past it.
 
      Each perk does one thing. A Breacher cannot heal or resupply, a Medic cannot
      breach, and so on.

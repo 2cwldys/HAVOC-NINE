@@ -115,6 +115,24 @@ One every thirty minutes **for the whole server**, not per player, and it surviv
 change. The clock only starts once Discord has **accepted** the post, so a failed advert
 does not cost anyone the next half hour.
 
+The bot's **presence follows the server**, refreshed every 30 seconds:
+
+```
+green (online)  Watching 3 players, 5 bots
+green (online)  Watching 3 players
+green (online)  Watching an empty server
+red   (dnd)     Watching server offline
+```
+
+Humans and bots are counted separately on purpose. The total on its own is
+misleading -- nine bots and nobody in it reads as a busy server, and anyone who joins
+on the strength of that finds an empty game.
+
+It re-pushes the same presence every five minutes even when nothing has changed. A
+gateway re-IDENTIFY, which happens on Discord's own schedule after a reconnect, drops
+presence back to the default -- without that the bot sits there plain green claiming
+nothing for the rest of the session.
+
 In Discord:
 
 ```

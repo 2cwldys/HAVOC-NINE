@@ -4,7 +4,7 @@ Tools for making and changing GoldSrc models (`.mdl`: Half-Life and its mods), b
 coding agent such as Claude Code. You say what you want; the agent writes small scripts with this kit, draws the
 result into pictures to check its own work, and hands you a `.mdl` to try in the game.
 
-Version 0.4.0. An early release, made for an agent to work. For the person it has two pages in the browser: a
+Version 0.8.0. An early release, made for an agent to work. For the person it has two pages in the browser: a
 **viewer** that shows any two models side by side, turning and playing their animations together, and an
 **editor** for touching up a model by hand (its animations, events and textures; not its shape), on a project
 file the agent can work on too (`editor/README.md`).
@@ -13,10 +13,12 @@ file the agent can work on too (`editor/README.md`).
 
 - **Textures**: takes them out of a model, puts new ones in (PNG or BMP), recolours, or paints them by rule.
 - **Shapes**: replaces a weapon or item inside an existing model, keeping its hands, skeleton and animations;
-  or writes a whole new model for a prop or pickup.
+  or writes a whole new model for a prop or pickup, from triangles or from a Wavefront `.obj` file made in
+  any other tool (`smak obj`).
 - **Animations**: reads them, changes them, replaces them in place or adds new ones, with their sound events.
 - **By place**: paints wear, damage or markings where a point is on the body, across every texture it has, or a
-  garment on chosen islands of a picture, in passes and with soft edges; adds a body again in another texture; finds
+  garment on chosen islands of a picture, in passes and with soft edges, over layers that say what the old picture
+  is (mail, plate, a strap) and how far their edges are; adds a body again in another texture; finds
   a model's loose pieces (a pack, a pouch, a helmet) and takes them off; moves a part from one model to another
   that shares its skeleton.
 - **Checking**: tells whether a model stays inside what GoldSrc, or Xash3D, can load.
@@ -33,7 +35,7 @@ It reads and writes the `.mdl` file directly. No decompiler, no studiomdl, no Bl
 ## Starting
 
 1. Unpack this folder somewhere, for example next to your working folder.
-2. Check it runs: `node test/selftest.mjs` should end with `28 passed, 0 failed`.
+2. Check it runs: `node test/selftest.mjs` should end with `0 failed`.
 3. Open your agent in a working folder and tell it where the kit is:
 
    > Read `smak/AGENTS.md`. I want to work on models for my GoldSrc mod; its models are in `C:\…\ts\models`.
@@ -66,6 +68,9 @@ node examples/01-new-model.mjs out
 you give it; press A or B beside two of them, drag to turn, pick an animation. Give it your originals' folder
 and the agent's output folder together to compare before and after.
 
+For a map: `node bin/smak.mjs map-info path/to/map.bsp`, `map-plan path/to/map.bsp -o plan.png` and
+`map-views path/to/map.bsp -o views.png` say what is in it and draw it.
+
 `node bin/smak.mjs help` lists every command. If a picture comes out empty, the model keeps a blank submodel at
 body 0: `info` shows the body numbers, and `--body N` picks one.
 
@@ -76,13 +81,17 @@ body 0: `info` shows the body numbers, and `--body N` picks one.
 | `AGENTS.md` | The briefing for the agent: how a model is put together, the rules, the recipes. Worth a read yourself. |
 | `docs/API.md` | Every function. |
 | `docs/ENGINES.md` | GoldSrc against Xash: limits and differences. |
+| `docs/MAPS.md` | Maps: a compiled map (`.bsp`) read, checked, its entities changed, its textures and `.wad` files, and pictures of it (a plan, views from inside). |
+| `docs/MAPS-MAKING.md` | Maps: brush source (`.map`) written from a script, checked, drawn, and compiled with VHLT, an outside program. |
 | `bin/smak.mjs` | The command line. |
 | `src/` | The library: the model reader and writer, pictures, fitting, drawing, checking, working by place, and the workshop for building shapes and painting textures. |
+| `src/maps/` | Maps, exported as `maps`: reading and checking a `.bsp`, entities, `.wad` files, brush source, the compile, and pictures of a map. |
 | `kits/` | Builders for swords and knives, axes, blunt weapons and bows. |
 | `viewer/` | The page that shows models side by side, and its small server. |
 | `editor/` | The page for re-timing and re-posing animations, events and textures by hand, its server, and the same edits from a terminal. |
-| `examples/` | Five scripts, one for each kind of work. |
-| `test/selftest.mjs` | The kit checking itself. |
+| `examples/` | Seven scripts, one for each kind of work; the seventh makes a small map. |
+| `mcp/` | The kit as an MCP server, for a client with no shell: `mcp/README.md`. |
+| `test/` | The kit checking itself: `selftest.mjs` runs the files beside it, one an area. `test/fixtures/` holds the kit's own small map. |
 
 ## Limits worth knowing first
 
@@ -100,36 +109,33 @@ body 0: `info` shows the body numbers, and `--body N` picks one.
 - Many models give the left and right side of the body the same pixels of a texture. A mark painted on one side
   then shows on the other; the kit reports how much of each texture is shared.
 
-## What changed in 0.4.0
+## What changed in 0.8.0
 
-Out of an agent's first armour texture made with the kit, and what got in its way.
+Maps. The kit read, made and drew studio models; it now does the same for a level, under `maps`
+(`import { maps } from "smak"`), with `docs/MAPS.md` and `docs/MAPS-MAKING.md` and a Maps section in AGENTS.md.
 
-- **`paint` tells its function where it is painting**: beside the point, the normal, the colour and the texture,
-  now the bone the point follows, its mesh, body and triangle, the pixel's `u` and `v`, and the **island** of the
-  picture it is in (a trunk's front, a sleeve), with how far the pixel is from that island's border (`edge`) and
-  from the nearest open stretch of it, a hem or an armhole (`open`).
-- **Islands**: `uvIslands(src, pose)` lists them (texture, box, bones, place, the way each faces, how much of its
-  border is open), `islandMap` and `smak islands <mdl> -o dir` draw each texture with its islands tinted and
-  numbered, and `paint`'s new `islands` option paints the chosen ones only.
-- **Soft edges**: `paint(..., { soft: 3 })` asks the function at 3x3 points inside each pixel and averages them.
-- **Passes**: `paint(src, [pass, pass], options)` paints several layers in full colour and cuts each picture to
-  256 colours once, at the end. A pass can read the picture as it stood before it at any pixel (`at`) and
-  smoothed within its island (`blur`), to lose an old picture's fine detail and keep its light and shade.
-- **`copyBody(src, body, name, texture)`**: a body again, as a new body after the others, wearing another texture.
-- `smak pieces <mdl> --body n` lists that body's pieces (it listed every submodel's); `pieces` gives each piece's
-  mesh (`where`), `dropTriangles` each triangle's number (`tri`), `posed` both and each corner's bone.
-- The editor's texture sliders: a focused slider takes the arrow keys (they stepped the timeline instead), each
-  has a number box beside it and the tint colour a box for its hex digits, and one change of the tint is one line
-  of the project's log.
-- `AGENTS.md` now says what is true of texture sizes (any size loads; `check` notes what GoldSrc stretches or
-  shrinks) and that a model's rest pose can be turned from its animated one.
-- The editor's browser tests take their models and their Playwright from `SMAK_MODELS` and `SMAK_PLAYWRIGHT`.
-
-Nothing that 0.3.0 had was changed or removed: the same calls of `paint` write the same bytes, and scripts
-written for it run as they are. One thing behaves otherwise in the editor's page: letting a slider go where it
-stood no longer writes a revision that changes nothing.
-
-Earlier versions, and what a model made with one of them needs: `CHANGELOG.md`.
+- **A compiled map read** (`maps.readBsp`, GoldSrc `.bsp` version 30): entities, faces, textures, lightmaps,
+  the collision hulls, visibility. Of the 472 maps on the machine it was written on, 470 read; the other two
+  are 2-byte files. `maps.checkBsp` checks one against GoldSrc's and Xash's limits, as `check` does a model.
+- **Its entities changed** with nothing else in the file touched (`maps.withEntities`; `smak map-set`): a start
+  moved, a key set, a point entity added or removed. Unchanged, a map is written back byte for byte. Light,
+  visibility and collision stay as they were compiled.
+- **Textures**: `.wad` files read and written (`maps.readWad`, `maps.writeWad`; `smak wad`, `smak wad-make`), so a
+  map can wear pictures made with the kit.
+- **A map made from code** (`maps.box`, `solid`, `prism`, `wedge`, `cylinder`, `arch`, `bend`, `stairs`,
+  `terrain`, `carve`, `hollow`, entities and lights; `maps.writeMap` and `readMap` for Valve 220 `.map`
+  text), checked before any compile (`maps.checkPlan`, with a hint of where it would leak), and compiled by
+  the VHLT compilers where they are installed (`maps.compileMap`; `smak map-compile`), a leak reported with
+  its points and the nearest entity. **The compilers are an outside program** (VHLT, Vluzacn's ZHLT v34): the
+  kit finds them in a folder given, in `VHLT_DIR` or on the PATH, and says so plainly when they are not there.
+- **Pictures of a map**, so that it can be looked at: `maps.planOf` (from above: floors, walls, every entity
+  marked and numbered, a scale and north), `maps.drawMap` (a view from inside, textured and lit by the map's own
+  lightmaps), `maps.viewsOf` (several in one), and `drawSource` / `planOfSource` for brushes before any
+  compile. `smak map-plan`, `map-view`, `map-views`, `map-info`, `map-check`, `map-entities`, `map-textures`.
+  A view of a map of 15,000 faces takes about a tenth of a second.
+- **The MCP server** lists, describes, checks and draws maps with the six tools it had.
+- `examples/07-a-small-map.mjs`: two rooms, written, checked, drawn, and compiled where the compilers are.
+- The self-test has 144 cases, 149 where the compilers are; its map is the kit's own (`test/fixtures/`).
 
 ## Where it comes from
 

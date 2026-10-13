@@ -4,7 +4,7 @@
 <!-- The model editor's page (editor/README.md). Plain HTML, JavaScript and WebGL2, no library. Served by editor/serve.mjs,
      which also does the model work (smak, in Node); the arithmetic of keys is /core.mjs, the same file the command line uses.
      Address: ?model=v_1hswords.mdl&anim=2&frame=20&bone=Bip01 R Hand&cam=first|orbit&body=1&tab=pose|anim|events|textures|save
-              &bones=0&onion=1&compare=1&tex=55&uv=1 -->
+              &bones=0&onion=1&compare=1&both=1&second=1&body2=3&tex=55&uv=1 -->
 <style>
   html, body { margin: 0; height: 100%; background: #1b1e23; color: #d6dade; font: 13px/1.35 system-ui, sans-serif; overflow: hidden; }
   button, select, input { background: #3a3f47; color: #eee; border: 1px solid #555; border-radius: 4px; padding: 3px 8px; font: inherit; }
@@ -13,13 +13,18 @@
   input[type=number] { width: 62px; padding: 2px 4px; } input[type=text] { padding: 2px 6px; } input[type=range] { padding: 0; width: 150px; vertical-align: middle; } input[type=checkbox] { vertical-align: -2px; }
   input[data-num] { width: 54px; } input[data-hex] { width: 66px; font-family: ui-monospace, Consolas, monospace; }
   label { white-space: nowrap; }
-  #top { height: 40px; box-sizing: border-box; padding: 5px 10px; background: #23272e; border-bottom: 1px solid #333; display: flex; gap: 4px 10px; align-items: center; white-space: nowrap; overflow: hidden; }
+  body { display: flex; flex-direction: column; }
+  #top { min-height: 40px; flex: none; box-sizing: border-box; padding: 5px 10px; background: #23272e; border-bottom: 1px solid #333; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; white-space: nowrap; overflow: hidden; }   /* a second row in a narrow window */
   #top b { color: #e2c47a; margin-right: 4px; } #status { margin-left: auto; color: #9fb4c8; overflow: hidden; text-overflow: ellipsis; max-width: 38%; } #status.bad { color: #ff8f8f; }
-  #main { display: grid; grid-template-columns: 236px 1fr 348px; height: calc(100% - 40px); }
+  #live { margin-left: 8px; font-size: 11px; color: #7fd49a; white-space: nowrap; } #live::before { content: "\25CF "; } #live.off { color: #ff8f8f; } #live.new { color: #e2c47a; }
+  #main { display: grid; grid-template-columns: 236px 1fr 348px; grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; }
   #left, #right { overflow: auto; background: #1f2228; } #left { border-right: 1px solid #333; display: flex; flex-direction: column; } #right { border-left: 1px solid #333; }
   #mid { display: flex; flex-direction: column; min-width: 0; }
   #stage { flex: 1; min-height: 0; position: relative; display: flex; }
   #view { flex: 1; min-width: 0; position: relative; } #view canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; } #over { touch-action: none; cursor: default; }
+  #view2 { flex: 1; min-width: 0; position: relative; border-left: 2px solid #111; } #view2 canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #bodies2 { pointer-events: auto; display: flex; flex-wrap: wrap; gap: 4px; } #tag2 { top: auto; bottom: 8px; }
+  #texImg.pick { cursor: crosshair; } .chip { display: inline-block; width: 14px; height: 14px; border: 1px solid #888; border-radius: 3px; vertical-align: -3px; }
   #cmp { flex: 1; min-width: 0; position: relative; border-left: 2px solid #111; background: #3a3e46; } #cmp img { width: 100%; height: 100%; object-fit: fill; display: block; }
   .tag { position: absolute; left: 8px; top: 8px; padding: 2px 8px; background: #000a; border-radius: 4px; pointer-events: none; max-width: 90%; }
   #hint { top: auto; bottom: 8px; color: #e6c15a; } #hint:empty { display: none; }
@@ -44,19 +49,21 @@
   <b>SMAK editor</b>
   <select id="model" title="The model"></select>
   <span id="bodies"></span>
-  <button data-act="cam:first" id="camFirst" title="As the game shows a view model (1)">First person</button><button data-act="cam:orbit" id="camOrbit" title="From outside: drag to turn, wheel to zoom, right drag to slide (2)">Orbit</button>
+  <button data-act="cam:first" id="camFirst" title="As the game shows a view model (1)">First person</button><button data-act="cam:orbit" id="camOrbit" title="From outside: drag to turn, wheel to zoom, right drag to slide, double click the model to turn about that point (2)">Orbit</button>
   <label title="The skeleton over the model (B)"><input type="checkbox" id="showBones" checked> bones</label>
   <label title="The pose at the keys before and after, faintly (O)"><input type="checkbox" id="showOnion"> onion</label>
   <label title="Textures smoothed as the game draws them, or pixel by pixel"><input type="checkbox" id="showLinear" checked> smooth</label>
-  <label title="smak's own picture of the baked model beside this one: what an agent sees"><input type="checkbox" id="showCompare"> smak's picture</label>
+  <label title="Both sides of every triangle: a face that is inside out, and a thin sheet from behind, are seen (F). The game shows one side only"><input type="checkbox" id="showBoth"> both sides</label>
+  <label title="Another body of this model beside this one, from the same camera at the same frame: chosen at the top of its own view (V)"><input type="checkbox" id="showSecond"> second body</label>
+  <label title="smak's own picture of the baked model beside this one, from the same camera: what an agent sees"><input type="checkbox" id="showCompare"> smak's picture</label>
   <button data-act="undo" id="undo" title="Ctrl+Z">Undo</button><button data-act="redo" id="redo" title="Ctrl+Y">Redo</button>
   <button data-act="save" class="go" title="Bake the project onto the original model, write it and check it (Ctrl+S)">Save model</button>
-  <span id="status"></span>
+  <span id="status"></span><span id="live" title="Whether the page hears from the editor's server. It takes up by itself, within a second, what an agent or another page changes: the project, the model's file, the list of models.">live</span>
 </div>
 <div id="main">
   <div id="left"><h3>Animations <small>(played by number)</small></h3><div id="anims" class="list"></div><h3>Skeleton <input type="text" id="boneFilter" placeholder="find" style="width:90px;float:right;margin-top:-3px"></h3><div id="tree" class="list"></div></div>
   <div id="mid">
-    <div id="stage"><div id="view"><canvas id="gl"></canvas><canvas id="over"></canvas><div class="tag" id="tag"></div><div class="tag" id="hint"></div></div><div id="cmp" hidden><img id="cmpImg" alt=""><div class="tag">smak's render of the baked model</div></div></div>
+    <div id="stage"><div id="view"><canvas id="gl"></canvas><canvas id="over"></canvas><div class="tag" id="tag"></div><div class="tag" id="hint"></div></div><div id="view2" hidden><canvas id="gl2"></canvas><div class="tag" id="bodies2"></div><div class="tag" id="tag2"></div></div><div id="cmp" hidden><img id="cmpImg" alt=""><div class="tag">smak's render of the baked model</div></div></div>
     <div id="tl">
       <div id="bar">
         <button data-act="first" title="First frame (Home)">|&lt;</button><button data-act="prev" title="A frame back (Left)">&lt;</button><button data-act="play" id="play" title="Play or pause (Space)" style="width:58px">Play</button><button data-act="next" title="A frame on (Right)">&gt;</button><button data-act="last" title="Last frame (End)">&gt;|</button>
