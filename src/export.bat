@@ -213,4 +213,31 @@ set "BUILD=!BUILD:"=!"
 echo   VERSION.txt  ^(build !BUILD!^)
 
 echo --- package ready: %EX% ---
+
+REM ---- mirror into the git working copy --------------------------------------
+REM The repo holds the same tree this package builds, so it was being kept in step by
+REM hand. Copied rather than moved: export\ stays the thing this script owns, and the
+REM repo is where it lands.
+REM
+REM /E takes empty folders too, /Y overwrites without asking, /I treats the target as a
+REM folder when it does not exist yet. Nothing is deleted at the far end: a file that
+REM was removed from export\ has to be removed from the repo by hand, deliberately, so
+REM this can never quietly wipe something that was only ever in the repo.
+set "REPO=D:\GIT Storage\ts_h9_team_elimination"
+if not exist "%REPO%" goto :norepo
+echo.
+echo --- copying into the git working copy ---
+xcopy "%EX%\*" "%REPO%\" /E /Y /I >nul
+if errorlevel 1 (
+    echo   [WARN] the copy reported errors -- check %REPO% before committing
+) else (
+    echo   copied to %REPO%
+)
+goto :copied
+
+:norepo
+echo.
+echo   [skip] %REPO% is not there, so nothing was copied into the repo.
+
+:copied
 endlocal

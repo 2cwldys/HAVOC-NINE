@@ -65,7 +65,7 @@
      Two classes do something you do not press a key for:
 
        Marksman          Barrett M82 and a Glock 20. On MSR they wear the
-                         msr_ghillie suit; an Insurrectionist marksman falls
+                         repughillie suit; an Insurrectionist marksman falls
                          back to that side's Assault model.
        Heavy             200hp and noticeably slower, with one frag grenade, and
                          recovers 10hp every 15 seconds on his own.
@@ -86,6 +86,35 @@
 
  .unready
      Withdraw your ready state.
+
+ .stim    (or bind a key to:  stim)
+     Use your stimpack: 25 to 50 health to yourself, ONCE A ROUND, whatever class
+     you are. How much is rolled when you use it, so spending it early may buy little.
+
+     Capped at your own class health, so a Heavy stops at 200 and a Marksman at 85.
+
+     Using it at full health is refused AND KEEPS IT -- you are told so and can still
+     use it later in the round.
+
+     You glow white while it lands, where a medic's heal glows red and an engineer's
+     resupply yellow, and it makes the medic's healing noise from your own body so the
+     people around you know you have spent it.
+
+     It comes back at the start of the next round. It does NOT come back if you
+     respawn in the middle of one.
+
+ .forfeit
+     Vote to concede the match for your side. EVERY human on that side has to type
+     it -- one person saying it is an opinion, all of them saying it is a decision.
+
+     Each vote is announced with how many have agreed and who is still holding out,
+     so the side knows it is being asked.
+
+     BOTS DO NOT COUNT. A side of one human and five bots could otherwise never
+     concede, because five of its six members can never type anything.
+
+     The other side takes the match, scored and announced exactly as it is when a
+     side is left empty. Votes are cleared at the start of every round.
 
  .status
      Print the current match state to chat.

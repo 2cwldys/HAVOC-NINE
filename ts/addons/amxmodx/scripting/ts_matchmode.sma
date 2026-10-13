@@ -162,6 +162,10 @@
  * player who rolled it fell back to TS's default. Nothing errors; the name is simply
  * wrong by one character.
  *
+ * Raised a THIRD time for the engineer: seven weathered RepuHeavyGld variants beside
+ * RepuHeavyGld and scda_Spy02 come to 161, two over the old 159. Two characters is not
+ * a reason to quietly drop somebody's model from a pool.
+ *
  * Raised a second time when a seventh insurgent Assault model took the list to exactly
  * 127, which a [128] holds with nothing to spare -- the same knife edge as before, one
  * character from silently dropping a name again.
@@ -170,7 +174,33 @@
  * buffer. One more model on a side and the loops in precache_models_in_spec and in the
  * precache walk have to come up with it, or the extra name is simply never read.
  */
-#define TSM_MODELLIST       160
+/*
+ * How much room a WHOLE class line gets, and the config line that carries it.
+ *
+ * These are a separate limit from TSM_MODELLIST and the easier one to overrun, because
+ * a spec holds BOTH sides' model lists plus the name, two weapon lists, health, armour,
+ * perk and speed. Class 1 reached 207 of the old 223 with five models a side -- sixteen
+ * characters from silently losing the end of the line, and a truncated spec does not
+ * warn, it hands the picker half a model name.
+ *
+ * TSM_LINE must stay ahead of TSM_SPEC: the file line is the spec plus `tsm_classN "`
+ * and its closing quote.
+ */
+#define TSM_SPEC            320
+#define TSM_LINE            384
+
+/*
+ * How many models one side of one class may list.
+ *
+ * The parser walked the list with a bare `guard < 8`, which is not a check but a stop:
+ * a ninth name is simply never read, with nothing said. The medic's side reaches eight
+ * exactly once its damaged variants go in, so the next addition anywhere would have
+ * vanished -- the same silent-truncation shape as the buffers above, in a different
+ * disguise.
+ */
+#define TSM_MAXMODELS        12
+
+#define TSM_MODELLIST       224
 #define TSM_MODELFIELD      344
 #define TSM_MAXWPN           6
 #define TSM_PERK_NONE        0
@@ -263,7 +293,8 @@ new g_cv_solo;
 new g_cv_dbglog, g_cv_logging;
 new g_cv_nospec;
 new g_cv_balgap, g_cv_balmode;
-new g_cv_haltleave, g_cv_haltdelay, g_cv_haltbypass;
+new g_cv_haltleave, g_cv_haltdelay, g_cv_haltbypass, g_cv_halthumans;
+new g_cv_specmodel;
 new g_cv_freezemethod;
 new g_cv_forcespeed;
 new g_cv_gamedesc;
@@ -285,6 +316,7 @@ new g_cv_prune, g_cv_prunedist;
 new g_cv_botreload;
 new g_cv_hoverinfo, g_cv_hoverrange;
 new g_cv_medheal, g_cv_medcool, g_cv_medrange, g_cv_medglow, g_cv_medshell;
+new g_cv_stim, g_cv_stimmin, g_cv_stimmax, g_cv_stimglow, g_cv_stimshell;
 new g_cv_deathlinger;
 new g_cv_squadmax, g_cv_squaddist, g_cv_squadwarp, g_cv_squadspeed;
 new g_cv_squadsteer, g_cv_squadreach;
@@ -344,11 +376,13 @@ new Float:g_team_menu_at[MAXPL];  // last time the team menu was put up for them
 
 new g_player_class[MAXPL];     // 0 = not picked; locked for the whole match
 new bool:g_eng_used[MAXPL];    // engineer has spent their resupply THIS ROUND
+new bool:g_stim_used[MAXPL];   // this player has spent their stimpack THIS ROUND
 new Float:g_medic_at[MAXPL];  // when this medic last healed, for the cooldown
 new Float:g_perk_at[MAXPL];   // when perk_use last ran, to dedupe button vs command
 new g_squad_leader[MAXPL];    // for a BOT: the officer it is following, 0 = nobody
 new g_bot_prethinks[MAXPL];   // diagnostic: does PlayerPreThink fire for bots at all?
 new bool:g_locked_out[MAXPL];  // joined mid-match; sits out until the match ends
+new bool:g_forfeit[MAXPL];     // has typed .forfeit this match
 new g_last_use[MAXPL];
 new bool:g_in_userinfo[MAXPL];
 new g_gamedesc[64];
@@ -1060,7 +1094,7 @@ parse_weapon_list(idx, team, const field[])
  */
 parse_class(idx, const spec[])
 {
-	new rest[224], carry[224], field[TSM_MODELFIELD];
+	new rest[TSM_SPEC], carry[TSM_SPEC], field[TSM_MODELFIELD];
 	copy(rest, charsmax(rest), spec);
 
 	// 1: display name
@@ -1142,7 +1176,7 @@ load_classes()
 {
 	g_class_count = 0;
 
-	new cvname[24], spec[224];
+	new cvname[24], spec[TSM_SPEC];
 	for (new i = 0; i < TSM_MAXCLASS; i++)
 	{
 		formatex(cvname, charsmax(cvname), "tsm_class%d", i + 1);
@@ -1697,7 +1731,7 @@ precache_player_model(const name[])
 /// Precaches every model named in one class spec's model field.
 precache_models_in_spec(const spec[])
 {
-	new rest[224], carry[224], field[TSM_MODELFIELD];
+	new rest[TSM_SPEC], carry[TSM_SPEC], field[TSM_MODELFIELD];
 	copy(rest, charsmax(rest), spec);
 
 	// Fields 1-3 are name and the two weapon lists; field 4 is the models.
@@ -1719,7 +1753,7 @@ precache_models_in_spec(const spec[])
 		new list[TSM_MODELLIST], item[64], tail[TSM_MODELLIST];
 		copy(list, charsmax(list), sides[t]);
 
-		for (new guard = 0; guard < 8 && list[0]; guard++)
+		for (new guard = 0; guard < TSM_MAXMODELS && list[0]; guard++)
 		{
 			strtok(list, item, charsmax(item), tail, charsmax(tail), ',', 0);
 			copy(list, charsmax(list), tail);
@@ -1755,7 +1789,7 @@ precache_class_models()
 		tlog("[TSM] %s not found at precache time -- falling back to the built-in class defaults.", cfg);
 	}
 
-	new line[256], spec[224], len;
+	new line[TSM_LINE], spec[TSM_SPEC], len;
 	for (new i = 0; i < 10; i++)
 	{
 		new want[16];
@@ -1839,7 +1873,7 @@ audit_class_models()
 			new list[TSM_MODELLIST], item[48], tail[TSM_MODELLIST];
 			copy(list, charsmax(list), g_class_model[c][t]);
 
-			for (new guard = 0; guard < 8 && list[0]; guard++)
+			for (new guard = 0; guard < TSM_MAXMODELS && list[0]; guard++)
 			{
 				strtok(list, item, charsmax(item), tail, charsmax(tail), ',', 0);
 				copy(list, charsmax(list), tail);
@@ -2287,6 +2321,8 @@ public plugin_init()
 	 * would happily have started on. tsm_balance_mode off switches this off with it.
 	 */
 	g_cv_haltleave = register_cvar("tsm_halt_on_leave", "1");
+	g_cv_specmodel = register_cvar("tsm_spectator_model", "Invisible");
+	g_cv_halthumans = register_cvar("tsm_halt_humans",   "1");
 
 	/*
 	 * How long after a departure the sides are counted again.
@@ -2406,6 +2442,20 @@ public plugin_init()
 	g_cv_medrange = register_cvar("tsm_medic_range",    "96");
 	g_cv_medglow  = register_cvar("tsm_medic_glow",     "1.5");
 	g_cv_medshell = register_cvar("tsm_medic_shell",    "16");
+
+	/*
+	 * The stimpack: everyone's own single self-heal, beside the medic's because it is
+	 * the same machinery pointed at the user instead of at someone they are aiming at.
+	 *
+	 * It has no sound of its own on purpose. It plays tsm_medic_sound, so there is one
+	 * healing sound on the server to change rather than two that can drift apart -- and
+	 * that one is already precached, so this adds no new way to fail a map load.
+	 */
+	g_cv_stim      = register_cvar("tsm_stim",           "1");
+	g_cv_stimmin   = register_cvar("tsm_stim_min",       "25");
+	g_cv_stimmax   = register_cvar("tsm_stim_max",       "50");
+	g_cv_stimglow  = register_cvar("tsm_stim_glow",      "1.5");
+	g_cv_stimshell = register_cvar("tsm_stim_shell",     "16");
 
 	/*
 	 * Long enough for the death animation to be seen.
@@ -2570,6 +2620,7 @@ public plugin_init()
 
 	// TS powerups: the command that activates one, and the cheat that grants one.
 	register_clcmd("tsm_model", "cmd_model");
+	register_clcmd("stim", "cmd_stim_console");
 
 	register_clcmd("usepowerup", "cmd_blockpowerup");
 	register_clcmd("powerup",    "cmd_blockpowerup");
@@ -3246,6 +3297,30 @@ count_on_team(team)
 	for (new i = 0; i < pnum; i++)
 	{
 		if (tsm_live_team_of(players[i]) == team)
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/*
+ * The same count, PEOPLE ONLY.
+ *
+ * count_on_team() counts bodies, which is the right definition of an even game: a side
+ * of three humans and a bot plays four. It is the wrong definition of someone leaving.
+ * rcbot refills a gap within a second or two, so a human walking out mid-match left the
+ * totals even and nothing ever halted -- the match simply carried on with a bot standing
+ * in for the player who had gone.
+ */
+count_humans_on_team(team)
+{
+	new n = 0;
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		if (!is_user_bot(players[i]) && tsm_live_team_of(players[i]) == team)
 		{
 			n++;
 		}
@@ -4266,6 +4341,196 @@ public task_live_audit()
  * read whole. A list that always reports the same small m is a list being truncated
  * somewhere before it gets here.
  */
+/*
+ * The stimpack: 50 health to yourself, once a round.
+ *
+ * The same three things the medic's heal does -- raise health, glow, make a noise --
+ * pointed at the user instead of at whoever they are aiming at. It deliberately shares
+ * glow_player and perk_sound rather than repeating them, so the three heals on this
+ * server look and sound like one another.
+ *
+ * WHITE, where the medic is red and the engineer yellow, so what happened is readable
+ * from across a room without anybody saying anything.
+ */
+/*
+ * .forfeit -- a side concedes, but only when ALL of its people agree.
+ *
+ * Shaped like ready-up on purpose: one person saying it is an opinion, everybody saying
+ * it is a decision. Each vote is announced with who is still holding out, so the side
+ * knows it is being asked rather than wondering why nothing happened.
+ *
+ * BOTS DO NOT COUNT, for the same reason they do not count when someone leaves: a side
+ * of one human and five bots could otherwise never concede, because five of its six
+ * members can never type anything.
+ */
+cmd_forfeit(id)
+{
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (g_state != ST_LIVE && g_state != ST_FREEZE && g_state != ST_ROUNDEND)
+	{
+		client_print(id, print_chat, "[MATCH] There is no match running to forfeit.");
+		return PLUGIN_HANDLED;
+	}
+
+	new team = g_match_team[id];
+	if (team != 1 && team != 2)
+	{
+		client_print(id, print_chat, "[MATCH] You are not on a side.");
+		return PLUGIN_HANDLED;
+	}
+	if (g_forfeit[id])
+	{
+		client_print(id, print_chat, "[MATCH] You have already voted to forfeit.");
+		return PLUGIN_HANDLED;
+	}
+	g_forfeit[id] = true;
+
+	new name[32], tname[48];
+	get_user_name(id, name, charsmax(name));
+	team_display(team, tname, charsmax(tname));
+
+	new players[32], pnum, want = 0, got = 0, holding[160];
+	holding[0] = 0;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		new pl = players[i];
+		if (is_user_bot(pl) || tsm_live_team_of(pl) != team)
+		{
+			continue;
+		}
+		want++;
+		if (g_forfeit[pl])
+		{
+			got++;
+		}
+		else
+		{
+			new n2[32];
+			get_user_name(pl, n2, charsmax(n2));
+			if (holding[0]) { add(holding, charsmax(holding), ", "); }
+			add(holding, charsmax(holding), n2);
+		}
+	}
+
+	if (got < want)
+	{
+		all_print("[MATCH] %s votes to forfeit for %s (%d of %d). Waiting on: %s",
+			name, tname, got, want, holding);
+		return PLUGIN_HANDLED;
+	}
+
+	// Everyone on that side agreed. The other takes it, by the same path an emptied
+	// side is taken on: score, announce, end, back to warmup.
+	new w = (team == 1) ? 2 : 1;
+	new wname[48];
+	team_display(w, wname, charsmax(wname));
+
+	remove_task(2);
+	remove_task(3);
+	remove_task(4);
+	remove_task(5);
+	g_freeze_left = 0;
+	g_round_left = 0;
+	g_end_pending_at = 0.0;
+	g_end_pending_winner = 0;
+
+	g_score[w]++;
+	all_print("[MATCH] MATCH OVER -- %s forfeits. %s wins, %d -- %d.",
+		tname, wname, g_score[1], g_score[2]);
+	tlog("[TSM] Match forfeited by team %d: all %d human player(s) agreed.", team, want);
+
+	g_state = ST_MATCHEND;
+	restore_all();
+	set_task(5.0, "task_to_warmup");
+	return PLUGIN_HANDLED;
+}
+
+cmd_stim(id)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_stim))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		client_print(id, print_chat, "[TSM] You have to be alive to use a stimpack.");
+		return PLUGIN_HANDLED;
+	}
+
+	if (g_stim_used[id])
+	{
+		client_print(id, print_chat, "[TSM] You have no more stimpacks left.");
+		return PLUGIN_HANDLED;
+	}
+
+	/*
+	 * Capped at the player's own class health, as the medic's heal is: a Heavy tops out
+	 * at 200 and a Marksman at 85, and a stim must not push anyone past what their class
+	 * is worth.
+	 */
+	new ci = resolved_class(id) - 1;
+	new maxhp = (ci >= 0 && ci < g_class_count) ? g_class_hp[ci] : 100;
+	if (maxhp < 1)
+	{
+		maxhp = 100;
+	}
+
+	new cur = get_user_health(id);
+	if (cur >= maxhp)
+	{
+		// REFUSED WITHOUT SPENDING IT, exactly as the medic's heal refuses. Taking
+		// someone's only stimpack for a heal that did nothing would just teach them to
+		// check the number before pressing the key.
+		client_print(id, print_chat, "[TSM] You are already at full health -- stimpack kept.");
+		return PLUGIN_HANDLED;
+	}
+
+	/*
+	 * Rolled HERE, after the full-health refusal above and not before it.
+	 *
+	 * A stimpack worth a known 50 is a number; one worth somewhere between 25 and 50 is
+	 * a decision, because spending it early might buy very little. Rolling before the
+	 * refusal would throw a roll away on a use that never happened, which costs nothing
+	 * but is the kind of thing that confuses anyone reading this later.
+	 *
+	 * random_num is inclusive at both ends. A min above max is clamped rather than
+	 * handed over backwards.
+	 */
+	new lo = get_pcvar_num(g_cv_stimmin);
+	new hi = get_pcvar_num(g_cv_stimmax);
+	if (lo < 1)  { lo = 1; }
+	if (hi < lo) { hi = lo; }
+
+	new after = cur + random_num(lo, hi);
+	if (after > maxhp)
+	{
+		after = maxhp;
+	}
+	set_user_health(id, after);
+	g_stim_used[id] = true;
+
+	glow_player(id, 255.0, 255.0, 255.0,
+		get_pcvar_float(g_cv_stimglow), get_pcvar_num(g_cv_stimshell));
+
+	// The medic's own healing sound, from the user's body so the people around them hear
+	// it too -- a stim nobody else notices is worth less than one they do.
+	perk_sound(id, g_cv_medsound);
+
+	client_print(id, print_chat, "[TSM] You used your only stimpack. (+%d health)", after - cur);
+	dbgv("stim: %d %d -> %d (cap %d)", id, cur, after, maxhp);
+	return PLUGIN_HANDLED;
+}
+
+/// `stim` in the console, so it can be bound to a key. Bots never see this.
+public cmd_stim_console(id)
+{
+	return cmd_stim(id);
+}
+
 public cmd_model(id)
 {
 	if (!is_user_connected(id))
@@ -7654,6 +7919,68 @@ Float:wanted_speed()
  * the one-second tick matters: a correction a second later still lets someone switch,
  * shoot, and switch back, and alive-counting is wrong for every frame in between.
  */
+/*
+ * Puts someone who may not play back on the bench, and hides them.
+ *
+ * A late joiner was already eliminated and taken out of play, but they were left ON a
+ * playing side wearing a player model: they showed on the scoreboard as a man on that
+ * team, counted to anyone reading the sides by eye, and could sit in the middle of a
+ * firefight as a body nobody could shoot. This moves them to the spectator team as well
+ * and puts the Invisible model on them, so they are watching in every sense.
+ *
+ * The model is written the same way class models are, and is enforced per frame by
+ * fw_postthink_post like any other -- so TS re-applying its own pick does not undo it.
+ */
+park_spectator(id, const why[])
+{
+	if (!is_user_connected(id) || is_user_bot(id))
+	{
+		return;
+	}
+
+	g_elim[id] = true;
+	remove_from_play(id);
+	set_ts_spectator(id);
+
+	new want[32];
+	get_pcvar_string(g_cv_specmodel, want, charsmax(want));
+	if (want[0])
+	{
+		new mpath[96];
+		formatex(mpath, charsmax(mpath), "models/player/%s/%s.mdl", want, want);
+		if (file_exists(mpath))
+		{
+			g_model_want_idx[id] = engfunc(EngFunc_ModelIndex, mpath);
+			copy(g_model_chosen[id], charsmax(g_model_chosen[]), want);
+			g_model_ok[id] = 1;
+
+			new buf = engfunc(EngFunc_GetInfoKeyBuffer, id);
+			g_in_userinfo[id] = true;
+			engfunc(EngFunc_SetClientKeyValue, id, buf, "model", want);
+			g_in_userinfo[id] = false;
+			copy(g_model_last[id], charsmax(g_model_last[]), want);
+		}
+		else
+		{
+			log_amx("[TSM] WARNING: tsm_spectator_model '%s' is not installed (%s) -- a benched player stays visible.",
+				want, mpath);
+		}
+	}
+
+	client_print(id, print_chat, "[MATCH] %s", why);
+}
+
+/// Deferred out of fw_userinfo, which must not be re-entered while it is deciding.
+public task_park_spectator(taskid)
+{
+	new id = taskid - 11000;
+	if (!is_user_connected(id) || !g_locked_out[id])
+	{
+		return;
+	}
+	park_spectator(id, "A match is in progress -- you are benched until it finishes.");
+}
+
 public fw_userinfo(id, buffer)
 {
 	if (!get_pcvar_num(g_cv_enabled))
@@ -7691,6 +8018,37 @@ public fw_userinfo(id, buffer)
 	if (g_state != ST_FREEZE && g_state != ST_LIVE && g_state != ST_ROUNDEND)
 	{
 		return FMRES_IGNORED;
+	}
+
+	/*
+	 * THE HOLE THIS CLOSES: someone with no side of their own, taking one mid-match.
+	 *
+	 * Everything below locks a player to the team they already have, and the early
+	 * return under it skips anyone whose g_match_team is 0 -- which is precisely the
+	 * spectator, or the late joiner, who is in the act of joining. The plugin's own
+	 * .team menu refuses during a match, but TS's native one does not go through it, so
+	 * that was the way in: pick a side from the mod's menu, land on it, unbalance the
+	 * round.
+	 *
+	 * Deferred to a task rather than acted on here, because putting them back means
+	 * writing userinfo and this forward must not be re-entered while it is deciding.
+	 */
+	if (is_user_connected(id) && !is_user_bot(id) && g_match_team[id] < 1)
+	{
+		new got[32];
+		engfunc(EngFunc_InfoKeyValue, buffer, "team", got, charsmax(got));
+
+		new t1[32], t2[32];
+		team_rawname(1, t1, charsmax(t1));
+		team_rawname(2, t2, charsmax(t2));
+
+		if (got[0] && (equali(got, t1) || equali(got, t2)))
+		{
+			g_locked_out[id] = true;
+			remove_task(id + 11000);
+			set_task(0.2, "task_park_spectator", id + 11000);
+			dbgv("late join refused: %d tried to take '%s' mid-match", id, got);
+		}
 	}
 
 	if (!is_user_connected(id) || g_match_team[id] < 1)
@@ -8826,6 +9184,8 @@ start_round()
 		// whole match.
 		g_eng_used[id] = false;
 		g_medic_at[id] = 0.0;
+		g_stim_used[id] = false;
+		g_forfeit[id] = false;
 		g_squad_leader[id] = 0;
 
 		// Zeroed so the first tick of the round tops bots up straight away rather
@@ -9483,6 +9843,18 @@ public hook_say(id)
 		return PLUGIN_HANDLED;
 	}
 
+	if (equali(args, ".stim"))
+	{
+		cmd_stim(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".forfeit"))
+	{
+		cmd_forfeit(id);
+		return PLUGIN_HANDLED;
+	}
+
 	if (equali(args, ".roam"))
 	{
 		cmd_roam(id);
@@ -10110,6 +10482,8 @@ public client_disconnected(id)
 	g_team_menu_at[id] = 0.0;
 	g_player_class[id] = 0;
 	g_eng_used[id] = false;
+	g_stim_used[id] = false;
+	g_forfeit[id] = false;
 	g_last_use[id] = 0;
 
 	// Frees the number for the next bot on that side, so the set stays dense.
@@ -10328,9 +10702,63 @@ bool:halt_for_imbalance()
 		return false;
 	}
 
-	if (balance_ok())
+	/*
+	 * Two ways to be short, and either one halts.
+	 *
+	 * balance_ok() asks whether the sides are even counting everybody. The human test
+	 * asks whether they are even counting only PEOPLE, which is what a match actually
+	 * is -- without it a player leaving is invisible, because rcbot closes the gap
+	 * before tsm_halt_delay is up and the totals never look wrong.
+	 *
+	 * A side with no humans left on it at all halts whatever the gap setting says. There
+	 * is nobody there to play the rest of the match against.
+	 */
+	new h1 = count_humans_on_team(1);
+	new h2 = count_humans_on_team(2);
+	new hgap = (h1 > h2) ? (h1 - h2) : (h2 - h1);
+	new bool:humans_short = false;
+
+	if (get_pcvar_num(g_cv_halthumans))
+	{
+		humans_short = (hgap > get_pcvar_num(g_cv_balgap)) || (h1 == 0) || (h2 == 0);
+	}
+
+	if (balance_ok() && !humans_short)
 	{
 		return false;
+	}
+
+	/*
+	 * NOBODY HUMAN LEFT AT ALL is not a suspension, it is an abandonment.
+	 *
+	 * A halt parks the match in ready-up and KEEPS THE SCORE, which is right when one
+	 * side is short and the people still here are waiting for a replacement. It is wrong
+	 * when everyone has gone: the bots carry on holding a scoreline nobody is playing
+	 * for, and the next person to connect walks into somebody else's half-finished match
+	 * and resumes it.
+	 *
+	 * So an empty server goes all the way back to warmup, exactly as amx_match_cancel
+	 * leaves it, rather than sitting halted.
+	 */
+	if (h1 == 0 && h2 == 0)
+	{
+		remove_task(2);
+		remove_task(3);
+		remove_task(4);
+		remove_task(5);
+		g_freeze_left = 0;
+		g_round_left = 0;
+		g_end_pending_at = 0.0;
+		g_end_pending_winner = 0;
+
+		reset_ready();
+		// Restore first, then wipe: restore_all() reads g_elim to decide who to put back.
+		restore_all();
+		clear_match_state();
+
+		all_print("[MATCH] Everyone left -- match abandoned, back to warmup.");
+		tlog("[TSM] match abandoned: no human players remain on either side");
+		return true;
 	}
 
 	new n1 = count_on_team(1);
