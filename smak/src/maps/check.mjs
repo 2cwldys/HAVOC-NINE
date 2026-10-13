@@ -19,6 +19,8 @@ import {
 import { valueOf, brushModelOf, LONGEST_KEY, LONGEST_VALUE } from "./entities.mjs";
 import { miptexHeader, enginePaletteAt, TEXTURE_GRID, MIP_LEVELS } from "./miptex.mjs";
 import { texturesFor } from "./wad.mjs";
+import { modOf } from "./mod.mjs";
+import { checkEntities as checkAgainstMod } from "./rules.mjs";
 
 /**
  * How many of each thing an engine holds in a version 30 map. Where each number is from:
@@ -447,7 +449,7 @@ function checkEntities(bsp, engine, { errors, warnings, facts }) {
 }
 
 /** Everything `checkBsp` looks at once the lumps are known to be inside the file. */
-function inspect(bytes, engine, folders, located, report) {
+function inspect(bytes, engine, folders, located, report, against) {
   const { facts, warnings } = report;
   const bsp = readBsp(bytes);
   const counts = checkCounts(bsp, engine, report);
@@ -476,6 +478,13 @@ function inspect(bytes, engine, folders, located, report) {
   checkLight(bsp, engine, report);
   const textures = checkTextures(bsp, engine, folders, report);
   const resources = checkEntities(bsp, engine, report);
+  // the entities against the mod: its classes and keys, the names, its rules, its files
+  if (against.mod || against.definitions) {
+    const found = checkAgainstMod(bsp, { ...against, folders });
+    report.errors.push(...found.errors);
+    warnings.push(...found.warnings);
+    facts.push(...found.facts);
+  }
   const openOutside = bsp.leaves.length > 0 && bsp.leaves[0].contents !== CONTENTS.SOLID;
   if (openOutside) warnings.push("leaf 0 is not solid: every map's is, and the engine counts on it");
   const degenerate = bsp.faces.filter((face) => face.edgeCount < 3).length;
@@ -505,9 +514,17 @@ function endsWithExtraLumps(bytes, located) {
  * then `valve`), in which the .wad files and the textures the map wants are then looked for; without them
  * the map's wants are only listed. A file that is cut short, broken or not a GoldSrc map is reported as an
  * error like any other: nothing is thrown for what is wrong with the map.
+ *
+ * `mod`: the mod's profile (mod.mjs), which gives the folders unless they are given and has the entities
+ * checked against the mod; `definitions`: entity definitions beside the profile's, or with no profile (an
+ * FGD's, or learned from the mod's maps). With either, what `checkEntities` of rules.mjs finds is among the
+ * sentences: a class that does not exist (an error), a key its class does not have, a value of the wrong
+ * kind, a name nothing answers to, a broken rule of the mod, a file the game does not have.
  */
-export function checkBsp(bytes, { engine = "goldsrc", folders = undefined } = {}) {
+export function checkBsp(bytes, { engine = "goldsrc", folders = undefined, mod, definitions } = {}) {
   if (!MAP_LIMITS[engine]) throw new Error(`engine: goldsrc or xash, not ${engine}`);
+  const profile = modOf(mod);
+  if (folders === undefined && profile?.folders.length) folders = profile.folders;
   const errors = [];
   const warnings = [];
   const facts = [];
@@ -520,7 +537,7 @@ export function checkBsp(bytes, { engine = "goldsrc", folders = undefined } = {}
   }
   if (!checkLumps(bytes, located, report)) return report;
   try {
-    Object.assign(report, inspect(bytes, engine, folders, located, report));
+    Object.assign(report, inspect(bytes, engine, folders, located, report, { mod, definitions }));
   } catch (e) {
     // a read past the end of the file is the file's fault; anything else is the kit's, and is not hidden
     if (!(e instanceof RangeError)) throw e;

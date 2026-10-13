@@ -4,7 +4,7 @@ Tools for making and changing GoldSrc models (`.mdl`: Half-Life and its mods), b
 coding agent such as Claude Code. You say what you want; the agent writes small scripts with this kit, draws the
 result into pictures to check its own work, and hands you a `.mdl` to try in the game.
 
-Version 0.8.0. An early release, made for an agent to work. For the person it has two pages in the browser: a
+Version 0.10.0. An early release, made for an agent to work. For the person it has two pages in the browser: a
 **viewer** that shows any two models side by side, turning and playing their animations together, and an
 **editor** for touching up a model by hand (its animations, events and textures; not its shape), on a project
 file the agent can work on too (`editor/README.md`).
@@ -81,15 +81,16 @@ body 0: `info` shows the body numbers, and `--body N` picks one.
 | `AGENTS.md` | The briefing for the agent: how a model is put together, the rules, the recipes. Worth a read yourself. |
 | `docs/API.md` | Every function. |
 | `docs/ENGINES.md` | GoldSrc against Xash: limits and differences. |
-| `docs/MAPS.md` | Maps: a compiled map (`.bsp`) read, checked, its entities changed, its textures and `.wad` files, and pictures of it (a plan, views from inside). |
+| `docs/MAPS.md` | Maps: a compiled map (`.bsp`) read, checked, its entities changed, its textures and `.wad` files, pictures of it (a plan, views from inside, a side section, its storeys), and the walk test. |
 | `docs/MAPS-MAKING.md` | Maps: brush source (`.map`) written from a script, checked, drawn, and compiled with VHLT, an outside program. |
 | `bin/smak.mjs` | The command line. |
 | `src/` | The library: the model reader and writer, pictures, fitting, drawing, checking, working by place, and the workshop for building shapes and painting textures. |
-| `src/maps/` | Maps, exported as `maps`: reading and checking a `.bsp`, entities, `.wad` files, brush source, the compile, and pictures of a map. |
+| `src/maps/` | Maps, exported as `maps`: reading and checking a `.bsp`, entities, `.wad` files, brush source, the compile, pictures of a map, and the walk test. |
 | `kits/` | Builders for swords and knives, axes, blunt weapons and bows. |
 | `viewer/` | The page that shows models side by side, and its small server. |
 | `editor/` | The page for re-timing and re-posing animations, events and textures by hand, its server, and the same edits from a terminal. |
 | `examples/` | Seven scripts, one for each kind of work; the seventh makes a small map. |
+| `profiles/` | One mod's profile (Master Sword Classic's), as an example of what a mod's own is: what its maps' entities are checked against. No part of the kit's core, and it holds no game content. |
 | `mcp/` | The kit as an MCP server, for a client with no shell: `mcp/README.md`. |
 | `test/` | The kit checking itself: `selftest.mjs` runs the files beside it, one an area. `test/fixtures/` holds the kit's own small map. |
 
@@ -108,6 +109,60 @@ body 0: `info` shows the body numbers, and `--body N` picks one.
   the game is the real test.
 - Many models give the left and right side of the body the same pixels of a texture. A mark painted on one side
   then shows on the other; the kit reports how much of each texture is shared.
+
+## What changed in 0.10.0
+
+A map's entities held against the game that will read them. A map can compile, look right in every picture,
+and still be wrong for its mod: a game drops a class it does not have and passes over a key it never reads,
+and says so nowhere.
+
+- **Entity definitions** from three places, used alone or together: a game's `.fgd` files
+  (`maps.definitionsOf`), the mod's own maps (`maps.learnEntities`, `smak map-learn`: a hundred maps in under
+  half a second, kept in a file), and the classes its own program has (`maps.classesOfDll`).
+- **The entity check**, in `checkPlan` and `checkBsp` when they are given `mod` or `definitions`
+  (`smak map-check --mod`, `--fgd`): a class that does not exist, a point class made of brushes, a key its
+  class does not have, a value of the wrong kind, a name nothing answers to, a file the game does not have or
+  has in other capitals than the map writes.
+- **Mod profiles**: one plain object for a mod (its folders, its definitions, its start classes, the boxes
+  its classes move with, its doors, its rules), taken as `mod` by the checks, the walk test and the pictures.
+  The kit ships Half-Life's (`maps.GOLDSRC`) and no mod's; `profiles/mastersword.mjs` is one mod's, as the
+  example, with each rule's source written over it. `docs/MAPS-MAKING.md`, "A mod's profile", is how to get
+  from nothing to a checked profile for a mod the kit has never seen.
+- **Rules** a profile carries, as data: how many entities may name one other, a key that works only beside
+  another, ranges that must meet and not overlap, a count that must end, a name that must exist.
+- The self-test has 21 cases for it, against a made-up game of the kit's own.
+- **A map's pictures show the game's own files**: with `models`, each model with its textures (a masked
+  one's holes open: a tree's crown is leaves and air), in the body, skin, sequence, scale and angles its
+  entity gives, lit by the floor under it; with the game's folders, each sprite as its first frame, blended
+  by its render mode, and the sky as its own six pictures. A `{` texture has its holes only where the game
+  gives them.
+- **The walk test plays more of the game**: a slope too steep to stand on is slid down and never walked up;
+  a place a player gets into and not out of (a pit, the foot of such a slope, a room a teleport leads into)
+  is a warning with where it is; and with `jump` a jump across a gap is part of the walk, from the engine's
+  own numbers, with what only a jump reaches told apart. 20 cases more, 21 where the compilers are.
+
+## What changed in 0.9.0
+
+A map judged with no game running. An agent that drafted a map could not tell a good one from a bad one: its
+entities were dots, nothing said whether a player could get anywhere, and a plan showed one height.
+
+- **The walk test** (`maps.reachOf`; `smak map-reach`), of brush source and of compiled maps: from the places
+  to start, as the box of a standing player (steps of 18, any drop, doors open, ladders climbed), it says
+  which entities are not reached and what it would take (a jump, a crouch, an opening that is not there),
+  which stand in something solid or hang over their floor, how wide and high each gate and doorway is, and
+  how far the walk is. It is geometry: nothing of it was measured against the game.
+- **Entities at their true size**: a place to start, a monster and an NPC are drawn as the box they move with
+  (32 x 32 x 72, or `bodies: { name: "large" }`), in views, on plans and on sections; with `models` and the
+  game's folders, an entity that names a `.mdl` is drawn as that model.
+- **Heights**: `maps.sectionOf` (a side section along a line, each floor with its height), `maps.storeysOf`
+  (a plan for each storey, side by side), and `heights: true` on a plan. `smak map-section`, `map-storeys`.
+- **A plan that can be read when it is crowded**: a label that has no room moves to another side of its dot,
+  then becomes the number alone; `legend: true` lists the entities beside the plan. `reach` tints the walk
+  test on it. `maps.openingViews` (`smak map-openings`) looks through every opening the walk test found.
+- **The plan check knows a mod's starts**: Master Sword's `ms_player_begin` and `ms_player_spawn` count
+  without being asked, and its facts say which were found. It numbers entities as the pictures do.
+- The MCP server's `check` takes `walk`, and its `render` the kinds `section`, `storeys` and `openings`.
+- The self-test has 165 cases, 170 where the compilers are.
 
 ## What changed in 0.8.0
 

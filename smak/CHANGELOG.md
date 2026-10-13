@@ -3,6 +3,195 @@
 The newest first. A version that changes what a model's file looks like, or that a model made before needs
 mending for, says so under **Mind**.
 
+## 0.10.0 (2026-10-13)
+
+A map's entities held against the game that will read them. The first draft of the first map made with the
+kit used three classes its mod does not have, put a key on entities where the game never reads it, left a
+spawn point without the key that makes it one, named an item by its script's path where the game wants the
+item's name, and would have put 39 monsters in an area that holds 32. It compiled, and every picture of it
+was right. A person found all five, by reading a hundred maps and the game's C++; the kit had said nothing.
+
+- **Entity definitions from `.fgd` files** (`maps.readFgd`, `loadFgd`, `definitionsOf`, in
+  `src/maps/fgd.mjs`): the Valve format read into plain data: `@BaseClass`, `@PointClass`, `@SolidClass`,
+  `base(...)`, `size(...)`, `studio(...)`, every key with its type, choices, flags and default, `@include`
+  followed. Six FGDs found on one machine (Half-Life's as Master Sword ships it, Master Sword's two, The
+  Specialists', Counter-Strike's, VHLT's) are read whole.
+- **Definitions learned from a mod's own maps** (`maps.learnEntities`, `entitiesOfFile`, in
+  `src/maps/learn.mjs`; `smak map-learn <folder> -o <file>`), for a mod with no FGD or a wrong one: each
+  class with how often it appears and whether as a point or of brushes, each key with how often and its
+  commonest values, the keys every entity of a class gives and the keys that are always given together. Only
+  each map's header and entity text are read: Master Sword's 100 maps (593 MB) take under half a second, and the
+  answer is kept in a file the caller names until a map of the folder changes. Used in place of an FGD, more
+  weakly ("never seen in any of the mod's 100 maps" is a warning, with the count), and beside one.
+- **The classes a game's own program has** (`maps.classesOfDll`, `definitionsOfDll`, in `src/maps/dll.mjs`):
+  the engine makes an entity by calling the function of the game's library that bears the classname, so the
+  library's exported names are the one certain list of the classes that exist. With it, a class the program
+  does not have is an error whatever an FGD says, and one it has is no fault though no FGD and no map uses
+  it: Master Sword's FGD and all its 100 maps lack `msmonster_giantspider`, which its program has.
+- **The entity check** (`maps.checkEntities`, in `src/maps/rules.mjs`), which `checkPlan` (brush source) and
+  `checkBsp` (a compiled map) run when given **`mod`** or **`definitions`**: a class that is not defined; a
+  point class given brushes and a brush class given none; a key its class does not define (a warning: a mod
+  reads keys its FGD forgets, and a key the mod's own maps give that class is not told); a value that is not
+  of its key's type or not among its choices (not told when the mod's own maps do the same: the FGD is then
+  the one that is wrong); a `target`, `killtarget`, `master` or any `target_destination` that names no entity;
+  the targetnames nothing names, as a fact.
+- **Mod profiles** (`maps.GOLDSRC`, `modOf`, `loadMod`, `withMod`, `bodiesOf`, `definitionsFor`,
+  `joinDefinitions`, in `src/maps/mod.mjs`): one plain object a mod: its folders and `.wad` files, where its
+  definitions come from, its start classes, the classes that walk with their boxes and where a thing's origin
+  is in its box, the classes that open, the classnames that switch an entity off, its rules. `checkPlan`,
+  `checkBsp`, `reachOf` and every picture take `mod` and no longer need the same options one by one. A
+  class's FGD `size(...)` is the box the walk test and the pictures move it with. The kit ships `GOLDSRC`,
+  Half-Life's own, with nothing of any mod in it; a mod's profile is data the caller passes or loads from a
+  file, never built in.
+- **Rules a profile carries**, as data with the reason of each, and small functions: no more than so many
+  entities may name one other (`limit`); a key that does something only beside another (`beside`); ranges that
+  must meet and not overlap among the entities at one place (`bands`); an entity that waits for others, each
+  of which must have a count that ends (`finite`); a key whose value must be the name of something that
+  exists, in the map or wherever a function of the profile looks (`names`: a script, an item).
+- **Files**: every model, sprite, sound, sky picture and `.wad` an entity or the worldspawn names is looked
+  for in the mod's folders and then `valve`. One that is found only in other capitals than the map writes is
+  told: Windows finds it, a server on Linux does not (`maps.fileFinder`).
+- **`profiles/mastersword.mjs`**: Master Sword Classic's profile, as one mod's and an example, outside the
+  kit's core. It holds no game content: it reads the installed game's program, FGDs, maps and script pack when
+  it is made. Every rule has its source over it, most of them a line of the game's C++. On the game's own 100
+  maps: no map breaks the limit of 32; `reqhp` stands without `spawnarea` in 1 map; no ranges gap or overlap;
+  26 spawn areas in 9 maps wait on `fireallperish` for a monster with no `lives`, which the game's code says
+  never fires; 20 classnames in 11 maps are not in the program (misspellings such as `func_monsterclips`).
+- **Commands**: `smak map-check` takes a `.map` as well as a `.bsp`, and `--mod <profile.mjs|.json|goldsrc>`,
+  `--fgd`, `--learned`, `--scripts`, `--cache`; `smak map-learn <folder> -o <file> [--class name]`; `smak
+  map-reach --mod`. The MCP tool `check` takes `against` (FGDs, learned definitions, a profile that is data).
+- The self-test has 21 cases for all of this (`test/24-maps-mods.mjs`), with an FGD and a made-up game of the
+  kit's own in `test/fixtures/` and no game's content. The five faults above are cases of it.
+
+And what the pictures and the walk test could not show of that same map: its trees were blue blobs, its
+torches boxes, its sky one colour, and nothing said that a player who dropped into a pit could not leave it.
+
+- **Models in a map's pictures wear their textures** (`src/maps/figures.mjs`): each triangle its own, the
+  nearest pixel of it, seen from its front as the game draws it. A masked texture's holes are open (a crown
+  is leaves and air; it was one flat colour, the mean of its picture with the blue of its holes in it); an
+  additive one is added to what is behind it. A model takes the light of the floor under it. An entity's own
+  keys stand it: `angles` (all three, by the engine's own arithmetic), `body`, `skin`, `sequence` and
+  `frame`, `scale` (`modelScale: false` where a mod's drawing does not scale models). A model is read once
+  and kept: twelve views of a map with sixty-five models take under a second together.
+- **Sprites** (`maps.readSpr`, `spritesOf`, `boardOf`, in `src/maps/sprites.mjs`): with the game's
+  `folders`, an entity that names a `.spr` (`env_sprite`, `env_glow`) is drawn as its first frame at its
+  `scale`, set up by the sprite's kind and blended by the entity's render mode (whole, with holes, added,
+  tinted, a glow that grows with its distance), as Xash3D FWGS draws one. A small cross on a plan.
+- **The sky's own picture** (`maps.skyOf`, `skyColour`, `readTga`, in `src/maps/sky.mjs`): the six sides
+  the worldspawn's `skyname` names (`gfx/env/<name>rt.tga` and its like, or `.bmp`), where the engine lays
+  them; a flat colour where they are not found, and a note that names the file.
+- **A `{` texture has its holes where the game gives them**: on a brush entity in render mode 4. On the world
+  and in any other mode a view fills them with the texture's last colour, as the game does, and says how
+  many faces: a fence left without its `rendermode` is seen before the game shows it.
+- **`entities: "game"`** (`--entities game`): only what the game shows is drawn (models and sprites, no box
+  for a start or a monster): with `labels: false`, a picture to lay beside a screenshot.
+- **One-way places** (`reachOf(...).oneWay`, `trapped(x, y)`; a warning): floor a player gets to from the
+  places to start and from which there is no way back to one, by a step, a jump of 63, a jump across a gap,
+  crouching or a teleport: a pit, the foot of a slope too steep to climb, a room a teleport leads into. Each
+  with where it is, how large, how it is entered and what is in it. `trigger_changelevel` is a way out, and
+  `exits` (`--exit`) names a mod's own. A plan with `reach` tints such a place amber.
+- **Slopes as the engine has them**: how each floor lies is read from the map (a brush's plane; a compiled
+  map's clip hull), and one whose normal has a z under 0.7 is slid down and never walked or jumped up.
+  `spaceOf(...).blocked` gives each stretch's `slant`. `slopes: false` (`--no-slopes`) walks as 0.9.0 did.
+- **Jumps across gaps** (`jump: true`, `--jump`): one arc at a run, from the engine's own numbers (a throw
+  of 268.3 units a second up, a gravity of 800, a run of 320: the body's middle goes 215 landing level;
+  `speed`, `gravity`), with the whole body clear on the way. What only a jump reaches is told apart: an
+  entity's `how` is `"jump"`, `leaps` lists the jumps, `jumped(x, y)` is that floor (blue on a plan). An
+  entity a walk does not reach says which jump would: `a jump of 144 across a gap, from ... to ...`. The
+  numbers and where each is from are in `docs/MAPS.md`, "The engine's numbers".
+- **Commands**: `map-reach --jump --speed --gravity --no-slopes --exit`; the map pictures take
+  `--entities game`, `--no-sprites`, `--no-sky`, `--sky r,g,b`, `--no-model-scale`.
+- The self-test has 20 cases for these, 21 where the compilers are (`test/25-maps-seen.mjs`,
+  `test/26-maps-play.mjs`): a card of two triangles for a model, sprites and skies written byte by byte, a
+  hall cut by a trench and a hall with a ramp.
+
+**Mind**
+
+- **With no `mod`, nothing changes**: `checkPlan` and `reachOf` still count `START_CLASSES` (Half-Life's two
+  starts and Master Sword's two), and no entity is looked up. With a profile, the starts are the profile's:
+  `GOLDSRC` asks for Half-Life's alone. `checkPlan`'s sentence for a map with no start now ends with the two
+  ways of naming a mod's own (`mod`, `starts`).
+- **`bodyFor`: a box of exactly a hull's size is that hull.** `bodies: { name: { half: 32, height: 64 } }` was
+  "a box of its own", which a compiled map's walk passes over; it is now walked as the large hull.
+- **Not measured in a game.** The entity check holds a map against what was written down (an FGD), counted
+  (the maps) or read (the program's class list, a profile's rules). It does not run the game: a key that
+  exists and is given the wrong meaning passes.
+- **Pictures given `folders` look different**: sky faces show the sky's picture where the folders have it
+  (`sky: false` for the flat colour), and an entity that names a sprite is drawn as it and no longer as a
+  small box (`sprites: false`). `facts.marked[].drawn` may be `"sprite"`; the note `N as their model, in flat
+  colours` is `N as their model, with its textures`. `figuresOf` gives each figure `surfaces` and `pose`;
+  its `triangles` are still `{ points, colour }`, the colour now without the blue of a masked texture's
+  holes. A model is seen from its front only, where both sides of every triangle were drawn.
+- **A model follows its entity's `scale`, `body`, `skin`, `sequence` and all three `angles`**, where only its
+  yaw was read. The engine's own drawing does not scale a model and Master Sword's does: `modelScale: false`
+  for a mod that does not.
+- **A `{` texture on the world, or on an entity that is not in render mode 4, is drawn filled.** It was
+  drawn with holes everywhere, which the game does not do.
+- **The walk test no longer walks up a slope steeper than 45.6 degrees**, which it did wherever each 8 units
+  rose no more than 18. On the two maps it was run on, the floor walked is 1.3 and 2.7 in 100 smaller and
+  the same entities are reached. `slopes: false` is the old walk.
+- **With `jump`, an entity only a jump reaches has `how: "jump"`**, where it had `"walk"`; it is `reached`
+  as before. A jump is now also one across a gap, so `jump: true` reaches more floor than it did.
+- **`reachOf` warns of one-way places**, which is one more warning a map may have. `map-reach` still ends
+  with 1 only for an entity that is not reached or stands in something solid.
+- **Not measured in a game.** The models, the sky and the trees of one map were laid beside the game's own
+  screenshots and agree in place, turn, size, holes and sky (`docs/MAPS.md`, "Against the game"); a sprite
+  was not looked at there. A model's pitch and roll, a sprite's glow and every jump the walk test finds are
+  the engine's arithmetic read from its source (Xash3D FWGS's drawing; Half-Life's `pm_shared.c`), not seen
+  in a game. The MCP server draws the sky and the sprites when its models folder is the game's; it does not
+  take `jump`, `models` or `exits` (its tools' descriptions are kept short): they go by `run`.
+
+## 0.9.0 (2026-10-12)
+
+A map judged with no game running. The first map drafted with the kit (a farm, three terraces and a cellar,
+from a script) showed what its maker could not tell: entities were dots, nothing said whether a player could
+get from the start to each place, and a plan showed one height at a time.
+
+- **The walk test** (`maps.reachOf`, in `src/maps/reach.mjs`; `smak map-reach`), of brush source and of
+  compiled maps. From the places to start it floods the floor as the box of a standing player: up a step of
+  18, down any drop, doors open (`doors: "closed"`, `open`, `shut`), ladders and liquids climbed, teleports
+  followed. It says, in sentences: the entities a player goes to that are not reached, each with what it
+  would take (`only by a jump`, `only crouching` with where and how low, `open air leads to it` with how near
+  the walked floor comes, `no opening leads to it`, `inside something solid`); the entities whose box does
+  not fit where they stand, and how far to lift one sunk in its floor; those that hang; every opening with
+  its width and height, and those a large monster's box does not pass; the walk to chosen entities, with its
+  way. Brush source is measured by growing each brush by the body, as the compilers grow their clip hulls; a
+  compiled map by its own clip hulls. On the kit's own two rooms the two give the same floor to the unit.
+- **The space** (`maps.spaceOf`, `restOf`, `bodyFor`, `BODIES`, in `src/maps/space.mjs`): at a place, the
+  heights at which a body fits; whether one fits with its feet at a point, and the floor under it.
+- **Entities at their true size** (`src/maps/figures.mjs`): a place to start, a monster and an NPC are drawn
+  as the box they move with (32 x 32 x 72; `bodies: { name: "large" }` for 64 x 64 x 64) in `drawMap` and
+  `drawSource`, outlined on `planOf` and `planOfSource`, and on a section. With `models` and `folders`, an
+  entity that names a `.mdl` (or that `models` names one for) is drawn as that model, in flat colours.
+  `--body`, `--models`, `--model` on the command line.
+- **A side section** (`maps.sectionOf`; `smak map-section`): an upright cut along a line, floors with their
+  heights written under them, the entities on the line.
+- **The storeys side by side** (`maps.storeysOf`, `maps.storeyCuts`; `smak map-storeys`): the cuts that show
+  every floor are found, and each plan marks the entities of its own storey. `heights: true` (`--heights`)
+  writes each floor's height on any plan.
+- **A view through each opening** (`maps.openingViews`; `smak map-openings`).
+- **Plans**: `reach` tints the walk test (walked floor green, floor with room to stand and no way to it red,
+  the ways asked for as lines, the openings numbered); `legend` lists the entities beside the plan; a label
+  with no room is tried on the other sides of its dot and then written as the number alone, where it was
+  left out before; `only` marks the entities named.
+- **`checkPlan` counts a mod's starts**: `starts` is `START_CLASSES` unless told (`info_player_start`,
+  `info_player_deathmatch`, Master Sword's `ms_player_begin` and `ms_player_spawn`), and a fact says which
+  were found and how many.
+- **The MCP server**: `check` takes a `.map` (its plan's faults) and `walk` (the walk test); `render` has the
+  kinds `section`, `storeys` and `openings`, and `heights`, `legend` and `reach` for a plan. No new tool.
+- The self-test has 165 cases, 170 where the compilers are (`test/23-maps-walk.mjs`).
+
+**Mind**
+
+- **`checkPlan` numbers entities from 1**, as the pictures, `smak info` and `viewFrom` do (the world is 0).
+  Its sentences said `entity 14` for the one the plan labels 15.
+- **Pictures of a map with monsters or starts look different**: each was a box of 16 units, and is now its
+  whole box. `facts.marked` has `drawn` and `size`; the note `N point entities are marked by a box` is now
+  `N point entities are drawn: ...`. `entities: false` leaves them out as before.
+- **Not measured in a game.** The walk test is geometry. A monster's origin is taken to be at its feet (a
+  start's is its middle), from how Master Sword's own maps place theirs; a jump clears 45 and 63, as mappers
+  measure it; a jump across a gap, a slope's slide and what a script does are not played.
+
 ## 0.8.0 (2026-10-12)
 
 Maps. The kit read, made and drew studio models; it now does the same for a level, under `maps`

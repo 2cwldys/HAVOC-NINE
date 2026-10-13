@@ -9,6 +9,7 @@ and it may go wherever the kit goes.
 | `tworooms.wad` | Its three textures: `smakwall` (64 x 64), `smakfloor` (32 x 32) and `{smakgrate` (32 x 32, with holes). |
 | `tworooms.bsp` | The map compiled, with the textures' pixels inside it (26 KB). |
 | `tworooms-wants-wad.bsp` | The same map compiled without them: it names its textures and wants them from `tworooms.wad` (16 KB). |
+| `smakgame.fgd`, `smakbase.fgd` | The entity definitions of a made-up game of the kit's own, written by hand for the cases of `24-maps-mods.mjs`: starts, beasts that come out of dens, gates to other maps, things to pick up, and the classes the two rooms use. The first includes the second, under a name in other capitals. No game's FGD is in them. |
 
 ## How it was made
 

@@ -623,12 +623,12 @@ test("the plan check's errors, each in words", () => {
   );
   only(
     errorsOf((map) => map.entities.push({ classname: "ambient_generic", message: "hum.wav" })),
-    /1 point entities have no origin.*entity 2 \(ambient_generic\)/,
+    /1 point entities have no origin.*entity 3 \(ambient_generic\)/,
     "an entity with no origin",
   );
   only(
     errorsOf((map) => map.entities.push({ origin: "1 2 3" })),
-    /entity 2 has no classname/,
+    /entity 3 has no classname/,
     "an entity with no classname",
   );
   only(
@@ -702,7 +702,7 @@ test("the plan check's warnings: planes off the grid, no wad, no light, a light 
   );
   const buried = checkPlan({ ...map, entities: [...map.entities, light([264, 100, 50])] });
   sure(
-    /1 entities are inside a world brush: entity 2 \(light\) at 264 100 50 is inside world brush 3/.test(
+    /1 entities are inside a world brush: entity 3 \(light\) at 264 100 50 is inside world brush 3/.test(
       buried.warnings.join(),
     ),
     buried.warnings.join("; "),

@@ -71,13 +71,45 @@ const VALUE_FLAGS = [
   "move",
   "unset",
   "vhlt",
+  "body",
+  "model",
+  "start",
+  "goal",
+  "open",
+  "shut",
+  "doors",
+  "cell",
+  "near",
+  "mod",
+  "fgd",
+  "learned",
+  "cache",
+  "scripts",
+  "exit",
+  "speed",
+  "gravity",
+  "sky",
 ];
 // the flags of the map commands that may be given more than once: each time adds to a list
-const LISTED_FLAGS = ["game", "wad"];
+const LISTED_FLAGS = [
+  "game",
+  "wad",
+  "body",
+  "model",
+  "start",
+  "goal",
+  "open",
+  "shut",
+  "fgd",
+  "learned",
+  "scripts",
+  "exit",
+];
 // `map-entities` and `map-plan` print no more lines than this of one list unless told all of it is wanted
 const MARKS_PRINTED = 40;
 const LIGHTS = ["steady", "all"];
-const MARKED = ["all", "models", "none"];
+const MARKED = ["all", "models", "game", "none"];
+const DOORS = ["open", "closed"];
 const VIEWS = ["orbit", "first"];
 const ENGINES = ["goldsrc", "xash"];
 
@@ -811,6 +843,10 @@ function pictureOptions(file, flags, listed) {
     light: flags.light,
     entities: flags.entities === "none" ? false : flags.entities,
     labels: flags.labels,
+    // the sky's picture and the sprites are drawn where the --game folders have them, unless told not to
+    sky: flags.sky === false ? false : numbersOf(flags, "sky", 3, "three numbers r,g,b"),
+    sprites: flags.sprites === false ? false : undefined,
+    modelScale: flags["model-scale"] === false ? false : undefined,
   });
   for (const name of ["width", "height"])
     if (name in options && !(Number.isInteger(options[name]) && options[name] >= 16 && options[name] <= 4096))
@@ -819,6 +855,62 @@ function pictureOptions(file, flags, listed) {
     fail(`--brightness: a number over 0, not ${options.brightness}`);
   return options;
 }
+/** An entity as a flag names it: its number, or a classname or a targetname. */
+const entityName = (word) => (/^\d+$/.test(word) ? Number(word) : word);
+/** `name=value` flags given several times, as one object; one that is not `name=value` stops the command. */
+function namedValues(listed, flag, what) {
+  const values = {};
+  for (const word of listed[flag] ?? []) {
+    const equals = word.indexOf("=");
+    if (equals < 1 || equals === word.length - 1) fail(`--${flag}: ${what}, not ${word}`);
+    values[word.slice(0, equals)] = word.slice(equals + 1);
+  }
+  return values;
+}
+/**
+ * How point entities are drawn at their true size, from the flags: `--body name=large` (the box a class or
+ * a targetname moves with), `--models` (the models that are named are drawn, from the --game folders) and
+ * `--model name=models/x.mdl` (the model of a class, a targetname or a scriptfile).
+ */
+function figureOptions(flags, listed) {
+  const bodies = namedValues(listed, "body", "name=standing|large|crouching");
+  for (const [name, body] of Object.entries(bodies))
+    if (!Object.hasOwn(maps.BODIES, body) || body === "point")
+      fail(`--body ${name}=${body}: standing, large or crouching`);
+  const named = namedValues(listed, "model", "name=models/file.mdl");
+  const models = Object.keys(named).length ? named : flags.models === true ? true : undefined;
+  return defined({ bodies: Object.keys(bodies).length ? bodies : undefined, models });
+}
+/** What the walk test is asked for, from the flags; a wrong one stops the command. */
+function reachOptions(flags, listed) {
+  if (flags.doors !== undefined && !DOORS.includes(flags.doors))
+    fail(`--doors: ${DOORS.join(" or ")}, not ${flags.doors}`);
+  const jump = flags.jump === undefined || flags.jump === true ? flags.jump : numberOf(flags, "jump");
+  const cell = numberOf(flags, "cell");
+  if (cell !== undefined && !(cell >= 1)) fail(`--cell: the grid in units, 1 at the least, not ${cell}`);
+  const { bodies } = figureOptions(flags, listed);
+  const speed = numberOf(flags, "speed");
+  const gravity = numberOf(flags, "gravity");
+  for (const [name, value] of Object.entries({ speed, gravity }))
+    if (value !== undefined && !(value > 0)) fail(`--${name}: a number over 0, not ${value}`);
+  return defined({
+    bodies,
+    from: listed.start?.map(entityName),
+    to: listed.goal?.map(entityName),
+    open: listed.open?.map(entityName),
+    shut: listed.shut?.map(entityName),
+    exits: listed.exit?.map(entityName),
+    doors: flags.doors,
+    jump,
+    speed,
+    gravity,
+    slopes: flags.slopes === false ? false : undefined,
+    cell,
+  });
+}
+/** A map read for a picture or a test: brush source from a .map, a compiled map from anything else. */
+const readEither = (file) =>
+  isSource(file) ? maps.readMap(readFileSync(file, "utf8")) : readCompiled(file).bsp;
 /** A picture saved, and its line printed with what it shows; then its notes, a line each. */
 function savePicture(to, picture, shows) {
   save(to, smak.png(picture.width, picture.height, picture.rgba));
@@ -915,20 +1007,98 @@ function mapInfo({ file, flags }) {
       : "VISIBILITY  none: the whole map is drawn from everywhere (a leak, or no hlvis)",
   );
 }
-function mapCheck({ file, flags, listed }) {
+/**
+ * The mod's profile a command is given with --mod: `goldsrc` for the kit's own, or a profile's file (.mjs or
+ * .json), which is handed the --game folders, the --cache file and the --scripts folders. Undefined without
+ * the flag.
+ */
+async function profileOf(flags, listed) {
+  if (flags.mod === undefined) return undefined;
+  const folders = (listed.game ?? []).map(existingFolder);
+  if (flags.mod === "goldsrc") return { ...maps.GOLDSRC, folders };
+  const mod = await maps.loadMod(
+    existing(flags.mod),
+    defined({ folders: folders.length ? folders : undefined, cache: flags.cache, scripts: listed.scripts }),
+  );
+  return !mod.folders.length && folders.length ? { ...mod, folders } : mod;
+}
+/** The entity definitions given by name: .fgd files (--fgd) and what map-learn wrote (--learned). */
+function definitionsGiven(listed) {
+  const given = [
+    ...(listed.fgd ?? []).map(existing),
+    ...(listed.learned ?? []).map((file) => JSON.parse(readFileSync(existing(file), "utf8"))),
+  ];
+  return given.length ? given : undefined;
+}
+/**
+ * map-check: a compiled map against an engine, or brush source before a compile; with a mod's profile or
+ * entity definitions, its entities against the mod too.
+ */
+async function mapCheck({ file, flags, listed }) {
   const engine = flags.engine ?? "goldsrc";
   const folders = listed.game ? gameFolders(file, listed) : undefined;
-  const report = maps.checkBsp(readFileSync(file), { engine, folders });
+  const against = defined({ mod: await profileOf(flags, listed), definitions: definitionsGiven(listed) });
+  const source = isSource(file);
+  const textures = listed.wad?.flatMap((wad) => maps.wadTextureNames(readFileSync(existing(wad))));
+  const report = source
+    ? maps.checkPlan(maps.readMap(readFileSync(file, "utf8")), defined({ ...against, folders, textures }))
+    : maps.checkBsp(readFileSync(file), { engine, folders, ...against });
   for (const fact of report.facts) console.log(`      ${fact}`);
   for (const warning of report.warnings) console.log(`WARN  ${warning}`);
   for (const error of report.errors) console.log(`ERROR ${error}`);
   const warned = report.warnings.length ? `, with ${report.warnings.length} warnings` : "";
+  const fitFor = source ? "to compile" : `for ${engine}`;
   console.log(
-    report.errors.length
-      ? `${report.errors.length} errors: not fit for ${engine}`
-      : `fit for ${engine}${warned}`,
+    report.errors.length ? `${report.errors.length} errors: not fit ${fitFor}` : `fit ${fitFor}${warned}`,
   );
   process.exit(report.errors.length ? 1 : 0);
+}
+/**
+ * map-learn: what a mod's own maps say of its entities, written to a file that --learned and a profile's
+ * `definitions` take. --class prints one class's keys.
+ */
+function mapLearn({ command, file, flags }) {
+  if (!statSync(file).isDirectory())
+    fail(`${command}: the folder of a mod's .bsp files (<mod>/maps), not a file`);
+  const to = need(command, flags.o, "-o learned.json");
+  const started = Date.now();
+  const learned = maps.learnEntities(file);
+  if (!learned.maps) fail(`${command}: no GoldSrc map (.bsp) in ${file}`);
+  save(to, JSON.stringify(learned));
+  const classes = Object.entries(learned.classes).sort((a, b) => b[1].seen - a[1].seen);
+  console.log(
+    `${to}  ${learned.maps} maps, ${classes.length} classes, read in ${((Date.now() - started) / 1000).toFixed(1)} s`,
+  );
+  for (const name of learned.skipped) console.log(`      ${name} is not a GoldSrc map: passed over`);
+  const one = typeof flags.class === "string" ? learned.classes[flags.class] : null;
+  if (typeof flags.class === "string" && !one)
+    fail(`${command}: no ${flags.class} in any of the ${learned.maps} maps`);
+  if (one) {
+    console.log(
+      `${flags.class}: ${one.seen} in ${one.maps} maps (${one.in.join(", ")}...), ${one.point} as a point and ${one.solid} of brushes`,
+    );
+    if (one.always.length) console.log(`      every one gives: ${one.always.join(", ")}`);
+    for (const group of one.together) console.log(`      always together: ${group.join(", ")}`);
+    for (const [key, has] of Object.entries(one.keys).sort((a, b) => b[1].seen - a[1].seen))
+      console.log(
+        `${String(has.seen).padStart(6)}  ${key.padEnd(18)} ${has.values.map(([value, times]) => `"${value}" x${times}`).join("  ")}${has.more ? "  ..." : ""}`,
+      );
+    return;
+  }
+  const kindOf = (has) =>
+    has.kind === "either"
+      ? `${has.point} points, ${has.solid} of brushes`
+      : has.kind === "solid"
+        ? "of brushes"
+        : "a point";
+  for (const [name, has] of classes.slice(0, flags.all ? classes.length : MARKS_PRINTED))
+    console.log(
+      `${String(has.seen).padStart(6)}  ${name.padEnd(28)} in ${String(has.maps).padStart(3)} maps  ${kindOf(has)}`,
+    );
+  if (!flags.all && classes.length > MARKS_PRINTED)
+    console.log(
+      `      and ${classes.length - MARKS_PRINTED} more (--all); --class <name> lists one class's keys`,
+    );
 }
 
 // ── map-entities, map-set ──────────────────────────────────────────────────
@@ -1053,16 +1223,19 @@ function mapPlan({ command, file, flags, listed }) {
   const area = numbersOf(flags, "area", 4, "four numbers x0,y0,x1,y1");
   const options = {
     ...pictureOptions(file, flags, listed),
+    ...figureOptions(flags, listed),
     ...defined({
       z: numberOf(flags, "z"),
       scale: numberOf(flags, "scale"),
       slice: flags.slice,
       area: area && { min: [area[0], area[1]], max: [area[2], area[3]] },
+      heights: flags.heights === true ? true : undefined,
+      legend: flags.legend === true ? true : undefined,
     }),
   };
-  const picture = isSource(file)
-    ? maps.planOfSource(maps.readMap(readFileSync(file, "utf8")), options)
-    : maps.planOf(readCompiled(file).bsp, options);
+  const map = readEither(file);
+  if (flags.reach === true) options.reach = maps.reachOf(map, reachOptions(flags, listed));
+  const picture = isSource(file) ? maps.planOfSource(map, options) : maps.planOf(map, options);
   const { facts } = picture;
   const scale = Math.round(facts.scale * 1000) / 1000;
   const cut = facts.z === null ? "seen from above" : `cut at z ${facts.z}`;
@@ -1098,9 +1271,9 @@ function standOf(flags, map) {
 }
 function mapView({ command, file, flags, listed }) {
   const to = need(command, flags.o, "-o out.png");
-  const options = pictureOptions(file, flags, listed);
+  const options = { ...pictureOptions(file, flags, listed), ...figureOptions(flags, listed) };
   const source = isSource(file);
-  const map = source ? maps.readMap(readFileSync(file, "utf8")) : readCompiled(file).bsp;
+  const map = readEither(file);
   const stand = standOf(flags, map);
   const picture = source
     ? maps.drawSource(map, { ...options, ...stand })
@@ -1112,7 +1285,9 @@ function mapView({ command, file, flags, listed }) {
     `from ${placeText(facts.from)}, yaw ${facts.yaw}, pitch ${facts.pitch}, ${facts.fov} degrees across; ${facts.faces} faces; light: ${facts.light}`,
   );
   for (const mark of facts.marked.slice(0, MARKS_PRINTED))
-    console.log(`      marked: ${mark.number} ${mark.classname} at pixel ${mark.at.join(",")}`);
+    console.log(
+      `      marked: ${mark.number} ${mark.classname} at pixel ${mark.at.join(",")}${mark.drawn === "mark" ? "" : `, its ${mark.drawn} ${mark.size}`}`,
+    );
 }
 function mapViews({ command, file, flags, listed }) {
   const to = need(command, flags.o, "-o out.png");
@@ -1128,6 +1303,121 @@ function mapViews({ command, file, flags, listed }) {
   savePicture(to, picture, `${picture.facts.views.length} views; light: ${picture.facts.light}`);
   for (const view of picture.facts.views)
     console.log(`      ${view.name}, from ${placeText(view.from)}: ${view.faces} faces`);
+}
+
+// ── the walk test, the section, the storeys, the openings ──────────────────
+/** An opening's size as a line prints it. */
+const openingSize = (wide, high) => `${wide} wide, ${high === null ? "open above" : `${high} high`}`;
+/** What the walk test found, printed: its facts, its openings and its warnings. */
+function sayReach(reach) {
+  for (const fact of reach.facts) console.log(`      ${fact}`);
+  for (const opening of reach.openings.slice(0, MARKS_PRINTED))
+    console.log(
+      `      opening ${opening.number}  at ${placeText(opening.at)}  ${openingSize(opening.width, opening.height)}, across ${opening.across}${opening.fits.large ? "" : "  (closed to a large monster)"}`,
+    );
+  for (const warning of reach.warnings) console.log(`WARN  ${warning}`);
+}
+/**
+ * map-reach: the walk test of a map. With -o, its plan with the walked floor tinted. Exit code 1 when an
+ * entity a player goes to is not reached, or one stands in something solid.
+ */
+async function mapReach({ file, flags, listed }) {
+  const map = readEither(file);
+  const mod = await profileOf(flags, listed);
+  const reach = maps.reachOf(map, { ...reachOptions(flags, listed), ...defined({ mod }) });
+  const { walked: _walked, stands: _stands, ...plain } = reach;
+  if (flags.json) console.log(JSON.stringify(plain, null, 1));
+  else {
+    console.log(`${file}: the walk test, on a grid of ${reach.cell}`);
+    sayReach(reach);
+  }
+  if (flags.o) {
+    const options = {
+      ...pictureOptions(file, flags, listed),
+      ...figureOptions(flags, listed),
+      ...defined({ z: numberOf(flags, "z") }),
+      reach,
+      heights: true,
+      legend: true,
+    };
+    const picture = isSource(file) ? maps.planOfSource(map, options) : maps.planOf(map, options);
+    if (flags.json) save(flags.o, smak.png(picture.width, picture.height, picture.rgba));
+    else savePicture(flags.o, picture, "the plan, with the walk test tinted on it");
+  }
+  process.exit(reach.unreached.length || reach.stuck.length ? 1 : 0);
+}
+function mapSection({ command, file, flags, listed }) {
+  const to = need(command, flags.o, "-o out.png");
+  const ends = `${command}: --from x,y and --to x,y, the two ends of the line`;
+  const from = numbersOf(flags, "from", 2, "two numbers x,y") ?? fail(ends);
+  const end = numbersOf(flags, "to", 2, "two numbers x,y") ?? fail(ends);
+  if (flags.doors !== undefined && !DOORS.includes(flags.doors))
+    fail(`--doors: ${DOORS.join(" or ")}, not ${flags.doors}`);
+  const picture = maps.sectionOf(readEither(file), {
+    from,
+    to: end,
+    ...figureOptions(flags, listed),
+    ...defined({
+      scale: numberOf(flags, "scale"),
+      width: numberOf(flags, "width"),
+      z: numbersOf(flags, "z", 2, "two numbers low,high"),
+      near: flags.entities === false ? false : numberOf(flags, "near"),
+      labels: flags.labels,
+      heights: flags.heights,
+      doors: flags.doors,
+    }),
+  });
+  const { facts } = picture;
+  savePicture(
+    to,
+    picture,
+    `a section ${facts.length} units long, heights ${facts.z.map(Math.round).join(" to ")}, ${Math.round(facts.scale * 1000) / 1000} pixels a unit, seen looking yaw ${facts.looking}`,
+  );
+  const floors = facts.floors.filter((floor) => floor.to - floor.from >= 16);
+  for (const floor of floors.slice(0, MARKS_PRINTED))
+    console.log(`      floor at z ${floor.z}  from ${floor.from} to ${floor.to} along the line`);
+  for (const mark of facts.marks.slice(0, MARKS_PRINTED))
+    console.log(
+      `${String(mark.number).padStart(4)}  ${mark.classname.padEnd(22)} ${mark.along} along the line, z ${mark.z}`,
+    );
+}
+function mapStoreys({ command, file, flags, listed }) {
+  const to = need(command, flags.o, "-o out.png");
+  const map = readEither(file);
+  const cuts = flags.z === undefined ? undefined : String(flags.z).split(",").map(Number);
+  if (cuts && !cuts.every(Number.isFinite)) fail(`--z: heights to cut at, a,b,c, not ${flags.z}`);
+  const options = {
+    ...pictureOptions(file, flags, listed),
+    ...figureOptions(flags, listed),
+    ...defined({ z: cuts, cols: numberOf(flags, "cols"), doors: flags.doors }),
+  };
+  if (flags.reach === true) options.reach = maps.reachOf(map, reachOptions(flags, listed));
+  const picture = maps.storeysOf(map, options);
+  savePicture(to, picture, `${picture.facts.storeys.length} storeys side by side, the highest first`);
+  for (const storey of picture.facts.storeys)
+    console.log(
+      `      cut at z ${storey.z}${storey.floors ? `: floors from ${storey.floors[0]} to ${storey.floors[1]}, about ${storey.area} square units` : ""}; ${storey.marks.length} entities`,
+    );
+}
+function mapOpenings({ command, file, flags, listed }) {
+  const to = need(command, flags.o, "-o out.png");
+  const map = readEither(file);
+  const reach = maps.reachOf(map, reachOptions(flags, listed));
+  const picture = maps.openingViews(map, {
+    ...pictureOptions(file, flags, listed),
+    ...figureOptions(flags, listed),
+    ...defined({
+      count: numberOf(flags, "count"),
+      cols: numberOf(flags, "cols"),
+      both: flags.both === true ? true : undefined,
+    }),
+    reach,
+  });
+  savePicture(to, picture, `${picture.facts.views.length} views, each through an opening`);
+  for (const view of picture.facts.views)
+    console.log(
+      `      opening ${view.opening}: ${openingSize(view.wide, view.high)}; from ${placeText(view.from)} looking yaw ${view.yaw}`,
+    );
 }
 
 // ── textures of a map, and texture files ───────────────────────────────────
@@ -1329,9 +1619,22 @@ const COMMANDS = {
   "map-check": {
     run: mapCheck,
     own: true,
-    help: `  map-check <bsp> [--engine goldsrc|xash] [--game <folder> ...]
+    help: `  map-check <bsp|map> [--engine goldsrc|xash] [--game <folder> ...] [--mod <profile.mjs|.json|goldsrc>] [--fgd <file.fgd> ...]
+                            [--learned <file> ...] [--wad <file.wad> ...] [--cache <file>] [--scripts <folder> ...]
                                             what an engine would refuse (exit code 1 on an error); with --game (the mod's folder,
-                                            then valve), its .wad files and textures are looked for there`,
+                                            then valve), its .wad files and textures are looked for there. A .map: its plan, before
+                                            any compile. With --mod (a mod's profile), --fgd or --learned (what map-learn wrote): its
+                                            entities against the mod: a class or a key that does not exist, a value of the wrong
+                                            kind, a name nothing answers to, the mod's rules, the files it names (--scripts: folders of
+                                            scripts of your own, for a profile whose mod names scripts)`,
+  },
+  "map-learn": {
+    run: mapLearn,
+    own: true,
+    folder: true,
+    help: `  map-learn <folder of .bsp> -o learned.json [--class name] [--all]
+                                            what a mod's own maps say of its entities, for a mod with no FGD or a wrong one: each
+                                            class with how often, each key with its commonest values, the keys that go together`,
   },
   "map-entities": {
     run: mapEntities,
@@ -1351,8 +1654,11 @@ const COMMANDS = {
     run: mapPlan,
     own: true,
     help: `  map-plan <bsp|map> -o out.png [--z height] [--no-slice] [--scale px] [--area x0,y0,x1,y1] [--no-entities] [--labels|--no-labels] [--list]
+                             [--heights] [--legend] [--reach]
                                             the map from above, +y up the picture: floors, walls, every entity marked with its
-                                            number, a scale. --z: a cut at that height, solid filled (a .map is always a cut)`,
+                                            number, a scale. --z: a cut at that height, solid filled (a .map is always a cut).
+                                            --heights: each floor's height written on it; --legend: the entities listed beside it;
+                                            --reach: the walk test tinted on it (with what map-reach takes)`,
   },
   "map-view": {
     run: mapView,
@@ -1365,7 +1671,45 @@ const COMMANDS = {
     run: mapViews,
     own: true,
     help: `  map-views <bsp> -o out.png [--count 8] [--cols 4]   several views in one picture: from the places to start and the largest rooms
-        (the three take --width --height --game <folder> --wad <file.wad> --no-light --light steady|all --brightness 1.55 --entities all|models|none)`,
+        (the three take --width --height --game <folder> --wad <file.wad> --no-light --light steady|all --brightness 1.55 --entities all|models|game|none (game: only what is drawn by its model or sprite, no boxes);
+         an entity that stands is drawn as the box it moves with: --body <class|targetname>=large|standing|crouching says which;
+         --models draws the models that are named, from the --game folders, textured, in the body, skin, sequence, scale and
+         angles their entities give (--no-model-scale: at their own size); --model <class|targetname|scriptfile>=models/x.mdl names one;
+         with --game the sky is its own picture (skyname) and a sprite its first frame: --no-sky or --sky r,g,b, and --no-sprites, say otherwise)`,
+  },
+  "map-reach": {
+    run: mapReach,
+    own: true,
+    help: `  map-reach <bsp|map> [-o plan.png] [--mod <profile>] [--start <n|class> ...] [--goal <n|class> ...] [--jump [45|63]] [--doors open|closed]
+                              [--open <n|class|name> ...] [--shut <n|class|name> ...] [--body name=large ...] [--cell 8] [--json]
+                                            the walk test: where a standing player gets on foot from the places to start (steps of 18,
+                                            any drop). Says which entities are not reached and what it would take, which stand in
+                                            something solid or hang, the openings with their width and height, the walk to each --goal,
+                                            and the one-way places: floor a player gets into and not out of (--exit <n|class|name>:
+                                            a way out of the map). A slope too steep to stand on is slid down, never walked up
+                                            (--no-slopes: walked like any floor). --jump: jumps are part of the walk, up 45 and across
+                                            a gap as far as a run carries (--speed 320 --gravity 800), and what only a jump reaches is
+                                            told apart. With -o: the plan with the walked floor green, the rest red, floor only a jump
+                                            reaches blue and one-way places amber. Exit code 1 on a fault`,
+  },
+  "map-section": {
+    run: mapSection,
+    own: true,
+    help: `  map-section <bsp|map> -o out.png --from x,y --to x,y [--z low,high] [--scale px] [--near 64] [--no-heights] [--no-entities]
+                                            a side section: an upright cut along that line, floors with their heights, the entities near it`,
+  },
+  "map-storeys": {
+    run: mapStoreys,
+    own: true,
+    help: `  map-storeys <bsp|map> -o out.png [--z a,b,c] [--cols 3] [--reach]
+                                            the storeys side by side: one plan for each, cut at its own height (found, or --z), with
+                                            every floor's height written on it and the entities of that storey`,
+  },
+  "map-openings": {
+    run: mapOpenings,
+    own: true,
+    help: `  map-openings <bsp|map> -o out.png [--count 12] [--both] [--cols 4]
+                                            a view through each gate and doorway the walk test finds, from a player's eyes before it`,
   },
   "map-textures": {
     run: mapTextures,
@@ -1418,7 +1762,7 @@ if (!file) fail(HELP);
 if (!existsSync(file)) fail(`no such file: ${file}`);
 const entry = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : null;
 // a page is handed a folder as readily as a model; every other command reads a file
-if (!entry?.page) existing(file);
+if (!entry?.page && !entry?.folder) existing(file);
 checkFlags(flags);
 // whatever a command throws is said in a sentence, with the command's name before it
 try {

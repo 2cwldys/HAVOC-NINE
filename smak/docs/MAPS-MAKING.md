@@ -10,6 +10,9 @@ rock; you add what stands in them from a small vocabulary; you check, compile an
 
 - `src/maps/source.mjs`: brushes, entities, the file written and read
 - `src/maps/plan.mjs`: the check before compiling, and the leak hint
+- `src/maps/mod.mjs`, `rules.mjs`, `fgd.mjs`, `learn.mjs`, `dll.mjs`: the mod the map is for: its profile, its
+  entity definitions and its rules, which the check holds the entities against ("A mod's profile", below)
+- `src/maps/reach.mjs`: the walk test: what a player reaches on foot, what stands in something solid, the openings
 - `src/maps/compile.mjs`: finding and running the compilers
 - `src/maps/draw.mjs`: pictures of the source before a compile, and of the result (`docs/MAPS.md`, "Pictures")
 - `examples/07-a-small-map.mjs`: two rooms, a doorway with a step, a window, lights, a start, in a hundred lines
@@ -32,17 +35,32 @@ rock; you add what stands in them from a small vocabulary; you check, compile an
    folder of your own.
 3. **Check the plan, and look at the source.** `checkPlan(map, { textures })`: fix every error (each is
    something the compilers refuse or mend without a word) and read the warnings; one of them is the leak
-   hint. Then draw it: `planOfSource(map)` (a cut through the brushes, every entity marked) and
+   hint. For a mod, `checkPlan(map, { mod })` with the mod's profile: the entities are then held against the
+   game that will read them (a class it does not have, a key it never reads, a name nothing answers to, the
+   mod's own rules, a file it lacks), none of which a compiler or a picture shows ("A mod's profile"). Then
+   draw it: `planOfSource(map)` (a cut through the brushes, every entity marked) and
    `drawSource(map, { from, yaw })` (a view in flat colours). They need no compilers and take a tenth of a
    second: stairs that stand in front of a doorway, a window in the wrong wall and a start outside its room
    show here, before the minutes of a compile.
-4. **Compile.** `compileMap("name.map", { wads })`. Seconds for a few rooms, minutes for a large open map.
-5. **Read what came back.** `result.errors` (sentences), `result.leak` (where), `result.warnings`. `result.bsp`
+4. **Walk it, and cut it.** `reachOf(map)` says which entities a player cannot reach on foot from the places
+   to start and what it would take, which stand in something solid, how wide and high each gate and
+   doorway is, and where a player gets in and not out again (a pit, the foot of a slope too steep to climb);
+   `planOfSource(map, { reach, heights: true })` tints the walked floor green, the rest red and such a place
+   amber. `reachOf(map, { jump: true })` walks it with jumps, and tells what only a jump reaches: a roof, a
+   wall's top, the far side of a gap.
+   `sectionOf(map, { from, to })` cuts the map upright along a line, and `storeysOf(map)` lays its storeys
+   side by side: a room filled by another room's rock, a stair that ends in a ceiling and a monster sunk in
+   its floor show there and on no single plan (`docs/MAPS.md`, "The walk test" and "Pictures").
+5. **Compile.** `compileMap("name.map", { wads })`. Seconds for a few rooms, minutes for a large open map.
+6. **Read what came back.** `result.errors` (sentences), `result.leak` (where), `result.warnings`. `result.bsp`
    is null unless all four programs went well, and nothing is written where the .bsp goes on a failure.
-6. **Look at the result.** A map that compiles can still be dark. `planOf(bsp)`, `viewsOf(bsp)` and
+7. **Look at the result.** A map that compiles can still be dark. `planOf(bsp)`, `viewsOf(bsp)` and
    `drawMap(bsp, { from, yaw })` draw it with its textures and its own baked light (`docs/MAPS.md`,
-   "Pictures"): a lamp's colour, a room left black and a grate's holes show. Then the game is the real test:
-   `map name` in its console.
+   "Pictures"): a lamp's colour, a room left black and a grate's holes show; with the game's `folders`, the
+   sky's own picture and the sprites, and with `models: true` the models, each with its textures, where and
+   how its entity's keys put it: what a tree's crown hides is seen. `reachOf(bsp)` walks it again by
+   its own clip hulls, which hold the `clip` brushes too. Then the game is the real test: `map name` in its
+   console.
 
 ```js
 import { writeFileSync, readFileSync } from "node:fs";
@@ -68,8 +86,10 @@ console.log(result.errors, result.leak?.at, result.warnings, result.bsp);
 ```
 
 The same from the command line, for a `.map` that is written: `smak map-plan small.map -o plan.png`,
-`smak map-view small.map -o view.png --from 96,128,64 --yaw 0`, `smak map-compile small.map -o small.bsp --wad
-halflife.wad`, then `smak map-plan small.bsp -o plan.png` and `smak map-views small.bsp -o views.png`.
+`smak map-view small.map -o view.png --from 96,128,64 --yaw 0`, `smak map-reach small.map -o walked.png`,
+`smak map-section small.map -o cut.png --from 0,128 --to 608,128`, `smak map-storeys small.map -o storeys.png`,
+`smak map-openings small.map -o doors.png`, `smak map-compile small.map -o small.bsp --wad halflife.wad`, then
+`smak map-plan small.bsp -o plan.png` and `smak map-views small.bsp -o views.png`.
 
 ## Units and sizes
 
@@ -82,11 +102,11 @@ Axes: `+x` east, `+y` north, `+z` up. A unit is about an inch. Keep to whole num
 | A player, crouching | 32 wide, 36 tall |
 | A doorway | about 64 wide and 96 tall. A standing player needs 32 by 72 and not a unit less; make it roomy |
 | A step | 18 at most is walked up without a jump. Stairs: 8 to 16 high, 16 to 32 deep |
-| A jump | clears about 45; a crouched jump about 63 |
+| A jump | clears 45; with the legs drawn up, 63. At a run it carries the body's middle 215 along, landing level: a gap of up to about 240 between its two edges is jumped (`docs/MAPS.md`, "The engine's numbers") |
 | A corridor | 96 to 128 wide, 112 to 128 high |
 | A room's ceiling | 128 low, 160 to 192 usual, 256 a hall |
 | A wall | 8 to 32 thick. Carved rooms need at least a few units of rock between them |
-| A slope | walkable up to about 45 degrees; steeper, a player slides |
+| A slope | walked while its normal's z is 0.7 or more: up to 45.6 degrees, a rise of 98 in 100 along. Steeper, a player slides down it and cannot walk up |
 | A texture | drawn 1 texel a unit at scale 1. A 128 wide picture repeats every 128 units |
 | The light | worked out once every 16 units of a face: nothing finer than that shows in a shadow |
 | The world | everything within 4096 of the origin on each axis (`SOURCE_LIMITS.range`, and why) |
@@ -141,7 +161,7 @@ where it says so. Spread lists into the map: `brushes: [...carve(...), box(...)]
 | `pointEntity(classname, origin, keys)` | A thing with a place: `pointEntity("monster_zombie", [100, 40, 0], { angles: [0, 90, 0] })` |
 | `brushEntity(classname, brushes, keys)` | A thing made of brushes: `func_wall`, `func_door`, `func_illusionary`, `trigger_once`... It seals nothing |
 | `originBrush(centre, size)` | The small ORIGIN brush a turning entity needs among its brushes, at its hinge |
-| `playerStart(floorPoint, yaw)` | `info_player_start`, written 36 above the floor point given. A third argument names a mod's own start: a mod may want its own classes and more than one (Master Sword: an `ms_player_begin` and an `ms_player_spawn`). `smak map-entities` on one of the mod's maps shows what it uses |
+| `playerStart(floorPoint, yaw)` | `info_player_start`, written 36 above the floor point given. A third argument names a mod's own start: a mod may want its own classes and more than one (Master Sword: an `ms_player_begin` and an `ms_player_spawn`, which `checkPlan` and `reachOf` count as starts without being asked). `smak map-entities` on one of the mod's maps shows what it uses |
 | `light(origin, { color, brightness })` | A light that shines every way. About 200 lights a room |
 | `spotLight(origin, { at, cone, inner })` | A cone of light, aimed at a point (or `yaw`, `pitch`) |
 | `sunLight(origin, { pitch, yaw, color, brightness })` | `light_environment`: light from every `sky` face, all one way |
@@ -163,12 +183,89 @@ Values may be numbers and lists: `origin: [0, 0, 36]` is written `"0 0 36"`. An 
 
 | | |
 | --- | --- |
-| `checkPlan(map, { textures, starts, range, grid, cell })` | `{ errors, warnings, facts, leak }` before any compile |
+| `checkPlan(map, { textures, starts, range, grid, cell, mod, definitions, folders })` | `{ errors, warnings, facts, leak }` before any compile. An entity is numbered in its sentences as the pictures number it: the first of `entities` is 1. `mod`: the mod's profile, which gives the starts, the textures and the folders and has the entities checked; `definitions`: an FGD's path, or learned definitions, with no profile |
+| `checkEntities(map, { mod, definitions, folders })` | The entities' part by itself: `{ errors, warnings, facts }` (`docs/MAPS.md`, "Entities against a mod") |
+| `GOLDSRC`, `loadMod(file, { folders, cache })`, `definitionsOf(fgd)`, `learnEntities(folder, { cache })`, `classesOfDll(bytes)` | Half-Life's own profile; a mod's read from a file; entity definitions from an FGD, from the mod's own maps, and the classes its program has |
 | `leakHint(map, { cell })` | The flood on its own: `{ leak, cell, cells, from }` |
+| `reachOf(map, { from, jump, slopes, exits, doors, open, shut, bodies, to, cell })` | The walk test: `{ warnings, facts, entities, unreached, stuck, hanging, oneWay, leaps, openings, routes, ... }` (`docs/MAPS.md`, "The walk test") |
+| `storeyCuts(map)` | The heights to cut the map at so that every floor is seen: `[{ z, floors, area }]` |
 | `wadTextureNames(bytes)` | The names in a .wad, for `checkPlan`'s `textures` |
 | `findCompilers({ folder })` | `{ found, tools, folder, missing, message }`: where the compilers are, or one sentence on what is missing |
 | `compileMap(mapFile, { wads, wadinclude, out, fast, vis, light, compilers, timeout, keep })` | `{ bsp, logs, errors, warnings, leak }` |
 | `compileSummary(result)` | That, in a few lines for a person |
+
+## A mod's profile
+
+A map is made for one game, and that game reads the map's entities by its own code. What it does not know it
+drops without a word: the first map drafted with this kit used three classes its mod does not have, put a key
+on entities where the game never reads it, left a spawn point without the key that makes it one, named an item
+by its script's path, and would have put 39 monsters in an area that holds 32. It compiled, and every picture
+of it was right.
+
+A **profile** is one plain object that says what the mod expects, and `checkPlan`, `checkBsp`, `reachOf` and
+the pictures take it as `mod`. The kit ships `GOLDSRC`, Half-Life's own. A mod's own is yours to write; it is
+data, kept in a file of your project. `profiles/mastersword.mjs` is one mod's, with every rule's source
+written over it: read it as the example.
+
+**From nothing to a checked profile**, for a mod the kit has never seen (say The Specialists, in
+`<Half-Life>/ts`). Ask the person where the game is; everything below reads it and writes nothing into it.
+
+1. **What classes exist.** The game's own program has the certain answer:
+   `maps.classesOfDll(readFileSync("<Half-Life>/ts/dlls/mp.dll"))` lists them (the `gamedll` line of
+   `ts/liblist.gam` names the file). Put the file in the profile as `dlls`.
+2. **An FGD, when there is one.** Look in the mod's folder (`ts/ts_fgd.fgd`; Master Sword's is in `msc/dev/`)
+   and in the editors' folders (J.A.C.K., Hammer, TrenchBroom). `maps.definitionsOf(file)` reads it; `fgd` in
+   the profile. It gives the keys with their types, and each class's `size(...)`, which becomes the box the
+   walk test and the pictures move it with.
+3. **What the mod's own maps do**: `smak map-learn <Half-Life>/ts/maps -o work/ts-learned.json`, then
+   `--class <name>` for any class you mean to use: how often it appears, the keys every one gives, the keys
+   that go together, the commonest values. This is how you learn to write an entity as the mod's authors
+   write it, and it stands in for an FGD that is missing or wrong. `learned: { maps, cache }` in the profile.
+4. **The starts.** Which classes does a player start at? The `mpentity` line of `liblist.gam`, and in what
+   was learned the classes every map has (`info_player_deathmatch` in 28 of The Specialists' 29 maps).
+   `starts` in the profile.
+5. **Run it on the mod's own maps first**: `smak map-check <Half-Life>/ts/maps/<name>.bsp --mod work/ts.json
+   --game <Half-Life>/ts --game <Half-Life>/valve`, on three or four. The game's own maps must come out
+   nearly clean. What they are told of is one of three things: a real slip of that map (a name nothing answers
+   to, a file in other capitals); something the FGD has wrong, to mend in the profile's `classes`; or a rule
+   of yours that is not so. A rule that the game's own maps break in numbers is the rule's fault.
+6. **The mod's quirks, as rules**, each from a source you can name: the game's code where it can be read, or
+   a count over its maps. Write the source beside the rule. A profile with no rules still catches the class
+   that does not exist and the key nothing reads; the rules catch what only that mod does.
+7. **Then your map**: `checkPlan(map, { mod })` before the compile, `checkBsp(bytes, { mod })` after it.
+
+```js
+// work/ts.json: a profile that is data. Every path is the person's own.
+{
+  "name": "ts",
+  "folders": ["C:/games/Half-Life/ts", "C:/games/Half-Life/valve"],
+  "dlls": ["C:/games/Half-Life/ts/dlls/mp.dll"],
+  "fgd": ["C:/games/Half-Life/ts/ts_fgd.fgd"],
+  "learned": { "maps": "C:/games/Half-Life/ts/maps", "cache": "work/ts-learned.json" },
+  "starts": ["info_player_deathmatch", "info_player_start"]
+}
+```
+
+```js
+const mod = await maps.loadMod("work/ts.json");                  // or a .mjs module, for rules that are functions
+const plan = maps.checkPlan(map, { mod });                       // its starts, its folders, its entities checked
+const reach = maps.reachOf(map, { mod });                        // walked from its starts, each class in its own box
+```
+
+On The Specialists' 29 maps that profile, with no rule at all, finds no error in the entities. What it warns
+of: skies written in other capitals than their files (8 maps), names nothing answers to (3), a weapon's number
+that is none of the FGD's choices (2), a sky and a sound the game does not have (1 each).
+
+A rule is data with its reason (`docs/MAPS.md` has the kinds): `{ rule: "limit", key: "spawnarea", most: 32,
+to: ["ms_monsterspawn"], why: "a spawn area holds 32 monsters" }`. A mod whose entities name scripts or items
+says how such a name is resolved with a `names` rule and a function: `{ rule: "names", classes: ["msitem_spawn"],
+key: "scriptfile", among: (name) => items.has(name), what: "an item's name" }`. Such a profile is a `.mjs`
+module whose default is a function that reads the game and returns the profile, as `profiles/mastersword.mjs`
+does.
+
+**What a profile cannot know.** It checks a map against what was written down, counted or read in the code. It
+does not run the game: a key that exists and is given a wrong meaning passes, and so does a script that is
+there and does the wrong thing. Say so when you report.
 
 ## Leaks, and how never to have one
 
@@ -228,7 +325,7 @@ builder takes as `texture`:
 
 | | |
 | --- | --- |
-| `{NAME` | See-through where the picture has its last palette colour (a grate, a fence, leaves). Put it on a brush entity with `rendermode: 4, renderamt: 255` |
+| `{NAME` | See-through where the picture has its last palette colour (a grate, a fence, leaves). Put it on a brush entity with `rendermode: 4, renderamt: 255`: on the world, or without that render mode, the game fills the holes with that colour, and a view of the result shows it so and says it |
 | `!NAME` | A liquid: water, `!lava`, `!slime`. The brush is swum in, and seals nothing |
 | `sky` | The sky: not drawn itself; the sky picture named by worldspawn's `skyname` shows through, and `sunLight` shines from it |
 | `+0NAME` ... `+9NAME` | Animated: the frames of one picture, played in turn. `+ANAME`...: the second set a button swaps to |
@@ -272,8 +369,11 @@ bright.
   and hlbsp, 15 for hlvis and hlrad; `timeout` changes them).
 - **`readMap` reads Valve 220** and nothing older, and keeps an entity's keys in an object: a key that is a
   whole number (rare) is listed first when written again.
-- **Nothing here runs the game.** Doors that open, triggers that fire, a monster that fits its room: say to
-  the person what you could not verify.
+- **Nothing here runs the game.** Doors that open, triggers that fire, a monster that finds its way: say to
+  the person what you could not verify. The walk test is geometry (the box of a player moved over the map,
+  with the engine's numbers for a step, a jump, a run and a slope): it was never measured against the game's
+  own movement, and where a monster's origin is (its feet, the kit takes it) and whether it is dropped to the
+  floor are the mod's to say.
 - **A .bsp compiled with `wadinclude` carries the textures** of whoever made the .wad. Keep it out of anything
   shared, as with a game's models.
 
@@ -289,9 +389,22 @@ bright.
 | `the solid is not convex` / `is inside the solid the other points make` | The shape has a dent. Make it of several convex pieces |
 | `N brushes have planes written with points off the grid` | Cylinders, arches, bends. Harmless as furniture; where they must meet other brushes, `snap: 1` |
 | `N brushes reach further than 4096 from the origin` | The map is too large for the engine, or a number is wrong by a factor. Build round the origin |
+| `N classes are in none of the definitions given` / `are not in the game's own program` | The game has no such entity and drops it. A wrong name; look the right one up in the mod's own maps (`smak map-learn ... --class`), or in its program's list. With an FGD and maps only, a class the mod has and neither uses is told too: give the profile the game's `dlls` |
+| `N keys their class does not define` | The game reads only the keys its code asks for. A key copied from another class, or a guess. `smak map-learn <maps> --class <name>` shows the keys that class is given in the mod's own maps |
+| `N values are not of their key's kind` | Text where a number goes, a choice that is not one. When the FGD is the one that is wrong, the profile's `classes` gives the key its true type |
+| `N entities name something no entity of the map is called` | A `target` with no `targetname` to answer: a misspelling (capitals count), or the entity was never made |
+| `N entities are named by more others than they take`, `give X with no Y beside it`, `wait for others that never run out`, `have no X`, `give a X that is not ...` | A rule of the mod's profile, with its reason in the sentence. The reason is the profile author's: read the rule's comment in the profile for where it is from |
+| `N models are in none of the game's folders given`, `found only in other capitals` | The game does not have the file, or has it under a name that only Windows takes for the same. Ship the file with the map, or write the name as the folder has it |
 | The map is black | No light, or lights buried in walls (`checkPlan` warns of both) |
 | A room is dark in the pictures of the result | It is dark in the game too: the pictures use the map's own light. A `light` nearer, or brighter (`brightness` 200 to 300 for a room), then compile again. `drawMap(bsp, { brightness: 4 })` only looks into it |
 | The source's view shows something in front of a door, or a start facing a wall | It is so. Move it in the script and draw again: nothing was compiled yet |
+| `N of the M entities a player goes to are not reached on foot` | Each has its reason. `no opening leads to it`: a room with no doorway, or one filled by another piece of rock (two `carve` calls whose blocks overlap fill each other's rooms: carve every room that meets in ONE call, or draw a `sectionOf` through it and look). `only by a jump`: a step over 18. `only crouching`: a lintel under 72. `open air leads to it`: a gap under 32, or a ledge over 63 |
+| `N entities stand in something solid` | Its box (32 x 32 x 72 unless `bodies` says) does not fit there: `it fits 8 higher` says how far to lift it; `a wall, a ceiling or a piece of the map is in its box` wants it moved aside or the ceiling raised |
+| `N entities hang more than 64 units over their floor` | A wrong height, or a floor that is not where you think: a section through it shows which |
+| `N places are one-way` | A player gets in and finds no way back to a place to start: a pit deeper than 63, a room only a teleport leads into, the foot of a slope too steep to climb. Each says where it is and how it is entered. Give it a way out (stairs, a ladder, a ramp no steeper than 45 degrees), or mean it; a place a player leaves the map by is named with `exits` |
+| A ramp is not walked up | It is steeper than a player stands on (`about N square units ... are too steep to stand on`): make it longer for its rise, at least as long as it is high and a little more |
+| A plan with `reach` is red where a player should walk | No way was found to that floor from the places to start: the reasons are in `reachOf(map).warnings`, and the nearest green edge is where the way ends |
+| A floor's height on a plan (`heights`) is not the one you wrote | Another brush lies on it: the plan shows the highest floor under the cut |
 | A face is a flat colour in a view of the result | Its texture is in none of the .wad files given to the picture (`facts.missing`): pass `folders` or `textures`. The game needs the same .wad, unless the compile was `wadinclude` |
 | The map is fully bright and slow | It leaked, or `hlvis` / `hlrad` were left out |
 | A picture is smeared along a slope | World alignment on a slanted face: `align: "face"` |

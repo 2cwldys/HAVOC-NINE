@@ -30,6 +30,10 @@ const areas = [
   "20-maps-read", // compiled maps: read, entities changed and put back, contents, visibility, light, textures, .wad files
   "21-maps-make", // brushes, a map written and read, the plan check, the leak hint, the compile where VHLT is installed
   "22-maps-draw", // pictures of a map: views, plans, the source drawn; the map commands; the MCP tools on a map
+  "23-maps-walk", // the walk test, entities at their true size, sections, storeys, views through openings
+  "24-maps-mods", // entity definitions from an FGD and learned from maps, a mod's profile and rules, the files entities name
+  "25-maps-seen", // a map's pictures with the game's files: models textured and posed, sprites, the sky, `{` holes
+  "26-maps-play", // the walk test playing more: jumps across gaps, one-way places, slopes too steep to stand on
   "19-example-and-kit-faults", // the examples' wrong arguments and refused models; the kits' fittings and rings
 ];
 

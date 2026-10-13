@@ -5,8 +5,12 @@
 //
 // It also gives a HINT about leaks, by a flood of its own on a coarse grid. A leak it reports is a real
 // opening; finding none proves nothing about gaps finer than the grid. The compiler's word is final.
+import { readFileSync } from "node:fs";
 import { dot, cross, sub } from "../vec.mjs";
 import { shapeOf, planesOf, offGrid, mapNumber } from "./source.mjs";
+import { START_CLASSES } from "./space.mjs";
+import { modOf } from "./mod.mjs";
+import { checkEntities as checkAgainstMod } from "./rules.mjs";
 
 /**
  * What a map's source may hold (the limits of a compiled map are in check.mjs).
@@ -269,14 +273,21 @@ export function leakHint(map, { cell = CELL, shapes } = {}) {
   return result;
 }
 
-/** The brushes of a plan, each with the words that say which it is. */
+/**
+ * The brushes of a plan, each with the words that say which it is. An entity is numbered as the pictures,
+ * `smak info` and `viewFrom` number it: the world is 0, the first of `entities` is 1.
+ */
 function brushesOf(map) {
   const listed = (map.brushes ?? [])
     .flat()
     .map((brush, number) => ({ brush, named: `world brush ${number}`, world: true }));
-  (map.entities ?? []).forEach((entity, number) => {
+  (map.entities ?? []).forEach((entity, index) => {
     for (const [own, brush] of (entity.brushes ?? []).entries())
-      listed.push({ brush, named: `brush ${own} of entity ${number} (${entity.classname})`, world: false });
+      listed.push({
+        brush,
+        named: `brush ${own} of entity ${index + 1} (${entity.classname})`,
+        world: false,
+      });
   });
   return listed;
 }
@@ -348,12 +359,13 @@ function checkTextures(listed, textures, { errors, facts }) {
 }
 
 /** The entities: each with a classname, point entities with a place inside the range, keys the formats hold. */
-function checkEntities(map, { range, starts }, { errors, warnings }, used) {
+function checkEntities(map, { range, starts }, { errors, warnings, facts }, used) {
   const entities = map.entities ?? [];
   const noPlace = [];
   const outside = [];
   const badKeys = [];
-  entities.forEach((entity, number) => {
+  entities.forEach((entity, index) => {
+    const number = index + 1;
     const named = `entity ${number} (${entity.classname ?? "no classname"})`;
     if (typeof entity.classname !== "string" || !entity.classname)
       errors.push(`entity ${number} has no classname`);
@@ -378,9 +390,17 @@ function checkEntities(map, { range, starts }, { errors, warnings }, used) {
   if (outside.length)
     errors.push(`${outside.length} entities are further than ${range} from the origin: ${some(outside)}`);
   if (badKeys.length) errors.push(`${badKeys.length} keys or values a map cannot hold: ${some(badKeys)}`);
-  if (starts.length && !entities.some((entity) => starts.includes(entity.classname)))
+  const found = new Map();
+  for (const entity of entities)
+    if (starts.includes(entity.classname))
+      found.set(entity.classname, (found.get(entity.classname) ?? 0) + 1);
+  if (starts.length && !found.size)
     errors.push(
-      `no ${starts.join(" or ")}: the player would start at 0 0 0, wherever that is. Add one (playerStart), or name the mod's own start in the starts option`,
+      `no ${starts.join(" or ")}: the player would start at 0 0 0, wherever that is. Add one (playerStart), or give the mod's profile (the mod option) or its own start classes (the starts option)`,
+    );
+  if (found.size)
+    facts.push(
+      `places to start: ${[...found].map(([classname, count]) => `${count} ${classname}`).join(", ")}`,
     );
   if (!entities.some((entity) => LIGHTS.includes(entity.classname)))
     warnings.push(
@@ -404,7 +424,18 @@ function checkEntities(map, { range, starts }, { errors, warnings }, used) {
  *   textures    the names the .wad files have (a list; `wadTextureNames` reads them from a .wad's bytes).
  *               With it, a texture that is in none is an error; without it, names are not looked up
  *   grid, tolerance   planes written with points further than `tolerance` (0.01) from the grid (1) are told
- *   starts      the classnames that count as a place to start (["info_player_start"]); [] to not ask for one
+ *   mod         the mod's profile (mod.mjs: `GOLDSRC`, or a mod's own, passed as data or read with
+ *               `loadMod`). It gives the start classes, the textures (its `wads`), the game's folders and
+ *               the entity definitions, and has the entities checked against them and against the mod's
+ *               rules (`checkEntities` of rules.mjs says what is told)
+ *   definitions entity definitions beside the profile's, or with no profile: what `definitionsOf` (an FGD)
+ *               or `learnEntities` (a mod's own maps) gave, an .fgd file's path, or a list of these
+ *   folders     the game's folders (the mod's own, then `valve`): the models, sprites, sounds, sky and
+ *               .wad files the entities name are looked for there. Unless told, the profile's
+ *   starts      the classnames that count as a place to start; [] to not ask for one. Unless told, the
+ *               profile's; and with no profile `START_CLASSES`, as before there were profiles: Half-Life's
+ *               two and Master Sword's `ms_player_begin` and `ms_player_spawn`. `facts` says which were
+ *               found, and how many of each
  *   leak        false leaves the leak hint out; `cell` is its grid (see `leakHint`)
  *
  * Errors: a brush that is no sound convex solid (a face with no area, no volume, planes that do not close,
@@ -413,15 +444,19 @@ function checkEntities(map, { range, starts }, { errors, warnings }, used) {
  * no classname, a key or value the formats cannot hold, no place to start.
  * Warnings: planes off the grid, no `wad` key, nothing that lights the map, a texture light no face wears,
  * an entity inside a brush, and the leak hint: a way out to the void, with where it gets out.
+ * With `mod` or `definitions`, also what `checkEntities` finds: a class that does not exist (an error), a
+ * key its class does not have, a value of the wrong kind, a name nothing answers to, a broken rule of the
+ * mod, a file the game does not have.
  * `leak` is what `leakHint` found: null, or `{ entity, at, points }`.
  */
 export function checkPlan(map, options = {}) {
+  const mod = modOf(options.mod);
   const {
     range = SOURCE_LIMITS.range,
-    textures,
+    textures = mod?.wads.length ? mod.wads.flatMap((wad) => wadTextureNames(readFileSync(wad))) : undefined,
     grid = 1,
     tolerance = 0.01,
-    starts = ["info_player_start"],
+    starts = mod?.starts ?? START_CLASSES,
     leak = true,
     cell,
   } = options;
@@ -451,14 +486,14 @@ export function checkPlan(map, options = {}) {
     (one) => shapes.get(one.brush) && !shapes.get(one.brush).faults.length && seals(one.brush),
   );
   const buried = [];
-  (map.entities ?? []).forEach((entity, number) => {
+  (map.entities ?? []).forEach((entity, index) => {
     const origin = entity.brushes?.length ? null : originOf(entity);
     if (!origin) return;
     const inside = sound.find((one) =>
       planesOf(one.brush).every((plane) => dot(plane.normal, origin) - plane.dist < -ON_PLANE),
     );
     if (inside)
-      buried.push(`entity ${number} (${entity.classname}) at ${place(origin)} is inside ${inside.named}`);
+      buried.push(`entity ${index + 1} (${entity.classname}) at ${place(origin)} is inside ${inside.named}`);
   });
   if (buried.length) warnings.push(`${buried.length} entities are inside a world brush: ${some(buried)}`);
 
@@ -477,6 +512,18 @@ export function checkPlan(map, options = {}) {
       facts.push(`no way out to the void found from ${found.from} entities (${basis})`);
     }
     if (found.note) facts.push(found.note);
+  }
+
+  // the entities against the mod: its classes and keys, the names, its rules, its files
+  if (mod || options.definitions) {
+    const found = checkAgainstMod(map, {
+      mod: options.mod,
+      definitions: options.definitions,
+      folders: options.folders,
+    });
+    errors.push(...found.errors);
+    warnings.push(...found.warnings);
+    facts.push(...found.facts);
   }
 
   const faces = listed.reduce((sum, one) => sum + (one.brush?.faces?.length ?? 0), 0);

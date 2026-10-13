@@ -7,6 +7,9 @@
 //   drawSource(map, options)     a view of brush source (what `writeMap` takes), before any compile
 //   planOfSource(map, options)   its plan: a cut through the brushes at a height
 //   viewFrom(bspOrMap, which)    where an entity stands and the way it looks, for a view from it
+//   sectionOf(bspOrMap, options) a side section: an upright cut along a line, with the heights of its floors
+//   storeysOf(bspOrMap, options) the storeys side by side: one plan for each, cut at its own height
+//   openingViews(bspOrMap, ...)  a view through each gate and doorway the walk test found
 //
 // Each gives `{ width, height, rgba, facts }`: a picture as `render` gives one (`png(width, height, rgba)`
 // writes it), and what was drawn in numbers and sentences. Axes are the game's: +x east, +y north, +z up.
@@ -14,7 +17,10 @@
 // The light of a compiled map is its own: each face's lightmap, made brighter by one number that stands in
 // for what the engine does to it. Textures come from the map itself, from textures handed over, or from the .wad
 // files of the game's folders; one that is found nowhere is drawn in a flat colour of its own and named in
-// `facts.missing`. A point entity's model is not looked for: it is marked by a small box with its class.
+// `facts.missing`. A point entity that stands (a place to start, a monster, an NPC) is drawn as the box it
+// moves with, at its true size; with `models`, as its model where one is named (figures.mjs), textured.
+// With the game's folders a sprite is drawn as its first frame (sprites.mjs) and the sky as its own picture
+// (sky.mjs).
 import { sub, dot, cross, unit } from "../vec.mjs";
 import { label, tile } from "../render.mjs";
 import { drawLine } from "../pixels.mjs";
@@ -36,6 +42,12 @@ import { textureKind, HOLE } from "./miptex.mjs";
 import { texturesFor } from "./wad.mjs";
 import { valueOf, numberOf, originOf, anglesOf, brushModelOf } from "./entities.mjs";
 import { shapeOf } from "./source.mjs";
+import { spaceOf, BODIES } from "./space.mjs";
+import { reachOf, storeyCuts } from "./reach.mjs";
+import { figuresOf } from "./figures.mjs";
+import { withMod } from "./mod.mjs";
+import { spritesOf, boardOf } from "./sprites.mjs";
+import { skyOf, skyColour } from "./sky.mjs";
 
 // ── constants ───────────────────────────────────────────────────────────────
 /** A view's size and how wide it looks, in degrees across, unless told. */
@@ -88,7 +100,20 @@ const NEVER_DRAWN = /^(trigger_|func_ladder$|func_monsterclip$|func_buyzone$|fun
 /** The render modes of an entity in which `renderamt` says how solid it looks (0: not at all). */
 const FADING_MODES = [1, 2, 3, 5];
 const ADDITIVE_MODE = 5;
+const HOLES_MODE = 4;
 const FULL_AMOUNT = 255;
+/**
+ * A model in a lit map takes the light of the floor under it, as the game's does, and is shaded plainly by
+ * the way each triangle looks: it keeps `MODEL_AMBIENT` of that light whichever way it looks, and up to
+ * `MODEL_DIRECT` more as it turns to the lamp. The floor is looked for this far under it (units).
+ */
+const MODEL_AMBIENT = 0.6;
+const MODEL_DIRECT = 0.4;
+const LIGHT_REACH = 2048;
+/** A glow is hidden when what the picture shows at its middle is more than this nearer the eye (units). */
+const GLOW_CLEAR = 8;
+/** The arms of the cross a sprite is marked by on a plan (pixels). */
+const SPRITE_ARM = 5;
 /** How solid a liquid of the world is drawn: what is under it shows through. */
 const LIQUID_ALPHA = 0.62;
 /**
@@ -157,6 +182,40 @@ const VIEWS_COLUMNS = 4;
 const FOUR_WAYS = [0, 90, 180, 270];
 /** A leaf under this height or width is no room to stand in. */
 const ROOM_LEAST = 64;
+/**
+ * What the walk test's findings are tinted on a plan: floor that was walked, floor that was not, floor that
+ * only a jump reaches, and the floor of a one-way place.
+ */
+export const REACH_COLOURS = {
+  walked: [60, 220, 110],
+  unwalked: [240, 70, 60],
+  jumped: [70, 190, 255],
+  trapped: [255, 176, 0],
+  route: [255, 255, 255],
+};
+const REACH_SHARE = 0.38;
+const REACH_STRONG = 0.6;
+/** The colour a floor's height is written in, on a plan and on a section. */
+const HEIGHT_INK = [255, 214, 120];
+/** A floor of a plan smaller than this many pixels does not get its height written on it. */
+const HEIGHT_AREA_LEAST = 500;
+/** The list of entities beside a plan: its width, and the height of one of its lines (pixels). */
+const LEGEND_WIDE = 300;
+const LEGEND_LINE = 8;
+/** A side section: its longer side unless told, the room left of it for the heights, and its margins. */
+const SECTION_SIDE = 1024;
+const SECTION_LEFT = 44;
+const SECTION_MARGIN = 16;
+/** Entities this near the line of a section are drawn on it, unless told (units). */
+const SECTION_NEAR = 64;
+/** The steps a section's heights are ticked at (units), and the least pixels between two ticks. */
+const TICK_STEPS = [8, 16, 32, 64, 128, 256, 512, 1024];
+const TICK_APART = 22;
+/** A floor of a section gets its height written when it runs this many pixels at the least. */
+const FLOOR_RUN_LEAST = 30;
+/** `storeysOf`: one plan's side unless told; `openingViews`: its cells at the most unless told. */
+const STOREY_SIDE = 640;
+const OPENINGS_MOST = 12;
 /** A letter of the kit's labels is this wide and high at size 1 (pixels), with its gap. */
 const LETTER_WIDE = 4;
 const LETTER_HIGH = 6;
@@ -409,8 +468,12 @@ function placed(view, surface, shift, twoSided) {
 /**
  * Fills one surface into the picture. `paint`: `{ alpha (1), additive, stipple (every other pixel left
  * open), twoSided, mean (the texture's mean colour in place of its picture), ambient (the share of its
- * colour a surface keeps in no light), outline (its edges drawn darker: the share of the colour kept) }`. A pixel is drawn
- * where the surface is nearer than what is there; one that is not opaque hides nothing after it.
+ * colour a surface keeps in no light), outline (its edges drawn darker: the share of the colour kept), lit
+ * (a light of its own, `[r, g, b]`, for a surface with no lightmap), tint (a colour laid over it, each of
+ * the three from 0 to 1), overAll (drawn over what is nearer too: a glow), holes (false: a texture's holes
+ * are filled with its last colour) }`. A pixel is drawn where the
+ * surface is nearer than what is there; one that is not opaque hides nothing after it. A texture with
+ * `sky` (the six sides of a sky) is asked by the way each pixel looks.
  */
 function fill(canvas, view, surface, shift, paint, table) {
   const place = placed(view, surface, shift, paint.twoSided);
@@ -423,16 +486,26 @@ function fill(canvas, view, surface, shift, paint, table) {
   const { perspective, least } = view;
   const texture = surface.texture;
   const flat = paint.mean || !texture.levels ? texture.mean : null;
-  const holes = !flat && texture.holes;
+  const holes = !flat && texture.holes && paint.holes !== false;
+  const cover = flat ? null : (texture.cover ?? null);
   const palette = texture.palette;
   const light = surface.light;
   const ambient = paint.ambient ?? 0;
   const lightShare = 1 - ambient;
-  const shade = ambient + lightShare * surface.shade;
+  const shade = ambient + lightShare * (surface.shade ?? 1);
+  // the three colours' own shades: the surface's one, a light of its own (`lit`), a colour laid over it
+  const tint = paint.tint ?? null;
+  const [shadeRed, shadeGreen, shadeBlue] = (paint.lit ?? [shade, shade, shade]).map(
+    (value, channel) => value * (tint?.[channel] ?? 1),
+  );
   const lift = paint.lift ?? 0;
   const kept = 1 - lift / 255;
   const alpha = paint.alpha ?? 1;
-  const opaque = alpha >= 1 && !paint.additive;
+  const opaque = alpha >= 1 && !paint.additive && !cover;
+  const overAll = Boolean(paint.overAll);
+  // the sky's picture is asked by the way each pixel looks, not by a place on the face
+  const sky = perspective && !paint.mean ? (texture.sky ?? null) : null;
+  const skyOut = [0, 0, 0];
   // how far a pixel has to be for each smaller size of the texture
   const texelsAUnit = Math.hypot(surface.sAxis[0], surface.sAxis[1], surface.sAxis[2]) || 1;
   const firstSmaller = perspective ? (TEXELS_A_PIXEL * view.focal) / texelsAUnit : Infinity;
@@ -472,14 +545,32 @@ function fill(canvas, view, surface, shift, paint, table) {
         reach = 1 / near;
         near = reach;
       }
-      if (near < least || near >= nearness[at]) continue;
+      if (near < least || (near >= nearness[at] && !overAll)) continue;
       if (paint.stipple && (row + column) & 1) continue;
+      if (sky) {
+        const across = (x - view.centreX) / view.focal;
+        const down = (y - view.centreY) / view.focal;
+        skyColour(
+          sky,
+          view.forward[0] + view.right[0] * across - view.up[0] * down,
+          view.forward[1] + view.right[1] * across - view.up[1] * down,
+          view.forward[2] + view.right[2] * across - view.up[2] * down,
+          skyOut,
+        );
+        rgba[at * 4] = skyOut[0];
+        rgba[at * 4 + 1] = skyOut[1];
+        rgba[at * 4 + 2] = skyOut[2];
+        nearness[at] = near;
+        drawn++;
+        continue;
+      }
       const s = reach * (sA * x + sB * y + sC) + sD;
       const t = reach * (tA * x + tB * y + tC) + tD;
 
       let red;
       let green;
       let blue;
+      let solid = alpha;
       if (flat) {
         red = flat[0];
         green = flat[1];
@@ -496,6 +587,7 @@ function fill(canvas, view, surface, shift, paint, table) {
         if (texelY < 0) texelY += size.height;
         const index = size.pixels[texelY * size.width + texelX];
         if (holes && index === HOLE) continue;
+        if (cover) solid = alpha * cover[index];
         red = palette[index * 3];
         green = palette[index * 3 + 1];
         blue = palette[index * 3 + 2];
@@ -525,9 +617,9 @@ function fill(canvas, view, surface, shift, paint, table) {
         green *= ambient + lightShare * mixed(1);
         blue *= ambient + lightShare * mixed(2);
       } else {
-        red *= shade;
-        green *= shade;
-        blue *= shade;
+        red *= shadeRed;
+        green *= shadeGreen;
+        blue *= shadeBlue;
       }
 
       if (lift) {
@@ -542,13 +634,13 @@ function fill(canvas, view, surface, shift, paint, table) {
         rgba[o + 2] = blue;
         nearness[at] = near;
       } else if (paint.additive) {
-        rgba[o] += red * alpha;
-        rgba[o + 1] += green * alpha;
-        rgba[o + 2] += blue * alpha;
+        rgba[o] += red * solid;
+        rgba[o + 1] += green * solid;
+        rgba[o + 2] += blue * solid;
       } else {
-        rgba[o] += (red - rgba[o]) * alpha;
-        rgba[o + 1] += (green - rgba[o + 1]) * alpha;
-        rgba[o + 2] += (blue - rgba[o + 2]) * alpha;
+        rgba[o] += (red - rgba[o]) * solid;
+        rgba[o + 1] += (green - rgba[o + 1]) * solid;
+        rgba[o + 2] += (blue - rgba[o + 2]) * solid;
       }
       drawn++;
     }
@@ -646,15 +738,37 @@ function kindOf(classname, isBrush) {
 const hasBody = (thing) => thing.kind === "monster" || /\.(mdl|spr)$/i.test(thing.modelFile ?? "");
 
 /**
- * How a brush entity is drawn, from its keys: `{ hidden, alpha, additive }`. Hidden: a class the game never
- * draws, one faded to nothing, or one the compiler was told to leave unseen (`zhlt_invisible`).
+ * How a brush entity is drawn, from its keys: `{ hidden, alpha, additive, holes }`. Hidden: a class the game
+ * never draws, one faded to nothing, or one the compiler was told to leave unseen (`zhlt_invisible`).
+ * `holes`: its `{` textures have their holes, which the game gives them in one render mode only (4,
+ * "Solid"); in any other, and on the world itself, it draws the holes filled with the texture's last colour.
  */
 function lookOf(classname, rendermode, renderamt, invisible) {
-  if (invisible || NEVER_DRAWN.test(classname)) return { hidden: true, alpha: 0, additive: false };
-  if (!FADING_MODES.includes(rendermode)) return { hidden: false, alpha: 1, additive: false };
+  const holes = rendermode === HOLES_MODE;
+  if (invisible || NEVER_DRAWN.test(classname)) return { hidden: true, alpha: 0, additive: false, holes };
+  if (!FADING_MODES.includes(rendermode)) return { hidden: false, alpha: 1, additive: false, holes };
   const alpha = Math.min(1, Math.max(0, renderamt / FULL_AMOUNT));
-  return { hidden: alpha <= 0, alpha, additive: rendermode === ADDITIVE_MODE };
+  return { hidden: alpha <= 0, alpha, additive: rendermode === ADDITIVE_MODE, holes };
 }
+
+/**
+ * The keys by which an entity's model or sprite is shown, as they stand in the map: `{ body, skin, sequence,
+ * frame, scale }`, each undefined when the entity does not give it. `key` reads one of the entity's keys.
+ */
+const poseOf = (key) => ({
+  body: key("body"),
+  skin: key("skin"),
+  sequence: key("sequence"),
+  frame: key("frame"),
+  scale: key("scale"),
+});
+/** An entity's render keys as numbers: `{ mode, amount, colour: [r, g, b], fx }`. */
+const renderOf = (key) => ({
+  mode: Number(key("rendermode") ?? 0) || 0,
+  amount: Number(key("renderamt") ?? 0) || 0,
+  colour: vectorFrom(String(key("rendercolor") ?? "")) ?? [0, 0, 0],
+  fx: Number(key("renderfx") ?? 0) || 0,
+});
 
 /** The entities of a compiled map as the drawing reads them. */
 function thingsOfBsp(bsp) {
@@ -671,6 +785,12 @@ function thingsOfBsp(bsp) {
       turned: valueOf(entity, "angles") !== undefined || valueOf(entity, "angle") !== undefined,
       model,
       modelFile: model === null ? valueOf(entity, "model") : undefined,
+      targetname: valueOf(entity, "targetname"),
+      script: valueOf(entity, "scriptfile"),
+      angles,
+      pose: poseOf((key) => valueOf(entity, key)),
+      render: renderOf((key) => valueOf(entity, key)),
+      flags: numberOf(entity, "spawnflags", 0),
       kind: kindOf(classname, model !== null),
       look: lookOf(
         classname,
@@ -697,6 +817,12 @@ function thingsOfSource(map) {
       turned: entity.angles !== undefined || entity.angle !== undefined,
       model: isBrush ? index + 1 : null,
       modelFile: isBrush ? undefined : entity.model,
+      targetname: entity.targetname,
+      script: entity.scriptfile,
+      angles,
+      pose: poseOf((key) => entity[key]),
+      render: renderOf((key) => entity[key]),
+      flags: Number(entity.spawnflags ?? 0) || 0,
       brushes: entity.brushes ?? [],
       kind: kindOf(classname, isBrush),
       look: lookOf(
@@ -751,10 +877,23 @@ const scenes = new WeakMap();
  * entities, and its faces as surfaces, each made the first time it is drawn. Kept for the map and these
  * options, so that the second picture of a map does not look for its textures again.
  */
-function sceneOf(bsp, { textures, folders, light = true, sky = SKY_COLOUR }) {
+function sceneOf(bsp, { textures, folders, light = true, sky = true }) {
   const key = JSON.stringify([folders ?? [], (textures ?? []).map((texture) => texture.name), light, sky]);
   const kept = scenes.get(bsp);
   if (kept?.key === key) return kept;
+  // the sky: a colour that was asked for, or the picture the map names where the folders have it
+  const skyNotes = [];
+  const skyName = valueOf(bsp.entities[0] ?? [], "skyname");
+  const skyColourAsked = Array.isArray(sky) ? sky : SKY_COLOUR;
+  let skyPicture = null;
+  if (sky === true && skyName && folders?.length) {
+    const found = skyOf(skyName, folders);
+    if (found.sides) skyPicture = found;
+    else
+      skyNotes.push(
+        `the sky's picture (skyname ${skyName}) is not drawn: ${found.why}; the sky is a flat colour`,
+      );
+  }
   const given = new Map((textures ?? []).map((texture) => [texture.name.toLowerCase(), texture]));
   let fromWads = null;
   const ready = new Map();
@@ -781,7 +920,7 @@ function sceneOf(bsp, { textures, folders, light = true, sky = SKY_COLOUR }) {
     return made;
   };
   const lit = light !== false && bsp.lumps.lighting.length > 0;
-  const skyTexture = flatTexture("sky", sky);
+  const skyTexture = { ...flatTexture("sky", skyColourAsked), sky: skyPicture };
   const surfaces = new Array(bsp.faces.length);
   /** The face `index` as a surface; null for one that is never drawn (a tool's texture). */
   const surfaceAt = (index) => {
@@ -813,9 +952,65 @@ function sceneOf(bsp, { textures, folders, light = true, sky = SKY_COLOUR }) {
     surfaces[index] = surface;
     return surface;
   };
-  const scene = { key, bsp, things: thingsOfBsp(bsp), surfaceAt, missing, lit, light };
+  const below = STYLES_BELOW[light] ?? STYLES_BELOW.true;
+  const lights = new Map();
+  /** The light that falls on a thing standing at a point: `[r, g, b]` samples, or null (`lightUnder`). */
+  const lightAt = (point) => {
+    const at = point.join(" ");
+    if (!lights.has(at)) lights.set(at, lit ? lightUnder(bsp, point, below) : null);
+    return lights.get(at);
+  };
+  const scene = {
+    key,
+    bsp,
+    things: thingsOfBsp(bsp),
+    surfaceAt,
+    missing,
+    lit,
+    light,
+    lightAt,
+    sky: skyPicture,
+    skyNotes,
+    figured: new Map(),
+  };
   scenes.set(bsp, scene);
   return scene;
+}
+
+/**
+ * The light of the floor under a point, as the engine finds it for a model that stands there: the world's
+ * tree is walked along the upright line down from the point, and at the first face the line passes through
+ * that has light, the sample there is taken. `[r, g, b]`, the samples as stored (the styles under `below`
+ * added up); null when the line meets no lit face within `LIGHT_REACH`. The floors of brush entities are
+ * not asked.
+ */
+function lightUnder(bsp, point, below) {
+  const [x, y] = point;
+  const walk = (at, top, bottom) => {
+    if (at < 0) return null;
+    const node = bsp.nodes[at];
+    const plane = bsp.planes[node.plane];
+    const flat = plane.normal[0] * x + plane.normal[1] * y - plane.dist;
+    const over = flat + plane.normal[2] * top;
+    const under = flat + plane.normal[2] * bottom;
+    if (over >= 0 === under >= 0) return walk(node.children[over >= 0 ? 0 : 1], top, bottom);
+    const cut = top + ((bottom - top) * over) / (over - under);
+    const before = walk(node.children[over >= 0 ? 0 : 1], top, cut);
+    if (before) return before;
+    for (let nth = 0; nth < node.faceCount; nth++) {
+      const face = bsp.faces[node.firstFace + nth];
+      const light = face ? lightOf(bsp, face, below) : null;
+      if (!light) continue;
+      const { s, t } = bsp.texinfo[face.texinfo];
+      const across = Math.round((s[0] * x + s[1] * y + s[2] * cut + s[3] - light.originS) / LUXEL);
+      const down = Math.round((t[0] * x + t[1] * y + t[2] * cut + t[3] - light.originT) / LUXEL);
+      if (across < 0 || down < 0 || across >= light.width || down >= light.height) continue;
+      const sample = (down * light.width + across) * 3;
+      return [light.rgb[sample], light.rgb[sample + 1], light.rgb[sample + 2]];
+    }
+    return walk(node.children[over >= 0 ? 1 : 0], cut, bottom);
+  };
+  return walk(bsp.models[0].headNodes[0], point[2], point[2] - LIGHT_REACH);
 }
 
 /**
@@ -872,51 +1067,217 @@ const facesOfModel = (bsp, model) =>
 const firstStart = (things) => things.find((thing) => thing.kind === "start" && thing.origin);
 
 // ── marks in a view ─────────────────────────────────────────────────────────
-/** The point entities a view marks: those with a body (`"models"`), every one (`"all"`), or none. */
-function markedThings(things, entities) {
+/**
+ * The point entities a view marks: those with a body (`"models"`), every one (`"all"`), only those drawn
+ * as the game shows them, by their model or their sprite (`"game"`: no box stands in for anything), or none.
+ */
+function markedThings(things, entities, figures, sprites) {
   if (entities === false || entities === "none") return [];
   const points = things.filter((thing) => thing.model === null && thing.origin);
-  return entities === "all" ? points : points.filter(hasBody);
+  if (entities === "game")
+    return points.filter((thing) => figures.get(thing.number)?.surfaces || sprites?.has(thing.number));
+  return entities === "all" ? points : points.filter((thing) => hasBody(thing) || figures.has(thing.number));
+}
+
+/** A box in space as words: "32 x 32 x 72". */
+const sizeText = (min, max) => max.map((value, axis) => Math.round(value - min[axis])).join(" x ");
+
+/** Where nothing is shifted: a point entity's model and a sprite are already where they stand. */
+const NO_SHIFT = [0, 0, 0];
+
+/**
+ * Draws a point entity's model: each triangle with its texture, seen from its front as the game draws it.
+ * A masked texture's holes are left open; an additive one, and a model its entity fades (`rendermode`,
+ * `renderamt`), is kept in `later` for after everything opaque. `sample`: the light of the floor under it
+ * (`[r, g, b]`, as the map stores it), or null: then it is shaded plainly by the way each triangle looks.
+ */
+function drawModel(canvas, view, thing, figure, table, sample, later) {
+  const middle = figure.min.map((value, axis) => (value + figure.max[axis]) / 2);
+  const reach = Math.hypot(...sub(figure.max, figure.min)) / 2;
+  // wholly behind the eye: nothing of it is seen
+  if (dot(sub(middle, view.eye), view.forward) < -reach) return;
+  const look = thing.look ?? { alpha: 1, additive: false };
+  for (const surface of figure.surfaces) {
+    const { texture, normal } = surface;
+    let lit;
+    if (texture.fullbright) lit = [1, 1, 1];
+    else if (sample) {
+      const turned = MODEL_AMBIENT + MODEL_DIRECT * Math.max(0, dot(normal, LAMP));
+      lit = sample.map((value) => table[value] * turned);
+    } else lit = [1, 1, 1].fill(shadeOf(normal));
+    const paint = { lit, alpha: look.alpha, additive: look.additive || texture.additive };
+    if (paint.alpha < 1 || paint.additive) later.push({ surface, shift: NO_SHIFT, paint });
+    else fill(canvas, view, surface, NO_SHIFT, paint, table);
+  }
 }
 
 /**
- * Draws a box at each marked entity and, where its middle is seen, its number and class over it. Returns
- * `[{ number, classname, at: [x, y] }]` for those seen.
+ * Whether a glow is hidden: its middle is off the picture, or what the picture shows there is nearer the
+ * eye than the glow by more than a little. (The engine asks a line from the eye to it; the picture is asked
+ * instead.)
  */
-function drawMarks(canvas, view, marked, table, labels) {
+function glowHidden(canvas, view, point) {
+  const offset = sub(point, view.eye);
+  const depth = dot(offset, view.forward);
+  if (depth < NEAR) return true;
+  const x = Math.floor(view.centreX + (dot(offset, view.right) * view.focal) / depth);
+  const y = Math.floor(view.centreY - (dot(offset, view.up) * view.focal) / depth);
+  if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return true;
+  return depth - canvas.nearness[y * canvas.width + x] > GLOW_CLEAR;
+}
+
+/** Fills what was kept for after everything opaque: glass, liquids, additive textures, sprites. */
+function drawLater(canvas, view, later, table) {
+  let drawn = 0;
+  for (const { surface, shift, paint, glowAt } of later) {
+    if (glowAt && glowHidden(canvas, view, glowAt)) continue;
+    if (fill(canvas, view, surface, shift, paint, table)) drawn++;
+  }
+  return drawn;
+}
+
+/**
+ * Labels written where there is room: `wanted` is `[{ at: [x, y], words, short, order }]`, the most telling
+ * first by `order`. Each is tried to the right of its point, to its left, over it and under it, whole; then
+ * `short` (the entity's number alone) the same way; one that fits nowhere is left out. `clear` is how far
+ * from the point the words begin. Returns `{ written, shortened, left }`: how many of each.
+ */
+function writeLabels(canvas, wanted, { clear = DOT_RADIUS + 3, bottom = canvas.height, size = 1 } = {}) {
+  const taken = [];
+  const count = { written: 0, shortened: 0, left: 0 };
+  const boxFor = (at, words, side) => {
+    const wide = words.length * LETTER_WIDE * size + 2;
+    const high = LETTER_HIGH * size + 2;
+    if (side === 0) return [at[0] + clear, at[1] - 3, wide, high];
+    if (side === 1) return [at[0] - clear - wide, at[1] - 3, wide, high];
+    if (side === 2) return [at[0] - Math.round(wide / 2), at[1] - clear - high, wide, high];
+    return [at[0] - Math.round(wide / 2), at[1] + clear, wide, high];
+  };
+  const free = (box) =>
+    box[0] >= 0 &&
+    box[1] >= 0 &&
+    box[0] + box[2] <= canvas.width &&
+    box[1] + box[3] <= bottom &&
+    !taken.some(
+      (other) =>
+        box[0] < other[0] + other[2] &&
+        other[0] < box[0] + box[2] &&
+        box[1] < other[1] + other[3] &&
+        other[1] < box[1] + box[3],
+    );
+  for (const each of [...wanted].sort((a, b) => a.order - b.order)) {
+    let put = null;
+    for (const words of [each.words, each.short]) {
+      if (!words || put) continue;
+      for (let side = 0; side < 4 && !put; side++) {
+        const box = boxFor(each.at, words, side);
+        if (free(box)) put = { box, words };
+      }
+    }
+    if (!put) {
+      count.left++;
+      continue;
+    }
+    taken.push(put.box);
+    label(canvas, put.words, put.box[0] + 1, put.box[1] + 1, size, each.colour);
+    count.written++;
+    if (put.words !== each.words) count.shortened++;
+  }
+  return count;
+}
+
+/**
+ * Draws each marked entity: its model, or its sprite, or the box it moves with, or (a thing with none of
+ * them) a small box; and, where it is seen, its number and class over it. `with`: `{ labels, figures,
+ * sprites, lightAt (the light at a point, for a model; without it models are shaded plainly), later (the
+ * list that what is not opaque is kept in, for the caller to draw last) }`. Returns `[{ number, classname,
+ * at: [x, y], drawn ("model", "sprite", "box" or "mark"), size }]` for those seen.
+ */
+function drawMarks(canvas, view, marked, table, { labels, figures, sprites, lightAt, later }) {
   const half = MARK_SIDE / 2;
-  for (const thing of marked) {
-    const min = plus(thing.origin, [1, 1, 1], -half);
-    const max = plus(thing.origin, [1, 1, 1], half);
+  const shapes = marked.map((thing) => {
+    const figure = figures.get(thing.number);
+    const sprite = figure ? undefined : sprites?.get(thing.number);
+    const reach = sprite ? Math.max(...sprite.size) / 2 : half;
+    const min = figure?.min ?? plus(thing.origin, [1, 1, 1], -reach);
+    const max = figure?.max ?? plus(thing.origin, [1, 1, 1], reach);
+    const drawn = figure?.surfaces ? "model" : figure ? "box" : sprite ? "sprite" : "mark";
+    return { thing, figure, sprite, min, max, drawn };
+  });
+  const boards = [];
+  for (const { thing, figure, sprite, min, max } of shapes) {
+    if (figure?.surfaces) {
+      if (!thing.look?.hidden)
+        drawModel(canvas, view, thing, figure, table, lightAt?.(plus(thing.origin, [0, 0, 1], LUXEL)), later);
+      continue;
+    }
+    if (sprite) {
+      const board = boardOf(sprite, view);
+      if (board) boards.push({ ...board, glowAt: sprite.mode === "glow" ? sprite.origin : null });
+      continue;
+    }
     for (const surface of boxSurfaces(min, max, MARK_COLOURS[thing.kind]))
-      fill(canvas, view, surface, [0, 0, 0], {}, table);
+      fill(canvas, view, surface, NO_SHIFT, figure ? { outline: OUTLINE_SHARE } : {}, table);
+  }
+  // the sprites, the farthest first: one that is whole is drawn now, the others after everything opaque
+  for (const { surface, paint, glowAt } of boards.sort((a, b) => b.far - a.far)) {
+    if (paint.alpha >= 1 && !paint.additive && !surface.texture.cover)
+      fill(canvas, view, surface, NO_SHIFT, paint, table);
+    else later.push({ surface, shift: NO_SHIFT, paint, glowAt });
   }
   const seen = [];
-  for (const thing of marked) {
-    const offset = sub(thing.origin, view.eye);
+  const wanted = [];
+  for (const { thing, min, max, drawn } of shapes) {
+    const middle = min.map((value, axis) => (value + max[axis]) / 2);
+    const offset = sub(middle, view.eye);
     const depth = dot(offset, view.forward);
     if (depth < NEAR) continue;
     const x = Math.round(view.centreX + (dot(offset, view.right) * view.focal) / depth);
     const y = Math.round(view.centreY - (dot(offset, view.up) * view.focal) / depth);
     if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) continue;
-    // seen when nothing is nearer than the box's own front
-    if (canvas.nearness[y * canvas.width + x] < depth - MARK_SIDE) continue;
-    seen.push({ number: thing.number, classname: thing.classname, at: [x, y] });
-    if (labels === false) continue;
-    // the words over the box: its half side on the picture, and a line of letters, above its middle
-    const words = `${thing.number} ${thing.classname}`;
-    const wide = words.length * LETTER_WIDE;
-    const left = Math.max(1, Math.min(canvas.width - wide - 1, x - Math.round(wide / 2)));
-    const above = Math.round((half * view.focal) / depth) + LETTER_HIGH + 4;
-    label(canvas, words, left, Math.max(1, y - above), 1);
+    // seen when nothing is nearer than its own front
+    const reach = Math.hypot(...sub(max, min)) / 2;
+    if (canvas.nearness[y * canvas.width + x] < depth - reach - 1) continue;
+    seen.push({
+      number: thing.number,
+      classname: thing.classname,
+      at: [x, y],
+      drawn,
+      size: sizeText(min, max),
+    });
+    // the words over it: above its top as the picture shows it
+    const above = Math.round((((max[2] - min[2]) / 2) * view.focal) / depth);
+    wanted.push({
+      at: [x, y - above],
+      words: `${thing.number} ${thing.classname}`,
+      short: String(thing.number),
+      order: depth,
+    });
   }
+  if (labels !== false) writeLabels(canvas, wanted, { clear: 4 });
   return seen;
+}
+
+/** What a view says of how its point entities were drawn, in one sentence; nothing when none was. */
+function marksNote(marked) {
+  if (!marked.length) return [];
+  const counted = (drawn) => marked.filter((mark) => mark.drawn === drawn).length;
+  const parts = [];
+  if (counted("model")) parts.push(`${counted("model")} as their model, with its textures`);
+  if (counted("sprite")) parts.push(`${counted("sprite")} as their sprite's first frame`);
+  if (counted("box")) parts.push(`${counted("box")} as the box they move with, at its true size`);
+  if (counted("mark")) parts.push(`${counted("mark")} as a small box`);
+  const models = counted("model")
+    ? ""
+    : " (`models` and the game's `folders` draw the models that are named)";
+  return [`${marked.length} point entities are drawn: ${parts.join(", ")}${models}`];
 }
 
 // ── a view of a compiled map ────────────────────────────────────────────────
 /**
- * A view from a point inside a compiled map (`bsp`: what `readBsp` gave), as a player would see it without
- * the models: textured, and lit by the map's own lightmaps.
+ * A view from a point inside a compiled map (`bsp`: what `readBsp` gave), as a player would see it:
+ * textured, and lit by the map's own lightmaps; with the game's `folders`, under the sky's own picture,
+ * with its sprites, and (`models`) with its models.
  *
  *   from          where the eye is, [x, y, z]. Without it: the first place to start, at eye height, looking
  *                 the way it faces; a map with none is looked at from the middle of its largest room
@@ -931,24 +1292,44 @@ function drawMarks(canvas, view, marked, table, labels) {
  *   brightness    what the light is multiplied by (1.55: about what the game shows; 1: the samples as the
  *                 compiler stored them; more, to look into a dark map)
  *   textures      map textures to wear by name where the map has no pixels of its own: `readWad(...).textures`
- *   folders       the game's folders (the mod's own, then `valve`): their .wad files are looked in
- *   entities      "models" (unless told): a labelled box at each point entity that names a .mdl or .spr or is
- *                 a monster; "all": at every point entity; false: none. `labels: false` leaves the words out
- *   sky           the colour of sky faces, [r, g, b]
+ *   folders       the game's folders (the mod's own, then `valve`): their .wad files are looked in, and
+ *                 the sky's picture, the sprites and the models are read from them
+ *   entities      "models" (unless told): each point entity that stands (a place to start, a monster, an
+ *                 NPC) is drawn as the box it moves with, at its true size, and one that names a .mdl or a
+ *                 .spr as a small box, each with its number and class; "all": every point entity; "game":
+ *                 only what is drawn as the game shows it, by its model or its sprite, and no box for
+ *                 anything else (with `labels: false`, a picture to lay beside a screenshot); false: none.
+ *                 `labels: false` leaves the words out
+ *   bodies        `{ name: "large" | "standing" | "crouching" | { half, height, feet } }`: the box a thing
+ *                 moves with, by classname or targetname, where its class does not say (`bodyFor`)
+ *   models        true: an entity whose `model` key names a .mdl is drawn as that model, read from
+ *                 `folders`, with its textures (a masked one's holes left open), in the `body`, `skin`,
+ *                 `sequence` and `scale` its entity gives and turned by its `angles`.
+ *                 `{ name: "models/x.mdl" }`: these too, by targetname, `scriptfile` or classname.
+ *                 `modelScale: false`: each at its own size, whatever its entity's `scale` says
+ *   sprites       false: no sprite is drawn. Unless told, an entity that names a .spr found in `folders` is
+ *                 drawn as that sprite's first frame, turned to the eye, at its `scale`, by its render mode
+ *   sky           true (unless told): the picture the map's `skyname` names (`gfx/env/<name>rt.tga` and
+ *                 its five like, of `folders`), and a flat colour where it is not found. `[r, g, b]`: that
+ *                 colour, and no picture
  *
  * What is drawn: the world's faces the eye's leaf can see (all of them when the eye is in solid or the map
  * has no visibility), and every brush entity where its `origin` puts it, but those the game never shows
  * (triggers, ladders, entities faded to nothing, faces wearing aaatrigger, clip, null, origin, hint, skip).
- * A `{` texture has its holes, sky is one flat colour, a liquid of the world lets what is under it show.
- * NOT drawn: the models (.mdl) and sprites of point entities, decals, the sky's own picture, a brush
- * entity's turn (`angles`), and what a script does when the game runs.
+ * A `{` texture has its holes on a brush entity whose render mode is 4 (Solid), as in the game, and is
+ * filled anywhere else; a liquid of the world lets what is under it show. A model takes the light of
+ * the floor under it. NOT drawn: the models nothing names (a monster's comes from its script: `models`
+ * names it), a sprite's or a model's animation (one frame is drawn), decals, a brush entity's turn
+ * (`angles`), and what a script does when the game runs.
  *
  * Returns `{ width, height, rgba, facts }`. `facts`: `{ from, yaw, pitch, fov, leaf, contents, faces
  * (drawn), pixels (the share of the picture that shows something), light, brightness (the picture's mean,
  * 0 to 255: a number for "too dark"), missing (texture names found
- * nowhere, drawn flat), marked ([{ number, classname, at }]), notes (sentences) }`.
+ * nowhere, drawn flat), sky (the name of the sky drawn, or null for a flat colour), marked ([{ number,
+ * classname, at, drawn ("model", "sprite", "box" or "mark"), size }]), notes (sentences) }`.
  */
 export function drawMap(bsp, options = {}) {
+  options = withMod(options, bsp); // a mod's profile: its folders, its classes' boxes (mod.mjs)
   const width = sideOf(options.width, VIEW_WIDTH, "width");
   const height = sideOf(options.height, VIEW_HEIGHT, "height");
   const scene = sceneOf(bsp, options);
@@ -984,9 +1365,11 @@ export function drawMap(bsp, options = {}) {
   let faces = 0;
   const later = [];
   /** Draws a surface now when it is opaque, or keeps it for after the rest. */
+  let filled = 0;
   const draw = (surface, shift, look) => {
     if (!surface) return;
-    const paint = { alpha: look.alpha, additive: look.additive };
+    const paint = { alpha: look.alpha, additive: look.additive, holes: Boolean(look.holes) };
+    if (surface.texture.holes && !look.holes) filled++;
     if (surface.kind === "liquid" && look.alpha >= 1) paint.alpha = LIQUID_ALPHA;
     if (surface.kind === "liquid") paint.twoSided = true;
     if (paint.alpha < 1 || paint.additive) {
@@ -995,29 +1378,39 @@ export function drawMap(bsp, options = {}) {
     }
     if (fill(canvas, view, surface, shift, paint, table)) faces++;
   };
-  const plain = { alpha: 1, additive: false };
+  const plain = { alpha: 1, additive: false, holes: false };
   for (const face of seen.faces) draw(scene.surfaceAt(face), [0, 0, 0], plain);
   for (const thing of scene.things) {
     if (!thing.model || thing.look.hidden || !bsp.models[thing.model]) continue;
     for (const face of facesOfModel(bsp, thing.model))
       draw(scene.surfaceAt(face), thing.origin ?? [0, 0, 0], thing.look);
   }
+  const figured = figuredFor(scene, options);
   const marked = drawMarks(
     canvas,
     view,
-    markedThings(scene.things, options.entities ?? "models"),
+    markedThings(scene.things, options.entities ?? "models", figured.figures, figured.sprites),
     table,
-    options.labels,
+    {
+      labels: options.labels,
+      figures: figured.figures,
+      sprites: figured.sprites,
+      lightAt: options.light === false ? null : scene.lightAt,
+      later,
+    },
   );
-  for (const { surface, shift, paint } of later)
-    if (fill(canvas, view, surface, shift, paint, table)) faces++;
+  faces += drawLater(canvas, view, later, table);
+  notes.push(...scene.skyNotes, ...figured.notes);
+  if (filled)
+    notes.push(
+      `${filled} faces wear a \`{\` texture on the world or on an entity whose render mode is not 4 (Solid): the game draws their holes filled with the texture's last colour (blue as a rule), and so are they here`,
+    );
 
   if (scene.missing.size)
     notes.push(
       `${scene.missing.size} textures were found nowhere and are drawn in a flat colour each: ${[...scene.missing].sort().slice(0, 12).join(", ")}${scene.missing.size > 12 ? "..." : ""}`,
     );
-  if (marked.length)
-    notes.push(`${marked.length} point entities are marked by a box: their models are not drawn`);
+  notes.push(...marksNote(marked));
   const brightness = Math.round(meanBrightness(canvas));
   if (scene.lit && options.light !== false && brightness < DARK_VIEW)
     notes.push(
@@ -1035,10 +1428,35 @@ export function drawMap(bsp, options = {}) {
     light: scene.lit ? (LIGHT_WORDS[scene.light] ?? LIGHT_WORDS.true) : "none",
     brightness,
     missing: [...scene.missing].sort(),
+    sky: scene.sky?.name ?? null,
     marked,
     notes,
   };
   return { ...pictureOf(canvas), facts };
+}
+
+/**
+ * What a compiled map's point entities are drawn as, kept for the map and these options: `{ figures, sprites,
+ * notes }` (`figuresOf`, `spritesOf`). The second view of a map does not read its models again.
+ */
+function figuredFor(scene, options) {
+  const key = JSON.stringify([
+    options.bodies ?? {},
+    options.models ?? false,
+    options.folders ?? [],
+    options.modelScale ?? true,
+    options.sprites ?? true,
+  ]);
+  if (!scene.figured.has(key)) {
+    const made = figuresOf(scene.things, options);
+    const drawn = spritesOf(scene.things, options);
+    scene.figured.set(key, {
+      figures: made.figures,
+      sprites: drawn.sprites,
+      notes: [...made.notes, ...drawn.notes],
+    });
+  }
+  return scene.figured.get(key);
 }
 
 /** The camera's own options of a call that were given: they win over where an entity looks. */
@@ -1106,6 +1524,7 @@ function largestRooms(bsp, count) {
  * `facts.missing` and `facts.notes` as `drawMap` gives.
  */
 export function viewsOf(bsp, options = {}) {
+  options = withMod(options, bsp); // a mod's profile: its folders, its classes' boxes (mod.mjs)
   const count = options.count ?? VIEWS_COUNT;
   if (!Number.isInteger(count) || count < 1) throw new Error(`count: a whole number from 1, not ${count}`);
   const width = sideOf(options.width, CELL_WIDTH, "width");
@@ -1154,12 +1573,14 @@ export function viewsOf(bsp, options = {}) {
  * for how many are dark and how many entities are marked, which every view words with its own numbers.
  */
 function viewsNotes(facts) {
-  const ofOneView = /^(the picture is dark|\d+ point entities are marked)/;
+  const ofOneView = /^(the picture is dark|\d+ point entities are drawn)/;
   const shared = new Set(facts.flatMap((each) => each.notes.filter((note) => !ofOneView.test(note))));
   const dark = facts.filter((each) => each.light !== "none" && each.brightness < DARK_VIEW).length;
   const notes = [...shared];
   if (facts.some((each) => each.marked.length))
-    notes.push("point entities with a model are marked by a box: their models are not drawn");
+    notes.push(
+      "point entities are drawn at their true size: as the box each moves with, as its sprite, or (with `models`) as its model",
+    );
   if (dark)
     notes.push(
       `${dark} of the ${facts.length} views are dark (under ${DARK_VIEW} of 255 on average): so is the map there, as the game shows it. \`brightness: 4\` looks into it`,
@@ -1251,14 +1672,18 @@ function rimOf(polygons) {
 
 /**
  * The marks of a plan: each brush entity's outline (handed over as lists of corners in the world), then each
- * point entity as a dot in the colour of its kind, with a short line the way it faces, and their labels
- * where there is room. Returns `[{ number, classname, kind, origin, at: [x, y] }]`.
+ * point entity as a dot in the colour of its kind, with a short line the way it faces and, for one that
+ * stands, the outline of the box it moves with (or of its model) at its true size; and their labels where
+ * there is room. An entity that names a sprite has a small cross through its dot. `only`: a list of entity
+ * numbers, and no other is marked. Returns `{ marks: [{ number, classname, name, kind, origin, at: [x, y],
+ * size, sprite }], labels }`.
  */
-function drawPlanMarks(canvas, frame, things, outlineOf, labels) {
+function drawPlanMarks(canvas, frame, things, outlineOf, { labels, only, figures, sprites }) {
   const marks = [];
   const wanted = [];
+  const chosen = (thing) => !only || only.includes(thing.number);
   for (const thing of things) {
-    if (thing.model === null || thing.number === 0) continue;
+    if (thing.model === null || thing.number === 0 || !chosen(thing)) continue;
     const outline = outlineOf(thing);
     if (!outline.length) continue;
     const colour = MARK_COLOURS[thing.kind];
@@ -1274,55 +1699,246 @@ function drawPlanMarks(canvas, frame, things, outlineOf, labels) {
     marks.push({
       number: thing.number,
       classname: thing.classname,
+      name: thing.targetname,
       kind: thing.kind,
       origin: middle.map(Math.round),
       at,
     });
-    wanted.push({ at, words: `${thing.number} ${thing.classname}`, order: thing.kind === "trigger" ? 3 : 2 });
+    wanted.push({
+      at,
+      words: `${thing.number} ${thing.classname}`,
+      short: String(thing.number),
+      order: thing.kind === "trigger" ? 3 : 2,
+    });
   }
   for (const thing of things) {
-    if (thing.model !== null || !thing.origin) continue;
+    if (thing.model !== null || !thing.origin || !chosen(thing)) continue;
     const at = planPixel(frame, thing.origin);
-    if (thing.turned && thing.kind !== "light") {
-      const way = [Math.cos(thing.yaw * DEGREES), -Math.sin(thing.yaw * DEGREES)];
-      line(
-        canvas,
-        at,
-        [at[0] + way[0] * FACING_LENGTH, at[1] + way[1] * FACING_LENGTH],
-        MARK_COLOURS[thing.kind],
+    const colour = MARK_COLOURS[thing.kind];
+    const figure = figures.get(thing.number);
+    if (figure) {
+      // its true size: the box it moves with is square to the axes; a model's is turned the way it faces
+      const corners = figure.corners ?? [
+        [figure.min[0], figure.min[1]],
+        [figure.max[0], figure.min[1]],
+        [figure.max[0], figure.max[1]],
+        [figure.min[0], figure.max[1]],
+      ];
+      corners.forEach((corner, index) =>
+        line(
+          canvas,
+          planPixel(frame, corner),
+          planPixel(frame, corners[(index + 1) % corners.length]),
+          colour,
+        ),
       );
     }
-    drawDot(canvas, at, DOT_RADIUS, MARK_COLOURS[thing.kind]);
+    if (thing.turned && thing.kind !== "light") {
+      const way = [Math.cos(thing.yaw * DEGREES), -Math.sin(thing.yaw * DEGREES)];
+      line(canvas, at, [at[0] + way[0] * FACING_LENGTH, at[1] + way[1] * FACING_LENGTH], colour);
+    }
+    const isSprite = !figure && /\.spr$/i.test(thing.modelFile ?? "");
+    const sprite = isSprite ? sprites?.get(thing.number) : undefined;
+    if (isSprite)
+      for (const way of [1, -1])
+        line(
+          canvas,
+          [at[0] - SPRITE_ARM, at[1] - SPRITE_ARM * way],
+          [at[0] + SPRITE_ARM, at[1] + SPRITE_ARM * way],
+          colour,
+        );
+    drawDot(canvas, at, DOT_RADIUS, colour);
     marks.push({
       number: thing.number,
       classname: thing.classname,
+      name: thing.targetname,
       kind: thing.kind,
       origin: thing.origin,
       at,
+      ...(figure ? { size: sizeText(figure.min, figure.max) } : {}),
+      ...(isSprite ? { sprite: thing.modelFile } : {}),
+      ...(sprite ? { size: sprite.size.map(Math.round).join(" x ") } : {}),
     });
     const order = { start: 0, monster: 1, other: 4, light: 5 }[thing.kind];
-    wanted.push({ at, words: `${thing.number} ${thing.classname}`, order });
+    wanted.push({ at, words: `${thing.number} ${thing.classname}`, short: String(thing.number), order });
   }
-  if (labels === false) return marks;
-  // the labels: the kinds that matter most first, and none over one already written
+  if (labels === false) return { marks, labels: { written: 0, shortened: 0, left: 0 } };
+  // the labels: the kinds that matter most first, none over one already written; a crowded one is its
+  // number alone, which the list of entities explains
   const few = labels === true || wanted.length <= LABELS_MOST;
-  const taken = [];
-  for (const { at, words, order } of wanted.sort((a, b) => a.order - b.order)) {
-    if (!few && order > 0) continue;
-    const box = [at[0] + DOT_RADIUS + 3, at[1] - 3, words.length * LETTER_WIDE + 2, LETTER_HIGH + 2];
-    const overlaps = taken.some(
-      (other) =>
-        box[0] < other[0] + other[2] &&
-        other[0] < box[0] + box[2] &&
-        box[1] < other[1] + other[3] &&
-        other[1] < box[1] + box[3],
-    );
-    if (overlaps || box[0] + box[2] > canvas.width) continue;
-    taken.push(box);
-    label(canvas, words, box[0] + 1, box[1] + 1, 1);
-  }
-  return marks;
+  const written = writeLabels(
+    canvas,
+    wanted.filter((each) => few || each.order === 0),
+    { bottom: canvas.height - PLAN_FOOT },
+  );
+  return { marks, labels: written };
 }
+
+/** What a plan says of its labels that are a number alone, or left out; nothing when all are whole. */
+function labelsNote(labels) {
+  if (!labels.shortened && !labels.left) return [];
+  return [
+    `${labels.shortened} labels are the entity's number alone and ${labels.left} were left out, for want of room: \`legend: true\` lists every number with its class beside the plan, and \`facts.marks\` has them all`,
+  ];
+}
+
+/**
+ * A plan with the list of its entities beside it: each class once, with the numbers of its entities (and a
+ * targetname after its number). Returns the wider picture.
+ */
+function withLegend(picture, marks) {
+  const byClass = new Map();
+  for (const mark of marks) {
+    if (!byClass.has(mark.classname)) byClass.set(mark.classname, { kind: mark.kind, entries: [] });
+    byClass.get(mark.classname).entries.push(mark.name ? `${mark.number}=${mark.name}` : String(mark.number));
+  }
+  const most = Math.floor((LEGEND_WIDE - 16) / LETTER_WIDE);
+  const lines = [];
+  for (const [classname, { kind, entries }] of byClass) {
+    lines.push({ words: `${classname} (${entries.length})`, colour: MARK_COLOURS[kind] });
+    let row = " ";
+    for (const entry of entries) {
+      if (row.length + entry.length + 1 > most) {
+        lines.push({ words: row, colour: PLAN_COLOURS.ink });
+        row = " ";
+      }
+      row += ` ${entry}`;
+    }
+    lines.push({ words: row, colour: PLAN_COLOURS.ink });
+  }
+  const width = picture.width + LEGEND_WIDE;
+  const rgba = new Uint8Array(width * picture.height * 4);
+  for (let pixel = 0; pixel < width * picture.height; pixel++) rgba.set([20, 22, 26, 255], pixel * 4);
+  for (let row = 0; row < picture.height; row++)
+    rgba.set(picture.rgba.subarray(row * picture.width * 4, (row + 1) * picture.width * 4), row * width * 4);
+  const wider = { width, height: picture.height, rgba };
+  const room = Math.floor((picture.height - 16) / LEGEND_LINE);
+  lines.slice(0, room).forEach(({ words, colour }, index) => {
+    const cut =
+      index === room - 1 && lines.length > room ? `... and ${lines.length - room} lines more` : words;
+    label(wider, cut, picture.width + 8, 8 + index * LEGEND_LINE, 1, colour);
+  });
+  return wider;
+}
+
+/**
+ * The heights of a plan's floors, to be written on them: the picture keeps the height of the floor under
+ * every pixel, and each patch of one height that is large enough gets `z` and its height where it is
+ * widest. `cut` marks the pixels that are not floor (solid at the cut). Returns `[{ at, words, z }]`.
+ */
+function floorHeights(canvas, bottom, cut) {
+  const { width, nearness } = canvas;
+  const seen = new Uint8Array(width * bottom);
+  const heightAt = (at) => (cut[at] || nearness[at] === Infinity ? null : Math.round(-nearness[at]));
+  const found = [];
+  const stack = [];
+  for (let begin = 0; begin < width * bottom; begin++) {
+    if (seen[begin]) continue;
+    seen[begin] = 1;
+    const height = heightAt(begin);
+    if (height === null) continue;
+    // the patch of this height, and the widest stretch of one row of it
+    let area = 0;
+    let best = { length: 0, row: 0, left: 0 };
+    stack.push(begin);
+    while (stack.length) {
+      const at = stack.pop();
+      area++;
+      const column = at % width;
+      const row = (at - column) / width;
+      if (column === 0 || heightAt(at - 1) !== height) {
+        let length = 1;
+        while (column + length < width && heightAt(at + length) === height) length++;
+        if (length > best.length) best = { length, row, left: column };
+      }
+      for (const [other, inside] of [
+        [at - 1, column > 0],
+        [at + 1, column < width - 1],
+        [at - width, row > 0],
+        [at + width, row < bottom - 1],
+      ]) {
+        if (!inside || seen[other] || heightAt(other) !== height) continue;
+        seen[other] = 1;
+        stack.push(other);
+      }
+    }
+    const words = `z ${height}`;
+    if (area >= HEIGHT_AREA_LEAST && best.length >= words.length * LETTER_WIDE + 6)
+      found.push({ at: [best.left + Math.round(best.length / 2), best.row], words, z: height, area });
+  }
+  return found.sort((a, b) => b.area - a.area);
+}
+
+/** Writes the heights `floorHeights` found, each centred on its point, none over another. */
+function writeHeights(canvas, heights) {
+  const taken = [];
+  for (const { at, words } of heights) {
+    const wide = words.length * LETTER_WIDE + 2;
+    const box = [at[0] - Math.round(wide / 2), at[1] - 3, wide, LETTER_HIGH + 2];
+    if (
+      taken.some(
+        (other) =>
+          box[0] < other[0] + other[2] && other[0] < box[0] + box[2] && Math.abs(box[1] - other[1]) < box[3],
+      )
+    )
+      continue;
+    taken.push(box);
+    label(canvas, words, box[0] + 1, box[1] + 1, 1, HEIGHT_INK);
+  }
+}
+
+/**
+ * What the walk test found, on a plan: every floor turned grey, then the floor that was walked tinted in
+ * one colour, floor a player would fit on and did not get to in another, floor only a jump reaches in a
+ * third and the floor of a one-way place in a fourth, the ways asked for as lines, each opening with its
+ * number.
+ * `cut`: the height of the plan's cut (undefined: seen from above), and the pixels that are solid there.
+ */
+function drawReach(canvas, frame, reach, cutHeight, cut) {
+  const bottom = canvas.height - PLAN_FOOT;
+  for (let row = 0; row < bottom; row++)
+    for (let column = 0; column < frame.width; column++) {
+      const at = row * frame.width + column;
+      if (cut[at] || canvas.nearness[at] === Infinity) continue;
+      const x = frame.x0 + (column + 0.5) / frame.scale;
+      const y = frame.y0 - (row + 0.5) / frame.scale;
+      // the floor goes grey first, so that the tint is told from a floor's own colour
+      const grey =
+        0.3 * canvas.rgba[at * 4] + 0.59 * canvas.rgba[at * 4 + 1] + 0.11 * canvas.rgba[at * 4 + 2];
+      canvas.rgba.set([grey, grey, grey], at * 4);
+      // a one-way place is told from everything else; then what only a jump reaches from what is walked
+      const walked = reach.walked(x, y, cutHeight);
+      if (walked !== null) {
+        const colour =
+          reach.trapped?.(x, y, cutHeight) === walked
+            ? REACH_COLOURS.trapped
+            : reach.jumped?.(x, y, cutHeight) === walked
+              ? REACH_COLOURS.jumped
+              : REACH_COLOURS.walked;
+        tint(canvas, at, colour, colour === REACH_COLOURS.walked ? REACH_SHARE : REACH_STRONG);
+      } else if (reach.stands(x, y, cutHeight) !== null)
+        tint(canvas, at, REACH_COLOURS.unwalked, REACH_SHARE);
+    }
+  for (const route of reach.routes ?? [])
+    for (let index = 0; index + 1 < route.points.length; index++)
+      line(
+        canvas,
+        planPixel(frame, route.points[index]),
+        planPixel(frame, route.points[index + 1]),
+        REACH_COLOURS.route,
+      );
+  for (const opening of reach.openings ?? []) {
+    if (cutHeight !== undefined && opening.at[2] > cutHeight) continue;
+    const at = planPixel(frame, opening.at);
+    label(canvas, `o${opening.number}`, at[0] - 4, at[1] - 3, 1, REACH_COLOURS.route);
+  }
+}
+
+/** The walk test a plan is to show: the one handed over, or (`reach: true`) one made now. */
+const reachFor = (map, options) =>
+  options.reach === true ? reachOf(map, { bodies: options.bodies }) : (options.reach ?? null);
+const REACH_NOTE =
+  "the walk test is tinted on it: the floors are grey, green where a player walks to from the places to start, red where there is room to stand and no way was found, blue where only a jump leads, amber where a player gets in and not out again (a one-way place); o1, o2 ... are the openings";
 
 /** The band under a plan: the kinds' colours, the scale bar, and which way is north. */
 function drawPlanFoot(canvas, frame, kinds, words) {
@@ -1382,19 +1998,30 @@ const frameFacts = (frame) => ({
  *   area           `{ min: [x, y], max: [x, y] }`: this part of the map only (a closer look)
  *   entities       false leaves the marks out. Each point entity is a dot: places to start in one colour,
  *                  lights in another, monsters and NPCs in a third, the rest in a fourth, with a short line
- *                  the way it faces; each brush entity is outlined (triggers in a colour of their own)
- *   labels         false leaves the words out. A label is an entity's number and class; where two would lie
- *                  over one another the less telling is left out (lights last), and a map of more than 60
- *                  marks labels only its places to start unless `labels` is true: `facts.marks` has them
- *                  all, and `area` gives a closer look
+ *                  the way it faces; one that stands (a start, a monster, an NPC) has the outline of the box
+ *                  it moves with about it, at its true size (`bodies`, `models`, `folders`: as `drawMap`
+ *                  takes them); each brush entity is outlined (triggers in a colour of their own)
+ *   labels         false leaves the words out. A label is an entity's number and class; where it would lie
+ *                  over another it is tried on the dot's other sides, then as the number alone, and only
+ *                  then left out (lights last). A map of more than 60 marks labels only its places to start
+ *                  unless `labels` is true: `facts.marks` has them all, and `area` gives a closer look
+ *   legend         true: the list of the entities beside the plan, 300 pixels wider: each class with the
+ *                  numbers of its entities (`12=keeper`: one with a targetname)
+ *   heights        true: each floor's height is written on it (`z 64`), where the floor is large enough
+ *   reach          what `reachOf` gave for this map (or true: it is run now): the floors are drawn grey,
+ *                  tinted green where they were walked and red where there is room to stand and no way
+ *                  was found; the ways asked for
+ *                  (`to`) are lines, and each opening has its number (`o3`)
+ *   only           a list of entity numbers: no other entity is marked
  *   and `light`, `brightness`, `textures`, `folders` as `drawMap` takes them: a floor is its texture's mean
  *   colour under the map's own light, so a dark room is dark on the plan.
  *
  * Returns `{ width, height, rgba, facts }`. `facts`: `{ scale, x0, y0, pixel (how a point finds its pixel),
- * z, bar (the scale bar's length in units), marks: [{ number, classname, kind, origin, at: [x, y] }],
- * missing, notes }`.
+ * z, bar (the scale bar's length in units), marks: [{ number, classname, name, kind, origin, at: [x, y],
+ * size }], heights: [{ z, at }], missing, notes }`.
  */
 export function planOf(bsp, options = {}) {
+  options = withMod(options, bsp); // a mod's profile: its folders, its classes' boxes (mod.mjs)
   const scene = sceneOf(bsp, options);
   const bounds = worldBounds(bsp);
   const frame = planFrame(bounds.mins, bounds.maxs, options);
@@ -1419,12 +2046,16 @@ export function planOf(bsp, options = {}) {
     fill(canvas, view, surface, shift, { mean: true, alpha: LIQUID_ALPHA }, table);
 
   const sliced = cut !== undefined && options.slice !== false;
+  const cutMask = new Uint8Array(frame.width * frame.height);
+  const reach = reachFor(bsp, options);
+  if (reach) drawReach(canvas, frame, reach, cut, cutMask);
   if (sliced) {
     for (let row = 0; row < frame.height - PLAN_FOOT; row++)
       for (let column = 0; column < frame.width; column++) {
         const point = [frame.x0 + (column + 0.5) / frame.scale, frame.y0 - (row + 0.5) / frame.scale, cut];
         const contents = contentsAt(bsp, point);
         const at = row * frame.width + column;
+        if (contents === CONTENTS.SOLID || contents === CONTENTS.SKY) cutMask[at] = 1;
         if (contents === CONTENTS.SOLID) canvas.rgba.set(PLAN_COLOURS.solid, at * 4);
         else if (contents === CONTENTS.SKY) canvas.rgba.set(PLAN_COLOURS.sky, at * 4);
         else if (contents !== CONTENTS.EMPTY) tint(canvas, at, PLAN_COLOURS.water, 0.5);
@@ -1450,16 +2081,26 @@ export function planOf(bsp, options = {}) {
           facePolygon(bsp, face).map((corner) => plus(corner, thing.origin ?? [0, 0, 0])),
         )
       : [];
-  const marks =
-    options.entities === false ? [] : drawPlanMarks(canvas, frame, scene.things, outlineOf, options.labels);
+  const heights = options.heights ? floorHeights(canvas, frame.height - PLAN_FOOT, cutMask) : [];
+  writeHeights(canvas, heights);
+  const figured = figuredFor(scene, options);
+  const { marks, labels } =
+    options.entities === false
+      ? { marks: [], labels: { shortened: 0, left: 0 } }
+      : drawPlanMarks(canvas, frame, scene.things, outlineOf, {
+          ...options,
+          figures: figured.figures,
+          sprites: figured.sprites,
+        });
   const kinds = Object.keys(MARK_COLOURS).filter((kind) => marks.some((mark) => mark.kind === kind));
   const words = cut === undefined ? "seen from above" : `cut at z ${cut}`;
   const bar = drawPlanFoot(canvas, frame, kinds, words);
-  const notes = [];
+  const notes = [...figured.notes, ...labelsNote(labels)];
+  if (reach) notes.push(REACH_NOTE);
   if (scene.missing.size)
     notes.push(`${scene.missing.size} textures were found nowhere: their floors are a flat colour each`);
   if (!scene.lit) notes.push("the map has no light data: floors are shaded plainly");
-  if (marks.length > LABELS_MOST && options.labels === undefined)
+  if (marks.length > LABELS_MOST && options.labels === undefined && !options.legend)
     notes.push(
       `${marks.length} entities are marked, too many to label: only the places to start are. \`area\` gives a closer look, and \`labels: true\` labels all that fit`,
     );
@@ -1468,10 +2109,12 @@ export function planOf(bsp, options = {}) {
     z: cut ?? null,
     bar,
     marks,
+    heights: heights.map(({ at, z }) => ({ z, at })),
     missing: [...scene.missing].sort(),
     notes,
   };
-  return { ...pictureOf(canvas), facts };
+  const picture = pictureOf(canvas);
+  return { ...(options.legend ? withLegend(picture, marks) : picture), facts };
 }
 
 /** A wall's line on a plan: drawn where no floor is more than a little above the wall's top. */
@@ -1533,16 +2176,18 @@ function sourceScene(map, sky = SKY_COLOUR) {
  * A view of a map that is only SOURCE: brushes and entities as `writeMap` takes them (or `readMap` gives),
  * with no compile. Each face is one flat colour, chosen by its texture's name and shaded by the way it
  * looks, with its edges drawn darker: the shapes, the openings and where things stand are true; the textures' pictures and the light are
- * not there yet. A `{` texture is drawn as a mesh that lets what is behind it show; sky is the sky's colour;
+ * not there yet. A `{` texture on a brush entity whose render mode is 4 is drawn as a mesh that lets what is behind it show; sky is the sky's colour;
  * the compilers' own textures (clip, origin, hint, null, aaatrigger) are left out, and so are triggers.
  *
- *   from, to, yaw, pitch, fov, width, height, entities, labels, sky   as `drawMap` takes them; without
- *   `from`, the first place to start. `entities` is "all" unless told: every point entity is a labelled box.
+ *   from, to, yaw, pitch, fov, width, height, entities, labels, bodies, models, folders, sky   as `drawMap`
+ *   takes them; without `from`, the first place to start. `entities` is "all" unless told: every point
+ *   entity is drawn, those that stand as the box they move with, the others as a small box.
  *
  * Returns `{ width, height, rgba, facts }`: `facts` has `from`, `yaw`, `pitch`, `fov`, `faces`, `pixels`,
  * `textures` (the names and the colour each was drawn in), `marked` and `notes`.
  */
 export function drawSource(map, options = {}) {
+  options = withMod(options, map); // a mod's profile: its folders, its classes' boxes (mod.mjs)
   const width = sideOf(options.width, VIEW_WIDTH, "width");
   const height = sideOf(options.height, VIEW_HEIGHT, "height");
   const scene = sourceScene(map, options.sky);
@@ -1561,27 +2206,29 @@ export function drawSource(map, options = {}) {
     const paint = {
       alpha: look.alpha,
       additive: look.additive,
-      stipple: surface.holes,
+      stipple: surface.holes && Boolean(look.holes),
       outline: OUTLINE_SHARE,
     };
     if (surface.kind === "liquid") paint.alpha = Math.min(paint.alpha, LIQUID_ALPHA);
     if (paint.alpha < 1 || paint.additive) {
-      later.push({ surface, paint });
+      later.push({ surface, shift: NO_SHIFT, paint });
       return;
     }
-    if (fill(canvas, view, surface, [0, 0, 0], paint, table)) faces++;
+    if (fill(canvas, view, surface, NO_SHIFT, paint, table)) faces++;
   };
-  const plain = { alpha: 1, additive: false };
+  const plain = { alpha: 1, additive: false, holes: false };
   for (const surface of scene.world) draw(surface, plain);
   for (const { thing, surfaces } of scene.others) for (const surface of surfaces) draw(surface, thing.look);
+  const figured = figuresOf(scene.things, options);
+  const sprited = spritesOf(scene.things, options);
   const marked = drawMarks(
     canvas,
     view,
-    markedThings(scene.things, options.entities ?? "all"),
+    markedThings(scene.things, options.entities ?? "all", figured.figures, sprited.sprites),
     table,
-    options.labels,
+    { labels: options.labels, figures: figured.figures, sprites: sprited.sprites, lightAt: null, later },
   );
-  for (const { surface, paint } of later) if (fill(canvas, view, surface, [0, 0, 0], paint, table)) faces++;
+  faces += drawLater(canvas, view, later, table);
   const names = [
     ...new Set(
       [...scene.world, ...scene.others.flatMap((each) => each.surfaces)].map(
@@ -1601,6 +2248,9 @@ export function drawSource(map, options = {}) {
     marked,
     notes: [
       "source, not compiled: each face is one flat colour by its texture's name, shaded by the way it looks; no texture's picture and no light",
+      ...marksNote(marked),
+      ...figured.notes,
+      ...sprited.notes,
     ],
   };
   return { ...pictureOf(canvas), facts };
@@ -1621,11 +2271,13 @@ function cutHeightOf(things, min, max) {
  *
  *   z              the height of the cut. Without it: that of the first place to start (a player's middle,
  *                  36 over its floor), so that doorways are open and steps are not walls
- *   scale, width, height, area, entities, labels   as `planOf` takes them
+ *   scale, width, height, area, entities, labels, legend, heights, reach, only, bodies, models,
+ *   folders        as `planOf` takes them
  *
  * Returns `{ width, height, rgba, facts }`, `facts` as `planOf` gives (no `missing`).
  */
 export function planOfSource(map, options = {}) {
+  options = withMod(options, map); // a mod's profile: its folders, its classes' boxes (mod.mjs)
   const scene = sourceScene(map);
   const shapes = map.brushes.flat().map((brush) => ({ brush, shape: shapeOf(brush) }));
   const sound = shapes.filter(({ shape }) => shape.corners.length && Number.isFinite(shape.volume));
@@ -1644,6 +2296,8 @@ export function planOfSource(map, options = {}) {
     for (const surface of surfaces)
       if (surface.kind === "face" && !surface.holes) fill(canvas, view, surface, [0, 0, 0], {}, table);
 
+  const cutMask = new Uint8Array(frame.width * frame.height);
+  const reach = reachFor(map, options);
   // the cut: each brush of the world fills the pixels whose point at the cut's height is inside it
   for (const { brush, shape } of sound) {
     if (shape.min[2] > cut || shape.max[2] < cut) continue;
@@ -1657,11 +2311,15 @@ export function planOfSource(map, options = {}) {
         const point = [frame.x0 + (column + 0.5) / frame.scale, frame.y0 - (row + 0.5) / frame.scale, cut];
         if (!planes.every((plane) => dot(plane.normal, point) <= plane.dist)) continue;
         const at = row * frame.width + column;
+        if (!kind.water) cutMask[at] = 1;
         if (kind.sky) canvas.rgba.set(PLAN_COLOURS.sky, at * 4);
         else if (kind.water) tint(canvas, at, PLAN_COLOURS.water, 0.5);
         else canvas.rgba.set(PLAN_COLOURS.solid, at * 4);
       }
   }
+  if (reach) drawReach(canvas, frame, reach, cut, cutMask);
+  const heights = options.heights ? floorHeights(canvas, frame.height - PLAN_FOOT, cutMask) : [];
+  writeHeights(canvas, heights);
 
   const outlineOf = (thing) =>
     thing.brushes.flatMap((brush) =>
@@ -1669,8 +2327,16 @@ export function planOfSource(map, options = {}) {
         .faces.map((face) => face.polygon)
         .filter((polygon) => polygon.length >= 3),
     );
-  const marks =
-    options.entities === false ? [] : drawPlanMarks(canvas, frame, scene.things, outlineOf, options.labels);
+  const figured = figuresOf(scene.things, options);
+  const sprited = spritesOf(scene.things, options);
+  const { marks, labels } =
+    options.entities === false
+      ? { marks: [], labels: { shortened: 0, left: 0 } }
+      : drawPlanMarks(canvas, frame, scene.things, outlineOf, {
+          ...options,
+          figures: figured.figures,
+          sprites: sprited.sprites,
+        });
   const kinds = Object.keys(MARK_COLOURS).filter((kind) => marks.some((mark) => mark.kind === kind));
   const bar = drawPlanFoot(canvas, frame, kinds, `source  cut at z ${cut}`);
   const facts = {
@@ -1678,7 +2344,460 @@ export function planOfSource(map, options = {}) {
     z: cut,
     bar,
     marks,
-    notes: ["source, not compiled: floors are a flat colour by texture name; no light"],
+    heights: heights.map(({ at, z }) => ({ z, at })),
+    notes: [
+      "source, not compiled: floors are a flat colour by texture name; no light",
+      ...figured.notes,
+      ...sprited.notes,
+      ...labelsNote(labels),
+      ...(reach ? [REACH_NOTE] : []),
+    ],
+  };
+  const picture = pictureOf(canvas);
+  return { ...(options.legend ? withLegend(picture, marks) : picture), facts };
+}
+
+// ── a side section ──────────────────────────────────────────────────────────
+/** The stretch of a line (from `from`, along the unit `way`, `length` long) that is inside a box in plan. */
+function alongInBox(from, way, length, min, max) {
+  let enters = 0;
+  let leaves = length;
+  for (let axis = 0; axis < 2; axis++) {
+    if (Math.abs(way[axis]) < 1e-9) {
+      if (from[axis] < min[axis] || from[axis] > max[axis]) return null;
+      continue;
+    }
+    const a = (min[axis] - from[axis]) / way[axis];
+    const b = (max[axis] - from[axis]) / way[axis];
+    enters = Math.max(enters, Math.min(a, b));
+    leaves = Math.min(leaves, Math.max(a, b));
+  }
+  return leaves > enters ? [enters, leaves] : null;
+}
+
+/** The solid pieces of a cut put in order, those that overlap or touch made one: `[[from, to]]`, upwards. */
+function solidRuns(pieces) {
+  const stops = pieces
+    .filter((piece) => piece[2] !== "liquid")
+    .map((piece) => [piece[0], piece[1]])
+    .sort((a, b) => a[0] - b[0]);
+  const runs = [];
+  for (const stop of stops) {
+    const last = runs.at(-1);
+    if (last && stop[0] <= last[1] + 0.5) last[1] = Math.max(last[1], stop[1]);
+    else runs.push(stop);
+  }
+  return runs;
+}
+
+/**
+ * A side section of a map, brush source or compiled: an upright cut along the line from one point of the
+ * plan to another, seen from its right-hand side going from `from` to `to` (a line running east is seen
+ * looking north). What a plan cannot show is here: a cellar under a terrace, a stair's steps, a ceiling's
+ * height, an entity that hangs or is sunk in the floor.
+ *
+ *   from, to       the two ends of the line, `[x, y]` (a third number is passed over)
+ *   scale          pixels a unit; without it the line is fitted into `width` (1024)
+ *   z              `[low, high]`: the heights shown; without it, from under the lowest open space the line
+ *                  passes through to over the highest
+ *   near           entities this near the line are drawn on it (64 units); false: none
+ *   labels         false leaves the words out; `heights: false` the heights of the floors
+ *   bodies         as `drawMap` takes it: an entity that stands is the outline of the box it moves with
+ *   doors, open, shut   as `spaceOf` takes them
+ *
+ * Drawn: what is solid in one colour, sky and liquids in theirs, open space dark; a light line on every
+ * floor, and its height (`z 64`) written under it where it runs far enough; the heights ticked down the
+ * left edge; each brush entity the line passes through as the outline of its box; each point entity near
+ * the line as a dot, and one that stands as its box at its true size.
+ *
+ * Returns `{ width, height, rgba, facts }`. `facts`: `{ from, to, length, looking (the yaw the cut is seen
+ * along), scale, left, top, zTop, pixel (how a point finds its pixel), z: [low, high], floors: [{ z, from,
+ * to }] (each floor's height and the stretch of the line it runs for), marks: [{ number, classname, kind,
+ * along, z, at }], notes }`.
+ */
+export function sectionOf(map, options = {}) {
+  options = withMod(options, map); // a mod's profile: its folders, its classes' boxes (mod.mjs)
+  const ends = [options.from, options.to].map((end) =>
+    Array.isArray(end) && end.length >= 2 && end.slice(0, 2).every(Number.isFinite) ? end.slice(0, 2) : null,
+  );
+  if (!ends[0] || !ends[1])
+    throw new Error("sectionOf: `from` and `to`, the two ends of the line, [x, y] each");
+  const [from, to] = ends;
+  const length = Math.hypot(to[0] - from[0], to[1] - from[1]);
+  if (!(length > 0)) throw new Error("sectionOf: `from` and `to` are one point: a line has two ends");
+  const way = [(to[0] - from[0]) / length, (to[1] - from[1]) / length];
+  const space = spaceOf(map, options);
+  const most = sideOf(options.width, SECTION_SIDE, "width");
+  if (options.scale !== undefined && !(options.scale > 0))
+    throw new Error(`scale: pixels a unit, over 0, not ${options.scale}`);
+  let scale = options.scale ?? (most - SECTION_LEFT - SECTION_MARGIN) / length;
+  const pointAt = (along) => [from[0] + way[0] * along, from[1] + way[1] * along];
+
+  // the heights shown: from under the lowest open space on the line to over the highest
+  let range = options.z;
+  if (range !== undefined && !(Array.isArray(range) && range[1] > range[0]))
+    throw new Error("z: [low, high], the heights shown, the second over the first");
+  if (!range) {
+    let low = Infinity;
+    let high = -Infinity;
+    for (let step = 0; step <= 256; step++) {
+      const stops = solidRuns(space.cut(...pointAt((length * step) / 256)));
+      for (let index = 0; index + 1 < stops.length; index++) {
+        low = Math.min(low, stops[index][1]);
+        high = Math.max(high, stops[index + 1][0]);
+      }
+    }
+    range = low < high ? [low - 48, high + 32] : [space.min[2], space.max[2]];
+  }
+  const tall = range[1] - range[0];
+  scale = Math.min(
+    scale,
+    (SIDE_MOST - SECTION_MARGIN - PLAN_FOOT) / tall,
+    (SIDE_MOST - SECTION_LEFT - SECTION_MARGIN) / length,
+  );
+  const wide = Math.ceil(length * scale);
+  const width = sideOf(SECTION_LEFT + wide + SECTION_MARGIN, undefined, "the section's width");
+  const height = sideOf(
+    SECTION_MARGIN + Math.ceil(tall * scale) + PLAN_FOOT,
+    undefined,
+    "the section's height",
+  );
+  const canvas = newCanvas(width, height, NOTHING);
+  const bottom = height - PLAN_FOOT;
+  const rowOf = (z) => SECTION_MARGIN + (range[1] - z) * scale;
+  const columnOf = (along) => SECTION_LEFT + along * scale;
+  const colours = { solid: PLAN_COLOURS.solid, sky: PLAN_COLOURS.sky, liquid: PLAN_COLOURS.water };
+
+  // the cut, column by column; a floor is the top of something solid with room over it
+  const floorsAt = [];
+  for (let column = 0; column < wide; column++) {
+    const pieces = space.cut(...pointAt((column + 0.5) / scale));
+    const stops = solidRuns(pieces);
+    for (const [low, high, kind] of pieces) {
+      const first = Math.max(SECTION_MARGIN, Math.round(rowOf(high)));
+      const last = Math.min(bottom, Math.round(rowOf(low)));
+      for (let row = first; row < last; row++)
+        canvas.rgba.set(colours[kind], (row * width + SECTION_LEFT + column) * 4);
+    }
+    const floors = [];
+    stops.forEach((piece, index) => {
+      const above = stops[index + 1];
+      // the top of the world has no room over it: it is the outside
+      if (!above || above[0] - piece[1] < BODIES.crouching.height) return;
+      if (piece[1] <= range[0] || piece[1] >= range[1]) return;
+      floors.push(piece[1]);
+      const row = Math.round(rowOf(piece[1]));
+      if (row >= SECTION_MARGIN && row < bottom)
+        canvas.rgba.set(PLAN_COLOURS.wall, (row * width + SECTION_LEFT + column) * 4);
+    });
+    floorsAt.push(floors);
+  }
+  // each floor's stretch of the line, and its height written under it
+  const floors = [];
+  const open = new Map();
+  for (let column = 0; column <= wide; column++) {
+    const here = new Set((floorsAt[column] ?? []).map((z) => Math.round(z)));
+    for (const [z, begin] of open) {
+      if (here.has(z)) continue;
+      open.delete(z);
+      floors.push({
+        z,
+        from: Math.round(begin / scale),
+        to: Math.round(column / scale),
+        pixels: [begin, column],
+      });
+    }
+    for (const z of here) if (!open.has(z)) open.set(z, column);
+  }
+  floors.sort((a, b) => a.from - b.from || b.z - a.z);
+  if (options.heights !== false)
+    writeHeights(
+      canvas,
+      floors
+        .filter((floor) => floor.pixels[1] - floor.pixels[0] >= FLOOR_RUN_LEAST)
+        .sort((a, b) => b.pixels[1] - b.pixels[0] - (a.pixels[1] - a.pixels[0]))
+        .map((floor) => ({
+          at: [
+            SECTION_LEFT + Math.round((floor.pixels[0] + floor.pixels[1]) / 2),
+            Math.round(rowOf(floor.z)) + 8,
+          ],
+          words: `z ${floor.z}`,
+        }))
+        .filter((each) => each.at[1] < bottom - 6),
+    );
+
+  // the heights down the left edge
+  const step = TICK_STEPS.find((each) => each * scale >= TICK_APART) ?? TICK_STEPS.at(-1);
+  for (let z = Math.ceil(range[0] / step) * step; z <= range[1]; z += step) {
+    const row = Math.round(rowOf(z));
+    if (row < SECTION_MARGIN || row >= bottom) continue;
+    line(canvas, [SECTION_LEFT - 5, row], [SECTION_LEFT - 1, row], PLAN_COLOURS.ink);
+    label(canvas, String(z), 2, row - 3, 1, PLAN_COLOURS.ink);
+  }
+
+  // the entities: brush entities the line passes through, point entities near it
+  const things = isCompiled(map) ? thingsOfBsp(map) : thingsOfSource(map);
+  const { figures } = figuresOf(things, { bodies: options.bodies });
+  const near = options.near === false ? -1 : (options.near ?? SECTION_NEAR);
+  const marks = [];
+  const wanted = [];
+  const rectangle = (alongs, heights, colour) => {
+    const [left, right] = alongs.map((along) => Math.round(columnOf(along)));
+    const [down, up] = heights.map((z) => Math.round(rowOf(z)));
+    for (const [
+      a,
+      b,
+    ] of [
+      [[left, up], [right, up]],
+      [[right, up], [right, down]],
+      [[right, down], [left, down]],
+      [[left, down], [left, up]],
+    ]) // prettier-ignore
+      line(canvas, a, b, colour);
+  };
+  const inPicture = (at) =>
+    at[0] >= SECTION_LEFT && at[0] < width && at[1] >= SECTION_MARGIN && at[1] < bottom;
+  if (near >= 0) {
+    for (const area of space.areas) {
+      const thing = things.find((each) => each.number === area.number);
+      const inside = alongInBox(from, way, length, area.min, area.max);
+      if (!thing || !inside || area.max[2] < range[0] || area.min[2] > range[1]) continue;
+      rectangle(inside, [area.min[2], area.max[2]], MARK_COLOURS[thing.kind]);
+      const along = (inside[0] + inside[1]) / 2;
+      const z = (area.min[2] + area.max[2]) / 2;
+      const at = [Math.round(columnOf(along)), Math.round(rowOf(z))];
+      marks.push({
+        number: thing.number,
+        classname: thing.classname,
+        kind: thing.kind,
+        along: Math.round(along),
+        z: Math.round(z),
+        at,
+      });
+      wanted.push({ at, words: `${thing.number} ${thing.classname}`, short: String(thing.number), order: 2 });
+    }
+    for (const thing of things) {
+      if (thing.model !== null || !thing.origin) continue;
+      const offset = [thing.origin[0] - from[0], thing.origin[1] - from[1]];
+      const along = offset[0] * way[0] + offset[1] * way[1];
+      const aside = Math.abs(offset[0] * way[1] - offset[1] * way[0]);
+      if (aside > near || along < 0 || along > length) continue;
+      const at = [Math.round(columnOf(along)), Math.round(rowOf(thing.origin[2]))];
+      if (!inPicture(at)) continue;
+      const figure = figures.get(thing.number);
+      if (figure) {
+        const half = (figure.max[0] - figure.min[0]) / 2;
+        rectangle([along - half, along + half], [figure.min[2], figure.max[2]], MARK_COLOURS[thing.kind]);
+      }
+      drawDot(canvas, at, DOT_RADIUS, MARK_COLOURS[thing.kind]);
+      marks.push({
+        number: thing.number,
+        classname: thing.classname,
+        kind: thing.kind,
+        along: Math.round(along),
+        z: thing.origin[2],
+        at,
+      });
+      const order = { start: 0, monster: 1, other: 4, light: 5 }[thing.kind] ?? 3;
+      wanted.push({ at, words: `${thing.number} ${thing.classname}`, short: String(thing.number), order });
+    }
+  }
+  const labels =
+    options.labels === false ? { shortened: 0, left: 0 } : writeLabels(canvas, wanted, { bottom });
+
+  // the foot: the scale, and what the cut is
+  for (let row = bottom; row < height; row++)
+    for (let column = 0; column < width; column++)
+      canvas.rgba.set([20, 22, 26, 255], (row * width + column) * 4);
+  const bar = BAR_LENGTHS.filter((units) => units * scale <= BAR_MOST).at(-1) ?? BAR_LENGTHS[0];
+  const barY = bottom + 30;
+  const barEnd = SECTION_LEFT + Math.round(bar * scale);
+  line(canvas, [SECTION_LEFT, barY], [barEnd, barY], PLAN_COLOURS.ink);
+  line(canvas, [SECTION_LEFT, barY - 4], [SECTION_LEFT, barY + 4], PLAN_COLOURS.ink);
+  line(canvas, [barEnd, barY - 4], [barEnd, barY + 4], PLAN_COLOURS.ink);
+  const looking = Math.round(Math.atan2(way[0], -way[1]) / DEGREES);
+  label(
+    canvas,
+    `${bar} units  section  seen looking yaw ${looking}`,
+    barEnd + 10,
+    barY - 5,
+    2,
+    PLAN_COLOURS.ink,
+  );
+  label(
+    canvas,
+    `from ${pointText(from)} (left) to ${pointText(to)} (right)  +z up  heights at the left edge`,
+    SECTION_LEFT,
+    bottom + 8,
+    1,
+    PLAN_COLOURS.ink,
+  );
+  const facts = {
+    from,
+    to,
+    length: Math.round(length),
+    looking,
+    scale,
+    left: SECTION_LEFT,
+    top: SECTION_MARGIN,
+    zTop: range[1],
+    pixel:
+      "a point `along` the line at height z is at pixel (left + along * scale, top + (zTop - z) * scale)",
+    z: range,
+    bar,
+    floors: floors.map(({ z, from: begin, to: end }) => ({ z, from: begin, to: end })),
+    marks,
+    notes: [
+      "a side section: solid in one colour, open space dark, a light line on each floor with its height under it",
+      ...labelsNote(labels),
+    ],
   };
   return { ...pictureOf(canvas), facts };
+}
+
+// ── the storeys side by side ────────────────────────────────────────────────
+/**
+ * The storeys of a map side by side, brush source or compiled: one plan for each, cut at its own height,
+ * with every floor's height written on it. A map with a cellar under a terrace is one picture.
+ *
+ *   z              the heights to cut at, a list; without it they are found (`storeyCuts`): the fewest cuts
+ *                  that show every floor a player fits on, each 36 over the highest floor it is made for
+ *   width, height  one plan (640 x 640 at the most); `cols`: plans in a row (3 at the most)
+ *   and what `planOf` and `planOfSource` take (`area`, `labels`, `reach`, `bodies`, `folders` ...).
+ *
+ * An entity is marked on the plan of the storey it is in: the highest cut that the open space over (or
+ * under) it reaches; one that is in no storey's space is marked on the nearest.
+ *
+ * Returns `{ width, height, rgba, facts }`. `facts`: `{ storeys: [{ z, floors: [lowest, highest], area,
+ * left, top (where its plan begins in the picture), scale, x0, y0, marks }], notes }`.
+ */
+export function storeysOf(map, options = {}) {
+  options = withMod(options, map); // a mod's profile: its folders, its classes' boxes (mod.mjs)
+  const compiled = isCompiled(map);
+  const asked = options.z === undefined ? null : Array.isArray(options.z) ? options.z : [options.z];
+  if (asked && !asked.every(Number.isFinite))
+    throw new Error(`z: heights to cut at, a list of numbers, not ${options.z}`);
+  const cuts = asked
+    ? [...asked].sort((a, b) => b - a).map((z) => ({ z, floors: null, area: null }))
+    : storeyCuts(map, { doors: options.doors });
+  if (!cuts.length)
+    throw new Error("storeysOf: no floor a player fits on was found: give `z`, the heights to cut at");
+  // which storey each entity is in: the highest cut that open space joins it to
+  const space = spaceOf(map, options);
+  const things = compiled ? thingsOfBsp(map) : thingsOfSource(map);
+  const areas = new Map(space.areas.map((area) => [area.number, area]));
+  const storeyOf = (thing) => {
+    const area = areas.get(thing.number);
+    const at = area ? area.min.map((value, axis) => (value + area.max[axis]) / 2) : thing.origin;
+    if (!at) return -1;
+    const joined = cuts.findIndex((cut) => space.sees(at, [at[0], at[1], cut.z]));
+    if (joined >= 0) return joined;
+    return cuts.reduce(
+      (best, cut, index) => (Math.abs(cut.z - at[2]) < Math.abs(cuts[best].z - at[2]) ? index : best),
+      0,
+    );
+  };
+  const inStorey = cuts.map(() => []);
+  for (const thing of things) {
+    const storey = thing.number === 0 ? -1 : storeyOf(thing);
+    if (storey >= 0) inStorey[storey].push(thing.number);
+  }
+  const side = { width: options.width ?? STOREY_SIDE, height: options.height ?? STOREY_SIDE };
+  const plans = cuts.map((cut, index) => {
+    const each = { heights: true, ...options, ...side, z: cut.z, only: inStorey[index], legend: false };
+    return compiled ? planOf(map, each) : planOfSource(map, each);
+  });
+  const names = cuts.map((cut) =>
+    cut.floors ? `z ${cut.z}  floors ${cut.floors[0]} to ${cut.floors[1]}` : `z ${cut.z}`,
+  );
+  const columns = options.cols ?? Math.min(3, plans.length);
+  if (!Number.isInteger(columns) || columns < 1)
+    throw new Error(`cols: a whole number from 1, not ${columns}`);
+  const picture = tile(plans, columns, names);
+  const facts = {
+    storeys: cuts.map((cut, index) => ({
+      z: cut.z,
+      floors: cut.floors,
+      area: cut.area,
+      left: (index % columns) * plans[0].width,
+      top: Math.floor(index / columns) * plans[0].height,
+      scale: plans[index].facts.scale,
+      x0: plans[index].facts.x0,
+      y0: plans[index].facts.y0,
+      marks: plans[index].facts.marks,
+    })),
+    notes: [
+      `${cuts.length} storeys, the highest first: each plan is cut at its own height and marks the entities of its own storey; a point finds its pixel in a plan as on \`planOf\`, counted from the plan's \`left\` and \`top\``,
+      ...new Set(plans.flatMap((plan) => plan.facts.notes)),
+    ],
+  };
+  return { ...picture, facts };
+}
+
+// ── a view through each opening ─────────────────────────────────────────────
+/**
+ * A view through each gate and doorway of a map, in one picture: the walk test finds the openings
+ * (`reachOf`), and each is looked through from the floor before it, at the height of a player's eyes,
+ * towards the floor behind it. Brush source or a compiled map.
+ *
+ *   reach          what `reachOf` gave for this map; without it, it is run now (with `bodies` and `doors`)
+ *   count          how many openings at the most (12), the nearest the places to start first
+ *   both           true: each opening from both its sides
+ *   width, height  one cell (320 x 240); `cols` cells in a row (4)
+ *   and what `drawMap` or `drawSource` takes (light, brightness, folders, entities, fov ...).
+ *
+ * Returns `{ width, height, rgba, facts }`; `facts.views` is `[{ name, opening, wide, high, from, to, yaw,
+ * faces }]`. It throws, in words, when the walked floor has no opening.
+ */
+export function openingViews(map, options = {}) {
+  options = withMod(options, map); // a mod's profile: its folders, its classes' boxes (mod.mjs)
+  const compiled = isCompiled(map);
+  const reach = options.reach && options.reach !== true ? options.reach : reachOf(map, options);
+  const count = options.count ?? OPENINGS_MOST;
+  if (!Number.isInteger(count) || count < 1) throw new Error(`count: a whole number from 1, not ${count}`);
+  const openings = reach.openings.slice(0, count);
+  if (!openings.length)
+    throw new Error(
+      "openingViews: the walk test found no opening on the walked floor (a narrow place between two roomier ones): nothing to look through",
+    );
+  const width = sideOf(options.width, CELL_WIDTH, "width");
+  const height = sideOf(options.height, CELL_HEIGHT, "height");
+  const eyes = (point) => [point[0], point[1], point[2] + EYE_OVER_FLOOR];
+  const stands = openings.flatMap((opening) => {
+    const size = `${opening.width}x${opening.height ?? "open"}`;
+    const ways = options.both ? [[0, 1], [1, 0]] : [[0, 1]]; // prettier-ignore
+    return ways.map(([before, behind]) => ({
+      opening,
+      from: eyes(opening.sides[before]),
+      to: eyes(opening.sides[behind]),
+      name: `o${opening.number} ${size} from ${pointText(opening.sides[before])}`,
+    }));
+  });
+  const drawn = stands.map((stand) => {
+    const each = { ...options, reach: undefined, from: stand.from, to: stand.to, width, height };
+    return compiled ? drawMap(map, each) : drawSource(map, each);
+  });
+  const columns = options.cols ?? Math.min(VIEWS_COLUMNS, stands.length);
+  const picture = tile(
+    drawn,
+    columns,
+    stands.map((stand) => stand.name),
+  );
+  const facts = {
+    views: stands.map((stand, index) => ({
+      name: stand.name,
+      opening: stand.opening.number,
+      wide: stand.opening.width,
+      high: stand.opening.height,
+      from: stand.from,
+      to: stand.to,
+      yaw: drawn[index].facts.yaw,
+      faces: drawn[index].facts.faces,
+    })),
+    notes: [
+      `${openings.length} of the ${reach.openings.length} openings the walk test found, each looked through from the floor before it at a player's eyes`,
+      ...(compiled ? viewsNotes(drawn.map((each) => each.facts)) : []),
+    ],
+  };
+  return { ...picture, facts };
 }

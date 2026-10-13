@@ -552,7 +552,7 @@ test("map-plan, map-view and map-views draw a compiled map and its source", () =
     ["map-view", mapFile, ...out, "--light", "dim"],
     /--light: steady or all \(or --no-light\), not dim/,
   );
-  refused(["map-view", mapFile, ...out, "--entities", "some"], /--entities: all, models, none/);
+  refused(["map-view", mapFile, ...out, "--entities", "some"], /--entities: all, models, game, none/);
   refused(["map-view", mapFile, ...out, "--brightness", "0"], /--brightness: a number over 0/);
   refused(["map-view", mapFile, ...out, "--fov", "200"], /fov: degrees across/);
   refused(["map-view", mapFile, ...out, "--game", inFolder("nowhere")], /--game: no such folder/);

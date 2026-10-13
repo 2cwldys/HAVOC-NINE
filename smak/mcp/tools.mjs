@@ -249,11 +249,95 @@ function wadInfo(file) {
 }
 
 // ── check ──────────────────────────────────────────────────────────────────
+/** A list of entities as a call names them: "9, keeper" is entity 9 and the one named keeper. */
+const namesOf = (value) =>
+  value === undefined || value === null || value === ""
+    ? undefined
+    : String(value)
+        .split(",")
+        .map((word) => word.trim())
+        .filter(Boolean)
+        .map((word) => (/^\d+$/.test(word) ? Number(word) : word));
+
+/** The walk test of a map, in lines: its facts, its openings, its warnings. */
+function walkLines(map, args) {
+  const reach = maps.reachOf(map, {
+    to: namesOf(args.goal) ?? [],
+    doors: args.doors ?? "open",
+  });
+  return [
+    `the walk test, on a grid of ${reach.cell}:`,
+    ...reach.facts,
+    ...reach.openings
+      .slice(0, ENTITIES_MOST)
+      .map(
+        (opening) =>
+          `  opening ${opening.number} at ${opening.at.join(" ")}: ${opening.width} wide, ${opening.height === null ? "open above" : `${opening.height} high`}${opening.fits.large ? "" : " (closed to a large monster)"}`,
+      ),
+    ...reach.warnings.map((warning) => `WARN  ${warning}`),
+  ];
+}
+
+/**
+ * What a map's entities are checked against, from a call's `against`: files of the folders, with commas
+ * between. An .fgd file and a file of learned definitions (`smak map-learn`) are entity definitions; another
+ * .json file is a mod's profile, as data; `goldsrc` is the kit's own profile. A profile that is a module is
+ * code, and is for the tool `run`.
+ */
+function againstMod(folders, file, args) {
+  const against = {};
+  const definitions = [];
+  const names = String(args.against ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  for (const name of names) {
+    if (name === "goldsrc") against.mod = { ...maps.GOLDSRC, folders: mapFolders(folders, file) };
+    else if (/\.fgd$/i.test(name)) definitions.push(pathOf(folders, name));
+    else if (/\.json$/i.test(name)) {
+      const data = JSON.parse(readFileSync(pathOf(folders, name), "utf8"));
+      // what was learned from a mod's maps has its classes; anything else is a profile
+      if (data.classes && data.maps) definitions.push(data);
+      else against.mod = data.folders?.length ? data : { ...data, folders: mapFolders(folders, file) };
+    } else
+      throw new Error(
+        `against: ${name} is neither an .fgd file, a .json file (learned definitions, or a profile that is data) nor goldsrc. A profile that is a module (.mjs) is code: load it in a script, with the tool run (maps.loadMod)`,
+      );
+  }
+  if (definitions.length) against.definitions = definitions;
+  return against;
+}
+
+/**
+ * What is wrong with brush source before any compile, as `checkPlan` finds it; with `walk`, the walk test
+ * too.
+ */
+function checkSource(folders, file, args) {
+  const map = maps.readMap(readFileSync(file, "utf8"));
+  const report = maps.checkPlan(map, againstMod(folders, file, args));
+  const lines = [
+    ...report.facts,
+    ...report.warnings.map((warning) => `WARN  ${warning}`),
+    ...report.errors.map((error) => `ERROR ${error}`),
+    report.errors.length
+      ? `${report.errors.length} errors: fix them before compiling`
+      : "no error in the plan",
+    ...(args.walk ? walkLines(map, args) : []),
+  ];
+  return [text(lines.join("\n"))];
+}
+
 /** What an engine would refuse or draw wrong, as `smak check` and `smak map-check` print it. */
-function check(folders, { model, engine = "goldsrc" }) {
+function check(folders, args) {
+  const { model, engine = "goldsrc" } = args;
   const named = pathOf(folders, model);
+  if (isMapSource(named)) return checkSource(folders, named, args);
   const report = isCompiledMap(named)
-    ? maps.checkBsp(readFileSync(named), { engine, folders: mapFolders(folders, named) })
+    ? maps.checkBsp(readFileSync(named), {
+        engine,
+        folders: mapFolders(folders, named),
+        ...againstMod(folders, named, args),
+      })
     : smak.check(readModel(folders, model).src, engine);
   const warned = report.warnings.length ? `, with ${report.warnings.length} warnings` : "";
   const verdict = report.errors.length
@@ -264,6 +348,7 @@ function check(folders, { model, engine = "goldsrc" }) {
     ...report.warnings.map((warning) => `WARN  ${warning}`),
     ...report.errors.map((error) => `ERROR ${error}`),
     verdict,
+    ...(args.walk && isCompiledMap(named) ? walkLines(maps.readBsp(readFileSync(named)), args) : []),
   ];
   return [text(lines.join("\n"))];
 }
@@ -337,12 +422,31 @@ function standOf(map, at) {
   return maps.viewFrom(map, at);
 }
 
+/** A point of the plan as a call says it: "x y" (a third number is passed over). */
+function planPoint(value, what) {
+  const numbers = String(value ?? "")
+    .trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  if (numbers.length < 2 || !numbers.every(Number.isFinite))
+    throw new Error(`${what}: a point of the plan, "x y", not ${value}`);
+  return numbers.slice(0, 2);
+}
+
 /**
- * The three kinds of picture of a map: each takes the map, whether it is source, the arguments and the size.
+ * The kinds of picture of a map: each takes the map, whether it is source, the arguments and the size.
  */
 const MAP_KINDS = {
   plan: (map, source, args, size) => {
-    const options = { ...args.options, width: size, height: size, z: args.z ?? undefined };
+    const options = {
+      ...args.options,
+      width: size,
+      height: size,
+      z: args.z ?? undefined,
+      heights: args.heights === true,
+      legend: args.legend === true,
+      reach: args.reach === true ? true : undefined,
+    };
     return source ? maps.planOfSource(map, options) : maps.planOf(map, options);
   },
   view: (map, source, args, size) => {
@@ -360,6 +464,23 @@ const MAP_KINDS = {
     if (source) throw new Error("views: of a compiled map (.bsp); of source, kind view and plan");
     const side = Math.floor(size / MAP_VIEWS_COLUMNS);
     return maps.viewsOf(map, {
+      ...args.options,
+      count: args.count,
+      width: side,
+      height: Math.round(side * MAP_VIEW_HEIGHT),
+      cols: MAP_VIEWS_COLUMNS,
+    });
+  },
+  section: (map, source, args, size) =>
+    maps.sectionOf(map, { from: planPoint(args.from, "from"), to: planPoint(args.to, "to"), width: size }),
+  storeys: (map, source, args, size) => {
+    const side = Math.max(MAP_SIZE_LEAST, Math.floor(size / 2));
+    const reach = args.reach === true ? true : undefined;
+    return maps.storeysOf(map, { ...args.options, width: side, height: side, cols: 2, reach });
+  },
+  openings: (map, source, args, size) => {
+    const side = Math.floor(size / MAP_VIEWS_COLUMNS);
+    return maps.openingViews(map, {
       ...args.options,
       count: args.count,
       width: side,
@@ -388,14 +509,38 @@ function mapShown(kind, facts, shrink) {
     lines.push(
       `from ${facts.from.join(" ")}, yaw ${facts.yaw}, pitch ${facts.pitch}; ${facts.faces} faces; light: ${facts.light}`,
     );
-    for (const mark of facts.marked) lines.push(`  marked: ${mark.number} ${mark.classname}`);
+    for (const mark of facts.marked)
+      lines.push(
+        `  marked: ${mark.number} ${mark.classname}${mark.drawn === "mark" ? "" : `, its ${mark.drawn} ${mark.size}`}`,
+      );
+  } else if (kind === "section") {
+    lines.push(
+      `a section ${facts.length} units long from ${facts.from.join(" ")} (left) to ${facts.to.join(" ")} (right), heights ${facts.z.map(Math.round).join(" to ")}, seen looking yaw ${facts.looking}`,
+    );
+    for (const floor of facts.floors.filter((each) => each.to - each.from >= 16).slice(0, ENTITIES_MOST))
+      lines.push(`  floor at z ${floor.z} from ${floor.from} to ${floor.to} along the line`);
+    for (const mark of facts.marks.slice(0, ENTITIES_MOST))
+      lines.push(`  ${mark.number} ${mark.classname} ${mark.along} along the line, z ${mark.z}`);
+  } else if (kind === "storeys") {
+    for (const storey of facts.storeys)
+      lines.push(
+        `  cut at z ${storey.z}${storey.floors ? `: floors from ${storey.floors[0]} to ${storey.floors[1]}` : ""}; ${storey.marks.length} entities`,
+      );
+  } else if (kind === "openings") {
+    for (const view of facts.views)
+      lines.push(
+        `  opening ${view.opening}: ${view.wide} wide, ${view.high === null ? "open above" : `${view.high} high`}; from ${view.from.join(" ")} looking yaw ${view.yaw}`,
+      );
   } else {
     lines.push(...facts.views.map((view) => `  ${view.name}, from ${view.from.join(" ")}`));
   }
   return [...lines, ...(facts.notes ?? [])];
 }
 
-/** A picture of a map (.bsp) or of brush source (.map). `kind`: "plan" (unless told), "view" or "views". */
+/**
+ * A picture of a map (.bsp) or of brush source (.map). `kind`: "plan" (unless told), "view", "views",
+ * "section", "storeys" or "openings".
+ */
 function renderMap(folders, file, args) {
   const source = isMapSource(file);
   const map = source ? maps.readMap(readFileSync(file, "utf8")) : maps.readBsp(readFileSync(file));
@@ -494,17 +639,38 @@ export function toolsFor(folders, { allowRun = true } = {}) {
     },
     {
       name: "check",
-      description: "Errors and warnings a game engine would have with a model or a .bsp map.",
-      inputSchema: object({ model: MODEL, engine: { type: "string", enum: ["goldsrc", "xash"] } }, ["model"]),
+      description:
+        "Errors and warnings a game engine would have with a model or a .bsp map; of a .map, its plan's faults.",
+      inputSchema: object(
+        {
+          model: MODEL,
+          engine: { type: "string", enum: ["goldsrc", "xash"] },
+          walk: {
+            type: "boolean",
+            description: "a map: what a player cannot reach on foot or stands in solid; the openings",
+          },
+          goal: { type: "string", description: 'walk: how far to these entities, "9, keeper"' },
+          doors: { type: "string", enum: ["open", "closed"] },
+          against: {
+            type: "string",
+            description:
+              "a map's entities checked by these: .fgd, map-learn files, a profile (.json, goldsrc)",
+          },
+        },
+        ["model"],
+      ),
       call: (args) => check(folders, args),
     },
     {
       name: "render",
-      description: `A picture, as an image. Of a model: kind "view" (default; one side), "sheet" (six sides), "strip" (an animation's frames), "uv" (a texture with its triangles). Of a map (.bsp, .map): "plan" (default; from above, entities marked), "view" (from inside), "views" (several).`,
+      description: `A picture, as an image. Of a model: kind "view" (default; one side), "sheet" (six sides), "strip" (an animation's frames), "uv" (a texture with its triangles). Of a map (.bsp, .map): "plan" (default; from above, entities marked), "view" (from inside), "views" (several), "section" (a side cut), "storeys" (a plan each), "openings" (a view through each doorway).`,
       inputSchema: object(
         {
           model: MODEL,
-          kind: { type: "string", enum: [...Object.keys(KINDS), "plan", "views"] },
+          kind: {
+            type: "string",
+            enum: [...Object.keys(KINDS), "plan", "views", "section", "storeys", "openings"],
+          },
           body: { type: "number", description: "body number (0)" },
           seq: { type: "string", description: 'animation name or number, or "rest" (default: the first)' },
           frame: { type: "number" },
@@ -516,6 +682,11 @@ export function toolsFor(folders, { allowRun = true } = {}) {
             description: 'map view: the eye, "x y z" or an entity number or class (default: the first start)',
           },
           z: { type: "number", description: "map plan: cut at this height" },
+          from: { type: "string", description: 'section: one end of its line, "x y"' },
+          to: { type: "string", description: "section: the other" },
+          heights: { type: "boolean", description: "plan: floor heights written" },
+          legend: { type: "boolean", description: "plan: entities listed" },
+          reach: { type: "boolean", description: "plan, storeys: the walk test tinted" },
           zoom: { type: "number" },
           dist: { type: "number", description: "view: units from the eye, with perspective" },
           first: { type: "boolean", description: "as the player sees a v_ weapon" },

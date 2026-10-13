@@ -55,7 +55,8 @@ It makes a model from nothing and exercises every part of the kit. If every test
 | Draw several models on one skeleton as one (a helmet on a head with an armour) | |
 | Show models side by side in the person's browser, turning and animated | |
 | Read everything in a compiled map (`.bsp`, GoldSrc's version 30): faces, textures, light, what is solid where, what is seen from where, entities | Read Quake's or Source's maps (versions 29, BSP2, `IBSP`, `VBSP`) |
-| Draw a map: a plan from above with every entity marked, views from inside lit by the map's own baked light, several views in one picture | Draw the models and sprites in it (each is marked by a labelled box), its sky's picture, decals, or a door open |
+| Draw a map: a plan from above with every entity marked, views from inside lit by the map's own baked light, several views in one picture, a side section with the floors' heights, the storeys side by side, a view through each doorway; what stands in it at its true size (its box, or its model where one is named, with its textures and their holes, in the body, skin, sequence, scale and angles its entity gives); its sprites and its sky's own picture, from the game's folders | Draw decals, a door open, an animation playing, or a monster's model that only its script names (unless you name it) |
+| Walk a map with no game: which entities a player cannot reach on foot and why, which stand in something solid or hang, how wide and high each opening is, how far the walk is, where a player gets in and not out again (a one-way place), which floor is too steep to stand on, and with jumps what only a jump reaches | Play the rest of the game's movement: friction, a door's push, speed gained in the air, what a monster's AI or a script does. The walk test is geometry with the engine's numbers, never measured against the game |
 | Change a compiled map's entities: move a start, add a monster, change a door's keys, take a point entity out | Change the brushes, the light or the visibility of a compiled map: that is a recompile from its source |
 | Make a new map from brushes in a script, check it and draw it before any compile, and compile it with VHLT (an outside program) | Compile without VHLT; cut one brush by another; place brushes by hand as an editor does |
 | Read a `.wad`, take a map's textures out as pictures, and make a `.wad` from pictures | Run the game: a door that opens, a trigger that fires and a script that runs only show there |
@@ -105,12 +106,22 @@ For maps (their recipes are under "Maps"):
 ```
 node bin/smak.mjs map-info <bsp> [--json]          size, lumps, entities by class, textures and which are wanted from .wad files, light
 node bin/smak.mjs map-check <bsp> [--engine xash] [--game <folder> ...]   errors and warnings; exit code 1 on an error
+node bin/smak.mjs map-check <bsp|map> --mod <profile.mjs|.json|goldsrc> [--fgd <file.fgd>] [--learned <file>] [--game <folder> ...]
+                                                   its entities against the mod: classes, keys, values, names, the mod's rules, files
+node bin/smak.mjs map-learn <folder of .bsp> -o learned.json [--class name]   what a mod's own maps say of its entities
 node bin/smak.mjs map-entities <bsp> [--class x] [--json]   every entity with its number, class, place and keys
 node bin/smak.mjs map-set <bsp> -o out.bsp --entity <n|class> key=value ... [--move x,y,z] [--unset key]
 node bin/smak.mjs map-set <bsp> -o out.bsp --add <class> [--at x,y,z] key=value ...   /   --remove <n|class>
 node bin/smak.mjs map-plan <bsp|map> -o p.png [--z height] [--area x0,y0,x1,y1] [--scale px] [--list]   from above, entities marked
 node bin/smak.mjs map-view <bsp|map> -o v.png [--from x,y,z | --at <entity n|class>] [--yaw 90] [--pitch 0]   from inside
 node bin/smak.mjs map-views <bsp> -o v.png [--count 8]   from the places to start and the largest rooms, in one picture
+node bin/smak.mjs map-reach <bsp|map> [-o walked.png] [--goal <n|class>] [--jump] [--doors closed] [--open <name>] [--shut <name>]
+                                                   the walk test: what is not reached and why, what stands in solid, the openings,
+                                                   the one-way places (--exit <name>: a way out of the map); exit code 1 on a fault.
+                                                   --jump: with jumps, up 45 and across gaps (--speed 320 --gravity 800); --no-slopes
+node bin/smak.mjs map-section <bsp|map> -o s.png --from x,y --to x,y   a side section along that line, floors with their heights
+node bin/smak.mjs map-storeys <bsp|map> -o s.png [--z a,b,c] [--reach]   one plan for each storey, side by side
+node bin/smak.mjs map-openings <bsp|map> -o o.png [--both]   a view through each gate and doorway the walk test finds
 node bin/smak.mjs map-textures <bsp> -o dir        every texture of a map as a PNG
 node bin/smak.mjs wad <file.wad> [-o dir]          a .wad's textures listed; with -o, each as a PNG
 node bin/smak.mjs wad-make <pictures...> -o out.wad   a .wad from PNG or BMP pictures, each named after its file
@@ -119,7 +130,12 @@ node bin/smak.mjs map-compile <file.map> -o out.bsp --wad a.wad [--wadinclude] [
 
 The three that draw take `--width`, `--height`, `--game <folder>` (the mod's folder, then `valve`: where the map's
 `.wad` files are; the map's own folder is always looked in), `--wad <file.wad>`, `--no-light`, `--light steady|all`,
-`--brightness n` and `--entities all|models|none`.
+`--brightness n` and `--entities all|models|game|none`. `map-plan` also takes `--heights` (each floor's height
+written on it), `--legend` (the entities listed beside it) and `--reach` (the walk test tinted on it). An
+entity that stands is drawn as the box it moves with: `--body <class|targetname>=large` says which box;
+`--models` draws the models that are named, from the `--game` folders, and `--model <class|targetname|scriptfile>=models/x.mdl`
+names one. With `--game` the sky is its own picture and each sprite its first frame (`--no-sky`, `--sky r,g,b`,
+`--no-sprites` say otherwise); `--no-model-scale` draws models at their own size.
 
 `view` keeps running until stopped: start it in the background, give the person the address it prints, and stop
 it when they are done. It is for them to look and compare; your own checking is still `render`, `sheet` and
@@ -726,6 +742,7 @@ it and look at the picture**. Never write over a map of the game's: write a new 
 ```
 node bin/smak.mjs map-info gatecity.bsp                          what is in it
 node bin/smak.mjs map-check gatecity.bsp --game <mod> --game <valve>   would the engine take it; are its .wad files there
+node bin/smak.mjs map-check gatecity.bsp --mod <profile> --game <mod> --game <valve>   and would the mod: its entities, names, rules, files
 node bin/smak.mjs map-plan gatecity.bsp -o plan.png              from above: where everything IS
 node bin/smak.mjs map-views gatecity.bsp -o views.png            from each start and the largest rooms
 node bin/smak.mjs map-view gatecity.bsp -o v.png --from -191,-802,-433 --yaw 90
@@ -740,11 +757,41 @@ node bin/smak.mjs map-view gatecity.bsp -o v.png --from -191,-802,-433 --yaw 90
   prints under the picture's line: an eye "in solid" is inside a wall or outside the map.
 - **The light is the map's own**, baked by its compiler, at about the brightness the game shows. A dark picture
   is a dark place (the line says so): `--brightness 4` looks into it, `--no-light` shows the textures alone.
-- **Models are not drawn.** A monster, an NPC or a prop is a small box with its class. A door is drawn shut.
+- **What stands is drawn at its true size.** A place to start, a monster and an NPC are the box they move
+  with (32 x 32 x 72; `--body name=large` for 64 x 64 x 64): in a view a box that stands on the floor, hangs
+  over it or goes into it; on a plan its outline. `--models` (with `--game`) draws a prop that names its
+  `.mdl` as that model, with its textures, in the `body`, `skin`, `sequence`, `scale` and `angles` its
+  entity gives; a masked texture's holes are open, so a tree's crown hides what the game's hides and no
+  more. `--model name=models/x.mdl` names one for a monster, whose own comes from its script. A door is
+  drawn shut.
+- **With `--game`, the sky is the map's own** (`skyname`: the six pictures of `gfx/env`) **and a sprite is
+  drawn** (`env_sprite`, `env_glow`: its first frame at its `scale`, blended by its render mode; a small
+  cross on a plan). `--entities game --no-labels` draws only what the game shows, with no boxes: the picture
+  to lay beside a screenshot. A `{` texture has its holes only on an entity in render mode 4, as in the game:
+  a view that says `N faces wear a \`{\` texture ... the game draws their holes filled` has found a fence
+  with no `rendermode`.
+- **One plan is one height.** `map-plan --heights` writes each floor's height on it; `map-storeys` lays a
+  plan for each storey side by side; `map-section --from x,y --to x,y` cuts the map upright along a line: the
+  picture for a cellar under a terrace, a stair, a ceiling's height, a thing sunk in the floor.
+- **`map-reach` walks the map** from its places to start, as the box of a standing player: steps of 18, any
+  drop, doors open, ladders climbed, a slope too steep to stand on (over 45.6 degrees) slid down and never
+  walked up. It lists the entities that are not reached, each with what it would take (a jump, a crouch, an
+  opening that is not there), those that stand in something solid, every opening with its width and height,
+  and the **one-way places**: floor a player gets into and finds no way out of, by a step, a jump or a
+  crouch (a pit, the foot of a steep slope, a room a teleport leads into). Mend each or mean it; `--exit
+  <class|name>` names a way out of the map that is no fault. `--jump` walks with jumps (up 45, and across a
+  gap as far as a run carries: 215 for the body's middle) and tells apart what only a jump reaches: a roof
+  a player was not meant to stand on shows there. `-o` draws the plan with the walked floor green, the rest
+  red, floor only a jump reaches blue and one-way places amber. It is geometry, not the game: say so when
+  you report it. `map-openings` looks through each opening it found.
+- **A crowded plan** writes an entity's number alone where its label has no room: `--legend` lists every
+  number with its class beside the plan.
 - A face in one flat colour is a texture that was not found: `--game` the mod's folder and `valve`, or `--wad`.
-- In a script: `maps.planOf(bsp, { z, area })`, `maps.drawMap(bsp, { from, yaw })`, `maps.viewsOf(bsp)`, each
-  giving `{ width, height, rgba, facts }`; `maps.contentsAt(bsp, point)` and `maps.floorUnder` answer "is this
-  spot open" before you put something there (`docs/MAPS.md`).
+- In a script: `maps.planOf(bsp, { z, area })`, `maps.drawMap(bsp, { from, yaw })`, `maps.viewsOf(bsp)`,
+  `maps.sectionOf(bsp, { from, to })`, `maps.storeysOf(bsp)`, `maps.openingViews(bsp)`, each giving `{ width,
+  height, rgba, facts }`, and `maps.reachOf(bsp)` (`{ warnings, facts, entities, openings ... }`);
+  `maps.contentsAt(bsp, point)`, `maps.floorUnder` and `maps.restOf(maps.spaceOf(bsp), feet)` answer "is this
+  spot open, and does a body fit" before you put something there (`docs/MAPS.md`).
 
 ### Changing what is in a compiled map
 
@@ -778,20 +825,41 @@ rock so that nothing can leak, boxes, stairs, arches, cylinders, lights, starts)
 
 1. **Describe it in a script**: rooms as `{ min, max }` boxes of empty space (`maps.carve`), what stands in
    them, the entities. `maps.writeMap` gives the `.map`'s text.
-2. **Check the plan**: `maps.checkPlan(map, { textures })`. Fix every error; read the leak hint.
+2. **Check the plan**: `maps.checkPlan(map, { textures })`. Fix every error; read the leak hint. **For a mod,
+   give its profile**: `maps.checkPlan(map, { mod })` (`smak map-check x.map --mod <profile>`). A map's
+   entities are text that only the game's code reads, and what that code does not know it drops without a
+   word: a class the mod does not have, a key on an entity where the game never reads it, a name nothing
+   answers to, more monsters than an area holds. Neither a compiler nor a picture shows any of it. With a
+   profile the check does: against the mod's FGD, its own maps (`smak map-learn <mod>/maps -o learned.json
+   --class <name>` shows how the mod's authors write a class: copy that, do not guess), the classes its
+   program has, and its rules. The kit ships Half-Life's profile (`maps.GOLDSRC`) and no mod's:
+   `docs/MAPS-MAKING.md`, "A mod's profile", is how to get from nothing to a checked one, and
+   `profiles/mastersword.mjs` is one mod's, as the example. **Never write an entity for a mod from memory.**
 3. **Draw the source and look**: `maps.planOfSource(map)` and `maps.drawSource(map, { from, yaw })`, or
    `smak map-plan x.map -o p.png` and `smak map-view x.map -o v.png`. Flat colours, no light, a tenth of a
    second, no compilers: stairs in front of a doorway, a window in the wrong wall, a start outside its room.
    Mend the script and draw again until the shapes are right.
-4. **Compile**: `maps.compileMap(file, { wads })` or `smak map-compile`. It needs VHLT; ask the person where it is.
-5. **Read what came back**: every error is a sentence. A **leak** names the entity it was found from and where
+4. **Walk it and cut it**: `maps.reachOf(map)` (or `smak map-reach x.map -o walked.png`): fix every entity
+   that is not reached or stands in something solid, mend or mean every one-way place, and read each
+   opening's width and height against what has to pass it (a player 32 x 72, a large monster 64 x 64). Walk
+   it once more with `{ jump: true }` (`--jump`) and read what only a jump reaches. `maps.sectionOf(map, { from, to })` through
+   every stair and every place where one room lies over another, and `maps.storeysOf(map)`: rooms carved in
+   separate `carve` calls fill each other with rock where their blocks overlap, and only a section or the
+   walk test shows it.
+5. **Compile**: `maps.compileMap(file, { wads })` or `smak map-compile`. It needs VHLT; ask the person where it is.
+6. **Read what came back**: every error is a sentence. A **leak** names the entity it was found from and where
    the trail leaves the world: look at the wall there.
-6. **Draw the result and look**: `smak map-plan`, `map-views`, `map-view` on the `.bsp`. Now the textures and
-   the baked light are there: a lamp's colour, a room left dark, a grate's holes. `smak map-check` too.
-7. **The game is the real test.** Tell the person the file, where it goes (`<mod>/maps/`, its `.wad` beside the
+7. **Draw the result and look**: `smak map-plan`, `map-views`, `map-view` on the `.bsp`. Now the textures and
+   the baked light are there: a lamp's colour, a room left dark, a grate's holes; with `--game` and `--models`,
+   the sky, the sprites and the models as the game will show them. `smak map-check` and
+   `smak map-reach` too: the compiled map is walked by its own clip hulls.
+8. **The game is the real test.** Tell the person the file, where it goes (`<mod>/maps/`, its `.wad` beside the
    mod's unless the compile was `--wadinclude`), and `map <name>` in the console. A mod may want its own
-   entities to start a player (Master Sword: `ms_player_begin` and `ms_player_spawn`): `smak map-entities` on
-   one of the mod's maps shows which.
+   entities to start a player (Master Sword: `ms_player_begin` and `ms_player_spawn`): its profile's `starts`
+   say which, and with no profile the plan check and the walk test count Half-Life's two and those two, as
+   they did before there were profiles. Say what the entity check went by (an FGD, the mod's maps, its
+   program, which rules), and what the walk test could not tell: whether a monster is dropped to its floor, whether a jump it found is one a
+   player makes in the game, anything a script does.
 
 ### Textures for a map
 
@@ -819,6 +887,7 @@ or `smak wad-make my_stone.png "{my_bars.png" -o mine.wad`, each texture named a
 | --- | --- |
 | `the map LEAKS ...` (compile), `the map looks OPEN to the void` (plan) | The inside is not sealed from the outside by world brushes. Look at the wall near the point it names. Was a wall made a brush entity? Is an entity outside? Build rooms with `carve` (`docs/MAPS-MAKING.md`, "Leaks"). |
 | `the texture X is in none of the .wad files given` (compile); a face in a flat colour, `facts.missing` (pictures) | A wrong name, or the `.wad` not given: `--wad`, `--game <folder>`, `wads`, `folders`. `smak wad` lists what a `.wad` has. |
+| `N classes are in none of the definitions given`, `are not in the game's own program`; `N keys their class does not define`; `N entities name something no entity of the map is called`; a sentence with a reason in brackets (`... (a spawn area holds 32 monsters ...)`) | The map's entities against its mod (`map-check --mod`, `checkPlan(map, { mod })`): the game would drop or pass over each of these without a word. `docs/MAPS-MAKING.md`, "When something is wrong", has each; a reason in brackets is a rule of the mod's profile |
 | A map's picture is dark, or black | It is the map's own light. No `light` there, lights buried in walls, or (all black, `LIGHT none` in `map-info`) a leak. A light added to a compiled map lights nothing: recompile. `--brightness 4` only looks. |
 | `map-check` says a count is over what the engine holds | The map is too big or too finely cut for GoldSrc (`docs/MAPS.md`, "Limits"). Fewer, larger brushes; small pieces made `func_wall`; or Xash only (`--engine xash`). |
 | `this needs the map compilers VHLT ...` | They are not installed, or not named: ask the person, then `VHLT_DIR` or `--vhlt <folder>`. Everything but the compile works without. |
