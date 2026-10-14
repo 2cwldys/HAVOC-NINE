@@ -61,7 +61,7 @@ Invite it with the **`bot` and `applications.commands`** scopes -- without the s
 one the slash commands never appear -- and give it **View Channel, Send Messages** and
 **Embed Links** in the channel you are posting to.
 
-**3. The config.** One file, `tsddonsmxmodx\configs	s_advertise.cfg`, read by
+**3. The config.** One file, `ts\addons\amxmodx\configs\ts_advertise.cfg`, read by
 both the plugin and the bot:
 
 ```
@@ -96,12 +96,38 @@ one python, bare `pip` installs into whichever is first on PATH, and the bot the
 with `No module named a2s` while pip insists it is installed.
 
 **5. Run `ts.bat`** from the Half-Life folder. It starts the bot, runs `hlds.exe`, and
-kills the bot when hlds exits.
+stops the bot when hlds exits.
 
 The bot is started by the launcher and **not by the plugin**, because a plugin cannot
 start a program -- AMXX has no native for it, and `server_exec` only flushes queued
 *console* commands. The launcher gets the same result: the bot comes up with the server
 and goes down with it.
+
+### Restarting the server without losing the bot
+
+`ts.bat` will **not** start a second bot if one is already running, and will leave that
+one running when the server exits. So you can stop and restart the server as often as you
+like and the bot stays up and connected the whole time.
+
+It decides by `bot.pid`, which the bot writes on startup and removes on a clean exit:
+
+| `bot.pid` | the process it names | what the launcher does |
+| --- | --- | --- |
+| missing | -- | starts a bot, and stops it on exit |
+| present | a running python | **leaves it alone**, and leaves it running on exit |
+| present | nothing, or something that is not python | clears the file and starts a bot |
+| empty | -- | clears the file and starts a bot |
+
+The process is checked for, and checked to be a python, rather than the file being taken
+at its word. A bot that was killed leaves `bot.pid` behind naming a process that is long
+gone, and on a machine that has been up a while that number has since been handed to
+something else -- so a pid file on its own proves nothing.
+
+Two bots at once is worse than none, which is the reason for all of the above: both
+connect to Discord as the same application and the gateway delivers every event to each
+of them, so every slash command answers twice and every RSVP button is counted twice.
+
+To stop a bot the launcher adopted, run `stop-bot.bat` yourself.
 
 ## Commands
 
@@ -157,7 +183,8 @@ advertised.
 | Log: `HTTP 403` | the bot is not in the guild, or lacks Send Messages / Embed Links there |
 | Log: `HTTP 404` | the channel id is wrong |
 | Advert posts, bot shows offline | normal -- `ts_bot.py` is not running. Adverts do not need it |
-| Bot seems to start then is not there | it exited at once. `discord-botot.err` says why |
+| Bot seems to start then is not there | it exited at once. `discord-bot\bot.log` says why |
+| Bot did not start and nothing is wrong | one was already running -- `ts.bat` says so and leaves it alone |
 | `No module named a2s` | `install.bat` has not been run, or into a different python |
 | `tsm_ad_token is not set` | the line is missing, empty, or commented out with `//` |
 | Buttons say "This interaction failed" | the bot is not running, or was restarted mid-click |

@@ -117,14 +117,14 @@ REM
 REM WITHOUT THE .pem every request fails certificate validation and reports it as a
 REM connection error rather than as a missing file.
 if not exist "%TSROOT%\modules\easy_http_amxx.dll" (
-    if exist "%SRC%compts	sddonsmxmodx\modules\easy_http_amxx.dll" (
-        copy /y "%SRC%compts	sddonsmxmodx\modules\easy_http_amxx.dll" "%TSROOT%\modules\" >nul
+    if exist "%SRC%compts\ts\addons\amxmodx\modules\easy_http_amxx.dll" (
+        copy /y "%SRC%compts\ts\addons\amxmodx\modules\easy_http_amxx.dll" "%TSROOT%\modules\" >nul
         echo   installed easy_http_amxx.dll
     )
 )
-if not exist "%TSROOT%\datamxx_easy_http_cacert.pem" (
-    if exist "%SRC%compts	sddonsmxmodx\datamxx_easy_http_cacert.pem" (
-        copy /y "%SRC%compts	sddonsmxmodx\datamxx_easy_http_cacert.pem" "%TSROOT%\data\" >nul
+if not exist "%TSROOT%\data\amxx_easy_http_cacert.pem" (
+    if exist "%SRC%compts\ts\addons\amxmodx\data\amxx_easy_http_cacert.pem" (
+        copy /y "%SRC%compts\ts\addons\amxmodx\data\amxx_easy_http_cacert.pem" "%TSROOT%\data\" >nul
         echo   installed amxx_easy_http_cacert.pem
     )
 )

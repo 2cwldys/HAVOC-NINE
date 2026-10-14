@@ -158,6 +158,18 @@ if exist "%~dp0ts.bat" (
     copy /y "%~dp0ts.bat" "%EX%\" >nul && echo   ts.bat  ^(starts the bot, then hlds^)
 )
 
+REM ---- models.bat ----------------------------------------------------------
+REM Ships beside ts_matchmode.cfg's home so the class pools can be changed without
+REM opening the cfg, and without a recompile -- the pools are cvars, the plugin only
+REM reads them. It is the checking that earns its place: a model name over 22
+REM characters kills the server on Mod_NumForName, and an over-long class line is
+REM truncated mid-name so the class silently falls back to the default model. Both
+REM are refused here instead of being found at the next map change.
+if exist "%~dp0models.bat" (
+    copy /y "%~dp0models.bat" "%EX%\" >nul && echo   models.bat  ^(edit the class model pools^)
+    copy /y "%~dp0models.mjs" "%EX%\" >nul
+)
+
 REM ---- .gitignore ----------------------------------------------------------
 REM Written here rather than kept as a file so that EVERY export has one, including
 REM the first on a fresh machine.

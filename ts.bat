@@ -19,13 +19,50 @@ setlocal
 REM Run from this script's own folder, so it works however it was launched.
 cd /d "%~dp0"
 
+REM BOTOURS records whether THIS run started the bot. Only a bot we started is a bot we
+REM stop on the way out -- see the end of the file.
+set "BOTOURS="
+
 if not exist "discord-bot\ts_bot.py" (
     echo [ts] No discord-bot\ts_bot.py -- starting the server without it.
     goto :run
 )
 
-if exist "discord-bot\bot.pid" del /q "discord-bot\bot.pid" >nul 2>&1
+REM ---- is one already up? ----------------------------------------------------------
+REM bot.pid is no longer deleted on the way in, because it is now the only way to tell.
+REM Restarting the server should not cost you the bot, and a second copy is worse than
+REM none: both instances connect to Discord as the same application, the gateway hands
+REM every event to each of them, and so every slash command answers twice and every RSVP
+REM button is counted twice.
+REM
+REM The pid file on its own is not enough to go on. A bot that was killed leaves one
+REM behind naming a process that is long gone, and on a machine that has been up a while
+REM that number has since been handed to something else -- so the process is checked for,
+REM and checked to be a python, before this concludes anything is running.
+if not exist "discord-bot\bot.pid" goto :startbot
 
+set /p BOTPID=<"discord-bot\bot.pid"
+if not defined BOTPID goto :stalepid
+
+set "BOTIMG="
+for /f "tokens=1" %%i in ('tasklist /fi "PID eq %BOTPID%" /nh 2^>nul') do set "BOTIMG=%%i"
+if not defined BOTIMG goto :stalepid
+
+REM Matched on "python" rather than on python.exe exactly, so a bot running under
+REM pythonw.exe or py.exe is recognised rather than mistaken for a stale pid and quietly
+REM duplicated -- which is the single outcome this whole section exists to prevent.
+echo %BOTIMG% | find /i "python" >nul
+if errorlevel 1 goto :stalepid
+
+echo [ts] Discord bot already running ^(pid %BOTPID%, %BOTIMG%^) -- leaving it alone.
+echo [ts] It will still be running after the server exits.
+goto :run
+
+:stalepid
+echo [ts] discord-bot\bot.pid names nothing that is running -- clearing it.
+del /q "discord-bot\bot.pid" >nul 2>&1
+
+:startbot
 REM Plain "start" with plain redirection. No PowerShell and no line continuations:
 REM the bot writes its own pid to discord-bot\bot.pid, which is simpler than any way
 REM a batch file has of finding out, and cannot misparse.
@@ -38,14 +75,16 @@ REM ping rather than timeout: timeout refuses to run when stdin is redirected, w
 REM it is whenever this is launched from anything but a plain console window.
 ping -n 4 127.0.0.1 >nul 2>&1
 
-if exist "discord-bot\bot.pid" (
-    set /p BOTPID=<"discord-bot\bot.pid"
-    echo [ts] Discord bot started   ^(log: discord-bot\bot.log^)
-) else (
-    echo [ts] WARNING: the Discord bot is not running. Reason:
-    if exist "discord-bot\bot.log" type "discord-bot\bot.log"
-    echo [ts]          The server will start anyway, and adverts will still post.
-)
+if not exist "discord-bot\bot.pid" goto :botfailed
+set /p BOTPID=<"discord-bot\bot.pid"
+set "BOTOURS=1"
+echo [ts] Discord bot started ^(pid %BOTPID%, log: discord-bot\bot.log^)
+goto :run
+
+:botfailed
+echo [ts] WARNING: the Discord bot is not running. Reason:
+if exist "discord-bot\bot.log" type "discord-bot\bot.log"
+echo [ts]          The server will start anyway, and adverts will still post.
 
 :run
 echo.
@@ -59,9 +98,18 @@ if exist qconsole.log del /q qconsole.log
 hlds.exe -console -condebug -port 27015 -game ts +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
 set "HLDSEXIT=%ERRORLEVEL%"
 
-REM hlds has exited -- by quit, by crash, or by this window being closed. Take the
-REM bot with it.
+REM hlds has exited -- by quit, by crash, or by this window being closed. Take the bot
+REM with it, but ONLY if this run is what started it. A bot that was already up when the
+REM server launched belongs to whoever started it, and stopping it here would make every
+REM server restart cost you the bot -- which is the thing being avoided.
+if not defined BOTOURS goto :keptbot
 if exist "discord-bot\stop-bot.bat" call "discord-bot\stop-bot.bat" quiet
+goto :afterbot
+
+:keptbot
+echo [ts] Leaving the Discord bot running -- it was already up before this run.
+
+:afterbot
 
 echo.
 echo ===============================================================

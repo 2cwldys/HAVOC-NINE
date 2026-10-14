@@ -81,6 +81,25 @@
 #define TSM_ICON_SPR "sprites/tsm_class.spr"
 
 /*
+ * Where the insurgent copies of the icons start in that sheet.
+ *
+ * The sheet holds the classes twice: frames 0 upwards as the MSR wear them, and from
+ * TSM_ICON_RED a RED copy of the first TSM_ICON_REDS of them for the insurgents. So the
+ * frame is `ci` for team 1 and `TSM_ICON_RED + ci` for team 2.
+ *
+ * Only the first few are doubled. Medic and Officer are deliberately NOT: bone and amber
+ * read as the role rather than as the side, and a medic you can pick out at a glance is
+ * worth more than a medic whose team you can tell. A class past TSM_ICON_REDS therefore
+ * shows the same icon to both sides, which is why the bound is checked and not assumed.
+ *
+ * make-class-sprite.mjs prints both of these numbers when it builds the sheet, and refuses
+ * to build if the classes are reordered so that a doubled one is no longer among the
+ * first -- which is the one way these could go quietly wrong.
+ */
+#define TSM_ICON_RED  7
+#define TSM_ICON_REDS 5
+
+/*
  * Lent to a player for as long as g_issuing is set -- the tkw/tka writes and the
  * respawn that applies them -- and taken straight back afterwards.
  *
@@ -309,6 +328,8 @@ new g_cv_regenamt, g_cv_regenevery, g_cv_regenpause;
 new Float:g_last_hit[MAXPL];    // gametime they were last damaged, for the regen pause
 new g_cv_breachents, g_cv_breachrange;
 new g_cv_armorder;
+new g_cv_wpnextra;
+new g_cv_classscale;
 new g_cv_blindff;
 new g_cv_modelverify;
 new g_cv_modelfallback;
@@ -318,6 +339,18 @@ new g_cv_hoverinfo, g_cv_hoverrange;
 new g_cv_medheal, g_cv_medcool, g_cv_medrange, g_cv_medglow, g_cv_medshell;
 new g_cv_stim, g_cv_stimmin, g_cv_stimmax, g_cv_stimglow, g_cv_stimshell;
 new g_cv_deathlinger;
+new g_cv_corpsehold, g_cv_corpsemax, g_cv_corpsefade;
+
+/*
+ * When each of TS's corpses was first seen, by entity index.
+ *
+ * -1.0 means "released": we have given it back to TS and must not take it again, or an
+ * index it reuses would be held on a timer that belongs to a body already gone. Cleared
+ * at the top of every round, which bounds any staleness to the round it happened in --
+ * corpses do not survive a round transition anyway.
+ */
+#define TSM_MAXENT 1024
+new Float:g_corpse_born[TSM_MAXENT];
 new g_cv_squadmax, g_cv_squaddist, g_cv_squadwarp, g_cv_squadspeed;
 new g_cv_squadsteer, g_cv_squadreach;
 new g_cv_endelay;
@@ -367,6 +400,7 @@ new g_class_hp[TSM_MAXCLASS];
 new g_class_ap[TSM_MAXCLASS];
 new g_class_perk[TSM_MAXCLASS];
 new Float:g_class_speed[TSM_MAXCLASS];   // movement multiplier, 1.0 = normal
+new Float:g_class_scale[TSM_MAXCLASS];   // how tall the model is drawn, 1.0 = normal
 new g_class_menu = 0;
 new g_team_menu = 0;
 new g_legend_menu = 0;
@@ -965,6 +999,105 @@ bool:elim_hide_due(id)
 	return (since >= get_pcvar_float(g_cv_deathdelay));
 }
 
+/*
+ * Holds TS's corpses on the floor, then fades them out itself.
+ *
+ * WHY THIS EXISTS AT ALL, since tsm_death_linger looks like it should cover it.
+ *
+ * The body you see is not the player. TS registers its own `deadcorpse` entity and spawns
+ * one during the death sequence with a lifetime it hardcodes at ten seconds -- opaque to
+ * 3.33, fading in half-second steps to 10.0, then UTIL_Remove. tsm_death_linger only says
+ * how long we leave the PLAYER alone, and at 10.5 it already outlasts all of that. The
+ * body still went because TS was taking it, on its own clock, and no value of ours reached
+ * that.
+ *
+ * One think does the fade AND the removal, so holding nextthink in the future stops both.
+ * Nothing is drawn, moved or re-created: the corpse TS made is simply not asked to age.
+ *
+ * NOTHING HERE TOUCHES A PLAYER. Every earlier attempt at this problem did, and every one
+ * of them made it worse -- hiding the player before the corpse is created makes
+ * TSCreateDeadCorpse return without creating anything, so no body appears at all.
+ */
+public task_hold_corpses()
+{
+	if (!get_pcvar_num(g_cv_enabled) || g_state != ST_LIVE)
+	{
+		return;
+	}
+
+	new Float:hold = get_pcvar_float(g_cv_corpsehold);
+	if (hold <= 0.0)
+	{
+		return;   // TS keeps its corpses, exactly as before
+	}
+
+	new Float:fade = get_pcvar_float(g_cv_corpsefade);
+	if (fade < 0.0) { fade = 0.0; }
+	if (fade > hold) { fade = hold; }
+
+	new cap = get_pcvar_num(g_cv_corpsemax);
+	new Float:now = get_gametime();
+	new ent = -1, held = 0;
+
+	// engfunc rather than find_ent_by_class: that one lives in the engine module and this
+	// plugin runs on fakemeta, which reaches the same entity list without the dependency.
+	while ((ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "deadcorpse")) > 0)
+	{
+		if (ent >= TSM_MAXENT)
+		{
+			continue;   // past what we can remember; leave it to TS
+		}
+		if (g_corpse_born[ent] < 0.0)
+		{
+			continue;   // already given back
+		}
+		if (g_corpse_born[ent] == 0.0)
+		{
+			g_corpse_born[ent] = now;
+		}
+
+		new Float:age = now - g_corpse_born[ent];
+
+		if (age >= hold || held >= cap)
+		{
+			/*
+			 * Given back, and marked so it is never taken again. Its own fade timer
+			 * expired long ago, so the first think it runs removes it -- which is why the
+			 * fade below has to have happened already.
+			 */
+			g_corpse_born[ent] = -1.0;
+			set_pev(ent, pev_nextthink, now);
+			continue;
+		}
+
+		held++;
+		set_pev(ent, pev_nextthink, now + 1.0);
+
+		if (fade > 0.0 && age > (hold - fade))
+		{
+			// The last stretch, taken down ourselves so it leaves rather than vanishes.
+			new Float:left = (hold - age) / fade;
+			set_pev(ent, pev_rendermode, kRenderTransTexture);
+			set_pev(ent, pev_renderamt, floatclamp(255.0 * left, 0.0, 255.0));
+		}
+		else
+		{
+			// Whatever step of TS's fade it had already taken, undone.
+			set_pev(ent, pev_rendermode, kRenderNormal);
+			set_pev(ent, pev_renderamt, 255.0);
+		}
+	}
+}
+
+/// Forgets every corpse, so a reused entity index cannot inherit a dead body's clock.
+clear_corpse_memory()
+{
+	for (new i = 0; i < TSM_MAXENT; i++)
+	{
+		g_corpse_born[i] = 0.0;
+	}
+}
+
 bool:bot_player(id)
 {
 	if (!get_pcvar_num(g_cv_bots))
@@ -1165,11 +1298,34 @@ parse_class(idx, const spec[])
 	copy(rest, charsmax(rest), carry);
 
 	// 8: speed multiplier, optional. Absent or 0 means normal speed.
-	g_class_speed[idx] = str_to_float(rest);
+	strtok(rest, field, charsmax(field), carry, charsmax(carry), ';', 0);
+	g_class_speed[idx] = str_to_float(field);
 	if (g_class_speed[idx] <= 0.0)
 	{
 		g_class_speed[idx] = 1.0;
 	}
+	copy(rest, charsmax(rest), carry);
+
+	/*
+	 * 9: how tall the model is drawn. Optional; absent or 0 means normal.
+	 *
+	 * HELD TO A NARROW RANGE ON PURPOSE, and the reason is worth knowing before using it.
+	 * This scales what is DRAWN and nothing else. GoldSrc gives every player the same
+	 * movement hull -- the engine's own, not the entity's mins and maxs -- so a taller
+	 * Heavy still fits through exactly the same gaps and ducks under exactly the same
+	 * pipes. More to the point his HITBOX does not grow with him, so the head you can see
+	 * above the normal silhouette is not a head you can shoot.
+	 *
+	 * At 1.1 that mismatch is a few inches and reads as a big man. Past about 1.25 it
+	 * becomes a man you can shoot through, so the cvar is clamped rather than trusted.
+	 */
+	g_class_scale[idx] = str_to_float(rest);
+	if (g_class_scale[idx] <= 0.0)
+	{
+		g_class_scale[idx] = 1.0;
+	}
+	if (g_class_scale[idx] < 0.80) { g_class_scale[idx] = 0.80; }
+	if (g_class_scale[idx] > 1.25) { g_class_scale[idx] = 1.25; }
 }
 
 load_classes()
@@ -1402,7 +1558,19 @@ build_team_menu()
 		return;
 	}
 
-	g_team_menu = menu_create("Pick a side", "team_menu_handler");
+	/*
+	 * COLOUR, because a background is not on offer.
+	 *
+	 * These are the engine's own text menus -- a ShowMenu usermsg -- drawn straight over
+	 * whatever the player is looking at, with no layer behind them. A server plugin has
+	 * no way to put a sprite or a panel under one; the only thing it controls is the text.
+	 *
+	 * So contrast comes from the text itself. AMXX menus take four codes, and they are the
+	 * CLIENT's palette rather than ours:  red, \y yellow, \w white, \d dim grey. Yellow
+	 * on a bright wall reads where white does not, and dimming the furniture -- the
+	 * brackets, the dashes -- stops it competing with the words that matter.
+	 */
+	g_team_menu = menu_create("\yTS Match \d-- \wpick a side", "team_menu_handler");
 
 	// Displayed names fall back to the join names when no long label is configured,
 	// so the menu still reads sensibly on a server that never set them.
@@ -1419,11 +1587,11 @@ build_team_menu()
 	}
 
 	new label[64];
-	formatex(label, charsmax(label), "Join %s", l1);
+	formatex(label, charsmax(label), "\wJoin \y%s", l1);
 	menu_additem(g_team_menu, label, "1", 0);
-	formatex(label, charsmax(label), "Join %s", l2);
+	formatex(label, charsmax(label), "\wJoin \y%s", l2);
 	menu_additem(g_team_menu, label, "2", 0);
-	menu_additem(g_team_menu, "Spectate Match", "0", 0);
+	menu_additem(g_team_menu, "\dSpectate Match", "0", 0);
 }
 
 show_team_menu(id)
@@ -1475,12 +1643,14 @@ build_class_menu()
 		return;
 	}
 
-	g_class_menu = menu_create("TS Match -- pick your class", "class_menu_handler");
+	g_class_menu = menu_create("\yTS Match \d-- \wpick your class", "class_menu_handler");
 
 	new label[64], info[8];
 	for (new i = 0; i < g_class_count; i++)
 	{
-		formatex(label, charsmax(label), "%s  [%d hp]", g_class_name[i], g_class_hp[i]);
+		// The class in yellow and its health dimmed: the name is what is being chosen, the
+		// number is only there to compare with.
+		formatex(label, charsmax(label), "\y%s  \d[%d hp]", g_class_name[i], g_class_hp[i]);
 		num_to_str(i, info, charsmax(info));
 		menu_additem(g_class_menu, label, info, 0);
 	}
@@ -2406,6 +2576,33 @@ public plugin_init()
 		"func_door,func_door_rotating,func_wall_toggle,func_button");
 	g_cv_breachrange = register_cvar("tsm_breach_range", "96");
 	g_cv_armorder    = register_cvar("tsm_arm_order", "1");
+
+	/*
+	 * The attachment mask handed to ts_giveweapon, which is its fourth argument.
+	 *
+	 * TSA_SILENCER is 1, TSA_LASERSIGHT 2, TSA_FLASHLIGHT 4, TSA_SCOPE 8, so 0 asks for a
+	 * bare weapon and is what this has always passed. It is a cvar rather than a constant
+	 * because the M4A1 has been turning up silenced ANYWAY, and this is the only argument
+	 * that could be asking for it -- there is exactly one ts_giveweapon call in the plugin
+	 * and TS's own buy path is bypassed entirely, so nothing else here is attaching
+	 * anything.
+	 *
+	 * If 0 still comes back silenced then TS is attaching it of its own accord and no
+	 * value here will change that, which is what the readback below is for: it prints what
+	 * TS says the weapon ended up with, so the question stops being a matter of opinion.
+	 * There is no ts_setuserwpn, so reading it is as far as this can go.
+	 */
+	g_cv_wpnextra    = register_cvar("tsm_wpn_extra", "0");
+
+	/*
+	 * Whether a class's height is applied at all.
+	 *
+	 * Off switches every class back to normal without editing the class lines, which is
+	 * the setting you want the moment someone complains that a Heavy is hard to hit --
+	 * see the note on the class field for why that is a real risk and not a theoretical
+	 * one.
+	 */
+	g_cv_classscale  = register_cvar("tsm_class_scale", "1");
 	g_cv_blindff     = register_cvar("tsm_bot_blind_ff", "1");
 
 	/*
@@ -2469,6 +2666,40 @@ public plugin_init()
 	 * become a spectator.
 	 */
 	g_cv_deathlinger = register_cvar("tsm_death_linger", "3.0");
+
+	/*
+	 * HOW LONG TS'S OWN CORPSE IS HELD ON THE FLOOR.
+	 *
+	 * tsm_death_linger cannot do this and never could. The body is not the player entity
+	 * -- TS drops its own `deadcorpse` and gives it a HARDCODED ten second life: opaque to
+	 * 3.33, fading in half-second steps to 10.0, then removed. Our linger is already 10.5,
+	 * past the whole of that, so raising it further changes nothing. What is still seen
+	 * going is TS removing its own corpse on its own schedule.
+	 *
+	 * So the corpse is held directly. Its think is what fades it and what finally removes
+	 * it, so pushing nextthink into the future stops both at once -- no fade, no removal,
+	 * and nothing of ours drawn over it.
+	 *
+	 * 0 gives TS its corpses back and restores exactly the old behaviour.
+	 */
+	g_cv_corpsehold = register_cvar("tsm_corpse_hold",  "20.0");
+
+	/*
+	 * A ceiling on how many are held at once, because a held corpse is an edict that is
+	 * not being recycled. A busy round on a 32 slot server can put a lot of bodies on the
+	 * floor, and running the engine out of entities costs the round, not the corpses.
+	 * Past this many the newest are left to TS, which is the behaviour we already had.
+	 */
+	g_cv_corpsemax  = register_cvar("tsm_corpse_max",   "24");
+
+	/*
+	 * Seconds of fade at the END of the hold.
+	 *
+	 * Released without this a corpse pops out of existence: its own fade timer is long
+	 * expired by then, so the first think it is allowed to run goes straight to removal.
+	 * Faded out by us first, it leaves the way TS's would have.
+	 */
+	g_cv_corpsefade = register_cvar("tsm_corpse_fade",  "5.0");
 
 	g_cv_squadmax   = register_cvar("tsm_squad_max",   "4");
 	g_cv_squaddist  = register_cvar("tsm_squad_dist",  "160");
@@ -2655,6 +2886,10 @@ public plugin_init()
 
 	// Teammate class/health readout. See task_hover_info.
 	set_task(0.25, "task_hover_info", 12, "", 0, "b");
+
+	// Quarter-second, which is comfortably inside the half-second steps TS fades on, so a
+	// held corpse never shows a step of the fade it is being kept out of.
+	set_task(0.25, "task_hold_corpses", 13, "", 0, "b");
 }
 
 public plugin_cfg()
@@ -2818,9 +3053,20 @@ update_class_icon(id)
 	org[2] += get_pcvar_float(g_cv_iconhigh);
 	engfunc(EngFunc_SetOrigin, ent, org);
 
-	// One frame per class, in class order, so the sheet and the class table stay in
-	// step without a second mapping to keep correct.
-	set_pev(ent, pev_frame, float(ci));
+	/*
+	 * One frame per class, in class order, so the sheet and the class table stay in step
+	 * without a second mapping to keep correct -- and the insurgent side reads from the
+	 * red copies further along the same sheet.
+	 *
+	 * tsm_live_team_of() rather than get_user_team(): every TS-side route to joining a
+	 * team fails on this server, so g_match_team is the only thing that knows the sides.
+	 */
+	new frame = ci;
+	if (ci < TSM_ICON_REDS && tsm_live_team_of(id) == 2)
+	{
+		frame = TSM_ICON_RED + ci;
+	}
+	set_pev(ent, pev_frame, float(frame));
 	set_pev(ent, pev_scale, get_pcvar_float(g_cv_iconscale));
 	set_pev(ent, pev_effects, pev(ent, pev_effects) & ~TSM_EF_NODRAW);
 }
@@ -5452,13 +5698,35 @@ give_class_weapons(id)
 			clips = 0;
 		}
 
-		ts_giveweapon(id, g_class_wpn[ci][team][i], clips, 0);
+		ts_giveweapon(id, g_class_wpn[ci][team][i], clips, get_pcvar_num(g_cv_wpnextra));
 		given++;
 
 		dbgv("give: %d <- weapon %d with %d spare clip(s)", id, g_class_wpn[ci][team][i], clips);
 	}
 
 	dbg("gave %d weapon(s) to %d as '%s' (team %d)", given, id, g_class_name[ci], team);
+
+	/*
+	 * What TS actually attached, as opposed to what it was asked for.
+	 *
+	 * ONCE, AT THE END, AND ONLY WHEN SOMEONE IS READING IT. This started out inside the
+	 * loop above and that was a bad place for it twice over: ts_getuserwpn reports the
+	 * weapon IN HAND, which mid-loop is whatever TS happens to have switched to and often
+	 * nothing at all -- and a native that errors aborts the whole call, which here is
+	 * task_arm_respawn. Everything after the call site went with it, including the
+	 * set_task that opens the class menu, so the loadout menu simply never appeared during
+	 * the countdown. A diagnostic must not be able to break the thing it is watching.
+	 *
+	 * Behind the same gate dbgv uses, so in ordinary play the native is never called.
+	 */
+	if (g_cv_logging != 0 && get_pcvar_num(g_cv_logging) && get_pcvar_num(g_cv_dbglog) >= 3)
+	{
+		new clip, ammo, mode, got;
+		ts_getuserwpn(id, clip, ammo, mode, got);
+		dbgv("give: %d asked for extra %d, ended up holding mode %d extra %d%s",
+			id, get_pcvar_num(g_cv_wpnextra), mode, got,
+			(got & TSA_SILENCER) ? " SILENCED" : "");
+	}
 }
 
 issue_armament(id)
@@ -5688,6 +5956,31 @@ public task_arm_respawn(id)
 	spawn(id);
 
 	/*
+	 * The class menu is QUEUED HERE, directly after the respawn and before anything
+	 * else is done to the player.
+	 *
+	 * Its one real requirement is to come after the respawn: spawn() sends ResetHUD,
+	 * which wipes any open menu off the client, so a menu shown before it never
+	 * survived. This line satisfies that and nothing more.
+	 *
+	 * It used to sit at the END of this function, after the weapons, the ammunition,
+	 * the health and the placement -- which quietly made the menu depend on all of them
+	 * succeeding. It does not: a menu is not part of a loadout. When a diagnostic added
+	 * to give_class_weapons() called a native that errored, the whole function aborted
+	 * and took this set_task with it, so no class menu appeared during the countdown
+	 * while the weapons still arrived -- a weapon fault wearing a menu's face.
+	 *
+	 * set_task only registers the callback; task_show_class re-checks the state when it
+	 * fires 0.3 seconds later, so queueing it early changes when it is ASKED for and not
+	 * when it is shown or whether it is allowed.
+	 */
+	if (g_class_count && get_pcvar_num(g_cv_classes))
+	{
+		g_class_menu_at[id] = 0.0;
+		set_task(0.3, "task_show_class", id);
+	}
+
+	/*
 	 * AFTER the spawn, never before it.
 	 *
 	 * strip_user_weapons() above and spawn() itself both clear the inventory, so a
@@ -5708,6 +6001,7 @@ public task_arm_respawn(id)
 	give_ammo_to(id, get_pcvar_num(g_cv_giveammo));
 
 	new ci = resolved_class(id) - 1;
+	apply_class_scale(id);
 	set_user_health(id, g_class_hp[ci]);
 	if (g_class_ap[ci] > 0)
 	{
@@ -5717,19 +6011,6 @@ public task_arm_respawn(id)
 	place_at_spawn(id);
 	hold_player(id, false);
 	g_issuing[id] = false;
-
-	/*
-	 * Offered HERE, after the respawn, and nowhere else.
-	 *
-	 * The respawn that applies the loadout sends ResetHUD, which wipes any open menu
-	 * off the client -- so a menu shown before it never survived. This is also the
-	 * moment the player would call the start of the round.
-	 */
-	if (g_class_count && get_pcvar_num(g_cv_classes))
-	{
-		g_class_menu_at[id] = 0.0;
-		set_task(0.3, "task_show_class", id);
-	}
 
 	// After placement, so the sweep happens where the player actually ended up.
 	if (get_pcvar_num(g_cv_cleandrops))
@@ -7901,6 +8182,47 @@ Float:class_speed_for(id)
 	return g_class_speed[c - 1];
 }
 
+/*
+ * How tall this player's class is drawn, right now.
+ *
+ * Mirrors class_speed_for() exactly, including the ST_LIVE gate: a Heavy should not be
+ * towering over warmup before he has been handed the M60, and more usefully it means the
+ * height falls away on its own the moment a round ends, a match ends, or the server drops
+ * back to warmup -- there is no state to get stuck.
+ */
+Float:class_scale_for(id)
+{
+	if (g_state != ST_LIVE || !get_pcvar_num(g_cv_classes) || !g_class_count)
+	{
+		return 1.0;
+	}
+	if (!get_pcvar_num(g_cv_classscale))
+	{
+		return 1.0;
+	}
+
+	new c = g_player_class[id];
+	if (c < 1 || c > g_class_count)
+	{
+		return 1.0;
+	}
+
+	return g_class_scale[c - 1];
+}
+
+/// Draws the player at their class's height, or back at normal.
+apply_class_scale(id)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+	new Float:k = class_scale_for(id);
+	// 1.0 and 0.0 both mean "normal" to the renderer, and 0.0 is what an untouched
+	// entity carries -- so normal is written as 0.0 to leave nothing behind.
+	set_pev(id, pev_scale, (k == 1.0) ? 0.0 : k);
+}
+
 Float:wanted_speed()
 {
 	new Float:want = get_cvar_float("sv_maxspeed");
@@ -9340,6 +9662,9 @@ finish_round_start()
 	}
 
 	g_resetting = false;
+	// Every corpse of the round just gone is forgotten here, so an entity index the
+	// engine recycles cannot inherit the clock of a body that is already gone.
+	clear_corpse_memory();
 	g_state = ST_FREEZE;
 
 	all_print("[MATCH] Round %d starting -- %d second freeze.", g_round, get_pcvar_num(g_cv_freeze));
@@ -10338,6 +10663,11 @@ restore_all()
 		g_elim[players[i]] = false;
 		g_spec_target[players[i]] = 0;
 		g_locked_out[players[i]] = false;
+		// Back to normal height. Only the drawn scale is cleared here and NOT the class
+		// itself: restore_all() is called from eight places, not just the end of a match,
+		// and resume_match() after a halt deliberately leaves classes alone -- so wiping
+		// the pick here would quietly take everyone's class away mid-match.
+		apply_class_scale(players[i]);
 		release_player(players[i]);
 		restore_presentation(players[i]);
 	}
