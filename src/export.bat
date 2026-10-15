@@ -196,7 +196,77 @@ REM Built by tools\make-class-icons.py, not shipped with TS. Clients need it or 
 REM icons draw nothing, so it goes in the package next to the configs.
 if exist "%SRC%sprites" (
     xcopy /y /i /e /q "%SRC%sprites" "%EX%\ts\sprites" >nul
-    echo   ts\sprites\ ^(class icons^)
+    echo   ts\sprites\ ^(class icons, menu panel^)
+)
+
+REM ---- sounds ----------------------------------------------------------------
+REM Ambience the map plays through ambient_generic. WAV and not MP3 on purpose:
+REM GoldSrc loads WAV for anything positional in the world and keeps MP3 for the
+REM music player alone, so an .mp3 named in a map entity plays nothing at all.
+REM
+REM Clients need the file or they hear silence where the map expects a sound, so it
+REM travels in the package the same way the sprites do.
+REM
+REM Only the .wav ships. sound\ also holds whatever the wav was made FROM -- an .mp3 in
+REM this case -- and that is source material, not something a client has any use for.
+if exist "%SRC%sound" (
+    xcopy /y /i /q "%SRC%sound\*.wav" "%EX%\ts\sound" >nul
+    echo   ts\sound\ ^(map ambience^)
+)
+
+REM ---- the map ---------------------------------------------------------------
+REM Built by export-map\make.mjs. Four separate things have to travel:
+REM
+REM   the .bsp         the map itself. Its textures are INSIDE it (-nowadtextures,
+REM                    which SMAK spells wadinclude), so it needs no .wad beside it.
+REM   the .map         what the compilers were fed: every brush and entity as text.
+REM                    The .bsp cannot be edited or read back, so without this the
+REM                    only record of what the map IS lives in a generated file that
+REM                    the next build overwrites. It also opens in J.A.C.K. and in
+REM                    every other editor, so the map stays workable by hand.
+REM   gfx\env\*.tga    the skybox. A sky is NEVER inside a .bsp -- it is six loose
+REM                    files the engine loads by worldspawn's skyname, and when they
+REM                    are missing it falls back to the default desert sky without a
+REM                    word. Every PLAYER needs them, not just the server.
+REM   export-map\      the scripts that build it, so the map can be rebuilt from
+REM                    source the way modelling\ does for the models.
+if exist "%SRC%export-map\out\h9_te_neuropolis.bsp" (
+    if not exist "%EX%\ts\maps" mkdir "%EX%\ts\maps"
+    copy /y "%SRC%export-map\out\h9_te_neuropolis.bsp" "%EX%\ts\maps\" >nul
+    echo   ts\maps\h9_te_neuropolis.bsp  ^(textures inside it^)
+)
+REM BOTH MAPS TRAVEL, under names that cannot be confused for each other.
+REM
+REM   h9_te_neuropolis.map        the ORIGINAL, hand-built in J.A.C.K. and never edited
+REM                               by any script. It is the one irreplaceable input here:
+REM                               everything else in this folder can be rebuilt from it,
+REM                               and it cannot be rebuilt from anything.
+REM   h9_te_neuropolis_built.map  what make.mjs grew FROM it and fed to the compilers --
+REM                               the whole city as text, editable in any map editor.
+REM
+REM The names matter. Writing the built map over the original would make the next build
+REM grow a city on top of one that already has a city in it, compounding on every run,
+REM with no error to say so. That has happened once already.
+if exist "%SRC%export-map\base\h9_te_neuropolis.map" (
+    if not exist "%EX%\ts\maps" mkdir "%EX%\ts\maps"
+    copy /y "%SRC%export-map\base\h9_te_neuropolis.map" "%EX%\ts\maps\" >nul
+    echo   ts\maps\h9_te_neuropolis.map  ^(the original, hand-built^)
+)
+if exist "%SRC%export-map\out\h9_te_neuropolis.map" (
+    if not exist "%EX%\ts\maps" mkdir "%EX%\ts\maps"
+    copy /y "%SRC%export-map\out\h9_te_neuropolis.map" "%EX%\ts\maps\h9_te_neuropolis_built.map" >nul
+    echo   ts\maps\h9_te_neuropolis_built.map  ^(the source the .bsp was built from^)
+)
+if exist "%SRC%export-map\out\gfx\env" (
+    xcopy /y /i /e /q "%SRC%export-map\out\gfx\env" "%EX%\ts\gfx\env" >nul
+    echo   ts\gfx\env\  ^(the underwater skybox -- players need these too^)
+)
+if exist "%SRC%export-map" (
+    xcopy /y /i /q "%SRC%export-map\*.mjs" "%EX%\export-map\" >nul
+    copy /y "%SRC%export-map\README.txt" "%EX%\export-map\" >nul
+    REM base\ is where make.mjs reads the original from, so the scripts are useless without it
+    xcopy /y /i /q "%SRC%export-map\base\*.map" "%EX%\export-map\base\" >nul
+    echo   export-map\  ^(the scripts that build the map^)
 )
 
 REM ---- compts -------------------------------------------------- compts-patch-block

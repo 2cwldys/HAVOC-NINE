@@ -39,7 +39,7 @@ if not exist "%PLUGINS%" (
 if not exist "%OUT%" mkdir "%OUT%"
 
 if "%~1"=="" (
-    set "TARGETS=ts_matchmode ts_probe ts_advertise"
+    set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat"
 ) else (
     if /i "%~1"=="all" (
         set "TARGETS="

@@ -159,8 +159,18 @@
          amx_tsm_spawn_save
          .roam                                     (back to normal)
 
-     Nothing is saved and restored: the hold is recomputed from the match state
-     every frame, so switching it off simply lets that take over again.
+     You get your WEAPONS while roaming, and lose them again when you switch it
+     off. Whatever hold you were under before will have disarmed you, which left a
+     roamer with nothing to shoot and nothing to open a door with -- and trying a
+     doorway is half of what walking a map is for. They are handed back on the way in
+     and taken on the way out, so you never carry them into the match.
+
+     Attack, +use and the impulse keys all work while roaming. They used to be wiped
+     along with everything else by the warmup and freeze holds, which is why .roam
+     gave you movement and nothing else.
+
+     The hold itself is not saved and restored: it is recomputed from the match state
+     every frame, so switching roaming off simply lets that take over again.
 
  .follow   /   .squad          (Officer class only, during a round)
      Take the bots standing NEAR you under command -- the nearest first, up to
@@ -257,6 +267,17 @@
  amx_tsm_spawn_clear <1|2|0>
      Clear that team's spawns. 0 clears both.
 
+     It clears MEMORY ONLY and says so. To wipe a map's spawns for good:
+
+         amx_tsm_spawn_clear 0
+         amx_tsm_spawn_save
+
+     save deletes the old cfg before writing, so what is left is a file with
+     nothing in it but its two header lines -- a real wipe, not a stale set
+     that comes back on the next map load. Do not leave it that way: with no
+     custom spawns the map falls back to its own spawn entities, which carry
+     no facing and may not be where a match wants people to start.
+
  amx_tsm_spawn_save
      Write the current set to the per-map cfg. Nothing is persisted until you
      run this.
@@ -309,6 +330,15 @@
      class count, current assignment). Tells "never sent" apart from "sent and
      swallowed" -- the latter happens when a TS VGUI panel holds keyboard
      focus, because it eats every digit before the client can send menuselect.
+
+ amx_tsm_ents
+     Every entity classname in the world right now, with a count of each.
+
+     Run it with a body on the floor to find out what TS actually calls its
+     corpse: the corpse is whatever is in the list that should not be. The
+     corpse holder was written against the classname "deadcorpse" and never
+     matched anything, which is why no value of tsm_corpse_hold ever changed
+     how long a body stayed -- the function was not acting on an entity at all.
 
 
 ===============================================================================

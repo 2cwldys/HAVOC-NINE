@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.48-squad"
+#define TSM_BUILD "1.49-engdoor"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -92,21 +92,12 @@
  * worth more than a medic whose team you can tell. A class past TSM_ICON_REDS therefore
  * shows the same icon to both sides, which is why the bound is checked and not assumed.
  *
- * make-class-sprite.mjs prints both of these numbers when it builds the sheet, and refuses
- * to build if the classes are reordered so that a doubled one is no longer among the
- * first -- which is the one way these could go quietly wrong.
+ * make-class-sprite.mjs prints both numbers when it builds the sheet, and refuses to build
+ * if the classes are reordered so that a doubled one is no longer among the first.
  */
 #define TSM_ICON_RED  7
 #define TSM_ICON_REDS 5
 
-/*
- * Lent to a player for as long as g_issuing is set -- the tkw/tka writes and the
- * respawn that applies them -- and taken straight back afterwards.
- *
- * Three times TS's own default initial_cash, so no loadout can be short-changed, but
- * still inside a signed 16-bit field: TS sends cash to the client in its own TSCash
- * message, and a value that does not fit would be displayed as garbage.
- */
 #define TSM_ARM_CASH 32000
 
 /*
@@ -144,6 +135,7 @@
 #define TSM_MOVETYPE_WALK    3
 #define TSM_MOVETYPE_NOCLIP  8
 #define TSM_EF_NODRAW        128
+
 #define TSM_DAMAGE_NO        0.0
 #define TSM_DAMAGE_AIM       2.0
 
@@ -218,6 +210,13 @@
  * disguise.
  */
 #define TSM_MAXMODELS        12
+/*
+ * The hard edge of TS's own corpse schedule: its think calls UTIL_Remove at ten seconds.
+ * Settling past this does not hold a corpse for longer, it loses it -- TS deletes the body
+ * before we ever take it over. Hence a ceiling slightly inside it.
+ */
+/// What our own copies of TS's bodies are called, so they can be found again.
+#define TSM_CORPSE_CLASS     "tsm_corpse"
 
 #define TSM_MODELLIST       224
 #define TSM_MODELFIELD      344
@@ -243,9 +242,29 @@
 #define TSM_RENDER_ALPHA     4
 #define TSM_RENDERFX_NONE    0
 #define TSM_RENDERFX_GLOW    19
+/*
+ * kRenderGlow, and the renderfx that stops a glow sprite shrinking with distance.
+ *
+ * A glow sprite is the one rendermode GoldSrc does not depth-test like the rest: it is drawn after
+ * the world with the depth test off, which is what makes it the marker to use when the point is to
+ * see somebody who is behind something. The engine still runs its own trace for glow sprites, so
+ * how much of this survives in TS is a question for the server and not for the compiler -- if it
+ * turns out to hide behind walls, tsm_sudden_death 0 turns it off and nothing else changes.
+ */
+#define TSM_RENDER_GLOW      3
+#define TSM_RENDERFX_NODISS  14
 
 // HL door spawnflag: the door refuses to be touched open and answers only +USE.
 #define TSM_SF_DOOR_USE_ONLY 256
+
+/*
+ * The targetname a map puts on a door only a combat engineer may open.
+ *
+ * It is a contract with the .map, not a name chosen here: h9_te_neuropolis gives it
+ * to the two doors into the slums behind the spawns. A door without it is an
+ * ordinary door and is never touched by any of this.
+ */
+#define TSM_ENG_DOOR "tsm_eng_door"
 
 /* ---- how an eliminated player is disarmed (cvar tsm_disarm) -------------- */
 #define DISARM_CMDSTART  1   // zero the usercmd buttons (preferred)
@@ -268,6 +287,17 @@ new bool:g_elim[MAXPL];      // eliminated for THIS round
 new bool:g_ready[MAXPL];
 new g_match_team[MAXPL];     // OUR authoritative team, never the mod's live value
 new g_spec_target[MAXPL];    // who an eliminated player is watching
+/*
+ * The side a player BELONGS to for this match, which outlives being eliminated.
+ *
+ * g_match_team is the side they are playing on RIGHT NOW, and set_ts_spectator zeroes it
+ * when it benches an eliminated player -- correct for alive counting, fatal for counting
+ * who is still in the match. Wiping a side out is what a round IS here, so once the last
+ * of them was benched that side counted nobody, check_match_viable() called it a forfeit
+ * and the match dropped to warmup in the middle of play, every round, for no reason anyone
+ * could see. This field is cleared when the MATCH ends, not when a round does.
+ */
+new g_side[MAXPL];
 new g_last_buttons[MAXPL];
 
 // Death tracking that does not rely on DeathMsg. TS respawns players automatically,
@@ -319,7 +349,7 @@ new g_cv_forcespeed;
 new g_cv_gamedesc;
 new g_cv_teamlock;
 new g_cv_forcespawn;
-new g_cv_classes, g_cv_defclass, g_cv_modelmode;
+new g_cv_classes, g_cv_defclass, g_cv_modelmode, g_cv_classlimits;
 new g_cv_nocash, g_cv_blockbuy;
 new g_cv_engrange, g_cv_engclips, g_cv_engents;
 new g_cv_engglow, g_cv_engshell;
@@ -327,6 +357,7 @@ new g_cv_medsound, g_cv_engsound;
 new g_cv_regenamt, g_cv_regenevery, g_cv_regenpause;
 new Float:g_last_hit[MAXPL];    // gametime they were last damaged, for the regen pause
 new g_cv_breachents, g_cv_breachrange;
+new g_cv_engdoorclass;
 new g_cv_armorder;
 new g_cv_wpnextra;
 new g_cv_classscale;
@@ -340,6 +371,7 @@ new g_cv_medheal, g_cv_medcool, g_cv_medrange, g_cv_medglow, g_cv_medshell;
 new g_cv_stim, g_cv_stimmin, g_cv_stimmax, g_cv_stimglow, g_cv_stimshell;
 new g_cv_deathlinger;
 new g_cv_corpsehold, g_cv_corpsemax, g_cv_corpsefade;
+new g_cv_classretry, g_cv_deathgrace;
 
 /*
  * When each of TS's corpses was first seen, by entity index.
@@ -351,6 +383,8 @@ new g_cv_corpsehold, g_cv_corpsemax, g_cv_corpsefade;
  */
 #define TSM_MAXENT 1024
 new Float:g_corpse_born[TSM_MAXENT];
+/// For a TS corpse, the copy of it we made; for one of our copies, nothing.
+new g_corpse_clone[TSM_MAXENT];
 new g_cv_squadmax, g_cv_squaddist, g_cv_squadwarp, g_cv_squadspeed;
 new g_cv_squadsteer, g_cv_squadreach;
 new g_cv_endelay;
@@ -399,6 +433,15 @@ new g_class_wcount[TSM_MAXCLASS][3];
 new g_class_hp[TSM_MAXCLASS];
 new g_class_ap[TSM_MAXCLASS];
 new g_class_perk[TSM_MAXCLASS];
+/*
+ * How many of each class one SIDE may field. 0 is no limit.
+ *
+ * Kept out of the tsm_classN spec on purpose. That string already carries nine fields and a limit
+ * would have to be the tenth, which means every class without a speed and a scale would need two
+ * empty fields written in just to reach it -- "Assault;...;0;;;0", where nobody can tell what the
+ * blanks were for. One list, read by position, says the same thing in a line you can read.
+ */
+new g_class_limit[TSM_MAXCLASS];
 new Float:g_class_speed[TSM_MAXCLASS];   // movement multiplier, 1.0 = normal
 new Float:g_class_scale[TSM_MAXCLASS];   // how tall the model is drawn, 1.0 = normal
 new g_class_menu = 0;
@@ -413,8 +456,20 @@ new bool:g_eng_used[MAXPL];    // engineer has spent their resupply THIS ROUND
 new bool:g_stim_used[MAXPL];   // this player has spent their stimpack THIS ROUND
 new Float:g_medic_at[MAXPL];  // when this medic last healed, for the cooldown
 new Float:g_perk_at[MAXPL];   // when perk_use last ran, to dedupe button vs command
+new Float:g_engdoor_told_at[MAXPL];  // rate limit on the refusal at an engineer door
 new g_squad_leader[MAXPL];    // for a BOT: the officer it is following, 0 = nobody
 new g_bot_prethinks[MAXPL];   // diagnostic: does PlayerPreThink fire for bots at all?
+/*
+ * Diagnostic: does Ham_Use fire on func_door in THIS mod at all?
+ *
+ * Not idle curiosity. Ham_Spawn and Ham_TakeDamage on "player" were both measured at
+ * ZERO hits in TS over a full session, and a fix built on one of them sat in the file
+ * for builds as dead code because nothing errors when a Ham is never delivered. The
+ * engineer doors rest on Ham_Use, so the first question anyone will ask is whether it
+ * runs -- amx_tsm_debug answers it with these.
+ */
+new g_door_use_hits;          // every func_door Use the hook has seen
+new g_engdoor_use_hits;       // of those, the ones on a door named tsm_eng_door
 new bool:g_locked_out[MAXPL];  // joined mid-match; sits out until the match ends
 new bool:g_forfeit[MAXPL];     // has typed .forfeit this match
 new g_last_use[MAXPL];
@@ -458,7 +513,7 @@ new Float:g_elim_at[MAXPL];   // when this player was eliminated
 new g_cv_sweepdrops;
 new g_cv_nopowerups;
 new g_cv_modelpost;
-new g_cv_icons, g_cv_iconhigh, g_cv_iconscale;
+new g_cv_icons, g_cv_iconhigh, g_cv_iconscale, g_cv_sudden;
 new g_cv_botreturn;
 new g_cv_bots, g_cv_botteams, g_cv_botclass, g_cv_botready;
 
@@ -486,10 +541,19 @@ new g_map_item_count = 0;
 new g_arm_pending[MAXPL];
 new Float:g_connect_at[MAXPL];
 new Float:g_class_menu_at[MAXPL];
+/*
+ * A class menu built for ONE player, because what it says depends on his side.
+ *
+ * The shared g_class_menu cannot carry "2/2 full" -- MSR and the Insurrectionists fill their slots
+ * at different rates, so the same item is open for one of them and not the other. It is still built
+ * and still the flag that says classes are ready; this is what is actually put on the screen.
+ */
+new g_class_menu_id[MAXPL];
 new Float:g_reassert_at[MAXPL];
 new bool:g_issuing[MAXPL];   // our buy commands are executing for this player right now
 new bool:g_cash_lend[MAXPL]; // BuyArmament is running for us and needs funds
 new g_icon_ent[MAXPL];       // this player's class-icon sprite, 0 if none yet
+new bool:g_sudden;           // the last minute has begun, and it is announced once
 new bool:g_icon_ok;          // the sheet precached, so the entities may be made
 new g_join_tries[MAXPL];     // jointeam attempts for the current pick
 new g_teaminfo_seen = 0;     // TeamInfo messages from the mod since map load
@@ -764,7 +828,11 @@ assign_bot(id)
 	{
 		if (g_match_team[id] != from_mod)
 		{
+			// Mirrored into g_side, which elimination does not clear: see g_side. Every route
+			// that puts somebody on a side has to set it, or they stop counting toward that
+			// side the moment they are benched and the match forfeits itself.
 			g_match_team[id] = from_mod;
+			if (g_match_team[id]) { g_side[id] = g_match_team[id]; }
 			g_player_class[id] = 0;
 			dbg("bot %d follows the mod onto team %d", id, from_mod);
 		}
@@ -814,10 +882,23 @@ assign_bot(id)
 		new cmode[12];
 		get_pcvar_string(g_cv_botclass, cmode, charsmax(cmode));
 
+		new team = tsm_live_team_of(id);
+
 		if (equali(cmode, "spread"))
 		{
-			// Round-robin, so a bot side is not four identical Assaults.
-			g_bot_class_rr = (g_bot_class_rr + 1) % g_class_count;
+			/*
+			 * Round-robin, so a bot side is not four identical Assaults -- and round PAST anything
+			 * the limits have closed. Without this the bots fill the Officer and Medic slots on
+			 * their way round and the humans arrive to find the side already composed.
+			 */
+			new tries = 0;
+			do
+			{
+				g_bot_class_rr = (g_bot_class_rr + 1) % g_class_count;
+				tries++;
+			}
+			while (tries <= g_class_count && !class_open_for(id, g_bot_class_rr + 1, team));
+
 			g_player_class[id] = g_bot_class_rr + 1;
 		}
 		else
@@ -826,6 +907,19 @@ assign_bot(id)
 			g_player_class[id] = (fixed >= 1 && fixed <= g_class_count)
 				? fixed
 				: resolved_class(id);
+
+			// A fixed bot class still gives way to a full slot, or tsm_bot_class 7 is seven Officers.
+			if (!class_open_for(id, g_player_class[id], team))
+			{
+				for (new c = 1; c <= g_class_count; c++)
+				{
+					if (class_open_for(id, c, team))
+					{
+						g_player_class[id] = c;
+						break;
+					}
+				}
+			}
 		}
 
 		dbg("bot %d given class %d", id, g_player_class[id]);
@@ -911,6 +1005,7 @@ set_ts_team(id, team)
 	}
 
 	g_match_team[id] = team;
+	g_side[id] = team;
 	g_spectator[id] = false;
 
 	/*
@@ -1018,75 +1113,27 @@ bool:elim_hide_due(id)
  * of them made it worse -- hiding the player before the corpse is created makes
  * TSCreateDeadCorpse return without creating anything, so no body appears at all.
  */
+/*
+ * Nothing is done to TS's bodies any more.
+ *
+ * The history, so it is not tried a fourth time. This first held the corpse by pushing its
+ * nextthink into the future, which did nothing: the value was tuned from 0 up to 9.5 seconds
+ * and bodies vanished identically at every setting, which is the proof that the function was
+ * never acting on anything. Then it made its own copy of each body, which also did nothing.
+ *
+ * The reason both failed is almost certainly the same one: this searched for an entity whose
+ * classname is "deadcorpse". That string IS in mp.dll, but it sits among "deadback",
+ * "deadsitting", "deadstomach" and "deadtable", which are Half-Life's dead POSE names -- so
+ * it is a pose, not a classname, and FindEntityByString has been matching nothing from the
+ * day it was written.
+ *
+ * amx_tsm_ents prints every classname in the world; run it with a body on the floor and the
+ * corpse is whatever is in that list and should not be. Until then this does nothing at all,
+ * which is better than three mechanisms fighting over an entity that may not exist.
+ */
 public task_hold_corpses()
 {
-	if (!get_pcvar_num(g_cv_enabled) || g_state != ST_LIVE)
-	{
-		return;
-	}
-
-	new Float:hold = get_pcvar_float(g_cv_corpsehold);
-	if (hold <= 0.0)
-	{
-		return;   // TS keeps its corpses, exactly as before
-	}
-
-	new Float:fade = get_pcvar_float(g_cv_corpsefade);
-	if (fade < 0.0) { fade = 0.0; }
-	if (fade > hold) { fade = hold; }
-
-	new cap = get_pcvar_num(g_cv_corpsemax);
-	new Float:now = get_gametime();
-	new ent = -1, held = 0;
-
-	// engfunc rather than find_ent_by_class: that one lives in the engine module and this
-	// plugin runs on fakemeta, which reaches the same entity list without the dependency.
-	while ((ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "deadcorpse")) > 0)
-	{
-		if (ent >= TSM_MAXENT)
-		{
-			continue;   // past what we can remember; leave it to TS
-		}
-		if (g_corpse_born[ent] < 0.0)
-		{
-			continue;   // already given back
-		}
-		if (g_corpse_born[ent] == 0.0)
-		{
-			g_corpse_born[ent] = now;
-		}
-
-		new Float:age = now - g_corpse_born[ent];
-
-		if (age >= hold || held >= cap)
-		{
-			/*
-			 * Given back, and marked so it is never taken again. Its own fade timer
-			 * expired long ago, so the first think it runs removes it -- which is why the
-			 * fade below has to have happened already.
-			 */
-			g_corpse_born[ent] = -1.0;
-			set_pev(ent, pev_nextthink, now);
-			continue;
-		}
-
-		held++;
-		set_pev(ent, pev_nextthink, now + 1.0);
-
-		if (fade > 0.0 && age > (hold - fade))
-		{
-			// The last stretch, taken down ourselves so it leaves rather than vanishes.
-			new Float:left = (hold - age) / fade;
-			set_pev(ent, pev_rendermode, kRenderTransTexture);
-			set_pev(ent, pev_renderamt, floatclamp(255.0 * left, 0.0, 255.0));
-		}
-		else
-		{
-			// Whatever step of TS's fade it had already taken, undone.
-			set_pev(ent, pev_rendermode, kRenderNormal);
-			set_pev(ent, pev_renderamt, 255.0);
-		}
-	}
+	return;
 }
 
 /// Forgets every corpse, so a reused entity index cannot inherit a dead body's clock.
@@ -1095,6 +1142,7 @@ clear_corpse_memory()
 	for (new i = 0; i < TSM_MAXENT; i++)
 	{
 		g_corpse_born[i] = 0.0;
+		g_corpse_clone[i] = 0;
 	}
 }
 
@@ -1363,6 +1411,115 @@ load_classes()
 	{
 		tlog("[TSM] No classes defined. Set tsm_class1 and up, or classes stay off.");
 	}
+
+	load_class_limits();
+}
+
+/*
+ * Reads tsm_class_limits: a comma list, one number per class in tsm_classN order.
+ *
+ *     tsm_class_limits "0,4,2,2,4,2,1"
+ *
+ * Position 1 is tsm_class1. 0, blank or missing means no limit, so a short list leaves the rest
+ * unlimited and an empty cvar turns the whole thing off -- which is what it ships as.
+ */
+load_class_limits()
+{
+	for (new i = 0; i < TSM_MAXCLASS; i++)
+	{
+		g_class_limit[i] = 0;
+	}
+
+	new spec[128];
+	get_pcvar_string(g_cv_classlimits, spec, charsmax(spec));
+	if (!spec[0])
+	{
+		return;
+	}
+
+	new rest[128], field[16], carry[128], idx = 0;
+	copy(rest, charsmax(rest), spec);
+
+	while (rest[0] && idx < TSM_MAXCLASS)
+	{
+		strtok(rest, field, charsmax(field), carry, charsmax(carry), ',', 1);
+		trim(field);
+		g_class_limit[idx] = str_to_num(field);
+		if (g_class_limit[idx] < 0)
+		{
+			g_class_limit[idx] = 0;
+		}
+		idx++;
+		copy(rest, charsmax(rest), carry);
+	}
+
+	for (new i = 0; i < g_class_count; i++)
+	{
+		if (g_class_limit[i])
+		{
+			tlog("[TSM] Class limit: %s, %d a side.", g_class_name[i], g_class_limit[i]);
+		}
+	}
+}
+
+/*
+ * How many players on `team` are already that class. `cls` is 1-based, as g_player_class is.
+ *
+ * Counts the whole side, living and dead: a limit is a composition rule for the match and not a
+ * headcount of who happens to be breathing, and a Medic who has just been shot has not freed his
+ * slot for somebody else.
+ */
+count_class_on_team(cls, team)
+{
+	new n = 0;
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		if (g_player_class[players[i]] == cls && tsm_live_team_of(players[i]) == team)
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/*
+ * Whether `id` may still take class `cls` (1-based).
+ *
+ * EVERY CLASS BEING FULL DOES NOT BLOCK ANYBODY. Limits that add up to less than a side's size are
+ * easy to write by accident, and a player who cannot be given any class at all would spawn with no
+ * loadout and no model. So when nothing is open the limits stand aside: a side of ten with two of
+ * everything is better than a side of ten with eight of them holding nothing.
+ */
+bool:class_open_for(id, cls, team)
+{
+	if (cls < 1 || cls > g_class_count)
+	{
+		return false;
+	}
+	if (!g_class_limit[cls - 1])
+	{
+		return true;
+	}
+	// Already his: re-picking what he is holding is not a second slot.
+	if (g_player_class[id] == cls)
+	{
+		return true;
+	}
+	if (count_class_on_team(cls, team) < g_class_limit[cls - 1])
+	{
+		return true;
+	}
+
+	for (new i = 1; i <= g_class_count; i++)
+	{
+		if (!g_class_limit[i - 1] || count_class_on_team(i, team) < g_class_limit[i - 1])
+		{
+			return false;   // something else is open, so he takes that instead
+		}
+	}
+	return true;            // nothing is open anywhere: the limits give way
 }
 
 public class_menu_handler(id, menu, item)
@@ -1381,6 +1538,19 @@ public class_menu_handler(id, menu, item)
 		{
 			client_print(id, print_chat, "[MATCH] You are already %s for this match.",
 				g_class_name[g_player_class[id] - 1]);
+		}
+		else if (!class_open_for(id, item + 1, tsm_live_team_of(id)))
+		{
+			/*
+			 * Checked again HERE, not only when the menu was drawn. Everyone picks at once during
+			 * the freeze, so the last slot can go to somebody else between the menu appearing on
+			 * his screen and his finger coming down on the key.
+			 */
+			client_print(id, print_chat, "[MATCH] %s is full -- %d a side. Pick another.",
+				g_class_name[item], g_class_limit[item]);
+			close_menu(id);
+			show_class_menu(id);
+			return PLUGIN_HANDLED;
 		}
 		else
 		{
@@ -1724,7 +1894,11 @@ public task_verify_join(taskid)
 		new adopted = tsm_team_from_name(live);
 		if (adopted == 1 || adopted == 2)
 		{
+			// Mirrored into g_side, which elimination does not clear: see g_side. Every route
+			// that puts somebody on a side has to set it, or they stop counting toward that
+			// side the moment they are benched and the match forfeits itself.
 			g_match_team[id] = adopted;
+			if (g_match_team[id]) { g_side[id] = g_match_team[id]; }
 			tlog("[TSM] Adopting the mod's answer: player %d is on team %d.", id, adopted);
 		}
 		g_join_tries[id] = 0;
@@ -1815,6 +1989,23 @@ bool:may_pick_class(id)
 	return true;
 }
 
+/** One player's class menu, on its own frame. See the freeze tick for why it is spread out. */
+public task_offer_class_menu(taskid)
+{
+	show_class_menu(taskid - 14000);
+}
+
+/* Frees a player's own class menu. Cancelled first: destroying one still on screen is an error. */
+drop_class_menu(id)
+{
+	if (g_class_menu_id[id])
+	{
+		close_menu(id);
+		menu_destroy(g_class_menu_id[id]);
+		g_class_menu_id[id] = 0;
+	}
+}
+
 show_class_menu(id)
 {
 	// A bot can never answer a menu -- these are re-offered on a timer, which
@@ -1842,8 +2033,52 @@ show_class_menu(id)
 	{
 		return;
 	}
+
+	/*
+	 * Built fresh for him, every time, so the counts are the counts as they are NOW. A menu made
+	 * once at map start would show a Medic slot as open for the whole match.
+	 */
+	new team = tsm_live_team_of(id);
+	drop_class_menu(id);
+	g_class_menu_id[id] = menu_create("\yTS Match \d-- \wpick your class", "class_menu_handler");
+
+	new label[64], info[8];
+	for (new i = 0; i < g_class_count; i++)
+	{
+		if (!g_class_limit[i])
+		{
+			formatex(label, charsmax(label), "\y%s  \d[%d hp]", g_class_name[i], g_class_hp[i]);
+		}
+		else
+		{
+			/*
+			 * HOW MANY ARE LEFT, not how many are taken. "(1)" is the question a player is
+			 * actually asking -- can I still have one -- and 2/4 makes him do the subtraction.
+			 */
+			new free = g_class_limit[i] - count_class_on_team(i + 1, team);
+			if (free < 0)
+			{
+				free = 0;
+			}
+
+			if (!class_open_for(id, i + 1, team))
+			{
+				// Still listed, and still pressable: the handler says no and says why. Hiding it
+				// would leave the numbers beside the other classes meaning nothing.
+				formatex(label, charsmax(label), "\d%s  [%d hp]  (full)", g_class_name[i], g_class_hp[i]);
+			}
+			else
+			{
+				formatex(label, charsmax(label), "\y%s  \d[%d hp]  \w(%d left)",
+					g_class_name[i], g_class_hp[i], free);
+			}
+		}
+		num_to_str(i, info, charsmax(info));
+		menu_additem(g_class_menu_id[id], label, info, 0);
+	}
+
 	g_class_menu_at[id] = get_gametime();
-	menu_display(id, g_class_menu, 0);
+	menu_display(id, g_class_menu_id[id], 0);
 	dbg("showed class menu to %d", id);
 }
 
@@ -2183,6 +2418,8 @@ public plugin_precache()
 	{
 		tlog("[TSM] WARNING: %s is missing -- class icons are off for this map.", TSM_ICON_SPR);
 	}
+
+
 }
 
 /**
@@ -2234,6 +2471,21 @@ public plugin_init()
 	// AMXX menu drawn underneath it renders but never receives a keypress, which is
 	// exactly why the side menu appeared and then ignored all input.
 	g_cv_menudelay = register_cvar("tsm_menu_delay",     "3");
+
+	/*
+	 * How often the freeze tick re-offers the class menu to someone who has not picked.
+	 *
+	 * It has to keep asking, for the same reason tsm_menu_delay exists: TS opens its own
+	 * buy menu on spawn and that is a modal VGUI panel which holds keyboard focus, so the
+	 * class menu drawn underneath it renders and never receives a keypress. The first
+	 * offer, 0.3 seconds after the spawn, is therefore always wasted.
+	 *
+	 * This used to be a hardcoded four seconds, which in a six second freeze bought one
+	 * retry -- and if TS's panel was still up for that one, the menu did not land until
+	 * after the round had already started. At one second it is re-offered on every tick of
+	 * the countdown and appears the moment the panel goes away.
+	 */
+	g_cv_classretry = register_cvar("tsm_class_retry",   "1.0");
 
 	// Refuse the command that opens TS's own team panel. See cmd_block_changeteam.
 	g_cv_blockvgui = register_cvar("tsm_block_teamvgui", "1");
@@ -2389,6 +2641,14 @@ public plugin_init()
 	g_cv_modelpost  = register_cvar("tsm_model_post",     "1");
 	g_cv_icons      = register_cvar("tsm_class_icons",    "1");
 	g_cv_iconhigh   = register_cvar("tsm_icon_height",    "52.0");
+	/*
+	 * How many seconds of a round are "the last minute". 0 turns the whole thing off.
+	 *
+	 * The point is the end of a round where both sides are hiding and neither can find the other:
+	 * a timer running down on two people in opposite corners is not tension, it is waiting. Past
+	 * this mark every player is marked to the OTHER side and the round gets decided.
+	 */
+	g_cv_sudden     = register_cvar("tsm_sudden_death",   "60");
 	g_cv_iconscale  = register_cvar("tsm_icon_scale",     "0.25");
 
 	/*
@@ -2533,6 +2793,7 @@ public plugin_init()
 	// ---- classes ----
 	g_cv_classes   = register_cvar("tsm_classes",       "1");
 	g_cv_defclass  = register_cvar("tsm_default_class", "1");
+	g_cv_classlimits = register_cvar("tsm_class_limits", "");
 
 	// force    - set the model per class and re-assert it when TS reverts
 	// teamonly - leave TS's own mp_teammodels alone (DEFAULT)
@@ -2575,6 +2836,18 @@ public plugin_init()
 	g_cv_breachents  = register_cvar("tsm_breach_entities",
 		"func_door,func_door_rotating,func_wall_toggle,func_button");
 	g_cv_breachrange = register_cvar("tsm_breach_range", "96");
+
+	/*
+	 * Which class the map's "tsm_eng_door" doors answer to, BY NAME.
+	 *
+	 * Matched against the class name rather than against its number, because the
+	 * number is only its position in tsm_class1..tsm_class7 and reordering those is
+	 * a one-line edit that would otherwise hand the doors to whoever landed in slot
+	 * two. The name is the thing a server operator actually sets, so it is the thing
+	 * this follows -- and if they rename the class, this is where they say so.
+	 */
+	g_cv_engdoorclass = register_cvar("tsm_eng_door_class", "Combat Engineer");
+
 	g_cv_armorder    = register_cvar("tsm_arm_order", "1");
 
 	/*
@@ -2603,6 +2876,7 @@ public plugin_init()
 	 * one.
 	 */
 	g_cv_classscale  = register_cvar("tsm_class_scale", "1");
+
 	g_cv_blindff     = register_cvar("tsm_bot_blind_ff", "1");
 
 	/*
@@ -2701,6 +2975,26 @@ public plugin_init()
 	 */
 	g_cv_corpsefade = register_cvar("tsm_corpse_fade",  "5.0");
 
+	/*
+	 * A flat wait after dying before anything is done to the player at all.
+	 *
+	 * TS puts a dead player back on their feet almost at once, and the think hook took
+	 * that as its cue to pull them out of play -- so being shot read as being teleported
+	 * straight into spectating, with no time to see the body.
+	 *
+	 * SHORT ON PURPOSE. This was tried at 6.0 and a long stretch of a round was spent with
+	 * eliminated players not yet taken out; whether that is what stopped rounds resolving
+	 * was never established, because the match-abandon bug was live at the same time and
+	 * produces the same symptom. 2.5 is enough to see the body and short enough that it
+	 * cannot swallow a round.
+	 *
+	 * They are NOT loose during it: g_elim is set the moment they die, so the disarm in
+	 * fw_cmdstart already has them -- no weapon, no movement. 0 disables the wait.
+	 */
+	g_cv_deathgrace = register_cvar("tsm_death_grace",  "2.5");
+
+
+
 	g_cv_squadmax   = register_cvar("tsm_squad_max",   "4");
 	g_cv_squaddist  = register_cvar("tsm_squad_dist",  "160");
 	g_cv_squadwarp  = register_cvar("tsm_squad_warp",  "1200");
@@ -2749,6 +3043,15 @@ public plugin_init()
 
 	// Pre-hook, so the respawn can be refused before it happens.
 	RegisterHam(Ham_Spawn, "player", "fw_player_spawn", 0);
+
+	/*
+	 * The engineer doors. A map marks one by giving it the targetname
+	 * "tsm_eng_door"; every other func_door in the map is passed straight through.
+	 *
+	 * Pre-hook, because the only useful answer is to refuse the Use before
+	 * CBaseDoor::Use has moved anything.
+	 */
+	RegisterHam(Ham_Use, "func_door", "fw_door_use", 0);
 
 	/*
 	 * Definitive gamerules test.
@@ -2818,6 +3121,7 @@ public plugin_init()
 	register_concmd("amx_match_continue","cmd_continue",ADMIN_CFG, " - resume a halted match as it stands, keeping the score");
 	register_concmd("amx_tsm_fix",       "cmd_fix",     ADMIN_CFG, " <target> - force-restore a stuck player");
 	register_concmd("amx_tsm_debug",     "cmd_debug",   ADMIN_CFG, " - why is nothing happening: teams, spawns, ready state");
+	register_concmd("amx_tsm_ents",      "cmd_ents",    ADMIN_CFG, " - every entity classname in the world right now");
 	register_concmd("amx_tsm_unfreeze",  "cmd_unfreeze",ADMIN_CFG, " - force-release everyone (diagnostic)");
 
 	// Spawn editing. Stand where you want a spawn and add it; save writes the
@@ -3081,6 +3385,7 @@ drop_class_icon(id)
 	g_icon_ent[id] = 0;
 }
 
+
 /*
  * Shows each icon to its OWN SIDE only.
  *
@@ -3094,7 +3399,7 @@ drop_class_icon(id)
  */
 public fw_addtofullpack(es, e, ent, host, hostflags, player, pSet)
 {
-	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_icons) || !g_icon_ok)
+	if (!get_pcvar_num(g_cv_enabled) || !g_icon_ok)
 	{
 		return FMRES_IGNORED;
 	}
@@ -3104,7 +3409,15 @@ public fw_addtofullpack(es, e, ent, host, hostflags, player, pSet)
 	}
 
 	new owner = pev(ent, pev_owner);
-	if (owner < 1 || owner >= MAXPL || g_icon_ent[owner] != ent)
+	if (owner < 1 || owner >= MAXPL)
+	{
+		return FMRES_IGNORED;
+	}
+	if (!get_pcvar_num(g_cv_icons))
+	{
+		return FMRES_IGNORED;
+	}
+	if (g_icon_ent[owner] != ent)
 	{
 		return FMRES_IGNORED;   // not one of ours; every other entity is left alone
 	}
@@ -3119,13 +3432,45 @@ public fw_addtofullpack(es, e, ent, host, hostflags, player, pSet)
 	 * Someone with no side -- a spectator, or a player still choosing -- is shown
 	 * none of them, because an icon is squad information and they are not on a squad.
 	 */
-	if (host == owner
-		|| g_match_team[host] < 1
-		|| g_match_team[host] != g_match_team[owner])
+	if (host == owner)
 	{
+		// Never your own: you know your class, and in third person it would hang over your head.
 		set_es(es, ES_Effects, get_es(es, ES_Effects) | TSM_EF_NODRAW);
+		return FMRES_IGNORED;
 	}
 
+	if (g_match_team[host] >= 1 && g_match_team[host] == g_match_team[owner])
+	{
+		return FMRES_IGNORED;   // his own side sees it, in his own colour
+	}
+
+	/*
+	 * SUDDEN DEATH SHOWS THE SAME SPRITE TO THE OTHER SIDE, IN RED, rather than giving every
+	 * player a second entity to carry it.
+	 *
+	 * It was a second entity, and that was a mistake worth not repeating. One sprite per player
+	 * became two, which is 32 more edicts on a full server -- enough that the mod could no longer
+	 * create a ts_groundammo and the round died -- and 32 more entities in every packet, which is
+	 * what pushed clients into svc_bad.
+	 *
+	 * AddToFullPack is asked once per (viewer, entity) pair and what it writes is the state sent
+	 * to THAT viewer, so one entity can be a different frame for each of them. The owner's side
+	 * sees his class icon above; everyone else sees the red copy of it, and only in the last
+	 * stretch of the round.
+	 */
+	if (g_sudden && g_state == ST_LIVE && get_pcvar_num(g_cv_sudden) > 0
+		&& g_match_team[host] >= 1 && g_match_team[host] <= 2
+		&& g_match_team[owner] >= 1 && g_match_team[owner] <= 2)
+	{
+		new ci = resolved_class(owner) - 1;
+		if (ci >= 0 && ci < TSM_ICON_REDS)
+		{
+			set_es(es, ES_Frame, float(TSM_ICON_RED + ci));
+			return FMRES_IGNORED;
+		}
+	}
+
+	set_es(es, ES_Effects, get_es(es, ES_Effects) | TSM_EF_NODRAW);
 	return FMRES_IGNORED;
 }
 
@@ -3550,6 +3895,28 @@ count_on_team(team)
 	return n;
 }
 
+/**
+ * How many players BELONG to a side, whether or not they are still in the round.
+ *
+ * This is the count that decides whether a match can go on. count_on_team() cannot: it
+ * reads g_match_team, which elimination zeroes, so it reports a wiped-out side as having
+ * nobody left -- and a wiped-out side is the normal end of every round here.
+ */
+count_side(team)
+{
+	new n = 0;
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		if (g_side[players[i]] == team)
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
 /*
  * The same count, PEOPLE ONLY.
  *
@@ -3566,7 +3933,20 @@ count_humans_on_team(team)
 	get_players(players, pnum, g_pf);
 	for (new i = 0; i < pnum; i++)
 	{
-		if (!is_user_bot(players[i]) && tsm_live_team_of(players[i]) == team)
+		/*
+		 * g_side, NOT tsm_live_team_of.
+		 *
+		 * tsm_live_team_of resolves to g_match_team, and set_ts_spectator zeroes that
+		 * when it benches an eliminated player -- so being eliminated took you out of
+		 * your own side's HUMAN count. On a server with one human and bots that meant
+		 * the first time that human died, h1 and h2 were both nought, and the caller
+		 * decided every human had left and abandoned the match back to warmup, mid
+		 * round, for no reason anyone could see.
+		 *
+		 * g_side is the side a player belongs to for the whole match and elimination
+		 * does not touch it, which is the entire reason it exists.
+		 */
+		if (!is_user_bot(players[i]) && g_side[players[i]] == team)
 		{
 			n++;
 		}
@@ -6578,6 +6958,94 @@ public fw_player_spawn(id)
 }
 
 /*
+ * Refuses the Use of a door the map has reserved for combat engineers.
+ *
+ * Every func_door in the map comes through here and all but the marked ones leave
+ * again on the first test -- a door without the targetname is somebody else's door
+ * and is not this plugin's business.
+ *
+ * The two entity arguments are the SDK's pActivator and pCaller in that order, which
+ * is the order CBaseDoor::Use declares them; ham_const.inc labels them the other way
+ * round. It makes no difference for a door opened by hand, because
+ * CBasePlayer::PlayerUse passes the player as both -- but it is why both are looked
+ * at rather than one.
+ *
+ * Nothing else in the map fires these doors, so a Use with no player behind it is
+ * refused as well: the door opens for a combat engineer and for nothing else.
+ */
+public fw_door_use(ent, activator, caller, use_type, Float:value)
+{
+	/*
+	 * FIRST LINE, BEFORE ANY TEST: this is how a human proves the hook is delivered.
+	 *
+	 * Set tsm_logging 1, walk up to a door, press +USE and look in the AMX log. A line
+	 * here means Ham_Use reaches func_door in this mod. NO line means the hook is not
+	 * delivered and the whole gate is dead code, which is exactly how two earlier Ham
+	 * hooks in this plugin failed -- silently, with correct-looking logic that never
+	 * ran. amx_tsm_debug prints the counters for the same question.
+	 */
+	new cls[32], name[32];
+	cls[0] = 0;
+	name[0] = 0;
+	if (pev_valid(ent))
+	{
+		pev(ent, pev_classname, cls, charsmax(cls));
+		pev(ent, pev_targetname, name, charsmax(name));
+	}
+	g_door_use_hits++;
+	/*
+	 * The first few only. Proving the hook fires takes one line; it does not take one for every
+	 * door anybody opens for the rest of the map, which is what this was and which drowns the log
+	 * the moment tsm_logging is turned on for some other reason. The counters above carry on
+	 * regardless, and amx_tsm_debug prints them.
+	 */
+	if (g_door_use_hits <= 20)
+	{
+		tlog("[TSM] Ham_Use on ent %d class='%s' targetname='%s' activator=%d caller=%d  (hit %d)",
+			ent, cls, name, activator, caller, g_door_use_hits);
+	}
+
+	if (!is_eng_door(ent))
+	{
+		return HAM_IGNORED;
+	}
+	g_engdoor_use_hits++;
+
+	new id = activator;
+	if (id < 1 || id >= MAXPL || !is_user_connected(id))
+	{
+		id = caller;
+	}
+	if (id < 1 || id >= MAXPL || !is_user_connected(id))
+	{
+		dbgv("eng door %d used by entity %d/%d -- refused", ent, activator, caller);
+		return HAM_SUPERCEDE;
+	}
+
+	if (is_engineer(id))
+	{
+		dbg("eng door %d opened by %d", ent, id);
+		return HAM_IGNORED;
+	}
+
+	/*
+	 * Rate limited on gametime, the same way the friendly-fire warning is. A player
+	 * who cannot get in will stand there pressing the key, and one line a second is
+	 * an explanation where ten a second is a reason to leave.
+	 */
+	if (!is_user_bot(id) && (get_gametime() - g_engdoor_told_at[id]) > 2.0)
+	{
+		new want[32];
+		get_pcvar_string(g_cv_engdoorclass, want, charsmax(want));
+		g_engdoor_told_at[id] = get_gametime();
+		client_print(id, print_chat, "[MATCH] That door answers to a %s and to nobody else.", want);
+	}
+
+	dbgv("eng door %d refused to %d", ent, id);
+	return HAM_SUPERCEDE;
+}
+
+/*
  * Refuses damage between players on the same side.
  *
  * Decided on g_match_team rather than on TS's own view, because this plugin owns
@@ -6750,6 +7218,19 @@ public task_models_after_spawn()
 	new players[32], pnum;
 	get_players(players, pnum, g_pf);
 
+	/*
+	 * ONE PLAYER PER TICK, NOT ALL OF THEM ON ONE FRAME.
+	 *
+	 * Writing a model writes userinfo, and the server tells every client about every userinfo
+	 * change -- so doing the whole server in this loop put one svc_updateuserinfo per player into
+	 * a single packet. On a full server that is sixteen of them at about 160 bytes each, landing
+	 * on top of whatever else that frame was already carrying, and the client's buffer does not
+	 * stretch: it overflows and drops the connection with "Illegible server message - svc_bad".
+	 *
+	 * Spread out they cost exactly the same in total and nothing notices the difference, because
+	 * this is a one-shot tidy-up after the spawn rather than anything a player is waiting on.
+	 */
+	new at = 0;
 	for (new i = 0; i < pnum; i++)
 	{
 		new id = players[i];
@@ -6757,16 +7238,29 @@ public task_models_after_spawn()
 		{
 			continue;
 		}
-
-		// Forget what we think we last wrote: TS has moved it since, and the cache
-		// would otherwise decide there is nothing to do.
-		g_model_last[id][0] = 0;
-
-		new bool:was = g_in_userinfo[id];
-		g_in_userinfo[id] = true;
-		set_class_model(id, resolved_class(id) - 1);
-		g_in_userinfo[id] = was;
+		remove_task(id + 13000);
+		set_task(0.1 + 0.08 * float(at), "task_model_one", id + 13000);
+		at++;
 	}
+}
+
+/** One player's class model, re-asserted on its own frame. See task_models_after_spawn. */
+public task_model_one(taskid)
+{
+	new id = taskid - 13000;
+	if (!is_user_connected(id) || g_match_team[id] < 1)
+	{
+		return;
+	}
+
+	// Forget what we think we last wrote: TS has moved it since, and the cache
+	// would otherwise decide there is nothing to do.
+	g_model_last[id][0] = 0;
+
+	new bool:was = g_in_userinfo[id];
+	g_in_userinfo[id] = true;
+	set_class_model(id, resolved_class(id) - 1);
+	g_in_userinfo[id] = was;
 }
 
 /*
@@ -6814,15 +7308,33 @@ cmd_roam(id)
 		set_pev(id, pev_movetype, TSM_MOVETYPE_WALK);
 		set_pev(id, pev_solid, TSM_SOLID_SLIDEBOX);
 
+		/*
+		 * AND HIS HANDS BACK.
+		 *
+		 * Whatever hold he was under before this will have stripped him -- hold_player() disarms
+		 * anyone out of a round -- so a roamer had nothing to shoot, nothing to open a door with
+		 * and nothing to test the map with. Walking a map to place spawn points is most of the
+		 * job; trying a doorway is the rest of it.
+		 *
+		 * Through the same task the class menu uses, because issue_armament() is defined further
+		 * down the file and this compiler will not take a forward reference.
+		 */
+		set_task(0.1, "task_reissue_armament", id + 5000);
+
 		client_print(id, print_chat, "[MATCH] Roaming. You are out of the match -- walk the map and place spawns.");
 		client_print(id, print_chat, "[MATCH] amx_tsm_spawn_add 1 / 2 where you stand, then .roam again to go back.");
 		dbg("roam: %d is now roaming", id);
 	}
 	else
 	{
-		// Nothing to restore: should_hold() recomputes from the match state, so the
-		// next frame applies exactly the hold this state calls for.
-		client_print(id, print_chat, "[MATCH] Roaming off -- back to normal.");
+		/*
+		 * The hold itself needs nothing restoring: should_hold() recomputes from the match state,
+		 * so the next frame applies exactly the hold this state calls for. The WEAPONS do, though
+		 * -- they were handed over for roaming and he is not entitled to them back in the match
+		 * he is about to rejoin, so they go the same way they came.
+		 */
+		strip_user_weapons(id);
+		client_print(id, print_chat, "[MATCH] Roaming off -- back to normal, and disarmed again.");
 		dbg("roam: %d is back under match control", id);
 	}
 }
@@ -6840,6 +7352,49 @@ bool:is_officer(id)
 	}
 
 	return (g_class_perk[resolved_class(id) - 1] == TSM_PERK_OFFICER);
+}
+
+/*
+ * Is this player a combat engineer, right now, in a live round?
+ *
+ * By NAME, case insensitively, against tsm_eng_door_class. The perk would be the
+ * shorter test and it is the wrong one: perk 1 is the resupply, and a second class
+ * given that perk would quietly inherit the doors with it. The doors belong to one
+ * named class.
+ */
+bool:is_engineer(id)
+{
+	if (!g_class_count || !is_user_connected(id) || !is_user_alive(id))
+	{
+		return false;
+	}
+	if (g_state != ST_LIVE || g_elim[id] || g_locked_out[id])
+	{
+		return false;
+	}
+
+	new want[32];
+	get_pcvar_string(g_cv_engdoorclass, want, charsmax(want));
+	if (!want[0])
+	{
+		return false;
+	}
+
+	return (equali(g_class_name[resolved_class(id) - 1], want) != 0);
+}
+
+/// Is this entity one of the map's engineer-only doors?
+bool:is_eng_door(ent)
+{
+	if (ent < 1 || !pev_valid(ent))
+	{
+		return false;
+	}
+
+	new name[32];
+	name[0] = 0;
+	pev(ent, pev_targetname, name, charsmax(name));
+	return (equal(name, TSM_ENG_DOOR) != 0);
 }
 
 /// Drops every bot following this officer.
@@ -7272,6 +7827,25 @@ perk_use(id)
 
 	if (perk == TSM_PERK_BREACHER)
 	{
+		/*
+		 * An engineer door is not forceable, and the refusal has to be HERE.
+		 *
+		 * breach_entity() works by clearing SF_DOOR_USE_ONLY before it fires the
+		 * door. Refusing the Use afterwards in fw_door_use would leave that flag
+		 * cleared for the rest of the map -- the door would keep its brush and lose
+		 * its lock, and anyone at all could then walk into it and open it.
+		 */
+		if (is_eng_door(hit))
+		{
+			if (!is_user_bot(id) && (get_gametime() - g_engdoor_told_at[id]) > 2.0)
+			{
+				g_engdoor_told_at[id] = get_gametime();
+				client_print(id, print_chat, "[MATCH] That door has no lock to break -- it reads who is at it.");
+			}
+			dbgv("breach refused on engineer door %d for %d", hit, id);
+			return;
+		}
+
 		if (!classname_in_list(g_cv_breachents, cls))
 		{
 			dbgv("breach: '%s' is not in tsm_breach_entities", cls);
@@ -7483,7 +8057,11 @@ cache_teams()
 		{
 			continue;
 		}
+		// Mirrored into g_side, which elimination does not clear: see g_side. Every route
+		// that puts somebody on a side has to set it, or they stop counting toward that
+		// side the moment they are benched and the match forfeits itself.
 		g_match_team[id] = tsm_live_team_of(id);
+		if (g_match_team[id]) { g_side[id] = g_match_team[id]; }
 	}
 }
 
@@ -7623,6 +8201,19 @@ bool:should_hold(id)
 	{
 		return false;
 	}
+
+	/*
+	 * AN ELIMINATED PLAYER STAYS "HELD" HERE, and is freed where the hold is applied instead.
+	 *
+	 * Returning false for him looks right and is not: the else branch below calls
+	 * release_player(), and that undoes EF_NODRAW, puts rendermode back to normal, makes him
+	 * SOLID_SLIDEBOX again and -- the part that matters -- sets takedamage back to AIM. A ghost
+	 * sent through it is a visible, solid, killable player standing in the middle of the round
+	 * he was knocked out of.
+	 *
+	 * So he is still held as far as this is concerned, which keeps release_player away from him,
+	 * and the hold itself gives him his movement back without touching any of the rest.
+	 */
 
 	// Spectators are held in every state. They are not in the match and must never be
 	// able to act in it, but they stay in the world so they can still watch -- and the
@@ -7804,6 +8395,29 @@ remove_from_play(id)
 		return;
 	}
 
+	/*
+	 * The grace, on top of the deferral above.
+	 *
+	 * EVERY route out of play comes through this function -- the think hook the instant TS
+	 * puts them back on their feet, the tsm_death_delay ceiling, the admin command -- so
+	 * this is the one place the wait can be enforced that none of them can step around.
+	 *
+	 * Re-scheduled ONCE with exactly the time left, never in a loop: the task is removed
+	 * first, and the delay shrinks to zero, so this cannot defer a player forever.
+	 */
+	if (g_elim_at[id] > 0.0)
+	{
+		new Float:waited = get_gametime() - g_elim_at[id];
+		new Float:grace = get_pcvar_float(g_cv_deathgrace);
+		if (grace > 0.0 && waited < grace)
+		{
+			dbg("remove_from_play held for %d: %.1f of %.1f seconds", id, waited, grace);
+			remove_task(id + 7000);
+			set_task(grace - waited, "task_remove_from_play", id + 7000);
+			return;
+		}
+	}
+
 	save_presentation(id);
 
 	set_pev(id, pev_solid,      TSM_SOLID_NOT);
@@ -7934,6 +8548,23 @@ public fw_cmdstart(id, uc_handle, seed)
 		return FMRES_IGNORED;
 	}
 
+	/*
+	 * A ROAMER AND AN ELIMINATED PLAYER ARE OUTSIDE EVERY WIPE BELOW.
+	 *
+	 * should_hold() already exempts both, so neither is frozen -- but the three blocks that
+	 * follow zero the buttons straight off the usercmd without ever asking it, which is why
+	 * .roam gave you movement and nothing else: no attack, no +use, no impulse. You could walk
+	 * to a spot and not open the door you were standing at.
+	 *
+	 * The same went for a player who had been eliminated. Out of the match is not the same as
+	 * out of the game: he keeps his hands, and what makes him harmless is that he has no weapon,
+	 * takes no damage and is not solid -- not that his keyboard has been taken away.
+	 */
+	if (g_roaming[id] || g_elim[id])
+	{
+		return FMRES_IGNORED;
+	}
+
 	// Warmup hold: players cannot move or act until the match is readied up. This is
 	// what makes the plugin visibly in control instead of apparently absent.
 	if ((g_state == ST_WARMUP || g_state == ST_READYUP) && warmup_hold_active())
@@ -7971,10 +8602,32 @@ public fw_cmdstart(id, uc_handle, seed)
 	}
 	g_last_buttons[id] = buttons;
 
+	/*
+	 * A player who is ALREADY a spectator is left alone entirely.
+	 *
+	 * TS's own spectator is driving them at this point -- it is TS that prints "Attack to
+	 * switch player" on their screen -- and wiping the buttons here ate the very keypress
+	 * that message is asking for. Clicking did nothing, which is exactly how it was
+	 * reported. There is nothing to disarm either: a spectator has no weapon, is not solid
+	 * and takes no damage.
+	 */
+	if (is_spectating(id))
+	{
+		return FMRES_IGNORED;
+	}
+
 	if (get_pcvar_num(g_cv_disarm) != DISARM_NONE)
 	{
-		set_uc(uc_handle, UC_Buttons, 0);
-		set_uc(uc_handle, UC_Impulse, 0);
+		/*
+		 * THE ATTACK BITS AND THE IMPULSE ARE LEFT ALONE. Movement is still taken.
+		 *
+		 * Wiping every button took the one keypress TS's own spectator asks for -- "Attack to
+		 * switch player" -- and the impulse with it, which is how a menu is answered. An
+		 * eliminated player has nothing to disarm: remove_from_play has already stripped them
+		 * through hold_player, and they are non-solid and take no damage. There is nothing for
+		 * attack to do here except change who they are watching.
+		 */
+		set_uc(uc_handle, UC_Buttons, buttons & (IN_ATTACK | IN_ATTACK2));
 		set_uc(uc_handle, UC_ForwardMove, 0.0);
 		set_uc(uc_handle, UC_SideMove, 0.0);
 		set_uc(uc_handle, UC_UpMove, 0.0);
@@ -8606,6 +9259,9 @@ public fw_prethink(id)
 		g_bot_prethinks[id]++;
 	}
 
+	// The menu backdrop rides the player's view, so it is placed here -- before anything
+	// that might return early, because a panel left where the player used to be looking
+	// is worse than no panel at all.
 	if (!get_pcvar_num(g_cv_enabled))
 	{
 		return FMRES_IGNORED;
@@ -8672,6 +9328,27 @@ public fw_prethink(id)
 			}
 			g_frozen[id] = true;
 			dbgv("hold engaged on %d (state %d)", id, g_state);
+		}
+
+		/*
+		 * A GHOST IS NOT FROZEN, he is just out of the round.
+		 *
+		 * What elimination is meant to be is three things -- he takes no damage, he deals none
+		 * because remove_from_play() has already stripped his weapons, and he is not drawn. Being
+		 * pinned to the spot he was shot on is none of them, and it is what made elimination feel
+		 * like a disconnect: you watched the rest of the round from wherever you happened to fall.
+		 *
+		 * So the freeze is skipped for him and the three things that DO define it are asserted
+		 * every frame instead, where TS cannot quietly put them back.
+		 */
+		if (g_elim[id] && !is_spectating(id))
+		{
+			set_pev(id, pev_solid,      TSM_SOLID_NOT);
+			set_pev(id, pev_effects,    pev(id, pev_effects) | TSM_EF_NODRAW);
+			set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
+			set_pev(id, pev_maxspeed,   wanted_speed());
+			set_user_maxspeed(id, wanted_speed());
+			return FMRES_IGNORED;
 		}
 
 		apply_freeze(id);
@@ -8921,9 +9598,23 @@ public fw_prethink(id)
 		remove_from_play(id);
 	}
 
-	// Eliminated players are disarmed the same way the held ones are -- attack bits
-	// only, so their spectate controls and menus keep working.
-	set_pev(id, pev_button, pev(id, pev_button) & ~(IN_ATTACK | IN_ATTACK2));
+	/*
+	 * Eliminated players are disarmed -- attack bits only, so menus keep working -- but
+	 * NOT once they are a spectator proper.
+	 *
+	 * The old comment here claimed stripping attack left "their spectate controls" alone.
+	 * It does the opposite: on TS's spectator HUD, attack IS the control, the one the
+	 * "Attack to switch player" prompt names. Taking the bit meant the click never reached
+	 * TS and the view never changed teammate.
+	 */
+	/*
+	 * Not taken at all from an eliminated player: attack is how they change who they watch, and
+	 * they have no weapon for it to fire.
+	 */
+	if (!is_spectating(id) && !g_elim[id])
+	{
+		set_pev(id, pev_button, pev(id, pev_button) & ~(IN_ATTACK | IN_ATTACK2));
+	}
 
 	// Re-asserted every frame because the mod re-applies its own values on respawn
 	// and whenever it feels like it. Past the guard above, the body is already due
@@ -9356,6 +10047,10 @@ clear_match_state()
 		g_medic_at[i] = 0.0;
 		g_squad_leader[i] = 0;
 
+		// The side they belonged to, released with the match it belonged to. Cleared
+		// HERE and nowhere else, which is the whole point of it: see g_side.
+		g_side[i] = 0;
+
 		// Per MATCH, not per round: a player who changed appearance every round
 		// would be unrecognisable to their own side.
 		g_model_pick[i] = 0;
@@ -9513,6 +10208,25 @@ start_round()
 		// Zeroed so the first tick of the round tops bots up straight away rather
 		// than making them wait out a full interval with whatever BuyArmament left them.
 		g_bot_resup_at[id] = 0.0;
+
+		/*
+		 * PUT BACK ON THEIR SIDE, not merely un-eliminated.
+		 *
+		 * Elimination moves a player onto TS's spectator team (set_ts_spectator), and
+		 * clearing g_elim above does not undo that. is_spectating() stays true, and the
+		 * presentation hook acts on it in EVERY state -- hidden, non-solid, no damage --
+		 * so they spawned into the next round alive and the plugin went on treating them
+		 * as dead for the whole of it. That is the "still dead in the buy menu after the
+		 * respawn" fault.
+		 *
+		 * g_match_team survives elimination precisely so this can be reversed; a player
+		 * who CHOSE to sit out has no match team and is left alone by the guard.
+		 */
+		if (g_match_team[id] && is_spectating(id))
+		{
+			dbg("round start: %d was still on the spectator team -- back to %d", id, g_match_team[id]);
+			set_ts_team(id, g_match_team[id]);
+		}
 
 		restore_presentation(id);
 	}
@@ -9793,6 +10507,7 @@ public task_freeze_tick()
 	// Same renewal requirement as the warmup hold.
 	new fp[32], fnum, fid;
 	get_players(fp, fnum, g_pf);
+	new offered = 0;      // how many menus this tick has already spaced out
 	for (new i = 0; i < fnum; i++)
 	{
 		fid = fp[i];
@@ -9810,10 +10525,25 @@ public task_freeze_tick()
 			&& !g_player_class[fid]
 			&& !g_spectator[fid]
 			&& tsm_live_team_of(fid)
-			&& (get_gametime() - g_class_menu_at[fid]) > 4.0)
+			&& (get_gametime() - g_class_menu_at[fid]) > get_pcvar_float(g_cv_classretry))
 		{
+			/*
+			 * ONE MENU PER FRAME, NOT ONE PER PLAYER ON THIS FRAME.
+			 *
+			 * This tick runs once a second and tsm_class_retry is a second, so at the top of a
+			 * freeze every player who has not picked yet is offered the menu on the SAME frame.
+			 * A ShowMenu carrying seven classes and their names is a few hundred bytes, so on a
+			 * full server that is several kilobytes in one packet, every second, on top of the
+			 * entity updates the frame was already carrying -- and a client whose buffer will not
+			 * take it drops out with "Illegible server message - svc_bad".
+			 *
+			 * Spread over the second they are all offered just as quickly from a player's point
+			 * of view, and no frame carries more than one.
+			 */
 			dbgv("freeze tick: offering class menu to %d", fid);
-			show_class_menu(fid);
+			remove_task(fid + 14000);
+			set_task(0.02 + 0.05 * float(offered), "task_offer_class_menu", fid + 14000);
+			offered++;
 		}
 
 		// Anyone who was a corpse when the round started and has since respawned,
@@ -9824,7 +10554,11 @@ public task_freeze_tick()
 		{
 			if (g_match_team[fid] < 1)
 			{
+				// Mirrored into g_side, which elimination does not clear: see g_side. Every route
+				// that puts somebody on a side has to set it, or they stop counting toward that
+				// side the moment they are benched and the match forfeits itself.
 				g_match_team[fid] = tsm_live_team_of(fid);
+				if (g_match_team[fid]) { g_side[fid] = g_match_team[fid]; }
 			}
 			set_pev(fid, pev_health, float(get_pcvar_num(g_cv_health)));
 			place_at_spawn(fid);
@@ -9844,6 +10578,7 @@ public task_freeze_tick()
 		team_short(2, ft2, charsmax(ft2));
 		show_hudmessage(0, "ROUND %d^nStarting in %d...^n^n%s %d  --  %d %s",
 			g_round, g_freeze_left, ft1, g_score[1], g_score[2], ft2);
+
 		g_freeze_left--;
 	}
 	else
@@ -9851,6 +10586,7 @@ public task_freeze_tick()
 		// Same blank, for the case where the tick reaches zero before go-live does.
 		set_hudmessage(0, 0, 0, -1.0, 0.28, 0, 0.0, 0.05, 0.0, 0.0, 2);
 		show_hudmessage(0, " ");
+
 		remove_task(3);
 	}
 }
@@ -9949,6 +10685,22 @@ show_round_timer()
 			return;
 		}
 		g_round_left--;
+
+		/*
+		 * THE LAST MINUTE. Every player is marked to the other side from here on.
+		 *
+		 * Latched rather than recomputed, so the announcement happens once and the markers do not
+		 * blink off if the cvar is changed mid-round. start_round() clears it again.
+		 */
+		new sd = get_pcvar_num(g_cv_sudden);
+		if (sd > 0 && !g_sudden && g_round_left <= sd)
+		{
+			g_sudden = true;
+			set_hudmessage(255, 80, 60, -1.0, 0.36, 0, 0.0, 3.0, 0.2, 0.4, 4);
+			show_hudmessage(0, "SUDDEN DEATH^nEveryone is marked");
+			client_print(0, print_chat, "[MATCH] Sudden death -- every player is now marked to the other side.");
+			dbg("sudden death on at %d seconds left", g_round_left);
+		}
 	}
 	else
 	{
@@ -10028,6 +10780,9 @@ public task_go_live()
 
 	set_hudmessage(0, 255, 0, -1.0, 0.32, 0, 0.0, 1.5, 0.0, 0.3, 4);
 	show_hudmessage(0, "LIVE");
+
+	// A fresh round is not sudden death, whatever the last one ended as.
+	g_sudden = false;
 
 	if (!g_start_alive[1] || !g_start_alive[2])
 	{
@@ -10535,6 +11290,30 @@ public cmd_debug(id, level, cid)
 		g_class_count, get_pcvar_num(g_cv_defclass), mmode,
 		get_pcvar_num(g_cv_nocash), get_pcvar_num(g_cv_blockbuy));
 
+	/*
+	 * The engineer doors, and whether the hook that gates them is being delivered.
+	 *
+	 * in_map is counted from the live entity list, so a map with none says so instead
+	 * of looking like a broken hook. ham_use is every func_door Use this plugin has
+	 * been handed since the map loaded. A map with doors in it, a player who has stood
+	 * at one and pressed +USE, and ham_use=0 means Ham_Use is NOT delivered in this mod
+	 * -- the gate is then dead code and the doors are open to whoever walks up.
+	 */
+	new doors = 0, door_ent = -1;
+	for (new guard = 0; guard < 32; guard++)
+	{
+		door_ent = engfunc(EngFunc_FindEntityByString, door_ent, "targetname", TSM_ENG_DOOR);
+		if (door_ent <= 0)
+		{
+			break;
+		}
+		doors++;
+	}
+	new door_class[32];
+	get_pcvar_string(g_cv_engdoorclass, door_class, charsmax(door_class));
+	console_print(id, "[TSM] eng doors: in_map=%d class='%s'  ham_use=%d (on an eng door=%d)",
+		doors, door_class, g_door_use_hits, g_engdoor_use_hits);
+
 	console_print(id, "[TSM] solo_test=%d  loadout_reset=%d  block_spectator=%d  lock_teams=%d",
 		get_pcvar_num(g_cv_solo), get_pcvar_num(g_cv_reloadout),
 		get_pcvar_num(g_cv_nospec), get_pcvar_num(g_cv_teamlock));
@@ -10649,6 +11428,70 @@ public cmd_unfreeze(id, level, cid)
 	console_print(id, "[TSM] If you can move now, release_player() works and was simply not called.");
 	console_print(id, "[TSM] If you still cannot move, ts_set_speed cannot undo the freeze.");
 	tlog("[TSM] amx_tsm_unfreeze: released %d player(s).", pnum);
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * Every entity classname in the world, with a count.
+ *
+ * Written because the corpse holder never worked and the reason turned out to be an
+ * ASSUMPTION: that TS's body entity is called "deadcorpse". That string is in the game
+ * dll, but so are "deadback", "deadsitting", "deadstomach" and "deadtable", which are
+ * Half-Life's dead POSE names -- so it is very likely a pose and not a classname, and
+ * FindEntityByString has been matching nothing this whole time.
+ *
+ * Run it right after a kill, while a body is on the floor, and the corpse is whatever
+ * appears that was not there before.
+ */
+public cmd_ents(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1)) { return PLUGIN_HANDLED; }
+
+	new names[48][32], counts[48], n = 0;
+	new cls[32];
+
+	for (new e = 1; e < TSM_MAXENT; e++)
+	{
+		if (!pev_valid(e))
+		{
+			continue;
+		}
+		pev(e, pev_classname, cls, charsmax(cls));
+		if (!cls[0])
+		{
+			continue;
+		}
+
+		new at = -1;
+		for (new i = 0; i < n; i++)
+		{
+			if (equal(names[i], cls))
+			{
+				at = i;
+				break;
+			}
+		}
+		if (at < 0)
+		{
+			if (n >= sizeof(names))
+			{
+				continue;
+			}
+			copy(names[n], charsmax(names[]), cls);
+			counts[n] = 1;
+			n++;
+		}
+		else
+		{
+			counts[at]++;
+		}
+	}
+
+	console_print(id, "[TSM] %d distinct entity classname(s):", n);
+	for (new i = 0; i < n; i++)
+	{
+		console_print(id, "    %-30s %d", names[i], counts[i]);
+	}
 	return PLUGIN_HANDLED;
 }
 
@@ -10782,7 +11625,11 @@ public task_late_join(id)
 	{
 		return;
 	}
+	// Mirrored into g_side, which elimination does not clear: see g_side. Every route
+	// that puts somebody on a side has to set it, or they stop counting toward that
+	// side the moment they are benched and the match forfeits itself.
 	g_match_team[id] = tsm_live_team_of(id);
+	if (g_match_team[id]) { g_side[id] = g_match_team[id]; }
 
 	// Held out regardless of whether a team resolved. The old version only acted when
 	// a team was known, so anyone TS had not finished assigning played the round free.
@@ -10796,6 +11643,10 @@ public task_late_join(id)
 
 public client_disconnected(id)
 {
+	// Their slot is about to be reused by whoever connects next, so the side they
+	// belonged to goes with them -- otherwise the newcomer inherits it and counts
+	// toward a team they never joined.
+	g_side[id] = 0;
 	g_elim[id] = false;
 	g_ready[id] = false;
 	g_saved[id] = false;
@@ -10809,6 +11660,9 @@ public client_disconnected(id)
 	g_issuing[id] = false;
 	g_cash_lend[id] = false;
 	drop_class_icon(id);
+	// His class menu is his own object. Left behind it would leak a menu handle per disconnect.
+	drop_class_menu(id);
+	g_class_menu_at[id] = 0.0;
 	g_team_menu_at[id] = 0.0;
 	g_player_class[id] = 0;
 	g_eng_used[id] = false;
@@ -10910,7 +11764,9 @@ bool:check_match_viable()
 		return false;
 	}
 
-	if (count_on_team(1) > 0 && count_on_team(2) > 0)
+	// count_side, not count_on_team: see count_side. Asking the live field here ended the
+	// match every time a side was eliminated, which is every round.
+	if (count_side(1) > 0 && count_side(2) > 0)
 	{
 		return false;
 	}
@@ -10919,8 +11775,8 @@ bool:check_match_viable()
 	// joiner standing by is a better outcome than ending the match.
 	autofill_teams();
 
-	new n1 = count_on_team(1);
-	new n2 = count_on_team(2);
+	new n1 = count_side(1);
+	new n2 = count_side(2);
 	if (n1 > 0 && n2 > 0)
 	{
 		all_print("[MATCH] A side was left empty and has been filled. Play on.");
@@ -11050,7 +11906,25 @@ bool:halt_for_imbalance()
 
 	if (get_pcvar_num(g_cv_halthumans))
 	{
-		humans_short = (hgap > get_pcvar_num(g_cv_balgap)) || (h1 == 0) || (h2 == 0);
+		humans_short = (hgap > get_pcvar_num(g_cv_balgap));
+
+		/*
+		 * "A side with nobody human on it" halts only when BOTS ARE OFF.
+		 *
+		 * With tsm_bots on, a side carried entirely by bots is not a fault, it is the
+		 * designed state -- autofill_teams() puts them there on purpose. Treating it as
+		 * grounds to stop the match set two features of this plugin against each other,
+		 * and the bots won every time: the match halted into ST_READYUP a few seconds
+		 * into play, over and over, for no reason a player could see. Testing alone hit
+		 * it every single round, because one side is then always all bots.
+		 *
+		 * With bots off there is nobody to carry that side, so the rule is right and
+		 * stays.
+		 */
+		if (!get_pcvar_num(g_cv_bots) && (h1 == 0 || h2 == 0))
+		{
+			humans_short = true;
+		}
 	}
 
 	if (balance_ok() && !humans_short)
