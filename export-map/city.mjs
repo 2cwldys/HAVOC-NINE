@@ -273,7 +273,31 @@ const SHANTY = { min: [640, -1664, SHANTY_Z[0]], max: [2592, 1664, SHANTY_Z[1]] 
  * the shanty and the ledges across it ran into the staircase. A way down has to be cut somewhere
  * there is floor to cut it in.
  */
-const SHANTY_WELLS = [-1500, -224, 400].map((y) => ({
+/*
+ * NONE OF THESE MAY SHARE GROUND WITH A STREET SHAFT, and the middle one did.
+ *
+ * The street shafts drop from the city to the undercity at y -216 to 168, and the middle shanty
+ * well ran from -224 to 208 at x 1488 to 1744 -- the same patch of ground, one above the other.
+ * The carve took both out of the rock and left a single hole from street level to the shanty with
+ * two staircases crossing inside it: you came down one flight and the floor beside you simply was
+ * not there. That is the gap, and it is why the stairs looked like they led into a pit.
+ *
+ * -800 puts the middle well in open undercity floor, clear of the shafts above it and of the other
+ * two wells either side.
+ */
+/*
+ * TWO WAYS DOWN, NOT THREE, AND NEITHER BESIDE A STREET SHAFT.
+ *
+ * There were three, and two of them ended up next to openings that already existed -- one sharing
+ * ground with the middle street shaft outright, and one against the lip of its chamber once the
+ * shaft was lengthened. Two stairwells side by side in the undercity floor is not two routes, it is
+ * one route and a hole, and that is what it looked like.
+ *
+ * A street shaft's chamber reaches 224 past the shaft on every side, so these have to clear
+ * midY +- (WELL_L / 2 + WELL_ROOM) to stay out of it. 600 clears the north edge of that and still
+ * stops short of the treatment hall at 1124; -1500 is far enough south to be nowhere near either.
+ */
+const SHANTY_WELLS = [-1500, 600].map((y) => ({
   min: [1488, y, SHANTY_Z[0]],
   // 432 long, because the drop is 576: two flights of 288, eighteen steps of 16, and 432 divides by
   // eighteen to give exactly 24 of run. At 448 every tread landed on a fraction.
@@ -358,7 +382,24 @@ const WALK_Z = 448;
  * 16 of rise and 24 of run, inside the 18 a player walks up without jumping.
  */
 const WELL_W = 256;
-const WELL_L = 384;
+/*
+ * 480 ALONG THE STREET, AND THE REASON IS THE PITCH OF THE STEPS.
+ *
+ * WELL_W cannot grow: it is 256 because STREET is 256, and the shaft is the gap between two
+ * blocks. The length is not constrained by anything, and it is the length that sets how steep the
+ * flights are. At 384 the lower flight put 16 steps of 16 rise into 288 of run -- 18 a tread, a
+ * 42 degree stair, which is a ladder with the treads filled in. You caught every step going down
+ * and could barely see the next one going up.
+ *
+ * At 480 the same 16 steps get 24 of run each going down and 30 going up: about 33 degrees, which
+ * is an ordinary staircase.
+ *
+ * It has to stay a dog-leg. Stacking the two flights instead would put the upper one directly over
+ * the lower, and because they close on each other at 256 over the run, the headroom between them
+ * reaches zero at the landing -- you would walk into the underside of the flight above before
+ * getting there. Side by side is not a style choice, it is the only thing that fits.
+ */
+const WELL_L = 480;
 /** How far a stairwell's chamber opens out past the flights, below the city's floor slab. */
 const WELL_ROOM = 224;
 
@@ -737,19 +778,88 @@ export function grow(base, opts = {}) {
    */
   const BAND_Z = 832;
   const t = 16;
-  const SKY_BANDS = [
-    [[DOME.min[0], DOME.max[1] - t, BAND_Z], [DOME.max[0], DOME.max[1], DOME.max[2]]],
-    [[DOME.min[0], DOME.min[1], BAND_Z], [DOME.max[0], DOME.min[1] + t, DOME.max[2]]],
-    [[DOME.max[0] - t, DOME.min[1], BAND_Z], [DOME.max[0], DOME.max[1], DOME.max[2]]],
-  ];
-  for (const [lo, hi] of SKY_BANDS) added.push(box(lo, hi, T.sky));
-
-  // the panes, set 24 in from the sky so there is depth between the two
+  const BAY = 512;    // how far apart the mullions run, on the roof and down the sides alike
   const panes = [];
-  const GAP = 24;
-  panes.push(box([DOME.min[0], DOME.max[1] - t - GAP, BAND_Z], [DOME.max[0], DOME.max[1] - t - GAP + 8, DOME.max[2] - 8], T.glass));
-  panes.push(box([DOME.min[0], DOME.min[1] + t + GAP - 8, BAND_Z], [DOME.max[0], DOME.min[1] + t + GAP, DOME.max[2] - 8], T.glass));
-  panes.push(box([DOME.max[0] - t - GAP, DOME.min[1], BAND_Z], [DOME.max[0] - t - GAP + 8, DOME.max[1], DOME.max[2] - 8], T.glass));
+
+  /*
+   * The three glazed sides, each described once: which axis its wall faces along, where that wall
+   * is, and which way the room lies from it. The west is not here -- the hall is behind it, so it
+   * stays rock.
+   *
+   * Everything below is given as a DISTANCE IN from the wall plane rather than as a coordinate,
+   * because the north and east walls have the room at lower coordinates and the south has it at
+   * higher ones. Written out three times with the signs flipped by hand, this is where arithmetic
+   * mistakes live.
+   */
+  const GLAZED = [
+    { axis: 1, at: DOME.max[1], in: -1, from: DOME.min[0], to: DOME.max[0] },
+    { axis: 1, at: DOME.min[1], in: +1, from: DOME.min[0], to: DOME.max[0] },
+    { axis: 0, at: DOME.max[0], in: -1, from: DOME.min[1], to: DOME.max[1] },
+  ];
+
+  /** A box on a glazed side: `d` in from the wall, `a` along it, between two heights. */
+  const onSide = (side, d0, d1, a0, a1, z0, z1, tex) => {
+    const n = side.axis;
+    const a = n === 0 ? 1 : 0;
+    const lo = [0, 0, z0];
+    const hi = [0, 0, z1];
+    lo[n] = side.in > 0 ? side.at + d0 : side.at - d1;
+    hi[n] = side.in > 0 ? side.at + d1 : side.at - d0;
+    lo[a] = a0;
+    hi[a] = a1;
+    return box(lo, hi, tex);
+  };
+
+  /*
+   * How the glazing is layered, in distance from the wall: the SKY face is the outermost 16, the
+   * glass stands 32 to 40 in, and the frame is behind the glass at 40 to 52. The gap between the
+   * sky and the glass is what gives the sea depth instead of leaving it a flat pane a few units off.
+   */
+  const SKY_D = [0, t];
+  const GLASS_D = [32, 40];
+  const FRAME_D = [40, 52];
+
+  for (const side of GLAZED) {
+    added.push(onSide(side, SKY_D[0], SKY_D[1], side.from, side.to, BAND_Z, DOME.max[2], T.sky));
+    panes.push(onSide(side, GLASS_D[0], GLASS_D[1], side.from, side.to, BAND_Z, DOME.max[2] - 8, T.glass));
+
+    /*
+     * A SILL UNDER THE GLASS, and it is not decoration.
+     *
+     * The glass stands 32 in from the wall and began at exactly the height the wall below it stops,
+     * so its bottom edge hung over the room with nothing underneath -- a sheet of glass resting on
+     * air, with the top of the wall visible behind and below it. The sill runs from the wall plane
+     * back past the frame and gives the glazing something to sit on, which is what a window has.
+     */
+    added.push(onSide(side, 0, FRAME_D[1], side.from, side.to, BAND_Z - 16, BAND_Z, T.trim));
+
+    /*
+     * AND THE FRAME CARRIES DOWN THE SIDES, not just across the roof.
+     *
+     * The roof is divided into bays by mullions and the walls were a single unbroken sheet, so the
+     * two did not read as the same structure: a framed roof sitting on frameless glass. The same
+     * grid runs down the sides now -- uprights at each bay along, and a transom at each bay of
+     * height -- so the dome is one glazed shell rather than a roof and three windows.
+     *
+     * They sit BEHIND the glass rather than around it. A frame that enclosed the pane would be a
+     * world brush and a brush entity sharing the same space, which is a fault this map has already
+     * been through twice with the lights over the doors.
+     */
+    for (let a = side.from + BAY; a < side.to; a += BAY) {
+      added.push(onSide(side, FRAME_D[0], FRAME_D[1], a - 8, a + 8, BAND_Z, DOME.max[2] - 8, T.trim));
+    }
+    /*
+     * The transoms divide the band into rows, rather than being spaced at BAY like the uprights.
+     * The glazed band is 376 tall and a bay is 512, so spacing them by bay put NONE in at all and
+     * the sides came out as uprights on an unbroken sheet. Dividing what is actually there gives
+     * the same grid whatever height the band ends up.
+     */
+    const rows = Math.max(2, Math.round((DOME.max[2] - 8 - BAND_Z) / BAY));
+    for (let r = 1; r < rows; r++) {
+      const z = BAND_Z + ((DOME.max[2] - 8 - BAND_Z) * r) / rows;
+      added.push(onSide(side, FRAME_D[0], FRAME_D[1], side.from, side.to, z - 8, z + 8, T.trim));
+    }
+  }
   /*
    * THE ROOF IS GLAZED, IN BAYS, WITH A FRAME BETWEEN THEM.
    *
@@ -769,8 +879,7 @@ export function grow(base, opts = {}) {
    * -- the same fault the lit strips over the doors had.
    */
   const ROOF_Z = DOME.max[2];
-  const BAY = 512;    // how far apart the mullions run
-  const MULL = 16;    // how thick they are
+  const MULL = 16;    // how thick a mullion is
 
   for (let x = DOME.min[0]; x < DOME.max[0]; x += BAY) {
     const x1 = Math.min(x + BAY, DOME.max[0]);
@@ -1203,10 +1312,22 @@ export function grow(base, opts = {}) {
    * same reason the gate tunnels have one.
    */
   const NEXUS_DOOR_H = NEXUS_GATE.min[2] + 288;
+  /*
+   * THE NEXUS DOOR SINKS INTO THE FLOOR instead of rising into the header: "0 -2 0" is DOWN where
+   * "0 -1 0" is up, both tested as exact values by CBaseToggle::SetMovedir.
+   *
+   * It reads better on this approach. The whole way in is a climb towards the building, so a leaf
+   * that drops out of the way opens the view along the direction you are already walking, where one
+   * that lifts draws the top of the frame down over it. Nothing above the opening changes: the
+   * header stays a world brush because it is the wall over the door, and the leaf travels the other
+   * way underneath it.
+   */
   rollingDoor(
     [NEXUS_GATE.min[0], DOOR_Y[0], NEXUS_GATE.min[2]],
     [NEXUS_GATE.max[0], DOOR_Y[1], NEXUS_GATE.max[2]],
     NEXUS_DOOR_H,
+    T.door,
+    { angles: "0 -2 0" },
   );
   // the header, filling the opening above the leaf
   added.push(box([NEXUS_GATE.min[0], DOOR_Y[0], NEXUS_DOOR_H], [NEXUS_GATE.max[0], DOOR_Y[1], NEXUS_GATE.max[2]], T.doorTrim));

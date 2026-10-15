@@ -1,0 +1,1167 @@
+L 10/15/2026 - 15:02:18: Log file started (file "ts\addons\amxmodx\logs\tsm_debug.log") (game "ts") (amx "1.10.0-manual")
+L 10/15/2026 - 15:02:18: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:02:22: [state 0] defaulting 1 to the spectator team
+L 10/15/2026 - 15:02:22: [state 0] showed side menu to 1
+L 10/15/2026 - 15:02:22: [state 0] JOIN WATCH: 1 sent 'jointeam 3' -- team was #3 'spectator', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:02:22: [state 0] released 2cwldys: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:22: [state 0] JOIN WATCH: 1 is now team #3 'spectator' (resolved=0)
+L 10/15/2026 - 15:02:23: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:24: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:25: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:26: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:27: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:28: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:29: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:30: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:31: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:32: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:33: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:34: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:35: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:36: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:37: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:38: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:39: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:40: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:41: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:42: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:43: [state 0] showed side menu to 1
+L 10/15/2026 - 15:02:43: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:44: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:45: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:46: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:02:47: [state 0] set_ts_team: 1 -> team 1
+L 10/15/2026 - 15:02:47: [state 0] team menu: 1 -> jointeam 1 (msr)
+L 10/15/2026 - 15:02:47: [state 0] JOIN WATCH: 1 sent 'jointeam 1' -- team was #0 'msr', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:02:47: [state 0] JOIN WATCH: 1 is now team #0 'msr' (resolved=1)
+L 10/15/2026 - 15:02:48: [state 0] join confirmed: 1 is on 'msr' after 0 attempt(s)
+L 10/15/2026 - 15:08:45: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:08:50: [state 0] defaulting 1 to the spectator team
+L 10/15/2026 - 15:08:50: [state 0] showed side menu to 1
+L 10/15/2026 - 15:08:50: [state 0] JOIN WATCH: 1 sent 'jointeam 3' -- team was #3 'spectator', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:08:50: [state 0] released 2cwldys: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:50: [state 0] JOIN WATCH: 1 is now team #3 'spectator' (resolved=0)
+L 10/15/2026 - 15:08:51: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:52: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:53: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:54: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:55: [state 0] bot 2 parked: no human has picked a side yet
+L 10/15/2026 - 15:08:55: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:55: [state 0] released me: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:56: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:56: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:57: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:57: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:58: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:58: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:59: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:08:59: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:00: [state 0] bot 3 parked: no human has picked a side yet
+L 10/15/2026 - 15:09:00: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:00: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:00: [state 0] released Jordan: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:01: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:01: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:01: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:02: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:02: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:02: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:03: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:03: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:03: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:04: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:04: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:04: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:05: [state 0] bot 4 parked: no human has picked a side yet
+L 10/15/2026 - 15:09:05: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:05: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:05: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:05: [state 0] released kruze: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:06: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:06: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:06: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:06: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:07: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:07: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:07: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:07: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:08: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:08: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:08: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:08: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:09: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:09: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:09: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:09: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:10: [state 0] bot 5 parked: no human has picked a side yet
+L 10/15/2026 - 15:09:10: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:10: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:10: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:10: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:10: [state 0] released Sean: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:10: [state 0] showed side menu to 1
+L 10/15/2026 - 15:09:11: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:11: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:11: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:11: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:11: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:12: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:12: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:12: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:12: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:12: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:13: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:13: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:13: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:13: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:13: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:14: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:14: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:14: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:14: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:14: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:15: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:15: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:15: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:15: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:15: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:16: [state 0] bot 6 parked: no human has picked a side yet
+L 10/15/2026 - 15:09:16: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:16: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:16: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:16: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:16: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:16: [state 0] released eecatu: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:17: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:17: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:17: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:17: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:17: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:17: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:18: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:18: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:18: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:18: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:18: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:18: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:19: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:19: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:19: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:19: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:19: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:19: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:20: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:20: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:20: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:20: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:20: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:20: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:21: [state 0] bot 7 parked: no human has picked a side yet
+L 10/15/2026 - 15:09:21: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:21: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:21: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:21: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:21: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:21: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:21: [state 0] released Greg: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:22: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:22: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:22: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:22: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:22: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:22: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:22: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:23: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:23: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:23: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:23: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:23: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:23: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:23: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:24: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:24: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:24: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:24: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:24: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:24: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:24: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:25: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:25: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:25: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:25: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:25: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:25: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:25: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:26: [state 0] bot 8 parked: no human has picked a side yet
+L 10/15/2026 - 15:09:26: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:26: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:26: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:26: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:26: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:26: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:26: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:26: [state 0] released sillybill: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:27: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:27: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:27: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:27: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:27: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:27: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:27: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:27: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:28: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:28: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:28: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:28: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:28: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:28: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:28: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:28: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:29: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:29: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:29: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:29: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:29: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:29: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:29: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:29: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:30: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:30: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:30: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:30: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:30: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:30: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:30: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:30: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:31: [state 0] bot 9 parked: no human has picked a side yet
+L 10/15/2026 - 15:09:31: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:31: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:31: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:31: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:31: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:31: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:31: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:31: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:31: [state 0] released Kyle: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:31: [state 0] showed side menu to 1
+L 10/15/2026 - 15:09:32: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:32: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:32: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:32: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:32: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:32: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:32: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:32: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:32: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:33: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:33: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:33: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:33: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:33: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:33: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:33: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:33: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:33: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:34: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:34: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:34: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:34: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:34: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:34: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:34: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:34: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:34: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:35: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:35: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:35: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:35: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:35: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:35: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:35: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:35: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:35: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:36: [state 0] bot 10 parked: no human has picked a side yet
+L 10/15/2026 - 15:09:36: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:36: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:36: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:36: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:36: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:36: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:36: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:36: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:36: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:36: [state 0] released Paolo: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:37: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:37: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:37: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:37: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:37: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:37: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:37: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:37: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:37: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:37: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:38: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:38: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:38: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:38: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:38: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:38: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:38: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:38: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:38: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:38: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:39: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:39: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:39: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:39: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:39: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:39: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:39: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:39: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:39: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:39: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:40: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:40: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:40: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:40: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:40: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:40: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:40: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:40: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:40: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:40: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:41: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:41: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:41: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:41: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:41: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:41: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:41: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:41: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:41: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:41: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:42: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:42: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:42: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:42: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:42: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:42: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:42: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:42: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:42: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:42: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:43: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:43: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:43: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:43: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:43: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:43: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:43: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:43: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:43: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:43: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:44: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:44: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:44: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:44: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:44: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:44: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:44: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:44: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:44: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:44: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:45: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:45: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:45: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:45: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:45: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:45: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:45: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:45: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:45: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:45: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:46: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:46: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:46: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:46: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:46: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:46: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:46: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:46: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:46: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:46: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:47: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:47: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:47: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:47: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:47: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:47: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:47: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:47: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:47: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:47: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:48: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:48: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:48: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:48: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:48: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:48: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:48: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:48: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:48: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:48: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:49: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:49: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:49: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:49: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:49: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:49: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:49: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:49: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:49: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:49: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:50: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:50: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:50: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:50: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:50: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:50: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:50: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:50: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:50: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:50: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:51: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:51: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:51: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:51: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:51: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:51: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:51: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:51: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:51: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:51: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:52: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:52: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:52: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:52: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:52: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:52: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:52: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:52: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:52: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:52: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:52: [state 0] showed side menu to 1
+L 10/15/2026 - 15:09:53: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:53: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:53: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:53: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:53: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:53: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:53: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:53: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:53: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:53: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:54: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:54: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:54: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:54: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:54: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:54: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:54: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:54: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:54: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:54: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:55: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:55: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:55: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:55: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:55: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:55: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:55: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:55: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:55: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:55: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:56: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:56: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:56: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:56: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:56: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:56: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:56: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:56: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:56: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:56: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:57: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:57: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:57: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:57: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:57: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:57: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:57: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:57: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:57: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:57: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:58: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:58: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:58: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:58: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:58: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:58: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:58: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:58: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:58: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:58: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:59: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:59: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:59: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:59: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:59: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:59: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:59: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:59: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:59: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:09:59: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:00: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:00: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:00: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:00: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:00: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:00: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:00: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:00: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:00: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:00: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:01: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:01: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:01: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:01: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:01: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:01: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:01: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:01: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:01: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:01: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:02: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:02: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:02: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:02: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:02: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:02: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:02: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:02: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:02: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:02: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:03: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:03: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:03: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:03: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:03: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:03: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:03: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:03: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:03: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:03: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:04: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:04: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:04: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:04: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:04: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:04: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:04: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:04: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:04: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:04: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:05: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:05: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:05: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:05: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:05: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:05: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:05: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:05: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:05: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:05: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:06: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:06: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:06: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:06: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:06: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:06: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:06: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:06: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:06: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:06: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:07: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:07: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:07: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:07: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:07: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:07: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:07: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:07: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:07: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:07: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:07: [state 0] set_ts_team: 1 -> team 1
+L 10/15/2026 - 15:10:07: [state 0] team menu: 1 -> jointeam 1 (msr)
+L 10/15/2026 - 15:10:07: [state 0] JOIN WATCH: 1 sent 'jointeam 1' -- team was #0 'msr', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:10:07: [state 0] JOIN WATCH: 1 is now team #0 'msr' (resolved=1)
+L 10/15/2026 - 15:10:08: [state 0] released me: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:08: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:08: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:08: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:08: [state 0] released eecatu: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:08: [state 0] released Greg: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:08: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:08: [state 0] released Kyle: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:08: [state 0] released Paolo: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:10:08: [state 0] join confirmed: 1 is on 'msr' after 0 attempt(s)
+L 10/15/2026 - 15:10:09: [state 0] set_ts_team: 2 -> team 2
+L 10/15/2026 - 15:10:09: [state 0] bot 2 assigned to team 2
+L 10/15/2026 - 15:17:16: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:17:20: [state 0] defaulting 1 to the spectator team
+L 10/15/2026 - 15:17:20: [state 0] showed side menu to 1
+L 10/15/2026 - 15:17:20: [state 0] JOIN WATCH: 1 sent 'jointeam 3' -- team was #3 'spectator', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:17:21: [state 0] released 2cwldys: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:21: [state 0] JOIN WATCH: 1 is now team #3 'spectator' (resolved=0)
+L 10/15/2026 - 15:17:22: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:23: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:24: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:25: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:26: [state 0] bot 2 parked: no human has picked a side yet
+L 10/15/2026 - 15:17:26: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:26: [state 0] released Nathan: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:27: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:27: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:28: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:28: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:29: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:29: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:30: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:30: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:31: [state 0] bot 3 parked: no human has picked a side yet
+L 10/15/2026 - 15:17:31: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:31: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:31: [state 0] released Tyler: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:32: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:32: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:32: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:33: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:33: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:33: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:34: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:34: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:34: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:35: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:35: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:35: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:36: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:36: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:36: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:37: [state 0] bot 4 parked: no human has picked a side yet
+L 10/15/2026 - 15:17:37: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:37: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:37: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:37: [state 0] released Joe: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:38: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:38: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:38: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:38: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:39: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:39: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:39: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:39: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:40: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:40: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:40: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:40: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:41: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:41: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:41: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:41: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:41: [state 0] showed side menu to 1
+L 10/15/2026 - 15:17:42: [state 0] bot 5 parked: no human has picked a side yet
+L 10/15/2026 - 15:17:42: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:42: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:42: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:42: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:42: [state 0] released Alec: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:43: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:43: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:43: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:43: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:43: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:44: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:44: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:44: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:44: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:44: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:45: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:45: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:45: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:45: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:45: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:46: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:46: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:46: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:46: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:46: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:47: [state 0] bot 6 parked: no human has picked a side yet
+L 10/15/2026 - 15:17:47: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:47: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:47: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:47: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:47: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:47: [state 0] released kruze: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:48: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:48: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:48: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:48: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:48: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:48: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:49: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:49: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:49: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:49: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:49: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:49: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:50: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:50: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:50: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:50: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:50: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:50: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:51: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:51: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:51: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:51: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:51: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:51: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:52: [state 0] bot 7 parked: no human has picked a side yet
+L 10/15/2026 - 15:17:52: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:52: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:52: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:52: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:52: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:52: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:52: [state 0] released Matt: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:53: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:53: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:53: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:53: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:53: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:53: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:53: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:54: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:54: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:54: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:54: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:54: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:54: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:54: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:55: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:55: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:55: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:55: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:55: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:55: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:55: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:56: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:56: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:56: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:56: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:56: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:56: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:56: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:57: [state 0] bot 8 parked: no human has picked a side yet
+L 10/15/2026 - 15:17:57: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:57: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:57: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:57: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:57: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:57: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:57: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:57: [state 0] released Sean: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:58: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:58: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:58: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:58: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:58: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:58: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:58: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:58: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:59: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:59: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:59: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:59: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:59: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:59: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:59: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:17:59: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:00: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:00: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:00: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:00: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:00: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:00: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:00: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:00: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:01: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:01: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:01: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:01: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:01: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:01: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:01: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:01: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:02: [state 0] bot 9 parked: no human has picked a side yet
+L 10/15/2026 - 15:18:02: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:02: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:02: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:02: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:02: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:02: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:02: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:02: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:02: [state 0] released Chuck: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:02: [state 0] showed side menu to 1
+L 10/15/2026 - 15:18:03: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:03: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:03: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:03: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:03: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:03: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:03: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:03: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:03: [state 0] released Chuck: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:04: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:04: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:04: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:04: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:04: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:04: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:04: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:04: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:04: [state 0] released Chuck: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:05: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:05: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:05: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:05: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:05: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:05: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:05: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:05: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:05: [state 0] released Chuck: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:06: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:06: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:06: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:06: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:06: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:06: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:06: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:06: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:06: [state 0] released Chuck: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:07: [state 0] bot 10 parked: no human has picked a side yet
+L 10/15/2026 - 15:18:07: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:07: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:07: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:07: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:07: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:07: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:07: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:07: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:07: [state 0] released Chuck: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:07: [state 0] released yo_momma: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:08: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:08: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:08: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:08: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:08: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:08: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:08: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:08: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:08: [state 0] released Chuck: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:08: [state 0] released yo_momma: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:09: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:09: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:09: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:09: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:09: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:09: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:09: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:09: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:09: [state 0] released Chuck: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:09: [state 0] released yo_momma: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:09: [state 0] set_ts_team: 1 -> team 1
+L 10/15/2026 - 15:18:09: [state 0] team menu: 1 -> jointeam 1 (msr)
+L 10/15/2026 - 15:18:09: [state 0] JOIN WATCH: 1 sent 'jointeam 1' -- team was #0 'msr', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:18:10: [state 0] JOIN WATCH: 1 is now team #0 'msr' (resolved=1)
+L 10/15/2026 - 15:18:10: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:10: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:10: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:10: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:10: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:10: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:10: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:10: [state 0] released Chuck: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:10: [state 0] released yo_momma: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:10: [state 0] join confirmed: 1 is on 'msr' after 0 attempt(s)
+L 10/15/2026 - 15:18:11: [state 0] released Nathan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:11: [state 0] released Tyler: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:11: [state 0] released Joe: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:11: [state 0] released Alec: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:11: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:11: [state 0] released Matt: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:11: [state 0] released Sean: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:11: [state 0] released Chuck: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:11: [state 0] released yo_momma: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:18:12: [state 0] set_ts_team: 2 -> team 2
+L 10/15/2026 - 15:18:12: [state 0] bot 2 assigned to team 2
+L 10/15/2026 - 15:19:20: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:19:24: [state 0] defaulting 1 to the spectator team
+L 10/15/2026 - 15:19:24: [state 0] showed side menu to 1
+L 10/15/2026 - 15:19:24: [state 0] JOIN WATCH: 1 sent 'jointeam 3' -- team was #3 'spectator', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:19:25: [state 0] released 2cwldys: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:25: [state 0] JOIN WATCH: 1 is now team #3 'spectator' (resolved=0)
+L 10/15/2026 - 15:19:26: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:27: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:28: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:29: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:30: [state 0] bot 2 parked: no human has picked a side yet
+L 10/15/2026 - 15:19:30: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:30: [state 0] released kruze: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:31: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:31: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:32: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:32: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:33: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:33: [state 0] released kruze: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:19:33: [state 0] set_ts_team: 1 -> team 1
+L 10/15/2026 - 15:19:33: [state 0] team menu: 1 -> jointeam 1 (msr)
+L 10/15/2026 - 15:19:33: [state 0] JOIN WATCH: 1 sent 'jointeam 1' -- team was #0 'msr', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:19:34: [state 0] JOIN WATCH: 1 is now team #0 'msr' (resolved=1)
+L 10/15/2026 - 15:19:34: [state 0] set_ts_team: 2 -> team 2
+L 10/15/2026 - 15:19:34: [state 0] bot 2 assigned to team 2
+L 10/15/2026 - 15:20:13: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:20:25: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:20:35: [state 0] bot 1 parked: no human has picked a side yet
+L 10/15/2026 - 15:20:35: [state 0] released coolguy: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:36: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:37: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:38: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:39: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:40: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:41: [state 0] bot 2 parked: no human has picked a side yet
+L 10/15/2026 - 15:20:41: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:41: [state 0] released Connor: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:42: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:42: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:43: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:43: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:44: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:44: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:45: [state 0] bot 3 parked: no human has picked a side yet
+L 10/15/2026 - 15:20:45: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:45: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:45: [state 0] released sillybill: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:46: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:46: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:46: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:47: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:47: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:47: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:48: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:48: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:48: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:49: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:49: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:49: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:50: [state 0] bot 5 parked: no human has picked a side yet
+L 10/15/2026 - 15:20:50: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:50: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:50: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:50: [state 0] released Jim: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:51: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:51: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:51: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:51: [state 0] released Jim: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:52: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:52: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:52: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:52: [state 0] released Jim: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:53: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:53: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:53: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:53: [state 0] released Jim: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:53: [state 0] defaulting 4 to the spectator team
+L 10/15/2026 - 15:20:53: [state 0] showed side menu to 4
+L 10/15/2026 - 15:20:53: [state 0] JOIN WATCH: 4 sent 'jointeam 3' -- team was #3 'spectator', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:20:53: [state 0] JOIN WATCH: 4 is now team #3 'spectator' (resolved=0)
+L 10/15/2026 - 15:20:54: [state 0] released coolguy: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:54: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:54: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:54: [state 0] released 2cwldys: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:54: [state 0] released Jim: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:20:55: [state 0] set_ts_team: 4 -> team 1
+L 10/15/2026 - 15:20:55: [state 0] team menu: 4 -> jointeam 1 (msr)
+L 10/15/2026 - 15:20:55: [state 0] JOIN WATCH: 4 sent 'jointeam 1' -- team was #1 'msr', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:20:55: [state 0] set_ts_team: 5 -> team 2
+L 10/15/2026 - 15:20:55: [state 0] bot 5 assigned to team 2
+L 10/15/2026 - 15:23:19: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:23:35: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:23:45: [state 0] bot 1 parked: no human has picked a side yet
+L 10/15/2026 - 15:23:45: [state 0] released Chris: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:46: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:47: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:48: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:49: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:50: [state 0] bot 3 parked: no human has picked a side yet
+L 10/15/2026 - 15:23:50: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:50: [state 0] released BOB: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:51: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:51: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:52: [state 0] defaulting 2 to the spectator team
+L 10/15/2026 - 15:23:52: [state 0] showed side menu to 2
+L 10/15/2026 - 15:23:52: [state 0] JOIN WATCH: 2 sent 'jointeam 3' -- team was #3 'spectator', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:23:52: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:52: [state 0] released 2cwldys: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:52: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:52: [state 0] JOIN WATCH: 2 is now team #3 'spectator' (resolved=0)
+L 10/15/2026 - 15:23:53: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:53: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:53: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:54: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:54: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:54: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:55: [state 0] bot 4 parked: no human has picked a side yet
+L 10/15/2026 - 15:23:55: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:55: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:55: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:55: [state 0] released Connor: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:56: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:56: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:56: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:56: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:57: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:57: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:57: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:57: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:58: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:58: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:58: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:58: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:59: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:59: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:59: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:23:59: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:00: [state 0] bot 5 parked: no human has picked a side yet
+L 10/15/2026 - 15:24:00: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:00: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:00: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:00: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:00: [state 0] released sillybill: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:01: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:01: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:01: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:01: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:01: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:02: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:02: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:02: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:02: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:02: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:03: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:03: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:03: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:03: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:03: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:04: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:04: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:04: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:04: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:04: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:05: [state 0] bot 6 parked: no human has picked a side yet
+L 10/15/2026 - 15:24:05: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:05: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:05: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:05: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:05: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:05: [state 0] released Jordan: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:05: [state 0] set_ts_team: 2 -> team 1
+L 10/15/2026 - 15:24:05: [state 0] team menu: 2 -> jointeam 1 (msr)
+L 10/15/2026 - 15:24:05: [state 0] JOIN WATCH: 2 sent 'jointeam 1' -- team was #1 'msr', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:24:06: [state 0] JOIN WATCH: 2 is now team #1 'msr' (resolved=1)
+L 10/15/2026 - 15:24:06: [state 0] released Chris: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:06: [state 0] released BOB: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:06: [state 0] released Connor: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:06: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:06: [state 0] released Jordan: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:24:06: [state 0] set_ts_team: 6 -> team 2
+L 10/15/2026 - 15:24:06: [state 0] bot 6 assigned to team 2
+L 10/15/2026 - 15:24:27: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:25:30: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:25:40: [state 0] defaulting 1 to the spectator team
+L 10/15/2026 - 15:25:40: [state 0] showed side menu to 1
+L 10/15/2026 - 15:25:40: [state 0] JOIN WATCH: 1 sent 'jointeam 3' -- team was #3 'spectator', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:25:40: [state 0] bot 2 parked: no human has picked a side yet
+L 10/15/2026 - 15:25:40: [state 0] released 2cwldys: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:40: [state 0] released sillybill: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:40: [state 0] JOIN WATCH: 1 is now team #3 'spectator' (resolved=0)
+L 10/15/2026 - 15:25:41: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:41: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:42: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:42: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:43: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:43: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:44: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:44: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:45: [state 0] bot 3 parked: no human has picked a side yet
+L 10/15/2026 - 15:25:45: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:45: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:45: [state 0] released KicKAss: movetype 0 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:46: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:46: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:46: [state 0] released KicKAss: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:47: [state 0] released 2cwldys: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:47: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:47: [state 0] released KicKAss: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:48: [state 0] set_ts_team: 1 -> team 1
+L 10/15/2026 - 15:25:48: [state 0] team menu: 1 -> jointeam 1 (msr)
+L 10/15/2026 - 15:25:48: [state 0] JOIN WATCH: 1 sent 'jointeam 1' -- team was #0 'msr', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:25:48: [state 0] released sillybill: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:48: [state 0] released KicKAss: movetype 3 -> 3, maxspeed -> 0, FL_FROZEN cleared
+L 10/15/2026 - 15:25:48: [state 0] JOIN WATCH: 1 is now team #0 'msr' (resolved=1)
+L 10/15/2026 - 15:25:49: [state 0] join confirmed: 1 is on 'msr' after 0 attempt(s)
+L 10/15/2026 - 15:25:49: [state 0] set_ts_team: 2 -> team 2
+L 10/15/2026 - 15:25:49: [state 0] bot 2 assigned to team 2
+L 10/15/2026 - 15:32:37: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:33:44: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:33:49: [state 0] defaulting 1 to the spectator team
+L 10/15/2026 - 15:33:49: [state 0] showed side menu to 1
+L 10/15/2026 - 15:33:49: [state 0] JOIN WATCH: 1 sent 'jointeam 3' -- team was #3 'spectator', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:33:49: [state 0] JOIN WATCH: 1 is now team #3 'spectator' (resolved=0)
+L 10/15/2026 - 15:33:54: [state 0] bot 2 parked: no human has picked a side yet
+L 10/15/2026 - 15:33:59: [state 0] bot 3 parked: no human has picked a side yet
+L 10/15/2026 - 15:34:04: [state 0] bot 4 parked: no human has picked a side yet
+L 10/15/2026 - 15:34:04: [state 0] set_ts_team: 1 -> team 1
+L 10/15/2026 - 15:34:04: [state 0] team menu: 1 -> jointeam 1 (msr)
+L 10/15/2026 - 15:34:04: [state 0] JOIN WATCH: 1 sent 'jointeam 1' -- team was #0 'msr', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:34:05: [state 0] set_ts_team: 4 -> team 2
+L 10/15/2026 - 15:34:05: [state 0] bot 4 assigned to team 2
+L 10/15/2026 - 15:41:14: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:41:27: [state 0] plugin_cfg done on h9_te_neuropolis: build 1.49-engdoor
+L 10/15/2026 - 15:41:37: [state 0] bot 1 parked: no human has picked a side yet
+L 10/15/2026 - 15:41:42: [state 0] bot 2 parked: no human has picked a side yet
+L 10/15/2026 - 15:41:47: [state 0] bot 3 parked: no human has picked a side yet
+L 10/15/2026 - 15:41:53: [state 0] bot 4 parked: no human has picked a side yet
+L 10/15/2026 - 15:41:58: [state 0] bot 6 parked: no human has picked a side yet
+L 10/15/2026 - 15:42:01: [state 0] defaulting 5 to the spectator team
+L 10/15/2026 - 15:42:01: [state 0] showed side menu to 5
+L 10/15/2026 - 15:42:01: [state 0] JOIN WATCH: 5 sent 'jointeam 3' -- team was #3 'spectator', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:42:01: [state 0] JOIN WATCH: 5 is now team #3 'spectator' (resolved=0)
+L 10/15/2026 - 15:42:03: [state 0] bot 7 parked: no human has picked a side yet
+L 10/15/2026 - 15:42:06: [state 0] set_ts_team: 5 -> team 1
+L 10/15/2026 - 15:42:06: [state 0] team menu: 5 -> jointeam 1 (msr)
+L 10/15/2026 - 15:42:06: [state 0] JOIN WATCH: 5 sent 'jointeam 1' -- team was #1 'msr', mp_teamlist='msr;insurgents;spectator'
+L 10/15/2026 - 15:42:06: [state 0] set_ts_team: 1 -> team 2
+L 10/15/2026 - 15:42:06: [state 0] bot 1 assigned to team 2

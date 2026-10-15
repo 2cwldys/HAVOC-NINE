@@ -39,7 +39,11 @@ if not exist "%PLUGINS%" (
 if not exist "%OUT%" mkdir "%OUT%"
 
 if "%~1"=="" (
-    set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat"
+    REM ts_floatchat is OFF. It redrew a RELIABLE hud message per viewer per talker, ten
+REM times a second, and kept an entity per player for the bubble -- it was flooding the
+REM reliable stream and eating edicts, and it never drew on screen anyway. The source
+REM and the sprites are kept; it is simply not built or deployed.
+set "TARGETS=ts_matchmode ts_probe ts_advertise"
 ) else (
     if /i "%~1"=="all" (
         set "TARGETS="
@@ -126,6 +130,15 @@ if not exist "%TSROOT%\data\amxx_easy_http_cacert.pem" (
     if exist "%SRC%compts\ts\addons\amxmodx\data\amxx_easy_http_cacert.pem" (
         copy /y "%SRC%compts\ts\addons\amxmodx\data\amxx_easy_http_cacert.pem" "%TSROOT%\data\" >nul
         echo   installed amxx_easy_http_cacert.pem
+    )
+)
+
+REM easy_http.inc is needed to COMPILE ts_advertise and is not part of AMXX,
+REM so it must travel with the package.
+if not exist "%TSROOT%\scripting\include\easy_http.inc" (
+    if exist "%SRC%compts\scripting\include\easy_http.inc" (
+        copy /y "%SRC%compts\scripting\include\easy_http.inc" "%TSROOT%\scripting\include\" >nul
+        echo   installed easy_http.inc
     )
 )
 

@@ -351,7 +351,7 @@ new g_cv_teamlock;
 new g_cv_forcespawn;
 new g_cv_classes, g_cv_defclass, g_cv_modelmode, g_cv_classlimits;
 new g_cv_nocash, g_cv_blockbuy;
-new g_cv_engrange, g_cv_engclips, g_cv_engents;
+new g_cv_engrange, g_cv_engclips, g_cv_engents, g_cv_engcool;
 new g_cv_engglow, g_cv_engshell;
 new g_cv_medsound, g_cv_engsound;
 new g_cv_regenamt, g_cv_regenevery, g_cv_regenpause;
@@ -370,7 +370,7 @@ new g_cv_hoverinfo, g_cv_hoverrange;
 new g_cv_medheal, g_cv_medcool, g_cv_medrange, g_cv_medglow, g_cv_medshell;
 new g_cv_stim, g_cv_stimmin, g_cv_stimmax, g_cv_stimglow, g_cv_stimshell;
 new g_cv_deathlinger;
-new g_cv_corpsehold, g_cv_corpsemax, g_cv_corpsefade;
+
 new g_cv_classretry, g_cv_deathgrace;
 
 /*
@@ -452,7 +452,7 @@ new bool:g_spectator[MAXPL];      // chose to sit out rather than pick a side
 new Float:g_team_menu_at[MAXPL];  // last time the team menu was put up for them
 
 new g_player_class[MAXPL];     // 0 = not picked; locked for the whole match
-new bool:g_eng_used[MAXPL];    // engineer has spent their resupply THIS ROUND
+new Float:g_eng_used[MAXPL];   // when engineer last resupplied, for the cooldown
 new bool:g_stim_used[MAXPL];   // this player has spent their stimpack THIS ROUND
 new Float:g_medic_at[MAXPL];  // when this medic last healed, for the cooldown
 new Float:g_perk_at[MAXPL];   // when perk_use last ran, to dedupe button vs command
@@ -1364,7 +1364,7 @@ parse_class(idx, const spec[])
 	 * pipes. More to the point his HITBOX does not grow with him, so the head you can see
 	 * above the normal silhouette is not a head you can shoot.
 	 *
-	 * At 1.1 that mismatch is a few inches and reads as a big man. Past about 1.25 it
+	 * At 1.1 that mismatch is a few inches and reads as a big man. Past about 1.50 it
 	 * becomes a man you can shoot through, so the cvar is clamped rather than trusted.
 	 */
 	g_class_scale[idx] = str_to_float(rest);
@@ -1373,7 +1373,7 @@ parse_class(idx, const spec[])
 		g_class_scale[idx] = 1.0;
 	}
 	if (g_class_scale[idx] < 0.80) { g_class_scale[idx] = 0.80; }
-	if (g_class_scale[idx] > 1.25) { g_class_scale[idx] = 1.25; }
+	if (g_class_scale[idx] > 1.50) { g_class_scale[idx] = 1.50; }
 }
 
 load_classes()
@@ -1736,7 +1736,7 @@ build_team_menu()
 	 * no way to put a sprite or a panel under one; the only thing it controls is the text.
 	 *
 	 * So contrast comes from the text itself. AMXX menus take four codes, and they are the
-	 * CLIENT's palette rather than ours:  red, \y yellow, \w white, \d dim grey. Yellow
+	 * CLIENT's palette rather than ours: \r red, \y yellow, \w white, \d dim grey. Yellow
 	 * on a bright wall reads where white does not, and dimming the furniture -- the
 	 * brackets, the dashes -- stops it competing with the words that matter.
 	 */
@@ -2815,6 +2815,7 @@ public plugin_init()
 	// can tell they have been given anything.
 	g_cv_engglow   = register_cvar("tsm_eng_glow",      "1.5");
 	g_cv_engshell  = register_cvar("tsm_eng_shell",     "16");
+	g_cv_engcool   = register_cvar("tsm_eng_cooldown",  "30.0");
 
 	/*
 	 * Slow health regeneration, for whatever class carries TSM_PERK_REGEN.
@@ -2940,40 +2941,6 @@ public plugin_init()
 	 * become a spectator.
 	 */
 	g_cv_deathlinger = register_cvar("tsm_death_linger", "3.0");
-
-	/*
-	 * HOW LONG TS'S OWN CORPSE IS HELD ON THE FLOOR.
-	 *
-	 * tsm_death_linger cannot do this and never could. The body is not the player entity
-	 * -- TS drops its own `deadcorpse` and gives it a HARDCODED ten second life: opaque to
-	 * 3.33, fading in half-second steps to 10.0, then removed. Our linger is already 10.5,
-	 * past the whole of that, so raising it further changes nothing. What is still seen
-	 * going is TS removing its own corpse on its own schedule.
-	 *
-	 * So the corpse is held directly. Its think is what fades it and what finally removes
-	 * it, so pushing nextthink into the future stops both at once -- no fade, no removal,
-	 * and nothing of ours drawn over it.
-	 *
-	 * 0 gives TS its corpses back and restores exactly the old behaviour.
-	 */
-	g_cv_corpsehold = register_cvar("tsm_corpse_hold",  "20.0");
-
-	/*
-	 * A ceiling on how many are held at once, because a held corpse is an edict that is
-	 * not being recycled. A busy round on a 32 slot server can put a lot of bodies on the
-	 * floor, and running the engine out of entities costs the round, not the corpses.
-	 * Past this many the newest are left to TS, which is the behaviour we already had.
-	 */
-	g_cv_corpsemax  = register_cvar("tsm_corpse_max",   "24");
-
-	/*
-	 * Seconds of fade at the END of the hold.
-	 *
-	 * Released without this a corpse pops out of existence: its own fade timer is long
-	 * expired by then, so the first think it is allowed to run goes straight to removal.
-	 * Faded out by us first, it leaves the way TS's would have.
-	 */
-	g_cv_corpsefade = register_cvar("tsm_corpse_fade",  "5.0");
 
 	/*
 	 * A flat wait after dying before anything is done to the player at all.
@@ -7798,13 +7765,16 @@ perk_use(id)
 			return;
 		}
 
-		if (g_eng_used[id])
+		new Float:now = get_gametime();
+		new Float:cool = get_pcvar_float(g_cv_engcool);
+
+		if (g_eng_used[id] > 0.0 && (now - g_eng_used[id]) < cool)
 		{
-			client_print(id, print_chat, "[MATCH] You have already resupplied someone this round.");
+			client_print(id, print_center, "Resupply ready in %.0fs", cool - (now - g_eng_used[id]));
 			return;
 		}
 
-		g_eng_used[id] = true;
+		g_eng_used[id] = now;
 		give_ammo_to(hit, get_pcvar_num(g_cv_engclips));
 
 		// Yellow, for ammunition. Red is the medic's.
@@ -7815,7 +7785,7 @@ perk_use(id)
 		new a[32], b[32];
 		get_user_name(id, a, charsmax(a));
 		get_user_name(hit, b, charsmax(b));
-		client_print(id,  print_chat, "[MATCH] You resupplied %s. That is your one for this round.", b);
+		client_print(id,  print_chat, "[MATCH] You resupplied %s.", b);
 		client_print(hit, print_chat, "[MATCH] %s resupplied you.", a);
 		dbg("engineer %d resupplied %d", id, hit);
 		return;
@@ -10043,7 +10013,7 @@ clear_match_state()
 		g_player_class[i] = 0;
 		g_class_menu_at[i] = 0.0;
 		g_team_menu_at[i] = 0.0;
-		g_eng_used[i] = false;
+		g_eng_used[i] = 0.0;
 		g_medic_at[i] = 0.0;
 		g_squad_leader[i] = 0;
 
@@ -10199,7 +10169,7 @@ start_round()
 		// The engineer's resupply, the medic's cooldown and any standing squad order
 		// are per-ROUND budgets; the class itself is picked once and kept for the
 		// whole match.
-		g_eng_used[id] = false;
+		g_eng_used[id] = 0.0;
 		g_medic_at[id] = 0.0;
 		g_stim_used[id] = false;
 		g_forfeit[id] = false;
@@ -10357,6 +10327,22 @@ finish_round_start()
 			g_in_userinfo[id] = true;
 			set_class_model(id, resolved_class(id) - 1);
 			g_in_userinfo[id] = bwas;
+
+			// Bot fallback: if a bot has no weapons after arming, give them the class loadout.
+			// get_user_weapons (NOT get_user_weapon) -- the latter's second argument is a
+			// by-ref clip output for the current weapon, not a slot index. Passing a loop
+			// counter there rewrites it with the clip count on every pass, and any clip
+			// under 30 makes the loop endless. That was the .ready freeze.
+			if (is_user_alive(id) && g_match_team[id] > 0)
+			{
+				new wlist[32], wnum;
+				get_user_weapons(id, wlist, wnum);
+				if (wnum == 0)
+				{
+					dbg("bot %d has no weapons at round start -- giving class loadout", id);
+					apply_class(id);
+				}
+			}
 		}
 
 		// An Officer's whole perk is two chat commands, so it is invisible unless we
@@ -11530,7 +11516,7 @@ public client_putinserver(id)
 	g_match_team[id] = 0;
 
 	g_player_class[id] = 0;
-	g_eng_used[id] = false;
+	g_eng_used[id] = 0.0;
 	g_medic_at[id] = 0.0;
 	g_last_use[id] = 0;
 	g_was_alive[id] = false;
@@ -11665,7 +11651,7 @@ public client_disconnected(id)
 	g_class_menu_at[id] = 0.0;
 	g_team_menu_at[id] = 0.0;
 	g_player_class[id] = 0;
-	g_eng_used[id] = false;
+	g_eng_used[id] = 0.0;
 	g_stim_used[id] = false;
 	g_forfeit[id] = false;
 	g_last_use[id] = 0;

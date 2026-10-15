@@ -1,0 +1,213 @@
+L 10/15/2026 - 15:02:18: Log file started (file "ts\addons\amxmodx\logs\ts_probe.log") (game "ts") (amx "1.10.0-manual")
+L 10/15/2026 - 15:02:18: ==================================================
+L 10/15/2026 - 15:02:18: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:02:18: ==================================================
+L 10/15/2026 - 15:08:45: ==================================================
+L 10/15/2026 - 15:08:45: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:08:45: ==================================================
+L 10/15/2026 - 15:17:16: ==================================================
+L 10/15/2026 - 15:17:16: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:17:16: ==================================================
+L 10/15/2026 - 15:19:20: ==================================================
+L 10/15/2026 - 15:19:20: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:19:20: ==================================================
+L 10/15/2026 - 15:20:13: ==================================================
+L 10/15/2026 - 15:20:13: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:20:13: ==================================================
+L 10/15/2026 - 15:20:25: ==================================================
+L 10/15/2026 - 15:20:25: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:20:25: ==================================================
+L 10/15/2026 - 15:23:19: ==================================================
+L 10/15/2026 - 15:23:19: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:23:19: ==================================================
+L 10/15/2026 - 15:23:35: ==================================================
+L 10/15/2026 - 15:23:35: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:23:35: ==================================================
+L 10/15/2026 - 15:24:27: ==================================================
+L 10/15/2026 - 15:24:27: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:24:27: ==================================================
+L 10/15/2026 - 15:25:30: ==================================================
+L 10/15/2026 - 15:25:30: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:25:30: ==================================================
+L 10/15/2026 - 15:32:37: ==================================================
+L 10/15/2026 - 15:32:37: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:32:37: ==================================================
+L 10/15/2026 - 15:33:44: ==================================================
+L 10/15/2026 - 15:33:44: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:33:44: ==================================================
+L 10/15/2026 - 15:41:14: ==================================================
+L 10/15/2026 - 15:41:14: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:41:14: ==================================================
+L 10/15/2026 - 15:41:27: ==================================================
+L 10/15/2026 - 15:41:27: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:41:27: ==================================================
+L 10/15/2026 - 15:45:58: ==================================================
+L 10/15/2026 - 15:45:58: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:45:58: ==================================================
+L 10/15/2026 - 15:46:24: ==================================================
+L 10/15/2026 - 15:46:24: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:46:24: ==================================================
+L 10/15/2026 - 15:57:01: ==================================================
+L 10/15/2026 - 15:57:01: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 15:57:01: ==================================================
+L 10/15/2026 - 16:00:00: ==================================================
+L 10/15/2026 - 16:00:00: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 16:00:00: ==================================================
+L 10/15/2026 - 16:00:38: DeathMsg fired: argc=4 killer=1 victim=4 (frame 5612)
+L 10/15/2026 - 16:00:38:   victim 'Insurgent 2': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 16:00:38:   now counting frames until they are alive again...
+L 10/15/2026 - 16:00:41: DeathMsg fired: argc=4 killer=7 victim=6 (frame 5949)
+L 10/15/2026 - 16:00:41:   victim 'Insurgent 3': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 16:00:41:   now counting frames until they are alive again...
+L 10/15/2026 - 16:00:53: RESPAWN: player 4 alive again after 2244 frame(s). button=0 oldbuttons=0
+L 10/15/2026 - 16:00:53:   ANSWER Q2: delayed auto-respawn (2244 frames) with no button held.
+L 10/15/2026 - 16:00:56: RESPAWN: player 6 alive again after 2247 frame(s). button=1 oldbuttons=1
+L 10/15/2026 - 16:00:56:   ANSWER Q2: respawned while holding a button -> likely BUTTON-TRIGGERED respawn,
+L 10/15/2026 - 16:00:56:     which means blocking the button may be enough to hold players dead.
+L 10/15/2026 - 16:00:56: DeathMsg fired: argc=4 killer=3 victim=8 (frame 8299)
+L 10/15/2026 - 16:00:56:   victim 'Insurgent 4': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 16:00:56:   now counting frames until they are alive again...
+L 10/15/2026 - 16:01:04: DeathMsg fired: argc=4 killer=7 victim=10 (frame 9461)
+L 10/15/2026 - 16:01:04:   victim 'Insurgent 5': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 16:01:04:   now counting frames until they are alive again...
+L 10/15/2026 - 16:01:11: RESPAWN: player 8 alive again after 2251 frame(s). button=0 oldbuttons=0
+L 10/15/2026 - 16:01:11:   ANSWER Q2: delayed auto-respawn (2251 frames) with no button held.
+L 10/15/2026 - 16:01:19: RESPAWN: player 10 alive again after 2249 frame(s). button=0 oldbuttons=0
+L 10/15/2026 - 16:01:19:   ANSWER Q2: delayed auto-respawn (2249 frames) with no button held.
+L 10/15/2026 - 16:01:20: DeathMsg fired: argc=4 killer=2 victim=1 (frame 11789)
+L 10/15/2026 - 16:01:20:   victim '2cwldys': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 16:01:20:   now counting frames until they are alive again...
+L 10/15/2026 - 16:01:35: RESPAWN: player 1 alive again after 2326 frame(s). button=1 oldbuttons=1
+L 10/15/2026 - 16:01:35:   ANSWER Q2: respawned while holding a button -> likely BUTTON-TRIGGERED respawn,
+L 10/15/2026 - 16:01:35:     which means blocking the button may be enough to hold players dead.
+L 10/15/2026 - 16:07:06: ==================================================
+L 10/15/2026 - 16:07:06: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 16:07:06: ==================================================
+L 10/15/2026 - 16:08:33: ==================================================
+L 10/15/2026 - 16:08:33: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 16:08:33: ==================================================
+L 10/15/2026 - 16:09:00: ==================================================
+L 10/15/2026 - 16:09:00: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 16:09:00: ==================================================
+L 10/15/2026 - 16:19:57: ==================================================
+L 10/15/2026 - 16:19:57: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 16:19:57: ==================================================
+L 10/15/2026 - 16:23:42: ==================================================
+L 10/15/2026 - 16:23:42: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 16:23:42: ==================================================
+L 10/15/2026 - 16:26:03: ==================================================
+L 10/15/2026 - 16:26:03: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 16:26:03: ==================================================
+L 10/15/2026 - 17:05:58: ==================================================
+L 10/15/2026 - 17:05:58: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 17:05:58: ==================================================
+L 10/15/2026 - 17:22:36: ==================================================
+L 10/15/2026 - 17:22:36: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 17:22:36: ==================================================
+L 10/15/2026 - 17:27:08: ==================================================
+L 10/15/2026 - 17:27:08: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 17:27:08: ==================================================
+L 10/15/2026 - 17:29:16: ==================================================
+L 10/15/2026 - 17:29:16: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 17:29:16: ==================================================
+L 10/15/2026 - 17:30:14: DeathMsg fired: argc=4 killer=8 victim=9 (frame 5128)
+L 10/15/2026 - 17:30:14:   victim 'Enforcer 4': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:30:14:   now counting frames until they are alive again...
+L 10/15/2026 - 17:30:15: DeathMsg fired: argc=4 killer=7 victim=8 (frame 5246)
+L 10/15/2026 - 17:30:15:   victim 'Insurgent 4': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:30:15:   now counting frames until they are alive again...
+L 10/15/2026 - 17:30:22: DeathMsg fired: argc=4 killer=5 victim=10 (frame 6080)
+L 10/15/2026 - 17:30:22:   victim 'Insurgent 5': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:30:22:   now counting frames until they are alive again...
+L 10/15/2026 - 17:31:57: ==================================================
+L 10/15/2026 - 17:31:57: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 17:31:57: ==================================================
+L 10/15/2026 - 17:34:20: DeathMsg fired: argc=4 killer=7 victim=8 (frame 11474)
+L 10/15/2026 - 17:34:20:   victim 'Insurgent 4': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:34:20:   now counting frames until they are alive again...
+L 10/15/2026 - 17:34:35: RESPAWN: player 8 alive again after 594 frame(s). button=0 oldbuttons=0
+L 10/15/2026 - 17:34:35:   ANSWER Q2: delayed auto-respawn (594 frames) with no button held.
+L 10/15/2026 - 17:34:53: DeathMsg fired: argc=4 killer=4 victim=9 (frame 14653)
+L 10/15/2026 - 17:34:53:   victim 'Enforcer 4': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:34:53:   now counting frames until they are alive again...
+L 10/15/2026 - 17:35:06: DeathMsg fired: argc=4 killer=4 victim=7 (frame 16629)
+L 10/15/2026 - 17:35:06:   victim 'Enforcer 3': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:35:06:   now counting frames until they are alive again...
+L 10/15/2026 - 17:35:08: RESPAWN: player 9 alive again after 2245 frame(s). button=0 oldbuttons=0
+L 10/15/2026 - 17:35:08:   ANSWER Q2: delayed auto-respawn (2245 frames) with no button held.
+L 10/15/2026 - 17:35:11: DeathMsg fired: argc=4 killer=5 victim=2 (frame 17081)
+L 10/15/2026 - 17:35:11:   victim 'Insurgent 1': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:35:11:   now counting frames until they are alive again...
+L 10/15/2026 - 17:35:21: RESPAWN: player 7 alive again after 855 frame(s). button=1 oldbuttons=1
+L 10/15/2026 - 17:35:21:   ANSWER Q2: respawned while holding a button -> likely BUTTON-TRIGGERED respawn,
+L 10/15/2026 - 17:35:21:     which means blocking the button may be enough to hold players dead.
+L 10/15/2026 - 17:35:23: DeathMsg fired: argc=4 killer=5 victim=10 (frame 17568)
+L 10/15/2026 - 17:35:23:   victim 'Insurgent 5': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:35:23:   now counting frames until they are alive again...
+L 10/15/2026 - 17:35:26: RESPAWN: player 2 alive again after 612 frame(s). button=0 oldbuttons=0
+L 10/15/2026 - 17:35:26:   ANSWER Q2: delayed auto-respawn (612 frames) with no button held.
+L 10/15/2026 - 17:35:38: RESPAWN: player 10 alive again after 1386 frame(s). button=1 oldbuttons=1
+L 10/15/2026 - 17:35:38:   ANSWER Q2: respawned while holding a button -> likely BUTTON-TRIGGERED respawn,
+L 10/15/2026 - 17:35:38:     which means blocking the button may be enough to hold players dead.
+L 10/15/2026 - 17:35:40: DeathMsg fired: argc=4 killer=6 victim=5 (frame 19325)
+L 10/15/2026 - 17:35:40:   victim 'Enforcer 2': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:35:40:   now counting frames until they are alive again...
+L 10/15/2026 - 17:35:45: DeathMsg fired: argc=4 killer=6 victim=3 (frame 19927)
+L 10/15/2026 - 17:35:45:   victim 'Enforcer 1': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:35:45:   now counting frames until they are alive again...
+L 10/15/2026 - 17:35:56: RESPAWN: player 5 alive again after 1165 frame(s). button=1 oldbuttons=1
+L 10/15/2026 - 17:35:56:   ANSWER Q2: respawned while holding a button -> likely BUTTON-TRIGGERED respawn,
+L 10/15/2026 - 17:35:56:     which means blocking the button may be enough to hold players dead.
+L 10/15/2026 - 17:36:00: RESPAWN: player 3 alive again after 1035 frame(s). button=1 oldbuttons=1
+L 10/15/2026 - 17:36:00:   ANSWER Q2: respawned while holding a button -> likely BUTTON-TRIGGERED respawn,
+L 10/15/2026 - 17:36:00:     which means blocking the button may be enough to hold players dead.
+L 10/15/2026 - 17:47:10: ==================================================
+L 10/15/2026 - 17:47:10: TS Probe loaded. Run ts_probe_info first.
+L 10/15/2026 - 17:47:10: ==================================================
+L 10/15/2026 - 17:48:06: DeathMsg fired: argc=4 killer=1 victim=8 (frame 6501)
+L 10/15/2026 - 17:48:06:   victim 'Insurgent 4': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:48:06:   now counting frames until they are alive again...
+L 10/15/2026 - 17:48:20: DeathMsg fired: argc=4 killer=7 victim=10 (frame 7483)
+L 10/15/2026 - 17:48:20:   victim 'Insurgent 5': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:48:20:   now counting frames until they are alive again...
+L 10/15/2026 - 17:48:22: RESPAWN: player 8 alive again after 1171 frame(s). button=0 oldbuttons=0
+L 10/15/2026 - 17:48:22:   ANSWER Q2: delayed auto-respawn (1171 frames) with no button held.
+L 10/15/2026 - 17:48:35: RESPAWN: player 10 alive again after 2216 frame(s). button=1 oldbuttons=1
+L 10/15/2026 - 17:48:35:   ANSWER Q2: respawned while holding a button -> likely BUTTON-TRIGGERED respawn,
+L 10/15/2026 - 17:48:35:     which means blocking the button may be enough to hold players dead.
+L 10/15/2026 - 17:52:58: DeathMsg fired: argc=4 killer=4 victim=9 (frame 40864)
+L 10/15/2026 - 17:52:58:   victim 'Enforcer 4': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:52:58:   now counting frames until they are alive again...
+L 10/15/2026 - 17:53:12: DeathMsg fired: argc=4 killer=8 victim=3 (frame 42067)
+L 10/15/2026 - 17:53:12:   victim 'Enforcer 1': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:53:12:   now counting frames until they are alive again...
+L 10/15/2026 - 17:53:13: RESPAWN: player 9 alive again after 1258 frame(s). button=0 oldbuttons=0
+L 10/15/2026 - 17:53:13:   ANSWER Q2: delayed auto-respawn (1258 frames) with no button held.
+L 10/15/2026 - 17:53:23: DeathMsg fired: argc=4 killer=6 victim=7 (frame 42875)
+L 10/15/2026 - 17:53:23:   victim 'Enforcer 3': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:53:23:   now counting frames until they are alive again...
+L 10/15/2026 - 17:53:27: RESPAWN: player 3 alive again after 965 frame(s). button=1 oldbuttons=1
+L 10/15/2026 - 17:53:27:   ANSWER Q2: respawned while holding a button -> likely BUTTON-TRIGGERED respawn,
+L 10/15/2026 - 17:53:27:     which means blocking the button may be enough to hold players dead.
+L 10/15/2026 - 17:53:34: DeathMsg fired: argc=4 killer=5 victim=4 (frame 43295)
+L 10/15/2026 - 17:53:34:   victim 'Insurgent 2': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:53:34:   now counting frames until they are alive again...
+L 10/15/2026 - 17:53:38: RESPAWN: player 7 alive again after 587 frame(s). button=0 oldbuttons=0
+L 10/15/2026 - 17:53:38:   ANSWER Q2: delayed auto-respawn (587 frames) with no button held.
+L 10/15/2026 - 17:53:49: RESPAWN: player 4 alive again after 1472 frame(s). button=1 oldbuttons=1
+L 10/15/2026 - 17:53:49:   ANSWER Q2: respawned while holding a button -> likely BUTTON-TRIGGERED respawn,
+L 10/15/2026 - 17:53:49:     which means blocking the button may be enough to hold players dead.
+L 10/15/2026 - 17:55:36: DeathMsg fired: argc=4 killer=0 victim=5 (frame 54571)
+L 10/15/2026 - 17:55:36:   victim 'Enforcer 2': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:55:36:   now counting frames until they are alive again...
+L 10/15/2026 - 17:55:51: RESPAWN: player 5 alive again after 584 frame(s). button=0 oldbuttons=0
+L 10/15/2026 - 17:55:51:   ANSWER Q2: delayed auto-respawn (584 frames) with no button held.
+L 10/15/2026 - 17:58:10: DeathMsg fired: argc=4 killer=3 victim=6 (frame 65895)
+L 10/15/2026 - 17:58:10:   victim 'Insurgent 3': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:58:10:   now counting frames until they are alive again...
+L 10/15/2026 - 17:58:22: DeathMsg fired: argc=4 killer=4 victim=3 (frame 66291)
+L 10/15/2026 - 17:58:22:   victim 'Enforcer 1': is_user_alive() at DeathMsg time = 0
+L 10/15/2026 - 17:58:22:   now counting frames until they are alive again...
+L 10/15/2026 - 17:58:25: RESPAWN: player 6 alive again after 531 frame(s). button=1 oldbuttons=1
+L 10/15/2026 - 17:58:25:   ANSWER Q2: respawned while holding a button -> likely BUTTON-TRIGGERED respawn,
+L 10/15/2026 - 17:58:25:     which means blocking the button may be enough to hold players dead.

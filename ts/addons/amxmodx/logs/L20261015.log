@@ -1,0 +1,946 @@
+L 10/15/2026 - 15:02:13: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:02:13: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:02:13: [TSX] Could not load stats file: ts\addons\amxmodx\data\tsstats.dat
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:02:18: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:02:18: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:02:19: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 15:02:19: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:02:20: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:02:20: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:02:22: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 15:02:22: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 15:02:47: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 15:02:47: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 15:08:39: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 15:08:39: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:08:39: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:08:39: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:08:40: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:08:40: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:08:45: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:08:45: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:08:47: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 15:08:47: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:08:48: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:08:48: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:08:50: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 15:08:50: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 15:10:07: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 15:10:07: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 15:17:10: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 15:17:10: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:17:10: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:17:10: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:17:11: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:17:11: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:17:16: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:17:17: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:17:17: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:17:17: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 15:17:17: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:17:19: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:17:19: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:17:20: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 15:17:21: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 15:18:09: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 15:18:10: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 15:19:14: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 15:19:15: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:19:15: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:19:15: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:19:16: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:19:16: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:19:20: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:19:21: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:19:21: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:19:21: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:19:21: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 15:19:21: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:19:23: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:19:23: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:19:24: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 15:19:25: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 15:19:33: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 15:19:34: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 15:20:08: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:20:08: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:20:08: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:20:08: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:20:09: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:20:09: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:20:13: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:20:20: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:20:20: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:20:20: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:20:20: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:20:21: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:20:21: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:20:25: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:20:26: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:20:28: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:20:28: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:20:35: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 15:20:53: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 4 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 15:20:53: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 4 is now team #3 'spectator'
+L 10/15/2026 - 15:20:55: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 4 sent 'jointeam 1' (team was #1 'msr')
+L 10/15/2026 - 15:23:14: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:23:14: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:23:14: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:23:14: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:23:15: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:23:15: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:23:19: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:23:30: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:23:30: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:23:30: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:23:30: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:23:31: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:23:31: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:23:35: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:23:36: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:23:36: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:23:38: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:23:38: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:23:45: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 15:23:52: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 2 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 15:23:52: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 2 is now team #3 'spectator'
+L 10/15/2026 - 15:24:05: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 2 sent 'jointeam 1' (team was #1 'msr')
+L 10/15/2026 - 15:24:06: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 2 is now team #1 'msr'
+L 10/15/2026 - 15:24:22: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:24:22: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:24:22: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:24:22: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:24:23: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:24:23: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:24:27: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:25:25: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:25:25: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:25:25: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:25:25: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:25:26: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:25:26: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:25:30: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:25:31: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:25:33: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:25:33: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:25:37: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 15:25:40: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 15:25:40: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 15:25:48: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 15:25:48: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 15:32:32: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:32:32: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:32:32: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:32:32: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:32:33: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:32:33: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:32:37: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:32:38: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:32:38: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:33:37: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 15:33:37: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:33:37: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:33:37: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:33:39: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:33:39: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:33:44: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:33:44: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:33:46: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 15:33:46: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:33:47: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:33:47: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:33:49: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 15:33:49: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 15:34:04: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 15:34:18: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:34:18: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:34:18: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:34:18: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:34:19: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:34:19: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:41:09: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:41:09: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:41:09: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:41:09: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:41:10: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:41:10: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:41:14: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:41:22: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:41:22: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:41:22: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:41:22: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:41:23: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:41:23: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:41:27: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:41:28: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:41:28: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:41:30: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:41:30: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:41:37: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 15:42:01: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 5 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 15:42:01: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 5 is now team #3 'spectator'
+L 10/15/2026 - 15:42:06: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 5 sent 'jointeam 1' (team was #1 'msr')
+L 10/15/2026 - 15:45:53: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:45:53: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:45:53: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:45:53: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:45:54: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:45:54: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:45:58: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:46:19: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 15:46:19: GameConfig CRC computed server=435FC429 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:46:19: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:46:19: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 15:46:20: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:46:20: [FAKEMETA] get/set_gamerules_* natives have been disabled because g_pGameRules address could not be found. 
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:46:24: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:46:25: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:46:25: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:46:27: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:46:27: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:46:34: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 15:46:48: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 3 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 15:46:49: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 3 is now team #3 'spectator'
+L 10/15/2026 - 15:46:51: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 3 sent 'jointeam 1' (team was #1 'msr')
+L 10/15/2026 - 15:46:52: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 3 is now team #1 'msr'
+L 10/15/2026 - 15:56:56: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 15:56:56: GameConfig CRC computed server=7FAF36BD (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:56:56: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:56:56: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:56:57: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 15:57:01: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 15:57:02: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 15:57:02: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 15:57:02: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:57:03: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 15:57:03: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 15:57:04: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 15:57:04: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 15:57:06: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 15:57:06: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 15:57:36: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 15:57:37: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 15:59:54: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 15:59:54: GameConfig CRC computed server=7FAF36BD (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 15:59:54: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:59:54: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 15:59:55: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 16:00:00: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 16:00:00: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 16:00:01: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 16:00:01: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 16:00:02: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:00:02: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:00:04: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 16:00:05: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 16:00:10: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 16:00:11: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 16:00:23: [ts_matchmode.amxx] [TSM] Round 1 LIVE: released 4 player(s).
+L 10/15/2026 - 16:06:59: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 16:06:59: GameConfig CRC computed server=7FAF36BD (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 16:06:59: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 16:07:00: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 16:07:01: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 16:07:06: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 16:07:06: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 16:07:07: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 16:07:07: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 16:07:08: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:07:08: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:07:10: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 16:07:10: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 16:07:58: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 16:07:58: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 16:08:27: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 16:08:27: GameConfig CRC computed server=7FAF36BD (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 16:08:27: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 16:08:28: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 16:08:29: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 16:08:33: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 16:08:55: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 16:08:55: GameConfig CRC computed server=7FAF36BD (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 16:08:55: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 16:08:55: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 16:08:56: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='repuheavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='repuheavyw,repuheavyw_dust,repuheavyw_soot,repuheavyw_mud,repuheavyw_blooded,repuheavyw_stripped,repuheavyw_soot_blood,repuheavyw_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='repuheavym,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='reputengu,reputengu_dust,reputengu_soot,reputengu_mud,reputengu_blooded,reputengu_soot_blood,reputengu_smashed,reputengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 16:09:00: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 16:09:01: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 16:09:01: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 16:09:03: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:09:03: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:09:10: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 16:19:51: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 16:19:51: GameConfig CRC computed server=7FAF36BD (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 16:19:51: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 16:19:51: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 16:19:52: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='RepuHeavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='RepuHeavyW,RepuHeavyW_dust,RepuHeavyW_soot,RepuHeavyW_mud,RepuHeavyW_blooded,RepuHeavyW_stripped,RepuHeavyW_soot_blood,RepuHeavyW_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='RepuHeavyM,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='RepuTengu,RepuTengu_dust,RepuTengu_soot,RepuTengu_mud,RepuTengu_blooded,RepuTengu_soot_blood,RepuTengu_smashed,RepuTengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 16:19:57: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 16:19:58: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 16:20:00: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:20:00: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:20:07: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 16:23:37: GameConfig CRC computed engine=2C9EDE6B (D:\SteamLibrary\steamapps\common\Half-Life\swds.dll)
+L 10/15/2026 - 16:23:37: GameConfig CRC computed server=7FAF36BD (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 16:23:37: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 16:23:37: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (2C9EDE6B)
+L 10/15/2026 - 16:23:38: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='RepuHeavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='RepuHeavyW,RepuHeavyW_dust,RepuHeavyW_soot,RepuHeavyW_mud,RepuHeavyW_blooded,RepuHeavyW_stripped,RepuHeavyW_soot_blood,RepuHeavyW_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='RepuHeavyM,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='RepuTengu,RepuTengu_dust,RepuTengu_soot,RepuTengu_mud,RepuTengu_blooded,RepuTengu_soot_blood,RepuTengu_smashed,RepuTengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 16:23:42: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 16:23:43: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 16:23:45: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:23:45: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:23:52: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 16:25:57: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 16:25:57: GameConfig CRC computed server=5954726F (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 16:25:57: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 16:25:57: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 16:25:58: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='RepuHeavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='RepuHeavyW,RepuHeavyW_dust,RepuHeavyW_soot,RepuHeavyW_mud,RepuHeavyW_blooded,RepuHeavyW_stripped,RepuHeavyW_soot_blood,RepuHeavyW_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='RepuHeavyM,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='RepuTengu,RepuTengu_dust,RepuTengu_soot,RepuTengu_mud,RepuTengu_blooded,RepuTengu_soot_blood,RepuTengu_smashed,RepuTengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 16:26:03: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 16:26:03: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 16:26:04: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 16:26:04: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 16:26:05: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 16:26:05: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 16:26:07: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 16:26:07: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 16:26:54: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 16:26:55: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 17:05:52: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 17:05:52: GameConfig CRC computed server=5954726F (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 17:05:52: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:05:52: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:05:53: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='RepuHeavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='RepuHeavyW,RepuHeavyW_dust,RepuHeavyW_soot,RepuHeavyW_mud,RepuHeavyW_blooded,RepuHeavyW_stripped,RepuHeavyW_soot_blood,RepuHeavyW_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='RepuHeavyM,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='RepuTengu,RepuTengu_dust,RepuTengu_soot,RepuTengu_mud,RepuTengu_blooded,RepuTengu_soot_blood,RepuTengu_smashed,RepuTengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 17:05:58: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 17:05:58: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:05:59: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 17:05:59: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:06:00: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:06:00: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:06:02: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 17:06:02: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 17:06:40: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 17:06:41: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 17:22:30: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 17:22:30: GameConfig CRC computed server=5954726F (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 17:22:30: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:22:30: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:22:32: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 17:22:36: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 17:22:36: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='RepuHeavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:22:36: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 17:22:36: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:22:36: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='RepuHeavyW,RepuHeavyW_dust,RepuHeavyW_soot,RepuHeavyW_mud,RepuHeavyW_blooded,RepuHeavyW_stripped,RepuHeavyW_soot_blood,RepuHeavyW_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 17:22:36: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 17:22:36: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='RepuHeavyM,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 17:22:36: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='RepuTengu,RepuTengu_dust,RepuTengu_soot,RepuTengu_mud,RepuTengu_blooded,RepuTengu_soot_blood,RepuTengu_smashed,RepuTengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 17:22:37: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 17:22:37: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:22:38: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 17:22:38: [admin.amxx] Login: "2cwldys<1><STEAM_0:1:33635060><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:22:39: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:22:39: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:27:02: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 17:27:02: GameConfig CRC computed server=83138134 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 17:27:02: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:27:02: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:27:03: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='RepuHeavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='RepuHeavyW,RepuHeavyW_dust,RepuHeavyW_soot,RepuHeavyW_mud,RepuHeavyW_blooded,RepuHeavyW_stripped,RepuHeavyW_soot_blood,RepuHeavyW_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='RepuHeavyM,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='RepuTengu,RepuTengu_dust,RepuTengu_soot,RepuTengu_mud,RepuTengu_blooded,RepuTengu_soot_blood,RepuTengu_smashed,RepuTengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 17:27:09: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 17:27:09: [admin.amxx] Login: "2cwldys<1><STEAM_ID_LAN><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:27:10: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 17:27:10: [admin.amxx] Login: "2cwldys<1><STEAM_ID_LAN><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:27:11: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:27:11: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:27:13: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 17:27:14: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 17:27:21: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 17:27:22: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 17:29:10: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 17:29:10: GameConfig CRC computed server=83138134 (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 17:29:10: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:29:10: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:29:11: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='RepuHeavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='RepuHeavyW,RepuHeavyW_dust,RepuHeavyW_soot,RepuHeavyW_mud,RepuHeavyW_blooded,RepuHeavyW_stripped,RepuHeavyW_soot_blood,RepuHeavyW_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='RepuHeavyM,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='RepuTengu,RepuTengu_dust,RepuTengu_soot,RepuTengu_mud,RepuTengu_blooded,RepuTengu_soot_blood,RepuTengu_smashed,RepuTengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 17:29:16: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 17:29:16: [admin.amxx] Login: "2cwldys<1><STEAM_ID_LAN><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:29:18: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 17:29:18: [admin.amxx] Login: "2cwldys<1><STEAM_ID_LAN><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:29:19: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:29:19: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:29:21: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 17:29:21: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 17:29:44: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 17:29:45: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 17:29:59: [ts_matchmode.amxx] [TSM] Round 1 LIVE: released 8 player(s).
+L 10/15/2026 - 17:31:51: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 17:31:51: GameConfig CRC computed server=7FAF36BD (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 17:31:51: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:31:51: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:31:52: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='RepuHeavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='RepuHeavyW,RepuHeavyW_dust,RepuHeavyW_soot,RepuHeavyW_mud,RepuHeavyW_blooded,RepuHeavyW_stripped,RepuHeavyW_soot_blood,RepuHeavyW_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='RepuHeavyM,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='RepuTengu,RepuTengu_dust,RepuTengu_soot,RepuTengu_mud,RepuTengu_blooded,RepuTengu_soot_blood,RepuTengu_smashed,RepuTengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 17:31:57: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 17:31:58: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 17:31:58: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 17:31:58: [admin.amxx] Login: "2cwldys<1><STEAM_ID_LAN><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:31:59: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 17:31:59: [admin.amxx] Login: "2cwldys<1><STEAM_ID_LAN><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:32:01: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:32:01: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:32:02: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 17:32:03: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 17:33:16: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 17:33:16: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 17:33:31: [ts_matchmode.amxx] [TSM] Round 1 LIVE: released 10 player(s).
+L 10/15/2026 - 17:38:41: [ts_matchmode.amxx] [TSM] Round 2 LIVE: released 10 player(s).
+L 10/15/2026 - 17:47:04: GameConfig CRC computed engine=F7DCFFD9 (D:\SteamLibrary\steamapps\common\Half-Life\hw.dll)
+L 10/15/2026 - 17:47:04: GameConfig CRC computed server=7FAF36BD (D:\SteamLibrary\steamapps\common\Half-Life\ts\dlls\mp.dll)
+L 10/15/2026 - 17:47:04: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:47:05: GameConfig CRC match for game "*" section "*" library "engine" platform "windows" (F7DCFFD9)
+L 10/15/2026 - 17:47:06: -------- Mapchange to h9_te_neuropolis --------
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] Executed addons/amxmodx/configs/ts_matchmode.cfg
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] class 1 'Assault': t1=2 wpn t2=2 wpn, models t1='RepuHeavy,repuheavy_fem' t2='XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm', 100hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] class 2 'Combat Engineer': t1=2 wpn t2=2 wpn, models t1='RepuHeavyGld,scda_Spy02,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed' t2='XCCPsgts', 100hp 0ap, per
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] class 3 'Marksman': t1=2 wpn t2=2 wpn, models t1='repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed' t2='', 85hp 0ap, perk 0, speed x1.00
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] class 4 'Heavy': t1=3 wpn t2=3 wpn, models t1='RepuHeavyW,RepuHeavyW_dust,RepuHeavyW_soot,RepuHeavyW_mud,RepuHeavyW_blooded,RepuHeavyW_stripped,RepuHeavyW_soot_blood,RepuHeavyW_smashed' t2='XCCPsgg', 200hp 50ap, perk 5, speed x0.60
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] class 5 'Breacher': t1=2 wpn t2=2 wpn, models t1='' t2='', 125hp 0ap, perk 2, speed x1.00
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] class 6 'Medic': t1=1 wpn t2=1 wpn, models t1='RepuHeavyM,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed' t2='ins_medic_belt,ins_medic_fem', 100hp 0ap, perk 3, speed x1.
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] class 7 'Officer': t1=2 wpn t2=2 wpn, models t1='RepuTengu,RepuTengu_dust,RepuTengu_soot,RepuTengu_mud,RepuTengu_blooded,RepuTengu_soot_blood,RepuTengu_smashed,RepuTengu_stripped' t2='XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wreck
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] Class limit: Combat Engineer, 4 a side.
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] Class limit: Marksman, 2 a side.
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] Class limit: Heavy, 2 a side.
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] Class limit: Breacher, 4 a side.
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] Class limit: Medic, 2 a side.
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] Class limit: Officer, 1 a side.
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] Loaded 32 spawn(s) from addons/amxmodx/configs/tsm_spawns_h9_te_neuropolis.cfg (team1=16 team2=16)
+L 10/15/2026 - 17:47:10: [ts_matchmode.amxx] [TSM] Using configured spawns for h9_te_neuropolis (team1=16 team2=16).
+L 10/15/2026 - 17:47:11: [ts_matchmode.amxx] [TSM] Recorded 0 map-placed weapon/ammo pickup(s).
+L 10/15/2026 - 17:47:11: [ts_matchmode.amxx] [TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).
+L 10/15/2026 - 17:47:11: [admin.amxx] Login: "2cwldys<1><STEAM_ID_LAN><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:47:12: [ts_matchmode.amxx] [TSM] First TeamInfo seen -- this server IS running teamplay gamerules.
+L 10/15/2026 - 17:47:12: [admin.amxx] Login: "2cwldys<1><STEAM_ID_LAN><>" became an admin (account "loopback") (access "abcdefghijklmnopqrstuv") (address "loopback")
+L 10/15/2026 - 17:47:13: [ts_matchmode.amxx] [TSM] mp_teamlist is now 'msr;insurgents;spectator' (spectator slot 3).
+L 10/15/2026 - 17:47:13: [ts_matchmode.amxx] [TSM] Menus built: side=1 class=2 (7 class(es) parsed).
+L 10/15/2026 - 17:47:15: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 17:47:16: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 17:47:35: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 17:47:36: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 17:47:50: [ts_matchmode.amxx] [TSM] Round 1 LIVE: released 7 player(s).
+L 10/15/2026 - 17:50:31: [ts_matchmode.amxx] [TSM] Ham_Use on ent 55 class='func_door' targetname='tsm_eng_door' activator=1 caller=1  (hit 1)
+L 10/15/2026 - 17:50:48: [ts_matchmode.amxx] [TSM] Round 2 LIVE: released 10 player(s).
+L 10/15/2026 - 17:51:04: [ts_matchmode.amxx] [TSM] Round 3 LIVE: released 10 player(s).
+L 10/15/2026 - 17:51:15: [ts_matchmode.amxx] [TSM] Round 4 LIVE: released 10 player(s).
+L 10/15/2026 - 17:51:29: [ts_matchmode.amxx] [TSM] Round 5 LIVE: released 10 player(s).
+L 10/15/2026 - 17:51:40: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 3' (team was #3 'spectator')
+L 10/15/2026 - 17:51:40: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #3 'spectator'
+L 10/15/2026 - 17:51:46: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 sent 'jointeam 1' (team was #0 'msr')
+L 10/15/2026 - 17:51:47: [ts_matchmode.amxx] [TSM] JOIN WATCH: player 1 is now team #0 'msr'
+L 10/15/2026 - 17:52:00: [ts_matchmode.amxx] [TSM] Round 1 LIVE: released 10 player(s).
+L 10/15/2026 - 17:52:04: [ts_matchmode.amxx] [TSM] Ham_Use on ent 55 class='func_door' targetname='tsm_eng_door' activator=1 caller=1  (hit 2)
+L 10/15/2026 - 17:57:09: [ts_matchmode.amxx] [TSM] Round 2 LIVE: released 10 player(s).
