@@ -1,0 +1,72 @@
+GIT LFS — LARGE FILE STORAGE
+=============================
+
+This repository uses Git LFS for binary assets: .bsp, .mdl, .zip, .7z, .bsp.ztmp, .wad
+
+
+FIRST TIME SETUP (once per machine)
+-----------------------------------
+git lfs install
+
+
+CLONE + DOWNLOAD ALL LFS FILES
+------------------------------
+git clone <repository-url>
+cd <repository>
+git lfs pull
+
+
+IF YOU ALREADY CLONED WITHOUT LFS
+---------------------------------
+git lfs install
+git lfs pull
+
+
+VERIFY LFS FILES ARE DOWNLOADED
+-------------------------------
+git lfs ls-files
+# shows each tracked file with its OID — if it says "local" the content is present
+
+
+MANUAL FETCH FOR SPECIFIC FILES
+-------------------------------
+git lfs pull --include="*.mdl"     # only models
+git lfs pull --include="*.bsp"     # only maps
+
+
+WHAT HAPPENS ON PUSH
+--------------------
+git add <large-file>
+git commit -m "add map"
+git push
+# LFS uploads the actual content to the LFS endpoint (GitHub/GitLab/etc.)
+# only the pointer goes into git history
+
+
+CONFIGURATION (already committed)
+---------------------------------
+.gitattributes tracks these patterns:
+  *.bsp
+  *.mdl
+  *.zip
+  *.7z
+  *.bsp.ztmp
+
+Do NOT edit .gitattributes unless adding new patterns.
+
+
+TROUBLESHOOTING
+---------------
+"Object not found" / 404 on pull:
+  - The LFS endpoint may be rate-limited or the object was purged.
+  - Re-upload from a clone that has it: git lfs push --all origin
+
+"File size exceeds limit" on push:
+  - GitHub free: 2 GB/file, 1 GB/month bandwidth.
+  - Use a self-hosted LFS server or Git LFS on GitLab for larger files.
+
+Working copy dirty before lfs migrate import:
+  - Commit or stash changes first:
+    git stash
+    git lfs migrate import --include="*.bsp,*.mdl,*.zip,*.7z,*.bsp.ztmp" --everything
+    git stash pop

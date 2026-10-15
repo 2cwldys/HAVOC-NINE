@@ -1,0 +1,131 @@
+CLASSES — TS MATCH MODE
+=======================
+
+Seven classes, each with distinct loadout, health, armor, speed, and perk.
+Limits are PER TEAM (each side fields its own).
+
+Format per class: Name | Primary : clips, Secondary : clips, Grenade : clips | Model(s) | Health | Armor | Perk | Speed | Scale
+
+
+You can type .stim, or assign a chat keybind to it, to heal yourself between 15->25HP once per round in a match.
+
+
+CLASS 1 — ASSAULT
+-----------------
+Perk: None (TSM_PERK_NONE = 0)
+Weapons:
+  Team 1 (MSR):   M4A1 (id 5) : 3 spare clips  +  Glock 20 (id 22) : 2 spare
+  Team 2 (Insurg): AK47 (id 13) : 3 spare clips  +  Glock 20 (id 22) : 2 spare
+Health: 100  |  Armor: 0  |  Speed: 1.00  |  Scale: 1.00
+Models: MSR = RepuHeavy / RepuHeavy_fem  |  Insurg = XCCPSoldier-wartorn, XCCPmutant, XCCPsgts_helmet_off, ins_proletarian, ins_prole_helm
+Limit: Unlimited (0)
+Role: Standard rifleman. Reliable mid-range damage, no special abilities.
+
+
+CLASS 2 — COMBAT ENGINEER
+-------------------------
+Perk: Engineer (TSM_PERK_ENGINEER = 1)
+Weapons (both teams):
+  HK UMP (id 23) : 3 spare clips  +  Glock 20 (id 22) : 2 spare
+Health: 100  |  Armor: 0  |  Speed: 1.00  |  Scale: 1.00
+Models: MSR = RepuHeavyGld + variants (dust/soot/mud/blooded/stripped/sootbld/smashed)
+        Insurg = XCCPsgts
+Limit: 4 per team
+Ability: Press E on a teammate → give them 3 magazines of every ammo type (tsm_eng_clips).
+         30-second cooldown (tsm_eng_cooldown). Yellow glow on target.
+         Can open engineer-only doors (tsm_eng_door_class).
+
+
+CLASS 3 — MARKSMAN
+------------------
+Perk: None (TSM_PERK_NONE = 0)
+Weapons (both teams):
+  Barrett M82 (id 18) : 2 spare clips  +  Glock 20 (id 22) : 2 spare
+Health: 85  |  Armor: 0  |  Speed: 1.00  |  Scale: 1.00
+Models: MSR = repughillie + variants  |  Insurg = falls back to Assault models (blank side)
+Limit: 2 per team
+Role: Long-range precision. One-shot potential, low health, no armor.
+
+
+CLASS 4 — HEAVY
+---------------
+Perk: Regeneration (TSM_PERK_REGEN = 5)
+Weapons (both teams):
+  M60 (id 32) : 2 spare clips  +  Glock 20 (id 22) : 2 spare  +  M61 Frag (id 24) : 0 spare
+Health: 200  |  Armor: 50  |  Speed: 0.60  |  Scale: 1.50
+Models: MSR = RepuHeavyW + variants  |  Insurg = XCCPsgg
+Limit: 2 per team
+Ability: Passive health regen — 10 HP every 15 seconds (tsm_regen_amount / tsm_regen_interval),
+         paused for 15s after taking any damage (tsm_regen_pause).
+         Capped at class max health (200). Slow but durable.
+
+
+CLASS 5 — BREACHER
+------------------
+Perk: Breacher (TSM_PERK_BREACHER = 2)
+Weapons (both teams):
+  Socom Mk23 (id 9) : 4 spare clips  +  Glock 20 (id 22) : 2 spare
+Health: 125  |  Armor: 0  |  Speed: 1.00  |  Scale: 1.00
+Models: (blank — falls back to team Assault models)
+Limit: 4 per team
+Ability: Press E on breachable doors/entities (func_door/door_rotating or other classnames
+         listed in tsm_breach_entities, progressive objectives) → force open. No cooldown.
+         Engineer-locked doors (targetname "eng_lock" / tsm_eng_entities) are REFUSED —
+         only Combat Engineers can open those.
+
+
+CLASS 6 — MEDIC
+---------------
+Perk: Medic (TSM_PERK_MEDIC = 3)
+Weapons (both teams):
+  Glock 20 (id 22) : 4 spare clips
+Health: 100  |  Armor: 0  |  Speed: 1.00  |  Scale: 1.00
+Models: MSR = RepuHeavyM + variants  |  Insurg = ins_medic_belt, ins_medic_fem
+Limit: 2 per team
+Ability: Press E on a teammate → heal them for 25 HP (tsm_medheal), capped at their class max health.
+         15-second cooldown (tsm_medic_cooldown). Red glow on target.
+         Refused if target already at full health (no cooldown spent).
+
+
+CLASS 7 — OFFICER
+-----------------
+Perk: Officer (TSM_PERK_OFFICER = 4)
+Weapons (both teams):
+  Glock18 (id 1) : 4 spare clips  +  Katana (id 34) : 0 spare
+Health: 100  |  Armor: 0  |  Speed: 1.00  |  Scale: 1.00
+Models: MSR = RepuTengu + variants  |  Insurg = XCCPRurik + variants
+Limit: 1 per team
+Ability: Type .follow in chat → take nearby bots on your team under command (proximity-based,
+         max squad size tsm_squadmax, range tsm_squadreach). .unfollow releases them.
+         Chat notification on round start.
+
+
+PERK SUMMARY
+------------
+0  None           — Assault, Marksman
+1  Engineer       — Combat Engineer   (E on teammate = ammo, 30s CD)
+2  Breacher       — Breacher          (E on siege entity = destroy)
+3  Medic          — Medic             (E on teammate = heal, 15s CD)
+4  Officer        — Officer           (.follow / .unfollow bots)
+5  Regeneration   — Heavy             (passive 10 HP / 15s, paused briefly on dmg)
+
+
+CONFIGURABLE CVARS (ts_matchmode.cfg)
+-------------------------------------
+tsm_eng_cooldown      "30.0"      // engineer resupply cooldown (seconds)
+tsm_eng_clips         "3"         // magazines per ammo type given by engineer
+tsm_eng_range         "96"        // use range for engineer/medic/breacher
+tsm_medic_cooldown    "15.0"      // medic heal cooldown (seconds)
+tsm_medheal           "25"        // HP restored per heal
+tsm_regen_amount      "10"        // HP per regen tick (Heavy)
+tsm_regen_interval    "15.0"      // seconds between regen ticks
+tsm_regen_pause       "15.0"      // seconds regen paused after damage
+tsm_classlimit        "0,4,2,2,4,2,1"  // per-team limits in class order 1..7
+
+
+CLASS SELECTION
+---------------
+- Type .class in chat during warmup/freeze to open the menu.
+- Menu shows slots remaining: "(2 left)" or "(full)".
+- Once picked, class is locked for the entire match.
+- Bots pick automatically on join/assign; they respect limits.
