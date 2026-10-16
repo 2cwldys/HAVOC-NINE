@@ -353,7 +353,7 @@ new g_cv_classes, g_cv_defclass, g_cv_modelmode, g_cv_classlimits;
 new g_cv_nocash, g_cv_blockbuy;
 new g_cv_engrange, g_cv_engclips, g_cv_engents, g_cv_engcool;
 new g_cv_engglow, g_cv_engshell;
-new g_cv_medsound, g_cv_engsound;
+new g_cv_medsound, g_cv_engsound, g_cv_suddensound;
 new g_cv_regenamt, g_cv_regenevery, g_cv_regenpause;
 new Float:g_last_hit[MAXPL];    // gametime they were last damaged, for the regen pause
 new g_cv_breachents, g_cv_breachrange;
@@ -2393,6 +2393,13 @@ public plugin_precache()
 		precache_sound(snd);
 	}
 	get_pcvar_string(g_cv_engsound, snd, charsmax(snd));
+	if (snd[0])
+	{
+		precache_sound(snd);
+	}
+
+	g_cv_suddensound = register_cvar("tsm_sudden_sound", "xom_laugh.wav");
+	get_pcvar_string(g_cv_suddensound, snd, charsmax(snd));
 	if (snd[0])
 	{
 		precache_sound(snd);
@@ -10686,6 +10693,8 @@ show_round_timer()
 			show_hudmessage(0, "SUDDEN DEATH^nEveryone is marked");
 			client_print(0, print_chat, "[MATCH] Sudden death -- every player is now marked to the other side.");
 			dbg("sudden death on at %d seconds left", g_round_left);
+			// Global sudden death sound
+			emit_sound(0, CHAN_STATIC, "xom_laugh.wav", VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 		}
 	}
 	else
@@ -12240,6 +12249,34 @@ public task_tick()
 	}
 
 	resupply_one_bot();
+
+	// Sudden death health drain: 1 HP every 5 seconds for all alive players.
+	if (g_sudden && get_pcvar_num(g_cv_sudden) > 0)
+	{
+		static sd_tick = 0;
+		sd_tick++;
+		if (sd_tick >= 5)
+		{
+			sd_tick = 0;
+			new players[32], pnum;
+			get_players(players, pnum, "a");
+			for (new i = 0; i < pnum; i++)
+			{
+				if (is_user_alive(players[i]))
+				{
+					new hp = get_user_health(players[i]);
+					if (hp > 1)
+					{
+						set_user_health(players[i], hp - 1);
+					}
+					else
+					{
+						user_kill(players[i]);
+					}
+				}
+			}
+		}
+	}
 
 	if (get_pcvar_num(g_cv_bots))
 	{
