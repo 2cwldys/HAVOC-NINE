@@ -64,7 +64,7 @@ CLASS 5 — BREACHER
 ------------------
 Perk: Breacher (TSM_PERK_BREACHER = 2)
 Weapons (both teams):
-  Socom Mk23 (id 9) : 4 spare clips  +  Glock 20 (id 22) : 2 spare
+  Benelli M3 (id 9) : 4 spare clips  +  Glock 20 (id 22) : 2 spare
 Health: 125  |  Armor: 0  |  Speed: 1.00  |  Scale: 1.00
 Models: (blank — falls back to team Assault models)
 Limit: 4 per team
