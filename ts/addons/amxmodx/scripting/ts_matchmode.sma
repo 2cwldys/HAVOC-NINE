@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes"
+#define TSM_BUILD "1.53-fixes3"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -285,6 +285,8 @@ new bool:g_warned_empty = false;
 new g_prethink_calls = 0;
 new g_speed_fixes = 0;        // restores from the post-PreThink hook
 new g_speed_fixes_post = 0;   // restores from the post-PostThink hook    // diagnostic: is FM_PlayerPreThink even firing in TS?
+new g_prethink_scale_hits = 0;   // times fw_prethink enforced class scale
+new g_postthink_scale_hits = 0;  // times fw_postthink_post enforced class scale
 
 new bool:g_elim[MAXPL];      // eliminated for THIS round
 new bool:g_ready[MAXPL];
@@ -446,6 +448,9 @@ new bool:g_spec_model_tried;  // resolved it (or found it missing) at least once
 new bool:g_roaming[MAXPL];    // .roam -- out of the match, free to walk the map
 new Float:g_bot_reload_at[MAXPL];  // last forced reload, so it is not every frame
 new Float:g_bot_dry_at[MAXPL];     // last dry-weapon cycle, same reasoning
+new g_bot_dry_weapon[MAXPL];       // weapon id currently being dry-counted
+new g_bot_dry_count[MAXPL];        // consecutive dry reads of that weapon
+new g_bot_dry_switches[MAXPL];     // switches made this round, capped by weapon count
 new g_class_wpn[TSM_MAXCLASS][3][TSM_MAXWPN];
 new g_class_clips[TSM_MAXCLASS][3][TSM_MAXWPN];
 new g_class_wcount[TSM_MAXCLASS][3];
@@ -573,7 +578,6 @@ new bool:g_issuing[MAXPL];   // our buy commands are executing for this player r
 new bool:g_cash_lend[MAXPL]; // BuyArmament is running for us and needs funds
 new g_icon_ent[MAXPL];       // this player's class-icon sprite, 0 if none yet
 new bool:g_sudden;           // the last minute has begun, and it is announced once
-new g_sudden_tick = 0;       // seconds spent in the sudden-death drain, reset each round
 new bool:g_icon_ok;          // the sheet precached, so the entities may be made
 new g_join_tries[MAXPL];     // jointeam attempts for the current pick
 new g_teaminfo_seen = 0;     // TeamInfo messages from the mod since map load
@@ -3158,8 +3162,8 @@ public plugin_init()
 	 * lands on the frame of death and eats the animation entirely -- you kill someone
 	 * and they blink out mid-fall.
 	 *
-	 * tsm_body_restore actively clears NODRAW every frame of this window, so nothing
-	 * else can hide them during it either. When the window ends they are hidden and
+	 * The hold block in fw_prethink gates its NODRAW on elim_hide_due(), so nothing
+	 * hides them during this window either. When the window ends they are hidden and
 	 * become a spectator.
 	 */
 	g_cv_deathlinger = register_cvar("tsm_death_linger", "3.0");
@@ -5074,6 +5078,8 @@ public cmd_whystuck(id, level, cid)
 		get_pcvar_num(g_cv_forcespeed), get_cvar_float("sv_maxspeed"));
 	console_print(id, "[TSM] maxspeed restored: %d from post-PreThink, %d from post-PostThink (0 and 0 means TS never zeroed it).",
 		g_speed_fixes, g_speed_fixes_post);
+	console_print(id, "[TSM] class scale enforced: %d by preThink, %d by postThink (0 and 0 means TS never touches it).",
+		g_prethink_scale_hits, g_postthink_scale_hits);
 	dump_player_state(id, target, "whystuck");
 	console_print(id, "[TSM] A live player should read movetype=3 and solid=3.");
 	return PLUGIN_HANDLED;
@@ -6306,13 +6312,44 @@ give_class_weapons(id)
 		}
 
 		// See the note above: re-asserted per weapon, or TS's derived value refuses the
-		// one that is handed over last.
-		ts_setuserslots(id, 32);
+		// one that is handed over last. 128 rather than 32: the M60 reaches the Heavy last
+		// and what TS had already handed out (pistol, grenade, primary rifle) eats into
+		// the same figure, so 32 -- and even 64 -- free slots was not always enough
+		// headroom to also fit the M60's own cost. 128 leaves room and TS re-derives the
+		// real value on its own after each give.
+		ts_setuserslots(id, 128);
 
 		ts_giveweapon(id, g_class_wpn[ci][team][i], clips, get_pcvar_num(g_cv_wpnextra));
 		given++;
 
 		dbgv("give: %d <- weapon %d with %d spare clip(s)", id, g_class_wpn[ci][team][i], clips);
+	}
+
+	/*
+	 * Did the LAST weapon out land? The one handed over last is the one TS is allowed
+	 * to refuse on slots, and a refusal is completely invisible -- which is how the
+	 * Heavy's M60 disappeared with no trace in any log. This line prints to the
+	 * always-on log ONLY when the weapon is really missing, so it stays silent in
+	 * healthy rounds and becomes evidence the moment one fails.
+	 */
+	new tail = reverse ? 0 : (wn - 1);
+	new wlist[32], wnum, wok;
+	if (wn > 0)
+	{
+		new tail_wpn = g_class_wpn[ci][team][tail];
+		get_user_weapons(id, wlist, wnum);
+		for (new w = 0; w < wnum; w++)
+		{
+			if (wlist[w] == tail_wpn)
+			{
+				wok = 1;
+			}
+		}
+		if (!wok)
+		{
+			tlog("[TSM] WARNING: loadout for %s (%d): last weapon %d did NOT land (slots %d, m60 ammo %d).",
+				g_class_name[ci], id, tail_wpn, ts_getuserslots(id), ts_getuserammo(id, 32));
+		}
 	}
 
 	dbg("gave %d weapon(s) to %d as '%s' (team %d)", given, id, g_class_name[ci], team);
@@ -7626,6 +7663,51 @@ officer_powerup(id)
 	 */
 	ts_force_run_powerup(id, TSPWUP_KUNGFU);
 	dbgv("officer %d ran the kung-fu powerup", id);
+
+	// Read the powerup state back HALF A SECOND LATER, not inline: TS applies the
+	// grant on its own next frame, so an immediate ts_getuserpwup reads empty even
+	// when it worked. One log line per round per officer settles "kung fu does
+	// nothing" reports from the log instead of another reload.
+	remove_task(id + 12000);
+	set_task(0.5, "task_officer_check", id + 12000);
+}
+
+/*
+ * Half-second-after readback of the officer's kung-fu grant (see officer_powerup).
+ */
+public task_officer_check(taskid)
+{
+	new id = taskid - 12000;
+	if (!is_user_connected(id) || !is_user_alive(id) || !g_class_count)
+	{
+		return;
+	}
+
+	new ci = resolved_class(id) - 1;
+	if (ci < 0 || g_class_perk[ci] != TSM_PERK_OFFICER)
+	{
+		return;
+	}
+
+	if (ts_getuserpwup(id) & TSPWUP_KUNGFU)
+	{
+		tlog("[TSM] Officer %d: kung-fu powerup is running.", id);
+	}
+	else
+	{
+		// Entity fallback: ts_force_run_powerup is experimental and can no-op under
+		// nopowerup 1. Build the powerup entity and hand it over directly.
+		new ent = ts_createpwup(TSPWUP_KUNGFU);
+		if (ent > 0 && ts_givepwup(id, ent))
+		{
+			tlog("[TSM] Officer %d: kung-fu via entity fallback (force-run did not take).", id);
+			dbgv("officer %d kung-fu via entity fallback", id);
+		}
+		else
+		{
+			tlog("[TSM] Officer %d: kung-fu powerup did NOT stick -- tsfun grant refused (nopowerup?).", id);
+		}
+	}
 }
 
 /*
@@ -8667,15 +8749,31 @@ remove_from_play(id)
 	 * cover it -- and hiding the edict mid-death takes the player away before the mod
 	 * has produced the body that is supposed to replace them.
 	 *
-	 * Deferred rather than dropped, and bounded by tsm_death_delay so a player who
-	 * never respawns is still taken out of play instead of retrying forever.
+	 * Deferred rather than dropped, and bounded so a player who never respawns is
+	 * still taken out of play instead of retrying forever.
 	 */
+	new Float:since = (g_elim_at[id] > 0.0) ? (get_gametime() - g_elim_at[id]) : 0.0;
+
+	/*
+	 * The bound is WHICHEVER DEATH TIMER IS LARGER. The config carried
+	 * tsm_death_delay 4.0 under tsm_death_linger 10.5 for a while, and the scheduled
+	 * task then fired inside TS's death sequence -- animation plus a three second
+	 * sit -- which took the dying body away mid-animation and read as the death cut
+	 * short. Two timers the wrong way round must not be able to hide a body, so the
+	 * ceiling is now the larger of the two.
+	 */
+	new Float:bound = get_pcvar_float(g_cv_deathlinger);
+	if (get_pcvar_float(g_cv_deathdelay) > bound)
+	{
+		bound = get_pcvar_float(g_cv_deathdelay);
+	}
+
 	if (pev(id, pev_deadflag) != TSM_DEAD_NO
 		&& g_elim_at[id] > 0.0
-		&& (get_gametime() - g_elim_at[id]) < get_pcvar_float(g_cv_deathdelay))
+		&& since < bound)
 	{
-		dbgv("remove_from_play deferred for %d: TS still has them dying (deadflag %d)",
-			id, pev(id, pev_deadflag));
+		dbgv("remove_from_play deferred for %d: TS still has them dying (deadflag %d, since %.1f of %.1f)",
+			id, pev(id, pev_deadflag), since, bound);
 		set_task(0.5, "task_remove_from_play", id + 7000);
 		return;
 	}
@@ -9041,13 +9139,13 @@ public fw_postthink_post(id)
 	new want_model = g_model_want_idx[id];
 
 	/*
-	 * An ELIMINATED player keeps their side, so fw_userinfo keeps re-asserting their
-	 * class model into g_model_want_idx -- and set_spectator_model is never reached for
-	 * them. Overriding here, in the one place that draws, is what makes the invisible
-	 * model stick for them too; g_model_want_idx is left alone, so a round reset drops
-	 * the override with the elimination itself.
+	 * A spectator keeps their side model into g_model_want_idx, and an ELIMINATED
+	 * player keeps theirs too -- and set_spectator_model is never reached for
+	 * them. Overriding here, in the one place that draws, is what makes the
+	 * invisible model stick for both; g_model_want_idx is left alone, so a round
+	 * reset drops the override with the elimination itself.
 	 */
-	if (g_elim[id])
+	if (g_elim[id] || is_spectating(id))
 	{
 		new sidx = spec_model_index();
 		if (sidx > 0)
@@ -9626,14 +9724,57 @@ public fw_prethink(id)
 		 */
 		if (get_user_weapon(id) > 0 && (get_gametime() - g_bot_dry_at[id]) >= 1.0)
 		{
+			new weapon = get_user_weapon(id);
 			new clip, spare, mode, extra;
 			ts_getuserwpn(id, clip, spare, mode, extra);
-			if (clip <= 0 && spare <= 0)
+
+			/*
+			 * Count consecutive dry reads of the SAME weapon before cycling.
+			 * A single dry read can happen mid-raise or mid-switch, so it must not
+			 * by itself trigger a switch -- that caused the M4/AK -> pistol cascade.
+			 * Three in a row on the same gun means it is genuinely out of ammo.
+			 */
+			new bool:dry = (clip <= 0 && spare <= 0);
+			if (dry)
 			{
-				engclient_cmd(id, "invnext");
-				g_bot_dry_at[id] = get_gametime();
-				dbgv("dry weapon on bot %d -- cycling to the next", id);
+				if (weapon == g_bot_dry_weapon[id])
+				{
+					g_bot_dry_count[id]++;
+				}
+				else
+				{
+					g_bot_dry_weapon[id] = weapon;
+					g_bot_dry_count[id] = 1;
+				}
 			}
+			else
+			{
+				g_bot_dry_weapon[id] = weapon;
+				g_bot_dry_count[id] = 0;
+			}
+
+			if (g_bot_dry_count[id] >= 3)
+			{
+				new weapons[32], num;
+				get_user_weapons(id, weapons, num);
+				if (g_bot_dry_switches[id] < num)
+				{
+					engclient_cmd(id, "invnext");
+					g_bot_dry_switches[id]++;
+					g_bot_dry_count[id] = 0;
+					dbgv("dry weapon on bot %d -- cycling to the next (switch %d/%d)", id, g_bot_dry_switches[id], num);
+				}
+				else
+				{
+					// No weapon has ammo: fall back to unarmed kung fu.
+					// slot0 selects kung fu; invnext/invprev ignore it.
+					engclient_cmd(id, "slot0");
+					g_bot_dry_count[id] = 0;
+					dbgv("bot %d out of ammo on every weapon -- kung fu", id);
+				}
+			}
+
+			g_bot_dry_at[id] = get_gametime();
 		}
 	}
 
@@ -9667,17 +9808,31 @@ public fw_prethink(id)
 		if (g_elim[id] && !is_spectating(id))
 		{
 			set_pev(id, pev_solid,      TSM_SOLID_NOT);
-			set_pev(id, pev_effects,    pev(id, pev_effects) | TSM_EF_NODRAW);
 			set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
 			set_pev(id, pev_maxspeed,   wanted_speed());
 			set_user_maxspeed(id, wanted_speed());
+
+			// Disarm a respawned eliminated player so they cannot shoot while
+			// waiting out the linger. Harmless when they have no weapons.
+			if (g_elim_at[id] > 0.0 && is_user_alive(id))
+			{
+				strip_user_weapons(id);
+			}
+
+			// Hide only after the deathlinger window, so the death animation is
+			// visible before the player becomes a ghost. Without this gate the
+			// NODRAW lands on the frame of death and eats the animation entirely.
+			if (elim_hide_due(id))
+			{
+				set_pev(id, pev_effects,    pev(id, pev_effects) | TSM_EF_NODRAW);
+			}
 
 			/*
 			 * Respawned after elimination: TS puts him back on his feet when the death
 			 * sequence ends, loadout and all. Taken back out at once -- the death delay
 			 * is long past, so remove_from_play() does not defer.
 			 */
-			if (g_elim_at[id] > 0.0 && is_user_alive(id))
+			if (g_elim_at[id] > 0.0 && is_user_alive(id) && elim_hide_due(id))
 			{
 				g_elim_at[id] = 0.0;
 				remove_from_play(id);
@@ -10033,6 +10188,28 @@ public fw_prethink(id)
 			org[2] = g_save_origin[id][2] + float(get_pcvar_num(g_cv_holdz));
 			engfunc(EngFunc_SetOrigin, id, org);
 		}
+	}
+
+	/*
+	 * Enforce class height every frame in the PRE hook (proven-firing in TS),
+	 * in addition to the POST hook. class_scale_for() answers 1.0 during the
+	 * freeze, so the one write at arm time is lost -- this per-frame write is
+	 * what keeps the Heavy at 1.50 once the round is live.
+	 */
+	new Float:want_scale = class_scale_for(id);
+	new Float:have_scale = Float:pev(id, pev_scale);
+	if (want_scale == 1.0)
+	{
+		if (have_scale != 0.0)
+		{
+			set_pev(id, pev_scale, 0.0);
+			g_prethink_scale_hits++;
+		}
+	}
+	else if (have_scale != want_scale)
+	{
+		set_pev(id, pev_scale, want_scale);
+		g_prethink_scale_hits++;
 	}
 
 	return FMRES_IGNORED;
@@ -10538,6 +10715,12 @@ start_round()
 {
 	g_round++;
 	g_resetting = true;
+
+	// A new round is never in sudden death, whatever the last one ended as. The
+	// go-live reset keeps the headline honest; this one makes the freeze itself
+	// clean, so nothing sudden-death shaped can cross a round boundary through any
+	// path that skips the release.
+	g_sudden = false;
 
 	// Re-forced every round: cashforwin and cashforlose are read at the END of one,
 	// and a map change or an rcon set in between would have put them back.
@@ -11145,8 +11328,32 @@ public task_go_live()
 		// player speed from the weapon slots the loadout consumes, so a player with no
 		// weapons has zero maxspeed and cannot move or shoot.
 		apply_class(rp[i]);
+
+		/*
+		 * Scale, AGAIN, right here. apply_class_scale also runs at arm time, which is
+		 * during the freeze where class_scale_for() answers 1.0 -- so the one pass that
+		 * ever mattered wrote the reset to normal, and the Heavy went live at ordinary
+		 * height. g_state is ST_LIVE by now, so this pass answers 1.50 for the Heavy
+		 * and 0.0 for everyone else.
+		 */
+		apply_class_scale(rp[i]);
+
 		officer_powerup(rp[i]);
 		release_player(rp[i]);
+
+		// Fresh round: reset the bot dry-weapon counters so a bot that ran dry last
+		// round does not start this one mid-switch.
+		if (is_user_bot(rp[i]))
+		{
+			g_bot_dry_count[rp[i]] = 0;
+			g_bot_dry_switches[rp[i]] = 0;
+			g_bot_dry_weapon[rp[i]] = 0;
+		}
+
+		// Apply class height at go-live, not just at arm time: the freeze writes
+		// class_scale_for() == 1.0, so the per-frame hooks are what keep the Heavy
+		// tall once the round is live.
+		apply_class_scale(rp[i]);
 	}
 	tlog("[TSM] Round %d LIVE: released %d player(s).", g_round, rnum);
 	dbg("round %d live: released %d, alive t1=%d t2=%d, placed-check follows",
@@ -11185,7 +11392,6 @@ public task_go_live()
 
 	// A fresh round is not sudden death, whatever the last one ended as.
 	g_sudden = false;
-	g_sudden_tick = 0;
 
 	if (!g_start_alive[1] || !g_start_alive[2])
 	{
@@ -12223,6 +12429,7 @@ public client_disconnected(id)
 	disband_squad(id);
 	g_squad_leader[id] = 0;
 	remove_task(id + 8000);   // any glow still pending on them
+	remove_task(id + 12000);  // officer kung-fu readback they will not answer
 	g_botfill_at[id] = 0.0;
 	g_was_alive[id] = false;
 	g_pending_elim[id] = 0.0;
@@ -12797,31 +13004,28 @@ public task_tick()
 
 	resupply_one_bot();
 
-	// Sudden death health drain: 1 HP every 5 seconds, LIVE rounds only. g_sudden is
-	// only cleared when the next round goes live, so without the state test the drain
-	// ran through the round-end pause, warmup and the following freeze.
+	// Sudden death health drain: ONE HP EVERY SECOND, LIVE rounds only. The drain
+	// rode a five-tick gate for a long time, which made sudden death toothless --
+	// one point every five seconds is a scratch, not an emergency. g_sudden is
+	// cleared in start_round and again at go-live, so it cannot cross a round
+	// boundary, but the state test still matters: between rounds this task keeps
+	// firing through the round-end pause and the next freeze.
 	if (g_sudden && g_state == ST_LIVE && get_pcvar_num(g_cv_sudden) > 0)
 	{
-		g_sudden_tick++;
-		if (g_sudden_tick >= 5)
+		// get_players with "a" hands back alive players only, so the per-player
+		// alive test the five-second version carried is not needed any more.
+		new players[32], pnum;
+		get_players(players, pnum, "a");
+		for (new i = 0; i < pnum; i++)
 		{
-			g_sudden_tick = 0;
-			new players[32], pnum;
-			get_players(players, pnum, "a");
-			for (new i = 0; i < pnum; i++)
+			new hp = get_user_health(players[i]);
+			if (hp > 1)
 			{
-				if (is_user_alive(players[i]))
-				{
-					new hp = get_user_health(players[i]);
-					if (hp > 1)
-					{
-						set_user_health(players[i], hp - 1);
-					}
-					else
-					{
-						user_kill(players[i]);
-					}
-				}
+				set_user_health(players[i], hp - 1);
+			}
+			else
+			{
+				user_kill(players[i]);
 			}
 		}
 	}
