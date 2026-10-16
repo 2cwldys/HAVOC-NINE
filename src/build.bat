@@ -78,6 +78,16 @@ for %%c in ("%SRC%*.cfg") do (
         if errorlevel 1 (echo [FAIL] could not sync %%~nxc) else (echo   synced %%~nxc)
     )
 )
+
+REM ---- sounds into the live mod folder ---------------------------------------
+REM The wavs in sound\ are the ones the map plays and the two the plugin plays by name
+REM (the sudden-death sting and the join jingle). A precached name with no file behind
+REM it is a FATAL Host_Error on map load, not a silent no-op, and until now only
+REM export.bat ever put these anywhere -- so the live server had none of them.
+if exist "%SRC%sound" (
+    xcopy /y /q "%SRC%sound\*.wav" "%TSROOT%\..\..\sound" >nul
+    echo   synced sound\*.wav
+)
 echo.
 
 set OK=0

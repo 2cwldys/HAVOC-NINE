@@ -98,6 +98,8 @@ Limit: 1 per team
 Ability: Type .follow in chat → take nearby bots on your team under command (proximity-based,
          max squad size tsm_squadmax, range tsm_squadreach). .unfollow releases them.
          Chat notification on round start.
+         Automatically handed the KUNG-FU powerup (TSPWUP_KUNGFU) when the round goes live,
+         created at his feet and given with tsfun (ts_createpwup / ts_givepwup).
 
 
 PERK SUMMARY
@@ -121,6 +123,17 @@ tsm_regen_amount      "10"        // HP per regen tick (Heavy)
 tsm_regen_interval    "15.0"      // seconds between regen ticks
 tsm_regen_pause       "15.0"      // seconds regen paused after damage
 tsm_classlimit        "0,4,2,2,4,2,1"  // per-team limits in class order 1..7
+tsm_music_volume      "0.5"       // ambient music volume (0.0-1.0); players toggle with tsm_music 0/1
+
+
+AMBIENT MUSIC
+-------------
+- Five tracks play in a random order, one at a time, never overlapping: itsadream,
+  ihateher, fivefingers, deadinsects, twoplustwo (.wav, in ts\sound on each client).
+- Played client-side with playvol, so nothing is precached or downloaded and each
+  player hears it privately. Volume is tsm_music_volume (default 0.5 = half).
+- Any player can type "tsm_music 0" in their console to turn it off and "tsm_music 1"
+  to turn it back on. On by default.
 
 
 CLASS SELECTION

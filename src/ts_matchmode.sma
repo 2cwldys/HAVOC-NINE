@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.49-engdoor"
+#define TSM_BUILD "1.53-fixes"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -233,6 +233,9 @@
 // thousand (1000 through 8000).
 #define TSM_TASK_REGEN       90210
 
+// Ambient music queue, server-wide, so it needs an id of its own as well.
+#define TSM_TASK_MUSIC       90211
+
 // Glow shell, for the medic's heal. renderfx is a separate field from rendermode,
 // so this does not disturb the hide that runs off rendermode and renderamt.
 //
@@ -353,7 +356,19 @@ new g_cv_classes, g_cv_defclass, g_cv_modelmode, g_cv_classlimits;
 new g_cv_nocash, g_cv_blockbuy;
 new g_cv_engrange, g_cv_engclips, g_cv_engents, g_cv_engcool;
 new g_cv_engglow, g_cv_engshell;
-new g_cv_medsound, g_cv_engsound, g_cv_suddensound;
+new g_cv_medsound, g_cv_engsound, g_cv_suddensound, g_cv_welcomesound;
+new g_cv_musicvol;
+
+// Ambient music queue. Played client-side with playvol, one track at a time, for each
+// player who has not turned it off. The lengths are the wavs' own durations, so the
+// next track is armed to start as this one ends rather than on a fixed interval.
+new const g_music_wav[][] = { "itsadream.wav", "ihateher.wav", "fivefingers.wav", "deadinsects.wav", "twoplustwo.wav" };
+new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2 };
+new g_music_order[5] = { 0, 1, 2, 3, 4 };
+new g_music_pos = 5;         // 5 forces a shuffle before the first track
+new g_music_cur = -1;        // the track currently playing, -1 before the first
+new bool:g_music_off[MAXPL];
+
 new g_cv_regenamt, g_cv_regenevery, g_cv_regenpause;
 new Float:g_last_hit[MAXPL];    // gametime they were last damaged, for the regen pause
 new g_cv_breachents, g_cv_breachrange;
@@ -418,6 +433,7 @@ new g_class_name[TSM_MAXCLASS][32];
  */
 new g_class_model[TSM_MAXCLASS][3][TSM_MODELLIST];
 new g_model_pick[MAXPL];      // which entry of the list this player drew, 1-based
+new g_model_pick_key[MAXPL];  // the (class, side) pair that pick was drawn for
 new g_precached = 0;          // class models precached at map load
 new g_model_last[MAXPL][32];  // the model we last wrote for this player
 new Float:g_model_at[MAXPL];  // when we wrote it
@@ -425,8 +441,11 @@ new g_model_writes = 0;       // diagnostic: real model writes since map load
 new g_model_want_idx[MAXPL];  // model index the engine must draw for this player
 new g_model_chosen[MAXPL][32];// the name the class table picked, before it was checked
 new g_model_ok[MAXPL];        // whether that name resolved to a file on disk
+new g_spec_model_idx = 0;     // index of tsm_spectator_model, resolved once (see spec_model_index)
+new bool:g_spec_model_tried;  // resolved it (or found it missing) at least once
 new bool:g_roaming[MAXPL];    // .roam -- out of the match, free to walk the map
 new Float:g_bot_reload_at[MAXPL];  // last forced reload, so it is not every frame
+new Float:g_bot_dry_at[MAXPL];     // last dry-weapon cycle, same reasoning
 new g_class_wpn[TSM_MAXCLASS][3][TSM_MAXWPN];
 new g_class_clips[TSM_MAXCLASS][3][TSM_MAXWPN];
 new g_class_wcount[TSM_MAXCLASS][3];
@@ -554,6 +573,7 @@ new bool:g_issuing[MAXPL];   // our buy commands are executing for this player r
 new bool:g_cash_lend[MAXPL]; // BuyArmament is running for us and needs funds
 new g_icon_ent[MAXPL];       // this player's class-icon sprite, 0 if none yet
 new bool:g_sudden;           // the last minute has begun, and it is announced once
+new g_sudden_tick = 0;       // seconds spent in the sudden-death drain, reset each round
 new bool:g_icon_ok;          // the sheet precached, so the entities may be made
 new g_join_tries[MAXPL];     // jointeam attempts for the current pick
 new g_teaminfo_seen = 0;     // TeamInfo messages from the mod since map load
@@ -1008,6 +1028,11 @@ set_ts_team(id, team)
 	g_side[id] = team;
 	g_spectator[id] = false;
 
+	// Back on a side: drop any spectator-model override so the class model can take
+	// over. g_model_want_idx > 0 is what fw_postthink_post force-draws, so leaving the
+	// Invisible index here would keep a just-joined player unseen until the next pass.
+	g_model_want_idx[id] = 0;
+
 	/*
 	 * The engine's own team field, written as well as TS's.
 	 *
@@ -1049,6 +1074,86 @@ set_ts_spectator(id)
 
 	g_match_team[id] = 0;
 	remove_task(id + 4000);
+}
+
+/*
+ * The model index of tsm_spectator_model, or 0 when it is not installed.
+ *
+ * Resolved once and remembered -- the model is precached at map load, so this never
+ * shifts the index table, and the per-frame model enforcement can ask for it cheaply.
+ * A missing model is also remembered, or the warning would land every frame.
+ */
+spec_model_index()
+{
+	if (g_spec_model_tried)
+	{
+		return g_spec_model_idx;
+	}
+	g_spec_model_tried = true;
+
+	new want[32];
+	get_pcvar_string(g_cv_specmodel, want, charsmax(want));
+	if (!want[0])
+	{
+		return 0;
+	}
+
+	new mpath[96];
+	formatex(mpath, charsmax(mpath), "models/player/%s/%s.mdl", want, want);
+	if (!file_exists(mpath))
+	{
+		log_amx("[TSM] WARNING: tsm_spectator_model '%s' is not installed (%s) -- anyone out of play stays visible.",
+			want, mpath);
+		return 0;
+	}
+
+	g_spec_model_idx = engfunc(EngFunc_ModelIndex, mpath);
+	return g_spec_model_idx;
+}
+
+/*
+ * Puts tsm_spectator_model on a player and makes it the ENFORCED model.
+ *
+ * Writing the userinfo "model" key alone is only a request -- TS answers it on the
+ * next ClientUserInfoChanged with its own pick. The half that sticks is
+ * g_model_want_idx, which fw_postthink_post force-draws every frame exactly the way a
+ * class model is drawn, so a spectator keeps the invisible model whatever TS writes.
+ *
+ * Every route onto the spectator team goes through this, not just the benched-late-
+ * joiner one, or choosing to spectate leaves you wearing your last class model.
+ */
+set_spectator_model(id)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+
+	new idx = spec_model_index();
+	if (idx <= 0)
+	{
+		return;
+	}
+
+	new want[32];
+	get_pcvar_string(g_cv_specmodel, want, charsmax(want));
+
+	g_model_want_idx[id] = idx;
+	copy(g_model_chosen[id], charsmax(g_model_chosen[]), want);
+	g_model_ok[id] = 1;
+
+	// A bot has no client to run a key write through; the enforced index above is what
+	// draws for it anyway.
+	if (is_user_bot(id))
+	{
+		return;
+	}
+
+	new buf = engfunc(EngFunc_GetInfoKeyBuffer, id);
+	g_in_userinfo[id] = true;
+	engfunc(EngFunc_SetClientKeyValue, id, buf, "model", want);
+	g_in_userinfo[id] = false;
+	copy(g_model_last[id], charsmax(g_model_last[]), want);
 }
 
 /// True when this is a bot AND bot support is switched on.
@@ -1699,6 +1804,7 @@ public team_menu_handler(id, menu, item)
 	{
 		g_spectator[id] = true;
 		set_ts_spectator(id);
+		set_spectator_model(id);
 
 		client_print(id, print_chat, "[MATCH] Spectating. Type .team when you want to play.");
 		dbg("team menu: %d -> spectate", id);
@@ -2359,6 +2465,92 @@ precache_weapon_models()
 	tlog("[TSM] Precached %d weapon world model(s).", n);
 }
 
+/*
+ * Precaches a custom sound only when the file is actually there.
+ *
+ * An unguarded precache of a missing sound is a fatal Host_Error on map load, the
+ * same failure the class icons are guarded against. The cvar holds the name relative
+ * to sound\, which is what precache_sound and the client's spk both expect.
+ *
+ * serverwav picks the precache kind: true for a sound the SERVER emits (emit_sound,
+ * which needs a numbered sound slot); false for one a CLIENT plays itself with
+ * playvol, which has to be in the generic download list instead.
+ */
+precache_custom_sound(pcvar, bool:serverwav)
+{
+	new snd[64], path[80];
+	get_pcvar_string(pcvar, snd, charsmax(snd));
+	if (!snd[0])
+	{
+		return;
+	}
+	formatex(path, charsmax(path), "sound/%s", snd);
+	if (!file_exists(path))
+	{
+		tlog("[TSM] WARNING: sound/%s is missing -- it will not play.", snd);
+		return;
+	}
+	if (serverwav)
+	{
+		precache_sound(snd);
+	}
+	else
+	{
+		precache_generic(path);
+	}
+}
+
+/*
+ * The quoted value of a "key" line in ts_matchmode.cfg, or an empty string.
+ *
+ * plugin_precache runs before amxx execs the config, so the cvars still hold their
+ * compiled-in defaults there. Anything precached from a cvar has to be read out of the
+ * file, the way the class models already are.
+ */
+read_cfg_value(const key[], out[], outlen)
+{
+	out[0] = 0;
+
+	new cfg[128];
+	get_configsdir(cfg, charsmax(cfg));
+	formatex(cfg, charsmax(cfg), "%s/ts_matchmode.cfg", cfg);
+	if (!file_exists(cfg))
+	{
+		return;
+	}
+
+	new line[TSM_LINE], len, ln = 0;
+	while (read_file(cfg, ln++, line, charsmax(line), len))
+	{
+		trim(line);
+		if (line[0] == ';' || (line[0] == '/' && line[1] == '/'))
+		{
+			continue;
+		}
+
+		// At the start of the line, so a longer name that merely contains the key
+		// cannot answer for it.
+		if (containi(line, key) != 0)
+		{
+			continue;
+		}
+
+		new q1 = -1, q2 = -1;
+		for (new c = 0; line[c]; c++)
+		{
+			if (line[c] == '"')
+			{
+				if (q1 < 0) { q1 = c; } else { q2 = c; }
+			}
+		}
+		if (q1 >= 0 && q2 > q1 + 1)
+		{
+			copy(out, (q2 - q1 - 1 < outlen) ? (q2 - q1 - 1) : outlen, line[q1 + 1]);
+			return;
+		}
+	}
+}
+
 public plugin_precache()
 {
 	/*
@@ -2399,11 +2591,9 @@ public plugin_precache()
 	}
 
 	g_cv_suddensound = register_cvar("tsm_sudden_sound", "xom_laugh.wav");
-	get_pcvar_string(g_cv_suddensound, snd, charsmax(snd));
-	if (snd[0])
-	{
-		precache_sound(snd);
-	}
+	g_cv_welcomesound = register_cvar("tsm_welcome_sound", "welcome.wav");
+	precache_custom_sound(g_cv_suddensound, true);
+	precache_custom_sound(g_cv_welcomesound, false);
 
 	/*
 	 * Has to happen HERE. A model precached any later shifts the model index table
@@ -2412,6 +2602,31 @@ public plugin_precache()
 	 */
 	precache_class_models();
 	precache_weapon_models();
+
+	/*
+	 * The spectator model, for the same reason as the class models above.
+	 *
+	 * set_spectator_model resolves it with a runtime EngFunc_ModelIndex, and a model
+	 * precached any later than this shifts the index table clients were already sent
+	 * -- the "Bad model on beam (not sprite)" crash. Guarded, because precaching a
+	 * missing file is a fatal Host_Error on map load.
+	 */
+	new specm[32];
+	read_cfg_value("tsm_spectator_model", specm, charsmax(specm));
+	if (specm[0])
+	{
+		new specpath[96];
+		formatex(specpath, charsmax(specpath), "models/player/%s/%s.mdl", specm, specm);
+		if (file_exists(specpath))
+		{
+			precache_model(specpath);
+		}
+		else
+		{
+			tlog("[TSM] WARNING: tsm_spectator_model '%s' is not installed (%s) -- spectators stay visible.",
+				specm, specpath);
+		}
+	}
 
 	// Guarded, because precaching a file that is not there is a fatal Host_Error
 	// that closes the server -- the same failure the class models are guarded
@@ -3139,6 +3354,10 @@ public plugin_init()
 	register_clcmd("say .menu",  "cmd_legend");
 	register_clcmd("say .roam",  "cmd_roam_say");
 
+	// Ambient music, per player. tsm_music 0/1 in the client console, on by default.
+	register_clcmd("tsm_music", "cmd_music", 0, "tsm_music 0/1 - ambient music on/off");
+	g_cv_musicvol = register_cvar("tsm_music_volume", "0.5");
+
 	// Pass-through watchers. These return PLUGIN_CONTINUE so TS still handles the
 	// command -- they exist only to prove whether it reaches the server at all.
 	register_clcmd("jointeam",   "cmd_watch_join");
@@ -3168,6 +3387,9 @@ public plugin_init()
 	// Quarter-second, which is comfortably inside the half-second steps TS fades on, so a
 	// held corpse never shows a step of the fade it is being kept out of.
 	set_task(0.25, "task_hold_corpses", 13, "", 0, "b");
+
+	// Ambient music. Delayed so the first track does not start over the map's own intro.
+	set_task(10.0, "task_music_queue", TSM_TASK_MUSIC);
 }
 
 public plugin_cfg()
@@ -4092,6 +4314,7 @@ force_spectator(id)
 	g_spectator[id] = true;
 	set_ts_spectator(id);
 	g_player_class[id] = 0;
+	set_spectator_model(id);
 
 	// Cleared so the side menu will offer itself again.
 	g_team_menu_at[id] = 0.0;
@@ -5187,14 +5410,21 @@ public cmd_blockpowerup(id)
 		return PLUGIN_CONTINUE;
 	}
 
-	new bool:has_perk = false;
+	new perk = TSM_PERK_NONE;
 	if (g_class_count && is_user_alive(id) && g_state == ST_LIVE)
 	{
-		new ci = resolved_class(id) - 1;
-		has_perk = (g_class_perk[ci] != TSM_PERK_NONE);
+		perk = g_class_perk[resolved_class(id) - 1];
 	}
 
-	if (has_perk)
+	// The Officer is the one class allowed his powerup -- his kung fu IS a powerup --
+	// so his activation command passes through to the mod while everyone else's stops.
+	if (perk == TSM_PERK_OFFICER)
+	{
+		dbgv("officer %d powerup use passed through", id);
+		return PLUGIN_CONTINUE;
+	}
+
+	if (perk != TSM_PERK_NONE)
 	{
 		// Deduped against the button path, so a key that delivers both does not run
 		// the perk twice and burn the cooldown on the second one.
@@ -5720,11 +5950,15 @@ set_class_model(id, ci)
 	}
 
 	/*
-	 * Pick one, and keep it for the whole match.
+	 * Pick one, and keep it -- per class and side, so it is re-rolled when either
+	 * changes.
 	 *
 	 * Rolling per spawn would change a player's appearance every round, which makes
-	 * people unrecognisable mid-match. g_model_pick is cleared with the rest of the
-	 * per-MATCH state, not per round.
+	 * people unrecognisable mid-match; g_model_pick is cleared with the rest of the
+	 * per-MATCH state, not per round. But a pick carried ACROSS classes is a pick
+	 * drawn from another list: everyone is modelled as the default class on the way
+	 * in, that list is two names, and the Heavy then reused entry 1 or 2 of his
+	 * eight -- which is why he always came out as the first variant.
 	 */
 	/*
 	 * carry and rest HOLD THE WHOLE LIST and must be sized with it.
@@ -5750,9 +5984,11 @@ set_class_model(id, ci)
 		}
 	}
 
-	if (g_model_pick[id] < 1 || g_model_pick[id] > count)
+	new key = (ci + 1) * 3 + team;
+	if (g_model_pick[id] < 1 || g_model_pick[id] > count || g_model_pick_key[id] != key)
 	{
 		g_model_pick[id] = random_num(1, count);
+		g_model_pick_key[id] = key;
 	}
 
 	for (new n = 0; n < g_model_pick[id]; n++)
@@ -6025,6 +6261,23 @@ give_class_weapons(id)
 	new bool:reverse = (get_pcvar_num(g_cv_armorder) != 0);
 	new given = 0;
 
+	/*
+	 * Room for the loadout, re-asserted before EVERY weapon.
+	 *
+	 * TS refuses a weapon that does not fit the player's free slots, and the loadout is
+	 * given back to front -- so the one handed over LAST is the one that vanished when
+	 * the slots ran out. For the Heavy that is the M60, which is why he spawned with
+	 * nothing but his pistol and his grenade.
+	 *
+	 * One set before the loop is not enough: TS derives the figure from the weapons
+	 * carried and recomputes it on every change, so by the time the M60 -- last -- was
+	 * offered it was back to the weapons-derived value and refused.
+	 *
+	 * The figure is deliberately NOT put back: it is normally derived from the weapons
+	 * carried and would be wrong either way, and the class speed clamp in fw_prethink is
+	 * what actually governs movement.
+	 */
+
 	for (new step = 0; step < wn; step++)
 	{
 		new i = reverse ? (wn - 1 - step) : step;
@@ -6051,6 +6304,10 @@ give_class_weapons(id)
 		{
 			clips = 0;
 		}
+
+		// See the note above: re-asserted per weapon, or TS's derived value refuses the
+		// one that is handed over last.
+		ts_setuserslots(id, 32);
 
 		ts_giveweapon(id, g_class_wpn[ci][team][i], clips, get_pcvar_num(g_cv_wpnextra));
 		given++;
@@ -6132,17 +6389,14 @@ issue_armament(id)
 	engclient_cmd(id, "rst_cfg");
 
 	/*
-	 * The blanket ammunition top-up is gone with the rest of the purchase path.
+	 * The blanket ammunition top-up no longer happens HERE. tka handed out magazines of
+	 * all eleven ammo types, and like tkw it was a purchase, so weaponrestriction refused
+	 * it too. ts_giveweapon has no equivalent -- it takes a spare-clip count PER WEAPON,
+	 * which is what give_class_weapons() passes, the class line's own figure topped up by
+	 * tsm_clip_bonus and capped by tsm_clip_max.
 	 *
-	 * tka handed out magazines of all eleven ammo types, and like tkw it was a
-	 * purchase, so weaponrestriction refused it too. ts_giveweapon has no equivalent:
-	 * it takes a spare-clip count PER WEAPON, which is what give_class_weapons() now
-	 * passes -- the class line's own figure, topped up by tsm_clip_bonus and capped by
-	 * tsm_clip_max, exactly as before.
-	 *
-	 * tsm_ammo_mags therefore no longer does anything. It is left registered rather
-	 * than removed so that a server.cfg still setting it does not error, and it is
-	 * marked dead in ts_matchmode.cfg.
+	 * The spare ammunition the loadout carries is still tsm_ammo_mags: it is handed over
+	 * as a ts_groundammo pickup after the respawn instead -- see give_ammo_to below.
 	 */
 
 	dbg("armament prepared for %d as '%s' (team %d, %d weapon(s) to give after the respawn)",
@@ -7049,6 +7303,22 @@ public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 		g_last_hit[victim] = get_gametime();
 	}
 
+	/*
+	 * Out of the round means out of the damage, both directions. TS puts an
+	 * eliminated player back on his feet about ten seconds after death -- loadout
+	 * and all -- so without this a respawned ghost went on hurting people until
+	 * something else noticed, and a ghost could be hurt again in the gaps too.
+	 */
+	if (attacker >= 1 && attacker < MAXPL && g_elim[attacker])
+	{
+		dbgv("damage from eliminated %d on %d blocked", attacker, victim);
+		return HAM_SUPERCEDE;
+	}
+	if (victim >= 1 && victim < MAXPL && g_elim[victim])
+	{
+		return HAM_SUPERCEDE;
+	}
+
 	if (!get_pcvar_num(g_cv_enabled) || get_pcvar_num(g_cv_friendlyfire))
 	{
 		return HAM_IGNORED;
@@ -7329,6 +7599,36 @@ bool:is_officer(id)
 }
 
 /*
+ * The Officer's automatic powerup, granted as the round goes live.
+ *
+ * The kung-fu powerup is run on him through tsfun -- not bought, so weaponrestriction
+ * has no say in it. Until now the Officer's whole perk was the two chat orders, which
+ * are invisible unless you already know they are there.
+ */
+officer_powerup(id)
+{
+	if (!g_class_count || !is_user_connected(id) || !is_user_alive(id))
+	{
+		return;
+	}
+
+	new ci = resolved_class(id) - 1;
+	if (ci < 0 || g_class_perk[ci] != TSM_PERK_OFFICER)
+	{
+		return;
+	}
+
+	/*
+	 * ts_force_run_powerup, not ts_createpwup/ts_givepwup: those build the world
+	 * entity and hand it over, and with nopowerup 1 the mod refuses that handover --
+	 * which is why the perk did nothing. This is the native the engine's own powerup
+	 * grant ends in, so it runs whether or not entity pickups are allowed.
+	 */
+	ts_force_run_powerup(id, TSPWUP_KUNGFU);
+	dbgv("officer %d ran the kung-fu powerup", id);
+}
+
+/*
  * Is this player a combat engineer, right now, in a live round?
  *
  * By NAME, case insensitively, against tsm_eng_door_class. The perk would be the
@@ -7515,9 +7815,9 @@ public task_squad()
 		}
 
 		new Float:vel[3];
-		vel[0] = (d[0] / dist) * speed;
+		pev(bot, pev_velocity, vel);      // read first: vertical motion stays the engine's
+		vel[0] = (d[0] / dist) * speed;   // (the old vel[2] form wrote past the array)
 		vel[1] = (d[1] / dist) * speed;
-		pev(bot, pev_velocity, vel[2]);   // leave vertical motion to the engine
 		set_pev(bot, pev_velocity, vel);
 	}
 }
@@ -7629,6 +7929,14 @@ public fw_touch(touched, toucher)
 	pev(touched, pev_classname, cls, charsmax(cls));
 	if (!equal(cls, "ts_powerup"))
 	{
+		return FMRES_IGNORED;
+	}
+
+	// The Officer's class powerup (kung fu) is legitimately a powerup, so the one
+	// class exemption lives here as well as on the usepowerup command.
+	if (is_officer(toucher))
+	{
+		dbgv("officer %d allowed powerup pickup", toucher);
 		return FMRES_IGNORED;
 	}
 
@@ -8730,9 +9038,50 @@ public fw_postthink_post(id)
 	 * the other. One integer compare per player per frame, a write only when TS has
 	 * just moved it.
 	 */
-	if (g_model_want_idx[id] > 0 && pev(id, pev_modelindex) != g_model_want_idx[id])
+	new want_model = g_model_want_idx[id];
+
+	/*
+	 * An ELIMINATED player keeps their side, so fw_userinfo keeps re-asserting their
+	 * class model into g_model_want_idx -- and set_spectator_model is never reached for
+	 * them. Overriding here, in the one place that draws, is what makes the invisible
+	 * model stick for them too; g_model_want_idx is left alone, so a round reset drops
+	 * the override with the elimination itself.
+	 */
+	if (g_elim[id])
 	{
-		set_pev(id, pev_modelindex, g_model_want_idx[id]);
+		new sidx = spec_model_index();
+		if (sidx > 0)
+		{
+			want_model = sidx;
+		}
+	}
+
+	if (want_model > 0 && pev(id, pev_modelindex) != want_model)
+	{
+		set_pev(id, pev_modelindex, want_model);
+	}
+
+	/*
+	 * The class height, on the same terms as the model above.
+	 *
+	 * apply_class_scale() runs at arm time, and that is during the freeze -- where
+	 * class_scale_for() answers 1.0 -- so the one write that ever mattered was the
+	 * reset to normal. The Heavy went live at ordinary height and nothing applied the
+	 * 1.50 again. One float compare per frame here is what keeps him tall, and it
+	 * falls back to normal on its own the moment the round is not live.
+	 */
+	new Float:want_scale = class_scale_for(id);
+	new Float:have_scale = Float:pev(id, pev_scale);
+	if (want_scale == 1.0)
+	{
+		if (have_scale != 0.0)
+		{
+			set_pev(id, pev_scale, 0.0);
+		}
+	}
+	else if (have_scale != want_scale)
+	{
+		set_pev(id, pev_scale, want_scale);
 	}
 
 	/*
@@ -8893,31 +9242,7 @@ park_spectator(id, const why[])
 	g_elim[id] = true;
 	remove_from_play(id);
 	set_ts_spectator(id);
-
-	new want[32];
-	get_pcvar_string(g_cv_specmodel, want, charsmax(want));
-	if (want[0])
-	{
-		new mpath[96];
-		formatex(mpath, charsmax(mpath), "models/player/%s/%s.mdl", want, want);
-		if (file_exists(mpath))
-		{
-			g_model_want_idx[id] = engfunc(EngFunc_ModelIndex, mpath);
-			copy(g_model_chosen[id], charsmax(g_model_chosen[]), want);
-			g_model_ok[id] = 1;
-
-			new buf = engfunc(EngFunc_GetInfoKeyBuffer, id);
-			g_in_userinfo[id] = true;
-			engfunc(EngFunc_SetClientKeyValue, id, buf, "model", want);
-			g_in_userinfo[id] = false;
-			copy(g_model_last[id], charsmax(g_model_last[]), want);
-		}
-		else
-		{
-			log_amx("[TSM] WARNING: tsm_spectator_model '%s' is not installed (%s) -- a benched player stays visible.",
-				want, mpath);
-		}
-	}
+	set_spectator_model(id);
 
 	client_print(id, print_chat, "[MATCH] %s", why);
 }
@@ -9271,8 +9596,8 @@ public fw_prethink(id)
 	 * all working from an inventory it does not have.
 	 *
 	 * IN_RELOAD costs nothing when the clip is already full -- the weapon code
-	 * ignores it -- so this does not need to know how much ammo they have, which
-	 * is just as well because that lives in private data we cannot read.
+	 * ignores it -- so this does not need to know how much ammo they have. The dry
+	 * check below does ask, with ts_getuserwpn, but only when a weapon is in hand.
 	 *
 	 * Set in the PRE hook, because the DLL turns pev->button into the pressed edge
 	 * the weapon code acts on. Driven from here rather than a task because
@@ -9288,6 +9613,27 @@ public fw_prethink(id)
 		{
 			g_bot_reload_at[id] = get_gametime();
 			set_pev(id, pev_button, pev(id, pev_button) | IN_RELOAD);
+		}
+
+		/*
+		 * Completely dry weapons get cycled to the next one. A reload cannot help and
+		 * rcbot cannot make this call: its weapon bookkeeping never saw the loadout we
+		 * handed the bot, so it stands there pulling the trigger on an empty gun --
+		 * rcbot's own release notes list exactly this as an open TS 3.0 issue.
+		 *
+		 * Only asked while a weapon is in hand: ts_getuserwpn aborts its caller when
+		 * there is nothing to report, and aborting here would cost the frame.
+		 */
+		if (get_user_weapon(id) > 0 && (get_gametime() - g_bot_dry_at[id]) >= 1.0)
+		{
+			new clip, spare, mode, extra;
+			ts_getuserwpn(id, clip, spare, mode, extra);
+			if (clip <= 0 && spare <= 0)
+			{
+				engclient_cmd(id, "invnext");
+				g_bot_dry_at[id] = get_gametime();
+				dbgv("dry weapon on bot %d -- cycling to the next", id);
+			}
 		}
 	}
 
@@ -9325,6 +9671,65 @@ public fw_prethink(id)
 			set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
 			set_pev(id, pev_maxspeed,   wanted_speed());
 			set_user_maxspeed(id, wanted_speed());
+
+			/*
+			 * Respawned after elimination: TS puts him back on his feet when the death
+			 * sequence ends, loadout and all. Taken back out at once -- the death delay
+			 * is long past, so remove_from_play() does not defer.
+			 */
+			if (g_elim_at[id] > 0.0 && is_user_alive(id))
+			{
+				g_elim_at[id] = 0.0;
+				remove_from_play(id);
+			}
+
+			/*
+			 * Attack switches to the next teammate, edge-detected on the raw buttons --
+			 * the click the spectator HUD names, read before the hold clears it.
+			 */
+			if ((raw_buttons & IN_ATTACK) && !(g_last_buttons[id] & IN_ATTACK))
+			{
+				cycle_spec_target(id);
+			}
+			if ((raw_buttons & IN_ATTACK2) && !(g_last_buttons[id] & IN_ATTACK2))
+			{
+				cycle_spec_target(id);
+			}
+			g_last_buttons[id] = raw_buttons;
+
+			/*
+			 * Following is done by MOVING him: the camera lives on the player entity,
+			 * so watching a teammate means standing at them, kept there every frame
+			 * rather than only on the click.
+			 */
+			new wt = g_spec_target[id];
+			if (wt && is_user_connected(wt) && is_user_alive(wt) && !g_elim[wt])
+			{
+				new Float:wpos[3];
+				pev(wt, pev_origin, wpos);
+				wpos[2] = wpos[2] + 40.0;
+				engfunc(EngFunc_SetOrigin, id, wpos);
+
+				new Float:sang[3];
+				pev(wt, pev_v_angle, sang);
+				set_pev(id, pev_angles, sang);
+				set_pev(id, pev_v_angle, sang);
+				set_pev(id, pev_fixangle, 1);
+			}
+			else
+			{
+				pick_spec_target(id);
+				if (!g_spec_target[id])
+				{
+					// Nobody left to watch: park them high above the map instead of
+					// leaving them loose in the arena.
+					new Float:park[3];
+					park[0] = g_save_origin[id][0];
+					park[1] = g_save_origin[id][1];
+					park[2] = g_save_origin[id][2] + float(get_pcvar_num(g_cv_holdz));
+					engfunc(EngFunc_SetOrigin, id, park);
+				}
+			}
 			return FMRES_IGNORED;
 		}
 
@@ -10031,6 +10436,7 @@ clear_match_state()
 		// Per MATCH, not per round: a player who changed appearance every round
 		// would be unrecognisable to their own side.
 		g_model_pick[i] = 0;
+		g_model_pick_key[i] = 0;
 		g_arm_pending[i] = 0;
 		g_issuing[i] = false;
 		g_cash_lend[i] = false;
@@ -10739,6 +11145,7 @@ public task_go_live()
 		// player speed from the weapon slots the loadout consumes, so a player with no
 		// weapons has zero maxspeed and cannot move or shoot.
 		apply_class(rp[i]);
+		officer_powerup(rp[i]);
 		release_player(rp[i]);
 	}
 	tlog("[TSM] Round %d LIVE: released %d player(s).", g_round, rnum);
@@ -10778,6 +11185,7 @@ public task_go_live()
 
 	// A fresh round is not sudden death, whatever the last one ended as.
 	g_sudden = false;
+	g_sudden_tick = 0;
 
 	if (!g_start_alive[1] || !g_start_alive[2])
 	{
@@ -11533,6 +11941,7 @@ public client_putinserver(id)
 	g_spectator[id] = false;
 	g_team_menu_at[id] = 0.0;
 	g_connect_at[id] = get_gametime();
+	g_music_off[id] = false;   // ambient music is on by default
 
 	/*
 	 * Anyone arriving while a match is running sits the WHOLE match out, not just the
@@ -11557,12 +11966,149 @@ public client_putinserver(id)
 		return;
 	}
 
+	// The join jingle, for this player alone. Deferred so TS has finished setting the
+	// client up before the sound is sent -- too early and it is dropped on the floor.
+	set_task(2.0, "task_welcome_sound", id + 9000);
+
+	// And this player's music, joining whatever track the queue is on.
+	set_task(3.5, "task_music_join", id + 10000);
+
 	new Float:wait = float(get_pcvar_num(g_cv_menudelay));
 	if (wait < 1.0)
 	{
 		wait = 1.0;
 	}
 	set_task(wait, "task_default_spectator", id + 1000);
+}
+
+/*
+ * The join jingle. Sent with client_cmd rather than emit_sound so only the joining
+ * player hears it -- emit_sound would put it in the world for everyone standing near
+ * them, and this one is meant to be personal. playvol plays it from the client's own
+ * sound folder at full volume; spk (the old command) only speaks SENTENCES, which is
+ * why the jingle was never heard.
+ */
+public task_welcome_sound(taskid)
+{
+	new id = taskid - 9000;
+	if (!is_user_connected(id) || is_user_bot(id))
+	{
+		return;
+	}
+	new snd[64];
+	get_pcvar_string(g_cv_welcomesound, snd, charsmax(snd));
+	if (snd[0])
+	{
+		client_cmd(id, "playvol %s 1.0", snd);
+	}
+}
+
+/* ---- ambient music ------------------------------------------------------- */
+
+/*
+ * tsm_music 0/1 from the client console, per player, on by default.
+ *
+ * Turns the whole queue off for that one player only: every track is sent to each
+ * listener with playvol rather than emitted into the world, so emitting to one client
+ * cannot be heard by anyone standing near them.
+ */
+public cmd_music(id, level, cid)
+{
+	if (!is_user_connected(id))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new arg[8];
+	read_argv(1, arg, charsmax(arg));
+	g_music_off[id] = arg[0] ? (str_to_num(arg) == 0) : !g_music_off[id];
+
+	client_print(id, print_chat, "[MATCH] Ambient music is %s. (tsm_music 0 / 1)",
+		g_music_off[id] ? "OFF" : "ON");
+
+	if (g_music_off[id])
+	{
+		// The next track is armed from the wav's length, so nothing would stop this one.
+		client_cmd(id, "stopsound");
+	}
+	return PLUGIN_HANDLED;
+}
+
+// A track for every player who wants it, then the next one armed for when it ends.
+// One at a time, so two tracks can never overlap on the same client.
+public task_music_queue()
+{
+	new idx = music_next();
+	g_music_cur = idx;
+	music_play(idx, 0);
+	tlog("[TSM] Ambient music: %s", g_music_wav[idx]);
+
+	set_task(g_music_len[idx] + 2.0, "task_music_queue", TSM_TASK_MUSIC);
+}
+
+// A fresh player joins the track that is already playing rather than waiting out a
+// whole one for the queue to reach them.
+public task_music_join(taskid)
+{
+	new id = taskid - 10000;
+	if (g_music_cur >= 0)
+	{
+		music_play(g_music_cur, id);
+	}
+}
+
+// Random, reshuffling when the order runs out and never repeating the track that just
+// played across the boundary.
+music_next()
+{
+	if (g_music_pos >= sizeof g_music_order)
+	{
+		for (new i = sizeof g_music_order - 1; i > 0; i--)
+		{
+			new j = random(i + 1);
+			new t = g_music_order[i];
+			g_music_order[i] = g_music_order[j];
+			g_music_order[j] = t;
+		}
+		g_music_pos = 0;
+		if (g_music_order[0] == g_music_cur)
+		{
+			new t = g_music_order[0];
+			g_music_order[0] = g_music_order[1];
+			g_music_order[1] = t;
+		}
+	}
+	return g_music_order[g_music_pos++];
+}
+
+// playvol is a CLIENT command: it plays from the client's own sound folder, so nothing
+// is precached or downloaded, and only the player it is sent to hears it. `only` picks
+// one player; 0 sends to everyone with music on.
+music_play(idx, only)
+{
+	new Float:vol = get_pcvar_float(g_cv_musicvol);
+	if (vol < 0.0) vol = 0.0;
+	if (vol > 1.0) vol = 1.0;
+
+	if (only)
+	{
+		if (is_user_connected(only) && !is_user_bot(only) && !g_music_off[only])
+		{
+			client_cmd(only, "playvol %s %.2f", g_music_wav[idx], vol);
+		}
+		return;
+	}
+
+	new players[32], pnum;
+	get_players(players, pnum, "");
+	for (new i = 0; i < pnum; i++)
+	{
+		if (is_user_bot(players[i]) || g_music_off[players[i]])
+		{
+			continue;
+		}
+		client_cmd(players[i], "playvol %s %.2f", g_music_wav[idx], vol);
+	}
 }
 
 /*
@@ -11669,6 +12215,7 @@ public client_disconnected(id)
 	g_is_bot[id] = false;
 	g_bot_slot[id] = 0;
 	g_model_pick[id] = 0;
+	g_model_pick_key[id] = 0;
 	g_medic_at[id] = 0.0;
 
 	// Both directions: whoever was following THIS officer is released, and this
@@ -12250,14 +12797,15 @@ public task_tick()
 
 	resupply_one_bot();
 
-	// Sudden death health drain: 1 HP every 5 seconds for all alive players.
-	if (g_sudden && get_pcvar_num(g_cv_sudden) > 0)
+	// Sudden death health drain: 1 HP every 5 seconds, LIVE rounds only. g_sudden is
+	// only cleared when the next round goes live, so without the state test the drain
+	// ran through the round-end pause, warmup and the following freeze.
+	if (g_sudden && g_state == ST_LIVE && get_pcvar_num(g_cv_sudden) > 0)
 	{
-		static sd_tick = 0;
-		sd_tick++;
-		if (sd_tick >= 5)
+		g_sudden_tick++;
+		if (g_sudden_tick >= 5)
 		{
-			sd_tick = 0;
+			g_sudden_tick = 0;
 			new players[32], pnum;
 			get_players(players, pnum, "a");
 			for (new i = 0; i < pnum; i++)
