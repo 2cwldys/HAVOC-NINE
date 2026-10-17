@@ -2606,14 +2606,17 @@ public plugin_precache()
 	/*
 	 * MP3 music tracks for the ambient queue. Precached here so clients download
 	 * them before task_music_queue tries to play them -- without precaching the
-	 * client has no local copy and mp3 play is silent.
+	 * client has no local copy and mp3 play is silent. MP3s go through
+	 * precache_generic (the WAV path in precache_sound is a different download
+	 * channel), and the path must include sound/ because that is how mp3 play
+	 * resolves them later too.
 	 */
 	new i;
 	for (i = 0; i < sizeof g_music_mp3; i++)
 	{
 		new sPath[64];
-		formatex(sPath, charsmax(sPath), "music/%s", g_music_mp3[i]);
-		precache_sound(sPath);
+		formatex(sPath, charsmax(sPath), "sound/music/%s", g_music_mp3[i]);
+		precache_generic(sPath);
 	}
 
 	/*
@@ -12701,7 +12704,7 @@ music_play(idx, only)
 		if (is_user_connected(only) && !is_user_bot(only) && !g_music_off[only])
 		{
 			client_cmd(only, "mp3 volume %f", vol);
-			client_cmd(only, "mp3 play %s", g_music_mp3[idx]);
+			client_cmd(only, "mp3 play sound/music/%s", g_music_mp3[idx]);
 		}
 		return;
 	}
@@ -12715,7 +12718,7 @@ music_play(idx, only)
 			continue;
 		}
 		client_cmd(players[i], "mp3 volume %f", vol);
-		client_cmd(players[i], "mp3 play %s", g_music_mp3[idx]);
+		client_cmd(players[i], "mp3 play sound/music/%s", g_music_mp3[idx]);
 	}
 }
 
