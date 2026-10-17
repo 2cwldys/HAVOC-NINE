@@ -12549,7 +12549,16 @@ public client_putinserver(id)
 	g_spectator[id] = false;
 	g_team_menu_at[id] = 0.0;
 	g_connect_at[id] = get_gametime();
-	g_music_off[id] = false;   // ambient music is on by default
+
+	/*
+	 * Ambient music is on by default, but the client's own history wins when there is
+	 * one: cmd_music mirrors every choice into the client's userinfo (setinfo
+	 * "tsm_music"), which the client console keeps like any cvar, so someone who has
+	 * switched music off stays off across reconnects.
+	 */
+	new off[4];
+	get_user_info(id, "tsm_music", off, charsmax(off));
+	g_music_off[id] = (off[0] && str_to_num(off) == 0);   // ambient music is on by default
 
 	/*
 	 * Anyone arriving while a match is running sits the WHOLE match out, not just the
@@ -12631,13 +12640,24 @@ public cmd_music(id, level, cid)
 	read_argv(1, arg, charsmax(arg));
 	g_music_off[id] = arg[0] ? (str_to_num(arg) == 0) : !g_music_off[id];
 
+	// Mirrored into the client's userinfo so the choice survives a reconnect -- it is
+	// read back where the defaults are cleared on connection.
+	client_cmd(id, "setinfo tsm_music %d", g_music_off[id] ? 0 : 1);
+
 	client_print(id, print_chat, "[MATCH] Ambient music is %s. (tsm_music 0 / 1)",
 		g_music_off[id] ? "OFF" : "ON");
 
 	if (g_music_off[id])
 	{
-		// The next track is armed from the wav's length, so nothing would stop this one.
+		// stopsound only reaches wav playback; HL's MP3 player is a separate channel
+		// and needs its own stop -- without it the current track plays to the end.
+		client_cmd(id, "mp3 stop");
 		client_cmd(id, "stopsound");
+	}
+	else if (g_music_cur >= 0)
+	{
+		// Switching back on rejoins the track the queue is on, at its running volume.
+		music_play(g_music_cur, id);
 	}
 	return PLUGIN_HANDLED;
 }

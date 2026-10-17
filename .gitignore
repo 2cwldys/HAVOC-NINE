@@ -13,4 +13,5 @@ discord-bot/__pycache__/
 rcbot/bot_playerids.ini
 
 # H9 Stuff
-export-map\
+export-map/
+src/
