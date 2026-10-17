@@ -291,6 +291,7 @@ new g_postthink_scale_hits = 0;  // times fw_postthink_post enforced class scale
 new bool:g_elim[MAXPL];      // eliminated for THIS round
 new bool:g_ready[MAXPL];
 new g_match_team[MAXPL];     // OUR authoritative team, never the mod's live value
+new g_depart_side[MAXPL];    // side of a human who just left, armed until the deferred check runs
 new g_spec_target[MAXPL];    // who an eliminated player is watching
 /*
  * The side a player BELONGS to for this match, which outlives being eliminated.
@@ -12539,6 +12540,7 @@ public client_putinserver(id)
 	g_spec_target[id] = 0;
 	g_last_buttons[id] = 0;
 	g_match_team[id] = 0;
+	g_depart_side[id] = 0;   // a previous player's departure must not follow the new one
 
 	g_player_class[id] = 0;
 	g_eng_used[id] = 0.0;
@@ -12815,6 +12817,10 @@ public task_late_join(id)
 
 public client_disconnected(id)
 {
+	// Captured BEFORE it is cleared further down: whether this departure emptied a
+	// side of its last human decides below whether the match ends without a winner.
+	new was_team = g_match_team[id];
+
 	// Their slot is about to be reused by whoever connects next, so the side they
 	// belonged to goes with them -- otherwise the newcomer inherits it and counts
 	// toward a team they never joined.
@@ -12881,8 +12887,20 @@ public client_disconnected(id)
 	 * get_players(), so a synchronous check still counts them as alive and the round
 	 * looks healthy -- which is why a side emptying by disconnect never ended it.
 	 * A fraction of a second later they are genuinely gone.
+	 *
+	 * A side that loses its LAST HUMAN goes with this same deferred check, whichever
+	 * state the match is in -- a freeze countdown counts, it holds a round just as
+	 * much. Bots on either side change nothing about the trigger: bots are not players
+	 * and a side carried by bots alone is autofill, not a match. Was_team can only be
+	 * a side here for a real player -- rcbot's bots reach the gamedll past Metamod, so
+	 * they never fire client_disconnected at all.
 	 */
-	if (g_state == ST_LIVE)
+	if ((g_state == ST_FREEZE || g_state == ST_LIVE) && was_team != 0)
+	{
+		g_depart_side[id] = was_team;
+		set_task(0.3, "task_round_check", id);
+	}
+	else if (g_state == ST_LIVE)
 	{
 		set_task(0.3, "task_round_check");
 	}
@@ -12988,6 +13006,61 @@ bool:check_match_viable()
 		all_print("[MATCH] MATCH OVER -- nobody left to play.");
 		tlog("[TSM] Match abandoned: both sides empty.");
 	}
+
+	g_state = ST_MATCHEND;
+	restore_all();
+	set_task(5.0, "task_to_warmup");
+	return true;
+}
+
+/*
+ * Humans on one side, and nothing else. Bots are deliberately invisible here: rcbot
+ * backfills a side the way autofill_teams() does, and a side carried entirely by bots
+ * is that feature at work, not a match that exists. This is the answer to "did any
+ * human leave this side", not to "is there anyone at all".
+ */
+count_side_humans(team)
+{
+	new pl[32], pnum, n = 0;
+	get_players(pl, pnum, "");
+	for (new i = 0; i < pnum; i++)
+	{
+		if (!is_user_bot(pl[i]) && g_match_team[pl[i]] == team)
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/*
+ * THE LAST HUMAN ON A SIDE LEFT -- the match goes back to warmup with NO winner.
+ *
+ * This is deliberately separate from check_match_viable()'s forfeit above. That one
+ * ends a match by FORFEIT: a whole side (bots included) is gone and the opposition
+ * takes the scoreline. But a side whose last HUMAN left while bots still hold it is
+ * not a defeat anyone earned -- the forfeit would be handed to a side that exists
+ * only because autofill put bots on it, and a spectator watching bots play bots is
+ * not what anyone means by a winner. So no score, no side named as victor: the match
+ * simply ends, everything is restored, and warmup opens with the score erased by
+ * task_to_warmup.
+ *
+ * It is keyed on humanity rather than balance on purpose. A full side losing one
+ * player has humans still on it and triggers nothing here; an uneven but human-holding
+ * pair of sides belongs to halt_for_imbalance instead.
+ */
+bool:end_match_last_human(side)
+{
+	remove_task(2);
+	remove_task(3);
+	remove_task(4);
+	remove_task(5);
+	remove_task(14);   // a halt armed off another departure has no reason to fire now
+
+	new tname[48];
+	team_display(side, tname, charsmax(tname));
+	all_print("[MATCH] MATCH OVER -- the last player of %s left. Nobody wins.", tname);
+	tlog("[TSM] match ended without a winner: team %d (%s) ran out of humans.", side, tname);
 
 	g_state = ST_MATCHEND;
 	restore_all();
@@ -13247,8 +13320,31 @@ public task_remove_from_play(taskid)
 	remove_from_play(id);
 }
 
-public task_round_check()
+public task_round_check(id)
 {
+	/*
+	 * Did the departure this task was armed FOR empty a side of its last human?
+	 *
+	 * id is the departing player, armed in client_disconnected; g_depart_side is what
+	 * side that was, and it is consumed here whether or not the rule fires, so the
+	 * slot's next occupant can never inherit it. Running BEFORE check_match_viable
+	 * matters: on a side the autofill never reached with bots, that forfeit path would
+	 * race this one with a winning verdict nobody earned -- last human off a
+	 * botless side says MATCH OVER to a wrong winner a moment later unless this check
+	 * has already ended the match.
+	 */
+	if (id >= 1 && id < MAXPL && g_depart_side[id] != 0
+		&& (g_state == ST_FREEZE || g_state == ST_LIVE))
+	{
+		new side = g_depart_side[id];
+		g_depart_side[id] = 0;
+		if (count_side_humans(side) == 0)
+		{
+			end_match_last_human(side);
+			return;
+		}
+	}
+
 	// A side being EMPTY is a different thing from a side being dead, and it ends the
 	// whole match rather than the round -- so it is checked first.
 	if (check_match_viable())
