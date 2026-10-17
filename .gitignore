@@ -10,3 +10,7 @@ discord-bot/rsvp.json
 discord-bot/bot.log
 discord-bot/bot.err
 discord-bot/__pycache__/
+rcbot/bot_playerids.ini
+
+# H9 Stuff
+export-map\

@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes3"
+#define TSM_BUILD "1.53-fixes4"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -361,10 +361,12 @@ new g_cv_engglow, g_cv_engshell;
 new g_cv_medsound, g_cv_engsound, g_cv_suddensound, g_cv_welcomesound;
 new g_cv_musicvol;
 
-// Ambient music queue. Played client-side with playvol, one track at a time, for each
-// player who has not turned it off. The lengths are the wavs' own durations, so the
-// next track is armed to start as this one ends rather than on a fixed interval.
-new const g_music_wav[][] = { "itsadream.wav", "ihateher.wav", "fivefingers.wav", "deadinsects.wav", "twoplustwo.wav" };
+// Ambient music queue. Played client-side via HL's MP3 player (client_cmd "mp3 play"),
+// one track at a time, for each player who has not turned it off. MP3 player audio is
+// 2D non-spatial: it follows the listener and cannot be moved away from. The lengths
+// are the mp3s' own durations, so the next track is armed to start as this one ends
+// rather than on a fixed interval.
+new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3" };
 new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2 };
 new g_music_order[5] = { 0, 1, 2, 3, 4 };
 new g_music_pos = 5;         // 5 forces a shuffle before the first track
@@ -1726,7 +1728,7 @@ public team_menu_handler(id, menu, item)
 		// Sides are fixed for the duration of a match. A late joiner waits it out.
 		if (g_state != ST_WARMUP && g_state != ST_READYUP)
 		{
-			client_print(id, print_chat, "[MATCH] A match is already in progress -- you are in when it finishes.");
+			client_print(id, print_chat, "[MATCH] A match is already in progress -- join when it finishes.");
 			close_menu(id);
 			return PLUGIN_HANDLED;
 		}
@@ -2598,6 +2600,19 @@ public plugin_precache()
 	g_cv_welcomesound = register_cvar("tsm_welcome_sound", "welcome.wav");
 	precache_custom_sound(g_cv_suddensound, true);
 	precache_custom_sound(g_cv_welcomesound, false);
+
+	/*
+	 * MP3 music tracks for the ambient queue. Precached here so clients download
+	 * them before task_music_queue tries to play them -- without precaching the
+	 * client has no local copy and mp3 play is silent.
+	 */
+	new i;
+	for (i = 0; i < sizeof g_music_mp3; i++)
+	{
+		new sPath[64];
+		formatex(sPath, charsmax(sPath), "music/%s", g_music_mp3[i]);
+		precache_sound(sPath);
+	}
 
 	/*
 	 * Has to happen HERE. A model precached any later shifts the model index table
@@ -5571,6 +5586,15 @@ public cmd_watch_join(id)
 	read_argv(0, cmd, charsmax(cmd));
 	read_argv(1, arg, charsmax(arg));
 
+	// Joining a side is only allowed before the match goes live. Once a round is
+	// under way, spectators stay spectators -- the .team menu already refuses, so
+	// the raw jointeam console command must too.
+	if (g_state != ST_WARMUP && g_state != ST_READYUP)
+	{
+		client_print(id, print_chat, "[MATCH] A match is already in progress -- join when it finishes.");
+		return PLUGIN_HANDLED;
+	}
+
 	new before[32];
 	before[0] = 0;
 	new bnum = get_user_team(id, before, charsmax(before));
@@ -5779,7 +5803,7 @@ public cmd_team(id)
 
 	if (g_state != ST_WARMUP && g_state != ST_READYUP)
 	{
-		client_print(id, print_chat, "[MATCH] A match is already in progress -- you are in when it finishes.");
+		client_print(id, print_chat, "[MATCH] A match is already in progress -- join when it finishes.");
 		return PLUGIN_HANDLED;
 	}
 	if (!g_team_menu)
@@ -6311,15 +6335,19 @@ give_class_weapons(id)
 			clips = 0;
 		}
 
-		// See the note above: re-asserted per weapon, or TS's derived value refuses the
-		// one that is handed over last. 128 rather than 32: the M60 reaches the Heavy last
-		// and what TS had already handed out (pistol, grenade, primary rifle) eats into
-		// the same figure, so 32 -- and even 64 -- free slots was not always enough
-		// headroom to also fit the M60's own cost. 128 leaves room and TS re-derives the
-		// real value on its own after each give.
-		ts_setuserslots(id, 128);
-
-		ts_giveweapon(id, g_class_wpn[ci][team][i], clips, get_pcvar_num(g_cv_wpnextra));
+		// Re-asserted before every give: TS derives free slots from carried weapons and
+		// recomputes on every change, so by the time the M60 (given last) is offered the
+		// figure is back to the weapons-derived value and refuses. Start at 200 and step
+		// up to 999 if the give refuses -- the M60's slot cost exceeds whatever TS reports
+		// as free after the pistol and grenade are already in hand.
+		ts_setuserslots(id, 200);
+		new gave = ts_giveweapon(id, g_class_wpn[ci][team][i], clips, get_pcvar_num(g_cv_wpnextra));
+		if (!gave)
+		{
+			ts_setuserslots(id, 999);
+			gave = ts_giveweapon(id, g_class_wpn[ci][team][i], clips, get_pcvar_num(g_cv_wpnextra));
+			dbgv("give: %d <- weapon %d retry at slots 999 (first attempt refused)", id, g_class_wpn[ci][team][i]);
+		}
 		given++;
 
 		dbgv("give: %d <- weapon %d with %d spare clip(s)", id, g_class_wpn[ci][team][i], clips);
@@ -11330,6 +11358,20 @@ public task_go_live()
 		apply_class(rp[i]);
 
 		/*
+		 * Belt and braces: sudden-death damage cannot carry into a new round.
+		 * apply_class() restores class HP, but this is unconditional so a player
+		 * drained to 1 HP in the last round starts fresh here no matter what.
+		 */
+		if (is_user_connected(rp[i]) && is_user_alive(rp[i]))
+		{
+			new ci = resolved_class(rp[i]) - 1;
+			if (ci >= 0)
+			{
+				set_user_health(rp[i], g_class_hp[ci]);
+			}
+		}
+
+		/*
 		 * Scale, AGAIN, right here. apply_class_scale also runs at arm time, which is
 		 * during the freeze where class_scale_for() answers 1.0 -- so the one pass that
 		 * ever mattered wrote the reset to normal, and the Heavy went live at ordinary
@@ -12247,7 +12289,7 @@ public task_music_queue()
 	new idx = music_next();
 	g_music_cur = idx;
 	music_play(idx, 0);
-	tlog("[TSM] Ambient music: %s", g_music_wav[idx]);
+	tlog("[TSM] Ambient music: %s", g_music_mp3[idx]);
 
 	set_task(g_music_len[idx] + 2.0, "task_music_queue", TSM_TASK_MUSIC);
 }
@@ -12287,9 +12329,10 @@ music_next()
 	return g_music_order[g_music_pos++];
 }
 
-// playvol is a CLIENT command: it plays from the client's own sound folder, so nothing
-// is precached or downloaded, and only the player it is sent to hears it. `only` picks
-// one player; 0 sends to everyone with music on.
+// HL's MP3 player is invoked with a client execute ("mp3 play <track>"). MP3 player
+// audio is 2D non-spatial: it follows the listener and cannot be moved away from.
+// Nothing is precached or downloaded, and only the player it is sent to hears it.
+// `only` picks one player; 0 sends to everyone with music on.
 music_play(idx, only)
 {
 	new Float:vol = get_pcvar_float(g_cv_musicvol);
@@ -12300,7 +12343,8 @@ music_play(idx, only)
 	{
 		if (is_user_connected(only) && !is_user_bot(only) && !g_music_off[only])
 		{
-			client_cmd(only, "playvol %s %.2f", g_music_wav[idx], vol);
+			client_cmd(only, "mp3 volume %f", vol);
+			client_cmd(only, "mp3 play %s", g_music_mp3[idx]);
 		}
 		return;
 	}
@@ -12313,7 +12357,8 @@ music_play(idx, only)
 		{
 			continue;
 		}
-		client_cmd(players[i], "playvol %s %.2f", g_music_wav[idx], vol);
+		client_cmd(players[i], "mp3 volume %f", vol);
+		client_cmd(players[i], "mp3 play %s", g_music_mp3[idx]);
 	}
 }
 

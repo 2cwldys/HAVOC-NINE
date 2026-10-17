@@ -88,6 +88,11 @@ if exist "%SRC%sound" (
     xcopy /y /q "%SRC%sound\*.wav" "%TSROOT%\..\..\sound" >nul
     echo   synced sound\*.wav
 )
+REM MP3 music tracks for the ambient queue (HL mp3 player, 2D non-spatial)
+if exist "%SRC%sound\music" (
+    xcopy /y /q "%SRC%sound\music\*.mp3" "%TSROOT%\..\..\ts\sound\music\" >nul
+    echo   synced sound\music\*.mp3
+)
 echo.
 
 set OK=0
