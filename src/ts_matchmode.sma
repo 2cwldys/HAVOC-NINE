@@ -377,6 +377,8 @@ new g_cv_regenamt, g_cv_regenevery, g_cv_regenpause;
 new Float:g_last_hit[MAXPL];    // gametime they were last damaged, for the regen pause
 new g_cv_breachents, g_cv_breachrange;
 new g_cv_engdoorclass;
+new g_cv_engdoorteam;
+new g_cv_objteam, g_cv_objclass, g_cv_objtime, g_cv_objslay, g_cv_objrange;
 new g_cv_armorder;
 new g_cv_wpnextra;
 new g_cv_classscale;
@@ -3090,6 +3092,25 @@ public plugin_init()
 	 */
 	g_cv_engdoorclass = register_cvar("tsm_eng_door_class", "Combat Engineer");
 
+	/*
+	 * Which SIDE's Combat Engineer the "tsm_eng_door" doors answer to: 0 either side's
+	 * (as they always have), 1 or 2 only that side's. A siege map whose doors are the
+	 * attackers' to open sets the attackers here, so a defender cannot open one for them.
+	 */
+	g_cv_engdoorteam = register_cvar("tsm_eng_door_team", "0");
+
+	/*
+	 * Siege objectives (see siege_* below): the side that attacks them, the class that
+	 * can take one (by name, as the doors are; blank: any class of that side), how long
+	 * +USE is held on it, whether everyone left alive dies when it falls, and how far
+	 * away a player may stand.
+	 */
+	g_cv_objteam  = register_cvar("tsm_obj_team",  "2");
+	g_cv_objclass = register_cvar("tsm_obj_class", "Breacher");
+	g_cv_objtime  = register_cvar("tsm_obj_time",  "5.0");
+	g_cv_objslay  = register_cvar("tsm_obj_slay",  "1");
+	g_cv_objrange = register_cvar("tsm_obj_range", "96");
+
 	g_cv_armorder    = register_cvar("tsm_arm_order", "1");
 
 	/*
@@ -3343,6 +3364,7 @@ public plugin_init()
 
 	// Solo testing without a second player.
 	register_concmd("amx_tsm_simwin",      "cmd_simwin",      ADMIN_CFG, " <1|2> - award the current round to a team");
+	register_concmd("amx_tsm_obj",         "cmd_obj",         ADMIN_CFG, " [reset|<n>] - the map's siege objectives: what has fallen; put them back, or say how many have fallen");
 	register_concmd("amx_tsm_simelim",     "cmd_simelim",     ADMIN_CFG, " [target] - eliminate a player as if they were killed");
 
 	// Called by the per-map spawn cfg. Not for humans.
@@ -7315,10 +7337,21 @@ public fw_door_use(ent, activator, caller, use_type, Float:value)
 		return HAM_SUPERCEDE;
 	}
 
-	if (is_engineer(id))
+	new door_team = get_pcvar_num(g_cv_engdoorteam);
+	if (is_engineer(id) && (door_team < 1 || g_match_team[id] == door_team))
 	{
 		dbg("eng door %d opened by %d", ent, id);
 		return HAM_IGNORED;
+	}
+	if (is_engineer(id))
+	{
+		if (!is_user_bot(id) && (get_gametime() - g_engdoor_told_at[id]) > 2.0)
+		{
+			g_engdoor_told_at[id] = get_gametime();
+			client_print(id, print_chat, "[MATCH] That door is the other side's to open.");
+		}
+		dbgv("eng door %d refused to %d: wrong side", ent, id);
+		return HAM_SUPERCEDE;
 	}
 
 	/*
@@ -7765,6 +7798,323 @@ bool:is_engineer(id)
 	}
 
 	return (equali(g_class_name[resolved_class(id) - 1], want) != 0);
+}
+
+/* ---- siege objectives ------------------------------------------------------
+ *
+ * A map's objectives are brush entities named tsm_obj_1, tsm_obj_2 ... up to
+ * tsm_obj_9, and they fall in that order: the next one only, one per round at the
+ * most, and what has fallen stays fallen from round to round until the match ends.
+ *
+ * Make them func_wall (or anything a player cannot use by himself: a func_button
+ * would fire for whoever walks up and presses it, and the plugin would never see
+ * it). Taking one is holding +USE on it for tsm_obj_time seconds, as the attacking
+ * side (tsm_obj_team) and the class named in tsm_obj_class. Anyone else is told
+ * why not -- that is what stops a defender handing his own objective over.
+ *
+ * When one falls, the plugin fires the objective's own "target" (the map's
+ * explosion, sparks, alarm, the wall that opens the way to the next), gives the
+ * round to the attackers and, with tsm_obj_slay 1, kills everyone left alive.
+ * When the match ends or is stopped, it fires tsm_obj_<n>_reset for each one that
+ * fell, for the map to put back what its explosion took away.
+ *
+ * The objective entity itself is the map's to hide or keep: the plugin does not
+ * remove it, it only refuses it once it has fallen.
+ */
+#define TSM_OBJ_PREFIX "tsm_obj_"
+#define TSM_OBJ_MAX    9
+#define TSM_TASK_OBJ   15000
+
+new g_obj_taken = 0;               // how many have fallen this match, counting from 1
+new g_obj_holding[MAXPL];          // the objective a player is holding +USE on, 0 for none
+new Float:g_obj_started[MAXPL];    // when he began
+new Float:g_obj_told_at[MAXPL];    // rate limit on the refusals
+
+/// The objective's number, 1..9, or 0 when this entity is none.
+siege_number(ent)
+{
+	if (ent < 1 || !pev_valid(ent))
+	{
+		return 0;
+	}
+	new name[32];
+	name[0] = 0;
+	pev(ent, pev_targetname, name, charsmax(name));
+	// exactly "tsm_obj_" and one digit: tsm_obj_1_reset and the like are the map's own relays
+	if (strlen(name) != 9 || !equal(name, TSM_OBJ_PREFIX, 8) || name[8] < '1' || name[8] > '9')
+	{
+		return 0;
+	}
+	return name[8] - '0';
+}
+
+/// How many objectives the map has: tsm_obj_1 and on, up to the first missing.
+siege_count()
+{
+	new name[16], n = 0;
+	for (new i = 1; i <= TSM_OBJ_MAX; i++)
+	{
+		formatex(name, charsmax(name), "%s%d", TSM_OBJ_PREFIX, i);
+		if (engfunc(EngFunc_FindEntityByString, -1, "targetname", name) <= 0)
+		{
+			break;
+		}
+		n = i;
+	}
+	return n;
+}
+
+/// The objective under this player's crosshair and within tsm_obj_range, or 0.
+siege_aimed(id)
+{
+	new Float:start[3], Float:vo[3], Float:ang[3], Float:fwd[3], Float:dest[3];
+	pev(id, pev_origin, start);
+	pev(id, pev_view_ofs, vo);
+	start[0] += vo[0];
+	start[1] += vo[1];
+	start[2] += vo[2];
+
+	pev(id, pev_v_angle, ang);
+	engfunc(EngFunc_MakeVectors, ang);
+	global_get(glb_v_forward, fwd);
+
+	new Float:range = float(get_pcvar_num(g_cv_objrange));
+	dest[0] = start[0] + fwd[0] * range;
+	dest[1] = start[1] + fwd[1] * range;
+	dest[2] = start[2] + fwd[2] * range;
+
+	engfunc(EngFunc_TraceLine, start, dest, 0, id, 0);
+	new hit = get_tr2(0, TR_pHit);
+	if (hit < MAXPL || !siege_number(hit))
+	{
+		return 0;
+	}
+	return hit;
+}
+
+/// May this player take objective n now? With tell, a refusal says why (rate limited).
+bool:siege_allowed(id, n, bool:tell)
+{
+	if (g_state != ST_LIVE || !is_user_alive(id) || g_elim[id] || g_locked_out[id])
+	{
+		return false;
+	}
+
+	new why[96];
+	why[0] = 0;
+	new team = get_pcvar_num(g_cv_objteam);
+	new want[32];
+	get_pcvar_string(g_cv_objclass, want, charsmax(want));
+
+	if (g_match_team[id] != team)
+	{
+		copy(why, charsmax(why), "That is yours to defend.");
+	}
+	else if (want[0] && (!g_class_count || !equali(g_class_name[resolved_class(id) - 1], want)))
+	{
+		formatex(why, charsmax(why), "Only a %s can set the charge.", want);
+	}
+	else if (n <= g_obj_taken)
+	{
+		copy(why, charsmax(why), "That one is already destroyed.");
+	}
+	else if (n > g_obj_taken + 1)
+	{
+		formatex(why, charsmax(why), "Objective %d has to fall first.", g_obj_taken + 1);
+	}
+
+	if (!why[0])
+	{
+		return true;
+	}
+	if (tell && !is_user_bot(id) && (get_gametime() - g_obj_told_at[id]) > 2.0)
+	{
+		g_obj_told_at[id] = get_gametime();
+		client_print(id, print_center, "%s", why);
+	}
+	return false;
+}
+
+/*
+ * +USE was pressed. True when the crosshair is on an objective -- taken in hand or
+ * refused -- so that the class's own perk does not also run on the same press.
+ */
+bool:siege_use(id)
+{
+	new ent = siege_aimed(id);
+	if (!ent)
+	{
+		return false;
+	}
+	new n = siege_number(ent);
+	if (!siege_allowed(id, n, true))
+	{
+		return true;
+	}
+
+	g_obj_holding[id] = ent;
+	g_obj_started[id] = get_gametime();
+	remove_task(id + TSM_TASK_OBJ);
+	set_task(0.1, "task_siege_hold", id + TSM_TASK_OBJ, "", 0, "b");
+	dbg("siege: %d began on objective %d (ent %d)", id, n, ent);
+	return true;
+}
+
+/// Every tenth of a second while +USE is held on an objective.
+public task_siege_hold(taskid)
+{
+	new id = taskid - TSM_TASK_OBJ;
+	new ent = g_obj_holding[id];
+	new n = siege_number(ent);
+
+	if (!is_user_connected(id) || !n || !(pev(id, pev_button) & IN_USE)
+		|| siege_aimed(id) != ent || !siege_allowed(id, n, false))
+	{
+		remove_task(taskid);
+		g_obj_holding[id] = 0;
+		if (is_user_connected(id) && g_state == ST_LIVE)
+		{
+			client_print(id, print_center, "Charge not set.");
+		}
+		return;
+	}
+
+	new Float:need = get_pcvar_float(g_cv_objtime);
+	new Float:held = get_gametime() - g_obj_started[id];
+	if (held < need)
+	{
+		client_print(id, print_center, "Setting the charge... %.1f", need - held);
+		return;
+	}
+
+	remove_task(taskid);
+	g_obj_holding[id] = 0;
+	siege_fall(id, ent, n);
+}
+
+/// Objective n falls, taken by this player.
+siege_fall(id, ent, n)
+{
+	g_obj_taken = n;
+
+	// No one else's hold carries on into the round's end.
+	for (new i = 1; i < MAXPL; i++)
+	{
+		if (g_obj_holding[i])
+		{
+			remove_task(i + TSM_TASK_OBJ);
+			g_obj_holding[i] = 0;
+		}
+	}
+
+	// The map's own explosion: whatever the objective targets.
+	new tgt[64];
+	tgt[0] = 0;
+	pev(ent, pev_target, tgt, charsmax(tgt));
+	if (tgt[0])
+	{
+		siege_fire(tgt, id);
+	}
+
+	new who[32];
+	get_user_name(id, who, charsmax(who));
+	new count = siege_count();
+	if (n >= count)
+	{
+		all_print("[MATCH] %s destroyed the last objective (%d of %d).", who, n, count);
+	}
+	else
+	{
+		all_print("[MATCH] %s destroyed objective %d of %d.", who, n, count);
+	}
+	dbg("siege: objective %d fell to %d", n, id);
+
+	end_round(get_pcvar_num(g_cv_objteam));
+
+	// After end_round: deaths outside a live round are not eliminations, so nobody
+	// is counted out of the next one for being caught in the blast.
+	if (get_pcvar_num(g_cv_objslay))
+	{
+		set_task(0.5, "task_siege_slay", TSM_TASK_OBJ);
+	}
+}
+
+public task_siege_slay()
+{
+	new players[32], pnum;
+	get_players(players, pnum, "a");
+	for (new i = 0; i < pnum; i++)
+	{
+		user_kill(players[i], 1);
+	}
+}
+
+/// Uses everything with this targetname.
+siege_fire(const name[], activator)
+{
+	new e = -1;
+	for (new guard = 0; guard < 64; guard++)
+	{
+		e = engfunc(EngFunc_FindEntityByString, e, "targetname", name);
+		if (e <= 0)
+		{
+			break;
+		}
+		dllfunc(DLLFunc_Use, e, activator, activator, 2, 0.0);   // 2 = USE_TOGGLE
+	}
+}
+
+/// Puts back what fell: tsm_obj_<n>_reset for each, last first. Called wherever a match is reset.
+siege_reset()
+{
+	new name[24];
+	for (new n = g_obj_taken; n >= 1; n--)
+	{
+		formatex(name, charsmax(name), "%s%d_reset", TSM_OBJ_PREFIX, n);
+		siege_fire(name, 0);
+	}
+	if (g_obj_taken)
+	{
+		dbg("siege: %d objective(s) put back", g_obj_taken);
+	}
+	g_obj_taken = 0;
+	for (new i = 1; i < MAXPL; i++)
+	{
+		remove_task(i + TSM_TASK_OBJ);
+		g_obj_holding[i] = 0;
+	}
+}
+
+public cmd_obj(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new a[16];
+	a[0] = 0;
+	if (read_argc() > 1)
+	{
+		read_argv(1, a, charsmax(a));
+	}
+	if (equali(a, "reset"))
+	{
+		siege_reset();
+	}
+	else if (a[0])
+	{
+		new k = str_to_num(a);
+		new count = siege_count();
+		g_obj_taken = (k < 0) ? 0 : ((k > count) ? count : k);
+	}
+
+	new cls[32];
+	get_pcvar_string(g_cv_objclass, cls, charsmax(cls));
+	console_print(id, "[TSM] siege: %d objective(s) in the map, %d fallen; taken by team %d as '%s', hold %.1fs, slay %d",
+		siege_count(), g_obj_taken, get_pcvar_num(g_cv_objteam), cls,
+		get_pcvar_float(g_cv_objtime), get_pcvar_num(g_cv_objslay));
+	return PLUGIN_HANDLED;
 }
 
 /// Is this entity one of the map's engineer-only doors?
@@ -10018,7 +10368,11 @@ public fw_prethink(id)
 		new btn = pev(id, pev_button);
 		if ((btn & IN_USE) && !(g_last_use[id] & IN_USE))
 		{
-			perk_use(id);
+			// An objective under the crosshair is the objective's business, whatever the class.
+			if (!siege_use(id))
+			{
+				perk_use(id);
+			}
 		}
 		g_last_use[id] = btn;
 	}
@@ -10733,6 +11087,7 @@ public task_to_warmup()
 	}
 	all_print("[MATCH] Everyone is spectating. Pick a side to play the next match, or type .menu.");
 	g_round = 0;
+	siege_reset();
 	g_score[1] = 0;
 	g_score[2] = 0;
 	reset_ready();
@@ -11760,6 +12115,7 @@ begin_match()
 	}
 
 	g_round = 0;
+	siege_reset();
 	g_score[1] = 0;
 	g_score[2] = 0;
 	all_print("[MATCH] All ready -- best of %d. Good luck.", get_pcvar_num(g_cv_rounds));
@@ -11801,6 +12157,7 @@ public cmd_cancel(id, level, cid)
 	remove_task(5);
 	g_state = ST_WARMUP;
 	g_round = 0;
+	siege_reset();
 	g_score[1] = 0;
 	g_score[2] = 0;
 	g_freeze_left = 0;
@@ -12441,6 +12798,8 @@ public client_disconnected(id)
 	g_side[id] = 0;
 	g_elim[id] = false;
 	g_ready[id] = false;
+	remove_task(id + TSM_TASK_OBJ);
+	g_obj_holding[id] = 0;
 	g_saved[id] = false;
 	g_frozen[id] = false;
 	g_placed[id] = false;
