@@ -1,4 +1,9 @@
 the specialists 3.0 - filippo "morfeo" de luca, lorenzo "john_matrix" pasini
+xash3D engine - unkle mike, FWGS team and maintainers
 havoc 9 team elimination mode - 2cwldys, claude
 rcbotold - agprobocop, wootguy, jpiolho, cheeseh
-compts - xjiro
+assistance with mapping - mr fisk
+studio maker asset kit - deoroot and stevenlAFl
+reTS and recompiled source binaries - stevenlAFl
+sharing various tools and mapper assistance - babblingbrook
+compts elo plugin backend - xjiro

@@ -9297,6 +9297,103 @@ bool CBot::IsEnemy(edict_t* pEntity)
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// FOLLOW COMMAND FOR TS
+//
+// Called by the plugin (or console command) to make this bot follow a specific player.
+// When following, the bot uses the existing BOT_TASK_FOLLOW_LEADER task and will
+// attack enemies while staying with the leader. Unfollow restores normal patrol behavior.
+void CBot::SetFollowTarget(edict_t* pTarget)
+{
+	if (!pTarget || !EntityIsAlive(pTarget))
+	{
+		// Clear follow target - bot returns to normal patrol
+		m_pSquadLeader = nullptr;
+		if (m_stSquad)
+		{
+			gBotGlobals.m_Squads.removeSquadMember(m_stSquad, m_pEdict);
+			m_stSquad = nullptr;
+		}
+		m_Tasks.RemoveTask(BOT_TASK_FOLLOW_LEADER);
+		return;
+	}
+
+	// Don't follow enemies
+	if (IsEnemy(pTarget))
+		return;
+
+	// Set as squad leader
+	m_pSquadLeader = pTarget;
+
+	// Create or join a squad with the leader
+	if (!m_stSquad)
+	{
+		m_stSquad = gBotGlobals.m_Squads.createSquad(m_pEdict, pTarget);
+		if (m_stSquad)
+		{
+			m_stSquad->SetCombatType(COMBAT_COMBAT);
+			m_stSquad->ChangeFormation(SQUAD_FORM_WEDGE);
+		}
+	}
+	else if (m_stSquad->GetLeader() != pTarget)
+	{
+		// Switch squads
+		gBotGlobals.m_Squads.removeSquadMember(m_stSquad, m_pEdict);
+		m_stSquad = gBotGlobals.m_Squads.createSquad(m_pEdict, pTarget);
+		if (m_stSquad)
+		{
+			m_stSquad->SetCombatType(COMBAT_COMBAT);
+			m_stSquad->ChangeFormation(SQUAD_FORM_WEDGE);
+		}
+	}
+
+	// Add the follow leader task (high priority)
+	const int iNewScheduleId = m_Tasks.GetNewScheduleId();
+	AddPriorityTask(CBotTask(BOT_TASK_FOLLOW_LEADER, iNewScheduleId, pTarget));
+}
+
+// Console command: rcbot follow <bot_index> <player_index>
+// Makes a bot follow a player (or stop following if player_index = 0)
+void CBot::ConsoleCommandFollow(const char* szArgs)
+{
+	if (!szArgs || !szArgs[0])
+		return;
+
+	char szBotIdx[16], szPlayerIdx[16];
+	if (std::sscanf(szArgs, "%15s %15s", szBotIdx, szPlayerIdx) < 2)
+		return;
+
+	int iBotIdx = std::atoi(szBotIdx);
+	int iPlayerIdx = std::atoi(szPlayerIdx);
+
+	if (iBotIdx < 1 || iBotIdx > gpGlobals->maxClients)
+		return;
+
+	edict_t* pBot = INDEXENT(iBotIdx);
+	if (!pBot || !(pBot->v.flags & FL_FAKECLIENT))
+		return;
+
+	CBot* pBotPtr = gBotGlobals.GetBot(pBot);
+	if (!pBotPtr)
+		return;
+
+	if (iPlayerIdx == 0)
+	{
+		// Unfollow
+		pBotPtr->SetFollowTarget(nullptr);
+		return;
+	}
+
+	if (iPlayerIdx < 1 || iPlayerIdx > gpGlobals->maxClients)
+		return;
+
+	edict_t* pPlayer = INDEXENT(iPlayerIdx);
+	if (!pPlayer || !(pPlayer->v.flags & FL_CLIENT))
+		return;
+
+	pBotPtr->SetFollowTarget(pPlayer);
+}
+
+//////////////////////////////////////////////////////////////////////////////
 // NON-CLASS RELATED FUNCTIONS
 
 bool BotFunc_IsLongRangeWeapon(const int iId)

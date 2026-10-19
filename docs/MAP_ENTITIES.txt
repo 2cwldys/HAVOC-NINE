@@ -1,0 +1,282 @@
+===============================================================================
+ TS MATCH MODE -- MAP ENTITIES
+ What a map must name, what each thing is for, in build order
+===============================================================================
+
+ Companion to COMMANDS.txt. No custom entity classes are required anywhere:
+ everything below is a STOCK Half-Life / The Specialists entity whose
+ TARGETNAME carries the meaning -- and in one place a spawnflag. Names match
+ case-insensitively, but always as a WHOLE name.
+
+ The matching cvars live in ts_matchmode.cfg; the matching commands (amx_tsm_obj,
+ amx_tsm_siege) are documented in COMMANDS.txt.
+
+ ------------------------------------------------------------------------------
+  THE QUICK LIST -- everything to name in a map, in build order
+ ------------------------------------------------------------------------------
+
+   THE HEADLINE ANSWER DIRECTLY: the Breacher plants the SATCHEL on
+   tsm_obj_1 through tsm_obj_9 -- brush entities (func_wall is usual)
+   whose TARGETNAME is exactly the number, placed in the order they
+   must fall. Everything else in this file supports that contract.
+
+   1.  tsm_obj_1 .. tsm_obj_9
+       any brush entity (func_wall is the usual; func_breakable allowed)
+       => THE SIEGE OBJECTIVES -- the gates the attackers break through, in
+          ascending number order.                            (section 1)
+
+   2.  tsm_obj_N_reset  (one per objective N whose fall tears the map up)
+       multi_manager, or anything Use-able
+       => what puts YOUR scenery back after objective N falls.  (section 2)
+
+   3.  tsm_eng_door  (EXACTLY this name)
+       func_door (rotating or sliding)
+       => a door only ONE class of ONE side can open.           (section 3)
+
+   4.  tsm_breachdoor_1 .. tsm_breachdoor_8
+       lists in ts_matchmode.cfg, holding door TARGETNAMES
+       => breach OBJECTIVES: doors a Breacher ALWAYS forces ("Breached."),
+          even with a master lock.                              (section 4)
+
+   5.  (nothing to name)
+       func_door and friends, matched by CLASS via tsm_breach_entities
+       => movers the Breacher can force ONLY while truly locked. (section 4)
+
+   And that is ALL. The round banners, the raid siren and its defenders'
+   text, the team anthems, the Insurgent roar and the ambient music make NO
+   demand on the map at all -- they are plugin-side.             (section 5)
+
+   Three rules that rule everything:
+   - The number of objectives STOPS AT THE FIRST MISSING DIGIT: naming
+     tsm_obj_1, tsm_obj_2 and tsm_obj_4 makes a TWO-objective map.
+   - An objective's name is EXACTLY tsm_obj_ plus one digit, 1 to 9:
+     tsm_obj_10 does not exist, tsm_obj_1b is not an objective, and
+     tsm_obj_1_reset is a relay (section 2), NEVER an objective.
+   - Sections 1-3 and 5 are read at MAP LOAD; renaming or retuning them
+     needs a map change. Only the section 4 cfg lists are re-read live.
+
+
+ ===============================================================================
+  1. SIEGE OBJECTIVES  --  targetname  tsm_obj_1 .. tsm_obj_9
+ ===============================================================================
+
+  WHAT IT IS FOR: the round's spine. The attacking side (tsm_obj_team, default
+  team 2) breaks the chain IN ORDER up to nine deep; winning the round means
+  felling every objective on it.
+
+  HOW TO PLACE:
+
+    Entity     : any brush entity; func_wall is the usual choice.
+                 func_breakable is allowed -- read the caveat further down.
+    Targetname : EXACTLY tsm_obj_N, one digit, 1 to 9, in attack order.
+    Keyvalues  : target = your fall spectacle. It fires the instant the
+                 objective falls, with the taker as the activator: an
+                 env_shake, a target_cdz, a relay chain. Leave it out and the
+                 objective still falls -- only without lights.
+
+  HOW A FALL HAPPENS, IN ORDER:
+
+    1. A player of the attacking side walks up to the FIRST standing
+       objective (tsm_obj_range: 96 units).
+
+    2. If their class matches tsm_obj_class (default "Breacher"; blank = any
+       class of that side), aiming at it and HOLDING +USE starts the plant.
+       The wrong side is told "That is yours to defend.", the wrong class
+       "Only a <class> can set the charge."
+
+    3. THE PLANT: a loading bar fills across tsm_obj_time seconds (10.0) on
+       THE PLANTER'S OWN screen while the engine's satchel-reach clack
+       (get_satchel.wav) rings spatially FROM THE OBJECTIVE'S SPOT,
+       restarting as it ends. Letting go or looking away prints
+       "Charge not set." and leaves the brush untouched.
+
+    4. PLANTED: at the instant the hold completes, the server's own
+       plant.wav (ts\sound) rings once from the spot and everyone reads
+       "[MATCH] <name> planted the satchel on objective <n>." Any further
+       hold on it answers "The satchel is already planted."
+
+    5. THE FUSE: tsm_obj_fuse seconds (5.0) later the charge explodes --
+       HL's own explosion sprite at the body's centre plus one stock boom --
+       and THAT explosion is what destroys the objective: the body takes
+       one piece of breach damage (a breakable dies with its own gibs), and
+       a body that was never breakable is pulled from the world.
+
+    6. THE FALL: the objective's target fires, the kill is announced, and,
+       on the LAST objective, the round ends for side tsm_obj_team -- carried
+       by a FINALE: three stock explosions at once world-wide and the screen
+       shaking for the booms' combined length (never under 3 seconds). If
+       tsm_obj_slay is 1, everyone is killed half a second later, outside
+       the live round, so those deaths are not eliminations.
+
+    7. THE ALARM: from the round's FIRST attack on anything the map defends
+       -- a plant begun on an objective, or a Breacher forcing a breach door
+       -- the siren (sound/bloblarm.wav) loops for the REST of the round,
+       always exactly once however often the attack is pressed. Everyone
+       hears it; the side under attack reads a line under screen centre in
+       their own colour. Tuned by the tsm_alarm cvars.
+
+  THINGS THAT ARE NEVER A SINGLE PRESS OF E:
+    - No objective is destroyed by a single press. Planting is a HOLD; the
+      one-press verb belongs to the breach doors (section 4).
+    - ONLY a player matching the class gate (tsm_obj_class) plants. Every
+      other attacking class has exactly one route to a fall -- gunfire, in
+      a breakable body (next).
+
+  IF THE BODY IS A FUNC_BREAKABLE:
+    - Gunfire and grenades of ANY attacking class can break it, and the
+      objective falls right there: the credit goes to the shooter.
+    - A satchel already burning on it is reconciled: the body died to
+      whoever took it, the fuse dies with it, and the fall keeps their name.
+    - DEFENDERS CANNOT EVEN CHIP IT: their damage to an objective is cut to
+      zero before it lands, so no defender can break their own gate.
+    - Out-of-order destruction earns NOTHING: only the NEXT objective ever
+      falls. A body destroyed ahead of its turn is rebuilt at the next
+      round start from the cache (caveat below).
+
+  THE BREAKABLE CAVEAT, READ ONCE BEFORE MAPPING:
+    The plugin re-spawns a destroyed objective body at every round start from
+    what it recorded at map load: entity class, brush model, health,
+    spawnflags and fall target are replayed. Keyvalues the engine turns into
+    HIDDEN class data at spawn are NOT (material, gib type on the entity
+    itself). Keep an objective breakable an ORDINARY breakable, and put any
+    spectacle on whatever its target fires instead.
+
+
+ ===============================================================================
+  2. OBJECTIVE RESET RELAYS  --  targetname  tsm_obj_N_reset
+ ===============================================================================
+
+  WHAT IT IS FOR: putting your map's own scenery back to how round 1 found it.
+  A fall can demolish or open things beyond the objective entity itself; every
+  NEW MATCH the plugin walks back from the top through what fell and fires a
+  target named tsm_obj_N_reset for each of them, LAST first.
+
+  HOW TO PLACE:
+
+    Entity     : multi_manager, or anything Use-able.
+    Targetname : tsm_obj_N_reset -- one for each objective N that damages the
+                 rest of your map when it goes down.
+    Keyvalues  : each entry <targetname>:<seconds> fires that restore. A
+                 multi_manager fires entries IMMEDIATE unless given a delay
+                 keyvalue -- a wall that needs two seconds to swing back
+                 keeps its delay IN THE MANAGER, not in the plugin.
+
+  A breakable objective body needs NO relay: it is deleted when it breaks and
+  no relay can reach thin air -- the plugin re-spawns it from its own
+  load-time cache (section 1's caveat). The relays only ever have to restore
+  what the MAP's own explosion -- the target key -- demolished.
+
+
+ ===============================================================================
+  3. ENGINEER-ONLY DOORS  --  targetname  tsm_eng_door
+ ===============================================================================
+
+  WHAT IT IS FOR: a door exactly one class of exactly one side can open --
+  the assist class of your choosing on a shortcut, entrance or flank.
+
+  HOW TO PLACE:
+
+    Entity     : func_door, rotating or sliding, both work.
+    Targetname : EXACTLY tsm_eng_door.
+    Spawnflags : nothing special; the lock is the plugin's Ham_Use gate,
+                 not the mod's. If the map has none, amx_tsm_debug says
+                 "eng doors: in_map=0" and the hook stays idle.
+
+  THE GATE, enforced at every Use:
+    - The use only counts when a LIVING player is behind the door, of the
+      class named by tsm_eng_door_class (default "Combat Engineer"), and of
+      the side named by tsm_eng_door_team (default 0 = either side; set the
+      attacking side here so a defender cannot wave attackers through).
+    - The class check matches the CLASS NAME, so renaming classes in
+      ts_matchmode.cfg stays safe.
+    - Nobody and nothing else passes: not another class, not a bot standing
+      there, not a fired entity. The door answers people, nothing else.
+    - A Breacher CANNOT force it. They are refused before the breach code is
+      even consulted: "That door has no lock to break -- it reads who is at
+      it." None of the map's own tricks can confuse that order.
+
+  HEALTH CHECK: amx_tsm_debug prints how many tsm_eng_door doors the map
+  has ("eng doors: in_map=n") and whether the Ham_Use hook is alive. Doors
+  in the map plus ham_use still 0 means the hook is DEAD -- and the gate is
+  then open to whoever walks up.
+
+
+ ===============================================================================
+  4. BREACHER DOORS
+ ===============================================================================
+
+  WHAT IT IS FOR: doors to be broken, not opened. A Breacher holding +USE
+  within tsm_breach_range (96 units) force-opens a door. The plugin knows
+  two families:
+
+  (a) LOCKED STOCK DOORS, breachable by CLASS, no naming needed:
+      every entity of a class named in tsm_breach_entities (default:
+      func_door, func_door_rotating, func_wall_toggle, func_button) whose
+      "Use Only" spawnflag (32) has it locked for everyone. The Breacher's
+      use CLEARS that flag, the doorway stays open for the rest of the
+      round, and the centre-screen "Breached." callout flashes. An ordinary
+      UNLOCKED door under the crosshair gets stock TS behaviour and prints
+      no message at all. Add a map's own movers -- or the MASTER locking a
+      door -- to that list.
+
+      NOTE ON MASTER LOCKS: a door whose lock is a master (multisource
+      chain) cannot be forced directly -- the lock lives in the door's own
+      private data, which a plugin cannot reach. Either put the master (or
+      the trigger feeding it) in tsm_breach_entities and breach THAT, or
+      name the door on a list (below).
+
+  (b) DECLARED BREACH TARGETS, in ts_matchmode.cfg, not in the map:
+
+        tsm_breachdoor_1 ""    (through tsm_breachdoor_8)
+
+      Each holds a comma or space separated list of TARGETNAMES of doors
+      that count as breach objectives for this map, for example:
+
+        tsm_breachdoor_1 "gate_main,gate_side"
+        tsm_breachdoor_2 "gate_yard"
+
+      A door named on a list is treated as breachable EVEN IF its lock is
+      a master chain, and +USE on it always breaches (and therefore prints
+      "Breached."), whatever its spawnflags say.
+
+  EVERY BREACH FIRES: the door itself, and everything the door targets in
+  the same frame -- so a shell door firing the real mover opens the whole
+  doorway, including paired double doors that each target the other.
+
+
+ ===============================================================================
+  5. WHAT THE PLUGIN PLAYS WITH NO ENTITY AT ALL
+ ===============================================================================
+
+  Nothing below needs a trigger, a relay or a name -- a map that declares
+  none of it still gets all of it:
+
+    - THE ROUND-START BANNERS: tsm_obj_msg_1 and tsm_obj_msg_2 in the cfg,
+      one mid-screen read per side, team-coloured.
+    - THE RAID SIREN and the defenders' alarm text (section 1's rule 7),
+      from the round's first attack.
+    - THE TEAM ANTHEMS: one team stinger per side one second into every
+      round, locally (files in ts\sound\start; tsm_startsound 0 mutes).
+    - THE INSURGENT ROAR: four seconds after the Insurgents' anthem, the
+      monster's cry (ts\sound\mutantroar.wav) locally to TEAM 2 ONLY --
+      the other side and bystanders never hear it.
+    - THE AMBIENT MUSIC QUEUE (ts\sound\music; tsm_music per player).
+
+
+ ===============================================================================
+  6. TESTING -- FOR THE MAPPER
+ ===============================================================================
+
+   amx_tsm_obj            -- how many objectives the map has and their state
+   amx_tsm_obj <n>        -- mark objective n already fallen
+   amx_tsm_obj reset      -- put them all back
+
+  The SIEGE DEBUG SUITE goes further: every stage of the flow with NO
+  tsm_obj entities in the map at all (full details in COMMANDS.txt):
+
+   amx_tsm_siege          -- the whole siege state, printed
+   amx_tsm_siege_spawn    -- a synthetic objective where you look
+   amx_tsm_siege_plant    -- force-complete a plant (the exact real path)
+   amx_tsm_siege_fuse     -- set the planted charge off at once
+   amx_tsm_siege_alarm    -- the raid siren, forced on
+   amx_tsm_siege_reset    -- everything back to zero

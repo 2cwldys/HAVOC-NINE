@@ -1,0 +1,52 @@
+TS Match Mode — Audio Format Requirements
+==========================================
+
+Problem: Round-start anthems, badum.wav, mutantroar.wav were not playing for players.
+
+Root Cause: GoldSrc's `playvol` and `emit_sound` client commands **silently fail on stereo WAV files**.
+The sounds were encoded as 44.1kHz 16-bit PCM **stereo**, which the engine accepts during precache
+but produces no audio when played via `playvol`/`emit_sound`.
+
+Solution: Convert all round-start and cue sounds to **MONO** 44.1kHz 16-bit PCM.
+
+Files Fixed (all now mono 44.1k 16-bit):
+----------------------------------------
+sound/start/
+  - fortherepublic.wav     (MSR anthem)
+  - instructions.wav       (MSR anthem)
+  - lordcommander.wav      (MSR anthem)
+  - slaythem.wav           (Insurgency anthem)
+  - ripout.wav             (Insurgency anthem)
+  - eliminatetheimpure.wav (Insurgency anthem)
+
+sound/
+  - badum.wav              (MSR sudden-death cue)  — was already mono, confirmed working
+  - mutantroar.wav         (Insurgency round-start roar) — converted to mono
+
+Conversion Command (ffmpeg):
+----------------------------
+ffmpeg -y -i input.wav -ar 44100 -ac 1 -c:a pcm_s16le output.wav
+
+Verification (ffprobe):
+-----------------------
+codec_name=pcm_s16le
+sample_rate=44100
+channels=1
+bits_per_sample=16
+
+Key Learnings:
+--------------
+1. GoldSrc WAV playback via playvol/emit_sound requires MONO.
+2. Stereo WAVs precache successfully (no Host_Error) but produce silence at runtime.
+3. 44.1kHz is the max supported sample rate; 48kHz also causes silence.
+4. badum.wav worked from the start because it was already mono.
+4. Always verify with `ffprobe` after conversion.
+
+Build Integration:
+------------------
+build.bat syncs sound/start/*.wav to ts/sound/start/ on every build.
+Master copies in D:\Downloads\TSM\sound\start\ must be mono.
+Server copies in ts\sound\start\ are overwritten on build.
+
+Date: 2026-10-19
+Build: 1.53-fixes8

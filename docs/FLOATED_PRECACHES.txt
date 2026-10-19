@@ -1,0 +1,129 @@
+===============================================================================
+ TS MATCH MODE -- FLOATED PRECACHES
+ The sound sheet: everything the plugin plays, what precache covers it,
+ and the pairs where precache and playback are held apart
+===============================================================================
+
+ WHY THIS FILE EXISTS
+
+  The whole sheet was audited, sound by sound, after the satchel debug suite
+  and the round-start sounds joined (2026-10). The check was simple: for
+  every emit_sound, every playvol and every mp3 play in ts_matchmode.sma,
+  find the precache that covers it, and name the gap where none did.
+
+  Every pair held -- except one, where the precache side and the play side
+  are two different AUTHORS (a cvar feeding one, a literal string feeding
+  the other). That is a FLOATED precache: precache and playback point at
+  the same file only while two lines of code agree, and once they drift the
+  sound quietly dies (or the map load dies loudly). This file pins every
+  pair down so the next sound added to the plugin gets its line here in the
+  same edit, the way COMMANDS.txt demands for commands.
+
+ THE RULES, ONCE
+
+  - Precache is only legal inside plugin_precache(); every entry below is
+    settled BEFORE plugin_init runs.
+  - precache_sound on a name with no file behind it = FATAL Host_Error; the
+    map refuses to load. Custom wavs are therefore existence-gated first,
+    which shrinks a missing sound to silence instead of killing the map.
+  - MP3s go through precache_generic and the path must include "sound/".
+  - STOCK paths (weapons\explode*.wav and friends) live in the engine's own
+    valve directory: plain precache, no gate, present on every client.
+  - A playvol or an "mp3 play" is client-side, so the server precache is
+    precisely its download channel: without precaching, fresh clients fetch
+    nothing and hear silence.
+
+ THE SHEET
+
+  * MEDIC PERK -- tsm_medic_sound (default items/medshot4.wav)
+      perk_sound() emits it on the target so the squad nearby hears the
+      resupply. Precache reads the same cvar the emit reads -- ONE value at
+      both ends. Coupled.
+
+  * ENGINEER PERK -- tsm_eng_sound (default items/9mmclip1.wav)
+      Same pattern, same coupling.
+
+  * SUDDEN-DEATH LAUGH -- tsm_sudden_sound (default xom_laugh.wav)
+      precache_custom_sound covers the cvar's value -- but the sudden-death
+      flash emits the LITERAL string "xom_laugh.wav". The pair holds only
+      while the cfg keeps the default.   *** THE FLOAT, see below ***
+
+  * JOIN JINGLE -- tsm_welcome_sound (default welcome.wav)
+      precache_custom_sound (client download kind) on the cvar, and the
+      welcome task playvol's the same cvar's value. Coupled.
+
+  * ELIMINATION VOICES -- death/fem1..5.wav, death/male1..5.wav
+      Each slot existence-gated; a missing file only shrinks that voice's
+      random pool, never the emit. Fixable_at_no_risk.
+
+  * ROBOT voice -- TSM_DEATH_ROBO, weapons/explode3.wav
+      Plain precache: valve stock, engine-dir fallback always has it.
+
+  * RAID SIREN -- TSM_ALARM_WAV, bloblarm.wav (ts\sound root)
+      Plain precache plus a measured loop span (sound_seconds reads the wav
+      header at precache, so replacing the file re-times itself).
+
+  * PLANT HOLD -- TSM_PLANT_WAV, get_satchel.wav (valve stock)
+      Plain precache plus measured length for the restart clock. Note the
+      name: it is deliberately NOT plant.wav, because the moddir copy below
+      wins the same-name lookup on clients.
+
+  * PLANT SUCCESS -- TSM_PLANT_DONE, plant.wav (ts\sound root)
+      Plain precache. On a fresh install without the file, clients fall
+      back to the engine's own same-name stock -- moddir, then valve -- so
+      nothing crashes either way.
+
+  * FINALE BOOM STACK -- TSM_OBJ_BOOM_A/B/C
+      weapons/explode4.wav, weapons/explode5.wav, explo/explode2.wav.
+      Plain precaches (valve stock), each measured for the ground shake's
+      window.
+
+  * AMBIENT MUSIC QUEUE -- g_music_mp3 (six tracks, contaminated last)
+      precache_generic("sound/music/<name>") per table row -- names and
+      precache are ONE table. The hand-stamped LENGTHS are a soft float:
+      see THE FLOATS.
+
+  * ROUND-START ANTHEMS -- g_start_t1 / g_start_t2 (three per side)
+      precache_generic("sound/start/<name>") from the same tables the
+      anthem task plays from, lengths stamped per file.
+
+  * INSURGENT ROAR -- TSM_ROAR_WAV, mutantroar.wav (ts\sound root)
+      Existence-gated like the death voices: a missing file keeps the cue
+      quiet instead of Host_Error-ing the map load.
+
+  * (not a sound, but the same wire rule) -- the TE_EXPLOSION sprite
+      zerogxplode.spr is precache_model'd; its index travels in the
+      temp-entity packet exactly like a wav index travels in an emit.
+
+ THE FLOATS
+
+  1. THE SUDDEN-DEATH LAUGH.
+     The precache follows the cvar tsm_sudden_sound; the sudden-death emit
+     (in the sudden-death flash, around line 13250 this build) plays the
+     literal "xom_laugh.wav". They agree today because the cfg keeps the
+     default value -- and the cfg does -- but retuning that one cvar swaps
+     what gets precached while the emit still asks for the old name. The
+     failure mode is quiet: unprecached ranges resolve to nothing on the
+     client, so the tune just goes silent at the flash. If you retune the
+     cvar, either make the emit read the cvar too (one get_pcvar_string)
+     or accept the silence you asked for.
+
+  2. THE MP3 LENGTH STAMPS (half-float: names are coupled, timings are not).
+     Both music tables (g_music_len under the ambient queue,
+     g_start_t1_len / g_start_t2_len under the anthems) hand-stamp durations
+     in seconds to arm the next track. The play site and the precache share
+     the same TABLE, so no name can float; but the FILE under the name is
+     free. Swap an mp3 for a longer file and the next track takes the
+     channel early (cut-off, not silence); shorter leaves a gap. Correct
+     the stamp in the same edit as the file swap. The alarm and the plant
+     sounds avoid this entirely by measuring the wav header at precache.
+
+  3. NOTHING ELSE FLOATS. Every remaining sound is either a fixed #define
+     shared by the precache and the play site, or a cvar read at both ends.
+
+ KEEPING IT TRUE
+
+  When a sound is added, renamed or removed in ts_matchmode.sma, its line
+  here is written in the same edit. A sheet that is only sometimes right is
+  worse than none, because it gets trusted -- the same rule COMMANDS.txt
+  opens with, applied to the sound wire.

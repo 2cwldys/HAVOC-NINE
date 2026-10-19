@@ -49,8 +49,21 @@
        Combat Engineer   +USE on a teammate resupplies them. Once per round.
                          They glow YELLOW while it lands and it is audible to
                          anyone nearby.
-       Breacher          +USE on a door forces it open, including doors locked
-                         against every other class. Carries the Benelli M3.
+       Breacher          +USE forces a DOOR open -- and shows "Breached." --
+                         that part is still one press, and doors only respond
+                         when they were actually LOCKED ("Use Only" spawnflag)
+                         or whose targetname is on one of the map's
+                         tsm_breachdoor_# lists; an everyday unlocked door
+                         gets stock TS behaviour and no message. On siege
+                         objectives the Breacher is the only PLANTER: hold
+                         +USE for the ten-second plant (a bar fills at the
+                         centre of their screen), the satchel burns its fuse,
+                         and the explosion is what takes the objective --
+                         nothing falls on a single press of E. No other
+                         class may plant; they can only destroy bodies that
+                         CAN break, by gunfire and grenades. A same-side
+                         player can never breach their own objective.
+                         Carries the Benelli M3.
        Officer           Commands bots with .follow and .unfollow. Carries the
                          Glock 18 and a Katana.
        Medic             +USE on a teammate heals them 50hp on a 15s cooldown,
@@ -186,11 +199,21 @@
      round, because steering is a straight pull and through a wall it would
      only pull them into it.
 
+     Bots that wander beyond tsm_squad_warp are WARPED to a clear spot BESIDE
+     you (never onto you) -- the plugin searches a ring behind you for a free
+     landing.
+
      An Officer is told about both commands in chat when the round starts, so
      the perk is not invisible.
 
  .unfollow /   .dismiss        (Officer class only)
      Stand the whole squad down. Releases only YOUR bots.
+
+ .unstick                      (any live player)
+     Pushes bots IN YOUR SQUAD within ~56 units off you, and lifts you +24
+     units if you are genuinely embedded in solid. Bots are moved to a clear
+     ring spot (8 directions tried) and zeroed. 3-second cooldown. Bots only
+     -- never affects humans. Only affects bots currently following YOU.
 
 
 ===============================================================================
@@ -357,6 +380,48 @@
  amx_tsm_shuffle
      Attempt to even the sides out.
 
+ amx_tsm_siege
+     The siege's whole state in one print: how many objectives stand and
+     what has fallen, the planted satchel (whose, whose fuse is running and
+     the cvar's seconds), any holds in progress, the alarm (side, siren
+     loop, volume), the class gate, and every measured sound length.
+
+ amx_tsm_siege_spawn [n]
+     Create a SYNTHETIC objective right where you look -- a small glowing
+     box named tsm_obj_<n>. No tsm_obj entity needs to exist in the map at
+     all; this is how you play the whole plant-fuse-removal flow anywhere.
+     It takes the next free number by itself, or the number you give it (a
+     slot that already stands is refused). After its fall it is gone for
+     good: synthetic bodies are not cached for the per-round rebuild.
+
+ amx_tsm_siege_plant [n]
+     Force-complete a plant instantly through the same code a finished
+     hold calls: the success plant.wav, the "[MATCH] ... planted" line,
+     the planted state and tsm_obj_fuse's fuse. Without a number it takes
+     the objective under your crosshair. It refuses outside a live round;
+     planting a non-next objective prints a warning -- the fuse will
+     reconcile and fall nothing until the chain walks there
+     (amx_tsm_obj <n>).
+
+ amx_tsm_siege_fuse
+     Set the planted charge off this instant by calling the real fuse
+     tick: the explosion sprite, the boom, the fall and -- on the chain's
+     last objective -- the round end, the boom stack and the ground shake.
+
+ amx_tsm_siege_alarm
+     Force the raid siren on, live round or not, with the defenders' text
+     like a real first attack. A round boundary still cuts it.
+
+ amx_tsm_siege_reset
+     The clean slate: fuse killed, alarm cut, synthetic objectives taken
+     back out of the world, every cached objective body rebuilt, and the
+     chain (how many have fallen) at zero.
+
+     RUN ORDER: amx_match_start to go live, then spawn or aim at an
+     objective, then plant. The fuse only detonates live and in order
+     (amx_tsm_obj <n> walks the chain forward), which is the real round's
+     own rule -- the suite tests the rules rather than suspending them.
+
 
 ===============================================================================
  COMMANDS THIS PLUGIN INTERCEPTS
@@ -484,9 +549,9 @@
  Full reference: half-life/rcbot/rcbot_commands.txt
 
  rcbot addbot                         add one bot
- rcbot config min_bots <n>            bot quota; a bot is kicked when the
- rcbot config max_bots <n>            count exceeds min_bots
- rcbot config balance_teams <0|1>     rcbot evens its own bots across sides
+ rcbot config min_bots 0              live value; player can always join (kicks a bot if quota > 0)
+ rcbot config max_bots 20             live value; 10v10 bots total, +maxplayers 32 leaves 12 human slots
+ rcbot config balance_teams 1         rcbot evens its own bots across sides
  rcbot autowaypoint <0|1|2>           drop waypoints as you walk
  rcbot waypoint on|off|add|delete     manual waypointing
  rcbot pathwaypoint ...               path editing
@@ -499,6 +564,8 @@
  tsm_bots 1 also sets balance_teams 1, because only rcbot can move its own
  bots in a way TS agrees with -- moving them plugin-side made bots shoot their
  own teammates and use the wrong spawn points.
+ NOTE: tsm_bots 1 does NOT restore the quota on a 0->1 toggle; bots stay gone
+ until a full server restart (the build workflow includes a restart anyway).
 
  With tsm_bots 1 the bots sit in SPECTATOR until a human picks a side. Filling
  starts from that point, so the first person to join is not dropped into a server
@@ -593,3 +660,5 @@
 
  Verbose tracing: tsm_debug_log 3 writes per-tick detail to
  addons/amxmodx/logs/tsm_debug.log. Level 4 also echoes to the console.
+
+

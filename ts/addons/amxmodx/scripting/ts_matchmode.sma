@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes4"
+#define TSM_BUILD "1.53-fixes8"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -116,6 +116,23 @@
 #define ST_ROUNDEND  4
 #define ST_MATCHEND  5
 
+/* ---- mech sounds, folded in from the old mech_footsteps plugin -------------
+   mechwalk / mechwalk2 alternate on footsteps; mechloop is the idle hum under
+   every living mech. All three live in ts\sound\ and are precached for clients.
+*/
+#define MECH_STEP_1     "mechwalk.wav"
+#define MECH_STEP_2     "mechwalk2.wav"
+#define MECH_LOOP       "mechloop.wav"
+#define MECH_LOOP_VOL   0.8
+#define MECH_LOOP_ATTEN ATTN_NORM   // mid range
+#define MECH_LOOP_PERIOD 2.2        // wav is 2.250 s; re-emit 50 ms early
+#define TSM_M60_WPN     32          // TSW_M60E3, the M60 the Heavy and the Mech carry
+// The pilot hears their own mech through playvol on their own client. The
+// server's emit_sound for the player's own entity is what the client's local
+// prediction also drives, and the two fight for the same channels -- so a
+// certainty path for the person wearing the machine, one client command for
+// the sound they are owed, on top of the world copy everyone else gets.
+
 /* ---- entvar values we set (own names: the includes may already define these,
         and this compiler objects to redefinition) ---------------------------- */
 #define TSM_SOLID_NOT        0
@@ -136,8 +153,22 @@
 #define TSM_MOVETYPE_NOCLIP  8
 #define TSM_EF_NODRAW        128
 
+// Human hull for TraceHull (hlsdk_const.inc: HULL_HUMAN = 1)
+#define TSM_HULL_HUMAN       1
+// Personal-space push / unstick reach and speed
+#define TSM_UNSTICK_REACH    56.0
+#define TSM_PUSH_SPEED       260.0
+
 #define TSM_DAMAGE_NO        0.0
 #define TSM_DAMAGE_AIM       2.0
+
+// Mech .rocket ability constants
+#define TSM_MECH_ROCKET_COOLDOWN   30.0   // seconds between rockets
+#define TSM_MECH_ROCKET_MAX_USES   4      // max rockets per life
+#define TSM_MECH_ROCKET_DAMAGE_MIN 50.0   // minimum AoE damage
+#define TSM_MECH_ROCKET_DAMAGE_MAX 65.0   // maximum AoE damage
+#define TSM_MECH_ROCKET_RADIUS     150.0  // explosion radius
+#define TSM_MECH_ROCKET_RANGE      2000.0 // max distance to target
 
 // Engine-level freeze. The player movement code refuses to move an entity carrying
 // this flag, which is what makes it the right mechanism here: it does not touch the
@@ -227,6 +258,8 @@
 #define TSM_PERK_MEDIC       3
 #define TSM_PERK_OFFICER     4
 #define TSM_PERK_REGEN       5
+#define TSM_PERK_RECON       6
+#define TSM_PERK_MECH        7
 
 // The regeneration tick's task id. A server-wide task, so it needs an id that cannot
 // collide with the per-player ones, which are all a player index plus a round
@@ -235,6 +268,56 @@
 
 // Ambient music queue, server-wide, so it needs an id of its own as well.
 #define TSM_TASK_MUSIC       90211
+
+// The siege alarm siren's one server-wide loop beat; a round holds exactly one
+// of these running, never a second stacked onto it.
+#define TSM_TASK_ALARM       90212
+#define TSM_TASK_BOTFILL     90213
+#define TSM_TASK_BOTKICK     90214
+
+// The planted satchel's one fuse beat: as with the alarm, one objective holds
+// the chain at a time, so one server-wide task id is the whole mechanism.
+#define TSM_TASK_CHARGE      90213
+
+// The round-start anthems' one server-wide tick: fired one second into every
+// round, removed first whenever a round starts or the match tears down, so a
+// halted round's anthem never rings over live play.
+#define TSM_TASK_SONGS       90214
+
+// The Insurgent roar's one server-wide tick: four seconds after their anthem,
+// one task a round, removed at every round start with the anthems'.
+#define TSM_TASK_ROAR        90215
+
+// The MSR badum's one server-wide tick: same 5.0s timing as the roar (1.0s anthem + 4s).
+#define TSM_TASK_BADUM       90216
+
+// Forward declarations for functions used before definition
+forward disband_squad(leader);
+forward squad_size(leader);
+
+/*
+ * SIEGE OBJECTIVE BASICS, this far up because the map recorder below snapshots
+ * the objective bodies at load and needs the prefix and the cap. The rest of
+ * the siege constants sit with the siege system itself.
+ */
+#define TSM_OBJ_PREFIX "tsm_obj_"
+#define TSM_OBJ_MAX    9
+
+/*
+ * THE OBJECTIVE BODY CACHE.
+ *
+ * A func_breakable that is destroyed is DELETED from the world outright, and
+ * nothing in HL resurrects an entity -- so whichever round broke objective N
+ * would leave every round after it nothing to aim at. The recorder keeps what
+ * a body needs to exist again (its class, its brush model, the health and
+ * spawnflags the mapper gave it, and the fall target), and siege_reset()
+ * spawns any missing body back before players arm.
+ */
+new g_obj_class[TSM_OBJ_MAX + 1][32];     // original entity class
+new g_obj_model[TSM_OBJ_MAX + 1][16];     // brush model string, "*NN"
+new Float:g_obj_health[TSM_OBJ_MAX + 1];  // the mapper's own health value
+new g_obj_spawnflags[TSM_OBJ_MAX + 1];    // the mapper's own spawnflags key
+new g_obj_target[TSM_OBJ_MAX + 1][64];    // what the fall fired (the spectacle)
 
 // Glow shell, for the medic's heal. renderfx is a separate field from rendermode,
 // so this does not disturb the hide that runs off rendermode and renderamt.
@@ -313,6 +396,18 @@ new g_last_buttons[MAXPL];
 new bool:g_was_alive[MAXPL];
 new Float:g_pending_elim[MAXPL];
 
+new const g_mech_hit_snd[][] = {
+    "debris/metal1.wav",
+    "debris/metal2.wav",
+    "debris/metal3.wav",
+    "debris/metal4.wav",
+    "debris/metal5.wav"
+};
+
+// Mech .rocket ability: cooldown and uses per life
+new Float:g_mech_rocket_next[MAXPL];   // gametime when next rocket is allowed
+new g_mech_rockets_used[MAXPL];        // rockets fired this life (max 4)
+
 // Saved presentation, so a player is always restorable.
 new bool:g_frozen[MAXPL];          // we are holding this player right now
 new Float:g_save_maxspeed[MAXPL];  // their speed before we clamped it
@@ -360,26 +455,85 @@ new g_cv_nocash, g_cv_blockbuy;
 new g_cv_engrange, g_cv_engclips, g_cv_engents, g_cv_engcool;
 new g_cv_engglow, g_cv_engshell;
 new g_cv_medsound, g_cv_engsound, g_cv_suddensound, g_cv_welcomesound;
-new g_cv_musicvol;
+// Which death-voice wavs are on disk and precached (slots 1..6); a missing file
+// only shrinks the random pool, it never crashes the emit.
+new bool:g_death_fem_ok[7];
+new bool:g_death_male_ok[7];
+#define TSM_DEATH_ROBO "weapons/explode3.wav"   // HL1 frag grenade, stock
 
-// Ambient music queue. Played client-side via HL's MP3 player (client_cmd "mp3 play"),
-// one track at a time, for each player who has not turned it off. MP3 player audio is
-// 2D non-spatial: it follows the listener and cannot be moved away from. The lengths
-// are the mp3s' own durations, so the next track is armed to start as this one ends
-// rather than on a fixed interval.
-new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3" };
-new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2 };
-new g_music_order[5] = { 0, 1, 2, 3, 4 };
-new g_music_pos = 5;         // 5 forces a shuffle before the first track
+/*
+ * THE SIEGE FINALE BOOMS, three more of HL1's own stock explosions in the
+ * engine's valve directory (no download, no existence check). They layer at
+ * once -- separate channels, spread pitches -- the moment the LAST objective
+ * of the chain falls; the precache and the whole siege section come later.
+ */
+#define TSM_OBJ_BOOM_A "weapons/explode4.wav"
+#define TSM_OBJ_BOOM_B "weapons/explode5.wav"
+#define TSM_OBJ_BOOM_C "explo/explode2.wav"
+new const g_boom_snd[3][] = { TSM_OBJ_BOOM_A, TSM_OBJ_BOOM_B, TSM_OBJ_BOOM_C };
+// The engine's ScreenShake game message, looked up once and sent raw by the
+// finale boom further down.
+new g_shake_msg;
+new g_cv_musicvol, g_cv_startsound;   // tsm_startsound gates the round-start anthems
+
+// Ambient music queue. One track at a time, for each player who has not turned it
+// off. The lengths are the files' own durations, so the next track is armed to start
+// as this one ends rather than on a fixed interval.
+//
+// Five ride HL's MP3 player (client_cmd "mp3 play"): MP3 player audio is 2D
+// non-spatial, follows the listener and cannot be moved away from. The sixth,
+// contaminated, is a WAV on playvol instead -- it is by far the longest track
+// (five minutes), so while it played it held the ONE mp3 stream for that whole
+// time, and anything else that needed the stream was cutting it or being cut.
+// As a wav it mixes over a normal sound channel and the mp3 stream is never
+// held at all. music_is_wav() tells the two kinds apart; the precache and the
+// play path both branch on it.
+new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav" };
+new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0 };
+new g_music_order[6] = { 0, 1, 2, 3, 4, 5 };
+new g_music_pos = 6;         // 6 forces a shuffle before the first track
 new g_music_cur = -1;        // the track currently playing, -1 before the first
 new bool:g_music_off[MAXPL];
 
+/*
+ * THE ROUND-START ANTHEMS, team-pure: one second into every round, each
+ * sided player hears a random pick of their OWN side's short stinger --
+ * ts\sound\start, six files the server ships -- locally on the player's
+ * own machine via playvol, a NORMAL sound channel. They once rode the mp3
+ * player, where HL's single mp3 stream made every anthem a hard cut of
+ * the ambient queue's track; a wav mixes over the queue's mp3 instead of
+ * fighting it for the one channel, so nothing needs leasing anymore.
+ * Side 1 = MSR, side 2 = Insurgency; tsm_startsound 0 turns the pair off
+ * entirely.
+ */
+new const g_start_t1[][] = { "fortherepublic.wav", "instructions.wav", "lordcommander.wav" };
+new const g_start_t2[][] = { "slaythem.wav", "ripout.wav", "eliminatetheimpure.wav" };
+
+/*
+ * TEAM 2's ROAR: the monster's own cry, the Insurgents' SECOND round-start
+ * sound -- four seconds after their anthem rings, heard by the Insurgents
+ * only, locally on their own machines. Lives at ts\sound root like the
+ * welcome jingle, and is existence-gated at precache like the death voices.
+ */
+#define TSM_ROAR_WAV "mutantroar.wav"
+new bool:g_roar_ok;   // mutantroar.wav really stood on disk at precache time;
+
+/*
+ * TEAM 1's BADUM: the MSR's own second round-start sound, badum.wav the same
+ * way the Insurgents' roar is theirs -- four seconds after their anthem rings,
+ * heard by the MSR only, locally on their own machines. Lives at ts\sound root
+ * like the roar, and is existence-gated at precache like the death voices.
+ */
+#define TSM_BADUM_WAV "badum.wav"
+new bool:g_badum_ok;   // badum.wav really stood on disk at precache time;
+
 new g_cv_regenamt, g_cv_regenevery, g_cv_regenpause;
 new Float:g_last_hit[MAXPL];    // gametime they were last damaged, for the regen pause
-new g_cv_breachents, g_cv_breachrange;
+new g_cv_breachents, g_cv_breachrange, g_cv_breachdoor[8];
 new g_cv_engdoorclass;
 new g_cv_engdoorteam;
-new g_cv_objteam, g_cv_objclass, g_cv_objtime, g_cv_objslay, g_cv_objrange;
+new g_cv_objteam, g_cv_objclass, g_cv_objtime, g_cv_objfuse, g_cv_objslay, g_cv_objrange;
+new g_cv_objmsg1, g_cv_objmsg2;   // the round-start team banners
 new g_cv_armorder;
 new g_cv_wpnextra;
 new g_cv_classscale;
@@ -407,8 +561,8 @@ new g_cv_classretry, g_cv_deathgrace;
 new Float:g_corpse_born[TSM_MAXENT];
 /// For a TS corpse, the copy of it we made; for one of our copies, nothing.
 new g_corpse_clone[TSM_MAXENT];
-new g_cv_squadmax, g_cv_squaddist, g_cv_squadwarp, g_cv_squadspeed;
-new g_cv_squadsteer, g_cv_squadreach;
+new g_cv_squaddist, g_cv_squadwarp, g_cv_squadspeed;
+new g_cv_squadsteer;
 new g_cv_endelay;
 new g_cv_botresup;
 new g_bot_resup_rr = 0;        // round-robin, so only one bot is topped up per tick
@@ -488,6 +642,13 @@ new Float:g_perk_at[MAXPL];   // when perk_use last ran, to dedupe button vs com
 new Float:g_engdoor_told_at[MAXPL];  // rate limit on the refusal at an engineer door
 new g_squad_leader[MAXPL];    // for a BOT: the officer it is following, 0 = nobody
 new g_bot_prethinks[MAXPL];   // diagnostic: does PlayerPreThink fire for bots at all?
+
+// .unstick cooldown per player (gametime when next .unstick is allowed)
+new Float:g_unstick_at[MAXPL];
+// Shove persistence: until when, and in which 2D direction (per bot)
+new Float:g_push_until[MAXPL];
+new Float:g_push_dir[MAXPL][2];
+
 /*
  * Diagnostic: does Ham_Use fire on func_door in THIS mod at all?
  *
@@ -568,8 +729,14 @@ new g_bot_class_rr = 0;  // round-robin cursor for spreading bots across classes
 new g_map_items[128];
 new g_map_item_count = 0;
 new g_arm_pending[MAXPL];
+new bool:g_armed[MAXPL];      // true once task_arm_respawn has finished this player's loadout
+new g_next[33];               // per walker: which mech step of the pair plays next
+new Float:g_next_step_time[33]; // rate-limit for local player footstep detection
+new g_mech_hp_watch[33];      // last known mech hp: any positive bump in live play is a stimpack role we out-law
+new g_m60_skip[33];           // index in the class weapon list held back for the M60-first arm (-1 = none)
 new Float:g_connect_at[MAXPL];
 new Float:g_class_menu_at[MAXPL];
+new Float:g_gate_deadline;    // when the LIVE gate stops waiting and forces go-live
 /*
  * A class menu built for ONE player, because what it says depends on his side.
  *
@@ -670,6 +837,280 @@ dbg(const fmt[], any:...)
 	{
 		server_print("[TSM] %s", msg);
 	}
+}
+
+/*
+ * === THE SIEGE ALARM =======================================================
+ *
+ * The FIRST successful attack of a round on anything the other side owns -- a
+ * hold taken on a siege objective, or one of the breach doors forced -- starts
+ * the alarm siren, and the siren then loops for the remainder of the round.
+ *
+ * It never stacks. Every trigger funnels into alarm_start, which is a no-op
+ * while the alarm is already running, and the loop beat is one repeating task
+ * that fires a twentieth of a second BEFORE the wav runs out -- so the next
+ * play is always the only one next, and no round holds more than one alarm no
+ * matter how many doors and objectives are attacked meanwhile.
+ *
+ * The wave length is measured once by reading the wav's own RIFF header: the
+ * byte rate out of its fmt chunk, the file size out of the RIFF word itself.
+ * A guessed interval could shorten the file into a stack; a missing or
+ * unreadable wav measures as nothing at all, which stands the siren down but
+ * keeps the warning text running on a plain two-second beat.
+ *
+ * Everyone hears the siren, bots included. Only real people receive the text,
+ * and only the DEFENDERS: every player on the side opposite the trigger reads
+ * a centre-screen line in their own side colour, the same two colours the
+ * round banners use. tsm_alarm_msg holds the line (pipes are row breaks, like
+ * the banners'), tsm_alarm_vol the siren's volume, tsm_alarm 0 stands the
+ * alarm down entirely. It stops at round start, at match teardown, and by
+ * itself in the next round's freeze; the round it belongs to owns it to the
+ * very end of that round.
+ */
+#define TSM_ALARM_WAV "bloblarm.wav"
+#define TSM_ALARM_Y   0.47    // the free band at screen centre (banners 0.43 up, hover 0.56 down)
+#define TSM_PLANT_Y   0.47    // the planter's own progress bar shares that empty band
+#define TSM_PLANT_WAV   "get_satchel.wav"   // the engine's own satchel-reach clack, valve dir fallback
+#define TSM_PLANT_DONE  "plant.wav"         // the one the server ships in ts\sound -- rings once on success
+
+new g_cv_alarm, g_cv_alarmvol, g_cv_alarmmsg;
+// The siren's measured seconds; 0.0 means no wav behind the name, text only. One
+// flag, so a second trigger of the round finds the alarm busy and walks away.
+new Float:g_alarm_len;
+new bool:g_alarm_on;
+// The side that started the alarm; the defenders are everyone not on it.
+new g_alarm_side;
+
+// THE SATCHEL PLANT: one objective charges at a time across the whole chain,
+// so the planted state is these three plus one fuse task. The last row is
+// each planter's own plant-sound clock, set fresh on every hold they start.
+new g_plant_ent, g_plant_n, g_plant_by;
+new Float:g_plant_last[MAXPL];
+// Measured lengths the planting and the finale lean on: the plant sound's own
+// loop, and each finale boom's span -- the ground shake covers their window.
+new Float:g_plant_len;        // the hold loop's own clack
+new Float:g_plant_done_len;   // the SUCCESS plant.wav, reported by the siege dump
+new Float:g_boom_len[3];
+new g_obj_boom_spr;   // the explosion sprite's precache index, for the TE burst
+
+/*
+ * A moddir wav's own length in seconds, read from its header. The open IS the
+ * existence gate: moddir first, then the engine's own valveshared stock (the
+ * plant sound and the boom stack live there), and any wav with no readable
+ * header measures 0.0 so the callers can fall back on their own terms.
+ */
+Float:sound_seconds(const snd[])
+{
+	new path[40];
+	formatex(path, charsmax(path), "sound/%s", snd);
+	new f = fopen(path, "rb");
+	if (!f)
+	{
+		f = fopen(path, "rb", true);
+	}
+	if (!f)
+	{
+		return 0.0;
+	}
+
+	// "RIFF <u32> WAVE": that integer IS how many bytes follow it, so the
+	// file's total comes out of its own first words and no fsize is needed.
+	new id[4];
+	if (fgetc(f) != 'R' || fgetc(f) != 'I' || fgetc(f) != 'F' || fgetc(f) != 'F'
+		|| fgetc(f) != 'W' || fgetc(f) != 'A' || fgetc(f) != 'V' || fgetc(f) != 'E')
+	{
+		fclose(f);
+		return 0.0;
+	}
+	new riff = fgetc(f) | (fgetc(f) << 8) | (fgetc(f) << 16) | (fgetc(f) << 24);
+
+	// Then a chunk walk until "fmt ": every other chunk is stepped over whole
+	// (the big data chunk is never entered), so the read stays a few bytes.
+	// Sixteen steps is past any sane wav and harmless on a junk one.
+	new rate = 0;
+	for (new chunk = 0; chunk < 16 && !feof(f); chunk++)
+	{
+		id[0] = fgetc(f);
+		id[1] = fgetc(f);
+		id[2] = fgetc(f);
+		id[3] = fgetc(f);
+		new size = fgetc(f) | (fgetc(f) << 8) | (fgetc(f) << 16) | (fgetc(f) << 24);
+		if (size <= 0 || feof(f))
+		{
+			break;
+		}
+
+		if (id[0] == 'f' && id[1] == 'm' && id[2] == 't' && size >= 16)
+		{
+			// fmt data: bytes 0..3 the format tag and channel count, 4..7 the
+			// sample rate, 8..11 the byte rate -- rate x bytes per second on
+			// the wire, which is the divisor wanted. The eight bytes before it
+			// go straight past and the walk ends with the file, before the far
+			// bigger data chunk.
+			fgetc(f);
+			fgetc(f);
+			fgetc(f);
+			fgetc(f);
+			fgetc(f);
+			fgetc(f);
+			fgetc(f);
+			fgetc(f);
+			rate = fgetc(f) | (fgetc(f) << 8) | (fgetc(f) << 16) | (fgetc(f) << 24);
+			break;
+		}
+
+		fseek(f, size, SEEK_CUR);
+	}
+	fclose(f);
+
+	if (rate <= 0 || riff <= 16)
+	{
+		return 0.0;
+	}
+
+	// The RIFF word counts itself short by eight, so the file's own span is
+	// eight more. Header tens of bytes against streaming tens of thousands
+	// leaves the figure within milliseconds of the true play length.
+	return float(riff + 8) / float(rate);
+}
+
+alarm_emit()
+{
+	emit_sound(0, CHAN_STATIC, TSM_ALARM_WAV, get_pcvar_float(g_cv_alarmvol), ATTN_NONE, 0, PITCH_NORM);
+}
+
+/*
+ * The defenders' warning line, centre screen in their own side colour. Held
+ * for the whole beat plus a little, so the next beat's redraw always lands
+ * before the previous one expires and the line never blinks.
+ */
+alarm_draw()
+{
+	new msg[384];
+	get_pcvar_string(g_cv_alarmmsg, msg, charsmax(msg));
+	if (!msg[0])
+	{
+		return;
+	}
+
+	for (new c = 0; c < sizeof msg && msg[c]; c++)
+	{
+		if (msg[c] == '|')
+		{
+			msg[c] = '^n';
+		}
+	}
+
+	new Float:hold = (g_alarm_len > 2.0 ? g_alarm_len : 2.0) + 0.4;
+
+	// The colour belongs to the side that READS it: attacking side 1 puts side
+	// 2 under the alarm, so red; attacking side 2 puts blue in side 1's eyes.
+	// Bots never read it, and neither does anyone whose side is unset.
+	if (g_alarm_side == 1)
+	{
+		set_hudmessage(255, 70, 60, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 6);
+	}
+	else
+	{
+		set_hudmessage(0, 170, 255, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 6);
+	}
+
+	for (new id = 1; id < MAXPL; id++)
+	{
+		if ((g_match_team[id] == 1 || g_match_team[id] == 2) && g_match_team[id] != g_alarm_side
+			&& is_user_connected(id) && !is_user_bot(id))
+		{
+			show_hudmessage(id, "%s", msg);
+		}
+	}
+}
+
+/*
+ * Turn the alarm on -- or find it already on and do nothing, which is the
+ * whole no-stack rule made solid: the running loop does not care who touched
+ * a door or objective after the first one did. FORCED -- the siege debug
+ * suite's amx_tsm_siege_alarm -- still refuses an alarm already running
+ * (idempotence survives) but skips the cvar and live-round gates, so the
+ * siren can be heard from freeze on because it was ASKED for.
+ */
+alarm_start(id, bool:force = false)
+{
+	if (g_alarm_on || (!force && (!get_pcvar_num(g_cv_alarm) || g_state != ST_LIVE)))
+	{
+		return;
+	}
+
+	g_alarm_on = true;
+
+	// The trigger's side defines who is under the alarm. A trigger without a
+	// side falls back to the objective cvar's own attackers, so the recipients
+	// are never "side zero".
+	g_alarm_side = get_pcvar_num(g_cv_objteam);
+	if (g_match_team[id] == 1 || g_match_team[id] == 2)
+	{
+		g_alarm_side = g_match_team[id];
+	}
+
+	if (g_alarm_len > 0.0)
+	{
+		alarm_emit();
+
+		// The beat fires a twentieth early: firing after the wav ran out leaves
+		// a gap between loops, firing exactly at the end risks two copies
+		// marching together, and a twentieth shy is inaudible as a join.
+		set_task(g_alarm_len - 0.05, "task_alarm_tick", TSM_TASK_ALARM, "", 0, "b");
+		dbg("alarm: siren on, trigger %d side %d, %0.2f s loop", id, g_alarm_side, g_alarm_len);
+	}
+	else
+	{
+		set_task(2.0, "task_alarm_tick", TSM_TASK_ALARM, "", 0, "b");
+		dbg("alarm: text-only beat, trigger %d side %d (no wav)", id, g_alarm_side);
+	}
+
+	alarm_draw();
+}
+
+/*
+ * Cut the alarm where it stands: out of the loop task and out of everyone's
+ * ears. stopsound blanks the client mix for a blink, which at a round or
+ * match line is the least noticeable moment there is -- and it cannot touch
+ * the music, because the mp3 player runs on its own stream. The flag clears
+ * for whatever attack fires the next round.
+ */
+alarm_stop()
+{
+	if (!g_alarm_on)
+	{
+		return;
+	}
+
+	remove_task(TSM_TASK_ALARM);
+	g_alarm_on = false;
+	g_alarm_side = 0;
+	client_cmd(0, "stopsound");
+	dbg("alarm: cut");
+}
+
+/*
+ * One beat of the alarm: re-sound it, re-show the warning. It runs its round
+ * out to the last play -- warmup and the next round's freeze hold no alarm,
+ * and both would be reached through an alarm_stop at a stop point that
+ * exists exactly so this guard is belt to that one's braces.
+ */
+public task_alarm_tick()
+{
+	if (g_state == ST_WARMUP || g_state == ST_FREEZE)
+	{
+		alarm_stop();
+		return;
+	}
+
+	if (g_alarm_len > 0.0)
+	{
+		alarm_emit();
+	}
+
+	alarm_draw();
 }
 
 /*
@@ -2605,6 +3046,139 @@ public plugin_precache()
 	precache_custom_sound(g_cv_welcomesound, false);
 
 	/*
+	 * THE DEATH VOICES, the elimination scream pool in ts\sound\death.
+	 *
+	 * Fixed NAMES, not cvars -- fem1..5 and male1..5 are a contract with whoever
+	 * dropps files into the folder, not something every server operator renames.
+	 * Each slot is checked for existence FIRST because precache_sound on a name
+	 * with no file behind it is the fatal Host_Error the comment above weapon
+	 * models explains; a missing file only shrinks that voice's random pool.
+	 * The robot sound is stock Half-Life and lives in the ENGINE'S OWN valve
+	 * directory, which file_exists cannot see into, so it is precached with no
+	 * check -- the engine's own moddir-then-valve fallback finds it.
+	 */
+	new dv_snd[40], dv_path[56];
+	for (new dv = 1; dv <= 6; dv++)
+	{
+		formatex(dv_snd, charsmax(dv_snd), "death/fem%d.wav", dv);
+		formatex(dv_path, charsmax(dv_path), "sound/%s", dv_snd);
+		if (file_exists(dv_path))
+		{
+			precache_sound(dv_snd);
+			g_death_fem_ok[dv] = true;
+		}
+		else
+		{
+			tlog("[TSM] death voice not on disk, pool shrinks: %s", dv_snd);
+		}
+
+		formatex(dv_snd, charsmax(dv_snd), "death/male%d.wav", dv);
+		formatex(dv_path, charsmax(dv_path), "sound/%s", dv_snd);
+		if (file_exists(dv_path))
+		{
+			precache_sound(dv_snd);
+			g_death_male_ok[dv] = true;
+		}
+		else
+		{
+			tlog("[TSM] death voice not on disk, pool shrinks: %s", dv_snd);
+		}
+	}
+	precache_sound(TSM_DEATH_ROBO);
+
+	/*
+	 * THE SIEGE FINALE BOOMS, the HL1 stock stack the last objective falls
+	 * to. Engine-fallback files, so a plain precache like the robot voice
+	 * above.
+	 */
+	precache_sound(TSM_OBJ_BOOM_A);
+	precache_sound(TSM_OBJ_BOOM_B);
+	precache_sound(TSM_OBJ_BOOM_C);
+
+	/*
+	 * THE SIEGE ALARM SIREN is a moddir file, so it is checked and measured
+	 * before it is precached -- the measurement IS the loop interval and does
+	 * double duty as the existence test. A wav with no readable header means
+	 * no siren, and the alarm still works as text.
+	 */
+	g_alarm_len = sound_seconds(TSM_ALARM_WAV);
+	if (g_alarm_len > 0.0)
+	{
+		precache_sound(TSM_ALARM_WAV);
+		tlog("[TSM] siege alarm siren measured at %0.2f s", g_alarm_len);
+	}
+	else
+	{
+		tlog("[TSM] siege alarm has no readable siren wav; the warning stays text-only.");
+	}
+
+	/*
+	 * THE SATCHEL'S TWO PLANT SOUNDS and the finale boom stack's lengths,
+	 * measured once for the planting loop's restart clock and the ground
+	 * shake's span. The HOLD clack and the stocked booms live in the
+	 * engine's own valve tree, reached through the valve filesystem; the
+	 * SUCCESS sound is the plant.wav the server ships in ts\sound -- and it
+	 * is deliberately a DIFFERENT name from the hold clack, because clients
+	 * resolve moddir first and one name cannot mean two files. If nothing
+	 * measures, planting falls back on a one-second loop and the shake on a
+	 * three-second window. Every file is precached plainly, like the robot
+	 * voice -- the engine finds its own stock either way.
+	 */
+	g_plant_len = sound_seconds(TSM_PLANT_WAV);
+	tlog("[TSM] satchel plant hold sound measured at %0.2f s", g_plant_len);
+	for (new bs = 0; bs < 3; bs++)
+	{
+		g_boom_len[bs] = sound_seconds(g_boom_snd[bs]);
+	}
+	precache_sound(TSM_PLANT_WAV);
+	// The sprite TE_EXPLOSION draws is not a client default -- the packet
+	// carries the index, so it is precached here and passed at every burst.
+	g_obj_boom_spr = precache_model("sprites/zerogxplode.spr");
+
+	// The success sound: the server's own plant.wav. Precached plainly -- a
+	// fresh install without it simply falls to the engine's same-name stock
+	// copy, so it never has to crash and never has to be asked-after.
+	g_plant_done_len = sound_seconds(TSM_PLANT_DONE);
+	tlog("[TSM] satchel plant success sound measured at %0.2f s", g_plant_done_len);
+	precache_sound(TSM_PLANT_DONE);
+
+	/*
+	 * MECH HIT SOUNDS: the randomized debris-metal pool a mech takes damage on.
+	 * Stock files in ts\sound\debris; precached outright because the engine's
+	 * own moddir tree carries them.
+	 */
+	for (new hs = 0; hs < sizeof g_mech_hit_snd; hs++)
+	{
+		precache_sound(g_mech_hit_snd[hs]);
+	}
+
+	/*
+	 * MECH STEP AND LOOP SOUNDS: mechwalk / mechwalk2 alternate on footsteps,
+	 * mechloop is the idle hum under every living mech. Moved here from the
+	 * old mech_footsteps plugin.
+	 */
+	precache_sound(MECH_STEP_1);
+	precache_sound(MECH_STEP_2);
+	precache_sound(MECH_LOOP);
+
+	/*
+	 * Mech rocket launch sound. The stock valve\sound\weapons\rocketfire1.wav
+	 * (9.5 KB, 11025 Hz mono) is copied into master sound\weapons\ and synced by
+	 * build.bat. An existence gate avoids the fatal Host_Error if the file is
+	 * missing from a particular install.
+	 */
+	new sPath[64];
+	formatex(sPath, charsmax(sPath), "sound/weapons/rocketfire1.wav");
+	if (file_exists(sPath))
+	{
+		precache_sound("weapons/rocketfire1.wav");
+	}
+	else
+	{
+		tlog("[TSM] weapons/rocketfire1.wav not on disk; Mech rocket will be silent");
+	}
+
+	/*
 	 * MP3 music tracks for the ambient queue. Precached here so clients download
 	 * them before task_music_queue tries to play them -- without precaching the
 	 * client has no local copy and mp3 play is silent. MP3s go through
@@ -2615,9 +3189,106 @@ public plugin_precache()
 	new i;
 	for (i = 0; i < sizeof g_music_mp3; i++)
 	{
-		new sPath[64];
+		new sPath[64], sSnd[64];
 		formatex(sPath, charsmax(sPath), "sound/music/%s", g_music_mp3[i]);
-		precache_generic(sPath);
+
+		if (music_is_wav(i))
+		{
+			// The playvol track: the standard sound download path, and the
+			// existence gate applies -- precaching a name with no file behind
+			// it is the fatal Host_Error, not a silent no-op.
+			if (file_exists(sPath))
+			{
+				formatex(sSnd, charsmax(sSnd), "music/%s", g_music_mp3[i]);
+				precache_sound(sSnd);
+			}
+			else
+			{
+				tlog("[TSM] %s not on disk; that music track stays quiet", sPath);
+			}
+		}
+		else
+		{
+			// The path must include sound/ because that is how mp3 play
+			// resolves them later too.
+			precache_generic(sPath);
+		}
+	}
+
+	// THE ROUND-START ANTHEMS are wavs now: precache_sound, the standard
+	// sound download path, so playvol finds the file on every client. The
+	// existence gates mirror the death voices above -- precaching a name
+	// with no file behind it is the fatal Host_Error.
+	for (i = 0; i < sizeof g_start_t1; i++)
+	{
+		new sSnd[64], sPath[64];
+		formatex(sSnd, charsmax(sSnd), "start/%s", g_start_t1[i]);
+		formatex(sPath, charsmax(sPath), "sound/%s", sSnd);
+		if (file_exists(sPath))
+		{
+			precache_sound(sSnd);
+			server_print("[TSM] precached MSR anthem: %s", sSnd);
+			tlog("[TSM] precached MSR anthem: %s", sSnd);
+		}
+		else
+		{
+			server_print("[TSM] MSR anthem NOT FOUND on disk: %s (checked %s)", sSnd, sPath);
+			tlog("[TSM] MSR anthem NOT FOUND on disk: %s (checked %s)", sSnd, sPath);
+		}
+	}
+	for (i = 0; i < sizeof g_start_t2; i++)
+	{
+		new sSnd[64], sPath[64];
+		formatex(sSnd, charsmax(sSnd), "start/%s", g_start_t2[i]);
+		formatex(sPath, charsmax(sPath), "sound/%s", sSnd);
+		if (file_exists(sPath))
+		{
+			precache_sound(sSnd);
+			server_print("[TSM] precached INS anthem: %s", sSnd);
+			tlog("[TSM] precached INS anthem: %s", sSnd);
+		}
+		else
+		{
+			server_print("[TSM] INS anthem NOT FOUND on disk: %s (checked %s)", sSnd, sPath);
+			tlog("[TSM] INS anthem NOT FOUND on disk: %s (checked %s)", sSnd, sPath);
+		}
+	}
+
+	/*
+	 * THE INSURGENT ROAR, existence-gated like the death voices above:
+	 * precaching a name with no file behind it is the fatal Host_Error, so
+	 * a derailed roar only removes one cue quietly instead of killing the
+	 * map load. The wav lives at ts\sound root; clients with the server's
+	 * sound package will have it already from the downloads.
+	 */
+	new roar_path[48];   // its own buffer: the loops' sPath are block-scoped
+	formatex(roar_path, charsmax(roar_path), "sound/%s", TSM_ROAR_WAV);
+	g_roar_ok = (file_exists(roar_path) != 0);   // file_exists is an int; the flag is bool
+	if (g_roar_ok)
+	{
+		precache_sound(TSM_ROAR_WAV);
+		tlog("[TSM] precached roar: %s", TSM_ROAR_WAV);
+	}
+	else
+	{
+		tlog("[TSM] mutantroar.wav NOT FOUND on disk: %s", roar_path);
+	}
+
+	/*
+	 * THE MSR BADUM, existence-gated the same way: missing file keeps the cue
+	 * quiet rather than crashing the map load.
+	 */
+	new badum_path[48];
+	formatex(badum_path, charsmax(badum_path), "sound/%s", TSM_BADUM_WAV);
+	g_badum_ok = (file_exists(badum_path) != 0);
+	if (g_badum_ok)
+	{
+		precache_sound(TSM_BADUM_WAV);
+		tlog("[TSM] precached badum: %s", TSM_BADUM_WAV);
+	}
+	else
+	{
+		tlog("[TSM] badum.wav NOT FOUND on disk: %s", badum_path);
 	}
 
 	/*
@@ -2689,7 +3360,13 @@ public plugin_init()
 
 	g_cv_enabled   = register_cvar("tsm_enabled",     "1");
 	g_cv_rounds    = register_cvar("tsm_rounds",      "9");    // best-of, so first to 5
-	g_cv_freeze    = register_cvar("tsm_freezetime",  "6");
+	#define ARM_STAGGER 0.25
+	// How often the live gate re-checks arming progress, and the most it will
+	// delay LIVE past the freeze timer for a player who still has not armed.
+	#define ARM_GATE_CHECK 0.2
+	#define ARM_GATE_MAX_EXTRA 8.0
+
+	g_cv_freeze    = register_cvar("tsm_freezetime",  "10");
 	g_cv_roundtime = register_cvar("tsm_roundtime",   "300");  // seconds, 0 = no limit
 	g_cv_showtimer = register_cvar("tsm_show_timer",  "1");    // draw the round clock
 
@@ -2776,14 +3453,12 @@ public plugin_init()
 	g_cv_specteam  = register_cvar("tsm_spectator_team", "spectator");
 
 	/*
-	 * Seconds between writing the armament and the respawn that applies it.
-	 *
-	 * rst_cfg and tkw are CLIENT commands: the server tells the client to run them and
-	 * the client sends them back. That round trip is not instant, so respawning too
-	 * soon runs BuyArmament before the last tkw has arrived -- which hands out a
-	 * partial loadout, and the magazines attached to the missing entries with it.
+	 * tsm_arm_delay. The seconds between the wash and the arm respawn that applies
+	 * it: respawning too soon ran BuyArmament while pending commands were still
+	 * outstanding and handed out a partial loadout, so the spacing stays and the
+	 * pending-echo wait in the arm task rides on top of it.
 	 */
-	g_cv_armdelay  = register_cvar("tsm_arm_delay",      "2.5");
+	g_cv_armdelay = register_cvar("tsm_arm_delay",      "2.5");
 
 	/*
 	 * Magazines of every ammo type handed out with the loadout.
@@ -3086,6 +3761,24 @@ public plugin_init()
 	g_cv_breachrange = register_cvar("tsm_breach_range", "96");
 
 	/*
+	 * The map's DECLARED breach targets, tsm_breachdoor_1..8.
+	 *
+	 * These name doors BY TARGETNAME (comma or space separated lists), so a siege
+	 * map can say "these specific doors are breach objectives". A door on any of
+	 * the eight lists counts as breachable even when its lock is a master chain a
+	 * plugin cannot read, and -- with the rule below -- "Breached." is only ever
+	 * printed for a door that was actually locked (Use Only) or is on one of these
+	 * lists; an everyday unlocked door under the crosshair gets stock behaviour and
+	 * no callout.
+	 */
+	new bdname[24];
+	for (new bd = 0; bd < 8; bd++)
+	{
+		formatex(bdname, charsmax(bdname), "tsm_breachdoor_%d", bd + 1);
+		g_cv_breachdoor[bd] = register_cvar(bdname, "");
+	}
+
+	/*
 	 * Which class the map's "tsm_eng_door" doors answer to, BY NAME.
 	 *
 	 * Matched against the class name rather than against its number, because the
@@ -3111,11 +3804,37 @@ public plugin_init()
 	 */
 	g_cv_objteam  = register_cvar("tsm_obj_team",  "2");
 	g_cv_objclass = register_cvar("tsm_obj_class", "Breacher");
-	g_cv_objtime  = register_cvar("tsm_obj_time",  "5.0");
+	g_cv_objtime  = register_cvar("tsm_obj_time",  "10.0");
+	g_cv_objfuse  = register_cvar("tsm_obj_fuse",  "5.0");
 	g_cv_objslay  = register_cvar("tsm_obj_slay",  "1");
 	g_cv_objrange = register_cvar("tsm_obj_range", "96");
 
-	g_cv_armorder    = register_cvar("tsm_arm_order", "1");
+	/*
+	 * THE ROUND-START TEAM BANNERS.
+	 *
+	 * tsm_obj_msg_1 is what SIDE 1 reads and tsm_obj_msg_2 what side 2 reads, one
+	 * second after a round starts. Empty means a side gets nothing at all. A pipe
+	 * inside the value is a row break, so several rows stack beneath each other:
+	 * "BREACH|TAKES THE YARD" shows two rows. Side 1 draws blue and side 2 red,
+	 * matching the MSR-1 / Insurgency-2 sides of this server.
+	 */
+	g_cv_objmsg1 = register_cvar("tsm_obj_msg_1", "");
+	g_cv_objmsg2 = register_cvar("tsm_obj_msg_2", "");
+
+	/*
+	 * THE SIEGE ALARM: on/off, the siren's volume, and the line the side under
+	 * attack reads while it runs (pipes are row breaks, exactly like the
+	 * banners). Everything else about the alarm is fixed behaviour.
+	 */
+	g_cv_alarm    = register_cvar("tsm_alarm",     "1");
+	g_cv_alarmvol = register_cvar("tsm_alarm_vol", "0.3");
+	g_cv_alarmmsg = register_cvar("tsm_alarm_msg", "BREACH IN PROGRESS");
+
+	// The finale's ground shake goes out as the raw ScreenShake game message,
+	// so its id is looked up once here and reused at every last boom.
+	g_shake_msg = get_user_msgid("ScreenShake");
+
+	g_cv_armorder    = register_cvar("tsm_arm_order", "0");
 
 	/*
 	 * The attachment mask handed to ts_giveweapon, which is its fourth argument.
@@ -3228,13 +3947,10 @@ public plugin_init()
 
 
 
-	g_cv_squadmax   = register_cvar("tsm_squad_max",   "4");
 	g_cv_squaddist  = register_cvar("tsm_squad_dist",  "160");
 	g_cv_squadwarp  = register_cvar("tsm_squad_warp",  "1200");
 	g_cv_squadspeed = register_cvar("tsm_squad_speed", "240");
-
-	g_cv_squadsteer  = register_cvar("tsm_squad_steer",     "1");
-	g_cv_squadreach  = register_cvar("tsm_squad_reach",     "400");
+	g_cv_squadsteer = register_cvar("tsm_squad_steer", "1");
 
 	g_cv_endelay    = register_cvar("tsm_roundend_delay", "4.0");
 	g_cv_botresup   = register_cvar("tsm_bot_resupply", "20.0");
@@ -3260,6 +3976,8 @@ public plugin_init()
 
 	// 1 = Glock 18, 34 = Katana (melee, so no spare clips). Perk 4 commands bots.
 	register_cvar("tsm_class7", "Officer;1:4,34:0;1:4,34:0;reputengu|;100;0;4");
+	register_cvar("tsm_class8", "Recon;12:2,15:2,34:0;12:2,15:2,34:0;repuheavy_recon|;75;0;0;1.20");
+	register_cvar("tsm_class9", "Mech;32:2;32:2;repuheavy_recon|;300;0;0;0.60");
 
 	register_event("DeathMsg", "ev_death", "a");
 
@@ -3285,6 +4003,17 @@ public plugin_init()
 	 * CBaseDoor::Use has moved anything.
 	 */
 	RegisterHam(Ham_Use, "func_door", "fw_door_use", 0);
+
+	/*
+	 * THE DESTRUCTIBLE OBJECTIVE HOOKS. Both screen themselves with
+	 * siege_number() inside, so an ordinary breakable of the map behaves
+	 * exactly as the mod leaves it. fw_obj_dmg takes away the wound of
+	 * every player who is not of the attacking side; fw_obj_killed books
+	 * the fall when an attacking hand kills the body -- gunfire, grenade,
+	 * or the Breacher's own charge finishing what it started.
+	 */
+	RegisterHam(Ham_TakeDamage, "func_breakable", "fw_obj_dmg",    0);
+	RegisterHam(Ham_Killed,     "func_breakable", "fw_obj_killed", 0);
 
 	/*
 	 * Definitive gamerules test.
@@ -3344,6 +4073,10 @@ public plugin_init()
 	// Powerups, blocked where a BOT can actually be caught. See fw_touch.
 	register_forward(FM_Touch, "fw_touch");
 
+	// Intercept footstep sounds so mech models get mechwalk / mechwalk2 instead
+	// of the stock player steps. Runs here with the other forwards.
+	register_forward(FM_EmitSound, "fw_emit_sound");
+
 	register_clcmd("say",      "hook_say");
 	register_clcmd("say_team", "hook_say");
 
@@ -3371,6 +4104,15 @@ public plugin_init()
 	register_concmd("amx_tsm_obj",         "cmd_obj",         ADMIN_CFG, " [reset|<n>] - the map's siege objectives: what has fallen; put them back, or say how many have fallen");
 	register_concmd("amx_tsm_simelim",     "cmd_simelim",     ADMIN_CFG, " [target] - eliminate a player as if they were killed");
 
+	// THE SIEGE DEBUG SUITE: every stage of the satchel flow, on demand, with
+	// no second player and not a single tsm_obj entity in the map required.
+	register_concmd("amx_tsm_siege",       "cmd_siege",       ADMIN_CFG, " - dump the siege state: chain, planted fuse, holds, alarm, measured sounds");
+	register_concmd("amx_tsm_siege_spawn", "cmd_siege_spawn", ADMIN_CFG, " [n] - place a synthetic objective where you look (no map entities needed)");
+	register_concmd("amx_tsm_siege_plant", "cmd_siege_plant", ADMIN_CFG, " [n] - plant the satchel on an objective right now (the exact real path)");
+	register_concmd("amx_tsm_siege_fuse",  "cmd_siege_fuse",  ADMIN_CFG, " - set the planted charge off this instant");
+	register_concmd("amx_tsm_siege_alarm", "cmd_siege_alarm", ADMIN_CFG, " - force the raid alarm on, live round or not");
+	register_concmd("amx_tsm_siege_reset", "cmd_siege_reset", ADMIN_CFG, " - fuse killed, alarm cut, every objective put back, chain at zero");
+
 	// Called by the per-map spawn cfg. Not for humans.
 	register_srvcmd("tsm_spawn", "srv_spawn");
 
@@ -3391,6 +4133,10 @@ public plugin_init()
 	register_clcmd("tsm_model", "cmd_model");
 	register_clcmd("stim", "cmd_stim_console");
 
+	// The mech sound bench. Console for a keybind, say .mechtest in hook_say for
+	// use from chat -- it only ever plays sounds, so no dedicated say wrapper needed.
+	register_clcmd("tsm_mechtest", "cmd_mechtest");
+
 	register_clcmd("usepowerup", "cmd_blockpowerup");
 	register_clcmd("powerup",    "cmd_blockpowerup");
 
@@ -3402,6 +4148,11 @@ public plugin_init()
 	// Ambient music, per player. tsm_music 0/1 in the client console, on by default.
 	register_clcmd("tsm_music", "cmd_music", 0, "tsm_music 0/1 - ambient music on/off");
 	g_cv_musicvol = register_cvar("tsm_music_volume", "0.5");
+
+	// The round-start anthems: each side hears its own stinger one second into
+	// a round. 0 turns the pair off entirely; tsm_music 0 still mutes the
+	// sounds per client on top of this, the same switch the queue obeys.
+	g_cv_startsound = register_cvar("tsm_startsound", "1");
 
 	// Pass-through watchers. These return PLUGIN_CONTINUE so TS still handles the
 	// command -- they exist only to prove whether it reaches the server at all.
@@ -3429,12 +4180,23 @@ public plugin_init()
 	// Teammate class/health readout. See task_hover_info.
 	set_task(0.25, "task_hover_info", 12, "", 0, "b");
 
+	// The bot join schedule: one rcbot addbot every two seconds until tsm_bots is
+	// reached (rcbot's own auto-fill is switched OFF -- max_bots -1 -- in the
+	// bots-ON branch, so this task is the ONLY thing that adds bots). Starting it
+	// in plugin_init means it is running before the first deficit ever appears;
+	// task_bot_fill itself reads tsm_bots each pass, so the cvar's exec order
+	// cannot leave it in the wrong mode.
+	set_task(2.0, "task_bot_fill", TSM_TASK_BOTFILL, "", 0, "b");
+
 	// Quarter-second, which is comfortably inside the half-second steps TS fades on, so a
 	// held corpse never shows a step of the fade it is being kept out of.
 	set_task(0.25, "task_hold_corpses", 13, "", 0, "b");
 
 	// Ambient music. Delayed so the first track does not start over the map's own intro.
 	set_task(10.0, "task_music_queue", TSM_TASK_MUSIC);
+
+	// Mech idle hum: re-emitted from every living mech so it hears as one loop.
+	set_task(MECH_LOOP_PERIOD, "task_mech_loop", 21000, "", 0, "b");
 }
 
 public plugin_cfg()
@@ -3752,6 +4514,42 @@ record_map_items()
 	}
 
 	tlog("[TSM] Recorded %d map-placed weapon/ammo pickup(s).", g_map_item_count);
+
+	/*
+	 * THE OBJECTIVE BODIES, for siege_reset()'s rebuild. One pass over the
+	 * targetnames captures everything a body needs to exist again after it
+	 * died: classname, brush model, the mapper's own health and spawnflags,
+	 * plus the fall target. Private class-data keyvalues the engine consumes
+	 * at spawn (material, gib type) are NOT replayable, which MAP_ENTITIES.txt
+	 * says plainly -- an objective breakable should stay an ordinary one.
+	 *
+	 * A body missing entirely (present neither in world nor in cache) means
+	 * the objective never existed; a "missing" ENTITY that still has a cache
+	 * is exactly the state a previous round broke and rebuild undoes.
+	 */
+	new objname[16];
+	new objent, objcount;
+	for (new n = 1; n <= TSM_OBJ_MAX; n++)
+	{
+		formatex(objname, charsmax(objname), "%s%d", TSM_OBJ_PREFIX, n);
+		objent = engfunc(EngFunc_FindEntityByString, -1, "targetname", objname);
+		if (objent <= 0)
+		{
+			g_obj_class[n][0] = 0;
+			g_obj_model[n][0] = 0;
+			g_obj_health[n] = 0.0;
+			g_obj_spawnflags[n] = 0;
+			g_obj_target[n][0] = 0;
+			continue;
+		}
+		objcount++;
+		pev(objent, pev_classname, g_obj_class[n], charsmax(g_obj_class[]));
+		pev(objent, pev_model, g_obj_model[n], charsmax(g_obj_model[]));
+		pev(objent, pev_target, g_obj_target[n], charsmax(g_obj_target[]));
+		g_obj_health[n] = Float:pev(objent, pev_health);
+		g_obj_spawnflags[n] = pev(objent, pev_spawnflags);
+	}
+	tlog("[TSM] Recorded %d siege objective bod(ies) for the rebuild cache.", objcount);
 }
 
 bool:is_map_item(ent)
@@ -4364,6 +5162,21 @@ force_spectator(id)
 	// Cleared so the side menu will offer itself again.
 	g_team_menu_at[id] = 0.0;
 	g_class_menu_at[id] = 0.0;
+}
+
+/*
+ * The staggered form of the match-end move. task_to_warmup schedules one of these
+ * per player instead of moving the whole roster in a single frame, because a
+ * synchronous roster's worth of team changes and teleports reliably overflowed
+ * the per-client datagram the moment a match ended.
+ */
+public task_force_spec_late(taskid)
+{
+	new id = taskid - 7800;
+	if (is_user_connected(id))
+	{
+		force_spectator(id);
+	}
 }
 
 /// First connected player who is not on a recognised team, or 0 if everyone is.
@@ -5337,12 +6150,19 @@ cmd_stim(id)
 		return PLUGIN_HANDLED;
 	}
 
+	// Mech class cannot use stimpacks
+	new ci = resolved_class(id) - 1;
+	if (ci >= 0 && g_class_perk[ci] == TSM_PERK_MECH)
+	{
+		client_print(id, print_chat, "[TSM] Mechs don't use stimpacks -- they self-repair");
+		return PLUGIN_HANDLED;
+	}
+
 	/*
 	 * Capped at the player's own class health, as the medic's heal is: a Heavy tops out
 	 * at 200 and a Marksman at 85, and a stim must not push anyone past what their class
 	 * is worth.
 	 */
-	new ci = resolved_class(id) - 1;
 	new maxhp = (ci >= 0 && ci < g_class_count) ? g_class_hp[ci] : 100;
 	if (maxhp < 1)
 	{
@@ -5399,6 +6219,75 @@ cmd_stim(id)
 public cmd_stim_console(id)
 {
 	return cmd_stim(id);
+}
+
+/*
+ * The mech sound bench: everything the mech kit owns, played ONCE from the caller's
+ * own client, with the detection facts printed in front of it.
+ *
+ * Built for the hour nobody could hear a mech sound at all. The first three lines
+ * answer "is the detection contract even matched" -- the model string the server
+ * sees for your body, what the class resolve says, and whether wears_mech() takes
+ * that body. Then the three sounds go: mechwalk (a step), mechloop (the idle hum)
+ * and one of the clang pool.
+ */
+public cmd_mechtest(id)
+{
+	if (!is_user_connected(id))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new mdl[64];
+	pev(id, pev_model, mdl, charsmax(mdl));
+
+	new ci = resolved_class(id) - 1;
+	new cname[32];
+	if (ci >= 0 && ci < g_class_count)
+	{
+		copy(cname, charsmax(cname), g_class_name[ci]);
+	}
+	else
+	{
+		copy(cname, charsmax(cname), "(none)");
+	}
+
+	console_print(id, "[TSM] ---- mech sound self-test ----");
+	console_print(id, "[TSM] alive: %d   wears_mech: %d   enabled cvar: %d",
+		is_user_alive(id), wears_mech(id), get_pcvar_num(g_cv_enabled));
+	console_print(id, "[TSM] model path: %s", mdl[0] ? mdl : "(empty)");
+	console_print(id, "[TSM] class resolved as: %s", cname);
+
+	// The sounds, straight to this client -- one of each so all three packs can
+	// be ruled in or out by ear in a single pass.
+	console_print(id, "[TSM] playing on YOUR client: mechwalk, mechloop, one clang");
+	// Task id packs the player and the sound slot: N*10 + 1..3.
+	set_task(0.6, "task_mechtest_snd", id * 10 + 1);
+	set_task(3.0, "task_mechtest_snd", id * 10 + 2);
+	set_task(4.5, "task_mechtest_snd", id * 10 + 3);
+	return PLUGIN_HANDLED;
+}
+
+public task_mechtest_snd(taskid)
+{
+	// Dispatch: tens are the player, the last digit is which sound comes next.
+	new id = taskid / 10;
+	new step = taskid % 10;
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+	switch (step)
+	{
+		case 1: client_cmd(id, "playvol %s 0.7", MECH_STEP_1);
+		case 2: client_cmd(id, "playvol %s 0.9", MECH_LOOP);
+		case 3:
+		{
+			new hitname[24];
+			copy(hitname, charsmax(hitname), g_mech_hit_snd[random(sizeof g_mech_hit_snd)]);
+			client_cmd(id, "playvol %s 0.9", hitname);
+		}
+	}
 }
 
 public cmd_model(id)
@@ -5937,6 +6826,9 @@ public cmd_simelim(id, level, cid)
 
 	dbg("simelim: %N eliminated by admin", target);
 	g_elim[target] = true;
+	// The admin test gets the voice too -- it is also the easiest way in game
+	// to hear what the model-name rules picked.
+	death_voice(target);
 	remove_from_play(target);
 	check_round_end();
 	console_print(id, "[TSM] Eliminated %N.", target);
@@ -6175,13 +7067,14 @@ resolved_class(id)
 }
 
 /*
- * Strips and re-arms a player for their class.
+ * Places the class on the player: health, armor, model -- what a class IS, minus
+ * the weapons.
  *
- * Called from task_go_live immediately before the release, and never as a deferred
- * task. That ordering is a hard requirement: TS derives player speed from the weapon
- * slots the loadout consumes (CBasePlayer::GetSpeedBySlots), so a player with no
- * weapons has ZERO maxspeed. Leaving a gap between the strip and the re-arm is what
- * produced the long-running "cannot move, cannot attack, maxspeed 0" fault.
+ * The weapons are written by the arm respawn (task_arm_respawn), inside the same
+ * wash-and-arm operation. This pass runs from the freeze ticks and the release,
+ * repeats resolved_class so a late pick does not lose its look, and must never
+ * stand between a strip and the give: TS derives player speed from the weapon
+ * slots the loadout consumes, so a weaponless frame is an immobile frame.
  */
 apply_class(id)
 {
@@ -6230,14 +7123,31 @@ apply_class(id)
 	 * Precaching the weapons did not help, because the precache table was never the
 	 * problem.
 	 *
-	 * Humans are armed through TS's own armament commands in issue_armament(), which
-	 * creates nothing. Bots keep whatever rcbot gives them.
+	 * Humans are armed with ts_giveweapon in give_class_weapons() from task_arm_respawn,
+	 * which creates nothing. Bots keep whatever rcbot gives them on top of the class
+	 * loadout they are handed the same way.
 	 */
 
 	set_user_health(id, g_class_hp[ci]);
+
+	// The machine's anti-heal watch is synced AT the write, not left to notice the
+	// new value later: a mech's class health arriving with a stale watch is exactly
+	// what the rule would refuse (see fw_prethink).
+	if (g_class_perk[ci] == TSM_PERK_MECH)
+	{
+		g_mech_hp_watch[id] = g_class_hp[ci];
+	}
+
 	if (g_class_ap[ci] > 0)
 	{
 		set_user_armor(id, g_class_ap[ci]);
+	}
+
+	// Mech class: initialize rocket tracking
+	if (g_class_perk[ci] == TSM_PERK_MECH)
+	{
+		g_mech_rocket_next[id] = 0.0;
+		g_mech_rockets_used[id] = 0;
 	}
 
 	/*
@@ -6250,6 +7160,12 @@ apply_class(id)
 	g_in_userinfo[id] = true;
 	set_class_model(id, ci);
 	g_in_userinfo[id] = was_ui;
+
+	// Mech class: hide weapon worldmodel (M60) after a brief delay
+	if (g_class_perk[ci] == TSM_PERK_MECH)
+	{
+		set_task(1.0, "task_hide_mech_weapon", id + 9000);
+	}
 
 	dbgv("apply_class done for %d", id);
 	dbg("armed %d as '%s' team %d (%d weapons, %dhp)",
@@ -6264,10 +7180,35 @@ apply_class(id)
  * point. The commands are TS's own and are not cheat-gated.
  */
 /*
+ * Is this weapon id in the player's weapon list right now?
+ *
+ * The tail check and every retry ask the same question, and they ask it of
+ * get_user_weapons -- the engine's own item list -- rather than of any native's
+ * return value, because that is the only answer that cannot be wrong about what
+ * the player is actually carrying.
+ */
+stock bool:user_carries(id, wpn)
+{
+	new wl[32], wn;
+	get_user_weapons(id, wl, wn);
+	for (new w = 0; w < wn; w++)
+	{
+		if (wl[w] == wpn)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/*
  * Hands the class loadout over directly, with no purchase involved.
  *
- * MUST BE CALLED AFTER THE RESPAWN. strip_user_weapons() and spawn() both clear the
- * inventory, so anything given before them is gone a moment later.
+ * MUST BE PART OF THE ARM OPERATION, WITH NOTHING CLEARING THE INVENTORY BEHIND IT.
+ * The call site is the arm respawn (task_arm_respawn): the gated strip happens right
+ * before, and TS's own spawn-stripping is far away by now, so anything given here
+ * survives -- once per round for a picked-and-applied class, and again only ever
+ * through a fresh pick (the reissue path), never at go-live.
  *
  * ts_giveweapon goes nowhere near TS's buy path, which is the entire point: the
  * server runs weaponrestriction 1 because blocking buy commands from a plugin does
@@ -6338,6 +7279,16 @@ give_class_weapons(id)
 	{
 		new i = reverse ? (wn - 1 - step) : step;
 
+		// The M60-first arm: the machine gun was handed over in task_arm_respawn
+		// before TS had anything else crowding its slot table, and the rest of the
+		// kit follows in task_give_rest. Here its index is simply walked past,
+		// once, and the record is then retired.
+		if (g_m60_skip[id] == i)
+		{
+			g_m60_skip[id] = -1;
+			continue;
+		}
+
 		// The class line sets the baseline, tsm_clip_bonus tops every weapon up, and
 		// tsm_clip_max stops any combination turning into an ammo dump.
 		/*
@@ -6366,43 +7317,107 @@ give_class_weapons(id)
 		// figure is back to the weapons-derived value and refuses. Start at 200 and step
 		// up to 999 if the give refuses -- the M60's slot cost exceeds whatever TS reports
 		// as free after the pistol and grenade are already in hand.
-		ts_setuserslots(id, 200);
-		new gave = ts_giveweapon(id, g_class_wpn[ci][team][i], clips, get_pcvar_num(g_cv_wpnextra));
-		if (!gave)
-		{
-			ts_setuserslots(id, 999);
-			gave = ts_giveweapon(id, g_class_wpn[ci][team][i], clips, get_pcvar_num(g_cv_wpnextra));
-			dbgv("give: %d <- weapon %d retry at slots 999 (first attempt refused)", id, g_class_wpn[ci][team][i]);
-		}
+		// Use 999 from the start so primaries (M60, Barrett, etc.) always fit,
+		// especially with tsm_arm_order 0 giving them first.
+		ts_setuserslots(id, 999);
+		new wpnid = g_class_wpn[ci][team][i];
+		new gave = ts_giveweapon(id, wpnid, clips, get_pcvar_num(g_cv_wpnextra));
 		given++;
 
-		dbgv("give: %d <- weapon %d with %d spare clip(s)", id, g_class_wpn[ci][team][i], clips);
+		/*
+		 * THE CLASS FIGURE IS SPARE RELOADS; TS'S RESERVE COUNTER IS SINGLE ROUNDS.
+		 *
+		 * ts_giveweapon's third argument and the class line both looked like clip counts,
+		 * but the reserve TS keeps is the number itself in one-round units: hand an AK47
+		 * a 3 and the reserve reads back as 3 beside a full 30-round magazine (measured
+		 * with ts_probe), so the "most magazines have 9 extra bullets" everyone sees is
+		 * exactly the class figure plus tsm_clip_bonus -- one partial reload at best.
+		 * Once the weapon lands, the reserve is therefore rewritten in real ammunition:
+		 * ts_getuserwpn hands over the freshly issued weapon's magazine capacity while it
+		 * is still the selected weapon, and ts_setuserammo tops the spare to
+		 * figure x mag size, HALVED and floor-rounded after the full amount read too
+		 * generous, so an AK's 3+6 becomes 135 spare rounds instead of 9. The
+		 * class line and tsm_clip_max keep meaning clips; only the value reaching TS
+		 * changes.
+		 *
+		 * The in-hand check keeps the rewrite honest: ts_getuserwpn reports the weapon
+		 * TS SELECTED, so if the give was refused or selection moved elsewhere, the
+		 * figure is left alone rather than written onto the wrong gun.
+		 */
+		if (clips > 0 && gave)
+		{
+			new m_clip, m_ammo, m_mode, m_extra;
+			new held = ts_getuserwpn(id, m_clip, m_ammo, m_mode, m_extra);
+			if (held == wpnid && m_clip > 0)
+			{
+				// Floor-rounded so no weapon gets the odd extra round.
+				new rounds = (clips * m_clip) / 2;
+				ts_setuserammo(id, wpnid, rounds);
+				dbgv("give: %d <- weapon %d spare set to %d rounds (figure %d x mag %d / 2), reads back %d",
+					id, wpnid, rounds, clips, m_clip, ts_getuserammo(id, wpnid));
+			}
+			else
+			{
+				dbgv("give: %d <- weapon %d landed but not in hand (held %d, mag %d), spare left at %d",
+					id, wpnid, held, m_clip, clips);
+			}
+		}
 	}
 
 	/*
 	 * Did the LAST weapon out land? The one handed over last is the one TS is allowed
-	 * to refuse on slots, and a refusal is completely invisible -- which is how the
-	 * Heavy's M60 disappeared with no trace in any log. This line prints to the
-	 * always-on log ONLY when the weapon is really missing, so it stays silent in
-	 * healthy rounds and becomes evidence the moment one fails.
+	 * to refuse on slots, and a refusal is otherwise invisible -- which is how the
+	 * Heavy's M60 disappeared with no trace in any log.
+	 *
+	 * ONE RETRY NOW, THEN THE WARNING. The warning alone fired for every player every
+	 * round since the fix-era rework and nothing ever came of it; a missing tail is
+	 * either a real refusal or a give that did not stick, and both are cured by the
+	 * same move: set the room again and hand it over once more, this time with the
+	 * spare written the same way the loop writes it. Only a weapon that is STILL
+	 * missing after that is reported, so the log stays a list of real failures.
 	 */
 	new tail = reverse ? 0 : (wn - 1);
-	new wlist[32], wnum, wok;
 	if (wn > 0)
 	{
 		new tail_wpn = g_class_wpn[ci][team][tail];
-		get_user_weapons(id, wlist, wnum);
-		for (new w = 0; w < wnum; w++)
+		if (!user_carries(id, tail_wpn))
 		{
-			if (wlist[w] == tail_wpn)
+			new tail_clips = g_class_clips[ci][team][tail];
+			tail_clips = (tail_clips > 0) ? (tail_clips + bonus) : 0;
+			if (tail_clips > cap)
 			{
-				wok = 1;
+				tail_clips = cap;
 			}
-		}
-		if (!wok)
-		{
-			tlog("[TSM] WARNING: loadout for %s (%d): last weapon %d did NOT land (slots %d, m60 ammo %d).",
-				g_class_name[ci], id, tail_wpn, ts_getuserslots(id), ts_getuserammo(id, 32));
+			if (tail_clips < 0)
+			{
+				tail_clips = 0;
+			}
+
+			ts_setuserslots(id, 999);
+			ts_giveweapon(id, tail_wpn, tail_clips, get_pcvar_num(g_cv_wpnextra));
+
+			if (user_carries(id, tail_wpn))
+			{
+				tlog("[TSM] tail retry: %s (%d) -- weapon %d landed on the second give.",
+					g_class_name[ci], id, tail_wpn);
+
+				// The same spare rewrite the loop would have run: the weapon is the
+				// most recently handed over, so this is where the in-hand read is
+				// trustworthy.
+				if (tail_clips > 0)
+				{
+					new t_clip, t_ammo, t_mode, t_extra;
+					if (ts_getuserwpn(id, t_clip, t_ammo, t_mode, t_extra) == tail_wpn && t_clip > 0)
+					{
+						ts_setuserammo(id, tail_wpn, (tail_clips * t_clip) / 2);
+					}
+				}
+			}
+			else
+			{
+				tlog("[TSM] WARNING: loadout for %s (%d): last weapon %d did NOT land (slots %d, m60 ammo %d).",
+					g_class_name[ci], id, tail_wpn, ts_getuserslots(id), ts_getuserammo(id, 32));
+			}
 		}
 	}
 
@@ -6415,9 +7430,9 @@ give_class_weapons(id)
 	 * loop above and that was a bad place for it twice over: ts_getuserwpn reports the
 	 * weapon IN HAND, which mid-loop is whatever TS happens to have switched to and often
 	 * nothing at all -- and a native that errors aborts the whole call, which here is
-	 * task_arm_respawn. Everything after the call site went with it, including the
-	 * set_task that opens the class menu, so the loadout menu simply never appeared during
-	 * the countdown. A diagnostic must not be able to break the thing it is watching.
+	 * the arming call site (task_arm_respawn). Everything after the call site went
+	 * with it, so the loadout menu simply never appeared during the countdown. A
+	 * diagnostic must not be able to break the thing it is watching.
 	 *
 	 * Behind the same gate dbgv uses, so in ordinary play the native is never called.
 	 */
@@ -6438,32 +7453,31 @@ issue_armament(id)
 		return;
 	}
 
-	new ci = resolved_class(id) - 1;
-	new team = g_match_team[id];
-	if (team != 1 && team != 2)
-	{
-		team = 1;
-	}
-
 	/*
-	 * NOTHING IS BOUGHT HERE ANY MORE.
+	 * NOTHING IS BOUGHT HERE.
 	 *
 	 * This used to write the loadout with TS's own tkw and tka commands, which go
 	 * through the PURCHASE path -- they write the player's saved armament, and
-	 * BuyArmament bought it on the respawn below. That is why weaponrestriction 1
+	 * BuyArmament bought it on the respawn. That is why weaponrestriction 1
 	 * emptied every loadout: as far as TS was concerned the plugin was a customer,
 	 * and a restricted weapon is refused to customers.
 	 *
-	 * The weapons are now handed over directly with ts_giveweapon, AFTER the respawn,
-	 * in give_class_weapons(). Measured with ts_probe_give: it arrives with
-	 * weaponrestriction 1 set, which the purchase path never could.
+	 * The weapons are handed over directly with ts_giveweapon in give_class_weapons(),
+	 * measured with ts_probe_give: it arrives with weaponrestriction 1 set, which the
+	 * purchase path never could. The server needs that cvar on, because blocking the
+	 * buy commands from a plugin does not actually stop people buying.
 	 *
-	 * The server needs that cvar on, because blocking the buy commands from a plugin
-	 * does not actually stop people buying. So the loadout had to stop being a
-	 * purchase rather than the restriction being turned off.
+	 * WHAT THIS FUNCTION DOES: the wash, and THE ONE ARM. Whatever the player had
+	 * SAVED is emptied by the rst_cfg below before the round-start respawn, so
+	 * TS's own PlayerSpawn applies an empty armament instead of their old loadout.
+	 * The arm itself is THE SECOND ONE: it is scheduled only for a class that is
+	 * already picked and applied (every round after the pick), and a player still
+	 * waiting to choose gets NO default-class dress in the meantime -- their arm
+	 * follows the pick itself, through task_reissue_armament, so nobody is ever
+	 * dressed twice in one round.
 	 */
 
-	// Still ours as far as cmd_blockbuy is concerned, for the rst_cfg below.
+	// Still ours as far as cmd_blockbuy is concerned, for the rst_cfg call.
 	g_issuing[id] = true;
 
 	/*
@@ -6471,62 +7485,101 @@ issue_armament(id)
 	 *
 	 * client_cmd asks the CLIENT to run the command and send it back, which a bot has
 	 * no client to do. engclient_cmd executes it server-side for players and bots
-	 * alike.
-	 *
-	 * rst_cfg stays even though nothing is bought now: it clears whatever the player
-	 * had saved, so BuyArmament has nothing of THEIRS to re-apply when the respawn
-	 * below runs.
+	 * alike -- which also means the bypass can close on this same call frame, right
+	 * below: nothing of ours is still in flight when this function returns.
 	 */
 	engclient_cmd(id, "rst_cfg");
 
-	/*
-	 * The blanket ammunition top-up no longer happens HERE. tka handed out magazines of
-	 * all eleven ammo types, and like tkw it was a purchase, so weaponrestriction refused
-	 * it too. ts_giveweapon has no equivalent -- it takes a spare-clip count PER WEAPON,
-	 * which is what give_class_weapons() passes, the class line's own figure topped up by
-	 * tsm_clip_bonus and capped by tsm_clip_max.
-	 *
-	 * The spare ammunition the loadout carries is still tsm_ammo_mags: it is handed over
-	 * as a ts_groundammo pickup after the respawn instead -- see give_ammo_to below.
-	 */
-
-	dbg("armament prepared for %d as '%s' (team %d, %d weapon(s) to give after the respawn)",
-		id, g_class_name[ci], team, g_class_wcount[ci][team]);
-
-	/*
-	 * Nothing to wait for now.
-	 *
-	 * engclient_cmd runs the command immediately on the server, so there is no client
-	 * round trip that could arrive after the respawn. The counter that used to track
-	 * those echoes is zeroed rather than removed, so the respawn path stays unchanged.
-	 */
-	g_arm_pending[id] = 0;
-
-	new Float:delay = get_pcvar_float(g_cv_armdelay);
-	if (delay < 0.5)
-	{
-		delay = 0.5;
-	}
-
-	/*
-	 * The bypass closes HERE, not in task_arm_respawn.
-	 *
-	 * engclient_cmd executes on the server during the calls above, so by this line
-	 * every tkw and tka has already run and nothing of ours is still in flight.
-	 * Leaving the flag set until the respawn task fired held cmd_blockbuy open for
-	 * tsm_arm_delay and, while echoes were pending, through the freeze countdown --
-	 * a multi-second window in which a player's OWN buy menu was waved through, and
-	 * whatever they bought was saved to their config and re-applied by BuyArmament
-	 * at the respawn. That is the drop-and-collect exploit, held open by our own
-	 * exemption.
-	 *
-	 * The money is a separate flag, g_cash_lend, because it has to stay open longer
-	 * than this one -- through the respawn that applies the armament.
-	 */
 	g_issuing[id] = false;
 
-	remove_task(id);
-	set_task(delay, "task_arm_respawn", id);
+	dbg("armament washed for %d (class '%s') -- weapons follow on the arm task",
+		id, g_class_name[resolved_class(id) - 1]);
+
+	/*
+	 * The arm, for a settled class only. tsm_arm_delay into the freeze, on its own
+	 * task id (born + 6000: bare player ids collide with remove_task(3) and the
+	 * repeating freeze tick), and a wash re-entry kills any arm that is still
+	 * pending first. The pick-driven path reaches this same tail through
+	 * task_reissue_armament, so both routes share one gating decision.
+	 */
+	if (g_player_class[id])
+	{
+		g_arm_pending[id] = 0;
+
+		/*
+		 * THE SCHEDULE NEVER OUTLIVES THE FREEZE WINDOW.
+		 *
+		 * The arm used to be delay = tsm_arm_delay + id*ARM_STAGGER, unconditionally:
+		 * with a six-second freeze that is past go-live from about id 14 upward -- and
+		 * every later pick pushes its whole schedule past it too, because the delay
+		 * counts from the wash, not from the start of the freeze. The round moved;
+		 * the loadout did not. The arm task then refused itself outside ST_FREEZE
+		 * and the player spent the round empty, which is exactly "the loadouts just
+		 * no-op sometimes".
+		 *
+		 * So the delay is WINDOWED: the base is clamped to what is left of the
+		 * freeze, and the stagger -- still one slot per player, still in id order,
+		 * because the burst it spreads is real -- is scaled down to fit inside the
+		 * same window whenever the roster is too wide for 0.25s slots. Nobody is
+		 * ever scheduled with the freeze already gone, and the late-arm path in
+		 * task_arm_respawn arms anyone a live pick still catches out.
+		 */
+		new Float:delay = get_pcvar_float(g_cv_armdelay);
+		if (delay < 0.5)
+		{
+			delay = 0.5;
+		}
+
+		if (g_state == ST_FREEZE)
+		{
+			new Float:room = float(g_freeze_left) - 1.0;
+			if (room < 0.5)
+			{
+				room = 0.5;
+			}
+			if (delay > room)
+			{
+				delay = room;
+			}
+
+			new Float:slack = room - delay;
+			if (slack < 0.0)
+			{
+				slack = 0.0;
+			}
+
+			// One slot per live player, in id order; the slot shrinks whenever the
+			// roster would not otherwise fit inside the room that is left.
+			new roster[32], rnum, rank = 0;
+			get_players(roster, rnum, g_pf);
+			for (new r = 0; r < rnum; r++)
+			{
+				if (roster[r] == id)
+				{
+					break;
+				}
+				if (roster[r] < id)
+				{
+					rank++;
+				}
+			}
+
+			new Float:step = ARM_STAGGER;
+			if (rank > 0 && float(rank) * step > slack)
+			{
+				step = slack / float(rank);
+			}
+
+			delay += float(rank) * step;
+		}
+		else
+		{
+			delay = 0.5;   // live re-issue: one player, straight away
+		}
+
+		remove_task(id + 6000);
+		set_task(delay, "task_arm_respawn", id + 6000);
+	}
 }
 
 /*
@@ -6585,7 +7638,12 @@ public task_reissue_armament(taskid)
 {
 	new id = taskid - 5000;
 
-	if (!is_user_connected(id) || g_state != ST_FREEZE)
+	/*
+	 * ST_LIVE is allowed as well: a pick that lands after go-live still re-arms
+	 * through the same wash-and-schedule, and task_arm_respawn's late arm hands
+	 * the kit over in place. Before, the pick was simply ignored.
+	 */
+	if (!is_user_connected(id) || (g_state != ST_FREEZE && g_state != ST_LIVE))
 	{
 		return;
 	}
@@ -6594,13 +7652,200 @@ public task_reissue_armament(taskid)
 		return;
 	}
 
+	/*
+	 * The class was picked and applied -- this is the arm that FOLLOWS the pick.
+	 * issue_armament() washes the saved armament and schedules the arm respawn
+	 * straight away, so something chosen during the countdown is worn this round,
+	 * once, through the same machinery as every other arm. This task also serves
+	 * .roam's hand-back dispatch: cmd_roam goes through it because issue_armament
+	 * lives further down the file and this file's compiler rejects forward
+	 * references -- the roam call keeps working by the same route.
+	 */
 	dbg("re-issuing loadout for %d after a late class pick", id);
 	issue_armament(id);
 }
 
-public task_arm_respawn(id)
+/*
+ * One-time backup for the per-frame clear in fw_prethink: the same four cosmetic
+ * pairs, re-asserted just after the class lands, so the very first frames of a
+ * mech's life are clean even before its first prethink pass.
+ *
+ * The old version of this task hunted an entity called weapon_m249 and set
+ * EF_NODRAW on it. That classname does not exist in TS -- nothing was ever found,
+ * and the mesh is not an entity anyway: it is the attachment model TS hangs on
+ * the player entvar, which is why it is cleared here and in prethink.
+ */
+public task_hide_mech_weapon(taskid)
 {
-	if (!is_user_connected(id) || g_state != ST_FREEZE)
+	new id = taskid - 9000;
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+	new ci = resolved_class(id) - 1;
+	if (ci < 0 || g_class_perk[ci] != TSM_PERK_MECH)
+	{
+		return;
+	}
+
+	set_pev(id, pev_weaponmodel, 0);
+	set_pev(id, pev_weaponmodel2, "");
+	set_pev(id, pev_viewmodel, 0);
+	set_pev(id, pev_viewmodel2, "");
+	dbgv("mech %d weapon pictures cleared (weaponmodel + viewmodel)", id);
+}
+
+/*
+ * The give half of an arm, shared by the in-freeze arm and the late arm.
+ *
+ * THE M60 GOES FIRST. Its slot demand outgrows whatever TS will report free once a
+ * pistol and a grenade are already carried, and a refusal is invisible, which is
+ * how the Heavy kept spawning M60-less. So the machine gun is issued ALONE, before
+ * anything teaches TS's slot table that more is coming, and the rest of the kit
+ * follows a beat later in task_give_rest -- where the ammunition goes too, behind
+ * every weapon it will feed.
+ *
+ * g_m60_skip records the M60's index in the class list so give_class_weapons walks
+ * past it instead of issuing it a second time -- BUT ONLY WHEN IT REALLY WENT IN.
+ * The record used to be set unconditionally, so a refused machine gun counted as
+ * delivered and was never retried: the Heavy and the Mech spent whole rounds
+ * without it while the only trace was one dbgv line into a log nobody reads. A
+ * refusal now clears the record and the kit loop gets its own attempt at the same
+ * weapon, and both outcomes speak to the always-on log.
+ */
+arm_give_kit(id)
+{
+	g_m60_skip[id] = -1;
+	remove_task(id + 8500);
+
+	new ciH = resolved_class(id) - 1;
+	if (ciH >= 0 && ciH < g_class_count)
+	{
+		new teamH = g_match_team[id];
+		if (teamH != 1 && teamH != 2)
+		{
+			teamH = 1;
+		}
+
+		new m60i = -1;
+		for (new xi = 0; xi < g_class_wcount[ciH][teamH]; xi++)
+		{
+			if (g_class_wpn[ciH][teamH][xi] == TSM_M60_WPN)
+			{
+				m60i = xi;
+				break;
+			}
+		}
+
+		if (m60i >= 0)
+		{
+			new m60base = g_class_clips[ciH][teamH][m60i];
+			new m60clips = (m60base > 0) ? (m60base + get_pcvar_num(g_cv_clipbonus)) : 0;
+			new m60cap = get_pcvar_num(g_cv_clipcap);
+			if (m60cap < 1)
+			{
+				m60cap = 1;
+			}
+			if (m60clips > m60cap)
+			{
+				m60clips = m60cap;
+			}
+			if (m60clips < 0)
+			{
+				m60clips = 0;
+			}
+
+			ts_setuserslots(id, 999);
+			new m60gave = ts_giveweapon(id, TSM_M60_WPN, m60clips, get_pcvar_num(g_cv_wpnextra));
+
+			// The native's answer is not taken over the weapon list: a give that
+			// landed is a give that landed, whatever the return value said.
+			if (!m60gave && user_carries(id, TSM_M60_WPN))
+			{
+				m60gave = 1;
+			}
+
+			if (m60clips > 0 && m60gave)
+			{
+				new m_clip, m_ammo, m_mode, m_extra;
+				new held = ts_getuserwpn(id, m_clip, m_ammo, m_mode, m_extra);
+				if (held == TSM_M60_WPN && m_clip > 0)
+				{
+					// Floor-rounded, the same reserve arithmetic every other give uses.
+					new m60rounds = (m60clips * m_clip) / 2;
+					ts_setuserammo(id, TSM_M60_WPN, m60rounds);
+					dbgv("give: M60-first for %d spare set to %d rounds", id, m60rounds);
+				}
+			}
+
+			if (m60gave)
+			{
+				g_m60_skip[id] = m60i;
+			}
+			else
+			{
+				g_m60_skip[id] = -1;
+			}
+
+			// Always-on, deliberately: which way the machine gun went is the one
+			// fact the Heavy's and the Mech's whole complaint turns on, and dbgv
+			// only writes when a debug session is already open. One line per M60
+			// class per arm.
+			tlog("[TSM] M60-first for %d: %s -- rest of the kit on task_give_rest",
+				id, m60gave ? "issued" : "REFUSED, the kit will retry it");
+
+			set_task(1.2, "task_give_rest", id + 8500);
+			return;
+		}
+	}
+
+	give_class_weapons(id);
+	give_ammo_to(id, get_pcvar_num(g_cv_giveammo));
+}
+
+public task_arm_respawn(taskid)
+{
+	new id = taskid - 6000;
+
+	if (!is_user_connected(id))
+	{
+		g_issuing[id] = false;
+		g_cash_lend[id] = false;
+		g_arm_pending[id] = 0;
+		return;
+	}
+
+	/*
+	 * THE LATE ARM: the schedule lost its race with LIVE.
+	 *
+	 * This task is set tsm_arm_delay plus the player's stagger after the wash, and
+	 * nothing in the freeze is obliged to last that long -- so a late class pick, a
+	 * late bot, or a slow schedule can come due after the round has already gone
+	 * live. That used to be the end of it: the task returned here without giving
+	 * anything, and the player went a whole round with no loadout at all.
+	 *
+	 * NO strip, NO respawn, NO teleport: the player is alive, live and placed, and
+	 * it is the weapons that are missing -- so the kit is what is handed over. Only
+	 * the still-unarmed take this route (a re-issue for an already-armed player has
+	 * nothing to add), and the give is the same one the freeze arm uses.
+	 */
+	if (g_state == ST_LIVE)
+	{
+		if (!g_armed[id] && is_user_alive(id)
+			&& (tsm_live_team_of(id) == 1 || tsm_live_team_of(id) == 2))
+		{
+			arm_give_kit(id);
+			g_armed[id] = true;
+			tlog("[TSM] late arm: %d armed after LIVE (class %d).", id, resolved_class(id));
+		}
+
+		g_issuing[id] = false;
+		g_cash_lend[id] = false;
+		g_arm_pending[id] = 0;
+		return;
+	}
+
+	if (g_state != ST_FREEZE)
 	{
 		g_issuing[id] = false;
 		g_cash_lend[id] = false;
@@ -6616,7 +7861,7 @@ public task_arm_respawn(id)
 	if (g_arm_pending[id] > 0 && g_freeze_left > 2)
 	{
 		dbgv("armament: %d still has %d command(s) outstanding, waiting", id, g_arm_pending[id]);
-		set_task(0.5, "task_arm_respawn", id);
+		set_task(0.5, "task_arm_respawn", id + 6000);
 		return;
 	}
 
@@ -6628,19 +7873,15 @@ public task_arm_respawn(id)
 	g_arm_pending[id] = 0;
 
 	/*
-	 * Wiped immediately before the respawn, in the same frame, so every round starts
-	 * from nothing.
-	 *
-	 * Without this the armament is applied ON TOP of what the player already held:
-	 * ammunition accumulated round on round (60, then 90, then more), and the weapons
-	 * overflowed the slot limit so TS dropped whichever would not fit -- which is why
-	 * a sidearm could vanish while the primary survived.
-	 *
-	 * Safe only because the respawn follows on the very next line: a stripped player
-	 * has zero maxspeed in TS, so there must never be a gap where they are both
-	 * weaponless and able to act.
+	 * The strip, gated: a server running weaponrestriction 1 has already refused
+	 * every purchase the round did not sanction and the respawn below empties the
+	 * inventory regardless, so the wipe only stays for the case where that cvar
+	 * is not set, keeping a fresh loadout from stacking on a carried-over one.
 	 */
-	strip_user_weapons(id);
+	if (get_cvar_num("weaponrestriction") != 1)
+	{
+		strip_user_weapons(id);
+	}
 
 	/*
 	 * The respawn no longer equips anything -- it just puts the player back on their
@@ -6655,53 +7896,34 @@ public task_arm_respawn(id)
 	spawn(id);
 
 	/*
-	 * The class menu is QUEUED HERE, directly after the respawn and before anything
-	 * else is done to the player.
-	 *
-	 * Its one real requirement is to come after the respawn: spawn() sends ResetHUD,
-	 * which wipes any open menu off the client, so a menu shown before it never
-	 * survived. This line satisfies that and nothing more.
-	 *
-	 * It used to sit at the END of this function, after the weapons, the ammunition,
-	 * the health and the placement -- which quietly made the menu depend on all of them
-	 * succeeding. It does not: a menu is not part of a loadout. When a diagnostic added
-	 * to give_class_weapons() called a native that errored, the whole function aborted
-	 * and took this set_task with it, so no class menu appeared during the countdown
-	 * while the weapons still arrived -- a weapon fault wearing a menu's face.
-	 *
-	 * set_task only registers the callback; task_show_class re-checks the state when it
-	 * fires 0.3 seconds later, so queueing it early changes when it is ASKED for and not
-	 * when it is shown or whether it is allowed.
+	 * The class menu requeue the old arm carried is NOT back with it: this task only
+	 * ever reaches a player whose class is already picked and applied, so the old
+	 * task_show_class follow-up could never show anything -- the pick and the freeze
+	 * tick's re-offer own the menu.
 	 */
-	if (g_class_count && get_pcvar_num(g_cv_classes))
-	{
-		g_class_menu_at[id] = 0.0;
-		set_task(0.3, "task_show_class", id);
-	}
 
 	/*
 	 * AFTER the spawn, never before it.
 	 *
-	 * strip_user_weapons() above and spawn() itself both clear the inventory, so a
-	 * weapon given any earlier is thrown away a moment later -- and the loadout comes
-	 * out empty again, for a completely different reason that looks exactly the same.
+	 * spawn() clears the inventory, so a weapon given any earlier is thrown away a
+	 * moment later -- and the loadout comes out empty again, for a completely
+	 * different reason that looks exactly the same.
 	 */
-	give_class_weapons(id);
-
 	/*
-	 * And something to put in them.
-	 *
-	 * ts_giveweapon takes a spare-clip count, but the clip field on TS's own buy
-	 * command was never what produced spare ammunition either -- that is why tka
-	 * existed alongside tkw in the first place. So ammunition is handed over
-	 * separately, exactly as the engineer's resupply does it, and for the same reason:
-	 * it is a pickup rather than a purchase, so weaponrestriction has no say in it.
+	 * The kit itself, M60-first where the class carries one. Shared with the late
+	 * arm so both routes hand over exactly the same loadout; the whole shuffle --
+	 * the machine gun alone first, the rest and the ammunition a beat later -- now
+	 * lives in one place, arm_give_kit.
 	 */
-	give_ammo_to(id, get_pcvar_num(g_cv_giveammo));
+	arm_give_kit(id);
 
 	new ci = resolved_class(id) - 1;
 	apply_class_scale(id);
 	set_user_health(id, g_class_hp[ci]);
+	if (g_class_perk[ci] == TSM_PERK_MECH)
+	{
+		g_mech_hp_watch[id] = g_class_hp[ci];
+	}
 	if (g_class_ap[ci] > 0)
 	{
 		set_user_armor(id, g_class_ap[ci]);
@@ -6709,6 +7931,7 @@ public task_arm_respawn(id)
 
 	place_at_spawn(id);
 	hold_player(id, false);
+	g_armed[id] = true;           // loadout complete -- this player counts toward the LIVE gate
 	g_issuing[id] = false;
 
 	// After placement, so the sweep happens where the player actually ended up.
@@ -6718,6 +7941,34 @@ public task_arm_respawn(id)
 	}
 
 	dbgv("armament: respawned and placed %d", id);
+}
+
+/*
+ * Second half of the M60-first arm: the rest of the class kit, handed over now
+ * that TS has settled the machine gun into its slot table, plus the ammunition
+ * that waits behind the weapons it feeds.
+ */
+public task_give_rest(taskid)
+{
+	new id = taskid - 8500;
+
+	if (!is_user_connected(id) || !is_user_alive(id) || g_elim[id])
+	{
+		return;
+	}
+	if (g_state != ST_FREEZE && g_state != ST_LIVE)
+	{
+		return;
+	}
+	if (g_m60_skip[id] < 0)
+	{
+		return;   // there was no M60-first arm waiting for this
+	}
+
+	give_class_weapons(id);
+	give_ammo_to(id, get_pcvar_num(g_cv_giveammo));
+
+	dbgv("give-rest: %d finished the rest of the kit and their ammunition", id);
 }
 
 /*
@@ -6986,6 +8237,13 @@ medic_heal(id, target)
 		maxhp = 100;
 	}
 
+	// Mech class cannot be healed by medics (not biologically alive)
+	if (ci >= 0 && g_class_perk[ci] == TSM_PERK_MECH)
+	{
+		client_print(id, print_center, "Cannot heal a Mech -- it's not alive");
+		return;
+	}
+
 	new cur = get_user_health(target);
 	if (cur >= maxhp)
 	{
@@ -7050,21 +8308,12 @@ cmd_squad_follow(id)
 	 * them. The cost is pathing, and it is paid for in task_squad by handing a bot
 	 * back to rcbot whenever it cannot see its officer -- see the note there.
 	 */
-	new cap = get_pcvar_num(g_cv_squadmax);
-	new have = squad_size(id);
-	if (have >= cap)
-	{
-		client_print(id, print_chat, "[MATCH] Your squad is full (%d). Type .unfollow to stand them down.", have);
-		return;
-	}
-
-	new Float:reach = get_pcvar_float(g_cv_squadreach);
 	new Float:me[3];
 	pev(id, pev_origin, me);
 
-	// Gathered first and sorted by distance, so a cap of four takes the four NEAREST
-	// rather than the four lowest entity indices -- which is what taking them in
-	// get_players order quietly did.
+	// No distance cap and no squad cap -- every bot on the officer's side is taken.
+	// Bots too far to steer are warped beside the officer by task_squad's existing
+	// teleport logic (g_cv_squad_warp).
 	new cand[32], Float:dist[32], n = 0, owned = 0;
 	new players[32], pnum;
 	get_players(players, pnum, g_pf);
@@ -7084,10 +8333,6 @@ cmd_squad_follow(id)
 		new Float:him[3];
 		pev(b, pev_origin, him);
 		new Float:d = get_distance_f(me, him);
-		if (d > reach)
-		{
-			continue;
-		}
 
 		// Already somebody else's. Counted so he is told, and left alone: two officers
 		// steering one bot would pull it between them every frame.
@@ -7124,7 +8369,8 @@ cmd_squad_follow(id)
 	}
 
 	new took = 0;
-	for (new i = 0; i < n && have + took < cap; i++)
+	new have = squad_size(id);
+	for (new i = 0; i < n; i++)
 	{
 		g_squad_leader[cand[i]] = id;
 		took++;
@@ -7139,22 +8385,22 @@ cmd_squad_follow(id)
 		}
 		else
 		{
-			client_print(id, print_chat, "[MATCH] Nobody within %.0f units on your side.", reach);
+			client_print(id, print_chat, "[MATCH] No bots available on your side.");
 		}
 		return;
 	}
 
 	new name[32];
 	get_user_name(id, name, charsmax(name));
-	client_print(id, print_chat, "[MATCH] %d on you. Squad is %d of %d. Type .unfollow to stand them down.",
-		took, have + took, cap);
+	client_print(id, print_chat, "[MATCH] %d on you. Squad is now %d under command. Type .unfollow to stand them down.",
+		took, have + took);
 	if (owned)
 	{
 		client_print(id, print_chat, "[MATCH] %d more nearby %s already being commanded by another officer.",
 			owned, owned == 1 ? "is" : "are");
 	}
 	team_print(g_match_team[id], "[MATCH] %s has taken %d under command.", name, took);
-	dbg("officer %d took %d bot(s) within %.0f units, %d already owned", id, took, reach, owned);
+	dbg("officer %d took %d bot(s), %d already owned", id, took, owned);
 }
 
 /// .unfollow -- stand the whole squad down.
@@ -7178,6 +8424,284 @@ cmd_squad_dismiss(id)
 
 	client_print(id, print_chat, "[MATCH] %d stood down.", n);
 	dbg("officer %d dismissed %d bot(s)", id, n);
+}
+
+/// .unstick -- clear yourself and nearby teammate bots off you.
+cmd_player_unstick(id)
+{
+	// Dead players can't unstick
+	if (!is_user_alive(id) || !is_user_connected(id))
+	{
+		client_print(id, print_chat, "[MATCH] You are not in the game.");
+		return;
+	}
+	
+	// 3-second cooldown
+	new Float:now = get_gametime();
+	if (g_unstick_at[id] > now)
+	{
+		client_print(id, print_chat, "[MATCH] Give that a second.");
+		return;
+	}
+	g_unstick_at[id] = now + 3.0;
+	
+	new moved = 0;
+	new Float:my_origin[3];
+	pev(id, pev_origin, my_origin);
+	
+	// Find teammate bots IN YOUR SQUAD within 56 units (2D)
+	new players[32], pnum;
+	get_players(players, pnum, "a"); // alive, includes bots
+	for (new i = 0; i < pnum; i++)
+	{
+		new bot = players[i];
+		if (bot == id || !is_user_bot(bot))
+		{
+			continue;
+		}
+		// Only bots in YOUR squad (following YOU)
+		if (g_squad_leader[bot] != id)
+		{
+			continue;
+		}
+		// Same team only (0==0 in warmup)
+		if (g_match_team[bot] != g_match_team[id])
+		{
+			continue;
+		}
+		
+		new Float:bot_origin[3];
+		pev(bot, pev_origin, bot_origin);
+		
+		new Float:dx = bot_origin[0] - my_origin[0];
+		new Float:dy = bot_origin[1] - my_origin[1];
+		new Float:dist2d = floatsqroot(dx*dx + dy*dy);
+		
+		if (dist2d >= TSM_UNSTICK_REACH)
+		{
+			continue;
+		}
+		
+		// Try to push bot outward: base direction + ±45/±90/±180
+		new Float:base_yaw = floatatan2(dy, dx, degrees);
+		new const Float:yaw_offsets[8] = { 0.0, 45.0, -45.0, 90.0, -90.0, 135.0, -135.0, 180.0 };
+		
+		for (new j = 0; j < 8; j++)
+		{
+			new Float:yaw = base_yaw + yaw_offsets[j];
+			new Float:cand[3];
+			cand[0] = my_origin[0] + floatcos(yaw, degrees) * TSM_UNSTICK_REACH;
+			cand[1] = my_origin[1] + floatsin(yaw, degrees) * TSM_UNSTICK_REACH;
+			cand[2] = my_origin[2];
+			
+			// TraceHull to verify clear spot (ignore the CALLER so their own hull doesn't veto)
+			new tr = 0;
+			new Float:start[3], Float:end[3];
+			start[0] = cand[0];
+			start[1] = cand[1];
+			start[2] = cand[2] + 8.0;
+			end[0] = cand[0];
+			end[1] = cand[1];
+			end[2] = cand[2] - 128.0;
+			engfunc(EngFunc_TraceHull, start, end, DONT_IGNORE_MONSTERS, TSM_HULL_HUMAN, id, tr);
+			
+			new Float:frac;
+			get_tr2(tr, TR_flFraction, frac);
+			new bool:start_solid;
+			get_tr2(tr, TR_StartSolid, start_solid);
+			
+			if (start_solid || frac < 1.0)
+			{
+				continue;
+			}
+			
+			// Valid: place bot there
+			new Float:dest[3];
+			get_tr2(tr, TR_vecEndPos, dest);
+			engfunc(EngFunc_SetOrigin, bot, dest);
+			
+			new Float:zero_vel[3] = { 0.0, 0.0, 0.0 };
+			set_pev(bot, pev_velocity, zero_vel);
+			moved++;
+			break;
+		}
+		// If no spot found, this bot stays put (silent)
+	}
+	
+	if (moved > 0)
+	{
+		client_print(id, print_chat, "[MATCH] Moved %d bot%s off you.", moved, moved == 1 ? "" : "s");
+	}
+	else
+	{
+		client_print(id, print_chat, "[MATCH] Nothing to move off you.");
+	}
+}
+
+/*
+ * .rocket -- Mech class ability: fire an explosive rocket at crosshair location.
+ */
+cmd_mech_rocket(id)
+{
+	// Only Mech class can use this
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		client_print(id, print_chat, "[TSM] You have to be alive to fire a rocket.");
+		return;
+	}
+
+	new ci = resolved_class(id) - 1;
+	if (ci < 0 || g_class_perk[ci] != TSM_PERK_MECH)
+	{
+		client_print(id, print_chat, "[TSM] Only the Mech class can fire rockets.");
+		return;
+	}
+
+	// Check cooldown
+	new Float:now = get_gametime();
+	if (g_mech_rocket_next[id] > now)
+	{
+		client_print(id, print_chat, "[TSM] Rocket recharging -- ready in %.0fs", g_mech_rocket_next[id] - now);
+		return;
+	}
+
+	// Check uses per life
+	if (g_mech_rockets_used[id] >= TSM_MECH_ROCKET_MAX_USES)
+	{
+		client_print(id, print_chat, "[TSM] No rockets remaining this life (%d/%d used).", g_mech_rockets_used[id], TSM_MECH_ROCKET_MAX_USES);
+		return;
+	}
+
+	// Get aim origin and direction
+	new Float:origin[3], Float:angles[3], Float:dest[3];
+	pev(id, pev_origin, origin);
+	pev(id, pev_v_angle, angles);
+
+	// Calculate destination from view angles (manual forward vector from angles)
+	new Float:range = TSM_MECH_ROCKET_RANGE;
+	new Float:fwd_x = floatcos(angles[1], degrees) * floatcos(angles[0], degrees);
+	new Float:fwd_y = floatsin(angles[1], degrees) * floatcos(angles[0], degrees);
+	new Float:fwd_z = -floatsin(angles[0], degrees);
+	dest[0] = origin[0] + fwd_x * range;
+	dest[1] = origin[1] + fwd_y * range;
+	dest[2] = origin[2] + fwd_z * range;
+
+	// Trace to find impact point
+	new tr = 0;
+	engfunc(EngFunc_TraceLine, origin, dest, DONT_IGNORE_MONSTERS, id, tr);
+	new Float:frac;
+	get_tr2(tr, TR_flFraction, frac);
+	new Float:endpos[3];
+	get_tr2(tr, TR_vecEndPos, endpos);
+	new pHit = get_tr2(tr, TR_pHit);
+
+	// Draw white decaying beam trail
+	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+	write_byte(TE_BEAMPOINTS);
+	write_coord(floatround(origin[0]));
+	write_coord(floatround(origin[1]));
+	write_coord(floatround(origin[2]));
+	write_coord(floatround(endpos[0]));
+	write_coord(floatround(endpos[1]));
+	write_coord(floatround(endpos[2]));
+	write_short(g_obj_boom_spr); // sprite
+	write_byte(0);   // startframe
+	write_byte(1);   // framerate
+	write_byte(10);  // life in 0.1s = 1 second
+	write_byte(10);  // width
+	write_byte(50);  // noise
+	write_byte(255); // r
+	write_byte(255); // g
+	write_byte(255); // b
+	write_byte(200); // brightness
+	write_byte(0);   // speed
+	message_end();
+
+	// Explosion at impact point (visual)
+	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+	write_byte(TE_EXPLOSION);
+	write_coord(floatround(endpos[0]));
+	write_coord(floatround(endpos[1]));
+	write_coord(floatround(endpos[2]));
+	write_short(g_obj_boom_spr);
+	write_byte(120);
+	write_byte(255);
+	write_byte(TE_EXPLFLAG_NONE);
+	message_end();
+
+	// REAL SPLASH DAMAGE using env_explosion entity (engine handles falloff, physics, sound)
+	// This is how HL grenades work - the engine does proper radius damage with falloff
+	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "env_explosion"));
+	if (ent)
+	{
+		set_pev(ent, pev_origin, endpos);
+		set_pev(ent, pev_dmg, floatround(TSM_MECH_ROCKET_DAMAGE_MAX)); // max damage at center
+		set_pev(ent, pev_spawnflags, 1); // SF_ENVEXPLOSION_NOSPARKS | SF_ENVEXPLOSION_NOSMOKE | SF_ENVEXPLOSION_NODECAL
+		set_pev(ent, pev_solid, SOLID_NOT);
+		set_pev(ent, pev_movetype, MOVETYPE_NONE);
+		set_pev(ent, pev_owner, id); // attribute damage to the mech
+		dllfunc(DLLFunc_Spawn, ent);
+		// Fire it immediately
+		dllfunc(DLLFunc_Use, ent, id);
+		// Remove after a short delay
+		set_task(0.1, "remove_ent", ent);
+	}
+	else
+	{
+		// Fallback: manual radius damage with falloff
+		rocket_radius_damage(id, endpos, TSM_MECH_ROCKET_RADIUS, float(random_num(floatround(TSM_MECH_ROCKET_DAMAGE_MIN), floatround(TSM_MECH_ROCKET_DAMAGE_MAX))));
+	}
+
+	// Sound - from the firing player
+	emit_sound(id, CHAN_WEAPON, "weapons/rocketfire1.wav", 1.0, ATTN_NORM, 0, PITCH_NORM);
+
+	// Update tracking
+	g_mech_rockets_used[id]++;
+	g_mech_rocket_next[id] = now + TSM_MECH_ROCKET_COOLDOWN;
+
+	client_print(id, print_chat, "[TSM] Rocket fired! %d/%d used this life.", g_mech_rockets_used[id], TSM_MECH_ROCKET_MAX_USES);
+	dbg("Mech %d fired rocket at (%.0f,%.0f,%.0f) -- dmg %.0f radius %.0f", id, endpos[0], endpos[1], endpos[2], float(random_num(floatround(TSM_MECH_ROCKET_DAMAGE_MIN), floatround(TSM_MECH_ROCKET_DAMAGE_MAX))), TSM_MECH_ROCKET_RADIUS);
+}
+
+/*
+ * Removes an entity after a short delay (used for env_explosion cleanup).
+ */
+public remove_ent(taskid)
+{
+	if (pev_valid(taskid))
+	{
+		engfunc(EngFunc_RemoveEntity, taskid);
+	}
+}
+
+/*
+ * Manual radius damage with proper falloff (used if env_explosion creation fails).
+ * Damage falls off linearly from center to edge of radius.
+ */
+stock rocket_radius_damage(attacker, Float:origin[3], Float:radius, Float:max_dmg)
+{
+	new players[32], pnum;
+	get_players(players, pnum, "a");
+	for (new i = 0; i < pnum; i++)
+	{
+		new target = players[i];
+		if (target == attacker) continue;
+		if (g_match_team[target] == g_match_team[attacker]) continue; // no team damage
+			
+		new Float:targ_origin[3];
+		pev(target, pev_origin, targ_origin);
+		new Float:dist = vector_distance(origin, targ_origin);
+		if (dist <= radius)
+		{
+			// Linear falloff: full damage at center, zero at edge
+			new Float:falloff = 1.0 - (dist / radius);
+			new Float:dmg = max_dmg * falloff;
+			if (dmg > 0.0)
+			{
+				ExecuteHamB(Ham_TakeDamage, target, attacker, attacker, dmg, DMG_BLAST);
+			}
+		}
+	}
 }
 
 /*
@@ -7403,6 +8927,38 @@ public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 	if (victim > 0 && victim < MAXPL && damage > 0.0)
 	{
 		g_last_hit[victim] = get_gametime();
+
+		/*
+		 * Mech/bot model hit sound: on EVERY damaging hit.
+		 *
+		 * This was one ricochet per three seconds, and through a firefight that read
+		 * as "the machine does not react to being shot". A hit now always speaks.
+		 * The channel is FIXED rather than CHAN_AUTO on purpose: under sustained
+		 * fire a new channel per bullet runs the entity's sound pool dry within a
+		 * second, while one fixed channel makes each new hit REPLACE the previous
+		 * clang -- the stutter of metal being hammered, which is what this is.
+		 */
+		if (wears_mech(victim))
+		{
+			new hitname[24];
+			copy(hitname, charsmax(hitname), g_mech_hit_snd[random(sizeof g_mech_hit_snd)]);
+			emit_sound(victim, CHAN_ITEM, hitname, 1.0, ATTN_NORM, 0, PITCH_NORM);
+
+			// The mech's pilot hears the through-the-armor clang on their own
+			// client too -- the world copy above is everyone else's.
+			if (!is_user_bot(victim))
+			{
+				client_cmd(victim, "playvol %s 0.9", hitname);
+			}
+		}
+
+		// Mech class: 50% damage resistance
+		new ci = resolved_class(victim) - 1;
+		if (ci >= 0 && g_class_perk[ci] == TSM_PERK_MECH)
+		{
+			SetHamParamFloat(4, damage * 0.25);  // reduce damage by 75%
+			damage *= 0.25;
+		}
 	}
 
 	/*
@@ -7700,6 +9256,104 @@ bool:is_officer(id)
 	return (g_class_perk[resolved_class(id) - 1] == TSM_PERK_OFFICER);
 }
 
+/// Returns true if this body walks as a mech (mech_msr / mech_ins model).
+///
+/// The pev_model STRING is not the picture. TS force-writes the userinfo "model"
+/// key back to its own mp_teammodels pick, so the string can say a soldier while
+/// fw_postthink_post is drawing a mech through pev_modelindex every frame -- and
+/// reading the string alone is what kept every mech gate (steps, hum, hp watch,
+/// the nodraw) shut on a player who was visibly a mech. The name we actually
+/// selected for the body lives in g_model_chosen; test that first, and keep the
+/// string test under it for any path where we did not pick the model ourselves.
+bool:wears_mech(id)
+{
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		return false;
+	}
+	if (containi(g_model_chosen[id], "mech_msr") != -1 || containi(g_model_chosen[id], "mech_ins") != -1)
+	{
+		return true;
+	}
+	new model[64];
+	pev(id, pev_model, model, charsmax(model));
+	if (containi(model, "mech_msr") != -1 || containi(model, "mech_ins") != -1)
+	{
+		return true;
+	}
+	return false;
+}
+
+/// What the engine calls a footstep: pm_shared picks these by the floor texture
+/// (pl_step default, then pl_dirt, pl_metal, pl_grate, pl_tile, pl_duct, ...),
+/// all under the player/pl_ prefix. The prefix also covers a handful of sounds
+/// that are NOT steps, and those are turned away by name.
+stock bool:is_footstep(const sample[])
+{
+	if (!equali(sample, "player/pl_", 9))
+	{
+		return false;
+	}
+	new const g_not_steps[][] = {
+		"pain", "die", "drown", "swim", "wade", "water", "ladder", "breathe", "fall"
+	};
+	for (new i = 0; i < sizeof g_not_steps; i++)
+	{
+		if (containi(sample, g_not_steps[i]) != -1)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/// Intercept footstep sounds: any player/pl_* event from a living mech walker
+/// is superceded with mechwalk / mechwalk2, alternating, so the stock step is
+/// never heard. Moved here from the old mech_footsteps plugin.
+public fw_emit_sound(id, channel, const sample[], Float:volume, Float:attenuation, flags, pitch)
+{
+	if (id < 1 || id > get_maxplayers())
+	{
+		return FMRES_IGNORED;            // a world sound, not a walker
+	}
+	if (!is_user_alive(id) || !is_footstep(sample) || !wears_mech(id))
+	{
+		return FMRES_IGNORED;
+	}
+
+	emit_sound(id, channel, g_next[id] == 0 ? MECH_STEP_1 : MECH_STEP_2,
+		volume, attenuation, flags, pitch);
+	g_next[id] = (g_next[id] + 1) % 2;
+	return FMRES_SUPERCEDE;              // the stock step is never heard
+}
+
+
+
+/// Every MECH_LOOP_PERIOD, hand the hum to everyone standing in range of a living
+/// mech. CHAN_STATIC so a weapon or voice from the same walker does not cut it;
+/// each pass replaces the last one on that channel, which is what makes the loop
+/// continuous. A mech that dies keeps at most one pass of tail.
+public task_mech_loop()
+{
+	for (new id = 1; id <= get_maxplayers(); id++)
+	{
+		if (!is_user_alive(id) || !wears_mech(id))
+		{
+			continue;
+		}
+		tlog("[TSM DEBUG] mechloop emit for %d", id);
+		emit_sound(id, CHAN_STATIC, MECH_LOOP, MECH_LOOP_VOL, MECH_LOOP_ATTEN, 0, PITCH_NORM);
+
+		// The pilot's own certainty copy: neighbouring players hear the emit above,
+		// the walk machine's own ears are served here, on their own client, where
+		// no server entity channel can fight them for it.
+		if (!is_user_bot(id))
+		{
+			client_cmd(id, "playvol %s 0.9", MECH_LOOP);
+		}
+	}
+}
+
 /*
  * The Officer's automatic powerup, granted as the round goes live.
  *
@@ -7825,9 +9479,51 @@ bool:is_engineer(id)
  * The objective entity itself is the map's to hide or keep: the plugin does not
  * remove it, it only refuses it once it has fallen.
  */
-#define TSM_OBJ_PREFIX "tsm_obj_"
-#define TSM_OBJ_MAX    9
+/*
+ * TSM_OBJ_PREFIX and TSM_OBJ_MAX live with the early constants, up by the
+ * task ids, because the map recorder at load runs before this file's siege
+ * section and needs them there.
+ */
 #define TSM_TASK_OBJ   15000
+
+/*
+ * THE BREACH DAMAGE. One piece of HL DMG_BLAST (1<<6) through the mod's own
+ * TakeDamage: beyond armour, and every breakable dies to a plain explosive
+ * hit. 1500 is past any sensible breakable health, so the E charge is always
+ * fatal wherever the body can be hurt at all.
+ */
+#define TSM_DMG_BLAST    64
+#define TSM_OBJ_BREAKDMG 1500.0
+
+/*
+ * The round-start team banner tasks (one per side). Sits above the TSM_TASK_OBJ
+ * band (player indices ride 15000+1..32) with room to spare, so the two can
+ * never share an id.
+ */
+#define TSM_TASK_OBJMSG 15100
+
+/*
+ * HOW the banner reads:
+ *
+ *   Y    0.43 -- mid-screen, in the one band no other display uses. Every
+ *               set_hudmessage in this plugin already claims 0.03, 0.18, 0.20,
+ *               0.22, 0.28, 0.32, 0.36, 0.56 and 0.72, so the vertical gap
+ *               between the sudden-death flash (0.36) and the crosshair hover
+ *               readout (0.56) belongs to the banner alone; the engine's own
+ *               centreprint ("Breached.", the charge counter) draws at 0.5 and
+ *               only at other moments.
+ *   HOLD 5.0  -- shown from one second after the round starts, gone again at
+ *               the sixth, deliberately ahead of the LIVE flash at go-live so
+ *               a banner never outlives the freeze it was launched from.
+ *
+ * Both banners ride CHANNEL 3, whose only other uses are the warmup readout,
+ * the round-end score card and the spectator readout -- none of which draw
+ * during a freeze countdown, so the banner owns the channel outright for those
+ * seconds. The two teams never share a client, so one channel is enough: each
+ * player is sent exactly one of the two messages.
+ */
+#define TSM_OBJMSG_Y    0.43
+#define TSM_OBJMSG_HOLD 5.0
 
 new g_obj_taken = 0;               // how many have fallen this match, counting from 1
 new g_obj_holding[MAXPL];          // the objective a player is holding +USE on, 0 for none
@@ -7956,12 +9652,75 @@ bool:siege_use(id)
 		return true;
 	}
 
+	/*
+	 * A SATCHEL, NOT A SNAP. Nobody takes an objective with a single press of
+	 * E, and PLANTING is the class gate's verb alone -- with this server's
+	 * tsm_obj_class that is the Breacher and nobody else (other classes only
+	 * ever take a breakable body, by gunfire). The allowed planter holds the
+	 * full plant here, the fuse runs on its own, and the CHARGE's explosion
+	 * is what destroys the body. While an objective is on its fuse, the
+	 * planted state is exactly these three globals: every later press on it
+	 * lands here and is told where things stand.
+	 */
+	if (g_plant_n == n)
+	{
+		client_print(id, print_center, "The satchel is already planted.");
+		return true;
+	}
+
 	g_obj_holding[id] = ent;
+	g_plant_last[id] = -10.0;   // forces the plant sound's very first cycle
 	g_obj_started[id] = get_gametime();
 	remove_task(id + TSM_TASK_OBJ);
 	set_task(0.1, "task_siege_hold", id + TSM_TASK_OBJ, "", 0, "b");
+
+	// The hold is one of the alarm's two triggers: a round's first one turns
+	// the siren on, and every later one changes nothing at all.
+	alarm_start(id);
 	dbg("siege: %d began on objective %d (ent %d)", id, n, ent);
 	return true;
+}
+
+/*
+ * THE PLANTING BAR: the planter's own loading read at screen centre -- a text
+ * bar of equals marks that fills across the plant's seconds, refreshed by the
+ * hold tick so the row visibly grows while they hold. The colour is the
+ * planting side's own, the same two colours the round banners use, and the
+ * bar only ever exists on ONE screen -- the planter's own.
+ */
+plant_bar(id, Float:need, Float:held)
+{
+	if (is_user_bot(id))
+	{
+		return;
+	}
+
+	new filled = floatround((held / need) * 20.0);
+	if (filled < 0)
+	{
+		filled = 0;
+	}
+	if (filled > 20)
+	{
+		filled = 20;
+	}
+
+	new bar[24];
+	for (new i = 0; i < 20; i++)
+	{
+		bar[i] = (i < filled) ? '=' : ' ';
+	}
+	bar[20] = 0;
+
+	if (get_pcvar_num(g_cv_objteam) == 1)
+	{
+		set_hudmessage(0, 170, 255, -1.0, TSM_PLANT_Y, 0, 0.0, 0.25, 0.05, 1.0, 7);
+	}
+	else
+	{
+		set_hudmessage(255, 70, 60, -1.0, TSM_PLANT_Y, 0, 0.0, 0.25, 0.05, 1.0, 7);
+	}
+	show_hudmessage(id, "PLANTING THE SATCHEL^n[%s]", bar);
 }
 
 /// Every tenth of a second while +USE is held on an objective.
@@ -7976,6 +9735,7 @@ public task_siege_hold(taskid)
 	{
 		remove_task(taskid);
 		g_obj_holding[id] = 0;
+		g_plant_last[id] = 0.0;   // the sound clock was this hold's alone
 		if (is_user_connected(id) && g_state == ST_LIVE)
 		{
 			client_print(id, print_center, "Charge not set.");
@@ -7987,13 +9747,67 @@ public task_siege_hold(taskid)
 	new Float:held = get_gametime() - g_obj_started[id];
 	if (held < need)
 	{
-		client_print(id, print_center, "Setting the charge... %.1f", need - held);
+		/*
+		 * THE PLANT'S OWN SOUNDS AND READ. The satchel-planting sound rings
+		 * from the objective's spot (spatial: the closer you stand, the
+		 * louder), restarted whenever it runs out -- one channel on one
+		 * entity restarts cleanly, so a longer wav means a later re-clack and
+		 * never a stack -- and the planter reads their progress bar growing.
+		 */
+		new Float:plcyc = (g_plant_len > 0.5) ? g_plant_len : 1.0;
+		if (held - g_plant_last[id] >= plcyc - 0.05)
+		{
+			emit_sound(ent, CHAN_BODY, TSM_PLANT_WAV, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
+			g_plant_last[id] = held;
+		}
+		plant_bar(id, need, held);
 		return;
 	}
 
+	/*
+	 * THE SATCHEL IS IN. The objective is NOT destroyed here -- the code that
+	 * fell it at this instant is gone. Everything that makes the plant real
+	 * lives in siege_plant_now, directly below: the planted state, the
+	 * success sound, the story in chat and the fuse's arm. The siege debug
+	 * suite's force-plant command (amx_tsm_siege_plant) calls that same one,
+	 * so a drilled test of the flow is the REAL path, not a copy of it.
+	 */
 	remove_task(taskid);
+	siege_plant_now(id, ent, n);
+}
+
+/*
+ * THE PLANT ITSELF, the shared line the hold's own completion and the
+ * debug suite both run: the planted state (one satchel owns the chain --
+ * siege_use refuses any other hold while these three are set), the SUCCESS
+ * sound from the objective's spot, the story all sides read, and
+ * tsm_obj_fuse's fuse armed on its one server-wide task.
+ */
+siege_plant_now(id, ent, n)
+{
+	if (g_plant_n)
+	{
+		return;   // one satchel at a time; belt for the natural path's braces
+	}
+
+	new who[32];
+	get_user_name(id, who, charsmax(who));
+
 	g_obj_holding[id] = 0;
-	siege_fall(id, ent, n);
+	g_plant_last[id] = 0.0;   // the sound clock was that hold's, and it is done
+	g_plant_ent = ent;
+	g_plant_n = n;
+	g_plant_by = id;
+
+	// THE SUCCESS SOUND: the server's own plant.wav rings from the
+	// objective's spot, on the same channel the hold loop was using -- so
+	// the last hold clack melds into it instead of ringing underneath it.
+	emit_sound(ent, CHAN_BODY, TSM_PLANT_DONE, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
+
+	all_print("[MATCH] %s planted the satchel on objective %d.", who, n);
+	client_print(id, print_center, "The satchel is set -- get clear.");
+	dbg("siege: %d planted objective %d (ent %d), %0.1f s fuse", id, n, ent, get_pcvar_float(g_cv_objfuse));
+	set_task(get_pcvar_float(g_cv_objfuse), "task_charge_fuse", TSM_TASK_CHARGE);
 }
 
 /// Objective n falls, taken by this player.
@@ -8025,7 +9839,7 @@ siege_fall(id, ent, n)
 	new count = siege_count();
 	if (n >= count)
 	{
-		all_print("[MATCH] %s destroyed the last objective (%d of %d).", who, n, count);
+		all_print("[MATCH] %s destroyed the last siege objective (%d of %d).", who, n, count);
 	}
 	else
 	{
@@ -8034,6 +9848,52 @@ siege_fall(id, ent, n)
 	dbg("siege: objective %d fell to %d", n, id);
 
 	end_round(get_pcvar_num(g_cv_objteam));
+
+	/*
+	 * THE FINAL BOOM, only when the chain itself ended -- every objective
+	 * fallen. Three of HL1's stock explosions layered at once, world-wide
+	 * (emit to 0 = everyone, ATTN_NONE so it never fades with distance), on
+	 * separate channels and spread pitches so the stack reads as ONE huge
+	 * blast. Intermediate falls keep only the map's own spectacle.
+	 */
+	if (n >= count)
+	{
+		emit_sound(0, CHAN_WEAPON, TSM_OBJ_BOOM_A, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
+		emit_sound(0, CHAN_BODY, TSM_OBJ_BOOM_B, VOL_NORM, ATTN_NONE, 0, 110);
+		emit_sound(0, CHAN_ITEM, TSM_OBJ_BOOM_C, VOL_NORM, ATTN_NONE, 0, 88);
+
+		/*
+		 * AND THE LAST ONE SHAKES THE GROUND -- FOR AS LONG AS THE BOOMS
+		 * RING. Each stock boom's own seconds are measured at precache, so
+		 * the shake is cut to the stack's combined window: never shorter
+		 * than any one of the three sounds it carries, and never under
+		 * three seconds whatever the files measure. The raw ScreenShake
+		 * message, in the HLSDK's own encoding -- amplitude and duration at
+		 * 12.4 fixed point (wire value = degrees x 4096 and seconds x
+		 * 4096), frequency at 8.8 (ticks a second x 256): exactly the three
+		 * shorts the SDK's UTIL_ScreenShake writes. Eight degrees swung at
+		 * 25 ticks a second, broadcast, so every player rides out the blast
+		 * wherever they stand.
+		 */
+		new Float:bang = g_boom_len[0];
+		if (g_boom_len[1] > bang)
+		{
+			bang = g_boom_len[1];
+		}
+		if (g_boom_len[2] > bang)
+		{
+			bang = g_boom_len[2];
+		}
+		if (bang < 1.0)
+		{
+			bang = 3.0;
+		}
+		message_begin(MSG_BROADCAST, g_shake_msg);
+		write_short(8 << 12);                    // amplitude, degrees of swing
+		write_short(floatround(bang * 4096.0));  // duration, outlasting every boom
+		write_short(25 << 8);                    // frequency, shakes a second
+		message_end();
+	}
 
 	// After end_round: deaths outside a live round are not eliminations, so nobody
 	// is counted out of the next one for being caught in the blast.
@@ -8050,6 +9910,258 @@ public task_siege_slay()
 	for (new i = 0; i < pnum; i++)
 	{
 		user_kill(players[i], 1);
+	}
+}
+
+/*
+ * === THE SATCHEL'S FUSE ====================================================
+ *
+ * tsm_obj_fuse seconds after a plant, this is the charge going off:
+ *
+ *   - the TE_EXPLOSION sprite lights up at the body's own spot, from its
+ *     cubic centre (brush entities carry their corners, not a middle, so the
+ *     centre is computed from pev_absmin/abssmax);
+ *   - UNLESS this is the chain's last objective -- the round-end stack in
+ *     siege_fall is the wide broadcast of the same blast, and one local copy
+ *     underneath it would only double the same explosion;
+ *   - then the fall goes through siege_fall() as always: the credit stays
+ *     with the PLANTER, the map's own target relay fires, and on the last
+ *     objective this is also the round end, the finale stack and the shake;
+ *   - and only after the fall is the body explicitly finished off: one piece
+ *     of breach damage (with fw_obj_killed already satisfied by the fall, so
+ *     no double-book), and if the body refuses damage outright -- a plain
+ *     brush that is nobody's breakable -- it is pulled from the world.
+ *
+ * Nothing of the planted state survives the function: the next take of the
+ * chain is free to plant again the moment this returns.
+ */
+public task_charge_fuse()
+{
+	/*
+	 * The fuse fires into whatever is actually standing by: the planted body
+	 * may have been destroyed by an attacking hand in the meantime (its fall
+	 * was then taken in fw_obj_killed and the chain has moved), the round may
+	 * be over, or the match itself may have been halted. Whatever the reason,
+	 * the planted state -- if there is one left -- releases here.
+	 */
+	if (!g_plant_ent || !pev_valid(g_plant_ent) || g_plant_n != g_obj_taken + 1
+		|| g_state != ST_LIVE)
+	{
+		g_plant_ent = 0;
+		g_plant_n = 0;
+		g_plant_by = 0;
+		return;
+	}
+
+	new ent = g_plant_ent;
+	new n = g_plant_n;
+	new by = g_plant_by;
+	new last = (n >= siege_count());
+
+	// The planted state hands its burden over before any spectacle: nothing
+	// under this fires can re-enter these three, whatever the world does.
+	g_plant_ent = 0;
+	g_plant_n = 0;
+	g_plant_by = 0;
+
+	new Float:mn[3], Float:mx[3], Float:mid[3];
+	pev(ent, pev_absmin, mn);
+	pev(ent, pev_absmax, mx);
+	mid[0] = (mn[0] + mx[0]) * 0.5;
+	mid[1] = (mn[1] + mx[1]) * 0.5;
+	mid[2] = (mn[2] + mx[2]) * 0.5;
+
+	// THE EXPLOSION ITSELF: HL's own sprite decoded at the matter's centre.
+	// GoldSrc's TE_EXPLOSION packet is coord x3, sprite index, scale byte in
+	// tenths, framerate byte, flags byte.
+	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+	write_byte(TE_EXPLOSION);
+	write_coord(floatround(mid[0]));
+	write_coord(floatround(mid[1]));
+	write_coord(floatround(mid[2]));
+	write_short(g_obj_boom_spr);
+	write_byte(120);   // scale in tenths -- a full-size blast
+	write_byte(255);
+	write_byte(TE_EXPLFLAG_NONE);
+	message_end();
+
+	// The STOCK BOOM, spatial at the body -- intermediate falls keep their
+	// local blast; the last one's wide stack rides just below.
+	if (!last)
+	{
+		emit_sound(ent, CHAN_WEAPON, TSM_OBJ_BOOM_A, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
+	}
+
+	siege_fall(by, ent, n);
+
+	// THE BODY'S LAST WORD: after the fall's bookkeeping, dealt its breach
+	// damage so a breakable breaks with its own gib, and removed outright
+	// when it was never going to break at all.
+	if (pev_valid(ent))
+	{
+		ExecuteHamB(Ham_TakeDamage, ent, by, by, TSM_OBJ_BREAKDMG, TSM_DMG_BLAST);
+		if (pev_valid(ent))
+		{
+			engfunc(EngFunc_RemoveEntity, ent);
+		}
+	}
+}
+
+/*
+ * === THE DESTRUCTIBLE OBJECTIVE ============================================
+ *
+ * A tsm_obj_N does not have to be an indestructible brush. If an objective's
+ * body is (or is like) a FUNC_BREAKABLE -- anything that can take damage and
+ * die -- three things change, on purpose:
+ *
+ *   - Players of the DEFENDING side, and players of no side at all, cannot
+ *     even CHIP it: their damage is cut to nothing before the mod applies
+ *     it, so their gate always stands whole for the attackers to breach.
+ *   - When the body DIES to an ATTACKING player, the objective falls then
+ *     and there, whatever dealt the wound -- gunfire, a grenade, or the
+ *     Breacher's own charge. The round-credit has one source of truth: the
+ *     body died to an attacking hand.
+ *   - Every take is a SATCHEL, and whose hand sets it is the CLASS GATE'S
+ *     call (tsm_obj_class): this server hands planting to the Breacher
+ *     alone -- hold +USE for the plant (tsm_obj_time), the fuse burns
+ *     (tsm_obj_fuse), and the explosion is what destroys the body. No other
+ *     class plants; every OTHER route to destruction needs a body that can
+ *     actually break. The Breacher's one press is reserved for doors.
+ *
+ * Destruction obeys the SAME "fall in order" rule as the held charge: only
+ * the next objective ever falls, and a body destroyed ahead of its turn
+ * earns nothing (siege_reset rebuilds it from cache next round).
+ * ==========================================================================
+ */
+
+/*
+ * THE OLD ONE-PRESS BREACH IS GONE. Planting is the class gate's verb -- with
+ * this server's tsm_obj_class, the Breacher ALONE: they hold the plant
+ * (task_siege_hold), then the fuse (task_charge_fuse above) is what falls the
+ * objective and destroys the body. Every other class's only route to a fall
+ * is a body that can break, by their own gunfire. Nothing destroys an
+ * objective on a single press of E any more; the Breacher's instant press is
+ * reserved for the breach DOORS, where it always was breach_entity.
+ */
+
+/*
+ * The defenders' rule, at the wound level: damage a player of the defending
+ * side -- or of no side at all -- lands on an objective is reduced to zero
+ * before the mod applies it. Attacking-side players are left fully armed:
+ * their gunfire and grenades count as the breach, and a body that takes no
+ * damage anyway (a plain brush) is untouched either way, because the mod
+ * itself refuses to hurt it.
+ */
+public fw_obj_dmg(ent, inflictor, attacker, Float:damage, damagebits)
+{
+	if (!siege_number(ent))
+	{
+		return HAM_IGNORED;
+	}
+	if (attacker < 1 || attacker >= MAXPL)
+	{
+		return HAM_IGNORED;   // world or non-player source: not attributable, untouched
+	}
+	if (g_match_team[attacker] == get_pcvar_num(g_cv_objteam))
+	{
+		return HAM_IGNORED;   // the attackers may wound it freely
+	}
+	SetHamParamFloat(4, 0.0);
+	return HAM_IGNORED;
+}
+
+/*
+ * The body DIED: the objective is achieved, when the destroyer is an
+ * attacking player. Every fall in the round still has to come in order --
+ * the body of an objective blown ahead of its turn is refused, the shooter
+ * is told the same thing the hold mechanic tells them, and the fall stays
+ * with whoever comes to it in turn. A fall nobody can be named for (the
+ * world, a mapper hazard, a defender shelling their own gate) is refused:
+ * no side can hand the round over by breaking what the other side guards.
+ */
+public fw_obj_killed(victim, attacker, gib)
+{
+	if (g_state != ST_LIVE)
+	{
+		return HAM_IGNORED;
+	}
+	new n = siege_number(victim);
+	if (!n || n <= g_obj_taken)
+	{
+		// No objective at all here, or one already accounted for -- the
+		// planted satchel's detonation books its fall first and calls this
+		// hook as the body breaks: nothing to do the second time.
+		return HAM_IGNORED;
+	}
+	if (n > g_obj_taken + 1)
+	{
+		if (attacker >= 1 && attacker < MAXPL && !is_user_bot(attacker)
+			&& g_match_team[attacker] == get_pcvar_num(g_cv_objteam)
+			&& (get_gametime() - g_obj_told_at[attacker]) > 2.0)
+		{
+			g_obj_told_at[attacker] = get_gametime();
+			client_print(attacker, print_center, "Objective %d has to fall first.", g_obj_taken + 1);
+		}
+		return HAM_IGNORED;
+	}
+	if (attacker < 1 || attacker >= MAXPL
+		|| g_match_team[attacker] != get_pcvar_num(g_cv_objteam))
+	{
+		dbg("siege: objective %d died to entity %d, not attacker-side work -- no fall", n, attacker);
+		return HAM_IGNORED;
+	}
+
+	dbg("siege: objective %d fell by body destruction (attacker %d)", n, attacker);
+	siege_fall(attacker, victim, n);
+	return HAM_IGNORED;
+}
+
+/*
+ * Spawns back the objective bodies that are missing from the world.
+ *
+ *   only_pending TRUE  -- the ROUND-START repair. Objective progress lives
+ *   across the whole match (a fall is one round won; the chain continues
+ *   next round), so a body destroyed AHEAD of its turn must come back for
+ *   the round after it -- but a body that has actually FALLEN stays fallen;
+ *   that is this match's own progress.
+ *
+ *   only_pending FALSE -- the MATCH reset. Everything comes back, because
+ *   the chain (and g_obj_taken) start over.
+ */
+siege_rebuild_bodies(bool:only_pending)
+{
+	new name[16], hstr[16];
+	for (new n = 1; n <= TSM_OBJ_MAX; n++)
+	{
+		if (!g_obj_model[n][0])
+		{
+			continue;
+		}
+		if (only_pending && n <= g_obj_taken)
+		{
+			continue;   // fallen for this match: stays fallen
+		}
+		formatex(name, charsmax(name), "%s%d", TSM_OBJ_PREFIX, n);
+		if (engfunc(EngFunc_FindEntityByString, -1, "targetname", name) > 0)
+		{
+			continue;   // still whole: nothing to bring back
+		}
+		new body = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, g_obj_class[n]));
+		if (body <= 0)
+		{
+			continue;
+		}
+		kv_set(body, g_obj_class[n], "model", g_obj_model[n]);
+		kv_set(body, g_obj_class[n], "targetname", name);
+		if (g_obj_target[n][0])
+		{
+			kv_set(body, g_obj_class[n], "target", g_obj_target[n]);
+		}
+		formatex(hstr, charsmax(hstr), "%f", g_obj_health[n]);
+		kv_set(body, g_obj_class[n], "health", hstr);
+		set_pev(body, pev_spawnflags, g_obj_spawnflags[n]);
+		dllfunc(DLLFunc_Spawn, body);
+		dbg("siege: objective %d rebuilt from cache (#%d)", n, body);
 	}
 }
 
@@ -8087,6 +10199,369 @@ siege_reset()
 		remove_task(i + TSM_TASK_OBJ);
 		g_obj_holding[i] = 0;
 	}
+
+	/*
+	 * THE BODIES THE LAST MATCH DESTROYED, BACK AGAIN.
+	 *
+	 * The relays above cannot reach the objective entity itself: a breakable
+	 * that died is deleted, and no relay hits thin air. siege_rebuild_bodies
+	 * spawns every missing one back from the cache recorded at map load -- the
+	 * whole chain starts over here (only_pending false), while the round-start
+	 * repair inside start_round() only brings back what was destroyed ahead of
+	 * its turn.
+	 */
+	siege_rebuild_bodies(false);
+}
+
+/*
+ * === THE SIEGE DEBUG SUITE ==================================================
+ *
+ * Six admin commands that exercise every stage of the satchel flow on their
+ * own and, when you want, WITHOUT ANY tsm_obj entities in the map at all:
+ *
+ *   amx_tsm_siege          -- the whole state, printed
+ *   amx_tsm_siege_spawn    -- a synthetic objective where you look
+ *   amx_tsm_siege_plant    -- force-complete a plant, the exact real path
+ *   amx_tsm_siege_fuse     -- set that charge off now
+ *   amx_tsm_siege_alarm    -- the raid siren, forced on
+ *   amx_tsm_siege_reset    -- fuse + alarm killed, synthetics taken back out,
+ *                             every cached body rebuilt, the chain at zero
+ *
+ * The chronology rules stay honest in debug: the fuse only detonates in a
+ * live round and only on the NEXT objective of the chain -- walk the chain
+ * forward with amx_tsm_obj <n> (or take earlier objectives properly) and the
+ * suite fires the finale exactly as a full run of the map would.
+ */
+siege_line(id, const fmt[], any:...)
+{
+	new line[256];
+	vformat(line, charsmax(line), fmt, 3);
+	if (id == 0)
+	{
+		server_print("[TSM] %s", line);
+	}
+	else
+	{
+		console_print(id, "[TSM] %s", line);
+	}
+}
+
+/// The objective's entity by number, or 0 when none stands: a map brush or
+/// one of the suite's synthetics alike, both are just a standing targetname.
+siege_by_number(n)
+{
+	new name[16];
+	formatex(name, charsmax(name), "%s%d", TSM_OBJ_PREFIX, n);
+	return engfunc(EngFunc_FindEntityByString, -1, "targetname", name);
+}
+
+/// WHOLE-STATE DUMP: chain, planted fuse, holds, alarm, gate, measured sounds.
+public cmd_siege(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new stc[16];
+	switch (g_state)
+	{
+		case ST_WARMUP:   copy(stc, charsmax(stc), "warmup");
+		case ST_READYUP:  copy(stc, charsmax(stc), "ready-up");
+		case ST_FREEZE:   copy(stc, charsmax(stc), "freeze");
+		case ST_LIVE:     copy(stc, charsmax(stc), "live");
+		case ST_ROUNDEND: copy(stc, charsmax(stc), "round end");
+		case ST_MATCHEND: copy(stc, charsmax(stc), "match end");
+		default:          copy(stc, charsmax(stc), "?");
+	}
+	siege_line(id, "siege dump ----------------------------------");
+	siege_line(id, "state: %d (%s)", g_state, stc);
+	siege_line(id, "chain: %d objective(s) live, %d fallen, next due %d",
+		siege_count(), g_obj_taken, g_obj_taken + 1);
+
+	if (g_plant_n && pev_valid(g_plant_ent))
+	{
+		new who[32];
+		who[0] = 0;
+		if (g_plant_by >= 1 && g_plant_by < MAXPL)
+		{
+			get_user_name(g_plant_by, who, charsmax(who));
+		}
+		siege_line(id, "planted: objective %d (ent %d, by %s), fuse %.1f s, task %s",
+			g_plant_n, g_plant_ent, who, get_pcvar_float(g_cv_objfuse),
+			task_exists(TSM_TASK_CHARGE) ? "running" : "MISSING");
+	}
+	else if (g_plant_n)
+	{
+		siege_line(id, "planted: stale state on objective %d over a dead body -- the fuse releases on its own", g_plant_n);
+	}
+	else
+	{
+		siege_line(id, "planted: nothing");
+	}
+
+	new held = 0;
+	for (new i = 1; i < MAXPL; i++)
+	{
+		if (g_obj_holding[i] && is_user_connected(i))
+		{
+			new who[32];
+			get_user_name(i, who, charsmax(who));
+			siege_line(id, "holding: %d is on objective %d (%s)",
+				i, siege_number(g_obj_holding[i]), who);
+			held++;
+		}
+	}
+	if (!held)
+	{
+		siege_line(id, "holding: nobody");
+	}
+
+	siege_line(id, "alarm: %s (side %d, siren %.2f s a loop, vol %.2f)",
+		g_alarm_on ? "ON" : "off", g_alarm_side, g_alarm_len,
+		get_pcvar_float(g_cv_alarmvol));
+
+	new cls[32];
+	get_pcvar_string(g_cv_objclass, cls, charsmax(cls));
+	siege_line(id, "gate: team %d as %s, plant %.1f s, fuse %.1f s",
+		get_pcvar_num(g_cv_objteam), cls,
+		get_pcvar_float(g_cv_objtime), get_pcvar_float(g_cv_objfuse));
+	siege_line(id, "sounds: hold %.2f s, success %.2f s, booms %.2f/%.2f/%.2f s, sprite %d",
+		g_plant_len, g_plant_done_len, g_boom_len[0], g_boom_len[1], g_boom_len[2],
+		g_obj_boom_spr);
+	return PLUGIN_HANDLED;
+}
+
+/// SPAWN: a synthetic objective where the admin looks. No tsm_obj entity (or
+/// none left standing) is fine -- this is how the satchel flow can be played
+/// out on ANY map at all.
+public cmd_siege_spawn(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	// The number: given, or the first slot with nothing standing under it.
+	new a[8], n = 0;
+	if (read_argc() > 1)
+	{
+		read_argv(1, a, charsmax(a));
+		n = str_to_num(a);
+		if (n < 1 || n > TSM_OBJ_MAX)
+		{
+			siege_line(id, "Number 1 to %d, please.", TSM_OBJ_MAX);
+			return PLUGIN_HANDLED;
+		}
+		if (siege_by_number(n) > 0)
+		{
+			siege_line(id, "tsm_obj_%d already stands -- take the next slot.", n);
+			return PLUGIN_HANDLED;
+		}
+	}
+	if (!n)
+	{
+		for (n = 1; n <= TSM_OBJ_MAX; n++)
+		{
+			if (siege_by_number(n) <= 0)
+			{
+				break;
+			}
+		}
+		if (n > TSM_OBJ_MAX)
+		{
+			siege_line(id, "All nine slots stand -- amx_tsm_siege_reset first.");
+			return PLUGIN_HANDLED;
+		}
+	}
+
+	// WHERE it stands: the end of the admin's line of sight, 256 units down
+	// the pipe, so the box lands wherever they can see.
+	new Float:start[3], Float:vo[3], Float:ang[3], Float:dest[3];
+	pev(id, pev_origin, start);
+	pev(id, pev_view_ofs, vo);
+	start[0] += vo[0];
+	start[1] += vo[1];
+	start[2] += vo[2];
+	pev(id, pev_v_angle, ang);
+	engfunc(EngFunc_MakeVectors, ang);
+	global_get(glb_v_forward, vo);
+	dest[0] = start[0] + vo[0] * 256.0;
+	dest[1] = start[1] + vo[1] * 256.0;
+	dest[2] = start[2] + vo[2] * 256.0;
+	engfunc(EngFunc_TraceLine, start, dest, 0, id, 0);
+	get_tr2(0, TR_vecEndPos, dest);
+	dest[2] += 0.5;   // sit on the surface, never sink into it
+
+	// THE BODY: a model-less SOLID_BBOX point entity -- invisible bar its
+	// light aura, but siege_use's line of sight hits it like a real brush,
+	// the plant sound rings spatially at its origin, and the charge's
+	// RemoveEntity fallback can delete it, which is a whole flow in a grain.
+	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+	if (ent <= 0)
+	{
+		siege_line(id, "The engine refused the entity.");
+		return PLUGIN_HANDLED;
+	}
+	set_pev(ent, pev_solid, SOLID_BBOX);
+	set_pev(ent, pev_movetype, MOVETYPE_NONE);
+	set_pev(ent, pev_effects, EF_BRIGHTLIGHT);   // HL's light aura, the marker the eyes get
+	engfunc(EngFunc_SetOrigin, ent, dest);
+	new Float:mins[3], Float:maxs[3];
+	mins[0] = -16.0; mins[1] = -16.0; mins[2] = 0.0;
+	maxs[0] = 16.0; maxs[1] = 16.0; maxs[2] = 32.0;
+	engfunc(EngFunc_SetSize, ent, mins, maxs);
+
+	new name[16];
+	formatex(name, charsmax(name), "%s%d", TSM_OBJ_PREFIX, n);
+	set_pev(ent, pev_targetname, engfunc(EngFunc_AllocString, name));
+
+	siege_line(id, "Synthetic objective tsm_obj_%d placed (ent %d) where you look. Next due is %d%s",
+		n, ent, g_obj_taken + 1,
+		(n == g_obj_taken + 1) ? " -- this one is in turn." : " -- take earlier ones first (amx_tsm_obj <n> walks the chain).");
+	dbg("siege: synthetic objective %d spawned as ent %d by %d", n, ent, id);
+	return PLUGIN_HANDLED;
+}
+
+/// FORCE-PLANT: the hold's own completion, right now. Outside a live round
+/// and on a non-next objective the fuse's own guards still win.
+public cmd_siege_plant(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (g_state != ST_LIVE)
+	{
+		siege_line(id, "The satchel only runs in a live round -- amx_match_start first.");
+		return PLUGIN_HANDLED;
+	}
+	if (g_plant_n)
+	{
+		siege_line(id, "The satchel is already planted (objective %d) -- amx_tsm_siege_fuse sets it off.", g_plant_n);
+		return PLUGIN_HANDLED;
+	}
+
+	new ent = 0, n = 0;
+	new a[8];
+	if (read_argc() > 1)
+	{
+		read_argv(1, a, charsmax(a));
+		n = str_to_num(a);
+		if (n < 1 || n > TSM_OBJ_MAX)
+		{
+			siege_line(id, "Number 1 to %d, please.", TSM_OBJ_MAX);
+			return PLUGIN_HANDLED;
+		}
+		ent = siege_by_number(n);
+	}
+	else
+	{
+		ent = siege_aimed(id);
+		n = siege_number(ent);
+	}
+	if (!n || ent <= 0 || !pev_valid(ent))
+	{
+		siege_line(id, "No objective there -- aim at one, name its number, or make one with amx_tsm_siege_spawn.");
+		return PLUGIN_HANDLED;
+	}
+	if (n <= g_obj_taken)
+	{
+		siege_line(id, "Objective %d has already fallen -- amx_tsm_obj reset puts it back.", n);
+		return PLUGIN_HANDLED;
+	}
+	if (n != g_obj_taken + 1)
+	{
+		siege_line(id, "NOTE: next in the chain is objective %d -- the fuse on %d will reconcile and fall nothing. amx_tsm_obj %d points the chain there first.",
+			g_obj_taken + 1, n, n - 1);
+	}
+
+	// THE REAL PATH, not a copy of it.
+	siege_plant_now(id, ent, n);
+	return PLUGIN_HANDLED;
+}
+
+/// FORCE-FUSE: zero the wait and run the real fuse tick, guards and all --
+/// an out-of-order plant releases here exactly as time would have.
+public cmd_siege_fuse(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (!g_plant_n)
+	{
+		siege_line(id, "Nothing is planted -- amx_tsm_siege_plant first.");
+		return PLUGIN_HANDLED;
+	}
+
+	siege_line(id, "Fuse forced on objective %d.", g_plant_n);
+	remove_task(TSM_TASK_CHARGE);
+	task_charge_fuse();
+	return PLUGIN_HANDLED;
+}
+
+/// THE SIREN, FORCED: what a round's first successful attack would have
+/// started, from freeze on. A round boundary still cuts it exactly as ever.
+public cmd_siege_alarm(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (g_alarm_on)
+	{
+		siege_line(id, "The alarm is already on (side %d).", g_alarm_side);
+		return PLUGIN_HANDLED;
+	}
+
+	alarm_start(id, true);
+	if (g_alarm_on)
+	{
+		siege_line(id, "Alarm forced ON (side %d), siren %.2f s a loop -- it stops at the round line as always.",
+			g_alarm_side, g_alarm_len);
+	}
+	return PLUGIN_HANDLED;
+}
+
+/// THE CLEAN SLATE: fuse killed, alarm cut, the suite's own creatures taken
+/// back out of the world, every cached body rebuilt, the chain at zero.
+public cmd_siege_reset(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	// SYNTHETICS OUT. A standing body filling a chain slot with NO cache row
+	// is one of the suite's own -- every real objective is recorded at map
+	// load -- so the real bodies are never touched while the test creatures
+	// are pulled from the world.
+	new removed = 0;
+	for (new n = 1; n <= TSM_OBJ_MAX; n++)
+	{
+		if (g_obj_model[n][0] || g_obj_class[n][0])
+		{
+			continue;
+		}
+		new body = siege_by_number(n);
+		if (body > 0)
+		{
+			engfunc(EngFunc_RemoveEntity, body);
+			removed++;
+		}
+	}
+
+	remove_task(TSM_TASK_CHARGE);
+	g_plant_ent = 0;
+	g_plant_n = 0;
+	g_plant_by = 0;
+	alarm_stop();
+	siege_reset();
+
+	siege_line(id, "siege reset: %d synthetic objective(s) removed, %d objective(s) standing, chain at 0, alarm cut",
+		removed, siege_count());
+	return PLUGIN_HANDLED;
 }
 
 public cmd_obj(id, level, cid)
@@ -8144,6 +10619,7 @@ disband_squad(leader)
 		if (g_squad_leader[i] == leader)
 		{
 			g_squad_leader[i] = 0;
+			g_push_until[i] = 0.0;   // clear any pending shove
 			n++;
 		}
 	}
@@ -8164,6 +10640,56 @@ squad_size(leader)
 	return n;
 }
 
+/// Tries to place a bot on a clear ring around the center at the given radius.
+/// Returns true on success (bot moved to TR_vecEndPos, velocity zeroed), false if no
+/// clear spot found among the 8 candidates (base yaw + 8 offsets).
+bool:step_bot_to_ring(bot, Float:center[3], Float:base_yaw, Float:radius)
+{
+	// 8 yaw offsets: 0, ±45, ±90, ±135, 180 degrees from base_yaw
+	new const Float:yaw_offsets[8] = { 0.0, 45.0, -45.0, 90.0, -90.0, 135.0, -135.0, 180.0 };
+	
+	for (new i = 0; i < 8; i++)
+	{
+		new Float:yaw = base_yaw + yaw_offsets[i];
+		new Float:cand[3];
+		cand[0] = center[0] + floatcos(yaw, degrees) * radius;
+		cand[1] = center[1] + floatsin(yaw, degrees) * radius;
+		cand[2] = center[2];
+		
+		// TraceHull down from slightly above to find ground, bodies block (DONT_IGNORE_MONSTERS)
+		new tr = 0;
+		new Float:start[3], Float:end[3];
+		start[0] = cand[0];
+		start[1] = cand[1];
+		start[2] = cand[2] + 8.0;
+		end[0] = cand[0];
+		end[1] = cand[1];
+		end[2] = cand[2] - 128.0;
+		engfunc(EngFunc_TraceHull, start, end, DONT_IGNORE_MONSTERS, TSM_HULL_HUMAN, bot, tr);
+		
+		new Float:frac;
+		get_tr2(tr, TR_flFraction, frac);
+		new bool:start_solid;
+		get_tr2(tr, TR_StartSolid, start_solid);
+		
+		// Reject if starting inside solid or trace hit something before reaching ground
+		if (start_solid || frac >= 1.0)
+		{
+			continue;
+		}
+		
+		// Valid spot: place bot at trace end position, zero velocity
+		new Float:dest[3];
+		get_tr2(tr, TR_vecEndPos, dest);
+		engfunc(EngFunc_SetOrigin, bot, dest);
+		
+		new Float:zero_vel[3] = { 0.0, 0.0, 0.0 };
+		set_pev(bot, pev_velocity, zero_vel);
+		return true;
+	}
+	return false;
+}
+
 /*
  * Steers the squad, once every tenth of a second.
  *
@@ -8180,6 +10706,24 @@ squad_size(leader)
  */
 public task_squad()
 {
+	/*
+	 * Shove persistence: any bot with an active push gets its velocity refreshed
+	 * every 0.1s so the nudge lasts ~0.7s instead of a single frame. Runs BEFORE
+	 * the steering cvar gate so it continues even if squadsteer is toggled off.
+	 */
+	new Float:now = get_gametime();
+	for (new bot = 1; bot < MAXPL; bot++)
+	{
+		if (g_push_until[bot] > now)
+		{
+			new Float:vel[3];
+			pev(bot, pev_velocity, vel);
+			vel[0] = g_push_dir[bot][0] * TSM_PUSH_SPEED;
+			vel[1] = g_push_dir[bot][1] * TSM_PUSH_SPEED;
+			set_pev(bot, pev_velocity, vel);
+		}
+	}
+
 	/*
 	 * This is what actually makes .follow follow, so it runs by default now.
 	 *
@@ -8213,6 +10757,7 @@ public task_squad()
 			|| g_match_team[bot] != g_match_team[leader])
 		{
 			g_squad_leader[bot] = 0;
+			g_push_until[bot] = 0.0;   // clear any pending shove
 			continue;
 		}
 
@@ -8228,34 +10773,27 @@ public task_squad()
 
 		if (dist <= want)
 		{
+			// Personal-space push: if a squad bot is inside 40 units but outside
+			// 1.0 unit, give it a gentle outward shove so it doesn't sit on the
+			// officer. This runs inside the "close enough" branch so we don't
+			// fight rcbot's pathing at normal follow distances.
+			if (dist > 1.0 && dist < 40.0)
+			{
+				new Float:vel[3];
+				pev(bot, pev_velocity, vel);
+				vel[0] = -(d[0] / dist) * TSM_PUSH_SPEED;
+				vel[1] = -(d[1] / dist) * TSM_PUSH_SPEED;
+				set_pev(bot, pev_velocity, vel);
+				// Persist the shove for ~0.7s (7 ticks at 0.1s)
+				g_push_until[bot] = get_gametime() + 0.7;
+				g_push_dir[bot][0] = -(d[0] / dist);
+				g_push_dir[bot][1] = -(d[1] / dist);
+			}
 			continue;   // close enough; leave them to rcbot entirely
 		}
 
 		/*
-		 * Out of sight, hands off.
-		 *
-		 * Steering is a straight pull toward the officer, so through a wall it pulls a
-		 * bot INTO the wall and holds it there -- worse than not helping. rcbot can
-		 * path around that; this cannot. So the plugin only steers where it can see,
-		 * and otherwise leaves the bot entirely alone to find its own way.
-		 *
-		 * IGNORE_MONSTERS deliberately: the test is whether the WORLD is in the way,
-		 * not whether another player is standing between them. It also keeps this out
-		 * of the way of tsm_bot_blind_ff, which hooks FM_TraceLine to hide teammates
-		 * from rcbot -- an officer is a teammate, so a trace that tested bodies could
-		 * be answered by our own blinding rather than by the map.
-		 */
-		new tr = 0;
-		engfunc(EngFunc_TraceLine, bo, lo, IGNORE_MONSTERS, bot, tr);
-		new Float:frac;
-		get_tr2(tr, TR_flFraction, frac);
-		if (frac < 1.0)
-		{
-			continue;
-		}
-
-		/*
-		 * Lost them completely: put them back.
+		 * Lost them completely: put them back BESIDE the officer, never onto them.
 		 *
 		 * Without this a bot that rcbot has walked into another room simply never
 		 * comes back, because nudging a velocity cannot beat rcbot's own pathing
@@ -8264,13 +10802,15 @@ public task_squad()
 		 */
 		if (dist > warp)
 		{
-			new Float:dest[3];
-			dest[0] = lo[0];
-			dest[1] = lo[1];
-			dest[2] = lo[2] + 8.0;
-			engfunc(EngFunc_SetOrigin, bot, dest);
-			dbgv("squad: warped bot %d back to officer %d (%.0f units)", bot, leader, dist);
-			continue;
+			new Float:leader_angles[3];
+			pev(leader, pev_v_angle, leader_angles);
+			// base_yaw = behind the officer (leader yaw + 180)
+			if (step_bot_to_ring(bot, lo, leader_angles[1] + 180.0, 40.0))
+			{
+				dbgv("squad: warped bot %d to ring beside officer %d (%.0f units)", bot, leader, dist);
+				continue;
+			}
+			// Warp failed (no clear spot) -- fall through to velocity pull (LoS already verified)
 		}
 
 		if (dist < 1.0)
@@ -8306,6 +10846,50 @@ bool:classname_in_list(pcvar, const classname[])
 		if (item[0] && equali(item, classname))
 		{
 			return true;
+		}
+	}
+	return false;
+}
+
+/// True when name appears in any of tsm_breachdoor_1..8.
+///
+/// Those lists accept comma OR space separation. The split is done locally, onto a
+/// scratch copy with the spaces folded to commas -- classname_in_list cannot be used
+/// directly because it re-reads the cvar and would throw the fold away.
+bool:breachdoor_listed(const name[])
+{
+	if (!name[0])
+	{
+		return false;
+	}
+
+	for (new i = 0; i < 8; i++)
+	{
+		new list[192];
+		get_pcvar_string(g_cv_breachdoor[i], list, charsmax(list));
+		if (!list[0])
+		{
+			continue;
+		}
+
+		new rest[192], carry[192], item[48];
+		copy(rest, charsmax(rest), list);
+		for (new c = 0; c < 192 && rest[c]; c++)
+		{
+			if (rest[c] == ' ')
+			{
+				rest[c] = ',';
+			}
+		}
+
+		for (new guard = 0; guard < 24 && rest[0]; guard++)
+		{
+			strtok(rest, item, charsmax(item), carry, charsmax(carry), ',', 0);
+			copy(rest, charsmax(rest), carry);
+			if (item[0] && equali(item, name))
+			{
+				return true;
+			}
 		}
 	}
 	return false;
@@ -8601,9 +11185,34 @@ perk_use(id)
 			return;
 		}
 
+		/*
+		 * A BREACH IS ONLY A BREACH ON A LOCKED OR DECLARED DOOR.
+		 *
+		 * "Breached." used to print for everything under the crosshair, which turned
+		 * the callout into noise: the flag-clear below is the breach, and on an
+		 * ordinary unlocked door there is nothing to clear. So the force and the
+		 * message both happen only when the door was genuinely LOCKED (Use Only --
+		 * the flag breach_entity strips) or when its targetname is one of the map's
+		 * tsm_breachdoor_1..8 entries. Anything else is an everyday door: stock TS
+		 * use/touch opens it for whoever the map allows, with no message at all.
+		 */
+		new bool:locked = (pev(hit, pev_spawnflags) & TSM_SF_DOOR_USE_ONLY) != 0;
+		new name[32];
+		name[0] = 0;
+		pev(hit, pev_targetname, name, charsmax(name));
+		if (!locked && !breachdoor_listed(name))
+		{
+			dbgv("breach: '%s' named '%s' is neither locked nor listed -- ordinary use", cls, name);
+			return;
+		}
+
 		breach_entity(id, hit);
 		client_print(id, print_center, "Breached.");
-		dbg("breacher %d forced '%s' (ent %d)", id, cls, hit);
+
+		// A forced door is the alarm's other trigger, same rule as the
+		// objectives: the round's first one starts the siren, and that is it.
+		alarm_start(id);
+		dbg("breacher %d forced '%s' (ent %d, %s)", id, cls, hit, locked ? "locked" : "listed");
 		return;
 	}
 
@@ -9195,6 +11804,22 @@ remove_from_play(id)
 	hold_player(id, get_pcvar_num(g_cv_disarm) != DISARM_NONE);
 
 	pick_spec_target(id);
+
+	/*
+	 * THE OUT-OF-PLAY MARK.
+	 *
+	 * Until here g_elim_at means "seconds since they were eliminated"; from this
+	 * frame it means 0, and every per-frame check that reads it is answering one
+	 * question -- is the takeout finished. Dropping the flag HERE, once, rather
+	 * than at each caller, is what makes the leave-alone rule in fw_prethink hold
+	 * for EVERY route into the ghost state: death-delay task, a respawned frame,
+	 * an admin command -- whichever completed, the ghost is hidden from this frame
+	 * on and re-asserted every frame after. Before this mark the task route
+	 * finished its hide at tsm_death_delay 4.0 while the per-frame NODRAW still
+	 * waited on the 10.5 linger window, so when TS next cleared effects the ghost
+	 * re-appeared wherever the follow camera had carried them -- the blink.
+	 */
+	g_elim_at[id] = 0.0;
 }
 
 /* ---- following a teammate, without spectator mode ------------------------ */
@@ -10049,6 +12674,78 @@ public fw_prethink(id)
 		return FMRES_IGNORED;
 	}
 
+	// Mech machinery: the carried M60 is stripped off the model, every hp bump
+	// in live play is refused back, and the walking machine keeps its sound kit
+	// on the walker's own client as well as in the world.
+	if (is_user_alive(id) && wears_mech(id))
+	{
+		// The M60 hanging off the mech model, out of sight for good. TS redraws
+		// the attachment whenever the carried weapon changes, so this is not a
+		// one-shot hide: prethink clears it every frame and wins by constant
+		// repetition rather than by catching it once. Both cosmetic pairs are
+		// zeroed -- the on-body mesh TS attaches (weaponmodel) and the first-person
+		// in-hand mesh (viewmodel). The weapon itself is untouched; only its
+		// pictures are gone.
+		set_pev(id, pev_weaponmodel, 0);
+		set_pev(id, pev_weaponmodel2, "");
+		set_pev(id, pev_viewmodel, 0);
+		set_pev(id, pev_viewmodel2, "");
+
+		new mechhp = get_user_health(id);
+
+		/*
+		 * A watch of ZERO means there is no baseline yet -- a fresh body, or one a
+		 * death or the match reset has just cleared -- and the next sighting only
+		 * records it. Without that, the first live frame after a go-live health raise
+		 * or a mid-round respawn would read the class's own 300 (or the respawn's
+		 * 100) as a heal and step it straight back down; that is how a live mech was
+		 * held at the freeze's 100, and a respawned one at 2. The explicit sets (arm,
+		 * apply_class, go-live) sync the watch at the write and a death clears it, so
+		 * the only values it ever refuses are genuine bumps.
+		 */
+		if (g_state == ST_LIVE && g_mech_hp_watch[id] > 0)
+		{
+			/*
+			 * The stimpack and every other route to healing a machine are closed
+			 * here by EFFECT, not by command name. TS's own stimpack runs inside
+			 * the game dll with no client command to intercept, so anything that
+			 * raises this body's hp during a live round is stepped back -- the
+			 * medic heal, our own .stim and the pickups are all already refused
+			 * or not ours to own; this is the floor under all of them.
+			 */
+			if (mechhp > g_mech_hp_watch[id] + 1)
+			{
+				set_user_health(id, g_mech_hp_watch[id]);
+				client_print(id, print_center, "[TSM] Mechs do not heal -- self-repair is not a thing");
+				tlog("[TSM] mech hp bump on %d refused (%d -> %d)", id, g_mech_hp_watch[id], mechhp);
+				mechhp = g_mech_hp_watch[id];
+			}
+		}
+		g_mech_hp_watch[id] = mechhp;
+
+		// Pilot step sound, on the pilot's own client as well as in the world.
+		if (!is_user_bot(id))
+		{
+			new Float:vel[3];
+			pev(id, pev_velocity, vel);
+			new Float:speed = vector_length(vel);
+			if (speed >= 50.0 && (pev(id, pev_flags) & FL_ONGROUND))
+			{
+				new Float:now = get_gametime();
+				if (g_next_step_time[id] <= now)
+				{
+					g_next_step_time[id] = now + 0.4;
+					new stepname[16];
+					copy(stepname, charsmax(stepname), g_next[id] == 0 ? MECH_STEP_1 : MECH_STEP_2);
+					tlog("[TSM DEBUG] mech step emit for %d", id);
+					emit_sound(id, CHAN_BODY, stepname, 1.0, ATTN_NORM, 0, PITCH_NORM);
+					client_cmd(id, "playvol %s 0.7", stepname);
+					g_next[id] = (g_next[id] + 1) % 2;
+				}
+			}
+		}
+	}
+
 	// Above every early return below, so a held, spectating, eliminated or dead player
 	// is kept broke as well.
 	hold_cash(id);
@@ -10194,31 +12891,54 @@ public fw_prethink(id)
 			set_pev(id, pev_maxspeed,   wanted_speed());
 			set_user_maxspeed(id, wanted_speed());
 
-			// Disarm a respawned eliminated player so they cannot shoot while
-			// waiting out the linger. Harmless when they have no weapons.
+			// Disarm a respawned eliminated player so they cannot shoot while their
+			// body is still being left to TS. Harmless when they have no weapons.
 			if (g_elim_at[id] > 0.0 && is_user_alive(id))
 			{
 				strip_user_weapons(id);
 			}
 
-			// Hide only after the deathlinger window, so the death animation is
-			// visible before the player becomes a ghost. Without this gate the
-			// NODRAW lands on the frame of death and eats the animation entirely.
-			if (elim_hide_due(id))
-			{
-				set_pev(id, pev_effects,    pev(id, pev_effects) | TSM_EF_NODRAW);
-			}
-
 			/*
-			 * Respawned after elimination: TS puts him back on his feet when the death
-			 * sequence ends, loadout and all. Taken back out at once -- the death delay
-			 * is long past, so remove_from_play() does not defer.
+			 * Respawned after elimination: TS puts him back on his feet when the
+			 * death sequence ends, loadout and all. Taken out of play here too, as
+			 * a backstop on the death-delay task -- and remove_from_play() itself
+			 * now drops the out-of-play flag when it finally completes.
 			 */
 			if (g_elim_at[id] > 0.0 && is_user_alive(id) && elim_hide_due(id))
 			{
-				g_elim_at[id] = 0.0;
 				remove_from_play(id);
 			}
+
+			/*
+			 * A PLAYER STILL INSIDE THE DEATH WINDOW IS NOT MOVED HERE.
+			 *
+			 * g_elim_at > 0 means the takeout has not completed yet: TS is still
+			 * working the death sequence, or the death-delay task has not landed.
+			 * From the frame of elimination this hook used to SetOrigin the body
+			 * above whoever g_spec_target named -- or park it on the last saved
+			 * origin -- on every frame, WHILE IT WAS STILL VISIBLE. The post-think
+			 * hook got a leave-alone guard for exactly this and this one never
+			 * did, and the visible result was the old complaint in the flesh: a
+			 * killed player that blinked and hopped around instead of falling
+			 * still long enough to be a corpse.
+			 *
+			 * So the body is left wherever TS put it until the takeout has
+			 * genuinely finished with them, NODRAW and all; the camera only
+			 * starts once there is no visible thing left to blink.
+			 */
+			if (g_elim_at[id] > 0.0)
+			{
+				g_last_buttons[id] = raw_buttons;
+				return FMRES_IGNORED;
+			}
+
+			// Out of play: the invisible fact is asserted every frame too, and
+			// there is no linger window on it any more. The visible body on the
+			// floor belongs to TS's own corpse, not to this entity, so there is
+			// nothing left to cut short -- and a ghost whose effects TS quietly
+			// clears must be re-hidden the same frame, not at the next window
+			// boundary.
+			set_pev(id, pev_effects,    pev(id, pev_effects) | TSM_EF_NODRAW);
 
 			/*
 			 * Attack switches to the next teammate, edge-detected on the raw buttons --
@@ -10331,11 +13051,13 @@ public fw_prethink(id)
 			g_pending_elim[id] = 0.0;
 			g_elim[id] = true;
 			g_elim_at[id] = get_gametime();
+			g_mech_hp_watch[id] = 0;   // same death reset as ev_death, for the no-DeathMsg path
 			set_task(get_pcvar_float(g_cv_deathdelay), "task_remove_from_play", id + 7000);
 			// Same lookup as ev_death: a suicide genuinely has no killer, but a death
 			// that simply produced no DeathMsg usually does.
 			report_elimination(get_user_attacker(id), id);
 			dbg("frame watcher eliminated %d (no DeathMsg -- suicide or world death)", id);
+			death_voice(id);
 			check_round_end();
 		}
 	}
@@ -10517,7 +13239,6 @@ public fw_prethink(id)
 	if (g_elim_at[id] > 0.0 && is_user_alive(id) && pev(id, pev_solid) != TSM_SOLID_NOT)
 	{
 		dbgv("%d respawned after elimination -- taking them out of play now", id);
-		g_elim_at[id] = 0.0;
 		remove_from_play(id);
 	}
 
@@ -10724,13 +13445,174 @@ public ev_death()
 	g_elim[victim] = true;
 	g_elim_at[victim] = get_gametime();
 
+	/*
+	 * The mech health watch dies with the body. TS puts the player back on their
+	 * feet on its own schedule, and a baseline from before the death would refuse
+	 * the respawn's OWN 100 hp as a "heal" -- which is how a mech once came back
+	 * at 2. Zero means "no baseline yet": the first sighting after this only
+	 * records.
+	 */
+	g_mech_hp_watch[victim] = 0;
+
 	// Watch what happens to the body for the next few seconds. If it vanishes and
 	// nothing here did it, the mod did -- and the log says which.
 	g_deathtrace_at[victim] = get_gametime();
 	set_task(get_pcvar_float(g_cv_deathdelay), "task_remove_from_play", victim + 7000);
 
+	// The elimination voice, picked by the dying player's model name (see
+	// death_voice()). Plays before anything here has hidden or moved the body.
+	death_voice(victim);
 	report_elimination(killer, victim);
 	check_round_end();
+}
+
+/* ---- the elimination voice ------------------------------------------------ */
+
+/*
+ * What everyone hears when a player is taken out of play.
+ *
+ * The dying player's MODEL NAME picks the voice, so a server's model pool is the
+ * voice table:
+ *
+ *   robo / droid / bot in the name -- the HL1 frag grenade explosion, because a
+ *                                    machine does not scream, it detonates
+ *   fem (or female) in the name   -- death\fem1..fem5.wav
+ *   anything else                 -- death\male1..male6.wav
+ *
+ * Every check is case-insensitive containi(), and the robot test runs FIRST: a
+ * "fembot" is still a machine, and both rules would otherwise claim it. The
+ * gender pools are played in random order over the slots the precache step found
+ * on disk, falling over to the other voice rather than falling silent entirely.
+ *
+ * GLOBAL from the spot they were eliminated: emit_sound at attenuation 0 is
+ * ATTN_NONE, the Half-Life ambient-global rule -- every client hears the sample
+ * at full sent volume wherever they stand, with the stereo pan still showing
+ * which way it came from.
+ */
+death_voice(id)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+
+	// The dying body's model, for the machine test below. The userinfo key is
+	// read as before, but it can be TS's own re-answered pick rather than the
+	// drawn body (see set_class_model), so g_model_chosen is consulted beside
+	// it -- it is not alive-gated and follows the body to the death frame.
+	new mdl[48];
+	get_user_info(id, "model", mdl, charsmax(mdl));
+	if (!mdl[0])
+	{
+		copy(mdl, charsmax(mdl), g_model_chosen[id]);
+	}
+
+	/*
+	 * Machine or man? robo / droid / bot in the name do not scream, they
+	 * detonate; a "fembot" is still a machine. The mech class models --
+	 * mech_msr_bot / mech_ins_bot -- carry "bot" and land here too, which
+	 * is what makes the mechs detonate. TWO strings are tested, the live
+	 * key and the class pick record, because either one alone can miss a
+	 * body.
+	 */
+	new bool:machine = (containi(mdl, "robo") >= 0 || containi(mdl, "droid") >= 0
+		|| containi(mdl, "bot") >= 0
+		|| containi(g_model_chosen[id], "robo") >= 0 || containi(g_model_chosen[id], "droid") >= 0
+		|| containi(g_model_chosen[id], "bot") >= 0);
+
+	new sample[48];
+	if (machine)
+	{
+		copy(sample, charsmax(sample), TSM_DEATH_ROBO);
+	}
+	else
+	{
+		// "female" contains "fem", so one keyword covers both spellings.
+		new bool:fem = (containi(mdl, "fem") >= 0);
+
+		new slot = pick_death_voice(fem);
+		if (slot < 1)
+		{
+			// The whole pool of one voice is missing: try the other before
+			// giving up, since one wav on disk is still better than silence.
+			slot = pick_death_voice(!fem);
+			if (slot < 1)
+			{
+				tlog("[TSM] death_voice: id=%d NO voice available (machine=%d fem=%d)", id, machine, fem);
+				return;
+			}
+			fem = !fem;
+		}
+		formatex(sample, charsmax(sample), "death/%s%d.wav", fem ? "fem" : "male", slot);
+	}
+
+	// Volume 1.0, attenuation 0 (ATTN_NONE, the global rule above), no send
+	// flags, normal pitch. CHAN_AUTO so it never clobbers TS's own weapon or
+	// speech channels playing on the same body.
+	emit_sound(id, CHAN_AUTO, sample, 1.0, 0.0, 0, PITCH_NORM);
+	tlog("[TSM] death_voice: id=%d machine=%d sample=%s", id, machine, sample);
+
+	// The dying mech pilot's own copy. Dead or not they are still connected, so
+	// their client can take the local playvol even though their entity can no
+	// longer be trusted with a channel -- the world copy above carries the boom
+	// for everyone standing near it.
+	if (!is_user_bot(id))
+	{
+		client_cmd(id, "playvol %s 0.9", sample);
+	}
+
+	/*
+	 * THE MACHINES DETONATE -- and only the machines.
+	 *
+	 * The sprite rides the same machine test as the boom above: bodies that
+	 * read as bots or mechs burst where they fall, everyone else just falls
+	 * with their voice. (An earlier pass drew this for EVERY elimination,
+	 * because the old mech-only check asked wears_mech() -- alive-gated, on
+	 * an already-dead body, so it could never fire and the shape of that
+	 * bug read as "mech deaths have no sprite". The machine test reads the
+	 * class pick record, which has no alive gate, so it holds on the death
+	 * frame.)
+	 *
+	 * Sits AFTER the voice emit, before anything here has hidden or moved
+	 * the body, so the sprite lands where the body still is.
+	 */
+	if (machine)
+	{
+		new Float:dorigin[3];
+		pev(id, pev_origin, dorigin);
+		dorigin[2] += 16.0;   // a corpse's origin sits at waist height; lift the burst clear of the floor
+		message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+		write_byte(TE_EXPLOSION);
+		write_coord(floatround(dorigin[0]));
+		write_coord(floatround(dorigin[1]));
+		write_coord(floatround(dorigin[2]));
+		write_short(g_obj_boom_spr);   // zerogxplode.spr
+		write_byte(25);                // scale in tenths
+		write_byte(20);                // framerate
+		write_byte(TE_EXPLFLAG_NONE);
+		message_end();
+	}
+}
+
+/// A random working slot from a voice pool, 1..5 -- 0 when none of its wavs exist.
+pick_death_voice(bool:fem)
+{
+	// Six slots, not five: male6.wav sits in the folder and is precached with the
+	// rest, and the old one-to-five bound silently removed it from the pool -- the
+	// one death voice the file list contained that was never played.
+	new ready[6], picks = 0;
+	for (new i = 1; i <= 6; i++)
+	{
+		if (fem ? g_death_fem_ok[i] : g_death_male_ok[i])
+		{
+			ready[picks++] = i;
+		}
+	}
+	if (picks == 0)
+	{
+		return 0;
+	}
+	return ready[random_num(0, picks - 1)];
 }
 
 /* ---- team-scoped kill reporting ----------------------------------------- */
@@ -11004,6 +13886,8 @@ clear_match_state()
 		g_issuing[i] = false;
 		g_cash_lend[i] = false;
 		g_elim[i] = false;
+		g_m60_skip[i] = -1;
+		g_mech_hp_watch[i] = 0;
 		g_start_alive[1] = 0;
 		g_start_alive[2] = 0;
 		remove_task(i);          // any pending armament respawn
@@ -11015,6 +13899,110 @@ clear_match_state()
 	// by the next one, whose score they were never protecting.
 	g_halted = false;
 	g_halt_waived = false;
+
+	// The alarm goes down with the match too: the next one is silent until its
+	// own first attack, no matter how this one was called off. So does any
+	// planted satchel and its fuse, which belong to the match they broke into.
+	alarm_stop();
+	remove_task(TSM_TASK_CHARGE);
+	g_plant_ent = 0;
+	g_plant_n = 0;
+	g_plant_by = 0;
+}
+
+/*
+ * The bot join schedule: ONE bot per pass, every two seconds.
+ *
+ * With rcbot's own auto-fill switched off (max_bots -1, see the bots-ON branch),
+ * this is what reaches tsm_bots -- and it is the answer to the overflow: rcbot
+ * used to paste its entire quota the moment it saw a deficit, every TS spawn,
+ * precache and team message in one tick. A join every two seconds spreads ten
+ * bots over twenty seconds, and a bot that leaves the game is replaced the same
+ * slow way instead of a batch refill.
+ *
+ * Parked bots are left alone: between matches they sit out on purpose, and
+ * refilling a bench that nobody sits on yet would just churn sides that the
+ * next match's balance check is about to deal with anyway.
+ *
+ * Being over the target drains ONE bot per pass too, so lowering tsm_bots on a
+ * live server bleeds the extras out on the same slow drip rather than a burst
+ * of kicks in a single frame.
+ */
+public task_bot_fill()
+{
+	new want = get_pcvar_num(g_cv_bots);
+	if (want <= 0 || g_bots_parked)
+	{
+		return;
+	}
+
+	new bp[32], bn, n = 0;
+	get_players(bp, bn, "");   // no flags -- bots count
+	for (new i = 0; i < bn; i++)
+	{
+		if (is_user_bot(bp[i]))
+		{
+			n++;
+		}
+	}
+
+	if (n < want)
+	{
+		server_cmd("rcbot addbot");
+		server_exec();
+		dbg("bot fill: %d/%d -- one joining", n, want);
+	}
+	else if (n > want)
+	{
+		for (new i = 0; i < bn; i++)
+		{
+			if (is_user_bot(bp[i]))
+			{
+				server_cmd("kick #%d", get_user_userid(bp[i]));
+				server_exec();
+				dbg("bot trim: %d on, target %d -- sending %d out", n, want, bp[i]);
+				break;
+			}
+		}
+	}
+}
+
+/*
+ * One delayed kick, so turning bots OFF does not kick the whole fleet in a
+ * single tick either -- same staggering discipline as every other move here.
+ */
+public task_kick_bot(taskid)
+{
+	new id = taskid - TSM_TASK_BOTKICK;
+	if (is_user_connected(id) && is_user_bot(id))
+	{
+		server_cmd("kick #%d", get_user_userid(id));
+		server_exec();
+	}
+}
+
+/*
+ * Hand every bot an assign task SPREAD OVER TIME instead of all of them inside
+ * one tick, which side-wrote and respawned the whole fleet at once.
+ *
+ * Half a second apart, so ten bots are all placed within five seconds -- quick
+ * enough that the freeze countdown never exposes a missing bot, and slow enough
+ * that no tick carries more than one respawn's worth of messages.
+ */
+stagger_assign_bots()
+{
+	new bp[32], bnum, k = 0;
+	get_players(bp, bnum, g_pf);
+	for (new i = 0; i < bnum; i++)
+	{
+		if (is_user_bot(bp[i]))
+		{
+			remove_task(bp[i] + 6000);
+			set_task(0.5 * float(k), "task_assign_bot", bp[i] + 6000);
+			k++;
+		}
+	}
+	return k;
 }
 
 /*
@@ -11033,21 +14021,12 @@ public task_unpark_bots()
 
 	g_bots_parked = false;
 
-	new bp[32], bnum, n = 0;
-	get_players(bp, bnum, g_pf);
-	for (new i = 0; i < bnum; i++)
-	{
-		if (is_user_bot(bp[i]))
-		{
-			assign_bot(bp[i]);
-			n++;
-		}
-	}
+	new n = stagger_assign_bots();
 
 	if (n)
 	{
 		all_print("[MATCH] %d bot(s) back in and picking sides.", n);
-		dbg("unparked %d bot(s) after the match", n);
+		dbg("unparked %d bot(s) after the match, staggered", n);
 	}
 }
 
@@ -11079,14 +14058,25 @@ public task_to_warmup()
 
 	new wp[32], wnum;
 	get_players(wp, wnum, g_pf);
+	/*
+	 * THE TRANSITION STAGGER. force_spectator sends every one of these bodies its
+	 * team change, its own teleport and its own reliable messages, and a whole
+	 * match's worth of players moved in ONE frame is exactly the burst that has
+	 * been ending the match over the reliable datagram rather than at the score.
+	 * Player N is moved N*0.25 s after the first, so the same volume flows across
+	 * several seconds instead of one instant -- the same spread that ended the
+	 * armature's round-start overload.
+	 */
 	for (new i = 0; i < wnum; i++)
 	{
-		force_spectator(wp[i]);
+		set_task(0.25 * float(i), "task_force_spec_late", wp[i] + 7800);
 
-		// Only humans get the menu -- a bot cannot answer one.
+		// Only humans get the menu -- a bot cannot answer one. Staggered the
+		// same way, because twenty-four ShowMenu reliable packets in one
+		// instant brought the same verdict more than once.
 		if (!is_user_bot(wp[i]))
 		{
-			set_task(2.0, "task_show_side", wp[i] + 2000);
+			set_task(2.0 + 0.25 * float(i), "task_show_side", wp[i] + 2000);
 		}
 	}
 	all_print("[MATCH] Everyone is spectating. Pick a side to play the next match, or type .menu.");
@@ -11103,6 +14093,26 @@ start_round()
 	g_round++;
 	g_resetting = true;
 
+	/*
+	 * THE BODIES THAT DIED AHEAD OF THEIR TURN COME BACK HERE. A breakable
+	 * objective shot or blown while its turn had not yet arrived leaves no
+	 * body behind, and the round after it would have had nothing to take.
+	 * The ones that have actually FALLEN this match stay fallen -- that is
+	 * the match's own progress; siege_reset puts the whole chain back only
+	 * when the match itself ends.
+	 */
+	siege_rebuild_bodies(true);
+
+	// The old round's alarm dies with the old round: a fresh one is silent
+	// until somebody attacks something of the other side again. And a satchel
+	// still on its fuse when the round ended dies with it: no planted state
+	// and no fuse cross into the next one.
+	alarm_stop();
+	remove_task(TSM_TASK_CHARGE);
+	g_plant_ent = 0;
+	g_plant_n = 0;
+	g_plant_by = 0;
+
 	// A new round is never in sudden death, whatever the last one ended as. The
 	// go-live reset keeps the headline honest; this one makes the freeze itself
 	// clean, so nothing sudden-death shaped can cross a round boundary through any
@@ -11117,13 +14127,9 @@ start_round()
 	// would otherwise leave the rest of the match short-handed.
 	autofill_teams();
 
-	// Bots that connected mid-match get their side and class here.
-	new bp[32], bnum;
-	get_players(bp, bnum, g_pf);
-	for (new i = 0; i < bnum; i++)
-	{
-		assign_bot(bp[i]);
-	}
+	// Bots that connected mid-match get their side and class here -- staggered the
+	// same way as the unpark and begin_match, one bot per half second.
+	stagger_assign_bots();
 
 	// Anything dropped during warmup or the previous round goes now, so it cannot be
 	// collected once the round is live.
@@ -11207,9 +14213,9 @@ start_round()
 	 * the loadout consumes, so a stripped player has zero maxspeed and must never be
 	 * mobile in that state.
 	 */
-	// Nothing is stripped here any more. The armament path strips and re-arms as one
-	// operation inside task_arm_respawn; stripping separately would leave players
-	// weaponless -- and in TS a player holding nothing has zero maxspeed.
+	// Nothing is stripped here. Stripping lives inside the arm operation (the gated
+	// wipe in task_arm_respawn) and never separates from it -- in TS a player holding
+	// nothing has zero maxspeed, so strip and re-arm are one never-separated operation.
 
 	finish_round_start();
 }
@@ -11276,10 +14282,15 @@ finish_round_start()
 		set_pev(id, pev_health, float(get_pcvar_num(g_cv_health)));
 		place_at_spawn(id);
 
-		// Written now, during the freeze, so the respawn that applies it lands well
-		// before the round goes live.
+		// The wash, and the ONE arm behind it: rst_cfg empties what TS had SAVED for
+		// this player, so their old loadout can never be re-applied by the round-start
+		// respawn, and issue_armament schedules the arm respawn -- but ONLY once the
+		// class is picked and applied (the second one). A player still waiting to
+		// choose gets no default-class dress in the freeze: their arm follows the pick
+		// itself (class_menu_handler -> task_reissue_armament), so nobody is dressed
+		// twice.
 		//
-		// Bots included -- engclient_cmd reaches them, so they get their class loadout
+		// Bots included -- engclient_cmd reaches them, so they get the class loadout
 		// the same way humans do.
 		if (get_pcvar_num(g_cv_wpnmode) == 2 && get_pcvar_num(g_cv_classes))
 		{
@@ -11310,22 +14321,6 @@ finish_round_start()
 			g_in_userinfo[id] = true;
 			set_class_model(id, resolved_class(id) - 1);
 			g_in_userinfo[id] = bwas;
-
-			// Bot fallback: if a bot has no weapons after arming, give them the class loadout.
-			// get_user_weapons (NOT get_user_weapon) -- the latter's second argument is a
-			// by-ref clip output for the current weapon, not a slot index. Passing a loop
-			// counter there rewrites it with the clip count on every pass, and any clip
-			// under 30 makes the loop endless. That was the .ready freeze.
-			if (is_user_alive(id) && g_match_team[id] > 0)
-			{
-				new wlist[32], wnum;
-				get_user_weapons(id, wlist, wnum);
-				if (wnum == 0)
-				{
-					dbg("bot %d has no weapons at round start -- giving class loadout", id);
-					apply_class(id);
-				}
-			}
 		}
 
 		// An Officer's whole perk is two chat commands, so it is invisible unless we
@@ -11349,6 +14344,13 @@ finish_round_start()
 	// engine recycles cannot inherit the clock of a body that is already gone.
 	clear_corpse_memory();
 	g_state = ST_FREEZE;
+
+	// Arm-gate: nobody is equipped yet this round.
+	for (new _g = 1; _g <= get_maxplayers(); _g++)
+	{
+		g_armed[_g] = false;
+	}
+	g_gate_deadline = 0.0;
 
 	all_print("[MATCH] Round %d starting -- %d second freeze.", g_round, get_pcvar_num(g_cv_freeze));
 
@@ -11380,6 +14382,52 @@ finish_round_start()
 	set_task(1.0, "task_freeze_tick", 3, "", 0, "b");
 
 	set_task(float(get_pcvar_num(g_cv_freeze)), "task_go_live");
+
+	tlog("[TSM] finish_round_start: scheduling sound tasks (freeze=%d)", get_pcvar_num(g_cv_freeze));
+
+	/*
+	 * THE TEAM OBJECTIVE BANNERS, ONE SECOND IN.
+	 *
+	 * Two tasks, one per side, both one second after finish_round_start() because
+	 * the round-start HUD storm (the countdown itself taking channel 2 every
+	 * second) needs to settle before anything new is posted. Each task re-reads
+	 * ITS cvar at fire time, so editing ts_matchmode.cfg changes what the NEXT
+	 * round shows without a restart. Stale tasks from a round that ended inside
+	 * the window are removed first -- a halted or cancelled round must not paint
+	 * its banner over ready-up.
+	 */
+	for (new ob = 1; ob <= 2; ob++)
+	{
+		remove_task(ob + TSM_TASK_OBJMSG);
+		set_task(1.0, "task_team_objmsg", ob + TSM_TASK_OBJMSG);
+	}
+
+	/*
+	 * THE ROUND-START ANTHEMS, one second in with the banners. One task a
+	 * round, on its own server-wide id, and stale anthem tasks from a round
+	 * that ended inside the window are removed first -- the same reason the
+	 * banner tasks above carry theirs with them.
+	 */
+	remove_task(TSM_TASK_SONGS);
+	set_task(1.0, "task_start_songs", TSM_TASK_SONGS);
+	tlog("[TSM] finish_round_start: task_start_songs scheduled at 1.0s (id=%d)", TSM_TASK_SONGS);
+
+	/*
+	 * THE INSURGENT ROAR, four seconds after their anthem (the songs play at
+	 * 1.0, so the cry lands at 5.0). One task a round on its own id, cut
+	 * first at every round start the same way -- a round that ended inside
+	 * the window never roars over live play.
+	 */
+	remove_task(TSM_TASK_ROAR);
+	set_task(5.0, "task_team_roar", TSM_TASK_ROAR);
+	tlog("[TSM] finish_round_start: task_team_roar scheduled at 5.0s (id=%d)", TSM_TASK_ROAR);
+
+	/*
+	 * THE MSR BADUM, same 5.0s timing (1.0s anthem + 4s).
+	 */
+	remove_task(TSM_TASK_BADUM);
+	set_task(5.0, "task_team_badum", TSM_TASK_BADUM);
+	tlog("[TSM] finish_round_start: task_team_badum scheduled at 5.0s (id=%d)", TSM_TASK_BADUM);
 }
 
 place_at_spawn(id)
@@ -11680,11 +14728,271 @@ show_round_timer()
 	}
 }
 
+/*
+ * The team objective banner, one second after a round starts.
+ *
+ * Two cvars, tsm_obj_msg_1 and tsm_obj_msg_2: side 1's message and side 2's.
+ * EMPTY IS NOTHING -- a side with an empty string gets no banner at all, which
+ * is why the defaults are empty, not sample text. Rows inside a value are
+ * separated by a pipe character, because a quoted cfg value cannot carry a real
+ * newline; each pipe folds to ^n, and the HUD stacks the rows beneath each
+ * other.
+ *
+ * Sent per player, by the plugin's own side table, so a player of side 1 sees
+ * the side 1 text in blue and a player of side 2 sees the side 2 text in red --
+ * never both, never a colour that is not their own side's.
+ */
+public task_team_objmsg(taskid)
+{
+	new team = taskid - TSM_TASK_OBJMSG;
+
+	new msg[384];
+	get_pcvar_string(team == 1 ? g_cv_objmsg1 : g_cv_objmsg2, msg, charsmax(msg));
+	if (!msg[0])
+	{
+		return;
+	}
+
+	for (new c = 0; c < sizeof msg && msg[c]; c++)
+	{
+		if (msg[c] == '|')
+		{
+			msg[c] = '^n';
+		}
+	}
+
+	// Side 1 = MSR = blue, side 2 = Insurgency = red. Same two colours the
+	// warmup HUD uses for the two sides, at positions the rest of the plugin
+	// never touches (see TSM_OBJMSG_Y).
+	if (team == 1)
+	{
+		set_hudmessage(0, 170, 255, -1.0, TSM_OBJMSG_Y, 0, 0.0, TSM_OBJMSG_HOLD, 0.1, 1.0, 3);
+	}
+	else
+	{
+		set_hudmessage(255, 70, 60, -1.0, TSM_OBJMSG_Y, 0, 0.0, TSM_OBJMSG_HOLD, 0.1, 1.0, 3);
+	}
+
+	for (new id = 1; id < MAXPL; id++)
+	{
+		if (!is_user_connected(id) || is_user_bot(id) || g_match_team[id] != team)
+		{
+			continue;
+		}
+		show_hudmessage(id, "%s", msg);
+	}
+}
+
+/*
+ * THE ROUND-START ANTHEMS. One second into a round -- with the team banners
+ * firing beside it -- every sided player with music on hears a random pick of
+ * their OWN side's short stinger: side 1 (MSR) one of fortherepublic /
+ * instructions / lordcommander, side 2 (Insurgency) one of slaythem / ripout
+ * / eliminatetheimpure, all from ts\sound\start. Local, 2D, on the player's
+ * own machine: playvol, a NORMAL sound channel, so the ambient queue's mp3
+ * keeps playing underneath. The old mp3 route could never do that -- HL has
+ * ONE mp3 stream, and that is the whole reason the files moved off it.
+ */
+public task_start_songs()
+{
+	if (get_pcvar_num(g_cv_startsound) == 0)
+	{
+		tlog("[TSM] task_start_songs: tsm_startsound=0, skipping");
+		return;
+	}
+
+	// Same ceiling the ambient queue keeps, so the anthem sits in the mix
+	// exactly where the old mp3 route placed it.
+	new Float:vol = get_pcvar_float(g_cv_musicvol);
+	if (vol < 0.0) vol = 0.0;
+	if (vol > 1.0) vol = 1.0;
+
+	new sent1 = 0, sent2 = 0, skipped = 0;
+	for (new id = 1; id < MAXPL; id++)
+	{
+		if (!is_user_connected(id))
+		{
+			continue;
+		}
+		if (is_user_bot(id))
+		{
+			skipped++;
+			continue;
+		}
+		if (g_match_team[id] != 1 && g_match_team[id] != 2)
+		{
+			skipped++;
+			continue;
+		}
+		if (g_music_off[id])
+		{
+			skipped++;
+			continue;
+		}
+
+		if (g_match_team[id] == 1)
+		{
+			new pick = random_num(0, sizeof g_start_t1 - 1);
+			new snd[64];
+			formatex(snd, charsmax(snd), "start/%s", g_start_t1[pick]);
+			
+			// playvol (client-side, needs download) + emit_sound (server-side fallback, no download)
+			// CHAN_AUTO + ATTN_NONE on the player entity = local 2D playback for that client only
+			client_cmd(id, "playvol %s %f", snd, vol);
+			emit_sound(id, CHAN_AUTO, snd, vol, ATTN_NONE, 0, PITCH_NORM);
+			
+			tlog("[TSM] task_start_songs: id=%d team=MSR anthem=%s vol=%.2f (playvol+emit)", id, snd, vol);
+			sent1++;
+		}
+		else
+		{
+			new pick = random_num(0, sizeof g_start_t2 - 1);
+			new snd[64];
+			formatex(snd, charsmax(snd), "start/%s", g_start_t2[pick]);
+			
+			client_cmd(id, "playvol %s %f", snd, vol);
+			emit_sound(id, CHAN_AUTO, snd, vol, ATTN_NONE, 0, PITCH_NORM);
+			
+			tlog("[TSM] task_start_songs: id=%d team=INS anthem=%s vol=%.2f (playvol+emit)", id, snd, vol);
+			sent2++;
+		}
+	}
+	tlog("[TSM] task_start_songs: sent MSR=%d INS=%d skipped=%d vol=%.2f", sent1, sent2, skipped, vol);
+}
+
+/*
+ * THE INSURGENT ROAR. Four seconds after the Insurgents' anthem rang, the
+ * monster's cry goes out to every Insurgents player ON THEIR OWN MACHINE --
+ * playvol at full volume, the exact way the welcome jingle reaches a joiner
+ * (spk only speaks sentences; emit_sound would put it in the world for
+ * anyone standing near them). ONLY side 2 hears it: attackers of side 1,
+ * bystanders and bots never do, and it is a match CUE rather than music, so
+ * the ambient music switch does not silence it -- tsm_startsound 0 does,
+ * being part of the same round-start package.
+ */
+public task_team_roar()
+{
+	if (get_pcvar_num(g_cv_startsound) == 0 || !g_roar_ok)
+	{
+		tlog("[TSM] task_team_roar: startsound=%d roar_ok=%d, skipping", get_pcvar_num(g_cv_startsound), g_roar_ok);
+		return;
+	}
+	if (g_state == ST_WARMUP || g_state == ST_READYUP
+		|| g_state == ST_ROUNDEND || g_state == ST_MATCHEND)
+	{
+		tlog("[TSM] task_team_roar: state=%d not live, skipping", g_state);
+		return;
+	}
+
+	new sent = 0, skipped = 0;
+	for (new id = 1; id < MAXPL; id++)
+	{
+		if (!is_user_connected(id))
+		{
+			continue;
+		}
+		if (is_user_bot(id))
+		{
+			skipped++;
+			continue;
+		}
+		if (g_match_team[id] != 2)
+		{
+			skipped++;
+			continue;
+		}
+		// playvol (client-side) + emit_sound (server-side fallback, no download needed)
+		// CHAN_AUTO + ATTN_NONE on the player entity = local 2D playback for that client only
+		client_cmd(id, "playvol %s 1.0", TSM_ROAR_WAV);
+		emit_sound(id, CHAN_AUTO, TSM_ROAR_WAV, 1.0, ATTN_NONE, 0, PITCH_NORM);
+		tlog("[TSM] task_team_roar: id=%d INS roar", id);
+		sent++;
+	}
+	tlog("[TSM] task_team_roar: sent=%d skipped=%d", sent, skipped);
+}
+
+/*
+ * THE MSR BADUM. Mirrors the Insurgent roar: four seconds after the MSR's
+ * anthem, the drum cue goes out locally -- playvol, full volume -- to every
+ * MSR player only. Side 2 and bystanders never hear it; bots never do either.
+ * It is a match cue, not music, so the ambient music switch does not silence it
+ * -- tsm_startsound 0 does, with the anthems.
+ */
+public task_team_badum()
+{
+	if (get_pcvar_num(g_cv_startsound) == 0 || !g_badum_ok)
+	{
+		tlog("[TSM] task_team_badum: startsound=%d badum_ok=%d, skipping", get_pcvar_num(g_cv_startsound), g_badum_ok);
+		return;
+	}
+	if (g_state == ST_WARMUP || g_state == ST_READYUP
+		|| g_state == ST_ROUNDEND || g_state == ST_MATCHEND)
+	{
+		tlog("[TSM] task_team_badum: state=%d not live, skipping", g_state);
+		return;
+	}
+
+	new sent = 0, skipped = 0;
+	for (new id = 1; id < MAXPL; id++)
+	{
+		if (!is_user_connected(id))
+		{
+			continue;
+		}
+		if (is_user_bot(id))
+		{
+			skipped++;
+			continue;
+		}
+		if (g_match_team[id] != 1)
+		{
+			skipped++;
+			continue;
+		}
+		// playvol (client-side) + emit_sound (server-side fallback, no download needed)
+		// CHAN_AUTO + ATTN_NONE on the player entity = local 2D playback for that client only
+		client_cmd(id, "playvol %s 1.0", TSM_BADUM_WAV);
+		emit_sound(id, CHAN_AUTO, TSM_BADUM_WAV, 1.0, ATTN_NONE, 0, PITCH_NORM);
+		tlog("[TSM] task_team_badum: id=%d MSR badum", id);
+		sent++;
+	}
+	tlog("[TSM] task_team_badum: sent=%d skipped=%d", sent, skipped);
+}
+
 show_score_hud()
 {
 	set_hudmessage(0, 220, 120, -1.0, 0.18, 0, 0.0, 4.0, 0.2, 0.3, 3);
 	show_hudmessage(0, "Round %d  --  %d : %d  (first to %d).",
 		g_round, g_score[1], g_score[2], (get_pcvar_num(g_cv_rounds) / 2) + 1);
+}
+
+/// Every non-spectator player on a live team has finished arming this round.
+stock bool:gate_all_armed()
+{
+	new players[32], pnum;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		new id = players[i];
+		if (!is_user_connected(id))
+		{
+			continue;
+		}
+		if (tsm_live_team_of(id) != 1 && tsm_live_team_of(id) != 2)
+		{
+			continue;   // spectator or unassigned -- not gated
+		}
+		if (g_player_class[id] == 0)
+		{
+			continue;   // never picked a class -- goes live with default class,
+			            // exactly as before the gate existed
+		}
+		if (!g_armed[id])
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 public task_go_live()
@@ -11702,6 +15010,55 @@ public task_go_live()
 		return;
 	}
 
+	// ARM-GATE: hold LIVE until everyone on a live team is armed, or the safety
+	// deadline passes -- so a full server never releases into half-equipped players.
+	if (!gate_all_armed())
+	{
+		if (g_gate_deadline == 0.0)
+		{
+			g_gate_deadline = get_gametime() + ARM_GATE_MAX_EXTRA;
+			dbg("arm gate: waiting for loadouts, deadline in %.1fs", ARM_GATE_MAX_EXTRA);
+		}
+		else if (get_gametime() < g_gate_deadline)
+		{
+			set_task(ARM_GATE_CHECK, "task_go_live");
+			return;
+		}
+		// else: deadline passed -- fall through and go live anyway rather than stall forever
+	}
+	g_gate_deadline = 0.0;
+
+	/*
+	 * FORCE-ARM THE FALL-THROUGH.
+	 *
+	 * The gate above holds LIVE for the loadouts, but it also gives up when
+	 * ARM_GATE_MAX_EXTRA runs out -- and going live with an empty player is worse
+	 * than a late give. Anyone on a live team still unarmed right now gets their
+	 * kit in place; the freeze hold has them where the round wants them, so no
+	 * strip and no respawn. The class-picked test mirrors gate_all_armed: a player
+	 * who never picked goes live with the default class exactly as before the
+	 * gate existed, and is not force-dressed here.
+	 */
+	new fp[32], fnum;
+	get_players(fp, fnum, g_pf);
+	for (new i = 0; i < fnum; i++)
+	{
+		new id = fp[i];
+
+		if (g_player_class[id] == 0 || g_armed[id] || !is_user_alive(id))
+		{
+			continue;
+		}
+		if (tsm_live_team_of(id) != 1 && tsm_live_team_of(id) != 2)
+		{
+			continue;
+		}
+
+		arm_give_kit(id);
+		g_armed[id] = true;
+		tlog("[TSM] go-live force-arm: %d was still unarmed.", id);
+	}
+
 	remove_task(3);
 	g_state = ST_LIVE;
 
@@ -11711,9 +15068,15 @@ public task_go_live()
 	get_players(rp, rnum, g_pf);
 	for (new i = 0; i < rnum; i++)
 	{
-		// Armed immediately before the release, never as a deferred task: TS derives
-		// player speed from the weapon slots the loadout consumes, so a player with no
-		// weapons has zero maxspeed and cannot move or shoot.
+		/*
+		 * NOTHING IS STRIPPED OR GIVEN HERE.
+		 *
+		 * The arm operation is the second one and it lands during the freeze, tsm_arm_delay
+		 * after the wash -- and never twice in a round: only a class that is picked and
+		 * applied gets scheduled, and a pick made this round re-arms on the spot through
+		 * task_reissue_armament. The class pass below repeats resolved_class so a late
+		 * pick made during the six seconds does not lose its look.
+		 */
 		apply_class(rp[i]);
 
 		/*
@@ -11727,6 +15090,14 @@ public task_go_live()
 			if (ci >= 0)
 			{
 				set_user_health(rp[i], g_class_hp[ci]);
+
+				// The anti-heal watch is synced AT this write, exactly as at the
+				// arm and apply_class writes: a raise with a stale watch is what
+				// the rule itself would refuse (see fw_prethink).
+				if (g_class_perk[ci] == TSM_PERK_MECH)
+				{
+					g_mech_hp_watch[rp[i]] = g_class_hp[ci];
+				}
 			}
 		}
 
@@ -11939,6 +15310,15 @@ public hook_say(id)
 		return PLUGIN_HANDLED;
 	}
 
+	if (equali(args, ".mechtest"))
+	{
+		// Chat alias for tsm_mechtest -- the sound bench prints its detection facts
+		// before playing, so a Mech that hears nothing can separate "not detected"
+		// from "not audible" in one round of testing.
+		cmd_mechtest(id);
+		return PLUGIN_HANDLED;
+	}
+
 	if (equali(args, ".forfeit"))
 	{
 		cmd_forfeit(id);
@@ -11960,6 +15340,18 @@ public hook_say(id)
 	if (equali(args, ".unfollow") || equali(args, ".dismiss"))
 	{
 		cmd_squad_dismiss(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".unstick"))
+	{
+		cmd_player_unstick(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".rocket"))
+	{
+		cmd_mech_rocket(id);
 		return PLUGIN_HANDLED;
 	}
 
@@ -12105,18 +15497,11 @@ begin_match()
 	}
 
 	// Bots come back in for this match, assigned fresh so the sides are balanced from
-	// the start rather than inherited from the last one.
+	// the start rather than inherited from the last one -- over the next few seconds,
+	// one at a time, rather than the whole fleet inside a single tick.
 	g_bots_parked = false;
 
-	new bp[32], bnum;
-	get_players(bp, bnum, g_pf);
-	for (new i = 0; i < bnum; i++)
-	{
-		if (is_user_bot(bp[i]))
-		{
-			assign_bot(bp[i]);
-		}
-	}
+	stagger_assign_bots();
 
 	g_round = 0;
 	siege_reset();
@@ -12551,6 +15936,8 @@ public client_putinserver(id)
 	g_spectator[id] = false;
 	g_team_menu_at[id] = 0.0;
 	g_connect_at[id] = get_gametime();
+	g_mech_hp_watch[id] = 0;
+	g_m60_skip[id] = -1;
 
 	/*
 	 * Ambient music is on by default, but the client's own history wins when there is
@@ -12711,15 +16098,51 @@ music_next()
 	return g_music_order[g_music_pos++];
 }
 
+// Returns true if the indexed track is a WAV (contaminated) rather than an MP3.
+stock bool:music_is_wav(idx)
+{
+	return idx == 5;   // contaminated.wav is the 6th entry (0-based index 5)
+}
+
 // HL's MP3 player is invoked with a client execute ("mp3 play <track>"). MP3 player
 // audio is 2D non-spatial: it follows the listener and cannot be moved away from.
 // Nothing is precached or downloaded, and only the player it is sent to hears it.
 // `only` picks one player; 0 sends to everyone with music on.
+// Track 5 (contaminated.wav) uses playvol on a normal sound channel instead.
 music_play(idx, only)
 {
 	new Float:vol = get_pcvar_float(g_cv_musicvol);
 	if (vol < 0.0) vol = 0.0;
 	if (vol > 1.0) vol = 1.0;
+
+	// The anthems used to own this channel for their seconds -- a per-player
+	// lease every queue play and replay had to skip on. They are wavs on a
+	// sound channel now, so the one mp3 stream belongs to the queue again:
+	// the players skipped here are only the earless (bots) and the opted-out.
+	if (music_is_wav(idx))
+	{
+		// contaminated.wav plays via playvol, not the mp3 player
+		if (only)
+		{
+			if (is_user_connected(only) && !is_user_bot(only) && !g_music_off[only])
+			{
+				client_cmd(only, "playvol music/%s %f", g_music_mp3[idx], vol);
+			}
+			return;
+		}
+
+		new players[32], pnum;
+		get_players(players, pnum, "");
+		for (new i = 0; i < pnum; i++)
+		{
+			if (is_user_bot(players[i]) || g_music_off[players[i]])
+			{
+				continue;
+			}
+			client_cmd(players[i], "playvol music/%s %f", g_music_mp3[idx], vol);
+		}
+		return;
+	}
 
 	if (only)
 	{
@@ -12757,6 +16180,20 @@ public task_assign_bot(taskid)
 	{
 		return;
 	}
+
+	/*
+	 * A queued assign must not pull a bot off the bench.
+	 *
+	 * stagger_assign_bots() schedules these ahead of time, and a match can end
+	 * between the schedule and the fire. Without this guard a task that was about
+	 * to place a bot would assign a side and respawn it DURING the park, wrecking
+	 * the "bots sit out until the next match" the flag exists to provide.
+	 */
+	if (g_bots_parked)
+	{
+		return;
+	}
+
 	assign_bot(id);
 }
 
@@ -12868,6 +16305,7 @@ public client_disconnected(id)
 	g_pending_elim[id] = 0.0;
 	g_match_team[id] = 0;
 	g_last_buttons[id] = 0;
+	g_push_until[id] = 0.0;   // clear any pending shove
 
 	// Anyone watching the departed needs a new target, or they would be stuck
 	// following a dead index forever.
@@ -12921,9 +16359,11 @@ public client_disconnected(id)
 	 * rcbot adds and removes its own bots constantly, and it balances its sides on
 	 * its own schedule rather than ours. Arming the check on those churned the
 	 * match out of the freeze countdown -- which takes the loadout with it, because
-	 * task_arm_respawn requires ST_FREEZE, and clears attack, because that happens
-	 * in every state but ST_LIVE. tsm_halt_delay was meant to ride that out and a
-	 * refill does not always land inside it.
+	 * a halt that leaves ST_FREEZE refuses task_go_live, and the arm respawn refuses
+	 * anything that is not the freeze, so a halting round's pending arms are
+	 * dropped on the spot. It also clears attack,
+	 * because that happens in every state but ST_LIVE. tsm_halt_delay was meant to
+	 * ride that out and a refill does not always land inside it.
 	 *
 	 * A human leaving is what this feature is for, so that is what arms it. Bots
 	 * still COUNT once it is armed -- balance_ok() is the only definition of an even
@@ -13429,7 +16869,7 @@ refresh_player_flags()
 		 *
 		 * By userid, because the bot names this plugin assigns contain a space.
 		 */
-		new kp[32], knum, kicked = 0;
+		new kp[32], knum, kicked = 0, k = 0;
 		get_players(kp, knum, "");   // no flags, so bots are included
 		for (new i = 0; i < knum; i++)
 		{
@@ -13437,14 +16877,16 @@ refresh_player_flags()
 			{
 				continue;
 			}
-			server_cmd("kick #%d", get_user_userid(kp[i]));
+			remove_task(kp[i] + TSM_TASK_BOTKICK);
+			set_task(0.25 * float(k), "task_kick_bot", kp[i] + TSM_TASK_BOTKICK);
+			k++;
 			kicked++;
 		}
 		if (kicked)
 		{
-			server_exec();
+			dbg("bots off: %d bot(s) scheduled to leave, 0.25s apart", kicked);
 		}
-		tlog("[TSM] tsm_bots 0 -- rcbot quota zeroed and %d bot(s) kicked.", kicked);
+		tlog("[TSM] tsm_bots 0 -- rcbot quota zeroed and %d bot(s) scheduled to leave.", kicked);
 	}
 	else
 	{
@@ -13457,8 +16899,27 @@ refresh_player_flags()
 		 * in agreement.
 		 */
 		server_cmd("rcbot config balance_teams 1");
+		server_cmd("rcbot config min_bots 0");
+
+		/*
+		 * And switch rcbot's own fill OFF (rcbot_commands.txt on max_bots): "-1
+		 * disables auto-bot adding/removing".
+		 *
+		 * Left alone, rcbot pasted its whole quota the instant it saw a deficit --
+		 * every TS spawn, precache and team message landing in the same tick, the
+		 * burst that read as "all the bots filling the team at once". The joins are
+		 * OURS now: task_bot_fill adds one bot every two seconds until tsm_bots is
+		 * reached, and replaces a departed bot the same way, so neither rcbot nor
+		 * anything else ever makes up a whole side in a single frame.
+		 *
+		 * The saved bot_config.ini still carries a plain number for rcbot's own
+		 * resume-at-boot use; nothing reads it as a fill target once this ran.
+		 */
+		server_cmd("rcbot config max_bots -1");
 		server_exec();
-		tlog("[TSM] tsm_bots 1 -- bots count as players; rcbot balances them (balance_teams 1).");
+
+		new botmax = get_pcvar_num(g_cv_bots);
+		tlog("[TSM] tsm_bots %d -- rcbot auto-fill OFF (max_bots -1); bots join one every 2s from task_bot_fill.", botmax);
 	}
 }
 
@@ -13527,8 +16988,8 @@ public task_tick()
 
 	resupply_one_bot();
 
-	// Sudden death health drain: ONE HP EVERY SECOND, LIVE rounds only. The drain
-	// rode a five-tick gate for a long time, which made sudden death toothless --
+	// Sudden death health drain: TWO HP EVERY SECOND, LIVE rounds only. Was one,
+	// which rode a five-tick gate before that and made sudden death toothless --
 	// one point every five seconds is a scratch, not an emergency. g_sudden is
 	// cleared in start_round and again at go-live, so it cannot cross a round
 	// boundary, but the state test still matters: between rounds this task keeps
@@ -13542,12 +17003,14 @@ public task_tick()
 		for (new i = 0; i < pnum; i++)
 		{
 			new hp = get_user_health(players[i]);
-			if (hp > 1)
+			if (hp > 2)
 			{
-				set_user_health(players[i], hp - 1);
+				set_user_health(players[i], hp - 2);
 			}
 			else
 			{
+				// At or below the drain step there is no leaving them the odd
+				// remainder: a 2-HP body goes under on this tick, not next.
 				user_kill(players[i]);
 			}
 		}
@@ -13696,9 +17159,10 @@ public task_tick()
 			continue;
 		}
 
-		// The class menu is deliberately NOT offered here. It is shown once, at the
-		// start of a round, from task_arm_respawn -- offering it in warmup as well
-		// meant seeing it twice: once on joining a side and again when the round began.
+		// The class menu is deliberately NOT offered here. It is shown during the
+		// countdown by the freeze tick (and directly at the start of the first freeze)
+		// -- offering it in warmup as well meant seeing it twice: once on joining a
+		// side and again when the round began.
 	}
 
 	if (!warmup_hold_active())
@@ -13837,3 +17301,4 @@ public task_tick()
 		check_all_ready();
 	}
 }
+

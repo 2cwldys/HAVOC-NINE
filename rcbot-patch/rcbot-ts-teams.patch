@@ -91,20 +91,126 @@ index bdc592f..bbe672b 100644
  			if (gBotGlobals.isMapType(NON_TS_TEAMPLAY) || gBotGlobals.m_bTeamPlay)
  			{
  				char* infobuffer1 = (*g_engfuncs.pfnGetInfoKeyBuffer)(m_pEdict);
+@@ -9297,6 +9325,86 @@ bool CBot::IsEnemy(edict_t* pEntity)
+ 
+ 	return false;
+ }
+ 
++//////////////////////////////////////////////////////////////////////////////
++// FOLLOW COMMAND FOR TS
++//
++// Called by the plugin (or console command) to make this bot follow a specific player.
++// When following, the bot uses the existing BOT_TASK_FOLLOW_LEADER task and will
++// attack enemies while staying with the leader. Unfollow restores normal patrol behavior.
++void CBot::SetFollowTarget(edict_t* pTarget)
++{
++	if (!pTarget || !EntityIsAlive(pTarget))
++	{
++		// Clear follow target - bot returns to normal patrol
++		m_pSquadLeader = nullptr;
++		if (m_stSquad)
++		{
++			gBotGlobals.m_Squads.removeSquadMember(m_stSquad, m_pEdict);
++			m_stSquad = nullptr;
++		}
++		m_Tasks.RemoveTask(BOT_TASK_FOLLOW_LEADER);
++		return;
++	}
++
++	// Don't follow enemies
++	if (IsEnemy(pTarget))
++		return;
++
++	// Set as squad leader
++	m_pSquadLeader = pTarget;
++
++	// Create or join a squad with the leader
++	if (!m_stSquad)
++	{
++		m_stSquad = gBotGlobals.m_Squads.createSquad(m_pEdict, pTarget);
++		if (m_stSquad)
++		{
++			m_stSquad->SetCombatType(COMBAT_COMBAT);
++			m_stSquad->ChangeFormation(SQUAD_FORM_WEDGE);
++		}
++	}
++	else if (m_stSquad->GetLeader() != pTarget)
++	{
++		// Switch squads
++		gBotGlobals.m_Squads.removeSquadMember(m_stSquad, m_pEdict);
++		m_stSquad = gBotGlobals.m_Squads.createSquad(m_pEdict, pTarget);
++		if (m_stSquad)
++		{
++			m_stSquad->SetCombatType(COMBAT_COMBAT);
++			m_stSquad->ChangeFormation(SQUAD_FORM_WEDGE);
++		}
++	}
++
++	// Add the follow leader task (high priority)
++	const int iNewScheduleId = m_Tasks.GetNewScheduleId();
++	AddPriorityTask(CBotTask(BOT_TASK_FOLLOW_LEADER, iNewScheduleId, pTarget));
++}
++
++// Console command: rcbot follow <bot_index> <player_index>
++// Makes a bot follow a player (or stop following if player_index = 0)
++void CBot::ConsoleCommandFollow(const char* szArgs)
++{
++	if (!szArgs || !szArgs[0])
++		return;
++
++	char szBotIdx[16], szPlayerIdx[16];
++	if (std::sscanf(szArgs, "%15s %15s", szBotIdx, szPlayerIdx) < 2)
++		return;
++
++	int iBotIdx = std::atoi(szBotIdx);
++	int iPlayerIdx = std::atoi(szPlayerIdx);
++
++	if (iBotIdx < 1 || iBotIdx > gpGlobals->maxClients)
++		return;
++
++	edict_t* pBot = INDEXENT(iBotIdx);
++	if (!pBot || !(pBot->v.flags & FL_FAKECLIENT))
++		return;
++
++	CBot* pBotPtr = gBotGlobals.GetBot(pBot);
++	if (!pBotPtr)
++		return;
++
++	if (iPlayerIdx == 0)
++	{
++		// Unfollow
++		pBotPtr->SetFollowTarget(nullptr);
++		return;
++	}
++
++	if (iPlayerIdx < 1 || iPlayerIdx > gpGlobals->maxClients)
++		return;
++
++	edict_t* pPlayer = INDEXENT(iPlayerIdx);
++	if (!pPlayer || !(pPlayer->v.flags & FL_CLIENT))
++		return;
++
++	pBotPtr->SetFollowTarget(pPlayer);
++}
++
+ //////////////////////////////////////////////////////////////////////////////
+ // NON-CLASS RELATED FUNCTIONS
+ 
+ bool BotFunc_IsLongRangeWeapon(const int iId)
 diff --git a/dlls/util.cpp b/dlls/util.cpp
 index d780582..0241a66 100644
 --- a/dlls/util.cpp
 +++ b/dlls/util.cpp
 @@ -927,6 +927,12 @@ int UTIL_GetTeam(edict_t* pEntity)
- 		return pEntity->v.team;
- 	case MOD_TS:
- 	{
-+		// The engine's own team field, when the server sets it. Stock TS never does,
-+		// so this reads 0 and the guesses below still apply. Read by the squad and
-+		// chat code; the enemy test in bot.cpp no longer depends on it.
-+		if (pEntity->v.team > 0)
-+			return pEntity->v.team;
+ 	return pEntity->v.team;
+ case MOD_TS:
+ {
++	// The engine's own team field, when the server sets it. Stock TS never does,
++	// so this reads 0 and the guesses below still apply. Read by the squad and
++	// chat code; the enemy test in bot.cpp no longer depends on it.
++	if (pEntity->v.team > 0)
++		return pEntity->v.team;
 +
- 		// Check if the map name starts with "tm_"
- 		if (std::strncmp("tm_", STRING(gpGlobals->mapname), 3) == 0)
- 		{
+ 	// Check if the map name starts with "tm_"
+ 	if (std::strncmp("tm_", STRING(gpGlobals->mapname), 3) == 0)
+ 	{
