@@ -13,16 +13,19 @@ REM
 REM  It reads, whichever exists:
 REM      ts\original.zip            (vgui.dll + config.cfg + valve textschemes)
 REM      ts\resource\original.zip   (background tiles, trackerscheme.res, ...)
+REM      ts\cl_dlls\original.zip    (stock client.dll)
 REM
 REM  and puts the stock files back where the game reads them:
 REM      vgui.dll         -> <Half-Life>\vgui.dll   (this folder)
 REM      config.cfg       -> ts\config.cfg
 REM      resource files   -> ts\resource\           (a single wrapper folder
 REM                                                  in the zip is stripped)
+REM      client.dll       -> ts\cl_dlls\client.dll  (from cl_dlls\original.zip)
+REM      client.dll.patch -> deleted (patch artifact, not a stock file)
 REM      ts\*_textscheme.txt  are deleted (theme additions, not stock files)
 REM
 REM  Nothing is touched until you answer Y. Close Half-Life first: it locks
-REM  vgui.dll while running.
+REM  vgui.dll and ts\cl_dlls\client.dll while running.
 REM ===========================================================================
 setlocal EnableExtensions
 cd /d "%~dp0"
@@ -33,6 +36,7 @@ if not exist "%CD%\ts\resource" goto :wrong_folder
 set "TS=%CD%\ts"
 set "UIZIP=%TS%\original.zip"
 set "RSZIP=%TS%\resource\original.zip"
+set "CLZIP=%TS%\cl_dlls\original.zip"
 set "RTMP=%TEMP%\ts_restore_%RANDOM%%RANDOM%"
 
 echo ============================================================
@@ -51,16 +55,22 @@ if exist "%RSZIP%" (
 ) else (
     echo   [missing] ts\resource\original.zip
 )
+if exist "%CLZIP%" (
+    echo   [found]   ts\cl_dlls\original.zip  ^(client.dll^)
+) else (
+    echo   [missing] ts\cl_dlls\original.zip
+)
 echo.
 echo  The stock files will overwrite the current themed files.
 echo  The purple ts\*_textscheme.txt files will be removed.
+echo  ts\cl_dlls\client.dll.patch will be removed.
 echo  Close Half-Life before continuing.
 echo.
 
-if not exist "%UIZIP%" if not exist "%RSZIP%" (
+if not exist "%UIZIP%" if not exist "%RSZIP%" if not exist "%CLZIP%" (
     echo  Nothing to restore: no original.zip was found.
-    echo  Put original.zip in ts\, and/or resource\original.zip in
-    echo  that subfolder, then run it again.
+    echo  Put original.zip in ts\, resource\original.zip in ts\resource\,
+    echo  and/or cl_dlls\original.zip in ts\cl_dlls\, then run it again.
     echo.
     pause
     exit /b 1
@@ -79,6 +89,22 @@ echo.
 if not exist "%RTMP%" mkdir "%RTMP%" >nul 2>nul
 if exist "%UIZIP%" call :restore_ui
 if exist "%RSZIP%" call :restore_tree "%RSZIP%" "%TS%\resource" "ts\resource\original.zip"
+if exist "%CLZIP%" (
+    call :restore_tree "%CLZIP%" "%TS%\cl_dlls" "ts\cl_dlls\original.zip"
+    if not errorlevel 1 (
+        if exist "%TS%\cl_dlls\client.dll.patch" (
+            attrib -r "%TS%\cl_dlls\client.dll.patch" >nul 2>nul
+            del /q "%TS%\cl_dlls\client.dll.patch" >nul 2>nul
+            if exist "%TS%\cl_dlls\client.dll.patch" (
+                echo   [ERROR] client.dll.patch could not be removed.
+            ) else (
+                echo   [ok] client.dll.patch removed
+            )
+        ) else (
+            echo   [ok] client.dll.patch was not present
+        )
+    )
+)
 if exist "%RTMP%" rmdir /s /q "%RTMP%" >nul 2>nul
 echo.
 echo  Restore complete. Restart Half-Life to load the restored files.
