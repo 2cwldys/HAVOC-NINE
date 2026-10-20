@@ -1,0 +1,3 @@
+If you are for any reason encountering bugs and/or disapprove of UI or dll patching elements, you may use restore_originals.bat
+
+STEAM LEGACY BRANCH ONLY
