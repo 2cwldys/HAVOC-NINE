@@ -95,7 +95,7 @@ REM hard crash writes no minidump either, so there is no evidence of what happen
 REM It is cleared first so whatever is in it belongs to this run and no other.
 if exist qconsole.log del /q qconsole.log
 
-hlds.exe -console -num_edicts 2048 -condebug -port 27015 -game ts +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
+hlds.exe -heapsize 262144 -console -num_edicts 2048 -condebug -port 27015 -game ts +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
 set "HLDSEXIT=%ERRORLEVEL%"
 
 REM hlds has exited -- by quit, by crash, or by this window being closed. Take the bot
