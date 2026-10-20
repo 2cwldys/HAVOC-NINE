@@ -2,8 +2,8 @@
 
 Everything here is exported from `src/maps/index.mjs`. A map is a Node `Buffer` holding the whole `.bsp` file;
 `readBsp` gives a plain object over it, and the functions below take that object. A function that changes a map
-returns a **new** buffer. Apart from `wadsFor` and `texturesFor` (and the pictures, when they are given
-`folders`), which look for files in folders you name, nothing here touches the disk.
+returns a **new** buffer. Apart from `wadsFor` and `texturesFor` (and the pictures and `decompile`, when they
+are given `folders`), which look for files in folders you name, nothing here touches the disk.
 
 ```js
 import { readFileSync, writeFileSync } from "node:fs";
@@ -21,8 +21,8 @@ writeFileSync("gatecity_moved.bsp", maps.withEntities(bytes, moved));          /
 This page covers reading a compiled map, its textures and `.wad` files, changing its entities, and drawing
 it ("Pictures", which also draws brush source). Writing brush source (`.map`) and compiling it are the other
 half of `src/maps/`, in `docs/MAPS-MAKING.md`. The command line has a command for most of this: `smak map-info`,
-`map-check`, `map-entities`, `map-set`, `map-plan`, `map-view`, `map-views`, `map-reach`, `map-section`,
-`map-storeys`, `map-openings`, `map-textures`, `wad`, `wad-make` and `map-compile` (`node bin/smak.mjs help`;
+`map-check`, `map-entities`, `map-set`, `map-plan`, `map-view`, `map-views`, `map-compare`, `map-reach`, `map-section`,
+`map-storeys`, `map-openings`, `map-measure`, `map-textures`, `wad`, `wad-make`, `map-compile` and `map-decompile` (`node bin/smak.mjs help`;
 `AGENTS.md` has them with their recipes).
 
 ## What a compiled map is
@@ -116,7 +116,7 @@ whole map is drawn from everywhere.
 | `faceLightmap(bsp, face)` | `{ width, height, originS, originT, styles: [{ style, rgb }] }`, or `null`. `rgb`: `width * height` samples of three bytes, a view of the map. The sample for texture pixel `(s, t)` is at `((s - originS) / 16, (t - originT) / 16)`. |
 | `visibleFrom(bsp, leaf)` | The numbers of the leaves seen from a leaf, itself among them; `null` when the map keeps none for it (then everything is drawn). |
 | `sees(bsp, from, to)` | Whether one leaf is seen from another. |
-| `embeddedTexture(bsp, which)` | A texture whose pixels are in the map (see "A map texture"), or `null` when it is wanted from a `.wad`. `which`: its number or its name. |
+| `embeddedTexture(bsp, which)` | A texture whose pixels are in the map (see "A map texture"), or `null` when it is wanted from a `.wad` or the map has no texture of that name. `which`: its number or its name (a number it has none for is refused). |
 | `wantedTextures(bsp)` | `{ wads, textures }`: the `.wad` file names the worldspawn lists, as the engine looks for them, and the names of the textures left to them. |
 
 What `readBsp` gives, entry by entry:
@@ -167,6 +167,7 @@ of `image.mjs` take it as it is.
 | `textureFromWad(wad, name)` | One texture by name, whatever its case, or `undefined`. `wad`: the file's bytes, or what `readWad` gave. |
 | `writeWad(textures)` | A `.wad` file's bytes from `[{ name, image }]` or `[{ name, width, height, pixels, palette }]` (what `mapTexture` takes). A name given twice is refused. |
 | `listedWads(value)` | The file names in a worldspawn's `wad` value, as the engine looks for them: lower case, no path, `.wad` put on, the two decal files left out. |
+| `mapOwnFolders(file)` | The folders a map's own path says to look in for its `.wad` files: its folder, and for a map in a mod's `maps/`, the mod's folder over it, where the game looks. The command line and the MCP server add them after the game's folders. |
 | `wadsFor(bsp, folders)` | `{ found: [{ name, path }], missing: [name] }`: where the map's listed `.wad` files are, in the folders given, in that order (the mod's own, then `valve`). |
 | `texturesFor(bsp, folders, { pixels = false })` | `{ wads, textures: [{ name, wad, path, texture? }], missing: [name], unreadable }`: every texture the map wants from outside, in the first listed file that has it. With `pixels`, each brings its `texture`. |
 
@@ -254,7 +255,12 @@ console.log(view.facts.notes, view.facts.missing, view.facts.brightness);
 | --- | --- |
 | `drawMap(bsp, { from, to | yaw, pitch, fov, width, height, light, brightness, textures, folders, entities, labels, bodies, models, modelScale, sprites, sky })` |\| yaw, pitch, fov, width, height, light, brightness, textures, folders, entities, labels, bodies, models, sky })` | A view from a point inside the map, 640 x 480: textured, lit by the map's own lightmaps, `{` textures with their holes where the game gives them, liquids of the world letting the bottom show, brush entities where their `origin` puts them, and what stands (a start, a monster, an NPC) as the box it moves with, at its true size. With `folders`: the sky as its own picture and each sprite as its first frame; with `models` too, each named model with its textures. Without `from`: from the first place to start, at eye height, the way it faces. |
 | `planOf(bsp, { z, slice, scale, width, height, area, entities, labels, legend, heights, reach, only, ... })` | The map from straight above, `+y` up the picture and `+x` to its right: floors (their texture's mean colour under the map's light), walls as lines, every point entity a dot in the colour of its kind (with the outline of its box, when it stands), every brush entity outlined, a scale bar and a north arrow. With `z`: a cut at that height, what is solid there filled in one colour (a storey's floor plan, doorways open). `heights`: each floor's height written on it. `legend`: the entities listed beside it. `reach`: the walk test tinted on it. |
-| `viewsOf(bsp, { count, at, width, height, cols, ... })` | Several views in one picture, each named in its corner: from the places to start, and from the middle of the largest rooms looking four ways. An overview in one call. |
+| `viewsOf(bsp, { count, at, aim, landmark, width, height, cols, ... })` | Several views in one picture, each named in its corner: from the places to start, and from the middle of the largest rooms looking four ways. An overview in one call. `aim`: views aimed at what the map has come next (`aimedStands`), and the rooms' level views the most open first, one facing a wall within 256 only when no other is left; `landmark` (an entity's number, targetname or class) is among them. Places to start that stand together (each within 256 units of another: a row of them for many players, one for each map a player arrives from) are one group and get ONE view, from the first, named `1 ms_player_spawn +5`, with the others' boxes left out of it (`facts.starts`). A view that is nearly one colour (nine tenths of it, and not for want of light) is left out and the next largest room shown in its place (`facts.dropped`, and a note); with no room left, it stays and is said. `at`: views of your own, drawn as asked. |
+| `aimedStands(bsp, { landmark })` | Places to look from at what a map has, each `{ from, to, name }`: the landmark asked for (unless told, an entity named `landmark`, the `info_target` a map spec's `focus` leaves over its landmark; a landmark's view also needs a clear line to its body, 48 lower, so a rail before it does not hide it), its largest water, its largest brush entity that stands, its largest cluster of lamps (faces wearing a lamp's texture, `lampsOf`), its largest cluster of monsters and items, and a room on each storey but the lowest. Each from a player's eye over a floor 192 to 512 away with a clear line to it. The views a judge and a maker see of a map (the original mod's judging, the MCP's map `views`, a map spec's `features` picture) are aimed so: a judged pump hall had its water, catwalks and bridge in none of its level views |
+| `texturePlaces(bsp)`, `placeView(bsp, place, { textures, folders, brightness })` | Each texture of the world at its largest face lit in every colour (else its largest lit, else its largest), with a camera square in front of it that stays inside the room: `{ name, width, height, from, yaw, pitch, area, lit, light: [r, g, b], across, up, turned, wall }`. `light` is the face's mean steady light as a view at `PLACE_BRIGHTNESS` (4.5) lays it on a texel; `across` the texels a view spans; `turned` the picture's top against up (a wall) or north. `placeView` draws one: what the reproduction test's judge, and the wad spec's `preview.each`, look at |
+| `matchTextures(picture, rect, textures, { count })` | The textures of a .wad (`readWad(...).textures`) most like a patch `[x, y, w, h]` of a picture, by their colours with the brightness divided out: `[{ name, width, height, distance }]`, nearest first. Candidates to look at, not a verdict (`src/maps/match.mjs` gives what it finds and what it cannot) |
+| `faceTextureAxes(bsp, face)` | `{ s, t }`: how a face lays its texture, each `[x, y, z, offset]` |
+| `compareOf([{ map, name, z, ... }], { scale, cols, width, height, entities, ... })` | Several maps from above in ONE picture at ONE scale, each under its name and the size of its world (`3424 x 1760 x 384  cut at z 100`), with one scale bar under them all: is the new map the size of the game's? Each entry is a compiled map or source, or an object with what its own plan takes (`z`: the height ITS plan is cut at, unset for one seen from above; `slice`, `area`, `heights`, `reach`). Without `scale`: the largest at which all fit 1920 x 1080. No entity is marked unless `entities` says. `facts.maps`: each plan's `left`, `top`, `x0`, `y0`, so that a point is at pixel `(left + (x - x0) * scale, top + (y0 - y) * scale)`. |
 | `drawSource(map, { from, to \| yaw, pitch, ... })` | A view of brush source (what `writeMap` takes and `readMap` gives), with no compile: each face one flat colour by its texture's name, shaded by the way it looks, its edges drawn. |
 | `planOfSource(map, { z, scale, area, entities, labels })` | The plan of brush source: a cut through its brushes at `z` (the first start's height unless told), entities marked as on `planOf`. |
 | `viewFrom(bspOrMap, which)` | `{ from, yaw, pitch, name }` for a view from an entity: its number, or a classname. A place to start is looked from 28 over its origin, a player's eyes. |
@@ -395,23 +401,48 @@ const plan = maps.planOfSource(map, { reach, heights: true, legend: true });    
 
 | Function | Gives |
 | --- | --- |
-| `reachOf(bspOrMap, { from, step, jump, speed, gravity, slopes, exits, doors, open, shut, bodies, to, cell, touch, hang, widest })` | `{ warnings, facts, starts, entities, unreached, stuck, hanging, oneWay, leaps, steep, openings, routes, doors, cell, area, walked(x, y, under), stands(x, y, under), jumped(x, y, under), trapped(x, y, under) }` |
+| `reachOf(bspOrMap, { from, mod, step, jump, speed, gravity, slopes, exits, markers, wiring, off, doors, walls, open, shut, bodies, to, cell, touch, hang, widest, parts })` | `{ warnings, facts, starts, entities, unreached, stuck, hanging, oneWay, leaps, steep, openings, routes, doors, cell, area, share, standable, parts, patches, walked(x, y, under), on(x, y, under), stands(x, y, under), jumped(x, y, under), trapped(x, y, under) }` |
 | `storeyCuts(bspOrMap, { cell, over, least })` | `[{ z, floors: [lowest, highest], area }]`: the heights to cut a map at so that every floor a player fits on is seen in one of the cuts, the highest first |
-| `spaceOf(bspOrMap, { doors, open, shut })` | `{ min, max, doors, areas, blocked(x, y, body), climbs(x, y, body), cut(x, y), sees(from, to) }`: the solid space, asked along upright lines. `blocked` gives `[[from, to, slant]]`: `slant` is how the top of each stretch lies, the z of its normal (1 for a level floor) |
+| `wiringOf(bspOrMap, { mod })` | What the entities are wired to do (src/maps/wiring.mjs, `smak map-wiring`): `{ properties, families, unnamedDoors, switches, works, lifts, zones, broadcasts, teleports, comesBack, warnings, facts }`. A property is a name doors answer to; a switch is followed through multi_managers and relays to what it works (`light`, `sound`, `lift`, `door`, `heal`, `hurt` ...); a train's stops are its corners that wait to be fired again. `doorFamilyOf(name)`: `resident7` is of `resident` |
+| `spaceOf(bspOrMap, { doors, walls, open, shut, off, mod })` | `{ min, max, doors, areas, ladders, blocked(x, y, body), climbs(x, y, body), cut(x, y), sees(from, to), firstStop(from, to, precision) }`: the solid space, asked along upright lines. `firstStop` (a compiled map's only) is how far along a line it first meets something solid, or null: one walk, where `sees` would be asked of every length. `blocked` gives `[[from, to, slant]]`: `slant` is how the top of each stretch lies, the z of its normal (1 for a level floor). `body` is one of `BODIES` or its name (`"point"`, `"standing"`, `"large"`, `"crouching"`); anything else is refused in a sentence. `areas` has every brush entity's box with `solid` (its class stops a body) and `gives` (its class gives way) |
 | `restOf(space, feet, body)` | `{ fits, floor, hang, stretch }`: whether a body fits with its feet at a point, the floor it would rest on and how far over it it hangs |
 | `bodyFor(classname, targetname, bodies)` | `{ body, feet, mins, maxs }`: the box an entity stands in, or null |
-| `BODIES`, `START_CLASSES`, `EXIT_CLASSES`, `JUMP_HEIGHT` (45), `CROUCH_JUMP_HEIGHT` (63), `JUMP_REACH` (215), `RUN_SPEED` (320), `GRAVITY` (800), `STEEP` (0.7) | The four boxes (`point`, `standing`, `large`, `crouching`), told about the feet; the classes that are a place to start, and a way out of a map; the engine's numbers for a jump, a run and a slope |
+| `bodyOf(body, what)` | the body a caller means: one of `BODIES`, its name, or `{ half, height }` (one of a hull's size is that hull); anything else is refused in a sentence that begins with `what` |
+| `BODIES`, `START_CLASSES`, `EXIT_CLASSES`, `GIVES_WAY`, `JUMP_HEIGHT` (45), `CROUCH_JUMP_HEIGHT` (63), `JUMP_REACH` (215), `RUN_SPEED` (320), `GRAVITY` (800), `STEEP` (0.7) | The four boxes (`point`, `standing`, `large`, `crouching`), told about the feet; the classes that are a place to start, a way out of a map, and a wall that gives way (`func_breakable`, `func_wall_toggle`, `func_pushable`); the engine's numbers for a jump, a run and a slope |
 
 **How.** The map is laid under a grid of 8 units. At each place of it, the heights at which a standing player
 fits are worked out: in source, every solid brush grown by the player's box, as the compilers grow their clip
 hulls; in a compiled map, its own clip hull, so that `clip` brushes count as the game counts them. From the
 places to start (`info_player_start`, `info_player_deathmatch`, Master Sword's `ms_player_begin` and
 `ms_player_spawn`; or `from`) a flood spreads from place to place: up a step of 18 at the most, down any drop,
-down a slope too steep to stand on and never up one, with room for the whole body on the way. A ladder (`func_ladder`) and a liquid carry it up; a
+down a slope too steep to stand on and never up one, with room for the whole body on the way. A ladder (`func_ladder`) and a liquid carry it up,
+and so does a lift (`func_plat`), taken as a ladder in its shaft: from where it is built down by its `height`
+(its own height less 8 when it gives none, as the SDK's plats.cpp has it; under 0, up), its brush no wall since
+it moves. A fact says where each lift rides, and for one with no name (the lift a player steps on) a warning
+names an end with no floor within a step of it (beside it or under it) or no room for a player on it: a lift
+that rides up into the air instead of down. One with a name is ridden when something names it, as scenery
+is moved, and is only said; a
 `trigger_teleport` it walks into carries it to where its `target` is. Doors (`func_door`,
 `func_door_rotating`, `momentary_door`) are open unless `doors: "closed"`; `open` names more brush entities to
 take as not there (a wall that breaks), `shut` doors to take as closed (one that wants a key), each by number,
-classname or targetname. Every other brush entity that is solid in the game is a wall.
+classname or targetname. What breaks, is switched on and off by name, or is pushed aside (`func_breakable`,
+`func_wall_toggle`, `func_pushable`: `GIVES_WAY`) is a wall unless `walls: "gone"`, which takes them all away
+(`shut` keeps those it names); a `func_wall_toggle` whose spawnflag 1 is set starts off (the SDK's
+SF_WALL_START_OFF) and is not there either way. Every other brush entity that is solid in the game is a wall.
+
+**Ladders off the grid.** A ladder is often a brush 2 thick with a solid brush of rungs before it, in a shaft
+a body fits in over a few units only (one in Master Sword's edanasewers is 3 wide), and no place of a grid of 8
+is in it. So a ladder is also asked along upright lines a unit apart all about it: each stretch a body's feet
+may be at there while its box touches the ladder is a shaft, from its floor to the ladder's top or the
+ceiling, and a body gets on it from the places of the grid about it and off onto any floor there a step over
+its top at the most. A hatch over the shaft closes it. A fact counts the ladders whose shafts led to floor
+walked to no other way, and the one-way places know them: a pit left by such a ladder is none.
+
+**Teleports.** A `trigger_teleport` that is walked into carries the walk, and every other way it tries (a
+jump, crouching, open air), to the entity its `target` names. Where a teleport puts a player is not counted
+among the entities a player goes to (unless `markers` names it). One that leads nowhere (no entity of that
+name, or no room for a standing player there) is a warning. A teleport with a `master` is taken as working,
+as a door is taken as open.
 
 **What it says**, in `warnings`:
 
@@ -442,6 +473,41 @@ And in `facts`: where it walked from, the openings (the narrow places of the wal
 sides: a gate, a doorway, a gap between two trunks), the floor walked in square units, how much of it is too
 steep to stand on, the longest walk, the walk to each entity of `to` (with its `routes`: the way as points,
 which a plan with `reach` draws), and which doors were taken as open.
+
+**How much of the floor is walked, and why the rest is not.** Every place of the grid is asked, and each
+stretch of heights a standing player fits in there over a floor not too steep to stand on is a `cell` x
+`cell` of floor: `standable` is all of it in square units and `share` the part the walk reaches (a fact says
+it: "the walk reaches 27.3 in 100 of the floor a standing player fits on"). The tops of walls and crates are
+floor too: a map walked whole comes to a little less than 1. What is not walked to is put in parts, floor a
+body steps about in: those under 4096 square units are counted (`patches`), the larger told (`parts`, the
+largest first, 40 at the most), each with `at`, `area`, `floors`, `nearest` (the walked floor nearest it,
+within 384) and `how`, what it takes, found by trying in turn:
+
+| `how` | | `why` says |
+| --- | --- | --- |
+| `jump` | a jump of 45 gets there | where the way leaves the walked floor: "at -208 -1816 64 the floor rises 32", or the jump across a gap |
+| `crouch-jump` | a jump with the legs drawn up (63) | the same |
+| `crouch` | only a crouching body fits | where the way is too low, and how high it is there |
+| `wall` | brush entities are in the way (`behind`: their numbers) | each by name and where it is, and what takes it away: `walls: "gone"` or `open` for what gives way, `open` for any other, "a door taken as closed" |
+| `air` | open air leads to it and no floor does (a ledge too high, a gap too narrow) | how near the walked floor comes |
+| `none` | walled off | "no opening leads to it", and how near the walked floor comes |
+
+The ways through brush entities are tried first with only what the game takes away gone (the doors taken as
+closed and `GIVES_WAY`), then with every brush entity gone; the way named is the one through the fewest of
+them (a step into one costs more than any walk is long), and it may pass through one a longer way goes round.
+An entity that is not reached and is behind brush entities has them in `behind` too, named after its reason
+("no opening leads to it: behind 74 func_wall_toggle "freetogo" at ..."). When the parts a jump reaches come to
+a tenth of the floor, a fact says the map is meant to be jumped through and that `jump: true` walks it so;
+when brush entities stand before a twentieth, a fact says `open` and `walls: "gone"` take them away.
+`parts: false` looks at none of it, and is a little quicker. On Master Sword's demontemple the walk on foot
+reaches 27.3 in 100 of the floor: the largest part (994496 square units) is "only by a jump: at -208 -1816 64
+the floor rises 32", the temple's great steps; with `jump: true` it reaches 62.3, and with `walls: "gone"` as
+well, 99.1. Its seals and keys (`func_breakable`, `func_wall_toggle`) are named before the boss's room.
+
+**A profile's lists.** With `mod`, the profile's `exits`, `markers`, `wiring` and `off` (and the classes of
+its `doors`) are used as if given; a list given by name is ADDED to the profile's and never takes from it. To
+walk without one of the profile's, hand over the profile without it: `mod: { ...profile, wiring: [] }`.
+`spaceOf` takes `mod` too, for its `off` and `doors`.
 
 **Jumps.** `jump: true` makes jumps part of the walk: up a ledge of 45 (`jump: 63`: with the legs drawn up
 too), and across a gap, as one arc at a run. What only a jump reaches is told apart: an entity's `how` is
@@ -491,6 +557,199 @@ reaches 4 more entities and 13 in 100 more floor (roofs, banks, the tops of wall
 jumping player gets into and not out of. Nobody looked at any of these in the game: some are surely as the
 map means them, and some may be the test's own misses. **None of it was measured against the game**: it is
 geometry, with the engine's numbers.
+
+## In 3D, and the things in it (`src/maps/scene3d.mjs`, `viewer/map-serve.mjs`)
+
+`sceneOf3d(map, { folders, mod })` makes a map a scene for a page that draws in 3D: the world's faces as
+triangles grouped by texture (each wound so that its normal is its face's), a compiled map's lightmaps packed
+into one picture with each corner's place on it, brush source's textures from the .wad files its worldspawn
+lists or the game's folders hold, tools' faces (clip, origin, trigger) and brush entities' faces apart, and
+each point entity as its model (posed by its `angles`, `body`, `skin`, `sequence`, `scale`, as the pictures
+draw it: `figuresOf`) or its box. `smak map-viewer` serves it to the browser: walked through with the mouse
+and the keys, floors coloured by height, ceilings and clips shown or hidden, an arrow the way each entity
+faces, a click on a thing says what it is; it loads again as its file changes (a sketch, a .map saved from an
+editor, a .bsp compiled again). It is for the person; an agent looks with `map-view` and `map-props`.
+
+`propsOf(map, options)` holds each point entity that has a model or a body against the world: the share of
+its box in solid (looked into 4 units from its sides), the gap under its foot, and how far a wall is in
+front, behind, left and right by the way it faces. A **warning** is wrong wherever it is: a thing that walks
+(an NPC, a monster, a start) stuck in solid, a prop buried (over half its box; a thin one, a vest on a rack,
+is laid against a wall), a prop that floats with no side on a wall and nothing under it. A **note** is what a
+mapper may mean and a look tells: a prop partly in a wall (a sword stuck in a rack), its nose to a wall with
+room behind it (turned the wrong way, when its model's front is +x, as most are: the check found the
+dumpsters of a city built with the kit turned to the wall, as a player had seen), a thing that walks placed
+over the floor (most games drop it), a prop standing on another model (a candle on a table). On the game's
+own gatecity: 3 warnings and 116 notes in 182 things, which is why notes are to be looked at, not mended
+blindly. `smak map-props --views <folder>` draws each from the side with the most room.
+
+## A map against pictures of it (`src/maps/overlay.mjs`)
+
+A picture of a place (a screenshot, a render, a photograph) and the map that is to be it: find the camera of
+the picture against the map as built, see where the map and the picture part, move the wall that is off, look
+again. As a model's pictures are fitted by its outline (`project`, `pose.fit`), a room seen from inside is
+fitted by its edges. `smak map-overlay <map|bsp> <picture> --from x,y,z --yaw n [--pitch n] [--fov 90]
+[--locate] -o over.png` does it from the command line.
+
+| Function | Gives |
+| --- | --- |
+| `overlayOf(map, picture, camera, { width, height, offsets })` | The map's edges (creases, depth steps; texture joins in blue) drawn over the picture from `camera` (`{ from, yaw, pitch, fov }`, fov 90 unless told), green within 2 pixels of the picture's own long straight edges, red with a picture line 2 to 10 pixels off (a line is there and the edge is not on it), amber with none within 10 (nothing to compare: a soft line the detector missed, or a camera so far off nothing is near): `{ width, height, rgba, score, toPicture, fromPicture, faces }`. `score` in pixels (lower is better). `faces`: each face whose edges the view shows, how far it would move along its normal (`move`, units) to lie on the picture's edges, the largest first. A reading of edges: on a picture of flat colours it is sharp, on a textured one the texture's own lines pull it |
+| `fitCamera(map, picture, { from, yaw, pitch, fov, fitFov })` | The camera that best lays the map's edges on the picture's, searched from a guess (or, with none, from places over the map's floor at eye height): `{ camera, score }` (`--locate`) |
+| `geometryOf(map)`, `rasterOf(geometry, camera, width, height)` | The faces a view draws (`plane` keys coplanar faces alike), and which face each pixel shows and the point of the map there (`point(i)`) |
+
+In the fork the camera is also found by features matched against a render of the map and by structure from
+motion (its `photo.mjs`, in Python venvs of OpenCV, pycolmap, LightGlue and VGGT); that is not taken here, and a
+camera is fitted by the edges alone. A room of walls without lines (flat-lit, plain) says little of where it is,
+and so does a dark one of laid stone: on a view of a Master Sword tavern at its own camera most of the map's
+edges came amber (no line of the picture near them), and `--locate` from a guess 25 units and 8 degrees off
+settled 140 units away at a lower score than the true camera's. Trust it on lit rooms of plain lines.
+
+## A map's dressing (`src/maps/dressing.mjs`)
+
+How a map is dressed, in numbers, beside Valve's own: the facts a maker revising a map is told, measured
+(the fork's research/level-dressing.md: checks by rule agree with people where a picture judge does near chance). `smak
+map-dressing <bsp> [--source <map>] [--against <bsp>]` prints it.
+
+| Function | Gives |
+| --- | --- |
+| `dressingOf(bsp, { source, views, against, landmark })` | `{ measures, counts, rows, facts, warnings }`: each measure beside `VALVE_DRESSING`, a line each (`dressing: tall walls of one texture only: 100% (Valve's: 44% to 93%, median 68%)`), and a warning, with which way to go, for one outside Valve's band. `source`: the map's brush source, for its brushes' roles; `views`: pictures of it, for their complexity; `landmark`: `{ name, room, seen, of }`, a map spec's focus, named with how many of the ways into its room see it (a warning when one does not) |
+| `measureDressing(bsp, { source, views })` | The measures alone |
+| `dressingOfSource(map)` | The brush roles of a source: shares of its world (and `func_detail`) brushes that are panels, strips, lamps, angled |
+| `brushRole({ min, max, faces })` | One brush's role as Valve's c1a0 sources are read: `lit` (a lamp's texture, its long side 128 or less), `strip` (two thin sides of 16 and 24 or less, its long side three times the middle), `panel` (its thinnest 16 or less, the next 32 or more), else `block`; `angled` when it has other than six faces |
+| `lampsOf(bsp)`, `isLampTexture(name)` | Whether a texture is a lamp: the game's texture lights, a `~` name, a lamp's word, and every texture a map's `info_texlights` names (a map spec's glowing fixtures) |
+| `pictureComplexity(picture)` | `{ edges, compression }`: the share of pixels whose brightness steps over 24 to a neighbour, and its PNG's bytes over its raw size (Machado et al. 2015: such measures follow people's ratings of complexity) |
+| `VALVE_DRESSING` | Valve's own: each measure's 5th, 25th, 50th, 75th and 95th in 100 over the campaign's 96 maps, the roles over the SDK's c1a0 and c1a0d sources (widened a quarter each way, two being few). the fork's `research/valve-dressing.mjs` measures it again |
+
+The measures, of the world's faces (tool, sky and liquid faces left out):
+
+```
+Measure            What it is                                                       Valve's 5th to 95th (median)
+scaleOne           faces at texture scale 1                                         26% to 97% (79%)
+shifted            faces shifted off the world's texture grid                       28% to 98% (71%)
+bandedWalls        tall walls (128 or more, faces grouped by plane) with a texture   1% to 41% (13%)
+                   join up them: two textures meeting on the one plane
+oneTextureWalls    tall walls of one texture only                                    44% to 93% (68%)
+joinHeight         median height of a join over its wall's foot                      56 to 527 (160)
+lampFaces          lamp faces a light entity (light, light_spot)                      0 to 101 (5)
+nonAxial           world face area off the axes                                       7% to 60% (22%)
+detail             world planes a 256 x 256 of floor (up-facing face area)             2.3 to 23 (10.7)
+darkFloor          floor area whose steady light is under 24 of 255, sample by         6% to 60% (21%)
+                   sample (a face's mean evens out the pools under its lamps)
+contrast           the floor light's brightest tenth over its darkest, by sample       3.6 to 152 (12.9)
+panels, strips,    the brush roles, of source                                        about 39%, 15%, 15%, 6%
+litBrushes, angled
+edges              of views' pixels on an edge (six views aimed, 320 x 240)           1.6% to 15% (4.9%)
+compression        a view's PNG bytes over its raw size                               0.20 to 0.47 (0.34)
+```
+
+What it is worth: each measure is of the faces as the compiler left them, Valve's measured the same way from
+their compiled maps; a band at the 5th to 95th says where most of Valve's own lie, not what is good. `WALL_FAMILIES` (`src/maps/families.mjs`, `familyOf(name)`) is what Valve stacks under and over each of its wall
+textures, and at what height, over the 96 campaign maps (measured by the fork's research/valve-wall-families.mjs). The original mod's
+maps measure outside Valve's band on banding, one-texture walls, the share off the axes, the dark floor and the
+light's contrast; Valve's c1a0 only on the share off the axes, being among its boxiest. The views' edges and
+compression put the mod's three maps inside Valve's band (0.04 to 0.13, 0.28 to 0.40): photographic textures
+are busy enough, and these two tell little apart here.
+
+
+## A map in numbers (`src/maps/measure.mjs`)
+
+A new map is judged against one the game already has before anyone plays it: a map whose middling place is
+half as wide as the game's, or whose corridors are lower, reads cramped in the game however well it compiles.
+`measure(map, options)` gives those numbers for brush source or a compiled map; `measureTable(list)` lays
+several maps' side by side, a measure a line and a map a column. `smak map-measure a.bsp [b.bsp ...]` prints
+the one or the other (`--json`: the numbers themselves); `smak map-compare a.bsp b.bsp -o same.png` draws them
+at one scale (`compareOf`, above).
+
+```js
+const game = maps.measure(maps.readBsp(readFileSync("demontemple.bsp")), { mod, every: true, name: "demontemple" });
+const ours = maps.measure(maps.readBsp(readFileSync("barrowroad.bsp")), { mod, every: true, name: "barrow road" });
+console.log(maps.measureTable([game, ours]).join("\n"));
+```
+
+**How a place is measured.** The floor is looked over on a grid (`grid`, 32). At each place sixteen level
+lines go out, one every 22.5 degrees, 60 over the floor (a little under a player's eyes, at 64, and off the
+heights maps are built at: a line at 64 runs along the top of every bench 64 high), each as far as it goes
+before something solid (found to within a unit, 3000 at the most).
+- **width**: the narrowest of the eight lines THROUGH the place (one way and the opposite, added): 128
+  anywhere in a corridor 128 wide, and in a room its lesser side.
+- **sight**: the longest of the sixteen.
+- **headroom**: from the floor to the first thing solid over it.
+
+**Which floor.** Unless told, the floor the walk test gets to from the places to start (with what `reachOf`
+takes: `mod`, `exits`, `off`, `open`, `shut`, `doors`, `from`, `jump`, `cell`; `open`, `shut`, `doors` and `off`
+are the lines' too), every walked floor where several lie one over another. `every: true` (`--every`) takes
+every place a player fits whether walked to or not: each gap of 72 or more between two solids, on a floor that
+can be stood on, under 1200 high (`tallest`). That is the measure of the building, for a map the walk test
+gets to only part of (a teleport, a train, a door a script opens); a warning says when the walk got to under
+half of what fits.
+
+**What comes back**: `places` and `area`; `footprint` (the box about the floor seen from above, and the
+share of it that has floor); `floors` (`lowest`, `highest`, the fullest heights, and `stacked.most`: how many
+floors lie one over another at the most); `width` (median, quartiles, nine tenths, and the share of the floor
+in each band of `bands`: under 176, 176 to 352, 352 and over); `headroom` (the same, and in corridors, under
+the first band, and in rooms); `sight` (the same, and the share of places that see beyond `sight`, 700);
+`openings` (the walk test's narrow places: their count and widths); `facts` and `warnings` as sentences.
+`places: true` hands back every place with its numbers.
+
+**What it is worth.** Lines sixteen ways miss what lies between them: a width may be a little over the true one
+where a place's narrowest way lies at a slant between two lines, and a sight is never over the true longest.
+In the corner of a room the line that cuts the corner off is short, so a room's corners count as narrow floor
+(about seven places a square corner on a grid of 32): the bands are for one map beside another, measured the
+same way, more than for each by itself. 176 and 352 are this kit's own lines, no engine's. Measured on three
+maps (two drafts of one new map for Master Sword, and the game's own `demontemple`), the same
+settings as an agent's one-off sampler (lines 60 over the floor, found to within 16, one floor a place) gave
+its numbers to the place and the unit; to within a unit the widths come out some 10 wider (the sampler's
+coarser search reads a 352 hall as 340), which on the old Barrow Road moves 8 in 100 of the floor into the band
+of 352 and over. demontemple measured whole (`every`): 5893 places, width median 256, headroom 192, sight
+median 708; the walk test reaches 1523 of them.
+
+## Decompiling (`src/maps/decompile.mjs`, `fidelity.mjs`, `texlights.mjs`)
+
+A compiled map made back into brush source, so that a map whose source was never released (Half-Life's own)
+can be opened in an editor, changed and compiled again. It is a port of `bsp2map.py` from Steven Linn's
+goldsrc.net project (`godot/tools/bsp2map`, whose README tells every rule below with the map that taught it),
+and writes the same text, number for number: on all 126 maps of Half-Life's `valve` folder the two outputs are
+the same but for their first line, and so are the `.wad` files of the textures the maps carry inside them. The
+port takes about a second a map (rocket_frenzy, 14171 brushes, 11 seconds), the Python ten to twenty times that.
+
+```js
+const { map, facts, warnings, wad } = maps.decompile(readFileSync("crossfire.bsp"), { name: "crossfire", folders: [valve] });
+writeFileSync("crossfire.map", map);
+if (wad) writeFileSync(wad.name, wad.bytes);                       // the textures only the .bsp had
+console.log(maps.decompileSummary({ facts }), warnings);
+```
+
+**The method.** Each model's tree (hull 0) is walked, and every leaf that is not empty (solid, water, slime,
+lava, sky) is the convex region the planes on its path cut out of the model's box: one brush, built by
+clipping. So the solids are watertight and exact, split along the tree's planes; cells whose union is convex
+are merged again. A brush face that lies on a node's plane wears the texinfo of the face of the same model on
+that plane, facing the same way, that overlaps it most, written as Valve 220 axes, scales and offsets with
+nothing lost; a brush face that spans faces of several textures is cut along their edges. A face no face
+covers is `NULL` (the compilers drop it), or `sky` in a sky leaf. What a compiler refuses is mended on the way:
+near-coplanar planes are unified first, no face under half a square unit, no acute wedge (snapped against its
+neighbour, capped, or its tip cut), no face of over 24 corners, one content a brush, thin empty seams and the
+void's pockets filled, a brush model clipped to its own box. Entities are carried over as they are, but that a
+brush entity compiled round an ORIGIN brush is put back in world space with an ORIGIN brush and no `origin`
+key, the worldspawn's `wad` list becomes the bare names of the files found in `folders`, and
+`func_illusionary` and `env_bubbles` get `zhlt_noclip`.
+
+| Function | Gives |
+| --- | --- |
+| `decompile(bytes, { name, folders, canon, tips, cuts, merge })` | `{ map, facts, warnings, wad }`. `map`: the `.map`'s text. `facts`: what was done, in counts (`brushes`, `cuts`, `merged`, `snapped`, `filled` ... and the world's `box`). `wad`: null, or `{ name, bytes, textures }`, the textures the map carries that none of its `.wad` files has, as a WAD3 named `<name>_dc.wad` and already in the `wad` key (a map with no `wad` key, compiled with its textures inside, gets one). Without `folders` every listed `.wad` name is kept and every texture inside goes into the own `.wad`. `canon`, `tips`, `cuts`, `merge`: `false` turns one rule off, to see what it does (bsp2map's `BSP2MAP_NO_*`) |
+| `decompileSummary(result)` | bsp2map's line of counts |
+| `textureFidelity(original, recompiled)` | In per cent of the seen original face area: `matched` (a recompiled face at the same spot), `same` (of that, wearing the original's texture), `texinfo` (of that, laid as the original's), `covered` (solid in the recompile before it), `unseen`; and `boxmove` (the largest shift of a brush entity's box), `lostModels`, `lost` (textures worn nowhere). texcheck.py's measure; `fidelityLine(r)` its summary column |
+| `lightParity(original, recompiled)` | `{ all, up, side }`, each `{ faces, retail, ours, ratio }`: the mean style-0 light at the centres of the original's world faces, in both maps. lightcheck.py's measure |
+| `TEXLIGHTS`, `TEXLIGHTS_BY_MAP`, `NOT_EMITTERS`, `texlightsFor(map)`, `texlightsRad(map)`, `texlightsEntity(map)`, `TEXLIGHT_RAD_ARGS` | The texture lights of Half-Life's maps, calibrated against the retail lightmaps by goldsrc.net: the list, each map's own values over it, as a `lights.rad` (`compileMap(file, { args: { hlrad: ["-lights", rad, ...TEXLIGHT_RAD_ARGS] } })`) or as the keys of an `info_texlights` |
+
+**Measured** (2026-10-14, SDHLT, hlvis `-fast`, hlrad with the texture lights): frenzy, crossfire and c1a0 decompiled
+and recompiled come back 100.0 matched, 100.0 the same texture, 100.0 the same texinfo, nothing covered, every
+brush entity there (crossfire: 1232 brushes, 4067 faces looked at), the same numbers texcheck.py gives for the
+same pair. Their light, ours over retail: frenzy 0.91, crossfire 1.19 (sunlit), c1a0 0.93.
+
+**What is lost by construction**: brushes of clip only (hulls 1 to 3 carry no textures, and the compilers make
+them again from the solids), the mapper's own split of the brushes, and the light, which the compile works out
+again from the light entities and the texture lights. A map's brushes are many more than its mapper drew
+(the tree cuts every solid along planes from elsewhere). And a decompiled game map is still the game's: rule 7
+of `AGENTS.md` holds for it as for the `.bsp`.
 
 ## Checking (`src/maps/check.mjs`)
 
@@ -580,13 +839,16 @@ leaves out is `GOLDSRC`'s. `profiles/mastersword.mjs` is one mod's, as an exampl
 | `starts` | The classes that are a place to start: what `checkPlan` asks for and `reachOf` walks from |
 | `walkers`, `origin`, `hulls`, `bodies` | The classes that walk (`"monster_*"`); where a thing's origin is in its box (`{ starts: "middle", walkers: "feet" }`); the engine's boxes; and a class's box where its size does not say (`{ monster_bigmomma: "large" }`). A class's FGD `size(...)` is its box: `bodiesOf(mod, classnames)` gives `{ classname: { half, height, feet } }`, and a box of exactly a hull's size is walked as that hull |
 | `doors` | The brush classes that open: the walk test takes them as open |
+| `exits` | The classes a player leaves the map by, besides `trigger_changelevel` (Master Sword's `msarea_transition`): the walk test takes each for a way out, so floor one is reached from is no one-way place. What the caller names with `exits` is added to them |
+| `modelOf` | `(keys) => "models/x.mdl"` or null: the model the game gives an entity that names none in its own keys, from whatever the mod keeps it in (Master Sword: the `setmodel` of the monster's script, `scriptModel` in its profile). Asked only when a picture is drawn with `models`; `modelsOf(mod, map)` gives `{ number: model }` for a map |
 | `off` | Classnames that switch an entity off on purpose (`"disabled_*"`): counted in a fact, not looked up |
 | `targets`, `named` | `{ keys, others }`: the keys that name another entity, and the classes whose every other key is a name they fire; the names the game itself fires |
 | `files` | More keys that name a file: `{ classes, key, keys, folders, unless, what }` (`keys: "*.mp3"` for a class whose keys are themselves file names) |
 | `rules` | The mod's own rules |
 
 `withMod(options, map)` is what the walk test and the pictures do with `mod`: the profile's `starts`,
-`folders`, each class's box (under the caller's own `bodies`) and its doors (as `open`). `definitionsFor(mod)`
+`folders`, each class's box (under the caller's own `bodies`), its doors (as `open`), its `exits` and, when
+`models` is asked for, the models its `modelOf` gives (as `modelsBy`, under any the caller names). `definitionsFor(mod)`
 gives the definitions a profile comes to; `modOf(mod)` the profile made whole.
 
 **Rules** are a mod's quirks as data, each with `why`, which is put into its sentence, `classes` and `level`:
@@ -595,7 +857,7 @@ gives the definitions a profile comes to; `modOf(mod)` the profile made whole.
 | --- | --- |
 | `{ rule: "limit", key, most, of, to }` | No more than `most` entities (of the classes `of`) may name one other (of the classes `to`) by `key`: monsters in a spawn area. An error |
 | `{ rule: "beside", key, needs, unless }` | `key` does something only beside the key `needs`; a value of `unless` (`["", "0"]`) is no use of it |
-| `{ rule: "bands", key, among, whole, separator, words }` | The ranges `key` holds (`"0;150"`, `"150;500"`, `"500"`) among the entities that share the keys of `among` (`["spawnarea", "origin"]`: one place of one area) must meet and not overlap. `whole`: of whole numbers, `1;200` meets `201` |
+| `{ rule: "bands", key, among, whole, separator, words, open }` | The ranges `key` holds (`"0;150"`, `"150;500"`, `"500"`) among the entities that share the keys of `among` (`["spawnarea", "origin"]`: one place of one area) must meet and not overlap. `whole`: of whole numbers, `1;200` meets `201`. `open`: the name of a key by which a map says a range is left empty at that place on purpose (`docs/MAPS-CHECKS.md`) |
 | `{ rule: "finite", classes, when, counted, count }` | An entity of `classes` that gives the key `when` counts the entities that name it by `counted`: each must give `count` as a number over 0 |
 | `{ rule: "names", classes, key, required, of, among, what }` | The value of `key` is the name of something that exists: the `targetname` of an entity of `of.classes` in this map, or a name the function `among(name, entity)` knows (true, false, or a sentence on why not). This is where a mod says how a script's or an item's name is resolved. `required`: an entity without the key is told too |
 | a function `(entities, tools) => [{ level, text }]` | For what no kind covers. `entities`: `[{ number, classname, brush, pairs, get(key), named }]` (`entitiesOf(map)`) |

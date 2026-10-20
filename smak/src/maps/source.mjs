@@ -21,6 +21,7 @@
 // Axes and units are the game's: +x east, +y north, +z up; a unit is about an inch (a player is 72 tall).
 // A texture is named, never held: the names are looked up in the .wad files worldspawn's `wad` key lists.
 import { sub, dot, cross, unit } from "../vec.mjs";
+import { modelless } from "./entities.mjs";
 
 // ── constants ───────────────────────────────────────────────────────────────
 /** The format written and read: worldspawn's `mapversion`. */
@@ -294,6 +295,9 @@ export function solidPlanes(points, faces) {
  * (no volume) and when one of them is inside the solid the others make (they are then not the corners of a
  * convex solid).
  */
+/** Two faces whose normals agree this closely (cosine; within about a degree) are one plane to the compiler. */
+const NEAR_ONE = 0.9998;
+
 function hullPlanes(points) {
   const found = new Map();
   for (let i = 0; i < points.length; i++)
@@ -315,7 +319,16 @@ function hullPlanes(points) {
     throw new Error(
       `solid: its ${points.length} points lie in one plane or one line: a solid with no volume`,
     );
-  const faces = [...found.values()];
+  // two faces all but in one plane (corners rounded to whole units make a crease of a hundredth of a degree)
+  // are one to the compiler, which refuses the brush: the one with fewer corners goes, its corners kept on
+  // the other's face (they are within a unit of it)
+  const faces = [];
+  for (const face of [...found.values()].sort((a, b) => b.onIt.length - a.onIt.length)) {
+    const dist = dot(face.normal, face.onIt[0]);
+    const twin = faces.find((kept) => dot(kept.normal, face.normal) > NEAR_ONE && Math.abs(dot(kept.normal, face.onIt[0]) - dot(kept.normal, kept.onIt[0])) < 1 && Math.abs(dist - dot(face.normal, kept.onIt[0])) < 1); // prettier-ignore
+    if (twin) twin.onIt = [...new Set([...twin.onIt, ...face.onIt])];
+    else faces.push(face);
+  }
   const inside = points.find((point) => !faces.some((face) => face.onIt.includes(point)));
   if (inside)
     throw new Error(
@@ -731,12 +744,37 @@ function ringPieces({ centre, radius, outer, angles, pieces, snap }, from, to, t
  * "+y", "-y"), each a box that stands on the floor of the flight. `steps` is how many; without it there are
  * as many as keep each no taller than `rise` (16 unless told). A step taller than 18 is refused: a player
  * walks up 18 at most. It returns the list of brushes.
+ *
+ * As it always was, the highest step is level with the top of the box: where the upper floor goes on from
+ * the box's high side, that step is only more floor, and the run is shared among all the steps, so that a
+ * run that is no multiple of their number puts their edges off the grid. Two options change that, and only
+ * a flight that asks is changed:
+ *   top: false   no step level with the top: the last riser climbs onto the upper floor at the box's high
+ *                side, and each step is a slab of its own tread (it does not run on under the next)
+ *   tread        how deep each step is, in units: the steps are laid from the high side down, each that
+ *                deep, so that they stay on the grid whatever the box's run; what the box has over is
+ *                floor. A run too short for them is refused. With `top: false` and no tread, the run is
+ *                shared among the steps there are. A slab of `top: false` stands on the box's floor
+ * With `top: false` the highest step comes first in the list.
+ *
+ * `ramp: "CLIP"` (or any texture) adds, last in the list, a wedge laid on the steps' nosings, from the floor
+ * one step's depth before the first riser to the top: a player walks up it smoothly instead of climbing
+ * each step (what boxy stairs "feel wrong" for), while shots and grenades, which a CLIP brush does not
+ * stop, still meet the steps. Where the box has no room before the first riser, the foot of the ramp is
+ * the box's low side, and the ramp a little steeper.
  */
-export function stairs(min, max, high, texture, { steps, rise = 16 } = {}) {
+export function stairs(min, max, high, texture, { steps, rise = 16, top = true, tread, ramp } = {}) {
+  if (ramp !== undefined) {
+    const flight = stairs(min, max, high, texture, { steps, rise, top, tread });
+    return [...flight, stairRamp(min, max, high, ramp, { steps, rise, top, tread })];
+  }
   const side = SIDES[high];
   if (!side) throw new Error(`stairs: the high side is "+x", "-x", "+y" or "-y", not ${high}`);
   for (let i = 0; i < 3; i++)
     if (!(max[i] > min[i])) throw new Error(`stairs: no size along ${AXIS_NAMES[i]}`);
+  if (typeof top !== "boolean") throw new Error(`stairs: top is true or false, not ${JSON.stringify(top)}`);
+  if (tread !== undefined && !(typeof tread === "number" && tread > 0))
+    throw new Error(`stairs: tread is how deep a step is, in units over 0, not ${JSON.stringify(tread)}`);
   const height = max[2] - min[2];
   const count = steps ?? Math.ceil(height / rise);
   if (!(count >= 1) || !Number.isInteger(count))
@@ -745,7 +783,34 @@ export function stairs(min, max, high, texture, { steps, rise = 16 } = {}) {
     throw new Error(
       `stairs: ${count} steps of ${mapNumber(height / count)} each: a player walks up ${STEP_HEIGHT} at most, so ${Math.ceil(height / STEP_HEIGHT)} steps or more`,
     );
-  const run = (max[side.axis] - min[side.axis]) / count;
+  // the steps there are: one fewer where the upper floor is the last of them
+  const made = top ? count : count - 1;
+  const length = max[side.axis] - min[side.axis];
+  if (tread !== undefined && tread * made > length)
+    throw new Error(
+      `stairs: ${made} steps of ${mapNumber(tread)} are ${mapNumber(tread * made)} long, and the box runs ${mapNumber(length)} towards ${high}`,
+    );
+  if (!top || tread !== undefined) {
+    const deep = tread ?? length / made;
+    const edge = side.sign > 0 ? max[side.axis] : min[side.axis];
+    const brushes = [];
+    // from the high side down: the step under the upper floor's edge first
+    for (let step = made; step >= 1; step--) {
+      const low = [...min];
+      const upper = [...max];
+      upper[2] = min[2] + (height * step) / count;
+      // as ever, a flight with its top step is stacked, each on the one under it; a slab stands on the floor
+      if (top) low[2] = min[2] + (height * (step - 1)) / count;
+      // without its top step a step is a slab of its own tread; with it, as ever, it runs on to the high side
+      const front = edge - side.sign * (made - step + 1) * deep;
+      const back = top ? edge : edge - side.sign * (made - step) * deep;
+      low[side.axis] = Math.min(front, back);
+      upper[side.axis] = Math.max(front, back);
+      brushes.push(box(low, upper, texture));
+    }
+    return top ? brushes.reverse() : brushes;
+  }
+  const run = length / count;
   const brushes = [];
   for (let step = 0; step < count; step++) {
     const low = [...min];
@@ -760,6 +825,37 @@ export function stairs(min, max, high, texture, { steps, rise = 16 } = {}) {
   return brushes;
 }
 
+/** The ramp `stairs` lays on its steps with `ramp`: from one step's depth before the first riser to the top. */
+function stairRamp(min, max, high, texture, { steps, rise = 16, top = true, tread }) {
+  const side = SIDES[high];
+  const count = steps ?? Math.ceil((max[2] - min[2]) / rise);
+  const length = max[side.axis] - min[side.axis];
+  const deep = tread ?? (top ? length / count : length / (count - 1));
+  const edge = side.sign > 0 ? max[side.axis] : min[side.axis];
+  const lowSide = side.sign > 0 ? min[side.axis] : max[side.axis];
+  // the nosings lie on one line: it is at the top where the highest step's front is (the box's high side,
+  // where the upper floor is the last step), and at the floor `count` steps' depth before that
+  const head = top ? edge - side.sign * deep : edge;
+  const foot = head - side.sign * count * deep;
+  if (side.sign * (foot - lowSide) >= 0) {
+    const low = [...min];
+    const upper = [...max];
+    low[side.axis] = Math.min(foot, head);
+    upper[side.axis] = Math.max(foot, head);
+    return wedge(low, upper, high, texture);
+  }
+  // no room before the first riser: the ramp stays on the nosings and stands on a lip at the box's low side
+  const lip = min[2] + ((max[2] - min[2]) * side.sign * (lowSide - foot)) / (count * deep);
+  const outline = [
+    [lowSide, min[2]],
+    [head, min[2]],
+    [head, max[2]],
+    [lowSide, lip],
+  ];
+  const across = side.axis === 0 ? 1 : 0;
+  return prism(across, outline, min[across], max[across], texture);
+}
+
 /**
  * Carved rock: a ceiling or a floor that is not flat, the way terrain is made in GoldSrc. A grid of `step`
  * ([x, y] units) over `min`..`max` (2D, in plan) is cut in triangles, and each triangle is one brush that
@@ -770,13 +866,20 @@ export function stairs(min, max, high, texture, { steps, rise = 16 } = {}) {
  * corners exactly and no crack opens between them; the diagonal alternates from cell to cell, so that the
  * rock has no grain; and a height that meets the base, or lies on the other side of it from the rest, is
  * refused in words, since the brush there would have no thickness. It returns the list of brushes.
+ *
+ * `axis: "x"` or `"y"` stands it up: the heights run along that axis and `min`, `max`, `step` and
+ * `height(a, b)` are in the other two, in their order as a prism's ((y, z) along x, (x, z) along y). A
+ * cliff's face, a cave's rough wall, a bank of rock beside a path.
  */
-export function terrain({ min, max, step, base, height, texture, grid = 1 }) {
+export function terrain({ min, max, step, base, height, texture, grid = 1, axis = "z" }) {
+  const along = axisIndex(axis, "terrain");
   if (!(step?.[0] > 0 && step?.[1] > 0)) throw new Error(`terrain: step is [x, y], both over 0, not ${step}`);
   if (!(max[0] > min[0] && max[1] > min[1])) throw new Error("terrain: no size: max is not beyond min");
   const marks = [0, 1].map((i) => {
     const list = [];
-    for (let at = min[i]; at < max[i]; at += step[i]) list.push(at);
+    // counted, not added up step by step: the sum's error would leave a last column a hair wide
+    const count = Math.max(1, Math.ceil((max[i] - min[i]) / step[i] - 1e-6));
+    for (let k = 0; k < count; k++) list.push(min[i] + k * step[i]);
     list.push(max[i]);
     return list;
   });
@@ -817,8 +920,8 @@ export function terrain({ min, max, step, base, height, texture, grid = 1 }) {
             );
         }
         const points = [
-          ...triangle.map(([x, y]) => [x, y, base]),
-          ...triangle.map(([x, y], corner) => [x, y, heights[corner]]),
+          ...triangle.map((point) => placed(along, base, point)),
+          ...triangle.map((point, corner) => placed(along, heights[corner], point)),
         ];
         const faces = [
           [0, 1, 2],
@@ -901,6 +1004,13 @@ export function subtract(solidBox, hole) {
  *
  * `texture`: `{ floor, ceiling, wall }` (or one for all): every piece of rock wears the floor on its top,
  * the ceiling on its underside and the wall on its sides, which is what is seen from inside a room.
+ * A room may bring its own, `{ min, max, texture }`: the rock it is seen from wears that instead (a shop's
+ * tiles behind a street's brick front, through one wall 16 thick). A piece of rock that faces two rooms
+ * of different textures on one side (the slab under two rooms side by side) is cut where they meet.
+ * A room may carry `bands`, `[{ z0, z1, wall }]` (heights in the world, foot to head): the rock beside it is cut
+ * at their edges, and each slice's face to the room wears the band it is in, its picture standing on the band's
+ * foot, so a wall's texture joins fall on brush edges as Valve's do (src/maps/families.mjs). A room's `wears`,
+ * `{ floor, ceiling, wall }`, is its `texture` with what it does not name the carve's (a floor plan's areas).
  * It returns the list of brushes.
  */
 export function carve(rooms, wall, texture) {
@@ -915,9 +1025,116 @@ export function carve(rooms, wall, texture) {
   const max = [0, 1, 2].map((i) => Math.max(...rooms.map((room) => room.max[i])) + wall);
   let rock = [{ min, max }];
   for (const room of rooms) rock = rock.flatMap((piece) => subtract(piece, room));
+  // a banded room's walls: each piece of rock beside it cut at its bands' edges, so that each slice's face to
+  // the room is one band
+  const beside = (piece, room) =>
+    [0, 1].some((axis) => (Math.abs(piece.max[axis] - room.min[axis]) < 1e-6 || Math.abs(piece.min[axis] - room.max[axis]) < 1e-6) && [0, 1, 2].filter((k) => k !== axis).every((k) => Math.min(piece.max[k], room.max[k]) - Math.max(piece.min[k], room.min[k]) > 0));
+  if (rooms.some((room) => room.bands?.length))
+    rock = rock.flatMap((piece) => {
+      const cuts = [...new Set(rooms.filter((room) => room.bands?.length && beside(piece, room)).flatMap((room) => room.bands.slice(1).map((band) => band.z0)))].filter((z) => z > piece.min[2] + 1e-6 && z < piece.max[2] - 1e-6).sort((a, b) => a - b);
+      const edges = [piece.min[2], ...cuts, piece.max[2]];
+      return edges.slice(1).map((z1, k) => ({ min: [piece.min[0], piece.min[1], edges[k]], max: [piece.max[0], piece.max[1], z1] }));
+    });
   const wears = roomTextures(texture);
-  const everywhere = { top: wears.floor, bottom: wears.ceiling, sides: wears.wall };
-  return rock.map((piece) => box(piece.min, piece.max, everywhere));
+  // each room's own, or the carve's; then each face of each piece by the room it is seen from
+  const own = rooms.map((room) =>
+    room.texture !== undefined ? roomTextures(room.texture) : room.wears ? { ...wears, ...room.wears } : wears,
+  );
+  const pieces = rooms.some((room) => room.texture !== undefined || room.wears)
+    ? rock.flatMap((piece) => cutForRooms(piece, rooms, own))
+    : rock;
+  return pieces.map((piece) => {
+    const sides = {};
+    for (const side of CARVE_SIDES) {
+      const seen = mostFacing(piece, side, rooms);
+      const of = seen === undefined ? wears : own[seen];
+      if (side.axis === 2) sides[side.name] = side.least ? of.ceiling : of.floor;
+      // a wall's picture stands on the floor of the room it faces and starts at its corner, as a mapper lines
+      // it up: its bands, its skirting and its seams fall where they were painted to, whatever the room's height
+      // (from stevenlafl/smak: Steven's play-test, "texture alignment is off")
+      else if (seen === undefined) sides[side.name] = of.wall;
+      else {
+        // a banded room's slice wears its band, standing on the band's foot
+        const middle = (piece.min[2] + piece.max[2]) / 2;
+        const band = rooms[seen].bands?.find((b) => middle >= b.z0 && middle <= b.z1);
+        const wall = band?.wall ?? of.wall;
+        sides[side.name] = onFloor(wall, band ? band.z0 : rooms[seen].min[2], rooms[seen].min[side.axis === 0 ? 1 : 0]);
+      }
+    }
+    return box(piece.min, piece.max, sides);
+  });
+}
+
+/**
+ * A wall's texture lined up so that its bottom edge stands on a floor at `z` and its left edge on the room's
+ * corner at `corner` along the wall (a wall's picture runs along +x or +y, and down -z): its offsets moved to
+ * them in its own scale. A texture given by direction or by rule, turned, or aligned its own way is left as it is.
+ */
+export function onFloor(texture, z, corner = 0) {
+  const fit = typeof texture === "string" ? { name: texture } : texture;
+  if (!fit || typeof fit !== "object" || typeof fit.name !== "string" || fit.rotation || fit.align) return texture;
+  const [su, sv] = Array.isArray(fit.scale) ? fit.scale : [fit.scale ?? 1, fit.scale ?? 1];
+  const offset = fit.offset ?? [0, 0];
+  return { ...fit, offset: [offset[0] - corner / su, offset[1] + z / sv] };
+}
+
+/** The room a side of a piece of rock is seen from the most of (its number), or undefined when none sees it. */
+function mostFacing(piece, side, rooms) {
+  let best;
+  let most = 0;
+  for (const nth of facingRooms(piece, side, rooms)) {
+    const room = rooms[nth];
+    const shared = [0, 1, 2]
+      .filter((i) => i !== side.axis)
+      .reduce((area, i) => area * (Math.min(piece.max[i], room.max[i]) - Math.max(piece.min[i], room.min[i])), 1);
+    if (shared > most) [best, most] = [nth, shared];
+  }
+  return best;
+}
+
+/** The six sides of a box of rock, as `box` names them: the axis, and whether it is the box's least end. */
+const CARVE_SIDES = [
+  { name: "west", axis: 0, least: true },
+  { name: "east", axis: 0, least: false },
+  { name: "south", axis: 1, least: true },
+  { name: "north", axis: 1, least: false },
+  { name: "bottom", axis: 2, least: true },
+  { name: "top", axis: 2, least: false },
+];
+
+/** The rooms (their numbers) a side of a piece of rock is seen from: a room whose opposite face lies on it. */
+function facingRooms(piece, side, rooms) {
+  const plane = side.least ? piece.min[side.axis] : piece.max[side.axis];
+  const found = [];
+  rooms.forEach((room, nth) => {
+    if ((side.least ? room.max : room.min)[side.axis] !== plane) return;
+    for (let i = 0; i < 3; i++)
+      if (i !== side.axis && !(room.min[i] < piece.max[i] && piece.min[i] < room.max[i])) return;
+    found.push(nth);
+  });
+  return found;
+}
+
+/** A piece of rock cut until no side of it is seen from two rooms that wear different textures. */
+function cutForRooms(piece, rooms, own) {
+  for (const side of CARVE_SIDES) {
+    const seen = facingRooms(piece, side, rooms);
+    if (new Set(seen.map((nth) => JSON.stringify(own[nth]))).size < 2) continue;
+    // cut along the side, where the first of those rooms ends inside the piece
+    for (const i of [0, 1, 2]) {
+      if (i === side.axis) continue;
+      const room = rooms[seen[0]];
+      for (const at of [room.min[i], room.max[i]]) {
+        if (!(at > piece.min[i] && at < piece.max[i])) continue;
+        const low = { min: [...piece.min], max: [...piece.max] };
+        const high = { min: [...piece.min], max: [...piece.max] };
+        low.max[i] = at;
+        high.min[i] = at;
+        return [...cutForRooms(low, rooms, own), ...cutForRooms(high, rooms, own)];
+      }
+    }
+  }
+  return [piece];
 }
 
 // ── brushes changed ─────────────────────────────────────────────────────────
@@ -940,6 +1157,60 @@ export function moved(brushes, by, { lock = true } = {}) {
       v: shifted(face.v, face.scale[1]),
       scale: [...face.scale],
     })),
+  };
+}
+
+/**
+ * A brush, or a list of them, turned `degrees` anticlockwise (seen from above, for the default axis "z")
+ * about `pivot` ([x, y, z]; only the two coordinates across the axis matter). A house set at an angle to
+ * its street, a wall that follows a hill, a whole part of a map turned. The pictures turn with their faces
+ * (texture lock) unless `lock` is false: then each face wears the world's axes again, as a new brush would.
+ * Turned at other than a quarter turn, the brush's planes are off the grid: that is what an angle is, and
+ * the compilers take it (`snap` rounds every point to that grid afterwards, where a plan wants it).
+ */
+export function turned(brushes, degrees, pivot = [0, 0, 0], { axis = "z", lock = true, snap = 0 } = {}) {
+  if (Array.isArray(brushes) && !brushes.faces)
+    return brushes.map((brush) => turned(brush, degrees, pivot, { axis, lock, snap }));
+  if (!Number.isFinite(degrees)) throw new Error(`turned: an angle in degrees, not ${degrees}`);
+  const about = [0, 0, 0];
+  about[axisIndex(axis, "turned")] = 1;
+  const angle = (degrees * Math.PI) / 180;
+  const centre = [0, 1, 2].map((i) => pivot[i] ?? 0);
+  const quarter = Math.abs(degrees / 90 - Math.round(degrees / 90)) < 1e-12;
+  const exact = (value) => (quarter ? (Math.round(value) === value ? value : tidy(value)) : tidy(value));
+  const turn = (vector) => turnAbout(vector, about, angle);
+  const place = (point) => {
+    const moved = plus(turn(sub(point, centre)), centre);
+    return moved.map((value) => (snap ? toGrid(value, snap) : exact(value)));
+  };
+  return {
+    faces: brushes.faces.map((face) => {
+      const points = face.points.map(place);
+      if (!lock) {
+        const plane = planeOf(points);
+        const axes = textureAxes(plane.normal, { rotation: face.rotation ?? 0 });
+        return {
+          ...face,
+          points,
+          u: [...axes.u, face.u[3]],
+          v: [...axes.v, face.v[3]],
+          scale: [...face.scale],
+        };
+      }
+      // the picture at a turned point is the one at the point before: s = p.u / scale + offset
+      const keep = (axisOf, scale) => {
+        const direction = turn(axisOf.slice(0, 3)).map(tidy);
+        const offset = axisOf[3] + (dot(centre, axisOf.slice(0, 3)) - dot(centre, direction)) / scale;
+        return [...direction, tidy(offset)];
+      };
+      return {
+        ...face,
+        points,
+        u: keep(face.u, face.scale[0]),
+        v: keep(face.v, face.scale[1]),
+        scale: [...face.scale],
+      };
+    }),
   };
 }
 
@@ -1001,6 +1272,10 @@ export function brushEntity(classname, brushes, keys = {}) {
   const list = Array.isArray(brushes) ? brushes.flat() : [brushes];
   if (!list.length || !list.every((brush) => brush?.faces))
     throw new Error(`${classname}: a brush entity needs a brush at least`);
+  // a func_detail says its level: SDHLT takes one without the key as world, which cuts the map's leaves (a framed
+  // pump hall's 448 leaves became 629, its portals 1802 became 2432, hlvis 43 seconds became 262). The FGD's
+  // default of 1 is only what an editor writes for it
+  if (classname === "func_detail" && keys.zhlt_detaillevel === undefined) keys = { zhlt_detaillevel: 1, ...keys };
   return entity(classname, keys, list);
 }
 
@@ -1122,6 +1397,10 @@ export function writeMap({ worldspawn = {}, brushes = [], entities = [] }) {
   const { classname: _ignored, ...keys } = worldspawn;
   if (Array.isArray(keys.wad)) keys.wad = keys.wad.join(";");
   const world = entityBlock({ classname: "worldspawn", mapversion: MAP_VERSION, ...keys }, brushes.flat());
+  // a class that precaches its model, with none named, stops the map on load: no map is written with one
+  const empty = modelless(entities, (entity, key) => entity[key]);
+  if (empty.length)
+    throw new Error(`writeMap: ${empty.map(({ entity, index }) => `entity ${index + 1} (${entity.classname})`).join(", ")} precache a model and name none: the map would stop on load ("PF_precache_model_I: Bad string ''"). Give each its model (a sprite for env_sprite and env_glow)`);
   const others = entities.map(({ brushes: own, ...entityKeys }) => {
     if (!entityKeys.classname) throw new Error("writeMap: an entity with no classname");
     return entityBlock(entityKeys, own);

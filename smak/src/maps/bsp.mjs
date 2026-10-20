@@ -482,6 +482,15 @@ function texinfoOf(bsp, face) {
 }
 
 /**
+ * How a face lays its texture: `{ s: [x, y, z, offset], t: [x, y, z, offset] }`, the texture's two axes in the
+ * world (a point's pixel is its dot with the axis plus the offset; `t` runs down the picture).
+ */
+export function faceTextureAxes(bsp, face) {
+  const { s, t } = texinfoOf(bsp, face);
+  return { s: [...s], t: [...t] };
+}
+
+/**
  * The directory entry of the texture a face wears: `{ index, name, width, height, embedded, absent, at }`.
  */
 export function faceTexture(bsp, face) {
@@ -628,10 +637,12 @@ const textureAt = (bsp, which) =>
 /**
  * A texture whose pixels are inside the map: `{ name, width, height, pixels, palette, mips, holes }`
  * (miptex.mjs; `textureRgba` makes a picture of it). Null when the map only names it and wants it from a
- * .wad. `which` is its number in `bsp.textures`, or its name.
+ * .wad, and for a name the map does not have (so that one name is looked for in several maps in turn).
+ * `which` is its number in `bsp.textures`, or its name; a number the map has none for is refused.
  */
 export function embeddedTexture(bsp, which) {
   const entry = bsp.textures[textureAt(bsp, which)];
+  if (!entry && typeof which !== "number") return null;
   if (!entry) throw new Error(`no texture ${which} in this map (it has ${bsp.textures.length})`);
   if (entry.absent || !entry.embedded) return null;
   return readMiptex(bsp.bytes, entry.at);

@@ -267,6 +267,30 @@ test("an entity moved, a key set and removed, a point entity added and removed",
   sure(maps.withEntities(changed, after.entities).equals(changed), "written again, it changed");
 });
 
+test("a map with an entity that precaches a model it does not name is refused, here and in the check", () => {
+  const refusal = (call) => {
+    try {
+      call();
+      return "";
+    } catch (error) {
+      return error.message;
+    }
+  };
+  const glow = maps.addEntity(bsp.entities, "env_glow", IN_ROOM_A, { model: "sprites/glow01.spr" });
+  sure(maps.checkBsp(maps.withEntities(tworooms, glow)).errors.length === 0, "a glow with its sprite");
+  sure(
+    /env_glow precache a model and name none/.test(refusal(() => maps.withEntities(tworooms, maps.setKey(glow, glow.length - 1, "model", "")))), // prettier-ignore
+    "written with an empty model",
+  );
+  // made elsewhere: the same name blanked in the bytes, its length kept
+  const named = maps.withEntities(tworooms, glow);
+  const at = named.indexOf('"sprites/glow01.spr"');
+  const blanked = Buffer.from(named);
+  blanked.write(`""${" ".repeat('"sprites/glow01.spr"'.length - 2)}`, at, "latin1");
+  const errors = maps.checkBsp(blanked).errors;
+  sure(errors.some((error) => /1 entities precache a model they do not name.*env_glow/.test(error)), errors.join("; "));
+});
+
 test("withEntities puts longer text at the file's end and shorter text where the old was", () => {
   const before = bsp.lumps.entities;
   // longer: this map's entities are not the last thing in the file, so the new text goes to the end
@@ -690,6 +714,8 @@ test("a map that wants its textures from a .wad says so, and they are found in a
     "wadsFor",
   );
   sure(maps.wadsFor(wanting, [empty]).missing.join() === "tworooms.wad", "a wad that is not there");
+  // a map in a mod's maps/ has its .wad files looked for in the mod's folder over it, as the game does
+  sure(JSON.stringify(maps.mapOwnFolders(join("mod", "maps", "a.bsp"))) === JSON.stringify([join("mod", "maps"), "mod"]) && maps.mapOwnFolders(join("work", "a.bsp")).length === 1, "maps/ and the mod over it");
   const textures = maps.texturesFor(wanting, [empty, FIXTURES], { pixels: true });
   sure(textures.textures.length === 3 && !textures.missing.length, "texturesFor");
   sure(

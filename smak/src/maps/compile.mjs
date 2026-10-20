@@ -6,7 +6,8 @@
 //   hlrad   lights it: light entities, texture lights, the sky
 //
 // THE COMPILERS ARE NOT PART OF THIS KIT. They are an outside program the person installs once: VHLT, also
-// known as Vluzacn's ZHLT v34 (hlcsg, hlbsp, hlvis and hlrad, with their zhlt.wad). `findCompilers` looks for
+// known as Vluzacn's ZHLT v34 (hlcsg, hlbsp, hlvis and hlrad, with their zhlt.wad), or SDHLT, its fork that
+// builds on Linux (sdHLCSG... with their sdhlt.wad). `findCompilers` looks for
 // them in a folder you name, in the folder the VHLT_DIR environment variable names, and on the PATH, and
 // says in one sentence what is missing. Nothing here works without them, and each function says so.
 //
@@ -22,19 +23,26 @@ import {
   mkdirSync,
   readFileSync,
   writeFileSync,
+  writeSync,
   copyFileSync,
   rmSync,
 } from "node:fs";
 import { join, resolve, dirname, basename, delimiter } from "node:path";
-import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { tmpdir, availableParallelism } from "node:os";
 import { readMap } from "./source.mjs";
+import { TIMED_OUT, COULD_NOT_RUN } from "./compile-run.mjs";
 
 /** The four programs, in the order they run. */
 export const COMPILERS = ["hlcsg", "hlbsp", "hlvis", "hlrad"];
 /** The environment variable that names the compilers' folder. */
 export const COMPILERS_VARIABLE = "VHLT_DIR";
-/** The names a compiler's file may have, most wanted first: `hlcsg` gives hlcsg_x64.exe, hlcsg.exe... */
-const FILE_NAMES = (tool) => [`${tool}_x64.exe`, `${tool}.exe`, `${tool}_x64`, tool];
+/**
+ * The names a compiler's file may have, most wanted first: `hlcsg` gives hlcsg_x64.exe, hlcsg.exe... and then
+ * SDHLT's (seedee's fork of VHLT v34, which builds on Linux): sdHLCSG_x64.exe, sdHLCSG.exe, sdHLCSG.
+ */
+const FILE_NAMES = (tool) =>
+  [tool, `sd${tool.toUpperCase()}`].flatMap((name) => [`${name}_x64.exe`, `${name}.exe`, `${name}_x64`, name]);
 /** What the compilers are, said wherever they are missing. */
 const WHAT_THEY_ARE =
   "the map compilers VHLT (Vluzacn's ZHLT v34: hlcsg, hlbsp, hlvis, hlrad), an outside program that is not part of this kit";
@@ -50,15 +58,35 @@ export const BAD_LINE = /\b(error|leak|warning: brush|no visibility|mixed face c
 const WARNING_LINE = /^\s*warning\b/i;
 /**
  * hlbsp's word for a leak (`Warning: === LEAK in hull 0 ===`), the lines of the explanation it prints after
- * it, which are no errors of their own, and the entity it names: `Entity light @ (  10, -20,  30)`.
+ * it, which are no errors of their own, and the entity it names: `Entity light @ (  10, -20,  30)` (VHLT),
+ * `Entity light at ( 10  -20   30)` (SDHLT).
  */
 const LEAK_FOUND = /===\s*leak\b/i;
 const LEAK_TALK = /\bleak\b|listed in the error|^error:?\s*$/i;
-const LEAK_ENTITY = /Entity\s+(\S+)\s*@\s*\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)/i;
+const LEAK_ENTITY = /Entity\s+(\S+)\s*(?:@|at)\s*\(\s*(-?[\d.]+)\s*,?\s*(-?[\d.]+)\s*,?\s*(-?[\d.]+)\s*\)/i;
 /** hlcsg's words for a texture that is in none of the .wad files. */
 const MISSING_TEXTURE = /texture\s+(\S+)\s+not found/i;
 /** How long each program may run, in milliseconds, before it is stopped. */
 const TIMEOUTS = { hlcsg: 120_000, hlbsp: 120_000, hlvis: 900_000, hlrad: 900_000 };
+/** The program that runs a compiler with its output passing through (`progress`). */
+const RUNNER = join(dirname(fileURLToPath(import.meta.url)), "compile-run.mjs");
+/** How much longer than a compiler's own limit its runner is waited for, in milliseconds. */
+const RUNNER_SLACK = 15_000;
+/**
+ * hlvis's work, foretold from what hlbsp leaves it: the portals of the .prt file, the openings between the
+ * leaves of the map, each of which a full hlvis holds against the others it may see through.
+ * What was measured (VHLT v34, 12 threads, 2026-10): a map of 5088 portals between 1395 leaves took a full
+ * hlvis 219 seconds; one of 269 portals between 115 leaves, 0.01. Two maps are no curve: the time is taken
+ * to grow with the square of the count (every portal against every other). That is a guess and no floor:
+ * a map of 595 portals was guessed at 3 seconds and took a tenth of one (the Barrow Road, 2026-10-13),
+ * since what a portal sees matters as much as how many there are. So a guess is said only from GUESS_FROM
+ * seconds, where it tells minutes from seconds; under it the portals are counted and nothing is foretold,
+ * and once hlvis has run, what it took is said instead. From MANY_PORTALS a full hlvis is minutes, and it
+ * is said before hlvis begins.
+ */
+const VIS_MEASURED = { portals: 5088, seconds: 219 };
+const MANY_PORTALS = 4000;
+const GUESS_FROM = 60;
 /** The compilers print in the machine's old code page; latin1 keeps every byte. */
 const LOG_ENCODING = "latin1";
 /** How much a program may print before it is cut off. */
@@ -210,8 +238,27 @@ function leakSentence(leak) {
   return `the map LEAKS: the space the entities are in is open to the void outside, through a gap between world brushes or because an entity is outside the map.${from}${out}${near} Close the gap with world brushes (brush entities seal nothing) and compile again`;
 }
 
-/** The compilers' own .wad, kept beside them: the pictures of ORIGIN, CLIP, NULL, HINT, SKIP and the like. */
-const TOOL_WAD = "zhlt.wad";
+/** A share of an engine's limit from which a map is said to be near it. */
+const NEAR_LIMIT = 0.75;
+/**
+ * The engine's limits as the compilers' charts give them: `* AllocBlock 5/64`, `* worldleaves 771/8192`,
+ * `* worldfaces 2791/32768`, and the lumps' rows (`models 2/512 ...`). The last of each name: { name: { used, most } }.
+ */
+export function limitsOf(text) {
+  const limits = {};
+  for (const match of text.matchAll(/^\s*\*?\s*([A-Za-z]+)\s+(\d+)\s*\/\s*(\d+)/gm)) {
+    const [, name, used, most] = match;
+    if (Number(most) > 0) limits[name.toLowerCase()] = { used: Number(used), most: Number(most) };
+  }
+  return limits;
+}
+
+/**
+ * The compilers' own .wad, kept beside them: the pictures of ORIGIN, CLIP, NULL, HINT, SKIP and the like.
+ * VHLT's is zhlt.wad, SDHLT's sdhlt.wad; SDHLT's release keeps it in `tools`, a folder over the programs
+ * (`tools/Win64`, `tools/Win32`, `tools/Linux`), so it is looked for there too.
+ */
+const TOOL_WADS = ["zhlt.wad", "sdhlt.wad"];
 
 /** Where worldspawn's keys end in a map's text: at its first brush, or at its closing brace. */
 function worldHeadEnd(mapText) {
@@ -223,7 +270,7 @@ function worldHeadEnd(mapText) {
 
 /** The .wad files worldspawn's `wad` key lists in a map's text. */
 function wadsOf(mapText) {
-  const key = /^s*"wad"s+"([^"]*)"s*$/m.exec(mapText.slice(0, worldHeadEnd(mapText)));
+  const key = /^\s*"wad"\s+"([^"]*)"\s*$/m.exec(mapText.slice(0, worldHeadEnd(mapText)));
   return key ? key[1].split(";").filter(Boolean) : [];
 }
 
@@ -238,17 +285,60 @@ function withWads(mapText, wadFiles) {
   return `${mapText.slice(0, open + 1)}\n${line}${mapText.slice(open + 1)}`;
 }
 
-/** One program run: what it printed, how it ended, and the sentences its output gives. */
-function runTool(tool, file, args, workFolder, timeout) {
-  const started = Date.now();
-  const run = spawnSync(file, args, {
+/**
+ * The portals hlbsp left for hlvis: `{ leaves, portals }` from the first two numbers of its .prt file, or
+ * null when there is none (a leak, or a map never cut). `seconds` is what a full hlvis is guessed to take
+ * from one map measured (see VIS_MEASURED): a guess, said only from GUESS_FROM seconds.
+ */
+function portalsOf(workBase) {
+  if (!existsSync(`${workBase}.prt`)) return null;
+  const [leaves, portals] = readFileSync(`${workBase}.prt`, "latin1").split(/\s+/).filter(Boolean).map(Number);
+  if (!Number.isInteger(leaves) || !Number.isInteger(portals)) return null;
+  const seconds = Math.round(VIS_MEASURED.seconds * (portals / VIS_MEASURED.portals) ** 2);
+  return { leaves, portals, seconds };
+}
+
+/**
+ * A program run and waited for: `{ text, status, timedOut, failed }`. With `progress` it is run by RUNNER,
+ * which hands on what it prints as it comes (to this program's standard error, or to the file descriptor
+ * given) and keeps it in a file; without, in one call, and nothing is seen until it ends.
+ */
+function waitedFor(file, args, workFolder, timeout, progress) {
+  if (!progress) {
+    const run = spawnSync(file, args, {
+      cwd: workFolder,
+      encoding: LOG_ENCODING,
+      timeout,
+      maxBuffer: LOG_LIMIT,
+      windowsHide: true,
+    });
+    return {
+      text: `${run.stdout ?? ""}${run.stderr ?? ""}`,
+      status: run.status,
+      timedOut: run.error?.code === "ETIMEDOUT",
+      failed: run.error && run.error.code !== "ETIMEDOUT" ? (run.error.code ?? run.error.message) : null,
+    };
+  }
+  const kept = join(workFolder, "smak-run.txt");
+  const run = spawnSync(process.execPath, [RUNNER, String(timeout), kept, file, ...args], {
     cwd: workFolder,
-    encoding: LOG_ENCODING,
-    timeout,
-    maxBuffer: LOG_LIMIT,
+    stdio: ["ignore", "ignore", progress === true ? "inherit" : progress],
+    timeout: timeout + RUNNER_SLACK,
     windowsHide: true,
   });
-  const text = `${run.stdout ?? ""}${run.stderr ?? ""}`;
+  return {
+    text: existsSync(kept) ? readFileSync(kept, LOG_ENCODING) : "",
+    status: run.status === TIMED_OUT || run.status === COULD_NOT_RUN ? null : run.status,
+    timedOut: run.status === TIMED_OUT || run.error?.code === "ETIMEDOUT",
+    failed: run.status === COULD_NOT_RUN ? "it could not be started" : null,
+  };
+}
+
+/** One program run: what it printed, how it ended, and the sentences its output gives. */
+function runTool(tool, file, args, workFolder, timeout, { progress = false, portals = null } = {}) {
+  const started = Date.now();
+  const run = waitedFor(file, args, workFolder, timeout, progress);
+  const { text } = run;
   const seconds = (Date.now() - started) / 1000;
   const lines = text.split(/\r?\n/).map((line) => line.trim());
   const bad = lines.filter((line) => BAD_LINE.test(line));
@@ -257,12 +347,15 @@ function runTool(tool, file, args, workFolder, timeout) {
     .filter((line) => WARNING_LINE.test(line) && !BAD_LINE.test(line) && !MISSING_TEXTURE.test(line))
     .map((line) => `${tool}: ${line}`);
   const errors = [];
-  if (run.error?.code === "ETIMEDOUT")
+  if (run.timedOut)
     errors.push(
-      `${tool} did not finish in ${Math.round(timeout / 1000)} seconds and was stopped: a larger timeout, or fast: true for a draft`,
+      `${tool} did not finish in ${Math.round(timeout / 1000)} seconds and was STOPPED: nothing was written where the .bsp goes${
+        tool === "hlvis" && portals
+          ? `. It had ${portals.portals} portals between ${portals.leaves} leaves to work through${portals.seconds >= GUESS_FROM ? `, guessed at about ${portals.seconds} seconds` : ""}`
+          : ""
+      }. Give it longer (timeout: { ${tool}: milliseconds }), or fast: true for a draft${tool === "hlvis" ? "; or give it less to do: world brushes that only decorate made func_detail, hint brushes" : ""}`,
     );
-  else if (run.error)
-    errors.push(`${tool} could not be run (${run.error.code ?? run.error.message}): ${file}`);
+  else if (run.failed) errors.push(`${tool} could not be run (${run.failed}): ${file}`);
   for (const line of bad) {
     const texture = MISSING_TEXTURE.exec(line);
     if (texture) {
@@ -270,7 +363,7 @@ function runTool(tool, file, args, workFolder, timeout) {
       if (!errors.includes(said)) errors.push(said);
     } else if (!LEAK_TALK.test(line)) errors.push(`${tool}: ${line}`);
   }
-  if (!run.error && run.status !== 0 && !errors.length && !leaked)
+  if (!run.timedOut && !run.failed && run.status !== 0 && !errors.length && !leaked)
     errors.push(`${tool} ended with code ${run.status}: read its log`);
   return { tool, args, code: run.status, seconds, text, errors, warnings, leaked };
 }
@@ -289,13 +382,25 @@ function runTool(tool, file, args, workFolder, timeout) {
  *   fast         a quick draft: hlvis and hlrad at their fastest. The light is rougher
  *   vis, light   false leaves hlvis, or hlrad, out (a map with no light is drawn fully bright)
  *   compilers    what `findCompilers` returned, or `{ folder }`; looked for when not given
- *   timeout      milliseconds each program may run, or `{ hlvis: ..., hlrad: ... }`
+ *   timeout      milliseconds each program may run before it is stopped, or `{ hlvis: ..., hlrad: ... }` for
+ *                some of them. Unless told: 2 minutes for hlcsg and for hlbsp, 15 for hlvis and for hlrad. A
+ *                program that is stopped is an error that says so, and no .bsp is written
+ *   progress     true: what each program prints is handed on as it comes, to this program's standard error
+ *                (or to the file descriptor given), so that a long hlvis is seen to work. Unless told,
+ *                nothing is seen until all four have ended
  *   keep         true keeps the folder the work was done in (the .pts of a leak, the .prt, the .log) and
  *                returns it as `work`
+ *   threads      how many threads each program uses (all the machine's, unless told; 0 leaves the program to
+ *                choose, which for SDHLT on Linux is one)
+ *   args         more for each program, `{ hlrad: ["-extra", "-bounce", 8], hlcsg: [...] }`, before the map's name
  *
- * It returns `{ bsp, logs, errors, warnings, leak, work }`. `bsp` is the path of the result, or null when
- * the compile failed: then nothing was written where the .bsp goes. `logs` is one entry a program run:
- * `{ tool, args, code, seconds, text }`. `errors` and `warnings` are sentences. `leak` is null, or
+ * It returns `{ bsp, logs, errors, warnings, facts, leak, portals, work }` (`facts`: what is to be known of a
+ * result that is no fault: that a draft's light has no bounces). `bsp` is the path of the result, or null
+ * when the compile failed: then nothing was written where the .bsp goes. `logs` is one entry a program run:
+ * `{ tool, args, code, seconds, text }`. `errors` and `warnings` are sentences. `portals` is what hlbsp
+ * left hlvis to do, `{ leaves, portals, seconds }` (`seconds`: the least a full hlvis is foretold to take;
+ * null with no .prt): from 4000 portals a full hlvis is minutes, and a warning says so before it begins;
+ * a count that foretells more than hlvis's timeout says that too. `leak` is null, or
  * `{ entity, points, at, nearest }`: the entity the compiler found the leak from, the trail of points from
  * it out to the void, the point where the trail leaves the world, and the map's entity nearest to that.
  * It never throws for what is wrong with the map.
@@ -310,9 +415,17 @@ export function compileMap(mapFile, options = {}) {
     vis = true,
     compilers,
     timeout,
+    progress = false,
     keep = false,
+    threads = availableParallelism(),
+    args: more = {},
   } = options;
-  const result = { bsp: null, logs: [], errors: [], warnings: [], leak: null, work: null };
+  const result = { bsp: null, logs: [], errors: [], warnings: [], facts: [], leak: null, portals: null, work: null }; // prettier-ignore
+  // what a draft is: said with its result, since its light is not the map's
+  if (fast && light)
+    result.facts.push(
+      "a draft (fast): hlrad bounced no light, so what no lamp or sky sees directly is black, and every room is darker than the full compile makes it; hlvis took its quick guess, so more is drawn than need be. Judge the light by a full compile",
+    );
   const found = compilers?.tools ? compilers : findCompilers(compilers ?? {});
   if (!found.found) {
     result.errors.push(`compileMap: ${found.message}`);
@@ -334,8 +447,12 @@ export function compileMap(mapFile, options = {}) {
   let mapText = readFileSync(mapFile, "utf8");
   // the compilers' own .wad goes with the others, or ORIGIN and CLIP would be textures found nowhere
   const listed = wadFiles.length ? [...wadFiles] : wadsOf(mapText);
-  const toolWad = join(found.folder ?? dirname(found.tools.hlcsg), TOOL_WAD);
-  const isToolWad = (wad) => basename(wad).toLowerCase() === TOOL_WAD;
+  const toolFolder = found.folder ?? dirname(found.tools.hlcsg);
+  const toolWad =
+    [toolFolder, dirname(toolFolder)]
+      .flatMap((folder) => TOOL_WADS.map((name) => join(folder, name)))
+      .find((file) => existsSync(file)) ?? join(toolFolder, TOOL_WADS[0]);
+  const isToolWad = (wad) => TOOL_WADS.includes(basename(wad).toLowerCase());
   const ownWads = listed.filter((wad) => !isToolWad(wad));
   if (existsSync(toolWad) && !listed.some(isToolWad)) listed.push(toolWad);
   if (listed.length) mapText = withWads(mapText, listed);
@@ -345,16 +462,23 @@ export function compileMap(mapFile, options = {}) {
 
   const included =
     wadinclude === true ? ownWads.map((wad) => basename(wad).replace(/\.wad$/i, "")) : wadinclude || [];
+  // every program told how many threads to use: SDHLT on Linux uses one unless told (its threads.h), which
+  // made a hlvis of minutes into one of over ten (research/compiler-features.md)
+  const threading = threads ? ["-threads", String(threads)] : [];
+  const extra = (tool) => [more[tool] ?? []].flat().map(String);
   const steps = [
-    { tool: "hlcsg", args: [...included.flatMap((wad) => ["-wadinclude", wad]), base] },
-    { tool: "hlbsp", args: [base] },
-    vis && { tool: "hlvis", args: [...(fast ? ["-fast"] : []), base] },
-    light && { tool: "hlrad", args: [...(fast ? ["-fast"] : []), base] },
+    { tool: "hlcsg", args: [...threading, ...included.flatMap((wad) => ["-wadinclude", wad]), ...extra("hlcsg"), base] },
+    { tool: "hlbsp", args: [...threading, ...extra("hlbsp"), base] },
+    vis && { tool: "hlvis", args: [...threading, ...(fast ? ["-fast"] : []), ...extra("hlvis"), base] },
+    light && { tool: "hlrad", args: [...threading, ...(fast ? ["-fast"] : []), ...extra("hlrad"), base] },
   ].filter(Boolean);
   const limitFor = (tool) => (typeof timeout === "number" ? timeout : (timeout?.[tool] ?? TIMEOUTS[tool]));
 
   for (const step of steps) {
-    const run = runTool(step.tool, found.tools[step.tool], step.args, work, limitFor(step.tool));
+    const run = runTool(step.tool, found.tools[step.tool], step.args, work, limitFor(step.tool), {
+      progress,
+      portals: result.portals,
+    });
     result.logs.push({
       tool: run.tool,
       args: run.args,
@@ -370,7 +494,22 @@ export function compileMap(mapFile, options = {}) {
     }
     // the programs after a failed one would only fail on what it left
     if (result.errors.length) break;
+    // what hlbsp left for hlvis: said before hlvis begins, when it is much
+    if (step.tool === "hlbsp") {
+      result.portals = portalsOf(base);
+      const left = result.portals;
+      const limit = Math.round(limitFor("hlvis") / 1000);
+      if (left && vis && !fast && (left.portals >= MANY_PORTALS || left.seconds > limit)) {
+        const said = `hlbsp left ${left.portals} portals between ${left.leaves} leaves: a full hlvis is guessed at about ${left.seconds} seconds (a map of ${VIS_MEASURED.portals} portals took ${VIS_MEASURED.seconds}, and the time is taken to grow with the square of the count: a guess from one map)${left.seconds > limit ? `, which is more than the ${limit} it is given: it would be stopped` : ""}. Fewer portals: make func_detail of world brushes that only decorate, keep large rooms apart by bends and doors; or fast: true for a draft`;
+        result.warnings.push(said);
+        if (progress === true || typeof progress === "number") writeSync(progress === true ? 2 : progress, `smak: ${said}\n`);
+      }
+    }
   }
+  // what the compilers say of the engine's limits (SDHLT prints a chart after each program): the last of each
+  result.limits = limitsOf(result.logs.map((log) => log.text).join("\n"));
+  for (const [name, { used, most }] of Object.entries(result.limits))
+    if (used / most >= NEAR_LIMIT) result.warnings.push(`${name} ${used} of ${most}: near the engine's limit`);
   if (!result.errors.length && !existsSync(`${base}.bsp`))
     result.errors.push("compileMap: the compilers ended well and left no .bsp: read their logs");
   if (!result.errors.length) {
@@ -386,13 +525,35 @@ export function compileMap(mapFile, options = {}) {
 }
 
 /**
+ * The portals hlbsp left hlvis, as the end of a line: how many, and what hlvis made of them. What a full
+ * hlvis TOOK, when it ran to its end; a guess at what it would take only where the guess is minutes
+ * (GUESS_FROM seconds and more), and is said to be one; else nothing more. Null when there were none.
+ */
+export function portalsLine(result) {
+  const { portals } = result;
+  if (!portals) return null;
+  const vis = (result.logs ?? []).find((log) => log.tool === "hlvis");
+  const full = vis && vis.code === 0 && !(vis.args ?? []).includes("-fast");
+  const work = full
+    ? `: a full one took ${vis.seconds.toFixed(1)} s`
+    : portals.seconds >= GUESS_FROM
+      ? `: a full one is guessed at about ${portals.seconds} s, from one map measured`
+      : "";
+  return `${portals.portals} between ${portals.leaves} leaves (hlvis's work${work})`;
+}
+
+/**
  * What a compile said, in a few lines for a person or a log: each program with its time and how it ended,
  * then the errors, the leak and the warnings.
  */
 export function compileSummary(result) {
   const lines = result.logs.map(
-    (log) => `${log.tool}  ${log.seconds.toFixed(1)} s  ${log.code === 0 ? "ended" : `code ${log.code}`}`,
+    (log) =>
+      `${log.tool}  ${log.seconds.toFixed(1)} s  ${log.code === 0 ? "ended" : log.code === null ? "stopped" : `code ${log.code}`}`,
   );
+  const portals = portalsLine(result);
+  if (portals) lines.push(`portals: ${portals}`);
+  for (const fact of result.facts ?? []) lines.push(fact);
   for (const error of result.errors) lines.push(`error: ${error}`);
   for (const warning of result.warnings) lines.push(`warning: ${warning}`);
   lines.push(result.bsp ? `compiled: ${result.bsp}` : "not compiled");

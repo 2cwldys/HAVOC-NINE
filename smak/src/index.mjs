@@ -1,16 +1,38 @@
 // SMAK, the Studio Model Agent Kit: everything, from one place.
 //   import { readMdl, swapMesh, render, png } from "smak";       (or from "./src/index.mjs")
 export * from "./mdl.mjs";
+export * from "./studio-file.mjs";
+export * from "./describe.mjs";
 export * from "./image.mjs";
 export * from "./vec.mjs";
 export * from "./mesh.mjs";
 export * from "./fit.mjs";
 export * from "./build.mjs";
+export * from "./items.mjs";
 export * from "./render.mjs";
+export * from "./anim-gif.mjs";
+export * from "./icon.mjs";
 export * from "./check.mjs";
+export * from "./qem.mjs";
+export * from "./sound.mjs";
 export * from "./layout.mjs";
 export * from "./place.mjs";
 export * from "./wear.mjs";
 export * from "./obj.mjs";
+export * from "./biped.mjs";
+export * from "./contract.mjs";
 export * as workshop from "./workshop.mjs";
+// the workshop's noise and colour helpers by name too, for painting by place (`paint` is in place.mjs)
+export { rand, noise, fbm, fbm3, seeded, step, mix, times, bell } from "./workshop.mjs";
+export * from "./reskin.mjs";
 export * as maps from "./maps/index.mjs";
+export * as play from "./play.mjs";
+export * as animate from "./animate.mjs";
+export * as audio from "./audio/index.mjs";
+export * from "./fbx.mjs";
+export * from "./glb.mjs";
+export * from "./import-shape.mjs";
+export * from "./import-model.mjs";
+export * from "./import-files.mjs";
+export * from "./import-rig.mjs";
+export * from "./jpeg.mjs";

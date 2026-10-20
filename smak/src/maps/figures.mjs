@@ -14,9 +14,10 @@
 // A model is drawn with its own origin at the entity's FEET (for a place to start: 36 under its origin).
 // Whether the game stands it just there (it may drop it to the floor) is for the game to show, and so is
 // what a script makes of it afterwards: another body, another animation.
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { posed, TEXTURE } from "../render.mjs";
-import { withTextures, sequences } from "../mdl.mjs";
+import { sequences } from "../mdl.mjs";
+import { readStudio } from "../studio-file.mjs";
 import { FRONT } from "../mesh.mjs";
 import { bytesOf } from "../pixels.mjs";
 import { sub, dot, cross } from "../vec.mjs";
@@ -87,10 +88,8 @@ function modelOf(name, folders) {
   if (kept?.stamp === stamp) return kept;
   let made;
   try {
-    let bytes = readFileSync(file);
-    // a model whose textures are in a file of their own, `name`t.mdl beside it
-    const own = file.replace(/\.mdl$/i, "t.mdl");
-    if (existsSync(own)) bytes = withTextures(bytes, readFileSync(own));
+    // a model whose textures are in a file of their own, `name`t.mdl beside it, read with them
+    const bytes = readStudio(file).src;
     made = { file, stamp, bytes, textures: new Map(), shapes: new Map() };
     shapeOf(made, {});
   } catch (error) {
@@ -197,6 +196,8 @@ const numberFrom = (value, otherwise) => (Number.isFinite(Number(value ?? NaN)) 
  *   models      false (unless told): boxes only. true: an entity whose `model` key names a `.mdl` is drawn as
  *               it. `{ name: "models/monsters/boar1.mdl" }`: these too, the name a targetname, a
  *               `scriptfile` or a classname (looked for in that order)
+ *   modelsBy    `{ number: "models/x.mdl" }`: the model of an entity by its number, where nothing above
+ *               names one (what a mod's profile gives, `modelsOf`); only with `models`
  *   folders     the game's folders, the mod's own first (`.../msc`, `.../valve`): where the models are
  *   modelScale  false: a model is drawn at its own size whatever the entity's `scale` says. The engine's own
  *               drawing does not scale a model; a mod's may (Master Sword's does), which is why `scale` is
@@ -215,7 +216,10 @@ const numberFrom = (value, otherwise) => (Number.isFinite(Number(value ?? NaN)) 
  * An entity with neither a body nor a model has no figure. `notes`: sentences on the models not found, and
  * on the keys a model could not follow.
  */
-export function figuresOf(things, { bodies = {}, models = false, folders = [], modelScale = true } = {}) {
+export function figuresOf(
+  things,
+  { bodies = {}, models = false, modelsBy = {}, folders = [], modelScale = true } = {},
+) {
   const figures = new Map();
   const notes = [];
   const missing = new Set();
@@ -227,6 +231,7 @@ export function figuresOf(things, { bodies = {}, models = false, folders = [], m
     let name = null;
     if (models) {
       name = names[thing.targetname] ?? names[thing.script] ?? names[thing.classname] ?? null;
+      name ??= modelsBy?.[thing.number] ?? null;
       if (!name && /\.mdl$/i.test(thing.modelFile ?? "")) name = thing.modelFile;
     }
     const model = name ? modelOf(name, folders) : null;

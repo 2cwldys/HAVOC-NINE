@@ -23,13 +23,14 @@ Words used below: `which` is a texture's or an animation's number or its name. `
 | `bodyOf(b, body)` | For a body number, the submodel shown of each bodypart: `[index]`. The body number of submodel `k` of a bodypart is `k * base`; add one from each bodypart. |
 | `skinFamilies(b)` | `[[texture number for each skinref]]`, one list a family. A model shown with skin `n` wears family `n`. |
 | `textureOf(b, which)` | `{ name, flags, width, height, pixels, palette }`, copied out. |
-| `sequences(b)` | `[{ name, fps, frames, loops, flags, motion, move, speed, blends, group }]`. `group` is not 0 for an animation kept in another file. |
+| `sequences(b)` | `[{ name, fps, frames, loops, flags, activity, actweight, movement, motiontype, speed, bbmin, bbmax, blends, group }]`. `activity`: what a monster's code asks for it as (`ACTIVITY[n]` is its name, for those known), `actweight` how often it is picked among its activity's. `movement` `[x, y, z]`: how far the model travels in one play of it (the frames stay in place); `speed`: that in units a second, `distance * fps / (frames - 1)`; `motiontype`: the `MOTION` bits (`LX` 64, `LY` 128, `LZ` 256 for the axes of the travel). `bbmin`, `bbmax`: the box about the model through the animation, which the engine culls by. `group` is not 0 for an animation kept in another file. (`move` and `motion` are `movement` and `motiontype` under their older names.) |
 | `sequenceAt(b, which)` | The animation's number, or -1. |
 | `readSequence(b, which, blend = 0)` | What `sequences` tells, plus `index` and `frames[frame][bone] = [x, y, z, rx, ry, rz]`. |
 | `frameValues(b, seq, frame, blend = 0)` | One frame of that. Throws, naming the bone, when the file's values for a bone end before that frame (a broken file). |
 | `events(b, which)` | `[{ frame, event, type, options }]` of one animation. |
-| `attachments(b)` | `[{ name, bone, pos }]`. |
-| `hitboxes(b)` | `[{ bone, group, min, max }]`. |
+| `attachments(b)` | `[{ name, bone, pos }]`: `bone` a number, `pos` in that bone's space. |
+| `hitboxes(b)` | `[{ bone, group, min, max }]`: `bone` a number, the box in that bone's space, `group` what was hit (`HITGROUP`: generic 0, head 1, chest 2, stomach 3, leftArm 4, rightArm 5, leftLeg 6, rightLeg 7; a mod may have more). |
+| `boneControllers(b)` | `[{ bone, type, start, end, rest, index }]`: the bones the game's code turns itself (a head that follows). `type`: which of the bone's six values (`MOTION.X` ... `MOTION.ZR`, with `MOTION.RLOOP`); `start`, `end`: its range, degrees for an angle; `index`: which of the entity's controllers (0 to 3; 4 the mouth). |
 | `drawnCorners(b)` | `[{ name, corners }]` for each submodel: how many corners the engine draws for it. |
 
 ## Poses
@@ -66,26 +67,91 @@ For a whole body made from triangles, `putBody` (under "Working by place") does 
 | `replaceTexture(src, which, texture, { quiet }?)` | Another picture on an existing texture: `{ width, height, pixels, palette, name?, flags? }`. Of the same size it is written in place; of another size, the corners that wear it are moved to match. With several skin families: a mesh has one set of corners, in pixels of the texture it wears in the **first** family, so those are the meshes whose corners move, and the textures a mesh wears in the other families have to be of the same size. A new size that leaves a mesh with pictures of different sizes in different skins is told on the console (unless `quiet`): replace the others at that size too, in any order. |
 | `retexture(src, where, texture, uvOf?)` | Gives **one mesh** another texture; the others that wore the old one keep it. `texture` is added to the file unless one of that name is there, as in `replaceMesh`: the file's own is then worn as it is, at its own size, so calling it twice adds nothing twice. `uvOf(triangle, corner)` returns `[u, v]` (0 to 1) to lay it out again. |
 | `withTextures(src, tfile)` | For a model whose textures are in `<name>t.mdl`: a copy with them inside. |
+| `ownPixels(src, { islands, body, mesh, tex, name, most = 512, pad = 2 })` | Some triangles given a picture of their own (`src/reskin.mjs`): moved into a new mesh of their submodel (one for each mesh they were in), wearing a new texture that begins as a copy of the box of pixels they lay on, `pad` pixels about it. For one plate of an armour whose one rust is laid over every plate, one body of several that share a picture. `islands`: an id or a list (`uvIslands`); `body`: a body number; `mesh`: `{ bodypart, model, mesh }`; `tex`: only what wears that texture. What is given is asked for together, and must come to one texture. A box that runs past the picture's edge (a picture laid over and over) goes on from its other side. At its own size the palette's numbers are copied as they are; a box with a side over `most` is made smaller to fit (cut to 256 colours again; a masked one keeps its holes) and the corners follow. The new texture keeps the old one's flags; `name` unless told is the old one's with `_own`. Every mesh, submodel and body keeps its number; the islands are numbered again, the moved ones last. → `{ mdl, texture, width, height, scale, box, moved, meshes, islands (their new ids), warnings }`. Throws when nothing, or more than one texture, is asked for, and when the result has a `check` error the original had not. Several skin families: the moved triangles wear the copy in each. |
+| `moveTriangles(src, where, pick, texture, uvOf?)` | What `ownPixels` is made of: the triangles `pick(i)` accepts of one mesh moved into a new mesh after the others of its submodel, wearing `texture` (added unless the file has one of that name), their points and normals copied into it (the engine lights normals mesh by mesh). `uvOf(i, corner, [s, t])`: the corner's place in the new picture, in its pixels. → `{ mdl, mesh, moved }`. |
+
+Texture `flags` (studio.h's `STUDIO_NF_` bits, added together; `TEXTURE` names the ones the kit draws): 1 flat
+shaded, 2 chrome (the picture from the way the surface faces the eye; older GoldSrc right only at 64x64), 4 **full
+bright** (drawn unlit at its own colours: lit panes, eyes that glow; Xash's gl_studio.c does it, and Steam's
+GoldSrc, whose client is closed, is not known to: try it in the game), 8 no mipmaps and 16 alpha (not drawn by the
+kit), 32 additive (a glow added over what is behind), 64 masked (palette index 255 a hole). `buildMdl`,
+`replaceTexture`, `putBody` and the rest write what a texture's `flags` say.
 
 ## Changing animations
 
 | Function | Does |
 | --- | --- |
-| `replaceSequence(src, which, { frames, blends, fps, loops })` | Other frames for an animation, in the place it had. What is not given stays (its events too). `frames[frame][bone][6]`; every frame lists every bone. |
-| `addSequence(src, { name, fps = 30, loops = false, frames, activity = 0, events, like = 0 })` | A new animation after the others. Its bounding box is copied from animation `like`. |
+| `replaceSequence(src, which, { frames, blends, fps, loops, activity, actweight, movement, motiontype, bbmin, bbmax })` | Other frames for an animation, in the place it had. What is not given stays (its events too). `frames[frame][bone][6]`; every frame lists every bone. `movement: [x, y, z]` says how far the model travels in one play (the frames are given in place) and sets the motion type's `LX`, `LY`, `LZ` for the axes it is not zero on (`motiontype` says the whole of it instead). With new frames the animation's box is measured again about the model's points through them, as studiomdl does, unless `bbmin` and `bbmax` say it. |
+| `addSequence(src, { name, fps = 30, loops = false, frames, activity = 0, actweight, movement, motiontype, events, bbmin, bbmax, like })` | A new animation after the others. Its box is measured from its frames; with `like` (an animation's number) it is that animation's. |
 | `setEvents(src, which, [{ frame, event, options, type }])` | Replaces an animation's events. |
+| `addSequenceFrom(src, { from, frames, name, fps, loops = false, activity = 0, actweight, events = false, movement, like })` | A new animation after the others made of frames of one the model has, in the order `frames` gives: a kneel out of a sit-and-stand played backwards (`"80-57"`), a held pose (`"57,58,57"`). `fps` unless told is `from`'s; `events: true` carries `from`'s events on the frames taken, each to its frame's first place; `like` as `addSequence` (`true`: `from`'s box). `smak sequence-add <mdl> --from <name> --frames 80-57 --name x [--loop] [--fps n] [--events]`. |
+| `frameNumbers(spec, count)` | The frames such a `spec` names, as a list: `"80-57"`, `"57-80"`, `"57,58,57"`, `"80-57,57"`, or a list of numbers. Throws, saying which, on one past the last frame. |
 
 A bone whose new motion goes beyond what the file's 16-bit scale for it can hold gets a wider scale, and every
 animation of the file is written again by it. Animations kept in other files (`group` not 0) make that fail.
 
+## A monster's parts
+
+| Function | Does |
+| --- | --- |
+| `setHitboxes(src, [{ bone, group = 0, min, max }])` | These hit boxes and no others. `bone`: a number or a name; `min`, `max` in the bone's space. Throws on a bone the model has not. |
+| `autoHitboxes(what, { groups = {}, least = 0, thin = 1 })` | The boxes studiomdl makes by itself, as a list for `setHitboxes`: for each bone, a box about its own origin, every point it carries in any submodel, and the origins of the bones that hang from it; one no thicker than `thin` on some axis is left out. `groups`: `{ "Bip01 Head": HITGROUP.head }`, a bone's group and that of the bones under it that say none. `least`: the fewest points a bone must carry (studiomdl counts none). `what`: a file, or what `writeMdl` takes. Changes nothing. |
+| `setAttachments(src, [{ name, bone, pos }])` | These attachments and no others. Game code knows them by number: keep the ones a model has, in order, and add after. |
+| `setBoneControllers(src, [{ bone, type, start, end, rest = 0, index = 0 }])` | These bone controllers and no others; the bones' own note of which controller turns them is rewritten to match. |
+
+Each returns a new file in which nothing else has changed. `MOTION`, `HITGROUP` and `ACTIVITY` hold the
+format's numbers by name (`ACTIVITY` only those read off Half-Life's own models: 1 `ACT_IDLE`, 3 `ACT_WALK`,
+4 `ACT_RUN`, 30 `ACT_MELEE_ATTACK1`, 36 `ACT_DIESIMPLE`...).
+
+## A model's contract with a mod (`src/contract.mjs`, `src/biped.mjs`)
+
+| Function | Gives |
+| --- | --- |
+| `contractOf(b)` | What a mod's code may ask of the model by name or number: `{ bones, sequences: [{ name, activity }], attachments: [{ bone }], bodyparts: [{ name, bodies }], hitgroups, controllers }` |
+| `compareContract(reference, made)` | `{ faults, notes }`: what `made` breaks of `reference`'s contract (a bone, an animation or its number or activity, an attachment's bone, a bodypart's bodies), and what it has beyond it. `smak contract <mdl> --against ref.mdl` prints it |
+| `boneIn(name, names)` | The name among `names` that is the 3ds Max Biped bone `name` stands for, in English, Italian (`Bip01 Testa`, `Bip01 SX Mano`) or the older limb names (`Bip01 L Arm1`); null when none is |
+| `otherSideOf(name)` | The bone on the other side: `L` and `R`, `SX` and `DX` |
+
+`smak contract <mdl> [--json] [--against reference.mdl]` prints it, or what the model breaks (exit code 1).
+
+## Animations written as poses (`src/animate.mjs`, exported as `animate`)
+
+A pose is `{ q, p }`: for each bone a turn and a place, plain data that no call changes.
+
+| Function | Does |
+| --- | --- |
+| `rigOf(bones)` | A skeleton ready to be posed, from a model's bytes or a bone list: `{ bones, names, index(name), rest }` |
+| `poseOf(rig, { bone: { turn, move } }, base = rig.rest)` | A pose from another. `turn`: `{ x, y, z }` in degrees about the MODEL's axes (applied x, y, z), or a list `[[axis, degrees]]` in the order written; from where the bone is in `base`, carried by its parent. `move`: `[x, y, z]` in the model's axes |
+| `reach(rig, pose, { bones: [upper, lower, end], to, bend = [1, 0, 0], level, aim, grip })` | The limb bent so that `end` is at `to` (a place in the model). `bend`: where the middle joint points. `level`: true keeps the end bone's turn of rest, a `turn` gives it that one. `aim: { axis, dir, edge, edgeDir }`: the end bone turned so that what it holds points along `dir` in the model; `axis` is the held thing's direction as it lies with the skeleton AT REST, and `edge` with `edgeDir` (together) turns it about that axis too (a blade's edge); without them, the shortest turn from how the hand carries it. `grip`: a point of the model at rest (the middle of a sword's grip): the limb is bent so that the grip, not the joint, is at `to`. The pose comes back with `reached` and `short` |
+| `hold(rig, pose, bone, turn)` | The bone turned so that it stands at a turn of its own in the MODEL whatever its parents do: a lantern hanging straight from a swinging fist. `turn`: from how it stands at rest, in the model's axes (as `poseOf`'s; none: as at rest), or `{ q }`, its whole turn. Put it in `animate`'s `each`: between keys the shortest turns would let it drift |
+| `grounded(mdl, { seqs, body = 0, ground = 0, touch = false })` | A built model's animations kept on the ground: every frame of `seqs` (names or numbers; all unless told) whose lowest point of `body` is under `ground` has its root bones lifted by that much (`touch`: one that floats is lowered too). → `{ mdl, frames: { name: frames }, lifted: { name: [the lift of each frame] } }`: `frames` for a builder that makes the model again with `buildMdl` |
+| `mirror(rig, pose, { pairs })` | Left and right changed over, by the bones' names (` L `/` R `, `.L`/`.R`, `Left`/`Right`) or `pairs` |
+| `between(a, b, t)` | The pose a part of the way from one to another, each bone by its shortest turn |
+| `animate(rig, { frames, loops, keys: [{ at, pose, ease }], each })` | Frames for `addSequence`, `replaceSequence`, `writeMdl`. `ease`: `smooth`, `linear`, `in`, `out`, how a key is arrived at. `loops`: the last frame is the first again. `each(pose, frame, part)` returns the frame's pose |
+| `valuesOf(rig, pose)` | One frame: `[x, y, z, about x, about y, about z]` a bone |
+| `worldOf(rig, pose)` | Each bone's turn and place in the model |
+| `matricesOf(rig, pose)` | The pose as bone matrices: `render(mdl, { pose: matricesOf(rig, pose) })` draws it |
+| `track(rig, frames, bone, at)` | Where a point of a bone is, frame by frame |
+| `seam(rig, frames)` | `{ degrees, units, bone }`: how far the last frame is from the first |
+| `stride(rig, frames, { feet, fps, ground = 1 })` | `{ speed, slide, low, feet }`: the speed the planted feet ask for (units a second), how far off it they are at the worst, the lowest a foot goes |
+
+The turns themselves, quaternions `[w, x, y, z]`, for a script that turns things on its own: `qmul(a, b)` (b, then
+a), `qconj`, `qunit`, `qturn(q, v)` (a direction turned), `qabout(axis, radians)`, `qofAngles([rx, ry, rz])` and
+`anglesOf(q)` (the engine's three angles, about x then y then z), `qslerp(a, b, t)`, `qarc(from, to)` (the shortest
+turn of one direction onto another), `qframes(d, e, D, E)` (a pair of directions onto another: `d` onto `D`, `e` as
+near `E` as it goes), `degreesOf(q)`, `turnOf(turn)` (a `turn` as `poseOf` takes it, as one quaternion). A bone's
+whole turn in the model in a pose is `worldOf(rig, pose)[i].q`; at rest, `rig.world[i]`.
+
 ## Whole models
 
-`writeMdl({ name, bones, sequences, textures, skins, bodyparts })` writes a file from tables that are already in
-the format's own terms (points in bone space, normals indexed per mesh). Prefer `buildMdl`, which takes triangles.
+`writeMdl({ name, bones, sequences, textures, skins, bodyparts, hitboxes, attachments, controllers, eyes, min, max, bbmin, bbmax })`
+writes a file from tables that are already in the format's own terms (points in bone space, normals indexed per
+mesh). Prefer `buildMdl`, which takes triangles and passes the rest on.
 A bodypart needs one submodel at least (the engine divides a body number by how many it has): one with none is
 refused. A submodel with no meshes is what shows nothing.
 
-`buildMdl({ name, bones, bodyparts, sequences, smooth = 40, ownNormals = false })` (`src/build.mjs`):
+`buildMdl({ name, bones, bodyparts, sequences, smooth = 40, ownNormals = false, hitboxes, attachments, controllers, eyes, min, max, bbmin, bbmax })`
+(`src/build.mjs`):
 
 ```js
 buildMdl({
@@ -100,7 +166,16 @@ buildMdl({
   number (the first bone when left out).
 - Meshes that give a texture of the same name share it.
 - With no `bones`: one, called `root`. With no `sequences`: one, `idle`, holding the rest pose.
-- No hit boxes, attachments, bone controllers or events.
+- A sequence may also say `activity`, `actweight`, `movement: [x, y, z]` (how far the model travels in one play,
+  its frames given in place; sets the motion type as `replaceSequence` does), `motiontype`, `flags`,
+  `events: [{ frame, event, options, type }]`, and `bbmin` and `bbmax`. Its box, when not told, is measured about
+  the model's points through its frames, as studiomdl does.
+- `hitboxes`: `[{ bone, group, min, max }]` (in the bone's space), or `"auto"`, or `autoHitboxes`' options.
+  `attachments`: `[{ name, bone, pos }]`. `controllers`: as `setBoneControllers`. A bone is a name or a number.
+- `eyes: [x, y, z]`: where it sees from (the header's `eyeposition`). `min`, `max` (the box it moves with) and
+  `bbmin`, `bbmax` (the box it is clipped by): the header's four; each is the model's own box through its
+  animations unless told (studiomdl leaves them at zero unless the QC says: pass zeros for that).
+- Without those: no hit boxes, attachments or bone controllers. One blend an animation.
 
 ## From an .obj file (`src/obj.mjs`)
 
@@ -449,6 +524,34 @@ const head = bodyIn(reference, 3, "Bip01 Head", { only: true, bodypart: 1 }), fi
 | `bmp(texture)` | An 8-bit BMP file with the texture's palette as it is. |
 | `unbmp(buffer)` | 8-bit: a texture without a name; 24 or 32-bit: an image. |
 
+## A re-skin by rules (`src/reskin.mjs`)
+
+`reskin(src, rules, { body = 0, pose, own = [] })` → `{ mdl, changed, pictures, shared, owned }`: a game's model
+recoloured, weathered by place and painted over, all but its pictures as it was; each texture at its own size, cut
+to 256 colours once. `rules` apply in order, each a pass of `paint` seeing what the ones before left. A rule does
+ONE of:
+
+| Action | |
+| --- | --- |
+| `recolour: [r, g, b]` | The pixels it takes become that colour, their light and shade kept: the mean brightness of what the rule takes in the picture becomes the colour, a lighter pixel lighter (`keep: false`: flat). A function of the pixel instead, in a script. |
+| `darken: k`, `tint: [[r, g, b], t]` | That much darker (0 to 1); mixed `t` of the way to a colour. |
+| `rust: a`, `moss: a`, `dirt: a`, `verdigris: a` | Weathered by place, `a` from 0 to 1: rust in patches with streaks run down and pits; moss on what faces up (`up`, its weight, 0.3) and below `low` (12); dirt rising from the ground to `height` (30); green in brass's hollows. `scale` (1), `seed`, `colours` (`{ dark, mid, light }` or `{ colour }`; `WEATHER` holds those used unless told). The Barrow Road's re-skins' own weathering, as rules. |
+| `paint: [r, g, b]` | That colour; or a function `(q) => colour` of what `paint` hands its own, in a script. |
+
+and is kept to some pixels by any of these, all of which must hold: `only` (texture names), `islands` (ids);
+`hue: [from, to]` (degrees; `[330, 20]` goes round through red), `sat: [low, high]`, `light: [low, high]`, of the
+colour the picture HAD there (`colourOf(c)` measures one); `box: [u0, v0, u1, v1]` (pixels); `near: [x, y, z, r]`,
+`above: z`, `below: z` (the place of the body as it stands in `pose`); `facing: [x, y, z]` or `{ dir, least: 0.5 }`;
+`when: (q) => true`; and `soft: n`. A word a rule may not have, two actions or none, a range of one number: refused
+in words before anything is painted. A function in place of a rule is a pass of `paint` as it is.
+
+`body`: the body number whose triangles are painted (a texture other bodies share changes for them too). `own`:
+`[ownPixels' options]`, applied first, so that a rule can keep to one part (`owned[n].texture` is its name).
+`pictures`: `[{ name, image }]`, each changed texture before and after, side by side (`beforeAfter(was, now,
+names)` makes them for any two files). `rulesOf(value)` reads what a rules file holds (a list, or `{ rules, own,
+body, pose }`). `smak reskin <mdl> <rules.json|rules.mjs> -o out.mdl [--body n] [--pictures dir]` runs one, writes
+the pictures and checks the result against the original (`check`'s `source`).
+
 ## Drawing (`src/render.mjs`)
 
 All return `{ width, height, rgba }`; write with `png(img.width, img.height, img.rgba)`.
@@ -457,7 +560,7 @@ All return `{ width, height, rgba }`; write with `png(img.width, img.height, img
 | --- | --- |
 | `render(src, options)` | One view. |
 | `sheet(src, options)` | Six views: front, left side, back, right side, top, three quarter. `size` (384) is each one's side. |
-| `strip(src, { seq, count = 12, cols = 4, from, to, ... })` | An animation (the first unless told), `count` frames from first to last, each numbered. Throws when the model has no animation, or none of that name. |
+| `strip(src, { seq, count = 12, cols = 4, from, to, ... })` | An animation (the first unless told), `count` frames from first to last, each numbered, all by one camera at one scale. Throws when the model has no animation, or none of that name. A walk: `{ view: "side", ground: true }`. |
 | `uvMap(src, which, { scale })` | A texture enlarged with the triangles that wear it drawn over it. Also returns `scale`, `meshes`, `triangles`. |
 | `tile(images, cols, names)` | Pictures of one size side by side, named. For before and after. |
 | `lineup([[name, model], ...], { yaws = [20, 200], pitch, zoom, width, height, cols, target, seq, frame })` | Several models to one scale, each from the same sides. |
@@ -470,7 +573,8 @@ Options of `render` (and the others pass them on):
 
 | Option | Default | |
 | --- | --- | --- |
-| `view` | `"orbit"` | `"orbit"`: from outside, no perspective. `"first"`: the eye at the origin looking along +x. |
+| `view` | `"orbit"` | `"orbit"`: from outside, no perspective. `"first"`: the eye at the origin looking along +x. `"side"` (the left side: the front is to the picture's left), `"front"`, `"top"`: orbit from there (`NAMED_VIEWS`); a `yaw` or `pitch` given with one turns the camera on from there (`"front"` with yaw 205 looks from 205, `"side"` with yaw 30 from 120). |
+| `ground` | false | A line across the picture where z = 0 is, over the model: the floor. Only in a level orbit view (`pitch: 0`, `"side"`, `"front"`); any other throws. |
 | `yaw`, `pitch` | 30, 15 | Degrees. Yaw 0 looks at the front, 90 at the left side, 180 at the back. Pitch 90 looks down. |
 | `zoom`, `target`, `within` | 1 | Closer or farther; the point looked at; a shared framing. |
 | `fov` | 90 | First person: degrees across. |
@@ -487,10 +591,18 @@ Options of `render` (and the others pass them on):
 
 ## Checking (`src/check.mjs`)
 
-`check(src, engine = "goldsrc")` → `{ errors, warnings, facts }`, lists of sentences. `engine` is `"goldsrc"`
+`check(src, engine = "goldsrc", { source })` → `{ errors, warnings, facts }`, lists of sentences. With `source`
+(the file this one was made from: the game's own, for a re-skin) a warning the source has too begins with
+`INHERITED` ("inherited from the source: "), textures it has at the same name and size are said apart from the
+file's own, and `inherited` counts those warnings (`smak check <mdl> --source <original.mdl>`). `engine` is `"goldsrc"`
 or `"xash"`. `LIMITS` holds the numbers. An error is something that crashes the engine or cannot be drawn; a
 warning is something it will put up with. See `docs/ENGINES.md`. It throws for nothing that is wrong with the
 file: one that is cut short or broken comes back with that as an error, and a bodypart with no submodel is one too.
+Of a monster's parts: a hit box, an attachment or a bone controller on a bone the model has not is an error; an
+animation whose box has no size is a warning (the engine culls by it); a looping animation whose last frame is
+not its first again, by more than 1 unit or 2 degrees on some bone, is a warning naming the bone (the engine
+takes the two frames for one moment: a jerk every time round); a model with animations that travel and no hit
+boxes is a fact.
 
 `engineLayout(src)` → the same model with its textures at the file's end in their table's order, as a dedicated
 server reads them (`src/layout.mjs`); `isEngineLayout(src)` says whether it is so already. The functions that
@@ -500,11 +612,59 @@ change a model call it themselves: use it on files that came from elsewhere.
 
 `import { maps } from "smak"` (or `"smak/maps"`, or `./smak/src/maps/index.mjs`). Their functions are listed in
 two documents of their own: `docs/MAPS.md` (a compiled map read and checked, its entities, textures and `.wad`
-files, its pictures: `drawMap`, `planOf`, `viewsOf`, `drawSource`, `planOfSource`, `sectionOf`, `storeysOf`,
+files, its pictures: `drawMap`, `planOf`, `viewsOf`, `compareOf`, `drawSource`, `planOfSource`, `sectionOf`, `storeysOf`,
 `openingViews`, what they draw of the game's files: `figuresOf`, `spritesOf`, `readSpr`, `skyOf`, `readTga`,
-the walk test: `reachOf`, `spaceOf`, `restOf`, `storeyCuts`, and a map's entities against its
-mod: `checkEntities`, `definitionsOf`, `learnEntities`, `classesOfDll`, `GOLDSRC`, `loadMod`) and
-`docs/MAPS-MAKING.md` (brushes, entities, the `.map` file, the plan check, a mod's profile and the compile).
+the walk test: `reachOf`, `spaceOf`, `restOf`, `storeyCuts`, a map in numbers: `measure`, `measureTable`, a
+compiled map decompiled into a `.map` and its recompile measured against it: `decompile(bytes, { name, folders })`
+→ `{ map, facts, warnings, wad }`, `textureFidelity(original, recompiled)`, `lightParity(original, recompiled)`,
+Half-Life's texture lights `TEXLIGHTS`, `texlightsFor`, `texlightsRad`, `texlightsEntity`, and a map's entities against its
+mod: `checkEntities`, `definitionsOf`, `learnEntities`, `classesOfDll`, `GOLDSRC`, `loadMod`),
+`docs/MAPS-MAKING.md` (brushes, entities, the `.map` file, the plan check, a mod's profile and the compile)
+and `docs/MAPS-DESIGN.md` (what makes a map good to look at and to play, as rules of thumb and recipes; how a
+map's monsters come: `spawnsOf`, `spawnsTable`; its character in numbers: `characterOf`, `characterAgainst`,
+`learnCharacter`).
+
+## Playing a map in the game (`src/play.mjs`, exported as `play`)
+
+`import { play } from "smak"` (or `"smak/play"`). What it needs and the steps' format: `docs/MAPS-MAKING.md`,
+"Seeing it in the game".
+
+`play.playOf(steps, { mod, pause = 1000 })` → the steps checked and made plain actions, each `{ kind, wait,
+shot, step }` with its own fields: `"command"` `commands`; `"button"` `button`, `ms` (a `walk`, a `turn` and a
+`button` step); `"hold"` `key`, `ms`; `"press"` `key`; `"click"` `x`, `y`; `"wait"`. A wrong step throws a
+sentence that names it. A step is `{ command }`, `{ say }`, `{ walk, to }`, `{ turn }`, `{ button, ms }`,
+`{ hold, ms }`, `{ press }` or `{ click: [x, y] }`, each with `wait` and `shot` if it likes, or those two alone.
+
+`await play.play({ driver, map, steps, out, mod, loads, pause, tell })` → `{ map, out, pictures, steps, log,
+logFile }`: the engine waited for, `map <name>`, the profile's steps to enter, then yours. `pictures` are the
+PNG files in the order taken (`00_loaded.png`, `01_entered.png` when the profile has steps to enter, then
+each `shot`); `steps` is what was done, each `{ part: "load" | "enter" | "steps", index, kind, step, at, took,
+picture }` with its times in milliseconds; `log` is the game's console as lines, also written to
+`<out>/log.txt`. `tell` is handed a line as each thing is done. Everything is checked before the driver is
+touched; when a driver fails, it is closed, the log is written, and the error carries `pictures` and `logFile`.
+
+A **driver** is a plain object, `{ ready(), command(text), keyDown(key), keyUp(key), press(key), click(x, y),
+wait(ms), shot(file), log(), close() }`, each of which may be async: write one to play the game another way
+(a native engine, a test's fake).
+
+`play.browserDriver({ url, playwright, width = 1024, height = 768, readyWithin = 120000, engine = "xash",
+readyFlag = "xashReady", args = play.SOFTWARE_GL })` → the kit's own driver: a headless Chromium on the page
+that runs a browser build of Xash3D. `playwright` is the Playwright module (`{ chromium }`) or a folder that
+holds its `node_modules`; `engine` and `readyFlag` are the page's names for the engine's Emscripten module and
+for the flag it sets when the engine takes commands. Nothing is opened before `ready()`.
+
+`play.playwrightFrom(folder)` → the Playwright module of that folder's `node_modules`, looked for there and
+nowhere else; it throws a sentence when it is not there. `play.playPartOf(mod)` → the profile's `play` field
+made whole from `GOLDSRC`'s: `{ enter, say, loads, yawspeed, screen }`.
+
+A session (`docs/PLAY.md` has the whole of it): `play.playSession({ driver, mod, pause, tell, over })` →
+`{ ready(), run(run), close(), state }`. `over: [{ path: "msc", folder }]`: folders laid over the game's files,
+marked as the session begins; a `run({ ..., over })` that names one puts every file in it new or changed since
+(size or time) and moves the mark on. `play.serveSession({ session, port = 8098, host, tell, beat = 30000 })`
+serves it: a run's answer is a line of JSON a thing done, with `{ beat }` every `beat` ms while the run is quiet.
+`play.attachSession(address, run, { tell })` does a run there and reads its answer with `node:http`, with no
+time limit (a fight of fifteen minutes reports its result). A fight's `prefer`, `sidestep` and `dodge`, and the
+profile's `play.target.prefer` / `unprefer`: `docs/PLAY.md`, "A fight"; `play.fightLine(fight)` is its line.
 
 ## The viewer (`viewer/serve.mjs`)
 
@@ -525,10 +685,12 @@ it). From the command line: `smak view <folder|mdl> ... [--port n]`. It listens 
 | `allot(width, height, { NAME: [long, wide, weight?] }, { gap = 6 })` | Zones for a picture, each part in proportion to its real size in units (times its weight): `{ NAME: { x, y, w, h }, px }`. Do it once and keep the zones in the script. |
 | `lathe` options | The first turned solid, kept as it was: `sides = 10`, `flatten = 1` (squash in z), `px = 48` (pixels a unit along it), `at(s, a, b)` (placing; along x unless told), `caps: [start, end]` (`true` or a zone), `twist`, `part`. `profile`: `[[s, radius], ...]`. Returns its length. Its picture goes by the profile, not by what `at` makes of it: use `turn` for anything new. |
 | `plate` options | `px`, `s0`, `at(s, t, g)`, `part`. `stations`: `[{ s, pts: [[t, g], ...] }]`, `g` the half thickness. Zones are `{ x, yc }`. A plate with no thickness shows from one side only: a thin sheet is `leaf`. |
-| Noise | `rand(x, y, seed)`, `noise`, `fbm(x, y, seed, octaves)`, all 0 to 1. `fbm3(p, lumps a unit, seed, octaves)`: the same in space, for `paint`. `seeded(n)`: a random number maker that repeats. |
+| Noise | `rand(x, y, seed)`, `noise`, `fbm(x, y, seed, octaves)`, all 0 to 1. `fbm3(p, lumps a unit, seed, octaves)`: the same in space, for `paint`. `seeded(n)`: a random number maker that repeats. These and the blending ones (not `smooth`) are exported by name from `src/index.mjs` too, beside `paint`: `import { paint, fbm3, step, mix } from "./smak/src/index.mjs"`. |
 | Blending | `step(a, b, x)`, `mix(c1, c2, t)`, `times(c, k)`, `bell(d, width)`, `smooth(t)`. |
 | Materials | `steel(x, y, light, seed, rust)`, `iron(a, b, light, seed, rust)`, `wood(x, y, light, seed, tone)`, `leatherWrap(u, v, seed, base)`, `rust(x, y, seed)`. |
 | Shading | `cylinderLight(v, strength)`, `rivet(x, y, cx, cy, radius)`, `polyDist(x, y, polygon)`. |
+| `skinned()` | A body built limb by limb, each corner on its own bone (`src/skinned.mjs`; the scarecrow's and the first Barrow Guard's way): `{ meshes, put, loft, tube, card }`. `meshes`: `{ texture key: [triangles] }`, corners `{ p, uv, n, bone }` in the model at rest (`buildMdl` with `ownNormals: true`). `put(tex, a, b, c, out)`: a triangle, turned to face `out`. `loft(zone, [{ pts, ns, centre, v, bones, point }])`: a skin over sections of as many points, once round the zone. `tube(zone, [{ c, rx, ry, v, bone, rf(k, a), off(k, a), boneAt(k, a) }], { sides, e1, e2, phase, bone })`: rings about middles `c` in the plane of `e1` (its front) and `e2`; a ring of no size closes an end. `card(zone, base, d, r, L, W, { bone, n, flip })`: a card seen from both sides. |
+| `zoneOn(tex, W, H, x, y, w, h)`, `span(s0, s1, v0, v1)` | A zone of a picture of the texture `tex` (`uv(u, v)`: 0 to 1 across and down it), and a stretch of a part's length laid down a zone (`v(s)`, `s(v)`), as `skinned`'s parts take them. |
 
 ### Surfaces, and what is built on them
 
@@ -596,6 +758,19 @@ M.ridge(wall, [[0.9, 0], [7, 0]], Z.BAR, { width: 0.9, height: 0.21 });         
 const top = wall.ends[1];                                                                // the dome's point, and the way it looks
 ```
 
+## Specs (`src/spec/`)
+
+What `smak build` runs, one module a kind of spec (docs/SPEC.md); each returns `{ report, files }` (a model also
+`mdl`, a map also `map`), the report `{ ok, errors, faults, warnings, facts }`.
+
+| Import | Builds |
+| --- | --- |
+| `buildMapSpec(spec, { out, folder, compilers, fgd, wads, mod, readPicture, readFile })`, `validateMapSpec(spec, { mod })`, `layoutOf`, `withIncludes`, `withProfile` from `src/spec/map.mjs` | A map of rooms: its `.map`, own `.wad`, models, sounds, sky; compiled, walked and drawn |
+| `buildModelSpec(spec, { folder, out, games, readPicture, readFile })`, `validateModelSpec` from `src/spec/model.mjs` | A model of parts: a prop, a character on a base, a weapon in a game's place |
+| `buildWadSpec(spec, { out, folder, readPicture })`, `validateWadSpec` from `src/spec/wad.mjs` | Textures for maps: a `.wad` and its sheet |
+| `buildSoundSpec`, `buildMusicSpec` from `src/spec/sound.mjs`, `src/spec/music.mjs` | Sounds and tracks (docs/SOUNDS.md) |
+| `buildSpriteSpec` from `src/spec/sprite.mjs` | Sprites (docs/SPRITES.md) |
+
 ## The kits (`kits/`)
 
 Each takes a description and returns `{ tris, image }`. Their file headers list every option.
@@ -606,5 +781,8 @@ Each takes a description and returns `{ tris, image }`. Their file headers list 
 | `axe(spec)`, `crescent`, `flared`, `wrap`, `bolts` from `kits/axekit.mjs` | A haft with one or more bits. `haft: true`. Texture 1024x512. |
 | `blunt(spec)`, `toward` from `kits/bluntkit.mjs` | A haft with turned parts on it: clubs, bats, hammers, maces. `haft: true`. |
 | `bow(spec)`, `through` from `kits/bowkit.mjs` | A bent stave and its string. `rig: "nearest"`. Texture 1024x256. |
+| `firearm(spec)`, `FIREARM_PRESETS`, `FINISHES` from `kits/firearmkit.mjs` | A gun: receiver, barrel, grip, guard and trigger, magazine, stock, forend, sights (pistol, shotgun, submachine gun, rifle). Texture 1024x512, and `parts`. |
+| `kits/furniture/*.json` | Not code: 30 model specs (bed, sofa, stove, fridge, bench, trees...), a map spec's props as `"kit:<name>"`. |
+| `recipesOf(mod)` from `kits/encounterkit.mjs` | Not a model: a map's encounters wired, as entities for `writeMap` (`area`, `monster`, `trigger`, `line`, `fillAhead`, `onArrival`, `surprise`, `waves`, `counted`, `rewardOnDeath`, `chance`, `oneOf`). `docs/MAPS-DESIGN.md`. |
 
 The kits paint large. Bring a picture down with `shrink(image, 2)` or `4` before `indexed` for GoldSrc.

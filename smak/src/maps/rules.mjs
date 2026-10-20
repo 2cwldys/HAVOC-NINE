@@ -35,6 +35,7 @@ import { isCompiled } from "./space.mjs";
 import { brushModelOf } from "./entities.mjs";
 import { listedWads } from "./wad.mjs";
 import { GOLDSRC, modOf, definitionsFor, isNamed } from "./mod.mjs";
+import { spawnsOf } from "./encounters.mjs";
 
 /** How many of one kind of fault are listed before the rest are counted. */
 const LISTED = 8;
@@ -49,6 +50,14 @@ const COMPILER_CLASSES = [
 ]; // prettier-ignore
 /** Keys the compilers and the editors read on any entity, which no game's definitions need list. */
 const COMPILER_KEYS = /^(zhlt_|_)|^(light_origin|model_center|angle|mapversion|wad|compiler)$/;
+/**
+ * Brush classes, as Half-Life's FGD writes them, that work as well with no brush: the game's code never asks
+ * for their model. `trigger_counter`: the SDK's dlls/triggers.cpp, CTriggerCounter::Spawn, sets how many
+ * times it is to be fired and its Use and nothing else (no InitTrigger, no SET_MODEL), and Master Sword's
+ * triggers.cpp has the same lines; seen counting in that game as a point entity, 2026-10-13. One without a
+ * brush is not said to have "no shape to be touched": it is never touched.
+ */
+const NEEDS_NO_BRUSH = new Set(["trigger_counter"]);
 /** What a map learned from fewer maps than this says of a class's kind or keys is not held against a map. */
 const LEARNED_LEAST = 8;
 /** A class the maps have in no more maps than this, and no FGD defines, is told as rare. */
@@ -286,7 +295,7 @@ function checkDefined(entities, definitions, mod, gathered) {
         "entities of a point class are made of brushes",
         `${entity.named}: a point entity ${basis}`,
       );
-    if (sure && known.kind === "solid" && !entity.brush)
+    if (sure && known.kind === "solid" && !entity.brush && !NEEDS_NO_BRUSH.has(classname))
       gathered.add(
         "warning",
         "entities of a brush class have no brush, and so no shape to be touched, seen or stood on",
@@ -303,6 +312,8 @@ function checkDefined(entities, definitions, mod, gathered) {
         // a key the profile says names another entity is one the game reads
         if (mod.targets.keys.includes(key)) continue;
         if (key === "model" && entity.brush) continue;
+        // a key a rule of the profile reads, which the game does not (a bands rule's `open`: a note for the check)
+        if (mod.rules?.some((rule) => rule?.open === key && (!rule.classes || isNamed(rule.classes, classname)))) continue; // prettier-ignore
         // a key that is itself a file's name (a profile's `files`)
         if (mod.files.some((rule) => rule.keys && isNamed([rule.keys].flat(), key) && (!rule.classes || isNamed(rule.classes, classname)))) continue; // prettier-ignore
         const other = keysLower.get(key.toLowerCase());
@@ -480,18 +491,26 @@ const KINDS = {
   bands(rule, { live, gathered }) {
     const separator = rule.separator ?? ";";
     const groups = new Map();
+    const headline = (key) => `entities give a ${key} that is no range (from${separator}to, or from)${whyOf(rule)}`;
     for (const entity of ofClasses(live, rule.classes)) {
-      const value = entity.get(rule.key);
       const place = (rule.among ?? ["origin"]).map((key) => entity.get(key));
-      if (value === undefined || !value.trim() || place.some((part) => part === undefined)) continue;
-      const range = rangeOf(value, separator, rule.words);
-      const headline = `entities give a ${rule.key} that is no range (from${separator}to, or from)${whyOf(rule)}`;
-      if (!range || range.to < range.from) {
-        gathered.add(rule.level ?? "warning", headline, `${entity.named} ${rule.key} "${value}"`);
-        continue;
-      }
+      if (place.some((part) => part === undefined)) continue;
       const key = place.join(" | ");
-      groups.set(key, [...(groups.get(key) ?? []), { ...range, entity }]);
+      const value = entity.get(rule.key);
+      if (value !== undefined && value.trim()) {
+        const range = rangeOf(value, separator, rule.words);
+        if (!range || range.to < range.from)
+          gathered.add(rule.level ?? "warning", headline(rule.key), `${entity.named} ${rule.key} "${value}"`);
+        else groups.set(key, [...(groups.get(key) ?? []), { ...range, entity }]);
+      }
+      // `open`: the ranges the map leaves empty at this place on purpose, a gap that is no fault
+      const open = rule.open ? entity.get(rule.open) : undefined;
+      for (const each of open?.split(/[\s,]+/).filter(Boolean) ?? []) {
+        const range = rangeOf(each, separator, rule.words);
+        if (!range || range.to < range.from)
+          gathered.add(rule.level ?? "warning", headline(rule.open), `${entity.named} ${rule.open} "${open}"`);
+        else groups.set(key, [...(groups.get(key) ?? []), { ...range, text: `${each} (left empty)`, entity, open: true }]);
+      }
     }
     const reach = rule.whole ? 1 : 0;
     for (const [place, ranges] of groups) {
@@ -501,9 +520,9 @@ const KINDS = {
       for (let index = 1; index < ranges.length; index++) {
         const before = ranges[index - 1];
         const next = ranges[index];
-        // the same range twice is one band given to two
-        if (next.from === before.from && next.to === before.to) continue;
-        if (next.from < before.to)
+        // the same range twice is one band given to two, or one gap said by two
+        if (next.from === before.from && next.to === before.to && before.open === next.open) continue;
+        if (next.from < before.to || (next.from === before.from && next.to === before.to))
           faults.push(`${before.text} and ${next.text} overlap (${before.entity.named}, ${next.entity.named})`);
         else if (next.from - before.to > reach)
           faults.push(`nothing has ${before.to} to ${next.from}, between ${before.text} and ${next.text} (${next.entity.named})`); // prettier-ignore
@@ -776,6 +795,12 @@ export function checkEntities(map, options = {}) {
   const tools = { names, mod, definitions, folders, finder: folders?.length ? fileFinder(folders) : null };
   checkRules({ entities, live, names, gathered, tools }, mod);
   checkFiles(live, mod, folders, !isCompiled(map), gathered);
+  // how the monsters come (encounters.mjs): for a mod whose profile says how its spawn areas work
+  if (mod.spawns && options.encounters !== false) {
+    const encounters = spawnsOf(map, { mod });
+    for (const text of encounters.warnings) gathered.say("warning", text);
+    for (const text of encounters.facts) gathered.say("fact", text);
+  }
   if (live.length < entities.length) {
     const off = new Map();
     for (const entity of entities)

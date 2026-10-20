@@ -3,6 +3,597 @@
 The newest first. A version that changes what a model's file looks like, or that a model made before needs
 mending for, says so under **Mind**.
 
+## Not released yet
+
+- **`buildMdl({ skins })`**: skin families after the first, each the textures it changes by the name of the one
+  each stands for (of the same size); a script or an entity shows family n with skin n. A bought character in
+  liveries of its own (the Old Orchard's militia) is one model, not one a livery.
+
+From Steven Linn's fork, [stevenlafl/smak](https://github.com/stevenlafl/smak), taken as it was or ported:
+
+- **SDHLT** (seedee's fork of VHLT) is found by its own names (`sdHLCSG_x64.exe`, `sdhlt.wad`), and its leak and
+  wadinclude lines are read. A map's own `wad` key is read again (its pattern had lost its backslashes).
+- **No map is written with an entity that precaches a model it does not name** (`env_sprite`, `env_glow`,
+  `cycler_sprite`, `monster_generic`, `monster_furniture`): the game stops on load with `PF_precache_model_I:
+  Bad string ''`. `checkPlan` and `checkBsp` name it in maps made elsewhere.
+- **The compilers' marks as VHLT and SDHLT 1.3.1 compile them**, measured: SKIP, SPLITFACE, NOCLIP and NULLNOCLIP
+  leak (NOCLIP and NULLNOCLIP in the hulls a player moves in), SOLIDHINT and BEVELHINT seal and stop a body. The
+  plan check took SKIP and NULLNOCLIP for walls; the walk test SOLIDHINT for air and NULLNOCLIP for a wall.
+- **The walk test rides a lift** (`func_plat`) either way, as a ladder in its shaft; one with no name whose end
+  has no floor near it, or no room for a player, is warned of.
+- **A class's flags are joined with its bases'**, as Hammer joins them: the kit's doors are no longer warned of.
+- **A carved wall's texture stands on the floor of the room it faces and starts at its corner** (`onFloor`), in
+  `carve` and in `carvePlan` (sketches, natural maps) at any angle. In `carvePlan` the rock stacked under a floor
+  had kept the sides of the band that sees nothing, so its walls lined up with no space.
+- **`soundness` and `seeThrough`**: a model's shape checked for holes, faces turned inside out and pieces
+  floating apart. `workshop`'s band once round a shape closes. `sheet()` keeps a framing it is given. A bone at
+  exactly half a turn survives a rewrite of the animations.
+- **`reduce`** (src/qem.mjs), the quadric reducer: a shape brought to fewer triangles, closed, its border and its
+  picture's charts kept; `keep` holds points where they are.
+- **`--triangles <n>`** on `smak import` and `smak item` (`triangles` to `importModel`, `importPiece`,
+  `importRigged`; `fewerTriangles`): a bought model brought down first, each mesh and material by its share, the
+  points where two materials meet kept so no crack opens; `report.fewer` says how far it got and why it stopped.
+  A spear of 11430 triangles to 1216, a rigged archer of 1080 to 618 (docs/IMPORT.md).
+- **A rigged character is held to the game's monsters** (`importRigged`, the idea from the fork's character
+  checks): where its feet stand as its first animation begins, warned of 6 units off the floor (a bought troll
+  kept its file's origin at its hips and stood 37 under it; -36 is named as a player's model's place), and its
+  triangles against Master Sword's own monsters and people of its size, warned of past three quarters of them
+  (`report.feet`, `report.kin`, `CHARACTER_TRIANGLES`).
+- **`smak map-decompile`** (`decompile`, `textureFidelity`, `lightParity`, the texture-light table): a compiled map
+  made back into brush source, the port of Steven's bsp2map. Master Sword's maps come back and compile again with
+  SDHLT, their faces in the original's textures 91 to 100 in 100; a texture in no shipped .wad has to be given.
+- **Videos, GIFs and a map against a picture** (Steven Linn's fork): `smak build` of a `smak.video/1` spec (shots
+  of models and maps: a title, a turntable, a sheet, the animations, a walk, a flyover, a path; a contact sheet
+  with `--preview`, then MP4 through ffmpeg or a GIF written by the kit without it); `smak gif` (an animation, or
+  every one, as a looping GIF); `smak map-overlay` (a map's edges over a picture of it from a camera, green where
+  they lie on its lines, the faces that are off by how much, `--locate` the camera found by the edges). Its
+  photogrammetry (features, PnP, structure from motion in Python venvs) is not taken.
+- **Maps from a spec** (`smak build`, `smak.map/1`; Steven Linn's fork, `buildMapSpec`): rooms laid out by words
+  (or a drawing, or a floor plan of height plans) carved from one block, doors, openings, windows and stairs with
+  railings between them, buildings in the open, furniture that never floats, the kit's 30 pieces of furniture as
+  models (`kit:<name>`), ladders, frames, banded walls, composed light, a landmark seen from each way in, its own
+  .wad, sky, sounds and music, modules taken in; checked, walked, compiled when VHLT is found, swept, measured
+  against Valve's dressing, drawn, and told against the last build. The map in a folder of its name.
+- **A mod's map from a spec** (`"mod"` in a map spec, or `smak build --mod <profile>`): its places to start are
+  the mod's, stood on the floor, and the plan and the walk test go by its classes and rules; its folders are where
+  the game's .wad files and models are found; a profile's `spec` gives the game's own textures, the class a prop
+  is and rooms furnished by their `use` with the game's models. Master Sword's profile has one: ms_generic.wad's
+  flags, laid stone and planks, env_model props, and a tavern, hall, store, bedroom, kitchen, library and crypt
+  furnished with its tables, barrels, shelves, hearth, beds and urns (ROOM_THINGS).
+- **`standingIn(map, box, { by })`**: what stands in a box of a map, moved: a map spec's building taken out of its
+  yard (its shell, roof, door, furniture and props; not the yard's rock, starts or sun) and set in a map made
+  another way with `mergeMaps`. A building's rooms dressed by their use are no longer told they are bare.
+- **Models from a spec** (`smak build`, `smak.model/1`; Steven Linn's fork, `buildModelSpec`): parts placed by
+  what they sit on (boxes, turned parts, tubes, superquadrics, bands, studs, the kits' weapons, prefabs), a
+  character on a game's skeleton keeping its bones and animations and held apart in its run, walk, crouch and
+  jump, a weapon in place of a game's in its v_, p_ and w_ files, a body carved from pictures' outlines or
+  blended as one surface, pictures projected onto it, a finish of wear and grime; checked for holes, parts that
+  float, triangles past Valve's, and told against the last build. A sheet of `sheet`'s carved from is read with
+  its three-quarter view: taken for the underside, a box was carved again finer for seven minutes and 4 GB.
+- **`smak build <spec.json>`** (docs/SPEC.md): a spec built by its kind. `smak.wad/1`, from Steven Linn's fork
+  (`buildWadSpec`): textures for maps painted from materials or photographs (filtered to Valve's range, laid as
+  they are, or aged), with panels, words, grime, wear and relief, made from one another or lifted off a map's
+  view; a .wad and a sheet of them, and with `preview` the map drawn wearing them, each where it shows best.
+  `smak.sound/1`, `smak.music/1` and `smak.sprite/1` as their own commands.
+- **PNG of every kind read**: 16 bits a channel, 1, 2 and 4, interlaced, a see-through colour. Of the 2856 PNG
+  files of the bought packs, 145 could not be read; all 2856 now read as Pillow reads them, pixel for pixel.
+- **From the spec builder's ground** (Steven Linn's fork, the parts that stand without it): `smak map-fgd` (an FGD
+  from a mod's C++ source: each class `LINK_ENTITY_TO_CLASS` makes, with the keys its `KeyValue` and its bases'
+  read, joined to its FGD and maps), `smak map-dressing` (a map's dressing beside Valve's campaign, measured),
+  `smak map-sweep` (drops that hurt, lights in mid-air), `smak map-heights` (a height plan, layer by layer),
+  `smak contract` (what a mod's code asks of a model by name or number, and what a model breaks of another's),
+  `map-views --aim` (views aimed at the water, the lamps, each storey, a landmark; none facing a wall).
+  `carve` takes a room's `bands` (a wall's textures stacked up it, joined on brush edges) and `wears`; the
+  compilers are told how many threads to use and their limits are read; a map in a mod's `maps/` finds its .wad
+  files in the mod's folder; Half-Life leaves a map by its level changes; `bestTurn`'s `upright`; `clearModel`;
+  a plate's and a sword's ends closed; `allot` packs tallest first; `soundness` names parts that nearly touch.
+  `familyOf` of wiring.mjs is now `doorFamilyOf`: `familyOf` is a wall texture's family (families.mjs).
+- **`smak sound <spec.json>`** and **`smak music <spec.json>`** (`buildSoundSpec`, `buildMusicSpec`,
+  `smak.audio`; docs/SOUNDS.md): sounds made of layers (noise, shaped noise, tones, FM, struck modes, particles,
+  recordings) with a room, saturation, a limiter and a fit to their bands, checked as the engine needs them and
+  measured against the game's own of their kind; a recording made a track levelled by loudness, an MP3 under
+  media/ or a looped WAV. `writeWav` writes a file `readWav` read to the same bytes: Half-Life's and Master
+  Sword's sounds at the game's rates are written again byte for byte.
+- **`smak sprite <spec.json>`** (`buildSpriteSpec`, `writeSpr`; docs/SPRITES.md): sprites made of layers of
+  effects (glow, flare, fire, smoke, explosion, billow, blobs, sparks, ring, beam), written as `.spr` with a sheet
+  and an animated picture, measured against Half-Life's own of their kind. `readSpr` keeps a file's groups,
+  radius, beam length and sync: Half-Life's and Master Sword's 198 sprites are written again byte for byte.
+- **JPEG read whole** (`src/jpeg.mjs`, in place of the baseline-only reader): progressive, CMYK, the EXIF
+  orientation; `unpicture` reads PNG, BMP or JPEG, and `textureFrom` takes JPEG.
+- **`scripts/no-game-files.mjs`**: every tracked file (`--history`: every version ever committed) held against a
+  game's folders by bytes, texture pixels and sound samples.
+
+**Mind**: a map with one of those entities and no model is now refused by `writeMap`. Carved rooms' walls take
+new texture offsets: a map rebuilt with `carve` or `carvePlan` (a sketch) has its wall pictures moved to line
+up with each room.
+
+## 0.20.0 (2026-10-19)
+
+What Master Sword Rebirth's Thornlands showed an outdoor map wants (the orchard's second version, built with it).
+
+- **`cliffWall`** and the sketch's **`cliff`** key: an outdoor space's rock made cliffs of large faces leaning
+  back at angles of their own, two facets to a piece meeting in a ridge, some bent half way up, some with a
+  scree; the skyline uneven, never under the horizon. `sketchMap(..., { clear })` keeps their feet off houses
+  and doorways. Rough walls and cliffs find the rock along a side by one function (`rockSides`).
+- **`backdropModel`**: the land round a map as one studio model, a ring of hills from just outside its walls to
+  the far distance (fields and hedges, woods, haze of a colour given), seen over the walls: the engine draws a
+  model over the sky's faces. Two bodyparts, each under GoldSrc's 2048 points and normals.
+- **`reliefOf`** and the sketch's **`relief`**, **`bank`** keys: ground that rises and falls, hummocks and
+  banks against the rock, level where a space opens and in the `clear` boxes; on a slope, a bank in place of
+  a flat ramp. `sketchMap`'s result tells the ground's height anywhere (`groundAt`) and holds each space with
+  its rock and ground (`places`).
+- **`scatter`**, **`boulder`**, **`card`**, **`STREWN`**: grass, flowers, ferns, bushes and stones strewn as
+  the game's own maps strew them (read from them: clumped, thicker by the rock, so many to the floor), and a
+  fringe of grass along the rock's foot. The fringe takes several rows: a forest's edge of single trees,
+  flat and overlapping, and lines of trees before them (`textures`, `keepShape`, `tile`: a picture kept in
+  shape and repeated along a long card).
+- **`trail`**, **`smoothLine`**: a path worn into the ground, a ribbon over it wearing a picture of a path
+  turned to run along it, its corners cut, its middle over the ground and its edges under it.
+- **`reliefOf`**'s **`patches`** and the sketch's **`patch`**, **`patchShare`** keys: the ground's triangles
+  painted with another ground over a share of the floor, where a noise is highest.
+- **`ambience`**, **`HEARD`**: looping sounds strewn over spaces as the game's wild maps have them (so many to
+  the floor, a wind heard far at least once, birds by the wood). **`learnDetails`**, **`detailText`**: what
+  detail texture the game's own `_detail.txt` files give each texture, and a map's file written from that.
+- **`solid`** (from points): two faces all but in one plane (a crease of a hundredth of a degree, from corners
+  rounded to whole units) are made one; the compiler refused such a brush ("coplanar faces"). Cliffs met it.
+- **`scatter`**'s fringe: a picture too wide for a short side stands across it, past its corners, instead of
+  being left out (a forest's dark wall showed there).
+- **`dressRoom`**: a carved room dressed as the game's interiors are (measured room by room in 60 of its maps):
+  a battered base, a moulding, beams on corbels or pilasters and columns, a pitched ceiling with tie beams, an
+  inlaid floor, a dais, torches with fire and light, webs, moss and chains, and the things of its use (hall,
+  store, bedroom, kitchen, library, crypt) kept off its doorways. **`INTERIOR_SETS`**, **`pickSet`**,
+  **`chamfered`**: interiors' textures from ms_generic.wad, a room's picked by its seed; corners cut back.
+- **`dressRoom`'s `gallery`, `spots`, `doors`**: a second level in a room (a ledge up a wall, on posts, railed,
+  its stair along the wall with open floor before its foot; `loose` gives the steps back to be made to rise);
+  places by the walls kept for a builder's events; the base stopped at doorways and nothing hung or stood in
+  them. The torches are the game's own wall torch (**`TORCH`**, **`TORCH_SCALE`**), as MSC's maps hang it.
+- **`house`**: a town's house the way the game's towns build them (deralia, edana): a footing, brick under, a
+  jutting storey of timber and plaster over, windows painted on its facade pictures and fitted whole, a roof of
+  the kind's slope with eaves, gable, ridge and sometimes a chimney, a door of the kind's size with frame and
+  steps; places by its walls and over its door for what a town puts there. **`fence`**: posts and rails of
+  wood along a line, on the ground.
+- **`SIZES`**: what a door, a step, a roof's pitch, a room's height and a way's width come to in the game's maps
+  of each kind (read from 92 of them); **`ruin`**: a ruined house of broken walls sized by them, its door's
+  gap facing the way it is turned, stones fallen about it: a landmark to walk to.
+- **`brokenWall`** on a slant: its pieces' sloped tops stay in one plane (their corners were rounded one by
+  one, and a brush was refused as not convex).
+- The sketch's sky stands over its cliffs' tops (it stood 128 over the highest floor or ceiling given, and cut
+  the cliffs off flat at it), and over the **`sky`** key's height: room for tall trees.
+- **`drawMap`** gives each pixel's distance, whether it shows sky and which texture (`depth`, `shows`,
+  `named` into `names`): what a player sees, measured.
+- **`drawMap`** makes the smaller sizes of a texture with holes from its largest where the .wad's own lost
+  them (MSC's `{ms_tree04` to `08`): a far tree was drawn as a dark box, where the engine, which makes its own,
+  draws a tree (`shrunkWithHoles`).
+- **`learnEntities`** of a folder that is not there (a mod's overlay given first to `map-viewer --game`) learns
+  nothing, where it stopped the viewer.
+
+## 0.19.1 (2026-10-17)
+
+What the first draft of a map twice the orchard's size, drawn as a hill of terraces, found.
+
+- **`horizon`** (a space's key, and a sketch's): the rock round an outdoor space stands this high over its
+  floor, and sky is over it, so that the ground looks out over a land beyond and not up a cliff to the top
+  of the map (each space its own: a terrace's horizon is over its own floor). Rock that no space sees over the
+  lowest horizon is sky too, or it would hang in the sky its neighbours became.
+- **The sky no longer takes the ground**: a face of the carved block that looks at no space (its underside)
+  wore the carve's ceiling texture, `sky` in an outdoor map's legend (MAPS-SKETCH.md's own example), and the
+  brush with it became sky all round: the ground under every outdoor floor was sky.
+- **A ramp at an angle** (`slope` on a turned outline) had its top corners rounded off its own plane and was
+  refused as not convex.
+- **Two outlines crossing a hair from a corner** left a piece of rock that twisted on itself (VHLT: "brush
+  outside world"): cuts nearer than half a unit are one, the whole one kept, and a piece ends where its two
+  lines cross.
+- **`terrain`** of a length that is no whole number of steps made a last column a hair wide (rough rock along
+  a wall at an angle failed with "a face with no area").
+- **The map viewer**: a compiled face whose first three corners lie in a line (the compiler puts corners
+  along edges) was wound either way, so floors showed in patches with the ceilings hidden; "Ceilings and
+  sky" hid only some of the sky; the near plane moves out with the camera, so a map seen from far off keeps
+  its floors.
+
+## 0.19.0 (2026-10-17)
+
+Ground that bends, and a map from a drawing. The study of the game's maps measured what made the kit's maps
+read as "all straight lines": `carve` cut only boxes, no brush could be turned, rock was a floor only. The
+owner asked for a way to sketch a map's shapes and have the kit build them.
+
+- **`carvePlan(spaces, wall, texture)`**: `carve` for spaces of any outline in plan (concave, with holes,
+  several that overlap), carved from one block of rock so that the map cannot leak. The rock is cut in strips
+  at every corner and crossing and joined again into convex pieces; each face wears the texture of the space
+  it is seen from; planes are written through the outlines' own whole points. A brush with a face of sky is
+  sky all round (VHLT took a brush of sky and stone for neither: the map compiled with no inside and no light).
+- **`path`, `curve`, `circle`**: a street or a track along a line, mitred at its corners (a tight bend's loop
+  cut off); a smooth line through points; a round outline.
+- **`turned(brushes, degrees, pivot)`**: brushes turned about an axis, their pictures with them.
+- **`terrain({ axis })`**: rock stood up, a cliff's face or a cave's wall.
+- **Pieces made to measure** (`src/maps/pieces.mjs`): `spiralStairs` (refused with no headroom under the turn
+  above, a step over 18 or a tread too narrow), `bridge` at any angle with rails and piers, `railing`,
+  `balcony`, `brokenWall`, `rockWall` (rough rock along a line, its pictures laid on each face).
+- **Sloped floors**: a space's `slope: { rise, toward }`; `convexPieces(space)`, `slopePlane(space)`.
+- **Drawn again, the hand's work kept**: `additions(edited, made)` finds what a person added in an editor
+  (by the brushes' planes); `smak sketch` keeps it when it writes the map again (`<name>.smak.map` is its
+  copy); `mergeMaps`.
+- **The map viewer** (`smak map-viewer`, `viewer/map.html`): a .bsp, a .map or a sketch in 3D in the browser,
+  textured and lit, its entities as their models with the way each faces, floors coloured by height, ceilings
+  and clips hidden or shown, reloaded as the file changes. `sceneOf3d` makes the scene.
+- **Things held against the world** (`propsOf`, `smak map-props`): stuck or buried in solid, floating,
+  standing on another model, the nose to a wall; warnings and notes apart; `--views` a picture of each.
+- **A map from a drawing** (`docs/MAPS-SKETCH.md`): `readSvgSketch` (Inkscape: labels and layers as keys,
+  paths, curves, arcs, holes, transforms, a stroke as a corridor), `readPngSketch` (Paint: a legend of
+  colours, black lines as walls, colours painted side by side joined), `sketchSpaces`, `sketchMap`, and
+  `smak sketch <svg|png> -o out.map --legend legend.json`. Keys `slope`, `toward`, `rough`; kinds `spiral`
+  and `bridge`. `examples/sketch/` has a village, a Paint drawing and every piece in one.
+
+## 0.18.2 (2026-10-17)
+
+- **Stairs that are walked, not climbed.** `stairs(..., { ramp: "CLIP" })` adds a wedge laid on the steps'
+  nosings, from one tread before the first riser to the top: a player walks up it smoothly, shots and grenades
+  (which CLIP does not stop) still meet the steps. Where the box has no room before the first riser the ramp
+  stands on a lip of one step there. Found when Havoc9 played a city built with the kit: its box stairs were
+  "hard to navigate"; their own cities' stairs are box steps too (16 high, treads of 23 to 45), with no ramps.
+
+## 0.18.1 (2026-10-17)
+
+- **No more than 32 switched lights.** `checkPlan` refuses a map whose lights carry more than 32 names: hlcsg
+  gives each its own light style from 32 to 63 and stops with "Exceeded MAX_SWITCHED_LIGHTS" (found building
+  a city of 40 flats and shops, each with a lamp switch); under it, it says how many of the 32 are used.
+  docs/MAPS-DESIGN.md: switches are rationed in a role-play city.
+
+## 0.18.0 (2026-10-17)
+
+A second game's maps. The kit was made on Master Sword; it was turned on The Specialists and on three
+role-play cities of its Havoc9 community (Paradise City, Xenon City, Alexandria), to say what makes them good
+and to build one like them. A block was built, wired and compiled in two seconds; what the kit read wrong or
+could not say on the way is mended here.
+
+- **Switched lights count as the map starts.** A light with a name gets a style of 32 or more, and Half-Life
+  starts it on unless its spawnflags have 1 (CLight::Spawn). `map-light`, `map-character` and the views
+  counted every switched light off, so a city whose every flat has a lamp switch read black (a flat lit in the
+  game: "dark, mean 2.6"). `stylesAtStart(bsp)` and `stylesCounted`; `lightReport`'s `switched`
+  ("start", "off", "on"; `map-light --switched`); the views' `light` takes "start" (the default) and "off".
+- **What a map is wired to do.** `wiringOf(map)` and `smak map-wiring`: its properties (the doors by name,
+  and their families: `resident x9`), each switch and trigger followed through multi_managers and relays to
+  what it works (lights, sounds, lifts, doors, places that heal or hurt), its trains and their stops, a name
+  said from many speakers (an alarm), teleports, what comes back after it is broken; and the slips: a switch at
+  a name nothing answers to, a train that runs off its corners for good. Works on a .bsp and a .map.
+- **The Specialists' profile** (`profiles/specialists.mjs`), from the installed game: its starts, its
+  `ts_model` props (a city's props were counted 0), the FGD's door `delay` mended to a number with a fraction,
+  and two sets of figures, the game's 29 arenas and the Havoc9 cities (`specialists-roleplay.mjs` for the
+  command line). docs/MAPS-DESIGN.md has a section on the role-play city: wiring, density and dressing, not
+  shape.
+- **Rooms carved in their own textures.** A room given to `carve` may bring `texture`: the rock it is seen
+  from wears it, and a slab under two rooms is cut where they meet. A street of brick and asphalt and a shop of
+  tiles behind one wall is one carve.
+- **map-measure eight times faster on a large map** (Xenon City: 86 s to 12 s). A compiled map's space finds
+  where a line of sight stops in one walk (`firstStop`), where it was asked by halves.
+- **map-views looks where something is.** Its "largest rooms" are rooms with entities in them first, then
+  those with a floor: on a city the largest empty leaves were the air under its sky and black voids.
+- `map-character` takes folders, as its help said (each was refused); its table keeps its columns apart; its
+  warning no longer says Master Sword's maps of any mod's.
+- `embeddedTexture` gives null for a name the map lacks (one name looked for in several maps), as the docs
+  said; a number it has none for is still refused.
+- Master Sword's `character.figures` measured again for the light (47 of its 94 maps have switched lights):
+  shadow 17-55, brightest 188-250, mean 29.9-78; the rest is as it was.
+- New: src/maps/wiring.mjs, profiles/specialists.mjs, profiles/specialists-roleplay.mjs, test 56.
+
+**Mind**: the light of a map with switched lights is brighter than before in `map-light`, `map-character`
+and every view, and a view's words say so. `--switched off` and `--light off` give the old count.
+
+## 0.17.0 (2026-10-16)
+
+Maps a player likes. A player walked the first two maps an agent made with this kit and said the items were good
+but the maps not: one "all straight lines, nothing unique", and in the other monsters that appeared in front of
+him, wolves and boars of one terrace that fought each other, and the reward back at the start. The game's own
+100 maps were measured with the kit, eleven read closely, and what they do is now a guide, two checks and a kit
+of recipes.
+
+- **How a map's monsters come.** `spawnsOf(map, { mod })` and `smak map-spawns`: each spawn area, how it comes
+  (at the start, on arrival, fired) and by what (a trigger walked into, a button, a breakable, a death, an area
+  cleared, a script), followed back through relays, counters and multi_managers. It warns of monsters a player in
+  the trigger that brings them could see appear (a clear line through the world, closed doors and the brush
+  entities that hide), of monsters back at their own spot within a minute of dying, of races that attack each
+  other on one spawn, and of a reward far from the death that brings it; `-o` draws a line from each trigger to
+  each monster seen from it. Its warnings are also `map-check --mod`'s. The profile's new `spawns` says how a
+  mod's spawn areas work; Master Sword's reads its races from the pack's races.script and each monster's script
+  (`raceTable`, `raceRelation`, `scriptRace`), and the names a script fires (`usetrigger`).
+- **A map's character in numbers.** `characterOf(bsp)` and `smak map-character`: walls off the grid, floor that
+  slopes, floor levels, the spread of the floor's height, textures, props, sounds, music, lights, and the floor's
+  light, its shadow and its brightest; held against the mod's own maps (`characterAgainst`, the profile's new
+  `character.figures`): a PLAIN line for each figure on the plain side of their middle half, and a warning on
+  five or more. `learnCharacter` (`--learn`) makes the figures from any folder of maps; Master Sword's profile
+  carries those of its 94 maps.
+- **The guide**: docs/MAPS-DESIGN.md, the rules of thumb for shape, height, landmarks, light, dressing, a map's
+  own touch, monsters, races and rewards, with the game's numbers.
+- **The recipes**: kits/encounterkit.mjs, `recipesOf(mod)`: an area filled ahead out of sight, areas filled on
+  arrival, a breakable that releases monsters, waves, things counted that open a way, a reward where the fight
+  was won, a chance and one of several at random (the profile's new `recipes`).
+- `planOf` and `planOfSource` take `lines`: lines of one's own over the plan.
+- New: src/maps/encounters.mjs, src/maps/character.mjs, kits/encounterkit.mjs, docs/MAPS-DESIGN.md, test 55.
+
+**Mind**: `map-check --mod` with a profile that has `spawns` (Master Sword's) now says the encounters' warnings
+too: a map that passed with no warning may now have some. `checkEntities(map, { encounters: false })` leaves them
+out.
+
+## 0.16.0 (2026-10-16)
+
+A long run that goes on, and a fight that knows what it cannot reach. A run of 98 minutes through two maps, from
+one map's door to the next one's last chest, lost most of its time to an enemy no blow could reach (a wolf in a
+fenced pen, a healer that kept away, a spider beyond a crowd), to waits for lines already said, and to putting
+together by hand what a run of many parts needs. And a fighter with only a sword cannot finish a map whose enemies
+fly or stand on a ledge: a test character now carries a bow, and the fight draws it.
+
+- **A fight that knows what it cannot reach, and shoots it.** Each enemy's time spent with no blow landing and no
+  step nearer is kept, and past `stuck.after` (30 s and four rounds) he is unreachable for every fight until a map
+  loads. The log says `N rounds on an unreachable Wolf at (780,1322,0)`, and `stuck.then` decides what follows:
+  `skip` (the profile's new `play.target.skip`; Master Sword's `trial skip`), `fail` (the run stops naming him and
+  his place), `goto` (the player is put beside him) or `ranged`.
+- **Ranged weapons.** `ranged: { item, slot, when, hold, near, above, speed }`: the character's bow or spell is
+  drawn (the profile's new `play.ranged`; Master Sword by quickslot, a spell by `prep`, and `trial hands` asks
+  whether it is held). He is aimed at in yaw and pitch, higher for the shot's fall, each shot a little over or
+  under the last (a game leaves an arrow stuck in its target). The button is held for the draw and let go, and the
+  weapon is put back when he comes within `near`. `when` is `"unreachable"`, `"flying"` (more than 64 units over
+  the eyes) or `"always"`. Seen in the game: a fighter shut in a pen shot a sentry 520 off over the fence (13 hits
+  of 28), then struck down a wolf with the sword. The test characters carry a Thornbow (fighter20) and a Longbow
+  (fighter6) with arrows.
+- **An end by quiet without the line fails**, unless `quietEnds: true`; either way a line says so.
+- **A census.** The profile's `play.census` (Master Sword's `trial census`) answers a `{ "census": radius }` step
+  with a table, and a census done by itself ends the sentence of a run stopped by an `until`, a fight without its
+  line or `stuck: "fail"`: `left: Wolf 114 hp at (780,1322,0), 1 of 1`.
+- **A stuck player.** A `walk` that moves him less than 2 units stops the run (`did not move after walk N ms: in
+  solid?`), and `goto` asks the profile's `lift` over its place (Master Sword: 4), so he drops onto a path brush
+  instead of being set into it.
+- **A long run that goes on, and is added up.** A step looks back as it begins: a `fight` whose line was said
+  before it ends at once (`"already": "pass"`, a fight's unless told; a ledge fight had waited 600 s for a line said
+  a minute earlier), a wait warns (`"warn"`), and a run stopped by an `until` says when its line was heard before.
+  `{ "section": "name" }` parts one file of steps: each section timed and counted, and `run({ from })` /
+  `--from <section|step>` begins at one (with `--stay`, after a failure). `"onFail": "continue"` makes a step's
+  failure an expectation and goes on. `"keep": { "hp": "= ([\d.]+)" }` keeps a value that a later step names
+  `${hp}`. `{ "travel": true }` goes through a way to another map (the profile's new `play.travel`: Master Sword
+  `accept` and "Spawn Server: <map>"), and a session follows its map by that line. Each run writes summary.json:
+  per section and per fight, time, heals (a `trial heal` outside a fight too), deaths, hits taken and dealt, the
+  slain, its expectations; `chain` adds up the runs that stayed. `summaryOf`, `summaryLines`, `totalsOf`.
+- **What the game would cut.** The script check takes a profile's `lint`: Master Sword's warns of a `desc` over 72
+  characters and a `name` with a prefix over 29 (shared/ms/scriptcmds.cpp). Six of a mod's item descriptions were
+  found cut.
+- In msr-web's tools/playtest.mjs: the trial commands, and our built map, in every map a way of the run's map leads
+  to; `--define script:NAME=value` (a test copy at pack time, for a hand copy); a folder per run (`<name>/<time>/`,
+  failed ones never deleted); `--detach` and `playtest wait`.
+- New: src/play-fight.mjs, tests 53 and 54.
+
+**Mind**: every fight now finds and passes over an enemy it cannot get at after 30 s (`stuck: false` for the old
+way). A walk into a wall, or from inside one, now stops the run. A fight with `until` and `quiet` that runs out of
+enemies without its line now fails (`quietEnds: true` for the old way). A fight that stops the run still writes its
+`fight` line. A step whose `until` line was said before it began now behaves otherwise: a fight ends at once (give
+`"already": "wait"` for the old way), a wait writes a WARN line. The lines an `until` stopped at are the session's,
+not one run's: a run that stays never stops at a line an earlier run's `until` took. A run's result has `sections`,
+`summary` and `summaryFile`. After a change to SMAK, stop the session and serve again.
+
+## 0.15.0 (2026-10-15)
+
+Re-skins in one step, and a fight that chooses and moves. Agents making a map's monsters found that a body made
+from nothing reads as crude beside a game's own, and that the person wanted the game's models re-skinned: this
+version makes a re-skin a short list of rules. And a fight played by one step could not go for a healer first,
+walk round a crowd or step out of a marked circle, so every reading of difficulty was a worst case.
+
+- **Re-skins in one step, and composing on a bought rig.** `reskin` repaints a game's model by rules (in a script
+  or `smak reskin`): a rule recolours a hue keeping the shading, darkens or tints, rusts, mosses, dirties or greens
+  by place on the body, or paints, kept to textures, islands, colour ranges, pixel boxes or places; each changed
+  texture comes out before and after. `ownPixels` gives an island, body or mesh a texture of its own copied from
+  the pixels it wore, so one plate of an armour whose one rust covers every plate can be marked alone.
+  `addSequenceFrom` and `smak sequence-add --from x --frames 80-57` make an animation from another's frames,
+  forward or backward. `importRigged` returns `parts`, so a bone and a piece can be added before `buildMdl`.
+  `animate.reach` takes `aim` and `grip`; new `animate.hold` keeps a bone at its own turn in the model,
+  `animate.grounded` lifts falls onto the floor; the quaternion helpers are exported. `workshop.skinned`,
+  `zoneOn`, `span` hold the scarecrow's tubes and lofts. `check --source` marks warnings the original also has as
+  inherited. `--yaw`/`--pitch` now turn front/side/top views. Texture flags are documented (flag 4, full bright:
+  Xash honours it; GoldSrc not known). New: src/reskin.mjs, src/skinned.mjs, tests 46-49.
+- **Long runs, and files changed while the game is up.** `attachSession` reads a run's answer by `node:http`,
+  with no limit of time; the server sends its headers at once and a `{ beat }` line every 30 s of a quiet run
+  (`serveSession({ beat })`). A run of over five minutes used to end in the attaching process with
+  `FAILED: terminated` while it went on in the game; runs of 10 and 11 minutes now say their real result.
+  `smak play --serve --over msc=<folder>` marks a folder laid over the game's files, and each `--attach ...
+  --over` puts what changed in it since (`playSession({ over })`, `run({ over })`).
+- **A fight that chooses and moves.** `prefer: "lantern"` (or a list) goes for that kind first, by the profile's
+  new `play.target.prefer` and `unprefer` (Master Sword: `trial prefer {word}`); one that cannot be got at is let
+  be for 20 s while the nearest is fought. With `chase`, the bot sidesteps round others in the way (`sidestep`,
+  600 ms or `false`), walks at a far enemy as long as the way takes (up to 1.5 s a round), swings no blow at the
+  air, and strikes three blows a round in reach. `dodge` steps away from a place a line warns of (a test copy's
+  line: the game shows a sprite). The fight line gains preferred kills, sidesteps and dodges. In a map's bay
+  with a healer behind a guard, all of it now dies (nothing did); a boss's marks struck 19 of 41 times with
+  `dodge`, 31 of 32 without. A fight whose time ran out on a chase step is "ended by its time". `block` is not
+  made: Master Sword says nothing before a blow lands.
+- **A band left empty on purpose.** The `bands` rule takes `open`, a key naming ranges a place leaves empty
+  (Master Sword: `reqhp_none "150;500"`): the check names only true faults (a map's 18 warnings to 0, its
+  monsters unchanged).
+- New: tests 50-52.
+
+**Mind**: a named view given a yaw or pitch no longer ignores it. `ownPixels` renumbers islands (the moved
+  ones last). Moved triangles are written as strips of three (more corners drawn). Fights with `chase` read otherwise than in 0.14 (sidesteps, longer walks, three
+blows a round). A fight runs in the serving process: after a change to SMAK, stop the session and serve again.
+
+## 0.14.0 (2026-10-13)
+
+Bought models, and a fight played by one step. A person's folder of bought low-poly packs (some 1750 .fbx,
+1600 .glb, 1150 .obj) is now read whole; a bought mace, shield and bow went into a game's own weapon files with
+`check` clean, and a rigged zombie came in with its skeleton and both its animations. And the faults agents met
+building a second map with 0.13 are mended: a fight is one step, a wait no longer misses a line, a map is
+measured beside the game's.
+
+- **Bought models.** `readFbx` (binary FBX 7.0-7.7 with zlib arrays, and the text form) and `readGlb` (.glb,
+  .gltf with its .bin) read meshes, texture coordinates, normals, materials and their pictures, every node's
+  place, the file's axes and units, skins and animations into one shape, which `readObj` now shares through
+  `importedObj`. `importModel` makes a prop of it at its true size, or `fit`; `importPiece` makes a piece for
+  `addItem` (a haft, a shield, by outline; its grip found or told); `importRigged` makes a model with the
+  file's bones and animations, each point on its heaviest bone. `unjpeg` reads baseline JPEG. Commands:
+  `smak import <file|folder>` (what is in it; `-o` a prop; a folder: props, sheet.png, import.json; `--anim`),
+  and `smak item` takes a .fbx/.glb/.gltf/.obj in place of a piece module. Checked against Blender 5.2 and
+  against the same models shipped in two formats (docs/IMPORT.md).
+- **A fight played by one step, and steps that repeat.** `fight` faces the nearest living enemy (the
+  profile's new `play.target`: commands and the line that answers, or a function) and strikes
+  (`play.fight.attack`), heals under a share of health (`play.heal`), puts a fallen player back at `post`, and
+  ends by a line, a time, or when no enemy is left (`quiet`). What happened (seconds, blows, hits dealt and
+  taken with their sums, heals, deaths, the slain, enemies at once and on the player, the least health) is a
+  `fight` line of the log and `fights` in result.json. `repeat` runs a block until a line, a count or a time.
+  `faceAt` turns to a place, or to `"target"`. `tap` presses and lets go; a held button only charges a blow in
+  Master Sword. A wing of 14 monsters fought by an outside loop guessing where to face took about 14 minutes
+  and died 11 times; by one step file, 6 minutes and none.
+- **From where an `until` hears.** A step that does a thing hears from its own beginning; a wait hears from
+  the last step that did a thing, so a line said in the same instant as the one before, or during its wait,
+  is no longer missed. No `until` stops at a line another stopped at. `since` goes on `until` too (and
+  `"deed"`).
+- **A run that stays stays**: `stay` with `put` no longer leaves the map.
+- **The walk test says how much of the floor it walks, and why not the rest**: `reach.share`, `standable`,
+  and `parts` (each part not walked, `how`: jump, crouch-jump, crouch, wall, air, none; the brush entities in
+  the way by name; the walked floor nearest). Ladders off the grid are climbed, teleports followed by every
+  way it tries, `walls: "gone"` (`--walls`) for what breaks, toggles or is pushed. A body is asked for by name
+  (`bodyOf`). With `mod`, a list given adds to the profile's.
+- **A map in numbers, beside the game's** (`maps.measure`, `measureTable`, `smak map-measure`): width bands,
+  medians and quartiles, headroom of corridors and rooms, sight lines, openings, storeys, footprint and fill.
+  **Maps at one scale** (`maps.compareOf`, `smak map-compare`).
+- **Views from places to start**: starts that stand together get one view; a view nearly one colour is
+  dropped for the next room (`facts.dropped`).
+- **stairs** takes `top: false` and `tread`; the default is as before.
+- **A compile says what hlvis took**, and guesses only where the guess is a minute or more (`portalsLine`).
+- **map-check --scripts** warns of the checked map's own unnamed scripts only; `--all` of every one.
+- The Master Sword profile: no "Graphics test" box (`ms_didbloomcheck 1` before entering), a box with no
+  title read as its text, `eye`, `heal`, `target` (`trial nearest`), `fight`.
+- New: src/fbx.mjs, src/glb.mjs, src/import-*.mjs, src/maps/measure.mjs, docs/IMPORT.md, tests 34-39 and
+  41-45 with their fixtures (written in code: no bought file is in the kit).
+
+**Mind**: `until` hears from a step's beginning or from the last deed, and never matches a stopped-at line
+again: a run that relied on a stale line now behaves otherwise. `compileMap`'s words for the portals changed.
+`map-check --scripts` warns less unless `--all`. An imported rigged model has each point on one bone (it
+may crease at shared joints) and is no monster yet: no activities, events or travel are set.
+
+## 0.13.0 (2026-10-13)
+
+A weapon in one recipe, a game that is heard, and the faults agents met building two maps. Three agents
+making a second map and its first weapon for Master Sword Classic spent over half their time testing in the
+game by reading pictures, each run paying over a minute of loading; this version is what they asked for.
+
+- **`smak play` hears the game, and a run passes or fails by what it says.** What the server tells the player
+  (HUD lines, boxes, chat, a script's console lines) is read from the engine's own user messages, with nothing
+  of the game changed, and written with its time to log.txt and log.jsonl. `until` on any step waits for a
+  line instead of the clock (`within`, `every`); `expect` and `expectNot` (steps, and `--expect`,
+  `--expect-not`) hold a run to lines: it ends with 1 when one fails, and says which.
+- **A session that stays up**: `smak play <url> --serve`, then `smak play <session> --attach --map ...` as often
+  as wanted (`--stay`, `--close`); several `--map`/`--steps` in one command; a `map` step; `--put place=file`
+  writes a rebuilt map or pack into the running engine. Measured: in the game 6 s after a run begins in a
+  session and 18 s from a cold start, where 0.11's fixed waits took 79.
+- **New steps**: `mouse` (a button held), `mouseDown`/`mouseUp` (held across steps), `look` and `face` (the
+  view set in degrees), an exact `turn`, `where` (the player's place and view, in the log), `goto` (by the
+  profile's `play.goto`, read back). A contact sheet of each run's pictures (`sheet.png`), and `result.json`.
+- **A profile's `play`** gains `loaded` (the line a loaded map prints), `goto`, `messages` (which user
+  messages to read, and how); its `enter` steps may wait by `until`. Master Sword's profile enters with one
+  click repeated until the game answers, reads HUDInfoMsg, TextMsg, SayText, HP and MP, and says a thing with
+  `cmd say_text 1` (its old `setsay` moved the way of speaking on by one each time).
+- **A new item in a game's own models** (`src/items.mjs`, docs/ITEMS.md). `addFitted`: a piece as a new
+  submodel after the ones a bodypart has, laid on one that is there (by its outline, as a shield on its back,
+  or as given), on the bone asked for, with `bones` for the corners a piece marks by `part`, `rig: "nearest"`
+  for what bends, `keep` for meshes taken along (a bow's nocked arrow). `addItem`: one piece in every file
+  and place of a family (data: files, bodyparts, bones, the thing each is laid on, how a script's numbers
+  follow), returning the files and the constants (`itemConstants`). `keptWhole`: that what a file had is where
+  it was. `itemSheet`: each new submodel beside the one it was laid on. `smak item`. A file that holds the
+  item already is kept when it is the same thing (`existing: "same"`) and refused when it is another.
+- **A bodypart that is not the last may be added to**: `addModel` (and so `putBody`, `copyBody`) raises the
+  `base` of the bodyparts after it; `check` warns of a base that is not the product of the counts before it
+  (`basesByRule`) and refuses a base of 0.
+- **An icon's tile** (`src/icon.mjs`): `iconPicture` draws one body on black as it stands or with its long
+  axis on the diagonal, heavy end up; `reducedPicture`. `render` takes `parts`.
+- **`check` and the hundred textures**: the 100 is the compiler's (studiomdl's MAXSTUDIOSKINS), not an
+  engine's. For goldsrc the warning says so; for xash it is a fact above 256.
+- **The walk test is told what a class is**: `markers`, `wiring`, `off` beside `exits`, as options and as a
+  profile's fields. A class the game does not have is no wall; a way out so written is looked for and told
+  apart. Triggers that are only fired are not gone to. `reach.on(x, y)` answers yes or no where `walked`
+  gives a height that may be 0.
+- **A `trigger_counter` with no brush** is no longer said to have no shape.
+- **Scripts placed against the game's** (`maps.scriptsPlaced`, `smak scripts`, `map-check --scripts`): each
+  of ours replaces a game script, is new and named, or is new and named by nothing (a warning). The rules
+  are a profile's `scriptPack`.
+- **A compile that is seen and stopped**: `progress`, `--timeout`, "stopped" in the summary, and the portals
+  hlbsp left (`result.portals`), with a warning before hlvis when they foretell minutes. A draft says in
+  `result.facts` that its light has no bounces.
+- **The light on the floor** (`maps.lightReport`, `smak map-light`): the mean of the floors' lightmap samples,
+  by room or as dark stretches. The views say what their light is.
+- `bowkit` marks the middle of its string `part: 1`.
+- The Master Sword profile: `ITEM_FAMILIES` (blunt1h, shield, bow, bow_bending) as `items`; `wiring`;
+  `scriptPack`; `play`.
+- New: src/items.mjs, src/icon.mjs, src/maps/scripts.mjs, src/maps/light.mjs, src/maps/compile-run.mjs,
+  src/play-browser.mjs, src/play-session.mjs, src/play-sheet.mjs, docs/ITEMS.md, docs/MAPS-CHECKS.md,
+  docs/PLAY.md, tests 31 to 33 and 40.
+
+**Mind**: a body number that shows another than the first submodel of a LATER bodypart changes when a
+submodel is added before it (the bases grow). A brush `trigger_counter` is no longer among a walk's entities.
+`compileMap`'s result has `facts` and `portals`. The bending bow family creases where two bones meet and has
+not been in a game; the rigid one is the sound one. Reading the game's text and setting the view find the
+engine's tables in memory: tried against one Xash3D FWGS browser build only.
+
+## 0.12.0 (2026-10-13)
+
+A monster made from nothing. Until now the kit made things that are carried, worn or stood somewhere; the
+first monster made with it was a scarecrow for Master Sword Classic: 17 bones, a body of 857 triangles and
+five animations, every one written in code. In the game it came to the player on feet that did not slide,
+struck him, took a blow (so its hit boxes are where a blade goes) and fell dead on its back. Two things the
+game would not have forgiven were learned from its code before a frame was made: a model with no hit boxes
+cannot be hit at all, and a walk whose sequence says it travels nowhere moves the monster nowhere.
+
+- **Animations written as poses** (`src/animate.mjs`, exported as `animate`). A frame in the file is six
+  numbers a bone in the bone's own axes: arithmetic on them nudges an animation that exists and makes none.
+  `rigOf`, `poseOf` (a `turn` in degrees about the MODEL's axes, from rest and carried by the parent, the
+  same on a skeleton whose bones are turned as a Biped's), `reach` (a limb of two bones bent to put its end
+  at a place: feet planted by arithmetic), `mirror`, `between`, `animate` (key poses joined by the shortest
+  turn, eased; a loop closed; `each` for a frame made by a formula), `valuesOf`, `worldOf`, `matricesOf`
+  (a pose drawn by `render` without being an animation). And the measures: `seam` (a loop's gap), `track`
+  (where a joint goes), `stride` (the speed the planted feet ask for, and how much they slide). The
+  scarecrow's walk asks for 33.3 units a second and its sequence travels exactly that; the game's own
+  skeleton and boar slide.
+- **A monster's parts, read and written** (`src/mdl.mjs`, `src/build.mjs`): hit boxes (`setHitboxes`,
+  `autoHitboxes`: the boxes studiomdl makes, which match Valve's own files box for box where those were
+  made so), attachments (`setAttachments`), bone controllers (`boneControllers`, `setBoneControllers`), and
+  for a sequence its travel (`movement`, with the motion bits), `activity`, `actweight` and its box, measured
+  from the posed vertices as studiomdl measures it (within 0.024 units of the files' own). `writeMdl` and
+  `buildMdl` take them all, with `eyes` and the header's boxes; `MOTION`, `HITGROUP`, `ACTIVITY` name the
+  numbers. Written back through the setters, Half-Life's zombie and grunt and Master Sword's skeleton and
+  rat read the same.
+- **`info`** prints each animation's travel and the speed it makes, its activity, the hit boxes
+  (`--hitboxes` lists them), attachments, controllers and eyes. **`check`** tells of a hit box on a bone that
+  is not there, an animation with a box of no size, a loop that does not come back to where it starts, and,
+  as a fact, a model that travels and has no hit boxes.
+- **`render` and `strip` take `--view side|front|top` and `--ground`**: an animation from the side, every
+  frame from one camera, over the line of z = 0. A walk is judged by its feet against that line.
+- **The Master Sword profile's `play` and one more rule**: a map with neither an `ms_player_spec` nor an
+  `ms_player_spawn` drops a player as he connects (found by making a yard to try the monster in, then read
+  in the game's code; all 100 of the game's maps have one or the other).
+
+**Mind**: `replaceSequence` with new frames, and `addSequence`, now measure the animation's box where they
+kept or copied one; `addSequence`'s `like` copies a box only when given.
+
+## 0.11.0 (2026-10-13)
+
+What the first map made with the kit still had to be done by hand for: seeing it in the game itself, naming
+each monster's model for a picture, and telling the walk test where the mod's maps end.
+
+- **A map played in the game** (`play.play`, `play.playOf`, `play.browserDriver`, in `src/play.mjs`;
+  `smak play <url> --map <name> --steps steps.json -o <folder>`): a list of steps (`command`, `say`, `walk`,
+  `turn`, `button`, `hold`, `press`, `click`, `wait`, `shot`) run through a driver, and what happened
+  given back: the pictures in order, each step with its time, the console's lines. The one driver shipped
+  is for an Xash3D build in a browser, through Playwright, which is the caller's and never the kit's
+  (`--playwright <folder>`). What is the game's own is in its profile's `play`: the steps that get a player
+  in after the map has loaded, how a thing is said, how long a load takes. Tried on Master Sword's browser
+  build: it chose the character, walked, turned, spoke to an NPC and was answered. No step places the
+  player: the engine has no command for it. Turns are by time and inexact; loads are waited for by the clock.
+- **A profile says what an entity looks like** (`modelOf(keys)` in a profile; `maps.modelsOf(mod, map)`):
+  with `models`, the pictures draw an entity whose keys name no model as the one its mod gives it.
+  `profiles/mastersword.mjs` reads it from the monster's script (`scriptModel`, `packScripts`): the
+  `setmodel` line, a word given its value with `const` or `setvard`, and the scripts taken in with
+  `#include`; 670 of the game's 875 monster and NPC scripts give a model this way, the rest being bases and
+  the players' side. Not read: `setmodelbody`, and a model chosen while the game runs.
+- **A profile names the ways out of its maps** (`exits`; Master Sword's `msarea_transition`): floor one is
+  reached from is no one-way place, with no `--exit` given each time. A way out is now an entity a player
+  goes to whatever its class: before, one that was no `trigger_` or `msarea_` by name was never reached.
+- **Every picture command takes `--mod`** (`map-view`, `map-views`, `map-plan`, `map-section`,
+  `map-storeys`, `map-openings`; `map-views` also takes `--body`, `--models` and `--model` now): the mod's
+  folders, its classes' boxes and its models, as `map-check` and `map-reach` took its rules and starts.
+
 ## 0.10.0 (2026-10-13)
 
 A map's entities held against the game that will read them. The first draft of the first map made with the

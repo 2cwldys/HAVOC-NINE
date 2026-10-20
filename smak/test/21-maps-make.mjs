@@ -240,6 +240,36 @@ test("an arch, a bend, stairs and terrain are runs of sound convex pieces that l
     "steps of 32 are not refused",
   );
 
+  // a ramp laid on the nosings: every step's front top edge on its slope, the foot one tread before the first
+  // riser, the head at the top; the steps themselves as they were without it
+  for (const [min, max, high, options] of [
+    [[80, 0, 64], [344, 64, 240], "+x", { tread: 24, top: false }],
+    [[464, 0, 0], [528, 64, 64], "-x", { tread: 16, top: false }],
+    [[0, 0, 0], [64, 160, 80], "+y", {}],
+    [[0, 0, 0], [64, 160, 80], "-y", {}],
+  ]) {
+    const plain = stairs(min, max, high, "A", options);
+    const ramped = stairs(min, max, high, "A", { ...options, ramp: "CLIP" });
+    sure(ramped.length === plain.length + 1, `${high}: the ramp is not one brush more`);
+    const ramp = ramped.at(-1);
+    sure(ramp.faces.every((face) => face.texture === "CLIP"), `${high}: the ramp is not all CLIP`);
+    sure(!shapeOf(ramp).faults.length, `${high}: the ramp is not a sound brush: ${shapeOf(ramp).faults.join("; ")}`);
+    const axis = high.endsWith("x") ? 0 : 1;
+    const sign = high.startsWith("+") ? 1 : -1;
+    for (const step of plain) {
+      const shape = shapeOf(step);
+      const nose = [...shape.min];
+      nose[axis] = sign > 0 ? shape.min[axis] : shape.max[axis];
+      nose[1 - axis] = (shape.min[1 - axis] + shape.max[1 - axis]) / 2;
+      nose[2] = shape.max[2];
+      const under = [...nose];
+      under[2] -= 0.5;
+      const over = [...nose];
+      over[2] += 0.5;
+      sure(source.holds(ramp, under) && !source.holds(ramp, over), `${high}: a step's nosing at ${nose} is not on the ramp`);
+    }
+  }
+
   // terrain that hangs from a lid at 288: two brushes a cell, each reaching its three heights
   const height = (x, y) => 200 + ((x + y) % 48) + 0.4;
   const rock = terrain({ min: [0, 0], max: [128, 64], step: [64, 64], base: 288, height, texture: "A" });
@@ -515,6 +545,13 @@ test("the leak hint: a sealed room keeps the flood in, a room with a wall taken 
     plan.warnings.join("; "),
   );
   sure(plan.leak?.at, "the plan gives the leak");
+  // the compilers' marks as the east wall, as VHLT and SDHLT 1.3.1 compile them: these leak (NOCLIP and
+  // NULLNOCLIP in the hulls a player moves in), these seal
+  for (const [texture, leaks] of [["SKIP", true], ["SPLITFACE", true], ["NOCLIP", true], ["NULLNOCLIP", true], ["CLIP", true], ["SOLIDHINT", false], ["BEVELHINT", false], ["NULL", false]]) { // prettier-ignore
+    const wall = source.box([256, -16, -16], [272, 272, 144], texture);
+    const marked = checkPlan({ worldspawn: { wad: "smak.wad" }, brushes: [...openRoom(), wall], entities: roomEntities() });
+    sure(Boolean(marked.leak) === leaks, `a wall of ${texture}: ${marked.leak ? "leaks" : "seals"}`);
+  }
   // a wall that is a brush entity seals nothing; water does not either
   const eastWall = sealedRoom()[EAST_WALL];
   const withDoor = {
@@ -679,6 +716,43 @@ test("the plan check's errors, each in words", () => {
     "a quote in a value",
   );
   only(checkPlan({ brushes: [], entities: roomEntities() }).errors, /no world brush/, "no world");
+  // a class that precaches its model, with none named, stops the map on load
+  only(
+    errorsOf((map) => map.entities.push({ classname: "env_glow", origin: "128 128 64" })),
+    /precache a model they do not name.*PF_precache_model_I/,
+    "a glow with no sprite",
+  );
+});
+
+test("a carved wall's texture stands on the floor of the room it faces and starts at its corner", () => {
+  // two rooms 16 apart, the second 40 higher and 24 further north: each side of the rock between them is lined
+  // up with the room it faces, its picture's foot on that floor (v runs down -z) and its left edge on that
+  // room's corner (u runs along +y on walls that face x)
+  const first = { min: [0, 0, 0], max: [256, 256, 128] };
+  const second = { min: [272, 24, 40], max: [528, 280, 168] };
+  const walls = (rooms, texture) =>
+    carve(rooms, 16, texture).flatMap((brush) => brush.faces.filter((face) => face.texture === "W"));
+  const facing = (faces, x, normal) =>
+    faces.filter((face) => face.points.every((p) => Math.abs(p[0] - x) < 1e-6) && Math.round(planeOf(face.points).normal[0]) === normal); // prettier-ignore
+  const faces = walls([first, second], { floor: "F", ceiling: "C", wall: "W" });
+  const intoFirst = facing(faces, 256, -1);
+  const intoSecond = facing(faces, 272, 1);
+  sure(intoFirst.length && intoFirst.every((face) => face.v[3] === 0 && face.u[3] === 0), JSON.stringify(intoFirst.map((f) => [f.u[3], f.v[3]])));
+  sure(intoSecond.length && intoSecond.every((face) => face.v[3] === 40 && face.u[3] === -24), JSON.stringify(intoSecond.map((f) => [f.u[3], f.v[3]])));
+  // in the texture's own scale, added to its own offset; rooms of their own textures alike
+  const scaled = walls([first, { ...second, texture: { name: "W", scale: 2, offset: [3, 5] } }], { floor: "F", ceiling: "C", wall: "W" }); // prettier-ignore
+  sure(facing(scaled, 272, 1).every((face) => face.v[3] === 5 + 20 && face.u[3] === 3 - 12), JSON.stringify(facing(scaled, 272, 1).map((f) => [f.u[3], f.v[3]]))); // prettier-ignore
+  // a turned texture is left as it is
+  const turned = walls([first, second], { floor: "F", ceiling: "C", wall: { name: "W", rotation: 90 } });
+  sure(facing(turned, 272, 1).every((face) => face.v[3] === 0 && face.u[3] === 0), "a turned texture");
+});
+
+test("no map is written with an entity that precaches a model it does not name", () => {
+  const glow = (keys) => ({ brushes: sealedRoom(), entities: [...roomEntities(), { classname: "env_glow", origin: "128 128 64", ...keys }] }); // prettier-ignore
+  sure(/entity 3 \(env_glow\) precache a model/.test(refusal(() => writeMap(glow({})))), "a glow with no sprite");
+  sure(!refusal(() => writeMap(glow({ model: "sprites/glow01.spr" }))), "a glow with its sprite");
+  // cycler checks its model and removes itself: it is no fault
+  sure(!refusal(() => writeMap({ brushes: sealedRoom(), entities: [...roomEntities(), { classname: "cycler", origin: "128 128 0" }] })), "a cycler"); // prettier-ignore
 });
 
 test("the plan check's warnings: planes off the grid, no wad, no light, a light buried in a wall", () => {
@@ -791,6 +865,12 @@ test("without the compilers, every function that needs them says so in one sente
   writeFileSync(join(empty, "hlcsg.exe"), "");
   const some = findCompilers({ folder: empty, env: {} });
   sure(!some.found && /has no hlbsp, hlvis, hlrad/.test(some.message), some.message);
+  // SDHLT's names, as its Linux build leaves them, are found as the four
+  const seedee = join(tmp, "sdhlt-names");
+  mkdirSync(seedee, { recursive: true });
+  for (const name of ["sdHLCSG", "sdHLBSP", "sdHLVIS", "sdHLRAD"]) writeFileSync(join(seedee, name), "");
+  const sdhlt = findCompilers({ folder: seedee, env: {} });
+  sure(sdhlt.found && sdhlt.tools.hlrad === join(seedee, "sdHLRAD"), JSON.stringify(sdhlt.tools));
   const mapFile = join(mapsFolder, "unbuilt.map");
   writeFileSync(mapFile, writeMap({ brushes: sealedRoom(), entities: roomEntities() }));
   const result = compileMap(mapFile, { compilers: none, wads: [wadFile] });
@@ -870,7 +950,9 @@ testCompiled("compiled: a sealed room becomes a .bsp, with no error, no leak and
     timeout: PATIENCE,
   });
   sure(carried.bsp && carried.logs.length === 2, carried.errors.join("; "));
-  const takenIn = /Including Wadfile: .*smak-maps\.wad/;
+  // VHLT says "Including Wadfile: ...smak-maps.wad"; SDHLT names it in its "Wadinclude list"
+  // (its log's lines end in \r\n on Windows)
+  const takenIn = /Including Wadfile: .*smak-maps\.wad|Wadinclude list\r?\n-+\r?\n(?:[^-\r\n].*\r?\n)*smak-maps\r?\n/;
   sure(takenIn.test(carried.logs[0].text) && !takenIn.test(result.logs[0].text), "wadinclude");
   // the textures lump (the third of a .bsp's header) then holds the pictures themselves, and is larger
   const texturesLump = (file) => file.readInt32LE(8 + 2 * 8);

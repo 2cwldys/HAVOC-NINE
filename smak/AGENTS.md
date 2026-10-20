@@ -12,7 +12,9 @@ map made from brushes in a script and compiled; texture files (`.wad`) read and 
 
 This file is the whole briefing. `docs/API.md` lists every function; `docs/ENGINES.md` covers GoldSrc against Xash;
 `docs/MAPS.md` (a compiled map, and the pictures of maps) and `docs/MAPS-MAKING.md` (brushes and the compile) hold
-the vocabulary for maps.
+the vocabulary for maps; `docs/MAPS-DESIGN.md` what makes one good to look at and to play; `docs/MAPS-SKETCH.md`
+a map from a person's drawing (an SVG or a PNG); `docs/SPEC.md` a map, a model or textures described in JSON and
+built by `smak build` (docs/SOUNDS.md and docs/SPRITES.md the sounds and sprites).
 
 ## What it needs
 
@@ -36,8 +38,9 @@ It makes a model from nothing and exercises every part of the kit. If every test
 
 | It can | It cannot |
 | --- | --- |
-| Read everything in a `.mdl`: bones, meshes, textures, animations, events, attachments | Read Source engine models (`.mdl` version 44+), or `.smd` / `.qc` source files |
-| Write a whole new model from triangles, with bones and animations | Give a new model hit boxes, attachments or bone controllers |
+| Read everything in a `.mdl`: bones, meshes, textures, animations (with their activity, how far they travel, their box), events, attachments, hit boxes, bone controllers | Read Source engine models (`.mdl` version 44+), or `.smd` / `.qc` source files |
+| Write a whole new model from triangles, with bones and animations | Write an animation of several blends into a new model (one that is there keeps and takes them) |
+| Give a model, new or old, what a monster has: hit boxes (yours, or the ones studiomdl would make), attachments, bone controllers, where it sees from, each animation's activity and travel | Take a walk's travel out of its frames: you give the frames walking on the spot and say the travel. Say what a mod's code does with an activity or a hit group: that is the mod's |
 | Make a model from a Wavefront `.obj` file (Blender, a script, any tool), with its `.mtl` and PNG or BMP pictures | Read `.fbx`, `.gltf` or `.blend`, or JPG or TGA pictures |
 | Replace a mesh inside an existing model, keeping its skeleton and animations | Weight one vertex to several bones (the format has one bone a vertex) |
 | Replace or add textures; recolour by palette; export and import PNG / BMP | Edit animations kept in separate `name01.mdl` files |
@@ -45,7 +48,7 @@ It makes a model from nothing and exercises every part of the kit. If every test
 | Add bones to a model | Run or test anything inside the game |
 | Check a model against GoldSrc's and Xash's limits | |
 | Draw a model from any side, or as the player sees a weapon, into a PNG | |
-| Paint a model by where a point is on its body, across all its textures | Give the two sides of a body different marks where they share the same pixels of a texture |
+| Paint a model by where a point is on its body, across all its textures | Give the two sides of a body different marks where they share the same pixels of a texture, until one side has pixels of its own (`ownPixels`: a copy in a texture of its own) |
 | Add a body again as a new body in a texture of its own, and paint a garment on chosen islands of it | |
 | Tell what an old picture is, pixel by pixel (mail, plate, a strap), as layers that every pass of paint reads, with the distance to their edges and their regions' places on the body | Tell what a picture shows without a rule from you: a layer is your function of colour, texture and place |
 | Find a model's loose pieces and take them off; move a part between models on one skeleton | Put a body under armour that has none: taking such a piece off leaves a gap |
@@ -80,11 +83,14 @@ old data unused inside it, so stacking runs makes it grow. Keep the originals un
 ## The command line
 
 ```
-node bin/smak.mjs info <mdl> [--json]              bones, bodyparts with their body numbers, textures, animations, events
+node bin/smak.mjs info <mdl> [--json] [--hitboxes] [--boxes]   bones, bodyparts with their body numbers, textures, animations
+                                                   (activity, travel and speed), events, attachments, hit boxes
 node bin/smak.mjs check <mdl> [--engine xash]      errors and warnings; exit code 1 on an error
+                                                   (--source original.mdl: what the original has too is marked "inherited")
 node bin/smak.mjs sheet <mdl> -o s.png             six views in one picture
-node bin/smak.mjs render <mdl> -o r.png --yaw 30 --pitch 15 [--view first]
-node bin/smak.mjs strip <mdl> -o a.png --seq reload --count 12 [--view first]
+node bin/smak.mjs render <mdl> -o r.png --yaw 30 --pitch 15 [--view first|side|front|top] [--ground]
+node bin/smak.mjs strip <mdl> -o a.png --seq reload --count 12 [--view first]   (a walk: --view side --ground)
+node bin/smak.mjs gif <mdl> -o a.gif --seq reload   an animation as a looping GIF, each frame labelled (--seq all: every one, -o a folder)
 node bin/smak.mjs textures <mdl> -o dir [--bmp]    every texture as a file
 node bin/smak.mjs uv <mdl> -o dir                  every texture with the triangles that wear it drawn over it
 node bin/smak.mjs islands <mdl> [-o dir] [--body n]  the islands each picture is cut into, listed; with -o, drawn tinted and numbered
@@ -92,6 +98,9 @@ node bin/smak.mjs layers <mdl> [layers.mjs] ["name=expression" ...] --texture t 
                                                    layers of a texture (what is mail, what is strap): their regions listed; with -o, drawn tinted
 node bin/smak.mjs retexture <mdl> <texture> <picture> -o out.mdl
 node bin/smak.mjs sequence <mdl> <anim> -o a.json  /  sequence-set  /  sequence-add
+node bin/smak.mjs sequence-add <mdl> --from sitstand --frames 80-57 --name kneel_down -o out.mdl [--loop] [--fps 25]
+                                                   a new animation of frames of one it has ("80-57": backwards; "57,58,57")
+node bin/smak.mjs reskin <mdl> rules.mjs -o out.mdl [--body n] [--pictures dir]   a game's model re-skinned by rules
 node bin/smak.mjs inline <mdl> -o out.mdl          put the textures of <name>t.mdl inside the model
 node bin/smak.mjs obj <file.obj> -o out.mdl [--scale n] [--up y|z] [--turn deg] [--ground] [--centre] [--name x.mdl]
                                                    a model from a Wavefront .obj, its .mtl and pictures found beside it
@@ -99,6 +108,8 @@ node bin/smak.mjs pieces <mdl> [--body n]          its loose pieces, each with i
 node bin/smak.mjs view <folder|mdl> [more ...]     the viewer, for the person: two models side by side in the browser
 node bin/smak.mjs mcp --work <dir> [--models <dir>]  the kit as an MCP server, for a client with no shell (mcp/README.md)
 node bin/smak.mjs edit <folder|mdl>                the editor, for the person: animations, events and textures by hand
+node bin/smak.mjs build <spec.json> [-o dir] [--game <folder> ...] [--mod <profile>]   a spec built by its kind (docs/SPEC.md):
+                                                   a map of rooms placed by words, a model of parts, textures, sounds, a sprite
 ```
 
 For maps (their recipes are under "Maps"):
@@ -122,10 +133,43 @@ node bin/smak.mjs map-reach <bsp|map> [-o walked.png] [--goal <n|class>] [--jump
 node bin/smak.mjs map-section <bsp|map> -o s.png --from x,y --to x,y   a side section along that line, floors with their heights
 node bin/smak.mjs map-storeys <bsp|map> -o s.png [--z a,b,c] [--reach]   one plan for each storey, side by side
 node bin/smak.mjs map-openings <bsp|map> -o o.png [--both]   a view through each gate and doorway the walk test finds
+node bin/smak.mjs map-overlay <bsp|map> shot.png --from x,y,z --yaw n [--locate] -o o.png   the map's edges over a picture of it:
+                                                   where the map and the picture part, and the faces that are off by how much
 node bin/smak.mjs map-textures <bsp> -o dir        every texture of a map as a PNG
 node bin/smak.mjs wad <file.wad> [-o dir]          a .wad's textures listed; with -o, each as a PNG
 node bin/smak.mjs wad-make <pictures...> -o out.wad   a .wad from PNG or BMP pictures, each named after its file
 node bin/smak.mjs map-compile <file.map> -o out.bsp --wad a.wad [--wadinclude] [--fast] [--vhlt <folder>]
+node bin/smak.mjs map-compile <file.map> ... [--timeout 600 | --timeout hlvis=600,hlrad=1200] [--progress]   a stage seen and stopped
+node bin/smak.mjs map-decompile <bsp> -o out.map [--game <folder> ...]   a compiled map back into brush source, its own .wad beside it (docs/MAPS.md, "Decompiling")
+node bin/smak.mjs map-light <bsp> [--rooms rooms.json] [--switched start|off|on]   the light on the floors, room by room: what
+                                                   the game lights a figure by; switched lights as the map starts (on unless made
+                                                   to start dark) unless told
+node bin/smak.mjs map-wiring <bsp|map> [--list]   what the entities are wired to do, as a role-play map is judged: properties
+                                                   (doors by name), switches and what each works through relays, lifts, places that
+                                                   heal or hurt, names said from many speakers, what comes back; slips warned of
+node bin/smak.mjs map-spawns <bsp|map> --mod <profile> [-o plan.png]   how each spawn area's monsters come, and by what; those
+                                                   seen appearing from the trigger that brings them (SEEN), back soon at their own
+                                                   spot (QUICK), races that attack each other on one spawn (FIGHT), a reward far
+                                                   from the death that brings it; exit code 1 on SEEN or FIGHT (docs/MAPS-DESIGN.md)
+node bin/smak.mjs map-character <bsp> [more maps or folders] [--mod <profile>]   its ground, textures, props, sounds and light in numbers,
+                                                   held against the mod's own maps: PLAIN figures, and a warning on five or more
+node bin/smak.mjs map-props <bsp|map> [--mod <profile>] [--game ...] [--views dir]   each prop, NPC, monster, chest and start
+                                                   held against the world: WARN stuck or buried in solid, a prop floating; NOTE partly
+                                                   in a wall, its nose to a wall (turned the wrong way?), standing on another model.
+                                                   --views: a picture of each, from the side with room. Look at the NOTEs' pictures
+node bin/smak.mjs map-viewer <bsp|map|svg|png> [--mod <profile>] [--game ...]   the map in 3D in the person's browser, its
+                                                   entities as their models with the way each faces, what map-props says marked;
+                                                   reloads as the file changes. For the person: you look with map-view and map-props
+node bin/smak.mjs sketch <svg|png> -o out.map [--legend legend.json]   a map from a person's drawing (docs/MAPS-SKETCH.md)
+node bin/smak.mjs scripts <script folders, maps...> --mod <profile> [--shipped <folder>]
+                                                   each script of one's own: replaces a game's, is named, or is named by nothing
+node bin/smak.mjs item <piece.mjs> --mod <profile> --game <mod> --family <name> --name <word> -o dir [--pictures]
+                                                   a new weapon, shield or bow in the game's own model files, and its script's numbers (docs/ITEMS.md)
+node bin/smak.mjs play <url> --map <name> [--steps steps.json] -o dir [--mod <profile>] --playwright <folder>
+                                                   the map in the game itself, where the person has a browser build of it and Playwright:
+                                                   entered, walked, spoken in, pictures taken, and every line the game says written down;
+                                                   steps wait for a line (until) and a run passes or fails by lines (expect): docs/PLAY.md.
+                                                   --serve keeps the game up and --attach runs in it: seconds a run, not a minute
 ```
 
 The three that draw take `--width`, `--height`, `--game <folder>` (the mod's folder, then `valve`: where the map's
@@ -135,14 +179,22 @@ written on it), `--legend` (the entities listed beside it) and `--reach` (the wa
 entity that stands is drawn as the box it moves with: `--body <class|targetname>=large` says which box;
 `--models` draws the models that are named, from the `--game` folders, and `--model <class|targetname|scriptfile>=models/x.mdl`
 names one. With `--game` the sky is its own picture and each sprite its first frame (`--no-sky`, `--sky r,g,b`,
-`--no-sprites` say otherwise); `--no-model-scale` draws models at their own size.
+`--no-sprites` say otherwise); `--no-model-scale` draws models at their own size. Every one of these commands
+takes `--mod <profile>` as `map-check` does (with `--game`, and `--scripts <folder>` for scripts not in the
+game yet): the mod's folders, the box each of its classes moves with, its ways out for the walk test and, with
+`--models`, the model the mod gives an entity that names none: a monster is then drawn as the model its
+script picks, with nothing named by hand.
 
 `view` keeps running until stopped: start it in the background, give the person the address it prints, and stop
 it when they are done. It is for them to look and compare; your own checking is still `render`, `sheet` and
 `strip`, whose pictures you can read.
 
 `render`, `sheet` and `strip` take `--seq <name|number|rest>`, `--frame`, `--body`, `--skin`, `--width`,
-`--height`, `--no-light` (the texture as it is) and `--no-cull` (both sides of every triangle).
+`--height`, `--no-light` (the texture as it is) and `--no-cull` (both sides of every triangle). `--view side`,
+`front` and `top` look from there with no perspective (`side` is the left side: the front is to the picture's
+left), and with `side` or `front`, `--ground` draws the floor (z = 0) as a line across the picture. `--yaw`
+and `--pitch` with one of them turn the camera on from there: `--view front --yaw 205` looks from 205,
+`--view side --yaw 30` from 120.
 
 **If a picture comes out empty**, the body number shows an empty submodel. Many models keep a blank submodel at
 body 0. `info` lists the body number of each submodel; pass it with `--body`.
@@ -153,6 +205,28 @@ turn from frame 0 of its animation, so that "front" at rest showed its side, and
 not where the animated model had it. Draw, measure and paint in a pose the game shows (`--seq 0`, or
 `{ seq: "idle", frame: 0 }`), use the same pose for every step of a job, and compare one picture at rest with
 one animated before trusting either.
+
+## Bought models (docs/IMPORT.md)
+
+`smak import <file>` first: it says the axes, units, size at true scale, meshes, materials and which picture
+it found for each. Readers give GoldSrc's axes (+x forward, +z up) in the file's units, with v counted from
+the top. Fit sizes (`--fit`): packs are not to scale. For a weapon use `smak item <file.fbx> --family ...`,
+read the `assumed:` lines, and look at `--pictures`; correct with `--axis/--grip/--flip/--as`. For a rigged
+file use `--anim`, then `smak strip`. A bone count over 128 is refused; one bone a point. Never copy a bought
+file into a repository: its licence almost always forbids it.
+
+## Testing in the game, and maps beside the game's
+
+- To test a fight, write `{ "fight": { "heal": 0.5, "post": [...] }, "until": "<the line that ends it>" }`,
+  not a loop outside: the summary line is the measure of difficulty.
+- A held mouse button charges in Master Sword: use `tap`.
+- A fight strikes the nearest unless told: `prefer: "lantern"` goes for the healer first, `chase` walks
+  round a crowd to it (sidesteps), `dodge` steps out of a place a line warns of (a test copy's line: the
+  real game shows a sprite). Their counts are in the fight's line. `docs/PLAY.md`, "A fight".
+- A session (`--serve`) keeps a fight of any length; `--over msc=<folder>` puts a model rebuilt since the
+  game started.
+- `map-measure new.bsp game.bsp --every --mod <profile>` and `map-compare new.bsp game.bsp -o same.png --z
+  100,-` set a new map beside the game's.
 
 ## How a studio model is put together
 
@@ -170,6 +244,14 @@ You need this model in your head; the API mirrors it exactly.
 - **Animations (sequences)** hold, for each frame and each bone, six numbers: position x, y, z from the parent and
   rotation about x, y, z in radians. Events (a sound, a muzzle flash) are fastened to frames.
 - **Attachments** are named points on bones: where a muzzle flash or a shell appears.
+- **Hit boxes** are boxes on bones, each in its bone's space and each with a **group** (head, chest, a leg):
+  what a shot or a blow is traced against, and by the group, how much it hurts. A model with none is traced
+  as its entity's one box.
+- **An animation also says** an **activity** (the number a monster's code asks for "a walk" by, whatever
+  the animation is called), **how far the model travels** in one play of it (`movement`; the frames
+  themselves stay on the spot, and the game moves the monster at the speed that makes), and a **box** about
+  the model through its frames, by which the engine decides whether it is in view.
+- **Bone controllers** are bones the game's code turns by itself: a head that follows, a mouth that talks.
 
 ### Conventions
 
@@ -183,7 +265,7 @@ You need this model in your head; the API mirrors it exactly.
 | A triangle (in the kit) | Three corners `{ p: [x, y, z], uv: [u, v] }`, `uv` from 0 to 1 from the picture's top left. |
 | An image | `{ width, height, rgb }`, three bytes a pixel. |
 | A texture | `{ name, width, height, pixels, palette, flags }`: one palette index a pixel, 768 bytes of palette. |
-| Texture flags | 1 flat shaded, 2 chrome, 4 full bright, 32 additive (a glow), 64 masked (palette index 255 is a hole). |
+| Texture flags | 1 flat shaded, 2 chrome, 4 full bright (unlit: Xash draws it so; Steam's GoldSrc is not known to), 32 additive (a glow), 64 masked (palette index 255 is a hole). Added together; docs/API.md, "Changing textures". |
 | Which way triangles go | Decided for you by `meshOf` / `buildMdl` / `swapMesh`. `check` reports triangles that face inwards. |
 
 ## Rules that keep a model working in the game
@@ -216,6 +298,15 @@ You need this model in your head; the API mirrors it exactly.
 ## Recipes
 
 Each has a runnable example in `examples/`. Read the example first; it is the template.
+
+### Described instead of scripted: specs (`docs/SPEC.md`)
+
+A prop, a weapon in place of a game's, a character on a game's skeleton, a map of rooms, its textures: each
+can be written as a spec in JSON (parts placed by what they sit on, rooms by what they are next to) and built
+with `smak build x.json`, which checks it, walks a map, compiles it when VHLT is there and draws both. A map
+for a mod takes its profile (`--mod`, or `"mod"` in the spec): its starts, its classes and, where the profile
+has them, its textures, its props and rooms furnished by their use. Reach for a script when a spec cannot say
+it; the two meet in `standingIn` and `mergeMaps` (a spec's building on a scripted map's ground).
 
 ### A new texture on an existing model (reskin): `examples/03-reskin.mjs`
 
@@ -265,8 +356,9 @@ in the world). Do all of them, the world ones with a smaller texture (`shrink(im
 ### A whole new model: `examples/01-new-model.mjs`
 
 For a prop, a pickup, a thrown thing, something worn. `buildMdl` takes bones, triangles, textures and
-animations and returns the file. It writes no hit boxes or attachments, so do not use it for a first-person
-weapon the game expects to have a muzzle attachment: swap a mesh in an existing one instead.
+animations and returns the file. Unless told (see "A monster from nothing") it has no hit boxes or
+attachments. For a first-person weapon, whose animations and attachments the game's code knows by number,
+swap a mesh in an existing one instead.
 
 ### From an .obj file: `examples/06-from-obj.mjs`
 
@@ -342,13 +434,139 @@ mdl = addSequence(mdl, { name: "inspect", fps: 30, frames, events: [{ frame: 10,
 - A bone that has to move further than the file's scale for it allows is given a wider scale automatically, and
   the model's other animations are rewritten to match (same motion, very slightly coarser for that bone).
 
+### A monster from nothing
+
+A thing that walks, is hit and dies needs more of the format than a prop: `buildMdl` takes it all, and the
+setters give it to a model that is there.
+
+```js
+import { buildMdl, HITGROUP, MOTION, check, strip, png } from "./smak/src/index.mjs";
+
+const mdl = buildMdl({
+  name: "beast.mdl", bones, bodyparts,                // as for any model; corners say their `bone`
+  sequences: [
+    { name: "idle", fps: 15, loops: true, frames: idle, activity: 1 },                       // ACT_IDLE
+    { name: "walk", fps: 20, loops: true, frames: walk, activity: 3, movement: [48, 0, 0],   // ACT_WALK
+      events: [{ frame: 4, event: 1004, options: "common/npc_step1.wav" }] },
+    { name: "bite", fps: 20, frames: bite, activity: 30 },                                   // ACT_MELEE_ATTACK1
+  ],
+  hitboxes: { groups: { head: HITGROUP.head, spine: HITGROUP.chest } },   // or "auto", or your own list
+  attachments: [{ name: "mouth", bone: "head", pos: [6, 0, -1] }],
+  controllers: [{ bone: "head", type: MOTION.ZR, start: -60, end: 60 }],
+  eyes: [0, 0, 30],
+});
+```
+
+- **A walk is given walking on the spot**, and `movement` says how far one play of it carries the model:
+  measure it off your own frames (how far a planted foot slides back is how far the body goes forward).
+  `info` prints the speed it makes, `distance * fps / (frames - 1)`, in units a second: that is the speed the
+  game moves the monster at while it plays, so a wrong `movement` is feet that slide. Half-Life's zombie walks
+  at 72, its grunt runs at 304.
+- **A looping animation's last frame is its first again.** The engine plays from the first frame up to the
+  last and starts over at the first, taking the two for one moment: a walk of 20 steps has 21 frames, the
+  21st a copy of the 1st. Every looping animation in the games' own files is made so; `check` warns of one
+  that is not, naming the bone.
+- **Write the animations as poses, not as numbers** (`src/animate.mjs`, exported as `animate`). A frame is
+  six numbers a bone in the bone's own axes, which is no way to make a walk. Say the pose in the MODEL's axes
+  and let the kit work the numbers out:
+
+  ```js
+  import { animate as A } from "./smak/src/index.mjs";
+  const rig = A.rigOf(bones);                                              // a model's bytes, or a bone list
+  const stand = A.poseOf(rig, { spine: { turn: { y: 8 } }, "arm.L": { turn: { x: -25 } } });
+  const step = A.reach(rig, stand, { bones: ["thigh.L", "calf.L", "foot.L"], to: [10, 5, 2], level: true });
+  const frames = A.animate(rig, { frames: 25, loops: true, keys: [{ at: 0, pose: stand }],
+    each: (pose, frame, part) => /* the pose of this frame: put the feet with reach */ pose });
+  const { speed, slide } = A.stride(rig, frames, { feet: ["foot.L", "foot.R"], fps: 20 });
+  ```
+
+  A `turn` is in degrees about the model's `x`, `y`, `z` (for a limb that hangs: `y` over 0 swings it back,
+  `x` over 0 out to the left, `z` turns it about the upright), from where the bone rests and carried by its
+  parent, whatever the bone's own axes are. `reach` bends a limb of two bones so that its end is at a place
+  (a foot on the ground, by arithmetic). `mirror` changes left and right over. `animate` joins key poses by
+  the shortest turn, eased, and closes a loop; `each` makes every frame from a formula, which is how a cycle
+  is made to close by itself. Then MEASURE: `stride` gives the speed the planted feet ask for (set the
+  sequence's `movement` to `speed * (frames - 1) / fps`) and how much they slide; `seam` a loop's gap;
+  `track` where a joint goes. And LOOK: `strip(mdl, { seq, view: "side", ground: true })`, the feet against
+  the line. Make the skeleton with every bone unturned at rest when it is yours to make: the numbers in the
+  file are then the model's axes too. A stand-in body of a box a bone is enough to judge motion by, before
+  the real body exists.
+- **Hit boxes.** `"auto"` makes the ones studiomdl makes for a model whose source names none: for each bone a
+  box about what it carries, reaching to the bones that hang from it. Give `groups` by bone (the bones under
+  one take its group), or a list of your own boxes, each in its bone's space. `autoHitboxes(mdl)` returns
+  the list without writing it; `setHitboxes(mdl, list)` writes one into a model that is there.
+  `smak info --hitboxes` lists them with their sizes.
+- **Activities** are the game's own numbers (`ACTIVITY` names the ones this kit knows; `info` on a monster of
+  the game shows what its animations use). Several animations may share one, picked by `actweight`. A mod
+  that plays animations by name (as Master Sword's scripts do) needs none: look at how its own monsters'
+  files are made, and follow them.
+- **Each animation's box** is measured for you from the model's points through its frames, as studiomdl does:
+  nothing to do, unless you change frames by some way of your own.
+- **Look at it from the side**: `strip(mdl, { seq: "walk", view: "side", ground: true })` (`smak strip ...
+  --view side --ground`) draws every frame by one camera with the floor as a line: feet that sink, float or
+  slide show there. It is still only a picture: how it moves in the game shows in the game.
+- What the game does with all this is the mod's: its code or scripts name the model (rule 8), choose its
+  size and its hull, and decide what a hit group or an attachment means. Ask the person, and read one of the
+  mod's own monsters with `info` first.
+
+### A re-skin by rules: a game's monster in new colours, in one step
+
+The person's monsters are re-skins: a game's model (or a bought rigged body) with its bones, bodies, animations
+and events kept, its pictures repainted. `reskin` does it from a list of rules, each one thing on some pixels:
+
+```js
+import { readFileSync, writeFileSync } from "node:fs";
+import { reskin, check, png } from "./smak/src/index.mjs";
+
+const src = readFileSync(".../msc/models/monsters/skeleton.mdl");
+const PLATE = ["front.bmp", "helmet2.bmp", "shoe.bmp", "arm.bmp"];
+const { mdl, changed, pictures } = reskin(src, [
+  { only: PLATE, light: [0.1, 1], recolour: [0.2, 0.205, 0.215] },          // bright steel made old iron, its shading kept
+  { only: ["helmet2.bmp"], hue: [15, 65], sat: [0.15, 1], recolour: [0.3, 0.22, 0.11] },   // brass to bronze
+  { only: ["zombie5.bmp"], box: [120, 0, 205, 140], hue: [160, 210], recolour: [1, 0.6, 0.16] },   // cyan eyes amber
+  { only: PLATE, sat: [0, 0.2], rust: 0.6 },                               // rust in patches and streaks, by place
+  { only: PLATE, moss: 0.5 },                                              // moss on what faces up and low down
+  { only: ["front.bmp"], soft: 2, paint: ({ u, v }) => (Math.abs(u - 56) < 27 && v > 37 ? [0.17, 0.25, 0.17] : undefined) },
+], { body: 40 });
+for (const { name, image } of pictures) writeFileSync(`${name}.png`, png(image.width, image.height, image.rgba));
+console.log(changed, check(mdl, "goldsrc", { source: src }).warnings);   // what the original has too is marked inherited
+```
+
+- A rule's filters read the colour the picture HAD (`hue`, `sat`, `light`, `box`) and the place of the body
+  (`near`, `above`, `below`, `facing`), so a later rule still finds the brass after an earlier one darkened it.
+  `colourOf(rgb)` gives a pixel's hue, saturation and light to choose ranges by; `smak textures` and `smak
+  islands` show where things are.
+- Order matters: weather first, then what is painted over it (a tabard), then a little weather again on it.
+- **A part a picture shares with others** (the game's skeleton_boss1 lays one rust over every plate: chest, arms,
+  greaves and helm wear the same pixels) cannot be marked alone until it has pixels of its own:
+  `ownPixels(src, { islands: 172 })` moves that island's triangles to a copy of the pixels they wore, in a texture
+  of their own (`rust16_own.bmp`; made smaller when the box is over 512). In `reskin`, `own: [{ islands: [172] }]`
+  does it first, and a rule says `only: ["rust16_own.bmp"]`. The islands are numbered again afterwards (the moved
+  ones last): read them again before choosing by id.
+- From the command line: `smak reskin skeleton.mdl rules.mjs -o guard.mdl --pictures pics` (a `.mjs` that exports
+  `rules`, and `body`, `own`; or a `.json` of the same without functions). It prints which textures changed and
+  checks the result against the original.
+- A new animation for a re-skin is often in the game's own frames: `smak sequence-add boss.mdl --from sitstand
+  --frames 80-57 --name kneel_down --fps 25 -o out.mdl` (`addSequenceFrom` in a script).
+- docs/API.md, "A re-skin by rules", lists every word of a rule.
+
+### Composing on a bought rig, holding things, keeping on the ground
+
+`importRigged` gives back `parts`, what the model was built from: add a bone and a mesh on it, then
+`buildMdl(parts)` (docs/IMPORT.md). In the animations, `animate.reach(rig, pose, { bones, to, aim: { axis, dir,
+edge, edgeDir }, grip })` turns the hand so that what it holds points along `dir` with its grip at `to`;
+`animate.hold(rig, pose, "lantern")` keeps a bone at its own turn in the model whatever its parents do (call it in
+`each`); `animate.grounded(mdl, { seqs: ["diesimple"] })` lifts every frame whose lowest point went under the
+floor. The quaternion helpers (`qmul`, `qturn`, `qframes`, `turnOf` ...) are exported from `animate` for the rest.
+A body built limb by limb from nothing has `workshop.skinned()` (tubes, lofts and cards, each corner on its bone).
+
 ### Wear, damage and markings by place: `examples/05-by-place.mjs`
 
 A character has several textures and a wound, a burn or a layer of mud crosses them. `paint` calls your function
 for every pixel that some triangle wears, with the point of the body that pixel colours:
 
 ```js
-import { paint, surface, spot, workshop as W } from "./smak/src/index.mjs";
+import { paint, surface, spot, workshop as W } from "./smak/src/index.mjs";   // or fbm3, step, mix, times by name
 
 const pose = { seq: "idle", frame: 0 };                       // measure in a pose the model is usually seen in
 const surf = surface(src, pose), hit = spot(surf, [20, 0, 50], [1, 0, 0]);        // the place on its front nearest that point
@@ -762,7 +980,8 @@ node bin/smak.mjs map-view gatecity.bsp -o v.png --from -191,-802,-433 --yaw 90
   over it or goes into it; on a plan its outline. `--models` (with `--game`) draws a prop that names its
   `.mdl` as that model, with its textures, in the `body`, `skin`, `sequence`, `scale` and `angles` its
   entity gives; a masked texture's holes are open, so a tree's crown hides what the game's hides and no
-  more. `--model name=models/x.mdl` names one for a monster, whose own comes from its script. A door is
+  more. A monster's own comes from its script: `--mod <profile>` with `--models` draws it where the
+  profile can read it (`modelOf`), and `--model name=models/x.mdl` names one by hand. A door is
   drawn shut.
 - **With `--game`, the sky is the map's own** (`skyname`: the six pictures of `gfx/env`) **and a sprite is
   drawn** (`env_sprite`, `env_glow`: its first frame at its `scale`, blended by its render mode; a small
@@ -822,9 +1041,15 @@ node bin/smak.mjs map-plan work/gatecity.bsp -o plan.png                        
 
 `examples/07-a-small-map.mjs` is the template; `docs/MAPS-MAKING.md` has the vocabulary (rooms carved out of
 rock so that nothing can leak, boxes, stairs, arches, cylinders, lights, starts) and the sizes a player needs.
+**Before the first brush, read `docs/MAPS-DESIGN.md`**: a map that parses, compiles and is walked end to end
+can still be one a player calls "all straight lines" and leaves. It has the rules of thumb (shape, height,
+landmarks, light, sound, monsters, rewards), read from a game's own maps, and the recipes
+(`kits/encounterkit.mjs`) that bring monsters in out of sight.
 
 1. **Describe it in a script**: rooms as `{ min, max }` boxes of empty space (`maps.carve`), what stands in
-   them, the entities. `maps.writeMap` gives the `.map`'s text.
+   them, the entities. `maps.writeMap` gives the `.map`'s text. A room may bring its own textures,
+   `{ min, max, texture: { floor, ceiling, wall } }`: one carve then makes a street of brick and asphalt with
+   a shop of tiles behind one wall 16 thick.
 2. **Check the plan**: `maps.checkPlan(map, { textures })`. Fix every error; read the leak hint. **For a mod,
    give its profile**: `maps.checkPlan(map, { mod })` (`smak map-check x.map --mod <profile>`). A map's
    entities are text that only the game's code reads, and what that code does not know it drops without a
@@ -834,7 +1059,8 @@ rock so that nothing can leak, boxes, stairs, arches, cylinders, lights, starts)
    --class <name>` shows how the mod's authors write a class: copy that, do not guess), the classes its
    program has, and its rules. The kit ships Half-Life's profile (`maps.GOLDSRC`) and no mod's:
    `docs/MAPS-MAKING.md`, "A mod's profile", is how to get from nothing to a checked one, and
-   `profiles/mastersword.mjs` is one mod's, as the example. **Never write an entity for a mod from memory.**
+   `profiles/mastersword.mjs` is one mod's, as the example (`profiles/specialists.mjs` a second: The Specialists,
+   its arenas and, as `specialists-roleplay.mjs`, the role-play cities). **Never write an entity for a mod from memory.**
 3. **Draw the source and look**: `maps.planOfSource(map)` and `maps.drawSource(map, { from, yaw })`, or
    `smak map-plan x.map -o p.png` and `smak map-view x.map -o v.png`. Flat colours, no light, a tenth of a
    second, no compilers: stairs in front of a doorway, a window in the wrong wall, a start outside its room.
@@ -852,7 +1078,11 @@ rock so that nothing can leak, boxes, stairs, arches, cylinders, lights, starts)
 7. **Draw the result and look**: `smak map-plan`, `map-views`, `map-view` on the `.bsp`. Now the textures and
    the baked light are there: a lamp's colour, a room left dark, a grate's holes; with `--game` and `--models`,
    the sky, the sprites and the models as the game will show them. `smak map-check` and
-   `smak map-reach` too: the compiled map is walked by its own clip hulls.
+   `smak map-reach` too: the compiled map is walked by its own clip hulls. For a mod with spawn areas,
+   `smak map-spawns --mod` (no monster seen appearing, no races at war on one spawn, the reward where the
+   fight was won) and `smak map-character --mod` (no five figures on the plain side of the mod's own maps).
+   For a role-play map, `smak map-wiring`: every door a property by its name, switches at what they mean to
+   work, no switch at a name nothing answers to, lifts that stop where they are called.
 8. **The game is the real test.** Tell the person the file, where it goes (`<mod>/maps/`, its `.wad` beside the
    mod's unless the compile was `--wadinclude`), and `map <name>` in the console. A mod may want its own
    entities to start a player (Master Sword: `ms_player_begin` and `ms_player_spawn`): its profile's `starts`
@@ -913,10 +1143,14 @@ or `smak wad-make my_stone.png "{my_bars.png" -o mine.wad`, each texture named a
 | A model from an .obj is a speck, or fills the room | The file's units: `scale` (39.37 for metres). `smak obj` prints its size in units. |
 | `readObj: line n: the face names point ...` | The .obj is cut short or broken: export it again. |
 | The piece is in the right place and huge or tiny | `size: "old"` against `size: "own"`. |
+| `the looping animation X does not come back to where it starts` | Its last frame is not its first again. Make the last frame a copy of the first (see "A monster from nothing"). |
+| `N animations have a box of no size` | A file made elsewhere, or a box told as zero: `replaceSequence(mdl, name, { frames: readSequence(mdl, name).frames })` measures it again. |
+| `hit box N is on bone M, and the model has ...` | A hit box (or an attachment, or a bone controller) names a bone that is not there: `setHitboxes` with a right list. |
+| `it has no hit boxes: traces against it use the entity's box` | A note: a thing that is shot at usually has them. `hitboxes: "auto"`, or `setHitboxes(mdl, autoHitboxes(mdl))`. |
 | `moves further than its scale holds` | Should not happen: `replaceSequence` and `addSequence` widen a bone's scale themselves. Tell the person; it is a fault in the kit. |
 | `too long for one animation` | Over 64 KB of values. Fewer frames, or split it in two. |
 | Texture looks blurry in the game but not in the picture | Larger than `gl_max_size`, or not a power of two. See `docs/ENGINES.md`. |
-| A mark painted on one arm is on both | The two share the same pixels (`paint` reports it as `shared`). It cannot be one-sided without laying that texture out again. |
+| A mark painted on one arm is on both | The two share the same pixels (`paint` reports it as `shared`). Give one of them pixels of its own first: `ownPixels(src, { islands: id })` (or `own` in `reskin`). |
 | A hole where a piece was taken off | It was part of the body, not gear over it. Leave it on. |
 | The model shows in the picture and not in the game | Run `check`. If it passes, the game is loading another file: ask where the mod looks first. |
 

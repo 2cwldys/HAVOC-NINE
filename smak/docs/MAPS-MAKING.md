@@ -23,7 +23,8 @@ rock; you add what stands in them from a small vocabulary; you check, compile an
 - **A `.wad` file** with the textures the map names. A map only names its textures; the pictures are in a .wad
   (Half-Life's `valve/halflife.wad`, a mod's own, or one made with this kit: `writeWad` in `src/maps/wad.mjs`).
 - **The compilers, to compile**: VHLT, also known as Vluzacn's ZHLT v34 (`hlcsg`, `hlbsp`, `hlvis`, `hlrad` and
-  their `zhlt.wad`). They are an outside program and no part of this kit. The person installs them once and
+  their `zhlt.wad`), or SDHLT, seedee's fork of them that builds on Linux with CMake (`sdHLCSG`... and
+  `sdhlt.wad`, found under either name). They are an outside program and no part of this kit. The person installs them once and
   names their folder in the `VHLT_DIR` environment variable (or puts them on the PATH, or you pass
   `findCompilers({ folder })`). Without them the map is still written, read and checked; `compileMap` says in
   one sentence that it needs them. Ask the person where they are before assuming there are none.
@@ -133,14 +134,49 @@ where it says so. Spread lists into the map: `brushes: [...carve(...), box(...)]
 | `cone(axis, centre, radius, from, to, texture, { sides, top })` | To a point at `to` (below `from`: it points down), or cut off at radius `top` |
 | `arch(axis, { centre, radius, outer, angles, pieces }, from, to, texture)` | A curve of straight convex pieces, one brush each. `outer` a number: a ring (a vault, a curved wall). `outer: { min, max }`: what is left of that rectangle outside the curve, the masonry round an arched opening. `centre`, `min` and `max` are two numbers each, the other two axes in order as for `prism`: through a wall along x, `(y, z)`. An arch over a doorway 64 wide from y 128 to 192, springing at z 80: `arch("x", { centre: [160, 80], radius: 32, outer: { min: [128, 80], max: [192, 112] } }, 384, 416, texture)`, with the doorway carved 112 high. Returns a list |
 | `bend({ centre, inner, outer, floor, ceiling, wall, angles, pieces }, texture)` | The shell of a passage that turns in plan: floor, ceiling, two walls. Its ends are open and flat; at multiples of 90 degrees they meet a box-shaped room exactly. Returns a list |
-| `stairs(min, max, high, texture, { steps, rise })` | The box filled with steps climbing towards `high`. A step over 18 is refused. Returns a list |
-| `terrain({ min, max, step, base, height, texture })` | Carved rock: a grid in plan, two triangles a cell, one brush a triangle from the flat `base` to `height(x, y)`. `base` above the heights hangs it from a ceiling; below, it is ground. Returns a list |
+| `stairs(min, max, high, texture, { steps, rise, top, tread, ramp })` | The box filled with steps climbing towards `high`. A step over 18 is refused. Returns a list. As it always was, the highest step is level with the top of the box (where the upper floor goes on, it is only more floor) and the run is shared among the steps (off the grid when it does not divide). `top: false`: no such step, the last riser climbs onto the upper floor, each step a slab of its own tread; `tread: 24`: each step that deep, laid from the high side, so that the steps stay on the grid (the box's run over them is floor); `ramp: "CLIP"`: a CLIP wedge on the nosings, last in the list, so that the flight is walked up smoothly (shots still meet the steps) |
+| `terrain({ min, max, step, base, height, texture, axis })` | Carved rock: a grid in plan, two triangles a cell, one brush a triangle from the flat `base` to `height(x, y)`. `base` above the heights hangs it from a ceiling; below, it is ground. `axis: "x"` or `"y"` stands it up: a cliff's face, a cave's rough wall (`min`, `max`, `step` and `height(a, b)` then in the other two axes, as a prism's). Returns a list |
 
 ### Rooms
 
 | | |
 | --- | --- |
-| `carve(rooms, wall, texture)` | One block of rock round all the rooms (`{ min, max }` each), with the rooms taken out. Rooms that touch or overlap join; a doorway or a window is one more small room through the rock. **It cannot leak.** `texture`: `{ floor, ceiling, wall }`. Returns a list |
+| `carve(rooms, wall, texture)` | One block of rock round all the rooms (`{ min, max }` each), with the rooms taken out. Rooms that touch or overlap join; a doorway or a window is one more small room through the rock. **It cannot leak.** `texture`: `{ floor, ceiling, wall }`. A room may bring its own, `{ min, max, texture }`: the rock it is seen from wears it (a street's brick front, a shop's tiles behind it); a slab seen from two rooms of different textures is cut where they meet. Returns a list |
+| `carvePlan(spaces, wall, texture)` | `carve` for spaces of any outline: each `{ outline, floor, ceiling, texture }` (or `outlines`: several that join; `rings`: one with holes, a yard round a well). The walls follow the outlines at any angle; what is not a space is rock, so **it cannot leak**. A space whose ceiling wears `sky` is open to it (the rock over it is sky all round, as the compilers want). Overlapping and touching spaces join; a corner that turns less than a degree is made straight. An outdoor space's `horizon` (units over its floor): the rock round it stands that high, sky over it, as the game's outdoor maps have it. Returns a list of upright convex prisms |
+| `path(points, width, { ends, mitre })` | A street, a tunnel, a track: the outline `width` wide along a line of points, mitred at each corner, to be a space's `outlines` |
+| `curve(points, { pieces, closed })` | A smooth line through points (a track that bends, a river's bank); `closed`: an outline |
+| `circle(centre, radius, { sides })` | A round outline (a plaza, a well, a tower) |
+| `readSvgSketch`, `readPngSketch`, `sketchSpaces`, `sketchMap` | A map from a drawing: `docs/MAPS-SKETCH.md` (and `smak sketch`) |
+| `convexPieces(space)` | A space's ground cut in convex outlines: a brush that fills its shape (water, a trigger, a floor of its own) |
+| `slope: { rise, toward }` on a space | Its floor a ramp across it (`slopePlane(space)` gives its height at a point) |
+
+### Pieces made to measure
+
+Each returns brushes; each refuses, in words, what a player could not walk.
+
+| | |
+| --- | --- |
+| `spiralStairs({ centre, inner, outer, from, to, start, turn, rise, tread, thick, column, texture })` | Steps round a column, each at most `rise` (16) up, `tread` (32) deep at their middle; refused when the turn above leaves less than a player's height. → `{ brushes, top }` |
+| `bridge({ from, to, z, width, thick, rails, piers, ground, texture })` | A deck at any angle with railings, and piers down to `ground` |
+| `railing(points, { z, height, thick, texture })` | A rail along a line, a post at each corner |
+| `balcony({ wall: [a, b], depth, z, rails, texture })` | A floor standing out to the left of the wall's line a → b, railed round |
+| `brokenWall({ from, to, thick, bottom, top, low, pieces, gaps, seed, texture })` | A ruin's wall: a jagged top, `gaps` of it fallen |
+| `rockWall({ from, to, bottom, top, depth, cell, seed, texture })` | Rough rock standing out to the left of a line: a straight wall made a cave's or a cliff's (in a `func_detail`) |
+| `cliffWall({ from, to, bottom, top, rise, foot, seed, texture, clear })` | A cliff along a line: pieces 96 to 224 along, each two facets meeting in a ridge and leaning back from a foot up to `foot` out, some bent half way up, some with a scree; tops from `top` to `top + rise`, uneven. Never under `top`: stood before a plumb wall, it hides it. Feet keep out of the `clear` boxes (in a `func_detail`) |
+| `backdropModel({ bounds, origin, gap, far, near, high, base, seed, name, texture, haze })` | The land round an outdoor map as one studio model: a ring of hills from `gap` outside the map's box out to `far`, fields and hedges near, woods, hazed to `haze` far off. The engine draws a model over the sky's faces, so it is seen over the walls (Master Sword Rebirth's Thornlands does this). Its `env_model` stands INSIDE the map, at `origin`; the worldspawn's `MaxRange` must reach `far` (the result's `far` says how much). → `{ mdl, origin, far, facts }` |
+| `reliefOf({ space, others, sides, amp, bank, bankWide, wide, step, fade, seed, texture, clear, patches, lift })` | A space's floor as a field of triangles (one brush each, for a `func_detail`): hummocks `amp` high, banks `bank` high towards the rock `sides`, level at its openings and in the `clear` boxes. `patches` `[{ texture, share, wide }]` paint triangles with another ground where a noise is highest (lifted `lift` units where the ground is level). → `{ brushes, heightAt(x, y), steep, painted }` (the sketch's `relief`, `bank`, `patch` keys) |
+| `scatter({ places, palette, density, clear, avoid, fringe, seed })` | Grass and flowers on cards, models, stones strewn over spaces as the game's makers strew them: in clumps, thicker by the rock (`STREWN` holds what the game's maps of each kind give). `fringe`: grass along the foot of the rock, half sunk; or several rows (a forest's edge: single trees flat and overlapping, lines of trees before them). `places` is what `sketchMap`'s result holds as `places` (each space, its rock, its ground). → `{ entities, facts }` |
+| `boulder(at, ground, size, texture, seed)`, `card(at, ground, size, texture, turn, { crossed, tile })` | A stone (a convex lump sunk in the ground) and a card (two pictures crossed, fitted once to the card; `tile`: kept in shape and repeated along it) |
+| `trail({ points, width, groundAt, texture, step, lift, sink, smooth })`, `smoothLine(points, times)` | A path worn into the ground along a line: a ribbon `width` wide over the ground, its middle `lift` over it and its edges `sink` under, wearing a picture of a path (`{ name, size }`: a band of dirt down it, the ground's grass at its edges) turned to run along it. Give its `func_detail` `zhlt_noclip` 1: the player walks the ground under it. → `{ brushes, along }` |
+| `ambience({ places, sounds, density, seed })` | Looping sounds (ambient_generic) over spaces: `sounds` `[{ file, weight, volume: [low, high], heard: "small" \| "medium" \| "large" \| "everywhere", byWall, spacing, least }]`, `density` to each 1000 player-heights squared of floor (the game's wild maps: 0.65 to 11.55). → `{ entities, facts }` |
+| `SIZES`, `ruin({ at, size, turn, groundAt, texture, kind, seed, thick })` | The sizes of the game's pieces by the kind of map (door, step, roof, ceiling, way: [lower quartile, median, upper quartile]); a ruined house of broken walls sized by them, its door's gap facing `turn`. → `{ brushes, box }` (the box to keep clear) |
+| `house({ at, size, turn, groundAt, storeys, kind, jetty, eaves, pitch, chimney, set, seed })`, `HOUSE_SET` | A town's house as the game's are built: a stone footing, a ground storey of brick, an upper storey of timber and plaster jutting out, windows painted on the walls' pictures (fitted so none is cut: sizes in bays of 128), a roof of the kind's slope with eaves, gable and ridge, sometimes a chimney, a door of the kind's size with its frame and steps down to the ground. `storeys: 1` a cottage. → `{ brushes, box, door, floor, spots, lamp }`: `spots` places by its walls for barrels and carts, `lamp` where a light over its door goes |
+| `fence({ points, height, post, groundAt, texture, seed })` | A fence of wood along a line: posts every `post`, two rails following the ground |
+| `dressRoom({ place, use, set, base, trim, beams, torches, torchHeight, glow, vault, inlay, dais, clear, doors, gallery, spots, seed })` | A carved room (one of `sketchMap`'s `places`) dressed as the game's interiors are: a battered base and a moulding along its walls, beams across its short way on corbels (pilasters and free columns in a hall), a pitched ceiling with tie beams (`vault`), the floor's middle laid in another stone (`inlay`), a dais, torches with their fire and light, webs across cut corners, moss and chains hanging, and the things of its `use` (hall, store, bedroom, kitchen, library, crypt, passage: `ROOM_USES`, `ROOM_THINGS`), kept off the doorways (`clear`); the base stops at the doorways (`doors`) and no torch or pilaster stands before one; the torches are MSC's `TORCH` (`props/torch_med.mdl`) at `TORCH_SCALE`; a `gallery`: a ledge up a wall on posts, railed, and a stair along the wall up to it (`loose`: its steps given back a brush each, for a builder to make them rise); `spots`: places by the walls kept free for the builder (a chest that breaks, a monster's place). → `{ brushes, cards, entities, things, spots, gallery }` |
+| `INTERIOR_SETS`, `pickSet(set, seed)`, `chamfered(outline, cut)` | Interiors' textures from MSC's ms_generic.wad (keep, cellar, house: lists a room picks one of each from); an outline with its corners cut back (walls that face many ways) |
+| `learnDetails(texts)`, `detailText(names, table, { fallback })` | The detail texture the game's own `_detail.txt` files give each texture (the most used), and the `<map>_detail.txt` for the textures a map uses. → `Map`; `{ text, given, left }` |
+| `additions(edited, made)`, `mergeMaps(...maps)` | What a person added to a map the kit made (by the brushes' planes, however the editor wrote them), and maps as one |
+| `standingIn(map, { min, max }, { by, starts })` | What stands in a box of a map, moved by `by`: a building a map spec (docs/SPEC.md) stood in its yard, without the yard's rock, its starts and its sun, to be put in another map with `mergeMaps` |
 | `hollow(min, max, wall, texture)` | A single sealed room: six walls around the space asked for. Returns the six, in order: floor, ceiling, west, east, south, north |
 | `subtract(box, hole)` | What is left of one `{ min, max }` box with another taken out: up to six boxes (data, not brushes) |
 
@@ -149,6 +185,7 @@ where it says so. Spread lists into the map: `brushes: [...carve(...), box(...)]
 | | |
 | --- | --- |
 | `moved(brushes, [x, y, z])` | A brush or a list, moved; the pictures move with their faces |
+| `turned(brushes, degrees, pivot, { axis, lock, snap })` | A brush or a list turned anticlockwise (seen from above) about `pivot`: a house at an angle to its street, a part of a map turned. The pictures turn with their faces unless `lock: false`. At other than a quarter turn the planes are off the grid, as an angle is |
 | `snapped(brush, grid)` | Every point of its planes rounded to the grid; refused if that breaks it |
 | `offGrid(brush, grid, tolerance)` | The points of its planes that are off the grid |
 | `shapeOf(brush)` | The brush worked out from its planes as the compiler does it: `{ faces, corners, min, max, volume, faults }` |
@@ -185,7 +222,8 @@ Values may be numbers and lists: `origin: [0, 0, 36]` is written `"0 0 36"`. An 
 | --- | --- |
 | `checkPlan(map, { textures, starts, range, grid, cell, mod, definitions, folders })` | `{ errors, warnings, facts, leak }` before any compile. An entity is numbered in its sentences as the pictures number it: the first of `entities` is 1. `mod`: the mod's profile, which gives the starts, the textures and the folders and has the entities checked; `definitions`: an FGD's path, or learned definitions, with no profile |
 | `checkEntities(map, { mod, definitions, folders })` | The entities' part by itself: `{ errors, warnings, facts }` (`docs/MAPS.md`, "Entities against a mod") |
-| `GOLDSRC`, `loadMod(file, { folders, cache })`, `definitionsOf(fgd)`, `learnEntities(folder, { cache })`, `classesOfDll(bytes)` | Half-Life's own profile; a mod's read from a file; entity definitions from an FGD, from the mod's own maps, and the classes its program has |
+| `GOLDSRC`, `loadMod(file, { folders, cache })`, `definitionsOf(fgd)`, `learnEntities(folder, { cache })`, `classesOfDll(bytes)`, `definitionsOfCode(folder)` | Half-Life's own profile; a mod's read from a file; entity definitions from an FGD, from the mod's own maps, the classes its program has, and the classes and keys its C++ source reads |
+| `writeFgd(definitions, { name })` | An .fgd file's text from definitions put together (`joinDefinitions(code, learned, fgd)`): for a mod with no FGD, or one behind its code |
 | `leakHint(map, { cell })` | The flood on its own: `{ leak, cell, cells, from }` |
 | `reachOf(map, { from, jump, slopes, exits, doors, open, shut, bodies, to, cell })` | The walk test: `{ warnings, facts, entities, unreached, stuck, hanging, oneWay, leaps, openings, routes, ... }` (`docs/MAPS.md`, "The walk test") |
 | `storeyCuts(map)` | The heights to cut the map at so that every floor is seen: `[{ z, floors, area }]` |
@@ -213,6 +251,11 @@ written over it: read it as the example.
 1. **What classes exist.** The game's own program has the certain answer:
    `maps.classesOfDll(readFileSync("<Half-Life>/ts/dlls/mp.dll"))` lists them (the `gamedll` line of
    `ts/liblist.gam` names the file). Put the file in the profile as `dlls`.
+   **With the mod's C++ source** (the server library's, `dlls/`), `maps.definitionsOfCode(folder)` reads
+   more: every class `LINK_ENTITY_TO_CLASS` makes, with the keys its `KeyValue` and its bases' read, each
+   typed by what the code does with the value. `smak map-fgd <dlls> -o mod.fgd --fgd <its FGD> --maps
+   <its maps>` writes an FGD from all three for the person's editor, and lists the keys the code reads that the
+   old FGD left out. The Specialists' source gives 192 classes, and 60 of them have keys its shipped FGD lacks.
 2. **An FGD, when there is one.** Look in the mod's folder (`ts/ts_fgd.fgd`; Master Sword's is in `msc/dev/`)
    and in the editors' folders (J.A.C.K., Hammer, TrenchBroom). `maps.definitionsOf(file)` reads it; `fgd` in
    the profile. It gives the keys with their types, and each class's `size(...)`, which becomes the box the
@@ -224,6 +267,10 @@ written over it: read it as the example.
 4. **The starts.** Which classes does a player start at? The `mpentity` line of `liblist.gam`, and in what
    was learned the classes every map has (`info_player_deathmatch` in 28 of The Specialists' 29 maps).
    `starts` in the profile.
+   Beside them: `exits`, the classes a player leaves a map by (the walk test then knows a way out from a
+   dead end), and `modelOf(keys)`, the model the game gives an entity whose keys name none, when the mod
+   keeps that somewhere you can read (a script, a table by class): the pictures then show a monster as
+   itself and not as a box.
 5. **Run it on the mod's own maps first**: `smak map-check <Half-Life>/ts/maps/<name>.bsp --mod work/ts.json
    --game <Half-Life>/ts --game <Half-Life>/valve`, on three or four. The game's own maps must come out
    nearly clean. What they are told of is one of three things: a real slip of that map (a name nothing answers
@@ -348,6 +395,54 @@ bright.
 - **The sun**: faces wearing `sky`, and one `sunLight`. No sky faces, no sun.
 - `checkPlan` warns when nothing lights the map, and when a texture light names a texture no face wears.
 
+## Seeing it in the game
+
+Every picture above is the kit's own drawing. `src/play.mjs` shows the map in the game itself: it loads the
+map in a running engine, gets through the game's menu, walks, turns, speaks, and takes pictures of what the
+player sees. A door that opens, an NPC that answers and a monster that appears are seen here and nowhere
+else.
+
+**What it needs**, beside the kit: a browser build of the Xash3D engine with the game in it, served at an
+address (the person has one or has not; ask), and Playwright, which drives the browser. Neither is part of
+this kit, which has no dependencies: Playwright is installed in a folder of the person's own (`npm install
+playwright`, `npx playwright install chromium`) and that folder is named with `--playwright`, or in the
+`PLAYWRIGHT_DIR` environment variable. Without it the command says so in one sentence.
+
+```
+smak play http://127.0.0.1:8097/?args= --map orchard --steps steps.json -o work/seen \
+     --mod smak/profiles/mastersword.mjs --game <Half-Life>/msc --game <Half-Life>/valve --playwright <folder>
+```
+
+`steps.json` is a list. A step does one thing, and any step may also `wait` (milliseconds, after it) and take
+a `shot` (a picture, after the wait):
+
+| A step | What it does |
+| --- | --- |
+| `{ "command": "noclip" }` | A console command, or a list of them |
+| `{ "say": "hail" }` | The words said as the mod's profile says a thing is said |
+| `{ "walk": 3000 }` | Forward for 3 seconds; `"to": "back"`, `"left"` or `"right"` |
+| `{ "turn": 90 }` | A quarter turn to the left (under 0: to the right) |
+| `{ "button": "jump", "ms": 200 }` | One of the game's buttons held: `jump`, `duck`, `use`, `attack`, `moveup`... |
+| `{ "hold": "w", "ms": 2000 }`, `{ "press": "Enter" }` | A key of the keyboard held, or pressed once |
+| `{ "click": [512, 330] }` | A click at that place of the page, in pixels |
+| `{ "wait": 5000 }`, `{ "shot": "gate" }` | Only a wait; only a picture |
+
+After a step that does something and gives no `wait`, a second is waited. The pictures are written to the
+folder as `00_loaded.png`, `01_...png`, numbered in the order taken, with the game's console in `log.txt`.
+Two are taken unasked: `loaded`, when the map has loaded, and `entered`, after the menu. **Open them**: a run
+that never got into the game shows in those two at once. From a script it is `play.play({ driver, map, steps,
+out, mod })` with `play.browserDriver({ url, playwright })`, which resolves to `{ pictures, steps, log }`.
+
+- **Since 0.13 this section is the short of it: `docs/PLAY.md` is the whole.** The game's text is heard and
+  written to `log.txt`; a step waits for a line (`until`) and a run is held to lines (`expect`, `expectNot`);
+  `turn`, `face` and `look` are exact; `where` reads the player's place and `goto` puts him at one (by the
+  profile's `play.goto`); `--serve` and `--attach` keep the game up between runs.
+- **The game's own part is in the profile**, as its `play` field: `enter` (the steps that get through the
+  menu once the map has loaded), `say` (the console commands that say a thing, with `{text}` for the words),
+  `loaded`, `goto`, `messages` and `screen` (the page's size the clicks were measured on):
+  `profiles/mastersword.mjs`.
+- Say to the person what the run's lines proved, what you saw in its pictures, and what you did not try.
+
 ## The limits of this way of making maps
 
 - **Convex brushes only.** That is the format, not the kit: an L-shaped block is two boxes. `solid` and
@@ -355,22 +450,25 @@ bright.
 - **No curves but by pieces.** A cylinder is a prism of flat sides; an arch is a run of wedges. Twelve sides
   read as round at a room's scale. Their corners fall off the grid (`snap: 1` rounds them, at the cost of a
   slightly uneven outline); keep such pieces as furniture inside a sealed room.
-- **`carve` cuts boxes.** A room that is not a box is carved as a box and shaped with pieces put into it:
+- **`carve` cuts boxes; `carvePlan` cuts outlines in plan.** With `carvePlan` a room is any shape in plan,
+  upright walls at any angle, between a flat floor and a flat ceiling. A sloped floor or a vault is still a
+  piece put in (`terrain`, `wedge`, `arch`). With `carve`, a room that is not a box is carved as a box and shaped with pieces put into it:
   chamfers along a tunnel make it an octagon, a `terrain` hung under the ceiling makes it a cave, an `arch`
   in a doorway makes it arched. All the rock wears one set of textures; to give a room its own, line it with
   thin boxes of another texture (16 thick, inside the carved space).
 - **No brush is cut by another.** Two brushes may overlap, and the compiler sorts it out, but the kit has no
   "subtract this shape from that one" beyond a box from a box.
 - **Texture alignment is per face, by numbers.** There is no "fit" or "wrap round the corner": see the fitting
-  sum above. Brushes turned in space are not offered (`moved` only).
+  sum above. Brushes are turned about an upright axis (or x or y) with `turned`, their pictures with them.
 - **Compile times.** A few rooms: seconds. `hlvis` grows steeply with open space and with detail the world is
   cut by: put small pieces (beams, lanterns, posts) in a `func_wall` or `func_illusionary` so they do not cut
   the world, when a map grows slow. `fast: true` for drafts; each program has a timeout (2 minutes for hlcsg
   and hlbsp, 15 for hlvis and hlrad; `timeout` changes them).
 - **`readMap` reads Valve 220** and nothing older, and keeps an entity's keys in an object: a key that is a
   whole number (rare) is listed first when written again.
-- **Nothing here runs the game.** Doors that open, triggers that fire, a monster that finds its way: say to
-  the person what you could not verify. The walk test is geometry (the box of a player moved over the map,
+- **Nothing here runs the game**, unless the person has a browser build of it ("Seeing it in the game").
+  Doors that open, triggers that fire, a monster that finds its way: say to the person what you could not
+  verify. The walk test is geometry (the box of a player moved over the map,
   with the engine's numbers for a step, a jump, a run and a slope): it was never measured against the game's
   own movement, and where a monster's origin is (its feet, the kit takes it) and whether it is dropped to the
   floor are the mod's to say.

@@ -56,6 +56,17 @@ const NEAR_LEAST = 0.5;
 const FLAT_ON_SCREEN = 1e-9;
 /** The least reach a model is framed by, so that a model of one point is not divided by nothing. */
 const LEAST_REACH = 1e-6;
+/**
+ * The views that have a name beside "orbit" and "first": where the camera of an orbit view stands for each.
+ * "side" is the model's left side, so its front (+x) is to the picture's left.
+ */
+export const NAMED_VIEWS = {
+  side: { yaw: 90, pitch: 0 },
+  front: { yaw: 0, pitch: 0 },
+  top: { yaw: 0, pitch: 90 },
+};
+/** The colour of the ground's line. */
+const GROUND = [240, 200, 70];
 
 /**
  * The model's triangles as it is shown: { seq (a name or a number; null: the bones at rest), frame (may fall
@@ -190,6 +201,20 @@ function cameraOf(opts, points, wide, high) {
 }
 
 /**
+ * Where a point of the model lands in a picture `render` would draw with the same options (an orbit view with no
+ * perspective): `(p) -> [x, y]` in pixels from the top left, and the bones' matrices of that pose (`pose`). For a
+ * picture drawn over a render, such as the skeleton a pose-guided drawing follows.
+ */
+export function placeIn(src, opts = {}) {
+  if (NAMED_VIEWS[opts.view]) opts = { ...opts, yaw: NAMED_VIEWS[opts.view].yaw + (opts.yaw ?? 0), pitch: NAMED_VIEWS[opts.view].pitch + (opts.pitch ?? 0), view: "orbit" };
+  if (opts.view === "first" || opts.dist > 0) throw new Error("placeIn: an orbit view with no perspective only");
+  const { width = 512, height = 512 } = opts;
+  const { tris, pose } = posed(src, opts);
+  const { right, up, mid, scale } = cameraOf(opts, pointsOf(tris), width, height);
+  return { pose, at: (p) => [width / 2 + dot(sub(p, mid), right) * scale, height / 2 - dot(sub(p, mid), up) * scale] };
+}
+
+/**
  * A polygon ([[x, y, z, ...], ...] in the camera's space) with what is nearer the eye than `near` cut off at
  * that plane.
  */
@@ -219,13 +244,26 @@ function cutNear(polygon, near) {
  *               then say nothing
  *   within      orbit: { mid, far } to frame the picture by instead of this pose's own size (see framing):
  *               several pictures to one scale
+ *               "side", "front" or "top": an orbit view from there (NAMED_VIEWS). A `yaw` or `pitch` given with
+               one turns the camera on from there: "front" with yaw 205 looks from 205, "side" with yaw 30 from
+               120 (the left side, turned 30 further round), "top" with yaw 90 has the model's left at the top
+ *   ground      true: a line across the picture where z = 0 is, the floor a thing stands on, drawn over the
+ *               model so that a foot under it is seen crossed. Only a level orbit view has such a line
+ *               (pitch 0: "side", "front"); any other is refused
  *   width, height, background [r, g, b], light (false: the texture as it is), cull (false: both sides of
- *   every triangle)
+ *   every triangle; "solid": both sides of every triangle but a masked one's, whose holes show its far side
+ *   on purpose: a net)
  *   seq, frame, pose, body, skin   as in posed
+ *   parts       only these bodyparts are drawn (their numbers), and the picture is framed by them alone: the
+ *               weapon of a first-person file without the arms that hold it
  * A triangle seen from behind is not drawn, as in the game: a hole in the picture is a triangle the wrong way
  * round.
  */
 export function render(src, opts = {}) {
+  if (NAMED_VIEWS[opts.view]) {
+    const named = NAMED_VIEWS[opts.view];
+    opts = { ...opts, yaw: named.yaw + (opts.yaw ?? 0), pitch: named.pitch + (opts.pitch ?? 0), view: "orbit" };
+  }
   const first = opts.view === "first";
   const perspective = first || opts.dist > 0;
   const {
@@ -235,7 +273,8 @@ export function render(src, opts = {}) {
     light = true,
     cull = true,
   } = opts;
-  const { tris } = posed(src, opts);
+  const all = posed(src, opts).tris;
+  const tris = opts.parts ? all.filter((t) => opts.parts.includes(t.where.bodypart)) : all;
 
   // the picture in dots, several to a pixel: each dot's colour, and how far from the camera what it shows is
   const wide = width * SUPERSAMPLE;
@@ -265,7 +304,7 @@ export function render(src, opts = {}) {
     const flags = tex?.flags ?? 0;
     const picture = tex ? pictureOf(tex) : null;
     // seen from behind?
-    if (cull) {
+    if (cull === true || (cull === "solid" && flags & 64)) {
       const facing = cross(sub(t.c[1].p, t.c[0].p), sub(t.c[2].p, t.c[0].p)).map((v) => v * FRONT);
       const toEye = perspective ? sub(eye, t.c[0].p) : forward.map((v) => -v);
       if (dot(facing, toEye) <= 0) return;
@@ -356,6 +395,18 @@ export function render(src, opts = {}) {
   for (const t of tris) if (!glows(t)) draw(t, false);
   for (const t of tris) if (glows(t)) draw(t, true);
 
+  if (opts.ground) {
+    if (perspective || Math.abs(up[2]) < NEARLY_UPRIGHT)
+      throw new Error(
+        'ground: the line of z = 0 is drawn in a level view with no perspective (pitch 0: view "side" or "front"); seen from above or below the ground is not a line',
+      );
+    // a point at z = 0 is mid[2] below what the camera looks at, whatever its x and y: one row of the
+    // picture, and the whole of that row's dots, so that the line is one pixel of its own colour
+    const row = Math.floor((high / 2 + mid[2] * scale) / SUPERSAMPLE) * SUPERSAMPLE;
+    for (let y = Math.max(0, row); y < Math.min(high, row + SUPERSAMPLE); y++)
+      for (let x = 0; x < wide; x++) colour.set(GROUND, (y * wide + x) * 3);
+  }
+
   // each pixel the mean of its dots
   const rgba = new Uint8Array(width * height * 4);
   for (let y = 0; y < height; y++)
@@ -435,6 +486,24 @@ const DARK = [20, 22, 26];
 const NAME_AT = 6;
 
 /** Writes `text` into a picture at (x, y), each dot `k` pixels, light on a dark band. */
+/**
+ * Text in the labels' letters as a mask: `{ width, height, at(x, y) }`, `at` true on a letter's dot, each dot
+ * `k` pixels square. Capitals, digits and a few marks (others are blank); for painting a word on a picture.
+ */
+export function textMask(text, k = 1) {
+  const letters = String(text).toUpperCase();
+  const width = Math.max(1, (letters.length * GLYPH_STEP - 1) * k);
+  const height = 5 * k;
+  const at = (x, y) => {
+    const n = Math.floor(x / k / GLYPH_STEP);
+    const bit = Math.floor(x / k) - n * GLYPH_STEP;
+    const row = Math.floor(y / k);
+    if (n < 0 || n >= letters.length || bit >= GLYPH_WIDE || row < 0 || row >= 5) return false;
+    return !!((GLYPHS[letters[n]] ?? NO_GLYPH)[row] & (4 >> bit));
+  };
+  return { width, height, at };
+}
+
 export function label(img, text, x, y, k = 2, colour = [235, 235, 235]) {
   const letters = String(text).toUpperCase();
   const put = (px, py, c) => {
@@ -508,7 +577,7 @@ const SIX_VIEWS = [
  */
 export function sheet(src, opts = {}) {
   const size = opts.size ?? 384;
-  const within = framing(src, [opts]);
+  const within = opts.within ?? framing(src, [opts]);
   return tile(
     SIX_VIEWS.map(([, yaw, pitch]) =>
       render(src, { ...opts, view: "orbit", within, yaw, pitch, width: size, height: size }),
@@ -523,6 +592,9 @@ export function sheet(src, opts = {}) {
  * has no more than that), each with its frame's number. { seq (a name or a number; the first unless told),
  * count (12), cols (4), from, to, view, ... as render }. It throws when the model has no animation, or none
  * of that name.
+ * Every frame is drawn by one camera at one scale, so a thing seen to move in the strip moves in the
+ * animation. For a walk: { view: "side", ground: true }, the feet against the floor's line. (An animation
+ * that travels has its travel taken out of its frames, as `movement`: it walks on the spot here.)
  */
 export function strip(src, opts = {}) {
   const number = sequenceAt(src, opts.seq ?? 0);

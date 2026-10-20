@@ -9,7 +9,7 @@ import {
   replaceMesh,
   addMesh,
   addModel,
-  emptyMesh,
+  clearModel,
   bones,
   boneParents,
   restPose,
@@ -198,8 +198,10 @@ export function graft(
  *   instead   the name of the texture of the old body that the new one takes the place of. Needed only when
  *             the body wears several: its other meshes are copied wearing what they wore
  *   bodypart  for a body number: which bodypart's submodel is meant (the first unless told)
- * In a model of several bodyparts add to the last one only: the body numbers of the bodyparts after it are
- * counted from how many submodels it has. Mind the engine's count of submodels (`check` tells).
+ * In a model of several bodyparts, a body added to one that is not the last raises the `base` of those
+ * after it (`addModel`): the new body's own number is as said above, and the numbers that show another
+ * than the first submodel of a later bodypart change with the bases. Mind the engine's count of submodels
+ * (`check` tells).
  * The copy stores each pair of bone and normal once, so it may store fewer normals than the original (a body
  * whose normals are all 0, 0, 0 on one bone: one). Every corner still reads the normal it read, and the
  * engine lights a stored normal from its bone and its numbers alone, so the copy is lit as the original
@@ -430,7 +432,9 @@ export function layoutMoved(
  * first mesh takes it.
  *   tris      [[{ p, uv, bone } x3]]: what the workshop makes. `p` is in the space of the bone the corner
  *             hangs on, unless `pose` is given; `uv` 0 to 1; `bone` a name or a number where a corner hangs
- *             on another than `bone`
+ *             on another than `bone`. A corner may carry `to` (with no `pose`): the matrix that takes its
+ *             `p` from the space it is given in to its own bone's, as `meshOf` has it, for a piece laid out
+ *             in one bone's space whose corners hang on several (its faces are then measured whole)
  *   bone      the bone the body hangs on (a name or a number; the first unless told)
  *   pose      { seq, frame }: `p` is in model space, as the model stands in that pose, and is taken into its
  *             bone's space
@@ -483,6 +487,7 @@ export function putBody(
         smooth: corner.smooth,
         n: ownNormals ? corner.n : undefined,
         ...(intoBone ? { bone: own, to: intoBone[own] } : own !== main ? { bone: own } : {}),
+        ...(!intoBone && corner.to ? { to: corner.to } : {}),
       };
     }),
   );
@@ -516,14 +521,14 @@ export function putBody(
     mdl = replaceMesh(addModel(src, bodypart, name), { bodypart, model: number, mesh: 0 }, mesh, given);
   } else {
     // its first mesh takes the triangles, its other meshes are emptied
+    // emptied first, points and normals too: the old body's would still count against the engine's limits
     const old = part.models[number];
     mdl = replaceMesh(
-      old.meshes.length ? src : addMesh(src, { bodypart, model: number }),
+      old.meshes.length ? clearModel(src, { bodypart, model: number }) : addMesh(src, { bodypart, model: number }),
       { bodypart, model: number, mesh: 0 },
       mesh,
       given,
     );
-    for (let k = 1; k < old.meshes.length; k++) mdl = emptyMesh(mdl, { bodypart, model: number, mesh: k });
     if (old.meshes.some((m) => m.numtris && m.texture?.name === given.name)) {
       const moved = layoutMoved(src, mdl, {
         body: number * part.base,

@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { dot, cross, sub } from "../vec.mjs";
 import { shapeOf, planesOf, offGrid, mapNumber } from "./source.mjs";
 import { START_CLASSES } from "./space.mjs";
+import { modelless } from "./entities.mjs";
 import { modOf } from "./mod.mjs";
 import { checkEntities as checkAgainstMod } from "./rules.mjs";
 
@@ -22,19 +23,26 @@ import { checkEntities as checkAgainstMod } from "./rules.mjs";
  *   key, value    letters in an entity's key and in its value, as hlcsg and the engine read them
  *   brushes       brushes in one map, as hlcsg counts them
  */
-export const SOURCE_LIMITS = { range: 4096, textureName: 15, key: 31, value: 1023, brushes: 32768 };
+export const SOURCE_LIMITS = { range: 4096, textureName: 15, key: 31, value: 1023, brushes: 32768, switchedLights: 32 };
 
-/** The compilers' own textures (their zhlt.wad, which compileMap adds itself): never looked for in the given list. */
+/**
+ * The compilers' own textures (VHLT's zhlt.wad, SDHLT's sdhlt.wad, which compileMap adds itself): never looked
+ * for in the given list. BEVELHINT, SPLITFACE and the !CUR_ currents are SDHLT's alone.
+ */
 const TOOL_TEXTURES = [
-  "AAATRIGGER", "BEVEL", "BLACK_HIDDEN", "BOUNDINGBOX", "CLIP", "CLIPBEVEL", "CLIPBEVELBRUSH", "CLIPHULL1",
-  "CLIPHULL2", "CLIPHULL3", "CONTENTEMPTY", "CONTENTWATER", "HINT", "NOCLIP", "NULL", "ORIGIN", "SKIP", "SKY",
-  "SOLIDHINT",
+  "AAATRIGGER", "BEVEL", "BEVELHINT", "BLACK_HIDDEN", "BOUNDINGBOX", "CLIP", "CLIPBEVEL", "CLIPBEVELBRUSH",
+  "CLIPHULL1", "CLIPHULL2", "CLIPHULL3", "CONTENTEMPTY", "CONTENTWATER", "HINT", "NOCLIP", "NULL", "NULLNOCLIP", "ORIGIN",
+  "SKIP", "SKY", "SOLIDHINT", "SPLITFACE", "!CUR_0", "!CUR_90", "!CUR_180", "!CUR_270", "!CUR_UP", "!CUR_DWN",
 ]; // prettier-ignore
 /**
  * A brush that wears one of these is no wall against the void: water and other liquids (`!`, `*`), and the
- * compilers' marks for an origin, a clip, a hint and the like.
+ * compilers' marks for an origin, a clip, a hint and the like. Measured with VHLT and SDHLT 1.3.1 alike (a room
+ * whose one wall wears it, compiled): SKIP and SPLITFACE leak in every hull, CLIP in hull 0; NOCLIP and
+ * NULLNOCLIP seal hull 0 but leak in hulls 1 to 3, so a player walks out through them, which the compile
+ * reports as a leak; SOLIDHINT, BEVELHINT and NULL seal.
  */
-const SEALS_NOTHING = /^(!|\*|origin$|clip|hint$|boundingbox$|contentempty$|contentwater$|noclip$)/i;
+const SEALS_NOTHING =
+  /^(!|\*|origin$|clip|hint$|skip$|splitface$|boundingbox$|contentempty$|contentwater$|noclip$|nullnoclip$)/i;
 /** The entities that light a map. */
 const LIGHTS = ["light", "light_spot", "light_environment", "info_texlights"];
 /** How many of one kind of fault are listed before the rest are counted. */
@@ -361,6 +369,11 @@ function checkTextures(listed, textures, { errors, facts }) {
 /** The entities: each with a classname, point entities with a place inside the range, keys the formats hold. */
 function checkEntities(map, { range, starts }, { errors, warnings, facts }, used) {
   const entities = map.entities ?? [];
+  const empty = modelless(entities, (entity, key) => entity[key]);
+  if (empty.length)
+    errors.push(
+      `${empty.length} entities precache a model they do not name, and the map would stop on load ("PF_precache_model_I: Bad string ''"): ${empty.slice(0, 8).map(({ entity, index }) => `entity ${index + 1} ${entity.classname}`).join(", ")}: give each its model (a sprite for env_sprite and env_glow)`,
+    );
   const noPlace = [];
   const outside = [];
   const badKeys = [];
@@ -406,6 +419,18 @@ function checkEntities(map, { range, starts }, { errors, warnings, facts }, used
     warnings.push(
       "nothing lights it (no light, light_spot, light_environment or info_texlights): hlrad will leave it black",
     );
+  // a light with a name is switched: hlcsg gives each name a style of its own from 32 to 63 (the engine has
+  // 64 styles, MAX_LIGHTSTYLES; the first 32 are the game's patterns) and stops with "Exceeded
+  // MAX_SWITCHED_LIGHTS" past 32 names
+  const switched = new Set(
+    entities.filter((entity) => /^light/.test(entity.classname ?? "") && entity.targetname).map((entity) => String(entity.targetname)),
+  );
+  if (switched.size > SOURCE_LIMITS.switchedLights)
+    errors.push(
+      `${switched.size} names of lights: a light with a name is switched, and a map holds ${SOURCE_LIMITS.switchedLights} switched names at the most (hlcsg: "Exceeded MAX_SWITCHED_LIGHTS"). Give lights that switch together one name, or leave some lamps always on`,
+    );
+  else if (switched.size)
+    facts.push(`${switched.size} of the ${SOURCE_LIMITS.switchedLights} names a map may give its switched lights`);
   for (const entity of entities.filter((one) => one.classname === "info_texlights"))
     for (const key of Object.keys(entity)) {
       if (["classname", "origin", "brushes"].includes(key)) continue;
