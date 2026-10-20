@@ -53,6 +53,7 @@ A point of a mesh in model space, in some pose: `apply34(pose[corner.bone], corn
 | `replaceMesh(src, where, mesh, texture)` | Replaces one mesh. `mesh`: `{ bone, verts, norms, tris: [[[vert, norm, s, t] ×3]], vertBones?, normBones? }` (what `meshOf` returns). `texture` is added to the file unless one of that name is there. |
 | `addMesh(src, { bodypart, model })` | One more mesh in a submodel, empty; `replaceMesh` fills it. For a part that needs a texture of its own. |
 | `addModel(src, bodypart, name)` | One more submodel in a bodypart, with one empty mesh. Its number is the old count. |
+| `addBodypart(src, name, models = [name])` | One more bodypart after the others, a submodel (with one empty mesh) for each name in `models`. Its base is the product of the counts before it, so every body number the file had shows what it showed and the new bodypart's first submodel. The engine draws a submodel of every bodypart: one of a single submodel is always shown. |
 | `emptyMesh(src, where)` | Leaves a mesh without triangles. |
 | `filterMesh(src, where, keep)` | Keeps the triangles for which `keep([bone, bone, bone])` is true. |
 | `addBones(src, [{ name, parent, pos, rot }])` | More bones after the ones it has, at rest in every animation. Old bones keep their numbers. |
@@ -434,6 +435,25 @@ within `tol` pixels' worth of where the old one did; else it is **moved**, or **
 nothing there. `share` is moved and fresh over the pixels worn; `bare` the pixels only the old one wore; `warning`
 a sentence when `share` passes 0.02, else null.
 
+### Rigid pieces in bodyparts of their own
+
+`putRigid(src, { pieces, texture, space = "bone", budget = 2048, name = "rigid", smooth = 30 })` → `{ mdl, bodyparts, report }`
+
+Pieces each wholly on one bone (a robot's plates, rods and fittings on a game's skeleton) put into new bodyparts
+of one submodel each (`addBodypart`), so every body shows them, the model's own bodies keep their numbers, and
+nothing stretches as the game's animations play. As many bodyparts as the points and normals need, `budget` each
+(GoldSrc holds 2048 a submodel).
+
+| Option | Meaning |
+| --- | --- |
+| `pieces` | `[{ bone, tris, name? }]`: `bone` a name or a number; `tris` `[[{ p, uv } ×3]]`, `uv` 0 to 1, corners may carry `group` and `smooth`. A piece's faces share normals among themselves only. |
+| `space` | `"bone"`: `p` in the space of the piece's bone. `"rest"`: in model space with the bones at rest (what `solids` and the kitbash kit make). |
+| `budget` | The most points, and the most normals, one bodypart's submodel is given. The pieces go in the order given, a new bodypart begun when the next would pass it. |
+| `name` | The bodyparts are `name`, `name2`, `name3`... |
+
+`bodyparts` are their numbers; `report` one `{ bodypart, name, pieces, tris, verts, norms }` each. It throws for a
+piece that alone passes the budget, and when the bodyparts would pass the engine's 32.
+
 ### A picture carried to a changed shape
 
 `carryPicture(old, now, options)` → `{ mdl, report }`. Every pixel that the body `body` of `now` wears is painted
@@ -495,12 +515,23 @@ it is measured. Two files on one skeleton give the same space for a bone of the 
 | `fitBetween(from, to, { uniform, points, boxes })` | The fit `p * k + t`, each axis its own, that takes one piece to another: `{ k, t, scale, worst, by, at(p), back(p) }`. From two lists of the same points in the same order when they are that (`by: "points"`, `worst` the farthest a point is left), else from their boxes (`by: "boxes"`). A game's woman's helmet from the man's: about 0.84 and a shift. |
 | `clearance(inner, shell, { centre, sides })` | Is this inside that: `{ inside, outside, open, tightest: { gap, at, on }, worst: { out, at, on }, fits }`. Counts of the inner points that the shell covers, that poke through it, and that it does not reach (below a helmet's rim); the inside point nearest the wall and its gap in units; the outside point farthest out. |
 | `bodyCounts(src, bodypart = 0)` | `[{ body, name, tris, verts, norms, textures }]` for every body, and `.median`: a new body's weight against the file's own. |
+| `motionOverlaps(src, pieces, seqs, { step = 2, tol = 0.25, still, space = "bone" })` | Rigid convex pieces driven into each other by the animations: `{ built, sequences: [{ name, frames, pairs: [{ a, b, deep, frame, near }] }], worst, skipped }`. See below. |
 
 `clearance` looks from the middle of the inner points through each of them: a point is **inside** when the line
 leaves the shell beyond it, **outside** when it has left the shell before reaching it, **open** when it never
 leaves it. The line leaves through a face it meets from behind, so a lining, or a cone that closes a helmet's
 inside, is not counted: the gap is to the wall. `inner` is points or triangles; `shell` triangles from `bodyIn`
 or from the workshop, in the same space. It is right for a shell that its wearer's middle sees all of.
+
+`motionOverlaps` is for pieces each on one bone, each convex (as `solids` makes them), given as `[{ bone, tris,
+name? }]` with `tris` in the bone's space (or in model space at rest, `space: "rest"`). For each pair on two bones,
+frame by frame (every `step`th of each animation of `seqs`, all the file keeps unless told), it measures how deep
+the corners of one go inside the other, past how deep they are as built (the rest pose, or `still: { seq, frame
+}`), and tells the pairs deeper than `tol`. Only pairs whose spheres (a piece's middle and its farthest corner)
+meet are measured. `built`: the pairs already in each other as built; `near`: the bones are next to each other
+(the same parent, or one the other's parent or grandparent), where a joint's own parts sit in each other by
+design, against pairs on bones apart, which are faults. Only corners are tested: two blocks crossing edge to edge
+with no corner inside are not seen. Animations kept in other files are named in `skipped`.
 
 ```js
 const helm = bodyIn(helmets, 2, "Bip01 Head"), where = boxIn(helmets, 2, "Bip01 Head");          // the game's own, to sit a new one by
@@ -676,6 +707,94 @@ it). From the command line: `smak view <folder|mdl> ... [--port n]`. It listens 
 `sub`, `dot`, `cross`, `unit`, `box(points)` → `{ mn, mx }`, `uniq(tris)` (distinct points), `mainAxes(samples)`
 (principal axes of weighted points `[x, y, z, weight]`), `into`, `out`.
 
+## Convex solids (`src/solids.mjs`, exported as `solids`)
+
+Hard-surface pieces in plain JavaScript: each solid a stack of convex rings along a place's Z, its sides quads, its
+ends capped, made into triangles that face out. A piece of these is all planes: `motionOverlaps` measures one inside
+another by them. A **place** is `{ at, X, Y, Z }` (a point and three axes at right angles); a **solid** is
+`{ place, rings: [{ z, poly: [[x, y]] }], mat }`, every ring of as many corners, convex and counter-clockwise.
+`import { solids as S } from "./smak/src/index.mjs"`.
+
+| | |
+| --- | --- |
+| `place(at, z, xHint = [0, 0, 1])` | A place with Z along `z`, X as near `xHint` as Z lets it. |
+| `at(pl, x, y, z)`, `shift(pl, x, y, z)`, `quarter(pl)`, `flip(pl)`, `along(pl, "X" | "Y")` | A point of a place; the place moved in its own axes, turned a quarter about Z, upside down, or with its Z along its X or Y. |
+| `rect(sx, sy, cut = 0, cx = 0, cy = 0)`, `ngon(n, rx, ry = rx, turn)`, `outline(points)`, `inset(poly, d)`, `area2(poly)` | Outlines: a rectangle (its corners cut: an octagon), a regular polygon, corners in any order put counter-clockwise, an outline moved in by `d` (shrunk to half about its middle when `d` would fold it), its area. |
+| `box(pl, sx, sy, sz, { cut, bevel, bevelFoot, taper, taperY, foot, mat })` | A box about the place (its foot at 0 with `foot`), its upright edges `cut`, its top's and foot's edges bevelled, its top `taper` times the foot. Cuts under 0.15 are left off. |
+| `plate(pl, poly, t, { bevel, z0, top, mat })`, `prism(pl, poly, z0, z1, { top, mat })` | An outline `t` thick from `z0` along Z, its top's edges bevelled; an outline from z0 to z1, its top `top` times its foot. |
+| `cyl(pl, r, z0, z1, { n = 6, r1, bevel, mat })`, `tube(p0, p1, r, options)`, `beam(p0, p1, w, d, up, options)`, `ball(c, r, axis, { n })`, `loft(pl, rings, mat)` | A cylinder along Z (four-sided under 0.3 across), a rod and a box between two points, a faceted ball of three rings, any stack of rings. |
+| `trisOf(solid)` | Its triangles, counter-clockwise seen from outside: `[[{ p, k }]]` (`k` the corner's number as built). |
+| `pointsOf(solids)` | The points they cost, each corner once (GoldSrc holds 2048 a submodel). |
+| `planesOf(tris)` | A convex piece's planes, `[{ n, d }]`, `n` outward: a point is inside when `n.p < d` for every one. |
+| `closed(tris)` | `{ closed, open, doubled }`: every edge met by two faces, once each way round. |
+| `add`, `sub`, `mul`, `dot`, `cross`, `len`, `unit`, `orth`, `lerp3` | The vector arithmetic they use. |
+
+## Linkages across a joint (`src/linkage.mjs`)
+
+Two halves of a part rigid on two bones, which the animations must not pull apart: a telescopic piston, its
+cylinder on one bone and its rod on the other. Neither half can turn about its anchor, so the rod stays in the
+cylinder only where the anchors keep their bearing to each other (a hinge's own axis is such a place).
+
+`findPiston(src, { boneA, boneB, candidatesA, candidatesB, seqs, step = 2, r = 0.4, clearance = 0.5 })` →
+`{ found, cylinder, rod, report, skipped }`
+
+| Option | Meaning |
+| --- | --- |
+| `boneA`, `boneB` | The cylinder's bone and the rod's, by name or number. |
+| `candidatesA`, `candidatesB` | Points where each end may be anchored, in model space with the bones at rest. Every pair is tried. |
+| `seqs` | The animations it must work through, by name or number: all the file keeps unless told. Every `step`th frame is posed. |
+| `r`, `clearance` | The cylinder's radius (the rod's is half); how far short of the rod's eye the cylinder stops at the joint's narrowest. |
+
+The pair kept is the one whose rod strays least off the cylinder's axis (a longer one a little preferred); each half
+is aimed at the other's mean bearing in its own bone and sized so that the rod is in the cylinder at the joint's
+widest and short of its floor at its narrowest. `cylinder` and `rod` are lists of `solids` in model space at rest
+(for `putRigid` with `space: "rest"`). `report`: `{ anchorA, anchorB, axisA, axisB, dmin, dmax, cylinder, rod,
+stray, angleA, angleB, bore, frames, sequences }` (`stray` in units, the angles the most each half's bearing turns
+in its bone, in degrees). `found` is false and the rest null when no pair leaves a cylinder of 1.5 and a rod of 1.
+**Animations kept in other files** (`group` not 0) are not posed: they are left out and listed in `skipped`
+(`[{ name, why }]`), with names the model has not.
+
+`posesFor(src, { seqs, step = 2 })` → `{ poses, used, skipped }`: the poses it tries, what `motionOverlaps` poses too.
+
+## Pieces laid out on a picture (`src/unwrap.mjs`)
+
+`unwrap(pieces, { density = 3, width = 256, fold = 100, margin = 1, rows = 512, pow2 = true })` → layout
+
+Each piece's faces are opened out flat about their edges, as a paper model's net, at their true size (`density`
+texels a unit everywhere: the pixel-art look), the flattest folds first; a face that would land on the net, or
+folds more than `fold` degrees, starts an island of its own. The islands are packed by their shapes, not their
+boxes: the largest first, each at the first place where its texels and `margin` about them touch no other's.
+Corners land on whole texels, as GoldSrc keeps them. The height is what the islands need, a power of two (or a
+multiple of 8 without `pow2`), at most `rows`; an island wider than the picture is turned a quarter.
+
+| A piece | |
+| --- | --- |
+| `tris` | `[[{ p } ×3]]` or triangles of points, in a space of its own (its bone's, or the model's at rest). |
+| `up`, `alt` | The way that is up on the picture ([0, 0, 1]) and the ways tried after it, for a face that looks up. |
+| `axis` | Its length: faces across it (its ends) get islands of their own. |
+| `share` | Pieces of one share wear the first one's texels triangle by triangle (a left plate and its right: built alike). |
+| `mirror` | `{ n, at }`, a plane: the half on `n`'s side is laid out, the other half wears its mirror's texels. |
+
+The layout: `{ width, height, density, islands: [{ id, piece, tris, x, y, w, h }], pieces: [{ uv, islandOf,
+primary }] }`, `uv` for each triangle of each piece its three corners in texels. `withUV(pieces, layout)` gives the
+pieces back with each corner's `uv` 0 to 1, as `putRigid` and `buildMdl` take it. `unfold(tris, { up, alt, fold,
+axis })` is the net of one list of triangles: `[{ faces, flat }]`, `flat` each face's corners in units.
+
+## Blender, where there is one (`src/blender.mjs`)
+
+The one part of the kit that runs another program, and nothing else needs it. Blender is found by the program
+given, then the `SMAK_BLENDER` environment variable, then where it is usually installed (on Windows the newest
+`C:/Program Files/Blender Foundation/Blender */blender.exe`; `/Applications/Blender.app` on a Mac; `/usr/bin`,
+`/snap/bin` on Linux), then the PATH.
+
+| Function | Does |
+| --- | --- |
+| `findBlender({ blender })` | Its program's path, or null. `blenderPlaces(options)` lists where it looks, in order. |
+| `runBlender(script, args, { blender, timeout })` | `blender -b --factory-startup --python script -- ...args`, headless. → `{ lines, log }`: `lines` what the script printed after `[smak] `. Throws when Blender, or the script (a Python traceback), fails. |
+| `runBlenderJob(script, input, outDir, options)` | `input` written as `outDir/input.json`, and the script run with `-- input.json outDir`. |
+| `readFloatMap(file)` | A picture a script wrote as raw float32 RGBA with `file.json` (`{ width, height }`) beside it: `{ width, height, data }`, rows from the top. |
+| `bakeMaps(pairs, { width, height, outDir, maps, ao = 1, cage = 0.1, distance = 0.5, samples = 16, margin = 2, occluders, blender })` | A detailed copy baked onto a plain one, selected to active (`src/blender-bake.py`, Cycles on the CPU). `pairs`: `[{ low: { tris, uv }, high: { tris, colours } }]`, `uv` each low triangle's corners in pixels, `colours` one `[r, g, b]` a high triangle. `maps`: `"albedo"` (the high colours), `"ao"` (their occlusion, `ao` units out, with the `occluders`), `"normal"` (their normals in that space, 0 to 1). → `{ albedo, ao, normal, lines }`, each as `readFloatMap` gives it. |
+
 ## The workshop (`src/workshop.mjs`, exported as `workshop`)
 
 | | |
@@ -782,6 +901,7 @@ Each takes a description and returns `{ tris, image }`. Their file headers list 
 | `blunt(spec)`, `toward` from `kits/bluntkit.mjs` | A haft with turned parts on it: clubs, bats, hammers, maces. `haft: true`. |
 | `bow(spec)`, `through` from `kits/bowkit.mjs` | A bent stave and its string. `rig: "nearest"`. Texture 1024x256. |
 | `firearm(spec)`, `FIREARM_PRESETS`, `FINISHES` from `kits/firearmkit.mjs` | A gun: receiver, barrel, grip, guard and trigger, magazine, stock, forend, sights (pistol, shotgun, submachine gun, rifle). Texture 1024x512, and `parts`. |
+| `PARTS`, `SETS`, `kitbash(name, place, size, seed)`, `seeded`, `REACH` from `kits/kitbash.mjs` | Not a picture: 45 small hard-surface parts (bolts, brackets, clevises, hinges, vents, grilles, actuators, lamps, sensor pods, canisters, motors, tanks, conduits...), each `(place, size, rnd) -> [solid]` of `solids`, set on a surface by a place (its Z out of it, its X along it), the same for the same seed. `SETS` groups them by what they suit (fitting, mechanism, gear, sensor, armour); each solid's `mat` names its paint. A part lies within `REACH` of its place for its size. It re-exports `solids`. |
 | `kits/furniture/*.json` | Not code: 30 model specs (bed, sofa, stove, fridge, bench, trees...), a map spec's props as `"kit:<name>"`. |
 | `recipesOf(mod)` from `kits/encounterkit.mjs` | Not a model: a map's encounters wired, as entities for `writeMap` (`area`, `monster`, `trigger`, `line`, `fillAhead`, `onArrival`, `surprise`, `waves`, `counted`, `rewardOnDeath`, `chance`, `oneOf`). `docs/MAPS-DESIGN.md`. |
 

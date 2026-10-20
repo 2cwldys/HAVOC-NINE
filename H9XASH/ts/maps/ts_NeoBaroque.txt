@@ -1,0 +1,15 @@
+ts_NeoBaroque by EviLTaxi
+contact: "EviLTaxi.An-Dee@gmx.net"
+ICQ: 124391587
+----------------------------------------------
+
+Texture sources:
+- various wads by Valve
+-"k_kastle_part1.wad" by Kman
+-"parsiwad1.wad" by MEAT
+-"paintings.wad" by Ellusion
+
+Thanks to the authors!
+
+
+ ~Andreas "EviLTaxi" Braunagel

@@ -247,6 +247,9 @@
  amx_match_cancel
      FULL reset to warmup. Round counter to 0, score to 0-0, ready flags
      cleared, classes cleared, late-join lockouts cleared, everyone restored.
+     If a match or its ready-up was under way, everyone then goes to the
+     spectator team and the humans get the side menu again -- exactly as at
+     the end of a match -- so sides are picked fresh.
      This is the "put everything back" command.
 
  amx_match_restart
@@ -335,10 +338,17 @@
 ===============================================================================
 
  amx_tsm_debug
-     The first thing to run when nothing is happening. Build stamp, match
-     state, round and score, team mode and names, live mp_teamlist, spawn
-     source, balance state, class count, weapon mode, bot settings, whether
-     PlayerPreThink fires, and every player's resolved team and ready state.
+     The first thing to run when nothing is happening. Build stamp, the
+     engine, match state, round and score, team mode and names, live
+     mp_teamlist, spawn source, balance state, class count, weapon mode, bot
+     settings, whether PlayerPreThink fires, and every player's resolved team
+     and ready state.
+
+     engine= is GoldSrc or Xash3D FWGS (H9XASH), which the plugin works out by
+     itself at map load. On Xash it makes two adjustments: a player leaving is
+     picked up from Metamod's ClientDisconnect (AMXX cannot hook Xash's own
+     disconnect), and an sv_visiblemaxplayers stand-in is registered, because
+     AMXX's adminslots plugin asks for one on every connect.
 
  amx_tsm_teaminfo
      Everything about teams from the mod's side: mp_teamlist, mp_teammodels,

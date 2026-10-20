@@ -1,0 +1,115 @@
+diff --git a/engine/client/cl_frame.c b/engine/client/cl_frame.c
+index aace8cff..be50a276 100644
+--- a/engine/client/cl_frame.c
++++ b/engine/client/cl_frame.c
+@@ -616,8 +616,14 @@ void CL_ProcessPacket( frame_t *frame )
+ 		ent->player = CL_IsPlayerIndex( state->number );
+ 
+ 		if( state->number == ( cl.playernum + 1 ))
++		{
+ 			clgame.dllFuncs.pfnTxferLocalOverrides( state, &frame->clientdata );
+ 
++			// H9: kept before the client dll can touch it, see V_RestoreServerCloak
++			cl.local.net_rendermode = state->rendermode;
++			cl.local.net_renderamt = state->renderamt;
++		}
++
+ 		// shuffle states
+ 		ent->prevstate = ent->curstate;
+ 		ent->curstate = *state;
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+index d95c0cbc..368745e9 100644
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -37,6 +37,7 @@ static CVAR_DEFINE_AUTO( cl_resend, "6.0", 0, "time to resend connect" );
+ CVAR_DEFINE( cl_allow_download, "cl_allowdownload", "1", FCVAR_ARCHIVE, "allow to downloading resources from the server" );
+ static CVAR_DEFINE( cl_allow_upload, "cl_allowupload", "1", FCVAR_ARCHIVE, "allow to uploading resources to the server" );
+ CVAR_DEFINE_AUTO( cl_download_ingame, "1", FCVAR_ARCHIVE, "allow to downloading resources while client is active" );
++CVAR_DEFINE_AUTO( cl_h9_cloakfix, "1", FCVAR_ARCHIVE, "H9: show a server-side cloak on your own model instead of the client dll's own third person transparency" );
+ static CVAR_DEFINE_AUTO( cl_logofile, "lambda", FCVAR_ARCHIVE, "player logo name" );
+ static CVAR_DEFINE_AUTO( cl_logocolor, "255 120 24", FCVAR_ARCHIVE, "player logo color" );
+ static CVAR_DEFINE_AUTO( cl_logoext, "bmp", FCVAR_ARCHIVE, "temporary cvar to tell engine which logo must be packed" );
+@@ -3729,6 +3730,7 @@ static void CL_InitLocal( void )
+ 	Cvar_RegisterVariable( &cl_logoext );
+ 	Cvar_RegisterVariable( &cl_logoupdate );
+ 	Cvar_RegisterVariable( &cl_logomaxdim );
++	Cvar_RegisterVariable( &cl_h9_cloakfix );
+ 	Cvar_RegisterVariable( &cl_test_bandwidth );
+ 	Cvar_RegisterVariable( &cl_require_challenge_echo );
+ 
+diff --git a/engine/client/cl_view.c b/engine/client/cl_view.c
+index c1b3ef13..0349d7cf 100644
+--- a/engine/client/cl_view.c
++++ b/engine/client/cl_view.c
+@@ -380,6 +380,39 @@ static void V_ApplyRefUnderwater( ref_viewpass_t *rvp )
+ 
+ }
+ 
++/*
++==================
++V_RestoreServerCloak
++
++H9: The Specialists' client dll overwrites the local player's rendermode and renderamt
++every frame inside V_CalcRefdef, with its own fixed third person transparency
++(cl_thirdtransparency), so a cloak the server put on you never showed on your own
++model. This is the H9 cloak client patch moved into the engine: when the server's
++values say "cloak" (kRenderTransTexture, partly transparent), they win again before
++the frame is drawn. Any other state is left to the client dll, as before.
++==================
++*/
++static void V_RestoreServerCloak( void )
++{
++	cl_entity_t *player;
++
++	if( !cl_h9_cloakfix.value )
++		return;
++
++	if( cl.local.net_rendermode != kRenderTransTexture )
++		return;
++
++	if( cl.local.net_renderamt <= 0 || cl.local.net_renderamt >= 255 )
++		return;
++
++	player = CL_GetLocalPlayer();
++	if( !player )
++		return;
++
++	player->curstate.rendermode = cl.local.net_rendermode;
++	player->curstate.renderamt = cl.local.net_renderamt;
++}
++
+ /*
+ ==================
+ V_RenderView
+@@ -407,6 +440,7 @@ void V_RenderView( void )
+ 	do
+ 	{
+ 		clgame.dllFuncs.pfnCalcRefdef( &rp );
++		V_RestoreServerCloak();
+ 
+ 		// client dll may replace viewmodel in pfnCalcRefdef, so set animtime again
+ 		// V_SetupViewModel did it only for the model known before this call
+diff --git a/engine/client/client.h b/engine/client/client.h
+index e5db2dac..6b5243b9 100644
+--- a/engine/client/client.h
++++ b/engine/client/client.h
+@@ -145,6 +145,11 @@ typedef struct
+ 	// weapon predict stuff
+ 	int		weaponsequence;
+ 	float		weaponstarttime;
++
++	// H9: the local player's render mode and amount exactly as the server sent them,
++	// before the client dll could overwrite them (see V_RestoreServerCloak)
++	int		net_rendermode;
++	int		net_renderamt;
+ } cl_local_data_t;
+ 
+ typedef struct
+@@ -694,6 +699,7 @@ extern convar_t	mp_decals;
+ extern convar_t	cl_logomaxdim;
+ extern convar_t	cl_allow_download;
+ extern convar_t	cl_download_ingame;
++extern convar_t	cl_h9_cloakfix;
+ extern convar_t	cl_nopred;
+ extern convar_t	cl_timeout;
+ extern convar_t	cl_interp;

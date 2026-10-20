@@ -616,7 +616,13 @@ void CL_ProcessPacket( frame_t *frame )
 		ent->player = CL_IsPlayerIndex( state->number );
 
 		if( state->number == ( cl.playernum + 1 ))
+		{
 			clgame.dllFuncs.pfnTxferLocalOverrides( state, &frame->clientdata );
+
+			// H9: kept before the client dll can touch it, see V_RestoreServerCloak
+			cl.local.net_rendermode = state->rendermode;
+			cl.local.net_renderamt = state->renderamt;
+		}
 
 		// shuffle states
 		ent->prevstate = ent->curstate;

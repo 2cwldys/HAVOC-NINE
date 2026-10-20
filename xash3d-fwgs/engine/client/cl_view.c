@@ -382,6 +382,39 @@ static void V_ApplyRefUnderwater( ref_viewpass_t *rvp )
 
 /*
 ==================
+V_RestoreServerCloak
+
+H9: The Specialists' client dll overwrites the local player's rendermode and renderamt
+every frame inside V_CalcRefdef, with its own fixed third person transparency
+(cl_thirdtransparency), so a cloak the server put on you never showed on your own
+model. This is the H9 cloak client patch moved into the engine: when the server's
+values say "cloak" (kRenderTransTexture, partly transparent), they win again before
+the frame is drawn. Any other state is left to the client dll, as before.
+==================
+*/
+static void V_RestoreServerCloak( void )
+{
+	cl_entity_t *player;
+
+	if( !cl_h9_cloakfix.value )
+		return;
+
+	if( cl.local.net_rendermode != kRenderTransTexture )
+		return;
+
+	if( cl.local.net_renderamt <= 0 || cl.local.net_renderamt >= 255 )
+		return;
+
+	player = CL_GetLocalPlayer();
+	if( !player )
+		return;
+
+	player->curstate.rendermode = cl.local.net_rendermode;
+	player->curstate.renderamt = cl.local.net_renderamt;
+}
+
+/*
+==================
 V_RenderView
 
 ==================
@@ -407,6 +440,7 @@ void V_RenderView( void )
 	do
 	{
 		clgame.dllFuncs.pfnCalcRefdef( &rp );
+		V_RestoreServerCloak();
 
 		// client dll may replace viewmodel in pfnCalcRefdef, so set animtime again
 		// V_SetupViewModel did it only for the model known before this call

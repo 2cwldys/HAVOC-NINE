@@ -16,3 +16,39 @@ rcbot/bot_playerids.ini
 *.backup
 export-map/
 src/
+
+# H9XASH: Valve's Half-Life content stays out -- a copy of this repo brings its owner's
+# own Half-Life (see H9XASH/README_H9XASH.txt). extras.pk3 is Xash's own file and stays in.
+H9XASH/valve/*
+!H9XASH/valve/extras.pk3
+
+# Files Xash writes into the game folder while it runs, for anyone playing from here.
+H9XASH/**/video.cfg
+H9XASH/**/opengl.cfg
+H9XASH/**/.xash_id
+H9XASH/**/.fontcache/
+H9XASH/**/voice_ban.dt
+H9XASH/**/custom.hpk
+H9XASH/**/save/
+H9XASH/**/logs/
+H9XASH/**/screenshots/
+H9XASH/ts_downloads/
+H9XASH/*.log
+H9XASH/ts/menu_music_resolved.cfg
+
+# What building xash3d-fwgs here leaves behind.
+xash3d-fwgs/build/
+xash3d-fwgs/waf3-*/
+xash3d-fwgs/.lock-waf*
+# and the SDL2 download and install staging xash.bat keeps beside itself.
+xash3d-h9-patches/deps/
+xash3d-h9-patches/stage/
+
+# H9XASH's server side. The Discord bot token never goes in (the same rule as ts/
+# above), nor the server's logs and runtime state.
+H9XASH/ts/addons/amxmodx/configs/ts_advertise.cfg
+H9XASH/ts/addons/amxmodx/logs/
+H9XASH/ts/addons/amxmodx/data/vault/
+H9XASH/ts/addons/amxmodx/data/vault.ini
+H9XASH/ts/addons/amxmodx/data/tsstats.dat
+H9XASH/rcbot/bot_playerids.ini

@@ -100,6 +100,7 @@ static const feature_message_t bugcomp_features[] =
 { BUGCOMP_SPAWNFLAG_NOT_DEATHMATCH, "Inhibit entities with \"Not in Deathmatch\" spawnflag", "sf_notdm" },
 { BUGCOMP_ALWAYS_ENABLE_TEXT_INPUT, "Always enable text input during gameplay", "always_textinput" },
 { BUGCOMP_PRESERVE_TEXTURE_NAME_CASE, "Preserve BSP texture name case", "texname_case" },
+{ BUGCOMP_BIND_NOSPLIT, "Don't split key bindings by semicolon", "bind_nosplit" },
 };
 
 static const feature_message_t engine_features[] =
@@ -1167,6 +1168,16 @@ static void Sys_Quit_f( void )
 	Sys_Quit( Cmd_Argc() > 1 ? Cmd_Argv( 1 ) : "command" );
 }
 
+#if XASH_EMSCRIPTEN
+static void Host_MainLoop( void *userdata )
+{
+	double *poldtime = (double *)userdata;
+	double newtime = Sys_DoubleTime();
+	COM_Frame( newtime - *poldtime );
+	*poldtime = newtime;
+}
+#endif
+
 /*
 =================
 Host_Main
@@ -1181,8 +1192,10 @@ int EXPORT Host_Main( int argc, char **argv, const char *progname, int bChangeGa
 	pChangeGame = NULL;
 #endif
 
+#if !XASH_EMSCRIPTEN
 	if( setjmp( return_from_main_buf ))
 		return error_on_exit;
+#endif
 
 	host.starttime = Platform_DoubleTime();
 
@@ -1336,6 +1349,7 @@ int EXPORT Host_Main( int argc, char **argv, const char *progname, int bChangeGa
 	// check after all configs were executed
 	HPAK_CheckIntegrity( hpk_custom_file.string );
 
+#if !XASH_EMSCRIPTEN
 	// main window message loop
 	while( host.status != HOST_CRASHED )
 	{
@@ -1343,6 +1357,10 @@ int EXPORT Host_Main( int argc, char **argv, const char *progname, int bChangeGa
 		COM_Frame( newtime - oldtime );
 		oldtime = newtime;
 	}
+#else // XASH_EMSCRIPTEN
+EM_ASM( { Module.callbacks?.gameReady?.() } );
+emscripten_set_main_loop_arg( Host_MainLoop, &oldtime, 0, false );
+#endif // XASH_EMSCRIPTEN
 
 	return 0;
 }
@@ -1360,12 +1378,16 @@ Host_Shutdown
 */
 void Host_ShutdownWithReason( const char *reason )
 {
+	string reasoncopy = "";
 	qboolean error = host.status == HOST_ERR_FATAL;
 
 	if( host.shutdown_issued )
 		return;
 
 	host.shutdown_issued = true;
+
+	if( reason != NULL )
+		Q_strncpy( reasoncopy, reason, sizeof( reasoncopy ));
 
 	if( reason != NULL )
 		Con_Printf( S_NOTE "Issuing host shutdown due to reason \"%s\"\n", reason );
@@ -1400,5 +1422,5 @@ void Host_ShutdownWithReason( const char *reason )
 
 	// restore filter
 	Sys_RestoreCrashHandler();
-	Sys_CloseLog( reason );
+	Sys_CloseLog( reason != NULL ? reasoncopy : NULL );
 }

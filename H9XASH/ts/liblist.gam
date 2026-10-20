@@ -1,0 +1,21 @@
+game "HAVOC 9"
+url_info "https://havoc9.org/downloads"
+url_dl "https://havoc9.org/downloads"
+version "3.0"
+size ""
+svonly "0"
+cldll "cl_dlls\client.dll"
+hlversion "1110"
+type "multiplayer_only"
+nomodels "0"
+mpentity "info_player_deathmatch"
+icon "h9_logo_32"
+edicts "4098"
+
+//gamedll "dlls\mp.dll"
+gamedll "addons\metamod\dlls\metamod.dll"
+
+// I've never know this to actually let you specify a file other then dlls/ts_i386.so
+// If you want a port to a different architecture, get on the forums and send a PM to Vino.
+// Note that the file ts_i386.so is just a symlink to ts_i686.so, 3.0 was not released with a 386 binary.
+gamedll_linux "dlls/ts_i386.so"

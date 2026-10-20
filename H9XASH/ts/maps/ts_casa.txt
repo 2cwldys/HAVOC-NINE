@@ -1,0 +1,85 @@
+===[start]=========================================================================================
+*FILE INFORMATION*
+---------------------------------------------------------------------------------------------------
+
+TITLE                   : Casa 
+FILENAME                : ts_casa.bsp
+AUTHOR                  : Matthew "Schmung" Carter
+DATE                    : 8/3/2003
+GAME                    : Half-Life
+TYPE/MOD                : The Specialists
+EMAIL ADDRESS           : schmung@hotmail.com
+HOMEPAGE URL            : http://homepage.ntlworld.com/b.whittingham/
+CONTENTS		: ts_casa.bsp
+			  ts_casa.txt			  
+			  morning*.tga
+---------------------------------------------------------------------------------------------------
+* LEVEL DESCRIPTION *
+---------------------------------------------------------------------------------------------------
+
+Its a vaguely Spanish/Mexican looking villa at dawn. Yet another beta of this, nothing much is new.
+
+---------------------------------------------------------------------------------------------------
+*SPECIAL INSTRUCTIONS / ADDITIONAL INFORMATION*
+---------------------------------------------------------------------------------------------------
+
+INSTALLATION:
+
+Unzip to your Half-Life folder ...
+
+FILE HIERARCHY:
+
+ts_casa.bsp	=> \ts\maps
+ts_casa.txt	=> \ts\maps
+morning*.tga    =  \ts\gfx\env
+ADDITIONAL INFO:
+
+
+---------------------------------------------------------------------------------------------------
+*CONSTRUCTION DETAILS*
+---------------------------------------------------------------------------------------------------
+
+MAP BASE                : New Map
+BUILD TIME		: 3-4 weeks
+COMPILE TIME		: 45 minutes
+PREFABS USED            : None
+EDITOR(S) USED          : Worldcraft 3.3 (I refuse to call it valve hammer or whatever)
+OTHER UTILITIES USED    : Zoners HL Tools
+			  Wally 153b
+			  Paintshop Pro
+
+KNOWN BUGS              : None at the moment.
+
+COMPILE MACHINE         : Athlon XP 2000, 512 MB RAM
+
+---------------------------------------------------------------------------------------------------
+*CREDITS / THANKS*
+---------------------------------------------------------------------------------------------------
+
+Valve Software          : Half-Life, probably the most long lived game ever..
+
+The WadFather           : For loads of ace textures
+
+Nashwan			: For playtesting, ideas, shouting at me to work and of course all the
+			  drinks I owe him.
+
+Welio			: Ditto the drinks and for plenty of constructive critisism, or just yelling
+			  at me..
+
+Texture Credits		: Mighty Pete, CD Warrior, TS, Per 'Ellusion' Nyhaug,Graphtallica and Me
+			  Various textures plundered from these peoples collections, all of which 
+			  I managed to aquire thanks to the aformentioned Wadfather.
+			  Sky is Morning Mountains by SuperCrazy
+===================================================================================================
+*COPYRIGHT / PERMISSIONS*
+--------------------------------------------------------------------------------------------------- 
+
+You CANNOT use ANY of the files in this package as a base for your own.
+   
+You MUST NOT distribute this or any of the accompanying files UNLESS you INCLUDE THIS
+FILE WITH NO MODIFICATIONS. If you don't co-operate, then DON'T DISTRIBUTE IT IN ANY FORM.
+
+This file may be distributed ONLY over the Internet and/or BBS systems.
+You are NOT authorized to put this on any CD or distribute it in any way without my written 
+permission.
+===========================================================================================[END]===

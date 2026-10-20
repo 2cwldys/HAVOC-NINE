@@ -1,0 +1,94 @@
+===[start]=========================================================================================
+*FILE INFORMATION*
+---------------------------------------------------------------------------------------------------
+
+TITLE                   : Central Station 	
+FILENAME                : ts_central.bsp
+AUTHOR                  : Matthew "Schmung" Carter
+DATE                    : 8/4/2003
+GAME                    : Half-Life
+TYPE/MOD                : The Specialists
+EMAIL ADDRESS           : schmung@hotmail.com
+HOMEPAGE URL            : wwww.schmung.tk, http://homepage.ntlworld.com/b.whittingham/
+			  (same site, but thats where the .tk re-directs to)
+CONTENTS		: ts_central.bsp
+			  ts_central.txt			  
+			  apologize.wav	
+			  mind_gap2.wav
+			  platform.wav
+
+---------------------------------------------------------------------------------------------------
+* LEVEL DESCRIPTION *
+---------------------------------------------------------------------------------------------------
+
+A sort of abandoned tube/underground station, lots of stuff to dive behind and through, plenty of
+destructible stuff and a nice ambience.
+
+---------------------------------------------------------------------------------------------------
+*SPECIAL INSTRUCTIONS / ADDITIONAL INFORMATION*
+---------------------------------------------------------------------------------------------------
+
+INSTALLATION:
+
+Unzip to your Half-Life folder ...
+
+FILE HIERARCHY:
+
+ts_central.bsp	=> \ts\maps
+ts_central.txt	=> \ts\maps
+apologize.wav	=> \sound\ambience
+mind_gap2.wav	=> \sound\ambience
+platform.wav	=> \sound\ambience
+
+
+ADDITIONAL INFO:
+
+Pretty much the final finished article now. Enjoy. Finally crushed the evil evil bugs. Again.
+
+
+---------------------------------------------------------------------------------------------------
+*CONSTRUCTION DETAILS*
+---------------------------------------------------------------------------------------------------
+
+MAP BASE                : New Map
+BUILD TIME		: 2-3 weeks (Yeah and that and two months on/off I spent perfecting it)
+COMPILE TIME		: 55 minutes
+PREFABS USED            : Some toilet prefabs by Crinity which I modified a bit.
+EDITOR(S) USED          : Worldcraft 3.3 (I refuse to call it valve hammer or whatever)
+OTHER UTILITIES USED    : Zoners HL Tools (Custom Build)
+			  Wally 153b
+			  Paintshop Pro
+
+KNOWN BUGS              : None at the moment.
+
+COMPILE MACHINE         : Athlon XP 2000, 512 MB RAM
+
+---------------------------------------------------------------------------------------------------
+*CREDITS / THANKS*
+---------------------------------------------------------------------------------------------------
+
+Valve Software          : Half-Life, probably the most long lived game ever..
+
+The WadFather           : For loads of ace textures
+
+Nashwan			: For playtesting, ideas, shouting at me to work and of course all the
+			  drinks I owe him.
+
+Welio			: Ditto the drinks and for thrashing me at pool on a far too regular basis.
+
+Texture Credits		: Mighty Pete, Makaveli, unDuLe, Blazeer, CS, TS, Nashwan and Me
+			  Various textures plundered from these peoples collections, all of which 
+			  I managed to aquire thanks to the aformentioned Wadfather.
+===================================================================================================
+*COPYRIGHT / PERMISSIONS*
+--------------------------------------------------------------------------------------------------- 
+
+You CANNOT use ANY of the files in this package as a base for your own.
+   
+You MUST NOT distribute this or any of the accompanying files UNLESS you INCLUDE THIS
+FILE WITH NO MODIFICATIONS. If you don't co-operate, then DON'T DISTRIBUTE IT IN ANY FORM.
+
+This file may be distributed ONLY over the Internet and/or BBS systems.
+You are NOT authorized to put this on any CD or distribute it in any way without my written 
+permission.
+===========================================================================================[END]===

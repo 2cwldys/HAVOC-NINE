@@ -145,6 +145,11 @@ typedef struct
 	// weapon predict stuff
 	int		weaponsequence;
 	float		weaponstarttime;
+
+	// H9: the local player's render mode and amount exactly as the server sent them,
+	// before the client dll could overwrite them (see V_RestoreServerCloak)
+	int		net_rendermode;
+	int		net_renderamt;
 } cl_local_data_t;
 
 typedef struct
@@ -694,6 +699,7 @@ extern convar_t	mp_decals;
 extern convar_t	cl_logomaxdim;
 extern convar_t	cl_allow_download;
 extern convar_t	cl_download_ingame;
+extern convar_t	cl_h9_cloakfix;
 extern convar_t	cl_nopred;
 extern convar_t	cl_timeout;
 extern convar_t	cl_interp;
@@ -1255,6 +1261,8 @@ void Key_EnumCmds_f( void );
 void Key_SetKeyDest( int key_dest );
 void Key_EnableTextInput( qboolean enable, qboolean force );
 void Key_SetTextInputRect( int x, int y, int w, int h );
+void Key_SetTextInputBuffer( const char *text );
+const char *Key_GetTextInputBuffer( void );
 int Key_ToUpper( int key );
 qboolean Cmd_GetKeysList( const char *s, char *completedname, int length, qboolean print_suggestions );
 

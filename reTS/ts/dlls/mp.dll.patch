@@ -1,0 +1,76 @@
+TSM mp.dll patch -- the weapon inventory's fixed 81-slot ceiling
+===================================================================
+
+What this is: a 2-byte binary patch to reTS's server DLL (ts\dlls\mp.dll) so the room
+ts_setuserslots grants a player is the only slot limit that player has.
+
+reTS checks a weapon give twice. The player check (RVA 0x567a0, free slots from RVA 0x61460)
+counts the bonus ts_setuserslots stores at player+0xc0c, so a player given 999 passes it. The
+weapon inventory's own add routine (RVA 0x622d0) then sums the weight of everything carried,
+adds the new weapon's, and refuses past a fixed 81 -- ignoring that bonus. The Heavy's kit is
+M60E3 70 + Glock-20C 10 + M61 grenade 7 = 87, so one piece of it was always refused, however
+much room the plugin gave him. No other class's kit passes 81 (the Marksman's 80 is closest).
+
+This patch removes that second cap. The player check stays the only gate.
+
+Original file : mp.dll.original (reTS mp.dll)
+Patched file  : mp_patched_slots.dll
+Original MD5  : 00b12524dcc913a3cd80d74449670df4
+Patched MD5   : d13d4c6d029d9ba9a04a6fd08df8d96b
+Size          : 1017344 bytes (unchanged)
+
+1. The patch
+-------------------------------------------------------------
+
+    file offset 0x61818 (RVA 0x62418):
+      original: 7f 79   (jg 0x10062493 -- return false)
+      patched:  90 90   (nop; nop)
+
+Before:
+
+    10062405  8b442404     mov eax, dword ptr [esp + 4]
+    10062409  0398ac000000 add ebx, dword ptr [eax + 0xac]
+    1006240f  8b742420     mov esi, dword ptr [esp + 0x20]
+    10062413  89f5         mov ebp, esi
+    10062415  83fb51       cmp ebx, 0x51
+    10062418  7f79         jg 0x10062493
+    1006241a  8b5c2424     mov ebx, dword ptr [esp + 0x24]
+
+After:
+
+    10062405  8b442404     mov eax, dword ptr [esp + 4]
+    10062409  0398ac000000 add ebx, dword ptr [eax + 0xac]
+    1006240f  8b742420     mov esi, dword ptr [esp + 0x20]
+    10062413  89f5         mov ebp, esi
+    10062415  83fb51       cmp ebx, 0x51
+    10062418  90           nop 
+    10062419  90           nop 
+    1006241a  8b5c2424     mov ebx, dword ptr [esp + 0x24]
+
+ebx is reloaded at 0x6241a, so nothing downstream reads the compare.
+
+2. Why stock behaviour is unchanged
+-------------------------------------------------------------
+
+The add routine has one caller (RVA 0x56845, inside 0x567a0), and that caller has already
+refused any weapon heavier than the player's free slots:
+
+    free = min(max(81 - carried - item penalties, 0), 81) + bonus
+
+With no bonus -- every player ts_setuserslots never touched -- that is at least as strict as the
+removed check (81 - carried), so the result is the same. Only a player with a bonus can now carry
+past 81, and that is the point. reTS clears the bonus on every spawn (RVA 0x56a1e).
+
+No relocation entry and no absolute reference covers the patched bytes, and the PE checksum is 0.
+No AMXX gamedata pins mp.dll by CRC: the reTS sections are selected by the ReTS_GetInterface
+export, which this patch does not touch.
+
+3. Rollback
+-------------------------------------------------------------
+
+The original (MD5 00b12524dcc913a3cd80d74449670df4) is kept as mp.dll.original next to this script, and in the live
+install as ts\dlls\mp.dll.original.bak-2026-10-20. Copy it back over ts\dlls\mp.dll with the
+server closed.
+
+Original: 00b12524dcc913a3cd80d74449670df4
+Patched : d13d4c6d029d9ba9a04a6fd08df8d96b

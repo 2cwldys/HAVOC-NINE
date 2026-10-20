@@ -1,0 +1,91 @@
+===[start]=========================================================================================
+*FILE INFORMATION*
+---------------------------------------------------------------------------------------------------
+
+TITLE                   : Heresy	
+FILENAME                : ts_heresy.bsp
+AUTHOR                  : Nelson "manah" Ferryman
+DATE                    : 16/10/2002
+GAME                    : Half-Life
+TYPE/MOD                : The Specialists
+EMAIL ADDRESS           : manah@planethalflife.com
+HOMEPAGE URL            : http://www.planethalflife.com/manah/
+CONTENTS		: ts_heresy.bsp
+			  ts_heresy.txt			  
+
+---------------------------------------------------------------------------------------------------
+* LEVEL DESCRIPTION *
+---------------------------------------------------------------------------------------------------
+
+- need description - 
+
+---------------------------------------------------------------------------------------------------
+*SPECIAL INSTRUCTIONS / ADDITIONAL INFORMATION*
+---------------------------------------------------------------------------------------------------
+
+INSTALLATION:
+
+Unzip to your Half-Life folder ...
+
+FILE HIERARCHY:
+
+ts_heresy.bsp       => \ts\maps
+ts_heresy.txt       => \ts\maps
+
+flfsky9bk           => \ts\gfx\env
+flfsky9dn
+flfsky9ft
+flfsky9lf
+flfsky9rt
+flfsky9up
+
+ADDITIONAL INFO:
+
+Also availabe in Real DeathMatch mod (http://www.planethalflife.com/realdm).
+
+---------------------------------------------------------------------------------------------------
+*CONSTRUCTION DETAILS*
+---------------------------------------------------------------------------------------------------
+
+MAP BASE                : New Map
+BUILD TIME		: 4-5 weeks
+COMPILE TIME		: 35 minutes
+PREFABS USED            : Svante "xerent" Ekholm's trees prefab set
+EDITOR(S) USED          : Worldcraft 3.3
+OTHER UTILITIES USED    : Zoners HL Tools
+			  Wally 153b
+			  Photoshop 6
+
+KNOWN BUGS              : None ... report any please.
+			  
+COMPILE MACHINE         : 1.2 Ghz Athlon, 256mb ram
+
+---------------------------------------------------------------------------------------------------
+*CREDITS / THANKS*
+---------------------------------------------------------------------------------------------------
+
+Valve Software          : This is a no brainer.
+
+Blazeer                 : For his 'BlazUrban' texture set.
+
+The WadFather           : For being such a great resource.
+
+WarFox                  : For hooking me up with the TS crew.
+
+Testers			: For testing, I love all you guys *weeps*. Although some of you lazy arse
+			  mofos didn't even bother sending me any feedback. Damn you.
+
+
+===================================================================================================
+*COPYRIGHT / PERMISSIONS*
+--------------------------------------------------------------------------------------------------- 
+
+You CAN NOT use ANY of the files in this package as a base for your own.
+   
+You MUST NOT distribute ts_heresy.zip or any of the accompanying files UNLESS you INCLUDE THIS
+FILE WITH NO MODIFICATIONS. If you don't co-operate, then DON'T DISTRIBUTE IT IN ANY FORM.
+
+This file may be distributed ONLY over the Internet and/or BBS systems.
+You are NOT authorized to put this on any CD or distribute it in any way without my written 
+permission.
+===========================================================================================[END]===

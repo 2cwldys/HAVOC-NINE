@@ -502,6 +502,10 @@ int FS_SetCurrentDirectory( const char *path )
 		return false;
 	}
 #elif XASH_POSIX
+	// msr-web: the browser's root directory is "/", which reaches here as an empty string once its slash is stripped
+	if( !path[0] )
+		path = "/";
+
 	if( chdir( path ) < 0 )
 	{
 		Sys_Error( "Changing directory to %s failed: %s\n", path, strerror( errno ));

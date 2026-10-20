@@ -1,0 +1,192 @@
+H9 on two engines: the Steam install and H9XASH
+===============================================
+
+H9 runs The Specialists 3.0 on two engines:
+
+  Steam   Valve's GoldSrc -- the Steam Half-Life install
+  Xash    Xash3D FWGS, built from source -- H9XASH
+
+Both are built from the same TSM sources and kept in step on every build. This file
+lists what is deliberately different between them and why, and every patched DLL
+with the .patch file that says what changed.
+
+
+1. How the two are kept in step
+-------------------------------
+
+build.bat   compiles the plugins and deploys plugins, configs, sounds, resource\,
+            the textschemes and vgui.dll into the Steam install. It then copies the
+            server side (Metamod, AMX Mod X with ts_matchmode, RCBot) into H9XASH:
+            "xash.bat addons".
+
+export.bat  assembles export\ts, then puts the same client files into H9XASH --
+            sounds, sprites, models, maps, menus, textschemes and the Xash overlay:
+            "xash.bat assets". It then copies export\ts to the repo's ts\ and H9XASH
+            to the repo's H9XASH\.
+
+Neither step overwrites a file that is NEWER where it lands (robocopy /XO). Edits
+made in the repo's copy of H9XASH, and what the game writes as it runs, stay put.
+
+The same in both:
+  * the plugins and their configs
+  * sounds, sprites, models, maps and resource\ files
+  * the menu text colours in ts\<width>_textscheme.txt
+  * reTS's mp.dll and reTSX's tsx_amxx.dll (both patched, see section 3)
+  * Metamod-r, AMX Mod X and RCBot
+
+
+2. What differs, and why
+------------------------
+
+Engine
+  Steam  Valve's GoldSrc.
+  Xash   Xash3D FWGS, 32-bit. TSM\xash3d-h9-patches\xash.bat builds it from FWGS
+         master, on the local branch h9. H9XASH\ENGINE.txt names the commit.
+
+VGUI1 library (vgui.dll) -- the in-game menus' built-in colours
+  Steam  Valve's vgui.dll with six scheme colours changed. That is 18 bytes and
+         nothing else.
+  Xash   FWGS's open VGUI1, freevgui, built from source with the same six colours
+         (freevgui-h9-scheme.patch).
+  The GoldSrc vgui.dll does not belong in H9XASH. Copied there, it crashed Xash at
+  startup (vgui::TextImage::getFont, from HUD_Init).
+
+client.dll
+  Steam  reTS's client, binary-patched to show the server-side cloak on your own
+         model (ts\cl_dlls\client.dll.patch, marked STEAM_LEGACY ONLY).
+  Xash   reTS's client, unpatched. The engine does the same job for any client.dll
+         (engine-h9-cloak.patch). The cvar cl_h9_cloakfix (default 1) turns it off.
+
+Main menu and console colours
+  Steam  GameUI (VGUI2) reads resource\trackerscheme.res.
+  Xash   The menu (mainui) never reads .res files. It reads gfx\shell\colors.lst,
+         whose colours are taken from H9's trackerscheme.res. The console takes
+         the same purple from con_color in ts\userconfig.cfg. colors.lst leaves
+         CON_TEXT_COLOR out on purpose: set there, it makes con_color read-only,
+         and the con_color line in every saved config.cfg then fails.
+
+Main menu music
+  Steam  The "mp3 loop" a config starts keeps playing in the menu.
+  Xash   On its first frame, mainui asked for media/gamestartup, and the engine
+         stops the playing track before it opens a new one. TS has no
+         media/gamestartup, so the menu went silent. mainui-h9-gamestartup.patch
+         asks for it only when the game has one.
+
+Sounds
+  Both engines play the same wavs: 44.1 or 22.05 kHz, mono, 16-bit PCM. The Recon's
+  cloak and uncloak sounds were 48 kHz, with metadata after the audio, and were not
+  heard on Xash. They were re-encoded like the rest (the originals are in
+  TSM\backups\cloak_sounds_48k_2026-10-20). Keep new wavs in that format.
+
+Music volume
+  Steam  "mp3 volume <n>".
+  Xash   There is no such subcommand; the volume is the MP3Volume cvar.
+  ts_matchmode sends whichever one the engine understands.
+
+TS HUD colour
+  Steam  hud_r 190, hud_g 160, hud_b 255, edited into ts\config.cfg.
+  Xash   ts\userconfig.cfg sets the same three values on every launch, because
+         H9XASH starts from TS's stock config.cfg.
+
+config.cfg -- your binds and settings
+  Each install keeps its own, and neither is ever copied over the other. Xash
+  writes config.cfg in its own format when it quits. A fresh H9XASH starts from TS
+  3.0's stock config.cfg and its 64 binds.
+  If keys stop working on Xash (no scoreboard, no chat, no answers to menus), the
+  binds were lost. Count the "bind" lines in H9XASH\ts\config.cfg; TS's binds
+  include TAB, Y, U, X and 1 to 0.
+
+gameinfo.txt
+  Xash reads ts\gameinfo.txt, not liblist.gam, and rebuilds gameinfo.txt from
+  liblist.gam whenever liblist.gam is the newer file. The overlay's gameinfo.txt
+  carries liblist.gam's values: HAVOC 9, 4098 edicts, Metamod as the game DLL.
+  After editing liblist.gam, make the same change there.
+
+Command buffer
+  Xash's exec queue was 32 KB. ts_matchmode.cfg is about 86 KB, so Xash refused to
+  run it. engine-h9-cmdbuf.patch raises the queue to 256 KB, enough for the whole
+  file, as GoldSrc runs it.
+
+Bots' auth id
+  Steam  "BOT".
+  Xash   "ID_BOT".
+  reTSX only counted "BOT", so on Xash every tsx native refused bots ("[TSX] Player
+  N is not ingame"). The patched tsx_amxx.dll also accepts ID_BOT, but only on Xash
+  (see section 3).
+
+Which side a player is on
+  On Xash, ts_matchmode reads sides only from its own assignment. TS's own team is
+  not a reliable reading there, so a benched player could still count as his old
+  side, and the side menu did not come back at match end. On GoldSrc the plugin may
+  also fall back to TS's own team; on H9's Steam server that reads nothing.
+
+A player leaving
+  AMX Mod X cannot find Xash's SV_DropClient, so client_disconnected never fires
+  there. On Xash, ts_matchmode runs its leave cleanup from Metamod's
+  ClientDisconnect instead.
+
+sv_visiblemaxplayers
+  Xash has no such cvar, and AMXX's adminslots plugin errors without it. On Xash,
+  ts_matchmode registers a stand-in.
+
+How Xash is detected
+  The cvar host_ver exists only on Xash. ts_matchmode (g_xash) and the reTSX patch
+  both use that test, so one set of files serves both engines.
+
+Renderer extras
+  The webassembly patch set is part of the Xash build. On Windows its browser code
+  compiles out. What remains is MSR's bloom (r_bloom 1) and scene MSAA
+  (r_scene_msaa 4), both on by default, with checkboxes in the video menu. The
+  browser build itself has not been made yet.
+
+Valve's content
+  Steam  The install's own valve\.
+  Xash   On the first launch, h9xash.bat copies valve\ from your own Steam
+         Half-Life. Only Xash's valve\extras.pk3 is in the repo.
+
+Servers
+  A Xash client cannot join the Steam HLDS ("STEAM validation rejected"). Xash
+  plays on its own listen or dedicated server.
+
+
+3. Patched DLLs and their .patch files
+---------------------------------------
+
+Every shipped DLL that differs from its upstream build has <name>.patch beside it,
+in every place it ships (the Steam install, export\ and the repo).
+
+  vgui.dll  (Steam)
+      Six VGUI1 scheme colours, 18 bytes.
+
+  ts\cl_dlls\client.dll  (Steam)
+      The local player's cloak alpha.
+
+  ts\dlls\mp.dll  (both)
+      Removes reTS's fixed 81-slot carry ceiling, so ts_setuserslots decides a
+      player's room. 2 bytes. Before this, the Heavy's 87-slot kit always lost one
+      weapon.
+
+  ts\addons\amxmodx\modules\tsx_amxx.dll  (both, see the note below)
+      ID_BOT counts as a bot when the engine is Xash.
+
+  rcbot\dlls\rcbot_mm.dll  (both)
+      rcbot-ts-teams.patch: teams by pev->team, the follow command, and bots that
+      do not target cloaked players.
+
+  xash.dll, ref_gl.dll, filesystem_stdio.dll, menu.dll, vgui.dll  (Xash)
+      Source diffs against FWGS master. xash.bat writes them on every engine
+      build, so they always match the binaries beside them, and "git apply"
+      replays them on a fresh FWGS clone.
+
+  Note: the GoldSrc server package (export\ts, the repo's ts\) still ships
+  reTSX's stock tsx_amxx.dll. The change only matters on Xash.
+
+Where the sources are:
+  TSM\decompile_dll\                the binary-patch builders (build_patch_*.py)
+                                    and the original DLLs they start from
+  TSM\xash3d-h9-patches\patches\    H9's engine patches: freevgui-h9-scheme,
+                                    engine-h9-cloak, engine-h9-cmdbuf and
+                                    mainui-h9-gamestartup
+  TSM\webassembly-patch\            the four webassembly patches
+  TSM\AMXMODX, branch h9            the same ID_BOT rule in tsx's source
+  TSM\rcbot-patch\                  rcbot-ts-teams.patch and its README

@@ -69,6 +69,7 @@ typedef struct
 	GLint utex0;
 	GLint utex1;
 	GLint ufog;
+	GLint ufogrange;
 	GLint uMVP;
 	GLuint *vao_begin;
 } gl2wrap_prog_t;
@@ -96,6 +97,7 @@ static struct
 	GLenum prim;
 	GLfloat color[4];
 	GLfloat fog[4]; // color + density
+	GLfloat fogrange[3]; // msr-web: start, end, mode (0 exp, 1 linear, 2 exp2). The game's map fog is linear
 	GLfloat alpharef;
 	gl2wrap_prog_t progs[MAX_PROGS];
 	gl2wrap_prog_t *cur_prog;
@@ -226,6 +228,10 @@ static GLuint GL2_GenerateShader( gl2wrap_prog_t *prog, GLenum type )
 	shader[0] = 0;
 
 	Q_snprintf( shader, MAX_SHADERLEN, "#version %d%s\n", version, version >= 300 && version < 330 ? " es" : "" );
+
+#if XASH_EMSCRIPTEN
+	Q_strncat( shader, "precision highp float;\n", MAX_SHADERLEN );
+#endif
 
 	Q_snprintf( tmp, sizeof( tmp ), "#define VER %d\n", version );
 	Q_strncat( shader, tmp, MAX_SHADERLEN );
@@ -366,6 +372,7 @@ static gl2wrap_prog_t *GL2_GetProg( const GLuint flags )
 	prog->utex0  = pglGetUniformLocationARB( glprog, "uTex0" );
 	prog->utex1  = pglGetUniformLocationARB( glprog, "uTex1" );
 	prog->ufog   = pglGetUniformLocationARB( glprog, "uFog" );
+	prog->ufogrange = pglGetUniformLocationARB( glprog, "uFogRange" );
 	prog->uMVP   = pglGetUniformLocationARB( glprog, "uMVP" );
 
 	if( gl2wrap_config.vao_mandatory )
@@ -427,6 +434,8 @@ static gl2wrap_prog_t *GL2_SetProg( const GLuint flags )
 				pglUniform4fvARB( prog->ucolor, 1, gl2wrap.color );
 			if( prog->ufog >= 0 )
 				pglUniform4fvARB( prog->ufog, 1, gl2wrap.fog );
+			if( prog->ufogrange >= 0 )
+				pglUniform3fARB( prog->ufogrange, gl2wrap.fogrange[0], gl2wrap.fogrange[1], gl2wrap.fogrange[2] );
 			gl2wrap.uchanged = GL_FALSE;
 		}
 		GL2_UpdateMVP( prog );
@@ -1211,6 +1220,11 @@ static void APIENTRY GL2_Fogf( GLenum param, GLfloat val )
 		gl2wrap.fog[3] = val;
 		gl2wrap.uchanged = GL_TRUE;
 	}
+	else if( param == GL_FOG_START || param == GL_FOG_END )
+	{
+		gl2wrap.fogrange[param == GL_FOG_END] = val;
+		gl2wrap.uchanged = GL_TRUE;
+	}
 }
 
 static void APIENTRY GL2_Fogfv( GLenum param, const GLfloat *val )
@@ -1783,6 +1797,11 @@ static void APIENTRY GL2_TexEnvf(GLenum target, GLenum pname, GLfloat param)
 
 static void APIENTRY GL2_Fogi(GLenum pname, GLint param)
 {
+	if( pname == GL_FOG_MODE )
+	{
+		gl2wrap.fogrange[2] = param == GL_LINEAR ? 1.0f : param == GL_EXP2 ? 2.0f : 0.0f;
+		gl2wrap.uchanged = GL_TRUE;
+	}
 }
 
 static void APIENTRY GL2_ShadeModel(GLenum mode)
@@ -1802,12 +1821,6 @@ static void APIENTRY GL2_DrawBuffer(GLenum mode)
 {
 }
 #endif
-
-#if XASH_EMSCRIPTEN
-static void GL2_PolygonOffset( GLfloat factor, GLfloat units )
-{
-}
-#endif // XASH_EMSCRIPTEN
 
 void GL2_ShimInstall( void )
 {
@@ -1856,9 +1869,6 @@ void GL2_ShimInstall( void )
 		GL2_OVERRIDE_PTR_B( TexImage2D )
 		GL2_OVERRIDE_PTR_B( TexParameteri )
 	}
-#if XASH_EMSCRIPTEN
-	GL2_OVERRIDE_PTR( PolygonOffset )
-#endif // XASH_EMSCRIPTEN
 	GL2_OVERRIDE_PTR_B( IsEnabled )
 	GL2_OVERRIDE_PTR_B( DrawRangeElements )
 	GL2_OVERRIDE_PTR_B( DrawElements )

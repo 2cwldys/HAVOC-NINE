@@ -1,5 +1,5 @@
 diff --git a/include/build.h b/include/build.h
-index 8eb7396..cff9d82 100644
+index b92c51e..84d91a5 100644
 --- a/include/build.h
 +++ b/include/build.h
 @@ -62,6 +62,7 @@ Then you can use another oneliner to query all variables:
@@ -10,7 +10,7 @@ index 8eb7396..cff9d82 100644
  #undef XASH_FREEBSD
  #undef XASH_HAIKU
  #undef XASH_HURD
-@@ -141,6 +142,8 @@ Then you can use another oneliner to query all variables:
+@@ -146,6 +147,8 @@ Then you can use another oneliner to query all variables:
  		#define XASH_WASI 1
  	#elif defined __sun__
  		#define XASH_SUNOS 1
@@ -20,7 +20,7 @@ index 8eb7396..cff9d82 100644
  		#define XASH_HURD 1
  	#else
 diff --git a/include/buildenums.h b/include/buildenums.h
-index ef73e85..4fc110d 100644
+index c91f5e6..d02d86e 100644
 --- a/include/buildenums.h
 +++ b/include/buildenums.h
 @@ -48,7 +48,7 @@ For more information, please refer to <http://unlicense.org/>
@@ -32,7 +32,7 @@ index ef73e85..4fc110d 100644
  #define PLATFORM_DOS4GW     9
  #define PLATFORM_HAIKU      10
  #define PLATFORM_SERENITY   11
-@@ -77,6 +77,8 @@ For more information, please refer to <http://unlicense.org/>
+@@ -78,6 +78,8 @@ For more information, please refer to <http://unlicense.org/>
  	#define XASH_PLATFORM PLATFORM_NETBSD
  #elif XASH_OPENBSD
  	#define XASH_PLATFORM PLATFORM_OPENBSD
@@ -42,12 +42,12 @@ index ef73e85..4fc110d 100644
  	#define XASH_PLATFORM PLATFORM_DOS4GW
  #elif XASH_HAIKU
 diff --git a/include/library_suffix.h b/include/library_suffix.h
-index 81fb091..a506f4e 100644
+index 68ec127..641ee0c 100644
 --- a/include/library_suffix.h
 +++ b/include/library_suffix.h
 @@ -39,6 +39,8 @@ For more information, please refer to <http://unlicense.org/>
  	#define OS_LIB_EXT "dll"
- #elif XASH_PSP
+ #elif XASH_PSP || XASH_PS4
  	#define OS_LIB_EXT "prx"
 +#elif XASH_EMSCRIPTEN
 +	#define OS_LIB_EXT "wasm"
@@ -55,7 +55,7 @@ index 81fb091..a506f4e 100644
  	#define OS_LIB_EXT "so"
  #else
 diff --git a/src/library_suffix.c b/src/library_suffix.c
-index 134e4a0..f350a3b 100644
+index 8f2b21a..005083a 100644
 --- a/src/library_suffix.c
 +++ b/src/library_suffix.c
 @@ -59,6 +59,8 @@ const char *Q_PlatformStringByID( const int platform )

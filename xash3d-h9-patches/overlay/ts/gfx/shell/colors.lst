@@ -1,0 +1,16 @@
+// H9XASH: the main menu in H9's purple.
+//
+// Xash's menu never reads resource\trackerscheme.res (that is the GoldSrc/VGUI2 main
+// menu); it reads this file instead. Each colour below is taken from H9's purple
+// trackerscheme.res. Format: KEY r g b. INPUT_BG_COLOR is left out on purpose: a
+// colour given here is drawn opaque, and the default field background is see-through.
+// CON_TEXT_COLOR is left out too: given here, it makes con_color read-only, and the
+// con_color line every saved config.cfg carries then fails ("con_color is read-only").
+// The console takes the same purple from con_color in ts\userconfig.cfg instead.
+
+HELP_COLOR		176 158 209	// hint letters: DimBaseText
+PROMPT_BG_COLOR		63 40 94	// dialog background: WindowBG
+PROMPT_TEXT_COLOR	223 213 245	// dialog and button letters: BaseText
+PROMPT_FOCUS_COLOR	186 116 255	// focused letters: DepressedMenuColor
+INPUT_TEXT_COLOR	225 212 250	// field text: ControlText
+INPUT_FG_COLOR		138 66 196	// field, list and checkbox foreground: SelectionBG

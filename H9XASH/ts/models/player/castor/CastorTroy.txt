@@ -1,0 +1,40 @@
+15-April-2002
+================================================================
+Model Name              : Castor Troy
+Author                  : Antonio "RAvEN" Teglia <freemen@libero.it>
+Skin Mapping            : Antonio "RAvEN" Teglia <freemen@libero.it>
+Skin Author             : Marco "Dit.{Z}" Di Timoteo <dit_z@mclink.it>
+
+Model description       : This is Castor Troy from the John Woo "Face Off" movie. The character is played by actor Nicholas Cage.
+Additional URLs:
+English: http://www.geocities.com/Hollywood/Set/8561/faceoff.html
+Italian: http://cinema.supereva.it/canali/primevisioni/artI398.html
+RAvEN & Dit_z : http://www.planethalflife.com/holywars
+Dit_z: http://www.zentradi.it/
+The specialists: http://www.halflifeitalia.com/specialist/
+
+Other info              : main model is Castor Troy in smart suit; submodel is
+			  Castor Troy in casual clothes. 
+
+Additional Credits to   : Morfeo for being so patient
+
+Thanks to               : Dit.{Z}, Storm, Nusco.
+================================================================
+* Construction *
+Poly Count              : main (elegant) = 1068, submodel (casual) = 732
+Vert Count              : Does this matter?
+Skin Count              : 3 skins (all 256x256x8)
+Base                    : None.
+Editor used             : 3D Studio Max 3.0 - Character Studio 2.2
+Known Bugs              : Jacket does not fold properly
+Build time		: 6+ hours for the mesh, and another 30+ for skins & mesh modifications
+
+* How to use this model *
+
+This is intended to be used with Half Life and with the mod "The Specialists".
+
+* Copyright / Permissions *
+
+Half Life is a registered trademark of Valve Software.
+
+Don't reproduce or modify the model without permission, don't use it in a total conversion/mod without permission, and don't use it for anything other than playing Half Life and having fun. Also, if you use this PPM and you don't advertise how cool it is and who made it, every frag you get, we'll send people to your house to kill you and your family and anyone who ever knew you, including your dog, then piss on your grave and sell your personal possessions to the highest bidder.

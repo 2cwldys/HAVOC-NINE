@@ -1,0 +1,21 @@
+================================================================
+Model Name              : Agent
+Author                  : Morfeo <specialists@halflifeitalia.com>
+Skin Mapping            : Morfeo <specialists@halflifeitalia.com>
+Skin Author             : Morfeo <specialists@halflifeitalia.com>
+
+Model description       : Agent model ,inspired by "Matrix" the movie
+
+The specialists: http://www.halflifeitalia.com/specialist/
+
+Additional Credits to   : Supernovae for his work on the head skin and Omega for a part of the skin.
+
+* How to use this model *
+
+This is intended to be used with Half Life and with the mod "The Specialists".
+
+* Copyright / Permissions *
+
+Half Life is a registered trademark of Valve Software.
+
+Don't reproduce or modify the model without permission, don't use it in a total conversion/mod without permission, and don't use it for anything other than playing Half Life and having fun.

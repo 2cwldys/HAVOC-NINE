@@ -1,0 +1,56 @@
+=====================================================================
+   Specialist Map Spec Sheet
+=====================================================================
+
+------General Information--------------------------------------------
+
+Title		: ts_Awaken Specialist Version
+Author		: Dredd "Scott Winchester"
+Author Email	: dreddthis@msn.com
+Home page	: none
+
+------Credits and Thanks---------------------------------------------
+
+Thanks to Blazeer! for making  some textures to fir everyone to use.
+Hes a great texture artist.
+http://www.blaz.cscentral.com/
+
+------Additional Info, Tips, and Notes-------------------------------
+
+
+
+This map is based on the matrix fight scene were morphues and neo
+have a fungfu training fight.
+
+------Play Information-----------------------------------------------
+
+Single Player   : um.. no.
+Deathmatch	: Hell yeah!
+Teamplay        : No
+Modification    : Made for The Specialists
+Map Description	: Slighty based on the matrix .
+How Many Players: 4-12 (Small map)
+
+
+
+------Construction---------------------------------------------------
+
+Editor(s) used	: Worldcraft 3.4
+Compile Machine	: Athlon 1800xp with 256MB DDR SDRAM
+Compile time	: about 40mins minutes
+
+------Map Instructions-----------------------------------------------
+
+Unzip the file Dm_awaken.bsp  into your half-life/ts folder.  
+Unzip the file WIndy.wav  into your \Half-Life\ts\sound\ambience folder.
+
+------Copyright-Permissions------------------------------------------
+
+
+You MUST NOT distribute this level UNLESS you INCLUDE THIS FILE WITH
+NO MODIFICATIONS!!!. If you don't co-operate, then DON'T DISTRIBUTE
+IT IN ANY FORM!!.
+
+This BSP may be distributed ONLY over the Internet and/or BBS systems.
+You are NOT authorized to put this BSP on any CD or distribute it in
+any way without my permission.

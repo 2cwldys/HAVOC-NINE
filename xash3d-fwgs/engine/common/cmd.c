@@ -22,9 +22,15 @@ GNU General Public License for more details.
 #define MAX_CMD_LINE	2048
 #define MAX_ALIAS_NAME	32
 
+// H9: the queue exec fills has to hold a whole config file, as GoldSrc's does. H9's
+// ts_matchmode.cfg is about 86 KB, mostly comments, and 32 KB refused it outright
+// ("command buffer overflow ... is not executed"). Only the queue grows:
+// MAX_CMD_BUFFER also sizes buffers on the stack.
+#define MAX_CMD_TEXT	( MAX_CMD_BUFFER * 8 )
+
 typedef struct
 {
-	byte data[MAX_CMD_BUFFER];
+	byte data[MAX_CMD_TEXT];
 	int  cursize;
 } cmdbuf_t;
 
@@ -98,6 +104,10 @@ Cbuf_AddText
 Adds command text at the end of the buffer
 ============
 */
+#if XASH_EMSCRIPTEN
+#include <emscripten.h>
+EMSCRIPTEN_KEEPALIVE // the page queues commands here; they run in the engine's own frame
+#endif
 void Cbuf_AddText( const char *text )
 {
 	Cbuf_AddTextToBuffer( &cmd_text, text );
@@ -962,7 +972,12 @@ static void Cmd_ExecuteStringWithPrivilegeCheck( const char *text, qboolean isPr
 	}
 }
 
+#if XASH_EMSCRIPTEN
+#include <emscripten.h>
+EMSCRIPTEN_KEEPALIVE void Cmd_ExecuteString( const char *text )
+#else
 void Cmd_ExecuteString( const char *text )
+#endif
 {
 	Cmd_ExecuteStringWithPrivilegeCheck( text, true );
 }

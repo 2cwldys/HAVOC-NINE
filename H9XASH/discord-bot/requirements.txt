@@ -1,0 +1,12 @@
+# The Discord side of ts_advertise.
+#
+#     pip install -r requirements.txt
+#
+# discord.py gives the gateway connection -- the thing that makes the bot show as
+# online and lets Discord push slash commands and button clicks to it.
+discord.py>=2.3.2
+
+# python-a2s queries the game server directly over UDP, the same protocol the server
+# browser uses. It is why the bot needs no bridge to the plugin: it asks the server
+# what is happening rather than being told.
+python-a2s>=1.3.0

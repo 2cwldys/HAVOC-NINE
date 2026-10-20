@@ -484,6 +484,11 @@ void SteamBroker_TerminateGameConnection( void )
 
 void SteamBroker_Frame( void )
 {
+#if XASH_EMSCRIPTEN
+	// msr-web: a browser cannot reach a local Steam broker; without this an installed game's
+	// cl_ticket_generator "steam" retries a WebSocket connection every five seconds
+	return;
+#endif
 	if( FBitSet( cl_steam_broker_addr.flags | cl_ticket_generator.flags, FCVAR_CHANGED ))
 	{
 		ClearBits( cl_ticket_generator.flags, FCVAR_CHANGED );

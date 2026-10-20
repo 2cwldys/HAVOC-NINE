@@ -1,0 +1,38 @@
+ _______ _____  _____ _____  ______ _   _ _______ 
+|__   __|  __ \|_   _|  __ \|  ____| \ | |__   __|
+   | |  | |__) | | | | |  | | |__  |  \| |  | |   
+   | |  |  _  /  | | | |  | |  __| | . ` |  | |   
+   | |  | | \ \ _| |_| |__| | |____| |\  |  | |   
+   |_|  |_|  \_\_____|_____/|______|_| \_|  |_|   
+
+
+Ts_trident - By Stinkey
+-----------------------
+
+The Trident Lobby
+
+-----------------------
+==============================================
+Build time - Dunno, 'bout 6 months, on and off
+Compile time - 20 minutes
+==============================================
+
+Thanks to [Stink.Inc | Eclipse] for all his input and testing
+[BS]vez for his testing help
+
+Many Thanks to Schmung help and tips.
+Many, many thanks to Clan-Kill3r for all his help, I'd probably 
+have given up on this map if he hadn 't kept pestering me :)
+
+Contact - Sfar200213@hotmail.com
+	- http://www.eclipsethenet.us/stink-inc/index.php
+
+================================================
+  _____ _______ _____ _   _ _  __________     __
+ / ____|__   __|_   _| \ | | |/ /  ____\ \   / /
+| (___    | |    | | |  \| | ' /| |__   \ \_/ / 
+ \___ \   | |    | | | . ` |  < |  __|   \   /  
+ ____) |  | |   _| |_| |\  | . \| |____   | |   
+|_____/   |_|  |_____|_| \_|_|\_\______|  |_| 
+
+================================================

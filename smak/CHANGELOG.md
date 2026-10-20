@@ -3,7 +3,42 @@
 The newest first. A version that changes what a model's file looks like, or that a model made before needs
 mending for, says so under **Mind**.
 
-## Not released yet
+## 0.21.0 (2026-10-20)
+
+From the figures research (a robot of rigid hard-surface pieces on Half-Life's soldier, its parts made in plain
+JavaScript), the tools that are not about that one robot:
+
+- **`addBodypart`** and **`putRigid`**: a bodypart added after the others, whose base keeps every body number the
+  model had (each shows what it did, and the new bodypart's first submodel); and pieces each on one bone laid into
+  as many such bodyparts as the engine's 2048 points and normals a submodel need. A robot of 528 pieces on the
+  soldier went in as three bodyparts beside its own, every animation kept, nothing stretched.
+- **`solids`** (src/solids.mjs): convex solids in plain JavaScript, no Blender: boxes cut and bevelled, plates of
+  any convex outline, prisms, cylinders, rods, beams, faceted balls and lofts on a place, made into triangles that
+  face out, with their planes, their points counted and a check that they close. `inset` no longer turns a
+  rectangle moved in past its middle inside out (the research's own kept it, at its full size the other way).
+- **The kitbash kit** (kits/kitbash.mjs): 45 parametric hard-surface parts of those solids, a bolt to a motor,
+  each `PARTS[name](place, size, rnd)` set on a surface, the same for the same seed (`seeded`), grouped by what
+  they suit (`SETS`), within a reach their size gives them (`REACH`).
+- **`findPiston`** (src/linkage.mjs): a telescopic piston across a joint, its cylinder on one bone and its rod on
+  the other, anchored where the rod strays least from the cylinder through the animations, and sized to stay in
+  it. On Half-Life's soldier it finds what the research's own found, and says what that one passed over in
+  silence: two of the animations it was given are kept in another file and were never posed (`skipped`).
+- **`motionOverlaps`** (src/wear.mjs): rigid convex pieces on bones that the animations drive into each other,
+  how much deeper than they stand as built, frame by frame, each pair told as on bones next to each other (a
+  joint's own parts) or apart (a fault); only pairs whose spheres meet are measured. 436 of the robot's pieces
+  through the soldier's walk and run in under a second.
+- **`unwrap`** (src/unwrap.mjs): pieces laid out on one picture as their own nets, unfolded about their edges at
+  one texel density, packed by their shapes rather than their boxes, every corner on a whole texel; a left and
+  its right on one set of texels (`share`), a piece of the middle by its one half (`mirror`); `withUV` puts the
+  places on the corners for `putRigid`.
+- **Blender, where the machine has it** (src/blender.mjs, the kit's one outside program, and only for this):
+  `findBlender` (the program given, `SMAK_BLENDER`, the usual places, the PATH), `runBlender` and
+  `runBlenderJob` (a script headless on a JSON file), `readFloatMap` (the float pictures it writes), and
+  `bakeMaps`: a detailed copy's colours, occlusion and normals baked onto a plain one's picture, selected to
+  active. Its test bakes a cube and runs only where Blender is found.
+
+Of the research, the mech grammar, the hard suit, the paint's composing and the markings stay in it: they are
+one robot's, not the kit's.
 
 - **`buildMdl({ skins })`**: skin families after the first, each the textures it changes by the name of the one
   each stands for (of the same size); a script or an entity shows family n with skin n. A bought character in

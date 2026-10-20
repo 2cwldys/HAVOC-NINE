@@ -1428,11 +1428,34 @@ static void R_LightLambert( vec4_t light[MAX_LOCALLIGHTS], const vec3_t normal, 
 	}
 }
 
+// msr-web: a mesh whose texture has STUDIO_NF_FLOW. Waves of light run across its picture (the two
+// scales turn a vertex's texture pixel into 0..1, so the wave is as long on a small copy of the picture)
+// and the whole of it flickers. Zero when the mesh being drawn is not one. The lab's page draws the same
+// (lab/index.html): change both.
+static float g_flow_s, g_flow_t;
+
+static float R_StudioFlow( const short *ptricmds )
+{
+	float time = g_studio.time;
+	float wave = sin( 6.2831853f * ( 5.0f * ( ptricmds[2] * g_flow_s + ptricmds[3] * g_flow_t ) - 0.9f * time ));
+	float flicker = 0.82f + 0.18f * sin( time * 31.0f ) * sin( time * 7.3f );
+
+	wave = wave > 0.0f ? wave * wave : 0.0f;
+	return ( 0.3f + 0.7f * wave ) * flicker;
+}
+
 static void R_StudioSetColorArray( short *ptricmds, vec3_t *pstudionorms, byte *color )
 {
 	float	*lv = (float *)g_studio.lightvalues[ptricmds[1]];
 
 	color[3] = tr.blend * 255;
+	if( g_flow_s != 0.0f )
+	{
+		// its own light: the room's does not dim it
+		int v = (int)( 255.0f * R_StudioFlow( ptricmds ));
+		color[0] = color[1] = color[2] = v;
+		return;
+	}
 	R_LightLambert( g_studio.lightpos[ptricmds[0]], pstudionorms[ptricmds[1]], lv, color );
 }
 
@@ -2109,7 +2132,19 @@ static void R_StudioDrawPoints( void )
 
 		R_StudioSetupSkin( m_pStudioHeader, pskinref[pmesh->skinref] );
 
+		if( FBitSet( g_nFaceFlags, STUDIO_NF_FLOW ) && !FBitSet( g_nFaceFlags, STUDIO_NF_CHROME ))
+		{
+			g_flow_s = s;
+			g_flow_t = t;
+		}
 		R_StudioSubmitMesh( ptricmds, pstudionorms, s, t, shellscale, 0 );
+		// msr-web, bloom: what is drawn additively goes a second time into the target that is blurred over the scene
+		if( FBitSet( g_nFaceFlags, STUDIO_NF_ADDITIVE ) && GL_GlowBegin( ))
+		{
+			R_StudioSubmitMesh( ptricmds, pstudionorms, s, t, shellscale, 0 );
+			GL_GlowEnd();
+		}
+		g_flow_s = g_flow_t = 0.0f;
 
 		if( FBitSet( g_nFaceFlags, STUDIO_NF_MASKED ))
 		{

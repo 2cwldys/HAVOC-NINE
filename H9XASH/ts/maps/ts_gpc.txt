@@ -1,0 +1,24 @@
+TITLE:		TS_GPC
+FILENAME:	TS_GPC.bsp
+AUTHOR:		CLAN-KILLER
+TYPE/MOD:	The Specialists
+
+Thanks to:
+
+Alan:	for making some textures.
+Blazing:	for making the low poly cars.
+3DMIKE:	for making the textures of the low poly cars.
+Ownij:	for helping with testing the map.
+GPC:	for inspiration for a name.
+Tolchok:	for the tree
+Sm0lders:	for the truck
+Blade:	for the graffiti
+The GZA:	for whatever
+
+Also thanks for the makers of the sky box that i edited (don't now the names).
+
+EMAIL CLAN-KILLER:	specialists@wanadoo.nl
+EMAIL BLAZING:		blazingmapper@hotmail.com
+EMAIL 3DMIKE:		info@3d-mike.com
+EMAIL BLADE:		beukdekerstman@hotmail.com
+

@@ -1,0 +1,128 @@
+TSM tsx_amxx.dll patch -- Xash3D's bots count as bots
+=======================================================
+
+What this is: a binary patch to reTSX (ts\addons\amxmodx\modules\tsx_amxx.dll), the AMX Mod X
+TS module that ships with reTS, so it puts Xash3D FWGS's bots in game the way it does
+GoldSrc's.
+
+tsx keeps its own table of who is in game, and every tsx native refuses a player that table
+does not have ("[TSX] Player N is not ingame"). A bot reaches that table only through tsx's
+ClientUserInfoChanged_Post, and only when the engine's GetPlayerAuthId for it is "BOT". GoldSrc
+says "BOT". Xash3D FWGS says "ID_BOT" (engine/server/sv_client.c, SV_GetClientIDString), so on
+Xash no bot was ever put in game: ts_setuserslots and every other tsx native failed on them,
+and the plugin call setting a bot up died with a run time error.
+
+The patch keeps the "BOT" test and adds one more: when the engine is Xash3D -- the cvar
+host_ver exists, the same test ts_matchmode uses -- "ID_BOT" counts as well. On GoldSrc host_ver
+does not exist and the answer is exactly what it was. AMX Mod X core needs nothing: its own bot
+test checks FL_FAKECLIENT first, which FWGS sets.
+
+Original file : tsx_amxx.dll.original (reTSX as shipped with reTS)
+Patched file  : tsx_amxx_patched_idbot.dll
+Original MD5  : d39732bce2d27488b7bbb0fa6996cd22
+Patched MD5   : 9d8b6778605a0c52eaea28d67acf4dd2
+Original size : 179200 bytes
+Patched size  : 183296 bytes (+4096)
+
+1. The hook
+-------------------------------------------------------------
+
+The bot test in ClientUserInfoChanged_Post, after the patch:
+
+    100073cd  ff36             push dword ptr [esi]
+    100073cf  ff15ccd50810     call dword ptr [0x1008d5cc]
+    100073d5  83c404           add esp, 4
+    100073d8  85c0             test eax, eax
+    100073da  742f             je 0x1000740b
+    100073dc  687b5f0210       push 0x10025f7b
+    100073e1  50               push eax
+    100073e2  e819ac0800       call 0x10092000
+    100073e7  83c408           add esp, 8
+    100073ea  85c0             test eax, eax
+    100073ec  751d             jne 0x1000740b
+    100073ee  89f1             mov ecx, esi
+    100073f0  e84b9cffff       call 0x10001040
+
+Only the call at RVA 0x73e2 changes:
+
+    file offset 0x67e2:
+      original: e8 b9 b8 00 00   (call strcmp)
+      patched:  e8 19 ac 08 00   (call stub)
+
+It is a relative call with no relocation entry, so it stays correct when the DLL is relocated.
+The push of "BOT" before it carries a relocation and is left exactly as it was; the stub reads
+that argument like strcmp would.
+
+2. PE header changes -- registering the new section
+-------------------------------------------------------------
+
+  * File header, NumberOfSections: 5 -> 6
+  * Optional header, SizeOfImage: 0x92000 -> 0x93000
+  * New section table entry appended into existing header slack:
+
+      Name             .h9bot
+      VirtualAddress   0x92000
+      VirtualSize      0x1000
+      PointerToRawData 0x2bc00
+      SizeOfRawData    0x1000
+      Characteristics  0x60000020  (CODE | EXECUTE | READ -- not writable)
+
+Existing sections are untouched. The new section is appended after the original last byte.
+
+3. The new .h9bot section (file offset 0x2bc00, 4096 bytes)
+-------------------------------------------------------------
+
+The stub is at offset 0, "host_ver" at 0x80, "ID_BOT" at 0x90; the rest is zero.
+It keeps strcmp's contract (cdecl, returns 0 for a bot) and is position independent:
+`call L0 / pop ecx / sub ecx,0x92005` turns ecx into the module base, and the engine
+function and both strings are reached as base+RVA, so it needs no relocation entries.
+
+Stub disassembly (VA 0x10092000):
+
+    10092000  e800000000       call 0x10092005
+    10092005  59               pop ecx
+    10092006  81e905200900     sub ecx, 0x92005
+    1009200c  51               push ecx
+    1009200d  ff74240c         push dword ptr [esp + 0xc]
+    10092011  ff74240c         push dword ptr [esp + 0xc]
+    10092015  e8860cf8ff       call 0x10012ca0
+    1009201a  83c408           add esp, 8
+    1009201d  59               pop ecx
+    1009201e  85c0             test eax, eax
+    10092020  7429             je 0x1009204b
+    10092022  51               push ecx
+    10092023  8d9180200900     lea edx, [ecx + 0x92080]
+    10092029  52               push edx
+    1009202a  ff9160d50800     call dword ptr [ecx + 0x8d560]
+    10092030  83c404           add esp, 4
+    10092033  59               pop ecx
+    10092034  85c0             test eax, eax
+    10092036  7414             je 0x1009204c
+    10092038  8d9190200900     lea edx, [ecx + 0x92090]
+    1009203e  52               push edx
+    1009203f  ff742408         push dword ptr [esp + 8]
+    10092043  e8580cf8ff       call 0x10012ca0
+    10092048  83c408           add esp, 8
+    1009204b  c3               ret 
+    1009204c  b801000000       mov eax, 1
+    10092051  c3               ret 
+
+The steps are:
+
+  * strcmp(auth, "BOT") through the module's own strcmp (RVA 0x12ca0). 0 is returned as is.
+  * Otherwise g_engfuncs.pfnCVarGetPointer("host_ver"), from slot RVA 0x8d560 -- the slot
+    reTSX itself uses at load (RVA 0x76c0) to look up its tsstats cvars.
+  * NULL means GoldSrc: return 1, not a bot by auth -- the same answer as before.
+  * Otherwise return strcmp(auth, "ID_BOT").
+
+No real player's auth is exactly "ID_BOT": FWGS gives players ID_LOOPBACK, ID_LAN or ID_<hash>,
+and GoldSrc's are STEAM_/VALVE_ forms.
+
+4. Rollback
+-------------------------------------------------------------
+
+The original (MD5 d39732bce2d27488b7bbb0fa6996cd22) is kept as tsx_amxx.dll.original next to this script. Copy it back over
+ts\addons\amxmodx\modules\tsx_amxx.dll with the server closed.
+
+Original: d39732bce2d27488b7bbb0fa6996cd22
+Patched : 9d8b6778605a0c52eaea28d67acf4dd2

@@ -1,0 +1,43 @@
+diff --git a/BaseMenu.cpp b/BaseMenu.cpp
+index 7b727eb..2dd83a7 100755
+--- a/BaseMenu.cpp
++++ b/BaseMenu.cpp
+@@ -624,6 +624,29 @@ static bool UI_UpdateWindowInsets( void )
+ 	return changed;
+ }
+ 
++/*
++=================
++UI_HasStartupTrack
++
++H9: the engine stops the playing track before it opens a new one, so asking
++for a start-up track the game does not have silences one its config started.
++=================
++*/
++static bool UI_HasStartupTrack( void )
++{
++	static const char *exts[] = { "mp3", "wav", "ogg", "opus" };
++	char path[64];
++
++	for( int i = 0; i < ARRAYSIZE( exts ); i++ )
++	{
++		snprintf( path, sizeof( path ), "media/gamestartup.%s", exts[i] );
++		if( EngFuncs::FileExists( path ))
++			return true;
++	}
++
++	return false;
++}
++
+ /*
+ =================
+ UI_UpdateMenu
+@@ -693,7 +716,7 @@ void UI_UpdateMenu( float flTime )
+ 				return;
+ 
+ 			// load background track
+-			if( !CL_IsActive( ))
++			if( !CL_IsActive( ) && UI_HasStartupTrack( ))
+ 				EngFuncs::PlayBackgroundTrack( "media/gamestartup", "media/gamestartup" );
+ 		}
+ 

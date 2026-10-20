@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes9"
+#define TSM_BUILD "1.53-fixes15"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -526,6 +526,9 @@ new g_cv_medsound, g_cv_engsound, g_cv_suddensound, g_cv_welcomesound;
 new bool:g_death_fem_ok[7];
 new bool:g_death_male_ok[7];
 #define TSM_DEATH_ROBO "weapons/explode3.wav"   // HL1 frag grenade, stock
+#define TSM_DEATH_DROID "death/droid_powerdown.wav"   // a machine powering down, under the boom
+#define TSM_DEATH_DROID_PATH "sound/death/droid_powerdown.wav"
+new bool:g_death_droid_ok;   // droid_powerdown.wav is on disk and precached
 
 /*
  * THE SIEGE FINALE BOOMS, three more of HL1's own stock explosions in the
@@ -740,6 +743,14 @@ new g_last_use[MAXPL];
 new bool:g_in_userinfo[MAXPL];
 new g_gamedesc[64];
 
+/*
+ * Running on Xash3D FWGS (H9XASH) rather than GoldSrc. Decided once, at precache, from
+ * host_ver -- a cvar only Xash registers -- and checked by the few things Xash needs done
+ * differently: the sv_visiblemaxplayers stand-in in plugin_precache, and the leave
+ * cleanup from fw_client_disconnect_xash. On GoldSrc none of them run.
+ */
+new bool:g_xash;
+
 // Facing for each team spawn. Only meaningful for config-placed spawns -- the
 // entity scan has no angles to copy, so it leaves players looking wherever they
 // already were.
@@ -832,6 +843,7 @@ new g_icon_ent[MAXPL];       // this player's class-icon sprite, 0 if none yet
 new g_icon_owner[2048];      // edict -> the player whose class icon it is, 0 for anything else
 new bool:g_sudden;           // the last minute has begun, and it is announced once
 new bool:g_icon_ok;          // the sheet precached, so the entities may be made
+new g_maxplayers;            // the slot count, read once at precache: players are 1..g_maxplayers
 new g_join_tries[MAXPL];     // jointeam attempts for the current pick
 new g_teaminfo_seen = 0;     // TeamInfo messages from the mod since map load
 
@@ -3148,6 +3160,22 @@ make_class_icon(id, Float:scale)
 
 public plugin_precache()
 {
+	g_maxplayers = get_maxplayers();
+
+	/*
+	 * Xash3D first: what it changes has to be in place before any plugin's plugin_init.
+	 *
+	 * AMXX's own adminslots.amxx reads sv_visiblemaxplayers on every connect, and Xash
+	 * has no such cvar, so every join -- a bot every two seconds -- was an "Invalid CVAR
+	 * pointer" run time error. A stand-in with GoldSrc's default (-1: show maxplayers)
+	 * is made here: precache runs for every plugin before any plugin_init does.
+	 */
+	g_xash = cvar_exists("host_ver") != 0;
+	if (g_xash && !cvar_exists("sv_visiblemaxplayers"))
+	{
+		register_cvar("sv_visiblemaxplayers", "-1");
+	}
+
 	/*
 	 * REGISTERED HERE, not in plugin_init, because this forward runs first and already
 	 * logs -- the missing-sprite warning below. A cvar registered in plugin_init does
@@ -3156,6 +3184,11 @@ public plugin_precache()
 	 * get_pcvar_num before that.
 	 */
 	g_cv_logging = register_cvar("tsm_logging", "0");
+
+	if (g_xash)
+	{
+		tlog("[TSM] Xash3D FWGS -- leave cleanup runs from Metamod's ClientDisconnect, sv_visiblemaxplayers stood in.");
+	}
 
 	/*
 	 * The perk sounds, registered and precached here because precaching is only legal
@@ -3230,6 +3263,18 @@ public plugin_precache()
 		}
 	}
 	precache_sound(TSM_DEATH_ROBO);
+
+	// The machine power-down is a moddir file, so it is checked first like the voices: a
+	// missing one only leaves the boom on its own.
+	if (file_exists(TSM_DEATH_DROID_PATH))
+	{
+		precache_sound(TSM_DEATH_DROID);
+		g_death_droid_ok = true;
+	}
+	else
+	{
+		tlog("[TSM] %s is not on disk -- machines detonate without powering down.", TSM_DEATH_DROID_PATH);
+	}
 
 	/*
 	 * THE SIEGE FINALE BOOMS, the HL1 stock stack the last objective falls
@@ -4256,6 +4301,12 @@ public plugin_init()
 	// the frame. See cloak_active().
 	register_forward(FM_StartFrame, "fw_startframe_pre");
 	register_forward(FM_StartFrame, "fw_startframe_post", 1);
+
+	// Xash3D: where a player leaving arrives on that engine. See fw_client_disconnect_xash.
+	if (g_xash)
+	{
+		register_forward(FM_ClientDisconnect, "fw_client_disconnect_xash");
+	}
 	register_forward(FM_ClientUserInfoChanged, "fw_userinfo");
 
 	/*
@@ -4299,7 +4350,7 @@ public plugin_init()
 	register_menucmd(g_class_menuid, 1023, "class_menu_key");
 
 	register_concmd("amx_match_start",   "cmd_start",   ADMIN_CFG, " - force the match live");
-	register_concmd("amx_match_cancel",  "cmd_cancel",  ADMIN_CFG, " - abort and return to warmup");
+	register_concmd("amx_match_cancel",  "cmd_cancel",  ADMIN_CFG, " - abort, send everyone to spectator, and return to warmup");
 	register_concmd("amx_match_restart", "cmd_restart", ADMIN_CFG, " - restart the match from round 1");
 	register_concmd("amx_match_score",   "cmd_score",   ADMIN_CFG, " - print the score");
 	register_concmd("amx_match_continue","cmd_continue",ADMIN_CFG, " - resume a halted match as it stands, keeping the score");
@@ -4759,7 +4810,9 @@ icon_view(owner, host)
  */
 public fw_addtofullpack_pre(es, e, ent, host, hostflags, player, pSet)
 {
-	if (ent >= 1 && ent < MAXPL)
+	// The real slot count, not MAXPL: the icons are made straight after the player slots, so on
+	// a server with fewer than 32 of them they sit below MAXPL and would pass for players here.
+	if (ent >= 1 && ent <= g_maxplayers)
 	{
 		if (g_cloak_nodraw[ent])
 		{
@@ -4797,7 +4850,8 @@ public fw_addtofullpack_pre(es, e, ent, host, hostflags, player, pSet)
  */
 public fw_addtofullpack(es, e, ent, host, hostflags, player, pSet)
 {
-	if (ent >= 1 && ent < MAXPL)
+	// Players only -- the same slot test as fw_addtofullpack_pre.
+	if (ent >= 1 && ent <= g_maxplayers)
 	{
 		// First, before anything can return: it was lifted only for TS's pack of this entity.
 		if (g_cloak_nodraw[ent])
@@ -9502,7 +9556,8 @@ public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 		}
 
 		/*
-		 * Mech/bot model hit sound: on EVERY damaging hit.
+		 * Machine hit sound -- a mech, or robo / droid / bot in the model name: on EVERY
+		 * damaging hit.
 		 *
 		 * This was one ricochet per three seconds, and through a firefight that read
 		 * as "the machine does not react to being shot". A hit now always speaks.
@@ -9511,7 +9566,7 @@ public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 		 * second, while one fixed channel makes each new hit REPLACE the previous
 		 * clang -- the stutter of metal being hammered, which is what this is.
 		 */
-		if (wears_mech(victim))
+		if (machine_body(victim))
 		{
 			new hitname[24];
 			copy(hitname, charsmax(hitname), g_mech_hit_snd[random(sizeof g_mech_hit_snd)]);
@@ -9867,6 +9922,27 @@ bool:wears_mech(id)
 		return true;
 	}
 	return false;
+}
+
+/// True for a model name a machine wears: robo, droid or bot anywhere in it, in any case.
+/// The mech models (mech_msr_bot, mech_ins_bot) carry "bot", so every mech is a machine too.
+stock bool:machine_name(const name[])
+{
+	return (containi(name, "robo") >= 0 || containi(name, "droid") >= 0 || containi(name, "bot") >= 0);
+}
+
+/// A body that is a machine: its userinfo model or its class pick names one, or it walks as a
+/// mech. Both strings are read because either one alone can miss a body (see set_class_model),
+/// and neither is alive-gated, so the answer holds on a hit and on the death frame alike.
+bool:machine_body(id)
+{
+	if (id < 1 || id > g_maxplayers || !is_user_connected(id))
+	{
+		return false;
+	}
+	new mdl[48];
+	get_user_info(id, "model", mdl, charsmax(mdl));
+	return (machine_name(mdl) || machine_name(g_model_chosen[id]) || wears_mech(id));
 }
 
 /// What the engine calls a footstep: pm_shared picks these by the floor texture
@@ -12058,6 +12134,18 @@ tsm_live_team_of(id)
 		return g_match_team[id];
 	}
 
+	/*
+	 * Xash3D: only the plugin's own assignment counts. TS's team is not a reliable reading
+	 * of who is on a side there -- a benched player can still read as his old side -- and
+	 * the side menu, the side counts and the round logic all ask this. On GoldSrc the
+	 * fallback below comes to the same answer (get_user_team() reads nothing there), so it
+	 * stays for servers where TS's own teams do work.
+	 */
+	if (g_xash)
+	{
+		return 0;
+	}
+
 	new tname[32], mode[16];
 	tname[0] = 0;
 	new tnum = get_user_team(id, tname, charsmax(tname));
@@ -14240,7 +14328,8 @@ public ev_death()
  * voice table:
  *
  *   robo / droid / bot in the name -- the HL1 frag grenade explosion, because a
- *                                    machine does not scream, it detonates
+ *                                    machine does not scream, it detonates --
+ *                                    and death\droid_powerdown.wav with it
  *   fem (or female) in the name   -- death\fem1..fem5.wav
  *   anything else                 -- death\male1..male6.wav
  *
@@ -14280,10 +14369,7 @@ death_voice(id)
 	 * key and the class pick record, because either one alone can miss a
 	 * body.
 	 */
-	new bool:machine = (containi(mdl, "robo") >= 0 || containi(mdl, "droid") >= 0
-		|| containi(mdl, "bot") >= 0
-		|| containi(g_model_chosen[id], "robo") >= 0 || containi(g_model_chosen[id], "droid") >= 0
-		|| containi(g_model_chosen[id], "bot") >= 0);
+	new bool:machine = (machine_name(mdl) || machine_name(g_model_chosen[id]));
 
 	new sample[48];
 	if (machine)
@@ -14324,6 +14410,17 @@ death_voice(id)
 	if (!is_user_bot(id))
 	{
 		client_cmd(id, "playvol %s 0.9", sample);
+	}
+
+	// A machine powers down as it goes: droid_powerdown.wav plays with the boom, not instead
+	// of it, on its own channel and as globally as the boom, and to the pilot the same way.
+	if (machine && g_death_droid_ok)
+	{
+		emit_sound(id, CHAN_AUTO, TSM_DEATH_DROID, 1.0, 0.0, 0, PITCH_NORM);
+		if (!is_user_bot(id))
+		{
+			client_cmd(id, "playvol %s 0.9", TSM_DEATH_DROID);
+		}
 	}
 
 	/*
@@ -14802,6 +14899,21 @@ public task_to_warmup()
 
 	g_state = ST_WARMUP;
 
+	bench_everyone();
+	g_round = 0;
+	siege_reset();
+	g_score[1] = 0;
+	g_score[2] = 0;
+	reset_ready();
+	all_print("[MATCH] Back in warmup. Type .ready when you are.");
+}
+
+/*
+ * Everyone off the sides, onto the spectator team, with the side menu offered to the humans:
+ * how a finished match hands back to warmup, and how amx_match_cancel ends one early.
+ */
+bench_everyone()
+{
 	/*
 	 * Everyone goes back to spectator between matches and opts in again.
 	 *
@@ -14845,12 +14957,6 @@ public task_to_warmup()
 		}
 	}
 	all_print("[MATCH] Everyone is spectating. Pick a side to play the next match, or type .menu.");
-	g_round = 0;
-	siege_reset();
-	g_score[1] = 0;
-	g_score[2] = 0;
-	reset_ready();
-	all_print("[MATCH] Back in warmup. Type .ready when you are.");
 }
 
 start_round()
@@ -16322,6 +16428,7 @@ public cmd_start(id, level, cid)
 public cmd_cancel(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 1)) { return PLUGIN_HANDLED; }
+	new bool:was_on = (g_state != ST_WARMUP);
 	remove_task(2);
 	remove_task(3);
 	remove_task(4);
@@ -16341,6 +16448,12 @@ public cmd_cancel(id, level, cid)
 	clear_match_state();
 
 	all_print("[MATCH] Match cancelled -- back to warmup. Pick a side and type .ready.");
+
+	// Sides are picked again, exactly as after a match that ran to its end.
+	if (was_on)
+	{
+		bench_everyone();
+	}
 	dbg("match cancelled by admin: round counter and all per-match state cleared");
 	return PLUGIN_HANDLED;
 }
@@ -16459,6 +16572,7 @@ public cmd_debug(id, level, cid)
 	get_pcvar_string(g_cv_teammode, mode, charsmax(mode));
 
 	console_print(id, "[TSM] BUILD %s", TSM_BUILD);
+	console_print(id, "[TSM] engine=%s", g_xash ? "Xash3D FWGS (leave cleanup from ClientDisconnect)" : "GoldSrc");
 	console_print(id, "[TSM] state=%d round=%d score=%d-%d  start_alive=%d/%d",
 		g_state, g_round, g_score[1], g_score[2], g_start_alive[1], g_start_alive[2]);
 	console_print(id, "[TSM] rounds cvar=%d -> need %d to win",
@@ -16963,7 +17077,7 @@ music_play(idx, only)
 	{
 		if (is_user_connected(only) && !is_user_bot(only) && !g_music_off[only])
 		{
-			client_cmd(only, "mp3 volume %f", vol);
+			music_set_volume(only, vol);
 			client_cmd(only, "mp3 play sound/music/%s", g_music_mp3[idx]);
 		}
 		return;
@@ -16977,8 +17091,26 @@ music_play(idx, only)
 		{
 			continue;
 		}
-		client_cmd(players[i], "mp3 volume %f", vol);
+		music_set_volume(players[i], vol);
 		client_cmd(players[i], "mp3 play sound/music/%s", g_music_mp3[idx]);
+	}
+}
+
+/*
+ * The mp3 player's volume, set the way the client's engine takes it.
+ *
+ * Xash3D FWGS has no "mp3 volume" -- it answers "unknown command" and plays at whatever
+ * MP3Volume already was -- so there the cvar itself is set.
+ */
+music_set_volume(id, Float:vol)
+{
+	if (g_xash)
+	{
+		client_cmd(id, "MP3Volume %f", vol);
+	}
+	else
+	{
+		client_cmd(id, "mp3 volume %f", vol);
 	}
 }
 
@@ -17067,7 +17199,13 @@ public task_late_join(id)
 	}
 }
 
-public client_disconnected(id)
+/*
+ * A player leaving: everything the plugin keeps about him is put back, and a side he
+ * left empty is dealt with. It touches only the plugin's own state, so it runs the
+ * same whether or not AMXX still counts him as connected. GoldSrc gets here from
+ * client_disconnected, Xash3D from fw_client_disconnect_xash.
+ */
+player_left(id)
 {
 	// Captured BEFORE it is cleared further down: whether this departure emptied a
 	// side of its last human decides below whether the match ends without a winner.
@@ -17200,6 +17338,30 @@ public client_disconnected(id)
 		remove_task(14);
 		set_task(fuse, "task_halt_check", 14);
 	}
+}
+
+public client_disconnected(id)
+{
+	player_left(id);
+}
+
+/*
+ * Xash3D: a player leaving, from Metamod's ClientDisconnect. Registered only on Xash.
+ *
+ * AMXX fires client_disconnected from its own hook on the engine's SV_DropClient, found by
+ * a byte signature in its gamedata -- which only knows GoldSrc's engines. On Xash it finds
+ * nothing, says "client_disconnected and client_remove forwards have been disabled", and
+ * a player leaving never reaches client_disconnected at all. Metamod's ClientDisconnect
+ * arrives on any engine. There is no double run: on Xash AMXX sends client_disconnected
+ * only at map end, when every plugin is reloaded anyway.
+ */
+public fw_client_disconnect_xash(id)
+{
+	if (id >= 1 && id < MAXPL)
+	{
+		player_left(id);
+	}
+	return FMRES_IGNORED;
 }
 
 /*

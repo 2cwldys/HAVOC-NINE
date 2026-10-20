@@ -24,6 +24,7 @@ GNU General Public License for more details.
 #include "vid_common.h"
 #include "pm_local.h"
 #include "multi_emulator.h"
+#include "msr_webauth.h"
 
 #define CL_CONNECTION_TIMEOUT 15.0f
 #define CL_CONNECTION_RETRIES 5
@@ -36,6 +37,7 @@ static CVAR_DEFINE_AUTO( cl_resend, "6.0", 0, "time to resend connect" );
 CVAR_DEFINE( cl_allow_download, "cl_allowdownload", "1", FCVAR_ARCHIVE, "allow to downloading resources from the server" );
 static CVAR_DEFINE( cl_allow_upload, "cl_allowupload", "1", FCVAR_ARCHIVE, "allow to uploading resources to the server" );
 CVAR_DEFINE_AUTO( cl_download_ingame, "1", FCVAR_ARCHIVE, "allow to downloading resources while client is active" );
+CVAR_DEFINE_AUTO( cl_h9_cloakfix, "1", FCVAR_ARCHIVE, "H9: show a server-side cloak on your own model instead of the client dll's own third person transparency" );
 static CVAR_DEFINE_AUTO( cl_logofile, "lambda", FCVAR_ARCHIVE, "player logo name" );
 static CVAR_DEFINE_AUTO( cl_logocolor, "255 120 24", FCVAR_ARCHIVE, "player logo color" );
 static CVAR_DEFINE_AUTO( cl_logoext, "bmp", FCVAR_ARCHIVE, "temporary cvar to tell engine which logo must be packed" );
@@ -1177,7 +1179,41 @@ static void CL_GetCDKey( char *protinfo, size_t protinfosize )
 	Info_SetValueForKey( protinfo, "cdkey", key, protinfosize );
 }
 
-static void CL_WriteSteamTicket( sizebuf_t *send )
+/*
+=======================
+CL_WriteWebTicket
+
+msr-web: a server that issues its own player ids hands out a credential (see msr_webauth.h),
+which the page stores as .msr_web in the game folder. With it the client proves who it is
+instead of sending an emulated Steam ticket.
+======================
+*/
+static qboolean CL_WriteWebTicket( sizebuf_t *send, int challenge )
+{
+	byte ticket[MSRW_TICKET_SIZE];
+	fs_offset_t len = 0;
+	byte *cred = FS_LoadFile( ".msr_web", &len, false );
+
+	if( !cred )
+		return false;
+
+	if( len != MSRW_CRED_SIZE )
+	{
+		Mem_Free( cred );
+		return false;
+	}
+
+	msrw_ticket( ticket, cred, (uint32_t)challenge );
+	MSG_WriteBytes( send, ticket, sizeof( ticket ));
+
+	// the id the server will know us by: account number, individual account in the public universe
+	*(uint32_t*)cls.steamid = LittleLong( *(uint32_t*)cred );
+	*(uint32_t*)(cls.steamid + 4) = LittleLong( 0x01100001 );
+	Mem_Free( cred );
+	return true;
+}
+
+static void CL_WriteSteamTicket( sizebuf_t *send, int challenge )
 {
 	string key;
 	netadr_t adr = { .type = NA_LOOPBACK, }; // goldsrc servers don't get unique key as xashid isn't sent raw to them
@@ -1190,6 +1226,9 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
 		MSG_WriteBytes( send, buf, 512 ); // specifically 512 bytes of zeros
 		return;
 	}
+
+	if( CL_WriteWebTicket( send, challenge ))
+		return;
 
 	ID_GetMD5ForAddress( key, adr, sizeof( key ));
 	CRC32_Init( &crc );
@@ -1225,7 +1264,7 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
 		PROTOCOL_GOLDSRC_VERSION, challenge, protinfo, cls.userinfo );
 	MSG_SeekToBit( &send, -8, SEEK_CUR ); // rewrite null terminator
 	if( ticket == NULL )
-		CL_WriteSteamTicket( &send );
+		CL_WriteSteamTicket( &send, challenge );
 	else
 		MSG_WriteBytes( &send, ticket, ticketlen );
 
@@ -3691,6 +3730,7 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &cl_logoext );
 	Cvar_RegisterVariable( &cl_logoupdate );
 	Cvar_RegisterVariable( &cl_logomaxdim );
+	Cvar_RegisterVariable( &cl_h9_cloakfix );
 	Cvar_RegisterVariable( &cl_test_bandwidth );
 	Cvar_RegisterVariable( &cl_require_challenge_echo );
 

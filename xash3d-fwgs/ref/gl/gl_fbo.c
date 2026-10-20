@@ -123,8 +123,13 @@ GL_FreeRenderTargets
 deletes all render targets, rendering goes directly to the window afterwards
 ================
 */
+static void GL_FreeGlowTargets( void );
+static void GL_CreateGlowTargets( int samples );
+static void GL_ComposeGlow( void );
+
 void GL_FreeRenderTargets( void )
 {
+	GL_FreeGlowTargets();
 	GL_FreeRenderTarget( &tr.targets.msaa );
 	GL_FreeRenderTarget( &tr.targets.scene );
 	GL_FreeRenderTarget( &tr.targets.screen );
@@ -133,7 +138,10 @@ void GL_FreeRenderTargets( void )
 
 static int GL_SceneTargetSamples( void )
 {
-	if( glConfig.max_multisamples <= 1 || !gl_msaa.value )
+	// msr-web: r_scene_msaa asks for it here, whatever the window itself has
+	int want = r_scene_msaa.value >= 2.0f ? (int)r_scene_msaa.value : r_scene_msaa.value >= 1.0f ? 4 : ( glConfig.max_multisamples > 1 && gl_msaa.value ? glConfig.max_multisamples : 0 );
+
+	if( !want )
 		return 0;
 
 	if( !GL_Support( GL_FRAMEBUFFER_MULTISAMPLE_EXT ) || !GL_Support( GL_FRAMEBUFFER_BLIT_EXT ))
@@ -142,7 +150,7 @@ static int GL_SceneTargetSamples( void )
 	GLint max_samples = 0;
 	pglGetIntegerv( GL_MAX_SAMPLES, &max_samples );
 
-	return Q_min( glConfig.max_multisamples, max_samples );
+	return Q_min( want, max_samples );
 }
 
 static void GL_GetWindowSize( int *width, int *height )
@@ -198,13 +206,17 @@ void GL_CheckRenderTargets( void )
 {
 	int width, height;
 	float scale = bound( 0.1f, r_scene_scale.value, 8.0f );
-	qboolean wanted = scale != 1.0f;
+	qboolean bloom = r_bloom.value != 0.0f;
+	// msr-web: bloom and r_scene_msaa need the scene off screen too
+	qboolean wanted = scale != 1.0f || bloom || r_scene_msaa.value >= 1.0f;
 
 	GL_GetWindowSize( &width, &height );
 
-	if( FBitSet( r_scene_scale.flags, FCVAR_CHANGED ))
+	if( FBitSet( r_scene_scale.flags|r_bloom.flags|r_scene_msaa.flags, FCVAR_CHANGED ))
 	{
 		ClearBits( r_scene_scale.flags, FCVAR_CHANGED );
+		ClearBits( r_bloom.flags, FCVAR_CHANGED );
+		ClearBits( r_scene_msaa.flags, FCVAR_CHANGED );
 		tr.targets.failed = false;
 
 		if( wanted && !GL_Support( GL_FRAMEBUFFER_OBJECT_EXT ))
@@ -223,8 +235,9 @@ void GL_CheckRenderTargets( void )
 
 	if( GL_RenderTargetsActive( ) && tr.targets.scene.width == scene_width && tr.targets.scene.height == scene_height
 		&& tr.targets.screen.width == width && tr.targets.screen.height == height
-		&& tr.targets.msaa.samples == samples )
+		&& tr.targets.msaa.samples == samples && ( tr.targets.glow.fbo != 0 ) == bloom )
 	{
+		tr.targets.glowDrawn = false;
 		pglBindFramebuffer( GL_FRAMEBUFFER, tr.targets.screen.fbo );
 		glState.sceneTargetDrawn = false;
 		return;
@@ -255,7 +268,10 @@ void GL_CheckRenderTargets( void )
 		return;
 	}
 
-	gEngfuncs.Con_Reportf( "%s: scene %dx%d (%dx MSAA), screen %dx%d\n", __func__, scene_width, scene_height, samples, width, height );
+	if( bloom )
+		GL_CreateGlowTargets( samples );
+
+	gEngfuncs.Con_Reportf( "%s: scene %dx%d (%dx MSAA), screen %dx%d%s\n", __func__, scene_width, scene_height, samples, width, height, tr.targets.glow.fbo ? ", bloom" : "" );
 
 	pglBindFramebuffer( GL_FRAMEBUFFER, tr.targets.screen.fbo );
 }
@@ -315,6 +331,208 @@ static void GL_BlitTarget( const gl_rendertarget_t *src, GLuint dst_fbo, int dst
 
 /*
 ================
+msr-web: bloom
+
+What a model draws additively (a blade of ice, lightning, flames) is drawn a second time
+into a target of its own, which shares the scene's depth so that a wall still hides it.
+Before the scene goes to the screen that target is shrunk to a quarter, blurred there and
+added over the scene. The blur is drawn with the same textured quads as everything else.
+================
+*/
+#define GLOW_SHRINK 4
+#define GLOW_TAPS   4
+
+// a target that draws into its own colour and tests against somebody else's depth
+static qboolean GL_CreateGlowTarget( gl_rendertarget_t *rt, const char *name, int width, int height, int samples, GLuint depth )
+{
+	pglGenFramebuffers( 1, &rt->fbo );
+	pglBindFramebuffer( GL_FRAMEBUFFER, rt->fbo );
+
+	if( samples )
+	{
+		rt->color = GL_CreateRenderbuffer( GL_RGBA8, width, height, samples );
+		pglFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rt->color );
+	}
+	else
+	{
+		rt->texnum = GL_CreateTexture( name, width, height, NULL, TF_NOMIPMAP|TF_CLAMP|TF_HAS_ALPHA );
+		if( !rt->texnum )
+		{
+			pglBindFramebuffer( GL_FRAMEBUFFER, 0 );
+			GL_FreeRenderTarget( rt );
+			return false;
+		}
+		pglFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, R_GetTexture( rt->texnum )->texnum, 0 );
+	}
+
+	if( depth ) // not ours: rt->depth stays 0, so that freeing this target leaves it alone
+		pglFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth );
+
+	GLenum status = pglCheckFramebufferStatus( GL_FRAMEBUFFER );
+
+	pglBindRenderbuffer( GL_RENDERBUFFER, 0 );
+	pglBindFramebuffer( GL_FRAMEBUFFER, 0 );
+
+	if( status != GL_FRAMEBUFFER_COMPLETE )
+	{
+		gEngfuncs.Con_Printf( S_ERROR "%s: %s is incomplete (0x%x)\n", __func__, name, status );
+		GL_FreeRenderTarget( rt );
+		return false;
+	}
+
+	rt->width = width;
+	rt->height = height;
+	rt->samples = samples;
+	return true;
+}
+
+static void GL_FreeGlowTargets( void )
+{
+	GL_FreeRenderTarget( &tr.targets.glow_msaa );
+	GL_FreeRenderTarget( &tr.targets.glow );
+	GL_FreeRenderTarget( &tr.targets.blur[0] );
+	GL_FreeRenderTarget( &tr.targets.blur[1] );
+	tr.targets.glowDrawn = false;
+}
+
+static void GL_CreateGlowTargets( int samples )
+{
+	const gl_rendertarget_t *scene = &tr.targets.scene;
+	int w = Q_max( 1, scene->width / GLOW_SHRINK ), h = Q_max( 1, scene->height / GLOW_SHRINK );
+	qboolean ok;
+
+	if( samples )
+		ok = GL_CreateGlowTarget( &tr.targets.glow_msaa, "*fbo_glow_msaa", scene->width, scene->height, samples, tr.targets.msaa.depth )
+			&& GL_CreateGlowTarget( &tr.targets.glow, "*fbo_glow", scene->width, scene->height, 0, 0 );
+	else ok = GL_CreateGlowTarget( &tr.targets.glow, "*fbo_glow", scene->width, scene->height, 0, scene->depth );
+
+	ok = ok && GL_CreateGlowTarget( &tr.targets.blur[0], "*fbo_blur0", w, h, 0, 0 )
+		&& GL_CreateGlowTarget( &tr.targets.blur[1], "*fbo_blur1", w, h, 0, 0 );
+
+	if( !ok )
+	{
+		gEngfuncs.Con_Printf( S_WARN "r_bloom: can't create its render targets, continuing without\n" );
+		GL_FreeGlowTargets();
+	}
+}
+
+/*
+================
+GL_GlowBegin
+
+binds the target the glowing parts of a model are drawn into a second time;
+false when there is no bloom, and then nothing was bound
+================
+*/
+qboolean GL_GlowBegin( void )
+{
+	if( !tr.targets.glow.fbo || !glState.sceneTargetDrawn )
+		return false;
+
+	pglBindFramebuffer( GL_FRAMEBUFFER, tr.targets.glow_msaa.fbo ? tr.targets.glow_msaa.fbo : tr.targets.glow.fbo );
+
+	if( !tr.targets.glowDrawn )
+	{
+		// colour only: the depth is the scene's
+		pglClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
+		pglClear( GL_COLOR_BUFFER_BIT );
+		pglClearColor( 0.5f, 0.5f, 0.5f, 1.0f );
+		tr.targets.glowDrawn = true;
+	}
+	return true;
+}
+
+void GL_GlowEnd( void )
+{
+	pglBindFramebuffer( GL_FRAMEBUFFER, tr.targets.msaa.fbo ? tr.targets.msaa.fbo : tr.targets.scene.fbo );
+}
+
+// one target's picture added into the bound one, several times side by side: a blur along (du, dv)
+static void GL_GlowPass( const gl_rendertarget_t *dst, const gl_rendertarget_t *src, float du, float dv, float gain, qboolean clear )
+{
+	// a bell over 2 * GLOW_TAPS + 1 samples; the weights add up to 1
+	static const float weights[GLOW_TAPS + 1] = { 0.2270270270f, 0.1945945946f, 0.1216216216f, 0.0540540541f, 0.0162162162f };
+	matrix4x4 m;
+
+	pglBindFramebuffer( GL_FRAMEBUFFER, dst->fbo );
+	pglViewport( 0, 0, dst->width, dst->height );
+
+	if( clear )
+	{
+		pglClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
+		pglClear( GL_COLOR_BUFFER_BIT );
+		pglClearColor( 0.5f, 0.5f, 0.5f, 1.0f );
+	}
+
+	Matrix4x4_CreateOrtho( m, 0, 1, 1, 0, -99999, 99999 );
+	pglMatrixMode( GL_PROJECTION );
+	GL_LoadMatrix( m );
+	Matrix4x4_LoadIdentity( m );
+	pglMatrixMode( GL_MODELVIEW );
+	GL_LoadMatrix( m );
+
+	GL_Bind( XASH_TEXTURE0, src->texnum );
+	pglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+	pglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+
+	for( int i = -GLOW_TAPS; i <= GLOW_TAPS; i++ )
+	{
+		float w = ( du == 0.0f && dv == 0.0f ) ? ( i ? 0.0f : gain ) : weights[i < 0 ? -i : i] * gain;
+		float u = i * du, v = i * dv;
+
+		if( w <= 0.0f )
+			continue;
+
+		pglColor4f( w, w, w, 1.0f );
+		pglBegin( GL_QUADS );
+			pglTexCoord2f( 0.0f + u, 1.0f + v );
+			pglVertex2f( 0.0f, 0.0f );
+			pglTexCoord2f( 1.0f + u, 1.0f + v );
+			pglVertex2f( 1.0f, 0.0f );
+			pglTexCoord2f( 1.0f + u, 0.0f + v );
+			pglVertex2f( 1.0f, 1.0f );
+			pglTexCoord2f( 0.0f + u, 0.0f + v );
+			pglVertex2f( 0.0f, 1.0f );
+		pglEnd();
+	}
+}
+
+// the glowing parts, blurred, added over the scene (which by now is resolved, if it was multisampled)
+static void GL_ComposeGlow( void )
+{
+	gl_rendertarget_t *glow = &tr.targets.glow, *a = &tr.targets.blur[0], *b = &tr.targets.blur[1];
+	float gain = bound( 0.0f, r_bloom_scale.value, 4.0f ), wide = bound( 0.25f, r_bloom_radius.value, 4.0f );
+
+	tr.targets.glowDrawn = false;
+
+	if( tr.targets.glow_msaa.fbo )
+		GL_BlitTarget( &tr.targets.glow_msaa, glow->fbo, glow->width, glow->height, GL_NEAREST );
+
+	GL_Cull( GL_NONE );
+	pglDisable( GL_DEPTH_TEST );
+	pglDepthMask( GL_FALSE );
+	pglDisable( GL_ALPHA_TEST );
+	pglDisable( GL_FOG );
+	pglEnable( GL_BLEND );
+	pglBlendFunc( GL_ONE, GL_ONE );
+
+	// shrink, then blur across and down, twice: the second time twice as far
+	GL_GlowPass( a, glow, 0.0f, 0.0f, 1.0f, true );
+	GL_GlowPass( b, a, wide * 1.2f / a->width, 0.0f, 1.0f, true );
+	GL_GlowPass( a, b, 0.0f, wide * 1.2f / a->height, 1.0f, true );
+	GL_GlowPass( b, a, wide * 2.6f / a->width, 0.0f, 1.0f, true );
+	GL_GlowPass( a, b, 0.0f, wide * 2.6f / a->height, 1.0f, true );
+
+	// over the scene
+	GL_GlowPass( &tr.targets.scene, a, 0.0f, 0.0f, gain, false );
+
+	pglColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
+	pglBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+	pglDisable( GL_BLEND );
+}
+
+/*
+================
 GL_BindSceneTarget
 
 binds the surface 3D passes draw into
@@ -369,6 +587,9 @@ void GL_BindScreenTarget( void )
 
 		if( tr.targets.msaa.fbo )
 			GL_BlitTarget( &tr.targets.msaa, tr.targets.scene.fbo, tr.targets.scene.width, tr.targets.scene.height, GL_NEAREST );
+
+		if( tr.targets.glowDrawn )
+			GL_ComposeGlow();
 
 		if( GL_Support( GL_FRAMEBUFFER_BLIT_EXT ))
 		{

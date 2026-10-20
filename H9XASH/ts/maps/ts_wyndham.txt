@@ -1,0 +1,51 @@
+	--TS_Wyndham--
+
+Creator: Brian "Lois_Must_Die" Petty
+Filename: ts_wyndham.bsp
+E-mail: Brian.Must.Die@gmail.com
+
+============================
+
+Basic Level Description:
+
+Based off the opening scene in the classic "Hard-Boiled." 
+Note "based off," as it's not completely like the thing, but gets the general setting 
+and such in there. 
+
+
+=============================
+
+Textures: Tons of stuff from Remedy Entertainment Ltd., Poke646, Xenon, TO, Valve, Minotaur0... There are actually far too many to tell. 
+Models: Schmung, Orgun
+Sounds: That One Guy, Valve, Hard-Boiled
+
+
+Files included:
+maps/ts_wyndham.bsp
+gfx/env/LMcity_1*.tga
+sound/teahouse/birds9.wav
+sound/teahouse/phone_busy.wav
+sound/teahouse/md-drjekyll.wav
+sound/teahouse/lmd_hb_sadkong.wav
+sound/teahouse/phone_matrix.wav
+sound/teahouse/phone_fu.wav
+sound/teahouse/phone_flip.wav
+sound/teahouse/phone_slowhack.wav
+sound/teahouse/rain.wav
+sound/teahouse/lmd_hb_wonglosesit.wav
+models/teahouse/lmd_singlebooth.mdl
+models/teahouse/lmd_dualbooth.mdl
+sprites/teahouse/steam.spr
+sprites/teahouse/smoke.spr
+sprites/teahouse/glow.spr
+
+
+Copyright stuff: First and foremost, at least 1/4th of my map is covered in textures created for non-profit use by Remedy Entertainment Ltd. Most, if not all, of the textures here are for non-profit, credited use, and I sincerely hope that I gave proper credit where it is due. Please email me if I forgot to include you. 
+
+ALSO! Don't call this level your own. Because it's not. :-/ 
+If anything, distribute this text file along with the bsp. 
+Any sounds or sprites that you found included with this map, feel free to use. 
+If you happen to use the ones with the "LMD" prefix, go ahead and email me 
+so I can see how your work turns out. There are also some textures imbedded into the map. 
+If you manage to get them out (via Quark or decompiling), the ones that
+I made have the prefix "OM" or "LMD" attatched to them. Go ahead and use those also.

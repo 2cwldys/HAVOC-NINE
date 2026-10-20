@@ -1,0 +1,21 @@
+================================================================
+Model Name              : Hitman
+Author                  : Morfeo <specialists@halflifeitalia.com>
+Skin Mapping            : Morfeo & Omega <specialists@halflifeitalia.com>
+Skin Author             : Morfeo & Omega <specialists@halflifeitalia.com>
+
+Model description       : Hitman model ,inspired by the game "hitman"
+
+The specialists: http://www.halflifeitalia.com/specialist/
+
+Additional Credits to   : Supernovae for his work on the head skin.
+
+* How to use this model *
+
+This is intended to be used with Half Life and with the mod "The Specialists".
+
+* Copyright / Permissions *
+
+Half Life is a registered trademark of Valve Software.
+
+Don't reproduce or modify the model without permission, don't use it in a total conversion/mod without permission, and don't use it for anything other than playing Half Life and having fun.

@@ -118,7 +118,7 @@ SUBDIRS = [
 	Subproject('3rdparty/gl-wes-v2',    lambda x: x.env.CLIENT and x.env.GLWES),
 	Subproject('3rdparty/gl4es',        lambda x: x.env.CLIENT and x.env.GL4ES),
 	Subproject('ref/common',            lambda x: x.env.CLIENT),
-	Subproject('ref/gl',                lambda x: x.env.CLIENT and (x.env.GL or x.env.NANOGL or x.env.GLWES or x.env.GL4ES or x.env.GLES3COMPAT)),
+	Subproject('ref/gl',                lambda x: x.env.CLIENT and (x.env.GL or x.env.NANOGL or x.env.GLWES or x.env.GL4ES or x.env.GLES3COMPAT or x.env.WEBGL2)),
 	Subproject('ref/soft',              lambda x: x.env.CLIENT and x.env.SOFT),
 	Subproject('ref/null',              lambda x: x.env.CLIENT and x.env.NULL),
 	Subproject('3rdparty/bzip2',        lambda x: x.env.CLIENT and not x.env.HAVE_SYSTEM_BZ2),
@@ -142,8 +142,9 @@ SUBDIRS = [
 
 	# enabled optionally
 	Subproject('utils/mdldec',            lambda x: x.env.ENABLE_UTILS),
-	Subproject('utils/xar',               lambda x: x.env.ENABLE_UTILS and x.env.ENABLE_XAR),
+	Subproject('utils/xar',               lambda x: x.env.ENABLE_UTILS),
 	Subproject('utils/xash-clang-format', lambda x: x.env.ENABLE_UTILS),
+	Subproject('utils/xrcon-mcp',         lambda x: x.env.ENABLE_UTILS),
 
 	# enabled on PSVita only
 	Subproject('ref/gl/vgl_shim',   lambda x: x.env.DEST_OS == 'psvita'),
@@ -220,9 +221,6 @@ def options(opt):
 	grp.add_option('--enable-utils', action = 'store_true', dest = 'ENABLE_UTILS', default = False,
 		help = 'enable building various development utilities [default: %(default)s]')
 
-	grp.add_option('--enable-xar', action = 'store_true', dest = 'ENABLE_XAR', default = False,
-		help = 'enable building Xash ARchiver (experimental) [default: %(default)s]')
-
 	grp.add_option('--enable-fuzzer', action = 'store_true', dest = 'ENABLE_FUZZER', default = False,
 		help = 'enable building libFuzzer runner [default: %(default)s]' )
 
@@ -286,6 +284,18 @@ int main(void) { z_stream s = { 0 }; return inflateInit2(&s, -MAX_WBITS); }'''
 
 	return conf.check_cc(lib='z', fragment=frag, msg='Checking for zlib', uselib_store='zlib', mandatory=False)
 
+
+def check_system_freetype(conf):
+	frag='''#include <ft2build.h>
+#include FT_FREETYPE_H
+int main(void) { FT_Library library; return FT_Init_FreeType( &library ); }'''
+
+	# search for freetype
+	if conf.check_cfg(package='freetype2', uselib_store='freetype', args='--cflags --libs', mandatory=False):
+		return False
+
+	return conf.check_cc(msg='Checking for freetype2 sanity', use='freetype werror', fragment=frag, mandatory=False)
+
 def configure(conf):
 	conf.load('fwgslib reconfigure compiler_optimizations')
 	if conf.options.ALLOW64:
@@ -313,6 +323,9 @@ def configure(conf):
 		conf.load('psvita')
 
 	# HACKHACK: override msvc DEST_CPU value by something that we understand
+	# msr-web: waf does not name the CPU for WebAssembly and leaves an empty list, which breaks string tests in subprojects
+	if not conf.env.DEST_CPU:
+		conf.env.DEST_CPU = 'wasm'
 	if conf.env.DEST_CPU == 'amd64':
 		conf.env.DEST_CPU = 'x86_64'
 
@@ -349,6 +362,9 @@ def configure(conf):
 		enforce_pic = False
 	elif conf.env.MSVC_WINE:
 		conf.options.BUILD_BUNDLED_DEPS = True
+	elif conf.env.DEST_OS == 'emscripten':
+		conf.options.GL               = False
+		conf.options.WEBGL2           = True
 
 	# psvita needs -fPIC set manually and static builds are incompatible with -fPIC
 	enforce_pic = conf.env.DEST_OS != 'psvita' and not conf.env.STATIC_LINKING
@@ -492,7 +508,6 @@ def configure(conf):
 
 	conf.env.TESTS         = conf.options.TESTS
 	conf.env.ENABLE_UTILS  = conf.options.ENABLE_UTILS
-	conf.env.ENABLE_XAR    = conf.options.ENABLE_XAR
 	conf.env.ENABLE_FUZZER = conf.options.ENABLE_FUZZER
 	conf.env.FREEVGUI_XASH_SUPPORT = True
 
@@ -520,6 +535,10 @@ def configure(conf):
 			conf.env.DEFAULT_RPATH = '@loader_path'
 		else:
 			conf.env.DEFAULT_RPATH = '$ORIGIN'
+
+	# Add webgl2 renderer for emscripten builds
+	if conf.env.DEST_OS == 'emscripten':
+		REFDLLS.insert(-1, RefDll('webgl2', False, 'WEBGL2'))
 
 	setattr(conf, 'refdlls', REFDLLS)
 
@@ -611,6 +630,7 @@ def configure(conf):
 	prefer_bundled_opusfile = conf.options.BUILD_BUNDLED_DEPS
 	prefer_bundled_mpg123 = conf.options.BUILD_BUNDLED_DEPS
 	prefer_bundled_bzip2 = conf.options.BUILD_BUNDLED_DEPS
+	prefer_bundled_freetype = conf.options.BUILD_BUNDLED_DEPS
 	# zlib is a part of platform API on Android
 	prefer_bundled_zlib = conf.options.BUILD_BUNDLED_DEPS and conf.env.DEST_OS != 'android'
 
@@ -628,6 +648,8 @@ def configure(conf):
 			conf.env.HAVE_SYSTEM_MPG123 = check_system_mpg123(conf)
 		if not prefer_bundled_bzip2:
 			conf.env.HAVE_SYSTEM_BZ2 = check_system_bzip2(conf)
+		if not prefer_bundled_freetype:
+			conf.env.HAVE_SYSTEM_FREETYPE = check_system_freetype(conf)
 
 	if not prefer_bundled_zlib:
 		conf.env.HAVE_SYSTEM_ZLIB = check_system_zlib(conf)

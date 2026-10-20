@@ -652,7 +652,7 @@ def options(opt):
 		help='enable building for iOS Simulator [default: %(default)s]')
 
 def configure(conf):
-	if 'CROSS_COMPILE' in conf.environ:
+	if 'CROSS_COMPILE' in conf.environ and not conf.options.EMSCRIPTEN:
 		toolchain_path = conf.environ['CROSS_COMPILE']
 		conf.environ['CC'] = toolchain_path + 'cc'
 		conf.environ['CXX'] = toolchain_path + 'c++'
@@ -745,6 +745,17 @@ def configure(conf):
 		conf.env.LIB_M = ['m']
 		conf.env.VRTLD = ['vrtld']
 		conf.env.DEST_OS = 'psvita'
+	elif conf.options.EMSCRIPTEN:
+		# Emscripten compiler is just wrapper to clang
+		# But we need to setup platform modifiers, they all are contained inside c_emscripten.py for now
+		# In future, that could be upstreamed to waf itself and this wouldn't be needed
+		ext = '.exe' if sys.platform == 'win32' else ''
+		conf.environ['CC'] = 'emcc' + ext
+		conf.environ['CXX'] = 'em++' + ext
+		conf.environ['AR'] = 'emar' + ext
+		conf.environ['STRIP'] = 'emstrip' + ext
+		conf.environ['OBJCOPY'] = 'llvm-objcopy'
+		conf.load('c_emscripten')
 	elif conf.options.PSP_OPTS:
 		values = conf.options.PSP_OPTS.split(',')
 		if len(values) != 3:

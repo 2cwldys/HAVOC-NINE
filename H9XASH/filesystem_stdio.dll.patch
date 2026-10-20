@@ -1,0 +1,22 @@
+H9XASH filesystem_stdio.dll -- built from patched source by TSM\xash3d-h9-patches\xash.bat
+
+The filesystem. The webassembly patch's one change here is emscripten-only.
+
+Upstream: FWGS master e8d773ea. Built: branch h9 at 930926d2. Below is the whole
+source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
+
+diff --git a/filesystem/sys.c b/filesystem/sys.c
+index 712c3e42..b7df0c60 100644
+--- a/filesystem/sys.c
++++ b/filesystem/sys.c
+@@ -502,6 +502,10 @@ int FS_SetCurrentDirectory( const char *path )
+ 		return false;
+ 	}
+ #elif XASH_POSIX
++	// msr-web: the browser's root directory is "/", which reaches here as an empty string once its slash is stripped
++	if( !path[0] )
++		path = "/";
++
+ 	if( chdir( path ) < 0 )
+ 	{
+ 		Sys_Error( "Changing directory to %s failed: %s\n", path, strerror( errno ));

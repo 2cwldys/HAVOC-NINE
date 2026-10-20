@@ -41,6 +41,12 @@ CVAR_DEFINE_AUTO( r_ripple_updatetime, "0.05", FCVAR_GLCONFIG, "how fast ripple 
 CVAR_DEFINE_AUTO( r_ripple_spawntime, "0.1", FCVAR_GLCONFIG, "how fast new ripples spawn" );
 CVAR_DEFINE_AUTO( r_large_lightmaps, "0", FCVAR_GLCONFIG|FCVAR_LATCH, "enable larger lightmap atlas textures (might break custom renderer mods)" );
 CVAR_DEFINE_AUTO( r_scene_scale, "1.0", FCVAR_GLCONFIG, "render the 3D scene at this fraction of the window resolution (0.1 to 8.0), HUD is unaffected" );
+// msr-web
+// msr-web: these two are on unless the player turns them off (Video options), and are kept with the player's settings
+CVAR_DEFINE_AUTO( r_scene_msaa, "4", FCVAR_ARCHIVE, "multisample the 3D scene off screen (0 off, 1 or 4 for 4 samples, 2 or 8), HUD is unaffected" );
+CVAR_DEFINE_AUTO( r_bloom, "1", FCVAR_ARCHIVE, "a soft light round what models draw additively (ice, lightning, flames)" );
+CVAR_DEFINE_AUTO( r_bloom_scale, "1.0", FCVAR_ARCHIVE, "how strong r_bloom is (0 to 4)" );
+CVAR_DEFINE_AUTO( r_bloom_radius, "1.0", FCVAR_ARCHIVE, "how far r_bloom spreads (0.25 to 4)" );
 
 
 gl_globals_t	tr;
@@ -793,6 +799,9 @@ static void GL_InitExtensionsGLES( void )
 #elif XASH_GLES3COMPAT
 	glConfig.context = CONTEXT_TYPE_GLES_2_X;
 	glConfig.wrapper = GLES_WRAPPER_NONE;
+#elif XASH_WEBGL
+	glConfig.context = CONTEXT_TYPE_GL_CORE;
+	glConfig.wrapper = GLES_WRAPPER_NONE;
 #else
 	#error "unknown gles wrapper"
 #endif
@@ -1245,6 +1254,10 @@ static void GL_InitCommands( void )
 	gEngfuncs.Cvar_RegisterVariable( &r_vbo_detail );
 	gEngfuncs.Cvar_RegisterVariable( &r_large_lightmaps );
 	gEngfuncs.Cvar_RegisterVariable( &r_scene_scale );
+	gEngfuncs.Cvar_RegisterVariable( &r_scene_msaa );
+	gEngfuncs.Cvar_RegisterVariable( &r_bloom );
+	gEngfuncs.Cvar_RegisterVariable( &r_bloom_scale );
+	gEngfuncs.Cvar_RegisterVariable( &r_bloom_radius );
 
 	gEngfuncs.Cvar_RegisterVariable( &gl_extensions );
 	gEngfuncs.Cvar_RegisterVariable( &gl_texture_nearest );

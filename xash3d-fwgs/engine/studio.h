@@ -83,6 +83,7 @@ Studio models are position independent, so the cache manager can move them.
 #define STUDIO_NF_ALPHASOLID		0x0800	// use with STUDIO_NF_MASKED to have solid alphatest surfaces for env_static
 #define STUDIO_NF_TWOSIDE		0x1000	// render mesh as twosided
 #define STUDIO_NF_HEIGHTMAP		0x2000
+#define STUDIO_NF_FLOW		0x4000	// msr-web: the light of this texture travels along it and flickers (lightning in a blade)
 
 #define STUDIO_NF_NODRAW		(1U<<16)	// failed to create shader for this mesh
 #define STUDIO_NF_NODLIGHT		(1U<<17)	// failed to create dlight shader for this mesh

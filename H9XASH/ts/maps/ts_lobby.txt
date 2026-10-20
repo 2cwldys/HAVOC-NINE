@@ -1,0 +1,40 @@
+           -TS_LOBBY-
+-----------------------------------
+Original map and concept by MORFEO   
+ modified by BIDO on 5-March-2004
+     bidofede@supereva.it
+http://halflife.multiplayer.it/bido
+-----------------------------------
+
+For any question/comment/idea/suggestion mail to bidofede@supereva.it
+
+CHANGELOG from original Morfeo's map:
+
+CHANGELOG 
+
+- improved r_speeds 
+- helicopter on the roof 
+- new elevator shaft (with light) 
+- new elevator texture (leave the orrible halflife textures and put my personal orrible texture...) 
+- many new texture all over the map 
+- now from the hit columns suitable splinter come out (no more brick model..) 
+- new stairs 
+- metaldetector with working alarm 
+- many new unique models 
+- new green marble texture 
+- more analogy with the movie 
+
+THANKS TO:
+
+Thanks to Remedy Entertainment Ltd. for some textures!
+Special tnx to the texture artist of Halflife, Firearms, tfc textures packs.
+Special Thanks to Blazeeer for his wonderful morningstarwad.wad pack.
+
+Halflife Italia that host my site (Tnx to WarFox).
+Tnx to all the people that support me with mail and post!!!
+
+If you like my work (models, textures and sounds) and you want to include it in your
+      maps please contact me for permission at bidofede@supereva.it 
+
+( If I miss your name in this list please mail me I add it as soon as possible! Sorry! )
+For any question/comment/idea/suggestion mail to bidofede@supereva.it

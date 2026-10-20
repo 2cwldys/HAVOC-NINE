@@ -94,6 +94,13 @@ def configure(conf):
 	elif conf.env.DEST_OS == 'dos':
 		conf.options.STATIC = True
 
+	if conf.env.DEST_OS != 'win32':
+		conf.check(features='c cprogram',
+			fragment='#include <sys/resource.h>\nint main( void ) { struct rusage r; return getrusage( RUSAGE_SELF, &r ); }',
+			msg='Checking for getrusage',
+			define_name='HAVE_GETRUSAGE',
+			mandatory=False)
+
 	if conf.options.ENABLE_FUZZER:
 		conf.define('XASH_LLVM_LIBFUZZER', 1)
 		conf.env.append_unique('CFLAGS', '-fsanitize=fuzzer-no-link')
@@ -231,14 +238,26 @@ def build(bld):
 		# but dedicated server is enabled. They're both called 'xash' in this case
 		server_source = copy(source)
 		server_libs = copy(libs)
+		# msr-web: the dedicated server as a Node program (configure with --emscripten --dedicated), for tools/test:
+		# the real file system, Module.net from tools/net_node.js, and a factory so the caller drives the frames
+		ded_em = bld.env.DEST_OS == 'emscripten'
 		bld.program(
-			source = server_source,
+			source = server_source + (['platform/emscripten/cxx_anchor.cpp'] if ded_em else []),
+			features = 'cxx c' if ded_em else '',
 			target = 'xash',
 			use = server_libs,
 			includes = includes,
 			defines = 'XASH_ENABLE_MAIN=1 XASH_DEDICATED=1',
 			rpath = bld.env.DEFAULT_RPATH,
-			install_path = bld.env.BINDIR,
+			install_path = None if ded_em else bld.env.BINDIR,
+			linkflags = ['-sENVIRONMENT=node', '-sNODERAWFS=1', '-sALLOW_MEMORY_GROWTH=1',
+				'--js-library=../engine/platform/emscripten/net_emscripten.js',
+				'--pre-js=../../tools/net_node.js', '-sINITIAL_MEMORY=256mb', '-sSTACK_SIZE=16mb',
+				'-O2', '--profiling-funcs', '-sASSERTIONS=1', '-fexceptions',
+				'-sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall,wasmExports',
+				# what the caller steps and seeds: one frame of a given length, and the random numbers
+				'-sEXPORTED_FUNCTIONS=_main,_COM_Frame,_COM_SetRandomSeed',
+				'-sMODULARIZE', '-sEXPORT_NAME=Xash3D'] if ded_em else [],
 		)
 
 		# the execution stucks on macOS, disable for now
@@ -299,16 +318,18 @@ def build(bld):
 		linkflags = []
 
 		if bld.env.DEST_OS == 'emscripten':
-			linkflags = ['-sINITIAL_MEMORY=134217728', '-sALLOW_MEMORY_GROWTH=1', '-sSTACK_SIZE=16777216']
+			linkflags = [ '-sENVIRONMENT=web', '-sAUTO_JS_LIBRARIES=0',
+						  '-lidbfs.js', '-lwebgl.js', '-lopenal.js', '-lasync.js', '-sNO_POLYFILL',
+						  '--js-library=../engine/platform/emscripten/net_emscripten.js',
+						  '-sINITIAL_MEMORY=512mb', '-sALLOW_MEMORY_GROWTH=1', '-sSTACK_SIZE=16mb',
+						  # msr-web: readable build with C++ exceptions for the MSR libraries (the fork used -Oz --closure 1 --minify-wasm-imports)
+						  '-O2', '--profiling-funcs', '-sASSERTIONS=1', '-fexceptions',
+						  '-sMAX_WEBGL_VERSION=2', '-sMIN_WEBGL_VERSION=2', '-sFULL_ES2', # works ok with gl2shim
+						  '-sEXPORTED_RUNTIME_METHODS=callMain,addRunDependency,removeRunDependency,FS,ccall',
+						  '-sMODULARIZE', '-sEXPORT_NAME=Xash3D']
 
-			linkflags += ['-sASYNCIFY=1']
-
-			node = bld.srcnode.find_node('rodir')
-			if not node:
-				bld.fatal('Put game data into rodir folder in source tree root')
-			linkflags += ['--preload-file', '%s@/rodir' % node.path_from(bld.bldnode)]
-
-		f(source = source,
+		# msr-web: the anchor links the engine as C++, so side modules find the C++ runtime
+		f(source = source + (['platform/emscripten/cxx_anchor.cpp'] if bld.env.DEST_OS == 'emscripten' else []),
 			target = 'xash',
 			includes = includes,
 			features = 'cxx c',

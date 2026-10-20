@@ -1,0 +1,49 @@
+// ---------------------------------------------------------------------------
+//  ts_advertise_local.cfg -- THE ONE FILE THAT HOLDS A SECRET
+//
+//  Copy this to:
+//
+//      ts\addons\amxmodx\configs\ts_advertise_local.cfg
+//
+//  put the real bot token in it, and DO NOT COMMIT IT. It is read after
+//  ts_advertise.cfg, so anything set here wins.
+//
+//  Nothing copies this file for you on purpose. build.bat syncs *.cfg from the
+//  repository into the configs folder, so a real one living there would be
+//  overwritten by the blank one on the next build -- or worse, committed.
+//  ".cfg.example" is not ".cfg", so neither build.bat nor export.bat touches it.
+// ---------------------------------------------------------------------------
+
+
+// The bot's token. Discord Developer Portal -> your application -> Bot -> Reset
+// Token, then copy it. It is shown ONCE and cannot be read back afterwards.
+//
+// THIS IS THE WHOLE BOT ACCOUNT, not permission to post in one channel. Anyone
+// holding it can act as the bot in every server the bot is in, read what it can
+// read and post what it can post, until the token is regenerated. Treat it the way
+// you would treat a password that cannot be changed quietly.
+//
+// If it ever leaks: Reset Token in the portal. That invalidates the old one
+// immediately and is the only fix -- there is nothing else to revoke.
+//
+// The plugin never writes it to a log, not even when a request fails.
+tsm_ad_token "PASTE.THE.BOT.TOKEN.HERE"
+
+
+// The channel to post in, by id. Right-click the channel -> Copy Channel ID, with
+// Developer Mode turned on in Discord's Advanced settings.
+//
+// This is not secret and could live in ts_advertise.cfg, but it is kept here so
+// that everything to do with one Discord server is in one file.
+//
+// THE BOT MUST BE IN THAT GUILD and have "View Channel", "Send Messages" and
+// "Embed Links" in this channel. Missing any of them answers 403 rather than
+// failing quietly, and the plugin logs the code and Discord's reason.
+tsm_ad_channel "000000000000000000"
+
+
+// Anything from ts_advertise.cfg can be overridden here too, which is useful for
+// settings that differ per machine. The connect address is the usual one, since a
+// test server and the real one are rarely on the same address.
+//
+//tsm_ad_connect "203.0.113.10:27015"

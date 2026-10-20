@@ -1,0 +1,32 @@
+==============
+ TS_ANTRODOME
+==============
+by -Stratesiz-
+
+
+Previous maps:
+--------------
+de_pasta
+cs_futurcom
+
+Textures by:
+-----------
+Me
+Marc Schröder	info@poke646.com
+Blazeeer	blaz@nuclear-dawn.net
+JoeSmoe
+3DPunk
+Xenon		Xenons@t-online.de
+
+Sounds by:
+----------
+Fortran
+http://www.a1freesoundeffects.com/
+
+Special thanks to:
+------------------
+OL and Pericolos0 for model tweaking
+plus all the playtesters.
+
+
+**Visit #mapcore at gamesurge.net!**

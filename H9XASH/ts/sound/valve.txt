@@ -1,0 +1,5 @@
+originally from hl1, valve/ folder
+replace if ever standalone with xash
+--
+
+get_satchel.wav

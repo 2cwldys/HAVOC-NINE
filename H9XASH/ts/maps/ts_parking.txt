@@ -1,0 +1,14 @@
+TITLE                   : ts_parking
+AUTHOR OF MAP           : CLAN_KILLER
+MOD                     : The Specialists
+
+
+Special thanks to BLAZING for making the low-poly cars
+and 3d-mike for making the textures of the cars.
+Also special thanks to blade for making some graffiti's.
+
+
+EMAIL CLAN-KILLER       : specialists@wanadoo.nl
+EMAIL BLAZING           : blazingmapper@hotmail.com
+EMAIL 3dmike            : info@3d-mike.com
+EMAIL BLADE             : beukdekerstman@hotmail.com

@@ -1,0 +1,49 @@
+TSM vgui.dll patch -- H9's purple VGUI1 scheme (Steam Half-Life / GoldSrc)
+==========================================================================
+
+What this is: Valve's VGUI1 library (Half-Life\vgui.dll) with the six scheme colours that
+Scheme::Scheme() compiles in changed to H9's purple. 18 bytes; nothing else in the file
+differs. TS's in-game VGUI1 menus (team, class, buy, the command menus) take these through
+Scheme::sc_primary1..3 and sc_secondary1..3, and no .res or .txt file can set them -- the
+menu text colours come from ts\<width>_textscheme.txt instead, which H9 ships separately.
+
+Original SHA256 : F93E9F324C209118263B65644FA1F471E24A99DC3510C1763A733DB9F3B01E91
+Patched SHA256  : 9D35C22623DD524C43F82EDD8F086ED91E33DAB19138624AC92D86455007F70A
+Size            : 400304 bytes (unchanged)
+
+Colour         stock (r,g,b)    H9 (r,g,b)      used for
+  sc_primary1    102,102,153  ->  223,213,245   menu text
+      r  file offset 0x1c54c   66 -> df
+      g  file offset 0x1c54a   66 -> d5
+      b  file offset 0x1c545   99 -> f5
+  sc_primary2    153,153,204  ->  138, 66,196   armed (highlighted) row fill
+      r  file offset 0x1c563   99 -> 8a
+      g  file offset 0x1c55e   99 -> 42
+      b  file offset 0x1c559   cc -> c4
+  sc_primary3    204,204,255  ->  178,146,226   light accents
+      r  file offset 0x1c57d   cc -> b2
+      g  file offset 0x1c578   cc -> 92
+      b  file offset 0x1c573   ff -> e2
+  sc_secondary1  102,102,102  ->  122, 86,180   button borders
+      r  file offset 0x1c591   66 -> 7a
+      g  file offset 0x1c58f   66 -> 56
+      b  file offset 0x1c58d   66 -> b4
+  sc_secondary2  153,153,153  ->  255,250,255   armed text
+      r  file offset 0x1c5a8   99 -> ff
+      g  file offset 0x1c5a3   99 -> fa
+      b  file offset 0x1c59e   99 -> ff
+  sc_secondary3  204,204,204  ->  200,186,230   light grey accents
+      r  file offset 0x1c5c2   cc -> c8
+      g  file offset 0x1c5bd   cc -> ba
+      b  file offset 0x1c5b8   cc -> e6
+
+Each value is one byte immediate inside Scheme::Scheme(); alpha (0 = opaque in VGUI1) is
+left as it was. vgui.dll is shared by every GoldSrc mod in the Half-Life folder, so their
+VGUI1 menus take the purple too. Steam's "Verify integrity of game files" puts the stock
+file back; run build.bat again afterwards.
+
+Rollback: the original is kept as TSM\backups\ts_ui_originals_2026-10-19\vgui.dll and
+inside ts\original.zip; restore_originals.bat puts it back.
+
+Xash3D (H9XASH) does not load this file. It runs FWGS's open VGUI1, freevgui, built from
+source with the same six colours -- see H9XASH\vgui.dll.patch.

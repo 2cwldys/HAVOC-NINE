@@ -200,6 +200,11 @@ typedef struct
 	gl_rendertarget_t msaa;   // 3D passes when multisampling, resolved into scene
 	gl_rendertarget_t scene;  // 3D passes, sized by r_scene_scale
 	gl_rendertarget_t screen; // 2D pass, sized like the window
+	// msr-web, bloom: what glows is drawn again into glow (through glow_msaa when multisampling), blurred in blur[]
+	gl_rendertarget_t glow_msaa;
+	gl_rendertarget_t glow;
+	gl_rendertarget_t blur[2];
+	qboolean glowDrawn;
 	qboolean failed;
 } gl_rendertargets_t;
 
@@ -353,7 +358,11 @@ void GL_BindSceneTarget( void );
 void GL_BindScreenTarget( void );
 void GL_BindWindowTarget( void );
 void GL_PresentScreenTarget( void );
+qboolean GL_GlowBegin( void );
+void GL_GlowEnd( void );
 #else
+static inline qboolean GL_GlowBegin( void ) { return false; }
+static inline void GL_GlowEnd( void ) { }
 static inline void GL_CheckRenderTargets( void ) { }
 static inline void GL_FreeRenderTargets( void ) { }
 static inline void GL_BindSceneTarget( void ) { }
@@ -811,6 +820,10 @@ extern convar_t r_ripple_updatetime;
 extern convar_t r_ripple_spawntime;
 extern convar_t r_large_lightmaps;
 extern convar_t r_scene_scale;
+extern convar_t r_scene_msaa;
+extern convar_t r_bloom;
+extern convar_t r_bloom_scale;
+extern convar_t r_bloom_radius;
 
 //
 // engine shared convars

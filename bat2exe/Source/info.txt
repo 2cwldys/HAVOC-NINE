@@ -1,0 +1,2 @@
+"Source.cs" is overwritten every single time you compile.
+The files "obfuscated_source.bat", and "encoded_source.bat", will also be overwritten, only if the said feature is enabled.

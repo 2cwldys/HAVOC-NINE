@@ -13,6 +13,9 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 */
 
+#if XASH_EMSCRIPTEN
+#include <unistd.h> // getentropy
+#endif
 #include "build.h"
 #include <inttypes.h>
 #if XASH_LINUX
@@ -757,9 +760,17 @@ void ID_Init( void )
 		{
 			sscanf( buf, "%016"PRIX64, &id );
 			id ^= GAME_XOR_MASK;
+#if !XASH_EMSCRIPTEN // nothing to check it against, see below
 			ID_Check();
+#endif
 		}
 	}
+#if XASH_EMSCRIPTEN
+	// A page has no hardware to identify, so the generated id would be the same for every player.
+	// It is random instead, and the page keeps .xash_id between visits.
+	if( !id )
+		getentropy( &id, sizeof( id ));
+#endif
 	if( !id )
 		id = ID_GenerateRawId();
 
