@@ -1,5 +1,5 @@
 diff --git a/dlls/bot.cpp b/dlls/bot.cpp
-index bdc592f..bbe672b 100644
+index bdc592f..56741d3 100644
 --- a/dlls/bot.cpp
 +++ b/dlls/bot.cpp
 @@ -721,7 +721,14 @@ void CBot::EnemyFound(edict_t* pEnemy)
@@ -65,10 +65,20 @@ index bdc592f..bbe672b 100644
  		if (std::strcmp(szClassname, "ts_groundweapon") == 0)
  			return true;
  	}
-@@ -8922,6 +8957,25 @@ bool CBot::IsEnemy(edict_t* pEntity)
+@@ -8922,6 +8957,35 @@ bool CBot::IsEnemy(edict_t* pEntity)
  
  		if (pEntity->v.flags & FL_CLIENT)
  		{
++			// Cloak, before even teams. Recon's .cloak (ts_matchmode.sma set_cloak()) is a
++			// shimmer, not EF_NODRAW, so the generic "can't see it" gate above never catches
++			// it. rendercolor is the only render state that plugin ever sets to this exact
++			// blue -- not rendermode or renderfx, both of which are shared with other hidden
++			// states (spectating, warmup) and would misfire on those too. Checked ahead of
++			// the team comparison below: for an enemy-team cloaked player, that check alone
++			// would already return true before a later-placed cloak check could ever run.
++			if (pEntity->v.rendercolor == Vector(40, 120, 255))
++				return false;
++
 +			// Teams, before anything else.
 +			//
 +			// Everything below decides whether two players share a side by comparing their
@@ -91,8 +101,7 @@ index bdc592f..bbe672b 100644
  			if (gBotGlobals.isMapType(NON_TS_TEAMPLAY) || gBotGlobals.m_bTeamPlay)
  			{
  				char* infobuffer1 = (*g_engfuncs.pfnGetInfoKeyBuffer)(m_pEdict);
-@@ -9297,6 +9325,86 @@ bool CBot::IsEnemy(edict_t* pEntity)
- 
+@@ -9242,6 +9306,103 @@ bool CBot::IsEnemy(edict_t* pEntity)
  	return false;
  }
  
@@ -196,21 +205,20 @@ index bdc592f..bbe672b 100644
  //////////////////////////////////////////////////////////////////////////////
  // NON-CLASS RELATED FUNCTIONS
  
- bool BotFunc_IsLongRangeWeapon(const int iId)
 diff --git a/dlls/util.cpp b/dlls/util.cpp
 index d780582..0241a66 100644
 --- a/dlls/util.cpp
 +++ b/dlls/util.cpp
 @@ -927,6 +927,12 @@ int UTIL_GetTeam(edict_t* pEntity)
- 	return pEntity->v.team;
- case MOD_TS:
- {
-+	// The engine's own team field, when the server sets it. Stock TS never does,
-+	// so this reads 0 and the guesses below still apply. Read by the squad and
-+	// chat code; the enemy test in bot.cpp no longer depends on it.
-+	if (pEntity->v.team > 0)
-+		return pEntity->v.team;
-+
- 	// Check if the map name starts with "tm_"
- 	if (std::strncmp("tm_", STRING(gpGlobals->mapname), 3) == 0)
+ 		return pEntity->v.team;
+ 	case MOD_TS:
  	{
++		// The engine's own team field, when the server sets it. Stock TS never does,
++		// so this reads 0 and the guesses below still apply. Read by the squad and
++		// chat code; the enemy test in bot.cpp no longer depends on it.
++		if (pEntity->v.team > 0)
++			return pEntity->v.team;
++
+ 		// Check if the map name starts with "tm_"
+ 		if (std::strncmp("tm_", STRING(gpGlobals->mapname), 3) == 0)
+ 		{

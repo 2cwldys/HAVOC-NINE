@@ -51,7 +51,34 @@ so it can be confirmed working -- or its absence confirmed -- without guessing.
 
 
 ===============================================================================
-CHANGE 2: FOLLOW COMMAND
+CHANGE 2: RESPECT nopowerup, DROP A COMPLETELY DRY WEAPON
+===============================================================================
+
+Already present in the patch and in every built rcbot_mm.dll shipped alongside this
+README -- documented here now because it had never been written up.
+
+    CBot::EnemyFound, bot.cpp, case MOD_TS
+    CBot::CanPickup, bot.cpp
+
+Bots called "usepowerup" on sighting an enemy, and treated every ts_powerup pickup
+as fair game, regardless of the server's own nopowerup cvar. A server that had
+turned powerups off still had its bots using and collecting them -- nothing on the
+server side can stop that, because a fake client sends no client commands for a
+plugin to intercept. Both paths now check CVAR_GET_FLOAT("nopowerup") first.
+
+    CBot::Think, bot.cpp
+
+CanReload() for TS is !m_iClip && *m_iAmmo1 > 0, so a weapon with an empty clip AND
+an empty reserve is OutOfAmmo() and cannot be reloaded. Stock rcbot had no answer
+for that state: it kept the empty weapon selected and kept pulling the trigger,
+which is why a bot would stand in place doing nothing with a dry gun raised.
+Think() now drops a weapon in exactly that state (rate-limited per bot, 3 seconds),
+so the game hands the bot its next weapon -- bare hands, worst case, which is still
+a weapon.
+
+
+===============================================================================
+CHANGE 3: FOLLOW COMMAND
 ===============================================================================
 
 New function: CBot::SetFollowTarget(edict_t* pTarget)
@@ -68,6 +95,44 @@ New console command: rcbot follow <bot_index> <player_index>
 When following: bot stays with leader, attacks enemies in range, uses squad
 formation. When unfollowing: bot leaves squad, clears follow task, returns to
 normal patrol/waypoint behavior.
+
+
+===============================================================================
+CHANGE 4: CLOAK AWARENESS
+===============================================================================
+
+    CBot::IsEnemy, bot.cpp, case MOD_TS
+
+        if (pEntity->v.rendercolor == Vector(40, 120, 255))
+            return false;
+
+Recon's .cloak (ts_matchmode.sma, set_cloak()) is a shimmer, not a vanish -- the
+player stays drawn at very low opacity rather than going EF_NODRAW, so the generic
+"can't see it" check already in IsEnemy() never catches a cloaked player, and bots
+engaged them exactly as if they were standing in the open.
+
+rendercolor is the signature: it is the one render field that plugin sets to this
+exact blue only while cloaked, and to nothing else -- not shared with spectating,
+warmup-hold, or any of the glow effects (medic heal, stim, engineer ammo), which
+use red, white and yellow respectively and never touch rendercolor otherwise.
+rendermode/renderamt were deliberately not used for this check: both are shared
+with other hidden states in the same plugin and would misfire on those too.
+
+Checked as the FIRST thing inside the FL_CLIENT block, ahead of the team
+comparison just below it. Order matters: for an enemy-team cloaked player, the
+team check alone would already return true before a later-placed cloak check
+could ever run, so this has to come first to work in both the enemy-team and
+same-team case.
+
+Like Change 1, this is a plain pev-field read with no AMXX-module callback and no
+dependency on any plugin cvar or array -- the plugin was already writing this
+field for its own cosmetic purposes; this just reads it.
+
+IsEnemy() is called from FindEnemy() (new-target acquisition) and roughly fifteen
+other sites across the file, including the per-think target-revalidation inside
+an active attack task -- so a bot that is mid-fight when its target cloaks drops
+the attack on the very next think, the same as it would for a target that died or
+disconnected. No other call site needs separate handling.
 
 
 ===============================================================================

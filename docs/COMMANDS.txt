@@ -116,6 +116,26 @@
      It comes back at the start of the next round. It does NOT come back if you
      respawn in the middle of one.
 
+ .cloak    /    .uncloak
+     Recon only, in a live round: shimmer near-invisible and back. The model stays
+     drawn, very faint -- not a true vanish, a close or careful look still finds
+     you. You cannot see it on yourself: your own client draws you at its own
+     opacity, whatever the server sends. One of two sounds plays either way (picked
+     at random), heard up close and not across the map, plus a blue flash anyone
+     nearby can see.
+
+     Bots neither see nor target you while it is up. It is not damage immunity:
+     shots and blasts still hurt you.
+
+     TAKING OR DEALING ANY DAMAGE BREAKS IT, with the uncloak sound and flash. It is
+     for moving unseen, not for fighting from inside it.
+
+     Expires on its own after 30 seconds (tsm_cloak_duration) if nothing else ends it
+     first -- same sound and flash as typing .uncloak. .uncloak any time before that.
+     After any end, .cloak waits 30 seconds (tsm_cloak_cooldown) before it works again.
+     If the match takes you out of the round some other way (eliminated, benched, the
+     warmup hold) it ends on its own, silently.
+
  .forfeit
      Vote to concede the match for your side. EVERY human on that side has to type
      it -- one person saying it is an opinion, all of them saying it is a decision.
@@ -348,6 +368,11 @@
  amx_tsm_fix <target>
      Force-restore one player to normal: visible, solid, armed, able to move.
 
+ amx_tsm_cloak <target>
+     Toggle a Recon cloak on anyone, bots included, in a live round. The cloaker
+     never sees his own cloak -- his client draws him at its own opacity -- so
+     this is how the effect is looked at: cloak a bot and watch it.
+
  amx_tsm_menu <side|class>
      Force a menu up and report why it might not have shown (built or not,
      class count, current assignment). Tells "never sent" apart from "sent and
@@ -422,6 +447,8 @@
      (amx_tsm_obj <n> walks the chain forward), which is the real round's
      own rule -- the suite tests the rules rather than suspending them.
 
+ tsm_loc
+     Find your exact XYZ coordinates to pass to agents using module JS & SMAK.
 
 ===============================================================================
  COMMANDS THIS PLUGIN INTERCEPTS

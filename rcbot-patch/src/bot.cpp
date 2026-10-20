@@ -8957,6 +8957,16 @@ bool CBot::IsEnemy(edict_t* pEntity)
 
 		if (pEntity->v.flags & FL_CLIENT)
 		{
+			// Cloak, before even teams. Recon's .cloak (ts_matchmode.sma set_cloak()) is a
+			// shimmer, not EF_NODRAW, so the generic "can't see it" gate above never catches
+			// it. rendercolor is the only render state that plugin ever sets to this exact
+			// blue -- not rendermode or renderfx, both of which are shared with other hidden
+			// states (spectating, warmup) and would misfire on those too. Checked ahead of
+			// the team comparison below: for an enemy-team cloaked player, that check alone
+			// would already return true before a later-placed cloak check could ever run.
+			if (pEntity->v.rendercolor == Vector(40, 120, 255))
+				return false;
+
 			// Teams, before anything else.
 			//
 			// Everything below decides whether two players share a side by comparing their

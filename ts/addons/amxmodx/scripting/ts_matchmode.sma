@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes8"
+#define TSM_BUILD "1.53-fixes9"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -81,22 +81,44 @@
 #define TSM_ICON_SPR "sprites/tsm_class.spr"
 
 /*
- * Where the insurgent copies of the icons start in that sheet.
+ * WHICH FRAME OF THE SHEET IS EACH CLASS'S INSURGENT COPY.
  *
- * The sheet holds the classes twice: frames 0 upwards as the MSR wear them, and from
- * TSM_ICON_RED a RED copy of the first TSM_ICON_REDS of them for the insurgents. So the
- * frame is `ci` for team 1 and `TSM_ICON_RED + ci` for team 2.
+ * Frames 0 upwards are the classes as the MSR wear them, one per class in class order. After
+ * them come RED copies of the ones that have two colours. This table says which frame holds each
+ * class's red copy, and -1 says that class has only the one icon.
  *
- * Only the first few are doubled. Medic and Officer are deliberately NOT: bone and amber
- * read as the role rather than as the side, and a medic you can pick out at a glance is
- * worth more than a medic whose team you can tell. A class past TSM_ICON_REDS therefore
- * shows the same icon to both sides, which is why the bound is checked and not assumed.
+ * EVERY class is doubled, the Medic and the Officer included. They were bone and amber and
+ * single, on the reasoning that a role-colour beats a side-colour. Sudden death broke that: the
+ * marker shown to the other side is always the red copy, so a class without one fell back to its
+ * ordinary icon and an ENEMY medic was drawn exactly like a friendly one, in the one minute of
+ * the round when telling them apart matters most. The SHAPE carries the role -- a cross is a
+ * cross -- so the colour is free to carry the side.
  *
- * make-class-sprite.mjs prints both numbers when it builds the sheet, and refuses to build
- * if the classes are reordered so that a doubled one is no longer among the first.
+ * IT IS A TABLE AND NOT AN OFFSET, and that is the whole point. It used to be
+ * `TSM_ICON_RED + ci`, which only holds while every two-colour class comes before every
+ * one-colour one. The moment Recon and Mech were added after Medic and Officer that stopped
+ * being true, and because nothing bounded `ci`, Recon was being shown the red Assault chevrons
+ * and Mech a red gear. Restoring the old prefix would have meant renumbering tsm_class5..9 in
+ * the cfg, which the cfg itself warns against; nine numbers here cost nothing and let a class be
+ * added anywhere, in either one colour or two.
+ *
+ * make-class-sprite.mjs PRINTS THIS LINE when it builds the sheet. Paste what it prints.
  */
-#define TSM_ICON_RED  7
-#define TSM_ICON_REDS 5
+new const TSM_ICON_RED_OF[] = { 9, 10, 11, 12, 13, 14, 15, 16, 17 };
+
+/** The frame `ci` should wear on `team`, or -1 when that class has no icon at all. */
+stock icon_frame_for(ci, team)
+{
+	if (ci < 0 || ci >= sizeof(TSM_ICON_RED_OF))
+	{
+		return -1;
+	}
+	if (team == 2 && TSM_ICON_RED_OF[ci] >= 0)
+	{
+		return TSM_ICON_RED_OF[ci];
+	}
+	return ci;
+}
 
 #define TSM_ARM_CASH 32000
 
@@ -408,6 +430,49 @@ new const g_mech_hit_snd[][] = {
 new Float:g_mech_rocket_next[MAXPL];   // gametime when next rocket is allowed
 new g_mech_rockets_used[MAXPL];        // rockets fired this life (max 4)
 
+/*
+ * Recon .cloak / .uncloak.
+ *
+ * Shimmer, not full invisibility: TSM_RENDER_TEXTURE at a low nonzero renderamt
+ * (tsm_cloak_opacity), so the body stays drawn, just faint. The warmup hold and spectating use
+ * the same mode at renderamt 0 to hide a player outright.
+ *
+ * The cloaker never sees it on himself. The client redraws its own player at its own opacity --
+ * cl_thirdtransparency in third person -- whatever the server sends, so the effect can only be
+ * judged on someone else's screen. amx_tsm_cloak puts it on any player, a bot included, for
+ * exactly that. Everyone else is sent it explicitly, from fw_addtofullpack.
+ *
+ * renderfx is TSM_RENDERFX_NONE, deliberately plain. kRenderFxHologram (16) does not add a
+ * flicker on top of renderamt on this engine: it replaces renderamt with its own distance-based
+ * value -- roughly 70% opacity at normal engagement range, whatever tsm_cloak_opacity says --
+ * plus a random jitter every frame.
+ *
+ * Enemy bots neither see nor target a cloaked player; see cloak_active(). It is not damage
+ * immunity.
+ */
+
+new const CLOAK_SND[2][] = { "cloak.wav", "cloak2.wav" };
+new const UNCLOAK_SND[2][] = { "uncloak.wav", "uncloak2.wav" };
+
+/*
+ * The cloak's blue tint. Written to pev_rendercolor whenever cloak is on, and back to black when
+ * it ends -- invisible on screen (this rendermode ignores rendercolor for a studio model), but it
+ * is the one render field nothing else in this plugin ever sets to this exact triplet, which makes
+ * it the signature the patched RCBot source checks in IsEnemy() (rcbot-patch, Change 4). That
+ * check is not in the deployed rcbot_mm.dll; cloak_active() keeps the deployed one off cloaked
+ * players instead. Keep this byte-identical to the Vector(40, 120, 255) check in
+ * rcbot-patch/src/bot.cpp -- there is no shared header between the two to enforce it.
+ *
+ * CLOAK_RGB is the same colour as whole numbers, for the entity state fw_addtofullpack writes:
+ * set_es() stores render fields as integers, and a Float there arrives as its bit pattern.
+ */
+new const Float:CLOAK_COLOR[3] = { 40.0, 120.0, 255.0 };
+new const CLOAK_RGB[3] = { 40, 120, 255 };
+
+new bool:g_cloaked[MAXPL];     // currently cloaked
+new Float:g_cloak_at[MAXPL];   // gametime of the last toggle, so chat spam cannot refire every frame
+new bool:g_cloak_nodraw[MAXPL]; // the EF_NODRAW on him is the cloak's, for RCBot -- see cloak_active()
+
 // Saved presentation, so a player is always restorable.
 new bool:g_frozen[MAXPL];          // we are holding this player right now
 new Float:g_save_maxspeed[MAXPL];  // their speed before we clamped it
@@ -448,6 +513,7 @@ new g_cv_specmodel;
 new g_cv_freezemethod;
 new g_cv_forcespeed;
 new g_cv_gamedesc;
+new g_cv_gamedesc_siege;
 new g_cv_teamlock;
 new g_cv_forcespawn;
 new g_cv_classes, g_cv_defclass, g_cv_modelmode, g_cv_classlimits;
@@ -488,10 +554,18 @@ new g_cv_musicvol, g_cv_startsound;   // tsm_startsound gates the round-start an
 // As a wav it mixes over a normal sound channel and the mp3 stream is never
 // held at all. music_is_wav() tells the two kinds apart; the precache and the
 // play path both branch on it.
-new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav" };
-new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0 };
-new g_music_order[6] = { 0, 1, 2, 3, 4, 5 };
-new g_music_pos = 6;         // 6 forces a shuffle before the first track
+/*
+ * vangelis.wav is track 6 (0-based index 6), and it is a WAV like contaminated rather than an
+ * MP3 like the rest -- at 618.8 seconds it is more than twice contaminated's length, and
+ * contaminated was already moved off the one shared MP3 stream for exactly this reason: holding
+ * that stream for minutes at a time meant anything else that needed it was cutting it or being
+ * cut. music_is_wav() below has to know about index 6 as well as index 5, or this would put the
+ * same problem straight back, worse.
+ */
+new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav", "vangelis.wav" };
+new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0, 618.8 };
+new g_music_order[7] = { 0, 1, 2, 3, 4, 5, 6 };
+new g_music_pos = 7;         // matches sizeof g_music_order: forces a shuffle before the first track
 new g_music_cur = -1;        // the track currently playing, -1 before the first
 new bool:g_music_off[MAXPL];
 
@@ -701,6 +775,10 @@ new g_cv_autofill;
 new g_cv_deathdelay;
 new Float:g_elim_at[MAXPL];   // when this player was eliminated
 new g_cv_sweepdrops;
+new g_cv_cloak;
+new g_cv_cloakduration;
+new g_cv_cloakcooldown;
+new g_cv_cloakopacity;
 new g_cv_nopowerups;
 new g_cv_modelpost;
 new g_cv_icons, g_cv_iconhigh, g_cv_iconscale, g_cv_sudden;
@@ -738,17 +816,20 @@ new Float:g_connect_at[MAXPL];
 new Float:g_class_menu_at[MAXPL];
 new Float:g_gate_deadline;    // when the LIVE gate stops waiting and forces go-live
 /*
- * A class menu built for ONE player, because what it says depends on his side.
- *
- * The shared g_class_menu cannot carry "2/2 full" -- MSR and the Insurrectionists fill their slots
- * at different rates, so the same item is open for one of them and not the other. It is still built
- * and still the flag that says classes are ready; this is what is actually put on the screen.
+ * The side and class menus are raw ShowMenu text, keyed back to us through these ids. AMXX strips
+ * the colour codes out of a menu_create() menu on any mod it does not know, TS included; raw text
+ * goes out exactly as written, so this is the only way the pick menus keep their colour.
  */
-new g_class_menu_id[MAXPL];
+#define TSM_SIDE_MENU  "TSM Side"
+#define TSM_CLASS_MENU "TSM Class"
+new g_side_menuid, g_class_menuid;
+new g_team_menu_text[256];   // the side menu as sent, rebuilt with the team names
+new g_team_menu_keys;
 new Float:g_reassert_at[MAXPL];
 new bool:g_issuing[MAXPL];   // our buy commands are executing for this player right now
 new bool:g_cash_lend[MAXPL]; // BuyArmament is running for us and needs funds
 new g_icon_ent[MAXPL];       // this player's class-icon sprite, 0 if none yet
+new g_icon_owner[2048];      // edict -> the player whose class icon it is, 0 for anything else
 new bool:g_sudden;           // the last minute has begun, and it is announced once
 new bool:g_icon_ok;          // the sheet precached, so the entities may be made
 new g_join_tries[MAXPL];     // jointeam attempts for the current pick
@@ -1304,6 +1385,29 @@ assign_bot(id)
 			g_match_team[id] = from_mod;
 			if (g_match_team[id]) { g_side[id] = g_match_team[id]; }
 			g_player_class[id] = 0;
+
+			/*
+			 * AND THE ENGINE'S OWN TEAM FIELD, which this branch was the one place that never
+			 * wrote it.
+			 *
+			 * RCBot's team check has a fast path for two entities that both carry a real
+			 * pev_team: a plain number compare, decided correctly every time. Only when
+			 * either side reads 0 does it fall back to comparing MODEL STRINGS -- and that
+			 * fallback is broken by design the moment two teammates are wearing different
+			 * classes, which after Recon and Mech is nearly always. This branch is reached
+			 * whenever TS already has the bot on a recognised side by the time assign_bot()
+			 * runs, and it was the one path that synced every piece of OUR OWN bookkeeping
+			 * (g_match_team, g_side, g_player_class) without ever touching pev_team -- so a
+			 * bot that took this branch kept pev_team at 0 for as long as it stayed connected,
+			 * RCBot's fast path never engaged for it in either direction, and it fell straight
+			 * into the broken fallback against every teammate in a different class's skin.
+			 * That is the actual mechanism behind bots attacking their own side.
+			 *
+			 * set_ts_team() is not used here on purpose: it also re-issues jointeam and resets
+			 * g_model_want_idx, both redundant and both a needless risk for a bot the mod
+			 * already agrees is on this side -- this is a bookkeeping sync, not a join.
+			 */
+			set_pev(id, pev_team, from_mod);
 			dbg("bot %d follows the mod onto team %d", id, from_mod);
 		}
 	}
@@ -2077,15 +2181,10 @@ bool:class_open_for(id, cls, team)
 	return true;            // nothing is open anywhere: the limits give way
 }
 
-public class_menu_handler(id, menu, item)
+/// A class picked from the menu, 0 being the first. class_menu_key() reads the key press.
+pick_class(id, item)
 {
-	if (item == MENU_EXIT || item < 0)
-	{
-		close_menu(id);
-		return PLUGIN_HANDLED;
-	}
-
-	if (item < g_class_count)
+	if (item >= 0 && item < g_class_count)
 	{
 		// Locked for the rest of the match: the class IS the loadout, so swapping it
 		// mid-match would be the economy this replaced.
@@ -2103,9 +2202,7 @@ public class_menu_handler(id, menu, item)
 			 */
 			client_print(id, print_chat, "[MATCH] %s is full -- %d a side. Pick another.",
 				g_class_name[item], g_class_limit[item]);
-			close_menu(id);
 			show_class_menu(id);
-			return PLUGIN_HANDLED;
 		}
 		else
 		{
@@ -2139,9 +2236,6 @@ public class_menu_handler(id, menu, item)
 			g_in_userinfo[id] = cwas;
 		}
 	}
-
-	close_menu(id);
-	return PLUGIN_HANDLED;
 }
 
 /*
@@ -2159,22 +2253,16 @@ close_menu(id)
 	}
 }
 
-public team_menu_handler(id, menu, item)
+/// A side picked from the menu: 0 and 1 are the two teams, anything else spectates.
+pick_side(id, item)
 {
-	if (item == MENU_EXIT || item < 0)
-	{
-		close_menu(id);
-		return PLUGIN_HANDLED;
-	}
-
 	if (item == 0 || item == 1)
 	{
 		// Sides are fixed for the duration of a match. A late joiner waits it out.
 		if (g_state != ST_WARMUP && g_state != ST_READYUP)
 		{
 			client_print(id, print_chat, "[MATCH] A match is already in progress -- join when it finishes.");
-			close_menu(id);
-			return PLUGIN_HANDLED;
+			return;
 		}
 
 		new team = item + 1;
@@ -2215,8 +2303,7 @@ public team_menu_handler(id, menu, item)
 
 				g_team_menu_at[id] = 0.0;
 				set_task(0.5, "task_show_side", id + 2000);
-				close_menu(id);
-				return PLUGIN_HANDLED;
+				return;
 			}
 		}
 
@@ -2259,8 +2346,15 @@ public team_menu_handler(id, menu, item)
 		client_print(id, print_chat, "[MATCH] Spectating. Type .team when you want to play.");
 		dbg("team menu: %d -> spectate", id);
 	}
+}
 
-	close_menu(id);
+/// The side menu key press, 0-based: 1. and 2. are the teams, 3. spectates, 0. exits.
+public team_menu_key(id, key)
+{
+	if (key <= 2)
+	{
+		pick_side(id, key);
+	}
 	return PLUGIN_HANDLED;
 }
 
@@ -2270,11 +2364,7 @@ public team_menu_handler(id, menu, item)
  */
 build_team_menu()
 {
-	if (g_team_menu)
-	{
-		menu_destroy(g_team_menu);
-		g_team_menu = 0;
-	}
+	g_team_menu = 0;
 
 	new t1[32], t2[32];
 	team_rawname(1, t1, charsmax(t1));
@@ -2291,12 +2381,15 @@ build_team_menu()
 	 * whatever the player is looking at, with no layer behind them. A server plugin has
 	 * no way to put a sprite or a panel under one; the only thing it controls is the text.
 	 *
-	 * So contrast comes from the text itself. AMXX menus take four codes, and they are the
-	 * CLIENT's palette rather than ours: \r red, \y yellow, \w white, \d dim grey. Yellow
-	 * on a bright wall reads where white does not, and dimming the furniture -- the
-	 * brackets, the dashes -- stops it competing with the words that matter.
+	 * So contrast comes from the text itself. The client reads four codes, and they are its
+	 * palette rather than ours: \r red, \y warm orange, \w white, \d dim grey. A colour runs on
+	 * across lines until the next code. The pick menus are orange throughout -- it reads on a
+	 * bright wall where white washed out -- with \d dimming only what is not the main choice.
+	 *
+	 * Sent raw with show_menu() rather than built with menu_create(): AMXX strips every code out
+	 * of a menu_create() menu on a mod it does not know, and TS is one, which is why these menus
+	 * were plain white. No title line either, just the choices.
 	 */
-	g_team_menu = menu_create("\yTS Match \d-- \wpick a side", "team_menu_handler");
 
 	// Displayed names fall back to the join names when no long label is configured,
 	// so the menu still reads sensibly on a server that never set them.
@@ -2312,12 +2405,10 @@ build_team_menu()
 		copy(l2, charsmax(l2), t2);
 	}
 
-	new label[64];
-	formatex(label, charsmax(label), "\wJoin \y%s", l1);
-	menu_additem(g_team_menu, label, "1", 0);
-	formatex(label, charsmax(label), "\wJoin \y%s", l2);
-	menu_additem(g_team_menu, label, "2", 0);
-	menu_additem(g_team_menu, "\dSpectate Match", "0", 0);
+	formatex(g_team_menu_text, charsmax(g_team_menu_text),
+		"\y1. Join %s^n2. Join %s^n\d3. Spectate Match\y^n^n0. Exit", l1, l2);
+	g_team_menu_keys = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 9);
+	g_team_menu = 1;
 }
 
 show_team_menu(id)
@@ -2352,34 +2443,18 @@ show_team_menu(id)
 	client_print(id, print_chat, "[MATCH] Sides: %s %d -- %d %s",
 		sn1, count_on_team(1), count_on_team(2), sn2);
 
-	menu_display(id, g_team_menu, 0);
+	show_menu(id, g_team_menu_keys, g_team_menu_text, -1, TSM_SIDE_MENU);
 	dbg("showed side menu to %d", id);
 	client_print(id, print_chat, "[MATCH] Close any TS menu first, then press a number. Type .team to bring this back.");
 }
 
+/*
+ * Says classes are ready to offer. The menu itself is drawn per player in show_class_menu(),
+ * because what it says depends on his side, so there is nothing to build here but the flag.
+ */
 build_class_menu()
 {
-	if (g_class_menu)
-	{
-		menu_destroy(g_class_menu);
-		g_class_menu = 0;
-	}
-	if (!g_class_count)
-	{
-		return;
-	}
-
-	g_class_menu = menu_create("\yTS Match \d-- \wpick your class", "class_menu_handler");
-
-	new label[64], info[8];
-	for (new i = 0; i < g_class_count; i++)
-	{
-		// The class in yellow and its health dimmed: the name is what is being chosen, the
-		// number is only there to compare with.
-		formatex(label, charsmax(label), "\y%s  \d[%d hp]", g_class_name[i], g_class_hp[i]);
-		num_to_str(i, info, charsmax(info));
-		menu_additem(g_class_menu, label, info, 0);
-	}
+	g_class_menu = g_class_count ? 1 : 0;
 }
 
 /*
@@ -2551,14 +2626,20 @@ public task_offer_class_menu(taskid)
 	show_class_menu(taskid - 14000);
 }
 
-/* Frees a player's own class menu. Cancelled first: destroying one still on screen is an error. */
+/*
+ * Takes the class menu off his screen once a pick can no longer count. Only if it is still the
+ * menu he has up: anything he opened since is his, and is left alone.
+ */
 drop_class_menu(id)
 {
-	if (g_class_menu_id[id])
+	if (!is_user_connected(id) || bot_player(id))
 	{
-		close_menu(id);
-		menu_destroy(g_class_menu_id[id]);
-		g_class_menu_id[id] = 0;
+		return;
+	}
+	new menu, newmenu;
+	if (player_menu_info(id, menu, newmenu) && menu == g_class_menuid)
+	{
+		show_menu(id, 0, "^n", -1, "");
 	}
 }
 
@@ -2595,15 +2676,23 @@ show_class_menu(id)
 	 * once at map start would show a Medic slot as open for the whole match.
 	 */
 	new team = tsm_live_team_of(id);
-	drop_class_menu(id);
-	g_class_menu_id[id] = menu_create("\yTS Match \d-- \wpick your class", "class_menu_handler");
 
-	new label[64], info[8];
-	for (new i = 0; i < g_class_count; i++)
+	/*
+	 * Every class on one page, numbered from 1 -- a tenth class takes 0, and the Exit line goes.
+	 * The class in orange and its health dimmed: the name is what is being chosen, the number is
+	 * only there to compare with. Nine lines come to about 400 bytes, inside the 512 the client
+	 * keeps for a menu.
+	 */
+	new text[512], len = 0, keys = 0;
+	for (new i = 0; i < g_class_count && i < 10; i++)
 	{
+		new key = (i == 9) ? 0 : i + 1;
+		keys |= (1 << i);
+
 		if (!g_class_limit[i])
 		{
-			formatex(label, charsmax(label), "\y%s  \d[%d hp]", g_class_name[i], g_class_hp[i]);
+			len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp]\y^n",
+				key, g_class_name[i], g_class_hp[i]);
 		}
 		else
 		{
@@ -2619,23 +2708,44 @@ show_class_menu(id)
 
 			if (!class_open_for(id, i + 1, team))
 			{
-				// Still listed, and still pressable: the handler says no and says why. Hiding it
+				// Still listed, and still pressable: pick_class() says no and says why. Hiding it
 				// would leave the numbers beside the other classes meaning nothing.
-				formatex(label, charsmax(label), "\d%s  [%d hp]  (full)", g_class_name[i], g_class_hp[i]);
+				len += formatex(text[len], charsmax(text) - len, "\d%d. %s  [%d hp]  (full)\y^n",
+					key, g_class_name[i], g_class_hp[i]);
 			}
 			else
 			{
-				formatex(label, charsmax(label), "\y%s  \d[%d hp]  \w(%d left)",
-					g_class_name[i], g_class_hp[i], free);
+				len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp]  \y(%d left)^n",
+					key, g_class_name[i], g_class_hp[i], free);
 			}
 		}
-		num_to_str(i, info, charsmax(info));
-		menu_additem(g_class_menu_id[id], label, info, 0);
+	}
+	if (g_class_count < 10)
+	{
+		len += formatex(text[len], charsmax(text) - len, "^n\y0. Exit");
+		keys |= (1 << 9);
 	}
 
 	g_class_menu_at[id] = get_gametime();
-	menu_display(id, g_class_menu_id[id], 0);
+	show_menu(id, keys, text, -1, TSM_CLASS_MENU);
 	dbg("showed class menu to %d", id);
+}
+
+/*
+ * The class menu key press, 0-based: keys 1-9 are the first nine classes, 0 the tenth if there
+ * is one and Exit otherwise.
+ *
+ * A raw menu stays on screen until something replaces it, so a key can arrive after the freeze
+ * has ended. may_pick_class() is asked again here for exactly that: a pick outside the freeze
+ * would never reach the loadout.
+ */
+public class_menu_key(id, key)
+{
+	if (key < g_class_count && may_pick_class(id))
+	{
+		pick_class(id, key);
+	}
+	return PLUGIN_HANDLED;
 }
 
 /*
@@ -3001,6 +3111,41 @@ read_cfg_value(const key[], out[], outlen)
 	}
 }
 
+/*
+ * One player slot's class-icon entity, made hidden. Safe to call from plugin_precache: it reads
+ * no cvar, because those are not registered until plugin_init.
+ */
+make_class_icon(id, Float:scale)
+{
+	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+	if (!ent)
+	{
+		return 0;
+	}
+
+	engfunc(EngFunc_SetModel, ent, TSM_ICON_SPR);
+	set_pev(ent, pev_classname, "tsm_class_icon");
+
+	// The owner is how the AddToFullPack hooks work out whose icon this is, and therefore
+	// which side is allowed to see it. g_icon_owner[] is the same link the other way round.
+	set_pev(ent, pev_owner, id);
+
+	set_pev(ent, pev_movetype,   TSM_MOVETYPE_NOCLIP);
+	set_pev(ent, pev_solid,      TSM_SOLID_NOT);
+	set_pev(ent, pev_rendermode, TSM_RENDER_ALPHA);
+	set_pev(ent, pev_renderfx,   TSM_RENDERFX_NONE);
+	set_pev(ent, pev_renderamt,  255.0);
+	set_pev(ent, pev_scale,      scale);
+	set_pev(ent, pev_effects,    pev(ent, pev_effects) | TSM_EF_NODRAW);
+
+	g_icon_ent[id] = ent;
+	if (ent < sizeof g_icon_owner)
+	{
+		g_icon_owner[ent] = id;
+	}
+	return ent;
+}
+
 public plugin_precache()
 {
 	/*
@@ -3160,6 +3305,13 @@ public plugin_precache()
 	precache_sound(MECH_STEP_1);
 	precache_sound(MECH_STEP_2);
 	precache_sound(MECH_LOOP);
+
+	// Recon's cloak/uncloak, two variants of each. Bare filenames, in sound\ beside everything
+	// else here -- same convention as every other precache_sound in this file.
+	precache_sound("cloak.wav");
+	precache_sound("cloak2.wav");
+	precache_sound("uncloak.wav");
+	precache_sound("uncloak2.wav");
 
 	/*
 	 * Mech rocket launch sound. The stock valve\sound\weapons\rocketfire1.wav
@@ -3331,6 +3483,30 @@ public plugin_precache()
 	{
 		precache_model(TSM_ICON_SPR);
 		g_icon_ok = true;
+
+		/*
+		 * THE ICONS ARE MADE HERE, NOT ON FIRST USE.
+		 *
+		 * The engine sends each client at most 256 entities a frame, walking the edicts in
+		 * order, so whatever has the highest numbers is what gets cut when a view is crowded --
+		 * and an icon made at runtime always lands above every entity in the map. From the upper
+		 * halls of neuropolis the dome's props alone fill the packet, so no icon made later ever
+		 * reached a client there. Precache runs while only the world and the player slots exist,
+		 * so these take the edicts right after the players, ahead of the whole map.
+		 *
+		 * Hidden until used: an EF_NODRAW entity is never sent, so an unused icon costs nothing.
+		 * The scale is a stand-in because the cvar is not registered yet; update_class_icon()
+		 * writes the real one whenever it shows an icon.
+		 */
+		new maxpl = get_maxplayers();
+		for (new i = 1; i <= maxpl && i < MAXPL; i++)
+		{
+			if (!make_class_icon(i, 0.25))
+			{
+				tlog("[TSM] WARNING: could not create the class icon for slot %d at precache.", i);
+				break;
+			}
+		}
 	}
 	else
 	{
@@ -3551,6 +3727,31 @@ public plugin_init()
 	 * map spawns and are left alone.
 	 */
 	g_cv_sweepdrops = register_cvar("tsm_sweep_drops",   "1");
+	/*
+	 * Recon's cloak. 1 = usable, 0 = .cloak and .uncloak are refused outright, same shape as
+	 * tsm_classes for the class system as a whole -- one switch to turn the feature off without
+	 * touching anything else.
+	 */
+	g_cv_cloak = register_cvar("tsm_cloak_enabled", "1");
+	/*
+	 * How long a cloak lasts on its own before it expires, in seconds. 0 means it never
+	 * expires by itself -- only .uncloak or taking/dealing damage ends it.
+	 */
+	g_cv_cloakduration = register_cvar("tsm_cloak_duration", "30.0");
+	/*
+	 * How long a Recon has to wait after uncloaking -- by .uncloak, expiry, or a broken
+	 * cloak -- before .cloak will work again, in seconds. 0 means no wait at all.
+	 */
+	g_cv_cloakcooldown = register_cvar("tsm_cloak_cooldown", "30.0");
+	/*
+	 * How solid a cloaked Recon is, 0-255 (0 fully invisible, 255 not cloaked at all).
+	 *
+	 * A FLAT NUMBER, not a #define: the first value shipped (40) read as barely dimmed
+	 * in a real match, and tuning that used to mean a full recompile to try a different
+	 * number. One cvar read in the two places that apply it means it can be tried in
+	 * game and changed on the fly.
+	 */
+	g_cv_cloakopacity = register_cvar("tsm_cloak_opacity", "12.0");
 
 	/*
 	 * Remove TS's powerups from match play.
@@ -3562,6 +3763,8 @@ public plugin_init()
 	g_cv_nopowerups = register_cvar("tsm_no_powerups",   "1");
 	g_cv_modelpost  = register_cvar("tsm_model_post",     "1");
 	g_cv_icons      = register_cvar("tsm_class_icons",    "1");
+	// Above the player's ORIGIN, which is already his hull centre (feet+36): 52 floats the
+	// icon about 88 units above the feet, clear of the head.
 	g_cv_iconhigh   = register_cvar("tsm_icon_height",    "52.0");
 	/*
 	 * How many seconds of a round are "the last minute". 0 turns the whole thing off.
@@ -3702,6 +3905,9 @@ public plugin_init()
 
 	// The "Game" column in the server browser. Blank leaves TS's own text alone.
 	g_cv_gamedesc     = register_cvar("tsm_gamedesc", "Match Mode");
+	// Shown instead of tsm_gamedesc, on maps that have siege objectives (tsm_obj_1 and
+	// on) -- siege_count() decides which, refresh_gamedesc() picks between them.
+	g_cv_gamedesc_siege = register_cvar("tsm_gamedesc_siege", "Siege");
 
 	// Refuse team changes once a match is under way. Deliberately its own cvar and
 	// not part of tsm_block_spectator, so turning that off for a model test cannot
@@ -4043,7 +4249,13 @@ public plugin_init()
 	register_forward(FM_PlayerPostThink, "fw_postthink_post", 1);
 
 	register_forward(FM_GetGameDescription, "fw_gamedesc");
+	register_forward(FM_AddToFullPack, "fw_addtofullpack_pre");
 	register_forward(FM_AddToFullPack, "fw_addtofullpack", 1);
+
+	// The cloak's EF_NODRAW for RCBot: off straight after its think, on again at the end of
+	// the frame. See cloak_active().
+	register_forward(FM_StartFrame, "fw_startframe_pre");
+	register_forward(FM_StartFrame, "fw_startframe_post", 1);
 	register_forward(FM_ClientUserInfoChanged, "fw_userinfo");
 
 	/*
@@ -4080,14 +4292,28 @@ public plugin_init()
 	register_clcmd("say",      "hook_say");
 	register_clcmd("say_team", "hook_say");
 
+	// The pick menus are raw text (see build_team_menu); these route their keys back here.
+	g_side_menuid  = register_menuid(TSM_SIDE_MENU);
+	g_class_menuid = register_menuid(TSM_CLASS_MENU);
+	register_menucmd(g_side_menuid,  1023, "team_menu_key");
+	register_menucmd(g_class_menuid, 1023, "class_menu_key");
+
 	register_concmd("amx_match_start",   "cmd_start",   ADMIN_CFG, " - force the match live");
 	register_concmd("amx_match_cancel",  "cmd_cancel",  ADMIN_CFG, " - abort and return to warmup");
 	register_concmd("amx_match_restart", "cmd_restart", ADMIN_CFG, " - restart the match from round 1");
 	register_concmd("amx_match_score",   "cmd_score",   ADMIN_CFG, " - print the score");
 	register_concmd("amx_match_continue","cmd_continue",ADMIN_CFG, " - resume a halted match as it stands, keeping the score");
 	register_concmd("amx_tsm_fix",       "cmd_fix",     ADMIN_CFG, " <target> - force-restore a stuck player");
+	register_concmd("amx_tsm_cloak",     "cmd_cloak_admin", ADMIN_CFG, " <target> - toggle a cloak on anyone, bots too, to see it from outside");
 	register_concmd("amx_tsm_debug",     "cmd_debug",   ADMIN_CFG, " - why is nothing happening: teams, spawns, ready state");
 	register_concmd("amx_tsm_ents",      "cmd_ents",    ADMIN_CFG, " - every entity classname in the world right now");
+	/*
+	 * Both spellings on purpose. amx_tsm_loc matches every other command in this family, and
+	 * tsm_loc is what it gets called when somebody is standing in a map trying to describe where
+	 * they are.
+	 */
+	register_concmd("amx_tsm_loc",       "cmd_loc",     ADMIN_CFG, " - exactly where you are standing, and what you are looking at");
+	register_concmd("tsm_loc",           "cmd_loc",     ADMIN_CFG, " - the same as amx_tsm_loc");
 	register_concmd("amx_tsm_unfreeze",  "cmd_unfreeze",ADMIN_CFG, " - force-release everyone (diagnostic)");
 
 	// Spawn editing. Stand where you want a spawn and add it; save writes the
@@ -4247,25 +4473,130 @@ public plugin_cfg()
 
 public plugin_end()
 {
-	// Never leave anyone hidden, frozen or non-solid because the plugin unloaded.
+	// Never leave anyone hidden, frozen or non-solid because the plugin unloaded -- the
+	// cloak's EF_NODRAW included, so that comes off first.
+	for (new i = 1; i < MAXPL; i++)
+	{
+		cloak_bots_show(i);
+	}
 	restore_all();
 
-	// The icons are ours, so they go with us rather than being left in the map.
+	// The icons are hidden, not removed: the map is ending, and the engine frees every edict
+	// with it.
 	for (new i = 1; i < MAXPL; i++)
 	{
 		drop_class_icon(i);
 	}
 }
 
+/* ---- cloak: hidden from RCBot -------------------------------------------- */
+
+/*
+ * RCBOT DOES NOT TARGET WHAT IT IS TOLD IT CANNOT SEE.
+ *
+ * Its visibility list, its sight check and IsEnemy() all skip an entity carrying EF_NODRAW
+ * (rcbot bot.cpp 5749, 6190, 8863), and a fight already going is dropped on its next think,
+ * because the attack task asks IsEnemy() again. So a cloaked player carries EF_NODRAW whenever
+ * RCBot thinks. It is not damage immunity: traces, bullets and blasts never look at EF_NODRAW,
+ * and takedamage is not touched.
+ *
+ * WHEN is the whole difficulty. RCBot does all of its thinking in its own StartFrame pre-hook,
+ * and fakemeta is a separate metamod plugin that AMXX loads after both plugins.ini entries, so
+ * every FM_StartFrame hook here runs AFTER RCBot has already thought for the frame. The flag
+ * therefore goes on at the END of one frame (fw_startframe_post) and comes off straight after
+ * RCBot's think in the next (fw_startframe_pre), which puts every bot think inside it.
+ *
+ * It must never reach a client: TS's AddToFullPack drops an EF_NODRAW player from everybody
+ * else's packet, and humans would lose him completely. fw_addtofullpack_pre lifts it for TS's
+ * pack of that one entity and fw_addtofullpack puts it back. His own frame lifts it the same way
+ * (fw_prethink to fw_postthink_post), so TS never sees it on him while it runs him.
+ *
+ * g_cloak_nodraw[] says the bit is the cloak's. A bit something else put there -- elimination, a
+ * hold -- is never claimed and never taken off.
+ */
+
+/// The cloak is up and he is in the round: the only state it is drawn in, or hidden from bots in.
+bool:cloak_active(id)
+{
+	return (g_cloaked[id] && is_user_alive(id) && !is_spectating(id) && !g_elim[id]
+		&& !g_locked_out[id] && g_state == ST_LIVE);
+}
+
+/// Puts the cloak's EF_NODRAW on him, unless something else has already hidden him.
+cloak_bots_hide(id)
+{
+	if (g_cloak_nodraw[id] || !cloak_active(id))
+	{
+		return;
+	}
+	new fx = pev(id, pev_effects);
+	if (fx & TSM_EF_NODRAW)
+	{
+		return;   // not ours to claim
+	}
+	set_pev(id, pev_effects, fx | TSM_EF_NODRAW);
+	g_cloak_nodraw[id] = true;
+}
+
+/// Takes the cloak's EF_NODRAW off him for good. A bit the cloak did not put there is left alone.
+cloak_bots_show(id)
+{
+	if (!g_cloak_nodraw[id])
+	{
+		return;
+	}
+	g_cloak_nodraw[id] = false;
+	set_pev(id, pev_effects, pev(id, pev_effects) & ~TSM_EF_NODRAW);
+}
+
+/*
+ * Puts it back after his own frame lifted it. If something hid him during that frame, or the
+ * cloak has ended, the cloak lets go of the bit instead and leaves it as it is.
+ */
+cloak_bots_restore(id)
+{
+	if (!g_cloak_nodraw[id])
+	{
+		return;
+	}
+	new fx = pev(id, pev_effects);
+	if ((fx & TSM_EF_NODRAW) || !cloak_active(id))
+	{
+		g_cloak_nodraw[id] = false;
+		return;
+	}
+	set_pev(id, pev_effects, fx | TSM_EF_NODRAW);
+}
+
+/// Straight after RCBot's think: off before TS's own StartFrame and AMXX's tasks run.
+public fw_startframe_pre()
+{
+	for (new i = 1; i < MAXPL; i++)
+	{
+		cloak_bots_show(i);
+	}
+	return FMRES_IGNORED;
+}
+
+/// The end of StartFrame: on again for every live cloak, ready for RCBot's next think.
+public fw_startframe_post()
+{
+	for (new i = 1; i < MAXPL; i++)
+	{
+		cloak_bots_hide(i);
+	}
+	return FMRES_IGNORED;
+}
+
 /* ---- class icons --------------------------------------------------------- */
 
 /*
- * One sprite per player, made ONCE and then kept.
+ * One sprite per player slot, made ONCE, at precache (see plugin_precache), and kept for the
+ * whole map.
  *
  * Deliberately not created and destroyed as players live and die: entity churn is
  * what exhausted the edict table before and stopped weapons spawning at all. The
- * sprite is made on first use and hidden when it should not be seen, and only
- * removed when the player leaves.
+ * sprite is hidden when it should not be seen, and never removed.
  */
 icon_entity(id)
 {
@@ -4278,30 +4609,16 @@ icon_entity(id)
 		return g_icon_ent[id];
 	}
 
-	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+	// Only reached when the precache pool has no icon for this slot. One made now lands above
+	// every map entity, so it is the first thing cut wherever a view is crowded.
+	new ent = make_class_icon(id, get_pcvar_float(g_cv_iconscale));
 	if (!ent)
 	{
 		g_icon_ent[id] = 0;
 		tlog("[TSM] WARNING: could not create a class icon for %d -- out of edicts?", id);
 		return 0;
 	}
-
-	engfunc(EngFunc_SetModel, ent, TSM_ICON_SPR);
-	set_pev(ent, pev_classname, "tsm_class_icon");
-
-	// The owner is how fw_addtofullpack works out whose icon this is, and therefore
-	// which side is allowed to see it. It is the only link between the two.
-	set_pev(ent, pev_owner, id);
-
-	set_pev(ent, pev_movetype,   TSM_MOVETYPE_NOCLIP);
-	set_pev(ent, pev_solid,      TSM_SOLID_NOT);
-	set_pev(ent, pev_rendermode, TSM_RENDER_ALPHA);
-	set_pev(ent, pev_renderfx,   TSM_RENDERFX_NONE);
-	set_pev(ent, pev_renderamt,  255.0);
-	set_pev(ent, pev_scale,      get_pcvar_float(g_cv_iconscale));
-
-	g_icon_ent[id] = ent;
-	dbgv("class icon %d created for %d", ent, id);
+	tlog("[TSM] class icon for %d made late, as edict %d -- it can drop out where a view is crowded.", id, ent);
 	return ent;
 }
 
@@ -4368,83 +4685,154 @@ update_class_icon(id)
 	 * tsm_live_team_of() rather than get_user_team(): every TS-side route to joining a
 	 * team fails on this server, so g_match_team is the only thing that knows the sides.
 	 */
-	new frame = ci;
-	if (ci < TSM_ICON_REDS && tsm_live_team_of(id) == 2)
+	new frame = icon_frame_for(ci, tsm_live_team_of(id));
+	if (frame < 0)
 	{
-		frame = TSM_ICON_RED + ci;
+		return;   // a class the sheet has no icon for: better nothing than somebody else's
 	}
 	set_pev(ent, pev_frame, float(frame));
 	set_pev(ent, pev_scale, get_pcvar_float(g_cv_iconscale));
 	set_pev(ent, pev_effects, pev(ent, pev_effects) & ~TSM_EF_NODRAW);
 }
 
-/// Called when a player leaves, because the edict must not outlive them.
+/*
+ * Hides a player's icon when he leaves. The entity stays for whoever takes the slot next: its low
+ * edict number is the whole point of it, and a freed edict would go to whatever is made next.
+ */
 drop_class_icon(id)
 {
-	if (g_icon_ent[id] > 0 && pev_valid(g_icon_ent[id]))
+	new ent = g_icon_ent[id];
+	if (ent > 0 && pev_valid(ent))
 	{
-		engfunc(EngFunc_RemoveEntity, g_icon_ent[id]);
+		set_pev(ent, pev_effects, pev(ent, pev_effects) | TSM_EF_NODRAW);
 	}
-	g_icon_ent[id] = 0;
 }
 
+/*
+ * What one viewer is shown of one player's icon: 0 nothing, 1 the icon in its own colour, 2 the
+ * red copy that marks an enemy in sudden death. Both AddToFullPack hooks ask this, so the icon the
+ * pre hook refuses and the frame the post hook writes cannot disagree.
+ */
+icon_view(owner, host)
+{
+	// Never your own: you know your class, and in third person or on a spectator camera it
+	// would hang over your head for no reason.
+	if (host == owner)
+	{
+		return 0;
+	}
+
+	// His own side sees it, in his own colour.
+	if (g_match_team[host] >= 1 && g_match_team[host] == g_match_team[owner])
+	{
+		return 1;
+	}
+
+	// The other side sees it only as the sudden-death marker, and never over a cloaked Recon:
+	// the marker would point straight at the man the cloak is hiding.
+	if (g_sudden && g_state == ST_LIVE && get_pcvar_num(g_cv_sudden) > 0 && !g_cloaked[owner]
+		&& g_match_team[host] >= 1 && g_match_team[host] <= 2
+		&& g_match_team[owner] >= 1 && g_match_team[owner] <= 2
+		&& icon_frame_for(resolved_class(owner) - 1, 2) >= 0)
+	{
+		return 2;
+	}
+
+	// Someone with no side -- a spectator, or a player still choosing -- is shown none of them,
+	// because an icon is squad information and he is not on a squad.
+	return 0;
+}
 
 /*
- * Shows each icon to its OWN SIDE only.
+ * Shows each icon to its OWN SIDE only, and does not send it at all to anyone else.
  *
  * AddToFullPack is asked once per (viewer, entity) pair and decides what that one
  * viewer is told about that one entity, so it is the only place a thing can be
  * visible to some players and not to others.
  *
- * The hide is written into the entity STATE being sent, NOT into pev_effects -- the
- * real entity is left alone, so the same sprite is drawn for a teammate on the very
- * frame it is withheld from an enemy.
+ * A withheld icon is refused outright here rather than sent hidden. The engine sends each client
+ * at most 256 entities, so a hidden icon still spends a slot -- and in a crowded view those slots
+ * are exactly what is short.
+ *
+ * The other job here is the cloak's EF_NODRAW: lifted for TS's pack of a cloaked player, so no
+ * client ever receives it. fw_addtofullpack puts it back. See cloak_active().
+ */
+public fw_addtofullpack_pre(es, e, ent, host, hostflags, player, pSet)
+{
+	if (ent >= 1 && ent < MAXPL)
+	{
+		if (g_cloak_nodraw[ent])
+		{
+			set_pev(ent, pev_effects, pev(ent, pev_effects) & ~TSM_EF_NODRAW);
+		}
+		return FMRES_IGNORED;
+	}
+
+	if (ent >= sizeof g_icon_owner || !g_icon_owner[ent])
+	{
+		return FMRES_IGNORED;   // not an icon; every other entity is left alone
+	}
+	if (!get_pcvar_num(g_cv_enabled) || !g_icon_ok || !get_pcvar_num(g_cv_icons))
+	{
+		return FMRES_IGNORED;
+	}
+	new owner = g_icon_owner[ent];
+	if (host < 1 || host >= MAXPL || g_icon_ent[owner] != ent)
+	{
+		return FMRES_IGNORED;
+	}
+
+	if (!icon_view(owner, host))
+	{
+		forward_return(FMV_CELL, 0);
+		return FMRES_SUPERCEDE;
+	}
+	return FMRES_IGNORED;
+}
+
+/*
+ * The cloak's EF_NODRAW goes back on, and the cloak itself is written into what the other
+ * players are sent. Then the one icon change a pre hook cannot make: the red copy for an enemy
+ * the pre hook let through in sudden death.
  */
 public fw_addtofullpack(es, e, ent, host, hostflags, player, pSet)
 {
-	if (!get_pcvar_num(g_cv_enabled) || !g_icon_ok)
+	if (ent >= 1 && ent < MAXPL)
 	{
-		return FMRES_IGNORED;
-	}
-	if (ent < 1 || host < 1 || host >= MAXPL || !pev_valid(ent))
-	{
+		// First, before anything can return: it was lifted only for TS's pack of this entity.
+		if (g_cloak_nodraw[ent])
+		{
+			set_pev(ent, pev_effects, pev(ent, pev_effects) | TSM_EF_NODRAW);
+		}
+
+		/*
+		 * The cloak, written into the STATE sent to everyone but the cloaker. This is the last
+		 * word on the wire, so a medic glow or its clear-glow task landing between his frame and
+		 * this packet cannot flash him visible. Whole numbers: set_es() stores render fields as
+		 * integers, and a Float here would arrive as its bit pattern.
+		 */
+		if (host != ent && get_orig_retval() && cloak_active(ent))
+		{
+			set_es(es, ES_RenderMode, TSM_RENDER_TEXTURE);
+			set_es(es, ES_RenderAmt, floatround(get_pcvar_float(g_cv_cloakopacity)));
+			set_es(es, ES_RenderFx, TSM_RENDERFX_NONE);
+			set_es(es, ES_RenderColor, CLOAK_RGB);
+		}
 		return FMRES_IGNORED;
 	}
 
-	new owner = pev(ent, pev_owner);
-	if (owner < 1 || owner >= MAXPL)
+	if (ent >= sizeof g_icon_owner || !g_icon_owner[ent])
 	{
 		return FMRES_IGNORED;
 	}
-	if (!get_pcvar_num(g_cv_icons))
+	if (!get_pcvar_num(g_cv_enabled) || !g_icon_ok || !get_pcvar_num(g_cv_icons))
 	{
 		return FMRES_IGNORED;
 	}
-	if (g_icon_ent[owner] != ent)
+	new owner = g_icon_owner[ent];
+	if (host < 1 || host >= MAXPL || g_icon_ent[owner] != ent)
 	{
-		return FMRES_IGNORED;   // not one of ours; every other entity is left alone
-	}
-
-	/*
-	 * Never your own, and only your own side's.
-	 *
-	 * You know your own class, so your icon is for the people around you -- and in
-	 * third person or on a spectator camera it would otherwise hang over your head
-	 * for no reason.
-	 *
-	 * Someone with no side -- a spectator, or a player still choosing -- is shown
-	 * none of them, because an icon is squad information and they are not on a squad.
-	 */
-	if (host == owner)
-	{
-		// Never your own: you know your class, and in third person it would hang over your head.
-		set_es(es, ES_Effects, get_es(es, ES_Effects) | TSM_EF_NODRAW);
 		return FMRES_IGNORED;
-	}
-
-	if (g_match_team[host] >= 1 && g_match_team[host] == g_match_team[owner])
-	{
-		return FMRES_IGNORED;   // his own side sees it, in his own colour
 	}
 
 	/*
@@ -4457,23 +4845,14 @@ public fw_addtofullpack(es, e, ent, host, hostflags, player, pSet)
 	 * what pushed clients into svc_bad.
 	 *
 	 * AddToFullPack is asked once per (viewer, entity) pair and what it writes is the state sent
-	 * to THAT viewer, so one entity can be a different frame for each of them. The owner's side
-	 * sees his class icon above; everyone else sees the red copy of it, and only in the last
-	 * stretch of the round.
+	 * to THAT viewer, so one entity can be a different frame for each of them. Always the red
+	 * copy here, whatever side the owner is on: in sudden death this is the marker the OTHER
+	 * side sees, and red is what says "enemy".
 	 */
-	if (g_sudden && g_state == ST_LIVE && get_pcvar_num(g_cv_sudden) > 0
-		&& g_match_team[host] >= 1 && g_match_team[host] <= 2
-		&& g_match_team[owner] >= 1 && g_match_team[owner] <= 2)
+	if (icon_view(owner, host) == 2)
 	{
-		new ci = resolved_class(owner) - 1;
-		if (ci >= 0 && ci < TSM_ICON_REDS)
-		{
-			set_es(es, ES_Frame, float(TSM_ICON_RED + ci));
-			return FMRES_IGNORED;
-		}
+		set_es(es, ES_Frame, float(icon_frame_for(resolved_class(owner) - 1, 2)));
 	}
-
-	set_es(es, ES_Effects, get_es(es, ES_Effects) | TSM_EF_NODRAW);
 	return FMRES_IGNORED;
 }
 
@@ -6650,10 +7029,10 @@ public cmd_legend(id)
 {
 	if (!g_legend_menu)
 	{
-		g_legend_menu = menu_create("TS Match -- menus", "legend_menu_handler");
-		menu_additem(g_legend_menu, "Pick a side",        "0", 0);
-		menu_additem(g_legend_menu, "Pick a class",       "1", 0);
-		menu_additem(g_legend_menu, "Match status",       "3", 0);
+		g_legend_menu = menu_create("\yTS Match \d-- \ymenus", "legend_menu_handler");
+		menu_additem(g_legend_menu, "\yPick a side",        "0", 0);
+		menu_additem(g_legend_menu, "\yPick a class",       "1", 0);
+		menu_additem(g_legend_menu, "\yMatch status",       "3", 0);
 	}
 
 	menu_display(id, g_legend_menu, 0);
@@ -8664,6 +9043,193 @@ cmd_mech_rocket(id)
 }
 
 /*
+ * Recon's cloak and uncloak, as one function: a blue TE_DLIGHT flash and a sound either way, then
+ * the render state that makes a cloaked body a shimmer and an uncloaked one ordinary again.
+ *
+ * TE_DLIGHT rather than a sprite-based effect: it is a point light with its own radius, life and
+ * decay, needs no precached sprite, and the same message_begin/SVC_TEMPENTITY pattern
+ * cmd_mech_rocket already uses above -- just a different byte in it.
+ *
+ * Called from cmd_cloak/cmd_uncloak on a deliberate toggle, and from fw_takedamage when a hit
+ * forces an uncloak -- which is why this takes the end state rather than flipping it, and why it
+ * is harmless to call with the state it is already in (cmd_cloak/cmd_uncloak refuse that before
+ * ever reaching here, but a forced break cannot check "already uncloaked" first without an extra
+ * flag, so set_cloak staying idempotent is what keeps that path simple).
+ *
+ * silent is for the match ending a cloak (fw_postthink_post): no sound and no flash, because
+ * those are for a player choosing to end it, not the match choosing for him.
+ */
+set_cloak(id, bool:on, bool:silent = false)
+{
+	g_cloaked[id] = on;
+	g_cloak_at[id] = get_gametime();
+
+	/*
+	 * The expiry timer is owned HERE, the one place on/off actually happens, so every route to
+	 * turning the cloak off -- .uncloak, a hit landed or taken, the match benching the player --
+	 * cancels it the same way. Without that a player who was hit at second 5 would still have a
+	 * stale task fire at second 30 and call set_cloak(id, false) on a body that is not cloaked,
+	 * which is harmless by itself but would flash and play the uncloak sound a second time out
+	 * of nowhere.
+	 */
+	remove_task(id + 15000);
+	if (on)
+	{
+		new Float:duration = get_pcvar_float(g_cv_cloakduration);
+		if (duration > 0.0)
+		{
+			set_task(duration, "task_cloak_expire", id + 15000);
+		}
+
+		set_pev(id, pev_rendermode, TSM_RENDER_TEXTURE);
+		set_pev(id, pev_renderamt, get_pcvar_float(g_cv_cloakopacity));
+		set_pev(id, pev_renderfx, TSM_RENDERFX_NONE);
+		set_pev(id, pev_rendercolor, CLOAK_COLOR);
+	}
+	else
+	{
+		set_pev(id, pev_rendermode, TSM_RENDER_NORMAL);
+		set_pev(id, pev_renderamt, 255.0);
+		set_pev(id, pev_renderfx, TSM_RENDERFX_NONE);
+
+		// Black, so the blue signature never outlives the cloak -- and he is visible to RCBot again.
+		new Float:nocolor[3];
+		set_pev(id, pev_rendercolor, nocolor);
+		cloak_bots_show(id);
+	}
+
+	dbgv("cloak: %d is now %s%s", id, on ? "cloaked" : "uncloaked", silent ? " (silently)" : "");
+
+	if (silent)
+	{
+		return;
+	}
+
+	new Float:org[3];
+	pev(id, pev_origin, org);
+
+	emit_sound(id, CHAN_ITEM, on ? CLOAK_SND[random(2)] : UNCLOAK_SND[random(2)],
+		VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
+
+	/*
+	 * radius*10=400u, decay*10=80u/s, life*0.1=1.8s: the light is still ~64% of its radius when
+	 * its own life timer ends it. The old values (radius 80u, decay 200u/s, life 0.8s) collapsed
+	 * to zero radius in 0.4s -- dead before its own timer ran out at 0.8s -- which is the actual,
+	 * measured reason the flash read as "barely tell" rather than a vague brightness complaint.
+	 */
+	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+	write_byte(TE_DLIGHT);
+	write_coord(floatround(org[0]));
+	write_coord(floatround(org[1]));
+	write_coord(floatround(org[2]) + 36);   // roughly chest height, not at the feet
+	write_byte(40);    // radius, in 10s of units -- a bigger burst, still body-scale
+	write_byte(100);   // r
+	write_byte(180);   // g
+	write_byte(255);   // b
+	write_byte(18);    // life, in 10ths of a second
+	write_byte(8);     // decay rate
+	message_end();
+}
+
+/// Cloak's own clock running out. Not reached if .uncloak, a hit, or the match itself already
+/// turned it off -- set_cloak() cancels this task on every one of those before it can fire.
+public task_cloak_expire(taskid)
+{
+	new id = taskid - 15000;
+	if (!is_user_connected(id) || !g_cloaked[id])
+	{
+		return;
+	}
+
+	set_cloak(id, false);
+	client_print(id, print_chat, "[TSM] Cloak expired.");
+}
+
+/// Is this player a Recon, right now, alive and connected? Shared by both chat commands.
+bool:is_recon_for_cloak(id)
+{
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		return false;
+	}
+	new ci = resolved_class(id) - 1;
+	return (ci >= 0 && g_class_perk[ci] == TSM_PERK_RECON);
+}
+
+public cmd_cloak(id)
+{
+	if (!get_pcvar_num(g_cv_cloak))
+	{
+		return;
+	}
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		client_print(id, print_chat, "[TSM] You have to be alive to cloak.");
+		return;
+	}
+	if (!is_recon_for_cloak(id))
+	{
+		client_print(id, print_chat, "[TSM] Only the Recon class can cloak.");
+		return;
+	}
+	if (g_cloaked[id])
+	{
+		client_print(id, print_chat, "[TSM] Already cloaked.");
+		return;
+	}
+
+	/*
+	 * Only in a live round, and only while actually in it. Anywhere else fw_postthink_post ends
+	 * the cloak again on the very next frame, so a .cloak typed in the warmup or the freeze only
+	 * burned the cooldown on a cloak that never existed.
+	 */
+	if (g_state != ST_LIVE || is_spectating(id) || g_elim[id] || g_locked_out[id] || g_frozen[id])
+	{
+		client_print(id, print_chat, "[TSM] You can only cloak while playing in a live round.");
+		return;
+	}
+
+	/*
+	 * g_cloak_at is set on every toggle, cloak or uncloak, so by the time we get here with
+	 * g_cloaked[id] already false it holds the moment the LAST cloak ended -- exactly what a
+	 * post-uncloak cooldown needs to measure against. Guarded on g_cloak_at[id] > 0.0 too: a
+	 * player who has never cloaked still has it at its default 0.0, and without this a fresh
+	 * spawn in the first tsm_cloak_cooldown seconds of the map would read as "on cooldown"
+	 * against a cloak that never happened.
+	 */
+	new Float:cooldown = get_pcvar_float(g_cv_cloakcooldown);
+	if (cooldown > 0.0 && g_cloak_at[id] > 0.0)
+	{
+		new Float:remaining = cooldown - (get_gametime() - g_cloak_at[id]);
+		if (remaining > 0.0)
+		{
+			client_print(id, print_chat, "[TSM] Cloak recharging, %d more seconds.",
+				floatround(remaining, floatround_ceil));
+			return;
+		}
+	}
+
+	set_cloak(id, true);
+	client_print(id, print_chat, "[TSM] Cloaked. Taking or dealing damage breaks it.");
+}
+
+public cmd_uncloak(id)
+{
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		return;
+	}
+	if (!g_cloaked[id])
+	{
+		client_print(id, print_chat, "[TSM] Not cloaked.");
+		return;
+	}
+
+	set_cloak(id, false);
+	client_print(id, print_chat, "[TSM] Uncloaked.");
+}
+
+/*
  * Removes an entity after a short delay (used for env_explosion cleanup).
  */
 public remove_ent(taskid)
@@ -8928,6 +9494,13 @@ public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 	{
 		g_last_hit[victim] = get_gametime();
 
+		// Recon's cloak: broken by taking any real damage, whoever or whatever it is from --
+		// a bullet, a fall, the world. set_cloak is a no-op if he was not cloaked.
+		if (g_cloaked[victim])
+		{
+			set_cloak(victim, false);
+		}
+
 		/*
 		 * Mech/bot model hit sound: on EVERY damaging hit.
 		 *
@@ -8959,6 +9532,18 @@ public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 			SetHamParamFloat(4, damage * 0.25);  // reduce damage by 75%
 			damage *= 0.25;
 		}
+	}
+
+	/*
+	 * Recon's cloak, the other direction: hurting someone breaks the attacker's own cloak too,
+	 * not only the victim's. Self-damage is excluded -- falling on your own satchel is not
+	 * "attacking", and this stays out of the friendly-fire guards below on purpose: a shot that
+	 * friendly fire later discards still broke the cloak, because the act of firing at somebody
+	 * is what gave him away, whatever the game then does with the damage.
+	 */
+	if (attacker >= 1 && attacker < MAXPL && attacker != victim && damage > 0.0 && g_cloaked[attacker])
+	{
+		set_cloak(attacker, false);
 	}
 
 	/*
@@ -9309,14 +9894,26 @@ stock bool:is_footstep(const sample[])
 
 /// Intercept footstep sounds: any player/pl_* event from a living mech walker
 /// is superceded with mechwalk / mechwalk2, alternating, so the stock step is
-/// never heard. Moved here from the old mech_footsteps plugin.
+/// never heard. Moved here from the old mech_footsteps plugin. A cloaked Recon's
+/// own footstep is superceded too, with nothing played at all -- the one thing
+/// the shimmer alone can't hide is the sound of him walking.
 public fw_emit_sound(id, channel, const sample[], Float:volume, Float:attenuation, flags, pitch)
 {
 	if (id < 1 || id > get_maxplayers())
 	{
 		return FMRES_IGNORED;            // a world sound, not a walker
 	}
-	if (!is_user_alive(id) || !is_footstep(sample) || !wears_mech(id))
+	if (!is_user_alive(id) || !is_footstep(sample))
+	{
+		return FMRES_IGNORED;
+	}
+
+	if (g_cloaked[id])
+	{
+		return FMRES_SUPERCEDE;          // cloaked: no footstep sound at all, nothing emitted
+	}
+
+	if (!wears_mech(id))
 	{
 		return FMRES_IGNORED;
 	}
@@ -10335,6 +10932,100 @@ public cmd_siege(id, level, cid)
 /// SPAWN: a synthetic objective where the admin looks. No tsm_obj entity (or
 /// none left standing) is fine -- this is how the satchel flow can be played
 /// out on ANY map at all.
+/*
+ * WHERE AM I, exactly, and what am I looking at.
+ *
+ * Describing a place in a map in words does not work. "The middle of this hallway" and "the stairs
+ * near the centre of town" have each cost several rounds of rebuilding the wrong thing, because a
+ * screenshot carries no coordinates and a map has several staircases that look alike.
+ *
+ * So this prints the numbers: where the feet are, where the eyes are, which way they point, how far
+ * the floor is, and -- most usefully when something is not behaving -- the entity under the
+ * crosshair with its classname and its targetname. An objective that will not plant or a door that
+ * will not open can be identified from here rather than guessed at.
+ *
+ * Printed to the console AND to chat: the console copy can be scrolled back and pasted, the chat
+ * copy can be read without leaving the spot.
+ */
+public cmd_loc(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (!is_user_connected(id))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new Float:org[3], Float:vo[3], Float:ang[3];
+	pev(id, pev_origin, org);
+	pev(id, pev_view_ofs, vo);
+	pev(id, pev_v_angle, ang);
+
+	new Float:eye[3];
+	eye[0] = org[0] + vo[0];
+	eye[1] = org[1] + vo[1];
+	eye[2] = org[2] + vo[2];
+
+	console_print(id, "[TSM] origin   %d %d %d   (feet; the .map coordinate)",
+		floatround(org[0]), floatround(org[1]), floatround(org[2]));
+	console_print(id, "[TSM] eyes     %d %d %d   angles  pitch %d  yaw %d",
+		floatround(eye[0]), floatround(eye[1]), floatround(eye[2]),
+		floatround(ang[0]), floatround(ang[1]));
+	client_print(id, print_chat, "[MATCH] you are at %d %d %d (yaw %d)",
+		floatround(org[0]), floatround(org[1]), floatround(org[2]), floatround(ang[1]));
+
+	// how far the floor is, straight down, so a height can be read without jumping about
+	new Float:down[3];
+	down[0] = org[0];
+	down[1] = org[1];
+	down[2] = org[2] - 4096.0;
+	engfunc(EngFunc_TraceLine, org, down, 1, id, 0);
+	new Float:floorpos[3];
+	get_tr2(0, TR_vecEndPos, floorpos);
+	console_print(id, "[TSM] floor    z %d, which is %d below you",
+		floatround(floorpos[2]), floatround(org[2] - floorpos[2]));
+
+	/*
+	 * And what is under the crosshair. 4096 rather than a perk's reach: this is for finding out
+	 * what a thing IS, not for deciding whether it can be used from here.
+	 */
+	new Float:fwd[3], Float:dest[3];
+	engfunc(EngFunc_MakeVectors, ang);
+	global_get(glb_v_forward, fwd);
+	dest[0] = eye[0] + fwd[0] * 4096.0;
+	dest[1] = eye[1] + fwd[1] * 4096.0;
+	dest[2] = eye[2] + fwd[2] * 4096.0;
+	engfunc(EngFunc_TraceLine, eye, dest, 0, id, 0);
+
+	new hit = get_tr2(0, TR_pHit);
+	new Float:at[3];
+	get_tr2(0, TR_vecEndPos, at);
+	console_print(id, "[TSM] aiming at %d %d %d", floatround(at[0]), floatround(at[1]), floatround(at[2]));
+
+	if (hit > 0 && pev_valid(hit))
+	{
+		new cls[32], tname[32], gname[32];
+		cls[0] = 0; tname[0] = 0; gname[0] = 0;
+		pev(hit, pev_classname, cls, charsmax(cls));
+		pev(hit, pev_targetname, tname, charsmax(tname));
+		pev(hit, pev_target, gname, charsmax(gname));
+		console_print(id, "[TSM] that is ent %d  class='%s'  targetname='%s'  target='%s'",
+			hit, cls, tname[0] ? tname : "(none)", gname[0] ? gname : "(none)");
+		if (tname[0])
+		{
+			client_print(id, print_chat, "[MATCH] looking at %s '%s'", cls, tname);
+		}
+	}
+	else
+	{
+		console_print(id, "[TSM] that is world geometry, not an entity");
+	}
+
+	return PLUGIN_HANDLED;
+}
+
 public cmd_siege_spawn(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 1))
@@ -11689,6 +12380,11 @@ release_player(id)
 
 save_presentation(id)
 {
+	// The cloak's EF_NODRAW comes off first: whoever is saving this is about to hide him for
+	// reasons of its own, and a snapshot holding the bit would put it back on the restore, with
+	// nothing left that knows it is there.
+	cloak_bots_show(id);
+
 	if (g_saved[id])
 	{
 		return;
@@ -12106,11 +12802,8 @@ public fw_postthink_post(id)
 	}
 
 	/*
-	 * NOT guarded on is_user_alive here, deliberately.
-	 *
-	 * A corpse is not alive, so an alive-only guard at the top would skip the one
-	 * thing below that exists to act on corpses -- the visibility restore. That guard
-	 * used to be here and would have made this whole fix dead code.
+	 * NOT guarded on is_user_alive here, deliberately: a player who has just died is exactly
+	 * who needs his icon hidden, and the cloak's EF_NODRAW handed back, below.
 	 *
 	 * The speed clamp further down keeps its own alive check instead.
 	 */
@@ -12123,11 +12816,49 @@ public fw_postthink_post(id)
 	// player -- and a player who has just died is exactly who needs theirs hidden.
 	update_class_icon(id);
 
+	// His frame is done: the cloak's EF_NODRAW, lifted in fw_prethink, goes back on for RCBot --
+	// or is let go, if he died or was hidden some other way meanwhile. See cloak_active().
+	cloak_bots_restore(id);
+
 	// Same reason as the prethink guard: while TS is killing them, the entity is its
 	// to write, including the model the corpse is about to be built from.
 	if (pev(id, pev_deadflag) != TSM_DEAD_NO)
 	{
 		return FMRES_IGNORED;
+	}
+
+	/*
+	 * CLOAK, RE-ASSERTED EVERY FRAME, same reasoning as the model index just below: a render
+	 * state written once is not proven to survive whatever TS does to a player next frame, and
+	 * the model index fix exists precisely because a one-time write did not stick there.
+	 *
+	 * rendercolor is included, not just rendermode/renderamt/renderfx: medic's glow_player()
+	 * overwrites it on any target including a cloaked one, and set_cloak() only writes it on the
+	 * initial on-transition. It does nothing on screen (this rendermode ignores rendercolor for a
+	 * studio model), but it is what the patched RCBot source compares against (CLOAK_COLOR), so
+	 * an un-reasserted color would leave a glowed-then-cloaked player targetable to that build.
+	 *
+	 * Deliberately NOT applied while spectating, eliminated, locked out, or outside a live round
+	 * -- those paths set rendermode themselves (the warmup hold and spectator blocks in
+	 * fw_prethink), and this must never fight them for it. set_cloak(id, false) runs once, on
+	 * the transition into any of those states below, rather than being left to this block to
+	 * notice -- this block only RE-ASSERTS an active cloak, it does not decide when one ends.
+	 */
+	if (g_cloaked[id])
+	{
+		if (!is_spectating(id) && !g_elim[id] && !g_locked_out[id] && g_state == ST_LIVE)
+		{
+			set_pev(id, pev_rendermode, TSM_RENDER_TEXTURE);
+			set_pev(id, pev_renderamt, get_pcvar_float(g_cv_cloakopacity));
+			set_pev(id, pev_renderfx, TSM_RENDERFX_NONE);
+			set_pev(id, pev_rendercolor, CLOAK_COLOR);
+		}
+		else
+		{
+			// Out of the round some other way: the cloak ends silently, no sound or flash --
+			// those are for a player choosing to end it, not the match choosing for them.
+			set_cloak(id, false, true);
+		}
 	}
 
 	/*
@@ -12651,11 +13382,25 @@ public task_force_teams()
 
 refresh_gamedesc()
 {
-	get_pcvar_string(g_cv_gamedesc, g_gamedesc, charsmax(g_gamedesc));
+	if (siege_count() > 0)
+	{
+		get_pcvar_string(g_cv_gamedesc_siege, g_gamedesc, charsmax(g_gamedesc));
+	}
+	else
+	{
+		get_pcvar_string(g_cv_gamedesc, g_gamedesc, charsmax(g_gamedesc));
+	}
 }
 
 public fw_prethink(id)
 {
+	// The cloak's EF_NODRAW is for RCBot only: off for his own frame, so TS never sees it while
+	// it runs him. fw_postthink_post puts it back. See cloak_active().
+	if (id >= 1 && id < MAXPL && g_cloak_nodraw[id])
+	{
+		set_pev(id, pev_effects, pev(id, pev_effects) & ~TSM_EF_NODRAW);
+	}
+
 	g_prethink_calls++;
 
 	// Counted per player because the bot fixes that run from here are worthless if
@@ -12939,6 +13684,18 @@ public fw_prethink(id)
 			// clears must be re-hidden the same frame, not at the next window
 			// boundary.
 			set_pev(id, pev_effects,    pev(id, pev_effects) | TSM_EF_NODRAW);
+
+			/*
+			 * His own leftover weapon stays in his hands otherwise -- TS keeps re-populating
+			 * these from whatever he was last holding, the same way it fights the mech's M60
+			 * (see wears_mech's block below), so this wins by asserting it every frame too
+			 * rather than once. He has no weapon to use and no HUD to use it with; the model
+			 * should match.
+			 */
+			set_pev(id, pev_weaponmodel,  0);
+			set_pev(id, pev_weaponmodel2, "");
+			set_pev(id, pev_viewmodel,    0);
+			set_pev(id, pev_viewmodel2,   "");
 
 			/*
 			 * Attack switches to the next teammate, edge-detected on the raw buttons --
@@ -13266,6 +14023,14 @@ public fw_prethink(id)
 	set_pev(id, pev_solid,      TSM_SOLID_NOT);
 	set_pev(id, pev_effects,    pev(id, pev_effects) | TSM_EF_NODRAW);
 	set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
+
+	// Same reasoning as the other elimination-hold block above: his own leftover weapon
+	// otherwise stays in his hands, re-populated by TS every time it feels like it, so
+	// this is asserted every frame alongside the three fields above rather than once.
+	set_pev(id, pev_weaponmodel,  0);
+	set_pev(id, pev_weaponmodel2, "");
+	set_pev(id, pev_viewmodel,    0);
+	set_pev(id, pev_viewmodel2,   "");
 
 	new t = g_spec_target[id];
 	if (t && is_user_connected(t) && is_user_alive(t) && !g_elim[t])
@@ -14287,7 +15052,7 @@ finish_round_start()
 		// respawn, and issue_armament schedules the arm respawn -- but ONLY once the
 		// class is picked and applied (the second one). A player still waiting to
 		// choose gets no default-class dress in the freeze: their arm follows the pick
-		// itself (class_menu_handler -> task_reissue_armament), so nobody is dressed
+		// itself (pick_class -> task_reissue_armament), so nobody is dressed
 		// twice.
 		//
 		// Bots included -- engclient_cmd reaches them, so they get the class loadout
@@ -14685,7 +15450,9 @@ show_round_timer()
 	}
 	else
 	{
-		set_hudmessage(0, 200, 255, -1.0, 0.03, 0, 0.0, 1.5, 0.0, 0.0, 1);
+		// Purple-pink from the menu scheme (trackerscheme.res: 186 116 255),
+		// matching the themed menus instead of the old cyan.
+		set_hudmessage(186, 116, 255, -1.0, 0.03, 0, 0.0, 1.5, 0.0, 0.0, 1);
 	}
 
 	if (get_pcvar_num(g_cv_roundtime) > 0)
@@ -15068,6 +15835,9 @@ public task_go_live()
 	get_players(rp, rnum, g_pf);
 	for (new i = 0; i < rnum; i++)
 	{
+		// The pick window has closed: a class menu still up would only take keys that do nothing.
+		drop_class_menu(rp[i]);
+
 		/*
 		 * NOTHING IS STRIPPED OR GIVEN HERE.
 		 *
@@ -15355,6 +16125,18 @@ public hook_say(id)
 		return PLUGIN_HANDLED;
 	}
 
+	if (equali(args, ".cloak"))
+	{
+		cmd_cloak(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".uncloak"))
+	{
+		cmd_uncloak(id);
+		return PLUGIN_HANDLED;
+	}
+
 	return PLUGIN_CONTINUE;
 }
 
@@ -15633,6 +16415,37 @@ public cmd_fix(id, level, cid)
 	g_elim[target] = false;
 	restore_presentation(target);
 	console_print(id, "[MATCH] Restored.");
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * Toggles the cloak on anyone, bots included, without the Recon rule -- because the cloaker can
+ * never judge it himself: his client redraws its own player at its own opacity, whatever the
+ * server sends. Still a live round only, since anywhere else the next frame ends it again.
+ */
+public cmd_cloak_admin(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 2)) { return PLUGIN_HANDLED; }
+	new arg[32];
+	read_argv(1, arg, charsmax(arg));
+	new target = cmd_target(id, arg, CMDTARGET_ALLOW_SELF);
+	if (!target)
+	{
+		console_print(id, "[TSM] No such player.");
+		return PLUGIN_HANDLED;
+	}
+	if (!g_cloaked[target] && (g_state != ST_LIVE || !is_user_alive(target) || is_spectating(target)
+		|| g_elim[target] || g_locked_out[target]))
+	{
+		console_print(id, "[TSM] Only someone alive and playing in a live round can be cloaked.");
+		return PLUGIN_HANDLED;
+	}
+
+	set_cloak(target, !g_cloaked[target]);
+
+	new tname[32];
+	get_user_name(target, tname, charsmax(tname));
+	console_print(id, "[TSM] %s is now %s.", tname, g_cloaked[target] ? "cloaked" : "uncloaked");
 	return PLUGIN_HANDLED;
 }
 
@@ -16101,7 +16914,9 @@ music_next()
 // Returns true if the indexed track is a WAV (contaminated) rather than an MP3.
 stock bool:music_is_wav(idx)
 {
-	return idx == 5;   // contaminated.wav is the 6th entry (0-based index 5)
+	// contaminated.wav (5) and vangelis.wav (6): both too long for the shared MP3 stream,
+	// both played on an ordinary sound channel via playvol instead.
+	return idx == 5 || idx == 6;
 }
 
 // HL's MP3 player is invoked with a client execute ("mp3 play <track>"). MP3 player
@@ -16277,14 +17092,20 @@ public client_disconnected(id)
 	g_issuing[id] = false;
 	g_cash_lend[id] = false;
 	drop_class_icon(id);
-	// His class menu is his own object. Left behind it would leak a menu handle per disconnect.
-	drop_class_menu(id);
 	g_class_menu_at[id] = 0.0;
 	g_team_menu_at[id] = 0.0;
 	g_player_class[id] = 0;
 	g_eng_used[id] = 0.0;
 	g_stim_used[id] = false;
 	g_forfeit[id] = false;
+	// A reused slot must never inherit a stray cloak -- no sound or flash, there is nobody left
+	// to hear or see it, this is just making sure the flag, and the EF_NODRAW it keeps on him for
+	// RCBot, do not survive into whoever is next. The expiry task is cancelled explicitly too:
+	// set_cloak() is not what is clearing the flag here, so it never gets the chance to cancel
+	// its own timer the way it normally would.
+	g_cloaked[id] = false;
+	cloak_bots_show(id);
+	remove_task(id + 15000);
 	g_last_use[id] = 0;
 
 	// Frees the number for the next bot on that side, so the set stays dense.
@@ -17281,7 +18102,8 @@ public task_tick()
 
 	// Channel 2 as well: warmup and the freeze countdown are different states and
 	// never draw at the same time, so they can share without fighting.
-	set_hudmessage(0, 180, 255, -1.0, 0.20, 0, 0.0, 1.5, 0.0, 0.0, 2);
+	// Purple-pink, same as the round clock, instead of the old blue.
+	set_hudmessage(186, 116, 255, -1.0, 0.20, 0, 0.0, 1.5, 0.0, 0.0, 2);
 	show_hudmessage(0, "WARMUP -- PLAYERS HELD^n%s^n^n%s: %d/%d ready^n%s: %d/%d ready",
 		reason, t1, r1, n1, t2, r2, n2);
 
