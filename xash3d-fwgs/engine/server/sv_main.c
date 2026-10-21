@@ -875,6 +875,7 @@ void SV_Init( void )
 	Cvar_Get( "sv_precache_meshes", "1", FCVAR_ARCHIVE, "cache SOLID_CUSTOM meshes before level loading" );	// Paranoia 2 cvar
 	Cvar_Get( "servercfgfile", "server.cfg", 0, "name of dedicated server configuration file" );
 	Cvar_Get( "lservercfgfile", "listenserver.cfg", 0, "name of listen server configuration file" );
+	SV_H9FogCvars();
 
 	Cvar_RegisterVariable( &sv_zmax );
 	Cvar_RegisterVariable( &sv_wateramp );

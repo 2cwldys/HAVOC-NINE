@@ -1786,6 +1786,25 @@ static int SV_H9FogByte( float v )
 	return (int)( v + 0.5f );
 }
 
+static convar_t *h9_fog_r, *h9_fog_g, *h9_fog_b, *h9_fog_density;
+
+/*
+================
+SV_H9FogCvars
+
+H9: creates the four h9_fog_* cvars. SV_Init calls this at engine start, before
+config.cfg is read: a cvar only reaches config.cfg while it exists, and a config
+can only set one that does.
+================
+*/
+void SV_H9FogCvars( void )
+{
+	h9_fog_r = Cvar_Get( "h9_fog_r", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, red" );
+	h9_fog_g = Cvar_Get( "h9_fog_g", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, green" );
+	h9_fog_b = Cvar_Get( "h9_fog_b", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, blue" );
+	h9_fog_density = Cvar_Get( "h9_fog_density", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, strength 0-255" );
+}
+
 /*
 ================
 SV_H9ServerFog
@@ -1803,28 +1822,18 @@ The packing matches the renderer's unpacking byte for byte:
   blue    = ( fog_settings & 0xFF00 ) >> 8
   density = ( fog_settings & 0xFF ) (scaled by 0.01 / 255 by the renderer)
 
-The cvars are created on the first call with zero defaults, so a server that
-never asks for fog never carries one, and a config can set them by hand for a
-map that should always carry its own atmosphere.
+The cvars are created by SV_H9FogCvars at engine start with zero defaults, so a
+config can set them by hand for a map that should always carry its own atmosphere.
 ================
 */
 static void SV_H9ServerFog( void )
 {
-	static convar_t *r, *g, *b, *d;
 	static unsigned int last = 0;
 
-	if( !r )
-	{
-		r = Cvar_Get( "h9_fog_r", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, red" );
-		g = Cvar_Get( "h9_fog_g", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, green" );
-		b = Cvar_Get( "h9_fog_b", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, blue" );
-		d = Cvar_Get( "h9_fog_density", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, strength 0-255" );
-	}
-
-	unsigned int packed = ((unsigned int)SV_H9FogByte( r->value ) << 24)
-			    | ((unsigned int)SV_H9FogByte( g->value ) << 16)
-			    | ((unsigned int)SV_H9FogByte( b->value ) << 8)
-			    |  (unsigned int)SV_H9FogByte( d->value );
+	unsigned int packed = ((unsigned int)SV_H9FogByte( h9_fog_r->value ) << 24)
+			    | ((unsigned int)SV_H9FogByte( h9_fog_g->value ) << 16)
+			    | ((unsigned int)SV_H9FogByte( h9_fog_b->value ) << 8)
+			    |  (unsigned int)SV_H9FogByte( h9_fog_density->value );
 
 	if( packed != last )
 	{

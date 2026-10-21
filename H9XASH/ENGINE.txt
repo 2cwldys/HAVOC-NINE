@@ -9,3 +9,5 @@ Patches:  webassembly-patch\*.patch, then from xash3d-h9-patches\patches:
           and mainui-h9-gamestartup.patch
 ref_gl.dll: one-off install from the working tree, with an uncommitted change to
 ref/gl/gl_studio.c. See ref_gl.dll.patch for exactly what this DLL was built from.
+xash.dll: one-off install from the working tree, with uncommitted changes in engine/server
+(the h9_fog_* cvars exist from engine start). See xash.dll.patch for what it was built from.

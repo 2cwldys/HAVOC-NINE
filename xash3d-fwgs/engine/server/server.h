@@ -698,6 +698,7 @@ void SV_ClearGameState( void );
 // sv_pmove.c
 //
 void SV_InitClientMove( void );
+void SV_H9FogCvars( void );
 void SV_RunCmd( sv_client_t *cl, usercmd_t *ucmd, int random_seed );
 
 //

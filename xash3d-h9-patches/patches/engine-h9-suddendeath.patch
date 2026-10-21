@@ -1,8 +1,32 @@
+diff --git a/engine/server/server.h b/engine/server/server.h
+index d61e51bd..2860305b 100644
+--- a/engine/server/server.h
++++ b/engine/server/server.h
+@@ -698,6 +698,7 @@ void SV_ClearGameState( void );
+ // sv_pmove.c
+ //
+ void SV_InitClientMove( void );
++void SV_H9FogCvars( void );
+ void SV_RunCmd( sv_client_t *cl, usercmd_t *ucmd, int random_seed );
+ 
+ //
+diff --git a/engine/server/sv_main.c b/engine/server/sv_main.c
+index 985e4388..ed6e08b2 100644
+--- a/engine/server/sv_main.c
++++ b/engine/server/sv_main.c
+@@ -875,6 +875,7 @@ void SV_Init( void )
+ 	Cvar_Get( "sv_precache_meshes", "1", FCVAR_ARCHIVE, "cache SOLID_CUSTOM meshes before level loading" );	// Paranoia 2 cvar
+ 	Cvar_Get( "servercfgfile", "server.cfg", 0, "name of dedicated server configuration file" );
+ 	Cvar_Get( "lservercfgfile", "listenserver.cfg", 0, "name of listen server configuration file" );
++	SV_H9FogCvars();
+ 
+ 	Cvar_RegisterVariable( &sv_zmax );
+ 	Cvar_RegisterVariable( &sv_wateramp );
 diff --git a/engine/server/sv_phys.c b/engine/server/sv_phys.c
-index bfd679b9..64351874 100644
+index bfd679b9..7c3b28bd 100644
 --- a/engine/server/sv_phys.c
 +++ b/engine/server/sv_phys.c
-@@ -1771,6 +1771,69 @@ static void SV_RunLightStyles( void )
+@@ -1771,6 +1771,78 @@ static void SV_RunLightStyles( void )
  	}
  }
  
@@ -19,6 +43,25 @@ index bfd679b9..64351874 100644
 +	if( v < 0.0f ) return 0;
 +	if( v > 255.0f ) return 255;
 +	return (int)( v + 0.5f );
++}
++
++static convar_t *h9_fog_r, *h9_fog_g, *h9_fog_b, *h9_fog_density;
++
++/*
++================
++SV_H9FogCvars
++
++H9: creates the four h9_fog_* cvars. SV_Init calls this at engine start, before
++config.cfg is read: a cvar only reaches config.cfg while it exists, and a config
++can only set one that does.
++================
++*/
++void SV_H9FogCvars( void )
++{
++	h9_fog_r = Cvar_Get( "h9_fog_r", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, red" );
++	h9_fog_g = Cvar_Get( "h9_fog_g", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, green" );
++	h9_fog_b = Cvar_Get( "h9_fog_b", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, blue" );
++	h9_fog_density = Cvar_Get( "h9_fog_density", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, strength 0-255" );
 +}
 +
 +/*
@@ -38,28 +81,18 @@ index bfd679b9..64351874 100644
 +  blue    = ( fog_settings & 0xFF00 ) >> 8
 +  density = ( fog_settings & 0xFF ) (scaled by 0.01 / 255 by the renderer)
 +
-+The cvars are created on the first call with zero defaults, so a server that
-+never asks for fog never carries one, and a config can set them by hand for a
-+map that should always carry its own atmosphere.
++The cvars are created by SV_H9FogCvars at engine start with zero defaults, so a
++config can set them by hand for a map that should always carry its own atmosphere.
 +================
 +*/
 +static void SV_H9ServerFog( void )
 +{
-+	static convar_t *r, *g, *b, *d;
 +	static unsigned int last = 0;
 +
-+	if( !r )
-+	{
-+		r = Cvar_Get( "h9_fog_r", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, red" );
-+		g = Cvar_Get( "h9_fog_g", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, green" );
-+		b = Cvar_Get( "h9_fog_b", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, blue" );
-+		d = Cvar_Get( "h9_fog_density", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, strength 0-255" );
-+	}
-+
-+	unsigned int packed = ((unsigned int)SV_H9FogByte( r->value ) << 24)
-+			    | ((unsigned int)SV_H9FogByte( g->value ) << 16)
-+			    | ((unsigned int)SV_H9FogByte( b->value ) << 8)
-+			    |  (unsigned int)SV_H9FogByte( d->value );
++	unsigned int packed = ((unsigned int)SV_H9FogByte( h9_fog_r->value ) << 24)
++			    | ((unsigned int)SV_H9FogByte( h9_fog_g->value ) << 16)
++			    | ((unsigned int)SV_H9FogByte( h9_fog_b->value ) << 8)
++			    |  (unsigned int)SV_H9FogByte( h9_fog_density->value );
 +
 +	if( packed != last )
 +	{
@@ -72,7 +105,7 @@ index bfd679b9..64351874 100644
  /*
  ================
  SV_Physics
-@@ -1779,6 +1842,8 @@ SV_Physics
+@@ -1779,6 +1851,8 @@ SV_Physics
  */
  void SV_Physics( void )
  {
