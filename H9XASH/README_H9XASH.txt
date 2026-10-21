@@ -75,7 +75,9 @@
    xash.dll, ref_gl.dll,         source diffs against FWGS master, written by
    filesystem_stdio.dll,         xash.bat on every engine build, so they always
    menu.dll, vgui.dll            match the binaries next to them
-   ts\dlls\mp.dll                reTS, 2 bytes: the 81-slot carry ceiling lifted
+   ts\dlls\mp.dll                reTS: the 81-slot carry ceiling lifted (2 bytes),
+                                 and ts_matchmode's powerup grant under nopowerup 1
+                                 (only while tsm_enabled is on)
    ts\addons\amxmodx\modules\    reTSX: Xash's ID_BOT bots count as bots
      tsx_amxx.dll
    rcbot\dlls\rcbot_mm.dll       rcbot-ts-teams.patch (teams, follow, cloak)

@@ -73,10 +73,18 @@ Main menu music
          asks for it only when the game has one.
 
 Sounds
-  Both engines play the same wavs: 44.1 or 22.05 kHz, mono, 16-bit PCM. The Recon's
-  cloak and uncloak sounds were 48 kHz, with metadata after the audio, and were not
-  heard on Xash. They were re-encoded like the rest (the originals are in
-  TSM\backups\cloak_sounds_48k_2026-10-20). Keep new wavs in that format.
+  Steam  Entity sounds go out unreliably. The reliable part of a packet is read
+         first, so when a chat line and a sound arrive together, the chat line's
+         misc/talk.wav starts first and the sound replaces it.
+  Xash   Entity sounds go out reliably (MSG_PAS_R), in the order they were made.
+         TS's client plays misc/talk.wav for every chat line on the local
+         player's CHAN_ITEM (PlaySoundByName, the same channel on both engines),
+         so a CHAN_ITEM sound on your own player followed by a chat line to you
+         is cut off at once. ts_matchmode plays its perk and cloak sounds on
+         CHAN_AUTO, which nothing replaces, as it does the death voices.
+  Both engines play the same wavs: 44.1 or 22.05 kHz, mono, 16-bit PCM. Keep new
+  wavs in that format. The Recon's cloak and uncloak sounds were re-encoded from
+  48 kHz to match; the originals are in TSM\backups\cloak_sounds_48k_2026-10-20.
 
 Music volume
   Steam  "mp3 volume <n>".
@@ -165,6 +173,10 @@ in every place it ships (the Steam install, export\ and the repo).
       Removes reTS's fixed 81-slot carry ceiling, so ts_setuserslots decides a
       player's room. 2 bytes. Before this, the Heavy's 87-slot kit always lost one
       weapon.
+      And lets ts_matchmode hand a player a powerup through TS's own pickup while
+      nopowerup is 1 -- the Officer's kung fu. Only powerups the plugin marks, and
+      only while tsm_enabled is on: everywhere else nopowerup 1 still blocks every
+      powerup. A 7-byte hook and one new section (.h9pwup).
 
   ts\addons\amxmodx\modules\tsx_amxx.dll  (both, see the note below)
       ID_BOT counts as a bot when the engine is Xash.

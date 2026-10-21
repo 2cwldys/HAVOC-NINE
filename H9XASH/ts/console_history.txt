@@ -44,3 +44,19 @@ fps_max 120
 fps_override 1
 rate
 quit
+play sound/death/droid_powereddown.wav
+play sound/death/droid_powerdown.wav
+mp3volume
+mp3volume 0.1
+mp3volume 0.010
+mp3volume 0.090
+mp3volume 0.080
+mp3volume 0.060
+volume
+volume 0.080
+volume 0.060
+mp3volume
+quit
+mp3volume
+volume
+mp3volume 0.06

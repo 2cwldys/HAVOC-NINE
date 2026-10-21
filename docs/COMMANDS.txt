@@ -65,7 +65,8 @@
                          player can never breach their own objective.
                          Carries the Benelli M3.
        Officer           Commands bots with .follow and .unfollow. Carries the
-                         Glock 18 and a Katana.
+                         Glock 18 and a Katana. When an Officer is slain,
+                         both teams hear it (tsm_officerslain_sound).
        Medic             +USE on a teammate heals them 50hp on a 15s cooldown,
                          capped at that teammate's own class health. They glow
                          RED while it lands, also audible nearby. Sidearm only,

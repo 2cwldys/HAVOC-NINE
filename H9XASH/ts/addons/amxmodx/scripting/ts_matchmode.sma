@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes15"
+#define TSM_BUILD "1.53-fixes19"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -529,6 +529,9 @@ new bool:g_death_male_ok[7];
 #define TSM_DEATH_DROID "death/droid_powerdown.wav"   // a machine powering down, under the boom
 #define TSM_DEATH_DROID_PATH "sound/death/droid_powerdown.wav"
 new bool:g_death_droid_ok;   // droid_powerdown.wav is on disk and precached
+#define TSM_DEATH_OFFICER "death/officer_perished.wav"   // both teams hear an Officer fall
+#define TSM_DEATH_OFFICER_PATH "sound/death/officer_perished.wav"
+new bool:g_death_officer_ok;   // officer_perished.wav is on disk and precached
 
 /*
  * THE SIEGE FINALE BOOMS, three more of HL1's own stock explosions in the
@@ -625,6 +628,7 @@ new g_cv_stim, g_cv_stimmin, g_cv_stimmax, g_cv_stimglow, g_cv_stimshell;
 new g_cv_deathlinger;
 
 new g_cv_classretry, g_cv_deathgrace;
+new g_cv_officerslain;
 
 /*
  * When each of TS's corpses was first seen, by entity index.
@@ -3276,6 +3280,18 @@ public plugin_precache()
 		tlog("[TSM] %s is not on disk -- machines detonate without powering down.", TSM_DEATH_DROID_PATH);
 	}
 
+	// The Officer's fall, a moddir file checked the same way: a missing one only leaves an
+	// Officer to fall unannounced.
+	if (file_exists(TSM_DEATH_OFFICER_PATH))
+	{
+		precache_sound(TSM_DEATH_OFFICER);
+		g_death_officer_ok = true;
+	}
+	else
+	{
+		tlog("[TSM] %s is not on disk -- an Officer falls unannounced.", TSM_DEATH_OFFICER_PATH);
+	}
+
 	/*
 	 * THE SIEGE FINALE BOOMS, the HL1 stock stack the last objective falls
 	 * to. Engine-fallback files, so a plain precache like the robot voice
@@ -4168,13 +4184,14 @@ public plugin_init()
 	/*
 	 * Long enough for the death animation to be seen.
 	 *
-	 * This is the window in which an eliminated player is NOT hidden. At 0 the NODRAW
-	 * lands on the frame of death and eats the animation entirely -- you kill someone
-	 * and they blink out mid-fall.
+	 * This is the window in which an eliminated player is NOT taken out of play. At 0 the
+	 * NODRAW lands on the frame of death and eats the animation entirely -- you kill
+	 * someone and they blink out mid-fall.
 	 *
-	 * The hold block in fw_prethink gates its NODRAW on elim_hide_due(), so nothing
-	 * hides them during this window either. When the window ends they are hidden and
-	 * become a spectator.
+	 * The hold block in fw_prethink gates its take-out on elim_hide_due(). The one hide
+	 * that does not wait is fw_postthink_post's EF_NODRAW on the player TS respawns, and
+	 * that never reaches the dying body or TS's corpse. When the window ends they are
+	 * taken out of play and become a spectator.
 	 */
 	g_cv_deathlinger = register_cvar("tsm_death_linger", "3.0");
 
@@ -4195,6 +4212,9 @@ public plugin_init()
 	 * fw_cmdstart already has them -- no weapon, no movement. 0 disables the wait.
 	 */
 	g_cv_deathgrace = register_cvar("tsm_death_grace",  "2.5");
+
+	// Both teams hear death/officer_perished.wav when an Officer is slain. 0 turns it off.
+	g_cv_officerslain = register_cvar("tsm_officerslain_sound", "1");
 
 
 
@@ -8585,6 +8605,13 @@ Float:regen_interval()
  * distance and fall off -- a sound sent only to the two players involved would be
  * silent to the squad standing around them, and the point of these is that the people
  * nearby know a medic or an engineer is working.
+ *
+ * On CHAN_AUTO, like the death voice. Every perk prints a chat line straight after its
+ * sound, and TS's client plays misc/talk.wav for a chat line on the local player's
+ * CHAN_ITEM -- the channel a sound on that player would share, and a sound replaces the
+ * one before it on the same entity and channel. GoldSrc sends entity sounds unreliably,
+ * so the chat line starts first and the perk sound replaces it; Xash3D FWGS sends them
+ * reliably and in order, so the chat line comes second. CHAN_AUTO is never replaced.
  */
 perk_sound(target, pcvar)
 {
@@ -8598,7 +8625,7 @@ perk_sound(target, pcvar)
 	{
 		return;
 	}
-	emit_sound(target, CHAN_ITEM, snd, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
+	emit_sound(target, CHAN_AUTO, snd, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 }
 
 glow_player(target, Float:r, Float:g, Float:b, Float:secs, shell)
@@ -9162,7 +9189,8 @@ set_cloak(id, bool:on, bool:silent = false)
 	new Float:org[3];
 	pev(id, pev_origin, org);
 
-	emit_sound(id, CHAN_ITEM, on ? CLOAK_SND[random(2)] : UNCLOAK_SND[random(2)],
+	// CHAN_AUTO for the reason in perk_sound: the chat line printed after it must not cut it off.
+	emit_sound(id, CHAN_AUTO, on ? CLOAK_SND[random(2)] : UNCLOAK_SND[random(2)],
 		VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 
 	/*
@@ -10027,12 +10055,67 @@ public task_mech_loop()
 	}
 }
 
+/// spawnflags bit 30 on a ts_powerup: the patched mp.dll arms its Touch at Spawn. See tsm_grant_powerup.
+#define TSM_PWUP_GRANT_SF    1073741824
+
+/*
+ * Gives a player a TS powerup at once, through TS's own pickup: the grant a powerup on the floor
+ * makes when it is walked over (mp.dll RVA 0x6fcc0), so every type does what TS makes it do --
+ * kung fu sets the player's flag and the PwUp icon, armor and health top up, a slow-motion type
+ * is carried until used.
+ *
+ * It takes the patched mp.dll (decompile_dll\mp_patched_slots_pwup.dll.patch). TS leaves a new
+ * powerup's Touch empty until its first think finds nopowerup off and the powerup on the floor,
+ * so with nopowerup 1 nothing can be handed over -- ts_createpwup builds a powerup that never
+ * appears, and ts_givepwup touches one that is not armed. The patch arms Touch at Spawn, but only
+ * for a powerup carrying TSM_PWUP_GRANT_SF while tsm_enabled is on, so nopowerup 1 still blocks
+ * every other powerup, and every powerup on a server without this mode.
+ *
+ * The powerup is spawned and touched in one frame, and TS's Touch removes it. True when TS took
+ * it; false when it refused (a dead player, or a carried slow-motion type only +use swaps) or the
+ * DLL is not the patched one. Nothing is left behind either way.
+ */
+bool:tsm_grant_powerup(id, type, duration = 60)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !is_user_alive(id))
+	{
+		return false;
+	}
+
+	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "ts_powerup"));
+	if (!pev_valid(ent))
+	{
+		return false;
+	}
+
+	new num[12];
+	num_to_str(type, num, charsmax(num));
+	kv_set(ent, "ts_powerup", "pwuptype", num);
+	num_to_str(duration, num, charsmax(num));
+	kv_set(ent, "ts_powerup", "pwupduration", num);
+
+	new Float:org[3];
+	pev(id, pev_origin, org);
+	set_pev(ent, pev_origin, org);
+	set_pev(ent, pev_spawnflags, pev(ent, pev_spawnflags) | TSM_PWUP_GRANT_SF);
+	dllfunc(DLLFunc_Spawn, ent);
+	dllfunc(DLLFunc_Touch, ent, id);
+
+	// TS's Touch removes a powerup it handed over (FL_KILLME, freed at the end of the frame).
+	if (pev_valid(ent) && !(pev(ent, pev_flags) & FL_KILLME))
+	{
+		engfunc(EngFunc_RemoveEntity, ent);
+		return false;
+	}
+	return true;
+}
+
 /*
  * The Officer's automatic powerup, granted as the round goes live.
  *
- * The kung-fu powerup is run on him through tsfun -- not bought, so weaponrestriction
- * has no say in it. Until now the Officer's whole perk was the two chat orders, which
- * are invisible unless you already know they are there.
+ * The kung-fu powerup is handed to him through TS's own pickup (tsm_grant_powerup) -- not
+ * bought, so weaponrestriction has no say in it. Until now the Officer's whole perk was the two
+ * chat orders, which are invisible unless you already know they are there.
  */
 officer_powerup(id)
 {
@@ -10047,25 +10130,25 @@ officer_powerup(id)
 		return;
 	}
 
-	/*
-	 * ts_force_run_powerup, not ts_createpwup/ts_givepwup: those build the world
-	 * entity and hand it over, and with nopowerup 1 the mod refuses that handover --
-	 * which is why the perk did nothing. This is the native the engine's own powerup
-	 * grant ends in, so it runs whether or not entity pickups are allowed.
-	 */
-	ts_force_run_powerup(id, TSPWUP_KUNGFU);
-	dbgv("officer %d ran the kung-fu powerup", id);
+	if (tsm_grant_powerup(id, TSPWUP_KUNGFU))
+	{
+		dbgv("officer %d given the kung-fu powerup", id);
+	}
+	else
+	{
+		tlog("[TSM] Officer %d: kung fu was not given -- TS refused it, or ts/dlls/mp.dll is not the patched build.", id);
+	}
 
-	// Read the powerup state back HALF A SECOND LATER, not inline: TS applies the
-	// grant on its own next frame, so an immediate ts_getuserpwup reads empty even
-	// when it worked. One log line per round per officer settles "kung fu does
-	// nothing" reports from the log instead of another reload.
+	// Read it back HALF A SECOND LATER, from TS's own flag: a spawn after the grant clears
+	// it. One log line per round per officer settles "kung fu does nothing" reports from the
+	// log instead of another reload.
 	remove_task(id + 12000);
 	set_task(0.5, "task_officer_check", id + 12000);
 }
 
 /*
- * Half-second-after readback of the officer's kung-fu grant (see officer_powerup).
+ * Half-second-after readback of the officer's kung-fu grant (see officer_powerup), from the
+ * player's own kung fu flag. ts_getuserpwup never holds kung fu: tsx files it as an item.
  */
 public task_officer_check(taskid)
 {
@@ -10081,24 +10164,13 @@ public task_officer_check(taskid)
 		return;
 	}
 
-	if (ts_getuserpwup(id) & TSPWUP_KUNGFU)
+	if (ts_has_fupowerup(id))
 	{
 		tlog("[TSM] Officer %d: kung-fu powerup is running.", id);
 	}
 	else
 	{
-		// Entity fallback: ts_force_run_powerup is experimental and can no-op under
-		// nopowerup 1. Build the powerup entity and hand it over directly.
-		new ent = ts_createpwup(TSPWUP_KUNGFU);
-		if (ent > 0 && ts_givepwup(id, ent))
-		{
-			tlog("[TSM] Officer %d: kung-fu via entity fallback (force-run did not take).", id);
-			dbgv("officer %d kung-fu via entity fallback", id);
-		}
-		else
-		{
-			tlog("[TSM] Officer %d: kung-fu powerup did NOT stick -- tsfun grant refused (nopowerup?).", id);
-		}
+		tlog("[TSM] Officer %d: kung-fu powerup did NOT stick.", id);
 	}
 }
 
@@ -12965,13 +13037,28 @@ public fw_postthink_post(id)
 	new want_model = g_model_want_idx[id];
 
 	/*
-	 * A spectator keeps their side model into g_model_want_idx, and an ELIMINATED
-	 * player keeps theirs too -- and set_spectator_model is never reached for
-	 * them. Overriding here, in the one place that draws, is what makes the
-	 * invisible model stick for both; g_model_want_idx is left alone, so a round
-	 * reset drops the override with the elimination itself.
+	 * A spectator keeps their side model in g_model_want_idx and is drawn with the invisible
+	 * model here, in the one place that draws; g_model_want_idx is left alone, so a round
+	 * reset drops the override by itself.
+	 *
+	 * An ELIMINATED player is hidden with EF_NODRAW instead, from the first frame TS puts
+	 * them back on their feet, so the server stops sending them at all. A model index would
+	 * not hide them: with more than one player slot, GoldSrc and FWGS both draw a player
+	 * from their userinfo "model" key (R_StudioSetupPlayerModel loads
+	 * models/player/<key>/<key>.mdl) and use the model index only when that file is
+	 * missing, and an eliminated player's key still names the model they played in.
+	 *
+	 * TS's corpse is its own entity and is drawn from that same key, so hiding the player
+	 * leaves it alone -- TS's own death sequence does exactly this, building the corpse and
+	 * then putting the player into observer mode under EF_NODRAW. The one thing EF_NODRAW
+	 * must not reach is the dying player, because TS makes no corpse for a hidden one; the
+	 * deadflag guard above keeps this line away from them until TS has respawned them.
 	 */
-	if (g_elim[id] || is_spectating(id))
+	if (g_elim[id] && !is_spectating(id))
+	{
+		set_pev(id, pev_effects, pev(id, pev_effects) | TSM_EF_NODRAW);
+	}
+	else if (is_spectating(id))
 	{
 		new sidx = spec_model_index();
 		if (sidx > 0)
@@ -14322,6 +14409,40 @@ public ev_death()
 /* ---- the elimination voice ------------------------------------------------ */
 
 /*
+ * Both teams hear it when an Officer is slain: death/officer_perished.wav, played on every
+ * human client through playvol, so it reaches the whole server at full volume wherever they
+ * stand. An emit_sound reaches only the players in earshot of the body -- even at attenuation
+ * 0 the engine sends it to that spot's audible set -- and that is not both teams.
+ *
+ * tsm_officerslain_sound 0 turns it off.
+ */
+officer_slain_sound(id)
+{
+	if (!g_death_officer_ok || !get_pcvar_num(g_cv_officerslain) || !g_class_count)
+	{
+		return;
+	}
+
+	new ci = resolved_class(id) - 1;
+	if (ci < 0 || g_class_perk[ci] != TSM_PERK_OFFICER)
+	{
+		return;
+	}
+
+	new sent = 0;
+	for (new pl = 1; pl <= g_maxplayers; pl++)
+	{
+		if (!is_user_connected(pl) || is_user_bot(pl))
+		{
+			continue;
+		}
+		client_cmd(pl, "playvol %s 0.9", TSM_DEATH_OFFICER);
+		sent++;
+	}
+	tlog("[TSM] officer_slain_sound: Officer %d fell, announced to %d players", id, sent);
+}
+
+/*
  * What everyone hears when a player is taken out of play.
  *
  * The dying player's MODEL NAME picks the voice, so a server's model pool is the
@@ -14349,6 +14470,9 @@ death_voice(id)
 	{
 		return;
 	}
+
+	// An Officer's fall is announced to both teams as well, whatever voice the body gets.
+	officer_slain_sound(id);
 
 	// The dying body's model, for the machine test below. The userinfo key is
 	// read as before, but it can be TS's own re-answered pick rather than the
