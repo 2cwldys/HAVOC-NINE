@@ -3,7 +3,7 @@ H9XASH vgui.dll -- built from patched source by TSM\xash3d-h9-patches\xash.bat
 The VGUI1 library, FWGS's open freevgui. freevgui.patch (webassembly) and freevgui-h9-scheme.patch: H9's purple scheme.
 Those six colours are all that H9's patched GoldSrc vgui.dll changes (18 bytes, see Half-Life\vgui.dll.patch); the textschemes, HUD and menu colours live in ts\, not here.
 
-Upstream: FWGS master e8d773ea. Built: branch h9 at 930926d2. Below is the whole
+Upstream: FWGS master e8d773ea. Built: branch h9 at 7129989e. Below is the whole
 source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
 
 diff --git a/3rdparty/freevgui/platform/emscripten/font.cpp b/3rdparty/freevgui/platform/emscripten/font.cpp

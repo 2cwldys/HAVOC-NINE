@@ -661,7 +661,12 @@ from underwater leaf (idea: XaeroX)
 static void R_CheckFog( void )
 {
 	// quake global fog
-	if( FBitSet( gp_host->features, ENGINE_QUAKE_COMPATIBLE ))
+	// H9: this was a Quake-compatibility privilege before. The H9 server drives
+	// gp_movevars->fog_settings from the h9_fog_* cvars (SV_H9ServerFog in
+	// engine/server/sv_phys.c) for the sudden-death bog on a plain game too -- but
+	// ONLY when the movevars actually carry something, so with the cvars at zero
+	// the water fog that follows below runs exactly the stock way.
+	if( FBitSet( gp_host->features, ENGINE_QUAKE_COMPATIBLE ) || gp_movevars->fog_settings )
 	{
 		if( !gp_movevars->fog_settings )
 		{

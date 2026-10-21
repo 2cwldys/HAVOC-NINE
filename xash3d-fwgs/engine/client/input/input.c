@@ -200,11 +200,16 @@ void IN_ToggleClientMouse( int newstate, int oldstate )
 	if( m_ignore.value )
 		return;
 
-	if( oldstate == key_game )
+	// H9: the chat line (key_message) keeps the mouse, as GoldSrc does, so you can
+	// look around while typing say or say_team. Only the menu and the console free it.
+	qboolean was_game = ( oldstate == key_game || oldstate == key_message );
+	qboolean is_game = ( newstate == key_game || newstate == key_message );
+
+	if( was_game && !is_game )
 	{
 		IN_DeactivateMouse();
 	}
-	else if( newstate == key_game )
+	else if( is_game && !was_game )
 	{
 		IN_ActivateMouse();
 	}

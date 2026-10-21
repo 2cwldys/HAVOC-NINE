@@ -92,14 +92,25 @@ if exist "%FWGS%\.git" (
     call :patch "%FWGS%\3rdparty\freevgui" "%XASH%\patches\freevgui-h9-scheme.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-cloak.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-cmdbuf.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-chatmouse.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-suddendeath.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-xray.patch" || exit /b 1
     call :patch "%FWGS%\3rdparty\mainui" "%XASH%\patches\mainui-h9-gamestartup.patch" || exit /b 1
 )
 
 REM Configured once; waf reconfigures by itself when a wscript changes.
 REM --msvc_prerelease lets waf find a preview Visual Studio (this machine has only
 REM VS 2026 Insiders); it changes nothing when a release one is installed.
+REM
+REM The config is ALSO redone whenever the cache still points at an SDL folder that
+REM is not the one above: the patches folder moved twice (TSM\xash ->
+REM TSM\xash3d-h9-patches) and a stale path made the link die with LNK1104
+REM "cannot open file 'SDL2.lib'" on every build after the move.
 pushd "%FWGS%"
-if not exist "build\c4che\_cache.py" (
+set "RECONF="
+if not exist "build\c4che\_cache.py" set "RECONF=1"
+if exist "build\c4che\_cache.py" findstr /C:"%SDL%" "build\c4che\engine_cache.py" >nul 2>&1 || set "RECONF=1"
+if defined RECONF (
     call "%FWGS%\waf.bat" configure -s "%SDL%" -T release --msvc_prerelease || (popd & exit /b 1)
 )
 call "%FWGS%\waf.bat" build || (popd & exit /b 1)
@@ -126,7 +137,8 @@ for /f %%c in ('git -C "%FWGS%" rev-parse --short origin/master 2^>nul') do set 
     echo Upstream: master !BASE!
     echo Built:    branch h9 at !HEAD!, %DATE% %TIME%
     echo Patches:  webassembly-patch\*.patch, then from xash3d-h9-patches\patches:
-    echo           freevgui-h9-scheme.patch, engine-h9-cloak.patch, engine-h9-cmdbuf.patch
+    echo           freevgui-h9-scheme.patch, engine-h9-cloak.patch, engine-h9-cmdbuf.patch,
+    echo           engine-h9-chatmouse.patch, engine-h9-suddendeath.patch, engine-h9-xray.patch
     echo           and mainui-h9-gamestartup.patch
 )
 
@@ -134,8 +146,8 @@ REM Each DLL built from patched source carries ^<dll^>.patch beside it: what it 
 REM the diff against upstream FWGS it was built with, paths from the xash3d-fwgs root so
 REM "git apply" replays it on a fresh clone. Written from git on every build, so it always
 REM matches the binary next to it.
-call :dllpatch xash.dll "engine common" "3rdparty/library_suffix" "The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model) and engine-h9-cmdbuf.patch (a command buffer that holds H9's configs)." ""
-call :dllpatch ref_gl.dll "ref/gl" "" "The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes." ""
+call :dllpatch xash.dll "engine common" "3rdparty/library_suffix" "The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat) and engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars)." ""
+call :dllpatch ref_gl.dll "ref/gl" "" "The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game) and engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls)." ""
 call :dllpatch filesystem_stdio.dll "filesystem" "" "The filesystem. The webassembly patch's one change here is emscripten-only." ""
 call :dllpatch menu.dll "" "3rdparty/mainui" "The main menu, mainui. engine-mainui.patch (webassembly) and mainui-h9-gamestartup.patch (a track a config started keeps playing)." ""
 call :dllpatch vgui.dll "" "3rdparty/freevgui" "The VGUI1 library, FWGS's open freevgui. freevgui.patch (webassembly) and freevgui-h9-scheme.patch: H9's purple scheme." "Those six colours are all that H9's patched GoldSrc vgui.dll changes (18 bytes, see Half-Life\vgui.dll.patch); the textschemes, HUD and menu colours live in ts\, not here."

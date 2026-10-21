@@ -6,57 +6,14 @@ hpk_max_size
 quit
 mp3 loop sound/music/equilibrium.mp3
 exec userconfig.cfg
-mp3volume
-volume
-volume 0.2
-volume 0.3
-mp3volume
-volume
-volume 0.2
-volume
-mp3volume
-mp3volume 0.1
-mp3volume 0.2
-disconnect
-scoreboard
-disconnect
-con_color
+cl_camtype
+amx_match_restart
 amx_match_cancel
-cam_back 128
-cam_back
-thirdperson
-cg_thirdperson
-volume
-volume 0.2
-volume 0.1
-volume 0.2
-cam_back 128
-volume 0.1
-volume
-mp3volume
-mp3volume 0.1
-cam_back
-cam_back 130
-fps_max
-fps_max 0
-fps_max 1200
-fps_max 120
-fps_override 1
-rate
+amx_match_restart
+tsm_opendoor
+amx_tsm_forcedoor 1
+tsm_opendoor
+
+tsm_opendoor
+tsm_opendoor
 quit
-play sound/death/droid_powereddown.wav
-play sound/death/droid_powerdown.wav
-mp3volume
-mp3volume 0.1
-mp3volume 0.010
-mp3volume 0.090
-mp3volume 0.080
-mp3volume 0.060
-volume
-volume 0.080
-volume 0.060
-mp3volume
-quit
-mp3volume
-volume
-mp3volume 0.06

@@ -31,6 +31,15 @@
      During warmup this also RELEASES your current side first, so you can
      switch. Once a match is running it refuses -- sides are locked.
 
+     Choosing Spectate is not a black screen: you get the same follow
+     camera an eliminated player does. Your view stands with a living
+     player and follows them, ATTACK (or attack2) moves you on to the
+     next one, and because you have no side the cycle runs over BOTH
+     teams -- an eliminated ghost is held to their own team, you watch
+     everybody. If nobody is left alive to watch you are parked out of
+     the way until someone stands up again. The click is a camera
+     control, not a shot: it never reaches TS as one.
+
  .class
      Opens the class menu, DURING THE FREEZE COUNTDOWN BEFORE A ROUND and at no
      other time. That is when the loadout is handed out, so it is the only
@@ -64,9 +73,10 @@
                          CAN break, by gunfire and grenades. A same-side
                          player can never breach their own objective.
                          Carries the Benelli M3.
-       Officer           Commands bots with .follow and .unfollow. Carries the
-                         Glock 18 and a Katana. When an Officer is slain,
-                         both teams hear it (tsm_officerslain_sound).
+       Officer           Commands bots with .follow and .unfollow, and .scan
+                         exposes cloaked enemies nearby. Carries the Glock 18
+                         and a Katana. When an Officer is slain, both teams
+                         hear it (tsm_officerslain_sound).
        Medic             +USE on a teammate heals them 50hp on a 15s cooldown,
                          capped at that teammate's own class health. They glow
                          RED while it lands, also audible nearby. Sidearm only,
@@ -136,6 +146,34 @@
      After any end, .cloak waits 30 seconds (tsm_cloak_cooldown) before it works again.
      If the match takes you out of the round some other way (eliminated, benched, the
      warmup hold) it ends on its own, silently.
+
+  .scan    (or bind a key to:  say .scan)
+      Officer only, in a live round: pulse the scanner and every cloaked ENEMY within
+      1024 units (tsm_scan_radius) of you is exposed to your WHOLE SIDE for 10 seconds
+      (tsm_scan_time) -- not just to you, to everyone wearing your colour. You are
+      told how many were caught, and your side is told with you.
+
+      The mark is a bright blue glow shell around each caught man, and for those ten
+      seconds his body is also drawn solid to your side, so the cloak is no use to
+      him until it fades. It is the medic's glow shell, which TS draws the same on
+      both engines, in line of sight. During sudden death on H9XASH the x-ray's
+      through-wall shell takes its place, over a body still drawn solid. Your side's
+      bots see him too and may open fire.
+      His own side sees none of that.
+
+      The mark is TIME, not state: set when the scan fires, out on its own ten
+      seconds later. Uncloak inside the window and the blue stops mattering; recloak
+      and it is still live and finds you again.
+
+      Once per 30 seconds (tsm_scan_cooldown, measured from use, like the cloak's
+      cooldown), and it re-arms at the start of every round. The scan makes a ping
+      (tsm_scan_sound, heard by whoever is near the Officer -- BOTH sides) that is
+      silent until you put your own wav in sound\ and name it in ts_matchmode.cfg,
+      and flashes the same blue point light the Recon's cloak uses -- so an enemy
+      who saw a blue pulse knows either a Recon just slipped away or an Officer
+      just read the area.
+
+      Bots cannot use it: no bot types chat commands.
 
  .forfeit
      Vote to concede the match for your side. EVERY human on that side has to type
@@ -441,8 +479,8 @@
 
  amx_tsm_siege_fuse
      Set the planted charge off this instant by calling the real fuse
-     tick: the explosion sprite, the boom, the fall and -- on the chain's
-     last objective -- the round end, the boom stack and the ground shake.
+     tick: the explosion sprite, the boom, the fall, the boom stack and the
+     ground shake. On the chain's last objective, also the round end.
 
  amx_tsm_siege_alarm
      Force the raid siren on, live round or not, with the defenders' text
@@ -457,6 +495,13 @@
      objective, then plant. The fuse only detonates live and in order
      (amx_tsm_obj <n> walks the chain forward), which is the real round's
      own rule -- the suite tests the rules rather than suspending them.
+
+ tsm_opendoor
+     Force open the door you are aiming at (func_door or func_door_rotating),
+     locked or not: a master, the "Use Only" flag or the engineer-only lock
+     makes no difference. It opens once, and the door's own timer closes it
+     again, as it would any other time. Off unless amx_tsm_forcedoor is 1
+     (default 0) -- it is there for debugging.
 
  tsm_loc
      Find your exact XYZ coordinates to pass to agents using module JS & SMAK.
@@ -529,6 +574,44 @@
 
  One frame per class, in class order, so adding a class to the table means
  adding a frame to the sheet and nothing else.
+
+
+===============================================================================
+ SUDDEN DEATH  (the last minute)
+===============================================================================
+
+ tsm_sudden_death 60    the last N seconds of a round go "sudden"; 0 is off
+
+ Three things turn on at once, together, and go off at the round boundary --
+ whichever way that round ends:
+
+     1. THE RED MARKERS. Every player's class icon is shown to the OTHER side,
+        in red: the same sprite through the same AddToFullPack hook,
+        re-coloured. Cloaked Recons are deliberately missed by this, because
+        the marker is exactly the thing that would point at the man the cloak
+        is hiding.
+
+     2. THE X-RAY (H9XASH only). Every living enemy, cloaked or not, is sent
+        to the other side carrying renderfx 64 -- a value GoldSrc ignores and
+        the patched renderer (engine-h9-xray.patch) draws as a glow shell with
+        the depth test off. He is sent wherever he is on the map, not only
+        when he is in your view, so even a solid wall cannot hide him. The
+        silhouette is in his own side's colour: Insurgents red, MSR blue.
+        Teammates are never marked. It lasts the whole last minute;
+        tsm_sudden_xray 0 turns it off. On a stock engine there is no X-ray
+        and nothing is wrong: the icons carry the round on every engine.
+
+     3. THE TOXIC BOG (H9XASH only). The engine's world fog is driven from
+        four server cvars (h9_fog_r / h9_fog_g / h9_fog_b / h9_fog_density,
+        see ts_matchmode.cfg), and the plugin holds them at swamp green for
+        exactly as long as sudden death runs, zeroing them at every round
+        boundary and every end of match. The whole map fogs: skybox included,
+        every client, both sides. On a stock engine those cvars are unknown
+        and do nothing.
+
+ While sudden death runs every living player also loses 1 health every 5
+ seconds -- nobody out-lasts the clock on a full bar. That has no cvar: the
+ clock was already the thing meant to end the round.
 
 
 ===============================================================================

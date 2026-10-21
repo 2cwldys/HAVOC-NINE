@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes19"
+#define TSM_BUILD "1.53-fixes23"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -295,11 +295,14 @@ stock icon_frame_for(ci, team)
 // of these running, never a second stacked onto it.
 #define TSM_TASK_ALARM       90212
 #define TSM_TASK_BOTFILL     90213
-#define TSM_TASK_BOTKICK     90214
+
+// The staggered bot kicks: one task per bot, at this plus the bot's index, so the
+// band 90401-90432 is theirs and no server-wide id below may fall inside it.
+#define TSM_TASK_BOTKICK     90400
 
 // The planted satchel's one fuse beat: as with the alarm, one objective holds
 // the chain at a time, so one server-wide task id is the whole mechanism.
-#define TSM_TASK_CHARGE      90213
+#define TSM_TASK_CHARGE      90300
 
 // The round-start anthems' one server-wide tick: fired one second into every
 // round, removed first whenever a round starts or the match tears down, so a
@@ -332,14 +335,21 @@ forward squad_size(leader);
  * nothing in HL resurrects an entity -- so whichever round broke objective N
  * would leave every round after it nothing to aim at. The recorder keeps what
  * a body needs to exist again (its class, its brush model, the health and
- * spawnflags the mapper gave it, and the fall target), and siege_reset()
- * spawns any missing body back before players arm.
+ * spawnflags the mapper gave it, the fall target, where it stood and how it was
+ * drawn), and siege_reset() spawns any missing body back at every round start.
  */
 new g_obj_class[TSM_OBJ_MAX + 1][32];     // original entity class
 new g_obj_model[TSM_OBJ_MAX + 1][16];     // brush model string, "*NN"
 new Float:g_obj_health[TSM_OBJ_MAX + 1];  // the mapper's own health value
 new g_obj_spawnflags[TSM_OBJ_MAX + 1];    // the mapper's own spawnflags key
 new g_obj_target[TSM_OBJ_MAX + 1][64];    // what the fall fired (the spectacle)
+new Float:g_obj_origin[TSM_OBJ_MAX + 1][3];      // where it stood (an origin brush moves it off zero)
+new Float:g_obj_angles[TSM_OBJ_MAX + 1][3];
+new g_obj_rendermode[TSM_OBJ_MAX + 1];           // how the mapper had it drawn
+new Float:g_obj_renderamt[TSM_OBJ_MAX + 1];
+new Float:g_obj_rendercolor[TSM_OBJ_MAX + 1][3];
+new g_obj_renderfx[TSM_OBJ_MAX + 1];
+new Float:g_plant_snd_at[TSM_OBJ_MAX + 1];       // when each objective last played the plant sound
 
 // Glow shell, for the medic's heal. renderfx is a separate field from rendermode,
 // so this does not disturb the hide that runs off rendermode and renderamt.
@@ -361,6 +371,16 @@ new g_obj_target[TSM_OBJ_MAX + 1][64];    // what the fall fired (the spectacle)
  */
 #define TSM_RENDER_GLOW      3
 #define TSM_RENDERFX_NODISS  14
+/*
+ * The x-ray marker (64). Neither GoldSrc's enum (it ends at 20) nor Xash's (it ends at
+ * 21, kRenderFxLightMultiplier) uses it. TS's own client draws a body carrying it plainly,
+ * and the H9XASH engine patch (xash3d-h9-patches\patches\engine-h9-xray.patch) adds a
+ * glow shell in the body's rendercolor with the depth test off, so it shows through walls.
+ *
+ * Sent only on Xash, and only from fw_addtofullpack, per viewer, never to pev: whoever is
+ * not entitled to the reveal is sent some other renderfx, or none at all.
+ */
+#define TSM_RENDERFX_XRAY    64
 
 // HL door spawnflag: the door refuses to be touched open and answers only +USE.
 #define TSM_SF_DOOR_USE_ONLY 256
@@ -431,6 +451,20 @@ new Float:g_mech_rocket_next[MAXPL];   // gametime when next rocket is allowed
 new g_mech_rockets_used[MAXPL];        // rockets fired this life (max 4)
 
 /*
+ * Officer .scan: once per cooldown the Officer types .scan, and every cloaked ENEMY
+ * inside a radius around him is marked -- for his WHOLE side, not just himself -- with
+ * a blue glow shell (TSM_RENDERFX_GLOW) for a few seconds.
+ *
+ * The marks live per TARGET (who is marked, by which side, until when), because
+ * fw_addtofullpack is per (viewer, entity) anyway: a viewer looks up the target's mark
+ * and checks the side that placed it. No bookkeeping per viewer, and a second Officer
+ * scanning later simply overwrites the mark with their own side's values.
+ */
+new Float:g_scan_next[MAXPL];    // gametime the next .scan is available (per OFFICER)
+new Float:g_scan_until[MAXPL];   // gametime this player's scan mark expires (per TARGET)
+new g_scan_team[MAXPL];          // the side that scanned him, so only they see the mark
+
+/*
  * Recon .cloak / .uncloak.
  *
  * Shimmer, not full invisibility: TSM_RENDER_TEXTURE at a low nonzero renderamt
@@ -456,7 +490,8 @@ new const UNCLOAK_SND[2][] = { "uncloak.wav", "uncloak2.wav" };
 
 /*
  * The cloak's blue tint. Written to pev_rendercolor whenever cloak is on, and back to black when
- * it ends -- invisible on screen (this rendermode ignores rendercolor for a studio model), but it
+ * it ends, or while an Officer's scan has him -- the one window in which bots may engage a cloaked
+ * player. Invisible on screen (this rendermode ignores rendercolor for a studio model), but it
  * is the one render field nothing else in this plugin ever sets to this exact triplet, which makes
  * it the signature the patched RCBot source checks in IsEnemy() (rcbot-patch, Change 4). That
  * check is not in the deployed rcbot_mm.dll; cloak_active() keeps the deployed one off cloaked
@@ -468,6 +503,18 @@ new const UNCLOAK_SND[2][] = { "uncloak.wav", "uncloak2.wav" };
  */
 new const Float:CLOAK_COLOR[3] = { 40.0, 120.0, 255.0 };
 new const CLOAK_RGB[3] = { 40, 120, 255 };
+
+/*
+ * The scan's glow and the sudden-death x-ray's two side colours. The scan's blue sits a
+ * step away from the cloak tint above so the two never read as one effect. The x-ray
+ * colours the body by its own side: MSR (side 1) blue, the Insurgents (side 2) the same
+ * red the class icons flip to during sudden death (icon_view's second frame).
+ * Whole numbers, for the same reason CLOAK_RGB is: set_es() stores render fields as
+ * integers, and a Float here would arrive as its bit pattern.
+ */
+new const SCAN_RGB[3] = { 0, 170, 255 };
+new const XRAY_MSR_RGB[3] = { 0, 170, 255 };
+new const XRAY_INS_RGB[3] = { 255, 48, 48 };
 
 new bool:g_cloaked[MAXPL];     // currently cloaked
 new Float:g_cloak_at[MAXPL];   // gametime of the last toggle, so chat spam cannot refire every frame
@@ -521,6 +568,7 @@ new g_cv_nocash, g_cv_blockbuy;
 new g_cv_engrange, g_cv_engclips, g_cv_engents, g_cv_engcool;
 new g_cv_engglow, g_cv_engshell;
 new g_cv_medsound, g_cv_engsound, g_cv_suddensound, g_cv_welcomesound;
+new g_cv_scansound;   // the Officer's .scan ping; empty until the custom wav is supplied
 // Which death-voice wavs are on disk and precached (slots 1..6); a missing file
 // only shrinks the random pool, it never crashes the emit.
 new bool:g_death_fem_ok[7];
@@ -741,6 +789,8 @@ new Float:g_push_dir[MAXPL][2];
  */
 new g_door_use_hits;          // every func_door Use the hook has seen
 new g_engdoor_use_hits;       // of those, the ones on a door named tsm_eng_door
+new bool:g_forcing_door;      // tsm_opendoor is forcing a door: fw_door_use lets it through
+new g_cv_forcedoor;           // amx_tsm_forcedoor: tsm_opendoor works only while this is 1
 new bool:g_locked_out[MAXPL];  // joined mid-match; sits out until the match ends
 new bool:g_forfeit[MAXPL];     // has typed .forfeit this match
 new g_last_use[MAXPL];
@@ -780,6 +830,7 @@ new g_cv_menudelay;
 new g_cv_blockvgui;
 new g_cv_wpnmode;
 new g_cv_clipbonus, g_cv_clipcap;
+new g_cv_sparepct;   // reserve rewrite percentage: figure x mag x N% (tsm_clip_sparepct)
 new g_cv_giveammo;
 new g_cv_specteam;
 new g_cv_armdelay;
@@ -797,6 +848,9 @@ new g_cv_cloakopacity;
 new g_cv_nopowerups;
 new g_cv_modelpost;
 new g_cv_icons, g_cv_iconhigh, g_cv_iconscale, g_cv_sudden;
+new g_cv_suddenxray;                                                       // sudden-death X-ray on/off
+new g_cv_suddenfog_r, g_cv_suddenfog_g, g_cv_suddenfog_b, g_cv_suddenfog_d; // the toxic bog
+new g_cv_scanradius, g_cv_scancool, g_cv_scantime;                         // the Officer's .scan
 new g_cv_botreturn;
 new g_cv_bots, g_cv_botteams, g_cv_botclass, g_cv_botready;
 
@@ -955,22 +1009,23 @@ dbg(const fmt[], any:...)
  * unreadable wav measures as nothing at all, which stands the siren down but
  * keeps the warning text running on a plain two-second beat.
  *
- * Everyone hears the siren, bots included. Only real people receive the text,
- * and only the DEFENDERS: every player on the side opposite the trigger reads
- * a centre-screen line in their own side colour, the same two colours the
- * round banners use. tsm_alarm_msg holds the line (pipes are row breaks, like
- * the banners'), tsm_alarm_vol the siren's volume, tsm_alarm 0 stands the
+ * Every human client hears the siren, both sides, wherever they stand. Only real
+ * people receive the text: every player on the side opposite the trigger reads
+ * tsm_alarm_msg, and every player on the trigger's own side reads
+ * tsm_alarm_msg_attack, each centre screen in the reader's own side colour, the
+ * same two colours the round banners use (pipes are row breaks, like the
+ * banners'). tsm_alarm_vol is the siren's volume, tsm_alarm 0 stands the
  * alarm down entirely. It stops at round start, at match teardown, and by
  * itself in the next round's freeze; the round it belongs to owns it to the
  * very end of that round.
  */
 #define TSM_ALARM_WAV "bloblarm.wav"
-#define TSM_ALARM_Y   0.47    // the free band at screen centre (banners 0.43 up, hover 0.56 down)
+#define TSM_ALARM_Y   0.40    // above the crosshair, below the round clock (0.03); the plant bar sits just under it
 #define TSM_PLANT_Y   0.47    // the planter's own progress bar shares that empty band
 #define TSM_PLANT_WAV   "get_satchel.wav"   // the engine's own satchel-reach clack, valve dir fallback
 #define TSM_PLANT_DONE  "plant.wav"         // the one the server ships in ts\sound -- rings once on success
 
-new g_cv_alarm, g_cv_alarmvol, g_cv_alarmmsg;
+new g_cv_alarm, g_cv_alarmvol, g_cv_alarmmsg, g_cv_alarmmsgatk;
 // The siren's measured seconds; 0.0 means no wav behind the name, text only. One
 // flag, so a second trigger of the round finds the alarm busy and walks away.
 new Float:g_alarm_len;
@@ -984,8 +1039,8 @@ new g_alarm_side;
 new g_plant_ent, g_plant_n, g_plant_by;
 new Float:g_plant_last[MAXPL];
 // Measured lengths the planting and the finale lean on: the plant sound's own
-// loop, and each finale boom's span -- the ground shake covers their window.
-new Float:g_plant_len;        // the hold loop's own clack
+// length, and each finale boom's span -- the ground shake covers their window.
+new Float:g_plant_len;        // the plant sound's own length; it is not replayed sooner
 new Float:g_plant_done_len;   // the SUCCESS plant.wav, reported by the siege dump
 new Float:g_boom_len[3];
 new g_obj_boom_spr;   // the explosion sprite's precache index, for the TE burst
@@ -1013,13 +1068,17 @@ Float:sound_seconds(const snd[])
 	// "RIFF <u32> WAVE": that integer IS how many bytes follow it, so the
 	// file's total comes out of its own first words and no fsize is needed.
 	new id[4];
-	if (fgetc(f) != 'R' || fgetc(f) != 'I' || fgetc(f) != 'F' || fgetc(f) != 'F'
-		|| fgetc(f) != 'W' || fgetc(f) != 'A' || fgetc(f) != 'V' || fgetc(f) != 'E')
+	if (fgetc(f) != 'R' || fgetc(f) != 'I' || fgetc(f) != 'F' || fgetc(f) != 'F')
 	{
 		fclose(f);
 		return 0.0;
 	}
 	new riff = fgetc(f) | (fgetc(f) << 8) | (fgetc(f) << 16) | (fgetc(f) << 24);
+	if (fgetc(f) != 'W' || fgetc(f) != 'A' || fgetc(f) != 'V' || fgetc(f) != 'E')
+	{
+		fclose(f);
+		return 0.0;
+	}
 
 	// Then a chunk walk until "fmt ": every other chunk is stepped over whole
 	// (the big data chunk is never entered), so the read stays a few bytes.
@@ -1071,53 +1130,96 @@ Float:sound_seconds(const snd[])
 	return float(riff + 8) / float(rate);
 }
 
+/*
+ * One play of the siren on every human client, once each and wherever they stand:
+ * playvol is the client's own local sound. An emit from the players' bodies reaches
+ * only those in earshot of each body, and stacks one copy per player on everyone close.
+ */
 alarm_emit()
 {
-	emit_sound(0, CHAN_STATIC, TSM_ALARM_WAV, get_pcvar_float(g_cv_alarmvol), ATTN_NONE, 0, PITCH_NORM);
+	new Float:vol = get_pcvar_float(g_cv_alarmvol);
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (is_user_connected(id) && !is_user_bot(id))
+		{
+			client_cmd(id, "playvol %s %f", TSM_ALARM_WAV, vol);
+		}
+	}
 }
 
 /*
- * The defenders' warning line, centre screen in their own side colour. Held
- * for the whole beat plus a little, so the next beat's redraw always lands
- * before the previous one expires and the line never blinks.
+ * The alarm's centre-screen lines, each in the reader's own side colour: the
+ * defenders read tsm_alarm_msg, the attackers tsm_alarm_msg_attack. Held for the
+ * whole beat plus a little, so the next beat's redraw always lands before the
+ * previous one expires and the line never blinks.
+ *
+ * Channel 2. GoldSrc keeps four text slots and files a message in channel % 4, so
+ * this is the slot the alarm has always had on Steam; Xash keeps eight, and a
+ * channel above 4 there gets a slot of its own that TS's client does not show.
  */
 alarm_draw()
 {
-	new msg[384];
-	get_pcvar_string(g_cv_alarmmsg, msg, charsmax(msg));
-	if (!msg[0])
-	{
-		return;
-	}
+	new dmsg[384], amsg[384];
+	get_pcvar_string(g_cv_alarmmsg, dmsg, charsmax(dmsg));
+	get_pcvar_string(g_cv_alarmmsgatk, amsg, charsmax(amsg));
 
-	for (new c = 0; c < sizeof msg && msg[c]; c++)
+	for (new c = 0; c < sizeof dmsg && dmsg[c]; c++)
 	{
-		if (msg[c] == '|')
+		if (dmsg[c] == '|')
 		{
-			msg[c] = '^n';
+			dmsg[c] = '^n';
+		}
+	}
+	for (new c = 0; c < sizeof amsg && amsg[c]; c++)
+	{
+		if (amsg[c] == '|')
+		{
+			amsg[c] = '^n';
 		}
 	}
 
 	new Float:hold = (g_alarm_len > 2.0 ? g_alarm_len : 2.0) + 0.4;
 
-	// The colour belongs to the side that READS it: attacking side 1 puts side
-	// 2 under the alarm, so red; attacking side 2 puts blue in side 1's eyes.
-	// Bots never read it, and neither does anyone whose side is unset.
-	if (g_alarm_side == 1)
+	// Side 1 is MSR, blue; side 2 the Insurgents, red. Attacking side 1 puts side 2
+	// under the alarm, so the defenders read red and the attackers blue; attacking
+	// side 2 the other way round. Bots never read it, and neither does anyone whose
+	// side is unset.
+	if (dmsg[0])
 	{
-		set_hudmessage(255, 70, 60, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 6);
-	}
-	else
-	{
-		set_hudmessage(0, 170, 255, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 6);
+		if (g_alarm_side == 1)
+		{
+			set_hudmessage(255, 70, 60, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 2);
+		}
+		else
+		{
+			set_hudmessage(0, 170, 255, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 2);
+		}
+		for (new id = 1; id <= g_maxplayers; id++)
+		{
+			if ((g_match_team[id] == 1 || g_match_team[id] == 2) && g_match_team[id] != g_alarm_side
+				&& is_user_connected(id) && !is_user_bot(id))
+			{
+				show_hudmessage(id, "%s", dmsg);
+			}
+		}
 	}
 
-	for (new id = 1; id < MAXPL; id++)
+	if (amsg[0] && (g_alarm_side == 1 || g_alarm_side == 2))
 	{
-		if ((g_match_team[id] == 1 || g_match_team[id] == 2) && g_match_team[id] != g_alarm_side
-			&& is_user_connected(id) && !is_user_bot(id))
+		if (g_alarm_side == 1)
 		{
-			show_hudmessage(id, "%s", msg);
+			set_hudmessage(0, 170, 255, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 2);
+		}
+		else
+		{
+			set_hudmessage(255, 70, 60, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 2);
+		}
+		for (new id = 1; id <= g_maxplayers; id++)
+		{
+			if (g_match_team[id] == g_alarm_side && is_user_connected(id) && !is_user_bot(id))
+			{
+				show_hudmessage(id, "%s", amsg);
+			}
 		}
 	}
 }
@@ -3052,10 +3154,17 @@ precache_weapon_models()
  * which needs a numbered sound slot); false for one a CLIENT plays itself with
  * playvol, which has to be in the generic download list instead.
  */
-precache_custom_sound(pcvar, bool:serverwav)
+precache_custom_sound(pcvar, const key[], bool:serverwav)
 {
 	new snd[64], path[80];
-	get_pcvar_string(pcvar, snd, charsmax(snd));
+
+	// The cfg's own line first: plugin_precache runs before amxx execs it, so the cvar
+	// still holds its compiled-in default here (see read_cfg_value).
+	read_cfg_value(key, snd, charsmax(snd));
+	if (!snd[0])
+	{
+		get_pcvar_string(pcvar, snd, charsmax(snd));
+	}
 	if (!snd[0])
 	{
 		return;
@@ -3224,8 +3333,17 @@ public plugin_precache()
 
 	g_cv_suddensound = register_cvar("tsm_sudden_sound", "xom_laugh.wav");
 	g_cv_welcomesound = register_cvar("tsm_welcome_sound", "welcome.wav");
-	precache_custom_sound(g_cv_suddensound, true);
-	precache_custom_sound(g_cv_welcomesound, false);
+	precache_custom_sound(g_cv_suddensound, "tsm_sudden_sound", true);
+	precache_custom_sound(g_cv_welcomesound, "tsm_welcome_sound", false);
+
+	/*
+	 * The Officer's scan ping. EMPTY until the custom wav arrives: empty means no
+	 * sound at all (precache_custom_sound quietly steps over it), while a guessed
+	 * path would be either a missing-file warning or, worse, a made-up name that
+	 * never plays. Setting the cvar is all it takes to switch the sound on.
+	 */
+	g_cv_scansound = register_cvar("tsm_scan_sound", "");
+	precache_custom_sound(g_cv_scansound, "tsm_scan_sound", true);
 
 	/*
 	 * THE DEATH VOICES, the elimination scream pool in ts\sound\death.
@@ -3681,6 +3799,20 @@ public plugin_init()
 	g_cv_clipcap   = register_cvar("tsm_clip_max",       "6");
 
 	/*
+	 * HOW MUCH OF THOSE MAGAZINES TS ACTUALLY HOLDS, as a percentage.
+	 *
+	 * The class figure reaches ts_giveweapon as raw ROUNDS, not clips -- the odd little
+	 * reserve everyone saw as a handful of 9-ish bullets instead of full mags. Once each
+	 * weapon lands, the give rewrites the reserve in real ammunition, at
+	 * figure x magazine size x this percent. 100 is every listed magazine held in full;
+	 * 50 is the halved first tuning that read tight in play; anything 0 or below skips
+	 * the rewrite and leaves ts_giveweapon's own small reserve standing. TS still clamps
+	 * the result to whatever that weapon's own cap is, so a phrase like "six M60 mags"
+	 * lands wherever TS says the M60 tops out.
+	 */
+	g_cv_sparepct  = register_cvar("tsm_clip_sparepct",  "100");
+
+	/*
 	 * A real third team for people who are not playing.
 	 *
 	 * Without one, "not on a team" and "watching" are the same state to TS, and a
@@ -3815,6 +3947,19 @@ public plugin_init()
 	g_cv_cloakopacity = register_cvar("tsm_cloak_opacity", "12.0");
 
 	/*
+	 * THE OFFICER'S .SCAN.
+	 *
+	 * Radius is the sphere around the Officer, in units, inside which a cloaked enemy
+	 * is caught. The cooldown starts the moment the scan FIRES (measured like the cloak
+	 * and the rocket, from use rather than from when the last effect ended), and the
+	 * reveal lasts tsm_scan_time seconds. The mark itself is a blue glow shell, written
+	 * per viewer from fw_addtofullpack.
+	 */
+	g_cv_scanradius = register_cvar("tsm_scan_radius",    "1024");
+	g_cv_scancool   = register_cvar("tsm_scan_cooldown",  "30.0");
+	g_cv_scantime   = register_cvar("tsm_scan_time",      "10.0");
+
+	/*
 	 * Remove TS's powerups from match play.
 	 *
 	 * Powerups are a deathmatch feature -- whoever happens to be standing near one when
@@ -3836,6 +3981,31 @@ public plugin_init()
 	 */
 	g_cv_sudden     = register_cvar("tsm_sudden_death",   "60");
 	g_cv_iconscale  = register_cvar("tsm_icon_scale",     "0.25");
+
+	/*
+	 * THE SUDDEN-DEATH EXTRAS, beyond the red icons the clock itself already flips on.
+	 *
+	 * tsm_sudden_xray puts the through-wall X-ray shell on every enemy to the other
+	 * side for the last minute (only the sudden-death timer above gates it; the shell
+	 * is refused over a cloaked Recon, exactly as the icons are). On a stock engine it
+	 * renders as nothing, so the icons carry the feature everywhere else.
+	 *
+	 * tsm_sudden_fog_* is the "toxic bog". While sudden death is live the plugin holds
+	 * the four h9_fog_* ENGINE cvars at these values (the engine reads them every frame
+	 * and fogs the world; see engine-h9-suddendeath.patch), and zeroes them again when
+	 * the round or the match cautious ends. Colour is 0-255 per channel; density is
+	 * 0-255, scaled by the engine through 0.01/255, so 90 is "the far side of the map
+	 * is already gone" and 0 is no fog at all.
+	 */
+	g_cv_suddenxray = register_cvar("tsm_sudden_xray",    "1");
+	g_cv_suddenfog_r = register_cvar("tsm_sudden_fog_r",       "40");
+	g_cv_suddenfog_g = register_cvar("tsm_sudden_fog_g",      "140");
+	g_cv_suddenfog_b = register_cvar("tsm_sudden_fog_b",       "45");
+	g_cv_suddenfog_d = register_cvar("tsm_sudden_fog_density","90");
+	register_cvar("h9_fog_r",       "0");
+	register_cvar("h9_fog_g",       "0");
+	register_cvar("h9_fog_b",       "0");
+	register_cvar("h9_fog_density", "0");
 
 	/*
 	 * Seconds bots sit out after a match before picking sides again.
@@ -4063,6 +4233,9 @@ public plugin_init()
 	 */
 	g_cv_engdoorteam = register_cvar("tsm_eng_door_team", "0");
 
+	// Whether tsm_opendoor works at all: a debugging aid, off unless asked for.
+	g_cv_forcedoor = register_cvar("amx_tsm_forcedoor", "0");
+
 	/*
 	 * Siege objectives (see siege_* below): the side that attacks them, the class that
 	 * can take one (by name, as the doors are; blank: any class of that side), how long
@@ -4089,13 +4262,15 @@ public plugin_init()
 	g_cv_objmsg2 = register_cvar("tsm_obj_msg_2", "");
 
 	/*
-	 * THE SIEGE ALARM: on/off, the siren's volume, and the line the side under
-	 * attack reads while it runs (pipes are row breaks, exactly like the
-	 * banners). Everything else about the alarm is fixed behaviour.
+	 * THE SIEGE ALARM: on/off, the siren's volume, the line the side under
+	 * attack reads while it runs and the line the attacking side reads (pipes
+	 * are row breaks, exactly like the banners). Everything else about the
+	 * alarm is fixed behaviour.
 	 */
 	g_cv_alarm    = register_cvar("tsm_alarm",     "1");
 	g_cv_alarmvol = register_cvar("tsm_alarm_vol", "0.3");
 	g_cv_alarmmsg = register_cvar("tsm_alarm_msg", "BREACH IN PROGRESS");
+	g_cv_alarmmsgatk = register_cvar("tsm_alarm_msg_attack", "YOUR TEAM IS CURRENTLY SIEGING THE MAP");
 
 	// The finale's ground shake goes out as the raw ScreenShake game message,
 	// so its id is looked up once here and reused at every last boom.
@@ -4317,6 +4492,12 @@ public plugin_init()
 	register_forward(FM_AddToFullPack, "fw_addtofullpack_pre");
 	register_forward(FM_AddToFullPack, "fw_addtofullpack", 1);
 
+	// Sudden death's x-ray reaches past the PVS on Xash only, where the engine draws it.
+	if (g_xash)
+	{
+		register_forward(FM_CheckVisibility, "fw_checkvis");
+	}
+
 	// The cloak's EF_NODRAW for RCBot: off straight after its think, on again at the end of
 	// the frame. See cloak_active().
 	register_forward(FM_StartFrame, "fw_startframe_pre");
@@ -4400,6 +4581,7 @@ public plugin_init()
 	register_concmd("amx_tsm_simwin",      "cmd_simwin",      ADMIN_CFG, " <1|2> - award the current round to a team");
 	register_concmd("amx_tsm_obj",         "cmd_obj",         ADMIN_CFG, " [reset|<n>] - the map's siege objectives: what has fallen; put them back, or say how many have fallen");
 	register_concmd("amx_tsm_simelim",     "cmd_simelim",     ADMIN_CFG, " [target] - eliminate a player as if they were killed");
+	register_concmd("tsm_opendoor",        "cmd_opendoor",    ADMIN_CFG, " - force open the door you are aiming at, locked or not");
 
 	// THE SIEGE DEBUG SUITE: every stage of the satchel flow, on demand, with
 	// no second player and not a single tsm_obj entity in the map required.
@@ -4593,10 +4775,19 @@ bool:cloak_active(id)
 		&& !g_locked_out[id] && g_state == ST_LIVE);
 }
 
+/// Does sudden death show this player through walls to the other side right now? On
+/// Xash only, where the engine patch draws the marker; a living body still in the round.
+bool:xray_marks(ent)
+{
+	return (g_xash && g_sudden && get_pcvar_num(g_cv_sudden) > 0 && get_pcvar_num(g_cv_suddenxray)
+		&& is_user_alive(ent) && !g_elim[ent]);
+}
+
 /// Puts the cloak's EF_NODRAW on him, unless something else has already hidden him.
 cloak_bots_hide(id)
 {
-	if (g_cloak_nodraw[id] || !cloak_active(id))
+	// Not while an Officer's scan has him: for those seconds bots may see him too.
+	if (g_cloak_nodraw[id] || !cloak_active(id) || g_scan_until[id] > get_gametime())
 	{
 		return;
 	}
@@ -4828,8 +5019,12 @@ icon_view(owner, host)
  * The other job here is the cloak's EF_NODRAW: lifted for TS's pack of a cloaked player, so no
  * client ever receives it. fw_addtofullpack puts it back. See cloak_active().
  */
+new g_afp_host;   // the viewer of the pack TS is building right now, for fw_checkvis
+
 public fw_addtofullpack_pre(es, e, ent, host, hostflags, player, pSet)
 {
+	g_afp_host = host;
+
 	// The real slot count, not MAXPL: the icons are made straight after the player slots, so on
 	// a server with fewer than 32 of them they sit below MAXPL and would pass for players here.
 	if (ent >= 1 && ent <= g_maxplayers)
@@ -4864,6 +5059,29 @@ public fw_addtofullpack_pre(es, e, ent, host, hostflags, player, pSet)
 }
 
 /*
+ * Sends a living enemy to the viewer from beyond the viewer's PVS while sudden death's
+ * x-ray is on, so the H9XASH engine has a body to draw through even a solid wall.
+ * TS's AddToFullPack asks this about the entity it is packing; the viewer is the host
+ * fw_addtofullpack_pre recorded for that same pack. Registered on Xash only.
+ */
+public fw_checkvis(ent, pset)
+{
+	if (!g_sudden || ent < 1 || ent > g_maxplayers)
+	{
+		return FMRES_IGNORED;
+	}
+	new host = g_afp_host;
+	if (host < 1 || host > g_maxplayers || host == ent || g_state != ST_LIVE
+		|| !g_match_team[ent] || !g_match_team[host] || g_match_team[ent] == g_match_team[host]
+		|| !xray_marks(ent))
+	{
+		return FMRES_IGNORED;
+	}
+	forward_return(FMV_CELL, 1);
+	return FMRES_SUPERCEDE;
+}
+
+/*
  * The cloak's EF_NODRAW goes back on, and the cloak itself is written into what the other
  * players are sent. Then the one icon change a pre hook cannot make: the red copy for an enemy
  * the pre hook let through in sudden death.
@@ -4891,6 +5109,63 @@ public fw_addtofullpack(es, e, ent, host, hostflags, player, pSet)
 			set_es(es, ES_RenderAmt, floatround(get_pcvar_float(g_cv_cloakopacity)));
 			set_es(es, ES_RenderFx, TSM_RENDERFX_NONE);
 			set_es(es, ES_RenderColor, CLOAK_RGB);
+		}
+
+		/*
+		 * THE SCAN MARK AND THE SUDDEN-DEATH X-RAY, decided per viewer exactly like the
+		 * cloak above, and refused to anyone whose side is not entitled to the reveal.
+		 *
+		 * A scanned cloaked ENEMY to the viewer: a blue glow shell, the medic's
+		 * kRenderFxGlowShell, which TS's own client draws on any engine, and the body
+		 * taken out of the cloak's dimming -- the block above already wrote the shimmer
+		 * for this same pair, and these lines are the last word on the wire. Uncloak
+		 * inside the window and the blue stops; recloak and it is still live. The
+		 * Officer's whole side sees it, the Officer included.
+		 *
+		 * Sudden death on Xash: every living enemy to the viewer, cloaked or not, carries
+		 * the x-ray marker in their own side's colour, which the H9XASH engine draws as a
+		 * glow shell through walls; fw_checkvis sends them from beyond the viewer's PVS
+		 * as well. It wins over the scan's shell, which only shows in line of sight. A plain
+		 * enemy's body is sent solid under it, so he shows nothing but the glow; a cloaked one
+		 * keeps the cloak's mode and amount, or the scan's faint body if his side has scanned
+		 * him. Steam is never sent the marker.
+		 */
+		if (get_orig_retval() && g_state == ST_LIVE && g_match_team[ent] && g_match_team[host]
+			&& g_match_team[ent] != g_match_team[host])
+		{
+			new bool:scanned = (g_scan_until[ent] > get_gametime() && g_scan_team[ent] == g_match_team[host]
+				&& cloak_active(ent) && g_cloaked[ent]);
+			if (xray_marks(ent))
+			{
+				if (!cloak_active(ent))
+				{
+					// a plain enemy's body is solid: the glow is all the x-ray adds to him
+					set_es(es, ES_RenderMode, TSM_RENDER_NORMAL);
+					set_es(es, ES_RenderAmt, 255);   // the H9XASH shell sets its own thickness
+				}
+				else if (scanned)
+				{
+					// a scanned cloaked enemy keeps the faint body he has while cloaked
+					set_es(es, ES_RenderMode, TSM_RENDER_NORMAL);
+					set_es(es, ES_RenderAmt, 16);
+				}
+				set_es(es, ES_RenderFx, TSM_RENDERFX_XRAY);
+				if (g_match_team[ent] == 1)
+				{
+					set_es(es, ES_RenderColor, XRAY_MSR_RGB);
+				}
+				else
+				{
+					set_es(es, ES_RenderColor, XRAY_INS_RGB);
+				}
+			}
+			else if (scanned)
+			{
+				set_es(es, ES_RenderMode, TSM_RENDER_NORMAL);
+				set_es(es, ES_RenderAmt, 16);   // glow-shell thickness, not an alpha
+				set_es(es, ES_RenderFx, TSM_RENDERFX_GLOW);
+				set_es(es, ES_RenderColor, SCAN_RGB);
+			}
 		}
 		return FMRES_IGNORED;
 	}
@@ -4972,7 +5247,8 @@ record_map_items()
 	 * THE OBJECTIVE BODIES, for siege_reset()'s rebuild. One pass over the
 	 * targetnames captures everything a body needs to exist again after it
 	 * died: classname, brush model, the mapper's own health and spawnflags,
-	 * plus the fall target. Private class-data keyvalues the engine consumes
+	 * the fall target, its origin and angles, and its render settings.
+	 * Private class-data keyvalues the engine consumes
 	 * at spawn (material, gib type) are NOT replayable, which MAP_ENTITIES.txt
 	 * says plainly -- an objective breakable should stay an ordinary one.
 	 *
@@ -5001,6 +5277,12 @@ record_map_items()
 		pev(objent, pev_target, g_obj_target[n], charsmax(g_obj_target[]));
 		g_obj_health[n] = Float:pev(objent, pev_health);
 		g_obj_spawnflags[n] = pev(objent, pev_spawnflags);
+		pev(objent, pev_origin, g_obj_origin[n]);
+		pev(objent, pev_angles, g_obj_angles[n]);
+		g_obj_rendermode[n] = pev(objent, pev_rendermode);
+		g_obj_renderamt[n] = Float:pev(objent, pev_renderamt);
+		pev(objent, pev_rendercolor, g_obj_rendercolor[n]);
+		g_obj_renderfx[n] = pev(objent, pev_renderfx);
 	}
 	tlog("[TSM] Recorded %d siege objective bod(ies) for the rebuild cache.", objcount);
 }
@@ -7692,6 +7974,7 @@ give_class_weapons(id)
 
 	new bonus = get_pcvar_num(g_cv_clipbonus);
 	new cap = get_pcvar_num(g_cv_clipcap);
+	new spct = get_pcvar_num(g_cv_sparepct);
 	if (cap < 1)
 	{
 		cap = 1;
@@ -7801,13 +8084,14 @@ give_class_weapons(id)
 		{
 			new m_clip, m_ammo, m_mode, m_extra;
 			new held = ts_getuserwpn(id, m_clip, m_ammo, m_mode, m_extra);
-			if (held == wpnid && m_clip > 0)
+			if (held == wpnid && m_clip > 0 && spct > 0)
 			{
-				// Floor-rounded so no weapon gets the odd extra round.
-				new rounds = (clips * m_clip) / 2;
+				// Floor-rounded so no weapon gets the odd extra round; spct is the
+				// percentage of the full mag stack, 100 = every listed magazine.
+				new rounds = (clips * m_clip * spct) / 100;
 				ts_setuserammo(id, wpnid, rounds);
-				dbgv("give: %d <- weapon %d spare set to %d rounds (figure %d x mag %d / 2), reads back %d",
-					id, wpnid, rounds, clips, m_clip, ts_getuserammo(id, wpnid));
+				dbgv("give: %d <- weapon %d spare set to %d rounds (figure %d x mag %d x %d%%), reads back %d",
+					id, wpnid, rounds, clips, m_clip, spct, ts_getuserammo(id, wpnid));
 			}
 			else
 			{
@@ -7856,13 +8140,14 @@ give_class_weapons(id)
 
 				// The same spare rewrite the loop would have run: the weapon is the
 				// most recently handed over, so this is where the in-hand read is
-				// trustworthy.
-				if (tail_clips > 0)
+				// trustworthy. Percentage and skip-rule included: spct <= 0 leaves
+				// ts_giveweapon's small reserve standing, exactly like the loop.
+				if (tail_clips > 0 && spct > 0)
 				{
 					new t_clip, t_ammo, t_mode, t_extra;
 					if (ts_getuserwpn(id, t_clip, t_ammo, t_mode, t_extra) == tail_wpn && t_clip > 0)
 					{
-						ts_setuserammo(id, tail_wpn, (tail_clips * t_clip) / 2);
+						ts_setuserammo(id, tail_wpn, (tail_clips * t_clip * spct) / 100);
 					}
 				}
 			}
@@ -8224,10 +8509,16 @@ arm_give_kit(id)
 				new held = ts_getuserwpn(id, m_clip, m_ammo, m_mode, m_extra);
 				if (held == TSM_M60_WPN && m_clip > 0)
 				{
-					// Floor-rounded, the same reserve arithmetic every other give uses.
-					new m60rounds = (m60clips * m_clip) / 2;
-					ts_setuserammo(id, TSM_M60_WPN, m60rounds);
-					dbgv("give: M60-first for %d spare set to %d rounds", id, m60rounds);
+					// Floor-rounded, the same reserve arithmetic every other give uses --
+					// percentage from tsm_clip_sparepct, and the same skip-rule: spct
+					// 0 or less leaves ts_giveweapon's small reserve standing.
+					new m60spct = get_pcvar_num(g_cv_sparepct);
+					if (m60spct > 0)
+					{
+						new m60rounds = (m60clips * m_clip * m60spct) / 100;
+						ts_setuserammo(id, TSM_M60_WPN, m60rounds);
+						dbgv("give: M60-first for %d spare set to %d rounds", id, m60rounds);
+					}
 				}
 			}
 
@@ -9053,7 +9344,6 @@ cmd_mech_rocket(id)
 	get_tr2(tr, TR_flFraction, frac);
 	new Float:endpos[3];
 	get_tr2(tr, TR_vecEndPos, endpos);
-	new pHit = get_tr2(tr, TR_pHit);
 
 	// Draw white decaying beam trail
 	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
@@ -9124,12 +9414,44 @@ cmd_mech_rocket(id)
 }
 
 /*
+ * THE BLUE FLASH, one place.
+ *
+ * The point light both the Recon's cloak and the Officer's .scan announce themselves
+ * with. TE_DLIGHT rather than a sprite-based effect: it is a point light with its own
+ * radius, life and decay, needs no precached sprite, and the same
+ * message_begin/SVC_TEMPENTITY pattern cmd_mech_rocket uses -- just a different byte
+ * in it. Blue (100/180/255), because that is the plugin's cloak signature colour, and
+ * the scan borrowing it is the whole point: "the Officer is reading" reads exactly
+ * like "a Recon slipped away".
+ *
+ * Tuning, measured, not guessed -- radius*10=400u, decay*10=80u/s, life*0.1=1.8s: the
+ * light is still ~64% of its radius when its own life timer ends it. The old values
+ * (radius 80u, decay 200u/s, life 0.8s) collapsed to zero radius in 0.4s -- dead
+ * before its own timer ran out at 0.8s -- which is the actual, measured reason the
+ * flash read as "barely tell" rather than a vague brightness complaint.
+ */
+blue_flash(Float:org[3])
+{
+	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+	write_byte(TE_DLIGHT);
+	write_coord(floatround(org[0]));
+	write_coord(floatround(org[1]));
+	write_coord(floatround(org[2]) + 36);   // roughly chest height, not at the feet
+	write_byte(40);    // radius, in 10s of units -- a bigger burst, still body-scale
+	write_byte(100);   // r
+	write_byte(180);   // g
+	write_byte(255);   // b
+	write_byte(18);    // life, in 10ths of a second
+	write_byte(8);     // decay rate
+	message_end();
+}
+
+/*
  * Recon's cloak and uncloak, as one function: a blue TE_DLIGHT flash and a sound either way, then
  * the render state that makes a cloaked body a shimmer and an uncloaked one ordinary again.
  *
- * TE_DLIGHT rather than a sprite-based effect: it is a point light with its own radius, life and
- * decay, needs no precached sprite, and the same message_begin/SVC_TEMPENTITY pattern
- * cmd_mech_rocket already uses above -- just a different byte in it.
+ * The flash is blue_flash() above; the sound is straight emit_sound. TE_DLIGHT rather
+ * than a sprite-based effect: a point light needs no precached sprite.
  *
  * Called from cmd_cloak/cmd_uncloak on a deliberate toggle, and from fw_takedamage when a hit
  * forces an uncloak -- which is why this takes the end state rather than flipping it, and why it
@@ -9193,24 +9515,8 @@ set_cloak(id, bool:on, bool:silent = false)
 	emit_sound(id, CHAN_AUTO, on ? CLOAK_SND[random(2)] : UNCLOAK_SND[random(2)],
 		VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 
-	/*
-	 * radius*10=400u, decay*10=80u/s, life*0.1=1.8s: the light is still ~64% of its radius when
-	 * its own life timer ends it. The old values (radius 80u, decay 200u/s, life 0.8s) collapsed
-	 * to zero radius in 0.4s -- dead before its own timer ran out at 0.8s -- which is the actual,
-	 * measured reason the flash read as "barely tell" rather than a vague brightness complaint.
-	 */
-	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
-	write_byte(TE_DLIGHT);
-	write_coord(floatround(org[0]));
-	write_coord(floatround(org[1]));
-	write_coord(floatround(org[2]) + 36);   // roughly chest height, not at the feet
-	write_byte(40);    // radius, in 10s of units -- a bigger burst, still body-scale
-	write_byte(100);   // r
-	write_byte(180);   // g
-	write_byte(255);   // b
-	write_byte(18);    // life, in 10ths of a second
-	write_byte(8);     // decay rate
-	message_end();
+	// The announcement light, from the one helper both the cloak and the scan share.
+	blue_flash(org);
 }
 
 /// Cloak's own clock running out. Not reached if .uncloak, a hit, or the match itself already
@@ -9496,6 +9802,12 @@ public fw_door_use(ent, activator, caller, use_type, Float:value)
 			ent, cls, name, activator, caller, g_door_use_hits);
 	}
 
+	// An admin's tsm_opendoor is forcing this door open: no gate of ours applies.
+	if (g_forcing_door)
+	{
+		return HAM_IGNORED;
+	}
+
 	if (!is_eng_door(ent))
 	{
 		return HAM_IGNORED;
@@ -9758,9 +10070,11 @@ public task_hover_info()
 		new hname[32];
 		get_user_name(hit, hname, charsmax(hname));
 
-		// Channel 5: 1-4 are already taken by the round timer, score, kill reports
-		// and the spectator HUD, and sharing a channel makes both messages flicker.
-		set_hudmessage(120, 220, 120, -1.0, 0.56, 0, 0.0, 0.4, 0.0, 0.0, 5);
+		// Channel 1. GoldSrc keeps four text slots and files a message in channel % 4,
+		// so this is the slot the readout has always had on Steam, beside the round
+		// timer; Xash keeps eight, and a channel above 4 there gets a slot of its own
+		// that TS's client does not show.
+		set_hudmessage(120, 220, 120, -1.0, 0.56, 0, 0.0, 0.4, 0.0, 0.0, 1);
 		show_hudmessage(id, "%s^n%s^n%d HP", hname, cname, get_user_health(hit));
 	}
 }
@@ -9924,6 +10238,115 @@ bool:is_officer(id)
 	return (g_class_perk[resolved_class(id) - 1] == TSM_PERK_OFFICER);
 }
 
+/*
+ * THE OFFICER'S SCAN.
+ *
+ * .scan from chat: once per cooldown, everything cloaked and ENEMY inside a sphere
+ * around the Officer is exposed -- to his ENTIRE side, not just to himself, and to that
+ * side's bots as well (cloak_bots_hide stands down for a scanned body). The mark is a
+ * blue glow shell, the medic's kRenderFxGlowShell, which TS's own client draws on every
+ * engine, within line of sight.
+ *
+ * Written into fw_addtofullpack by way of three arrays per target (see the declaration
+ * block); the per-viewer side of it is the whole point of the split. The sound comes
+ * from tsm_scan_sound and plays FROM the Officer at ATTN_NORM, so the people standing
+ * near him of BOTH sides hear that a scan went off.
+ */
+cmd_scan(id)
+{
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		client_print(id, print_chat, "[TSM] You have to be alive to scan.");
+		return;
+	}
+
+	// is_officer answers the live-round and alive halves itself, so the message can be
+	// about the class alone and never about the clock.
+	if (!is_officer(id))
+	{
+		client_print(id, print_chat, "[TSM] Only the Officer class can scan.");
+		return;
+	}
+
+	new Float:now = get_gametime();
+	new Float:cool = get_pcvar_float(g_cv_scancool);
+	if (g_scan_next[id] > now)
+	{
+		client_print(id, print_center, "Scanner ready in %.0fs", g_scan_next[id] - now);
+		return;
+	}
+
+	// Charged ON USE, like the cloak and the rocket: the clock below the reveal is
+	// tsm_scan_cooldown minus tsm_scan_time, whatever the two cvars say relative to
+	// each other. A conflict there is an operator's choice, not a plugin error.
+	g_scan_next[id] = now + cool;
+
+	new Float:radius = get_pcvar_float(g_cv_scanradius);
+	new Float:until = now + get_pcvar_float(g_cv_scantime);
+	new team = g_match_team[id];
+
+	new Float:origin[3], Float:pos[3];
+	pev(id, pev_origin, origin);
+
+	new found = 0;
+	for (new victim = 1; victim < MAXPL; victim++)
+	{
+		if (victim == id || !is_user_connected(victim) || !is_user_alive(victim)
+			|| !g_match_team[victim] || g_match_team[victim] == team
+			|| !g_cloaked[victim] || !cloak_active(victim))
+		{
+			continue;
+		}
+
+		pev(victim, pev_origin, pos);
+		new Float:dx = pos[0] - origin[0];
+		new Float:dy = pos[1] - origin[1];
+		new Float:dz = pos[2] - origin[2];
+		if (dx*dx + dy*dy + dz*dz > radius*radius)
+		{
+			continue;
+		}
+
+		// A second scan by the other side overwrites the first mark: one mark per
+		// target, whoever last covered him.
+		g_scan_until[victim] = until;
+		g_scan_team[victim] = team;
+		found++;
+	}
+
+	// The ping, on the cvar -- empty until supplied, and then only if the file is there.
+	perk_sound(id, g_cv_scansound);
+
+	// And the visual the Recon's cloak announces with: the same blue point light,
+	// same tuned burst, from the one helper both effects share -- seen by anyone
+	// nearby, of BOTH sides. The scan should read as something happening, not as
+	// a quiet chat line.
+	blue_flash(origin);
+
+	new name[32];
+	get_user_name(id, name, charsmax(name));
+	for (new mate = 1; mate < MAXPL; mate++)
+	{
+		// Bots and eliminated players among the team receive nothing they cannot use;
+		// client_print to an unconnected slot is guarded by the test above.
+		if (is_user_connected(mate) && g_match_team[mate] == team)
+		{
+			if (found)
+			{
+				client_print(mate, print_chat, "[SCAN] %s's survey: %d cloaked enemy(ies) exposed for %.0f seconds.",
+					name, found, get_pcvar_float(g_cv_scantime));
+			}
+			else
+			{
+				client_print(mate, print_chat, "[SCAN] %s's survey: nothing cloaked within %.0f units.",
+					name, get_pcvar_float(g_cv_scanradius));
+			}
+		}
+	}
+
+	dbg("scan: officer %d revealed %d cloaked target(s) for %.0fs", id, found, get_pcvar_float(g_cv_scantime));
+}
+
 /// Returns true if this body walks as a mech (mech_msr / mech_ins model).
 ///
 /// The pev_model STRING is not the picture. TS force-writes the userinfo "model"
@@ -10000,7 +10423,8 @@ stock bool:is_footstep(const sample[])
 /// is superceded with mechwalk / mechwalk2, alternating, so the stock step is
 /// never heard. Moved here from the old mech_footsteps plugin. A cloaked Recon's
 /// own footstep is superceded too, with nothing played at all -- the one thing
-/// the shimmer alone can't hide is the sound of him walking.
+/// the shimmer alone can't hide is the sound of him walking -- and so is every
+/// footstep of an eliminated player, whom TS has put back on their feet.
 public fw_emit_sound(id, channel, const sample[], Float:volume, Float:attenuation, flags, pitch)
 {
 	if (id < 1 || id > get_maxplayers())
@@ -10012,9 +10436,9 @@ public fw_emit_sound(id, channel, const sample[], Float:volume, Float:attenuatio
 		return FMRES_IGNORED;
 	}
 
-	if (g_cloaked[id])
+	if (g_cloaked[id] || g_elim[id])
 	{
-		return FMRES_SUPERCEDE;          // cloaked: no footstep sound at all, nothing emitted
+		return FMRES_SUPERCEDE;          // cloaked or eliminated: no footstep sound at all, nothing emitted
 	}
 
 	if (!wears_mech(id))
@@ -10033,12 +10457,13 @@ public fw_emit_sound(id, channel, const sample[], Float:volume, Float:attenuatio
 /// Every MECH_LOOP_PERIOD, hand the hum to everyone standing in range of a living
 /// mech. CHAN_STATIC so a weapon or voice from the same walker does not cut it;
 /// each pass replaces the last one on that channel, which is what makes the loop
-/// continuous. A mech that dies keeps at most one pass of tail.
+/// continuous. An eliminated mech is skipped: TS puts it back on its feet, but it
+/// is out of the round, and death_voice() has already stopped its hum.
 public task_mech_loop()
 {
 	for (new id = 1; id <= get_maxplayers(); id++)
 	{
-		if (!is_user_alive(id) || !wears_mech(id))
+		if (!is_user_alive(id) || !wears_mech(id) || g_elim[id])
 		{
 			continue;
 		}
@@ -10206,8 +10631,8 @@ bool:is_engineer(id)
 /* ---- siege objectives ------------------------------------------------------
  *
  * A map's objectives are brush entities named tsm_obj_1, tsm_obj_2 ... up to
- * tsm_obj_9, and they fall in that order: the next one only, one per round at the
- * most, and what has fallen stays fallen from round to round until the match ends.
+ * tsm_obj_9, and they fall in that order, the next one only. Every round starts
+ * the chain over at objective 1.
  *
  * Make them func_wall (or anything a player cannot use by himself: a func_button
  * would fire for whoever walks up and presses it, and the plugin would never see
@@ -10216,13 +10641,11 @@ bool:is_engineer(id)
  * why not -- that is what stops a defender handing his own objective over.
  *
  * When one falls, the plugin fires the objective's own "target" (the map's
- * explosion, sparks, alarm, the wall that opens the way to the next), gives the
- * round to the attackers and, with tsm_obj_slay 1, kills everyone left alive.
- * When the match ends or is stopped, it fires tsm_obj_<n>_reset for each one that
- * fell, for the map to put back what its explosion took away.
- *
- * The objective entity itself is the map's to hide or keep: the plugin does not
- * remove it, it only refuses it once it has fallen.
+ * explosion, sparks, alarm, the wall that opens the way to the next) and the round
+ * goes on. The LAST one also gives the round to the attackers and, with
+ * tsm_obj_slay 1, kills everyone left alive. At every round start it fires
+ * tsm_obj_<n>_reset for each one that fell, for the map to put back what its
+ * explosion took away, and rebuilds each destroyed body from the load-time cache.
  */
 /*
  * TSM_OBJ_PREFIX and TSM_OBJ_MAX live with the early constants, up by the
@@ -10293,16 +10716,26 @@ siege_number(ent)
 	return name[8] - '0';
 }
 
-/// How many objectives the map has: tsm_obj_1 and on, up to the first missing.
+/*
+ * How many objectives the map has: tsm_obj_1 and on, up to the first slot that was
+ * neither recorded at map load, nor has fallen this round, nor stands right now (the
+ * debug suite's synthetic ones live only in the world).
+ *
+ * The world alone is not enough: a fallen objective's body is deleted, so counting
+ * only what stands would put the end of the chain right behind the first fall.
+ */
 siege_count()
 {
 	new name[16], n = 0;
 	for (new i = 1; i <= TSM_OBJ_MAX; i++)
 	{
-		formatex(name, charsmax(name), "%s%d", TSM_OBJ_PREFIX, i);
-		if (engfunc(EngFunc_FindEntityByString, -1, "targetname", name) <= 0)
+		if (!g_obj_class[i][0] && i > g_obj_taken)
 		{
-			break;
+			formatex(name, charsmax(name), "%s%d", TSM_OBJ_PREFIX, i);
+			if (engfunc(EngFunc_FindEntityByString, -1, "targetname", name) <= 0)
+			{
+				break;
+			}
 		}
 		n = i;
 	}
@@ -10414,7 +10847,7 @@ bool:siege_use(id)
 	}
 
 	g_obj_holding[id] = ent;
-	g_plant_last[id] = -10.0;   // forces the plant sound's very first cycle
+	g_plant_last[id] = -10.0;   // a new hold: the plant sound plays on its first tick
 	g_obj_started[id] = get_gametime();
 	remove_task(id + TSM_TASK_OBJ);
 	set_task(0.1, "task_siege_hold", id + TSM_TASK_OBJ, "", 0, "b");
@@ -10459,11 +10892,11 @@ plant_bar(id, Float:need, Float:held)
 
 	if (get_pcvar_num(g_cv_objteam) == 1)
 	{
-		set_hudmessage(0, 170, 255, -1.0, TSM_PLANT_Y, 0, 0.0, 0.25, 0.05, 1.0, 7);
+		set_hudmessage(0, 170, 255, -1.0, TSM_PLANT_Y, 0, 0.0, 0.25, 0.05, 1.0, 3);
 	}
 	else
 	{
-		set_hudmessage(255, 70, 60, -1.0, TSM_PLANT_Y, 0, 0.0, 0.25, 0.05, 1.0, 7);
+		set_hudmessage(255, 70, 60, -1.0, TSM_PLANT_Y, 0, 0.0, 0.25, 0.05, 1.0, 3);
 	}
 	show_hudmessage(id, "PLANTING THE SATCHEL^n[%s]", bar);
 }
@@ -10493,17 +10926,21 @@ public task_siege_hold(taskid)
 	if (held < need)
 	{
 		/*
-		 * THE PLANT'S OWN SOUNDS AND READ. The satchel-planting sound rings
-		 * from the objective's spot (spatial: the closer you stand, the
-		 * louder), restarted whenever it runs out -- one channel on one
-		 * entity restarts cleanly, so a longer wav means a later re-clack and
-		 * never a stack -- and the planter reads their progress bar growing.
+		 * THE PLANT'S OWN SOUND AND READ. The satchel-planting sound rings once,
+		 * as the hold starts, from the objective's spot (spatial: the closer you
+		 * stand, the louder) -- and not again while that objective's last play is
+		 * still sounding, so a release and a quick re-press cannot restart it.
+		 * The planter reads their progress bar growing for the whole hold.
 		 */
-		new Float:plcyc = (g_plant_len > 0.5) ? g_plant_len : 1.0;
-		if (held - g_plant_last[id] >= plcyc - 0.05)
+		if (g_plant_last[id] < 0.0)
 		{
-			emit_sound(ent, CHAN_BODY, TSM_PLANT_WAV, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 			g_plant_last[id] = held;
+			new Float:pnow = get_gametime();
+			if (pnow - g_plant_snd_at[n] >= g_plant_len)
+			{
+				emit_sound(ent, CHAN_BODY, TSM_PLANT_WAV, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
+				g_plant_snd_at[n] = pnow;
+			}
 		}
 		plant_bar(id, need, held);
 		return;
@@ -10560,7 +10997,7 @@ siege_fall(id, ent, n)
 {
 	g_obj_taken = n;
 
-	// No one else's hold carries on into the round's end.
+	// No one else's hold carries on past a fall: the chain has moved on.
 	for (new i = 1; i < MAXPL; i++)
 	{
 		if (g_obj_holding[i])
@@ -10592,57 +11029,57 @@ siege_fall(id, ent, n)
 	}
 	dbg("siege: objective %d fell to %d", n, id);
 
-	end_round(get_pcvar_num(g_cv_objteam));
-
-	/*
-	 * THE FINAL BOOM, only when the chain itself ended -- every objective
-	 * fallen. Three of HL1's stock explosions layered at once, world-wide
-	 * (emit to 0 = everyone, ATTN_NONE so it never fades with distance), on
-	 * separate channels and spread pitches so the stack reads as ONE huge
-	 * blast. Intermediate falls keep only the map's own spectacle.
-	 */
+	// Only the last objective ends the round. An earlier one has blown and the
+	// round goes on: the attackers move to the next in the chain.
 	if (n >= count)
 	{
-		emit_sound(0, CHAN_WEAPON, TSM_OBJ_BOOM_A, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
-		emit_sound(0, CHAN_BODY, TSM_OBJ_BOOM_B, VOL_NORM, ATTN_NONE, 0, 110);
-		emit_sound(0, CHAN_ITEM, TSM_OBJ_BOOM_C, VOL_NORM, ATTN_NONE, 0, 88);
-
-		/*
-		 * AND THE LAST ONE SHAKES THE GROUND -- FOR AS LONG AS THE BOOMS
-		 * RING. Each stock boom's own seconds are measured at precache, so
-		 * the shake is cut to the stack's combined window: never shorter
-		 * than any one of the three sounds it carries, and never under
-		 * three seconds whatever the files measure. The raw ScreenShake
-		 * message, in the HLSDK's own encoding -- amplitude and duration at
-		 * 12.4 fixed point (wire value = degrees x 4096 and seconds x
-		 * 4096), frequency at 8.8 (ticks a second x 256): exactly the three
-		 * shorts the SDK's UTIL_ScreenShake writes. Eight degrees swung at
-		 * 25 ticks a second, broadcast, so every player rides out the blast
-		 * wherever they stand.
-		 */
-		new Float:bang = g_boom_len[0];
-		if (g_boom_len[1] > bang)
-		{
-			bang = g_boom_len[1];
-		}
-		if (g_boom_len[2] > bang)
-		{
-			bang = g_boom_len[2];
-		}
-		if (bang < 1.0)
-		{
-			bang = 3.0;
-		}
-		message_begin(MSG_BROADCAST, g_shake_msg);
-		write_short(8 << 12);                    // amplitude, degrees of swing
-		write_short(floatround(bang * 4096.0));  // duration, outlasting every boom
-		write_short(25 << 8);                    // frequency, shakes a second
-		message_end();
+		end_round(get_pcvar_num(g_cv_objteam));
 	}
 
+	/*
+	 * THE BOOM, on every fall. Three of HL1's stock explosions layered at once,
+	 * world-wide (emit to 0 = everyone, ATTN_NONE so it never fades with distance),
+	 * on separate channels and spread pitches so the stack reads as ONE huge blast.
+	 * The last fall also ends the round, below; the boom and the shake are the same.
+	 */
+	emit_sound(0, CHAN_WEAPON, TSM_OBJ_BOOM_A, VOL_NORM, ATTN_NONE, 0, PITCH_NORM);
+	emit_sound(0, CHAN_BODY, TSM_OBJ_BOOM_B, VOL_NORM, ATTN_NONE, 0, 110);
+	emit_sound(0, CHAN_ITEM, TSM_OBJ_BOOM_C, VOL_NORM, ATTN_NONE, 0, 88);
+
+	/*
+	 * EVERY FALL SHAKES THE GROUND -- FOR AS LONG AS THE BOOMS RING. Each stock
+	 * boom's own seconds are measured at precache, so the shake is cut to the
+	 * stack's combined window: never shorter than any one of the three sounds it
+	 * carries, and never under three seconds whatever the files measure. The raw
+	 * ScreenShake message, in the HLSDK's own encoding -- amplitude and duration
+	 * at 12.4 fixed point (wire value = degrees x 4096 and seconds x 4096),
+	 * frequency at 8.8 (ticks a second x 256): exactly the three shorts the SDK's
+	 * UTIL_ScreenShake writes. Eight degrees swung at 25 ticks a second, broadcast,
+	 * so every player rides out the blast wherever they stand.
+	 */
+	new Float:bang = g_boom_len[0];
+	if (g_boom_len[1] > bang)
+	{
+		bang = g_boom_len[1];
+	}
+	if (g_boom_len[2] > bang)
+	{
+		bang = g_boom_len[2];
+	}
+	if (bang < 1.0)
+	{
+		bang = 3.0;
+	}
+	message_begin(MSG_BROADCAST, g_shake_msg);
+	write_short(8 << 12);                    // amplitude, degrees of swing
+	write_short(floatround(bang * 4096.0));  // duration, outlasting every boom
+	write_short(25 << 8);                    // frequency, shakes a second
+	message_end();
+
 	// After end_round: deaths outside a live round are not eliminations, so nobody
-	// is counted out of the next one for being caught in the blast.
-	if (get_pcvar_num(g_cv_objslay))
+	// is counted out of the next one for being caught in the blast. The last
+	// objective only, like the round end.
+	if (n >= count && get_pcvar_num(g_cv_objslay))
 	{
 		set_task(0.5, "task_siege_slay", TSM_TASK_OBJ);
 	}
@@ -10862,18 +11299,13 @@ public fw_obj_killed(victim, attacker, gib)
 }
 
 /*
- * Spawns back the objective bodies that are missing from the world.
+ * Spawns back every objective body that is missing from the world, from the cache
+ * recorded at map load. The chain starts over at every round, so every body comes back.
  *
- *   only_pending TRUE  -- the ROUND-START repair. Objective progress lives
- *   across the whole match (a fall is one round won; the chain continues
- *   next round), so a body destroyed AHEAD of its turn must come back for
- *   the round after it -- but a body that has actually FALLEN stays fallen;
- *   that is this match's own progress.
- *
- *   only_pending FALSE -- the MATCH reset. Everything comes back, because
- *   the chain (and g_obj_taken) start over.
+ * Origin, angles and render settings are set BEFORE the Spawn, as the map's own
+ * entity lump would have set them, so the body's Spawn places and draws it the same.
  */
-siege_rebuild_bodies(bool:only_pending)
+siege_rebuild_bodies()
 {
 	new name[16], hstr[16];
 	for (new n = 1; n <= TSM_OBJ_MAX; n++)
@@ -10881,10 +11313,6 @@ siege_rebuild_bodies(bool:only_pending)
 		if (!g_obj_model[n][0])
 		{
 			continue;
-		}
-		if (only_pending && n <= g_obj_taken)
-		{
-			continue;   // fallen for this match: stays fallen
 		}
 		formatex(name, charsmax(name), "%s%d", TSM_OBJ_PREFIX, n);
 		if (engfunc(EngFunc_FindEntityByString, -1, "targetname", name) > 0)
@@ -10905,6 +11333,12 @@ siege_rebuild_bodies(bool:only_pending)
 		formatex(hstr, charsmax(hstr), "%f", g_obj_health[n]);
 		kv_set(body, g_obj_class[n], "health", hstr);
 		set_pev(body, pev_spawnflags, g_obj_spawnflags[n]);
+		set_pev(body, pev_origin, g_obj_origin[n]);
+		set_pev(body, pev_angles, g_obj_angles[n]);
+		set_pev(body, pev_rendermode, g_obj_rendermode[n]);
+		set_pev(body, pev_renderamt, g_obj_renderamt[n]);
+		set_pev(body, pev_rendercolor, g_obj_rendercolor[n]);
+		set_pev(body, pev_renderfx, g_obj_renderfx[n]);
 		dllfunc(DLLFunc_Spawn, body);
 		dbg("siege: objective %d rebuilt from cache (#%d)", n, body);
 	}
@@ -10925,7 +11359,7 @@ siege_fire(const name[], activator)
 	}
 }
 
-/// Puts back what fell: tsm_obj_<n>_reset for each, last first. Called wherever a match is reset.
+/// Puts back what fell: tsm_obj_<n>_reset for each, last first. Called at every round start and wherever a match is reset.
 siege_reset()
 {
 	new name[24];
@@ -10950,12 +11384,10 @@ siege_reset()
 	 *
 	 * The relays above cannot reach the objective entity itself: a breakable
 	 * that died is deleted, and no relay hits thin air. siege_rebuild_bodies
-	 * spawns every missing one back from the cache recorded at map load -- the
-	 * whole chain starts over here (only_pending false), while the round-start
-	 * repair inside start_round() only brings back what was destroyed ahead of
-	 * its turn.
+	 * spawns every missing one back from the cache recorded at map load, and
+	 * the whole chain starts over.
 	 */
-	siege_rebuild_bodies(false);
+	siege_rebuild_bodies();
 }
 
 /*
@@ -11886,6 +12318,90 @@ breach_entity(id, ent)
 			dllfunc(DLLFunc_Use, linked, id, id, 2, 0.0);
 		}
 	}
+}
+
+/*
+ * tsm_opendoor: forces open the door the admin is aiming at, locked or not.
+ *
+ * A door's lock is its master (the "master" keyvalue, usually a multisource). reTS
+ * keeps it in the door's private data at 0xec, and CBaseDoor::DoorActivate (mp.dll
+ * 0x100108d0) asks UTIL_IsMasterTriggered about it before the door moves. It is
+ * cleared for the one Use and put back straight after, so the door opens once and
+ * then its own timer, and its lock, behave as they always do.
+ *
+ * The door's toggle state is at 0x70: 0 at the top (open), 1 at the bottom, 2 going
+ * up, 3 going down. A Use only moves a door that is at the bottom.
+ */
+#define TSM_PD_DOOR_STATE   28   // m_toggle_state, private data 0x70
+#define TSM_PD_DOOR_MASTER  59   // m_sMaster, private data 0xec
+
+public cmd_opendoor(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (!get_pcvar_num(g_cv_forcedoor))
+	{
+		console_print(id, "[TSM] tsm_opendoor is off -- set amx_tsm_forcedoor 1 to use it.");
+		return PLUGIN_HANDLED;
+	}
+	if (id < 1 || !is_user_connected(id))
+	{
+		console_print(id, "[TSM] tsm_opendoor opens the door a player is aiming at -- run it from a player's console.");
+		return PLUGIN_HANDLED;
+	}
+
+	new Float:start[3], Float:vo[3], Float:ang[3], Float:fwd[3], Float:dest[3];
+	pev(id, pev_origin, start);
+	pev(id, pev_view_ofs, vo);
+	start[0] += vo[0];
+	start[1] += vo[1];
+	start[2] += vo[2];
+
+	pev(id, pev_v_angle, ang);
+	engfunc(EngFunc_MakeVectors, ang);
+	global_get(glb_v_forward, fwd);
+	dest[0] = start[0] + fwd[0] * 8192.0;
+	dest[1] = start[1] + fwd[1] * 8192.0;
+	dest[2] = start[2] + fwd[2] * 8192.0;
+
+	engfunc(EngFunc_TraceLine, start, dest, 0, id, 0);
+	new door = get_tr2(0, TR_pHit);
+	new cls[32];
+	cls[0] = 0;
+	if (door > 0 && pev_valid(door))
+	{
+		pev(door, pev_classname, cls, charsmax(cls));
+	}
+	if (!equal(cls, "func_door") && !equal(cls, "func_door_rotating"))
+	{
+		console_print(id, "[TSM] Not aiming at a door (hit: %s).", cls[0] ? cls : "nothing");
+		return PLUGIN_HANDLED;
+	}
+
+	new dstate = get_pdata_int(door, TSM_PD_DOOR_STATE);
+	if (dstate == 0 || dstate == 2)
+	{
+		console_print(id, "[TSM] That door is already open.");
+		return PLUGIN_HANDLED;
+	}
+	if (dstate == 3)
+	{
+		console_print(id, "[TSM] That door is closing -- run it again once it has shut.");
+		return PLUGIN_HANDLED;
+	}
+
+	new master = get_pdata_int(door, TSM_PD_DOOR_MASTER);
+	set_pdata_int(door, TSM_PD_DOOR_MASTER, 0);
+	g_forcing_door = true;
+	dllfunc(DLLFunc_Use, door, id, id, 1, 0.0);   // 1 = USE_ON
+	g_forcing_door = false;
+	set_pdata_int(door, TSM_PD_DOOR_MASTER, master);
+
+	console_print(id, "[TSM] Forced door %d (%s) open.", door, cls);
+	dbg("tsm_opendoor: %d forced door %d (%s), master %d", id, door, cls, master);
+	return PLUGIN_HANDLED;
 }
 
 /*
@@ -12997,6 +13513,8 @@ public fw_postthink_post(id)
 	 * initial on-transition. It does nothing on screen (this rendermode ignores rendercolor for a
 	 * studio model), but it is what the patched RCBot source compares against (CLOAK_COLOR), so
 	 * an un-reasserted color would leave a glowed-then-cloaked player targetable to that build.
+	 * While an Officer's scan has him it is black instead: no signature, so that build engages him
+	 * for those seconds, as the deployed one does once cloak_bots_hide stands down.
 	 *
 	 * Deliberately NOT applied while spectating, eliminated, locked out, or outside a live round
 	 * -- those paths set rendermode themselves (the warmup hold and spectator blocks in
@@ -13011,7 +13529,15 @@ public fw_postthink_post(id)
 			set_pev(id, pev_rendermode, TSM_RENDER_TEXTURE);
 			set_pev(id, pev_renderamt, get_pcvar_float(g_cv_cloakopacity));
 			set_pev(id, pev_renderfx, TSM_RENDERFX_NONE);
-			set_pev(id, pev_rendercolor, CLOAK_COLOR);
+			if (g_scan_until[id] > get_gametime())
+			{
+				new Float:nocolor[3];
+				set_pev(id, pev_rendercolor, nocolor);
+			}
+			else
+			{
+				set_pev(id, pev_rendercolor, CLOAK_COLOR);
+			}
 		}
 		else
 		{
@@ -13643,8 +14169,9 @@ public fw_prethink(id)
 		}
 		g_mech_hp_watch[id] = mechhp;
 
-		// Pilot step sound, on the pilot's own client as well as in the world.
-		if (!is_user_bot(id))
+		// Pilot step sound, on the pilot's own client as well as in the world. Not for
+		// an eliminated pilot, whom TS has put back on their feet.
+		if (!is_user_bot(id) && !g_elim[id])
 		{
 			new Float:vel[3];
 			pev(id, pev_velocity, vel);
@@ -13803,8 +14330,19 @@ public fw_prethink(id)
 		 *
 		 * So the freeze is skipped for him and the three things that DO define it are asserted
 		 * every frame instead, where TS cannot quietly put them back.
+		 *
+		 * THE CHOSEN SPECTATOR IS THE SAME CAMERA. Team 3 used to take the freeze below
+		 * instead: held in place with their attack bits cleared, so the click that changes
+		 * the player they are watching could never be heard, which is why sitting out felt
+		 * like a dark room. may_watch() already answers for them -- a viewer with no side
+		 * watches BOTH teams -- and everything else this block does is either a general
+		 * assert (NODRAW, non-solid, no weapon model, no damage) a spectator wants too, or
+		 * a guard written as g_elim_at > 0, which someone who was never eliminated simply
+		 * does not enter. Their one real difference stands a few lines down: their attack
+		 * bits are cleared after the click has been read, because unlike a ghost they were
+		 * not guaranteed stripped.
 		 */
-		if (g_elim[id] && !is_spectating(id))
+		if (g_elim[id] || is_spectating(id))
 		{
 			set_pev(id, pev_solid,      TSM_SOLID_NOT);
 			set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
@@ -13887,10 +14425,22 @@ public fw_prethink(id)
 			g_last_buttons[id] = raw_buttons;
 
 			/*
-			 * Following is done by MOVING him: the camera lives on the player entity,
-			 * so watching a teammate means standing at them, kept there every frame
-			 * rather than only on the click.
+			 * THE ONE DIFFERENCE a chosen spectator brings: their attack bits never
+			 * reach TS.
+			 *
+			 * An eliminated body was disarmed by remove_from_play(), so leaving the bits
+			 * alone costs nothing there -- whatever a click does, there is nothing in
+			 * their hands to fire with. A spectator who sat out was never guaranteed
+			 * stripped (only the bench route through park_spectator() takes a loadout
+			 * away), so the clearing the plain hold branch makes is repeated here for
+			 * them alone: the press was read above from raw_buttons, and what TS's
+			 * PlayerPreThink then sees on an invisible, non-solid, free-moving body is
+			 * one button short of a punch.
 			 */
+			if (is_spectating(id))
+			{
+				set_pev(id, pev_button, pev(id, pev_button) & ~(IN_ATTACK | IN_ATTACK2));
+			}
 			new wt = g_spec_target[id];
 			if (wt && is_user_connected(wt) && is_user_alive(wt) && !g_elim[wt])
 			{
@@ -14037,6 +14587,11 @@ public fw_prethink(id)
 
 	// Spectators are invisible and intangible in every state, the same presentation an
 	// eliminated player gets -- they are in the world only to watch.
+	//
+	// Reached only where the hold is NOT: a roamer sitting out skips the hold entirely,
+	// and every other spectator never gets this far, because the ghost camera above
+	// asserts the same fields and answers their movement. This is the roaming case's
+	// invisibility, plus a catch-all, not the watcher's main path.
 	if (is_spectating(id))
 	{
 		if (is_user_alive(id))
@@ -14459,10 +15014,9 @@ officer_slain_sound(id)
  * gender pools are played in random order over the slots the precache step found
  * on disk, falling over to the other voice rather than falling silent entirely.
  *
- * GLOBAL from the spot they were eliminated: emit_sound at attenuation 0 is
- * ATTN_NONE, the Half-Life ambient-global rule -- every client hears the sample
- * at full sent volume wherever they stand, with the stereo pan still showing
- * which way it came from.
+ * LOCAL to the spot they were eliminated: emitted from the body at ATTN_NORM, the
+ * stock attenuation for entity sounds. It fades to nothing about 1250 units from the
+ * body, and the engine sends it only to the clients whose audible set covers that spot.
  */
 death_voice(id)
 {
@@ -14473,6 +15027,10 @@ death_voice(id)
 
 	// An Officer's fall is announced to both teams as well, whatever voice the body gets.
 	officer_slain_sound(id);
+
+	// A mech's hum stops with it for everyone in earshot, rather than running out its
+	// last pass. On any other body there is no hum to stop, and the stop does nothing.
+	emit_sound(id, CHAN_STATIC, MECH_LOOP, 0.0, MECH_LOOP_ATTEN, SND_STOP, PITCH_NORM);
 
 	// The dying body's model, for the machine test below. The userinfo key is
 	// read as before, but it can be TS's own re-answered pick rather than the
@@ -14521,10 +15079,10 @@ death_voice(id)
 		formatex(sample, charsmax(sample), "death/%s%d.wav", fem ? "fem" : "male", slot);
 	}
 
-	// Volume 1.0, attenuation 0 (ATTN_NONE, the global rule above), no send
-	// flags, normal pitch. CHAN_AUTO so it never clobbers TS's own weapon or
-	// speech channels playing on the same body.
-	emit_sound(id, CHAN_AUTO, sample, 1.0, 0.0, 0, PITCH_NORM);
+	// Volume 1.0, attenuation ATTN_NORM (the local rule above), no send flags,
+	// normal pitch. CHAN_AUTO so it never clobbers TS's own weapon or speech
+	// channels playing on the same body.
+	emit_sound(id, CHAN_AUTO, sample, 1.0, ATTN_NORM, 0, PITCH_NORM);
 	tlog("[TSM] death_voice: id=%d machine=%d sample=%s", id, machine, sample);
 
 	// The dying mech pilot's own copy. Dead or not they are still connected, so
@@ -14537,10 +15095,10 @@ death_voice(id)
 	}
 
 	// A machine powers down as it goes: droid_powerdown.wav plays with the boom, not instead
-	// of it, on its own channel and as globally as the boom, and to the pilot the same way.
+	// of it, on its own channel and at the boom's attenuation, and to the pilot the same way.
 	if (machine && g_death_droid_ok)
 	{
-		emit_sound(id, CHAN_AUTO, TSM_DEATH_DROID, 1.0, 0.0, 0, PITCH_NORM);
+		emit_sound(id, CHAN_AUTO, TSM_DEATH_DROID, 1.0, ATTN_NORM, 0, PITCH_NORM);
 		if (!is_user_bot(id))
 		{
 			client_cmd(id, "playvol %s 0.9", TSM_DEATH_DROID);
@@ -14859,6 +15417,9 @@ clear_match_state()
 		g_eng_used[i] = 0.0;
 		g_medic_at[i] = 0.0;
 		g_squad_leader[i] = 0;
+		g_scan_next[i] = 0.0;
+		g_scan_until[i] = 0.0;
+		g_scan_team[i] = 0;
 
 		// The side they belonged to, released with the match it belonged to. Cleared
 		// HERE and nowhere else, which is the whole point of it: see g_side.
@@ -15083,20 +15644,38 @@ bench_everyone()
 	all_print("[MATCH] Everyone is spectating. Pick a side to play the next match, or type .menu.");
 }
 
+/*
+ * The sudden-death fog, in one place.
+ *
+ * The h9_fog_* cvars belong to the ENGINE (see engine-h9-suddendeath.patch): every
+ * server frame it reads all four, packs them into movevars, and the clients' renderers
+ * fog the world with them. On a stock engine they are ordinary unknown cvars that do
+ * nothing at all, which is exactly what this wants.
+ *
+ * on=true holds the plugin's chosen colour and density; anything else zeroes all four,
+ * which is also what a round boundary does to them -- the bog belongs to sudden death
+ * alone, and never survives into the next minute that has none.
+ */
+sudden_fog(bool:on)
+{
+	set_cvar_num("h9_fog_r",       on ? get_pcvar_num(g_cv_suddenfog_r) : 0);
+	set_cvar_num("h9_fog_g",       on ? get_pcvar_num(g_cv_suddenfog_g) : 0);
+	set_cvar_num("h9_fog_b",       on ? get_pcvar_num(g_cv_suddenfog_b) : 0);
+	set_cvar_num("h9_fog_density", on ? get_pcvar_num(g_cv_suddenfog_d) : 0);
+}
+
 start_round()
 {
 	g_round++;
 	g_resetting = true;
 
 	/*
-	 * THE BODIES THAT DIED AHEAD OF THEIR TURN COME BACK HERE. A breakable
-	 * objective shot or blown while its turn had not yet arrived leaves no
-	 * body behind, and the round after it would have had nothing to take.
-	 * The ones that have actually FALLEN this match stay fallen -- that is
-	 * the match's own progress; siege_reset puts the whole chain back only
-	 * when the match itself ends.
+	 * THE WHOLE CHAIN COMES BACK EVERY ROUND. The map's reset relays fire for
+	 * whatever fell, every destroyed body is rebuilt from the load-time cache,
+	 * and the round starts at objective 1 again -- after a full chain as much
+	 * as after a partial one.
 	 */
-	siege_rebuild_bodies(true);
+	siege_reset();
 
 	// The old round's alarm dies with the old round: a fresh one is silent
 	// until somebody attacks something of the other side again. And a satchel
@@ -15113,6 +15692,11 @@ start_round()
 	// clean, so nothing sudden-death shaped can cross a round boundary through any
 	// path that skips the release.
 	g_sudden = false;
+
+	// The fog lifts with it. Zeroed rather than merely left: an operator's hand can
+	// have set an h9_fog cvar to something odd while sudden death ran, and the round
+	// boundary is the one place every route back to plain visibility passes.
+	sudden_fog(false);
 
 	// Re-forced every round: cashforwin and cashforlose are read at the END of one,
 	// and a map change or an rcon set in between would have put them back.
@@ -15158,6 +15742,14 @@ start_round()
 		g_stim_used[id] = false;
 		g_forfeit[id] = false;
 		g_squad_leader[id] = 0;
+
+		// The Officer's .scan re-arms with the round like the other perks' cool-downs,
+		// and no scan mark outlives the round it was scanned in: the shell is refused
+		// by the expiry check anyway, but a carried mark would fire the WRONG side's
+		// line the moment g_match_team changed under someone.
+		g_scan_next[id] = 0.0;
+		g_scan_until[id] = 0.0;
+		g_scan_team[id] = 0;
 
 		// Zeroed so the first tick of the round tops bots up straight away rather
 		// than making them wait out a full interval with whatever BuyArmament left them.
@@ -15325,7 +15917,7 @@ finish_round_start()
 			&& g_class_perk[resolved_class(id) - 1] == TSM_PERK_OFFICER)
 		{
 			client_print(id, print_chat,
-				"[MATCH] Officer: type .follow to take bots on your side under command, .unfollow to release them.");
+				"[MATCH] Officer: .follow takes bots on your side under command, .unfollow releases them, .scan exposes cloaked enemies near you.");
 		}
 	}
 
@@ -15716,6 +16308,9 @@ show_round_timer()
 			dbg("sudden death on at %d seconds left", g_round_left);
 			// Global sudden death sound
 			emit_sound(0, CHAN_STATIC, "xom_laugh.wav", VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
+			// And the bog comes with it: the same clock that flips the icons on turns
+			// the engine's fog cvars on, for the whole map, on both sides.
+			sudden_fog(true);
 		}
 	}
 	else
@@ -16367,6 +16962,12 @@ public hook_say(id)
 		return PLUGIN_HANDLED;
 	}
 
+	if (equali(args, ".scan"))
+	{
+		cmd_scan(id);
+		return PLUGIN_HANDLED;
+	}
+
 	return PLUGIN_CONTINUE;
 }
 
@@ -16990,6 +17591,12 @@ public client_putinserver(id)
 	g_mech_hp_watch[id] = 0;
 	g_m60_skip[id] = -1;
 
+	// The slot may have belonged to somebody else a second ago: no half-forgotten
+	// scanner cooldown or scan mark may follow a new player in.
+	g_scan_next[id] = 0.0;
+	g_scan_until[id] = 0.0;
+	g_scan_team[id] = 0;
+
 	/*
 	 * Ambient music is on by default, but the client's own history wins when there is
 	 * one: cmd_music mirrors every choice into the client's userinfo (setinfo
@@ -17162,6 +17769,8 @@ stock bool:music_is_wav(idx)
 // Nothing is precached or downloaded, and only the player it is sent to hears it.
 // `only` picks one player; 0 sends to everyone with music on.
 // Track 5 (contaminated.wav) uses playvol on a normal sound channel instead.
+// An mp3 track plays at the player's own MP3Volume: neither engine's mp3 command takes a
+// volume, and MP3Volume is the player's setting, so tsm_music_volume is for playvol only.
 music_play(idx, only)
 {
 	new Float:vol = get_pcvar_float(g_cv_musicvol);
@@ -17201,7 +17810,6 @@ music_play(idx, only)
 	{
 		if (is_user_connected(only) && !is_user_bot(only) && !g_music_off[only])
 		{
-			music_set_volume(only, vol);
 			client_cmd(only, "mp3 play sound/music/%s", g_music_mp3[idx]);
 		}
 		return;
@@ -17215,26 +17823,7 @@ music_play(idx, only)
 		{
 			continue;
 		}
-		music_set_volume(players[i], vol);
 		client_cmd(players[i], "mp3 play sound/music/%s", g_music_mp3[idx]);
-	}
-}
-
-/*
- * The mp3 player's volume, set the way the client's engine takes it.
- *
- * Xash3D FWGS has no "mp3 volume" -- it answers "unknown command" and plays at whatever
- * MP3Volume already was -- so there the cvar itself is set.
- */
-music_set_volume(id, Float:vol)
-{
-	if (g_xash)
-	{
-		client_cmd(id, "MP3Volume %f", vol);
-	}
-	else
-	{
-		client_cmd(id, "mp3 volume %f", vol);
 	}
 }
 

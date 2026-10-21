@@ -2,7 +2,7 @@ H9XASH filesystem_stdio.dll -- built from patched source by TSM\xash3d-h9-patche
 
 The filesystem. The webassembly patch's one change here is emscripten-only.
 
-Upstream: FWGS master e8d773ea. Built: branch h9 at 930926d2. Below is the whole
+Upstream: FWGS master e8d773ea. Built: branch h9 at 7129989e. Below is the whole
 source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
 
 diff --git a/filesystem/sys.c b/filesystem/sys.c

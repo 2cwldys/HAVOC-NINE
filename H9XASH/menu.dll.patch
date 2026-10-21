@@ -2,7 +2,7 @@ H9XASH menu.dll -- built from patched source by TSM\xash3d-h9-patches\xash.bat
 
 The main menu, mainui. engine-mainui.patch (webassembly) and mainui-h9-gamestartup.patch (a track a config started keeps playing).
 
-Upstream: FWGS master e8d773ea. Built: branch h9 at 930926d2. Below is the whole
+Upstream: FWGS master e8d773ea. Built: branch h9 at 7129989e. Below is the whole
 source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
 
 diff --git a/3rdparty/mainui/BaseMenu.cpp b/3rdparty/mainui/BaseMenu.cpp

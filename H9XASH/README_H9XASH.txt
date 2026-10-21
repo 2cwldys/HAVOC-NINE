@@ -62,6 +62,12 @@
  * exec takes a whole config, as GoldSrc's does: the command buffer holds 256 KB
    (ts_matchmode.cfg is about 86 KB).
    Patch: TSM\xash3d-h9-patches\patches\engine-h9-cmdbuf.patch.
+ * The mouse still turns your view while you type in say or say_team, as on
+   GoldSrc. Patch: TSM\xash3d-h9-patches\patches\engine-h9-chatmouse.patch.
+ * Sudden death: every living enemy glows through walls, Insurgents red and MSR
+   blue (renderfx 64, drawn with the depth test off), and the map fogs over from
+   the server's h9_fog_* cvars. Patches: engine-h9-xray.patch and
+   engine-h9-suddendeath.patch, in TSM\xash3d-h9-patches\patches.
  * Xash's main menu reads gfx\shell\colors.lst, not resource\trackerscheme.res;
    the purple colours are carried over there. The menu background is still H9's
    resource\background tiles.

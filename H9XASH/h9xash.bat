@@ -74,9 +74,9 @@ if %COUNT% GTR 0 (
     )
 )
 
-REM Xash has no "mp3 on"; "mp3 loop" alone starts the track.
+REM Xash has no "mp3 on"; "mp3 loop" alone starts the track. The volume is the
+REM player's own MP3Volume (ts\userconfig.cfg sets it), so nothing here sets it.
 (
-    echo MP3Volume "0.2"
     echo mp3 loop sound/music/!CHOSEN!
 ) > "%RESOLVED%"
 

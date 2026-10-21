@@ -1773,12 +1773,77 @@ static void SV_RunLightStyles( void )
 
 /*
 ================
+SV_H9FogByte
+
+H9: one channel of the sudden-death fog, 0-255, clamped straight out of the
+cvar value, because every channel goes through the same clamp.
+================
+*/
+static int SV_H9FogByte( float v )
+{
+	if( v < 0.0f ) return 0;
+	if( v > 255.0f ) return 255;
+	return (int)( v + 0.5f );
+}
+
+/*
+================
+SV_H9ServerFog
+
+H9: the sudden-death fog. The plugin (ts_matchmode.sma) holds the four
+h9_fog_* cvars while the round is in its last minute and zeroes them out as
+soon as it is not; every server frame this reads them and, when anything
+changed, pushes the packed value into movevars and forces the movevars delta
+out. Clients that understand movevars fog then fog the world with it (ref
+gl_rmain.c/R_CheckFog).
+
+The packing matches the renderer's unpacking byte for byte:
+  red     = ( fog_settings & 0xFF000000 ) >> 24
+  green   = ( fog_settings & 0xFF0000 ) >> 16
+  blue    = ( fog_settings & 0xFF00 ) >> 8
+  density = ( fog_settings & 0xFF ) (scaled by 0.01 / 255 by the renderer)
+
+The cvars are created on the first call with zero defaults, so a server that
+never asks for fog never carries one, and a config can set them by hand for a
+map that should always carry its own atmosphere.
+================
+*/
+static void SV_H9ServerFog( void )
+{
+	static convar_t *r, *g, *b, *d;
+	static unsigned int last = 0;
+
+	if( !r )
+	{
+		r = Cvar_Get( "h9_fog_r", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, red" );
+		g = Cvar_Get( "h9_fog_g", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, green" );
+		b = Cvar_Get( "h9_fog_b", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, blue" );
+		d = Cvar_Get( "h9_fog_density", "0", FCVAR_ARCHIVE, "H9 sudden-death fog, strength 0-255" );
+	}
+
+	unsigned int packed = ((unsigned int)SV_H9FogByte( r->value ) << 24)
+			    | ((unsigned int)SV_H9FogByte( g->value ) << 16)
+			    | ((unsigned int)SV_H9FogByte( b->value ) << 8)
+			    |  (unsigned int)SV_H9FogByte( d->value );
+
+	if( packed != last )
+	{
+		last = packed;
+		svgame.movevars.fog_settings = packed;
+		host.movevars_changed = true;	// force to transmit
+	}
+}
+
+/*
+================
 SV_Physics
 
 ================
 */
 void SV_Physics( void )
 {
+	SV_H9ServerFog();
+
 	SV_CheckAllEnts ();
 
 	svgame.globals->time = sv.time;

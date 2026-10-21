@@ -2,7 +2,10 @@ Xash3D FWGS, 32-bit Windows, built by TSM\xash3d-h9-patches\xash.bat
 
 Source:   https://github.com/FWGS/xash3d-fwgs  (GPL-3.0)
 Upstream: master e8d773ea
-Built:    branch h9 at 930926d2, Tue 10/20/2026 16:47:23.75
+Built:    branch h9 at 7129989e, Wed 10/21/2026  4:11:50.15
 Patches:  webassembly-patch\*.patch, then from xash3d-h9-patches\patches:
-          freevgui-h9-scheme.patch, engine-h9-cloak.patch, engine-h9-cmdbuf.patch
+          freevgui-h9-scheme.patch, engine-h9-cloak.patch, engine-h9-cmdbuf.patch,
+          engine-h9-chatmouse.patch, engine-h9-suddendeath.patch, engine-h9-xray.patch
           and mainui-h9-gamestartup.patch
+ref_gl.dll: one-off install from the working tree, with an uncommitted change to
+ref/gl/gl_studio.c. See ref_gl.dll.patch for exactly what this DLL was built from.

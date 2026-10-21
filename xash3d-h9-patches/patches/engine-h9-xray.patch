@@ -1,0 +1,88 @@
+diff --git a/ref/gl/gl_studio.c b/ref/gl/gl_studio.c
+index 603faa63..8f345ee4 100644
+--- a/ref/gl/gl_studio.c
++++ b/ref/gl/gl_studio.c
+@@ -2604,6 +2604,69 @@ static void R_StudioSetupRenderer( int rendermode )
+ 	}
+ }
+ 
++/*
++===============
++R_StudioDrawXray
++
++H9: renderfx 64 is ts_matchmode's sudden-death marker (TSM_RENDERFX_XRAY), a value
++neither GoldSrc's enum (it ends at 20) nor Xash's (it ends at 21) uses. A model sent
++with it gets one more pass after its own: kRenderFxGlowShell's chrome shell in the
++model's rendercolor, at a fixed thickness (H9_XRAY_SHELL_AMT), drawn additively with the
++depth test off, so it shows through walls. It is called from R_StudioRestoreRenderer, where
++every model draw ends: The Specialists' client dll draws players with its own studio
++renderer, which never goes through R_StudioRenderModel.
++===============
++*/
++#define H9_RENDERFX_XRAY 64
++
++// The shell's thickness under the x-ray, in renderamt units (16 is 0.125 units). A body's
++// renderamt is its opacity, so the shell cannot take its thickness from it.
++#define H9_XRAY_SHELL_AMT 16
++
++static void GL_StudioSetRenderMode( int rendermode );
++
++static void R_StudioDrawXray( void )
++{
++	cl_entity_t	*e = RI.currententity;
++	int		oldrendermode = e->curstate.rendermode;
++	int		oldrenderamt = e->curstate.renderamt;
++	int		oldstudiomode = g_studio.rendermode;
++	int		oldforceflags = g_nForceFaceFlags;
++	float		oldblend = tr.blend;
++
++	// the shell as kRenderFxGlowShell's second pass draws it, additive
++	e->curstate.renderfx = kRenderFxGlowShell;
++	e->curstate.rendermode = kRenderTransAdd;
++	e->curstate.renderamt = H9_XRAY_SHELL_AMT;
++	tr.blend = 1.0f;
++	R_StudioSetForceFaceFlags( STUDIO_NF_CHROME );
++	TriSpriteTexture( gEngfuncs.GetDefaultSprite( REF_CHROME_SPRITE ), 0 );
++	R_StudioSetupRenderer( kRenderTransAdd );
++	pglDisable( GL_DEPTH_TEST );
++
++	for( int i = 0; i < m_pStudioHeader->numbodyparts; i++ )
++	{
++		R_StudioSetupModel( i, (void **)&m_pBodyPart, (void **)&m_pSubModel );
++		GL_StudioSetRenderMode( kRenderTransAdd );
++		R_StudioDrawPoints( );
++	}
++
++	// back to the state R_StudioRestoreRenderer leaves behind
++	pglEnable( GL_DEPTH_TEST );
++	pglDepthMask( GL_TRUE );
++	pglDisable( GL_BLEND );
++	R_AllowFog( true );
++	pglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE );
++	pglShadeModel( GL_FLAT );
++
++	R_StudioSetForceFaceFlags( oldforceflags );
++	g_studio.rendermode = oldstudiomode;
++	tr.blend = oldblend;
++	e->curstate.rendermode = oldrendermode;
++	e->curstate.renderamt = oldrenderamt;
++	e->curstate.renderfx = H9_RENDERFX_XRAY;
++}
++
+ /*
+ ===============
+ R_StudioRestoreRenderer
+@@ -2621,6 +2684,13 @@ static void R_StudioRestoreRenderer( void )
+ 	pglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE );
+ 	pglShadeModel( GL_FLAT );
+ 	m_fDoRemap = false;
++
++	// H9: the sudden-death x-ray, on a model in the world (not the view model, not a
++	// menu preview) whose body was drawn
++	if( RI.currententity && RI.currententity->curstate.renderfx == H9_RENDERFX_XRAY
++		&& RI.currententity != tr.viewent && FBitSet( RI.rvp.flags, RF_DRAW_WORLD )
++		&& m_pStudioHeader && r_drawentities->value != 2.0f && r_drawentities->value != 3.0f )
++		R_StudioDrawXray( );
+ }
+ 
+ /*

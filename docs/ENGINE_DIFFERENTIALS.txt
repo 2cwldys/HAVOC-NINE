@@ -87,9 +87,19 @@ Sounds
   48 kHz to match; the originals are in TSM\backups\cloak_sounds_48k_2026-10-20.
 
 Music volume
-  Steam  "mp3 volume <n>".
-  Xash   There is no such subcommand; the volume is the MP3Volume cvar.
-  ts_matchmode sends whichever one the engine understands.
+  Both   The volume is the MP3Volume cvar; neither engine's mp3 command has a volume
+         subcommand. It is the player's setting: ts_matchmode never sends it, and
+         h9xash.bat's menu-music cfg does not set it.
+  Xash   ts\userconfig.cfg sets MP3Volume and volume (0.060) on every launch,
+         after config.cfg.
+
+HUD text channels
+  Steam  GoldSrc keeps four slots for the server's HUD text and files a message by
+         its channel modulo 4: channel 5 lands in slot 1, 6 in 2 and 7 in 3.
+  Xash   Eight slots, so 5, 6 and 7 get slots of their own, and text sent on them
+         did not show with TS's client. The teammate vitals were on channel 5.
+  ts_matchmode now sends HUD text on channels 1 to 4 only, so every line lands in
+  the same slot on both engines.
 
 TS HUD colour
   Steam  hud_r 190, hud_g 160, hud_b 255, edited into ts\config.cfg.
@@ -114,6 +124,29 @@ Command buffer
   Xash's exec queue was 32 KB. ts_matchmode.cfg is about 86 KB, so Xash refused to
   run it. engine-h9-cmdbuf.patch raises the queue to 256 KB, enough for the whole
   file, as GoldSrc runs it.
+
+Chat and the mouse
+  Steam  The mouse still turns your view while you type in say or say_team.
+  Xash   The engine let go of the mouse whenever input left the game, the chat
+         line included. engine-h9-chatmouse.patch keeps it for the chat line;
+         only the menu and the console free it.
+
+Sudden death
+  Steam  The other side's class icons turn red (ts_matchmode). Nothing more.
+  Xash   The x-ray and the fog as well. ts_matchmode sends every living enemy to
+         each player with renderfx 64, from anywhere on the map, and
+         engine-h9-xray.patch draws a model carrying it with a glow shell in its
+         rendercolor (Insurgents red, MSR blue) and the depth test off, so it
+         shows through any wall. engine-h9-suddendeath.patch reads the h9_fog_*
+         server cvars into the world fog. The glow's thickness is fixed in the
+         patch (H9_XRAY_SHELL_AMT), so a body's renderamt is free to be its opacity:
+         a plain enemy is sent solid and shows nothing but the glow, and a cloaked
+         one keeps the cloak's amount.
+  The x-ray used to be renderfx 21, drawn in R_StudioRenderModel, and it never
+  showed: TS's client.dll draws players with its own studio renderer, which never
+  calls R_StudioRenderModel, and 21 is Xash's kRenderFxLightMultiplier, which
+  darkens a model. The pass now runs in R_StudioRestoreRenderer, where every model
+  draw ends, for 64, a value neither engine uses.
 
 Bots' auth id
   Steam  "BOT".
@@ -197,8 +230,9 @@ Where the sources are:
   TSM\decompile_dll\                the binary-patch builders (build_patch_*.py)
                                     and the original DLLs they start from
   TSM\xash3d-h9-patches\patches\    H9's engine patches: freevgui-h9-scheme,
-                                    engine-h9-cloak, engine-h9-cmdbuf and
-                                    mainui-h9-gamestartup
+                                    engine-h9-cloak, engine-h9-cmdbuf,
+                                    engine-h9-chatmouse, engine-h9-suddendeath,
+                                    engine-h9-xray and mainui-h9-gamestartup
   TSM\webassembly-patch\            the four webassembly patches
   TSM\AMXMODX, branch h9            the same ID_BOT rule in tsx's source
   TSM\rcbot-patch\                  rcbot-ts-teams.patch and its README

@@ -124,6 +124,9 @@ team check alone would already return true before a later-placed cloak check
 could ever run, so this has to come first to work in both the enemy-team and
 same-team case.
 
+While an Officer's .scan exposes a cloaked player, ts_matchmode writes his
+rendercolor black instead, so for those seconds this check lets bots engage him.
+
 Like Change 1, this is a plain pev-field read with no AMXX-module callback and no
 dependency on any plugin cvar or array -- the plugin was already writing this
 field for its own cosmetic purposes; this just reads it.
