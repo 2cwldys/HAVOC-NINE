@@ -267,7 +267,7 @@ void CMenuCreateGame::_Init( void )
 
 		int players = atoi( buf );
 		if( players <= 1 )
-			self->SetBuffer( "16" );
+			self->SetBuffer( "32" );
 		else if( players > MAX_CLIENTS )
 			self->SetBuffer( MAX_CLIENTS_STRING() );
 	});

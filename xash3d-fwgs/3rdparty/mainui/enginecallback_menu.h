@@ -508,6 +508,34 @@ public:
 			textfuncs.pfnSetTextInputBuffer( text );
 	}
 
+	static inline bool PrecacheMenuBgVideo( const char *filename )
+	{
+		if( textfuncs.pfnPrecacheMenuBgVideo )
+			return textfuncs.pfnPrecacheMenuBgVideo( filename ) != 0;
+		return false;
+	}
+
+	static inline bool DrawMenuBgVideo( float x, float y, float w, float h )
+	{
+		if( textfuncs.pfnDrawMenuBgVideo )
+			return textfuncs.pfnDrawMenuBgVideo( x, y, w, h ) != 0;
+		return false;
+	}
+
+	static inline int GetMenuBgVideoWidth( void )
+	{
+		if( textfuncs.pfnGetMenuBgVideoWidth )
+			return textfuncs.pfnGetMenuBgVideoWidth();
+		return 0;
+	}
+
+	static inline int GetMenuBgVideoHeight( void )
+	{
+		if( textfuncs.pfnGetMenuBgVideoHeight )
+			return textfuncs.pfnGetMenuBgVideoHeight();
+		return 0;
+	}
+
 	static inline bool GetRenderers( int num, char *sz1, size_t s1, char *sz2, size_t s2 )
 	{
 		return textfuncs.pfnGetRenderers( num, sz1, s1, sz2, s2 ) != 0;

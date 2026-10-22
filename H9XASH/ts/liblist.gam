@@ -4,6 +4,14 @@ url_dl "https://havoc9.org/downloads"
 version "3.0"
 size ""
 svonly "0"
+
+// Unverified experiment, not an established fix: community reports say a Steam-validated
+// server rejects a non-Steam client's ticket (what "STEAM validation rejected" means, see
+// docs\ENGINE_DIFFERENTIALS.txt) and that this field is the lever for it. sv_lan does NOT
+// help here -- it is for genuine LAN-only hosting and rejects a real remote client's ticket
+// even harder. Nobody has tried this against a live Xash client yet.
+secure "0"
+
 cldll "cl_dlls\client.dll"
 hlversion "1110"
 type "multiplayer_only"

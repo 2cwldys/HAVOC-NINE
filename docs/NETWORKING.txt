@@ -1,0 +1,235 @@
+===============================================================================
+ NETWORKING: HOW H9XASH FINDS AND JOINS SERVERS
+===============================================================================
+
+ Who this is for: anyone playing H9XASH (Xash3D FWGS), and anyone who runs a
+ server that Xash players should be able to find.
+
+ The short version
+   * H9XASH players can join servers that run on Xash. A Xash client cannot join
+     a Steam hlds server ("STEAM validation rejected", see ENGINE_DIFFERENTIALS).
+   * The Internet tab lists the FWGS public list plus any server lists named in
+     networking.ini (next to h9xash.bat). The default needs no Steam.
+   * A server appears only when its address is in a list: a line in a list file
+     (section 4), or the H9 list once its bot runs (section 7).
+   * Steam sign-in is optional, through the Steam broker (section 6). A shortcut
+     named HAVOC 9 is what makes the game show as HAVOC 9 in Steam (section 6C).
+
+ 1. HOW THE GAME FINDS SERVERS
+ -----------------------------
+ The Internet tab asks each server list for the servers it knows. Then it asks
+ each of those servers directly for its name, map and player count. A list is a
+ plain text file that the game fetches over HTTP. Two kinds of line are understood:
+
+   ip host:port     an Xash server (ours), answered with Xash's own query
+   gs host:port     a Steam hlds server, answered with the GoldSrc query
+
+ Three sources are combined:
+   * the FWGS public list, always on (http://xash.su/server-list)
+   * masterstatic lines in ts\xashcomm.lst, written from networking.ini
+   * console commands, for testing this session only:
+       addmasterstatic <base-url>   add a list now
+       listmasters                  show every list; "(in flight)" while fetching
+       clearmasters                 remove them all
+
+ engine.log says what each list gave. Run h9xash.bat -dev 2 -log, then look for:
+   masterstatic: http://example.org/v1/servers/ts yielded 3 server(s)
+ A list that cannot be reached, or returns nothing, is logged the same way.
+
+ Nothing sends a heartbeat to these lists yet. Xash servers only heartbeat to
+ UDP masters, and the lists here are HTTP. So a server is listed because someone
+ added its address, not because it announced itself.
+
+ 2. NETWORKING.INI
+ -----------------
+ networking.ini sits next to h9xash.bat. Edit it, then start the game again. Each
+ launch rewrites ts\xashcomm.lst and ts\networking_resolved.cfg from the file, so
+ an edit does nothing until the next launch. xash.bat assemble never overwrites
+ networking.ini once it exists, so your settings survive a rebuild. Nothing in the
+ file is a secret: the Discord bot token lives only on the server.
+
+   [client]
+   steam_broker=0          0 = lists only (the default). 1 = also start the Steam
+                           broker, when steam\steam_broker.exe and steam_api.dll are
+                           both there. If either is missing, the launcher says so
+                           and carries on without it.
+   list_static=            comma-separated base URLs of HTTP server lists
+   list_bot=               the H9 list, once the list bot is running
+
+   [broker]
+   steam_appid=480         the AppID the broker starts Steam with (section 6B)
+   steam_browse_appid=480  the AppID the broker browses the server list under
+
+ Rules for the list values:
+   * Each base URL must start with http:// or https://. Anything else is skipped
+     with a warning. Trailing slashes are removed.
+   * A base URL is the address without /v1/servers/ts. The game adds that part.
+   * https:// needs a certificate bundle at the path http_tls_cafile names (default
+     cacert.pem). One ships already: xash-extras' cacert.pem goes into valve\extras.pk3
+     on every xash.bat engine build, and H9XASH carries that pk3. https:// has not been
+     tested against a real server yet.
+
+ What the launcher writes on every start (h9_networking.ps1, run by h9xash.bat):
+   ts\xashcomm.lst               the lists: masterstatic lines, plus
+                                 mastergs 127.0.0.1:27420 while the broker runs
+   ts\networking_resolved.cfg    cl_ticket_generator steam while the broker runs,
+                                 otherwise revemu2013 (the engine's default)
+   steam\steam_appid.txt         written only when the broker starts
+   steam\steam_browse_appid.txt  written only when the broker starts
+   steam\steam_broker.pid        only while a broker this launch started is running
+
+ 3. TRYING A LIST ON YOUR OWN PC
+ -------------------------------
+ A list is only a web address, so a test list needs no hosting:
+
+   1. Make a folder, and in it the folders v1 and v1\servers. In v1\servers make a
+      file named ts (no extension) containing this one line:
+
+          ip 127.0.0.1:27015
+
+      27015 is the port ts.bat starts hlds on, and the port a Xash server uses.
+   2. In that folder run:      python -m http.server 8080
+   3. In networking.ini set:   list_static=http://127.0.0.1:8080
+   4. Start a Xash server on 27015, start H9XASH again, and open the Internet tab.
+
+ 4. ADDING A SERVER TO A LIST FILE
+ ---------------------------------
+ A list file has one entry per line. Blank lines, and lines starting with #, are
+ ignored. The first word says what kind of server it is:
+
+   # H9 test servers
+   ip 203.0.113.10:27015        an Xash server
+   gs 198.51.100.7:27015        a Steam hlds server (read section 6 first)
+
+ Use the address players connect to. A host name works where it resolves, but an
+ IP address is more reliable.
+
+ 5. RUNNING A SERVER THAT OTHERS CAN FIND
+   * A Xash server answers its queries on its port (27015 by default), so keep
+     that port open in the firewall, or forward it on your router, or play on a LAN.
+   * Hosting on Xash: start a map from the console, which makes a listen server.
+     It is listed only once its address is in a list (section 4).
+   * ts.bat starts the Steam hlds server on -port 27015. Steam hlds servers go in
+     lists as gs entries. Xash players cannot join one without the broker, and
+     that route is not tested yet.
+   * Ask for the address to be added to the H9 list once it exists (section 7),
+     or add it to a list you publish yourself.
+
+ 6. STEAM: SIGN-IN, THE BROKER, AND THE NAME IN STEAM
+ ----------------------------------------------------
+ Two separate questions. Keep them apart.
+
+ A. Steam sign-in (joining servers that require it)
+ The broker is steam_broker.exe from the MSR project. While it runs, it gives the
+ game Steam auth tickets, and it lets the game browse Steam's server list through
+ 127.0.0.1:27420. networking.ini steam_broker=1 starts it with the game. It needs,
+ all at once:
+   * steam\steam_broker.exe and steam\steam_api.dll (32-bit), next to h9xash.bat.
+     They are NOT in this repo. Their licence has not been settled. The broker
+     comes from github.com/Deoroot/Steam-Broker-Xash3D-MSR.
+   * Steam running and logged in on this PC. Without it the broker exits at once,
+     and the launcher falls back to the lists.
+   * An account that owns the game the AppID names (B below).
+ Joining a Steam-authenticated server through the broker has not been tested yet.
+
+ B. The name Steam shows
+   * The AppID the broker starts Steam with decides the game Steam shows while
+     the broker runs. 480 (Spacewar) is what MSR uses, and it is the default here.
+   * 70 (Half-Life) is for joining the stock Steam hlds. It needs an account that
+     owns Half-Life.
+   * No AppID of ours can read HAVOC 9. Only an AppID registered to HAVOC 9 could,
+     and that is a separate project: a Steam Direct fee, a review, and a licence
+     check for the Xash, TS and Half-Life content.
+   * "HAVOC 9" in Steam comes from a Non-Steam shortcut instead (C below). Whether
+     friends see "Playing HAVOC 9" depends on Steam. It is not tested yet, and while
+     the broker runs, Steam may file the game under the broker's AppID.
+
+ C. The Non-Steam shortcut (HAVOC 9 in your library)
+ Close Steam first. Then, from the H9XASH folder:
+
+     powershell -NoProfile -ExecutionPolicy Bypass -File h9_add_to_steam.ps1 -DryRun
+     powershell -NoProfile -ExecutionPolicy Bypass -File h9_add_to_steam.ps1
+
+ The first line shows what would change and writes nothing. The second adds a
+ HAVOC 9 entry, which starts h9xash.bat, to every Steam account on this PC. It keeps
+ a backup of each shortcuts.vdf first. Options:
+   -Remove         take the entry out again
+   -Account 123    change only the account with that number
+ Running it again updates the entry; it never adds a second one.
+ Exit codes: 0 done, 1 an error (nothing written), 2 Steam is running (nothing
+ written).
+
+ What the helper checks before it writes, so you can judge it:
+   * It refuses while Steam runs, because Steam keeps its own copy of the list and
+     would write it back over the change.
+   * It reads shortcuts.vdf in Steam's binary format, and it writes only when
+     reading the new file back gives the same bytes. A file it cannot read is left
+     alone.
+   * It keeps shortcuts.vdf.h9-backup-<time> beside the original before any write.
+   * It writes a temporary file, reads that back, and only then replaces the
+     original.
+
+ 7. THE H9 LIST BOT
+ ------------------
+ A small Python service, with a Discord bot, in TSM serverlist-bot\. It serves the live
+ list at http://<host>:<port>/v1/servers/ts. That is the address list_bot= takes in
+ networking.ini. It asks each listed server with an A2S query every 30 seconds, and it
+ takes a server off the list after 5 minutes with no answer.
+
+ A server gets on in one of three ways: /addserver in Discord (by someone with the list
+ role, or Manage Server), a line in servers.txt, or a heartbeat (POST /v1/heartbeat with
+ the shared key from serverlist.cfg). Each way queries the address first.
+
+ Setup, the Discord application, the heartbeat example and the limits are in
+ serverlist-bot\README.md. Until the list runs, use the list file (section 4).
+
+ 8. TROUBLESHOOTING
+ ------------------
+ The Internet tab is empty
+   - Does list_static in networking.ini hold the right base URL? Open the URL plus
+     /v1/servers/ts in a browser. It should show "ip ..." lines.
+   - Did you start the game after editing networking.ini? An edit does nothing
+     until the next launch.
+   - Run h9xash.bat -dev 2 -log and look in engine.log for "masterstatic".
+   - In the console, listmasters shows each list, and "(in flight)" while a fetch
+     is still running.
+
+ "... is not an http:// or https:// address. Skipped."
+   - The entry is ignored. Start it with http:// or https://.
+
+ "steam_broker=1, but steam\steam_broker.exe ... is missing"
+   - Expected until the MSR broker files are in place (6A). The game runs without
+     the broker.
+
+ "the Steam broker exited at once"
+   - Steam is not running, or nobody is logged in on this PC. Start Steam, log in,
+     and start H9XASH again.
+
+ The broker is still running after you quit the game
+   - The launcher stops only the broker it started, recorded in
+     steam\steam_broker.pid.
+     If it says the broker did not stop, end steam_broker.exe in Task Manager.
+
+ The shortcut helper refuses
+   - Close Steam and run it again. Exit code 2 means Steam is running.
+
+ 9. FILES
+ --------
+ overlay\networking.ini              the settings, kept once it exists
+ overlay\h9_networking.ps1           writes the generated files (section 2)
+ overlay\h9xash.bat                  runs it, and stops the broker after play
+ overlay\h9_add_to_steam.ps1         the Non-Steam shortcut helper (6C)
+ xash.bat assemble, assets           leave an existing networking.ini alone
+ export.bat                          ships networking.ini as the template only, and
+                                     keeps the generated files and the Steam
+                                     binaries out of the package and the repo
+
+ Generated, never edited by hand: ts\xashcomm.lst, ts\networking_resolved.cfg,
+ steam\steam_appid.txt, steam\steam_browse_appid.txt, steam\steam_broker.pid.
+
+ 10. DISCORD PRESENCE
+ ---------------------
+ The game shows your session on Discord as Rich Presence: the map, the players,
+ and the siege progress. It is on by default. ts_richpresence 0 turns it off, and
+ the engine sends the card itself. docs\RICH_PRESENCE.txt has the card, the
+ one-time Discord setup, and what is not done yet.

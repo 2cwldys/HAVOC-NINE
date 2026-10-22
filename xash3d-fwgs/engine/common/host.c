@@ -672,6 +672,7 @@ void Host_Frame( double time )
 	Host_GetCommands (); // dedicated in
 	Host_ServerFrame (); // server frame
 	Host_ClientFrame (); // client frame
+	CL_Presence_Frame();
 	HTTP_Run();			 // both server and client
 	XRcon_Frame();
 

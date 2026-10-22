@@ -1,0 +1,1 @@
+h9xash.bat +exec autoexec.cfg -dev 2 -log -num_edicts 4098 -heapsize 1048576

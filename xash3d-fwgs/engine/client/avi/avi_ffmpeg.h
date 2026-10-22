@@ -143,6 +143,7 @@ int               (*pav_seek_frame)( AVFormatContext *s, int stream_index, int64
 void              (*pavformat_close_input)(AVFormatContext **s);
 int               (*pavformat_find_stream_info)(AVFormatContext *ic, AVDictionary **options);
 int               (*pavformat_open_input)(AVFormatContext **ps, const char *url, const AVInputFormat *fmt, AVDictionary **options);
+const AVInputFormat *(*pav_find_input_format)( const char *short_name );
 
 // libavcodec
 unsigned          (*pavcodec_version)( void );
@@ -201,6 +202,7 @@ int               (*psws_scale)( struct SwsContext *c, const uint8_t *const srcS
 #define pavformat_close_input avformat_close_input
 #define pavformat_find_stream_info avformat_find_stream_info
 #define pavformat_open_input avformat_open_input
+#define pav_find_input_format av_find_input_format
 
 // libavcodec
 #define pavcodec_version               avcodec_version

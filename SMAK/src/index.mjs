@@ -24,7 +24,9 @@ export * from "./contract.mjs";
 export * as workshop from "./workshop.mjs";
 export * as solids from "./solids.mjs";
 export * from "./linkage.mjs";
+export * from "./reproportion.mjs";
 export * from "./unwrap.mjs";
+export * from "./cull.mjs";
 export * from "./blender.mjs";
 // the workshop's noise and colour helpers by name too, for painting by place (`paint` is in place.mjs)
 export { rand, noise, fbm, fbm3, seeded, step, mix, times, bell } from "./workshop.mjs";
@@ -40,3 +42,5 @@ export * from "./import-model.mjs";
 export * from "./import-files.mjs";
 export * from "./import-rig.mjs";
 export * from "./jpeg.mjs";
+// the figure judges: style, texture and shape against a game's own figures (src/figures/)
+export * as figures from "./figures/index.mjs";

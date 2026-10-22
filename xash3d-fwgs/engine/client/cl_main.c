@@ -2131,6 +2131,7 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
 	if( maxcl > MAX_CLIENTS || numcl > MAX_CLIENTS || numcl > maxcl || i != PROTOCOL_VERSION )
 		return;
 
+	CL_Presence_ServerReply( from, infostring );
 	UI_AddServerToList( from, infostring );
 }
 
@@ -3714,6 +3715,7 @@ static void CL_InitLocal( void )
 	cl.resourcesonhand.pNext = cl.resourcesonhand.pPrev = &cl.resourcesonhand;
 
 	Cvar_RegisterVariable( &cl_ticket_generator );
+	CL_Presence_Init();
 	Cvar_RegisterVariable( &cl_advertise_engine_in_name );
 	Cvar_RegisterVariable( &cl_log_outofband );
 	Cvar_RegisterVariable( &cl_autorecord );
@@ -4045,6 +4047,7 @@ CL_Shutdown
 */
 void CL_Shutdown( void )
 {
+	CL_Presence_Shutdown();
 	Con_Printf( "%s()\n", __func__ );
 
 	if( host.status != HOST_CRASHED && cls.initialized )

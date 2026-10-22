@@ -7,6 +7,9 @@ REM  Steam install: ts\menu_music.txt is the list, one filename per line matchin
 REM  file in ts\sound\music\, # comments and blank lines ignored. The pick goes to
 REM  ts\menu_music_resolved.cfg, which ts\userconfig.cfg runs at startup.
 REM
+REM  The main-menu background video is picked the same way, from ts\menu_bg_videos.txt
+REM  (files in ts\media\) into ts\menu_bg_video_resolved.cfg.
+REM
 REM  Anything given to this script is passed on to the engine, e.g.
 REM      h9xash.bat -dev 2 -log
 REM      h9xash.bat +map h9_te_neuropolis
@@ -45,6 +48,13 @@ if not exist "valve\gfx.wad" (
     )
 )
 
+REM ---- server lists and the optional Steam broker ----------------------------------
+REM networking.ini says which HTTP server lists the Internet tab reads, and whether the
+REM Steam broker starts with the game. h9_networking.ps1 writes ts\xashcomm.lst and
+REM ts\networking_resolved.cfg from it. If it fails, the game still starts, with the
+REM FWGS list only.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0h9_networking.ps1"
+
 set "MUSICLIST=ts\menu_music.txt"
 set "RESOLVED=ts\menu_music_resolved.cfg"
 set "CHOSEN=equilibrium.mp3"
@@ -82,6 +92,60 @@ REM player's own MP3Volume (ts\userconfig.cfg sets it), so nothing here sets it.
 
 echo [h9xash] main menu music: !CHOSEN!
 
+REM ---- same idea, for the main-menu background video -------------------------------
+set "BGLIST=ts\menu_bg_videos.txt"
+set "BGRESOLVED=ts\menu_bg_video_resolved.cfg"
+set "BGCHOSEN=mainmenu_bg.avi"
+
+set "BGCOUNT=0"
+if exist "%BGLIST%" (
+    for /f "usebackq eol=| delims=" %%L in ("%BGLIST%") do (
+        set "LINE=%%L"
+        if defined LINE if "!LINE:~0,1!" neq "#" set /a BGCOUNT+=1
+    )
+)
+
+if %BGCOUNT% GTR 0 (
+    set /a "BGPICK=%RANDOM% %% BGCOUNT"
+    set /a "BGPICK+=1"
+    set "BGSEEN=0"
+    for /f "usebackq eol=| delims=" %%L in ("%BGLIST%") do (
+        set "LINE=%%L"
+        if defined LINE if "!LINE:~0,1!" neq "#" (
+            set /a BGSEEN+=1
+            if !BGSEEN! equ !BGPICK! set "BGCHOSEN=!LINE!"
+        )
+    )
+)
+
+(
+    echo ui_background_video_file "!BGCHOSEN!"
+) > "%BGRESOLVED%"
+
+echo [h9xash] main menu video: !BGCHOSEN!
+
 REM By full path: a shell with NoDefaultCurrentDirectoryInExePath set will not run a
-REM program from the current folder by its bare name.
-"%~dp0xash3d.exe" -game ts -console %*
+REM program from the current folder by its bare name. cmd waits for HAVOC 9.exe to exit
+REM before the next line runs.
+"%~dp0HAVOC 9.exe" -game ts -console %*
+set "GAMEEXIT=!ERRORLEVEL!"
+
+REM ---- stop the Steam broker this launch started, and no other ----------------------
+REM The pid file exists only when h9_networking.ps1 started a broker. Its image name is
+REM checked before anything is stopped, in case the pid has been reused. The pid file is
+REM removed only once the broker is gone, so a broker that will not stop is never left
+REM running with no record of it. System tools are named by full path: a PATH that puts
+REM some other find.exe first would otherwise change what these lines do.
+if exist "%~dp0steam\steam_broker.pid" (
+    set "BROKERPID="
+    set /p BROKERPID=<"%~dp0steam\steam_broker.pid"
+    if defined BROKERPID (
+        "%SystemRoot%\System32\tasklist.exe" /fi "PID eq !BROKERPID!" /fi "IMAGENAME eq steam_broker.exe" /nh 2>nul | "%SystemRoot%\System32\find.exe" /i "steam_broker" >nul && "%SystemRoot%\System32\taskkill.exe" /pid !BROKERPID! /t /f >nul 2>&1
+        "%SystemRoot%\System32\tasklist.exe" /fi "PID eq !BROKERPID!" /fi "IMAGENAME eq steam_broker.exe" /nh 2>nul | "%SystemRoot%\System32\find.exe" /i "steam_broker" >nul && (
+            echo [h9xash] the Steam broker, pid !BROKERPID!, did not stop. End steam_broker.exe in Task Manager.
+        ) || del /q "%~dp0steam\steam_broker.pid" >nul 2>&1
+    ) else (
+        del /q "%~dp0steam\steam_broker.pid" >nul 2>&1
+    )
+)
+exit /b !GAMEEXIT!

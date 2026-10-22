@@ -68,7 +68,7 @@ const areas = [
   "58-map-viewer", // a map as a 3D scene, props held against the world (stuck, floating, facing a wall), the map viewer served
   "59-map-country", // cliffs that lean along an outdoor map's rock, the land round it as a model, ground that rises and falls, patches, paths, things strewn, ruins, houses, fences
   "60-reduce", // fewer triangles: the quadric reducer keeps a shape closed, its border, its volume and its charts
-  "61-decompile", // a compiled map made back into a .map (Half-Life's frenzy where installed), recompiled, and measured against its original
+  "61-decompile", // a compiled map made back into a .map (Half-Life's frenzy where installed), recompiled, and measured against its original
   "62-sprites", // sprites made of layers of effects by rule: glows, flares, fire, beams, billows, blobs; measured against a reference; a .spr written as it is read
   "63-sounds", // sounds made of layers: a file written as it is read, measured, checked as the engine needs it, held against the game's own; a music track levelled by loudness
   "64-sound-shape", // noise shaped to a curve, a limiter, grains at a period, a sound's picture read back
@@ -88,13 +88,32 @@ const areas = [
   "78-floorplan", // a map's space from a floor plan of height plans, and a texture lifted off its view
   "79-video", // a video of models and maps from a shot list: camera paths, a turntable, a GIF written here
   "80-map-overlay", // a map's edges laid over a picture of it, and the camera found that lays them best
-  "81-rigid", // a bodypart added that keeps every body number, rigid pieces laid into as many as the limits need
+  "81-rigid", // a bodypart added that keeps every body number, one taken out, the header named, rigid pieces laid into as many as the limits need
   "82-solids", // convex solids in plain JavaScript: closed, facing out, convex, their points counted
   "83-kitbash", // the kitbash kit's 45 parts: closed, within their reach, the same for one seed
   "84-linkage", // a piston across a hinge: the anchors on its axis found, animations kept elsewhere named
   "85-motion-overlaps", // pieces on bones driven into each other: a pair swung together caught, a pair apart not
   "86-unwrap", // pieces unfolded into nets on one picture: no texel twice, true density, mirrored halves on one
   "87-blender", // Blender found or not, its float pictures read, and a cube baked where it is installed
+  "88-reproportion", // bones made longer and shorter: every turn kept, the feet on the ground, a walk that does not slide, rigid pieces whole; the feet's slide measured
+  "89-animations-elsewhere", // animations kept in <name>01.mdl files posed by the pictures, the linkages and the overlaps
+  "90-cull", // rigid pieces lighter: a piece shut inside another dropped, a face pressed on another taken out, shapes reduced within a tolerance
+  "91-figures", // the figure judges: a figure's facts, its style, texture and shape measured and judged against corpora made here; a library surveyed
+  "92-figure-profiles", // each game's manner for the figure judges: MSC, TS and Half-Life's profiles by name, file and object
+  "93-figure-commands", // smak figure-survey, figure-judge, figure-texture, figure-shape and figure-validate on a library of the test's own
+  "94-ts-map-spec", // The Specialists' map spec: its textures, ts_model props and rooms furnished by its uses; its models where the game is installed
+  "97-ts-map-delivered", // a mod's map delivered as the .bsp alone: no .wad of its own, or its pictures put inside the .bsp
+  "98-ts-map-breakables", // what breaks: furniture, prefabs and their pieces as func_breakable with their material's keys, a mod's over the kit's
+  "99-ts-map-solid-props", // props a player cannot walk through: a mod's solid things clipped, turned as they stand; the rest walked through
+  "100-ts-map-lamps", // a mod's lamps: every room's lamp a fixture of the game's light texture, lit as a texture light in its makers' colour
+  "106-spec-lamps-fog", // a room's lamps as panels along its long side, sconces, chandeliers; fog, the mod's own
+  "105-sweep-slab", // the sweep's drops: no fall through a slab a body does not fit on by a wall
+  "104-fixtures", // lamps built as fixtures: a sconce on a wall facing any way, a chandelier; stairs of open treads
+  "103-fitted", // a picture fitted to a brush: its corner on each face's, whole when asked, words that read on every side
+  "102-marble", // marble: veins over clouded stone, as tiles, let be bright
+  "101-ts-map-dressing", // rooms dressed as thickly as the game's: along every wall, crates piled, desks in rows, couches about a table, a room's density
+  "96-map-teams", // a map's two teams as ts_matchmode splits them, its spawn file, sight and walks across; profiles by name, the game found, a mod's own dressing, lamp faces
+  "95-rcbot-waypoints", // RCBot's .rcw read and written byte for byte; waypoints from the walk (a ladder, a jump, a crouching passage); smak map-waypoints
   "19-example-and-kit-faults", // the examples' wrong arguments and refused models; the kits' fittings and rings
 ];
 

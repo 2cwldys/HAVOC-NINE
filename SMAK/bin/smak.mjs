@@ -128,6 +128,20 @@ const VALUE_FLAGS = [
   "fps",
   "frames",
   "source",
+  "stride",
+  "library",
+  "kind",
+  "judges",
+  "judge",
+  "box",
+  "reference-box",
+  "reference-scale",
+  "reference-picture",
+  "mask",
+  "pose",
+  "sheet",
+  "weights",
+  "cfg",
 ];
 // the flags of the map commands that may be given more than once: each time adds to a list
 const LISTED_FLAGS = [
@@ -151,6 +165,8 @@ const LISTED_FLAGS = [
   "expect-not",
   "put",
   "over",
+  "reference",
+  "reference-picture",
 ];
 // `map-entities` and `map-plan` print no more lines than this of one list unless told all of it is wanted
 const MARKS_PRINTED = 40;
@@ -267,6 +283,8 @@ function readModel(file, command) {
   }
   return src;
 }
+/** The files of animations kept beside a model (<name>01.mdl ...), when it has any: undefined when it has none. */
+const groupsOf = (file, src) => (file && smak.sequenceGroups(src).length > 1 ? smak.sequenceFilesOf(file, src) : undefined);
 /** What render, sheet and strip are asked for, from the flags. */
 function viewOptions(src, flags) {
   return {
@@ -507,10 +525,10 @@ function check({ src, flags }) {
 
 // ── pictures of the model ──────────────────────────────────────────────────
 /** render, sheet and strip: one function, the picture drawn by the kit's function of the command's name. */
-function draw({ command, src, flags }) {
+function draw({ command, src, flags, file }) {
   // the arguments first: a picture is not drawn to find that it has nowhere to go
   const to = need(command, flags.o, "-o out.png");
-  const options = defined(viewOptions(src, flags));
+  const options = defined({ ...viewOptions(src, flags), groups: groupsOf(file, src) });
   // the ground is a line only in a level view: said before anything is drawn
   const level = smak.NAMED_VIEWS[options.view]
     ? smak.NAMED_VIEWS[options.view].pitch + (options.pitch ?? 0) === 0
@@ -541,7 +559,7 @@ function draw({ command, src, flags }) {
 /** One animation, or every one (--seq all, -o a folder), as looping GIFs, each frame labelled. */
 function gifs({ command, src, flags, file }) {
   const to = need(command, flags.o, "-o out.gif (or a folder, with --seq all)");
-  const options = defined(viewOptions(src, flags));
+  const options = defined({ ...viewOptions(src, flags), groups: groupsOf(file, src) });
   const stem = basename(file).replace(/\.mdl$/i, "");
   if (String(flags.seq) === "all") {
     for (const g of smak.animationGifs(src, { ...options, seq: undefined })) {
@@ -692,6 +710,259 @@ function sequenceFromFrames({ command, src, flags }) {
   console.log(
     `${to}: ${made.name} added as animation ${smak.sequences(out).length - 1}: ${made.frames} frames of ${smak.readSequence(src, from).name} (${frames}) at ${made.fps} fps${made.loops ? ", looping" : ""}`,
   );
+}
+
+// ── proportions ────────────────────────────────────────────────────────────
+/**
+ * reproportion: bones made longer or shorter ("Bip01 L Thigh=1.2", "Bip01 Spine=1,1,1.05"), every animation
+ * kept, the feet on the ground and the strides as long as the legs; the files of animations beside the model
+ * (<name>01.mdl) are read for their boxes and left as they are.
+ */
+function reproportioned({ command, file, src, rest, flags }) {
+  const to = need(command, flags.o, "-o out.mdl");
+  if (!rest.length) fail(`${command}: give at least one bone=factor ("Bip01 L Thigh=1.2", "Bip01 Spine=1,1,1.05")`);
+  const factors = {};
+  for (const word of rest) {
+    const said = /^(.+?)=([-+0-9.eE]+(?:,[-+0-9.eE]+,[-+0-9.eE]+)?)$/.exec(word);
+    if (!said) fail(`${command}: bone=factor or bone=x,y,z, not ${word}`);
+    const numbers = said[2].split(",").map(Number);
+    factors[said[1]] = numbers.length === 1 ? numbers[0] : numbers;
+  }
+  let ground;
+  if (flags.ground === false) ground = false;
+  else if (typeof flags.reference === "string") {
+    const [seq, frame] = flags.reference.split(":");
+    ground = seq === "rest" ? { seq: null } : { seq: nameOrNumber(seq), frame: frame === undefined ? 0 : Number(frame) };
+  }
+  const groups = smak.sequenceFilesOf(file, src);
+  const made = smak.reproportion(src, factors, {
+    mirror: flags.mirror !== false,
+    ground,
+    stride: numberOf(flags, "stride"),
+    body: numberOf(flags, "body") ?? 0,
+    groups,
+    hitboxes: flags.hitboxes === undefined ? "along" : String(flags.hitboxes),
+  });
+  save(to, made.mdl);
+  const three = (f) => (f.every((v) => v === f[0]) ? `${f[0]}` : f.join(","));
+  for (const [name, f] of Object.entries(made.factors))
+    console.log(`  ${name.padEnd(24)} x${three(f)}${made.mirrored.includes(name) ? "   (its other side's)" : ""}`);
+  console.log(`  stride x${made.stride.toFixed(4)}: the roots' x and y and every animation's travel`);
+  if (made.ground)
+    console.log(
+      `  ground: the roots' height x${made.ground.slope.toFixed(4)} ${made.lift < 0 ? "-" : "+"} ${Math.abs(made.lift).toFixed(3)}, fitted over ${made.ground.frames} frames standing (${made.ground.seq ?? "rest"} frame ${made.ground.frame}: lowest ${made.ground.low} on ${made.ground.bone})`,
+    );
+  const missing = groups.flatMap((g, i) => (i && !g ? [smak.sequenceFileOf(file, i)] : []));
+  if (missing.length) console.log(`  not found beside it (their animations' boxes carried, not measured): ${missing.join(", ")}`);
+  console.log(`${to}: ${made.boxes.measured} animations' boxes measured, ${made.boxes.carried.length} carried`);
+}
+
+// ── the figure judges ──────────────────────────────────────────────────────
+const F = smak.figures;
+/** The library the figure commands read and write: --library, else SMAK_FIGURES, else ~/.smak/figures.json. */
+const libraryAsked = (flags) => (typeof flags.library === "string" ? flags.library : F.libraryFile());
+/** The figure style --mod (and --kind) asks for: a profile's name or file; the plain one without. */
+const styleAsked = async (flags) => F.figureStyleOf(typeof flags.mod === "string" ? flags.mod : undefined, { kind: flags.kind });
+/**
+ * The corpora a figure is judged against: --against (names with commas), else the profile's corpus; each
+ * must be in the library for that judge, or the command says how to survey it.
+ */
+function corporaAsked(command, flags, style, library, judge) {
+  const names = typeof flags.against === "string" ? flags.against.split(",") : style.corpus ? [style.corpus.name] : null;
+  if (!names) fail(`${command}: whose figures to judge against: --mod <profile> (msc, ts, halflife ...) or --against <corpus,...>`);
+  const held = F.corporaOf(library[judge]);
+  const missing = names.filter((name) => !held.includes(name));
+  if (missing.length)
+    fail(`${command}: the library (${libraryAsked(flags)}) has no ${judge} measures of ${missing.join(", ")}${held.length ? ` (it has ${held.join(", ")})` : ""}: survey the game first, smak figure-survey <Half-Life folder> --mod ${flags.mod ?? "<profile>"}`); // prettier-ignore
+  return names;
+}
+/** The models of a folder, or the one model given: a reference of several figures. */
+const modelsOf = (path) =>
+  statSync(path).isDirectory() ? readdirSync(path).filter((name) => /\.mdl$/i.test(name) && !/(t|\d\d)\.mdl$/i.test(name)).map((name) => join(path, name)) : [path]; // prettier-ignore
+/** A mask from a PNG: white (over half) is the figure. */
+function maskOfPng(file) {
+  const img = smak.unpng(readFileSync(existing(file)));
+  const data = new Uint8Array(img.width * img.height);
+  for (let k = 0; k < data.length; k++) data[k] = img.rgba[k * 4] > 127 ? 1 : 0;
+  return { width: img.width, height: img.height, data };
+}
+/** `view=file` pairs of a listed flag: { view: file }. */
+function viewFiles(command, listed, name) {
+  const out = {};
+  for (const each of listed[name] ?? []) {
+    const said = /^([A-Za-z0-9_]+)=(.+)$/.exec(each);
+    if (!said) fail(`${command}: --${name} <view>=<file.png> (front=mask_front.png), not ${each}`);
+    out[said[1]] = said[2];
+  }
+  return out;
+}
+
+/**
+ * figure-survey: every figure of a game's models measured into the library, as its corpus: the profile's
+ * (--mod, its folder found under the folder given), or --as <name>.
+ */
+async function figureSurvey({ command, file, flags }) {
+  const style = await styleAsked(flags);
+  const corpus = typeof flags.as === "string" ? flags.as : style.corpus?.name;
+  if (!corpus) fail(`${command}: which corpus these figures are: --mod <profile> (msc, ts, halflife ...) or --as <name>`);
+  if (!statSync(file).isDirectory()) fail(`${command}: ${file} is a file: give the Half-Life folder, the game's or its models folder`);
+  const folder = F.modelsFolderOf(file, style.corpus?.folders?.[0] ?? corpus);
+  const judges = typeof flags.judges === "string" ? flags.judges.split(",") : style.judges;
+  const to = libraryAsked(flags);
+  const library = F.readLibrary(to);
+  F.surveyFigures(folder, { corpus, judges, library, log: (line) => console.log(line) });
+  F.writeLibrary(library, to);
+  const held = F.libraryCorpora(library);
+  console.log(`${to}: ${Object.entries(held).map(([name, c]) => `${name} ${c.style || c.texture || c.shape} figures`).join(", ")}`);
+  console.log("(measures of the game's own figures, on this machine: keep the file out of any repository you share)");
+}
+
+/** figure-judge: the style judge, a model against the corpus of its game's profile (or --against). */
+async function figureJudge({ command, file, flags }) {
+  if (!/\.mdl$/i.test(file)) fail(`${command}: a model (.mdl)`);
+  const style = await styleAsked(flags);
+  const library = F.readLibrary(libraryAsked(flags));
+  const games = corporaAsked(command, flags, style, library, "style");
+  const data = library.style;
+  const weights = flags.weights === "library" || flags.weights === "even" ? flags.weights : F.weightsFor(style, "style");
+  const { weights: w } = F.styleSetup(data, { weights, groups: style.groups, least: style.least });
+  const f = F.figureFacts(file);
+  if (f.skip) fail(`${command}: ${file} is not judged: ${f.skip}`);
+  const { measures, by } = F.styleMeasures(f);
+  const prep = F.prepareStyle(F.styleCorpus(data, games), w);
+  const verdict = F.judgeStyle(measures, prep, { hash: f.hash, textures: by.textures, parts: by.parts });
+  verdict.among = F.rangeOf(Object.values(F.styleLeaveOneOut(prep)).map((v) => v.score));
+  if (flags.json) return console.log(JSON.stringify({ file, corpus: games, profile: style.name, measures, ...verdict }, null, 1));
+  console.log(F.styleTold(basename(file), verdict, games, { most: flags.all ? 99 : 12 }));
+  if (style.name && weights !== "library") console.log(`  (weighed as ${style.title}: the profile's weights)`);
+}
+
+/** A texture's measures from a file: a model's textures, or a picture of an atlas (its box, its pixels a texel). */
+function textureOfFile(file, { box, scale }) {
+  if (/\.mdl$/i.test(file)) return F.textureOfModel(file);
+  if (/\.png$/i.test(file)) return F.textureOfPicture(smak.unpng(readFileSync(existing(file))), { box, scale });
+  fail(`figure-texture: a model (.mdl) or a picture of an atlas (.png), not ${file}`);
+}
+
+/** figure-texture: the texture judge, a model's textures or an atlas' picture against a corpus and a reference. */
+async function figureTexture({ command, file, flags }) {
+  const style = await styleAsked(flags);
+  const library = F.readLibrary(libraryAsked(flags));
+  const games = corporaAsked(command, flags, style, library, "texture");
+  const own = textureOfFile(file, { box: numbersOf(flags, "box", 4, "x0,y0,x1,y1 in pixels"), scale: numberOf(flags, "scale") });
+  let ref = null,
+    refName = "the reference";
+  if (typeof flags.reference === "string") {
+    const at = flags.reference;
+    if (!existsSync(at)) fail(`no such file: ${at}`);
+    refName = basename(at).replace(/\.\w+$/, "");
+    if (/\.png$/i.test(at)) ref = textureOfFile(at, { box: numbersOf(flags, "reference-box", 4, "x0,y0,x1,y1 in pixels"), scale: numberOf(flags, "reference-scale") }); // prettier-ignore
+    else {
+      const list = modelsOf(at).map((model) => F.textureOfModel(model));
+      ref = { measures: F.referenceOfMeasures(list.map((x) => x.measures)), atlases: list[0].atlases };
+    }
+  }
+  const v = F.judgeTexture(own.measures, library.texture, games, ref?.measures, { refName });
+  if (flags.sheet) {
+    const items = [{ name: basename(file).replace(/\.\w+$/, ""), ...own }, ...(ref ? [{ name: refName, ...ref }] : [])];
+    const img = F.textureSheet(items, library.texture);
+    save(flags.sheet, smak.png(img.width, img.height, img.rgba));
+    console.log(`${flags.sheet}: the atlases side by side, every measure over the library's spread`);
+  }
+  if (flags.json) return console.log(JSON.stringify({ file, corpus: games, reference: ref ? refName : null, scale: own.scale, measures: own.measures, ...v }, null, 1)); // prettier-ignore
+  if (own.scale && own.scale !== 1) console.log(`(the picture read at ${own.scale.toFixed(2)} pixels a texel)`);
+  console.log(F.textureTold(basename(file), v, games, refName));
+}
+
+/**
+ * A reference's shape for figure-shape: models (a folder or one, each measured, the medians), or masks by
+ * view (`--reference front=mask.png`, with `--reference-picture front=shot.png` for the inside's edges).
+ */
+function shapeReference(command, flags, listed) {
+  const given = listed.reference ?? (typeof flags.reference === "string" ? [flags.reference] : []);
+  if (!given.length) return null;
+  if (given.every((each) => /^[A-Za-z0-9_]+=/.test(each))) {
+    const pictures = viewFiles(command, listed, "reference-picture");
+    const masks = {};
+    for (const [view, maskFile] of Object.entries(viewFiles(command, listed, "reference")))
+      masks[view] = { mask: maskOfPng(maskFile), img: pictures[view] ? smak.unpng(readFileSync(existing(pictures[view]))) : null };
+    return { name: "the reference", masks, ...F.shapeOfReference(masks) };
+  }
+  if (given.length > 1) fail(`${command}: --reference is a folder of models, a model, or masks by view (front=mask.png ...)`);
+  const at = given[0];
+  if (!existsSync(at)) fail(`no such file: ${at}`);
+  const list = modelsOf(at).map((model) => F.shapeOfModel(model));
+  const bands = {};
+  for (const [band] of F.BANDS)
+    bands[band] = Object.fromEntries(["holes", "fine", "notches"].map((k) => [k, F.medianOf(list.map((x) => x.bands[band]?.[k]))]));
+  return { name: basename(at).replace(/\.\w+$/, ""), measures: F.referenceOfMeasures(list.map((x) => x.measures)), bands };
+}
+
+/** figure-shape: the shape judge, a model's (or a picture's, with its mask) shape against a corpus and a reference. */
+async function figureShape({ command, file, flags, listed }) {
+  const style = await styleAsked(flags);
+  const library = F.readLibrary(libraryAsked(flags));
+  const games = corporaAsked(command, flags, style, library, "shape");
+  const ref = shapeReference(command, flags, listed);
+  let x;
+  if (/\.mdl$/i.test(file)) {
+    let masks;
+    if (typeof flags.pose === "string") {
+      // the model drawn in the reference's pose and from its views: a module giving the pose and the cameras
+      if (!ref?.masks) fail(`${command}: --pose draws the model as the reference's masks see it: give them, --reference front=mask.png ...`);
+      const posing = await import(pathToFileURL(resolve(existing(flags.pose))).href);
+      const poseOf = posing.pose ?? posing.default;
+      if (typeof poseOf !== "function") fail(`${command}: ${flags.pose} exports pose(src) (or a default function): the bones' matrices`);
+      const src = readModel(file, command);
+      const cameras = posing.views ?? {};
+      const views = Object.fromEntries(Object.entries(ref.masks).map(([view, { mask }]) => [view, { ...cameras[view], mask }]));
+      masks = F.masksLikeReference(src, { pose: await poseOf(src), views, background: posing.background });
+    }
+    x = F.shapeOfModel(file, { masks, keep: Boolean(flags.sheet) });
+  } else if (/\.png$/i.test(file)) {
+    if (typeof flags.mask !== "string") fail(`${command}: a picture needs its mask, --mask m.png (white figure on black)`);
+    const masks = { picture: { mask: maskOfPng(flags.mask), img: smak.unpng(readFileSync(file)) } };
+    x = { ...F.shapeOfReference(masks, { keep: Boolean(flags.sheet) }) };
+  } else fail(`${command}: a model (.mdl), or a picture (.png) with --mask`);
+  const refName = ref?.name ?? "the reference";
+  const v = F.judgeShape(x, library.shape, games, ref, refName);
+  if (flags.sheet) {
+    const items = Object.entries(x.pictures ?? {}).map(([view, p]) => ({ name: `${basename(file).replace(/\.\w+$/, "")} ${view}`, at: p.at, note: `HOLES ${(100 * x.views[view].measures.holes).toFixed(1)}PC` })); // prettier-ignore
+    const img = F.shapeSheet(items);
+    save(flags.sheet, smak.png(img.width, img.height, img.rgba));
+    console.log(`${flags.sheet}: the silhouettes as measured`);
+  }
+  if (flags.json) return console.log(JSON.stringify({ file, corpus: games, reference: ref ? refName : null, measures: x.measures, bands: x.bands, ...v }, null, 1)); // prettier-ignore
+  console.log(F.shapeTold(basename(file), v, games, refName));
+}
+
+/** figure-validate: does each judge tell the library's corpora apart (AUC, confusion), with each one's own weights or the library's. */
+async function figureValidate({ command, file, flags }) {
+  const library = F.readLibrary(file);
+  const judge = typeof flags.judge === "string" ? flags.judge : "style";
+  if (!F.JUDGES.includes(judge)) fail(`${command}: --judge ${F.JUDGES.join(" | ")}, not ${judge}`);
+  const data = library[judge];
+  const games = F.corporaOf(data);
+  if (games.length < 2) fail(`${command}: the library has ${games.length} corpus with ${judge} measures: the judges are validated between two or more`);
+  let out;
+  if (judge === "style") {
+    const { weights, sep } = F.styleSetup(data, { weights: flags.weights === "even" ? "even" : "library" });
+    let weightsFor;
+    if (flags.weights === "profiles") {
+      const floors = F.styleFloors(data);
+      const own = {};
+      for (const game of games) {
+        if (!F.FIGURE_PROFILES[game]) continue;
+        const style = await F.figureStyleOf(game);
+        own[game] = { ...F.styleWeightsOf(style.weights.style, { groups: style.groups, least: style.least }), __floor: floors };
+      }
+      weightsFor = (game) => own[game] ?? weights;
+    }
+    out = F.validateStyle(data, { weights, sep, weightsFor });
+  } else if (judge === "texture") out = F.validateTexture(data);
+  else out = F.validateShape(data);
+  if (flags.json) return console.log(JSON.stringify(out.report, null, 1));
+  console.log(out.text);
 }
 
 // ── re-skin by rules ───────────────────────────────────────────────────────
@@ -1525,10 +1796,20 @@ async function profileOf(flags, listed) {
   if (flags.mod === undefined) return undefined;
   const folders = (listed.game ?? []).map(existingFolder);
   if (flags.mod === "goldsrc") return { ...maps.GOLDSRC, folders };
-  const mod = await maps.loadMod(
-    existing(flags.mod),
-    defined({ folders: folders.length ? folders : undefined, cache: flags.cache, scripts: listed.scripts }),
-  );
+  // one of the kit's profiles by name (ts, msc), or a profile's file
+  const named = maps.mapProfileOf(flags.mod);
+  const file = named?.file ?? (existsSync(flags.mod) || !/^[\w-]+$/.test(flags.mod) ? existing(flags.mod) : fail(`--mod: a profile's file, goldsrc, or one of the kit's: ${Object.keys(maps.MAP_PROFILES).join(", ")}; not ${flags.mod}`)); // prettier-ignore
+  const given = defined({ folders: folders.length ? folders : undefined, kind: flags.kind, cache: flags.cache, scripts: listed.scripts }); // prettier-ignore
+  let mod;
+  try {
+    mod = await maps.loadMod(file, given);
+  } catch (error) {
+    // a profile made from the installed game, with no --game: the Half-Life folder found on this machine
+    // (SMAK_HALF_LIFE, or Steam's libraries), or what the profile said
+    const game = folders.length ? null : maps.findHalfLife({ mod: named?.folder });
+    if (!game) throw error;
+    mod = await maps.loadMod(file, { ...given, game });
+  }
   return !mod.folders.length && folders.length ? { ...mod, folders } : mod;
 }
 /** The entity definitions given by name: .fgd files (--fgd) and what map-learn wrote (--learned). */
@@ -1838,7 +2119,22 @@ async function mapViews({ command, file, flags, listed }) {
  * light; its source's brush roles (a .map, or `--source` beside a .bsp); `--against` another compiled map, its
  * numbers beside. `--json`: the rows.
  */
-async function mapDressing({ file, flags }) {
+async function mapDressing({ command, file, rest, flags, listed }) {
+  if (flags.learn) {
+    // the bands of a folder of maps (or several maps), for a profile's `dressing` or --against
+    const to = need(command, flags.o, "-o dressing.json");
+    const files = [file, ...(rest ?? [])].flatMap((each) => {
+      if (!existsSync(each)) fail(`no such file: ${each}`);
+      return statSync(each).isDirectory() ? readdirSync(each).filter((name) => /\.bsp$/i.test(name)).sort().map((name) => join(each, name)) : [each]; // prettier-ignore
+    });
+    if (!files.length) fail(`${command}: no .bsp in ${[file, ...(rest ?? [])].join(", ")}`);
+    const list = files.map((each) => ({ name: basename(each).replace(/\.bsp$/i, ""), measures: maps.measureDressing(readCompiled(each).bsp).measures })); // prettier-ignore
+    const learned = maps.learnDressing(list, defined({ name: typeof flags.as === "string" ? flags.as : undefined, of: typeof flags.from === "string" ? flags.from : undefined })); // prettier-ignore
+    save(to, `${JSON.stringify(learned, null, 1)}\n`);
+    console.log(`${to}: the dressing of ${list.length} maps, [least (5th in 100), lower quartile, median, upper quartile, most (95th)] each`); // prettier-ignore
+    for (const [key, band] of Object.entries(learned.measures)) console.log(`      ${key.padEnd(16)} ${[band.least, band.q1, band.median, band.q3, band.most].join("  ")}`); // prettier-ignore
+    return;
+  }
   if (isSource(file)) {
     const roles = maps.dressingOfSource(maps.readMap(readFileSync(existing(file), "utf8")));
     for (const [key, v] of Object.entries(roles)) console.log(`${key}: ${v === null ? "not measured" : key === "brushes" ? v : `${Math.round(v * 100)}%`}`);
@@ -1846,8 +2142,11 @@ async function mapDressing({ file, flags }) {
     return;
   }
   const source = typeof flags.source === "string" ? maps.readMap(readFileSync(existing(flags.source), "utf8")) : null;
-  const mine = maps.dressingOf(readCompiled(file).bsp, { source });
-  const theirs = typeof flags.against === "string" ? maps.dressingOf(readCompiled(flags.against).bsp) : null;
+  // the bands: a learned file's (--against x.json), the profile's own (--mod), else Valve's
+  const learned = typeof flags.against === "string" && /\.json$/i.test(flags.against);
+  const bands = learned ? JSON.parse(readFileSync(existing(flags.against), "utf8")) : (await profileOf(flags, listed))?.dressing; // prettier-ignore
+  const mine = maps.dressingOf(readCompiled(file).bsp, defined({ source, against: bands }));
+  const theirs = typeof flags.against === "string" && !learned ? maps.dressingOf(readCompiled(flags.against).bsp, defined({ against: bands })) : null; // prettier-ignore
   if (flags.json) return console.log(JSON.stringify({ rows: mine.rows, against: theirs?.rows ?? null }, null, 1));
   for (const line of mine.facts) console.log(line);
   for (const line of mine.warnings) console.log(`WARNING ${line}`);
@@ -2590,6 +2889,45 @@ async function mapSpawns({ command, file, flags, listed }) {
   process.exit(report.areas.some((area) => area.seen.length || area.fights.length) ? 1 : 0);
 }
 
+// ── map-teams ──────────────────────────────────────────────────────────────
+/**
+ * map-teams: a map's two teams as a team plugin plays it (teams.mjs; The Specialists' ts_matchmode, by its
+ * profile's `teams`): the split of its spawns (or a spawn file's, --cfg), the nearest pair across the teams,
+ * spawns in sight of the other side's, the walk between them and to a goal, and the balance of those walks.
+ * --write-cfg: the spawn file the plugin reads, written. Exit code 1 on a FAIL.
+ */
+async function mapTeams({ command, file, flags, listed }) {
+  const mod = await profileOf(flags, listed);
+  if (!mod?.teams) fail(`${command}: --mod <profile> whose \`teams\` says how its team plugin splits a map (ts: profiles/specialists.mjs)`); // prettier-ignore
+  const words = listed.goal ?? [];
+  if (words.length > 1) fail(`${command}: one --goal (a point x,y,z, or an entity's number, classname or targetname)`);
+  const point = words.length === 1 && words[0].includes(",");
+  const goal = words.length === 0 ? undefined : point ? words[0].split(",").map(Number) : entityName(words[0]);
+  if (point && (goal.length !== 3 || !goal.every(Number.isFinite))) fail(`--goal: a point x,y,z, not ${words[0]}`);
+  const name = basename(file).replace(/\.(bsp|map)$/i, "");
+  const { doors, jump, cell } = reachOptions(flags, listed);
+  const cfg = typeof flags.cfg === "string" ? readFileSync(existing(flags.cfg), "utf8") : undefined;
+  const report = maps.teamsOf(readEither(file), defined({ mod, goal, name, doors, jump, cell, cfg, each: flags.each === true || undefined, walk: flags.walk === false ? false : undefined })); // prettier-ignore
+  if (flags["write-cfg"] !== undefined && flags["write-cfg"] !== false) {
+    const asked = flags["write-cfg"] === true ? "." : String(flags["write-cfg"]);
+    const to = /\.cfg$/i.test(asked) ? asked : join(asked, maps.spawnCfgName(name));
+    save(to, report.cfg);
+    const count = report.teams.map((team) => team.spawns.length);
+    console.log(`${to}: ${count[0] + count[1]} spawns (team 1 ${count[0]}, team 2 ${count[1]}), each at its floor and turned ${goal === undefined ? "to the middle of the map" : "to the goal"}; it goes in addons/amxmodx/configs/ on the server`); // prettier-ignore
+  }
+  if (flags.json) {
+    const { rules, ...rest } = report;
+    console.log(JSON.stringify({ plugin: rules.plugin, ...rest }, null, 1));
+  } else {
+    for (const team of report.teams)
+      console.log(`team ${team.team} ${team.name.padEnd(12)} ${String(team.spawns.length).padStart(3)} spawns${report.walks ? `   to the goal ${report.walks.teams[team.team - 1].median ?? "none"}` : ""}`); // prettier-ignore
+    for (const fact of report.facts) console.log(`      ${fact}`);
+    for (const warning of report.warnings) console.log(`WARN  ${warning}`);
+    for (const fault of report.faults) console.log(`FAIL  ${fault}`);
+  }
+  process.exit(report.faults.length ? 1 : 0);
+}
+
 // ── map-wiring ─────────────────────────────────────────────────────────────
 /**
  * map-wiring: what a map's entities are wired to do: its properties (doors by name), its switches and what
@@ -2650,7 +2988,7 @@ async function mapCharacter({ command, file, flags, listed, rest }) {
     console.log(`${files[0]}:`);
     for (const fact of told[0].facts) console.log(`      ${fact}`);
   } else {
-    const names = ["offGrid", "sloped", "levels", "heightSpread", "textures", "props", "sounds", "music", "lights", "lightMean", "shadow", "brightest"]; // prettier-ignore
+    const names = ["offGrid", "sloped", "levels", "heightSpread", "textures", "props", "sounds", "music", "lights", "lampFaces", "lightMean", "shadow", "brightest"]; // prettier-ignore
     const width = Math.max(4, ...told.map((each) => each.name.length));
     console.log(`${"".padEnd(width)}  ${names.map((name) => name.slice(0, 11).padStart(12)).join("")}`);
     for (const each of told) console.log(`${each.name.padEnd(width)}  ${names.map((name) => String(each.figures[name] ?? "-").padStart(12)).join("")}`); // prettier-ignore
@@ -2720,6 +3058,97 @@ async function mapMeasure({ command, file, rest, flags, listed }) {
   for (const line of maps.measureTable(measured)) console.log(line);
   for (const each of measured)
     for (const warning of each.warnings) console.log(`WARN  ${each.name}: ${warning}`);
+}
+/**
+ * map-waypoints: RCBot's waypoints for a map, from the walk test (src/maps/waypoints.mjs), written as the
+ * bot's .rcw file. `--mod` is a profile (its game folder names the bot's folder for the mod) or the mod's
+ * folder itself ("ts"); `--out` is the bot's folder (<Half-Life>/rcbot), under which the file goes where the
+ * bot looks: waypoints/<mod>/<map>.rcw. `-o` writes it anywhere; with neither, <map>.rcw here.
+ */
+async function mapWaypoints({ command, file, flags, listed }) {
+  const map = readEither(file);
+  const word = flags.mod;
+  const isProfile = word !== undefined && (word === "goldsrc" || existsSync(word));
+  const mod = isProfile ? await profileOf(flags, listed) : undefined;
+  const folder =
+    flags.folder ?? (isProfile ? (mod?.folders?.[0] ? basename(mod.folders[0]) : undefined) : word);
+  if (folder !== undefined && !/^[A-Za-z0-9_.-]+$/.test(folder))
+    fail(`${command}: --mod (or --folder): the mod's folder, one word ("ts"), not ${folder}`);
+  const mapName = flags.name ?? basename(file).replace(/\.(bsp|map)$/i, "");
+  const lengths = Object.fromEntries(
+    ["spacing", "paths", "drop", "most"].map((name) => [name, numberOf(flags, name)]),
+  );
+  for (const [name, value] of Object.entries(lengths))
+    if (value !== undefined && !(value > 0)) fail(`--${name}: a number over 0, not ${value}`);
+  let made;
+  try {
+    made = maps.waypointsOf(map, {
+      ...reachOptions(flags, listed),
+      ...defined({ mod, ...lengths }),
+      jump: flags.jump !== false,
+      crouch: flags.crouch !== false,
+    });
+  } catch (error) {
+    fail(`${command}: ${sayOf(error)}`);
+  }
+  let bytes;
+  try {
+    bytes = maps.writeRcw(made.waypoints, { mapName });
+  } catch (error) {
+    fail(`${command}: ${sayOf(error)}`);
+  }
+  if (flags.out !== undefined && folder === undefined)
+    fail(`${command}: --out puts the file under waypoints/<mod>/: say the mod, --mod ts (or a profile)`);
+  const to =
+    flags.o ??
+    (flags.out !== undefined ? join(flags.out, "waypoints", folder, `${mapName}.rcw`) : `${mapName}.rcw`);
+  save(to, bytes);
+  if (flags.json) {
+    const { reach: _reach, ...plain } = made;
+    console.log(JSON.stringify({ file: to, mapName, folder, ...plain }, null, 1));
+  } else {
+    console.log(`${to}: ${made.waypoints.length} waypoints for the map ${mapName}, RCBot's .rcw (version 4)`);
+    for (const fact of made.facts) console.log(`      ${fact}`);
+    for (const warning of made.warnings) console.log(`WARN  ${warning}`);
+    console.log(
+      `      where the bot reads it: <Half-Life>/rcbot/waypoints/${folder ?? "<mod>"}/${mapName}.rcw; it works out its visibility table (rcbot/visibility/${folder ?? "<mod>"}/${mapName}.rcv) when the map first loads`,
+    );
+  }
+  if (flags.plan) {
+    const lines = [];
+    const { waypoints } = made;
+    waypoints.forEach((waypoint, number) => {
+      for (const to of waypoint.paths) {
+        const other = waypoints[to];
+        const both = other.paths.includes(number);
+        const end = both
+          ? other.origin
+          : waypoint.origin.map((value, axis) => (value + other.origin[axis]) / 2);
+        lines.push({
+          from: waypoint.origin.slice(0, 2),
+          to: end.slice(0, 2),
+          colour: both ? [60, 200, 60] : [255, 150, 0],
+        });
+      }
+    });
+    for (const waypoint of waypoints) {
+      const [x, y] = waypoint.origin;
+      const colour = waypoint.flags & maps.RCW_FLAGS.LADDER ? [40, 140, 255] : waypoint.flags & maps.RCW_FLAGS.JUMP ? [255, 0, 255] : waypoint.flags & maps.RCW_FLAGS.CROUCH ? [0, 230, 230] : waypoint.kind === "start" ? [255, 255, 0] : [230, 40, 40]; // prettier-ignore
+      lines.push(
+        { from: [x - 8, y - 8], to: [x + 8, y + 8], colour },
+        { from: [x - 8, y + 8], to: [x + 8, y - 8], colour },
+      );
+    }
+    const options = {
+      ...pictureOptions(file, flags, listed),
+      ...defined({ z: numberOf(flags, "z"), mod }),
+      lines,
+      entities: false,
+    };
+    const picture = isSource(file) ? maps.planOfSource(map, options) : maps.planOf(map, options);
+    if (flags.json) return save(flags.plan, smak.png(picture.width, picture.height, picture.rgba));
+    savePicture(flags.plan, picture, "the plan with the waypoints (a cross: red on the floor, yellow at a start, blue a ladder, magenta a jump, cyan crouching) and their paths (green both ways, orange one way, drawn half way)"); // prettier-ignore
+  }
 }
 /**
  * map-compare: several maps from above at one scale in one picture. --z is one height for them all, or one
@@ -3190,6 +3619,68 @@ const COMMANDS = {
   sequence-add <mdl> --from <name|n> --frames 80-57 --name kneel_down -o out.mdl [--loop] [--fps 25] [--events]
                                             a new animation of frames of one it has, in that order ("80-57": backwards; "57,58,57")`,
   },
+  reproportion: {
+    run: reproportioned,
+    help: `  reproportion <mdl> "Bip01 L Thigh=1.2" "Bip01 Spine=1,1,1.05" ... -o out.mdl [--no-mirror] [--stride n]
+                              [--reference <seq>[:frame] | rest] [--no-ground] [--body n] [--hitboxes all]
+                                            bones made longer or shorter: a factor is a bone's length (where the bones hanging
+                                            from it stand), x,y,z in its own axes; the other side follows unless --no-mirror.
+                                            Every animation keeps its turns, those in <name>01.mdl too (read for their boxes, not
+                                            changed); the roots and every travel follow the legs (--stride), the feet stay on
+                                            the ground (fitted over every frame that stands; --reference: the pose of its level).
+                                            A hit box grows along its bone only (--hitboxes all: across it too)`,
+  },
+  "figure-survey": {
+    run: figureSurvey,
+    own: true,
+    folder: true,
+    help: `  figure-survey <Half-Life folder | game folder | models folder> --mod <profile> [--kind hd] [--as <corpus>] [--library <file>]
+                              [--judges style,texture,shape]
+                                            the game's own figures measured for the figure judges, into a library of yours (unless
+                                            told: SMAK_FIGURES, else ~/.smak/figures.json; never in the kit). --mod: whose figures
+                                            (msc, ts, halflife; the profile names the folder), or --as <name> for a game with no
+                                            profile. Each corpus is kept beside the others; surveying one again replaces it`,
+  },
+  "figure-judge": {
+    run: figureJudge,
+    own: true,
+    help: `  figure-judge <mdl> --mod <profile> [--kind hd] [--against <corpus,...>] [--library <file>] [--weights library|even] [--all] [--json]
+                                            the style judge: 52 measures of the figure against the game's own figures, a score of
+                                            0 to 100 and what is out (the part or texture at fault, what to do), weighed as the
+                                            profile says the game's manner is told (--weights library: as the corpora of the
+                                            library tell each other apart)`,
+  },
+  "figure-texture": {
+    run: figureTexture,
+    own: true,
+    help: `  figure-texture <mdl | atlas.png> --mod <profile> [--against <corpus,...>] [--box x0,y0,x1,y1] [--scale <px a texel>]
+                              [--reference <atlas.png | model.mdl | folder of models>] [--reference-box ...] [--reference-scale 4]
+                              [--sheet out.png] [--json] [--library <file>]
+                                            the texture judge: the texture as painting (repetition, flat fills, ramps, speckle,
+                                            slant, charts, occlusion, value, colours) against the game's figures and a reference in
+                                            the manner wanted: a picture of an atlas (its pixels a texel found, or --reference-scale),
+                                            or models (each measure's median). What is off, in words. --sheet: the atlases and bars`,
+  },
+  "figure-shape": {
+    run: figureShape,
+    own: true,
+    help: `  figure-shape <mdl | picture.png --mask m.png> --mod <profile> [--against <corpus,...>]
+                              [--reference <model.mdl | folder of models> | --reference <view>=mask.png ... [--reference-picture <view>=shot.png ...]]
+                              [--pose pose.mjs] [--sheet out.png] [--json] [--library <file>]
+                                            the shape judge: silhouettes (holes, notches, inner edges, symmetry) and mesh (pieces,
+                                            layers, mirror, likeness, boxes) against the game's figures and a reference's. --pose:
+                                            a module exporting pose(src) (the bones' matrices) and views ({ front: { yaw, pitch,
+                                            dist, fov, target } }): the model drawn in the reference's pose, from its cameras, framed
+                                            as its masks' figure stands`,
+  },
+  "figure-validate": {
+    run: figureValidate,
+    own: true,
+    help: `  figure-validate <library.json> [--judge style|texture|shape] [--weights library|even|profiles] [--json]
+                                            does a judge tell the library's corpora apart: each corpus' own figures against the
+                                            others' (AUC: 1 perfect, 0.5 a coin), who stands best where, the measures by how far
+                                            apart they put the games. --weights profiles: each corpus with its profile's weights`,
+  },
   reskin: {
     run: reskin,
     help: `  reskin <mdl> <rules.json|rules.mjs> -o out.mdl [--body n] [--pictures <folder>]
@@ -3360,12 +3851,17 @@ const COMMANDS = {
   "map-dressing": {
     run: mapDressing,
     own: true,
-    help: `  map-dressing <bsp|map> [--source <map>] [--against <bsp>] [--json]
+    folder: true,
+    help: `  map-dressing <bsp|map> [--source <map>] [--against <bsp|bands.json>] [--mod <profile>] [--json]
                                             its dressing beside Valve's own campaign, measured: tall walls banded and where,
                                             texture scale and shift, lamp faces a light, faces off the axes, detail a floor's
                                             256 x 256, the floor's dark share and contrast; of source, its brushes' roles (panels,
                                             strips, lamps, angled). A measure outside Valve's 5th to 95th in 100 is a WARNING,
-                                            with which way to go`,
+                                            with which way to go. --mod: the mod's own bands where its profile has them
+                                            (dressing: ts's, measured over its 29 maps), Valve's for the rest; --against bands.json
+  map-dressing <bsp or folders ...> --learn -o bands.json [--as "whose"] [--from "the maps in words"]
+                                            the bands of those maps' dressing (5th in 100, quartiles, median, 95th), for
+                                            --against or a profile's dressing`,
   },
   "map-sweep": {
     run: async ({ file, flags }) => {
@@ -3524,7 +4020,7 @@ const COMMANDS = {
     run: mapCharacter,
     own: true,
     folder: true,
-    help: `  map-character <bsp> [more .bsp or folders] [--mod <profile>] [--against figures.json] [--json]
+    help: `  map-character <bsp> [more .bsp or folders] [--mod <profile>] [--kind compact] [--against figures.json] [--json]
                                             a map's character in numbers: walls off the grid, floor that slopes, floor levels, the
                                             spread of its heights, textures, props, sounds, music, lights, the light on the floor and
                                             its shadow; held against the mod's own maps (the profile's character.figures, or
@@ -3532,6 +4028,20 @@ const COMMANDS = {
                                             for the floor's light); WARN, five or more such. Several maps: side by side.
   map-character <bsp or folders ...> --learn -o figures.json [--from "words"]
                                             the figures of those maps as [lower quartile, median, upper quartile], for --against`,
+  },
+  "map-teams": {
+    run: mapTeams,
+    own: true,
+    help: `  map-teams <bsp|map> --mod ts [--cfg tsm_spawns_<map>.cfg] [--goal x,y,z | <n|class|name>] [--each] [--write-cfg [folder|file]] [--json]
+                                            a map's two teams as Havoc9's ts_matchmode plays it: its spawns gathered and split as the
+                                            plugin splits them (info_player_deathmatch then info_player_start, 64 at most, the farthest
+                                            pair the anchors), or a spawn file's (--cfg); the nearest spawns across the teams (FAIL
+                                            under 512, WARN under 1400: the profile's teams.cross), spawns of one team in sight of the
+                                            other's (FAIL), the walk between them, and to --goal from each team (its nearest spawn;
+                                            --each: the median of each spawn's walk), the balance (WARN over 10%, FAIL over 25%).
+                                            --write-cfg: tsm_spawns_<map>.cfg as amx_tsm_spawn_save writes it, each spawn at its floor
+                                            (z the player's origin, floor + 36) and turned to the goal or the middle. Without --game the
+                                            installed Half-Life is found (SMAK_HALF_LIFE, or Steam's libraries). Exit code 1 on a FAIL`,
   },
   "map-spawns": {
     run: mapSpawns,
@@ -3544,6 +4054,19 @@ const COMMANDS = {
                                             --quick 60 s. FIGHT: races that attack each other, near (--near 1024) and in one band.
                                             A reward over --far 1024 units from the death that brings it. -o: the plan, a line from
                                             each trigger to each monster seen. Exit code 1 on SEEN or FIGHT`,
+  },
+  "map-waypoints": {
+    run: mapWaypoints,
+    own: true,
+    help: `  map-waypoints <bsp|map> --mod ts|<profile> [--out <Half-Life>/rcbot | -o x.rcw] [--name <map>] [--spacing 160] [--paths 16]
+                              [--drop 250] [--no-jump] [--no-crouch] [--plan p.png] [--cell 8] [--doors ...] [--open ...] [--json]
+                                            RCBot's waypoints from the walk test: one at each start, the foot and top of each
+                                            ladder, where each jump to floor only a jump reaches is made, the ends of stairs, each
+                                            opening, then every --spacing units of walk, corners mended until every two neighbours
+                                            are joined by a straight line a body walks (both ways) or drops down (one way); floor
+                                            only a crouching body fits that joins two places gets crouching waypoints. Written
+                                            as the bot's .rcw: --out the bot's folder puts it at waypoints/<mod>/<map>.rcw. The bot
+                                            works out its visibility table when the map first loads. --plan: drawn on the plan`,
   },
   "map-measure": {
     run: mapMeasure,

@@ -429,6 +429,19 @@
      Last resort. Clears every hold, forces normal movement, and lifts the
      player clear of the floor in case they were made solid inside geometry.
 
+ tsm_commands
+     Every command this plugin has registered, in two groups: server-side
+     (console and admin commands, run from the server console or an admin's
+     own client) first, then client commands (what an ordinary player's own
+     client sends). Read live from AMXX's own command tables.
+
+ tsm_fogtest
+     Toggles the sudden-death fog on or off, for looking at it without
+     waiting for a real sudden death. Needs tsm_logging 1. Refuses outright
+     while a real sudden death is already live this round, and a new round
+     clears it the same as the real fog -- it can never affect or outlast
+     the real thing.
+
  amx_tsm_unfreeze
      Force-release everyone. Diagnostic.
 
@@ -638,6 +651,37 @@
 ===============================================================================
 ===============================================================================
  RESPAWN WAVES AND LIVES  (every class has lives; Assault has two)
+===============================================================================
+ SERVER LISTS AND PRESENCE  (the server list is set outside the game)
+===============================================================================
+
+ tsm_pres_siege
+     Set by the plugin once a second, not by hand: the siege progress, such as
+     "2/5", and empty on a map with no siege objectives. The game reads it for
+     the Discord card. See docs\RICH_PRESENCE.txt.
+
+ tsm_pres_attack
+     Set by the plugin once a second, not by hand: the side that attacks the siege
+     objectives, 1 or 2, and empty on a map with no siege objectives. The game reads it
+     for the Discord card. See docs\RICH_PRESENCE.txt.
+
+ tsm_pres_side1, tsm_pres_side2
+     Set by the plugin once a second, not by hand: how many players are on each side,
+     bots included. The game reads them for the Discord card.
+
+ tsm_pres_alive1, tsm_pres_alive2
+     Set by the plugin once a second, not by hand: how many players on each side are
+     alive, counted the way the round logic counts them. The game reads them for the
+     Discord card.
+
+ ts_richpresence 1
+     Shows your game on Discord as Rich Presence. On by default. Set 0 to turn it off,
+     in config.cfg or userconfig.cfg. The Discord desktop app has to be running. See
+     docs\RICH_PRESENCE.txt.
+
+ Which servers the Internet tab lists is set in networking.ini, next to
+ h9xash.bat, not in the game. See docs\NETWORKING.txt.
+
 ===============================================================================
 
  Each class has tsm_class_lives lives per round, in class order: Assault 2,

@@ -938,11 +938,16 @@ const THROUGH = [
  *   parts     false: the floor that is not walked to is not looked at (`share` is null, `parts` empty)
  *   bodies    `{ name: "large" | "standing" | "crouching" | { half, height, feet } }`: the box a thing moves
  *             with, by classname or targetname, where its class does not say (`bodyFor`)
- *   to        entities to tell the walk to, by number or classname: each gets a sentence and a `route`
+ *   to        entities to tell the walk to, by number or classname, or points `[x, y, z]` (a goal of no
+ *             entity: the walked spot nearest it whose body comes within `touch` of it): each gets a sentence and a
+ *             `route` (a point's with `at`, and number null)
  *   cell      the grid, in units (8). A map too large for it is walked on a coarser one, and that is said
  *   touch     how near a player has to come to an entity to have got to it (32)
  *   hang      a body's feet may be this far over its floor before it is said to hang (64)
  *   widest    an opening wider than this is not listed (256)
+ *   graph     true: the result also has `graph` (not enumerable: JSON leaves it out), the walk itself for
+ *             what is built on it: `{ space, grid, layer, onFoot, flood, step, up, hops, starts, ladders
+ *             ([[from, to, ladder]] spots), layerOf(body), floodOf(layer, walk) }` (waypoints.mjs)
  *
  * It returns
  *   { warnings, facts            sentences: what is wrong, and what was found
@@ -1820,6 +1825,19 @@ export function reachOf(map, options = {}) {
   if (farthest) facts.push(`the longest walk to an entity is ${farthest.far} units, to ${named(farthest)}`);
   const routes = [];
   for (const which of Array.isArray(to) ? to : [to]) {
+    // a point: the walk to the nearest walked spot whose body comes within `touch` of it, in sight of it
+    if (Array.isArray(which)) {
+      if (which.length !== 3 || !which.every(Number.isFinite))
+        throw new Error(`to: a point is [x, y, z], not ${JSON.stringify(which)}`);
+      const spot = begun.length ? spotFor(space, grid, layer, flood, { origin: which, classname: "a point" }, touch, null) : -1; // prettier-ignore
+      if (spot < 0) {
+        warnings.push(`to: the point ${place(which)} is not reached (no walked spot within ${touch} of it, in sight of it)${begun.length ? nearWords(nearestWalked(grid, layer, flood, which), which) : ""}`); // prettier-ignore
+        continue;
+      }
+      routes.push({ number: null, classname: "a point", at: which, far: Math.round(flood.far[spot]), points: routeTo(grid, layer, flood, spot) }); // prettier-ignore
+      facts.push(`the walk to the point ${place(which)} is ${Math.round(flood.far[spot])} units`);
+      continue;
+    }
     const wanted = entities.filter(
       (entity) => entity.number === which || entity.classname === which || entity.targetname === which,
     );
@@ -1857,7 +1875,7 @@ export function reachOf(map, options = {}) {
   const isWalked = (spot) => flood.far[spot] !== undefined;
   const isJumped = (spot) => flood.far[spot] !== undefined && onFoot.far[spot] === undefined;
   const isTrapped = (spot) => Boolean(trap.inside?.[spot]);
-  return {
+  const result = {
     warnings,
     facts,
     starts: starts.map(({ spot: _spot, ...start }) => start),
@@ -1893,6 +1911,28 @@ export function reachOf(map, options = {}) {
       };
     },
   };
+  // the walk itself, for what is built on it (waypoints.mjs): kept out of what is printed or turned to JSON
+  if (options.graph)
+    Object.defineProperty(result, "graph", {
+      enumerable: false,
+      value: {
+        space,
+        grid,
+        layer,
+        onFoot,
+        flood,
+        step,
+        up,
+        hops,
+        starts: starts.filter((start) => start.spot >= 0),
+        ladders: (space.ladders ?? []).length
+          ? rungsOf(space, layer, (spot) => flood.far[spot] !== undefined, up)
+          : [],
+        layerOf: (ofBody) => layerOf(space, grid, ofBody),
+        floodOf: (ofLayer, walk) => floodOf(space, grid, ofLayer, walk),
+      },
+    });
+  return result;
 }
 
 /** A spot as a point: its place, and its floor. */

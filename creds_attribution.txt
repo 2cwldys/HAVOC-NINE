@@ -7,3 +7,4 @@ studio maker asset kit - deoroot and stevenlAFl
 reTS and recompiled source binaries - stevenlAFl
 sharing various tools and mapper assistance - babblingbrook
 compts elo plugin backend - xjiro
+h9_te_meridian - deoroot

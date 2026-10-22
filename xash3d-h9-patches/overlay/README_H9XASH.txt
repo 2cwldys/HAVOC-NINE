@@ -31,11 +31,11 @@
  valve\ is Valve's Half-Life content and is NOT in this folder or the repo; only
  valve\extras.pk3 is (it is Xash's own file). On the first launch h9xash.bat finds
  a Steam Half-Life by itself and copies its valve folder in (about 450 MB, once).
- Without Steam, copy it by hand, next to xash3d.exe:
+ Without Steam, copy it by hand, next to HAVOC 9.exe:
 
      <your Half-Life install>\valve   ->   H9XASH\valve
 
- Keep the extras.pk3 that is already here. Starting xash3d.exe directly, without
+ Keep the extras.pk3 that is already here. Starting HAVOC 9.exe directly, without
  valve\, stops at once with "couldn't load gfx.wad".
 
  Starting the game
@@ -45,7 +45,58 @@
      h9xash.bat +map h9_te_neuropolis
 
  h9xash.bat picks the menu track from ts\menu_music.txt (one file per line from
- ts\sound\music\) and then runs  xash3d.exe -game ts -console .
+ ts\sound\music\), and the menu background video from ts\menu_bg_videos.txt (one file
+ per line from ts\media\, same format) -- add more .avi files there to have it pick a
+ different one each launch. Set ui_background_video 0 to turn the video off entirely.
+ Then it runs  HAVOC 9.exe -game ts -console .
+
+ Command reference
+ -----------------
+ Type exec commands in the game console to print the command reference: the text of
+ COMMANDS.txt, line for line.
+
+ Discord rich presence
+ ---------------------
+ Show what you are playing on your Discord profile: the map, the players and the
+ bots, and on a siege map the progress. It is on by default, while the Discord desktop
+ app is open. To turn it off, put this in the console, or in ts\userconfig.cfg to
+ keep it:
+
+     ts_richpresence 0
+
+ Set it back to 1 to turn it on again. docs\RICH_PRESENCE.txt has what the card
+ shows.
+
+ Finding servers and joining them
+ --------------------------------
+ The Internet tab shows the FWGS public list, plus any server lists named in
+ networking.ini, which sits next to h9xash.bat:
+
+     [client]
+     list_static=https://example.org
+     steam_broker=0
+
+ Every launch rewrites ts\xashcomm.lst and ts\networking_resolved.cfg from that
+ file, so edit networking.ini and start the game again. A server list is a small text
+ file the game fetches from <address>/v1/servers/ts. Each line is "ip host:port" for
+ an Xash server. docs\NETWORKING.txt has the full guide: the file format, how to
+ run a list on your own machine for testing, and the Steam trade-offs.
+
+ Steam
+ -----
+ H9XASH is not a Steam game, so Steam does not know it until you add it:
+
+   * Non-Steam shortcut. Close Steam, then run h9_add_to_steam.ps1 from this folder.
+     Use -DryRun first to see what it would change. It adds a HAVOC 9 entry that
+     starts h9xash.bat. Or add it by hand: Steam > Add a Game > Add a Non-Steam
+     Game, choose h9xash.bat, and rename it HAVOC 9.
+
+   * Steam broker, for servers that need Steam sign-in. The broker is NOT in this
+     folder. Put steam_broker.exe and steam_api.dll in a steam\ folder next to
+     h9xash.bat, set steam_broker=1 in networking.ini, and keep Steam running and
+     logged in. While the broker runs, Steam may file the game under Spacewar (480)
+     instead of HAVOC 9, because the broker is the program that starts Steam's
+     session. The AppID is set in networking.ini, under [broker].
 
  What is different from the Steam install
  ----------------------------------------

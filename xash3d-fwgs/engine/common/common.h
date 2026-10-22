@@ -118,6 +118,7 @@ typedef enum instance_e
 
 #define CIN_MAIN		0
 #define CIN_LOGO		1
+#define CIN_MENUBG		2
 
 #if XASH_LOW_MEMORY == 0
 #define MAX_DECALS		512	// touching TE_DECAL messages, etc

@@ -23,12 +23,15 @@ GNU General Public License for more details.
 bool CMenuBackgroundBitmap::s_bEnableLogoMovie = false;
 bool CMenuBackgroundBitmap::s_bGameHasSteamBackground = false;
 bool CMenuBackgroundBitmap::s_bGameHasWONBackground = false;
+bool CMenuBackgroundBitmap::s_bVideoBackgroundActive = false;
 CMenuBackgroundBitmap::bstate_e CMenuBackgroundBitmap::s_state;
 
 CMenuBackgroundBitmap::bimage_t CMenuBackgroundBitmap::s_WONBackground;
 
 Size CMenuBackgroundBitmap::s_SteamBackgroundImageSize;
 CUtlVector<CMenuBackgroundBitmap::bimage_t> CMenuBackgroundBitmap::s_SteamBackground;
+
+Size CMenuBackgroundBitmap::s_VideoBackgroundSize;
 
 CMenuBackgroundBitmap::CMenuBackgroundBitmap() : CMenuBitmap()
 {
@@ -97,6 +100,22 @@ void CMenuBackgroundBitmap::DrawSteamBackgroundLayout( Point p, int xOffset, int
 		DrawBackgroundPiece( s_SteamBackground[i], p, xOffset, yOffset, xScale, yScale );
 }
 
+void CMenuBackgroundBitmap::DrawVideoBackground( Point p, int xOffset, int yOffset, float xScale, float yScale )
+{
+	int w = (int)ceil( s_VideoBackgroundSize.w * xScale );
+	int h = (int)ceil( s_VideoBackgroundSize.h * yScale );
+
+	if( EngFuncs::DrawMenuBgVideo( p.x + xOffset, p.y + yOffset, w, h ))
+		return;
+
+	// the stream died mid-session (asset or FFmpeg DLLs went away while playing) --
+	// fall through to WON/Steam/color in this same frame instead of a blank one
+	Con_Printf( "mainmenu_bg video: DrawMenuBgVideo failed mid-session, falling back\n" );
+	s_bVideoBackgroundActive = false;
+	UpdatePreference();
+	Draw();
+}
+
 /*
 =================
 CMenuBackgroundBitmap::Draw
@@ -130,7 +149,7 @@ void CMenuBackgroundBitmap::Draw()
 		return;
 	}
 
-	if( FBitSet( ui_prefer_won_background->flags, FCVAR_CHANGED ))
+	if( FBitSet( ui_prefer_won_background->flags, FCVAR_CHANGED ) || FBitSet( ui_background_video->flags, FCVAR_CHANGED ))
 	{
 		UpdatePreference();
 
@@ -150,6 +169,8 @@ void CMenuBackgroundBitmap::Draw()
 	}
 	else if( s_state == DRAW_WON )
 		s = s_WONBackground.size;
+	else if( s_state == DRAW_VIDEO )
+		s = s_VideoBackgroundSize;
 	else
 		s = s_SteamBackgroundImageSize;
 
@@ -208,6 +229,8 @@ void CMenuBackgroundBitmap::Draw()
 
 	if( s_state == DRAW_WON )
 		DrawBackgroundPiece( s_WONBackground, p, xOffset, yOffset, xScale, yScale );
+	else if( s_state == DRAW_VIDEO )
+		DrawVideoBackground( p, xOffset, yOffset, xScale, yScale );
 	else
 		DrawSteamBackgroundLayout( p, xOffset, yOffset, xScale, yScale );
 }
@@ -304,9 +327,34 @@ bool CMenuBackgroundBitmap::LoadWONBackground( bool gamedirOnly )
 	return false;
 }
 
+bool CMenuBackgroundBitmap::LoadVideoBackground()
+{
+	if( !ui_background_video->value )
+		return false;
+
+	// ui_background_video_file names the launcher's pick from menu_bg_videos.txt
+	// (h9xash.bat, mirroring how it already picks ts\menu_music.txt); the engine does
+	// its own existence/FFmpeg-availability check and fails this call cleanly, same as
+	// it already does for the WON logo.avi banner
+	if( !EngFuncs::PrecacheMenuBgVideo( ui_background_video_file->string ))
+		return false;
+
+	s_VideoBackgroundSize.w = EngFuncs::GetMenuBgVideoWidth();
+	s_VideoBackgroundSize.h = EngFuncs::GetMenuBgVideoHeight();
+
+	if( s_VideoBackgroundSize.w <= 0 || s_VideoBackgroundSize.h <= 0 )
+		return false;
+
+	return true;
+}
+
 void CMenuBackgroundBitmap::UpdatePreference()
 {
-	if( ui_prefer_won_background->value )
+	if( ui_background_video->value && s_bVideoBackgroundActive )
+	{
+		s_state = DRAW_VIDEO;
+	}
+	else if( ui_prefer_won_background->value )
 	{
 		if( s_bGameHasWONBackground )
 			s_state = DRAW_WON;
@@ -340,6 +388,7 @@ void CMenuBackgroundBitmap::UpdatePreference()
 		s_bEnableLogoMovie = false;
 
 	ClearBits( ui_prefer_won_background->flags, FCVAR_CHANGED );
+	ClearBits( ui_background_video->flags, FCVAR_CHANGED );
 }
 
 void CMenuBackgroundBitmap::LoadBackground()
@@ -347,9 +396,14 @@ void CMenuBackgroundBitmap::LoadBackground()
 	s_bEnableLogoMovie = false;
 	s_bGameHasSteamBackground = false;
 	s_bGameHasWONBackground = false;
+	s_bVideoBackgroundActive = false;
 
 	if( uiStatic.lowmemory )
 		return;
+
+	s_bVideoBackgroundActive = LoadVideoBackground();
+	Con_Printf( "mainmenu_bg video: %s (%dx%d)\n", s_bVideoBackgroundActive ? "loaded" : "not available",
+		s_VideoBackgroundSize.w, s_VideoBackgroundSize.h );
 
 	if( LoadSteamBackground( true ))
 	{

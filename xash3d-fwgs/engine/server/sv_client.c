@@ -1048,6 +1048,7 @@ static void SV_Info( netadr_t from, int protocolVersion )
 		Info_SetValueForKey( s, "team", svgame.globals->teamplay ? "1" : "0", sizeof( s ));
 		Info_SetValueForKey( s, "coop", svgame.globals->coop ? "1" : "0", sizeof( s ));
 		Info_SetValueForKeyf( s, "numcl", sizeof( s ), "%i", count );
+		Info_SetValueForKeyf( s, "bots", sizeof( s ), "%i", bots );
 		Info_SetValueForKeyf( s, "maxcl", sizeof( s ), "%i", svs.maxclients );
 		Info_SetValueForKey( s, "gamedir", GI->gamefolder, sizeof( s ));
 		Info_SetValueForKey( s, "password", SV_HavePassword() ? "1" : "0", sizeof( s ));

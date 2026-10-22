@@ -25,8 +25,11 @@ Words used below: `which` is a texture's or an animation's number or its name. `
 | `textureOf(b, which)` | `{ name, flags, width, height, pixels, palette }`, copied out. |
 | `sequences(b)` | `[{ name, fps, frames, loops, flags, activity, actweight, movement, motiontype, speed, bbmin, bbmax, blends, group }]`. `activity`: what a monster's code asks for it as (`ACTIVITY[n]` is its name, for those known), `actweight` how often it is picked among its activity's. `movement` `[x, y, z]`: how far the model travels in one play of it (the frames stay in place); `speed`: that in units a second, `distance * fps / (frames - 1)`; `motiontype`: the `MOTION` bits (`LX` 64, `LY` 128, `LZ` 256 for the axes of the travel). `bbmin`, `bbmax`: the box about the model through the animation, which the engine culls by. `group` is not 0 for an animation kept in another file. (`move` and `motion` are `movement` and `motiontype` under their older names.) |
 | `sequenceAt(b, which)` | The animation's number, or -1. |
-| `readSequence(b, which, blend = 0)` | What `sequences` tells, plus `index` and `frames[frame][bone] = [x, y, z, rx, ry, rz]`. |
-| `frameValues(b, seq, frame, blend = 0)` | One frame of that. Throws, naming the bone, when the file's values for a bone end before that frame (a broken file). |
+| `readSequence(b, which, blend = 0, groups)` | What `sequences` tells, plus `index` and `frames[frame][bone] = [x, y, z, rx, ry, rz]`. |
+| `frameValues(b, seq, frame, blend = 0, groups)` | One frame of that. Throws, naming the bone, when the file's values for a bone end before that frame (a broken file). An animation kept in another file (`group` not 0) is read from `groups[group]`, that file's bytes (`sequenceFilesOf`); without it, it throws "an animation kept in another file". |
+| `sequenceGroups(b)` | `[{ label, name }]`: the first (`default`) the model's own file, each after it a file of animations, `name` as the model says it (`models\hgrunt01.mdl`). The engine loads them by that name, so a copy of the model under a new name still plays the original's. |
+| `sequenceFilesOf(file, b)` | The files of animations beside `file`, one for each group: `[undefined, <name>01.mdl's bytes, ...]`, undefined where one is not there (`src/studio-file.mjs`; `sequenceFileOf(file, n)` is the path). |
+| `modelBoxes(b)` | The header's `{ eyes, min, max, bbmin, bbmax }`. |
 | `events(b, which)` | `[{ frame, event, type, options }]` of one animation. |
 | `attachments(b)` | `[{ name, bone, pos }]`: `bone` a number, `pos` in that bone's space. |
 | `hitboxes(b)` | `[{ bone, group, min, max }]`: `bone` a number, the box in that bone's space, `group` what was hit (`HITGROUP`: generic 0, head 1, chest 2, stomach 3, leftArm 4, rightArm 5, leftLeg 6, rightLeg 7; a mod may have more). |
@@ -38,8 +41,8 @@ Words used below: `which` is a texture's or an animation's number or its name. `
 | Function | Gives |
 | --- | --- |
 | `restPose(b)` | Every bone's matrix with the bones at rest. |
-| `poseAt(b, seq, frame, blend = 0)` | The same at one frame of an animation (`seq` is a number). Throws as `frameValues` does when a bone's values end before that frame. |
-| `poseBetween(b, seq, at, loop = true)` | At a moment between two frames (`at` may be fractional). |
+| `poseAt(b, seq, frame, blend = 0, groups)` | The same at one frame of an animation (`seq` is a number). Throws as `frameValues` does when a bone's values end before that frame, or the animation is in a file not given. |
+| `poseBetween(b, seq, at, loop = true, groups)` | At a moment between two frames (`at` may be fractional). An animation kept in another file is read from `groups`, as `poseAt` reads it. |
 | `poseOf(b, values)` | For a frame given as numbers (`[bone][6]`), not yet in the file. |
 | `boneMatrices(list, values?)` | The same for a list of bones `[{ parent, pos, rot }]` that is not in a file. |
 | `mul34(a, b)`, `apply34(m, p)`, `inverse34(m)` | Matrix times matrix, matrix times point, inverse of a rigid matrix. |
@@ -54,6 +57,7 @@ A point of a mesh in model space, in some pose: `apply34(pose[corner.bone], corn
 | `addMesh(src, { bodypart, model })` | One more mesh in a submodel, empty; `replaceMesh` fills it. For a part that needs a texture of its own. |
 | `addModel(src, bodypart, name)` | One more submodel in a bodypart, with one empty mesh. Its number is the old count. |
 | `addBodypart(src, name, models = [name])` | One more bodypart after the others, a submodel (with one empty mesh) for each name in `models`. Its base is the product of the counts before it, so every body number the file had shows what it showed and the new bodypart's first submodel. The engine draws a submodel of every bodypart: one of a single submodel is always shown. |
+| `removeBodypart(src, which, { renumber, keep })` | A bodypart taken out (`which`: its number or name), the counterpart of `addBodypart`: those after it move up one, and every one left gets the base a compiler writes, so the body numbers are counted again. → `{ mdl, removed: { name, models: [{ name, tris }] }, bases, bodies: [{ was, now }], changed }`: `bodies` maps every body number the file had to the one that shows the same submodels now. Where the new bases would make a number the file had show another submodel of a bodypart that stays (the one taken out had several, and one after it has several too), it throws naming them, unless `renumber: true` (take the new numbers; `changed` lists the old ones that now show something else) or `keep: true` (keep the other bodyparts' bases: every number shows what it showed of them). Throws for a bodypart it has not, or its only one. |
 | `emptyMesh(src, where)` | Leaves a mesh without triangles. |
 | `filterMesh(src, where, keep)` | Keeps the triangles for which `keep([bone, bone, bone])` is true. |
 | `addBones(src, [{ name, parent, pos, rot }])` | More bones after the ones it has, at rest in every animation. Old bones keep their numbers. |
@@ -90,6 +94,68 @@ kit), 32 additive (a glow added over what is behind), 64 masked (palette index 2
 
 A bone whose new motion goes beyond what the file's 16-bit scale for it can hold gets a wider scale, and every
 animation of the file is written again by it. Animations kept in other files (`group` not 0) make that fail.
+
+## A skeleton's proportions (`src/reproportion.mjs`)
+
+`reproportion(src, factors, { mirror = true, ground, stride, body = 0, groups, fit = true, hitboxes = "along" })` →
+`{ mdl, factors, mirrored, stride, lift, ground, boxes, along }`
+
+Bones made longer or shorter, every animation kept: a tall, thin robot on a soldier's skeleton.
+
+```js
+const groups = sequenceFilesOf(file, src);          // hgrunt01.mdl ...: read for the boxes, never changed
+const { mdl } = reproportion(src, { "Bip01 L Thigh": 1.2, "Bip01 L Calf": 1.2, "Bip01 L Clavicle": 0.8,
+  "Bip01 Spine": [1, 1, 1.05] }, { groups });
+```
+
+| Option | Meaning |
+| --- | --- |
+| `factors` | `{ bone: factor }`. **A factor is the bone's length**: it multiplies the place of every bone that hangs from it, in the bone's own axes; the bone itself stays where its parent has it (`"Bip01 L Thigh": 1.2` puts the knee 1.2 times as far down). A number for all three axes, `[x, y, z]` for each (a Biped bone's x runs down its length). A bone by its name, or a Biped bone in any of its names (`boneIn`: `"Bip01 L Thigh"` is hgrunt's `"Bip01 L Leg"`, `"Bip01 L Calf"` its `"Bip01 L Leg1"`, `"Bip01 L Clavicle"` its `"Bip01 L Arm"`). |
+| `mirror` | The other side's bone (`otherSideOf`) gets the same factor unless it is given its own. |
+| `stride` | What the roots' x and y and every animation's travel (`movement`) are multiplied by. Unless told, measured: how much longer the leg is from the highest bone above the foot whose length changed (the hip) to the foot, in the reference pose. |
+| `ground` | The reference pose: `{ seq, frame }`, `{ seq: null }` for the bones at rest; unless told, the first idle (activity 1), frame 0. Its lowest point is the ground. `false`: the roots' height is left as it was (the feet sink). |
+| `fit` | The roots' height becomes `slope * z + lift`, fitted by least squares over every frame of every animation that can be read whose lowest point stands on the ground (within 1 unit): standing, walking, crouching and lying keep their lowest point where it was. `false`, or too few frames standing: the slope is the stride's and the lift puts the reference pose's foot back. |
+| `body` | The body number whose points the ground is measured on. |
+| `groups` | The files of animations (`sequenceFilesOf`): their animations' boxes are measured through them, and the ground fitted over them too. |
+| `hitboxes` | `"along"`: a hit box on a bone that changed is longer or shorter along the bone by the factor on that axis, and as thick across it as it was (a shorter spine is not a thinner target). The axis along a bone is the one its children stand out along most (for a bone of no side, its children of no side: a neck's head, not its clavicles; x, as Biped's, for a bone with none); `along` says it for each such bone (`{ "Bip01 L Thigh": "x" }`). `"all"`: every axis times the factor, as before 0.23. |
+
+How it works: a frame's value is the bone's rest plus a stored step times the bone's scale, so the rest
+position and the position scale of a bone multiplied together multiply that position in every frame of every
+animation, those in `<name>01.mdl` files too, with no animation written again and no step rounded. The three
+angles of every bone in every frame are what they were, to the bit.
+
+- **Points stay in their bone's space**: they move with their bone and keep their shape (rigid pieces are not
+  stretched; a skinned body whose thigh grows opens a gap at the knee).
+- **Hit boxes** on a bone that grows grow along it (a thigh's box reaches the new knee) and keep their thickness
+  across it (`hitboxes`); **attachments** are multiplied by its factor. The eye goes with the bone nearest it in
+  the reference pose.
+- **Boxes**: each animation's measured again through its frames, as studiomdl does, where they can be read
+  (`boxes.measured`); the others' (`boxes.carried`, names), and the header's, carried axis by axis from the
+  reference pose's box before onto after. A header box of zeros stays zeros.
+- Returns `factors` (`{ bone: [x, y, z] }` of those not 1, by the model's names), `mirrored` (the bones given
+  their other side's), `stride`, `lift`, `ground` (`{ seq, frame, bone, low, frames, slope }`: the reference, the
+  bone its lowest point is on, how many frames the line was fitted over), `boxes`. Every factor 1 and no stride:
+  the file back as it was, byte for byte.
+- Not done: a position turned by a bone controller (none of Half-Life's monsters has one); blends are posed by
+  their first for the ground.
+
+`footSlide(src, seq, { feet, body = 0, parts, groups, contact = 0.5 })` → `{ seq, frames, movement, planted, mean,
+most, lows, ground }`: how a walk's feet meet the floor, to hold a figure against the model it is built on, or a
+skeleton before and after. Each frame, where each foot touches (the middle of its points within `contact` of its
+lowest), the animation's travel added as the game moves the model; the lower foot bears the weight, and `mean`
+and `most` are how far its touch moves across the floor from one frame to the next while the same foot is down
+(`planted` such steps). `lows`: the lowest point of the feet each frame; `ground` the least and most of those.
+`feet`: a pattern on bone names (Biped's Foot and Toe, in English or Italian) or a list of names or numbers, each
+the left's or the right's by its name (L or SX, R or DX); `body` and `parts` (bodyparts' numbers) which points
+count: leave out a weapon held low.
+
+`setBoneValues(src, [{ pos, rot, scale }])` (by bone number, an entry undefined for a bone left alone) writes
+bones' rest values and scales in place, nothing else touched: what `reproportion` is made of.
+`setModelBoxes(src, { eyes, min, max, bbmin, bbmax })` writes the header's eye and boxes that are given.
+
+`smak reproportion <mdl> "Bip01 L Thigh=1.2" "Bip01 Spine=1,1,1.05" -o out.mdl [--no-mirror] [--stride n]
+[--reference <seq>[:frame] | rest] [--no-ground] [--body n] [--hitboxes all]` does it on the command line,
+reading the files of animations beside the model.
 
 ## A monster's parts
 
@@ -150,6 +216,10 @@ writes a file from tables that are already in the format's own terms (points in 
 mesh). Prefer `buildMdl`, which takes triangles and passes the rest on.
 A bodypart needs one submodel at least (the engine divides a body number by how many it has): one with none is
 refused. A submodel with no meshes is what shows nothing.
+
+`modelName(b)` reads the name in the header (studiomdl writes the file's path there:
+`D:\half-life\TS\models\player\merc\merc.mdl`); `setModelName(src, name)` writes another, 1 to 63 Latin-1
+letters, nothing else changed: a model made from another says that one's name inside until told.
 
 `buildMdl({ name, bones, bodyparts, sequences, smooth = 40, ownNormals = false, hitboxes, attachments, controllers, eyes, min, max, bbmin, bbmax })`
 (`src/build.mjs`):
@@ -515,7 +585,7 @@ it is measured. Two files on one skeleton give the same space for a bone of the 
 | `fitBetween(from, to, { uniform, points, boxes })` | The fit `p * k + t`, each axis its own, that takes one piece to another: `{ k, t, scale, worst, by, at(p), back(p) }`. From two lists of the same points in the same order when they are that (`by: "points"`, `worst` the farthest a point is left), else from their boxes (`by: "boxes"`). A game's woman's helmet from the man's: about 0.84 and a shift. |
 | `clearance(inner, shell, { centre, sides })` | Is this inside that: `{ inside, outside, open, tightest: { gap, at, on }, worst: { out, at, on }, fits }`. Counts of the inner points that the shell covers, that poke through it, and that it does not reach (below a helmet's rim); the inside point nearest the wall and its gap in units; the outside point farthest out. |
 | `bodyCounts(src, bodypart = 0)` | `[{ body, name, tris, verts, norms, textures }]` for every body, and `.median`: a new body's weight against the file's own. |
-| `motionOverlaps(src, pieces, seqs, { step = 2, tol = 0.25, still, space = "bone" })` | Rigid convex pieces driven into each other by the animations: `{ built, sequences: [{ name, frames, pairs: [{ a, b, deep, frame, near }] }], worst, skipped }`. See below. |
+| `motionOverlaps(src, pieces, seqs, { step = 2, tol = 0.25, still, space = "bone", groups })` | Rigid convex pieces driven into each other by the animations: `{ built, sequences: [{ name, frames, pairs: [{ a, b, deep, frame, near }] }], worst, skipped }`. See below. |
 
 `clearance` looks from the middle of the inner points through each of them: a point is **inside** when the line
 leaves the shell beyond it, **outside** when it has left the shell before reaching it, **open** when it never
@@ -531,7 +601,8 @@ the corners of one go inside the other, past how deep they are as built (the res
 meet are measured. `built`: the pairs already in each other as built; `near`: the bones are next to each other
 (the same parent, or one the other's parent or grandparent), where a joint's own parts sit in each other by
 design, against pairs on bones apart, which are faults. Only corners are tested: two blocks crossing edge to edge
-with no corner inside are not seen. Animations kept in other files are named in `skipped`.
+with no corner inside are not seen. Animations kept in other files are posed from `groups` (`sequenceFilesOf`,
+and `still` may be one of them); without their file they are named in `skipped`.
 
 ```js
 const helm = bodyIn(helmets, 2, "Bip01 Head"), where = boxIn(helmets, 2, "Bip01 Head");          // the game's own, to sit a new one by
@@ -591,13 +662,13 @@ All return `{ width, height, rgba }`; write with `png(img.width, img.height, img
 | --- | --- |
 | `render(src, options)` | One view. |
 | `sheet(src, options)` | Six views: front, left side, back, right side, top, three quarter. `size` (384) is each one's side. |
-| `strip(src, { seq, count = 12, cols = 4, from, to, ... })` | An animation (the first unless told), `count` frames from first to last, each numbered, all by one camera at one scale. Throws when the model has no animation, or none of that name. A walk: `{ view: "side", ground: true }`. |
+| `strip(src, { seq, count = 12, cols = 4, from, to, groups, ... })` | An animation (the first unless told), `count` frames from first to last, each numbered, all by one camera at one scale. Throws when the model has no animation, or none of that name, or it is kept in another file and `groups` (`sequenceFilesOf`) does not hold it. A walk: `{ view: "side", ground: true }`. |
 | `uvMap(src, which, { scale })` | A texture enlarged with the triangles that wear it drawn over it. Also returns `scale`, `meshes`, `triangles`. |
 | `tile(images, cols, names)` | Pictures of one size side by side, named. For before and after. |
 | `lineup([[name, model], ...], { yaws = [20, 200], pitch, zoom, width, height, cols, target, seq, frame })` | Several models to one scale, each from the same sides. |
 | `together([...])` (`src/place.mjs`) | Not a picture: several models on one skeleton as one model, for any of these to draw (a helmet on a head with an armour). |
 | `label(img, text, x, y)` | Writes on a picture. |
-| `posed(src, options)` | No picture: the triangles in model space as shown, `{ info, tris, pose }`. A triangle: `{ tex, where, tri, c: [{ p, n, u, v, bone } ×3] }` (`where`: its mesh; `tri`: its number in it; `u`, `v` in pixels; `bone` a number). |
+| `posed(src, options)` | No picture: the triangles in model space as shown, `{ info, tris, pose }`. A triangle: `{ tex, where, tri, c: [{ p, n, u, v, bone } ×3] }` (`where`: its mesh; `tri`: its number in it; `u`, `v` in pixels; `bone` a number). `groups` (`sequenceFilesOf`) poses an animation kept in another file; without it such an animation is shown at rest. |
 | `framing(src, [options])` | `{ mid, far }` over several poses, for `within`. |
 
 Options of `render` (and the others pass them on):
@@ -645,7 +716,12 @@ change a model call it themselves: use it on files that came from elsewhere.
 two documents of their own: `docs/MAPS.md` (a compiled map read and checked, its entities, textures and `.wad`
 files, its pictures: `drawMap`, `planOf`, `viewsOf`, `compareOf`, `drawSource`, `planOfSource`, `sectionOf`, `storeysOf`,
 `openingViews`, what they draw of the game's files: `figuresOf`, `spritesOf`, `readSpr`, `skyOf`, `readTga`,
-the walk test: `reachOf`, `spaceOf`, `restOf`, `storeyCuts`, a map in numbers: `measure`, `measureTable`, a
+the walk test: `reachOf`, `spaceOf`, `restOf`, `storeyCuts`, waypoints for bots and RCBot's file: `waypointsOf`,
+`readRcw`, `writeRcw`, `waypointFlagNames`, `RCW_FLAGS`, a map in numbers: `measure`, `measureTable`, a
+map's two teams as a team plugin plays it: `teamsOf`, `collectSpawns`, `partitionSpawns`, `readSpawnCfg`,
+`spawnCfgText`, `spawnCfgName`, the sight test `sightTest`, a map's dressing against a mod's own bands:
+`dressingOf`, `learnDressing`, the kit's profiles by name and the game found: `mapProfileOf`, `findHalfLife`,
+`steamLibraries`, a
 compiled map decompiled into a `.map` and its recompile measured against it: `decompile(bytes, { name, folders })`
 → `{ map, facts, warnings, wad }`, `textureFidelity(original, recompiled)`, `lightParity(original, recompiled)`,
 Half-Life's texture lights `TEXLIGHTS`, `texlightsFor`, `texlightsRad`, `texlightsEntity`, and a map's entities against its
@@ -735,7 +811,7 @@ Two halves of a part rigid on two bones, which the animations must not pull apar
 cylinder on one bone and its rod on the other. Neither half can turn about its anchor, so the rod stays in the
 cylinder only where the anchors keep their bearing to each other (a hinge's own axis is such a place).
 
-`findPiston(src, { boneA, boneB, candidatesA, candidatesB, seqs, step = 2, r = 0.4, clearance = 0.5 })` →
+`findPiston(src, { boneA, boneB, candidatesA, candidatesB, seqs, step = 2, r = 0.4, clearance = 0.5, groups })` →
 `{ found, cylinder, rod, report, skipped }`
 
 | Option | Meaning |
@@ -744,6 +820,7 @@ cylinder only where the anchors keep their bearing to each other (a hinge's own 
 | `candidatesA`, `candidatesB` | Points where each end may be anchored, in model space with the bones at rest. Every pair is tried. |
 | `seqs` | The animations it must work through, by name or number: all the file keeps unless told. Every `step`th frame is posed. |
 | `r`, `clearance` | The cylinder's radius (the rod's is half); how far short of the rod's eye the cylinder stops at the joint's narrowest. |
+| `groups` | The files of animations kept beside the model (`sequenceFilesOf`): their animations are posed too. |
 
 The pair kept is the one whose rod strays least off the cylinder's axis (a longer one a little preferred); each half
 is aimed at the other's mean bearing in its own bone and sized so that the rod is in the cylinder at the joint's
@@ -751,14 +828,15 @@ widest and short of its floor at its narrowest. `cylinder` and `rod` are lists o
 (for `putRigid` with `space: "rest"`). `report`: `{ anchorA, anchorB, axisA, axisB, dmin, dmax, cylinder, rod,
 stray, angleA, angleB, bore, frames, sequences }` (`stray` in units, the angles the most each half's bearing turns
 in its bone, in degrees). `found` is false and the rest null when no pair leaves a cylinder of 1.5 and a rod of 1.
-**Animations kept in other files** (`group` not 0) are not posed: they are left out and listed in `skipped`
-(`[{ name, why }]`), with names the model has not.
+**Animations kept in other files** (`group` not 0) are posed from `groups`; one whose file is not given is left
+out and listed in `skipped` (`[{ name, why }]`), with names the model has not.
 
-`posesFor(src, { seqs, step = 2 })` → `{ poses, used, skipped }`: the poses it tries, what `motionOverlaps` poses too.
+`posesFor(src, { seqs, step = 2, groups })` → `{ poses, used, skipped }`: the poses it tries, what `motionOverlaps`
+poses too.
 
 ## Pieces laid out on a picture (`src/unwrap.mjs`)
 
-`unwrap(pieces, { density = 3, width = 256, fold = 100, margin = 1, rows = 512, pow2 = true })` → layout
+`unwrap(pieces, { density = 3, width = 256, fold = 100, margin = 1, rows = 512, pow2 = true, nets })` → layout
 
 Each piece's faces are opened out flat about their edges, as a paper model's net, at their true size (`density`
 texels a unit everywhere: the pixel-art look), the flattest folds first; a face that would land on the net, or
@@ -774,11 +852,173 @@ multiple of 8 without `pow2`), at most `rows`; an island wider than the picture 
 | `axis` | Its length: faces across it (its ends) get islands of their own. |
 | `share` | Pieces of one share wear the first one's texels triangle by triangle (a left plate and its right: built alike). |
 | `mirror` | `{ n, at }`, a plane: the half on `n`'s side is laid out, the other half wears its mirror's texels. |
+| `net` | A key: the islands of the pieces of one key are laid together as one net and packed as one (or the option `nets: (piece, n) => key`, which a piece's own `net` gives way to). |
+
+**Nets**: the islands of one key are laid the largest first, then each where one of its corners lands on a corner
+of the net laid so far, none of its texels on the net's, the net's box kept smallest and no wider than the
+picture; one that cannot touch the net without lying on it is packed alone. A limb's plates side by side on the
+picture, where a painter looks for them, instead of scattered among the rest.
 
 The layout: `{ width, height, density, islands: [{ id, piece, tris, x, y, w, h }], pieces: [{ uv, islandOf,
 primary }] }`, `uv` for each triangle of each piece its three corners in texels. `withUV(pieces, layout)` gives the
 pieces back with each corner's `uv` 0 to 1, as `putRigid` and `buildMdl` take it. `unfold(tris, { up, alt, fold,
 axis })` is the net of one list of triangles: `[{ faces, flat }]`, `flat` each face's corners in units.
+
+## Fewer triangles for rigid pieces (`src/cull.mjs`)
+
+A figure of rigid pieces (plates over a cage, parts set into each other) is mostly faces never seen: buried in
+another piece, shut inside a cage, pressed against a neighbour. GoldSrc draws them all. Two passes take them away,
+for any model and any pieces, the same pieces giving the same answer every time.
+
+`cullHidden(src, pieces, options)` → `{ pieces, before, after, gone, poses, share }`: the pieces posed on their
+bones in many poses of the animations and drawn from many sides at a fixed size of pixel, front faces only, with a
+depth test; a triangle that shows less than `keep` of what it could (the area of the pixels it wins over the area
+it would cover with nothing in front, summed over every view of every pose) goes, and a piece left with none is
+dropped (`gone`, its name or number). `pieces` as `motionOverlaps` takes them (`[{ bone, tris }]`, in the bone's
+space or `space: "rest"`); every other key of a piece is kept, and its corners are the ones given.
+
+| Option | Default | |
+| --- | --- | --- |
+| `keep` | 0.04 | The share a triangle must show to stay: under it, it is hidden nearly always. |
+| `first`, `firstViews`, `firstPx` | the first idle, 80, 0.15 | The pose seen closest: that animation's first frame (else the first, else the bones at rest), from that many directions at that many units a pixel. |
+| `seqs`, `at`, `views`, `px`, `weight` | every one it can read, `[0.3, 0.7]`, 14, 0.2, 1 | The other poses: each animation at those shares of its frames, from `views` directions (a number spread over the sphere, or unit vectors) at `px`, each pose's areas times `weight`. |
+| `poses` | | Instead of the two above: `[{ seq, frame, views, px, weight }]` (`seq` null for the bones at rest), measured together; the close pose and the others are otherwise measured apart and their areas summed. |
+| `together` | `(piece) => piece.share` | Pieces of one key and as many triangles (a left plate and its right, on one set of texels) keep a triangle any of them shows. |
+| `groups`, `space` | | The files of animations kept beside the model (`sequenceFilesOf`); `"rest"` for pieces in model space at rest. |
+
+Its cost is the poses times their views times the triangles: 6,000 triangles over a hundred poses take some
+seconds. `triangleVisibility(src, pieces, { poses, views = 14, px = 0.2, groups, space })` → `{ seen, could, sign
+}` is the measure under it, each piece's triangles' areas won and possible in square units (`sign`: the winding
+taken as the front, by most of the triangles; a triangle too small to win a pixel counts one, once in a measure,
+the first time its middle is seen); `sphereViews(n)` the `n` directions spread over the sphere.
+
+`reduceWithin(tris, { tol = 0.12, shares = [0.35 ... 0.85], creaseAngle = 60 })`: one piece's triangles brought
+down by `reduce` to each share in turn, the fewest first, and the first whose shape is within `tol` of the
+original taken (no corner or middle of a triangle of either shape further than `tol` from the other:
+`shapeDeviation(a, b)`); the triangles as given when no share is (the same array). The corners come back as `{ p }`:
+a reduced piece is laid out again. `reducePieces(pieces, options)` → `{ pieces, before, after, reduced }` does
+every piece, `reduced` the numbers of those made lighter. A texel at 3 a unit is 0.33: a `tol` under half of it
+does not show.
+
+## The figure judges (`src/figures/`, exported as `figures`)
+
+Does a figure (a humanoid model: a man, a robot, an orc) belong to a game's manner, and where not? Three judges,
+each of measures that work for any GoldSrc game, hold it against a **corpus of the game's own figures**. The kit
+ships no corpus and no game's measures: `surveyFigures` (`smak figure-survey`) measures the figures of the game as
+it is installed into a **library** of the person's (a JSON file outside the kit). What each game's manner is, is
+its **profile's** `figureStyle` (profiles export it as `FIGURE_STYLE`): which measures tell it apart and how much
+each weighs, the groups the style judge scores, which judges apply.
+
+```js
+import { figures as F } from "./smak/src/index.mjs";
+const library = F.readLibrary();                                   // ~/.smak/figures.json, or SMAK_FIGURES
+F.surveyFigures("C:/Games/Half-Life/ts/models", { corpus: "ts", library }); F.writeLibrary(library);
+const style = await F.figureStyleOf("ts");                         // The Specialists' manner (profiles/specialists.mjs)
+const f = F.figureFacts("robot.mdl");                              // { skip } when it is no standing figure
+const { measures, by } = F.styleMeasures(f);
+const { weights } = F.styleSetup(library.style, { weights: style.weights.style, groups: style.groups });
+const verdict = F.judgeStyle(measures, F.prepareStyle(F.styleCorpus(library.style, ["ts"]), weights), { hash: f.hash, textures: by.textures, parts: by.parts }); // prettier-ignore
+console.log(F.styleTold("robot.mdl", verdict, ["ts"]));
+```
+
+**A figure's facts.** `figureFacts(src | file, { withPixels = true })` → `{ hash, by, pose, height, bones, joints,
+tris, textures }`, or `{ skip }` with why: the body's bones found by their Biped names (any language `boneIn` knows)
+or by plain words (`skeletonOf(names, parents)`: head, hands, feet, then up each limb), the figure as its idle's
+first frame stands (`standingSeq(src)`), its triangles in the body's frame (x to its left, y to its front, z up from
+its lowest point) with each one's bone, part (`PARTS`: head, torso, arm, hand, leg, foot, other), texture and
+texels; bodyparts named for what is carried (gun, weapon, sword, shield ...) left out. A snark on a Biped's bones
+does not stand (its head under 55% of its height, its feet over 40%, its legs under 20%). `loadFigure(file)` reads
+a file with its `<name>t.mdl`.
+
+**The library.** `surveyFigures(modelsFolder, { corpus, judges = JUDGES, library, log })` measures every figure of
+a folder for the three judges into `library` under the corpus' name (what it held of that corpus is replaced);
+`<name>t.mdl` and `<name>01.mdl` files, and models that are no standing figure, go in `library.style.skipped` with
+why. `readLibrary(file)`, `writeLibrary(library, file)`, `emptyLibrary()`, `libraryFile()` (SMAK_FIGURES, else
+`~/.smak/figures.json`), `libraryCorpora(library)`, `modelsFolderOf(given, folder)` (`<given>/<folder>/models`,
+`<given>/models` or the folder itself). Each judge reads its section, `library.style`, `.texture` or `.shape`:
+`{ models: { "corpus:file": { game, file, hash, measures, ... } } }`. The library's functions, `loadFigure` and `surveyFigures`
+read and write files themselves, unlike the rest of the kit.
+
+**Profiles.** `figureStyleOf(asked, { kind })` (async) → the figure style, whole: a name of `FIGURE_PROFILES`
+(`msc`/`mastersword`, `ts`/`specialists`, `halflife`/`hl`/`valve`, `valve_hd`, or `halflife` with `kind: "hd"`),
+a profile's `.mjs` (its `FIGURE_STYLE`, `FIGURE_STYLE_<KIND>`, or its default's `figureStyle`), a profile object
+(`maps.loadMod`'s, or a profile function's) or a style itself; none is `PLAIN_STYLE` (no weights: the library's
+corpora tell what separates them). A style: `{ name, title, corpus: { name, folders }, judges, groups, least,
+weights: { style, texture, shape }, validated, notes }`. `weightsFor(style, judge)` its weights for a judge, or
+`"library"`. The profile's `figureStyle` stands apart from its `character.figures` (a map's).
+
+| Profile | Corpus | What tells its manner most (style; texture; shape) |
+| --- | --- | --- |
+| `profiles/mastersword.mjs` | msc | texture reuse, symmetry, pieces, triangles; charts, slanted edges; layers, mirror. A weak corpus (many hands, Half-Life's own among them) |
+| `profiles/specialists.mjs` | ts | near-black, symmetry, hard edges, hand size, value; repetition, quiet areas, flat fills; mirror, asymmetry, a concave outline |
+| `profiles/halflife.mjs` | valve (`kind: "hd"`: valve_hd) | triangles, texel density, grain, arm length; charts, repetition; mirror, layers. The HD pack: hard edges, texture size, triangles; rectangular charts; mirror, holes (7 figures: coarse) |
+
+The weights are how far that game's figures stand from each other game's on each measure (the distance of the
+medians over the middle half, averaged over the other corpora), measured on 297 figures of seven corpora; the
+corpus a figure is held against is the person's own survey.
+
+### The style judge (`style.mjs`, `judge-style.mjs`)
+
+`styleMeasures(facts)` → `{ measures, by: { parts, textures } }`: 52 measures, each told by `STYLE_SAID[key]` =
+`[what it is, unit, log scale, what to do when low, when high, group]`. **shape**: tris, edge, edgeSpread, pieces,
+rigid (surface in pieces on one bone), open, hard (edges over 45°), boxy, sym; **proportion**: heads, shoulders,
+bulk, armLen, legLen, hand; **texture**: texels (texels across one height), texelSpread, textures, texSize, used,
+reuse, mirrored, stretch, chrome; **colour**: colours, value, contrast, sat, accent, dark, hues, grain, detail,
+flat; **part**: the texel density, share of the triangles and brightness of head, torso, arm, hand, leg, foot.
+
+| Function | Does |
+| --- | --- |
+| `styleSetup(data, { weights = "library", groups, least = 0.25 })` | `{ weights, sep }`: a profile's weights (`{ key: separation }`), `"library"` (every two of the library's corpora) or `"even"`; each times its group's share, under `least` dropped, groups not in `groups` told and not scored (`__told`); with the floors of the middle half (`__floor`, all the library's figures). |
+| `styleSeparation(data, games, { of })` | How far apart the corpora stand on each measure; `of`: one corpus from the others only (what a profile's weights are). |
+| `styleCorpus(data, games)`, `prepareStyle(corpus, weights)` | A corpus made ready: its scale, and each of its figures' distance to its nearest others (copies by hash and twins, the same mesh, left out). |
+| `judgeStyle(measures, prepared, { leave, hash, textures, parts, top = 5 })` | `{ score, place, fit, distance, findings, nearest, left }`: `score` 0 to 100 (as near as the nearer half of the corpus' own is 100, as far as the farthest 0), `fit` the measures one at a time, `findings` beyond the middle half farthest first with the part or texture at fault and what to do. |
+| `styleTold(name, verdict, games, { most = 12 })` | The verdict in words. `styleLeaveOneOut(prepared)`, `rangeOf(scores)`. |
+| `validateStyle(data, { weights, sep, weightsFor, games, remakes, alike })` | `{ text, report }`: every figure on every corpus; each corpus' own figures against foreign ones as AUC (1 perfect, 0.5 a coin), by distance and by `fit`; the same characters in two manners (`remakes`); who stands best where (`alike`: corpora counted as one). `weightsFor(game)`: each corpus with its own weights. |
+
+What the research found (2026-10-19): proportions and the parts' figures tell characters apart, not manners (the
+HD pack remakes Half-Life's characters at its proportions), so the profiles score shape, texture and colour and
+only tell the rest (`*` in the words).
+
+### The texture judge (`texture.mjs`, `texture-model.mjs`, `judge-texture.mjs`)
+
+A texture as painting, from a model (its UVs give the mask and the charts) or from a picture of an atlas.
+`TEX_SAID`: **motif** repeat, repeatAny (mirrored or turned too), marks, lightMarks; **light** flat (3x3 of one
+colour), ramp, speckle, grain; **hierarchy** cluster, quiet; **form** diagonal, chartRect, charts (per 10,000
+texels), chartDiag, aoFollow, aoFollowAll (darker where the surface is hidden: a cheap occlusion of the model);
+**value** value, contrast, dark, colours, sat.
+
+| Function | Does |
+| --- | --- |
+| `textureOfModel(src \| file \| facts)` | `{ measures, atlases }`: the figure's textures (chrome left out) as atlases, measured with the occlusion (`modelTextureMeasures(facts)`, `atlasesOf`, `occlusionOf`). |
+| `textureOfPicture(img, { box, scale, ground, tolerance })` | A picture of an atlas: the painting told from its ground (the commonest colour of the box's border unless given), brought back to one pixel a texel (`scale`, or found from the period of its hard steps, `periodOf`: a screenshot of an editor's UV view at 4 pixels a texel reads 4.00). `{ measures, atlases, scale }`. `atlasOfPicture`, `atlasOfTexture(tex, tris)`, `textureMeasures(atlases)` under it. |
+| `referenceOfMeasures(list)` | A reference of several figures (the game's own, or of the manner wanted): each measure's median. |
+| `judgeTexture(measures, data, games, ref, { leave, refName, yard })` | `{ fit, findings, toward, refDistance, refPlace, refCorpusMedian }`: the corpus measure by measure, then the reference (`{ measures }` or the measures), each measure apart in yardsticks (the library's middle halves over all its figures, `textureYardstick`), the distance over every measure both have, and the share of the corpus' figures nearer the reference. `textureTold(name, verdict, games, refName)` in words. |
+| `validateTexture(data, { refs, weights, games, alike })`, `textureSheet(items, data)`, `textureSeparation(data, { games, of })` | The validation (AUC, who stands best where, the references against each corpus); a picture of atlases side by side with every measure as a bar over the library's spread. |
+
+### The shape judge (`shape.mjs`, `silhouettes.mjs`, `judge-shape.mjs`)
+
+Silhouettes (from a model drawn from four sides, or masks) and the mesh. `SHAPE_SAID[key]` adds `from`: "picture"
+or "mesh". **Negative space** holes, fineHoles (in holes under 1% of the silhouette: seen through a frame), holeCount;
+**contour** concave, rough, notchS, notchM, notchL; **inside** edges, cells, cellGini; **symmetry** asym; **mesh**
+pieceGini, sizeRange, small, layers, deep, mirror (surface whose mirror is not on the model), alike (pieces with a
+near twin), boxes. Holes and notches are also told by band of the height (`BANDS`: head, torso, legs).
+
+| Function | Does |
+| --- | --- |
+| `shapeOfModel(src \| file, { masks, summaryViews, keep, groups })` | `{ measures, bands, views, where, pictures }`: its idle drawn from `VIEWS` (front 0°, threeq 45°, side 90°, back 150°) with both sides of every face, the picture measures averaged over `SUMMARY_VIEWS` (front, threeq, back), and the mesh's (`meshMeasures(facts)`). With `masks`, those silhouettes instead. |
+| `masksLikeReference(src, { pose, views, background, scale })` | A model drawn as a reference's figure is seen: in `pose` (a pose made to match the reference's), each view `{ mask, yaw, pitch, dist, fov, target }` from the reference's camera in perspective, framed so its top, bottom and middle across stand where the reference mask's figure does. → masks for `shapeOfModel(src, { masks })`: like with like. |
+| `shapeOfReference(masks)`, `shapeOfMasks(masks)`, `masksOnViewport(img, views)` | A reference from masks by view (`{ view: { mask, img } }`, `img` the picture under it for the inside's edges), summarised over its own views; masks cut from a screenshot of an editor's viewport (`maskOnViewport`: its grey ground, grid, axis lines and gizmos taken out). |
+| `silhouetteMeasures(mask, img)`, `modelSilhouettes(src, { views })`, `summary(views, names)` | One silhouette brought to 400 pixels tall and measured; a model's views; their summary. |
+| `judgeShape(x, data, games, ref, refName, { leave, yard })` | As the texture judge's, with the band or part at fault (`shapeWhere`); the reference's distance over the silhouette measures (`PICTURE_KEYS`). `shapeTold`, `validateShape(data, { refs, ours, reference, weights, games, alike })`, `shapeSheet(items)`. |
+
+What the research found: holes as a share are a trustworthy measure of a
+screenshot's mask, `holeCount` is not (it moves with the mask's settings); holes and asymmetry depend on the pose
+and the view, so hold a model against a reference in the reference's pose (`masksLikeReference`).
+
+**Shared**: `quart`, `medianOf`, `standing`, `separation(data, said, scaled, { games, of })`, `yardstick`,
+`aucOf(high, low)`, `judgeAgainst`, `prepareNear`, `nearTo` (`stats.mjs`, `compare.mjs`); `figureMask` and
+`pictureMeasures(img, mask)` (`pictures.mjs`): a figure in a render or a screenshot measured as pixels (colours,
+hard steps, blocks across its height).
 
 ## Blender, where there is one (`src/blender.mjs`)
 

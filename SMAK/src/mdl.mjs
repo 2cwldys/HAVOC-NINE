@@ -8,14 +8,15 @@
 // file left as the appending makes it.
 //
 //   reading     readMdl readMesh textureOf skinFamilies bodyOf bones boneParents sequences readSequence
-//               frameValues events attachments hitboxes boneControllers drawnCorners
+//               frameValues sequenceGroups events attachments hitboxes boneControllers drawnCorners modelBoxes
 //   posing      restPose poseAt poseBetween poseOf boneMatrices
 //               (matrices: 3 rows of 4, bone space -> model space)
-//   meshes      replaceMesh addMesh addModel addBodypart emptyMesh clearModel filterMesh
+//   meshes      replaceMesh addMesh addModel addBodypart removeBodypart emptyMesh clearModel filterMesh
 //   pictures    retexture replaceTexture withTextures
 //   animations  replaceSequence addSequence setEvents addBones
-//   a monster's setHitboxes autoHitboxes setAttachments setBoneControllers
-//   whole       writeMdl
+//   a monster's setHitboxes autoHitboxes setAttachments setBoneControllers setModelBoxes
+//   bones       setBoneValues (their rest and scale; reproportion.mjs changes a skeleton's lengths by it)
+//   whole       writeMdl modelName setModelName
 
 import { engineLayout } from "./layout.mjs";
 
@@ -231,6 +232,8 @@ export const ACTIVITY = {
 const EVENT = { frame: 0, event: 4, type: 8, options: 12, sizeof: 76 }; // options: char[64]
 // mstudioseqgroup_t
 const SEQGROUP = { label: 0, name: 32, sizeof: 104 };
+/** What a sequence file (<name>01.mdl) begins with: its own header, and its animations' values after it. */
+const SEQUENCE_FILE_ID = "IDSQ";
 // mstudioanim_t: for one bone in one blend, six 16 bit offsets, one for each of its six values (0: the bone
 // rests on that channel), each counted from this entry's own start to the channel's runs of values
 const ANIM = { offset: 0, sizeof: 6 * INT16 };
@@ -763,6 +766,109 @@ export function addBodypart(src, name, models = [name]) {
 }
 
 /**
+ * Returns { mdl, removed, bases, bodies, changed }: a copy of the file with one bodypart taken out (`which`: its
+ * number or its name), the counterpart of addBodypart. The bodyparts after it move up one, and every one left is
+ * given the base a compiler writes (`basesByRule`: the product of the counts before it), so the body numbers are
+ * counted again over the bodyparts that remain.
+ * A body number the game asks for is read by the engine as floor(body / base) % count for each bodypart. Where
+ * the new bases would make a number the file had show another submodel of a bodypart that remains (the bodypart
+ * taken out had several submodels, and one after it has several too), it throws and says which numbers, unless
+ * told: `renumber: true` takes the new numbers (`bodies` says, for every old number, the new one that shows what
+ * it showed), `keep: true` keeps the bases the others had instead, so that every number shows what it showed of
+ * them (two numbers may then show the same).
+ *   removed  { name, models: [{ name, tris }] }: what was taken out
+ *   bases    each remaining bodypart's base
+ *   bodies   [{ was, now }]: every body number the file had, and the one that shows the same submodels now
+ *   changed  the body numbers that show something else of the bodyparts that remain ([] unless renumbered)
+ * It throws when the model has no such bodypart, or only that one (the engine needs one at least).
+ */
+export function removeBodypart(src, which, { renumber = false, keep = false } = {}) {
+  const info = readMdl(src);
+  const parts = info.bodyparts;
+  const k = typeof which === "number" ? which : parts.findIndex((bp) => bp.name === which);
+  if (!parts[k])
+    throw new Error(
+      `removeBodypart: no bodypart ${JSON.stringify(which)}: it has ${parts.map((bp, i) => `${i} ${bp.name}`).join(", ")}`,
+    );
+  if (parts.length === 1)
+    throw new Error(`removeBodypart: ${parts[k].name} is the model's only bodypart, and the engine needs one`);
+  const left = parts.map((_, i) => i).filter((i) => i !== k);
+  let product = 1;
+  const byRule = left.map((i) => {
+    const own = product;
+    product *= parts[i].models.length;
+    return own;
+  });
+  const bases = keep ? left.map((i) => parts[i].base) : byRule;
+  // every body number the file had: what it showed of each bodypart that remains, before and after
+  const count = Math.max(1, ...parts.map((bp) => bp.base * bp.models.length));
+  const shownBy = (body, base, n) => (n ? Math.floor(body / base) % n : 0);
+  const bodies = [];
+  const changed = [];
+  for (let body = 0; body < count; body++) {
+    const was = left.map((i) => shownBy(body, parts[i].base, parts[i].models.length));
+    const now = left.map((i, j) => shownBy(body, bases[j], parts[i].models.length));
+    bodies.push({ was: body, now: was.reduce((sum, m, j) => sum + m * bases[j], 0) });
+    if (was.some((m, j) => m !== now[j])) changed.push(body);
+  }
+  if (changed.length && !renumber) {
+    const said = changed
+      .slice(0, 6)
+      .map((body) => {
+        const swaps = left.flatMap((i, j) => {
+          const models = parts[i].models;
+          const was = models[shownBy(body, parts[i].base, models.length)].name;
+          const now = models[shownBy(body, bases[j], models.length)].name;
+          return was === now ? [] : [`${now} instead of ${was}`];
+        });
+        return `body ${body} would show ${swaps.join(", ")}`;
+      })
+      .join("; ");
+    throw new Error(
+      `removeBodypart: taking ${parts[k].name} out changes what ${changed.length} body numbers show: ${said}${changed.length > 6 ? " ..." : ""}. Give { renumber: true } for the new numbers (\`bodies\` maps the old to the new), or { keep: true } to keep the other bodyparts' bases`,
+    );
+  }
+  // the table written again where it was, one entry shorter (the last entry's room left as zeros): the file
+  // keeps its size
+  const out = Buffer.from(src);
+  const oldTable = int32(src, HDR.bodypartindex);
+  const table = Buffer.alloc(parts.length * BODYPART.sizeof);
+  left.forEach((i, j) => {
+    src.copy(table, j * BODYPART.sizeof, oldTable + i * BODYPART.sizeof, oldTable + (i + 1) * BODYPART.sizeof);
+    table.writeInt32LE(bases[j], j * BODYPART.sizeof + BODYPART.base);
+  });
+  table.copy(out, oldTable);
+  out.writeInt32LE(left.length, HDR.numbodyparts);
+  return {
+    mdl: engineLayout(out),
+    removed: {
+      name: parts[k].name,
+      models: parts[k].models.map((m) => ({ name: m.name, tris: m.meshes.reduce((n, mesh) => n + mesh.numtris, 0) })),
+    },
+    bases,
+    bodies,
+    changed,
+  };
+}
+
+/** The name in the model's header (studiomdl writes the file's name there: `models/player/x/x.mdl`). */
+export const modelName = (mdl) => textAt(mdl, HDR.name, LONG_NAME);
+
+/**
+ * Returns a copy of the file with another name in its header: a model made from another keeps that one's name
+ * until told (a player made from the merc still says merc.mdl inside). At most 63 letters, of Latin-1.
+ */
+export function setModelName(src, name) {
+  const latin1 = typeof name === "string" && [...name].every((ch) => ch.charCodeAt(0) >= 1 && ch.charCodeAt(0) <= 255);
+  if (!latin1 || !name.length || name.length > LONG_NAME - 1)
+    throw new Error(`setModelName: a name of 1 to ${LONG_NAME - 1} Latin-1 letters, not ${JSON.stringify(name)}`);
+  const out = Buffer.from(src);
+  out.fill(0, HDR.name, HDR.name + LONG_NAME);
+  writeName(out, HDR.name, name, LONG_NAME);
+  return out;
+}
+
+/**
  * The `base` a compiler writes for each bodypart of a file: 1 for the first, and for each one after it the
  * product of the counts of submodels of those before it. With those bases every pairing of submodels has a
  * body number of its own: the sum, over the bodyparts, of a submodel's number times its bodypart's base.
@@ -998,16 +1104,17 @@ export function sequences(mdl) {
 /**
  * Every bone's matrix at a moment of an animation between its frames (`at` in frames, fractional), each
  * matrix's numbers mixed between the two frames around it: near enough a turn for the small steps of one
- * frame. With `loop`, past the last frame goes on to the first.
+ * frame. With `loop`, past the last frame goes on to the first. An animation kept in another file is read from
+ * `groups`, as poseAt reads it.
  */
-export function poseBetween(mdl, seq, at, loop = true) {
+export function poseBetween(mdl, seq, at, loop = true, groups) {
   const frames = int32(mdl, seqAt(mdl, seq) + SEQ.numframes);
   const moment = loop ? ((at % frames) + frames) % frames : Math.max(0, Math.min(frames - 1, at));
   const frame = Math.floor(moment);
   const next = loop ? (frame + 1) % frames : Math.min(frame + 1, frames - 1);
   const mix = moment - frame;
-  const from = poseAt(mdl, seq, frame);
-  const to = mix ? poseAt(mdl, seq, next) : from;
+  const from = poseAt(mdl, seq, frame, 0, groups);
+  const to = mix ? poseAt(mdl, seq, next, 0, groups) : from;
   return from.map((matrix, bone) =>
     matrix.map((row, r) => row.map((v, c) => v + (to[bone][r][c] - v) * mix)),
   );
@@ -1032,17 +1139,33 @@ function stepAt(mdl, run, frame, emptyRun) {
 }
 /**
  * A bone's six values at a frame: its rest and, on the channels the animation moves, the stored steps
- * times the bone's scale. `bone`: where the bone's entry is; `anim`: where its mstudioanim_t is.
+ * times the bone's scale. `bone`: where the bone's entry is; `anim`: where its mstudioanim_t is, in `data`
+ * (the model's own file, or the sequence file that keeps the animation: the bones are always the model's).
  */
-function valuesAt(mdl, bone, anim, frame, emptyRun) {
+function valuesAt(mdl, bone, anim, frame, emptyRun, data = mdl) {
   return CHANNELS.map((j) => {
     const rest = mdl.readFloatLE(bone + BONE.value + j * FLOAT32);
-    const offset = mdl.readUInt16LE(anim + ANIM.offset + j * INT16);
+    const offset = data.readUInt16LE(anim + ANIM.offset + j * INT16);
     if (!offset) return rest;
     return (
-      rest + stepAt(mdl, anim + offset, frame, emptyRun) * mdl.readFloatLE(bone + BONE.scale + j * FLOAT32)
+      rest + stepAt(data, anim + offset, frame, emptyRun) * mdl.readFloatLE(bone + BONE.scale + j * FLOAT32)
     );
   });
+}
+/**
+ * The file an animation's values are in: the model's own, or for one kept in another file (`group` not 0)
+ * that file, from `groups` (`groups[group]`, as sequenceFilesOf gives them). It throws when that is not given.
+ */
+function animFile(mdl, sequence, groups) {
+  const group = int32(mdl, sequence + SEQ.seqgroup);
+  if (!group) return mdl;
+  const file = groups?.[group];
+  if (!file) throw new Error("an animation kept in another file");
+  if (file.toString("latin1", 0, 4) !== SEQUENCE_FILE_ID)
+    throw new Error(
+      `the file given for sequence group ${group} is not a sequence file (${SEQUENCE_FILE_ID})`,
+    );
+  return file;
 }
 /**
  * What poseAt and frameValues hand `stepAt` for a run that covers no frame: it throws, naming the bone whose
@@ -1054,19 +1177,12 @@ const valuesEnd = (mdl, bone, frame) => () => {
   );
 };
 /**
- * Every bone's matrix at one frame of an animation (its first blend, or the one asked for; the animation has
- * to be in the model's own file). It throws, naming the bone, when the file's values for a bone end before
- * that frame.
+ * Every bone's matrix at one frame of an animation (its first blend, or the one asked for). An animation kept
+ * in another file is read from `groups` (see frameValues). It throws, naming the bone, when the file's values
+ * for a bone end before that frame.
  */
-export function poseAt(mdl, seq, frame, blend = 0) {
-  const sequence = seqAt(mdl, seq);
-  const count = int32(mdl, HDR.numbones);
-  const anim = int32(mdl, sequence + SEQ.animindex) + blend * count * ANIM.sizeof;
-  if (int32(mdl, sequence + SEQ.seqgroup)) throw new Error("an animation kept in another file");
-  const values = Array.from({ length: count }, (_, i) => {
-    const bone = boneAt(mdl, i);
-    return valuesAt(mdl, bone, anim + i * ANIM.sizeof, frame, valuesEnd(mdl, bone, frame));
-  });
+export function poseAt(mdl, seq, frame, blend = 0, groups) {
+  const values = frameValues(mdl, seq, frame, blend, groups);
   return chain(values, (i) => int32(mdl, boneAt(mdl, i) + BONE.parent));
 }
 export const mul34 = (a, b) =>
@@ -1712,32 +1828,97 @@ export function bones(mdl) {
   });
 }
 /**
- * One frame of an animation as numbers: for each bone, [x, y, z, about x, about y, about z]. It throws,
- * naming the bone, when the file's values for a bone end before that frame.
+ * One frame of an animation as numbers: for each bone, [x, y, z, about x, about y, about z]. An animation
+ * kept in another file (`group` not 0) is read from `groups[group]`, that file's bytes (sequenceFilesOf
+ * reads them beside the model); without it, it throws "an animation kept in another file". It throws, naming
+ * the bone, when the file's values for a bone end before that frame.
  */
-export function frameValues(mdl, seq, frame, blend = 0) {
+export function frameValues(mdl, seq, frame, blend = 0, groups) {
   const sequence = seqAt(mdl, seq);
   const count = int32(mdl, HDR.numbones);
   const anim = int32(mdl, sequence + SEQ.animindex) + blend * count * ANIM.sizeof;
-  if (int32(mdl, sequence + SEQ.seqgroup)) throw new Error("an animation kept in another file");
+  const data = animFile(mdl, sequence, groups);
   return Array.from({ length: count }, (_, i) => {
     const bone = boneAt(mdl, i);
-    return valuesAt(mdl, bone, anim + i * ANIM.sizeof, frame, valuesEnd(mdl, bone, frame));
+    return valuesAt(mdl, bone, anim + i * ANIM.sizeof, frame, valuesEnd(mdl, bone, frame), data);
   });
 }
 /**
  * An animation whole: what sequences() tells of it and `frames` (see frameValues), of its first blend or the
- * one asked for.
+ * one asked for; one kept in another file from `groups`.
  */
-export function readSequence(mdl, which, blend = 0) {
+export function readSequence(mdl, which, blend = 0, groups) {
   const index = sequenceAt(mdl, which);
   const sequence = sequences(mdl)[index];
   if (!sequence) throw new Error(`no animation ${which}`);
   return {
     ...sequence,
     index,
-    frames: Array.from({ length: sequence.frames }, (_, frame) => frameValues(mdl, index, frame, blend)),
+    frames: Array.from({ length: sequence.frames }, (_, frame) =>
+      frameValues(mdl, index, frame, blend, groups),
+    ),
   };
+}
+/**
+ * The model's sequence groups (mstudioseqgroup_t): [{ label, name }], the first ("default") the model's own
+ * file, each after it a file of animations (`name` as the model says it: "models\hgrunt01.mdl").
+ */
+export function sequenceGroups(mdl) {
+  const table = int32(mdl, HDR.seqgroupindex);
+  return Array.from({ length: int32(mdl, HDR.numseqgroups) }, (_, i) => ({
+    label: textAt(mdl, table + i * SEQGROUP.sizeof + SEQGROUP.label, SHORT_NAME),
+    name: textAt(mdl, table + i * SEQGROUP.sizeof + SEQGROUP.name, LONG_NAME),
+  }));
+}
+/**
+ * Returns a copy of the file with its bones' six rest values and six scales changed where `list` says:
+ * [{ pos, rot, scale }] by bone number, each part left as it is when not given (an entry may be undefined).
+ * Nothing else is touched. The stored steps of every animation are read against these (rest + step * scale),
+ * so a position's rest and its scale multiplied together multiply that position in every frame of every
+ * animation, those kept in other files too, without one of them being written again.
+ */
+export function setBoneValues(src, list) {
+  const out = Buffer.from(src);
+  list.forEach((bone, i) => {
+    if (!bone) return;
+    if (i >= int32(src, HDR.numbones)) throw new Error(`setBoneValues: the model has no bone ${i}`);
+    const at = boneAt(src, i);
+    if (bone.pos)
+      threeNumbers(bone.pos, `bone ${i}: pos`).forEach((v, j) =>
+        out.writeFloatLE(v, at + BONE.value + j * FLOAT32),
+      );
+    if (bone.rot)
+      threeNumbers(bone.rot, `bone ${i}: rot`).forEach((v, j) =>
+        out.writeFloatLE(v, at + BONE.value + (3 + j) * FLOAT32),
+      );
+    if (bone.scale) {
+      if (!Array.isArray(bone.scale) || bone.scale.length !== 6 || !bone.scale.every(Number.isFinite))
+        throw new Error(`bone ${i}: scale needs six numbers`);
+      bone.scale.forEach((v, j) => out.writeFloatLE(v, at + BONE.scale + j * FLOAT32));
+    }
+  });
+  return out;
+}
+/**
+ * The header's eye and boxes: { eyes (eyeposition), min, max (the box it moves with), bbmin, bbmax (the box
+ * it is clipped by) }, each [x, y, z].
+ */
+export function modelBoxes(mdl) {
+  return {
+    eyes: vec3At(mdl, HDR.eyeposition),
+    min: vec3At(mdl, HDR.min),
+    max: vec3At(mdl, HDR.max),
+    bbmin: vec3At(mdl, HDR.bbmin),
+    bbmax: vec3At(mdl, HDR.bbmax),
+  };
+}
+/** Returns a copy of the file with the header's eye and boxes that are given (see modelBoxes) written. */
+export function setModelBoxes(src, boxes) {
+  const out = Buffer.from(src);
+  for (const key of ["eyes", "min", "max", "bbmin", "bbmax"])
+    if (boxes[key] !== undefined)
+      writeVec3(out, key === "eyes" ? HDR.eyeposition : HDR[key], threeNumbers(boxes[key], key));
+  return out;
 }
 /** The number of the animation of that name (or the number itself), or -1. */
 export const sequenceAt = (mdl, which) =>

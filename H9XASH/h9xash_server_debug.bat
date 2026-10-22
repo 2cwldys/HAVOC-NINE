@@ -1,8 +1,11 @@
 @echo off
 REM ---------------------------------------------------------------------------
-REM  ts.bat -- starts the Discord bot, runs the game server, stops the bot again
+REM  h9xash_server_debug.bat -- the same as h9xash_server.bat, but with -dev 2 for
+REM  a verbose engine.log (the same flag docs\NETWORKING.txt's troubleshooting
+REM  section already tells players to add), and a smaller edict budget to make an
+REM  edict-related problem show up sooner rather than only at a full server.
 REM
-REM  Run this from the Half-Life folder, the one with the dedicated server in it.
+REM  Run this from the H9XASH folder.
 REM
 REM  The bot is started HERE and not by the plugin, because a plugin cannot start a
 REM  program: AMXX has no native for it. The launcher gets the same result anyway --
@@ -89,14 +92,24 @@ echo [ts]          The server will start anyway, and adverts will still post.
 :run
 echo.
 
-REM -condebug makes the engine mirror its console to qconsole.log. Without it a crash
+REM -log makes the engine mirror its console to engine.log (default name; see
+REM Sys_CheckParm("-log") in xash3d-fwgs\engine\common\sys_con.c). Without it a crash
 REM leaves NOTHING behind: the AMXX log records the map change and stops there, and a
 REM hard crash writes no minidump either, so there is no evidence of what happened.
 REM It is cleared first so whatever is in it belongs to this run and no other.
-if exist qconsole.log del /q qconsole.log
+if exist engine.log del /q engine.log
 
-cmd /k hlds.exe -heapsize 1048576 -console -num_edicts 2048 -condebug -port 27015 -game ts +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
-set "HLDSEXIT=%ERRORLEVEL%"
+REM By full path, same reason h9xash.bat uses one: a shell with
+REM NoDefaultCurrentDirectoryInExePath set will not run a program from the current
+REM folder by its bare name. -dedicated is the engine's own flag (see -help), not a
+REM separate binary -- host.c switches it into headless mode at startup, same as
+REM HLDS does from the one GoldSrc engine. -dev 2 is the only difference from
+REM h9xash_server.bat: more detail in engine.log, nothing wrapped in cmd /k --
+REM a quoted exe path and a quoted +hostname value both landing inside one cmd /k
+REM command line is exactly the kind of nested quoting cmd.exe gets unreliable
+REM about, and this could not be tested by hand before shipping it.
+"%~dp0HAVOC 9.exe" -dedicated -game ts -console -log -dev 2 -num_edicts 2048 -port 27015 +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
+set "SRVEXIT=%ERRORLEVEL%"
 
 REM hlds has exited -- by quit, by crash, or by this window being closed. Take the bot
 REM with it, but ONLY if this run is what started it. A bot that was already up when the
@@ -113,27 +126,27 @@ echo [ts] Leaving the Discord bot running -- it was already up before this run.
 
 echo.
 echo ===============================================================
-echo  hlds exited with code %HLDSEXIT%
+echo  HAVOC 9.exe exited with code %SRVEXIT%
 echo ===============================================================
 
 REM The tail of the console is where the engine says what killed it. A Host_Error
 REM names itself; a silent stop with no FATAL line is an access violation, and the
 REM last lines still say what it was doing at the time.
-if not exist qconsole.log goto :nolog
+if not exist engine.log goto :nolog
 echo.
-echo ---- last 40 lines of qconsole.log ----
-powershell -NoProfile -Command "Get-Content qconsole.log -Tail 40"
+echo ---- last 40 lines of engine.log ----
+powershell -NoProfile -Command "Get-Content engine.log -Tail 40"
 echo ---- end ----
 echo.
 echo ---- lines that look fatal ----
-powershell -NoProfile -Command "Select-String -Path qconsole.log -Pattern 'FATAL|Host_Error|Sys_Error|Mod_NumForName|not precached|SZ_GetSpace|overflow|Bad model' | Select-Object -Last 15 | ForEach-Object { $_.Line }"
+powershell -NoProfile -Command "Select-String -Path engine.log -Pattern 'FATAL|Host_Error|Sys_Error|Mod_NumForName|not precached|SZ_GetSpace|overflow|Bad model' | Select-Object -Last 15 | ForEach-Object { $_.Line }"
 echo ---- end ----
 echo.
-echo  The whole console is in qconsole.log beside hlds.exe.
+echo  The whole console is in engine.log beside HAVOC 9.exe.
 goto :held
 
 :nolog
-echo  No qconsole.log was written, so it died before the engine opened one.
+echo  No engine.log was written, so it died before the engine opened one.
 
 :held
 echo.

@@ -216,6 +216,57 @@ export function textureFor(texture, normal) {
   return textureFor(chosen, normal);
 }
 
+/**
+ * A picture fitted to a box, as a mapper fits one by hand ("fit", then shifts): on each of its six faces the
+ * picture's corner stands on the face's corner, so a band's edge falls on the brush's edge, a sign is whole on
+ * its plate and a door's picture fills its leaf. `size` is the picture's [width, height] in texels. On an upright
+ * face the picture's top is at the face's top and its left at the face's left as seen from outside; on a floor
+ * or a ceiling its top is to the north and its left to the west.
+ *   whole      true: one picture across each face, stretched to it both ways; "u" across only (its height
+ *              tiles at the scale given), "v" up only
+ *   repeat     [across, up]: so many pictures across and up each face, in place of one (`whole` true)
+ *   scale      the scale where a way is not fitted (1: a texel a unit)
+ *   readable   true: the north and west faces, where the world's grid runs the picture right to left as seen,
+ *              are flipped, so words read and a picture is not mirrored on any side
+ *   faces      the faces that wear it ("top", "bottom", "north", "south", "east", "west"); the others wear
+ *              `rest` (the picture laid on the world's grid unless told)
+ * It returns `{ top, bottom, north, south, east, west }` for `box` and any builder that takes a texture.
+ */
+export function fitted(name, size, min, max, { whole = false, repeat, scale = 1, readable = false, faces, rest } = {}) {
+  if (typeof name !== "string" || !name) throw new Error("fitted: the texture's name");
+  if (!(Array.isArray(size) && size.length === 2 && size.every((v) => v > 0))) throw new Error(`fitted: the picture's size is [width, height] in texels, not ${JSON.stringify(size)}`);
+  for (let i = 0; i < 3; i++) if (!(max[i] > min[i])) throw new Error(`fitted: the box has no size along ${AXIS_NAMES[i]}`);
+  const [tw, th] = size;
+  const [nu, nv] = repeat ?? [1, 1];
+  const fitU = whole === true || whole === "u" || repeat !== undefined;
+  const fitV = whole === true || whole === "v" || repeat !== undefined;
+  const [s0, s1] = Array.isArray(scale) ? scale : [scale, scale];
+  // one face: `along` the axis its picture runs across (u), `lo`/`hi` its extent, `flip` when the world's u runs
+  // right to left as the face is seen; `up` the axis the picture's rows run down (v), its top at `top`
+  const face = (along, flip, up, top, extentV) => {
+    const extentU = max[along] - min[along];
+    let su = fitU ? extentU / (nu * tw) : s0;
+    const sv = fitV ? extentV / (nv * th) : s1;
+    if (flip) su = -su;
+    const left = flip ? max[along] : min[along];
+    return { name, scale: [su, sv], offset: [-left / su, top / sv] };
+  };
+  const all = {
+    top: face(0, false, 1, max[1], max[1] - min[1]),
+    bottom: face(0, false, 1, max[1], max[1] - min[1]),
+    east: face(1, false, 2, max[2], max[2] - min[2]),
+    west: face(1, readable, 2, max[2], max[2] - min[2]),
+    north: face(0, readable, 2, max[2], max[2] - min[2]),
+    south: face(0, false, 2, max[2], max[2] - min[2]),
+  };
+  if (!faces) return all;
+  const kept = Object.fromEntries(faces.map((f) => {
+    if (!(f in all)) throw new Error(`fitted: a face is top, bottom, north, south, east or west, not ${f}`);
+    return [f, all[f]];
+  }));
+  return { ...Object.fromEntries(Object.keys(all).map((f) => [f, rest ?? name])), ...kept };
+}
+
 /** One face: its three points (already in the compiler's order), and the texture its normal picks. */
 function faceOf(points, normal, texture) {
   const fit = textureFor(texture, normal);
@@ -757,17 +808,19 @@ function ringPieces({ centre, radius, outer, angles, pieces, snap }, from, to, t
  *                shared among the steps there are. A slab of `top: false` stands on the box's floor
  * With `top: false` the highest step comes first in the list.
  *
+ * `open: 8` makes each step a tread that thick with nothing under it (a fire escape, an open-riser stair).
  * `ramp: "CLIP"` (or any texture) adds, last in the list, a wedge laid on the steps' nosings, from the floor
  * one step's depth before the first riser to the top: a player walks up it smoothly instead of climbing
  * each step (what boxy stairs "feel wrong" for), while shots and grenades, which a CLIP brush does not
  * stop, still meet the steps. Where the box has no room before the first riser, the foot of the ramp is
  * the box's low side, and the ramp a little steeper.
  */
-export function stairs(min, max, high, texture, { steps, rise = 16, top = true, tread, ramp } = {}) {
+export function stairs(min, max, high, texture, { steps, rise = 16, top = true, tread, ramp, open } = {}) {
   if (ramp !== undefined) {
-    const flight = stairs(min, max, high, texture, { steps, rise, top, tread });
+    const flight = stairs(min, max, high, texture, { steps, rise, top, tread, open });
     return [...flight, stairRamp(min, max, high, ramp, { steps, rise, top, tread })];
   }
+  if (open !== undefined) return openFlight(min, max, high, texture, { steps, rise, top, tread, open });
   const side = SIDES[high];
   if (!side) throw new Error(`stairs: the high side is "+x", "-x", "+y" or "-y", not ${high}`);
   for (let i = 0; i < 3; i++)
@@ -823,6 +876,29 @@ export function stairs(min, max, high, texture, { steps, rise = 16, top = true, 
     brushes.push(box(low, top, texture));
   }
   return brushes;
+}
+
+/**
+ * The flight `stairs` makes with `open`: each step a tread `open` thick with nothing under it, as a fire escape's,
+ * a gallery's or an open-riser stair's are; laid as the solid flight would lay them (the same heights and depths).
+ */
+function openFlight(min, max, high, texture, { steps, rise, top, tread, open }) {
+  if (!(typeof open === "number" && open > 0)) throw new Error(`stairs: open is a tread's thickness, over 0, not ${JSON.stringify(open)}`);
+  const solidSteps = stairs(min, max, high, texture, { steps, rise, top, tread });
+  const side = SIDES[high];
+  return solidSteps.map((brush, n) => {
+    const shape = shapeOf(brush);
+    const lo = [...shape.min];
+    const hi = [...shape.max];
+    // a step of a flight with its top step reaches on to the high side: its own tread is its front's depth
+    const deep = tread ?? (max[side.axis] - min[side.axis]) / solidSteps.length;
+    if (top) {
+      if (side.sign > 0) hi[side.axis] = Math.min(hi[side.axis], lo[side.axis] + deep);
+      else lo[side.axis] = Math.max(lo[side.axis], hi[side.axis] - deep);
+    }
+    lo[2] = Math.max(lo[2], hi[2] - open);
+    return box(lo.map(tidy), hi.map(tidy), texture);
+  });
 }
 
 /** The ramp `stairs` lays on its steps with `ramp`: from one step's depth before the first riser to the top. */

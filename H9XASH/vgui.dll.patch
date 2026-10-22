@@ -6,6 +6,20 @@ Those six colours are all that H9's patched GoldSrc vgui.dll changes (18 bytes, 
 Upstream: FWGS master e8d773ea. Built: branch h9 at 7129989e. Below is the whole
 source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
 
+Upstream: FWGS master e8d773ea. Built: branch h9 at 7129989e, from the working tree.
+Working tree status for these paths. Anything listed is not committed, and is in the diff:
+Below is the whole source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
+The notes above were written by an earlier build and are kept as they were. The history below is the record
+of each build, read from git when that build was made. The newest block describes the diff at the end.
+== Patch history ==
+Generated Wed 10/21/2026 23:42:20.46, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/freevgui, since its upstream commit 410c35cd7ed4271ebc0b49ddb5351a248447c319:
+839501d 2026-10-20 h9: webassembly support (freevgui.patch)
+c83f47f 2026-10-20 h9: purple VGUI1 scheme defaults (freevgui-h9-scheme.patch)
+Diff sha256 0b35dab7c3c2766e4b6cd381460c9020e723eb93f9dcd30230c65f273eed42a1, the diff below.
+
 diff --git a/3rdparty/freevgui/platform/emscripten/font.cpp b/3rdparty/freevgui/platform/emscripten/font.cpp
 new file mode 100644
 index 0000000..4055686

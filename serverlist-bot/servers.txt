@@ -1,0 +1,4 @@
+# The servers to list when the list starts, one host:port per line. Each one is queried, and it
+# is listed once it answers. A server that never answers is dropped after expire_seconds.
+#
+# 192.0.2.10:27015

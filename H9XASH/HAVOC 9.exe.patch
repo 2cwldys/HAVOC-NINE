@@ -1,0 +1,31 @@
+H9XASH HAVOC 9.exe -- built from patched source by TSM\xash3d-h9-patches\xash.bat
+
+The launcher, game_launch's own xash3d.exe target, copied in under H9's name by this script rather than renamed at the source. Its icon comes from game_launch\havoc9.ico (game.rc), the same picture as ts\game.ico.
+
+Below is the whole source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
+
+The notes above were written by an earlier build and are kept as they were. The history below is the record
+of each build, read from git when that build was made. The newest block describes the diff at the end.
+
+== Patch history ==
+Generated Thu 10/22/2026  3:21:19.56, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M game_launch/game.rc
+?? game_launch/havoc9.ico
+Commits on h9 since upstream that touch these paths, oldest first:
+Diff sha256 6a9a99a6405f54caa670333e99038d91ae624783d74d023f9f326b457924dbc8, the diff below.
+
+diff --git a/game_launch/game.rc b/game_launch/game.rc
+index 1d8bbcc9..fa1cc5c1 100644
+--- a/game_launch/game.rc
++++ b/game_launch/game.rc
+@@ -25,4 +25,4 @@
+ 
+ #include <common.ver>
+ 
+-IDI_ICON1	ICON    DISCARDABLE		"icon-xash-material.ico"
++IDI_ICON1	ICON    DISCARDABLE		"havoc9.ico"
+diff --git a/game_launch/havoc9.ico b/game_launch/havoc9.ico
+new file mode 100644
+index 00000000..cd4127a8
+Binary files /dev/null and b/game_launch/havoc9.ico differ

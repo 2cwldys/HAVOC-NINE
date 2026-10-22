@@ -1,0 +1,9 @@
+; serverlist.cfg -- the two secrets. Copy this file to serverlist.cfg and fill it in.
+; serverlist.cfg is git-ignored and is never copied into the package.
+
+[secrets]
+; Servers send heartbeats with this key. Any long random string will do, and every server
+; that sends heartbeats needs the same one. Empty means heartbeats are refused.
+heartbeat_key =
+; The Discord bot token, for the slash commands. Empty means no Discord: the list runs alone.
+discord_token =

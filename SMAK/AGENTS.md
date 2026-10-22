@@ -47,9 +47,15 @@ It makes a model from nothing and exercises every part of the kit. If every test
 | Replace or add textures; recolour by palette; export and import PNG / BMP | Edit animations kept in separate `name01.mdl` files |
 | Replace or add animations, and the events (sounds) on their frames | Show the engine's real lighting: its pictures are a plain stand-in |
 | Add bones to a model | Run or test anything inside the game |
+| Pose the animations kept in `name01.mdl` files wherever a model is posed: its pictures, `motionOverlaps`, `findPiston`, `footSlide` (`groups: sequenceFilesOf(file, src)`; the command line reads them beside the model) | Write them: they are read, and `reproportion` carries them through the bones untouched |
+| Make a skeleton's bones longer or shorter (`reproportion`): every turn of every animation kept, those in `name01.mdl` files too, the feet on the ground and a walk's stride as long as the legs | Stretch a body's points with its bones: each stays in its bone's space, so a skinned thigh made longer parts from its knee |
+| Say whether a figure belongs to a game's manner and where not: its style (52 measures), its texture as painting and its shape (silhouettes and mesh), each held against the game's own figures, with the part, band or texture at fault and what to do (`smak figure-judge`, `figure-texture`, `figure-shape`); the game's manner is its profile's (`figureStyle`: MSC, TS, Half-Life) | Ship a game's figures or their measures: the corpus is surveyed from the installed game into a library of the person's (`smak figure-survey`). Say whether the owner will like it: the judges tell manners between games, and a game from its remake only weakly; the looks are the owner's to judge |
+| Hold a figure against a reference in the manner wanted: a picture of an atlas at its pixels a texel, masks cut from a screenshot, or a set of models; the model drawn in the reference's own pose and views (`masksLikeReference`) | Find the pose that matches a reference's picture: the pose is given (the bones' matrices, from a module of the person's) |
 | Check a model against GoldSrc's and Xash's limits | |
 | Draw a model from any side, or as the player sees a weapon, into a PNG | |
 | Paint a model by where a point is on its body, across all its textures | Give the two sides of a body different marks where they share the same pixels of a texture, until one side has pixels of its own (`ownPixels`: a copy in a texture of its own) |
+| Take out of rigid pieces the faces never seen in the animations (`cullHidden`), and give each piece as few triangles as keep its shape within a tolerance (`reducePieces`) | Tell what the game's own lighting shows: the faces are judged by whether they are seen, from many sides of many poses, not how they are lit |
+| Take a bodypart out, the body numbers counted again (`removeBodypart`), and give the file its own name inside (`setModelName`) | Take one out where a body number the game asks for would then show another body: it is refused, unless told to renumber or to keep the bases |
 | Add a body again as a new body in a texture of its own, and paint a garment on chosen islands of it | |
 | Tell what an old picture is, pixel by pixel (mail, plate, a strap), as layers that every pass of paint reads, with the distance to their edges and their regions' places on the body | Tell what a picture shows without a rule from you: a layer is your function of colour, texture and place |
 | Find a model's loose pieces and take them off; move a part between models on one skeleton | Put a body under armour that has none: taking such a piece off leaves a gap |
@@ -102,6 +108,14 @@ node bin/smak.mjs sequence <mdl> <anim> -o a.json  /  sequence-set  /  sequence-
 node bin/smak.mjs sequence-add <mdl> --from sitstand --frames 80-57 --name kneel_down -o out.mdl [--loop] [--fps 25]
                                                    a new animation of frames of one it has ("80-57": backwards; "57,58,57")
 node bin/smak.mjs reskin <mdl> rules.mjs -o out.mdl [--body n] [--pictures dir]   a game's model re-skinned by rules
+node bin/smak.mjs reproportion <mdl> "Bip01 L Thigh=1.2" "Bip01 L Clavicle=0.8" -o out.mdl   bones longer or shorter, every
+                                                   animation kept, the feet on the ground (docs/API.md, "A skeleton's proportions")
+node bin/smak.mjs figure-survey <Half-Life folder> --mod <msc|ts|halflife> [--library f.json]   the game's own figures
+                                                   measured into a library of yours (~/.smak/figures.json): the figure judges' corpus
+node bin/smak.mjs figure-judge <mdl> --mod <profile> [--all] [--json]   the style judge: a score 0 to 100, what is out, what to do
+node bin/smak.mjs figure-texture <mdl|atlas.png> --mod <profile> [--reference atlas.png --reference-scale 4] [--sheet s.png]
+node bin/smak.mjs figure-shape <mdl|pic.png --mask m.png> --mod <profile> [--reference front=mask.png ...] [--pose pose.mjs]
+node bin/smak.mjs figure-validate <library.json> [--judge style|texture|shape]   does a judge tell the corpora apart (AUC)
 node bin/smak.mjs inline <mdl> -o out.mdl          put the textures of <name>t.mdl inside the model
 node bin/smak.mjs obj <file.obj> -o out.mdl [--scale n] [--up y|z] [--turn deg] [--ground] [--centre] [--name x.mdl]
                                                    a model from a Wavefront .obj, its .mtl and pictures found beside it
@@ -131,6 +145,10 @@ node bin/smak.mjs map-reach <bsp|map> [-o walked.png] [--goal <n|class>] [--jump
                                                    the walk test: what is not reached and why, what stands in solid, the openings,
                                                    the one-way places (--exit <name>: a way out of the map); exit code 1 on a fault.
                                                    --jump: with jumps, up 45 and across gaps (--speed 320 --gravity 800); --no-slopes
+node bin/smak.mjs map-waypoints <bsp|map> --mod ts [--out <Half-Life>/rcbot] [--plan p.png] [--spacing 160]   RCBot's waypoints
+                                                   from the walk test (starts, ladders, jumps, stairs, openings, corners, crouching
+                                                   passages; paths where a body walks or drops the straight line), written as the bot's
+                                                   .rcw at waypoints/<mod>/<map>.rcw (docs/MAPS.md, "Waypoints for bots")
 node bin/smak.mjs map-section <bsp|map> -o s.png --from x,y --to x,y   a side section along that line, floors with their heights
 node bin/smak.mjs map-storeys <bsp|map> -o s.png [--z a,b,c] [--reach]   one plan for each storey, side by side
 node bin/smak.mjs map-openings <bsp|map> -o o.png [--both]   a view through each gate and doorway the walk test finds
@@ -154,6 +172,15 @@ node bin/smak.mjs map-spawns <bsp|map> --mod <profile> [-o plan.png]   how each 
                                                    from the death that brings it; exit code 1 on SEEN or FIGHT (docs/MAPS-DESIGN.md)
 node bin/smak.mjs map-character <bsp> [more maps or folders] [--mod <profile>]   its ground, textures, props, sounds and light in numbers,
                                                    held against the mod's own maps: PLAIN figures, and a warning on five or more
+                                                   (--mod ts --kind compact: The Specialists' eight compact arenas; lamp faces beside lights)
+node bin/smak.mjs map-dressing <bsp> [--mod ts] [--against <bsp|bands.json>]   walls, textures, lamps, detail and floor light beside
+                                                   Valve's campaign, or the mod's own bands (--mod: its profile's `dressing`);
+                                                   --learn -o bands.json over a folder of maps makes such bands
+node bin/smak.mjs map-teams <bsp|map> --mod ts [--goal x,y,z|<entity>] [--cfg f.cfg] [--each] [--write-cfg [dir]]
+                                                   two teams as Havoc9's ts_matchmode splits the spawns (or its spawn file's): the
+                                                   nearest across (FAIL under 512, WARN under 1400), spawns in sight of the other
+                                                   side's (FAIL), the walks to a goal and their balance (WARN over 10%, FAIL over
+                                                   25%); --write-cfg: tsm_spawns_<map>.cfg in the plugin's format; exit 1 on a FAIL
 node bin/smak.mjs map-props <bsp|map> [--mod <profile>] [--game ...] [--views dir]   each prop, NPC, monster, chest and start
                                                    held against the world: WARN stuck or buried in solid, a prop floating; NOTE partly
                                                    in a wall, its nose to a wall (turned the wrong way?), standing on another model.
@@ -182,7 +209,8 @@ entity that stands is drawn as the box it moves with: `--body <class|targetname>
 names one. With `--game` the sky is its own picture and each sprite its first frame (`--no-sky`, `--sky r,g,b`,
 `--no-sprites` say otherwise); `--no-model-scale` draws models at their own size. Every one of these commands
 takes `--mod <profile>` as `map-check` does (with `--game`, and `--scripts <folder>` for scripts not in the
-game yet): the mod's folders, the box each of its classes moves with, its ways out for the walk test and, with
+game yet; `--mod ts` or `--mod msc` names one of the kit's profiles, and without `--game` the installed Half-Life
+is found: `SMAK_HALF_LIFE`, or Steam's libraries): the mod's folders, the box each of its classes moves with, its ways out for the walk test and, with
 `--models`, the model the mod gives an entity that names none: a monster is then drawn as the model its
 script picks, with nothing named by hand.
 
@@ -191,7 +219,8 @@ it when they are done. It is for them to look and compare; your own checking is 
 `strip`, whose pictures you can read.
 
 `render`, `sheet` and `strip` take `--seq <name|number|rest>`, `--frame`, `--body`, `--skin`, `--width`,
-`--height`, `--no-light` (the texture as it is) and `--no-cull` (both sides of every triangle). `--view side`,
+`--height`, `--no-light` (the texture as it is) and `--no-cull` (both sides of every triangle); an animation kept
+in `<name>01.mdl` is read from beside the model (with `gif` too). `--view side`,
 `front` and `top` look from there with no perspective (`side` is the left side: the front is to the picture's
 left), and with `side` or `front`, `--ground` draws the floor (z = 0) as a line across the picture. `--yaw`
 and `--pitch` with one of them turn the camera on from there: `--view front --yaw 205` looks from 205,
@@ -783,16 +812,59 @@ const { mdl, report } = putRigid(src, { pieces: withUV(pieces, layout), texture,
 const hits = motionOverlaps(mdl, pieces, undefined, { space: "rest" });        // pairs the animations drive together
 ```
 
+- **Proportions first.** A soldier's skeleton is a soldier's: for a tall, thin robot make its legs longer and its
+  shoulders narrower before any piece is laid on it, `reproportion(src, { "Bip01 L Thigh": 1.2, "Bip01 L Calf":
+  1.2, "Bip01 L Clavicle": 0.8 }, { groups: sequenceFilesOf(file, src) })`. A factor is a bone's length (where the
+  bones under it stand); the other side follows; the turns of every animation stay, the roots are raised so the
+  feet stand where they stood and every walk's travel grows with the legs. A hit box grows along its bone and
+  keeps its thickness across it, so a shorter bone is not a thinner target. The model's own body is not stretched
+  (its points stay in their bones): look at it from the front and the side, then build on the new skeleton.
 - **One piece, one bone, one convex solid** where you can: `motionOverlaps` measures convex pieces (a part of
   several solids is several pieces). Pairs on bones next to each other (`near`) are a joint's own parts; pairs
   on bones apart are faults to move or shrink.
 - **`putRigid` keeps the model's own bodies**: its bodyparts come after them, one submodel each, as many as the
-  2048 points a submodel need. Every animation and body number the game uses still works.
+  2048 points a submodel need. Every animation and body number the game uses still works. A body the figure
+  replaces (a player's own, emptied with `clearModel`) can then go: `removeBodypart(mdl, 0)` counts the numbers
+  again and refuses where one the game asks for would show another body; name the file inside with
+  `setModelName(mdl, "robot.mdl")`, or it keeps the original's.
+- **The weight**: a figure of plates is mostly faces no one sees. Before the paint, `reducePieces(pieces, { tol:
+  0.12 })` (each piece as few triangles as keep it within 0.12, under half a texel at 3 a unit), then
+  `cullHidden(src, pieces, { groups })` (the faces never seen over the poses of the animations taken out, pieces
+  left with none dropped): The Specialists' robot went from 7,618 triangles to 4,996. Give the pieces of a left and
+  its right one `share`, so that they keep the same faces and still wear one set of texels.
 - **The paint**: `unwrap` lays each piece out as its own net at one texel density (give a left and its right one
-  `share`, a piece of the middle a `mirror` plane), `withUV` puts the places on the corners; paint the picture by
+  `share`, a piece of the middle a `mirror` plane, the pieces of one limb one `net` to lay them side by side), `withUV` puts the places on the corners; paint the picture by
   place (`paint`), or bake a detailed copy onto it in Blender with `bakeMaps` where the machine has Blender.
 - `findPiston` and `motionOverlaps` pose every animation the file keeps unless told; those kept in other files
-  are listed in `skipped`: tell the person, or give the file's own `<name>01.mdl` animations another way.
+  are posed when you give `groups: sequenceFilesOf(file, src)`, and listed in `skipped` when you do not: give
+  them, or tell the person what was not measured.
+- **The feet**: `footSlide(mdl, "walk", { groups })` says how far a walk's planted foot slides with its travel
+  applied, and the lowest point of every frame: hold the figure against the model it is built on.
+
+### Does a figure fit the game? The figure judges
+
+Three judges hold a figure against the game's own figures (`docs/API.md`, "The figure judges"): **style** (52
+measures of the model: shape, texture as laid, colour, proportions and parts told but not scored), **texture** (the
+painting: repetition, flat fills, ramps, speckle, slant, charts, occlusion, value), **shape** (silhouettes from
+four sides and the mesh: holes, notches, inner edges, symmetry, pieces, layers, mirror, likeness, boxes).
+
+1. **The corpus first, once, on the person's machine**: `smak figure-survey <Half-Life folder> --mod ts` (or msc,
+   halflife; `--as <name>` for a game with no profile). It measures the installed game's figures into their library
+   (`~/.smak/figures.json`, or `--library`); a few minutes for the shape judge, which draws each figure. Never copy
+   the library into the kit or a shared repository: it is measures of the game's files. Survey two or three games:
+   the yardstick each judge tells distances in is the library's, all its figures together.
+2. **Judge**: `smak figure-judge robot.mdl --mod ts`, `figure-texture robot.mdl --mod ts`, `figure-shape robot.mdl
+   --mod ts`. Read the findings farthest first: each says the measure, the corpus' middle half, where on the body
+   and what to do. The profile's weights make the measures that tell THAT game's manner count most.
+3. **A reference in the manner wanted**, when the game in development has few figures: a picture of its atlas
+   (`--reference atlas.png`, its pixels a texel found or `--reference-scale 4`), masks of its figure cut from a
+   screenshot (`--reference front=mask.png --reference back=...`), or a folder of its models. Hold the model in the
+   reference's own pose (`--pose pose.mjs`: a module exporting `pose(src)` and the views' cameras), or holes and
+   asymmetry measure the pose, not the build.
+4. **Tell the person what the judge cannot**: a corpus of many hands (MSC's) lets almost anything in; a small one
+   (the HD pack's seven) scores coarsely; a judge that tells two games apart may not tell a game from its remake.
+   The owner's eye is the last word: draw the figure beside the corpus' nearest (the style judge's `nearest`) with
+   `render` and `tile`, and show them.
 
 ### A helmet, or any worn piece: placed where the game's own sits, checked against what is under it
 
@@ -1162,7 +1234,7 @@ or `smak wad-make my_stone.png "{my_bars.png" -o mine.wad`, each texture named a
 | A moved entity is not where it was put, in the game | The game loaded another file of that name. Ask where the mod looks first. |
 | `not a studio model, version 10` | A Source model, a sprite, or a `name01.mdl` / `namet.mdl` side file. Open the main file. |
 | Meshes have `texture: null`; grey model | The textures are in `<name>t.mdl`. The command line reads them itself; in a script call `withTextures(src, readFileSync("namet.mdl"))` first. |
-| `an animation kept in another file` | The model has `name01.mdl` sequence files. Those animations cannot be read or changed. |
+| `an animation kept in another file` | The model has `name01.mdl` sequence files. Read them by giving the files: `readSequence(mdl, name, 0, sequenceFilesOf(file, mdl))`; `poseAt`, `frameValues`, `posed`, `render`, `strip`, `motionOverlaps`, `findPiston` and `footSlide` take them as `groups`. They cannot be changed here; `reproportion` carries them through the bones, their files untouched. |
 | An empty picture | A blank submodel. Use the right `--body`. |
 | `the file is cut short or broken` | Something in it points past its end. Copy it again from the mod. |
 | `the bodypart X has no submodel` | The engine needs one at least: give it one with no meshes. |

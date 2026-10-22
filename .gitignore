@@ -55,3 +55,16 @@ H9XASH/rcbot/bot_playerids.ini
 H9XASH/ts/config.cfg
 H9XASH/ts/config.cfg.bak
 H9XASH/ts/console_history.txt
+
+# H9XASH: generated server-list files, and the Steam binaries (their licence is not settled).
+H9XASH/ts/xashcomm.lst
+H9XASH/ts/networking_resolved.cfg
+
+# H9XASH: redundant resolved configs
+H9XASH/ts/menu_music_resolved.cfg
+H9XASH/ts/menu_bg_video_resolved.cfg
+
+# The list bot: its token and heartbeat key, and its logs. Only the template is tracked.
+serverlist-bot/serverlist.cfg
+serverlist-bot/serverlist.log
+serverlist-bot/__pycache__/

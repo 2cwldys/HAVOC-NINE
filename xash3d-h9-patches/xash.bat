@@ -29,6 +29,12 @@ REM ---- edit these if your installs move --------------------------------------
 set "HLROOT=D:\SteamLibrary\steamapps\common\Half-Life"
 REM The SDL2 version FWGS's own Windows build pins (.github\workflows\c-cpp.yml).
 set "SDLVER=2.32.10"
+REM Pinned by engine\client\avi\avi_ffmpeg.h's AVI_ValidateFFmpegVersion() check
+REM (libavutil 61 / libavformat 63 / libavcodec 63 / libswresample 7 / libswscale 10).
+REM Unlike SDL2 this is NOT auto-fetched: no 32-bit Windows build of FFmpeg 9.0.x
+REM exists prebuilt anywhere, so it's built once from source (MSYS2 MINGW32, i686
+REM cross-toolchain) and the result kept in deps\ like SDL2's own devel package.
+set "FFMPEGVER=9.0.2"
 REM ---------------------------------------------------------------------------
 
 set "H9=%TSM%\H9XASH"
@@ -36,6 +42,7 @@ set "FWGS=%TSM%\xash3d-fwgs"
 set "XASH=%TSM%\xash3d-h9-patches"
 set "STAGE=%XASH%\stage"
 set "SDL=%XASH%\deps\SDL2-%SDLVER%"
+set "FFMPEG=%XASH%\deps\ffmpeg-%FFMPEGVER%"
 set "WEB=%TSM%\webassembly-patch"
 
 set "DO_ENGINE=1"
@@ -82,6 +89,15 @@ if not exist "%SDL%\lib\x86\SDL2.dll" (
     tar -xf "%XASH%\deps\SDL2-devel-%SDLVER%-VC.zip" -C "%XASH%\deps" || exit /b 1
 )
 
+if not exist "%FFMPEG%\lib\avutil-61.dll" (
+    echo [ERROR] no FFmpeg %FFMPEGVER% build at %FFMPEG%
+    echo         SDL2 fetches itself; FFmpeg doesn't -- no 32-bit Windows build of
+    echo         9.0.x exists prebuilt anywhere. Build it once from source with the
+    echo         MSYS2 MINGW32 i686 cross-toolchain, installing headers+DLLs into
+    echo         that folder ^(include\ and lib\^), then re-run this.
+    exit /b 1
+)
+
 REM The four webassembly patches, then H9's own. Only where there is a .git to test
 REM against; a patch that is already in place (it reverses cleanly) is skipped.
 if exist "%FWGS%\.git" (
@@ -110,8 +126,9 @@ pushd "%FWGS%"
 set "RECONF="
 if not exist "build\c4che\_cache.py" set "RECONF=1"
 if exist "build\c4che\_cache.py" findstr /C:"%SDL%" "build\c4che\engine_cache.py" >nul 2>&1 || set "RECONF=1"
+if exist "build\c4che\_cache.py" findstr /C:"%FFMPEG%" "build\c4che\engine_cache.py" >nul 2>&1 || set "RECONF=1"
 if defined RECONF (
-    call "%FWGS%\waf.bat" configure -s "%SDL%" -T release --msvc_prerelease || (popd & exit /b 1)
+    call "%FWGS%\waf.bat" configure -s "%SDL%" -T release --msvc_prerelease --enable-ffmpeg --enable-ffmpeg-dlopen --ffmpeg-dir="%FFMPEG%" || (popd & exit /b 1)
 )
 call "%FWGS%\waf.bat" build || (popd & exit /b 1)
 if exist "%STAGE%" rmdir /s /q "%STAGE%"
@@ -119,18 +136,36 @@ call "%FWGS%\waf.bat" install --destdir="%STAGE%" || (popd & exit /b 1)
 popd
 
 if not exist "%H9%\valve" mkdir "%H9%\valve"
-for %%f in (xash3d.exe xash.dll ref_gl.dll menu.dll filesystem_stdio.dll vgui.dll) do (
+
+REM The launcher, renamed on the way in: the engine still builds xash3d.exe (game_launch's
+REM own target name, left alone so the source stays close to upstream), and this is the one
+REM place that turns it into H9's own name. A stale copy under the old name is removed, so a
+REM rename can never leave both sitting in H9XASH at once.
+if exist "%H9%\xash3d.exe" del /q "%H9%\xash3d.exe"
+copy /y "%STAGE%\xash3d.exe" "%H9%\HAVOC 9.exe" >nul || exit /b 1
+
+for %%f in (xash.dll ref_gl.dll menu.dll filesystem_stdio.dll vgui.dll) do (
     copy /y "%STAGE%\%%f" "%H9%\" >nul || exit /b 1
 )
 if exist "%STAGE%\ref_soft.dll" copy /y "%STAGE%\ref_soft.dll" "%H9%\" >nul
 copy /y "%SDL%\lib\x86\SDL2.dll" "%H9%\" >nul || exit /b 1
+REM The 5 FFmpeg libraries themselves, plus the MinGW runtime DLLs they were built
+REM against and load at runtime via their own import tables (checked with objdump -p):
+REM libgcc_s_dw2-1 (all five), libwinpthread-1 (avutil), libbz2-1/libiconv-2/zlib1
+REM (avformat), liblzma-5 (avcodec). None of these are Windows system DLLs, so without
+REM them LoadLibrary on avutil-61.dll fails, AVI_Initailize() fails silently, and the
+REM whole AVI subsystem -- this feature AND the existing logo.avi banner -- goes dark
+REM with no error at all.
+for %%f in (avutil-61.dll avformat-63.dll avcodec-63.dll swresample-7.dll swscale-10.dll libgcc_s_dw2-1.dll libwinpthread-1.dll libbz2-1.dll libiconv-2.dll liblzma-5.dll zlib1.dll) do (
+    copy /y "%FFMPEG%\lib\%%f" "%H9%\" >nul || exit /b 1
+)
 copy /y "%STAGE%\valve\extras.pk3" "%H9%\valve\" >nul || exit /b 1
 
 set "HEAD=unknown"
 set "BASE=unknown"
 for /f %%c in ('git -C "%FWGS%" rev-parse --short HEAD 2^>nul') do set "HEAD=%%c"
 for /f %%c in ('git -C "%FWGS%" rev-parse --short origin/master 2^>nul') do set "BASE=%%c"
-> "%H9%\ENGINE.txt" (
+> "%H9%\ENGINE.txt.new" (
     echo Xash3D FWGS, 32-bit Windows, built by TSM\xash3d-h9-patches\xash.bat
     echo.
     echo Source:   https://github.com/FWGS/xash3d-fwgs  ^(GPL-3.0^)
@@ -141,16 +176,18 @@ for /f %%c in ('git -C "%FWGS%" rev-parse --short origin/master 2^>nul') do set 
     echo           engine-h9-chatmouse.patch, engine-h9-suddendeath.patch, engine-h9-xray.patch
     echo           and mainui-h9-gamestartup.patch
 )
+powershell -NoProfile -ExecutionPolicy Bypass -File "%XASH%\dllmerge.ps1" "%H9%\ENGINE.txt" "%H9%\ENGINE.txt.new" || exit /b 1
 
 REM Each DLL built from patched source carries ^<dll^>.patch beside it: what it is, then
 REM the diff against upstream FWGS it was built with, paths from the xash3d-fwgs root so
 REM "git apply" replays it on a fresh clone. Written from git on every build, so it always
 REM matches the binary next to it.
-call :dllpatch xash.dll "engine common" "3rdparty/library_suffix" "The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat) and engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars)." ""
-call :dllpatch ref_gl.dll "ref/gl" "" "The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game) and engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls)." ""
-call :dllpatch filesystem_stdio.dll "filesystem" "" "The filesystem. The webassembly patch's one change here is emscripten-only." ""
-call :dllpatch menu.dll "" "3rdparty/mainui" "The main menu, mainui. engine-mainui.patch (webassembly) and mainui-h9-gamestartup.patch (a track a config started keeps playing)." ""
-call :dllpatch vgui.dll "" "3rdparty/freevgui" "The VGUI1 library, FWGS's open freevgui. freevgui.patch (webassembly) and freevgui-h9-scheme.patch: H9's purple scheme." "Those six colours are all that H9's patched GoldSrc vgui.dll changes (18 bytes, see Half-Life\vgui.dll.patch); the textschemes, HUD and menu colours live in ts\, not here."
+call :dllpatch xash.dll "engine common" "3rdparty/library_suffix" "The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present)." "" || exit /b 1
+call :dllpatch ref_gl.dll "ref/gl" "" "The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game) and engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls)." "" || exit /b 1
+call :dllpatch filesystem_stdio.dll "filesystem" "" "The filesystem. The webassembly patch's one change here is emscripten-only." "" || exit /b 1
+call :dllpatch menu.dll "" "3rdparty/mainui" "The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music)." "" || exit /b 1
+call :dllpatch vgui.dll "" "3rdparty/freevgui" "The VGUI1 library, FWGS's open freevgui. freevgui.patch (webassembly) and freevgui-h9-scheme.patch: H9's purple scheme." "Those six colours are all that H9's patched GoldSrc vgui.dll changes (18 bytes, see Half-Life\vgui.dll.patch); the textschemes, HUD and menu colours live in ts\, not here." || exit /b 1
+call :dllpatch "HAVOC 9.exe" "game_launch" "" "The launcher, game_launch's own xash3d.exe target, copied in under H9's name by this script rather than renamed at the source. Its icon comes from game_launch\havoc9.ico (game.rc), the same picture as ts\game.ico." "" || exit /b 1
 
 echo   engine !HEAD! installed into %H9%
 exit /b 0
@@ -158,20 +195,57 @@ exit /b 0
 :dllpatch
 REM %1 = the DLL, %2 = its paths in xash3d-fwgs or "", %3 = its submodule or "",
 REM %4 = what it is and which patches went into it, %5 = one more line or "".
-set "OUTP=%H9%\%~1.patch"
+REM The diff is taken from the working tree, not from HEAD, so the patch holds what the DLL was
+REM built from, committed or not. Staging goes through a temporary index, so the real index of
+REM xash3d-fwgs is never touched. Each build adds a block to the patch history: when it was made,
+REM the working tree status and the commits on h9 that touch these paths, all read from git.
+REM dllmerge.ps1 folds the new file into the one beside the DLL, so nothing already in it is removed.
+set "FINAL=%H9%\%~1.patch"
+set "OUTP=%FINAL%.new"
 > "%OUTP%" echo H9XASH %~1 -- built from patched source by TSM\xash3d-h9-patches\xash.bat
 >> "%OUTP%" echo.
 >> "%OUTP%" echo %~4
 if not "%~5"=="" >> "%OUTP%" echo %~5
 >> "%OUTP%" echo.
->> "%OUTP%" echo Upstream: FWGS master !BASE!. Built: branch h9 at !HEAD!. Below is the whole
->> "%OUTP%" echo source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
+>> "%OUTP%" echo Below is the whole source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
 >> "%OUTP%" echo.
-if not "%~2"=="" git -C "%FWGS%" diff origin/master HEAD -- %~2 >> "%OUTP%"
-if "%~3"=="" exit /b 0
+>> "%OUTP%" echo The notes above were written by an earlier build and are kept as they were. The history below is the record
+>> "%OUTP%" echo of each build, read from git when that build was made. The newest block describes the diff at the end.
+>> "%OUTP%" echo.
+>> "%OUTP%" echo == Patch history ==
+>> "%OUTP%" echo Generated %DATE% %TIME%, from branch h9 at !HEAD!, upstream FWGS master !BASE!:
+>> "%OUTP%" echo Working tree status for these paths (anything listed is not committed, and is in the diff):
+if not "%~2"=="" git -C "%FWGS%" status --short -- %~2 >> "%OUTP%"
+if not "%~3"=="" git -C "%FWGS%\%~3" status --short >> "%OUTP%"
+>> "%OUTP%" echo Commits on h9 since upstream that touch these paths, oldest first:
+if not "%~2"=="" git -C "%FWGS%" log --reverse --format="%%h %%ad %%s" --date=short origin/master..HEAD -- %~2 >> "%OUTP%"
 set "SUBBASE="
-for /f %%c in ('git -C "%FWGS%" rev-parse origin/master:%~3 2^>nul') do set "SUBBASE=%%c"
-if defined SUBBASE git -C "%FWGS%\%~3" diff --src-prefix=a/%~3/ --dst-prefix=b/%~3/ !SUBBASE! HEAD >> "%OUTP%"
+if not "%~3"=="" for /f %%c in ('git -C "%FWGS%" rev-parse origin/master:%~3 2^>nul') do set "SUBBASE=%%c"
+if defined SUBBASE >> "%OUTP%" echo In %~3, since its upstream commit %SUBBASE%:
+if defined SUBBASE git -C "%FWGS%\%~3" log --reverse --format="%%h %%ad %%s" --date=short %SUBBASE%..HEAD >> "%OUTP%"
+>> "%OUTP%" echo.
+if not "%~2"=="" call :workdiff %~2 >> "%OUTP%"
+if defined SUBBASE call :workdiffsub "%~3" !SUBBASE! >> "%OUTP%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%XASH%\dllmerge.ps1" "%FINAL%" "%OUTP%" || exit /b 1
+exit /b 0
+
+:workdiff
+REM Diffs the paths given in the call against origin/master. The working tree is staged into
+REM a temporary index first, so files not yet committed, new ones included, are in the diff.
+set "TMPIDX=%TEMP%\h9idx-%RANDOM%%RANDOM%.idx"
+set "GIT_INDEX_FILE=%TMPIDX%"
+git -C "%FWGS%" read-tree HEAD && git -C "%FWGS%" add -A -- %* && git -C "%FWGS%" diff --cached origin/master -- %*
+set "GIT_INDEX_FILE="
+del "%TMPIDX%" 2>nul
+exit /b 0
+
+:workdiffsub
+REM The same for a submodule, against the commit the superproject recorded at origin/master.
+set "TMPIDX=%TEMP%\h9idx-%RANDOM%%RANDOM%.idx"
+set "GIT_INDEX_FILE=%TMPIDX%"
+git -C "%FWGS%\%~1" read-tree HEAD && git -C "%FWGS%\%~1" add -A && git -C "%FWGS%\%~1" diff --cached --src-prefix=a/%~1/ --dst-prefix=b/%~1/ %2
+set "GIT_INDEX_FILE="
+del "%TMPIDX%" 2>nul
 exit /b 0
 
 :patch
@@ -183,6 +257,14 @@ exit /b 0
 
 
 REM ===========================================================================
+:commands
+REM ts\commands.cfg is the game copy of COMMANDS.txt, so "exec commands" prints the
+REM command reference. It is rebuilt from COMMANDS.txt on every assemble and assets run.
+echo --- commands.cfg from COMMANDS.txt ---
+powershell -NoProfile -ExecutionPolicy Bypass -File "%TSM%\make_commands_cfg.ps1"
+if errorlevel 1 exit /b 1
+exit /b 0
+
 :assemble
 echo --- assemble: %H9% ---
 if not exist "%TSM%\ts3.0\ts\liblist.gam" (
@@ -221,8 +303,12 @@ if errorlevel 8 exit /b 1
 echo   3 H9TE client
 
 REM 4. The Xash overlay.
-robocopy "%XASH%\overlay" "%H9%" /E /NJH /NJS /NDL /NFL /NP >nul
+call :commands || exit /b 1
+robocopy "%XASH%\overlay" "%H9%" /E /XF networking.ini /NJH /NJS /NDL /NFL /NP >nul
 if errorlevel 8 exit /b 1
+REM networking.ini is the player's file once it exists: a fresh install gets the template,
+REM and a rebuild keeps whatever was edited there.
+if not exist "%H9%\networking.ini" copy /y "%XASH%\overlay\networking.ini" "%H9%\" >nul
 echo   4 Xash overlay
 
 REM 5. Valve's Half-Life content, from YOUR install. Never exported: it is Valve's,
@@ -251,8 +337,10 @@ if not exist "%TSM%\export\ts\maps" (
 robocopy "%TSM%\export\ts" "%H9%\ts" /E /XO /XD addons cl_dlls /NJH /NJS /NDL /NFL /NP >nul
 if errorlevel 8 exit /b 1
 echo   3 H9TE client
-robocopy "%XASH%\overlay" "%H9%" /E /XO /NJH /NJS /NDL /NFL /NP >nul
+call :commands || exit /b 1
+robocopy "%XASH%\overlay" "%H9%" /E /XO /XF networking.ini /NJH /NJS /NDL /NFL /NP >nul
 if errorlevel 8 exit /b 1
+if not exist "%H9%\networking.ini" copy /y "%XASH%\overlay\networking.ini" "%H9%\" >nul
 echo   4 Xash overlay
 exit /b 0
 

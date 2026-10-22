@@ -318,8 +318,9 @@ stock icon_frame_for(ci, team)
 // The MSR badum's one server-wide tick: same 5.0s timing as the roar (1.0s anthem + 4s).
 #define TSM_TASK_BADUM       90216
 #define TSM_TASK_WAVE        90217   // respawn wave clock: one tick a second while live
-#define TSM_REVIVE_HOLD      15.0    // longest a wave waits for TS to finish a death before it revives anyway
+#define TSM_REVIVE_HOLD      15.0    // longest a wave keeps asking TS to respawn someone before it refuses them
 #define TSM_TASK_REVIVE      16000   // one pending revive per player: 16000 + id
+#define TSM_TASK_REVIVE_ARM  17000   // a wave revive's gear, once the spawn has settled: 17000 + id
 
 // Forward declarations for functions used before definition
 forward disband_squad(leader);
@@ -568,6 +569,12 @@ new g_cv_freezemethod;
 new g_cv_forcespeed;
 new g_cv_gamedesc;
 new g_cv_gamedesc_siege;
+new g_cv_presiege;
+new g_cv_presattack;
+new g_cv_presside1;
+new g_cv_presside2;
+new g_cv_presalive1;
+new g_cv_presalive2;
 new g_cv_teamlock;
 new g_cv_forcespawn;
 new g_cv_classes, g_cv_defclass, g_cv_modelmode, g_cv_classlimits;
@@ -607,9 +614,9 @@ new g_cv_musicvol, g_cv_startsound;   // tsm_startsound gates the round-start an
 // off. The lengths are the files' own durations, so the next track is armed to start
 // as this one ends rather than on a fixed interval.
 //
-// Five ride HL's MP3 player (client_cmd "mp3 play"): MP3 player audio is 2D
-// non-spatial, follows the listener and cannot be moved away from. The sixth,
-// contaminated, is a WAV on playvol instead -- it is by far the longest track
+// Six ride HL's MP3 player (client_cmd "mp3 play"): MP3 player audio is 2D
+// non-spatial, follows the listener and cannot be moved away from. Contaminated
+// is a WAV on playvol instead -- it is by far the longest track
 // (five minutes), so while it played it held the ONE mp3 stream for that whole
 // time, and anything else that needed the stream was cutting it or being cut.
 // As a wav it mixes over a normal sound channel and the mp3 stream is never
@@ -623,10 +630,10 @@ new g_cv_musicvol, g_cv_startsound;   // tsm_startsound gates the round-start an
  * cut. music_is_wav() below has to know about index 6 as well as index 5, or this would put the
  * same problem straight back, worse.
  */
-new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav", "vangelis.wav" };
-new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0, 618.8 };
-new g_music_order[7] = { 0, 1, 2, 3, 4, 5, 6 };
-new g_music_pos = 7;         // matches sizeof g_music_order: forces a shuffle before the first track
+new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav", "vangelis.wav", "floatingmuseum.mp3" };
+new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0, 618.8, 305.6 };
+new g_music_order[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+new g_music_pos = 8;         // matches sizeof g_music_order: forces a shuffle before the first track
 new g_music_cur = -1;        // the track currently playing, -1 before the first
 new bool:g_music_off[MAXPL];
 
@@ -891,6 +898,10 @@ new Float:g_died_at[MAXPL];            // when the pending death happened
 new Float:g_wave_left[3];              // seconds to each team's next wave, indexed 1 and 2
 new Float:g_reinforce_next[MAXPL];     // the Officer's .reinforce cooldown
 new g_revive_slot[MAXPL];             // where in the team's points this player is put on a wave
+new g_revive_waits[MAXPL];           // half-second waits a wave revive has made so far
+new bool:g_revive_washed[MAXPL];     // the wave's wash has been done for this player
+new g_revive_refused[MAXPL];         // waves that could not bring this player back: 0 or 1
+new g_revive_tries[MAXPL];           // retries left while a wave revive's gear waits for the spawn
 new g_cv_respawns, g_cv_respwave, g_cv_respsecs, g_cv_respsudden, g_cv_reinforce, g_cv_classlives;
 new bool:g_armed[MAXPL];      // true once task_arm_respawn has finished this player's loadout
 new g_next[33];               // per walker: which mech step of the pair plays next
@@ -916,6 +927,7 @@ new bool:g_cash_lend[MAXPL]; // BuyArmament is running for us and needs funds
 new g_icon_ent[MAXPL];       // this player's class-icon sprite, 0 if none yet
 new g_icon_owner[2048];      // edict -> the player whose class icon it is, 0 for anything else
 new bool:g_sudden;           // the last minute has begun, and it is announced once
+new bool:g_fogtest;           // tsm_fogtest's own toggle; never touched while g_sudden is real
 new bool:g_icon_ok;          // the sheet precached, so the entities may be made
 new g_maxplayers;            // the slot count, read once at precache: players are 1..g_maxplayers
 new g_join_tries[MAXPL];     // jointeam attempts for the current pick
@@ -4166,6 +4178,14 @@ public plugin_init()
 	// Shown instead of tsm_gamedesc, on maps that have siege objectives (tsm_obj_1 and
 	// on) -- siege_count() decides which, refresh_gamedesc() picks between them.
 	g_cv_gamedesc_siege = register_cvar("tsm_gamedesc_siege", "Siege");
+	// The siege progress the Discord presence helper reads from the server rules: "2/5" on a siege
+	// map, empty elsewhere. refresh_presence() writes it, so nothing sets it by hand.
+	g_cv_presiege = register_cvar("tsm_pres_siege", "", FCVAR_SERVER);
+	g_cv_presattack = register_cvar("tsm_pres_attack", "", FCVAR_SERVER);
+	g_cv_presside1 = register_cvar("tsm_pres_side1", "", FCVAR_SERVER);
+	g_cv_presside2 = register_cvar("tsm_pres_side2", "", FCVAR_SERVER);
+	g_cv_presalive1 = register_cvar("tsm_pres_alive1", "", FCVAR_SERVER);
+	g_cv_presalive2 = register_cvar("tsm_pres_alive2", "", FCVAR_SERVER);
 
 	// Refuse team changes once a match is under way. Deliberately its own cvar and
 	// not part of tsm_block_spectator, so turning that off for a model test cannot
@@ -4671,6 +4691,8 @@ public plugin_init()
 	register_concmd("amx_tsm_menu",     "cmd_menu",     ADMIN_CFG, " <side|class> - force a menu up for testing");
 	register_concmd("amx_tsm_whystuck", "cmd_whystuck", ADMIN_CFG, " [target] - dump everything that can stop a player moving");
 	register_concmd("amx_tsm_unstick",  "cmd_unstick",  ADMIN_CFG, " [target] - clear every hold and lift them clear of the floor");
+	register_concmd("tsm_commands",     "cmd_commands", ADMIN_CFG, " - every tsm_ cvar this plugin has, name and current value");
+	register_concmd("tsm_fogtest",      "cmd_fogtest",  ADMIN_CFG, " - toggles the sudden-death fog on or off for testing; needs tsm_logging 1");
 
 	get_mapname(g_mapname, charsmax(g_mapname));
 	copy(g_dbgfile, charsmax(g_dbgfile), "tsm_debug.log");
@@ -6749,13 +6771,22 @@ dump_player_state(viewer, target, const when[])
 		org[0], org[1], org[2],
 		pev(target, pev_effects));
 
+	new line3[192], wl[32], wn;
+	get_user_weapons(target, wl, wn);
+	formatex(line3, charsmax(line3),
+		"[%s] %s: deadflag=%d iuser1=%d weapons=%d lives=%d pending=%d refused=%d",
+		when, who, pev(target, pev_deadflag), pev(target, pev_iuser1), wn,
+		g_lives_left[target], g_revive_pending[target] ? 1 : 0, g_revive_refused[target]);
+
 	dbg("%s", line1);
 	dbg("%s", line2);
+	dbg("%s", line3);
 
 	if (viewer)
 	{
 		console_print(viewer, "[TSM] %s", line1);
 		console_print(viewer, "[TSM] %s", line2);
+		console_print(viewer, "[TSM] %s", line3);
 	}
 }
 
@@ -12986,6 +13017,25 @@ count_waiting(team)
 	return n;
 }
 
+/// Total lives remaining across the team, for the alive-vs-alive report. Counts every
+/// player on the team, not just the ones alive right now -- a fully eliminated player's
+/// lives are already down to 0 by then, so including them changes nothing.
+team_lives_left(team)
+{
+	new total = 0;
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if (g_match_team[id] == team)
+		{
+			total += g_lives_left[id];
+		}
+	}
+	return total;
+}
+
 /// Starts a round's lives: every player gets their class's lives, and each team's wave
 /// clock starts from tsm_respawn_wave. The clock runs only while tsm_respawns is 1.
 start_wave_clocks()
@@ -12999,6 +13049,7 @@ start_wave_clocks()
 		id = players[i];
 		g_lives_left[id] = lives_for(id);
 		g_revive_pending[id] = false;
+		g_revive_refused[id] = 0;
 		remove_task(TSM_TASK_REVIVE + id);
 	}
 
@@ -13071,10 +13122,15 @@ respawn_sudden_cut()
 }
 
 /// A death with lives left: spend one and wait for the next wave. The last life's death is
-/// final, exactly as an elimination always was.
+/// final, exactly as an elimination always was. In sudden death with waves off nobody comes
+/// back, so a death in that state is final too.
 lives_on_death(victim)
 {
 	if (!get_pcvar_num(g_cv_respawns) || g_state != ST_LIVE)
+	{
+		return;
+	}
+	if (g_sudden && !get_pcvar_num(g_cv_respsudden))
 	{
 		return;
 	}
@@ -13130,6 +13186,8 @@ fire_wave(team, bool:forced)
 
 		remove_task(TSM_TASK_REVIVE + id);
 		g_revive_slot[id] = offset + n;
+		g_revive_washed[id] = false;
+		g_revive_waits[id] = 0;
 		set_task(0.1 + ARM_STAGGER * float(n), "task_revive", TSM_TASK_REVIVE + id);
 		n++;
 	}
@@ -13254,9 +13312,9 @@ public task_revive(taskid)
 	revive_player(taskid - TSM_TASK_REVIVE);
 }
 
-/// Brings one waiting player back. Mirrors the round start: wash the saved armament, un-ghost
-/// the player, respawn them (TS's own command first, the bare spawn as fallback), then give the
-/// full loadout at one of the team's spawns.
+/// Brings one waiting player back. The armament is washed once per wave, before TS's own respawn
+/// can apply it. A player TS still has dead is asked to respawn again until TS accepts, or until
+/// the wait runs out. Nothing is undone until the player is alive. The gear follows in task_revive_arm.
 revive_player(id)
 {
 	if (!is_user_connected(id))
@@ -13268,48 +13326,56 @@ revive_player(id)
 		g_revive_pending[id] = false;
 		return;
 	}
+
+	if (!g_revive_washed[id])
+	{
+		g_issuing[id] = true;
+		engclient_cmd(id, "rst_cfg");
+		g_issuing[id] = false;
+		g_revive_washed[id] = true;
+	}
+
 	/*
-	 * A wave can reach a player whose death is still playing out: the dying animation, or
-	 * the sit before TS allows a respawn. A respawn sent then may be refused, which spends
-	 * the life, so wait for TS to be ready. The wait is bounded, so a death that never
-	 * finishes cannot hold the player out forever.
+	 * TS's own respawn lands only once its death timer has run out, and only for a player in its
+	 * observer state. A player who is still dead is asked again on every try and nothing else is done
+	 * to them. A forced spawn is never used here: it leaves the observer state behind, so the player
+	 * would read as alive while the client still shows a spectator.
 	 */
-	new flag = pev(id, pev_deadflag);
-	if (!is_user_alive(id) && (flag == TSM_DEAD_DYING || flag == TSM_DEAD_DEAD)
-		&& (get_gametime() - g_died_at[id]) < TSM_REVIVE_HOLD)
-	{
-		set_task(0.5, "task_revive", TSM_TASK_REVIVE + id);
-		return;
-	}
-
-	g_revive_pending[id] = false;
-
-	// The takeout that hides a dead body must not run once the player is back in play.
-	remove_task(id + 7000);
-	g_elim_at[id] = 0.0;
-
-	// Washed first, as the round start does, so TS's own respawn cannot hand back the
-	// armament the player had saved.
-	g_issuing[id] = true;
-	engclient_cmd(id, "rst_cfg");
-	g_issuing[id] = false;
-
-	// Un-ghosted the way start_round un-ghosts everyone.
-	g_elim[id] = false;
-	g_spec_target[id] = 0;
-	g_last_buttons[id] = 0;
-	g_pending_elim[id] = 0.0;
-	restore_presentation(id);
-
-	engclient_cmd(id, "respawn");
 	if (!is_user_alive(id))
 	{
-		dllfunc(DLLFunc_Spawn, id);
+		/*
+		 * Moved to the real spawn point WHILE STILL GHOSTED, before respawn can make
+		 * them visible. The ghost is already invisible, non-solid and noclipping, so
+		 * this is the same safe, unseen teleport the follow-camera already does every
+		 * frame. Without it, "respawn" made the player visible again wherever the
+		 * ghost camera had last put them -- hovering just over whichever teammate
+		 * they had been following -- for a visible instant before task_revive_arm's
+		 * own place_at_spawn corrected it a moment later.
+		 */
+		place_at_spawn(id, g_revive_slot[id], true);
+		engclient_cmd(id, "respawn");
 	}
 
 	if (!is_user_alive(id))
 	{
-		// Refused: the life is spent, and the player stays eliminated.
+		if (float(++g_revive_waits[id]) * 0.5 < TSM_REVIVE_HOLD)
+		{
+			set_task(0.5, "task_revive", TSM_TASK_REVIVE + id);
+			return;
+		}
+
+		/*
+		 * TS did not take them back within the wait. The first time they stay pending for the next
+		 * wave. The second time the elimination is final, the same as a death with no lives left.
+		 */
+		if (!g_revive_refused[id])
+		{
+			g_revive_refused[id] = 1;
+			tlog("[TSM] Revive refused for %d -- waiting for the next wave.", id);
+			return;
+		}
+
+		g_revive_pending[id] = false;
 		g_elim[id] = true;
 		g_elim_at[id] = 0.0;
 		g_was_alive[id] = false;
@@ -13318,13 +13384,58 @@ revive_player(id)
 		return;
 	}
 
+	/*
+	 * Alive now, so the elimination state is undone. It is left alone while TS still has the player
+	 * dead, which is why this comes after the respawn.
+	 */
+	g_revive_pending[id] = false;
+	g_revive_refused[id] = 0;
+	remove_task(id + 7000);
+	g_elim_at[id] = 0.0;
+	g_elim[id] = false;
+	g_spec_target[id] = 0;
+	g_last_buttons[id] = 0;
+	g_pending_elim[id] = 0.0;
+	restore_presentation(id);
+
 	g_was_alive[id] = true;
+	g_revive_tries[id] = 0;
+	set_task(0.3, "task_revive_arm", TSM_TASK_REVIVE_ARM + id);
+	client_print(id, print_chat, "[MATCH] RESPAWNED -- %d %s left.",
+		g_lives_left[id], (g_lives_left[id] == 1) ? "life" : "lives");
+	dbg("revive: %d back in play, %d %s left", id, g_lives_left[id], (g_lives_left[id] == 1) ? "life" : "lives");
+}
+
+/// The gear for a wave revive, handed over once the player is alive. The spawn clears the
+/// inventory, so the kit goes on after it, and the placement comes last.
+public task_revive_arm(taskid)
+{
+	new id = taskid - TSM_TASK_REVIVE_ARM;
+	if (!is_user_connected(id) || g_state != ST_LIVE || g_elim[id])
+	{
+		return;
+	}
+	if (!is_user_alive(id))
+	{
+		if (++g_revive_tries[id] < 20)
+		{
+			set_task(0.2, "task_revive_arm", taskid);
+		}
+		return;
+	}
 	if (get_cvar_num("weaponrestriction") != 1)
 	{
 		strip_user_weapons(id);
 	}
+	spawn(id);
+
+	new wl[32], wn;
+	get_user_weapons(id, wl, wn);
+	tlog("[TSM] revive gear for %d: deadflag %d, iuser1 %d, %d weapon(s) after the spawn",
+		id, pev(id, pev_deadflag), pev(id, pev_iuser1), wn);
 
 	new ci = resolved_class(id) - 1;
+	arm_give_kit(id);
 	apply_class_scale(id);
 	set_user_health(id, g_class_hp[ci]);
 	if (g_class_perk[ci] == TSM_PERK_MECH)
@@ -13335,7 +13446,6 @@ revive_player(id)
 	{
 		set_user_armor(id, g_class_ap[ci]);
 	}
-	arm_give_kit(id);
 	place_at_spawn(id, g_revive_slot[id], true);
 	g_armed[id] = true;
 
@@ -13346,10 +13456,6 @@ revive_player(id)
 		set_class_model(id, ci);
 		g_in_userinfo[id] = bwas;
 	}
-
-	client_print(id, print_chat, "[MATCH] RESPAWNED -- %d %s left.",
-		g_lives_left[id], (g_lives_left[id] == 1) ? "life" : "lives");
-	dbg("revive: %d back in play, %d %s left", id, g_lives_left[id], (g_lives_left[id] == 1) ? "life" : "lives");
 }
 
 /// The Officer's call: brings the team's waiting players back now, whatever the wave timer
@@ -14732,6 +14838,50 @@ refresh_gamedesc()
 	}
 }
 
+/// The players on a side, for the presence helper: every connected player on that side, bots
+/// included, alive or eliminated alike, since the card shows the roster.
+presence_side_count(side)
+{
+	new n = 0;
+	for (new id = 1; id < MAXPL; id++)
+	{
+		if (g_match_team[id] == side && is_user_connected(id))
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/// What the Discord card reads, published as server cvars once a second: the siege progress
+/// ("2/5" on a siege map, empty elsewhere; between rounds a siege map reads 0 of its
+/// objectives), the side that attacks the objectives ("1" or "2", empty elsewhere), and how
+/// many players each side has, and how many of them are alive.
+refresh_presence()
+{
+	new count = siege_count();
+	new text[16], attack[4], num[8];
+	text[0] = 0;
+	attack[0] = 0;
+	if (count > 0)
+	{
+		formatex(text, charsmax(text), "%d/%d", (g_state == ST_LIVE) ? g_obj_taken : 0, count);
+		num_to_str(get_pcvar_num(g_cv_objteam), attack, charsmax(attack));
+	}
+	set_pcvar_string(g_cv_presiege, text);
+	set_pcvar_string(g_cv_presattack, attack);
+
+	num_to_str(presence_side_count(1), num, charsmax(num));
+	set_pcvar_string(g_cv_presside1, num);
+	num_to_str(presence_side_count(2), num, charsmax(num));
+	set_pcvar_string(g_cv_presside2, num);
+
+	num_to_str(count_alive(1), num, charsmax(num));
+	set_pcvar_string(g_cv_presalive1, num);
+	num_to_str(count_alive(2), num, charsmax(num));
+	set_pcvar_string(g_cv_presalive2, num);
+}
+
 public fw_prethink(id)
 {
 	// The cloak's EF_NODRAW is for RCBot only: off for his own frame, so TS never sees it while
@@ -15876,8 +16026,23 @@ report_elimination(killer, victim)
 
 	new a1 = count_alive(1);
 	new a2 = count_alive(2);
-	team_print(1, "[MATCH] %d alive vs %d alive", a1, a2);
-	team_print(2, "[MATCH] %d alive vs %d alive", a2, a1);
+
+	// Lives are meaningless at the one-life-each tsm_respawns 0 default, so the extra
+	// half of the line only appears once there is something to say with it.
+	if (get_pcvar_num(g_cv_respawns))
+	{
+		new l1 = team_lives_left(1);
+		new l2 = team_lives_left(2);
+		team_print(1, "[MATCH] %d alive vs %d alive -- %d %s left vs %d %s left",
+			a1, a2, l1, (l1 == 1) ? "life" : "lives", l2, (l2 == 1) ? "life" : "lives");
+		team_print(2, "[MATCH] %d alive vs %d alive -- %d %s left vs %d %s left",
+			a2, a1, l2, (l2 == 1) ? "life" : "lives", l1, (l1 == 1) ? "life" : "lives");
+	}
+	else
+	{
+		team_print(1, "[MATCH] %d alive vs %d alive", a1, a2);
+		team_print(2, "[MATCH] %d alive vs %d alive", a2, a1);
+	}
 }
 
 team_print(team, const fmt[], any:...)
@@ -16304,6 +16469,110 @@ sudden_fog(bool:on)
 	set_cvar_num("h9_fog_g",       on ? get_pcvar_num(g_cv_suddenfog_g) : 0);
 	set_cvar_num("h9_fog_b",       on ? get_pcvar_num(g_cv_suddenfog_b) : 0);
 	set_cvar_num("h9_fog_density", on ? get_pcvar_num(g_cv_suddenfog_d) : 0);
+	tlog("[TSM] Sudden fog %s, h9_fog_density now %d", on ? "on" : "off", get_cvar_num("h9_fog_density"));
+}
+
+/// Debug toggle for the sudden-death fog, so it can be looked at without waiting for a
+/// real sudden death. Needs tsm_logging 1, so it cannot be run by accident on a server
+/// that is not already being watched for problems. Refuses outright once real sudden
+/// death has started this round, so it can never turn the real fog off early or leave
+/// behind a state the real trigger or start_round() does not already clear -- the real
+/// trigger always wins, and g_fogtest is reset at every round start alongside it.
+public cmd_fogtest(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (!get_pcvar_num(g_cv_logging))
+	{
+		console_print(id, "[TSM] tsm_fogtest needs tsm_logging 1 first -- it is a debug-only toggle.");
+		return PLUGIN_HANDLED;
+	}
+	if (g_sudden)
+	{
+		console_print(id, "[TSM] Sudden death is already live this round -- tsm_fogtest leaves its fog alone.");
+		return PLUGIN_HANDLED;
+	}
+
+	g_fogtest = !g_fogtest;
+	sudden_fog(g_fogtest);
+	console_print(id, "[TSM] Test fog %s (h9_fog_density now %d). A new round clears this the same as the real fog.",
+		g_fogtest ? "ON" : "OFF", get_cvar_num("h9_fog_density"));
+	return PLUGIN_HANDLED;
+}
+
+/// Every command this plugin has registered, in the two groups AMXX itself keeps them in:
+/// console commands first (register_concmd, and the one register_srvcmd -- admin and
+/// operator commands, run from the server console or an admin's own client), then client
+/// commands (register_clcmd -- what an ordinary player's own client sends, typed or not).
+///
+/// The console half is read live through get_concmd_plid: cid, the id of THIS command's own
+/// invocation, already names this plugin, so nothing needs to be hardcoded there and it can
+/// never go stale. Client commands have no such lookup in AMXX -- get_clcmd has no plugin-id
+/// filter the way get_concmd does -- so that half is named by hand. Keep it matching every
+/// register_clcmd( call in plugin_init if one is ever added, removed or renamed.
+public cmd_commands(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+
+	new myid = get_concmd_plid(cid, -1, -1);
+	new name[32], info[192], flags, bool:info_ml, shown;
+
+	console_print(id, "[TSM] Server-side commands (console and admin -- register_concmd, register_srvcmd):");
+	shown = 0;
+	new total_con = get_concmdsnum(-1, -1);
+	for (new i = 0; i < total_con; i++)
+	{
+		if (get_concmd_plid(i, -1, -1) != myid)
+		{
+			continue;
+		}
+		if (!get_concmd(i, name, charsmax(name), flags, info, charsmax(info), -1, -1, info_ml))
+		{
+			continue;
+		}
+		console_print(id, "  %-24s %s", name, info);
+		shown++;
+	}
+	console_print(id, "[TSM] %d server-side command(s).", shown);
+
+	static const clcmds[][] = {
+		"say", "say_team", "tkw", "tka", "tki", "rst_cfg", "cashala", "tsm_model",
+		"stim", "tsm_mechtest", "usepowerup", "powerup", "say .class", "say .team",
+		"say .menu", "say .roam", "tsm_music", "jointeam", "changeteam"
+	};
+
+	console_print(id, "[TSM] Client commands (register_clcmd):");
+	shown = 0;
+	new total_cl = get_clcmdsnum(-1);
+	for (new i = 0; i < total_cl; i++)
+	{
+		if (!get_clcmd(i, name, charsmax(name), flags, info, charsmax(info), -1, info_ml))
+		{
+			continue;
+		}
+		new bool:mine = false;
+		for (new k = 0; k < sizeof clcmds; k++)
+		{
+			if (equal(name, clcmds[k]))
+			{
+				mine = true;
+				break;
+			}
+		}
+		if (!mine)
+		{
+			continue;
+		}
+		console_print(id, "  %-24s %s", name, info);
+		shown++;
+	}
+	console_print(id, "[TSM] %d client command(s).", shown);
+	return PLUGIN_HANDLED;
 }
 
 start_round()
@@ -16340,6 +16609,9 @@ start_round()
 	// have set an h9_fog cvar to something odd while sudden death ran, and the round
 	// boundary is the one place every route back to plain visibility passes.
 	sudden_fog(false);
+
+	// tsm_fogtest never survives into a new round either, for the same reason.
+	g_fogtest = false;
 
 	// Re-forced every round: cashforwin and cashforlose are read at the END of one,
 	// and a map change or an rcon set in between would have put them back.
@@ -16457,6 +16729,13 @@ public task_finish_round_start()
 
 finish_round_start()
 {
+	/*
+	 * The freeze is set before anyone is armed. issue_armament spaces the arms across the freeze,
+	 * and it can only do that when the state is already FREEZE at the moment it is called.
+	 */
+	g_state = ST_FREEZE;
+	g_freeze_left = get_pcvar_num(g_cv_freeze);
+
 	new players[32], pnum, id, still_dead = 0;
 	get_players(players, pnum, g_pf);
 	for (new i = 0; i < pnum; i++)
@@ -16573,7 +16852,6 @@ finish_round_start()
 	// Every corpse of the round just gone is forgotten here, so an entity index the
 	// engine recycles cannot inherit the clock of a body that is already gone.
 	clear_corpse_memory();
-	g_state = ST_FREEZE;
 
 	// Arm-gate: nobody is equipped yet this round.
 	for (new _g = 1; _g <= get_maxplayers(); _g++)
@@ -16607,7 +16885,6 @@ finish_round_start()
 			g_class_name[resolved_class(0) - 1]);
 	}
 
-	g_freeze_left = get_pcvar_num(g_cv_freeze);
 	remove_task(3);
 	set_task(1.0, "task_freeze_tick", 3, "", 0, "b");
 
@@ -16972,6 +17249,7 @@ show_round_timer()
 		if (sd > 0 && !g_sudden && g_round_left <= sd)
 		{
 			g_sudden = true;
+			tlog("[TSM] Sudden death on at %d seconds left, %d waiting for a wave.", g_round_left, count_waiting(1) + count_waiting(2));
 			respawn_sudden_cut();
 			set_hudmessage(255, 80, 60, -1.0, 0.36, 0, 0.0, 3.0, 0.2, 0.4, 4);
 			show_hudmessage(0, "SUDDEN DEATH^nEveryone is marked");
@@ -18638,6 +18916,7 @@ player_left(id)
 	g_lives_left[id] = 0;
 	g_revive_pending[id] = false;
 	remove_task(TSM_TASK_REVIVE + id);
+	g_revive_refused[id] = 0;
 	cloak_bots_show(id);
 	remove_task(id + 15000);
 	g_last_use[id] = 0;
@@ -19468,6 +19747,7 @@ public task_tick()
 	// Picked up once a second so changing tsm_gamedesc takes effect without a
 	// restart. Cheap, and it keeps the query path itself free of cvar reads.
 	refresh_gamedesc();
+	refresh_presence();
 
 	if (g_state == ST_LIVE)
 	{

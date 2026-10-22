@@ -1,0 +1,10 @@
+# The H9 server list (h9_serverlist.py).
+#
+#     pip install -r requirements.txt
+#
+# aiohttp serves the list and takes heartbeats. python-a2s asks each listed server whether it is
+# up, the same query the server browser uses. discord.py is only needed when serverlist.cfg has
+# a discord_token.
+aiohttp>=3.9
+python-a2s>=1.3.0
+discord.py>=2.3.2

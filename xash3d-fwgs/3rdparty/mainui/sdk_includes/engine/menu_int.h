@@ -201,7 +201,7 @@ typedef struct
 	void	(*pfnFinalCredits)( void );	// show credits + game end
 } UI_FUNCTIONS;
 
-#define MENU_EXTENDED_API_VERSION 1
+#define MENU_EXTENDED_API_VERSION 2
 
 typedef struct ui_extendedfuncs_s {
 	// text functions, frozen
@@ -239,6 +239,13 @@ typedef struct ui_extendedfuncs_s {
 	// on the next pfnEnableTextInput( true ), even if text input is enabled already
 	// it's used when user activates the text field, for example with gamepad
 	void (*pfnSetTextInputBuffer)( const char *text );
+
+	// menu background video (API version 2): a full-screen, cvar-gated, independent
+	// video slot (CIN_MENUBG), separate from the WON-only logo.avi banner
+	int (*pfnPrecacheMenuBgVideo)( const char *filename ); // 0 if missing/corrupt/ffmpeg unavailable
+	int (*pfnDrawMenuBgVideo)( float x, float y, float width, float height ); // 0 if not active this frame
+	int (*pfnGetMenuBgVideoWidth)( void );
+	int (*pfnGetMenuBgVideoHeight)( void );
 } ui_extendedfuncs_t;
 
 // deprecated export from old engine

@@ -22,7 +22,7 @@ This page covers reading a compiled map, its textures and `.wad` files, changing
 it ("Pictures", which also draws brush source). Writing brush source (`.map`) and compiling it are the other
 half of `src/maps/`, in `docs/MAPS-MAKING.md`. The command line has a command for most of this: `smak map-info`,
 `map-check`, `map-entities`, `map-set`, `map-plan`, `map-view`, `map-views`, `map-compare`, `map-reach`, `map-section`,
-`map-storeys`, `map-openings`, `map-measure`, `map-textures`, `wad`, `wad-make`, `map-compile` and `map-decompile` (`node bin/smak.mjs help`;
+`map-storeys`, `map-openings`, `map-measure`, `map-waypoints`, `map-textures`, `wad`, `wad-make`, `map-compile` and `map-decompile` (`node bin/smak.mjs help`;
 `AGENTS.md` has them with their recipes).
 
 ## What a compiled map is
@@ -609,6 +609,32 @@ How a map is dressed, in numbers, beside Valve's own: the facts a maker revising
 (the fork's research/level-dressing.md: checks by rule agree with people where a picture judge does near chance). `smak
 map-dressing <bsp> [--source <map>] [--against <bsp>]` prints it.
 
+**Against the mod's own maps.** Valve's campaign is no measure of every mod: The Specialists' 29 maps are lit
+brighter and flatter (the floor under 24 a median 10%, Valve's 21%; the light's contrast a median 3.9, Valve's 12.9),
+so a map made in their manner was told to darken and compose its light. A profile's **`dressing`** gives the mod's
+own bands, in `VALVE_DRESSING`'s shape (`{ name, of, measures }`), and `smak map-dressing <bsp> --mod ts` (or
+`dressingOf(bsp, { against: profile.dressing })`, as `smak build` does with a spec's profile) holds a map to them; a
+measure the bands lack (the brush roles, the views') is held to Valve's, and each line says whose.
+`learnDressing(list)` makes such bands from `[{ name, measures }]` (`measureDressing`'s), the 5th and 95th in 100
+with the quartiles; `smak map-dressing <folders or maps> --learn -o bands.json [--as "whose"]` from a folder, for
+`--against bands.json` or a profile. A spec's composed light (`lighting`) still aims at Valve's figures.
+
+The Specialists' own (`profiles/specialists.mjs`, `DRESSING`, measured 2026-10-21 over ts/maps):
+
+```
+Measure            The Specialists' 5th to 95th (median)    Valve's
+scaleOne           18% to 96% (72%)                         26% to 97% (79%)
+shifted            49% to 98% (84%)                         28% to 98% (71%)
+bandedWalls        4% to 47% (21%)                          1% to 41% (13%)
+oneTextureWalls    30% to 78% (44%)                         44% to 93% (68%)
+joinHeight         128 to 352 (176)                         56 to 527 (160)
+lampFaces          0.56 to 289 (3.3)                        0 to 101 (5)
+nonAxial           3% to 45% (9%)                           7% to 60% (22%)
+detail             1.8 to 14.8 (5.2)                        2.3 to 23 (10.7)
+darkFloor          1% to 56% (10%)                          6% to 60% (21%)
+contrast           2.2 to 10.7 (3.9)                        3.6 to 152 (12.9)
+```
+
 | Function | Gives |
 | --- | --- |
 | `dressingOf(bsp, { source, views, against, landmark })` | `{ measures, counts, rows, facts, warnings }`: each measure beside `VALVE_DRESSING`, a line each (`dressing: tall walls of one texture only: 100% (Valve's: 44% to 93%, median 68%)`), and a warning, with which way to go, for one outside Valve's band. `source`: the map's brush source, for its brushes' roles; `views`: pictures of it, for their complexity; `landmark`: `{ name, room, seen, of }`, a map spec's focus, named with how many of the ways into its room see it (a warning when one does not) |
@@ -617,6 +643,7 @@ map-dressing <bsp> [--source <map>] [--against <bsp>]` prints it.
 | `brushRole({ min, max, faces })` | One brush's role as Valve's c1a0 sources are read: `lit` (a lamp's texture, its long side 128 or less), `strip` (two thin sides of 16 and 24 or less, its long side three times the middle), `panel` (its thinnest 16 or less, the next 32 or more), else `block`; `angled` when it has other than six faces |
 | `lampsOf(bsp)`, `isLampTexture(name)` | Whether a texture is a lamp: the game's texture lights, a `~` name, a lamp's word, and every texture a map's `info_texlights` names (a map spec's glowing fixtures) |
 | `pictureComplexity(picture)` | `{ edges, compression }`: the share of pixels whose brightness steps over 24 to a neighbour, and its PNG's bytes over its raw size (Machado et al. 2015: such measures follow people's ratings of complexity) |
+| `learnDressing(list, { name, of })` | The bands of many maps' measures (`[{ name, measures }]`): `{ name, of, maps, measures: { key: { least, q1, median, q3, most } } }`, least and most the 5th and 95th in 100; a map with no value for a measure is left out of its band |
 | `VALVE_DRESSING` | Valve's own: each measure's 5th, 25th, 50th, 75th and 95th in 100 over the campaign's 96 maps, the roles over the SDK's c1a0 and c1a0d sources (widened a quarter each way, two being few). the fork's `research/valve-dressing.mjs` measures it again |
 
 The measures, of the world's faces (tool, sky and liquid faces left out):
@@ -701,6 +728,153 @@ its numbers to the place and the unit; to within a unit the widths come out some
 coarser search reads a 352 hall as 340), which on the old Barrow Road moves 8 in 100 of the floor into the band
 of 352 and over. demontemple measured whole (`every`): 5893 places, width median 256, headroom 192, sight
 median 708; the walk test reaches 1523 of them.
+
+## Two teams (`src/maps/teams.mjs`)
+
+The Specialists is a deathmatch game: its maps have one pool of spawns and no teams. Havoc9's **ts_matchmode**
+plays rounds of two teams on them (team 1 "msr", team 2 "insurgents", sides never swapped), and puts each player at
+a spawn of his team's at the round's start. Where those spawns are is the plugin's, and `teamsOf(map, options)`
+(`smak map-teams <bsp|map> --mod ts`) replays it from its source (ts_matchmode.sma: collect_spawns,
+partition_spawns, srv_spawn, cmd_spawn_save):
+
+- **A spawn file first.** `addons/amxmodx/configs/tsm_spawns_<map>.cfg`, lines `tsm_spawn <team 1|2> <x> <y> <z>
+  [pitch] [yaw]` (`readSpawnCfg`: a team other than 1 or 2 refused, 64 a team, a word that is no number read as 0).
+  When it gives any spawn the map's own are not used; a team it gives none borrows the other's. Its z is the
+  player's origin, 36 over the floor; the facing comes from this file alone.
+- **Else the map's own, split** (`collectSpawns`, `partitionSpawns`): every `info_player_deathmatch` in the order of
+  the map's entities, then every `info_player_start`, 64 in all at the most; the two farthest apart in 3D (the first
+  such pair) are the anchors, and each spawn goes with the nearer, a tie with team 1; distances in single
+  precision, as Pawn's.
+
+What it tells, by the profile's `teams` (`TEAMS` in profiles/specialists.mjs; `TEAM_PLAY` for what one leaves out):
+
+| | FAIL | WARN |
+| --- | --- | --- |
+| The nearest spawns of the two teams (in 3D, where each stands) | under `cross.fail` (512): a fight at the spawn | under `cross.warn` (1400) |
+| A spawn of one team in sight of one of the other's (eyes to eyes or to the body; `sightTest`, `map-spawns`' test: the world and the brush entities that hide, doors closed; the dark not counted) | `sight: "fail"` | `sight: "warn"` |
+| The walks to a goal (`goal`, `--goal x,y,z` or an entity's number, classname or targetname, set on the floor under it): each team's from its nearest spawn, or with `each` (`--each`) the median of each spawn's own walk; the balance in per cent of the shorter | over `balance.fail` (25) | over `balance.warn` (10) |
+| A spawn in something solid, or with no floor under it; a team a spawn file gives none; no walk between the sides | always | |
+| Fewer than five spawns a team (the plugin picks one at random, with no look at who stands there) | | always |
+
+and as facts: how many of each class, the anchors, each team's spread and heights, the walk from team 1's spawns to
+within 64 of team 2's nearest (`contact`: how soon the sides meet, at a run of 320). `cfg` is the spawn file for
+these spawns (`spawnCfgText`; `--write-cfg [folder|file]`, named `spawnCfgName(map)`): the two lines of header
+amx_tsm_spawn_save writes, then `tsm_spawn <team> x y z pitch yaw` to two places, each spawn at its floor (z = floor
++ 36) and turned to the goal, or to the middle of the map; a spawn file's own facing is kept. It goes in the
+server's `addons/amxmodx/configs/`. The game's own maps, split by the plugin, have their teams' nearest spawns 300
+to 700 apart and in sight of each other: none was laid out for two teams.
+
+```
+smak map-teams h9_te_neuropolis.bsp --mod ts --goal 1200,0,40 --write-cfg cfgs/
+smak map-teams h9_te_neuropolis.bsp --mod ts --cfg cfgs/tsm_spawns_h9_te_neuropolis.cfg --each
+```
+
+The walks are the walk test's (`reachOf`, whose `to` now takes points `[x, y, z]` as well as entities): `doors`,
+`jump` and `cell` as it takes them; `walk: false` (`--no-walk`) skips them, the slow part (seconds a walk on a large
+map; `each` walks once a spawn). Not played: the plugin's random choice of a spawn, two players on one, the dead
+parked 900 over where they fell, the squad warp, the freeze.
+
+## A mod's profile by name, and the game found (`src/maps/games.mjs`)
+
+`--mod` takes one of the kit's profiles by name (`MAP_PROFILES`: `ts` or `specialists`, `ts-roleplay`, `msc` or
+`mastersword`; `mapProfileOf(name)` gives its file and the mod's folder) as well as a profile's file. With no
+`--game`, a profile made from the installed game is handed the Half-Life folder found on this machine
+(`findHalfLife({ mod })`): `SMAK_HALF_LIFE` when it is set (`none`: no game looked for), else
+`steamapps/common/Half-Life` in a Steam library (`steamLibraries`: the Steam folder the registry or the usual places
+give, and those its `libraryfolders.vdf` names) that holds the mod's folder. So `smak map-measure x.bsp --mod ts`
+and `smak map-character x.bsp --mod ts --kind compact` need no `--game`. `--kind` is handed to the profile (The
+Specialists': `arena`, `compact`, `roleplay`).
+## Waypoints for bots (`src/maps/waypoints.mjs`, `src/maps/rcbot.mjs`)
+
+A bot plays a map by its waypoints alone: it walks a straight line from one to the next along their paths, and
+where none is near it stands still. `waypointsOf(map, options)` lays them over the floor the walk test walks,
+for brush source or a compiled map; `writeRcw` writes them as RCBot's file, and `readRcw` reads one.
+`smak map-waypoints h9_te_meridian.bsp --mod ts --out <Half-Life>/rcbot` does both and puts the file where the
+bot looks for it (`--plan p.png`: drawn on the plan).
+
+```js
+const made = maps.waypointsOf(maps.readBsp(readFileSync("h9_te_meridian.bsp")), { spacing: 160 });
+console.log(made.facts, made.warnings);
+writeFileSync("h9_te_meridian.rcw", maps.writeRcw(made.waypoints, { mapName: "h9_te_meridian" }));
+```
+
+**RCBot's file.** RCBot (Paul Murphy's, "Cheeseh", for Half-Life 1 and its mods; The Specialists 3.0 is one)
+reads `<Half-Life>/rcbot/waypoints/<mod folder>/<map>.rcw`, `ts` for The Specialists. Read from its own code,
+`WaypointLoad` and `WaypointSave` in `dlls/waypoint.cpp` and the structures in `dlls/waypoint.h` of
+github.com/APGRoboCop/rcbotold, the same at tag v1.51b13 (what Havoc9's servers run) as at its master of
+2026; checked by reading and writing back, byte for byte, 1112 files the bot wrote (44 of The Specialists'
+maps, the rest other mods'). Little-endian, nothing between the parts:
+
+```
+header     52 bytes   char filetype[8] "RCBot\0" (strcmp: the two bytes after the 0 are anything);
+                      int version 4; int flags (bit 0: the visibility table is to be worked out again);
+                      int count (the bot has room for 1024); char mapname[32] (the map's, exactly, or no load)
+waypoints  16 each    int flags; float origin[3]: a player's origin there, 36 over the floor (18 crouching).
+                      One over 4096 on an axis is taken as deleted
+paths      per point  short count; short to[count]: one way each (both ways is two paths), any number
+```
+
+The flags this kit writes: `CROUCH` (bit 3: the bot crouches on its way to it), `LADDER` (bit 4: the foot and the
+top of a ladder, as the bot's own guide places them), `JUMP` (bit 19: on touching it the bot jumps, legs drawn
+up, towards the next; the path from it goes to where the jump lands). `RCW_FLAGS` names the rest. A new file
+has the visibility bit set: the bot then works the table out as the map loads (a line between every two
+waypoints), writes `rcbot/visibility/<mod>/<map>.rcv` and writes the `.rcw` again with the bit cleared, so no
+`.rcv` is written here. `readRcw(bytes)` gives `{ filetype, version, fileFlags, mapName, waypoints: [{ flags,
+origin, paths }] }`; `writeRcw(waypoints, { mapName, fileFlags, filetype, loose })` the file (`loose`: a path to a
+waypoint the file does not have, which old files hold, written as it is); `waypointFlagNames(flags)` the names.
+
+**How they are laid.** The map is walked as `reachOf` walks it (with jumps), on a grid of 8. Floor that nothing
+is seen to make is left out: the clip hulls take a sky brush as solid, so a map on an island in the sky
+(`ts_dojo`) has the top of its sky walked, or a player clip laid over it, and no player is meant there (a floor
+is seen when the upright line at its place meets the top of something not sky at it or a stair under it; the
+edge of a seen floor counts with it). First the places a
+waypoint has to be: each start; each ladder's foot and top; for each piece of floor of 4096 square units or
+more that only a jump reaches, where the jump is made from (a little way back) and where it lands (a little
+way in); the two ends of each flight of stairs or ramp rising 40 or more; the middle of each opening. Then the
+rest of the floor, the roomiest places first: a waypoint wherever none is within `spacing` units of walk (160).
+Each piece of floor is then given to its nearest waypoint by walk, and two whose pieces touch are joined both
+ways when a body walks the straight line between them, place by place, never more than a step up or down; a
+line that drops is joined one way (`drop`, 250 at the most: a fall of 250 costs about 11 health). Where two do
+not see their way (a corner), a waypoint goes at the place of the walk between them farthest off their line,
+and where the walk got into a piece only by dropping, at the top of that drop and where it lands; the pieces
+are given out again, eight times at the most. Then any two within 1.5 x `spacing` whose line is walked or
+dropped are joined, the nearest first, to `paths` (16) out of one. Floor where only a crouching body fits and
+that is the shorter way between two places a standing one walks (by more than twice, or the only way: a vent,
+a low passage; not the nook under a table or a stair) gets crouching waypoints, 96 apart, joined along the
+crawl. Where the paths still do not join what the walk does, a jump up (45 at most) out of a place a path gets
+into with no way back, and a drop into a place no path gets to, are added, the lowest first, and the pieces given
+out again (six rounds at most). Last, only the waypoints that a path from a start gets to and that lead back to
+one are kept: a bot sent anywhere else would never arrive or never leave (the warnings name those left out,
+`leftOut` lists them). Over `most` (1024) the
+spacing is made wider until they fit, and that is said.
+
+| Option | |
+| --- | --- |
+| `spacing` (160), `cell` (8) | how far apart by walk, and the grid the walk is on |
+| `jump`, `crouch` | false: no jumps, no crouching passages |
+| `paths` (16), `drop` (250), `most` (1024) | paths out of one waypoint; the highest drop a path goes down; the most waypoints |
+| `mod`, `doors`, `open`, `shut`, `walls`, `from`, `bodies`, `exits` | as `reachOf` takes them |
+
+It returns `{ waypoints: [{ origin, flags, paths, ways, kind }], leftOut, facts, warnings, spacing, cell, reach }`:
+`ways` says what each path is (`walk`, `drop`, `ladder`, `jump`), `kind` why the waypoint is there (`start`,
+`ladder`, `jump`, `landing`, `flight`, `opening`, `floor`, `corner`, `ledge`, `drop`, `crouch`).
+
+**What it is worth.** It is the walk test's geometry, not the bot: a line a body fits along is no proof that
+the bot's steering keeps to it near a wall, a jump is the arc of `reachOf` with the engine's numbers, and doors
+are open. Lifts (`func_plat`) and teleports are not waypointed (warnings say so), and what only a lift reaches is
+left out; nor are the bot's other kinds (cover, sniping, health, team). Held against the waypoints people made by
+hand for four of The Specialists' maps (Havoc9's files, 2026-10-21; 8 seconds a map or so, `ts_dojo` 35):
+
+```
+map            hand   these   paths   each hand-made one to the nearest of these (median, 90%, most)
+ts_hammertime   162     354    2148   44, 80, 138
+ts_dojo         154     341    2296   64, 145, 299
+ts_bikini       215     852    5401   53, 85, 135
+ts_lobby        251     365    2263   66, 766, 1316   (its top floors are got to and left by lift only)
+```
+
+They are denser than a person's and reach every place a person's do but those of lifts. Play the map with bots
+and watch where one stands still or runs into a wall (`rcbot waypoint on` shows them).
 
 ## Decompiling (`src/maps/decompile.mjs`, `fidelity.mjs`, `texlights.mjs`)
 

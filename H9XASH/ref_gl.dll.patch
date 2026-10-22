@@ -6,6 +6,21 @@ Upstream: FWGS master e8d773ea. Built: branch h9 at 7129989e, plus an uncommitte
 Below is the whole source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
 It is taken from the working tree, so uncommitted work is in it.
 
+Upstream: FWGS master e8d773ea. Built: branch h9 at 7129989e, from the working tree.
+Working tree status for these paths. Anything listed is not committed, and is in the diff:
+ M ref/gl/gl_studio.c
+The notes above were written by an earlier build and are kept as they were. The history below is the record
+of each build, read from git when that build was made. The newest block describes the diff at the end.
+== Patch history ==
+Generated Wed 10/21/2026 23:42:17.30, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M ref/gl/gl_studio.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7e004b6e 2026-10-21 h9: the sudden-death x-ray -- a depth-test-off glow shell for renderfx 64, drawn where every model draw ends (engine-h9-xray.patch)
+Diff sha256 0f16aa55968cedd0b31e8f4abd792083a4041dce63165a484159accd4d86bddb, the diff below.
+
 diff --git a/ref/gl/gl2_shim/fragment.glsl.inc b/ref/gl/gl2_shim/fragment.glsl.inc
 index 803bc2bf..8ecdcad1 100644
 --- a/ref/gl/gl2_shim/fragment.glsl.inc

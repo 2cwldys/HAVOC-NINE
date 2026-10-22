@@ -13,7 +13,17 @@ amx_match_restart
 tsm_opendoor
 amx_tsm_forcedoor 1
 tsm_opendoor
-
-tsm_opendoor
-tsm_opendoor
 quit
+default_fov
+default_fov 120
+cam_back
+default_fov
+default_fov 120
+ui_background_video
+ui_background_video 1
+ui_background_stretch 1
+ui_background_stretch 0
+ui_background_video 1
+ui_background_video
+ui_background_video 0
+ui_background_video 1

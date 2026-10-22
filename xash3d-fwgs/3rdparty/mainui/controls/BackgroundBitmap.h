@@ -50,18 +50,21 @@ private:
 		DRAW_COLOR,
 		DRAW_WON,
 		DRAW_STEAM,
+		DRAW_VIDEO,
 	};
 
 	void DrawBackgroundPiece( const bimage_t &image, Point p, int xOffset, int yOffset, float xScale, float yScale );
 	void DrawSteamBackgroundLayout( Point p, int xOffset, int yOffset, float xScale, float yScale );
+	void DrawVideoBackground( Point p, int xOffset, int yOffset, float xScale, float yScale );
 	void DrawColor();
 	void DrawInGameBackground();
 
 	static bool LoadSteamBackground( const bool gamedirOnly ); // Steam background loader
 	static bool LoadWONBackground( const bool gamedirOnly ); // WON background loader
+	static bool LoadVideoBackground(); // menu background video loader, cvar-gated
 	static void UpdatePreference();
 
-	static bool s_bEnableLogoMovie, s_bGameHasSteamBackground, s_bGameHasWONBackground;
+	static bool s_bEnableLogoMovie, s_bGameHasSteamBackground, s_bGameHasWONBackground, s_bVideoBackgroundActive;
 
 	static bstate_e s_state;
 
@@ -69,6 +72,8 @@ private:
 
 	static Size s_SteamBackgroundImageSize;
 	static CUtlVector<bimage_t> s_SteamBackground;
+
+	static Size s_VideoBackgroundSize;
 };
 
 #endif // MENU_BACKGROUNDBITMAP_H

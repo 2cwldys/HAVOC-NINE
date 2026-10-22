@@ -352,6 +352,73 @@ static float GAME_EXPORT UI_GetLogoLength( void )
 	return gameui.logo_length;
 }
 
+static int GAME_EXPORT UI_PrecacheMenuBgVideo( const char *filename )
+{
+	movie_state_t	*cin_state;
+	string		path;
+	const char	*fullpath;
+
+	cin_state = AVI_GetState( CIN_MENUBG );
+
+	if( AVI_IsActive( cin_state ))
+		return true;
+
+	Q_snprintf( path, sizeof( path ), "media/%s", filename );
+	COM_DefaultExtension( path, ".avi", sizeof( path ));
+	fullpath = FS_GetDiskPath( path, false );
+	Con_Printf( "mainmenu_bg: path=\"%s\" FS_FileExists=%d fullpath=\"%s\"\n",
+		path, FS_FileExists( path, false ), fullpath ? fullpath : "(null)" );
+
+	if( FS_FileExists( path, false ) && !fullpath )
+	{
+		Con_Printf( S_ERROR "Couldn't load %s from packfile. Please extract it\n", path );
+		return false;
+	}
+
+	AVI_OpenVideo( cin_state, fullpath, false, false );
+	if( !( AVI_GetVideoInfo( cin_state, &gameui.menubg_xres, &gameui.menubg_yres, &gameui.menubg_length )))
+	{
+		AVI_CloseVideo( cin_state );
+		return false;
+	}
+
+	return true;
+}
+
+static int GAME_EXPORT UI_DrawMenuBgVideo( float x, float y, float width, float height )
+{
+	movie_state_t	*cin_state;
+
+	cin_state = AVI_GetState( CIN_MENUBG );
+
+	if( !AVI_IsActive( cin_state ))
+		return false;
+
+	AVI_SetParm( cin_state,
+		AVI_RENDER_TEXNUM, 0,
+		AVI_RENDER_X, (int)x,
+		AVI_RENDER_Y, (int)y,
+		AVI_RENDER_W, (int)width,
+		AVI_RENDER_H, (int)height,
+		AVI_PARM_LAST );
+
+	// read the next frame, loop seamlessly on EOF instead of stopping
+	if( !AVI_Think( cin_state ))
+		AVI_SetParm( cin_state, AVI_REWIND, AVI_PARM_LAST );
+
+	return true;
+}
+
+static int GAME_EXPORT UI_GetMenuBgVideoWidth( void )
+{
+	return gameui.menubg_xres;
+}
+
+static int GAME_EXPORT UI_GetMenuBgVideoHeight( void )
+{
+	return gameui.menubg_yres;
+}
+
 static void UI_UpdateUserinfo( void )
 {
 	if( !host.userinfo_changed )
@@ -1316,6 +1383,10 @@ static ui_extendedfuncs_t gExtendedfuncs =
 	pfnIsCvarReadOnly,
 	pfnSetTextInputRect,
 	pfnSetTextInputBuffer,
+	UI_PrecacheMenuBgVideo,
+	UI_DrawMenuBgVideo,
+	UI_GetMenuBgVideoWidth,
+	UI_GetMenuBgVideoHeight,
 };
 
 void UI_UnloadProgs( void )

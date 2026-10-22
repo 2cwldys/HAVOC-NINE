@@ -3,6 +3,214 @@
 The newest first. A version that changes what a model's file looks like, or that a model made before needs
 mending for, says so under **Mind**.
 
+## 0.25.0 (2026-10-21)
+
+- **The Specialists' map spec** (`profiles/specialists.mjs`, `SPEC`): a map spec with `"mod"` The Specialists is
+  built in the game's manner. Its textures are the shipped .wad files' (specialists.wad and halflife.wad; the
+  game's 29 maps keep most of theirs inside themselves), each the one those maps wear most for its part: wood4a
+  floors, crete33 walls, fifties_ceil01 ceilings, door006, wall1 brick outside, and more words for a room's
+  surfaces (ts_tile, ts_parquet, ts_asphalt, ts_metal...). A prop is a `ts_model`, as the maps place theirs. Rooms
+  are furnished by their `use`, with models the maps name, measured and turned as the maps stand them: `office`
+  (computers on desks, office chairs, plants, paintings), `lobby`, `cafe`, `warehouse`, `garage`, `server`,
+  `stairwell`, and in the open `alley`, `plaza` and `rooftop`. Where the game is installed, the tests find every
+  texture in its .wad files and every model under its very name, of the size the profile gives it.
+- A mod's thing for a room's use (`spec.things`) may say `deep` (how far it reaches into the room, when that is not
+  its `r`: a couch is long and shallow), `turn` (the yaw that faces a model made facing elsewhere into the room)
+  and `on` (a piece of the kit's it stands on, put with it: a computer on a desk).
+- A room's dressing keeps clear of the places to start: a start stood in a couch.
+- **A mod's map is delivered as the .bsp alone.** Built on the .wad files the game ships, a map that wears only
+  their textures writes and names no .wad of its own (it wrote one holding nothing but `sky`, which the compilers
+  have); one with pictures of its own puts them inside the .bsp (`hlcsg -wadinclude`), so the compiled map asks the
+  game only for the .wad files it ships. `compile.embed: false` ships them beside it instead. The report says
+  which .wad files the compiled map asks for and how many pictures it carries.
+- **What breaks** (`breakable`): a piece of furniture, a prefab or one piece of a prefab that says `breakable:
+  "wood"` (or glass, metal, concrete... Half-Life's materials, `BREAKABLE_MATERIALS`) is a `func_breakable` of its
+  own with the keys its material takes, the kit's under a mod's (a profile's `spec.breakable`). A window's glass
+  takes them too. A mod's profile may flag the kit's dressing pieces or give its own (`spec.pieces`). The
+  Specialists' profile, read off its maps' 1006 breakables: glass in render mode 2 at 100 and health 1, crates of
+  wood at 15, every one back after 45 seconds; the kit's crates, and crates of 40 and 48, break each alone.
+- **Solid props from the profile.** A mod's thing may say `solid` and `high`: a prop of that model, put by the spec
+  or by a room's use, gets a `CLIP` box of its footprint (turned as it stands) from its foot to its top, unless the
+  prop says `solid: false`; a profile's `prop.solid` says it for all. The Specialists' ts_model is a point to a
+  player (its program sizes it to nothing): its couches, armchairs, tables, booths, boxes, dumpster, bench and statue
+  are solid, its plants, pictures, office chairs and street lamp walked through, as its maps' makers clip them. A
+  thing in the middle of a room (a coffee table) keeps its footprint, turned along the room, not a square.
+- **A mod's lamps** (a profile's `spec.lamps`, `{ texture: [r, g, b, brightness] }`, and `textures.fixture` one of the
+  game's): every room's lamp is built in a fixture of the game's light texture, two tubes at its own size on the
+  ceiling, its picture laid whole, and each of the mod's lamps a map wears is a texture light (`info_texlights`).
+  The Specialists' fixture is `+0~fifties_lgt2`; its lamps are halflife.wad's lights its maps wear, each in the
+  colour its maps' makers lit it (measured on their lamps' faces) at the brightness of the kit's Valve list, with
+  words for a spec's own (`ts_lamp_warm`, `ts_lamp_cool`, `ts_sodium`, `ts_screen`). A map of its rooms no longer
+  warns that none of its brushes wear a lamp.
+- **Rooms dressed as thickly as the game's.** A room's use stands its pieces all along the walls (every 16, a wall
+  kind spread round the room, a corner kind piled into the corners and along the walls from them), not at the four
+  corners and a few spots: The Specialists' warehouse of 448 x 384 got 4 pieces and gets 8 to 12. A use may stand
+  things in the middle, a walk from the walls and from what stands at them: `rows` (an office's desks), `group`
+  (couches facing each other over a coffee table, a walk round it), `cluster` (a pile of crates). A room's
+  `density` (a number, or sparse, normal, dense, cluttered; a profile's by use) thickens or thins it. The ways
+  through and the places to start stay clear, and every room is still walked.
+- **Two teams on a deathmatch map** (`src/maps/teams.mjs`, `smak map-teams`): Havoc9's ts_matchmode replayed from
+  its source. A spawn file (`tsm_spawns_<map>.cfg`, `readSpawnCfg`) over the map's own; else the map's
+  `info_player_deathmatch` then `info_player_start`, 64 at the most, split as `partition_spawns` splits them
+  (`collectSpawns`, `partitionSpawns`: the farthest pair in 3D the anchors, each spawn with the nearer, in single
+  precision). `teamsOf` tells the nearest spawns across the teams, spawns in sight of the other side's (the
+  encounters' sight test, now `sightTest`), the walk between the sides, each side's walk to a goal (a point or an
+  entity; `--each`: the median of every spawn's) and their balance, spawns stuck or over nothing; FAIL and WARN by
+  the profile's new `teams` (The Specialists': cross 512 and 1400, balance 25% and 10%, sight a FAIL); exit code 1
+  on a FAIL. `--write-cfg` writes the plugin's file as amx_tsm_spawn_save does (`spawnCfgText`), each spawn at its
+  floor + 36 and turned to the goal or the map's middle.
+- **The walk test to a point**: `reachOf`'s `to` takes `[x, y, z]` beside entities; a point not reached says where
+  the walked floor comes nearest.
+- **A map's dressing against the mod's own maps**: `dressingOf`'s `against` (a profile's `dressing`; each line says
+  whose, Valve's for a measure the bands lack), `learnDressing` and `smak map-dressing <folder> --learn -o
+  bands.json`; `map-dressing --mod` and a map spec's build with a profile hold a map to the profile's bands. The
+  Specialists' (`DRESSING`), measured over its 29 maps: the floor under 24 1% to 56% (median 10%, Valve's 21%), the
+  light's contrast 2.2 to 10.7 (median 3.9, Valve's 12.9).
+- **The Specialists' compact arenas**: `COMPACT`, the figures of its eight compact maps (ts_trident,
+  ts_hammertime, ts_lobbyduel, ts_wyndham, ts_supertimor, ts_metro, ts_rundown, ts_neobaroque), by
+  `kind: "compact"` (`map-character --mod ts --kind compact`).
+- **Lamp faces beside the lights**: `characterOf`'s `lampFaces`, the faces wearing a lamp's texture (`lampsOf`), so
+  a map lit by its texture lights (ts_trident: one light entity, 58 lamp faces) does not read as unlit.
+- **Profiles by name and the game found** (`src/maps/games.mjs`): `--mod ts`, `specialists`, `ts-roleplay`, `msc`,
+  `mastersword` (`MAP_PROFILES`, `mapProfileOf`); with no `--game`, a profile made from the installed game is handed
+  the Half-Life folder found (`findHalfLife`: `SMAK_HALF_LIFE`, or a Steam library, `steamLibraries`), so
+  `map-measure --mod ts` works with no `--game`. `--kind` is handed to the profile.
+
+- **Marble**, a material base (`{ "base": "marble", "tone", "vein", "veins", "scale", "cell" }`): polished stone
+  clouded lighter and darker, crossed by veins that wander on a slant with a finer set across them; with `cell`
+  laid as tiles with a fine joint. A map's picture of it tiles by noise that comes round with the picture, not by
+  blending copies (which left veins a quarter as dark in its middle), and is worn less than a wall (half the patches, two thirds of the grain). It may
+  be brighter and more coloured than Valve's walls without a warning.
+
+- **`fitted`** (src/maps/source.mjs): a picture fitted to a box as a mapper fits one by hand. On each face its
+  corner stands on the face's corner (top left as seen; a floor's north west), so a trim band's edge falls on the
+  brush's edge; `whole` stretches one picture across each face (or one way), `repeat` lays so many, `readable` flips
+  the north and west faces, where the world's grid runs a picture right to left, so a sign reads from every side;
+  `faces` and `rest` fit some faces only. The Specialists' maps have 49 to 98 in 100 of their faces shifted off the
+  world's grid; a box on the grid has none.
+
+- **Lamps built as fixtures on walls and hung** (src/maps/pieces.mjs): `sconce`, a shade of glass on a plate
+  standing out of a wall facing any way (a fan, a drum or a box), and `chandelier`, tiers of glass under a canopy and
+  a rod. Their glass is a light's texture, lit as a texture light: a room was lit only by tubes on its ceiling,
+  laid along y, or by lights in the air. `plate: false` hangs a sconce's shade alone, for a hall where many are
+  seen at once.
+- **Open stairs**: `stairs(..., { open: 8 })` lays each step as a tread that thick with nothing under it (a fire
+  escape, an open-riser stair), at the heights and depths the solid flight has; with `ramp` and `tread` as before.
+
+- **The sweep's drops**: an upper floor's edge by a wall, where a body does not fit, over a room below that runs on
+  under it, where one does, was told as a fall to that room (Meridian's mezzanine by the hall's back wall: 384 down
+  to the vault). A body falls onto the first solid under it: such an edge is no drop.
+
+- **A mod's own light** (a profile's `spec.lighting`: `{ lamp, composed }`): a room's lamp in a fixture of the game's
+  light texture is lit at `lamp` (0: the fixture's texture light alone, no light entity), and the light is composed
+  as the mod's maps are unless the spec says `lighting: false`; a dimmed lamp in a game's fixture wears the profile's
+  `fixture_dim`. The Specialists': the fixture alone, one lamp in three dimmed to `+0~fifts_lght3` (lit at a quarter).
+  Valve's lamps of 250 under its texture lights lit a spec's floors at 218 of 255; now a lobby, an office and a
+  warehouse come to 83, within the game's own maps' 52 to 102.
+
+- **A room's lamps as it wants them** (`light.fixture`): `"panel"` on the ceiling (unless told), its tubes now laid
+  along the room's longer side (they lay along y in every room); `"sconce"` on its two longer walls in turn;
+  `"chandelier"` hung from its ceiling. Their glass is the room's fixture, a texture light where the mod has one.
+- **Fog** (a spec's `fog`): over the whole map as the mod draws it, its profile's `spec.fog` (The Specialists'
+  `ts_fog`, written as ts_frigid writes it); a game with no fog of its own is warned of.
+- **Waypoints for bots** (`src/maps/waypoints.mjs`, `src/maps/rcbot.mjs`; `smak map-waypoints <map> --mod ts --out
+  <Half-Life>/rcbot`): RCBot's `.rcw` read and written byte for byte as the bot writes it (`readRcw`, `writeRcw`,
+  from its own WaypointLoad and WaypointSave, v1.51b13; 1112 of the bot's files written back unchanged), and
+  waypoints laid from the walk test (`waypointsOf`): one at each start, the foot and top of each ladder, each jump
+  to floor only a jump reaches with its landing, the ends of stairs, each opening, then every 160 units of walk,
+  corners and drops mended until every two neighbours are joined by a line a body walks (both ways) or drops
+  (one way), crouching waypoints in a passage only a crouching body fits, jumps and drops added where the paths
+  do not yet join what the walk does; only those got to from a start and leading back kept; the top of the sky
+  and clips over it left out; RCBot's limit of 1024 waypoints kept. The bot works out its visibility table itself.
+  `reachOf(map, { graph: true })` hands back the walk itself (`graph`, not enumerable) for what is built on it.
+
+**Mind**: a map spec built on a mod whose shipped .wad files hold every texture writes and names no .wad of its own
+any more, and one with pictures of its own now carries them inside the .bsp (`compile.embed: false` ships the .wad
+beside it, as before).
+
+## 0.24.0 (2026-10-20)
+
+- **The figure judges** (`src/figures/`, exported as `figures`), from the figures research: does a figure (a
+  humanoid model) belong to a game's manner, and where not. Three judges of measures that work for any GoldSrc game,
+  each holding a figure against a corpus of the game's own figures and saying what is off in words, with the part,
+  band or texture at fault and what to do:
+  - **style**: 52 measures of the model (`styleMeasures`: shape, proportions, texture as laid, colour, per part), a
+    score 0 to 100 against the corpus (`judgeStyle`), and the calibration it was validated by (`validateStyle`:
+    each corpus' own figures against foreign ones as AUC, the same characters in two manners, a confusion matrix);
+  - **texture**: the texture as painting (`textureMeasures`, 21 measures: repetition, flat fills, ramps, speckle,
+    slant, charts, an occlusion it follows, value, colours), from a model or from a picture of an atlas read back
+    at its pixels a texel (`textureOfPicture`: a screenshot of a UV editor at 4 pixels a texel reads 4.00), against
+    the corpus and a reference (`judgeTexture`);
+  - **shape**: silhouettes from four sides and the mesh (`shapeOfModel`, 20 measures: holes, notches, inner edges,
+    symmetry, pieces, layers, mirror, likeness, boxes), against the corpus and a reference's masks (`judgeShape`);
+    `masksLikeReference` draws a model in a reference's own pose and views, framed as its figure stands.
+- **The corpus is never in the kit**: `surveyFigures` (`smak figure-survey`) measures the installed game's figures
+  into a library of the person's (`~/.smak/figures.json`, or SMAK_FIGURES), each game a corpus beside the others.
+- **Each game's manner is its profile's** `figureStyle` (exported as `FIGURE_STYLE`), apart from a map's
+  `character.figures`: the corpus, which judges apply, the groups the style judge scores (shape, texture and
+  colour: proportions tell characters apart, not manners), and each judge's weights, how far that game's figures
+  stand from the other games' on each measure. `profiles/mastersword.mjs` (MSC), `profiles/specialists.mjs` (The
+  Specialists' players) and the new **`profiles/halflife.mjs`** (Half-Life, and its HD pack with `kind: "hd"`; for
+  maps, `GOLDSRC` with the game's folders). `figureStyleOf` finds one by name, file or object.
+- `smak figure-survey`, `figure-judge`, `figure-texture`, `figure-shape` and `figure-validate`.
+
+## 0.23.0 (2026-10-20)
+
+- **Animations kept in other files are posed everywhere a model is posed**: `posed`, `render`, `strip`
+  (and `sheet`, `animationGif`), `poseBetween`, `posesFor`, `findPiston` and `motionOverlaps` (its `still` pose
+  too) take `groups`, the files `sequenceFilesOf` reads beside a model, as `poseAt` has since 0.22.0. Without
+  them `findPiston` and `motionOverlaps` still name such an animation in `skipped`, and `strip` now refuses it
+  instead of drawing the bones at rest frame after frame. `smak render`, `sheet`, `strip` and `gif`, and the MCP
+  server's pictures, read `<name>01.mdl` beside the model themselves.
+- **`footSlide`** (src/reproportion.mjs): how far a walk's planted foot slides over the floor with its travel
+  applied, and the lowest point of the feet each frame; the feet are found by their Biped names in English or
+  Italian, and where a foot touches is the middle of its lowest points, so a flat sole is not read as its heel
+  one frame and its toe the next. The figures research measured a robot's walk against the model under it so.
+- **`removeBodypart`**, the counterpart of `addBodypart`: a bodypart taken out and the body numbers counted again
+  over those that remain, with the map from every old number to the new one that shows the same; where a number
+  the file had would show another submodel, it is refused and says which, unless told to renumber or to keep the
+  other bodyparts' bases. **`modelName`** and **`setModelName`**: the name in the header read and written (a
+  player made from The Specialists' merc said `D:\half-life\TS\models\player\merc\merc.mdl` inside).
+- **Fewer triangles for rigid pieces** (src/cull.mjs): `cullHidden` takes out the faces never seen, the pieces
+  drawn from many sides in poses of every animation (or those told), front faces only and with a depth test, a
+  face going when it shows less than `keep` of what it could, a piece left with none dropped, the pieces of one
+  share kept alike; `triangleVisibility` and `sphereViews` under it. `reduceWithin` and `reducePieces` bring each
+  piece down through `reduce` as far as keeps its shape within a tolerance (`shapeDeviation`, both ways). From
+  the figures research, where they took a robot for The Specialists from 7,618 triangles to 4,996.
+- **`unwrap` lays nets**: the islands of the pieces of one `net` key (each piece's `net`, or `nets: (piece, n) =>
+  key`) laid together, each touching one before it at a corner and on none of its texels, and packed as one: a
+  limb's plates side by side on the picture. The figures research's bake packed them so again after unwrap, and
+  now does not. A corner's place on the picture is its place in its island rounded, then moved by the island's
+  whole texels, as the packing measured it (it was rounded after the move, which at a half texel could put a
+  corner one texel off where the packing had measured it).
+- **`reproportion` keeps a hit box's thickness**: a box on a bone that changed grows or shrinks along the bone
+  only (the axis its children stand out along, x for a Biped bone; `along` says which), and is as thick across it
+  as it was, as fairness wants: a shorter spine made The Specialists' robot a thinner target, and its research
+  put the merc's thickness back by hand. `hitboxes: "all"` (`smak reproportion --hitboxes all`) is the old way.
+
+**Mind**: a model `reproportion` makes now has the hit boxes of the bones it changed as thick as the original's;
+made again, a model made before gets those, and `hitboxes: "all"` makes it as it was. `strip` refuses an
+animation kept in another file without `groups`, where it drew the bones at rest.
+
+## 0.22.0 (2026-10-20)
+
+- **`reproportion`** (src/reproportion.mjs, `smak reproportion`): a skeleton's bones made longer or shorter, a tall
+  thin robot on the soldier's. A factor is a bone's length, where the bones hanging from it stand, a number or
+  `[x, y, z]` in its own axes; the other side follows unless told; Biped bones by any of their names. A bone's
+  rest position and its position scale multiplied together carry every frame of every animation, those in
+  `<name>01.mdl` files too, which are not written: every turn is kept to the bit. The roots' x and y and every
+  travel grow with the legs (the stride, measured hip to foot), so a walk's planted foot does not slide; their
+  height is a line fitted over every frame that stands, so the feet stay on the floor standing, walking and
+  crouching. Hit boxes and attachments grow with their bones, the eye goes with the nearest, and every
+  animation's box is measured again. Points stay in their bones: rigid pieces keep their shape. Factors of 1
+  give the file back byte for byte. On Half-Life's soldier, legs 1.2 and shoulders 0.8: the lowest point of
+  idle, crouch and combat idle within 0.2 of where it was, all 82 animations' boxes measured.
+- **Animations kept in other files are read**: `frameValues`, `readSequence` and `poseAt` take `groups`, the bytes
+  of `<name>01.mdl` and the rest by their group's number, which `sequenceFilesOf(file, src)` reads beside a model;
+  `sequenceGroups` lists the groups. Without them they say, as before, that the animation is kept in another file.
+- **`setBoneValues`** (bones' rest values and scales, nothing else touched), **`modelBoxes`** and **`setModelBoxes`**
+  (the header's eye and four boxes).
+
 ## 0.21.0 (2026-10-20)
 
 From the figures research (a robot of rigid hard-surface pieces on Half-Life's soldier, its parts made in plain

@@ -584,7 +584,9 @@ wears; the report says so. `smak map-view --wad`, `map-views` and `map-plan` dra
 ## Materials
 
 `base` is one of: `wood`, `darkwood`, `planks`, `iron`, `steel`, `brass`, `gold`, `copper`, `leather`,
-`cloth`, `rope`, `stone`, `brick`, `plaster`, `tile`, `metal`, `grass`, `dirt`, `glass`, `flame`, `neon`,
+`cloth`, `rope`, `stone`, `marble` (polished stone clouded and crossed by veins that wander on a slant, `vein` their
+colour, `veins` how many, `scale` its clouds in units, 48; with `cell` laid as tiles; let be bright and coloured, a
+bank's cream and green), `brick`, `plaster`, `tile`, `metal`, `grass`, `dirt`, `glass`, `flame`, `neon`,
 `hazard` (stripes of its tone and black), `flat` (its tone and nothing else: no grain, patches or wear, as the game's own BLACK and YELLOW are; a plain colour a person asks for), `leaves` (pointed leaves on two layers with holes between, a masked texture: a crown's `cards`; `cell` a leaf's size in units, 2.5, `fill` the share of places that hold one, 0.75), `asphalt`, `water`, `paint`, `bone`, `door` (maps: a panelled door with
 its handle, fitted to the leaf), `mesh` (a net, a wire fence,
 a grille: cords in its tone with holes between, seen through as in the game; `cell` the holes' size, 2;
@@ -695,7 +697,7 @@ Valve's textures are photographs cut down: their fine detail is the material's o
 | `ladders` | `[{ room, side, along, width, height }]`: a ladder against that wall of the room (`side` north, south, east or west; `along` 0 to 1, 0.5 unless told; 32 wide and the room's height unless told), built as Valve's are: a `func_ladder` to climb and over it the rungs a player sees, a `func_wall` in render mode 4 in a texture with holes (`{LADDER1` when the game's `.wad` is given, a mesh of the map's own otherwise). Never make a ladder as furniture: a ladder texture without its holes reads as a vent |
 | `prefabs` | `{ name: { pieces: [...] } }` or `{ name: { file: "table.map" } }`: brush furniture made once, put in many places |
 | `models` | `{ name: <a model spec> }` or `{ name: { file } }`: models built with the map, for `props`. Each is written to `models/<map name>/<name>.mdl` beside the map, and its props name that path: copy the folder into `<mod>/models/` and the `.bsp` finds them, apart from the mod's own |
-| `props` | Models put in rooms: `{ model, room, at, facing, z, solid }`. `model` is one of `models`, a `.mdl` path the game has, or the kit's own furniture as `"kit:<name>"` (the specs in `kits/furniture/`: toilet, bathtub, sink_cabinet, bed, sofa, armchair, dresser, stove, fridge, coffee_table, tv_stand, bench, sedan, trees and more), built with the map. A model is walked through in the game: kit furniture, or a prop with `solid: true`, gets a `CLIP` box of its footprint and height that stops a body and draws nothing. Furnish with these, not with boxes |
+| `props` | Models put in rooms: `{ model, room, at, facing, z, solid }`. `model` is one of `models`, a `.mdl` path the game has, or the kit's own furniture as `"kit:<name>"` (the specs in `kits/furniture/`: toilet, bathtub, sink_cabinet, bed, sofa, armchair, dresser, stove, fridge, coffee_table, tv_stand, bench, sedan, trees and more), built with the map. A model is walked through in the game: kit furniture, a prop with `solid: true`, or a model a mod's profile says is solid (its `spec.things`, with the footprint and `high` it gives, turned as the prop stands, from its foot up), gets a `CLIP` box that stops a body and draws nothing; `solid: false` leaves one out. Furnish with these, not with boxes |
 | `include` | Other map specs taken in as modules (below) |
 | `layout` | A drawing of the plan (below), in place of placing rooms by words |
 | `wads` | A game's .wad files to take textures from: `["halflife.wad"]`, found by name in the game's folder |
@@ -709,6 +711,7 @@ Valve's textures are photographs cut down: their fine detail is the material's o
 | `lighting` | `true`, or numbers over the defaults: the light composed, not spread. A lamp in each `rhythm` (3) along a room's run dimmed to `dim` (0.2) of its brightness, its fixture glowing dim too; the `goalRoom`'s lamps `goal` (1.6) times brighter; a weak light of `spill` (50) under the head of every way through, so a doorway spills light; each lamp's light falling off `fade` (2.5) times sooner (hlrad's `_fade`), so it pools under its lamp; and the compile's light bounced `bounce` (2) times, not SDHLT's 8, unless `compile.light.bounce` says. It works on the rooms' lamps and the spec's own `light` entities. Valve's floors, measured sample by sample over the campaign: 6 to 60 in 100 dark (under 24 of 255; median 21) and a contrast of 3.6 to 152 (the brightest tenth over the darkest; median 12.9). Spread even, a spec's lamps leave about 1 dark and 2 to 4; composed, about 5 dark and 3. The rest of Valve's dark is under and behind things in its rooms, which lamps alone do not make |
 | `focus` | `{ room, landmark, at, z, plinth, clear, from, texture }`: the map's one main area and the landmark in it, as Valve gives a map one centre the eye finds from each way in. `landmark` is a furniture's or prop's `id` in that room, or the name of a prefab or model it has there (every piece of it in the room is the landmark: three pumps along a hall), or a piece put in for it: `{ prefab }`, `{ model }`, or `{ kit: "pump" \| "machine" \| "reactor" \| "statue" \| "door", size: [x, y, z] }`, a centrepiece the kit makes, at `at` (the room's middle unless told). Each piece stands on a `plinth` of its own, 8 high and 16 past its foot (`false`: none), in the framing's texture (`texture`); the room is the composed light's goal (`lighting.goalRoom`) and a lamp hangs over the landmark. The build tests, on the map as laid out, a player's sightline from 24 inside each way into the room (a room placed `in` another, a pool or a pit, takes the ways into the room that holds it; and from the start, `from: ["start"]`) to the landmark: a way that does not see it is warned of, with its eye point, and so is furniture within `clear` (32) of it. An `info_target` named `landmark` stands just over its top: the views (`features.png`, `map-views --aim`, the judges') aim a camera at it, and the dressing report names it with the ways that see it |
 | `music` | `[{ track, when }]`: the game's CD tracks, 2 to 27 (a music spec with that `track` makes the file): `when` `"start"` (unless told: a `trigger_auto` firing a `target_cdaudio` as the map begins) or `{ enter: "<room>" }` (a `trigger_cdaudio` over the room's floor, the first time a player walks in); `{ stop: true, when }` stops it. They play for the first player only, and each once: a multiplayer mod plays music its own way |
+| `fog` | `true` or `{ near, far, color }`: fog over the whole map, as the mod draws it (its profile's `spec.fog`: The Specialists' `ts_fog`, near 2048, far 9000, colour 0.8 grey unless told, as ts_frigid has it); a game with none is warned of |
 | `sounds` | `[{ spec, room, at, z, volume, radius }]`: sounds made with the map (`spec`: a sound spec, or `{ file }`) and played where they are put by an `ambient_generic`: `volume` 1 to 10, `radius` `everywhere`, `small`, `medium` or `large`; looped when the sound loops (a hum, a fire), once otherwise. The files go under `sound/<map name>/` beside the map, and its `ambient_generic` names them there: copy that folder into `<mod>/sound/` |
 
 ### A floor plan
@@ -762,7 +765,9 @@ light and every entity are still the map's to give.
 - `water: 32` or `{ depth, material }`: water over its floor, swum in or waded; a `!` texture.
 - `light`: `"auto"` (one lamp for each 256 x 256 of floor, hung no higher than 192 over it, and over a flight of
   stairs clear of a head on its top tread or at the ceiling; unless told),
-  `"none"`, or `{ count, brightness, color }`. A floor lit under 24 of 255 after the compile is a fault, unless
+  `"none"`, or `{ count, brightness, color, fixture }`: `fixture` what the lamps are built as, `"panel"` (on the
+  ceiling, unless told: laid along the room's longer side), `"sconce"` (on its two longer walls in turn, a shade of
+  glass on a plate) or `"chandelier"` (hung from the ceiling, its lowest glass a head's room and more over the floor). A floor lit under 24 of 255 after the compile is a fault, unless
   the room says `dark: true` (meant so: a cellar, a dim corridor, a copy of a map that is dark there).
 - `test: true`: a room only for trying a module alone (a stretch of street before a shop), left out when
   the module is included.
@@ -771,9 +776,16 @@ light and every entity are still the map's to give.
   corners, shelves, barrels), `lab` (consoles, benches, cabinets), `control` (consoles), `office` (desks, cabinets),
   `industrial` (machines and tanks, barrels, pipes up the walls, crates), `plant` (pipes, tanks, machines) or
   `corridor` (a pipe or a crate). Brush pieces of the kit, each at a wall with its back to it or in a corner, clear
-  of every way through and the floor in front of it, of the focus's landmark and of what the spec put there, none
-  reaching past a third of the room's depth from its wall (the middle stays walked), several of each kind and no one
-  more than twice in a room, turned to face in. They are furniture, `func_detail`, and wear the spec's `crate`,
+  of every way through and the floor in front of it, of the focus's landmark, of the places to start and of what the
+  spec put there, none reaching past a third of the room's depth from its wall (the middle stays walked), several
+  of each kind and no one more than twice in a room (more when a dense room wants more), turned to face in. A kind
+  `wall` spreads along every wall; a kind `corner` fills the corners and then the walls nearest them, close, so
+  crates pile into a corner and along from it. A mod's uses may also stand things in the middle, a walk (48) from
+  the walls and from what stands at them: `rows` (desks of an office side by side in rows facing one way, an
+  `aisle` between), `group` (two seats facing each other over a piece `between` them, a walk round it: couches
+  about a coffee table), `cluster` (a pile of `count` crates to take cover behind) and `middle` (one).
+- `density`: how thickly the room's `use` dresses it: a number (to 4) that each kind's count is multiplied by, or
+  `sparse` (0.5), `normal` (1), `dense` (1.5), `cluttered` (2); a mod's profile may give one by use. They are furniture, `func_detail`, and wear the spec's `crate`,
   `barrel`, `locker`, `console`, `screen`, `desk`, `machine`, `pipe` and `strut` words when it gives them (wood,
   metal, steel, neon, darkwood and iron unless told). What stands at a wall shades the floor under and behind it:
   the dark Valve's floors have that lamps alone do not make. The report lists each room's pieces.
@@ -821,7 +833,8 @@ stacked) with the wall's rock between them, and the link goes through that rock:
   it names a game's texture. A sliding door opens and shuts the same way. Any door's picture is fitted to its
   leaf, one whole picture across it.
 - `window`: 48 by 48, `sill` (40) over the higher floor. Nothing walks through a window. `glass: true` (or
-  `{ alpha, health, material }`) glazes it: a `func_breakable` pane, half see-through, that shatters.
+  `{ alpha, health, material, keys }`) glazes it: a `func_breakable` pane, half see-through, that shatters, with the
+  keys of glass (a mod's, where its profile gives them: The Specialists' at health 1, back after 45 seconds).
 - `stairs`: for rooms stacked one above the other: a stair in the lower room up through a hole in the
   floor of the upper (the lower room needs `rise / 16 * 24 + 32` of length along x). It climbs along x
   against the south wall, or with `along: 1` the north (between, a share): keep it clear of a doorway.
@@ -879,7 +892,13 @@ them) take `_1`, `_2`... at each one put, so each machine's buttons fire its own
 own `lights_main`) is kept. `furniture: [{ prefab: "table", room:
 "hall", at: "centre", rotate: 90 }]` puts one (turned by a multiple of 90). `entity: "func_breakable"` (or
 `{ class, keys... }`) makes its brushes a brush entity: a crate that breaks (`material: 1`, wood), a
-`func_wall`, a `func_illusionary`. Furniture wearing a `mesh` (a chain-link fence: a box 2 thick in
+`func_wall`, a `func_illusionary`. `breakable: "wood"` (on a piece of furniture, on a prefab, or on one piece of a
+prefab) makes each piece it covers a `func_breakable` of its own, so a stack of crates breaks a crate at a time,
+with the keys its material takes: Half-Life's materials `glass` (0), `wood` (1; `true` is wood), `metal` (2),
+`flesh`, `cinder` and `concrete` (4), `tile`, `computer`, `unbreakable_glass`, `rocks`, each with the kit's
+health (glass 20 and half see-through, render mode 2 at 90) under a mod's (its profile's `spec.breakable`: `{
+keys, materials: { glass: { ... } } }`). A teller's counter is a prefab of a wooden base and a glass screen on it
+that says `breakable: "glass"`. The report counts them (`breakables: 12 func_breakable (4 glass, 8 wood)`). Furniture wearing a `mesh` (a chain-link fence: a box 2 thick in
 `{ "base": "mesh", "cell": 6, "weave": "diamond" }`) or a game's `{` texture is a `func_wall` in render mode
 4 unless told, the only way the game draws its holes; its texture is named with `{` (`{SM_CHAIN_LINK`).
 Unless told, other furniture is a `func_detail`: it cuts no portals, so a
@@ -971,6 +990,80 @@ mod's profile") makes the map one of that mod's, with its folders given by `--ga
 
 `smak build tavern.json --game <Half-Life>/msc --game <Half-Life>/valve`. Its own .wad (the textures the spec
 paints) goes into the mod's folder beside the map.
+
+A profile's thing (`things: { name: { model, r, wall, lift, deep, turn, on } }`) is placed by its footprint: `r`
+half its length along the wall, `wall` how far its origin stands off the wall, `deep` how far it reaches into the
+room (`r` unless told), `lift` its origin over its foot; `turn` the yaw that faces the model into the room (one made
+facing -y, as a couch of The Specialists is, turns 90); `on` a piece of the kit's it stands on (`bench`, `desk`),
+put with it, the model on its top. A use's kinds may name the kit's pieces beside the mod's things (a warehouse of
+the game's boxes and the kit's crates). No piece is put within a player's box and a step of a place to start.
+
+### The Specialists' map
+
+`"mod": "profiles/specialists.mjs"` with `--game <Half-Life>/ts --game <Half-Life>/valve`. Its `spec` (SPEC in the
+profile, which says where each word was read from) gives:
+
+- textures of the game's two shipped .wad files, `specialists.wad` and `halflife.wad` (the game's 29 maps keep most
+  of theirs inside themselves, which a new map cannot name), each the one those maps wear most for its part: floors
+  `wood4a`, walls `crete33`, ceilings `fifties_ceil01`, doors `door006`, trim `basetrim02`, outside brick `wall1`,
+  roofs `masphalt4`; and words for a room's `surfaces`: `ts_tile`, `ts_brick`, `ts_concrete`, `ts_plaster`,
+  `ts_parquet`, `ts_planks`, `ts_asphalt`, `ts_street`, `ts_metal`, `ts_hazard`, `ts_glass`. The kit's dressing
+  pieces wear the game's too (crates `cardbox1`, barrels `metal_rusty5ccc`, desks `trrm_wood2`, consoles
+  `drkmtlt_bord11`);
+- props as `ts_model`, the class the game's maps place theirs with (627 in 14 maps);
+- rooms furnished by `use` with models the game's maps name (a model the game lacks stops a map loading), as
+  cluttered at their edges as the game's compact maps (ts_trident: 47 props and 34 breakables over 4.4 million
+  square units; a warehouse of 448 x 384 had 4 pieces and has 8 to 12):
+  `office` (computers on desks against the walls and in rows in the middle, office chairs, plants, paintings, a
+  cabinet), `lobby` (couches against the walls, two more facing each other over a coffee table, plants,
+  armchairs, pictures), `cafe` (booths, tables in rows, chairs), `warehouse` (the game's boxes and crates piled
+  into the corners and along the walls, a pile in the middle, shelves, barrels), `garage` (a dumpster, boxes, barrels, rubbish), `server` (consoles, cabinets),
+  `stairwell` (a plant), and for rooms open to the sky `alley` (a dumpster, rubbish, a street lamp), `plaza`
+  (benches, lamps, plants, a statue in the middle) and `rooftop` (machines, pipes, barrels). The game has no models
+  for a bathroom or a stove; its crates are brushes (`func_breakable`): the kit's crates (and crates of 40 and 48
+  of the profile's own `pieces`) dress a warehouse, a garage and an alley, each a `func_breakable` of wood;
+- props a player cannot walk through: a `ts_model` is a point to a player (the game's program gives it a box of
+  no size), and the maps' makers clip some (118 of 886: the seating most, plants and boxes none). Couches, armchairs,
+  tables, booths, the game's boxes, a dumpster, a bench and a statue are `solid` in the profile and get a `CLIP` box
+  of their footprint and height, in a room's dressing too; plants, pictures, office chairs and the street lamp are
+  walked through;
+- lamps of the game's own: every room's lamp (unless a `frame` says `fixtures: false`) is a fixture of two tubes of
+  `+0~fifties_lgt2` (halflife.wad's light the game's maps wear most, 12 of them) on the ceiling, each its whole
+  picture once, lit as a texture light (an `info_texlights` in the map, which hlrad reads: no lights.rad, and the
+  game ships none). The profile's `lamps` give each of the game's light textures its colour, as the maps' makers
+  lit it (the light on its own faces in their maps: fifties_lgt2 252 255 234), and the brightness this kit's Valve
+  list gives it; any of them a spec wears is lit so. Words for a spec's own lamps: `ts_lamp`, `ts_lamp_warm`
+  (`~trn_lt1`), `ts_lamp_cool` (`+0~light3a`), `ts_sodium` (`+0~tnnl_lgt4`, 255 185 124), `ts_screen`
+  (`+0drkmtl_scrn`). The dressing's share of brushes wearing a lamp comes to Valve's (11 to 21 in 100); a room's lamp is its
+  fixture alone, with no light entity under it, and the light is composed unless the spec says `lighting: false`: one
+  lamp in three dimmed, its fixture the dim tube `+0~fifts_lght3` (the profile's `spec.lighting`: `{ lamp, composed }`).
+  Valve's lamps of 250 under the fixtures lit the rooms' floors at 218 of 255; so lit, a lobby, an office and a
+  warehouse come to 83, within the game's own maps' 52 to 102;
+- what breaks, as the game's maps make it (1006 `func_breakable` in 27 of its 29 maps): glass (`material` 0) in
+  render mode 2 at 100 and `health` 1, wood (crates) at 15, metal at 50; every one with `respawntime` 45, since no
+  stock map sets it (0 is the game's 30 seconds, under 0 never, per `ts/mapping.txt`) and the Havoc9 matchmode
+  plugin resets nothing between rounds. A window's glass is the game's `glass_bright`, and the word `glass` names it
+  for a screen of the spec's own;
+
+**Delivered as the .bsp alone.** A mod's map is built on the .wad files its game ships (the profile's `spec.wads`):
+a map that wears only their textures writes no .wad of its own and names none but theirs (the sky is the
+compilers' own texture: zhlt.wad and sdhlt.wad have it, and hlcsg puts it inside the .bsp by itself). One with
+pictures of its own (a spec's `textures` painted by the kit: marble, brass) writes them to `<name>.wad`, which the
+.map names for an editor, and the compile puts them inside the .bsp (`hlcsg -wadinclude <name>`): the compiled map
+asks the game for the shipped .wad files alone, and the report says so (`the compiled map asks the game for
+specialists.wad, halflife.wad and carries N pictures inside`). `"compile": { "embed": false }` leaves them out of
+the .bsp, and the report warns that `<name>.wad` has to be shipped beside the map.
+
+```json
+{ "spec": "smak.map/1", "name": "ts_offices", "mod": "../smak/profiles/specialists.mjs",
+  "rooms": [{ "id": "lobby", "size": [448, 320, 160], "use": "lobby", "surfaces": { "floor": "ts_parquet" } },
+            { "id": "office", "size": [384, 320, 128], "place": { "east_of": "lobby" }, "use": "office" },
+            { "id": "alley", "size": [384, 384, 256], "place": { "north_of": "office" }, "sky": true, "use": "alley",
+              "surfaces": { "floor": "ts_street", "walls": "ts_brick" } }],
+  "links": [{ "between": ["lobby", "office"], "kind": "door" }, { "between": ["office", "alley"], "kind": "door" }],
+  "entities": [{ "class": "info_player_deathmatch", "room": "lobby", "at": "against west", "facing": "east" },
+               { "class": "info_player_deathmatch", "room": "alley", "at": "corner ne", "facing": "west" }] }
+```
 
 ### A building in another map
 

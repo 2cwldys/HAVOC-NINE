@@ -539,6 +539,10 @@ typedef struct
 	int		logo_yres;
 	float		logo_length;
 
+	int		menubg_xres;
+	int		menubg_yres;
+	float		menubg_length;
+
 	qboolean use_extended_api;
 } gameui_static_t;
 
@@ -1190,6 +1194,12 @@ void UI_KeyEvent( int key, qboolean down );
 void UI_MouseMove( int x, int y );
 void UI_SetActiveMenu( qboolean fActive );
 void UI_AddServerToList( netadr_t adr, const char *info );
+
+// cl_presence.c: Discord Rich Presence, sent by the engine
+void CL_Presence_Init( void );
+void CL_Presence_Frame( void );
+void CL_Presence_Shutdown( void );
+void CL_Presence_ServerReply( netadr_t from, const char *info );
 void UI_GetCursorPos( int *pos_x, int *pos_y );
 void UI_SetCursorPos( int pos_x, int pos_y );
 void UI_ShowCursor( qboolean show );

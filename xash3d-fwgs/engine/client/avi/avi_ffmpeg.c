@@ -472,7 +472,12 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
 	Avi->video_ctx = Avi->audio_ctx = NULL;
 	Avi->fmt_ctx = NULL;
 
-	if(( ret = pavformat_open_input( &Avi->fmt_ctx, filename, NULL, NULL )) < 0 )
+	// Force the format instead of letting avformat auto-probe every registered demuxer:
+	// probing runs each one's own read_probe() over the file's header bytes in turn, and
+	// on this build gsm_probe() (an unrelated telephony-audio demuxer, never otherwise
+	// used here) segfaults on that input. Every caller of this function already named the
+	// file .avi (COM_DefaultExtension above), so the format is never actually ambiguous.
+	if(( ret = pavformat_open_input( &Avi->fmt_ctx, filename, pav_find_input_format( "avi" ), NULL )) < 0 )
 	{
 		AVI_SpewAvError( quiet, "avformat_open_input", ret );
 		return;
@@ -621,6 +626,7 @@ static const dllfunc_t libavformat_funcs[] =
 	{ F( avformat_close_input ) },
 	{ F( avformat_find_stream_info ) },
 	{ F( avformat_open_input ) },
+	{ F( av_find_input_format ) },
 };
 
 static const dllfunc_t libavcodec_funcs[] =
@@ -880,7 +886,7 @@ static void AVI_UnloadFFmpeg( void )
 }
 #endif // XASH_AVI == AVI_NULL
 
-static movie_state_t avi[2];
+static movie_state_t avi[3];
 movie_state_t *AVI_GetState( int num )
 {
 	return &avi[num];

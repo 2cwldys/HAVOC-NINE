@@ -5,11 +5,118 @@ The main menu, mainui. engine-mainui.patch (webassembly) and mainui-h9-gamestart
 Upstream: FWGS master e8d773ea. Built: branch h9 at 7129989e. Below is the whole
 source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
 
+Upstream: FWGS master e8d773ea. Built: branch h9 at 7129989e, from the working tree.
+Working tree status for these paths. Anything listed is not committed, and is in the diff:
+Below is the whole source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
+The notes above were written by an earlier build and are kept as they were. The history below is the record
+of each build, read from git when that build was made. The newest block describes the diff at the end.
+The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), and ui_background_video: a looping video background (media/mainmenu_bg.avi) layered in ahead of the WON/Steam/color background, off by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available.
+The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
+== Patch history ==
+Generated Wed 10/21/2026 23:42:19.26, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Diff sha256 33f9f6aa34e9b0c51b13589dd85d40311125443562d3c5c80f4d55bab474be89, the diff below.
+
+Generated Thu 10/22/2026  4:07:19.29, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M menus/CreateGame.cpp
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Diff sha256 283f903df54b3b857b2c48522302a948bc224f04c87f9437c5e7d517eb0a94a6, the diff below.
+
+Generated Thu 10/22/2026  6:22:39.52, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/CreateGame.cpp
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Diff sha256 59df300a944de1e292b80ab8fc774a9ce61ab4f55e55e20b3d0a7f9d89f8ea45, the diff below.
+
+Generated Thu 10/22/2026  7:03:23.28, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/CreateGame.cpp
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Diff sha256 cd6f53249d5d3093ad8680679a5365bbd4734e3274e1bc1ff015670daedb7880, the diff below.
+
+Generated Thu 10/22/2026  7:07:19.83, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/CreateGame.cpp
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Lines of the previous diff that this build replaced, kept here:
++	// default "0" until the fallback path (cvar off / asset missing / FFmpeg unavailable) is
++	// verified on a build with no FFmpeg DLLs present -- flip to "1" only after that passes
++	ui_background_video = EngFuncs::CvarRegister( "ui_background_video", "0", FCVAR_ARCHIVE );
+Diff sha256 503c24ab5ed441d295ff5b4a0b73dc8812bc6babca7ad6b245dea7f853a69fe2, the diff below.
+
+Generated Thu 10/22/2026  7:32:11.08, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/CreateGame.cpp
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Lines of the previous diff that this build replaced, kept here:
++	// the engine does its own existence/FFmpeg-availability check and fails this
++	// call cleanly, same as it already does for the WON logo.avi banner
++	if( !EngFuncs::PrecacheMenuBgVideo( ART_BACKGROUND_VIDEO ))
+ #include "utlvector.h"
+ #define ART_BACKGROUND		"gfx/shell/splash.bmp"
++#define ART_BACKGROUND_VIDEO	"mainmenu_bg.avi"
+ // Ultimate class that support multiple types of background: fillColor, WON-style, GameUI-style
+ class CMenuBackgroundBitmap: public CMenuBitmap
+Diff sha256 10699901bae2569f2a9bf433d54a50452cb56a51a3c6129ca46af517d8ea5941, the diff below.
+
 diff --git a/3rdparty/mainui/BaseMenu.cpp b/3rdparty/mainui/BaseMenu.cpp
-index 7b727eb..2dd83a7 100755
+index 7b727eb..1bdcd11 100755
 --- a/3rdparty/mainui/BaseMenu.cpp
 +++ b/3rdparty/mainui/BaseMenu.cpp
-@@ -624,6 +624,29 @@ static bool UI_UpdateWindowInsets( void )
+@@ -36,6 +36,8 @@ cvar_t		*ui_show_window_stack;
+ cvar_t		*ui_borderclip;
+ cvar_t		*ui_prefer_won_background;
+ cvar_t		*ui_background_stretch;
++cvar_t		*ui_background_video;
++cvar_t		*ui_background_video_file;
+ cvar_t		*ui_logohorizontal;
+ 
+ uiStatic_t	uiStatic;
+@@ -624,6 +626,29 @@ static bool UI_UpdateWindowInsets( void )
  	return changed;
  }
  
@@ -39,7 +146,7 @@ index 7b727eb..2dd83a7 100755
  /*
  =================
  UI_UpdateMenu
-@@ -693,7 +716,7 @@ void UI_UpdateMenu( float flTime )
+@@ -693,7 +718,7 @@ void UI_UpdateMenu( float flTime )
  				return;
  
  			// load background track
@@ -48,6 +155,250 @@ index 7b727eb..2dd83a7 100755
  				EngFuncs::PlayBackgroundTrack( "media/gamestartup", "media/gamestartup" );
  		}
  
+@@ -1179,6 +1204,11 @@ void UI_Init( void )
+ 	ui_borderclip = EngFuncs::CvarRegister( "ui_borderclip", "0", FCVAR_ARCHIVE );
+ 	ui_prefer_won_background = EngFuncs::CvarRegister( "ui_prefer_won_background", "0", FCVAR_ARCHIVE );
+ 	ui_background_stretch = EngFuncs::CvarRegister( "ui_background_stretch", "0", FCVAR_ARCHIVE );
++	ui_background_video = EngFuncs::CvarRegister( "ui_background_video", "1", FCVAR_ARCHIVE );
++	// h9xash.bat picks a random entry from ts\menu_bg_videos.txt on every launch, the same
++	// way it already does for ts\menu_music.txt, and writes its pick here via
++	// menu_bg_video_resolved.cfg (exec'd from userconfig.cfg)
++	ui_background_video_file = EngFuncs::CvarRegister( "ui_background_video_file", "mainmenu_bg.avi", FCVAR_ARCHIVE );
+ 	ui_logohorizontal = EngFuncs::CvarRegister( "ui_logohorizontal", "0", FCVAR_ARCHIVE );
+ 
+ 	// show cl_predict dialog
+diff --git a/3rdparty/mainui/BaseMenu.h b/3rdparty/mainui/BaseMenu.h
+index ae05457..7a9b826 100755
+--- a/3rdparty/mainui/BaseMenu.h
++++ b/3rdparty/mainui/BaseMenu.h
+@@ -61,6 +61,8 @@ extern cvar_t   *ui_show_window_stack;
+ extern cvar_t	*ui_borderclip;
+ extern cvar_t	*ui_prefer_won_background;
+ extern cvar_t	*ui_background_stretch;
++extern cvar_t	*ui_background_video;
++extern cvar_t	*ui_background_video_file;
+ extern cvar_t	*ui_logohorizontal;
+ 
+ enum EUISounds
+diff --git a/3rdparty/mainui/controls/BackgroundBitmap.cpp b/3rdparty/mainui/controls/BackgroundBitmap.cpp
+index 0b087a4..7e09b4f 100644
+--- a/3rdparty/mainui/controls/BackgroundBitmap.cpp
++++ b/3rdparty/mainui/controls/BackgroundBitmap.cpp
+@@ -23,6 +23,7 @@ GNU General Public License for more details.
+ bool CMenuBackgroundBitmap::s_bEnableLogoMovie = false;
+ bool CMenuBackgroundBitmap::s_bGameHasSteamBackground = false;
+ bool CMenuBackgroundBitmap::s_bGameHasWONBackground = false;
++bool CMenuBackgroundBitmap::s_bVideoBackgroundActive = false;
+ CMenuBackgroundBitmap::bstate_e CMenuBackgroundBitmap::s_state;
+ 
+ CMenuBackgroundBitmap::bimage_t CMenuBackgroundBitmap::s_WONBackground;
+@@ -30,6 +31,8 @@ CMenuBackgroundBitmap::bimage_t CMenuBackgroundBitmap::s_WONBackground;
+ Size CMenuBackgroundBitmap::s_SteamBackgroundImageSize;
+ CUtlVector<CMenuBackgroundBitmap::bimage_t> CMenuBackgroundBitmap::s_SteamBackground;
+ 
++Size CMenuBackgroundBitmap::s_VideoBackgroundSize;
++
+ CMenuBackgroundBitmap::CMenuBackgroundBitmap() : CMenuBitmap()
+ {
+ 	szPic = 0;
+@@ -97,6 +100,22 @@ void CMenuBackgroundBitmap::DrawSteamBackgroundLayout( Point p, int xOffset, int
+ 		DrawBackgroundPiece( s_SteamBackground[i], p, xOffset, yOffset, xScale, yScale );
+ }
+ 
++void CMenuBackgroundBitmap::DrawVideoBackground( Point p, int xOffset, int yOffset, float xScale, float yScale )
++{
++	int w = (int)ceil( s_VideoBackgroundSize.w * xScale );
++	int h = (int)ceil( s_VideoBackgroundSize.h * yScale );
++
++	if( EngFuncs::DrawMenuBgVideo( p.x + xOffset, p.y + yOffset, w, h ))
++		return;
++
++	// the stream died mid-session (asset or FFmpeg DLLs went away while playing) --
++	// fall through to WON/Steam/color in this same frame instead of a blank one
++	Con_Printf( "mainmenu_bg video: DrawMenuBgVideo failed mid-session, falling back\n" );
++	s_bVideoBackgroundActive = false;
++	UpdatePreference();
++	Draw();
++}
++
+ /*
+ =================
+ CMenuBackgroundBitmap::Draw
+@@ -130,7 +149,7 @@ void CMenuBackgroundBitmap::Draw()
+ 		return;
+ 	}
+ 
+-	if( FBitSet( ui_prefer_won_background->flags, FCVAR_CHANGED ))
++	if( FBitSet( ui_prefer_won_background->flags, FCVAR_CHANGED ) || FBitSet( ui_background_video->flags, FCVAR_CHANGED ))
+ 	{
+ 		UpdatePreference();
+ 
+@@ -150,6 +169,8 @@ void CMenuBackgroundBitmap::Draw()
+ 	}
+ 	else if( s_state == DRAW_WON )
+ 		s = s_WONBackground.size;
++	else if( s_state == DRAW_VIDEO )
++		s = s_VideoBackgroundSize;
+ 	else
+ 		s = s_SteamBackgroundImageSize;
+ 
+@@ -208,6 +229,8 @@ void CMenuBackgroundBitmap::Draw()
+ 
+ 	if( s_state == DRAW_WON )
+ 		DrawBackgroundPiece( s_WONBackground, p, xOffset, yOffset, xScale, yScale );
++	else if( s_state == DRAW_VIDEO )
++		DrawVideoBackground( p, xOffset, yOffset, xScale, yScale );
+ 	else
+ 		DrawSteamBackgroundLayout( p, xOffset, yOffset, xScale, yScale );
+ }
+@@ -304,9 +327,34 @@ bool CMenuBackgroundBitmap::LoadWONBackground( bool gamedirOnly )
+ 	return false;
+ }
+ 
++bool CMenuBackgroundBitmap::LoadVideoBackground()
++{
++	if( !ui_background_video->value )
++		return false;
++
++	// ui_background_video_file names the launcher's pick from menu_bg_videos.txt
++	// (h9xash.bat, mirroring how it already picks ts\menu_music.txt); the engine does
++	// its own existence/FFmpeg-availability check and fails this call cleanly, same as
++	// it already does for the WON logo.avi banner
++	if( !EngFuncs::PrecacheMenuBgVideo( ui_background_video_file->string ))
++		return false;
++
++	s_VideoBackgroundSize.w = EngFuncs::GetMenuBgVideoWidth();
++	s_VideoBackgroundSize.h = EngFuncs::GetMenuBgVideoHeight();
++
++	if( s_VideoBackgroundSize.w <= 0 || s_VideoBackgroundSize.h <= 0 )
++		return false;
++
++	return true;
++}
++
+ void CMenuBackgroundBitmap::UpdatePreference()
+ {
+-	if( ui_prefer_won_background->value )
++	if( ui_background_video->value && s_bVideoBackgroundActive )
++	{
++		s_state = DRAW_VIDEO;
++	}
++	else if( ui_prefer_won_background->value )
+ 	{
+ 		if( s_bGameHasWONBackground )
+ 			s_state = DRAW_WON;
+@@ -340,6 +388,7 @@ void CMenuBackgroundBitmap::UpdatePreference()
+ 		s_bEnableLogoMovie = false;
+ 
+ 	ClearBits( ui_prefer_won_background->flags, FCVAR_CHANGED );
++	ClearBits( ui_background_video->flags, FCVAR_CHANGED );
+ }
+ 
+ void CMenuBackgroundBitmap::LoadBackground()
+@@ -347,10 +396,15 @@ void CMenuBackgroundBitmap::LoadBackground()
+ 	s_bEnableLogoMovie = false;
+ 	s_bGameHasSteamBackground = false;
+ 	s_bGameHasWONBackground = false;
++	s_bVideoBackgroundActive = false;
+ 
+ 	if( uiStatic.lowmemory )
+ 		return;
+ 
++	s_bVideoBackgroundActive = LoadVideoBackground();
++	Con_Printf( "mainmenu_bg video: %s (%dx%d)\n", s_bVideoBackgroundActive ? "loaded" : "not available",
++		s_VideoBackgroundSize.w, s_VideoBackgroundSize.h );
++
+ 	if( LoadSteamBackground( true ))
+ 	{
+ 		Con_DPrintf( "%s: found %s background in %s directory\n", __func__, "steam", "game" );
+diff --git a/3rdparty/mainui/controls/BackgroundBitmap.h b/3rdparty/mainui/controls/BackgroundBitmap.h
+index 749845c..ec83f1e 100644
+--- a/3rdparty/mainui/controls/BackgroundBitmap.h
++++ b/3rdparty/mainui/controls/BackgroundBitmap.h
+@@ -50,18 +50,21 @@ private:
+ 		DRAW_COLOR,
+ 		DRAW_WON,
+ 		DRAW_STEAM,
++		DRAW_VIDEO,
+ 	};
+ 
+ 	void DrawBackgroundPiece( const bimage_t &image, Point p, int xOffset, int yOffset, float xScale, float yScale );
+ 	void DrawSteamBackgroundLayout( Point p, int xOffset, int yOffset, float xScale, float yScale );
++	void DrawVideoBackground( Point p, int xOffset, int yOffset, float xScale, float yScale );
+ 	void DrawColor();
+ 	void DrawInGameBackground();
+ 
+ 	static bool LoadSteamBackground( const bool gamedirOnly ); // Steam background loader
+ 	static bool LoadWONBackground( const bool gamedirOnly ); // WON background loader
++	static bool LoadVideoBackground(); // menu background video loader, cvar-gated
+ 	static void UpdatePreference();
+ 
+-	static bool s_bEnableLogoMovie, s_bGameHasSteamBackground, s_bGameHasWONBackground;
++	static bool s_bEnableLogoMovie, s_bGameHasSteamBackground, s_bGameHasWONBackground, s_bVideoBackgroundActive;
+ 
+ 	static bstate_e s_state;
+ 
+@@ -69,6 +72,8 @@ private:
+ 
+ 	static Size s_SteamBackgroundImageSize;
+ 	static CUtlVector<bimage_t> s_SteamBackground;
++
++	static Size s_VideoBackgroundSize;
+ };
+ 
+ #endif // MENU_BACKGROUNDBITMAP_H
+diff --git a/3rdparty/mainui/enginecallback_menu.h b/3rdparty/mainui/enginecallback_menu.h
+index 36326cf..748aaf1 100644
+--- a/3rdparty/mainui/enginecallback_menu.h
++++ b/3rdparty/mainui/enginecallback_menu.h
+@@ -508,6 +508,34 @@ public:
+ 			textfuncs.pfnSetTextInputBuffer( text );
+ 	}
+ 
++	static inline bool PrecacheMenuBgVideo( const char *filename )
++	{
++		if( textfuncs.pfnPrecacheMenuBgVideo )
++			return textfuncs.pfnPrecacheMenuBgVideo( filename ) != 0;
++		return false;
++	}
++
++	static inline bool DrawMenuBgVideo( float x, float y, float w, float h )
++	{
++		if( textfuncs.pfnDrawMenuBgVideo )
++			return textfuncs.pfnDrawMenuBgVideo( x, y, w, h ) != 0;
++		return false;
++	}
++
++	static inline int GetMenuBgVideoWidth( void )
++	{
++		if( textfuncs.pfnGetMenuBgVideoWidth )
++			return textfuncs.pfnGetMenuBgVideoWidth();
++		return 0;
++	}
++
++	static inline int GetMenuBgVideoHeight( void )
++	{
++		if( textfuncs.pfnGetMenuBgVideoHeight )
++			return textfuncs.pfnGetMenuBgVideoHeight();
++		return 0;
++	}
++
+ 	static inline bool GetRenderers( int num, char *sz1, size_t s1, char *sz2, size_t s2 )
+ 	{
+ 		return textfuncs.pfnGetRenderers( num, sz1, s1, sz2, s2 ) != 0;
+diff --git a/3rdparty/mainui/menus/CreateGame.cpp b/3rdparty/mainui/menus/CreateGame.cpp
+index 00deec5..1b467f3 100644
+--- a/3rdparty/mainui/menus/CreateGame.cpp
++++ b/3rdparty/mainui/menus/CreateGame.cpp
+@@ -267,7 +267,7 @@ void CMenuCreateGame::_Init( void )
+ 
+ 		int players = atoi( buf );
+ 		if( players <= 1 )
+-			self->SetBuffer( "16" );
++			self->SetBuffer( "32" );
+ 		else if( players > MAX_CLIENTS )
+ 			self->SetBuffer( MAX_CLIENTS_STRING() );
+ 	});
 diff --git a/3rdparty/mainui/menus/Main.cpp b/3rdparty/mainui/menus/Main.cpp
 index 4d1a382..5c4b5ab 100644
 --- a/3rdparty/mainui/menus/Main.cpp
@@ -160,6 +511,33 @@ index 69dd50a..cc4b1e2 100644
  }
  
  void CMenuVidOptions::_VidInit()
+diff --git a/3rdparty/mainui/sdk_includes/engine/menu_int.h b/3rdparty/mainui/sdk_includes/engine/menu_int.h
+index a83a58a..a7f52b1 100644
+--- a/3rdparty/mainui/sdk_includes/engine/menu_int.h
++++ b/3rdparty/mainui/sdk_includes/engine/menu_int.h
+@@ -201,7 +201,7 @@ typedef struct
+ 	void	(*pfnFinalCredits)( void );	// show credits + game end
+ } UI_FUNCTIONS;
+ 
+-#define MENU_EXTENDED_API_VERSION 1
++#define MENU_EXTENDED_API_VERSION 2
+ 
+ typedef struct ui_extendedfuncs_s {
+ 	// text functions, frozen
+@@ -239,6 +239,13 @@ typedef struct ui_extendedfuncs_s {
+ 	// on the next pfnEnableTextInput( true ), even if text input is enabled already
+ 	// it's used when user activates the text field, for example with gamepad
+ 	void (*pfnSetTextInputBuffer)( const char *text );
++
++	// menu background video (API version 2): a full-screen, cvar-gated, independent
++	// video slot (CIN_MENUBG), separate from the WON-only logo.avi banner
++	int (*pfnPrecacheMenuBgVideo)( const char *filename ); // 0 if missing/corrupt/ffmpeg unavailable
++	int (*pfnDrawMenuBgVideo)( float x, float y, float width, float height ); // 0 if not active this frame
++	int (*pfnGetMenuBgVideoWidth)( void );
++	int (*pfnGetMenuBgVideoHeight)( void );
+ } ui_extendedfuncs_t;
+ 
+ // deprecated export from old engine
 diff --git a/3rdparty/mainui/sdk_includes/public/build.h b/3rdparty/mainui/sdk_includes/public/build.h
 index b92c51e..84d91a5 100644
 --- a/3rdparty/mainui/sdk_includes/public/build.h

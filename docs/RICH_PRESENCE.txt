@@ -1,0 +1,160 @@
+===============================================================================
+ DISCORD RICH PRESENCE: THE CARD, AND HOW TO TURN IT OFF
+===============================================================================
+
+ The engine sends the card itself, so no separate program runs beside the game.
+ It is on by default. With the Discord desktop app open, the card shows in the main menu
+ and while you are in a server.
+
+ To turn it off, put this in config.cfg or userconfig.cfg, or type it in the console:
+
+     ts_richpresence 0
+
+ Set it back to 1 to turn it on again. The setting is saved with your config.
+
+ 1. WHAT THE CARD SHOWS
+ ----------------------
+   HAVOC 9                      the bold header: the name of the Discord application,
+                                registered as HAVOC 9.
+   Insurgents attacking: 2 of 5 objectives
+                                the details line. On a siege map it names the side that
+                                attacks and how many of the siege objectives it has taken.
+                                Any other map reads Match Mode.
+   Alive: MSR 3/4, Insurgents 2/3, 2 bots, h9_te_neuropolis
+                                the state line: how many players each side has alive, out
+                                of its total, then the bots and the map. Alive is counted
+                                the way the round logic counts it. A side's total is every
+                                connected player on that side, bots included.
+   large picture                the map's picture, from section 5. Its hover text is
+                                HAVOC 9: and the map name.
+   small picture                the HAVOC 9 helmet. Its hover text is HAVOC 9.
+   elapsed clock                the time since the card went up.
+   buttons                      "Join the Discord" opens https://discord.gg/b76pqqVsNY.
+                                "havoc9.org" opens https://havoc9.org. Other people see
+                                the buttons; Discord does not show them on your own card.
+                                Discord draws the buttons in its own style, so the game
+                                cannot set their colour. The links are set in
+                                engine\client\cl_presence.c.
+
+ A server that does not publish the alive counts shows the totals instead. A server that
+ does not publish the sides shows the map, the players and the bots.
+
+ In the main menu the card reads "In the main menu" and "Not in a server". Its large
+ picture is the one uploaded under the key h9_menu (section 4). It has the same small
+ picture and buttons as the server card. The elapsed clock starts again when you move
+ between the main menu and a server.
+
+ The card goes away when you quit, or when you set ts_richpresence 0. Nothing shows during
+ a demo, or while the game is connecting to a server.
+
+ 2. WHERE THE VALUES COME FROM
+ -----------------------------
+ The map and the bot count come from the status reply of the server you are connected
+ to, asked for every 15 seconds. The rest comes from server cvars the plugin sets once a
+ second. The server sends them in its serverinfo, and the game reads them there:
+
+   tsm_pres_siege     the siege progress, "2/5": objectives taken, of the total.
+   tsm_pres_attack    the side that attacks the siege objectives, "1" or "2".
+   tsm_pres_side1     the players on side 1, bots included, alive or eliminated.
+   tsm_pres_side2     the players on side 2, bots included, alive or eliminated.
+   tsm_pres_alive1    the players on side 1 that are alive.
+   tsm_pres_alive2    the players on side 2 that are alive.
+
+ Side 1 is MSR, blue. Side 2 is the Insurgents, red. The names are set in
+ engine\client\cl_presence.c.
+
+ 3. HOW THE GAME FINDS DISCORD
+ -----------------------------
+ Nothing needs setting up. The Discord desktop app listens on local pipes named
+ discord-ipc-0 to discord-ipc-9. The game tries those in order and uses the first one
+ that opens. It does not look for the Discord process.
+
+ With Discord closed no pipe opens, so the game sends nothing and plays on as normal.
+ In the main menu, and while you are in a server, it tries again every 30 seconds.
+
+ The game sends Discord the card text, the application ID, the two button links, and the
+ game's process ID. Discord uses the process ID to tie the card to the game, so the card
+ goes when the game closes. The server's address is not sent.
+
+ 4. THE DISCORD APPLICATION (WHOEVER RUNS HAVOC 9)
+ -------------------------------------------------
+ Players need none of this. The application is HAVOC 9 in the Discord developer portal,
+ with Application ID 1562656412834734181. Discord shows the application's name as the
+ card's header, and a card cannot show a different one. The ID is set in
+ engine\client\cl_presence.c as H9P_CLIENT_ID, so every build carries it. If the
+ application is ever made again, put its new ID there and build the engine (xash.bat
+ engine).
+
+ Art assets go up in the portal, under Rich Presence, Art Assets:
+        presence\h9helmet.png             key  h9helmet             small picture
+        presence\maps\<map>.png           key  the map's name        large picture
+        presence\menucard.png             key  h9_menu             large picture, main menu
+ Section 5 says where the map pictures go. Each map needs its own upload before its card
+ shows its picture.
+
+ 5. MAP ICONS
+ ------------
+ The large picture is the map the server is on. The game sends the map's name as the
+ picture key, and Discord shows the uploaded picture with that key. The game never reads
+ the picture files. They are only the source for the upload.
+
+   Where:   presence\maps\ in the TSM folder. The next export copies it to
+            export\presence\maps\.
+   Name:    the map's name, lowercase, exactly as its .bsp file is named, without the
+            .bsp. h9_te_neuropolis.bsp takes presence\maps\h9_te_neuropolis.png.
+   Size:    the same shape and size as presence\maps\h9_te_neuropolis.png, 1024 x 560.
+   Upload:  in the portal, under Rich Presence, Art Assets, with the same name as its
+            key. Each map is uploaded once.
+
+ The maps the game ships are the .bsp files in ts\maps. Each needs its own picture:
+
+   alexandria_msr_b5.bsp            presence\maps\alexandria_msr_b5.png
+   h9_te_neuropolis.bsp             presence\maps\h9_te_neuropolis.png
+   paradisecity_revival_final.bsp   presence\maps\paradisecity_revival_final.png
+   xenoncity_final.bsp              presence\maps\xenoncity_final.png
+   h9_te_meridian.bsp               presence\maps\h9_te_meridian.png
+
+ A map with no upload still shows its name and counts. Discord then fills the large slot with the
+ application icon, so the helmet appears twice: once there, once as the small picture.
+
+ 6. WHAT THE CARD NEEDS
+ ----------------------
+   * The Discord desktop app running on the same PC. The card goes over Discord's local
+     pipe, which the web and mobile apps do not use.
+   * Art keys that match the uploads exactly. A missing key shows no picture, and the
+     text still shows.
+   * A server running a plugin build that publishes the sides. Without it, the state line
+     falls back as section 1 describes.
+
+ 7. NOT DONE YET
+ ---------------
+   * Which side you are on. The card shows both sides' counts, but not yours.
+
+ 8. HOW OFTEN THE CARD UPDATES
+ -----------------------------
+   * The plugin reads the team figures once a second. A change reaches the game as soon
+     as the server sends it, usually within a second.
+   * The game checks the card every frame, but sends a change to Discord at most once
+     every 16 seconds. Each send carries the newest state, so a burst of changes goes out
+     as one update. A change reaches the card within about 17 seconds.
+   * The map and the bot count come from the status query, every 15 seconds. A bot count
+     change can take up to about 30 seconds to show.
+   * The elapsed clock starts when the card goes up. It is not sent again.
+
+ The gap is H9P_SEND_GAP in engine\client\cl_presence.c. Discord's own limit on presence
+ updates was not confirmed while writing this, so the gap is set conservatively.
+
+ 9. CHECKING IT
+ --------------
+   * Start the game with Discord open. The card should read "In the main menu". Joining a
+    server changes it to the server's card, and quitting to the menu changes it back.
+  * Join a server with Discord open. The card should appear shortly after the map loads.
+     On a siege map it names the attacking side.
+   * The state line should change within about 17 seconds as players die, join or leave.
+   * Check the buttons from a second account, since Discord does not show them on your
+     own card.
+   * With Discord closed, nothing shows and nothing is reported. Open Discord while you
+     are in a server and the card appears within about 30 seconds.
+   * Quitting the game, or ts_richpresence 0, clears the card.
+   * If the card shows for you but not for friends, check Discord's activity privacy
+     settings.

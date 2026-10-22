@@ -5,6 +5,18 @@ The filesystem. The webassembly patch's one change here is emscripten-only.
 Upstream: FWGS master e8d773ea. Built: branch h9 at 7129989e. Below is the whole
 source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
 
+Upstream: FWGS master e8d773ea. Built: branch h9 at 7129989e, from the working tree.
+Working tree status for these paths. Anything listed is not committed, and is in the diff:
+Below is the whole source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
+The notes above were written by an earlier build and are kept as they were. The history below is the record
+of each build, read from git when that build was made. The newest block describes the diff at the end.
+== Patch history ==
+Generated Wed 10/21/2026 23:42:18.31, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+Diff sha256 4c19d465814b53a37c26161d488598e91bdb2c3e46e54e7c2f2e41dd5aeba025, the diff below.
+
 diff --git a/filesystem/sys.c b/filesystem/sys.c
 index 712c3e42..b7df0c60 100644
 --- a/filesystem/sys.c

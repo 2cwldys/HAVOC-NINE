@@ -36,6 +36,8 @@ cvar_t		*ui_show_window_stack;
 cvar_t		*ui_borderclip;
 cvar_t		*ui_prefer_won_background;
 cvar_t		*ui_background_stretch;
+cvar_t		*ui_background_video;
+cvar_t		*ui_background_video_file;
 cvar_t		*ui_logohorizontal;
 
 uiStatic_t	uiStatic;
@@ -1202,6 +1204,11 @@ void UI_Init( void )
 	ui_borderclip = EngFuncs::CvarRegister( "ui_borderclip", "0", FCVAR_ARCHIVE );
 	ui_prefer_won_background = EngFuncs::CvarRegister( "ui_prefer_won_background", "0", FCVAR_ARCHIVE );
 	ui_background_stretch = EngFuncs::CvarRegister( "ui_background_stretch", "0", FCVAR_ARCHIVE );
+	ui_background_video = EngFuncs::CvarRegister( "ui_background_video", "1", FCVAR_ARCHIVE );
+	// h9xash.bat picks a random entry from ts\menu_bg_videos.txt on every launch, the same
+	// way it already does for ts\menu_music.txt, and writes its pick here via
+	// menu_bg_video_resolved.cfg (exec'd from userconfig.cfg)
+	ui_background_video_file = EngFuncs::CvarRegister( "ui_background_video_file", "mainmenu_bg.avi", FCVAR_ARCHIVE );
 	ui_logohorizontal = EngFuncs::CvarRegister( "ui_logohorizontal", "0", FCVAR_ARCHIVE );
 
 	// show cl_predict dialog
