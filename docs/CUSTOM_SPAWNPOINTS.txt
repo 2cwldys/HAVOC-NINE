@@ -1,0 +1,254 @@
+===============================================================================
+ CUSTOM SPAWN POINTS
+===============================================================================
+
+ Where each team's players are placed: at the start of a round, and when a
+ respawn wave brings a dead player back.
+
+ Part 1 is the system that was there first. Part 2 adds forward tiers on top
+ of it.
+
+   PART 1   THE LEGACY SYSTEM          one list of spawn points per team
+   PART 2   FORWARD TIERS              the same lists, with some points held
+                                       back until an objective falls
+   PART 3   CHANGING EXISTING SPAWNS   moving points onto a tier
+   PART 4   TROUBLESHOOTING
+
+ A point with no tier is tier 0. Every spawn file that exists now still loads,
+ and every point in it is tier 0, so nothing changes until a point is given a
+ tier.
+
+ The command arguments are in COMMANDS.txt, under SPAWN POINTS. This file is
+ about how the pieces fit together.
+
+===============================================================================
+ PART 1   THE LEGACY SYSTEM
+===============================================================================
+
+ 1.1  WHERE THE SPAWNS COME FROM
+
+ tsm_spawn_mode (default "auto") picks the source:
+
+   auto     The per-map file, if it holds any spawns. Otherwise the map's own
+            spawn entities, split into two teams (1.5).
+   config   The per-map file only. With no file the plugin logs that spawns
+            need placing, and moves nobody: players stay where TS put them.
+   entity   Ignore the per-map file. Always use the map's own spawn entities.
+
+ The map's own spawn entities are info_player_deathmatch and info_player_start.
+ The log line at map load gives the counts:
+   [TSM] Spawns: info_player_deathmatch=N info_player_start=N total=N
+
+ The per-map file is read once, when the map loads.
+
+ 1.2  THE PER-MAP FILE
+
+ Path, on the server:
+   addons/amxmodx/configs/tsm_spawns_<mapname>.cfg
+ for example tsm_spawns_h9_te_neuropolis.cfg.
+
+ One line per point:
+   tsm_spawn <team 1|2> <x> <y> <z> <pitch> <yaw> [tier]
+
+ Two points from h9_te_neuropolis:
+   tsm_spawn 1 -843.25 -873.73 36.03 1.08 -0.45
+   tsm_spawn 2 3881.08 911.93 36.03 7.52 -179.70
+
+   team      1 or 2.
+   x y z     where the player's feet go.
+   pitch     up and down, in degrees.
+   yaw       left and right, in degrees.
+   tier      optional. Missing means 0: the team's normal spawns.
+
+ Pitch and yaw are optional. A point loaded from the file is always placed
+ with its stored facing, so a line without them faces 0 0. Give both.
+
+ The file runs as server commands. Keep it to tsm_spawn lines and // comments.
+
+ 1.3  PRUNING MAP SPAWNS
+
+ A custom point within tsm_spawn_prune_dist units (default 64) of one of the
+ map's own spawn entities is a copy of that map spawn, and it puts both teams
+ on one spot. With tsm_spawn_prune 1 (the default), such points are dropped
+ when the file loads, and the log says so:
+   [TSM] Pruned team 2 spawn #5 at ... -- one of the map's own spawn points.
+
+ tsm_spawn_prune 0 keeps them on load.
+ tsm_spawn_prune_dist 0 switches the whole check off: loading, adding and
+ saving. Only then can a point sit on a map spawn.
+
+ 1.4  THE ADMIN COMMANDS
+
+ All of these are ADMIN_CFG. None writes anything by itself: they change the
+ running set, and amx_tsm_spawn_save writes it to the file.
+
+   amx_tsm_spawn_add <1|2> [tier]
+       Records the spot you stand on, with the way you look, for that team.
+       Refused while you stand on a map spawn.
+
+   amx_tsm_spawn_del <1|2> <n>
+       Removes point n of that team.
+
+   amx_tsm_spawn_clear <1|2|0> [tier]
+       Clears a team (0 = both). With a tier, only that tier's points go.
+
+   amx_tsm_spawn_list
+       Prints every point: team, number, position, yaw and tier.
+
+   amx_tsm_spawn_tp <1|2> <n>
+       Teleports you to point n, to check it. You must be alive.
+
+   amx_tsm_spawn_save
+       Rewrites the per-map file from the running set. Every point is written
+       with its pitch, yaw and tier (0 included), except points that sit on a
+       map spawn.
+
+ Point numbers are per team, in list order. They move down after a delete or
+ a clear, so run amx_tsm_spawn_list before using one.
+
+ 1.5  HOW A SPAWN IS PICKED
+
+ When a player is placed, the plugin picks a point for their team:
+
+   1. a random point from the team's list
+   2. if the team has none, a random point from the other team's list
+   3. if there are no custom points at all, a random map spawn entity
+   4. otherwise the plugin does not move the player
+
+ A point from the file is placed with its stored facing. A map spawn entity has
+ no stored facing, so the player keeps the facing TS gives them.
+
+ With no file, in auto mode, the map's spawn entities are split into two
+ teams. The two spawns furthest apart become anchors, and every spawn goes to
+ the nearer anchor. With fewer than two spawns, both teams share them. That is
+ a guess, because TS maps were not built for two teams. A file is better.
+
+===============================================================================
+ PART 2   FORWARD TIERS
+===============================================================================
+
+ 2.1  THE IDEA
+
+ A point has a tier from 0 to 9. Tier 0 is the normal spawn. A point of tier N
+ is a forward spawn: respawns use it once objective N has fallen.
+
+ Objectives fall in order, so "objective N has fallen" means at least N of
+ them have fallen this round. A tier above the map's objective count is never
+ reached.
+
+ 2.2  THE RULES
+
+   - A respawn lands on the highest tier that is unlocked AND has a point for
+     that team. Tier 2 beats tier 1, and tier 1 beats tier 0.
+   - Once a forward tier is in use, the team's tier 0 points are off until the
+     round ends. Forward points replace the defaults; they do not join them.
+   - A tier that is not unlocked is never used. Nobody respawns forward early.
+   - FORWARD POINTS ARE FOR RESPAWNS ONLY. A living player is never moved to a
+     forward point. An objective falling moves nobody; it only changes where
+     the next respawn lands.
+   - A team with no points at its active tier takes a point from the other
+     team's tier 0. So keep tier 0 points for each team (Part 3).
+   - If that is empty too, the map's spawn entities are used. If there are
+     none, the plugin does not move the player.
+   - Every round starts on tier 0, because the round start puts the objectives
+     back.
+   - A wave spreads its players out. Each one takes the next point of the
+     active tier in list order, starting from a random point.
+
+ 2.3  THE FILE AND THE COMMANDS
+
+ The tier is the optional last number on a tsm_spawn line:
+   tsm_spawn 2 3565.62 980.10 36.03 7.52 -179.70 1
+ A line without it is tier 0.
+
+   amx_tsm_spawn_add <1|2> [tier]      records a point on that tier
+   amx_tsm_spawn_clear <1|2|0> [tier]  clears that tier's points
+   amx_tsm_spawn_list                  shows each point's tier, at the end
+
+ amx_tsm_spawn_add refuses a tier outside 0 to 9.
+
+ 2.4  TESTING A TIER SET
+
+ 1. amx_tsm_spawn_list: every point shows the tier you meant.
+ 2. In a live round, amx_tsm_obj reset puts the objectives back. Respawns
+    land on tier 0 again.
+ 3. amx_tsm_obj 1: one objective has fallen. Eliminate a player who still has
+    lives (Assault has two) with amx_tsm_simelim [target], then bring the
+    waiting players back with amx_tsm_wave. The respawn should land on a
+    tier 1 point, if their team has one.
+ 4. amx_tsm_obj 2, with tier 2 points in place: tier 2 replaces tier 1.
+ 5. amx_tsm_obj reset when you are done.
+
+===============================================================================
+ PART 3   CHANGING EXISTING SPAWNS TO TIERS
+===============================================================================
+
+ Every point in an existing file is tier 0, and stays that way until you
+ change it. Two rules before you start:
+
+   - Keep at least one tier 0 point for each team. Without one, that team
+     respawns on the other team's defaults until its first objective falls.
+   - Keep tiers between 0 and 9.
+
+ 3.1  IN GAME (the usual way, with no file editing)
+
+   1. amx_tsm_spawn_list
+        note the number n of the point to move
+   2. amx_tsm_spawn_tp <team> <n>
+        stand on it (you must be alive)
+   3. turn to the yaw that amx_tsm_spawn_list shows for that point
+   4. amx_tsm_spawn_add <team> <tier>
+        the new point goes to the end of the team's list
+   5. amx_tsm_spawn_del <team> <n>
+        removes the old point; the new one was added last, so n is still it
+   6. amx_tsm_spawn_list
+        check the tiers
+   7. amx_tsm_spawn_save
+        write the file
+
+ To move a whole forward set, clear that tier and add the points again:
+   amx_tsm_spawn_clear <team> <tier>
+ With a tier, only that tier's points go. Without one, every tier of that
+ team goes, tier 0 included.
+
+ 3.2  BY HAND, IN THE FILE
+
+ Put the tier after the yaw on the line:
+   before:  tsm_spawn 2 3565.62 980.10 36.03 7.52 -179.70
+   after:   tsm_spawn 2 3565.62 980.10 36.03 7.52 -179.70 1
+
+ The file is read when the map loads, so change map (or amx_map the same map)
+ for the edit to take effect.
+
+ Do not run amx_tsm_spawn_save between the edit and that map change. Save
+ writes the running set over the file, and the edit is lost.
+
+===============================================================================
+ PART 4   TROUBLESHOOTING
+===============================================================================
+
+ "Refused: you are standing on one of the map's own spawn points."
+     Move off the spot. Part 1.3 covers the check.
+
+ [TSM] Pruned team N spawn #n ... in the log
+     The file had a point on a map spawn, so it was dropped on load. Save the
+     file to make that stick.
+
+ Players are not moved at all
+     tsm_spawn_mode is config and the map has no file.
+
+ A point faces the wrong way
+     A line without pitch and yaw faces 0 0. Add them (1.2).
+
+ A tier never comes into use
+     It is above the map's objective count, or no point of that team has that
+     tier.
+
+ Respawns land on the other team's defaults
+     The team has no point at the tier it is using, which usually means it has
+     no tier 0 points. With tsm_logging 1 the log says "borrowed the other
+     side's defaults".
+
+ Hand edits to the file disappeared
+     amx_tsm_spawn_save wrote the running set over them. Reload the map before
+     saving (3.2).

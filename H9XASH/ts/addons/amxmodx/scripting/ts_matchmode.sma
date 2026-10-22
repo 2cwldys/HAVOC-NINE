@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes23"
+#define TSM_BUILD "1.53-fixes25"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -129,6 +129,8 @@ stock icon_frame_for(ci, team)
  *   0 DEAD_NO   1 DEAD_DYING   2 DEAD_DEAD   3 DEAD_RESPAWNABLE   4 DEAD_DISCARDBODY
  */
 #define TSM_DEAD_NO 0
+#define TSM_DEAD_DYING 1
+#define TSM_DEAD_DEAD 2
 
 /* ---- match states ------------------------------------------------------- */
 #define ST_WARMUP    0
@@ -315,6 +317,9 @@ stock icon_frame_for(ci, team)
 
 // The MSR badum's one server-wide tick: same 5.0s timing as the roar (1.0s anthem + 4s).
 #define TSM_TASK_BADUM       90216
+#define TSM_TASK_WAVE        90217   // respawn wave clock: one tick a second while live
+#define TSM_REVIVE_HOLD      15.0    // longest a wave waits for TS to finish a death before it revives anyway
+#define TSM_TASK_REVIVE      16000   // one pending revive per player: 16000 + id
 
 // Forward declarations for functions used before definition
 forward disband_squad(leader);
@@ -541,6 +546,8 @@ new Float:g_spawn_t1[64][3];
 new g_spawn_t1_count = 0;
 new Float:g_spawn_t2[64][3];
 new g_spawn_t2_count = 0;
+new g_spawn_t1_tier[64];                       // forward tier of each point; 0 is the team default set
+new g_spawn_t2_tier[64];
 
 new g_cv_enabled, g_cv_rounds, g_cv_freeze, g_cv_roundtime, g_cv_minteam;
 new g_cv_disarm, g_cv_report, g_cv_reporthp, g_cv_health;
@@ -876,6 +883,15 @@ new g_bot_class_rr = 0;  // round-robin cursor for spreading bots across classes
 new g_map_items[128];
 new g_map_item_count = 0;
 new g_arm_pending[MAXPL];
+// ---- lives and respawn waves (lives_on_death, fire_wave, revive_player) ----
+new g_class_lives[TSM_MAXCLASS];       // lives per class from tsm_class_lives; 1 unless listed
+new g_lives_left[MAXPL];               // lives left this round, the one being played included
+new bool:g_revive_pending[MAXPL];      // eliminated with lives left: waiting for a wave
+new Float:g_died_at[MAXPL];            // when the pending death happened
+new Float:g_wave_left[3];              // seconds to each team's next wave, indexed 1 and 2
+new Float:g_reinforce_next[MAXPL];     // the Officer's .reinforce cooldown
+new g_revive_slot[MAXPL];             // where in the team's points this player is put on a wave
+new g_cv_respawns, g_cv_respwave, g_cv_respsecs, g_cv_respsudden, g_cv_reinforce, g_cv_classlives;
 new bool:g_armed[MAXPL];      // true once task_arm_respawn has finished this player's loadout
 new g_next[33];               // per walker: which mech step of the pair plays next
 new Float:g_next_step_time[33]; // rate-limit for local player footstep detection
@@ -1024,6 +1040,8 @@ dbg(const fmt[], any:...)
 #define TSM_PLANT_Y   0.47    // the planter's own progress bar shares that empty band
 #define TSM_PLANT_WAV   "get_satchel.wav"   // the engine's own satchel-reach clack, valve dir fallback
 #define TSM_PLANT_DONE  "plant.wav"         // the one the server ships in ts\sound -- rings once on success
+#define TSM_WAITLIST_X  0.74    // the Officer's waiting list: right side, clear of the centre HUD
+#define TSM_WAITLIST_Y  0.26    // top of the waiting list: under the wave clock (0.12)
 
 new g_cv_alarm, g_cv_alarmvol, g_cv_alarmmsg, g_cv_alarmmsgatk;
 // The siren's measured seconds; 0.0 means no wav behind the name, text only. One
@@ -2190,6 +2208,7 @@ load_classes()
 	}
 
 	load_class_limits();
+	load_class_lives();
 }
 
 /*
@@ -2805,12 +2824,13 @@ show_class_menu(id)
 	for (new i = 0; i < g_class_count && i < 10; i++)
 	{
 		new key = (i == 9) ? 0 : i + 1;
+		new lv = get_pcvar_num(g_cv_respawns) ? g_class_lives[i] : 1;
 		keys |= (1 << i);
 
 		if (!g_class_limit[i])
 		{
-			len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp]\y^n",
-				key, g_class_name[i], g_class_hp[i]);
+			len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp, %d %s]\y^n",
+				key, g_class_name[i], g_class_hp[i], lv, (lv == 1) ? "life" : "lives");
 		}
 		else
 		{
@@ -2828,13 +2848,13 @@ show_class_menu(id)
 			{
 				// Still listed, and still pressable: pick_class() says no and says why. Hiding it
 				// would leave the numbers beside the other classes meaning nothing.
-				len += formatex(text[len], charsmax(text) - len, "\d%d. %s  [%d hp]  (full)\y^n",
-					key, g_class_name[i], g_class_hp[i]);
+				len += formatex(text[len], charsmax(text) - len, "\d%d. %s  [%d hp, %d %s]  (full)\y^n",
+					key, g_class_name[i], g_class_hp[i], lv, (lv == 1) ? "life" : "lives");
 			}
 			else
 			{
-				len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp]  \y(%d left)^n",
-					key, g_class_name[i], g_class_hp[i], free);
+				len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp, %d %s]  \y(%d left)^n",
+					key, g_class_name[i], g_class_hp[i], lv, (lv == 1) ? "life" : "lives", free);
 			}
 		}
 	}
@@ -3958,6 +3978,13 @@ public plugin_init()
 	g_cv_scanradius = register_cvar("tsm_scan_radius",    "1024");
 	g_cv_scancool   = register_cvar("tsm_scan_cooldown",  "30.0");
 	g_cv_scantime   = register_cvar("tsm_scan_time",      "10.0");
+	// ---- respawn waves and lives ----
+	g_cv_respawns   = register_cvar("tsm_respawns",           "1");       // 0: no waves at all, one life each
+	g_cv_respwave   = register_cvar("tsm_respawn_wave",       "60.0");    // seconds between a team's waves
+	g_cv_respsecs   = register_cvar("tsm_respawn_seconds",    "5.0");     // dead this long before a wave takes you
+	g_cv_respsudden = register_cvar("tsm_respawn_sudden",     "0");       // 1: waves still run in sudden death
+	g_cv_reinforce  = register_cvar("tsm_reinforce_cooldown", "120.0");   // the Officer's .reinforce cooldown
+	g_cv_classlives = register_cvar("tsm_class_lives",        "");        // lives per class, in class order
 
 	/*
 	 * Remove TS's powerups from match play.
@@ -4579,6 +4606,7 @@ public plugin_init()
 
 	// Solo testing without a second player.
 	register_concmd("amx_tsm_simwin",      "cmd_simwin",      ADMIN_CFG, " <1|2> - award the current round to a team");
+	register_concmd("amx_tsm_wave",         "cmd_wave",        ADMIN_CFG, " [1|2] - force a respawn wave now (both teams without a number)");
 	register_concmd("amx_tsm_obj",         "cmd_obj",         ADMIN_CFG, " [reset|<n>] - the map's siege objectives: what has fallen; put them back, or say how many have fallen");
 	register_concmd("amx_tsm_simelim",     "cmd_simelim",     ADMIN_CFG, " [target] - eliminate a player as if they were killed");
 	register_concmd("tsm_opendoor",        "cmd_opendoor",    ADMIN_CFG, " - force open the door you are aiming at, locked or not");
@@ -5486,8 +5514,10 @@ partition_spawns()
 		for (new i = 0; i < g_spawn_count; i++)
 		{
 			copy_vec(g_spawn_t1[g_spawn_t1_count], g_spawns[i]);
+			g_spawn_t1_tier[g_spawn_t1_count] = 0;
 			g_spawn_t1_count++;
 			copy_vec(g_spawn_t2[g_spawn_t2_count], g_spawns[i]);
+			g_spawn_t2_tier[g_spawn_t2_count] = 0;
 			g_spawn_t2_count++;
 		}
 		tlog("[TSM] Only %d spawn(s) -- teams share them.", g_spawn_count);
@@ -5520,6 +5550,7 @@ partition_spawns()
 			if (g_spawn_t1_count < sizeof(g_spawn_t1))
 			{
 				copy_vec(g_spawn_t1[g_spawn_t1_count], g_spawns[k]);
+				g_spawn_t1_tier[g_spawn_t1_count] = 0;
 				g_spawn_t1_count++;
 			}
 		}
@@ -5528,6 +5559,7 @@ partition_spawns()
 			if (g_spawn_t2_count < sizeof(g_spawn_t2))
 			{
 				copy_vec(g_spawn_t2[g_spawn_t2_count], g_spawns[k]);
+				g_spawn_t2_tier[g_spawn_t2_count] = 0;
 				g_spawn_t2_count++;
 			}
 		}
@@ -6080,17 +6112,19 @@ public cmd_shuffle(id, level, cid)
 
 /* ---- configured spawn points -------------------------------------------- */
 
-add_cfg_spawn(team, const Float:org[3], const Float:ang[3])
+add_cfg_spawn(team, const Float:org[3], const Float:ang[3], tier = 0)
 {
 	if (team == 1 && g_spawn_t1_count < sizeof(g_spawn_t1))
 	{
 		copy_vec(g_spawn_t1[g_spawn_t1_count], org);
+		g_spawn_t1_tier[g_spawn_t1_count] = tier;
 		copy_vec(g_ang_t1[g_spawn_t1_count], ang);
 		g_spawn_t1_count++;
 	}
 	else if (team == 2 && g_spawn_t2_count < sizeof(g_spawn_t2))
 	{
 		copy_vec(g_spawn_t2[g_spawn_t2_count], org);
+		g_spawn_t2_tier[g_spawn_t2_count] = tier;
 		copy_vec(g_ang_t2[g_spawn_t2_count], ang);
 		g_spawn_t2_count++;
 	}
@@ -6148,13 +6182,20 @@ public srv_spawn()
 		ang[1] = str_to_float(a);
 	}
 
+	new tier = 0;
+	if (read_argc() > 7)
+	{
+		read_argv(7, a, charsmax(a));
+		tier = str_to_num(a);
+	}
+
 	if (team < 1 || team > 2)
 	{
 		server_print("[TSM] tsm_spawn: team must be 1 or 2, got %d", team);
 		return PLUGIN_HANDLED;
 	}
 
-	if (!add_cfg_spawn(team, org, ang))
+	if (!add_cfg_spawn(team, org, ang, tier))
 	{
 		server_print("[TSM] tsm_spawn: team %d spawn list is full", team);
 	}
@@ -6266,11 +6307,13 @@ prune_map_spawns()
 				{
 					copy_vec(g_spawn_t1[k], g_spawn_t1[k + 1]);
 					copy_vec(g_ang_t1[k], g_ang_t1[k + 1]);
+					g_spawn_t1_tier[k] = g_spawn_t1_tier[k + 1];
 				}
 				else
 				{
 					copy_vec(g_spawn_t2[k], g_spawn_t2[k + 1]);
 					copy_vec(g_ang_t2[k], g_ang_t2[k + 1]);
+					g_spawn_t2_tier[k] = g_spawn_t2_tier[k + 1];
 				}
 			}
 
@@ -6340,7 +6383,20 @@ public cmd_spawn_add(id, level, cid)
 		return PLUGIN_HANDLED;
 	}
 
-	if (!add_cfg_spawn(team, org, ang))
+	new tier = 0;
+	if (read_argc() > 2)
+	{
+		new ta[8];
+		read_argv(2, ta, charsmax(ta));
+		tier = str_to_num(ta);
+	}
+	if (tier < 0 || tier > TSM_OBJ_MAX)
+	{
+		console_print(id, "[TSM] A tier is 0 (the defaults) to %d.", TSM_OBJ_MAX);
+		return PLUGIN_HANDLED;
+	}
+
+	if (!add_cfg_spawn(team, org, ang, tier))
 	{
 		console_print(id, "[TSM] Team %d spawn list is full.", team);
 		return PLUGIN_HANDLED;
@@ -6390,11 +6446,13 @@ public cmd_spawn_del(id, level, cid)
 		{
 			copy_vec(g_spawn_t1[i], g_spawn_t1[i + 1]);
 			copy_vec(g_ang_t1[i], g_ang_t1[i + 1]);
+			g_spawn_t1_tier[i] = g_spawn_t1_tier[i + 1];
 		}
 		else
 		{
 			copy_vec(g_spawn_t2[i], g_spawn_t2[i + 1]);
 			copy_vec(g_ang_t2[i], g_ang_t2[i + 1]);
+			g_spawn_t2_tier[i] = g_spawn_t2_tier[i + 1];
 		}
 	}
 
@@ -6413,6 +6471,43 @@ public cmd_spawn_del(id, level, cid)
 	return PLUGIN_HANDLED;
 }
 
+/// Removes one forward tier's points from a team's list, keeping the rest in order.
+drop_tier(team, tier)
+{
+	if (team == 1)
+	{
+		new n = 0;
+		for (new i = 0; i < g_spawn_t1_count; i++)
+		{
+			if (g_spawn_t1_tier[i] == tier)
+			{
+				continue;
+			}
+			copy_vec(g_spawn_t1[n], g_spawn_t1[i]);
+			copy_vec(g_ang_t1[n], g_ang_t1[i]);
+			g_spawn_t1_tier[n] = g_spawn_t1_tier[i];
+			n++;
+		}
+		g_spawn_t1_count = n;
+	}
+	else
+	{
+		new n = 0;
+		for (new i = 0; i < g_spawn_t2_count; i++)
+		{
+			if (g_spawn_t2_tier[i] == tier)
+			{
+				continue;
+			}
+			copy_vec(g_spawn_t2[n], g_spawn_t2[i]);
+			copy_vec(g_ang_t2[n], g_ang_t2[i]);
+			g_spawn_t2_tier[n] = g_spawn_t2_tier[i];
+			n++;
+		}
+		g_spawn_t2_count = n;
+	}
+	g_cfg_spawns = g_spawn_t1_count + g_spawn_t2_count;
+}
 public cmd_spawn_clear(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 1))
@@ -6424,13 +6519,34 @@ public cmd_spawn_clear(id, level, cid)
 	read_argv(1, a, charsmax(a));
 	new team = str_to_num(a);
 
-	if (team != 2)
+	new tierarg[8], drop = -1;
+	if (read_argc() > 2)
 	{
-		g_spawn_t1_count = 0;
+		read_argv(2, tierarg, charsmax(tierarg));
+		drop = str_to_num(tierarg);
 	}
-	if (team != 1)
+
+	if (drop >= 0)
 	{
-		g_spawn_t2_count = 0;
+		if (team != 2)
+		{
+			drop_tier(1, drop);
+		}
+		if (team != 1)
+		{
+			drop_tier(2, drop);
+		}
+	}
+	else
+	{
+		if (team != 2)
+		{
+			g_spawn_t1_count = 0;
+		}
+		if (team != 1)
+		{
+			g_spawn_t2_count = 0;
+		}
 	}
 
 	g_cfg_spawns = g_spawn_t1_count + g_spawn_t2_count;
@@ -6457,13 +6573,13 @@ public cmd_spawn_list(id, level, cid)
 
 	for (new i = 0; i < g_spawn_t1_count; i++)
 	{
-		console_print(id, "  T1 #%d  %.0f %.0f %.0f  yaw %.0f",
-			i + 1, g_spawn_t1[i][0], g_spawn_t1[i][1], g_spawn_t1[i][2], g_ang_t1[i][1]);
+		console_print(id, "  T1 #%d  %.0f %.0f %.0f  yaw %.0f  tier %d",
+			i + 1, g_spawn_t1[i][0], g_spawn_t1[i][1], g_spawn_t1[i][2], g_ang_t1[i][1], g_spawn_t1_tier[i]);
 	}
 	for (new i = 0; i < g_spawn_t2_count; i++)
 	{
-		console_print(id, "  T2 #%d  %.0f %.0f %.0f  yaw %.0f",
-			i + 1, g_spawn_t2[i][0], g_spawn_t2[i][1], g_spawn_t2[i][2], g_ang_t2[i][1]);
+		console_print(id, "  T2 #%d  %.0f %.0f %.0f  yaw %.0f  tier %d",
+			i + 1, g_spawn_t2[i][0], g_spawn_t2[i][1], g_spawn_t2[i][2], g_ang_t2[i][1], g_spawn_t2_tier[i]);
 	}
 	return PLUGIN_HANDLED;
 }
@@ -6486,7 +6602,7 @@ public cmd_spawn_save(id, level, cid)
 	new line[160];
 	formatex(line, charsmax(line), "// ts_matchmode spawn points for %s -- written by amx_tsm_spawn_save", g_mapname);
 	write_file(path, line);
-	write_file(path, "// tsm_spawn <team> <x> <y> <z> <pitch> <yaw>");
+	write_file(path, "// tsm_spawn <team> <x> <y> <z> <pitch> <yaw> <tier>");
 
 	/*
 	 * The map's own spawn points are NOT written out.
@@ -6509,8 +6625,8 @@ public cmd_spawn_save(id, level, cid)
 			skipped++;
 			continue;
 		}
-		formatex(line, charsmax(line), "tsm_spawn 1 %.2f %.2f %.2f %.2f %.2f",
-			g_spawn_t1[i][0], g_spawn_t1[i][1], g_spawn_t1[i][2], g_ang_t1[i][0], g_ang_t1[i][1]);
+		formatex(line, charsmax(line), "tsm_spawn 1 %.2f %.2f %.2f %.2f %.2f %d",
+			g_spawn_t1[i][0], g_spawn_t1[i][1], g_spawn_t1[i][2], g_ang_t1[i][0], g_ang_t1[i][1], g_spawn_t1_tier[i]);
 		write_file(path, line);
 		written++;
 	}
@@ -6521,8 +6637,8 @@ public cmd_spawn_save(id, level, cid)
 			skipped++;
 			continue;
 		}
-		formatex(line, charsmax(line), "tsm_spawn 2 %.2f %.2f %.2f %.2f %.2f",
-			g_spawn_t2[i][0], g_spawn_t2[i][1], g_spawn_t2[i][2], g_ang_t2[i][0], g_ang_t2[i][1]);
+		formatex(line, charsmax(line), "tsm_spawn 2 %.2f %.2f %.2f %.2f %.2f %d",
+			g_spawn_t2[i][0], g_spawn_t2[i][1], g_spawn_t2[i][2], g_ang_t2[i][0], g_ang_t2[i][1], g_spawn_t2_tier[i]);
 		write_file(path, line);
 		written++;
 	}
@@ -7565,6 +7681,7 @@ public cmd_simelim(id, level, cid)
 	// to hear what the model-name rules picked.
 	death_voice(target);
 	remove_from_play(target);
+	lives_on_death(target);
 	check_round_end();
 	console_print(id, "[TSM] Eliminated %N.", target);
 	return PLUGIN_HANDLED;
@@ -12790,6 +12907,528 @@ cache_teams()
 	}
 }
 
+// ---- lives and respawn waves ------------------------------------------------
+// A death is still an elimination: voice, kill report and ghost are the usual ones.
+// With lives left the player waits for their team's next wave, and a wave brings them
+// back with the full loadout at one of their team's spawns. Running out of lives is the
+// ordinary elimination.
+
+/// Lives a player starts each round with: the class's tsm_class_lives entry, or 1 when
+/// tsm_respawns is 0 or the class has no entry.
+lives_for(id)
+{
+	if (!get_pcvar_num(g_cv_respawns))
+	{
+		return 1;
+	}
+	new ci = resolved_class(id) - 1;
+	if (ci < 0 || ci >= TSM_MAXCLASS || g_class_lives[ci] < 1)
+	{
+		return 1;
+	}
+	return g_class_lives[ci];
+}
+
+/// tsm_class_lives, read in class order like tsm_class_limits. Unlisted classes keep 1.
+load_class_lives()
+{
+	for (new i = 0; i < TSM_MAXCLASS; i++)
+	{
+		g_class_lives[i] = 1;
+	}
+
+	new spec[128];
+	get_pcvar_string(g_cv_classlives, spec, charsmax(spec));
+	if (!spec[0])
+	{
+		return;
+	}
+
+	new rest[128], field[16], carry[128], idx = 0;
+	copy(rest, charsmax(rest), spec);
+	while (rest[0] && idx < TSM_MAXCLASS)
+	{
+		strtok(rest, field, charsmax(field), carry, charsmax(carry), ',', 1);
+		trim(field);
+		new v = str_to_num(field);
+		g_class_lives[idx] = (v < 1) ? 1 : v;
+		idx++;
+		copy(rest, charsmax(rest), carry);
+	}
+
+	for (new i = 0; i < g_class_count; i++)
+	{
+		tlog("[TSM] Lives: %s, %d.", g_class_name[i], g_class_lives[i]);
+	}
+}
+
+/// Does this player's class carry the Officer's wave call?
+bool:class_is_officer(id)
+{
+	new ci = resolved_class(id) - 1;
+	return (ci >= 0 && ci < g_class_count && g_class_perk[ci] == TSM_PERK_OFFICER);
+}
+
+/// How many players on the team are waiting for a wave.
+count_waiting(team)
+{
+	new n = 0;
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if (g_revive_pending[id] && g_match_team[id] == team)
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/// Starts a round's lives: every player gets their class's lives, and each team's wave
+/// clock starts from tsm_respawn_wave. The clock runs only while tsm_respawns is 1.
+start_wave_clocks()
+{
+	remove_task(TSM_TASK_WAVE);
+
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		g_lives_left[id] = lives_for(id);
+		g_revive_pending[id] = false;
+		remove_task(TSM_TASK_REVIVE + id);
+	}
+
+	g_wave_left[1] = get_pcvar_float(g_cv_respwave);
+	g_wave_left[2] = get_pcvar_float(g_cv_respwave);
+	if (get_pcvar_num(g_cv_respawns))
+	{
+		set_task(1.0, "task_wave_tick", TSM_TASK_WAVE, "", 0, "b");
+	}
+}
+
+/// Clears every life and every waiting player and stops the wave clock. Called at the start
+/// and the end of each round, so nothing carries over.
+lives_reset_round()
+{
+	remove_task(TSM_TASK_WAVE);
+
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		g_lives_left[id] = 0;
+		g_revive_pending[id] = false;
+		g_reinforce_next[id] = 0.0;
+		remove_task(TSM_TASK_REVIVE + id);
+	}
+
+	g_wave_left[1] = 0.0;
+	g_wave_left[2] = 0.0;
+}
+
+/// Waves were switched off in a live round (tsm_respawns 0). Nobody waiting can come back now,
+/// so every waiting player stays eliminated and the round can end.
+respawns_off_cut()
+{
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if (g_revive_pending[id])
+		{
+			g_revive_pending[id] = false;
+			remove_task(TSM_TASK_REVIVE + id);
+		}
+	}
+	check_round_end();
+}
+
+/// Sudden death with tsm_respawn_sudden 0: nobody waiting comes back. Every waiting player
+/// stays eliminated, and the round can end.
+respawn_sudden_cut()
+{
+	if (get_pcvar_num(g_cv_respsudden))
+	{
+		return;
+	}
+
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		g_revive_pending[id] = false;
+		remove_task(TSM_TASK_REVIVE + id);
+	}
+	remove_task(TSM_TASK_WAVE);
+	check_round_end();
+}
+
+/// A death with lives left: spend one and wait for the next wave. The last life's death is
+/// final, exactly as an elimination always was.
+lives_on_death(victim)
+{
+	if (!get_pcvar_num(g_cv_respawns) || g_state != ST_LIVE)
+	{
+		return;
+	}
+	if (g_lives_left[victim] <= 0)
+	{
+		return;
+	}
+
+	g_lives_left[victim]--;
+	if (g_lives_left[victim] <= 0)
+	{
+		g_revive_pending[victim] = false;
+		return;
+	}
+
+	g_revive_pending[victim] = true;
+	g_died_at[victim] = get_gametime();
+	client_print(victim, print_chat, "[MATCH] %d %s left -- back in the next wave.",
+		g_lives_left[victim], (g_lives_left[victim] == 1) ? "life" : "lives");
+	dbg("lives: %d down, %d left, waiting for team %d", victim, g_lives_left[victim], g_match_team[victim]);
+}
+
+/// Brings the team's waiting players back in one wave. A forced wave (the Officer's call,
+/// amx_tsm_wave) takes everyone waiting. A natural wave takes only players dead for at least
+/// tsm_respawn_seconds, so a death just before a wave waits for the next one.
+fire_wave(team, bool:forced)
+{
+	if (!get_pcvar_num(g_cv_respawns) || g_state != ST_LIVE)
+	{
+		return 0;
+	}
+	if (g_sudden && !get_pcvar_num(g_cv_respsudden))
+	{
+		return 0;
+	}
+
+	new Float:now = get_gametime();
+	new Float:minwait = get_pcvar_float(g_cv_respsecs);
+	new offset = random_num(0, 7);   // where this wave starts along the team's points
+	new players[32], pnum, id, n = 0;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if (!g_revive_pending[id] || g_match_team[id] != team)
+		{
+			continue;
+		}
+		if (!forced && (now - g_died_at[id]) < minwait)
+		{
+			continue;
+		}
+
+		remove_task(TSM_TASK_REVIVE + id);
+		g_revive_slot[id] = offset + n;
+		set_task(0.1 + ARM_STAGGER * float(n), "task_revive", TSM_TASK_REVIVE + id);
+		n++;
+	}
+
+	dbg("wave: team %d, %d revive(s), forced %d", team, n, forced ? 1 : 0);
+	return n;
+}
+
+/// The Officer's list of teammates waiting for a wave, on the right of the screen. It takes HUD
+/// channel 0, the one no other message here uses, and the wave clock redraws it every second, so
+/// it goes away on its own once nobody is waiting.
+show_waiting_list(id, team)
+{
+	new waiting = count_waiting(team);
+	if (!waiting)
+	{
+		return;
+	}
+
+	new list[256], len = 0, shown = 0;
+	len += formatex(list[len], charsmax(list) - len, "WAITING FOR A WAVE (%d)^n", waiting);
+
+	new players[32], pnum, mate, mname[16];
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum && shown < 6; i++)
+	{
+		mate = players[i];
+		if (!g_revive_pending[mate] || g_match_team[mate] != team)
+		{
+			continue;
+		}
+
+		get_user_name(mate, mname, charsmax(mname));
+		len += formatex(list[len], charsmax(list) - len, "%s^n", mname);
+		shown++;
+	}
+
+	if (waiting > shown)
+	{
+		formatex(list[len], charsmax(list) - len, "+%d more", waiting - shown);
+	}
+
+	set_hudmessage(255, 140, 0, TSM_WAITLIST_X, TSM_WAITLIST_Y, 0, 0.0, 1.2, 0.0, 0.0, 0);
+	show_hudmessage(id, "%s", list);
+}
+
+/// The wave clock: one tick a second while the round is live. Each team's clock runs down to
+/// its next wave. Players who can see a timer get it: anyone waiting to come back, and any
+/// living Officer. Someone out of lives gets no timer, because they are fully out.
+public task_wave_tick()
+{
+	if (g_state != ST_LIVE || !get_pcvar_num(g_cv_respawns))
+	{
+		remove_task(TSM_TASK_WAVE);
+		if (g_state == ST_LIVE)
+		{
+			respawns_off_cut();
+		}
+		return;
+	}
+
+	new Float:wave = get_pcvar_float(g_cv_respwave);
+	for (new t = 1; t <= 2; t++)
+	{
+		g_wave_left[t] -= 1.0;
+		if (g_wave_left[t] <= 0.0)
+		{
+			fire_wave(t, false);
+			g_wave_left[t] = wave;
+		}
+	}
+
+	new Float:now = get_gametime();
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if (is_user_bot(id) || !is_user_connected(id))
+		{
+			continue;
+		}
+
+		new team = g_match_team[id];
+		if (team != 1 && team != 2)
+		{
+			continue;
+		}
+
+		new bool:waiting = g_revive_pending[id];
+		new bool:officer = (class_is_officer(id) && is_user_alive(id) && !g_elim[id]);
+		if (!waiting && !officer)
+		{
+			continue;
+		}
+
+		set_hudmessage(255, 200, 80, -1.0, 0.12, 0, 0.0, 1.2, 0.0, 0.0, 4);
+		if (waiting)
+		{
+			show_hudmessage(id, "RESPAWN WAVE IN %ds -- %d %s left",
+				floatround(g_wave_left[team]), g_lives_left[id], (g_lives_left[id] == 1) ? "life" : "lives");
+		}
+		else
+		{
+			new Float:cool = g_reinforce_next[id] - now;
+			if (cool > 0.0)
+			{
+				show_hudmessage(id, "WAVE IN %ds -- REINFORCE IN %ds", floatround(g_wave_left[team]), floatround(cool));
+			}
+			else
+			{
+				show_hudmessage(id, "WAVE IN %ds -- REINFORCE READY", floatround(g_wave_left[team]));
+			}
+			show_waiting_list(id, team);
+		}
+	}
+}
+
+/// A wave has come for this player: the timer ran out and they were waiting.
+public task_revive(taskid)
+{
+	revive_player(taskid - TSM_TASK_REVIVE);
+}
+
+/// Brings one waiting player back. Mirrors the round start: wash the saved armament, un-ghost
+/// the player, respawn them (TS's own command first, the bare spawn as fallback), then give the
+/// full loadout at one of the team's spawns.
+revive_player(id)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+	if (!g_revive_pending[id] || g_state != ST_LIVE)
+	{
+		g_revive_pending[id] = false;
+		return;
+	}
+	/*
+	 * A wave can reach a player whose death is still playing out: the dying animation, or
+	 * the sit before TS allows a respawn. A respawn sent then may be refused, which spends
+	 * the life, so wait for TS to be ready. The wait is bounded, so a death that never
+	 * finishes cannot hold the player out forever.
+	 */
+	new flag = pev(id, pev_deadflag);
+	if (!is_user_alive(id) && (flag == TSM_DEAD_DYING || flag == TSM_DEAD_DEAD)
+		&& (get_gametime() - g_died_at[id]) < TSM_REVIVE_HOLD)
+	{
+		set_task(0.5, "task_revive", TSM_TASK_REVIVE + id);
+		return;
+	}
+
+	g_revive_pending[id] = false;
+
+	// The takeout that hides a dead body must not run once the player is back in play.
+	remove_task(id + 7000);
+	g_elim_at[id] = 0.0;
+
+	// Washed first, as the round start does, so TS's own respawn cannot hand back the
+	// armament the player had saved.
+	g_issuing[id] = true;
+	engclient_cmd(id, "rst_cfg");
+	g_issuing[id] = false;
+
+	// Un-ghosted the way start_round un-ghosts everyone.
+	g_elim[id] = false;
+	g_spec_target[id] = 0;
+	g_last_buttons[id] = 0;
+	g_pending_elim[id] = 0.0;
+	restore_presentation(id);
+
+	engclient_cmd(id, "respawn");
+	if (!is_user_alive(id))
+	{
+		dllfunc(DLLFunc_Spawn, id);
+	}
+
+	if (!is_user_alive(id))
+	{
+		// Refused: the life is spent, and the player stays eliminated.
+		g_elim[id] = true;
+		g_elim_at[id] = 0.0;
+		g_was_alive[id] = false;
+		tlog("[TSM] Revive refused for %d -- stays eliminated.", id);
+		check_round_end();
+		return;
+	}
+
+	g_was_alive[id] = true;
+	if (get_cvar_num("weaponrestriction") != 1)
+	{
+		strip_user_weapons(id);
+	}
+
+	new ci = resolved_class(id) - 1;
+	apply_class_scale(id);
+	set_user_health(id, g_class_hp[ci]);
+	if (g_class_perk[ci] == TSM_PERK_MECH)
+	{
+		g_mech_hp_watch[id] = g_class_hp[ci];
+	}
+	if (g_class_ap[ci] > 0)
+	{
+		set_user_armor(id, g_class_ap[ci]);
+	}
+	arm_give_kit(id);
+	place_at_spawn(id, g_revive_slot[id], true);
+	g_armed[id] = true;
+
+	if (is_user_bot(id))
+	{
+		new bool:bwas = g_in_userinfo[id];
+		g_in_userinfo[id] = true;
+		set_class_model(id, ci);
+		g_in_userinfo[id] = bwas;
+	}
+
+	client_print(id, print_chat, "[MATCH] RESPAWNED -- %d %s left.",
+		g_lives_left[id], (g_lives_left[id] == 1) ? "life" : "lives");
+	dbg("revive: %d back in play, %d %s left", id, g_lives_left[id], (g_lives_left[id] == 1) ? "life" : "lives");
+}
+
+/// The Officer's call: brings the team's waiting players back now, whatever the wave timer
+/// says. Once per tsm_reinforce_cooldown seconds. Nobody waiting costs nothing.
+cmd_reinforce(id)
+{
+	if (!is_user_connected(id) || !is_user_alive(id) || g_elim[id])
+	{
+		client_print(id, print_chat, "[TSM] You have to be alive to call reinforcements.");
+		return;
+	}
+	if (!is_officer(id))
+	{
+		client_print(id, print_chat, "[TSM] Only the Officer class can call reinforcements.");
+		return;
+	}
+	if (!get_pcvar_num(g_cv_respawns))
+	{
+		client_print(id, print_chat, "[TSM] Respawn waves are off on this server.");
+		return;
+	}
+
+	new Float:now = get_gametime();
+	if (g_reinforce_next[id] > now)
+	{
+		client_print(id, print_center, "Reinforcements ready in %.0fs", g_reinforce_next[id] - now);
+		return;
+	}
+
+	new team = g_match_team[id];
+	if (count_waiting(team) == 0)
+	{
+		client_print(id, print_center, "No one is waiting to respawn");
+		return;
+	}
+
+	g_reinforce_next[id] = now + get_pcvar_float(g_cv_reinforce);
+	new n = fire_wave(team, true);
+	g_wave_left[team] = get_pcvar_float(g_cv_respwave);
+
+	new name[32], players[32], pnum, mate;
+	get_user_name(id, name, charsmax(name));
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		mate = players[i];
+		if (g_match_team[mate] == team && !is_user_bot(mate))
+		{
+			client_print(mate, print_chat, "[MATCH] %s called reinforcements: %d coming back.", name, n);
+		}
+	}
+}
+
+/// Admin: force a respawn wave now. amx_tsm_wave with no number wakes both teams.
+public cmd_wave(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+	if (g_state != ST_LIVE)
+	{
+		console_print(id, "[TSM] Waves only run in a live round.");
+		return PLUGIN_HANDLED;
+	}
+
+	new a[8];
+	read_argv(1, a, charsmax(a));
+	new team = str_to_num(a);
+	if (team == 1 || team == 2)
+	{
+		console_print(id, "[TSM] Wave for team %d: %d revived.", team, fire_wave(team, true));
+	}
+	else
+	{
+		console_print(id, "[TSM] Waves for both teams: %d and %d revived.", fire_wave(1, true), fire_wave(2, true));
+	}
+	return PLUGIN_HANDLED;
+}
 count_alive(team)
 {
 	new n = 0;
@@ -12798,7 +13437,7 @@ count_alive(team)
 	for (new i = 0; i < pnum; i++)
 	{
 		id = players[i];
-		if (g_match_team[id] == team && !g_elim[id] && is_user_alive(id))
+		if (g_match_team[id] == team && ((!g_elim[id] && is_user_alive(id)) || g_revive_pending[id]))
 		{
 			n++;
 		}
@@ -14540,6 +15179,7 @@ public fw_prethink(id)
 			report_elimination(get_user_attacker(id), id);
 			dbg("frame watcher eliminated %d (no DeathMsg -- suicide or world death)", id);
 			death_voice(id);
+			lives_on_death(id);
 			check_round_end();
 		}
 	}
@@ -14958,6 +15598,7 @@ public ev_death()
 	// death_voice()). Plays before anything here has hidden or moved the body.
 	death_voice(victim);
 	report_elimination(killer, victim);
+	lives_on_death(victim);
 	check_round_end();
 }
 
@@ -15346,6 +15987,7 @@ end_round(winner)
 	g_state = ST_ROUNDEND;
 	remove_task(2);
 	remove_task(4);
+	lives_reset_round();
 
 	// Cleared here as well, so a round ended any OTHER way (time up, a forfeit, an
 	// admin command) does not leave a stale hold to trip the next round's check.
@@ -15668,6 +16310,7 @@ start_round()
 {
 	g_round++;
 	g_resetting = true;
+	lives_reset_round();
 
 	/*
 	 * THE WHOLE CHAIN COMES BACK EVERY ROUND. The map's reset relays fire for
@@ -15917,7 +16560,7 @@ finish_round_start()
 			&& g_class_perk[resolved_class(id) - 1] == TSM_PERK_OFFICER)
 		{
 			client_print(id, print_chat,
-				"[MATCH] Officer: .follow takes bots on your side under command, .unfollow releases them, .scan exposes cloaked enemies near you.");
+				"[MATCH] Officer: .follow takes bots on your side under command, .unfollow releases them, .scan exposes cloaked enemies near you, .reinforce calls the waiting dead back.");
 		}
 	}
 
@@ -16017,66 +16660,93 @@ finish_round_start()
 	tlog("[TSM] finish_round_start: task_team_badum scheduled at 5.0s (id=%d)", TSM_TASK_BADUM);
 }
 
-place_at_spawn(id)
+/// Picks one of the team's points at a tier, in the order they were placed. A slot steps
+/// through them (a wave hands out one slot per player); no slot picks at random.
+bool:pick_spawn_point(team, tier, slot, Float:org[3], Float:ang[3])
+{
+	new idx[64], n = 0;
+	new count = (team == 1) ? g_spawn_t1_count : g_spawn_t2_count;
+	for (new i = 0; i < count; i++)
+	{
+		new t = (team == 1) ? g_spawn_t1_tier[i] : g_spawn_t2_tier[i];
+		if (t == tier && n < sizeof idx)
+		{
+			idx[n++] = i;
+		}
+	}
+	if (n == 0)
+	{
+		return false;
+	}
+
+	new pick = (slot >= 0) ? (slot % n) : random_num(0, n - 1);
+	if (team == 1)
+	{
+		copy_vec(org, g_spawn_t1[idx[pick]]);
+		copy_vec(ang, g_ang_t1[idx[pick]]);
+	}
+	else
+	{
+		copy_vec(org, g_spawn_t2[idx[pick]]);
+		copy_vec(ang, g_ang_t2[idx[pick]]);
+	}
+	return true;
+}
+
+/// The team's active tier: the highest forward tier whose objective has fallen and which has
+/// points for this team. 0 means the team's defaults. A reached tier replaces the defaults.
+active_spawn_tier(team)
+{
+	new best = 0;
+	new count = (team == 1) ? g_spawn_t1_count : g_spawn_t2_count;
+	for (new i = 0; i < count; i++)
+	{
+		new t = (team == 1) ? g_spawn_t1_tier[i] : g_spawn_t2_tier[i];
+		if (t > best && t <= g_obj_taken)
+		{
+			best = t;
+		}
+	}
+	return best;
+}
+
+/// Puts the player at one of their team's points. A wave respawn (respawn = true) takes the
+/// team's active forward tier. Anyone else gets the team's defaults, so a living player is
+/// never moved to a forward point. Then the other side's defaults if the team has nothing at
+/// that tier, then the map's own spawns. Locked tiers are never used.
+place_at_spawn(id, slot = -1, bool:respawn = false)
 {
 	new team = g_match_team[id];
 	new Float:org[3], Float:ang[3];
 	new bool:has_ang = false;
+	new bool:found = false;
 
-	if (team == 1 && g_spawn_t1_count > 0)
+	if (team == 1 || team == 2)
 	{
-		new pick = random_num(0, g_spawn_t1_count - 1);
-		copy_vec(org, g_spawn_t1[pick]);
-		copy_vec(ang, g_ang_t1[pick]);
-		has_ang = g_spawns_have_angles;
-	}
-	else if (team == 2 && g_spawn_t2_count > 0)
-	{
-		new pick = random_num(0, g_spawn_t2_count - 1);
-		copy_vec(org, g_spawn_t2[pick]);
-		copy_vec(ang, g_ang_t2[pick]);
-		has_ang = g_spawns_have_angles;
-	}
-	else if (g_cfg_spawns > 0)
-	{
-		/*
-		 * Configured spawns exist, but not for this side.
-		 *
-		 * Borrow from the other side rather than dropping back to the map's own spawn
-		 * entities. Once a map has custom positions those are the ONLY acceptable
-		 * places to put someone -- the map's deathmatch spawns are what the custom ones
-		 * were created to replace, so falling back to them silently undoes the whole
-		 * point.
-		 */
-		if (g_spawn_t1_count > 0)
+		found = pick_spawn_point(team, respawn ? active_spawn_tier(team) : 0, slot, org, ang);
+		if (found)
 		{
-			new pick = random_num(0, g_spawn_t1_count - 1);
-			copy_vec(org, g_spawn_t1[pick]);
-			copy_vec(ang, g_ang_t1[pick]);
 			has_ang = g_spawns_have_angles;
 		}
-		else if (g_spawn_t2_count > 0)
-		{
-			new pick = random_num(0, g_spawn_t2_count - 1);
-			copy_vec(org, g_spawn_t2[pick]);
-			copy_vec(ang, g_ang_t2[pick]);
-			has_ang = g_spawns_have_angles;
-		}
-		else
-		{
-			return;
-		}
-
-		dbg("place: team %d has no configured spawns, borrowed one. Add some with amx_tsm_spawn_add %d.",
-			team, team);
 	}
-	else if (g_spawn_count > 0)
+
+	if (!found && (team == 1 || team == 2))
 	{
-		// No custom spawns on this map at all, so the map's own entities are the
-		// fallback -- which is the only situation they should ever be used in.
+		found = pick_spawn_point(3 - team, 0, slot, org, ang);
+		if (found)
+		{
+			has_ang = g_spawns_have_angles;
+			dbg("place: team %d has no points at its tier, borrowed the other side's defaults", team);
+		}
+	}
+
+	if (!found && g_spawn_count > 0)
+	{
 		copy_vec(org, g_spawns[random_num(0, g_spawn_count - 1)]);
+		found = true;
 	}
-	else
+
+	if (!found)
 	{
 		dbg("place: no spawn available for player %d (team %d)", id, team);
 		return;
@@ -16302,6 +16972,7 @@ show_round_timer()
 		if (sd > 0 && !g_sudden && g_round_left <= sd)
 		{
 			g_sudden = true;
+			respawn_sudden_cut();
 			set_hudmessage(255, 80, 60, -1.0, 0.36, 0, 0.0, 3.0, 0.2, 0.4, 4);
 			show_hudmessage(0, "SUDDEN DEATH^nEveryone is marked");
 			client_print(0, print_chat, "[MATCH] Sudden death -- every player is now marked to the other side.");
@@ -16722,6 +17393,7 @@ public task_go_live()
 		// tall once the round is live.
 		apply_class_scale(rp[i]);
 	}
+	start_wave_clocks();
 	tlog("[TSM] Round %d LIVE: released %d player(s).", g_round, rnum);
 	dbg("round %d live: released %d, alive t1=%d t2=%d, placed-check follows",
 		g_round, rnum, count_alive(1), count_alive(2));
@@ -16965,6 +17637,12 @@ public hook_say(id)
 	if (equali(args, ".scan"))
 	{
 		cmd_scan(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".reinforce"))
+	{
+		cmd_reinforce(id);
 		return PLUGIN_HANDLED;
 	}
 
@@ -17300,6 +17978,8 @@ public cmd_debug(id, level, cid)
 	console_print(id, "[TSM] engine=%s", g_xash ? "Xash3D FWGS (leave cleanup from ClientDisconnect)" : "GoldSrc");
 	console_print(id, "[TSM] state=%d round=%d score=%d-%d  start_alive=%d/%d",
 		g_state, g_round, g_score[1], g_score[2], g_start_alive[1], g_start_alive[2]);
+	console_print(id, "[TSM] respawns=%d  team1: next wave %.0fs, %d waiting  team2: next wave %.0fs, %d waiting",
+		get_pcvar_num(g_cv_respawns), g_wave_left[1], count_waiting(1), g_wave_left[2], count_waiting(2));
 	console_print(id, "[TSM] rounds cvar=%d -> need %d to win",
 		get_pcvar_num(g_cv_rounds), (get_pcvar_num(g_cv_rounds) / 2) + 1);
 	console_print(id, "[TSM] team_mode='%s' team1='%s' team2='%s'", mode, t1, t2);
@@ -17955,6 +18635,9 @@ player_left(id)
 	// set_cloak() is not what is clearing the flag here, so it never gets the chance to cancel
 	// its own timer the way it normally would.
 	g_cloaked[id] = false;
+	g_lives_left[id] = 0;
+	g_revive_pending[id] = false;
+	remove_task(TSM_TASK_REVIVE + id);
 	cloak_bots_show(id);
 	remove_task(id + 15000);
 	g_last_use[id] = 0;

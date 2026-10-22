@@ -175,6 +175,13 @@
 
       Bots cannot use it: no bot types chat commands.
 
+ .reinforce  (or bind a key to:  say .reinforce)
+     Officer only, while alive: call the team's waiting dead back now. Every
+     teammate waiting for a wave comes back at once, whatever the wave timer
+     says. Once per tsm_reinforce_cooldown seconds (120); a call with nobody
+     waiting costs nothing. Needs tsm_respawns 1. While anyone is waiting, your
+     screen also lists them on the right.
+
  .forfeit
      Vote to concede the match for your side. EVERY human on that side has to type
      it -- one person saying it is an opinion, all of them saying it is a decision.
@@ -329,18 +336,27 @@
      addons/amxmodx/configs/tsm_spawns_<mapname>.cfg
  and reloaded automatically every time that map loads.
 
+ The full picture, with the file format and how to move spawns onto tiers,
+ is in docs/CUSTOM_SPAWNPOINTS.txt.
+
  Once a map has ANY custom spawn, the map's own spawn entities are no longer
  used at all. They are only a fallback for maps with no custom set.
 
- amx_tsm_spawn_add <1|2>
+ amx_tsm_spawn_add <1|2> [tier]
      Add a spawn for that team where you are standing, facing where you look.
      Custom spawns store facing; map entities cannot.
+     [tier] makes it a FORWARD spawn. Left off, or 0, it is the team's normal
+     spawn. A forward tier is used once that many siege objectives have fallen:
+     the team's respawns then land only on its forward points, and the defaults
+     are off until the round ends. Living players are never moved to a forward
+     point. Nobody respawns on a tier whose objective has not fallen yet.
 
      CAUTION: do not run this while standing on the map's own spawn point, or
      you will record it as a custom spawn -- and if you do it for both teams
      they will share that position.
 
  amx_tsm_spawn_list
+     Each point shows its tier. The numbers are the ones amx_tsm_spawn_del takes.
      List every configured spawn with its position and facing.
 
  amx_tsm_spawn_tp <1|2> <n>
@@ -349,7 +365,9 @@
  amx_tsm_spawn_del <1|2> <n>
      Remove one spawn. Use this to drop a bad entry without clearing the set.
 
- amx_tsm_spawn_clear <1|2|0>
+ amx_tsm_spawn_clear <1|2|0> [tier]
+     With a tier, only that tier's points are removed. Use amx_tsm_spawn_del
+     to remove one point by its number, forward points included.
      Clear that team's spawns. 0 clears both.
 
      It clears MEMORY ONLY and says so. To wipe a map's spawns for good:
@@ -367,9 +385,9 @@
      Write the current set to the per-map cfg. Nothing is persisted until you
      run this.
 
- tsm_spawn <team> <x> <y> <z> <pitch> <yaw>          (server command)
-     Defines one spawn. This is what the saved cfg is made of; it is not meant
-     to be typed by hand.
+ tsm_spawn <team> <x> <y> <z> <pitch> <yaw> [tier]   (server command)
+     Defines one spawn. This is what the saved cfg is made of. Hand edits are
+     fine: docs/CUSTOM_SPAWNPOINTS.txt, Part 3, shows how.
 
 
 ===============================================================================
@@ -451,6 +469,9 @@
      elimination, spectate-follow and kill-report paths without needing a
      second player to shoot.
 
+ amx_tsm_wave [1|2]
+     Force a respawn wave now, for one team, or for both without a number.
+     Waiting players come back at once whatever their wait. Live round only.
  amx_tsm_shuffle
      Attempt to even the sides out.
 
@@ -615,6 +636,27 @@
 
 
 ===============================================================================
+===============================================================================
+ RESPAWN WAVES AND LIVES  (every class has lives; Assault has two)
+===============================================================================
+
+ Each class has tsm_class_lives lives per round, in class order: Assault 2,
+ every other class 1 (ts_matchmode.cfg). A death is still an elimination: the
+ voice, the kill report and the ghost are the usual ones. With lives left the
+ player waits for their team's next wave, and the wave brings them back with
+ the full loadout at one of their team's spawns. Running out of lives is the
+ ordinary elimination.
+
+ A wave comes every tsm_respawn_wave seconds (60) and takes the players who
+ have been dead at least tsm_respawn_seconds (5), so a death just before a wave
+ waits for the next one. Waiting players see their wave timer. An Officer sees
+ their team's wave and the .reinforce cooldown. While anyone is waiting they
+ also see a list of them on the right of the screen. Someone out of lives sees
+ no timer, because they are fully out.
+
+ tsm_respawns 0 turns it all off: no wave is attempted and every elimination is
+ final. tsm_respawn_sudden 0 (the default) means nobody waiting comes back in the
+ last minute of a round.
  NO ECONOMY  (why weapons cannot be bought)
 ===============================================================================
 
