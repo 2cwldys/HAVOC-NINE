@@ -365,9 +365,16 @@ void CL_Presence_Frame( void )
 	char	activity[H9P_CARD_MAX];
 	char	message[H9P_CARD_MAX + 128];
 	qboolean	inmenu = cls.state == ca_disconnected;
+	static qboolean	dbg_gate1, dbg_gate3, dbg_gate4, dbg_gate5, dbg_gate6, dbg_shown;
 
 	if( !ts_richpresence.value || CL_IsPlaybackDemo( ) || ( cls.state != ca_active && !inmenu ))
 	{
+		if( inmenu && !dbg_gate1 )
+		{
+			Con_Printf( "richpresence: gate1 hide -- richpresence=%g demo=%d state=%d inmenu=%d\n",
+				ts_richpresence.value, CL_IsPlaybackDemo(), cls.state, inmenu );
+			dbg_gate1 = true;
+		}
 		H9P_Hide();
 		return;
 	}
@@ -389,16 +396,35 @@ void CL_Presence_Frame( void )
 		}
 
 		if( !h9p.valid )
+		{
+			if( !dbg_gate3 )
+			{
+				Con_Printf( "richpresence: gate3 waiting on server status reply\n" );
+				dbg_gate3 = true;
+			}
 			return;
+		}
 	}
 
 	if( h9p_pipe == INVALID_HANDLE_VALUE )
 	{
 		if( host.realtime < h9p.retry )
+		{
+			if( inmenu && !dbg_gate4 )
+			{
+				Con_Printf( "richpresence: gate4 waiting on retry cooldown, %.1fs left\n", h9p.retry - host.realtime );
+				dbg_gate4 = true;
+			}
 			return;
+		}
 
 		if( !H9P_Connect( ))
 		{
+			if( inmenu && !dbg_gate5 )
+			{
+				Con_Printf( "richpresence: gate5 H9P_Connect failed, err=%lu\n", GetLastError() );
+				dbg_gate5 = true;
+			}
 			h9p.retry = host.realtime + H9P_RETRY;
 			return;
 		}
@@ -406,7 +432,20 @@ void CL_Presence_Frame( void )
 
 	H9P_Drain();
 	if( h9p_pipe == INVALID_HANDLE_VALUE )
+	{
+		if( inmenu && !dbg_gate6 )
+		{
+			Con_Printf( "richpresence: gate6 pipe dropped after H9P_Drain\n" );
+			dbg_gate6 = true;
+		}
 		return;
+	}
+
+	if( inmenu && !dbg_shown )
+	{
+		Con_Printf( "richpresence: reached card-send path for menu\n" );
+		dbg_shown = true;
+	}
 
 	if( inmenu != h9p.onmenu )
 	{

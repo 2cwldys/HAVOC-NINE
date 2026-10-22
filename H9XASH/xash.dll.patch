@@ -145,6 +145,31 @@ Lines of the previous diff that this build replaced, kept here:
 +	AVI_OpenVideo( cin_state, fullpath, false, true );
 Diff sha256 f08e1b20bd2ecd9557623de07310a30638e7a86705409f2800e240f0fab1d725, the diff below.
 
+Generated Thu 10/22/2026  7:54:18.90, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/dll_int/cl_gameui.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 4e8a526cf95ce5dff4fde9dbd119d6b127636b79bcd4e4519e58194cda1d6618, the diff below.
+
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
 --- a/common/port.h
@@ -352,10 +377,10 @@ index 39e4f9c2..29262374 100644
  	if( host.status != HOST_CRASHED && cls.initialized )
 diff --git a/engine/client/cl_presence.c b/engine/client/cl_presence.c
 new file mode 100644
-index 00000000..a6192d0f
+index 00000000..59aca604
 --- /dev/null
 +++ b/engine/client/cl_presence.c
-@@ -0,0 +1,459 @@
+@@ -0,0 +1,498 @@
 +/*
 +cl_presence.c - Discord Rich Presence, sent by the engine itself
 +
@@ -723,9 +748,16 @@ index 00000000..a6192d0f
 +	char	activity[H9P_CARD_MAX];
 +	char	message[H9P_CARD_MAX + 128];
 +	qboolean	inmenu = cls.state == ca_disconnected;
++	static qboolean	dbg_gate1, dbg_gate3, dbg_gate4, dbg_gate5, dbg_gate6, dbg_shown;
 +
 +	if( !ts_richpresence.value || CL_IsPlaybackDemo( ) || ( cls.state != ca_active && !inmenu ))
 +	{
++		if( inmenu && !dbg_gate1 )
++		{
++			Con_Printf( "richpresence: gate1 hide -- richpresence=%g demo=%d state=%d inmenu=%d\n",
++				ts_richpresence.value, CL_IsPlaybackDemo(), cls.state, inmenu );
++			dbg_gate1 = true;
++		}
 +		H9P_Hide();
 +		return;
 +	}
@@ -747,16 +779,35 @@ index 00000000..a6192d0f
 +		}
 +
 +		if( !h9p.valid )
++		{
++			if( !dbg_gate3 )
++			{
++				Con_Printf( "richpresence: gate3 waiting on server status reply\n" );
++				dbg_gate3 = true;
++			}
 +			return;
++		}
 +	}
 +
 +	if( h9p_pipe == INVALID_HANDLE_VALUE )
 +	{
 +		if( host.realtime < h9p.retry )
++		{
++			if( inmenu && !dbg_gate4 )
++			{
++				Con_Printf( "richpresence: gate4 waiting on retry cooldown, %.1fs left\n", h9p.retry - host.realtime );
++				dbg_gate4 = true;
++			}
 +			return;
++		}
 +
 +		if( !H9P_Connect( ))
 +		{
++			if( inmenu && !dbg_gate5 )
++			{
++				Con_Printf( "richpresence: gate5 H9P_Connect failed, err=%lu\n", GetLastError() );
++				dbg_gate5 = true;
++			}
 +			h9p.retry = host.realtime + H9P_RETRY;
 +			return;
 +		}
@@ -764,7 +815,20 @@ index 00000000..a6192d0f
 +
 +	H9P_Drain();
 +	if( h9p_pipe == INVALID_HANDLE_VALUE )
++	{
++		if( inmenu && !dbg_gate6 )
++		{
++			Con_Printf( "richpresence: gate6 pipe dropped after H9P_Drain\n" );
++			dbg_gate6 = true;
++		}
 +		return;
++	}
++
++	if( inmenu && !dbg_shown )
++	{
++		Con_Printf( "richpresence: reached card-send path for menu\n" );
++		dbg_shown = true;
++	}
 +
 +	if( inmenu != h9p.onmenu )
 +	{
