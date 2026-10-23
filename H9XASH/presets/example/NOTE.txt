@@ -1,0 +1,8 @@
+This folder is reference only -- h9_presets.bat never treats it as a real
+preset source (see ..\README.txt, "TWO RESERVED FOLDER NAMES"). Nothing here
+will show up in the tool's menus.
+
+plugins.sample.ini beside this file shows the naming convention in practice:
+"plugins" + ".sample." + "ini" means "a preset for configs\plugins.ini,
+tagged 'sample'". Copy a file like it into presets\ (not presets\example\)
+and give it a real tag name to make it a live preset.

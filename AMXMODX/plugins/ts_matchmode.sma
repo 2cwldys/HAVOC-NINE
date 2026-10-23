@@ -176,6 +176,7 @@ stock icon_frame_for(ci, team)
 #define TSM_MOVETYPE_WALK    3
 #define TSM_MOVETYPE_NOCLIP  8
 #define TSM_EF_NODRAW        128
+#define TSM_EF_DIMLIGHT      8     // player flashlight (hlsdk_const.inc: EF_DIMLIGHT)
 
 // Human hull for TraceHull (hlsdk_const.inc: HULL_HUMAN = 1)
 #define TSM_HULL_HUMAN       1
@@ -525,6 +526,9 @@ new const XRAY_INS_RGB[3] = { 255, 48, 48 };
 new bool:g_cloaked[MAXPL];     // currently cloaked
 new Float:g_cloak_at[MAXPL];   // gametime of the last toggle, so chat spam cannot refire every frame
 new bool:g_cloak_nodraw[MAXPL]; // the EF_NODRAW on him is the cloak's, for RCBot -- see cloak_active()
+
+new bool:g_flashlight[MAXPL];  // .light toggle, forced regardless of held weapon
+new bool:g_ammo_used[MAXPL];   // .ammo used this round already -- once per round, reset in lives_reset_round()
 
 // Saved presentation, so a player is always restorable.
 new bool:g_frozen[MAXPL];          // we are holding this player right now
@@ -894,6 +898,8 @@ new g_arm_pending[MAXPL];
 new g_class_lives[TSM_MAXCLASS];       // lives per class from tsm_class_lives; 1 unless listed
 new g_lives_left[MAXPL];               // lives left this round, the one being played included
 new bool:g_revive_pending[MAXPL];      // eliminated with lives left: waiting for a wave
+new bool:g_revive_active[MAXPL];       // a wave is actively trying to revive this player RIGHT NOW --
+                                        // narrower than g_revive_pending, which covers the whole wait
 new Float:g_died_at[MAXPL];            // when the pending death happened
 new Float:g_wave_left[3];              // seconds to each team's next wave, indexed 1 and 2
 new Float:g_reinforce_next[MAXPL];     // the Officer's .reinforce cooldown
@@ -9766,6 +9772,91 @@ public cmd_uncloak(id)
 }
 
 /*
+ * .light -- forces the flashlight on or off regardless of the held weapon, by flipping
+ * EF_DIMLIGHT directly rather than going through impulse 100, which TS's own weapon
+ * code gates. See fw_postthink_post if this turns out not to survive a weapon switch --
+ * TS "re-applies its own values... whenever it feels like it," the same reason the
+ * cloak's render state has to be re-asserted there every frame.
+ */
+public cmd_light(id)
+{
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		client_print(id, print_chat, "[TSM] You have to be alive to use your flashlight.");
+		return;
+	}
+	if (g_state != ST_LIVE || is_spectating(id) || g_elim[id] || g_locked_out[id] || g_frozen[id])
+	{
+		client_print(id, print_chat, "[TSM] You can only toggle your flashlight while playing in a live round.");
+		return;
+	}
+
+	g_flashlight[id] = !g_flashlight[id];
+	set_pev(id, pev_effects, pev(id, pev_effects) ^ TSM_EF_DIMLIGHT);
+	client_print(id, print_chat, "[TSM] Flashlight %s.", g_flashlight[id] ? "ON" : "off");
+}
+
+/*
+ * .ammo -- +25 reserve rounds to every GUN currently carried, once per round. Never
+ * give_ammo_to(): that is a magazine-multiplier per caliber, not a precise +25-rounds
+ * primitive. ts_setuserammo is overloaded to mean "how many he carries" for a grenade
+ * or knife, so those have to be explicitly excluded -- it is not automatic the way it
+ * is for give_ammo_to's mags-only ts_groundammo entity.
+ */
+public cmd_ammo(id)
+{
+	if (!is_user_connected(id) || !is_user_alive(id))
+	{
+		client_print(id, print_chat, "[TSM] You have to be alive to resupply.");
+		return;
+	}
+	if (g_state != ST_LIVE || is_spectating(id) || g_elim[id] || g_locked_out[id] || g_frozen[id])
+	{
+		client_print(id, print_chat, "[TSM] You can only resupply while playing in a live round.");
+		return;
+	}
+	if (g_ammo_used[id])
+	{
+		client_print(id, print_chat, "[TSM] You have already resupplied this round.");
+		return;
+	}
+
+	new wl[32], wn;
+	get_user_weapons(id, wl, wn);
+
+	new gave = 0;
+	for (new w = 0; w < wn; w++)
+	{
+		switch (wl[w])
+		{
+			case TSW_M61GRENADE, TSW_TKNIFE, TSW_CKNIFE, TSW_SKNIFE, TSW_KATANA, TSW_KUNG_FU, TSW_C4:
+			{
+				continue;   // guns only -- these have no reserve-ammo concept, or the
+			}              // same native means "how many he carries" for them instead
+		}
+		ts_setuserammo(id, wl[w], ts_getuserammo(id, wl[w]) + 25);
+		gave++;
+	}
+
+	if (!gave)
+	{
+		client_print(id, print_chat, "[TSM] No guns to resupply.");
+		return;
+	}
+
+	g_ammo_used[id] = true;
+
+	// Same presentation as the Engineer resupplying a teammate -- yellow glow,
+	// ammo sound -- just aimed at himself. perk_use() does the identical pair of
+	// calls on "hit" (the resupplied teammate); here id is both giver and target.
+	glow_player(id, 255.0, 220.0, 0.0, get_pcvar_float(g_cv_engglow), get_pcvar_num(g_cv_engshell));
+	perk_sound(id, g_cv_engsound);
+
+	client_print(id, print_chat, "[TSM] Resupplied.");
+	dbg("ammo: %d resupplied %d gun(s), once this round", id, gave);
+}
+
+/*
  * Removes an entity after a short delay (used for env_explosion cleanup).
  */
 public remove_ent(taskid)
@@ -13080,6 +13171,7 @@ lives_reset_round()
 		g_lives_left[id] = 0;
 		g_revive_pending[id] = false;
 		g_reinforce_next[id] = 0.0;
+		g_ammo_used[id] = false;
 		remove_task(TSM_TASK_REVIVE + id);
 	}
 
@@ -13193,6 +13285,7 @@ fire_wave(team, bool:forced)
 		g_revive_slot[id] = offset + n;
 		g_revive_washed[id] = false;
 		g_revive_waits[id] = 0;
+		g_revive_active[id] = true;
 		set_task(0.1 + ARM_STAGGER * float(n), "task_revive", TSM_TASK_REVIVE + id);
 		n++;
 	}
@@ -13376,11 +13469,13 @@ revive_player(id)
 		if (!g_revive_refused[id])
 		{
 			g_revive_refused[id] = 1;
+			g_revive_active[id] = false;   // this attempt is over; normal spectate resumes until the next wave
 			tlog("[TSM] Revive refused for %d -- waiting for the next wave.", id);
 			return;
 		}
 
 		g_revive_pending[id] = false;
+		g_revive_active[id] = false;
 		g_elim[id] = true;
 		g_elim_at[id] = 0.0;
 		g_was_alive[id] = false;
@@ -13394,6 +13489,7 @@ revive_player(id)
 	 * dead, which is why this comes after the respawn.
 	 */
 	g_revive_pending[id] = false;
+	g_revive_active[id] = false;
 	g_revive_refused[id] = 0;
 	remove_task(id + 7000);
 	g_elim_at[id] = 0.0;
@@ -15152,11 +15248,20 @@ public fw_prethink(id)
 			// Disarm a respawned eliminated player so they cannot shoot while their
 			// body is still being left to TS. Harmless when they have no weapons.
 			//
-			// Not for one a wave is actively reviving (g_revive_pending): TS's respawn
-			// for them lands on a later frame than revive_player's own "respawn" command,
-			// and the moment it does, this condition would otherwise fire before
+			// Not for one a wave is ACTIVELY reviving right now (g_revive_active): TS's
+			// respawn for them lands on a later frame than revive_player's own "respawn"
+			// command, and the moment it does, this condition would otherwise fire before
 			// revive_player's own 0.5s poll ever notices -- see the guard below.
-			if (g_elim_at[id] > 0.0 && is_user_alive(id) && !g_revive_pending[id])
+			//
+			// g_revive_active, not g_revive_pending: g_revive_pending covers the WHOLE
+			// wait for a wave (seconds to tsm_respawn_wave's full interval), not just the
+			// moment a wave is actually trying. Gating on g_revive_pending suppressed
+			// remove_from_play() -- and therefore the camera-follow/attack-cycle spectate
+			// below, which only runs once g_elim_at is zeroed -- for the entire wait, not
+			// just the risky instant, which is what broke "attack to cycle spectate
+			// teammates" for anyone waiting on a wave. g_revive_active is true only from
+			// fire_wave()'s commit through that attempt's resolution in revive_player().
+			if (g_elim_at[id] > 0.0 && is_user_alive(id) && !g_revive_active[id])
 			{
 				strip_user_weapons(id);
 			}
@@ -15167,15 +15272,17 @@ public fw_prethink(id)
 			 * a backstop on the death-delay task -- and remove_from_play() itself
 			 * now drops the out-of-play flag when it finally completes.
 			 *
-			 * NOT for a player a wave is actively reviving. Without !g_revive_pending[id],
-			 * this fires the instant TS's respawn lands -- before revive_player's own
-			 * 0.5s poll clears g_elim -- and remove_from_play's pick_spec_target() then
-			 * glues the freshly-alive body onto a teammate via the camera-follow code
-			 * below, which is the "spawns inside a teammate" bug. revive_player's own
-			 * success path clears g_elim_at/g_elim/g_revive_pending together, so once
+			 * NOT for a player a wave is ACTIVELY reviving (g_revive_active, see above --
+			 * not g_revive_pending, which would suppress this for the whole wait, not just
+			 * the risky instant). Without the guard, this fires the instant TS's respawn
+			 * lands -- before revive_player's own 0.5s poll clears g_elim -- and
+			 * remove_from_play's pick_spec_target() then glues the freshly-alive body onto
+			 * a teammate via the camera-follow code below, which is the "spawns inside a
+			 * teammate" bug. revive_player's own success path clears
+			 * g_elim_at/g_elim/g_revive_pending/g_revive_active together, so once
 			 * this guard stops applying, the whole branch is skipped anyway.
 			 */
-			if (g_elim_at[id] > 0.0 && is_user_alive(id) && !g_revive_pending[id] && elim_hide_due(id))
+			if (g_elim_at[id] > 0.0 && is_user_alive(id) && !g_revive_active[id] && elim_hide_due(id))
 			{
 				remove_from_play(id);
 			}
@@ -18001,6 +18108,18 @@ public hook_say(id)
 		return PLUGIN_HANDLED;
 	}
 
+	if (equali(args, ".light"))
+	{
+		cmd_light(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".ammo"))
+	{
+		cmd_ammo(id);
+		return PLUGIN_HANDLED;
+	}
+
 	if (equali(args, ".scan"))
 	{
 		cmd_scan(id);
@@ -19497,7 +19616,7 @@ resume_match()
 public task_remove_from_play(taskid)
 {
 	new id = taskid - 7000;
-	if (!is_user_connected(id) || !g_elim[id] || g_revive_pending[id])
+	if (!is_user_connected(id) || !g_elim[id] || g_revive_active[id])
 	{
 		return;
 	}
@@ -19505,13 +19624,18 @@ public task_remove_from_play(taskid)
 	// The ceiling fired. Normally elim_hide_due() has already triggered this from the
 	// per-frame path the moment TS put them back on their feet.
 	//
-	// Not for a player a wave is actively reviving. tsm_death_delay (10s default) fires
-	// well before tsm_respawn_wave (60s default) in the common case -- without
-	// g_revive_pending excluded here, remove_from_play() zeroes g_elim_at and picks a
-	// spectate target long before the wave arrives, and the per-frame camera-follow in
-	// fw_prethink glues the still-invisible ghost onto that target for the whole wait.
-	// revive_player()'s own cleanup handles g_elim_at for this player once the wave
-	// actually revives them; this backstop has no business running first.
+	// g_revive_active, not g_revive_pending: the 10s-default tsm_death_delay ceiling
+	// firing while a player is merely WAITING for a wave (g_revive_pending true, no
+	// wave attempt in flight yet) is exactly the normal, intended transition into
+	// ghost/spectate mode -- the same thing that would happen on a permanent
+	// elimination, just happening early because a wave hasn't arrived yet. Blocking it
+	// there (an earlier version of this guard did, via g_revive_pending) left anyone
+	// waiting on a wave unable to spectate/attack-cycle teammates for their entire wait.
+	// Only exclude the narrow window where a wave is ACTIVELY trying to revive this
+	// player right now (g_revive_active) -- that's the one moment remove_from_play()
+	// zeroing g_elim_at and picking a spectate target would glue the about-to-be-alive
+	// body onto a teammate via the camera-follow code in fw_prethink. revive_player()'s
+	// own cleanup handles g_elim_at for this player once the wave actually revives them.
 	remove_from_play(id);
 }
 

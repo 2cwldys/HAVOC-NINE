@@ -660,6 +660,22 @@ from underwater leaf (idea: XaeroX)
 */
 static void R_CheckFog( void )
 {
+	// H9 DEBUG: temporary, remove once the sudden-death fog bug is resolved.
+	// Logs every time the client's own copy of movevars.fog_settings changes, to
+	// prove whether a nonzero value set server-side (confirmed correct this
+	// session -- see SV_H9ServerFog, sv_phys.c) ever actually reaches the client.
+	// Con_DPrintf is this renderer's existing "only with logging on" idiom (gated
+	// on the developer cvar, same as every other ref\gl debug print in this tree).
+	{
+		static unsigned int h9_fog_debug_last = 0xFFFFFFFF;   // impossible value, forces first log
+		if( gp_movevars->fog_settings != h9_fog_debug_last )
+		{
+			h9_fog_debug_last = gp_movevars->fog_settings;
+			gEngfuncs.Con_DPrintf( "^3[H9 fog debug]^7 client fog_settings changed to %u (0x%08X)\n",
+				gp_movevars->fog_settings, gp_movevars->fog_settings );
+		}
+	}
+
 	// quake global fog
 	// H9: this was a Quake-compatibility privilege before. The H9 server drives
 	// gp_movevars->fog_settings from the h9_fog_* cvars (SV_H9ServerFog in

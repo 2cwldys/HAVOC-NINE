@@ -74,13 +74,17 @@
 
      [client]
      list_static=https://example.org
+     list_bot=http://127.0.0.1:8081
      steam_broker=0
 
  Every launch rewrites ts\xashcomm.lst and ts\networking_resolved.cfg from that
  file, so edit networking.ini and start the game again. A server list is a small text
  file the game fetches from <address>/v1/servers/ts. Each line is "ip host:port" for
- an Xash server. docs\NETWORKING.txt has the full guide: the file format, how to
- run a list on your own machine for testing, and the Steam trade-offs.
+ an Xash server. list_bot points at the H9 list bot (TSM serverlist-bot\), a small
+ service that tracks which servers are actually up -- docs\NETWORKING.txt section 7
+ has its setup and a port it's best to avoid on Windows. docs\NETWORKING.txt has the
+ full guide: the file format, how to run a list on your own machine for testing, and
+ the Steam trade-offs.
 
  Steam
  -----

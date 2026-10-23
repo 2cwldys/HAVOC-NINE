@@ -33,3 +33,7 @@ tsm_debug_log 2
 default_fov 120
 cam_back 128
 quit
+amx_match_restart
+exec camfix
+tsm_logging
+quit

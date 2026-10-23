@@ -18,6 +18,7 @@ GNU General Public License for more details.
 #include "defaults.h"
 #include "common.h"
 #include "client.h"
+#include "const.h"
 
 static qboolean avi_initialized;
 static poolhandle_t avi_mempool;
@@ -469,6 +470,19 @@ qboolean AVI_Think( movie_state_t *Avi )
 
 		if( redraw )
 			ref.dllFuncs.GL_UpdateTexture( cinTexture, Avi->xres, Avi->yres, Avi->xres, Avi->yres, Avi->dst, PF_BGRA_32 );
+
+		// Normalize GL state before drawing, the same way every other 2D draw helper in
+		// this engine does (PIC_DrawGeneric, the SPR_Draw* family) -- blend mode and
+		// vertex color persist across draw calls, and this blit is otherwise the one
+		// 2D draw in the whole tree that assumes a clean state rather than asserting
+		// one. On the plain main menu nothing else has drawn yet that frame, so this
+		// went unnoticed; in the in-game ESC menu, a HUD element drawn earlier the same
+		// frame can leave an additive blend mode active (e.g. CL_DrawScreenFade's
+		// kRenderTransAdd branch), which this blit would otherwise inherit and paint
+		// the video as an additive layer over the already-rendered scene -- that is
+		// the reported "fullbright eye-damaging brightness."
+		ref.dllFuncs.GL_SetRenderMode( kRenderNormal );
+		ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
 		ref.dllFuncs.R_DrawStretchPic( Avi->x, Avi->y, w, h, 0, 0, 1, 1, cinTexture );
 	}
 	else if( redraw && Avi->texture > 0 )

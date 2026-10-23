@@ -1,0 +1,146 @@
+===============================================================================
+ AMX PRESETS: SWAPPING CONFIGS AND PLUGINS IN H9XASH
+===============================================================================
+
+ Who this is for: anyone running a server from H9XASH who wants to switch
+ between different AMX Mod X setups -- which configs are in use, which
+ plugins are active -- without hand-editing files in
+ H9XASH\ts\addons\amxmodx\configs\ every time.
+
+ The short version
+   * Run H9XASH\h9_presets.bat. It's a menu, not a flag-driven tool.
+   * Presets live in H9XASH\presets\, named <target-base>.<tag>.<ext> (section 1).
+   * Every file the tool overwrites is backed up first, into
+     presets\backup\<run time>\ (section 4).
+   * The tool only touches files under H9XASH\ts\addons\amxmodx\configs\. It
+     does not build, deploy, or touch anything in TSM (D:\Downloads\TSM
+     itself, where ts_matchmode.sma and friends are the source of truth) --
+     it's a live-install convenience, not part of the build pipeline.
+
+ 1. THE NAMING CONVENTION
+ -------------------------
+ A preset file's name is:
+
+     <target-base>.<tag>.<ext>
+
+ <target-base>.<ext> is the real filename it would replace in
+ ts\addons\amxmodx\configs\. <tag> is whatever you want to call that variant
+ -- a mode name, a profile name, anything with no dot in it.
+
+     plugins.competitive.ini      -> replaces configs\plugins.ini
+     ts_matchmode.casual.cfg      -> replaces configs\ts_matchmode.cfg
+     arp\arp.roleplay.ini         -> replaces configs\arp\arp.ini
+
+ The last line shows the one other rule: a subfolder under presets\ mirrors
+ the same subfolder under configs\. Most presets won't need one -- almost
+ everything AMXX reads lives directly in configs\, so most preset files go
+ directly in presets\ too.
+
+ A file whose name doesn't split into exactly three dot-separated parts is
+ skipped, with a warning when the tool lists what it found.
+
+ Two folder names are reserved and never scanned as presets, at any depth:
+   backup\    the tool's own backups (section 4)
+   example\   reference files to copy from, not live presets. See
+              presets\example\NOTE.txt.
+
+ 2. SWAPPING ONE CONFIG FILE
+ ----------------------------
+ Option 1 in the menu. Lists every target that has at least one preset
+ variant (e.g. "ts_matchmode.cfg (2 variants)"), lets you pick the target,
+ then pick which variant to apply, confirms, backs up the current file, and
+ copies the preset over it.
+
+ 3. APPLYING A FULL PROFILE
+ ---------------------------
+ Option 2. Instead of picking one target, pick a tag (e.g. "competitive"),
+ and every target that has a variant under that tag gets swapped in at once
+ -- a quick way to hot-swap a whole mode (plugins plus whichever configs go
+ with it) in one action. The tool prints a summary: which targets it
+ changed, and which ones have presets but none for the tag you picked (left
+ alone, not silently skipped).
+
+ This is the mechanism for a mode that also needs its own database -- see
+ section 6. Picking the profile's tag swaps the plugin list and the
+ database-connection config together, as one action, because to this tool a
+ database config is just another file with variants.
+
+ 4. BACKUPS
+ -----------
+ Every file about to be overwritten is copied first into
+ presets\backup\<yyyyMMdd-HHmmss>\<same relative path>, once per run the
+ first time that file is touched (swapping the same target twice in one
+ visit backs up the ORIGINAL once, not the first swap's result). To undo a
+ swap, copy the backed-up file back over the live one by hand -- the tool
+ itself has no "undo" command, on purpose, to keep it small.
+
+ A target that didn't exist yet before a swap (e.g. configs\arp\arp.ini,
+ before any Apollo-RP-style preset has ever been applied) has nothing to
+ back up, so none is made -- the tool says so in its own log line.
+
+ 5. TOGGLING INDIVIDUAL PLUGINS
+ -------------------------------
+ Option 3. Separate from presets entirely. Reads plugins.ini fresh, lists
+ every plugin line -- active or disabled -- numbered with its current
+ state, and flips whichever one you pick by adding or removing the leading
+ ";". Loops so you can toggle several in one visit. The first write in a
+ visit backs up plugins.ini the same way a preset swap would.
+
+ A disabled line in plugins.ini looks like ";name.amxx" (semicolon directly
+ against the filename). A commented-out SECTION HEADER looks like
+ "; Admin Base - ..." (semicolon, then a space, then prose) and is never
+ mistaken for a plugin line -- the tool only recognises an optional single
+ ";" followed immediately by a bare name ending in ".amxx".
+
+ 6. DATABASES AND "PROFILES" -- WHERE THIS IS HEADED
+ -----------------------------------------------------
+ The reason presets mirror subfolders (section 1), and the reason "apply a
+ full profile" swaps every matching target in one action (section 3), is to
+ support a mode that needs its own separate database, not just its own
+ plugin list -- so switching modes never leaves one mode's data mixed into
+ another's.
+
+ The concrete case this was built for: Apollo-RP (github.com/DouglasSherk/
+ Apollo-RP), a roleplay plugin suite for AMX Mod X. Researched, not yet
+ installed in this project. Worth knowing before building a roleplay
+ profile around it:
+   * It needs MySQL/MariaDB in practice -- it ships defaulting to SQLite,
+     but its own bundled seed .sql files use MySQL-only syntax, so the
+     shipped default doesn't actually match its own seed data.
+   * It does NOT use AMXX's standard sql.cfg / amx_sql_* convention. It has
+     its own file, configs\arp\arp.ini, and its own cvars (arp_sql_host/
+     user/pass/db/type, plus arp_table_* for renaming tables). A roleplay
+     preset's database config is this file, at this path -- which is
+     exactly why presets\arp\arp.<tag>.ini is the shape section 1 shows.
+   * It's just AMX Mod X plugins + config + per-map SQL seed files -- no
+     custom engine or DLL -- so it fits this tool's model. It already ships
+     an ARP_TS.amxx plugin specifically for The Specialists, so there's
+     prior art for this exact combination, even if long unmaintained (last
+     real commit 2012, one straggler fix in 2020; its website and wiki
+     domains are both dead, so the repo itself is the only source of truth
+     left).
+   * It has no multi-database concept of its own -- one database per
+     install, hand-edited. Running several modes with separate databases is
+     entirely this project's own addition, done by swapping which arp.ini
+     (or equivalent) is in place, the same as any other preset.
+
+ What this means concretely: this tool's job stops at swapping config files,
+ including a database-connection config, as one action. It does NOT install
+ Apollo-RP, fix its SQLite/MySQL schema mismatch, write per-map seed data for
+ any map other than the two it already ships for, or check its plugin load
+ order (ARP_Core.amxx must load before the others, per its own comments).
+ That's a separate, larger integration task -- this tool is what you'd use
+ once it's done, to switch into and out of it cleanly.
+
+ 7. FILES
+ --------
+ H9XASH\h9_presets.bat          the entry point -- run this
+ H9XASH\h9_presets.ps1          the actual menu logic
+ H9XASH\presets\README.txt      the naming convention, in more detail
+ H9XASH\presets\example\        reference files only, never scanned live
+ H9XASH\presets\backup\         made on first use -- every backup this tool
+                                 has ever taken, one timestamped folder per run
+
+ Generated, never edited by hand: nothing. This tool only ever copies a file
+ you already wrote in presets\ over one in configs\; it never writes new
+ config content of its own beyond toggling a ";" in plugins.ini.

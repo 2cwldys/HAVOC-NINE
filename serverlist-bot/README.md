@@ -27,7 +27,11 @@ one that runs a different game folder from `gamedir`.
 1. Run `install.bat`. It installs the Python packages and creates `serverlist.cfg`.
 2. Open `serverlist.cfg` and set `heartbeat_key` to a long random string. Set `discord_token`
    only if you want the Discord commands. Leave it empty to run the list alone.
-3. Check `serverlist.ini`. The port is 8080 by default.
+3. Check `serverlist.ini`. The port is 8081 by default -- not 8080: on Windows,
+   Steam's own `steamwebhelper.exe` binds `127.0.0.1:8080` for its CEF remote-debugging
+   port, and Windows routes loopback traffic to that more specific listener ahead of
+   this list's `0.0.0.0:8080` wildcard bind, so the list would run and look fine while
+   silently never receiving a single request from the game.
 4. Run `run.bat` and leave its window open. The list writes `serverlist.log` beside itself.
 5. Open `http://127.0.0.1:8080/v1/servers/ts` in a browser. It shows a comment line and no
    `ip` lines until a server gets on.

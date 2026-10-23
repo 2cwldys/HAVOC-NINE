@@ -11,7 +11,7 @@
    * The Internet tab lists the FWGS public list plus any server lists named in
      networking.ini (next to h9xash.bat). The default needs no Steam.
    * A server appears only when its address is in a list: a line in a list file
-     (section 4), or the H9 list once its bot runs (section 7).
+     (section 4), or the H9 list bot (section 7), confirmed working this way.
    * Steam sign-in is optional, through the Steam broker (section 6). A shortcut
      named HAVOC 9 is what makes the game show as HAVOC 9 in Steam (section 6C).
 
@@ -88,9 +88,18 @@
           ip 127.0.0.1:27015
 
       27015 is the port ts.bat starts hlds on, and the port a Xash server uses.
-   2. In that folder run:      python -m http.server 8080
-   3. In networking.ini set:   list_static=http://127.0.0.1:8080
+   2. In that folder run:      python -m http.server 8082
+   3. In networking.ini set:   list_static=http://127.0.0.1:8082
    4. Start a Xash server on 27015, start H9XASH again, and open the Internet tab.
+
+   Port 8082 above is deliberate, not arbitrary: avoid 8080 on Windows. Steam's own
+   steamwebhelper.exe binds 127.0.0.1:8080 for its CEF remote-debugging port, and
+   Windows routes traffic addressed to 127.0.0.1 to whichever listener is bound to
+   that exact address, ahead of one only bound to the wildcard 0.0.0.0. A test server
+   started with python -m http.server 8080 looks like it started fine and still
+   gets no requests at all while Steam is running. Check a port is actually free
+   first with netstat -ano | find ":8082" before picking one -- no output means
+   nothing is listening there yet.
 
  4. ADDING A SERVER TO A LIST FILE
  ---------------------------------
@@ -171,8 +180,9 @@
 
  7. THE H9 LIST BOT
  ------------------
- A small Python service, with a Discord bot, in TSM serverlist-bot\. It serves the live
- list at http://<host>:<port>/v1/servers/ts. That is the address list_bot= takes in
+ A small Python service, with an optional Discord bot, in TSM serverlist-bot\. Confirmed
+ running and listing a real server end-to-end. It serves the live list at
+ http://<host>:<port>/v1/servers/ts. That is the address list_bot= takes in
  networking.ini. It asks each listed server with an A2S query every 30 seconds, and it
  takes a server off the list after 5 minutes with no answer.
 
@@ -180,8 +190,26 @@
  role, or Manage Server), a line in servers.txt, or a heartbeat (POST /v1/heartbeat with
  the shared key from serverlist.cfg). Each way queries the address first.
 
+ Port, and the same Windows trap as section 3: serverlist.ini's [http] port defaults
+ to 8081 in this install, not 8080. 8080 collides with Steam's own steamwebhelper.exe
+ CEF remote-debugging port on 127.0.0.1 -- the list's own bind to 0.0.0.0:8080 succeeds
+ and its log says so, but Windows still routes every request from the game (which asks
+ 127.0.0.1) to Steam's listener instead, so the list looks like it is running and never
+ receives a single query. Nothing in the list's own log says this is happening; the only
+ sign is that /v1/servers/ts never responds from the game's side while curl/a browser
+ against the wrong port gets Steam's own 404. Check with netstat -ano | find ":8081"
+ (or whatever port you choose) before relying on it, and pick a different port entirely
+ from whatever section 3's local test list is using, so the two don't collide with each
+ other either.
+
+ Working example from this install:
+   serverlist-bot\serverlist.ini   [http] port = 8081
+   networking.ini                  list_bot=http://127.0.0.1:8081   (or the server's
+                                    real LAN/public address, once the port is forwarded
+                                    so players outside this machine can reach it)
+
  Setup, the Discord application, the heartbeat example and the limits are in
- serverlist-bot\README.md. Until the list runs, use the list file (section 4).
+ serverlist-bot\README.md.
 
  8. TROUBLESHOOTING
  ------------------
@@ -223,6 +251,12 @@
  export.bat                          ships networking.ini as the template only, and
                                      keeps the generated files and the Steam
                                      binaries out of the package and the repo
+
+ serverlist-bot\serverlist.ini       the list bot's own settings: host, port,
+                                     gamedir, poll/expire timing (section 7)
+ serverlist-bot\serverlist.cfg       the heartbeat key and Discord token. Git-ignored;
+                                     copied from serverlist.cfg.example on first setup
+ serverlist-bot\servers.txt          servers the list bot seeds itself with on start
 
  Generated, never edited by hand: ts\xashcomm.lst, ts\networking_resolved.cfg,
  steam\steam_appid.txt, steam\steam_browse_appid.txt, steam\steam_broker.pid.
