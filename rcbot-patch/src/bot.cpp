@@ -3002,6 +3002,20 @@ void CBot::Think()
 				m_pTSWeaponSelect = static_cast<CBotGAValues*>(costs);
 				m_pTSWeaponSelect->setFitness(0);
 
+				// an individual with fewer values than a bot's weapon choice has (from learned data that did not load)
+				if (m_pTSWeaponSelect->returnVector()->size() < 8)
+				{
+					// SeedTSWeaponSelectValues doesn't exist in this codebase; inline the
+					// same seeding the DISABLE_WEAPON_LEARN branch right below already does
+					// per-value, via add() (confirmed growing, ga.h: emplace_back) rather
+					// than set() (bounds behavior on a short vector not confirmed safe), so
+					// a short-from-bad-learned-data individual gets refilled to the full 8
+					// values instead of being read out of bounds.
+					m_pTSWeaponSelect->clear();
+					for (unsigned iSeed = 0; iSeed < 8; iSeed++)
+						m_pTSWeaponSelect->add(RANDOM_FLOAT(0, 1));
+				}
+
 				if (gBotGlobals.IsConfigSettingOn(BOT_CONFIG_DISABLE_WEAPON_LEARN))
 				{
 					m_pTSWeaponSelect->set(0, RANDOM_FLOAT(0, 1));
@@ -9323,7 +9337,7 @@ void CBot::SetFollowTarget(edict_t* pTarget)
 			gBotGlobals.m_Squads.removeSquadMember(m_stSquad, m_pEdict);
 			m_stSquad = nullptr;
 		}
-		m_Tasks.RemoveTask(BOT_TASK_FOLLOW_LEADER);
+		m_Tasks.RemoveSimilarTask(BOT_TASK_FOLLOW_LEADER);
 		return;
 	}
 

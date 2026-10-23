@@ -70,9 +70,12 @@ struct movie_state_s
 	float attn;
 	int16_t entnum; // MAX_ENTITY_BITS is 13
 	byte volume;
-	byte active : 1;
-	byte quiet  : 1;
-	byte paused : 1;
+	byte active     : 1;
+	byte quiet      : 1;
+	byte paused     : 1;
+	byte load_audio : 1; // remembered so AVI_REWIND's reopen matches the original AVI_OpenVideo call
+
+	char filename[MAX_SYSPATH]; // full resolved disk path, so AVI_REWIND can reopen it
 };
 
 qboolean AVI_SetParm( movie_state_t *Avi, enum movie_parms_e parm, ... )
@@ -104,14 +107,34 @@ qboolean AVI_SetParm( movie_state_t *Avi, enum movie_parms_e parm, ... )
 			Avi->h = va_arg( va, int );
 			break;
 		case AVI_REWIND:
-			if( Avi->audio_ctx )
-				pavcodec_flush_buffers( Avi->audio_ctx );
-			pavcodec_flush_buffers( Avi->video_ctx );
-			Avi->cached_audio_len = Avi->cached_audio_pos = 0;
-			Avi->last_time = -1;
-			Avi->first_time = 0;
-			pav_seek_frame( Avi->fmt_ctx, -1, 0, AVSEEK_FLAG_FRAME | AVSEEK_FLAG_BACKWARD );
+		{
+			char filename_copy[MAX_SYSPATH];
+			qboolean load_audio_saved;
+			qboolean quiet_saved;
+
+			if( !Avi->active )
+			{
+				ret = false;
+				break;
+			}
+
+			Q_strncpy( filename_copy, Avi->filename, sizeof( filename_copy ));
+			load_audio_saved = Avi->load_audio;
+			quiet_saved = Avi->quiet;
+
+			// Loop by fully closing and reopening the file instead of seeking back to the
+			// start. After a multi-hour menu session (thousands of loops) seek-based rewind
+			// crashed inside FFmpeg's own avio_seek, same address every time -- a usage
+			// intensity no one-shot cutscene/logo playback ever reached before this feature.
+			// Reopening sidesteps that code path entirely. See docs/FFMPEG_ADDITIONS.txt.
+			AVI_CloseVideo( Avi ); // zeroes *Avi -- filename/flags were captured above first
+			AVI_OpenVideo( Avi, filename_copy, load_audio_saved, quiet_saved );
+
+			if( !Avi->active )
+				ret = false;
+
 			break;
+		}
 		case AVI_ENTNUM:
 			val = va_arg( va, int );
 			Avi->entnum = bound( 0, val, MAX_EDICTS );
@@ -469,6 +492,8 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
 
 	Avi->active = false;
 	Avi->quiet = quiet;
+	Avi->load_audio = load_audio;
+	Q_strncpy( Avi->filename, filename, sizeof( Avi->filename ));
 	Avi->video_ctx = Avi->audio_ctx = NULL;
 	Avi->fmt_ctx = NULL;
 
@@ -480,30 +505,35 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
 	if(( ret = pavformat_open_input( &Avi->fmt_ctx, filename, pav_find_input_format( "avi" ), NULL )) < 0 )
 	{
 		AVI_SpewAvError( quiet, "avformat_open_input", ret );
+		AVI_CloseVideo( Avi );
 		return;
 	}
 
 	if(( ret = pavformat_find_stream_info( Avi->fmt_ctx, NULL )) < 0 )
 	{
 		AVI_SpewAvError( quiet, "avformat_find_stream_info", ret );
+		AVI_CloseVideo( Avi );
 		return;
 	}
 
 	if( !( Avi->pkt = pav_packet_alloc( )))
 	{
 		AVI_SpewAvError( quiet, "av_packet_alloc", 0 );
+		AVI_CloseVideo( Avi );
 		return;
 	}
 
 	if( !( Avi->vframe = pav_frame_alloc( )))
 	{
 		AVI_SpewAvError( quiet, "av_frame_alloc (video)", 0 );
+		AVI_CloseVideo( Avi );
 		return;
 	}
 
 	if( !( Avi->vframe_copy = pav_frame_alloc( )))
 	{
 		AVI_SpewAvError( quiet, "av_frame_alloc (video)", 0 );
+		AVI_CloseVideo( Avi );
 		return;
 	}
 
@@ -511,7 +541,10 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
 	Avi->video_stream = AVI_OpenCodecContext( &Avi->video_ctx, Avi->fmt_ctx, AVMEDIA_TYPE_VIDEO, quiet );
 
 	if( Avi->video_stream < 0 )
+	{
+		AVI_CloseVideo( Avi );
 		return;
+	}
 
 	Avi->xres     = Avi->video_ctx->width;
 	Avi->yres     = Avi->video_ctx->height;
@@ -525,6 +558,7 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
 		Avi->xres, Avi->yres, AV_PIX_FMT_BGR0, SWS_POINT, NULL, NULL, NULL )))
 	{
 		AVI_SpewAvError( quiet, "sws_getContext", 0 );
+		AVI_CloseVideo( Avi );
 		return;
 	}
 
@@ -533,6 +567,7 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
 	if(( ret = pav_image_alloc( dst, dst_linesize, Avi->xres, Avi->yres, AV_PIX_FMT_BGR0, 1 )) < 0 )
 	{
 		AVI_SpewAvError( quiet, "av_image_alloc", ret );
+		AVI_CloseVideo( Avi );
 		return;
 	}
 
@@ -544,6 +579,7 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
 		if( !( Avi->aframe = pav_frame_alloc( )))
 		{
 			AVI_SpewAvError( quiet, "av_frame_alloc (audio)", 0 );
+			AVI_CloseVideo( Avi );
 			return;
 		}
 
@@ -551,7 +587,10 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
 
 		// audio stream was requested but it wasn't found
 		if( Avi->audio_stream < 0 )
+		{
+			AVI_CloseVideo( Avi );
 			return;
+		}
 
 		Avi->channels = Q_min( Avi->audio_ctx->ch_layout.nb_channels, 2 );
 		if( Avi->audio_ctx->sample_fmt == AV_SAMPLE_FMT_U8 || Avi->audio_ctx->sample_fmt == AV_SAMPLE_FMT_U8P )
@@ -563,12 +602,14 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
 			&Avi->audio_ctx->ch_layout, Avi->audio_ctx->sample_fmt, Avi->audio_ctx->sample_rate, 0, 0 )) < 0 )
 		{
 			AVI_SpewAvError( quiet, "swr_alloc_set_opts2", ret );
+			AVI_CloseVideo( Avi );
 			return;
 		}
 
 		if(( ret = pswr_init( Avi->swr_ctx )) < 0 )
 		{
 			AVI_SpewAvError( quiet, "swr_init", ret );
+			AVI_CloseVideo( Avi );
 			return;
 		}
 	}
@@ -578,25 +619,26 @@ void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audi
 
 void AVI_CloseVideo( movie_state_t *Avi )
 {
-	if( Avi->active )
-	{
-		if( Avi->cached_audio )
-			Mem_Free( Avi->cached_audio );
+	// Unconditional now (no more `if( Avi->active )` guard): every FFmpeg free below is
+	// documented NULL-safe, so this is safe to call on a partially-populated Avi too --
+	// needed so AVI_OpenVideo can route every failure path through here to avoid leaking
+	// whatever was already allocated before the step that failed.
+	if( Avi->cached_audio )
+		Mem_Free( Avi->cached_audio );
 
-		pswr_free( &Avi->swr_ctx );
-		pavcodec_free_context( &Avi->audio_ctx );
-		pav_frame_free( &Avi->aframe );
+	pswr_free( &Avi->swr_ctx );
+	pavcodec_free_context( &Avi->audio_ctx );
+	pav_frame_free( &Avi->aframe );
 
-		pav_free( Avi->dst );
-		psws_freeContext( Avi->sws_ctx );
-		pavcodec_free_context( &Avi->video_ctx );
-		pav_frame_free( &Avi->vframe );
-		pav_frame_free( &Avi->vframe_copy );
+	pav_free( Avi->dst );
+	psws_freeContext( Avi->sws_ctx );
+	pavcodec_free_context( &Avi->video_ctx );
+	pav_frame_free( &Avi->vframe );
+	pav_frame_free( &Avi->vframe_copy );
 
-		pav_packet_free( &Avi->pkt );
+	pav_packet_free( &Avi->pkt );
 
-		pavformat_close_input( &Avi->fmt_ctx );
-	}
+	pavformat_close_input( &Avi->fmt_ctx );
 
 	memset( Avi, 0, sizeof( *Avi ));
 }

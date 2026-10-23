@@ -1,0 +1,47 @@
+diff --git a/dlls/bot.cpp b/dlls/bot.cpp
+index bdc592f..f1a0d22 100644
+--- a/dlls/bot.cpp
++++ b/dlls/bot.cpp
+@@ -2968,6 +2968,10 @@ void CBot::Think()
+ 				m_pTSWeaponSelect = static_cast<CBotGAValues*>(costs);
+ 				m_pTSWeaponSelect->setFitness(0);
+ 
++				// an individual with fewer values than a bot's weapon choice has (from learned data that did not load)
++				if (m_pTSWeaponSelect->size() < 8)
++					SeedTSWeaponSelectValues();
++
+ 				if (gBotGlobals.IsConfigSettingOn(BOT_CONFIG_DISABLE_WEAPON_LEARN))
+ 				{
+ 					m_pTSWeaponSelect->set(0, RANDOM_FLOAT(0, 1));
+diff --git a/dlls/ga.cpp b/dlls/ga.cpp
+index 923b8fc..2fe649f 100644
+--- a/dlls/ga.cpp
++++ b/dlls/ga.cpp
+@@ -160,6 +160,14 @@ void CPopulation::load(std::FILE* bfp, const int chromosize, const int type)
+ 
+ 		pVals->load(bfp, chromosize);
+ 
++		// one that did not load (a header that does not match, the file cut short) has no values: drop it, or a bot
++		// that picks it reads values[0] of an empty vector
++		if (type == TYPE_BOTGAVALS && static_cast<CBotGAValues*>(pVals)->size() == 0)
++		{
++			delete pVals;
++			continue;
++		}
++
+ 		m_theIndividuals.emplace_back(pVals);
+ 	}
+ }
+diff --git a/dlls/globals.cpp b/dlls/globals.cpp
+index 12253d9..62643d4 100644
+--- a/dlls/globals.cpp
++++ b/dlls/globals.cpp
+@@ -1616,7 +1616,7 @@ void CBotGlobals::loadLearnedData()
+ 
+ 	if (bfp)
+ 	{
+-		this->m_TSWeaponChoices.load(bfp, 16);
++		this->m_TSWeaponChoices.load(bfp, 8); // a bot's TS weapon values are 8 (SeedTSWeaponSelectValues), as saved
+ 		std::fclose(bfp);
+ 	}
+ 

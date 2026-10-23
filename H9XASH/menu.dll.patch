@@ -103,6 +103,23 @@ Lines of the previous diff that this build replaced, kept here:
  class CMenuBackgroundBitmap: public CMenuBitmap
 Diff sha256 10699901bae2569f2a9bf433d54a50452cb56a51a3c6129ca46af517d8ea5941, the diff below.
 
+Generated Thu 10/22/2026 14:29:18.35, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/CreateGame.cpp
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Lines of the previous diff that this build replaced, kept here:
+ 	void DrawInGameBackground();
+Diff sha256 2ebd40b9e254bd0ae26cfd9cffdcfe38ac1ef7184ce2027d57f8f7734a2331b8, the diff below.
+
 diff --git a/3rdparty/mainui/BaseMenu.cpp b/3rdparty/mainui/BaseMenu.cpp
 index 7b727eb..1bdcd11 100755
 --- a/3rdparty/mainui/BaseMenu.cpp
@@ -181,7 +198,7 @@ index ae05457..7a9b826 100755
  
  enum EUISounds
 diff --git a/3rdparty/mainui/controls/BackgroundBitmap.cpp b/3rdparty/mainui/controls/BackgroundBitmap.cpp
-index 0b087a4..7e09b4f 100644
+index 0b087a4..bc9d361 100644
 --- a/3rdparty/mainui/controls/BackgroundBitmap.cpp
 +++ b/3rdparty/mainui/controls/BackgroundBitmap.cpp
 @@ -23,6 +23,7 @@ GNU General Public License for more details.
@@ -201,7 +218,19 @@ index 0b087a4..7e09b4f 100644
  CMenuBackgroundBitmap::CMenuBackgroundBitmap() : CMenuBitmap()
  {
  	szPic = 0;
-@@ -97,6 +100,22 @@ void CMenuBackgroundBitmap::DrawSteamBackgroundLayout( Point p, int xOffset, int
+@@ -63,11 +66,6 @@ void CMenuBackgroundBitmap::VidInit()
+ 	CMenuBaseItem::VidInit();
+ }
+ 
+-void CMenuBackgroundBitmap::DrawInGameBackground()
+-{
+-	UI_FillRect( m_scPos, m_scSize, uiColorBlack );
+-}
+-
+ void CMenuBackgroundBitmap::DrawColor()
+ {
+ 	if( bDrawStroke )
+@@ -97,6 +95,22 @@ void CMenuBackgroundBitmap::DrawSteamBackgroundLayout( Point p, int xOffset, int
  		DrawBackgroundPiece( s_SteamBackground[i], p, xOffset, yOffset, xScale, yScale );
  }
  
@@ -224,7 +253,36 @@ index 0b087a4..7e09b4f 100644
  /*
  =================
  CMenuBackgroundBitmap::Draw
-@@ -130,7 +149,7 @@ void CMenuBackgroundBitmap::Draw()
+@@ -119,18 +133,35 @@ void CMenuBackgroundBitmap::Draw()
+ 
+ 		if( EngFuncs::GetCvarFloat( "ui_renderworld" ) )
+ 		{
+-			DrawInGameBackground();
++			// Same configured background (video/WON/Steam/color) as the main menu,
++			// instead of the plain black fill this used to be -- see DrawConfiguredBackground.
++			DrawConfiguredBackground();
+ 			return;
+ 		}
+ 	}
+ 
++	DrawConfiguredBackground();
++}
++
++/*
++=================
++CMenuBackgroundBitmap::DrawConfiguredBackground
++
++The WON/Steam/video/color dispatch: scales whichever background is configured (s_state)
++to fit, cover-crop by default or distort-to-fill with ui_background_stretch. Shared by
++the main menu's own Draw() and the in-game ESC menu (ui_renderworld case above) so both
++show the same background instead of the in-game one being a flat black fill.
++=================
++*/
++void CMenuBackgroundBitmap::DrawConfiguredBackground()
++{
+ 	if( szPic )
+ 	{
+ 		UI_DrawPic( m_scPos, m_scSize, uiColorWhite, szPic );
  		return;
  	}
  
@@ -233,7 +291,7 @@ index 0b087a4..7e09b4f 100644
  	{
  		UpdatePreference();
  
-@@ -150,6 +169,8 @@ void CMenuBackgroundBitmap::Draw()
+@@ -150,6 +181,8 @@ void CMenuBackgroundBitmap::Draw()
  	}
  	else if( s_state == DRAW_WON )
  		s = s_WONBackground.size;
@@ -242,7 +300,7 @@ index 0b087a4..7e09b4f 100644
  	else
  		s = s_SteamBackgroundImageSize;
  
-@@ -208,6 +229,8 @@ void CMenuBackgroundBitmap::Draw()
+@@ -208,6 +241,8 @@ void CMenuBackgroundBitmap::Draw()
  
  	if( s_state == DRAW_WON )
  		DrawBackgroundPiece( s_WONBackground, p, xOffset, yOffset, xScale, yScale );
@@ -251,7 +309,7 @@ index 0b087a4..7e09b4f 100644
  	else
  		DrawSteamBackgroundLayout( p, xOffset, yOffset, xScale, yScale );
  }
-@@ -304,9 +327,34 @@ bool CMenuBackgroundBitmap::LoadWONBackground( bool gamedirOnly )
+@@ -304,9 +339,34 @@ bool CMenuBackgroundBitmap::LoadWONBackground( bool gamedirOnly )
  	return false;
  }
  
@@ -287,7 +345,7 @@ index 0b087a4..7e09b4f 100644
  	{
  		if( s_bGameHasWONBackground )
  			s_state = DRAW_WON;
-@@ -340,6 +388,7 @@ void CMenuBackgroundBitmap::UpdatePreference()
+@@ -340,6 +400,7 @@ void CMenuBackgroundBitmap::UpdatePreference()
  		s_bEnableLogoMovie = false;
  
  	ClearBits( ui_prefer_won_background->flags, FCVAR_CHANGED );
@@ -295,7 +353,7 @@ index 0b087a4..7e09b4f 100644
  }
  
  void CMenuBackgroundBitmap::LoadBackground()
-@@ -347,10 +396,15 @@ void CMenuBackgroundBitmap::LoadBackground()
+@@ -347,10 +408,15 @@ void CMenuBackgroundBitmap::LoadBackground()
  	s_bEnableLogoMovie = false;
  	s_bGameHasSteamBackground = false;
  	s_bGameHasWONBackground = false;
@@ -312,7 +370,7 @@ index 0b087a4..7e09b4f 100644
  	{
  		Con_DPrintf( "%s: found %s background in %s directory\n", __func__, "steam", "game" );
 diff --git a/3rdparty/mainui/controls/BackgroundBitmap.h b/3rdparty/mainui/controls/BackgroundBitmap.h
-index 749845c..ec83f1e 100644
+index 749845c..2a7a840 100644
 --- a/3rdparty/mainui/controls/BackgroundBitmap.h
 +++ b/3rdparty/mainui/controls/BackgroundBitmap.h
 @@ -50,18 +50,21 @@ private:
@@ -326,7 +384,8 @@ index 749845c..ec83f1e 100644
  	void DrawSteamBackgroundLayout( Point p, int xOffset, int yOffset, float xScale, float yScale );
 +	void DrawVideoBackground( Point p, int xOffset, int yOffset, float xScale, float yScale );
  	void DrawColor();
- 	void DrawInGameBackground();
+-	void DrawInGameBackground();
++	void DrawConfiguredBackground(); // the WON/Steam/video/color dispatch, shared by the main menu and the in-game ESC menu
  
  	static bool LoadSteamBackground( const bool gamedirOnly ); // Steam background loader
  	static bool LoadWONBackground( const bool gamedirOnly ); // WON background loader

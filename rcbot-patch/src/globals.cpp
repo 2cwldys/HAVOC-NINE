@@ -442,10 +442,10 @@ void CBotGlobals::StartFrame()
 
 	if (bCheckedTeamplay && m_iCurrentMod)
 	{
-		// Assignment, not comparison. The original compared the flag AGAINST the
-		// condition and assigned that result, so it latched on whatever it started
-		// as and never followed mp_teamplay at all.
-		m_bTeamPlay = CVAR_GET_FLOAT("mp_teamplay") > 0.0f;
+		if (m_bTeamPlay == (CVAR_GET_FLOAT("mp_teamplay") > 0.0f))
+			m_bTeamPlay = true;
+		else if (m_bTeamPlay == (CVAR_GET_FLOAT("mp_teamplay") <= 0.0f))
+			m_bTeamPlay = false;
 
 		//bCheckedTeamplay = true;
 	}
@@ -1616,7 +1616,7 @@ void CBotGlobals::loadLearnedData()
 
 	if (bfp)
 	{
-		this->m_TSWeaponChoices.load(bfp, 16);
+		this->m_TSWeaponChoices.load(bfp, 8); // a bot's TS weapon values are 8 (SeedTSWeaponSelectValues), as saved
 		std::fclose(bfp);
 	}
 

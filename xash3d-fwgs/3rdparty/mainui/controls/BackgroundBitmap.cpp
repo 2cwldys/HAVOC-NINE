@@ -66,11 +66,6 @@ void CMenuBackgroundBitmap::VidInit()
 	CMenuBaseItem::VidInit();
 }
 
-void CMenuBackgroundBitmap::DrawInGameBackground()
-{
-	UI_FillRect( m_scPos, m_scSize, uiColorBlack );
-}
-
 void CMenuBackgroundBitmap::DrawColor()
 {
 	if( bDrawStroke )
@@ -138,11 +133,28 @@ void CMenuBackgroundBitmap::Draw()
 
 		if( EngFuncs::GetCvarFloat( "ui_renderworld" ) )
 		{
-			DrawInGameBackground();
+			// Same configured background (video/WON/Steam/color) as the main menu,
+			// instead of the plain black fill this used to be -- see DrawConfiguredBackground.
+			DrawConfiguredBackground();
 			return;
 		}
 	}
 
+	DrawConfiguredBackground();
+}
+
+/*
+=================
+CMenuBackgroundBitmap::DrawConfiguredBackground
+
+The WON/Steam/video/color dispatch: scales whichever background is configured (s_state)
+to fit, cover-crop by default or distort-to-fill with ui_background_stretch. Shared by
+the main menu's own Draw() and the in-game ESC menu (ui_renderworld case above) so both
+show the same background instead of the in-game one being a flat black fill.
+=================
+*/
+void CMenuBackgroundBitmap::DrawConfiguredBackground()
+{
 	if( szPic )
 	{
 		UI_DrawPic( m_scPos, m_scSize, uiColorWhite, szPic );

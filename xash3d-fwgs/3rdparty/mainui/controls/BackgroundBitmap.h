@@ -57,7 +57,7 @@ private:
 	void DrawSteamBackgroundLayout( Point p, int xOffset, int yOffset, float xScale, float yScale );
 	void DrawVideoBackground( Point p, int xOffset, int yOffset, float xScale, float yScale );
 	void DrawColor();
-	void DrawInGameBackground();
+	void DrawConfiguredBackground(); // the WON/Steam/video/color dispatch, shared by the main menu and the in-game ESC menu
 
 	static bool LoadSteamBackground( const bool gamedirOnly ); // Steam background loader
 	static bool LoadWONBackground( const bool gamedirOnly ); // WON background loader

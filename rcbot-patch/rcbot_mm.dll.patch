@@ -1,0 +1,68 @@
+H9 rcbot_mm.dll -- built from patched source
+
+Change 5 (see rcbot-patch/README.txt): the TS weapon-learning crash fix
+(CBotGAValues::get on an empty vector -- root cause and symptom both in the
+README). Building it against the pinned upstream (APGRoboCop/rcbotold @
+v1.51b13, 43ecb57) surfaced that the project's existing follow-command patch
+(README CHANGE 3) had never actually compiled from a clean checkout + the
+tracked rcbot-ts-teams.patch alone -- its .cpp logic was all there, but two
+method prototypes it needs were never added to bot.h, and two small helper
+functions it calls (CBotGlobals::GetBot, CBotSquads::createSquad) had no body
+anywhere in this repo. Fixed along the way, all in bot.h now part of this
+project's tracked src/:
+  - SetFollowTarget/ConsoleCommandFollow: prototypes added to the CBot class
+    (bodies were already correct, just never declared).
+  - CBotGlobals::GetBot: implemented for real -- m_Bots[ENTINDEX(edict)-1],
+    the same indexing convention already used throughout this file.
+  - CBotSquads::createSquad: stubbed to return nullptr. Real squad
+    construction isn't implemented; SetFollowTarget already null-checks the
+    result, so the follow command proceeds without squad-specific behavior
+    (formation/combat-type) instead of failing to build. Not a regression --
+    there was no working createSquad to regress from.
+  - CBotTasks::RemoveTask doesn't exist (only a commented-out stub does);
+    the follow command's cleanup path now calls the real equivalent,
+    RemoveSimilarTask.
+Also: SeedTSWeaponSelectValues (what Change 5's own patch called to refill a
+short individual) doesn't exist either -- inlined the same per-value seeding
+the adjacent DISABLE_WEAPON_LEARN branch already does, via add() (confirmed
+growing) rather than set() (bounds behavior on a short vector unconfirmed).
+And CBotGAValues::size() isn't a member -- every size check uses the
+existing returnVector()->size() instead.
+
+Below is the diff against the previously-tracked bot.cpp (the sum of Change 5
+plus the fixes above); ga.cpp's one-line size-check fix and bot.h's new
+declarations are summarized above rather than diffed, since bot.h was not
+previously part of this project's tracked src/ at all.
+
+--- /d/Downloads/TSM/backups/rcbot-tsweaps-crash-20261022-075500/bot.cpp.before	2026-10-22 14:26:41.603931800 -0400
++++ /d/Downloads/TSM/rcbot-patch/src/bot.cpp	2026-10-22 14:39:19.737715500 -0400
+@@ -3002,6 +3002,20 @@
+ 				m_pTSWeaponSelect = static_cast<CBotGAValues*>(costs);
+ 				m_pTSWeaponSelect->setFitness(0);
+ 
++				// an individual with fewer values than a bot's weapon choice has (from learned data that did not load)
++				if (m_pTSWeaponSelect->returnVector()->size() < 8)
++				{
++					// SeedTSWeaponSelectValues doesn't exist in this codebase; inline the
++					// same seeding the DISABLE_WEAPON_LEARN branch right below already does
++					// per-value, via add() (confirmed growing, ga.h: emplace_back) rather
++					// than set() (bounds behavior on a short vector not confirmed safe), so
++					// a short-from-bad-learned-data individual gets refilled to the full 8
++					// values instead of being read out of bounds.
++					m_pTSWeaponSelect->clear();
++					for (unsigned iSeed = 0; iSeed < 8; iSeed++)
++						m_pTSWeaponSelect->add(RANDOM_FLOAT(0, 1));
++				}
++
+ 				if (gBotGlobals.IsConfigSettingOn(BOT_CONFIG_DISABLE_WEAPON_LEARN))
+ 				{
+ 					m_pTSWeaponSelect->set(0, RANDOM_FLOAT(0, 1));
+@@ -9323,7 +9337,7 @@
+ 			gBotGlobals.m_Squads.removeSquadMember(m_stSquad, m_pEdict);
+ 			m_stSquad = nullptr;
+ 		}
+-		m_Tasks.RemoveTask(BOT_TASK_FOLLOW_LEADER);
++		m_Tasks.RemoveSimilarTask(BOT_TASK_FOLLOW_LEADER);
+ 		return;
+ 	}
+ 

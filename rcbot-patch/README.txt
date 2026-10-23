@@ -7,6 +7,9 @@ with this install -- with additive changes:
   1. Team fix: compare pev->team instead of model strings
   2. Follow command: "rcbot follow <bot_index> <player_index>" makes bots follow
      a player using the native squad system (attacks enemies while following)
+  3. TS weapon-learning crash fix: a save/load size mismatch left empty weapon-
+     choice individuals in the population; a bot picking one crashed the server
+     (see CHANGE 5)
 
 Win32, MetaMod Release, MSVC v145.
 
@@ -139,6 +142,47 @@ disconnected. No other call site needs separate handling.
 
 
 ===============================================================================
+CHANGE 5: TSWEAPS LEARNED-DATA CRASH (CBotGAValues::get on an empty vector)
+===============================================================================
+
+Crash: access violation, code C0000005, reported by the engine's own crash box as
+"CBaseEntity::SUB_CallUseToggle" (rcbot_mm.dll) -- that symbol has nothing to do
+with it. The crash box only has exported symbols to work from, and the real crash
+site has none nearby; mapped against the DLL's own load base, the four frames are
+actually: the bots' frame loop -> CBot::Think -> the TS weapon choice
+(m_pTSWeaponSelect->get(i)) -> CBotGAValues::get indexing an EMPTY vector. Not
+caused by any map or its waypoints -- it can happen on any map, some rounds into
+whichever map is the second one played or later.
+
+Root cause: a save/load size mismatch in the TS weapon-learning data.
+SeedTSWeaponSelectValues saves each bot's learned weapon choice with 8 values
+(header t-3-s-8), but CBotGlobals::loadLearnedData loads expecting 16
+(m_TSWeaponChoices.load(bfp, 16)) -- every individual fails its header check and
+comes back empty, CPopulation::load still adds the empty ones to the population
+instead of dropping them, and once the population (16) is full of them, the next
+bot that picks its guns from an empty individual reads index 0 of an empty vector.
+Deleting rcbot/tsweaps.rld does not fix it -- the next map saves a fresh one with
+8 values and the map after that loads it empty again.
+
+Three changes, rcbot-tsweaps-crash.patch:
+  - globals.cpp: loadLearnedData loads with size 8, the size they are saved with.
+  - ga.cpp: CPopulation::load drops an individual that came back with no values,
+    instead of adding it to the population.
+  - bot.cpp: CBot::Think re-seeds a picked weapon choice that has fewer than 8
+    values (covers any tsweaps.rld already on disk from before this fix, which
+    still loads empty under the corrected size check).
+
+Workaround without rebuilding: make rcbot/tsweaps.rld an empty, read-only file.
+RCBot then loads nothing from it and cannot save to it, so weapon learning only
+lives in memory for that server run.
+
+Rebuilt successfully (MSBuild, 0 errors) against pinned upstream v1.51b13.
+Getting there also required fixing the existing follow-command patch (CHANGE 3),
+which had never actually compiled standalone -- see rcbot_mm.dll.patch, shipped
+beside every deployed rcbot_mm.dll, for exactly what that needed.
+
+
+===============================================================================
 REBUILDING
 ===============================================================================
 
@@ -146,6 +190,7 @@ REBUILDING
     cd rcbotold
     git checkout v1.51b13
     git apply rcbot-ts-teams.patch
+    git apply rcbot-tsweaps-crash.patch
     MSBuild dlls\HPB_bot.vcxproj /p:Configuration="MetaMod Release" /p:Platform=Win32
 
 Output lands at

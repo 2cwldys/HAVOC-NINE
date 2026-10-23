@@ -630,8 +630,8 @@ new g_cv_musicvol, g_cv_startsound;   // tsm_startsound gates the round-start an
  * cut. music_is_wav() below has to know about index 6 as well as index 5, or this would put the
  * same problem straight back, worse.
  */
-new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav", "vangelis.wav", "floatingmuseum.mp3" };
-new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0, 618.8, 305.6 };
+new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav", "vangelis.wav", "floatingmuseum.mp3", "grammaton_cleric.mp3", "burned.mp3", "supression.mp3", "alwaysknew.mp3" };
+new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0, 618.8, 305.6, 78.5, 129.9, 147.9, 306.9 };
 new g_music_order[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
 new g_music_pos = 8;         // matches sizeof g_music_order: forces a shuffle before the first track
 new g_music_cur = -1;        // the track currently playing, -1 before the first
@@ -10100,7 +10100,12 @@ public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 		dbgv("damage from eliminated %d on %d blocked", attacker, victim);
 		return HAM_SUPERCEDE;
 	}
-	if (victim >= 1 && victim < MAXPL && g_elim[victim])
+	// Only once TS has actually finished with them -- a deadflag still mid-death
+	// means TS's own TakeDamage may still have work to do finishing this same kill
+	// (a trailing pellet, a second damage tick), and superceding that is what kept
+	// the animation/corpse from ever completing. A confirmed ghost (deadflag back
+	// to normal) still can't be hurt again, exactly as before.
+	if (victim >= 1 && victim < MAXPL && g_elim[victim] && pev(victim, pev_deadflag) == TSM_DEAD_NO)
 	{
 		return HAM_SUPERCEDE;
 	}
@@ -13724,6 +13729,12 @@ apply_freeze(id)
 	new Float:zero[3];
 	set_pev(id, pev_velocity, zero);
 
+	// Same reasoning as apply_warmup_hide: a held player cannot fight back or move,
+	// so without this he can still be farmed -- or killed outright by a stray hit
+	// while frozen, which is how a late-placed player landing on an occupied spawn
+	// point during the freeze tick used to die before the countdown even finished.
+	set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
+
 	switch (get_pcvar_num(g_cv_freezemethod))
 	{
 		case 1:
@@ -15140,7 +15151,12 @@ public fw_prethink(id)
 
 			// Disarm a respawned eliminated player so they cannot shoot while their
 			// body is still being left to TS. Harmless when they have no weapons.
-			if (g_elim_at[id] > 0.0 && is_user_alive(id))
+			//
+			// Not for one a wave is actively reviving (g_revive_pending): TS's respawn
+			// for them lands on a later frame than revive_player's own "respawn" command,
+			// and the moment it does, this condition would otherwise fire before
+			// revive_player's own 0.5s poll ever notices -- see the guard below.
+			if (g_elim_at[id] > 0.0 && is_user_alive(id) && !g_revive_pending[id])
 			{
 				strip_user_weapons(id);
 			}
@@ -15150,8 +15166,16 @@ public fw_prethink(id)
 			 * death sequence ends, loadout and all. Taken out of play here too, as
 			 * a backstop on the death-delay task -- and remove_from_play() itself
 			 * now drops the out-of-play flag when it finally completes.
+			 *
+			 * NOT for a player a wave is actively reviving. Without !g_revive_pending[id],
+			 * this fires the instant TS's respawn lands -- before revive_player's own
+			 * 0.5s poll clears g_elim -- and remove_from_play's pick_spec_target() then
+			 * glues the freshly-alive body onto a teammate via the camera-follow code
+			 * below, which is the "spawns inside a teammate" bug. revive_player's own
+			 * success path clears g_elim_at/g_elim/g_revive_pending together, so once
+			 * this guard stops applying, the whole branch is skipped anyway.
 			 */
-			if (g_elim_at[id] > 0.0 && is_user_alive(id) && elim_hide_due(id))
+			if (g_elim_at[id] > 0.0 && is_user_alive(id) && !g_revive_pending[id] && elim_hide_due(id))
 			{
 				remove_from_play(id);
 			}
@@ -16937,9 +16961,11 @@ finish_round_start()
 	tlog("[TSM] finish_round_start: task_team_badum scheduled at 5.0s (id=%d)", TSM_TASK_BADUM);
 }
 
+#define TSM_SPAWN_CLEARANCE 64.0   // a player hull width
+
 /// Picks one of the team's points at a tier, in the order they were placed. A slot steps
 /// through them (a wave hands out one slot per player); no slot picks at random.
-bool:pick_spawn_point(team, tier, slot, Float:org[3], Float:ang[3])
+bool:pick_spawn_point(id, team, tier, slot, Float:org[3], Float:ang[3])
 {
 	new idx[64], n = 0;
 	new count = (team == 1) ? g_spawn_t1_count : g_spawn_t2_count;
@@ -16956,7 +16982,70 @@ bool:pick_spawn_point(team, tier, slot, Float:org[3], Float:ang[3])
 		return false;
 	}
 
-	new pick = (slot >= 0) ? (slot % n) : random_num(0, n - 1);
+	new pick;
+	if (slot >= 0)
+	{
+		pick = slot % n;
+	}
+	else
+	{
+		/*
+		 * Random placement only -- round start, the staggered arm task, and
+		 * freeze-tick stragglers all land here with slot -1. Nothing here used to
+		 * check whether the point it picked was already occupied, so two
+		 * independent random picks (or a late placement and an already-settled
+		 * player) could land on the exact same spawn point -- stacked, frozen,
+		 * and then both exposed to whatever the engine does to resolve two
+		 * players on one spot the instant they stop being damage-immune (freeze
+		 * ending, go-live). That is the "bots die for no reason at round start"
+		 * bug. Prefer a candidate not within a hull width of any other connected,
+		 * alive player's CURRENT origin; fall back to plain random across every
+		 * candidate if all of them are occupied, which is never worse than before.
+		 */
+		new Float:occ[32][3], onum = 0;
+		new occp[32], opnum;
+		get_players(occp, opnum, g_pfa);   // connected and alive
+		for (new p = 0; p < opnum && onum < sizeof occ; p++)
+		{
+			if (occp[p] == id)
+			{
+				continue;
+			}
+			pev(occp[p], pev_origin, occ[onum]);
+			onum++;
+		}
+
+		new free[64], fn = 0;
+		for (new k = 0; k < n; k++)
+		{
+			new Float:cand[3];
+			if (team == 1)
+			{
+				copy_vec(cand, g_spawn_t1[idx[k]]);
+			}
+			else
+			{
+				copy_vec(cand, g_spawn_t2[idx[k]]);
+			}
+
+			new bool:occupied = false;
+			for (new o = 0; o < onum; o++)
+			{
+				if (get_distance_f(cand, occ[o]) < TSM_SPAWN_CLEARANCE)
+				{
+					occupied = true;
+					break;
+				}
+			}
+			if (!occupied)
+			{
+				free[fn++] = k;
+			}
+		}
+
+		pick = (fn > 0) ? free[random_num(0, fn - 1)] : random_num(0, n - 1);
+	}
+
 	if (team == 1)
 	{
 		copy_vec(org, g_spawn_t1[idx[pick]]);
@@ -17000,7 +17089,7 @@ place_at_spawn(id, slot = -1, bool:respawn = false)
 
 	if (team == 1 || team == 2)
 	{
-		found = pick_spawn_point(team, respawn ? active_spawn_tier(team) : 0, slot, org, ang);
+		found = pick_spawn_point(id, team, respawn ? active_spawn_tier(team) : 0, slot, org, ang);
 		if (found)
 		{
 			has_ang = g_spawns_have_angles;
@@ -17009,7 +17098,7 @@ place_at_spawn(id, slot = -1, bool:respawn = false)
 
 	if (!found && (team == 1 || team == 2))
 	{
-		found = pick_spawn_point(3 - team, 0, slot, org, ang);
+		found = pick_spawn_point(id, 3 - team, 0, slot, org, ang);
 		if (found)
 		{
 			has_ang = g_spawns_have_angles;
@@ -19408,13 +19497,21 @@ resume_match()
 public task_remove_from_play(taskid)
 {
 	new id = taskid - 7000;
-	if (!is_user_connected(id) || !g_elim[id])
+	if (!is_user_connected(id) || !g_elim[id] || g_revive_pending[id])
 	{
 		return;
 	}
 
 	// The ceiling fired. Normally elim_hide_due() has already triggered this from the
 	// per-frame path the moment TS put them back on their feet.
+	//
+	// Not for a player a wave is actively reviving. tsm_death_delay (10s default) fires
+	// well before tsm_respawn_wave (60s default) in the common case -- without
+	// g_revive_pending excluded here, remove_from_play() zeroes g_elim_at and picks a
+	// spectate target long before the wave arrives, and the per-frame camera-follow in
+	// fw_prethink glues the still-invisible ghost onto that target for the whole wait.
+	// revive_player()'s own cleanup handles g_elim_at for this player once the wave
+	// actually revives them; this backstop has no business running first.
 	remove_from_play(id);
 }
 

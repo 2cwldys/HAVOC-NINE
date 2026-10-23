@@ -402,9 +402,16 @@ static int GAME_EXPORT UI_DrawMenuBgVideo( float x, float y, float width, float 
 		AVI_RENDER_H, (int)height,
 		AVI_PARM_LAST );
 
-	// read the next frame, loop seamlessly on EOF instead of stopping
+	// read the next frame; loop by reopening the file on EOF instead of seeking -- see
+	// AVI_REWIND in avi_ffmpeg.c. If the reopen itself fails, cin_state is no longer
+	// active: report that now so the caller (DrawVideoBackground) falls back to the
+	// static background this same frame instead of calling back in here next frame
+	// against a dead state.
 	if( !AVI_Think( cin_state ))
-		AVI_SetParm( cin_state, AVI_REWIND, AVI_PARM_LAST );
+	{
+		if( !AVI_SetParm( cin_state, AVI_REWIND, AVI_PARM_LAST ) || !AVI_IsActive( cin_state ))
+			return false;
+	}
 
 	return true;
 }
