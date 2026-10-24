@@ -6,7 +6,6 @@ Where things live, and what the build, export and engine scripts do, in order. T
 
 | Place | What it is |
 |---|---|
-| D:\GIT Storage\hl2te\dynamic-campaign | This repo. The Dynamic Campaign gamemode, packaged as an addon (addon.json and gamemodes\dynamiccampaign; the gma and gmaddir files suggest Garry's Mod). It also holds the MCP tooling, these notes, and tools.zip. |
 | D:\Downloads\TSM | The source of truth for TS Match Mode (ts_matchmode.sma and .cfg) and for H9XASH. Holds build.bat, export.bat, xash3d-h9-patches\xash.bat and the generated folders export\ and H9XASH\. |
 | D:\GIT Storage\ts_h9_team_elimination | The git working copy that export.bat mirrors export\ into. Commits need the user's OK. |
 | D:\SteamLibrary\steamapps\common\Half-Life | The live install. The mod is ts\. The AMX Mod X folder is ts\addons\amxmodx (TSROOT in build.bat). hlds.exe runs the server. |
@@ -16,7 +15,6 @@ Where things live, and what the build, export and engine scripts do, in order. T
 | D:\Downloads\TSM\rcbot-patch | The patched RCBot source, for TS team logic. |
 | D:\Downloads\TSM\decompile_dll | Scratch area for the binary patches to reTS (mp.dll, tsx_amxx.dll). Not part of the build. |
 | D:\Downloads\TSM\emsdk | The Emscripten SDK, for the planned browser build. Not started. Not part of the Windows build. |
-| D:\GIT Storage\Aurora-Persistence | A BYOND (Space Station 13) project with its own build scripts: scripts\debug-compile.ps1 and scripts\db_update.ps1. |
 
 ## The TS pipeline, in order
 
@@ -99,6 +97,7 @@ export\ts into H9XASH with /XO, so edits made in H9XASH are kept. Then commands.
 - The body is always replaced by the new diff.
 - An empty new diff over a non-empty one is refused, and the file is left as it was. That usually means git failed, and writing it would erase the diff.
 - ENGINE.txt is merged the same way, with no body.
+- Check .patch file chains for any code added by other agents, before building anything, to prevent overwrites.
 
 ## Gotchas that have bitten this project
 
@@ -112,6 +111,7 @@ export\ts into H9XASH with /XO, so edits made in H9XASH are kept. Then commands.
 - The repo copy of H9XASH is edited by hand, for configs and logs. export.bat keeps newer files, so a rebuild does not undo those edits.
 - This machine's git is old. `git branch --show-current` does not exist here. Use `git rev-parse --abbrev-ref HEAD`.
 - Visual Studio on this machine is a preview build (VS 2026 Insiders). The --msvc_prerelease flag exists for that.
+- Code being overwritten by adding code you didn't remember or see other agents do, check the .patch file chain before building any engine code.
 
 ## tools.zip
 

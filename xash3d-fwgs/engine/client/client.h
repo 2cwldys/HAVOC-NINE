@@ -745,6 +745,7 @@ extern convar_t	v_dark;	// start from dark
 extern convar_t	net_graph;
 extern convar_t	rate;
 extern convar_t cl_ticket_generator;
+extern convar_t cl_h9_userid;
 extern convar_t	m_ignore;
 extern convar_t	r_showtree;
 extern convar_t	ui_renderworld;
@@ -1281,6 +1282,7 @@ qboolean Cmd_GetKeysList( const char *s, char *completedname, int length, qboole
 //
 void ID_Init( void );
 void ID_GetMD5ForAddress( char *key, netadr_t adr, size_t size );
+void ID_GetMD5ForAddressEx( char *key, netadr_t adr, size_t size, const char *rawid );
 
 //
 // titles.c

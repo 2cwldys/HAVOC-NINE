@@ -178,9 +178,10 @@
  .reinforce  (or bind a key to:  say .reinforce)
      Officer only, while alive: call the team's waiting dead back now. Every
      teammate waiting for a wave comes back at once, whatever the wave timer
-     says. Once per tsm_reinforce_cooldown seconds (120); a call with nobody
-     waiting costs nothing. Needs tsm_respawns 1. While anyone is waiting, your
-     screen also lists them on the right.
+     says -- bots included, exactly like a natural wave. Once per
+     tsm_reinforce_cooldown seconds (120); a call with nobody waiting costs
+     nothing. Needs tsm_respawns 1. While anyone is waiting, your screen also
+     lists them on the right.
 
  .forfeit
      Vote to concede the match for your side. EVERY human on that side has to type
@@ -252,22 +253,21 @@
      every frame, so switching roaming off simply lets that take over again.
 
  .follow   /   .squad          (Officer class only, during a round)
-     Take the bots standing NEAR you under command -- the nearest first, up to
-     tsm_squad_max, from within tsm_squad_reach. They hold on you until you
-     dismiss them or the round ends.
+     Take every free bot on your side under command -- the nearest first, no
+     cap. They hold on you until you dismiss them or the round ends.
 
      A bot already commanded by another Officer is left alone and you are told
      so. It is never taken off him: two Officers steering one bot would drag it
      between them every frame.
 
-     They are held by steering, which only runs WHERE THEY CAN SEE YOU. Out of
-     sight the plugin does not touch them and rcbot own pathing brings them
-     round, because steering is a straight pull and through a wall it would
-     only pull them into it.
-
-     Bots that wander beyond tsm_squad_warp are WARPED to a clear spot BESIDE
-     you (never onto you) -- the plugin searches a ring behind you for a free
-     landing.
+     They are held as a LOOP, and it stays a loop for the whole round: beyond
+     tsm_squad_dist the plugin pulls a bot towards you, a bot that STAYS
+     beyond tsm_squad_leash (1200 units out) for 3 seconds is LEASHED back to a
+     clear spot beside you (never onto you, never into a body), and one that
+     wanders beyond tsm_squad_warp is warped to you immediately either way.
+     Between tsm_squad_dist and tsm_squad_leash is normal fight-from-range
+     play: pulled, never teleported. Inside tsm_squad_dist the bot is
+     rcbot's own to fight, path and roam with.
 
      An Officer is told about both commands in chat when the round starts, so
      the perk is not invisible.

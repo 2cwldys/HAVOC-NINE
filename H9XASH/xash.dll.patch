@@ -19,6 +19,12 @@ Working tree status for these paths. Anything listed is not committed, and is in
 The notes above were written by an earlier build and are kept as they were. The history below is the record
 of each build, read from git when that build was made. The newest block describes the diff at the end.
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraywad.patch (the classic tempdecal.wad spray: the engine uploads the gamedir's tempdecal.wad unchanged, no logos folder, for every protocol), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 == Patch history ==
 Generated Wed 10/21/2026 23:42:15.60, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -223,6 +229,150 @@ Commits on h9 since upstream that touch these paths, oldest first:
 In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
 e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
 Diff sha256 ba175c68fa41309e8a667c5736d387b84123206ecaff2c9a4b5d51858da2c9da, the diff below.
+
+Generated Fri 10/23/2026  1:23:08.16, from branch h9 at 2ef324be, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/dll_int/cl_gameui.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 65a325b2d824abdc8c954b845a3b705f6185308321c37c8d9c5edf87b0e0811b, the diff below.
+
+Generated Fri 10/23/2026  3:02:39.17, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/dll_int/cl_gameui.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 bd825b58c0bd90ed6e1f49c27bb5a5fa78da2d0cd0b066ea7042c17d85f884fb, the diff below.
+
+Generated Fri 10/23/2026 15:22:21.78, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/dll_int/cl_gameui.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++	// H9: classic HL behavior - the decal lives in tempdecal.wad in the gamedir.
++	// No logos folder, no menu remap: whatever WAD the player packaged IS the
++	// spray, shipped under every protocol. (cl_spray.c stays for tooling.)
+Diff sha256 8edfa42ccaeb7b8ca3d77d36036b408591b9abdda6a0eba155876cb8cb89e54a, the diff below.
+
+Generated Fri 10/23/2026 15:41:12.17, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/dll_int/cl_gameui.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 e8125a6bd08483280a81630f45f131488f3d80f86b3b1a6081c578ff785d3b9c, the diff below.
+
+Generated Fri 10/23/2026 19:04:31.17, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 12138cd0b135a99919553bb975ba0dae75e30233a6feb0c1ca15e9d7c674df98, the diff below.
 
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
@@ -1566,7 +1716,7 @@ index aace8cff..be50a276 100644
  		ent->prevstate = ent->curstate;
  		ent->curstate = *state;
 diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
-index 39e4f9c2..29262374 100644
+index 39e4f9c2..f2e23e54 100644
 --- a/engine/client/cl_main.c
 +++ b/engine/client/cl_main.c
 @@ -24,6 +24,7 @@ GNU General Public License for more details.
@@ -1585,7 +1735,139 @@ index 39e4f9c2..29262374 100644
  static CVAR_DEFINE_AUTO( cl_logofile, "lambda", FCVAR_ARCHIVE, "player logo name" );
  static CVAR_DEFINE_AUTO( cl_logocolor, "255 120 24", FCVAR_ARCHIVE, "player logo color" );
  static CVAR_DEFINE_AUTO( cl_logoext, "bmp", FCVAR_ARCHIVE, "temporary cvar to tell engine which logo must be packed" );
-@@ -1177,7 +1179,41 @@ static void CL_GetCDKey( char *protinfo, size_t protinfosize )
+@@ -98,6 +100,7 @@ static CVAR_DEFINE_AUTO( bottomcolor, "0", FCVAR_USERINFO|FCVAR_ARCHIVE|FCVAR_FI
+ CVAR_DEFINE_AUTO( rate, "25000", FCVAR_USERINFO|FCVAR_ARCHIVE|FCVAR_FILTERABLE, "player network rate" );
+ 
+ CVAR_DEFINE_AUTO( cl_ticket_generator, "revemu2013", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "you wouldn't steal a car" );
++CVAR_DEFINE_AUTO( cl_h9_userid, "", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "H9: this install's regenerable client id -- see docs/CUSTOM_XASH_USERID.txt" );
+ static CVAR_DEFINE_AUTO( cl_advertise_engine_in_name, "1", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "add [Xash3D] to the nickname when connecting to GoldSrc servers" );
+ static CVAR_DEFINE_AUTO( cl_log_outofband, "0", FCVAR_ARCHIVE, "log out of band messages, can be useful for server admins and for engine debugging" );
+ static CVAR_DEFINE_AUTO( cl_autorecord, "0", 0, "automatically start recording a demo after joining the server" );
+@@ -231,16 +234,14 @@ static void CL_CreateResourceList( void )
+ 	ClearBits( cl_logoext.flags, FCVAR_CHANGED );
+ #endif
+ 
+-	// sanitize cvar value
+-	if( Q_strcmp( cl_logoext.string, "bmp" ) && Q_strcmp( cl_logoext.string, "png" ))
+-		Cvar_DirectSet( &cl_logoext, "bmp" );
+-
+-	Q_snprintf( szFileName, sizeof( szFileName ), "logos/remapped.%s", cl_logoext.string );
+-	if( cls.net_protocol == PROTO_GOLDSRC )
+-	{
+-		CL_ConvertImageToWAD3( szFileName );
+-		Q_strncpy( szFileName, "tempdecal.wad", sizeof( szFileName ));
+-	}
++	// H9: the spray picker is alive: cl_logofile names the bitmap the player
++	// picked from ts\logos (the classics ship there, a player's own upload joins
++	// the same list), and the engine remaps it into the player's own
++	// tempdecal.wad -- the file the spray really is -- sent under every protocol.
++	// A missing or unconvertible pick leaves any uploaded tempdecal.wad alone.
++	Q_snprintf( szFileName, sizeof( szFileName ), "logos/%s.%s", cl_logofile.string, cl_logoext.string );
++	CL_ConvertImageToWAD3( szFileName );
++	Q_strncpy( szFileName, "tempdecal.wad", sizeof( szFileName ));
+ 	file_t		*fp = FS_Open( szFileName, "rb", true );
+ 
+ 	if( !fp )
+@@ -315,6 +316,98 @@ static void CL_CheckLogoChanged( void )
+ #endif
+ }
+ 
++/*
++==================
++CL_Spray_f
++
++pick a spray off the shelf: `spray` lists every picture in ts\logos and what
++is equipped, `spray <name>` equips one, `spray off` unequips -- and the file
++that a player left in ts\ sprays without ever being converted.
++==================
++*/
++static void CL_Spray_f( void )
++{
++	if( Cmd_Argc() > 2 )
++	{
++		Con_Printf( S_USAGE "spray [logo name | off]\n" );
++		return;
++	}
++
++	if( Cmd_Argc() == 2 )
++	{
++		const char	*name = Cmd_Argv( 1 );
++		const char	*ext = NULL;
++		char		pattern[MAX_OSPATH];
++		search_t	*search;
++
++		if( strchr( name, '/' ) || strchr( name, '\\' ) || strchr( name, ':' ))
++		{
++			Con_Printf( S_USAGE "spray [logo name | off]\n" );
++			return;
++		}
++
++		if( !Q_stricmp( name, "off" ))
++		{
++			Cvar_Set( "cl_logofile", "none" );
++			Con_Printf( "spray: the shelf is unequipped; a hand-dropped tempdecal.wad sprays untouched\n" );
++			return;
++		}
++
++		Q_snprintf( pattern, sizeof( pattern ), "logos/%s.*", name );
++		search = FS_Search( pattern, true, true );
++
++		if( search )
++		{
++			for( int i = 0; i < search->numfilenames; i++ )
++			{
++				const char	*file = search->filenames[i];
++				size_t		len = Q_strlen( file );
++
++				if( len > 4 && !Q_stricmp( file + len - 4, ".bmp" ))
++					ext = "bmp";
++				else if( len > 4 && !Q_stricmp( file + len - 4, ".png" ))
++					ext = "png";
++
++				if( ext )
++					break;
++			}
++			Mem_Free( search );
++		}
++
++		if( !ext )
++		{
++			Con_Printf( "spray: no picture named \"%s\" in ts\\logos\n", name );
++			return;
++		}
++
++		Cvar_Set( "cl_logofile", name );
++		Cvar_Set( "cl_logoext", ext );
++		Con_Printf( "spray: %s.%s equipped%s\n", name, ext, cls.state == ca_active ?
++			", being sent to the server now" : ", takes effect at the next connect" );
++		return;
++	}
++
++	Con_Printf( "equipped: \"%s.%s\"\n", cl_logofile.string, cl_logoext.string );
++
++	search_t	*list = FS_Search( "logos/*.bmp", true, true );
++
++	if( list )
++	{
++		for( int i = 0; i < list->numfilenames; i++ )
++			Con_Printf( "  %s\n", list->filenames[i] );
++		Mem_Free( list );
++	}
++
++	list = FS_Search( "logos/*.png", true, true );
++
++	if( list )
++	{
++		for( int i = 0; i < list->numfilenames; i++ )
++			Con_Printf( "  %s\n", list->filenames[i] );
++		Mem_Free( list );
++	}
++}
++
+ /*
+ ===============
+ CL_CheckClientState
+@@ -1177,7 +1270,41 @@ static void CL_GetCDKey( char *protinfo, size_t protinfosize )
  	Info_SetValueForKey( protinfo, "cdkey", key, protinfosize );
  }
  
@@ -1628,7 +1910,7 @@ index 39e4f9c2..29262374 100644
  {
  	string key;
  	netadr_t adr = { .type = NA_LOOPBACK, }; // goldsrc servers don't get unique key as xashid isn't sent raw to them
-@@ -1191,6 +1227,9 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
+@@ -1191,6 +1318,9 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
  		return;
  	}
  
@@ -1638,7 +1920,7 @@ index 39e4f9c2..29262374 100644
  	ID_GetMD5ForAddress( key, adr, sizeof( key ));
  	CRC32_Init( &crc );
  	CRC32_ProcessBuffer( &crc, key, Q_strlen( key ));
-@@ -1225,7 +1264,7 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
+@@ -1225,7 +1355,7 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
  		PROTOCOL_GOLDSRC_VERSION, challenge, protinfo, cls.userinfo );
  	MSG_SeekToBit( &send, -8, SEEK_CUR ); // rewrite null terminator
  	if( ticket == NULL )
@@ -1647,7 +1929,28 @@ index 39e4f9c2..29262374 100644
  	else
  		MSG_WriteBytes( &send, ticket, ticketlen );
  
-@@ -2092,6 +2131,7 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
+@@ -1310,6 +1440,20 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
+ 			Cvar_DirectSetValue( &cl_dlmax, FRAGMENT_DEFAULT_SIZE );
+ 
+ 		Info_SetValueForKey( protinfo, "uuid", key, sizeof( protinfo ));
++
++		// H9: cl_h9_userid is a plain, regenerable client id (not a hardware
++		// fingerprint, see identification.c's own id above) -- salted per
++		// destination server the same way, so no two servers can compare the
++		// same raw value to correlate a player, and sent via userinfo (which a
++		// real server actually parses) rather than protinfo (which it doesn't).
++		if( cl_h9_userid.string[0] )
++		{
++			string h9key;
++
++			ID_GetMD5ForAddressEx( h9key, adr, sizeof( h9key ), cl_h9_userid.string );
++			Info_SetValueForKey( cls.userinfo, "h9_clientid", h9key, sizeof( cls.userinfo ));
++		}
++
+ 		Info_SetValueForKey( protinfo, "qport", qport, sizeof( protinfo ));
+ 		Info_SetValueForKeyf( protinfo, "ext", sizeof( protinfo ), "%d", extensions );
+ 
+@@ -2092,6 +2236,7 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
  	if( maxcl > MAX_CLIENTS || numcl > MAX_CLIENTS || numcl > maxcl || i != PROTOCOL_VERSION )
  		return;
  
@@ -1655,7 +1958,7 @@ index 39e4f9c2..29262374 100644
  	UI_AddServerToList( from, infostring );
  }
  
-@@ -3675,6 +3715,7 @@ static void CL_InitLocal( void )
+@@ -3675,9 +3820,11 @@ static void CL_InitLocal( void )
  	cl.resourcesonhand.pNext = cl.resourcesonhand.pPrev = &cl.resourcesonhand;
  
  	Cvar_RegisterVariable( &cl_ticket_generator );
@@ -1663,7 +1966,15 @@ index 39e4f9c2..29262374 100644
  	Cvar_RegisterVariable( &cl_advertise_engine_in_name );
  	Cvar_RegisterVariable( &cl_log_outofband );
  	Cvar_RegisterVariable( &cl_autorecord );
-@@ -3691,6 +3732,7 @@ static void CL_InitLocal( void )
++	Cvar_RegisterVariable( &cl_h9_userid );
+ 
+ 	Cvar_RegisterVariable( &showpause );
+ 	Cvar_RegisterVariable( &mp_decals );
+@@ -3688,9 +3835,11 @@ static void CL_InitLocal( void )
+ 	Cvar_RegisterVariable( &cl_download_ingame );
+ 	Cvar_RegisterVariable( &cl_logofile );
+ 	Cvar_RegisterVariable( &cl_logocolor );
++	Cmd_AddCommand( "spray", CL_Spray_f, "list and equip spray pictures, spray off to unequip" );
  	Cvar_RegisterVariable( &cl_logoext );
  	Cvar_RegisterVariable( &cl_logoupdate );
  	Cvar_RegisterVariable( &cl_logomaxdim );
@@ -1671,7 +1982,7 @@ index 39e4f9c2..29262374 100644
  	Cvar_RegisterVariable( &cl_test_bandwidth );
  	Cvar_RegisterVariable( &cl_require_challenge_echo );
  
-@@ -4005,6 +4047,7 @@ CL_Shutdown
+@@ -4005,6 +4154,7 @@ CL_Shutdown
  */
  void CL_Shutdown( void )
  {
@@ -2183,6 +2494,35 @@ index 00000000..59aca604
 +	H9P_Close();
 +#endif
 +}
+diff --git a/engine/client/cl_sprite.c b/engine/client/cl_sprite.c
+index 29185659..b6dc33da 100644
+--- a/engine/client/cl_sprite.c
++++ b/engine/client/cl_sprite.c
+@@ -40,6 +40,12 @@ mspriteframe_t *R_GetSpriteFrame( const model_t *pModel, int frame, float yaw )
+ 
+ 	psprite = pModel->cache.data;
+ 
++	// H9: a slot can be registered with nothing behind it -- a client asked about
++	// a sprite whose model was never fully loaded. Answer "no frame" rather than
++	// crash on the null cache pointer.
++	if( !psprite )
++		return NULL;
++
+ 	if( frame < 0 )
+ 	{
+ 		frame = 0;
+@@ -95,6 +101,11 @@ void R_GetSpriteParms( int *frameWidth, int *frameHeight, int *numFrames, int cu
+ 
+ 	pFrame = R_GetSpriteFrame( pSprite, currentFrame, 0.0f );
+ 
++	// H9: the frame lookup can come back empty (data not loaded); leave the
++	// caller's outputs untouched rather than read through a null frame.
++	if( !pFrame )
++		return;
++
+ 	if( frameWidth )
+ 		*frameWidth = pFrame->width;
+ 	if( frameHeight )
 diff --git a/engine/client/cl_steam.c b/engine/client/cl_steam.c
 index 51b5def6..36e67822 100644
 --- a/engine/client/cl_steam.c
@@ -2252,7 +2592,7 @@ index c1b3ef13..0349d7cf 100644
  		// client dll may replace viewmodel in pfnCalcRefdef, so set animtime again
  		// V_SetupViewModel did it only for the model known before this call
 diff --git a/engine/client/client.h b/engine/client/client.h
-index e5db2dac..982a4c98 100644
+index e5db2dac..7e53edc0 100644
 --- a/engine/client/client.h
 +++ b/engine/client/client.h
 @@ -145,6 +145,11 @@ typedef struct
@@ -2286,7 +2626,15 @@ index e5db2dac..982a4c98 100644
  extern convar_t	cl_nopred;
  extern convar_t	cl_timeout;
  extern convar_t	cl_interp;
-@@ -1184,6 +1194,12 @@ void UI_KeyEvent( int key, qboolean down );
+@@ -735,6 +745,7 @@ extern convar_t	v_dark;	// start from dark
+ extern convar_t	net_graph;
+ extern convar_t	rate;
+ extern convar_t cl_ticket_generator;
++extern convar_t cl_h9_userid;
+ extern convar_t	m_ignore;
+ extern convar_t	r_showtree;
+ extern convar_t	ui_renderworld;
+@@ -1184,6 +1195,12 @@ void UI_KeyEvent( int key, qboolean down );
  void UI_MouseMove( int x, int y );
  void UI_SetActiveMenu( qboolean fActive );
  void UI_AddServerToList( netadr_t adr, const char *info );
@@ -2299,6 +2647,65 @@ index e5db2dac..982a4c98 100644
  void UI_GetCursorPos( int *pos_x, int *pos_y );
  void UI_SetCursorPos( int pos_x, int pos_y );
  void UI_ShowCursor( qboolean show );
+@@ -1265,6 +1282,7 @@ qboolean Cmd_GetKeysList( const char *s, char *completedname, int length, qboole
+ //
+ void ID_Init( void );
+ void ID_GetMD5ForAddress( char *key, netadr_t adr, size_t size );
++void ID_GetMD5ForAddressEx( char *key, netadr_t adr, size_t size, const char *rawid );
+ 
+ //
+ // titles.c
+diff --git a/engine/client/dll_int/cl_game.c b/engine/client/dll_int/cl_game.c
+index 495245d7..4e2ec824 100644
+--- a/engine/client/dll_int/cl_game.c
++++ b/engine/client/dll_int/cl_game.c
+@@ -1413,8 +1413,15 @@ int EXPORT pfnSPR_Frames( HSPRITE hPic );
+ int EXPORT pfnSPR_Frames( HSPRITE hPic )
+ {
+ 	int	numFrames = 0;
++	const model_t *sprite = CL_GetSpritePointer( hPic );
++
++	// H9: an HSPRITE can name a sprite the client never got -- content missing or
++	// half-updated on the player's machine. Like pfnSPR_Set for an invalid handle,
++	// answer 0 and keep running rather than passing a null model on to the ref.
++	if( !sprite )
++		return numFrames;
+ 
+-	R_GetSpriteParms( NULL, NULL, &numFrames, 0, CL_GetSpritePointer( hPic ));
++	R_GetSpriteParms( NULL, NULL, &numFrames, 0, sprite );
+ 
+ 	return numFrames;
+ }
+@@ -1428,8 +1435,13 @@ pfnSPR_Height
+ static int GAME_EXPORT pfnSPR_Height( HSPRITE hPic, int frame )
+ {
+ 	int	sprHeight = 0;
++	const model_t *sprite = CL_GetSpritePointer( hPic );
+ 
+-	R_GetSpriteParms( NULL, &sprHeight, NULL, frame, CL_GetSpritePointer( hPic ));
++	// H9: invalid or never-loaded HSPRITE -- the height of nothing is 0.
++	if( !sprite )
++		return sprHeight;
++
++	R_GetSpriteParms( NULL, &sprHeight, NULL, frame, sprite );
+ 
+ 	return sprHeight;
+ }
+@@ -1443,8 +1455,13 @@ pfnSPR_Width
+ static int GAME_EXPORT pfnSPR_Width( HSPRITE hPic, int frame )
+ {
+ 	int	sprWidth = 0;
++	const model_t *sprite = CL_GetSpritePointer( hPic );
++
++	// H9: invalid or never-loaded HSPRITE -- the width of nothing is 0.
++	if( !sprite )
++		return sprWidth;
+ 
+-	R_GetSpriteParms( &sprWidth, NULL, NULL, frame, CL_GetSpritePointer( hPic ));
++	R_GetSpriteParms( &sprWidth, NULL, NULL, frame, sprite );
+ 
+ 	return sprWidth;
+ }
 diff --git a/engine/client/dll_int/cl_gameui.c b/engine/client/dll_int/cl_gameui.c
 index 993304fa..56073e34 100644
 --- a/engine/client/dll_int/cl_gameui.c
@@ -2420,7 +2827,7 @@ index 8ea38dc5..c5f9f644 100644
  		"GLES3 (gl2_shim)",
  #endif
 diff --git a/engine/client/identification.c b/engine/client/identification.c
-index dd28842e..a9856cac 100644
+index dd28842e..5919703e 100644
 --- a/engine/client/identification.c
 +++ b/engine/client/identification.c
 @@ -13,6 +13,9 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -2433,7 +2840,48 @@ index dd28842e..a9856cac 100644
  #include "build.h"
  #include <inttypes.h>
  #if XASH_LINUX
-@@ -757,9 +760,17 @@ void ID_Init( void )
+@@ -703,6 +706,40 @@ void ID_GetMD5ForAddress( char *key, netadr_t adr, size_t size )
+ 	Q_strnlwr( MD5_Print( md5 ), key, size );
+ }
+ 
++// H9: same shape as ID_GetMD5ForAddress above, but for a caller-supplied secret
++// instead of this file's own hardware-derived id -- used for cl_h9_userid (a
++// plain regenerable client id, not a hardware fingerprint), so the same
++// per-destination-server salting this file already does for one id can be
++// reused for a different one, without reaching into the static `id` this
++// function is built around.
++void ID_GetMD5ForAddressEx( char *key, netadr_t adr, size_t size, const char *rawid )
++{
++	MD5Context_t ctx;
++	byte buf[32], md5[16];
++	size_t bufsize = 0;
++
++	switch( NET_NetadrType( &adr ))
++	{
++	case NA_IP:
++		memcpy( buf, adr.ip, sizeof( adr.ip ));
++		bufsize = sizeof( adr.ip );
++		break;
++	case NA_IP6:
++		NET_NetadrToIP6Bytes( buf, &adr );
++		bufsize = 16;
++		break;
++	default:
++		break;
++	}
++
++	MD5Init( &ctx );
++	MD5Update( &ctx, (const byte *)rawid, Q_strlen( rawid ));
++	if( bufsize != 0 )
++		MD5Update( &ctx, buf, bufsize );
++	MD5Final( md5, &ctx );
++	Q_strnlwr( MD5_Print( md5 ), key, size );
++}
++
+ void ID_Init( void )
+ {
+ 	Cmd_AddRestrictedCommand( "bloomfilter", ID_BloomFilter_f, "print bloomfilter raw value of arguments set");
+@@ -757,9 +794,17 @@ void ID_Init( void )
  		{
  			sscanf( buf, "%016"PRIX64, &id );
  			id ^= GAME_XOR_MASK;

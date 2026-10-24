@@ -1,0 +1,179 @@
+# Patch changelog -- required reading and required editing
+
+**Any agent or session that adds, edits, regenerates, splits, merges, or
+removes a `.patch` file in this folder MUST add a dated entry to the log at
+the bottom of this file in the same turn, before considering that work done.**
+Not a suggestion -- this file exists because skipping it already broke a real
+build. See 2026-10-23 below for exactly what that looked like.
+
+## Why this file exists
+
+`xash3d-h9-patches\xash.bat` re-verifies every patch here against the live
+`xash3d-fwgs` source on **every build** (its `:patch` subroutine): it tries
+`git apply --reverse --check`, and if that succeeds the patch is "in place"
+and gets skipped; if it fails, it tries a forward `git apply` instead and
+**stops the entire build** if that also fails.
+
+That means a patch file only has to be *technically correct* once: the moment
+its content drifts from reality -- another patch gets inserted before it in
+the chain and shifts its line numbers, the file it touches gets rewritten by
+a *different*, already-committed change on the `h9` branch, or someone hand-
+edits the live source without regenerating the matching `.patch` -- it fails
+silently (no error) **until the next full rebuild**, which then breaks for
+whoever runs it, with no clue which of the 10+ patches is actually stale.
+Reading this log before touching a patch, and writing an entry after, is the
+only thing that keeps that lag from turning into exactly this.
+
+Two different kinds of "patch" exist in this project and this file is only
+about the first kind:
+- **Tracked `.patch` files in this folder** -- re-verified on every build as
+  described above. This log covers these.
+- **Already-committed changes on the `h9` branch** (`git log --oneline` in
+  `xash3d-fwgs`, e.g. `engine-h9-spraywad.patch`, `engine-h9-cloak.patch`'s
+  own commit) -- baked into the branch, never re-verified by `xash.bat`,
+  and a legitimate way for an earlier session's patch to become permanent.
+  `git log` is the source of truth for these, not this file. But a *tracked*
+  patch generated before one of these commits landed can go stale against it
+  without anyone touching the tracked patch at all -- that is exactly what
+  happened to `engine-h9-spraypicker.patch` below.
+
+## Current patches, in `xash.bat` apply order
+
+| # | Patch | Files | Purpose |
+|---|-------|-------|---------|
+| 1 | `engine-library_suffix.patch` | `3rdparty/library_suffix` | webassembly patch, library suffix part |
+| 2 | `engine.patch` | engine-wide | webassembly patch, engine part |
+| 3 | `engine-mainui.patch` | `3rdparty/mainui` | webassembly patch, mainui part |
+| 4 | `freevgui.patch` | `3rdparty/freevgui` | upstream freevgui |
+| 5 | `freevgui-h9-scheme.patch` | `3rdparty/freevgui` | H9's VGUI color scheme |
+| 6 | `engine-h9-cloak.patch` | `cl_frame.c`, `cl_main.c`, `cl_view.c`, `client.h` | server-side cloak shown on your own model |
+| 7 | `engine-h9-cmdbuf.patch` | `cmd.c` | command buffer holding H9's configs |
+| 8 | `engine-h9-chatmouse.patch` | `input.c` | mouse-look stays on while typing in chat |
+| 9 | `engine-h9-suddendeath.patch` | `server.h`, `sv_main.c`, `sv_phys.c`, `gl_rmain.c` | sudden-death fog: `h9_fog_*` server cvars into `movevars.fog_settings`, read back client-side |
+| 10 | `engine-h9-xray.patch` | `gl_studio.c` | renderfx 64: sudden death's glow shells drawn through walls |
+| 11 | `engine-h9-sprguard.patch` | `cl_sprite.c`, `dll_int/cl_game.c` | sprite query family answers 0 on a bad/unloaded HSPRITE instead of crashing |
+| 12 | `engine-h9-spraypicker.patch` | `cl_main.c` (`CL_CreateResourceList`) | the bitmap picked from `ts\logos` is remapped into the player's own `tempdecal.wad`, sent under every protocol |
+| 13 | `engine-h9-spraycmd.patch` | `cl_main.c` (new `CL_Spray_f`, registered in `CL_InitLocal`) | the `spray` console command: list/equip/unequip from the `ts\logos` shelf. **Applies after #12** -- its hunks assume spraypicker's `CL_CreateResourceList` rewrite already shifted the file |
+| 14 | `mainui-h9-gamestartup.patch` | `3rdparty/mainui/BaseMenu.cpp` | menu startup behavior |
+| 15 | `engine-h9-userid.patch` | `cl_main.c`, `client.h`, `identification.c` | `cl_h9_userid`: a plain, regenerable client id, salted per destination server via `ID_GetMD5ForAddressEx`, sent as userinfo key `h9_clientid`. **Applies after #12/#13** -- its `CL_InitLocal` registration hunk and connect-packet hunk are numbered against the file state *after* spraypicker+spraycmd. See `docs\CUSTOM_XASH_USERID.txt` |
+| 16 | `engine-h9-presence.patch` | `cl_main.c`, `client.h`, `host.c`, `game_launch\game.rc`, `cl_presence.c` (new), `game_launch\havoc9.ico` (new, binary) | Discord Rich Presence: `CL_Presence_Init/Frame/Shutdown/ServerReply`, the exe icon swap to `havoc9.ico`. **Applies after #15** -- its `CL_InitLocal` registration hunk is numbered against the file state *after* userid's own registration line exists. See `docs\RICH_PRESENCE.txt` |
+
+Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
+`engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
+the spray" rewrite of `CL_CreateResourceList` that spraypicker above now
+further builds on), and the webassembly/cloak/cmdbuf/chatmouse base commits
+referenced by name in some of the rows above.
+
+There's an existing (informal, undocumented-until-now) convention for this
+exact situation: `patches\retired\` is where a tracked `.patch` file goes
+once its content is permanently committed on `h9` and it no longer needs
+`xash.bat`'s per-build reverse-check -- a historical copy, not a delete.
+`engine-h9-spraywad.patch` went through exactly this (its commit date and
+the file's retirement both land on 2026-10-23), which is how it was found
+while investigating the entry below: safe in `git log`, but its retired copy
+is currently an orphan in `export\` and the git mirror (robocopy's plain copy
+mode never deletes a destination file that's gone from source) -- harmless,
+just a stale leftover, not evidence of lost work.
+
+Still currently uncommitted in the live `xash3d-fwgs` working tree, with
+**no tracked patch file at all yet**: a menu-background-video struct
+addition (`gameui_static_t.menubg_*` in `client.h`). Real, intentional
+in-progress work -- not garbage, do not revert it -- but because it isn't
+captured as a patch, `git stash`/`git checkout --` on `client.h` will
+silently drop it, and a clean rebuild from scratch will not reproduce it.
+If you touch this feature, this is a good time to give it its own tracked
+patch instead of leaving it as loose working-tree state (presence, just
+above, used to be in the exact same spot -- see the 2026-10-23 log entry for
+how that one got fixed).
+
+## Entry format
+
+```
+### YYYY-MM-DD -- <patch name(s)>
+What changed, why, and what you verified (forward `git apply --check`,
+reverse `git apply --reverse --check`, and/or a real `xash.bat` run).
+```
+
+## Log
+
+### 2026-10-23 -- engine-h9-spraypicker.patch, engine-h9-spraycmd.patch (fixed), engine-h9-userid.patch (new)
+
+A routine build (verifying new, unrelated `cl_h9_userid` engine edits) failed
+on `engine-h9-spraypicker.patch` with "does not apply -- resolve it by hand."
+Root cause, found by reading the patch's expected old-side content against
+the real file: `engine-h9-spraypicker.patch` had gone stale. It was generated
+against code that still had the pre-`engine-h9-spraywad.patch` sanitize/remap
+logic in `CL_CreateResourceList` (an older `.patch` file's own base), but
+`engine-h9-spraywad.patch` is an *already-committed* change on `h9` that
+rewrote that same function to the simpler classic-HL form first -- so by the
+time anyone ran a full chain rebuild, spraypicker's expected context no
+longer existed anywhere. Nobody edited `engine-h9-spraypicker.patch` when
+spraywad landed; it just quietly stopped matching reality and nothing
+surfaced that until the next full rebuild.
+
+While fixing it, found a second, related problem: `engine-h9-spraycmd.patch`
+was a byte-for-byte duplicate of content that had *also* ended up folded into
+the real uncommitted spray-picker hand-edit sitting in the working tree (the
+`CL_Spray_f` command function and its registration) -- a leftover from before
+that command was absorbed into the picker feature, never removed from
+`xash.bat`'s chain. Left as-is, it would have either errored the same way or
+silently double-applied once spraypicker was fixed.
+
+Fix: regenerated `engine-h9-spraypicker.patch` to contain only the
+`CL_CreateResourceList` remap rewrite (matching the current, post-spraywad
+baseline), and regenerated `engine-h9-spraycmd.patch` to contain only the
+`CL_Spray_f` function + its `Cmd_AddCommand` registration, correctly numbered
+to apply *after* the fixed spraypicker. Verified both forward (`git apply
+--check`) and reverse (`git apply --reverse --check`) against a from-clean-
+HEAD reconstruction, not just against whatever happened to be in the working
+tree at the time.
+
+Also added `engine-h9-userid.patch` (new feature, see `docs
+\CUSTOM_XASH_USERID.txt`) and registered it at the end of the chain. Its
+`CL_InitLocal` registration hunk originally shared an anchor line
+(immediately after `cl_ticket_generator`'s own registration) with the
+uncommitted, not-yet-patched Discord-presence hook mentioned above -- moved
+it to anchor after `cl_autorecord`'s registration instead so it does not
+depend on presence's position at all. Verified forward+reverse against a
+from-clean-HEAD-plus-spraypicker-plus-spraycmd reconstruction in a scratch
+dir, not against hand-derived line arithmetic (got that arithmetic wrong
+twice while working this out -- do not trust it, always verify against real
+file content or a real `git apply --check`).
+
+### 2026-10-23 -- engine-h9-presence.patch (new)
+
+While adding `docs\CUSTOM_XASH_USERID.txt` to `export.bat`'s doc-copy list,
+noticed `docs\RICH_PRESENCE.txt` was already there, describing Discord Rich
+Presence as a finished, on-by-default, shipped feature (`ts_richpresence`
+cvar, referenced from `ts\userconfig.cfg`). Checked: the feature was real and
+fully wired (`CL_Presence_Frame()` called every frame from `host.c`'s
+`Host_Frame`, confirmed via grep, not a stub) -- but it existed *only* as
+uncommitted working-tree state across `cl_main.c`, `client.h`, `host.c`,
+`game_launch\game.rc`, plus the untracked `cl_presence.c` (498 lines) and
+`game_launch\havoc9.ico`. Exactly the risk flagged in the entry above: no
+tracked patch, so `git stash`/`git checkout --`/a fresh clone would silently
+lose a feature documented as already shipped.
+
+Fixed the same way as spraypicker/spraycmd/userid above: captured a clean,
+isolated patch via a from-clean-HEAD scratch reconstruction (chain-applying
+the existing patches first, then adding just the presence hunks on top,
+rather than diffing the live tree directly -- the live tree has userid,
+menubg, and presence all mixed into the same two files). Verified forward
+(`git apply --check`) and reverse (`git apply --reverse --check`) against
+that reconstruction and against the real tree. Registered at the end of the
+chain, after `engine-h9-userid.patch` (its `CL_InitLocal` hunk assumes
+userid's registration line already exists).
+
+**Open suspicion, not yet confirmed:** the user raised that the sudden-death
+green fog bug (investigated at length earlier, root cause never confirmed --
+see session history) may be the same class of problem: a tracked patch
+(`engine-h9-suddendeath.patch`, touches `server.h`, `sv_main.c`, `sv_phys.c`,
+`gl_rmain.c`) silently going stale or incomplete relative to some other
+change, rather than the plugin-side logic being wrong (which was already
+proven correct by direct tracing). As of this entry, `engine-h9-suddendeath
+.patch` reverse-checks cleanly ("in place") against the current tree, so it
+is *not* currently stale in the way spraypicker was -- but that only proves
+its tracked hunks match current content, not that those hunks still capture
+the complete original feature. Worth a dedicated look before resuming that
+investigation: diff the patch's own hunks against what the fog feature
+actually needs to do, rather than re-tracing the plugin side again.

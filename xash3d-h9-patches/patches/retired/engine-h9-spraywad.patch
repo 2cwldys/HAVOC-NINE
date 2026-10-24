@@ -1,0 +1,25 @@
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+index 368745e9..106f12a9 100644
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -233,16 +233,11 @@ static void CL_CreateResourceList( void )
+ 	ClearBits( cl_logoext.flags, FCVAR_CHANGED );
+ #endif
+ 
+-	// sanitize cvar value
+-	if( Q_strcmp( cl_logoext.string, "bmp" ) && Q_strcmp( cl_logoext.string, "png" ))
+-		Cvar_DirectSet( &cl_logoext, "bmp" );
++	// H9: classic HL behavior - the decal lives in tempdecal.wad in the gamedir.
++	// No logos folder, no menu remap: whatever WAD the player packaged IS the
++	// spray, shipped under every protocol. (cl_spray.c stays for tooling.)
++	Q_strncpy( szFileName, "tempdecal.wad", sizeof( szFileName ));
+ 
+-	Q_snprintf( szFileName, sizeof( szFileName ), "logos/remapped.%s", cl_logoext.string );
+-	if( cls.net_protocol == PROTO_GOLDSRC )
+-	{
+-		CL_ConvertImageToWAD3( szFileName );
+-		Q_strncpy( szFileName, "tempdecal.wad", sizeof( szFileName ));
+-	}
+ 	file_t		*fp = FS_Open( szFileName, "rb", true );
+ 
+ 	if( !fp )

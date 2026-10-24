@@ -55,6 +55,13 @@ REM ts\networking_resolved.cfg from it. If it fails, the game still starts, with
 REM FWGS list only.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0h9_networking.ps1"
 
+REM ---- this install's client id -----------------------------------------------------
+REM user_id.ini holds a random id H9XASH makes once on first run (h9_userid.ps1) and
+REM keeps using after that, unless h9_regenerate_userid.bat is run. Writes
+REM ts\userid_resolved.cfg so the engine has it in cl_h9_userid. See
+REM docs\CUSTOM_XASH_USERID.txt.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0h9_userid.ps1"
+
 set "MUSICLIST=ts\menu_music.txt"
 set "RESOLVED=ts\menu_music_resolved.cfg"
 set "CHOSEN=equilibrium.mp3"

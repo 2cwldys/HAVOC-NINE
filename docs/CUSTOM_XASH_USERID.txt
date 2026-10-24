@@ -1,0 +1,180 @@
+===============================================================================
+ CUSTOM XASH USERID: A REGENERABLE PER-SERVER CLIENT ID
+===============================================================================
+
+ Who this is for: anyone playing H9XASH, and anyone writing an AMX Mod X plugin
+ for a server that runs on Xash.
+
+ The short version
+   * H9XASH makes a random id for this install once, on first run, and keeps
+     using it. It is NOT a hardware fingerprint -- see section 1.
+   * A server never sees that raw id. It sees MD5(the id + that server's own
+     address) -- a different value for every different server (section 3).
+   * Delete user_id.ini, or run h9_regenerate_userid.bat, to get a new one on
+     your next launch (section 2).
+   * Any AMX Mod X plugin can read it with get_user_info(id, "h9_clientid",
+     ...) -- no special permission needed (section 4).
+
+ 1. WHAT THIS IS, AND ISN'T
+ ---------------------------
+ A plain random id, generated once and stored in user_id.ini. Nothing about it
+ is derived from this PC's hardware -- it is exactly as meaningful as a random
+ number, on purpose, so it is something you control: lose confidence in it,
+ and you throw it away (section 2).
+
+ This is NOT the same thing as the engine's own, older, separate identity
+ channel -- the hardware-derived id in identification.c, surfaced to AMX Mod X
+ as get_user_authid(). That one exists for a different reason (it is already
+ resistant to being casually reset) and this feature does not touch, replace,
+ or interact with it. A server can see both; they answer different questions.
+
+ Why this exists at all: SteamIDs are not a reliable identifier for this
+ player base. A Xash client cannot actually join a real Steam HLDS today
+ ("STEAM validation rejected" -- see docs\ENGINE_DIFFERENTIALS.txt), and the
+ default ticket this engine sends toward that path (cl_ticket_generator
+ revemu2013, see docs\NETWORKING.txt) is a fabricated, non-unique value, not
+ a real Steam ticket. On this project's own servers, there has never been a
+ SteamID in the picture to begin with.
+
+ 2. USER_ID.INI, AND REGENERATING IT
+ -------------------------------------
+ H9XASH\user_id.ini holds this install's id, made the first time h9xash.bat
+ runs and left alone after that:
+
+     [client]
+     id=3f9a2b7c4e1d4a8f9b6c0d2e5f7a1b3c
+
+ h9_userid.ps1 (run automatically by h9xash.bat, every launch) only writes a
+ NEW id here if the file is missing or doesn't look like a real id -- a normal
+ launch never changes it, the same way networking.ini's settings survive every
+ launch untouched.
+
+ To get a new one on purpose -- the file was shared by mistake, or you simply
+ want a clean slate -- run h9_regenerate_userid.bat from the H9XASH folder.
+ Like networking.ini's own settings, this takes effect on your NEXT launch,
+ not instantly.
+
+ 3. HOW IT REACHES A SERVER
+ ----------------------------
+ The engine never sends the raw value in user_id.ini to anyone. Every time you
+ connect to a server, it computes:
+
+     h9_clientid = MD5( this install's id + that server's own address )
+
+ and sends THAT, as a userinfo key (the same standard GoldSrc channel that
+ already carries your name, model and rate to a server -- nothing new on the
+ wire protocol, no special permission needed). Because the server's address is
+ part of what gets hashed, two different servers see two different values for
+ the exact same install -- they cannot compare notes and recognise you as the
+ same person across them from this value alone. Regenerating the id in
+ section 2 changes what every server sees, all at once.
+
+ This only reaches this project's own Xash servers (the listen/dedicated
+ servers started from H9XASH, the "ip" entries in docs\NETWORKING.txt). It is
+ not sent down the legacy path toward a real Steam HLDS -- moot anyway, since
+ a Xash client cannot join one of those regardless, per section 1.
+
+ Budget note for anyone adding more userinfo keys of their own: the whole
+ userinfo string shares one 256-byte limit across every key a client sends
+ (name, model, rate, and so on). h9_clientid costs about 45 of those bytes.
+
+ 4. READING IT FROM AN AMX MOD X PLUGIN
+ -----------------------------------------
+ Any plugin, not just ts_matchmode.sma, can read it -- get_user_info() has no
+ allowlist of keys:
+
+     new clientid[33];
+     if (get_user_info(id, "h9_clientid", clientid, charsmax(clientid)) && clientid[0])
+     {
+         // clientid is 32 lowercase hex chars: MD5(this player's id + this server's address)
+     }
+
+ Safe to call as soon as a player is in the server (client_putinserver or
+ later) -- the same point ts_matchmode.sma already reads its own, unrelated
+ tsm_music userinfo key from. Nothing in this project currently stores or acts
+ on this value -- it ships as a mechanism for any plugin to use, not tied to
+ any one feature.
+
+ Worked example: recognising a returning player on THIS server, without a
+ SteamID. nvault is AMX Mod X's own persistent key-value store (one file per
+ vault, survives map changes and restarts) -- a natural fit, since
+ h9_clientid is already a flat string and already unique per server:
+
+     #include <amxmodx>
+
+     new g_vault;
+     new g_seenCount[33]; // small per-player scratch space while connected
+
+     public plugin_init()
+     {
+         register_plugin("h9id example", "1.0", "you");
+         g_vault = nvault_open("h9id_example");
+         register_event("HLTV", "", "a"); // placeholder: hook whatever fires once id is readable
+     }
+
+     public client_putinserver(id)
+     {
+         new clientid[33];
+         if (!get_user_info(id, "h9_clientid", clientid, charsmax(clientid)) || !clientid[0])
+             return; // not an H9XASH client, or it launched outside h9xash.bat -- see section 5
+
+         new data[32], ignored;
+         new seen = nvault_get(g_vault, clientid, data, charsmax(data), ignored) ? str_to_num(data) : 0;
+         seen++;
+
+         new msg[64];
+         if (seen == 1)
+             formatex(msg, charsmax(msg), "Welcome -- first time seen on this server.");
+         else
+             formatex(msg, charsmax(msg), "Welcome back -- seen %d times on this server.", seen);
+         client_print(id, print_chat, "%s", msg);
+
+         num_to_str(seen, data, charsmax(data));
+         nvault_set(g_vault, clientid, data);
+     }
+
+     public plugin_end()
+     {
+         nvault_close(g_vault);
+     }
+
+ This remembers a count per clientid, scoped to THIS server (consistent with
+ section 3: the same player reads as a different clientid on a different
+ server, and so gets their own separate count there -- not a bug, that's the
+ anti-correlation property working as intended). Swap the nvault get/set pair
+ for whatever the real plugin actually needs to remember -- a note, a rank, a
+ ban, a cooldown timer -- the lookup-by-clientid pattern above is the whole
+ trick.
+
+ An even smaller, standalone proof of concept -- print the id to the server
+ console, write it to a plain-text .cfg file, read that file straight back --
+ ships as userid_example\h9id_example.sma, right beside this doc. It is
+ reference material, not a project plugin, so it is not wired into
+ ts_matchmode.sma or build.bat (build.bat only scans the project root, not
+ docs\) -- see userid_example\README.txt for how to compile, load, and later
+ remove it by hand.
+
+ 5. TROUBLESHOOTING
+ --------------------
+ h9_clientid is empty or missing server-side
+   - Did the game start through h9xash.bat? A direct exe launch skips
+     h9_userid.ps1 entirely, so cl_h9_userid is never set for that session.
+   - Check user_id.ini and ts\userid_resolved.cfg both exist and look right.
+     engine.log will say if either failed to write.
+
+ Regenerating didn't seem to change anything
+   - It takes effect on your NEXT launch, not the one you ran it from.
+
+ The same install reads differently on two servers
+   - Expected, and the entire point -- see section 3.
+
+ 6. FILES
+ ---------
+ user_id.ini                  this install's id. Not shipped as a template --
+                               made fresh per install, kept once it exists
+ h9_userid.ps1                makes/refreshes it, every launch (section 2)
+ h9_regenerate_userid.bat     forces a new one on the next launch (section 2)
+ h9xash.bat                   runs h9_userid.ps1 before the game starts
+ ts\userconfig.cfg             execs the resolved cfg below at startup
+
+ Generated, never edited by hand: ts\userid_resolved.cfg.

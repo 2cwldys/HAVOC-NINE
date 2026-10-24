@@ -100,6 +100,9 @@ if not exist "%FFMPEG%\lib\avutil-61.dll" (
 
 REM The four webassembly patches, then H9's own. Only where there is a .git to test
 REM against; a patch that is already in place (it reverses cleanly) is skipped.
+REM Before adding, editing, splitting, or removing any patch below, read AND
+REM update patches\PATCH_CHANGELOG.md -- a stale patch here does not error
+REM until the next full rebuild, with no clue which one broke it.
 if exist "%FWGS%\.git" (
     call :patch "%FWGS%\3rdparty\library_suffix" "%WEB%\engine-library_suffix.patch" || exit /b 1
     call :patch "%FWGS%" "%WEB%\engine.patch" || exit /b 1
@@ -111,7 +114,12 @@ if exist "%FWGS%\.git" (
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-chatmouse.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-suddendeath.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-xray.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-sprguard.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-spraypicker.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-spraycmd.patch" || exit /b 1
     call :patch "%FWGS%\3rdparty\mainui" "%XASH%\patches\mainui-h9-gamestartup.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-userid.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-presence.patch" || exit /b 1
 )
 
 REM Configured once; waf reconfigures by itself when a wscript changes.
@@ -173,8 +181,10 @@ for /f %%c in ('git -C "%FWGS%" rev-parse --short origin/master 2^>nul') do set 
     echo Built:    branch h9 at !HEAD!, %DATE% %TIME%
     echo Patches:  webassembly-patch\*.patch, then from xash3d-h9-patches\patches:
     echo           freevgui-h9-scheme.patch, engine-h9-cloak.patch, engine-h9-cmdbuf.patch,
-    echo           engine-h9-chatmouse.patch, engine-h9-suddendeath.patch, engine-h9-xray.patch
-    echo           and mainui-h9-gamestartup.patch
+    echo           engine-h9-chatmouse.patch, engine-h9-suddendeath.patch, engine-h9-xray.patch,
+    echo           engine-h9-sprguard.patch, engine-h9-spraypicker.patch, engine-h9-spraycmd.patch,
+    echo           mainui-h9-gamestartup.patch, engine-h9-userid.patch, and
+    echo           engine-h9-presence.patch
 )
 powershell -NoProfile -ExecutionPolicy Bypass -File "%XASH%\dllmerge.ps1" "%H9%\ENGINE.txt" "%H9%\ENGINE.txt.new" || exit /b 1
 
@@ -182,7 +192,7 @@ REM Each DLL built from patched source carries ^<dll^>.patch beside it: what it 
 REM the diff against upstream FWGS it was built with, paths from the xash3d-fwgs root so
 REM "git apply" replays it on a fresh clone. Written from git on every build, so it always
 REM matches the binary next to it.
-call :dllpatch xash.dll "engine common" "3rdparty/library_suffix" "The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present)." "" || exit /b 1
+call :dllpatch xash.dll "engine common" "3rdparty/library_suffix" "The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present)." "" || exit /b 1
 call :dllpatch ref_gl.dll "ref/gl" "" "The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game) and engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls)." "" || exit /b 1
 call :dllpatch filesystem_stdio.dll "filesystem" "" "The filesystem. The webassembly patch's one change here is emscripten-only." "" || exit /b 1
 call :dllpatch menu.dll "" "3rdparty/mainui" "The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music)." "" || exit /b 1
@@ -251,7 +261,11 @@ exit /b 0
 :patch
 REM %1 = the repository, %2 = the patch.
 git -C %1 apply --reverse --check %2 >nul 2>&1 && (echo   in place  %~nx2& exit /b 0)
-git -C %1 apply --3way %2 >nul 2>&1 || (echo [ERROR] %~nx2 does not apply to %~1 -- resolve it by hand& exit /b 1)
+REM Plain apply first: when the region's text already sits in the tree exactly as
+REM the patch's pre-image (a patch updated here by hand before its commit), the
+REM blob-level --3way pre-image check can never match. --3way stays as the
+REM fallback for a checkout drifted from the base the patch was written against.
+git -C %1 apply %2 >nul 2>&1 || git -C %1 apply --3way %2 >nul 2>&1 || (echo [ERROR] %~nx2 does not apply to %~1 -- resolve it by hand& exit /b 1)
 echo   applied   %~nx2
 exit /b 0
 

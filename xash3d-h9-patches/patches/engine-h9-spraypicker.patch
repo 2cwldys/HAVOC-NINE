@@ -1,0 +1,23 @@
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+index 106f12a9..30b168ca 100644
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -233,11 +233,14 @@ static void CL_CreateResourceList( void )
+ 	ClearBits( cl_logoext.flags, FCVAR_CHANGED );
+ #endif
+
+-	// H9: classic HL behavior - the decal lives in tempdecal.wad in the gamedir.
+-	// No logos folder, no menu remap: whatever WAD the player packaged IS the
+-	// spray, shipped under every protocol. (cl_spray.c stays for tooling.)
++	// H9: the spray picker is alive: cl_logofile names the bitmap the player
++	// picked from ts\logos (the classics ship there, a player's own upload joins
++	// the same list), and the engine remaps it into the player's own
++	// tempdecal.wad -- the file the spray really is -- sent under every protocol.
++	// A missing or unconvertible pick leaves any uploaded tempdecal.wad alone.
++	Q_snprintf( szFileName, sizeof( szFileName ), "logos/%s.%s", cl_logofile.string, cl_logoext.string );
++	CL_ConvertImageToWAD3( szFileName );
+ 	Q_strncpy( szFileName, "tempdecal.wad", sizeof( szFileName ));
+-
+ 	file_t		*fp = FS_Open( szFileName, "rb", true );
+
+ 	if( !fp )

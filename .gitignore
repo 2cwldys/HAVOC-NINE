@@ -69,3 +69,6 @@ serverlist-bot/serverlist.cfg
 serverlist-bot/serverlist.log
 serverlist-bot/__pycache__/
 generate_patches.log
+H9XASH/discord-bot/bot.log
+H9XASH/discord-bot/bot.pid
+H9XASH/user_id.ini

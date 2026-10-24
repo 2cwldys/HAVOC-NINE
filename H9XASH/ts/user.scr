@@ -32,7 +32,7 @@
 
 
 // Half-Life User Info Configuration Layout Script (stores last settings chosen, too)
-// File generated:  Thu Oct 22 07:28:35 PM
+// File generated:  Fri Oct 23 09:25:23 PM
 //
 //
 // Cvar	-	Setting
@@ -52,21 +52,21 @@ DESCRIPTION INFO_OPTIONS
 	{
 		"Hud color red (0-255)"
 		{ NUMBER 0 255 }
-		{ "125" }
+		{ "190" }
 	}
 
 	"hud_g"
 	{
 		"Hud color green (0-255)"
 		{ NUMBER 0 255 }
-		{ "150" }
+		{ "160" }
 	}
 
 	"hud_b"
 	{
 		"Hud color blue (0-255)"
 		{ NUMBER 0 255 }
-		{ "165" }
+		{ "255" }
 	}
 
 	"hud_fastswitch"
@@ -145,7 +145,7 @@ DESCRIPTION INFO_OPTIONS
 	{
 		"Transparent 3rd person model when aiming?"
 		{ BOOL }
-		{ "0" }
+		{ "1" }
 	}
 
 	"cl_fx"

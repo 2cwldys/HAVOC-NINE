@@ -706,6 +706,40 @@ void ID_GetMD5ForAddress( char *key, netadr_t adr, size_t size )
 	Q_strnlwr( MD5_Print( md5 ), key, size );
 }
 
+// H9: same shape as ID_GetMD5ForAddress above, but for a caller-supplied secret
+// instead of this file's own hardware-derived id -- used for cl_h9_userid (a
+// plain regenerable client id, not a hardware fingerprint), so the same
+// per-destination-server salting this file already does for one id can be
+// reused for a different one, without reaching into the static `id` this
+// function is built around.
+void ID_GetMD5ForAddressEx( char *key, netadr_t adr, size_t size, const char *rawid )
+{
+	MD5Context_t ctx;
+	byte buf[32], md5[16];
+	size_t bufsize = 0;
+
+	switch( NET_NetadrType( &adr ))
+	{
+	case NA_IP:
+		memcpy( buf, adr.ip, sizeof( adr.ip ));
+		bufsize = sizeof( adr.ip );
+		break;
+	case NA_IP6:
+		NET_NetadrToIP6Bytes( buf, &adr );
+		bufsize = 16;
+		break;
+	default:
+		break;
+	}
+
+	MD5Init( &ctx );
+	MD5Update( &ctx, (const byte *)rawid, Q_strlen( rawid ));
+	if( bufsize != 0 )
+		MD5Update( &ctx, buf, bufsize );
+	MD5Final( md5, &ctx );
+	Q_strnlwr( MD5_Print( md5 ), key, size );
+}
+
 void ID_Init( void )
 {
 	Cmd_AddRestrictedCommand( "bloomfilter", ID_BloomFilter_f, "print bloomfilter raw value of arguments set");

@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes25"
+#define TSM_BUILD "1.53-fixes26"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -183,6 +183,11 @@ stock icon_frame_for(ci, team)
 // Personal-space push / unstick reach and speed
 #define TSM_UNSTICK_REACH    56.0
 #define TSM_PUSH_SPEED       260.0
+// How long a squad bot may stay beyond tsm_squad_dist before the follow loop itself
+// warps it back into formation. Velocity steering alone loses the tug of war with
+// rcbot over anything longer than the shortest catch-up, so the leash is what keeps
+// .follow looping instead of leaving strays across the map.
+#define TSM_SQUAD_LEASH      3.0
 
 #define TSM_DAMAGE_NO        0.0
 #define TSM_DAMAGE_AIM       2.0
@@ -205,6 +210,10 @@ stock icon_frame_for(ci, team)
 // invisible in TS, so the hide applies both.
 #define TSM_RENDER_NORMAL    0
 #define TSM_RENDER_TEXTURE   2
+
+// One player hull width. Spawn points this close to a body are "occupied":
+// pick_spawn_point refuses them, and the warmup spread measures them.
+#define TSM_SPAWN_CLEARANCE  64.0
 
 /*
  * TS stores a player's team name with strncpy(dst, src, 16) into a 16-byte buffer.
@@ -709,7 +718,7 @@ new Float:g_corpse_born[TSM_MAXENT];
 /// For a TS corpse, the copy of it we made; for one of our copies, nothing.
 new g_corpse_clone[TSM_MAXENT];
 new g_cv_squaddist, g_cv_squadwarp, g_cv_squadspeed;
-new g_cv_squadsteer;
+new g_cv_squadsteer, g_cv_squadleash;
 new g_cv_endelay;
 new g_cv_botresup;
 new g_bot_resup_rr = 0;        // round-robin, so only one bot is topped up per tick
@@ -795,6 +804,9 @@ new Float:g_unstick_at[MAXPL];
 // Shove persistence: until when, and in which 2D direction (per bot)
 new Float:g_push_until[MAXPL];
 new Float:g_push_dir[MAXPL][2];
+// When a squad bot was FIRST seen beyond tsm_squad_dist, for task_squad's leash.
+// 0 = the bot is inside formation distance and the clock is not running.
+new Float:g_squad_lag_at[MAXPL];
 
 /*
  * Diagnostic: does Ham_Use fire on func_door in THIS mod at all?
@@ -807,6 +819,7 @@ new Float:g_push_dir[MAXPL][2];
  */
 new g_door_use_hits;          // every func_door Use the hook has seen
 new g_engdoor_use_hits;       // of those, the ones on a door named tsm_eng_door
+new g_player_dmg_hits;        // every Ham_TakeDamage on "player" this hook has seen, bots included
 new bool:g_forcing_door;      // tsm_opendoor is forcing a door: fw_door_use lets it through
 new g_cv_forcedoor;           // amx_tsm_forcedoor: tsm_opendoor works only while this is 1
 new bool:g_locked_out[MAXPL];  // joined mid-match; sits out until the match ends
@@ -886,6 +899,11 @@ new Float:g_botfill_at[MAXPL];   // last fill attempt, so a refused move is not 
 new g_bot_slot[MAXPL];           // this bot's number within its side, 0 = none
 new g_pf[4] = "c";      // all players
 new g_pfa[4] = "ac";    // alive players only
+new g_pfall[2];         // no flags at all: every connected player, dead or alive, bot or human.
+                        // The wave machinery walks this one: with g_pf's skip-bots filter,
+                        // a bot waiting for a wave was never scheduled, never counted and
+                        // never listed -- which is why .reinforce called back every human
+                        // and left one bot corpse standing.
 
 new g_bot_class_rr = 0;  // round-robin cursor for spreading bots across classes
 
@@ -3754,6 +3772,14 @@ public plugin_init()
 	g_cv_enabled   = register_cvar("tsm_enabled",     "1");
 	g_cv_rounds    = register_cvar("tsm_rounds",      "9");    // best-of, so first to 5
 	#define ARM_STAGGER 0.25
+	// A forced wave (.reinforce) wakes everyone in the same tenth of a second, by
+	// design -- but when a wave's size exceeds the tier's spawn-point count, two
+	// players can still be told to respawn at the identical point in the identical
+	// instant. This small a stagger doesn't dull the "all at once" feel (a 10-person
+	// forced wave still finishes within half a second) but gives the engine enough
+	// real separation that the alive-occupancy redirect in pick_spawn_point gets a
+	// chance to see the first one land before the second one resolves.
+	#define TSM_FORCED_STAGGER 0.05
 	// How often the live gate re-checks arming progress, and the most it will
 	// delay LIVE past the freeze timer for a player who still has not armed.
 	#define ARM_GATE_CHECK 0.2
@@ -4450,6 +4476,14 @@ public plugin_init()
 	g_cv_squadwarp  = register_cvar("tsm_squad_warp",  "1200");
 	g_cv_squadspeed = register_cvar("tsm_squad_speed", "240");
 	g_cv_squadsteer = register_cvar("tsm_squad_steer", "1");
+	// How far out counts as genuinely lost: the leash gauge. Under this a bot
+	// that is drifting is ordinary fight-from-range play and only ever pulled,
+	// never warped -- the "they constantly portal to me" report was the gauge
+	// starting at tsm_squad_dist itself. Current value sits UNDER the formation
+	// radius on purpose: leaving formation IS being out, the lag clock starts
+	// the frame a squad bot passes tsm_squad_dist, and three seconds of it
+	// brings them in by force.
+	g_cv_squadleash = register_cvar("tsm_squad_leash", "50");
 
 	g_cv_endelay    = register_cvar("tsm_roundend_delay", "4.0");
 	g_cv_botresup   = register_cvar("tsm_bot_resupply", "20.0");
@@ -8191,8 +8225,19 @@ give_class_weapons(id)
 		 * as many as the bonus, which is a quietly large change to how the Heavy plays and
 		 * nothing anyone asked for.
 		 */
+		new wpnid = g_class_wpn[ci][team][i];
 		new base = g_class_clips[ci][team][i];
-		new clips = (base > 0) ? (base + bonus) : 0;
+
+		// tsm_clip_bonus tops GUNS up with spare MAGAZINES. For the frag grenade
+		// and the knives the class figure is a carried count -- the same native
+		// reads it as "how many he carries" -- so the bonus is withheld from
+		// them: a class line of one frag stays one frag. Explicit class values
+		// live, the bonus just never reaches these ids (is_gun_id).
+		new clips = base;
+		if (base > 0 && is_gun_id(wpnid))
+		{
+			clips = base + bonus;
+		}
 		if (clips > cap)
 		{
 			clips = cap;
@@ -8210,7 +8255,6 @@ give_class_weapons(id)
 		// Use 999 from the start so primaries (M60, Barrett, etc.) always fit,
 		// especially with tsm_arm_order 0 giving them first.
 		ts_setuserslots(id, 999);
-		new wpnid = g_class_wpn[ci][team][i];
 		new gave = ts_giveweapon(id, wpnid, clips, get_pcvar_num(g_cv_wpnextra));
 		given++;
 
@@ -8234,7 +8278,7 @@ give_class_weapons(id)
 		 * TS SELECTED, so if the give was refused or selection moved elsewhere, the
 		 * figure is left alone rather than written onto the wrong gun.
 		 */
-		if (clips > 0 && gave)
+		if (clips > 0 && gave && is_gun_id(wpnid))
 		{
 			new m_clip, m_ammo, m_mode, m_extra;
 			new held = ts_getuserwpn(id, m_clip, m_ammo, m_mode, m_extra);
@@ -8274,7 +8318,12 @@ give_class_weapons(id)
 		if (!user_carries(id, tail_wpn))
 		{
 			new tail_clips = g_class_clips[ci][team][tail];
-			tail_clips = (tail_clips > 0) ? (tail_clips + bonus) : 0;
+
+			// The bonus is withheld from carried-count weapons, same as the loop.
+			if (tail_clips > 0 && is_gun_id(tail_wpn))
+			{
+				tail_clips += bonus;
+			}
 			if (tail_clips > cap)
 			{
 				tail_clips = cap;
@@ -8296,7 +8345,9 @@ give_class_weapons(id)
 				// most recently handed over, so this is where the in-hand read is
 				// trustworthy. Percentage and skip-rule included: spct <= 0 leaves
 				// ts_giveweapon's small reserve standing, exactly like the loop.
-				if (tail_clips > 0 && spct > 0)
+				// Carried-count weapons (grenade, knives) skip the rewrite: their
+				// figure is not rounds, and the give already set the right count.
+				if (tail_clips > 0 && spct > 0 && is_gun_id(tail_wpn))
 				{
 					new t_clip, t_ammo, t_mode, t_extra;
 					if (ts_getuserwpn(id, t_clip, t_ammo, t_mode, t_extra) == tail_wpn && t_clip > 0)
@@ -8362,11 +8413,13 @@ issue_armament(id)
 	 * WHAT THIS FUNCTION DOES: the wash, and THE ONE ARM. Whatever the player had
 	 * SAVED is emptied by the rst_cfg below before the round-start respawn, so
 	 * TS's own PlayerSpawn applies an empty armament instead of their old loadout.
-	 * The arm itself is THE SECOND ONE: it is scheduled only for a class that is
-	 * already picked and applied (every round after the pick), and a player still
-	 * waiting to choose gets NO default-class dress in the meantime -- their arm
-	 * follows the pick itself, through task_reissue_armament, so nobody is ever
-	 * dressed twice in one round.
+	 * The arm itself is THE SECOND ONE: it is scheduled for a class that is
+	 * settled, and an unpicked player IS given the default as their pick here,
+	 * so the freeze arm dresses them with everyone else -- the old rule of
+	 * letting their arm follow the pick itself left a player who never picked
+	 * holding nothing for the whole match, because nothing else in the match
+	 * schedules an arm for them. An explicit pick still re-arms through
+	 * task_reissue_armament.
 	 */
 
 	// Still ours as far as cmd_blockbuy is concerned, for the rst_cfg call.
@@ -8388,13 +8441,27 @@ issue_armament(id)
 		id, g_class_name[resolved_class(id) - 1]);
 
 	/*
-	 * The arm, for a settled class only. tsm_arm_delay into the freeze, on its own
-	 * task id (born + 6000: bare player ids collide with remove_task(3) and the
-	 * repeating freeze tick), and a wash re-entry kills any arm that is still
-	 * pending first. The pick-driven path reaches this same tail through
-	 * task_reissue_armament, so both routes share one gating decision.
+	 * The arm, for whatever class resolved_class() currently resolves to.
+	 * tsm_arm_delay into the freeze, on its own task id (born + 6000: bare
+	 * player ids collide with remove_task(3) and the repeating freeze tick),
+	 * and a wash re-entry kills any arm that is still pending first. The
+	 * pick-driven path reaches this same tail through task_reissue_armament,
+	 * so both routes share one gating decision.
+	 *
+	 * NOT gated on g_player_class[id] (an earlier version of this function
+	 * both defaulted the pick AND gated the arm on that same write, right
+	 * here). That default fired every round, before the class menu had ever
+	 * been offered once that round -- may_pick_class() requires ST_FREEZE and
+	 * the whole freeze-tick re-offer exists specifically because picking
+	 * happens DURING the freeze, not before it, so locking in a default this
+	 * early silently defeated the pick window every single round, including
+	 * round 1 of a brand-new match. resolved_class() (used below and by every
+	 * real gear-giving call) already falls back to the default class on its
+	 * own while g_player_class[id] is still 0, so arming unconditionally here
+	 * costs nothing -- the real "no class picked -> default" lock-in now
+	 * happens only at go-live (apply_class(), task_go_live()'s own fallback),
+	 * genuinely after the pick window has closed.
 	 */
-	if (g_player_class[id])
 	{
 		g_arm_pending[id] = 0;
 
@@ -8698,7 +8765,7 @@ arm_give_kit(id)
 	}
 
 	give_class_weapons(id);
-	give_ammo_to(id, get_pcvar_num(g_cv_giveammo));
+	top_up_reserve(id, get_pcvar_num(g_cv_giveammo) * 25);
 }
 
 public task_arm_respawn(taskid)
@@ -8864,83 +8931,106 @@ public task_give_rest(taskid)
 	}
 
 	give_class_weapons(id);
-	give_ammo_to(id, get_pcvar_num(g_cv_giveammo));
+	top_up_reserve(id, get_pcvar_num(g_cv_giveammo) * 25);
 
 	dbgv("give-rest: %d finished the rest of the kit and their ammunition", id);
 }
 
 /*
- * Spawns a ts_groundammo and makes the target touch it. `mags` magazines of every
- * ammo type.
- *
- * USED FOR TWO THINGS: the combat engineer's resupply, and the spare ammunition that
- * comes with a class loadout. The loadout used to get its ammunition from TS's tka
- * command, but that is a PURCHASE and weaponrestriction 1 refuses it -- this creates
- * an entity and hands it over instead, so nothing is bought and nothing is refused.
- *
- * Every magazine slot is filled rather than matching their held weapon, because the
- * weapon-to-ammotype mapping lives in the mod's weapon table and is not reachable
- * from a plugin. TS applies what is relevant to what they carry, so the rest is
- * simply ignored.
- *
- * The entity is created and removed inside this call, so however many players are
- * armed in one frame, only ever one exists at a time.
+ * True for The Specialists 3.0 ids that are GUNS -- the ones whose figure in
+ * the ammo native is a caliber reserve. False for kung fu (0), the frag grenade
+ * (24), the combat knife (25), the briefcase (29), the katana (34), the seal
+ * knife (35) and the throwing knife (38): for those the same native reads and
+ * writes HOW MANY THE PLAYER CARRIES, not spare rounds. The sawed-off (33), the
+ * contender (36) and the akimbo Skorpion (37) are guns.
  */
-give_ammo_to(target, mags)
+stock bool:is_gun_id(w)
 {
-	if (mags < 1)
+	switch (w)
+	{
+		case TSW_KUNG_FU, TSW_M61GRENADE, TSW_CKNIFE, TSW_C4, TSW_KATANA,
+			TSW_SKNIFE, TSW_TKNIFE:
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+/*
+ * Tops the target's carried guns up with spare rounds, precisely, and returns
+ * how many rounds actually landed.
+ *
+ * REPLACES the ts_groundammo hand-out that used to live under this name. That
+ * scheme was decoded out of the TS 3.0 binary while chasing ".ammo gave me
+ * nothing", and the brokenness is in the mod's own entity code, not just in
+ * how it was used here:
+ *
+ *   - the mags<N> key lands one caliber HIGHER than its number (the entity
+ *     writes caliber slot N+1 for key N), so with keys 1..11 the 9 x 19mm pool
+ *     was unreachable by any key, and 7.62 x 51mm -- the M60E3's caliber --
+ *     would only be reachable through a key that was never set;
+ *   - the amount the key writes follows the KEY's caliber, not the slot it
+ *     lands in, so the sizes that did arrive belonged to a different round;
+ *   - the grab hands EVERY nonzero caliber over to whoever touched it,
+ *     carried or not, so one player's spares would flow into another.
+ *
+ * There is no entity any more: the ammo goes through the tsx natives, which
+ * hold the same caliber mapping the game itself reloads from. Pass one reads
+ * every gun's current reserve (a shared-caliber pair shares one baseline),
+ * pass two writes baseline + rounds and reads back. The read-back is the
+ * honesty clause: a caliber already at TS's cap reads unchanged, a gun the
+ * player does not carry is refused outright, so the returned total is rounds
+ * that actually landed. The grenade and the knives never appear (is_gun_id
+ * keeps them out): the native would write a carried count for them, which is
+ * exactly the "extra ammo given to the grenade" the resupply was told not do.
+ *
+ * Callers: the class loadout, the combat engineer, and the bot resupply ticker.
+ */
+top_up_reserve(target, rounds)
+{
+	if (rounds < 1)
 	{
 		return 0;
 	}
-	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "ts_groundammo"));
-	if (!ent)
+
+	// Pass 1: the baseline, read BEFORE any write. That is what makes one
+	// caliber gain exactly `rounds` however many guns of it are carried.
+	new pre[39];
+	for (new w = 1; w <= 38; w++)
 	{
-		dbg("resupply: could not create ts_groundammo");
-		return 0;
+		if (!is_gun_id(w))
+		{
+			continue;
+		}
+		pre[w] = ts_getuserammo(target, w);
+		if (pre[w] < 0)
+		{
+			pre[w] = 0;
+		}
 	}
 
-	new key[12], v[8];
-	num_to_str(mags, v, charsmax(v));
-	for (new m = 1; m <= 11; m++)
+	new total = 0;
+	for (new w = 1; w <= 38; w++)
 	{
-		formatex(key, charsmax(key), "mags%d", m);
-		kv_set(ent, "ts_groundammo", key, v);
+		if (!is_gun_id(w))
+		{
+			continue;
+		}
+
+		// Absolute write of baseline + rounds: for a shared caliber that is the
+		// value the caliber's first gun already set, so later guns of the same
+		// caliber are read-back-verified no-ops.
+		ts_setuserammo(target, w, pre[w] + rounds);
+		new after = ts_getuserammo(target, w);
+		if (after > pre[w])
+		{
+			total += after - pre[w];
+		}
 	}
 
-	new Float:org[3];
-	pev(target, pev_origin, org);
-	engfunc(EngFunc_SetOrigin, ent, org);
-
-	dllfunc(DLLFunc_Spawn, ent);
-
-	/*
-	 * Touch AND Use.
-	 *
-	 * TS ground items end their Spawn with SetTouch(NULL), so a Touch dispatched
-	 * after DispatchSpawn lands on nothing. Use is what actually transfers. Both go
-	 * out because neither costs anything and the two differ by item type.
-	 */
-	dllfunc(DLLFunc_Touch, ent, target);
-	dllfunc(DLLFunc_Use, ent, target, target, 2, 0.0);
-
-	/*
-	 * REMOVED, always, picked up or not.
-	 *
-	 * This leaked an edict on every resupply -- nothing in this plugin ever removed
-	 * one. With bots topped up on a timer the server ran out of entity slots within
-	 * minutes: first "could not create ts_groundammo", and then no loadout weapons
-	 * either, because weapons need edicts too. That is the missing-equipment-on-a-
-	 * new-round bug and the resupply failure, same cause.
-	 *
-	 * Nothing is lost by removing it: the transfer above has already happened or
-	 * already failed, and an uncollected pickup lying around is not wanted.
-	 */
-	if (pev_valid(ent))
-	{
-		engfunc(EngFunc_RemoveEntity, ent);
-	}
-
-	return 1;
+	return total;
 }
 
 /*
@@ -9797,11 +9887,25 @@ public cmd_light(id)
 }
 
 /*
- * .ammo -- +25 reserve rounds to every GUN currently carried, once per round. Never
- * give_ammo_to(): that is a magazine-multiplier per caliber, not a precise +25-rounds
- * primitive. ts_setuserammo is overloaded to mean "how many he carries" for a grenade
- * or knife, so those have to be explicitly excluded -- it is not automatic the way it
- * is for give_ammo_to's mags-only ts_groundammo entity.
+ * .ammo -- +25 spare rounds to every gun the player carries, once per round.
+ *
+ * The carried-weapon list used to come from get_user_weapons, which walks the
+ * pev->weapons BITS: every id fits a bit up to 31, but TS 3.0 ids run to 38 --
+ * the M60E3 (32) overlays kung fu's bit 0, the katana (34) overlays the
+ * beretta's bit 2 -- so M60 carriers were told "no guns", trying to hand a
+ * knife carrier pistol rounds was possible, and nothing could name the guns
+ * they actually held. This walks the gun ids directly instead, and the tsx
+ * natives do the carrying checks: ts_setuserammo refuses what the player does
+ * not carry outright, and for the grenade and the knives the same native would
+ * write HOW MANY HE CARRIES rather than rounds, so is_gun_id keeps those ids
+ * out.
+ *
+ * The write is absolute and read back: pass one reads every gun's baseline --
+ * guns sharing a caliber share it, so one caliber gains exactly +25 however
+ * many of its guns are carried -- pass two asks for baseline +25 and re-reads.
+ * A caliber already at TS's cap clamps and reads back unchanged, so the
+ * once-per-round fee below only clears when rounds actually landed, and the
+ * report says what happened instead of claiming a resupply that was not.
  */
 public cmd_ammo(id)
 {
@@ -9821,39 +9925,68 @@ public cmd_ammo(id)
 		return;
 	}
 
-	new wl[32], wn;
-	get_user_weapons(id, wl, wn);
-
-	new gave = 0;
-	for (new w = 0; w < wn; w++)
+	// Pass 1: the baseline, read BEFORE any write. Shared calibers therefore
+	// share one baseline, which is what keeps the +25 per-caliber once.
+	new pre[39];
+	for (new w = 1; w <= 38; w++)
 	{
-		switch (wl[w])
+		if (!is_gun_id(w))
 		{
-			case TSW_M61GRENADE, TSW_TKNIFE, TSW_CKNIFE, TSW_SKNIFE, TSW_KATANA, TSW_KUNG_FU, TSW_C4:
-			{
-				continue;   // guns only -- these have no reserve-ammo concept, or the
-			}              // same native means "how many he carries" for them instead
+			continue;
 		}
-		ts_setuserammo(id, wl[w], ts_getuserammo(id, wl[w]) + 25);
-		gave++;
+		pre[w] = ts_getuserammo(id, w);
+		if (pre[w] < 0)
+		{
+			pre[w] = 0;
+		}
 	}
 
-	if (!gave)
+	// Pass 2: baseline +25, then read back. A full caliber returns exactly what
+	// it started with; an uncarried gun is refused and nothing moves.
+	new rounds = 0, guns = 0, full = 0;
+	for (new w = 1; w <= 38; w++)
+	{
+		if (!is_gun_id(w))
+		{
+			continue;
+		}
+		new ok = ts_setuserammo(id, w, pre[w] + 25);
+		new after = ts_getuserammo(id, w);
+		if (after > pre[w])
+		{
+			rounds += after - pre[w];
+			guns++;
+		}
+		else if (ok)
+		{
+			full++;   // carried, wanted nothing: the caliber was already at its cap
+		}
+	}
+
+	if (rounds > 0)
+	{
+		g_ammo_used[id] = true;
+
+		// Same presentation as the Engineer resupplying a teammate -- yellow glow,
+		// ammo sound -- just aimed at himself. perk_use() does the identical pair
+		// of calls on "hit" (the resupplied teammate); here id is both giver and
+		// target.
+		glow_player(id, 255.0, 220.0, 0.0, get_pcvar_float(g_cv_engglow), get_pcvar_num(g_cv_engshell));
+		perk_sound(id, g_cv_engsound);
+
+		client_print(id, print_chat, "[TSM] Resupplied: +%d rounds on %d gun(s).", rounds, guns);
+	}
+	else if (full > 0)
+	{
+		client_print(id, print_chat, "[TSM] Your guns are already full.");
+	}
+	else
 	{
 		client_print(id, print_chat, "[TSM] No guns to resupply.");
-		return;
 	}
 
-	g_ammo_used[id] = true;
-
-	// Same presentation as the Engineer resupplying a teammate -- yellow glow,
-	// ammo sound -- just aimed at himself. perk_use() does the identical pair of
-	// calls on "hit" (the resupplied teammate); here id is both giver and target.
-	glow_player(id, 255.0, 220.0, 0.0, get_pcvar_float(g_cv_engglow), get_pcvar_num(g_cv_engshell));
-	perk_sound(id, g_cv_engsound);
-
-	client_print(id, print_chat, "[TSM] Resupplied.");
-	dbg("ammo: %d resupplied %d gun(s), once this round", id, gave);
+	dbg("ammo: %d got +%d rounds on %d gun(s), %d already full, once this round",
+		id, rounds, guns, full);
 }
 
 /*
@@ -9953,7 +10086,7 @@ resupply_one_bot()
 		}
 
 		g_bot_resup_at[id] = now;
-		give_ammo_to(id, get_pcvar_num(g_cv_engclips));
+		top_up_reserve(id, get_pcvar_num(g_cv_engclips) * 25);
 		dbgv("bot resupply: topped up %d", id);
 		return;   // one per tick, deliberately
 	}
@@ -10111,6 +10244,16 @@ public fw_door_use(ent, activator, caller, use_type, Float:value)
  */
 public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 {
+	/*
+	 * FIRST LINE, BEFORE ANY TEST: proves whether Ham_TakeDamage on "player" is actually
+	 * delivered in this mod, the same way g_door_use_hits proves it for Ham_Use on
+	 * func_door. The comment above g_door_use_hits records Ham_Spawn AND Ham_TakeDamage
+	 * on "player" both once measured at zero hits in TS. Ham_Spawn is confirmed still
+	 * dead today (see fw_player_spawn); nothing had re-confirmed Ham_TakeDamage was not
+	 * also still dead. amx_tsm_debug prints this counter.
+	 */
+	g_player_dmg_hits++;
+
 	/*
 	 * Stamped FIRST, ahead of every guard below.
 	 *
@@ -12134,7 +12277,8 @@ disband_squad(leader)
 		if (g_squad_leader[i] == leader)
 		{
 			g_squad_leader[i] = 0;
-			g_push_until[i] = 0.0;   // clear any pending shove
+			g_push_until[i] = 0.0;      // clear any pending shove
+			g_squad_lag_at[i] = 0.0;    // and any half-run lag clock with it
 			n++;
 		}
 	}
@@ -12170,8 +12314,14 @@ bool:step_bot_to_ring(bot, Float:center[3], Float:base_yaw, Float:radius)
 		cand[0] = center[0] + floatcos(yaw, degrees) * radius;
 		cand[1] = center[1] + floatsin(yaw, degrees) * radius;
 		cand[2] = center[2];
-		
-		// TraceHull down from slightly above to find ground, bodies block (DONT_IGNORE_MONSTERS)
+
+		// TraceHull down from slightly above to find ground. GEOMETRY ONLY:
+		// with DONT_IGNORE_MONSTERS the hull caught every standing player near
+		// the officer, and in a scrum all eight candidates came back blocked --
+		// the warp then fired for nobody, which is exactly the ".follow never
+		// teleports" report. A body is a moving thing, not a wall, so whoever
+		// stands in a candidate is checked below, as occupancy, and only that
+		// one spot is skipped.
 		new tr = 0;
 		new Float:start[3], Float:end[3];
 		start[0] = cand[0];
@@ -12180,24 +12330,53 @@ bool:step_bot_to_ring(bot, Float:center[3], Float:base_yaw, Float:radius)
 		end[0] = cand[0];
 		end[1] = cand[1];
 		end[2] = cand[2] - 128.0;
-		engfunc(EngFunc_TraceHull, start, end, DONT_IGNORE_MONSTERS, TSM_HULL_HUMAN, bot, tr);
-		
+		engfunc(EngFunc_TraceHull, start, end, IGNORE_MONSTERS, TSM_HULL_HUMAN, bot, tr);
+
 		new Float:frac;
 		get_tr2(tr, TR_flFraction, frac);
 		new bool:start_solid;
 		get_tr2(tr, TR_StartSolid, start_solid);
-		
-		// Reject if starting inside solid or trace hit something before reaching ground
+
+		// Reject if starting inside solid or the trace never found ground in reach.
 		if (start_solid || frac >= 1.0)
 		{
 			continue;
 		}
-		
+
+		// Occupancy: anyone standing at the landing spot (the officer included)
+		// rules this one candidate out, 2D and 36 units wide, so the spot is
+		// only refused while a body is actually in it -- and jumping bodies do
+		// not hold a veto on the ground they left.
+		new bool:occupied = false;
+		new occ[32], occn, occ_id;
+		get_players(occ, occn, "a");
+		for (new k = 0; k < occn; k++)
+		{
+			occ_id = occ[k];
+			if (occ_id == bot)
+			{
+				continue;
+			}
+			new Float:oo[3];
+			pev(occ_id, pev_origin, oo);
+			new Float:dx = oo[0] - cand[0];
+			new Float:dy = oo[1] - cand[1];
+			if (dx * dx + dy * dy < 1296.0)   // 36 units, squared
+			{
+				occupied = true;
+				break;
+			}
+		}
+		if (occupied)
+		{
+			continue;
+		}
+
 		// Valid spot: place bot at trace end position, zero velocity
 		new Float:dest[3];
 		get_tr2(tr, TR_vecEndPos, dest);
 		engfunc(EngFunc_SetOrigin, bot, dest);
-		
+
 		new Float:zero_vel[3] = { 0.0, 0.0, 0.0 };
 		set_pev(bot, pev_velocity, zero_vel);
 		return true;
@@ -12243,11 +12422,13 @@ public task_squad()
 	 * This is what actually makes .follow follow, so it runs by default now.
 	 *
 	 * It is in tension with rcbot, which re-decides where its bots are going every
-	 * frame -- two things steering one bot. The tension is resolved below by LINE OF
-	 * SIGHT: in sight the plugin steers, out of sight it does not touch the bot at
-	 * all and rcbot's pathing brings it back. That keeps what steering is good at
-	 * (being immediate, close in) and leaves rcbot what it is good at (getting there
-	 * around corners), instead of fighting it the whole way.
+	 * frame -- two things steering one bot. rcbot rewrites their velocity far more
+	 * often than this once-a-tenth steering can, so the pull is only trusted for
+	 * SHORT catch-ups: inside tsm_squad_dist the bot is rcbot's own, just beyond it
+	 * the pull keeps the drift closing, and a bot that STAYS out -- or goes way
+	 * out -- is warped back beside the officer by the tier below. That last tier is
+	 * what makes the loop an actual loop; without it the order decays into rcbot
+	 * wandering off and a velocity shove that never wins.
 	 */
 	if (!get_pcvar_num(g_cv_squadsteer))
 	{
@@ -12257,6 +12438,11 @@ public task_squad()
 	new Float:want = float(get_pcvar_num(g_cv_squaddist));
 	new Float:warp = float(get_pcvar_num(g_cv_squadwarp));
 	new Float:speed = float(get_pcvar_num(g_cv_squadspeed));
+	new Float:leash = float(get_pcvar_num(g_cv_squadleash));
+	if (leash > warp)
+	{
+		leash = warp;   // a gauge above the warp range would swallow the leash whole
+	}
 
 	for (new bot = 1; bot < MAXPL; bot++)
 	{
@@ -12272,7 +12458,8 @@ public task_squad()
 			|| g_match_team[bot] != g_match_team[leader])
 		{
 			g_squad_leader[bot] = 0;
-			g_push_until[bot] = 0.0;   // clear any pending shove
+			g_push_until[bot] = 0.0;      // clear any pending shove
+			g_squad_lag_at[bot] = 0.0;    // and any half-run lag clock with it
 			continue;
 		}
 
@@ -12288,6 +12475,10 @@ public task_squad()
 
 		if (dist <= want)
 		{
+			// Back in formation: the lag clock is stopped, so the next drift out
+			// starts it fresh rather than warping on a stale count.
+			g_squad_lag_at[bot] = 0.0;
+
 			// Personal-space push: if a squad bot is inside 40 units but outside
 			// 1.0 unit, give it a gentle outward shove so it doesn't sit on the
 			// officer. This runs inside the "close enough" branch so we don't
@@ -12307,25 +12498,64 @@ public task_squad()
 			continue;   // close enough; leave them to rcbot entirely
 		}
 
-		/*
-		 * Lost them completely: put them back BESIDE the officer, never onto them.
-		 *
-		 * Without this a bot that rcbot has walked into another room simply never
-		 * comes back, because nudging a velocity cannot beat rcbot's own pathing
-		 * over a long distance. A warp is blunt but it is the difference between the
-		 * order working and the order being decorative.
-		 */
+		// base_yaw = behind the officer (leader yaw + 180), shared by both warp tiers.
+		new Float:leader_angles[3];
+		pev(leader, pev_v_angle, leader_angles);
+
 		if (dist > warp)
 		{
-			new Float:leader_angles[3];
-			pev(leader, pev_v_angle, leader_angles);
-			// base_yaw = behind the officer (leader yaw + 180)
+			/*
+			 * Lost them completely: put them back BESIDE the officer, never onto
+			 * them. Without this a bot that rcbot has walked into another room
+			 * simply never comes back, because nudging a velocity cannot beat
+			 * rcbot's own pathing over a long distance. A warp is blunt but it is
+			 * the difference between the order working and the order being
+			 * decorative.
+			 */
 			if (step_bot_to_ring(bot, lo, leader_angles[1] + 180.0, 40.0))
 			{
 				dbgv("squad: warped bot %d to ring beside officer %d (%.0f units)", bot, leader, dist);
+				g_squad_lag_at[bot] = 0.0;
 				continue;
 			}
-			// Warp failed (no clear spot) -- fall through to velocity pull (LoS already verified)
+			// Warp failed (no clear spot) -- fall through to the velocity pull.
+		}
+		else if (dist <= leash)
+		{
+			/*
+			 * Back inside the leash gauge: ordinary fight-from-range play. The
+			 * pull below still holds them, but the clock never starts, and a
+			 * bot that dips back under the gauge between spikes clears the old
+			 * count instead of cashing it in.
+			 */
+			g_squad_lag_at[bot] = 0.0;
+		}
+		else if (g_squad_lag_at[bot] <= 0.0)
+		{
+			/*
+			 * First frame WELL beyond formation -- past tsm_squad_leash, the
+			 * genuinely-lost gauge. rcbot may simply be re-pathing them, and
+			 * the pull below still shortens the gap meanwhile.
+			 */
+			g_squad_lag_at[bot] = now;
+		}
+		else if (now - g_squad_lag_at[bot] >= TSM_SQUAD_LEASH)
+		{
+			/*
+			 * THE LEASH: a bot that has stayed out of formation for
+			 * TSM_SQUAD_LEASH seconds is brought in by force. This is the second
+			 * half of "constantly loop follow" -- velocity steering alone loses
+			 * the tug of war against rcbot whenever rcbot has decided to go
+			 * somewhere, and the report was bots that trailed, fell behind and
+			 * never actually arrived. The clock is burnt either way, so a ring
+			 * with no free spot retries in another leash rather than every tick.
+			 */
+			g_squad_lag_at[bot] = now;
+			if (step_bot_to_ring(bot, lo, leader_angles[1] + 180.0, 40.0))
+			{
+				dbgv("squad: leashed bot %d back to formation around officer %d (%.0f units)", bot, leader, dist);
+				continue;
+			}
 		}
 
 		if (dist < 1.0)
@@ -12737,7 +12967,8 @@ perk_use(id)
 		}
 
 		g_eng_used[id] = now;
-		give_ammo_to(hit, get_pcvar_num(g_cv_engclips));
+		new plan = get_pcvar_num(g_cv_engclips) * 25;
+		new gave = top_up_reserve(hit, plan);
 
 		// Yellow, for ammunition. Red is the medic's.
 		glow_player(hit, 255.0, 220.0, 0.0,
@@ -12748,8 +12979,15 @@ perk_use(id)
 		get_user_name(id, a, charsmax(a));
 		get_user_name(hit, b, charsmax(b));
 		client_print(id,  print_chat, "[MATCH] You resupplied %s.", b);
-		client_print(hit, print_chat, "[MATCH] %s resupplied you.", a);
-		dbg("engineer %d resupplied %d", id, hit);
+		if (gave > 0)
+		{
+			client_print(hit, print_chat, "[MATCH] %s resupplied you. (+%d rounds)", a, gave);
+		}
+		else
+		{
+			client_print(hit, print_chat, "[MATCH] %s resupplied you.", a);
+		}
+		dbg("engineer %d resupplied %d (+%d of %d rounds)", id, hit, gave, plan);
 		return;
 	}
 
@@ -13097,11 +13335,15 @@ bool:class_is_officer(id)
 }
 
 /// How many players on the team are waiting for a wave.
+///
+/// g_pfall, not g_pf: the count has to include bots or the Officer sees a different
+/// waiting total than a reinforce would act on -- and, before the wave fix, never
+/// saw a waiting bot at all.
 count_waiting(team)
 {
 	new n = 0;
 	new players[32], pnum, id;
-	get_players(players, pnum, g_pf);
+	get_players(players, pnum, g_pfall);
 	for (new i = 0; i < pnum; i++)
 	{
 		id = players[i];
@@ -13116,11 +13358,14 @@ count_waiting(team)
 /// Total lives remaining across the team, for the alive-vs-alive report. Counts every
 /// player on the team, not just the ones alive right now -- a fully eliminated player's
 /// lives are already down to 0 by then, so including them changes nothing.
+///
+/// g_pfall for the same reason as the waves: bots carry lives, and a filter that
+/// skips bots underreported a side's remaining stock whenever a bot held any.
 team_lives_left(team)
 {
 	new total = 0;
 	new players[32], pnum, id;
-	get_players(players, pnum, g_pf);
+	get_players(players, pnum, g_pfall);
 	for (new i = 0; i < pnum; i++)
 	{
 		id = players[i];
@@ -13181,10 +13426,13 @@ lives_reset_round()
 
 /// Waves were switched off in a live round (tsm_respawns 0). Nobody waiting can come back now,
 /// so every waiting player stays eliminated and the round can end.
+///
+/// Same filter question as the waves: leaving a bot pending while waves are off would leave
+/// round-end logic believing someone is still waiting to come back.
 respawns_off_cut()
 {
 	new players[32], pnum, id;
-	get_players(players, pnum, g_pf);
+	get_players(players, pnum, g_pfall);
 	for (new i = 0; i < pnum; i++)
 	{
 		id = players[i];
@@ -13207,7 +13455,7 @@ respawn_sudden_cut()
 	}
 
 	new players[32], pnum, id;
-	get_players(players, pnum, g_pf);
+	get_players(players, pnum, g_pfall);
 	for (new i = 0; i < pnum; i++)
 	{
 		id = players[i];
@@ -13253,6 +13501,12 @@ lives_on_death(victim)
 /// Brings the team's waiting players back in one wave. A forced wave (the Officer's call,
 /// amx_tsm_wave) takes everyone waiting. A natural wave takes only players dead for at least
 /// tsm_respawn_seconds, so a death just before a wave waits for the next one.
+///
+/// Bots are members: fire_wave used to walk the same skip-bots list the spectate picks use,
+/// so a bot waiting for a wave was never scheduled, never counted and never shown on the
+/// waiting list -- the ".reinforce calls back two of three and leaves one behind" report,
+/// where the one left standing was always a bot. g_pfall has no filter; the pending and
+/// team guards below do the actual choosing.
 fire_wave(team, bool:forced)
 {
 	if (!get_pcvar_num(g_cv_respawns) || g_state != ST_LIVE)
@@ -13267,8 +13521,31 @@ fire_wave(team, bool:forced)
 	new Float:now = get_gametime();
 	new Float:minwait = get_pcvar_float(g_cv_respsecs);
 	new offset = random_num(0, 7);   // where this wave starts along the team's points
+
+	/*
+	 * point_count is the SAME denominator pick_spawn_point will divide by for every one
+	 * of this wave's players a moment from now (they all resolve through
+	 * place_at_spawn(id, slot, true), i.e. tier = active_spawn_tier(team), the exact
+	 * tier computed here). claimed[] tracks which of that tier's (offset + n) %
+	 * point_count values THIS call has already handed out, so two players queued in the
+	 * same wave never request the same point -- the ghost-vs-ghost collision
+	 * pick_spawn_point cannot see on its own, because its occupancy scan only looks at
+	 * players who are already alive, and two ghosts resolving on the same frame are
+	 * both still ghosts to each other right up until they land.
+	 *
+	 * point_count <= 0 means this tier has no points of its own; place_at_spawn falls
+	 * back to the other side's defaults or the map's own spawns, so there's nothing to
+	 * be collision-aware against -- the slot is left as the old flat offset + n and
+	 * pick_spawn_point's alive-occupancy check is the only guard, exactly as before.
+	 */
+	new tier = active_spawn_tier(team);
+	new point_count = spawn_count_for_tier(team, tier);
+	new bool:claimed[64];
+
 	new players[32], pnum, id, n = 0;
-	get_players(players, pnum, g_pf);
+	get_players(players, pnum, g_pfall);   // every waiting member, bots included: with the
+	                                       // old skip-bots list a bot waiting for a wave was
+	                                       // never scheduled and stayed behind forever
 	for (new i = 0; i < pnum; i++)
 	{
 		id = players[i];
@@ -13282,15 +13559,42 @@ fire_wave(team, bool:forced)
 		}
 
 		remove_task(TSM_TASK_REVIVE + id);
-		g_revive_slot[id] = offset + n;
+
+		if (point_count > 0)
+		{
+			new cand = (offset + n) % point_count;
+			new tries = 0;
+			while (claimed[cand] && tries < point_count)
+			{
+				cand = (cand + 1) % point_count;
+				tries++;
+			}
+			claimed[cand] = true;
+			g_revive_slot[id] = cand;
+		}
+		else
+		{
+			g_revive_slot[id] = offset + n;
+		}
+
 		g_revive_washed[id] = false;
 		g_revive_waits[id] = 0;
 		g_revive_active[id] = true;
-		set_task(0.1 + ARM_STAGGER * float(n), "task_revive", TSM_TASK_REVIVE + id);
+		/*
+		 * A natural wave keeps the ARM_STAGGER spacing between revive tasks, so a
+		 * full team spine-walks in a body at a time. A forced wave -- the Officer's
+		 * .reinforce above all -- wakes the whole waiting pool, bots included, within
+		 * TSM_FORCED_STAGGER of each other rather than bit-for-bit simultaneously (see
+		 * its own comment) -- still unmistakably "all at once" to a player. TS's own
+		 * respawntime still decides when each player is taken back (a teammate who died
+		 * seconds earlier waits out TS's deathcam), which is the only remaining delay
+		 * that is TS's, not ours.
+		 */
+		set_task(forced ? (0.1 + TSM_FORCED_STAGGER * float(n)) : 0.1 + ARM_STAGGER * float(n), "task_revive", TSM_TASK_REVIVE + id);
 		n++;
 	}
 
-	dbg("wave: team %d, %d revive(s), forced %d", team, n, forced ? 1 : 0);
+	dbg("wave: team %d, %d revive(s), forced %d, tier %d, points %d", team, n, forced ? 1 : 0, tier, point_count);
 	return n;
 }
 
@@ -13309,7 +13613,7 @@ show_waiting_list(id, team)
 	len += formatex(list[len], charsmax(list) - len, "WAITING FOR A WAVE (%d)^n", waiting);
 
 	new players[32], pnum, mate, mname[16];
-	get_players(players, pnum, g_pf);
+	get_players(players, pnum, g_pfall);   // everyone, bots included
 	for (new i = 0; i < pnum && shown < 6; i++)
 	{
 		mate = players[i];
@@ -13530,6 +13834,17 @@ public task_revive_arm(taskid)
 	}
 	spawn(id);
 
+	/*
+	 * Snapped to the correct, occupancy-scanned point THE INSTANT they are visible and
+	 * solid again -- not after the gear. spawn() is what makes them alive/solid/visible,
+	 * at wherever TS's own internal spawn selection puts them, not this plugin's chosen
+	 * point; every tick between spawn() and here used to be spent standing somewhere
+	 * uncontrolled, potentially overlapping whoever was already there. Moved ahead of
+	 * arm_give_kit/apply_class_scale/set_user_health/set_user_armor below -- none of them
+	 * read or depend on the player's position.
+	 */
+	place_at_spawn(id, g_revive_slot[id], true);
+
 	new wl[32], wn;
 	get_user_weapons(id, wl, wn);
 	tlog("[TSM] revive gear for %d: deadflag %d, iuser1 %d, %d weapon(s) after the spawn",
@@ -13547,7 +13862,6 @@ public task_revive_arm(taskid)
 	{
 		set_user_armor(id, g_class_ap[ci]);
 	}
-	place_at_spawn(id, g_revive_slot[id], true);
 	g_armed[id] = true;
 
 	if (is_user_bot(id))
@@ -13560,7 +13874,10 @@ public task_revive_arm(taskid)
 }
 
 /// The Officer's call: brings the team's waiting players back now, whatever the wave timer
-/// says. Once per tsm_reinforce_cooldown seconds. Nobody waiting costs nothing.
+/// says -- the whole pool, bots included, woken in the same tenth of a second. Once per
+/// tsm_reinforce_cooldown seconds. Nobody waiting costs nothing. A teammate TS just killed
+/// still waits out TS's own respawntime deathcam (server.cfg, 5s here); the revive poll
+/// carries them the moment it is over, and they never wait for the next wave.
 cmd_reinforce(id)
 {
 	if (!is_user_connected(id) || !is_user_alive(id) || g_elim[id])
@@ -13640,7 +13957,10 @@ count_alive(team)
 {
 	new n = 0;
 	new players[32], pnum, id;
-	get_players(players, pnum, g_pf);
+	get_players(players, pnum, g_pfall);   // bots wait for waves like anyone, now that they
+	                                       // actually get them: a team whose remaining
+	                                       // members are all wave-waiting bots must not
+	                                       // be read as having lost the round
 	for (new i = 0; i < pnum; i++)
 	{
 		id = players[i];
@@ -13699,6 +14019,20 @@ apply_warmup_hide(id)
 hold_player(id, bool:disarm)
 {
 	if (!is_user_connected(id))
+	{
+		return;
+	}
+
+	/*
+	 * NEVER while TS is still killing them -- the same guard should_hold() already
+	 * applies at its own call site, for the same reason (see should_hold's own comment,
+	 * "the oldest bug in the file"). hold_player() is called unconditionally, once a
+	 * second, from three separate loops with no deadflag check of their own -- without
+	 * this, a player who dies during any of those windows gets re-frozen on the very
+	 * next tick, before TS has finished killing them, and the death sequence that
+	 * produces the corpse never finishes.
+	 */
+	if (pev(id, pev_deadflag) != TSM_DEAD_NO)
 	{
 		return;
 	}
@@ -15331,6 +15665,25 @@ public fw_prethink(id)
 			set_pev(id, pev_viewmodel2,   "");
 
 			/*
+			 * A WAVE IS BRINGING THEM BACK RIGHT NOW, so the camera stands down.
+			 *
+			 * task_revive has already placed this player at their spawn slot and asked
+			 * TS to respawn them. With the camera still running, the next frame would
+			 * drag them back onto the followed teammate -- and the respawn that finally
+			 * lands would then happen THERE: made visible again standing inside
+			 * whoever they had been watching, for as long as it took task_revive_arm
+			 * to find them again. That is the "they respawn inside of me" report in
+			 * full. So for as long as the wave owns them -- until TS accepts the
+			 * respawn, or its hold runs out and hands them back to the camera for
+			 * normal spectate -- they stay where the wave put them.
+			 */
+			if (g_revive_active[id])
+			{
+				g_last_buttons[id] = raw_buttons;
+				return FMRES_IGNORED;
+			}
+
+			/*
 			 * Attack switches to the next teammate, edge-detected on the raw buttons --
 			 * the click the spectator HUD names, read before the hold clears it.
 			 */
@@ -15390,6 +15743,47 @@ public fw_prethink(id)
 				}
 			}
 			return FMRES_IGNORED;
+		}
+
+		/*
+		 * THE WARMUP SPAWN PILE NEVER FORMS.
+		 *
+		 * TS puts every new body on the map's own info_player_start -- the one
+		 * spot every join, every team pickup and every warmup respawn shares --
+		 * and the warmup hold then freezes the body exactly there: inside the
+		 * last body that respawned. A body standing inside another dies
+		 * outright, the same lesson the round starts taught outright (see
+		 * pick_spawn_point: the freeze stagger killed bots at spawn until the
+		 * occupancy check existed), and with the hold keeping them there it
+		 * kills one over and over while nobody can see or anything.
+		 *
+		 * So in warmup and ready-up, any held body still standing on one of the
+		 * map's own spawn points is put on its own team's list instead, one
+		 * frame after TS lands it, with pick_spawn_point choosing a point no
+		 * other body stands at. Nobody standing there means nobody can respawn
+		 * into anybody, and bodies that drift off the points afterwards are
+		 * left wherever they drifted.
+		 */
+		if ((g_state == ST_WARMUP || g_state == ST_READYUP)
+			&& warmup_hold_active() && g_match_team[id] >= 1 && g_spawn_count > 0)
+		{
+			new Float:pos[3];
+			pev(id, pev_origin, pos);
+
+			new bool:on_spawn = false;
+			for (new s = 0; s < g_spawn_count && !on_spawn; s++)
+			{
+				if (get_distance_f(pos, g_spawns[s]) < TSM_SPAWN_CLEARANCE)
+				{
+					on_spawn = true;
+				}
+			}
+
+			if (on_spawn)
+			{
+				place_at_spawn(id);
+				dbgv("warmup spread: %d moved off the shared spawn point", id);
+			}
 		}
 
 		apply_freeze(id);
@@ -16923,12 +17317,12 @@ finish_round_start()
 		place_at_spawn(id);
 
 		// The wash, and the ONE arm behind it: rst_cfg empties what TS had SAVED for
-		// this player, so their old loadout can never be re-applied by the round-start
-		// respawn, and issue_armament schedules the arm respawn -- but ONLY once the
-		// class is picked and applied (the second one). A player still waiting to
-		// choose gets no default-class dress in the freeze: their arm follows the pick
-		// itself (pick_class -> task_reissue_armament), so nobody is dressed
-		// twice.
+		// This player, so their old loadout can never be re-applied by the round-start
+		// respawn, and issue_armament schedules the arm respawn for the settled
+		// class. An unpicked player IS settled at the wash: tsm_default_class is
+		// made their pick right there, so the freeze arm dresses them too, and
+		// the go-live release never strips or gives anything. An explicit pick
+		// made this round still re-arms on the spot through task_reissue_armament.
 		//
 		// Bots included -- engclient_cmd reaches them, so they get the class loadout
 		// the same way humans do.
@@ -17068,88 +17462,129 @@ finish_round_start()
 	tlog("[TSM] finish_round_start: task_team_badum scheduled at 5.0s (id=%d)", TSM_TASK_BADUM);
 }
 
-#define TSM_SPAWN_CLEARANCE 64.0   // a player hull width
+/// Collects this team's spawn point indices at this tier into idx[] (which must hold at
+/// least `size` entries), returning how many there are. The single source of truth for
+/// "how many spawn points does this team have at this tier" -- pick_spawn_point uses it
+/// to build its own candidate list, and spawn_count_for_tier() below hands fire_wave()
+/// just the count, off the exact same data, so the two can never disagree about the
+/// denominator.
+spawn_tier_points(team, tier, idx[], size)
+{
+	new n = 0;
+	new count = (team == 1) ? g_spawn_t1_count : g_spawn_t2_count;
+	for (new i = 0; i < count; i++)
+	{
+		new t = (team == 1) ? g_spawn_t1_tier[i] : g_spawn_t2_tier[i];
+		if (t == tier && n < size)
+		{
+			idx[n++] = i;
+		}
+	}
+	return n;
+}
+
+/// How many spawn points this team has at this tier -- spawn_tier_points() without
+/// needing anywhere to put the indices.
+spawn_count_for_tier(team, tier)
+{
+	new idx[64];
+	return spawn_tier_points(team, tier, idx, sizeof idx);
+}
 
 /// Picks one of the team's points at a tier, in the order they were placed. A slot steps
 /// through them (a wave hands out one slot per player); no slot picks at random.
 bool:pick_spawn_point(id, team, tier, slot, Float:org[3], Float:ang[3])
 {
-	new idx[64], n = 0;
-	new count = (team == 1) ? g_spawn_t1_count : g_spawn_t2_count;
-	for (new i = 0; i < count; i++)
-	{
-		new t = (team == 1) ? g_spawn_t1_tier[i] : g_spawn_t2_tier[i];
-		if (t == tier && n < sizeof idx)
-		{
-			idx[n++] = i;
-		}
-	}
+	new idx[64];
+	new n = spawn_tier_points(team, tier, idx, sizeof idx);
 	if (n == 0)
 	{
 		return false;
 	}
 
+	/*
+	 * Occupancy scan, shared by both the explicit-slot and random paths below.
+	 *
+	 * Originally only the random (slot < 0) path checked this -- added to fix
+	 * "bots die for no reason at round start" (two independent random picks, or
+	 * a late placement and an already-settled player, landing on the exact same
+	 * point, stacked and frozen, then both exposed the instant they stop being
+	 * damage-immune). But fire_wave() hands every revived player in one wave an
+	 * EXPLICIT slot ("offset + n", one per player queued that wave) that flows
+	 * straight into the slot>=0 branch below, which had no occupancy check at
+	 * all -- so whenever one wave revives more players than there are spawn
+	 * points at that tier, two slots are guaranteed to collide on the same point
+	 * by the pigeonhole principle (e.g. 5 players, 4 points: slots 0 and 4 both
+	 * land on index 0 mod 4). That is "dying inside each other during the held
+	 * freeze," reported after the lives/respawn-wave system shipped -- the wave
+	 * system's own explicit-slot path was simply never covered by the earlier
+	 * fix. Prefer a candidate not within a hull width of any other connected,
+	 * alive player's CURRENT origin; fall back to plain random/modulo across
+	 * every candidate if all of them are occupied, which is never worse than
+	 * before.
+	 */
+	new Float:occ[32][3], onum = 0;
+	new occp[32], opnum;
+	get_players(occp, opnum, g_pfa);   // connected and alive
+	for (new p = 0; p < opnum && onum < sizeof occ; p++)
+	{
+		if (occp[p] == id)
+		{
+			continue;
+		}
+		pev(occp[p], pev_origin, occ[onum]);
+		onum++;
+	}
+
+	new free[64], fn = 0;
+	for (new k = 0; k < n; k++)
+	{
+		new Float:cand[3];
+		if (team == 1)
+		{
+			copy_vec(cand, g_spawn_t1[idx[k]]);
+		}
+		else
+		{
+			copy_vec(cand, g_spawn_t2[idx[k]]);
+		}
+
+		new bool:occupied = false;
+		for (new o = 0; o < onum; o++)
+		{
+			if (get_distance_f(cand, occ[o]) < TSM_SPAWN_CLEARANCE)
+			{
+				occupied = true;
+				break;
+			}
+		}
+		if (!occupied)
+		{
+			free[fn++] = k;
+		}
+	}
+
 	new pick;
 	if (slot >= 0)
 	{
-		pick = slot % n;
+		// Try the requested slot first -- preserves the "spread across the
+		// ring" intent when there's no collision. Only redirect to a free
+		// point if the requested one is actually occupied; if everything is
+		// occupied there's nothing to gain by redirecting either.
+		new wanted = slot % n;
+		new bool:wanted_free = false;
+		for (new f = 0; f < fn; f++)
+		{
+			if (free[f] == wanted)
+			{
+				wanted_free = true;
+				break;
+			}
+		}
+		pick = (wanted_free || fn == 0) ? wanted : free[random_num(0, fn - 1)];
 	}
 	else
 	{
-		/*
-		 * Random placement only -- round start, the staggered arm task, and
-		 * freeze-tick stragglers all land here with slot -1. Nothing here used to
-		 * check whether the point it picked was already occupied, so two
-		 * independent random picks (or a late placement and an already-settled
-		 * player) could land on the exact same spawn point -- stacked, frozen,
-		 * and then both exposed to whatever the engine does to resolve two
-		 * players on one spot the instant they stop being damage-immune (freeze
-		 * ending, go-live). That is the "bots die for no reason at round start"
-		 * bug. Prefer a candidate not within a hull width of any other connected,
-		 * alive player's CURRENT origin; fall back to plain random across every
-		 * candidate if all of them are occupied, which is never worse than before.
-		 */
-		new Float:occ[32][3], onum = 0;
-		new occp[32], opnum;
-		get_players(occp, opnum, g_pfa);   // connected and alive
-		for (new p = 0; p < opnum && onum < sizeof occ; p++)
-		{
-			if (occp[p] == id)
-			{
-				continue;
-			}
-			pev(occp[p], pev_origin, occ[onum]);
-			onum++;
-		}
-
-		new free[64], fn = 0;
-		for (new k = 0; k < n; k++)
-		{
-			new Float:cand[3];
-			if (team == 1)
-			{
-				copy_vec(cand, g_spawn_t1[idx[k]]);
-			}
-			else
-			{
-				copy_vec(cand, g_spawn_t2[idx[k]]);
-			}
-
-			new bool:occupied = false;
-			for (new o = 0; o < onum; o++)
-			{
-				if (get_distance_f(cand, occ[o]) < TSM_SPAWN_CLEARANCE)
-				{
-					occupied = true;
-					break;
-				}
-			}
-			if (!occupied)
-			{
-				free[fn++] = k;
-			}
-		}
-
 		pick = (fn > 0) ? free[random_num(0, fn - 1)] : random_num(0, n - 1);
 	}
 
@@ -17772,9 +18207,9 @@ public task_go_live()
 	 * ARM_GATE_MAX_EXTRA runs out -- and going live with an empty player is worse
 	 * than a late give. Anyone on a live team still unarmed right now gets their
 	 * kit in place; the freeze hold has them where the round wants them, so no
-	 * strip and no respawn. The class-picked test mirrors gate_all_armed: a player
-	 * who never picked goes live with the default class exactly as before the
-	 * gate existed, and is not force-dressed here.
+	 * strip and no respawn. A player who never picked gets the default class
+	 * settled here the same way the wash did it, so the fall-through cannot send
+	 * an empty body to LIVE either.
 	 */
 	new fp[32], fnum;
 	get_players(fp, fnum, g_pf);
@@ -17782,7 +18217,17 @@ public task_go_live()
 	{
 		new id = fp[i];
 
-		if (g_player_class[id] == 0 || g_armed[id] || !is_user_alive(id))
+		// THE FALL-THROUGH'S OWN DEFAULT PICK: identical to the wash's, for whatever
+		// slipped past it whole. Without this an unpicked straggler keeps the empty
+		// armament the wash wrote and goes live holding nothing.
+		if (g_player_class[id] == 0)
+		{
+			g_player_class[id] = resolved_class(id);
+			client_print(id, print_chat, "[MATCH] No class picked -- you are %s for this match.",
+				g_class_name[g_player_class[id] - 1]);
+		}
+
+		if (g_armed[id] || !is_user_alive(id))
 		{
 			continue;
 		}
@@ -17961,6 +18406,19 @@ round_time_expired()
 	}
 
 	remove_task(2);
+
+	// Siege: the attacker (tsm_obj_team) must finish the objective to win. Time running
+	// out with it still standing is a defensive win, headcount notwithstanding -- only a
+	// map with no siege objectives at all (siege_count() == 0) falls through to the
+	// ordinary tiebreak below. Reaching this function at all means the last objective
+	// has not already fallen -- that path ends the round immediately, elsewhere.
+	if (siege_count() > 0)
+	{
+		new defender = (get_pcvar_num(g_cv_objteam) == 1) ? 2 : 1;
+		all_print("[MATCH] Time up -- the objective still stands. Defensive win.");
+		end_round(defender);
+		return;
+	}
 
 	new a1 = count_alive(1);
 	new a2 = count_alive(2);
@@ -18528,6 +18986,8 @@ public cmd_debug(id, level, cid)
 	get_pcvar_string(g_cv_engdoorclass, door_class, charsmax(door_class));
 	console_print(id, "[TSM] eng doors: in_map=%d class='%s'  ham_use=%d (on an eng door=%d)",
 		doors, door_class, g_door_use_hits, g_engdoor_use_hits);
+	console_print(id, "[TSM] Ham_TakeDamage on player: hits=%d  (0 = the hook is not delivered -- every damage gate in fw_takedamage, friendly fire included, is dead code)",
+		g_player_dmg_hits);
 
 	console_print(id, "[TSM] solo_test=%d  loadout_reset=%d  block_spectator=%d  lock_teams=%d",
 		get_pcvar_num(g_cv_solo), get_pcvar_num(g_cv_reloadout),
@@ -19147,7 +19607,8 @@ player_left(id)
 	g_pending_elim[id] = 0.0;
 	g_match_team[id] = 0;
 	g_last_buttons[id] = 0;
-	g_push_until[id] = 0.0;   // clear any pending shove
+	g_push_until[id] = 0.0;      // clear any pending shove
+	g_squad_lag_at[id] = 0.0;    // and any half-run lag clock with it
 
 	// Anyone watching the departed needs a new target, or they would be stuck
 	// following a dead index forever.

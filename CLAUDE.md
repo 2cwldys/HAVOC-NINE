@@ -28,6 +28,7 @@ Working rules for Claude in this repo. The build, export and engine details are 
 - dllmerge.ps1 only adds to a .patch. History blocks are kept, lines the new diff drops move into the history, and an empty new diff over a non-empty one is refused. Keep that behaviour if you change the script.
 - Engine work (`xash.bat engine`) builds the h9 branch of the FWGS clone. Changing the engine source needs the commit OK above.
 - Keep secrets out of TSM. `tsm_ad_token` in ts_advertise.cfg is the Discord bot token. It lives only in the game folder's copy. Check it by length, never print its value.
+- Check .patch file chains for any code added by other agents, before building anything, to prevent overwrites.
 
 ### Shell
 - Run .bat and .cmd files by full path, through cmd, with path conversion off: `MSYS_NO_PATHCONV=1 cmd /c "C:\full\path\build.bat <nul"`. The agent shell sets NoDefaultCurrentDirectoryInExePath=1, so bare names fail.
@@ -46,11 +47,6 @@ Working rules for Claude in this repo. The build, export and engine details are 
 - In plan mode, edit only the plan file, until the user approves the plan.
 
 ## Project rules
-
-### Aurora-Persistence (D:\GIT Storage\Aurora-Persistence)
-- After any .dm or tgui change, run `scripts\debug-compile.ps1 -ReportOnly` and fix every listed error until it reports RESULT: CLEAN.
-- After adding or editing a `SQL\migrate-2023\V*.sql` file, also run `scripts\db_update.ps1`. A clean compile does not mean the migration ran.
-- Do not use `length(S.contents)` as a test for "has items inside" on arbitrary structures, because machine parts live in contents. Do not mix `var/` declarations across if-blocks in DM procs.
 
 ### TS Match Mode and H9XASH (D:\Downloads\TSM)
 - The rules above apply in full: build.bat for the plugin, xash.bat for the engine and the H9XASH layout, dllmerge for every .patch.

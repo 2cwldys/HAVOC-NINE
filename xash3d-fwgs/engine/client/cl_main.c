@@ -100,6 +100,7 @@ static CVAR_DEFINE_AUTO( bottomcolor, "0", FCVAR_USERINFO|FCVAR_ARCHIVE|FCVAR_FI
 CVAR_DEFINE_AUTO( rate, "25000", FCVAR_USERINFO|FCVAR_ARCHIVE|FCVAR_FILTERABLE, "player network rate" );
 
 CVAR_DEFINE_AUTO( cl_ticket_generator, "revemu2013", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "you wouldn't steal a car" );
+CVAR_DEFINE_AUTO( cl_h9_userid, "", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "H9: this install's regenerable client id -- see docs/CUSTOM_XASH_USERID.txt" );
 static CVAR_DEFINE_AUTO( cl_advertise_engine_in_name, "1", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "add [Xash3D] to the nickname when connecting to GoldSrc servers" );
 static CVAR_DEFINE_AUTO( cl_log_outofband, "0", FCVAR_ARCHIVE, "log out of band messages, can be useful for server admins and for engine debugging" );
 static CVAR_DEFINE_AUTO( cl_autorecord, "0", 0, "automatically start recording a demo after joining the server" );
@@ -233,16 +234,14 @@ static void CL_CreateResourceList( void )
 	ClearBits( cl_logoext.flags, FCVAR_CHANGED );
 #endif
 
-	// sanitize cvar value
-	if( Q_strcmp( cl_logoext.string, "bmp" ) && Q_strcmp( cl_logoext.string, "png" ))
-		Cvar_DirectSet( &cl_logoext, "bmp" );
-
-	Q_snprintf( szFileName, sizeof( szFileName ), "logos/remapped.%s", cl_logoext.string );
-	if( cls.net_protocol == PROTO_GOLDSRC )
-	{
-		CL_ConvertImageToWAD3( szFileName );
-		Q_strncpy( szFileName, "tempdecal.wad", sizeof( szFileName ));
-	}
+	// H9: the spray picker is alive: cl_logofile names the bitmap the player
+	// picked from ts\logos (the classics ship there, a player's own upload joins
+	// the same list), and the engine remaps it into the player's own
+	// tempdecal.wad -- the file the spray really is -- sent under every protocol.
+	// A missing or unconvertible pick leaves any uploaded tempdecal.wad alone.
+	Q_snprintf( szFileName, sizeof( szFileName ), "logos/%s.%s", cl_logofile.string, cl_logoext.string );
+	CL_ConvertImageToWAD3( szFileName );
+	Q_strncpy( szFileName, "tempdecal.wad", sizeof( szFileName ));
 	file_t		*fp = FS_Open( szFileName, "rb", true );
 
 	if( !fp )
@@ -315,6 +314,98 @@ static void CL_CheckLogoChanged( void )
 		return;
 	}
 #endif
+}
+
+/*
+==================
+CL_Spray_f
+
+pick a spray off the shelf: `spray` lists every picture in ts\logos and what
+is equipped, `spray <name>` equips one, `spray off` unequips -- and the file
+that a player left in ts\ sprays without ever being converted.
+==================
+*/
+static void CL_Spray_f( void )
+{
+	if( Cmd_Argc() > 2 )
+	{
+		Con_Printf( S_USAGE "spray [logo name | off]\n" );
+		return;
+	}
+
+	if( Cmd_Argc() == 2 )
+	{
+		const char	*name = Cmd_Argv( 1 );
+		const char	*ext = NULL;
+		char		pattern[MAX_OSPATH];
+		search_t	*search;
+
+		if( strchr( name, '/' ) || strchr( name, '\\' ) || strchr( name, ':' ))
+		{
+			Con_Printf( S_USAGE "spray [logo name | off]\n" );
+			return;
+		}
+
+		if( !Q_stricmp( name, "off" ))
+		{
+			Cvar_Set( "cl_logofile", "none" );
+			Con_Printf( "spray: the shelf is unequipped; a hand-dropped tempdecal.wad sprays untouched\n" );
+			return;
+		}
+
+		Q_snprintf( pattern, sizeof( pattern ), "logos/%s.*", name );
+		search = FS_Search( pattern, true, true );
+
+		if( search )
+		{
+			for( int i = 0; i < search->numfilenames; i++ )
+			{
+				const char	*file = search->filenames[i];
+				size_t		len = Q_strlen( file );
+
+				if( len > 4 && !Q_stricmp( file + len - 4, ".bmp" ))
+					ext = "bmp";
+				else if( len > 4 && !Q_stricmp( file + len - 4, ".png" ))
+					ext = "png";
+
+				if( ext )
+					break;
+			}
+			Mem_Free( search );
+		}
+
+		if( !ext )
+		{
+			Con_Printf( "spray: no picture named \"%s\" in ts\\logos\n", name );
+			return;
+		}
+
+		Cvar_Set( "cl_logofile", name );
+		Cvar_Set( "cl_logoext", ext );
+		Con_Printf( "spray: %s.%s equipped%s\n", name, ext, cls.state == ca_active ?
+			", being sent to the server now" : ", takes effect at the next connect" );
+		return;
+	}
+
+	Con_Printf( "equipped: \"%s.%s\"\n", cl_logofile.string, cl_logoext.string );
+
+	search_t	*list = FS_Search( "logos/*.bmp", true, true );
+
+	if( list )
+	{
+		for( int i = 0; i < list->numfilenames; i++ )
+			Con_Printf( "  %s\n", list->filenames[i] );
+		Mem_Free( list );
+	}
+
+	list = FS_Search( "logos/*.png", true, true );
+
+	if( list )
+	{
+		for( int i = 0; i < list->numfilenames; i++ )
+			Con_Printf( "  %s\n", list->filenames[i] );
+		Mem_Free( list );
+	}
 }
 
 /*
@@ -1349,6 +1440,20 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
 			Cvar_DirectSetValue( &cl_dlmax, FRAGMENT_DEFAULT_SIZE );
 
 		Info_SetValueForKey( protinfo, "uuid", key, sizeof( protinfo ));
+
+		// H9: cl_h9_userid is a plain, regenerable client id (not a hardware
+		// fingerprint, see identification.c's own id above) -- salted per
+		// destination server the same way, so no two servers can compare the
+		// same raw value to correlate a player, and sent via userinfo (which a
+		// real server actually parses) rather than protinfo (which it doesn't).
+		if( cl_h9_userid.string[0] )
+		{
+			string h9key;
+
+			ID_GetMD5ForAddressEx( h9key, adr, sizeof( h9key ), cl_h9_userid.string );
+			Info_SetValueForKey( cls.userinfo, "h9_clientid", h9key, sizeof( cls.userinfo ));
+		}
+
 		Info_SetValueForKey( protinfo, "qport", qport, sizeof( protinfo ));
 		Info_SetValueForKeyf( protinfo, "ext", sizeof( protinfo ), "%d", extensions );
 
@@ -3719,6 +3824,7 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &cl_advertise_engine_in_name );
 	Cvar_RegisterVariable( &cl_log_outofband );
 	Cvar_RegisterVariable( &cl_autorecord );
+	Cvar_RegisterVariable( &cl_h9_userid );
 
 	Cvar_RegisterVariable( &showpause );
 	Cvar_RegisterVariable( &mp_decals );
@@ -3729,6 +3835,7 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &cl_download_ingame );
 	Cvar_RegisterVariable( &cl_logofile );
 	Cvar_RegisterVariable( &cl_logocolor );
+	Cmd_AddCommand( "spray", CL_Spray_f, "list and equip spray pictures, spray off to unequip" );
 	Cvar_RegisterVariable( &cl_logoext );
 	Cvar_RegisterVariable( &cl_logoupdate );
 	Cvar_RegisterVariable( &cl_logomaxdim );

@@ -1,0 +1,111 @@
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+index 30b168ca..f3a6ade 100644
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -316,6 +316,98 @@ static void CL_CheckLogoChanged( void )
+ #endif
+ }
+
++/*
++==================
++CL_Spray_f
++
++pick a spray off the shelf: `spray` lists every picture in ts\logos and what
++is equipped, `spray <name>` equips one, `spray off` unequips -- and the file
++that a player left in ts\ sprays without ever being converted.
++==================
++*/
++static void CL_Spray_f( void )
++{
++	if( Cmd_Argc() > 2 )
++	{
++		Con_Printf( S_USAGE "spray [logo name | off]\n" );
++		return;
++	}
++
++	if( Cmd_Argc() == 2 )
++	{
++		const char	*name = Cmd_Argv( 1 );
++		const char	*ext = NULL;
++		char		pattern[MAX_OSPATH];
++		search_t	*search;
++
++		if( strchr( name, '/' ) || strchr( name, '\\' ) || strchr( name, ':' ))
++		{
++			Con_Printf( S_USAGE "spray [logo name | off]\n" );
++			return;
++		}
++
++		if( !Q_stricmp( name, "off" ))
++		{
++			Cvar_Set( "cl_logofile", "none" );
++			Con_Printf( "spray: the shelf is unequipped; a hand-dropped tempdecal.wad sprays untouched\n" );
++			return;
++		}
++
++		Q_snprintf( pattern, sizeof( pattern ), "logos/%s.*", name );
++		search = FS_Search( pattern, true, true );
++
++		if( search )
++		{
++			for( int i = 0; i < search->numfilenames; i++ )
++			{
++				const char	*file = search->filenames[i];
++				size_t		len = Q_strlen( file );
++
++				if( len > 4 && !Q_stricmp( file + len - 4, ".bmp" ))
++					ext = "bmp";
++				else if( len > 4 && !Q_stricmp( file + len - 4, ".png" ))
++					ext = "png";
++
++				if( ext )
++					break;
++			}
++			Mem_Free( search );
++		}
++
++		if( !ext )
++		{
++			Con_Printf( "spray: no picture named \"%s\" in ts\\logos\n", name );
++			return;
++		}
++
++		Cvar_Set( "cl_logofile", name );
++		Cvar_Set( "cl_logoext", ext );
++		Con_Printf( "spray: %s.%s equipped%s\n", name, ext, cls.state == ca_active ?
++			", being sent to the server now" : ", takes effect at the next connect" );
++		return;
++	}
++
++	Con_Printf( "equipped: \"%s.%s\"\n", cl_logofile.string, cl_logoext.string );
++
++	search_t	*list = FS_Search( "logos/*.bmp", true, true );
++
++	if( list )
++	{
++		for( int i = 0; i < list->numfilenames; i++ )
++			Con_Printf( "  %s\n", list->filenames[i] );
++		Mem_Free( list );
++	}
++
++	list = FS_Search( "logos/*.png", true, true );
++
++	if( list )
++	{
++		for( int i = 0; i < list->numfilenames; i++ )
++			Con_Printf( "  %s\n", list->filenames[i] );
++		Mem_Free( list );
++	}
++}
++
+ /*
+ ===============
+ CL_CheckClientState
+@@ -3741,6 +3833,7 @@ static void CL_InitLocal( void )
+ 	Cvar_RegisterVariable( &cl_download_ingame );
+ 	Cvar_RegisterVariable( &cl_logofile );
+ 	Cvar_RegisterVariable( &cl_logocolor );
++	Cmd_AddCommand( "spray", CL_Spray_f, "list and equip spray pictures, spray off to unequip" );
+ 	Cvar_RegisterVariable( &cl_logoext );
+ 	Cvar_RegisterVariable( &cl_logoupdate );
+ 	Cvar_RegisterVariable( &cl_logomaxdim );

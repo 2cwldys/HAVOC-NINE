@@ -1,0 +1,628 @@
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+index 695656b..f2e23e5 100644
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -2236,6 +2236,7 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
+ 	if( maxcl > MAX_CLIENTS || numcl > MAX_CLIENTS || numcl > maxcl || i != PROTOCOL_VERSION )
+ 		return;
+ 
++	CL_Presence_ServerReply( from, infostring );
+ 	UI_AddServerToList( from, infostring );
+ }
+ 
+@@ -3819,6 +3820,7 @@ static void CL_InitLocal( void )
+ 	cl.resourcesonhand.pNext = cl.resourcesonhand.pPrev = &cl.resourcesonhand;
+ 
+ 	Cvar_RegisterVariable( &cl_ticket_generator );
++	CL_Presence_Init();
+ 	Cvar_RegisterVariable( &cl_advertise_engine_in_name );
+ 	Cvar_RegisterVariable( &cl_log_outofband );
+ 	Cvar_RegisterVariable( &cl_autorecord );
+@@ -4152,6 +4154,7 @@ CL_Shutdown
+ */
+ void CL_Shutdown( void )
+ {
++	CL_Presence_Shutdown();
+ 	Con_Printf( "%s()\n", __func__ );
+ 
+ 	if( host.status != HOST_CRASHED && cls.initialized )
+diff --git a/engine/client/client.h b/engine/client/client.h
+index 7eede42..c7eba4e 100644
+--- a/engine/client/client.h
++++ b/engine/client/client.h
+@@ -1191,6 +1191,12 @@ void UI_KeyEvent( int key, qboolean down );
+ void UI_MouseMove( int x, int y );
+ void UI_SetActiveMenu( qboolean fActive );
+ void UI_AddServerToList( netadr_t adr, const char *info );
++
++// cl_presence.c: Discord Rich Presence, sent by the engine
++void CL_Presence_Init( void );
++void CL_Presence_Frame( void );
++void CL_Presence_Shutdown( void );
++void CL_Presence_ServerReply( netadr_t from, const char *info );
+ void UI_GetCursorPos( int *pos_x, int *pos_y );
+ void UI_SetCursorPos( int pos_x, int pos_y );
+ void UI_ShowCursor( qboolean show );
+diff --git a/engine/common/host.c b/engine/common/host.c
+index 8e852ad1..74e18c65 100644
+--- a/engine/common/host.c
++++ b/engine/common/host.c
+@@ -672,6 +672,7 @@ void Host_Frame( double time )
+ 	Host_GetCommands (); // dedicated in
+ 	Host_ServerFrame (); // server frame
+ 	Host_ClientFrame (); // client frame
++	CL_Presence_Frame();
+ 	HTTP_Run();			 // both server and client
+ 	XRcon_Frame();
+ 
+diff --git a/game_launch/game.rc b/game_launch/game.rc
+index 1d8bbcc9..fa1cc5c1 100644
+--- a/game_launch/game.rc
++++ b/game_launch/game.rc
+@@ -25,4 +25,4 @@
+ 
+ #include <common.ver>
+ 
+-IDI_ICON1	ICON    DISCARDABLE		"icon-xash-material.ico"
++IDI_ICON1	ICON    DISCARDABLE		"havoc9.ico"
+diff --git a/engine/client/cl_presence.c b/engine/client/cl_presence.c
+new file mode 100644
+index 00000000..59aca604
+--- /dev/null
++++ b/engine/client/cl_presence.c
+@@ -0,0 +1,498 @@
++/*
++cl_presence.c - Discord Rich Presence, sent by the engine itself
++
++The card is built from what the client already has. The status reply of the server it
++is connected to gives the map, the player count and the bot count, and the server's
++serverinfo carries the siege progress, which the plugin publishes as tsm_pres_siege.
++The card goes to the local Discord desktop client over its IPC pipe, the channel every
++Rich Presence library uses, so nothing runs beside the game.
++
++The card is on by default. ts_richpresence 0 turns it off, in config.cfg or
++userconfig.cfg. Discord shows the name of the application that owns
++ts_richpresence_clientid, so that application is registered as HAVOC 9 in the Discord
++developer portal. docs\RICH_PRESENCE.txt has the portal steps.
++
++Windows only. Everywhere else the functions return at once.
++*/
++
++#include "common.h"
++#include "client.h"
++#include <time.h>
++
++#define H9P_CLIENT_ID		"1562656412834734181"	// the HAVOC 9 Discord application ID
++#define H9P_SMALL_KEY		"h9helmet"	// the small image asset, uploaded to that application
++#define H9P_MENU_KEY		"h9_menu"	// the large image on the main-menu card, uploaded to that application
++#define H9P_INTERVAL		15.0	// seconds between status queries
++#define H9P_RETRY		30.0	// seconds between attempts to reach Discord
++#define H9P_SEND_GAP		16.0	// seconds between card updates, to stay under Discord's presence rate limit
++#define H9P_CARD_MAX		1024	// longest JSON message sent to Discord
++#define H9P_SIDE1_NAME		"MSR"			// side 1 on the card, blue in the game
++#define H9P_SIDE2_NAME		"Insurgents"	// side 2 on the card, red in the game
++#define H9P_BUTTON1_LABEL	"Join the Discord"	// the first button under the card
++#define H9P_BUTTON1_URL		"https://discord.gg/b76pqqVsNY"	// where that button goes
++#define H9P_BUTTON2_LABEL	"havoc9.org"		// the second button under the card
++#define H9P_BUTTON2_URL		"https://havoc9.org"		// where that button goes
++
++CVAR_DEFINE_AUTO( ts_richpresence, "1", FCVAR_ARCHIVE, "show your game on Discord (Rich Presence): 1 = on, 0 = off" );
++CVAR_DEFINE_AUTO( ts_richpresence_clientid, H9P_CLIENT_ID, 0, "Discord application ID for the card (set by the build)" );
++
++static struct
++{
++	qboolean	valid;			// the status reply is from the server we are on
++	qboolean	shown;			// a card is up on Discord
++	qboolean	warned;			// the missing application ID has been reported
++	qboolean	onmenu;			// the card up on Discord is the main-menu card, not a server card
++	double		queried;		// realtime of the last status query
++	double		retry;			// realtime before the next attempt to reach Discord
++	double		sendat;			// realtime before the next card update may go to Discord
++	int		start;			// unix time the card first went up, for Discord's elapsed clock
++	int		nonce;			// counts the messages sent
++	int		players, bots, maxplayers;
++	char		map[64];
++	char		sent[H9P_CARD_MAX];	// the card last sent, so an unchanged card is not resent
++} h9p;
++
++#if XASH_WIN32
++/*
++=================
++H9P_Escape
++
++Escapes text for a JSON string. Control characters become spaces.
++=================
++*/
++static void H9P_Escape( char *dst, size_t size, const char *src )
++{
++	size_t	i = 0;
++
++	for( ; *src && i + 2 < size; src++ )
++	{
++		if( *src == '"' || *src == '\\' )
++		{
++			dst[i++] = '\\';
++			dst[i++] = *src;
++		}
++		else if(( unsigned char )*src < ' ' )
++		{
++			dst[i++] = ' ';
++		}
++		else
++		{
++			dst[i++] = *src;
++		}
++	}
++
++	dst[i] = '\0';
++}
++#endif
++
++#if XASH_WIN32
++static HANDLE	h9p_pipe = INVALID_HANDLE_VALUE;
++
++/*
++=================
++H9P_Close
++
++Closes the pipe. Discord drops the card when its end of the pipe goes.
++=================
++*/
++static void H9P_Close( void )
++{
++	if( h9p_pipe != INVALID_HANDLE_VALUE )
++		CloseHandle( h9p_pipe );
++
++	h9p_pipe = INVALID_HANDLE_VALUE;
++	h9p.shown = false;
++	h9p.sent[0] = '\0';
++}
++
++/*
++=================
++H9P_Write
++
++Sends one Discord IPC frame: an opcode and a length, both little-endian 32-bit
++numbers, then the JSON text.
++=================
++*/
++static qboolean H9P_Write( int opcode, const char *json )
++{
++	unsigned char	head[8];
++	unsigned int	uop = ( unsigned int )opcode;
++	unsigned int	ulen = ( unsigned int )Q_strlen( json );
++	DWORD		written = 0;
++	DWORD		want = ( DWORD )Q_strlen( json );
++	int		i;
++
++	if( h9p_pipe == INVALID_HANDLE_VALUE )
++		return false;
++
++	for( i = 0; i < 4; i++ )
++	{
++		head[i] = ( uop >> ( 8 * i )) & 0xff;
++		head[4 + i] = ( ulen >> ( 8 * i )) & 0xff;
++	}
++
++	if( !WriteFile( h9p_pipe, head, sizeof( head ), &written, NULL ) || written != sizeof( head ))
++		return false;
++
++	if( !WriteFile( h9p_pipe, json, want, &written, NULL ) || written != want )
++		return false;
++
++	return true;
++}
++
++/*
++=================
++H9P_Drain
++
++Discord answers every frame. Nothing here reads the answers, but they are read off
++the pipe so Discord never waits on a full one.
++=================
++*/
++static void H9P_Drain( void )
++{
++	char	junk[512];
++
++	for( ;; )
++	{
++		DWORD	avail = 0;
++		DWORD	got = 0;
++		DWORD	want;
++
++		if( !PeekNamedPipe( h9p_pipe, NULL, 0, NULL, &avail, NULL ))
++		{
++			H9P_Close();
++			return;
++		}
++
++		if( avail == 0 )
++			return;
++
++		want = avail < ( DWORD )sizeof( junk ) ? avail : ( DWORD )sizeof( junk );
++		if( !ReadFile( h9p_pipe, junk, want, &got, NULL ))
++		{
++			H9P_Close();
++			return;
++		}
++	}
++}
++
++/*
++=================
++H9P_Connect
++
++Opens the first Discord pipe that answers, from discord-ipc-0 to discord-ipc-9, and
++sends the handshake that names the application.
++=================
++*/
++static qboolean H9P_Connect( void )
++{
++	char	name[64], json[256];
++	int	i;
++
++	for( i = 0; i < 10 && h9p_pipe == INVALID_HANDLE_VALUE; i++ )
++	{
++		Q_snprintf( name, sizeof( name ), "\\\\.\\pipe\\discord-ipc-%d", i );
++		h9p_pipe = CreateFileA( name, GENERIC_READ|GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
++	}
++
++	if( h9p_pipe == INVALID_HANDLE_VALUE )
++		return false;
++
++	Q_snprintf( json, sizeof( json ), "{\"v\":1,\"client_id\":\"%s\"}", ts_richpresence_clientid.string );
++	if( !H9P_Write( 0, json ))
++	{
++		H9P_Close();
++		return false;
++	}
++
++	return true;
++}
++
++/*
++=================
++H9P_Activity
++
++Builds the activity object for the server we are on, as JSON. It holds no nonce, so two
++builds of an unchanged card compare equal. Details is the mode: the siege progress and the
++side attacking it on a siege map, "Match Mode" otherwise. State is the players alive on each
++side out of the total, the bots, and the map, or the totals alone from a plugin that does not
++publish the alive counts. The large image is the map's snapshot, named after the map in the
++application's art assets. The two buttons link to the Discord invite and the site.
++=================
++*/
++static void H9P_Activity( char *out, size_t size )
++{
++	const char	*siege = Info_ValueForKey( cl.serverinfo, "tsm_pres_siege" );
++	const char	*attack = Info_ValueForKey( cl.serverinfo, "tsm_pres_attack" );
++	const char	*side1 = Info_ValueForKey( cl.serverinfo, "tsm_pres_side1" );
++	const char	*side2 = Info_ValueForKey( cl.serverinfo, "tsm_pres_side2" );
++	const char	*alive1 = Info_ValueForKey( cl.serverinfo, "tsm_pres_alive1" );
++	const char	*alive2 = Info_ValueForKey( cl.serverinfo, "tsm_pres_alive2" );
++	const char	*atk = attack[0] == '1' ? H9P_SIDE1_NAME : ( attack[0] == '2' ? H9P_SIDE2_NAME : "" );
++	char		details[96], state[160], title[160];
++	char		e_details[192], e_state[320], e_map[160], e_title[320];
++
++	if( siege[0] && atk[0] )
++	{
++		const char *slash = Q_strchr( siege, '/' );
++
++		Q_snprintf( details, sizeof( details ), "%s attacking: %d of %d objectives", atk,
++			Q_atoi( siege ), slash ? Q_atoi( slash + 1 ) : 0 );
++	}
++	else if( siege[0] )
++		Q_snprintf( details, sizeof( details ), "Siege %s", siege );
++	else
++		Q_strncpy( details, "Match Mode", sizeof( details ));
++
++	if( alive1[0] && alive2[0] && side1[0] && side2[0] )
++		Q_snprintf( state, sizeof( state ), "Alive: %s %s/%s, %s %s/%s, %d bots, %s", H9P_SIDE1_NAME,
++			alive1, side1, H9P_SIDE2_NAME, alive2, side2, h9p.bots, h9p.map );
++	else if( side1[0] && side2[0] )
++		Q_snprintf( state, sizeof( state ), "%s %s vs %s %s, %d bots, %s", H9P_SIDE1_NAME, side1,
++			H9P_SIDE2_NAME, side2, h9p.bots, h9p.map );
++	else
++		Q_snprintf( state, sizeof( state ), "%s, %d players, %d bots", h9p.map, h9p.players, h9p.bots );
++
++	Q_snprintf( title, sizeof( title ), "HAVOC 9: %s", h9p.map );
++
++	H9P_Escape( e_details, sizeof( e_details ), details );
++	H9P_Escape( e_state, sizeof( e_state ), state );
++	H9P_Escape( e_map, sizeof( e_map ), h9p.map );
++	H9P_Escape( e_title, sizeof( e_title ), title );
++
++	Q_snprintf( out, size,
++		"{\"details\":\"%s\",\"state\":\"%s\",\"timestamps\":{\"start\":%d},"
++		"\"assets\":{\"large_image\":\"%s\",\"large_text\":\"%s\","
++		"\"small_image\":\"%s\",\"small_text\":\"HAVOC 9\"},"
++		"\"buttons\":[{\"label\":\"%s\",\"url\":\"%s\"},{\"label\":\"%s\",\"url\":\"%s\"}]}",
++		e_details, e_state, h9p.start, e_map, e_title, H9P_SMALL_KEY,
++		H9P_BUTTON1_LABEL, H9P_BUTTON1_URL, H9P_BUTTON2_LABEL, H9P_BUTTON2_URL );
++}
++
++
++/*
++=================
++H9P_MenuActivity
++
++The card for the main menu. There is no server to ask, so it says where the player is and
++nothing about a match.
++=================
++*/
++static void H9P_MenuActivity( char *out, size_t size )
++{
++	Q_snprintf( out, size,
++		"{\"details\":\"In the main menu\",\"state\":\"Not in a server\",\"timestamps\":{\"start\":%d},"
++		"\"assets\":{\"large_image\":\"%s\",\"large_text\":\"HAVOC 9\","
++		"\"small_image\":\"%s\",\"small_text\":\"HAVOC 9\"},"
++		"\"buttons\":[{\"label\":\"%s\",\"url\":\"%s\"},{\"label\":\"%s\",\"url\":\"%s\"}]}",
++		h9p.start, H9P_MENU_KEY, H9P_SMALL_KEY,
++		H9P_BUTTON1_LABEL, H9P_BUTTON1_URL, H9P_BUTTON2_LABEL, H9P_BUTTON2_URL );
++}
++
++/*
++=================
++H9P_Hide
++
++Takes the card down, if one is up, and forgets the server we were on.
++=================
++*/
++static void H9P_Hide( void )
++{
++	char	json[128];
++
++	if( h9p.shown && h9p_pipe != INVALID_HANDLE_VALUE )
++	{
++		Q_snprintf( json, sizeof( json ),
++			"{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%lu,\"activity\":null},\"nonce\":\"%d\"}",
++			( unsigned long )GetCurrentProcessId(), ++h9p.nonce );
++		if( !H9P_Write( 1, json ))
++			H9P_Close();
++	}
++
++	h9p.shown = false;
++	h9p.onmenu = false;
++	h9p.valid = false;
++	h9p.start = 0;
++	h9p.sent[0] = '\0';
++}
++#else
++static void H9P_Hide( void ) {}
++#endif
++
++/*
++=================
++CL_Presence_Init
++=================
++*/
++void CL_Presence_Init( void )
++{
++	Cvar_RegisterVariable( &ts_richpresence );
++	Cvar_RegisterVariable( &ts_richpresence_clientid );
++}
++
++/*
++=================
++CL_Presence_ServerReply
++
++Called for every status reply the client parses. Only the reply from the server we are
++connected to counts, and it sets the map, the players and the bots for the card.
++=================
++*/
++void CL_Presence_ServerReply( netadr_t from, const char *info )
++{
++	if( !NET_CompareAdr( from, cls.serveradr ))
++		return;
++
++	Q_strncpy( h9p.map, Info_ValueForKey( info, "map" ), sizeof( h9p.map ));
++	h9p.players = Q_atoi( Info_ValueForKey( info, "numcl" ));
++	h9p.bots = Q_atoi( Info_ValueForKey( info, "bots" ));
++	h9p.maxplayers = Q_atoi( Info_ValueForKey( info, "maxcl" ));
++	h9p.valid = true;
++}
++
++/*
++=================
++CL_Presence_Frame
++
++Runs once a frame. While the game is connected it asks the server for its status every
++H9P_INTERVAL seconds, and sends the card when what it shows has changed. In the main menu
++it shows the menu card. Off, or while connecting or in a demo, it takes the card down.
++=================
++*/
++void CL_Presence_Frame( void )
++{
++#if XASH_WIN32
++	char	activity[H9P_CARD_MAX];
++	char	message[H9P_CARD_MAX + 128];
++	qboolean	inmenu = cls.state == ca_disconnected;
++	static qboolean	dbg_gate1, dbg_gate3, dbg_gate4, dbg_gate5, dbg_gate6, dbg_shown;
++
++	if( !ts_richpresence.value || CL_IsPlaybackDemo( ) || ( cls.state != ca_active && !inmenu ))
++	{
++		if( inmenu && !dbg_gate1 )
++		{
++			Con_Printf( "richpresence: gate1 hide -- richpresence=%g demo=%d state=%d inmenu=%d\n",
++				ts_richpresence.value, CL_IsPlaybackDemo(), cls.state, inmenu );
++			dbg_gate1 = true;
++		}
++		H9P_Hide();
++		return;
++	}
++
++	if( !ts_richpresence_clientid.string[0] )
++	{
++		if( !h9p.warned )
++			Con_Printf( S_WARN "ts_richpresence: no Discord application ID is set (ts_richpresence_clientid). See docs\\RICH_PRESENCE.txt.\n" );
++		h9p.warned = true;
++		return;
++	}
++
++	if( !inmenu )
++	{
++		if( host.realtime - h9p.queried >= H9P_INTERVAL )
++		{
++			h9p.queried = host.realtime;
++			NET_QueryServerByAddress( cls.serveradr, PROTO_CURRENT );
++		}
++
++		if( !h9p.valid )
++		{
++			if( !dbg_gate3 )
++			{
++				Con_Printf( "richpresence: gate3 waiting on server status reply\n" );
++				dbg_gate3 = true;
++			}
++			return;
++		}
++	}
++
++	if( h9p_pipe == INVALID_HANDLE_VALUE )
++	{
++		if( host.realtime < h9p.retry )
++		{
++			if( inmenu && !dbg_gate4 )
++			{
++				Con_Printf( "richpresence: gate4 waiting on retry cooldown, %.1fs left\n", h9p.retry - host.realtime );
++				dbg_gate4 = true;
++			}
++			return;
++		}
++
++		if( !H9P_Connect( ))
++		{
++			if( inmenu && !dbg_gate5 )
++			{
++				Con_Printf( "richpresence: gate5 H9P_Connect failed, err=%lu\n", GetLastError() );
++				dbg_gate5 = true;
++			}
++			h9p.retry = host.realtime + H9P_RETRY;
++			return;
++		}
++	}
++
++	H9P_Drain();
++	if( h9p_pipe == INVALID_HANDLE_VALUE )
++	{
++		if( inmenu && !dbg_gate6 )
++		{
++			Con_Printf( "richpresence: gate6 pipe dropped after H9P_Drain\n" );
++			dbg_gate6 = true;
++		}
++		return;
++	}
++
++	if( inmenu && !dbg_shown )
++	{
++		Con_Printf( "richpresence: reached card-send path for menu\n" );
++		dbg_shown = true;
++	}
++
++	if( inmenu != h9p.onmenu )
++	{
++		h9p.onmenu = inmenu;
++		h9p.start = 0;
++	}
++
++	if( !h9p.start )
++		h9p.start = ( int )time( NULL );
++
++	if( inmenu )
++		H9P_MenuActivity( activity, sizeof( activity ));
++	else
++		H9P_Activity( activity, sizeof( activity ));
++	if( !Q_strcmp( activity, h9p.sent ))
++		return;
++	if( host.realtime < h9p.sendat )
++		return;
++
++	Q_snprintf( message, sizeof( message ),
++		"{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%lu,\"activity\":%s},\"nonce\":\"%d\"}",
++		( unsigned long )GetCurrentProcessId(), activity, ++h9p.nonce );
++
++	if( !H9P_Write( 1, message ))
++	{
++		H9P_Close();
++		h9p.retry = host.realtime + H9P_RETRY;
++		return;
++	}
++
++	h9p.sendat = host.realtime + H9P_SEND_GAP;
++	Q_strncpy( h9p.sent, activity, sizeof( h9p.sent ));
++	h9p.shown = true;
++#else
++	h9p.valid = false;
++#endif
++}
++
++/*
++=================
++CL_Presence_Shutdown
++=================
++*/
++void CL_Presence_Shutdown( void )
++{
++	H9P_Hide();
++#if XASH_WIN32
++	H9P_Close();
++#endif
++}
+diff --git a/game_launch/havoc9.ico b/game_launch/havoc9.ico
+new file mode 100644
+index 0000000000000000000000000000000000000000..cd4127a8658177fb69b82f13defcbb37cb0a5dbd
+GIT binary patch
+literal 4606
+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
+A*Z=?k
+
+literal 0
+HcmV?d00001
+

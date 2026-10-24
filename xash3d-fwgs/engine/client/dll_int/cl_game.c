@@ -1413,8 +1413,15 @@ int EXPORT pfnSPR_Frames( HSPRITE hPic );
 int EXPORT pfnSPR_Frames( HSPRITE hPic )
 {
 	int	numFrames = 0;
+	const model_t *sprite = CL_GetSpritePointer( hPic );
 
-	R_GetSpriteParms( NULL, NULL, &numFrames, 0, CL_GetSpritePointer( hPic ));
+	// H9: an HSPRITE can name a sprite the client never got -- content missing or
+	// half-updated on the player's machine. Like pfnSPR_Set for an invalid handle,
+	// answer 0 and keep running rather than passing a null model on to the ref.
+	if( !sprite )
+		return numFrames;
+
+	R_GetSpriteParms( NULL, NULL, &numFrames, 0, sprite );
 
 	return numFrames;
 }
@@ -1428,8 +1435,13 @@ pfnSPR_Height
 static int GAME_EXPORT pfnSPR_Height( HSPRITE hPic, int frame )
 {
 	int	sprHeight = 0;
+	const model_t *sprite = CL_GetSpritePointer( hPic );
 
-	R_GetSpriteParms( NULL, &sprHeight, NULL, frame, CL_GetSpritePointer( hPic ));
+	// H9: invalid or never-loaded HSPRITE -- the height of nothing is 0.
+	if( !sprite )
+		return sprHeight;
+
+	R_GetSpriteParms( NULL, &sprHeight, NULL, frame, sprite );
 
 	return sprHeight;
 }
@@ -1443,8 +1455,13 @@ pfnSPR_Width
 static int GAME_EXPORT pfnSPR_Width( HSPRITE hPic, int frame )
 {
 	int	sprWidth = 0;
+	const model_t *sprite = CL_GetSpritePointer( hPic );
 
-	R_GetSpriteParms( &sprWidth, NULL, NULL, frame, CL_GetSpritePointer( hPic ));
+	// H9: invalid or never-loaded HSPRITE -- the width of nothing is 0.
+	if( !sprite )
+		return sprWidth;
+
+	R_GetSpriteParms( &sprWidth, NULL, NULL, frame, sprite );
 
 	return sprWidth;
 }

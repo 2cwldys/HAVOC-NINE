@@ -40,6 +40,12 @@ mspriteframe_t *R_GetSpriteFrame( const model_t *pModel, int frame, float yaw )
 
 	psprite = pModel->cache.data;
 
+	// H9: a slot can be registered with nothing behind it -- a client asked about
+	// a sprite whose model was never fully loaded. Answer "no frame" rather than
+	// crash on the null cache pointer.
+	if( !psprite )
+		return NULL;
+
 	if( frame < 0 )
 	{
 		frame = 0;
@@ -94,6 +100,11 @@ void R_GetSpriteParms( int *frameWidth, int *frameHeight, int *numFrames, int cu
 		return;
 
 	pFrame = R_GetSpriteFrame( pSprite, currentFrame, 0.0f );
+
+	// H9: the frame lookup can come back empty (data not loaded); leave the
+	// caller's outputs untouched rather than read through a null frame.
+	if( !pFrame )
+		return;
 
 	if( frameWidth )
 		*frameWidth = pFrame->width;

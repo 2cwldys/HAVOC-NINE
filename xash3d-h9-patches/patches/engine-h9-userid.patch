@@ -1,0 +1,106 @@
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+index 76f629e..695656b 100644
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -100,6 +100,7 @@ static CVAR_DEFINE_AUTO( bottomcolor, "0", FCVAR_USERINFO|FCVAR_ARCHIVE|FCVAR_FI
+ CVAR_DEFINE_AUTO( rate, "25000", FCVAR_USERINFO|FCVAR_ARCHIVE|FCVAR_FILTERABLE, "player network rate" );
+ 
+ CVAR_DEFINE_AUTO( cl_ticket_generator, "revemu2013", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "you wouldn't steal a car" );
++CVAR_DEFINE_AUTO( cl_h9_userid, "", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "H9: this install's regenerable client id -- see docs/CUSTOM_XASH_USERID.txt" );
+ static CVAR_DEFINE_AUTO( cl_advertise_engine_in_name, "1", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "add [Xash3D] to the nickname when connecting to GoldSrc servers" );
+ static CVAR_DEFINE_AUTO( cl_log_outofband, "0", FCVAR_ARCHIVE, "log out of band messages, can be useful for server admins and for engine debugging" );
+ static CVAR_DEFINE_AUTO( cl_autorecord, "0", 0, "automatically start recording a demo after joining the server" );
+@@ -1439,6 +1440,20 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
+ 			Cvar_DirectSetValue( &cl_dlmax, FRAGMENT_DEFAULT_SIZE );
+ 
+ 		Info_SetValueForKey( protinfo, "uuid", key, sizeof( protinfo ));
++
++		// H9: cl_h9_userid is a plain, regenerable client id (not a hardware
++		// fingerprint, see identification.c's own id above) -- salted per
++		// destination server the same way, so no two servers can compare the
++		// same raw value to correlate a player, and sent via userinfo (which a
++		// real server actually parses) rather than protinfo (which it doesn't).
++		if( cl_h9_userid.string[0] )
++		{
++			string h9key;
++
++			ID_GetMD5ForAddressEx( h9key, adr, sizeof( h9key ), cl_h9_userid.string );
++			Info_SetValueForKey( cls.userinfo, "h9_clientid", h9key, sizeof( cls.userinfo ));
++		}
++
+ 		Info_SetValueForKey( protinfo, "qport", qport, sizeof( protinfo ));
+ 		Info_SetValueForKeyf( protinfo, "ext", sizeof( protinfo ), "%d", extensions );
+ 
+@@ -3807,6 +3822,7 @@ static void CL_InitLocal( void )
+ 	Cvar_RegisterVariable( &cl_advertise_engine_in_name );
+ 	Cvar_RegisterVariable( &cl_log_outofband );
+ 	Cvar_RegisterVariable( &cl_autorecord );
++	Cvar_RegisterVariable( &cl_h9_userid );
+ 
+ 	Cvar_RegisterVariable( &showpause );
+ 	Cvar_RegisterVariable( &mp_decals );
+diff --git a/engine/client/client.h b/engine/client/client.h
+index 6b5243b..7eede42 100644
+--- a/engine/client/client.h
++++ b/engine/client/client.h
+@@ -741,6 +741,7 @@ extern convar_t	v_dark;	// start from dark
+ extern convar_t	net_graph;
+ extern convar_t	rate;
+ extern convar_t cl_ticket_generator;
++extern convar_t cl_h9_userid;
+ extern convar_t	m_ignore;
+ extern convar_t	r_showtree;
+ extern convar_t	ui_renderworld;
+@@ -1271,6 +1272,7 @@ qboolean Cmd_GetKeysList( const char *s, char *completedname, int length, qboole
+ //
+ void ID_Init( void );
+ void ID_GetMD5ForAddress( char *key, netadr_t adr, size_t size );
++void ID_GetMD5ForAddressEx( char *key, netadr_t adr, size_t size, const char *rawid );
+ 
+ //
+ // titles.c
+diff --git a/engine/client/identification.c b/engine/client/identification.c
+index a9856cac..5919703e 100644
+--- a/engine/client/identification.c
++++ b/engine/client/identification.c
+@@ -706,6 +706,40 @@ void ID_GetMD5ForAddress( char *key, netadr_t adr, size_t size )
+ 	Q_strnlwr( MD5_Print( md5 ), key, size );
+ }
+ 
++// H9: same shape as ID_GetMD5ForAddress above, but for a caller-supplied secret
++// instead of this file's own hardware-derived id -- used for cl_h9_userid (a
++// plain regenerable client id, not a hardware fingerprint), so the same
++// per-destination-server salting this file already does for one id can be
++// reused for a different one, without reaching into the static `id` this
++// function is built around.
++void ID_GetMD5ForAddressEx( char *key, netadr_t adr, size_t size, const char *rawid )
++{
++	MD5Context_t ctx;
++	byte buf[32], md5[16];
++	size_t bufsize = 0;
++
++	switch( NET_NetadrType( &adr ))
++	{
++	case NA_IP:
++		memcpy( buf, adr.ip, sizeof( adr.ip ));
++		bufsize = sizeof( adr.ip );
++		break;
++	case NA_IP6:
++		NET_NetadrToIP6Bytes( buf, &adr );
++		bufsize = 16;
++		break;
++	default:
++		break;
++	}
++
++	MD5Init( &ctx );
++	MD5Update( &ctx, (const byte *)rawid, Q_strlen( rawid ));
++	if( bufsize != 0 )
++		MD5Update( &ctx, buf, bufsize );
++	MD5Final( md5, &ctx );
++	Q_strnlwr( MD5_Print( md5 ), key, size );
++}
++
+ void ID_Init( void )
+ {
+ 	Cmd_AddRestrictedCommand( "bloomfilter", ID_BloomFilter_f, "print bloomfilter raw value of arguments set");
