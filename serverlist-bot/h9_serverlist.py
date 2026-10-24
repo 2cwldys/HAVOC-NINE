@@ -92,6 +92,18 @@ async def probe(target, timeout):
     "gs" for a GoldSrc-format reply (stock hlds, REHLDS) and "ip" for a Source-format one
     (Xash) -- the same two kinds of line the client itself already reads (see section 1 of
     NETWORKING.txt).
+
+    "mode" and "ping" were both already sitting unused on the a2s answer, not something
+    that needed a new query or a plugin-side change:
+      - info.game is the GoldSrc/Source "game description" field -- in this mod, exactly
+        what ts_matchmode.sma's fw_gamedesc (FM_GetGameDescription) answers every server
+        query with, switching between "Match Mode" and "Siege ..." on its own a second at
+        a time (see refresh_gamedesc() in ts_matchmode.sma). Every server already sends
+        this on every query a browser or this bot makes; nothing here reads it back.
+      - info.ping is the library's own measured round-trip time for THIS query, in
+        seconds (time.monotonic() before/after the request, a2s_sync.py) -- the bot's own
+        distance to the server, not a website visitor's, same limitation any server
+        browser has. Converted to milliseconds for display.
     """
     try:
         info = await asyncio.to_thread(a2s.info, target, timeout)
@@ -102,9 +114,11 @@ async def probe(target, timeout):
         "name": clean(info.server_name),
         "map": clean(info.map_name),
         "folder": clean(info.folder),
+        "mode": clean(info.game),
         "players": info.player_count,
         "max": info.max_players,
         "bots": info.bot_count,
+        "ping": round(info.ping * 1000, 1),
     }
 
 
@@ -120,9 +134,11 @@ def new_entry(host, port, source):
         "name": "",
         "map": "",
         "folder": "",
+        "mode": "",
         "players": 0,
         "max": 0,
         "bots": 0,
+        "ping": 0.0,
     }
 
 
@@ -231,19 +247,73 @@ def make_app(state, settings):
     app["state"] = state
     app["settings"] = settings
     app.router.add_get("/v1/servers/{gamedir}", handle_list)
+    app.router.add_get("/v1/servers/{gamedir}.json", handle_list_json)
     app.router.add_post("/v1/heartbeat", handle_heartbeat)
     return app
 
 
 async def handle_list(request):
+    """
+    The engine's own list format: one "ip"/"gs" line per server, the # lines above each
+    one ignored by the client (Documentation/protocol/http-server-list.md) but handed to a
+    human reading this in a browser. mode and ping ride along in the comment for exactly
+    that -- a plain-text line has no columns, so a page wanting them as actual fields
+    (a table, not connect-address cards) wants handle_list_json below instead.
+    """
     gamedir = request.match_info["gamedir"]
     if not GAMEDIR_RE.match(gamedir):
         raise web.HTTPNotFound()
     lines = [f"# H9 server list for {gamedir}, as of {time.strftime('%Y-%m-%d %H:%M:%S')}", ""]
     for entry in request.app["state"].live(gamedir):
-        lines.append(f"# {entry['name']} | {entry['map']} | {entry['players']}/{entry['max']}")
+        lines.append(f"# {entry['name']} | {entry['map']} | {entry['mode']} | "
+                      f"{entry['players']}/{entry['max']} | {entry['ping']:g} ms")
         lines.append(f"{entry['kind']} {entry['address']}")
     return web.Response(text="\n".join(lines) + "\n", content_type="text/plain", charset="utf-8")
+
+
+async def handle_list_json(request):
+    """
+    The same live list as handle_list, as actual fields instead of a comment a page would
+    otherwise have to parse. One object per server:
+        address   "host:port" -- what a client actually connects to
+        kind      "gs" (GoldSrc: stock hlds, REHLDS) or "ip" (Source-format: Xash)
+        name      the server's own hostname
+        map       the loaded map's bare name (e.g. "h9_te_neuropolis") -- also the
+                  thumbnail key Discord Rich Presence already uses for this same map
+                  (cl_presence.c sends it straight as large_image), so a page can reuse
+                  that convention: look up an image named after this value, fall back to
+                  a generic one for any map that doesn't have one yet
+        mode      "Match Mode", or "Siege" / "Siege n/m" while an objective round is live
+                  (ts_matchmode.sma's own fw_gamedesc -- not derived or guessed here)
+        players   current player count, bots included
+        max       the server's player slots
+        bots      of "players", how many are bots
+        ping_ms   this bot's own measured round-trip to the server, milliseconds -- a
+                  rough distance indicator, not a given website visitor's actual ping
+    """
+    gamedir = request.match_info["gamedir"]
+    if not GAMEDIR_RE.match(gamedir):
+        raise web.HTTPNotFound()
+    servers = [
+        {
+            "address": entry["address"],
+            "kind": entry["kind"],
+            "name": entry["name"],
+            "map": entry["map"],
+            "mode": entry["mode"],
+            "players": entry["players"],
+            "max": entry["max"],
+            "bots": entry["bots"],
+            "ping_ms": entry["ping"],
+        }
+        for entry in request.app["state"].live(gamedir)
+    ]
+    body = {
+        "gamedir": gamedir,
+        "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "servers": servers,
+    }
+    return web.json_response(body)
 
 
 async def handle_heartbeat(request):

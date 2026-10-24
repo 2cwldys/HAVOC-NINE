@@ -1,0 +1,27 @@
+# Allow Half-Life-specific files that would otherwise be ignored
+!lib/public/SDL2.lib
+!utils/procinfo/lib/win32_vc6/procinfo.lib
+!utils/vgui/lib/win32_vc16/vgui.lib
+
+# CMake build folders
+build
+
+# mod-ts per-arch build dirs
+build-*/
+build_*/
+
+# WIP decompiler output (not committed until it becomes real source)
+recovered/
+
+# session working files (decompiles, RE notes)
+scratchpad/
+
+# python bytecode
+__pycache__/
+*.pyc
+
+# Local MCP server config (machine-specific absolute paths)
+.mcp.json
+
+# reTS drop-in packages (scripts/package.sh)
+dist/

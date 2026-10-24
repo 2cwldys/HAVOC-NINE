@@ -255,6 +255,25 @@ void CMenuPlayerSetup::CLogosListModel::Update( )
 			m_isPngs.AddToTail( png );
 		}
 	}
+
+	// H9: one more row, after every real logos/*.*  entry -- "none", meaning no shelf
+	// pick: whatever's already in tempdecal.wad (dropped there by hand, or left over
+	// from an earlier pick) sprays as-is. The literal cvar value CL_Spray_f's own
+	// "spray off" sets, so picking a shelf entry and then this row behaves exactly like
+	// typing `spray <name>` then `spray off` would. m_isPngs gets a matching (unused)
+	// entry so the two arrays never drift apart -- WriteNewLogo special-cases this
+	// position before ever calling IsPng/GetFullPath on it.
+	AddToTail( "none" );
+	m_isPngs.AddToTail( false );
+
+	// H9 DEBUG: temporary, remove once the "new entry doesn't show" question is settled.
+	// Proves whether this function (and this build) is the one actually running, and
+	// whether the synthetic "none" row really landed in the model -- without this, "I
+	// don't see it" could mean the entry wasn't added, or that it was added but the
+	// SpinControl isn't showing it, or that an old build is somehow still running, and
+	// those need three different fixes.
+	Con_Printf( "[H9] CLogosListModel::Update: %d entr%s (last one should be \"none\")\n",
+		GetRows(), GetRows() == 1 ? "y" : "ies" );
 }
 
 /*
@@ -317,7 +336,11 @@ void CMenuPlayerSetup::UpdateLogo()
 	const int pos = logo.GetCurrentValue();
 	bool colorable = false;
 
-	if( pos < 0 )
+	// H9: the synthetic "none" row (see CLogosListModel::Update) has no real file on
+	// disk -- logos/none.bmp doesn't exist, so CBMP::LoadFile below would return null
+	// and the unchecked GetBitmapHdr() dereference just below would crash. Treat it
+	// exactly like pos < 0: no preview image, same as today's "no logo" placeholder.
+	if( pos < 0 || !stricmp( logosModel.Element( pos ).String(), "none" ))
 	{
 		logoImage.hImage = 0;
 	}
@@ -434,22 +457,27 @@ void CMenuPlayerSetup::WriteNewLogo( void )
 	if( pos < 0 || hideLogos )
 		return;
 
-	EngFuncs::DeleteFile( "logos/remapped.png" );
-	EngFuncs::DeleteFile( "logos/remapped.bmp" );
+	// H9: the synthetic "none" row (CLogosListModel::Update, appended after the real
+	// logos/*.*  scan) means no shelf pick -- whatever's already in tempdecal.wad
+	// sprays as-is. Nothing to load, convert, or recolor; just tell the engine there is
+	// no pick, the same value CL_Spray_f's own "spray off" sets.
+	if( !stricmp( logosModel.Element( pos ).String(), "none" ))
+	{
+		EngFuncs::CvarSetString( "cl_logofile", "none" );
+		EngFuncs::CvarSetValue( "@cl_logoupdate", !EngFuncs::GetCvarFloat( "@cl_logoupdate" ));
+		return;
+	}
 
 	logosModel.GetFullPath( filename, sizeof( filename ), pos );
 
 	// TODO: check file size and throw a messagebox if it's too big?
 	if( logosModel.IsPng( pos ))
 	{
-		int len;
-		void *afile = EngFuncs::COM_LoadFile( filename, &len );
-
-		// just copy file, nothing special
-		EngFuncs::COM_SaveFile( "logos/remapped.png", afile, len );
-
-		EngFuncs::COM_FreeFile( afile );
-
+		// H9: nothing to convert. CL_CreateResourceList now builds its conversion
+		// source directly from logos/<cl_logofile>.<cl_logoext> -- this exact file --
+		// instead of a fixed "remapped.*" name, so there's no separate copy to make any
+		// more. PNG is never recolored either way (see the BMP branch below), so the
+		// original file on the shelf is already exactly what should be used.
 		EngFuncs::CvarSetString( "cl_logoext", "png" );
 	}
 	else
@@ -464,7 +492,13 @@ void CMenuPlayerSetup::WriteNewLogo( void )
 		if( m_logoColorable )
 			bmpFile->RemapLogo( m_stripeCount, &m_stripes[0][0], m_horizontal );
 
-		bmpFile->Save( "logos/remapped.bmp" );
+		// H9: saved back to the catalog file itself, not a fixed "remapped.bmp" --
+		// CL_CreateResourceList converts logos/<cl_logofile>.<cl_logoext> directly, so
+		// that has to be the recolored file. Picking a color here does overwrite the
+		// shelf's own copy of this bitmap with the recolored version -- logos/*.*  is
+		// per-player customizable state, not a shared read-only catalog, so that's the
+		// intended tradeoff.
+		bmpFile->Save( filename );
 		EngFuncs::CvarSetString( "cl_logoext", "bmp" );
 
 		delete bmpFile;
@@ -655,6 +689,11 @@ void CMenuPlayerSetup::_Init( void )
 
 void CMenuPlayerSetup::Reload()
 {
+	CMenuFramework::Reload();   // resyncs the logo SpinControl's cvar-linked index with
+	                            // cl_logofile -- without this, a `spray` console command
+	                            // typed after this screen's first visit this session never
+	                            // shows up if the screen is reopened (sibling menus like
+	                            // CMenuVidModes/CMenuVidOptions already chain up here)
 	if( !hideLogos )
 	{
 		ParseLogoColorCvar();

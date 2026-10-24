@@ -211,6 +211,45 @@
  Setup, the Discord application, the heartbeat example and the limits are in
  serverlist-bot\README.md.
 
+ 7A. THE WEBSITE'S LIVE SERVER TABLE
+ ------------------------------------
+ havoc9.org\servers\index.html reads the SAME list bot as the game's Internet
+ tab -- a second, independent consumer of section 7, not a separate service.
+ It does not read the plain "ip ..." lines the game reads, though: a page
+ showing map, mode, players and ping as real table columns needs real fields,
+ not a connect address and a human-only comment line, so the list bot also
+ answers GET <base>/v1/servers/<gamedir>.json -- the same live list, as JSON.
+ Full field reference, a fetch() example and the ping/thumbnail caveats below
+ are in serverlist-bot\README.md, "For a website: the JSON list".
+
+ Pointed at a list the same way list_bot= points the game at one: set
+ data-master on #serverBoard in servers\index.html to the list's .json URL
+ (http://<host>:<port>/v1/servers/<gamedir>.json). Left empty, the page says
+ so plainly ("Server list not configured yet") instead of hanging on
+ "Loading" forever -- it never guesses a default, the same reason
+ networking.ini's own list_bot= ships blank.
+
+ Two fields ride along on every answer without needing anything new run on
+ the plugin side, because the list bot was already receiving them on every
+ A2S query it makes and simply was not reading them back:
+   mode    the server's standard "game description" answer -- in this mod,
+           exactly what ts_matchmode.sma's fw_gamedesc already sends,
+           switching between "Match Mode" and "Siege" (or "Siege n/m" once
+           an objective round is live) on its own, once a second.
+   ping    the list bot's own measured round-trip to the server. This
+           machine's distance to the server, not a website visitor's --
+           the same caveat any server browser's ping column carries.
+
+ The map name the JSON answer sends is also the exact thumbnail lookup key
+ section 10's Discord Rich Presence already uses for the same map
+ (cl_presence.c sends it straight through as the "large_image" asset name)
+ -- the page reuses that convention rather than inventing a second one, at
+ ..\assets\maps\<mapname>.jpg, falling back to the menu background for any
+ map that doesn't have one. No thumbnail images exist anywhere in this
+ project yet, for any map -- making or commissioning a set is separate,
+ unstarted work, not something the list bot or this page can hand over
+ on their own.
+
  8. TROUBLESHOOTING
  ------------------
  The Internet tab is empty
@@ -258,6 +297,9 @@
                                      copied from serverlist.cfg.example on first setup
  serverlist-bot\servers.txt          servers the list bot seeds itself with on start
 
+ havoc9.org\servers\index.html       the website's live table, reads the list bot's
+                                     JSON answer (section 7A)
+
  Generated, never edited by hand: ts\xashcomm.lst, ts\networking_resolved.cfg,
  steam\steam_appid.txt, steam\steam_browse_appid.txt, steam\steam_broker.pid.
 
@@ -266,4 +308,6 @@
  The game shows your session on Discord as Rich Presence: the map, the players,
  and the siege progress. It is on by default. ts_richpresence 0 turns it off, and
  the engine sends the card itself. docs\RICH_PRESENCE.txt has the card, the
- one-time Discord setup, and what is not done yet.
+ one-time Discord setup, and what is not done yet. The website's own live
+ server table (7A) reuses this feature's map-name-as-image-key convention
+ for its own thumbnails, rather than inventing a second one.

@@ -72,6 +72,57 @@ server runs another game folder.
 Nothing in this folder sends heartbeats for you. A plugin that sends them on a timer is not
 written yet.
 
+## For a website: the JSON list
+
+`GET /v1/servers/<gamedir>.json` is the same live list as the plain-text one, as actual
+fields instead of a `#` comment a page would otherwise have to parse:
+
+    {
+      "gamedir": "ts",
+      "generated": "2026-10-24T20:55:13Z",
+      "servers": [
+        {
+          "address": "203.0.113.10:27015",
+          "kind": "ip",
+          "name": "HAVOC 9 -- Main",
+          "map": "h9_te_neuropolis",
+          "mode": "Siege 2/5",
+          "players": 7,
+          "max": 16,
+          "bots": 3,
+          "ping_ms": 12.3
+        }
+      ]
+    }
+
+* **mode** comes straight from the server's own game-description answer -- in this mod,
+  `ts_matchmode.sma`'s `fw_gamedesc`, which already switches between `"Match Mode"` and
+  `"Siege"` (or `"Siege n/m"` once an objective round is live) on its own, once a second.
+  Nothing new to run on the plugin side; this list was already receiving it on every query
+  it makes and just wasn't reading it back.
+* **ping_ms** is this bot's own round-trip time to the server, not a given website
+  visitor's. Treat it as a rough "how far is this server from the list" figure, the same
+  caveat any server browser's ping column carries.
+* **map**, read as-is, is also the thumbnail lookup key `cl_presence.c` already uses for
+  Discord Rich Presence (`h9_te_neuropolis` is sent straight through as the Discord
+  `large_image` asset name) -- reuse that convention for a map thumbnail on a website too:
+  look up an image named after this value, and fall back to one generic image for any map
+  that doesn't have one yet. No thumbnail images exist anywhere in this project yet (this
+  repo has no `maps/` or `screenshots/` art folder) -- generating or commissioning a set,
+  one per shipped map, named to match, is separate follow-up work, not something this list
+  can hand over on its own.
+
+A page points at this the same way it would the plain-text list -- one URL, polled on a
+timer (`setInterval`) or refreshed on load, e.g.:
+
+    fetch("http://<list address>:8081/v1/servers/ts.json")
+      .then(r => r.json())
+      .then(data => {
+        for (const s of data.servers) {
+          // s.name, s.map, s.mode, s.players + "/" + s.max, s.ping_ms + " ms", s.address
+        }
+      });
+
 ## Limits
 
 * IPv4 addresses and host names only. IPv6 is refused.

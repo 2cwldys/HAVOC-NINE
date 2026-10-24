@@ -1,0 +1,60 @@
+/***
+*
+*	Copyright (c) 1996-2001, Valve LLC. All rights reserved.
+*	
+*	This product contains software technology licensed from Id 
+*	Software, Inc. ("Id Technology").  Id Technology (c) 1996 Id Software, Inc. 
+*	All Rights Reserved.
+*
+*   Use, distribution, and modification of this source code and/or resulting
+*   object code is restricted to non-commercial enhancements to products from
+*   Valve LLC.  All other use, distribution, or modification is prohibited
+*   without written permission from Valve LLC.
+*
+****/
+
+#pragma once
+
+extern void GameDLLInit( void );
+void GameDLLShutdown();
+
+
+extern cvar_t	displaysoundlist;
+
+// multiplayer server rules
+extern cvar_t fragsleft;
+extern cvar_t timeleft;
+extern cvar_t teamplay;
+extern cvar_t fraglimit;
+extern cvar_t timelimit;
+extern cvar_t friendlyfire;
+extern cvar_t falldamage;
+extern cvar_t weaponstay;
+extern cvar_t forcerespawn;
+extern cvar_t aimcrosshair;
+extern cvar_t decalfrequency;
+extern cvar_t teamlist;
+extern cvar_t teammodels;
+extern cvar_t teammodels_force;
+extern cvar_t teamoverride;
+extern cvar_t defaultteam;
+extern cvar_t allowmonsters;
+extern cvar_t mp_chattime;
+
+// The Specialists
+extern cvar_t initial_cash, cashforwin, cashforlose, roundtime, respawntime, damagemult, slowmatch,
+	nopowerup, botlearn, realbullet, dmcashbased, cv_ammocount, bottalk, weaponstay_time, mp_theonemode,
+	mp_theone, mp_theothers, lastmanstanding, spectacularness, respawnnumber, customweapons, banfortk,
+	dmgreport, botarmor;
+
+
+
+// Engine Cvars
+inline cvar_t* g_psv_gravity;
+inline cvar_t* g_psv_aim;
+inline cvar_t* g_psv_allow_autoaim;
+inline cvar_t* g_footsteps;
+inline cvar_t* g_psv_cheats;
+// sv_cheats as it was when the map started (CWorld::Spawn @0xe448f, the stock SDK's latch): every cheat
+// gate in the original reads this, not the live cvar, so a changed sv_cheats counts from the next map.
+inline float g_flWeaponCheat;

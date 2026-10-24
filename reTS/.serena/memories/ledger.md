@@ -1,0 +1,7689 @@
+# mod-ts change ledger
+
+Running log of reconstruction progress. Newest entries on top. Keep factual:
+what changed, how verified, what's next. See `CLAUDE.md` for mission/method.
+
+---
+
+## 2026-07-08 (cont. 98) — session open: FINISH slow-mo-on-connect (server-side), then queued client fixes
+
+New orchestrator picked up from the cont.97 FINAL START-HERE (HANDOFF.md), branch
+`restructure-source-parity`, HEAD `113339e`. Tree = the INTENTIONAL `game/ts/` deletions +
+`.serena/project.yml`. Read HANDOFF top-down + `reference/dossiers/cont97/slowmo_connect_bug.md` +
+`cont96/client_bloody_and_shards.md`. cont.89-97 orchestrator available for consult via the user.
+
+**Mandate:** (1) FINISH the slow-mo tint/blur-on-connect bug — SERVER-side (user tests the ORIGINAL
+client, so `538142a` cl_dll fix doesn't reach them). RE whether the original server force-sends the
+slow reset on connect/spawn/StartObserver and MIMIC it. (2) Then the queued client fixes (bloody
+blades §A + glass integrator §B).
+
+**State survey (slow-mo, before edits):** `gmsgTSSlowAmt` → wire `"TSSlowMo"` (2, coord) →
+client `MsgFunc_TSSlowMo` sets the TARGET `DAT_1009ff04` (client VidInit resets only the CURRENT
+`DAT_100963e8`, per dossier). Our send (`player.cpp:4719`) is change-detected on `m_flClientSlowAmt`
+(init -1 @player.h:419; reset -1 in `TSInit` @ts_player.cpp:547 = first call in Spawn). **Our
+`StartObserver` (player.cpp:1398) resets `fuser1`/`m_flSlowMotionGo`/`m_flSlowMotionTarget`=1.0 but
+does NOT reset the `m_flClientSlowAmt` change-detect cache** → the reset-to-100 send is emitted once
+in the connect window (MSG_ONE, dropped — the connect-window MSG_ONE drop pattern) and never re-fires
+until Spawn re-arms the cache (=why it "resets on spawn"). Working hypothesis to confirm against RE.
+
+**RE (fresh typed Ghidra decompiles this session):**
+- **Original UCD @0x91d00 (ghidra):** the ENTIRE TS send body (incl. SlowAmt) is wrapped in a 0.1s
+  throttle (`field_0x534`: `if (0<=field_0x534<=time){field_0x534=time+0.1; …}`), **no observer gate**
+  → the SlowAmt send runs during spectate too. The SlowAmt block is decompile-exact:
+  `fVar1=0.225; if(!(m_iPowerups&8)){fVar1=0.35; if(!(m_iPowerups&1)) fVar1=m_flSlowMotionTarget;}
+   if(fVar1!=m_flClientSlowAmt){m_flClientSlowAmt=fVar1; WRITE_COORD(100*fVar1);}` — i.e. slowpause(0x8)
+  →0.225, slowmo(0x1)→0.35, else the networked **m_flSlowMotionTarget** (NOT fuser1). Cache holds the
+  FACTOR, not ×100.
+- **Original StartObserver @0x99634 (ghidra):** resets `iuser4=0; fuser1=1; m_flSlowMotionTarget=1;
+  m_flSlowMotionGo=1` — but does NOT reset the m_flClientSlowAmt cache (same as ours). So the original
+  relies on the ONE change-detect send landing (it does, on GoldSrc); our ReHLDS rig drops it.
+- **Live-read the original client (pid 1295795, client.dll base 0x0c070000):** target `DAT_1009ff04`
+  @+0x9ff04 and current `DAT_100963e8` @+0x963e8 both read 1.0 when NOT stuck (confirmed the right
+  globals + base; the fresh-process BSS default is the slow value the client eases toward until the
+  server lands a reset).
+
+**FIX LANDED (server-side, matches original + defeats the drop):**
+1. **player.cpp UCD SlowAmt block rewritten to the decompile-exact original** (was the cont.94
+   `pev->fuser1` + invented `m_flSlowMotionRamp` override — a real logic divergence flagged by the LAW):
+   slowpause→0.225, slowmo→0.35, else `m_flSlowMotionTarget`; cache the FACTOR; `WRITE_COORD(100*factor)`.
+   `m_flSlowMotionRamp` stays live (LOS-victim slowing in ts_player.cpp SlowMotionFlow); player.h:419
+   comment updated ("last-sent FACTOR").
+2. **player.cpp PreThink one-shot: re-arm `m_flClientSlowAmt = -1`** in the same proven
+   post-connect-window `m_flSrvSettResendTime` block (armed for EVERY joiner @TS_gamerulesclass.cpp:1034,
+   before the `!g_teamplay` return) that already re-sends SrvSett/TeamRoster → the next UCD re-fires the
+   SlowAmt reset at ~+0.75s, past the connect window. Idempotent (UCD change-detects).
+Built amd64 hl.so clean (glibc 2.14), deployed to the rig (NOMETAMOD= setup-rehlds-mod.sh), rig
+restarted (ts_hammertime, deathmatch, +rcon_password lol).
+**PLAYTEST #1 — STILL BROKEN** (my first read was a false positive; the user re-showed the teal tint +
+stacked ghost "echoes" of the diving player + no "WAITING" on the scoreboard).
+
+**REAL ROOT CAUSE (gdb-confirmed on the live rig server, NOT guessed):**
+- Live-read the ORIGINAL CLIENT while stuck (pid, client.dll base 0x0c070000): slow TARGET `DAT_1009ff04`
+  @+0x9ff04 = **0.0** AND current `DAT_100963e8` @+0x963e8 = **0.0** → the client target defaults SLOW
+  on a fresh process and NO TSSlowMo reset ever reached it.
+- Added SLOWDBG ALERTs to the UCD SlowAmt send + the re-arm; **neither fired** for the human, yet a gdb
+  breakpoint on `CBasePlayer::UpdateClientData` (hl.so base + 0xdc770) showed it IS called — but only for
+  the 6 BOTS, all with `spec=0`. **No UCD call ever had spec=1** → our UCD does NOT run for a spectating
+  player. (First gdb read used the header's *original-binary* provenance offsets = garbage; got the REAL
+  compiled offsets from `objdump` of our hl.so — m_flSlowMotionTarget@0x898, m_flSlowMotionGo@0x89c,
+  m_flClientSlowAmt@0xbbc, m_iPowerups@0x87c — then re-read: bots all target/cache=1.0, correct.)
+- **The bug:** our per-frame `UpdateClientData()` is driven from the END of `CBasePlayer::PreThink`
+  (player.cpp:2255, the stock hlu tail), but our reconstruction ADDED an early `if (m_fInSpectateWait)
+  {…return;}` block (player.cpp:2026) that returns BEFORE line 2255. So a spectate-waiting player NEVER
+  ran UCD → the client's slow TARGET was never reset (stuck slow tint/sound/blur) AND the AWARD/WAITING
+  byte was never sent (missing "WAITING"). ONE root cause, BOTH symptoms (the user's "not WAITING" hint
+  was the key). Confirmed vs the ORIGINAL: `PreThink` @0x808cc calls `UpdateClientData()` near the TOP
+  (line 62) — BEFORE its iuser1 spectate block (line 202, which returns) — so the original runs the whole
+  TS UCD send every frame for spectators.
+
+**REAL FIX LANDED (player.cpp):** call `UpdateClientData()` inside the `m_fInSpectateWait` block just
+before its `return;` (mirrors the original running UCD for spectators). Kept: the SlowAmt block rewrite
+(mirror original: powerup→0.225/0.35 else m_flSlowMotionTarget) + the +0.75s cache re-arm (now EFFECTIVE:
+UCD runs during spectate so the re-armed cache re-sends past the connect-window MSG_ONE drop). Removed the
+SLOWDBG debug ALERTs. Built clean, deployed, rig restarted.
+**VERIFY flagged (deferred):** for full parity the spectate handling should move AFTER
+UCD/UpdatePowerUpState/SlowMotionFlow like the original's iuser1 block (spectators should also run
+SlowMotionFlow/UpdatePowerUpState). **SLOW-MO USER-CONFIRMED FIXED** (original client, fresh join: no
+tint/sound/echoes). ⚠ **BUT the scoreboard "WAITING" is STILL MISSING** — so UCD now runs during spectate
+(slow-mo proves it) yet the AWARD/WAITING byte is still not landing. Separate leg of the same UCD path
+(gmsgTSPlayerAward, MSG_ALL change-detect on m_iAward): either m_iAward isn't being SET to the WAITING
+code (0xb=11 per SetPlayerRespawnTime) for the joiner, or a wire/client-case mismatch. **DIAGNOSED:** same connect-window drop — gmsgTSPlayerAward (MSG_ALL,
+change-detect on m_iClientAward @0xeb4/0xeb5 compiled offsets; m_iAward=11=WAITING set by
+SetPlayerRespawnTime, confirmed set for teamplay joiners too since mode!=0) sends ONCE during
+spectate-wait and is eaten by the joiner's connect window; no re-arm existed. **FIX:** re-arm
+`m_iClientAward = 0xff` in the SAME +0.75s one-shot as the SlowAmt re-arm → next UCD re-broadcasts past
+the window. Baseline confirmed by the user's ORIGINAL listenserver screenshot (shows "WAITING" in the
+team scoreboard). NB the rig IS teamplay (ts/game.cfg `mp_teamplay 1`; +deathmatch on the cmdline is
+overridden by game.cfg exec). Built/deployed/restarted. WAITING then USER-CONFIRMED showing.
+
+## 2026-07-08 (cont. 98 cont.) — connect-window drop ROOT CAUSE nailed + FAITHFUL single-send fix (user-confirmed)
+
+The user pushed for true parity ("is this how the original did it?"). Full RE, not guessed:
+- **Send sites (RE-verified, unstripped ts_i386.so):** gmsgTSPlayerAward @0x1034b4, gmsgTSSlowAmt @0x103498.
+  Each has EXACTLY ONE send site — `UpdateClientData`'s change-detect (award @0x8245d MSG_ALL after
+  `cmp m_iAward[0x74c] vs m_iClientAward[0x74d]`; slow @0x822f9 MSG_ONE after `flds m_flSlowMotionTarget
+  [0x170]; fcoms m_flClientSlowAmt[0x16c]`). The 0xc8xxx refs are `LinkUserMessages` REG_USER_MSG. We match.
+- **Client hook (live gdb on the ORIGINAL client vs a KNOWN-GOOD remote server):** MsgFunc_TSSlowMo @client.dll
+  RVA 0x49a00, MsgFunc_TSPAward @0x49a20 (from the HOOK_MESSAGE table `push handler; push "name"`). On
+  reconnect the client received BOTH, each ONCE, together (17:53:27.943/.947) and they LANDED → the original
+  delivers a SINGLE post-active send to a remote joiner. So it's NOT an unavoidable drop.
+- **Server trace (file-write /tmp/slowdbg.log bypassing ALERT/metamod buffering; compiled offsets from
+  objdump: slowT@0x898, slowGo@0x89c, slowCache@0xbbc, m_iPowerups@0x87c, m_iAward@0xeb4, m_iClientAward
+  @0xeb5, m_fInSpectateWait@0xedc):** the joiner's connect burst (ClientPutInServer→Spawn→RemoveAllItems→UCD,
+  ALL at the same frame, BEFORE active) sends slow(1.0)+award(0)+award(11) — **dropped by SV_Multicast's
+  `!client->active` gate (sv_main.cpp:958)** because ReHLDS sets `client->active=TRUE` only at the END of the
+  spawn handler (sv_main.cpp:1504), AFTER `pfnClientPutInServer` (1436) — but the change-detect still LATCHES
+  slowCache=1.0 / awdCache=11. The first post-active PreThink UCD then sees no change → never re-sends →
+  perma-slow + no WAITING. `RemoveAllItems` calls UCD in the ORIGINAL too (@0xd8cec line 89), so the game-DLL
+  code matches; the delivering difference is the engine's active-timing.
+- **⚠ FLAGGED (engine, NOT touched — user: flag don't fix, ask first, notify if 64-bit): NOT a 64-bit bug**
+  (the !active gate + ClientPutInServer-before-active are unconditional standard-GoldSrc flow, no pointer/size
+  math). Suspected ReHLDS-vs-GoldSrc difference: whether GoldSrc set `client->active` BEFORE ClientPutInServer
+  (making the original's identical burst land). Unconfirmed (no GoldSrc source); left for the user to decide.
+- **FAITHFUL FIX (replaces the throttled retry — user-confirmed "matches what I see on other servers"):** the
+  PreThink spectate block runs ONLY post-active, and reliable msgs retransmit until acked → a ONE-SHOT re-arm
+  of the slow/award caches on the first post-active frame makes UCD emit exactly ONE post-active send that
+  lands. `m_flSpecResyncTime` armed to <0 in TSEnterSpectate; consumed once in the spectate block. Not a
+  throttle. Matches the original's observable single send. All SLOWDBG instrumentation stripped; built clean
+  (no SLOWDBG strings), deployed, rig pid 1455254. **Still local, not committed.**
+
+**RE-VERIFIED the send sites (user pushed: "did we RE-verify we send it when/where they do?").** From the
+unstripped `ts_i386.so`: gmsgTSPlayerAward @0x1034b4, gmsgTSSlowAmt @0x103498; GOT base 0x165e10 →
+award slot ref `0x18cc(%ebx)`, slow `0x1a28(%ebx)`. Each global has EXACTLY TWO refs: one in
+`LinkUserMessages__Fv` @0xc7db0 (the `REG_USER_MSG` registration store `gmsg… = REG_USER_MSG(...)`, NOT a
+send) and one in `UpdateClientData` (award @0x8245d = MSG_ALL after `cmp m_iAward[0x74c] vs m_iClientAward
+[0x74d]`; slow @0x822f9 = MSG_ONE after `flds m_flSlowMotionTarget[0x170]; fcoms m_flClientSlowAmt[0x16c]`).
+**CONCLUSION: the original sends each from EXACTLY ONE site — the UCD change-detect — and nowhere else. We
+now send from the identical site (same members, same MSG_ALL/MSG_ONE). We are NOT missing a callsite.** So
+the re-arm is engine-compensation for the ReHLDS connect-window drop (empirically confirmed cont.96 via a
+HW watchpoint on the original client), NOT a faithful-send gap.
+
+**REFINED FIX (replaces the fragile fixed +0.75s one-shot):** a single timed re-fire is a GUESS that fails
+if a client's connect window outlasts the delay (high latency / slow load — the user flagged 1000ms). Since
+the sole send site is UCD and UCD now runs every spectate frame, re-arm the slow+award change-detect caches
+on a 0.25s throttle INSIDE the spectate-wait block (new member `m_flSpecResyncTime`) → UCD re-broadcasts
+until the client is past its window. Immediate when it can be, definitive at any latency, self-terminating
+on spawn. Removed the one-shot slow/award re-arm from the m_flSrvSettResendTime block (SrvSett resend
+itself kept; it has the same latency fragility — FLAGGED for the same treatment later). Built/deployed/
+restarted (pid 1340947, teamplay). **PENDING user re-test of the retry version.**
+Not yet committed (all local, per the push-only-on-word rule).
+
+**NEXT:** commit on user sign-off; then the queued client fixes (bloody blades §A + glass integrator §B,
+`reference/dossiers/cont96/client_bloody_and_shards.md`); then the deferred parity VERIFY above (move the
+spectate-wait handling after UCD/UpdatePowerUpState/SlowMotionFlow to match the original iuser1 block).
+
+## 2026-07-08 (cont. 97) — session open: FINISH R1 PHASE 4 (rules-split tail), then queued client fixes
+
+New orchestrator picked up from the cont.96 FINAL START-HERE (HANDOFF.md) at HEAD `520cd92`, branch
+`restructure-source-parity`. Tree clean apart from the INTENTIONAL `game/ts/` deletions + `.serena/project.yml`.
+Previous orchestrator (cont.89–96) available for consult via the user.
+
+**Mandate:** finish R1 phase 4 (the 11-item list in the START-HERE block; specs in
+`reference/dossiers/cont96/r1_rules_split_groundtruth.md`), then the queued client fixes (bloody blades +
+glass integrator — `reference/dossiers/cont96/client_bloody_and_shards.md`).
+
+**State survey (before edits):** the two-object split (phases 1-3) is in — `InstallGameRules` @gamerules.cpp:210
+news a stock CHalfLifeMultiplay/Teamplay as g_pGameRules and keeps the standalone static `CTSGameRules
+s_TSGameRules` reached via `TSGameRules`. Interim deltas found vs the dossier phase-4 target:
+- MP::Think calls `TSGameRules->Think()` at the TOP (line 190), original calls it at the END + an
+  m_szEndMap GoToIntermission check (§1.2). **Item 1.**
+- Teamplay::Think has its OWN body (not chaining to MP except game-over) but NEVER calls TSGameRules->Think()
+  and has no IsCTB fraglimit fork — so on team maps the TS round/vote/powerup machine never ticks. The MP::Think
+  comment "Teamplay chains to MP" is STALE. **Item 2** (add IsCTB fork + the two-line TS tail).
+- `m_szEndMap` already exists as `m_szNextMap[32]` @field_0x1824 (ts_gamerules.h:169); CheckVotes writes it
+  (TS_gamerulesclass.cpp:613); Init does NOT clear it; ChangeLevel does NOT consume it. **Item 3.**
+- Init call currently in InstallGameRules, not the ctors (§4.4/§4.7). **Item 4.**
+
+**R1 PHASE-4 BEHAVIORAL CORE LANDED — `da0f099` (items 1-8; pending checkpoint-4 playtest).** Each
+load-bearing site re-verified by a FRESH typed Ghidra decompile this session before applying (not
+trusting the archived /tmp batches): ChangeLevel @0xd0784, ClientDisconnected @0xcf960,
+CanPlayerHearPlayer @0xd0ed0, Teamplay::Think @0xe412c, CWorld::KeyValue @0xf4a18.
+1. **MP::Think** — TSGameRules->Think() moved from the TOP to the END (after fragsleft/timeleft),
+   + `if (m_szEndMap[0]) GoToIntermission()` (@0xbf30a). Only in the !g_fGameOver path.
+2. **Teamplay::Think** — added the IsCTB fraglimit fork (reads the TSGameRules 4-team table
+   m_teamScore/m_teamNames, the score field is slot+8 = +0x24+i*0x8c) + the two-line TS tail. FIX:
+   the TS round/vote/powerup machine NEVER ticked on team maps before (Teamplay::Think had its own
+   body but never called TSGameRules->Think(); the MP::Think "chains to MP" comment was stale).
+3. **m_szEndMap[0x40]** — renamed from m_szNextMap[32] (@+0x1824); Init clears byte 0; CheckVotes
+   writes it (already); MP::ChangeLevel consumes (forced map unless "nextmap"), clears, then
+   UNCONDITIONAL TSGameRules->Init() (decompile: Init is OUTSIDE the if-nonempty block).
+4. **Init timing** — TSGameRules->Init() moved to the MP ctor (@0xbee05; + the Teamplay ctor's 2nd
+   call on team maps = the original double-Init); m_iGameMode = (byte)g_teamplay seeded INSIDE Init
+   (@0x67d83); InstallGameRules' explicit Init + m_iGameMode seed retired. Ordering verified safe:
+   InstallGameRules runs in CWorld::Precache (world.cpp:528), AFTER worldspawn KeyValue.
+5. **MP::ClientDisconnected** — MOVED TSPlayerDisconnect(pl) here from the engine ClientDisconnect
+   callback (client.cpp — its original home, after RemoveAllItems) + `m_flNextTheOneSelect = 0`
+   (@0xbfacf, +0x587c). Identified +0x587c = m_flNextTheOneSelect via the accessor census (Think
+   @0x673f2/@0x674a2, SelectRandomTheOne @0x6af4e/@0x6af70, Init time+10 @0x67eab, disconnect =0).
+   Init now arms m_flNextTheOneSelect = time+10 (was 0 → fired immediately).
+6. **CanPlayerHearPlayer** — LMS/dead-mode dead-talk isolation: dead talker (!IsAlive [player
+   vt+0xb4] && m_flTSRespawnTime<0 [+0x770]) heard only by dead listeners. Gate
+   `(byte)(m_iGameMode-2)<2 || g_lastManStanding`.
+7. **CWorld::KeyValue "mapteams"** — also TSGameRules->SetTeamList(STRING(pev->team)) (@0xe4cd9),
+   guarded (our TSGameRules pointer can be null pre-install on map 1; vestigial, wiped by Init).
+   Added `#include "ts_gamerules.h"` to world.cpp.
+8. **MP::InitHUD** log model field — already faithful (no change).
+
+**VERIFY resolved:** SrvSett byte-1 cvar = **"usecash"** (confirmed from the binary: the cvar_t at
+.data 0x108f10 — C symbol `dmcashbased` — has name field → 0xfcddb "usecash"; "dmcashbased" is only
+the SYMBOL name, not a registered cvar). Our `cvar_t dmcashbased = {"usecash",...}` is exact.
+
+**DEFERRED to the item-9 convergence pass (post-checkpoint-4 playtest, per START-HERE item 11 + dossier
+§6 apply-order which gates convergence AFTER the playtest):** retire the **6 invented CTSGameRules team
+stand-ins** (IsTeamMode, IsTeamplay, GetTeamID, RecountTeams, TeamWithFewestPlayers, GetIndexedTeamName
+— audit.py: exactly these 6 remain as INVENTED methods) onto the installed Teamplay virtuals / 0x8c-stride
+slot reads; the per-site §4.6 IsTeamMode regrade (15+ sites, each needs its ORIGINAL gate — g_teamplay
+vs IsCTB vs dead — do NOT sed to one predicate); SetTeamList's full reconstruction (direct slot tokenize +
+The-ONE insertion + "created team %s" ALERT + cap, dropping the invented m_szTeamList/RecountTeams);
+and the deeper item-10 VERIFYs needing a live trace/RE (UCD m_fGameHUDInitialized flag ORDER — the cont.96
+recursion guard set it BEFORE the InitHUD calls, original sets AFTER §2.1; the Wires HUD m_iGameMode==3
+gate which §4.6 says the original NEVER reaches; InitHUD items 9-13 placement). This is a coherent,
+risky per-site refactor best done with the checkpoint-4 playtest confirming the foundation first.
+
+**LIVE PLAYTEST (user, original client vs the local rig at 10.23.23.254:27015) — 3 more fixes landed:**
+
+1. **`19309bb` — TDM is FREE-RESPAWN, not round-based.** User: `mp_teamplay 1` said "wait til next
+   round" while alive + periodic round restarts. The original Think (@0x67204, tsthink.c 96-121) gates
+   the round system STRICTLY by mode: round work only inside `if (g_lastManStanding && m_iGameMode==0)`
+   (LMS) or `m_iGameMode>=2` (dead objective modes) — plain DM (0) AND plain teamplay/TDM (1) are
+   free-respawn. Our Think used cont.94's over-broad `roundBased = IsTeamMode() || lms`. Replaced with
+   the decompile-exact mode gate; dropped the invented Think round-timer arm (RestartRound owns it).
+   This IS a §4.6 IsTeamMode regrade (item-9 territory) surfaced by playtest. USER CONFIRMED.
+
+2. **`bdb229b` — teamplay teams/colors were intermittent → periodic team-roster rebroadcast.** The
+   connect-window MSG_ONE drop eats the joiner's InitHUD TeamNames/TeamInfo; the +0.75s ResendTeamRoster
+   races the client's player-NAME sync. Added a MSG_ALL TeamNames + per-player TeamInfo rebroadcast every
+   3s in CHalfLifeTeamplay::Think (INVENTED-INTEROP, same class as cont.96). Stabilized teams/colors but
+   NOT the headers (that was a red herring — see #3).
+
+3. **`eb117a6` — THE fix: teamplay HUD/scoreboard all rendered DM-style → rebroadcast gmsgGameMode(1).**
+   Deep Ghidra RE of client.dll (via the MCP xref + dc.sh) found the single gate: the client's
+   **m_Teamplay flag @0x100cf97c**, set ONLY by MsgFunc_GameMode (FUN_1001fe60→FUN_10021a10 stores the
+   msg byte at obj 0x100cf920+0x5c). The scoreboard layout FUN_1005d5f0 branches on it (0 → DM flat
+   layout FUN_1005d8f0, team-column count stays 0 → no headers; !=0 → team layout FUN_1005d6a0), and
+   EVERY team-HUD element gates on `flag==1`. Our server sent gmsgGameMode(1) only at InitHUD (MSG_ONE,
+   dropped in the connect window) and never re-sent it → flag stuck at 0. **Diagnosed by live-reading
+   the original client's memory** (/proc/pid/mem, client.dll base 0xc070000): team DATA all present
+   (TeamNames count 4, labels team1-4, per-player teams) but flag=0. Folded gmsgGameMode(1) into the #2
+   rebroadcast. **USER CONFIRMED** ("yep you did it") — headers + team-name-over-health + green teammate
+   dots all came alive; live read shows flag flipped 0→1.
+
+**Live-RE technique proven this session:** read the ORIGINAL client's live memory at
+`base(client.dll)+RVA` to inspect its HUD/scoreboard state directly (g_PlayerInfoList, teamname/teamnum
+arrays, the scoreboard object at *(base+0xd5cb0), the m_Teamplay flag) — decisive when static RE stalls.
+Get client.dll RVAs via the HOOK_MESSAGE registration (push handler; push name; call) + dc.sh. Also:
+**objdump misses computed stores** (`*(obj+0x5c)=x` never shows as a write to the absolute addr) — the
+Ghidra MCP xref (or following the dispatch) is required. The connect-window MSG_ONE drop (cont.96) is a
+RECURRING root cause — anything sent once at InitHUD as MSG_ONE to the joiner needs a rebroadcast.
+
+**Also `b480098` — fixed stale `tm_avana` map refs** (CLAUDE.md §3, setup-*.sh, HANDOFF launch examples):
+that map does NOT exist in TS; real maps are `ts_*` + `ctb_deadheat`. mp_teamplay on a DM map like
+`ts_hammertime` is an INTENTIONAL config (how the original dev ran them), NOT degenerate.
+
+**R1 ITEM-9 CONVERGENCE DONE — `21ff210` (audit.py INVENTED methods 9→4; behaviour-preserving, live-verified).**
+Retired 5 of the 6 invented CTSGameRules quintet stand-ins:
+- **GetTeamID, TeamWithFewestPlayers** — dead, deleted.
+- **IsTeamMode, IsTeamplay** — deleted; the original's gate is the global `g_teamplay != 0` (== m_iGameMode>=1;
+  2/3 dead §4.6). All 13 internal + 6 external callers (TS_entities/ts_worldgun/ts_buy) read g_teamplay now.
+- **RecountTeams + m_szTeamList** — deleted; SetTeamList reconstructed per §4.5 (direct slot tokenize + dedup +
+  The-ONE insertion + "created team %s" ALERT + cap g_theOneMode?2:4). RestartRound no longer re-tokenizes.
+- **KEPT: GetIndexedTeamName** — thin name-by-index slot accessor, ~8 callers; the original inlines the slot
+  read but removing it = 8 duplicated bounds-checks for an INTERNAL helper (not the external-interface target);
+  documented + accepted. Other 3 audit-invented (TSEnterSpectate/LoadActiveFromItem/SyncActiveToItem) are
+  separate helpers, out of quintet scope.
+Verified via LIVE client-memory read after the convergence: m_Teamplay=1, TeamNames count 4, labels team1-4,
+per-player teams intact — the new SetTeamList produces the same roster. Builds clean; check-source-lists agrees.
+
+**Convergence scare = the DM-boot transient, NOT the refactor (reverted then re-applied `690f156`→`03ec435`).**
+The "spectators-only / empty roster" after the convergence deploy was the SAME thing that happens on ANY fresh
+restart: the rig boots in DEATHMATCH because `mp_teamplay` defaults to 0 (not in server.cfg; `+mp_teamplay` on
+the command line doesn't stick — resets before the game dll registers cvars), so the FIRST InstallGameRules
+installs CHalfLifeMultiplay (no roster). rcon `mp_teamplay 1` sets the cvar but the loaded map keeps its DM
+rules object; only a `changelevel` re-runs InstallGameRules with teamplay=1 → CHalfLifeTeamplay → roster built.
+**FIX (rig-local test convenience): `~/Containers/hlds/.../ts/game.cfg` = `mp_teamplay 1`** — InstallGameRules
+does `exec game.cfg` right before DecideGamePlay, so it sticks from the first map (no changelevel). NOT a mod
+change / not in the repo (a real server sets teamplay per-map). The reconstruction was always correct.
+
+**`6e7ce98` — team NAMES lagged colors ~1s on join → fixed.** gmsgGameMode(1) (the m_Teamplay gate) was only in
+the 3s periodic rebroadcast, so the roster arrived at +0.75s (ResendTeamRoster) but names sat un-rendered until
+the next 3s tick (colors came fast via frag ScoreInfo). Folded gmsgGameMode(1) into ResendTeamRoster too. Note:
+the value is a CONSTANT 1 (the game-mode enum: 0=DM/1=teamplay, per class, mirrors CHalfLifeTeamplay::UpdateGameMode),
+NOT mp_teamplay.value and NOT m_iGameMode(0-3) — the client only understands 0/1.
+
+**`1378b79` — TEAMPLAY HAD ROUNDS (regression the user hit: "wait til next round" on death + "DEAD" flashing on
+LIVE players after a round restart). Root: `InitObjectives` (TS_gamerulesclass.cpp) INVENTED an
+`if (g_teamplay) m_iGameMode = 2/3` promotion → promoted plain teamplay (mode 1) into the DEAD objective mode 2
+→ the Think round gate ran the round machinery. The original NEVER promotes 1→2/3 here — entry gate
+`if ((byte)(mode-2) > 1) return;` (only re-flips 2↔3 when ALREADY 2/3, never reached). Restored the entry gate;
+teamplay stays mode 1 = free-respawn regular TDM. HOW TO DIFFERENTIATE (RE): the mode is decided ONCE at map
+load by DecideGamePlay — mp_teamplay→mode 1 (free respawn), lastmanstanding→mode 0+g_lastManStanding (rounds,
+individual LMS), objective modes 2/3 (rounds, DEAD/never reached). There is NO "round TDM" in the shipped game.
+USER-DRIVEN discovery — this is the InitObjectives §4.6 VERIFY that was flagged "still open" and IS the culprit.
+
+**`538142a` — slow-mo tint + motion-blur "shadows" persist on reconnect (CLIENT, our cl_dll only — see caveat).**
+Reset `g_flClientSlow` (+ m_flSlowAmt) in `CHudTSPowerUp::VidInit` (cl_dll/ts_powerup_hud.cpp) to match the
+original `CHud::VidInit` (@0x100206c0) resetting the slow CURRENT (DAT_100963e8=1.0) on connect. Our current is
+only eased in Draw (doesn't run while spectating) → stale <1 drove the view.cpp tint + ts_motionblur ghost
+spawner (both gate on the slow current). ⚠ **CAVEAT: the USER TESTS THE ORIGINAL CLIENT (hl.exe), so this
+cl_dll fix does NOT reach them — their tint is SERVER-side and STILL OPEN. See
+`reference/dossiers/cont97/slowmo_connect_bug.md` for the full RE + next steps.**
+
+**SLOW-MO-ON-CONNECT — IN PROGRESS / UNFINISHED (server-side, original-client bug).** RE'd this session:
+original `SlowMotionFlow` @0x86bb0 slows LOS-visible players with NO spectator gate (⇒ slowing spectators IS
+original; my spectator-skip guess was WRONG and reverted — `dlls/ts_player.cpp` SlowMotionFlow now matches the
+original). Client `CHud::VidInit` resets the slow CURRENT but NOT the TARGET (DAT_1009ff04, message-driven). The
+"no players" reconnect tint ⇒ our SERVER isn't pushing a `TSSlowMo`(normal) reset on connect to clear the
+client's stale target (send is change-detected @player.cpp:4719 on m_flClientSlowAmt). **NEXT: RE whether UCD
+runs for spectators + whether the ORIGINAL server force-sends the slow reset on connect/spawn/StartObserver;
+find + mimic that mechanism (don't invent). Full dossier: cont97/slowmo_connect_bug.md.**
+
+**XASH CLIENT TEAMPLAY SCOREBOARD — CONFIRMED FINE (user).** No cl_dll work needed: `vgui_ScorePanel.cpp` (the
+VGUI TeamFortress ScorePanel — SortTeams winner-on-top, team headers, spectators section, TS "WAITING" class-11
+status) already renders teamplay correctly once the server feeds the data (m_Teamplay + roster). The client RE
+this session (FUN_1005d5f0 layout / FUN_1005da20 rebuild / MsgFunc_GameMode·TeamNames·TeamInfo·ScoreInfo /
+the scoreboard object at *(client.dll base+0xd5cb0)) is the reference if the Xash look ever needs matching.
+
+**STILL OPEN:** re-grade the remaining §4.6 IsTeamMode-turned-g_teamplay sites if any need IsCTB/lms specifically
+(the round-gate site was already fixed `19309bb`; others are behaviour-preserving g_teamplay reads); the powerup
+Think gate (`if (g_teamplay) skip` — original gives dynamic powerups in mode<2 i.e. teamplay too — a // VERIFY
+regrade); the InitObjectives mode-2/3 promotion (dead-path fidelity §4.6). Then the queued client fixes (bloody
+blades + glass integrator, client_bloody_and_shards.md). DM "Spectate-as-team" was stale client state (not a bug).
+
+New orchestrator picked up from the cont.95 START-HERE (HANDOFF.md) at HEAD `336b501`, branch
+`restructure-source-parity`. Tree clean apart from the INTENTIONAL `game/ts/` deletions. Previous
+orchestrator (cont.89–95) available for consult via the user.
+
+**Session plan (from the cont.95 open list + dossier `reference/dossiers/cont95/README.md`):**
+1. **Knife auto-pickup + arsenal corruption (#4a)** — static RE contradicts the observed auto-grab
+   (type-25 CTSWorldGun WaitTouch needs TSW_FLAG or IN_USE; ours is byte-identical to @0xa1250).
+   Needs a LIVE SERVER TRACE on the rig: gdb break on CTSWorldGun::WaitTouch / GetWeapon /
+   CBasePlayer::PickUpWeapon while the user runs over a death-dropped knife; then fix the
+   half-pickup (stackable-knife PickUpWeapon not registering m_items/WStatus).
+2. **Melee knockback/disarm (#4b)** — RE CloseCombatAttack @0x85f88 (>30-dmg knockback gate,
+   |attacker vel|·dir, z=235) for grounded living victims; RE m_flDisarmPressure (player+0x7b4)
+   / DropWeapon(-2) accumulation on kicks/punches.
+3. **Buy-menu root-cause finish (#2)** — one no-workaround build + client watchpoint
+   (recipe preserved in the cont.95 dossier) to decide whether the 0.75s re-broadcast stays.
+4. Standing: audit.py/coverage.py parity sweep; R1 CTSGameRules split (own session); push after
+   user sign-off (ALL mod-ts + ReHLDS quic/64bit commits still LOCAL).
+
+**#1 knife auto-pickup — RESOLVED at HEAD (user-confirmed, no code change).** Live gdb trace on the
+rig (`reference/dossiers/cont96/decompiles/knife_trace.gdb` — non-stop logging breakpoints on
+CreateWeapon/WaitTouch/Use/GetWeapon/PickUpWeapon/TakeWeapon, RelWithDebInfo hl.so): death-dropped
+knife confirmed CTSWorldGun type 25 clip=1 (TSDropWeaponsOnDeath→DropWeapon→ThrowWeapon); **23 bot
+run-overs + the user's own run-over all REFUSED by the WaitTouch gate** (button=0x0, zero GetWeapon
+calls); E-pickup path correct (Use needs IN_USE, cooldown blocks the dropper, carried clip restored).
+User re-tested with the ORIGINAL client: no auto-grab, deliberate E-pickup registers + fires normally.
+Likely the cont.95 symptoms were partly the WStatus melee-clip encoding bug fixed in `2e8ebf2`
+(kung-fu/melee cell red = clip<1). Reopen only if it recurs — the trace recipe names the path.
+
+**#3 buy-menu ROOT CAUSE — CLOSED: InitHUD's MSG_ONE SrvSett IS dropped at connect; the 0.75s
+re-broadcast (ce04557) is LOAD-BEARING, kept.** Method: built with the workaround disabled (`0 &&`),
+armed the hardware watchpoint on the original client's restriction global (base 0x0c070000 unchanged,
+target 0x0c1fd174, poisoned 0x6f6f6f6f), user reconnected → **ZERO writes through the whole join +
+spectate + buy-menu open**. Positive control: rcon `weaponrestriction 1`/`0` fired WRITE #1 = 0 and
+WRITE #2 = 0x1f instantly at the known handler (caller 0xc0bb8bc = RVA 0x4b8bc) — watchpoint, wire and
+handler all proven good, so the connect-time send genuinely never arrives. NB the poisoned global made
+the menu RENDER as unrestricted during the test (0x6f6f6f6f has the category bits set) — the menu look
+was the poison, not a landed message; the real-world symptom needs a fresh client (global defaults 0).
+Workaround comment in player.cpp PreThink upgraded to CONFIRMED/load-bearing; `0 &&` reverted; Release
+rebuilt + redeployed + rig restarted. **Wine-gdb recipe fix preserved:** batch gdb attached to hl.exe
+dies on Wine's SIGUSR1 — `handle SIGUSR1/SIGUSR2/SIG33/SIG34 nostop noprint pass` required
+(`reference/dossiers/cont96/decompiles/client_watchpoint_v2.gdb`).
+
+**#2 melee knockback/disarm — `7c7788c` the RUN-THROUGH attack reconstructed (pending playtest).**
+RE dossier (read-only agent, user-resumed): `reference/dossiers/cont96/melee_knockback_disarm.md`.
+The find: our direct-hit CloseCombatAttack @0x85f88 was ALREADY byte-faithful (gate `bKnockback &&
+flDamage>30` on RAW pre-multiplier damage; velocity += |attacker vel|·dir, z=235 hard-set; grounded
+living victims included) — the bug was the original's SECOND melee channel, the whiff/run-through:
+a missed swing arms player+0x79c/0x7a0/0x7a4 (window / ±flat dmg 35/45/55 / type) and
+CheckForBreakables @0x8bd9c (per PreThink tick) makes the attacker's moving hull the weapon —
+Victim*Hold deflect, spawn-protect-gated DropWeapon(-2) disarm, the same >30 knockback at full
+sprint speed, per-type sound, TraceAttack halving per hit. We had (a) the WRONG two values stored on
+a whiff (whiffT into the window, scaled ≤30 into the force → knockback could never fire), (b) the
+whole player branch of CheckForBreakables deferred, (c) a DUPLICATE recon (TSCheckRunThrough,
+ts_gun.cpp) of the same original function — DELETED (it also broke the one-hit-per-victim dedupe by
+NULLing m_hRunThroughLast when grounded), (d) invented CTSStunt::m_pLastBreakVictim — removed.
+Verified myself before applying: the 3 (only) 235.0f sites, the @0x76d02-0x76d50 store slots, and
+the flat-vs-scaled // VERIFY settled by 3 agreeing reads (Ghidra dataflow, cont.93's slot note in
+our own comment, >30 semantics) — playtest step 2 discriminates regardless. GUNS have NO knockback
+in the original (TakeDamage ×2 re-verified velocity-free; ColdCock passes bKnockback=false) — only
+the death launch (DamageForce). Disarm: kicks DO disarm (thr 30/25/clamp(slotCost,20,50) vs
+accumulated pressure, ×5/s decay) — core was already faithful; the run-through was its only missing
+feeder. Both libs build; rig + xash redeployed. Playtest protocol: dossier §5.6.
+
+**#1 (reopened + TRULY closed) — `40fab88`: the "knife pickup corruption" is the BRIEFCASE
+(TSW_FLAG=29).** The corruption cluster (kung-fu red + knife viewmodel + empty-click) came BACK
+after the melee commit; trace v2 (`cont96/decompiles/knife2.gdb`, +SelectWeapon/WStatus/EMPTY-CLICK
+state) caught the truth: the grabbed object is weapon slot 29 — the briefcase (map ts_groundweapon
+on hammertime / CTF flag), `PickUpWeapon(29, NULL, bSelect=0)`. 29 = 0x1d = the WaitTouch
+auto-pickup gate value (that's what the gate is FOR) + bare-handed grabs auto-wield — both
+faithful. It LOOKS like a knife because the ORIGINAL's Write_flag @0x64804 gives the held
+briefcase v_knife/p_knife/w_knife.mdl (keep — wire contract; loose flag = briefcase.mdl,
+separate + faithful). OUR bug: PrimaryAttack had no fire-type-11 branch → briefcase fire fell
+into the standard-gun path (one phantom bullet, clip 1→0, then 398 logged dry-clicks). Original
+@0x71ac2: firetype 11 → fresh-press gate (player+0x814&1) → altMode=0 → KnifeFire slash
+(secondary already faithfully no-ops @0x717e6). Implemented + deployed. Retro-solves cont.95 #4a
+("death-dropped knife" = a briefcase in the corpse pile — the static RE was right). Followups in
+the cont96 dossier: the @0x758c8 melee-bar byte for firetype 11; items[29] lifecycle on DropFlag.
+Pending user confirm (briefcase slash + no red/empty-click).
+
+**Kill-feed weapon names — `5f6940d` (user-reported: "tsgun" everywhere, 'knife'/'grenade' raw).**
+(a) 18 weapon-table szName entries were NULLPTR (extraction gap) → the cont.93 pszName fix fell
+back to "tsgun". All recovered from the binaries (Write_* decompiles + the client.dll mirror
+table); ak47/aug/ump are EMPTY in the ORIGINAL (zeroed .rodata @0x106600 — mimic, don't invent);
+"Kung-fu" exact case @0xf843c. (b) DeathNotice name chain rewritten decompile-exact to PlayerKilled
+@0x795e4: glast_weaponid first (tracked slow-bullet — name what FIRED), → "Kung Fu" → "<gun> Stock"
+→ active table name; classname=="knife" → CTSKnife::GetDescription ("Throwing Combat Knife"/"…Seal
+Knife"/"…Katana" @0x6db04); targetname-before-classname for non-clients; tail remaps 'knife'→
+"Throwing Knife", 'shrapnel'→"Shrapnel", 'grenade'→"M61 Grenade" (@0x10c734 = "handgrenade"+4);
+log line lowercase+underscore transform; stock egon/gauss rename dropped. (c) glast_weaponid reset
+MOVED to UpdateBullet right after ApplyMultiDamage (@0x5f311) — was in PlayerKilled, stale on
+non-kill hits → misattributed later kills. PARKED for R1: name computed in PlayerKilled + the
+4-arg DeathNotice (T2Pc) signature + kill-streak log flavor ("stopped_fury"/"is_unstoppable"
+@0x89e0d block). Both libs build; deployed. Pending user playtest.
+
+**Bloody blade blinks clean at idle — `dc118b0` (user-reported).** The bloody katana/knife is a
+viewmodel SUBMODEL (body 1). Server side verified faithful (KatanaFire/KnifeFire set it.bloody +
+pev->body; WeaponIdle @0x754dc passes this->pev->body; vuser2.x ships it.bloody — cont.89/90 map).
+Our gap: the hit branch is #ifndef CLIENT_DLL and the client restore re-seeded it.bloody but NOT
+the predicted gun's fake pev->body → the predicted WeaponIdle (3s timer — the "couple seconds")
+re-sent the idle anim with body 0 → clean blink until the next swing event. Fix: HUD_WeaponsPostThink
+seeds g_TSGun.pev->body from the restored bloody for blades. RE note: the original CLIENT also
+keeps a per-swing bloody global (DAT_10189e08, katana handler @0x44230: stores iparam2, forces 1 on
+texture 'F' flesh) — refs are handler-local (swing anim body), matching our ev_ts.cpp handlers.
+OPEN: user to confirm WHICH client showed the blink — if the ORIGINAL client (not xash), there is a
+further seam (what feeds ITS predicted idle body vs our server) still to RE.
+
+**OPEN: xash client "Press Fire To Play" sometimes never spawns (sticky per session).** Analysis:
+fire-to-play = the CLIENT sends `respawn` (TS_SpectateFireCheck, cl_dll/ts_spectate.cpp:83) gated on
+`in_attack.state & 1` AND `!m_TSBuyMenu.IsUp()`; CHudSpectate::Draw always runs while g_iUser1!=0.
+Sticky-per-session candidates: (a) buy menu logically up (eats fire by design), (b) cursor-state
+desync (clicks go to VGUI, +attack never sets — PRIME suspect), (c) server respawn gate. User
+discriminator asked: menu visible? cursor free? does console `respawn` spawn? native vs browser
+xash (browser has the known pointer-lock issue).
+
+**`a5cc737` two CLIENT fixes (user screenshot pair proved client-side):** (1) glass shards pooled
+at the pane base on OUR client — velocity formulas were RE-correct all along; the bug was GRAVITY:
+the original shard system (@client 0x47cb0) uses 0.05 (tempent+0x38), we passed FTENT_GRAVITY
+(full g) → now a FTENT_CLIENTCUSTOM 40 u/s² integrator. (2) xash "Press Fire To Play" eaten after
+CHANGELEVEL: buy-menu m_active survived the level change invisibly; TS_SpectateFireCheck's IsUp()
+gate ate every fire click → CHudTSBuyMenu::VidInit now Close()s ([[map-change-state-reset]]).
+**STILL OPEN — katana bloody blink on the ORIGINAL client (dc118b0 fixed only ours):** RE state:
+original client's fake pev->body = FUN_10007110(type, attachMask) = ATTACHMENT submodel sum (no
+bloody!); its weaponanim replay (HUD_WeaponsPostThink @0x3830 line~183) sends that body (or 2 for
+non-tsgun). CheckForBreakables dir=g_vecZero VERIFIED faithful (GOT 0x167698). Next lead: how the
+ORIGINAL server keeps its client's idle bloody — maybe the ORIGINAL sends the katana attach bit /
+or the idle anim choice differs; live-compare vs the original server (user has it) or RE the
+original client's SendWeaponAnim wrapper.
+
+**Glass shards CLIENT-side (v2-v7, final `8acde7b` — user: "very close to original").** All in
+cl_dll/ts_debris.cpp only (wire untouched — no drop-in risk). Journey: formulas were RE-correct;
+the motion was wrong. Facts learned: xash delegates tempent physics to OUR HUD_TempEntUpdate
+(entity.cpp — pfnTempEntUpdate), xash alloc defaults bounceFactor=1 (elastic "bouncy balls" —
+now 0.2), and the ORIGINAL's custom shard integrator (@0x47cb0 alloc FUN_1004ffe0 / commit
+FUN_10050b60) works in PER-FRAME units + time-scaled gravity (slow-mo = moon-grav). Final approx:
+velocities x10, FTENT_GRAVITY full-g, bounceFactor 0.2. VERIFY: exact-match RE of the original
+integrator remains queued.
+
+**`86f6fe8` "Press Fire To Play" dead after changelevel — FIXED, user-confirmed.** Live gdb on the
+running xash client proved the CLIENT innocent (in_attack.state=4 clicks registered; g_iUser1=3
+spectating; respawn WAS being sent). The SERVER refused: m_flTSRespawnTime stores an ABSOLUTE map
+time; the clock resets at changelevel, so the wait equaled the previous map's whole uptime
+(TSEnterSpectate deliberately keeps a future deadline). Fix: ClientPutInServer clears it (fresh map
+clock). Also `269ca64`: the run-through window is the SHORT whiffT (0.1-0.35s) — the dossier's
+scaled-10-30 reading made a whiffed melee a ~30s landmine (user-caught: auto-hit on approach).
+NOTE for xash live-gdb: ptrace_scope needed 0 (Proton sets a ptracer allowance, xash doesn't).
+
+**R1 (USER MANDATE: do first) — phases 1+2 LANDED (`b827dea`, `23cbb04`); ground truth `753bc10`.**
+Phase 1 (Y8/Y9): PlayerKilled + PlayerSpawn overrides dissolved to their original homes (scatter →
+CBasePlayer::Killed @0x7ed5c; TheOneIsDead+CallCheckDeads → TS-patched MP::PlayerKilled @0x795e4;
+kill-time DropFlag deleted (StartObserver owns it — flag drops ~3s later, faithful); equip core →
+MP::PlayerSpawn @0x790ac (stock crowbar/9mm path GONE); initial_cash → ClientPutInServer @0xacf44,
+once per connect). USER CONFIRMED checkpoint 1 (kill/spawn/cash all fine).
+Phase 2: **CTSGameRules is STANDALONE** (base:null, no vtable — every override now a plain method);
+g_pGameRules = stock TS-patched CHalfLifeTeamplay (team) / CHalfLifeMultiplay (DM); static object +
+ctor/Init split; disasm-proven wires: MP::Think → TSGameRules->Think() (@0xbf302; Teamplay chains),
+UCD InitHUD block → TSGameRules->InitHUD() (@0x81dfa). motd → public SendMOTDToClient (VERIFY
+original path). Both libs build; source lists agree; server boots + bots play.
+**Ground-truth dossier (r1_rules_split_groundtruth.md) — phase 3 drivers:** (a) ⚠ modes 2/3 are DEAD
+in the original (InitObjectives' 2/3 promotion unreachable; DecideGamePlay returns ONLY 0/1;
+worldspawn `gamemode` 1-4 = DM/TDM/LMS/TheOne) → the IsTeamMode>=2 interim is REFUTED; live gates:
+mode==1 / g_teamplay / IsCTB = mode==1 && ts_briefcase (cached +0x5890/91). ⚠ OUR Wires HUD gates on
+m_iGameMode==3 — the original never reaches 3 → re-RE the wires gate. (b) TSGameRules.Init called
+from the MP+Teamplay CTORS + ChangeLevel (not InstallGameRules — ours calls it there, near-identical
+order; align in phase 3). (c) TSGameRules+0x1824 = m_szEndMap[0x40] vote buffer (CheckVotes writes →
+Think checks → GoToIntermission; ChangeLevel consumes + Init). (d) ~13 in-place stock patches census
+(MP ctor/Think✓/InitHUD-log/ClientDisconnected/ChangeLevel; Teamplay ctor/Think✓/SetDefaultPlayerTeam
+/ChangePlayerTeam/CUIC/RecountTeams; CanPlayerHearPlayer LMS dead-talk; CWorld::KeyValue gamemode/
+mapteams/teammodels). (e) Full CTSGameRules::InitHUD 15-statement dissolution table + the TS-patched
+Teamplay pair typed bodies — ready to apply. PLAYTEST CHECKPOINT 2 pending (DM loop + a team map).
+
+**R1 phase 3 LANDED (`72a6761`)** — the TS-patched CHalfLifeTeamplay (ctor/SetDefaultPlayerTeam/
+ChangePlayerTeam/CUIC/RecountTeams-CTB-tail per dossier §3, all decompile-anchored);
+CTSGameRules::AssignToTeam DELETED (jointeam → ChangePlayerTeam per @0x9e4b0; Y9-4 interim gone);
+CTSGameRules::InitHUD dissolved per §2.5 (cheats/damagemult notices added, SrvSett byte-0 = Think
+cache, TeamNames/TeamInfo roster now the stock Teamplay::InitHUD's); worldspawn gamemode/teammodels
+keys added. Shims tagged: pev->team stamp in ChangePlayerTeam (objectives gate — VERIFY original
+CanInteract source). Rig restarted with +teamplay 1. CHECKPOINT 3 = the team experience (ally dot,
+Tab teams, team VGUI, jointeam→spectate→5s, team models, FF). Phase-4 remainder: MP ctor Init call
++ ClientDisconnected/ChangeLevel patches + m_szEndMap vote machinery + CanPlayerHearPlayer LMS +
+quintet retirement tail (IsTeamplay/GetTeamID/RecountTeams/TeamWithFewestPlayers members on
+CTSGameRules still standing, callers to converge) + the dmcashbased/usecash naming VERIFY + the
+Wires mode==3 divergence re-RE. Client dossier fixes (bloody SVC_WEAPONANIM skiplocal + glass exact
+integrator) QUEUED behind R1 per user mandate.
+
+**R1 CHECKPOINT 3 (team experience) — PASSED after 4 fixes (`8b31b93`..`+scoreinfo`), all user-confirmed:**
+(1) InitHUD recursion crash (Teamplay::InitHUD→ChangePlayerTeam→StartObserver re-armed m_fInitHUD →
+stack overflow; guard set before the InitHUD calls — VERIFY original UCD flag order). (2) IsTeamMode
+was the old lazy objective-manager proxy — cached 0 at ctor time (no entities) and silently disabled
+the ENTIRE team layer; now the mode gate (m_iGameMode>=1) per the ground-truth dossier. (3) dead
+players flapped to "Spectate": stock StartObserver sent TeamInfo("") — the original sends
+TeamInfo(TeamID()) @0x89922 (disasm-verified) so the dead KEEP their team. (4) team names/colors
+blank until a kill: the ORIGINAL client's scoreboard section name/color AND individual player color
+key off the ScoreInfo TEAMID column + TeamInfo — all the join-time catch-ups are MSG_ONEs in the
+connect drop window; CHalfLifeTeamplay::ResendTeamRoster (INVENTED-INTEROP, rides the 0.75s SrvSett
+resend) resends TeamNames + per-player TeamInfo + per-player ScoreInfo(teamid). ALSO: mp_teamplay is
+the cvar (not `teamplay`); +cvar on the command line doesn't stick for game-dll cvars — set via rcon
++ changelevel. OPEN from checkpoint 3: xash client scoreboard has NO team sections (cl_dll
+reconstruction item — needs the original client Tab renderer RE); the DM empty-team-box/"Spectate"
+cosmetics on the original client (queued client RE); "created team %s" ALERT missing in our
+SetTeamList (cosmetic).
+
+**SESSION END (cont.96 FINAL).** R1 phase 4 was IN PROGRESS when the session ended — the specs are
+all read + pinned (r1_rules_split_groundtruth.md §1.2-§1.4/§5.1): Think call POSITION (ours is at
+the TOP of MP::Think, original = END + m_szEndMap check), Teamplay::Think reshape (own body + IsCTB
+fraglimit fork), m_szEndMap[0x40] vote/ChangeLevel machinery, MP ctor Init, MP::ClientDisconnected
+patch (move TSPlayerDisconnect from client.cpp + FireTargets game_playerleave + +0x587c clear),
+CanPlayerHearPlayer LMS dead-talk, CWorld mapteams→SetTeamList call, InitHUD-log cosmetic, quintet
+convergence tail, the flagged VERIFYs (UCD flag order / dmcashbased / InitHUD items 9-13 homes /
+the Wires mode==3 divergence). Full numbered list + the queue (bloody blades, glass integrator,
+xash scoreboard sections, DM team-box) in the HANDOFF cont.96 FINAL block. Trace kits preserved in
+reference/dossiers/cont96/decompiles/. ALL LOCAL through f27a7d6 — push on user sign-off.
+
+*(Entry updated as work lands — see below for cont.95's blow-by-blow.)*
+
+## 2026-07-07 (cont. 95) — INTEROP playtest (original client vs our ReHLDS): 3 latent bugs + the FindEntityByString crash
+
+User playtested the ORIGINAL TS client against our ReHLDS server (the true drop-in test) and surfaced
+THREE latent bugs (all predate this session; masked because our own client shared the same flaws). All
+RE-grounded, all fixed, 2 of 3 user-CONFIRMED in-engine.
+
+- **`2e8ebf2` crouch-jump insta-kill + kung-fu bar red.** (a) `TSCheckRunThrough` (ts_gun.cpp, @0x9bd9c)
+  dealt RAW velocity (200-350) as damage to AIRBORNE players → any crouch-jump into someone = instant
+  kill. It's a DUPLICATE reconstruction of `CTSStunt::CheckForBreakables`, whose sister correctly EXCLUDES
+  players (the faithful player-barge is the gated close-combat run-through, NOT this raw dmg=speed
+  TraceAttack). Fix = exclude players here too (VERIFY the original's exact player branch). (b) WStatus
+  melee bar sent clip 0 for kung-fu (TSW_MELEE); the original client reds any cell with clip<1. Kung-fu
+  has NO clip → send -1 (WEAPON_NOCLIP → byte 255) so it renders normal. **kung-fu red CONFIRMED fixed;
+  insta-kill NOT yet user-confirmed.**
+- **`ce04557` buy menu empty at join (SrvSett delivery WORKAROUND).** The buy menu showed only kevlar (a
+  Player Accessory, not a weapon CATEGORY) — all 5 weapon categories appeared restricted. **Our ENCODING
+  is CORRECT** (0x1f=all, 0x1=knives, 0x3=knives+pistols — user verified live; IsRestrictedWeapon @0x770c8
+  matches). Root: the client's restriction global (client.dll DAT_1018d174) defaults to 0 (=nothing
+  allowed = empty), and our InitHUD MSG_ONE SrvSett catch-up fires during the spawn sequence, which the
+  original client DROPS. A later send lands (proven: the on-change command MSG_ALL updates a connected
+  client fine). We replicate ALL THREE original SrvSett senders (Think on-change @0x675f6, InitHUD
+  catch-up @0x691e0, cmd @0xb595f), register at ServerActivate, defer InitHUD via m_fInitHUD — STRUCTURALLY
+  IDENTICAL to the original. So it's a client-side RECEPTION issue at connect. **WORKAROUND (marked
+  invented in code):** a one-shot re-broadcast of the 4 SrvSett settings ~0.75s after connect
+  (CBasePlayer::PreThink honours m_flSrvSettResendTime, set in InitHUD), landing during spectate-wait
+  before the menu opens. **CONFIRMED fixed** by the user. ⚠ TODO ROOT-CAUSE: watchpoint on the CLIENT's
+  DAT_1018d174 (client.dll + 0x18d174, the ONLY writer @0x1004b8b7) during a join to see why our InitHUD
+  MSG_ONE is dropped — then remove the workaround.
+- **weaponrestriction + bots = FAITHFUL, NOT a bug.** User: bots spawn with weapons under weaponrestriction 1.
+  RE-confirmed: weaponrestriction restricts ONLY the BUY path (our BuyWeapon checks IsRestrictedWeapon;
+  the original PickUpWeapon @0x83318 has NO restriction check). Real players are correctly gated (user
+  verified). Bots bypass because rcbot direct-gives weapons (or grabs map weapons) — never through
+  BuyWeapon. Restricting pickups would be a DELIBERATE DIVERGENCE (the original has none) — only do it if
+  the user explicitly wants it. (Did NOT verify rcbot-give vs map-pickup as the exact source.)
+
+- **ReHLDS `FindEntityByString` crash FIXED (the long-open bot-crash task).** Caught live under gdb TWICE:
+  `__strcmp_avx2 ← PF_find_Shared ← FindEntityByString ← rcbot_mm_amd64.so`, scanning
+  "info_player_deathmatch" on bot respawn. **64-bit-specific:** string_t is a 32-bit offset from pr_strings;
+  the rcbot amd64 plugin computes MAKE_STRING as a raw pointer diff from its OWN memory → out-of-pool
+  offset written to an edict field → PF_find_Shared resolves pr_strings+garbage → SIGSEGV. Added a 6-line
+  bounds guard (skip offsets outside the Ed_StrPool hunk) — the READ-side counterpart of the write-side
+  truncation SV_SpawnServer already guards on 64-bit. Committed ReHLDS `quic` (`a8d6c8d`) + cherry-picked
+  to `64bit` (`411c42b`). Server survived ~25min bot combat where it died twice in ~2min before.
+
+**ALL mod-ts commits LOCAL/unpushed** (user pushes after full playtest). This session's fixes sit on top of
+cont.94's 32-commit autonomous clear-out (baseline was 04a6a23; now at ce04557).
+
+**OPEN / NEXT:**
+1. ✅ crouch-jump insta-kill fix (2e8ebf2) — user CONFIRMED fixed. (all 3 interop fixes now confirmed.)
+2. Buy-menu ROOT CAUSE — **watchpoint DONE (client.dll+0x18d174 = live 0x0c1fd174 in hl.exe; the ONLY
+   writer, the SrvSett handler @RVA 0x4b8bc, DID fire).** Proven: our SrvSett REACHES + APPLIES on the
+   original client; the applied value tracks m_iWeaponRestriction exactly (wrote 0 when weaponrestriction 1,
+   0x1f when weaponrestriction 0). gdb suppresses same-value writes, so I could NOT tell if InitHUD's early
+   send or the 0.75s re-broadcast is the one that lands. TO FINISH: build with the workaround DISABLED
+   (comment out the m_flSrvSettResendTime block in player.cpp PreThink + the InitHUD set), reconnect, watch
+   — if 0x1f still lands, InitHUD works and the workaround can be removed; if empty, InitHUD is dropped and
+   the workaround is load-bearing (keep it). Watchpoint recipe: hl.exe PID (was 22494, CHANGES), client.dll
+   base = first r-xp mapping (was 0x0c070000), target = base + 0x18d174; `set *(int*)ADDR=0x6f6f6f6f` poison
+   then `watch`. Scripts in scratchpad/w4.gdb.
+3. weaponrestriction + bots = FAITHFUL (user accepted). No action.
+4. **NEW GAMEPLAY BUGS from interop playtest (NOT yet fixed — need a fresh session):**
+   a. **Death-dropped knife auto-picks-up on run-over (should need E) + CORRUPTS the arsenal.** User ran
+      over another player's death-dropped knife (no E) → it auto-grabbed. Symptoms = HALF-PICKUP: the knife
+      viewmodel deploys (m_weaponType=knife) but it's NOT in the WStatus weapon bar (m_items[knife].owned
+      wrong), firing gives EMPTY-CLICK, and the kung-fu bar cell goes RED. STATIC RE CONTRADICTS the
+      behavior: a death-dropped knife = CTSWorldGun type 25 (TSW_KNIFE); every WaitTouch (CTSWorldGun @257,
+      CTSGroundWeapon @544) gates auto-pickup on type 0x1d (TSW_FLAG=29) || (button & IN_USE 0x20) — BOTH
+      our WaitTouch AND the original's @0xa1250 are identical/faithful. ThrowWeapon always makes a
+      CTSWorldGun (no knife special-case). CTSKnife::WaitTouch (thrown-knife) only damps velocity, no
+      pickup. So a type-25 knife auto-grabbing is UNEXPECTED per the static code → **NEEDS A LIVE SERVER
+      TRACE**: break on the running rig's CTSWorldGun::WaitTouch / GetWeapon / PickUpWeapon when the user
+      runs over the knife, to see the ACTUAL path + why it fires without IN_USE, then fix the half-pickup
+      (PickUpWeapon of a stackable knife not registering m_items/WStatus). File: dlls/ts_worldgun.cpp
+      (WaitTouch/Use/GetWeapon), dlls/ts_gun.cpp (PickUpWeapon/TakeWeapon for stackables).
+   b. **Melee knockback wrong.** Kicks/punches should send the victim FLYING BACK; currently they only fly
+      back on death (or mid-air), and it "doesn't match the original." RE the melee knockback: CloseCombatAttack
+      @0x85f88 has the >30-dmg knockback (|attacker vel|·dir, z=235) — check why it's not firing for grounded
+      living victims (the >30 gate? the flDamage passed? faithful vel source?). Also user wants punches to
+      possibly DISARM (knock weapons out of hands) — RE whether melee disarm (DropWeapon(-2), the
+      m_flDisarmPressure / player+0x7b4 accumulator) applies to kicks/punches vs only the melee twins.
+5. The cont.94 deferred structural set (R1 CTSGameRules standalone-class split, etc. — see cont.94 entry).
+6. Push everything after the user is satisfied (all mod-ts commits + ReHLDS quic/64bit still LOCAL).
+
+**CONTEXT NOTE:** this session ended at ~70% context. Items 2(finish)/4/5 are fresh-session work. The knife
+bug (4a) specifically needs a LIVE gdb trace on the rig, not more static reading.
+
+## 2026-07-07 (cont. 94) — TraceAttack full parity; client-display cvars RE'd; parity sweep regenerated; goldsrc.net web-join fixes
+
+New orchestrator session from the cont.93 START-HERE. Baseline `04a6a23`. Ran the cont.93 subagent pattern:
+3 parallel read-only RE-dossier agents (dossiers in `reference/dossiers/cont94/`), then sequential apply.
+
+- **`4b7c421` TraceAttack FULL parity (RE @0x801cc; dossier `traceattack_followups.md`).** The two cont.93
+  VERIFYs resolved: (a) player+0x524 is NOT a direct member — it decomposes to CTSStunt+0x34 = our EXISTING
+  `m_flBulletTimeEnd` (only writer GoBulletTime = time+0.55, the standing matrix-dodge — the "roll-dodge"
+  framing was wrong); added the TraceAttack read: BULLET taken in the window ×0.7, stacks with iuser4 ×0.7.
+  (b) player+0x71c is the SPAWN-PROTECTION deadline — renamed m_flDisarmTime→m_flSpawnProtectTime (one
+  member, four consumers, our writer already exact); added the TraceAttack first-statement no-damage gate
+  @0x801eb + DefaultDeploy's push-out @0x902f0. Plus the line-by-line diff fixes D3–D13: friendly-fire
+  early return; corpse BulletDance + airborne drift; feedback (msg+sounds) moved INSIDE the 0.3s throttle;
+  hit-sound mask BULLET|BLAST (not CLUB); headshot.wav/headshot2.wav only (headshot1.wav doesn't exist —
+  removed its failing precache); one bArmoredHit flag drives kevlarhit + the +128 wire bit; sound params
+  1.0/1.25/95+rand31; pain2/3/4 voice (3/7) added; dmgreport alert; REMOVED the invented TakeDamage Pain()
+  call + m_flNextPainTime (original Pain @0xc847c has ZERO call sites — dead code kept for symbol parity).
+  FLAGGED not done: D14 the TS 8-arg EMIT_SOUND_DYN overload (trailing slow-mo pitch-floor float; 0.5 body /
+  0.15 pain) — repo-wide separate item; SpawnBlood/TraceBleed kept TODO-invented until the client TSTakeDamage
+  handler exists. Both libs build. Playtest protocol in the dossier §end.
+- **Client-display cvars RE complete (dossier `client_display_cvars.md`).** All 10 registration defaults
+  already matched the ORIGINAL binary (cl_thirdtransparency IS "1" — the .scr's 0 is GUI-only; do NOT
+  change). Exact gates recovered: cl_thirdtransparency (@0x678e6, (int)!=0 with the aim flag),
+  cl_showequipment (passive weapon-bar alpha ×0.25/×0.5/×1/hide), cl_solidcross (0 additive cross_e /
+  >0 solid cross2, >1 BLACK), cl_thirdpersonswitch (==1.0 exact, WeaponInfo handler toggles), cl_fx
+  muzzle-smoke gate, cl_laser=style + cl_lasercolor=announce-only (ALL render color incl. local comes from
+  the server-echoed byte). DEFERRED (consumers un-reconstructed): cl_gore (PTakeDam blood multiplier table),
+  cl_motionblur (TSMBlur ghost trails), cl_wavedetail (realbullet trails). Apply-agent ran after this entry.
+- **Parity sweep regenerated at HEAD (dossier `parity_sweep.md`).** Headline: external contract close
+  (0 wire-size mismatches/64 msgs, 12/12 events, 0 missing server cmds, 0 cvar-default mismatches, binary
+  factories 0 missing). Real gaps: 7 client message hooks (TSMBlur/NextStunt/TSPSys/TSFlag/Objective/
+  ShowObj/TSHVoice), 11 missing client cvars (gl_fog×6, cl_drawnames, cl_thirdperson, m_accel×3),
+  specmode/special mechanism swap (original registers them CLIENT-side), HUD_DirectorEvent export rename,
+  ~23 invented methods to fold (CTSGameRules ×11, CTSGun ×7, CBasePlayer ×5), 6 invented globals, and one
+  small MISSING: CTSGun::Holster @0x75674 (forwarder to HolsterWeapon — best small close). Known-false
+  metrics documented in the dossier (RECONSTRUCTION_COVERAGE's TS_RE filter artifact).
+- **goldsrc.net web-join debugging (user live-testing, separate repos):** (1) "login required" while
+  logged in — the rejection is ReHLDS webauth failing CLOSED; the LOCAL rig had no GAME_SERVER_SECRET and
+  the ticket check ignored sv_lan. Fixed ReHLDS (sv_main.cpp): the WT ticket requirement now applies only
+  when sv_lan==0 (LAN admits web clients at SteamID 0 like any LAN client); rebuilt build-quic-amd64 +
+  hot-swapped the rig engine (wrapper respawned it). Cloud path unverified — if the user was joining the
+  cloud server, need DevTools /api/game-token status + box logs. (2) React /play harness kept the engine
+  ALIVE after route-away (audio + SDL key handlers ate the login form) — XashGame.tsx now forces a full
+  reload on unmount when the route left /play (StrictMode-safe); user added a hover top-bar with a plain
+  <a> exit link. tsc clean.
+
+**Later in the session:** `7faa1e6` the cvar apply landed (reviewed, both libs build); `829fae4`
+CTSGun::Holster override (@0x75674 forwarder — we fell through to STOCK Holster) + HUD_DirectorEvent
+export rename (HUD_DirectorMessage kept as the xash by-name alias, documented ours-only); `44b964a`
+dropped the ViewMode/SpecFade/ResetFade client hooks (HL leftovers; viewport methods kept for the
+spectator code's internal calls); `37b0491` coverage regen + dossiers committed. A further RE agent was
+dispatched for the 7 missing client message hooks + cl_gore blood tail + specmode/special mechanism
+(dossier `client_message_hooks.md` when done). HANDOFF cont.94 START-HERE written.
+
+**Final round:** `739a599` the client_message_hooks RE dossier + `6f7b147` its FULL implementation —
+the 7 dark hooks are live (TSMBlur ghosts via TentEntAllocCustom w/ the exact curstate contract;
+NextStunt red dive-arc + the server sender UNPARKED; TSPSys wind handler w/ deferred consumer seam;
+TSFlag/Objective/ShowObj/TSHVoice as ONE CHudTSObjectives element mirroring the original CHudTS;
+PTakeDam blood spray w/ the cl_gore table — the invented CalcDamageDirection call removed;
+specmode/special swapped to the original mechanism: client-side HLTV command + cl_drawnames, server
+accept-branches removed). New files ts_motionblur.cpp/.h + ts_objectives.cpp/.h, all four source lists
+synced. Both libs build; rig + xash roots redeployed (rig respawned on the new build). ALSO resolved
+outside this session (parent CLAUDE.md 2026-07-08): the CLOUD web-join bugs — a stale prod schema 500'd
+the ticket burn, and map-change reconnects re-demanded the burned ticket (fixed: SteamID reuse on
+reconnect). With the rig sv_lan fix + the /play teardown fix, the whole login saga is closed.
+
+**NEXT:** the parity-sweep remainder (invented-method folds, invented
+globals, tsbuy*/HL-leftover command strip, sk_* strip w/ gSkillData caution, 11 missing client cvars);
+D14 EMIT_SOUND_DYN overload; user playtest (traceattack dossier §end protocol); cloud web-join datapoint;
+the still-blocked items (bot-crash gdb repro, doors-glass, floating-weapons probe, push).
+
+## 2026-07-07 (cont. 93) — Interactive playtest round 2: damage model, kill feed, death drop, globalslow
+
+User back at the keyboard reporting more playtest issues; RE-grounded fixes (commits `45c8253..2ff251c`).
+
+- **`70da4a4` TraceAttack hitgroup multipliers — THE damage fix.** Our `CBasePlayer::TraceAttack` used
+  STOCK gSkillData (head ×3, torso mults, leg ×1). The original TS `TraceAttack` @0x901cc is fully custom:
+  **HEAD ×2 bullets-only** (mask 0x8000002; ×1.5 for 0x2000000/shotgun; **MELEE headshot = NO bonus**),
+  **LEGS ×0.5**, **chest/stomach/arms ×1** (no torso multiplier), + a ×0.7 slow-mo/stunt damping
+  (iuser4 & 0x10c10). This was BOTH complaints: "2-shot beretta" (head ×3 + torso inflation) and the
+  jump-kick "insta-kill" (a melee hit to the head got the ×3 bullet-headshot mult). Sets glast_headshot on
+  a real headshot. VERIFY/todo: the roll-dodge i-frame ×0.7 (player+0x524) + the early-return gate
+  (time < player+0x71c) not yet modeled; the TraceAttack presentation (gmsgTSTakeDamage report, kevlar/
+  hit/pain sounds) is a separate pass.
+- **`45c8253` jump auto-kick (CloseAttack @0x8c630) trigger gates.** Added two MISSING gates (m_flRollTime>0;
+  iuser4 & 0x30c30 mid-stunt) and FIXED the kung-fu gate: the original blocks only when NO weapon item is
+  active (m_weaponType==TSW_MELEE), NOT on empty grip — so knives/katana (empty grip, real weapon) CAN
+  jump-kick (ours wrongly blocked them). No KungFu powerup needed (only ×2 damage). Base kick dmg
+  clamp(speed×K,10,20)×2 = ≤40 confirmed faithful (the insta-kill was the TraceAttack mult above).
+- **`54449de` kill feed shows the real weapon**, not "tsgun". DeathNotice used m_pActiveItem->pszName()
+  ("tsgun"); the original PlayerKilled @0x795e4 names the ACTIVE type via get_weapon_info(m_weaponType)->
+  pszName (s_weapon_info+0x44, "Beretta 92F"). Added the tsgun special-case.
+- **`380ad35` death weapon-scatter: akimbo drops TWO guns.** TSDropWeaponsOnDeath bypassed
+  CBasePlayer::DropWeapon (TSThrowWorldGun once/type) → akimbo dropped ONE gun. Original Killed @0x7ed5c
+  loops DropWeapon(type,0) over all types + a 2nd when iAkimboType!=-1; our DropWeapon @0x84900 already does
+  akimbo→two-singles + no-ops unowned, so routing through it scatters two. ("something off in the drop".)
+- **`2ff251c` `globalslow` command (Permanent Slow-motion) — the cvar audit's one real server gap.** It's a
+  COMMAND (not a cvar) we never registered (→ "Unknown command"), AND its per-frame Think driver was ALSO
+  missing. Added both: cmd_globalslow @0xb5580 (percent→0..2 scale, 100%=off) + AddServerCommand, and the
+  RE-exact first block of Think @0x67204 (expire/restore/maintain via GlobalSlowMotion2).
+- **`257758b`/`8d837c2` etc. (cont.92 continued):** kSil PDW silenced model; the 3rd-person transparency
+  feature.
+
+**CVAR/SETTINGS AUDIT** (`reference/dossiers/cont91/cvar_settings_audit.md`): 39 TS cvars. Server 17/20 honored;
+the user's 3 priorities (initial_cash / weaponrestriction / realbullet-Low) all FINE. **FOLLOW-ON (client.dll
+RE):** 9 registered-but-unread client-display cvars — notably **cl_thirdtransparency should GATE the
+3rd-person transparency feature** (it's currently always-on; the .scr default is OFF), and we read
+`cl_lasercolor` where the .scr uses `cl_laser`.
+
+**BOT CRASH (#3) — RETRACTED my "reproduced on ts_hammertime" claim:** the server restart + minidumps I saw
+were the USER'S REBOOT (plasmashell crash), invisible to me. The FindEntityByString/ts_hammertime crash is
+UNCONFIRMED; /tmp/dumps minidumps are untrusted (reboot artifacts). The WaitThink brace fix (`9566cd5`) stands
+(binary-proven, independent). NEEDS a real repro on a stable machine, under a PROPERLY-ATTACHED gdb (the
+`hlds_run -debug` wrapper does NOT attach gdb — run hlds_linux directly under gdb).
+
+**STILL OPEN:** doors-glass playtest; floating-weapon runtime probe (both need the user); the broad audit/
+coverage sweep; the cl_thirdtransparency gate + the other 8 client-display cvars.
+
+## 2026-07-07 (cont. 92) — AUTONOMOUS bug-sweep from a playtest report (RE-grounded, subagent-orchestrated)
+
+User ran a playtest (original TS client vs our ReHLDS server), reported a batch of bugs, then stepped away
+asking me to work the whole list autonomously (no client playtests available → verification = RE-correctness +
+clean builds; playtest confirmation flagged PENDING). Orchestrated read-only RE-dossier subagents + focused
+edit-agents; dossiers in `reference/dossiers/cont91/`. Commits `2e4d678..8d837c2`. Started at `c817041`.
+
+- **`2e4d678` bullet-whizz radius.** Confirmed the near-miss "whizz" IS original (client.dll references
+  `weapons/whizz%d.wav` in FUN_100450c0; plays on OTHERS' bullets, shooter!=local, within a perpendicular
+  near-miss). Ours was faithful except the radius — guessed 56, RE'd `_DAT_1007cccc`@0x1007cccc = **75.0**.
+- **`6c83a7d` melee/damage vs players (4 sub-bugs, all RE-verified).** (a) Shooting a MIDAIR player launched
+  them — combat.cpp had re-added the STOCK HLSDK `pev->velocity += vecDir*-DamageForce()` push; the original
+  `CBaseMonster::TakeDamage` @0xa2430 has **NO** such push (verified: 270-line decompile, no DamageForce call /
+  no velocity write; DamageForce is only the death launch). Removed. (b) kung-fu fling = that push double-dipping
+  on melee (CloseCombatAttack @0x85f88 already applies its own faithful attacker-speed pop) — fixed by (a).
+  (c) crouch-kick instakill: CCombatAttack @0x76078 passed the speed/melee/KungFu-scaled `lunge` as flDamage;
+  original passes the FLAT `reach` (35/45/55), scaling only the whiff-lunge store — pass `reach`. (d) jump
+  auto-kick registered on players with a flesh sound + no anim: the hit tail's `m_flNextAttack` re-arm was
+  `if(<=0)=0.5` (never true) so a queued gun attack fired right after the kick; RE-exact tail (re-arm
+  `<WeaponTimeBase()`→+0.35, CHAN_BODY pitched closecombat.wav, UpdateMeleeBar(dmgBase*1.5)). The user's
+  "jump-kick is breakables/doors-only" theory was FALSE (CloseAttack @0x8c630 has bPlayersOnly=0).
+- **`7c75c76` + `9566cd5` dropped weapon (CTSWorldGun "WorldGun", from DropWeapon@0x84900).** Endless friction:
+  BounceTouch@0xa0b0c damps horiz on EVERY ground contact (<=40→×0.7, else→×0.9, same k on velocity+avelocity);
+  ours lacked the else branch and set avelocity=velocity → throws (speed 60-180) never damped → slid forever
+  (+ skated off edges into the void = the steep-drop-sink / near-edge-vanish reports, all downstream). Near-edge
+  pickup: ObjectCaps@0xa3404 = FCAP_CONTINUOUS_USE (0x10); ours returned FCAP_IMPULSE_USE (0x8). **Coupled bug
+  (`9566cd5`, binary-proven, from the crash review):** `WaitThink` had lost its braces so `UTIL_Remove(this)`
+  ran UNCONDITIONALLY every tick (orig @0x9104c gates both under `m_flExpire<time` — `jae` skips both) → dropped
+  guns vanished ~0.1s after settling (masked before by the friction bug never letting them settle).
+- **`257758b` kSil[] PDW.** Added the missing silenced PDW held model `{19,"models/p_pdw_sil.mdl"}` (string
+  confirmed in both binaries). — This is the ONLY concrete fix for the "floating held weapons" report; the RE
+  proved the per-weapon held-model DATA is faithful (pszPlayerModel byte-matches @0x6fe28; p_usas/p_beretta
+  byte-identical bones; player.mdl has aim_/idle_ for every grip). **Float root-caused, NOT fixed:** it's the
+  REMOTE player's `pev->sequence`==0 (bind pose) — a runtime CTSAnimation body-pose issue; needs a runtime probe
+  (dump remote pev->sequence + m_szAnimExtention per weapon) + user confirm. Do NOT touch pszPlayerModel/pev->body.
+- **`8d837c2` 3rd-person self-transparency (client feat).** Ported client.dll V_CalcNormalRefdef @0x678b8: in
+  3rd person, fade the local model toward alpha 100 (rendermode kRenderTransColor) while the crosshair aim-trace
+  is on a player, ease to 255 otherwise; spectator/dead opaque-reset. Was missing from our cl_dll (original client
+  has it). `cl_dll/ts_reticle.cpp` (aim classifier g_iTSAimTarget) + `cl_dll/view.cpp`.
+
+**Bot crash (#3):** the WaitThink brace bug (`9566cd5`) is the leading suspect — rapid create→settle→free WorldGun
+edict churn under bot combat feeds rcbot's cached pickup pointers → FindEntityByString UAF on a freed+reused slot.
+HIGH confidence it's a real bug, MEDIUM it's precisely that crash. Could NOT reproduce autonomously (45min bot
+combat + rcon map-churn across 5 maps, debug.log empty; bots idle without waypoints on some maps). Fixed server
+redeployed + boots clean with bots. If it persists post-fix, remaining suspect is rcbot's own cache invalidation.
+
+**VERIFY / PENDING (all need the user's playtest — none confirmed in-engine this session):** every fix above;
+the melee CloseAttack fire-gate (fireType==0x10 vs bare-hands, `// VERIFY`); the transparency ease steps 50/5 +
+the __ftol sub-gate; the WorldGun slow-mo threshold 40*GiveSlowMul(). **STILL OPEN (not user-mentioned this
+batch):** the floating-weapon runtime probe; doors.cpp breakable-glass playtest (cont.90); the broad audit.py/
+coverage.py parity sweep; the flagged cd+0x1b0 drift (orig UpdateClientData sends player+0x724=m_iPowerups on
+vuser1.y, we send m_flMeleeBar — VERIFY).
+
+## 2026-07-07 (cont. 91) — DROP-IN pump shotgun: rack alternation + shell-by-shell reload (live active-item bytes on the wire)
+
+Original TS client vs OUR ReHLDS server. Two shotgun bugs, both a clientdata mis-pack found by decompiling
+the **original server's** `UpdateClientData` free function (`UpdateClientData__FPC7edict_siP12clientdata_s`
+@nm **0xa0294** — the cont.89 note's "0xb0294" was a typo). The active-weapon (id 0x10) branch packs the
+**LIVE active-item bytes** (`pItem = *(gun+0xcc)`), and we were shipping the wrong fragmented halves on two
+slots:
+- **vuser4.x (cd+0x1d0) = `*(byte*)(pItem+0x24)`** — the pump fire/**RACK toggle** (akimbo barrel otherwise).
+  We sent `it.altMode` (always 0 for a pump gun) → the original client's `ShotgunFire` never entered the rack
+  half → **fired every trigger pull** instead of fire→pump→fire→pump.
+- **vuser2.x (cd+0x1b8) = `*(int*)(pItem+0x8)`** — the pump/shell **RELOAD phase** (burst counter / grenade
+  cook / bloody-blade share the byte). We sent `it.bloody` (0 for a shotgun) → the client never saw the phase
+  → **no shell-by-shell reload** (open→insert→close never predicted).
+
+**Root cause = field fragmentation.** The original reuses ONE byte per weapon family (item+0x24 = pump toggle
+*or* akimbo barrel; item+0x8 = reload/burst phase *or* bloody), but our reconstruction split each into separate
+members (`m_fInSpecialReload`/`it.altMode`; `m_burstOrPhase`/`it.bloody`) and the wire shipped the wrong one.
+
+**Fix** (`dlls/client.cpp` server pack + symmetric `cl_dll/hl/hl_weapons.cpp` client read + write-back — both
+directions): send/read the LIVE byte, branching by `awi->iFireType` — PUMP → `m_fInSpecialReload` on vuser4.x;
+KNIFE/KATANA → `it.bloody` on vuser2.x, else the gun's `m_burstOrPhase`. Akimbo (vuser4.x=altMode) and blade
+(vuser2.x=bloody) paths unchanged; normal firing unchanged (both fields 0 when idle). Both libs build clean
+(GLIBC_2.14, `scripts/build.sh amd64 all`).
+
+**VERIFIED — user playtest, original TS client → our ReHLDS server (`ts_kissmeyerbasic`):** pump shotguns now
+alternate fire→pump→fire, and reload is shell-by-shell. Both fixed.
+
+**Adjacent gap flagged (not yet fixed — VERIFY next):** the original `UpdateClientData` writes
+**cd+0x1b0 (vuser1.y) = player+0x724 (m_iPowerups)**, but we send `m_flMeleeBar` there — a possible separate
+drift on the melee-bar / powerup channel. Also still open from the handoff: FindEntityByString metamod/rcbot
+bot crash; doors.cpp breakable-glass path unplaytested; cont.89/90/91 commits unpushed.
+
+## 2026-07-07 (cont. 90) — DROP-IN bug-driven parity: weapon prediction fronts + breakable-glass shatter (live RE)
+
+Continued the cont.89 drop-in mandate (our server ⇄ original hl.exe/client.dll) by fixing the bugs
+the last playtest surfaced, each RE-grounded (decompile + live gdb trace on the running original) and
+verified in-engine (original hl.exe client vs our ReHLDS server). All fixes in SHARED code so both
+directions move together.
+
+**Weapon-state prediction — 4 gaps in the clientdata weapon pack (`7ca23bf`, `CTSGun::UpdateClientData`
+@0xb0294):**
+1. **holdPosition on cd->vuser2.z (item+0x2c)** — the sideways/upright weapon-hold stance. The original
+   client reconciles it (HUD_WeaponsPostThink, cd+0x1c0→activeItem+0x2c); unpacked → the original client's
+   stance floated and the orientation blinked. Now packed + read back.
+2. **paired-variant clip on cd->ammo_shells (cd+0x6c)** — the PARKED akimbo/single variant's clip
+   (m_items[iAkimboType|iSingleType].clip) so the client shows/predicts the parked cell. We were sending
+   buckshot ammo there → parked bar cell rendered -1/red. **Corrects the cont.89 dossier mislabel of cd+0x6c
+   as "queued weaponanim".** Now packed + read back.
+3. **kung-fu bar cell red** — WStatus clamped the melee clip (-1, WEAPON_NOCLIP) to 0, which the original
+   client reds (clip<1). The original writes it RAW (-1 → byte 255 → not red). Send raw; keep change-detect
+   distinct from not-owned.
+4. **orientation resets on switch** — Deploy@0x81030 CLEARS m_pActiveItem->holdPosition every deploy; we
+   restored the parked value → a sideways-parked weapon redeployed sideways + blinked. Cleared in
+   LoadActiveFromItem (shared).
+   Plus **single→akimbo clip mirror**: StandardFire@0x824a4 mirrors a single's shot into its parked akimbo
+   (akimbo.clip--, akimbo.leftClip = single.clip, clamp ≥0). We only had the reverse (AkimboFire→single),
+   so draining the single left the parked akimbo stuck at N/N.
+
+**Akimbo uzi deploy flicker (`a7651cd`):** single LEFT-hand uzi shown ~1s before the akimbo idle. Root:
+`s_drawSeq[16]=2`, but in v_uzi_akimbo.mdl seq 2 = "left_idle" (one-uzi idle), not the draw — the akimbo
+draw is seq **4 "akimbo_draw"**. Recovery error unique to the uzi (2 is the SINGLE uzi's draw index,
+wrongly reused). Verified every other akimbo viewmodel's draw index correct (mk23=5, beretta=2, gold=2,
+fnh=1, skorpion=1). This closes the cont.89 "STILL OPEN: uzi deploy body flicker".
+
+**Breakable-glass shatter (`48c32e1`, gmsgTSCreateDebris "TSFrags" — CBreakable::Die@0x752e0 /
+TraceAttack@0xc1060 / client FUN_10047cb0):** the sprite-shower diverged in FIVE ways, all found by
+decompile + live-tracing the original server:
+- **Wire field order was wrong.** Correct msg = [origin][size][material][impact POINT][DIRECTION]
+  [bitsDamageType(**LONG**)][velMag]. We sent [direction][centre] + a **SHORT** model index — the SHORT
+  under-sent 2 bytes so the client's READ_LONG ate the velMag bytes → velMag read 0 → static/slow shards.
+- **The LONG is bitsDamageType, NOT a sprite index.** Client resolves sprites/glassfrag.spr by NAME; uses
+  the LONG only to pick the velocity formula. Server stores the killing hit's dmgType in TraceAttack
+  (m_iShatterDmgType +0x114) and Die sends it.
+- **Two velocity branches keyed on (dmgType & 0x8000002):** DMG_BULLET(0x2) → SCATTER (RANDOM(-9,9)/axis +
+  a 1/dist directional bias → majority forward, some back/down); else → tight forward cluster
+  RANDOM(dir·velMag·0.5, dir·velMag+15). We only had the cluster → bullets looked like the knife shatter.
+- **Direction/point are the exact killing hit's** (m_vecShatterDir +0x104, m_vecShatterPoint +0xf8, stored
+  in TraceAttack), not the stale global g_vecAttackDir.
+- **velMag = the killing shot's damage** (glass local_474=1), **×8 when bit 0x2000000 set** (was a 150·dmg
+  guess ~10× too fast; traced ~16-21 for a ranged bullet). The ×8 bit = ShootBulletsPlayer's iMode==1 =
+  weapon_info+0x20 (our iKnifeType); **every SHOTGUN sets it** (benellim3/mossberg/sawedoff/spas12/usas12) —
+  a shotgun blast propels glass. We had the iMode==1 code but the shotguns' field defaulted to 0.
+- **doors.cpp breakable-glass path fixed the same way** (still UNPLAYTESTED — see NEXT).
+
+**Verified:** both libs build clean (glibc 2.14, `scripts/build.sh amd64 all`); in-engine original hl.exe
+client vs our ReHLDS server (bullets scatter, knives cluster, shotguns propel).
+**NEXT / VERIFY:** (1) **FindEntityByString crash with metamod/rcbot bots** — TS-specific (rcbot fine on
+valve), likely a use-after-free of a UTIL_Remove'd TS entity still being iterated; run the rig with metamod
+under the gdb wrapper to catch the faulting caller. (2) **doors.cpp breakable-glass path is unplaytested.**
+(3) cont.89+cont.90 commits are UNPUSHED (local `restructure-source-parity` ahead of origin). Then resume the
+broad audit.py/coverage.py parity sweep.
+
+## 2026-07-06 (cont. 89) — DROP-IN both directions: movement + weapon-state + reload prediction, fire cadence, akimbo cluster
+
+The whole cont.89 session was **drop-in compatibility** — our server must behave identically to the
+original for the ORIGINAL TS Steam client (`hl.exe`/`client.dll`), and our client for the original server.
+The user keeps the original TS running under Proton for live gdb traces. Every fix landed in the SHARED
+code (dlls/ + cl_dll/) so BOTH directions move together. Dossiers in `reference/dossiers/cont89/`.
+
+**Movement prediction (dossier `movement_prediction.md`):**
+- `4ae0b1e`/`5f45f09` **PM_Accelerate accel-by-speed** (PM_GetAccelBySpeed: 0.6@210 → 1.1@330, unless
+  sliding/ducking) + pm_shared exactness (jump vel 45→35, friction edge-gate, PM_CheckParamters, flymove).
+  The original client predicts these; we didn't → persistent smoothed error felt as input lag.
+- `fd70541` **cd->fuser1 = frametime** — the missing frametime seam (root cause of the constant 10-20u
+  error, `4b79443`). `37b5cd8` **cd->iuser4 = pev->iuser4 (stunt flags)** unconditionally (was m_iPowerups)
+  so stunts predict. `9c53268` encumbrance speed via pfnSetClientMaxspeed + GetSpeedBySlots free>80 branch.
+
+**Weapon-state prediction — the "kungfu-for-every-weapon" drop-in bug (dossier `weapon_data_transmission.md`):**
+- `8922f0c` the active weapon's predicted state rides the **clientdata vuser channel** (vuser3.x=type,
+  .y=fireMode, .z=attach, vuser4.x=altMode, .y=clip, vuser2.x=bloody, vuser2.y=reserve, …), NOT the invented
+  GetWeaponData override — the original client reads vuser, so leaving it 0 = kungfu for every weapon.
+
+**Reload prediction:** `380866b` **cd->vuser2.y = active-caliber reserve** (the client refill reads it);
+`868c4c1` refill = client full-mag SET (no reserve debit — server owns the reserve, re-seeds via vuser2.y),
+server keeps `clip += min(need,reserve)` + debit.
+
+**Fire cadence (dossier `weapon_fire_cadence.md`):** `d18568f` StandardFire semi-with-auto fixed 0.1s rate.
+**Teamplay HUD:** `c9df646` dossier (#Spectators / blank-yellow team box RE).
+
+**Akimbo cluster (final front — dossier `akimbo_weaponbar.md`; `1413b7a` dossier, `2bd0319`+`87c21af` fixes):**
+1. **vuser4.z is the RELOAD flag, not leftClip** (`2bd0319`): cd+0x1d8 (vuser4.z) = item+0x0c = m_fInReload;
+   the akimbo LEFT clip = item+0x1c → **cd+0x70 (ammo_nails)**; client derives rightClip = clip − leftClip
+   (RE-confirmed vs `FUN_10003830`). Fixed the reload snap-to-full flicker.
+2. **Barrel ALTERNATION** (`87c21af`, `dlls/ts_gun.cpp AkimboFire`): the original `AkimboFire@0x729c0` holds
+   the barrel side in ONE per-item byte, **item+0x24 (our it.altMode, rides vuser4.x)**, and
+   Primary/SecondaryAttack DON'T touch it for the akimbo (only grenade/knife) — so the per-shot flip
+   PERSISTS → true alternation. Ours split the state (m_fInSpecialReload for SEMI, altMode for FREE) AND
+   reset it every pull → stuck on one barrel (all-right-then-last-left). Rewrote to the original state
+   machine (0=right/1=left; non-free flip+clamp, free button-select, decrement matching barrel, dry only
+   when both empty via `Fire()`'s m_iClip<1 gate); removed the Primary/Secondary resets + the dead
+   `barrelMask` override; `Fire()`'s 3rd-person shoot pose is now `8+altMode`.
+3. **Weapon-bar phantom clip** (`87c21af`, `CTSGun::UpdateClientData`): a parked akimbo/single variant
+   showed a stale -1/red cell. Root: our WStatus owned-loop was GATED behind the WeaponInfo early-return +
+   we omitted the original's **paired-variant resend**. Fix: hoisted the WStatus loop above the early-return;
+   added mechanism B — on active/reserve change resend the active weapon's iAkimboType (weapon_info+0xc8) /
+   iSingleType (weapon_info+0xcc) WStatus with their live parked clip → a held akimbo keeps its single's
+   cell fresh and vice-versa (matches @0x758c8, both directions).
+4. **Deploy body flicker** (`87c21af`): Deploy's draw event now passes iparam2 = equipped attach mask (was
+   dead barrelMask, matches original @0x71030); `EV_TSDraw` advances the predicted active type on the deploy
+   frame (`TS_SetPredictedWeaponType` in hl_weapons.cpp) so `view.cpp`'s TS_PredictedViewmodelBody asserts
+   the akimbo/attachment body AT ONCE (mirrors client.dll `FUN_100425b0`) — kills the single→akimbo lag.
+
+**Verified:** both libs build clean (glibc 2.14, `scripts/build.sh amd64 all`); RE-grounded vs
+`ts_i386.so`/`client.dll`. **Behaviour = user playtest** (original hl.exe available for live gdb). **Deploy:**
+user ships to the Linux hlds64 test dir — the `game/ts/` worktree deletions are INTENTIONAL (not a bug).
+**NEXT / VERIFY:** playtest the akimbo cluster (alternation order right-vs-left, parked bar clip shows real
+count, no deploy flicker); `item+0x0c`'s semantic beyond "= m_fInReload" is still VERIFY (LOW); the akimbo
+uzi(16) modes = {AUTO, AKIMBO_BOTH} while berettas/MK23/gold = {SEMI, AKIMBO_ALT} (SEMI alternation applies
+to the semi-capable akimbos), from the recovered `kFireModes` — not re-derived from the binary this pass.
+
+## 2026-07-05 (cont. 88) — ReHLDS local drop-in test rig + vestigial removal → EXACT entity parity
+
+Added `scripts/setup-rehlds-mod.sh` (deploys our `hl.so` into the `~/Containers/hlds/hlds-linux64-test`
+ReHLDS rig via metamod, mirrors `setup-xash-mod.sh`) so we can run our server against a real dedicated engine.
+Refreshed the rig engine to current ReHLDS (web-auth commits). **The strict engine (ReHLDS/GoldSrc) vs xash's
+lenient late-precache surfaced real drop-in bugs xash hid** — this is precisely why the test matters.
+
+**RE-driven fixes (all committed, ReHLDS `ts_bikini` bot-combat verified, zero Host_Error):**
+- `978fab0` **death-drop**: dropped the inherited-stock `PackDeadPlayerItems()` weaponbox drop from
+  `PlayerDeathThink` (RE-confirmed the original NEVER instantiates CWeaponBox — both creators
+  `PackDeadPlayerItems`/`DropPlayerItem` are 0-caller dead code; TS drops via `TSDropWeaponsOnDeath`). Also
+  `CTSGun::Spawn` hardcodes `w_glock18.mdl` (our `pszWorldModel?:w_weaponbox` fallback was invented drift).
+- `61aad35`/`2871717` **removed stock weapons (14) + monsters (32)** — all classes RE-verified absent from
+  `ts_i386.so`. Kept `hornet.cpp` (CHornet, monster ammo), base classes (`CBaseMonster`/`CTalkMonster`/`CDeadHEV`),
+  AI infra (soundent/nodes/schedule/combat). Fixed coupling (weapons.cpp save-tables, hl_weapons.cpp prediction).
+- `bd1058c` **`ts_superjump`→`item_longjump`** (name-mismatch DROP-IN BUG): the original registers CTSSuperJump
+  under the stock `item_longjump` name; our `ts_superjump` meant map-placed powerups spawned nothing. `b9dc368`
+  removed stock CItemLongJump.
+- `7d50de1` **registered `info_player_team1-4`** (were MISSING; all → CBaseDMStart, same class as
+  info_player_deathmatch, team carried by classname — our CBaseDMStart RE-verified identical to theirs).
+- `5a1008f` removed airtank/vehicle/h_cine; unregistered node+scripted entities. `c2c2900` **unregistered
+  `func_vip_safetyzone`** (name-mismatch: CVipEscape is a real-but-dead original class, never LINK'd; real
+  entity is `ts_teamescape`→CTSTeamEscape). **Entity diff vs original now EXACT: EXTRA none, MISSING none.**
+
+**Method (the win): "verify before removing" caught 2 name-mismatch drop-in bugs (item_longjump, func_vip)** —
+an EXTRA entity can be a real class under a different name, not a vestigial. Backing-class check before every
+removal.
+
+**Key finding (see HANDOFF PARKED "Trim CBaseMonster"):** the original **removed** the monster-AI schedule +
+scripted system from `CBaseMonster` **at source** (proven not-DCE via retained dead code: the unreachable legacy
+vgui buy-menu `client.dll@0x10010xxx` with 0 xrefs, + dead-but-present `CVipEscape`). Our kept scripted/nodes
+code is inherited base-SDK; entities unregistered = interface parity, but the METHOD-level trim (to the original's
+42-method CBaseMonster) is DEFERRED — a ~6-file base-class refactor, flagged in HANDOFF. **User carve-out rule:
+keep anniversary/HL25 code even where it diverges from the 2007 original (this AI system is classic → in scope).**
+
+## 2026-07-05 (cont. 88 cont.2) — merged delta.lst (3-way), scope rework, interop rig live
+
+Continuation of cont.88. Commits `da29059` (scope), `f96d71d` (delta+scripts), + docs.
+
+**delta.lst — the interop wire contract.** Diffed original TS (`19af2487`, = what Steam ships) vs
+halflife-updated stock (`1aaf1652`, our repo). They split cleanly: **anniversary/HL25 fixes** stock has
+(eflags 1→2 EFLAG_FLESH_SOUND, skin 9→12, m_iId 5→6, iuser1/2 adds, fuser2/3 widths, animtime encoding) vs
+**TS wire additions** the original has (iuser3 + iuser4 32-bit in clientdata/entity_state/player — the powerup
+game-state networking, the old `[open decision]`). Built the **merged table via a field-level 3-WAY MERGE**
+from the 1998 SDK seed (`de70fad`) as common ancestor: seed + TS-branch + anniversary-branch. Add/add overlap
+on iuser1/iuser2 (both branches added them, different widths) → resolved to **max width** (iuser1=5, iuser2=6;
+iuser2=6 is REQUIRED for spectate player-index 32 — the naive eyeball missed it, the 3-way caught it).
+**Verified against CODE:** all 226 fields are real struct members (`common/entity_state.h` etc.); bit-widths
+hold the written values (`cd->iuser4 = pl->m_iPowerups` already written, client.cpp:2122). It's a minimal
+WIDENING of the TS table → drop-in with the original client (GoldSrc transmits the SERVER's table at connect,
+so the client adapts; widening is decode-safe). Committed as `network/delta.lst` + 3-way inputs in
+`reference/dossiers/cont88/`.
+
+**Scope rework — killed an INVENTED asset.** `ts_scopefull.spr` (round-7l: quarterscope mirrored 4x, baked +
+committed) does NOT exist in the original. RE (client.dll scope draw @0x10054516) shows the original ships only
+`quarterscope.spr` (one quarter, SPR_INDEXALPHA black mask) and paints it **4x-rotated via TriAPI** at render
+time. Reworked `cl_dll/ts_scope.cpp` to match (screen-space TriAPI quads, uv(1,1)=circle centre; black side bars
+drawn first + 1px overlap for the seam). Removed the baked sprite. Visual-verified in xash (transparent circle,
+clean seam). **Lesson: assets referenced in a decompile must exist in our code — diff asset refs per class.**
+
+**Deploy-script clobber bug (cost real cleanup).** The rig's `ts/delta.lst`/`ts/sprites` are SYMLINKS into the
+pristine `~/Containers/hlds/mods/ts`; a `cp -f` wrote THROUGH them and clobbered the original TS `delta.lst`
+(restored from `recovered/ts3-linux/ts/delta.lst`) + leaked a sprite. Both `setup-{rehlds,xash}-mod.sh` now use
+`cp --remove-destination` (writes a real file, breaks the symlink) — never plain `cp -f` onto a symlinked path.
+
+**Interop rig LIVE:** ReHLDS server (merged delta.lst, rcbot `max_bots 4`) + xash client up for the user to test
+both drop-in directions. End-to-end powerup confirmation pending. HANDOFF "START HERE (cont.88)" is the pickup.
+
+## 2026-07-04 (cont. 87d) — CI made green: build source-list sync + MSVC-compat fixes
+
+First-ever CI run on the repo surfaced two classes of latent breakage (`.github/workflows/ci-cd.yml`
+has 6 jobs: Linux-{i386×2,amd64,aarch64}, Win32, Win64). Commits `67579f2..686eb88` on
+`restructure-source-parity`, fast-forwarded to `main` and pushed. **Final: all 6 jobs green.**
+
+- **Build source-list drift (the trigger).** `hl.so`/`client.so` compile through FOUR parallel build
+  systems, each with its own explicit `.cpp` list: the CMake authority (`dlls/`+`cl_dll/CMakeLists.txt`,
+  used by amd64/aarch64/win64), the legacy i386 Makefiles (`linux/Makefile.hldll`+`Makefile.hl_cdll`,
+  the `linux-i386` job), and the VS2019 vcxprojs (`projects/vs2019/hldll.vcxproj`+`hl_cdll.vcxproj`
+  +`.filters`, the `win32` job). Every reconstructed TS file had only ever been added to CMake, so the
+  Makefile/MSBuild jobs never compiled them. Synced all four hand-maintained lists to CMake: server =
+  26 TS `dlls/` sources (`ts_*`/`TS_*`/`hldmcompat`) + `pm_shared/TS_pm_shared`; client = 18 `cl_dll/`
+  TS sources (`ts_*`/`ev_ts`/`roundtime`) + 3 shared weapon srcs (`ts_shared`/`ts_weapon_info`/`ts_gun`)
+  from `dlls/` + `TS_pm_shared`. Verified by building the EXACT CI i386 path locally (`cd linux && make
+  COMPILER=g++ CFG=release`): both `.so` clean, `--no-undefined` server link = no missing symbols, no
+  further files surfaced (the CMake list was complete). Commit `67579f2`.
+- **Guard: `scripts/check-source-lists.py`** (commit `6b48d6d`). Normalizes every `.cpp` each build system
+  compiles to a repo-relative path and set-compares the Makefile+vcxproj against the CMake authority,
+  per target, printing MISSING/EXTRA and exiting non-zero on drift (stdlib-only, negative-tested). Run it
+  whenever a source file is added/removed. Referenced from `CLAUDE.md §3`.
+- **MSVC-compat bugs the Win32/Win64 jobs then exposed** (gcc's `-w` on Linux had hidden them; Win64 is
+  CMake so it was already failing at `fad367a`, before this session). Commit `686eb88`:
+  - `dlls/TS_util.cpp` used raw POSIX `strcasecmp` (error C3861 on MSVC, lines 40+204) → SDK-portable
+    `stricmp` (`common/Platform.h` maps it to `_stricmp`/`strcasecmp`), matching the rest of the tree.
+  - `pm_shared/pm_shared.cpp` `PM_Jump` had a leftover unreferenced `int i;` (warning C4101 → fatal under
+    the vcxproj's warnings-as-errors) → removed; `i` was unused in the whole function post-reconstruction.
+  - amd64 server+client build green (glibc 2.14), server nm-T unchanged (872), no behavioural change.
+
+Method note: `gh run view --log-failed` + grep for `error C####`/file-level diagnostics pinned the exact
+files/lines fast; the user (watching the run) flagged "Win32 'i' variable, Win64 strcasecmp" which matched.
+Next: nothing outstanding on CI; resume the audit.py per-class parity loop.
+
+## 2026-07-04 (cont. 87 cont.3) — LARGE playtest-driven fix batch (all user-verified, RE-grounded)
+
+A long interactive session on `restructure-source-parity`; every fix RE'd from the original then
+user-verified in-engine. Commits after `19efde0`. Method: dossier-subagents for deep client.dll RE
+(spine merge, 3rd-person camera, status HUD, drop mechanism) + live user playtest as ground truth.
+
+- **3rd-person SPINE TWIST** (`4a0b466`): gait merge left the torso pose on the spine (Bip01 Dorso) atop a
+  gait-rotated parent → double-rotated upper body. Original `StudioSetupBones` (FUN_10031080) re-bases the
+  split bone's yaw = (torso_yaw − gait_yaw) then breaks. Added `QuaternionAngles`. Dossier cont87/spine_blend.
+- **Reticle crosshair only for guns** (`05d2d3e`) + **3rd-person knife/katana block anim** (`600328e`): block
+  keyed off the empty `m_szAnimExtention` → fell to kungfu_block; original uses `m_szAnimOverride` (@0x5d8d0 case 0x26).
+- **TS OVER-THE-SHOULDER 3rd-person CAMERA + screen-space RETICLE** (`f4b9637`): NOT the stock distance-orbit —
+  `cl_camtype` (0-3) preset back/right/up offset (0=−48/+16/+12; user runs 3=cam_back 90 centered), render
+  camera uses SMOOTHED cam_ofs angles. Reticle = WorldToScreen of the traced aim point from the EYE (new
+  `v_aimeye`, pre-offset), so it shows true aim + parallaxes/lags. Framerate-dependent /4 smoothing kept
+  faithful (100fps). Dossier cont87/thirdperson_camera_reticle.
+- **SPAWN loadout fixes** (`5244abf`): (1) SlotsUsed counted kung-fu (TSW_MELEE, cost 10) → full loadout hit 90
+  server-side and dropped the last weapon; skip TSW_MELEE. (2) TSDeployArsenal deployed the last-bought; use
+  GetBetterWeapon(-1) → spawn on the highest-priority weapon (M4). Root found via user's "11 free slots" clue.
+- **Ammo HUD** (`4bb03c2`): caliber/firemode → full color (were gray); DrawNumberPair `[  a  /  b  ]`;
+  TSHud_DrawString confirmed = DrawCharacter (NOT DrawConsoleString — that adds a xash shadow; bold/opacity
+  is the xash vs GoldSrc engine font, not ours).
+- **WEAPON-SELECT RIGHT-CLICK DROP** (`5c14b90`): merged our two wrongly-split DropWeapon()/DropWeapon(int,float)
+  into the original's ONE `DropWeapon(int type,float)` (@0x84900; type<0=active/-1 key/-2 disarm, type>=0=specific);
+  added the `drop_<N>` ClientCommand + `CL_ResetButtonBits` now resets IN_ATTACK2 (was IN_ATTACK-only) so the
+  right-click no longer leaks into the weapon secondary. Dossier cont87/weapon_drop.
+- **Low-stamina BREATHING** (`…`): client-side breathe2.wav (loop-marked 'cue' chunk) while melee bar <50%,
+  EDGE-triggered (EV_PlaySound/EV_StopSound on CHAN_STATIC — survives pickups, stops on recovery).
+- **SPAWN button clean** (`…`): StopObserver clears `pev->button` + m_afButtonPressed (RE @0x99a14, was missing) —
+  no auto-fire from fire-to-play; AND `inputw32.cpp` keeps `mouse_oldbuttonstate` in sync while the buy menu
+  absorbs clicks (the early return froze it → a phantom +attack on menu close fired the fresh weapon — the
+  user's exact "buy-menu click → fire on spawn" repro). `0xb34` un-RE'd (no read site) ~= the button-edge cache.
+- **Knife ammo count** (`…`): knife/sealknife carry count rides the WeaponInfo reserve field (0 for caliber-less
+  melee) → drawn as a number above the block bar (LK_COUNT).
+- **Powerup FIGURE icons + `powerup 7`** (`…`): the two persistent indicators used the weapon-bar icon + a
+  non-existent superjump.spr (SPR_Load stale handle → drew the last weapon/numbers sprite); fixed to
+  `sprites/player/kungfu.spr` + `sprites/player/movement.spr` side-by-side @ SH-56. Added `powerup 7` (grant
+  kung-fu — debug, nothing in the shipped game grants it; same divergence as `powerup 6`).
+- **Pump-shotgun 3rd-person reload** (`…`): removed the invented `Animate(TSA_RELOAD)` from ShotgunReload —
+  RE-confirmed the original never animates the shell-by-shell reload. Shell-for-shell shotguns (Mossberg/Benelli)
+  show no world reload; clip shotguns (USAS/Sawed-off) keep the whole-mag anim (standard Reload).
+
+Method wins: the user's diagnoses were repeatedly the RE-correct root (button-clean vs swallow flag; the
+mouse_oldbuttonstate freeze; the kung-fu slot). Several "invented stand-ins" removed (ShotgunReload anim,
+DropWeapon split, superjump.spr). All build-green, server nm-T stable, deployed each step.
+
+---
+
+## 2026-07-04 (cont. 87 cont.2) — TS over-the-shoulder 3rd-person CAMERA + screen-space-mapped RETICLE (user-verified aim)
+
+Commit `f4b9637` (feat) + `1086ff0` (dossier `reference/dossiers/cont87/thirdperson_camera_reticle.md` + decomps).
+Build-green, server nm-T unchanged (client-only), deployed. RE: client.dll `V_CalcNormalRefdef` @0x67890.
+
+The big finding: TS 3rd-person is NOT the stock `cam_idealdist` straight-back distance orbit our view.cpp had —
+it's an **over-the-shoulder OFFSET camera** driven by cvar **`cl_camtype`** (0-3). `CAM_Think` is kept stock
+(smooths `cam_ofs` pitch/yaw toward the view via `MoveToward`); the DIRECTION comes from cam_ofs, the POSITION
+from a preset back/right/up offset. Implemented:
+- **`cl_camtype` presets** (in_camera.cpp cvars cl_camtype/cam_back/cam_right/cam_up + view.cpp switch): camtype 0
+  (default, RE'd binary default) = back-48/right+16/up+12; 1 = -48/-16/+12; 2 = -90/0/+12; **3 = cam_back/cam_right/
+  cam_up (90/0/12) = centered+zoomed**. Clamps back[-128,24], side/up[-24,24]. ⚠ **camtype 2 and 3 are IDENTICAL
+  with default cvars** (both back -90 centered); camtype 3 is the CVAR-TUNABLE one (`cam_back 110` zooms 3 further,
+  mode 2 is fixed). The user's original runs camtype 3 (their config); the CLEAN original ships config.cfg
+  `cl_camtype "0"` + CAM_Init default "0", so our registration default is "0" (faithful) — the ref rig's
+  config.cfg is set to 3 (user preference).
+- **Render camera = SMOOTHED cam_ofs angles** (view.cpp `VectorCopy(camAngles, pparams->viewangles)`, RE 0x67d60):
+  the rig orbits with rotational lag. The `/4`-per-frame ease is FRAMERATE-DEPENDENT (RE: MoveToward FUN_10024ba0
+  = stock, 1-degree snap + *0.25/frame). Original ran ~100fps → visible small-turn lag; at high fps it catches up
+  in fewer ms so the lag hides on small turns. **User chose to KEEP it faithful (not frametime-normalize)** — it's
+  the original's actual behavior; run `fps_max 100` to match the feel.
+- **RETICLE = WorldToScreen of the TRACED AIM POINT from the player EYE** (ts_reticle.cpp), NOT pinned to center.
+  KEY FIX: trace from **`v_aimeye`** (new view.cpp global = simorg+view_ofs, captured BEFORE the 3rd-person offset)
+  = the bullet origin, NOT the offset camera `v_origin` (tracing from the camera put the hit dead-ahead → always
+  centered → wrong aim + no parallax). Now the reticle shows where shots ACTUALLY land (accuracy correct at any
+  shoulder offset) and screen-space-maps the aim (strafing parallaxes it, turning trails it). ✅ user: "aim is correct".
+
+Method: dossier-subagent RE'd client.dll (kept ~130k decompile tokens out of context); then iterated live with the
+user (ground truth) — the eye-vs-camera trace origin + the framerate cause of the lag threshold were both settled by
+the user's playtest observations ("screen space mapping the traced location", "original is 100fps, mine is 240"). The
+reticle-lag mechanism (C) was LOW-confidence in the dossier and got PINNED by the user's observations, not static RE.
+
+⚠ VERIFY still open: the dynamic back-ease (48->92 under the `localplayer+0x26c & 0x130c30` gate) is omitted — camtype
+3 (back 90) already gives the zoomed framing, so it's cosmetic; needs a live gate read if pursued.
+
+## 2026-07-04 (cont. 87 cont.) — melee 3rd-person fidelity: crosshair gun-gate + knife/katana block anim (both user-verified)
+
+Commits `05d2d3e` (crosshair) + `600328e` (block). Build-green, server nm-T unchanged, deployed, ✅ user-verified.
+- **Reticle crosshair only for guns** (`05d2d3e`): the reticle's aiming crosshair (donut "sight" sprite + NSEW
+  ticks, ts_reticle.cpp) drew for ALL weapons. Only firearms should show it; melee/grenade/flag show just the
+  dive/weight "(" arc. Added `TS_ActiveWeaponIsGun()` (ts_weaponbar.cpp, decl ts_hud.h) = active weaponType's
+  s_weaponColumn category >= 2 (the RE'd s_weapon_info +0x84 byte; 1=melee/grenade/flag, 2-5=guns). Gated
+  lines 104-117 on it, keeping the arc/laser/distance readout intact.
+- **3rd-person knife/katana block anim** (`600328e`): HandleCloseCombat's block case picked katana_block/
+  knife_block/kungfu_block off `m_szAnimExtention` — EMPTY for all melee (grip "") → both knife AND katana
+  fell through to the generic `kungfu_block`. RE-confirmed asm-exact (HandleCloseCombat @0x5d8d0 case 0x26):
+  the original keys off `m_szAnimOverride` (player+0x478, the blade idle override "katana_idle"/"knife_idle").
+  Swapped the field. NOTE: "block (+reload)" — the block is bound to IN_RELOAD (the reload key IS block); there
+  is no separate melee reload anim (no `_reload` string in the binary). FLAGGED (task): TSA_CC_STOCK case 0x27
+  appends `field_0xb58` in the original, we append m_szAnimExtention — un-RE'd twin field, low-pri edge case.
+
+Method: `re.sh 0x6d8d0` decompiled HandleCloseCombat typed → the exact field. Mission rule 1 in action (a wrong
+FIELD hid the bug: the selector was built against the empty grip instead of the blade override).
+
+Still OPEN (user-driven, 3rd-person subsystem, RE agent running): #3 reticle should FLOAT/LAG behind mouse in
+3rd person (original does, ours pins to center) — REOPENED after a wrong close; #4 3rd-person ORBIT camera
+(zoomed out more + orbit behavior). Both = client.dll camera/reticle RE (cont87 dossier agent in flight).
+
+## 2026-07-03 (cont. 87) — 3rd-person spine twist (upper body looking left while moving w/ melee) FIXED — split-bone yaw re-base
+
+Commit `4a0b466` (fix) + `031bd75` (dossier `reference/dossiers/cont87/spine_blend.md`). Build-green, server
+nm-T unchanged (client-only), deployed, ✅ user-verified ("looks correct").
+
+**Symptom:** in 3rd person, moving (walk/run) while holding a melee weapon (katana/knife), OUR client twisted
+the upper body/spine sideways (torso faced a different direction than the legs). Original keeps it aligned. User
+screenshots confirmed a spine kink.
+
+**Root cause:** our gait bone-merge in `StudioSetupBones` (`cl_dll/StudioModelRenderer.cpp`) hard-copied the gait
+pose into bones up to the spine (`Bip01 Dorso`), then LEFT the torso's authored local pose on that split bone —
+which sat atop a gait-rotated parent chain → the whole upper body was DOUBLE-rotated → the kink. (Our old code
+was the stock-HL hard-copy + the italian `Bip01 Dorso` name; it MISSED the TS-specific re-base.)
+
+**Fix (RE'd asm-exact, dossier-subagent, keeps decompile out of context):** the original client.dll
+`StudioSetupBones` (`FUN_10031080` @ RVA 0x31080) re-bases the split bone: snapshot the torso root yaw BEFORE the
+copy loop overwrites `q[0]` with the gait root; copy gait up to the first `Bip01 Dorso`/`Bip01 Spine`; at that
+bone set `yawDelta = torso_root_yaw − gait_root_yaw` and inject it into the spine's local ROLL (index 0, the
+twist axis for the italian Dorso whose local-X runs up the spine) via QuaternionAngles→AngleQuaternion, then
+`break`. Re-basing the single Dorso bone rotates the ENTIRE upper body (all upper bones are its children) back
+into aim alignment. Added `QuaternionAngles` (quat→euler, asin-pitch form; `FUN_1002ffe0` = QuaternionMatrix +
+MatrixAngles) to `studio_util.cpp/.h` — quat→angles was missing from our tree.
+
+Helper IDs (all HIGH, asm-traced): 0x2fdf0=QuaternionMatrix, 0x2fbd0=AngleQuaternion, 0x2fef0=MatrixAngles,
+0x2ffe0=QuaternionAngles, 0x2fa90=ConcatTransforms, 0x30010=quat copy. Angle convention [0]=roll,[1]=pitch,[2]=yaw.
+Only MED-confidence piece = the gimbal-lock fold eps (inert for spine/root bones, never near ±90°).
+
+Method: focused general-purpose dossier-subagent decompiled the merge fn + math helpers, IDed each, derived the
+exact split algorithm, cross-checked vs stock-HL gait merge, and returned a drop-in using our var names. Cleared
+the cont.86 gait "QUESTION 3" head-turn item (the authored knife_idle head pose was a red herring — the real
+divergence was this missing spine re-base). Superseded the reverted gait Fix 1 (`fps*dt`, #14 was a separate speed
+concern; line 1441 remains plain `fps*dt`).
+
+**Next:** the reverted #14 walk2/run2 gait SPEED item (separate from this twist) still open if it re-surfaces;
+HUD bottom-left layout; HUD powerup icons; audit.py parity loop; iuser4-on-the-wire decision.
+
+---
+
+## 2026-07-03 (cont. 86 cont.3) — gait speed + player blob shadow (IN PROGRESS, uncommitted) + full HANDOFF for next agent
+
+Dossier `reference/dossiers/cont86/gait_and_shadow.md`. Two CLIENT presentation items, deployed + pending user verify:
+- **walk2/run2 gait too fast** (#14): Fix 1 applied (`StudioModelRenderer.cpp:1441` in-place gait `fps*dt` →
+  `curstate.framerate*fps*dt`, RE `StudioProcessGait @0x2250`). ⚠ our server never sets `pev->framerate` by speed
+  → Fix 1 may no-op; fallback = DIVERGENCE 2 (`m_fGaitEstimation` flag) or a server framerate write. Playtest-driven.
+- **player blob shadow** (#15): `TS_Shadows_Draw` (`ts_attachments.cpp`+`.h`, called from `tri.cpp`) — `ombra.spr`
+  ground blob, `cl_shadow`-gated, trace-down + alpha falloff + 24u quad. Orig = client.dll FUN_10055760/FUN_10055500
+  from `HUD_DrawTransparentTriangles @0x34e50`. Won't audit-flag (client.dll stripped = "unverifiable" bucket).
+HANDOFF rewritten (`START HERE cont.86d`) with the full mission/methods/tooling/asset-check/scratchpad direction
+for the next orchestrator. Memory `[[dead-code-path-gravity-trap]]` added. Commits through `975011c`; gait/shadow uncommitted.
+
+## 2026-07-03 (cont. 86 cont.2) — SUPER-JUMP + SLOW-MOTION reconstructed to the real mechanisms (both hard to find; both user-verified)
+
+Two subsystems that were LONG mis-implemented as playtest-tuned approximations got reconstructed to their actual
+mechanisms via dossier-subagents (`reference/dossiers/cont86/{superjump_moongravity.md,slowmo_movement.md}` +
+raw decompiles). All build-green, nm-T stable, deployed. Commits: slow-motion `29e4861`, super-jump `725fb66`.
+
+### ⭐ SUPER-JUMP — the whole thing was invented; the real mechanism is a physinfo key + a pm_shared jump gate
+The old superjump was a from-scratch `m_bLowGravity` PreThink sustained-velocity lift (fuel/hover/ceiling-clamp
+with MADE-UP constants 240/300/1.2) — no counterpart in the binary. The user flagged it ("you seem to be
+inventing code"). The REAL mechanism (all HIGH-confidence, raw-verified):
+- **Physinfo key `"mj"`** (moon-jump; string @ .so vaddr 0xf791d) — the grant (`PlayerAddPowerUp`, `SetPlayerTheOne`,
+  `TSInit` map-global) sets `pfnSetPhysicsKeyValue(edict,"mj","1")` = the ABILITY only, gravity stays normal.
+  (Our old comment CALLED this "mj" but dismissed it as invented lore; it was RIGHT. Also: our `PM_Jump` was
+  reading the STOCK HL `"slj"` long-jump key, doing the forward long-jump — wrong key AND wrong jump.)
+- **`PM_Jump`** (pm_shared): `"mj"`==1 + DUCK + on-ground → ONE-SHOT vertical `velocity.z = sqrt(160000) = 400`
+  (const is a DOUBLE @0x100bc8; base jump = sqrt(56000)≈236.6 @0x100bb8) + `iuser4 |= 0x200000` (WHEEL_TRIG).
+- **`CTSStunt::Play`**: WHEEL_TRIG → WHEEL_DONE (0x100000, the flight-active bit) + morfy_jump pose + airwheel
+  (existing handler — the flight anim came FREE).
+- **`PM_CheckParamters`** (pm_shared @0xe9c94) = the piece that was missed twice: VARIABLE JUMP HEIGHT. While
+  `iuser4 & 0x100000`: reduce air control (fwd*0.5, side/up*0.25) and GATE GRAVITY ON `IN_JUMP` — held = 0.30
+  rising / 0.75 falling (climb), released = 1.0 (drop). NO hold-timer (cap emergent: 400 decays under 0.30).
+- **Landing** (PostThink @0x81a22): WHEEL_DONE + onground → screen shake + `GoRoll` (DUCK) or the superjump_land plant.
+- ⚠ **THE TRAP (cost a whole wrong REV):** `UpdatePowerUpState` HAS a `m_iPowerups & 0x100 → gravity=0.15` branch,
+  but it's **DEAD CODE for the superjump** (PlayerAddPowerUp never writes `m_iPowerups` for LOWGRAV — only
+  `m_bLowGravity`+`"mj"`, then returns). The first dossier REV read that dead path and concluded "constant 0.15
+  while held" — WRONG (float just from holding the powerup; overshot ~2×). The user's playtest caught it. Lesson:
+  a reachable-looking gravity write can be DEAD — verify the gating bit is actually SET on the path you care about.
+- Debug hook: `powerup 6` grants LOWGRAV (swap-in-safe — server-side console cmd, wire name/format unchanged).
+
+### ⭐ SLOW-MOTION — the original slows TIME, not velocity (fixes the kick gate)
+The mid-air side-kick gate `speed>270` (plain `|velocity|`, NO slow-divide — verified in CCombatAttack @0x76078)
+failed in OUR slowmo but works in the original. Cause: the original slows MOVEMENT purely by time-dilating the
+pm_shared frametime — **`PM_PlayerMove` @0xf08d8: `frametime *= fuser1`** — leaving `pev->velocity` (units/sec)
+UNTOUCHED, so `|velocity|` stays high and >270 passes. OUR bug: `pev->maxspeed *= fuser1` every PreThink, capping
+achievable `|velocity|` (and networked → client predicted it too). Fix: `maxspeed = GetSpeedBySlots` (no fuser1) +
+the frametime dilation in PM_PlayerMove (guarded `fuser1>0` so an unpopulated field can't freeze). User-verified.
+
+### METHOD: dossier-subagents nailed both
+Two `general-purpose` agents (self-contained prompts w/ addr-base rules + the exact questions) produced the
+dossiers while keeping ~350k tokens of decompile out of the main context. The superjump agent's FIRST rev was
+wrong (dead-code path) — a SendMessage follow-up with the user's precise behavioral spec got the right answer.
+Cross-check agent labels against the live playtest (the user is ground truth). [[live-original-ts-debuggable]]
+
+Still OPEN (agents/tasks): walk2/run2 gait speed should scale to velocity (#14), player blob-shadow sprite
+(likely `ombra.spr`, #15) — a combined RE agent is running. Also: iuser4-on-the-wire decision (delta.lst) for
+powerup client-prediction; HUD layout (#4), powerup HUD icons (#7), audit.py parity loop (#8).
+
+## 2026-07-03 (cont. 86 cont.) — kick/punch/anim fidelity batch + original-content rig swap + delta.lst revert + double-fire fix
+
+Continuation of cont.86. All build-green, nm-T stable, deployed, USER-VERIFIED each. Commits `40f6f59..6f93900`.
+
+Gameplay/anim fixes (all user-verified "matches original"):
+- **Kick land-low getup** (`5e46c99`,`05975a3`): player+0x78 = STOCK `CBaseAnimating::m_fSequenceFinished`
+  (live-traced, not a TS latch — see [[stock-member-before-inventing]]). Getup = `roll!=0 && (roll<0.01 ||
+  m_fSequenceFinished)`. HandleSlide forces =1 for instant slide-standup. Two prior sessions invented a
+  "latch" member here; deleted. DO-NOT-TOUCH markers in source.
+- **Sidekick FPV** (`b258dd1`): client `UTIL_MakeVectors` was the stock EMPTY stub → predicted
+  gpGlobals->v_forward=0 → fwdDot=0.00 vs server 0.88 → wrong CCombatAttack branch (B5 air kick not B3
+  side kick). Implemented via AngleVectors. Dual-side [CCK] trace confirmed parity.
+- **3rd-person kick anims + duck eye** (`d6f03e4`): Animate close-combat HOLD rebuilt decompile-exact
+  (raw @0x6bf20): while a full-body CC seq plays, a plain RUN/IDLE RETURNS (holds torso+legs; live-verified
+  gaitsequence stays 0 through the whole sidekick). m_iLastActivity updates on the CC dispatch frame.
+  VEC_DUCK_VIEW 12→16 (original PM_Duck writes 16, live viewz=16).
+- **Punch/kick combo cadence** (`ba5c6dc`,`4d22c1b`): player+0x814/0x815 = STOCK `m_afButtonPressed`
+  (PreThink edge trio +0x810/814/818). D2 punchright = pressed&IN_ATTACK; B4a kick-finisher =
+  pressed&IN_ATTACK2. Spaced click = right hook/finisher; held = jab/circkick chain. [[stock-member-before-inventing]]
+- **Play ladder/water abort** (`295b777`): decompile-exact (clears WHEEL_DONE not DIVE; exact 9-bit reset;
+  invented TS_ResetStuntState helper w/ invented STANDUP-set deleted — nothing in the binary sets iuser4 bit 8).
+- **DoubleFireRate 1.5x once** (`6f93900`): was applied in the RE-faithful PostThink timer-decrement
+  (slowFrametime*=1.5) AND duplicated at fire-arm in 3 spots (StandardFire /1.5, ShotgunFire /1.5,
+  double-barrel *0.5=2x) → 2.25x/3x. Removed the 3 duplicates; PostThink decrement is the sole mechanism.
+
+Package/rig investigation (user-driven):
+- **ts-3-final download == our reference/** (all 3 binaries byte-identical, both Linux tar + Windows exe).
+  The Windows Clickteam SFX and the Linux tar ship the IDENTICAL 1127-file set including ALL 4 binaries
+  (mp.dll+client.dll+ts_i386.so+ts_i686.so) — "one cross-platform set, packaged twice", 0 file diffs.
+  TSHD3's delta.lst is byte-identical to the original's (19af2487); TSHD3's fixes are in binaries/content.
+- **Rig content SWAP**: `~/Containers/hlds/mods/ts` was TSHD3-based + ~5800 custom files (1.2G). Backed up
+  to `~/Containers/hlds/mods/ts-TSHD3-backup-cont86.tar`, replaced with the clean original (1127 files, 29
+  ts_* maps). ⚠ tm_avana GONE (custom map, in backup) — playtest on ts_dojo/ts_lobby/ts_metro now.
+- **delta.lst reverted to 3b1d963** (`df56f06`): our network/delta.lst was halflife-updated's table (2013
+  Valve seed → 2021-24 HL upstream) + our 2 edits (b2b512e m_iWeaponState 2→4, c1013a9 iuser4). The only
+  post-3b1d963 commits were both ours; revert = clean upstream base. ⚠ iuser4 no longer on the wire → client
+  can't predict powerup-gated behavior (double-fire is server-authoritative now). Re-adding iuser4 (original
+  TS table nets it at 32 bits) is the trigger to restore that prediction — an OPEN decision.
+
+Method wins: LIVE gdb value-watch on the running original (view_ofs.z/iuser4/sequence, roll timer printed
+as a relative timestamp) settled player+0x78 = m_fSequenceFinished; DEBUG-ALERT dual-side [CCK]/[HCC]/[SYNC]/[ST]
+in OUR build isolated each branch/state divergence. Two "TS mystery members" (0x78, 0x814) both turned out
+STOCK — check the SDK base-class chain FIRST.
+
+Still open (tasks): #4 HUD bottom-left layout, #6 superjump hold-space, #7 powerup HUD icons, #8 audit.py
+parity loop, #9 m_fSequenceFinished usage parity (Animate x13/BulletDance), #11 pm_shared (TSHandle cmd-move
+damp/PseudoClimb/PM_Duck 0x30C3C mask). OPEN DECISION: iuser4 back on the wire (original TS delta table) vs stay clean upstream.
+
+## 2026-07-03 (cont. 86) — kick land-low recover SOLVED: player+0x78 = stock m_fSequenceFinished (✅ user: "exactly matches the original")
+
+Commits `40f6f59..05975a3` on `restructure-source-parity`, all build-green + nm-T stable + deployed.
+The cont.85 "flat 2s" mystery closed in three steps, each falsifying the previous theory:
+1. **ALERT-instrumented playtest**: our server roll timer was NEVER broken — decrements during the fall
+   (land with roll=1.4/1.0 on jump/2nd-story kicks), getup always 2.0s from the KICK. Client-prediction
+   theory dead. But the user's original-side timings (ground kick ~1s, jump ~0.75s, 2nd-story shorter)
+   showed the ORIGINAL recovers ~2x faster than the 2.0 arm.
+2. **Exhaustive static scans** (all iuser4 bit writes, PRONE clears, view_ofs writers, +0x78 stores):
+   found the getup reads player+0x78 which "only HandleSlide writes" → shipped a wrong "sticky flag"
+   reading (40f6f59, also fixed real getup drift: exact clear set ROLL|0x80000|PRONE|STOP|0x2, friction-only,
+   no stuntTime zero, no stood-up gate on HandleStunt; killed the invented STANDUP-bit note: NOTHING sets bit 8).
+3. **LIVE TRACE settled it** (hw watchpoints on view_ofs.z/iuser4/player+0x68 with the roll timer printed
+   as a relative timestamp): the getup fires at roll=1.07/0.99 ≈ exactly when the ~1s kick ANIM completes;
+   mp.dll's flag writers are inlined StudioFrameAdvance/ResetSequenceInfo tails ⇒ **player+0x78 (.so) /
+   +0x68 (mp.dll) is STOCK CBaseAnimating::m_fSequenceFinished** (gcc2 vs MSVC base offsets). Getup =
+   `roll!=0 && (roll<0.01 || m_fSequenceFinished)` — "timer OR anim-sequence end"; HandleSlide's =1 is a
+   forced sequence-finish. Fix (5e46c99): getup reads m_fSequenceFinished (PostThink StudioFrameAdvance
+   already advances it), invented m_iStandUpLatch/m_iSlideStandUp member DELETED. ✅ User-verified exact;
+   DO-NOT-TOUCH markers committed (05975a3). Memory: [[stock-member-before-inventing]].
+Why we got it wrong twice: the store-scan dismissed StudioFrameAdvance/ResetSequenceInfo writes to
+this+0x78 as "another class's member" — CBasePlayer IS-A CBaseAnimating.
+Discovered-not-chased (tasks): Animate's 13 m_fSequenceFinished read-sites vs ours + BulletDance read (#9);
+Play ladder/water branch clears WHEEL_DONE not DIVE + exact reset set (#10); original TSHandle damps
+cmd moves (not velocity) + PseudoClimb head + PM_Duck gate mask is 0x30C3C not 0x3CC3C (un-tasked, pm_shared).
+Next: #2 sidekick FPV branch parity, #3/#4 HUD color/layout, #6 superjump, #8 parity loop.
+
+## 2026-07-03 (cont. 85/86) — kung-fu kick chain + 3rd-person gait + weapon-data audit + stunt getup (session close)
+
+User-driven playtest loop on `restructure-source-parity`. All build-green (`scripts/build.sh amd64 all`),
+nm-T stable, deployed to the xash rig each time. Full pickup detail is in **HANDOFF.md cont.86** (the START-
+HERE block); decode dossiers preserved + committed at **`reference/dossiers/cont85/`** (`kick_decode.md`,
+`anim_statemachine.md`, the raw decompiles). Commits `6b3b3db..d7f74f9`.
+
+Done (verified from the decompile, not guessed):
+- **W_Precache CRASH FIX** (in HEAD from compaction): stock-HL `W_Precache` precached `weapon_shotgun` etc.
+  which TS remaps onto `CTSGroundWeapon` (no `GetItemInfo` slot) → SIGSEGV via `UTIL_PrecacheOtherWeapon`.
+  Reconstructed decompile-exact (`@0xe12e8`): `item_suit` + TS entities via `UTIL_PrecacheOther`, one
+  `UTIL_PrecacheOtherWeapon("weapon_tsgun")`.
+- **CCombatAttack (kung-fu) rebuilt** (`@0x76078`, `29bb434`): flDamage = the SPEED-SCALED lunge (also the
+  whiff-lunge on miss), NOT flat 35/45/55 (= trace REACH); iAnim = MOVE-ID (0x0a..0x19 == m_lastMeleeAnim).
+- **CTSAnimation 3rd-person gait** (`@0x5b470`, `8f496cf`): TWO seqs/frame (TORSO `pev->sequence` + LEGS
+  `pev->gaitsequence`) + a body→legs sync for bare hands; fire/reload FALL THROUGH to the gait block.
+- **animation "snapping" fixed** (`479122d`): the leg block's `SetAnim(TSSA_LEGS)` (no INTERP bit) ran
+  `pev->effects |= EF_NOINTERP` every grounded frame → killed model interpolation. Set `gaitsequence`
+  DIRECTLY (inline, no helper — user caught my invented `SetGait`).
+- **sawed-off shell-retained reload** (`d850ba6`/`dd3f9d3`, user-approved improvement): event phase 8 when a
+  shell is chambered → block[8]; use `m_iClip` LIVE not the parked `m_pActiveItem->clip`.
+- **weapon grips = original `szAnimExt`** (`34a94c6`): m61/knife/katana/sealknife/flag = EMPTY `""` (not
+  `nullptr`→"onehanded"). ⚠ I first INVENTED `"m61_grenade"` — that string is the thrown-grenade ENTITY
+  CLASSNAME (`fn @0x6c850`/`CM61Grenade`), NOT an anim-ext. Lesson: a `.rodata` string existing ≠ the field's
+  value; trace the actual assignment. [[weapon-table-verify-source]]
+- **DATA AUDIT (clean):** `Sparta()` (`@0x6fa78`, 32 firearms × spread/viewKick/recoil/dmg) matches the
+  original BYTE-EXACT (hex-float diff). `extract_weapons.py` numeric columns are UNRELIABLE (wrong offsets) —
+  verify at the real `Write_<weapon>` store. Write vs Sparta = two datasets, each matching its own original.
+- **stunt getup on the stand-up latch** (`13d808d`): `CTSStunt::Play` getup now fires on `m_flRollTime<0.01
+  || m_iStandUpLatch` (player+0x78) matching `@0x8a014`; HandleSlide already set the latch on landing.
+
+UNRESOLVED (the cont.86 live pickup — priority order in HANDOFF):
+1. **Kick recover flat ~2s** (`d7f74f9` WIP): fuser1 confirmed **1.0** live, roll arm **2.0** in the
+   decompile → server math is 2.0s, but the ORIGINAL is height/air-time dependent (roll decrements during
+   the fall). STRONG SUSPECT: the local view is CLIENT-PREDICTED and `Play`/the getup doesn't run in the
+   client predictor. DO NOT re-fudge the arm (user: "no stopgaps").
+2. **Sidekick FPV** plays the regular kick, not "sidekick" — SERVER picks B3 correctly (debug-ALERT
+   confirmed), so the CLIENT's PREDICTED CCombatAttack hits a different branch. Make predicted state parity.
+3-4. **HUD color** (stale cfg 125/150/165 vs original 150/175/255) + **HUD bottom-left layout** (team label,
+   free-slots section, smaller health) — client VGUI, live-RE `client.dll`.
+5. **Superjump** hold-space-only after launch (preserve stock duck+jump). **HUD powerup icons** (opacity +
+   two-icon). **Per-class parity loop** (`audit.py`): 0 missing methods/funcs/members/files, 25 invented
+   methods, 1 missing global (`TSGameRules` singleton `@0x1681a0`), 3 invented globals.
+
+Method notes (see HANDOFF cont.86 §METHODS): DEBUG-LOG-IN-SOURCE (`ALERT`) beat live gdb for OUR build;
+live.py on hl.exe/mp.dll works but mp.dll is MSVC so offsets DIFFER from the `.so` (pev@player+4,
+CTSStunt@player+0x4dc, fuser1@pev+0x254) — my first trace failed on `.so` offsets. The dossier-subagent hint
+(self-contained prompt → decode dossier to `reference/dossiers/`) kept ~330k tokens out of context.
+
+## 2026-07-03 (cont. 84, chunk 5) — ROUND 8: the DEATH CHAPTER complete + fixes batch (session close)
+
+All user-driven, each answered with binary RE (commits c1013a9..2e63e70):
+- **DOUBLE-FIRE = FULL-AUTO predicts** (c1013a9): the trigger override existed; the predicted player's
+  m_iPowerups was never synced — now rides clientdata iuser4 + a NEW delta.lst clientdata_t entry
+  (12 bits; clientdata had NO iuser4 line = the silent-drop trap AGAIN).
+- **SUPERJUMP launch ordering** (604ac3d): the lift ARMS only when leaving the ground with duck+jump
+  held (m_bSuperJumpArmed); jump-then-duck (the climb motion) stays a normal jump.
+- **GLASS PIERCE answered** (already correct): pane count = damage arithmetic — arrived dmg > 5 ->
+  step min(2*dmg,48) -> depth-1 continuation carrying dmg x ai->flFactor2 (x0.5 extra through a body);
+  pane 2 breaks iff carried dmg >= its health; hard ceiling two surfaces; glass falloff = the caliber
+  factor ON TOP of distance (applied again on the second leg).
+- **KICKS DECODED** (6d7c1b3/541d0bb, decompile at cont84/kick_ccombatattack.c): bVar9 = 2+movingBack
+  (<=100 u/s: IN_BACK; else fwd-dot <= -0.5). STUNT kick (iuser4&0x50c30) move 4 dmg 15 · DUCK-KICK
+  (ONGROUND+duck) move 6 dmg 45 + view_ofs(0,0,16)+stunt0x4=2.0 · BACKKICK move 7 dmg speed*0.303
+  clamp[15,80] (ours flat 55!) · FRONT KICK (air + speed3D>270 (a running jump clears via z!) + duck +
+  fwd>0.5) move 8 (ours sent 0x10 = WRONG anim) dmg speed*0.1538 clamp[15,45] + THE VIEW DIP
+  view_ofs=(0,0,16)+timer 2.0. IMPLEMENT the chain rebuild from the file (also retires the FLY-animIdx
+  VERIFY). respawntime confirmed correct (user).
+- **THE DEATH CHAPTER, complete + user-matched vs the live original**:
+  · the respawn gate anchors AT DEATH (6e72139, @0x7ef8c) — the death-cam eats ~2-3 s: first number
+    N-2/N-3 (user-measured: 10 -> 8; floor 5 shows 3) · corpse at the TRANSITION not kill time
+    (4bed51e, @0x7eaec) · the corpse = the DEAD-PLAYER FX (c6027ba, @0x70234 decompile-exact:
+    renderfx 17 + player INDEX in rendercolor.r + renderamt 255 = the fade alpha, rendermode 1, FULL
+    velocity, animtime carried, SetSize, EF_NODRAW gate; Spawn @0x7040c = think only) · our stock
+    renderer branch read renderamt-as-index and REFUSED it -> reads rendercolor.r first (5304b1e — the
+    vanishing-body root cause) · first-person deaths now RENDER the body: the exported CL_IsThirdPerson
+    reports third person while dead-not-observer + the view.cpp death-chase branch runs FIRST (cam_ofs
+    unmaintained there; 80 back / 24 up = VERIFY vs the original camera RE) + the stock 80-degree dead
+    ROLL confined to observers (c6027ba) · the 3.0 s DEATH-CAM LINGER (338518f, decompile-exact: Killed
+    arms +0x768 = time+3.0 (const @0xf7f78); deadflag 2->3 staging tick; transition on deadline OR any
+    button != IN_SCORE) · the body does NOT mouse-rotate: server pin insufficient (prediction owns the
+    local body) -> CLIENT-side latch in StudioDrawPlayer (2e63e70; entity+curstate+latched+gait yaw
+    frozen; VERIFY the original's pm mechanism).
+- Round-8 items RECORDED for RE: viewmodel anim BLENDING (idle<->fire<->reload snap; the vm analogue of
+  the cont.81 blend work) · 3RD-PERSON floating reticle (world-projected aim point, WorldToScreen, lags
+  by design) + head-clearing chase cam + the death-cam constants — one camera-RE pass covers all three.
+- Scratch captures preserved: reference/dossiers/cont84/scratch/ (subagent batch decodes); client.dis/
+  nm_sorted are regenerable (objdump/nm).
+## 2026-07-03 (cont. 84, chunk 4) — THE ATTACHMENT SAGA CLOSED (user: "perfect") — rounds 7i..7m
+
+The full silencer/scope system landed through a chain of SIX root causes, each found by evidence
+(diagnostics, gdb, xash source), all committed (84d4cbd..c99c278):
+1. **tkw type_attach grammar** (84d4cbd): attach rides INSIDE the tkw token (menu -> queue -> BuyWeapon
+   (iAttach) -> TakeWeapon); tki = equipment only; akimbo double = extra type_0. + p_ SIL swap
+   (pszPlayerModelSil column, Deploy attach&1, both precached) + the silenced-sound flag (iparam2&1,
+   vol .84-.92, attn x2 — NOT linked; unsilenced linked = the normal sample).
+2. **The viewmodel BODY ships in the weaponanim message** (65a36cc): DefaultDeploy's 5th arg + a CTSGun
+   SendWeaponAnim SHADOW carrying GetBodyByItems on every anim (pev->body alone never reaches the vm).
+3. **The PREDICTED weapon needs the mask** (54717ea): GetWeaponData packs it.attach into the spare
+   m_iWeaponState; SetWeaponData unpacks (the host's predicted anims/events ran attach 0).
+4. **delta.lst m_iWeaponState was 2 BITS** (b2b512e): attach 15 -> 3 on the wire (the scope bit died).
+   4 bits now + setup-xash-mod.sh SYNCS network/delta.lst (the stale-delta trap, 5d6bb31).
+5. **The blink** (80f2ddf): the vm body refreshes EVERY FRAME from prediction (view->curstate.body =
+   TS_PredictedViewmodelBody(); the original's DAT_10191d5c mechanism; m61 body-1 quirk kept).
+6. **THE ZOOM/SCOPE**: Zoom drives m_iFOV (SetFOV loop — pev->fov via clientdata is OVERRIDDEN by the
+   client's own gHUD.m_iFOV report, 01b29fe+5903f39); the prediction gate allows fire while the scope
+   hides the vm (narrowed to sub-40 fov after the wholesale removal destabilized, 570837b); EV anims
+   guarded on a real vm model — and the SED SELF-CAPTURE hang (fea3cb3): TS_EvWeaponAnim tail-called
+   ITSELF (bulk rename rewrote the helper's own inner call; optimizer -> literal infinite loop; caught
+   by the user's gdb double-sample at the SAME PC + disasm). test.sh gained GDB=1 attach mode (2ad2f61).
+7. **The overlay** (93aa390..c99c278): sprites/quarterscope.spr (referenced by the original client.dll)
+   DECODED (arc corner = quarter's BR, palette-index alpha) and pre-composed 4x-mirrored into
+   game/ts/sprites/ts_scopefull.spr at build time; drawn SCREEN-SPACE scaled (pfnSPR_DrawGeneric —
+   whose blend args xash IGNORES (#if 0): kRenderTransAlpha via TriRenderMode around the draw, 1a680de);
+   TS_SCOPE_SCALE 1.45 (user-tuned hole size); full reticle swap + pinned laser dot + side bars; the
+   fov-40 threshold drives vm-hide/overlay/reticle as ONE bundle (deagle 60 = bare fov). The world-quad
+   TriAPI version was DEPTH-SLICED + sorted under transparent props in xash — screen-space is the way.
+   Zoomed beams: flashlight stays, laser beam off, dot pinned (view-aim fallback in GetMuzzleAim).
+Round-7 fixes along the way: kill refused while spectating (ClientKill gate; the original only ARMS a
+1s delayed-suicide timer — VERIFY the +0x244 gate field + the delay consumer) · press-fire prompt
+post-gate on the 1 Hz clock (the sub-second decompile window can't survive tick drift — VERIFY the
+original's carrier) · TSActiveItems{idx,0} on StartObserver (dead players' beams off) · stale-anchor
+beam gate (no drawn source = no beam) · attachments spawn maximal-ACTIVE (laser/flash ON; AddItem +
+pair mirror) · spectate bar = TS-patched STOCK (orange 255,160,0, per-mode #Spec_TSHelp%d help line
+rendered — stock builds-and-drops helpString2, no Auto prefix outside HLTV, small font, centred).
+TSBUY diagnostics stripped after the confirm. BUILDTYPE=RelWithDebInfo supported for symbolized builds.
+
+NEXT QUEUE: un-zoom hooks (Reload/ShotgunReload/ColdCock/Holster -> Unzoom, dossier §3) + verify the
+fov2 second zoom step · the p_ sil THIRD-PERSON confirm + silenced-sound confirm · dossier-invented
+remaining folds (SendWeaponStatus->UCD merge, OwnedCount/SlotsUsed->stored counter +0x548, TSSendBuyMenu/
+TSCloseMenu/TSSendScoreInfo/IsTeamMode deletes, menuselect dead-swallow, team methods -> stock classes) ·
+THE TSGameRules-singleton split (the last missing global) · tasks #7/#8 · the extra events/commands purge.
+## 2026-07-03 (cont. 84, chunk 3) — spectate = TS-patched STOCK (user-guided) + dossier-attachments LANDED
+
+- **THE SPECTATE ARCHITECTURE INVERSION (user's question was the key)**: the original KEEPS the stock
+  CHudSpectator/SpectatorPanel and RE-SKINS it (#Spec_TSHelp%d/#Spec_Help_TSTitle/TSText tokens, texts in
+  ts/titles.txt, help POPUP tokens empty = neutralized). Our parallel TS bar + stock suppression =
+  the invention, DELETED (8537452). Deltas applied to stock: NO top border/banner; bottom help line
+  rendered (stock BUILDS helpString2 and never draws it — added m_BottomHelpLabel, small non-bold font,
+  0b418e0/1dce625); text = HUD ORANGE 255,160,0 (29f4767); '#Spec_Auto' prefix HLTV-only; per-mode help
+  token #Spec_TSHelp%d. IsActive() = STOCK g_iUser1 (the wire-latched local state was unreliable during
+  connect — the buy-menu-gone bug); Spectator msg only fills the per-player table. User: "flawless".
+- **Round 7e (1dce625)**: TSTryRespawn decompile-exact (wait line ONLY when gate<0 = the -4 sentinel;
+  silent during countdown; never in plain DM) + m_flSpecMsgTime = the original's +0x754 1 Hz clock (was
+  the known unnamed) · TSMessage centre notifications OVERLAP (no line stacking) · countdown 0x10 class
+  replaces in place.
+- **dossier-attachments.md LANDED** (reference/dossiers/cont84/ + 19 att_*.c) — THE map for the next
+  implementation wave: (1) p_ SIL SWAP: new wi+0x1b2 pszPlayerModelSil (16 literal p_X_sil names;
+  mp5sd/ruger dup normal; mac10->p_ump_sil), Deploy @0x71030 picks it iff attach&1, TSPrecache both;
+  (1b) FIRE-SOUND FLAG CORRECTION: silenced = iparam2&1 (NOT linked — fixes the user's akimbo-sil
+  report): wi+0x306 at vol .84-.92 attn x2; linked unsilenced = the NORMAL sample; (2) BUY GRAMMAR:
+  attach rides INSIDE tkw as type_attach (tki = items only; akimbo double = extra type_0; stackables
+  type_count); in-memory last-config (no file — live-dir verified); (3) RIGHT-CLICK TREE: attach&8 ->
+  zoom cycle 0->fov1->fov2->0 + Unzoom hooks in Reload/ShotgunReload/ColdCock/Holster; no scope ->
+  hold/tilt = anim block[7] + block-pointer swap 0x252<->0x28c; (4) GUN-ANCHOR CACHE: per-frame in
+  HUD_DrawTransparentTriangles copy each player ent->attachment[0..3] (PLAYER.mdl atts: 0/1/3 collinear
+  right-gun bone, 2 = left; p_ models have ZERO; my 0-attachment read was a WRONG OFFSET — 212/216 is
+  right) -> fixes the PELVIS FLARE + brass; (5) LASER: remote dir = smoothed normalize(cacheAtt1-att0)
+  (v_ models carry collinear att pairs too — dir rotates with the gun bone = the reload sweep), start
+  origin+stance-z, color from PlInfo (1 green/2 blue/else red 255,25,25); local = vm att0 along
+  att1-att0 (+att2/3 second akimbo beam); (6) draw.sc mask = BODY only (the +0x178 anim-offset prior
+  finding was a misread). WeaponInfo byte4 = fireMode, byte5 attach = HUD-only. ActItems stores a byte,
+  nothing else. NEXT: implement 4+5 (pelvis flare + laser) first, then 1/1b, then 2, then 3.
+## 2026-07-03 (cont. 84, chunk 2) — round-7 folds + the Spectator wire + the attachment RE opened
+
+- **Round 7 results folded**: dry-click/brass/pump/linked/FOV/HUD/glass PASS. Fixes: the third-person
+  muzzle FLARE anchored to the frozen viewmodel (5e663cd; now player model when thirdperson) — but
+  round 7b shows it at the PELVIS: player attachment[] is UNFILLED because **TS player models AND p_
+  models have ZERO attachments** (struct-read proven) — the original anchors gun effects (flare, brass,
+  LASER + its direction) via a per-frame BONE cache (client DAT_1018caf8, FUN_10056be0) its renderer
+  fills. **p_<gun>_sil.mdl variants exist and BOTH binaries carry the strings — the silencer on other
+  players = a whole p_-model swap (server-side pev->weaponmodel pick).** Linked-bang "pitch" question
+  answered: NO pitch difference (vol .84-.92 + attn x2 only; protocol text was wrong, code was right).
+- **CTSGun::AddItem completed** (5e663cd, @0x70794 decompile): akimbo-pair attach MIRRORING + the
+  reselect/DEPLOY refresh tail (the viewmodel body never updated before); the invented bought-laser-
+  starts-active grant removed. **Buys apply at NEXT SPAWN in the original** (BuyArmament's only caller
+  = PlayerSpawn @0x790ac; tkw/tki/tka handlers queue-only via AddItemToArmament @0x83ea4).
+- **dossier-invented.md LANDED** (subagent, reference/dossiers/cont84/ + inv_*.c): verdicts for all 28
+  invented methods (summary table in the dossier): GetWeaponData -> the FREE @0xa00ac (fuser2/3-barrel-
+  clips REFUTED — but ours is a working prediction divergence, hold); SendWeaponStatus -> CTSGun::UCD
+  @0x758c8; OwnedCount/SlotsUsed -> DELETE (TSSpace = stored counter +0x548); TS spectate trio -> Start/
+  StopObserver + the PreThink iuser1-block + the "respawn" cmd; TSSendBuyMenu/TSCloseMenu/TSSendScoreInfo/
+  IsTeamMode -> DELETE; menuselect = a dead swallow in gamerules ClientCommand; PlayerKilled/PlayerSpawn/
+  team methods -> the STOCK CHalfLifeMultiplay/Teamplay (TS-patched) — **the original runs stock
+  g_pGameRules + a SEPARATE non-virtual TSGameRules singleton** (the missing global @0x1681a0).
+- **The Spectator wire FOLDED (55f85a0)**: (idx,flag) broadcasts at all senders (TSEnterSpectate/
+  StopObserver/TSInit/ForceClientDllUpdate); countdown/"Press Fire To Play!" moved onto 1 Hz
+  TSHudMessageOne lines (decompile-exact @0x81458); hold-window expiry corrected (gate -4.0f, award 1,
+  red line + CallCheckDeads — V11 closed); client parses (idx,flag) + sends "respawn" on +attack
+  (0.2 s ratelimit, menu-closed gated) = the original fire-to-play. PLAYTEST: the whole join loop.
+- **dossier-attachments subagent RUNNING** (background): the p_ _sil swap rule, the buy/apply grammar
+  (original client FUN_10039400 + live cfg files), SecondaryAttack's full right-click tree (scope vs
+  hold vs deagle tilt), the bone/gun-anchor cache writer + the laser beam source/direction, WeaponInfo
+  attachFlags + ActItems consumers, draw-anim offsets by active mask.
+
+## 2026-07-03 (cont. 84) — invented review opened: gmsg central registration + wire fixes + door-helper respawn
+
+Continued `restructure-source-parity` (NOT merged; GPG off). Commits `3f7ff03..06c1075`, all build-green
+(amd64 all) + nm-T-gated (baseline regenerated once for the INTENDED CBaseDoor::RespawnThink export removal).
+Headline: **32 -> 28 invented methods · 6 -> 1 missing globals (TSGameRules instance only) · server cvars
+0 missing · 0 everything-else**.
+
+- **Central LinkUserMessages (3f7ff03)** — ALL user messages now register in LinkUserMessages in the
+  original's exact 64-slot order (star_LinkUserMessages.md @0xc7db0); every lazy first-use REG site
+  stripped (12 files; ts_powerup's duplicate s_gmsgPwUp gone; gmsg statics globalized to match the
+  original's D symbols). Message IDs now assign in the original's order. The impulse-99 Logo lazy reg
+  KEPT (the original keeps it lazy too — gmsgLogo absent from the block, reloc-proven). TWO WIRE BUGS:
+  "TSFrags" (not "TSCreateDebris" — server reg + client hook renamed) and "TSHVoice" (not
+  "TSVoiceMessage"); gmsgTSVoiceMessage moved to TS_gamerulesclass.cpp (the original's home).
+  gmsgFlashlight/gmsgFlashBattery/gmsgSetCurWeap = DEAD globals added (reloc-proven never referenced;
+  the HANDOFF's "the original registers them" was WRONG). teamlist default -> "hitman;gordon".
+  coverage.py client-hook scan fixed (raw pfnHookUserMsg) — REAL missing client hooks = 8:
+  NextStunt/Objective/ShowObj/TSFlag/TSFrags/TSHVoice/TSMBlur/TSPSys (deferred client-HUD features).
+- **cvar_t symbol parity (b243d56)** — ts_cvars.cpp structs renamed to the original's globals (defaults
+  verified @0x108d80..0x109028): + teammodels("mp_teammodels")/dmcashbased("usecash")/
+  cv_ammocount("ammocount")/weaponstay_time("weaponstay"). "deadstomach" cvar DELETED (false positive:
+  a CDeadHEV pose-string pair read as a cvar_t). audit.py excludes 'objects' (libgcc frame.c CRT).
+  coverage.py: pose-alias exclusion + game_shared scan (sv_alltalk/voice_serverdebug). 
+- **Door respawn = the info_breakable helper (de8a071)** — CBaseDoor::RespawnThink DELETED; decompiles
+  (dossiers/cont84/door_respawn_decomp.c): door Spawn @0xb60cc creates the helper into door+0x104
+  (back-linked helper+0x64), death @0xb57ac tail + both blocked-retry legs arm the HELPER's think;
+  CInfoBreakable::RespawnThink dispatches BreakableRespawn VIRTUALLY (@0x65da0 vtbl slot +8).
+  Exact-store corrections: effects = EF_NODRAW / = 0 (not |=/&=~), box-check maxCount 1, NO
+  SUB_UseTargets on shatter (ours was invented). CTSGun::SwitchBarrel DELETED (uncalled; the invented
+  barrel-cycle). VERIFY carried: the door's TSFrags payload sends ZEROS for dir/model/velmag (ours
+  sends real dir + glassfrag + 150) — client-handler RE needed before mimicking.
+- **stock_methods.py header-inline scan (06c1075)** — the .cpp-only scan missed class-body definitions;
+  MyTogglePointer + CallDoRetireWeapon auto-classify stock (verbatim upstream). 3621 pairs.
+- **Dossier subagent LAUNCHED** (background): reference/dossiers/cont84/dossier-invented.md — homes for
+  the remaining 28 invented methods (free GetWeaponData @0xa00ac = the true weapon_data packer!,
+  CTSGun::UpdateClientData @0x758c8, the spectate/menu/ScoreInfo/RoundTime senders, the CTSGameRules
+  team machinery, draw.sc iparam2 + "Spectator" wire verdicts). Do NOT run re.sh while it holds the
+  re project.
+
+REMAINING (task order): fold round-7 playtest results in (protocol handed to the user: dry-click/brass/
+pump/linked/silenced/spawn-protection/telefrag/PseudoClimb/kill-feed/respawn-floor + NEW door-respawn +
+TSFrags shatter regression + all-HUD smoke after the registration consolidation) · the subagent's verdicts
+-> MOVE/ACCEPT/DELETE each remaining invented method · TSGameRules-the-instance @0x1681a0 (plan) ·
+g_TSGun/g_tsActive/g_tsPool · 19 extra events + 16 extra server commands + stock weapon sources purge ·
+the Spectator wire reconcile.
+
+## 2026-07-02 (cont. 83) — ZERO missing methods + ZERO missing free funcs (the 6+6 queue cleared)
+
+Continued `restructure-source-parity` (NOT merged; GPG off). Every commit build-green (`build.sh amd64 all`)
++ nm-T-gated. Headline moved **6 -> 0 missing methods · 33 -> 32 invented · 6 -> 0 missing free funcs**.
+Commits `f67c6eb..75d9289`:
+
+### The 6 missing methods (all landed)
+- **The gun FRAME MACHINE (f67c6eb)** — the three CTSGun methods were hiding the whole per-frame shape:
+  the original's driver is the REWRITTEN BASE `CBasePlayerWeapon::ItemPostFrame` (@0x903d4, m_iId==0x10
+  gate) — ours moved into weapons_shared.cpp, CTSGun::ItemPostFrame DELETED. EmptySound @0x71be4 (contender
+  silent; empty.sc; ±0.1/idle 0.5) · StopReload @0x71288 (ColdCock+MultiplyClips callers; the pump machine
+  NEVER arms item+0xc) · ReloadWeapon @0x74a14 (arm-only; player m_flNextAttack = the clock; refill in the
+  base ItemPostFrame w/ akimbo pair mirroring). Reload @0x74d5c decompile-exact (blades->CCombatBlock,
+  sawed-off shell-retained anim block[8], reload.sc iparam1=type iparam2=attach fparam1=0, idle+5, Unzoom);
+  ShotgunReload @0x74aac (phase machine in item+0x8; reload.sc fparam1 8/9/10; insert period = wi+0x14;
+  driver = WeaponIdle->Reload); WeaponIdle @0x754dc (every frame: pump continuation, the BURST machine on
+  the primary timer, idle-tick = grenade cook / AUTO-RELOAD dry / stance idle anim); Fire @0x71c78
+  (waterlevel-3 click, InfiniteClips gate, akimbo 3rd-person 8+side vs pump TSA_FIRE — we had it INVERTED);
+  MultiplyClips @0x71308 (m61 refused; the MISSING STACKABLE branch — knives add units funded by free
+  slots; SlotsUsed now charges per-unit); ColdCock alignment (GrenadeIdle(1)+StopReload, all four timers
+  +0.725, idle+2, kevlarhit CHAN_BODY attn .8). **+alt2 is the IN_CANCEL BUTTON (0x40)** — the original
+  server has NO ±alt2 command (ours removed; client sets in_cancel; the new m_flNextAlternateAttack
+  gun+0xa4 is predicted via fuser4 + both decrement loops). Member merges: m_burstCount+m_shotgunPhase ->
+  m_burstOrPhase (ONE item+0x8 slot: burst/pump-phase/cook); m_akimboSide -> m_fInSpecialReload (the ONE
+  pumpToggle byte, PARKED per item — holster clears reloading+phase but NOT it). Data columns extracted
+  (dossier cont83/animblocks.md): flReloadTime(+0x14) all 38, iStackable(+0xdc = knife/seal/m61),
+  hold-idle block[0](+0x28c), shell-retained block[8](+0x262/0x29c), and **the COLDCOCK block[28] column —
+  the gun-event tail is now UNBLOCKED on data**. STAND-INS kept + documented: predicted reload/pump
+  SendWeaponAnims, insert-shell.wav, 357_cock1 click, coldcock miss whoosh (until the ev handlers land).
+- **ShootBulletsPlayer (TS_combat.cpp, its own original TU)** — TSFireBulletsPenetrate WAS the original
+  under an invented name. Corrections forced by the decompile: POLAR cubic spread (not gaussian);
+  ONE MultiDamage batch per volley; pierce = DEPTH-1 recursion (iMode 2, /30 falloff leg) not an 8-layer
+  loop; damagemult is CHEAT-GATED global (not per-layer decay — the real decay = ai->flFactor2 (+0x18
+  consumer FOUND) x0.5 through a body); rbullet gate includes REALBULLET; BubbleTrail per pellet.
+  Signature: (uchar cShots, src, dir, spread, float dmg, iMode=wi->iKnifeType, iCaliber, seed) -> Vector.
+- **TSInit (first call in Spawn @0x7f586)** — absorbed the Spawn-top inline block + surfaced SPAWN
+  PROTECTION (1s: +0x71c deadline == m_flDisarmTime, renderfx Distort shimmer, (200,200,250) fade;
+  PreThink clears @0x81458; TraceAttack's refusal @0x801eb = VERIFY) + the map-global SUPERJUMP
+  (rules+0x5885 = new m_bSrvSuperJump <- ts_mapglobals SF&0x40; "mj" physinfo) + the client caches init
+  0xff (FORCE the first TSState/TSBTime/TSPAward sends) + The-One rules-flag clear. Our "Spectator" wire
+  flagged INVENTED (the original broadcasts (idx,0) stock-style; ours carries state+seconds).
+- **PickUpWeapon @0x8314c** — ALL FIVE call sites decoded (worldgun/groundweapon: bSelect = type!=FLAG;
+  knife Use: NO SWITCH; buy: the sole bRecordOwner -> TSItem::hOwner item+0x30; powerup/give m61: select).
+  THE KNIFE-STACK MERGE (the S8 gap): owned stackable ADDS units (slot-charged per unit). TakeWeapon
+  reshaped (type, status, clip; auto-wield REMOVED — PickUpWeapon's bSelect owns it; world pickups restore
+  the FULL parked status). TSPickUpWeapon deleted.
+
+### The 6 missing free funcs (all landed)
+- **SetPlayerRespawnTime @0x65ff4** — the respawn funnel; m_flSpawnGateTime MERGED into m_flTSRespawnTime
+  (ONE +0x770 carrier; negative = locked out). New: m_iRespawnsUsed (+0x7ba, Killed++ , InitHUD/RestartRound
+  reset) + m_flRespawnHoldTime (+0x7bc LMS re-entry hold; PreThink expiry -> gate -1 + award 1; V11 = the
+  countdown HUD msg untranscribed). Caller clamp = round(clamp(respawntime,5,30)) — the original FLOOR IS 5
+  (ours was 3; default cvar 3 -> real wait 5s, PLAYTEST note). The TSPAward 1/11 producers complete.
+- **RemoveEntityFromSlowedArray @0x8fb4c** — the packed slowed-projectile array (RAW ptrs m_pSlowedEnts[32]
+  +0x208 / count +0x288, HOLES KEPT) + all EIGHT scrub sites (shrapnel/m61/knife x2/flag/worldgun x3).
+  Empty until the projectile-GoSlow feature populates it.
+- **TSPlayerDisconnect @0x8f94c** — ClientDisconnected's TS hook: vote-block clear (the vote-rejoin bug),
+  edict park (FL_DORMANT/EF_NODRAW/...), gate -4, The-One clear, CallCheckDeads (a leave can end a round).
+- **PseudoClimb @0xe8fc8** — the hold-jump wall scramble, TSHandle HEAD (IN_JUMP && onground==-1, BEFORE
+  the STOP damp). Both libs (predicted). PLAYTEST: crate scramble / look-up probe raise / half-maxspeed cut.
+- **TSGetPointsForFrag @0x79140** — the stylish-kill scorer wired into PlayerKilled (frags += ...): The-One
+  gate, kung-fu 2 ("#TS_KungFu"), thrown-blade 2 (GetDescription), stunt/slide +1, the green feed line.
+  **glast_weaponid** lands (ts_bullet.cpp, init -1 — V21 RESOLVED); the bullet record captures the firing
+  weapon at fire time (rec+0x30), UpdateBullet publishes on hit. VERIFY: PlayerKilled's kill-TIER tail
+  (@0x7a908.. m_iAward 2/3/4 + a slow-mo reward grant off the out-bools/DoSpectacularNess) needs typed RE.
+- **TSSelectSpawnSpot @0x66244** + EntSelectSpawnPoint REPLACED with the original's 4-call body: the
+  teammate-cover band (0x1801-0x2000) / unseen band (0x1001-0x1800) / nearest-distance scorer + the
+  crowded-winner 128u TELEFRAG (300 NEVERGIB) + fallbacks + g_pLastSpawn. PLAYTEST-GATED (spawn feel).
+
+AUDIT: **0 missing/0 invented classes · 0 missing methods · 32 invented methods · 0 missing members ·
+0 missing free funcs · 0 file mismatches · 6 missing globals (TSGameRules/gmsgFlashBattery/gmsgFlashlight/
+gmsgSetCurWeap/objects/roundtime) · 3 invented globals (g_TSGun/g_tsActive/g_tsPool)**.
+
+### Playtest round 3 (user PASS on rounds 1-2 + the cont.83 surface; 2 fixes, 021864a)
+- Settled thrown blades get the white PICKUPABLE glow shell — KATANA excluded (KungFu-gated
+  recovery). Same user-directed live-original divergence class as the dropped-gun glow (no render
+  writes in either binary's knife code). Applied at the BounceTouch settle tail.
+- Coldcock had no FIRST-person anim (m4): block[28] column added to the table (iColdCockAnim/
+  +hold, the 11 coldcock guns) + a PREDICTED SendWeaponAnim stand-in in ColdCock until the
+  coldcock.sc ev swap (task #5) replaces it.
+
+### Playtest round 4 (coldcock silent + no fire-torso while moving; 3 fixes + the coldcock/closecombat event swaps)
+- **THE ITALIAN-BONE GAIT SPLIT** — the root cause of "no fire anim while moving, any state": TS player
+  skeletons name the spine "Bip01 Dorso" / pelvis "Bip01 Bacino"; the stock client gait split keys on
+  "Bip01 Spine" -> matched nothing -> the gait owned the whole skeleton -> no upper-body composites while
+  moving. The ORIGINAL client.dll ships BOTH strings (definitive). StudioModelRenderer now stops at either.
+- Coldcock went silent post-swap: the playback gated on item->owned (server-only) — the predicted host
+  event vanished under FEV_NOTHOST. SetWeaponData marks the wielded item owned client-side.
+- The directional slide-fire (slide_<l/r/f/b>_<grip>_shoot) re-enabled — the "dead code +0x51c" note was
+  wrong (+0x51c = m_bDirForward, cont.81); mirrors the TSA_SLIDE direction selection per @case 0/8/9.
+- coldcock.sc + closecombat.sc SWAPPED both sides (server gun+0x966/0x96c + EV_TSColdCock/EV_TSCloseCombat
+  per dossier-ev-melee §4/§5); CCombatBlock decompile-exact (four-timer gate, iparam2 1 bare/0x12 armed);
+  CCombatAttack's per-move (move,animIdx) pairs disasm-slot-tracked (the 3-jab vm cycling was invented —
+  the original sends anim 3 for every punch; the FLY family's animIdx is a VERIFY). The FULL 29-short
+  anim blocks (both stances, all 38 weapons) landed in s_weapon_info (movl-PAIR-aware extraction).
+- The five-handler gun-tail dossier (subagent) at cont83/dossier-ev-guntail.md: reload.sc fparam1 IS the
+  anim-block index; empty.sc = weapons/pistol-empty.wav universal; pump.sc anim block[13+rand(0,1)] +
+  the wi+0x306 rack sound at ent-1 CHAN_WEAPON (the no-cutoff trick); grenade.sc = our path already right;
+  firelinked.sc bparam1=barrel bparam2=SEED (collides with our akimbo bparam2 extension!). Wiring = next.
+
+### Playtest round 5 (the ammo-economy mismatch, user-caught: m16 18/58 vs original 18/120; bef399c)
+- TakeWeapon @0x70a04 grants NO reserve (our iClip*3 was invented); its 3rd arg = the ATTACHMENT
+  MASK (BuyWeapon @0x845bc prices silencer 900/laser 800/flash 500/scope 1800 and passes the bits;
+  the PickUpWeapon reshape had mislabeled it iClip). Fresh attach = mask|builtin & supported,
+  laser/flash start active; akimbo combine unions attach/active both slots; a single REFUSES while
+  its akimbo is owned. STACK MODEL: iPellets(+0x24) = the CARRY CAP (knife 5/seal 10/m61 2); the
+  merge is +1 per take, cap-gated; the knife/seal table clips reverted to Write_ truth (iClip=1) —
+  the old x5/x10 overrides compensated for BuyArmament ignoring the queued count (now loops
+  BuyWeapon per unit; 2 identical pistols combine into the akimbo through the same path).
+- BuyAmmo @0x841e8 = FILL TO CAP one mag at a time (per-mag charge when cash; free -> iMaxCarry =
+  the 120); -2 = every owned caliber. Ground weapon tops only an EMPTY reserve (@0x925ec).
+- Sparta cross-checked: only spread/viewkick/recoil/damage — clips/caps are Write_-stage truth.
+
+### The gun-event tail COMPLETE (6b8815b) — 12/12 TS events wired, 0 missing
+All five remaining handlers landed from the subagent dossier (cont83/dossier-ev-guntail.md):
+empty (pistol-empty.wav universal — 357_cock1 was wrong) · reload (fparam1 IS the block index;
+phase-9 shuck everyone, phase-10 wi+0x306 non-local, phase-0 generic_reload + brass/mag toss
+non-local; the sawed-off block[8] is a LEFTOVER — the original sends fparam1=0 too) · pump
+(server sender gun+0x96a; anim block[13/14] client-random; rack = wi+0x306 at ENT -1 — the
+no-channel-cut trick; MOSSBERG RACK IS m3-pump.wav, scock was wrong) · grenade (in-eye-spec-only
+anim; our predicted local half correct) · firelinked (server sender gun+0x96e; both flares/two
+casings/skorpion gentle brass/ONE wi+0x306 bang .84-.92 attn x2; AkimboFire splits both->linked,
+single->fire.sc bparam1=barrel; bparam2 = the FireBullets SEED everywhere — the old side
+extension collided). New columns (adjudicated): pszAltSound(+0x306 triple-duty), pszShellModel
+(+0xe8), iShellSetback(+0x34c). All server presentation stand-ins retired. 19 extra events =
+stock-HL leftovers (invented-review scope). NEW VERIFYs: the FLY-family closecombat animIdx
+(register-carried) · gold/skorpion_akimbo's EMPTY wi+0x306 in the linked bang (our fallback =
+the normal fire) · the phase-0 brass recipes' exact R_TempModel arg mapping.
+
+### Playtest round 6 (2e512ec) — the AKIMBO trigger/barrel model (user-specified) + default_fov 80
+The user's model, implemented: plain AUTO = both barrels AT ONCE (uzis); plain SEMI = alternate
+per pull; the FREE modes (4 "Free Semi"/5 "Free Full") = LEFT CLICK -> LEFT barrel, RIGHT CLICK ->
+RIGHT (item+0x24 carries the clicked barrel), semi per-press / full while-held, EACH BARREL DRAINS
+ITS OWN CLIP + dry-clicks when THAT barrel empties. Plain-mode akimbo right-click = the HOLD toggle
+(guns facing each other; v_berettas change/rechange 14/15 + v_mk23_akimbo 11/12 added to kHold).
+Akimbo vm anims moved onto the events (EV_TSFire block[22..25] off bparam1; linked [3..5]);
+AkimboFire's SendWeaponAnim retired; the right trigger shares the cadence. default_fov -> 80 +
+the two stock 90-floor clamps removed (hud_redraw).
+
+### SESSION CLOSE (cont.83)
+- Working set preserved at reference/dossiers/cont83/ (8 server decompiles + the guntail client
+  dossier + animblocks + a README indexing every technique incl. the movl-pair and model-dump
+  recipes and the two guntail label corrections). HANDOFF cont.84 rewritten end-of-session
+  (queue = the invented review #6 with the full disposition work-list, the stunt/pm tail #7,
+  the VERIFY batch #8, the round-7 playtest surface). Audit at close: 0 missing methods/free
+  funcs/members/files · 32 invented methods · 6 missing + 3 invented globals · 12/12 events.
+
+### Round 6e (e2cfb1b) — the flare-vanished inversion, akimbo saga CLOSED (user: "perfect")
+6d deferred the local akimbo flash to the models' 5001-family events — but those trigger
+R_MuzzleFlash (the FAINT engine flash), not the bright flare: it vanished. Inverted like the
+original: the fire events ALWAYS draw the explicit flare at the fired barrel; HUD_StudioEvent
+suppresses the 5001/5011/5021/5031 engine doubles (iMuzzleFlash=false).
+
+### Playtest round 6c/6d + the VERIFY RE (5397c2c, 0306b68, 1770cf1)
+- The akimbo per-barrel ANIM sides were swapped (the guntail dossier's labels wrong; the MODELS
+  settle it: block[22/23]=rightshoot, [24/25]=leftshoot) — bparam1 1 -> [24/25].
+- The muzzle-sprite doubling: the akimbo viewmodels EMBED their per-gun flashes as sequence
+  events (5001/5011 rightshoot, 5021/5031 leftshoot) which HUD_StudioEvent renders — our flare
+  drew a second sprite at attachment[1] (still a right-gun attachment). Local akimbo singles now
+  defer to the model events; side->attachment mapping fixed (left=2); linked keeps both explicit
+  flares (linkedshoot carries NO events — verified).
+- 6b: the REAL barrel clips now ride weapon_data fuser2/3 (the balanced SetWeaponData
+  reconstruction fed prediction half-full barrels: infinite free-fire, no dry-click, stuck flare).
+- THE VERIFY RE (AkimboFire @0x729c0 + StandardFire @0x724a4 re-read): the user's model CONFIRMED
+  + 5 corrections folded: both-buttons-in-free-mode = a LINKED shot (mode 5 held / mode 4 the
+  pressed cache +0x814); **ScaleSpread's 4th arg = the SILENCED flag** (not ducking — mislabeled;
+  sil tightens x0.875 base / x0.775 growth); recoil increment x5 when MOVING > 175 u/s + x2 on a
+  linked shot; the akimbos run ScaleSpread at all; a non-integral SILENCER costs x0.775 damage;
+  the ft-4 akimbo mirrors a barrel into its single's parked clip after every shot.
+
+NEW VERIFY items this session: TraceAttack spawn-grace refusal (@0x801eb) + the 0x10c10 stunt dmg mult ·
+PlayerKilled kill-tier/slow-mo-reward tail · the "Spectator" wire (ours state+seconds vs original idx+flag) ·
+TSItem::hOwner consumer (sell-zone?) · the V11 LMS countdown HUD · ResetRestartRound still reads the dead
+"lms" cvar (TS_gamerulesclass.cpp:~425) · burstOrPhase/pump prediction packing (not in weapon_data).
+
+## 2026-07-02 (cont. 82) — melee S7a/b/c + S8 + HolsterWeapon + S10 applied (the blade split, both sides)
+
+Continued `restructure-source-parity` (NOT merged; GPG off). Applied the rest of the cont.81 melee dossier
+centrally, every commit build-green (`build.sh amd64 all`) + nm-T-gated. Headline moved **13 → 8 missing
+methods · 41 → 33 invented · CTSKnife 9/9 · CTSGun 42/47**. Commits `d80d29a..`:
+
+- **S7a (d80d29a)**: `CTSGun::SecondaryAttack` extracted decompile-exact (@0x717a8, fresh dc.sh decompile —
+  scratch secondaryattack.c): grenade/knife write item+0x24 (new `TSItem.altMode`) then share the primary
+  fire fn; katana → new `KatanaThrow` (@0x73b68 verbatim: 32u wall-clipped eye trace, 1000 u/s, roll 90 /
+  spin -700, TSA_CC_KNIFELAUNCH gated, katana/miss.wav 95+rand31, !InfiniteClips → DropWeapon + speed);
+  fire-type 11 no-op; **akimbo modes 4/5 route right-click to Fire() (the other hand) — replaced our
+  invented SwitchBarrel right-click**; scope-vs-hold branch on attach&8; **timer tail fixed to the
+  original's secondary +0.3 / idle +1.0** (ours had primary+0.3/secondary+1.0 swapped); DELETED the
+  invented kungfu-powerup armed-kick fallback (not in the original — where the original grants it is a
+  task-#5 question). CreateKnife/TSThrowKnife contract → `(player, pos, vel, knifeType 6/7/8)`, damage
+  stays inside CTSKnife, orientation moved to the THROWERS. PLAYTEST-GATED: akimbo right-click now fires.
+- **S8 + S7b server (a941f0b)**: CTSKnife re-transcribed from a fresh BounceTouch decompile — **the old
+  settle machinery was materially wrong**: in-flight (+0x90) clears on any sub-700 u/s touch; katana flag
+  (+0x91) re-derived EVERY touch; worldspawn EMBED = SOLID_NOT + **MOVETYPE_FLY** + back-off 6 + roll 90
+  for BOTH fast head-on AND slow (<100) touches; fast+glancing deflects with NO settle; all blades use the
+  knife_* wavs; the common tail installs **WaitTouch** (@0x6dce8 verbatim: ONGROUND ×0.5 damp, <32 →
+  flat+stop) + WaitThink + gravity .75 + expire +10 (settled knife lives ~10 s, NO glow). Use @0x6dda4
+  exact gates: in-flight refusal, **katana +USE only for KungFu() players** (L13 — playtest flag: binary
+  unambiguous, user recollection said otherwise), expired → silent remove, failed pickup keeps the knife
+  (TSPickUpWeapon now returns success). DELETED StartSettle/SettleThink/BecomePickup/PickupTouch/StickAt/
+  Classify. + `KatanaFire` server (@0x733f0): the 5-stance table (stunt/back -75/duck/normal-alternating/
+  air speed-scaled), signed-damage reverse CheckHull, VictimKatanaHold, bloody blade (item+0x8+pev->body),
+  whiff-lunge, STOP root, **katana.sc every swing** (FEV_NOTHOST, iparam1=vmAnim 15/16/17, iparam2=bloody).
+- **S7b client (4fb5a39)**: a fresh subagent RE'd ALL FIVE client.dll melee/draw handlers →
+  `reference/dossiers/cont81/dossier-ev-melee.md` (+ev_*.c). Key contract: melee pitch = **25 +
+  75*timescale + rand(-5,5)** (bullet-time scaled), vol RandomFloat(.92,1), anim = the **wi+0x252
+  short block** (draw [2], swings [15..17], coldcock [28]; hold twin +0x28c; closecombat.sc iparam2 =
+  raw block index, fparam1 = weaponType float; draw.sc anim = in-eye spectators ONLY). Implemented
+  `EV_TSKatana` (LAB_10044230 faithful: id-15 traces 55 BEHIND, miss/miss1 50/50, texture-note classifier,
+  12 glints, flesh silent + forces bloody, anim remapped via the block) + the shared kit
+  (TS_MeleeSoundPitch/Volume, TS_MeleePlayTextureSound = FUN_10045df0 clone, TS_InEyeSpectating).
+  **iSwingAnims[3] recovered from the Write_* disasm** (knife 3/4/5 · seal 2/3/4 · katana 4/3/2).
+- **S7c (f1d69c4)**: `KnifeFire` @0x74044 — slash+throw on altMode; MeleeAttack/ThrowKnife/m_slashStep
+  DELETED. Slash: CheckHull hull-3 @35u (was a 48/64 point trace), **DMG_SLASH|NEVERGIB 0x1004** (was
+  CLUB), props take NO slash damage, VictimKnifeHold gate, bloody state, victim-edict hitbody, whiff-arm;
+  **knife.sc now plays EVERY slash (FEV_NOTHOST, iparam1=weaponType, iparam2=bloody)** — the old
+  surface-hit-only+coords wire was original-client-incompatible. Throw: wall-clipped spawn, consume
+  !InfiniteClips, DropWeapon at 0, model-derived redraw + draw.sc + idle 2.0. Client `EV_TSKnife`
+  (LAB_10043c90 faithful; client picks the swing RandomLong(0,2)); per-swing view shake kept on both.
+- **S7-fold (7bf4d68)**: `HolsterWeapon` @0x85698 extracted from SelectWeapon — holster TO BARE HANDS
+  (whiff-clear-on-switch, m_flNextAttack +0.5 = player+0x12c, anim-override clear, kungfu viewmodel +
+  draw.sc(0) on every switch, combo resets). GrenadeIdle(1) put-away noted (method still missing).
+- **S10**: stock-HL client event hooks DELETED from Game_HookEvents (registration parity; the 19 REPORT
+  "extra events" remain as binary strings until the stock weapon sources leave the client build — #5).
+  members_re.tsv += CTSKnife 0x88/0x90/0x91/0xa0. coverage.py: katana.sc/knife.sc matched; events still
+  missing = closecombat/coldcock/empty/firelinked/grenade/pump (the gun-event tail + the S5/S6-deferred
+  closecombat.sc/coldcock.sc swaps — the anim-block data for GUNS (block[28] etc.) needs a bulk Write_*
+  extraction pass first).
+
+REMAINING melee tail: the closecombat.sc/coldcock.sc event swaps (client handlers fully RE'd in
+dossier-ev-melee.md; needs per-gun block[28] extraction) · CTSGun missing: EmptySound, GrenadeIdle,
+ReloadWeapon, StopReload (+CBasePlayer CheckForWires/PickUpWeapon/ShootBulletsPlayer/TSInit).
+
+### gmsg U-units applied (cont.82 continued; commits b57fe1c..9cd2a5d)
+- **U0 (b57fe1c)** registration-set parity: SelAmmo(4) FIRST + the linked guard; ClipInfo(1) registered
+  (+ client CHudTSWeaponBar::MsgFunc_ClipInfo); DELETED StatusText/StatusValue (UpdateStatusBar neutered),
+  Weapons (HLU 64-bit weapon bits — PLAYTEST-GATED; client hook+MsgFunc gone, m_iWeaponBits stays 0),
+  Flashlight/FlashBat (regs+sends+client hooks; battery logic kept wire-less); gmsgTSKickAlign dead-global
+  parity. Coverage extras 8→5.
+- **U1 (96a7e68)** TSState (0x498/0x499, posture wire now drives the client figure — g_iTSProne + usehull
+  derivation DELETED) · TSSpace (free slots recompute) · TSBTime (m_bSlowBullets IS the 0x175 byte —
+  star-settled; client g_bBulletTime now feeds TS_AddViewRecoil's bullet-time reduction, closing that VERIFY).
+- **U1d (8be3cda)** TSPAward: m_iAward 0x74c + 0x74d cache, MSG_ALL entindex+byte on-change; producers wired
+  where hosts exist (spawn clear, The One=10, RestartRound=11, Killed=11); out-of-round 1 + kill tiers 2/3/4
+  await SetPlayerRespawnTime/PlayerKilled-tier passes. Client per-player g_iTSPlayerAward[] table.
+- **U2 (693c5c5)** PlInfo: client announces cl_lasercolor changes via the lasclr_<n> PREFIX server cmd;
+  server rebroadcasts MSG_ALL (idx, 0, raw byte); client colors OTHER players' lasers from it (default-red
+  SLICE closed). PLAYTEST: two-client laser colors.
+- **U4a (9cd2a5d)** PTakeDam(13) disasm-verbatim: TraceAttack throttled (0.3s, +0x750) MSG_PVS hit point +
+  dir + encoded byte (dmg*0.5, x8 under bit25, cap 127, +128 upper body); stock Damage stays REGISTERED but
+  its send is REMOVED (original never sends); client CHudHealth hooks PTakeDam (Damage hook kept) → pain
+  direction. VERIFY tail: client FUN_10048840 bit7 decode/hit effect.
+- **PENDING gmsg**: U3 SrvSett (star-SETTLED: id0=realbullet cache 0x578, id1=dmcashbased/usecash bool,
+  id2=ammocount + Set_ammo_count BEFORE the MSG_ALL send, id3=weaponrestriction bitmask 0x5870&0x586c;
+  InitHUD sends ALL FOUR MSG_ONE; **Set_ammo_count now EXISTS (F2a) — U3 is unblocked**) · U3b Wires (needs
+  CBasePlayer::CheckForWires) · U4b TSFade (decompile UTIL_ScreenFadeWrite @0xdcc54 first) · U5 CustomWP
+  (needs iPrice extraction + the TS_util SendWeaponParams family — F2b).
+
+### SESSION CLOSE (cont.82): playtest round-2 fixes + handoff
+- **m61 type-code fix (6f42cfd)**: the grenade never spawned — iKnifeType[TSW_M61]=4 was never populated
+  (the GrenadeIdle throw gate is `info+0x20 == 4`, Write_m61 @0x77e0e).
+- **Round 2 (e80cb34)**: drop glow on ALL guns (BOTH binaries gate it to the briefcase @0x90902/mp.dll
+  @0x742a6 — user-directed divergence, documented at the site); explo boom pitched 100+300*slow (recorded-
+  slow wav); blast glass shards scale with the killing damage (the exact CBreakable+0x110 factor VERIFY);
+  **the breakable-respawn DEFAULT bug** — gcc2 calloc'd entity data means an absent `respawntime` keyvalue
+  = 0 = the 30s default in the original; our -1 defaults (func_break + doors) made everything permanent.
+- Session decompiles preserved at **reference/dossiers/cont82/** (README indexes them + the Write_* column
+  extraction pattern); the five client melee handler decompiles + dossier-ev-melee.md at cont81/.
+- HANDOFF cont.83 section written (queue, remaining 6/33/6 lists, methods, task list).
+
+### The live-playtest loop (cont.82 continued; user driving; commits 3c4c848..e8592ad)
+User feedback answered with binary RE, applied same-session:
+- **U3+F4 (b4f464c)** SrvSett + weaponrestriction · **U4b (a49bc21)** TSFade (slow-stretched, engine-exact
+  client parse) · **U5+F2b (f9667b7)** CustomWP pipeline + iPrice column (disasm-corrected: M60 8000,
+  skorpion 1100) + live buy prices + loadweapons/saveweapons · **Wires+DecideGamePlay (a0781dd)** —
+  the MODE BYTE decoded: rules+0 = DecideGamePlay 0/1, InitObjectives promotes team maps 2/3
+  (ts_objective_manager presence); Wires gates on 3; the dead "lms" cvar reads fixed to g_lastManStanding.
+- **F5 singles + powerup fixes (3c4c848)**: GetRandomPosition/PlayerIsCheating/TSCountPlayers/
+  GetBodyByItems(+5 body columns extracted, wired into Deploy); POWERUP: EF_DIMLIGHT was invented (orig
+  ORs EF_MUZZLEFLASH), landed bbox = (-16,-16,0)..(16,16,64) — origin AT the floor (ours floated 16u).
+- **M61 grenade cluster (e8592ad)**: GrenadeFire = PIN-PULL only (no fuse!); GrenadeIdle = the cook
+  machine (throw on release, pitch-shaped force cap 750, overhand eyes/underhand FEET 2/3 force + roll
+  physics, FUSE 3.0 FROM THE THROW, holster force-throws, post-throw consume tick); TSExplosion sends
+  the faithful TSCreateDebris material-1 (client owns the boom: explo/explode1-4.wav + NOSOUND fireball);
+  the "sometimes slow-mo on explosion" = DoSpectacularNess roll (spectacularness cvar default 1 ≈ 2%) →
+  a 1-second scale-0.25 CTSSlowMotionPoint — wired; TSPrecache @0x8f320 full map-window list (kills the
+  grenbounce/explode late-precache warnings).
+- **Breakable respawn (user question, ANSWERED — already reconstructed)**: break ≠ delete — hidden +
+  DEAD_DEAD; an info_breakable helper (spawned when the map sets `respawntime` ≥ 0) rearms after
+  respawntime (0 → DEFAULT 30 s; negative → permanent); BreakableRespawn(false) box-clear check →
+  restore+re-Spawn, blocked → 5 s retry; virtuals on CBreakable + CBaseDoor + CRotDoor (angles-only) =
+  breakables AND doors AND rotating doors; RestartRound force-respawns all. Parity nit: our
+  CBaseDoor::RespawnThink trampoline is audit-INVENTED (doors should ride the helper) — #5 review.
+Headline now: **6 missing methods · 33 invented · 6 missing free funcs** (methods left: EmptySound/
+ReloadWeapon/StopReload (CTSGun) + PickUpWeapon/ShootBulletsPlayer/TSInit (CBasePlayer); free funcs left:
+SetPlayerRespawnTime, TSSelectSpawnSpot, TSGetPointsForFrag, PseudoClimb, TSPlayerDisconnect,
+RemoveEntityFromSlowedArray).
+
+### freefuncs F1 + F2a + F3 applied (cont.82 continued; commits bec9d0f..189f11f)
+- **F1 (bec9d0f)** the dead/trivial batch: CalcSpread/DropKickback/GetCloseCombatVectors/IsWeaponAkimbo/
+  IsOnlyAkimbo (ts_gun) · GetAccelBySlots/DoSpectacularNess (TS_gamerules) · UTIL_EntInArray/
+  WeaponIdFromString/TSFoundRandomEntity (**TS_util.cpp NEW**) · FixVelocity(+3 call sites)/CanJumpHigh
+  (TS_pm_shared; NOT wired into PM_Jump — superjump hint refuted) · **LINK_ENTITY_TO_CLASS(m61_grenade)**
+  (the missing factory; the ONE intended nm delta, baseline regen). ts_shared.cpp now in the client build.
+  39→26 missing free funcs.
+- **F2a (d58efed)** the s_ammo_info table: full 0x38-struct + global_ammo_info[16] + compile_ammo_info
+  (original write order) + get_ammo_info + **Set_ammo_count** (4 mode tables, SHARED) + compile_range_damage/
+  get_range_multipler LUT, chained from compile_weapons_info. **TWO LIVE BUGS FIXED**: kAmmoMax was the +0x20
+  RANGE column (9mm cap 80→real 210 — PLAYTEST-GATED buff, but it's the original); kBulletSpeedUnit was in
+  compile-WRITE order (slow-mo .45 flew at .50AE speed). cal13 = 7.62x51 (M60), not .45LC. 26→21.
+- **F3 ★ (189f11f)** the range-damage falloff WIRED (the gameplay headline): V1 gate resolved by a fresh
+  UpdateBullet decompile — rec+0x3c = the ammo KIND (2 → form A idx=dist/30; else form B idx=dist/rangeUnit),
+  damage *= clamp(1/sqrt(0.1·idx),0,1). Applied inline at BOTH damage sites (CBulletManager hit — record
+  gains caliber+kind; TSFireBulletsPenetrate — per-layer re-base). + **UTIL_TraceLine_Expanded @0x5f4f4** +
+  vecBoxes[33] (±32u player absbox inflate, absmax-only restore quirk) swapped into both traces.
+  PLAYTEST-GATED as one "TS gunfeel" gate. 21→20.
+- **U3 + F4 applied (b4f464c)**: SrvSett full (InitHUD all-four catch-up MSG_ONE; Think tail on-change
+  MSG_ALL ids 0-2, id2 → Set_ammo_count BEFORE the send; caches as CTSGameRules members 0x578/0x558/0x55c) +
+  the weaponrestriction system (cmd_weaponrestriction AddServerCommand + display + g_szRestrictions +
+  WeaponRestrictionByID presets AND-masked by 0x586c + GetWeaponType/IsRestrictedWeapon + the BuyWeapon gate;
+  default 0x1f = stock behavior). Client MsgFunc_SrvSett 4-way switch, case 2 = SHARED Set_ammo_count;
+  ids 0/1/3 globals (consumers VERIFY tail). 20→17 missing free funcs.
+- **REMAINING freefuncs**: F2b (iPrice extraction + CustomWP pipeline SendWeaponParams/InformClients/
+  adjust/save_weapon_value + cmd_load/saveweapons + client MsgFunc_CustomWP + CTSGameRules m_bWeaponParams
+  Custom/m_flHealthAbsorb — pairs with gmsg U5) · F5+ (see dossier-freefuncs §3: GetBodyByItems→Deploy,
+  TSGetPointsForFrag, TSSelectSpawnSpot, SetPlayerRespawnTime→completes the TSPAward producers, DecideGamePlay,
+  TSPrecache, TSPlayerDisconnect, TSCountPlayers, PlayerIsCheating, RemoveEntityFromSlowedArray→completes
+  CTSKnife::Use, PseudoClimb). REMAINING gmsg: U3b Wires (decompile CheckForWires first) · U4b TSFade
+  (decompile UTIL_ScreenFadeWrite @0xdcc54 first) · U5 CustomWP (with F2b).
+
+---
+
+## 2026-07-02 (cont. 81) — workflow-orchestrated RE fan-out + the file-consolidation plan applied (C1–C20)
+
+Continued `restructure-source-parity` (NOT merged; GPG off). NEW METHOD this session (user-directed): **multi-agent
+Workflows** — 4 concurrent RE workflows + 1 star-pass agent (42 subagents total, ~4.4M tokens of raw decompile kept
+out of the orchestrator context), each on its own Ghidra-project lock domain (re / clientdll / none), all read-only;
+every source edit applied centrally afterward. Dossiers in the session scratchpad (regenerate if gone):
+`dossier-melee.md` (+`-addendum-L1-L2.md`), `dossier-gmsg.md` (+6 `star_*.md`), `dossier-freefuncs.md`
+(+5 `analysis_ff_*.md`), `plan-consolidation.md` (+6 `plan_files_*.md`).
+
+### The consolidation plan APPLIED — 20 commits (846d960..), audit FILE level now CLEAN
+**22→0 FILE mismatches, 2→0 MISSING files.** Every commit build-green (`build.sh amd64`, C18 `all`) + gated on
+`nm -D` T-export set EXACTLY identical to the 05be983 baseline (proven: the whole plan is text motion) + audit
+monotone. C1 ts_bulletmgr→ts_bullet · C2 fog→ts_emitter · C3 knife→ts_grenades · C4 ts_gamerules→TS_gamerulesclass
+· C5 GetRandomPowerup/PutPowerUp/g_iNoLowGravPowerup→ts_powerup · C6 NEW TS_gamerules.cpp (free-fn file; HaveFlag +
+InitWeaponRestriction) · C7 ts_teams folded into TS_gamerulesclass · C8 CTSSuperJump→hldmcompat · C9/C10
+groundweapon+groundammo→ts_worldgun · C11 →TS_objectives.cpp · C12 NINE entity files→TS_entities.cpp (binary
+address order) · C13 CTSTrigger→TS_entities · C14 bomb→TS_objectives + CBasePlayer::CutWire→ts_player · C15/C16
+escape+briefcase→TS_objectives · C17 audit comment-regex false-positive reword (TU-order polish deferred) · C18
+pm_shared/TS_pm_shared.{h,cpp} carve-out BOTH libs (6 TS* fns de-static'd; hidden-visibility so dyn exports
+unchanged) · C19 audit.py: skip `__*` RTTI junk (phantom pm_shared.c), client.dll ACCEPTED_CLIENT_FILES mapping +
+report section, client.dll out of missing_files · C20 docs regen. Gotcha ×2: python "body after last include"
+splits DROP defines/enums sitting between includes (SF_SLOMO_*, BOMB_*/tsbomb_wire_t) — restored by hand.
+REPORT.md regen showed non-cosmetic drift → PROVED pre-existing staleness (LINK_ENTITY_TO_CLASS set diffed
+IDENTICAL between 05be983 and HEAD via a temp worktree), not a contract change.
+
+### The RE dossiers (all reconcile work-lists, NOT yet applied — the next session's queue)
+- **MELEE (dossier-melee.md, 9 missing methods)**: bar lives on the PLAYER (+0x774), whiff-lunge +0x79c..0x7a4,
+  block windows +0x7a8/ac/b0 (value 0.5, PreThink-decayed, floor 0); UpdateMeleeBar = single drain choke-point
+  (<0.01 → bar=0 + m_flNextAttack=1.5 lockout; ALWAYS sends KFuPower CHAR); twins CloseCombatAttack/ColdCockAttack
+  (CheckHull trace → Victim*Hold deflect → disarm/knockback → glast_* damage); KnifeFire/KatanaFire/KatanaThrow/
+  CCombatIdle on CTSGun; CTSKnife::WaitTouch replaces our invented settle/pickup set. Rename/absorb map + S0–S10
+  build-green order in the dossier. **L1/L2 CLOSED STATICALLY (addendum)**: regen = PreThink
+  `bar += GiveSlowMul()*frametime*15.0` (×1.5 under TS_PWUP_DBLFIRE bit 0x10 = m_iPowerups), clamp 100, init 100 in
+  TSInit — our invented 25/s regen is WRONG; block windows decay by the same delta with 0-floor; bonus: GoWheel/
+  CloseAttack clear the kungfu window; 4th timer +0x7b4 decays ×5. Method: objdump scan for member-offset accesses
+  + nearest-nm-symbol + GOT-relative .rodata reads — no live trace needed.
+- **GMSG (dossier-gmsg.md + star_*.md, 14 messages, 6 units U0–U5)**: SelAmmo(4)/ClipInfo(1) register-only;
+  SetCurWeap dead (we already match); gmsgStatusText/StatusValue/Weapons/Flashlight/FlashBat = INVENTED
+  registrations to DELETE (registration-set parity; gmsgWeapons removal playtest-gated vs HLU 64-bit weapon bits).
+  Real carriers: TSState(1,@0x498)/TSSpace(1,@0x548)/TSBTime(1,src=m_bSlowBullets@0x175)/TSPAward(2,MSG_ALL,
+  @0x74c, producers fully mapped incl. lastman/killer tiers)/PlInfo(3,laser color)/SrvSett(3: id0=realbullet NOT
+  roundtime, id1=dmcashbased cvar "usecash", id2→Set_ammo_count, id3 weaponrestriction; InitHUD sends ALL FOUR)/
+  Wires(3, CheckForWires: PreThink-only, gamemode==3, 0.5s throttle, sphere-64 ts_bomb scan, ROLE codes on the
+  wire)/PTakeDam(13, TraceAttack)/TSFade(-1, Write divides fixed 4.12 ushorts by per-recipient GiveSlowMul; stock
+  Fade never sent)/CustomWP(-1, "%i %f %f %f %f %i" string, needs iPrice column). **★ SHIPPED BUG CONFIRMED: the
+  original registers the flag message as "TSFlag"(4) (string = tail of "7CTSFlag" @0xf9c84) into gmsgTSHaveFlag;
+  our ts_flag.cpp registers "TSHaveFlag" → drop-in client would never get flag updates. 1-line fix queued.**
+  Full 64-entry LinkUserMessages registration order recovered (star_LinkUserMessages.md).
+- **FREEFUNCS (dossier-freefuncs.md, all 43 RE'd, plan F1–F10)**: s_ammo_info 16×0x38 table fully recovered
+  (price/kind/maxcarry/mag/travel/falloff-range/speed/name); range-damage falloff = clamp01(1/sqrt(0.1·i)) LUT,
+  two index forms (dist/30 kind==2, dist/ammoInfo[+0x20] per-caliber 800u..2000u) — our flat damage is the biggest
+  gameplay gap (F3 ★). LIVE divergences found: kAmmoMax serves the FALLOFF-RANGE column as reserve cap (9mm 80 vs
+  real 210, mode-scaled +0xc via missing Set_ammo_count); kBulletSpeedUnit in compile-write order not caliber
+  order; cal13 = 7.62x51mm not .45LC. TS_util.cpp = CustomWP pipeline + slowed-array (+0x208[32]/+0x288 — our
+  player.h comment says 0x188, fix) + lifecycle (TSPlayerDisconnect resets = vote-rejoin bug fix + CallCheckDeads
+  round-end; TSCountPlayers counts dead-awaiting-respawn +0x770>=0; PlayerIsCheating = forced cl_lw 1; TSPrecache
+  ~30 missing assets). TS_gamerules.cpp: DecideGamePlay (g_gamemode 1DM/2Team/3LMS/4TheOne, cvar priority
+  theone>lms>teamplay), Victim*Hold (melee S3), TSSelectSpawnSpot (far-enemy scorer + 300dmg telefrag),
+  DoSpectacularNess (style points). pm_shared: PseudoClimb = the one real gap; FixVelocity = empty ret; CanJumpHigh
+  = DEAD (superjump hint REFUTED). Dead-in-binary but reconstruct-for-parity: CalcSpread/DropKickback/
+  GetCloseCombatVectors/WeaponIdFromString/AdjustSpecificWeapon/TSFoundRandomEntity/GetAccelBySlots. Sightings:
+  TSGameRules = GLOBAL CTSGameRules instance @0x1681a0 size 0x5894; objects/roundtime unseen by the 43.
+
+### Melee dossier APPLIED through S4 (cont.81 continued; commits 4377174..40c9bb5)
+S0 inert state (members+glast_*+table columns) · S1 UpdateMeleeBar + bar->player migration + RE-proven
+15/s PreThink regen + VALUE window decay (m_flKungFuBlock semantics converted, all readers updated;
+RegenBlockBar + 4 invented members deleted; WeaponInfo clip byte = ROUND(bar) for melee) · S2 BlockPlayer
++ PreThink root/whiff lifecycle (+ stunt reset zeroes) · S3 CheckHull + FindHullIntersectionplayer +
+Victim{Katana,Knife,Kungfu}Hold (counter role-swap faithful; uncalled) · S4 the twins CloseCombatAttack/
+ColdCockAttack (uncalled; DropWeapon(int,float) disarm shape added with the -2 roll VERIFY-gated INERT).
+Headline now: **14 missing methods · 41 invented · 39 missing free funcs · 0 file/0 member/0 class gaps.**
+S4b DropWeapon(-2) internals RE'd + implemented (decompiled @0x84900: a PRESSURE ACCUMULATOR player+0x7b4
+= the 5x-decay PreThink field; thresholds katana 30 / melee cat 25 / clamp(slotCost,20,50); TSW_FLAG
+undisarmable) · S5 rewired CCombatAttack + CTSStunt::CloseAttack onto CloseCombatAttack (full deflect/
+counter/disarm/knockback live; miss presentation kept until S7b) + **the GoWheel dir==3 BACKKICK combo is
+WIRED (UpdateMeleeBar 22.5 + backward whiff arm) — the Track-B blocker** · S9 CCombatIdle + WeaponIdle
+bare-hands branch. Headline: **13 missing methods · 41 invented · 39 free funcs.**
+S6 LANDED (794635e): ColdCock wrapper RE-exact (iColdCockDamage table, x2/3 stunting, 0.725 cadence,
+kevlarhit confirm 60-91, twin-routed four-false) + AlternateAttack gate (active+coldcock-capable, clip
+gate removed) + the DeathNotice kill-feed flavor ("Kung Fu" / "<weapon> Stock" + #TS_Coldcock broadcast).
+REMAINING melee: S7a/b/c knife/katana
+split (largest; MeleeAttack/ThrowKnife absorbed; knife/katana/draw.sc protocol swaps need the client side
+simultaneously); S8 CTSKnife WaitTouch + settle/pickup rewire; S10 close-out. Then gmsg U0-U5 (dossier-
+gmsg + star_*.md — registration parity first) and freefuncs F1-F10 (dossier-freefuncs). VERIFY tags in
+code: L7 per-move whiff/rootFlag table, L10 CloseAttack drain const + top-up, backkick force base,
+8-arg EMIT_SOUND_DYN, coldcock dmg bits (L5), CheckHull hull extents, whiff expiry predicate.
+
+### ⭐ MAJOR RE CORRECTION (cont.81, user-driven): directional stunt poses — the "+0x510 never written" premise was WRONG
+player+0x510 IS m_vecStuntDir: CTSStunt is EMBEDDED at CBasePlayer+0x4f0 (Jump: GoWheel((CTSStunt*)&this->
+field_0x4f0)) and m_vecStuntDir = CTSStunt+0x20 → 0x510. GoRoll/GoWheel write it via the STUNT this-pointer —
+invisible to every player-relative write scan (the cont.80 eedf94f "always forward" reading AND cont.81's objdump
+sweep were both blind to this; the USER's original-game knowledge was right → memory
+[[embedded-object-offset-blindness]]). Fixed (27fde55): Animate 0x2e/0x2f/0x30/0x31/0x32 dispatch directionally
+off GetDirection(m_vecStuntDir, v_angle, 0.6, 0.3) with the ctor tables (getup dive_l/r/f/b_end · roll
+roll_l/r/f/b · dive_end {roll_l, roll_r, roll_f_high, roll_b} · wheel 0/1/3/else→l/r/b/f · lowwheel 2/0/else→
+f/l/r, NO lowwheel_b). GetDirection rewritten VERBATIM (@0x6b008: yaw+roll basis pitch-zeroed, right-dot ±0.6
+first, fwd-dot < -0.3 = back) + ALL callers now pass NORMALIZED vectors (orig normalizes per-site; zero→(0,0,1)).
+Also f85d325 (the earlier wrong always-_f fix, superseded) + backkick force = +15 doubled-KungFu (gowheel
+decompile-exact, was -35 VERIFY). User-confirmed the model: lowwheel_* = double-jump moving, roll_* = double-duck,
+wheel_b = standing double-jump. STILL OPEN from the playtest: wheel lands prone but "immediately gets up" (should
+stay down unless moving) + prone switches too fast; the stamina-bar HUD refill (client-side KFuPower drain-only —
+wire the WeaponInfo melee byte into the HUD bar + reset on respawn).
+
+### ⭐ SECOND SYSTEMATIC CORRECTION (cont.81): entvars gravity/friction map was INVERTED (offsetof-proven)
+gravity = pev+0x11c, friction = pev+0x120 (32-bit offsetof; anchors v_angle 0x74 / view_ofs 0x174 / button
+0x180 / flags 0x1a4 / iuser4 0x250 all verified). The cont.80 ledger's "GoRoll gravity 0.3 (pev+0x120)" and
+every derived stunt transcription had the two swapped. Swept (60086ff): GoRoll = friction 0.3 · GoWallJump =
+gravity 0.75 · GoWheel = gravity 0.75 both tiers + forward-LOW friction 0.25 (the "flying" double-jump bug) ·
+HandleWheel = HIGH-landing friction 0.25 + gravity-1.0 restore tail · HandleWallJump/Climb = friction 0.5 +
+gravity 1.0 · HandleSlide deliberate = friction 1.0 · getup restores both. Also fixed this session: HandleWheel
+is a LANDING handler (FL_ONGROUND gate, 4e4eb36 — the ungated version caused the lowwheel mid-air prone stomp)
+and the directional-pose dispatch (27fde55, see the m_vecStuntDir correction above). Verify any remaining
+pev-offset reading with /tmp/offcheck-style offsetof before trusting it.
+
+### The PRONE/LYING system transcribed verbatim (cont.81 continued; user-driven playtest loop)
+Model-dump ground truth (agent.mdl 171 seqs, parsed via studiohdr) + the Animate/HandleSlide decompiles settled
+the whole family: settled prone = Animate case 3 = LOOPING slide_<dir>_<grip> (dir = GetDirection(m_vecStuntDir,
+v_angle) with the !=2 latch; m_bDirForward==false -> forward; grip->akimbo fallback; entry guard vs last 0/8/9) ·
+case 0x29 = the slide_*_end GETUP family (standups only) · 0x2a/0x2b = the LOOPING slide_f_<grip>_left/right
+prone ROLLS with the m_bDirForward gate (non-forward = the original's missing slide_b_left/right quirk) ·
+HandleSlide VERBATIM @0x9b9f8: FL_ONGROUND gate, slideTime<0.01 branch gates, IN_BACK friction pin, and the
+strafe-roll DIRECTION RE-ANCHOR (m_vecStuntDir = aim forward, m_bDirForward=false, latch=2) — the fix for
+"sideways prone can't roll"; deliberate standup arms rollTime 0.75 + player+0x78 (m_iStandUpLatch NEW member —
+the cont.80 unresolved latch's WRITER found, consumer still VERIFY) · dive case 0x28 grip fallback. ALSO:
+player+0x51c = m_bDirForward (CTSStunt+0x2c — second embedded-object-blindness find). HandleWheel = LANDING
+handler (FL_ONGROUND; LOW->SLIDE + reversed-dir latch, HIGH->STOP+friction .25+rollTime .375; gravity restore).
+USER-VALIDATED: double-jump + double-duck "absolutely nailed"; dive + landing poses per direction AND per grip
+perfect. Remaining prone re-test: the strafe-roll re-anchor fix (658d211).
+
+### ⭐ THE MOVEMENT-PHYSICS ARC (cont.81 continued): pm phase-2 recovered via user-driven probes
+The roll-decel A/B ("ours slower, theirs keeps rolling") unravelled the WHOLE TS movement layer:
+1. **THE ROOT CAUSE (d315000)**: the halflife-updated base DROPPED the stock `!pmove->multiplayer` gate on the
+   per-move `pmove->friction = 1.0` reset → in MP pev->friction became a ONE-SHOT, silently ERASING every stunt
+   friction (roll 0.3, wheel 0.25, walljump 0.5) before PM_Friction saw it (probe-proven fric=1.00 every roll
+   frame; the original's SOLE reset site @0xf1229 in PM_Move is !multiplayer-gated, disasm-verified). THE THIRD
+   base-SDK divergence this arc (gmsgWeapons regs, SetAnim seq-0 fallback semantics, this).
+2. **PM_Friction (4511683)**: TS deltas = drop x0.75 + edgefriction only at entity friction 1.0 (control =
+   max(speed, stopspeed) is STOCK — the Ghidra "control=0" was an artifact, raw-asm verified).
+3. **PM_FlyMove (e4aec54)**: wall backoff = 1 + 0.01*(1-friction) (movevars->bounce coefficient replaced by
+   0.01) — no stunt ricochet; surfaced as "+alt1 dive bounces off walls" once friction persisted.
+4. **PM_WalkMove (50d2d3c)**: backpedal x0.8.
+5. Blend snap (6fd6163): xash's CL_CompareTimestamps 1ms quantization randomly skips the sequence latch at high
+   listenserver fps (GoldSrc 100fps always latches) → client re-latch shim in OUR StudioModelRenderer
+   (presentation-only; SetAnim @0x5d7e4 decompile-diffed byte-equivalent).
+USER-VALIDATED: roll carry "PERFECT"; +alt1 dive wall-clip + slide "fantastic"; stamina HUD refills. pm phase-2 (PM_Jump/PM_Duck full diffs) still has
+un-diffed remainder — the four functions above are transcribed at the divergence points found.
+
+### SESSION CLOSE (cont.81): the RE für the whole remaining queue is DONE; application is the cont.82 work
+All dossiers/plans/decompiles COMMITTED at reference/dossiers/cont81/ (README indexes applied-vs-pending).
+Applied: consolidation C1-C20 · melee S0-S6+S9 · the stunt/prone/movement chapter (user-validated) · TSFlag wire
+fix · stamina HUD. Pending application: melee S7abc/S8/S10 · gmsg U0-U5 · freefuncs F1-F10 · invented review +
+globals tail · stunt/pm tail. Final audit: 13 missing methods · 41 invented · 39 free funcs · 17 globals ·
+0 file/0 member/0 class. HANDOFF cont.82 section written (methods, queue, task list, gotchas).
+
+### STILL OPEN (cont.81 → next)
+- **Apply the dossiers**: melee S0–S10 (UpdateMeleeBar unblocks the GoWheel backkick = stunt tail), gmsg U0–U5
+  (TSFlag 1-liner first), freefuncs F1–F10 (F3 falloff playtest-gated). All work-lists are commit-ordered.
+- Track B stunt tail unchanged (cont.80 STILL-OPEN list) + task #8 invented-method review (CTSGameRules 11,
+  CBasePlayer TS* 8) + TU-order polish (C17 deferral) + runtime smoke points from the plan (tm_avana, ts_wyndham,
+  ctb map, stunt prediction) — ALL of C1–C20 is nm-gated but UNPLAYTESTED.
+
+---
+
+## 2026-07-01 (cont. 80) — CTSAnimation Region B + fire/grenade faithful; live-trace proved m_fSequenceFinished works
+
+Continued `restructure-source-parity` (NOT merged; GPG off). Focus: the CTSAnimation 3rd-person tail (task #3),
+driven by a LIVE gdb trace of OUR OWN build. Commits: `fea34f9` (Region B), `cdc6cc9` (tooling), `b4d6be4`
+(fire/grenade), `eedf94f` (prone/getup/roll dir source). All build `scripts/build.sh amd64 all` clean.
+
+### cont.80 continued (2026-07-01/02) — the WHOLE CTSStunt acrobatics system, playtest+RE driven (10 commits)
+After the CTSAnimation tail, the user set a `/goal` (Stop hook) to fix the 3rd-person stunt behaviours and drove
+an iterative playtest loop. Every "does X do Y?" was settled by RE (decompile the original CTSStunt fn) + a live
+playtest, NOT by guessing. Commits `fea34f9..07494ea`. The full input→move map (RE-confirmed, user-validated):
+- **Double-tap DUCK (running ≥80) → dive-ROLL** = `CTSStunt::GoRoll` (roll_f). Original caller = `CBasePlayer::Duck`
+  on the IN_DUCK edge (only caller — RE'd via re.sh refs + the cached Duck decompile). `a245229` wired it (GoRoll
+  had ZERO callers = dead), `8a82ee9` fixed GoRoll's gate: it's a DOUBLE-TAP via `m_flRollNextTime` (ABSOLUTE
+  re-arm timestamp, time+0.3 on fail, 0 on success; airborne needs it armed, ground 1st-tap arms/2nd-tap rolls).
+  Our old GoRoll compared the roll DURATION `m_flRollTime` against absolute `gpGlobals->time` (always true → roll
+  ALWAYS failed) AND the fail-path set `m_flRollTime = time+0.3` (absolute), CORRUPTING the duration so the getup
+  timer never fired AND HandleStunt's `m_flRollTime>0.001` guard tripped forever → that ONE bug was blocking the
+  dive, the walljump, AND causing "press duck → stuck ducked". GoRoll sets gravity=0.3 (pev+0x120), not friction.
+- **Double-tap JUMP → wheel/cartwheel FLIP** = `CTSStunt::GoWheel` (front/side/back flip landing prone; backward =
+  feet). Original caller = `CBasePlayer::Jump` on the IN_JUMP edge (before the normal jump) — RE'd via the Jump
+  decompile. `20aa568` wired it (Jump never called GoWheel) + fixed GoWheel's double-tap gate (`time <=
+  m_flWheelNextTime` + on-ground/within-0.7s-of-ground via m_flLastStunt). `07494ea` fixed the tiers: aim-up
+  (v_angle.x<-10)/backward = HIGH wheel `iuser4 PRONE|WHEEL_HI|DIVE_MED` + friction 0.75; level/forward = LOW wheel
+  `PRONE|WHEEL_LO|DIVE_LOW` + friction 0.75, forward(dir==2) gravity 0.25. Ours had STOP/DIVE_LOW + gravity↔friction
+  swapped → "behaved like a roll" at 30° up instead of the dive-to-feet. (User found the 30°-up nuance.)
+- **+alt1 at a wall (facing+close, jump NOT held) → BACKFLIP** = HandleStunt `!(button&IN_JUMP) && (m_afButtonPressed
+  &IN_ALT1) → CheckForWallJump → GoWallJump` (RE-confirmed at CTSStunt_all.txt HandleStunt call-site; also a mid-
+  climb path in HandleWallClimb). `90e73f6` fixed GoWallJump gravity→friction; pm_shared TSWallJump `-forward*210`,
+  `z=√56000≈236.6` (was a tuned 270). The backflip was ALSO blocked by the GoRoll m_flRollTime corruption (guard);
+  fixing GoRoll unblocked it. USER-VALIDATED both work.
+- **GETUP** (`fea34f9`+`90e73f6`+`4204c4b`): Region B hold-guards transcribed 1:1 from Animate@0x5b470 (the
+  swallow/freeze fix); the Play getup is ONE state-cleanup block (NO Animate — the getup ANIM is only in Landing's
+  roll branch); HandleSlide's deliberate-prone branch arms m_flRollTime=0.75. Prone pose = slide_<dir>_<grip> (the
+  ctor pose table `this+0xdc`=slide_*_end are the RECOVERY/getup anims, NOT the settled prone — using them + our
+  every-frame FORCE re-dispatch made "constantly getting up"; `4204c4b` reverted to the lying pose). Pose tables
+  recovered from the CTSAnimation ctor@0x5b0c8: prone this+0xdc={slide_l/r/f/b_end}, getup this+0x11c={dive_*_end}
+  →dive_f_end, roll this+0x15c={roll_l/r/f/b}→roll_f, dive_end this+0x19c→roll_f_high (getup/roll/dive_end always
+  FORWARD because player+0x510, their dir source, is NEVER written in the binary → GetDirection returns forward).
+- **superjump-land sound on a normal jump** (`a245229`): player.cpp low-grav block set m_bSuperJumpAir on ANY
+  airborne frame; removed the `else if(!onGround)` so only a real duck+jump lift arms the land thud.
+- **prone roll L/R** (`a245229`): HandleSlide auto-slide maps IN_MOVELEFT→Animate(0x2a), IN_MOVERIGHT→0x2b (both
+  no-FORCE, no loop), else 0x29 (RE says no-strafe = Animate(3); kept 0x29 = the validated static prone).
+
+**LIVE-TRACE TOOLING built (reuse it):** `BUILDTYPE=RelWithDebInfo scripts/build.sh` (build.sh honors $BUILDTYPE;
+Release has no DWARF so gdb can't read members). `test.sh GDB=<script.gdb>` launches xash UNDER gdb batch (gdb=
+parent satisfies ptrace_scope=1, NO sudo). Probe = a python `gdb.Breakpoint` on the fn, `stop()` returns False
+(logs, never halts), reads args from ENTRY registers ($rsi/$edx — params optimized out of scope at -O2), casts via
+`gdb.parse_and_eval` in the SELECTED frame (`gdb.newest_frame().select()`; global lookup_type fails). Scripts in
+scratchpad/anim_log.gdb. **⭐ decisive win:** the trace PROVED m_fSequenceFinished DOES advance server-side (hits 1
+at pev->frame 255 via PostThink StudioFrameAdvance) — the prior "it doesn't" premise (and the timer substitution +
+the reverted 4-region rewrite) was WRONG; the reverted rewrite froze because its hold cases fell through (no break).
+
+### STILL OPEN (cont.80 → next; behaviour-verified where noted, else playtest-gated / RE-flagged)
+- **GoWheel pitch tiers** (`07494ea`) — awaiting the user's re-test (aim-up dive-to-feet vs level roll).
+- **Backward double-jump BACKKICK combo** (GoWheel dir==3): needs `CBasePlayer::UpdateMeleeBar` (one of the 19
+  missing methods) + the whiff-lunge params player+0x79c..0x7a8. Flagged in 07494ea.
+- **Roll DIRECTIONAL variants** (roll_l/r/b): the roll always plays roll_f because Animate case 0x2f (ROLL) reads
+  the dir from player+0x510 (never written→forward). The user wants roll_l/r/b. RE how the original gets a
+  directional roll (does GoRoll write player+0x510? or is m_iDirection the source? — recheck; player+0x510
+  "never written" was from a grep, re-verify against GoRoll/GoWheel writes).
+- **GETUP ANIMATION on the deliberate prone-standup**: the original plays NO anim there (only the roll-landing
+  animates); the user WANTS an anim. Region B case 0x29 swallows a 0x2e dispatch while PRONE set → to animate the
+  deliberate standup you'd need to clear PRONE first or use a non-swallowed path = an intentional divergence; ask.
+- **HandleSlide full auto-slide** (RE = Animate(3) no-strafe / 0x2a / 0x2b): we kept 0x29 for no-strafe to preserve
+  the validated pose. The stand-up latch player+0x78 is unresolved (timer-only getup) — live-trace its clear.
+- **Superjump ANIMATION** (ducking in mid-air): the m_bLowGravity superjump is a rough "per playtest" reconstruction,
+  not the faithful CTSStunt superjump/morfy — RE the real one (Animate 0x39 morfy).
+- **Directional DEATH** (Animate case 7): needs player field_0x10c semantics + the die_spinback RANDOM_LONG range.
+- **CTSAnimation exact pose tables** are now recovered (ctor@0x5b0c8) — prone/getup/roll/dive_end names are RE-exact.
+
+### ⭐ THE DECISIVE FINDING (kills the prior premise): m_fSequenceFinished DOES advance server-side
+The cont.78/79 revert (6a8ca20) of the 4-region Animate rewrite was justified as "m_fSequenceFinished isn't
+advanced for the server-side player." **That was WRONG.** Live-traced our own hl.so (built RelWithDebInfo so gdb
+can read members — see tooling below): a register-read probe on CTSAnimation::Animate logged
+pPlayer->m_fSequenceFinished every call. It reaches 1 exactly at pev->frame==255 for non-looping seqs (seq 64,
+seq 61 observed). PostThink's StudioFrameAdvance (player.cpp:2925) advances it. So the timer substitution was
+unnecessary; the reverted rewrite actually froze because its Region-B hold cases FELL THROUGH (no `break`) into
+`case TSA_DIE: return` (unconditional hold). The original has an explicit break per case.
+
+### Live-trace tooling (reusable — `[[live-original-ts-debuggable]]` but for OUR build)
+- `BUILDTYPE=RelWithDebInfo scripts/build.sh` (build.sh now honors $BUILDTYPE; default Release has NO DWARF, so
+  gdb resolves function symbols but not types/members — blocks member reads). `test.sh GDB=<script.gdb>` launches
+  xash UNDER gdb batch (gdb=parent satisfies ptrace_scope=1, no sudo). Probe: a python gdb.Breakpoint on
+  CTSAnimation::Animate, stop() returns False (logs, never halts), reads pPlayer from $rsi (params are optimized
+  out of scope at -O2; the entry regs this=rdi/pPlayer=rsi/activity=edx are intact at the first-line bp), casts
+  via gdb.parse_and_eval in the selected frame (lookup_type fails globally). Scripts in scratchpad/anim_log.gdb.
+
+### Fixed + USER-VERIFIED
+- **Region B hold-guards** (`fea34f9`): transcribed Animate@0x5b470 switch(m_iLastActivity) 1:1 (all stunt/jump/
+  slide/die cases, break per case, iuser4 & TSSTUNT_PRONE(0x4) gates, a1 exclusions, IsAlive/IsOnLadder). Fixes
+  dive/prone-as-crouch: without it the per-frame PostThink Animate(1/6) + a competing fire re-forced the pose
+  every frame (seq flip-flopped, frame reset -> crouch). Trace after fix: seq holds, frame 0->32 smooth. ✅
+- **Fire/grenade** (`b4d6be4`): fire case 0/8/9 — airborne early-return; sliding (iuser4&0x20) plays
+  slide_f_<grip>_shoot (player+0x51c stored-dir path is DEAD CODE, 0x51c never written); the "2" alt-stance
+  variant; FIRE_SLIDEL/R append _left/_right; removed invented shoot_akimbo_left. Grenade adds iuser4&0x30 guard.
+- **prone/getup/roll/dive_end direction source** (`eedf94f`): getup/roll/dive_end take dir from player+0x510 (the
+  stored dive vector) which is NEVER written -> always (0,0,0) -> GetDirection=forward, so they DON'T re-orient;
+  prone uses FROZEN m_iDirection not a fresh GetDirection. Our old fresh-GetDirection churned the seq on strafe
+  (re-orient + the blink). USER-VERIFIED: blink GONE, prone pose FIXED (not re-orienting). ✅
+
+### OPEN (goal active — RE-verify, in progress via a CTSStunt dossier subagent)
+- **getup/roll never plays** — stays prone. ROOT CAUSE identified: our getup gate (ts_stunt.cpp:158) dispatches
+  Animate(0x2e) but does NOT clear TSSTUNT_PRONE, so my new Region B (case 0x29 holds on iuser4&PRONE) swallows
+  the getup dispatch (last=PRONE still). Need the original's standup path: does it clear PRONE / is prone seq
+  looping. (Subagent REing Play@0x8a014.)
+- **+alt1 mid-air wall-jump backflip** (gated: at+facing a wall, holding jump) — RE CheckForWallJump/GoWallJump/
+  HandleWallJump for the exact airborne gate + backflip velocity/anim.
+- **double-jump landing**: fwd/left/right -> land PRONE, backward -> land on FEET. RE the direction branch.
+- **VERIFY (flagged, not guessed):** exact CTSAnimation pose-name tables this+0xdc(prone)/0x11c(getup)/0x15c(roll)/
+  0x19c(dive_end) — offset collides with other classes; forward/slide_ stand-ins used. Directional death case 7
+  needs field_0x10c semantics + the die_spinback RANDOM_LONG range (deferred, not a user complaint).
+
+---
+
+## 2026-06-29 (cont. 77) — audit trustworthiness push: member/global/invented levels made honest
+
+Continued the source-parity restructure on `restructure-source-parity` (NOT merged; GPG off). Baseline green
+(`build.sh amd64 all`, glibc 2.14). The user opted to "keep grinding safe parity work" while the PLAYTEST
+gate (#2) waits on them; held the playtest-gated melee/CTSGun reshapes. Drove the audit's false-positive
+noise out so the work-list is real. **Headline: missing methods 20→19, invented methods 104→42, missing
+members 19→0, invented globals 8→6, missing globals 19→17** (+46 client + 15 stock now bucketed transparently).
+
+### Source parity (behavior-preserving)
+- **gmsg server-var renames** (`3649f43`): `gmsgActItems`→`gmsgTSActiveItems`, `gmsgWStatus`→`gmsgTSWeaponStatus`
+  (the original's names per inventory). Wire strings ("ActItems"/"WStatus") untouched → drop-in-safe. The vars
+  compile into BOTH hl.so + client.so (CTSGun is client-predicted) — rebuild `all` or the audit sees stale syms.
+  The OTHER ~14 missing gmsg globals map to the MISSING user-message list (server-send + client-hook
+  unimplemented) = genuine protocol RE, overlaps client-parity #7, NOT renames.
+- **CTSGun::GrenadeThrow → GrenadeFire** (`71312c5`): our own comment already said `@GrenadeFire__6CTSGun`;
+  `GrenadeFire` was simultaneously in CTSGun's MISSING list → pure rename resolved BOTH sides (double win).
+
+### Audit trustworthiness (the cont.76 theme, continued)
+- **srcparse pointer-to-member detection + array-index collapse** (`5f36164`): `void (CBaseEntity::*m_pfnThink)();`
+  has the name buried in parens so DECLRE/INLINE_METHODRE both missed it (added PMEMBERRE → CBaseEntity 4
+  false-missing gone). And the original's DEFINE_ARRAY save fields expand to indexed names (`targets[0..7]`),
+  never matching our single array member → collapse `name[i]`→`name` in the diff (CTSObjectiveManager 12 gone).
+- **CTSPhysicObject curator mis-hoist fixed** (`3d8a670`): `m_flExpire`@0x88/`m_pOwner`@0x8c/`m_iType`@0xa0 were
+  `curated` rows sitting PAST the class's binary footprint (auto fields stop at 0x84) — CTSFlag/CTSWorldGun-shaped
+  fields an old curate run hoisted onto the slow-mo base, persisted via `keep`. Removed the 3 rows from
+  `members_re.tsv`; `export.py` regen of ts_inventory.json removes EXACTLY those 3 (semantic diff verified — no
+  other method/global/member changed). **Missing members → 0** (member level fully clean).
+- **CLIENT-NOSYM bucket** (`95c75d4`): CHudTSBuyMenu/CHudTSWeaponBar fold in with an EMPTY original method set
+  (client.dll has no symbols) → the audit was flagging all 46 of our methods as "invented." Moved them to a
+  transparent UNVERIFIABLE bucket (surfaced, not counted). Invented 103→57.
+- **STOCK-SDK whitelist** (`4aab765`): new `scripts/coverage/stock_methods.py` caches exact `(class,method)`
+  DEFINED in `upstream/64bit-demo` → `stock_methods.tsv`; audit splits invented methods that are exact-match
+  stock-inherited (EquipWeapon/InitStatusBar/DoRetireWeapon/FAllowFlashlight/… 15) into a STOCK-SDK bucket.
+  **Exact-match ONLY** — a bare-name match would wrongly whitelist TS virtual overrides (PlayerKilled/IsTeamplay/
+  Classify) whose names also live on other stock classes; those stay VISIBLE for review. Wired into run.py.
+  Invented 57→42.
+
+### Invented-method REVIEW complete (task #5, via dossier subagent → `scratchpad/dossier-invented-methods.md`)
+All 104 classified: **46 CLIENT-NOSYM** (whitelisted) · **27 STOCK-SDK** (15 exact-whitelisted, ~12 are
+TS virtual overrides that stay visible) · **22 LEGIT-HELPER** (original inlined them; keepable split-outs) ·
+**1 NAME-MISMATCH** (GrenadeFire — done) · **2 UNSURE** (CTSGun::MeleeAttack≈KnifeFire+KatanaFire merge;
+ThrowKnife≈KnifeFire throw-branch — confirm via RE, playtest-gated) · **6 DRIFT to reconsider (deferred,
+playtest-gated):** `CTSGun::SwitchBarrel` (invented akimbo barrel-cycle replacing the orig SecondaryAttack
+@0x817a8 fire-the-other-hand); `CTSKnife::{BecomePickup,PickupTouch,StickAt}` (net-new "every drop is
+pickable"); `CTSKnife::{StartSettle,SettleThink}` (think-based settle vs the orig touch-based WaitTouch/
+WaitThink @0x6dce8). These touch combat/throw mechanisms → reconcile ON a green playtest.
+
+### Free-function level made honest + 2 latent-bug fixes + the Sparta extraction (the rest of cont.77)
+Categorized all 94 missing free funcs (dossier subagent → `scratchpad/dossier-freefuncs.md`): 38 Write_<weapon>
+consolidation · 19 already-exists · 5 playtest-gated-melee · 13 unsure (need Ghidra) · 19 genuine-RE.
+- **srcparse credits SOURCE-level free funcs** (`f6bbba8`): the free-func audit was nm-only, so static
+  single-caller fns the compiler inlines away (TSDive/CheckPowerups/CalcMiniminVotants/compile_weapons_info)
+  read as MISSING though present + faithful in source. Fixed like the member level (scan source): added
+  `pm_shared/` to srcparse SRC_DIRS + Allman-brace (sig line, `{` next line) and K&R split-form (type on one
+  line, NAME(params) next) detection via next-line-`{` lookahead. Resolved 8 genuinely-present functions (94→86).
+- **Entity-classname bug fixes** (`acf5ed3`): the "missing free funcs" deadcorpse/knife/shrapnel were the
+  original's LINK factory names; we'd used ts_-prefixed names — and the mismatch had bitten TWICE (the
+  "missing symbol = logic-mismatch signal" the user wants): (1) `weapons.cpp` precached "deadcorpse" but the
+  entity linked as ts_corpse → the corpse's models NEVER precached; (2) `ts_worldgun.cpp` already checks
+  `FClassnameIs(...,"knife")` but our knife linked ts_knife → that touch-ignore never matched. Renamed LINK +
+  Create/classname/self-check to the original names. Classnames are server-internal (not the wire contract), so
+  drop-in is unaffected; the corpse/knife fixes ARE behaviour-affecting (playtest will confirm). **m61_grenade
+  DEFERRED** — CreateGrenade sets classname "grenade" not "m61_grenade"; needs RE to settle (don't guess).
+- **Sparta()/SetSpartaWeapon parity** (`3d46f67`): renamed our setter SetSparta→SetSpartaWeapon and extracted
+  the 32-call combat-param-override block out of compile_weapons_info into a `static Sparta()` invoked at the
+  same site (verbatim 32 calls, behaviour-preserving — these set the combat stats the game actually uses).
+- **CONSOLIDATED bucket** (`03191a0`): the 38 Write_<weapon> data-init the original splits one-per-file are our
+  g_weaponInfo table + Sparta() (deliberate consolidation, NOT gaps) — split into a transparent labeled bucket.
+  **Missing free funcs now 43 REAL gaps** + 38 consolidated.
+
+### Audit headline at session end (honest at EVERY level)
+`0 missing/invented classes · 19 missing methods · 42 invented methods (+46 client-unverifiable +15 stock-SDK) ·
+0 missing members · 43 missing free funcs (+38 Write_ consolidated) · 22 file mismatches · 17 missing globals ·
+6 invented globals`. The 43 real free-func gaps: the weapon-param tuning subsystem (TS_util.cpp:
+AdjustSpecificWeapon/adjust+save_weapon_value/SendWeaponParams/InformClientsOnWeaponsParams + gmsgTSCustomWeaponParams),
+the range-damage falloff (TS_gun.cpp compile_range_damage/get_range_multipler/Set_ammo_count — bulletmgr uses
+RAW damage = a real gameplay gap), gamerules pieces (DecideGamePlay/TSSelectSpawnSpot/GetAccelBySlots), pm_shared
+helpers (CanJumpHigh/FixVelocity/PseudoClimb — adjacent addrs, need Ghidra), melee Victim*Hold + FindHullIntersectionplayer
+(playtest-gated). UNSURE to settle via Ghidra: CalcSpread vs our ScaleSpread; DropKickback vs our VKickback.
+
+### ⭐ FIRST PLAYTEST of cont.74–77 (user-driven, graphical xash) — VALIDATED + bug list
+**VALIDATED (working):** breakables shatter ✓; weapon throw arc/spin/drop-sound ✓ (the cont.76 ThrowWeapon
+velocity formula is CONFIRMED); slow-motion ✓; no unknown-command spam ✓; dive FIRST-person ✓.
+**BUGS found (root causes diagnosed, fixes NOT yet made — need RE/live-trace, don't guess):**
+1. ✅ **FIXED (`f721c00`, needs re-test on tm_avana): Round clock never showed** — gmsgTSRoundTime is
+   registered ONLY in StartRoundTimer, but RestartRound armed m_flRoundEnd inline first → Think's
+   `if(m_flRoundEnd==0) StartRoundTimer()` never fired → message unregistered → clock-send skipped. Fixed by
+   routing RestartRound's timer-arm through StartRoundTimer. [original diag below]
+   **m_flRoundEnd** (the round timer) is armed ONLY for team/lms modes
+   (`ts_gamerules.cpp:384` DecideGamePlay `if (IsTeamMode() || lms)`, and `:731` StartRoundTimer gated
+   `IsTeamMode()`). User's current mode arms neither → no RoundTime msg → no clock. RoundTime is registered +
+   client-hooked fine (cl_dll/roundtime.cpp). User sees round SUMMARIES (CheckDeads resolves rounds w/o a
+   timer). ACTION: determine which TS mode the test is in + RE whether the original arms the round timer there
+   (theOne/DM round modes) — likely the cont.76 IsTeamMode gating is too narrow.
+2. ✅ **PARTIAL FIX (`1fcd627`, re-test): thrown weapon despawn** — registered the original's `weaponstay`
+   cvar (default 15, recovered from .so cvar_t @0x108f4c; distinct from stock mp_weaponstay=0). Dropped guns
+   now persist 15s not the 5s floor. The infinite-SLIDE is SEPARATE and our code is FAITHFUL — verified the
+   original CTSWorldGun::Spawn@0x90954 uses a ZERO-size bbox and Fall@0x90d84 settles on
+   `(FL_ONGROUND && vel<3)->OnGround`, IDENTICAL to ours. The xash test engine likely doesn't set FL_ONGROUND
+   on a zero-size MOVETYPE_BOUNCE (no friction → slides); GoldSrc/ReHLDS (deploy target) settles. Decide: leave
+   faithful, or add an xash-compat tiny bbox. [orig diag:]
+   **Thrown weapon never settled + despawned ~2s** — `CTSWorldGun::Spawn` uses a ZERO-size bbox
+   (`UTIL_SetSize g_vecZero`) so the engine never sets FL_ONGROUND → `Fall()`'s settle gate
+   (`FL_ONGROUND && vel<3`) never fires → slides until `m_flExpire` removes it. AND the lifetime reads
+   `CVAR_GET_FLOAT("weaponstay")` but we only register `mp_weaponstay` (stock name) → returns 0 → clamped 5s.
+   The original registers `weaponstay` (it's in coverage's MISSING server cvars). ACTION: RE the original
+   worldgun bbox + settle + lifetime (dc.sh server 0xa0954 Spawn / 0xa0d84 Fall — first cut captured but messy).
+3. ✅ **FIXED + playtest-validated (`dff06ec`): ~5s teleport in plain DM** was the ROUND RESTART (not auto-spawn).
+   (user clarified). ROOT CAUSE: `CTSGameRules::Init()` (in the ctor) arms `m_flRoundRestart = time + 5.0f`
+   UNCONDITIONALLY (`ts_gamerules.cpp:355`); Think (`:724`) then fires `RestartRound()` 5s into EVERY map, and
+   RestartRound `respawn()`s ALL players (`:433`) → teleport-to-spawn + redeploy. On non-team ts_kissmeyerbasic
+   `IsTeamMode()` is false (keys off a `ts_objective_manager` entity) so it's a ONE-TIME +5s event, not a cycle;
+   in team mode it recurs. The whole round-restart subsystem landed THIS restructure (commit `0a7832c`) = a
+   cont.74-77 regression. The +5s Init restart's PURPOSE is deferred InitObjectives/SetObjective (map entities
+   exist by then) — but it shouldn't force-respawn players in plain DM (no rounds). FIX (needs RE of the
+   original Init@0x67d6c / RestartRound@0x67920): gate the first-restart player-respawn to round-based modes,
+   OR run the deferred objective-init without the all-player respawn in DM. Tightly coupled to bug #1 (the round
+   clock): on tm_avana RestartRound DOES send gmsgTSRoundTime (`:411`) yet no clock shows — same subsystem.
+4. ✅ **FIXED (`b543be6`, re-test): Stock bottom HUD** — CHudBattery was already suppressed; CHudHealth/
+   CHudAmmo/CHudAmmoSecondary still drew (duplicating TSStatus/TSAmmo/TSWeaponBar). Early-returned those Draws.
+   SAFE because weapon-SELECT logic is in CHudAmmo::Think / m_TSWeaponBar.SelectColumn (slot keys route there),
+   NOT in Draw — verified. Render-only suppression.
+5. **Loadout intermittent at first-join** (works most times) — buy-menu/loadout send race (the TSSendBuyMenu
+   re-send-each-tick code already hints at known timing fragility).
+7. ✅ **FIXED (`3b3708c`, re-test): brass casings stopped on fire** — cl_dll/ev_ts.cpp EV_TSFire ejects via
+   EV_FindModelIndex("models/shell.mdl"), but TS never precached it (only stock weapons did; TS uses
+   weapon_tsgun) → model index 0 → no casing. Added PRECACHE_MODEL(shell.mdl + shotgunshell.mdl) to
+   PrecacheAllTSWeapons.
+8. ✅ **FIXED (`7999cc8`, re-test): Akimbo/gold silent (no fire sound+casing) until reload** — MECHANISM:
+   CTSGun::Fire() (ts_gun.cpp:651) gates `if (m_iClip <= 0) { PlayEmptySound(); return; }` BEFORE dispatching
+   to AkimboFire/StandardFire — so a weapon that deploys with m_iClip==0 yields empty clicks (no EV_TSFire =
+   no predicted fire sound AND no brass casing, both come from that event); a reload refills the clip and it
+   works. TRIGGER (why akimbo/gold deploy at clip 0 SOMETIMES) is NOT visible statically: TakeWeapon sets the
+   akimbo/gold clip correctly (ts_gun.cpp:344/352) and SelectWeapon->LoadActiveFromItem loads it on deploy, and
+   the loadout path goes through GiveTSWeapon->TakeWeapon too. So it's an intermittent client/server m_iClip
+   sync/race on deploy of a morphed akimbo type (the fire event is FEV_NOTHOST → the local player relies on the
+   PREDICTED Fire(), so a client m_iClip that's 0 for the deploy window = silent fire). NEXT: LIVE TRACE
+   (scripts/live.py) — break on the deploy + first Fire() of a gold/akimbo and read m_iClip server vs predicted.
+   FIX: AkimboFire gates on m_items[].leftClip+rightClip (server-only, NOT in prediction data) → client saw
+   0+0, EMPTY-returned, never played the FEV_NOTHOST fire event; a client reload repopulated the barrels (the
+   'after reload' tell). Reconstruct leftClip/rightClip on the client in SetWeaponData from the synced combined
+   m_iClip (server keeps m_iClip=left+right). [[predicted-weapon-gotchas]]
+6. ✅ **REWRITTEN (`482a099`, NEEDS PLAYTEST): dive 3rd-person looked like crouch** — CTSAnimation::Animate
+   was a simplified A/C-only shape; RE'd the full original 4-region function (dossier
+   `scratchpad/dossier-ctsanimation.md`). Two faults: Region-C cases RETURNED instead of breaking into the
+   Region-D LEG-gait tail (pev->gaitsequence stayed 0 = crouch pose under the dive body), and Region B (the
+   per-m_iLastActivity HOLD guards) was absent so the per-frame PostThink Animate(1/6) stomped every stunt one
+   frame in. Rewrote to faithful A/B/C/D + P2 name fixes (PRONE->slide_<dir>_end, ROLL->roll_<dir>,
+   DIVE_END->roll_l/r/f_high/b, lowwheel no _b). PLAYTEST: dive + all stunts + normal walk/run/crouch/fire gait
+   (a core-dispatcher rewrite — watch for any animation regression). P3 deferred: player+0x478 second
+   anim-string (HandleCloseCombat block pick + standing-gait), slide_bl/br dot test, BulletDance inverted gate,
+   signed leg-timer, the shoot_*2 slide-fire variant. CTSAnimation members/SetAnim flags confirmed 1:1.
+6b. **(old) Dive 3rd-person looks like crouch** (1st-person spot-on) — `CTSAnimation::Animate` (gait/anim) NOT ported
+   (known, VERIFICATION.md). Cosmetic.
+
+### NEXT (the audit is now an honest driver — remaining work is genuine-RE or playtest-gated)
+The 42 invented are mostly keepable helpers + visible virtual overrides; only the 6 drift are actionable and
+playtest-gated. The 43 real free funcs are genuine RE (range-damage falloff is the notable gameplay gap) +
+melee-gated. 22 file mismatches + 2 missing files are structural (entity-file consolidation + client.dll HUD
+track) — high-churn, hold until playtest. **PLAYTEST (#2) remains the GATE before merge** — the corpse/knife
+classname fixes this session are behaviour-affecting and want confirmation.
+
+
+
+After closing the stock-class gaps, the user pushed for an EXHAUSTIVE, trustworthy 1:1 check at every
+level (file→class→method→variable→global→free function), where any discrepancy = a logic-mismatch
+signal to re-RE. Two phases:
+
+### Phase 1 — made `audit.py` trustworthy (the foundational win), commit `a77ff52`
+The old audit had blind spots that polluted MISSING/INVENTED. Built **`scripts/coverage/srcparse.py`** —
+a single-pass tokenizer (handles line/block comments + string/char literals so braces never desync) that
+brace-scans BOTH .cpp and .h, yielding per-class members, the class→base hierarchy, in-body (inline)
+methods, and file-scope free functions. (A naive regex was leaking quotes from `//` comments across
+newlines and SILENTLY DROPPING whole classes, e.g. CMultiManager — class discovery 240→505.) Wired into
+audit.py: members now from .cpp too; methods resolve through inheritance + inline; a NEW **free-function
+level** diffs each TS_*.cpp's free/static funcs vs our build symbols. Fixed a c++filt-spacing bug that
+made every arg-taking free function read as missing. **Result (now ACCURATE, not blind-spot noise):**
+0 missing/0 invented classes, 33→29 missing methods, 105 invented methods, **19** missing members (was
+54 false), **~94 missing free functions (a whole level that never existed)**. KEY LESSON (user's): the
+logic is OFTEN already implemented — just `static`/inlined/renamed/as-a-method — so a "missing" symbol
+usually means MOVE it to the faithful shape, not rewrite.
+
+### Phase 2 — closing gaps by MOVING existing logic (commits `70172f1`,`b79559e`,`0c89442`,`03adb27`)
+- **TS_shared.cpp slow-motion math** (`70172f1`): FixedSlowAmt/FixedSlowMul/InterpolateSlowMotion/
+  GetBulletVelocityMult — all already present but SCATTERED (static in ts_bulletmgr, inlined in
+  PreThink's fuser1 ramp, inlined in GiveSlowMul). Consolidated into ts_shared.cpp/.h as the original's
+  free functions; call sites route through them. Verified each vs @0x890bc/0x890e4/0x8910c/0x89160.
+  Zero behaviour change.
+- **GetSpeedBySlots** (`b79559e`): our `TSSlotBaseSpeed` WAS this (@0x66bd4) — renamed. **InitWeaponRestriction**:
+  extracted from the inlined bare `0x1f` in get_weapon_restriction.
+- **CBasePlayer DropWeapon + CutWire** (`0c89442`): free functions TSDropWeapon/TSCutWire → methods
+  (the original's shape; body unchanged via a `pPlayer = this` alias; callers + dead decl updated).
+- **CBasePlayer SetPlayerSpeed + SetPlayerGravity** (`03adb27`): RE'd @0x83068/@0x85b70 (clamp [0,330] +
+  pfnSetClientMaxspeed; conditional gravity set). Wired the One's full-speed site.
+- **CBasePlayer method grind cont.** (`44fc97e`,`5236d40`,`945a343`,`0832bda`): more RE'd from TS_player.cpp/
+  TS_spectator.cpp — PunchScreen (@0x85f70, empty in shipped game), GetMeleeMultiplier (@0x865d0,
+  (max(blockbar,0)*0.5+50)*0.01), DropArmor (@0x83a3c) + DropAmmo (@0x846f0) (drop armor/ammo-reserve as a
+  CTSAmmoPack, reuse CreateAmmoPack), UpdatePlayerState (@0x82a08, pose state; CAUGHT a bug: orig's 0x4000 is
+  FL_DUCKING not FL_FROZEN — wired into PreThink), Observer_Idle (@0x89ca4, spectator auto-advance, maps to
+  our Observer_FindNextPlayer/m_hObserverTarget). **CBasePlayer 33 -> 23 missing methods** over the grind.
+
+### Where it stands (honest) — NOT complete; the audit is now a trustworthy work-list
+Remaining genuine gaps (false positives now filtered out): **29 missing methods** (CBasePlayer is ~18 —
+ShootBulletsPlayer/UpdateMeleeBar/BlockPlayer inlined in the PLAYTESTED melee/bullet path = extract
+carefully; PickUpWeapon = TSPickUpWeapon but signature differs from the orig's status-based one; genuinely
+missing DropAmmo/DropArmor/ThrowWeapon/PunchScreen/TSInit/TSUse/UpdatePlayerState/Observer_Idle/StopObserver/
+GetMeleeMultiplier/CheckHull/CheckForWires). **~94 missing free funcs** (~38 = the deliberate Write_<weapon>
+data-table consolidation, NOT gaps; the rest = move-existing or genuine: TS_gun.cpp Sparta/compile_*/
+CalcSpread, TS_pm_shared.c movement/stunt, TS_util.cpp helpers, Victim{Kungfu,Knife,Katana}Hold inlined in
+melee). **19 missing members** (mostly the CTSObjectiveManager messages[]/targets[] DEFINE_ARRAY artifact +
+CTSPhysicObject curator mis-hoist = known-false, each needs a 1-line confirm). **22 file mismatches, 2 missing
+files** (CBulletManager/the HUD client.dll classes). **The drop-in METHOD: audit.py <Class> is now reliable;
+"missing" = MOVE existing logic or RE.** ~9 commits this sub-session; all build amd64 server+client (glibc 2.14).
+**ALL UNPLAYTESTED — flag before merge.**
+
+### Worldgun throw/drop reconcile + the drop-in-compatibility principle (cont.76 tail), commits `cd892da`,`b34ef52`
+User feedback crystallized the cardinal rule (memory `mimic-original-mechanism-for-dropin`): **mimic the original's
+mechanism exactly — don't substitute our own — because drop-in client/server compatibility needs the contract to match.**
+Applied to the weapon drop (dossier `scratchpad/dossier-throwchain.md`):
+- Split our 4-arg `CTSWorldGun::CreateWeapon(type,status,origin,velocity)` → the original **3-arg
+  `CreateWeapon(owner,type,status)`** (@0x907ec) that sets NO origin/velocity (caller's job) and RESTORED what we were
+  missing: `pev->owner`, the dropped model's **skin from the dropper**, the **type-0x1d glow shell**.
+- Added the real **`CBasePlayer::ThrowWeapon`** (@0x8529c) — the throw primitive (DropWeapon is its sole caller): angles
+  (alive=view+offset / dead=random), CreateWeapon, origin=eye+16*fwd+lateral, **random avelocity tumble** (we weren't
+  spinning the gun), then velocity. DropWeapon's branches + the death scatter route through it (TSThrowWorldGun is now a
+  thin wrapper); the playtested akimbo item bookkeeping is untouched.
+- **Drop sound `items/weapondrop1.wav` → `weapons/weapondrop.wav`** — a real swap-contract bug (the original asset).
+- **Throw velocity** was flagged "needs a live trace," then RESOLVED by decoding the @0x85359/@0x853c1 x87 asm + reading
+  the `.rodata` floats (0.9@0xf7f44, 0.33@0xf92f0, 90.0, 16.0) — ground truth, no guess:
+  `velocity = 0.9*playerVelocity + S*v_forward + (0,0,0.33*S)`; alive `S=(90-pitch)*2`, dead `S=RandomLong(60,160)`.
+  (.rodata-float recipe: file offset = vaddr - .rodata_vaddr + .rodata_fileoff; GOT base ebx≈0x165e10 so `-0xNNNN(%ebx)`
+  = 0x165e10-0xNNNN.) CBasePlayer 100/120. ~32 commits total this session; HANDOFF cont.76 written for the next agent.
+
+---
+
+## 2026-06-29 (cont. 75) — source-parity restructure cont.: the CTF cluster, bottom-up (1:1)
+
+Branch `restructure-source-parity` (continues cont.74; GPG signing OFF). Same loop. This session
+reconstructed the **whole CTF cluster** to 1:1 parity from a dossier subagent's RE
+(`scratchpad/dossier-CTF.md`). Commit `a4254ec`. Builds amd64 server+client clean (glibc 2.14).
+
+- **Key structural finding (the carry model):** there is NO "flag follows the carrier" entity. The
+  flag is a 28-byte **`s_flag_status` value struct** copied byte-for-byte at every hop (briefcase→
+  flag→player→flag…); a `CTSFlag` entity exists ONLY while the flag is loose. On pickup TakeFlag
+  copies the struct onto the carrier (CBasePlayer+0x7d0) and **Destroys** the flag; on drop a fresh
+  loose flag is `CreateFlag`d. Our old `m_hCarrier`/`CarryThink`/`AttachTo` + the free
+  `TSCreateFlag/TSDropFlag/TSPlayerHasFlag/TSReturnCarriedFlag` helpers were all INVENTED — deleted.
+- **s_flag_status (player.h):** active byte / contents string_t / flagID 1..15 / team 0-based /
+  lastCarrier entindex / **EHANDLE hBriefcase** (the respawn target rides INSIDE the struct).
+- **CBasePlayer::TakeFlag/DropFlag + free HaveFlag** (ts_player.cpp / ts_gamerules.cpp): pickup =
+  copy status + the **20 slot-weight debit** (folded into TSSlotBaseSpeed/TSPlayerFreeSlots in
+  ts_gun.cpp → carrying the flag slows you, the `members-globals` rule: the "+0x548 −0x14" wasn't a
+  dead member, it's the encumbrance). DropFlag(false)=spawn loose flag (toss from eye, random
+  avelocity, dead→random dir 60..160), DropFlag(true)=silent capture clear. gmsgTSHaveFlag (0/1/2).
+- **CTSBriefcase 6/6 0-inv** (ts_briefcase.h/.cpp): the flag REGISTRY owner — static `s_nextFlagID`
+  cycling 1..15 (ctor), template status w/ EHANDLE=self (Spawn), FlagFall seeds the flag +
+  gmsgTSHaveFlag type 0, **CaptureTouch** = +10 frags + gmsgScoreInfo/TeamScore/TSVoiceMessage +
+  respawn the captured flag at ITS home base via the carried status' EHANDLE. `contents` is a
+  **char[32]** (strncpy), not string_t. (FILE MISMATCH remains: orig groups it in TS_objectives.cpp.)
+- **CTSFlag 15/15 0-inv** (ts_flag.h/.cpp) **: CTSPhysicObject** — mirrors the CTSWorldGun settle/
+  bounce machine (Spawn/BounceTouch/Fall/OnGround/WaitThink/WaitTouch). CreateFlag(owner,status)/
+  RespawnFlag (asks the briefcase to re-drop, never walks home)/Destroy/PlayerTakeFlag(=Use=WaitTouch:
+  enemy→pickup, own dropped→return +5)/CanInteract/ObjectCaps(0x10)/CanUsedTroughWalls(0). Thrown-flag
+  momentum TakeDamage in Fall. Extracted to a HEADER (fixes the audit .h-only blind spot; lets
+  briefcase/gamerules derive it).
+- **Wiring:** DropFlag(false) from PlayerKilled / StartObserver / ClientDisconnect / TSDropWeapon;
+  RestartRound clears carried flags (DropFlag(true)) + RespawnEntities now calls CTSFlag::RespawnFlag
+  (was a VERIFY `Spawn()`). Removed the obsolete `tsspawnflag` console stand-in.
+- **Metrics:** invented methods **117 → 110**, 0 missing / 0 invented classes, file mismatches 22.
+- **⚠ SCORING corrects the early handoff note:** capture = **+10** frags (CaptureTouch); returning
+  your own dropped flag = **+5** (PlayerTakeFlag). VERIFY slices: alive-drop toss speed (200), the
+  exact CaptureTouch team-score field (used m_teamScore), s_flag_status @+0x254 base-spawn field.
+- **UNPLAYTESTED** — the whole CTF flow needs a live pass before merge (with the rest of cont.74/75).
+
+### CTSGun tail — SAFE chunk (30/47 -> 35/47), commit `966df00`
+Driven by a fresh dossier subagent (`scratchpad/dossier-CTSGun-tail.md`; the prior name-map was lost with
+the session scratchpad). **Core finding: the original CTSGun does NOT override `ItemPostFrame`** — it uses
+the stock `CBasePlayerWeapon::ItemPostFrame` which dispatches to the real virtual entry points
+(Primary/Secondary/Reload/WeaponIdle/Holster + helpers). Our reconstruction collapsed all that into one
+invented `ItemPostFrame`, so the 17 "missing" methods are mostly **structural extraction**, not new behaviour.
+- **Reset @0x705e0** (genuinely missing): wipe the whole arsenal (items[]/m_ammoReserve) + active pointers +
+  combo/timer/change-detect cache back to bare kung-fu. Wired into Spawn (preserving the placed type across
+  the wipe) + CBasePlayer::StartObserver (the round-restart / death->spectate caller @0x8972b). SAFE, server-only.
+- **4 name-map renames** (coverage matches by NAME; zero behaviour change): AddWeapon->TakeWeapon, DropType->
+  DropWeapon, SelectWeaponType->SelectWeapon, CloseCombatAttack->CCombatAttack. The free `TSSelectWeaponType`
+  is preserved (word-boundary `\b` sed protects the TS-prefixed name).
+- **⚠ The CTSGun TAIL IS PLAYTEST-GATED** (the `predicted-weapon-gotchas` rule — I did NOT push these):
+  SecondaryAttack (right-click dispatch), the 2-stage grenade pull-pin/release model (our instant `GrenadeThrow`
+  is wrong — biggest behaviour change), predicted melee KnifeFire/KatanaFire/KatanaThrow (split MeleeAttack/
+  ThrowKnife), Holster/HolsterWeapon/ReloadWeapon/StopReload/EmptySound/CCombatIdle extraction, and the eventual
+  ItemPostFrame revert-to-stock. The dossier has the per-method SAFE-vs-GATED table + the live test each needs.
+  Group-D KEEP glue: CanDeploy/Get+SetWeaponData/OwnedCount/SlotsUsed/RegenBlockBar/Sync+LoadActiveFromItem/
+  UpdateActivePointers/SendWeaponStatus/SwitchBarrel.
+
+### Header-extraction batch — close the audit `.h`-blind-spot member gaps, commits `0990cfb`/`9e769ba`/`0ce095f`
+`audit.py our_members()` scans only `.h`, so a class declared in a `.cpp` falsely reports ALL members MISSING
+(memory `audit-py-blind-spots`). Extracting to a header is the FAITHFUL fix (the originals have headers; it also
+lets sibling files derive the class — same as cont.74 did for CTSObjective/CTSWorldGun). Extracted +
+member-name-matched: **CTSPowerUp** (ts_powerup.h; +preserved the TS_PWUP_INSTANT/ARMOR defines), **CTSDMHill**,
+**CTSSlowMotion** (renamed m_flDuration->duration, m_flSlowAmount->slow_ammount to the orig FGD/save names —
+kept the orig "ammount" typo), **CTSSlowMotionPoint**, **CTSBomb**, **CTSTeamEscape**, and the ts_objectives.cpp
+trio **CTSHack** (ts_hack.h; hacksec) + **CTSWinGiver/CTSScoreGiver** (ts_wingiver.h; winnerteam/cash_for_winner/
+cash_for_loser/numberofcall). All now `MISSING named: —`.
+
+### Genuine missing-method/member RE (re.sh, not just extraction), commit `97058af` + `1332b9c`
+With the `re` Ghidra lock free (dossiers done), decompiled + closed real gaps myself:
+- **CVipEscape 1/3 -> 3/3** (`97058af`): added KeyValue (@0x8d22c — handles no keys, does NOT chain to base) +
+  Precache (empty) + reconciled Spawn to the RE (EF_NODRAW/flags=0/classname/Precache/unconditional SET_MODEL);
+  moved methods out-of-line so the audit attributes the file.
+- **CTSMapGlobals 5/7 -> 7/7** (`97058af`): extracted to ts_mapglobals.h + added the 2 saved members
+  player_at_a_time_num(@0xc)/player_respawn_num(@0x10) + Save/Restore (WriteFields 2) + m_SaveData; Spawn zeroes
+  them + schedules WaitThink. ⚠ The spawnflags->CTSGameRules weapon-restriction/round-timer/superjump wiring is a
+  documented SLICE (needs unbuilt CTSGameRules members @+0x586c/0x5870/0x10) — `members-globals` flag for later.
+- **CTSKnife 3/9 -> 8/9** (`1332b9c`): ADDITIVE only (the thrown-knife flight/settle is playtest-confirmed,
+  cont.69 knife->glass). Added GetDescription (@0x6db04, name by type)/ObjectCaps(0x10)/ShouldCollide(true, TS
+  virtual)/Use (@0x6dda4, +use pickup mirroring our PickupTouch TSPickUpWeapon) + renamed the static factory
+  Throw->CreateKnife (@0x6d9e4). ⚠ REMAINING PLAYTEST-GATED: WaitTouch (settle velocity-damp) + dissolving the
+  invented settle helpers (BecomePickup/SettleThink/StartSettle/StickAt/PickupTouch/Classify) into the orig
+  WaitTouch/Use structure.
+
+⚠ **Remaining .cpp-only no-named-gap extractions** (low value — count only): CTSFog (0/0), CTSCustomTarget (0/10
+but MISSING named: —). Genuine remaining gaps are stock-SDK classes (out of policy: CBaseDoor/CFuncPlat/CLadder/
+CTriggerPush/CMultiManager keep their stock surface) and the big CBasePlayer method set (many playtest-gated).
+- Metrics across the session: invented methods **117 -> 105**, 0 missing / 0 invented classes; many member-name
+  gaps closed; all commits build `scripts/build.sh amd64 [all]` clean (glibc 2.14). 11 commits this session.
+
+### STOCK-SDK class gaps — closed + match-verified (user: "let's get it there" + "confirm match vs rewritten")
+A dossier subagent (`scratchpad/dossier-stock-gaps.md`) classified the 24 stock-class gaps the audit reports
+(FALSE-INLINE/INHERITED vs REAL-TS-ADD) + spot-checked our existing impls for principle-match. Then I closed
+the real ones:
+- **CBaseEntity 72->80** (`50a6963`): the slow/collide/respawn methods are **base CBaseEntity virtuals** in the
+  original (nm shows W defaults + T overrides) — we only had scattered derived overrides. Added the base virtuals
+  (GiveSlowMul/GoSlow/InSlow/CanUsedTroughWalls/ShouldCollide/BreakableRespawn/OnFreeEntPrivateData/eoffset; base
+  slow store = pev->fuser1), same pattern as cont.74's IsObjective/EnableObjective. Wired the per-entity
+  OnFreeEntPrivateData hook. Client vtable stubs (GoSlow/InSlow/eoffset). Remaining 5 = inline accessors (false).
+- **CBasePlayerWeapon 30->32** (`6b722f3`): base virtuals AddWeapon(){ExtractAmmo;return true;} + empty
+  AlternateAttack() (CTSGun overrides). **CFuncPlat 12->15**: targettop/targetbot (FGD-confirmed) + KeyValue +
+  Save/Restore; HitTop/HitBottom fire them (verified @0xc2d50/@0xc2bc0). **CHalfLifeMultiplay::IsValidTeam**
+  (@0x7b140): blacklist the reserved HL model names.
+- **Breakable doors CBaseDoor 15->17 + CRotDoor 2->3** (`c3960d8`): the biggest real-TS-add. TraceAttack (@0xb57ac)
+  accumulate->shatter (glass=gmsgTSCreateDebris shower, else TE_BREAKMODEL, reusing CBreakable helpers) + kill +
+  respawn; BreakableRespawn (@0xb5604) box-clear restore, CRotDoor override restores angles only. KeyValues
+  maxdamage/doormaterial/respawntime. SLICE: respawn via the door's own RespawnThink (the 1 invented method) vs the
+  orig's EHANDLE helper. **UNPLAYTESTED — doors break/respawn across every map; needs a live pass.**
+- **DIVERGENCE RESOLVED — GetGameDescription** (`7374852`): verified (@0xc0c68) the original is on
+  **CHalfLifeMultiplay** (theOne->LMS->DM, **NO teamplay branch**), CTSGameRules inherits (no override). Ours was a
+  rewrite (teamplay-FIRST, on CTSGameRules). Relocated to CHalfLifeMultiplay + dropped the teamplay branch. Behavior
+  change: team maps no longer show "(Teamplay)" (now faithful). CHalfLifeMultiplay 52->54; CTSGameRules invented 106->105.
+- **Confirmed FALSE (no action, match-verified):** CMultiManager IsClone/ShouldClone (match), CLadder/CTriggerPush
+  KeyValue (inherited base), CHalfLifeMultiplay::GetNextBestWeapon (inherited CGameRules, matches in principle),
+  CBaseEntity edict/entindex/Instance/GetMonsterPointer/IsLockedByMaster (inline). 17 commits this session.
+
+---
+
+## 2026-06-28 (cont. 74) — source-parity restructure cont.: drifted classes' MISSING methods (+drop keepalives)
+
+Branch `restructure-source-parity` (continues cont.73; GPG signing OFF). Same loop: `audit.py <Class>` ->
+subagent dossier (`re.sh`, single-writer) -> reconcile our working logic into the original's exact method/
+member layout -> `build.sh amd64 all` -> `audit.py <Class>` (0/0) -> commit. **User sharpened the directive:
+ANY missing/extra member or global = hidden logic inconsistency -> re-audit + Ghidra, never paper over** (saved
+as memory `members-globals-signal-hidden-logic`). Each class drops a keepalive by building real wiring.
+
+- **CTSWorldGun cluster 4/13+3/7 -> 13/13+7/7** (`0df448f`): merged ts_ammopack.cpp INTO ts_worldgun.cpp
+  (+new ts_worldgun.h) = TS_worldgun.cpp file parity (mismatch -1). **CTSWorldGun now derives CTSPhysicObject**
+  (dossier confirmed; hierarchy.tsv MISSES it). Replaced invented FallThink with the real method split:
+  CreateWeapon (static factory carrying the full s_weapon_status = our **TSItem**, the 0x38-byte slot) / Spawn
+  (MOVETYPE_BOUNCE, gravity 0.7/friction 0.8) / BounceTouch (drop sound + 0.7 restitution) / Fall (settle +
+  swept-trace impact damage — a thrown gun hurts what it flies into) / WaitThink / OnGround / Use (cooldown-gated)
+  / GetWeapon (restores the full item to the arsenal) / WaitTouch / ShouldCollide (collide only vs WorldGun/knife,
+  pass through players) / ObjectCaps / CanUsedTroughWalls. classname **"WorldGun"** (NOT ts_worldgun — fixed
+  ts_sellzone match). Global **ShouldCollide hook wired into gNewDLLFunctions (pfnShouldCollide)**. CTSAmmoPack:
+  carries **ARMOR** (pev->armorvalue via CBasePlayer::TakeArmor, removal keyed on armor==0); ammo via CTSGun::
+  AddAmmo; classname "AmmoPack". Drop helpers in ts_gun.cpp guarded `#ifndef CLIENT_DLL`; carry the full TSItem.
+  CTSPhysicObject now kept by CTSWorldGun (grenade keepalive slimmed). **CTSPhysicObject's curated trio
+  (m_flExpire@0x88/m_pOwner@0x8c/m_iType@0xa0) is a curator MIS-HOIST** — they're grenade-subclass members that
+  COLLIDE with CTSWorldGun's 0x88/0x8c; do NOT add to the base (verified via decompile, not the label).
+- **CM61Grenade 0/6 -> 6/6** (`2dffd07`): was structurally off (derived stock CGrenade w/ invented Throw()+
+  M61WaitThink()); real chain is **CM61Grenade : CTSGrenade : CTSPhysicObject**. Real 6 methods: CreateGrenade
+  (static; propagates the thrower's slow-mo via fuser1=m_flSlowMotionGo) / Spawn / WaitThink (fuse += GiveSlowMul
+  ()*0.1 = our existing max(fuser1,0.01)*0.1; 64u swept break-through; CTSPhysicObject::WaitThink upkeep; detonate)
+  / BounceTouch (owner-skip -> CTSGrenade::BounceTouch) / Use (+USE re-throw at 625 u/s) / ObjectCaps (0x10).
+  Removed invented avelocity tumble; added the missing CTSPhysicObject::WaitThink call. **DROPPED the
+  ts_grenades_keep_physic keepalive** (CTSGrenade now kept via CM61Grenade inheritance). TSThrowM61 lost its
+  damage param (orig carries none); blast dmg/radius fixed in WaitThink (VERIFY: recovered literals 300/1024 vs
+  old tuned 400). Client stub updated; obsolete TSCreateWorldGun/TSCreateAmmoPack stubs removed.
+
+- **CBreakable 17/22 -> 22/22** (`d63559d`): the TS breakable-RESPAWN system, all additive in tails so the
+  playtest-confirmed glass/debris (gmsgTSCreateDebris) Die path is untouched. **Killed** override (records attacker
+  global -> Die; TakeDamage now calls Killed ALONE — was Killed+Die, would double-Die). **BreakableRespawn(bool)**
+  (@0x64e84): box-clear retry (UTIL_EntitiesInBox FL_CLIENT|FL_MONSTER) -> clear: restore deadflag/health/effects +
+  Spawn (+fire respawntarget on SF 8); blocked: re-arm helper +5s; disabled: SUB_Remove. Spawn creates+cross-links
+  the **CInfoBreakable** helper when respawntime>=0; Die's tail hides it (EF_NODRAW) + arms helper.RespawnThink at
+  time+respawntime (0=>30s). New members m_flRespawnHealth/m_hRespawner/m_flRespawnTime/m_szRespawnTarget (not saved,
+  matching orig); keyvalues respawntime/respawntarget. **CInfoBreakable: added LINK_ENTITY_TO_CLASS(info_breakable)**
+  (Create now resolves), RespawnThink fixed to just delegate to BreakableRespawn(false) (was wrongly resetting+Spawn+
+  removing itself — the helper PERSISTS). **DROPPED ts_func_break_keep keepalive.** Moved stock Explodable/Explosion
+  Magnitude/ExplosionSetMagnitude out-of-line (orig has real symbols) so audit sees them.
+
+- **CTSGun 28/47 -> 30/47** (`a6a2669`,`<chunk3a>`): started the big name-map restructure of the central
+  (client-predicted, heavily-playtested) weapon class in SAFE chunks, driven by the name-map dossier
+  (`scratchpad/dossier-CTSGun-namemap.md` — the OUR->REAL map + groups A/B/C/D + chunk order). Chunk 1: pure
+  rename CloseCombatBlock->CCombatBlock. Chunk 2: added the 2 missing NAMED members m_pActiveItem(+0xcc)/
+  m_pActiveInfo(+0xd0) (kept in sync by UpdateActivePointers() at every m_weaponType assignment; the orig's
+  `m_pActiveItem!=NULL` guard == our `m_weaponType!=TSW_MELEE`). Chunk 3a: ShouldWeaponIdle override (return true).
+  **⚠ NEXT chunks are BLOCKED (assessed via the captured decompiles g1/g2/g3.c — NOT safe-additive):**
+  Reset@0x805e0 needs a call site in CTSGameRules round/spawn-reset (UNBUILT) else it DCE's = dead/still-missing;
+  CCombatIdle@0x85e54 plays `get_weapon_info(0)->[wi+0x252]` (the active-anim-block idle index) which our modern
+  s_weapon_info doesn't carry — needs the weapon-table data extraction to avoid GUESSING the seq; EmptySound@0x71be4
+  plays a predicted client event (field_0x968) — needs the event registered + client handler; HolsterWeapon@0x85698
+  + chunk-4 DropType->DropWeapon/SelectWeaponType->SelectWeapon move Deploy out to EVERY caller of the playtested
+  weapon-switch flow — a reshape that wants a playtest to verify. So CTSGun's tail needs groundwork first:
+  (a) the weapon-table anim-block extraction, (b) CTSGameRules' reset path, and/or (c) a playtest budget — do those
+  BEFORE resuming, rather than guess/dead-method. Chunk 6 (melee split KnifeFire/KatanaFire/KatanaThrow + the
+  SecondaryAttack keystone + StopReload/ReloadWeapon, then dissolve invented ItemPostFrame) is the deepest, last.
+  Group D KEEP (legit, not drift): CanDeploy/GetWeaponData/SetWeaponData (stock virtuals), OwnedCount/SlotsUsed/
+  Sync+LoadActiveFromItem/RegenBlockBar/SwitchBarrel/SendWeaponStatus/UpdateActivePointers (model glue).
+
+- **CTSPowerUp 11/11 0-invented** (`3f81e4a`) + **CTSSlowMotionPoint 4/5->5/5** + **CTSBriefcase 6/6 0-invented**
+  (`5e56977`): a batch of clean small-class reconciles. **Reusable pattern found — INVENTED `ObjectCaps`:** several
+  TS classes override ObjectCaps where the ORIGINAL has none (uses base) — confirm via decompile (the method count
+  excludes ObjectCaps), then REMOVE ours (the FCAP_ACROSS_TRANSITION/DONT_SAVE difference is inert for runtime-created
+  or MP-only entities). Did CTSPowerUp (return ~ACROSS_TRANSITION), CTSSlowMotionPoint, CTSBriefcase (return
+  FCAP_DONT_SAVE). Also: CTSSlowMotionPoint Create->CreateSlowMotionPoint (name match); CTSPowerUp members
+  m_iType/m_iRespawnTime/m_flMult -> poweruptype/pwupduration/pwupmult (the orig FGD/save names, offsets already matched).
+  ⚠ **TOOLING BLIND SPOT found:** `audit.py our_members()` only scans **.h files** — so for classes declared in a .cpp
+  (CTSPowerUp/CTSFlag/CTSSlowMotionPoint/CTSBriefcase/…) it reports "0 ours / MISSING named: <all>" REGARDLESS of our
+  member names. Those member "gaps" are FALSE — verify by reading the .cpp. (Fix would be teaching our_members to
+  brace-track + scan .cpp, but that risks misparsing .cpp locals — left as a tooling follow-up.)
+- **CTSDMHill 3/7->7/7** (`179777b`): reshaped our think-poll (invented HillThink+Award) to the original's
+  TOUCH-driven king-of-the-hill — WaitTouch (holder tracking: first toucher claims; same-team keeps; enemy resets;
+  payout past the award time, team mode awards every teammate) + WaitThink (reschedule) + Save/Restore + members
+  renamed nextcheck/fragseverycheck(kv fragamt)/fragseverycheckteam(kv fragamtteam). ObjectCaps->0.
+- **CTSObjective 1/7->7/7** (`b878bb9`): the objectives-cluster BASE. CanInteract(CBasePlayer*)/(int) + Freeze
+  (out-of-line) + IsObjective()->true + EnableObjective(bool) + Save/Restore (1-field=attacker_team). Freeze's
+  CTSGameRules::ShowObjectiveOnHud stays SLICE (unbuilt). **⚠ STRUCTURAL finding:** the original objectives cluster
+  (CTSBomb/CTSHack/CTSTeamEscape) DERIVES CTSObjective; OURS has each CBaseEntity-direct with DUPLICATED attacker_team/
+  CanInteract. Cluster reconcile = make them derive CTSObjective + build CTSGameRules' objective methods they call —
+  a multi-class job interdependent with CTSGameRules 12/39. Decompiles captured: scratchpad/obj.c, hill.c.
+- **Objectives-cluster restructure STARTED** (`c5fe12d`,`419422b`): **extracted CTSObjective into dlls/ts_objectives.h**
+  so the per-objective classes in their own .cpp can DERIVE it (also makes CTSObjective's members header-visible →
+  audit no longer false-flags them). **CTSBomb 9/11->11/11**: derives CTSObjective (drops dup m_attackerTeam/CanInteract;
+  m_bEnabled->inherited m_bActive); +Save/Restore (2-field=defusesec/cancutwire); members renamed
+  defusetime->defusesec/cutwires->cancutwire; dissolved invented Explode inline into WaitThink. **CTSTeamEscape
+  5/9->9/9**: derives CTSObjective; +Save/Restore (1-field=escape_percentage)+Precache(empty)+ObjectCaps(0x10);
+  dissolved invented AttackerTeamSize inline; completion uses Freeze(true). **PATTERN for the cluster:** derive
+  CTSObjective, drop the duplicated attacker_team/CanInteract, map the class's "enabled" flag to the inherited
+  m_bActive(+0x64), add Save/Restore via IMPLEMENT_SAVERESTORE(<Class>, CTSObjective), rename members to the
+  FGD/save names, dissolve invented helpers the original inlines. **CTSHack 4/9->9/9 DONE (448d27d): Use-driven held-USE hack (m_flHackProgress from hacksec) + WaitThink objective deadline (m_flObjTimer seeded from m_flRoundEnd) + EnableObjective/ObjectCaps/Save/Restore; dissolved invented HackTouch. ALL 4 core cluster classes (CTSObjective/CTSBomb/CTSTeamEscape/CTSHack) DONE.
+  **CLUSTER BOUNDARY:** the WIRING classes are BLOCKED on CTSGameRules' unbuilt objective methods — CTSObjectivePointer::Use
+  (only-missing) finds the targeted objective, EnableObjective(true)s it, then needs CTSGameRules::AddObjectiveInList +
+  SendObjectiveToHud(idx,player) per client (both unbuilt). CTSObjectiveManager (Save/Restore + targets[8]/messages[4]/
+  end_round_target) + CTSWinGiver (EnableObjective/IsObjective/Save/Restore + cash_for_winner/loser/numberofcall/winnerteam)
+  remain; their HUD/list flow also needs the CTSGameRules objective subsystem (AddObjectiveInList/SendObjectiveToHud/
+  SendObjectiveList/ShowObjectiveOnHud/SetObjective/InitObjectives + TeamWin). DO THAT SUBSYSTEM NEXT (part of CTSGameRules
+  12/39), then Pointer::Use/Manager/WinGiver wire up. Decompile: scratchpad/ptruse.c.
+- **CTSGameRules objective subsystem DONE (68fba35): 12/39 -> 20/39.** Built the 8 methods + 2 gmsgs (dossier
+  scratchpad/dossier-gr-objectives.md): HUD list (m_objectiveList[32] of {CTSObjective*+per-team label string-idx}+count) —
+  ClearObjectiveList/FindIndexByObjective/AddObjectiveInList/SendObjectiveToHud('Objective' -1: coord xyz+byte idx+string
+  label, MSG_ONE)/SendObjectiveList/ShowObjectiveOnHud('ShowObj' 2: byte idx+byte show, MSG_ALL); manager array
+  (m_managers[32]) — InitObjectives(scan ts_objective_manager + disable objectives by classname)/SetObjective(random manager
+  +Reset). Extracted CTSObjectiveManager into ts_objectives.h. **UN-SLICED CTSObjective::Freeze -> ShowObjectiveOnHud** (the
+  cluster's freeze/complete now updates the HUD). ⚠ **TWO BLOCKERS for the rest of the wiring:** (1) the original's
+  IsObjective is a CBaseEntity virtual (every entity answers it) — OURS is CTSObjective-only, so you can't call
+  ->IsObjective() on an arbitrary found entity (InitObjectives works around it by enumerating objective CLASSNAMES;
+  CTSObjectivePointer::Use finds by targetname so it can't). (2) CTSObjectivePointer::Use reads the objective via
+  *(CTSObjective**)(found+0x7c) — UNCERTAIN field. To finish Pointer::Use/Manager/WinGiver: either add IsObjective() to
+  CBaseEntity (faithful — orig has it at vtbl 0x1c; verify audit doesn't flag invented) or classname-gate, AND RE the +0x7c
+  ref (live trace/decompile). Remaining CTSGameRules gap (19): voting/team-cash/round-restart/TheOne subsystems.
+- **OBJECTIVES CLUSTER COMPLETE (5609490, 88d29fa).** Added IsObjective()/EnableObjective() as CBaseEntity virtuals
+  (the original has them — IsObjective__11CBaseEntity/EnableObjective__11CBaseEntityb, audit listed both MISSING on
+  CBaseEntity; default false/no-op, CTSObjective-derived override) -> CBaseEntity 70->72/85. Solved Pointer::Use's
+  *(CTSObjective**)(found+0x7c) = the found edict's pvPrivateData = CBaseEntity::Instance (the found ent IS the
+  objective). CTSObjectivePointer 2/3->3/3 (Use: per targeted IsObjective() ent -> EnableObjective(true) +
+  AddObjectiveInList(obj, the pointer's 4 per-team labels) + SendObjectiveToHud to all). InitObjectives now does the
+  faithful all-entity IsObjective() sweep. **CTSObjectiveManager 5/5** (+Save/Restore 13-field=8 targets+4 messages+
+  end_round_target; members renamed m_objTargets->targets/m_messages->messages/m_targetTimeLeft->end_round_target).
+  **CTSWinGiver 7/7** (+Save/Restore 4-field=winnerteam/cash_for_winner/cash_for_loser/numberofcall + IsObjective()->1
+  + EnableObjective override [orig ignores arg, just resets]; members renamed). Whole cluster (CTSObjective base +
+  Bomb/TeamEscape/Hack/Trigger/WinGiver/ScoreGiver derive it w/ Save/Restore; Manager/Pointer wire the HUD; CTSGameRules
+  8 methods + Objective/ShowObj gmsgs) reconstructed end-to-end. ⚠ CLIENT HUD handler for Objective/ShowObj = cl_dll track.
+  Still OPEN (not blocking): the array-element audit-naming artifact on Manager targets[]/messages[] (DEFINE_ARRAY vs
+  per-element — data saves fine).
+- **CTSGameRules round-restart subsystem DONE (0a7832c): 20/39 -> 25/39** (dossier scratchpad/dossier-roundrestart.md).
+  Reshaped our static TSRestartRound into the original's methods + WIRED InitObjectives/SetObjective into the round
+  lifecycle (retiring the cluster's Spawn-self-arm SLICE intent): **Init()** (+a CTSGameRules ctor calling it: InitTeams +
+  InitObjectives->SetObjective + m_flRoundRestart=time+5 + round-timer-enabled); **RestartRound()** (re-arm timer inline
+  [roundtime clamp 30..180] + disarm restart + RoundTime msg + InitObjectives->SetObjective + team banner + respawn players
+  + RecountTeams + RespawnEntities(true); now the member called from Think); **RespawnEntities(bool)** (info_breakable->
+  RespawnThink + ts_flag always; ts_groundweapon->Fall team/lms; ts_powerup lms — VERIFY: powerup/flag use Spawn() vs orig
+  Fall/RespawnFlag since those classes are .cpp-local); **ResetRestartRound(int)** (round-end arm-1s-restart, team/lms-gated,
+  +"Restarting Round", depth>1 wipes scores — TeamWin now calls it instead of an inline +3s); **CountPlayers()**. Made
+  ts_groundweapon.h self-contained. SLICEs: RestartRound's loadout cash-refund + force-class-select-observer (we respawn
+  directly); ResetRestartRound's per-team cash reset + TeamScore broadcast.
+- **CTSGameRules team-cash/list subsystem DONE (6c9cbe2): 25/39 -> 31/39.** Added GetTeamsNum (active-team count),
+  SetTeamList (parse ';'-list -> roster + RecountTeams), SetTeamModelList (parse '|'-list + the per-slot (int,model)
+  overload), GetTeamCash (player's team-pool cash; the cash economy is hard-OFF so returns 0), and InitTeamScore/
+  UpdateTeamScores (**NO-OP stubs in the original**). Added m_teamCash[]. InitTeams now drives SetTeamList/SetTeamModelList;
+  the rest wired to faithful callers (GetTeamsNum->InitHUD, GetTeamCash->PlayerSpawn[inert@0], InitTeamScore->Init,
+  UpdateTeamScores->ResetRestartRound) so --gc-sections keeps them.
+- **CTSGameRules COMPLETE — 39/39 methods, 0 missing (b48ecbf/92256db/cc7059b).** Finished the last 3 subsystems:
+  **TheOne juggernaut** (IsCTB[ts_briefcase cache]/SelectRandomTheOne[throttled crown]/SetPlayerTheOne[buff: health 150+
+  regen+kungfu+low-grav+maxspeed 330]/TheOneIsDead[killer inherits]; +CBasePlayer m_bTheOne; wired Think+PlayerKilled);
+  **GetPlayerModel**(random team model, wired AssignToTeam) + **TogglePlayerFromSlow**(GoSlow(1,0), wired PlayerKilled);
+  **voting** (PlayerVote['vote reset|stats|map <name>', IS_MAP_VALID] + CheckVotes[10s tally of map/ff/teamplay votes ->
+  majority=CalcMiniminVotants=max(votants/2,1) -> mp_friendlyfire/mp_teamplay/next-map]; wired ClientCommand 'vote' + Think).
+  CTSGameRules went **12/39 -> 39/39 this session** via 5 subsystems (objective, round-restart, team-cash/list, TheOne,
+  voting). The 12 "invented" methods are legit: stock virtual overrides (PlayerKilled/PlayerSpawn) + TS team helpers
+  (AssignToTeam/IsTeamMode/GetIndexedTeamName/GetTeamID/RecountTeams/etc.) under our reconstruction names. SLICEs noted in
+  commits (cash refund/observer, ff/teamplay vote commands, next-map application, the_one powerup value). UNPLAYTESTED.
+  derives CTSObjective; needs +Save/Restore(hacksec)+EnableObjective+ObjectCaps(0x10) and to dissolve our invented
+  HackTouch into the original's **Use** (a 688-byte hack-interaction method) + the WaitThink countdown-to-Freeze model
+  (EnableObjective seeds field_0x6c timer; WaitThink decrements each sec -> Freeze(true) at 0). Decompile: scratchpad/hack.c.
+
+audit headline: invented methods **131->117**, file mismatches **23->22**, 0 missing/0 invented classes; **3
+keepalives dropped/slimmed** (CTSPhysicObject now kept by CTSWorldGun, CTSGrenade by CM61Grenade, CInfoBreakable
+wired+LINK'd). Remaining keepalive: the compiled-but-unlinked pistols (CTSPistolWeapon/Ammo — the ORIGINAL keeps
+them too, legit). All build amd64 server+client (glibc 2.14). **⚠ ALL UNPLAYTESTED** — bounce physics, swept impact
+damage, armor drop, grenade slow-mo + M61 blast literals, breakable respawn. NEXT: the **CTF cluster** (deferred —
+bottom-up: s_flag_status -> CBasePlayer::TakeFlag/DropFlag -> CTSBriefcase -> CTSFlag 4/15; dossier
+`scratchpad/dossier-CTSFlag.md`), CTSGameRules 12/39 + the objectives cluster, CTSGun's remaining missing methods,
+the ~126 invented methods to review.
+
+## 2026-06-28 (cont. 73) — code-restructure to source parity (audit.py-driven): 7 classes -> 1:1
+
+Branch `restructure-source-parity`. Per the user's directive — ONE CLASS AT A TIME, make methods + variables
+match the original 1:1 (nothing missing, nothing added), using subagents that write `.md` dossiers to scratchpad
+(keep raw decompiles out of context). Loop: `re.sh <Class>` decompile -> dossier -> reconcile our WORKING logic into
+the original's exact method/member layout -> build amd64 -> `audit.py <Class>` -> commit. Driver = `scripts/coverage/audit.py`.
+GPG signing off for the session (`git config --local commit.gpgsign false`).
+
+5 commits `69c21ab`..`8f73a46`. audit headline: invented methods **145->132**, file mismatches **25->22**,
+0 invented classes (unchanged). Each builds amd64 (glibc 2.14); the BEHAVIOUR-sensitive ones need a playtest pass.
+
+- **CTSAnimation 13/13** (`69c21ab`): split our monolithic `Animate()` + 4 collapsed helpers into the original's 13
+  methods (Init/UpdateTimers/Animate 4-phase / Enable/Disable/BulletDance / BlendAnimationsForSlide/ByDir/Jump /
+  SetAnim / HandleCloseCombat / IsInCloseCombat / GaitCloseCombat). `SetBodySequence`+`SetGaitSequence` -> the flag-driven
+  `SetAnim` (orig flags 0x92/0x94/0x14/0x194/0x12). `GetMoveDirection` -> the free `GetDirection` (orig
+  `GetDirection__FG6VectorT0ff`). `PlayKungFu` -> `HandleCloseCombat(player,code)`; ts_gun's 3 PlayKungFu(name) sites ->
+  `Animate(player,closeCombatCode)`. `m_bKungFu` bool REMOVED — kung-fu keys off the EMPTY grip (melee Deploy now passes
+  ""; also fixes the phantom `draw_onehanded` pistol-draw on fists). Added bullet-dance state + GiveSlowMul timer scaling.
+- **CTSStunt 25/25** (`000f2a3`): the 5 INVENTED helpers leave the class surface — `GetDirection` = the shared free fn;
+  `TimeScale`/`SendNextStunt`/`MotionBlur`/`ResetStuntState` -> file-local statics (the original inlines them; like the
+  existing TSWallTrace). `SlotBonus`/`NextDive` out-of-line. `CloseAttack` (the JUMP-KICK <- CBasePlayer::Jump)
+  reconstructed AS a CTSStunt method — relocated from the free fn `TSTryJumpKick` (removed; invented-global cleared;
+  `m_flNextJumpKick` member removed, uses `m_flStunCooldown`=CTSStunt+8). `CheckForBreakables` (<- PreThink) added: the
+  non-melee run/dive-into sweep shatters world breakables (players excluded; the close-combat Victim*Hold path needs unbuilt
+  state -> DEFERRED+VERIFY). `TimeScale` fixed to `max(fuser1,0.01)`. A caller-finder subagent (`re.sh refs`/`vrefs`)
+  confirmed: CheckForBreakables<-PreThink, CloseAttack<-Jump; the +0xb4 damage-virtual + GetDirection's networked +0x2a0
+  store are VERIFY-flagged.
+- **CTSDeadCorpse 5/5 + file rename** (`683c123`): FadeThink->WaitThink; add empty Precache + no-op TraceAttack;
+  ObjectCaps -> FCAP_DONT_SAVE (0x80000000). `ts_corpse.cpp` -> **`ts_deadcorpse.cpp`** (LINK name `ts_corpse` unchanged).
+- **CTSShrapnel 6/6 + file rename** (`feb4e02`): FadeThink->WaitThink. `ts_grenade.cpp` -> **`ts_grenades.cpp`** (also
+  clears CM61Grenade's file-mismatch — shares the file; CM61Grenade methods still drift, separate pass).
+- **CTSPlayerAmount 4/4** (`8f73a46`): event-driven `ClientConnect`/`ClientDisconnect` (per-entity counter, fire on
+  ==clients) replace the invented `CountThink` poll + `CountConnectedPlayers`; derive CBaseDelay; wired from the engine
+  ClientConnect/Disconnect hooks in client.cpp (new ts_playeramount.h). (File still ts_playeramount.cpp vs the original's
+  grouped TS_entities.cpp — grouping divergence, per HANDOFF.)
+- **CTSTrigger 5/5 + CTSScoreGiver 3/3** (`887c58f`): CTSTrigger += ObjectCaps()=0 + WaitThink (reschedule, wired in
+  Spawn). CTSScoreGiver += explicit KeyValue (delegates to CTSWinGiver) + Spawn (hidden relay). NB the objectives cluster
+  (CTSObjective/CTSObjectiveManager/CTSObjectivePointer/CTSHack/CTSWinGiver + CTSGameRules' AddObjectiveInList/
+  SendObjectiveToHud/TeamWin) is INTERDEPENDENT — CTSObjectivePointer::Use etc. are blocked on the missing CTSGameRules
+  objective methods, so that cluster wants doing together (CTSGameRules first).
+
+**File-name parity note** (user asked): `audit.py`'s `norm_file` strips the `ts_`/`TS_` prefix + drops `"manager"`, so
+e.g. `ts_animation`≡`TS_animation`, `ts_stunt`≡`TS_stuntmanager` already report ✓. The 22 remaining FILE mismatches are
+mostly the original GROUPING many classes into one `TS_*.cpp` (TS_entities/TS_objectives/TS_worldgun) vs our per-class
+files — single-class renames are taken inline (corpse/grenades); the grouped merges are deferred per HANDOFF.
+
+**Dossiers saved** (scratchpad, reusable): `dossier-hldmcompat.md` (the 18 missing weapon/ammo spawner classes — entity
+name map + Random<X> sets; UNLINKED: CTSPistolWeapon/Ammo; do the CTSGroundWeapon/Ammo base FIRST). `dossier-CTSAnimation.md`,
+`dossier-CTSStunt.md`, `dossier-CTSStunt-callers.md`.
+
+### cont.73 cont. — worldgun/hldmcompat cluster (bottom-up): missing classes 24 -> 8
+
+Per the refined goal (do dependencies first, ALL missing-class closures). Commits `875da11`..`86bfb6a`.
+
+- **CTSGroundWeapon 5/14 -> 14/14** (`875da11`, header ts_groundweapon.h): full settle-then-pickup state machine
+  (Spawn point-bbox -> Fall -> OnGround SOLID_TRIGGER grab box -> WaitTouch[0x1d auto / else USE] -> GetWeapon),
+  Save/Restore + DEFINE_FIELD table (respawntime/tsweaponid/extraclip), ObjectCaps=FCAP_CONTINUOUS_USE,
+  CanUsedTroughWalls()=0, virtual GetWeapon for subclasses. **audit.py our_members() fixed** to detect non-m_
+  members (the original's FGD/save names are unprefixed) so faithfully-named members aren't falsely "missing".
+- **CTSGroundWeapon buy gate** (`cb8330c`): the user flagged unused attackerteam/buyable = missing logic. RE:
+  CashBased() is hard-OFF in the shipped game (cash economy compiled out) so the buy gate is DEAD in the original
+  too — but PRESENT in GetWeapon. Restored it gated on CashBased() (team restriction + cash price via GiveCash);
+  attackerteam/buyable/extraclip now consumed, 1:1. **LESSON: unused members => flag + fix immediately.**
+- **10 weapon spawners** (`9d860be`, hldmcompat.cpp): 6 random (CTSPistol/BigPistol/Shotgun/Rifle/SMG/KnifeWeapon,
+  Spawn+GetWeapon+RandomX) + 4 fixed (CTSSniper/MG/Katana/GrenadeWeapon, Spawn). Derive CTSGroundWeapon, remap
+  stock HL weapon entity names. **Conflict resolved:** the stock SDK LINK_ENTITY_TO_CLASS lines (weapon_shotgun/
+  gauss/egon/rpg/crossbow/hornetgun/snark/satchel/handgrenade/9mmAR/ammo_ARgrenades) commented out across 10
+  stock weapon files (the original has no stock HL weapons); stock CLASSES stay compiled (hgrunt->CShotgun,
+  client->CRpg). No effect on TS maps; stock maps now spawn TS weapons.
+- **CTSGroundAmmo 9/11 -> 11/11 + 6 ammo spawners** (`07067a6`, header ts_groundammo.h): m_ammo[16] caliber-indexed
+  array (calibers reach 13); CTSPistol/BigPistol/Rifle/SMG/Shotgun/SniperAmmo derive it (RE: CTSBigPistolAmmo::Spawn
+  = CTSGroundAmmo::Spawn + m_ammo[5]/[11]). Stock ammo LINKs commented too. ammo amount = TSRoundsPerMag proxy (VERIFY
+  the orig get_ammo_info(cal)->default/2).
+- **Unlinked pistol keepalive** (`86bfb6a`): CTSPistolWeapon/CTSPistolAmmo are compiled-but-unlinked in the original;
+  our --gc-sections DCE'd them -> an exported `hldmcompat_keep_unlinked()` anchor keeps them. 3/3 + 1/1.
+
+### cont.73 cont.2 — more missing-class closures (bottom-up): missing classes 8 -> 5
+
+- **CTSPhysicObject 5/5 + CTSGrenade 2/2** (`a5294db`, ts_physicobject.h): slow-motion physics base (velocity/
+  avelocity/gravity scaled by fuser1 when slowed; save/restore; WaitThink toggles on fuser1<1 as the InSlow proxy)
+  + the thin grenade subclass (grenbounce sounds + damp/settle). Kept via ts_grenades_keep_physic() until the
+  grenade/worldgun hierarchy is rewired to derive them (CTSWorldGun:CTSPhysicObject + thrown grenades) — follow-up.
+- **CBulletManager 6/6** (`3f77c1a`): our slow-bullet FREE functions (TSFireSlowBullet/Update/Reset) wrapped into the
+  CBulletManager class (FireBullet/Reset/Think/UpdateBullet/UpdateBulletTimeSlice/DestroyBullet); 256-slot ring =
+  m_bullets member; global g_BulletManager (orig embeds it in CTSGameRules+0x1864). Callers (ts_gun/ts_gamerules) updated.
+
+**KEEPALIVE pattern** for compiled-but-unreferenced classes (the original keeps them; our --gc-sections drops them):
+an exported, never-called function referencing static instances (`hldmcompat_keep_unlinked`, `ts_grenades_keep_physic`).
+Honest stopgap until the real hierarchy/wiring is built; flagged in each.
+
+### cont.73 cont.3 — ALL missing classes closed: 24 -> 0 ✅
+
+- **Emitter cluster** (`6317297`): CTSSharedEmitter 10/10 (ts_sharedemitter.h, global s_Emitter + 2x512 arrays +
+  the keyvalue parsers; most of the pipeline DEAD as shipped — reproduced inert) + CTSEmitter 4/4 (self-removes in
+  Spawn) + CTSParticle 3/3 (registers + persists) + CTSWind 3/3 (BlowThink broadcasts gmsgTSParticleSystem subtype 3).
+  gmsgTSParticleSystem (TSPSys,-1) registered; KillAll wired into ServerDeactivate. Client TSPSys decode = separate track.
+- **CInfoBreakable** (`6eff724`): the breakable respawn retry-helper (1/1, ts_func_break.cpp). FOLLOW-UP (not wired —
+  playtest-sensitive): CBreakable::BreakableRespawn (@0x74e84 box-clear retry) + Die creating/arming the helper +
+  the respawn-time members. Kept via ts_func_break_keep() until then.
+
+**🎯 ALL 24 originally-missing TS classes are CLOSED (24 -> 0).** audit.py headline: 0 missing / 0 invented classes.
+
+**Remaining audit work** (drifted, not missing): ~131 "invented methods" to review (mostly legit SDK helpers on
+CBasePlayer/CBaseEntity); the big drifted classes' MISSING methods (CTSGameRules 12/39, CTSGun 28/47, CM61Grenade,
+CTSFlag, CTSWorldGun 4/13 -> rederive CTSPhysicObject, CBreakable 17/22 -> the breakable-respawn cluster above);
+23 file mismatches (grouping divergence, mostly OK). KEEPALIVE'd classes (pistols, CTSPhysicObject/CTSGrenade,
+CInfoBreakable) want their real hierarchy/wiring built to drop the anchors. **⚠ EVERYTHING this session is
+UNPLAYTESTED** — the whole worldgun/hldmcompat/bullet/physics/emitter behaviour needs a playtest pass.
+
+**(old NEXT, now done):** the emitter cluster — **CTSSharedEmitter (10-method particle manager) FIRST**, then
+CTSEmitter/CTSParticle/CTSWind entities (TS_emitter.cpp; dossier-emitter.md). CInfoBreakable (1 method, created by
+CBreakable::BreakableRespawn — do with the breakable-respawn drift). Then the big drifted classes (CTSGameRules 12/39,
+CTSGun 28/47, CM61Grenade, CTSFlag, CTSWorldGun 4/13 -> rederive CTSPhysicObject), 131 invented methods to review, and
+client-side structural parity (separate manual track). ⚠ The whole worldgun/hldmcompat/bullet/physics behaviour is
+UNPLAYTESTED — needs a pass (stock-name weapon remap, pickup physics, slow-bullet, grenade bounce).
+
+## 2026-06-28 (cont. 72) — RE-tooling pass: audit toolchain + deterministic inventory (committed); pump WIP
+
+Built the machine-checkable RE inventory + bidirectional audit, made it deterministic, set up the Ghidra MCP.
+10 commits `77cb586`→`1f839c8` on main. **NEXT: use audit.py to restructure our code to the original layout
+(source parity).**
+
+- **audit.py** — bidirectional ours-vs-original structure check against ts_inventory.json (file/class/method/
+  member/global, MISSING + INVENTED). `audit.py <Class>` per-class; `--strict` CI gate; wired into run.py →
+  AUDIT.md. Current: 24 missing classes, 0 invented classes, 145 invented methods (review), 211 missing methods,
+  54 missing named members, 25 file mismatches, 24 missing globals. coverage.py still does the external contract.
+- **vrefs.py** (`re.sh vrefs`) reverse virtual-call finder; **curate_members.py** producer for members_re.tsv
+  (the orphan); **client_members.py** (binmap-match our client.so→client.dll + ApplyClientThis.java + DumpMembers)
+  → members_auto_client.tsv (51 classes/1319 members incl. CHud*); **binmap.py** .so↔mp.dll/client matcher.
+- **member-inventory completeness**: DumpMembers parses the opaque `*(t*)(this+0xNN)` form → recovers
+  CTSGameRules/CTSStunt/CTSAnimation (860→1030/137). **s_weapon_info/s_weapon_status structs** applied (weapon
+  code reads this->m_pActiveInfo->iFireType). **ts_inventory.json** now carries full per-class members (1402) +
+  client skeleton.
+- **DETERMINISM** (was wobbling run-to-run): cached single-threaded `re-base` (`re.sh analyze`, COPIED per setup,
+  also faster) + `-max-cpu 1` (member SET) + CANONICAL type column in DumpMembers (Ghidra's decompiler integer-type
+  inference is non-deterministic, unreachable by -max-cpu; float/double/ptr stable → presence-keyed, integers→int).
+  Verified 0-diff. Diagnosed by measurement after 3 wrong hypotheses.
+- **Ghidra MCP** front-end on the typed `re` project (CLAUDE.md §4a.3 + .lock gotcha; `[[ghidra-mcp-vs-own-tooling]]`;
+  `scripts/ghidra/mcp-up.sh`).
+- **Pump shotgun (COMMITTED `2b23000`+`9c3ec0c`, pushed)**: RE-confirmed HELD/auto-alternate (all 3 default to
+  PUMP; ShotgunFire alternates fire/rack via item+0x24 = predicted m_fInSpecialReload; tap=one step). Rack sound
+  CHAN_ITEM. Pump VKickback 0.35× (benelli/spas pump mode; mossberg full) — applied to the CLIENT aim-recoil
+  (TS_AddViewRecoil), NOT server VKickback (RE @0x70414: punchangle is bots-only); the magnitude rides to the
+  client via the fire-event fparam2. Playtest-confirmed.
+- **Client-side architecture divergence noted (restructure)**: original splits the CLIENT fire path into
+  per-fire-type handlers (FUN_10040c20 pump / FUN_1003f090 akimbo / FUN_1003dfa0 standard); we use ONE EV_TSFire.
+  audit.py is SERVER-ONLY → won't catch client structural divergence; client parity is a separate manual track
+  (dc.sh client + clientdll project). See HANDOFF cont.72.
+
+## 2026-06-27 (cont. 71 cont.2) — long live-playtest pass: laser/HUD/muzzle/weapons + pump (in progress)
+
+Marathon interactive session, user firing every change in graphical xash. Committed `8c27afa`→`0b45726` on main
+(see HANDOFF "⭐⭐⭐⭐⭐ START HERE cont.71 cont." for the per-commit list). Highlights:
+- **Lasersight**: local player's dot is a HUD dot (RE `FUN_1003d600` skips local; others get the world beam+dot);
+  beam = `laserbeamanim.spr`; dot screenspace-anchored on the eye-ray (distance-independent, centred up close).
+  Map-change persistence fixed (don't clear `g_playerAttach` on VidInit). Per-weapon attachment buy-binding fixed
+  (interleaved tkw/tki). `useitems` = ATTACHMENT toggle (RE `FUN_0x71564`), akimbo swap = right-click.
+- **Viewmodel aims UP with ground move speed** (cl_dll/view.cpp `V_CalcRefdef`) — for every weapon; the laser dot
+  follows the model. Halved the figure-8 weapon sway. Flashlight = light-only + `flash.spr` on the gun, radius
+  1.5×. Muzzle flash = `gun_muzzle.spr`(sil)/`gun_muzzle2.spr` for all weapons.
+- **HUD**: numbers.spr digit font (health/powerup/bottom-box ammo/top-bar slots); bottom-box attachment list with
+  item_installed/not_installed dots + lighter-background active highlight; melee BLOCK bar (gmsgKFuPower stamina,
+  melee-only, fades to red).
+- **Weapons**: katana right-click throw + stuck-katana NOT pickup-able + throw caps (knife 5/seal 10/katana 1);
+  all melee block on RELOAD; weapon UNHOLSTER anim on switch (per-weapon draw-seq parsed from viewmodels +
+  viewmodel-change replay force for same draw-index pairs); shotguns trace ALL pellets client-side (8 decals).
+  Spectator top-left inset (pip) forced OFF.
+- **RE-confirmed faithful (no change)**: UMP 2-round burst (`burst=(type!=0x17)+2`); double-fire = 1.5× (`*=1.5`).
+
+🟡 **IN PROGRESS (uncommitted): pump-action shotgun.** Fire is now press-edge (one shot per pull) — WORKS. The
+cosmetic RACK (pump anim+sound between shots) was reworked from a custom timer (failed: custom fields aren't
+decremented in client prediction) to a `bool m_bNeedRack` + the predicted `m_flTimeWeaponIdle`; NOT yet
+playtest-confirmed. ⚠️ Lesson (cost two regressions): NEVER gate the FIRE on non-predicted state (an `m_bPumped`
+chamber state machine desynced → infinite-fire); keep pump cosmetics cosmetic. ALSO: ts_gun.cpp builds into BOTH
+hl.so + client.so — always `build.sh amd64 all`, else the client predicts stale weapon logic. [[useitems-is-attachment-toggle]]
+
+## 2026-06-26 (cont. 71 cont.) — HUD numbers + attachment toggle + katana + melee block bar (live-playtest pass)
+
+Long interactive playtest pass, all RE-grounded + user-confirmed. Committed as a client/server pair
+(cl_dll HUD presentation; dlls gameplay) on top of 8c27afa.
+
+- **numbers.spr digit font** wired into: health number (ts_status), powerup seconds (ts_powerup_hud),
+  bottom weapon-box ammo "clip / reserve" (ts_ammo, TSHud_DrawNumberPair with a slash), and the top
+  weapon-bar slot numbers 1-5 (ts_weaponbar). Left as text: the top-bar cursor x/y (per user). Helpers
+  TSHud_DrawNumber/NumberWidth/DrawNumberPair in ts_hud (font map sprites/hud.txt number_0..9, 11px).
+- **`useitems` = ATTACHMENT TOGGLE** (NOT akimbo swap — user corrected; akimbo swap is right-click).
+  RE'd FUN_0x71564: item +0x10 = EQUIPPED mask, +0x14 = ACTIVE mask. State machine (both laser+flash
+  equipped): active cycles 6(both)->0(off)->2(laser)->4(flash)->6; one equipped toggles it. Rewrote
+  CTSGun::SwitchItems to this; moved the akimbo barrel-swap to SecondaryAttack (right-click) as
+  SwitchBarrel. AddItem starts new toggleables ACTIVE. Wire: ActItems now carries the ACTIVE mask (gates
+  the laser beam render + dive-reticle distance); WeaponInfo flags byte carries the EQUIPPED mask. Bottom
+  weapon-box restructured top->bottom (name/caliber/firemode/ammo/attachments/bar) listing each equipped
+  attachment with a laserdot.spr dot, active ones bright. [[useitems-is-attachment-toggle]]
+- **Katana right-click throw** (orig SecondaryAttack fire-type 10 -> KatanaThrow): generalized ThrowKnife
+  for katana (katana/miss.wav) + routed it. **Stuck katanas NOT pickup-removable** (the pickup was our
+  added nicety; original leaves a settled blade inert) — gated BecomePickup so a katana stays inert
+  decoration; knives/seal keep the pickup. **Throw caps**: knife 5, seal-knife 10, katana 1 (ts_weapon_info).
+- **Melee block bar** = MELEE BLOCK STAMINA (field_0x774), shown ONLY for melee weapons (kungfu/knife/
+  katana/seal), NOT health, NOT on guns. RE CCombatBlock@0x85ebc + UpdateMeleeBar@0x9650c: ALL melee
+  block on RELOAD (was kungfu-only); each block drains via UpdateMeleeBar; networked via **gmsgKFuPower**
+  (CHAR 0..100); the client (ts_ammo) draws it as the bottom-box bar gated on melee. The bar colour FADES
+  from the HUD colour (full) toward red (empty), not a threshold switch (TSHud_HealthBar). Top weapon-bar
+  shows melee as count "x" only (not "x/max"). Tuning (user-playtested): re-block cadence +0.5s (RE fc_0_5,
+  was 0.8), drain 33 (RE), continuous regen ~25/sec (never pauses, even while blocking).
+
+Files: cl_dll/{ts_hud,ts_status,ts_powerup_hud,ts_weaponbar,ts_ammo,ts_attachments}.{cpp,h};
+dlls/{ts_gun.{cpp,h},ts_knife.cpp,ts_weapon_info.cpp}. Builds clean (glibc 2.14). [[match-original-names-for-coverage]]
+
+## 2026-06-26 (cont. 71) — lasersight map-change loss FIXED + per-weapon attachment binding FIXED (live-confirmed)
+
+Two laser/attachment bugs the user reported, both RE-grounded + live-playtest-confirmed (UNCOMMITTED, on top of 514a50a).
+
+1. **Lasersight/flashlight lost on MAP CHANGE** — the `ActItems` broadcast is change-detected on
+   `CTSGun::m_iClientAttach`, whose cache SURVIVES a changelevel (the gun persists) so it never re-sends;
+   the client was CLEARING `g_playerAttach` on `TS_Attachments_VidInit` → desync → laser/flashlight +
+   dive-reticle distance gone after a map change. **Fix = the inverse of "force a re-send":** client.so
+   is not reloaded across a map change, so the static `g_playerAttach` stays in sync with the surviving
+   server cache as long as we DON'T clear it. Removed the `memset(g_playerAttach,…)` from
+   `TS_Attachments_VidInit()` (kept the SPR-handle reset — those genuinely go stale). The original keeps
+   its array likewise (a static global never cleared on level change), which is why it lacks this bug.
+   (The prior `m_iClientAttach=-1`-in-Deploy attempt was the wrong fix — re-fired every deploy, broke
+   fresh-buy; no server change is needed.) [[map-change-state-reset]]
+
+2. **Attachment landed on the WRONG weapon** ("SOCOM+laser → the SHOTGUN gets the laser, and no SOCOM").
+   Root cause: the buy menu `Apply()` (cl_dll/ts_buymenu.cpp) sent ALL weapons in one `tkw` then ALL
+   attachments in a separate `tki` afterward. The server appends to `m_armament[]` in command order and
+   `BuyArmament` applies via `CBasePlayer::AddItem` → the ACTIVE `CTSGun` (active = LAST weapon bought),
+   so every attachment bound to the last weapon, and the per-weapon `Slot::attachMask` binding was lost.
+   RE confirmed the original `BuyArmament@0x83f10`/`AddItemToArmament@0x83ea4`/`AddItem@0x8440c` apply the
+   exact same active-weapon way — fidelity hinges on QUEUE ORDER. The original CLIENT (`FUN_10039400`)
+   runs a sort-then-emit pass that sequences each accessory right after its weapon. **Fix:** `Apply()`
+   now emits INTERLEAVED — each weapon's `tkw <id>_<n>` immediately followed by its own `tki <bit>` items
+   (one tki per bit so `CTSGun::AddItem` validates each against that weapon's supported/built-in mask).
+   Per-command emission also fixed the SOCOM going missing: the old single 256-char `tkw` string
+   truncated/overflowed on a full loadout and dropped weapons. reference/BUY.md model unchanged (names/
+   formats faithful); only the emission ORDER corrected. [[match-original-names-for-coverage]]
+
+Verified by adding temporary `[TSATTACH]` server ALERTs (Deploy type/attach + broadcast idx/type/attach),
+reading the trace from the live xash run, confirming the queue order + broadcast, then REMOVING the debug.
+Builds clean (hl.so + client.so, glibc 2.14). HANDOFF open-work #1 (laser map-change) is DONE.
+
+## 2026-06-26 (cont. 70 cont.2) — DIVE RETICLE reconstructed + numbers.spr font (UNCOMMITTED; laser-distance has a known map-change bug)
+
+New client HUD **cl_dll/ts_reticle.{cpp,h}** (`CHudTSReticle`, wired in hud.h/hud.cpp + cl_dll/CMakeLists.txt).
+The TS dive reticle: a center DONUT crosshair + a left "(" arc of 3 dive-step thirds colored by loadout
+weight, with a dot tracking aim pitch. RE foothold (live trace on the original, see below):
+- Sprites loaded by client.dll FUN_1004cb50 into a STATIC object @ client.dll+0xd0ca0 (handles read live:
+  cross_e=0x3b/cross2=0x3c/cross_t=0x3d/divestept=0x3e/divestepc=0x3f/divestepb=0x40). Dims: divestep 40x80,
+  cross 64x64. The DRAW funcs (FUN_1003254e @0x3254e, FUN_10033a6b @0x33a6b) decompile to GARBAGE (Ghidra
+  lost the frames — reached via register/tail-call dispatch), so colors/positions were TUNED against the
+  user's screenshots, not byte-RE'd. Full map: reference/STUNT.md? no — scratchpad/RETICLE_RE.md.
+- Crosshair = **cross2** (donut, transparent bg) via SPR_DrawHoles tinted near-black (cross_e is the same
+  art on a BLACK bg → only additive; cross_t is an X). NSEW ticks + are drawn as FillRGBA lines (2x4 / 4x2,
+  the dot's base blue), pulled IN when a lasersight is equipped. NO center dot.
+- 3 dive thirds (divestept/c/b) drawn OVERLAID at one position (each canvas holds its third) — blue if that
+  dive tier is available, red if too heavy (CanDive High/Med/Low = free slots >39/29/19, from maxspeed via
+  GetClientMaxspeed + the cont.69z slot formula). The aimed-at AVAILABLE third brightens; red never does.
+- Pitch DOT rides a CIRCLE (R=33) around center: a 60-deg view cone (+-30 pitch, arc angle = pitch*3) maps
+  to the arc's 180deg (30 up->top, level->left, 30 down->bottom). Dot is always the bright blue (104,169,240).
+- Reticle hidden in spectate (g_iUser1 / IsSpectateOnly); ALSO suppressed the stock valve crosshair in
+  spectate (hud_spectator.cpp SetCrosshair(m_hCrosshair) -> 0 in both OBS_IN_EYE/ROAMING branches).
+- **numbers.spr sprite-font**: TSHud_DrawNumber (cl_dll/ts_hud.{cpp,h}) — digit imagemap rects from
+  sprites/hud.txt (number_0..9, 11px each). Used for the lasersight DISTANCE readout (PM_TraceLine from the
+  eye along v_angles, dist/52 = metres, drawn right of the reticle, gated on TS_LocalHasLaser).
+
+🔴 OPEN / BROKEN:
+- **Lasersight attach is lost on MAP CHANGE** (g_playerAttach reset client-side; server ActItems is
+  change-detected on CTSGun::m_iClientAttach which survives the level → no re-broadcast). A `m_iClientAttach
+  = -1` in Deploy() REGRESSED it (laser gone on fresh buy) → reverted. Needs a re-broadcast that doesn't
+  break first-deploy. See [[map-change-state-reset]].
+- **numbers.spr NOT yet wired into health / ammo-max / powerup (2/3/5)** — user asked; still text/other.
+- Lasersight reticle should gate on the laser's ACTIVE toggle (useitem; starts on) not just equipped —
+  deferred. Distance divisor /52 + the number position are tuned guesses.
+
+[[live-original-ts-debuggable]] [[match-original-names-for-coverage]]
+
+## 2026-06-26 (cont. 70 cont.) — CTSStunt FULLY RE'd + reconstructed + live-playtest iterated (COMMITTED)
+
+Committed the prior cont.70 checkpoint as **b8080fb** (gun attachments/powerups/slow-mo/damage sounds),
+then did the user's goal: "faithfully reconstruct via RE the ENTIRE CTSStunt class and how it works".
+
+LIVE-PLAYTEST ITERATIONS (each grounded in RE after the user flagged guessing) — committed together:
+- **gravity/friction were SWAPPED + view_ofs mislabeled as punchangle.** Verified via progdefs.h + the
+  offset map (gravity@0x11c, friction@0x120, view_ofs@0x174, punchangle@0x68 — confirmed against
+  velocity@0x20/v_angle@0x74/button@0x180/flags@0x1a4). Swapped gravity<->friction + punchangle->view_ofs
+  across all stunt methods. This fixed the "random gravity" (GoDive sets gravity=0.75 floaty arc on every
+  dive; friction=0.25 on a low dive) AND revealed the PRONE VIEW source: Go* set pev->view_ofs=(0,0,0)
+  (the g_vecZero->pev+0x174 I'd misread). The -8 in PM_CheckParamters is the DEATH cam (gated on dead).
+- **Play dispatch must run AIRBORNE** (orig gates only ladder/water, not FL_ONGROUND) — my onGround gate
+  killed the dive mid-air. **m_flLastStunt stamped every frame on ground** (PreThink @0x808cc): time since
+  leaving ground < 0.7/timescale = the mid-air dive window (jump->dive + run->dive).
+- **TSHandle damps the CMD, not velocity** (the __DT_REL slots = cmd.forwardmove/sidemove/upmove): SLIDE ->
+  forwardmove=0 + side/up*0.3 (strafe-only + slow; your landing velocity carries you = the slide), STOP ->
+  *0.5. I'd been zeroing velocity (killed the slide). **Landing slide-vs-roll** gated on JUMP/ALT1/DUCK
+  (0x4006), not WASD -> you slide every dive landing.
+- **PM_Jump returns while prone** (iuser4 & PRONE|SLIDE|DIVE|WHEEL|WALLJUMP_A|WALLCLIMB_A) -> jump never
+  hops while prone, only triggers the getup. **CheckForWallClimb** gated on a JUMP-press edge + 0.3s window
+  (NOT FL_ONGROUND — my bug broke wall-scaling); WALLCLIMB_A set -> hold-jump auto-climbs.
+- **GETUP**: STANDUP bit 0x8 is NEVER set in the binary (TSStandUp dead). Reconstructed as a shared timed
+  two-stage (m_flRollTime=0.75 from HandleSlide-end): intermediate eye 16 + getup anim (dive_<dir>_end) +
+  STOP(slow)+free move, then at timer-end clear PRONE -> end eye = (DUCK held ? 12 duck : 28 stand), PM_Duck
+  owns the hull from there. (Exact settled-prone getup trigger not 100% pinned; routed through this path.)
+- **Animations**: wired CTSAnimation::Animate stunt codes to the model's real sequences (dive_<dir>_<grip>,
+  dive_<dir>_end, slide_<dir> = the prone poses, crawl, wheel_*/lowwheel_*, walljump_climb/end, morfy_jump,
+  bullettime). The slide_* set IS the lying-prone set (no separate prone idle).
+- **Full RE map written: reference/STUNT.md.** New files: dlls/ts_stunt.{h,cpp}, reference/STUNT.md.
+
+RE (complete map in **reference/STUNT.md**): decompiled all 25 CTSStunt methods (Init/Play/HandleStunt/
+GoDive/GoRoll/GoWallClimb/GoWallJump/GoBulletTime/GoWheel/HandleDive/HandleSlide/HandleWheel/HandleWallJump/
+HandleWallClimb/Landing/CanDive{High,Med,Low}/NextDive/SlotBonus/CheckForWall{Jump,Dive,Climb}/CheckForBreakables)
++ the pm_shared stunt family (TSHandle@0xe96a0 dispatcher, TSGoDuck, TSStandUp, TSDive, TSWallJump,
+TSWallJumpClimb, PseudoClimb, CanJumpHigh) + PM_PlayerMove/PM_Duck. **THE KEY FINDING that unblocks it:**
+the system is driven by ONE networked field **pev->iuser4** (entvars 0x250 -> pmove->iuser4 @0x208). The
+engine round-trips iuser4 pev<->pmove (server) and networks it (clientdata->TxferLocalOverrides->entity_state
+->prediction pmove, verified cl_dll/entity.cpp:87/210), so **pm_shared TSHandle() (compiled into BOTH hl.so +
+client.so) PREDICTS the dive/prone small hull (usehull=1) + low view (VEC_DUCK_VIEW) + dive/wall launch
+velocity on both sides** — exactly why the old DLL-only FL_DUCKING/UTIL_SetSize/view_ofs forcing never stuck
+(the predictor recomputed the hull every frame). iuser4 bit map in reference/STUNT.md §1.
+
+IMPL: new **dlls/ts_stunt.{h,cpp}** = real CTSStunt class (member CBasePlayer::m_TSStunt, Init in Spawn,
+Play() from PreThink) writing pev->iuser4. New pm_shared hooks in **pm_shared/pm_shared.cpp** (TSHandle +
+TSGoDuck/TSStandUp/TSDive/TSWallJump/TSWallJumpClimb; TSHandle() called from PM_PlayerMove before PM_Duck;
+PM_Duck gated off while any stunt flag set). Removed the ad-hoc m_bDiveRolling/m_flWallClimbFuel/m_bProneSize
+PreThink approximations from player.cpp (members left declared, now unused). Added TSPlayerFreeSlots() to
+ts_gun.cpp (ts_weapons.h) for CanDive weight gating (lighter loadout = higher dives). ts_stunt.cpp in
+dlls/CMakeLists.txt. **Builds clean (hl.so + client.so, glibc 2.14)**; CTSStunt + TSHandle linked both sides;
+synced to the xash mod root. NOT committed — awaiting the user's live playtest (per workflow).
+
+SLICES/notes: 3rd-person stunt POSES (CTSAnimation::Animate 0x28..0x39) still deferred — the TS specialist
+player models aren't in this data extraction (Animate calls are made but no-op). gmsgTSNextStunt (stunt-meter
+HUD byte) NOT sent (no client handler yet). PseudoClimb (ladder-style wall-grab refinement) stubbed/omitted.
+Wall-jump up-speed (270) tuned (orig reads a .rodata const that read 0 at the computed offset). CheckForBreakables
+(dive melee-shove) left to the existing TSCheckRunThrough. [[live-original-ts-debuggable]] [[match-original-names-for-coverage]]
+
+## 2026-06-26 (cont. 70) — attachments + powerups + slow-mo/damage sounds + stunts (**UNCOMMITTED ON DISK**)
+
+Very long interactive playtest session, NOT committed (21 modified + new `cl_dll/ts_attachments.{cpp,h}` on
+top of `6ecf77b`; builds clean glibc 2.14). Full detail in HANDOFF.md "⭐⭐⭐ START HERE (cont.70)". Summary:
+- **Gun attachments #11 + scope/laser/flashlight**: silencer (fire-sil + muzzle suppress; `fire.sc` iparam2=
+  attach mask), scope (FOV cycle on secondary; AUG/Barrett built-in via weapon_info +0xe0/+0xe4 = new struct
+  fields), lasersight+flashlight (NEW `ts_attachments.cpp` — original `ActItems` msg, TriAPI beam+dot/dlight).
+- **Buy menu**: bit-index/value fix (display + mouse), green Buy/Akimbo, akimbo combine + both-icons + step-down.
+- **Powerups**: super-jump (m_bLowGravity) + kung-fu (m_iKungFu) independent + bottom-center white HUD; kung-fu
+  reload BLOCK (CCombatBlock window + VictimKungfuHold negate+stun). Double-fire → all weapons full-auto.
+- **Slow-mo**: goslow.wav (EV_PlaySound, RE FUN_1004bef0) + 4 fading heartbeats; tint bluer.
+- **Damage sounds**: bodyhit/headshot/kevlarhit (TraceAttack), pain1-4 (Pain), whizz1-5 flyby (closest-pt-on-seg).
+- **Bugs fixed**: impact-ric "hear on approach" (was EMIT_AMBIENT_SOUND on world = static sound; → client
+  entity-0 positional); map-change sprite-cache staleness (TSParticles_Reset + TS_Attachments_VidInit on VidInit).
+- **🔴 INCOMPLETE — CTSStunt (roll/wall-climb/+alt1 dive/prone)**: ad-hoc PreThink approximations, NOT faithful.
+  BLOCKER: dive/prone needs a client-PREDICTED small bbox+low view; DLL forcing (FL_DUCKING/UTIL_SetSize/
+  view_ofs) is overwritten by pm_shared each frame → **needs pm_shared reconstruction gated by pev->iuser4
+  stunt flags** (RE'd: HandleStunt@0x8b000, GoDive@0x8b1a0 sets iuser4 0x4/0x10+height bits, GoRoll@0x8cfe8,
+  GoWallClimb@0x8aa1c). Decompiles in scratchpad/. The 3rd-person poses need the TS player models (not extracted).
+- **🔴 PENDING (not started)**: glass double-pane penetration (RE the caliber gating + damage/decal-behind),
+  golden-colts no-fire-sound-until-reload (prediction sync), wall-climb weight formula.
+[[live-original-ts-debuggable]] [[flag-unfound-re-early]] [[match-original-names-for-coverage]]
+
+## 2026-06-26 (cont. 69z cont.) — weapon-feel + powerup + grenade + impact-effect pass (COMMITTED, live-playtested)
+
+Long interactive playtest session; all RE-grounded. Committed to `main`. Items:
+
+WEAPON SLOTS / MOVE SPEED (RE GetSpeedBySlots@0x66bd4, GetAccelBySlots@0x66c4c, slot cost = s_weapon_info+0xd0
+byte): recovered all 38 per-weapon slot costs -> s_weapon_info.slotCost (knife 1, pistols 10, SMG/uzi 20,
+rifle/shotgun 40, barrett/m60 70...). CBasePlayer base maxspeed = 210 + (120/81)*remaining (remaining = 81 -
+sum of owned slotCost) -> TSSlotBaseSpeed (ts_gun.cpp), wired into player.cpp PreThink as the base that slow-mo
+fuser1 scales. PICKUP GATE: AddWeapon -> bool, refuses a fresh weapon that won't fit 81 slots (GiveTSWeapon ->
+NULL -> ts_groundweapon leaves it on the floor); already-owned weapons aren't re-picked-up except akimbo combines.
+(Buy menu encumbrance was an explicit SLICE; slot cost is +0xd0, price is +0xd8 — distinct.)
+
+DOUBLE-FIRERATE (RE PostThink@0x81610): the powerup is 1.5x NOT 2x (player+0x724&0x10 -> weapon-timer decrement
+*= 1.5). Was an over-fast invented 2x (flRate*=0.5). Now flRate/=1.5 (predicted). Still makes semis fire-while-held.
+
+HEALTH POWERUP DECAY (RE PreThink@0x808cc, player+0x73c = m_flHealthRegen): over-heal bleeds 1 HP/sec back to
+max_health then disarms. Was set but never read; wired in player.cpp PreThink.
+
+SLOW-MO SOUND PITCH: split TSSlowPitch (normal-recorded combat sounds, 100*perceivedSlow, capped 100) vs
+TSRecordedSlowPitch (recorded-slow sounds — gun-fire + bullet-hit ric — 100+300*perceivedSlow, 1..255, sped up
+at normal play, deepening in slow-mo). Applied to: thrown-knife impacts (ts_knife.cpp), per-shell shotgun racking
+(weapons/insert-shell.wav, restored — the ShotgunReload rewrite had dropped it), and the bullet-impact ric.
+
+SLOW BULLETS (ts_bulletmgr.cpp): per-caliber RE'd base speed (40*ammo_info[+0x24], kBulletSpeedUnit table) instead
+of the flat 6000; faithful fuser1 slow factor (reverted a user-flagged "too slow" ramp deviation). Visual: a
+short bullet_trail.spr dash that RIDES the bullet head (RE FUN_10035010, speed-scaled 5..25u) + shotgun_pellets.spr
+head sprite (RE: original draws it via FUN_10050080) at native amber. Bullet-hit ric = debris/ricN, ATTN_STATIC.
+
+GRENADE (RE CM61Grenade Spawn@0x7c974 / WaitThink@0x7cacc / BounceTouch@0x7ca90 + TSExplosion@0x6d01c): rewrote
+CM61Grenade — swept WaitThink (trace 64u ahead, shatter anything with health <= 0.1*speed -> flies THROUGH glass
+like the knife, not break-then-bounce), fuse counts in SLOWED time, detonates via TSExplosion. TSExplosion = a
+FUNCTION (screen-shake + radius damage w/ linear falloff + ScreenFade flash on players); visual = TE_EXPLOSION
+(SLICE: original's gmsgTSCreateDebris material-1 client fireball + slow-mo-point-on-spectacular-kill deferred).
+Grenade ammo = have/don't-have (clip 1): throwing the last one drops the slot + GetBetterWeapon (like the knife).
+
+BULLET IMPACT SHOWER + DECAL COMPAT (the big RE/compat fix): the ~50-dot "shower" was the ENGINE's
+TE_GUNSHOTDECAL (our server DecalGunshot -> UTIL_GunshotDecalTrace sends 0x6d) = decal + R_BulletImpactParticles
+burst + engine ric. VERIFIED in the binary: original ShootBulletsPlayer@0x5f69c lays NO server decal/TE at all;
+the decal is CLIENT-side (client.dll DamageDecal FUN_10001000 picks {break/{shot/{bproof1/{splat by
+pe->classnumber(+0x8c)==1 / pe->rendermode(+0x68)==0, then R_DecalShoot). So our server-side decal broke drop-in
+compat (double vs original client, none vs original server). FIX: removed the server bullet decal (entry+exit) and
+lay it CLIENT-side in EV_TSBulletImpact mimicking FUN_10001000 (breakable->{break, normal->{shot, else->{bproof1).
+Decal-name gotcha (TS decals.wad): bare "{shot"/"{splat" don't exist (numbered only), bare "{break" is a DEBUG
+"BREAK"-text lump — so use {shot1..5 and {break1..3, "{bproof1" bare. [[match-original-names-for-coverage]]
+[[live-original-ts-debuggable]]
+
+## 2026-06-25 (cont. 69z) — #14 right-click HOLD-POSITION toggle + #13 shotgun RELOAD state machine (live-playtested)
+
+Both RE-grounded via typed Ghidra decompiles of the originals (re.sh) + viewmodel sequence dumps +
+binary FP-constant reads. Built clean (hl.so + client.so, glibc 2.14) and synced to the xash mod root.
+NOT yet committed — awaiting the user's live-playtest confirmation.
+
+#14 HOLD-POSITION (RE CTSGun::SecondaryAttack@0x717a8): decompiled the whole secondary dispatch —
+grenade/knife/katana/flag throw (fire-type 2/3/0xa/0xb) first, then akimbo modes 4/5 -> Fire(other gun),
+then else: scoped (item+0x10 attach & 8) -> Zoom/FOV, else HOLD-POSITION TOGGLE gated on wi+0x28c != -1.
+The toggle flips item+0x2c, plays the model's change/rechange transition (the +0xe field of the leaving
+anim block), re-points the active anim block item+0x28 between wi+0x252 (normal) and wi+0x28c (hold), and
+re-arms timers primary +0.3 / secondary +1.0 (verified doubles @0xf7fb8=0.3, @0xf6df8=1.0). KEY FINDING:
+this is NOT just mk23/SOCOM — viewmodel dumps show paired stance sets (change/rechange + alt idle/shoot)
+on mk23, desert, ak47, m4, m16, mp5k, uzi, mossberg, sawedoff. mk23 hold-idle = idlec(5) matches the
+RE'd wi+0x28c=5. IMPL: s_weapon_info.iHoldChange/iHoldRechange/iHoldFireAnim (per-weapon seq indices from
+each v_*.mdl), TSItem.holdPosition, CTSGun.m_bHoldPosition (synced to client predictor via weapon_data
+iuser4, persisted per-item in Sync/LoadActiveFromItem). Toggle added to ItemPostFrame IN_ATTACK2 block
+(non-akimbo + iHoldChange>=0); held-stance fire anim swapped in StandardFire (iHoldFireAnim). SLICE: scope
+zoom branch + reload-in-hold-stance anim swap not wired (we don't have scope-attach plumbing yet).
+
+#13 SHOTGUN RELOAD (RE ShotgunReload__6CTSGun@0x84aac + Reload@0x84d5c + StopReload@0x81288): Reload routes
+fire-type 1 (PUMP: benelli/spas12/mossberg) straight to ShotgunReload, a 3-phase machine on item+8:
+phase0 open (play seq, lock 0.3) -> phase1 insert 1 shell every 0.3s (wi+0x14=0.3, verified) until tube
+full / reserve dry -> phase2 close/pump, end, secondary cooldown +3.0 (dc_3). The anim seqs are sent as
+event fparam1 = 8/9/10 (phase codes the client remaps per-weapon, NOT raw indices — benelli reload1/2/3 are
+at 2/3/4, mossberg at 8/9/10). reload1/2/3 are CONSECUTIVE in every pump v_*.mdl and our iReloadAnim already
+= reload1 (open), so insert=+1, close=+2. THE BUG FIXED: old code replayed the OPEN seq every shell and never
+played CLOSE -> gun stuck on the open pose ("held up, no shell, stays til fire"). New: CTSGun::ShotgunReload()
+3-phase, driven each frame from ItemPostFrame while m_fInReload && pump; fire interrupt resets m_shotgunPhase
+(StopReload); m_shotgunPhase reset on deploy (LoadActiveFromItem). Constants: dc_0_3=0.3, dc_3=3.0, wi+0x14=0.3
+(disambiguated from a Write_mp5k spill via the +0x18 fire-rate store = mossberg 0.25). [[match-original-names-for-coverage]]
+
+---
+
+## 2026-06-25 (cont. 69y) — POWERUP / SLOW-MOTION / SLOW-BULLET subsystem + weapon fixes (commit 635c9ca)
+
+Big session after the kung-fu kicks (below). All RE-grounded via 3 subagent RE passes (maps in scratchpad/):
+POWERUP_RE.md, SLOWMO_PRESENTATION_RE.md, bulletmgr.c, ccombatattack.c. Committed `635c9ca` on `main`.
+
+POWERUPS (RE POWERUP_RE.md): held timed powerups (slowmo 1 / slowpause 8 / dblfire 0x10) share ONE held slot
+(player+0x728) + a double-tap-+use activation (client-side, CL_CreateMove 0.30s, cvar cl_usepowerup). Built:
+cl_dll/ts_powerup_hud.{cpp,h} (green top-left "Slow Motion N" via PwUp msg = WriteShort(held)+WriteByte(dur)
+from UpdateClientData; PwUpTime countdown); double-tap in cl_dll/input.cpp; UsePowerUp/UpdatePowerUpState in
+ts_player.cpp; SlowMotionFlow (self 0.6/0.8 + LOS enemies 0.35/0.225 every 0.5s) + DeactivateSlowMotionFlow.
+Pickup = TOUCH only (CTSPowerUp::WaitTouch, no FCAP_IMPULSE_USE — the IN_USE there is an optional swap). Mutual
+exclusion is structural (single held slot overwritten on pickup).
+
+SLOW-MOTION TIMING (RE SLOWMO_PRESENTATION_RE.md — the key doc): the slow factor lives in pev->fuser1 (CURRENT,
+networked entvars float), eased toward m_flSlowMotionGo (TARGET, set by GoSlow) via InterpolateSlowMotion
+(min(ft*7,1) step, 0.05 snap). fuser1 scales: maxspeed (movement), pev->framerate=max(fuser1,0.01) (animation),
+AND the weapon-timer decrement (player.cpp PostThink + client prediction hl_weapons.cpp, both reading fuser1)
+→ fire rate slows. ×1.5 if dblfire. SOUND PITCH: guns 100+300*slow (ev_ts.cpp; the wavs are "recorded-slow" so
+~255 at normal → down in slow-mo), melee 100*slow (ts_gun.cpp TSMeleePitch; normal-recorded → slowed not sped).
+SCREEN TINT: the original hijacks the engine SCREEN-FADE in V_CalcRefdef — RGBA(0,100,125) teal (NOT a green
+fill — first RE pass wrongly said "no tint"), alpha (1-slow)*50, cvar cl_slowfade. TSSlowMo msg = WriteCoord(100*
+PERCEIVED-world-slow) = the others-scale 0.35/0.225 (NOT the 0.6 self), drives the client smoothed g_flClientSlow.
+
+SLOW-MO BULLETS (RE bulletmgr.c): dlls/ts_bulletmgr.cpp ≈ CBulletManager (256-slot ring). ShootBulletsPlayer
+gate `rbullet = shooter slow < 0.99` → each pellet becomes a flying bullet instead of instant hitscan. Per
+frame (CTSGameRules::Think): advance by GetBulletVelocityMult(slow,pauseFlag)*6000*frametime (slow-mo ≈ slow
+= fast tracer; slow-pause = slow/((1-slow²)*10) ≈ dodgeable), trace (dont_ignore_glass → HITS glass), damage +
+DecalGunshot on hit, else fly on; vanish when slow ends. Visual = a CBeam sprites/bullet_trail.spr extending
+muzzle→bullet (from the model — TE_TRACER was invisible). SLICEs: no pierce re-seed; speed approximated 6000.
+
+WEAPON FIXES: (1) AKIMBO — AkimboFire now fires BOTH guns in AUTO mode (uzi_akimbo iFireModes 0x21→AUTO; the
+viewmodel both-fire seq from the .mdl dump: uzi akimbo_shoot1=12, beretta/gold linkedshoot=26/7) not alternate
+(fixed "switches hands"). (2) mp5sd (silenced-base) + mossberg fire sounds restored (were nullptr / wrong path
+weapons/mossberg/fire.wav, neither precached). (3) ammo powerup MultiplyClips → clip = wi->iClip*2 (DOUBLE MAX,
+user-directed) split across akimbo barrels. USER-DIRECTED DEVIATION: slow-pause self-slow 0.8→0.6 (= slow-mo,
+so fire/move don't speed up; only bullets slower).
+
+WEAPON-SECONDARY RE (the agent's scratchpad/WEAPON_SECONDARY_RE.md write didn't persist — findings here):
+SecondaryAttack@0x717a8 dispatches firetype (grenade/knife/katana throw) → mode 4/5 (fire other gun) → per-
+weapon: scope(attach&8)→ZOOM, else HOLD-POSITION toggle if wi+0x28c!=-1 (mk23/SOCOM=5, flips m_pActiveItem+0x2c
++ SendWeaponAnim). Akimbo fireBoth = bothButtonsHeld || mode==0(AUTO); barrel side = item+0x24; both uses
+firelinked.sc. Fire-modes 0-5 = AUTO/SEMI/BURST/PUMP/AKIMBO_ALT/AKIMBO_BOTH at item+0x02, default from the
+wi+0xc mask. SILENCER: client FUN_1003de90 picks <weapon>/fire-sil.wav when (iparam2&1); silencer = bit0 of the
+attach mask (item+0x10 live / +0x124 stored); server docks dmg ×0.775. **Our fire event mis-packs barrel-side
+in iparam2 — the original uses iparam2=attach-mask, bparam1=barrel side (align this when wiring #11/#15).**
+
+OPEN (task tool #10-15 + sawed-off): #10 dblfire timeout (code looks right — need symptom/live test); #11
+bought-silencer -sil sounds + event attach-mask align; #12 thrown knife/katana flying-speed slow; #13 shotgun
+reload pose; #14 SOCOM hold-toggle (RE'd, not impl); #15 akimbo L/R-per-button (mode 4/5); sawed-off + maybe
+other shotgun wavs are normal-recorded → need the 100*slow formula not 100+300*slow (ask user which weapons).
+[[live-original-ts-debuggable]] [[match-original-names-for-coverage]]
+
+## 2026-06-25 (cont. 69y) — kung-fu KICKS dispatch RE-faithful (CCombatAttack__6CTSGun @0x86078)
+
+User picked the kung-fu KICKS dispatch from the carried weapon-feel TODOs. Rewrote `CTSGun::CloseCombatAttack`
+(dlls/ts_gun.cpp) as a faithful port of the decompiled CCombatAttack__6CTSGun (scratchpad/ccombatattack.c),
+replacing the old approximation. Static-RE'd, not guessed — decoded the raw decompile by computing the
+entvars_t offsets from progdefs.h and pulling every DAT_ constant from the binary.
+
+DECODE (entvars offsets): pev+0x180 = button (IN_ATTACK 1 / IN_DUCK 4 / IN_BACK 0x10 / IN_ATTACK2 0x800);
+pev+0x1a5 = byte 1 of flags → &2 = FL_ONGROUND(0x200), &0x40 = FL_DUCKING(0x4000); pev+0x174 = view_ofs
+(eye-height tweak on dive kicks); pev+0x250 = iuser4 (TS lock mask 0x50c30); player+0x79c = whiff-lunge
+timer. Damage = local_114 (punches 0x23=35, kicks 0x2d=45, back-kick 0x37=55). Combo counters: punch
+this+0x9fc (m_comboStep), kick this+0xa00 (m_kickCombo), last-anim this+0xa04 (m_lastMeleeAnim).
+
+⚠️ REFIRE = local_108 (CORRECTED mid-session — see below): kung-fu is FULL-AUTO (standard ItemPostFrame holds
+fire → repeats at the cap). I first read the refire as local_10c (0.1s normal punch) from the decompile's
+frame arith, BUT that was WRONG — Ghidra's stack analysis was corrupted by a function-boundary overlap
+(CCombatAttack tail mis-symbolizes as SlowMotionFlow; hand-disasm desyncs on the reordered blocks). The USER
+live-confirmed the original punch cadence: full-auto capped at ~4/sec, identical hold-vs-click. 4/sec = 0.25s
+= local_108 = DAT_00107e98 (the normal-punch constant) EXACTLY. So refire = local_108; local_10c (0.1-0.35) is
+the VICTIM block-stun (BlockPlayer(player, local_10c*0.75)). [[live-original-ts-debuggable]],
+[[flag-overriding-and-dead-code]].
+
+KICK dispatch (IN_ATTACK2), first-match: duckkick (onGround && (IN_DUCK||FL_DUCKING), 45dmg, 1.0s) →
+back-kick (movingBack: +back key when speed≤100, else v_forward·vel_unit ≤ −0.5; 55dmg, onGround?1.0:1.35s) →
+sidekick-dive (airborne && speed>270 && IN_DUCK && fwdDot>0.5; 45dmg, 1.0s, resets kick combo) → ground kick
+combo (onGround || speed≤200): 3 basic kicks (alt 0xb/0xc, 45dmg, 0.3s, m_kickCombo++) then a SPIN FINISHER
+when m_kickCombo>2 (no-repeat cycle 0xa/0xe/0xd/0xf, 45dmg, 0.5s, reset) → else flying/jump kick (cycle
+0x13/0x12/0xf, 45dmg, 0.75s, reset). PUNCH dispatch (IN_ATTACK), all 35dmg: airborne→air-punch (0.5s);
+onGround && (m_comboStep>2 || duck-TAP[IN_DUCK && !FL_DUCKING])→uppercut (0.65s, reset); else normal jab
+(0.25s, m_comboStep++, shown as 3 cycling v_melee jabs). Counters are PERSISTENT — reset only on a finisher/
+dive, no time-window (removed the old 0.5s chaining reset). USER-CONFIRMED feel ("this looks good"): visible
+3-jab→uppercut, full-auto 4/sec.
+
+ANIM REMAP: the original kung-fu viewmodel has ~26 seqs (ids 0xa..0x19); our v_melee.mdl has 11, so each id
+maps to the nearest seq + the 3rd-person player kung-fu seq. Dispatch/damage/timing are byte-faithful; the
+anim is a remap (consistent with the cont.69q 11-seq decision).
+
+SLICEs (documented in-code, not yet ported): the forward whiff-LUNGE (local_110 → player+0x79c, a decaying
+PreThink velocity push applied on a MISS, scaled by GetMeleeMultiplier + doubled by the KungFu powerup) is a
+separate PreThink subsystem (prethink.c lines 70/181) — kept as per-move magnitude comments; iuser4 lock-state
+(0x50c30 → forced light attack) and player+0x814/0x815 bits (special-punch 0x17 / forced finisher) default to
+"clear" (the common path). The melee screen-shake is unchanged (live-measured punch 20 / kick 25 → ×0.35).
+
+Also recovered the canonical attack-id → 3rd-person body-anim names from HandleCloseCombat__12CTSAnimation
+(0xa circfront / 0xb circkick / 0xc circkicklow / 0xd circback / 0xe latback / 0xf circspin / 0x10 sidekick /
+0x11 backkick / 0x12 airkick / 0x13 airkick2 / 0x14 duckkick / 0x16 punchleft / 0x17 punchright) — so 0x10 is
+SIDEKICK and 0x14 is DUCKKICK (my branch comments said dropkick/handstand; IDs/anims are what matter).
+
+VERIFIED: hl.so + client.so build clean (glibc 2.14); deployed to the xash rig; runs no-crash; USER playtested
+and confirmed "this looks good" (the full-auto 4/sec cadence + visible 3-jab→uppercut). See
+[[live-original-ts-debuggable]], [[match-original-names-for-coverage]]. Ready to commit.
+
+NEXT: remaining weapon-feel TODOs (dynamic-spread edge cases, weapon sway, coldcock whip, breakable respawn,
+katana throw).
+
+## 2026-06-25 (cont. 69x) — TS client PARTICLE / impact-effect subsystem DONE + LIVE-VERIFIED
+
+The cont.69w next-task is COMPLETE. Byte-ported the original's custom client particle pool (NOT engine
+tempents, NOT R_SparkShower) into **cl_dll/ts_particles.{h,cpp}**; hooked `TSParticles_Update()` into
+`HUD_DrawTransparentTriangles` (cl_dll/tri.cpp); routed cl_dll/ev_ts.cpp `EV_TSBulletImpact`→`TS_ImpactEffect`
+(per-surface dispatcher) and `EV_TSMelee`→`TS_MeleeImpact` (glint+sparks only). Full RE map persists in
+scratchpad/impact-effects-re.md (on-disk, gitignored). Builds clean (glibc 2.14); runs in xash.
+
+CRUX LOCATED (the handoff's stated blocker): the per-frame update/render = **FUN_100520d0(pool)**, found via
+xrefs to the pool object DAT_1018bde8 from HUD_DrawTransparentTriangles. Reconstructed: manager
+(FUN_1004ffe0/100509d0/100509a0/10050b60), billboard (FUN_10050ce0/10050080), 5 spawners (smoke 46680 /
+debris 46bd0 / scintille 46f50 / spark-shower 492b0 / pellets 46a70), dispatcher FUN_10048f60 (per-surface
+texture-char switch + 33/50/70 RandomLong gating).
+
+VERIFIED BY LIVE GDB TRACE of the running original hl.exe (client.dll), NOT guessed — this caught what the
+static decompile got wrong:
+- pos += vel * frametime * _DAT_10079e88(**10**) — the missing ×10 velocity scale (sparks were too slow);
+  gravity = gravity*0.1*sv_gravity(800) = ×80 in velocity-space (×10 in pos → real 800 u/s²).
+- SMOKE = a CONIC FLARE: 4 puffs marching out pos=origin+normal*size*0.8*i (size ×0.8/step), each stretched
+  (stretch 7) + growing (accel 0.1). The velocity divisor **DECREMENTS /(count-i)** (live vel.x = 3.5,4.4,
+  13.0,9.9 across the 4 puffs) so the tip puffs eject faster — this is the "ejects further/faster" the user
+  saw; I'd misread param_11 as a constant. frameRate = 20±10 jitter (live range 10-30). Every spawn arg +
+  motion field (gravity/drag/bright/fade/accel/size/stretch/frameRate) byte-matched the live scratch particle.
+- Spawner params RE-audited from raw ASM of FUN_10048f60 (the FP10-garbled decompile mis-mapped some): debris
+  count = RandomLong(5/2,5) = 2-5 (the 0x20=32 is the velocity SPREAD, not count — I'd swapped them).
+
+BUG FIXES found along the way: sprite-table name buffer 24→64 (truncated name broke the cache → 64-entry
+table filled in seconds → all effects died PERMANENTLY); pool free-slot allocator OOB cursor walk; melee
+event made SERVER-AUTHORITATIVE (flags 0, #ifndef CLIENT_DLL — the client-predicted melee world-trace misses,
+so FEV_NOTHOST gave the local slasher no spark); glass penetration per-pierce **damage_adjust = damagemult
+cvar value** (default 0, RE-matched — `*(damagemult+0xc)`), NOT 0.75 → two panes break only the first +
+DECAL the second; the "black dots" were the stock Valve {shot decals from my added server DecalGunshot —
+restored as server-side (entry+exit) so all clients see them, resolving the TS {shot from ts/decals.wad
+(user: "bullet decals match TS exactly"). Debris chips now TUMBLE (orient-1 roll).
+
+KNOWN APPROXIMATIONS (faithful behaviour, not byte-exact rendering): velocity-stretch billboard geometry
+(FUN_10050080) reconstructed not byte-ported; debris roll done screen-space (orig uses hw.dll DAT_100d5b88);
+concrete debris uses kRenderTransAlpha(4) not RE's TransColor(1) (our TriAPI draws INDEXALPHA TransColor as
+an unmasked square). See [[sparta-overrides-write-weapon]], [[live-original-ts-debuggable]],
+[[flag-unfound-re-early]].
+
+NEXT: the carried-over weapon-feel TODOs (kung-fu KICKS dispatch, dynamic-spread edge cases, weapon sway,
+coldcock whip, breakable respawn, katana throw) — see HANDOFF.md. Same live-trace-don't-guess method.
+
+## 2026-06-24 (cont. 69w) — IMPACT-vs-surface effects: penetration+glass DONE; particle byte-port STARTED (THE next task)
+
+User asked to validate/fix bullet·knife·thrown-knife·katana·thrown-katana·kungfu·grenade impact-vs-surface
+logic + effects. Full RE + build plan in **scratchpad/impact-effects-re.md**.
+
+DONE + DEPLOYED:
+- BULLET PENETRATION rewritten to match the original CBasePlayer::ShootBulletsPlayer (@nm 0x5f69c; BULLETS.md
+  had the wrong addr 0x6f69c=Ghidra). Uniform PointContents loop: penDepth=min(dmg*2,48); pass-through iff
+  UTIL_PointContents(endpos+dir*penDepth)!=CONTENTS_SOLID. So pass-through depends on weapon damage + the
+  enter→exit slice thickness (angle) — matches the user's spec. Removed our special glass branch.
+  (dlls/ts_gun.cpp TSFireBulletsPenetrate.) damage_adjust per-pierce = 0.75 (VERIFY: orig reads damagemult[+0xc],
+  relocated — pin live).
+- GLASS no longer always breaks: PointContents tests WORLD brushes only, so glass (func_breakable ENTITY)
+  always reads non-solid → bullets pass through; the pane SHATTERS only via ApplyMultiDamage iff dmg >= its
+  health = **20** in TS maps (one 40). So most guns (>=20 dmg) one-shot it (correct), weak ones (skorpion 16,
+  pdw 16, usas 7) don't.
+
+THE NEXT TASK — BYTE-PORT the TS client PARTICLE subsystem (user: visual fidelity; it's CLIENT-LOCAL, does
+NOT affect drop-in compat — that's protocol, already faithful). Impact effects feed a custom particle pool
+(DAT_1018bde8), NOT engine tempents; our current EV_TSBulletImpact/EV_TSMelee use R_SparkShower = wrong (orig
+sparks via sprites/scintille_metal.spr). Mapped: 300-byte particle struct (scratch DAT_1018a720), pool +
+manager fns (FUN_1004ffe0/100509d0/100509a0/10050b60), spawner pattern, the dispatcher FUN_10048f60
+(per-surface texture-char switch + RandomLong gating) + wrapper FUN_10044bf0 (5 call sites). STILL TO FIND:
+the per-frame UPDATE+RENDER fn (the look). 6-step build plan + per-surface effect table + struct layout all
+in scratchpad/impact-effects-re.md. Glass also wants a CRACK ("windshield") decal on non-breaking hits
+(CBreakable::DamageDecal). NOT built — all builds clean+deployed so far; resume at the particle struct/manager.
+
+## 2026-06-24 (cont. 69w) — ⭐ ANGLE-RECOIL fully RE'd + reconstructed (client-side aim kick)
+
+Corrected the cont.69v trail (it pointed at vgui panel 0x648c0 / vtable[0x38] = a dead end; that slot
+is just vgui::Panel::getAbsExtents on a plain Panel). Found the REAL system via live trace + static RE:
+
+LIVE MODEL (unbuffered os.pread poll of cl.viewangles pitch @0x2d8aec4, user fired no-mouse): each shot
+eases the pitch UP and STAYS (2s between shots = zero recovery → PERSISTENT aim move, NOT punchangle).
+Per-frame deltas decay ×0.85, first frame ≈ 0.15× kick. Total ≈6.4° for the tested weapon.
+
+SOURCE (client.dll, static RE confirmed): the "0.85/0.15" is frametime-dependent — real constant = 15.0.
+- ON FIRE — FUN_10008230 @0x8230 (client twin of server VKickback@0x70414, SAME tuning): vert=amount*0.85;
+  horiz=vert*firetypeScale (ft1=-0.25, ft4/5=+0.15, ft6/7=-0.30, ft8=+0.35, ft9=-0.35, else 0); *0.775
+  duck; *0.66667 bullet-time. accum.pitch(DAT_10191d10)-=vert; accum.yaw(DAT_10191d14)+=horiz. amount =
+  flViewKick(weapon 0x30)*modifier (call-site mods 0.35/1.0/2.0 — NOT yet pinned to weapons), firetype=0x348.
+- EACH FRAME in V_CalcRefdef — FUN_10057ed0 @0x57ed0: remaining=target-applied; if |rem|²>=0.01:
+  rate=min(frametime*15,1); delta=rem*rate; applied+=delta; viewangles+=delta (PERSISTENT). else snap to 0.
+Full decompiles + constants (with file offsets) in scratchpad/recoil-live-findings.md.
+
+RECONSTRUCTED (built clean, deployed to xash rig; awaiting playtest):
+- NEW cl_dll/ts_recoil.h + TS_AddViewRecoil()/TS_UpdateViewRecoil() in cl_dll/view.cpp (g_recoilTarget/
+  g_recoilApplied; ease at frametime*15, snap <0.1°; commits to the aim via Get/SetViewAngles each frame
+  during the kick + bumps pparams->cl_viewangles for the current frame).
+- TS_UpdateViewRecoil(pparams) called early in V_CalcNormalRefdef (before cl_viewangles→viewangles copy).
+- EV_TSFire (cl_dll/ev_ts.cpp) local-player block now calls TS_AddViewRecoil(wi->flViewKick, wi->iFireType,
+  args->ducking, false) — replaced the old V_PunchAxis(0,-2.0) placeholder. bullet-time arg = false (VERIFY:
+  no client slow-mo flag wired). amount = flViewKick directly (modifier=1.0 assumed; CALIBRATE vs original).
+NEXT: playtest vs the running original per weapon; if magnitude off, pin the FUN_10008230 call-site
+modifier ([item+2]==1?1.0:0.35 @0x90be; bl?2.0:1.0 @0x9cea). Measure the YAW component live too.
+
+UPDATE (same session) — playtest showed ours UNDER-DRIFTS vs original (skorpion full-auto). Root cause
+found + fixed: the original recoil has a SECOND part — a per-shot damped SCREEN SHAKE (FUN_10057fa0 setup
+@0x57fa0 + FUN_10058000 apply @0x58000, called from V_CalcRefdef) whose amplitude RAMPS WITH FIRE RATE
+(amp=(0.15-dt)*15, cap 1, *0.775 duck; <=0.001 -> none). So single/slow shots = clean climb, full-auto =
+climb + growing scatter (the "pronounced drift"). I'd only built the climb. Verified flViewKick[skorpion]
+=0.25 is CORRECT from the binary (Write_skorpion @0x8d3f0), so the climb (0.21°/shot) is faithful — the
+shake was the gap. Added the shake to cl_dll/view.cpp — but REVERTED it: the user clarified GUNS DON'T SHAKE, they just move
+the aim (the climb); the screen-shake/"bounce-back" is the MELEE/KNIFE feel ("the knife doesn't recoil but
+it does bounce back"). My ±1° shake on guns drowned the small climb -> the skorpion felt like "no functional
+recoil." So view.cpp is now CLIMB-ONLY for guns (the working state for other weapons); the shake helpers were
+removed (reconstruct FUN_10057fa0/58000 on the knife/melee path later if the bounce is wanted — full algo is
+in scratchpad/recoil-live-findings.md). Debug Con_Printf removed. Built+deployed.
+
+Skorpion specifics (RE-confirmed, no bug): single skorpion (firetype 9) routes FUN_100091e0 -> amount =
+flViewKick directly (=0.25, verified Write_skorpion @0x8d3f0) -> climb 0.21°/shot — genuinely low, faithful.
+Akimbo skorpion (firetype 4) routes FUN_100096f0 -> amount = 2.0*flViewKick + fires both barrels -> ~4x the
+kick; user says the AKIMBO "looks more correct". So the single's weak climb matches the binary. OPEN: confirm
+vs original single skorpion; if original single kicks harder, recheck the FUN_100091e0 amount path / weapon
+0x38 gate. NEXT (separate): the KNIFE bounce-back = the shake on the melee path.
+
+⭐ ROOT CAUSE of the weak/wrong recoil (cont.69w) — the Write_<weapon> values are an EARLIER init stage that
+gets OVERWRITTEN on BOTH server and client by ONE authoritative combat table (NOT a server/client split):
+- server: compile_weapons_info -> Sparta() @0x6fa78 -> SetSpartaWeapon(idx, spread, viewKick, recoil, dmg)
+  @0x6fa34, sets s_weapon_info +0x28/+0x30/+0x34/+0x1c.
+- client: FUN_10007a80 -> FUN_10007a50 — BYTE-IDENTICAL calls (same indices, same hex values).
+So there's one real value per weapon. We had used the Write_ stage (the prev agent's "table verified from
+Write_<weapon>" read the wrong stage). Found by tracing the single-skorpion recoil amount (live break = 0.5,
+not the static 0.25; Sparta sets skorpion +0x30 = 0x3f000000 = 0.5). ~22 of 32 guns differ: skorpion 0.25→0.5,
+beretta 3→2.5, uzi 1.5→1.75, benelli 10→13, m4 4→3.75, mp5k 3→2.25, desert 8→7.5, ak47 5→5.5, mossberg 14→8.5,
+m16 4.5→4, ruger 0.3→0.35, bull 18→13, glock22 4.5→5, mac10 4→3, gold 5→5.5, contender/36 12→7.5, …
+FIX: replaced kViewKick[] in dlls/ts_weapon_info.cpp with the Sparta/SetSpartaWeapon values (all 32 decoded;
+the 6 melee/grenade indices Sparta doesn't list keep Write values). Built hl.so+client.so, deployed.
+MELEE "bounce-back" shake ADDED (cont.69w) — RE-confirmed it's melee-only, NOT guns. Live-traced Shake_Setup
+(client FUN_10057fa0 @0xc0c7fa0): swinging the knife fired it from FUN_1000a270 @0xa345 (the client melee
+attack) with amp=4.5/dur=0.2/freq=10; firing GUNS did NOT fire it (the gun-recoil shake branch in FUN_10008230
+@0x83b2 never tripped — confirms guns climb-only). Formula: amp = meleeWeapon flDamage * 0.15 (*0.66667 in
+bullet-time) — knife dmg 30 -> 4.5 (matches). Shake = damped oscillation (random ±amp offset, sign-flip+halve
+each 1/freq cycle, smoothed), TRANSIENT (settles to 0 = "shake + reset to where it was"), applied to the
+RENDER view only (never the aim). Impl: cl_dll/view.cpp g_meleeShake + TS_TriggerMeleeShake(dmg,bt) +
+TS_ApplyMeleeShake(pparams) (called after punchangle in V_CalcNormalRefdef, adds to pparams->viewangles);
+triggered per swing in CTSGun::MeleeAttack (dlls/ts_gun.cpp, #ifdef CLIENT_DLL -> client-predicted = local
+player; fire-rate gate = once per swing). Built hl.so+client.so (symbols: client.so has Trigger/ApplyMeleeShake,
+hl.so has none — gating correct), deployed.
+
+KUNG-FU shake ALSO added (cont.69w) — user reported knife bounced but kung-fu didn't (it's CCombatAttack,
+not MeleeAttack). Live-traced: kung-fu punch/kick fire Shake_Setup from a DIFFERENT site (client FUN_1000af10
+@0xb5e5) with amp = min(|velocity|*0.15385 [1/6.5, 0x1007a8f8], 45 [cap 0x1007a900]) * 0.35 [0x1007a8a8],
+dur 0.2/freq 10. So it's VELOCITY-scaled (punch~7.0/kick~8.75 in the trace = the player's move speed), a
+DIFFERENT multiplier (0.35) than the knife's fixed dmg*0.15. Generalized the trigger: TS_TriggerViewShake(amp)
+(caller computes amp); knife passes flDamage*0.15, kung-fu passes the velocity formula. Wired in
+CTSGun::CloseCombatAttack (#ifdef CLIENT_DLL, after SendWeaponAnim). CORRECTION (same session): user reported kung-fu only shook while MOVING — wrong, it must ALWAYS shake on
+attack. The decompile's SQRT(velocity) is the attack's LUNGE velocity (the kung-fu move imparts a forward
+lunge, non-zero even standing still), NOT the player's pre-attack movement — I'd wired m_pPlayer->pev->velocity
+which is 0 when stationary. Our reconstruction doesn't model the lunge yet, so we approximate `power` with the
+move's `dmg` (always > 0 -> always shakes): amp = min(dmg, 45) * 0.35. Built+deployed. AWAITING playtest:
+knife/katana bounce (fixed dmg*0.15), kung-fu bounce ALWAYS on punch/kick, guns climb-only.
+
+MAGNITUDE FIX (same session): user confirmed kung-fu bounce was too big (our dmg 35-55 vs original power ~20-25).
+The shake `power` = the move's LUNGE velocity*0.15385 (we don't model the lunge), measured live as punch~20 /
+kick~25 -> amp 7.0 / 8.75. Switched to per-category fixed power: kfPower = fSecondary ? 25 : 20; amp =
+kfPower*0.35 (CloseCombatAttack, ts_gun.cpp). Built+deployed. VERIFY: special kicks (side/back/spin) + uppercut
+not separately measured (assumed punch=20/kick=25 by the primary/secondary split).
+
+FULL COMBAT TABLE re-sourced from Sparta (cont.69w, DONE) — Sparta also overrides spread(0x28)/recoil(0x34)/
+DAMAGE(0x1c), so the Write_<weapon> values were the wrong stage for those too. Reconstructed the original's
+structure in dlls/ts_weapon_info.cpp: added a SetSparta(idx, spread, viewKick, recoil, dmg) helper (mirrors
+SetSpartaWeapon @0x6fa34) + 32 SetSparta(...) calls in the original Sparta() order, run after the Write_<weapon>
+calls — overwriting flSpread/flViewKick/flRecoil/flDamage for the 32 firearms (6 melee/grenade/flag keep Write
+values). Replaced the kViewKick array (now folded into Sparta); kept kUsesSpread. Decoded values from
+ts_i386.so Sparta @0x6fa78 (full table in scratchpad/recoil-live-findings.md). Damage examples now corrected:
+barrett 210->185, m4 34->33, beretta 29->27, desert 55->49, mk23 36->33. Built hl.so+client.so, deployed.
+
+FULL WRITE_ + SPARTA AUDIT (cont.69w, both byte-exact). Extracted every Write_<weapon> field from ts_i386.so
+(disasm of the 38 Write_ fns -> /tmp/write_fields) and diffed vs our table. All 32 guns' Write_ fields already
+matched; fixed the melee/grenade outliers: m61 (clip 25->1, rate 0.092->1.0, spread 0.028->0.1, dmg/recoil->0,
+pellets 1->2), knife pellets 1->5, sealknife 1->10, katana 1->0, flag firemodes 2->0. Added kWriteViewKick (the
+Write_-stage view-kick, all 38) applied before SetSparta so the WRITE stage is byte-exact too (Sparta then
+overrides the 32 guns; the 6 melee keep their Write_ vk, mostly unused). Verifier (parses our Write()+arrays+
+kWriteViewKick+SetSparta vs binary Write_ AND Sparta): 0 Write mismatches, 0 Sparta mismatches, 32 SetSparta
+calls. ONLY gap: flag (idx 29) is in the binary Write_flag but intentionally blank in our table (CTF objective,
+not a fired weapon) — add Write_flag if full coverage of the non-combat flag entry is ever wanted.
+AWAITING playtest. Recoil model = climb-only for guns (ease frametime*15, persistent); shake = melee/knife
+(fixed dmg*0.15) + kung-fu (per-category power*0.35), transient render-only.
+
+## 2026-06-24 (cont. 69v) — ⭐ LIVE TRACE located the angle-recoil (client view-prediction, NOT punchangle)
+
+Static RE dead-ended on the aim recoil (no server v_angle write; CL_CreateMove + all 3 SetViewAngles
+callers are standard mouse/keyboard). Resolved with a LIVE gdb WATCHPOINT on the running original (user
+fired one shot, NO mouse): pitch kicked 1.61→1.12 (~0.49° UP) = the recoil moves cl.viewangles (the real
+aim), confirming the user's "punchangle isn't a thing; recoil is angle-based."
+
+ENTRY POINT (client.dll, live base this run = 0xc070000; PE imagebase 0x10000000 so live = base + RVA):
+- cl.viewangles live @ 0x2d8aec4 (pitch)/0xc8/0xcc — found by reading engine GetViewAngles (ptr at
+  gEngfuncs+0x88; gEngfuncs = Initialize's DAT_100d5b28 = RVA 0xd5b28) and decoding its mov-from-abs.
+- The recoil write chain (bt): engine 0x1db74e0 (= gEngfuncs slot DAT_100d5c60) ← client FUN_1005b3c0
+  (thunk, RVA 0x5b3c0, wraps that engine fn) ← client method @RVA 0x648c0.
+- @0x648c0 is a per-frame client view-compute: it calls a VIRTUAL `this->vtable[0x38]`(&pitch,&yaw,&roll)
+  to get the recoiled angles, then FUN_1005b3c0(&angles) commits them via the engine. **THE RECOIL MATH
+  IS IN vtable[0x38]** of that client object (param_1; big object, fields 0x83/0x85-0x8a/0x2a9/0x2aa).
+NEXT: decompile vtable[0x38] to extract the per-shot pitch/yaw recoil formula (scaled by weapon — small,
+bigger on knives), then reconstruct it client-side. To find the vtable[0x38] target: read param_1's vtable
+(*param_1) in the live process, slot 14 (0x38/4); param_1 is likely a client singleton.
+
+WATCHPOINT RECIPE (reusable): gdb -p <pid> -batch with `watch *(float*)<cl.viewangles_pitch_addr>` (a
+value-watch only fires on CHANGE — with no mouse, only the recoil changes it), `commands{ bt; detach; quit}`,
+`continue`. Resolve bt return addrs to module+RVA: addr − module_base = RVA → rz-bin -E name. Module bases
+via reloc-free prologue scan of /proc/<pid>/mem (CBreakable::Die for mp.dll, V_CalcRefdef for client.dll).
+
+## 2026-06-24 (cont. 69v) — recoil view-punch (VKickback) + dynamic accuracy/spread WIRED + kungfu smoke
+
+VKickback @0x70414 (recoil view-punch → pev->punchangle): vert = 0.85*flViewKick(0x30), horiz per firetype
+(pistol +0.35, akimbo +0.15, pump -0.25, autoshotgun/sniper -0.30, auto-smg -0.35), *0.775 ducked, *0.667
+bullet-time. Gated on weaponinfo+0x38 (all guns=1, melee/grenade=0). Called from StandardFire. NOTE the
+original gates the SERVER apply on FL_FAKECLIENT (real players predict client-side) — we apply directly so
+it shows on the listenserver. User clarified: punchangle is VISUAL ONLY (recovers, and bullets use v_angle
+not punchangle) — the AIM-MOVE recoil is a SEPARATE client-side mechanism (viewangle kick on fire) NOT yet
+located; sweep of the server (FireBulletsPlayer/DropKickback/PreThink) found NO v_angle write → it's in the
+client CreateMove/input. TODO: RE the client-side aim recoil.
+
+Dynamic accuracy/spread NOW WIRED (RE ScaleSpread @0x802a8 + the decay finally found in PreThink @0x808cc):
+effective bullet spread = weapon flSpread(0x28) + per-player accumulator (CBasePlayer::m_flSpreadAccum =
+player+0x778); ScaleSpread grows it per shot: accum = (1-recovery)*flRecoil(0x34)*factor + accum, capped 0.1,
+factor=2.0 (*0.5 bullet-time, *0.775 duck), recovery = m_flSlowMotionGo*dt_since_last_shot (cap 0.5), duck
+also tightens base *0.875; gated on bUsesSpread(0x2c). PreThink decays: accum -= m_flSlowMotionGo*frametime*0.1.
+So spraying widens the cone, it recovers when you stop. SKIPPED edge cases: field_0xc8==0x20 (m60 5x recoil),
+==0x12 (barrett max-spread-when-moving). Added m_flSpreadAccum (player.h) + m_flLastShotTime (ts_gun.h).
+
+Kung-fu wall-hit smoke: added a server TE_SPRITE gun_smoke_add puff (smoke only, no decal/spark) in
+CloseCombatAttack's surface branch — APPROXIMATION; user wants the original spawn (likely the client impact
+dispatcher, same as bullets). TODO: RE the kung-fu client-event smoke spawn.
+
+## 2026-06-24 (cont. 69v) — viewbob: removed eye-bob + RE'd the TS weapon-sway (figure-8 pendulum)
+
+User: the stock HL bob dropped the EYES "like half-ducking" while running + snapped between 2 frames.
+Root cause: stock `cl_dll/view.cpp` adds V_CalcBob to the MAIN view origin and the bob saturates its
+-7..+4 clamp at TS speeds (square wave). RE of the ORIGINAL client.dll V_CalcRefdef (FUN_10067890):
+the bob is applied to the VIEWMODEL ONLY (eyes get only a SMOOTHED view-height lerp), and the gun "bob"
+is actually a custom **weapon-sway** (FUN_10066e70), not stock bob.
+
+Fixes: (1) removed `pparams->vieworg[2] += bob` (eyes no longer bob — faithful). (2) replaced the stock
+viewmodel vertical bob with the TS figure-8 sway. **Constants read LIVE from the running original**
+(client.dll base via V_CalcRefdef reloc-free prologue; the FP consts are mostly DOUBLES): velmult=0.00333
+(1/300), cap=1.1, phase wraps at **360**, accumscale=5.5, scale=100, ampvel=0.01, up-freq=0.0349 (≈2°),
+right-freq=0.0174 (≈1°) → **2:1 ratio = figure-8 pendulum** (the user's "pendulum, not up/down"), upscale=0.11,
+rightscale=0.3, fwdscale=0.65, ampscale=0.5, base=0.75, grip scales 0.1/0.3/0.5/0.7/1.0 (per weapon grip).
+Phase += clamp(speed/300,1.1)·frametime·550, wrap 360; amp=speed·0.01; swayUp=sin(phase·0.0349)·amp,
+swayRight=sin(phase·0.0174)·amp; viewmodel += right·swayRight·0.3 + up·swayUp·0.11.
+SIMPLIFIED (not yet faithful): the amplitude SMOOTHING (state DAT_10191d6c/d78), per-weapon GRIP scaling,
+and the forward base-position term (forward·(0.75−amp·0.5)) — the full FUN_100674a0 viewmodel-positioning.
+Next: port the amplitude-smoothing + grip + forward term for byte-faithful sway.
+
+## 2026-06-24 (cont. 69v) — knife slash + kung-fu combo + FULL weapon-table re-verification
+
+**Melee anims/combos** (RE CCombatAttack @0x86078, KnifeFire @0x84044, verified vs model seq dumps):
+- Knife `MeleeAttack`: removed the press-only gate → continuous slashing while held (gated by flFireRate like
+  kung-fu); cycles 3 verified v_*.mdl slash seqs (knife {3 slash1,4 left,5 right}; katana/sealknife {2,3,4}).
+- Kung-fu FIRE combo: replaced our mod-3+duck-uppercut with the real `field_0x9fc` counter — 3 jabs
+  (punch_left 2/punch_right 3/punch_right2 10) then UPPERCUT (7), looping; +back forces it early.
+- Lesson: the model sequence tables (v_melee 11 seqs, v_knife 8, v_katana 6) are the AUTHORITATIVE source
+  for raw anim indices — the decompile's `a3` is NOT the SendWeaponAnim arg (it's a melee-fn param, a3=0xb
+  exceeds v_melee's range). We ship the original's models, so model indices match by construction.
+
+**Weapon table FULLY re-verified** (decompiled all 38 Write_<weapon>; `scripts/extract_weapons.py` is
+UNRELIABLE — its `movl $imm,0xOFF(%reg)` regex grabs STACK temps colliding with struct offsets; e.g. the
+knife "rate 0.07" was a `[esp+0x18]` store, real `weaponinfo+0x18`=0.4). Field map confirmed (0x04 clip,
+0x08 caliber, 0x0c firemodes, 0x18 rate, 0x1c dmg, 0x24 pellets, 0x28 spread, 0x34 recoil, 0x30 view-kick,
+0x2c uses-spread, 0xc8 akimbo, 0xcc single, 0x348 firetype). Fixed: knife (clip 18→1, dmg 40→30, **rate
+0.07→0.4** — the user's "too fast" bug), katana (dmg 30→45, rate 0.4→0.7, spread 0.1→0.7), skorpion clip
+40→20, gun firetypes m4/mp5k/mk23/desert/m16 0→6/9/8/8/6. firemodes/caliber/pellets verified already-correct.
+TODO: rewrite extract_weapons.py to read the decompiles (authoritative) instead of the objdump heuristic.
+
+**Dynamic accuracy system RE'd** (CTSGun::StandardFire @0x824a4 + ScaleSpread @0x802a8): per-shot spread
+accumulates into CBasePlayer+0x778, effective spread = flSpread(0x28)+accum, grows by flRecoil(0x34)·factor
+(factor 2.0, ×0.5 in bullet-time/DoubleFireRate, ×0.775 ducked), capped 0.1; VKickback applies view-punch
+of flViewKick(0x30) per shot; 0x2c gates whether ScaleSpread runs. Added flViewKick+bUsesSpread to
+s_weapon_info w/ verified values. NOT yet wired: the accumulator's RECOVERY/decay path isn't located yet
+(0x778 only grows in ScaleSpread — decay must be in a per-frame path; flagged, not guessed). Next: find the
+0x778 decay + RE VKickback's exact kick pattern, then implement the accumulation + view-kick in StandardFire.
+
+## 2026-06-24 (cont. 69v) — knife→glass rework RE-VERIFIED vs ts_i386.so + 3 fidelity fixes
+
+Decompiled the original `CTSKnife` (Spawn @0x6db54, WaitThink @0x6ea30, BounceTouch @0x6decc, WaitTouch
+@0x6dce8, CreateKnife @0x6d9e4) + `KnifeFire` @0x74044 via the typed `re.sh` flow and checked the
+uncommitted rework line-by-line. **The glass-break core is faithful — every readable constant matches the
+binary**: WaitThink (think+0.1, speed>64, 64u velocity sweep, dont_ignore_monsters, flFraction<1, !IsPlayer
+[vtbl +0xC8], health ≤ 0.1·speed, TraceAttack(knife_pev, 0.1·speed, dir·64, tr), ApplyMultiDamage(pev,pev));
+BounceTouch (owner-ignore, per-type stab 150/100/50, player stab velocity=-0.25·vel + expire+10, worldspawn
+speed≥100 && glance[−(normal·dir)<0.4 && normal.z≤0.98] → sparks+sound+velocity·0.5+return, else stick back
+off dir·6, other-solid bounce -0.25·vel); Spawn (BOUNCE/BBOX, friction 0.8, gravity 0.85/0.75/0.3, expire+30);
+ThrowKnife velocity = v_forward·**1900** (const @0x107f68 = 1900.0, NO player-vel term — confirmed in KnifeFire).
+
+**3 fixes applied to dlls/ts_knife.cpp (build-clean, `T ts_knife` exported, glibc 2.14):**
+1. `BounceTouch` now opens with the original's `if (pOther->pev->effects & EF_NODRAW) return;` (orig
+   `(char)effects < 0`) — replacing an invented top-level `FClassnameIs("ts_knife")` self-ignore that was in
+   the wrong place + skipped the NODRAW gate. 2. Knife-vs-knife ignore RELOCATED to the other-solid branch
+   (where the orig's `classname=="knife"` check lives). 3. `StickAt` sets `angles.z = 90` (orig blade-roll).
+
+**Known remaining divergences (intentional / low):** post-contact the orig switches SetTouch→WaitTouch +
+gravity→0.75 (we substitute SettleAsPickup/StickAt pickup model); stick uses SOLID_TRIGGER+PickupTouch vs
+orig SOLID_NOT+MOVETYPE_FLY; WaitThink dmg bits DMG_CLUB|DMG_NEVERGIB vs orig 0x8001000 (no glass-outcome
+change); LINK name "ts_knife" vs orig "knife". **Tooling:** fixed `scripts/ghidra/re.sh` — its `sed` output
+filter dropped every multi-line decompile body (only the log-prefixed first line survived); replaced with a
+block-aware `_filter` awk helper, so `re.sh <Class>` now prints full typed bodies (how this verify was done).
+
+## 2026-06-24 (cont. 69u) — the "auto-kick" = the JUMP-KICK (RE'd + implemented; user to playtest)
+
+The cont.69t "proximity auto-kick" RE blocker is RESOLVED — and the premise was wrong. User
+clarified (with screenshots: a mid-air flying-kick pose + a shattered window): **"Jumping with a
+non-kungfu weapon while facing a breakable would kick it. If in kung fu it did NOT kick."** So it's
+the **JUMP-KICK**, not the coldcock and not an automatic proximity trigger.
+
+**RE debunked the previous agent's theory:** the "indirect function pointer @0x176858" is just the
+normal **PLT/GOT JUMP_SLOT** for CloseCombatAttack — there ARE static callers. CloseCombatAttack
+(@0x95f88) is reached from exactly two places: `CCombatAttack__6CTSGun` (bare-hands KUNG-FU, from
+Primary/SecondaryAttack only when the active item ptr gun+0xcc==0) and **`CloseAttack__8CTSStunt`
+(@0x9c630) = the jump-kick**. (`VKickback`/`DropKickback` are gun RECOIL, not leg kicks. The
+coldcock — `AlternateAttack`→`ColdCock`→`ColdCockAttack` via button 0x40/IN_CANCEL — is the +alt2
+pistol-whip = task #2, separate.)
+
+**Jump-kick call path:** `CBasePlayer::PreThink` (orig 0x908cc) `if (button & IN_JUMP) Jump()` (same
+as ours, player.cpp:2123) → `CBasePlayer::Jump` (orig 0x92864, vtable 0x158) tries
+`CTSStunt::CloseAttack` FIRST (kick takes priority over the wall-flip/wheel acrobatics; basic jump
+velocity is engine pmove). Called every think while IN_JUMP held → connects mid-flight.
+
+**CTSStunt::CloseAttack RE (stunt obj @ player+0x4f0), all constants recovered** (⚠️ FILE OFFSET =
+Ghidra addr − 0x10000; the FP constant pool reads 0 at the naive offset — the .so's DAT_001xxxxx
+are .rodata at addr−0x10000; speed scale/thresholds are 8-byte DOUBLES the decompiler truncated):
+- gates (return 0 = no kick): stunt-state timers, FL_FROZEN, **active weapon is the tsgun in
+  kung-fu mode (id 0x10 && item+0xcc==0)** ← "no kick in kung fu".
+- damage = clamp(|velocity| × 1/15, 10, 20) [scale 0.0666667 @0x109b10, lo 10.0 @0x107140, hi 20.0
+  @0x107698, floor 10.0 @0x106da4, ceil 20.0 @0x107628]; ×2 if KungFu() power; reach 48.0 @0x106da8.
+- hit resolver = CloseCombatAttack via CheckHull (@0x95e28 = TraceLine, then a **head_hull TraceHull
+  fallback** = the "auto-connect when roughly facing it" feel); knockback only if damage > 30.0
+  @0x107600 (victim shoved at kicker speed + velocity.z=235); EMIT player/closecombat.wav.
+- 3rd-person body anim = RANDOM_LONG(0,2)→ids {0:10,1:14,2:13} → HandleCloseCombat (@0x6d8d0) maps
+  10/13/14 → **circfront / circback / latback** (player-model kick seqs). Cooldown 0.7s.
+
+**Implemented** (`dlls/ts_gun.cpp` `TSTryJumpKick(CBasePlayer*)`, `#ifndef CLIENT_DLL`-guarded;
+decl `dlls/ts_weapons.h`; cooldown `m_flNextJumpKick` in `player.h`; hooked at the top of
+`CBasePlayer::Jump` in `dlls/player.cpp` BEFORE the pogo gate so it runs every think). All constants
+RE-grounded. Uses GetPlayerTSGun/KungFu/GetGunPosition/m_TSAnim.PlayKungFu(circfront/circback/latback).
+**Built clean** server + client (glibc 2.14); TSTryJumpKick in hl.so, correctly ABSENT from client.so
+(guarded — it'd otherwise pull the server-only KungFu/UTIL_TraceHull into the prediction build).
+Installed to the xash root. **NOT yet playtested — handed to the user to test** (their preference).
+Not committed yet (pending playtest).
+
+**Queue still open:** task #2 coldcock viewmodel whip (LAB_10043800/coldcock.sc), #3 predicted
+empty/pump/closecombat effects, + katana right-click (KatanaThrow) noted in 69t.
+
+### cont.69u (later) — bullet/breakable/slow-mo/sound RE batch → reference/BULLETS.md (no impl yet)
+User opened a new front (bullet penetration, glass shatter, slow-mo bullets, sound pitch). RE'd +
+documented in **reference/BULLETS.md**. Key confirmed (LIVE, not dead-code — user confirmed the
+bullet behavior is correct):
+- **Live fire path = `ShootBulletsPlayer`@0x6f69c** (from StandardFire/ShotgunFire/AkimboFire), NOT
+  stock FireBulletsPlayer (= our current gap). It **recurses for PENETRATION**: after a hit, step
+  `min(dmg×2, 48)` forward; if `PointContents` past != SOLID (surface thinner than that) → recurse
+  (mode 2) to hit the solid beyond. So firing glass breaks it AND hits the wall behind. Dual
+  enter+exit decals = TODO (pin the decal sites).
+- **Glass shatter** = `Die__10CBreakable`@0x752e0 material switch: case 0 GLASS →
+  **gmsgTSCreateDebris** (client SPRITE shower); all others → **TE_BREAKMODEL** (gib MODEL). Exactly
+  the user's spec (glass=sprites, wood=model). Shatter dir = attack dir; init vel = this+0x110 ×
+  material mult. Client gmsgTSCreateDebris handler + glass sprite + base velocity = TODO RE.
+- **Slow-mo bullets-as-models** = `CBulletManager` (rbullet gate: TSGameRules+0x578 slow-PAUSE or
+  slow player → tracked-model bullets; else instant hitscan). Both live.
+- **Sound pitch** (weapons recorded slow → played fast): fire sound is client-side (FUN_1003dfa0);
+  pitch presumably from the slow-mo factor. Mechanism NOT yet pinned — flagged as TODO.
+Saved two memories: `ghidra-rodata-const-offset` (file=Ghidra−0x10000, doubles) and
+`flag-overriding-and-dead-code` (the user's live-vs-dead RE preference, buy-menu lesson).
+
+### cont.69u (later 2) — ✅ GLASS SPRITE SHATTER implemented (built, awaiting playtest)
+RE'd the full glass-shatter pipeline + implemented it:
+- **Server** (dlls/func_break.cpp): `CBreakable::Die` for `matGlass` now sends a new `gmsgTSCreateDebris`
+  (origin, pev->size, material byte 0, **g_vecAttackDir** = the bullet/attack dir, refpoint, glassfrag
+  sprite index, velMag) INSTEAD of TE_BREAKMODEL; other materials keep TE_BREAKMODEL (gib model).
+  Precaches `sprites/glassfrag.spr`. (Matches Die@0x752e0 material switch: case 0 glass→message.)
+  ⚠️ velMag=150 is a FLAGGED placeholder — the per-pane base (CBreakable+0x110) is a runtime/keyvalue
+  value not recovered statically; tune from playtest (user said "discover the init velocity").
+- **Client** (cl_dll/ts_debris.{h,cpp}, CHudTSDebris registered in hud.{h,cpp}, added to CMakeLists):
+  MsgFunc_TSCreateDebris reads the payload + reconstructs FUN_10047cb0 — a **9×9=81-fragment grid** of
+  glassfrag.spr `R_TempSprite`s across the pane FACE (drops the smallest dim = pane normal; centre 0.5,
+  step 1/9), each flying in the shatter dir ×velMag with ±15 spread, gravity, FTENT_FADEOUT|GRAVITY|
+  COLLIDEWORLD|ROTATE, life RANDOM(2,5)s. Constants RE'd from client.dll (file=VA−0x10000000).
+  Both DLLs build clean (glibc 2.14); glassfrag.spr present in the xash ts root; installed.
+  **Blend-mode fix (user playtest):** glassfrag.spr is **SPR_ADDITIVE** (texFormat 1) → must use
+  **kRenderTransAdd** (black keys out); kRenderTransAlpha showed the black bg. Also the scale was way
+  too big (pane-sum/18 → clamped 1.5) → now pane-sum/180 clamped [0.08,0.3] = little shards. General
+  rule: match the temp-sprite rendermode to the .spr texFormat (ADDITIVE→TransAdd, ALPHTEST/INDEXALPHA→
+  TransAlpha). woodfrag=ALPHTEST + debris_concrete3=INDEXALPHA impact chips already on kRenderTransAlpha.
+  **Playtest round 2 fixes (glass + chips):** (1) the .spr files have MULTIPLE FRAMES = different shard
+  SHAPES (glassfrag 9, woodfrag 7, debris_concrete3 5); the original picks a RANDOM frame per fragment —
+  mine all used frame 0 (identical shapes). Now set `t->entity.curstate.frame = RANDOM(0,nframes-1)`.
+  (2) spin rate too low → bumped baseline.angles[2] to ±500°/s (was ±120). (3) velocity too directional
+  (all flew one way → clumped on landing) → forward-bias along dir ×0.4 + LARGE per-axis random scatter
+  (±velMag*0.6). (4) **direction was BACKWARDS** — glass flew toward the shooter; g_vecAttackDir points
+  breakable→attacker (the stock gib code uses -g_vecAttackDir), so the glass message now negates it
+  (flies away, the bullet travel dir). Sprite rotation gotcha: xash rolls type-2 (SPR_FWD_PARALLEL)
+  sprites only when angles[ROLL]≠0 (gl_sprite.c promotes to _ORIENTED) — so the initial roll must be set.
+### cont.69u (later 3) — ✅ BULLET-IMPACT FALLING FRAGMENTS implemented (built, awaiting playtest)
+User: "bullet hits spawn sparks + smoke + little fragments that drop to the floor." Smoke+sparks were
+already in EV_TSBulletImpact (cont.69t); added the falling chips. RE'd the client impact dispatcher
+FUN_10048f60 (switch on texture char) → FUN_10046bd0 (the fragment temp-ent spawner): velocity =
+surface-normal×16 + RANDOM(±32) spread, gravity, rotation, ~2-5 chips, short life. Per-material:
+**wood/dirt → woodfrag.spr, concrete/default → debris_concrete3.spr**; metal/grate/vent/glass → sparks
+(scintille_metal, no chips); flesh/water → none (server blood). Impl: cl_dll/ev_ts.cpp EV_TSBulletImpact
+spawns count=RANDOM(2,5) R_TempSprite chips (FTENT_FADEOUT|GRAVITY|COLLIDEWORLD|ROTATE, life 0.8-1.4s) in
+the material switch; precached woodfrag/debris_concrete3 server-side (dlls/ts_weapons.cpp). Both build
+clean, assets present, installed.
+
+### cont.69u (later 4) — ✅ BULLET PENETRATION + DIVE-THROUGH-GLASS implemented (built, awaiting playtest)
+- **Penetration** (dlls/ts_gun.cpp `TSFireBulletsPenetrate`, #ifndef CLIENT_DLL; called from StandardFire
+  + AkimboFire server-side, client keeps the prediction FireBulletsPlayer): per pellet, player-synced
+  spread then a pierce loop (max 4) — TraceAttack+texture-sound+ENTRY DecalGunshot, then if the hit is a
+  brush/world and dmg>5, step `min(dmg*2,48)` forward; if PointContents there ≠ SOLID (thin slice OR an
+  entity brush like glass), decal the EXIT/back face + continue the trace (dmg ×0.75). So fire at glass →
+  glass breaks AND the round hits the wall behind, bullet-holes on both faces. (orig ShootBulletsPlayer
+  @0x6f69c pierce recursion.) Penetration gated to brush surfaces (not players).
+- **Dive-through-glass** (dlls/ts_gun.cpp `TSCheckRunThrough`, #ifndef CLIENT_DLL; called every
+  CBasePlayer::PreThink): speed≥64 → hull-trace 64u forward ALONG THE VELOCITY direction → TraceAttack the
+  hit (damage = speed, ×0.1 grounded vs full airborne) → breaks glass / shoves people, NO kick anim.
+  Last-hit guard via new EHANDLE m_hRunThroughLast (player.h). (orig CTSStunt::CheckForBreakables@0x9bd9c.)
+- Both build clean (server+client); symbols in hl.so, absent from client.so (guarded); installed.
+### cont.69u (later 5) — penetration/knife glass-CHAIN + knife steep-angle (RE'd) + impact-chip polish
+- **Bullet chain through multiple glass** (dlls/ts_gun.cpp TSFireBulletsPenetrate): the continuation
+  jumped the full pierce-depth (min(dmg*2,48)) past the hit → OVERSHOT a 2nd pane within 48u. Fixed: if
+  the surface SHATTERED (pHit->pev->solid==SOLID_NOT after ApplyMultiDamage), continue from just past the
+  ENTRY (+1u) so a close next pane is still hit; only jump past the back face for still-solid walls. Cap
+  raised 4→8. Whole glass chain now breaks.
+- **Knife glass-CHAIN** (dlls/ts_knife.cpp KnifeTouch): was "break 1st pane → trace forward ignore_glass →
+  stick in the wall beyond" (skipped every pane past the 1st). Now on a breakable it CAN break, the knife
+  KEEPS FLYING (velocity ×0.9/pane); the broken pane is SOLID_NOT so it won't re-touch it → it hits + breaks
+  the next pane, chaining until a non-breakable wall.
+- **Knife steep-angle no-stick** (RE CTSKnife::BounceTouch@0x7decc): a glancing wall hit DEFLECTS instead of
+  sticking — bounce when `-(normal·flyDir) < 0.4` AND `normal.z <= 0.98` (not a flat floor); else stick.
+  Constants RE'd (doubles): align 0.4 @0x107ed8, normal.z 0.98 @0x107ed0, speed thresh 100, glance ÷2,
+  embed 6. Uses tr.vecPlaneNormal (SDK TraceResult has it; cf. gauss.cpp).
+- **Impact chips** (cl_dll/ev_ts.cpp): count 1-3, per-chip random eject speed 120-300 along the normal +
+  ±130 spread, kRenderTransAdd (additive=bright; rendercolor only MODULATES so couldn't brighten), no
+  FTENT_FADEOUT (abrupt 1s cutoff), random frame (woodfrag 7/concrete 5 shapes), spin ±500.
+- **Glass shards** (cl_dll/ts_debris.cpp): random frame (9 shapes — was all frame 0), spin ±500, velocity
+  forward-bias ×0.4 + ±velMag*0.6 scatter, dir NEGATED (g_vecAttackDir points at shooter), small scale.
+
+### cont.69u (later 6) — knife glass health/chain/angle + dive-barge airborne gate (RE notes)
+- **Walking-breaks-glass FIXED (RE-confirmed):** CheckForBreakables@0x9bd9c line ~46 returns early when
+  `pev->flags & FL_ONGROUND` (and the +0x79c stunt flag is 0) → the original ONLY barges through glass
+  when AIRBORNE. Our TSCheckRunThrough was missing that gate; added `if (FL_ONGROUND) return;`.
+- **Knife glass (dlls/ts_knife.cpp KnifeTouch rewritten as a unified per-surface trace-loop):** ALWAYS
+  TraceAttack a breakable it hits → damage ACCUMULATES (weak glass breaks after a few throws; strong/
+  high-health glass survives any number — standard CBreakable health). Head-on break → punch through to
+  the next pane (whole chain breaks); survived OR glancing → Deflect (reflect+½ speed, keeps the damage).
+  Walls stick head-on / deflect glancing.
+- **RE flag (faithfulness):** the steep-angle thresholds ARE RE-grounded — BounceTouch@0x7decc bounces
+  when `-(normal·flyDir) < 0.4` AND `normal.z <= 0.98` (consts: 0.4 @0x107ed8 dbl, 0.98 @0x107ed0 dbl,
+  speed 100, ÷2, embed 6). BUT in the binary that check sits in the **worldspawn (solid wall)** branch;
+  BounceTouch's damage path is gated on **IsPlayer (vtable+0xc8)** so only PLAYERS get knife-TraceAttacked
+  there — breakables take a separate embed path. So how the original knife damages/chains/angle-deflects
+  GLASS isn't fully resolved statically (likely the glass's own engine break-on-touch + physics). I
+  implemented the user's OBSERVED behavior using the RE-grounded thresholds + standard CBreakable health;
+  applying the angle check to breakables is an extrapolation, flagged to the user.
+
+### cont.69u (later 8) — ⭐ LIVE gdb trace found the knife→glass break path (mechanism = THINK, not touch)
+The user is running the ORIGINAL TS in hl.exe under Proton (PID 3844527; mp.dll loaded, Wine maps PE by
+RVA — effective base 0x1e13ffb0, i.e. CBreakable::Die RVA 0x4b9a0 → live 0x1e18b950). Attached gdb,
+HARDWARE-bp on Die, user threw a knife at glass, captured the stack. **Backtrace (definitive):**
+`GetNewDLLFunctions(engine think dispatch) → CTSKnife::WaitThink → [swept-move fn] → CBreakable::TakeDamage
+→ CBreakable::Die`. So the thrown knife breaks glass through its **per-frame physics THINK (a swept move
+that TakeDamages breakables it crosses)** — NOT through BounceTouch (the touch), and NOT BreakTouch (which
+IS IsPlayer-gated, verified: CBreakable vtable+0xc8 reloc → IsPlayer). Our reconstruction breaks glass in
+KnifeTouch — the WRONG MECHANISM, which is why it was inconsistent/angle-wrong. RestorePhysics/SavePhysics
+(vtable 0x118/0x11c, called by WaitThink) are only slow-mo velocity scaling; the swept-damage fn (the Windows
+frame between WaitThink and TakeDamage, unexported) isn't cleanly Linux-mapped yet. **Next:** either rework
+the knife to a think-based swept-damage, OR a 2nd live trace (bp on CBreakable::TakeDamage, read the damage
+arg + dir) to confirm the exact damage/angle formula. gdb how-to saved in [[flag-unfound-re-early]].
+**Method memories saved:** `flag-unfound-re-early` (don't make shit up vs the RE; dynamic gdb trace recipe).
+
+### cont.69u (later 9) — ✅ knife→glass reworked to the ACTUAL implementation (WaitThink swept-break)
+Found `WaitThink__8CTSKnife` @0x6ea30 (it WAS in ts_i386.so; I'd missed the grep — the live trace + mp.dll
+export name `CTSKnife::WaitThink` pointed right at it). The real rule (RE'd, all constants confirmed):
+the knife's in-flight THINK runs every **0.1s** (DAT_00107138), and if speed > **64** (DAT_00107ea0) it
+sweeps a **64u forward trace along the velocity**; if it hits a NON-player breakable whose
+`health <= 0.1*speed` (DAT_00107138 * speed) it `TraceAttack`s `0.1*speed` (DMG 0x8001000) and breaks it.
+**NO angle scaling, NO accumulation** — either the throw kills the pane in one hit or nothing happens.
+Reworked dlls/ts_knife.cpp: added `CTSKnife::WaitThink` (the sweep) + `SweepBreak` (the shared one-hit
+rule), Spawn now SetThink(WaitThink)@0.1s + a 15s expire; KnifeTouch simplified — stab flesh / break-and-
+fly-through if SweepBreak succeeds / **bounce off (0.25*-vel) if too strong** / stick-or-deflect walls.
+Removed the invented angle-scaled + accumulation + energy-falloff chain. Built clean, installed.
+**Docs:** added CLAUDE.md **§4b** (live gdb trace + mp.dll cross-ref method) next to the Ghidra flow;
+enriched the `flag-unfound-re-early` memory. mp.dll Ghidra project at recovered/ghidra/mpdll.
+**TODO (user): if this plays right, audit docs/ledger for other "couldn't find / made-shit-up" spots and
+re-RE them via the mp.dll/live-trace method.**
+
+### cont.69u (later 7) — knife↔glass behavior reworked to the user's observation (RE caveat noted)
+RE'd the glass-break paths fully: **CBreakable::BreakTouch@0xc0c44** (velocity break-on-touch) is gated on
+`pOther->IsPlayer()`, and **CTSKnife::BounceTouch@0x7decc**'s only TraceAttack/damage path is ALSO gated on
+IsPlayer — so a thrown knife never breaks glass via either in the binary (breakable → bounce-off + fall;
+ShouldCollide just returns 1). The knife→glass BREAK path is NOT statically locatable. User corrected: knives
+break glass head-on OR **fall straight down if they can't** — they NEVER stick in glass; and they usually
+break ONE pane then **drop at the second** (energy loss per pane). Implemented (dlls/ts_knife.cpp KnifeTouch):
+ANGLE-SCALED damage `m_flDamage * -(normal·flyDir)` (head-on full → breaks weak glass; glancing chips;
+accumulates), break → punch through to the next surface with **dmg ×0.5 per pane** (so it rarely chains
+past ~two), survive → **fall straight down** (kill horizontal velocity + back off the pane; lands as a floor
+pickup). Walls keep the RE-grounded stick-head-on / deflect-glancing (0.4/0.98). Flagged: the knife-breaks-
+glass mechanic itself isn't byte-faithful (couldn't locate it) — modeled on the observation + RE'd angle/health.
+
+- ⚠️ Remaining queue: **sound pitch** (recorded-slow/played-fast) still needs the focused client decompile
+  (FUN_1003dfa0 sound-play pitch vs the slow-mo factor) — flagged, not pinned. Plus #2 coldcock viewmodel
+  whip, #3 predicted empty/pump/closecombat, katana right-click throw.
+
+- **glass break paths (RE'd):** (1) shoot it → CBulletManager/ShootBulletsPlayer TraceAttack (penetration
+  also lets the bullet continue to the wall behind); (2) jump NEXT to it → the jump-kick (CloseAttack,
+  kick anim); (3) **dive/run INTO it fast → CTSStunt::CheckForBreakables@0x9bd9c** (per-think from
+  PreThink: speed≥64 → velocity-direction hull trace 64u → TraceAttack damage=speed; no kick anim =
+  "jump before reaching it, shatter, dive through"). #3 documented in reference/BULLETS.md, NOT yet impl
+  (new task #6).
+
+---
+
+## 2026-06-23 (cont. 69s) — .sc client weapon-param subsystem: steps 1+2 (table shared + deploy cache)
+
+Started the FULL client weapon-param subsystem (the cont.69r NEXT TASK). Steps 1 & 2 done +
+in-engine verified. Committed as **fa44c26** (one commit for both steps — ev_ts.cpp +
+cl_dll/CMakeLists.txt straddle both, so a clean split would need non-buildable intermediates).
+NOTE: committed with `--no-gpg-sign` (user authorized "just commit skipping gpg" after the
+gpg-agent passphrase cache expired mid-session + pinentry timed out headless). Re-sign later if
+the unsigned commit matters.
+
+**Step 1 — shared s_weapon_info table into the client.** Split the pure weapon DATA layer
+(tsweapon_t, s_weapon_info, get_weapon_info, the per-caliber ammo/fire-mode helpers) out of
+dlls/ts_weapons.{h,cpp} into a new SHARED TU dlls/ts_weapon_info.{h,cpp}, built into BOTH hl.so
+and client.so (the original keeps a client copy at DAT_100aa050 via a client compile_weapons_info
+mirror — we share one TU). ts_weapons.{h,cpp} now hold only the server-only PrecacheAllTSWeapons.
+ev_ts.cpp muzzle-grip reads get_weapon_info()->pszAnimExt (was a duplicated local array). Verified:
+both build (glibc 2.14), get_weapon_info linked into client.so, M4 fires + flare draws in-engine.
+
+**Step 2 — the active-weapon param cache (client) + draw event.** RE'd the handler architecture
+(client.dll Ghidra): each handler caches its args at entry (FUN_100425b0 draw / FUN_10042690 reload:
+type=iparam1, info=get_weapon_info(type), barrelMask=iparam2, entindex=args+4, origin/angles/vel);
+the fire handler FUN_1003de40 dispatches on the fire-type byte weapon_info+0xd2 (==our iFireType:
+1=pump, 4/5=akimbo, else standard) — so the WEAPON TYPE TRAVELS IN THE EVENT. The ~70 DAT_10189xxx
+globals are the client's INTERNAL prediction state, NOT the protocol. **The contract = event NAME +
+iparam/fparam/bparam packing** (reload also packs fparam1=stage 0/9/10). Per CLAUDE.md (behaviour,
+not byte) the cache is a clean modern struct, not a 70-global byte-port. Full RE in reference/EVENTS.md
+"cont.69s".
+- cl_dll/ts_weapon_predict.{h,cpp}: `struct TSActiveWeapon {type, info, barrelMask, entindex,
+  origin/angles/velocity, isLocal; UpdateFromEvent(args);}` + global g_tsActive + EV_TSDraw (draw.sc
+  handler = seeds the cache). EV_TSFire now refreshes g_tsActive too. draw.sc hooked in hl_events.cpp.
+- Server (ts_gun.cpp): m_usDraw precached; Deploy() plays draw.sc ADDITIVELY (iparam1=type,
+  iparam2=akimbo barrel mask 2/4/6 else 1) — keeps the server DefaultDeploy visuals, only primes
+  client state. Verified in-engine: deploys (knife/M4) fire the draw event, NO crash, no bad-event
+  errors, fire path unchanged.
+
+**Step 3 — ⚠️ anim-prediction BLOCKED (in-engine proven), decision needed.** Tried porting reload
+as a predicted event (EV_TSReload → EV_WeaponAnimation, replacing the server SendWeaponAnim).
+In-engine: the clip refilled (server reload ran) but the reload viewmodel anim NEVER played across
+~1.8s. Root cause: our CTSGun is server-authoritative + not registered in the client weapon-
+prediction loop, and CLIENT_WEAPONS is defined, so HUD_WeaponsPostThink overwrites any predicted
+viewmodel anim every frame. (The fire event's local effects DO work, so EV_IsLocal is fine — it's
+specifically EV_WeaponAnimation that can't stick. Matches the long-standing EV_TSFire comment.)
+**Experiment reverted** (reload back to SendWeaponAnim, no regression); finding documented in
+reference/EVENTS.md "cont.69s — anim-prediction BLOCKED" + a code note at CTSGun::Reload.
+
+**The real fork (user decision):**
+- (A) Port only the SOUND/EFFECT half of each event (drop-in arg packing + sprites/shells/punch/
+  temp-entities), anims stay SendWeaponAnim. Low value — EV_TSFire already covers the main effect
+  case and SendWeaponAnim already triggers the models' embedded reload/clip sound events.
+- (B) Make CTSGun CLIENT-PREDICTED first (a client weapon object in HUD_InitClientWeapons /
+  HUD_WeaponsPostThink / HUD_GetWeaponData, mirroring CTSGun clip/timers/state) — the real gate for
+  faithful predicted anims, and a large separate effort. Then the 11 handlers predict properly.
+- (C) Stop at the foundation (steps 1+2 shipped); revisit prediction later.
+
+Steps 1+2 (committed 1cf2499) stand regardless — the shared table + the active-weapon cache are
+prerequisites for (B) too.
+
+**User chose (B) — make CTSGun client-predicted.** Progress:
+- **3a DONE (committed bb0594f)** — dlls/ts_gun.cpp now compiles INTO client.so (added to
+  cl_dll/CMakeLists, like the HL weapon .cpp files). It compiled unchanged; only failed to LINK
+  vs server-only symbols (TSCreateWorldGun/AmmoPack/ThrowM61, CTSAnimation::Animate/PlayKungFu,
+  PrecacheAllTSWeapons, DoubleFireRate, DispatchSpawn/Touch) → new cl_dll/ts_gun_stubs.cpp gives
+  client no-op stubs (server-authoritative side-effects the prediction must skip; none on the
+  hot path). ZERO edits to ts_gun.cpp. 35 CTSGun methods now in client.so. Infra only — nothing
+  runs the client CTSGun yet; client loads+spawns+fires fine.
+- **3b/3c SCAFFOLDED (committed 98fa78e), DISABLED pending debug.** Built the whole harness:
+  extracted the CTSGun class to dlls/ts_gun.h; added CTSGun::GetWeaponData/SetWeaponData (ship
+  weapon TYPE=iuser1, active-caliber RESERVE=iuser2, fire-mode=iuser3; clip/timers/m_fInReload ship
+  generically); added the client g_TSGun + HUD_PrepEntity + the HUD_WeaponsPostThink TSGUN_WEAPON_ID
+  case in cl_dll/hl/hl_weapons.cpp. UseDecrement() gates it.
+  - **Enabled it and tested in-engine — NOT correct, so left DISABLED (UseDecrement=false +
+    registration COMMENTED OUT; runtime verified unchanged / no regression):** prediction RAN
+    (ItemPostFrame client-side) but (a) the predicted viewmodel anim STILL didn't stick (fire +
+    reload stayed in the idle pose — reload frames pixel-identical), and (b) fire effects DOUBLED
+    (muzzle/shells, no event dedup). No crash (EMIT_SOUND = client no-op via hl_baseentity.cpp;
+    MESSAGE_BEGIN only in UpdateClientData/SendWeaponStatus, NOT on the prediction path).
+  - **To re-enable:** flip UseDecrement→true + uncomment the 2 registration lines in hl_weapons.cpp.
+  - **ROOT CAUSE FOUND (Con_Printf-instrumented HUD_WeaponsPostThink, then reverted).** 3b/3c are
+    actually CORRECT: ItemPostFrame runs client-side for id 16, gates pass, SetWeaponData mirrors
+    right (wpnType=5/clip/reserve). The bug is a **TIME-BASE mismatch**: the engine decrements a
+    UseDecrement weapon's m_flNextPrimaryAttack as a RELATIVE countdown each client frame (observed
+    37.92→37.85 while client time rose), but CTSGun uses ABSOLUTE gpGlobals->time → timers corrupt →
+    predicted attack gate misfires → SendWeaponAnim never driven (animBefore==animAfter==0) → idle
+    viewmodel = "anim doesn't stick". CTSGun uses absolute time because **CLIENT_WEAPONS is defined
+    GLOBALLY** (CMakeLists, both hl+client targets) making UTIL_WeaponTimeBase()==0 on the server too
+    — cont.69q's gpGlobals->time was the workaround, which is incompatible with prediction.
+  - **✅ FIXED + ENABLED (committed ee642ab) — CTSGun is now CLIENT-PREDICTED, anims stick.** The fix
+    was NOT to rescope CLIENT_WEAPONS (it must stay global — the server needs it for GetWeaponData +
+    the CBasePlayer::ItemPostFrame decrement loop @player.cpp:2823, gated `#if CLIENT_WEAPONS` +
+    `gun->UseDecrement()`). The real fix: revert CTSGun's 34 timer sites gpGlobals->time →
+    UTIL_WeaponTimeBase() (0-base; the 4 real-time deltas m_lastCCTime/m_blockBar keep gpGlobals->time).
+    With UseDecrement()==true the server decrement loop now decrements CTSGun's 0-base timers (cont.69q's
+    absolute-time workaround was only needed because UseDecrement was false). Re-enabled UseDecrement +
+    the g_TSGun registration. Fire/akimbo events → FEV_NOTHOST so the predicting host plays its own
+    predicted muzzle/shell (no double).
+  - **Verified in-engine** (Con_Printf, removed): `cl: StandardFire`/`cl: Reload` run client-side;
+    predicted clip decrements; fire (slide) + reload viewmodel anims ANIMATE (were static); SINGLE
+    muzzle (dedup works); server fires repeatedly (no fire-once-stuck). No crash. Both DLLs build.
+  - **TEST-HARNESS NOTE for next agent:** the buy/select is flaky under blind xdotool — `tkw`/`weapon_N`
+    didn't reliably wield the M4 (random loadout auto-selects the highest-priority owned weapon, often a
+    knife). What worked: spawn (click through the gate 3-4×), then `drop` ×2 in console to shed the
+    melee and auto-select an owned GUN. Then fire (MOUSE1=+attack; note ENTER is ALSO +attack).
+  - **✅ DEDICATED-SERVER firing pass DONE (no regression).** Ran the ReHLDS rig (metamod+rcbot,
+    `~/Containers/hlds/hlds-linux64-test`, ts_wyndham, bots) with a TEMP bot-give hook (M4 + ammo +
+    `m_iClip=2` in TSDeployArsenal) + TEMP server `[TSSRV]` fire/reload probes — pure server-side, NO
+    client prediction. Result: bots fire the M4 in sustained full-auto (clip 29→3, 70 events) AND the
+    full empty→reload→refill cycle works (`fire clip=0 → reload → fire clip=29 → fire 28…`, 52 fire/5
+    reload). No fire-once-stuck, no crash. So the UTIL_WeaponTimeBase()+UseDecrement 0-base holds on a
+    pure dedicated server (the player.cpp:2823 decrement loop drives it). Temp probes + bot-give
+    REVERTED (`git checkout dlls/ts_gun.cpp`); clean hl.so restored to the rig. Tree = ee642ab.
+  - **3e DONE (committed 62d754e) — filled the 1st-person melee/grenade gaps the prediction exposed.**
+    Audited the .sc actions: most were already covered once anims predict (fire/reload via SendWeaponAnim,
+    empty via the client PlayEmptySound click, pump reload anim, kung-fu CloseCombat). The genuine GAPS:
+    knife/katana/sealknife MeleeAttack + GrenadeThrow set only the 3rd-person body anim, never
+    SendWeaponAnim → silent, unanimated 1st-person. Fixed: MeleeAttack SendWeaponAnim the slash seq
+    (v_knife slash1=3, v_katana/v_sealknife slash1=2 — dumped from the .mdl headers via scratchpad/
+    dumpseq.py) + swing/surface/flesh sounds (weapons/knife/*, weapons/katana/*, precached); GrenadeThrow
+    SendWeaponAnim(3)=v_m61 throw. FIXED slash (not random) to stay in lockstep with the server's anim
+    (random would snap on the reconcile). Verified in-engine: knife slash animates (was static) + sounds,
+    no crash. coldcock left server-driven (its viewmodel is the held gun's — no reliable whip seq).
+  - **The .sc client weapon-param subsystem (cont.69r NEXT TASK) is COMPLETE:** shared table (1) +
+    param cache (2) + CTSGun client-prediction (3a-3d, anims stick, dedicated-verified) + melee/grenade
+    predicted anims (3e). Remaining nice-to-haves (not blocking): byte-faithful knife.sc impact spark/
+    decal (FUN_10046f50/100492b0), coldcock viewmodel whip, predicted-EFFECT events for the rest.
+- **3d** — verify the predicted reload/fire viewmodel anim STICKS (re-run the cont.69s test).
+- **3e** — then port the 11 .sc handlers as predicted (now that anims stick), OR — if prediction
+  proves too fragile — note that once anims stick via SendWeaponAnim, the .sc events are only needed
+  for the muzzle-sprite/shell EFFECTS (EV_TSFire already does those), so 3e may be minimal.
+
+## 2026-06-24 (cont. 69t) — weapon-effect polish batch (impacts/knife-spark/knife-throw) + RE notes
+
+After the .sc prediction subsystem (cont.69s), a user-requested polish batch. All RE-grounded, in-engine
+verified, committed:
+- **Bullet impact smoke** (8430ea3) — client EV_TSBulletImpact: a SMOKE puff per surface material at
+  the bullet hit (RE: client dispatcher FUN_10048f60 — wood/dirt→wood_smoke_add, metal/glass/grate/vent/
+  computer→gun_smoke_add+R_SparkShower, concrete/default→gun_smoke, flesh→none). The server side already
+  did damage+texture sound+decal+blood; this adds the missing VISUAL. Centre-ray trace; predicted via
+  the fire event. Verified: floor/wall impacts puff smoke.
+- **knife.sc melee spark** (6876988) — MeleeAttack plays events/knife.sc (m_usMelee, FEV_NOTHOST, impact
+  in the origin) on a non-flesh surface hit; client EV_TSMelee R_SparkShower. (RE: FUN_10043c90.)
+- **Knife right-click THROW** (dee455c) — RE'd CTSGun::SecondaryAttack@0x817a8 (fire-type KNIFE→KnifeFire
+  throw branch) + CreateKnife@0x6d9e4. New dlls/ts_knife.cpp = CTSKnife projectile (per-type w_model,
+  MOVETYPE_TOSS + avelocity tumble, damages a victim / thunks a surface, drops a recoverable CTSWorldGun).
+  CTSGun::ThrowKnife (spends m_iClip, throw seq v_knife 7 / v_sealknife 5, knife_miss whoosh, auto-switch
+  when dry), routed from ItemPostFrame IN_ATTACK2 (gated m_flNextSecondaryAttack). TSThrowKnife + client
+  stub. Verified: right-click → throw anim + CTSKnife spawns (w_knife.mdl), no crash.
+- **Breakable shatter particles — ALREADY WORKS, no change.** Verified on ts_kissmeyerbasic: punching/
+  shooting glass → it breaks + `glassgibs.mdl` loads. Stock HL CBreakable::Die (dlls/func_break.cpp) emits
+  TE_BREAKMODEL with the material gib (m_idShard = glassgibs/woodgibs/… by m_Material) + count=0 (engine
+  fills the brush volume = covers the surface) + the BREAK_GLASS/WOOD flag. TS uses stock CBreakable (no
+  override). If denser coverage is wanted, bump the TE_BREAKMODEL count.
+
+**cont.69t follow-ups (user feedback, committed c16e960):**
+- Knife throw COLLISION (RE: CTSKnife::BounceTouch@0x6decc) — STICK into non-breakable non-flesh
+  surfaces (embed + point the way it flew); BOUNCE off a breakable it can't break; break-through a
+  breakable it CAN break + stick in the wall beyond (forward trace w/ ignore_glass); flesh = stab +
+  drop a recoverable knife. **Fixed a server CRASH** (Host_Error "trigger in clipping list") — StickAt
+  set pev->solid=SOLID_TRIGGER without relinking; now sets solid+size and relinks (UTIL_SetSize/Origin).
+- Pickup = press-E (IN_USE) in a trigger radius, NOT run-over, matching CTSWorldGun::WaitTouch (no aim).
+- Dropped-weapon GLOW = WHITE kRenderFxGlowShell (CTSWorldGun + stuck knife) — model shell, not a light.
+  (User-corrected: white not orange; E-pickup not run-over.)
+
+**STILL QUEUED (user-requested, RE notes for the next session):**
+- **Proximity auto-kick (non-kung-fu)** — "any weapon except kung-fu auto-kicks when next to + aiming at
+  a breakable/person." RE is HARD: the kick is `CloseCombatAttack__11CBasePlayer` (@0x95f88) called via an
+  INDIRECT function pointer (PTR_CloseCombatAttack…@0x176858) — static caller not found. The per-frame
+  trigger (proximity + aim check) isn't in CTSGun::PrimaryAttack (0x81a20, pure fire-type dispatch) and
+  CTSGun has no ItemPostFrame symbol (uses base). Kick helpers RE'd: VKickback@0x80414,
+  GetCloseCombatVectors@0x86e2c, DropKickback@0x86e9c, GaitCloseCombat. NEXT: trace the indirect ptr / find
+  the CBasePlayer think that calls it; don't guess the range/damage (RE-ground it).
+- **Coldcock viewmodel whip** — ColdCock has the hit sound + 3rd-person anim but no 1st-person SendWeaponAnim;
+  most gun v_models lack a whip seq. RE coldcock.sc (LAB_10043800) for the seq it uses (may be a generic).
+- **Predicted-effect events for empty/pump/closecombat** — low value (anims already predict; empty already
+  clicks via PlayEmptySound; pump scock1 + closecombat sounds are server-side EMIT_SOUND).
+- **Katana right-click** = KatanaThrow (separate from the knife throw) — not yet done.
+
+## 2026-06-23 (cont. 69r) — committed the batch; chose the FULL .sc client-prediction subsystem as next
+
+Committed everything (git): **1ca0ca4** (akimbo refactor + kung-fu + all playtest fixes — cont.69p/q),
+**c675ef0** (reference/EVENTS.md = complete RE map of the 11 .sc weapon events, both sides), **7a66e5c**
+(EVENTS.md = client weapon-param subsystem foundation + build order).
+
+RE'd the `.sc` event system end-to-end: the files are empty 4-byte hooks; server `PLAYBACK_EVENT` <-> client
+`pfnHookEvent` handler. Map in EVENTS.md — server handles (CTSGun::Precache@0x80660: fire+0x964 … grenade
++0x978), client hook->handler (FUN_10003240: fire->FUN_1003de40, reload->LAB_10042690, closecombat->FUN_10043200,
+… 11 total), playback sites. Only `events/fire.sc` is wired today (EV_TSFire); the rest are server-driven.
+
+**User decision:** do the FULL client weapon-param subsystem (byte-faithful), not the simplified per-event
+path. Foundation RE'd: client `get_weapon_info` = FUN_100071c0 -> DAT_100aa050 (the SAME 988-byte
+s_weapon_info[38] the server builds) + the DAT_10189xxx active-param cache (filled on deploy, read by the
+handlers). Build order (EVENTS.md): (1) client weapon table, (2) deploy param-cache, (3) the 11 handlers.
+NOT started (deferred to a focused session — it touches the working weapon code). Added scripts/ghidra/
+FindStr.java (find a .data string + its xrefs). See HANDOFF "NEXT TASK".
+
+## 2026-06-23 (cont. 69p) — akimbo OWNERSHIP refactor IMPLEMENTED + 3 playtest fixes
+
+Implemented the user-approved akimbo-ownership refactor (the cont.69o hand-off). CTSGun's arsenal
+migrated from the compact `m_arsenalType[]` list to the original's **items[]-by-tsweapon_t model**
+(`struct TSItem m_items[TSW_COUNT]` = {owned, clip, leftClip, rightClip, mode, attach, barrelMask}),
+all RE-grounded (TakeWeapon@0x80a04, CTSGun::DropWeapon@0x8094c, CBasePlayer::DropWeapon@0x84900,
+SwitchItems=FUN_00081564, GetBetterWeapon@0x80f40, IsWeaponAkimbo/IsOnlyAkimbo = fireType 4/5,
+g_iWeaponPriority extracted from compile_weapons_info). dlls/ts_gun.cpp + ts_weapons.h + client.cpp.
+- **Combine keeps BOTH owned** (TakeWeapon): own single + pick up another → fill items[akimbo]
+  (leftClip = items[single].clip, rightClip = weapon_info[single].clip), single NOT cleared. Scroll
+  skips the single (akimbo owned), slot1-5 still selects it. **Verified in-engine** (`tsbuy 2` ×2 →
+  akimbo berettas in hand; slot2 → single beretta while still owning the akimbo).
+- **Drop branches** (CBasePlayer::DropWeapon, now all in TSDropWeapon): combinable akimbo → throw 2
+  base singles (clip/2 each) + remove both items[akimbo]/[single]; **single dropped while owning its
+  akimbo → throw 1, keep the single (clip = akimbo.rightClip), remove the akimbo** (the cont.69o
+  REMAINING item) — **verified in-engine**; plain → throw 1 + remove. GetBetterWeapon auto-selects by
+  g_iWeaponPriority. world-gun spawning moved server-side into TSDropWeapon.
+- **useitems** (SwitchItems) cycles the active akimbo's barrel mask 0→2(L)→4(R)→6(both)→0; AkimboFire
+  decrements per-barrel clips honouring the mask; reload redistributes across barrels.
+- SelectWeaponType (holster→deploy), lastinv, WStatus, death-scatter, pickup all keyed by type now.
+
+**3 playtest fixes (all user-reported, RE-grounded, rebuilt):**
+1. **Spawn→spectate bounce was NOT a code bug** — the test launch missed `+deathmatch 1 +maxplayers`,
+   so the listenserver ran single-player rules and stock `respawn()` (client.cpp) does
+   `SERVER_COMMAND("reload")` → endless map-reload loop (looked like a crash; gdb caught no SIGSEGV).
+   Confirmed: committed build does the same; `+deathmatch 1` → spawns clean. **CLAUDE.md §3 launch
+   command updated** to require the flags.
+2. **Kung-fu no longer drawn red** in the weapon-select bar (cl_dll/ts_weaponbar.cpp): the empty-clip
+   red tint now only applies to weapons with maxClip > 0 (clipless melee has no ammo to be out of).
+3. **Dropped weapons no longer block the player while falling** — RE confirmed (CTSWorldGun::Spawn
+   @0xa0954) the original gives the FALLING gun a ZERO-size bbox (SetSize DAT_00106a08=0.0), so the
+   SOLID_BBOX point drops+lands but the player walks through (it damages via the Fall trace, not
+   collision); real trigger size only on landing. ts_worldgun.cpp falling SetSize → g_vecZero.
+
+Built hl.so + client.so (glibc 2.14), staged via setup-xash-mod, in-engine verified (no crashes,
+0 reconnects with +deathmatch 1). NOT yet committed. Remaining: exhaustive 38-weapon retest.
+
+**Follow-up fixes (same batch, user playtest):**
+4. **Loadout now PERSISTS across spawns** — removed the `ResetArmament()` we had added at the end of
+   `CBasePlayer::BuyArmament()` (ts_buy.cpp). The original BuyArmament@0x83f10 does NOT reset, so the
+   chosen loadout re-applies on every spawn (respawn + round restart). rst_cfg still clears on rebuy.
+   Fixes "round restart gives zero weapons".
+5. **No more phantom beretta** — `CTSGun` default `m_weaponType` changed TSW_BERETTA → **TSW_MELEE**, so
+   a bare `weapon_tsgun` (GiveNamedItem) is just kung-fu; the loadout supplies the real guns.
+7. **FIRING fixed (fire-once-then-stuck, reload never refilled)** — the build defines CLIENT_WEAPONS so
+   `UTIL_WeaponTimeBase()` == 0 (a 0-based predicted clock). The original CTSGun is client-predicted, but
+   our reconstruction drives it SERVER-authoritatively, so every CTSGun timer compared a positive
+   `m_flNextPrimaryAttack`/`m_flTimeWeaponIdle`/reload time against 0 → never elapsed → one shot then
+   permanently stuck, reload anim played but clip/reserve never updated. Converted all CTSGun timers to
+   `gpGlobals->time` (and `GetNextAttackDelay(x)` → `gpGlobals->time + x`). In-engine verified: M4 full-auto
+   sustained fire (muzzle flash + brass), reload refills.
+9. **MUZZLE-FLASH "flares" added (were not drawn)** — RE of client.dll: the muzzle flash is the TS
+   sprite drawn at the gun muzzle ATTACHMENT by `FUN_100474b0` (loads `sprites/ts_muzzleflash1h.spr` =
+   one-handed, `ts_muzzleflash6.spr` = two-handed; a 2nd flare when `weapon_info+0x350` is set). Our
+   EV_TSFire only did the engine EF_MUZZLEFLASH (and akimbo fired no event at all). Now `EV_TSMuzzleFlare`
+   draws the TS sprite via `R_TempSprite` at the viewmodel/player `attachment[side]` (per-grip sprite),
+   and AkimboFire fires `events/fire.sc` with `iparam2 = barrel side` so each akimbo barrel flares at
+   attachment 0/1 (gold colts = akimbo-only, both barrels). Sprites precached in PrecacheAllTSWeapons.
+   In-engine verified (beretta flare at the muzzle). NOTE: a faithful approximation — the original's exact
+   multi-segment temp-sprite build (FUN_100474b0, scale from weapon_info+0x1c/+0x354/+0x358) is not fully
+   reproduced; flare scale/offset may need tuning. SHOTGUN incremental reload (ShotgunReload@0x84aac, per-
+   shell state machine) still TODO.
+8. **BATCHED LOADOUT fixed (selected arsenal not given)** — RE of the buy-menu apply (client.dll
+   FUN_10039400) shows it builds ONE space-separated command `"tkw "` + `"%i_%i "` per weapon
+   (`tkw 2_1 5_1 9_1`) + one `tka …`, sent via a single ClientCmd. Our server `tkw`/`tki`/`tka` handlers
+   only parsed `CMD_ARGV(1)` → dropped all but the first weapon. Fixed to loop `CMD_ARGV(1..ARGC-1)`.
+   With the persist fix (#4) the full loadout now applies on every spawn + round restart. In-engine
+   verified (batched `tkw 2_1 5_1 9_1 13_1` → all given). BUY.md note corrected (was wrong: "single token").
+
+6. **Can't-fire / no-viewmodel fixed (regression from #5)** — the engine's auto-deploy (GetNextBestWeapon)
+   skips kung-fu (melee, no clip), so with a kung-fu default the tsgun never became `m_pActiveItem` →
+   no viewmodel + ItemPostFrame (firing) never ran. Added **`TSDeployArsenal(player)`** (ts_gun.cpp,
+   called at the end of CTSGameRules::PlayerSpawn) which forces the tsgun active + Deploy()s; also made
+   `SelectWeaponType` claim `m_pActiveItem` when none is set. **In-engine verified**: M4 viewmodel
+   deploys, loadout pistol deploys on spawn, 0 reconnects. (Before this, BERETTA default masked the bug
+   because the engine auto-deployed a gun.)
+
+## 2026-06-23 (cont. 69q) — kung-fu close-combat, shotgun reload, muzzle flares, fire/loadout/deploy fixes
+
+Big playtest-driven batch (all RE-grounded; in-engine where verifiable):
+- **CanDeploy fix** — TS weapons keep ammo in our own m_ammoReserve, not stock m_rgAmmo, so the stock
+  CBasePlayerWeapon::CanDeploy refused to deploy any empty-clip TS weapon — notably KUNG-FU (always 0
+  clip), which then kept the PREVIOUS weapon's viewmodel ("kung-fu takes prev model" / "round restart
+  strips kung-fu"). `CTSGun::CanDeploy()` now returns true. Verified: weapon_0 → fists.
+- **KUNG-FU close-combat** (`CCombatAttack__6CTSGun`@0x86078): kung-fu = bare hands (original has gun+0xcc==0
+  → CCombatAttack). PrimaryAttack/Secondary for TSW_MELEE now route to `CloseCombatAttack()` — a contextual
+  dispatch from pev->button (IN_ATTACK/IN_ATTACK2 + IN_DUCK) + FL_ONGROUND/FL_DUCKING + velocity → the
+  v_melee.mdl anims (0x0d-0x19) + damage 35/45/55: right-click+duck=handstand kick(0x14), right-click=back-
+  kick(0x11), fire+air+duck=dropkick(0x10), fire+air=flying punch(0x12), fire+duck=uppercut(0x16),
+  fire=ground punch combo(0x0d/0e/0f). Sounds (RE: player/*): flesh→kungfuhit.wav, surface→closecombat.wav
+  swing + pl_step* footstep, miss→closecombat.wav swing. (SLICE: exact knockback/reach consts approximated.)
+- **SHOTGUN incremental reload** (ShotgunReload@0x84aac): pump shotguns (fireType TSFT_PUMP: m3/spas12/
+  mossberg) now reload ONE shell at a time (per-shell delay, scock1.wav), interruptible by firing.
+- **MUZZLE FLARES** (RE: client.dll FUN_100474b0 + ts_muzzleflash1h/6 sprites): EV_TSMuzzleFlare draws the
+  TS flash sprite at the gun muzzle attachment (akimbo per-barrel via iparam2). Flare life shortened (was
+  "slow enough to walk around" — dropped FTENT_SPRCYCLE, life 0.01).
+- **FIRING** (server-time gate, was fire-once-stuck) + **batched-loadout** (tkw loops all argv) + **loadout
+  persists** (no ResetArmament) + **deploy** (TSDeployArsenal) — see cont.69p notes above; all RE-grounded.
+- **ROUND-RESTART WEAPON LOSS fixed (recurring bug)** — `CBasePlayer::Spawn` does NOT call
+  RemoveAllItems, so TSRestartRound respawning a STILL-ALIVE player left the old weapon_tsgun in place
+  and GiveNamedItem made a SECOND one; the two tsguns fought over active/WStatus → the arsenal
+  "disappeared" inconsistently (all-but-one / all). Fixed: CTSGameRules::PlayerSpawn now
+  `RemoveAllItems(false)` before GiveNamedItem so the round-restart re-equip is clean (one tsgun).
+- **KUNG-FU anims FIXED** — our v_melee.mdl has only 11 seqs (idle/draw/punch_left/punch_right/block_low/
+  kick/sidekick/uppercut/spinkick/backkick/punch_right2); I'd used the original's 0x0d-0x19 which don't
+  exist → no animation. Remapped CloseCombatAttack to our seqs (punch combo 2/3/10, uppercut 7, kick 5,
+  sidekick 6, spinkick 8, backkick 9). Reload "hooah" block → block_low (4).
+- **KUNG-FU reload block IMPLEMENTED** — CloseCombatBlock: R plays player/block.wav ("hooah") + block_low
+  stance + gates attacks; a stamina bar (~3 blocks, regens) → player/breathe2.wav (the Valve breathing)
+  when spammed empty. Sounds in ts/sound/player/.
+- **`thirdperson` is now a TOGGLE** (cl_dll/in_camera.cpp CAM_ToThirdPerson): flips third↔first; `firstperson`
+  stays one-way.
+- **Kung-fu 3rd-person held-weapon removed** — CTSGun::Deploy fell back to the VIEW model when a weapon had
+  no p_model, so kung-fu (no p_model) put v_melee on the player's hands/back (a phantom held gun). Now an
+  empty weaponmodel ("") → bare hands. NOTE: the player BODY kung-fu animation (punch/kick on the 3rd-person
+  model) needs kung-fu sequences in the player model + the CTSAnimation close-combat gait (GaitCloseCombat/
+  HandleCloseCombat@0x5d8d0); the current player model (SpeziClaus) only has onehanded/twohanded/akimbo aim
+  sets — no fist set — so the body can't punch visually with it. Deferred (model-dependent).
+- **KUNG-FU dispatch reworked + 3rd-person BODY anims** (user rules): FIRE = PUNCHES only (never kicks,
+  even with jump) — duck→uppercut, hold/rapid→punch combo (punchleft/right/air sequence), lone tap→single
+  regular punch; +ATTACK2 = KICKS only — jump+duck→spinkick, duck→sidekick, back→backkick, else→kick. The
+  player models DO carry the kung-fu sequences by NAME (gordon: punchleft/punchright/punchair/uppercut/
+  sidekick/backkick/circkick/circspin/kungfu_block1, …) — added `CTSAnimation::PlayKungFu(player, seq)` and
+  each attack/block now plays its body sequence (held via the aim-timer) so 3rd-person shows the punch/kick,
+  not an aim pose. (Earlier model-parse used the wrong regex and missed these; the named seqs exist.)
+- **STILL TODO (RE'd, not implemented):** kung-fu reload = `CCombatBlock`@0x85ebc — a "hooah" taunt
+  (event gun+0x96c, anim 0x26) that blocks attacks (sets gun+0x9c/0xa0) + consumes stamina (player melee
+  bar, UpdateMeleeBar); spamming → low-stamina breathing sound. The closecombat client event handler
+  (FUN_10043200) for the swing-anim prediction. The flare multi-segment build (FUN_100474b0 exact).
+
+## 2026-06-23 (cont. 69o) — full akimbo-ownership model RE'd (refactor handed to next agent)
+
+User asked to ground the akimbo logic in RE and (after I flagged the scope) chose to do the full refactor;
+we decided to hand the IMPLEMENTATION to the next agent (this session was already very long). The complete
+model is RE'd + documented in reference/WEAPON_SELECT.md ("Akimbo ownership model" + "TakeWeapon combine"):
+TakeWeapon@0x80a04 (combine: akimbo item carries two barrel clips +0x130/+0x134; KEEPS both items[single]
+and items[akimbo] owned), DropWeapon@0x84900 (drop akimbo → 2× base single), SwitchItems=FUN_00081564
+(useitems toggles the active-barrel mask +0x14 bits 2/4), GetBetterWeapon@0x80f40 (g_iWeaponPriority).
+NEXT TASK = migrate CTSGun arsenal from the compact m_arsenalType[] list to items[]-by-tsweapon_t so a
+single can be wielded/dropped independently of its akimbo pair. See HANDOFF.md "⭐ NEXT TASK".
+
+## 2026-06-23 (cont. 69n) — death=spectate, spectator-chrome suppression, weapon-select rebuild
+
+Playtest fixes (all RE-grounded + in-engine/user-confirmed):
+- **Death re-enters spectate** (not timer-respawn): PlayerDeathThink, once the death anim finishes,
+  routes to TSEnterSpectate (free-look + buy menu); respawn on FIRE after the gate. Verified via `kill`.
+- **Spectator chrome suppressed in the TS phase**: the top-left green-grid overlay = the stock
+  CHudSpectator overview/inset (DrawOverview, gated off in HUD_DrawNormalTriangles while
+  m_Spectate.IsActive()); "Press DUCK for Spectator Menu" (#Spec_Duck, SpectatorPanel::ShowMenu)
+  suppressed. The dark bottom bar = the stock SpectatorPanel bottom border geometry (height
+  YRES_HD(PANEL_HEIGHT=64), mode at YRES_HD(6)) drawn via pfnFillRGBABlend (pfnFillRGBA is additive →
+  black was invisible); user-confirmed match.
+- **Config-apply flicker fixed**: the buy menu opened every spectate tick (server resends each
+  countdown second) → reopened after apply. Now opens once on entering spectate. Kung-fu (TSW_MELEE)
+  given on every spawn (BuyArmament). Status panel hidden while dead/spectating.
+- **Weapon select REBUILT** (the stock yellow CHudAmmo menu retired; TS bar is the select UI). RE'd
+  from FUN_1004f500/FUN_1004f220/FUN_1004d2cf/FUN_1004e030 (reference/WEAPON_SELECT.md): slot1-5 +
+  invnext/invprev open the bar + move a cursor; FIRE commits `weapon_<N>` (holster→deploy, plays
+  weapons/switch.wav); closes on commit/cancel (NO timer). Bar ALWAYS draws but very transparent;
+  selecting brightens it, cursor most opaque (3-level additive opacity, no box); cursor shows
+  curclip/maxclip. Mouse-scroll SKIPS kung-fu (type 0) + a single whose akimbo is owned (still
+  slot-reachable). +attack consumed on commit (m_iKeyBits, like CHudAmmo::Think).
+- **Kung-fu = fists** (v_melee.mdl, no clip; was the MK23 placeholder). **Dropping an akimbo throws
+  TWO base singles** (clip split, ±4; CBasePlayer::DropWeapon @0x84900, TSAkimboBase = reverse iAkimboType).
+- OPEN (need the akimbo-as-2×-single ownership model, our model is akimbo-as-one-slot): "drop the
+  single (while holding akimbo) leaves the other"; the per-side single ownership.
+- Commits 269420b/2bac9c7/96d1e93/58991ef/2f769d9/504d62f/43880b9/a679c18.
+
+## 2026-06-23 (cont. 69m) — buy-menu config flow, TSMessage notifications, spectate HUD polish
+
+User playtest feedback round (all RE-grounded + screenshot/user-confirmed):
+- **First-start random + config toggle** (FUN_10036670 = menu open): first open per map randomizes the
+  loadout → "Use New Config"; later opens reload the last-applied config → "Use Last Config". Open() guards
+  on already-open (the server resends the spectate msg each countdown tick). Apply() saves the last config.
+- **TSMessage SVC notification** (cl_dll/ts_message.{cpp,h} = CHudTSMessage): RE'd the handler chain
+  FUN_100499e0 → FUN_1004c0a0 (parse: byte R,G,B,flags,holdtime + string) → FUN_1004b520 (15-slot centred
+  queue). Our server already sends TSMessage (ts_utils.cpp); this adds the client handler (fixes the "No pfn
+  TSMessage" error). Centred just below screen centre (flags 0); 0,0,0 → light text; **fades out** as it
+  expires (additive font dimmed over the last second). The buy "Using new/last config." notice + the
+  spectate "Press fire to play" prompt go through it ("press fire" is now a one-shot fade on the
+  countdown→READY transition, was a permanent orange overlay).
+- **Spectate bottom bar**: the original's dark bar IS the stock SpectatorPanel bottom border — geometry
+  matched (height YRES_HD(PANEL_HEIGHT=64), bottom-anchored, "Free-Look" mode at YRES_HD(6), help near the
+  bottom). Drawn with **pfnFillRGBABlend** (pfnFillRGBA is additive → black was invisible). User-confirmed match.
+- **Status panel** (CHudTSStatus) hidden while dead/spectating (gHUD.m_Spectate.IsActive()).
+- Commits 47d91fd (config/notify/fixes) / 2f769d9 (bar geometry).
+- **AUTO-AMMO max field** captured from the LIVE hl.exe (PID via /proc/<pid>/mem, client.dll base
+  0x0c070000, caliber table @0x0c10ffc0) — the static-0 max field [3]; see cont.69l + reference/MENUS.md.
+
+## 2026-06-23 (cont. 69l) — REAL cascade buy menu REBUILT as a HUD element + verified vs user refs
+
+Rebuilt the real cascade buy menu (the `0x10037xxx` cluster RE'd in 69k) as **`CHudTSBuyMenu : CHudBase`**
+(`cl_dll/ts_buymenu.{cpp,h}`), replacing + **deleting** the legacy vgui `vgui_TSBuyMenu.*`. Wired into
+hud.{h,cpp}/CMakeLists; input via HUD_Key_Event (keys) + IN_MouseEvent (mouse); opened by the `buy` cmd +
+the spectate-wait Spectator msg; cursor freed via UpdateCursorState.
+
+**Completed the RE first (reference/MENUS.md "★★ THE REAL BUY MENU"):** the obj field map (obj=HUDobj+0x7c0),
+the full input state machine **FUN_10038840** (levels 0-8: config/category/weapons/detail/accessory/remove/
+save/load/changeteam), the **mouse** path **FUN_10038360** (left=entry/miss=key1/right=key10) + hit-test
+**FUN_10038410** (col=(mx-8)/0x80, row=(my-ScreenH/2)/0x14), accounting (budget 30000, slot cap 81, costs
+FUN_10012ad0/FUN_10038dc0), apply **FUN_10039400** (rst_cfg + batched tkw/tki/tka), and the full weapon
+cost table (price/slot/fullcnt extracted from the 36 init funcs; support/akimbo from the attach RE; hudCol/
+sprite from the weapon-bar). Builders FUN_10037540/100377d0/10037960/10037ba0 + header/preview FUN_10036af0.
+
+**Drawn faithfully + screenshot-verified** vs the user's 5 reference images: real roster (Beretta 92F #5,
+Contender G2 #10 in Handguns; "Special Purpose"; "Go Back"), green "7 Random", blue Cancel, per-entry
+availability colours, the **1-5 loadout-preview columns** (bought items by HUD column in add-order, count-
+left-of-icon — Seal Knife 10 / Combat Knife 5 — Kevlar interleaved, `(Sil ,Las ,Fla ,Sco )` line),
+**`Free Slots = 81 - used`** (remaining, not used), Total = weapon+attach (×fullcnt for full-load). All
+match (Total 6300 = 500+1000+2900+1900; Free Slots 46 = 81-35). **Mouse confirmed working by the user.**
+Save/load configs, Remove-Item, Change-Team, Random, Reset all implemented per the state machine.
+
+**Auto-ammo DONE (runtime-captured).** The menu auto-fills each weapon's caliber to max, adds the cost to
+Total, shows rounds left of the preview icon (Glock 210 / M16 120), emits `tka <cal>_<units>`. The per-caliber
+**max** field reads 0 statically (set only at load), so the caliber table `DAT_1009ffc0` + per-weapon caliber
+(`weapon_info+0x08`) were read from the LIVE hl.exe via `/proc/<pid>/mem` (client.dll base 0x0c070000, table
+@0x0c10ffc0) — full table in reference/MENUS.md "AUTO-AMMO". Verified Glock → 350cr → Total 3400.
+
+**Spectate HUD fixed.** RE-verified TS has NO stock spectator chrome (no top "Map:" bar) — inherited HL/TFC
+`SpectatorPanel` was bleeding through. `SpectatorPanel::Update()` suppresses the top+bottom borders + Map/
+timer/scores during TS spectate; `CHudSpectate::Draw()` draws the dark bottom bar + "Free-Look" + control help
+in the HUD layer (was hidden under the vgui overlay). Screenshot-verified vs the original. Commits 258a447
+(menu) / f17a453 (ammo) / 2bac9c7 (spectate).
+
+## 2026-06-23 (cont. 69k) — DISCOVERY: we RE'd the WRONG (legacy) buy menu; full RE of the REAL one
+
+User supplied reference screenshots of the real cascade buy menu (Config|Categories|Weapons|Detail columns
+all visible, "Special Purpose", "Go Back", attachment costs, Beretta 92F + Contender G2 in Handguns). NONE of
+that matched my menu RE. Root cause: the TS client.dll has TWO buy-menu code paths — the **legacy/dead** one
+I RE'd + built (`0x10010xxx`, vgui::Panel, literal strings, `DAT_1007a950` table) and the **REAL** one the
+game actually draws (`0x10037xxx`). All on-disk client.dll copies (incl. the Steam install) are byte-identical
+(688128b) — same binary, I just RE'd the wrong builder. **User chose: RE + rebuild the real cascade menu.**
+
+**Full RE of the real menu (cont.69k, all in reference/MENUS.md "★ THE REAL BUY MENU"):**
+- It's **HUD-drawn, NOT vgui**: entries via `FUN_1004ff10` → `FUN_10021ce0`(=`TSHud_DrawString`) + the TS HUD
+  font `DAT_100d5908` + `titles.txt` token localization (`FUN_100349a0`). So it reuses our existing HUD draw.
+- **Cascade**: orchestrator `FUN_10036750` (switch on `obj+4` = level: 0 config/1 category/2 weapons/3 detail/
+  4-7 accessory&c/8 off). Columns side-by-side at X=8/0x88/0x108/0x188, rowH 0x14, width 0x80. `FUN_10036af0`
+  draws the top header (Total + Free Slots). Builders: config `FUN_10037540`, category `FUN_100377d0`,
+  weapons `FUN_10037960`, detail `FUN_10037ba0`.
+- **Colours**: available = half hud_r/g/b (dim); over-budget = red (195,45,45); Random/affordable-Buy = green
+  (45,195,45); Cancel/GoBack = blue (100,100,205). "7 Random" is green BY DESIGN (not hover).
+- **Real weapon roster** (the menu's own table `obj+0x2d6c`, indexed row*5+cat, filled by `FUN_10036200` — NOT
+  DAT_1007a950): Handguns [1,9,12,14,2,21,22,28,31,36] (Beretta 92F #5, Contender G2 #10 — matches the image!),
+  SMGs [3,6,7,17,19,23], Rifles [5,13,15,27,18], Shotguns [4,11,20,26,33], Special Purpose [24,25,32,34,35].
+- **Attachment costs** (detail, "%i <name> %i" = key+cost): Silencer 900, Lasersight 800, Flashlight 500,
+  Scope 1800. Availability via `FUN_10038d70` (same 0xE0/0xE4 weapon masks).
+
+**NEXT: rebuild as a CHudBase HUD element** (header + cascade columns via TSHud_DrawString + TS font + the
+roster/tokens/colours above), replacing the vgui CTSBuyMenuPanel. Still to RE: the input/level-advance handler,
+the accessory column (states 4-7), the `FUN_10038180` weapon-preview geometry. The legacy vgui menu + its
+cont.69g-j work is superseded for structure (the styling/colour findings carry over).
+
+## 2026-06-22 (cont. 69i) — per-weapon attachment submenu RE'd + built + verified
+
+User: clicking a weapon should open a per-weapon submenu to buy attachments; RE it. Done.
+
+**RE (client.dll):** the 4th panel `+0x2d90` is built by **`FUN_10010bd0`** (state +0xc=4). It reads the
+weapon (+0x28) + selected-attachment mask (+0x24) and builds: "1 Buy" (action 8), each available
+attachment "Silencer/Lasersight/Flashlight/Scope" (action 10 = toggle bit, shown if `support & ~exclude &
+~selected`), then "6 Buy Akimbo" (action 8) if akimbo OR "6 Full Load" (action 9), then "0 Cancel".
+**The attachment availability is WEAPON DATA** (and the same data drives the HUD attached-icon row, per the
+user): weapon-struct fields `0xE0` support mask / `0xE4` exclude mask (bit0 Sil,1 Las,2 Fla,3 Sco) / `0xC8`
+akimbo type / `0xDC` full-load flag. Extracted the effective mask + akimbo + full for all 36 weapons from
+their init funcs (e.g. MP5SD/AUG/Barrett/Ruger *exclude* their integrated silencer/scope). Full table in
+reference/MENUS.md "Per-weapon attachment submenu — RESOLVED".
+
+**Built (cl_dll/vgui_TSBuyMenu, `PAGE_WEAPON_DETAIL`):** clicking a weapon now opens the attachment submenu
+(built from a new `s_weaponAttach[]` table); attachments toggle client-side (selected ones disappear);
+Buy/Buy Akimbo/Full Load queue the weapon (`tkw <id>_1`, akimbo → variant id); Cancel → back to the list.
+**In-engine verified** by mouse+key nav: detail renders Buy+attachments+Cancel, and MP5SD correctly shows
+Lasersight/Flashlight/Scope (silencer excluded — RE-accurate). Both client arches build clean.
+**DEFERRED (next slice):** the attachment-to-server wire encoding (the tangled `FUN_10012050` apply
+string-builder) + server-side attachment application + the HUD attached-icon row — attachments are selected
+client-side but not yet networked/applied.
+
+## 2026-06-22 (cont. 69h) — buy-menu interaction fixes (close/reopen/cursor/mouse-click)
+
+User-reported bugs on the live menu, all fixed + in-engine verified:
+- **Close:** config items 1/7/0 (Use New Config / Buy Random / Cancel — server TSMenuSelect cases 1/7/10)
+  now hide the CLIENT panel via a new `CTSMenuHandler_SelectClose` (sends the menuselect cmd + `ShowTSBuyMenu(false)`).
+  Before, they used `CMenuHandler_StringCommand(..., true)` → `HideTopMenu()`, which only closes the viewport's
+  command menu, not our panel, so the menu persisted.
+- **Reopen:** the client `buy` command (bound `b`) was forwarding to the server's now-no-op `TSSendBuyMenu`;
+  it now reopens the client vgui panel directly (`gViewPort->ShowTSBuyMenu(true)`), gated on
+  `gHUD.m_Spectate.IsActive()` (spectate-wait only). `cl_dll/ts_commands.cpp`.
+- **Cursor:** `UpdateCursorState()` didn't include the buy menu, so the player stayed locked to aiming and
+  couldn't click. Added `(m_pTSBuyMenu && m_pTSBuyMenu->IsUp())` to the "need cursor" condition.
+- **Mouse-click on entries (the hard one):** clicks reached NOTHING in our panel (proven with a temp
+  InputSignal that flips the box red on mousePressed — it never fired). TWO fixes: (1) the panel was a small
+  child that lost vgui mouse-focus → rebuilt as a **full-screen panel** (0,0,ScreenWidth,ScreenHeight) with
+  the box (a child `m_pBg`, resized per page) + entries at the menu origin inside it — the class/team-menu
+  pattern; (2) it was created 2nd in `Initialize()`, BEHIND the later full-screen SpectatorPanel/ScoreBoard
+  in z-order, which captured the mouse → moved `CreateTSBuyMenu()` to **LAST** so it's the topmost sibling.
+  After the reorder the diagnostic box turned red (clicks reach the panel); removed the diagnostic.
+  **Screenshot-verified:** clicking "2 Buy" → category page; clicking a category → its weapon list; the
+  bound number keys still work too. Both client arches build clean.
+
+## 2026-06-22 (cont. 69g) — per-category weapon lists RE'd + built + in-engine verified
+
+Closed the buy menu's remaining static-RE slice: the per-category weapon lists (Handguns/SMGs/Rifles/
+Shotguns/Other). **All RE in reference/MENUS.md "Per-category weapon lists — RESOLVED".**
+
+**RE (client.dll, via the persistent Ghidra client project):**
+- The 3 "unmapped" action thunks resolved: `FUN_10010890`/`FUN_10010bb0` are just panel-hide stubs; the
+  real builder is **ONE** function **`FUN_100108b0`**, parameterised by category at `clientobj+0x20`,
+  rebuilding the `+0x2d8c` weapon-list panel. It iterates a `[cat][9]` weapon-id table **`DAT_1007a950`**,
+  drops -1/restricted/(M61=id24 in non-team mode, `DAT_100cf97c>1` gate), labels `"%i %s"` green/red by
+  affordability, ends with `0 Cancel` (100,100,205). Dumped the exact table from the PE:
+  Handguns[1,9,12,14,8,21,22,28,31] SMGs[3,6,7,17,19,23] Rifles[5,13,15,27,18] Shotguns[4,11,20,26,33]
+  Other[24,32,34,25,35].
+- **Display names** = weapon struct `+0x44` (client table `DAT_100aa050`, stride `0xf7*4=0x3DC`,
+  `FUN_100071c0`). Decompiled all 36 per-weapon init funcs (dispatcher `FUN_10007de0`) + resolved the
+  `+0x44` source string for each → full id→name map (e.g. 3=Mini-Uzi, 19=MP7-PDW, 32=M60E3, 5=M4A1,
+  27=M16A4, 15=STEYR-AUG, 25=Combat Knife, 35=Seal Knife — several differ from our server pszName).
+- Confirmed via objdump that the entry label is `sprintf("%i %s", onscreenIdx+1, name)` and the entry-add
+  is `FUN_100668f0(panel, idx, label, r,g,b, 0x32, scale, action=8)`; the availability green/Cancel-blue
+  colours match the prior FUN_10011160 RE.
+
+**Built + in-engine verified (cl_dll/vgui_TSBuyMenu.{h,cpp}):** a dynamic `PAGE_WEAPONS` rebuilt by
+`ShowCategory(cat)` from the RE'd table (+ the M61 team-gate via `gViewPort->GetNumberOfTeams()>1`); the 5
+buy-category buttons navigate to it; each weapon click emits the real **`tkw <id>_1`** (queues into the
+server armament; commits on "Use New Config"→spawn `BuyArmament`); `0 Cancel` → back to category.
+Reusable 10-slot page with one persistent per-slot action reading the live `m_weaponId[]` (categories swap
+in place). **Screenshot-verified on tm_avana**: Handguns shows all 9 (Glock-18…Raging Bull) + blue Cancel,
+SMGs shows the 6, single green numbers (the SDK CommandButton draws the bound-key column, so labels are the
+bare name — matching the config/category pages). Fixed: panel `tall` 8→10 rows + per-page `setSize` so the
+bg box hugs the active page (Handguns is 10 rows; was clipping rows 9-10). Both client arches build clean.
+
+**STILL UNFINISHED:** (1) the per-weapon **detail submenu** (`6 Full Load`/`6 Buy Akimbo`, panel `+0x2d90`,
+action 8's real target) + the faithful client-side **loadout queue + apply sequencer** (FUN_10012050 emits
+rst_cfg+the tkw/tki/tka list at once — we bridge per-click); (2) the client **free-slots** red/unavailable
+gate (`+0x430` vs 81); (3) the config-panel EXACT colours/positions (the runtime hbreak capture — still
+needs the user's clean Proton relaunch; procedure in MENUS.md "Runtime capture").
+
+## 2026-06-22 (cont. 69f) — buy-menu vgui reproduction (4 of 5 pages) + runtime-debug findings
+
+Built the client-side buy menu as a faithful vgui reproduction (cl_dll/vgui_TSBuyMenu.{cpp,h} =
+`CTSBuyMenuPanel`, owned by the viewport, shown in spectate-wait), and dug into the live original to crack
+the config-panel exact styling that static RE couldn't reach. **All RE in reference/MENUS.md.**
+
+**Built + committed (compile + render in-engine):**
+- 3 menu PAGES as toggled vgui button sets with client-side page nav (`CTSMenuHandler_Page`): **Config**
+  (8 items → server `menuselect`), **Buy-category** (RE'd FUN_10010440: Handguns/SMGs/Rifles/Shotguns/Other/
+  Player Accessory/Cancel), **Player Accessory** (RE'd @0x10010dd0: Kevlar/Silencer/Lasersight/Flashlight/
+  Scope; Kevlar→`cl_buykevlar`, ties to the kevlar gameplay). `CTSMenuButton` = CommandButton w/ the TFC
+  orange suppressed (RE: plain vgui::Button look). Retired the server gmsgShowMenu stand-in.
+- **Number-key routing** (HUD_Key_Event → `CTSBuyMenuPanel::HandleKey`: fires the visible page's button whose
+  `getBoundKey()` matches; both click AND key now work, matching the original).
+
+**Runtime-debug findings (the original TS runs live under Proton — gold for the remaining unknowns):**
+- gdb attaches to the live game (`hl.exe -game ts`, find/x memory reads work; client.dll base **0x0c070000**,
+  runtime = static − 0x3F90000). **SOFTWARE breakpoints (int3) silently DON'T fire** in this Proton/wow64
+  process; **HARDWARE breakpoints (`hbreak`) DO** (proven: hbreak on HUD_Redraw @0x0c08aa90 fired). Verified
+  FUN_100668f0 @0x0c0d68f0 byte-for-byte.
+- **KEY: the vgui menu is built ONCE at first client init and fully CACHED for the process lifetime** —
+  surviving map loads, reconnects, AND vid_restart/res-change (res-change only `setPos`-repositions the
+  cached buttons; it does NOT recreate them, so the create-breakpoint FUN_100668f0 never re-fires). So the
+  ONLY way to capture the build args (real per-button text+RGB+pos) is: arm the hbreak BEFORE the very first
+  build → fully quit+relaunch the game, connect, then open the buy menu the first time with the hbreak
+  already armed. Procedure is in MENUS.md ("Runtime capture — the exact procedure"). NOT YET EXECUTED (the
+  user hit SDL-init errors relaunching — leftover wineserver/hl state from the attach/detach churn).
+- **Weapon-list builders identified** (MENUS.md action-thunk map): `FUN_10010890` / `FUN_100108b0` /
+  `FUN_10010bb0` (the unmapped action-`0xb` thunk targets) — decompile these for the per-category weapon lists.
+
+**STILL UNFINISHED:** (1) per-category weapon LISTS (build the 5 lists from FUN_10010890/etc. + the weapon
+table category field); (2) the config-panel EXACT colours/positions (the runtime hbreak capture — needs a
+clean relaunch); the static-RE'd values applied so far are dims 128×20, config text white (placeholder),
+category Cancel (100,100,205). Kevlar gameplay + status panel + HEV suppression + powerup/cashala = DONE.
+
+## 2026-06-22 (cont. 69d/e) — buy-menu mechanism FULLY RE'd + reproduction begun (vgui)
+
+User corrected my earlier guesses (top-level kevlar; "it's VGUI"; improvised draw/input) and set the
+goal: RE everything, one at a time, until the buy menu is faithfully reproduced exactly like the original
+(behaviour/interface on the newer SDK, not internal offsets). Did the full RE; reverted the improvised
+cl_dll menu; began the faithful vgui reproduction. **All findings in `reference/MENUS.md`.**
+
+**Mechanism RE (client.dll):**
+- **It IS a custom `vgui::Panel`** (NOT the MOTD `gmsgVGUIMenu`, and NOT the stock `gmsgShowMenu`).
+  `FUN_10010440` builds the buy-category panel via `vgui::Panel::Panel`; each entry is a `vgui::Button`
+  (`FUN_100668f0`→`operator_new(0x14c)`→`FUN_10066b40`). Four panels on the client obj: `+0x2d84` config,
+  `+0x2d88` buy-category, `+0x2d8c`, `+0x2d90`; shown/hidden via vtable+0x24 = setVisible.
+- **Open/close** = `FUN_10011230(visible)`: copies saved→active config (`+0x434`→`+0x2c`), rebuilds
+  (`FUN_10011160` item 1 = Use New/Last/Empty Config by state; `FUN_100129f0` = loadout cost/"Total"),
+  setVisible the panels.
+- **Entry model**: `FUN_10066a90(panel,idx,text,x,y,…,actionId,actionVal)` → text@entry+0x104, geometry
+  via `FUN_10066bb0` (x@0xf4,y@0xf8,…), action@+0x144/+0x148. String table @`0x10092808` (config order:
+  Empty/Use-New/Use-Last Config, 2 Buy, 3 Remove Item, 4 Reset, 5 Save, 6 Load, 7 Buy Random, 0 Cancel;
+  buy-category @0x10092824: 1 Handguns,2 SMGs,3 Rifles,4 Shotguns,5 Other, +6 Player Accessory @0x10092848).
+- **Hierarchy**: Config → 2 Buy → categories → 6 Player Accessory → Kevlar/Lasersight/Silencer
+  (`cl_buykevlar`/`cl_laser`/`cl_lasercolor`; accessory selected-bit 0x10). Select by mouse-click OR bound
+  number key; click-outside ⇒ "Use New Config".
+- **Client buy-validation** `FUN_100124a0`: gates a buy on cash (CashBased off) + the **free-slots** resource
+  `this+0x430` vs cap `0x51`(81) — the "Free Slots" HUD value + `GetSpeedBySlots` speed input.
+- **Apply** `FUN_10012050` ("Use New Config"): validate (empty/cash/slots) → sort loadout → `ServerCmd`:
+  `rst_cfg`, then per-item `tkw %i_%i`/`tka %i_%i`/`tki` (+ `weapon_%i`/`lasclr_%i`). = the existing server
+  `ClientCommand` handlers (`reference/BUY.md`). Remaining tie-off: the exact kevlar item-queue token in the
+  accessory branch.
+
+**Reproduction (vgui, modelled on `cl_dll/vgui_teammenu.cpp`):**
+- **Slice 1 DONE (committed):** `cl_dll/vgui_TSBuyMenu.{h,cpp}` = `CTSBuyMenuPanel` — the CONFIG menu as a
+  `vgui::Panel` of `CommandButton`s with `setBoundKey(number)` + `CMenuHandler_StringCommand` → the server
+  `menuselect` handler. Correct RE-grounded architecture (not the reverted hand-drawn HUD).
+- **Slice 2 + 2c DONE (committed, IN-ENGINE VERIFIED):** owned in `TeamFortressViewport` (`CreateTSBuyMenu`),
+  `ShowTSBuyMenu(show)` + `UpdateCursorState`, triggered from `CHudSpectate::MsgFunc_Spectator` (show in
+  spectate-wait, hide on spawn). Retired the server `gmsgShowMenu` stand-in (`TSSendBuyMenu` no-op). **Verified
+  by screenshot:** the vgui config menu (1 Use New Config … 7 Buy Random) draws during spectate-wait with the
+  panel background; the old server text menu is gone; pressing bound key `1` fires `menuselect 1` + closes the
+  menu. (The buttons reuse the server `TSMenuSelect` for config actions — a faithful bridge for the top level.)
+- **Slice 3 DONE (committed) — buy-category submenu page.** RE'd from `FUN_10010440`: the category page
+  (Handguns/SMGs/Rifles/Shotguns/Other + Player Accessory + `0 Cancel` at colour `(100,100,205)`) built as
+  a toggled button page in `CTSBuyMenuPanel` with a `CTSMenuHandler_Page` action (config↔category nav).
+  Compiles + renders. **KNOWN GAPS:** (a) the viewport routes number keys only to its *current command
+  menu*, not this panel, so key-nav to the category page isn't wired (mouse-click on the vgui buttons is
+  the path; cursor-state/UpdateCursorState needs confirming); (b) the per-category **weapon lists** + the
+  **accessory** page (their builders decompile — next RE slice); (c) the config-panel exact colours/positions.
+- **CONFIG-PANEL WALL — runtime inspect needed but NOT executable here.** The `+0x2d84` config panel is
+  provably not statically RE-able (0 writes/allocs/sizers in 157K-line disasm; Ghidra mis-decompiles the
+  region). The runtime-inspect path (run the ORIGINAL TS `client.dll` under wine+winedbg, break at the menu
+  show, read the live `+0x2d84` panel's child positions/colours) is **blocked: no runnable original TS on
+  this box** (no hl.exe / game install; `~/Projects/the-specialists` is stock-SDK source, not the menu code).
+  Needs a HL+TS Windows install under wine first. Static-RE'd values applied so far: dimensions 128×20, the
+  per-entry RGB colour *system*, the navigation; config items drawn white pending the inspect.
+- **Slice 2d DONE (committed, VERIFIED) — RE-grounded styling.** First styled it wrong (used the SDK
+  CommandButton's TFC orange box skin). RE'd the real draw: TS entries are plain `vgui::Button`
+  (`FUN_10066b40` vtable = all imported vgui::Button methods, no paint override); colours set per-entry by
+  `FUN_10011160` — **available = green (45,195,45), unavailable = red (195,45,45)** (button+0xfc/0x100). The
+  orange was only `CommandButton::paintBackground` (boxes) + `paint()` forcing `Scheme::sc_primary1`.
+  `CTSMenuButton` keeps CommandButton's bound-key/action but overrides `paint()` → TS green/red via
+  `vgui::Button::paint`, `paintBackground()` → empty. Verified: green text on the faint panel, no orange.
+- **NEXT slices (specified, not built):** (3) the **Buy** (`menuselect 2`) → weapon-category submenu + the
+  **Player Accessory** submenu (Kevlar/Lasersight/Silencer via `cl_buykevlar`/`cl_laser`) — these are
+  client-side nav panels (the 2nd/3rd of the 4 RE'd panels); the **per-category weapon lists** come from the
+  category builders (still to decompile). (4) the client-side loadout-build + **apply** sequencer
+  (rst_cfg/tkw/tki/tka, `FUN_10012050`) + the kevlar item-queue token. Mouse-click selection + cursor visibility
+  to confirm in spectate. Build each as a compiled+verified increment.
+
+---
+
+## 2026-06-22 (cont. 69c) — kevlar GAMEPLAY reconstructed + buy-menu layout RE'd (two user corrections)
+
+Continuing from the status-panel work, the user asked to reconstruct the real kevlar gameplay (not the
+item_battery test crutch). RE'd from `ts_i386.so` and implemented; then the user caught two of my errors
+and made me RE properly.
+
+**Kevlar gameplay (committed):**
+- `CBasePlayer::TakeArmor(int)` @0x83da4 — kevlar is a **binary flag** (`m_bHasKevlar`, orig player+0x718
+  bit 0x10) + a 100 `armorvalue` marker; grant/remove + `weapons/items.wav`. SLICE: the orig also
+  costs/refunds 10 **"free slots"** (player+0x548 — the HUD "Free Slots") and recomputes move speed via
+  `GetSpeedBySlots`(@0x66bd4, `speed=210+freeslots*factor`)/`SetPlayerSpeed`(@0x83068, clamp 0..330 +
+  pfnSetClientMaxspeed). That free-slots **encumbrance subsystem** is deferred (every item costs slots;
+  the speed factors are runtime-init .data = 0.0 in file, statically unrecoverable).
+- `CBasePlayer::TakeDamage` @0x7fa94 — armor is a **flat `armor_absorb` % damage REDUCTION, NOT a
+  depleting pool**. Replaced the inherited HL depleting-armor block: if `armorvalue!=0` and dmgtype not in
+  the **0x80040e4 bypass mask** (melee slash/club + fall + blast + radiation + no-armor bit → kevlar stops
+  BULLETS only), `flDamage *= (1 - armor_absorb)`. New `CTSGameRules::m_flArmorAbsorb` (config-driven,
+  default 0.5 — the orig parses `armor_absorb %f` from a server config into gamerules+0x588c; not a cvar).
+- `CBasePlayer::AddItem(int)` @0x8440c — loadout item-grant (kevlar bit 0x10 → TakeArmor(100); grenade
+  0x20 → team M61). `BuyArmament` @0x83f10 now routes item entries (the armament's 3rd field, renamed
+  `gift`→`isItem`) → AddItem, weapons → BuyWeapon. Kevlar resets per-life in Spawn.
+- Verified in xash: HUD shows "Kevlar" after granting via the loadout path (AddItem→TakeArmor→TSArmor→panel).
+  Damage reduction verified by construction (faithful formula). Build clean, no coverage regressions.
+
+**USER CORRECTION #1 — kevlar menu placement was INVENTED.** I'd added a top-level "Buy Kevlar" entry to
+the (stand-in) buy menu by guessing — violating RE-before-code. RE'd the real menu (client.dll .data +
+builders) → `reference/MENUS.md`. **USER CORRECTION #2 — it's NOT VGUI.** The buy menu is a **client-side
+custom-drawn TEXT menu** (builders call `FUN_10066a90(panel,idx,text,x,y,…,scale)` positioned-text draw;
+`FUN_10011160` = config-menu item 1), NOT `gmsgVGUIMenu` (the MOTD-style panel) and NOT the stock
+`gmsgShowMenu`/`CHudMenu`. Hierarchy: **Config menu** (1 Use New/Last/Empty Config · 2 Buy · 3 Remove Item ·
+4 Reset Config · 5 Save Config · 6 Load Config · 7 Buy Random · 0 Cancel) → **2 Buy** → categories (1 Handguns
+· 2 SMGs · 3 Rifles · 4 Shotguns · 5 Other · 6 Player Accessory) → **6 Player Accessory** → **Kevlar** (toggle,
+`cl_buykevlar`, accessory flag bit 0x10) / Lasersight / Silencer. So kevlar = **Buy → Player Accessory →
+Kevlar**, never top-level. Reverted the invented entry + handler; fixed "7 Random"→"7 Buy Random".
+
+**NEXT:** the faithful client buy-menu system (custom text-menu draw via FUN_10066a90 + per-category weapon
+lists + each entry's send-action) is a Track B (cl_dll) reconstruction — the kevlar gameplay is ready, the
+faithful UI to select it is deferred. Plus the free-slots encumbrance + speed penalty subsystem.
+
+---
+
+## 2026-06-22 (cont. 69b) — faithful TS status panel (posture figure + health-heart + Kevlar)
+
+User feedback while verifying `powerup 3`: the "150" I screenshotted was the **stock HEV** health number,
+NOT TS's custom HUD. TS replaces the stock health/battery entirely with a bottom-left **status panel**:
+team name on top, a **posture figure** sprite, the **health number + a heart**, and a binary **"Kevlar"**
+indicator (armor is kevlar-or-not, never a number — our old `CHudTSStatus` drew "Armor: N", wrong). The
+figure reflects stance: standing / crouched / **prone** (prone via CTSStunt — +alt1 dive, double-jump
+roll-to-prone, direction-dependent; e.g. double-jump-backward does NOT prone).
+
+**RE (client.dll):** sprite-load block @0x10049d1f loads `sprites/player/{stand,crouched,prone,health,
+kevlar,kungfu,movement,flag}.spr` (+ directional `divestep{b,c,t}.spr`) into slots stand=0x38 crouched=0x3c
+prone=0x40 health=0x58 kevlar=0x5c. `"%i Kevlar  %i"` draw @0x1003808e. ("Free Slots : %i" @0x100929f8 is
+the weapon/buy bar FUN_10011a60, a separate element — not this panel.)
+
+**Reconstruction (`cl_dll/ts_status.{cpp,h}`):** rewrote VidInit (SPR_Load the 5 panel sprites + rects) and
+Draw — team name (g_PlayerExtraInfo), posture figure (crouch via local player `curstate.usehull==1`; prone
+via a new `g_iTSProne` extern hook, dormant until CTSStunt sets it), health + heart sprite, Kevlar drawn only
+when `m_iArmor>0` (sprite if present, else "Kevlar" text). Missing sprites fall back to text (never crash).
+
+**Verified in xash (screenshots vs the user's reference):** standing figure → 100 + heart; ducking → swaps to
+`crouched.spr`; with real armor (sv_cheats 1; give item_suit; give item_battery) → the **"Kevlar"** label
+appears below the health. Matches the reference. Scope chosen by the user ("Status panel HUD now") = stand/
+crouch live, prone deferred to CTSStunt.
+
+**Gotchas this session:** (1) TSHealth/TSArmor are sent server-side **on change only** — right after spawn the
+panel shows 0 until the player fully enters play (settles to 100 a beat later; not a bug). (2) `give` needs
+`sv_cheats 1`; **TS players lack the HEV suit**, so `item_battery` alone adds no armor — `give item_suit`
+first (and TS's `sk_battery` may be 0). `item_battery` was only a TEST CRUTCH to force armorvalue>0; it is NOT
+how TS grants kevlar.
+
+**Stock-HEV suppression (cont.69b, committed):** user noted the stock HEV health number was still drawing over
+the TS panel. The original `.so` registers **NO stock Health/Battery user messages** (only TSHealth/TSArmor —
+no "Health"/"Battery" strings exist in ts_i386.so), so TS has no stock health HUD. Our inherited server still
+sent gmsgHealth/gmsgBattery → the stock CHudHealth number/cross + CHudBattery drew. Fix: suppressed the stock
+health-number block (`cl_dll/health.cpp`, `if(false && HasSuit())`) and the stock battery draw (`battery.cpp`,
+early `return true`), keeping CHudHealth's directional damage feedback. Verified: bottom-left shows only the
+TS panel. NB CHudHealth::Draw does NOT gate on HUD_ACTIVE (draws on HasSuit), so server-side message-suppression
+alone wouldn't have stopped it — client suppression was required.
+
+**KEVLAR mechanic RE'd (cont.69b — answering the user's Qs; NOT yet implemented server-side):**
+- `CBasePlayer::TakeArmor(int)` @0x83da4: kevlar is a **bought binary flag** (bit 0x10 in player+0x718).
+  Buying (arg>=0, flag clear): require cash(player+0x548)>=10, **deduct 10 cash**, set flag, play
+  `weapons/items.wav`, then armorvalue = min(arg+armorvalue, cap). Selling (arg<0): refund 10 cash, clear flag,
+  armorvalue=0. Also calls `GetSpeedBySlots`+`SetPlayerSpeed` → **kevlar imposes a move-speed penalty**.
+- `CBasePlayer::TakeDamage` @0x7fa94: armor is **flat % damage PROTECTION, not a depleting pool**. If
+  `armorvalue!=0` AND damage-type not in bypass mask 0x80040e4 AND valid player state:
+  `damage -= armor_absorb * damage` (i.e. `damage *= (1 - armor_absorb)`), where `armor_absorb` =
+  g_pGameRules+0x588c (cvar `armor_absorb`, clamped <=1.0). armorvalue is NOT decremented by hits. So the HUD
+  showing kevlar BINARY ("Kevlar"/nothing) is correct. There's also `player/kevlarhit.wav` + "with kevlar"/
+  "no kevlar" strings. **OPEN server work:** reconstruct TakeArmor + the TakeDamage armor_absorb block + the
+  kevlar buy (cl_buykevlar → 10 cash) + the speed penalty (none implemented yet; our TakeDamage still inherits
+  HL's depleting-armor model). Then the panel's kevlar reflects real gameplay.
+
+NEXT for this area: the kevlar server mechanic above, wire kevlar into the buy/loadout, and the prone posture
+once CTSStunt lands.
+
+## 2026-06-22 (cont. 69) — `powerup` + `cashala` cheat commands wired (server cmds 2 missing → 0)
+
+Closed the last two MISSING server console commands in the coverage harness — both turned out to be
+**cheat/debug commands**, RE'd from `ts_i386.so` `ClientCommand` (objdump + GOT 0x165E10 resolution;
+the harness's GOT-relative `lea→strcmp` reproduction enumerated the full dispatch).
+
+**`cashala` (@0x9dd5d):** NOT the buy config-apply that `reference/BUY.md` (cont.68h) hypothesized — it's
+a **cheat**: a float guard `flds 0.0 ; fcomps *g_flWeaponCheat` (the engine `sv_cheats` mirror, GOT
+0x1dbc → `g_flWeaponCheat` @0x18f268) gates `GiveCash(player, 0x7530=30000)`. The `weapon_`/`%i` strstr+
+sscanf right after it (@0x9dd98) is just the numeric `weapon_<N>` select transport (already handled).
+Wired: `cashala` → `if (g_psv_cheats->value) player->GiveCash(30000)` (dlls/client.cpp). BUY.md corrected.
+
+**`powerup <N>` (@0x9dafd):** the debug cheat that grants a powerup directly (the string is the `ts_powerup`
+suffix @0xf76da, distinct from `usepowerup`). Gates: `Cmd_Argc()>1`, `CBasePlayer::IsAlive()` (vt+0xb4, via
+VTABLES.md), a `pev+0x244` observer-state check (approximated by `!m_fInSpectateWait`). A jump table
+(`-0xc8264(%ebx,%eax,4)`, base @0x9dbac) maps N→effect: **1→held SlowPause(8,5s), 5→held DblFire(0x10,5s),
+default→held SlowMo(1,5s); 2→grenade weapon (PickUpWeapon tsweapon 24=M61), 3→health 150+regen, 4→MultiplyClips
+(inf-clip) on the active CTSGun.** Held path guarded by `m_iPowerups==0` (orig 0x724 check) + same-type 5s
+extend. Implemented `TSGrantPowerup(player, mask, dur)` in dlls/ts_powerup.cpp (mirrors PlayerAddPowerUp's
+per-bit dispatch); client.cpp maps N→TS_PWUP_* and calls it.
+
+**Verified:** `scripts/build.sh amd64 [client]` clean (glibc floor 2.14); `coverage.py all` → **server console
+commands 2 missing → 0** (matched 18→20). **In-engine (xash3d-fwgs, listen server, screenshot):** spawned the
+local player out of spectate-wait, `sv_cheats 1`; `cashala` → cash HUD **$30000**; `powerup 3` → health HUD
+**150** — both accepted (no "Unknown command"). The original also fires a `PwUp` held-available HUD message on
+the held path (deferred client work — still MISSING in user-messages). NEXT: the remaining coverage gaps are now
+all client/HUD readers (PwUp/PwUpTime/TSState/TSSlowMo/Objective/ClipInfo/… — 25 MISSING user-messages) + the
+TS events (coldcock/knife/katana/pump/grenade) + the 0%-method classes (CTSStunt/CTSSharedEmitter/CBulletManager).
+
+## 2026-06-22 (cont. 68) — drop-in interface COVERAGE HARNESS + Ghidra tooling fixes
+
+User asked for a coverage test proving our client+server are drop-in-compatible with the original on
+the EXTERNAL contract (commands/cvars/messages/events/entities/exports — NOT internal C++ ABI, which
+is explicitly out of scope per CLAUDE.md), to catch invented commands + HL leftovers + gaps and serve
+as a RE roadmap. Also fix the recurring "Ghidra truncated" problem.
+
+**Ghidra tooling (`scripts/ghidra/`):** `DisableNoReturn.java` (preScript — turns off the
+"Non-Returning Functions - Discovered" analyzer that wrongly marks normal funcs noreturn and truncates
+caller bodies at analysis time); `FixNoReturn.java` (postScript — clears stray noreturn flags except real
+libc ones); `DecompAt.java` now auto-creates a function when Ghidra didn't define one (the cmd-handler
+thunks) + clears noreturn on the target. `scripts/coverage/setup-ghidra.sh` rebuilds persistent projects
+under `recovered/ghidra/{server,client}` (gitignored, survives reboot — /tmp is tmpfs here). NB the huge
+`ClientCommand` still resists Ghidra flow analysis; the harness uses `objdump` for it (reliable).
+
+**Coverage harness (`scripts/coverage/coverage.py`, pure objdump/nm/rz-bin — no Ghidra dep):** extracts
+the interface manifest from original (ts_i386.so + client.dll + the original `ts/default.cfg`/`config.cfg`)
+AND ours (hl.so + client.so + source), diffs → `reference/coverage/{original,ours}.json` + `REPORT.md`.
+Categories DONE (matched/missing/extra): entity classes (FGD vs LINK_ENTITY_TO_CLASS, 140/8/141 — missing =
+ts_emitter/ts_particle/ts_wind/info_player_team1-4/info_player_coop), client cldll exports (40/2/…),
+server console commands (ClientCommand strcmp via GOT-resolved PIC: 8/12/24 — missing firemode/useitems/
+respawn/jointeam/changeteam/motd/powerup/rst_cfg/cashalarm/tkw/tki/tka; extra = our tsbuy*/tsfiremode/
+dropweapon/tscutwire/tsspawnflag stand-ins + HL leftovers give/+break/etc.), client commands (58/1/8),
+client cvars (binary `pfnRegisterVariable` @ds:0x100d5b60, name+default: 93/14/21 + default mismatches),
+user messages (client `pfnHookUserMsg` @ds:0x100d5b70: 51/25/7 — missing = the deferred HUD readers
+PwUpTime/TSState/TSSlowMo/Objective/ClipInfo/…; extra = HL leftovers Flashlight/Weapons), events
+(string-scan: 4/8/19 — missing TS coldcock/knife/katana/pump/grenade; extra = stock-HL crossbow/egon/
+gauss/… we still precache), + a default.cfg input cross-check (2 unanswered: firemode, useitems).
+
+**KEY CORRECTIONS from user ground truth (config files / running the original):**
+- `buy` IS real (default.cfg binds b→buy; the client.dll `buy` cmd string @0x10095b34) — my earlier
+  "no buy command" was wrong (I'd matched only the "1 Buy"/"2 Buy" menu entries). cont.66's buy is faithful.
+- cvars must come from the BINARY's pfnRegisterVariable sites, NOT config.cfg — config.cfg holds only the
+  archived (written-out) subset, so it falsely flagged stock cvars like zoom_sensitivity_ratio as "extra".
+
+**Vtable + relocation tooling (cont.68b — user asked for richer C/C++ recovery via vtables/SDK
+types/demangling):** Discovered the original .so DOES carry `.stab`/`.stabstr` — but ONLY for gcc-2.96's
+own runtime units (libgcc2/tinfo/new/exception), no mod-class type info. BUT: 226 `__vt_<class>` vtable
+symbols + RTTI exist, and the vtable slots (zero in the file) are filled by **R_386_32 relocations against
+named method symbols** — so `readelf -W -r` yields each vtable+offset → exact method. Built
+`scripts/coverage/extract_vtables.py` → `reference/coverage/vtables_original.json` + `VTABLES.md`: the
+COMPLETE slot→method layout for all 226 classes (machine-confirmed `CTSGun` vtable+0x128 = `CTSGun::Deploy()`,
+matching the cont.67 manual find; +0x130 Holster, +0x124 CanDeploy, etc.). Use: resolve any decompiled
+`call [vptr+0xNN]` to the real method, and cross-check our virtual-override set per class. KEY INSIGHT: the
+same **relocation map** resolves ALL .data pointers (cvar_t name/string structs, REG_USER_MSG name pointers,
+function tables) that are zero-in-file — this unlocks the deferred coverage gaps (server cvars + message
+sizes) and is the basis for the next Ghidra type-application pass (apply entvars_t C-struct + demangled
+gcc2 signatures + vtable annotation). NB STABS is NOT useful for mod member offsets — those stay analytic;
+but `entvars_t`/engine structs are pure C (ABI-stable offsets) so they CAN be applied verbatim.
+
+**Scoreboard "WAITING" status for spectators (cont.68l, VERIFIED):** RE'd the original scoreboard
+(client.dll FUN_1005db70) — the "class" column is a switch on the player's playerclass; **case 0xb (11)
+→ "WAITING"** (and default→WAITING when the connected-flag is set). Reconstructed: server sets
+`pev->playerclass = 11` (TS_SCORE_WAITING) while spectate-waiting (TSEnterSpectate, cleared to 0 in
+TSLeaveSpectate) and broadcasts a ScoreInfo (new `CBasePlayer::TSSendScoreInfo`), re-asserted each
+TSSpectateThink tick (a connect-time class-0 ScoreInfo was overwriting the spectate send — the bug behind
+the first blank test); the TS team ScoreInfo (ts_teams.cpp) now sends pev->playerclass too. Client
+(vgui_ScorePanel.cpp COLUMN_CLASS): playerclass 11 → "WAITING" UNCONDITIONALLY (before the TFC team gate
+that was hiding it for teamless spectators). **Verified by screenshot** (tm_avana, spectating): the row
+shows name + "WAITING", matching the user's reference (DM + teamplay). Note: AssignToTeam already sets the
+per-team LOCKED model (ts_teams.cpp:165), so jointeam's model assignment is in place (the cont.68k
+model-lock fidelity item).
+
+**`jointeam` + `changeteam` wired + model↔team RE (cont.68k):** RE'd both handlers (objdump + GOT
+resolution): `changeteam` pushes `gmsgVGUIMenu` → opens the team-select VGUI menu; `jointeam` strtols a
+team number + calls a g_pGameRules team-change. Wired: `changeteam` → send gmsgVGUIMenu(MENU_TEAM=2);
+`jointeam <N>` → `AssignToTeam(player, GetIndexedTeamName(N))` + respawn. Server-command missing 4→2
+(remaining: `powerup`, `cashala` — both need RE). **MODEL↔TEAM finding (user Q):** the model is LOCKED —
+`CHalfLifeMultiplay::ClientUserInfoChanged` (which TS inherits, NOT CHalfLifeTeamplay) resets a changed
+`model` infokey back to the player's stored model (player+0xb48) via pfnSetClientKeyValue + says "Can't
+change team to '%s'"/"HLDM models not allowed" (unless defaultteam off + a vtable IsValid check passes).
+So team rides the model but you can't pick it by model-swap; team changes go through jointeam/changeteam,
+model is force-locked to the assigned team. FIDELITY TODO: confirm our inherited ClientUserInfoChanged
+matches this lock; the per-team locked-model assignment in jointeam is a SLICE (we set pev->team, not yet
+the team model).
+
+**`respawn` + `motd` wired (cont.68j):** RE'd both ClientCommand handlers (objdump). `motd` →
+`SendMOTDToClient(edict)` (the protected CHalfLifeMultiplay method) → exposed via a public
+`CTSGameRules::ResendMOTD` passthrough, called from the `motd` dispatch via `TSGameRules()`.
+`respawn` → the original shows TSHudMessageOne "You have to wait until the next round." (red 195,45,45)
+and StopObserver-respawns when allowed; reconstructed as `CBasePlayer::TSTryRespawn` — leave the
+cont.66 spectate-gate (`TSLeaveSpectate`) if `gpGlobals->time >= m_flSpawnGateTime`, else the wait
+message. Server-command missing 6→4 (remaining: changeteam/jointeam = team-select menu, powerup, cashala
+= buy-apply — all need RE); 0 unanswered binds held.
+
+**`useitems` wired → default.cfg cross-check now 0 unanswered (cont.68i):** `CTSGun::SwitchItems` +
+`TSSwitchItems` + the `useitems` dispatch (default.cfg binds g). RE: the original SwitchItems body
+(FUN_0009155c) is register-garbled in the decompile, but the ClientCommand gate (weapon id 16) + the
+akimbo flag check + re-deploy identify it as the akimbo dual-wield swap. SLICE: our akimbo is a single
+combined slot, so SwitchItems toggles the active barrel side (m_akimboSide) + re-deploys, gated on
+iFireType AKIMBO/AKIMBO_ONLY; the full left/right items[] split is not reconstructed. Server-command
+missing 7→6 (remaining: changeteam/jointeam/motd/powerup/respawn/cashala — team-menu/respawn/buy-apply);
+**every default.cfg-bound command is now answered by our client or server (0 unanswered).**
+
+**Buy/loadout-config command protocol RE'd + stand-ins renamed (cont.68h, `reference/BUY.md`):**
+Decompiled the buy block of ClientCommand. Real commands + arg formats: `rst_cfg`→ResetArmament;
+`tkw` arg `"%i_%i"`(type_count)→AddItemToArmament; `tki` arg `"%i"`→AddItemToArmament single; `tka`
+arg `"%i_%i"`(caliber_count)→AddAmmoToArmament; `cutwire_<n>`/`drop_<n>` prefix commands;
+`cashala…`→GiveCash + apply a config string parsing `weapon_%i` + `lasclr_%i`(laser colour). The
+faithful buy flow = QUEUE (tkw/tki/tka) → APPLY (cashala config), not a direct per-weapon buy.
+Renamed our stand-ins: tsarm→`tkw`, tsarmammo→`tka`, tsresetarmament→`rst_cfg`, tscutwire→`cutwire_<n>`
+(prefix), added `tki`; kept tsbuy/tsbuyammo/tsbuyarmament as dev stand-ins (no 1:1 original — the
+apply is cashala; honest "extra" in coverage). Server-command coverage: missing 11→7, extra 22→18.
+Remaining missing = changeteam/jointeam/motd/powerup/respawn/useitems/cashala (team-menu/respawn +
+the cashala apply-name, need RE). Buy UI (the client emitting these) still deferred.
+
+**Acted on the coverage findings — 3 fidelity fixes (cont.68g):**
+- **Health wire size 2→1** (the cont.68f finding): `REG_USER_MSG("Health",1)` + both `WRITE_SHORT`→`WRITE_BYTE`
+  (player.cpp) + client `READ_SHORT`→`READ_BYTE` (health.cpp). Our build was self-consistent at 2 but the
+  original uses 1 (health is byte-capped); now matches → drop-in safe. Harness confirms 0 size mismatches.
+- **CTSGroundAmmo magsN under-give**: ours gave `magcount` rounds; the original gives `magcount * roundsPerMag`.
+  Recovered the per-caliber rounds-per-mag table (s_ammo_info+0x10, runtime-built in compile_ammo_info — read
+  via parsing its assignments, NOT the file which is zero; all 13 calibers cross-validated against +0x20 vs
+  our kAmmoMax): `[30,12,8,30,10,30,20,5,15,17,5,20,5]`. Added `TSRoundsPerMag()` + multiply in WaitTouch.
+- **ts_fog**: already correct — its original Spawn is `UTIL_Remove(this)`, so near/far/color are dead in both
+  (no fix; added to SELF_REMOVING_ENTITIES so the harness stops flagging it).
+- **Keyvalue-harness false positives fixed**: it now understands all 3 handling styles — literal FStrEq,
+  `strncmp` PREFIX loops (mags/message/objptarget), and `keys[N]={...}` arrays (objmsg*) — + skips
+  self-removing entities. Entity keyvalue coverage now **0 unhandled** (was 4 false-flagged entities).
+
+**User-message WIRE SIZES added + a real bug caught (cont.68f):** `coverage.py server_usermsg_sizes_orig`
+parses `LinkUserMessages__Fv` via objdump (`push $size; lea name(%ebx); call *0x12c` = pfnRegUserMsg slot)
+→ 64 message sizes (Health=1, Damage=12, SayText=-1, RoundTime=2, WeaponInfo=6, WStatus=3, …); diffed vs our
+REG_USER_MSG literal sizes. **Caught a real wire mismatch: `Health` is size 1 in the original, 2 in ours**
+(a silent protocol corrupter — drop-in breaker; fix = match the original). Also fixed `fn_range` to skip
+same-address symbol aliases (gcc2_compiled. shares LinkUserMessages' addr → was an empty range).
+
+**Keyvalue-gap RE (cont.68f, acting on the harness findings):** `CTSGroundAmmo::KeyValue` (@0x92718) parses
+`mags<N>` (strncmp "mags" + strtol suffix) → `m_mags[N] = magcount * get_ammo_info(N).roundsPerMag(+0x10)`,
+plus `wduration`→respawn(+0xa8); our CTSGroundAmmo ignores the map mags = a real TODO. **`CTSFog::Spawn` is
+just `UTIL_Remove(this)`** — the original deletes ts_fog on spawn, so near/far/color are intentionally
+ignored: the harness's ts_fog keyvalue "gap" is a NON-issue (match by removing it).
+
+**Tooling assessment — #1/#2/#4 (diminishing returns, NOT built):** native in-decompiler vtable typing is
+superseded in practice by `vtcall.py` (resolves dispatch offsets→methods) for a heavy Ghidra-API lift;
+dedicated RTTI/`__ti` hierarchy is redundant with the vtable data (inherited slots already name their base
+class) and the gcc2 __ti layout resists clean automated parsing; spawnflag coverage can list the FGD
+bit→label inventory but can't be verified as handled (we use raw bits/SF_ names, not FGD labels) so it's not
+a real coverage check. Higher-value next work = act on findings (Health size, ts_groundammo mags, sk_*/
+stock-HL event/message leftover cleanup).
+
+**Ghidra type recovery extended (cont.68e) — entvars_t fields + MSVC return types:**
+`ApplyTypes.java` now also (a) parses engine/progdefs.h to populate `entvars_t` with REAL fields
+(extracts just the plain `typedef struct{}` blocks + a 4-type prelude, since the modern progdefs.h
+has C++ `constexpr` the Ghidra C-parser rejects) → 668-byte entvars_t, so a typed `entvars_s *` param
+resolves static `pev->origin`-style accesses; and (b) merges RETURN types from the MSVC exports
+(signatures-mp.txt + signatures-client.txt: `public: RET __thiscall Class::Method(...)`), which the
+gcc2 demangle omits → 691 return types parsed, 164 applied (complete return+param prototypes on the
+exported subset). Verified: entvars_t 668B, params typed entvars_s*. (Funcs using the runtime
+gEntvarsDescription offset-table still show computed offsets — expected.) setup-ghidra.sh auto-applies.
+
+**Coverage dimensions added (cont.68d) — entity keyvalues + method completeness:**
+- **Entity keyvalue coverage** (`coverage.py`): per implemented FGD entity, which declared map keys NO
+  `KeyValue()` handles (engine-auto keys = entvars_t fields + stock/compile-tool keys excluded). Surfaces 4
+  real behavioral gaps: `ts_fog` ignores far/near, `ts_groundammo` ignores mags1..11, `ts_objective_manager`
+  ignores messagea-d/objptargeta-h, `ts_objective_ptr` ignores objmsg*. = internal-state replication TODOs.
+- **Method completeness** (`scripts/coverage/reconstruction.py` → `RECONSTRUCTION_COVERAGE.md`): per TS class,
+  methods in the original (signatures-gcc2) vs implemented in our hl.so (nm|c++filt). **60 classes, 140/368
+  methods (38%)**, least-complete first: CTSStunt 0/25, CTSSharedEmitter 0/11, CBulletManager 0/7, the
+  particle/emitter/wind + per-category weapon-factory classes 0% (some intentional — CTSGun subsumes the leaf
+  CTSPistolWeapon/etc.). A completeness ROADMAP (not an ABI match). Also renamed tsfiremode→firemode,
+  dropweapon→drop (real names, default.cfg-confirmed); committed cont.67 weapon-switch + all tooling.
+
+**Reconstruction tooling — the 3 improvements built + validated (cont.68c):**
+- **#1 typed decompiles — `scripts/ghidra/ApplyTypes.java`** (postScript): applies the recovered gcc2
+  signatures (`reference/signatures-gcc2.map`) as REAL Ghidra prototypes → 2570 functions typed; the `this`
+  pointer + call args are typed (`Deploy__6CTSGun(CTSGun *this)` not `int param_1`). Conservative type model
+  (named empty structs for classes — NO faked member layout, since gcc2 offsets differ from our Itanium SDK
+  and there's no mod debug info; members still show as offsets). Auto-run by `setup-ghidra.sh` after import.
+- **#2 virtual-dispatch resolution — `scripts/coverage/vtcall.py`**: `vtcall.py CTSGun 0x128` → `CTSGun::Deploy()`;
+  `--file <decomp.c> CTSGun` annotates every `+0xNN))(` virtual call with its method (66 in CTSGun.c) — turns
+  blind dispatch into named calls (SendWeaponAnim/Deploy/Precache/…). Uses vtables_original.json.
+- **#3 server cvars — closed the coverage gap** (`coverage.py server_cvars_orig`): scans ts_i386.so .data for
+  `cvar_t {name,default,...}` structs (the .rodata string ptrs are R_386_RELATIVE addends stored in-file) →
+  41 matched / 5 missing (deadback/deadsitting/sv_alltalk/voice_serverdebug/weaponstay) / 258 EXTRA, of which
+  **252 are stock-HL `sk_*` skill cvars** (monster/weapon damage tables) = a big HL-leftover cleanup target
+  (TS has no HL monsters). Report collapses the sk_* family for readability. Default-mismatch detection too.
+Remaining harness gap: user-message wire SIZES (pfnRegUserMsg site scan); cvar/engine-call USAGE tracing.
+
+**Engine constants recovered:** ts_i386.so `_GLOBAL_OFFSET_TABLE_`=0x165e10 (PIC string-ref base);
+client.dll cl_enginefuncs: pfnAddCommand=ds:0x100d5b6c, pfnRegisterVariable=ds:0x100d5b60,
+pfnHookUserMsg=ds:0x100d5b70.
+
+**Honest completeness:** DONE = the full by-NAME swap contract above. GAPS = server-side cvars + message
+SIZES (ride GOT-relocated ptrs / cvar_t structs in the PIE — need R_386_RELATIVE reloc parsing); cvar/
+engine-call USAGE tracing (semantic xref); internal C++ ABI/methods (OUT of scope — engine never sees it).
+Spot-check Qs sent to the user (running the original): does `weapon_<N>` switch in console (validates the
+cont.67 transport); what do tkw/tki/tka/rst_cfg/cashalarm do; do give/impulse 101 work (HL-leftover check);
+is `buy` usable while alive; is cl_bob default really 4. NOT committed yet.
+
+## 2026-06-22 (cont. 67) — weapon-switch fidelity: drop invented tsnext/prevweapon → faithful weapon_<N> + lastinv (RE-grounded, in-engine verified)
+
+User picked "weapon-switch fidelity" off the cont.66 known-unfaithful list. RE-FIRST (per
+`check-re-on-feedback`) before any code; findings written to `reference/WEAPON_SELECT.md`.
+
+**RE (client.dll cursor + ts_i386.so commit):**
+- Imported client.dll + ts_i386.so into persistent Ghidra projects (`/tmp/ghidra-client`,
+  `/tmp/ghidra-server`); DecompAt/DecompRefs by address. `scripts/ghidra/DecompAt.java` only
+  resolves addresses Ghidra defined as functions — small thunks (the cmd handlers) needed
+  raw `objdump -d -M intel` instead.
+- **No `tsnextweapon`/`tsprevweapon`** anywhere (client cmd table nor server ClientCommand)
+  — confirmed invented. Client cmds: invnext/invprev/slot1..10/+attack/+attack2/
+  cancelselect/menuselect. Real **server** ClientCommand set (PIC base ebx=0x165E10, exact
+  strcmp list): say, say_team, fov, use, respawn, powerup, cashalarm?, rst_cfg?, tkw, tki,
+  tka, cutwire_*, drop_*, **drop**, **usepowerup**, **firemode**, **useitems**, **lastinv**,
+  changeteam, jointeam, motd, fullupdate.
+- Client cursor `FUN_1004f500(this,dir)` (invnext dir=1 @0x1004fce0 / invprev dir=0
+  @0x1004fd40, both rate-limited): seeds (row 0x740, col 0x744) from the active weapon, steps
+  the 17×5 grid skipping empties/akimbo-pairs + wraps; then if cvar **`hud_fastswitch`!=0**
+  COMMITs by formatting **`"weapon_%i"`** (@0x10095db8) and sending it to the server (else
+  the bar stays open at 0x73c for a +attack/slotN commit). → **commit transport =
+  `weapon_<N>` console cmd** (numeric tsweapon_t).
+- Server `CTSGun::SelectWeapon(type)` @0x80fb8 = HolsterWeapon(@0x85698) + set m_active
+  (only if owned+valid); the **caller** (ClientCommand block @0xae433) does `if changed
+  gun->Deploy()` (vtable+0x128). So switch = holster(old)→set→deploy(new). `lastinv` block
+  saves player+0xa1c=current & re-selects the prior type. `CBasePlayer::SelectItem(char*)`
+  is the stock by-CLASSNAME search — NOT the numeric path.
+
+**Implemented + verified:**
+- Server (`dlls/ts_gun.cpp`/`ts_weapons.h`/`client.cpp`): removed TSCycleWeapon/Prev +
+  tsnext/prevweapon dispatch; `SelectSlot` now holster→deploy (cancels reload, records
+  `m_lastActive`); `weapon_<N>` dispatch (strncmp+digit guard) → `TSSelectWeaponType` →
+  FindSlot→SelectSlot; `lastinv` → `TSLastInv`.
+- Client (`cl_dll/ts_weaponbar.{h,cpp}`/`ammo.cpp`): `CHudTSWeaponBar::CycleType(fNext)`
+  walks owned weapons in the bar's column-major display order; invnext/invprev emit
+  `ServerCmd("weapon_%d\n")`.
+- Build amd64 all = clean (glibc 2.14); `nm|c++filt` shows TSSelectWeaponType/TSLastInv;
+  no `tsnext/prevweapon` strings in either .so; `weapon_%d` in client.so. **In xash3d-fwgs
+  (tm_avana), spawned in + mouse-wheel: rifle→akimbo pistols (invnext ×2), →single pistol
+  (invprev), no crash, no "Unknown command".** Screenshots `/tmp/ws_{spawn,next,prev}.png`.
+
+**Buy-menu availability (the cont.66 open Q):** CORRECTED by user ground truth — **`buy` IS
+real** (original `ts/default.cfg` binds `b`→`buy`, also firemode/useitems/drop/usepowerup;
+the `buy` string is in client.dll @0x10095b34 — I'd wrongly matched only the "1 Buy"/"2 Buy"
+menu entries). cont.66's `buy` reopen is faithful. The menu is server-driven (gmsgShowMenu);
+the exact dead/alive availability gate is a TODO for the coverage harness + a targeted RE of
+the `buy` handler.
+
+**Deferred (noted):** hud_fastswitch=0 open-bar + on-bar select highlight + literal (row,col)
+grid cursor (we commit immediately + walk the compact owned-set). Separate fronts surfaced:
+rename `tsfiremode`→`firemode`, `dropweapon`→`drop`; `usepowerup` IS real (HANDOFF's
+"invented" note is wrong); buy cmds = tkw/tki/tka/rst_cfg/cashalarm.
+
+## 2026-06-22 (cont. 66) — TS join/spectate/buy-config/weapon-select flow (IN PROGRESS; some unfaithful stand-ins to fix)
+
+User asked for the faithful join flow: a joining player does NOT spawn straight into play — they enter
+free-look spectate, see a countdown → "Press fire to play", and pick a loadout from a buy/config menu first.
+Plan: `~/.claude/plans/replicated-discovering-aho.md`. Used 3 Explore agents to map it (server spectator,
+client buy-menu/countdown, buy backend + wiring patterns).
+
+**DONE + verified (commits 0d4f2d0, 60a8c44, d1b0974, a1a8149):**
+- **Spectate-gate (server):** `CBasePlayer::TSEnterSpectate` (StartObserver/OBS_ROAMING + respawn gate
+  `respawntime` clamp 3..30 + ResetArmament), called at the end of `Spawn` when `m_fInSpectateWait`;
+  `ClientPutInServer` sets the flag pre-Spawn; `CTSGameRules::PlayerSpawn` skips the loadout while waiting.
+  `TSSpectateThink` (PreThink) drives the countdown; **+attack while !configChosen = select item 1,
+  +attack after = `TSLeaveSpectate` → respawn into play**. Registered gmsg `Spectator`(2)/`VGUIMenu`(1).
+- **Free-look HUD (client `cl_dll/ts_spectate.{cpp,h}`):** centre countdown → "Press fire to play" + the
+  free-look help line; reads `Spectator`; `__MsgFunc_Spectator` repointed from the TFC viewport to it.
+- **Buy/config menu — FAITHFUL mechanism:** the compact **`gmsgShowMenu` + `menuselect`** list (NOT a VGUI
+  panel — I first wrongly built a VGUI MOTD-style panel; user corrected). RE'd from `client.dll FUN_10011160`
+  (item 1 = Use New/Last/Empty Config; available items green). `TSSendBuyMenu`/`TSMenuSelect`/`TSCloseMenu`
+  (`dlls/player.cpp`); client `CHudMenu` draws it, added `\g` green code (`cl_dll/menu.cpp`); resent each
+  spectate tick (the first send can beat the client HUD). `buy` command reopens it (spectate-only). Verified:
+  compact green-coded list matches the user's reference; click → "Using new config." + closes.
+- **Weapon-bar layout (client `cl_dll/ts_weaponbar.cpp`):** RE'd from `FUN_1004e030` — 5 columns
+  `x=col*0x80-0x78`, header panel + slot number (alpha 100 active/50 idle), weapons stacked 0x30/row with
+  sprite icons (red when clip empty), active weapon name+ammo to the right. Verified vs reference.
+
+**KNOWN-UNFAITHFUL / OPEN — the user set a hard REQUIREMENT (memory `check-re-on-feedback`): RE before coding,
+and verify every console command exists in the original (it caught me inventing commands):**
+- **Weapon switching uses INVENTED `tsnextweapon`/`tsprevweapon`** (client invnext/invprev forward to them,
+  `cl_dll/ammo.cpp`). NOT in the original. Faithful: invnext/invprev move a **select cursor** (the `+0x7c0`
+  select-active object in `FUN_1004d3f0`), **+attack commits**; switching plays **holster→deploy** (SelectSlot
+  currently Deploys instantly).
+- **Timed-powerup activation on invented `usepowerup`** — should be **double-tap `+use`(IN_USE) in PreThink**.
+- **`tsbuy`/`tsarm`/`tsbuyarmament`/`tsresetarmament`/`tsbuyrandom`** are internal stand-ins; verify vs the
+  original (BuyWeapon/BuyArmament are real functions; command names need RE).
+- **Not built:** bar faint-when-idle fade; active **clip/maxclip "8/8"**; **powerup-timer HUD** (Slow Motion/
+  Double Fire Rate green text above weapons, from `PwUpTime`); **kung-fu/super-jump icons** (centre-bottom);
+  buy-menu **cursor + click-on-entries**; the **"2 Buy" weapon-category submenu**; menu **bg box**.
+- **Open Q for user:** buy menu the whole dead-spectate, or only the join/respawn press-fire wait?
+
+**Verification loop note (gotcha):** reading the Serena `ledger` memory returns ONE long single-line JSON
+(`{result: "..."}`) that overflows the read limit — extract with `jq -r '.result' <savedfile> | head -c N`
+or read the saved tool-result file in chunks; don't try to Read it whole.
+
+## 2026-06-22 (cont. 65) — CTSAnimation: reconstruct 3rd-person body/gait (fix the always-idle player), VERIFIED
+
+Fixed the **biggest open item** (the player 3rd-person model was always idle — no walk/run/fire gait).
+
+**Root cause (decomp-grounded):** the original `CBasePlayer::SetAnimation(PLAYER_ANIM)` is a **no-op stub**
+(`@0xd8f50`, 21 bytes) — TS drives ALL body animation through `CTSAnimation::Animate` (`@0x6abd0`, called
+from `PostThink` with activity 1=move / 6=idle, from `Duck`=5/`Jump`=4, and the weapon fire/reload/death
+paths). Our build still ran the STOCK SDK SetAnimation, which looks up `"ref_aim_<ext>"`/`ACT_*` sequences
+the TS `player.mdl` does NOT define (it ships `idle_/aim_/shoot_<grip>`, `run2`/`walk2`/`crawl`, `crouch_*`,
+`standard_jump`, `die_*`, …; dumped all 171 seq names from `~/Containers/hlds/mods/ts/models/player.mdl`).
+So every lookup returned -1 → sequence 0 (`empty`) → permanent idle.
+
+**Reconstruction (`dlls/ts_animation.{h,cpp}`, `CTSAnimation m_TSAnim` embedded on CBasePlayer):** by
+INTENT from the ~6.7KB Animate state machine (behaviour + the model/client contract is the target, not the
+gcc2 byte layout — the decompile is hostile: pointer-to-member string-build loops + stack artifacts).
+- `pev->sequence` (torso) = `shoot_`/`relo_`/`draw_`/`aim_`/`idle_` + grip, with `crouch_`/`duck_` variants;
+  `standard_jump`/`jump_<dir>_<grip>`; `goduck`; `die_spin`; `grenade`. Grip = `m_szAnimExtention`
+  (onehanded/twohanded/akimbo), already set by `CTSGun::Deploy` (the original's player+0x2d6).
+- `pev->gaitsequence` (legs) = `crawl` (ducking+moving) / `run2` (>135 u/s) / `walk2` / 0. The client
+  `StudioProcessGait` plays gaitsequence blended under the torso sequence (verified it reads the
+  server-networked value, doesn't pick walk/run itself).
+- aim-hold timer (`m_flAimTimer`=2.0 on fire/reload) protects the just-set shoot/relo torso pose from being
+  overwritten by the per-frame idle path — mirrors the original's `param_1[3]` gate (`@0x6cf..`).
+
+**Wiring:** `CBasePlayer::SetAnimation` rewritten to route the PLAYER_ANIM call sites →
+`m_TSAnim.Animate` (JUMP/SUPERJUMP→4, DIE→7, ATTACK1→0, WALK→1, IDLE→6); `CTSGun` drives
+reload(`relo_`,0x33)/deploy(`draw_`,0x34)/grenade(`grenade`,0x35) directly; `PreThink` decays the timers;
+`Spawn` calls `Init()`. (Fire already routed via the existing `SetAnimation(PLAYER_ATTACK1)` call sites.)
+
+**Deferred (CTSStunt-gated — CTSStunt is NOT ported, so these activity codes never fire):** dives
+(0x28-0x2b,0x2e-0x30), cartwheels/walljump (0x31,0x32,0x37,0x38), morfy-jump (0x39), rolls/bullet-dance
+(0x36), close-combat blends. The directional-aim 9-way movement blend (BlendAnimationsByDir) + death-by-
+direction variants are also a refinement (we use die_spin). The `CTSAnimation::Init` string tables for the
+deferred stunt names are intentionally not reproduced.
+
+**Verified (xash3d-fwgs thirdperson, this box's GPU, `+thirdperson` on tm_avana; used xdotool to drive
+keydown w / mousedown 1 / keydown ctrl + `import` screenshots):** armed standing idle pose (was broken),
+walk/run **leg gait cycling** across frames, distinct **crouch** stance. No crash, no sequence-out-of-range
+in the dev log. Server + client both build clean (amd64), `nm|c++filt` shows the 6 CTSAnimation methods.
+Committed `2c44837`.
+
+**NEXT:** fire/aim torso pose is hard to confirm from the behind-camera (works structurally; a front view or
+rcbot would confirm); directional-aim strafe blend (BlendAnimationsByDir) for proper 8-way movement;
+death-direction variants; then `CTSStunt` (which unlocks the deferred Animate branches) + full pmove
+time-dilation. See `reference/ENGINE_INTERFACE.md` "notable gaps".
+
+## 2026-06-22 (cont. 64) — playtest fixes: fire-anim regression, 3rd-person camera, coldcock sound
+
+User playtested (cont.61–63 build) and reported issues; fixed three:
+- **Viewmodel fire animation REGRESSION (I caused it in cont.56).** Moving the anim to the predicted
+  event's `EV_WeaponAnimation` broke it — that doesn't stick because CTSGun isn't client-predicted.
+  Restored the server-driven `SendWeaponAnim(iFireAnim)` + `EF_MUZZLEFLASH` in `CTSGun::StandardFire`
+  (the working cont.49 path); the event now only does fire sound + brass shell + viewmodel muzzleflash
+  (removed EV_WeaponAnimation from EV_TSFire).
+- **3rd-person camera = side profile, should be behind.** `cam_idealyaw` default was 90 (= camAngles[YAW]
+  = 90 + viewYaw → side). Changed to **0** (directly behind, looking the player's direction). VERIFIED by
+  screenshot: player now seen from behind facing into the room.
+- **+alt2 coldcock played a KNIFE sound (wrong).** Swapped the knife_hitbody/miss sounds for
+  `player/kungfuhit.wav` (a melee-bash impact) on hit, silent on miss.
+
+**Still open from the playtest (NOT yet fixed):**
+- **Player 3rd-person model is always idle** (no walk/run/fire gait) — this is the `CTSAnimation` gait
+  subsystem (PostThink, NOT ported; cont.60). Big remaining piece (movement/anim, client-entangled).
+- **+alt1 does nothing** — expected; it's an xash built-in + the silencer is UNMAPPED (VERIFICATION §B).
+- damagemult untested (no enemy; needs rcbot in xash).
+
+## 2026-06-22 (cont. 63c) — wire `initial_cash` cvar → starting cash (cash HUD lights up), VERIFIED
+
+`CTSGameRules::PlayerSpawn` (`dlls/ts_teams.cpp`) now gives `initial_cash` (cvar) via `GiveCash` once per
+fresh life (`if m_iCash == 0`), so the player starts with cash. **Verified WITH a screenshot:** launched
+`+initial_cash 5000` → the bottom-left cash HUD shows "$5000" — confirming the whole chain (cvar →
+GiveCash → m_iCash → TSCash message → CHudTSStatus reader). Ties the cvar wiring to a visible HUD element.
+`cashforwin`/`cashforlose` (round-end award via TeamWin) still TODO. API_SURFACE §6c: initial_cash ★wired.
+
+## 2026-06-22 (cont. 63b) — wire `damagemult` cvar → weapon damage scale
+
+`damagemult` cvar (default 0.0 = off → 1x; >0 scales) now multiplies all TS weapon damage via a
+`TSDamageMult()` helper (`dlls/ts_gun.cpp`, `CVAR_GET_FLOAT`) applied at all 5 damage points: StandardFire/
+ShotgunFire (FireBulletsPlayer), AkimboFire, MeleeAttack, ColdCock, GrenadeThrow. Builds clean; the
+cvar-read pattern is proven (roundtime/slowmatch). Combat scaling itself needs a playtest shot to confirm
+on-screen (combat-gated). API_SURFACE §6c: damagemult ★wired.
+
+## 2026-06-22 (cont. 63) — pfnGetGameDescription → "The Specialists (mode)"
+
+`CTSGameRules::GetGameDescription` (new override, `dlls/ts_teams.cpp`) returns the mod name shown in the
+server browser, per mode (recovered .so strings): "The Specialists (Teamplay)" if IsTeamMode, "(The One)"
+if mp_theonemode, "(LMS)" if lastmanstanding, else "(DM)". Was returning the SDK "Half-Life". Verified:
+strings present in hl.so. ENGINE_INTERFACE.md: pfnGetGameDescription ✅. Remaining interface gaps now:
+full pmove time-dilation (gravity/jumps/anim), PlayerPostThink (CTSAnimation/CTSStunt), HUD_PostRunCmd
+(client weapon prediction), TS save/restore field data.
+
+## 2026-06-22 (cont. 62) — VISIBLE slow-motion movement (the marquee TS effect), VERIFIED
+
+Wired the biggest tracked interface gap: slow-motion is now VISIBLE. `CBasePlayer::PreThink` scales the
+speed cap by the applied slow factor — `pev->maxspeed = 320 * m_flSlowMotionGo` when slowed (`m_flSlowMotionGo`
+in (0,1)), restoring to the engine default (0) on exit (tracked by new `m_bSlowMoveApplied`). pev->maxspeed
+flows to pmove via clientdata (client.cpp:1944), so a slowed player physically moves slower. This makes the
+whole complete-but-invisible server slow state (GoSlow/InSlow/GlobalSlowMotion2/slowmatch/CTSSlowMotionPoint/
+powerup slow) actually do something on screen. **Verified WITHOUT input:** `+slowmatch 0.5` → log probe
+"[TS] slow-move: maxspeed 160 (scale 0.50)" (320→160); probe removed, rebuilt clean.
+- SLICE: full pmove time-dilation (gravity/jump arcs/animation rate) needs the slow value threaded into
+  client-predicted pm_shared — the complete effect. This is the server-side speed portion.
+- ENGINE_INTERFACE.md: pfnPM_Move gap ❌→🟡.
+
+Also this session (cont.61): thirdperson MP-gate fix; ENGINE_INTERFACE.md (full callback tracking).
+
+## 2026-06-22 (cont. 61) — fix thirdperson (MP gate) + track the FULL engine↔mod interface (the goal)
+
+- **`thirdperson` FIXED + VERIFIED.** The stock HL client's `CAM_ToThirdPerson` (`cl_dll/in_camera.cpp`)
+  hard-returns `if (GetMaxClients() > 1)` ("no thirdperson in multiplayer") — TS runs as MP, so the
+  command did nothing (the user's report). TS permits third-person (it's a real feature); removed the gate.
+  Verified by launching `+thirdperson` → screenshot shows the player model from behind.
+- **FULL interface tracking — `reference/ENGINE_INTERFACE.md` (new), per the mission goal "all engine calls
+  and callbacks."** Enumerated + status-tracked every engine↔mod entry point: (1) engine→server
+  `DLL_FUNCTIONS` (~46 callbacks, from cbase.cpp) + NEW_DLL_FUNCTIONS; (2) engine→client cldll exports
+  (~45, from cdll_int.cpp); (3) the by-name protocol (→ API_SURFACE/HUD_MESSAGES); (4) mod→engine calls.
+  Each marked ✅faithful / 🟡partial / ⬜stock-inherited / ❌missing. **The real remaining interface GAPS
+  (highlighted there):** `pfnPM_Move`+`HUD_PlayerMove` = the VISIBLE slow-motion time-dilation (scale pmove
+  frametime by the slow field — nothing reads the complete server slow state in movement; biggest gap),
+  `pfnPlayerPostThink` = CTSAnimation+CTSStunt, `HUD_PostRunCmd` = client CTSGun prediction,
+  `pfnGetGameDescription` = "The Specialists", TS save/restore field data.
+
+## 2026-06-22 (cont. 60) — status tracking: think behaviour, cvar/cmd impl status, playtest checklist + silencer
+
+Answered the user's tracking questions with durable docs.
+- **Think behaviour — PARTIAL (not all ported).** Original `CBasePlayer::PostThink` calls
+  `CTSAnimation::Animate` (gait/anim subsystem, 14 funcs), `CTSStunt::GoRoll` (stunts, 25 funcs) and
+  `CheckPowerups` — **none ported**. We have PreThink→`UpdatePowerUpState`, `UpdateClientData`(+TS HUD),
+  and `CTSGameRules::Think` (deads/round/powerups/slowmatch). The CTSAnimation + CTSStunt subsystems are
+  the remaining per-tick gap (movement/animation, client-entangled). Recorded in `reference/VERIFICATION.md` §C.
+- **cvar/cmd implementation status — now TRACKED** in `reference/API_SURFACE.md` §6c: a R(egistered)/read/
+  ★wired table for every TS cvar + command. Wired so far: roundtime, slowmatch, hud_r/g/b, +alt2/coldcock,
+  + the server console gameplay cmds. The rest are R-only; `damagemult` flagged as the next wiring candidate.
+- **Playtest checklist + silencer tracking — `reference/VERIFICATION.md` (new).** §A: 9-item playtest
+  checklist with exact steps (HUD ×3, round clock, predicted fire, fire-sound pitch, coldcock, slowmatch,
+  no-spam) for the user to confirm. §B: the silencer/`+alt1` assembly findings + what to implement + how to
+  verify (it's UNMAPPED; the `-sil.wav` files exist; the install state rides the WeaponInfo flags byte +
+  player+0x798 mask). §C: the think-status above.
+
+No code this entry — documentation/assessment.
+
+## 2026-06-22 (cont. 59) — wire the `slowmatch` cvar into gameplay (global slow-motion match), VERIFIED
+
+Wired a registered cvar into actual behaviour (the user asked for a verifiable cvar→gameplay hookup).
+`CTSGameRules::Think` now reads `slowmatch` (cont.54 cvar, default 1.0): a value in (0,1) runs the WHOLE
+match in global slow-motion at that scale via the already-tested `GlobalSlowMotion2(sm,0)` (self-throttled,
+re-applied each Think); returning to >=1.0 restores once (`GlobalSlowMotion2(0,0)`), tracked by new
+`m_bSlowMatchActive`. **Verified WITHOUT in-game input:** launched xash with `+slowmatch 0.5` → log printed
+the (temporary) probe "[TS] SlowMatch ON: scale 0.50", confirming the cvar is read + applied; probe removed,
+rebuilt clean. (The slow path itself — GlobalSlowMotion2 → GoSlow/InSlow — was runtime-verified earlier,
+cont.15/33.) This is the launch-arg verification pattern for cvar→gameplay wiring.
+
+**Checkpoint still stands:** the remaining input-gated gameplay (the +alt1 silencer is also UNMAPPED, cont.58;
+stunts; buy menu; true client prediction) needs a USER PLAYTEST to verify. Other mapped+verifiable cvar
+wirings available next: `damagemult` (damage scale), `cashforwin`/`cashforlose`/`initial_cash` (the economy).
+
+---
+
+## 2026-06-22 (cont. 58) — finding: SecondaryAttack = IN_ATTACK2 dispatch; +alt1 silencer NOT mapped; PLAYTEST checkpoint
+
+Scoped the `+alt1` silencer/scope toggle (next gameplay item). Findings, no code (avoided speculation):
+- `CTSGun::SecondaryAttack @0x717a8` is the **IN_ATTACK2 fire-type dispatcher**, NOT the silencer: branches
+  on the active weapon's fire-type (s_weapon_info+0x348) — no active item → `CCombatAttack` (unarmed combat),
+  type 2 → `GrenadeFire`, type 3 → (knife branch), etc. A real recoverable dispatch, but input-gated gameplay.
+- `CTSGun::AlternateAttack @0x81ba8` = ColdCock (done cont.57); `Zoom`/`Unzoom` are forwarders.
+- The **`+alt1` silencer/scope toggle handler is not cleanly located** — no server-side "silenc"/attachment
+  name strings to anchor on (only client.dll has "/HUD/Silencer"); the install logic is diffuse. Recovering
+  it would be speculative RE, and like all the remaining gameplay it's INPUT-GATED (can't self-verify here).
+
+**Checkpoint reached:** the remaining work is all input-gated gameplay (silencer, stunts, buy menu, true
+client prediction) that can't be self-verified without a playtest. Recommended a USER PLAYTEST of the
+cont.51–57 build (HUD 3 regions, fire event, coldcock, cvars/round timer) to surface real issues before
+stacking more unverifiable features. Did not implement +alt1 (unmapped + unverifiable).
+
+---
+
+## 2026-06-22 (cont. 57) — gameplay: +alt2 coldcock (pistol-whip)
+
+First command-gameplay behaviour wired. `CTSGun::AlternateAttack` (@0x81ba8) + `CTSGun::ColdCock`
+(@0x71dd0, calls CBasePlayer::ColdCockAttack@0x86610 in the .so) reconstructed in `dlls/ts_gun.cpp`:
+AlternateAttack coldcocks when the held weapon has a round loaded (the .so gates on active clip > 0);
+ColdCock is a short hull-trace melee bash (40u forward, 25 club damage, knife hit/miss sounds, 0.5s
+cadence, 3rd-person attack anim). Free fn `TSAlternateAttack(player)` (declared ts_weapons.h) finds the
+held gun + fires it. Server `ClientCommand` "+alt2" → `TSAlternateAttack` (`dlls/client.cpp`); the client
+already forwards +alt2 (cont.56). Precached the two knife sounds in `CTSGun::Precache`.
+- **Verified:** builds, loads + runs on tm_avana, sounds precache, no crash/unknown-command for +alt2.
+  **NOT functionally confirmed** (can't press +alt2 without interactive input) — needs a user playtest.
+  SLICE: the faithful coldcock viewmodel anim rides events/coldcock.sc (not reconstructed); we drive the
+  3rd-person anim + sound server-side.
+- **Leftover config warnings (minor, not chased):** the TS config sets engine `s_*` sound cvars (xash
+  names them differently), `sv_language`/`sv_voicecodec` (engine), and `weaponrestriction`/`weaponstay`
+  (the latter is the mp_-prefix-vs-bare-name mismatch — the base SDK registers the struct but maybe under
+  a different name string). Low value.
+
+---
+
+## 2026-06-22 (cont. 56) — Phase 5 (partial): faithful events/fire.sc → EV_TSFire (sound/flash/anim/shell)
+
+Moved weapon firing onto the original's event path. **Server** (`dlls/ts_gun.cpp`): `CTSGun` precaches
+`m_usFire = PRECACHE_EVENT(1,"events/fire.sc")`; `StandardFire` now `PLAYBACK_EVENT_FULL(0, player, m_usFire,
+…, fparam1/2=spread, iparam1=m_weaponType, bparam1=(clip==0))` instead of the server `EMIT_SOUND` +
+`SendWeaponAnim` slice (cont.49) — bullets still fire server-side. **Client** (`cl_dll/ev_ts.cpp`, hooked in
+`hl_events.cpp` Game_HookEvents): `EV_TSFire` reads weapontype → viewmodel muzzleflash + "shoot" anim
+(local player) + brass shell eject + the per-weapon fire sound (client sound/anim tables mirroring
+`ts_weapons.cpp`). Adds the viewmodel muzzleflash + shell the server-driven slice lacked.
+- **Event is SERVER-triggered, not yet client-PREDICTED** — true prediction needs CTSGun client-side
+  weapon prediction (HUD_PostRunCmd), a separate subsystem. This is the event-layer prerequisite for it.
+- **Commands fix:** xash3d-fwgs provides `+alt1`/`+break`/`+commandmenu`/`ForceCloseCommandMenu`/`special`
+  as ENGINE BUILT-INS (re-registering errors "already defined"). Trimmed `ts_commands.cpp` to register only
+  the ones xash lacks (`+alt2`/`-alt2`, `buy`, `togglebrowser`); the built-ins forward to the server, which
+  accepts them (cont.54). Clean run now: no "already defined", no crashes.
+- **Verified:** builds (server+client), loads + runs on tm_avana, event hooked + precached, no errors.
+  **NOT visually confirmed firing** (can't trigger a shot without interactive input) — the muzzleflash/shell/
+  sound/anim need a user playtest shot; the path mirrors the working stock EV_FireGlock so confidence is high.
+  AkimboFire still uses its own EMIT_SOUND (not moved to the event yet).
+
+---
+
+## 2026-06-22 (cont. 55) — Phase 2 (low-pitch fire sound): investigated, NO defect found in our code
+
+Chased the cont.50 "regular fire sound is low-pitched/slow-mo" report. The fire-sound path is verifiably
+CORRECT end-to-end — found no defect:
+- Server emits ONE sound: `EMIT_SOUND(ENT, CHAN_WEAPON, wi->pszFireSound, VOL_NORM, ATTN_NORM)` =
+  `EMIT_SOUND_DYN(..., 0, PITCH_NORM)` (ts_gun.cpp StandardFire/AkimboFire). Normal pitch.
+- No duplicate source: the client's `EMIT_SOUND_DYN` is a no-op stub (cl_dll/hl/hl_baseentity.cpp:33),
+  and the client only hooks the stock HL events (ev_hldm.cpp), none of which fire for `weapon_tsgun`
+  (we don't PLAYBACK_EVENT stock events for it).
+- No global time-scale: our slow-motion only sets the per-player member `m_flSlowMotionGo`; nothing
+  touches host_framerate/maxspeed/etc., and sound pitch isn't pitched server-side by slow-mo at all.
+- Files fine: TS fire wavs are 8-bit mono 22050 Hz — byte-IDENTICAL in format to the valve sounds xash
+  plays at correct pitch. xash audio runs @44100 and resamples 22050 fine (valve sounds prove it).
+- Engine note (benign): xash warns `CL_LoadProgs: failed to get address of HUD_GetSoundInterface` — the
+  stock HL client doesn't export that xash3d-fwgs sound hook; absence → default sound (normal pitch).
+**Conclusion:** no reproducible low-pitch in the current build (much changed since cont.50). Most likely
+already-fixed, or was heard during an actual slow-motion state (correct behaviour). Did NOT edit the
+correct sound code. If it recurs: capture which weapon, slow-mo or not, all-sounds-vs-fire-only; the
+faithful long-term path is the predicted `events/fire.sc`→EV_TSFire (Phase 5), which plays at PITCH_NORM
+too (won't change pitch). Cannot self-verify audio (no way to trigger a shot + capture without input).
+
+---
+
+## 2026-06-22 (cont. 54) — Phase 3: TS client cvars + commands registered (kills "Unknown command" spam)
+
+Wired the TS-specific client cvars + console commands from the API surface scan, fixing the playtest
+"Unknown command" spam + non-erroring keybinds.
+- **Cvars (`cl_dll/ts_hud.cpp` TSHud_RegisterCvars):** registered ~25 TS client cvars with the EXACT
+  defaults recovered from client.dll (API_SURFACE.md) — hud_r/g/b/color, cl_realhud/motionblur/gore/laser/
+  lasercolor/solidcross/usepowerup/buykevlar/showequipment/shadow/thirdtransparency/camtype/attackswitch/
+  thirdpersonswitch/wavedetail/fx/slowfade/vsmoothing, hud_classautokill/takesshots, nohud, r_paintball.
+  (Registration only — most aren't *read* yet; stock/engine cvars left to the base client.)
+- **Commands (`cl_dll/ts_commands.cpp`, `TSRegisterCommands` from InitInput):** `+alt1`/`-alt1`/`+alt2`/
+  `-alt2`/`+break`/`-break`/`special`/`buy` forward to the server via ServerCmd; `+commandmenu`/`-commandmenu`/
+  `ForceCloseCommandMenu`/`togglebrowser` are client UI stubs. Server (`dlls/client.cpp` ClientCommand) now
+  accepts the forwarded TS inputs silently so they don't print "Unknown command" server-side.
+- **Verified:** launched on tm_avana, NO "Unknown command" for any TS cvar/command in the log; game runs.
+- **TODO (gameplay behind the commands, follow-on):** alt-fire/silencer-scope toggle (+alt1), coldcock
+  (+alt2 = AlternateAttack@0x81ba8, found cont.53), stunts (special), the buy menu (cl_dll VGUI).
+
+**Server cvar scan (task #5) DONE:** extracted the TS server cvars from the .so cvar_t structs (parsed
+R_386_RELATIVE relocs → name/default pairs). Registered the ~25 TS-specific ones our server lacked in
+`dlls/ts_cvars.cpp` (`TSRegisterCvars` from GameDLLInit) with exact defaults: mp_teammodels, initial_cash/
+cashforwin/cashforlose, **roundtime 150 (WIRED → StartRoundTimer, replacing the hardcoded 120 — clock now
+2:30)**, respawntime, damagemult, slowmatch, nopowerup, botlearn, realbullet, usecash, ammocount, bottalk,
+mp_theonemode/theone/theothers, lastmanstanding, spectacularness, respawnnumber, customweapons, banfortk,
+dmgreport, botarmor, deadstomach. Verified: no "Unknown command" for any TS cvar; round clock reads 150s.
+TODO: server *console-command* + event enumeration (the standard mp_* alias names too); behaviour wiring
+for the registered cvars (only roundtime read so far).
+
+---
+
+## 2026-06-22 (cont. 53) — DEEP RE of the HUD draw chain from client.dll (user mandate) → reference/HUD_DRAWCHAIN.md
+
+User chose byte-exact RE over visual-match (visual can't verify alpha-blended fidelity). Traced the FULL
+per-frame HUD render path from `client.dll` assembly using a new `scripts/ghidra/DecompAt.java` (decompile
+a function by address; null-safe + whitespace-split args + dedup). Findings in **reference/HUD_DRAWCHAIN.md**:
+- `HUD_Redraw`(export 0x1001aa90) → `CHud::Redraw` `FUN_10021aa0`(gHUD=0x100cf920) walks the element list,
+  calls **`elem->vtable[+0xc](time)` = Draw**; `m_iFlags` at elem+0x10.
+- The TS HUD is ONE singleton **`0x100d43cc`** (Init `0x10049b80` hooks all msgs; fields: health+0x20,
+  armor+0x21, state+0x22, cash+0x24, flags+0x10, active-slot+0x744, weapon-id+0x7b8). Its **vtable =
+  `0x1007cae4`**, Draw = vtable[+0xc] = **`0x1004d3f0`**.
+- Draw `0x1004d3f0` dispatches: `FUN_1004e6f0` (static crosshair, 2×2 FillRGBA dots, cl_lasercolor),
+  `FUN_1004e030` (**top weapon-select bar**: slot panels x=slot*0x80-0x78, y=8, w=0x80, h=0x14 + name text
+  + SPR icon), `FUN_1004d700`/`FUN_1004d7e0` (**status+ammo box**), `FUN_1004e9f0` (dynamic spread
+  crosshair), `FUN_1004d550` (bomb wires).
+- **`FUN_1004d7e0` = the status/ammo box (the Five-seveN/MP5K panel):** each line = `FillRGBA(x=DAT_1018a67c,
+  y=DAT_1018a700, w=0x80=128px, h≈lineheight, hud_r,g,b, **alpha 0x0f**)` + text `FUN_10021ce0(x+2,y,…)`.
+  **Labels drawn at HALF brightness (color/2 = 75/87/127), values at full.** Numbers via `FUN_1004c290`.
+- Engine fn globals: FillRGBA=`0x100d5b54`, SPR_Set=`0x100d5b38`, SPR_Draw=`0x100d5b44`.
+
+**Applied (recovered, not guessed):** `TSHud_Panel` now fills with the HUD colour at **alpha 0x0f** (a
+faint tint, matching FUN_1004d7e0) instead of the earlier guessed opaque dark navy. Built clean.
+
+**THREE HUD regions (cont.53):** (1) **ammo box** ✅ exact geometry, verified; (2) **health BAR** ✅
+`FUN_1004d5f0` — a fill bar (not text), 0x80 wide, fill ∝ health (red when low), bg alpha 0x1e, drawn
+stacked above the ammo box; `TSHud_HealthBar` + shared `g_iTSHealth`, verified on-screen; (3) **weapon-
+select bar** (top) ✅ DONE — server `CTSGun::SendWeaponStatus` sends `WStatus(3)={type,owned,clip}` per
+arsenal weapon on change; client `CHudTSWeaponBar` (`cl_dll/ts_weaponbar.{cpp,h}`) draws held weapons in
+5 category columns at the recovered `FUN_1004e030` geometry (x=col*0x80-0x78, y=8, 0x80×0x14), active
+highlighted. Column per weapon = its `s_weapon_info+0x84` byte, EXTRACTED from the .so Write_<weapon>
+funcs (the bar's grid TRANSPOSES the WStatus handler's (slot*0xb+pos): draw col = +0x84 [1=melee/grenade
+2=pistols 3=SMGs 4=rifles/shotguns/heavy 5=akimbo], row = +0x85). Verified: "Beretta" shows in column 2.
+**ALL THREE HUD REGIONS now covered** (weapon-bar + ammo box + health bar), each from recovered geometry.
+**Text/font RESOLVED:** `FUN_10021ce0` draws per-char via `pfnDrawCharacter` advancing by SCREENINFO
+charWidths, clipped to maxX — i.e. the ENGINE HUD font (no custom bitmap font; the "bitmapfonts" worry was
+wrong). Ported faithfully as `TSHud_DrawString` (clip to panel width) + used by the ammo box & weapon bar.
+**Finding (for the attachment system / +alt work):** `CTSGun::AlternateAttack @0x81ba8` = **ColdCock**
+(pistol-whip melee bash) when the active clip > 0 — NOT the silencer toggle. So the attachment system
+(silencer/laser support + toggle, which would light up the ammo box's Silencer/Lasersight rows +
+`item_installed.spr` dots) lives elsewhere in the weapon code and is a distinct gameplay feature, not HUD
+polish. The HUD attachment rows need the WeaponInfo flags byte (currently sent as 0) driven by that system.
+
+**Weapon ICONS DONE:** the bar now draws each held weapon's `sprites/weapons/<name>.spr` (SPR_Load in
+VidInit + SPR_DrawAdditive centred in the slot; name table from the client.dll string list, all 38 files
+present in the mod). Verified: the Beretta pistol icon renders in column 2. Active weapon full-colour,
+others dimmed. Remaining polish (low priority): the active-highlight timing + attachment dots
+(`item_installed.spr`) which need the WeaponInfo flags byte. All in HUD_DRAWCHAIN.md.
+
+**Anchor constants RESOLVED + APPLIED (cont.53, from the top of FUN_1004d7e0):** raw pixels off actual
+screen size — **x = ScreenWidth−0x88(136), box w=0x80(128), lineH=0x14(20), lines stack UP from
+y=ScreenHeight−8, strip = FillRGBA(...,alpha 0x0f)**, descriptive lines (caliber/mode) at half brightness,
+name+ammo at full. Rewrote `cl_dll/ts_ammo.cpp` to this exact geometry → VERIFIED on-screen: "Beretta 92F /
+9 x 19mm / Semi Auto / 15 / 45" right-anchored, dim labels, faint strips — matches reference Image #4/#6.
+
+**STILL TODO to pixel-match (next, from HUD_DRAWCHAIN.md):** the TS **bitmap font** (`FUN_10021ce0`,
+`bitmapfonts` cvar — we use DrawConsoleString); the **left status block** (health/armor/free-slots — trace
+`FUN_1004d700`?) + **weapon-select bar** (`FUN_1004e030`, WStatus reader) with the same recovered approach;
+the WeaponInfo **flags byte** server-side so the Silencer/Lasersight attachment rows draw. New Ghidra
+tooling: `DecompAt.java`, `DecompRefs.java`.
+
+---
+
+## 2026-06-22 (cont. 52) — ammo HUD (WeaponInfo) + the COMPLETE client API surface scan + steel-blue panels
+
+**Ammo HUD (`WeaponInfo`) reconstructed + VISUALLY VERIFIED.** Decoded the `s_weapon_status` slot struct
+(0x38 bytes) from `CTSGun::TakeWeapon @0x80a04`: slot+0x4=clip, +0x2=fireMode, +0x8=caliber, +0x10=flags.
+So `WeaponInfo`(6) = BYTE weaponType, BYTE clip, SHORT reserve, BYTE fireMode, BYTE flags — and
+CTSGun NEVER sends `ClipInfo` (clip rides in WeaponInfo). Server: `CTSGun::UpdateClientData` override
+(`dlls/ts_gun.cpp`) sends it on-change (type/clip/reserve[caliber]/mode; flags=0 SLICE). Client:
+`CHudTSAmmo` (`cl_dll/ts_ammo.{cpp,h}`) draws the original's stacked box — name / caliber / fire-mode /
+"clip / reserve". Screenshot on tm_avana: "Beretta 92F / 9 x 19mm / Semi Auto / 14 / 45". User sent
+reference screenshots confirming the exact layout (Five-seveN/MP5K panels) + a left-HUD (team/health-
+heart/free-slots) + the weapon-select bar.
+
+**HUD colour + style recovered from client.dll (the user pushed for disasm of the draw calls):**
+- `pfnFillRGBA` is engine-table offset 0x2c; the HUD panels are FillRGBA with VARIABLE (cvar-driven)
+  colours, called via gEngfuncs @ `0x100d5c70`.
+- **The HUD text colour = the `hud_r`/`hud_g`/`hud_b` cvars, RegisterVariable defaults 150/175/255**
+  (steel blue) — `hud_color "150,175,255"`. Recovered by parsing the RegisterVariable call args.
+- New `cl_dll/ts_hud.{cpp,h}`: registers hud_r/g/b/hud_color/cl_realhud (faithful defaults), `TSHud_Color`
+  reads them, `TSHud_Panel` draws the dark translucent backing. ts_status + ts_ammo now use steel-blue
+  text + panels. **NOTE (user-flagged): panel geometry/alpha are still APPROXIMATE — not yet traced from
+  the original Draw chain (task #4).**
+
+**FULL CLIENT API SURFACE SCAN → `reference/API_SURFACE.md` (new, tracked).** The user's directive: the
+complete engine↔client contract = the behavioural surface; scan it all + ledger completeness. Recovered
+ALL of it from client.dll by finding the engine func-ptr-global call sites (`ff 15 <ptr>`):
+- `0x100d5b60` RegisterVariable → **104 cvars** (TS-specific ~30: hud_r/g/b ✅, cl_realhud/motionblur/gore/
+  laser/solidcross/usepowerup/thirdperson/…; rest stock).
+- `0x100d5b6c` AddCommand → **92 commands** (TS-specific: `+alt1`/`+alt2`/`+break`/`special`/`buy`/
+  `togglebrowser`/`+commandmenu`/`ForceCloseCommandMenu`; rest stock +/- input). NONE implemented client-side.
+- `0x100d5b70` HookUserMsg → **74 messages read** (the definitive read-side list; ✅5 readers, 🟡1, ❌~24 TS).
+- `0x100d5c3c` PrecacheEvent → **11 events** (closecombat/coldcock/draw/empty/fire/firelinked/grenade/
+  katana/knife/pump/reload) — all ❌ client EV_ callbacks (server playback ✅).
+
+**Honest state correction (the user's point):** the SERVER was reconstructed surface-first via the ENTITY
+surface (FGD + .so factories); the CLIENT API surface was being done reactively (per playtest bug), not
+enumerated first. API_SURFACE.md now fixes that for the client. Still partial: server cvar/command/event
+scan (task #5), and the EXACT HUD draw chain (geometry/alpha/font) from assembly (task #4 — the current
+panels are approximations, which is why the look isn't pixel-matching the original yet).
+
+**Built + ran** (amd64 server+client) in xash3d-fwgs; ammo box verified on-screen. cont.51's health/armor
+panels also restyled. No message-size warnings.
+
+---
+
+## 2026-06-22 (cont. 51) — Phase 4: TS custom HUD begins (health/armor/cash) + the user-message wire contract recovered + 3 protocol-name bugs fixed
+
+**Phase 4 (the TS custom HUD) started.** First recovered the FULL TS user-message contract from the
+`.so`, then landed the first faithful HUD elements (health/armor/cash) end-to-end (server send + client
+draw), VISUALLY VERIFIED in xash3d-fwgs.
+
+**The message contract — recovered + documented in `reference/HUD_MESSAGES.md` (new, tracked).** Parsed
+`LinkUserMessages @0xc7db0` (every REG_USER_MSG name + fixed size) and decompiled the two senders —
+`CBasePlayer::UpdateClientData @0x81d00` and `CTSGun::UpdateClientData @0x758c8` — for the exact wire
+packing. The TS block (names ON THE WIRE, sizes, format): `TSHealth`(1)=BYTE round(health)≥0,
+`TSArmor`(1)=BYTE round(armor), `TSState`(1)=BYTE state[0x498], `TSCash`(2)=SHORT cash, `TSSpace`(1)=BYTE,
+`WeaponInfo`(6)=BYTE wtype,BYTE,SHORT reserve,BYTE,BYTE (from the per-arsenal-slot struct @gun+0xcc, NOT
+our s_weapon_info subset), `WStatus`(3)=per-slot BYTE×3, `ActItems`(2)=MSG_ALL BYTE entindex+BYTE,
+`TSPAward`(2)=MSG_ALL, `PwUp`(3), `PwUpTime`(1), `RoundTime`(2)=BYTE secs+BYTE flag(0 start/2 timeout),
+`TSMBlur`(2), `TSSlowMo`(2)=COORD(slowamt*100), `TSBTime`(1), `Wires`(3), `TSFrags`(-1), `TSPSys`(-1)…
+Engine write-fn GOT offsets: `190fe0`=Byte `190fe8`=Short `190fec`=Long `190ff4`=Coord.
+
+**3 inherited PROTOCOL-NAME/SIZE bugs fixed (swap-compat — the cont.50 mandate):**
+- `RoundTime`: was registered -1 + written as TWO SHORTS (server) / read as two shorts (client). Original
+  is **fixed size 2 = two BYTES** (seconds, flag). Fixed `dlls/ts_gamerules.cpp` (StartRoundTimer +
+  SendRoundTime → WRITE_BYTE×2, REG size 2) AND `cl_dll/roundtime.cpp` (READ_BYTE×2). Clock still
+  counts down correctly (verified "1:42"); 120s round max fits a byte.
+- `TSMotionBlur` → **`TSMBlur`** (size 2) — wrong NAME + size (`dlls/ts_player.cpp`).
+- `TSPowerUpTime` → **`PwUpTime`** (size 1) — wrong NAME (`dlls/ts_player.cpp`).
+
+**Health/armor/cash HUD — DONE + VISUALLY VERIFIED:**
+- Server (`dlls/ts_player.cpp` `CBasePlayer::TSUpdateClientData()`, called at the end of
+  `CBasePlayer::UpdateClientData`): lazily registers + sends `TSHealth`(byte)/`TSArmor`(byte)/`TSCash`
+  (short) on-change, cached in new `player.h` members (`m_iClientTSHealth/Armor/Cash`, reset on HUD init
+  so they resend after respawn). Byte-faithful to the original (round+clamp health, round armor). The
+  original sends THESE instead of stock Health/Battery — TS has a fully custom HUD.
+- Client (`cl_dll/ts_status.{cpp,h}`, new — `CHudTSStatus`): hooks TSHealth/TSArmor/TSCash, draws
+  "Health: N" / "Armor: N" / "$N" as text bottom-left (DrawHudString, gold / red when health≤25). Wired
+  into hud.h/hud.cpp/CMakeLists like CHudRoundTime. Built both halves (amd64), nm/strings confirm the
+  factories + hook names; ran in xash3d-fwgs on tm_avana → screenshot shows **"Health: 100" / "Armor: 0"**
+  bottom-left + the round clock. No "Bad message" size warnings in the log.
+
+**STILL TO DO in Phase 4 (next):**
+- **AMMO HUD (the big one) — `WeaponInfo`/`WStatus` need the per-arsenal-slot struct (@gun+0xcc, 0x70/slot)
+  decoded** to pin the 6 WeaponInfo bytes byte-faithfully (weapontype + reserve are known; the clip + the
+  3 middle bytes come from the slot struct, which our modern `CTSGun` stores differently). CTSGun sends
+  WeaponInfo/WStatus, NEVER ClipInfo — so the current clip rides inside WeaponInfo's slot snapshot. This
+  is a consult-worthy ambiguity (raised to the user/prev-agent): exact slot-struct field meanings.
+- `TSState` (player state byte @0x498 — semantics TBD), `TSSlowMo` (COORD slowamt — the visible
+  time-dilation HUD), `TSBTime`, `PwUp`/motion-blur HUD readers, `TSFrags`/scoreboard.
+- The leftover **stock HUD strip** still bleeds through at the very bottom (faint "00 |", player icon, "0")
+  — the stock sprite HUD half-loading; should be suppressed once the TS HUD is complete.
+
+**Verify loop used:** `scripts/build.sh amd64` + `amd64 client` → `setup-xash-mod.sh` → launched xash
+(killed the 26-min idle prior instance first) → `import -window root` → cropped the 2560x1080+1280+208
+window (`xwininfo` for geometry). Left a fresh instance running for the user.
+
+---
+
+## 2026-06-22 (cont. 50) — playtest reconstruction (reload, akimbo anims, HUD res) + the COMPAT TARGET clarified + docs sync
+
+**Compatibility target clarified by the user (now in CLAUDE.md + HANDOFF):** the goal is INTERFACE/
+protocol compatibility so each half is a **drop-in swap** for the original — our client ↔ the original
+server (or vice-versa) behaves identically. Byte-faithful: the engine C interface + the client↔server
+protocol (user-message **names + wire formats**, **event** names/params, **command** names, **cvar**
+names). NOT a target: the internal C++ ABI / member offsets / gcc-2.x quirks (we build on the newer
+Itanium-ABI halflife-updated SDK). This is exactly why `TSRoundTime`→`RoundTime` mattered, and it makes
+protocol-level decomp fidelity mandatory for every message/event/command/cvar going forward.
+
+**Done this session (all decomp-grounded, committed):**
+- **Akimbo fire anims (e5ca177)** — `AkimboFire` SendWeaponAnim's the matching barrel's shoot sequence
+  (right=`iFireAnim`, left=`iFireAnimL`, parsed from the `v_*_akimbo.mdl`). User-confirmed: anims + flare
+  side switch correctly.
+- **HUD sprite-resolution fallback (e5ca177, `cl_dll/hud.cpp`)** — TS's `hud.txt` is 320/640-only; the
+  modern client picks `m_iRes`=1280 at 2560-wide → matches nothing → no sprite HUD. `CHud::VidInit` now
+  falls back to the largest res present. NECESSARY BUT NOT SUFFICIENT: TS has a *fully custom* client HUD,
+  so there is still NO HUD at all (no health/ammo/crosshair) — that's Phase 4 below.
+- **Reload (241ba55, `dlls/ts_gun.cpp` + weapon table)** — root cause of "fire til empty, no reload": the
+  stock `CBasePlayerWeapon::ItemPostFrame` gates reload on the player's standard `m_rgAmmo`, which TS never
+  populates (ammo is in `CTSGun::m_ammoReserve` per caliber). Added `CTSGun::ItemPostFrame` that drives the
+  TS ammo system: reload on `+reload` or auto when the clip runs dry, refill from the per-caliber reserve
+  after `TS_RELOAD_TIME`, plays the per-weapon `reload` viewmodel sequence (`iReloadAnim`, parsed from each
+  `v_*.mdl`). Built clean, runs in xash without crash (awaiting user playtest confirmation).
+
+**User mandate: reconstruct the player/weapon/input/HUD systems WHOLESALE from the decomp** (stop the
+symptom-patching). The 5-phase plan is tracked as tasks #6–#10 and in HANDOFF "Track B playtest
+reconstruction": (1) weapon firing/reload/ammo/fire-rate [reload done], (2) CBasePlayer thinks/state + the
+low-pitch fire sound (suspect slow-motion time-scale), (3) all TS commands/cvars/+toggles server+client,
+(4) the TS client HUD (why there's no HUD), (5) client view bob/sway + predicted fire events.
+
+**Open playtest reports (unfixed):** no HUD at all (Phase 4), regular fire sound is LOW-PITCHED ("slow-mo",
+Phase 2 — confirmed pitch not the file: `beretta/fire.wav` is normal 22kHz), akimbo fire SOUND missing
+(`g_weaponInfo[8].pszFireSound` is null — akimbo should fall back to the single's sound; quick Phase-1
+fix), viewmodel bob "snap" (user confirmed `cl_bob 0` stops it; Phase 5), fire-rate feels ungated (Phase 1).
+
+**Docs synced (this entry):** CLAUDE.md (compat-target rewrite + a Running/testing section: xash run loop,
+`pgrep -x xash3d` not `pkill -f`, GPU-present), HANDOFF.md (compat target + the 5-phase plan + cont.47–50
+status), RECONSTRUCTION.md (status rows). CLAUDE.md stays local-only (gitignored); the rest committed.
+
+---
+
+## 2026-06-21 (cont. 49) — TRACK B playtest pass: loadout, mouselook, fire animations (decomp-driven)
+
+The user playtested the running client (cont.48) and reported HL leftovers. Fixed three, each
+decomp-grounded (the user explicitly asked to check the decomp, not guess). The dev box launches the
+game for the user via `setsid env LD_LIBRARY_PATH=. ./xash3d -game ts +map tm_avana &` (kill the old one
+with `pgrep -x xash3d` — NOT `pkill -f client-x64/xash3d`, which matches the shell's own cmdline and
+SIGTERMs your session). A detached/unfocused instance exits clean (~exit 0) after a bit; it stays up while
+the user interacts.
+
+1. **Spawn loadout (commit 54dac48, `dlls/ts_teams.cpp`).** Players spawned with HL crowbar+glock because
+   `CTSGameRules::PlayerSpawn` chained `CHalfLifeMultiplay::PlayerSpawn`. Decompiled the real
+   `CHalfLifeMultiplay::PlayerSpawn @0x790ac`: it honours `game_player_equip`, else
+   `GiveNamedItem("weapon_tsgun")` (PIC strings resolved via GOT-0x6dda6) + `BuyArmament()` (cont.36).
+   Reconstructed exactly → no HL weapons; spawn gives the unified TS gun (default `m_weaponType` =
+   TSW_BERETTA, so you get a beretta) + the armament. (`CHalfLifeMultiplay::PlayerSpawn` itself is an
+   11-byte forwarder to FUN_000890b8; `CBasePlayer::TSInit @0x92a4c` inits CTSAnimation/CTSStunt +
+   `SetPlayerSpeed(330)`, gives no weapons.)
+2. **Mouselook (commit + `cl_dll/inputw32.cpp`).** "Can't look up/down, only side-to-side; moving jolts
+   the view fwd/back" = mouse-look OFF (mouse-Y walks you instead of pitching). The rig config never
+   issues `+mlook`; TS is always-mouselook. Forced `in_mlook.state |= 1` in `IN_Init`. User CONFIRMED
+   fixed. (Note: the *viewmodel* jolting back-and-forth is SEPARATE — still open; it's the client view
+   bob/lag/sway, `cl_bob "3"` in the TS config + stock V_CalcBob/V_CalcViewModelLag — needs the client
+   view reconstruction.)
+3. **Fire animations (commit c607b75, `dlls/ts_weapons.{h,cpp}` + `ts_gun.cpp`).** Weapons fired
+   (bullets/sound/muzzleflash already present) but the viewmodel never animated. Added `iFireAnim` to
+   `s_weapon_info`, populated per-weapon from the actual "shoot*" sequence index parsed out of each
+   `v_*.mdl` (studiohdr numseq/seqindex at offsets 164/168; 176-byte seqdesc; beretta shoot=1, glock=3,
+   m4=3, aug=2, shotguns shootsemi=6, …; -1 for melee/grenade/akimbo). `StandardFire` now
+   `SendWeaponAnim(wi->iFireAnim)`. SLICE: server-driven (visible, not predicted).
+
+**Firing event system — fully MAPPED from the decomp (the faithful follow-up, task #6).** `CTSGun`
+precaches 11 events (`events/fire.sc` → `m_usFire` @0x964, +coldcock@0x966/pump@0x96a/closecombat@0x96c/
+firelinked@0x96e/reload@0x970/knife@0x972/katana@0x974/draw@0x976/grenade@0x978/empty@0x968). `StandardFire
+@0x824a4` plays it: `PLAYBACK_EVENT(flags=1, player_pev, m_usFire, delay=0, vecZero, vecZero, fparam1=spread,
+fparam2=spread, iparam1=m_weaponType(0xc8), iparam2=item+0x10, bparam1=(clip==0), bparam2=player[0x1fb])`.
+The faithful client side = hook `events/fire.sc` → `EV_TSFire` reading iparam1=weapontype → predicted
+sound + viewmodel anim + muzzleflash. NOT yet built (needs the client.dll EV callback). Our current sound
+is a server EMIT_SOUND of `weapons/<w>/fire.wav` (22kHz, correct format); the user's "slow-mo sound"
+report is unresolved (headless = no audio) — clarify low-pitch vs wrong-file vs droning.
+
+**Still open (Track B client reconstruction):** the viewmodel jolt/bob, the predicted fire event (sound+
+anim), the akimbo/melee/grenade fire anims, and the HL weapon-select HUD bar.
+
+---
+
+## 2026-06-21 (cont. 48) — TRACK B: the client RUNS + RENDERS in xash3d-fwgs; round-time HUD VISUALLY VERIFIED
+
+**Headline: the dev box is NOT headless — it has a real GPU + X display (AMD RX 9070 XT, DISPLAY=:0).**
+The cont.46 "headless, build-only, visual needs the user" caveat was WRONG. mod-ts client work can be
+**self-verified with screenshots here** (`import -window root`). This changes the Track B workflow:
+build → run in native xash3d-fwgs → screenshot → confirm. Use it.
+
+**Done — mod-ts now runs end-to-end in native xash3d-fwgs (server + OUR client + content), and the
+cont.47 round-time HUD is confirmed on-screen: a yellow `1:51` M:SS countdown at top-centre.**
+
+1. **`scripts/setup-xash-mod.sh` (new) — the deliverable** ("configure xash to run this mod"). Assembles a
+   native game root at `xash3d-fwgs/dist/client-x64` (which already holds the built engine: xash3d +
+   libxash + libref_gl + libmenu + filesystem_stdio + libvgui). It builds `ts/` (content symlinks to
+   `~/Containers/hlds/mods/ts`, our libs, a direct-gamedll liblist.gam — no metamod), completes the
+   `valve/` fallback, and exposes the openvgui lib as `vgui.so`. **Three gotchas it encodes:**
+   - xash on **x86-64 looks up the ARCH-SUFFIXED name** `hl_amd64.so` / `client_amd64.so` (the
+     `COM_GenerateServerLibraryPath` `#else` branch — `XASH_X86` is 32-bit only). Misnamed `hl.so` was
+     SILENTLY skipped → it loaded `valve/dlls/hl_amd64.so` instead (symptom: `No spawn function for
+     "ts_hack"/"ts_sellzone"/...` for the LATER-added TS entities while older ones worked). Fix: name our
+     libs `*_amd64.so` (bare name kept as an alias).
+   - the cont.46 client links `DT_NEEDED vgui.so`; the engine ships the identical openvgui as
+     `libvgui.so` (byte-for-byte = mod-ts/linux/release/vgui64.so) → symlink `vgui.so -> libvgui.so` and
+     launch with `LD_LIBRARY_PATH=.`. libSDL2 resolves from the system.
+   - Launch: `cd dist/client-x64 && LD_LIBRARY_PATH=. ./xash3d -dev 2 -game ts +map tm_avana`.
+2. **Client crash fix (commit f484842) — `cl_dll/com_weapons.{cpp,h}` + `cl_dll/hl/hl_weapons.cpp`.**
+   First actual RUN of the client SIGSEGV'd (user caught the "Xash Error: signal 11" dialog). gdb
+   backtrace: `HUD_PostRunCmd → HUD_InitClientWeapons → HUD_PrepEntity → CGlock::Spawn → 0x0`. Pinned the
+   exact insn (`call *g_engfuncs+536` right after loading the "weapon_9mmhandgun" string): on **64-bit**,
+   `MAKE_STRING()` = `ALLOC_STRING()` = `(*g_engfuncs.pfnAllocString)` (util.h `#if __x86_64__`), but
+   `HUD_InitClientWeapons` populates only a SUBSET of `g_engfuncs` and never sets `pfnAllocString` → the
+   first `MAKE_STRING()` in any predicted weapon's Spawn deref'd NULL. Fix: a small client string pool +
+   `stub_AllocString`/`stub_StringBase` (com_weapons), with `gpGlobals->pStringBase` pointed at the pool
+   in HUD_InitClientWeapons so MAKE_STRING/STRING stay consistent (offset 0 reserved as ""). This is a
+   generic halflife-updated 64-bit client-prediction bug, not TS-specific.
+3. **Round-time-on-join (commit fd5146a) — `dlls/ts_gamerules.{h,cpp}` + `ts_teams.cpp`.** `StartRoundTimer`
+   only broadcasts `RoundTime` at arm-time, so a client joining mid-round saw a blank HUD. Added
+   `CTSGameRules::SendRoundTime(player)`, called from `InitHUD`, to catch a joiner up (no-op if unarmed).
+
+**Verified (RUNTIME + VISUAL):** `setup-xash-mod.sh` → `LD_LIBRARY_PATH=. ./xash3d -game ts +map tm_avana`
+→ strace confirms it loads OUR `ts/dlls/hl_amd64.so` + `ts/cl_dlls/client_amd64.so`; gdb-clean for a full
+35s session (only SIGINT, no SIGSEGV); screenshot shows the world rendering (viewmodel, map) + the
+**yellow `1:51` round clock** top-centre, window titled "mod-ts (faithful reconstruction)". The round
+timer armed (counting from 120s) and the client read+drew the message. Server-side regression: tm_avana +
+ts_dust2 load with 0 "No spawn function" once the dll name was fixed.
+
+**Next Track B slices (now screenshot-verifiable):** the powerup/motion-blur indicators
+(`TSPowerUpTime`/`TSMBlur` — verify names vs the .so first), the ammo/fire-mode HUDs, then the visible
+slow-motion time-dilation + the particle system. Also noted but deferred: the stock client logs
+`Unknown command cl_realhud / hud_r/g/b/color / mp_teammodels` — TS client cvars the original defined,
+not yet reconstructed (harmless). The bg game process exits cleanly (exit 0) after a bit when launched
+detached/unfocused — not a crash; interactive runs stay up.
+
+---
+
+## 2026-06-21 (cont. 47) — TRACK B: first TS client HUD — the round-time countdown (CHudRoundTime)
+
+**Done — the first piece of TS client code: `cl_dll/roundtime.{cpp,h}` (CHudRoundTime).** The round-time
+countdown HUD, reading the message the server already sends (cont.45). This is the first TS reader in
+the cl_dll — proves the Track B loop (server sends a user message → client HUD element hooks + reads +
+draws) end to end at build/load level.
+
+**Fidelity fix to the server first (`dlls/ts_gamerules.cpp`):** the original `ts_i386.so` registers the
+round-time user message as the string **`"RoundTime"`** (the C++ global is named `gmsgTSRoundTime` — both
+appear in the unstripped symtab/.rodata; the registered STRING is "RoundTime", confirmed at .so .rodata
+0x95900 where client.dll also hooks it). The inherited cont.45 server registered `"TSRoundTime"` — a
+fidelity bug (client.dll hooks "RoundTime"). Changed `REG_USER_MSG("TSRoundTime")` → `REG_USER_MSG("RoundTime")`;
+kept the var name `gmsgTSRoundTime` (faithful). Wire format unchanged: two shorts — `WRITE_SHORT(seconds
+remaining, rounded)` + `WRITE_SHORT(0)` (the second is a flag word, 0 in the shipped binary; matches the
+original `RestartRound` send @ the .so).
+
+**Client element (mirrors the stock CHudBattery/Health pattern):**
+- `CHudRoundTime : CHudBase` — `Init` hooks the `RoundTime` message (`HOOK_MESSAGE(RoundTime)`) + adds
+  itself to the HUD list; `MsgFunc_RoundTime` reads the two shorts, turns `seconds` into an absolute
+  client-time expiry (`m_flEndTime = gHUD.m_flTime + seconds`) so the clock keeps ticking locally between
+  server updates (seconds<=0 clears it + drops HUD_ACTIVE); `Draw` renders `M:SS` (sprintf `%d:%02d`)
+  centred just below the top of the screen via `DrawHudString` + `GetConsoleStringSize`, yellowish
+  (RGB_YELLOWISH), flashing red (RGB_REDISH) in the last 10s; `Reset` clears it.
+- Wired in: `cl_dll/hud.h` (`#include "roundtime.h"` + `CHudRoundTime m_RoundTime;`), `cl_dll/hud.cpp`
+  (`m_RoundTime.Init()` + `.VidInit()`), `cl_dll/CMakeLists.txt` (`roundtime.cpp` in the source list).
+
+**Verified (BUILD + LOAD-level, per the cont.46 caveat — this headless box can't RENDER the client):**
+- `build.sh amd64 client` → 64-bit client.so (openvgui), glibc floor 2.14; `build.sh i386 client` →
+  32-bit client.so (Valve vgui), glibc floor 2.3 — both clean. `nm | c++filt` shows the linked
+  `CHudRoundTime::{Init,VidInit,Draw,Reset,MsgFunc_RoundTime}`; `strings client.so` shows the `RoundTime`
+  hook string.
+- `build.sh amd64` (server) → hl.so clean; `strings hl.so` shows `RoundTime` (not TSRoundTime).
+- Server no-regression: booted `tm_avana` on the rig (our hl.so) → GAME SKILL LEVEL reached, 0 Can't init,
+  no crash over 20s. (The message rename is server-string-only; doesn't touch the verified cont.45 timer
+  logic.)
+
+**VISUAL CONFIRMATION STILL OWED (coordinate with the user):** the actual on-screen M:SS clock needs a
+graphical GoldSrc/xash client run by the user — build/load here can't show pixels. The likely visual
+tweaks once seen: exact screen position/size, whether TS draws it as a clock sprite vs. text, and the
+flash threshold. Treat position/colour as // VERIFY.
+
+**Next Track B slices** (all read messages the server already sends): the powerup/motion-blur indicators
+(`gmsgTSPowerUpTime` / `gmsgTSMotionBlur` — the .so registers `TSMBlur`, `TSSlowMo`, `TSState`, `TSHealth`,
+`TSArmor`, `TSCash`, `TSFrags`, `TSBTime`, `TSPSys` — CHECK each inherited gmsg name against the .so
+strings the same way RoundTime was fixed), then the bigger visible-slow-motion time-dilation (client
+pmove scales frametime by the slow fields) and the particle system (CTSSharedEmitter/CTSEmitter/CTSParticle
+via the `TSPSys` message).
+
+---
+
+## 2026-06-21 (cont. 46) — TRACK B START: the client (cl_dll) now builds, both 32-bit + 64-bit
+
+**Done — the cl_dll build foundation.** The mod-ts client library (`cl_dll/` → `client.so`) now
+builds in the buildchain for BOTH i386 and amd64. This is the prerequisite for ALL Track B (TS client
+HUDs, visible slow-motion, particles, stunts) — none of which could start before the client built.
+
+**Key finding (answers "how did halflife-updated link vgui for 64-bit?"):** it never did. `build.sh`
+only ever built `--target hl` (the server); NO `client.so` exists anywhere in halflife-updated's build
+tree. The bundled `vgui.so`/`libSDL2` were always 32-bit; the 32-bit-VGUI wall was simply never hit
+because nobody built the client target in the 64-bit buildchain. Track B is the first time.
+
+Three portability fixes (committed 8f3b248) to compile the stock client under the buildchain's gcc-8.3:
+- `cl_dll/particleman/CMiniMem.h`: replaced `std::pmr::unsynchronized_pool_resource` (<memory_resource>,
+  gcc-9+) with a minimal `operator new`-backed pool shim (same allocate/deallocate/release surface).
+- `cl_dll/particleman/CFrustum.cpp`: dropped `<GL/gl.h>` (absent in buildchain) — it only needs the
+  GL_MODELVIEW_MATRIX/GL_PROJECTION_MATRIX enum values for the engine TriAPI; defined locally.
+- `cl_dll/entity.cpp`: `(int)pTemp` (FTENT_SPIRAL phase) is a 64-bit-pointer→int truncation → route
+  through intptr_t.
+
+Dual-arch VGUI (this commit), per the user's pointer to xash3d-fwgs:
+- **32-bit** (i386) links Valve's bundled `vgui.so` (Steam HL); **64-bit** (amd64) links openvgui's
+  ABI-compatible `libvgui.so` — vendored as `linux/release/vgui64.so` (from xash3d-fwgs, x86-64), plus
+  a 64-bit `libSDL2` vendored as `linux/libSDL2-2.0-x64.so.0`. openvgui is a drop-in: the client
+  compiles against the STOCK `../utils/vgui/include` headers and links clean against it (no source
+  changes — just a relink). Both are only load-time linked (the engine supplies the real libs).
+- `cl_dll/CMakeLists.txt`: selects the arch-appropriate vgui/SDL2 by `CMAKE_SIZEOF_VOID_P`; build-dir
+  filenames stay `vgui.so`/`libSDL2-2.0.so.0` so DT_NEEDED is uniform (the runtime provides the
+  arch-correct lib under that name). `scripts/build.sh` gained a target arg: `build.sh <arch> [hl|
+  client|all]` (default hl, backward-compatible). `linux/.gitignore` allows the two new vendored libs.
+
+**Verified (BUILD-ONLY):** `build.sh amd64 client` → 64-bit client.so (openvgui), glibc floor 2.14;
+`build.sh i386 client` → 32-bit client.so (Valve vgui), glibc floor 2.3; `build.sh amd64` still builds
+the server (backward compat); `build.sh amd64 all` builds both. DT_NEEDED = vgui.so + libSDL2-2.0.so.0
+for both arches.
+
+**VERIFICATION GAP (important for Track B):** this headless box can BUILD client.so but cannot RENDER
+it — the dedicated-server rig has no graphics, and the browser-playable client is the separate WASM
+xash build, not this native client.so. So TS client work is build-verified here; visual/runtime
+behaviour needs a graphical GoldSrc/xash client run by the user. Next Track B slice: a first TS HUD
+(e.g. the round-time countdown reading gmsgTSRoundTime) — build + load verifiable, visual by the user.
+
+---
+
+## 2026-06-21 (cont. 45) — Round timer (CTSGameRules::RoundTimeLeft + StartRoundTimer)
+
+**Done — the team-round time limit.** Completes the round lifecycle: team rounds now end three ways —
+elimination (cont.37), objective (cont.25/31), and now TIME-OUT. Part of Track A's round polish.
+
+RE (recovered/server/CTSGameRules.c): RestartRound @0x77920 sets the round end time +8 =
+clamp(`roundtime` cvar, 30, 180) + time, clears +0xc..0xf, and (if the round-time flag +0x10)
+sends gmsgTSRoundTime (remaining seconds). RoundTimeLeft @0x79024: when +8 elapses, fire the objective
+manager's `targetontimeleft` (+0x554 → +0x94) then `TeamWin(2)` = a DRAW. Functional reconstruction:
+- `CTSGameRules::StartRoundTimer()`: m_flRoundEnd = time + clamp(TS_ROUNDTIME=120, 30, 180) + register
+  & send gmsgTSRoundTime (remaining seconds) to all (lazy REG_USER_MSG "TSRoundTime").
+- `CTSGameRules::RoundTimeLeft()`: `TSFireTimeLeftTarget()` (new free helper in ts_objectives.cpp —
+  fires the objective manager's m_targetTimeLeft) + `TeamWin(2)` (draw → schedules the round restart).
+- `Think`: in team mode with no win pending, arm the timer on the first frame (m_flRoundEnd==0 →
+  StartRoundTimer) and run RoundTimeLeft when it expires. `TSRestartRound` zeroes m_flRoundEnd so the
+  next round re-arms.
+
+**Verified RUNTIME (rcbot, tm_avana, temp probe reverted — shortened the timer to 4s):** full cycle
+armed(4s) → expired → RoundTimeLeft draw (score [0,0] UNCHANGED = correct, a draw doesn't score) →
+restart scheduled (+3s) → respawn → timer re-armed → … cycling cleanly. No crash; clean regression
+(tm_avana + ctb_deadheat 0 Can't init, ts_wyndham only ts_emitter/ts_particle). (Ran on -port 27018.)
+
+**SLICE:** TS_ROUNDTIME is a fixed 120s (the .so reads a `roundtime` cvar — VERIFY/wire it); the
+round-time-enabled flag is implied by team mode (no per-mode gate); gmsgTSRoundTime is sent but no
+cl_dll reads it (no round-time HUD). This leaves UpdateTeamScores/InitTeamScore + the full faithful
+RestartRound (game-mode member + per-player round setup) + ShowObjectiveOnHud as the last Track A
+polish; the big frontier is Track B (cl_dll).
+
+---
+
+## 2026-06-21 (cont. 44) — CTSPlayerAmount + CTSSuperJump (small self-contained leftovers)
+
+**Done — `dlls/ts_playeramount.cpp` (CTSPlayerAmount) + `CTSSuperJump` in `dlls/ts_powerup.cpp`.**
+Two of the small non-FGD-table leftovers; both self-contained, synthetic-verified.
+
+RE: `CTSPlayerAmount` (Spawn @0x72a78, ClientConnect @0x72aec / ClientDisconnect) is a point relay
+(ts_playeramount) — a per-entity counter (+0x6c) that fires `connecttarget` (+0x74) when the count
+rises to `clients` (+0x70) and `disconnecttarget` (+0xd8) when it falls back to it, driven off the
+engine connect/disconnect events. `CTSSuperJump` (Spawn @0xc9f44) is `CTSSuperJump : CTSPowerUp` —
+sets m_iType = 0x100 (TS_PWUP_LOWGRAV) then chains CTSPowerUp::Spawn, so it's a map powerup that
+always gives the super-jump (low-gravity) effect. Reconstruction:
+- `CTSPlayerAmount : CBaseEntity` — KeyValue clients/connecttarget/disconnecttarget; a 0.5s CountThink
+  polls the live connected-player count and fires connecttarget on the rising edge to `clients` /
+  disconnecttarget on the falling edge (a poll equivalent of the .so's connect/disconnect events, so
+  no engine hook needed).
+- `CTSSuperJump : CTSPowerUp` — Spawn forces m_iType = TS_PWUP_LOWGRAV then CTSPowerUp::Spawn.
+
+**Verified RUNTIME (rcbot, ts_wyndham, SYNTHETIC — temp probe reverted):** a ts_playeramount(clients=2)
+fired connecttarget the moment the live count rose to 2 (rising-edge); ts_superjump spawned as a
+powerup without crashing. Clean regression (tm_avana 0 Can't init; ts_theatre's 328 powerups still 0
+Can't init — CTSSuperJump didn't disturb the powerup path). (Ran on -port 27018; 27015 held by an
+unrelated app.)
+
+**SLICE:** CTSPlayerAmount uses a poll instead of the engine connect/disconnect hooks + ignores its
+spawnflags; CTSSuperJump inherits CTSPowerUp's Save/Restore as-is. Remaining leftovers: CInfoBreakable
+(a respawning breakable — thin, deferred), CBulletManager (the traveling-bullet/bullet-time system —
+deferred: it rewrites the verified instant-hitscan fire path + isn't visible without a cl_dll).
+
+---
+
+## 2026-06-21 (cont. 43) — CTSScoreGiver + CVipEscape (the last team-objective leftovers)
+
+**Done — `CTSScoreGiver` + `CVipEscape` in `dlls/ts_objectives.cpp`.** The two small remaining
+team-objective entities; closes out the Track A entity list. Both FGD-listed, 0 stock placements →
+synthetic-verified.
+
+RE: `CTSScoreGiver` (Spawn @0x8c0b8, Use @0x8c158) is `@PointClass base(WinGiver)` — identical to
+CTSWinGiver (cont.25) but its Use RESETS the call counter after firing (param+0x19 = 0) so it scores
+REPEATEDLY (vs WinGiver latching done), and a "Respawn Players" spawnflag. `CVipEscape` (Spawn
+@0x8d23c) is classname **`func_vip_safetyzone`** (not ts_vipescape) — a passive brush marker (KeyValue
+stub, empty Precache, non-solid SET_MODEL) the unbuilt VIP-escort logic checks against; it has no
+touch/use of its own. Reconstruction:
+- `CTSScoreGiver : CTSWinGiver` — Use counts to callsnumber, then bumps `CTSGameRules::m_teamScore`
+  + HUD message + re-arms (m_calls=0). Scores DIRECTLY (not via TeamWin) so it's genuinely repeatable
+  and doesn't restart the round (a score giver gives points without ending the round, unlike the win
+  giver). // SLICE: the .so routes through TeamWin w/ cash; "Respawn Players" spawnflag not applied.
+- `CVipEscape : CBaseEntity` (func_vip_safetyzone) — a non-solid brush marker. // SLICE: the VIP win
+  detection is in the unbuilt team subsystem.
+
+**Verified RUNTIME (rcbot, tm_avana, SYNTHETIC — temp probe reverted):** ts_scoregiver callsnumber=2:
+team0 score 0 → 0 (1 call) → 1 (2 calls = scored) → 2 (4 calls = re-armed + scored again, REPEATABLE,
+no round-restart block); func_vip_safetyzone created without crash. Clean regression (tm_avana +
+ctb_deadheat + ts_dust2 0 Can't init). (Ran on -port 27018; 27015 held by an unrelated app.)
+
+**TRACK A ENTITY LIST COMPLETE.** All FGD team/CTF/objective entities are now reconstructed: teams
+(cont.35) + cash/buy (36) + elimination (37) + CTSFlag (38) + CTSBriefcase (39) + CTSBomb (40) +
+CTSSellZone (41) + CTSTeamEscape (42) + CTSScoreGiver/CVipEscape (43). Remaining Track A polish is
+faithful niceties (UpdateTeamScores/InitTeamScore, the round timer, ShowObjectiveOnHud, CheckDeads
+grace/CTB/last-man, capture-via-TeamWin-restarts-round). The big remaining frontier is **Track B —
+the cl_dll** (visible slow-motion, the particle system CTSSharedEmitter/CTSEmitter/CTSParticle,
+CTSStunt, all HUDs) — NONE built yet. Also the small non-FGD leftovers: CTSPlayerAmount,
+CTSSuperJump, CInfoBreakable, CBulletManager.
+
+---
+
+## 2026-06-21 (cont. 42) — CTSTeamEscape (team escort/escape zone)
+
+**Done — `dlls/ts_escape.cpp` (ts_teamescape).** A team escort objective: when enough of the
+attacker team is simultaneously inside the zone, it completes (fire target + HUD message). FGD-backed
+(`@SolidClass`, brush, base tsobjective); 0 stock placements → synthetic-verified.
+
+RE (recovered/escape/CTSTeamEscape.c): Spawn @0x8d390 (brush SET_MODEL + SetSize), EnableObjective
+@0x8d4a0 (enable + clear the 33-slot presence array + count), WaitTouch @0x8d4ec (attacker-team
+player → track by entindex, count distinct; threshold from escapepercentage @+0xf4 over the attacker
+TEAM SIZE: 0→1, 1→size/3, 2→2*size/3, 3→size; complete → FireTargets+HUD+EnableObjective(false)),
+WaitThink @0x8d6b0 (clear the presence array + count every 1s — so it counts SIMULTANEOUS presence).
+Functional reconstruction onto the stock SDK (inlined attacker-team gate like ts_objectives.cpp; team
+size = live attacker-team players):
+- `CTSTeamEscape : CBaseEntity` (brush SOLID_TRIGGER). m_present[33] (EHANDLE by entindex) + m_count.
+- WaitTouch accumulates distinct attacker-team touchers; threshold per escapepercentage switch;
+  completion fires target + message + disables. WaitThink resets the window each second.
+
+**Verified RUNTIME (rcbot, tm_avana, SYNTHETIC — temp probe reverted):** team size 2 — escapepercentage
+0 (one member): one touch → completed (enabled=0); escapepercentage 3 (all): one touch stays active
+(enabled=1), all touches → completed (enabled=0). No crash; clean regression (tm_avana + ts_dust2 0
+Can't init). (Ran on -port 27018; 27015 still held by an unrelated app.)
+
+**SLICE:** enable is faithfully gamerules-driven (here Spawn); no Save/Restore (the .so has
+m_SaveData); completion fires the target only (no team score / round-win — that's the objective
+manager's job); team size = live players (the .so reads the team struct via TSCountPlayers).
+
+---
+
+## 2026-06-21 (cont. 41) — CTSSellZone (sell dropped weapons for cash) + a powerup-precache fix
+
+**Done — `dlls/ts_sellzone.cpp` (ts_sellzone).** The one entity that makes the cont.36 cash actually
+flow: a brush zone that sells dropped weapons. FGD-backed (`@SolidClass`, base tsobjective; ts_dust2
+places one).
+
+RE (recovered/sellzone/CTSSellZone.c): KeyValue @0x726c0 (attackerteam), Spawn @0x72720 (brush
+SET_MODEL + SetSize + SetTouch), SellTouch @0x727e8 — a ~61-byte NEAR-STUB that only does
+`strcmp(toucher->classname, "WorldGun")`. Consistent with cont.36 (CashBased OFF → the sell economy
+is vestigial in the shipped binary). Functional reconstruction:
+- `CTSSellZone : CBaseEntity` (brush SOLID_TRIGGER). SellTouch: a touching `ts_worldgun` (a dropped
+  weapon, cont.27) → credit the nearest living player (on the zone's team, if set) a flat
+  SELLZONE_VALUE ($500) via `CBasePlayer::GiveCash` + a center-print, then UTIL_Remove the gun.
+
+**Also fixed a pre-existing latent crash (surfaced by ts_dust2):** the dynamic DM powerup spawner
+(cont.26 PutPowerUp → CTSPowerUp::Spawn) PRECACHE_MODELs `models/powerup.mdl` at RUNTIME — fine on
+maps with ts_powerup placements (precached at load), but Host_Errors on a DM map with none (ts_dust2:
+no ts_powerup, no objective_manager → DM → spawner runs → crash). Added `models/powerup.mdl` to
+PrecacheAllTSWeapons (map load), same fix pattern as cont.38/40.
+
+**Verified RUNTIME (rcbot, ts_dust2 — a REAL map with a sell zone, temp probe reverted):** the zone
+spawns (0 Can't init, was 1 + the powerup crash gone); a dropped beretta worldgun dropped at a player
+→ SellTouch credited the player cash 0→500 + marked the gun removed (FL_KILLME). No crash; clean
+regression (ts_dust2 + tm_avana + ctb_deadheat all 0 Can't init).
+
+**SLICE:** flat sale value (the per-weapon price s_weapon_info+0xd8 isn't extracted + is dead while
+CashBased off); the dropped gun records no seller (no pev->owner) so the nearest player is credited;
+no team-score / round effect.
+
+---
+
+## 2026-06-21 (cont. 40) — CTSBomb: the defuse / wire-cut objective
+
+**Done — `dlls/ts_bomb.cpp` (ts_bomb).** A self-contained team objective: a planted bomb that counts
+down and explodes unless defused. FGD-backed (`@SolidClass`, base tsobjective). 0 stock placements →
+synthetic-verified (like ts_dmhill cont.32 / ts_trigger cont.34).
+
+RE (recovered/bomb/CTSBomb.c): Spawn @0x8c470, Precache @0x8c570 (misc/beep2.wav), SetRandomWires
+@0x8c598 (3 wires: one DEFUSE(1), one BOOBYTRAP(2), rest NEUTRAL(3)), EnableObjective @0x8c608 (arm/
+safe), CutWire @0x8c70c (1→defuse+fire target/msg, 2→fast countdown, 3→timer to 0 = detonate),
+WaitThink @0x8c860 (−1/tick, 1s or 0.1s when fast, beep rising pitch, detonate at 0 = TSExplosion),
+Use @0x8c9a4 (hold USE `defusetime`s → defuse, FCAP_CONTINUOUS_USE=0x10), KeyValue defusetime/cutwires.
+Functional reconstruction onto the stock SDK:
+- `CTSBomb : CBaseEntity` (brush, inlined attackerteam gate like ts_objectives.cpp). Arms on Spawn
+  (SLICE: faithful enable is gamerules InitObjectives). EnableObjective(true)=arm+SetRandomWires+
+  WaitThink; (false)=safe.
+- WaitThink: countdown −1/tick (1s, or 0.1s after a boobytrap), beep, `Explode` at 0 via
+  `ExplosionCreate` (the SDK env_explosion blast — assets already precached by the weapon/grenade path).
+- CutWire(0..2): defuse → FireTargets(target)+HUD msg+safe; boobytrap → m_bFast; neutral → timer≈0
+  (next WaitThink detonates). `tscutwire <n>` console command (cl_dll wire UI is a SLICE).
+- Use: continuous-USE accumulator over defusetime → defuse (FireTargets+msg).
+- misc/beep2.wav added to PrecacheAllTSWeapons (map load) — a runtime-armed bomb's PRECACHE_SOUND
+  Host_Errors (gdb/log-caught, same class as cont.38); dropped the Spawn-time Precache() call.
+
+**Verified RUNTIME (rcbot, tm_avana, SYNTHETIC — temp probe reverted):** armed bomb wires=[2 1 3]
+(one each); cut DEFUSE wire → enabled=0 (defused); cut NEUTRAL wire → timer 0.01 → WaitThink Explode
+(ExplosionCreate runs at runtime, enabled=0, no crash); cut BOOBYTRAP wire → fast=1 still armed. No
+crash; clean regression (tm_avana + ctb_deadheat 0 Can't init, ts_wyndham only ts_emitter/ts_particle).
+(Test ran on -port 27018; 27015 was held by an unrelated app.)
+
+**SLICE:** bomb countdown is a fixed 45s (the .so reads a bomb-time global DAT_001781a8 — VERIFY);
+faithful arm is gamerules-driven (here Spawn); wire-cut needs the cl_dll UI (console-driven); no
+Save/Restore (the .so has CTSBomb m_SaveData); detonation doesn't end the round / score (just blasts).
+
+---
+
+## 2026-06-21 (cont. 39) — CTSBriefcase: the CTF base/capture zone (seeds CTSFlag on a real map)
+
+**Done — `dlls/ts_briefcase.cpp` (ts_briefcase).** The map-placed CTF objective that pairs with the
+cont.38 CTSFlag: each team's briefcase seeds its flag at base and is the capture zone. Replaces
+cont.38's `tsspawnflag` console stand-in — **first CTF entity verified on a real stock map**
+(ctb_deadheat). FGD-backed `@SolidClass` (brush), ownerteam 1..4.
+
+RE (recovered/briefcase/CTSBriefcase.c): ctor @0x8d788 (per-briefcase flag id s_nextFlagID 1..15,
+team @+0x68 = -1, s_flag_status @+0x90), KeyValue @0x8d7f4 (contents/message/ownerteam), Spawn
+@0x8d88c (brush SET_MODEL + SetSize), FlagFall @0x8da00 (CreateFlag(0, &s_flag_status) at the brush
+centre + gmsgTSHaveFlag HUD + WaitThink), CanInteract @0x8db48 (team @+0x68 == player team),
+CaptureTouch @0x8db9c (a living HaveFlag player who CanInteract → capture the carried flag).
+Functional reconstruction onto the cont.38 CTSFlag:
+- `CTSBriefcase : CBaseEntity` (brush SOLID_TRIGGER). KeyValue ownerteam is **1-based** in the FGD →
+  stored 0-based (`m_iOwnerTeam = atoi-1`) to match pev->team / the objective gating; + contents +
+  message (capture announce).
+- Spawn: brush model + SOLID_TRIGGER; SetTouch(CaptureTouch); SetThink(FlagFall) @+0.5s.
+- FlagFall: `TSCreateFlag(m_iOwnerTeam, Center())` — seeds this team's carriable flag at base (delayed
+  so the runtime SET_MODEL follows the precache pass), then idle WaitThink.
+- CaptureTouch: a living player carrying a flag (`TSPlayerHasFlag`) at THEIR own briefcase
+  (`CanInteract`) → `TSReturnCarriedFlag` (return the carried flag) + `TeamWin(team)` + announce
+  pev->message. (New shared helpers `TSPlayerHasFlag`/`TSReturnCarriedFlag` added to ts_flag.cpp.)
+
+**Verified RUNTIME (rcbot, ctb_deadheat — a REAL stock CTB map, temp probe reverted):** 2 briefcases
+spawn (0 Can't init, was 2), each FlagFall-seeds its flag at base with the correct 0-based team —
+team 0 (Specialists) @(128 2048 192) + team 1 (Mercenaries) @(-128 -2048 192) (FGD ownerteam 1/2 →
+0/1). Capture reuses the cont.38-verified TSReturnCarriedFlag + TeamWin. No crash; clean regression
+(ctb_deadheat + tm_avana 0 Can't init, ts_wyndham only the known ts_emitter/ts_particle).
+
+**SLICE:** the per-flag network id + gmsgTSHaveFlag HUD is server-only (no cl_dll flag indicator);
+capture scores via TeamWin (which restarts the round — faithfully a capture awards cash + a HUD
+without ending the round); no s_flag_status / contents drop; Save/Restore not wired (FCAP_DONT_SAVE).
+
+---
+
+## 2026-06-21 (cont. 38) — CTSFlag: the CTF flag (carry / capture / drop), unblocked by teams
+
+**Done — `dlls/ts_flag.cpp` (ts_flag).** The first CTF entity, now possible because team
+assignment (cont.35) gives a real pev->team. The classic capture-the-flag loop, gated on team.
+
+RE (recovered/flag/CTSFlag.c): `CTSFlag : CTSPhysicObject`, model `briefcase.mdl`, runtime-created
+(CreateFlag @0x9d874 — NOT map-placed: no FGD entity, 0 BSP placements; the CTSBriefcase map
+objective seeds the bases). m_iFlagTeam @+0x9c, carrier EHANDLE @+0xa4, s_flag_status (7 ints @+0x90)
+mirrored onto the carrier (player+0x7d0) via CBasePlayer::TakeFlag @0x93830 / DropFlag @0x9334c +
+GetSpeedBySlots (carrying slows you). CanInteract @0x9e2d4 = flag.team==-1 || ==player.team.
+PlayerTakeFlag @0x9e330 (Use/WaitTouch): living player; own-team flag → capture/return branch, else
+TakeFlag (grab). FUNCTIONAL reconstruction onto the stock SDK (no CTSPhysicObject, no speed-by-slots):
+- `CTSFlag : CBaseEntity` with a team + a 3-state machine (AT_BASE / CARRIED / DROPPED).
+- FlagTouch: an enemy/neutral flag + a non-carrying living player → AttachTo (carry: SOLID_NOT,
+  CarryThink rides the carrier's back, follows + drops if the carrier dies/leaves). Own-team flag at
+  base + you're carrying the enemy flag → CAPTURE (return the carried flag + score via TeamWin).
+- DropAt (the PlayerKilled `TSDropFlag` hook + CarryThink-on-death): flag falls where the carrier
+  died, SOLID_TRIGGER, ReturnThink auto-returns it to base after 30s. ReturnToBase resets it home.
+- `CTSFlag::Create(team, base)` + free `TSCreateFlag`/`TSDropFlag`; a `tsspawnflag <team>` console
+  command seeds bases (stand-in for the CTSBriefcase map objective). briefcase.mdl + the pickup/drop
+  sounds added to PrecacheAllTSWeapons (map-load) — a runtime PRECACHE_MODEL Host_Errors (gdb-caught:
+  PF_precache_model_I → Host_Error → ShutdownServer; same class of bug as cont.12).
+
+**Verified RUNTIME (rcbot, tm_avana, SYNTHETIC — temp probe reverted):** seeded a spec(0) + merc(1)
+flag at a merc bot; merc touches the spec flag → carried=1 state=CARRIED; merc (carrying) touches its
+own merc flag at base → CAPTURE: spec flag returned to base (state=AT_BASE), team-1 score 0→1; re-grab
+→ TSDropFlag → state=DROPPED, carrier cleared. No crash; clean regression (tm_avana 0 Can't init,
+ts_wyndham only the known ts_emitter/ts_particle).
+
+**SLICE:** carrying doesn't slow the carrier (no GetSpeedBySlots / s_flag_status); no CTSPhysicObject
+bounce physics; capture scores via TeamWin's team score (which also schedules a round restart — the
+faithful capture awards cash + a HUD pointer without ending the round); flags are console-seeded (the
+map-placed CTSBriefcase that creates them isn't built); no flag HUD/carrier icon (cl_dll).
+
+---
+
+## 2026-06-21 (cont. 37) — CheckDeads: team-round elimination win condition
+
+**Done — `CTSGameRules::CheckDeads`/`CallCheckDeads` (ts_gamerules.{h,cpp}).** The automatic team-
+round win condition: a round ends + the surviving team wins when the other team is wiped out. Builds
+on cont.31's TeamWin/round-restart + cont.35's team assignment — team mode now RESOLVES rounds on its
+own (independent of the objective entities, which remain an alternate win path; both call TeamWin).
+
+RE (recovered/server/CTSGameRules.c): CheckDeads @0x79c00 (1335 bytes), CallCheckDeads @0x79bc0.
+CallCheckDeads: if no restart pending (+0xc==0) schedule CheckDeads at time+1 (+0x5880). CheckDeads
+(team branch, game-mode 2/3): count alive players per team into local_3c[4] via GetTeamIndex(TeamID());
+mode-3 (CTB) fires objective targets; else winner = the team with survivors — local_3c[1]<1 → team 0
+wins, local_3c[0]>0 → return (contested), else team 1 wins; nobody alive → team 2 (draw); then
+TeamWin(winner,0,1). Functional reconstruction:
+- `CallCheckDeads()`: if `m_flRoundRestart==0 && m_flCheckDeads==0` → `m_flCheckDeads = time+1`.
+- `CheckDeads()`: team mode + no restart pending; count alive/present per team (general over
+  m_numTeams); require ≥2 players over ≥2 teams (so warmup/one-sided doesn't insta-win); `teamsAlive>=2`
+  → return (contested); `==1` → TeamWin(lastAliveTeam); `0` → TeamWin(2)=draw.
+- `Think`: fire CheckDeads when `m_flCheckDeads` elapses (before the restart check).
+- `PlayerKilled`: `CallCheckDeads()` after the death loot.
+- `TeamWin` refined: guard against a double-win in a round (`m_flRoundRestart!=0` → return); team 0/1
+  bump m_teamScore + announce `GetIndexedTeamName`, anything else = a draw announce (no score).
+
+**Verified RUNTIME (rcbot, tm_avana, temp probes reverted):** balanced 1v1 → force-killed the
+Mercenary → 1s later CheckDeads (present[1,1] alive[1,0] teamsAlive=1) → TeamWin(0): Specialists
+score [1,0], restart scheduled +3s → round restarted (respawn all + objectives re-armed) → next round
+2v2 = contested (no premature win). No crash; clean regression (tm_avana 0 Can't init, ts_wyndham only
+the known ts_emitter/ts_particle).
+
+**SLICE:** no just-respawned grace window (the .so counts +0x770>=0 as still-alive; we use IsAlive());
+mode-3 (CTB) objective-target firing not reconstructed (treated as plain elimination); no round timer
+(gmsgTSRoundTime) or last-man-standing DM mode (g_lastManStanding branch); TeamWin still lacks the
+faithful UpdateTeamScores/InitTeamScore + the full RestartRound@0x67920 (round timer + game-mode member).
+
+---
+
+## 2026-06-21 (cont. 36) — Cash + buy/armament system (free loadout; CashBased is OFF)
+
+**Done — `dlls/ts_buy.cpp`: the TS cash + buy/armament loadout (Track A step 2).** Reuses the
+built `GiveTSWeapon`/`TSAddAmmo` arsenal.
+
+**KEY RE FINDING:** `CashBased__Fv` @0x66abc is hardcoded `return 0` in the shipped .so — the cash
+economy is COMPILED OUT. Every `if (CashBased())` cost-deduction branch in BuyWeapon/BuyAmmo/AddItem
+is dead, so the buy system gives weapons/ammo **FREE**. The real mechanic is a free ARMAMENT
+(loadout) selector: the client menu queues weapons+ammo and `BuyArmament` applies them. Cash is
+still tracked (the `cashforwin`/`cashforlose` cvars + a future sell zone) but never charged.
+
+RE (recovered/buy/CBasePlayer.c): cash @+0x540 (clamped 0..30000, GiveCash @0x9310c); a pending
+armament = ammo array @+0x554 (16 ints, rounds) + a weapon list @+0x594 (stride 0xc ×32: type/count/
+gift). ResetArmament @0x93e88 (zeroes 0x70 ints), AddItemToArmament @0x93ea4 (first free slot),
+AddAmmoToArmament @0x93ef4, BuyArmament @0x93f10 (each weapon → BuyWeapon or free AddItem; each
+caliber → BuyAmmo), BuyAmmo @0x941e8, BuyWeapon @0x945bc (IsRestrictedWeapon @0x770c8 gate + the M61
+special: type 0x18=24 is team-mode-only `1<TSGameRules` and capped 2/life via player+0x714, else free
+PickUpWeapon). Functional reconstruction onto CBasePlayer + the cont.18 arsenal:
+- `CashBased()` → false; `CBasePlayer::GiveCash` (clamped); members `m_iCash`/`m_iGrenadeBuys`/
+  `m_armamentAmmo[16]`/`m_armament[32]` in player.h.
+- `ResetArmament`/`AddItemToArmament`/`AddAmmoToArmament`/`BuyWeapon`/`BuyAmmo`/`BuyArmament`.
+  `BuyWeapon` = M61 team-mode+cap-2 rule then free `GiveTSWeapon`; `BuyAmmo` = free `TSAddAmmo`.
+- Console drivers in client.cpp (the faithful menu is cl_dll/`menuselect`, a SLICE): `tsbuy <type>`,
+  `tsbuyammo <cal> <rounds>`, `tsarm <type> [count]`, `tsarmammo <cal> <rounds>`, `tsbuyarmament`,
+  `tsresetarmament`.
+
+**Verified RUNTIME (rcbot, temp probe reverted):** tm_avana — queue {beretta(2),uzi(3)} + 50×9mm,
+GiveCash(1000)→1000, BuyArmament → arsenal=2 [2,3], 9mm reserve filled to the cap 80; M61 ×3 → 1,1,0
+(grenadeBuys cap 2). ts_wyndham (DM) — armament still applies free (arsenal=2), M61 ×3 → 0,0,0
+(team-mode block). No crash; clean regression (only the known ts_emitter/ts_particle Can't-inits).
+
+**SLICE/deferred:** weapons are free (faithful — CashBased off); the category-by-bitmask
+`IsRestrictedWeapon` over CTSMapGlobals' restriction isn't wired (default 0x1f allows all → allow-all
+stub is faithful for stock maps); no cl_dll buy menu (console-driven); armament ammo treated as rounds
+(no per-caliber mag-size table); no starting cash / cash-for-win-lose award yet; price field
+(s_weapon_info+0xd8) not extracted (dead while CashBased off).
+
+---
+
+## 2026-06-21 (cont. 35) — CTSGameRules team subsystem: team ASSIGNMENT (the keystone)
+
+**Done — `dlls/ts_teams.cpp`: a real team layer on CTSGameRules + auto-balance assignment.**
+First piece of Track A. Players now get a `pev->team`, which is what the already-built objective/CTF
+gating reads (cont.25/34) — so team mode is no longer just inheriting MP.
+
+RE (from the .so): the team subsystem is a packed 0x8c-byte per-team struct ×4 (cash @+0x1c, scores
+@+0x20/+0x24, name @+0x28, spawn classnames @+0x68/+0x88, model list @+0x38), gated on the TS
+game-mode byte @+0 (2/3 = a team map). InitTeams @0x77f60 builds "Specialists;Mercenaries"
+(models "spec"/"merc") for a team map; GetTeamIndex @0x79b04 = case-insensitive name→index (0-based);
+GetTeamsNum @0x785a8; GetPlayerModel @0x79a08 / GetTeamCash @0x79aac read the per-team struct. The
+faithful trigger for a player landing on a team is the client class-selection menu (cl_dll, NOT built).
+
+Functional reconstruction (modeled naturally, NOT transcribing the byte struct; mirrors the SDK
+`CHalfLifeTeamplay` team half, which is the same logic):
+- `CTSGameRules` keeps `m_szTeamList` + parallel `m_teamNames[]/m_teamModels[]` + `m_numTeams`.
+- `IsTeamMode()` (cached tri-state `m_iTeamMode`): a `ts_objective_manager` is present (the same DM
+  proxy cont.26 used). Resolved lazily — worldspawn installs the rules before objective ents spawn.
+  `IsTeamplay()` override now == `IsTeamMode()`; folds the old explicit objective-manager scan out of
+  the cont.26 Think powerup gate.
+- `InitTeams`/`RecountTeams`/`GetTeamIndex`(override)/`GetIndexedTeamName`(override)/`GetTeamID`
+  (override → TeamID())/`TeamWithFewestPlayers` — mirror the SDK team subsystem.
+- `AssignToTeam(player, name)`: set `pev->team` **0-based** (0 spec, 1 merc — the FGD/objective
+  convention, NOT engine-1-based) + `m_szTeamName` + "model"/"team" infokeys + broadcast gmsgTeamInfo
+  + gmsgScoreInfo. `PlayerSpawn` override: MP spawn, then (team mode, if not yet on a valid team)
+  auto-balance onto `TeamWithFewestPlayers()` — idempotent across respawns/round restarts.
+  `InitHUD` override sends gmsgTeamNames + everyone's team to a connecting client.
+
+**Verified RUNTIME (rcbot, tm_avana, temp probe reverted):** 5 bots auto-balanced fewest-first →
+Specialists{Chuck,Sean,sebastian}=3, Mercenaries{Alec,Matt}=2 (exact alternating 0,1,0,1,0 with
+ties→lower index). 0 Can't init, no crash. DM regression (ts_wyndham): **0** assignments (IsTeamplay
+false), powerup spawner still gated correctly, only the known ts_emitter/ts_particle Can't-inits, no
+crash. Clean rebuild boot of tm_avana: probe gone, 0 Can't init, clean shutdown.
+
+**SLICE/next (rest of Track A):** assignment is server auto-balance (faithful = client class menu,
+cl_dll); the per-team **cash economy** (GetTeamCash/initial_cash @+0x1c, CashBased(), price
+s_weapon_info+0xd8) + the **buy menu** server half (AddItemToArmament@0x83ea4 / BuyArmament@0x83f10 /
+BuyWeapon@0x845bc) are not built; team **scores** still go through cont.31's `m_teamScore[]` (not the
+faithful UpdateTeamScores/InitTeamScore); full `RestartRound`@0x67920 (round timer + game-mode member
++ InitObjectives/SetObjective) deferred; no friendly-fire (FPlayerCanTakeDamage) yet. Now that
+pev->team is real, the **CTF/escape entities** (CTSFlag/CTSBriefcase/CTSBomb/CTSTeamEscape/CVipEscape/
+CTSSellZone/CTSScoreGiver) are unblocked.
+
+---
+
+## 2026-06-21 (cont. 34) — CTSTrigger (TS brush trigger; team-gated, recheck delay)
+
+**Done — `CTSTrigger` in `dlls/ts_objectives.cpp` (ts_trigger).** A reusable TS brush trigger.
+RE (from the .so): Spawn @0x709b8 (brush SET_MODEL), WaitTouch @0x70ad8 — cooldown gate (param+0x41),
+living-player check, attacker-team gate (GetTeamIndex vs +0x42), "Flag Carrier Only" spawnflag (0x1a0
+& 8 → HaveFlag), FireTargets(target) + a sprintf'd HUD message, re-arm at time + max(0.5, nextcheck).
+Functional reconstruction as `CTSTrigger : CTSObjective` (reuses cont.25's attackerteam + CanInteract):
+KeyValue nextcheck (+ attackerteam); WaitTouch: cooldown → CanInteract(pev->team) → FireTargets +
+TSHudMessageAll → arm next-allowed.
+
+**Verified RUNTIME (rcbot, ts_wyndham, SYNTHETIC — 0 stock placements):** a touch fired + armed the
+cooldown (nextAllowed → t+2); an immediate re-touch was blocked. Factory `ts_trigger` exported; no
+crash; clean regression (tm_avana, 0 Can't init).
+
+**SLICE:** the "Flag Carrier Only" spawnflag needs the CTF flag system (not built) → ignored; the team
+gate uses pev->team (now real as of cont.35).
+
+**Session status:** ~25 TS classes reconstructed (the self-contained server-side gameplay is
+essentially complete). Remaining = the big/client-entangled subsystems: faithful team mode + cash
+(team assignment, SetTeamList, scores, the full RestartRound), the buy menu, the CTF entities
+(CTSFlag/CTSBriefcase/CTSBomb/CTSTeamEscape/CVipEscape — need teams), CTSStunt (movement, client),
+and the cl_dll side (visible time-dilation, particles CTSSharedEmitter/CTSEmitter/CTSParticle, HUDs).
+
+---
+
+## 2026-06-21 (cont. 33) — CTSSlowMotionPoint (the slow-motion bubble; powerup→GoSlow link)
+
+**Done — `dlls/ts_slowmotionpoint.cpp`.** Un-SLICEs the deferred SlowMotionFlow link from
+cont.14/15: an activated slow-motion powerup now actually drops nearby players into slow-motion.
+
+RE (from the .so): CTSSlowMotionPoint (CreateSlowMotionPoint @0x69c60, ActivateSlow @0x663d0 sets
++0xe8 endtime/+0xec scale/+0xf4 bullets, WaitThink @0x71728). WaitThink polls every 0.5s: for each
+living player, if `!InSlow()` and a TraceLine from the point to the player's eye is clear (LOS) →
+`GoSlow(scale, bullets)` + track; at the end time → DeactivateSlow (restore tracked) + UTIL_Remove.
+A runtime entity (0 FGD placements), created by the powerup/SlowMotionFlow.
+Functional reconstruction on cont.15's CBasePlayer::GoSlow/InSlow:
+- `CTSSlowMotionPoint : CBaseEntity`: ActivateSlow + WaitThink (LOS GoSlow) + DeactivateSlow (restore
+  m_hSlowed[]). `TSCreateSlowMotionPoint(origin, scale, duration, bullets, owner)`.
+- `CBasePlayer::UsePowerUp`: a slow-motion(0.6)/slow-pause(0.8) powerup spawns a bubble at the player
+  (owner = activator, the powerup duration).
+
+**Verified RUNTIME (rcbot, ts_wyndham, SYNTHETIC — 0 stock placements):** a bubble at bot1 (owner)
+with bot2 adjacent → bot2 `InSlow()=1 go=0.60`, owner bot1 `InSlow()=0` (skipped); at expiry the
+bubble removed itself + restored bot2 (InSlow=0). No crash; clean regression (ts_theatre, powerups).
+
+**SLICE:** the visible time-dilation MOVEMENT is still client-side (GoSlow sets server fields only);
+the owner is skipped (stays "fast" = bullet-time feel) vs the .so's exact LOS set; no projectile slow.
+
+---
+
+## 2026-06-21 (cont. 32) — CTSDMHill (king-of-the-hill brush volume)
+
+**Done — `dlls/ts_dmhill.cpp` (ts_dmhill).** A self-contained DM game-mode entity (no team/client
+dependency). The `tm_`/team subsystem is the big remaining work, so this is a clean faithful
+self-contained increment.
+
+RE (from the .so): CTSDMHill (Spawn @0x71a8c brush SET_MODEL + SetSize, KeyValue @0x719b8, WaitTouch
+@0x71be8 1433 bytes — tracks a single holder, awards `fragamt` (DM) / `fragamtteam` (team) frags to
+pev->frags + gmsgScoreInfo + a "<netname> <message>" broadcast once held `nextcheck` seconds).
+Functional reconstruction: a 0.5s `HillThink` polls the volume (`Intersects`) — exactly one living
+player inside earns the timed award; 0 or 2+ (empty/contested) resets the king. KeyValue
+nextcheck/fragamt/fragamtteam (+ message via the Target base).
+
+**Verified RUNTIME (rcbot, ts_wyndham, SYNTHETIC — ts_dmhill has 0 stock placements):** a hill
+instantiated around a sole bot awarded fragamt on the timer (frags 0→5). Factory `ts_dmhill`
+exported; no crash; clean regression. (Build + synthetic only, like ts_timer/ts_customtarget — no
+stock map exercises it; a hand-made test map would confirm in-map.)
+
+**SLICE:** the .so's same-team-holders-don't-reset nuance simplified to "sole occupant".
+
+---
+
+## 2026-06-21 (cont. 31) — CTSGameRules::TeamWin + round restart (objective win ends the round)
+
+**Done — the objective→win→round-restart chain.** Completes cont.25, where `CTSWinGiver::Use`
+was a SLICE that only announced. The win now goes through the game rules (first piece of the
+team subsystem).
+- `CTSGameRules::TeamWin(team)`: bump `m_teamScore[team]`, announce the winner (TSHudMessageAll),
+  schedule a restart 3s out (`m_flRoundRestart`; the .so TeamWin @0x68e00 uses param_1+0xc = time+3).
+- `CTSGameRules::Think`: when `m_flRoundRestart` elapses, `TSRestartRound` respawns every player
+  (SDK `respawn()`) + re-arms the objectives (re-Spawn each ts_wingiver/ts_hack) + announces.
+- `CTSWinGiver::Use` → `TSGameRules()->TeamWin(m_winnerTeam)` (the inline announce removed).
+
+**Verified RUNTIME (tm_avana, temp probe reverted):** firing the wingiver (winnerteam 2 = draw →
+teams 0/1 unchanged, correct) scheduled a restart (pending=12.0); 3s later it fired → players
+respawned + the wingiver re-armed (done=0). No crash; clean regression (ts_wyndham + tm_avana).
+
+**SLICE:** faithful TeamWin awards victory/defeat cash + drives the round-time HUD; the full round
+timer + the TS game-mode member + InitObjectives/SetObjective remain the team-subsystem TODO
+(RestartRound @0x67920 ~1100 bytes, TeamWin @0x68e00 ~1564). No team ASSIGNMENT yet (scores track
+the winnerteam the objective names, not per-player teams).
+
+---
+
+## 2026-06-21 (cont. 30) — CTSAmmoPack (drop ammo on death; consumable per-caliber pack)
+
+**Done — `dlls/ts_ammopack.cpp`.** Completes the death-loot story: weapons (cont.27) + corpse
+(cont.28) + now ammo. The dead player's per-caliber reserve drops as one consumable pack.
+
+RE (from the .so): `CTSAmmoPack` (CreateAmmoPack @0xa1334 copies a 16-int per-caliber array;
+Spawn @0xa13f4 model `ammopack.mdl` + `movetype=6` TOSS + `solid=2`; WaitTouch @0xa16c0 loops the
+16 calibers calling `CTSGun::AddAmmo` and ZEROES each given entry — CONSUMABLE, vs the persistent
+CTSGroundAmmo station cont.17). FUNCTIONAL reconstruction on the stock SDK (no CTSPhysicObject):
+- `CTSAmmoPack : CBaseEntity` (ts_ammopack) carrying `m_ammo[16]`: MOVETYPE_TOSS → FallThink settle
+  → SOLID_TRIGGER + WaitTouch. WaitTouch: for a TS-gun holder, `TSAddAmmo` each caliber, zero what
+  was taken, UTIL_Remove when emptied. `TSCreateAmmoPack(owner, counts[16], origin, vel)`.
+- `TSDropAmmoOnDeath(player)` (ts_gun.cpp): drop the gun's `m_ammoReserve[16]` as one pack.
+- `CTSGameRules::PlayerKilled` now also calls it. `ammopack.mdl` precached at map load.
+
+**Verified RUNTIME (rcbot, ts_wyndham, temp probe reverted):** killing a beretta-holding bot
+dropped a pack carrying 9mm=45; a live tsgun holder touching it received the 9mm (pack m_ammo[1]
+45→0) and the emptied pack was UTIL_Remove'd (deferred to frame end). No crash; clean regression
+(factory `ts_ammopack` exported).
+
+**SLICE:** no CTSPhysicObject bounce; one pack for the whole reserve (not per-mag); no thrown-pack.
+
+---
+
+## 2026-06-21 (cont. 29) — CTSShrapnel (grenade-blast fragments)
+
+**Done — `CTSShrapnel` in `dlls/ts_grenade.cpp`.** The grenade explosion (cont.20 CM61Grenade)
+now throws damaging fragments, matching the .so (a grenade Detonate spawns CTSShrapnel).
+
+RE (from the .so): `CTSShrapnel : CTSPhysicObject` (Create @0x7bf9c, Spawn @0x7c0a0 with
+`models/shrapnel.mdl` + `movetype=10` MOVETYPE_BOUNCE + `solid=2`, BounceTouch @0x7c200
+TraceAttacks on contact, WaitThink @0x7c678 lifetime). FUNCTIONAL reconstruction on the stock SDK
+(no CTSPhysicObject):
+- `CTSShrapnel : CBaseEntity` (ts_shrapnel): MOVETYPE_BOUNCE + SOLID_BBOX; BounceTouch TraceAttacks
+  a damageable hit (14 dmg DMG_BULLET, then remove) or bounces off the world ≤2× before expiring;
+  1.5s FadeThink. `Create(owner, origin, velocity)`.
+- `CM61Grenade::M61Tumble`/`M61Detonate` replace the stock TumbleThink→Detonate: tumble in flight,
+  then at the fuse spawn 10 random-direction fragments + `CGrenade::Detonate` (stock area blast).
+- `models/shrapnel.mdl` precached at map load (PrecacheAllTSWeapons; valve fallback model).
+
+**Verified RUNTIME (rcbot, ts_wyndham, temp probe reverted):** a thrown grenade detonated and
+spawned the shrapnel burst (fragments bounce, several alive post-blast), no crash; clean
+regression (factory `ts_shrapnel` exported).
+
+**SLICE:** no CTSPhysicObject bounce, fixed 10 fragments/14 dmg, no fragment trail/sound.
+
+---
+
+## 2026-06-21 (cont. 28) — Death handling: CTSDeadCorpse + drop-arsenal-on-death
+
+**Done — `dlls/ts_corpse.cpp` + a `CTSGameRules::PlayerKilled` hook.** Completes the on-death side
+left open in cont.27 and adds the TS death body.
+
+RE (from the .so): `CTSDeadCorpse` (Spawn @0x7040c, WaitThink @0x70460) + `TSCreateDeadCorpse`
+(@0x60234). The corpse is `CBaseEntity::Create("…")` copying the player's origin/angles (rep movsl)
++ pev->model (+0xb8), modelindex (+0xb4), sequence/frame (+0x130/+0x1a8), `movetype = 6`
+(MOVETYPE_TOSS @+0x108); WaitThink (0.5s) ramps renderamt down by `((fadeEnd-time)/(lifetime*0.667))*255`
+then UTIL_Remove. Functional reconstruction:
+- `CTSDeadCorpse : CBaseAnimating` (ts_corpse): MOVETYPE_TOSS + SOLID_NOT + kRenderTransTexture;
+  `FadeThink` fades renderamt then removes (15s lifetime). `TSCreateDeadCorpse(player, lifetime)`
+  copies model/origin/angles/sequence/frame(framerate 0 = frozen)/body/skin/colormap.
+- `TSDropWeaponsOnDeath(player)` (ts_gun.cpp): scatter the whole arsenal into the world as
+  CTSWorldGuns (random toss) — the on-death drop noted as SLICE in cont.27.
+- `CTSGameRules::PlayerKilled` override: `CHalfLifeMultiplay::PlayerKilled` (scoring/death-notice),
+  then drop weapons + spawn the corpse.
+
+**Verified RUNTIME (rcbot, ts_wyndham, temp probe reverted):** a bot given beretta+uzi then
+force-killed (suicide TakeDamage) produced exactly **1 ts_corpse + 2 ts_worldgun**; no crash; clean
+regression (factory `ts_corpse` exported).
+
+**SLICE:** corpse copies the live pose at PlayerKilled time (no dedicated death-anim capture);
+melee/no-world-model weapons aren't dropped; no gib/blood. The on-death weapon drop now means the
+CTSWorldGuns are reachable in normal play (kill someone → their guns drop, press USE to grab).
+
+---
+
+## 2026-06-21 (cont. 27) — CTSWorldGun (player-dropped weapons: drop + USE-pickup)
+
+**Done — `dlls/ts_worldgun.cpp`: the dropped-weapon-in-the-world entity.** Completes the weapon
+lifecycle (map pickups via CTSGroundWeapon cont.11; player drops here).
+
+RE (from the .so): `CTSWorldGun : CTSPhysicObject` carries a tsweapon_t (+0x88) + the full
+s_weapon_status (14 ints); created by `CBasePlayer::DropWeapon`/`ThrowWeapon` -> `CTSGun::DropWeapon`
+(removes from the arsenal) -> `CTSWorldGun::CreateWeapon`. `GetWeapon` (@0xa1198) -> `PickUpWeapon`;
+`WaitTouch` (@0xa1250) gates pickup on `pev->button & IN_USE` (0x20) (or auto for the flag, type 0x1d).
+FUNCTIONAL reconstruction on the stock SDK (CM61Grenade-style; no CTSPhysicObject):
+- `CTSWorldGun : CBaseEntity` carrying type + loaded clip. Spawn: w_model + MOVETYPE_TOSS;
+  FallThink settles on FL_ONGROUND -> SOLID_TRIGGER + WaitTouch. WaitTouch: living player pressing
+  IN_USE -> TSPickUpWeapon + UTIL_Remove.
+- `TSCreateWorldGun(type, clip, origin, vel)` = the drop side.
+- `CTSGun::RemoveActiveWeapon(type, clip)` (@DropWeapon 0x8094c): shift the active slot out of the
+  arsenal (requires >=2 weapons — no unarmed state, SLICE), wield the next; free `TSDropActiveWeapon`/
+  `TSPickUpWeapon` (the latter re-adds via GiveTSWeapon + restores the carried clip).
+- `dropweapon` ClientCommand drops the active weapon forward (250u + player velocity).
+
+**Verified RUNTIME (rcbot, ts_wyndham, temp probe reverted):** a bot holding {beretta, uzi} dropped
+the uzi (type 3, clip 32; arsenal 2->1) -> ts_worldgun spawned + settled (SOLID_TRIGGER); a forced
+USE-touch handed the uzi back (holds weapon_tsgun, world gun removed). No crash; clean regression
+(factory `ts_worldgun` exported).
+
+**SLICE:** no CTSPhysicObject bounce, carries type+clip only (the shared caliber reserve stays with
+the dropper), no on-death auto-drop, no flag auto-pickup, no throw arc.
+
+---
+
+## 2026-06-21 (cont. 26) — CTSGameRules::PutPowerUp (dynamic deathmatch powerup spawning)
+
+**Done — the dynamic powerup spawner.** Un-SLICEs the `CTSGameRules::PutPowerUp` (@0x9797c)
+niche left in cont.13. DM maps now spawn powerups dynamically even without ts_powerup placements.
+- `CTSGameRules::PutPowerUp(type)`: collect `info_player_deathmatch` spots (cap 32), pick a
+  random one, skip if a `ts_powerup` is already within 128u, else create a powerup there via a
+  new `TSCreatePowerUpAt(type, origin)` free helper (ts_powerup.cpp; wraps
+  `CTSPowerUp::CreatePowerUp` + UTIL_SetOrigin so it drops from the spot).
+- `CTSGameRules::Think` override (the rules object now runs TS think): `CHalfLifeMultiplay::Think()`
+  then, in DM only, roll `GetRandomPowerup(0x1ff)` every ~20s and PutPowerUp it (1s retry on
+  fail). Mirrors the .so Think powerup block (`if mode<2 … every 20s`). DM gate = `!IsTeamplay()`
+  (which as of cont.35 == the objective-manager proxy).
+
+**Verified RUNTIME (temp probe reverted):** ts_wyndham (DM) spawned a random powerup every 20s
+(t=1 kungfu, t=21 slowmo, t=41 kungfu); tm_avana (objective map) correctly skipped (0 spawns).
+No crash; clean regression.
+
+---
+
+## 2026-06-21 (cont. 25) — Objective subsystem (ts_hack/wingiver/manager/ptr) — team-mode maps
+
+**Done — `dlls/ts_objectives.cpp`: the 4 objective entity types the `tm_` maps place.** Loading
+a team-mode map (tm_avana) showed 7 Can't-inits: ts_hack(2), ts_objective_manager(1),
+ts_objective_ptr(1), ts_wingiver(3). All cleared.
+
+RE (from the .so): these are point/brush entities tied into a CTSGameRules team subsystem
+(`TeamWin` @0x68a08 1564 bytes, `ShowObjectiveOnHud`, `AddObjectiveInList`) that ISN'T built —
+the interaction "who is hacking" + the win scoring/round-restart are gamerules-driven. Built a
+FUNCTIONAL standalone reconstruction instead:
+- `CTSObjective` (base @0x8c2b0): `attackerteam` keyvalue (+0x68, -1=any) + CanInteract(team)/
+  Freeze(bool). (.so Freeze also calls ShowObjectiveOnHud — SLICE.)
+- `CTSObjectiveManager` (@0x8b7bc, ts_objective_manager): objptargeta..h / messagea..d /
+  targeton{timeleft,specdead,mercdead} keyvalues; `Reset()` HUDs the messages + FireTargets the
+  8 objptargets (matches @Reset 0x8b850).
+- `CTSObjectivePointer` (@0x8bb44, ts_objective_ptr): per-team objmsg{spec,merc,team3,team4,all}
+  (the visible HUD arrow is cl_dll — server stub).
+- `CTSHack` (@0x8cccc, ts_hack): brush; SET_MODEL + SOLID_TRIGGER; an attacker-team living player
+  in the volume (HackTouch) drives a `hackingtime` countdown (WaitThink, 1s cadence like the .so);
+  on 0 → fire pev->target + HUD pev->message + Freeze. SLICE: faithful start-hack is gamerules-driven.
+- `CTSWinGiver` (@0x8bf10, ts_wingiver): Use'd `callsnumber` times → declares `winnerteam` (HUD).
+  SLICE: faithful Use → CTSGameRules::TeamWin(team, victory/defeat cash, …) + round restart.
+
+**Verified RUNTIME (tm_avana, temp probe reverted):** 2 hack / 3 wingiver / 1 manager / 1 ptr
+spawn (0 Can't init, was 7); keyvalues parse (hack time=10 attackerteam=-1, wingiver team=2
+calls 1); a forced-hacker hack counted 10→0 and completed (done=1); wingiver Use → declares the
+winner (done=1). tm_corporate also 0 Can't init. No crash; clean.
+
+**Next:** the real payoff is the **CTSGameRules team subsystem** (TeamWin/team assignment/scores/
+RestartRound) — it turns these standalone entities into an actual scored team game mode and
+unblocks the rest of the tm_ maps (ts_briefcase/ts_bomb/ts_flag CTF). Still also: the buy menu,
+CTSSharedEmitter (cl_dll), the visible slow-motion (cl_dll).
+
+---
+
+## 2026-06-21 (cont. 24) — Shotgun fidelity: 8-pellet count + mossberg/sawedoff fire-types
+
+**Done — closed the two known weapon data gaps.**
+- s_weapon_info gains `iPellets` (bullets-per-shot, `s_weapon_info+0x24`): **8 for the five
+  shotguns** (benelli/usas/spas/mossberg/sawed-off), 1 otherwise (extracted from each
+  Write_<weapon>). `StandardFire` uses it instead of the hardcoded `(ft==PUMP)?6:1` guess —
+  which was both wrong (8, not 6) and missed usas/sawedoff (not pump fire-type but 8 pellets).
+- Fixed two fire-types the OLD extract_weapons.py mis-read as 0 (reading the Write_ funcs
+  directly gives the truth): **mossberg 0→1 (pump), sawedoff 0→8 (semi, twin-barrel)**.
+
+**Verified RUNTIME (rcbot, ts_wyndham, temp probe reverted):** mossberg fireType=1 pellets=8,
+sawedoff fireType=8 pellets=8, usas fireType=6 pellets=8, beretta control pellets=1; all fire
+without crash. Clean regression.
+
+**Note on the bigger picture:** the weapon engine is now functionally complete (arsenal,
+all fire-types, akimbo, fire-mode/burst, per-caliber ammo, correct pellets). The remaining TS
+gameplay systems are all LARGE/interconnected or client-entangled: the buy menu (cash economy
+@BuyWeapon checks CashBased()/weapon price s_weapon_info+0xd8/player cash +0x540 + a client
+menu UI), the team/objective subsystem (CTSGameRules::TeamWin @0x68a08 is 1564 bytes atop
+SetTeamList/UpdateTeamScores/RestartRound/InitTeamScore — all the ts_wingiver/ts_hack/
+ts_briefcase entities live in tm_ maps needing it), the networked particles (CTSSharedEmitter,
+needs cl_dll), and the visible slow-motion time-dilation (needs cl_dll). Next agent: pick the
+team foundation (biggest gameplay unlock, server-side) or the buy menu server half.
+
+---
+
+## 2026-06-21 (cont. 23) — Per-caliber ammo (CTSGun::AddAmmo + CTSGroundAmmo wiring)
+
+**Done — the faithful per-caliber ammo system.** Un-SLICEs the per-slot generic reserve +
+the CTSGroundAmmo 9mm-only refill; ammo is now pooled per caliber and shared across same-
+caliber weapons (a single beretta + akimbo berettas draw from one 9mm pool).
+
+RE findings (from the .so):
+- Each weapon names a CALIBER byte at `s_weapon_info+0x8` (extracted from each Write_<weapon>):
+  0 none(melee/grenade), 1 9x19, 2 .45, 3 SHELLS, 4 5.56, 5 .50AE, 6 7.62, 7 5.7, 8 50BMG,
+  9 10mm, 10 .22, 11 .454, 12 .32, 13 .45LC. The gun holds 16 per-caliber reserves at `+0xd4`.
+- `compile_ammo_info` (@0x6f51c) builds a per-caliber table (stride 0x38): +0x10 = magazine
+  size, **+0x20 = max reserve (rounds)** — 9mm 80, .45 90, shells 90, 5.56 150, 7.62 170,
+  50BMG 200, … (full table extracted).
+- `AddAmmo(caliber,count)` (@0x808ac): `reserve[caliber] = min(reserve+count, max[caliber])`.
+- `ReloadWeapon` (@0x84a14): `take = min(clipSize - clip, reserve[caliber])` → reserve is in
+  ROUNDS, drawn into the clip. (Settled the rounds-vs-mags question.)
+- `CTSGroundAmmo::WaitTouch` (@0xa2f40): loops the 16 calibers calling `AddAmmo(gun, cal,
+  m_mags[cal])` — the FGD `magsN` keyvalues add raw rounds to caliber N (the station persists,
+  topping up on every touch; real maps set magsN = 3–5).
+
+Functional reconstruction:
+- `ts_weapons.{h,cpp}`: s_weapon_info gains `iCaliber` (the +0x8 byte, full table); `kAmmoMax[16]`
+  + `TSAmmoMax(caliber)`.
+- `ts_gun.cpp` CTSGun: **replaced the per-slot `m_arsenalReserve[]` with per-caliber
+  `m_ammoReserve[16]`**. `AddAmmo` method (capped). Spawn/AddWeapon seed the caliber reserve
+  (clip*3); the akimbo upgrade adds the 2nd pistol's rounds to the shared pool; Reload draws
+  from `m_ammoReserve[caliber]`; MultiplyClips (inf-clip powerup) tops the active caliber.
+  Free `TSAddAmmo(player, caliber, count)`.
+- `ts_groundammo.cpp` WaitTouch: per-caliber `TSAddAmmo(player, cal, m_mags[cal-1])` (was the
+  9mm-only SLICE).
+
+**Verified RUNTIME (rcbot, ts_wyndham, temp probe reverted):** beretta → clip 15 / 9mm reserve
+45; emptied clip → Reload drew 15 from the 9mm pool → 15/30; 2nd beretta → akimbo (type 8) +
+SHARES the 9mm pool (reserve 30+15=45); +m16 → 5.56 reserve 54, 9mm unchanged (separate pools);
+40× AddAmmo(1,3) capped at max 80. Clean regression on ts_supertimor_d3 (6 ground-ammo packs):
+0 Can't init, 0 crashes.
+
+**SLICE/deferred:** starting reserve = clip*3 (the faithful buy menu / BuyArmament sets the real
+loadout); calibers 12/13 (skorpion/contender) have no ground-ammo magN; no client ammo HUD;
+grenade (caliber 0) still uses its own m_iClip count (no caliber reserve).
+
+---
+
+## 2026-06-21 (cont. 22) — Fire-mode system (auto/semi/burst/pump + SwitchFireMode)
+
+**Done — the faithful trigger engine.** Auto/semi/burst/pump is now decided by a per-slot
+FIRE-MODE (orthogonal to fire-type, which still picks the fire *function*) — replacing the
+old fire-type-based auto/semi approximation.
+
+RE findings (from the .so):
+- `PrimaryAttack` (@0x81a20): melee/grenade/katana/flag dispatch by fire-type FIRST (outside
+  the mode system); the bullet/akimbo path then gates on the fire-mode byte `m_pActiveItem+2`:
+  mode 0 full-auto (held), 1 semi (per-press; dblfire powerup → held), 2 burst (set count on
+  press, return — fired by WeaponIdle), 3 pump (held), 4 akimbo-alt (per-press), 5 akimbo-both
+  (held). Burst count = `(weaponType != 0x17) + 2` → **3 rounds, 2 for the MAC-10 (0x17)**.
+- `WeaponIdle` (@0x854dc): while firemode==2 and burst count>0 and the idle timer elapsed →
+  `Fire()` + count-- (this completes a tapped burst after the trigger is released).
+- `StandardFire` (@0x824a4): burst rate = 0.03 between rounds, 0.2 after the last.
+- `SwitchFireMode` (@0x8169c): cycle the mode byte to the next bit set in the weapon's mode
+  MASK at `s_weapon_info+0xc`, modes 0..5 wrapping. Default mode (`TakeWeapon`): auto if
+  offered, else pump, else burst, else semi. Masks extracted from each `Write_<weapon>`
+  (`movl $imm,0xc(%eax)`): e.g. beretta=2 (semi), uzi=3 (auto+semi), m16=6 (semi+burst,
+  defaults burst), mp5sd/mp5k/mac10=7 (auto+semi+burst), akimbos 18/33.
+
+Functional reconstruction:
+- `ts_weapons.{h,cpp}`: s_weapon_info gains `iFireModes` (the +0xc mask, full table extracted);
+  `enum tsfiremode_mode_t`; `TSDefaultFireMode(mask)`.
+- `ts_gun.cpp` CTSGun: per-slot `m_arsenalMode[]` + active `m_fireMode` + `m_burstCount`
+  (saved/loaded by SelectSlot; defaulted in Spawn/AddWeapon/akimbo-upgrade). PrimaryAttack
+  rewritten to gate by m_fireMode → `Fire()` (dispatches by fire-type: AkimboFire or the new
+  `StandardFire`, factored from the old inline bullet code). WeaponIdle drives the burst.
+  `SwitchFireMode()` + free `TSSwitchFireMode` + the `tsfiremode` ClientCommand.
+
+**Verified RUNTIME (rcbot, ts_wyndham, temp probe reverted):** default modes correct for all
+masks (beretta→1 semi, uzi→0 auto, m16→2 burst, mp5sd→0 auto); `SwitchFireMode` cycles only
+the available modes (beretta stays 1; uzi 1↔0; m16 1↔2; mp5sd 1→2→0); m16 burst fired exactly
+3 rounds per tap (clip 18→15, burst 3→0). No crash; clean regression (only the known
+`ts_emitter`/`ts_particle` Can't-inits remain).
+
+**SLICE/deferred:** burst sustain depends on the SDK ItemPostFrame/WeaponIdle cadence (a held
+burst fires via PrimaryAttack, a tapped one finishes via WeaponIdle); no client-side fire-mode
+HUD indicator (the .so writes `mode+1` to player+0x49a per weapon); pump (mode 3) doesn't yet
+play a pump-action animation; the dblfire→semi-auto-continuous interaction is approximated.
+
+---
+
+## 2026-06-21 (cont. 21) — Akimbo (fire-types 4/5): dual-wield upgrade + AkimboFire
+
+**Done — akimbo dual-wielding.** Un-SLICEs fire-types 4 (combinable) & 5 (gold-only),
+the last unhandled PrimaryAttack fire-type.
+
+RE findings (from the .so):
+- `IsWeaponAkimbo(t)` = `get_weapon_info(t)->iFireType==4`; `IsOnlyAkimbo(t)` = `==5`
+  (objdump @0x7019c/0x701d4 — both just compare the +0x348 fire-type byte).
+- Akimbo PAIRING fields in s_weapon_info: **+0xc8** = the akimbo variant a single pistol
+  upgrades into (-1 if none); **+0xcc** = the single base of an akimbo (= self for
+  non-akimbo). Read from each `Write_<weapon>` (`movl $imm,0xc8/0xcc(%eax)`; the table is
+  .bss so file reads are garbage — must read the Write_ funcs). Pairs: 2↔8 (beretta),
+  3↔16 (uzi), 9↔10 (mk23), 14↔30 (fnh), 17↔37 (skorpion); gold(21) is ft-5, no single.
+- `TakeWeapon` (@0x80a04): owning the single + picking up an identical 2nd → `local_12`
+  becomes the +0xc8 akimbo → combines in place (clip = sum of both barrels). `AkimboFire`
+  (@0x829c0) splits the clip into left/right barrels (m_pActiveItem+0x1c/+0x20), alternates
+  the firing barrel (one per IN_ATTACK/IN_ATTACK2) from a ±5u right-vector muzzle offset;
+  rate = flFireRate, or fixed 0.1 in alternating fire-mode.
+
+Functional reconstruction (on the cont.18 single-clip arsenal):
+- `ts_weapons.{h,cpp}`: s_weapon_info gains `iAkimboType`/`iSingleType`; set in
+  compile_weapons_info. Added `TSFT_AKIMBO_ONLY=5`.
+- `CTSGun::AddWeapon`: if you already hold the single + it has an akimbo upgrade + don't
+  hold the akimbo → upgrade the slot in place (SelectSlot first so m_iClip is live, then
+  type→akimbo, clip = single's rounds + a 2nd pistol capped at the doubled clip, reserve
+  += a 2nd pistol, re-Deploy). Slot count stays the same (not a new slot).
+- `CTSGun::AkimboFire(wi)` (dispatched for ft 4/5): full-auto-feel (fires while held — no
+  IN_ATTACK2 plumbed), `m_akimboSide ^= 1` each shot → ±5u v_right muzzle offset, one
+  bullet/clip-- per shot, flSpread/flDamage/flFireRate (+ DoubleFireRate powerup halving).
+
+**Verified RUNTIME (rcbot, ts_wyndham, temp probe reverted):** gave a bot beretta, then a
+2nd beretta → upgraded in place to **type 8 (beretta_akimbo), clip 30** (15+15 capped),
+reserve 60, arsenal count stayed 1. Held trigger → AkimboFire fired (clip 30→26→16→6, then
+reload from reserve → 26, side toggled 0↔1), active item = the gun. No crash; clean
+regression (0 crashes; only the known `ts_emitter`/`ts_particle` Can't-init remain).
+
+**SLICE/deferred:** single active clip (not a true L/R barrel split); no IN_ATTACK2
+"fire both barrels at once" (firemode 5 path); no per-barrel reload; the akimbo's separate
+view-model akimbo animation events are not wired. Fire-mode/burst (`SwitchFireMode`) and the
+buy menu remain the next weapon-engine items.
+
+---
+
+## 2026-06-21 (cont. 20) — CM61Grenade (grenade fire-type 2 throws a grenade)
+
+**Done — `dlls/ts_grenade.cpp` CM61Grenade + the grenade fire-type.** Un-SLICEs
+fire-type 2 (was falling back to bullets) + makes the grenade powerup useful.
+- The faithful CM61Grenade is `CM61Grenade : CTSGrenade : CTSPhysicObject` (TS physics
+  base classes, not built) with event-driven creation + a custom WaitThink (traces 64u
+  ahead for near-impact detonation). FUNCTIONAL reconstruction onto the stock SDK
+  `CGrenade` instead (which already does arc/bounce/timed-detonate): `CM61Grenade::Throw`
+  replicates `CGrenade::ShootTimed` but with `w_m61.mdl` (so no models/grenade.mdl
+  precache dependency) — MOVETYPE_BOUNCE, `CGrenade::BounceTouch`, `TumbleThink`→
+  `Detonate` at dmgtime, gravity 0.5/friction 0.8. Free `TSThrowM61(pevOwner, src, vel,
+  fuse, dmg)`.
+- `CTSGun::PrimaryAttack` dispatches TSFT_GRENADE (2) → new `GrenadeThrow(wi)`: one throw
+  per press, decrement clip, toss from gun-pos+16 forward at 800u + player velocity, 4s
+  fuse, damage = table flDamage*4 (~120). (m61 table dmg 30 is the per-pickup value; the
+  explosion is area damage.)
+
+**Verified RUNTIME (rcbot, ts_wyndham, temp probe reverted):** a bot with the M61 threw
+100 grenades over 30s (valid entities, clip decrementing); TumbleThink switches to
+Detonate at dmgtime (model-independent: `if (dmgtime <= time) SetThink(Detonate)`), so
+they arc/bounce/explode. No crash; clean regression.
+
+**SLICE/deferred:** no CTSPhysicObject physics, no impact-trace early detonation, no
+throw event/animation; akimbo (fire-types 4/5) still falls back to bullets.
+
+---
+
+## 2026-06-21 (cont. 19) — Powerup→weapon wiring: MultiplyClips + DoubleFireRate
+
+**Done — two now-easy powerup effects, faithful on the cont.18 arsenal.** Completes
+the powerup→weapon connection.
+- `CTSGun::MultiplyClips()` (@0x71308, the infinite-clip powerup): doubles the active
+  arsenal slot's reserve (>= a full resupply, capped ~6 clips). Free `TSMultiplyClips
+  (player)` wraps it (GetPlayerTSGun). `PlayerAddPowerUp`'s inf-clip branch now calls it
+  (was a SLICE clip-refill).
+- `CTSGun::PrimaryAttack`: `if (DoubleFireRate(m_pPlayer)) flRate *= 0.5` — the
+  double-firerate powerup now halves the fire interval (the accessor already flips true
+  while the dblfire powerup is active; just wired into the rate).
+
+**Verified RUNTIME (rcbot, ts_wyndham, temp probe reverted):** beretta inf-clip reserve
+45→90 (doubled); dblfire baseRate 0.100 → rate 0.050 (halved), 105 fires at the doubled
+rate. No crash; clean regression.
+
+---
+
+## 2026-06-21 (cont. 18) — CTSGun weapon arsenal (the items-array, modern reconstruction)
+
+**Done — the player's weapon_tsgun now holds a multi-weapon ARSENAL.** A clean
+MODERN reconstruction of the original items-array (the faithful one is a 0x38-byte
+s_weapon_status items[] @CTSGun+0x114 with m_pActiveItem@0xcc / m_pActiveInfo@0xd0 +
+weapon/ammo-group masks + akimbo pairing — heavy byte layout, reconstructed from
+intent, not transcribed).
+- `dlls/ts_gun.cpp` CTSGun: added parallel arrays `m_arsenalType/Clip/Reserve[12]` +
+  `m_arsenalCount` + `m_active`. `m_weaponType` now tracks the active slot (so the
+  fire-type dispatch + Deploy are unchanged).
+- `FindSlot(type)` / `AddWeapon(type)` (@AddItem__6CTSGun: add a slot or resupply,
+  then wield) / `SelectSlot(slot)` (@SelectWeapon__6CTSGun: save the wielded clip,
+  load the new slot's, re-Deploy if held).
+- `Spawn` seeds the arsenal with the placed type (clip full, reserve = 3 clips).
+- `PrimaryAttack` unchanged (operates on m_iClip = the active slot's clip). `Reload`
+  now refills m_iClip from the active slot's own reserve (not DefaultReload).
+- `GiveTSWeapon(player, type)`: if the player already holds weapon_tsgun, AddWeapon
+  to it; else create + pick up. (Helper `GetPlayerTSGun` walks m_rgpPlayerItems.)
+- `CTSGroundWeapon::GetWeapon`: dropped the "one TS weapon at a time" guard — picking
+  up a ground weapon now ADDS it to the arsenal.
+- `tsnextweapon` ClientCommand → `TSCycleWeapon` cycles the active slot.
+
+**Verified RUNTIME (rcbot, ts_wyndham, temp probe reverted):** a bot built a 3-weapon
+arsenal (beretta→+uzi→+knife), `tsnextweapon` cycled 0→1→2→0 through all three, each
+deploying its own view model with its own clip/reserve (beretta 15/45, uzi 32/96,
+knife 18/54). PER-SLOT CLIP PERSISTS: the bot fired the uzi (clip 32→30) and the count
+survived switching away+back. No crash; clean regression (0 Can't init, 0 crashes).
+
+**SLICE/deferred:** no akimbo pairing (single active slot — the faithful engine wields
+two for fire-types 4/5), no weapon/ammo-groups, no fire-mode/burst state, no buy menu
+(`BuyWeapon`/`BuyArmament`); the per-caliber ammo reserve is still per-slot generic (not
+wired to CTSGroundAmmo's calibers). The grenade/akimbo PrimaryAttack fire-types still
+fall back to bullets.
+
+---
+
+## 2026-06-21 (cont. 17) — CTSGroundAmmo (ts_groundammo refill pack, 16 placements)
+
+**Done — `dlls/ts_groundammo.cpp` CTSGroundAmmo : CBaseEntity.** A map-placed ammo
+pack; lifecycle mirrors CTSPowerUp (Spawn→Fall→OnGround settle→WaitTouch/WaitThink),
+recovered from the .so (Spawn/OnGround tails truncated by Ghidra noreturn at
+UTIL_SetOrigin → read via objdump):
+- Spawn: model `models/ammopack.mdl`; movetype = MOVETYPE_FLY (wall, spawnflag 16) or
+  MOVETYPE_TOSS (floor); solid SOLID_BBOX; SetThink(Fall) + nextthink time+0.1.
+- Fall: settle on FL_ONGROUND → OnGround (or PutOnWall for the wall variant) + drop
+  sound. OnGround: SOLID_TRIGGER, MOVETYPE_FLY (stop), clear EF_NODRAW + EF_DIMLIGHT,
+  SetTouch(WaitTouch)+SetThink(WaitThink). WaitThink idles (nextthink+1).
+- KeyValue: wduration → m_respawnTime; mags1..mags11 (parse the index off "mags") →
+  m_mags[0..10] (per-caliber magazine counts: 9x19/.45/SHELLS/5.56/.50AE/7.62/5.7/
+  50BMG/10mm/.22/.454).
+- WaitTouch: a visible pack refills a touching ALIVE player who holds a TS gun. The
+  pack PERSISTS (tops players up when they have room; not consumed on pickup — matches
+  the .so, which has no hide/remove in WaitTouch).
+- PutOnWall: SLICE = settle-in-place stub.
+
+**SLICE:** faithful WaitTouch loops the 16 ammo-type slots calling `CTSGun::AddAmmo(
+caliber, mags)` on the active gun (the per-caliber reserve = part of the unbuilt
+weapon items-array; gate is m_pActiveItem id == 0x10). Here it sums the mags and tops
+up the held weapon's **9mm** reserve via `CBasePlayer::GiveAmmo(n, "9mm", _9MM_MAX_CARRY)`.
+
+**Verified RUNTIME (rcbot bots, ts_supertimor_d3 = 6 placements), temp probe (reverted):**
+6 settled (`Can't init ts_groundammo` gone); a weapon_tsgun-holding bot touched a pack
+(14 mags) → GiveAmmo topped up 9mm by 2 then returned -1 (full) on repeat = correct
+capped refill-station behaviour. No crash (gdb -batch, no CTSGroundAmmo in backtrace).
+Final clean regression boot: 0 `Can't init`, 0 crashes.
+
+---
+
+## 2026-06-21 (cont. 16) — CTSGun fire-type dispatch (semi/auto/shotgun/melee)
+
+**Done — weapons now fire faithfully by fire-type.** Un-SLICEs "everything is identical
+semi-auto bullets".
+- `scripts/extract_weapons.py` extended: also pulls per-weapon fire-rate (0x18), base
+  spread (0x28), recoil (0x34). Regenerated the table.
+- `ts_weapons.{h,cpp}`: s_weapon_info gains flFireRate/flSpread/flRecoil; added
+  `enum tsfiretype_t` (0/8 semi, 1 pump, 2 grenade, 3 knife, 4/5 akimbo, 6 auto-shotgun/
+  rifle, 7 sniper, 9 SMG-auto, 10 katana, 11 flag).
+- `CTSGun::PrimaryAttack` dispatches by iFireType: melee (3/10) → new MeleeAttack()
+  hull-trace (knife 48u/katana 64u) + TraceAttack(DMG_CLUB), no bullets; full-auto (9/6)
+  fires while held; semi (0/8/7/1 + SLICE akimbo/grenade) one shot per press
+  (m_afButtonPressed); pump shotgun (1) → 6 pellets. Uses real flSpread + flFireRate.
+- SLICE: grenade(2)/akimbo(4/5) fall back to bullets (need throw entity / items-array,
+  where the faithful fire funcs read fire-mode@m_pActiveItem+2 / burst@+8).
+
+**Verified (rcbot, ts_wyndham, probe reverted):** beretta ft=8 SEMI 43 fires (one/press)
+vs uzi ft=9 AUTO 201 (held); benellim3 ft=1 6-pellet; knife/katana hull-trace MELEE hit
+func_breakable/worldspawn, no bullets. No crash. **Data gaps:** mossberg(26)/sawedoff(33)
+fire-type extracted as 0 (are shotguns); pellet count fixed 6; m61 rate/spread suspect.
+
+---
+
+## 2026-06-21 (cont. 15) — CTSSlowMotion entity + GoSlow/InSlow + GlobalSlowMotion2
+
+**Done — slow-motion STATE layer + `dlls/ts_slowmotion.cpp` (ts_slowmotion brush zone,
+11 placements).**
+- Slow virtuals `GoSlow`/`InSlow`/`GiveSlowMul` (found via CBasePlayer vtable relocs:
+  +0x14 GoSlow, +0x18 InSlow). As **CBasePlayer methods**: GoSlow(scale,bullets) sets
+  m_flSlowMotionGo (0x168) + m_flSlowMotionTarget (0x170) + m_bSlowBullets; InSlow() =
+  (go!=1||target!=1); both init 1.0.
+- `CTSGameRules::GlobalSlowMotion2(scale,bullets)` + SetGlobalSlowMotion: GoSlow every
+  player, throttled ~0.5s (members 0x560/0x564/0x568/0x56c). SLICE: no projectiles.
+- CTSSlowMotion : CBaseEntity (replaces old draft): Spawn (brush trigger; setup beyond
+  classname/model/size INFERRED // VERIFY); KeyValue duration/slowamt; WaitTouch (GoSlow
+  toucher, track m_hPlayers[33]); ActivateSlow/DeactivateSlow; WaitThink (0.5s poll);
+  CheckPlayersDistance (drop beyond m_flRadius from Center()); Use; Save/Restore.
+
+**Verified (rcbot, ts_wyndham=4):** 4 zones; Use() no crash; GlobalSlowMotion2(0.5,1) →
+InSlow()=1 go=0.50; (0,0) → InSlow()=0 go=1.0. No crash.
+
+**SLICE/deferred (visible time-dilation, client-entangled):** actual slow MOVEMENT
+(client pmove — no cl_dll); projectile slow; SlowMotionFlow (@0x86bb0, powerup→GoSlow);
+InterpolateSlowMotion (@0x8910c); motion-blur HUD; cmd_globalslow; Spawn/m_flRadius inferred.
+
+---
+
+## 2026-06-21 (cont. 14) — Powerup activation state machine (UsePowerUp/UpdatePowerUpState)
+
+**Done — held timed powerups ACTIVATE + expire.** From UsePowerUp (@0x85980),
+UpdatePowerUpState (@0x85748), DeactivateSlowMotionFlow (@0x86a9c):
+- CBasePlayer::UsePowerUp() (ts_player.cpp): `usepowerup` command. Alive + holding +
+  none active → m_iPowerups = m_iHeldPowerup, expire = m_flPowerupTime + time; sends
+  gmsgTSPowerUpTime + gmsgTSMotionBlur. UpdatePowerUpState() per-frame in PreThink:
+  apply slow fields (slowmo 0.6, slowpause 0.8) / expire + clear.
+- `usepowerup` ClientCommand (confirmed via .so @0x9d838). Players +0x175/0x17c/0x180.
+
+**Verified (ts_theatre):** bot held slowmo (dur 3) + UsePowerUp → m_iPowerups=1,
+SlowMotion()=1, scale 0.60 for 3s, expired + cleared. No crash. (Note: activation sets
+m_flSlowMotionScale, NOT GoSlow — the powerup→GoSlow link is SlowMotionFlow, deferred.)
+
+---
+
+## 2026-06-21 (cont. 13) — CTSPowerUp + PlayerAddPowerUp (the 328-placement pickup)
+
+**`dlls/ts_powerup.cpp` CTSPowerUp : CBaseAnimating (ts_powerup, 328 placements).** Full
+lifecycle (Spawn + OnGround TRUNCATED by Ghidra noreturn at UTIL_SetOrigin — real tails
+via objdump; Spawn's `nextthink = time+0.1` missed → never settled, caught by "22
+spawned 0 pickups"). Spawn→Fall→OnGround(SOLID_TRIGGER,SetTouch(WaitTouch))→WaitTouch
+(pickup gate: instant mask 0x1e6 always, timed only if none held; re-roll+respawn).
+SetupPowerUp: spawnflags = the random MASK (GetRandomPowerup), pwuptype forces exact.
+**PlayerAddPowerUp** (@0x87bc8): instant real (armor/kungfu/lowgrav/health/grenade→
+GiveTSWeapon(M61) SLICE/infclip SLICE), timed held. Members 0x72c/0x73c. VERIFIED
+(ts_theatre=22): 22 spawned all 8 types, 6 pickups, gate works, no crash.
+
+---
+
+## 2026-06-21 (cont. 12) — Full 38-weapon table + CTSGun by type; gdb debugging
+
+`scripts/extract_weapons.py` → full s_weapon_info table (0x44 name, 0x132 v_model,
+0x172 p_model, 0x1f2 w_model, 0x232 anim-ext, 0x2c6 fire snd, 0x04 clip, 0x1c damage,
+0x348 fire-type; cont.16 added 0x18/0x28/0x34). CTSGun parameterized by m_weaponType;
+ground weapon gives real type. CWorld::Precache → UTIL_PrecacheOtherWeapon at map load.
+VERIFIED (ts_wyndham): type 25→v_knife dmg40, type 3→v_uzi dmg22. Two GDB-found crashes
+fixed (PRECACHE_EVENT map-load; DeathNotice ItemInfoArray). **Use gdb** for crashes.
+
+---
+
+## 2026-06-21 (cont. 11) — CTSGroundWeapon (weapon pickups) + tsweapon_t fix
+
+tsweapon_t index = (lea offset − 0x7d30)/0x3DC, MATCHES FGD tsweaponid. beretta=2, uzi=3,
+knife=25, idx 29=flag. ts_groundweapon.cpp (65 placements): SLICE gives weapon_tsgun;
+respawn after wduration. VERIFIED (ts_wyndham).
+
+---
+
+## 2026-06-20 (cont. 10) — CTSGun recon + weapon data layer (vertical-slice start)
+
+**CTSGun is a subsystem:** ONE unified CBasePlayerWeapon (id 16) morphing by tsweapon_t.
+**tsweapon_t enum (38, compile_weapons_info @0x6fe28):** 0 melee,1 glock18,2 uzi,
+3 uzi_akimbo,4 benellim3,5 m4,6 mp5sd,7 mp5k,8 beretta_akimbo,9 beretta,10 mk23,
+11 mk23akimbo,12 usas12,13 desert,14 ak47,15 fnh,16 aug,17 skorpion,18 barrett,19 pdw,
+20 spas12,21 gold,22 glock22,23 mac10,24 m61,25 knife,26 mossberg,27 m16,28 ruger,
+29 fnhakimbo,30 bull,31 m60,32 sawedoff,33 katana,34 sealknife,35 contender,
+36 skorpion_akimbo,37 flag.
+FAITHFUL CTSGun engine (items array m_pActiveItem@0xcc/m_pActiveInfo@0xd0/items[]@0x45,
+fire-type dispatch s_weapon_info+0x348, akimbo/firemode/zoom) replaces // SLICE.
+
+**Bot test rig (working, reusable):** ~/Containers/hlds/hlds-linux64-test:
+metamod_amd64.so (Metamod-R) as gamedll (liblist.gam → it); config.ini=`gamedll
+dlls/hl.so`; plugins.ini=`linux addons/metamod/dlls/rcbot_mm_amd64.so`. <rig>/rcbot/*;
+min_bots 2. Boot → rcbot bots = real CBasePlayers. Temp StartFrame hook can give/select/
+teleport/fire on a bot (gate on a player existing — bots connect ~t>6-8; pulse IN_ATTACK
+via m_afButtonPressed to test semi vs auto; slide an entity onto a bot to force touch).
+Revert hooks after. Probe output → <rig>/ts/qconsole.log with -condebug.
+
+---
+
+## 2026-06-20 (cont. 9) — TSHudMessageOne + CBasePlayer TS extensions (step 1)
+
+`dlls/ts_utils.{h,cpp}` TSHudMessageOne. CBasePlayer TS member block (player.h):
+m_iPowerups (0x724), m_iHeldPowerup (0x728), m_flPowerupTime (0x730), m_iKungFu (0x74e),
+m_bLowGravity (0x74f) + accessors. (cont.13 +0x72c/0x73c; cont.14 +0x175/0x17c/0x180;
+cont.15 +0x168/0x170 GoSlow/InSlow.)
+
+**The core is a monolith.** Sequencing done: (1) player block+accessors; (2) CTSGun
+base; (3) PlayerAddPowerUp + CTSPowerUp; (4) UsePowerUp/UpdatePowerUpState; (5) GoSlow/
+InSlow + GlobalSlowMotion2 + CTSSlowMotion; (6) CTSGun fire-type dispatch; (7)
+CTSGroundAmmo. NEXT: the faithful weapon items-array (m_pActiveItem/m_pActiveInfo +
+s_weapon_status + AddAmmo + PickUpWeapon/BuyWeapon armament + buy menu — un-SLICEs
+akimbo/grenade/burst-fire, the per-caliber ammo, and the inf-clip/grenade powerup
+branches) and/or the visible slow-motion time-dilation (needs cl_dll); objective/CTF
+entities (CTSHack/CTSBriefcase/CTSBomb/CTSFlag/CTSWinGiver) for team modes. Fill
+CTSGameRules methods as needed.
+
+---
+
+## 2026-06-20 (cont. 8) — CTSGameRules skeleton installed + runtime-verified
+
+**No CTSPlayer class** — TS extends stock CBasePlayer. `CTSGameRules : CHalfLifeMultiplay`
+is the live g_pGameRules (InstallGameRules). GetRandomPowerup(mask) reconstructed.
+Caveat: tm_ teamplay maps use MP base; revisit when TS team logic lands.
+
+## 2026-06-20 (cont. 7) — CTSMapGlobals runtime-verified
+get_weapon_restriction() = 0x1f ^ spawnflags. (ts_trinityfall).
+
+## 2026-06-20 (cont. 6) — CTSModel + CTSFog; FIRST in-engine runtime verification
+`dlls/ts_model.cpp` cycler-style prop (858 placements). Decompile TRUNCATED by Ghidra
+noreturn at UTIL_SetSize; real body via objdump (Ghidra adds 0x10000 vs nm).
+**Runtime rig:** 64-bit ReHLDS (QUIC) at ~/Containers/hlds/hlds-linux64-test. Boot:
+`LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH timeout -s INT 30 ./hlds_linux -game ts -condebug
++developer 1 +sv_lan 1 +maxplayers 4 +map <map>`. SIGINT not KILL. `Can't init <class>`
+= negative control. With -condebug, ALERT(at_console) probe → <rig>/ts/qconsole.log.
+
+## 2026-06-20 (cont. 5) — CTSCustomTarget built (point relay; no stock map uses it).
+## 2026-06-20 (cont. 4) — DECISION: functional/source-faithful, NOT byte drop-in.
+   ts_utils TSHudMessageAll + ts_timer CTSTimer. glibc 2.14.
+## 2026-06-20 (cont. 3) — CTSSlowMotion draft (superseded by cont.15).
+## 2026-06-20 (cont. 2) — gnv2demangle.py (1788/2426 typed sigs) + DecompExport.java.
+## 2026-06-20 (cont.) — Vino OK'd reconstruction; Ghidra pipeline (decompile.sh).
+## 2026-06-20 — Scaffolding: fork halflife-updated@64bit-demo; reference/; tooling;
+   work-list RECONSTRUCTION.md (60 TS classes). Builds via hlds64-buildchain image.
+
+**Conventions:** NO Co-Authored-By trailer. CLAUDE.md local-only. Auto mode:
+halt & ask on a block.
+
+## CTSAnimation — 3rd-person playtest observations (user, vs the running original) — SPEC for a live-trace pass
+The 4-region Animate rewrite (482a099) was REVERTED (6a8ca20) — it relied on m_fSequenceFinished for the
+Region-B hold guards, but that member is NOT reliably advanced for the SERVER-side player model, so stunts/idle
+froze. Baseline restored = the prior Animate (walk/idle/fire-reset OK; dive-legs read as crouch). The user
+compared our 3rd person against the running original and reported (these are the requirements — VERIFY each via
+a LIVE TRACE of the original's CTSAnimation::Animate, do NOT guess; guessing caused the regressions):
+1. **Dive** reads as a crouch (the original complaint): dive_<dir> body (0x94 clears legs) is stomped by the
+   per-frame PostThink Animate(1=RUN) one frame later. Needs a HOLD that does NOT depend on m_fSequenceFinished
+   (likely the leg-timer the dive sets, m_flLegTimer=3.0, or an iuser4 stunt bit).
+2. **Getup leaves the player DUCKED** — the unduck on dive-end isn't happening (likely TS_pm_shared stunt code,
+   not Animate). Separate from the body sequence.
+3. **Fire animation does NOT play in 3rd person** — PRE-EXISTING ("regardless"). SetAnimation(PLAYER_ATTACK1)
+   DOES route to Animate(TSA_FIRE) which sets shoot_<grip> (0x92 force) + m_flAimTimer=2.0, so trace WHY the
+   3rd-person model doesn't show it (sequence name wrong? server not advancing pev->sequence? overwritten?).
+4. **Knife idle == kung-fu idle** (combat_idle) — so the knife's grip (m_szAnimExtention) should be EMPTY
+   (kungfu path), not idle_<grip>. **Katana has a DEDICATED idle.** Fix is the per-weapon grip/anim-ext.
+5. **Block animations:** kung-fu (fists), knives, AND katana all have BLOCK anims in the original (e.g. reload
+   with kung-fu = block) — kungfu_block / knife_block / katana_block (TSA_CC_BLOCK 0x26 in HandleCloseCombat).
+   The reload-while-melee should play the block, not relo_<grip>.
+NEXT (focused, runtime-driven): live.py + binmap CTSAnimation::Animate on the running original; user reproduces
+dive/fire/idle/block; read the activity arg + resulting pev->sequence/gaitsequence each call; THEN reconcile the
+revert minimally (hold via leg-timer; knife/katana grips; melee block on reload) — verified, not guessed.
+
+## CTSAnimation — LIVE-TRACE findings (original hl.exe, mp.dll) — CHANGES THE APPROACH
+Traced the running original's `CTSAnimation::Animate` (binmap → mp.dll **0x44b50**; live base 0x1e12ffb0 →
+abs 0x1e174b00; pid varies, re-find with `live.py pid`). gdb hardware-bp logging the `activity` arg
+(`*(int*)($esp+8)`; __thiscall: this=ecx, pPlayer=[esp+4], activity=[esp+8]). Tooling + scripts in
+`scratchpad/anim_probe.gdb` / `anim_trace.gdb`. KEY RESULT (multiple runs, incl. holding FIRE 8s):
+**Animate is called per-frame with activity 0x6 (IDLE) / 0x1 (RUN) and essentially NOTHING ELSE.** Firing did
+NOT produce Animate(TSA_FIRE=0); dive/melee/block codes (0x28/0x26/...) were not observed either.
+**=> In the original, CTSAnimation::Animate is ONLY the locomotion (run/idle) dispatcher.** The 3rd-person
+FIRE / stunt / melee body poses are set by a DIFFERENT mechanism, NOT Animate(activity). OUR build routes
+`SetAnimation(PLAYER_ATTACK1) -> Animate(TSA_FIRE)` (player.cpp:962) and ts_stunt.cpp calls `Animate(0x28/...)`,
+which DIVERGES from the original — this is why the 3rd-person fire anim doesn't match and why the stunt poses
+fight the per-frame idle. NEXT (next session, runtime): find WHERE the original sets the player's body
+sequence on fire/stunt — break on writes to the player entity's `pev->sequence` (or trace the weapon's
+StandardFire / the stunt code) to see the real path; then re-route ours to match. Do NOT keep forcing it
+through Animate(activity). (The `dossier-ctsanimation.md` Region-C body switch is real CODE in the .so, but
+the live trace shows it's reached via a path other than the per-frame PostThink Animate(1/6) — find that caller.)
+
+## CTSAnimation — LIVE-TRACE BREAKTHROUGH (the real model; fixes the whole approach)
+Watched the original player's `pev->sequence` (entvars offset **296**; addr from an Animate hit:
+pPlayer=[esp+4] → pev=*(pPlayer+4) → +296) while firing + diving. SEQUENCE CHANGES come from inside the LARGE
+`CTSAnimation::Animate` (mp.dll 0x44b50) — writer return-addresses cluster at RVAs **0x453a8 / 0x4548e /
+0x46023 / 0x461b2** (all inside Animate; nearest export is the unrelated CTriggerCamera::FollowTarget). Fire
+body seqs ≈ 16/48/49/61/64 (multiple sites); DIVE body seqs ≈ 103/135/139/144 (from 0x461b2). **MODEL:
+`Animate` is the SOLE per-frame body-pose setter — called every frame with ONLY idle(6)/run(1) — and it picks
+the actual pose (shoot/dive/idle/…) INTERNALLY from player STATE.** The original NEVER makes external
+`Animate(TSA_FIRE=0)` / `Animate(0x28)` calls (confirmed: held full-auto fire 8s → only act=6; the activity arg
+is the LOCOMOTION mode, not the pose selector).
+**=> OUR BUG:** we route `SetAnimation(PLAYER_ATTACK1)→Animate(TSA_FIRE)` (player.cpp:962) + ts_stunt.cpp
+`Animate(0x28/...)`, and our Animate's Region-C switches on `activity`. That's backwards. The 3rd-person fire
+pose likely never shows because the predicted-only fire path doesn't set the SERVER pev->sequence, and the
+per-frame Animate(6) doesn't read the fire state to set shoot_.
+**FIX (next session, with full context — substantial rework):** `dc.sh mp 0x44b50` (decompile the big mp.dll
+Animate) — recover its INTERNAL state checks (how it detects "firing" / a stunt to pick shoot_/dive_ vs idle_),
+then reconstruct OUR Animate to set the pose INTERNALLY each frame from player state, and REMOVE the external
+Animate(TSA_FIRE)/Animate(0x28) routing. Verify by re-watching pev->sequence on OURS vs the original. gdb
+scripts saved: scratchpad/{anim_probe,getseq,watchseq}.gdb; pev->sequence offset 296, gaitsequence 300.
+
+## CTSAnimation — DECOMPILE (ts_i386.so, the right source) CORRECTS the live-trace conclusion
+Decompiled the big `Animate` (.so 0x5b470→0x5d7e4, ~0x2374 bytes; raw in scratchpad/ctsanim-all.c lines
+79-1206). **Ghidra renders `this->pev` but it's actually `m_iLastActivity` (field@0).** Structure:
+- Region A (continue dive/jump blend), Region B `switch(m_iLastActivity)` (HOLD guards), Region C `switch(a1)`
+  (set the NEW body pose), Region D (leg gait).
+- **Region C case 0/8/9 = FIRE** → `shoot_`/`crouch_shoot_`+grip, sets `m_flAimTimer=2.0` (field_0xc). So fire
+  IS an EXTERNAL Animate(0) call (my live-trace "no Animate(0)" was wrong — the hardware-bp probe missed the
+  rare per-shot calls; case 0 is real, shipped, reached). **=> do NOT remove the external fire routing.**
+- **Region C case 1/6 = RUN/IDLE = the per-frame STATE-DRIVEN pose:** (a) if `player+0x478` (a 2nd anim string)
+  is NON-EMPTY → play it directly as the body seq; (b) elif grip(player+0xb58=m_szAnimExtention) empty → break
+  (kungfu, body follows legs in D); (c) elif `m_iLastActivity ∈ {0,8,9,0x34,0x33}`(fire/draw/relo) && seq not
+  finished → HOLD (a1=m_iLastActivity, break); (d) else `aim_`/`idle_`/`crouch_aim_`/`duck_idle_` by
+  **`(m_flAimTimer>=0.01 || fov!=0)`** — NOT the attack button.
+**player+0x478 is the key missing piece:** a per-frame anim-OVERRIDE string. Non-empty → Animate plays it as the
+body. It's also HandleCloseCombat's block-type selector (kat/kni). This is what drives the user's knife-idle=kungfu
+(knife sets grip EMPTY + 0x478="knife"), katana dedicated idle, and the melee BLOCK on reload. We DON'T model it.
+Done (`d32261c`): aligned our case-1/6 aim_ to `(fov!=0)` (the m_flAimTimer branch is held above)
++ documented 0x478. NEXT: add `m_szAnimOverride` (player+0x478), find its SETTER in the .so (what writes it on
+melee-deploy / block — decompile CTSGun deploy + the melee path), wire Animate case-1/6 to play it, and set it
+empty-grip+override for knife/katana. THAT (not removing routing) is the faithful rebuild. The "fire anim doesn't
+play" is likely a separate grip/sequence-name/server-exec detail — compare OUR pev->sequence on fire vs the
+original (watchpoint, scripts saved) before more changes.
+
+## CTSAnimation — player+0x478 anim-override IMPLEMENTED (`a9871ff`) — knife/katana dedicated idles
+Found the SETTER: `CBasePlayerWeapon::DefaultDeploy@0x90178` writes player+0x478 for weapon id 16
+(weapon_tsgun), switching on m_weaponType (gun+0xc8) — VERIFIED 1:1 vs our enum: KNIFE(25,0x19)/
+SEALKNIFE(35,0x23)->"knife_idle", KATANA(34,0x22)->"katana_idle", FLAG(29,0x1d)->"briefcase_idle", else
+cleared. Also written by `HolsterWeapon@0x75698`. Implemented: `m_szAnimOverride[16]` on CBasePlayer; set in
+CTSGun::Deploy (the switch above); read FIRST in Animate's torso (non-empty -> SetAnim(override,0x12), the
+dedicated idle). This is the "set the pose per-frame from state" half the goal asked for (the field_0x478
+override is state the deploy sets, Animate reads each frame). NOTE: the goal's "remove the external routing"
+premise was WRONG — the decompile shows fire legitimately uses an external Animate(0) (case 0 sets shoot_+
+m_flAimTimer); kept it. STILL OPEN: fire-anim-3rd-person (#3, likely a grip/seq-name detail — needs OUR-build
+pev->sequence watch vs original), the dive-hold (#1, leg-timer-gated, not m_fSequenceFinished), melee BLOCK on
+reload (#5b — HandleCloseCombat uses player+0x478 for kat/kni block pick; now that we set 0x478 it's wireable).
+
+## CTSAnimation — FIRING/DIVING DETECTION resolved + external routing removed (the goal, completed)
+The live-trace "Animate is locomotion-only" was WRONG (the hardware-bp missed the calls). DECOMPILE ground truth
+(dc.sh on the re project): **CBasePlayer::SetAnimation@0xd8f50 is an EMPTY no-op in TS.** The 34 callers of
+Animate are the WEAPON + movement code calling it DIRECTLY with the activity: **CTSGun::Fire@0x71c78 computes
+shootanim (0 standard / 8+racktoggle pump) and calls Animate(player, shootanim) directly** (StandardFire does
+NOT); also KnifeFire/KatanaFire (melee codes), Reload, Deploy(DRAW), PM_Jump(4). So "firing detection" = the
+weapon calls Animate with the fire activity directly; SetAnimation is empty (TS moved the anim logic into the
+direct calls). REBUILT ours to match (commit pending): CTSGun::Fire now calls m_TSAnim.Animate(player,shootanim)
+DIRECTLY (0/8/9) and the SetAnimation(PLAYER_ATTACK1) indirection was removed from StandardFire + AkimboFire.
+This removes the external SetAnimation routing for the gun fire path (the goal). NET: gun fire still triggers
+Animate(TSA_FIRE) → case 0 → shoot_<grip>, but now via the original's mechanism (and it runs on the client too,
+where our SetAnimation may have been a stub — this may also be WHY the 3rd-person fire anim didn't show; PLAYTEST).
+Still indirect (separate paths, lower priority): MeleeAttack/ColdCock SetAnimation (the knife/katana/coldcock
+body — original uses KnifeFire/KatanaFire/ColdCock→Animate(melee codes)); PLAYER_WALK/IDLE/JUMP/DIE still route
+through SetAnimation (original calls Animate directly from PostThink/PM_Jump — a fuller faithful refactor later).
+
+## 2026-10-07 — fix round rets: speed events, ts_groundweapon ammo, kung fu caliber, rets_api v2
+- Speed: PreThink no longer calls SetPlayerSpeed every frame. The original's 11 SetPlayerSpeed call sites
+  (objdump of ts_i386.so) are TSInit, PickUpWeapon, DropWeapon, TakeArmor, TakeFlag, DropFlag, SetPlayerTheOne,
+  KnifeFire, KatanaThrow, GrenadeIdle, MultiplyClips; reTS lacked TakeArmor/TakeFlag/DropFlag, now added.
+  A plugin's maxspeed now holds until the next loadout event, as on TS 3.0.
+- CTSGroundWeapon::GetWeapon (@0x92328): wextraclip rounds go to an EMPTY caliber reserve via AddAmmo (+ the
+  9mmclip1 sound); ours gave one weapon clip (Glock: 17) whatever was asked.
+- kCaliber[0] (kung fu) = 0 (Write_melee never writes +0x8); was 2, which showed caliber 2's reserve on the
+  kung fu HUD.
+- rets_api v2: GetWeaponOwned/SetWeaponOwned/GetWeaponClip/SetWeaponClip (s_weapon_status), used by reTSX for
+  grenade/knife counts. Verified: amxxbench tsx_ammo + ts_speed tests, 12/12 on reTS (6 failed before) and on TS 3.0.
+- Left: TakeArmor's 10-slot kevlar cost is still not modelled in TSPlayerFreeSlots/GetSpeedBySlots.
+
+## 2026-10-07 — fix round rets2: kevlar's 10 slots, CTSGroundWeapon::GetWeapon details
+- Kevlar slots: TakeArmor (@0x83da4) charges 10 free slots (player+0x548) when kevlar goes on, refunds them when
+  it comes off, and refuses kevlar with fewer than 10 free (@0x83dfb: returns 0, no change, no speed update).
+  TSPlayerFreeSlots now subtracts 10 for m_bHasKevlar and GetSpeedBySlots reads TSPlayerFreeSlots, so the pickup
+  gate, throws, dives, GetAccelBySlots, TSSpace and rets_api GetFreeSlots all include it. TakeArmor returns bool.
+- TakeArmor callers (objdump, 6 PLT calls): AddItem (loadout kevlar: refused = no vest), PlayerAddPowerUp (powerup
+  used up anyway; reTS added armor directly, now calls TakeArmor), CTSAmmoPack::WaitTouch (pack armor zeroed
+  anyway, as before), CRecharge::Use (@0xb71ec: empties the charger and calls TakeArmor(100); reTS charged +1 per
+  tick), CItemBattery::MyTouch (battery used up anyway, as before), DropArmor (TakeArmor(-1) @0x83d8f; reTS zeroed
+  armorvalue and kept m_bHasKevlar; DropArmor has no caller in the original).
+- GetWeapon (@0x92328, disasm): PickUpWeapon gets the whole spawnflags (was & 0xF); the respawn schedule runs
+  before the extra clips; a wduration < 1 weapon gets no respawn think in modes 2/3; pev->message goes out by
+  TSHudMessageOne(0,0,0,8,30) (was HudText); the dead buy gate uses TSHudMessageOne(0,0,0,16,30), the 2/3 mode
+  test, base price + magazine price per extra clip, and charges after the pickup.
+- Verified: amxxbench plugins/tests/ts_pickups.test.sma (AMX Mod X tsx-ts3 worktree) 4/4 fail on the old build,
+  pass after; ts30/ts_pickups.test.sma 4/4 on TS 3.0; tsx_ammo + ts_speed still 12/12. amd64 + i386 build.
+- Not runtime-tested (unreachable from a plugin): the refund (DropArmor is dead), modes 2/3, the charger, whole
+  spawnflags (TakeWeapon clamps the new item's attach; only an akimbo combine's single keeps extra bits).
+- Also: CItemBattery::MyTouch needs the suit (pev->weapons sign test @0xbb788), now checked; PlayerAddPowerUp's
+  pickup sound is CHAN_ITEM (@0x87dd9), was CHAN_VOICE.
+
+## 2026-10-07 — rets_api v3 for reTSX; ammocount, superjump powerup, freeze, knife slow motion
+- rets_api v3: bullet time (0x175), kung fu (0x74e), superjump (0x74f), GetSpeedBySlots/SetPlayerSpeed, ammo
+  max carry, and a working SetFreeSlots (CBasePlayer::m_iFreeSlotsAdjust, not in the original, cleared in TSInit).
+- CTSGameRules::Think (@0x67323): a powerup not yet due skips only the spawn; the SrvSett tail (Set_ammo_count)
+  runs every frame. Before, a new ammocount waited for the next powerup spawn (up to 20 s).
+- CTSPowerUp::SetupPowerUp (@0x88047): an explicit superjump is re-rolled only in map superjump mode.
+- GoSlow(0) freezes as in the original: PreThink keeps fuser1 at 1.0 only while the target is not 0, and
+  PM_PlayerMove freezes below 0.1, 0 included (@0xf0928). Also in client.so; not run in a graphical client.
+- CTSKnife derives from CTSGrenade (hierarchy.tsv); Spawn/WaitThink run CTSPhysicObject's, so slow motion
+  slows thrown knives. hamdata output unchanged.
+- Verified by AMX Mod X tsx-ts3 cd6943c1/0e34a793 tests on reTS (tsx_player, tsx_ammo).
+
+## 2026-10-07 — powerup inside a player's box: no reTS difference, nothing changed
+- Question: a ts_powerup set at a standing player's origin never lands on reTS; the ts30 TSX test drops one there
+  and passes on TS 3.0. CTSPowerUp Spawn (@0x88258), Fall (@0x883cc), OnGround (@0x8848c) match ts_powerup.cpp
+  (TOSS/BBOX, zero size, 0.1 s Fall think, FL_ONGROUND -> OnGround, trigger -16 -16 0 / 16 16 64). The global
+  ShouldCollide (@0x9b7b4) only reaches CBaseEntity::ShouldCollide (return 1) for player vs powerup.
+  Server_GetBlendingInterface (@0x93f80) installs a stub SV_StudioSetupBones (@0x93fdc, only alerts) but returns
+  0, so the engine resets to its own bone setup: player hitboxes are the engine's on both, as reTS (no export).
+- Measured with an amxxbench probe on both stacks: a point powerup inside the player's hitboxes is allsolid and
+  never lands, on TS 3.0/HLDS exactly as on reTS/ReHLDS (forced to ts_lobby 784 0 113: stuck on both; the ts30
+  superjump test fails on TS 3.0 from there too). The ts30 test passes only because the player is still falling
+  from a spawn spot 25-33 units over the floor; ts_lobby's 784 0 112 spot is 13 over and fails on both.
+- No reTS change. The reTS test's +48-after-settle placement stays; its comments now give the real reason.
+  Report: ~/Projects/amxxbench/docs/fixes/rets-powerup-report.md.
+- Still a deliberate deviation: slow-pause self rate 0.6 (ts_player.cpp UpdatePowerUpState); the ts30 test
+  measures 0.8 on TS 3.0, which settles the "live-trace to pin it" note there.
+
+## 2026-10-07 — `kill` arms a one-second timer, as the original
+- ClientKill (@0x9cec8) only arms player+0x84c (the SDK's m_fNextSuicideTime slot, between m_afPhysicsFlags 0x848
+  and m_flTimeStepSound 0x850) to time + 1.0 (rodata 0xf6a14), unless pev->iuser1 is set or it is already armed
+  (> 0.001, rodata 0xf6a1c). No deadflag gate, no rate limit. The end of CBasePlayer::PreThink (@0x815b6) kills
+  once it is armed and below gpGlobals->time: disarm, health 0, Killed(pev, GIB_NEVER) through vtable +0x60
+  (attacker = the player's own pev, as the SDK's ClientKill). The game-over, spectator (iuser1), dead
+  (deadflag > 0 -> PlayerDeathThink) and train-release returns skip it. TSInit (@0x82ef3, called only from Spawn)
+  clears it. objdump finds no other reader or writer of 0x84c.
+- reTS: dlls/client.cpp ClientKill arms m_fNextSuicideTime; dlls/player.cpp PreThink tail carries it out;
+  dlls/ts_player.cpp TSInit clears it; dlls/player.h comment. amd64 and i386 build.
+- Verified with an amxxbench probe on reTS amd64 and TS 3.0: alive right after kill and at +0.5 s (second kill
+  does not re-arm), dead after 1.008 s (TS 3.0 1.002 s); a kill while spectating or dead does not kill after
+  the next spawn; a new kill right after a respawn lands a second later.
+- Tests that assumed the instant kill now wait for the death (Apollo-RP, the AMX Mod X fork, amxxbench docs).
+  Report: ~/Projects/amxxbench/docs/fixes/rets-kill-report.md.
+- Found, not changed: the `jointeam` dispatch (@0x9e4b0) passes atoi(argv1) - 1 (dec at 0x9e4f5) to
+  GetIndexedTeamName; reTS (client.cpp jointeam) passes atoi(argv1). On ts_lobby a plmenu "jointeam 1" leaves
+  the player alive on TS 3.0 but sends him to spectate at once on reTS.
+
+## 2026-10-07 — five user-directed deviations put back to the original
+Each is a separate patch against f92c74e in ~/stignored/rets-deviations/item{1..5}-*.patch, for Steven to keep
+or drop one by one. Report: ~/Projects/amxxbench/docs/fixes/rets-deviations-report.md.
+- 1 slow-pause: UpdatePowerUpState (@0x857d0) sets the self scale 0.8 (0x3f4ccccd) and others 0.225; reTS
+  had slow motion's 0.6. dlls/ts_player.cpp. TS 3.0 measures 0.8; the reTS tsx_player test now expects it.
+- 2 sawed-off reload: CTSGun::Reload computes block[8] for a loaded sawed-off and discards it; the event's
+  fparam1 is always 0 (@0x74eeb). client.dll's reload handler (FUN_10042690) reads block[8] only for phase 8,
+  and no other client.dll path reads the sawed-off's block[8] (the 7 FUN_1003df60 callers, the 12
+  EV_WeaponAnimation calls, the 2 HUD_SendWeaponAnim calls; no client copy of CTSGun::Reload). reTS sends
+  phase 0 again (dlls/ts_gun.cpp); its client handler already matched. Probe: fparam1 0.0 on TS 3.0 and reTS
+  now, 8.0 with the old build.
+- 3 dropped-gun glow: only the flag (0x1d) gets pev renderfx 19 (@0x90902). AddToFullPack (@0x9f4b8) sends a
+  WorldGun with renderamt 2, renderfx 19, colour 100 to the host stored at gun+0xd0, which DropWeapon sets to
+  the dropper's edict on a drop-key/disarm drop (@0x84ed9, 0x84fad, 0x85265; not drop_<N>, not the flag, not a
+  death drop). reTS: CTSWorldGun::m_pDropper, DropWeapon tail, AddToFullPack branch. The same branch glows a
+  thrown knife for knife+0x8c (its thrower, CreateKnife @0x6da4f); not done. Also not done: the same DropWeapon
+  tail sets gun+0xc4 = time + clamp(2 * weaponstay, 10, 120).
+- 4 powerup cheat: the table (jump table GOT-0xc8264) is 1 slow-pause, 2 PickUpWeapon(M61), 3 kung fu AND
+  superjump (each with its PwUp message), 4 MultiplyClips, 5 double fire, anything else slow motion; gated on
+  g_flWeaponCheat (sv_cheats, read in CWorld::Spawn) and argc > 1 before the strcmp falls through, then alive
+  and pev->iuser1 == 0. reTS's case 3 was health and 6/7 were added; now TSPowerupCheat (dlls/ts_powerup.cpp),
+  gate in client.cpp (live g_psv_cheats, as cashala).
+- 5 jointeam: g_pGameRules->GetIndexedTeamName(atoi - 1) then ChangePlayerTeam(pl, name, 0, 0), both virtual,
+  no checks. The kill round's "alive on TS 3.0" came from the stock copies running deathmatch (game.cfg has
+  //mp_teamplay 1) while the reTS copies run teamplay; in teamplay TS 3.0 also sends the player to spectate.
+
+## 2026-10-07 — five more places put back to the original (thrown knife, drop lifetime, slow on create, powerup state, cheat latch)
+Each is a separate patch against e4a1f85 in ~/stignored/rets-deviations2/item{1..5}-*.patch (apply-all.sh applies
+them in order; item3 needs -C1 after item1). Report: ~/Projects/amxxbench/docs/fixes/rets-deviations2-report.md.
+- 1 thrown knife: CreateKnife (@0x6da4f) keeps the thrower at knife+0x8c and never sets pev->owner; BounceTouch
+  skips and credits him through it (@0x6df18, @0x6e0b3); AddToFullPack (@0x9f52a..0x9f59a) draws the knife with
+  renderamt 2, glow shell, colour 100 for him alone. reTS: CTSKnife::m_pThrower, TSKnifeThrower bridge, the
+  AddToFullPack branch. The settled-blade pev glow (ledger playtest round 3, user-directed) is kept.
+- 2 drop lifetime: DropWeapon's type < 0 sites (@0x84e76, @0x84f4a, @0x85200) set gun+0xc4 = time +
+  clamp(2 * weaponstay, 10, 120) beside the dropper; reTS TSMarkDropKeyGun (dlls/ts_gun.cpp).
+- 3 create: CreateWeapon sets no skin and calls GoSlow (vtable +0x14) with owner+0x180 (m_flSlowMotionRamp) when
+  non-zero, else owner->GiveSlowMul(). The same inlined test is in CreateKnife, CreateGrenade and CreateFlag;
+  all four now use TSThrowSlow (dlls/ts_player.cpp). CreateFlag's no-owner branch clears pev->owner, not iuser1.
+- 4 powerup state: UpdatePowerUpState (@0x85748) sets gravity 0.15 each frame for a running 0x100 and 1.0 when it
+  ends; a dead player's running (@0x858a5) or held (@0x85928) powerup is CreatePowerUp'd at his origin unless
+  rules+0 > 1 or it is slow motion of 2 s or less. Only death re-drops; expiry while alive does not.
+- 5 cheats: g_flWeaponCheat = sv_cheats in CWorld::Spawn (@0xe448f), read by fov, powerup, cashala (compared only
+  when set, else "Unknown command"), CheatImpulseCommands, InitHUD's notice, dmgreport and damagemult. reTS
+  had halflife-updated's live g_psv_cheats reads; now the latch (dlls/game.h, world.cpp).
+- Tests (AMX Mod X tsx-ts3 worktree): ts_drop_glow (knife), ts_dropped, ts_powerup_state, ts_cheats; all 10 new
+  fail on the e4a1f85 build, pass with the patches and on TS 3.0. Builds amd64/i386 server+client.
+- Found, not changed: reTS ColdCock multiplies damage by damagemult without the cheat gate (the original reads
+  damagemult only in UpdateBullet and ShootBulletsPlayer); reTS's UpdateBullet and knife BounceTouch lack the
+  original's cheat-gated dmgreport/damagemult; reTS PreThink returns for a spectate-waiting player before
+  UpdatePowerUpState/SlowMotionFlow (the original runs them); TSX's knife hit attribution reads knife+0x8c by
+  pointer index 35, which is not reTS's layout on amd64.
+
+## 2026-10-07 — seven more places put back to the original (join, pev->team, shimmer, damage cvars, knife thrower)
+Each is a separate patch against f05c6e8 in ~/stignored/rets-deviations3/item{1..7}-*.patch (apply-all.sh applies
+them in order). Report: ~/Projects/amxxbench/docs/fixes/rets-deviations3-report.md.
+- 1 join: ClientPutInServer (@0x9cf44) is SetCustomDecalFrames, GiveCash(initial_cash), Spawn, EF_NOINTERP; the
+  joiner spectates from CTSGameRules::InitHUD's StartObserver (@0x694c8) on his first UpdateClientData, with
+  SetPlayerRespawnTime unconditional (@0x6956b). reTS: no spectate flag, cash zeroing or iuser reset in
+  ClientPutInServer; InitHUD ends with TSEnterSpectate (gate cleared first). MP::PlayerSpawn's RemoveAllItems shim
+  now runs only when the player holds the tsgun: RemoveAllItems ends in UpdateClientData, which ran a joiner's
+  InitHUD inside ClientPutInServer (the original's PlayerSpawn @0x790ac strips nothing).
+- 2 pev->team: never written by the original (only CWorld::KeyValue @0xe4ca2 stores entvars+0x1ac; @0x898d3 is
+  takedamage). StartObserver's and ChangePlayerTeam's writes removed; CTSBomb::Use and CTSTrigger::WaitTouch take
+  the team from TeamID() via CTSGameRules::GetTeamIndex, as CanInteract @0x7c344 and WaitTouch @0x60b5c do.
+- 3 shimmer: TSInit renderfx 14 (kRenderFxNoDissipation, @0x82b83); PreThink's clear moved past the spectator,
+  observer and dead returns (@0x81458), so a spectator keeps it.
+- 4 ColdCock: no damagemult (only ShootBulletsPlayer and UpdateBullet read it).
+- 5 UpdateBullet: cheat-gated damagemult except kind 2 (@0x5f256, @0x5f1c9) and dmgreport "damage:%f" (@0x5f317);
+  knife BounceTouch dmgreport "(debug)%f" with the stab damage (@0x6dffe); every dmgreport print is print talk (3),
+  ShootBulletsPlayer's were notify. The original never registers dmgreport (no GOT entry or reference to its
+  cvar_t); reTS registers it (ts_cvars.cpp), so these prints are reachable on reTS only. Not changed.
+- 6 PreThink: UpdatePowerUpState/SlowMotionFlow run before the spectate block (@0x80bb1), so a spectator's powerup
+  is re-dropped.
+- 7 rets_api v4 GetKnifeThrower (dlls/rets_api.{h,cpp}); TSX (tsx-ts3 worktree) uses it on reTS.
+- Tests (AMX Mod X tsx-ts3 worktree): new ts_join, ts_damage, ts_powerup_state +1; 8 of the new tests fail on
+  f05c6e8 (the knife-hit test was not run on the old TSX: index 35 reads past the 216-byte amd64 CTSKnife), all 12
+  pass after and on TS 3.0 (deathmatch; ts_join also in teamplay). Builds amd64/i386 server+client. Fork
+  stats_logging and plmenu's two team-menu tests assumed the old join and now hold on both games; full fork
+  suite on reTS 440/441 (statscfg folder write, as before).
+- Found, not changed: TSEnterSpectate forces OBS_ROAMING (iuser1 3); the original's StartObserver uses
+  m_iObserverLastMode or 2 (a TS 3.0 joiner has iuser1 2).
+
+## 2026-10-07 — three more places put back to the original (observer mode, round-clock catch-up, PreThink order)
+Each is a separate patch against 64d810b in ~/stignored/rets-deviations4/item{1..3}-*.patch (apply-all.sh applies
+them in order). Report: ~/Projects/amxxbench/docs/fixes/rets-deviations4-report.md.
+- 1 observer mode: StartObserver ends with Observer_SetMode(lastMode ? lastMode : 2) (@0x8999d); the only store to
+  player+0x76c is StopObserver saving iuser1 (@0x89a6f). reTS: StartObserver falls back to OBS_CHASE_FREE,
+  TSEnterSpectate no longer forces roaming, StopObserver saves iuser1, UCD's stock lastMode = OBS_ROAMING removed.
+  A joiner (and a dead player) chases a live player, as on TS 3.0.
+- 2 CTSGameRules::InitHUD: the round-clock catch-up has no g_teamplay gate (@0x6931f), so a last man standing
+  joiner gets RoundTime.
+- 3 PreThink: UpdatePlayerState and the mode-3 CheckForWires moved after the fall velocity (@0x81416, @0x81450), past
+  the spectator, dead and train returns.
+- Tests (AMX Mod X tsx-ts3 worktree): new ts_observer (5); 4 fail on 64d810b, all pass after and on TS 3.0 (DM and
+  teamplay). Builds amd64/i386 server+client. Full fork suite on reTS 445/446 (statscfg folder write, as before).
+- Found, not changed: the spectate block lacks the original's Observer_HandleButtons/Observer_Idle (@0x810c3);
+  Observer_SetMode/FindNextPlayer/Idle are stock, not the original's (no prints, team filter, fallbacks); InitHUD
+  message order and the clock's rounding (original truncates); RestartRound's player-count/mode gates and banner;
+  last man standing rounds never resolve on reTS (ResetRestartRound reads the unregistered "lms" cvar, CheckDeads
+  needs teamplay); PreThink's +0x7cc kick block is dead in the original.
+
+## 2026-10-07 — spectator controls, observer functions, last man standing rounds, InitHUD clock, RestartRound
+Each is a separate patch against 8918bb2 in ~/stignored/rets-deviations5/item{1..5}-*.patch (apply-all.sh applies
+them in order). Report: ~/Projects/amxxbench/docs/fixes/rets-deviations5-report.md.
+- 1 PreThink: the spectate-wait block and the stock IsObserver block end with Observer_HandleButtons +
+  Observer_Idle (@0x810c3, @0x810cb); Observer_CheckTarget/CheckProperties (absent in the original) are no longer
+  called, still defined.
+- 2 observer.cpp: FindNextPlayer (@0x89b0c) skips dead players, takes teammates only in modes 2/3 or LMS while the
+  spectator's respawn time is >= 0, always sets iuser2 and moves him, roams with nobody. SetMode (@0x89e44) prints
+  nothing, stores no last mode, roaming sets max speed 420. HandleButtons (@0x89d34) reads held buttons: jump
+  3->2->1->5->3, forward/back next/previous. Idle (@0x89ca4) has its own 0.5 s clock m_flNextObserverIdle (0x764,
+  zeroed in StartObserver) and also moves on when the target spectates.
+- 3 CheckDeads reconstructed (@0x69c00): returns in mode 1; LMS block (Last Man Standing +10 frags, ScoreInfo, log,
+  RoundTime flag 2, restart in 3 s; "%d men standing!"; "Round over"); modes 2/3 team block. ResetRestartRound's
+  gate is modes 2/3 or g_lastManStanding (@0x68763), not the unregistered "lms" cvar.
+- 4 InitHUD: the round clock goes out before the Spectator catch-up and is truncated.
+- 5 RestartRound: no player-count or game-mode gate; banner only in mode 2.
+- Tests (AMX Mod X tsx-ts3 worktree): ts_observer +4, new ts_rounds (4). TS 3.0 17/17 (DM and teamplay); reTS
+  8918bb2 10/17, after 16/17. The failing one, "last man standing ends the round", cannot run on reTS: nobody can
+  enter play in LMS (below); with that one line fixed in a verification build it passes (fails on 8918bb2 + the
+  same line). Full fork suite on reTS 451/454: statscfg folder write (as before), that LMS test, and the flaky
+  tsx_player "thrown knife" (fails 1 in 3 on 8918bb2 too).
+- Found, not changed: SetPlayerRespawnTime (TS_gamerules.cpp:168) and five more sites use
+  dynamic_cast<CTSGameRules *>(g_pGameRules), always null since CTSGameRules is standalone, so in LMS every
+  respawn gate is ~0 and the "respawn" command never lets anyone in; the same dead cast drops realbullet in
+  ShootBulletsPlayer, the superjump map global, the disconnect's CallCheckDeads/vote reset and team spawn points.
+  Also: RestartRound respawns where the original StartObservers + refunds; StartObserver resets the input clock and
+  StopObserver clears the target (the original does neither); the spectate block does not clear impulse;
+  CallCheckDeads does not re-arm; the restartround command is missing; banner colours; InitHUD's damage notice
+  needs cheats in the original; TS 3.0 runs a joiner's InitHUD catch-up three times.
+
+## 2026-10-07 — game-rules lookups, new round, restartround, spectate details, banners, InitHUD passes
+Each is a separate patch against 3b6dee8 in ~/stignored/rets-deviations6/item{1,3..8}-*.patch (apply-all.sh).
+Report: ~/Projects/amxxbench/docs/fixes/rets-deviations6-report.md.
+- 1 The six dynamic_cast<CTSGameRules *>(g_pGameRules) (always null) read TSGameRules, as the original's GOT
+  pointer: SetPlayerRespawnTime, ShootBulletsPlayer (realbullet), CTSMapGlobals::Spawn and TSInit (superjump),
+  TSPlayerDisconnect (vote block at reTS's ENTINDEX-1 index, CallCheckDeads), EntSelectSpawnPoint (rewritten to
+  @0x66128: IsTeamplay gate, TeamID, info_player_team<N> with fallback info_player_deathmatch, "" for an unknown
+  team, none outside teamplay). Init clears m_bSrvSuperJump (@0x67ec2). No other such lookup in the tree.
+- 3 RestartRound per player (@0x67a4d): hold/gate/award/grenade buys/respawn budget/powerups, loadout refund off
+  the TS gun (prices, attachments 900/800/500/1800, magazines past one), StartObserver for players in play
+  (TSEnterSpectate(false) keeps the loadout); RecountTeams on team rules (public now).
+- 4 `restartround` server command = ResetRestartRound(2) (@0xb5748).
+- 5 StartObserver keeps m_flNextObserverInput; StopObserver keeps m_hObserverTarget; the spectate-wait block
+  clears pev->impulse (@0x810d3); CallCheckDeads re-arms on every death (@0x69bc0).
+- 6 "Defeat the opposite team" / "Restarting Round" are black. 7 The damage notice is inside the cheats test.
+- 8 UpdateClientData's HUD-reset block sends the RoundTime catch-up on every pass (@0x81e47).
+- Tests: new ts_gamerules (5), ts_rounds +6, ts_observer +3, tsx_player knife made deterministic (stuck knife
+  takes gravity 0.75 back); TS 3.0 27/27 (DM and teamplay). reTS realbullet still fails: UpdateBullet drops any
+  bullet whose shooter is not slowed (the original does not), passes with that removed in a verification build.
+- Found, not changed: that UpdateBullet drop; UpdateClientData's 0.1 s throttle (player+0x534); the original
+  InitTeams' Team1..Team4 names and spot strings; Init clearing +0x5884; GetRandomPowerup and the HUD-reset
+  TSPowerUp using the superjump flag; ts_mapglobals' round-timer and restriction push; the vote subsystem
+  (slowmatch votes, InitHUD clearing the joiner's block, ENTINDEX indexing); StopObserver's gate and
+  conditional Spectator message; RestartRound arming the clock before InitObjectives; addbot/addcustombot.
+
+## 2026-10-07 — bullets fly on, vote clock, UpdateClientData throttle, ts_mapglobals, teams, votes, StopObserver
+Each is a separate patch against 204ede8 in ~/stignored/rets-deviations7/item{1..12}-*.patch (apply-all.sh;
+each also builds alone). Report: ~/Projects/amxxbench/docs/fixes/rets-deviations7-report.md.
+- 1 UpdateBullet (@0x5ef5c) no longer drops a bullet whose shooter is not slowed: realbullet bullets now hit.
+- 2 Init sets the vote count clock to time + 10 (@0x67e6d): the rules object outlives the map, so after a long
+  map the count waited for the old map's time and a passed vote never ended the map (round 6's full-run failure).
+- 3 UpdateClientData runs at most every 0.1 s (player+0x534 = m_flNextClientUpdate, @0x81d1f); 0 in TSInit and
+  ForceClientDllUpdate, -1 for a leaver (TSPlayerDisconnect).
+- 4 GetRandomPowerup leaves superjump out on a superjump map (@0x878d3); the HUD reset sends PwUp(0x100, 0) to a
+  player with superjump there (@0x81ef6). g_iNoLowGravPowerup is gone.
+- 5 CTSMapGlobals::Spawn pushes the round-timer flag (!(SF & 0x20)) and the restriction (get_weapon_restriction ->
+  m_iWeaponRestriction and m_iAllowedCategories); Init resets both to InitWeaponRestriction().
+- 6 Init clears m_bWeaponParamsCustom (+0x5884, @0x67ebb).
+- 7 InitTeams: Team1..Team4, spot "info_player_team<N>" + fallback "info_player_deathmatch" in the team record
+  (m_teamSpot/m_teamSpotFallback, read by EntSelectSpawnPoint), defTeamModels, up to 3 models per team
+  (m_teamModels[4][3][16]; the per-team setter splits on ";" and ALERTs "set model"), GetPlayerModel picks one at
+  random. Team cash seeding left out (see the report: GetTeamCash's gate differs).
+- 8 Votes: a 0x48-byte VoteBlock per ENTINDEX (m_votes[32]: map[64], slowmatch/teamplay/friendlyfire bytes, owner),
+  player 32 has none; CheckVotes in the original's order (slowmatch, friendly fire, teamplay -> "nextmap", map),
+  its clear of the last counted player only; Init and InitHUD clear the blocks; reset writes the owner.
+- 9 StopObserver: nothing while the respawn gate is ahead; Spectator(idx, 0) and the kept mode only when iuser1 or
+  iuser2 is set. It still clears PFLAG_OBSERVER/iuser3/m_iHideHUD (reTS's StartObserver hides the HUD).
+- 10 RestartRound arms and sends the clock before InitObjectives/SetObjective (@0x67a14).
+- 11 addbot / addcustombot server commands: ALERT "Bots only in listen servers." (@0xb5520/@0xb5550), registered
+  first in GameDLLInit.
+- 12 EntSelectSpawnPoint returns the world without the ALERT.
+- Tests (tsx-ts3 worktree, tests.patch): ts_gamerules +6 and 4 extended, ts_rounds +1 and the clock test tightened,
+  ts_observer +1, stats kill flags spaced 0.15 s (TSX counts a kill from the victim's TSHealth). TS 3.0 34/35
+  (realbullet's first, realbullet 0 shot missed once; 5/5 alone); reTS 204ede8 23/35,
+  after 35/35. Full fork suite on reTS twice: only statscfg "save into a folder".
+- Found, not changed (report): UpdateBullet's stepping (Think's per-bullet 0.1/(realbullet+1) s steps), slow
+  source, pierce, no ricochet/decal, no range limit; Init's armor_absorb 0.2125 / health_absorb 0.1 and bullet
+  reset; GetTeamCash's mode 2/3 gate; SetTeamList's dedup; Host_Say votes gated on IsAlive (original IsNetClient);
+  PlayerVote parsing; the respawn command's iuser1 gate; StartObserver's HideHUD; ts_mapglobals' WaitThink.
+
+## 2026-10-07 — kevlar values, bullet steps and hits, team cash, team list, votes, respawn gate, observer HUD, ts_mapglobals think
+
+Round 8 of the deviations work (amxxbench docs/fixes/rets-deviations8.md, report rets-deviations8-report.md).
+Uncommitted on 6bcafda; one patch per item in ~/stignored/rets-deviations8 (each applies and builds alone,
+apply-all.sh applies them in order).
+- 4 Init sets health_absorb 0.1 (+0x5888) and armor_absorb 0.2125 (+0x588c) on every map (@0x67ede/@0x67ee8).
+- 5 CBulletManager::Think (@0x5ec7c) gives each bullet its own next-update time: with realbullet 0/1 (unsigned
+  m_iSrvRealBullet < 2) every 0.1/(realbullet+1) s, the step covering that interval; otherwise every frame by
+  frametime. The slow factor is m_flSlowMotionRamp, else GiveSlowMul (taken at fire and at each step).
+- 6 UpdateBullet hits (@0x5f0f5..0x5f498): the record's kind is the shot's mode (FireBullet's last argument,
+  ShootBulletsPlayer's iMode); mode 1 adds DMG bit 25; the bullet pierces as the hitscan does (damage times
+  flFactor2, halved through a player, over 5 and mode not 1/2: on from min(left, 48) past the hit unless solid, as
+  mode 2); no ricochet sound, no decal, no end for range or solid while flying.
+- 7 InitTeams seeds each team's score 0 and cash initial_cash (@0x67fba); GetTeamCash answers only in modes 2/3.
+- 8 SetTeamList keeps a repeated name in its own slot (no lookup, @0x681ec).
+- 9 Host_Say passes "vote" text from any client (IsNetClient, @0x9d4b2); PlayerVote takes the first word after
+  "map" and compares it with the map case-sensitively; "vote stats" lists the last count's tally
+  ("(%i/%i) votes for %s"), now kept in the rules (m_voteMaps/m_voteMapCount/on-off counters/m_iVotants,
+  +0xf88..+0x1820) and refilled by each CheckVotes.
+- 10 The "respawn" command checks iuser1 (@0x9da2a).
+- 11 StartObserver leaves m_iHideHUD alone; StopObserver no longer clears it (neither writes it in the original).
+- 12 CTSMapGlobals::Spawn sets no think (think and touch zeroed, nextthink time + 10, @0x625b1..0x625df).
+- TS 3.0 crash of round 7 diagnosed from its core (systemd-coredump): RestartRound @0x67d40 calls
+  CHalfLifeTeamplay::RecountTeams on g_pGameRules in every mode; in free-for-all last man standing that is a
+  12-byte CHalfLifeMultiplay, and RecountTeams writes 0 to +0x214, which in that run was the `next` of an AMX Mod X
+  language hash list head (g_pGameRules 0x9da0220, head 0x9da0430). reTS already calls it only on team rules.
+- Tests (tsx-ts3 worktree, tests.patch): ts_gamerules +7 and realbullet tightened, ts_observer +1 and one
+  extended, ts30 copies without the free-for-all last man standing tests (NO_FFA_LMS), statscfg's expected error
+  in both forms. TS 3.0 31/31 five times; reTS 6bcafda 34/42, after 42/42; full fork suite on reTS 483/483 twice.
+
+## 2026-10-07 — bullets reset per map, kevlar hit groups, falloff truncation, full-ring warning, The One team list, ts_mapglobals fields, HideWeapon, StopObserver
+
+Round 9 of the deviations work (amxxbench docs/fixes/rets-deviations9.md, report rets-deviations9-report.md).
+Uncommitted on 594b9e6; one patch per item in ~/stignored/rets-deviations9 (each applies and builds alone,
+apply-all.sh applies them in order).
+- 1 Init calls CBulletManager::Reset (@0x67e83); Reset (@0x5ec50) zeroes the slots and frees nothing (the old map's
+  sprite handles are stale, and could name new-map entities).
+- 2 Kevlar absorbs only for hit groups 2..5 (@0x7fc17); armor_absorb capped at 1, no lower clamp.
+- 3 The range falloff index is truncated (fistp, chop) at all four sites (@0x5f93c, @0x5fdbb, @0x5f1ad, @0x5f23d).
+- 4 FireBullet with no free slot prints "WARNING:cannot create bullet!\n" to all, talk (@0x5edf8).
+- 5 SetTeamList in The One mode: "The ONE" replaces the list's first name in slot 0 (@0x681ae), printed as a team.
+- 6 CTSMapGlobals::Spawn zeroes think and touch only (the +0xc..+0x18 writes); player_respawn_num (+0x64) and
+  player_at_a_time_num (+0x68) are kept; invented m_field14/m_field18 removed.
+- 7 PreThink no longer writes HIDEHUD_FLASHLIGHT (the original never writes m_iHideHUD there).
+- 8 StopObserver clears iuser1/iuser2 inside the observer block only; no PFLAG_OBSERVER/iuser3/m_afButtonPressed.
+- Tests (tsx-ts3 worktree, tests.patch): ts_gamerules +6, ts_observer +1 and the HUD test requires no bits; ts30
+  copies. reTS before 41/49, after 49/49; TS 3.0 matches after on every item. Full fork suite on reTS 490/490
+  twice; the ts30 set 94/94 twice (runs 3 and 4; runs 1 and 2 each had one flake in an older test, see report).
+- Found, not changed: bubble counts still rounded; ts_mapglobals save order (respawn_num first in the original);
+  members_re.tsv rows for CTSMapGlobals stale.
+
+## 2026-10-08 — bubble counts truncated, ts_mapglobals save order, members_re rows
+
+Round 10 of the deviations work (amxxbench docs/fixes/rets-deviations10.md, report rets-deviations10-report.md).
+Uncommitted on a8fbbec; one patch per item in ~/stignored/rets-deviations10 (each applies and builds alone,
+apply-all.sh applies them in order).
+- 4 UTIL_BubbleTrail counts are truncated at both ShootBulletsPlayer sites (fistp, chop: @0x5fa85, @0x5fffb); the
+  volley's product is taken in double (the original's is on the x87 stack).
+- 5 CTSMapGlobals declares and saves player_respawn_num (+0x64) before player_at_a_time_num (+0x68), as the save
+  table @0x1011a0 does (amd64 pdata 39 and 40 now).
+- 6 members_re.tsv: the two stale CTSMapGlobals rows (0x10, 0x18: the second words of the think and touch member
+  pointers) removed; a fresh curate_members.py run would also add four CBasePlayer rows (not taken).
+- TS 3.0 LMS patch (amxxbench tests/patch-ts30.py) on every TS 3.0 server copy; the ts30 last man standing tests
+  run again. Tests: realbullet placement fixed on ts_lobby, superjump gravity read after PreThink, a bubble test.
+- Found, not changed: the original's PostThink sets pev->gravity = 1.0 whenever the player is on the ground
+  (@0x8186f); reTS has no such write.
+
+## 2026-10-08 — PostThink resets gravity on the ground
+
+Final-stretch round (amxxbench docs/fixes/final-stretch.md). PostThink sets pev->gravity = 1.0 for a player on the
+ground every frame, as the original does (@0x8186f: `testb $0x2,0x1a5(%eax)` = FL_ONGROUND, then
+`movl $0x3f800000,0x11c(%eax)`), so a gravity a plugin or anything else lowered lasts only until he lands; the
+superjump powerup sets 0.15 again in each PreThink. Test: ts_powerup_state "landing gives normal gravity back"
+(tsx-ts3, reTS and ts30 copies): TS 3.0 pass; reTS before 0.5 after landing, after 1.0.
+
+## 2026-10-08 — TSX sees hits and deaths on reTS: dmg_take kept, Killed sends TSHealth
+
+Final-stretch round, found while checking 64bit's TSX fixes (ids, stats, stunts, scoring, The One) on reTS
+with reTS copies of the ts30 tsx tests. TSX counts a hit or a death in its TSHealth handler from the victim's
+dmg_take/dmg_inflictor, and clears dmg_take itself.
+- UpdateClientData: the stock damage block is gone. The original's UpdateClientData @0x81d00 writes neither
+  entvars+0x1d8/0x1dc (dmg_take/dmg_save) nor player+0x9b0 (m_bitsHUDDamage) and masks no damage bits; reTS
+  cleared dmg_take before its TSHealth went out, so TSX on reTS saw no hit and no kill at all.
+- Killed sends TSHealth 0 where the stock SDK sends Health (@0x7f3fb: TSHealth with player+0x9e0 after setting it
+  to 0; the original sends Health and Battery nowhere, their only GOT uses are in LinkUserMessages). So the death
+  reaches TSX in the frame of the kill, after the DeathMsg, as on TS 3.0.
+Tests (tsx-ts3): reTS copies of ts30/tsx_weapons (newcomer test left out, below) and ts30/tsx_stats: before 3 of
+17 pass (only the three id tests), after 16 of 16 on reTS, in deathmatch and teamplay.
+Found, not changed: PlayerKilled has none of the original's streak scoring (double kill within 2 s, the
+specialist's +5, the unstoppable doubling, streak/last-kill bytes +0x744/+0x748); The One is never crowned
+(SelectRandomTheOne is gated on a cvar "the_one" the original does not have, and the crown changes no team);
+CTSGun::UpdateClientData sends a newcomer a WeaponInfo (the original's change check compares only type +0x97a
+and reserve +0x9b4, both reset to 0); UpdateClientData's TSHealth rounds where the original truncates
+(player+0x9e0 cache); Killed sends CurWeapon where the original sends TSActiveItems.
+
+## 2026-10-08 — streak scoring, The One, and three message differences, as the original
+
+Round 11 (amxxbench docs/fixes/rets-deviations11.md). One patch per item in ~/stignored/rets-deviations11.
+- 1 PlayerKilled scores streaks as @0x795e4: m_iKillStreak (+0x744, up to 255, every kill of a player by a
+  player) and m_flLastKillTime (+0x748), both cleared in TSInit; double kill under 2.0 s (x2, the time then
+  forgotten), +5 for a victim with 9 or more, x2 for a killer at 10 or more, in that order; the 3/6/9 tiers
+  (health, award 2/3/4, the specialist's kung fu, superjump and PwUp messages), the spree messages, the
+  specialist's suicide (-5); points and streaks before the DeathMsg; the "killed" log line's tags; the One's
+  death handled for any killer, before the suicide check, his streak cleared.
+- 2 The One: Think draws on g_theOneMode (no "the_one" cvar); SelectRandomTheOne and TheOneIsDead move the
+  players' teams (SetDefaultPlayerTeam, ChangePlayerTeam); SetPlayerTheOne sends the two PwUp messages.
+- 3 CTSGun::Reset clears the WeaponInfo type/reserve caches to 0, so a kung-fu newcomer gets none; reTS's
+  extra clip/fire mode/equip resend stays for its client, seeded at the first check.
+- 4 TSHealth truncated with the original's float compare; no Health/Battery; the client's dead test reads
+  TSHealth (as client.dll @0x10026860). 5 Killed sends TSActiveItems {index, 0}, no CurWeapon.
+Tests: reTS copies tsx_score, tsx_one; newcomer test back in tsx_weapons; two ts_damage tests. Full tsx-ts3
+suite on reTS 523/523 twice; ts30 set 138/138 twice each in deathmatch and teamplay.
+Found, not changed: kill cash, headshot/knife/katana/coldcock notices, the spectacular slow-motion point,
+the slowmatch powerup, the team kill kick/ban and the #TS_OwnWeapon kill in PlayerKilled; teammate kills
+not logged (CHalfLifeTeamplay::DeathNotice); the One's PreThink regeneration, GetSpeedBySlots 330 and
+CanDive* for the One; TSArmor rounds; CurWeapon in StartObserver/UCD/observer; Killed leaves pev->fov.
+
+## 2026-10-08 — the client keeps its ammo HUD, the rest of PlayerKilled, The One, messages
+
+Round 12 (amxxbench docs/fixes/rets-deviations12.md). One patch per item in ~/stignored/rets-deviations12.
+- 1 Client: HUD_WeaponsPostThink hands the predicted gun's clip, fire mode and attachments to the ammo HUD
+  and its clip (and the akimbo/single variants' parked clips) to the weapon bar, as client.dll's
+  CTSGun::UpdateClientData @0x1000acd0/@0x100581c0; the melee bar is a float the KFuPower handler clamps to
+  -100..100 and Think regenerates (15/s, 1/s below -0.001, scaled by the local slow, @0x1004ce10); the
+  WeaponInfo handler stores what comes (clip into the clip, kung fu's bar too, grid cell for type >= 1); the
+  carry count (knife, M61, seal knife) draws the clip. Server: WeaponInfo only on a type or reserve change
+  (kung fu: type change only, bar truncated), no knife count on the reserve.
+- 2 PlayerKilled: kill cash (pts*500+400 / 900), the objective-mode cash (rules mode > 1, 1000; round 11
+  called it last man standing), the headshot/knife/katana/coldcock notices naming the killer (coldcock moved
+  out of DeathNotice), the spectacular kill's slow-motion bubble, the slowmatch powerup, the team-kill kick
+  or ban (m_flTeamKillTime/m_iTeamKills, 0x7c4/0x7c8, cleared in CTSGameRules::InitHUD), the own-weapon kill
+  (item hOwner == victim) with its notice and " (victims_weapon)" tag.
+- 3 PlayerKilled works out the weapon name (TSKillWeaponName), calls DeathNotice (DeathMsg + director
+  only) and writes the log (TSLogKill), so team kills are logged. ChangePlayerTeam/ClientUserInfoChanged
+  stamp GetPlayerModel's "" for a team without models (no team-name fallback); round 11's One-mode model
+  column was mostly the servers' differing game.cfg (mp_teammodels "seal;agent" on TS 3.0).
+- 4 The One: PreThink regeneration (0.16 x others per tick, 1/max(0.32 x others, 1) s, cap 150) with the
+  count of others from Think (rules+0x5876, m_iTheOneOthers); GetSpeedBySlots 330; CanDive* always.
+- 5 TSArmor truncated with the float compare; no CurWeapon in StartObserver, UCD's no-weapon block or
+  observer.cpp; WStatus compares the owned byte only, caches start 0; gun UCD throttled to 0.1 s
+  (m_flNextClientUpdate, gun+0x9e0, cleared by Deploy).
+- 6 Killed clears pev->fov; the One's Think block runs before the round logic.
+Tests: new ts_kills and ts_messages (reTS + ts30), tsx_one gains team-kill log, kick, regen, speed, dive.
+Found, not changed: RemoveAllItems lacks the original's CurWeapon(0,0,0) and PlayerDeathThink lacks its
+RemoveAllItems(1); the kung fu slot's WStatus to a newcomer; Observer_CheckProperties is not in the
+original; the One block is skipped for modes > 1 in the original; GetSpeedBySlots truncates in the
+original; ActItems from CTSGun::UpdateClientData is reTS's; client draws (bar for every caliber-0 weapon,
+breathing on any weapon); InitHUD clears player+0x7cc, which reTS lacks.
+
+## 2026-10-08 — round 13: the round-12 leftovers (death strip, kung fu slot, Think, speed, ActItems, client)
+
+Round 13 (amxxbench docs/fixes/rets-deviations13.md). One patch per item in ~/stignored/rets-deviations13.
+- 1 RemoveAllItems ends with CurWeapon 0 0 0 (@0xc8ef9); PlayerDeathThink strips a dead player still
+  holding anything (HasWeapons -> RemoveAllItems(1), @0x7ec03), so death to spectating sends two.
+- 2 Kung fu is never owned: CTSGun::Spawn does not mark a melee seed owned, BuyArmament gives no kung fu
+  (the original's @0x83f10 gives none), so no WStatus for slot 0; the client weapon bar's Reset puts kung
+  fu in its cell itself (client.dll @0x1004cd60), as against the original server.
+- 3 Observer_CheckProperties and m_iObserverWeapon removed (not in the original; reTS never called it).
+- 4 Think: the dynamic powerups, the One check and the LMS rounds run only for rules mode 0/1, in that
+  order. Powerups gated as @0x672e9: rules+1 (m_iRandomPowerups, -1 Init, 0 when a map's own ts_powerup
+  spawns first, -1 again after item_longjump, 1 at the first Think), nopowerup != 1; a slow motion one a
+  quarter of the time unless slowmatch is 1; next 20 s / 1 s; cleared when more than 21 s off.
+- 5 GetSpeedBySlots truncates to a whole number (@0x66c04).
+- 6 ActItems moved from CTSGun::UpdateClientData to CBasePlayer::UpdateClientData (@0x82393): live
+  player holding the gun, GetActiveItems (with the akimbo 0x40), cache m_iClientActiveItems (0x720)
+  cleared by TSInit and ForceClientDllUpdate. CTSGun::m_iClientAttach removed.
+- 7 Client: the melee bar for every weapon without a caliber (M61 included); the breathing is
+  client.dll Think's state machine (below 50: breathe2.wav 0.7 on channel 502; at 50 it fades 0.005 a
+  frame with SND_CHANGE_VOL), whatever is held.
+- 8 m_flKickTime (0x7cc, InitHUD clears it, PreThink's dead delayed kick reads it) and m_iPlayerModel
+  (0x758, GetPlayerModel's pick).
+Tests: ts_messages (newcomer no WStatus, two CurWeapon 0 0 0, ActItems akimbo tag), tsx_player (pickup
+speed truncated), ts_powerup_state (map powerups leave out random ones), reTS + ts30. The amd64 AMX Mod X
+core's floatround_tozero rounds 239.63 to 240: SpeedBySlots helpers now floor.
+Found, not changed: see amxxbench docs/fixes/rets-deviations13-report.md.
+
+## 2026-10-08 — round 14: the round-13 leftovers (RemoveAllItems, spawn, Think, SetFOV, client, ActItems)
+
+Round 14 (amxxbench docs/fixes/rets-deviations14.md). One patch per item in ~/stignored/rets-deviations14.
+- 3 RemoveAllItems (@0xc8cec): no func_tank release, no SetHasSuit; removeSuit clears every weapon bit,
+  otherwise only a held suit bit stays (pev->weapons &= 0x80000000).
+- 4 PlayerSpawn strips nothing (@0x790ac); the round-restart guard is gone (RestartRound already sends
+  every player in play to spectate, which strips him).
+- 5 CTSGun::Spawn (@0x7053c) seeds nothing: Reset, classname, Precache, glock model, id 16, m_iClip 1,
+  m_iDefaultAmmo 1, type 0, FallInit. GiveTSWeapon (reTS's, uncalled) spawns an empty gun and gives the
+  weapon through TakeWeapon.
+- 6 Observer_CheckTarget removed (not in the original, never called).
+- 7 UpdateClientData sends no SetFOV; the zoom reaches the client in cd->fov (HUD_PostRunCmd copies it to
+  g_lastFOV, client.dll @0x100045e6 as in the SDK). SetFOV only from Killed and StartObserver.
+- 8 Think: no per-frame slowmatch block; CBulletManager::m_iActive (+0x4000, rules+0x5864: recounted in
+  Think, +1 per FireBullet, 0 in Reset) gates the bullet Think, which runs after the realbullet SrvSett
+  (@0x67635); usecash's SrvSett reads dmcashbased (registered as "usecash").
+- 9 InitHUD in the objective modes (m_iGameMode 2/3) clears m_iPlayerModel and calls SendObjectiveList
+  (@0x69592). Not reachable on these maps.
+- 10 Client: the melee bar as client.dll @0x1004d5f0 (raw hud_r/g/b; at 0.01 or below only the frame in
+  0xc3,0x2d,0x2d; else fill (int)(bar*1.28)-2 wide in (r*128/255, w*g/255, w*b/255) at alpha 255-w, then
+  the 128x19 frame at alpha 0x1e). The heartbeat is Think's state machine (@0x1004cf8b: slow < 1 starts
+  heartbeat1.wav at 1.0 on channel 501, fading 0.01 a frame); the four beats on slow motion entry are gone.
+- 11 StartObserver sends ActItems {idx, 0} itself, before its SetFOV (@0x897b4), so a teamplay joiner's
+  team change (StartObserver alone) sends one: two ActItems 0 for a teamplay joiner, as TS 3.0.
+Tests: ts_messages (no weapon bits after death, spawn while armed strips nothing, no SetFOV after a spawn,
+joiner ActItems per StartObserver), ts_powerup_state (slowmatch slows nobody), reTS + ts30.
+Found, not changed: the global ShouldCollide dereferences a NULL pentOther (a plugin trace with no entity
+to skip crashed rets-r11); StartObserver strips with RemoveAllItems(false) where the original passes 1;
+Spectator 1 1 is sent from TSEnterSpectate, not StartObserver; more in amxxbench
+docs/fixes/rets-deviations14-report.md.
+
+## 2026-10-08 — round 15: the ShouldCollide crash and the round-14 leftovers
+
+Round 15 (amxxbench docs/fixes/rets-deviations15.md). One patch per item in ~/stignored/rets-deviations15.
+- 1 The global ShouldCollide is the original's (@0x9b7b4): either edict may be NULL; the touched entity's
+  ShouldCollide decides unless it has FL_KILLME, else 1. It crashed on a plugin trace with no skip entity.
+  Of the other exported callbacks, AddToFullPack's m_EFlags read (halflife-updated) and DispatchSave/
+  DispatchRestore's save-time read now check for NULL first, as the original does; the rest already matched.
+- 2 StartObserver strips with RemoveAllItems(true) (@0x89983): a spectator has no weapon bits.
+- 3 StartObserver ends with Spectator {idx, 1} (@0x899c2), not TSEnterSpectate: two for a teamplay joiner.
+- 4 Think's SrvSett: realbullet and usecash compare (float)cache != value and cache the value chopped;
+  ammocount is chopped and compared as an int (@0x675b3, @0x67650, @0x676d8).
+- 5 CTSGun::Reset leaves the active item and weapon info NULL (@0x7061c).
+- 6 Think runs CheckDeads when rules+0x5880 is set and below the time (@0x672ac); CheckDeads clears it.
+- 7 Client: CHud::Think eases m_iFOV toward the target as client.dll 0x10049760/0x10049620 (default_fov held
+  to 70..110, 80 under 0.001; step |gap|/2 x frametime x 50, at least 1); V_CalcRefdef keeps v_frametime
+  on entry (0x10069b9e). Checked by build and disassembly only.
+Tests: ts_callbacks (NULL-skip trace hits a player; fixed build only), ts_messages (joiner spectates
+without weapon bits, Spectator right after each StartObserver's strip, SrvSett truncation), reTS + ts30.
+Found, not changed: CTSWorldGun::ShouldCollide is the original's inverted (@0x91290 collides with everything
+but guns and knives); more in amxxbench docs/fixes/rets-deviations15-report.md.
+
+## 2026-10-08 — round 16: CTSWorldGun::ShouldCollide and the round-15 leftovers
+
+Round 16 (amxxbench docs/fixes/rets-deviations16.md). One patch per item in ~/stignored/rets-deviations16.
+- 1 CTSWorldGun::ShouldCollide is the original's (@0x91290): collide with everything but "WorldGun" and
+  "knife". NULL (no other) still collides; the original reads it unchecked. CBaseEntity's and CTSKnife's
+  (return 1) already matched; no other class has one in the original.
+- 2 ServerActivate skips edicts 0 to clientMax - 1 (@0x9e96e): the world is not activated, edict
+  clientMax is.
+- 3 ClientUserInfoChanged sends the name-change SayText whatever maxClients is (@0x9e750).
+- 4 Sys_Error logs "Sys_Error: %s\n" at_logged (@0x9eebc).
+- 5 ClientDisconnect formats the leave line whatever the name and neither resets the client's sound nor
+  releases a func_tank (@0x9cd4c).
+- 6 The four SrvSett go out once, from InitHUD (@0x691fe..0x69316). The 0.75 s timer (now
+  m_flRosterResendTime) still carries the invented ResendTeamRoster. ce04557 recorded this resend as
+  load-bearing for the original client's buy menu at join; that needs a real-client check.
+- 7 Client: MsgFunc_SetFOV as client.dll 0x10049570 (ignored while cl_lw is on; 80 for 0; sensitivity
+  newfov x 0.0125 x sensitivity x zoom_sensitivity_ratio); CHud::Think reads no screen info and takes no
+  spectator FOV (0x10049760). Checked by build and disassembly only.
+Tests: ts_callbacks (a flying gun's ShouldCollide pairs; the world not activated), ts_messages (a joiner
+gets each SrvSett once), reTS + ts30.
+Found, not changed: CTSWorldGun::Fall settles below GiveSlowMul() x 3 (@0x90df0), reTS below 3; more in
+amxxbench docs/fixes/rets-deviations16-report.md.
+
+## 2026-10-09 — round 17: the invented join resends, Fall's settle speed, the client's sensitivity
+
+Round 17 (amxxbench docs/fixes/rets-deviations17.md). One patch per item in ~/stignored/rets-deviations17.
+Every resend removed here was added in July (ce04557, d99e07c, 6e7ce98, bdb229b, eb117a6, 6a25b0f) for a
+real-client symptom whose cause was the joiner's InitHUD burst going out from inside ClientPutInServer,
+before the client was active. 2999c75 (round 3) moved that send to the joiner's first PreThink as the
+original does; join-stream dumps now show nothing but TSFade and one weapon anim going out before then,
+on both games (amxxbench docs/fixes/srvsett-investigation-report.md).
+- 1 The team roster resends are gone: ResendTeamRoster and its 0.75 s timer (m_flRosterResendTime), and
+  CHalfLifeTeamplay::Think's 3 s MSG_ALL GameMode/TeamNames/TeamInfo. The original sends GameMode only from
+  UpdateGameMode and TeamNames/TeamInfo only from Teamplay InitHUD, ChangePlayerTeam, RecountTeams and
+  StartObserver.
+- 2a The one-shot slow motion and award un-latch (m_flSpecResyncTime) is gone.
+- 2b UpdateClientData's ResetHUD block no longer clears the TSHealth/TSArmor/TSCash caches (0x81d57 clears
+  none). They are cleared where the original clears them: TSInit health and cash (@0x82ac9, @0x82b02),
+  Spawn and Precache armor (@0x7f9a0, @0xca997), Killed cash (@0x7eead), ForceClientDllUpdate all three.
+- 2c No WeaponList (only LinkUserMessages uses gmsgWeaponList).
+- 2d The room type goes out from CEnvSound::Think when an env_sound takes the player over (@0xd0003), not
+  from UpdateClientData on a change (halflife-updated bc3add9), so a join or spawn sends none.
+- 3 CTSWorldGun::Fall settles below GiveSlowMul() x 3.0 (@0x90de9).
+- 4 Client: CHud::Think scales with sensitivity->value (0x10049865), not IN_GetMouseSensitivity.
+Tests: ts_messages (team roster only in the InitHUD frame; no HUD re-sends, WeaponList or room type for a
+waiting joiner; a spawn sends health, armor and cash once), ts_dropped (a gun at a quarter rate does not
+settle at 1.5 u/s), reTS + ts30. Real-client checks listed in amxxbench docs/things-to-test.md.
+Found, not changed: TS 3.0 sends two svc_weaponanim (1, 0) in each joiner StartObserver, reTS none; Train
+goes after TSArmor in the original's UpdateClientData; the respawn countdown's first number and frame and
+the "Press Fire To Play!" line differ; Fall goes on after settling in the original. More in amxxbench
+docs/fixes/rets-deviations17-report.md.
+
+## 2026-10-09 — round 18: StartObserver's holster, UpdateClientData, the countdown, TSFade, Fall
+
+Round 18 (amxxbench docs/fixes/rets-deviations18.md), the round-17 leftovers. One patch per item in
+~/stignored/rets-deviations18.
+- 1 StartObserver (@0x8970f-0x89755): with the gun in hand Reset and HolsterWeapon, then Holster(0)
+  (HolsterWeapon again). HolsterWeapon's kung fu draw goes out with skiplocal 0 (@0x75858), now forced
+  with m_ForceSendAnimations, so a joiner gets two svc_weaponanim in his InitHUD frame as on TS 3.0, and
+  a predicting client gets the draw on every switch.
+- 2 UpdateClientData as the original's (@0x81d00-0x82593): Train after TSArmor; no flashlight upkeep,
+  game title, InitStatusBar, status bar, SendAmmoUpdate, item loop or m_bRestored clear; only the
+  active item's update when it is the gun (id 16), then the active item and FOV caches.
+- 3 PreThink runs MakeVectors, ItemPreFrame, WaterMove, UpdateClientData, CheckTimeBasedDamage and
+  CheckSuitUpdate right after the game-over return (@0x80940-0x8096c), before the TS upkeep and the
+  spectate block, so the joiner's first countdown line goes out in his InitHUD frame; the spectate
+  block's own UpdateClientData call (cont.98) is gone. The countdown truncates (@0x80edc chop), shows
+  "Press Fire To Play!" when that gives 0 and paints nothing after the gate (round 7f/7g's rounding and
+  post-gate prompt undone; 7g's missing prompt came from the rounding).
+- 4 TSFade divides by GiveSlowMul and truncates (@0xdccbf, @0xdccfb), no +0.5. The spawn fade's 4095/4096
+  depends only on the spawn time's float bits; reTS computes it as the original for every float time
+  (~/stignored/rets-deviations18/tools/fadecheck.c).
+- 5 CTSWorldGun::Fall goes on after OnGround to the lifetime check, trace and upkeep (@0x90e4e).
+- 6 Client: hud.cpp's unused IN_GetMouseSensitivity declaration removed.
+Tests: ts_messages (two weapon anims at the joiner's StartObserver; Train after TSArmor; the countdown;
+TSFade at slow 0.6), ts_dropped (the settling think runs the slow-motion upkeep), reTS + ts30.
+Found, not changed: StartObserver drops the flag before the holster (the original after); WeaponIdle and
+CCombatIdle send with skiplocal 0 in the original; the LMS window line rounds and its expiry runs outside
+the spectate block; Fall's trace skips players in the original; impulse 100's flashlight has no original;
+PwUp's byte is clamped at 0 in the original. More in amxxbench docs/fixes/rets-deviations18-report.md.
+
+## 2026-10-09 — round 19: the round-18 leftovers
+
+Round 19 (amxxbench docs/fixes/rets-deviations19.md). One patch per item in ~/stignored/rets-deviations19.
+- 1 StartObserver drops the flag after the holster (DropFlag @0x8975f follows @0x89755).
+- 2 CTSGun::WeaponIdle (@0x75646) and CCombatIdle (@0x75e94) send their idle anims with skiplocal 0
+  (m_ForceSendAnimations), so a predicting client gets them as from TS 3.0.
+- 3 PreThink in the original's order: after CheckSuitUpdate the slow-motion ease and framerate, the timer
+  countdowns, the landing check and CTSStunt::Play, UpdateTimers, the powerup state and slow-motion flow,
+  the root timer's expiry, the melee bar regen (IsAlive only, @0x80d66), the run-through window's expiry,
+  then the spectate block, spectators included; CheckForBreakables first after the block (@0x810ee). The
+  stock view-entity and node-graph blocks are gone.
+- 4 The re-entry window's line truncates (@0x81063) and its expiry runs inside the spectate block
+  (@0x80fb3): 6 down to 0, and a player in play is no longer told to wait for the next round.
+- 5 CTSWorldGun::Fall's trace skips players and has no takedamage test (@0x90f2b-0x90f3d).
+- 6 impulse 100 removed (the original's ImpulseCommands has 99, 201, 204 only); no client dependency.
+- 7 PwUp's seconds byte clamped at 0 (@0x82295).
+- 8 InitStatusBar and UpdateStatusBar removed.
+Tests: ts_messages (gun and bare-hands idle anims, PwUp clamp), ts_dropped (falling gun spares a player),
+ts_observer (spectator's slow motion eases, LMS window), ts_cheats (impulse 100), reTS + ts30.
+Found, not changed: TSInit does not clear the re-entry window (@0x82d5b); PreThink's spread decay, health
+regen position, framerate, +0xb88 stamp, iuser4 0x400000 bit, timer floors and the gravity timer; the
+landing check belongs to PostThink; impulse 204 missing and cheat impulses 76/101/203 extra; flashlight
+and status-bar leftovers; m_flPowerupTime float vs int; a reTS team-change test failure when the server
+starts in deathmatch. Details in amxxbench docs/fixes/rets-deviations19-report.md.
+
+## 2026-10-09 — round 20: a test fix, then the round-19 leftovers
+
+Round 20 (amxxbench docs/fixes/rets-deviations20.md). One patch per item in ~/stignored/rets-deviations20.
+- 1 ts_observer "team change keeps the jump clock" failed on reTS started in deathmatch because the map
+  change execs game.cfg (InstallGameRules @0xb6050, both games) and that run's game.cfg says mp_teamplay 0;
+  TS 3.0 fails the same with such a game.cfg. The test (reTS and ts30 copies) now sets game.cfg aside
+  without its mp_teamplay line for the switch, as ts_kills does. No game change.
+- 2 TSInit clears the re-entry window (+0x7bc, @0x82d5b).
+- 3 PreThink as the original: framerate = GiveSlowMul() every frame (@0x80999); the +0xb88 ground stamp
+  for every player (@0x809ab, no longer in CTSStunt::Play); the run-through, root and gravity timers
+  floored at 0.001 (@0x809f4-0x80a90); iuser4 0x400000 (TSSTUNT_NOVIEWOFS) for a zero view_ofs
+  (@0x80b4a); the health regen before the spectate block (@0x80bc1); the root timer expires only with
+  STOP set (@0x80cf6); the gravity timer expires to gravity 1.0 (@0x80d24); the spread decays in the
+  IsAlive block with the timers' delta x 0.1 (@0x80d77). m_bSlowMoveApplied is now unused (kept).
+- 4 The super-jump landing check is in PostThink's landing block (@0x818ec-0x81a31).
+- 5 Impulse 204 (ForceClientDllUpdate) without cheats (@0xcb9b0); cheat impulses 76, 101, 203 removed
+  (table @0xcba3c). Impulse 101 with sv_cheats 1 ended a 267b362 server with a Host_Error (w_battery.mdl
+  precache); gone with it.
+- 6 FlashlightIsOn/TurnOn/TurnOff and FAllowFlashlight removed (gamerules vtables one slot shorter, as the
+  original's); the save fields and status-bar members stay (moving offsets, see the report).
+- 7 m_flPowerupTime is m_iPowerupTime, an int (@0x82259); rets_api v5 (Get/SetPowerupTime int), both
+  header copies; reTSX on tsx-ts3 updated.
+Tests: ts_observer (re-entry window ends with the life, zero view offset bit, the jump clock fix),
+ts_cheats (impulse 204, cheat impulses not in the table), ts_powerup_state (animation rate), reTS + ts30.
+Found, not changed: the gate sentinel is -1.0 in the original, -4.0 in reTS (three sites); the landing's
+roll stamp and sound pitch; ItemPostFrame runs impulses during the spawn's attack delay in the original;
+PreThink's fuser1 0 -> 1 guard; mp_flashlight cvar and flashlight1.wav precache; CMultiplayBusters and
+sv_busters; TSInit's unnamed zeroings. Details in amxxbench docs/fixes/rets-deviations20-report.md.
+
+## 2026-10-09 — round 21: three game.cfg tests, then the round-20 leftovers
+
+Round 21 (amxxbench docs/fixes/rets-deviations21.md). One patch per item in ~/stignored/rets-deviations21.
+- 1 ts_gamerules (team spot, repeated team name) and ts_rounds (teamplay wipe) failed on a server whose
+  game.cfg says mp_teamplay 0 (both games): they now set game.cfg aside without that line for their map
+  change. Tests only.
+- 2 The wait-for-next-round mark is -1.0 at all three writers (@0x660dc, @0x80fe9, @0x8fa06); 55f85a0 had
+  made the PreThink one -4.0 from a misread decompile.
+- 3 Super-jump landing: m_flRollNextTime = time + 0.3 before GoRoll (@0x81940), so the duck landing rolls;
+  the plant's sound at pitch 95 + RANDOM_LONG(0, 31) (@0x81997).
+- 4 CBasePlayer::ItemPostFrame's attack-delay hold as @0xcc4ff: only a gun with a weapon in hand is held,
+  and +alt2 on a reloading gun with a bash gets through. Impulses and bare hands run during the delay.
+- 5 No fuser1 0 -> 1.0 step in PreThink (none before @0x80974); the client floors the predicted slow
+  factor at 0.01 (client.dll 0x10055aa0) instead of reading 0 as 1.0.
+- 6 mp_flashlight and the items/flashlight1.wav precache removed.
+- 7 CMultiplayBusters, sv_busters and the busting helpers removed (InstallGameRules @0xb6050).
+- 8 TSInit zeroes 0x740, 0x77c-0x784, the 33 dwords at 0x184 (new members m_iTSInit*, last in
+  CBasePlayer so nothing moves; nothing else in ts_i386.so touches them) and the chat clock (0x7c0 =
+  m_flNextChatTime, read by Host_Say @0x9d09c).
+Tests (reTS + ts30): ts_observer (gate -1.0), ts_powerup_state (landing pitch, duck roll, slow factor
+from 0), ts_cheats (impulse in the spawn delay), ts_damage (bash cuts a reload), ts_gamerules (no
+flashlight/busters, spawn zeroing). Found, not changed: ItemPostFrame's second m_pTank check and its
+missing random_seed reroll (@0xcc575); TSInit also zeroes 0x750 (m_flNextPTakeDamTime) and 0x788;
+Spawn's stock m_flNextChatTime = time; sv_allowbunnyhopping and sv_pushable_fixed_tick_fudge are
+not in the original. Details in amxxbench docs/fixes/rets-deviations21-report.md.
+
+## 2026-10-09 — round 22: a test guard, then the round-21 leftovers
+
+Round 22 (amxxbench docs/fixes/rets-deviations22.md). One patch per item in ~/stignored/rets-deviations22.
+- 1 ts_gamerules' spawn zeroing test wrote past the end of the player on reTS before 58c5ca9 and ended
+  both servers in round 21. It now reads the player's block size (new amxxbench native
+  bench_private_size, malloc_usable_size) and writes nothing unless the fields fit; on 8dd2877 it
+  refuses (3864 bytes, 4016 needed). Tests only.
+- 2 CBasePlayer::ItemPostFrame: no second m_pTank check (halflife-updated #3345), and random_seed =
+  RANDOM_LONG(0, 32000) after the item's frame (@0xcc575). Only the guns' fire functions read it
+  (@0x72303-0x73201), always after CmdStart's write; client.dll has no reroll.
+- 3 TSInit zeroes m_flNextPTakeDamTime (0x750, @0x82ca8) and 0x788 (@0x82d65, new m_iTSInit788, last
+  in CBasePlayer: amd64 size unchanged at 4016 (tail padding), i386 3380 -> 3384).
+- 4 Spawn no longer sets m_flNextChatTime = time (stock SDK line; the original leaves 0x7c0 to TSInit).
+- 5 sv_allowbunnyhopping (halflife-updated a1cf2d3) and sv_pushable_fixed_tick_fudge (HL25 backport
+  4f0d502) removed with the "bj" physinfo key; PM_PreventMegaBunnyJumping always runs (@0xf00d4).
+  CPushable::Move is the original's (@0xb1c50): pre-HL25 Move plus TS's 0.3 scaling of the toucher's
+  velocity while he holds +use. coverage.py's server cvar scan let defaults up to 40 chars through
+  (mp_teamlist's "hitman;gordon" was dropped at 12); REPORT.md regenerated: 44 matched, 0 extra.
+- 6 Client: HUD_WeaponsPostThink's gate is client.dll's (0x10003d46): deadflag != 5, !CL_IsDead
+  (0x10026860) and m_flNextAttack <= 0. The spectator and viewmodel/zoom tests are gone; round 7l had
+  narrowed the gate for a hang that was TS_EvWeaponAnim calling itself (fixed in 7l-b, fea3cb3).
+Tests (reTS + ts30): ts_gamerules (spawn zeroing extended to 0x750/0x788 and chat clock 0, no
+bunnyhop/pushable cvars or bj key, pushable push/pull), ts_damage (seed rerolled). Details in amxxbench
+docs/fixes/rets-deviations22-report.md.
+
+## 2026-10-09 — round 23: the TS 3.0 start-up crash, then the round-22 leftovers
+
+Round 23 (amxxbench docs/fixes/rets-deviations23.md). One patch per item in ~/stignored/rets-deviations23.
+- 1 The TS 3.0 crash of round 22 (core pid 287512): the world edict was free with no private data and
+  classname worldspawn, serial 1 (ED_ParseEdict's no-init path: the engine's GetEntityInit found no
+  "worldspawn" in metamod's or ts_i686.so's handle, though both were in its extension table at the
+  crash). CWorld::Spawn/Precache never ran (27 sound precaches, no ClientPrecache, no rules, no
+  server.cfg from the rules), so the first puppet's ClientConnect called a NULL g_pGameRules. Not the
+  bench's game.cfg handling, not a map change, not the LMS patch; one map load in ~4,900 on that copy.
+  ReHLDS looks entities up the same way, so reTS has the window: ClientConnect now refuses a client when
+  g_pGameRules is NULL (before the ts_playeramount relays count him). The bench runs no tests on a map
+  whose world did not spawn (amxxbench 804c1c6).
+- 2 amxxbench run.sh passes the filter in AMXXBENCH (f4e04bf); bench only.
+- 3 sv_load_all_maps / sv_stop_loading_all_maps removed (halflife-updated 19d94e4, Sam V, for node
+  graph generation; not in ts_i386.so), with their StartFrame hook and includes. coverage.py lists
+  the server's pfnAddServerCommand registrations (original: the `call *0x230` sites in GameDLLInit);
+  REPORT.md: 7 matched, 0 extra.
+- 4 menuselect is the original's: CHalfLifeMultiplay::ClientCommand (@0xbeee8) and
+  CHalfLifeTeamplay::ClientCommand (@0xd43c8) strcmp it (string @0xfd78f). coverage.py only read
+  ClientCommand; it now reads the game rules' too. Server client commands: 21 matched, 0 extra. No code
+  change.
+Tests (reTS + ts30): ts_gamerules no_load_all_maps_commands; ts_powerup_state's duck roll test now
+faces open ground (a spawn spot facing a wall failed it once in 42 runs). Details in amxxbench
+docs/fixes/rets-deviations23-report.md.
+
+## 2026-10-10 — grenade powerup refused; a phantom weapon on the bar after the last grenade
+
+amxxbench docs/fixes/grenade-powerup.md. Scratch in ~/stignored/grenade-powerup.
+- Grenade powerup not picking up: TS 3.0 refuses it the same way. PlayerAddPowerUp @0x87d4e calls
+  PickUpWeapon(M61, 0, 0, select, no owner); PickUpWeapon @0x8314c refuses when player+0x548 (free
+  slots) minus the M61's 7 is below 0; TakeWeapon @0x70a04 refuses a third M61 (cap 2); WaitTouch
+  @0x88614 leaves a refused powerup where it is. Steven's Mossberg, Raging Bull, katana and Skorpion
+  use 80 of 81 slots. Puppets agree on both games (ts_pickups, 8 tests). No game change.
+- Phantom M4 on the weapon bar after throwing the last M61: the server is right (both games send
+  TSSpace, WStatus 24 0 0 and WeaponInfo for the next weapon, nothing for the M4). The reTS client
+  marked every wielded type owned in HUD_WeaponsPostThink (8922f0c7, for the coldcock event gate) and
+  never cleared it, so its predicted DropWeapon -> GetBetterWeapon picked a weapon wielded earlier in
+  the session (M4 is 4th in priority) and TSHud_GunUpdate gave it a bar cell the server never clears.
+  client.dll never sets an item owned (Reset @0x10008470 clears, HUD_WeaponsPostThink fills the item
+  without +0), so its DropWeapon @0x100085d0 is a no-op. Fixed: no owned flag on the client; the
+  coldcock event plays on any active item on the client (client.dll @0x10008dc8 has no gate), owned
+  gate kept on the server (@0x81f80). Server libraries byte-identical to 52113a0.
+
+## 2026-10-10 — fire-to-play: the press sends "respawn", and its clock restarts on a new map
+
+amxxbench docs/fixes/join-spawn-click.md (report join-spawn-click-report.md). Scratch in ~/stignored/join-spawn.
+- TS 3.0's fire-to-play is client-side: TS replaced CHudSpectator::HandleButtonsDown (client.dll
+  0x10023450, 67 bytes) with a 0.2 s throttle on +0xc94 and, for IN_ATTACK, ClientCmd("respawn"). The
+  +attack/+attack2/+jump/+duck/move down handlers call it (not +use); +0xc94 is zeroed by Init
+  (0x10022c70), VidInit (0x10022fe0) and the director reset (0x10023380). No spectate or menu test. The
+  server (both games) takes only the command: Observer_HandleButtons (@0x89d34) reads jump, forward and
+  back, never attack. While the buy menu is up with the cursor shown, IN_MouseEvent (0x100273d0) gives a
+  click to the menu only (FUN_10038360: outside an entry = key 1, "use config", which closes it), so the
+  first click on joining closes the menu and later clicks send "respawn".
+- reTS (55f85a0, July 3) polled in_attack.state once a frame in CHudSpectate::Draw behind a
+  function-static 0.2 s clock and an IsUp() test. The static was never reset, so after a map change or
+  a reconnect in the same game process (client time starts again near 0) no "respawn" went out until the
+  new clock passed the previous map's last fire time. The July client.so has the same code.
+- Now as the original: HandleButtonsDown's TS body (throttle on m_flNextObserverInput, which Init,
+  VidInit and InitHUDData already zero; IN_ATTACK sends "respawn"), +use no longer calls it,
+  TS_SpectateFireCheck gone. The stock body (duck toggling the spectator menu and its cursor, use for
+  the inset, HLTV target and mode keys) is gone with it, as in client.dll. Server libraries
+  byte-identical to 31eabf7.
+- Not done: client.dll's IN_*Down handlers for +attack, +attack2, +jump and the moves call KeyDown only
+  when HUD_Key_Event saw a key bound to one of them this frame (0x100df5cc, set at 0x10025c9c, cleared
+  by HUD_Frame), so those commands from a script or alias do nothing there. reTS has no such gate.
+Test (reTS + ts30): ts_observer held_fire_does_not_spawn_a_joiner, passing on both games in both modes.
+
+## 2026-10-10 — the death notice: HUD sprites reloaded on every map, weapon named in text
+
+amxxbench docs/fixes/grenade-death-icon.md (report grenade-death-icon-report.md). Scratch in
+~/stignored/grenade-death-icon.
+- Steven saw a crouching figure where a grenade death's notice should show the skull. The server is not
+  involved: on both games a grenade death sends DeathMsg (killer, victim, "M61 Grenade") and no TSState
+  (puppets, other, ducked and self). It was the reTS client's death notice drawing the skull through a
+  stale sprite handle.
+- client.dll CHud::VidInit (@0x100206e1) sets m_iRes to 320 below 640 wide and 640 otherwise, on every
+  call. reTS kept HL25's 1280/2560 pick (halflife-updated 246c1d5) plus a fallback to 640 that ran only
+  on the first load (e5ca177, 2026-06-21). From the second VidInit on (every map) m_iRes was 1280 again,
+  matched nothing in TS's hud.txt, and no hud.txt sprite was reloaded; the engine handed their handles
+  to sprites loaded later. Read live from Steven's hl_linux at 1920x1080: m_iRes 1280, d_skull handle 10
+  (640hud1 at startup), m_TSStatus crouched.spr handle 10. Now 320/640 on every call as client.dll.
+- client.dll's death notice (Draw @0x1001b020, DeathMsg @0x1001b360) never looks a sprite up (iId -1):
+  it keeps the weapon name (item +0x9c) and writes it in orange (1, 0.5, 0.2) between the names; the
+  name is cleared for a suicide, a team kill and a non-player kill, which draw the skull, white (team
+  kill green). Rows at y 20, 40, 60, 80, text and sprite on the same line. reTS drew the stock HL sprite
+  lookup (d_<weapon>, so always the skull for TS's weapon names) in orange at y 66 + gap. Now as client.dll.
+- Not done: GetClientColor (@0x1001af40) returns white for the local player, team 1-4 colours and no
+  colour otherwise; reTS's stock one (yellow for team 0, grey default) is shared with say text, the
+  status bar and the spectator HUD. ammo.cpp's weapon sprite list still picks 1280/2560 (HL25).
+  TS 3.0 sends a red TSFade (1228 614 0 150 10 10 75) to the victim at death and reTS sends none.
+Server libraries byte-identical to edffa35's.
+
+## 2026-10-10 — buy menu clicks wait for VGUI windows, as client.dll's IN_MouseEvent
+
+Steven (753f738 client, native): after the join click the cursor stayed and the mouse was not captured.
+client.dll IN_MouseEvent (0x100273d0): cursor hidden -> key events; cursor shown -> the buy menu's mouse
+(0x10038360) only when no VGUI window is up (viewport +0xa9c current menu, +0xaa0 and +0xad0 visible,
+squelch, +0xad4 command menu), else nothing (VGUI has it). reTS (258a447, June) gave the buy menu every
+click first. A join opens the MOTD (MsgFunc_MOTD -> ShowVGUIMenu 5 on both clients, 0x10064f60) with
+the buy menu, so a click closed the buy menu under the MOTD and the MOTD kept g_iVisibleMouse set: cursor
+shown, IN_MouseMove never re-grabbing. Now as client.dll (TeamFortressViewport::IsVGUIMenuUp,
+TS_VGUIMenuUp). On GoldSrc Linux the grab is the client's SDL relative mode, re-enabled in IN_MouseMove
+once g_iVisibleMouse is false; hw.so's EngineSurfaceWrap::setCursor (0x1ab660) only shows/hides the OS
+cursor (m_rawinput 0). Not seen live: Steven did not join while ~/stignored/join-spawn/peek2.py watched.
+
+## 2026-10-10 — an empty config still closes the buy menu, as client.dll
+
+Steven (14a17a2 client): clicks after the MOTD closed reached the client (IN_MouseEvent, buy menu up,
+no VGUI window) but the menu never closed. client.dll's key 1 at the config level (0x10038840 case 0)
+calls apply (0x10039400) and closes the menu (0x10036720) when it returns true. Apply with nothing bought
+shows "#Buy_ConfigEmpty" (red 195 45 45, hold 20) and goes on: it returns false only over the budget
+("#Buy_NoCash") or the slot cap. reTS's Apply returned at once when m_spent <= 0 (258a447), so an empty
+config could not be closed by any click. A config is empty whenever the menu opens with no applied
+config to reload (only the first open on a map randomizes one). Now as client.dll.
+
+## 2026-10-10 — client cvars audited against client.dll; cl_realhud; the slot handler
+
+Every pfnRegisterVariable in client.dll (107: name, default, flags, kept pointer) and every read of it
+was listed and the reads decompiled (tools in ~/stignored/client-cvars: regs.py, reads.py, table.py;
+table in reference/API_SURFACE.md section 3). Fixed, each against the disassembly:
+- cl_realhud: not 0 makes the status draw (0x1004a3e0, with the kung-fu/super-jump figures), the
+  weapon panel (0x1004d7e0; kung fu's 0x1004d700 is not gated) and the crosshair draw (0x1004e9f0:
+  ring, dive arc, laser range) return at once. The laser dot (0x1004e6f0) stays.
+- nohud: no global gate in client.dll's Redraw; it hides the death notices (0x1001b020), the status
+  draw's parts (0x10049f06: timer, TSMessage, flags, status, powerup label, objectives) and the weapon
+  bar Draw after the laser dot (0x1004d3f9: buy menu, bar, weapon box, crosshair). Flags 0.
+- cl_attackswitch (0x10025f40/0x10026110): swaps +attack2 and +alt2 unless kung fu or fire type
+  grenade/knife/katana/flag. r_paintball (0x10001000): {splat0..17} decals.
+- cl_bob: client.dll's bob is its own (0x10066e70 + 0x10066de0), not the Quake bob; ported, default
+  "4.0". It replaced reTS's approximate sway (7cce5a7, halved later) and the tuned "aim up with
+  speed" pitch, which the bob's amplitude gives (0x100674a0). cl_bobcycle/cl_bobup are never read.
+- cl_buykevlar: ResetConfig (0x10038800) seeds kevlar; client.dll never writes the cvar.
+- cl_drawnames gates the overview names (0x1002318f, the stock spec_drawnames test); cont94's note
+  that it was a different consumer was wrong.
+- Flags/defaults: hud_deathnotice_time, zoom_sensitivity_ratio, default_fov, nohud, cl_slowfade 0;
+  cl_camtype/cam_back/cam_right/cam_up/cl_drawnames ARCHIVE; sensitivity ARCHIVE only; cam_idealdist
+  "100".
+- Slot keys: CHudTSWeaponBar::SelectSlot ports 0x1004f220 after 1796729's menu test: buy menu at its
+  level (the HUD_Key_Event digit path removed), bomb wires cutwire_<n>, slot 10 weapon_0, the 17x11
+  grid by weapon_info +0x85 row / +0x84 column (rows read from every Write_<weapon>), hud_fastswitch
+  0 and 1.
+- Server: UpdateClientData sends pev->fov (0xa0294), not m_iFOV.
+Not done: gl_fog* (ts_fog lump parser + fog pass), cl_wavedetail (no client bullet simulation), cl_fx's
+particle config. default_fov: both servers send fov 0 unzoomed (puppets) and the native reTS client
+applies it live (Steven's hl_linux: default_fov 90 -> HUD FOV 90, engine FOV 90); the Windows report
+needs a real-client check.
+
+## 2026-10-10 — client gaps: the cvar round's leftovers, the cl_dll markers, cached handles
+- Fixed every leftover of the client cvar round: gl_fog*/ts_fog and the ts_particle/ts_emitter
+  entities (0x1003a5d0, 0x10056c20; map rain and snow), cl_fx's two particle levels (0x10057d50),
+  the client bullet simulation and cl_wavedetail (0x10035010), the fire core (0x100450c0: seeded
+  pellets, PM_STUDIO_BOX, pierce, whizz, particle pushes) and gun smoke (0x10047130), the credits
+  box and "%ix" readout, the view model's FOV offset and punch-follow (0x100674a0), weapon_N for the
+  held weapon, the bound-key gate on nine + commands (0x10025a80), the usepowerup held gate, decal
+  ranges, m_side/+strafe/+mlook removed, scr_ofs* no longer read.
+- Kept: slow-motion tint (0,60,160) (client.dll has (0,100,125), b8080fb's playtest tune holds);
+  Steven's centred ammo numbers; the screen-space scope; the 64-bit string pool; togglebrowser no-op.
+- HUD: number draw 0x1004c290, status panel 0x1004a3e0 (GameMode byte raw), weapon box 0x1004d7e0,
+  weapon bar 0x1004e030, round timer 0x1004bb20, TSMessage queue 0x1004b520, crosshair 0x1004e9f0,
+  laser/flashlight passes 0x1003de00/0x1003bad0, camera 0x10067fb0.., HUD_AddEntity tag culling.
+- The client reads the powerup bits from clientdata vuser1.y, as client.dll; TS 3.0's server sends
+  (float)m_iPowerups there (0xa0475), reTS's server sends m_flMeleeBar (server side to fix).
+- Open questions for the server/shared side: observer modes (TS 1,2,3,5 with 5 in-eye; pm_shared.h
+  OBS_IN_EYE 4); the akimbo bparam1 side is inverted vs client.dll (client.dll: nonzero = right gun).
+
+## 2026-10-10 — server gaps: the cvars, the dlls/pm_shared markers, client data, observer modes
+
+Every cvar ts_i386.so registers was listed from GameDLLInit (name, default, flags, order) with every
+read (tools in ~/stignored/gaps-server: sregs.py, allreads.txt, retsreads.py; the table is in
+amxxbench docs/fixes/gaps-server-report.md). The TS cvar_t live in game.cpp in .data order and
+ts_cvars.cpp is gone. initial_cash, cashforwin, cashforlose and respawnnumber are defined but never
+registered: ClientPutInServer and TeamWin sscanf their default strings (1200, 10000, 1200), the team
+pools and SetPlayerRespawnTime read the value field (0). dmgreport stays registered (user approved).
+StartFrame copies g_teamplay into gpGlobals->teamplay (0x9eadc); DecideGamePlay reads mp_teamplay
+(reTS looked up "teamplay", which does not exist).
+- Host_Say (0x9d17f), the multiplay ClientUserInfoChanged (0x7b244, HLDM model names refused),
+  TeamWin (0x68a08), RoundTimeLeft (0x69024), the objectives, TSExplosion, the death drops (ammo
+  pack without armor, M61s as grenade powerups outside the round modes), the flag toss, the dropped
+  gun bounce, ts_trigger (0x60ad8), ts_playeramount, CBaseMonster's stub KeyValue and ts_model's base
+  as the original. Bullets make no server sprites.
+- UpdateClientData (0xa0294): vuser1.y = (float)m_iPowerups (the melee bar goes by its own message),
+  iuser4 always, kung fu sends only the combo counters, no in-eye swap, no fuser2/fuser3.
+- pm_shared.h: OBS_IN_EYE is 5, TS's number (Observer_SetMode 0x89e44 takes 1, 2, 3, 5); the map
+  modes are 6 and 7, never sent. The akimbo events send item+0x24 (1 = left barrel) as bparam1
+  (0x731e2), the linked shot too. fparam2 stays the view kick for reTS's client recoil; the original
+  sends the spread.
+- Kept: m_fGameHUDInitialized before InitHUD (recursion), GetBetterWeapon at spawn (5244abf), the
+  dead body's angles held while it lingers (TS 3.0's server lets them follow the view; a puppet
+  probe turned it 10 -> 120; the original client does not send the turn).
+- Found, not changed: the death animation, DEAD_DYING about 1.5 s on TS 3.0 and 1.0 s on reTS after
+  a generic-damage death.
+- Bench: fakemeta's EngFunc_GetInfoKeyBuffer and create_kvd/set_kvd handles crash an amd64 server
+  (pointers truncated to cells); use get_user_info and engine's DispatchKeyValue.
+
+## 2026-10-10 — client gaps round 2: recoil, muzzle debris, decals, spectator view, buy menu text
+
+- Recoil from the prediction (client.dll 0x10008230, called by its StandardFire/ShotgunFire/
+  AkimboFire): pitch 0.85 x kick, the type's yaw scale, x0.775 silenced, x2/3 double fire rate, only
+  on runfuncs, a 0.1 s 35 Hz shake for kicks within 0.15 s. The fire events carry the spread in
+  fparam1 and fparam2 as ts_i386.so (0x728cd, 0x72405, 0x7321e); the fire core spreads up by fparam2.
+  Test ts_fire_event (both copies).
+- Shotgun muzzle debris (0x10046bd0 forced from the fire events), and the spawner's view/sight and
+  throttle gates for its unforced impact callers. Bullet decals only on SOLID_BSP physents.
+- Spectator: TS's PM_SpectatorMove (0xeef3c / client 0x1002c790) with GetChaseOrigin (90 back from
+  35 up) moves the spectator; the client copy hands the view origin/angles and smoothing bits;
+  V_CalcSpectatorRefdef is 0x10068f70 (client.dll's chase-position call there is dead, overwritten
+  at its end). Test ts_spectator_view. The Spectator table is cleared with the scoreboard data only.
+- Buy menu: labels and notices from titles.txt tokens as client.dll (entry draw localises), rows keyed
+  '1'..'9','A', save/load/remove Go Back to the config column, Remove Item whole and compacted.
+- default_fov on Windows: no platform path in reTS touches it; checks for a Windows client listed in
+  amxxbench docs/fixes/gaps2-client-report.md and things-to-test 131.
+- Found, not changed: pump fire.sc bparam1 (TS sends pump-mode, reTS clip==0), server VKickback's
+  six-argument form, 0x10044bf0's impact classification, tsbuylist.tsa persistence.
+
+## 2026-10-10 — server gaps round 2: the death, the SLICE markers, ground pickups, the briefcase
+
+The dying state (TS 3.0 ~1.5 s, reTS ~1.0 s after a generic hit): TakeDamage turns the bullet dance on
+for a hit not in the legs, under 80 speed, of 80 or less (@0x7fb11), so Killed's Animate case 7 plays
+normal_die* (1.5 s) instead of die_spin (1.0 s); reTS never called Enable/DisableBulletDance. BulletDance's
+gate was inverted (it re-poses while the sequence is NOT finished, @0x5d386). PlayerDeathThink has no
+4 s cap and no body-queue copy.
+- Killed (@0x7ed5c) rebuilt in the original's order: the TSMBlur rolls, deathcam, ResetArmament,
+  SetView, EnableControl, respawns++, iuser2 and the observer target = a player inflictor, respawn gate,
+  award 1/11, GoSlow(0.33) on a head shot (rules+0x18 is cleared by Init and never set), iuser4 = 2,
+  Holster, the drops, then PlayerKilled; the damage-force push (max 500) and the 180/half-gravity throw
+  for a fast or >50 non-dancing death; no SOLID_NOT and no DeathSound (it has no caller).
+- TakeDamage: returns on 0 damage; the red TSFade (150,10,10) 75, 0.3/0.15 for a hit of 1 or more
+  (@0x7fff8) replaces the SDK's punchangle.x = -2.
+- The spectate flag m_fInSpectateWait is gone: PreThink's block tests iuser1 (@0x80e73) and returns,
+  PlayerSpawn always equips (@0x790ac), Spawn has no spectate tail; a plugin's Spawn puts a spectator in play.
+- SlowMotionFlow/DeactivateSlowMotionFlow/GlobalSlowMotion2 slow and restore grenades, knives and
+  dropped guns (@0x86ea4, @0x86b55, @0x69720).
+- AddItem bit 0x20 is the stealth shoes (objective modes, iuser4 0x200), not an M61.
+- CTSGroundAmmo rebuilt (@0xa27e4..0xa2f40): one-shot pickup with the respawn schedule, not a station;
+  PutOnWall for both ground pickups as the original (world or undamageable drawn walls, normal-facing);
+  their drop sound on CHAN_STATIC; wduration and tsweaponid default 0.
+- CTSBriefcase (@0x7d88c, @0x7db9c): trigger/fly spawn, the captured_briefcase log line (userid twice, as
+  the original), "10" in the capture message, the solo branch resets team scores, the taunt to every
+  player, the team scores always sent.
+- Found, not changed: CTSGun's burst/double-fire/idle timing (PrimaryAttack @0x71a20 only arms a burst,
+  WeaponIdle fires it; StandardFire does not decrement and idles 2.0 s); PrecacheAllTSWeapons precaches
+  assets the original server never does, which the reTS client still relies on.
+
+## 2026-10-10: game description tagged [reTS] (user-approved improvement)
+- GetGameDescription's four strings (@0x10d004..) end in " [reTS]": "The Specialists (DM) [reTS]", (Teamplay),
+  (The One), (LMS). Steven's choice (option D of four), so server browsers mark a reTS server; the name still
+  starts with the original string. Clients and the master servers go by the gamedir, so the swap is unaffected.
+  tsx_one.test.sma's reTS copy expects the tagged strings; the ts30 copy keeps the original ones.
+
+## 2026-10-10: Ghidra varargs and engine-table types for client.dll/mp.dll, and the ports it exposed
+- scripts/ghidra/ApplyWinTypes.java (run by `dc.sh setup client|mp`, and on a missing project): variadic
+  signatures from the callers (format literal + va_start), the 2007 CRT named (sprintf, _snprintf, sscanf,
+  vsprintf, _vsnprintf, _output), mp.dll's UTIL_VarArgs/UTIL_LogPrintf/VoiceServerDebug, __chkstk with the
+  alloca_probe fixup, gEngfuncs/IEngineStudio/pmove and g_engfuncs/gpGlobals/gFunctionTable/pmove typed from the
+  SDK headers, and a call-site prototype for every literal-format variadic call. 0x10001000 now reads
+  sprintf(buf, "{shot%i", RandomLong(0, 4) + 1). ScanVarargs.java + varargs-ports.py list the ports to check.
+- Mismatches found and fixed: TS's UpdateSpectatorPanel (0x10063870) mode line "#Spec_Mode%d : %s" with the
+  target's name, "#Spec_Only_Help" for HLTV, no "#Spec_Auto"; the missing-sprite line "WARNING! cannot found
+  %s\n" (0x10050a53); RespawnFlag (@0x9de58) unsigned team test (a neutral flag goes home silently), no full
+  stop and no "The", held 30; the return line announces 5 (@0x9e49e), held 30; TSGetPointsForFrag's feed line
+  doubles the shown points for a streak over 8 and a kill within 2 s (0x7956e). Puppet-tested on reTS and
+  TS 3.0 (tsx-ts3 ts_flag_return, ts_kills).
+- Found, not changed: the server project (re.sh) still drops varargs (ApplyTypes skips "...", engine_fn).
+
+## 2026-10-10: game description back to TS 3.0's (e9c12bc6 reverted)
+- The " [reTS]" suffix is gone: TSX tests the description against "The Specialists (The One)" exactly to
+  find The One mode, so the suffix turned its The One scoring off (tsx_one: "kill of the one scores
+  nothing", "kill by the new one"). The description is part of what server plugins read; the live server
+  is told apart by its hostname ("goldsrc.net The Specialists", infra deploy-gameserver step 2c).
+
+## 2026-10-10: client state across a server change, and the shoot animation
+- c23fa288: the client weapons are set up again on every map as client.dll does (team menu Initialize
+  0x10065ff0 clears 0x1009ff08; HUD_InitClientWeapons 0x100036f0 reruns compile_weapons_info and the gun's
+  Spawn, whose Precache refetches the event indices). TS 3.0 and reTS precache the 11 events in different
+  orders (measured on ts_lobby: TS 3.0 fire, coldcock, firelinked, empty, pump, closecombat, reload, knife,
+  katana, draw, grenade; reTS fire, reload, draw, knife, katana, grenade, coldcock, closecombat, empty, pump,
+  firelinked), so a client that came from another server played the wrong events (reload -> coldcock,
+  kung fu -> grenade, knife -> closecombat). Also: the gun respawns with the player, the player's Spawn
+  resets recoil (0x1000b9d0), the last kick time and the FX root's cl_fx configuration reset per map.
+- 5500fd80: StandardFire calls no SendWeaponAnim (neither original does); EV_TSFire plays block[3+RL(0,2)]/
+  block[6] and the pump's block[11]/[12]. The predicted shoot against TS 3.0's server (weaponanim stays at the
+  draw) made the anim check replay the draw after every shot. Puppet test tsx-ts3 ts_fire_weaponanim.
+- dac1e31f, e3b4911b, 3525461c (same day, Steven: fix them): the events are registered in CTSGun::Precache's
+  order only (PrecacheAllTSWeapons no longer registers four first), so reTS's indices equal TS 3.0's and
+  released clients survive a server change; DefaultDeploy idles 3 s on (0.75 s Contender) and plays
+  weapons/draw.wav (CHAN_VOICE, attn 1.25, pitch 98..101), not for kung fu; HUD_PostRunCmd runs
+  HUD_WeaponsPostThink whatever cl_lw is. Tests tsx-ts3 ts_event_order, ts_draw.
+
+## 2026-10-10: single-player rules no longer crash (TSGameRules always exists)
+- 0a25d422: TSGameRules points at a file-scope static object (ts_player.cpp) in every mode, as the original's
+  bss object 0x1681a0 (static init 0x671b4 -> ctor 0x671dc, bullet manager only). InstallGameRules no longer
+  NULLs it on the CHalfLifeRules path (0xb6050 clears only g_teamplay). Init runs only from the MP ctor,
+  MP::ChangeLevel and the Teamplay ctor, Think only from MP/Teamplay::Think, so under deathmatch 0 the object
+  is zero (or the last MP map's); the six non-zero member initializers are gone for that reason. Crash was
+  CTSPowerUp::Spawn (also reached by item_longjump's CTSSuperJump::Spawn) reading NULL.
+- 6d05ee94: the 51 NULL tests on it are gone; no original site tests the address (each checked, addresses
+  in amxxbench docs/fixes/sp-rules-crash-report.md). 37af66f8: CHalfLifeRules execs no spserver.cfg
+  (0xce6fc; an HL25 addition).
+- Proof: i386 HLDS copy, +maxplayers 1, ts_lobby and crossfire: TS 3.0 and reTS print the same console
+  (incl. "All weapons are restricted."), reTS before crashed (core). Full tsx-ts3 646/646 and ts30 258/258,
+  deathmatch and teamplay.
+- Found, not changed: CHalfLifeMultiplay::PlayerSpawn's GetTeamCash call has no original counterpart (inert
+  INTERIM Y9-3); CHalfLifeRules was checked only for spserver.cfg.
+
+## 2026-10-15: mp_teammodels_force (first deliberate cvar deviation)
+- TS 3.0's teamplay ClientUserInfoChanged (0xd4d18) re-rolls a random team model on any userinfo change
+  (it compares the model to the team name); reTS matched it. A server operator's model plugins fought it.
+- New server cvar mp_teammodels_force, default 1 = original. 0 = a model from the player's own team list is
+  kept (m_iPlayerModel remembers it); any other is put back to the one he had, not re-rolled. Players stay on
+  their own team's set (the first version left any model alone; Steven ruled that out). Recorded in reference/DEVIATIONS.md (new; lists ReTS_GetInterface too).
+- Proof: amd64, i386, win32 build; ReHLDS rig registers it as "1" and takes "0". The model behaviour itself
+  is not playtested.
+
+## 2026-10-15: the skorpion has no silenced p_ model, as TS 3.0
+- 84d4cbd2 had given slot 17 `models/p_tmp_sil.mdl`; Write_skorpion (0x8d3f0) never writes +0x1b2 and the
+  original has no such string (dossier-attachments §1 agreed). Effect was an extra precache only (the
+  skorpion takes no attachments). Row removed. Proof: amd64 hl.so and client.so build, neither holds the
+  string. Cut-content survey (armor powerup, TMP, SPAS 15) in reference/CUT_CONTENT.md.
+
+## 2026-10-15: the Windows server suite, and why a server operator's Windows box crashed
+- Reproduced on Windows HLDS under Wine (scripts/test-win-server.sh): with stock AMX Mod X 1.8.2, a Ham
+  Killed hook makes reTS crash at map start (CBaseTrigger::HurtTouch, this clobbered): stock TS windows slot
+  22 is reTS's TakeDamage, so the two-argument trampoline unbalances the stack. TS 3.0's mp.dll is fine.
+- Fixes: hamdata.py --msvc writes reTS's windows slots from clang-cl's MSVC vtable dump (four overloads are
+  not linux-1); amxmodx tsx-ts3 d5d0171d carries them. The core must be tsx-ts3's too: gamedll_export
+  (5a5e5e8b), which selects the reTS gamedata, is not on public 64bit, so the drop-in's core never selected
+  it. scripts/winrig/build-amxx-win.sh builds core + reTSX with clang-cl/xwin; package-win-suite.sh packs
+  reTS + Metamod-R + AMX Mod X for Half-Life/ts.
+- Proof: rets_ham_probe (hooks fire only on the game's own calls) all five fired on reTS with the suite, as
+  on TS 3.0; TSX and model probes pass. Odd: reTSX read free slots 0 once after ts_giveweapon on a fake
+  client that never spawned (40 on a later tick); not checked yet.
+
+## 2026-10-15: mp_teammodels_force 0 is off; the team-list mode moves to 2
+- 0 now never writes the model key (userinfo changes: both TS 3.0's multiplayer check and the teamplay
+  re-roll; team changes: no stamp). 1 is TS 3.0. 2 is the old 0 (own team's list, pick kept). A match
+  plugin's class models (not listable in mp_teammodels) were overwritten under the old 0.
+- Same day: g_pGameRules exported (Linux visibility, Windows .def) for fakemeta's gamerules natives; the
+  AMX Mod X fork's fakemeta info buffer handles fixed (a03e1ba9) after a listen-server crash reading 0x1.
+- Proof: rets_model_probe on the Wine rig for 0/1/2 (table in the commit), rets_infobuffer_probe,
+  rets_ham_probe, rets_changelevel_probe, rets_probe all pass on the suite.
+
+## 2026-10-22: env_fade's Restrict Area (spawnflag 8), and a spawnflags audit
+- TS's CFade (Spawn__5CFade @0xad68c, Use @0xad7d0) is a brush entity: SET_MODEL, its size, EF_NODRAW,
+  MOVETYPE_FLY, not solid. Its Use with spawnflag 8 fades only the clients in its bounds
+  (UTIL_EntitiesInBox, 32, FL_CLIENT), ahead of 4 (activator only). reTS had Half-Life's point-entity
+  CFade with no 8. ts_neobaroque uses it on 11 env_fades (spawnflags 9, lightning flashes per area).
+- Found from the GMod port's FGD comparison (ts_fgd.fgd flag 8 "Restrict Area"). coverage.py checks FGD
+  keys against KeyValue handlers but not flags, so this passed every report.
+- New scripts/coverage/spawnflags.py -> reference/coverage/SPAWNFLAGS.md: the FGD's flag bits each
+  entity's class chain tests against pev->spawnflags in ts_i386.so and in reTS's i386 build. Machine-code
+  pattern matching, so 38 rows were misses either way; each was read in the source and listed with its
+  evidence in reference/coverage/spawnflags_checked.tsv. Now 0 missing, 0 extra.
+- Proof: builds (i386, amd64); CFade::Use calls UTIL_EntitiesInBox; spawnflags.py clean. Built, not yet
+  checked in the engine (needs a client inside a neobaroque fade brush).

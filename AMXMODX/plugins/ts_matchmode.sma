@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes26"
+#define TSM_BUILD "1.53-fixes27"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -187,7 +187,7 @@ stock icon_frame_for(ci, team)
 // warps it back into formation. Velocity steering alone loses the tug of war with
 // rcbot over anything longer than the shortest catch-up, so the leash is what keeps
 // .follow looping instead of leaving strays across the map.
-#define TSM_SQUAD_LEASH      3.0
+#define TSM_SQUAD_LEASH      5.0
 
 #define TSM_DAMAGE_NO        0.0
 #define TSM_DAMAGE_AIM       2.0
@@ -542,6 +542,7 @@ new bool:g_ammo_used[MAXPL];   // .ammo used this round already -- once per roun
 // Saved presentation, so a player is always restorable.
 new bool:g_frozen[MAXPL];          // we are holding this player right now
 new Float:g_save_maxspeed[MAXPL];  // their speed before we clamped it
+new bool:g_warmup_spread[MAXPL];   // already checked/moved off the shared warmup spawn pile this hold
 
 new bool:g_saved[MAXPL];
 new g_save_solid[MAXPL];
@@ -4472,7 +4473,7 @@ public plugin_init()
 
 
 
-	g_cv_squaddist  = register_cvar("tsm_squad_dist",  "160");
+	g_cv_squaddist  = register_cvar("tsm_squad_dist",  "280");
 	g_cv_squadwarp  = register_cvar("tsm_squad_warp",  "1200");
 	g_cv_squadspeed = register_cvar("tsm_squad_speed", "240");
 	g_cv_squadsteer = register_cvar("tsm_squad_steer", "1");
@@ -15547,6 +15548,7 @@ public fw_prethink(id)
 				g_save_maxspeed[id] = 320.0;
 			}
 			g_frozen[id] = true;
+			g_warmup_spread[id] = false;   // fresh hold: allow one check/spread this cycle
 			dbgv("hold engaged on %d (state %d)", id, g_state);
 		}
 
@@ -15765,7 +15767,8 @@ public fw_prethink(id)
 		 * left wherever they drifted.
 		 */
 		if ((g_state == ST_WARMUP || g_state == ST_READYUP)
-			&& warmup_hold_active() && g_match_team[id] >= 1 && g_spawn_count > 0)
+			&& warmup_hold_active() && g_match_team[id] >= 1 && g_spawn_count > 0
+			&& !g_warmup_spread[id])
 		{
 			new Float:pos[3];
 			pev(id, pev_origin, pos);
@@ -15778,6 +15781,23 @@ public fw_prethink(id)
 					on_spawn = true;
 				}
 			}
+
+			/*
+			 * CHECKED, AND RESOLVED, EXACTLY ONCE PER HOLD. Without g_warmup_spread,
+			 * this ran every single frame of warmup/ready-up -- and place_at_spawn()
+			 * picks its destination from g_spawn_t1/g_spawn_t2, which are themselves
+			 * built FROM g_spawns (see where they're populated), so the point a body
+			 * was just moved to is, by construction, also within TSM_SPAWN_CLEARANCE
+			 * of an entry in g_spawns. The very next frame's on_spawn check found that
+			 * true again and moved them again -- forever, every frame, for the whole
+			 * hold. That is the "repeatedly slamming up and down" / fall-damage-sound
+			 * report in full: a held body does not walk off a ledge, but an instant
+			 * EngFunc_SetOrigin between two points at different floor heights, every
+			 * single frame, reads to TS's own landing/fall-damage check exactly like
+			 * one does -- and pev_takedamage=NO never has to be bypassed for that,
+			 * since it is driven by TS's own prediction/movement code, not TakeDamage().
+			 */
+			g_warmup_spread[id] = true;
 
 			if (on_spawn)
 			{

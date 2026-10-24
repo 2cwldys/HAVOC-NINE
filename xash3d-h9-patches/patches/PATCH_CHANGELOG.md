@@ -57,6 +57,7 @@ about the first kind:
 | 14 | `mainui-h9-gamestartup.patch` | `3rdparty/mainui/BaseMenu.cpp` | menu startup behavior |
 | 15 | `engine-h9-userid.patch` | `cl_main.c`, `client.h`, `identification.c` | `cl_h9_userid`: a plain, regenerable client id, salted per destination server via `ID_GetMD5ForAddressEx`, sent as userinfo key `h9_clientid`. **Applies after #12/#13** -- its `CL_InitLocal` registration hunk and connect-packet hunk are numbered against the file state *after* spraypicker+spraycmd. See `docs\CUSTOM_XASH_USERID.txt` |
 | 16 | `engine-h9-presence.patch` | `cl_main.c`, `client.h`, `host.c`, `game_launch\game.rc`, `cl_presence.c` (new), `game_launch\havoc9.ico` (new, binary) | Discord Rich Presence: `CL_Presence_Init/Frame/Shutdown/ServerReply`, the exe icon swap to `havoc9.ico`. **Applies after #15** -- its `CL_InitLocal` registration hunk is numbered against the file state *after* userid's own registration line exists. See `docs\RICH_PRESENCE.txt` |
+| 17 | `mainui-h9-sprayui.patch` | `3rdparty\mainui\menus\PlayerSetup.cpp` | Customize screen's logo picker: `Reload()` now chains up so it resyncs with console-side `spray`/`spray off`; `WriteNewLogo()` saves a colored pick back to the shelf file itself (`logos\<name>.<ext>`) instead of a now-unread `remapped.*`; a synthetic `none` row lets a player keep a hand-dropped `tempdecal.wad` as-is, visible and selectable instead of only an incidental, non-durable display fallback. Independent of `mainui-h9-gamestartup.patch` -- different function, no ordering dependency between the two |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -163,6 +164,63 @@ menubg, and presence all mixed into the same two files). Verified forward
 that reconstruction and against the real tree. Registered at the end of the
 chain, after `engine-h9-userid.patch` (its `CL_InitLocal` hunk assumes
 userid's registration line already exists).
+
+### 2026-10-24 -- mainui-h9-sprayui.patch (temporary diagnostic added)
+
+The user reports the new "none" entry from the 2026-10-23 entry below still
+doesn't show in-game, despite every static check passing: the object file
+and the linked `menu.dll` are both timestamped after the source edit (genuine
+recompile, not a stale/cached build), no second `menu.dll` exists anywhere in
+`H9XASH\` (no shadow copy), `cl_logofile` defaults to `"lambda"` which is a
+real file (not an unmatched-cvar stuck state), `hideLogos` cannot be forced
+true, `AddItem(logo)` is correctly reached, "Customize" has exactly one entry
+point in the whole menu tree and it routes to the edited class, and
+`CStringVectorModel` is a dynamic `CUtlVector` with no fixed capacity the
+real logo files could be filling. Static analysis is exhausted.
+
+Added a temporary `Con_Printf` at the end of `CLogosListModel::Update()`
+printing the final row count, matching this project's own established
+pattern (`engine-h9-suddendeath.patch`'s fog debug print) for exactly this
+situation: get the one missing data point from a live session instead of
+guessing further. Remove once the user confirms what it prints.
+
+### 2026-10-23 -- mainui-h9-sprayui.patch (new)
+
+Part of a separate, larger multi-codebase bug-fix pass (seven reported-broken
+items across `ts_matchmode.sma`, this engine, RCBot, and waypoint data -- see
+that session's plan file for the full account). This entry covers only the
+patch-tracking side of the mainui piece.
+
+Three real findings in `PlayerSetup.cpp`'s Customize-screen logo picker, none
+previously tracked as a patch at all (this file had zero prior uncommitted
+changes before this session -- confirmed via `git diff --stat` before
+touching it, so this is a clean, newly-captured patch, not an untangling):
+`Reload()` never chained up to `CMenuFramework::Reload()` (unlike sibling
+menus), so the picker's selection went stale after a console-side `spray`
+command on any visit after the first each session; `WriteNewLogo()` baked a
+chosen color into pixels and saved to a fixed `logos\remapped.*`, a filename
+the current engine's `CL_CreateResourceList()` no longer reads at all (it
+converts `logos\<cl_logofile>.<cl_logoext>` directly) -- so a colored pick
+through the menu was silently never used; and there was no menu entry at all
+for "keep whatever's already in tempdecal.wad," by design gap rather than
+bug, added as a new synthetic `none` catalog row.
+
+Fixed the `WriteNewLogo` contract by writing straight to `filename` (the
+same path `GetFullPath` already computes) instead of a separate
+`remapped.*` file -- deliberately overwrites the shelf's own bitmap with the
+recolored version, since `logos\*.*` is per-player customizable state, not a
+read-only catalog. Caught one latent crash risk while adding the `none` row:
+`UpdateLogo()` calls `CBMP::LoadFile()` then unconditionally dereferences the
+result (`GetBitmapHdr()`) with no null check -- harmless today because every
+real catalog entry corresponds to an actual file, but the new `none` entry
+has none, so it needed the same `pos < 0`-style early-out the function
+already uses, not a fix to the missing null check itself (left alone,
+out of scope, every other call site still assumes a real file exists).
+
+Verified forward (`git apply --check`) and reverse (`git apply --reverse
+--check`) against the live submodule tree; confirmed the diff is exactly
+these edits (`git diff --stat`, 5 hunks, no surrounding contamination)
+before capturing it.
 
 **Open suspicion, not yet confirmed:** the user raised that the sudden-death
 green fog bug (investigated at length earlier, root cause never confirmed --

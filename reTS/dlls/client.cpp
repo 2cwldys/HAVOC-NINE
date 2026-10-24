@@ -1,0 +1,2248 @@
+/***
+*
+*	Copyright (c) 1996-2001, Valve LLC. All rights reserved.
+*	
+*	This product contains software technology licensed from Id 
+*	Software, Inc. ("Id Technology").  Id Technology (c) 1996 Id Software, Inc. 
+*	All Rights Reserved.
+*
+*   Use, distribution, and modification of this source code and/or resulting
+*   object code is restricted to non-commercial enhancements to products from
+*   Valve LLC.  All other use, distribution, or modification is prohibited
+*   without written permission from Valve LLC.
+*
+****/
+// Robin, 4-22-98: Moved set_suicide_frame() here from player.cpp to allow us to
+//				   have one without a hardcoded player.mdl in tf_client.cpp
+
+/*
+
+===== client.cpp ========================================================
+
+  client/server game specific stuff
+
+*/
+
+#include "extdll.h"
+#include "util.h"
+#include "cbase.h"
+#include "com_model.h"
+#include "saverestore.h"
+#include "player.h"
+#include "ts_weapons.h" // TSSelectWeaponType (weapon_<N> commit) / TSLastInv (lastinv)
+#include "ts_gun.h"     // CTSGun::m_weaponType (clientdata.vuser2.z weapon-type channel)
+#include "ts_player.h"  // TSPowerupCheat (the `powerup <N>` debug cheat)
+#include "spectator.h"
+#include "client.h"
+#include "soundent.h"
+#include "gamerules.h"
+#include "ts_playeramount.h"
+#include "ts_sharedemitter.h" // CTSPlayerAmount connect/disconnect relays
+#include "ts_gamerules.h"
+#include "teamplay_gamerules.h" // R1: jointeam dispatches to the TS-patched ChangePlayerTeam // TSGameRules (the `motd` re-send passthrough)
+#include "ts_utils.h"     // TSPlayerDisconnect (ClientDisconnected)
+#include "ts_worldgun.h"  // CTSWorldGun::m_pDropper (AddToFullPack's glow for the dropper)
+#include "game.h"
+#include "customentity.h"
+#include "weapons.h"
+#include "weaponinfo.h"
+
+// "PlInfo" (3) — the per-player info broadcast (type 0 = laser color). Registered lazily at
+// the first lasclr_ command; MSG_ALL so every client tracks every player's color.
+int gmsgTSPlayerInfo = 0;
+#include "usercmd.h"
+#include "netadr.h"
+#include "pm_shared.h"
+#include "UserMessages.h"
+
+DLL_GLOBAL unsigned int g_ulFrameCount;
+
+extern void CopyToBodyQue(entvars_t* pev);
+
+void LinkUserMessages();
+
+/*
+ * used by kill command and disconnect command
+ * ROBIN: Moved here from player.cpp, to allow multiple player models
+ */
+void set_suicide_frame(entvars_t* pev)
+{
+	if (!FStrEq(STRING(pev->model), "models/player.mdl"))
+		return; // allready gibbed
+
+	//	pev->frame		= $deatha11;
+	pev->solid = SOLID_NOT;
+	pev->movetype = MOVETYPE_TOSS;
+	pev->deadflag = DEAD_DEAD;
+	pev->nextthink = -1;
+}
+
+
+/*
+===========
+ClientConnect
+
+called when a player connects to a server
+============
+*/
+qboolean ClientConnect(edict_t* pEntity, const char* pszName, const char* pszAddress, char szRejectReason[128])
+{
+	// No game rules means the map's worldspawn never spawned (the engine found no game class for
+	// it, so CWorld::Precache never installed them). The original calls g_pGameRules unchecked
+	// below and crashes (ClientConnect @0x9cce8; seen once on TS 3.0). Refuse the client instead,
+	// before the relays count him.
+	if (!g_pGameRules)
+	{
+		strncpy(szRejectReason, "The map did not load on the server", 127);
+		szRejectReason[127] = '\0';
+		return 0;
+	}
+
+	// TS: drive the ts_playeramount relays (per-event counter -> connecttarget on == clients).
+	CBaseEntity* pRelay = nullptr;
+	while ((pRelay = UTIL_FindEntityByClassname(pRelay, "ts_playeramount")) != nullptr)
+		static_cast<CTSPlayerAmount*>(pRelay)->ClientConnect();
+
+	return static_cast<qboolean>(g_pGameRules->ClientConnected(pEntity, pszName, pszAddress, szRejectReason));
+
+	// a client connecting during an intermission can cause problems
+	//	if (intermission_running)
+	//		ExitIntermission ();
+}
+
+
+/*
+===========
+ClientDisconnect
+
+called when a player disconnects from a server
+
+GLOBALS ASSUMED SET:  g_fGameOver
+============
+*/
+void ClientDisconnect(edict_t* pEntity)
+{
+	// TS: drive the ts_playeramount relays (per-event counter -> disconnecttarget on == clients).
+	CBaseEntity* pRelay = nullptr;
+	while ((pRelay = UTIL_FindEntityByClassname(pRelay, "ts_playeramount")) != nullptr)
+		static_cast<CTSPlayerAmount*>(pRelay)->ClientDisconnect();
+
+	if (g_fGameOver)
+		return;
+
+	// @0x9cda6: the line is formatted whatever the name (the original's sprintf; a name cannot fill the
+	// buffer). The original neither resets the client's sound nor releases a func_tank he holds.
+	char text[256];
+	snprintf(text, sizeof(text), "- %s has left the game\n", STRING(pEntity->v.netname));
+	MESSAGE_BEGIN(MSG_ALL, gmsgSayText, NULL);
+	WRITE_BYTE(ENTINDEX(pEntity));
+	WRITE_STRING(text);
+	MESSAGE_END();
+
+	// since the edict doesn't get deleted, fix it so it doesn't interfere.
+	pEntity->v.takedamage = DAMAGE_NO; // don't attract autoaim
+	pEntity->v.solid = SOLID_NOT;	   // nonsolid
+	UTIL_SetOrigin(&pEntity->v, pEntity->v.origin);
+
+	// TSPlayerDisconnect is NOT called here — its original home is
+	// CHalfLifeMultiplay::ClientDisconnected @0xbf960 (reached via g_pGameRules below).
+	g_pGameRules->ClientDisconnected(pEntity);
+}
+
+
+// called by ClientKill and DeadThink
+void respawn(entvars_t* pev, bool fCopyCorpse)
+{
+	if (0 != gpGlobals->coop || 0 != gpGlobals->deathmatch)
+	{
+		if (fCopyCorpse)
+		{
+			// make a copy of the dead body for appearances sake
+			CopyToBodyQue(pev);
+		}
+
+		// respawn player
+		GetClassPtr((CBasePlayer*)pev)->Spawn();
+	}
+	else
+	{ // restart the entire server
+		SERVER_COMMAND("reload\n");
+	}
+}
+
+/*
+============
+ClientKill
+
+Player entered the suicide command
+
+GLOBALS ASSUMED SET:  g_ulModelIndexPlayer
+============
+*/
+void ClientKill(edict_t* pEntity)
+{
+	entvars_t* pev = &pEntity->v;
+
+	CBasePlayer* pl = (CBasePlayer*)CBasePlayer::Instance(pev);
+
+	// @0x9cec8: TS does not kill here. It arms a delayed suicide one second out in
+	// m_fNextSuicideTime (player+0x84c, the SDK member's slot, reused) and the end of
+	// CBasePlayer::PreThink (@0x815b6) carries it out. The only gate is pev->iuser1 (a spectator
+	// cannot `kill`); a pending suicide is not re-armed. No deadflag check and no rate limit
+	// after the kill: Spawn's TSInit clears the timer (@0x82ef3), and PreThink never reaches it
+	// for a dead player or a spectator.
+	if (pev->iuser1 != 0)
+		return;
+
+	if (pl->m_fNextSuicideTime > 0.001f)
+		return; // already pending
+
+	pl->m_fNextSuicideTime = gpGlobals->time + 1.0f;
+
+	//	pev->modelindex = g_ulModelIndexPlayer;
+	//	pev->frags -= 2;		// extra penalty
+	//	respawn( pev );
+}
+
+/*
+===========
+ClientPutInServer
+
+called each time a player is spawned
+============
+*/
+void ClientPutInServer(edict_t* pEntity)
+{
+	CBasePlayer* pPlayer;
+
+	entvars_t* pev = &pEntity->v;
+
+	pPlayer = GetClassPtr((CBasePlayer*)pev);
+	pPlayer->SetCustomDecalFrames(-1); // Assume none;
+
+	// R1/Y9-2: initial_cash is given HERE in the original (ClientPutInServer @0x9cf44, GiveCash)
+	// — NOT in PlayerSpawn. Once per connect; the old PlayerSpawn placement also re-seeded any
+	// player whose cash hit 0 mid-map (ours-only behavior, now gone). The cash is not zeroed
+	// first: the engine frees a real client's private data when he connects. The amount is the
+	// unregistered initial_cash's default string, read with sscanf "%i" (@0x9cf87): always 1200.
+	int cash = 0;
+	sscanf(initial_cash.string, "%i", &cash);
+	pPlayer->GiveCash(cash);
+
+	// @0x9cf44: a plain Spawn — the joiner is a live player until his first UpdateClientData, where
+	// CTSGameRules::InitHUD sends him to spectate (StartObserver @0x694c8). No spectate flag here,
+	// and no iuser1/iuser2 reset (the stock SDK's) after it.
+	pPlayer->Spawn();
+
+	// Reset interpolation during first frame
+	pPlayer->pev->effects |= EF_NOINTERP;
+}
+
+#include "voice_gamemgr.h"
+extern CVoiceGameMgr g_VoiceGameMgr;
+
+
+
+#if defined(_MSC_VER) || defined(WIN32)
+typedef wchar_t uchar16;
+typedef unsigned int uchar32;
+#else
+typedef unsigned short uchar16;
+typedef wchar_t uchar32;
+#endif
+
+//-----------------------------------------------------------------------------
+// Purpose: determine if a uchar32 represents a valid Unicode code point
+//-----------------------------------------------------------------------------
+bool Q_IsValidUChar32(uchar32 uVal)
+{
+	// Values > 0x10FFFF are explicitly invalid; ditto for UTF-16 surrogate halves,
+	// values ending in FFFE or FFFF, or values in the 0x00FDD0-0x00FDEF reserved range
+	return (uVal < 0x110000u) && ((uVal - 0x00D800u) > 0x7FFu) && ((uVal & 0xFFFFu) < 0xFFFEu) && ((uVal - 0x00FDD0u) > 0x1Fu);
+}
+
+
+// Decode one character from a UTF-8 encoded string. Treats 6-byte CESU-8 sequences
+// as a single character, as if they were a correctly-encoded 4-byte UTF-8 sequence.
+int Q_UTF8ToUChar32(const char* pUTF8_, uchar32& uValueOut, bool& bErrorOut)
+{
+	const uint8* pUTF8 = (const uint8*)pUTF8_;
+
+	int nBytes = 1;
+	uint32 uValue = pUTF8[0];
+	uint32 uMinValue = 0;
+
+	// 0....... single byte
+	if (uValue < 0x80)
+		goto decodeFinishedNoCheck;
+
+	// Expecting at least a two-byte sequence with 0xC0 <= first <= 0xF7 (110...... and 11110...)
+	if ((uValue - 0xC0u) > 0x37u || (pUTF8[1] & 0xC0) != 0x80)
+		goto decodeError;
+
+	uValue = (uValue << 6) - (0xC0 << 6) + pUTF8[1] - 0x80;
+	nBytes = 2;
+	uMinValue = 0x80;
+
+	// 110..... two-byte lead byte
+	if ((uValue & (0x20 << 6)) == 0)
+		goto decodeFinished;
+
+	// Expecting at least a three-byte sequence
+	if ((pUTF8[2] & 0xC0) != 0x80)
+		goto decodeError;
+
+	uValue = (uValue << 6) - (0x20 << 12) + pUTF8[2] - 0x80;
+	nBytes = 3;
+	uMinValue = 0x800;
+
+	// 1110.... three-byte lead byte
+	if ((uValue & (0x10 << 12)) == 0)
+		goto decodeFinishedMaybeCESU8;
+
+	// Expecting a four-byte sequence, longest permissible in UTF-8
+	if ((pUTF8[3] & 0xC0) != 0x80)
+		goto decodeError;
+
+	uValue = (uValue << 6) - (0x10 << 18) + pUTF8[3] - 0x80;
+	nBytes = 4;
+	uMinValue = 0x10000;
+
+	// 11110... four-byte lead byte. fall through to finished.
+
+decodeFinished:
+	if (uValue >= uMinValue && Q_IsValidUChar32(uValue))
+	{
+	decodeFinishedNoCheck:
+		uValueOut = uValue;
+		bErrorOut = false;
+		return nBytes;
+	}
+decodeError:
+	uValueOut = '?';
+	bErrorOut = true;
+	return nBytes;
+
+decodeFinishedMaybeCESU8:
+	// Do we have a full UTF-16 surrogate pair that's been UTF-8 encoded afterwards?
+	// That is, do we have 0xD800-0xDBFF followed by 0xDC00-0xDFFF? If so, decode it all.
+	if ((uValue - 0xD800u) < 0x400u && pUTF8[3] == 0xED && (uint8)(pUTF8[4] - 0xB0) < 0x10 && (pUTF8[5] & 0xC0) == 0x80)
+	{
+		uValue = 0x10000 + ((uValue - 0xD800u) << 10) + ((uint8)(pUTF8[4] - 0xB0) << 6) + pUTF8[5] - 0x80;
+		nBytes = 6;
+		uMinValue = 0x10000;
+	}
+	goto decodeFinished;
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Returns true if UTF-8 string contains invalid sequences.
+//-----------------------------------------------------------------------------
+bool Q_UnicodeValidate(const char* pUTF8)
+{
+	bool bError = false;
+	while ('\0' != *pUTF8)
+	{
+		uchar32 uVal;
+		// Our UTF-8 decoder silently fixes up 6-byte CESU-8 (improperly re-encoded UTF-16) sequences.
+		// However, these are technically not valid UTF-8. So if we eat 6 bytes at once, it's an error.
+		int nCharSize = Q_UTF8ToUChar32(pUTF8, uVal, bError);
+		if (bError || nCharSize == 6)
+			return false;
+		pUTF8 += nCharSize;
+	}
+	return true;
+}
+
+//// HOST_SAY
+// String comes in as
+// say blah blah blah
+// or as
+// blah blah blah
+//
+void Host_Say(edict_t* pEntity, bool teamonly)
+{
+	CBasePlayer* client;
+	int j;
+	char* p;
+	char* pc;
+	char text[140];
+	char szTemp[256];
+	const char* cpSay = "say";
+	const char* cpSayTeam = "say_team";
+	const char* pcmd = CMD_ARGV(0);
+
+	// We can get a raw string now, without the "say " prepended
+	if (CMD_ARGC() == 0)
+		return;
+
+	entvars_t* pev = &pEntity->v;
+	CBasePlayer* player = GetClassPtr((CBasePlayer*)pev);
+
+	//Not yet.
+	if (player->m_flNextChatTime > gpGlobals->time)
+		return;
+
+	if (!stricmp(pcmd, cpSay) || !stricmp(pcmd, cpSayTeam))
+	{
+		if (CMD_ARGC() >= 2)
+		{
+			p = (char*)CMD_ARGS();
+		}
+		else
+		{
+			// say with a blank message, nothing to do
+			return;
+		}
+	}
+	else // Raw text, need to prepend argv[0]
+	{
+		if (CMD_ARGC() >= 2)
+		{
+			sprintf(szTemp, "%s %s", (char*)pcmd, (char*)CMD_ARGS());
+		}
+		else
+		{
+			// Just a one word command, use the first word...sigh
+			sprintf(szTemp, "%s", (char*)pcmd);
+		}
+		p = szTemp;
+	}
+
+	// remove quotes if present
+	if (*p == '"')
+	{
+		p++;
+		p[strlen(p) - 1] = 0;
+	}
+
+	// make sure the text has content: a printable character that is not a space (@0x9d17f)
+	for (pc = p; pc != NULL && *pc != 0; pc++)
+	{
+		if (isprint((unsigned char)*pc) && !isspace((unsigned char)*pc))
+		{
+			pc = NULL; // we've found an alphanumeric character,  so text is valid
+			break;
+		}
+	}
+	if (pc != NULL)
+		return; // no character found, so say nothing
+
+	// Kept from halflife-updated: invalid UTF-8 is not passed on (the original has no such test).
+	if (!Q_UnicodeValidate(p))
+		return;
+
+	// turn on color set 2  (color on,  no sound)
+	if (teamonly)
+		sprintf(text, "%c(TEAM) %s: ", 2, STRING(pEntity->v.netname));
+	else
+		sprintf(text, "%c%s: ", 2, STRING(pEntity->v.netname));
+
+	j = 126 - (int)strlen(text); // @0x9d210
+	if ((int)strlen(p) > j)
+		p[j] = 0;
+
+	// %a says whether the sender wears kevlar, %h his health (truncated); any other % is kept
+	// (@0x9d25c). The original appends with strcat into its 140-byte buffer and can overrun it; here
+	// an append stops at the end of the buffer, leaving room for the newline.
+	auto append = [&text](const char* add, size_t n) {
+		size_t len = strlen(text);
+		size_t room = sizeof(text) - 2 - len;
+		if (n > room)
+			n = room;
+		memcpy(text + len, add, n);
+		text[len + n] = 0;
+	};
+	for (pc = p; *pc != 0; pc++)
+	{
+		if (*pc != '%')
+		{
+			append(pc, 1);
+			continue;
+		}
+		if (pc[1] == 'a')
+		{
+			const char* kevlar = (player->pev->armorvalue == 0.0f) ? "no kevlar" : "with kevlar";
+			append(kevlar, strlen(kevlar));
+			pc++;
+		}
+		else if (pc[1] == 'h')
+		{
+			char num[32];
+			sprintf(num, "%d", (int)player->pev->health);
+			append(num, strlen(num));
+			pc++;
+		}
+		else
+			append("%", 1);
+	}
+	strcat(text, "\n");
+
+	// "timeleft" answers the sender alone with the map's time left; a "vote" the game rules handle
+	// is not shown either (@0x9d3a1). Both still go to the log and set the chat clock.
+	bool bShow = true;
+	if (!strncmp(p, "timeleft", 8))
+	{
+		int left = (int)CVAR_GET_FLOAT("mp_timeleft");
+		if (player->IsNetClient())
+			ClientPrint(pev, HUD_PRINTTALK, UTIL_VarArgs("Time left: %i:%02i\n", left / 60, left % 60));
+		bShow = false;
+	}
+	else if (!strncmp(p, "vote", 4))
+	{
+		// TS voting rides on chat text: the text past "vote" is lowercased in place and handed to the
+		// game rules when the sender is a client (a spectator too); a handled vote is not shown.
+		char vote[264];
+		for (pc = p + 4; '\0' != *pc; pc++)
+		{
+			if (*pc >= 'A' && *pc <= 'Z')
+				*pc += 'a' - 'A';
+		}
+		strncpy(vote, p + 4, sizeof(vote) - 1);
+		vote[sizeof(vote) - 1] = 0;
+		if (player->IsNetClient() && 0 != TSGameRules->PlayerVote(pEntity, vote))
+			bShow = false;
+	}
+
+	if (bShow)
+	{
+		// In the round modes (the objective modes, last man standing) a player out of the round talks
+		// only to the others out of it (@0x9d5be).
+		const bool roundMode = ((unsigned char)(TSGameRules->m_iGameMode - 2) < 2) || g_lastManStanding != 0;
+		const bool senderIn = player->IsAlive() || player->m_flTSRespawnTime >= 0.0f;
+
+		// loop through all players
+		// Start with the first player.
+		// This may return the world in single player if the client types something between levels or during spawn
+		// so check it, or it will infinite loop
+
+		client = NULL;
+		while (((client = (CBasePlayer*)UTIL_FindEntityByClassname(client, "player")) != NULL) && (!FNullEnt(client->edict())))
+		{
+			if (!client->pev)
+				continue;
+
+			if (client->edict() == pEntity)
+				continue;
+
+			if (!(client->IsNetClient())) // Not a client ? (should never be true)
+				continue;
+
+			if (teamonly && g_pGameRules->PlayerRelationship(client, CBaseEntity::Instance(pEntity)) != GR_TEAMMATE)
+				continue;
+
+			if (roundMode && !senderIn && (client->IsAlive() || client->m_flTSRespawnTime >= 0.0f))
+				continue;
+
+			MESSAGE_BEGIN(MSG_ONE, gmsgSayText, NULL, client->pev);
+			WRITE_BYTE(ENTINDEX(pEntity));
+			WRITE_STRING(text);
+			MESSAGE_END();
+		}
+
+		// print to the sending client
+		MESSAGE_BEGIN(MSG_ONE, gmsgSayText, NULL, &pEntity->v);
+		WRITE_BYTE(ENTINDEX(pEntity));
+		WRITE_STRING(text);
+		MESSAGE_END();
+
+		// echo to server console
+		g_engfuncs.pfnServerPrint(text);
+	}
+
+	const char* temp;
+	if (teamonly)
+		temp = "say_team";
+	else
+		temp = "say";
+
+	// team match?
+	if (g_teamplay)
+	{
+		UTIL_LogPrintf("\"%s<%i><%s><%s>\" %s \"%s\"\n",
+			STRING(pEntity->v.netname),
+			GETPLAYERUSERID(pEntity),
+			GETPLAYERAUTHID(pEntity),
+			g_engfuncs.pfnInfoKeyValue(g_engfuncs.pfnGetInfoKeyBuffer(pEntity), "model"),
+			temp,
+			p);
+	}
+	else
+	{
+		UTIL_LogPrintf("\"%s<%i><%s><%i>\" %s \"%s\"\n",
+			STRING(pEntity->v.netname),
+			GETPLAYERUSERID(pEntity),
+			GETPLAYERAUTHID(pEntity),
+			GETPLAYERUSERID(pEntity),
+			temp,
+			p);
+	}
+
+	player->m_flNextChatTime = gpGlobals->time + 0.5f; // @0x9d826 (the SDK's CHAT_INTERVAL is 1 s)
+}
+
+
+/*
+===========
+ClientCommand
+called each time a player uses a "cmd" command
+============
+*/
+// Use CMD_ARGV,  CMD_ARGV, and CMD_ARGC to get pointers the character string command.
+void ClientCommand(edict_t* pEntity)
+{
+	const char* pcmd = CMD_ARGV(0);
+	const char* pstr;
+
+	// Is the client spawned yet?
+	if (!pEntity->pvPrivateData)
+		return;
+
+	auto player = GetClassPtr<CBasePlayer>(reinterpret_cast<CBasePlayer*>(&pEntity->v));
+
+	if (FStrEq(pcmd, "say"))
+	{
+		Host_Say(pEntity, false);
+	}
+	else if (FStrEq(pcmd, "say_team"))
+	{
+		Host_Say(pEntity, true);
+	}
+	else if (FStrEq(pcmd, "usepowerup")) // TS: activate the held timed powerup
+	{
+		player->UsePowerUp();
+	}
+	else if (0 != g_flWeaponCheat && FStrEq(pcmd, "powerup") && CMD_ARGC() > 1)
+	{
+		// TS debug cheat `powerup <N>` (RE: ClientCommand @0x9dae4): only with cheats on when the map
+		// started (g_flWeaponCheat) and an argument, else the command falls through to the ones
+		// below as an unknown one. Alive and not observing (pev->iuser1, @0x9db7d); the table is
+		// TSPowerupCheat's (1-5, anything else slow motion).
+		if (player->IsAlive() && 0 == player->pev->iuser1)
+			TSPowerupCheat(player, atoi(CMD_ARGV(1)));
+	}
+	else if (0 != g_flWeaponCheat && FStrEq(pcmd, "cashala")) // TS cheat: grant cash
+	{
+		// RE: ClientCommand @0x9dd48 — compared only with cheats on when the map started
+		// (g_flWeaponCheat), else it falls through to "Unknown command"; then GiveCash(player, 30000).
+		player->GiveCash(30000);
+	}
+	else if (!strncmp(pcmd, "weapon_", 7) && pcmd[7] >= '0' && pcmd[7] <= '9')
+	{
+		// TS weapon-select commit (faithful — reference/WEAPON_SELECT.md): the client's
+		// invnext/invprev select cursor emits "weapon_<N>" (numeric tsweapon_t). Wield that
+		// owned type (holster->deploy). The digit guard avoids stock by-name weapon_ commands.
+		TSSelectWeaponType(player, atoi(pcmd + 7));
+	}
+	else if (FStrEq(pcmd, "lastinv")) // TS: toggle back to the previously-wielded weapon
+	{
+		TSLastInv(player);
+	}
+	else if (FStrEq(pcmd, "firemode")) // TS: cycle the held weapon's fire-mode (default.cfg binds f)
+	{
+		TSSwitchFireMode(player);
+	}
+	else if (FStrEq(pcmd, "useitems")) // TS: swap the held akimbo's active item (default.cfg binds g)
+	{
+		TSSwitchItems(player);
+	}
+	else if (FStrEq(pcmd, "respawn")) // TS: request a respawn from spectate-wait (gate-checked)
+	{
+		// @ the "respawn" branch of ClientCommand @0x9d9fc: the wait line shows ONLY when the gate is NEGATIVE (the -4.0 wait-next-round
+		// sentinel — LMS lockout / round logic; NEVER set in plain DM). Firing during a normal
+		// countdown is SILENT (neither branch). The wait line is 1 Hz-throttled off the same
+		// +0x754 clock as the countdown.
+		if (player->pev->iuser1 != 0) // @0x9da2a: a player in any spectator mode
+		{
+			if (player->m_flTSRespawnTime < 0)
+			{
+				if (gpGlobals->time > player->m_flSpecMsgTime)
+				{
+					player->m_flSpecMsgTime = gpGlobals->time + 1.0f;
+					TSHudMessageOne(195, 45, 45, 16, 20, "You have to wait until the next round.", player->pev);
+				}
+			}
+			else if (player->m_flTSRespawnTime > 0 && player->m_flTSRespawnTime < gpGlobals->time)
+			{
+				player->m_flTSRespawnTime = 0;
+				player->StopObserver();
+				player->pev->impulse = 0;
+			}
+		}
+	}
+	else if (FStrEq(pcmd, "motd")) // TS: re-send the MOTD to this client
+	{
+		// @0x9e54e: on the installed rules object, when it is multiplayer
+		if (g_pGameRules && g_pGameRules->IsMultiplayer())
+			((CHalfLifeMultiplay*)g_pGameRules)->SendMOTDToClient(player->edict());
+	}
+	else if (FStrEq(pcmd, "changeteam")) // TS: open the team-select VGUI menu (original pushes gmsgVGUIMenu)
+	{
+		MESSAGE_BEGIN(MSG_ONE, gmsgVGUIMenu, NULL, &pEntity->v);
+		WRITE_BYTE(2); // MENU_TEAM (cl_dll vgui menu code)
+		MESSAGE_END();
+	}
+	else if (FStrEq(pcmd, "jointeam")) // TS: join team <index> (jointeam <N>) -> assign + respawn
+	{
+		if (CMD_ARGC() > 1)
+		{
+			// The original @0x9e4b0: g_pGameRules->GetIndexedTeamName(atoi(argv[1]) - 1) (vt+0xd4, the
+			// stock team_names list, so `jointeam 1` is the first team) then ChangePlayerTeam(pl, name,
+			// false, false) (vt+0xdc), both virtual and unchecked. Outside teamplay both are the
+			// CGameRules no-ops and nothing happens; in teamplay the TS-patched ChangePlayerTeam puts
+			// the player in spectate with a forced 5 s respawn gate.
+			const char *name = g_pGameRules->GetIndexedTeamName(atoi(CMD_ARGV(1)) - 1);
+			g_pGameRules->ChangePlayerTeam(player, name, false, false);
+		}
+	}
+	else if (!strncmp(pcmd, "drop_", 5) && pcmd[5] >= '0' && pcmd[5] <= '9')
+	{
+		// TS weapon-select RIGHT-click: the select bar emits "drop_<N>" (numeric tsweapon_t) to drop
+		// that SPECIFIC owned type from the arsenal (reference/dossiers/cont87/weapon_drop.md). type>=0
+		// path: drop that type (reselect only if it was active); no re-pickup delay/owner (unlike the
+		// drop key). The digit guard keeps this from matching the exact "drop" key command below.
+		player->DropWeapon(atoi(pcmd + 5), 0.0f);
+	}
+	else if (FStrEq(pcmd, "drop")) // TS: drop the ACTIVE weapon into the world (default.cfg binds t)
+	{
+		// type -1 => the active weapon; DropWeapon does the throws + akimbo bookkeeping (akimbo ->
+		// two singles; a single dropped while its akimbo is owned leaves the other barrel).
+		player->DropWeapon(-1, 0.0f);
+	}
+	// (The original dispatch @0x9d838 has no direct-buy command — BuyWeapon @0x845bc / BuyAmmo
+	// @0x841e8 are called only from BuyArmament @0x83f10, whose only caller is
+	// CHalfLifeMultiplay::PlayerSpawn @0x79122: the queued loadout (tkw/tki/tka/rst_cfg)
+	// applies on spawn, which CTSGameRules::PlayerSpawn already does. RE dossier cont94 §2.)
+	else if (FStrEq(pcmd, "tkw")) // TS "take weapon": queue weapons into the armament. ONE batched
+	{                             // command of "%i_%i" tokens (apply FUN_10039400). The second number
+		// is the ATTACH MASK for a gun / the COUNT for a stackable (wi+0xdc) — BuyArmament
+		// disambiguates by the weapon's stackable flag (dossier-attachments §2). An akimbo
+		// bought-double arrives as an extra bare `type_0` token.
+		for (int i = 1; i < CMD_ARGC(); i++)
+		{
+			const char *a = CMD_ARGV(i);
+			const char *u = strchr(a, '_');
+			player->AddItemToArmament(atoi(a), u ? atoi(u + 1) : 0, false);
+		}
+	}
+	else if (FStrEq(pcmd, "tki")) // TS "take item": queue loadout ITEMS (kevlar 0x10 / grenade 0x20 /
+	{                             // gun attachments 1/2/4/8). batched: `tki 1 16`. isItem=true so
+	                              // BuyArmament routes them to CBasePlayer::AddItem (NOT BuyWeapon) —
+	                              // the bits would otherwise collide with weapon type indices.
+		for (int i = 1; i < CMD_ARGC(); i++)
+			player->AddItemToArmament(atoi(CMD_ARGV(i)), 1, true);
+	}
+	else if (FStrEq(pcmd, "tka")) // TS "take ammo": queue ammo per caliber. batched space-separated
+	{                             // "%i_%i" tokens: `tka 1_2 4_1` -> AddAmmoToArmament each.
+		for (int i = 1; i < CMD_ARGC(); i++)
+		{
+			const char *a = CMD_ARGV(i);
+			const char *u = strchr(a, '_');
+			player->AddAmmoToArmament(atoi(a), u ? atoi(u + 1) : 0);
+		}
+	}
+	else if (FStrEq(pcmd, "rst_cfg")) // TS: reset the queued armament/config (original -> ResetArmament)
+	{
+		player->ResetArmament();
+	}
+	// ("menuselect" moved to CHalfLifeMultiplay::ClientCommand — its original home; @0xfd78f
+	// is referenced only by the CHalfLifeMultiplay/CHalfLifeTeamplay ClientCommand. Reached
+	// via the g_pGameRules->ClientCommand fallthrough below. RE dossier cont94 §2.)
+	else if (!strncmp(pcmd, "cutwire_", 8) && pcmd[8] >= '0' && pcmd[8] <= '9')
+	{
+		// TS bomb: cut a wire — the original is the prefix command `cutwire_<n>` (ClientCommand
+		// strstr "cutwire_" + sscanf "%i"); the client's wire panel sends it.
+		player->CutWire(atoi(pcmd + 8));
+	}
+	else if (!strncmp(pcmd, "lasclr_", 7))
+	{
+		// TS laser color — the client announces its cl_lasercolor via the prefix command
+		// `lasclr_<n>` (original strstr idiom); the server rebroadcasts it to EVERYONE as
+		// PlInfo: BYTE entindex, BYTE type 0 (laser color), BYTE value — raw, no clamp
+		// (the client stores the byte as-is). dossier-gmsg U2 / analysis_gmsg_TSPlayerInfo.
+		MESSAGE_BEGIN(MSG_ALL, gmsgTSPlayerInfo);
+		WRITE_BYTE(ENTINDEX(pEntity));
+		WRITE_BYTE(0);
+		WRITE_BYTE(atoi(pcmd + 7));
+		MESSAGE_END();
+	}
+	else if (FStrEq(pcmd, "fullupdate"))
+	{
+		player->ForceClientDllUpdate();
+	}
+	// ("give" removed: not in the original dispatch @0x9d838 — a `give` falls to the
+	// "Unknown command" tail, exactly what the original server prints. The second, shadowed
+	// stock `drop` branch (DropPlayerItem) removed too — the live TS `drop` branch above
+	// matches first. RE dossier cont94 §2.)
+	else if (FStrEq(pcmd, "fov"))
+	{
+		if (0 != g_flWeaponCheat && CMD_ARGC() > 1) // @0x9d8e7: sv_cheats as the map started
+		{
+			player->m_iFOV = atoi(CMD_ARGV(1));
+		}
+		else
+		{
+			CLIENT_PRINTF(pEntity, print_console, UTIL_VarArgs("\"fov\" is \"%d\"\n", (int)player->m_iFOV));
+		}
+	}
+	else if (FStrEq(pcmd, "use"))
+	{
+		player->SelectItem((char*)CMD_ARGV(1));
+	}
+	else if (((pstr = strstr(pcmd, "weapon_")) != NULL) && (pstr == pcmd))
+	{
+		player->SelectItem(pcmd);
+	}
+	// (Shadowed second "lastinv" (SelectLastItem) removed — the live TS lastinv branch above
+	// matches first. "spectate"/"closemenus"/"follownext" removed with their cl_dll senders:
+	// none is in the original dispatch @0x9d838 (TS spectate is the ts_spectate/StartObserver
+	// flow; spectator control is client-local specmode/HLTV). "specmode" already removed:
+	// ts_i386.so has NO "specmode" string — original client command, server lets it fall
+	// through. "+alt1/-alt1/+break/-break" accept-branch removed: the original server has no
+	// branch for them (they fall to the unknown-command tail); the original client.dll
+	// REGISTERS all four, as ours already does (cl_dll/input.cpp). "vote" is NOT a console
+	// command in the original — it is parsed out of chat text in Host_Say @0x9d46c (see
+	// above); console `vote` falls to "Unknown command". RE dossier cont94 §2.)
+	else if (g_pGameRules->ClientCommand(player, pcmd))
+	{
+		// MenuSelect returns true only if the command is properly handled,  so don't print a warning
+	}
+	else
+	{
+		// tell the user they entered an unknown command
+		char command[128];
+
+		// check the length of the command (prevents crash)
+		// max total length is 192 ...and we're adding a string below ("Unknown command: %s\n")
+		strncpy(command, pcmd, 127);
+		command[127] = '\0';
+		// First parse the name and remove any %'s
+		for (char* pApersand = command; pApersand != NULL && *pApersand != 0; pApersand++)
+		{
+			// Replace it with a space
+			if (*pApersand == '%')
+				*pApersand = ' ';
+		}
+
+		// tell the user they entered an unknown command
+		ClientPrint(&pEntity->v, HUD_PRINTCONSOLE, UTIL_VarArgs("Unknown command: %s\n", command));
+	}
+}
+
+
+/*
+========================
+ClientUserInfoChanged
+
+called after the player changes
+userinfo - gives dll a chance to modify it before
+it gets sent into the rest of the engine.
+========================
+*/
+void ClientUserInfoChanged(edict_t* pEntity, char* infobuffer)
+{
+	// Is the client spawned yet?
+	if (!pEntity->pvPrivateData)
+		return;
+
+	// msg everyone if someone changes their name,  and it isn't the first time (changing no name to current name)
+	if (!FStringNull(pEntity->v.netname) && STRING(pEntity->v.netname)[0] != 0 && !FStrEq(STRING(pEntity->v.netname), g_engfuncs.pfnInfoKeyValue(infobuffer, "name")))
+	{
+		char sName[256];
+		char* pName = g_engfuncs.pfnInfoKeyValue(infobuffer, "name");
+		strncpy(sName, pName, sizeof(sName) - 1);
+		sName[sizeof(sName) - 1] = '\0';
+
+		// First parse the name and remove any %'s
+		for (char* pApersand = sName; pApersand != NULL && *pApersand != 0; pApersand++)
+		{
+			// Replace it with a space
+			if (*pApersand == '%')
+				*pApersand = ' ';
+		}
+
+		// Set the name
+		g_engfuncs.pfnSetClientKeyValue(ENTINDEX(pEntity), infobuffer, "name", sName);
+
+		// @0x9e750: sent whatever maxClients is (the SDK's maxClients > 1 test is not in the original).
+		char text[256];
+		sprintf(text, "* %s changed name to %s\n", STRING(pEntity->v.netname), g_engfuncs.pfnInfoKeyValue(infobuffer, "name"));
+		MESSAGE_BEGIN(MSG_ALL, gmsgSayText, NULL);
+		WRITE_BYTE(ENTINDEX(pEntity));
+		WRITE_STRING(text);
+		MESSAGE_END();
+
+		// team match?
+		if (g_teamplay)
+		{
+			UTIL_LogPrintf("\"%s<%i><%s><%s>\" changed name to \"%s\"\n",
+				STRING(pEntity->v.netname),
+				GETPLAYERUSERID(pEntity),
+				GETPLAYERAUTHID(pEntity),
+				g_engfuncs.pfnInfoKeyValue(infobuffer, "model"),
+				g_engfuncs.pfnInfoKeyValue(infobuffer, "name"));
+		}
+		else
+		{
+			UTIL_LogPrintf("\"%s<%i><%s><%i>\" changed name to \"%s\"\n",
+				STRING(pEntity->v.netname),
+				GETPLAYERUSERID(pEntity),
+				GETPLAYERAUTHID(pEntity),
+				GETPLAYERUSERID(pEntity),
+				g_engfuncs.pfnInfoKeyValue(infobuffer, "name"));
+		}
+	}
+
+	g_pGameRules->ClientUserInfoChanged(GetClassPtr((CBasePlayer*)&pEntity->v), infobuffer);
+}
+
+static int g_serveractive = 0;
+
+void ServerDeactivate()
+{
+	// It's possible that the engine will call this function more times than is necessary
+	//  Therefore, only run it one time for each call to ServerActivate
+	if (g_serveractive != 1)
+	{
+		return;
+	}
+
+	s_Emitter.KillAll(); // TS: clear the particle/emitter manager on map shutdown (orig ServerDeactivate)
+
+	g_serveractive = 0;
+
+	// Peform any shutdown operations here...
+	//
+}
+
+void ServerActivate(edict_t* pEdictList, int edictCount, int clientMax)
+{
+	int i;
+	CBaseEntity* pClass;
+
+	// Every call to ServerActivate should be matched by a call to ServerDeactivate
+	g_serveractive = 1;
+
+	// Clients have not been initialized yet
+	for (i = 0; i < edictCount; i++)
+	{
+		if (0 != pEdictList[i].free)
+			continue;
+
+		// Clients aren't necessarily initialized until ClientPutInServer(). @0x9e96e: the original skips
+		// edicts 0 to clientMax - 1, so the world is not activated and edict clientMax is.
+		if (i < clientMax || !pEdictList[i].pvPrivateData)
+			continue;
+
+		pClass = CBaseEntity::Instance(&pEdictList[i]);
+		// Activate this entity if it's got a class & isn't dormant
+		if (pClass && (pClass->pev->flags & FL_DORMANT) == 0)
+		{
+			pClass->Activate();
+		}
+		else
+		{
+			ALERT(at_console, "Can't instance %s\n", STRING(pEdictList[i].v.classname));
+		}
+	}
+
+	// Link user messages here to make sure first client can get them...
+	LinkUserMessages();
+}
+
+
+/*
+================
+PlayerPreThink
+
+Called every frame before physics are run
+================
+*/
+void PlayerPreThink(edict_t* pEntity)
+{
+	entvars_t* pev = &pEntity->v;
+	CBasePlayer* pPlayer = (CBasePlayer*)GET_PRIVATE(pEntity);
+
+	if (pPlayer)
+		pPlayer->PreThink();
+}
+
+/*
+================
+PlayerPostThink
+
+Called every frame after physics are run
+================
+*/
+void PlayerPostThink(edict_t* pEntity)
+{
+	entvars_t* pev = &pEntity->v;
+	CBasePlayer* pPlayer = (CBasePlayer*)GET_PRIVATE(pEntity);
+
+	if (pPlayer)
+		pPlayer->PostThink();
+}
+
+
+
+void ParmsNewLevel()
+{
+}
+
+
+void ParmsChangeLevel()
+{
+	// retrieve the pointer to the save data
+	SAVERESTOREDATA* pSaveData = (SAVERESTOREDATA*)gpGlobals->pSaveData;
+
+	if (pSaveData)
+		pSaveData->connectionCount = BuildChangeList(pSaveData->levelList, MAX_LEVEL_CONNECTIONS);
+}
+
+//
+// GLOBALS ASSUMED SET:  g_ulFrameCount
+//
+void StartFrame()
+{
+	if (g_pGameRules)
+		g_pGameRules->Think();
+
+	if (g_fGameOver)
+		return;
+
+	gpGlobals->teamplay = g_teamplay; // @0x9eadc: the rules' decision (DecideGamePlay), not mp_teamplay
+	g_ulFrameCount++;
+}
+
+
+void ClientPrecache()
+{
+	// setup precaches always needed
+	PRECACHE_SOUND("player/sprayer.wav"); // spray paint sound for PreAlpha
+
+	// PRECACHE_SOUND("player/pl_jumpland2.wav");		// UNDONE: play 2x step sound
+
+	PRECACHE_SOUND("player/pl_fallpain2.wav");
+	PRECACHE_SOUND("player/pl_fallpain3.wav");
+
+	PRECACHE_SOUND("player/pl_step1.wav"); // walk on concrete
+	PRECACHE_SOUND("player/pl_step2.wav");
+	PRECACHE_SOUND("player/pl_step3.wav");
+	PRECACHE_SOUND("player/pl_step4.wav");
+
+	PRECACHE_SOUND("common/npc_step1.wav"); // NPC walk on concrete
+	PRECACHE_SOUND("common/npc_step2.wav");
+	PRECACHE_SOUND("common/npc_step3.wav");
+	PRECACHE_SOUND("common/npc_step4.wav");
+
+	PRECACHE_SOUND("player/pl_metal1.wav"); // walk on metal
+	PRECACHE_SOUND("player/pl_metal2.wav");
+	PRECACHE_SOUND("player/pl_metal3.wav");
+	PRECACHE_SOUND("player/pl_metal4.wav");
+
+	PRECACHE_SOUND("player/pl_dirt1.wav"); // walk on dirt
+	PRECACHE_SOUND("player/pl_dirt2.wav");
+	PRECACHE_SOUND("player/pl_dirt3.wav");
+	PRECACHE_SOUND("player/pl_dirt4.wav");
+
+	PRECACHE_SOUND("player/pl_duct1.wav"); // walk in duct
+	PRECACHE_SOUND("player/pl_duct2.wav");
+	PRECACHE_SOUND("player/pl_duct3.wav");
+	PRECACHE_SOUND("player/pl_duct4.wav");
+
+	PRECACHE_SOUND("player/pl_grate1.wav"); // walk on grate
+	PRECACHE_SOUND("player/pl_grate2.wav");
+	PRECACHE_SOUND("player/pl_grate3.wav");
+	PRECACHE_SOUND("player/pl_grate4.wav");
+
+	PRECACHE_SOUND("player/pl_slosh1.wav"); // walk in shallow water
+	PRECACHE_SOUND("player/pl_slosh2.wav");
+	PRECACHE_SOUND("player/pl_slosh3.wav");
+	PRECACHE_SOUND("player/pl_slosh4.wav");
+
+	PRECACHE_SOUND("player/pl_tile1.wav"); // walk on tile
+	PRECACHE_SOUND("player/pl_tile2.wav");
+	PRECACHE_SOUND("player/pl_tile3.wav");
+	PRECACHE_SOUND("player/pl_tile4.wav");
+	PRECACHE_SOUND("player/pl_tile5.wav");
+
+	PRECACHE_SOUND("player/pl_swim1.wav"); // breathe bubbles
+	PRECACHE_SOUND("player/pl_swim2.wav");
+	PRECACHE_SOUND("player/pl_swim3.wav");
+	PRECACHE_SOUND("player/pl_swim4.wav");
+
+	PRECACHE_SOUND("player/pl_ladder1.wav"); // climb ladder rung
+	PRECACHE_SOUND("player/pl_ladder2.wav");
+	PRECACHE_SOUND("player/pl_ladder3.wav");
+	PRECACHE_SOUND("player/pl_ladder4.wav");
+
+	PRECACHE_SOUND("player/pl_wade1.wav"); // wade in water
+	PRECACHE_SOUND("player/pl_wade2.wav");
+	PRECACHE_SOUND("player/pl_wade3.wav");
+	PRECACHE_SOUND("player/pl_wade4.wav");
+
+	PRECACHE_SOUND("debris/wood1.wav"); // hit wood texture
+	PRECACHE_SOUND("debris/wood2.wav");
+	PRECACHE_SOUND("debris/wood3.wav");
+
+	PRECACHE_SOUND("plats/train_use1.wav"); // use a train
+	PRECACHE_SOUND("plats/vehicle_ignition.wav");
+
+	PRECACHE_SOUND("buttons/spark5.wav"); // hit computer texture
+	PRECACHE_SOUND("buttons/spark6.wav");
+	PRECACHE_SOUND("debris/glass1.wav");
+	PRECACHE_SOUND("debris/glass2.wav");
+	PRECACHE_SOUND("debris/glass3.wav");
+
+	// (no items/flashlight1.wav: the original has no flashlight and no such string)
+
+	// player gib sounds
+	PRECACHE_SOUND("common/bodysplat.wav");
+
+	// player pain sounds
+	PRECACHE_SOUND("player/pl_pain2.wav");
+	PRECACHE_SOUND("player/pl_pain4.wav");
+	PRECACHE_SOUND("player/pl_pain5.wav");
+	PRECACHE_SOUND("player/pl_pain6.wav");
+	PRECACHE_SOUND("player/pl_pain7.wav");
+
+	PRECACHE_MODEL("models/player.mdl");
+
+	// hud sounds
+
+	PRECACHE_SOUND("common/wpn_hudoff.wav");
+	PRECACHE_SOUND("common/wpn_hudon.wav");
+	PRECACHE_SOUND("common/wpn_moveselect.wav");
+	PRECACHE_SOUND("common/wpn_select.wav");
+	PRECACHE_SOUND("common/wpn_denyselect.wav");
+
+
+	// geiger sounds
+
+	PRECACHE_SOUND("player/geiger6.wav");
+	PRECACHE_SOUND("player/geiger5.wav");
+	PRECACHE_SOUND("player/geiger4.wav");
+	PRECACHE_SOUND("player/geiger3.wav");
+	PRECACHE_SOUND("player/geiger2.wav");
+	PRECACHE_SOUND("player/geiger1.wav");
+
+	if (giPrecacheGrunt)
+		UTIL_PrecacheOther("monster_human_grunt");
+}
+
+/*
+===============
+GetGameDescription
+
+Returns the descriptive name of this .dll.  E.g., Half-Life, or Team Fortress 2
+===============
+*/
+const char* GetGameDescription()
+{
+	if (g_pGameRules) // this function may be called before the world has spawned, and the game rules initialized
+		return g_pGameRules->GetGameDescription();
+	else
+		return "Half-Life";
+}
+
+/*
+================
+Sys_Error
+
+Engine is going to shut down, allows setting a breakpoint in game .dll to catch that occasion
+================
+*/
+void Sys_Error(const char* error_string)
+{
+	// @0x9eebc: the original logs the error.
+	ALERT(at_logged, "Sys_Error: %s\n", error_string);
+}
+
+/*
+================
+PlayerCustomization
+
+A new player customization has been registered on the server
+UNDONE:  This only sets the # of frames of the spray can logo
+animation right now.
+================
+*/
+void PlayerCustomization(edict_t* pEntity, customization_t* pCust)
+{
+	entvars_t* pev = &pEntity->v;
+	CBasePlayer* pPlayer = (CBasePlayer*)GET_PRIVATE(pEntity);
+
+	if (!pPlayer)
+	{
+		ALERT(at_console, "PlayerCustomization:  Couldn't get player!\n");
+		return;
+	}
+
+	if (!pCust)
+	{
+		ALERT(at_console, "PlayerCustomization:  NULL customization!\n");
+		return;
+	}
+
+	switch (pCust->resource.type)
+	{
+	case t_decal:
+		pPlayer->SetCustomDecalFrames(pCust->nUserData2); // Second int is max # of frames.
+		break;
+	case t_sound:
+	case t_skin:
+	case t_model:
+		// Ignore for now.
+		break;
+	default:
+		ALERT(at_console, "PlayerCustomization:  Unknown customization type!\n");
+		break;
+	}
+}
+
+/*
+================
+SpectatorConnect
+
+A spectator has joined the game
+================
+*/
+void SpectatorConnect(edict_t* pEntity)
+{
+	entvars_t* pev = &pEntity->v;
+	CBaseSpectator* pPlayer = (CBaseSpectator*)GET_PRIVATE(pEntity);
+
+	if (pPlayer)
+		pPlayer->SpectatorConnect();
+}
+
+/*
+================
+SpectatorConnect
+
+A spectator has left the game
+================
+*/
+void SpectatorDisconnect(edict_t* pEntity)
+{
+	entvars_t* pev = &pEntity->v;
+	CBaseSpectator* pPlayer = (CBaseSpectator*)GET_PRIVATE(pEntity);
+
+	if (pPlayer)
+		pPlayer->SpectatorDisconnect();
+}
+
+/*
+================
+SpectatorConnect
+
+A spectator has sent a usercmd
+================
+*/
+void SpectatorThink(edict_t* pEntity)
+{
+	entvars_t* pev = &pEntity->v;
+	CBaseSpectator* pPlayer = (CBaseSpectator*)GET_PRIVATE(pEntity);
+
+	if (pPlayer)
+		pPlayer->SpectatorThink();
+}
+
+////////////////////////////////////////////////////////
+// PAS and PVS routines for client messaging
+//
+
+/*
+================
+SetupVisibility
+
+A client can have a separate "view entity" indicating that his/her view should depend on the origin of that
+view entity.  If that's the case, then pViewEntity will be non-NULL and will be used.  Otherwise, the current
+entity's origin is used.  Either is offset by the view_ofs to get the eye position.
+
+From the eye position, we set up the PAS and PVS to use for filtering network messages to the client.  At this point, we could
+ override the actual PAS or PVS values, or use a different origin.
+
+NOTE:  Do not cache the values of pas and pvs, as they depend on reusable memory in the engine, they are only good for this one frame
+================
+*/
+void SetupVisibility(edict_t* pViewEntity, edict_t* pClient, unsigned char** pvs, unsigned char** pas)
+{
+	Vector org;
+	edict_t* pView = pClient;
+
+	// Find the client's PVS
+	if (pViewEntity)
+	{
+		pView = pViewEntity;
+	}
+
+	if ((pClient->v.flags & FL_PROXY) != 0)
+	{
+		*pvs = NULL; // the spectator proxy sees
+		*pas = NULL; // and hears everything
+		return;
+	}
+
+	org = pView->v.origin + pView->v.view_ofs;
+	if ((pView->v.flags & FL_DUCKING) != 0)
+	{
+		org = org + (VEC_HULL_MIN - VEC_DUCK_HULL_MIN);
+	}
+
+	*pvs = ENGINE_SET_PVS((float*)&org);
+	*pas = ENGINE_SET_PAS((float*)&org);
+}
+
+#include "entity_state.h"
+
+/*
+AddToFullPack
+
+Return 1 if the entity state has been filled in for the ent and the entity will be propagated to the client, 0 otherwise
+
+state is the server maintained copy of the state info that is transmitted to the client
+a MOD could alter values copied into state to send the "host" a different look for a particular entity update, etc.
+e and ent are the entity that is being added to the update, if 1 is returned
+host is the player's edict of the player whom we are sending the update to
+player is 1 if the ent/e is a player and 0 otherwise
+pSet is either the PAS or PVS that we previous set up.  We can use it to ask the engine to filter the entity against the PAS or PVS.
+we could also use the pas/ pvs that we set in SetupVisibility, if we wanted to.  Caching the value is valid in that case, but still only for the current frame
+*/
+int AddToFullPack(struct entity_state_s* state, int e, edict_t* ent, edict_t* host, int hostflags, int player, unsigned char* pSet)
+{
+	// Entities with an index greater than this will corrupt the client's heap because 
+	// the index is sent with only 11 bits of precision (2^11 == 2048).
+	// So we don't send them, just like having too many entities would result
+	// in the entity not being sent.
+	if (e >= MAX_EDICTS)
+	{
+		return 0;
+	}
+
+	int i;
+
+	auto entity = reinterpret_cast<CBaseEntity*>(GET_PRIVATE(ent));
+
+	// don't send if flagged for NODRAW and it's not the host getting the message
+	if ((ent->v.effects & EF_NODRAW) != 0 &&
+		(ent != host))
+		return 0;
+
+	// Ignore ents without valid / visible models
+	if (0 == ent->v.modelindex || !STRING(ent->v.model))
+		return 0;
+
+	// Don't send spectators to other players
+	if ((ent->v.flags & FL_SPECTATOR) != 0 && (ent != host))
+	{
+		return 0;
+	}
+
+	// Ignore if not the host and not touching a PVS/PAS leaf
+	// If pSet is NULL, then the test will always succeed and the entity will be added to the update
+	if (ent != host)
+	{
+		if (!ENGINE_CHECK_VISIBILITY((const struct edict_s*)ent, pSet))
+		{
+			return 0;
+		}
+	}
+
+
+	// Don't send entity to local client if the client says it's predicting the entity itself.
+	if ((ent->v.flags & FL_SKIPLOCALHOST) != 0)
+	{
+		if ((hostflags & 1) != 0 && (ent->v.owner == host))
+			return 0;
+	}
+
+	if (0 != host->v.groupinfo)
+	{
+		UTIL_SetGroupTrace(host->v.groupinfo, GROUP_OP_AND);
+
+		// Should always be set, of course
+		if (0 != ent->v.groupinfo)
+		{
+			if (g_groupop == GROUP_OP_AND)
+			{
+				if ((ent->v.groupinfo & host->v.groupinfo) == 0)
+					return 0;
+			}
+			else if (g_groupop == GROUP_OP_NAND)
+			{
+				if ((ent->v.groupinfo & host->v.groupinfo) != 0)
+					return 0;
+			}
+		}
+
+		UTIL_UnsetGroupTrace();
+	}
+
+	memset(state, 0, sizeof(*state));
+
+	// Assign index so we can track this entity from frame to frame and
+	//  delta from it.
+	state->number = e;
+	state->entityType = ENTITY_NORMAL;
+
+	// Flag custom entities.
+	if ((ent->v.flags & FL_CUSTOMENTITY) != 0)
+	{
+		state->entityType = ENTITY_BEAM;
+	}
+
+	//
+	// Copy state data
+	//
+
+	// Round animtime to nearest millisecond
+	state->animtime = (int)(1000.0 * ent->v.animtime) / 1000.0;
+
+	memcpy(state->origin, ent->v.origin, 3 * sizeof(float));
+	memcpy(state->angles, ent->v.angles, 3 * sizeof(float));
+	memcpy(state->mins, ent->v.mins, 3 * sizeof(float));
+	memcpy(state->maxs, ent->v.maxs, 3 * sizeof(float));
+
+	memcpy(state->startpos, ent->v.startpos, 3 * sizeof(float));
+	memcpy(state->endpos, ent->v.endpos, 3 * sizeof(float));
+
+	state->impacttime = ent->v.impacttime;
+	state->starttime = ent->v.starttime;
+
+	state->modelindex = ent->v.modelindex;
+
+	state->frame = ent->v.frame;
+
+	state->skin = ent->v.skin;
+	state->effects = ent->v.effects;
+
+	// This non-player entity is being moved by the game .dll and not the physics simulation system
+	//  make sure that we interpolate it's position on the client if it moves
+	/*
+	if (0 == player &&
+		0 != ent->v.animtime &&
+		ent->v.velocity[0] == 0 &&
+		ent->v.velocity[1] == 0 &&
+		ent->v.velocity[2] == 0)
+	{
+		state->eflags |= EFLAG_SLERP;
+	}
+	*/
+
+	if ((ent->v.flags & FL_FLY) != 0)
+	{
+		state->eflags |= EFLAG_SLERP;
+	}
+	else
+	{
+		state->eflags &= ~EFLAG_SLERP;
+	}
+
+	// halflife-updated's entity flags. An edict with no game entity (a plugin's bare CreateEntity given
+	// a model) reaches here too; the original reads no private data for it (@0x9f180), so neither do we.
+	if (entity)
+		state->eflags |= entity->m_EFlags;
+
+	state->scale = ent->v.scale;
+	state->solid = ent->v.solid;
+	state->colormap = ent->v.colormap;
+
+	state->movetype = ent->v.movetype;
+	state->sequence = ent->v.sequence;
+	state->framerate = ent->v.framerate;
+	state->body = ent->v.body;
+
+	for (i = 0; i < 4; i++)
+	{
+		state->controller[i] = ent->v.controller[i];
+	}
+
+	for (i = 0; i < 2; i++)
+	{
+		state->blending[i] = ent->v.blending[i];
+	}
+
+	// TS (@0x9f4b8..0x9f5b6): a dropped gun is drawn with a glow shell for the player who dropped it
+	// (CTSWorldGun::m_pDropper, set by a drop-key or disarm drop), and a thrown knife for its thrower
+	// (knife +0x8c, @0x9f52a..0x9f59a; TSKnifeThrower), and drawn plainly for everyone else. That player
+	// gets renderamt 2, kRenderFxGlowShell and colour 100 100 100 in place of the entity's own render
+	// fields; rendermode stays 0 from the cleared state.
+	if (entity && ((FClassnameIs(&ent->v, "WorldGun") && static_cast<CTSWorldGun*>(entity)->m_pDropper == host)
+		|| (FClassnameIs(&ent->v, "knife") && TSKnifeThrower(entity) == host)))
+	{
+		state->renderamt = 2;
+		state->renderfx = kRenderFxGlowShell;
+		state->rendercolor.r = 100;
+		state->rendercolor.g = 100;
+		state->rendercolor.b = 100;
+	}
+	else
+	{
+		state->rendermode = ent->v.rendermode;
+		state->renderamt = ent->v.renderamt;
+		state->renderfx = ent->v.renderfx;
+		state->rendercolor.r = ent->v.rendercolor.x;
+		state->rendercolor.g = ent->v.rendercolor.y;
+		state->rendercolor.b = ent->v.rendercolor.z;
+	}
+
+	state->aiment = 0;
+	if (ent->v.aiment)
+	{
+		state->aiment = ENTINDEX(ent->v.aiment);
+	}
+
+	state->owner = 0;
+	if (ent->v.owner)
+	{
+		int owner = ENTINDEX(ent->v.owner);
+
+		// Only care if owned by a player
+		if (owner >= 1 && owner <= gpGlobals->maxClients)
+		{
+			state->owner = owner;
+		}
+	}
+
+	// HACK:  Somewhat...
+	// Class is overridden for non-players to signify a breakable glass object ( sort of a class? )
+	if (0 == player)
+	{
+		state->playerclass = ent->v.playerclass;
+	}
+
+	// Special stuff for players only
+	if (0 != player)
+	{
+		memcpy(state->basevelocity, ent->v.basevelocity, 3 * sizeof(float));
+
+		state->weaponmodel = MODEL_INDEX(STRING(ent->v.weaponmodel));
+		state->gaitsequence = ent->v.gaitsequence;
+		state->spectator = ent->v.flags & FL_SPECTATOR;
+		state->friction = ent->v.friction;
+
+		state->gravity = ent->v.gravity;
+		//		state->team			= ent->v.team;
+		//
+		state->usehull = (ent->v.flags & FL_DUCKING) != 0 ? 1 : 0;
+		state->health = ent->v.health;
+	}
+
+	CBaseEntity* pEntity = static_cast<CBaseEntity*>(GET_PRIVATE(ent));
+	if (pEntity && pEntity->Classify() != CLASS_NONE && pEntity->Classify() != CLASS_MACHINE)
+		state->eflags |= EFLAG_FLESH_SOUND;
+	else
+		state->eflags &= ~EFLAG_FLESH_SOUND;
+
+	return 1;
+}
+
+/*
+===================
+CreateBaseline
+
+Creates baselines used for network encoding, especially for player data since players are not spawned until connect time.
+===================
+*/
+void CreateBaseline(int player, int eindex, struct entity_state_s* baseline, struct edict_s* entity, int playermodelindex, Vector* player_mins, Vector* player_maxs)
+{
+	baseline->origin = entity->v.origin;
+	baseline->angles = entity->v.angles;
+	baseline->frame = entity->v.frame;
+	baseline->skin = (short)entity->v.skin;
+
+	// render information
+	baseline->rendermode = (byte)entity->v.rendermode;
+	baseline->renderamt = (byte)entity->v.renderamt;
+	baseline->rendercolor.r = (byte)entity->v.rendercolor.x;
+	baseline->rendercolor.g = (byte)entity->v.rendercolor.y;
+	baseline->rendercolor.b = (byte)entity->v.rendercolor.z;
+	baseline->renderfx = (byte)entity->v.renderfx;
+
+	if (0 != player)
+	{
+		baseline->mins = *player_mins;
+		baseline->maxs = *player_maxs;
+
+		baseline->colormap = eindex;
+		baseline->modelindex = playermodelindex;
+		baseline->friction = 1.0;
+		baseline->movetype = MOVETYPE_WALK;
+
+		baseline->scale = entity->v.scale;
+		baseline->solid = SOLID_SLIDEBOX;
+		baseline->framerate = 1.0;
+		baseline->gravity = 1.0;
+	}
+	else
+	{
+		baseline->mins = entity->v.mins;
+		baseline->maxs = entity->v.maxs;
+
+		baseline->colormap = 0;
+		baseline->modelindex = entity->v.modelindex; //SV_ModelIndex(pr_strings + entity->v.model);
+		baseline->movetype = entity->v.movetype;
+
+		baseline->scale = entity->v.scale;
+		baseline->solid = entity->v.solid;
+		baseline->framerate = entity->v.framerate;
+		baseline->gravity = entity->v.gravity;
+	}
+}
+
+typedef struct
+{
+	char name[32];
+	int field;
+} entity_field_alias_t;
+
+#define FIELD_ORIGIN0 0
+#define FIELD_ORIGIN1 1
+#define FIELD_ORIGIN2 2
+#define FIELD_ANGLES0 3
+#define FIELD_ANGLES1 4
+#define FIELD_ANGLES2 5
+
+static entity_field_alias_t entity_field_alias[] =
+	{
+		{"origin[0]", 0},
+		{"origin[1]", 0},
+		{"origin[2]", 0},
+		{"angles[0]", 0},
+		{"angles[1]", 0},
+		{"angles[2]", 0},
+};
+
+void Entity_FieldInit(struct delta_s* pFields)
+{
+	entity_field_alias[FIELD_ORIGIN0].field = DELTA_FINDFIELD(pFields, entity_field_alias[FIELD_ORIGIN0].name);
+	entity_field_alias[FIELD_ORIGIN1].field = DELTA_FINDFIELD(pFields, entity_field_alias[FIELD_ORIGIN1].name);
+	entity_field_alias[FIELD_ORIGIN2].field = DELTA_FINDFIELD(pFields, entity_field_alias[FIELD_ORIGIN2].name);
+	entity_field_alias[FIELD_ANGLES0].field = DELTA_FINDFIELD(pFields, entity_field_alias[FIELD_ANGLES0].name);
+	entity_field_alias[FIELD_ANGLES1].field = DELTA_FINDFIELD(pFields, entity_field_alias[FIELD_ANGLES1].name);
+	entity_field_alias[FIELD_ANGLES2].field = DELTA_FINDFIELD(pFields, entity_field_alias[FIELD_ANGLES2].name);
+}
+
+/*
+==================
+Entity_Encode
+
+Callback for sending entity_state_t info over network. 
+FIXME:  Move to script
+==================
+*/
+void Entity_Encode(struct delta_s* pFields, const unsigned char* from, const unsigned char* to)
+{
+	entity_state_t *f, *t;
+	static bool initialized = false;
+
+	if (!initialized)
+	{
+		Entity_FieldInit(pFields);
+		initialized = true;
+	}
+
+	f = (entity_state_t*)from;
+	t = (entity_state_t*)to;
+
+	// Never send origin to local player, it's sent with more resolution in clientdata_t structure
+	const bool localplayer = (t->number - 1) == ENGINE_CURRENT_PLAYER();
+	if (localplayer)
+	{
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN0].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN1].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN2].field);
+	}
+
+	if ((t->impacttime != 0) && (t->starttime != 0))
+	{
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN0].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN1].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN2].field);
+
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ANGLES0].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ANGLES1].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ANGLES2].field);
+	}
+
+	if ((t->movetype == MOVETYPE_FOLLOW) &&
+		(t->aiment != 0))
+	{
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN0].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN1].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN2].field);
+	}
+	else if (t->aiment != f->aiment)
+	{
+		DELTA_SETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN0].field);
+		DELTA_SETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN1].field);
+		DELTA_SETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN2].field);
+	}
+}
+
+static entity_field_alias_t player_field_alias[] =
+	{
+		{"origin[0]", 0},
+		{"origin[1]", 0},
+		{"origin[2]", 0},
+};
+
+void Player_FieldInit(struct delta_s* pFields)
+{
+	player_field_alias[FIELD_ORIGIN0].field = DELTA_FINDFIELD(pFields, player_field_alias[FIELD_ORIGIN0].name);
+	player_field_alias[FIELD_ORIGIN1].field = DELTA_FINDFIELD(pFields, player_field_alias[FIELD_ORIGIN1].name);
+	player_field_alias[FIELD_ORIGIN2].field = DELTA_FINDFIELD(pFields, player_field_alias[FIELD_ORIGIN2].name);
+}
+
+/*
+==================
+Player_Encode
+
+Callback for sending entity_state_t for players info over network. 
+==================
+*/
+void Player_Encode(struct delta_s* pFields, const unsigned char* from, const unsigned char* to)
+{
+	entity_state_t *f, *t;
+	static bool initialized = false;
+
+	if (!initialized)
+	{
+		Player_FieldInit(pFields);
+		initialized = true;
+	}
+
+	f = (entity_state_t*)from;
+	t = (entity_state_t*)to;
+
+	// Never send origin to local player, it's sent with more resolution in clientdata_t structure
+	const bool localplayer = (t->number - 1) == ENGINE_CURRENT_PLAYER();
+	if (localplayer)
+	{
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN0].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN1].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN2].field);
+	}
+
+	if ((t->movetype == MOVETYPE_FOLLOW) &&
+		(t->aiment != 0))
+	{
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN0].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN1].field);
+		DELTA_UNSETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN2].field);
+	}
+	else if (t->aiment != f->aiment)
+	{
+		DELTA_SETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN0].field);
+		DELTA_SETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN1].field);
+		DELTA_SETBYINDEX(pFields, entity_field_alias[FIELD_ORIGIN2].field);
+	}
+}
+
+#define CUSTOMFIELD_ORIGIN0 0
+#define CUSTOMFIELD_ORIGIN1 1
+#define CUSTOMFIELD_ORIGIN2 2
+#define CUSTOMFIELD_ANGLES0 3
+#define CUSTOMFIELD_ANGLES1 4
+#define CUSTOMFIELD_ANGLES2 5
+#define CUSTOMFIELD_SKIN 6
+#define CUSTOMFIELD_SEQUENCE 7
+#define CUSTOMFIELD_ANIMTIME 8
+
+entity_field_alias_t custom_entity_field_alias[] =
+	{
+		{"origin[0]", 0},
+		{"origin[1]", 0},
+		{"origin[2]", 0},
+		{"angles[0]", 0},
+		{"angles[1]", 0},
+		{"angles[2]", 0},
+		{"skin", 0},
+		{"sequence", 0},
+		{"animtime", 0},
+};
+
+void Custom_Entity_FieldInit(struct delta_s* pFields)
+{
+	custom_entity_field_alias[CUSTOMFIELD_ORIGIN0].field = DELTA_FINDFIELD(pFields, custom_entity_field_alias[CUSTOMFIELD_ORIGIN0].name);
+	custom_entity_field_alias[CUSTOMFIELD_ORIGIN1].field = DELTA_FINDFIELD(pFields, custom_entity_field_alias[CUSTOMFIELD_ORIGIN1].name);
+	custom_entity_field_alias[CUSTOMFIELD_ORIGIN2].field = DELTA_FINDFIELD(pFields, custom_entity_field_alias[CUSTOMFIELD_ORIGIN2].name);
+	custom_entity_field_alias[CUSTOMFIELD_ANGLES0].field = DELTA_FINDFIELD(pFields, custom_entity_field_alias[CUSTOMFIELD_ANGLES0].name);
+	custom_entity_field_alias[CUSTOMFIELD_ANGLES1].field = DELTA_FINDFIELD(pFields, custom_entity_field_alias[CUSTOMFIELD_ANGLES1].name);
+	custom_entity_field_alias[CUSTOMFIELD_ANGLES2].field = DELTA_FINDFIELD(pFields, custom_entity_field_alias[CUSTOMFIELD_ANGLES2].name);
+	custom_entity_field_alias[CUSTOMFIELD_SKIN].field = DELTA_FINDFIELD(pFields, custom_entity_field_alias[CUSTOMFIELD_SKIN].name);
+	custom_entity_field_alias[CUSTOMFIELD_SEQUENCE].field = DELTA_FINDFIELD(pFields, custom_entity_field_alias[CUSTOMFIELD_SEQUENCE].name);
+	custom_entity_field_alias[CUSTOMFIELD_ANIMTIME].field = DELTA_FINDFIELD(pFields, custom_entity_field_alias[CUSTOMFIELD_ANIMTIME].name);
+}
+
+/*
+==================
+Custom_Encode
+
+Callback for sending entity_state_t info ( for custom entities ) over network. 
+FIXME:  Move to script
+==================
+*/
+void Custom_Encode(struct delta_s* pFields, const unsigned char* from, const unsigned char* to)
+{
+	entity_state_t *f, *t;
+	int beamType;
+	static bool initialized = false;
+
+	if (!initialized)
+	{
+		Custom_Entity_FieldInit(pFields);
+		initialized = true;
+	}
+
+	f = (entity_state_t*)from;
+	t = (entity_state_t*)to;
+
+	beamType = t->rendermode & 0x0f;
+
+	if (beamType != BEAM_POINTS && beamType != BEAM_ENTPOINT)
+	{
+		DELTA_UNSETBYINDEX(pFields, custom_entity_field_alias[CUSTOMFIELD_ORIGIN0].field);
+		DELTA_UNSETBYINDEX(pFields, custom_entity_field_alias[CUSTOMFIELD_ORIGIN1].field);
+		DELTA_UNSETBYINDEX(pFields, custom_entity_field_alias[CUSTOMFIELD_ORIGIN2].field);
+	}
+
+	if (beamType != BEAM_POINTS)
+	{
+		DELTA_UNSETBYINDEX(pFields, custom_entity_field_alias[CUSTOMFIELD_ANGLES0].field);
+		DELTA_UNSETBYINDEX(pFields, custom_entity_field_alias[CUSTOMFIELD_ANGLES1].field);
+		DELTA_UNSETBYINDEX(pFields, custom_entity_field_alias[CUSTOMFIELD_ANGLES2].field);
+	}
+
+	if (beamType != BEAM_ENTS && beamType != BEAM_ENTPOINT)
+	{
+		DELTA_UNSETBYINDEX(pFields, custom_entity_field_alias[CUSTOMFIELD_SKIN].field);
+		DELTA_UNSETBYINDEX(pFields, custom_entity_field_alias[CUSTOMFIELD_SEQUENCE].field);
+	}
+
+	// animtime is compared by rounding first
+	// see if we really shouldn't actually send it
+	if ((int)f->animtime == (int)t->animtime)
+	{
+		DELTA_UNSETBYINDEX(pFields, custom_entity_field_alias[CUSTOMFIELD_ANIMTIME].field);
+	}
+}
+
+/*
+=================
+RegisterEncoders
+
+Allows game .dll to override network encoding of certain types of entities and tweak values, etc.
+=================
+*/
+void RegisterEncoders()
+{
+	DELTA_ADDENCODER("Entity_Encode", Entity_Encode);
+	DELTA_ADDENCODER("Custom_Encode", Custom_Encode);
+	DELTA_ADDENCODER("Player_Encode", Player_Encode);
+}
+
+int GetWeaponData(struct edict_s* player, struct weapon_data_s* info)
+{
+	memset(info, 0, MAX_WEAPONS * sizeof(weapon_data_t));
+
+#if defined(CLIENT_WEAPONS)
+	int i;
+	weapon_data_t* item;
+	entvars_t* pev = &player->v;
+	CBasePlayer* pl = dynamic_cast<CBasePlayer*>(CBasePlayer::Instance(pev));
+	CBasePlayerWeapon* gun;
+
+	ItemInfo II;
+
+	if (!pl)
+		return 1;
+
+	// go through all of the weapons and make a list of the ones to pack
+	for (i = 0; i < MAX_ITEM_TYPES; i++)
+	{
+		if (pl->m_rgpPlayerItems[i])
+		{
+			// there's a weapon here. Should I pack it?
+			CBasePlayerItem* pPlayerItem = pl->m_rgpPlayerItems[i];
+
+			while (pPlayerItem)
+			{
+				gun = pPlayerItem->GetWeaponPtr();
+				if (gun && gun->UseDecrement())
+				{
+					// Get The ID.
+					memset(&II, 0, sizeof(II));
+					gun->GetItemInfo(&II);
+
+					if (II.iId >= 0 && II.iId < MAX_WEAPONS)
+					{
+						item = &info[II.iId];
+
+						item->m_iId = II.iId;
+						item->m_iClip = gun->m_iClip;
+
+						item->m_flTimeWeaponIdle = V_max(gun->m_flTimeWeaponIdle, -0.001f);
+						item->m_flNextPrimaryAttack = V_max(gun->m_flNextPrimaryAttack, -0.001f);
+						item->m_flNextSecondaryAttack = V_max(gun->m_flNextSecondaryAttack, -0.001f);
+						item->m_fInReload = static_cast<int>(gun->m_fInReload);
+						item->m_fInSpecialReload = gun->m_fInSpecialReload;
+						item->fuser1 = V_max(gun->pev->fuser1, -0.001f);
+						item->fuser2 = gun->m_flStartThrow;
+						item->fuser3 = gun->m_flReleaseThrow;
+						item->iuser1 = gun->m_chargeReady;
+						item->iuser2 = gun->m_fInAttack;
+						item->iuser3 = gun->m_fireState;
+
+						// The original client reads these stock weapon_data slots as m_chargeReady/m_fInAttack/
+						// m_fireState/m_flStartThrow/m_flReleaseThrow, so they carry exactly those fields; the TS
+						// weapon state travels on the clientdata vuser block (UpdateClientData), which both
+						// clients read in HUD_WeaponsPostThink.
+
+						//						item->m_flPumpTime				= V_max( gun->m_flPumpTime, -0.001f );
+					}
+				}
+				pPlayerItem = pPlayerItem->m_pNext;
+			}
+		}
+	}
+#endif
+	return 1;
+}
+
+/*
+=================
+UpdateClientData
+
+Data sent to current client only
+engine sets cd to 0 before calling.
+=================
+*/
+void UpdateClientData(const edict_t* ent, int sendweapons, struct clientdata_s* cd)
+{
+	if (!ent || !ent->pvPrivateData)
+		return;
+	entvars_t* pev = (entvars_t*)&ent->v;
+	CBasePlayer* pl = dynamic_cast<CBasePlayer*>(CBasePlayer::Instance(pev));
+
+	// The original (0xa0294) sends the player's own fields whatever he spectates: no first person
+	// spectator swap to the target's.
+
+	cd->flags = pev->flags;
+	cd->health = pev->health;
+
+	cd->viewmodel = MODEL_INDEX(STRING(pev->viewmodel));
+
+	cd->waterlevel = pev->waterlevel;
+	cd->watertype = pev->watertype;
+	// halflife-updated stores the player's weapon bitmask in
+	// CBasePlayer::m_WeaponBits (std::uint64_t) and ships the bits to its
+	// own cl_dll via the custom gmsgWeapons message rather than the
+	// engine's per-frame client_data.iWeaponBits delta. Vanilla HL clients
+	// (i.e., a stock anniversary client connecting to this server) don't
+	// have the matching cl_dll, so they only see cd->weapons / iWeaponBits.
+	// Without this sync, pev->weapons stays 0, the WEAPON_SUIT bit (31)
+	// never reaches the vanilla HUD, and the HEV display never appears.
+	// Replicate the lower 32 bits of m_WeaponBits into cd->weapons so the
+	// legacy channel carries WEAPON_SUIT and weapons 0..30 to vanilla
+	// clients. The halflife-updated cl_dll ignores cdata->iWeaponBits
+	// (see cl_dll/hud_update.cpp:38), so updated clients are unaffected.
+	if (pl)
+		cd->weapons = static_cast<int>(pl->m_WeaponBits & 0xFFFFFFFF);
+	else
+		cd->weapons = pev->weapons;
+
+	// Vectors
+	cd->origin = pev->origin;
+	cd->velocity = pev->velocity;
+	cd->view_ofs = pev->view_ofs;
+	cd->punchangle = pev->punchangle;
+
+	cd->bInDuck = pev->bInDuck;
+	cd->flTimeStepSound = pev->flTimeStepSound;
+	cd->flDuckTime = pev->flDuckTime;
+	cd->flSwimTime = pev->flSwimTime;
+	cd->waterjumptime = (int)lrintf(pev->teleport_time); // rounded (0xa0396 fistp), not truncated
+
+	strcpy(cd->physinfo, ENGINE_GETPHYSINFO(ent));
+
+	cd->maxspeed = pev->maxspeed;
+	// the original (0xa0294) sends pev->fov, not m_iFOV (the stock SDK's): a scope zoom sets both, but
+	// a plugin that sets only pev->fov changes what the client sees on TS 3.0
+	cd->fov = pev->fov;
+	cd->weaponanim = pev->weaponanim;
+
+	cd->pushmsec = pev->pushmsec;
+
+	// cont.89d: the ORIGINAL client's PM_PlayerMove (@0xf08d8) scales the WHOLE move frametime by
+	// pmove->fuser1 (`frametime *= fuser1`, or 0 if <0.1) — upstream of accel AND maxspeed, on ground
+	// AND air. The original UpdateClientData (@0xb0294) sends cd->fuser1 = pev->fuser1 unconditionally.
+	// We never did → the original client predicted with fuser1≈0 (frozen frametime) → a CONSTANT ~10-20u
+	// prediction error everywhere (it survived accel/maxspeed tests because frametime is upstream of both).
+	// With pev->fuser1=1.0 normal, the client now predicts the same frametime; also fixes slow-mo prediction.
+	cd->fuser1 = pev->fuser1;
+
+	cd->iuser1 = pev->iuser1;
+	cd->iuser2 = pev->iuser2;
+	// The stunt flags, sent whether or not the client predicts weapons (0xa0406). TS_pm_shared reads
+	// pmove->iuser4 for every stunt (prone, slide, dive, wall jump, stop, stand up).
+	cd->iuser4 = pev->iuser4;
+
+
+
+#if defined(CLIENT_WEAPONS)
+	if (0 != sendweapons)
+	{
+		if (pl)
+		{
+			cd->m_flNextAttack = pl->m_flNextAttack;
+			// 0xa047b-0xa0491: the paired clip slot starts at 0, rockets and cells are the player's,
+			// vuser1.y carries the active powerup bits (the client predicts the double fire rate and
+			// the infinite clips from them; the melee bar goes by its own message). Nothing else of the
+			// player's: no fuser2/fuser3, no shells or nails.
+			cd->ammo_shells = 0;
+			cd->ammo_rockets = pl->ammo_rockets;
+			cd->ammo_cells = pl->ammo_uranium;
+			cd->vuser1.y = (float)pl->m_iPowerups;
+
+			if (pl->m_pActiveItem)
+			{
+				CBasePlayerWeapon* gun = pl->m_pActiveItem->GetWeaponPtr();
+				if (gun && gun->UseDecrement())
+				{
+					ItemInfo II;
+					memset(&II, 0, sizeof(II));
+					gun->GetItemInfo(&II);
+
+					cd->m_iId = II.iId;
+
+					// TS drop-in weapon-state channel (cont.89, verified by live gdb + client.dll disasm).
+					// The ORIGINAL client's HUD_WeaponsPostThink reads the active weapon's predicted state
+					// from these vuser slots (client reads `flds 0x30c/0x318/0x31c/0x320/0x324/0x328/0x32c(%esi)`
+					// = cd+0x1b8/0x1c4/0x1c8/0x1cc/0x1d0/0x1d4/0x1d8, cd+0x1c4 being vuser3.x).
+					// m_weaponType 0 = kung-fu (melee).
+					if (II.iId == TSGUN_WEAPON_ID)
+					{
+						CTSGun* tsgun = (CTSGun*)gun;
+						const int wt = tsgun->m_weaponType;
+						cd->vuser3.x = (float)wt; // cd+0x1c4 — active weapon type (g_ActiveTSWeapon)
+						// Kung fu has no active item (gun+0xcc NULL): the kick and punch combo counters go in
+						// vuser3.y and vuser3.z and nothing else of the weapon (0xa065c-0xa0674).
+						if (!tsgun->m_pActiveItem)
+						{
+							cd->vuser3.y = (float)tsgun->m_kickCombo;
+							cd->vuser3.z = (float)tsgun->m_comboStep;
+							return;
+						}
+						const TSItem& it = tsgun->m_items[wt];
+						const s_weapon_info* awi = get_weapon_info((tsweapon_t)wt);
+						// cont.89 reload: the CLIENT needs the active caliber's RESERVE to PREDICT Reload()
+						// (its refill reads m_ammoReserve[caliber], and Reload early-returns when reserve<1).
+						// The original ships it here in cd+0x1bc = vuser2.y (UpdateClientData @0xa0294). Without
+						// it the client's reserve stayed 0 → predicted reload no-op → no anim + post-reload flicker.
+						{
+							const int cal = awi->iCaliber;
+							cd->vuser2.y = (cal > 0 && cal < TS_NUM_CALIBERS) ? (float)tsgun->m_ammoReserve[cal] : 0.0f;
+						}
+						// cd+0x1b8 (vuser2.x) = the LIVE active item+0x8 (RE UpdateClientData @0xa0294:
+						// *(int*)(m_pActiveItem+8)). ONE original byte, reused per weapon family: the pump/shell
+						// RELOAD phase + the burst-round counter (+ grenade cook) live in our m_burstOrPhase for
+						// guns; the bloody-blade flag lives in it.bloody for blades. The original client re-seeds
+						// its predicted item+0x8 from this to run the shell-by-shell ShotgunReload phase machine —
+						// we were sending it.bloody (always 0 for a shotgun), so the original client NEVER saw the
+						// reload phase → the one-shell-at-a-time reload never predicted. cont.90.
+						const bool awBlade = (awi->iFireType == TSFT_KNIFE || awi->iFireType == TSFT_KATANA);
+						cd->vuser2.x = (float)(awBlade ? it.bloody : tsgun->m_burstOrPhase);
+						cd->vuser3.y = (float)tsgun->m_fireMode; // cd+0x1c8 — fire-mode (LIVE, not the parked it.mode
+						                                         //   — stale it.mode defaults SEMI, so full-auto fired like semi)
+						cd->vuser3.z = (float)it.attach;         // cd+0x1cc — EQUIPPED attach mask (sil/laser/flash/scope)
+						// cd+0x1d0 (vuser4.x) = the LIVE active item+0x24 (RE @0xa0294: *(byte*)(m_pActiveItem+0x24)).
+						// ONE original byte: the pump-shotgun's fire/RACK toggle (our m_fInSpecialReload) for a pump
+						// gun; the akimbo barrel side (it.altMode) otherwise. We were sending it.altMode for the pump
+						// shotgun (always 0), so the original client's ShotgunFire never entered the RACK half → it
+						// fired every trigger pull instead of fire→pump→fire→pump. cont.90.
+						const bool awPump = (awi->iFireType == TSFT_PUMP);
+						cd->vuser4.x = (float)(awPump ? tsgun->m_fInSpecialReload : it.altMode);
+						cd->vuser4.y = (float)tsgun->m_iClip;    // cd+0x1d4 — active clip (LIVE m_iClip, not parked
+						                                         //   it.clip — the parked copy is stale during firing → 20→19→20 flicker)
+						// cd+0x1d8 = vuser4.z is the RELOAD flag, NOT leftClip. The ORIGINAL client re-seeds
+						// activeItem->m_fInReload (activeItem+0xc) from this every frame (HUD_WeaponsPostThink)
+						// and, while it's nonzero, FULL-MAG-SETS the clip to wi->iClip each frame. We were
+						// sending it.leftClip here — after a reload leftClip=clip/2 (nonzero) → the original
+						// client thought it was perpetually reloading → snapped the clip to full every frame
+						// (the "reload triggers it, reverts to full, all ammo weapons" flicker). cont.89 fork
+						// (client.dll FUN_1000b7b0 @0x1000b88c MOV + the cd+0x1d8→weapon+0xc reseed).
+						cd->vuser4.z = (float)(tsgun->m_fInReload ? 1 : 0);
+						// The akimbo LEFT barrel clip rides cd->ammo_nails (cd+0x70) instead (cont.89 akimbo dossier).
+						cd->ammo_nails = it.leftClip;
+						cd->vuser1.z = (float)it.active;   // cd+0x1b4 — ACTIVE attachments (laser/flash toggled)
+						// cd+0x1c0 = vuser2.z is the HOLD-POSITION stance (item+0x2c). The ORIGINAL client
+						// re-seeds activeItem+0x2c from this in HUD_WeaponsPostThink (client.dll FUN_10003830,
+						// m_iId==0x10 branch: cd+0x1c0 -> the weapon-status slot -> activeItem+0x2c) so the
+						// sideways/upright viewmodel stance PREDICTS. Without it the client's m_bHoldPosition
+						// floated (client predicts the toggle, server never reconciles it), so the stance
+						// blinked upright<->sideways every clientdata update. cont.89 clientdata dossier §4.
+						cd->vuser2.z = (float)(it.holdPosition ? 1 : 0);
+						// cd+0x6c (ammo_shells) carries the PAIRED akimbo/single variant's CLIP so the client
+						// can show/predict the PARKED variant's bar cell (the original @0xb0294 zeroes cd+0x6c
+						// then, from m_pActiveInfo: if iAkimboType!=-1 sends m_items[iAkimboType].clip; else if
+						// iSingleType!=-1 && !=active sends m_items[iSingleType].clip). WITHOUT this the original
+						// client had no parked-variant clip → the akimbo/single bar cell stayed -1/red. This is
+						// SEPARATE from the WStatus bar message. cont.89 clientdata dossier §4 (cd+0x6c was
+						// mislabeled "queued weaponanim"; it is the paired-variant clip). Repurposing ammo_shells
+						// is faithful — for a wielded tsgun (m_iId==0x10) the client reads cd+0x6c as this clip.
+						{
+							if (awi->iAkimboType >= 0 && awi->iAkimboType < TSW_COUNT)
+								cd->ammo_shells = tsgun->m_items[awi->iAkimboType].clip;
+							else if (awi->iSingleType >= 0 && awi->iSingleType < TSW_COUNT && awi->iSingleType != wt)
+								cd->ammo_shells = tsgun->m_items[awi->iSingleType].clip;
+							else
+								cd->ammo_shells = 0;
+						}
+					}
+				}
+			}
+		}
+	}
+#endif
+}
+
+/*
+=================
+CmdStart
+
+We're about to run this usercmd for the specified player.  We can set up groupinfo and masking here, etc.
+This is the time to examine the usercmd for anything extra.  This call happens even if think does not.
+=================
+*/
+void CmdStart(const edict_t* player, const struct usercmd_s* cmd, unsigned int random_seed)
+{
+	entvars_t* pev = (entvars_t*)&player->v;
+	CBasePlayer* pl = dynamic_cast<CBasePlayer*>(CBasePlayer::Instance(pev));
+
+	if (!pl)
+		return;
+
+	if (pl->pev->groupinfo != 0)
+	{
+		UTIL_SetGroupTrace(pl->pev->groupinfo, GROUP_OP_AND);
+	}
+
+	pl->random_seed = random_seed;
+}
+
+/*
+=================
+CmdEnd
+
+Each cmdstart is exactly matched with a cmd end, clean up any group trace flags, etc. here
+=================
+*/
+void CmdEnd(const edict_t* player)
+{
+	entvars_t* pev = (entvars_t*)&player->v;
+	CBasePlayer* pl = dynamic_cast<CBasePlayer*>(CBasePlayer::Instance(pev));
+
+	if (!pl)
+		return;
+	if (pl->pev->groupinfo != 0)
+	{
+		UTIL_UnsetGroupTrace();
+	}
+}
+
+/*
+================================
+ConnectionlessPacket
+
+ Return 1 if the packet is valid.  Set response_buffer_size if you want to send a response packet.  Incoming, it holds the max
+  size of the response_buffer, so you must zero it out if you choose not to respond.
+================================
+*/
+int ConnectionlessPacket(const struct netadr_s* net_from, const char* args, char* response_buffer, int* response_buffer_size)
+{
+	// Parse stuff from args
+	int max_buffer_size = *response_buffer_size;
+
+	// Zero it out since we aren't going to respond.
+	// If we wanted to response, we'd write data into response_buffer
+	*response_buffer_size = 0;
+
+	// Since we don't listen for anything here, just respond that it's a bogus message
+	// If we didn't reject the message, we'd return 1 for success instead.
+	return 0;
+}
+
+/*
+================================
+GetHullBounds
+
+  Engine calls this to enumerate player collision hulls, for prediction.  Return 0 if the hullnumber doesn't exist.
+================================
+*/
+int GetHullBounds(int hullnumber, float* mins, float* maxs)
+{
+	return static_cast<int>(PM_GetHullBounds(hullnumber, mins, maxs));
+}
+
+/*
+================================
+CreateInstancedBaselines
+
+Create pseudo-baselines for items that aren't placed in the map at spawn time, but which are likely
+to be created during play ( e.g., grenades, ammo packs, projectiles, corpses, etc. )
+================================
+*/
+void CreateInstancedBaselines()
+{
+	int iret = 0;
+	entity_state_t state;
+
+	memset(&state, 0, sizeof(state));
+
+	// Create any additional baselines here for things like grendates, etc.
+	// iret = ENGINE_INSTANCE_BASELINE( pc->pev->classname, &state );
+
+	// Destroy objects.
+	//UTIL_Remove( pc );
+}
+
+/*
+================================
+InconsistentFile
+
+One of the ENGINE_FORCE_UNMODIFIED files failed the consistency check for the specified player
+ Return 0 to allow the client to continue, 1 to force immediate disconnection ( with an optional disconnect message of up to 256 characters )
+================================
+*/
+int InconsistentFile(const edict_t* player, const char* filename, char* disconnect_message)
+{
+	// Server doesn't care?
+	if (CVAR_GET_FLOAT("mp_consistency") != 1)
+		return 0;
+
+	// Default behavior is to kick the player
+	sprintf(disconnect_message, "Server is enforcing file consistency for %s\n", filename);
+
+	// Kick now with specified disconnect message.
+	return 1;
+}
+
+/*
+================================
+AllowLagCompensation
+
+ The game .dll should return 1 if lag compensation should be allowed ( could also just set
+  the sv_unlag cvar.
+ Most games right now should return 0, until client-side weapon prediction code is written
+  and tested for them ( note you can predict weapons, but not do lag compensation, too, 
+  if you want.
+================================
+*/
+int AllowLagCompensation()
+{
+	return 1;
+}

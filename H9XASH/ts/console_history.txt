@@ -51,11 +51,9 @@ developer
 developer 1
 tsm_logigng
 tsm_logging
-tsm_logging
 tsm_fogtest
 exec thirdshoulder
 cam_back 60
-
 cam_back
 cam_back 128
 default_fov 120

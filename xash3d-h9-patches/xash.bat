@@ -118,6 +118,7 @@ if exist "%FWGS%\.git" (
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-spraypicker.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-spraycmd.patch" || exit /b 1
     call :patch "%FWGS%\3rdparty\mainui" "%XASH%\patches\mainui-h9-gamestartup.patch" || exit /b 1
+    call :patch "%FWGS%\3rdparty\mainui" "%XASH%\patches\mainui-h9-sprayui.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-userid.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-presence.patch" || exit /b 1
 )
@@ -183,8 +184,8 @@ for /f %%c in ('git -C "%FWGS%" rev-parse --short origin/master 2^>nul') do set 
     echo           freevgui-h9-scheme.patch, engine-h9-cloak.patch, engine-h9-cmdbuf.patch,
     echo           engine-h9-chatmouse.patch, engine-h9-suddendeath.patch, engine-h9-xray.patch,
     echo           engine-h9-sprguard.patch, engine-h9-spraypicker.patch, engine-h9-spraycmd.patch,
-    echo           mainui-h9-gamestartup.patch, engine-h9-userid.patch, and
-    echo           engine-h9-presence.patch
+    echo           mainui-h9-gamestartup.patch, mainui-h9-sprayui.patch,
+    echo           engine-h9-userid.patch, and engine-h9-presence.patch
 )
 powershell -NoProfile -ExecutionPolicy Bypass -File "%XASH%\dllmerge.ps1" "%H9%\ENGINE.txt" "%H9%\ENGINE.txt.new" || exit /b 1
 
@@ -195,7 +196,7 @@ REM matches the binary next to it.
 call :dllpatch xash.dll "engine common" "3rdparty/library_suffix" "The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present)." "" || exit /b 1
 call :dllpatch ref_gl.dll "ref/gl" "" "The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game) and engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls)." "" || exit /b 1
 call :dllpatch filesystem_stdio.dll "filesystem" "" "The filesystem. The webassembly patch's one change here is emscripten-only." "" || exit /b 1
-call :dllpatch menu.dll "" "3rdparty/mainui" "The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music)." "" || exit /b 1
+call :dllpatch menu.dll "" "3rdparty/mainui" "The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music)." "" || exit /b 1
 call :dllpatch vgui.dll "" "3rdparty/freevgui" "The VGUI1 library, FWGS's open freevgui. freevgui.patch (webassembly) and freevgui-h9-scheme.patch: H9's purple scheme." "Those six colours are all that H9's patched GoldSrc vgui.dll changes (18 bytes, see Half-Life\vgui.dll.patch); the textschemes, HUD and menu colours live in ts\, not here." || exit /b 1
 call :dllpatch "HAVOC 9.exe" "game_launch" "" "The launcher, game_launch's own xash3d.exe target, copied in under H9's name by this script rather than renamed at the source. Its icon comes from game_launch\havoc9.ico (game.rc), the same picture as ts\game.ico." "" || exit /b 1
 
@@ -285,8 +286,8 @@ if not exist "%TSM%\ts3.0\ts\liblist.gam" (
     echo [ERROR] no stock TS 3.0 at %TSM%\ts3.0\ts -- install ts-3-final.exe there
     exit /b 1
 )
-if not exist "%TSM%\export\reTS\ts" (
-    echo [ERROR] no reTS at %TSM%\export\reTS
+if not exist "%TSM%\reTS\binaries\ts" (
+    echo [ERROR] no reTS at %TSM%\reTS\binaries
     exit /b 1
 )
 if not exist "%TSM%\export\ts\maps" (
@@ -305,7 +306,7 @@ if errorlevel 8 exit /b 1
 echo   1 stock TS 3.0
 
 REM 2. reTS: client.dll, mp.dll, delta.lst. addons\ is Metamod/AMXX, server-side.
-robocopy "%TSM%\export\reTS\ts" "%H9%\ts" /E /XD addons /NJH /NJS /NDL /NFL /NP >nul
+robocopy "%TSM%\reTS\binaries\ts" "%H9%\ts" /E /XD addons /NJH /NJS /NDL /NFL /NP >nul
 if errorlevel 8 exit /b 1
 echo   2 reTS
 
