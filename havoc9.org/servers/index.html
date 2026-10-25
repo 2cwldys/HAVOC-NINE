@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SERVERS — HAVOC9</title>
+  <meta name="description" content="Live Havoc9 game servers">
+  <link rel="icon" type="image/gif" href="../h9helmet_glitch.gif">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="../index.html" class="logo">
+        <img src="../h9helmet_glitch.gif" alt="Havoc9" class="logo-img">
+        <span class="logo-text">HAVOC<span class="orange">9</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="../index.html">HOME</a></li>
+        <li><a href="../play/index.html">PLAY</a></li>
+        <li><a href="../downloads/index.html">DOWNLOADS</a></li>
+        <li><a href="./index.html" class="active">SERVERS</a></li>
+        <li><a href="../join/index.html">JOIN</a></li>
+        <li><a href="../museum/index.html">MUSEUM</a></li>
+        <li><a href="../credits/index.html">CREDITS</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="page">
+    <div class="container">
+      <div class="page-header">
+        <span class="section-label">// SERVERS</span>
+        <h1 class="section-title">LIVE STATUS</h1>
+        <div class="title-line"></div>
+      </div>
+
+      <!--
+        data-master points this page at the bot's JSON list -- one server list, fed to any
+        page that cares, reconfigurable here without touching the fetch/render code below.
+        See serverlist-bot/README.md, "For a website: the JSON list", for the field
+        reference this script relies on (mode, ping_ms, map as the thumbnail key, etc.).
+      -->
+      <div id="serverBoard" class="server-board" data-master="" data-refresh="30">
+        <table class="server-table">
+          <thead>
+            <tr>
+              <th class="col-map" scope="col">MAP</th>
+              <th class="col-server" scope="col">SERVER</th>
+              <th class="col-mode" scope="col">MODE</th>
+              <th class="col-players" scope="col">PLAYERS</th>
+              <th class="col-ping" scope="col">PING</th>
+            </tr>
+          </thead>
+          <tbody id="serverRows">
+            <tr class="server-row-empty">
+              <td colspan="5" class="servers-note">Loading the server list&hellip;</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <a href="https://discord.gg/b76pqqVsNY" target="_blank" rel="noopener" class="discord-cta">
+        <svg class="discord-icon" viewBox="0 0 24 24" fill="currentColor" style="color: #ff4d00;">
+          <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+        </svg>
+        <div class="discord-text">
+          <span class="discord-label">JOIN THE COMMUNITY</span>
+          <span class="discord-name">Discord</span>
+        </div>
+      </a>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-logo">
+          <img src="../h9helmet_glitch.gif" alt="Havoc9">
+          <span>HAVOC<span class="orange">9</span></span>
+        </div>
+        <p class="footer-tag">Open source · Inspired by the original Havoc9 community</p>
+        <p class="footer-copy">Non-commercial · See NON_COMMERCIAL.md · Legal Half-Life required</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../script.js"></script>
+  <script>
+    /*
+     * The live table above. Points at serverlist-bot's JSON endpoint
+     * (GET /v1/servers/<gamedir>.json -- see serverlist-bot/README.md) and redraws every
+     * data-refresh seconds, so the page never needs a reload to catch a server coming up,
+     * a map changing, or someone joining.
+     *
+     * Deliberately not fetching the plain-text /v1/servers/<gamedir> list this page used
+     * to read: that format has no fields for mode or ping, only a server's connect
+     * address and a human comment line -- a table with real columns needs the bot's own
+     * .json list instead.
+     */
+    (function () {
+      var board = document.getElementById("serverBoard");
+      var rows = document.getElementById("serverRows");
+      var url = (board && board.getAttribute("data-master") || "").trim();
+      var refreshSeconds = Number(board && board.getAttribute("data-refresh")) || 30;
+      if (!url) {
+        // Left unconfigured on purpose until a real list is reachable -- "Loading" would
+        // otherwise sit there forever and look like a stuck fetch instead of a page
+        // nobody has pointed at a bot yet. Set data-master on #serverBoard to fix it.
+        if (rows) {
+          rows.innerHTML = '<tr class="server-row-empty"><td colspan="5" class="servers-note">'
+            + "Server list not configured yet.</td></tr>";
+        }
+        return;
+      }
+
+      function escapeHtml(text) {
+        return String(text == null ? "" : text).replace(/[<>&"]/g, function (ch) {
+          return { "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[ch];
+        });
+      }
+
+      // The same lookup key Discord Rich Presence already uses for this exact map
+      // (cl_presence.c sends the bare map name straight through as the "large_image"
+      // asset). No thumbnail art ships with this site yet, for any map -- every server
+      // falls back to the menu background until real per-map images exist at this path.
+      function thumbFor(map) {
+        var safe = String(map || "").replace(/[^a-z0-9_-]/gi, "");
+        return "../assets/maps/" + safe + ".jpg";
+      }
+
+      function pingText(ms) {
+        if (typeof ms !== "number" || !isFinite(ms) || ms <= 0) return "&ndash;";
+        return Math.round(ms) + " ms";
+      }
+
+      function pingClass(ms) {
+        if (typeof ms !== "number" || !isFinite(ms) || ms <= 0) return "";
+        if (ms < 80) return "ping-good";
+        if (ms < 160) return "ping-ok";
+        return "ping-bad";
+      }
+
+      function render(servers) {
+        if (!servers.length) {
+          rows.innerHTML = '<tr class="server-row-empty"><td colspan="5" class="servers-note" id="serverEmpty">'
+            + "No servers indexed yet. The list fills when the bot reports live addresses.</td></tr>";
+          return;
+        }
+
+        // Most populated first -- the server worth joining is the one with people on it.
+        servers = servers.slice().sort(function (a, b) { return (b.players || 0) - (a.players || 0); });
+
+        rows.innerHTML = servers.map(function (s) {
+          var mode = s.mode || (s.kind === "gs" ? "GoldSrc" : "Xash");
+          var siege = /siege/i.test(mode);
+          return (
+            '<tr class="server-row">' +
+              '<td class="col-map">' +
+                '<img class="server-thumb" src="' + thumbFor(s.map) + '" alt=""' +
+                  ' onerror="this.onerror=null;this.src=\'../mainmenu.png\';">' +
+                '<span class="server-map">' + escapeHtml(s.map) + "</span>" +
+              "</td>" +
+              '<td class="col-server">' +
+                '<span class="server-name">' + escapeHtml(s.name || "HAVOC 9 server") + "</span>" +
+                '<span class="server-addr">connect ' + escapeHtml(s.address) + "</span>" +
+              "</td>" +
+              '<td class="col-mode"><span class="mode-tag' + (siege ? " mode-siege" : "") + '">'
+                + escapeHtml(mode) + "</span></td>" +
+              '<td class="col-players">' + (s.players || 0) + " / " + (s.max || 0) + "</td>" +
+              '<td class="col-ping"><span class="' + pingClass(s.ping_ms) + '">' + pingText(s.ping_ms) + "</span></td>" +
+            "</tr>"
+          );
+        }).join("");
+      }
+
+      function refresh() {
+        fetch(url)
+          .then(function (r) { if (!r.ok) throw new Error("bad status"); return r.json(); })
+          .then(function (data) { render(Array.isArray(data.servers) ? data.servers : []); })
+          .catch(function () {
+            // A failed poll leaves whatever was already on screen rather than blanking a
+            // table that was working a moment ago over one dropped request.
+          });
+      }
+
+      refresh();
+      setInterval(refresh, refreshSeconds * 1000);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+Very important if you want servers to show on the list:
+=======================================================
+
+The master server address is set on the servers page, in servers/index.html, on the #serverBoard element:
+<div id="serverBoard" class="server-board" data-master="" data-refresh="30">
+
+data-master is empty right now, so the page has nothing to query. Set it to the bot’s JSON list, for example:
+data-master="http://YOUR.IP.HERE:8081/v1/servers/ts.json"
