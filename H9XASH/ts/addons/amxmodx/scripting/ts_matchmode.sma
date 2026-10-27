@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes35"
+#define TSM_BUILD "1.53-fixes36"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -717,6 +717,7 @@ new g_cv_breachents, g_cv_breachrange, g_cv_breachdoor[8];
 new g_cv_engdoorclass;
 new g_cv_engdoorteam;
 new g_cv_objteam, g_cv_objclass, g_cv_objtime, g_cv_objfuse, g_cv_objslay, g_cv_objrange;
+new g_cv_siegelives, g_cv_siegetime, g_cv_addtime;   // what a fall short of the last gives back
 new g_cv_objmsg1, g_cv_objmsg2;   // the round-start team banners
 new g_cv_armorder;
 new g_cv_wpnextra;
@@ -883,6 +884,7 @@ new g_mapname[32];
 
 new g_freeze_left = 0;
 new g_round_left = 0;
+new Float:g_round_ends = 0.0;   // gametime the round clock runs out: what task 2 is set for
 new g_cv_showtimer;
 new g_cv_t1short, g_cv_t2short;
 new g_cv_forceteams, g_cv_forcemodels;
@@ -4361,6 +4363,17 @@ public plugin_init()
 	g_cv_objfuse  = register_cvar("tsm_obj_fuse",  "5.0");
 	g_cv_objslay  = register_cvar("tsm_obj_slay",  "1");
 	g_cv_objrange = register_cvar("tsm_obj_range", "96");
+
+	/*
+	 * What a fallen objective gives back when it is not the last and the round goes on
+	 * (see siege_reward_* below). Lives: every player's count SET to their class's again,
+	 * never added to, and the eliminated return at their side's next wave. Time: the
+	 * clock run back toward tsm_roundtime, by at most tsm_addtime seconds a fall and never
+	 * past the round time; tsm_addtime is only read while tsm_siege_extratime is 1.
+	 */
+	g_cv_siegelives = register_cvar("tsm_siege_rewardlives", "1");
+	g_cv_siegetime  = register_cvar("tsm_siege_extratime",   "1");
+	g_cv_addtime    = register_cvar("tsm_addtime",           "150");
 
 	/*
 	 * THE ROUND-START TEAM BANNERS.
@@ -11510,10 +11523,23 @@ siege_fall(id, ent, n)
 	dbg("siege: objective %d fell to %d", n, id);
 
 	// Only the last objective ends the round. An earlier one has blown and the
-	// round goes on: the attackers move to the next in the chain.
+	// round goes on: the attackers move to the next in the chain, and the round
+	// gets its time and its lives back. The time goes first, so that a clock that
+	// lifts sudden death lets the lives return under the ordinary wave rules.
 	if (n >= count)
 	{
 		end_round(get_pcvar_num(g_cv_objteam));
+	}
+	else
+	{
+		if (get_pcvar_num(g_cv_siegetime))
+		{
+			siege_reward_time();
+		}
+		if (get_pcvar_num(g_cv_siegelives))
+		{
+			siege_reward_lives();
+		}
 	}
 
 	/*
@@ -11563,6 +11589,120 @@ siege_fall(id, ent, n)
 	{
 		set_task(0.5, "task_siege_slay", TSM_TASK_OBJ);
 	}
+}
+
+/*
+ * A fall short of the last puts time back on the round clock: toward a full tsm_roundtime,
+ * by at most tsm_addtime seconds, and never past the round time itself.
+ *
+ * What is left is measured from g_round_ends rather than g_round_left, which only counts
+ * down while the clock is drawn. Both move together with the timeout task, so the clock on
+ * screen and the round's real end stay in step.
+ *
+ * A clock back above the tsm_sudden_death mark lifts sudden death for everyone: the
+ * markers, the x-ray, the bog and the health drain all go with g_sudden, and the wave clock
+ * respawn_sudden_cut stopped runs again. It comes back, announced as ever, when the clock
+ * reaches the mark a second time.
+ */
+siege_reward_time()
+{
+	new rt = get_pcvar_num(g_cv_roundtime);
+	new add = get_pcvar_num(g_cv_addtime);
+	if (g_state != ST_LIVE || rt <= 0 || add <= 0)
+	{
+		return;
+	}
+
+	new Float:now = get_gametime();
+	new left = floatround(g_round_ends - now, floatround_ceil);
+	if (left < 0)
+	{
+		left = 0;
+	}
+	new target = left + add;
+	if (target > rt)
+	{
+		target = rt;
+	}
+	if (target <= left)
+	{
+		return;
+	}
+
+	g_round_left = target;
+	g_round_ends = now + float(target);
+	remove_task(2);
+	set_task(float(target), "task_round_timeout", 2);
+
+	new gain = target - left;
+	if (g_sudden && target > get_pcvar_num(g_cv_sudden))
+	{
+		g_sudden = false;
+		sudden_fog(false);
+		if (get_pcvar_num(g_cv_respawns) && !task_exists(TSM_TASK_WAVE))
+		{
+			set_task(1.0, "task_wave_tick", TSM_TASK_WAVE, "", 0, "b");
+		}
+		tlog("[TSM] Sudden death lifted: an objective fell with %d seconds left, %d on the clock now.", left, target);
+		all_print("[MATCH] +%d:%02d on the clock -- sudden death is lifted.", gain / 60, gain % 60);
+	}
+	else
+	{
+		all_print("[MATCH] +%d:%02d on the clock.", gain / 60, gain % 60);
+	}
+	dbg("siege: clock %d -> %d seconds (+%d)", left, target, gain);
+}
+
+/*
+ * A fall short of the last gives both sides their lives back, as a new round would, in the
+ * round still being played. Every count is SET to the class's own (lives_for), never added
+ * to, so a full count stays as it is. Anyone eliminated -- out of lives or already waiting --
+ * waits for their side's next wave.
+ *
+ * The same players start_wave_clocks gives lives to at go-live, less anyone sitting the
+ * match out. Without waves (tsm_respawns 0, or sudden death with tsm_respawn_sudden 0) no
+ * wave would ever take them and a waiting player holds the round open, so nothing changes.
+ */
+siege_reward_lives()
+{
+	if (g_state != ST_LIVE || !get_pcvar_num(g_cv_respawns))
+	{
+		return;
+	}
+	if (g_sudden && !get_pcvar_num(g_cv_respsudden))
+	{
+		return;
+	}
+
+	new back = 0;
+	new players[32], pnum, id, team;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		team = g_match_team[id];
+		if ((team != 1 && team != 2) || g_locked_out[id])
+		{
+			continue;
+		}
+
+		g_lives_left[id] = lives_for(id);
+		if (g_elim[id])
+		{
+			g_revive_pending[id] = true;
+			g_revive_refused[id] = 0;
+			back++;
+		}
+	}
+
+	// Everyone just queued needs a wave clock running to be taken by.
+	if (!task_exists(TSM_TASK_WAVE))
+	{
+		set_task(1.0, "task_wave_tick", TSM_TASK_WAVE, "", 0, "b");
+	}
+
+	all_print("[MATCH] Lives restored on both sides -- the fallen return with the next wave.");
+	dbg("siege: lives restored, %d eliminated waiting for the next wave", back);
 }
 
 public task_siege_slay()
@@ -18592,6 +18732,7 @@ public task_go_live()
 	new rt = get_pcvar_num(g_cv_roundtime);
 	if (rt > 0)
 	{
+		g_round_ends = get_gametime() + float(rt);
 		set_task(float(rt), "task_round_timeout", 2);
 	}
 }
