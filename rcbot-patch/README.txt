@@ -10,6 +10,9 @@ with this install -- with additive changes:
   3. TS weapon-learning crash fix: a save/load size mismatch left empty weapon-
      choice individuals in the population; a bot picking one crashed the server
      (see CHANGE 5)
+  4. Waypoints and doors: 4096 waypoints a map, a visibility file that does not
+     depend on that number, and TS breakable doors shot down when they stand in
+     a bot's way (see CHANGE 6)
 
 Win32, MetaMod Release, MSVC v145.
 
@@ -178,8 +181,53 @@ lives in memory for that server run.
 
 Rebuilt successfully (MSBuild, 0 errors) against pinned upstream v1.51b13.
 Getting there also required fixing the existing follow-command patch (CHANGE 3),
-which had never actually compiled standalone -- see rcbot_mm.dll.patch, shipped
-beside every deployed rcbot_mm.dll, for exactly what that needed.
+which had never actually compiled standalone. Those fixes are
+rcbot-build-fixes.patch (third in the REBUILDING chain): the follow command's
+prototypes in bot.h, CBotGlobals::GetBot, the CBotSquads::createSquad stub,
+RemoveSimilarTask, the weapon choice re-seeded in place, returnVector()->size().
+
+
+===============================================================================
+CHANGE 6: WAYPOINTS AND DOORS (rcbot-waypoints-doors.patch)
+===============================================================================
+
+    MAX_WAYPOINTS, bot_const.h                  1024 -> 4096
+    WaypointLoad, waypoint.cpp                  a file over MAX_WAYPOINTS is refused
+
+h9_tsrp_hive is three cities stacked in one map, joined by teleport portals. One
+waypoint set over all three needs far more than 1024 waypoints: SMAK's walker,
+which makes them, cannot fit even one big city under 1024 without spacing them
+1000 units apart. WaypointLoad read a file's count of records into the array
+unchecked, so a longer file wrote past its end; it is refused now instead.
+
+    CWaypointVisibilityTable::SaveToFile/ReadFromFile, waypoint.cpp
+
+The table in memory is MAX_WAYPOINTS bits wide per row. The .rcv file held its
+first num*num bits -- every row past num*num/MAX_WAYPOINTS was lost -- and any
+other MAX_WAYPOINTS would misread every .rcv already on disk. The file is now
+visibility/<mod>/<map>.rcv2, the table packed num x num, row by row: it does not
+depend on MAX_WAYPOINTS, and an old .rcv is never read. Each map works its table
+out once more on its first load. The load also cleared 4 bytes of the table
+(sizeof an int) instead of all of it; it clears the table.
+
+    CWaypointVisibilityTable::WorkOutVisibilityTable, waypoint.cpp
+
+Pairs of waypoints farther apart than BOT_VIEW_DISTANCE (2048) are not traced:
+a bot sees nothing past that, and the cities of a big map are thousands of units
+apart, so most pairs cost nothing on the first load.
+
+    the see-waypoint check in CBot::Think, CBot::FindEnemy, CBot::IsEnemy,
+    EntityIsAlive -- bot.cpp; m_pBlockingDoor/m_fBlockingDoorTime, bot.h
+
+A TS func_door with a "maxdamage" key takes damage (TS gives it DAMAGE_YES) and
+shatters; in the TSRP cities most doors are named and nothing ever opens them.
+rcbot walked into a door on its path waiting for it to open. Now, in TS, a door
+that takes damage and that the line to the bot's next waypoint meets within
+BLOCKING_DOOR_REACH (96) is remembered for BLOCKING_DOOR_MEMORY (2 s); IsEnemy
+takes it as a target while it stands, and FindEnemy gives it a func_breakable's
+priority (5) and falls back to it when the visibles scan lists nothing better.
+The bot shoots it down and walks on. EntityIsAlive counts such a door standing
+until TS shatters it (DEAD_DEAD, DAMAGE_NO): a door's damage is never in health.
 
 
 ===============================================================================
@@ -191,7 +239,13 @@ REBUILDING
     git checkout v1.51b13
     git apply rcbot-ts-teams.patch
     git apply rcbot-tsweaps-crash.patch
+    git apply rcbot-build-fixes.patch
+    git apply rcbot-waypoints-doors.patch
     MSBuild dlls\HPB_bot.vcxproj /p:Configuration="MetaMod Release" /p:Platform=Win32
+
+In this order. The four together give, file for file, the source in src\ (and
+the shipped rcbot_mm.dll was built from exactly that); without the third the
+tree does not compile. On a clone with core.autocrlf true, apply with --index.
 
 Output lands at
     dlls\HPB_bot___Win32_MetaMod_Release\HPB_bot.dll

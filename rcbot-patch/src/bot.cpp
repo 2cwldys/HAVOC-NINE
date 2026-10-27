@@ -3426,6 +3426,18 @@ void CBot::Think()
 					if (BotFunc_EntityIsMoving(&tr.pHit->v) ||
 						std::strncmp(STRING(tr.pHit->v.classname), "func_door", 8) == 0)
 						bRemove = false;
+
+					// A TS door the map gave "maxdamage" takes damage (TS sets it DAMAGE_YES) and
+					// shatters, and in a TS map most are named doors nothing ever opens: one in the
+					// way, close, is remembered so IsEnemy has the bot shoot it down.
+					if (gBotGlobals.IsMod(MOD_TS) &&
+						std::strncmp(STRING(tr.pHit->v.classname), "func_door", 9) == 0 &&
+						tr.pHit->v.takedamage != DAMAGE_NO &&
+						(tr.vecEndPos - pev->origin).Length() < BLOCKING_DOOR_REACH)
+					{
+						m_pBlockingDoor = tr.pHit;
+						m_fBlockingDoorTime = gpGlobals->time;
+					}
 				}
 			}
 
@@ -8685,7 +8697,7 @@ edict_t* CBot::FindEnemy()
 
 				const char* szClassname = const_cast<char*>(STRING(pEnemypev->classname));
 
-				if (std::strcmp("func_breakable", szClassname) == 0)
+				if (std::strcmp("func_breakable", szClassname) == 0 || pEntity == m_pBlockingDoor)
 				{
 					// breakables are less priority than enemy monsters/players etc.
 					iPriority = 5;
@@ -8743,6 +8755,11 @@ edict_t* CBot::FindEnemy()
 				}
 			}
 		}
+
+		// The breakable door in the way, when nothing else is a target: the visibles scan can miss a
+		// door the bot stands against (its middle out of the view cone), so it is not left to list it.
+		if (m_pEnemy == nullptr && m_pBlockingDoor != nullptr && IsEnemy(m_pBlockingDoor))
+			m_pEnemy = m_pBlockingDoor;
 
 		if (m_pEnemy)
 		{
@@ -9040,6 +9057,14 @@ bool CBot::IsEnemy(edict_t* pEntity)
 
 				return (m_iTS_State != TS_State_Stunt && pPlayer == m_pEdict || pPlayer != m_pEdict && pPlayer != nullptr &&
 					IsInVisibleList(pPlayer) && IsEnemy(pPlayer)) && BotFunc_BreakableIsEnemy(pEntity, m_pEdict);
+			}
+
+			// the breakable door between this bot and its next waypoint, while it still stands
+			if (pEntity == m_pBlockingDoor)
+			{
+				return m_fBlockingDoorTime + BLOCKING_DOOR_MEMORY > gpGlobals->time &&
+					pEntity->v.takedamage != DAMAGE_NO && pEntity->v.solid != SOLID_NOT &&
+					!(pEntity->v.effects & EF_NODRAW);
 			}
 		}
 
@@ -9522,6 +9547,12 @@ bool EntityIsAlive(const edict_t* pEdict)
 	case MOD_NS:
 		if (pEdict->v.iuser3 == AVH_USER3_HIVE)
 			return !UTIL_CanBuildHive(&pEdict->v);
+		break;
+	case MOD_TS:
+		// A TS breakable door (one with "maxdamage") keeps its damage in a count of its own, never
+		// in health: it stands until TS shatters it, which sets it DEAD_DEAD and DAMAGE_NO.
+		if (std::strncmp(STRING(pEdict->v.classname), "func_door", 9) == 0)
+			return pEdict->v.deadflag == DEAD_NO && pEdict->v.takedamage != DAMAGE_NO;
 		break;
 	default:
 		break;

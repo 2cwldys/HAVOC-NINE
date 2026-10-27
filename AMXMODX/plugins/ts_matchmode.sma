@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes34"
+#define TSM_BUILD "1.53-fixes35"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -14299,6 +14299,20 @@ apply_freeze(id)
 			set_pev(id, pev_flags, pev(id, pev_flags) | TSM_FL_FROZEN);
 			set_pev(id, pev_maxspeed, 1.0);
 		}
+	}
+
+	/*
+	 * NO FL_FROZEN ON A GHOST OR A CHOSEN SPECTATOR.
+	 *
+	 * Xash3D FWGS's SV_ParseClientMove zeroes every button, the movement and the impulse of a
+	 * client carrying FL_FROZEN before the game DLL ever sees the move, so the click that changes
+	 * who they watch (the attack cycle in fw_prethink) never arrived. They watch through the
+	 * follow camera, which places them every frame, so the flag holds nothing for them anyway;
+	 * and a ghost's punch lands on nobody (fw_takedamage refuses an eliminated attacker).
+	 */
+	if (g_elim[id] || is_spectating(id))
+	{
+		set_pev(id, pev_flags, pev(id, pev_flags) & ~TSM_FL_FROZEN);
 	}
 }
 

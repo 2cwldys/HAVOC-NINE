@@ -1,0 +1,330 @@
+H9 rcbot_mm.dll -- built from patched source
+
+Built from APGRoboCop/rcbotold at v1.51b13 (43ecb57) with the four patches in
+rcbot-patch/, applied in this order (rcbot-patch/README.txt, REBUILDING):
+
+  1. rcbot-ts-teams.patch         CHANGES 1-4: TS teams from pev->team, nopowerup
+                                  and the dry weapon, the follow command, cloak
+                                  awareness
+  2. rcbot-tsweaps-crash.patch    CHANGE 5: the TS weapon-learning crash
+  3. rcbot-build-fixes.patch      what CHANGES 3 and 5 need to compile: the follow
+                                  command's prototypes in bot.h, CBotGlobals::GetBot,
+                                  the CBotSquads::createSquad stub, RemoveSimilarTask,
+                                  the weapon choice re-seeded in place, and
+                                  returnVector()->size()
+  4. rcbot-waypoints-doors.patch  CHANGE 6, new in this build (the diff below)
+
+Patch 3 is the part of the 10/22 build no patch held: patches 1 and 2 alone give
+a tree that does not compile. With it, the four patches on a fresh checkout of
+v1.51b13 give, file for file, the source this DLL was built from (all 154 files
+in dlls/, line endings aside), and this DLL was built from that checkout:
+MSBuild, MetaMod Release, Win32, MSVC v145 -- 0 errors, and no warning in a line
+any of the patches changes.
+
+CHANGE 6 (README.txt, CHANGE 6):
+  - MAX_WAYPOINTS 1024 -> 4096, for one waypoint set over h9_tsrp_hive's three
+    cities. A waypoint file with more than that is refused instead of read past
+    the end of the waypoint array.
+  - The visibility table is saved as visibility/<mod>/<map>.rcv2, packed
+    num x num, so the file no longer depends on MAX_WAYPOINTS. An old .rcv is
+    never read; each map works its table out once more on its first load. (The
+    .rcv save kept only the first num*num bits of the MAX_WAYPOINTS-wide table,
+    so every row past num*num/MAX_WAYPOINTS was lost, and its load cleared 4 bytes
+    of the table instead of all of it.)
+  - Waypoints farther apart than BOT_VIEW_DISTANCE (2048) are not traced for the
+    table -- never visible to each other -- which keeps a big map's first load short.
+  - TS breakable doors: a door with "maxdamage" (TS gives it DAMAGE_YES) that the
+    line to a bot's next waypoint meets within 96 units is taken as a target, at
+    a func_breakable's priority (5), until TS shatters it: the bot shoots it down
+    and walks on. EntityIsAlive counts such a door as standing until TS sets it
+    DEAD_DEAD and DAMAGE_NO.
+
+diff --git a/dlls/bot.cpp b/dlls/bot.cpp
+index b02fba4..20d1270 100644
+--- a/dlls/bot.cpp
++++ b/dlls/bot.cpp
+@@ -3426,6 +3426,18 @@ void CBot::Think()
+ 					if (BotFunc_EntityIsMoving(&tr.pHit->v) ||
+ 						std::strncmp(STRING(tr.pHit->v.classname), "func_door", 8) == 0)
+ 						bRemove = false;
++
++					// A TS door the map gave "maxdamage" takes damage (TS sets it DAMAGE_YES) and
++					// shatters, and in a TS map most are named doors nothing ever opens: one in the
++					// way, close, is remembered so IsEnemy has the bot shoot it down.
++					if (gBotGlobals.IsMod(MOD_TS) &&
++						std::strncmp(STRING(tr.pHit->v.classname), "func_door", 9) == 0 &&
++						tr.pHit->v.takedamage != DAMAGE_NO &&
++						(tr.vecEndPos - pev->origin).Length() < BLOCKING_DOOR_REACH)
++					{
++						m_pBlockingDoor = tr.pHit;
++						m_fBlockingDoorTime = gpGlobals->time;
++					}
+ 				}
+ 			}
+ 
+@@ -8685,7 +8697,7 @@ edict_t* CBot::FindEnemy()
+ 
+ 				const char* szClassname = const_cast<char*>(STRING(pEnemypev->classname));
+ 
+-				if (std::strcmp("func_breakable", szClassname) == 0)
++				if (std::strcmp("func_breakable", szClassname) == 0 || pEntity == m_pBlockingDoor)
+ 				{
+ 					// breakables are less priority than enemy monsters/players etc.
+ 					iPriority = 5;
+@@ -8744,6 +8756,11 @@ edict_t* CBot::FindEnemy()
+ 			}
+ 		}
+ 
++		// The breakable door in the way, when nothing else is a target: the visibles scan can miss a
++		// door the bot stands against (its middle out of the view cone), so it is not left to list it.
++		if (m_pEnemy == nullptr && m_pBlockingDoor != nullptr && IsEnemy(m_pBlockingDoor))
++			m_pEnemy = m_pBlockingDoor;
++
+ 		if (m_pEnemy)
+ 		{
+ 			m_Tasks.RemoveSimilarTask(BOT_TASK_NORMAL_ATTACK);
+@@ -9041,6 +9058,14 @@ bool CBot::IsEnemy(edict_t* pEntity)
+ 				return (m_iTS_State != TS_State_Stunt && pPlayer == m_pEdict || pPlayer != m_pEdict && pPlayer != nullptr &&
+ 					IsInVisibleList(pPlayer) && IsEnemy(pPlayer)) && BotFunc_BreakableIsEnemy(pEntity, m_pEdict);
+ 			}
++
++			// the breakable door between this bot and its next waypoint, while it still stands
++			if (pEntity == m_pBlockingDoor)
++			{
++				return m_fBlockingDoorTime + BLOCKING_DOOR_MEMORY > gpGlobals->time &&
++					pEntity->v.takedamage != DAMAGE_NO && pEntity->v.solid != SOLID_NOT &&
++					!(pEntity->v.effects & EF_NODRAW);
++			}
+ 		}
+ 
+ 		break;
+@@ -9523,6 +9548,12 @@ bool EntityIsAlive(const edict_t* pEdict)
+ 		if (pEdict->v.iuser3 == AVH_USER3_HIVE)
+ 			return !UTIL_CanBuildHive(&pEdict->v);
+ 		break;
++	case MOD_TS:
++		// A TS breakable door (one with "maxdamage") keeps its damage in a count of its own, never
++		// in health: it stands until TS shatters it, which sets it DEAD_DEAD and DAMAGE_NO.
++		if (std::strncmp(STRING(pEdict->v.classname), "func_door", 9) == 0)
++			return pEdict->v.deadflag == DEAD_NO && pEdict->v.takedamage != DAMAGE_NO;
++		break;
+ 	default:
+ 		break;
+ 	}
+diff --git a/dlls/bot.h b/dlls/bot.h
+index ee76e41..4ef3116 100644
+--- a/dlls/bot.h
++++ b/dlls/bot.h
+@@ -3722,6 +3722,11 @@ public:
+ 	Vector   m_vOffsetVector;
+ 	edict_t* m_pLastEnemy;
+ 
++	// a TS breakable door standing between this bot and its next waypoint, and when it was last
++	// seen there (the see-waypoint check in bot.cpp); IsEnemy takes it as a target while it stands
++	edict_t* m_pBlockingDoor = nullptr;
++	float    m_fBlockingDoorTime = 0.0f;
++
+ 	CBotReputation* m_pEnemyRep;
+ 
+ 	int m_iPrimaryWeaponId;
+diff --git a/dlls/bot_const.h b/dlls/bot_const.h
+index f656643..86a43bb 100644
+--- a/dlls/bot_const.h
++++ b/dlls/bot_const.h
+@@ -48,7 +48,7 @@
+ #define __BOT_CONST_H__
+ 
+ constexpr int EXPLODE_RADIUS = 300;
+-constexpr int MAX_WAYPOINTS = 1024;
++constexpr int MAX_WAYPOINTS = 4096; // 1024 upstream: one waypoint set for three stacked cities (h9_tsrp_hive) needs more
+ 
+ enum : std::uint8_t
+ {
+@@ -1464,6 +1464,10 @@ constexpr int BOT_LOW_REP = 3;
+ constexpr int BOT_HIGH_REP = 6;
+ 
+ constexpr int BOT_VIEW_DISTANCE = 2048;
++// TS breakable doors: a door the line to the next waypoint meets this close is shot down, for
++// as long as it was last seen in the way this recently (seconds)
++constexpr float BLOCKING_DOOR_REACH = 96.0f;
++constexpr float BLOCKING_DOOR_MEMORY = 2.0f;
+ //#define BOT_DEFAULT_TURN_SPEED 10
+ 
+ #define BOT_PROFILES_FOLDER "botprofiles"
+diff --git a/dlls/waypoint.cpp b/dlls/waypoint.cpp
+index d219749..81d9bc4 100644
+--- a/dlls/waypoint.cpp
++++ b/dlls/waypoint.cpp
+@@ -510,6 +510,15 @@ bool WaypointLoad(edict_t* pEntity)
+ 			if (std::strcmp(header.mapname, STRING(gpGlobals->mapname)) == 0)
+ 			{
+ 				int i;
++
++				// read into the waypoint array as they are, more than it holds would write past its end
++				if (header.number_of_waypoints < 0 || header.number_of_waypoints > MAX_WAYPOINTS)
++				{
++					BotMessage(pEntity, 0, "%s has %d waypoints, more than the %d RCBot holds: not loaded", filename, header.number_of_waypoints, MAX_WAYPOINTS);
++					std::fclose(bfp);
++					return false;
++				}
++
+ 				WaypointInit();  // remove any existing waypoints
+ 
+ 				for (i = 0; i < header.number_of_waypoints; i++)
+@@ -2436,6 +2445,11 @@ void CWaypointVisibilityTable::WorkOutVisibilityTable(const int iNumWaypoints) c
+ 			if (Waypoint2->flags & W_FL_DELETED)
+ 				continue;
+ 
++			// a bot sees nothing past BOT_VIEW_DISTANCE, so a pair farther apart stays not visible (the
++			// table was cleared above) without a trace -- which keeps a big map's first load short
++			if ((Waypoint2->origin - Waypoint1->origin).Length() > BOT_VIEW_DISTANCE)
++				continue;
++
+ 			UTIL_TraceLine(Waypoint1->origin, Waypoint2->origin + Vector(0, 0, 16.0f), ignore_monsters, ignore_glass, nullptr, &tr);
+ 
+ 			SetVisibilityFromTo(i, j, tr.flFraction >= 1.0f);
+@@ -2443,32 +2457,57 @@ void CWaypointVisibilityTable::WorkOutVisibilityTable(const int iNumWaypoints) c
+ 	}
+ }
+ 
++// The file is the table packed num_waypoints x num_waypoints, row by row (bit i * num + j is "j seen
++// from i"), so it does not depend on MAX_WAYPOINTS. It is .rcv2: the old .rcv held the first num*num
++// bits of the MAX_WAYPOINTS-wide table in memory -- every row past num*num/MAX_WAYPOINTS left out, and
++// misread by any other MAX_WAYPOINTS -- so an old file is never read as this one; each map works its
++// table out again once.
+ bool CWaypointVisibilityTable::SaveToFile() const
+ {
+ 	char filename[512];
+ 	char file[256];
+ 
+ #ifdef __linux__
+-	snprintf(file, sizeof(file), "visibility/%s/%s.rcv", gBotGlobals.m_szModFolder, STRING(gpGlobals->mapname));
++	snprintf(file, sizeof(file), "visibility/%s/%s.rcv2", gBotGlobals.m_szModFolder, STRING(gpGlobals->mapname));
+ #else
+-	snprintf(file, sizeof(file), "visibility\\%s\\%s.rcv", gBotGlobals.m_szModFolder, STRING(gpGlobals->mapname));
++	snprintf(file, sizeof(file), "visibility\\%s\\%s.rcv2", gBotGlobals.m_szModFolder, STRING(gpGlobals->mapname));
+ #endif
+ 	UTIL_BuildFileName(filename, file);
+ 
+ 	if (IS_DEDICATED_SERVER())
+ 		std::printf("saving visibility table file: %s\n", filename);
+ 
++	const int iBytes = (num_waypoints * num_waypoints + 7) / 8;
++	unsigned char* packed = static_cast<unsigned char*>(std::calloc(iBytes > 0 ? iBytes : 1, 1));
++
++	if (packed == nullptr)
++		return false;
++
++	for (int i = 0; i < num_waypoints; i++)
++	{
++		for (int j = 0; j < num_waypoints; j++)
++		{
++			if (GetVisibilityFromTo(i, j))
++			{
++				const int iBit = i * num_waypoints + j;
++				packed[iBit / 8] |= 1 << (iBit % 8);
++			}
++		}
++	}
++
+ 	std::FILE* bfp = std::fopen(filename, "wb"); // binary file write
+ 
+ 	if (bfp == nullptr)
+ 	{
++		std::free(packed);
+ 		BotMessage(nullptr, 0, "Can't open Waypoint Visibility table for writing!");
+ 		return false;
+ 	}
+ 
+-	std::fwrite(m_VisTable, sizeof(unsigned char), Ceiling(static_cast<float>(num_waypoints * num_waypoints) / 8), bfp);
++	std::fwrite(packed, sizeof(unsigned char), iBytes, bfp);
+ 
+ 	std::fclose(bfp);
++	std::free(packed);
+ 
+ 	return true;
+ }
+@@ -2477,21 +2516,19 @@ bool CWaypointVisibilityTable::ReadFromFile() const
+ {
+ 	char filename[512];
+ 	char file[256];
+-	int iSize;
+-	int iDesiredSize;
+ 
+ 	// get the folder right.
+ #ifdef __linux__
+-	snprintf(file, sizeof(file), "visibility/%s/%s.rcv", gBotGlobals.m_szModFolder, STRING(gpGlobals->mapname));
++	snprintf(file, sizeof(file), "visibility/%s/%s.rcv2", gBotGlobals.m_szModFolder, STRING(gpGlobals->mapname));
+ #else
+-	snprintf(file, sizeof(file), "visibility\\%s\\%s.rcv", gBotGlobals.m_szModFolder, STRING(gpGlobals->mapname));
++	snprintf(file, sizeof(file), "visibility\\%s\\%s.rcv2", gBotGlobals.m_szModFolder, STRING(gpGlobals->mapname));
+ #endif
+ 	UTIL_BuildFileName(filename, file);
+ 
+ 	if (IS_DEDICATED_SERVER())
+ 		std::printf("loading visibility table file: %s\n", filename);
+ 
+-	std::FILE* bfp = std::fopen(filename, "rb"); // binary file write
++	std::FILE* bfp = std::fopen(filename, "rb"); // binary file read
+ 
+ 	if (bfp == nullptr)
+ 	{
+@@ -2501,27 +2538,49 @@ bool CWaypointVisibilityTable::ReadFromFile() const
+ 
+ 	std::fseek(bfp, 0, SEEK_END); // seek at end
+ 
+-	iSize = std::ftell(bfp); // get file size
+-	iDesiredSize = Ceiling(static_cast<float>(num_waypoints * num_waypoints) / 8);
++	const int iSize = std::ftell(bfp); // get file size
++	const int iDesiredSize = (num_waypoints * num_waypoints + 7) / 8;
+ 
+ 	// size not right, return false to re workout table
+-	if (iSize != iDesiredSize)
++	if (iDesiredSize <= 0 || iSize != iDesiredSize)
+ 	{
+ 		std::fclose(bfp);
+ 		return false;
+ 	}
+ 
+-	std::fseek(bfp, 0, SEEK_SET); // seek at start
++	unsigned char* packed = static_cast<unsigned char*>(std::malloc(iDesiredSize));
+ 
+-	// clear table
+-	std::memset(m_VisTable, 0, sizeof g_iMaxVisibilityByte);
++	if (packed == nullptr)
++	{
++		std::fclose(bfp);
++		return false;
++	}
+ 
+-	// read vis table
+-	std::fread(m_VisTable, sizeof(unsigned char), iDesiredSize, bfp);
++	std::fseek(bfp, 0, SEEK_SET); // seek at start
++
++	const bool bRead = std::fread(packed, sizeof(unsigned char), iDesiredSize, bfp) == static_cast<std::size_t>(iDesiredSize);
+ 
+ 	std::fclose(bfp);
+ 
+-	return true;
++	if (bRead)
++	{
++		ClearVisibilityTable();
++
++		for (int i = 0; i < num_waypoints; i++)
++		{
++			for (int j = 0; j < num_waypoints; j++)
++			{
++				const int iBit = i * num_waypoints + j;
++
++				if (packed[iBit / 8] & 1 << (iBit % 8))
++					SetVisibilityFromTo(i, j, true);
++			}
++		}
++	}
++
++	std::free(packed);
++
++	return bRead;
+ }
+ 
+ bool WaypointFlagsOnLadderOrFly(const int iWaypointFlags)

@@ -5,4 +5,8 @@ The Specialists teams by comparing player model strings, so teammates in
 different models read as enemies.
 
 To build one: clone rcbotold at the commit in ..\..\rcbot-patch\BASE-COMMIT.txt,
-apply rcbot-ts-teams.patch, build with the AMBuildScript in the repo root.
+apply the four patches its README.txt lists under REBUILDING, in that order,
+and build with the AMBuildScript in the repo root.
+
+Stock rcbot holds 1024 waypoints a map and reads a longer file past the end of
+its array: h9_tsrp_hive.rcw has more and needs a build with the patches.

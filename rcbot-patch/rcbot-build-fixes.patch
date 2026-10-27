@@ -1,0 +1,98 @@
+diff --git a/dlls/bot.cpp b/dlls/bot.cpp
+index 416e53a..b02fba4 100644
+--- a/dlls/bot.cpp
++++ b/dlls/bot.cpp
+@@ -3003,8 +3003,18 @@ void CBot::Think()
+ 				m_pTSWeaponSelect->setFitness(0);
+ 
+ 				// an individual with fewer values than a bot's weapon choice has (from learned data that did not load)
+-				if (m_pTSWeaponSelect->size() < 8)
+-					SeedTSWeaponSelectValues();
++				if (m_pTSWeaponSelect->returnVector()->size() < 8)
++				{
++					// SeedTSWeaponSelectValues doesn't exist in this codebase; inline the
++					// same seeding the DISABLE_WEAPON_LEARN branch right below already does
++					// per-value, via add() (confirmed growing, ga.h: emplace_back) rather
++					// than set() (bounds behavior on a short vector not confirmed safe), so
++					// a short-from-bad-learned-data individual gets refilled to the full 8
++					// values instead of being read out of bounds.
++					m_pTSWeaponSelect->clear();
++					for (unsigned iSeed = 0; iSeed < 8; iSeed++)
++						m_pTSWeaponSelect->add(RANDOM_FLOAT(0, 1));
++				}
+ 
+ 				if (gBotGlobals.IsConfigSettingOn(BOT_CONFIG_DISABLE_WEAPON_LEARN))
+ 				{
+@@ -9327,7 +9337,7 @@ void CBot::SetFollowTarget(edict_t* pTarget)
+ 			gBotGlobals.m_Squads.removeSquadMember(m_stSquad, m_pEdict);
+ 			m_stSquad = nullptr;
+ 		}
+-		m_Tasks.RemoveTask(BOT_TASK_FOLLOW_LEADER);
++		m_Tasks.RemoveSimilarTask(BOT_TASK_FOLLOW_LEADER);
+ 		return;
+ 	}
+ 
+diff --git a/dlls/bot.h b/dlls/bot.h
+index 40d6275..ee76e41 100644
+--- a/dlls/bot.h
++++ b/dlls/bot.h
+@@ -2641,6 +2641,15 @@ public:
+ 		}
+ 	}
+ 
++	// Stub (rcbot-patch CHANGE 3, follow command): squad construction isn't
++	// implemented here. Returns nullptr; SetFollowTarget's callers already null-check
++	// before using the result, so the follow command proceeds without squad-specific
++	// behavior (formation/combat-type) rather than failing.
++	CBotSquad* createSquad(edict_t* pLeader, edict_t* pTarget)
++	{
++		return nullptr;
++	}
++
+ 	// AddSquadMember can have many effects
+ 	// 1. scenario: squad leader exists as squad leader
+ 	//              assign bot to squad
+@@ -3402,6 +3411,11 @@ public:
+ 	// Add a task to the fron of the task stack
+ 	void AddPriorityTask(const CBotTask& Task);
+ 
++	// Follow command (rcbot-patch CHANGE 3): make this bot follow pTarget using the
++	// squad system, or clear its follow target with nullptr.
++	void SetFollowTarget(edict_t* pTarget);
++	void ConsoleCommandFollow(const char* szArgs);
++
+ 	// stop bot from moving
+ 	void StopMoving();
+ 
+@@ -6114,6 +6128,18 @@ class CBotGlobals
+ {
+ public:
+ 
++	// Look up the CBot for a player edict (rcbot-patch CHANGE 3, follow command).
++	// Clients are stored at ENTINDEX()-1, the same convention used throughout this file.
++	CBot* GetBot(edict_t* pEdict)
++	{
++		if (!pEdict)
++			return nullptr;
++		const int iIndex = ENTINDEX(pEdict) - 1;
++		if (iIndex < 0 || iIndex >= MAX_PLAYERS)
++			return nullptr;
++		return &m_Bots[iIndex];
++	}
++
+ 	CBot* otherBotAtWaypoint(CBot* pBot, const int iWpt)
+ 	{
+ 		for (CBot& m_Bot : m_Bots)
+diff --git a/dlls/ga.cpp b/dlls/ga.cpp
+index 2fe649f..049afbc 100644
+--- a/dlls/ga.cpp
++++ b/dlls/ga.cpp
+@@ -162,7 +162,7 @@ void CPopulation::load(std::FILE* bfp, const int chromosize, const int type)
+ 
+ 		// one that did not load (a header that does not match, the file cut short) has no values: drop it, or a bot
+ 		// that picks it reads values[0] of an empty vector
+-		if (type == TYPE_BOTGAVALS && static_cast<CBotGAValues*>(pVals)->size() == 0)
++		if (type == TYPE_BOTGAVALS && static_cast<CBotGAValues*>(pVals)->returnVector()->size() == 0)
+ 		{
+ 			delete pVals;
+ 			continue;
