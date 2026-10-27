@@ -1,0 +1,74 @@
+--- a/engine/common/net_encode.c
++++ b/engine/common/net_encode.c
+@@ -663,6 +663,63 @@ void Delta_ParseTableField( sizebuf_t *msg )
+ 	Delta_AddField( dt, pName, flags, bits, mul, post_mul );
+ }
+ 
++/*
++=====================
++Delta_H9WidenIndexField
++
++H9: delta.lst files made for GoldSrc's 512-model, 900-edict limits send model and entity
++indices in 10 or 11 bits, and Delta_ClampIntegerField pins any larger value to the field's
++maximum -- on a map with more models than that, everything past #1023 draws as model #1023.
++These fields are raised to the engine's own limits. Clients follow automatically: the server
++sends its parsed tables to them (Delta_WriteDescriptionToClient).
++=====================
++*/
++static void Delta_H9WidenIndexField( const delta_info_t *dt, delta_t *pField )
++{
++	// magnitude bits; a DT_SIGNED field gets one more for its sign
++	static struct
++	{
++		const char	*table;
++		const char	*field;
++		int		bits;
++		qboolean	reported;
++	} widen[] =
++	{
++	{ "clientdata_t",		"viewmodel",	MAX_MODEL_BITS },
++	{ "entity_state_t",		"modelindex",	MAX_MODEL_BITS },
++	{ "entity_state_t",		"weaponmodel",	MAX_MODEL_BITS },
++	{ "entity_state_t",		"aiment",	MAX_ENTITY_BITS },
++	{ "entity_state_t",		"owner",	MAX_CLIENT_BITS + 1 },	// a player index, 1..MAX_CLIENTS
++	{ "entity_state_t",		"skin",		MAX_ENTITY_BITS },	// an attached sprite's target entity
++	{ "entity_state_player_t",	"modelindex",	MAX_MODEL_BITS },
++	{ "entity_state_player_t",	"weaponmodel",	MAX_MODEL_BITS },
++	{ "entity_state_player_t",	"aiment",	MAX_ENTITY_BITS },
++	{ "entity_state_player_t",	"owner",	MAX_CLIENT_BITS + 1 },
++	{ "event_t",			"entindex",	MAX_ENTITY_BITS },
++	};
++
++	for( size_t i = 0; i < ARRAYSIZE( widen ); i++ )
++	{
++		if( Q_strcmp( dt->pName, widen[i].table ) || Q_strcmp( pField->name, widen[i].field ))
++			continue;
++
++		int limit = FBitSet( pField->flags, DT_BYTE ) ? 8 : FBitSet( pField->flags, DT_SHORT ) ? 16 : 32;
++		int want = Q_min( widen[i].bits + ( FBitSet( pField->flags, DT_SIGNED ) ? 1 : 0 ), limit );
++
++		if( pField->bits < want )
++		{
++			// delta.lst is re-read on every map spawn; one line per field per run is enough
++			if( !widen[i].reported )
++			{
++				Con_Printf( "delta: %s.%s widened from %d to %d bits\n", dt->pName, pField->name, pField->bits, want );
++				widen[i].reported = true;
++			}
++			pField->bits = want;
++		}
++		return;
++	}
++}
++
+ static qboolean Delta_ParseField( char **delta_script, const delta_info_t *dt, delta_t *pField, qboolean bPost )
+ {
+ 	string token;
+@@ -744,6 +801,7 @@ static qboolean Delta_ParseField( char **delta_script, const delta_info_t *dt, d
+ 	}
+ 
+ 	pField->bits = Q_atoi( token );
++	Delta_H9WidenIndexField( dt, pField );
+ 
+ 	*delta_script = COM_ParseFile( *delta_script, token, sizeof( token ));
+ 	if( Q_strcmp( token, "," ))

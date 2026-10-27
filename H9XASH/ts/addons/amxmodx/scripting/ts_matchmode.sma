@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes27"
+#define TSM_BUILD "1.53-fixes33"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -200,11 +200,22 @@ stock icon_frame_for(ci, team)
 #define TSM_MECH_ROCKET_RADIUS     150.0  // explosion radius
 #define TSM_MECH_ROCKET_RANGE      2000.0 // max distance to target
 
-// Engine-level freeze. The player movement code refuses to move an entity carrying
-// this flag, which is what makes it the right mechanism here: it does not touch the
-// time base, so animations run at normal speed and clearing the bit fully undoes it.
-#define TSM_FL_FROZEN        67108864
-#define TSM_FL_KILLME        536870912
+// Engine-level freeze (bit 12, the real FL_FROZEN). Confirmed from reTS pm_shared.cpp:
+// it suppresses footstep/jump sounds and zeroes the WASD-derived movement command in
+// PM_CheckParamters -- it does NOT stop gravity, the jump impulse, or
+// PM_CheckStuck/PM_TryToUnstuck's own origin-snap. So it is not a substitute for the
+// maxspeed clamp that actually holds movement, nor for explicitly managing velocity --
+// see apply_freeze() and release_player(). Costs nothing to also set and clear, which
+// is the only reason it is still here. Previously defined as 67108864 (bit 26), which is
+// the engine's real FL_SPECTATOR, not FL_FROZEN -- every held player, bot or human, was
+// being tagged a spectator for the duration (confirmed consequence: AddToFullPack refuses
+// to network a FL_SPECTATOR entity to other clients at all while it's set).
+#define TSM_FL_FROZEN        4096
+// Real FL_KILLME is bit 30 ("marked for death -- allows the engine to kill ents at the
+// appropriate time"); bit 29 is FL_CUSTOMENTITY, an inert flag for this purpose. Was
+// 536870912 (bit 29) -- task_clean_drops() was tagging dropped weapons with a flag that
+// does nothing, so the engine never actually removed them.
+#define TSM_FL_KILLME        1073741824
 
 // kRenderTransTexture with zero alpha. EF_NODRAW alone was not making players
 // invisible in TS, so the hide applies both.
@@ -544,6 +555,21 @@ new bool:g_frozen[MAXPL];          // we are holding this player right now
 new Float:g_save_maxspeed[MAXPL];  // their speed before we clamped it
 new bool:g_warmup_spread[MAXPL];   // already checked/moved off the shared warmup spawn pile this hold
 
+/*
+ * RCBot's own CheckStuck() watchdog (bot.cpp) measures a bot's raw 3D velocity, completely
+ * blind to this plugin's hold -- after 8 continuous seconds at/under its bot_stuck_speed
+ * threshold it sets m_bKill and calls MDLL_ClientKill() directly, a dead pev_health=0 write
+ * that never reaches TakeDamage() and so can't be intercepted by anything in fw_takedamage.
+ * A held bot's velocity is clamped near zero for the whole hold by design -- so every
+ * warmup/freeze reliably runs this watchdog's 8-second timer out and kills the bot, on
+ * loop, for as long as the hold lasts. Disabled for the whole held window with the same
+ * rcbot-config command family already used elsewhere in this file (amx_tsm_debug et al.),
+ * tracked with a simple refcount since apply_freeze()/release_player() run per player, not
+ * once per round -- the config itself is a single global, not per-bot.
+ */
+new g_rcbot_held_count = 0;
+new bool:g_rcbot_held[MAXPL];
+
 new bool:g_saved[MAXPL];
 new g_save_solid[MAXPL];
 new g_save_movetype[MAXPL];
@@ -565,6 +591,7 @@ new g_spawn_t1_tier[64];                       // forward tier of each point; 0 
 new g_spawn_t2_tier[64];
 
 new g_cv_enabled, g_cv_rounds, g_cv_freeze, g_cv_roundtime, g_cv_minteam;
+new g_cv_no_weapons;
 new g_cv_disarm, g_cv_report, g_cv_reporthp, g_cv_health;
 new g_cv_team1name, g_cv_team2name, g_cv_teammode;
 new g_cv_holdz;
@@ -821,6 +848,7 @@ new Float:g_squad_lag_at[MAXPL];
 new g_door_use_hits;          // every func_door Use the hook has seen
 new g_engdoor_use_hits;       // of those, the ones on a door named tsm_eng_door
 new g_player_dmg_hits;        // every Ham_TakeDamage on "player" this hook has seen, bots included
+new g_fall_refused;           // of those, the fall hits on held bodies fw_takedamage sent back
 new bool:g_forcing_door;      // tsm_opendoor is forcing a door: fw_door_use lets it through
 new g_cv_forcedoor;           // amx_tsm_forcedoor: tsm_opendoor works only while this is 1
 new bool:g_locked_out[MAXPL];  // joined mid-match; sits out until the match ends
@@ -3771,6 +3799,11 @@ public plugin_init()
 	register_plugin(PLUGIN, VERSION, AUTHOR);
 
 	g_cv_enabled   = register_cvar("tsm_enabled",     "1");
+	hook_cvar_change(g_cv_enabled, "cvar_tsm_enabled_changed");
+	// Per-map, not a hardcoded map name: set in ts/mapconfigs/<mapname>.cfg (h9_autoconfig
+	// execs it after that map loads), so turning this on/off for any map is a .cfg edit,
+	// not a recompile. See clean_all_weapons() and mapconfigs/h9_tsrp_hive.cfg.
+	g_cv_no_weapons = register_cvar("tsm_no_weapons", "0");
 	g_cv_rounds    = register_cvar("tsm_rounds",      "9");    // best-of, so first to 5
 	#define ARM_STAGGER 0.25
 	// A forced wave (.reinforce) wakes everyone in the same tenth of a second, by
@@ -8591,6 +8624,39 @@ public task_clean_drops(taskid)
 }
 
 /*
+ * Some maps should carry no weapons at all -- not a bug workaround, a per-map choice.
+ * task_clean_drops() above is deliberately narrow (one player, 72 units, the moment
+ * after arming) and leaves everything else on the ground alone, so most of what
+ * combat drops across a map this size just sits there. This runs every second from
+ * task_tick (already a 1-second repeating task) and sweeps every ts_groundweapon on
+ * the map unconditionally -- no radius, no trigger player, map-authored or dropped,
+ * all the same. Gated on tsm_no_weapons, which a map turns on for itself from its own
+ * ts/mapconfigs/<mapname>.cfg -- every map that does not set it keeps normal drops.
+ */
+clean_all_weapons()
+{
+	if (!get_pcvar_num(g_cv_no_weapons))
+	{
+		return;
+	}
+
+	new ent = -1;
+	for (new guard = 0; guard < 256; guard++)
+	{
+		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "ts_groundweapon");
+		if (ent <= 0)
+		{
+			break;
+		}
+		if (!pev_valid(ent))
+		{
+			continue;
+		}
+		set_pev(ent, pev_flags, pev(ent, pev_flags) | TSM_FL_KILLME);
+	}
+}
+
+/*
  * Rewrites a player's loadout after a late class pick, so the choice applies to the
  * round that is already counting down rather than the next one.
  */
@@ -10342,6 +10408,32 @@ public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 	// to normal) still can't be hurt again, exactly as before.
 	if (victim >= 1 && victim < MAXPL && g_elim[victim] && pev(victim, pev_deadflag) == TSM_DEAD_NO)
 	{
+		return HAM_SUPERCEDE;
+	}
+
+	/*
+	 * NOBODY DIES TO A FALL WHILE THE MATCH IS HOLDING THEM: the bug the ground-slap sound
+	 * gave away. TS lands respawns wherever its own info_player_start logic put them, and
+	 * the held pre-round phase is exactly when a body is standing somewhere it did not
+	 * choose -- a spawn point above a ledge, a respawn the spread just teleported below a
+	 * high point, a pinned frame with an old fall velocity -- and TS's own landing code
+	 * still hands back the fall damage. Where it used to cost nothing, the lives system
+	 * now makes every such deck-landing a kill, so a squad died mid-warmup with the round
+	 * not even started, players and rcbots alike.
+	 *
+	 * The test is the hold, not the warmup states alone: should_hold() is the same
+	 * derived hold the freeze runs on every frame -- warmup and ready-up, the round-start
+	 * freeze, spectators, locked-out idlers -- so a body that TS is about to land or was
+	 * just landed under the hold is covered no matter which second of the pre-round the
+	 * fall begins in. A round that is live (or a roaming admin) falls like it always did,
+	 * TS's own verdict and all.
+	 */
+	if ((damagebits & (DMG_FALL | DMG_GENERIC)) == DMG_FALL
+		&& victim >= 1 && victim < MAXPL
+		&& should_hold(victim))
+	{
+		g_fall_refused++;
+		dbgv("takedamage: fall of %d refused (held, state %d, %.0f)", victim, g_state, damage);
 		return HAM_SUPERCEDE;
 	}
 
@@ -13802,6 +13894,20 @@ revive_player(id)
 	g_spec_target[id] = 0;
 	g_last_buttons[id] = 0;
 	g_pending_elim[id] = 0.0;
+
+	/*
+	 * Moved to the real spawn point before the presentation restore makes them solid
+	 * and visible -- the same "move while still hidden, then reveal" ordering already
+	 * used four lines up, in the branch for a player TS has not actually respawned yet.
+	 * Without this, a player who was already alive the whole wait (the steady-state
+	 * case: TS auto-respawns almost instantly, so the ghost presentation usually sits
+	 * on top of an already-alive entity) became solid/visible/damageable exactly where
+	 * the elim camera's per-frame SetOrigin last parked them -- on top of the teammate
+	 * they were watching -- for the 0.3s until task_revive_arm's own placement caught
+	 * up. g_revive_slot[id] was set by fire_wave() before this task was even scheduled
+	 * (see fire_wave), so it is valid here.
+	 */
+	place_at_spawn(id, g_revive_slot[id], true);
 	restore_presentation(id);
 
 	g_was_alive[id] = true;
@@ -14157,6 +14263,17 @@ bool:should_hold(id)
 /// Re-applies whichever hold mechanism tsm_freeze_method selects.
 apply_freeze(id)
 {
+	if (!g_rcbot_held[id])
+	{
+		g_rcbot_held[id] = true;
+		g_rcbot_held_count++;
+		if (g_rcbot_held_count == 1)
+		{
+			server_cmd("rcbot config bot_stuck_speed -1");
+			dbgv("rcbot stuck-watchdog disabled (%d held)", g_rcbot_held_count);
+		}
+	}
+
 	new Float:zero[3];
 	set_pev(id, pev_velocity, zero);
 
@@ -14193,6 +14310,18 @@ release_player(id)
 	}
 	g_frozen[id] = false;
 
+	if (g_rcbot_held[id])
+	{
+		g_rcbot_held[id] = false;
+		g_rcbot_held_count--;
+		if (g_rcbot_held_count <= 0)
+		{
+			g_rcbot_held_count = 0;
+			server_cmd("rcbot config bot_stuck_speed 7");
+			dbgv("rcbot stuck-watchdog restored (%d held)", g_rcbot_held_count);
+		}
+	}
+
 	// Undo EVERY hold mechanism, not just the one tsm_freeze_method currently
 	// selects. Otherwise a player held under one setting stays held forever after
 	// the cvar changes, which is exactly how a stuck player goes unexplained.
@@ -14202,8 +14331,15 @@ release_player(id)
 	// MOVETYPE_NOCLIP. Either one survives into the next round as "frozen in place"
 	// that no amount of flag-clearing explains, so normal walking movement is
 	// asserted rather than assumed.
+	//
+	// Skipped while roaming: should_hold() returns false for a roamer every frame
+	// (that is the point of .roam), so this runs every frame too -- and a roamer
+	// who types noclip to fly over the map had it reset back to walk the instant
+	// they set it. This safety net exists to recover a STALE movetype left over
+	// from a hold that was not cleaned up properly; a roamer choosing noclip for
+	// themselves is neither of those.
 	new mt = pev(id, pev_movetype);
-	if (mt != TSM_MOVETYPE_WALK)
+	if (mt != TSM_MOVETYPE_WALK && !g_roaming[id])
 	{
 		set_pev(id, pev_movetype, TSM_MOVETYPE_WALK);
 	}
@@ -14231,6 +14367,26 @@ release_player(id)
 	set_pev(id, pev_rendermode, TSM_RENDER_NORMAL);
 	set_pev(id, pev_renderamt, 255.0);
 	set_pev(id, pev_solid, TSM_SOLID_SLIDEBOX);
+
+	/*
+	 * LAST-LINE SAFETY NET, RIGHT BEFORE TAKEDAMAGE GOES LIVE AGAIN.
+	 *
+	 * This release branch ran instead of apply_freeze() this frame, so neither that
+	 * zero nor fw_postthink_post's post-physics zero touched this frame's velocity.
+	 * Whatever the last held frame's gravity left behind, or whatever
+	 * PM_CheckStuck/PM_TryToUnstuck popped the origin through while velocity was being
+	 * suppressed and nobody was watching, is still sitting in pev_velocity the instant
+	 * takedamage flips to AIM below. Zeroed here so a body resting at the wrong height
+	 * falls that height for real, from a standing start, instead of cashing in
+	 * whatever fall state the hold silently built up in the one frame it finally can.
+	 */
+	new Float:relvel[3];
+	pev(id, pev_velocity, relvel);
+	new Float:zero[3];
+	set_pev(id, pev_velocity, zero);
+	dbg("release safety: %d had vel %.0f, onground %d, at the takedamage flip",
+		id, vector_length(relvel), (pev(id, pev_flags) & FL_ONGROUND) ? 1 : 0);
+
 	set_pev(id, pev_takedamage, TSM_DAMAGE_AIM);
 
 	new rname[32];
@@ -14688,6 +14844,22 @@ public fw_postthink_post(id)
 	if (pev(id, pev_deadflag) != TSM_DEAD_NO)
 	{
 		return FMRES_IGNORED;
+	}
+
+	/*
+	 * Defense in depth for the warmup/freeze hold. apply_freeze() (fw_prethink, the PRE
+	 * forward on FM_PlayerPreThink) zeroes pev_velocity before PM_Move runs -- but
+	 * PM_Move's own gravity/jump/stuck integration happens AFTER that, between the pre
+	 * and post forwards on FM_PlayerPreThink, so that zero never survives past this
+	 * frame's physics step. This forward is FM_PlayerPostThink, which runs strictly
+	 * after PM_Move for this frame, so it is the one hook that can undo whatever
+	 * gravity just added before it reaches the next frame. Deliberately not folded
+	 * into any speed-tuning cvar check: this is a safety guard, not a tuning one.
+	 */
+	if (g_frozen[id] || g_elim[id])
+	{
+		new Float:zerovel[3];
+		set_pev(id, pev_velocity, zerovel);
 	}
 
 	/*
@@ -15809,17 +15981,22 @@ public fw_prethink(id)
 		apply_freeze(id);
 
 		/*
-		 * Only the ATTACK bits are cleared, in the pre hook, because the game DLL's own
+		 * ATTACK and JUMP are cleared, in the pre hook, because the game DLL's own
 		 * PlayerPreThink is what turns pev->button into the pressed/released edges that
-		 * weapon code acts on in PostThink -- clearing them first means the DLL never
-		 * sees the press.
+		 * weapon code acts on in PostThink, and is also where CBasePlayer::PreThink
+		 * itself calls Jump() synchronously off pev->button & IN_JUMP -- clearing the
+		 * bits first means the DLL never sees the press, for either one.
 		 *
-		 * Deliberately NOT the whole button field and NOT pev_impulse. Movement is
-		 * already stopped by the maxspeed clamp, and wiping impulse every frame broke
-		 * menu input, including the team menu -- which left players unable to join a
-		 * team at all.
+		 * IN_JUMP joined ATTACK/ATTACK2 because maxspeed and FL_FROZEN only gate
+		 * WASD-derived movement (PM_CheckParamters zeroes cmd.forward/side/upmove) --
+		 * reTS's PM_Jump applies the jump impulse straight to pev_velocity.z regardless
+		 * of either one, so a held body could still be launched upward by one press.
+		 * Still deliberately NOT the whole button field and NOT pev_impulse: movement
+		 * is already stopped by the maxspeed clamp, and wiping impulse every frame
+		 * broke menu input, including the team menu -- which left players unable to
+		 * join a team at all.
 		 */
-		set_pev(id, pev_button, pev(id, pev_button) & ~(IN_ATTACK | IN_ATTACK2));
+		set_pev(id, pev_button, pev(id, pev_button) & ~(IN_ATTACK | IN_ATTACK2 | IN_JUMP));
 	}
 	else if (g_frozen[id] && pev(id, pev_deadflag) == TSM_DEAD_NO)
 	{
@@ -19008,6 +19185,8 @@ public cmd_debug(id, level, cid)
 		doors, door_class, g_door_use_hits, g_engdoor_use_hits);
 	console_print(id, "[TSM] Ham_TakeDamage on player: hits=%d  (0 = the hook is not delivered -- every damage gate in fw_takedamage, friendly fire included, is dead code)",
 		g_player_dmg_hits);
+	console_print(id, "[TSM] fall damage refused on held bodies: %d  (rising = the warmup fall fix is landing)",
+		g_fall_refused);
 
 	console_print(id, "[TSM] solo_test=%d  loadout_reset=%d  block_spectator=%d  lock_teams=%d",
 		get_pcvar_num(g_cv_solo), get_pcvar_num(g_cv_reloadout),
@@ -19188,6 +19367,22 @@ public cmd_ents(id, level, cid)
 		console_print(id, "    %-30s %d", names[i], counts[i]);
 	}
 	return PLUGIN_HANDLED;
+}
+
+/*
+ * tsm_enabled flipped off mid-hold would otherwise leave whoever was frozen at that
+ * instant stuck: fw_prethink's own gate (g_cv_enabled check, near its top) returns
+ * before should_hold()/release_player() ever run again, so nothing would clear
+ * TSM_FL_FROZEN or the maxspeed clamp on its own. restore_all() is the existing,
+ * already-safe per-player reset (it does not touch round/match state), so reuse it
+ * here rather than write a second copy of the same loop.
+ */
+public cvar_tsm_enabled_changed(pcvar, const old_value[], const new_value[])
+{
+	if (str_to_num(new_value) == 0)
+	{
+		restore_all();
+	}
 }
 
 /* ---- safety ------------------------------------------------------------- */
@@ -20286,6 +20481,7 @@ refresh_player_flags()
 public task_tick()
 {
 	refresh_player_flags();
+	clean_all_weapons();
 
 	// Behind the per-frame hold in fw_prethink, which does not run for a player the
 	// engine has not started thinking -- which is exactly when initial_cash lands.

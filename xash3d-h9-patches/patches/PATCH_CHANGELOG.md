@@ -58,6 +58,8 @@ about the first kind:
 | 15 | `engine-h9-userid.patch` | `cl_main.c`, `client.h`, `identification.c` | `cl_h9_userid`: a plain, regenerable client id, salted per destination server via `ID_GetMD5ForAddressEx`, sent as userinfo key `h9_clientid`. **Applies after #12/#13** -- its `CL_InitLocal` registration hunk and connect-packet hunk are numbered against the file state *after* spraypicker+spraycmd. See `docs\CUSTOM_XASH_USERID.txt` |
 | 16 | `engine-h9-presence.patch` | `cl_main.c`, `client.h`, `host.c`, `game_launch\game.rc`, `cl_presence.c` (new), `game_launch\havoc9.ico` (new, binary) | Discord Rich Presence: `CL_Presence_Init/Frame/Shutdown/ServerReply`, the exe icon swap to `havoc9.ico`. **Applies after #15** -- its `CL_InitLocal` registration hunk is numbered against the file state *after* userid's own registration line exists. See `docs\RICH_PRESENCE.txt` |
 | 17 | `mainui-h9-sprayui.patch` | `3rdparty\mainui\menus\PlayerSetup.cpp` | Customize screen's logo picker: `Reload()` now chains up so it resyncs with console-side `spray`/`spray off`; `WriteNewLogo()` saves a colored pick back to the shelf file itself (`logos\<name>.<ext>`) instead of a now-unread `remapped.*`; a synthetic `none` row lets a player keep a hand-dropped `tempdecal.wad` as-is, visible and selectable instead of only an incidental, non-durable display fallback. Independent of `mainui-h9-gamestartup.patch` -- different function, no ordering dependency between the two |
+| 18 | `engine-h9-autoconfig.patch` | `sv_main.c` (`SV_Init`), `sv_init.c` (`SV_ActivateServer`) | `h9_autoconfig` (default on): a second, independent per-map cfg lookup in its own `mapconfigs/<mapname>.cfg` folder, separate from the existing mapper-facing `maps/<mapname>_load.cfg` convention. The exec is queued right after `pfnServerActivate`, so the cfg runs after Metamod/AMXX plugins register their cvars and run their own configs, and overrides them. Server-host-facing, same audience as `engine-h9-userid.patch`. Independent of every other patch in this list -- no ordering dependency |
+| 19 | `engine-h9-deltabits.patch` | `net_encode.c` (`Delta_ParseField`, new `Delta_H9WidenIndexField`) | widens `delta.lst`'s model-index fields (`viewmodel`, `modelindex`, `weaponmodel`) to `MAX_MODEL_BITS` and entity-index fields (`aiment`, `event_t.entindex`, `entity_state_t.skin`) to `MAX_ENTITY_BITS` (+1 when signed), `owner` to `MAX_CLIENT_BITS + 1`, when the local `delta.lst` is parsed. The server sends its tables to clients, so clients follow. Never touches `Delta_ParseTableField`: a client must use exactly the widths the server sends. Independent of every other patch -- no ordering dependency |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -235,3 +237,45 @@ its tracked hunks match current content, not that those hunks still capture
 the complete original feature. Worth a dedicated look before resuming that
 investigation: diff the patch's own hunks against what the fog feature
 actually needs to do, rather than re-tracing the plugin side again.
+
+### 2026-10-26 -- engine-h9-autoconfig.patch (added earlier this day, now revised), engine-h9-deltabits.patch (new)
+
+`engine-h9-autoconfig.patch` was added earlier on 2026-10-26 without a log
+entry; this entry covers both its addition and today's revision. As first
+written it queued `exec mapconfigs/<map>.cfg` in `SV_SpawnServer`, beside
+`maps/<map>_load.cfg`. That ran too early: reTS's `CWorld::Precache` ->
+`InstallGameRules` does `exec game.cfg` + `SERVER_EXECUTE` during worldspawn
+(`reTS\dlls\gamerules.cpp:220-221`), flushing the whole buffer -- mapconfig
+included -- before `pfnServerActivate`, which is where Metamod/AMXX run
+`plugin_init`/`plugin_cfg` (AMXMODX `meta_api.cpp:681-684`). A cfg setting a
+plugin cvar (`tsm_no_weapons 1`) hit "Unknown command", and the plugins'
+global configs then ran after it and won. The exec now sits right after
+`pfnServerActivate` in `SV_ActivateServer`, using `sv.name`. The `sv_main.c`
+hunk only changed its comment and cvar help text.
+
+Procedure (editing the .patch alone would have stopped the build: the old
+hunks were in the tree, so neither the reverse check nor the forward apply
+would succeed): reverted the old patch from the tree with `git apply
+--reverse`, confirmed `sv_init.c` was back at HEAD and `sv_main.c` carried
+only `engine-h9-suddendeath.patch`'s `SV_H9FogCvars();` line, made the edits,
+then regenerated from `git diff` with suddendeath's hunk removed from the
+`sv_main.c` section and no `diff --git`/`index` lines (the format every other
+tracked patch uses).
+
+`engine-h9-deltabits.patch` is new. `delta.lst` (TS/reTS ship the same file)
+sends `viewmodel`, `modelindex` and `weaponmodel` in 10 bits, and
+`Delta_ClampIntegerField` silently pins any larger value to 1023 (the warning
+is `_DEBUG` only). `h9_tsrp_hive` reserves model slots 1..873 for its own
+brush models before the game precaches anything, so every model past #1023 --
+non-primary weapons and ~359 props/sprites -- drew as model #1023. The patch
+raises those fields to `MAX_MODEL_BITS`, entity-index fields to
+`MAX_ENTITY_BITS` (+1 signed), and `owner` to `MAX_CLIENT_BITS + 1`, at parse
+time in `Delta_ParseField`, printing one console line per widened field per
+run. Nothing else in the chain touches `net_encode.c`.
+
+Verified: both patches reverse-check in place; round trip for each (`git
+apply --reverse`, file back at HEAD, `git apply --check`, `git apply`, in
+place again); then a reverse check of every patch in `xash.bat`'s order --
+the four webassembly patches and all 19 here -- all in place. Registered
+`engine-h9-deltabits.patch` in `xash.bat` after autoconfig, and added both
+to its ENGINE.txt list and the `xash.dll` description.

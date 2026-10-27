@@ -867,6 +867,10 @@ void SV_Init( void )
 
 	SV_InitHostCommands();
 
+	// H9: a per-map cfg from the mapconfigs/ folder, named after the map, queued by SV_ActivateServer.
+	// Default on; a host sets this to 0 to opt out without removing the cfg files themselves.
+	Cvar_Get( "h9_autoconfig", "1", FCVAR_ARCHIVE, "H9: exec mapconfigs/<mapname>.cfg once the map and its plugins are up" );
+
 	Cvar_Getf( "protocol", FCVAR_READ_ONLY, "displays server protocol version", "%i", PROTOCOL_VERSION );
 	Cvar_Get( "suitvolume", "0.25", FCVAR_ARCHIVE, "HEV suit volume" );
 	Cvar_Get( "gamedir", GI->gamefolder, FCVAR_READ_ONLY, "game folder" );

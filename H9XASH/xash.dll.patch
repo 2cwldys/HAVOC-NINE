@@ -25,6 +25,7 @@ The engine. The webassembly patch's engine part (emscripten code, compiled out o
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 == Patch history ==
 Generated Wed 10/21/2026 23:42:15.60, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -373,6 +374,113 @@ Commits on h9 since upstream that touch these paths, oldest first:
 In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
 e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
 Diff sha256 12138cd0b135a99919553bb975ba0dae75e30233a6feb0c1ca15e9d7c674df98, the diff below.
+
+Generated Mon 10/26/2026  2:07:23.08, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 981e948b3aefac4688727f3abb7d599a2a8b5d54af96d4c91935e6982be57e76, the diff below.
+
+Generated Mon 10/26/2026  2:25:29.25, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++	// H9: a second, independent per-map cfg lookup, in the gamedir root rather than maps/ --
++	// server-host-facing (same spot as server.cfg/listenserver.cfg), not mapper-facing.
++		Cbuf_AddTextf( "exec %s.cfg\n", mapname );
++	// H9: a per-map cfg from the gamedir root, named after the map, read by SV_SpawnServer.
++	Cvar_Get( "h9_autoconfig", "1", FCVAR_ARCHIVE, "H9: exec <mapname>.cfg from the gamedir root shortly after the map loads" );
+Diff sha256 cb04c7e1336e2592f4db9bdafe4da9792adfbc8306ef8ed93262bc9bc68e364c, the diff below.
+
+Generated Mon 10/26/2026 19:29:17.70, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/common/net_encode.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
+ 	Cbuf_AddTextf( "exec maps/%s_load.cfg\n", mapname );
++	// H9: a second, independent per-map cfg lookup, in its own mapconfigs/ folder rather than
++	// maps/ -- server-host-facing (same audience as server.cfg/listenserver.cfg), not mapper-facing.
++		Cbuf_AddTextf( "exec mapconfigs/%s.cfg\n", mapname );
+ 	// let's not have any servers with no name
+ 	if( COM_StringEmptyOrNULL( hostname.string ))
+ 		Cvar_Set( "hostname", svgame.dllFuncs.pfnGetGameDescription ? svgame.dllFuncs.pfnGetGameDescription() : FS_Title( ));
++	// H9: a per-map cfg from the mapconfigs/ folder, named after the map, read by SV_SpawnServer.
++	Cvar_Get( "h9_autoconfig", "1", FCVAR_ARCHIVE, "H9: exec mapconfigs/<mapname>.cfg shortly after the map loads" );
+Diff sha256 f102804b1e385d75ba6cdee5a8e67bba90b0fb2a7c38c7db6c0255166020e509, the diff below.
 
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
@@ -3259,6 +3367,82 @@ index 00000000..629696e0
 +}
 +
 +#endif // MSR_WEBAUTH_H
+diff --git a/engine/common/net_encode.c b/engine/common/net_encode.c
+index 64bc35e7..68f652cf 100644
+--- a/engine/common/net_encode.c
++++ b/engine/common/net_encode.c
+@@ -663,6 +663,63 @@ void Delta_ParseTableField( sizebuf_t *msg )
+ 	Delta_AddField( dt, pName, flags, bits, mul, post_mul );
+ }
+ 
++/*
++=====================
++Delta_H9WidenIndexField
++
++H9: delta.lst files made for GoldSrc's 512-model, 900-edict limits send model and entity
++indices in 10 or 11 bits, and Delta_ClampIntegerField pins any larger value to the field's
++maximum -- on a map with more models than that, everything past #1023 draws as model #1023.
++These fields are raised to the engine's own limits. Clients follow automatically: the server
++sends its parsed tables to them (Delta_WriteDescriptionToClient).
++=====================
++*/
++static void Delta_H9WidenIndexField( const delta_info_t *dt, delta_t *pField )
++{
++	// magnitude bits; a DT_SIGNED field gets one more for its sign
++	static struct
++	{
++		const char	*table;
++		const char	*field;
++		int		bits;
++		qboolean	reported;
++	} widen[] =
++	{
++	{ "clientdata_t",		"viewmodel",	MAX_MODEL_BITS },
++	{ "entity_state_t",		"modelindex",	MAX_MODEL_BITS },
++	{ "entity_state_t",		"weaponmodel",	MAX_MODEL_BITS },
++	{ "entity_state_t",		"aiment",	MAX_ENTITY_BITS },
++	{ "entity_state_t",		"owner",	MAX_CLIENT_BITS + 1 },	// a player index, 1..MAX_CLIENTS
++	{ "entity_state_t",		"skin",		MAX_ENTITY_BITS },	// an attached sprite's target entity
++	{ "entity_state_player_t",	"modelindex",	MAX_MODEL_BITS },
++	{ "entity_state_player_t",	"weaponmodel",	MAX_MODEL_BITS },
++	{ "entity_state_player_t",	"aiment",	MAX_ENTITY_BITS },
++	{ "entity_state_player_t",	"owner",	MAX_CLIENT_BITS + 1 },
++	{ "event_t",			"entindex",	MAX_ENTITY_BITS },
++	};
++
++	for( size_t i = 0; i < ARRAYSIZE( widen ); i++ )
++	{
++		if( Q_strcmp( dt->pName, widen[i].table ) || Q_strcmp( pField->name, widen[i].field ))
++			continue;
++
++		int limit = FBitSet( pField->flags, DT_BYTE ) ? 8 : FBitSet( pField->flags, DT_SHORT ) ? 16 : 32;
++		int want = Q_min( widen[i].bits + ( FBitSet( pField->flags, DT_SIGNED ) ? 1 : 0 ), limit );
++
++		if( pField->bits < want )
++		{
++			// delta.lst is re-read on every map spawn; one line per field per run is enough
++			if( !widen[i].reported )
++			{
++				Con_Printf( "delta: %s.%s widened from %d to %d bits\n", dt->pName, pField->name, pField->bits, want );
++				widen[i].reported = true;
++			}
++			pField->bits = want;
++		}
++		return;
++	}
++}
++
+ static qboolean Delta_ParseField( char **delta_script, const delta_info_t *dt, delta_t *pField, qboolean bPost )
+ {
+ 	string token;
+@@ -744,6 +801,7 @@ static qboolean Delta_ParseField( char **delta_script, const delta_info_t *dt, d
+ 	}
+ 
+ 	pField->bits = Q_atoi( token );
++	Delta_H9WidenIndexField( dt, pField );
+ 
+ 	*delta_script = COM_ParseFile( *delta_script, token, sizeof( token ));
+ 	if( Q_strcmp( token, "," ))
 diff --git a/engine/common/net_ws.c b/engine/common/net_ws.c
 index d139dff7..55a5360f 100644
 --- a/engine/common/net_ws.c
@@ -3567,11 +3751,39 @@ index c95ce9a7..e17797dc 100644
  		Info_SetValueForKeyf( s, "maxcl", sizeof( s ), "%i", svs.maxclients );
  		Info_SetValueForKey( s, "gamedir", GI->gamefolder, sizeof( s ));
  		Info_SetValueForKey( s, "password", SV_HavePassword() ? "1" : "0", sizeof( s ));
+diff --git a/engine/server/sv_init.c b/engine/server/sv_init.c
+index 3df187a8..d434dede 100644
+--- a/engine/server/sv_init.c
++++ b/engine/server/sv_init.c
+@@ -597,6 +597,12 @@ void SV_ActivateServer( int runPhysics )
+ 	svgame.globals->time = sv.time;
+ 	svgame.dllFuncs.pfnServerActivate( svgame.edicts, svgame.numEntities, svs.maxclients );
+ 
++	// H9: the per-map cfg from mapconfigs/, queued only after ServerActivate, where Metamod/AMX Mod X
++	// register plugin cvars and run their own configs -- so it runs after them and can override them.
++	// The game DLL executes the command buffer during worldspawn, too early for any plugin cvar.
++	if( Cvar_VariableValue( "h9_autoconfig" ) != 0.0f )
++		Cbuf_AddTextf( "exec mapconfigs/%s.cfg\n", sv.name );
++
+ 	SV_SetStringArrayMode( true );
+ 
+ 	// parse user-specified resources
 diff --git a/engine/server/sv_main.c b/engine/server/sv_main.c
-index 985e4388..ed6e08b2 100644
+index 985e4388..7141d332 100644
 --- a/engine/server/sv_main.c
 +++ b/engine/server/sv_main.c
-@@ -875,6 +875,7 @@ void SV_Init( void )
+@@ -867,6 +867,10 @@ void SV_Init( void )
+ 
+ 	SV_InitHostCommands();
+ 
++	// H9: a per-map cfg from the mapconfigs/ folder, named after the map, queued by SV_ActivateServer.
++	// Default on; a host sets this to 0 to opt out without removing the cfg files themselves.
++	Cvar_Get( "h9_autoconfig", "1", FCVAR_ARCHIVE, "H9: exec mapconfigs/<mapname>.cfg once the map and its plugins are up" );
++
+ 	Cvar_Getf( "protocol", FCVAR_READ_ONLY, "displays server protocol version", "%i", PROTOCOL_VERSION );
+ 	Cvar_Get( "suitvolume", "0.25", FCVAR_ARCHIVE, "HEV suit volume" );
+ 	Cvar_Get( "gamedir", GI->gamefolder, FCVAR_READ_ONLY, "game folder" );
+@@ -875,6 +879,7 @@ void SV_Init( void )
  	Cvar_Get( "sv_precache_meshes", "1", FCVAR_ARCHIVE, "cache SOLID_CUSTOM meshes before level loading" );	// Paranoia 2 cvar
  	Cvar_Get( "servercfgfile", "server.cfg", 0, "name of dedicated server configuration file" );
  	Cvar_Get( "lservercfgfile", "listenserver.cfg", 0, "name of listen server configuration file" );

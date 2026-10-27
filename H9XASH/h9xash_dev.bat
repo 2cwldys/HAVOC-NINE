@@ -1,1 +1,1 @@
-h9xash.bat +exec autoexec.cfg -dev 2 -log -num_edicts 4098 -heapsize 1048576
+h9xash.bat +exec autoexec.cfg -dev 2 -log -num_edicts 8192 -zone 4096 -max_particles 32768 -max_tempents 2048 -max_beams 512 -heapsize 1048576

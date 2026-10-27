@@ -108,7 +108,7 @@ REM h9xash_server.bat: more detail in engine.log, nothing wrapped in cmd /k --
 REM a quoted exe path and a quoted +hostname value both landing inside one cmd /k
 REM command line is exactly the kind of nested quoting cmd.exe gets unreliable
 REM about, and this could not be tested by hand before shipping it.
-"%~dp0HAVOC 9.exe" -dedicated -game ts -console -log -dev 2 -num_edicts 2048 -port 27015 +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
+"%~dp0HAVOC 9.exe" -dedicated -game ts -console -log -dev 2 -num_edicts 8192 -zone 4096 -max_particles 32768 -max_tempents 2048 -max_beams 512 -heapsize 1048576 -port 27015 +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
 set "SRVEXIT=%ERRORLEVEL%"
 
 REM hlds has exited -- by quit, by crash, or by this window being closed. Take the bot

@@ -103,7 +103,7 @@ REM NoDefaultCurrentDirectoryInExePath set will not run a program from the curre
 REM folder by its bare name. -dedicated is the engine's own flag (see -help), not a
 REM separate binary -- host.c switches it into headless mode at startup, same as
 REM HLDS does from the one GoldSrc engine.
-"%~dp0HAVOC 9.exe" -dedicated -game ts -console -log -num_edicts 4096 -port 27015 +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
+"%~dp0HAVOC 9.exe" -dedicated -game ts -console -log -num_edicts 8192 -zone 4096 -max_particles 32768 -max_tempents 2048 -max_beams 512 -heapsize 1048576 -port 27015 +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
 set "SRVEXIT=%ERRORLEVEL%"
 
 REM hlds has exited -- by quit, by crash, or by this window being closed. Take the bot

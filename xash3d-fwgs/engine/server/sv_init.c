@@ -597,6 +597,12 @@ void SV_ActivateServer( int runPhysics )
 	svgame.globals->time = sv.time;
 	svgame.dllFuncs.pfnServerActivate( svgame.edicts, svgame.numEntities, svs.maxclients );
 
+	// H9: the per-map cfg from mapconfigs/, queued only after ServerActivate, where Metamod/AMX Mod X
+	// register plugin cvars and run their own configs -- so it runs after them and can override them.
+	// The game DLL executes the command buffer during worldspawn, too early for any plugin cvar.
+	if( Cvar_VariableValue( "h9_autoconfig" ) != 0.0f )
+		Cbuf_AddTextf( "exec mapconfigs/%s.cfg\n", sv.name );
+
 	SV_SetStringArrayMode( true );
 
 	// parse user-specified resources

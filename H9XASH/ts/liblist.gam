@@ -7,9 +7,7 @@ svonly "0"
 
 // Unverified experiment, not an established fix: community reports say a Steam-validated
 // server rejects a non-Steam client's ticket (what "STEAM validation rejected" means, see
-// docs\ENGINE_DIFFERENTIALS.txt) and that this field is the lever for it. sv_lan does NOT
-// help here -- it is for genuine LAN-only hosting and rejects a real remote client's ticket
-// even harder. Nobody has tried this against a live Xash client yet.
+// docs\ENGINE_DIFFERENTIALS.txt) and that this field is the lever for it.
 secure "0"
 
 cldll "cl_dlls\client.dll"
@@ -19,6 +17,10 @@ nomodels "0"
 mpentity "info_player_deathmatch"
 icon "h9_logo_32"
 edicts "4098"
+zone "4096"
+max_particles "32768"
+max_tempents "2048"
+max_beams "512"
 
 //gamedll "dlls\mp.dll"
 gamedll "addons\metamod\dlls\metamod.dll"

@@ -1,45 +1,3 @@
-mp3 help
-mp3 loop sound/music/equilibrium.mp3
-MP3Volume 
-hpk_max_size
-quit
-mp3 loop sound/music/equilibrium.mp3
-exec userconfig.cfg
-cl_camtype
-amx_match_restart
-amx_match_cancel
-amx_match_restart
-tsm_opendoor
-amx_tsm_forcedoor 1
-tsm_opendoor
-quit
-default_fov
-default_fov 120
-cam_back
-default_fov
-default_fov 120
-ui_background_video
-ui_background_video 1
-ui_background_stretch 1
-ui_background_stretch 0
-ui_background_video 1
-ui_background_video
-ui_background_video 0
-ui_background_video 1
-fps_override 1
-tsm_logging 1
-tsm_debug_log 2
-default_fov 120
-cam_back 128
-quit
-amx_match_restart
-exec camfix
-tsm_logging
-quit
-amx_match_restart
-tsm_logging 1
-tsm_testfog
-tsm_fogtest
 spray
 spray 
 spray remapped.bmp
@@ -59,4 +17,48 @@ cam_back 128
 default_fov 120
 amx_match_restart
 exec camfix
+quit
+map h9_te_neuropolis
+map h9_tsrp_hive
+quit
+noclip
+sv_cheats
+sv_cheats 1
+noclip
+quit
+h9_autoconfig 
+tsm_no_weapons 1
+tsm_no_weapons 0
+noclip
+sv_cheats 1
+noclip
+tsm_loc
+noclip
+tsm_loc
+noclip
+tsm_loc
+tsm_no_weapons
+noclip
+tsm_loc
+noclip
+tsm_loc
+noclip
+tsm_loc
+noclip
+tsm_loc
+noclip
+tsm_loc
+noclip
+tsm_loc
+tsm-loc
+tsm_loc
+quit
+sv_cheats 1
+noclip
+tsm_loc
+noclip
+kill
+restart
+quit
+noclip
 quit
