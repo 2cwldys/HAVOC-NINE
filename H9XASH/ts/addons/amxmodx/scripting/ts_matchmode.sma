@@ -65,7 +65,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes33"
+#define TSM_BUILD "1.53-fixes34"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -591,6 +591,7 @@ new g_spawn_t1_tier[64];                       // forward tier of each point; 0 
 new g_spawn_t2_tier[64];
 
 new g_cv_enabled, g_cv_rounds, g_cv_freeze, g_cv_roundtime, g_cv_minteam;
+new bool:g_was_enabled = true;                 // tsm_enabled as watch_enabled() last saw it
 new g_cv_no_weapons;
 new g_cv_disarm, g_cv_report, g_cv_reporthp, g_cv_health;
 new g_cv_team1name, g_cv_team2name, g_cv_teammode;
@@ -3799,7 +3800,6 @@ public plugin_init()
 	register_plugin(PLUGIN, VERSION, AUTHOR);
 
 	g_cv_enabled   = register_cvar("tsm_enabled",     "1");
-	hook_cvar_change(g_cv_enabled, "cvar_tsm_enabled_changed");
 	// Per-map, not a hardcoded map name: set in ts/mapconfigs/<mapname>.cfg (h9_autoconfig
 	// execs it after that map loads), so turning this on/off for any map is a .cfg edit,
 	// not a recompile. See clean_all_weapons() and mapconfigs/h9_tsrp_hive.cfg.
@@ -19376,13 +19376,20 @@ public cmd_ents(id, level, cid)
  * TSM_FL_FROZEN or the maxspeed clamp on its own. restore_all() is the existing,
  * already-safe per-player reset (it does not touch round/match state), so reuse it
  * here rather than write a second copy of the same loop.
+ *
+ * Polled from task_tick, not hooked with hook_cvar_change: AMXX hooks a cvar change by
+ * detouring the engine's Cvar_DirectSet, found by a gamedata signature, and H9XASH's
+ * xash.dll matches none ("Binding/Hooking cvars have been disabled" in the AMXX log),
+ * so a hooked callback never runs. A second's delay is soon enough.
  */
-public cvar_tsm_enabled_changed(pcvar, const old_value[], const new_value[])
+watch_enabled()
 {
-	if (str_to_num(new_value) == 0)
+	new bool:enabled = get_pcvar_num(g_cv_enabled) != 0;
+	if (g_was_enabled && !enabled)
 	{
 		restore_all();
 	}
+	g_was_enabled = enabled;
 }
 
 /* ---- safety ------------------------------------------------------------- */
@@ -20480,6 +20487,7 @@ refresh_player_flags()
 
 public task_tick()
 {
+	watch_enabled();
 	refresh_player_flags();
 	clean_all_weapons();
 
