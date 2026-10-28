@@ -2794,6 +2794,14 @@ build_team_menu()
 
 show_team_menu(id)
 {
+	// tsm_enabled 0 means the server is running TS's own game: there is no match side
+	// to pick, so no menu and no side-count chat line. This also stops a queued task
+	// from putting the menu back after a map has disabled the plugin.
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return;
+	}
+
 	// A bot can never answer a menu -- these are re-offered on a timer, which
 	// would otherwise retry against it forever.
 	if (bot_player(id))
@@ -21942,6 +21950,14 @@ public task_tick()
 	}
 
 	if (g_state != ST_WARMUP && g_state != ST_READYUP)
+	{
+		return;
+	}
+
+	// tsm_enabled 0: the plugin has stood down for this map -- non-H9 maps set it in
+	// plugin_cfg. This branch used to keep drawing the idle banner and re-offering the
+	// side menu forever, because neither checked the switch.
+	if (!get_pcvar_num(g_cv_enabled))
 	{
 		return;
 	}
