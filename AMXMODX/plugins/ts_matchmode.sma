@@ -685,10 +685,10 @@ new g_cv_musicvol, g_cv_startsound;   // tsm_startsound gates the round-start an
  * cut. music_is_wav() below has to know about index 6 as well as index 5, or this would put the
  * same problem straight back, worse.
  */
-new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav", "vangelis.wav", "floatingmuseum.mp3", "grammaton_cleric.mp3", "burned.mp3", "supression.mp3", "alwaysknew.mp3" };
-new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0, 618.8, 305.6, 78.5, 129.9, 147.9, 306.9 };
-new g_music_order[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
-new g_music_pos = 8;         // matches sizeof g_music_order: forces a shuffle before the first track
+new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav", "vangelis.wav", "floatingmuseum.mp3", "grammaton_cleric.mp3", "burned.mp3", "supression.mp3", "alwaysknew.mp3", "equilibrium_suite.mp3" };
+new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0, 618.8, 305.6, 78.5, 129.9, 147.9, 306.9, 1105.2 };
+new g_music_order[13] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+new g_music_pos = 13;        // matches sizeof g_music_order: forces a shuffle before the first track
 new g_music_cur = -1;        // the track currently playing, -1 before the first
 new bool:g_music_off[MAXPL];
 
