@@ -1,0 +1,93 @@
+GAME MODES -- Capture the Uplink and Wave Survival
+==================================================
+
+Two modes on top of ts_matchmode, each its own plugin (ts_uplink.amxx, ts_survival.amxx).
+ts_matchmode stays the core -- rounds, lives, waves, classes, sides, the HUD -- and gives the
+modes a small API (include\tsm_api.inc). A mode CLAIMS a map about two seconds after it
+loads; only one mode may claim a map, and a map with siege objectives (tsm_obj_#) always
+stays a siege map. On a map nobody claims, every match plays exactly as it always has.
+Without ts_matchmode loaded, both plugins load and do nothing.
+
+
+CAPTURE THE UPLINK  (ts_uplink.amxx, configs\ts_uplink.cfg)
+-------------------------------------------------------------
+Both sides fight over one carried objective, the uplink.
+
+  The uplink   appears each round at the map's point named tsm_uplink. Walk over it to take
+               it; the carrier wears it on their back, keeps every weapon, and is marked to
+               BOTH sides. It drops where the carrier falls, and goes home after
+               tsm_uplink_return (20) seconds untouched. "dropuplink" in the console (bind
+               it) or .drop in chat lets it go.
+  The zones    tsm_cap_1 .. tsm_cap_9. Only the carrier takes a zone: tsm_cap_time (15)
+               seconds inside it with no living enemy in it. Leaving, dropping, dying or a
+               contest starts it over. Each zone shows a ring on the floor in its holder's
+               colour (grey, MSR blue, Insurgent red; amber while being taken) and a flag
+               over it.
+  Lives        a taken zone gives lives back by tsm_uplink_rewardlives: 1 the taking side,
+               2 both, 0 none. Lives are SET to the class's count, never added; the fallen
+               return with their side's next wave (every tsm_uplink_wave, 30, seconds).
+               Needs tsm_respawns 1.
+  Winning      holding every zone wins at once. A side wiped out (no lives, nobody waiting)
+               loses at once, whatever it held. When the clock runs out the side holding
+               more zones wins; equal is a draw. There is no sudden death.
+  Switch       tsm_uplink_mode 1 (0 turns it off everywhere). Browser name:
+               tsm_gamedesc_uplink "Uplink".
+
+  Making a map an uplink map: place info_target entities named tsm_cap_1.. and tsm_uplink,
+  or stand in game and use amx_tsm_cap_add [n] [radius], amx_tsm_uplink_set, then
+  amx_tsm_uplink_save (writes configs\tsm_uplink_<map>.cfg). amx_tsm_cap_list,
+  amx_tsm_cap_del <n>, amx_tsm_cap_give <n> <0|1|2> and amx_tsm_uplink (the state) help.
+
+
+WAVE SURVIVAL  (ts_survival.amxx, configs\ts_survival.cfg)
+------------------------------------------------------------
+Side 1 are the survivors; side 2 is a wave of bots that never runs out. A person picking
+side 2 is made a spectator.
+
+  Waves        a wave is over only when its last mutant is dead. Then a breather of
+               tsm_ws_wave (30) seconds, counted down on screen, and the next wave comes all
+               at once: the count goes up, xom_laugh plays for everyone, every fallen
+               survivor comes back and every survivor's lives are set to their class's count.
+               No round clock, no sudden death; the HUD shows WAVE n.
+  The run ends when side 1 is wiped out: chat says how far they got (and the best on this
+               map), the match is over, and it is back to warmup.
+  It grows     health +tsm_ws_hp_per_wave (5) percent per wave; guns by tsm_ws_gun_odds
+               (40% at first, 60% from wave 16, all from wave 25); the kung fu powerup after
+               wave tsm_ws_kungfu_after (30).
+  A stall      after tsm_ws_stall (120) seconds with three or fewer mutants left and none
+               falling, they are taken off the board and the wave counts as cleared.
+  Switch       any map named h9_ws_..., while tsm_mutants_mode is 1. Mutant count: tsm_bots.
+               Browser name: tsm_gamedesc_survival "Wave Survival".
+  Admin        amx_tsm_ws (the state), amx_tsm_ws_wave <n> (jump the count to test it).
+
+
+PROFILES AND PER-MAP SETTINGS
+-----------------------------
+  h9_presets   H9XASH\presets: ts_uplink.Siege.cfg and ts_survival.Siege.cfg have the modes
+               on; the .TeamElimination copies have them off. Both plugins.*.ini list the
+               two plugins (they are inert where the mode is off). See AMX_PRESETS.txt.
+  mapconfigs   H9XASH\ts\mapconfigs\<map>.cfg runs after the plugins' own configs
+               (h9_autoconfig), so a map can change any mode cvar for itself.
+  Spawns       configs\tsm_spawns_<map>.cfg, as for any map (CUSTOM_SPAWNPOINTS.txt).
+
+
+THE DRAINAGE MAPS  (export-map\h9_drainage)
+-------------------------------------------
+h9_up_drainage and h9_ws_drainage are one place: the city's storm-drain works, a canal 704
+deep with a basin at each end, two box culverts with open decks over them, a pumping
+station in the middle, service galleries inside the walls, a filter room and a generator
+room; rain, a toxic storm sky, the city's distant gunfire and the works' own sounds.
+
+  h9_up_drainage   MSR on the north basin's platform, the Insurgents on the south's (16
+                   each). Zones: 1 the north culvert, 2 the filter room, 3 the south culvert;
+                   the uplink in the station. Mapconfig: tsm_respawns 1, tsm_roundtime 420.
+  h9_ws_drainage   16 survivors in the station; mutants from both platforms and the
+                   galleries' far ends. Mapconfig: tsm_respawns 1, tsm_bots 12.
+
+  Rebuilding them  in export-map\h9_drainage (node, SMAK beside TSM):
+    node sky.mjs deploy          the sky (gfx\env\h9drain*.tga)
+    node sprites.mjs deploy      the zone, flag, marker and rain sprites
+    node uplink.mjs deploy       models\tsm_uplink.mdl
+    node drainage.mjs --compile deploy   both maps, their .res and spawn configs
+    node waypoints.mjs deploy    the bots' waypoints, under both names
+    node preview.mjs             a reel of stills and a flythrough with its sound

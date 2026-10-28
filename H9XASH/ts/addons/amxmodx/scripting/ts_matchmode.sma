@@ -56,6 +56,15 @@
  */
 #include <hamsandwich>
 
+/*
+ * The mode API this plugin offers to the mode plugins (ts_uplink, ts_survival): the claim
+ * flags and the match states, shared from one file. TSM_CORE keeps its native and forward
+ * declarations out -- this plugin is the one that provides them. build.bat syncs the file
+ * into scripting\include before compiling.
+ */
+#define TSM_CORE
+#include <tsm_api>
+
 #define PLUGIN  "TS Match Mode"
 #define VERSION "0.7"
 #define AUTHOR  "tsm"
@@ -65,7 +74,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.53-fixes36"
+#define TSM_BUILD "1.54-modes1"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -885,6 +894,31 @@ new g_mapname[32];
 new g_freeze_left = 0;
 new g_round_left = 0;
 new Float:g_round_ends = 0.0;   // gametime the round clock runs out: what task 2 is set for
+
+/*
+ * THE MODE A PLUGIN HAS CLAIMED THIS MAP FOR (see include\tsm_api.inc).
+ *
+ * Empty name, zero flags: no mode, and every check below that reads them is a no-op. A claim
+ * is made once per map, by ts_uplink or ts_survival, and lasts until the map changes.
+ */
+new g_mode_name[16];          // the claimant's key, "uplink" or "survival"; empty for none
+new g_mode_desc[64];          // what the server browser shows while the mode runs
+new g_mode_flags;             // TSM_MODE_* bits the claim asked for
+new g_mode_hud[48];           // the mode's own text on the round line ("WAVE 12")
+new Float:g_wave_secs[3];     // a side's wave interval while the mode runs; 0 = tsm_respawn_wave
+new g_wave_num[3];            // natural waves fired this round, per side
+new g_fw_round_start = -1, g_fw_round_live = -1, g_fw_round_end = -1, g_fw_timeout = -1;
+new g_fw_wave = -1, g_fw_loadout = -1, g_fw_armed = -1;
+new g_cv_presmode;            // tsm_pres_mode: the claimed mode's key, for the Discord card
+new g_cv_presprog;            // tsm_pres_prog: the claimed mode's progress, as it last said it
+new g_mode_prog[24];          // what tsm_set_progress last handed over
+
+// A mode's loadout for the arm in progress: -1 takes the class's weapons, otherwise how many
+// of g_lo_wpn/g_lo_clips to give. Resolved once per arm, so the M60-first half and the rest
+// of the kit a beat later give from the same roll.
+new g_lo_n[MAXPL] = { -1, ... };
+new g_lo_wpn[MAXPL][TSM_LOADOUT_MAX];
+new g_lo_clips[MAXPL][TSM_LOADOUT_MAX];
 new g_cv_showtimer;
 new g_cv_t1short, g_cv_t2short;
 new g_cv_forceteams, g_cv_forcemodels;
@@ -1071,6 +1105,44 @@ dbg(const fmt[], any:...)
 	if (mode >= 2)
 	{
 		server_print("[TSM] %s", msg);
+	}
+}
+
+/* ---- the mode a plugin has claimed (see include\tsm_api.inc) ------------- */
+
+/// 1 when the claimed mode asked for this TSM_MODE_* flag; always 0 with no claim.
+mode_flag(flag)
+{
+	return (g_mode_flags & flag) ? 1 : 0;
+}
+
+/// Seconds between this side's waves: the claimed mode's interval, or tsm_respawn_wave.
+Float:wave_interval(side)
+{
+	if (side >= 1 && side <= 2 && g_wave_secs[side] > 0.0)
+	{
+		return g_wave_secs[side];
+	}
+	return get_pcvar_float(g_cv_respwave);
+}
+
+/// 1 when this side's deaths wait for a wave: tsm_respawns, or side 2 where a mode made it endless.
+side_respawns(side)
+{
+	if (side == 2 && mode_flag(TSM_MODE_SIDE2_ENDLESS))
+	{
+		return 1;
+	}
+	return get_pcvar_num(g_cv_respawns) ? 1 : 0;
+}
+
+/// Fires a mode forward that takes one number, while a mode has claimed the map. The answer is not wanted.
+mode_notify(fw, value)
+{
+	if (fw != -1 && g_mode_name[0])
+	{
+		new ret;
+		ExecuteForward(fw, ret, value);
 	}
 }
 
@@ -1579,6 +1651,15 @@ assign_bot(id)
 	get_user_team(id, tsname, charsmax(tsname));
 
 	new from_mod = tsm_team_from_name(tsname);
+
+	// Where side 2 is bots only (survival), TS putting a bot on side 1 -- it seats a new
+	// client on the emptier side, and the people are all on side 1 -- is not followed: the
+	// bot is moved across with set_ts_team below, the one route rcbot and TS both see.
+	if (from_mod == 1 && mode_flag(TSM_MODE_SIDE2_BOTS))
+	{
+		from_mod = 0;
+	}
+
 	if (from_mod == 1 || from_mod == 2)
 	{
 		if (g_match_team[id] != from_mod)
@@ -1632,7 +1713,11 @@ assign_bot(id)
 		get_pcvar_string(g_cv_botteams, mode, charsmax(mode));
 
 		new team;
-		if (equali(mode, "1"))
+		if (mode_flag(TSM_MODE_SIDE2_BOTS))
+		{
+			team = 2;   // the enemy wave, whatever tsm_bot_teams says
+		}
+		else if (equali(mode, "1"))
 		{
 			team = 1;
 		}
@@ -2475,16 +2560,35 @@ pick_side(id, item)
 		team_rawname(team, name, charsmax(name));
 
 		/*
+		 * Side 2 is the enemy wave in a mode that made it bots only (survival): a person
+		 * picking it is made a spectator instead, and told where to go to play.
+		 */
+		if (team == 2 && mode_flag(TSM_MODE_SIDE2_BOTS) && !bot_player(id))
+		{
+			new s1[48];
+			get_pcvar_string(g_cv_t1label, s1, charsmax(s1));
+			if (!s1[0])
+			{
+				team_rawname(1, s1, charsmax(s1));
+			}
+			force_spectator(id);
+			client_print(id, print_chat, "[MATCH] That side is the enemy wave in this mode -- you are spectating. Join %s to play.", s1);
+			dbg("team menu: %d refused side 2 (bots only in this mode), spectating", id);
+			return;
+		}
+
+		/*
 		 * Refuse a pick that would unbalance the sides.
 		 *
 		 * Checked here rather than only at ready-up, because being told "the teams are
 		 * uneven" after everyone has already picked is no use -- this steers people to
-		 * the side that needs them while they are still choosing.
+		 * the side that needs them while they are still choosing. Not where side 2 is
+		 * bots by design: that side is meant to outnumber the people.
 		 */
 		new bmode[16];
 		get_pcvar_string(g_cv_balmode, bmode, charsmax(bmode));
 
-		if (!equali(bmode, "off") && !equali(bmode, "warn"))
+		if (!equali(bmode, "off") && !equali(bmode, "warn") && !mode_flag(TSM_MODE_SIDE2_BOTS))
 		{
 			new n1 = count_on_team(1);
 			new n2 = count_on_team(2);
@@ -3795,6 +3899,23 @@ public plugin_precache()
 public plugin_natives()
 {
 	register_native("tsm_match_info", "native_match_info");
+
+	// The mode API, for ts_uplink and ts_survival: include\tsm_api.inc documents each one.
+	register_native("tsm_mode_claim",    "native_mode_claim");
+	register_native("tsm_end_round",     "native_end_round");
+	register_native("tsm_reward_lives",  "native_reward_lives");
+	register_native("tsm_wave_seconds",  "native_wave_seconds");
+	register_native("tsm_fire_wave",     "native_fire_wave");
+	register_native("tsm_hud_line",      "native_hud_line");
+	register_native("tsm_state",         "native_state");
+	register_native("tsm_side_of",       "native_side_of");
+	register_native("tsm_in_play",       "native_in_play");
+	register_native("tsm_side_alive",    "native_side_alive");
+	register_native("tsm_give_powerup",  "native_give_powerup");
+	register_native("tsm_match_desc",    "native_match_desc");
+	register_native("tsm_set_class",     "native_set_class");
+	register_native("tsm_class_hp",      "native_class_hp");
+	register_native("tsm_set_progress",  "native_set_progress");
 }
 
 public plugin_init()
@@ -4254,6 +4375,24 @@ public plugin_init()
 	g_cv_presside2 = register_cvar("tsm_pres_side2", "", FCVAR_SERVER);
 	g_cv_presalive1 = register_cvar("tsm_pres_alive1", "", FCVAR_SERVER);
 	g_cv_presalive2 = register_cvar("tsm_pres_alive2", "", FCVAR_SERVER);
+	// The claimed mode's key ("uplink", "survival"), empty when no mode runs: the card picks
+	// its details line by it. The mode plugins publish their own progress beside it.
+	g_cv_presmode = register_cvar("tsm_pres_mode", "", FCVAR_SERVER);
+	// And its progress, in the mode's own short form ("1/2/3/1" zones and carrier, "12" a wave).
+	g_cv_presprog = register_cvar("tsm_pres_prog", "", FCVAR_SERVER);
+
+	/*
+	 * The mode API's forwards. A mode plugin implements whichever it needs as a public of the
+	 * same name; include\tsm_api.inc says when each fires. The two that ask a question stop at
+	 * the first plugin that answers PLUGIN_HANDLED.
+	 */
+	g_fw_round_start = CreateMultiForward("tsm_round_start", ET_IGNORE, FP_CELL);
+	g_fw_round_live  = CreateMultiForward("tsm_round_live", ET_IGNORE, FP_CELL);
+	g_fw_round_end   = CreateMultiForward("tsm_round_end", ET_IGNORE, FP_CELL);
+	g_fw_timeout     = CreateMultiForward("tsm_round_timeout", ET_STOP);
+	g_fw_wave        = CreateMultiForward("tsm_wave", ET_IGNORE, FP_CELL, FP_CELL);
+	g_fw_loadout     = CreateMultiForward("tsm_loadout", ET_STOP, FP_CELL, FP_ARRAY, FP_CELL);
+	g_fw_armed       = CreateMultiForward("tsm_armed", ET_IGNORE, FP_CELL);
 
 	// Refuse team changes once a match is under way. Deliberately its own cvar and
 	// not part of tsm_block_spectator, so turning that off for a model test cannot
@@ -5882,6 +6021,12 @@ bool:balance_ok()
 		return true;
 	}
 
+	// Side 2 bots only by design (survival): the sides are meant to be uneven.
+	if (mode_flag(TSM_MODE_SIDE2_BOTS))
+	{
+		return true;
+	}
+
 	new gap = count_on_team(1) - count_on_team(2);
 	if (gap < 0)
 	{
@@ -6104,6 +6249,13 @@ autofill_teams()
 		return;
 	}
 
+	// Where side 2 is bots by design (survival) there is no evening up to do, and a person
+	// must never be filled onto the enemy wave. A late joiner waits for the next run.
+	if (mode_flag(TSM_MODE_SIDE2_BOTS))
+	{
+		return;
+	}
+
 	new allowed = get_pcvar_num(g_cv_balgap);
 	if (allowed < 1)
 	{
@@ -6172,6 +6324,12 @@ public cmd_shuffle(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 1))
 	{
+		return PLUGIN_HANDLED;
+	}
+
+	if (mode_flag(TSM_MODE_SIDE2_BOTS))
+	{
+		console_print(id, "[TSM] This is a %s map: side 2 is bots only, so there is nothing to shuffle.", g_mode_name);
 		return PLUGIN_HANDLED;
 	}
 
@@ -7479,6 +7637,15 @@ public cmd_watch_join(id)
 		return PLUGIN_HANDLED;
 	}
 
+	// The raw console route onto side 2, where a mode made it bots only: refused the same
+	// way the side menu refuses it. jointeam takes the mp_teamlist index, 2 for side 2.
+	if (mode_flag(TSM_MODE_SIDE2_BOTS) && !bot_player(id) && str_to_num(arg) == 2)
+	{
+		force_spectator(id);
+		client_print(id, print_chat, "[MATCH] That side is the enemy wave in this mode -- you are spectating. Type .team to join the other side.");
+		return PLUGIN_HANDLED;
+	}
+
 	new before[32];
 	before[0] = 0;
 	new bnum = get_user_team(id, before, charsmax(before));
@@ -8172,6 +8339,75 @@ stock bool:user_carries(id, wpn)
 }
 
 /*
+ * Asks a claimed mode for this arm's weapons (tsm_loadout in include\tsm_api.inc).
+ *
+ * A mode that answers PLUGIN_HANDLED replaces the class's weapons for this arm only --
+ * survival's mutants roll a blade or a gun at every wave -- with a spec written like a class
+ * line's weapon list: "13:3,22:2", "25:0", or "" for bare hands. The answer is kept in g_lo_*
+ * until the next arm, so the M60-first half of an arm and the rest of its kit a beat later
+ * give from the same roll. No mode, or no answer: -1, and the class's own weapons are given.
+ */
+resolve_loadout(id)
+{
+	g_lo_n[id] = -1;
+	if (g_fw_loadout == -1 || !g_mode_name[0])
+	{
+		return;
+	}
+
+	new spec[TSM_LOADOUT_LEN];
+	spec[0] = 0;
+	new ret = PLUGIN_CONTINUE;
+	ExecuteForward(g_fw_loadout, ret, id, PrepareArray(spec, sizeof spec, 1), sizeof spec);
+	if (ret != PLUGIN_HANDLED)
+	{
+		return;
+	}
+
+	new n = 0;
+	new rest[TSM_LOADOUT_LEN], carry[TSM_LOADOUT_LEN], pair[16], wpart[8], cpart[8];
+	copy(rest, charsmax(rest), spec);
+	while (rest[0] && n < TSM_LOADOUT_MAX)
+	{
+		strtok(rest, pair, charsmax(pair), carry, charsmax(carry), ',', 1);
+		copy(rest, charsmax(rest), carry);
+		if (!pair[0])
+		{
+			continue;
+		}
+		strtok(pair, wpart, charsmax(wpart), cpart, charsmax(cpart), ':', 1);
+		new w = str_to_num(wpart);
+		if (w < 1 || w > 38)
+		{
+			continue;
+		}
+		g_lo_wpn[id][n] = w;
+		g_lo_clips[id][n] = str_to_num(cpart);
+		n++;
+	}
+	g_lo_n[id] = n;
+	dbg("loadout: the mode armed %d with '%s' (%d weapon(s))", id, spec, n);
+}
+
+/// How many weapons this arm gives: the mode's answer when it gave one, else the class's.
+lo_count(id, ci, team)
+{
+	return (g_lo_n[id] >= 0) ? g_lo_n[id] : g_class_wcount[ci][team];
+}
+
+/// The i-th weapon this arm gives, from the mode's answer or the class line.
+lo_wpn(id, ci, team, i)
+{
+	return (g_lo_n[id] >= 0) ? g_lo_wpn[id][i] : g_class_wpn[ci][team][i];
+}
+
+/// The i-th weapon's spare figure, from the mode's answer or the class line.
+lo_clips(id, ci, team, i)
+{
+	return (g_lo_n[id] >= 0) ? g_lo_clips[id][i] : g_class_clips[ci][team][i];
+}
+
+/*
  * Hands the class loadout over directly, with no purchase involved.
  *
  * MUST BE PART OF THE ARM OPERATION, WITH NOTHING CLEARING THE INVENTORY BEHIND IT.
@@ -8225,7 +8461,7 @@ give_class_weapons(id)
 	 *
 	 * tsm_arm_order 0 restores the literal order if this ever needs inverting.
 	 */
-	new wn = g_class_wcount[ci][team];
+	new wn = lo_count(id, ci, team);
 	new bool:reverse = (get_pcvar_num(g_cv_armorder) != 0);
 	new given = 0;
 
@@ -8272,8 +8508,8 @@ give_class_weapons(id)
 		 * as many as the bonus, which is a quietly large change to how the Heavy plays and
 		 * nothing anyone asked for.
 		 */
-		new wpnid = g_class_wpn[ci][team][i];
-		new base = g_class_clips[ci][team][i];
+		new wpnid = lo_wpn(id, ci, team, i);
+		new base = lo_clips(id, ci, team, i);
 
 		// tsm_clip_bonus tops GUNS up with spare MAGAZINES. For the frag grenade
 		// and the knives the class figure is a carried count -- the same native
@@ -8361,10 +8597,10 @@ give_class_weapons(id)
 	new tail = reverse ? 0 : (wn - 1);
 	if (wn > 0)
 	{
-		new tail_wpn = g_class_wpn[ci][team][tail];
+		new tail_wpn = lo_wpn(id, ci, team, tail);
 		if (!user_carries(id, tail_wpn))
 		{
-			new tail_clips = g_class_clips[ci][team][tail];
+			new tail_clips = lo_clips(id, ci, team, tail);
 
 			// The bonus is withheld from carried-count weapons, same as the loop.
 			if (tail_clips > 0 && is_gun_id(tail_wpn))
@@ -8757,6 +8993,9 @@ arm_give_kit(id)
 	g_m60_skip[id] = -1;
 	remove_task(id + 8500);
 
+	// The weapons this arm gives, settled once: a claimed mode's loadout, or the class's own.
+	resolve_loadout(id);
+
 	new ciH = resolved_class(id) - 1;
 	if (ciH >= 0 && ciH < g_class_count)
 	{
@@ -8767,9 +9006,10 @@ arm_give_kit(id)
 		}
 
 		new m60i = -1;
-		for (new xi = 0; xi < g_class_wcount[ciH][teamH]; xi++)
+		new m60n = lo_count(id, ciH, teamH);
+		for (new xi = 0; xi < m60n; xi++)
 		{
-			if (g_class_wpn[ciH][teamH][xi] == TSM_M60_WPN)
+			if (lo_wpn(id, ciH, teamH, xi) == TSM_M60_WPN)
 			{
 				m60i = xi;
 				break;
@@ -8778,7 +9018,7 @@ arm_give_kit(id)
 
 		if (m60i >= 0)
 		{
-			new m60base = g_class_clips[ciH][teamH][m60i];
+			new m60base = lo_clips(id, ciH, teamH, m60i);
 			new m60clips = (m60base > 0) ? (m60base + get_pcvar_num(g_cv_clipbonus)) : 0;
 			new m60cap = get_pcvar_num(g_cv_clipcap);
 			if (m60cap < 1)
@@ -8882,6 +9122,7 @@ public task_arm_respawn(taskid)
 			arm_give_kit(id);
 			g_armed[id] = true;
 			tlog("[TSM] late arm: %d armed after LIVE (class %d).", id, resolved_class(id));
+			mode_notify(g_fw_armed, id);
 		}
 
 		g_issuing[id] = false;
@@ -11536,9 +11777,9 @@ siege_fall(id, ent, n)
 		{
 			siege_reward_time();
 		}
-		if (get_pcvar_num(g_cv_siegelives))
+		if (get_pcvar_num(g_cv_siegelives) && reward_lives(0) >= 0)
 		{
-			siege_reward_lives();
+			all_print("[MATCH] Lives restored on both sides -- the fallen return with the next wave.");
 		}
 	}
 
@@ -11654,24 +11895,27 @@ siege_reward_time()
 }
 
 /*
- * A fall short of the last gives both sides their lives back, as a new round would, in the
- * round still being played. Every count is SET to the class's own (lives_for), never added
- * to, so a full count stays as it is. Anyone eliminated -- out of lives or already waiting --
- * waits for their side's next wave.
+ * Lives back, as a new round would give them, in the round still being played: for one side
+ * (1 or 2) or both (0). A siege fall short of the last asks for both; an uplink capture asks
+ * for the capturing side or both (tsm_reward_lives). Every count is SET to the class's own
+ * (lives_for), never added to, so a full count stays as it is. Anyone eliminated -- out of
+ * lives or already waiting -- waits for their side's next wave.
  *
  * The same players start_wave_clocks gives lives to at go-live, less anyone sitting the
  * match out. Without waves (tsm_respawns 0, or sudden death with tsm_respawn_sudden 0) no
- * wave would ever take them and a waiting player holds the round open, so nothing changes.
+ * wave would ever take them and a waiting player holds the round open, so nothing changes
+ * and the answer is -1. Otherwise the answer is how many eliminated players were put back in
+ * line. Silent: each caller says what happened in its own words.
  */
-siege_reward_lives()
+reward_lives(side)
 {
 	if (g_state != ST_LIVE || !get_pcvar_num(g_cv_respawns))
 	{
-		return;
+		return -1;
 	}
 	if (g_sudden && !get_pcvar_num(g_cv_respsudden))
 	{
-		return;
+		return -1;
 	}
 
 	new back = 0;
@@ -11681,7 +11925,7 @@ siege_reward_lives()
 	{
 		id = players[i];
 		team = g_match_team[id];
-		if ((team != 1 && team != 2) || g_locked_out[id])
+		if ((team != 1 && team != 2) || g_locked_out[id] || (side && team != side))
 		{
 			continue;
 		}
@@ -11701,8 +11945,8 @@ siege_reward_lives()
 		set_task(1.0, "task_wave_tick", TSM_TASK_WAVE, "", 0, "b");
 	}
 
-	all_print("[MATCH] Lives restored on both sides -- the fallen return with the next wave.");
-	dbg("siege: lives restored, %d eliminated waiting for the next wave", back);
+	dbg("lives restored for side %d (0 = both), %d eliminated waiting for the next wave", side, back);
+	return back;
 }
 
 public task_siege_slay()
@@ -13627,9 +13871,13 @@ start_wave_clocks()
 		remove_task(TSM_TASK_REVIVE + id);
 	}
 
-	g_wave_left[1] = get_pcvar_float(g_cv_respwave);
-	g_wave_left[2] = get_pcvar_float(g_cv_respwave);
-	if (get_pcvar_num(g_cv_respawns))
+	// Per side: a claimed mode can give a side its own interval (wave_interval), and side 2
+	// can wait for waves even with tsm_respawns 0 when the mode made it endless.
+	g_wave_left[1] = wave_interval(1);
+	g_wave_left[2] = wave_interval(2);
+	g_wave_num[1] = 0;
+	g_wave_num[2] = 0;
+	if (side_respawns(1) || side_respawns(2))
 	{
 		set_task(1.0, "task_wave_tick", TSM_TASK_WAVE, "", 0, "b");
 	}
@@ -13658,17 +13906,22 @@ lives_reset_round()
 }
 
 /// Waves were switched off in a live round (tsm_respawns 0). Nobody waiting can come back now,
-/// so every waiting player stays eliminated and the round can end.
+/// so every waiting player stays eliminated and the round can end. One side only (1 or 2)
+/// when the other still has waves of its own; 0 for both.
 ///
 /// Same filter question as the waves: leaving a bot pending while waves are off would leave
 /// round-end logic believing someone is still waiting to come back.
-respawns_off_cut()
+respawns_off_cut(side = 0)
 {
 	new players[32], pnum, id;
 	get_players(players, pnum, g_pfall);
 	for (new i = 0; i < pnum; i++)
 	{
 		id = players[i];
+		if (side && g_match_team[id] != side)
+		{
+			continue;
+		}
 		if (g_revive_pending[id])
 		{
 			g_revive_pending[id] = false;
@@ -13702,9 +13955,24 @@ respawn_sudden_cut()
 /// A death with lives left: spend one and wait for the next wave. The last life's death is
 /// final, exactly as an elimination always was. In sudden death with waves off nobody comes
 /// back, so a death in that state is final too.
+///
+/// A side a claimed mode made endless (TSM_MODE_SIDE2_ENDLESS) spends nothing: every death on
+/// it waits for that side's next wave, so the side can never be counted out. g_side, because it
+/// is the side for the whole match and elimination never clears it.
 lives_on_death(victim)
 {
-	if (!get_pcvar_num(g_cv_respawns) || g_state != ST_LIVE)
+	if (g_state != ST_LIVE)
+	{
+		return;
+	}
+	if (g_side[victim] == 2 && mode_flag(TSM_MODE_SIDE2_ENDLESS))
+	{
+		g_revive_pending[victim] = true;
+		g_died_at[victim] = get_gametime();
+		dbg("lives: %d down on the endless side, waiting for its next wave", victim);
+		return;
+	}
+	if (!get_pcvar_num(g_cv_respawns))
 	{
 		return;
 	}
@@ -13742,7 +14010,7 @@ lives_on_death(victim)
 /// team guards below do the actual choosing.
 fire_wave(team, bool:forced)
 {
-	if (!get_pcvar_num(g_cv_respawns) || g_state != ST_LIVE)
+	if (!side_respawns(team) || g_state != ST_LIVE)
 	{
 		return 0;
 	}
@@ -13874,7 +14142,7 @@ show_waiting_list(id, team)
 /// living Officer. Someone out of lives gets no timer, because they are fully out.
 public task_wave_tick()
 {
-	if (g_state != ST_LIVE || !get_pcvar_num(g_cv_respawns))
+	if (g_state != ST_LIVE || (!side_respawns(1) && !side_respawns(2)))
 	{
 		remove_task(TSM_TASK_WAVE);
 		if (g_state == ST_LIVE)
@@ -13884,14 +14152,36 @@ public task_wave_tick()
 		return;
 	}
 
-	new Float:wave = get_pcvar_float(g_cv_respwave);
 	for (new t = 1; t <= 2; t++)
 	{
+		// One side can lose its waves while the other keeps them -- tsm_respawns 0 under a
+		// mode whose side 2 is endless. Nobody left waiting on it may hold the round open.
+		if (!side_respawns(t))
+		{
+			if (count_waiting(t) > 0)
+			{
+				respawns_off_cut(t);
+			}
+			continue;
+		}
+
+		// A side whose waves the mode brings itself (tsm_wave_seconds below 0) has no timer.
+		if (g_wave_secs[t] < 0.0)
+		{
+			continue;
+		}
+
 		g_wave_left[t] -= 1.0;
 		if (g_wave_left[t] <= 0.0)
 		{
+			g_wave_num[t]++;
+			if (g_fw_wave != -1 && g_mode_name[0])
+			{
+				new ret;
+				ExecuteForward(g_fw_wave, ret, t, g_wave_num[t]);
+			}
 			fire_wave(t, false);
-			g_wave_left[t] = wave;
+			g_wave_left[t] = wave_interval(t);
 		}
 	}
 
@@ -14118,6 +14408,9 @@ public task_revive_arm(taskid)
 		set_class_model(id, ci);
 		g_in_userinfo[id] = bwas;
 	}
+
+	// After the class health above, so a mode's own health (survival's waves) is the last word.
+	mode_notify(g_fw_armed, id);
 }
 
 /// The Officer's call: brings the team's waiting players back now, whatever the wave timer
@@ -15600,6 +15893,12 @@ refresh_gamedesc()
 	{
 		get_pcvar_string(g_cv_gamedesc_siege, g_gamedesc, charsmax(g_gamedesc));
 	}
+	else if (g_mode_name[0])
+	{
+		// The claimed mode's own name: "Uplink", "Wave Survival". A claim is refused on a
+		// siege map, so the branch above never hides one.
+		copy(g_gamedesc, charsmax(g_gamedesc), g_mode_desc);
+	}
 	else
 	{
 		get_pcvar_string(g_cv_gamedesc, g_gamedesc, charsmax(g_gamedesc));
@@ -15638,6 +15937,15 @@ refresh_presence()
 	}
 	set_pcvar_string(g_cv_presiege, text);
 	set_pcvar_string(g_cv_presattack, attack);
+	set_pcvar_string(g_cv_presmode, g_mode_name);
+	if (g_mode_name[0])
+	{
+		set_pcvar_string(g_cv_presprog, g_mode_prog);
+	}
+	else
+	{
+		set_pcvar_string(g_cv_presprog, "");
+	}
 
 	num_to_str(presence_side_count(1), num, charsmax(num));
 	set_pcvar_string(g_cv_presside1, num);
@@ -17050,12 +17358,17 @@ end_round(winner)
 
 	show_score_hud();
 
+	// A claimed mode closes the round its own way: the uplink takes its carrier's item back,
+	// survival says how many waves were held.
+	mode_notify(g_fw_round_end, winner);
+
 	new need = (get_pcvar_num(g_cv_rounds) / 2) + 1;
 	if (need < 1)
 	{
 		need = 1;   // a nonsense tsm_rounds must not mean "never end"
 	}
-	if (g_score[1] >= need || g_score[2] >= need)
+	// A one-run mode (survival) has no best-of: the run that just ended was the match.
+	if (mode_flag(TSM_MODE_ONE_RUN) || g_score[1] >= need || g_score[2] >= need)
 	{
 		set_task(3.0, "task_match_end", 4);
 	}
@@ -17073,10 +17386,18 @@ public task_next_round()
 public task_match_end()
 {
 	g_state = ST_MATCHEND;
-	new w = (g_score[1] > g_score[2]) ? 1 : 2;
-	new wname[32];
-	team_display(w, wname, charsmax(wname));
-	all_print("[MATCH] MATCH OVER -- %s wins, %d -- %d.", wname, g_score[1], g_score[2]);
+	if (mode_flag(TSM_MODE_ONE_RUN))
+	{
+		// The mode has already said how the run went; a 0 -- 1 scoreline would only confuse it.
+		all_print("[MATCH] RUN OVER -- back to warmup. Type .ready for another.");
+	}
+	else
+	{
+		new w = (g_score[1] > g_score[2]) ? 1 : 2;
+		new wname[32];
+		team_display(w, wname, charsmax(wname));
+		all_print("[MATCH] MATCH OVER -- %s wins, %d -- %d.", wname, g_score[1], g_score[2]);
+	}
 	restore_all();
 	set_task(5.0, "task_to_warmup");
 }
@@ -17488,6 +17809,10 @@ start_round()
 
 	// tsm_fogtest never survives into a new round either, for the same reason.
 	g_fogtest = false;
+
+	// A claimed mode puts its own state back to the round's start: the uplink's zones go
+	// neutral, the survival wave count goes back to 1.
+	mode_notify(g_fw_round_start, g_round);
 
 	// Re-forced every round: cashforwin and cashforlose are read at the END of one,
 	// and a map change or an rcon set in between would have put them back.
@@ -18191,6 +18516,24 @@ show_round_timer()
 	team_short(1, t1, charsmax(t1));
 	team_short(2, t2, charsmax(t2));
 
+	// A mode with no clock: the round runs until it is decided, so nothing counts down and
+	// the line carries the mode's own text ("WAVE 12") where the time would be.
+	if (mode_flag(TSM_MODE_NO_CLOCK))
+	{
+		set_hudmessage(186, 116, 255, -1.0, 0.03, 0, 0.0, 1.5, 0.0, 0.0, 1);
+		if (g_mode_hud[0])
+		{
+			show_hudmessage(0, "ROUND %d -- %s^n%s %d  --  %d %s",
+				g_round, g_mode_hud, t1, g_score[1], g_score[2], t2);
+		}
+		else
+		{
+			show_hudmessage(0, "ROUND %d^n%s %d  --  %d %s",
+				g_round, t1, g_score[1], g_score[2], t2);
+		}
+		return;
+	}
+
 	new mins = g_round_left / 60;
 	new secs = g_round_left % 60;
 
@@ -18208,8 +18551,17 @@ show_round_timer()
 
 	if (get_pcvar_num(g_cv_roundtime) > 0)
 	{
-		show_hudmessage(0, "ROUND %d -- %d:%02d^n%s %d  --  %d %s",
-			g_round, mins, secs, t1, g_score[1], g_score[2], t2);
+		// A mode's own text rides after the time ("ZONES 2 - 1").
+		if (g_mode_hud[0])
+		{
+			show_hudmessage(0, "ROUND %d -- %d:%02d -- %s^n%s %d  --  %d %s",
+				g_round, mins, secs, g_mode_hud, t1, g_score[1], g_score[2], t2);
+		}
+		else
+		{
+			show_hudmessage(0, "ROUND %d -- %d:%02d^n%s %d  --  %d %s",
+				g_round, mins, secs, t1, g_score[1], g_score[2], t2);
+		}
 
 		if (g_round_left <= 0)
 		{
@@ -18227,8 +18579,9 @@ show_round_timer()
 		 * Latched rather than recomputed, so the announcement happens once and the markers do not
 		 * blink off if the cvar is changed mid-round. start_round() clears it again.
 		 */
+		// Never in a mode that turned it off (TSM_MODE_NO_SUDDEN): the uplink and survival.
 		new sd = get_pcvar_num(g_cv_sudden);
-		if (sd > 0 && !g_sudden && g_round_left <= sd)
+		if (sd > 0 && !g_sudden && g_round_left <= sd && !mode_flag(TSM_MODE_NO_SUDDEN))
 		{
 			g_sudden = true;
 			tlog("[TSM] Sudden death on at %d seconds left, %d waiting for a wave.", g_round_left, count_waiting(1) + count_waiting(2));
@@ -18647,6 +19000,10 @@ public task_go_live()
 		apply_class_scale(rp[i]);
 
 		officer_powerup(rp[i]);
+
+		// After the class health above, so a mode's own health (survival's waves) is the last word.
+		mode_notify(g_fw_armed, rp[i]);
+
 		release_player(rp[i]);
 
 		// Fresh round: reset the bot dry-weapon counters so a bot that ran dry last
@@ -18729,12 +19086,16 @@ public task_go_live()
 
 	g_round_left = get_pcvar_num(g_cv_roundtime);
 
-	new rt = get_pcvar_num(g_cv_roundtime);
+	// A mode with no clock (TSM_MODE_NO_CLOCK) runs the round until it is decided, so no
+	// timeout is armed and the round line shows the mode's own text instead of a time.
+	new rt = mode_flag(TSM_MODE_NO_CLOCK) ? 0 : get_pcvar_num(g_cv_roundtime);
 	if (rt > 0)
 	{
 		g_round_ends = get_gametime() + float(rt);
 		set_task(float(rt), "task_round_timeout", 2);
 	}
+
+	mode_notify(g_fw_round_live, g_round);
 }
 
 public task_round_timeout()
@@ -18758,6 +19119,25 @@ round_time_expired()
 	}
 
 	remove_task(2);
+
+	// A claimed mode decides its own time-up: the uplink by who holds the most zones. It
+	// answers PLUGIN_HANDLED and ends the round through tsm_end_round; anything else falls
+	// through to the rules below.
+	if (g_fw_timeout != -1 && g_mode_name[0])
+	{
+		new ret = PLUGIN_CONTINUE;
+		ExecuteForward(g_fw_timeout, ret);
+		if (g_state != ST_LIVE)
+		{
+			return;
+		}
+		// Answered but left the round running: a round with no timeout armed would hang, so
+		// the usual rules below decide it after all.
+		if (ret == PLUGIN_HANDLED)
+		{
+			tlog("[TSM] Mode '%s' took the time-up but left the round live -- the usual rules decide it.", g_mode_name);
+		}
+	}
 
 	// Siege: the attacker (tsm_obj_team) must finish the objective to win. Time running
 	// out with it still standing is a defensive win, headcount notwithstanding -- only a
@@ -18964,6 +19344,201 @@ public native_match_info(plugin, params)
 	return 1;
 }
 
+/* ---- the mode API (include\tsm_api.inc) ---------------------------------- */
+
+/*
+ * tsm_mode_claim(name[], desc[], flags): this map becomes the mode's.
+ *
+ * One claim a map, made by a mode plugin a moment after the map loads, and none on a map with
+ * siege objectives: siege_count() is read as the claim is made, so a map carrying tsm_obj_#
+ * and tsm_cap_# both stays a siege map, and the conflict is logged rather than half-played.
+ */
+public native_mode_claim(plugin, params)
+{
+	new name[16], desc[64];
+	get_string(1, name, charsmax(name));
+	get_string(2, desc, charsmax(desc));
+	new flags = get_param(3);
+
+	if (!name[0])
+	{
+		return 0;
+	}
+	if (g_mode_name[0])
+	{
+		tlog("[TSM] Mode '%s' wanted %s, but '%s' already has it.", name, g_mapname, g_mode_name);
+		return 0;
+	}
+	if (siege_count() > 0)
+	{
+		tlog("[TSM] Mode '%s' refused: %s has siege objectives (tsm_obj_#), so it stays a siege map.", name, g_mapname);
+		return 0;
+	}
+
+	copy(g_mode_name, charsmax(g_mode_name), name);
+	copy(g_mode_desc, charsmax(g_mode_desc), desc);
+	g_mode_flags = flags;
+	g_mode_hud[0] = 0;
+	refresh_gamedesc();
+
+	// rcbot evens its own bots across the two sides, which would keep pulling them back off
+	// side 2. The bots-on push in the tick reads the claim too, so it cannot undo this.
+	if (mode_flag(TSM_MODE_SIDE2_BOTS))
+	{
+		server_cmd("rcbot config balance_teams 0");
+	}
+
+	tlog("[TSM] %s is a %s map (flags %d).", g_mapname, g_mode_name, g_mode_flags);
+	dbg("mode claimed: %s, browser '%s', flags %d", g_mode_name, g_mode_desc, g_mode_flags);
+	return 1;
+}
+
+/// tsm_end_round(winner): ends the live round now, 1 or 2 winning it and anything else drawing it.
+public native_end_round(plugin, params)
+{
+	if (g_state != ST_LIVE)
+	{
+		return 0;
+	}
+	new winner = get_param(1);
+	end_round((winner == 1 || winner == 2) ? winner : 0);
+	return 1;
+}
+
+/// tsm_reward_lives(side): lives back for side 1, side 2 or both (0). See reward_lives().
+public native_reward_lives(plugin, params)
+{
+	return reward_lives(get_param(1));
+}
+
+/*
+ * tsm_wave_seconds(side, Float:seconds): a side's wave interval while the mode runs.
+ * 0 is tsm_respawn_wave again; below 0 the side has no timed waves at all, and its dead wait
+ * for the mode's own tsm_fire_wave -- how a survival wave waits for the last mutant to fall.
+ */
+public native_wave_seconds(plugin, params)
+{
+	new side = get_param(1);
+	if (side != 1 && side != 2)
+	{
+		return 0;
+	}
+	new Float:secs = get_param_f(2);
+	g_wave_secs[side] = (secs < 0.0) ? -1.0 : secs;
+	return 1;
+}
+
+/// tsm_fire_wave(side): everyone waiting on that side back now, as a forced wave does.
+public native_fire_wave(plugin, params)
+{
+	new side = get_param(1);
+	if (side != 1 && side != 2)
+	{
+		return 0;
+	}
+	return fire_wave(side, true);
+}
+
+/// tsm_hud_line(text[]): the mode's own text on the round line. Empty clears it.
+public native_hud_line(plugin, params)
+{
+	get_string(1, g_mode_hud, charsmax(g_mode_hud));
+	return 1;
+}
+
+/// tsm_state(): the match state, ST_* (the include's TSM_ST_*).
+public native_state(plugin, params)
+{
+	return g_state;
+}
+
+/// tsm_side_of(id): 1 or 2 for a player on a side this match, eliminated or not; 0 otherwise.
+public native_side_of(plugin, params)
+{
+	new id = get_param(1);
+	if (id < 1 || id >= MAXPL)
+	{
+		return 0;
+	}
+	if (g_match_team[id] == 1 || g_match_team[id] == 2)
+	{
+		return g_match_team[id];
+	}
+	return (g_side[id] == 1 || g_side[id] == 2) ? g_side[id] : 0;
+}
+
+/// tsm_in_play(id): alive, on a side, not eliminated and not sitting the match out.
+public native_in_play(plugin, params)
+{
+	new id = get_param(1);
+	if (id < 1 || id >= MAXPL || !is_user_connected(id) || !is_user_alive(id))
+	{
+		return 0;
+	}
+	if (g_elim[id] || g_locked_out[id] || is_spectating(id))
+	{
+		return 0;
+	}
+	return (g_match_team[id] == 1 || g_match_team[id] == 2) ? 1 : 0;
+}
+
+/// tsm_side_alive(side): what the round counts as still in it -- alive, or waiting for a wave.
+public native_side_alive(plugin, params)
+{
+	new side = get_param(1);
+	return (side == 1 || side == 2) ? count_alive(side) : 0;
+}
+
+/// tsm_give_powerup(id, type): a TSPWUP_* through TS's own pickup (tsm_grant_powerup).
+public native_give_powerup(plugin, params)
+{
+	new id = get_param(1);
+	if (id < 1 || id >= MAXPL)
+	{
+		return 0;
+	}
+	return tsm_grant_powerup(id, get_param(2)) ? 1 : 0;
+}
+
+/// tsm_match_desc(out[], len): the browser's game description as it reads right now.
+public native_match_desc(plugin, params)
+{
+	set_string(1, g_gamedesc, get_param(2));
+	return 1;
+}
+
+/// tsm_set_class(id, cls): the class a player plays, 1 and up in tsm_classN order.
+public native_set_class(plugin, params)
+{
+	new id = get_param(1);
+	new cls = get_param(2);
+	if (id < 1 || id >= MAXPL || cls < 1 || cls > g_class_count)
+	{
+		return 0;
+	}
+	g_player_class[id] = cls;
+	return 1;
+}
+
+/// tsm_set_progress(text[]): the mode's progress, published as tsm_pres_prog once a second.
+public native_set_progress(plugin, params)
+{
+	get_string(1, g_mode_prog, charsmax(g_mode_prog));
+	return 1;
+}
+
+/// tsm_class_hp(id): the health the player's class sets.
+public native_class_hp(plugin, params)
+{
+	new id = get_param(1);
+	if (id < 1 || id >= MAXPL || !g_class_count)
+	{
+		return 0;
+	}
+	new ci = resolved_class(id) - 1;
+	return (ci >= 0 && ci < g_class_count) ? g_class_hp[ci] : 0;
+}
+
 print_status(id)
 {
 	client_print(id, print_chat, "[MATCH] State %d, round %d, score %d - %d",
@@ -19025,7 +19600,8 @@ check_all_ready()
 		{
 			return;
 		}
-		if (r1 < n1 || r2 < n2)
+		// Side 2 bots only by design (survival) never readies: the people on side 1 decide.
+		if (r1 < n1 || (r2 < n2 && !mode_flag(TSM_MODE_SIDE2_BOTS)))
 		{
 			return;
 		}
@@ -19276,6 +19852,11 @@ public cmd_debug(id, level, cid)
 		g_state, g_round, g_score[1], g_score[2], g_start_alive[1], g_start_alive[2]);
 	console_print(id, "[TSM] respawns=%d  team1: next wave %.0fs, %d waiting  team2: next wave %.0fs, %d waiting",
 		get_pcvar_num(g_cv_respawns), g_wave_left[1], count_waiting(1), g_wave_left[2], count_waiting(2));
+	// The claimed mode, if any (include\tsm_api.inc): 1 no sudden death, 2 no clock, 4 side 2
+	// bots only, 8 side 2 endless, 16 one run per match. Wave seconds below 0: the mode's own waves.
+	console_print(id, "[TSM] mode='%s' browser='%s' flags=%d hud='%s' wave secs %.0f/%.0f, waves fired %d/%d",
+		g_mode_name[0] ? g_mode_name : "none", g_gamedesc, g_mode_flags, g_mode_hud,
+		g_wave_secs[1], g_wave_secs[2], g_wave_num[1], g_wave_num[2]);
 	console_print(id, "[TSM] rounds cvar=%d -> need %d to win",
 		get_pcvar_num(g_cv_rounds), (get_pcvar_num(g_cv_rounds) / 2) + 1);
 	console_print(id, "[TSM] team_mode='%s' team1='%s' team2='%s'", mode, t1, t2);
@@ -19593,6 +20174,7 @@ public client_putinserver(id)
 	g_connect_at[id] = get_gametime();
 	g_mech_hp_watch[id] = 0;
 	g_m60_skip[id] = -1;
+	g_lo_n[id] = -1;
 
 	// The slot may have belonged to somebody else a second ago: no half-forgotten
 	// scanner cooldown or scan mark may follow a new player in.
@@ -20320,7 +20902,19 @@ bool:halt_for_imbalance()
 		}
 	}
 
-	if (balance_ok() && !humans_short)
+	/*
+	 * Side 2 bots only by design (survival): nobody human is ever on it, and the sides are
+	 * meant to be uneven, so neither test above means anything. The one thing that still
+	 * stops the run is side 1 emptying of people -- the abandonment below.
+	 */
+	if (mode_flag(TSM_MODE_SIDE2_BOTS))
+	{
+		if (h1 > 0)
+		{
+			return false;
+		}
+	}
+	else if (balance_ok() && !humans_short)
 	{
 		return false;
 	}
@@ -20615,7 +21209,8 @@ refresh_player_flags()
 		 * using the old side's spawn points. rcbot moving its own bots keeps every view
 		 * in agreement.
 		 */
-		server_cmd("rcbot config balance_teams 1");
+		// Not where side 2 is bots only by design (survival): rcbot would even them back out.
+		server_cmd("rcbot config balance_teams %d", mode_flag(TSM_MODE_SIDE2_BOTS) ? 0 : 1);
 		server_cmd("rcbot config min_bots 0");
 
 		/*
