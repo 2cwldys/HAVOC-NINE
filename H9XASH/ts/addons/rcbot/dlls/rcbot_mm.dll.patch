@@ -1,6 +1,6 @@
 H9 rcbot_mm.dll -- built from patched source
 
-Built from APGRoboCop/rcbotold at v1.51b13 (43ecb57) with the four patches in
+Built from APGRoboCop/rcbotold at v1.51b13 (43ecb57) with the five patches in
 rcbot-patch/, applied in this order (rcbot-patch/README.txt, REBUILDING):
 
   1. rcbot-ts-teams.patch         CHANGES 1-4: TS teams from pev->team, nopowerup
@@ -12,14 +12,36 @@ rcbot-patch/, applied in this order (rcbot-patch/README.txt, REBUILDING):
                                   the CBotSquads::createSquad stub, RemoveSimilarTask,
                                   the weapon choice re-seeded in place, and
                                   returnVector()->size()
-  4. rcbot-waypoints-doors.patch  CHANGE 6, new in this build (the diff below)
+  4. rcbot-waypoints-doors.patch  CHANGE 6
+  5. rcbot-ts-turrets.patch       CHANGE 7, new in this build: the other side's
+                                  sentry turret is an enemy, one's own never is
+                                  (its diff is the first below)
 
 Patch 3 is the part of the 10/22 build no patch held: patches 1 and 2 alone give
-a tree that does not compile. With it, the four patches on a fresh checkout of
+a tree that does not compile. With it, the five patches on a fresh checkout of
 v1.51b13 give, file for file, the source this DLL was built from (all 154 files
 in dlls/, line endings aside), and this DLL was built from that checkout:
 MSBuild, MetaMod Release, Win32, MSVC v145 -- 0 errors, and no warning in a line
 any of the patches changes.
+
+CHANGE 7 (README.txt, CHANGE 7):
+
+diff --git a/dlls/bot.cpp b/dlls/bot.cpp
+--- a/dlls/bot.cpp
++++ b/dlls/bot.cpp
+@@ -9036,6 +9036,12 @@
+ 		{
+ 			const char* szClassname = const_cast<char*>(STRING(pEntity->v.classname));
+ 
++			// A sentry turret (ts_matchmode.sma's .turret): the other side's, never one's own. The plugin
++			// stamps it with its side in pev->team, as it does every player, and keeps its health there
++			// while it stands. Ahead of the breakable rule, which shoots one whenever anybody is near it.
++			if (std::strcmp(szClassname, "turret") == 0)
++				return pev->team > 0 && pEntity->v.team > 0 && pev->team != pEntity->v.team;
++
+ 			if (std::strcmp(szClassname, "func_breakable") == 0)
+ 			{
+ 				edict_t* pPlayer = nullptr;
 
 CHANGE 6 (README.txt, CHANGE 6):
   - MAX_WAYPOINTS 1024 -> 4096, for one waypoint set over h9_tsrp_hive's three

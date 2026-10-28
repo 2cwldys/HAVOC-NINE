@@ -1,6 +1,6 @@
 ===============================================================================
  TS MATCH MODE -- COMMAND REFERENCE
- Plugins: ts_matchmode.amxx 1.54-modes3   ts_uplink.amxx 1.0-modes2
+ Plugins: ts_matchmode.amxx 1.54-turret8   ts_uplink.amxx 1.0-modes2
           ts_survival.amxx 1.0-modes2   ts_mechwarrior.amxx 1.0-modes2
 ===============================================================================
 
@@ -59,7 +59,9 @@
 
        Combat Engineer   +USE on a teammate resupplies them, every 30 seconds
                          (tsm_eng_cooldown). They glow YELLOW while it lands
-                         and it is audible to anyone nearby.
+                         and it is audible to anyone nearby. .turret stands
+                         a sentry turret; +USE on one of your side's repairs
+                         it.
        Breacher          +USE forces a DOOR open -- and shows "Breached." --
                          that part is still one press, and doors only respond
                          when they were actually LOCKED ("Use Only" spawnflag)
@@ -282,6 +284,25 @@
      units if you are genuinely embedded in solid. Bots are moved to a clear
      ring spot (8 directions tried) and zeroed. 3-second cooldown. Bots only
      -- never affects humans. Only affects bots currently following YOU.
+
+ .turret                       (Combat Engineer only, live round, alive)
+     Stand a sentry turret on the floor 64 units in front of you, facing the
+     way you face: blue for MSR, red for the Insurgents. It deploys for a
+     second, then shoots the OTHER side's players in its sight -- never your
+     side, never a spectator, never a cloaked Recon. ONE A ROUND per engineer
+     (one a wave in Wave Survival), even once it is destroyed, and two standing
+     per side (tsm_turret_per_team). +USE on your
+     side's turret puts 100 health back, once every 30 seconds per turret.
+     Enemy fire destroys it; every turret goes at the start of each round and
+     when its engineer leaves. Refused, with the reason, on a wall, a ledge or
+     a player. Also the console command turret.
+
+ .pickup                       (Combat Engineer only, live round, alive)
+     Pack up YOUR turret -- the one you are looking at, within +USE reach
+     (tsm_eng_range) -- and carry it. Your next .turret sets it down again
+     with the health it had and its repair wait still running, even though
+     the round's one turret is already used. A carried turret is lost at the
+     next round (wave in Wave Survival). Also the console command pickup.
 
  .rocket                       (Mech class only, while alive)
      Fire a rocket at whatever your crosshair is on, up to 2000 units away: a
@@ -1274,6 +1295,17 @@
  tsm_eng_shell             16         that glow's thickness
  tsm_eng_sound             items/9mmclip1.wav   the resupply's sound
  tsm_eng_entities          (empty)    entity classnames the engineer may +USE
+
+ -- the sentry turret (.turret, Combat Engineer)
+ tsm_turret                1          turrets on
+ tsm_turret_per_team       2          standing at once per side
+ tsm_turret_hp             250        its health
+ tsm_turret_range          1000       how far it sees and shoots
+ tsm_turret_damage         48         damage a round
+ tsm_turret_rate           8.0        rounds a second
+ tsm_turret_spread         2.0        spread, degrees
+ tsm_turret_repair         100        health one +USE repair puts back
+ tsm_turret_repair_cooldown 30        seconds between repairs of one turret
  tsm_eng_door_class        Combat Engineer      the class tsm_eng_door doors
                                       answer to
  tsm_eng_door_team         0          which side's: 0 either, 1 or 2 that side's

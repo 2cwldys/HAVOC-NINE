@@ -74,7 +74,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.54-modes3"
+#define TSM_BUILD "1.54-turret8"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -160,6 +160,28 @@ stock icon_frame_for(ci, team)
 #define MECH_LEAP       "ambience/loader_hydra1.wav"
 #define MECH_LAND       "garg/gar_step1.wav"
 #define MECH_LAND2      "ambience/loader_step1.wav"
+// The Combat Engineer's sentry turret: Natural Selection's b_sentry, baked in each side's colour.
+#define TSM_TURRET_MAX     8
+#define TSM_TURRET_NAME    "tsm_turret"
+#define TSM_TURRET_MDL_1   "models/tsm_turret_blue.mdl"
+#define TSM_TURRET_MDL_2   "models/tsm_turret_red.mdl"
+#define TSM_TURRET_PING    "turret/turret_ping.wav"
+#define TSM_TURRET_DEPLOY  "turret/turret_deploy.wav"
+#define TSM_TURRET_BOOM    "sprites/zerogxplode.spr"
+#define TSM_TASK_TURRET    90510
+// Its sequences, by number as the model keeps them.
+#define TURRET_SEQ_IDLE    0
+#define TURRET_SEQ_FIRE    1
+#define TURRET_SEQ_SPIN    2
+#define TURRET_SEQ_DEPLOY  3
+#define TURRET_SEQ_DIE     5
+// Where the model's gun is, in its body's own space: the head turns about an upright TURRET_AXIS_X in
+// front of its origin; the gun tips about a point TURRET_PIVOT_BACK behind that axis, TURRET_GUN_Z up;
+// the barrels end TURRET_BARREL out from there along the aim.
+#define TURRET_AXIS_X      2.5
+#define TURRET_PIVOT_BACK  2.7
+#define TURRET_GUN_Z       42.8
+#define TURRET_BARREL      22.3
 // TS's stunt bits in pev_iuser4 (reTS ts_stunt.h): dive, cartwheels, wall-jump and wall-climb launching or under
 // way, and the landing roll.
 #define TSM_STUNT_BITS  (0x000010 | 0x000c00 | 0x007000 | 0x008000 | 0x010000 | 0x020000 | 0x040000)
@@ -830,6 +852,35 @@ new bool:g_mode_classes;               // a claimed mode has set class rules on 
 new g_mode_bot_class;                  // the class every bot plays while the mode runs; 0 leaves it to tsm_bot_class
 new g_mech_stunt[MAXPL];               // a mech's stunt: 0 none, 1 under way, 2 under way and off the ground
 new Float:g_mech_stunt_at[MAXPL];      // when that stunt began
+
+// The sentry turrets standing, one slot each: the entity (0 a free slot), whose it is, its side, its health
+// (kept here: TS's damage never reaches the func_breakable's own), when it can next be repaired, when it has
+// deployed, its next look for a target, its next shot, its target, the shots it has fired, its body's yaw.
+new g_turret[TSM_TURRET_MAX];
+new g_turret_owner[TSM_TURRET_MAX];
+new g_turret_side[TSM_TURRET_MAX];
+new Float:g_turret_hp[TSM_TURRET_MAX];
+new Float:g_turret_repair_at[TSM_TURRET_MAX];
+new Float:g_turret_ready_at[TSM_TURRET_MAX];
+new Float:g_turret_seek_at[TSM_TURRET_MAX];
+new Float:g_turret_shot_at[TSM_TURRET_MAX];
+new g_turret_target[TSM_TURRET_MAX];
+new g_turret_shots[TSM_TURRET_MAX];
+new Float:g_turret_yaw[TSM_TURRET_MAX];
+new bool:g_turret_used[MAXPL];   // .turret placed this round (this wave in Wave Survival): once each
+// A turret packed up with .pickup and carried: its health and when it can next be repaired, for .turret
+// to stand it down again as it was.
+new bool:g_turret_carry[MAXPL];
+new Float:g_turret_carry_hp[MAXPL];
+new Float:g_turret_carry_rep[MAXPL];
+new bool:g_turret_ok;     // its models and sounds are all there and precached
+new g_turret_boom;        // the explosion sprite's index
+new g_turret_blood, g_turret_bloodspray;   // the blood sprites a hit shows, 0 when the game has none
+new g_turret_flash;   // TS's own muzzle flash sprite, 0 when the game has none
+new g_turret_trail, bool:g_turret_bullet;   // TS's slow-motion bullet trail and its bullet model, 0/false when missing
+new g_cv_turret, g_cv_turret_per_team, g_cv_turret_hp, g_cv_turret_range, g_cv_turret_dmg;
+new g_cv_turret_rate, g_cv_turret_spread, g_cv_turret_repair, g_cv_turret_repaircd;
+new const g_turret_fire_snd[][] = { "turret/turret-1.wav", "turret/turret-2.wav", "turret/turret-3.wav", "turret/turret-4.wav" };
 new Float:g_class_speed[TSM_MAXCLASS];   // movement multiplier, 1.0 = normal
 new Float:g_class_scale[TSM_MAXCLASS];   // how tall the model is drawn, 1.0 = normal
 new g_class_menu = 0;
@@ -3845,6 +3896,47 @@ public plugin_precache()
 	precache_sound(MECH_LAND);
 	precache_sound(MECH_LAND2);
 
+	// The sentry turret's models and sounds, precached only when every one of them is there: a precached
+	// name with no file behind it is a fatal Host_Error, so a missing file switches the turret off instead.
+	new tpath[64];
+	g_turret_ok = file_exists(TSM_TURRET_MDL_1, true) && file_exists(TSM_TURRET_MDL_2, true);
+	formatex(tpath, charsmax(tpath), "sound/%s", TSM_TURRET_PING);
+	g_turret_ok = g_turret_ok && file_exists(tpath, true);
+	formatex(tpath, charsmax(tpath), "sound/%s", TSM_TURRET_DEPLOY);
+	g_turret_ok = g_turret_ok && file_exists(tpath, true);
+	for (new s = 0; g_turret_ok && s < sizeof g_turret_fire_snd; s++)
+	{
+		formatex(tpath, charsmax(tpath), "sound/%s", g_turret_fire_snd[s]);
+		g_turret_ok = file_exists(tpath, true) != 0;
+	}
+	if (g_turret_ok)
+	{
+		precache_model(TSM_TURRET_MDL_1);
+		precache_model(TSM_TURRET_MDL_2);
+		precache_sound(TSM_TURRET_PING);
+		precache_sound(TSM_TURRET_DEPLOY);
+		for (new s = 0; s < sizeof g_turret_fire_snd; s++)
+		{
+			precache_sound(g_turret_fire_snd[s]);
+		}
+		g_turret_boom = precache_model(TSM_TURRET_BOOM);
+		if (file_exists("sprites/blood.spr", true) && file_exists("sprites/bloodspray.spr", true))
+		{
+			g_turret_blood = precache_model("sprites/blood.spr");
+			g_turret_bloodspray = precache_model("sprites/bloodspray.spr");
+		}
+		if (file_exists("sprites/ts_muzzleflash1.spr", true))
+		{
+			g_turret_flash = precache_model("sprites/ts_muzzleflash1.spr");
+		}
+		if (file_exists("sprites/bullet_trail.spr", true) && file_exists("models/bullet.mdl", true))
+		{
+			g_turret_trail = precache_model("sprites/bullet_trail.spr");
+			precache_model("models/bullet.mdl");
+			g_turret_bullet = true;
+		}
+	}
+
 	/*
 	 * MECH STEP AND LOOP SOUNDS: mechwalk / mechwalk2 alternate on footsteps,
 	 * mechloop is the idle hum under every living mech. Moved here from the
@@ -4613,6 +4705,18 @@ public plugin_init()
 	g_cv_engshell  = register_cvar("tsm_eng_shell",     "16");
 	g_cv_engcool   = register_cvar("tsm_eng_cooldown",  "30.0");
 
+	// The Combat Engineer's sentry turret (.turret): how many, how tough, how far and how hard it shoots,
+	// and its repair.
+	g_cv_turret          = register_cvar("tsm_turret",                 "1");
+	g_cv_turret_per_team = register_cvar("tsm_turret_per_team",        "2");
+	g_cv_turret_hp       = register_cvar("tsm_turret_hp",              "250");
+	g_cv_turret_range    = register_cvar("tsm_turret_range",           "1000");
+	g_cv_turret_dmg      = register_cvar("tsm_turret_damage",          "48");
+	g_cv_turret_rate     = register_cvar("tsm_turret_rate",            "8.0");
+	g_cv_turret_spread   = register_cvar("tsm_turret_spread",          "2.0");
+	g_cv_turret_repair   = register_cvar("tsm_turret_repair",          "100");
+	g_cv_turret_repaircd = register_cvar("tsm_turret_repair_cooldown", "30");
+
 	/*
 	 * Slow health regeneration, for whatever class carries TSM_PERK_REGEN.
 	 *
@@ -5072,6 +5176,8 @@ public plugin_init()
 	// TS powerups: the command that activates one, and the cheat that grants one.
 	register_clcmd("tsm_model", "cmd_model");
 	register_clcmd("stim", "cmd_stim_console");
+	register_clcmd("turret", "cmd_turret_console");
+	register_clcmd("pickup", "cmd_pickup_console");
 
 	// The mech sound bench. Console for a keybind, say .mechtest in hook_say for
 	// use from chat -- it only ever plays sounds, so no dedicated say wrapper needed.
@@ -5139,6 +5245,8 @@ public plugin_init()
 
 	// Mech idle hum: re-emitted from every living mech so it hears as one loop.
 	set_task(MECH_LOOP_PERIOD, "task_mech_loop", 21000, "", 0, "b");
+	// Every sentry turret's sight and fire, ten times a second.
+	set_task(0.1, "task_turrets", TSM_TASK_TURRET, "", 0, "b");
 }
 
 public plugin_cfg()
@@ -12427,6 +12535,13 @@ public task_charge_fuse()
  */
 public fw_obj_dmg(ent, inflictor, attacker, Float:damage, damagebits)
 {
+	// A sentry turret keeps its own health (turret_damage): CBreakable never sees the wound.
+	new t = turret_slot(ent);
+	if (t >= 0)
+	{
+		turret_damage(t, attacker, damage);
+		return HAM_SUPERCEDE;
+	}
 	if (!siege_number(ent))
 	{
 		return HAM_IGNORED;
@@ -13693,6 +13808,755 @@ public cmd_opendoor(id, level, cid)
  * Deliberately open-ended -- tsm_eng_entities is empty by default, so until maps ship
  * entities meant for this, +USE against the world behaves exactly as stock TS.
  */
+/* ---- the Combat Engineer's sentry turret ------------------------------- */
+
+/*
+ * THE SENTRY TURRET, after Natural Selection's: a Combat Engineer stands one up with .turret, it
+ * shoots the other side's players and nobody else, his side repairs it with +USE once every
+ * tsm_turret_repair_cooldown seconds, and enough damage destroys it.
+ *
+ * It is a func_breakable the plugin makes without spawning it, wearing the side's own model
+ * (tsm_turret_blue.mdl for side 1, tsm_turret_red.mdl for side 2): TS's gunfire and grenades reach
+ * a func_breakable's TakeDamage, which fw_obj_dmg hands to turret_damage, and its health is kept
+ * here. The body faces where it was put down; the head turns by the model's two bone controllers,
+ * 0 the yaw (0-360 degrees) and 1 the pitch (-60 to 60). task_turrets sees and fires for every
+ * turret ten times a second. Every turret goes at each round's start, at the end of a match, with
+ * tsm_enabled 0, and when its engineer leaves.
+ */
+
+/// The slot of a turret's entity, -1 when it is not one.
+turret_slot(ent)
+{
+	if (ent <= 0)
+	{
+		return -1;
+	}
+	for (new t = 0; t < TSM_TURRET_MAX; t++)
+	{
+		if (g_turret[t] == ent)
+		{
+			return t;
+		}
+	}
+	return -1;
+}
+
+/// Removes one turret at once, and forgets it.
+turret_remove(t)
+{
+	if (g_turret[t] && pev_valid(g_turret[t]))
+	{
+		engfunc(EngFunc_RemoveEntity, g_turret[t]);
+	}
+	g_turret[t] = 0;
+	g_turret_owner[t] = 0;
+	g_turret_target[t] = 0;
+}
+
+/// Removes every turret, or only an owner's (owner > 0).
+turrets_clear(owner = 0)
+{
+	for (new t = 0; t < TSM_TURRET_MAX; t++)
+	{
+		if (g_turret[t] && (!owner || g_turret_owner[t] == owner))
+		{
+			turret_remove(t);
+		}
+	}
+}
+
+/// How many turrets stand for a side.
+turret_count(side)
+{
+	new n = 0;
+	for (new t = 0; t < TSM_TURRET_MAX; t++)
+	{
+		if (g_turret[t] && g_turret_side[t] == side)
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/// Plays one of the model's sequences from its start.
+turret_sequence(ent, seq)
+{
+	if (pev(ent, pev_sequence) == seq)
+	{
+		return;
+	}
+	set_pev(ent, pev_sequence, seq);
+	set_pev(ent, pev_frame, 0.0);
+	set_pev(ent, pev_framerate, 1.0);
+	set_pev(ent, pev_animtime, get_gametime());
+}
+
+/// Where a turret looks from: its head's turning axis, at the height of its gun.
+turret_muzzle(ent, Float:muzzle[3])
+{
+	// the head's turning axis, at the gun's height: where the turret looks from
+	new Float:ang[3];
+	pev(ent, pev_origin, muzzle);
+	pev(ent, pev_angles, ang);
+	muzzle[0] += floatcos(ang[1], degrees) * TURRET_AXIS_X;
+	muzzle[1] += floatsin(ang[1], degrees) * TURRET_AXIS_X;
+	muzzle[2] += TURRET_GUN_Z;
+}
+
+/// Where a turret aims on a player: his chest.
+turret_aim_point(id, Float:at[3])
+{
+	pev(id, pev_origin, at);
+	at[2] += 8.0;
+}
+
+/*
+ * Whether a turret may shoot a player: on the OTHER playing side (1 or 2 -- never the spectator
+ * team, never nobody's), alive and in the round, not eliminated, held out, spectating or cloaked,
+ * within tsm_turret_range, and in clear sight of the barrel.
+ */
+bool:turret_can_shoot(t, id, Float:muzzle[3])
+{
+	if (id < 1 || id > g_maxplayers || !is_user_alive(id))
+	{
+		return false;
+	}
+	new side = g_match_team[id];
+	if ((side != 1 && side != 2) || side == g_turret_side[t])
+	{
+		return false;
+	}
+	if (g_elim[id] || g_locked_out[id] || is_spectating(id) || cloak_active(id))
+	{
+		return false;
+	}
+	new Float:at[3];
+	turret_aim_point(id, at);
+	if (get_distance_f(muzzle, at) > get_pcvar_float(g_cv_turret_range))
+	{
+		return false;
+	}
+	engfunc(EngFunc_TraceLine, muzzle, at, 0, g_turret[t], 0);
+	new Float:frac;
+	get_tr2(0, TR_flFraction, frac);
+	return frac >= 1.0 || get_tr2(0, TR_pHit) == id;
+}
+
+/// The nearest player the turret may shoot, 0 for none.
+turret_seek(t, Float:muzzle[3])
+{
+	new best = 0, Float:bestd = 999999.0;
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (!turret_can_shoot(t, id, muzzle))
+		{
+			continue;
+		}
+		new Float:at[3];
+		turret_aim_point(id, at);
+		new Float:d = get_distance_f(muzzle, at);
+		if (d < bestd)
+		{
+			bestd = d;
+			best = id;
+		}
+	}
+	return best;
+}
+
+/*
+ * A shot seen as TS draws a bullet in slow motion, at any speed of play: its bullet model flying from
+ * the barrel to where the round went, TS's bullet_trail along its line. Only a picture: the round itself
+ * landed when it was fired. A plain tracer where the game has no such files.
+ */
+turret_trail(Float:from[3], Float:to[3])
+{
+	new Float:dir[3];
+	for (new k = 0; k < 3; k++)
+	{
+		dir[k] = to[k] - from[k];
+	}
+	new Float:dist = floatsqroot(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+	new b = 0;
+	if (g_turret_bullet && dist > 32.0)
+	{
+		b = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+	}
+	if (!b || !pev_valid(b))
+	{
+		message_begin_f(MSG_PVS, SVC_TEMPENTITY, from);
+		write_byte(TE_TRACER);
+		write_coord(floatround(from[0]));
+		write_coord(floatround(from[1]));
+		write_coord(floatround(from[2]));
+		write_coord(floatround(to[0]));
+		write_coord(floatround(to[1]));
+		write_coord(floatround(to[2]));
+		message_end();
+		return;
+	}
+	// No faster than the engine's own cap (sv_maxvelocity, 2000 unless told): a full 1000-unit shot
+	// is half a second in the air.
+	new Float:speed = 2000.0, Float:vel[3], Float:ang[3];
+	for (new k = 0; k < 3; k++)
+	{
+		vel[k] = dir[k] / dist * speed;
+	}
+	engfunc(EngFunc_VecToAngles, vel, ang);
+	ang[0] = -ang[0];   // a studio model's pitch is the other way from a vector's
+	set_pev(b, pev_classname, "turret_bullet");
+	engfunc(EngFunc_SetModel, b, "models/bullet.mdl");
+	engfunc(EngFunc_SetOrigin, b, from);
+	set_pev(b, pev_angles, ang);
+	set_pev(b, pev_solid, SOLID_NOT);
+	set_pev(b, pev_movetype, MOVETYPE_NOCLIP);
+	set_pev(b, pev_velocity, vel);
+
+	// The trail is drawn between two points, not after the bullet: in the frame the bullet is made no
+	// client has it yet, and a trail sent to follow it would have nothing to follow. To everyone, not
+	// only those who see the barrel: whoever stands at the far end sees it arrive. It lasts until the
+	// bullet has got there, and a moment more.
+	new Float:life = dist / speed;
+	new tenths = clamp(floatround((life + 0.2) * 10.0, floatround_ceil), 2, 255);
+	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+	write_byte(TE_BEAMPOINTS);
+	write_coord(floatround(from[0]));
+	write_coord(floatround(from[1]));
+	write_coord(floatround(from[2]));
+	write_coord(floatround(to[0]));
+	write_coord(floatround(to[1]));
+	write_coord(floatround(to[2]));
+	write_short(g_turret_trail);
+	write_byte(0);     // first frame
+	write_byte(10);    // frame rate
+	write_byte(tenths);   // life, tenths of a second
+	write_byte(3);     // width
+	write_byte(0);     // no noise: a straight line
+	write_byte(255);
+	write_byte(255);
+	write_byte(255);
+	write_byte(180);   // brightness
+	write_byte(30);    // scroll
+	message_end();
+
+	set_task(life > 0.1 ? life : 0.1, "remove_ent", b);
+}
+
+/*
+ * One shot, out of the barrels' end: along the gun as it points (its world yaw and its pitch, in
+ * degrees), from the point it tips about, spread by tsm_turret_spread degrees.
+ */
+turret_fire(t, Float:pivot[3], Float:yaw, Float:pitch)
+{
+	new ent = g_turret[t];
+	new Float:dir[3];
+	dir[0] = floatcos(pitch, degrees) * floatcos(yaw, degrees);
+	dir[1] = floatcos(pitch, degrees) * floatsin(yaw, degrees);
+	dir[2] = floatsin(pitch, degrees);
+	new Float:muzzle[3];
+	for (new k = 0; k < 3; k++)
+	{
+		muzzle[k] = pivot[k] + dir[k] * TURRET_BARREL;
+	}
+	// The flash at the barrels' end, a TS gun's own, and every other shot a moment's light around it.
+	if (g_turret_flash)
+	{
+		message_begin_f(MSG_PVS, SVC_TEMPENTITY, muzzle);
+		write_byte(TE_SPRITE);
+		write_coord(floatround(muzzle[0]));
+		write_coord(floatround(muzzle[1]));
+		write_coord(floatround(muzzle[2]));
+		write_short(g_turret_flash);
+		write_byte(random_num(4, 6));   // scale, tenths
+		write_byte(220);                // brightness
+		message_end();
+	}
+	if (g_turret_shots[t] % 2 == 0)
+	{
+		message_begin_f(MSG_PVS, SVC_TEMPENTITY, muzzle);
+		write_byte(TE_DLIGHT);
+		write_coord(floatround(muzzle[0]));
+		write_coord(floatround(muzzle[1]));
+		write_coord(floatround(muzzle[2]));
+		write_byte(14);    // radius, tens of units
+		write_byte(255);
+		write_byte(190);
+		write_byte(90);
+		write_byte(1);     // life, tenths of a second
+		write_byte(60);    // decay, tens of units a second
+		message_end();
+	}
+
+	new Float:spread = floattan(get_pcvar_float(g_cv_turret_spread), degrees);
+	for (new k = 0; k < 3; k++)
+	{
+		dir[k] += random_float(-spread, spread);
+	}
+	new Float:range = get_pcvar_float(g_cv_turret_range);
+	new Float:end[3];
+	for (new k = 0; k < 3; k++)
+	{
+		end[k] = muzzle[k] + dir[k] * range;
+	}
+	engfunc(EngFunc_TraceLine, muzzle, end, 0, ent, 0);
+	new hit = get_tr2(0, TR_pHit);
+	get_tr2(0, TR_vecEndPos, end);
+
+	turret_trail(muzzle, end);
+
+	if (g_turret_shots[t]++ % 2 == 0)
+	{
+		emit_sound(ent, CHAN_WEAPON, g_turret_fire_snd[random(sizeof g_turret_fire_snd)], 0.9, ATTN_NORM, 0, PITCH_NORM);
+	}
+
+	// Only the other side is ever hurt: a stray round through a teammate does nothing.
+	if (hit >= 1 && hit <= g_maxplayers && is_user_alive(hit)
+		&& (g_match_team[hit] == 1 || g_match_team[hit] == 2) && g_match_team[hit] != g_turret_side[t])
+	{
+		// TS's TakeDamage draws no blood of its own: the burst where the round went in.
+		if (g_turret_blood)
+		{
+			message_begin_f(MSG_PVS, SVC_TEMPENTITY, end);
+			write_byte(TE_BLOODSPRITE);
+			write_coord(floatround(end[0]));
+			write_coord(floatround(end[1]));
+			write_coord(floatround(end[2]));
+			write_short(g_turret_bloodspray);
+			write_short(g_turret_blood);
+			write_byte(247);
+			write_byte(8);
+			message_end();
+		}
+		new by = g_turret_owner[t];
+		if (!is_user_connected(by))
+		{
+			by = ent;
+		}
+		ExecuteHamB(Ham_TakeDamage, hit, ent, by, get_pcvar_float(g_cv_turret_dmg), DMG_BULLET);
+	}
+}
+
+/// Every turret, ten times a second: deploying, looking for a target, turning its head, firing.
+public task_turrets()
+{
+	new Float:now = get_gametime();
+	for (new t = 0; t < TSM_TURRET_MAX; t++)
+	{
+		new ent = g_turret[t];
+		if (!ent)
+		{
+			continue;
+		}
+		if (!pev_valid(ent))
+		{
+			g_turret[t] = 0;
+			continue;
+		}
+		if (now < g_turret_ready_at[t])
+		{
+			continue;
+		}
+		if (g_state != ST_LIVE || !get_pcvar_num(g_cv_enabled))
+		{
+			g_turret_target[t] = 0;
+			turret_sequence(ent, TURRET_SEQ_IDLE);
+			continue;
+		}
+
+		new Float:muzzle[3];
+		turret_muzzle(ent, muzzle);
+		new target = g_turret_target[t];
+		if (now >= g_turret_seek_at[t] || !turret_can_shoot(t, target, muzzle))
+		{
+			g_turret_seek_at[t] = now + 0.25;
+			new best = turret_seek(t, muzzle);
+			if (best && best != target)
+			{
+				emit_sound(ent, CHAN_ITEM, TSM_TURRET_PING, 0.8, ATTN_NORM, 0, PITCH_NORM);
+			}
+			target = best;
+			g_turret_target[t] = best;
+		}
+		if (!target)
+		{
+			turret_sequence(ent, TURRET_SEQ_SPIN);
+			continue;
+		}
+
+		// The head on the target: yaw against the body's own, pitch clamped to the model's travel.
+		new Float:at[3];
+		turret_aim_point(target, at);
+		// Yaw about the head's axis; the gun's pivot then stands behind that axis, and its pitch is
+		// taken from there.
+		new Float:wyaw = floatatan2(at[1] - muzzle[1], at[0] - muzzle[0], degrees);
+		new Float:pivot[3];
+		pivot[0] = muzzle[0] - floatcos(wyaw, degrees) * TURRET_PIVOT_BACK;
+		pivot[1] = muzzle[1] - floatsin(wyaw, degrees) * TURRET_PIVOT_BACK;
+		pivot[2] = muzzle[2];
+		new Float:dx = at[0] - pivot[0], Float:dy = at[1] - pivot[1], Float:dz = at[2] - pivot[2];
+		new Float:yaw = wyaw - g_turret_yaw[t];
+		while (yaw < 0.0)
+		{
+			yaw += 360.0;
+		}
+		while (yaw >= 360.0)
+		{
+			yaw -= 360.0;
+		}
+		new Float:flat = floatsqroot(dx * dx + dy * dy);
+		new Float:pitch = floatatan2(dz, flat, degrees);
+		// Up the model's whole 60; down only 35, past which the long barrels would meet the column.
+		if (pitch > 60.0)
+		{
+			pitch = 60.0;
+		}
+		else if (pitch < -35.0)
+		{
+			pitch = -35.0;
+		}
+		set_pev(ent, pev_controller_0, floatround(yaw * 255.0 / 360.0));
+		// The model's pitch runs the other way: +60 on its controller is the barrel full down.
+		set_pev(ent, pev_controller_1, floatround((60.0 - pitch) * 255.0 / 120.0));
+		turret_sequence(ent, TURRET_SEQ_FIRE);
+
+		new Float:rate = get_pcvar_float(g_cv_turret_rate);
+		if (rate <= 0.0)
+		{
+			continue;
+		}
+		new Float:gap = 1.0 / rate;
+		if (g_turret_shot_at[t] < now - 0.2)
+		{
+			g_turret_shot_at[t] = now;
+		}
+		while (g_turret_shot_at[t] <= now)
+		{
+			turret_fire(t, pivot, wyaw, pitch);
+			g_turret_shot_at[t] += gap;
+		}
+	}
+}
+
+/*
+ * A turret is hit. Its own side's fire, and anything no player is behind, does nothing; the
+ * rest comes off its health, and at none it is destroyed: a burst, the metal's crash, its death
+ * sequence for a moment, and gone. Its engineer is told.
+ */
+turret_damage(t, attacker, Float:damage)
+{
+	if (attacker < 1 || attacker > g_maxplayers || g_match_team[attacker] == g_turret_side[t] || damage <= 0.0)
+	{
+		return;
+	}
+	g_turret_hp[t] -= damage;
+	new ent = g_turret[t];
+	set_pev(ent, pev_health, g_turret_hp[t] > 1.0 ? g_turret_hp[t] : 1.0);
+	// Metal hammered, on every hit, as a mech's armour rings: one fixed channel, so each clang takes
+	// the place of the last under sustained fire.
+	emit_sound(ent, CHAN_BODY, g_mech_hit_snd[random(sizeof g_mech_hit_snd)], 1.0, ATTN_NORM, 0, PITCH_NORM);
+	if (g_turret_hp[t] > 0.0)
+	{
+		return;
+	}
+
+	new Float:org[3];
+	pev(ent, pev_origin, org);
+	org[2] += 24.0;
+	message_begin_f(MSG_PVS, SVC_TEMPENTITY, org);
+	write_byte(TE_EXPLOSION);
+	write_coord(floatround(org[0]));
+	write_coord(floatround(org[1]));
+	write_coord(floatround(org[2]));
+	write_short(g_turret_boom);
+	write_byte(35);    // scale in tenths
+	write_byte(20);
+	write_byte(TE_EXPLFLAG_NONE);
+	message_end();
+	emit_sound(ent, CHAN_WEAPON, TSM_OBJ_BOOM_A, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
+	emit_sound(ent, CHAN_BODY, "debris/metal2.wav", 1.0, ATTN_NORM, 0, PITCH_NORM);
+
+	new owner = g_turret_owner[t];
+	if (is_user_connected(owner) && !is_user_bot(owner))
+	{
+		client_print(owner, print_chat, "[TSM] Your turret was destroyed.");
+	}
+
+	// The body lies a moment in its death sequence, harmless, before it goes.
+	set_pev(ent, pev_takedamage, 0.0);
+	set_pev(ent, pev_solid, SOLID_NOT);
+	turret_sequence(ent, TURRET_SEQ_DIE);
+	set_task(1.4, "remove_ent", ent);
+	g_turret[t] = 0;
+	g_turret_owner[t] = 0;
+	g_turret_target[t] = 0;
+}
+
+/// The engineer's yellow shell on a repaired turret, as on a resupplied player, for `secs`.
+turret_glow(t, Float:secs, shell)
+{
+	new ent = g_turret[t];
+	if (!ent || !pev_valid(ent))
+	{
+		return;
+	}
+	set_pev(ent, pev_renderfx, TSM_RENDERFX_GLOW);
+	set_pev(ent, pev_rendercolor, Float:{255.0, 220.0, 0.0});
+	set_pev(ent, pev_renderamt, float(shell < 1 ? 16 : shell));
+	set_pev(ent, pev_rendermode, TSM_RENDER_NORMAL);
+	remove_task(TSM_TASK_TURRET + 1 + t);
+	set_task(secs, "task_turret_glow_off", TSM_TASK_TURRET + 1 + t);
+}
+
+public task_turret_glow_off(taskid)
+{
+	new ent = g_turret[taskid - TSM_TASK_TURRET - 1];
+	if (ent && pev_valid(ent))
+	{
+		set_pev(ent, pev_renderfx, TSM_RENDERFX_NONE);
+		set_pev(ent, pev_renderamt, 0.0);
+	}
+}
+
+/// +USE on his side's turret by a Combat Engineer: tsm_turret_repair back, once every cooldown.
+turret_repair(id, t)
+{
+	if (g_turret_side[t] != g_match_team[id])
+	{
+		return;
+	}
+	new Float:full = get_pcvar_float(g_cv_turret_hp);
+	if (g_turret_hp[t] >= full)
+	{
+		client_print(id, print_center, "The turret is undamaged.");
+		return;
+	}
+	new Float:now = get_gametime();
+	if (now < g_turret_repair_at[t])
+	{
+		client_print(id, print_center, "Turret repair ready in %.0fs", g_turret_repair_at[t] - now);
+		return;
+	}
+	g_turret_hp[t] += get_pcvar_float(g_cv_turret_repair);
+	if (g_turret_hp[t] > full)
+	{
+		g_turret_hp[t] = full;
+	}
+	set_pev(g_turret[t], pev_health, g_turret_hp[t]);
+	g_turret_repair_at[t] = now + get_pcvar_float(g_cv_turret_repaircd);
+	perk_sound(id, g_cv_engsound);
+	if (get_pcvar_float(g_cv_engglow) > 0.0)
+	{
+		turret_glow(t, get_pcvar_float(g_cv_engglow), get_pcvar_num(g_cv_engshell));
+	}
+	client_print(id, print_center, "Turret repaired: %.0f / %.0f", g_turret_hp[t], full);
+}
+
+/// turret in the console: the same as .turret.
+public cmd_turret_console(id)
+{
+	cmd_turret(id);
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * .turret -- a Combat Engineer stands a sentry turret on the floor 64 units in front of him,
+ * facing the way he faces, in a live round: one a round (one a wave in Wave Survival), even
+ * once it is destroyed, and tsm_turret_per_team on his side at most, on clear floor nobody
+ * stands on. It deploys, and
+ * starts looking for the other side a second later.
+ */
+cmd_turret(id)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_turret) || !g_turret_ok)
+	{
+		client_print(id, print_chat, "[TSM] Turrets are off on this server.");
+		return;
+	}
+	if (!is_engineer(id) || g_state != ST_LIVE || !is_user_alive(id))
+	{
+		client_print(id, print_chat, "[TSM] Only a Combat Engineer can place a turret, in a live round.");
+		return;
+	}
+	new side = g_match_team[id];
+	if (side != 1 && side != 2)
+	{
+		return;
+	}
+	if (g_turret_used[id] && !g_turret_carry[id])
+	{
+		client_print(id, print_chat, "[TSM] One turret a round -- yours is already placed.");
+		return;
+	}
+	if (turret_count(side) >= get_pcvar_num(g_cv_turret_per_team))
+	{
+		client_print(id, print_chat, "[TSM] Your side already has %d turrets standing.", get_pcvar_num(g_cv_turret_per_team));
+		return;
+	}
+	new t = -1;
+	for (new k = 0; k < TSM_TURRET_MAX; k++)
+	{
+		if (!g_turret[k])
+		{
+			t = k;
+			break;
+		}
+	}
+	if (t < 0)
+	{
+		client_print(id, print_chat, "[TSM] No more turrets can stand on this map.");
+		return;
+	}
+
+	// The spot: 64 units ahead on the level, in clear air from his eyes, then down to the floor.
+	new Float:eye[3], Float:org[3], Float:ang[3], Float:spot[3], Float:frac;
+	pev(id, pev_origin, org);
+	pev(id, pev_view_ofs, eye);
+	for (new k = 0; k < 3; k++)
+	{
+		eye[k] += org[k];
+	}
+	pev(id, pev_v_angle, ang);
+	new Float:yaw = ang[1];
+	spot[0] = org[0] + floatcos(yaw, degrees) * 64.0;
+	spot[1] = org[1] + floatsin(yaw, degrees) * 64.0;
+	spot[2] = org[2];
+	engfunc(EngFunc_TraceLine, eye, spot, 0, id, 0);
+	get_tr2(0, TR_flFraction, frac);
+	if (frac < 1.0)
+	{
+		client_print(id, print_chat, "[TSM] No room for a turret there.");
+		return;
+	}
+	new Float:down[3];
+	down[0] = spot[0];
+	down[1] = spot[1];
+	down[2] = spot[2] - 160.0;
+	engfunc(EngFunc_TraceLine, spot, down, 0, id, 0);
+	get_tr2(0, TR_flFraction, frac);
+	if (frac >= 1.0)
+	{
+		client_print(id, print_chat, "[TSM] A turret needs floor under it.");
+		return;
+	}
+	get_tr2(0, TR_vecEndPos, spot);
+
+	// Clear of walls and of anyone standing there: a standing body's hull at the spot.
+	new Float:hull[3];
+	hull[0] = spot[0];
+	hull[1] = spot[1];
+	hull[2] = spot[2] + 37.0;
+	engfunc(EngFunc_TraceHull, hull, hull, 0, TSM_HULL_HUMAN, id, 0);
+	if (get_tr2(0, TR_StartSolid) || get_tr2(0, TR_AllSolid))
+	{
+		client_print(id, print_chat, "[TSM] No room for a turret there.");
+		return;
+	}
+
+	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "func_breakable"));
+	if (!pev_valid(ent))
+	{
+		return;
+	}
+	set_pev(ent, pev_targetname, TSM_TURRET_NAME);
+	// TS names a kill by its inflictor's classname: "turret" in the kill feed, not "breakable". The
+	// entity stays a CBreakable underneath, so fw_obj_dmg still takes its damage.
+	set_pev(ent, pev_classname, "turret");
+	// Its side, as every player carries his: the patched rcbot takes a turret of the other side for an enemy.
+	set_pev(ent, pev_team, side);
+	engfunc(EngFunc_SetModel, ent, side == 1 ? TSM_TURRET_MDL_1 : TSM_TURRET_MDL_2);
+	new Float:body[3];
+	body[1] = yaw;
+	set_pev(ent, pev_angles, body);
+	set_pev(ent, pev_solid, SOLID_BBOX);
+	set_pev(ent, pev_movetype, MOVETYPE_NONE);
+	engfunc(EngFunc_SetSize, ent, Float:{-16.0, -16.0, 0.0}, Float:{16.0, 16.0, 52.0});
+	engfunc(EngFunc_SetOrigin, ent, spot);
+	new Float:full = get_pcvar_float(g_cv_turret_hp);
+	// A carried turret stands down as it was packed up: its health and its repair's wait.
+	new Float:hp = full, Float:repair_at = 0.0;
+	if (g_turret_carry[id])
+	{
+		hp = floatmin(g_turret_carry_hp[id], full);
+		repair_at = g_turret_carry_rep[id];
+		g_turret_carry[id] = false;
+	}
+	set_pev(ent, pev_takedamage, 1.0);
+	set_pev(ent, pev_health, hp);
+	set_pev(ent, pev_controller_0, 0);
+	set_pev(ent, pev_controller_1, 128);
+
+	new Float:now = get_gametime();
+	g_turret[t] = ent;
+	g_turret_owner[t] = id;
+	g_turret_side[t] = side;
+	g_turret_hp[t] = hp;
+	g_turret_repair_at[t] = repair_at;
+	g_turret_ready_at[t] = now + 1.0;
+	g_turret_seek_at[t] = 0.0;
+	g_turret_shot_at[t] = 0.0;
+	g_turret_target[t] = 0;
+	g_turret_shots[t] = 0;
+	g_turret_yaw[t] = yaw;
+	g_turret_used[id] = true;
+	turret_sequence(ent, TURRET_SEQ_DEPLOY);
+	// At the spot, not on the entity: no client has the new entity yet, and a sound on one it has not
+	// been sent is placed where it last knew it to be -- the middle of the map, out of anyone's hearing.
+	engfunc(EngFunc_EmitAmbientSound, ent, spot, TSM_TURRET_DEPLOY, 1.0, ATTN_NORM, 0, PITCH_NORM);
+	client_print(id, print_chat, "[TSM] Turret placed (%.0f / %.0f). +USE on it repairs it, once every %.0f seconds; .pickup packs it up.",
+		hp, full, get_pcvar_float(g_cv_turret_repaircd));
+}
+
+/// pickup in the console: the same as .pickup.
+public cmd_pickup_console(id)
+{
+	cmd_pickup(id);
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * .pickup -- a Combat Engineer packs up his own turret, the one he is looking at within his +USE's
+ * reach (tsm_eng_range), and carries it: .turret stands it down again with the health it had and its
+ * repair's wait still running. A carried turret is gone with the round (the wave in Wave Survival).
+ */
+cmd_pickup(id)
+{
+	if (!is_engineer(id) || g_state != ST_LIVE || !is_user_alive(id))
+	{
+		client_print(id, print_chat, "[TSM] Only a Combat Engineer can pick up a turret, in a live round.");
+		return;
+	}
+	new Float:eye[3], Float:vo[3], Float:ang[3], Float:fwd[3], Float:dest[3];
+	pev(id, pev_origin, eye);
+	pev(id, pev_view_ofs, vo);
+	pev(id, pev_v_angle, ang);
+	engfunc(EngFunc_MakeVectors, ang);
+	global_get(glb_v_forward, fwd);
+	new Float:range = float(get_pcvar_num(g_cv_engrange));
+	for (new k = 0; k < 3; k++)
+	{
+		eye[k] += vo[k];
+		dest[k] = eye[k] + fwd[k] * range;
+	}
+	engfunc(EngFunc_TraceLine, eye, dest, 0, id, 0);
+	new t = turret_slot(get_tr2(0, TR_pHit));
+	if (t < 0 || g_turret_owner[t] != id)
+	{
+		client_print(id, print_chat, "[TSM] Look at your own turret, up close, to pick it up.");
+		return;
+	}
+	new Float:org[3];
+	pev(g_turret[t], pev_origin, org);
+	g_turret_carry[id] = true;
+	g_turret_carry_hp[id] = g_turret_hp[t];
+	g_turret_carry_rep[id] = g_turret_repair_at[t];
+	engfunc(EngFunc_EmitAmbientSound, 0, org, TSM_TURRET_DEPLOY, 1.0, ATTN_NORM, 0, 92);
+	remove_task(TSM_TASK_TURRET + 1 + t);
+	turret_remove(t);
+	client_print(id, print_chat, "[TSM] Turret packed up (%.0f / %.0f). .turret sets it down again.",
+		g_turret_carry_hp[id], get_pcvar_float(g_cv_turret_hp));
+}
+
 perk_use(id)
 {
 	if (!is_user_alive(id) || !g_class_count)
@@ -13739,6 +14603,17 @@ perk_use(id)
 	if (hit < 1)
 	{
 		return;
+	}
+
+	// The engineer's own side's sentry turret: repaired (turret_repair).
+	if (perk == TSM_PERK_ENGINEER)
+	{
+		new t = turret_slot(hit);
+		if (t >= 0)
+		{
+			turret_repair(id, t);
+			return;
+		}
 	}
 
 	// A teammate. The engineer resupplies one, the medic heals one, and the
@@ -14103,7 +14978,7 @@ lives_for(id)
 }
 
 /// One player's once-a-round abilities, ready again as a new round would have them: the stim, .ammo, the
-/// Engineer's resupply, the Medic's heal, the Officer's scan and reinforcements, the Mech's rockets.
+/// Engineer's resupply and turret, the Medic's heal, the Officer's scan and reinforcements, the Mech's rockets.
 refresh_abilities(id)
 {
 	g_stim_used[id] = false;
@@ -14114,6 +14989,8 @@ refresh_abilities(id)
 	g_reinforce_next[id] = 0.0;
 	g_mech_rockets_used[id] = 0;
 	g_mech_rocket_next[id] = 0.0;
+	g_turret_used[id] = false;
+	g_turret_carry[id] = false;
 }
 
 /// tsm_class_lives, read in class order like tsm_class_limits. Unlisted classes keep 1.
@@ -14243,6 +15120,8 @@ lives_reset_round()
 		g_revive_pending[id] = false;
 		g_reinforce_next[id] = 0.0;
 		g_ammo_used[id] = false;
+		g_turret_used[id] = false;
+		g_turret_carry[id] = false;
 		remove_task(TSM_TASK_REVIVE + id);
 	}
 
@@ -17991,6 +18870,7 @@ public task_to_warmup()
 {
 	// The match is over, so the lockout ends here -- everyone becomes eligible again.
 	clear_match_state();
+	turrets_clear();
 
 	g_state = ST_WARMUP;
 
@@ -18183,6 +19063,7 @@ start_round()
 	g_round++;
 	g_resetting = true;
 	lives_reset_round();
+	turrets_clear();
 
 	/*
 	 * THE WHOLE CHAIN COMES BACK EVERY ROUND. The map's reset relays fire for
@@ -19692,6 +20573,18 @@ public hook_say(id)
 		return PLUGIN_HANDLED;
 	}
 
+	if (equali(args, ".turret"))
+	{
+		cmd_turret(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".pickup"))
+	{
+		cmd_pickup(id);
+		return PLUGIN_HANDLED;
+	}
+
 	if (equali(args, ".cloak"))
 	{
 		cmd_cloak(id);
@@ -20638,6 +21531,7 @@ watch_enabled()
 	if (g_was_enabled && !enabled)
 	{
 		restore_all();
+		turrets_clear();
 	}
 	g_was_enabled = enabled;
 }
@@ -21019,6 +21913,9 @@ public task_late_join(id)
  */
 player_left(id)
 {
+	turrets_clear(id);
+	g_turret_used[id] = false;
+	g_turret_carry[id] = false;
 	// Captured BEFORE it is cleared further down: whether this departure emptied a
 	// side of its last human decides below whether the match ends without a winner.
 	new was_team = g_match_team[id];

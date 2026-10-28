@@ -9036,6 +9036,12 @@ bool CBot::IsEnemy(edict_t* pEntity)
 		{
 			const char* szClassname = const_cast<char*>(STRING(pEntity->v.classname));
 
+			// A sentry turret (ts_matchmode.sma's .turret): the other side's, never one's own. The plugin
+			// stamps it with its side in pev->team, as it does every player, and keeps its health there
+			// while it stands. Ahead of the breakable rule, which shoots one whenever anybody is near it.
+			if (std::strcmp(szClassname, "turret") == 0)
+				return pev->team > 0 && pEntity->v.team > 0 && pev->team != pEntity->v.team;
+
 			if (std::strcmp(szClassname, "func_breakable") == 0)
 			{
 				edict_t* pPlayer = nullptr;

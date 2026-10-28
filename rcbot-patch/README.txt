@@ -13,6 +13,8 @@ with this install -- with additive changes:
   4. Waypoints and doors: 4096 waypoints a map, a visibility file that does not
      depend on that number, and TS breakable doors shot down when they stand in
      a bot's way (see CHANGE 6)
+  5. Sentry turrets: the other side's .turret is an enemy, one's own never is
+     (see CHANGE 7)
 
 Win32, MetaMod Release, MSVC v145.
 
@@ -231,6 +233,32 @@ until TS shatters it (DEAD_DEAD, DAMAGE_NO): a door's damage is never in health.
 
 
 ===============================================================================
+CHANGE 7: SENTRY TURRETS (rcbot-ts-turrets.patch)
+===============================================================================
+
+    CBot::IsEnemy, bot.cpp, case MOD_TS, the branch for what is not a player
+
+ts_matchmode.sma's Combat Engineer stands a sentry turret with .turret: a
+func_breakable the plugin makes, renamed to the classname "turret" (TS names a
+kill by its inflictor's classname) and stamped with its side in pev->team, as
+the plugin stamps every player.
+
+Stock rcbot knew no turret. While it was still called func_breakable, the
+breakable rule took it -- shoot one whenever any player stands within 200 units
+of it, whichever side -- so a bot shot its own side's turret and passed the
+other side's by. Renamed, nothing took it at all.
+
+One block, ahead of the breakable rule:
+
+    if (std::strcmp(szClassname, "turret") == 0)
+        return pev->team > 0 && pEntity->v.team > 0 && pev->team != pEntity->v.team;
+
+The checks at the top of IsEnemy still come first: a turret the plugin has
+destroyed (DAMAGE_NO) or that is not drawn is no target. FindEnemy gives it the
+default priority, 10, the same as a player, and picks the nearer of the two.
+
+
+===============================================================================
 REBUILDING
 ===============================================================================
 
@@ -241,9 +269,10 @@ REBUILDING
     git apply rcbot-tsweaps-crash.patch
     git apply rcbot-build-fixes.patch
     git apply rcbot-waypoints-doors.patch
+    git apply rcbot-ts-turrets.patch
     MSBuild dlls\HPB_bot.vcxproj /p:Configuration="MetaMod Release" /p:Platform=Win32
 
-In this order. The four together give, file for file, the source in src\ (and
+In this order. The five together give, file for file, the source in src\ (and
 the shipped rcbot_mm.dll was built from exactly that); without the third the
 tree does not compile. On a clone with core.autocrlf true, apply with --index.
 
