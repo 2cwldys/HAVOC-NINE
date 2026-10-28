@@ -16,10 +16,13 @@
  ----------------------
    HAVOC 9                      the bold header: the name of the Discord application,
                                 registered as HAVOC 9.
-   Insurgents attacking: 2 of 5 objectives
-                                the details line. On a siege map it names the side that
-                                attacks and how many of the siege objectives it has taken.
-                                Any other map reads Match Mode.
+   Siege - Insurgents attacking: 2 of 5 objectives
+                                the details line: the mode (below), and its progress where
+                                there is one. On a siege map, the side that attacks and how
+                                many of the objectives it has taken; in Capture the Uplink,
+                                each side's zones ("Capture the Uplink - zones: MSR 1,
+                                Insurgents 2 of 4"); in Wave Survival, the wave ("Wave
+                                Survival - wave 12").
    Alive: MSR 3/4, Insurgents 2/3, 2 bots, h9_te_neuropolis
                                 the state line: how many players each side has alive, out
                                 of its total, then the bots and the map. Alive is counted
@@ -38,6 +41,20 @@
 
  A server that does not publish the alive counts shows the totals instead. A server that
  does not publish the sides shows the map, the players and the bots.
+
+ THE MODE on the details line is named, in this order, by:
+
+   1. what an H9 server says it runs, in tsm_pres_mode: Siege, Capture the Uplink, Wave
+      Survival or Mech Warrior (a server still publishing only tsm_pres_siege reads Siege);
+   2. the map's name: h9_te_ Team Elimination, h9_siege_ Siege, h9_up_ Capture the
+      Uplink, h9_mw_ Mech Warrior, h9_ws_ Wave Survival, h9_dm_ Deathmatch, h9_tdm_ Team
+      Deathmatch, h9_ctb_ Capture the Briefcase, h9_ctf_ Capture the Flag; and a name
+      starting rp_ or tsrp_, or holding _rp_ or _tsrp_ anywhere, Roleplay;
+   3. an H9 server's "match" on any other map: Match Mode;
+   4. anything else, a stock ts_ map among them: Deathmatch.
+
+ The list is H9P_Mode in engine\client\cl_presence.c. docs\GAME_MODES.txt says what
+ each kind of map plays.
 
  In the main menu the card reads "In the main menu" and "Not in a server". Its large
  picture is the one uploaded under the key h9_menu (section 4). It has the same small
@@ -59,6 +76,13 @@
    tsm_pres_side2     the players on side 2, bots included, alive or eliminated.
    tsm_pres_alive1    the players on side 1 that are alive.
    tsm_pres_alive2    the players on side 2 that are alive.
+   tsm_pres_mode      the mode: "match", "siege", or the claimed mode's key ("uplink",
+                      "survival", "mechwarrior"); empty where the match mode is off.
+   tsm_pres_prog      the claimed mode's progress: "1/2/4/0" for the uplink (side 1's
+                      zones, side 2's, all, the carrier's side), "12" for a survival wave.
+
+ Where the match mode is off (tsm_enabled 0, as on every map that is not H9's) all of
+ these are empty, and the card shows the map, the players and the bots.
 
  Side 1 is MSR, blue. Side 2 is the Insurgents, red. The names are set in
  engine\client\cl_presence.c.
@@ -149,7 +173,7 @@
    * Start the game with Discord open. The card should read "In the main menu". Joining a
     server changes it to the server's card, and quitting to the menu changes it back.
   * Join a server with Discord open. The card should appear shortly after the map loads.
-     On a siege map it names the attacking side.
+     On a siege map it names the attacking side; on any other map, the mode its name says.
    * The state line should change within about 17 seconds as players die, join or leave.
    * Check the buttons from a second account, since Discord does not show them on your
      own card.

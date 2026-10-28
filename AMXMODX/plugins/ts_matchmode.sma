@@ -74,7 +74,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.54-modes1"
+#define TSM_BUILD "1.54-modes3"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -156,7 +156,18 @@ stock icon_frame_for(ci, team)
 #define MECH_STEP_1     "mechwalk.wav"
 #define MECH_STEP_2     "mechwalk2.wav"
 #define MECH_LOOP       "mechloop.wav"
-#define MECH_LOOP_VOL   0.8
+// A mech's stunts: the hydraulic surge as it leaps, the stomp and the clank as it comes down. Stock Half-Life.
+#define MECH_LEAP       "ambience/loader_hydra1.wav"
+#define MECH_LAND       "garg/gar_step1.wav"
+#define MECH_LAND2      "ambience/loader_step1.wav"
+// TS's stunt bits in pev_iuser4 (reTS ts_stunt.h): dive, cartwheels, wall-jump and wall-climb launching or under
+// way, and the landing roll.
+#define TSM_STUNT_BITS  (0x000010 | 0x000c00 | 0x007000 | 0x008000 | 0x010000 | 0x020000 | 0x040000)
+// The idle hum is background, not an event: keep it well under footsteps and gunfire.
+// The pilot hears the world emit AND their own 2D copy, so the two together are
+// deliberately quieter than the old single 0.8 world emit.
+#define MECH_LOOP_VOL   0.2
+#define MECH_LOOP_PILOT_VOL 0.1     // pilot's own client-side copy, on top of the world emit
 #define MECH_LOOP_ATTEN ATTN_NORM   // mid range
 #define MECH_LOOP_PERIOD 2.2        // wav is 2.250 s; re-emit 50 ms early
 #define TSM_M60_WPN     32          // TSW_M60E3, the M60 the Heavy and the Mech carry
@@ -306,14 +317,7 @@ stock icon_frame_for(ci, team)
 #define TSM_MODELLIST       224
 #define TSM_MODELFIELD      344
 #define TSM_MAXWPN           6
-#define TSM_PERK_NONE        0
-#define TSM_PERK_ENGINEER    1
-#define TSM_PERK_BREACHER    2
-#define TSM_PERK_MEDIC       3
-#define TSM_PERK_OFFICER     4
-#define TSM_PERK_REGEN       5
-#define TSM_PERK_RECON       6
-#define TSM_PERK_MECH        7
+// The class perks (TSM_PERK_*) are in include\tsm_api.inc, which mode plugins share.
 
 // The regeneration tick's task id. A server-wide task, so it needs an id that cannot
 // collide with the per-player ones, which are all a player index plus a round
@@ -820,6 +824,12 @@ new g_class_perk[TSM_MAXCLASS];
  * blanks were for. One list, read by position, says the same thing in a line you can read.
  */
 new g_class_limit[TSM_MAXCLASS];
+new g_mode_class_limit[TSM_MAXCLASS];  // a claimed mode's class rules: -1 not played, 0 no limit, n a side
+new g_mode_class_lives[TSM_MAXCLASS];  // and the lives it gives a class; 0 keeps tsm_class_lives
+new bool:g_mode_classes;               // a claimed mode has set class rules on this map
+new g_mode_bot_class;                  // the class every bot plays while the mode runs; 0 leaves it to tsm_bot_class
+new g_mech_stunt[MAXPL];               // a mech's stunt: 0 none, 1 under way, 2 under way and off the ground
+new Float:g_mech_stunt_at[MAXPL];      // when that stunt began
 new Float:g_class_speed[TSM_MAXCLASS];   // movement multiplier, 1.0 = normal
 new Float:g_class_scale[TSM_MAXCLASS];   // how tall the model is drawn, 1.0 = normal
 new g_class_menu = 0;
@@ -890,6 +900,7 @@ new bool:g_placed[MAXPL];
 
 new g_dbgfile[64];
 new g_mapname[32];
+new bool:g_map_h9 = true;    // this map plays the match mode (plugin_precache): H9's own, or its mapconfig says so
 
 new g_freeze_left = 0;
 new g_round_left = 0;
@@ -1747,7 +1758,12 @@ assign_bot(id)
 
 		new team = tsm_live_team_of(id);
 
-		if (equali(cmode, "spread"))
+		// A claimed mode's bot class comes first: Mech Warrior's bots are all mechs.
+		if (g_mode_bot_class && class_open_for(id, g_mode_bot_class, team))
+		{
+			g_player_class[id] = g_mode_bot_class;
+		}
+		else if (equali(cmode, "spread"))
 		{
 			/*
 			 * Round-robin, so a bot side is not four identical Assaults -- and round PAST anything
@@ -2154,7 +2170,7 @@ hold_cash(id)
  */
 kill_ts_cash_cvars()
 {
-	if (!get_pcvar_num(g_cv_nocash))
+	if (!get_pcvar_num(g_cv_nocash) || !get_pcvar_num(g_cv_enabled))
 	{
 		return;
 	}
@@ -2411,6 +2427,55 @@ load_class_limits()
 	}
 }
 
+/// Whether class `cls` (1-based) is played at all on this map: a claimed mode can leave classes out.
+bool:class_offered(cls)
+{
+	return !g_mode_classes || g_mode_class_limit[cls - 1] >= 0;
+}
+
+/// A class's limit a side: the mode's when it set rules, else tsm_class_limits. 0 is no limit.
+class_limit_of(cls)
+{
+	if (g_mode_classes)
+	{
+		return (g_mode_class_limit[cls - 1] > 0) ? g_mode_class_limit[cls - 1] : 0;
+	}
+	return g_class_limit[cls - 1];
+}
+
+/// The lives a class carries: the mode's when it gave some, else tsm_class_lives.
+class_lives_of(cls)
+{
+	if (g_mode_classes && g_mode_class_lives[cls - 1] > 0)
+	{
+		return g_mode_class_lives[cls - 1];
+	}
+	return g_class_lives[cls - 1];
+}
+
+/// The class anyone gets who has none, or holds one this map leaves out: the mode's bot class, else
+/// tsm_default_class, else the first class played here.
+default_class()
+{
+	if (g_mode_bot_class >= 1 && g_mode_bot_class <= g_class_count && class_offered(g_mode_bot_class))
+	{
+		return g_mode_bot_class;
+	}
+	new c = get_pcvar_num(g_cv_defclass);
+	if (c >= 1 && c <= g_class_count && class_offered(c))
+	{
+		return c;
+	}
+	for (c = 1; c <= g_class_count; c++)
+	{
+		if (class_offered(c))
+		{
+			return c;
+		}
+	}
+	return 1;
+}
+
 /*
  * How many players on `team` are already that class. `cls` is 1-based, as g_player_class is.
  *
@@ -2443,11 +2508,13 @@ count_class_on_team(cls, team)
  */
 bool:class_open_for(id, cls, team)
 {
-	if (cls < 1 || cls > g_class_count)
+	// A class the claimed mode leaves out is never open, limits or no limits.
+	if (cls < 1 || cls > g_class_count || !class_offered(cls))
 	{
 		return false;
 	}
-	if (!g_class_limit[cls - 1])
+	new limit = class_limit_of(cls);
+	if (!limit)
 	{
 		return true;
 	}
@@ -2456,14 +2523,14 @@ bool:class_open_for(id, cls, team)
 	{
 		return true;
 	}
-	if (count_class_on_team(cls, team) < g_class_limit[cls - 1])
+	if (count_class_on_team(cls, team) < limit)
 	{
 		return true;
 	}
 
 	for (new i = 1; i <= g_class_count; i++)
 	{
-		if (!g_class_limit[i - 1] || count_class_on_team(i, team) < g_class_limit[i - 1])
+		if (class_offered(i) && (!class_limit_of(i) || count_class_on_team(i, team) < class_limit_of(i)))
 		{
 			return false;   // something else is open, so he takes that instead
 		}
@@ -2483,6 +2550,11 @@ pick_class(id, item)
 			client_print(id, print_chat, "[MATCH] You are already %s for this match.",
 				g_class_name[g_player_class[id] - 1]);
 		}
+		else if (!class_offered(item + 1))
+		{
+			client_print(id, print_chat, "[MATCH] %s is not played on this map. Pick another.", g_class_name[item]);
+			show_class_menu(id);
+		}
 		else if (!class_open_for(id, item + 1, tsm_live_team_of(id)))
 		{
 			/*
@@ -2491,7 +2563,7 @@ pick_class(id, item)
 			 * his screen and his finger coming down on the key.
 			 */
 			client_print(id, print_chat, "[MATCH] %s is full -- %d a side. Pick another.",
-				g_class_name[item], g_class_limit[item]);
+				g_class_name[item], class_limit_of(item + 1));
 			show_class_menu(id);
 		}
 		else
@@ -2995,11 +3067,16 @@ show_class_menu(id)
 	new text[512], len = 0, keys = 0;
 	for (new i = 0; i < g_class_count && i < 10; i++)
 	{
+		// A class this map's mode leaves out is not offered at all; the others keep their numbers.
+		if (!class_offered(i + 1))
+		{
+			continue;
+		}
 		new key = (i == 9) ? 0 : i + 1;
-		new lv = get_pcvar_num(g_cv_respawns) ? g_class_lives[i] : 1;
+		new lv = get_pcvar_num(g_cv_respawns) ? class_lives_of(i + 1) : 1;
 		keys |= (1 << i);
 
-		if (!g_class_limit[i])
+		if (!class_limit_of(i + 1))
 		{
 			len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp, %d %s]\y^n",
 				key, g_class_name[i], g_class_hp[i], lv, (lv == 1) ? "life" : "lives");
@@ -3010,7 +3087,7 @@ show_class_menu(id)
 			 * HOW MANY ARE LEFT, not how many are taken. "(1)" is the question a player is
 			 * actually asking -- can I still have one -- and 2/4 makes him do the subtraction.
 			 */
-			new free = g_class_limit[i] - count_class_on_team(i + 1, team);
+			new free = class_limit_of(i + 1) - count_class_on_team(i + 1, team);
 			if (free < 0)
 			{
 				free = 0;
@@ -3463,6 +3540,43 @@ make_class_icon(id, Float:scale)
 	return ent;
 }
 
+/// A roleplay map by its name: rp_ or tsrp_ at the start, or _rp_ or _tsrp_ anywhere in it.
+bool:roleplay_map(const name[])
+{
+	return equali(name, "rp_", 3) || equali(name, "tsrp_", 5) || containi(name, "_rp_") != -1 || containi(name, "_tsrp_") != -1;
+}
+
+/// The value a map's own mapconfig (ts/mapconfigs/<map>.cfg, which h9_autoconfig runs once the map is up)
+/// gives a cvar, by the last line that sets it; -1 when there is no such file or it does not set the cvar.
+mapconfig_value(const map[], const cvar[])
+{
+	new path[96];
+	formatex(path, charsmax(path), "mapconfigs/%s.cfg", map);
+	new f = fopen(path, "rt", true);
+	if (!f)
+	{
+		return -1;
+	}
+	new line[160], key[48], value[32], found = -1;
+	while (!feof(f))
+	{
+		fgets(f, line, charsmax(line));
+		trim(line);
+		if (!line[0] || (line[0] == '/' && line[1] == '/'))
+		{
+			continue;
+		}
+		value[0] = 0;
+		parse(line, key, charsmax(key), value, charsmax(value));
+		if (equali(key, cvar) && value[0])
+		{
+			found = str_to_num(value);
+		}
+	}
+	fclose(f);
+	return found;
+}
+
 public plugin_precache()
 {
 	g_maxplayers = get_maxplayers();
@@ -3489,6 +3603,56 @@ public plugin_precache()
 	 * get_pcvar_num before that.
 	 */
 	g_cv_logging = register_cvar("tsm_logging", "0");
+
+	/*
+	 * WHICH GAME THIS MAP PLAYS, decided here because nothing later can: TS chooses its gamerules
+	 * from mp_teamplay during the world's spawn, straight after game.cfg, and this forward runs just
+	 * before that (AMXX loads its plugins as the world spawns). H9's own maps -- named h9_ or tsm_,
+	 * and not roleplay maps -- play the match mode, on teamplay rules. TS's own modes under H9's
+	 * names play as the game ships, on their own rules: deathmatch for h9_dm_, teamplay for h9_tdm_,
+	 * h9_ctb_ and h9_ctf_. Every other map, a stock ts_ map or a roleplay one, plays as the game
+	 * ships on deathmatch rules. Wherever the match mode does not play, plugin_cfg turns it and its
+	 * bots off and puts TS's own cash and powerups back. The map's mapconfig has the last word: a
+	 * tsm_enabled or mp_teamplay line in it decides in place of the name. A map's own worldspawn
+	 * gamemode key still wins over mp_teamplay, as in the stock game.
+	 */
+	get_mapname(g_mapname, charsmax(g_mapname));
+	new own = -1;   // one of TS's own modes by its H9 name: 0 deathmatch, 1 teamplay; -1 not one
+	if (equali(g_mapname, "h9_dm_", 6))
+	{
+		own = 0;
+	}
+	else if (equali(g_mapname, "h9_tdm_", 7) || equali(g_mapname, "h9_ctb_", 7) || equali(g_mapname, "h9_ctf_", 7))
+	{
+		own = 1;
+	}
+	new cfg_on = mapconfig_value(g_mapname, "tsm_enabled");
+	new cfg_tp = mapconfig_value(g_mapname, "mp_teamplay");
+	if (cfg_on >= 0)
+	{
+		g_map_h9 = (cfg_on != 0);
+	}
+	else
+	{
+		g_map_h9 = (equali(g_mapname, "h9_", 3) || equali(g_mapname, "tsm_", 4)) && !roleplay_map(g_mapname) && own < 0;
+	}
+	new bool:teamplay;
+	if (cfg_tp >= 0)
+	{
+		teamplay = (cfg_tp != 0);
+	}
+	else
+	{
+		teamplay = g_map_h9 || own == 1;
+	}
+	set_cvar_num("mp_teamplay", teamplay ? 1 : 0);
+	if (cvar_exists("teamplay"))
+	{
+		set_cvar_num("teamplay", teamplay ? 1 : 0);
+	}
+	log_amx("[TSM] %s: %s, on %s rules.", g_mapname,
+		g_map_h9 ? "an H9 map, the match mode plays" : "not an H9 map, the game as it ships",
+		teamplay ? "teamplay" : "deathmatch");
 
 	if (g_xash)
 	{
@@ -3667,6 +3831,11 @@ public plugin_precache()
 	{
 		precache_sound(g_mech_hit_snd[hs]);
 	}
+
+	// A mech's stunt sounds (mech_stunt_sounds): stock Half-Life files every client has.
+	precache_sound(MECH_LEAP);
+	precache_sound(MECH_LAND);
+	precache_sound(MECH_LAND2);
 
 	/*
 	 * MECH STEP AND LOOP SOUNDS: mechwalk / mechwalk2 alternate on footsteps,
@@ -3916,6 +4085,11 @@ public plugin_natives()
 	register_native("tsm_set_class",     "native_set_class");
 	register_native("tsm_class_hp",      "native_class_hp");
 	register_native("tsm_set_progress",  "native_set_progress");
+	register_native("tsm_refresh_abilities", "native_refresh_abilities");
+	register_native("tsm_class_count",   "native_class_count");
+	register_native("tsm_class_of_perk", "native_class_of_perk");
+	register_native("tsm_class_rule",    "native_class_rule");
+	register_native("tsm_mode_bot_class", "native_mode_bot_class");
 }
 
 public plugin_init()
@@ -4375,8 +4549,9 @@ public plugin_init()
 	g_cv_presside2 = register_cvar("tsm_pres_side2", "", FCVAR_SERVER);
 	g_cv_presalive1 = register_cvar("tsm_pres_alive1", "", FCVAR_SERVER);
 	g_cv_presalive2 = register_cvar("tsm_pres_alive2", "", FCVAR_SERVER);
-	// The claimed mode's key ("uplink", "survival"), empty when no mode runs: the card picks
-	// its details line by it. The mode plugins publish their own progress beside it.
+	// The mode's key ("match", "siege", or a claimed mode's: "uplink", "survival", "mechwarrior"),
+	// empty with tsm_enabled 0: the card picks its details line by it. The mode plugins publish
+	// their own progress beside it.
 	g_cv_presmode = register_cvar("tsm_pres_mode", "", FCVAR_SERVER);
 	// And its progress, in the mode's own short form ("1/2/3/1" zones and carrier, "12" a wave).
 	g_cv_presprog = register_cvar("tsm_pres_prog", "", FCVAR_SERVER);
@@ -4723,6 +4898,10 @@ public plugin_init()
 	 */
 	RegisterHam(Ham_Use, "func_door", "fw_door_use", 0);
 
+	// A map's env_shake, for everyone in its reach (fw_shake_use): TS sends the shake only to
+	// players standing on the ground. Post-hook, so TS's own pass has gone first.
+	RegisterHam(Ham_Use, "env_shake", "fw_shake_use", 1);
+
 	/*
 	 * THE DESTRUCTIBLE OBJECTIVE HOOKS. Both screen themselves with
 	 * siege_number() inside, so an ordinary breakable of the map behaves
@@ -4973,6 +5152,21 @@ public plugin_cfg()
 	else
 	{
 		tlog("[TSM] No config at %s -- using defaults. Teams will NOT work until tsm_team1_name and tsm_team2_name are set.", cfgfile);
+	}
+
+	// Not an H9 map (plugin_precache): the game as it ships. The match mode and its bots off, and TS's
+	// own cash and powerups back over what game.cfg and ts_matchmode.cfg set for H9's maps. The map's
+	// mapconfig runs after this and can set any of it back for its map.
+	if (!g_map_h9)
+	{
+		set_pcvar_num(g_cv_enabled, 0);
+		set_pcvar_num(g_cv_bots, 0);
+		set_cvar_num("usecash", 0);
+		set_cvar_num("initial_cash", 1200);
+		set_cvar_num("cashforwin", 10000);
+		set_cvar_num("cashforlose", 1200);
+		set_cvar_num("nopowerup", 0);
+		log_amx("[TSM] %s is not an H9 map: tsm_enabled 0, tsm_bots 0, and TS's own cash and powerups.", g_mapname);
 	}
 
 	get_mapname(g_mapname, charsmax(g_mapname));
@@ -7407,7 +7601,7 @@ public task_mechtest_snd(taskid)
 	switch (step)
 	{
 		case 1: client_cmd(id, "playvol %s 0.7", MECH_STEP_1);
-		case 2: client_cmd(id, "playvol %s 0.9", MECH_LOOP);
+		case 2: client_cmd(id, "playvol %s %f", MECH_LOOP, MECH_LOOP_PILOT_VOL);
 		case 3:
 		{
 			new hitname[24];
@@ -7784,6 +7978,10 @@ public legend_menu_handler(id, menu, item)
  */
 public cmd_legend(id)
 {
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return PLUGIN_CONTINUE;
+	}
 	if (!g_legend_menu)
 	{
 		g_legend_menu = menu_create("\yTS Match \d-- \ymenus", "legend_menu_handler");
@@ -7844,6 +8042,10 @@ public cmd_teaminfo(id, level, cid)
 
 public cmd_team(id)
 {
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return PLUGIN_CONTINUE;
+	}
 	// Clear the current side first so the balance check sees the player as unassigned
 	// -- otherwise they are counted on the team they are trying to leave.
 	if (g_state == ST_WARMUP || g_state == ST_READYUP)
@@ -7870,6 +8072,10 @@ public cmd_team(id)
 
 public cmd_class(id)
 {
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return PLUGIN_CONTINUE;
+	}
 	if (!g_class_count)
 	{
 		client_print(id, print_chat, "[MATCH] No classes are configured on this server.");
@@ -8192,13 +8398,9 @@ set_class_model(id, ci)
 resolved_class(id)
 {
 	new c = g_player_class[id];
-	if (c < 1 || c > g_class_count)
+	if (c < 1 || c > g_class_count || !class_offered(c))
 	{
-		c = get_pcvar_num(g_cv_defclass);
-	}
-	if (c < 1 || c > g_class_count)
-	{
-		c = 1;
+		c = default_class();
 	}
 	return c;
 }
@@ -10448,6 +10650,57 @@ public fw_player_spawn(id)
 }
 
 /*
+ * A map's env_shake, felt by everyone in its reach. TS's UTIL_ScreenShake sends its ScreenShake
+ * only to players standing on the ground, and never reads the shake's "in the air" flag: a
+ * spectator following the play, or anyone in mid-jump, felt nothing as a train went by. The
+ * people it passed over get the same message here: amplitude (pev_scale), duration
+ * (pev_dmg_take) and frequency (pev_dmg_save) in the SDK's fixed point, as the siege's own
+ * shake writes them, within the shake's radius (pev_dmg; 0 reaches everyone). Bots have no
+ * screen to shake. Only where the match mode plays: elsewhere the map shakes as the game ships.
+ */
+public fw_shake_use(ent, caller, activator, use_type, Float:value)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !g_shake_msg || !pev_valid(ent))
+	{
+		return HAM_IGNORED;
+	}
+	new Float:amp, Float:dur, Float:freq, Float:radius, Float:org[3];
+	pev(ent, pev_scale, amp);
+	pev(ent, pev_dmg_take, dur);
+	pev(ent, pev_dmg_save, freq);
+	pev(ent, pev_dmg, radius);
+	pev(ent, pev_origin, org);
+	if (amp <= 0.0 || dur <= 0.0)
+	{
+		return HAM_IGNORED;
+	}
+	new players[32], pnum, Float:at[3];
+	get_players(players, pnum, "c");
+	for (new i = 0; i < pnum; i++)
+	{
+		new id = players[i];
+		if (pev(id, pev_flags) & FL_ONGROUND)
+		{
+			continue;   // TS's own pass reached him
+		}
+		if (radius > 0.0)
+		{
+			pev(id, pev_origin, at);
+			if (get_distance_f(org, at) >= radius)
+			{
+				continue;
+			}
+		}
+		message_begin(MSG_ONE, g_shake_msg, _, id);
+		write_short(clamp(floatround(amp * 4096.0), 0, 65535));
+		write_short(clamp(floatround(dur * 4096.0), 0, 65535));
+		write_short(clamp(floatround(freq * 256.0), 0, 65535));
+		message_end();
+	}
+	return HAM_IGNORED;
+}
+
+/*
  * Refuses the Use of a door the map has reserved for combat engineers.
  *
  * Every func_door in the map comes through here and all but the marked ones leave
@@ -10495,8 +10748,9 @@ public fw_door_use(ent, activator, caller, use_type, Float:value)
 			ent, cls, name, activator, caller, g_door_use_hits);
 	}
 
-	// An admin's tsm_opendoor is forcing this door open: no gate of ours applies.
-	if (g_forcing_door)
+	// An admin's tsm_opendoor is forcing this door open, or the match mode is off: no gate of ours
+	// applies.
+	if (g_forcing_door || !get_pcvar_num(g_cv_enabled))
 	{
 		return HAM_IGNORED;
 	}
@@ -10574,6 +10828,12 @@ public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 	 * also still dead. amx_tsm_debug prints this counter.
 	 */
 	g_player_dmg_hits++;
+
+	// The match mode off: damage is the game's own.
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return HAM_IGNORED;
+	}
 
 	/*
 	 * Stamped FIRST, ahead of every guard below.
@@ -10899,6 +11159,10 @@ public task_model_one(taskid)
  */
 public cmd_roam_say(id)
 {
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return PLUGIN_CONTINUE;
+	}
 	cmd_roam(id);
 	return PLUGIN_HANDLED;
 }
@@ -11109,6 +11373,61 @@ bool:wears_mech(id)
 	return false;
 }
 
+/*
+ * A mech's stunts, heard: the hydraulic surge the frame a stunt begins (TS's stunt bits in pev_iuser4, set
+ * for humans and bots alike -- the module's client_stunt forward is never raised), and the stomp the frame
+ * it is back on the ground, if the stunt took it off the ground at all. A stunt still going after four
+ * seconds without leaving the ground ends quietly. Played in the world and on the pilot's own client, as
+ * the mech's footsteps are.
+ */
+mech_stunt_sounds(id)
+{
+	if (!wears_mech(id))
+	{
+		g_mech_stunt[id] = 0;
+		return;
+	}
+	new bits = pev(id, pev_iuser4);
+	new bool:ground = (pev(id, pev_flags) & FL_ONGROUND) != 0;
+	new Float:now = get_gametime();
+
+	if (!g_mech_stunt[id])
+	{
+		if (bits & TSM_STUNT_BITS)
+		{
+			g_mech_stunt[id] = ground ? 1 : 2;
+			g_mech_stunt_at[id] = now;
+			emit_sound(id, CHAN_AUTO, MECH_LEAP, 1.0, ATTN_NORM, 0, PITCH_NORM);
+			if (!is_user_bot(id))
+			{
+				client_cmd(id, "playvol %s 0.6", MECH_LEAP);
+			}
+		}
+		return;
+	}
+
+	if (!ground)
+	{
+		g_mech_stunt[id] = 2;
+		return;
+	}
+	if (g_mech_stunt[id] == 2)
+	{
+		g_mech_stunt[id] = 0;
+		emit_sound(id, CHAN_AUTO, MECH_LAND, 1.0, ATTN_NORM, 0, 92);
+		emit_sound(id, CHAN_AUTO, MECH_LAND2, 0.8, ATTN_NORM, 0, PITCH_NORM);
+		if (!is_user_bot(id))
+		{
+			client_cmd(id, "playvol %s 0.7", MECH_LAND);
+		}
+		return;
+	}
+	if (!(bits & TSM_STUNT_BITS) || now - g_mech_stunt_at[id] > 4.0)
+	{
+		g_mech_stunt[id] = 0;
+	}
+}
+
 /// True for a model name a machine wears: robo, droid or bot anywhere in it, in any case.
 /// The mech models (mech_msr_bot, mech_ins_bot) carry "bot", so every mech is a machine too.
 stock bool:machine_name(const name[])
@@ -11209,7 +11528,7 @@ public task_mech_loop()
 		// no server entity channel can fight them for it.
 		if (!is_user_bot(id))
 		{
-			client_cmd(id, "playvol %s 0.9", MECH_LOOP);
+			client_cmd(id, "playvol %s %f", MECH_LOOP, MECH_LOOP_PILOT_VOL);
 		}
 	}
 }
@@ -12877,6 +13196,10 @@ bool:step_bot_to_ring(bot, Float:center[3], Float:base_yaw, Float:radius)
  */
 public task_squad()
 {
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return;
+	}
 	/*
 	 * Shove persistence: any bot with an active push gets its velocity refreshed
 	 * every 0.1s so the nudge lasts ~0.7s instead of a single frame. Runs BEFORE
@@ -13764,11 +14087,25 @@ lives_for(id)
 		return 1;
 	}
 	new ci = resolved_class(id) - 1;
-	if (ci < 0 || ci >= TSM_MAXCLASS || g_class_lives[ci] < 1)
+	if (ci < 0 || ci >= TSM_MAXCLASS || class_lives_of(ci + 1) < 1)
 	{
 		return 1;
 	}
-	return g_class_lives[ci];
+	return class_lives_of(ci + 1);
+}
+
+/// One player's once-a-round abilities, ready again as a new round would have them: the stim, .ammo, the
+/// Engineer's resupply, the Medic's heal, the Officer's scan and reinforcements, the Mech's rockets.
+refresh_abilities(id)
+{
+	g_stim_used[id] = false;
+	g_ammo_used[id] = false;
+	g_eng_used[id] = 0.0;
+	g_medic_at[id] = 0.0;
+	g_scan_next[id] = 0.0;
+	g_reinforce_next[id] = 0.0;
+	g_mech_rockets_used[id] = 0;
+	g_mech_rocket_next[id] = 0.0;
 }
 
 /// tsm_class_lives, read in class order like tsm_class_limits. Unlisted classes keep 1.
@@ -14452,7 +14789,8 @@ cmd_reinforce(id)
 
 	g_reinforce_next[id] = now + get_pcvar_float(g_cv_reinforce);
 	new n = fire_wave(team, true);
-	g_wave_left[team] = get_pcvar_float(g_cv_respwave);
+	// The side's own interval: a claimed mode's (tsm_uplink_wave on an uplink map), or tsm_respawn_wave.
+	g_wave_left[team] = wave_interval(team);
 
 	new name[32], players[32], pnum, mate;
 	get_user_name(id, name, charsmax(name));
@@ -14505,6 +14843,24 @@ count_alive(team)
 	{
 		id = players[i];
 		if (g_match_team[id] == team && ((!g_elim[id] && is_user_alive(id)) || g_revive_pending[id]))
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/// On their feet right now: alive and not eliminated, leaving out anyone waiting for a wave. What the
+/// elimination report means by "alive"; count_alive() is what the round itself counts.
+count_standing(team)
+{
+	new n = 0;
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pfall);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if (g_match_team[id] == team && !g_elim[id] && is_user_alive(id))
 		{
 			n++;
 		}
@@ -15889,7 +16245,12 @@ public task_force_teams()
 
 refresh_gamedesc()
 {
-	if (siege_count() > 0)
+	// The match mode off: TS's own description (fw_gamedesc leaves an empty one alone).
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		g_gamedesc[0] = 0;
+	}
+	else if (siege_count() > 0)
 	{
 		get_pcvar_string(g_cv_gamedesc_siege, g_gamedesc, charsmax(g_gamedesc));
 	}
@@ -15926,6 +16287,19 @@ presence_side_count(side)
 /// many players each side has, and how many of them are alive.
 refresh_presence()
 {
+	// The match mode off: nothing for the card but the map's own name and the player counts.
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		set_pcvar_string(g_cv_presiege, "");
+		set_pcvar_string(g_cv_presattack, "");
+		set_pcvar_string(g_cv_presmode, "");
+		set_pcvar_string(g_cv_presprog, "");
+		set_pcvar_string(g_cv_presside1, "");
+		set_pcvar_string(g_cv_presside2, "");
+		set_pcvar_string(g_cv_presalive1, "");
+		set_pcvar_string(g_cv_presalive2, "");
+		return;
+	}
 	new count = siege_count();
 	new text[16], attack[4], num[8];
 	text[0] = 0;
@@ -15937,7 +16311,21 @@ refresh_presence()
 	}
 	set_pcvar_string(g_cv_presiege, text);
 	set_pcvar_string(g_cv_presattack, attack);
-	set_pcvar_string(g_cv_presmode, g_mode_name);
+	// The mode, named whenever match mode runs, so the card never has to guess on an H9 server: the
+	// claimed mode's key ("uplink", "survival", "mechwarrior"), else "siege" on a siege map, else
+	// "match". Empty with tsm_enabled 0: the card then names the mode by the map.
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		set_pcvar_string(g_cv_presmode, "");
+	}
+	else if (g_mode_name[0])
+	{
+		set_pcvar_string(g_cv_presmode, g_mode_name);
+	}
+	else
+	{
+		set_pcvar_string(g_cv_presmode, (count > 0) ? "siege" : "match");
+	}
 	if (g_mode_name[0])
 	{
 		set_pcvar_string(g_cv_presprog, g_mode_prog);
@@ -15983,6 +16371,12 @@ public fw_prethink(id)
 	if (!get_pcvar_num(g_cv_enabled))
 	{
 		return FMRES_IGNORED;
+	}
+
+	// A mech's stunts get their own sound, in any state.
+	if (id >= 1 && id < MAXPL)
+	{
+		mech_stunt_sounds(id);
 	}
 
 	// Mech machinery: the carried M60 is stripped off the model, every hp bump
@@ -16508,12 +16902,13 @@ public fw_prethink(id)
 			g_elim_at[id] = get_gametime();
 			g_mech_hp_watch[id] = 0;   // same death reset as ev_death, for the no-DeathMsg path
 			set_task(get_pcvar_float(g_cv_deathdelay), "task_remove_from_play", id + 7000);
+			dbg("frame watcher eliminated %d (no DeathMsg -- suicide or world death)", id);
+			death_voice(id);
+			// The life is spent before the report, as in ev_death, so its lives tally counts this death.
+			lives_on_death(id);
 			// Same lookup as ev_death: a suicide genuinely has no killer, but a death
 			// that simply produced no DeathMsg usually does.
 			report_elimination(get_user_attacker(id), id);
-			dbg("frame watcher eliminated %d (no DeathMsg -- suicide or world death)", id);
-			death_voice(id);
-			lives_on_death(id);
 			check_round_end();
 		}
 	}
@@ -16931,8 +17326,9 @@ public ev_death()
 	// The elimination voice, picked by the dying player's model name (see
 	// death_voice()). Plays before anything here has hidden or moved the body.
 	death_voice(victim);
-	report_elimination(killer, victim);
+	// The life is spent before the report, so the report's lives tally counts this death.
 	lives_on_death(victim);
+	report_elimination(killer, victim);
 	check_round_end();
 }
 
@@ -17208,8 +17604,10 @@ report_elimination(killer, victim)
 		team_print(vteam, "[MATCH] %s was eliminated by %s%s", vname, kname, hp);
 	}
 
-	new a1 = count_alive(1);
-	new a2 = count_alive(2);
+	// On their feet, not counting anyone waiting for a wave -- the victim among them, whose life is
+	// already spent by the time this reports it.
+	new a1 = count_standing(1);
+	new a2 = count_standing(2);
 
 	// Lives are meaningless at the one-life-each tsm_respawns 0 default, so the extra
 	// half of the line only appears once there is something to say with it.
@@ -19425,6 +19823,13 @@ public native_wave_seconds(plugin, params)
 	}
 	new Float:secs = get_param_f(2);
 	g_wave_secs[side] = (secs < 0.0) ? -1.0 : secs;
+
+	// A shorter interval reaches a clock already running, so the change shows at once rather than one
+	// long wave later.
+	if (g_state == ST_LIVE && secs > 0.0 && g_wave_left[side] > secs)
+	{
+		g_wave_left[side] = secs;
+	}
 	return 1;
 }
 
@@ -19518,6 +19923,107 @@ public native_set_class(plugin, params)
 	}
 	g_player_class[id] = cls;
 	return 1;
+}
+
+/// tsm_refresh_abilities(side): every once-a-round ability ready again for side 1 or 2 (0 both), as a new
+/// round would leave them (refresh_abilities). Answers how many players.
+public native_refresh_abilities(plugin, params)
+{
+	new side = get_param(1);
+	new n = 0;
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pfall);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		new team = g_match_team[id] ? g_match_team[id] : g_side[id];
+		if ((team != 1 && team != 2) || (side && team != side))
+		{
+			continue;
+		}
+		refresh_abilities(id);
+		n++;
+	}
+	return n;
+}
+
+/// tsm_class_count(): how many classes ts_matchmode.cfg defines.
+public native_class_count(plugin, params)
+{
+	return g_class_count;
+}
+
+/// tsm_class_of_perk(perk): the first class (1-based) carrying that perk (TSM_PERK_*), 0 for none.
+public native_class_of_perk(plugin, params)
+{
+	new perk = get_param(1);
+	for (new i = 0; i < g_class_count; i++)
+	{
+		if (g_class_perk[i] == perk)
+		{
+			return i + 1;
+		}
+	}
+	return 0;
+}
+
+/*
+ * tsm_class_rule(cls, limit, lives): while the claimed mode runs, class `cls` (1-based) may be taken by
+ * `limit` players a side (0 no limit, -1 not played at all) and carries `lives` (0 keeps tsm_class_lives).
+ * The first rule a map gets starts every class from the config's own limits. Anyone holding a class left
+ * out gives it up (reseat_classes).
+ */
+public native_class_rule(plugin, params)
+{
+	new cls = get_param(1);
+	if (cls < 1 || cls > g_class_count)
+	{
+		return 0;
+	}
+	if (!g_mode_classes)
+	{
+		for (new i = 0; i < TSM_MAXCLASS; i++)
+		{
+			g_mode_class_limit[i] = g_class_limit[i];
+			g_mode_class_lives[i] = 0;
+		}
+		g_mode_classes = true;
+	}
+	new limit = get_param(2);
+	new lives = get_param(3);
+	g_mode_class_limit[cls - 1] = (limit < 0) ? -1 : limit;
+	g_mode_class_lives[cls - 1] = (lives > 0) ? lives : 0;
+	reseat_classes();
+	return 1;
+}
+
+/// tsm_mode_bot_class(cls): the class every bot plays while the mode runs; 0 hands it back to tsm_bot_class.
+public native_mode_bot_class(plugin, params)
+{
+	new cls = get_param(1);
+	g_mode_bot_class = (cls >= 1 && cls <= g_class_count) ? cls : 0;
+	reseat_classes();
+	return 1;
+}
+
+/// Classes put right after a mode's rules change: every bot takes the mode's bot class when it has one,
+/// and anyone else holding a class the mode leaves out gives it up -- a person picks again at the next freeze.
+reseat_classes()
+{
+	new players[32], pnum, id;
+	get_players(players, pnum, g_pfall);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if (is_user_bot(id) && g_mode_bot_class)
+		{
+			g_player_class[id] = g_mode_bot_class;
+		}
+		else if (g_player_class[id] && !class_offered(g_player_class[id]))
+		{
+			g_player_class[id] = is_user_bot(id) ? default_class() : 0;
+		}
+	}
 }
 
 /// tsm_set_progress(text[]): the mode's progress, published as tsm_pres_prog once a second.
@@ -20240,7 +20746,7 @@ public client_putinserver(id)
 public task_welcome_sound(taskid)
 {
 	new id = taskid - 9000;
-	if (!is_user_connected(id) || is_user_bot(id))
+	if (!is_user_connected(id) || is_user_bot(id) || !get_pcvar_num(g_cv_enabled))
 	{
 		return;
 	}
@@ -20311,7 +20817,7 @@ public task_music_queue()
 public task_music_join(taskid)
 {
 	new id = taskid - 10000;
-	if (g_music_cur >= 0)
+	if (g_music_cur >= 0 && get_pcvar_num(g_cv_enabled))
 	{
 		music_play(g_music_cur, id);
 	}
@@ -20434,7 +20940,7 @@ public task_assign_bot(taskid)
 	 * to place a bot would assign a side and respawn it DURING the park, wrecking
 	 * the "bots sit out until the next match" the flag exists to provide.
 	 */
-	if (g_bots_parked)
+	if (g_bots_parked || !get_pcvar_num(g_cv_enabled))
 	{
 		return;
 	}
@@ -20446,7 +20952,7 @@ public task_default_spectator(taskid)
 {
 	new id = taskid - 1000;
 
-	if (!is_user_connected(id) || !get_pcvar_num(g_cv_defaultspec))
+	if (!is_user_connected(id) || !get_pcvar_num(g_cv_defaultspec) || !get_pcvar_num(g_cv_enabled))
 	{
 		return;
 	}

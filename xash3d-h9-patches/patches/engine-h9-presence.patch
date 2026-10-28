@@ -67,16 +67,17 @@ index 1d8bbcc9..fa1cc5c1 100644
 +IDI_ICON1	ICON    DISCARDABLE		"havoc9.ico"
 diff --git a/engine/client/cl_presence.c b/engine/client/cl_presence.c
 new file mode 100644
-index 00000000..59aca604
+index 00000000..ee2632a5
 --- /dev/null
 +++ b/engine/client/cl_presence.c
-@@ -0,0 +1,498 @@
+@@ -0,0 +1,591 @@
 +/*
 +cl_presence.c - Discord Rich Presence, sent by the engine itself
 +
 +The card is built from what the client already has. The status reply of the server it
 +is connected to gives the map, the player count and the bot count, and the server's
-+serverinfo carries the siege progress, which the plugin publishes as tsm_pres_siege.
++serverinfo carries the mode and its progress, which the plugin publishes as tsm_pres_mode,
++tsm_pres_prog and tsm_pres_siege. A server without them is named by its map.
 +The card goes to the local Discord desktop client over its IPC pipe, the channel every
 +Rich Presence library uses, so nothing runs beside the game.
 +
@@ -283,13 +284,83 @@ index 00000000..59aca604
 +
 +/*
 +=================
++H9P_Mode
++
++The name of the mode the server we are on plays, for the card's details line. In order:
++
++  1. what an H9 server says it runs, in tsm_pres_mode: "siege", "uplink", "survival" or
++     "mechwarrior" (the siege progress in tsm_pres_siege says siege as well, from a plugin
++     older than tsm_pres_mode);
++  2. the map's name: an h9_<mode>_ map plays that mode, and a name starting rp_ or tsrp_,
++     or holding _rp_ or _tsrp_ anywhere, is a roleplay map;
++  3. "match" from an H9 server on any other map is Match Mode;
++  4. anything else, a stock ts_ map among them, is Deathmatch.
++
++"match" only says the match mode runs, so the map's name comes before it: an h9_te_ map is
++Team Elimination.
++=================
++*/
++static const char *H9P_Mode( const char *map, const char *key, const char *siege )
++{
++	static const struct { const char *key, *name; } keys[] =
++	{
++		{ "siege",       "Siege" },
++		{ "uplink",      "Capture the Uplink" },
++		{ "survival",    "Wave Survival" },
++		{ "mechwarrior", "Mech Warrior" },
++	};
++	static const struct { const char *prefix, *name; } maps[] =
++	{
++		{ "h9_te_",    "Team Elimination" },
++		{ "h9_siege_", "Siege" },
++		{ "h9_up_",    "Capture the Uplink" },
++		{ "h9_mw_",    "Mech Warrior" },
++		{ "h9_ws_",    "Wave Survival" },
++		{ "h9_dm_",    "Deathmatch" },
++		{ "h9_tdm_",   "Team Deathmatch" },
++		{ "h9_ctb_",   "Capture the Briefcase" },
++		{ "h9_ctf_",   "Capture the Flag" },
++	};
++	char	name[64];
++	size_t	i;
++
++	if( siege[0] )
++		return "Siege";
++
++	for( i = 0; i < ARRAYSIZE( keys ); i++ )
++	{
++		if( !Q_stricmp( key, keys[i].key ))
++			return keys[i].name;
++	}
++
++	Q_strnlwr( map, name, sizeof( name ));
++	for( i = 0; i < ARRAYSIZE( maps ); i++ )
++	{
++		if( !Q_strncmp( name, maps[i].prefix, Q_strlen( maps[i].prefix )))
++			return maps[i].name;
++	}
++
++	if( !Q_strncmp( name, "rp_", 3 ) || !Q_strncmp( name, "tsrp_", 5 )
++		|| Q_strstr( name, "_rp_" ) || Q_strstr( name, "_tsrp_" ))
++		return "Roleplay";
++
++	if( !Q_stricmp( key, "match" ))
++		return "Match Mode";
++
++	return "Deathmatch";
++}
++
++/*
++=================
 +H9P_Activity
 +
 +Builds the activity object for the server we are on, as JSON. It holds no nonce, so two
-+builds of an unchanged card compare equal. Details is the mode: the siege progress and the
-+side attacking it on a siege map, "Match Mode" otherwise. State is the players alive on each
-+side out of the total, the bots, and the map, or the totals alone from a plugin that does not
-+publish the alive counts. The large image is the map's snapshot, named after the map in the
++builds of an unchanged card compare equal. Details is the mode (H9P_Mode), with its progress
++where the server publishes one: the objectives and the side attacking them on a siege map,
++each side's zones in Capture the Uplink (tsm_pres_prog "1/2/4/0": side 1's, side 2's, all,
++the carrier's side), the wave in Wave Survival. State is the players alive on each side out
++of the total, the bots, and the map, or the totals alone from a plugin that does not publish
++the alive counts. The large image is the map's snapshot, named after the map in the
 +application's art assets. The two buttons link to the Discord invite and the site.
 +=================
 +*/
@@ -301,7 +372,10 @@ index 00000000..59aca604
 +	const char	*side2 = Info_ValueForKey( cl.serverinfo, "tsm_pres_side2" );
 +	const char	*alive1 = Info_ValueForKey( cl.serverinfo, "tsm_pres_alive1" );
 +	const char	*alive2 = Info_ValueForKey( cl.serverinfo, "tsm_pres_alive2" );
++	const char	*key = Info_ValueForKey( cl.serverinfo, "tsm_pres_mode" );
++	const char	*prog = Info_ValueForKey( cl.serverinfo, "tsm_pres_prog" );
 +	const char	*atk = attack[0] == '1' ? H9P_SIDE1_NAME : ( attack[0] == '2' ? H9P_SIDE2_NAME : "" );
++	const char	*mode = H9P_Mode( h9p.map, key, siege );
 +	char		details[96], state[160], title[160];
 +	char		e_details[192], e_state[320], e_map[160], e_title[320];
 +
@@ -309,13 +383,32 @@ index 00000000..59aca604
 +	{
 +		const char *slash = Q_strchr( siege, '/' );
 +
-+		Q_snprintf( details, sizeof( details ), "%s attacking: %d of %d objectives", atk,
++		Q_snprintf( details, sizeof( details ), "%s - %s attacking: %d of %d objectives", mode, atk,
 +			Q_atoi( siege ), slash ? Q_atoi( slash + 1 ) : 0 );
 +	}
 +	else if( siege[0] )
-+		Q_snprintf( details, sizeof( details ), "Siege %s", siege );
++		Q_snprintf( details, sizeof( details ), "%s %s", mode, siege );
++	else if( !Q_stricmp( key, "uplink" ) && prog[0] )
++	{
++		const char	*p = prog;
++		int		held[3] = { 0, 0, 0 };
++		int		i;
++
++		for( i = 0; i < 3 && p; i++ )
++		{
++			held[i] = Q_atoi( p );
++			p = Q_strchr( p, '/' );
++			if( p )
++				p++;
++		}
++
++		Q_snprintf( details, sizeof( details ), "%s - zones: %s %d, %s %d of %d", mode,
++			H9P_SIDE1_NAME, held[0], H9P_SIDE2_NAME, held[1], held[2] );
++	}
++	else if( !Q_stricmp( key, "survival" ) && prog[0] )
++		Q_snprintf( details, sizeof( details ), "%s - wave %d", mode, Q_atoi( prog ));
 +	else
-+		Q_strncpy( details, "Match Mode", sizeof( details ));
++		Q_strncpy( details, mode, sizeof( details ));
 +
 +	if( alive1[0] && alive2[0] && side1[0] && side2[0] )
 +		Q_snprintf( state, sizeof( state ), "Alive: %s %s/%s, %s %s/%s, %d bots, %s", H9P_SIDE1_NAME,

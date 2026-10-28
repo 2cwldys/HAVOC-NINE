@@ -1,5 +1,3 @@
-spray
-spray 
 spray remapped.bmp
 spray logos/remapped.bmp
 spray remapped.bmp
@@ -62,3 +60,5 @@ restart
 quit
 noclip
 quit
+amx_match_restart
+map h9_ws_drainage

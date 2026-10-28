@@ -1,93 +1,251 @@
-GAME MODES -- Capture the Uplink and Wave Survival
-==================================================
+GAME MODES -- what each H9 map plays, and how to set a map up for each
+=====================================================================
 
-Two modes on top of ts_matchmode, each its own plugin (ts_uplink.amxx, ts_survival.amxx).
-ts_matchmode stays the core -- rounds, lives, waves, classes, sides, the HUD -- and gives the
-modes a small API (include\tsm_api.inc). A mode CLAIMS a map about two seconds after it
-loads; only one mode may claim a map, and a map with siege objectives (tsm_obj_#) always
-stays a siege map. On a map nobody claims, every match plays exactly as it always has.
-Without ts_matchmode loaded, both plugins load and do nothing.
+ts_matchmode is the core: rounds, sides, lives and respawn waves, classes, the HUD. Three
+mode plugins sit on top of it, each on the maps that are its own: ts_uplink.amxx (Capture
+the Uplink), ts_survival.amxx (Wave Survival) and ts_mechwarrior.amxx (Mech Warrior). They
+talk to the core through a small API (include\tsm_api.inc) and do nothing without it.
 
+Everything a mapper needs is here: what a map's NAME does, the entities and configs each
+mode reads, and the in-game commands that write those configs for you. Nothing is needed
+beyond the map editor and the game itself.
+
+
+1. WHICH GAME A MAP PLAYS
+-------------------------
+The map's name decides, as it loads. TS picks its gamerules (teamplay or deathmatch) while
+the world spawns; ts_matchmode sets mp_teamplay just before that, so the right rules are in
+place from the first second, on a Steam hlds server and on H9XASH alike.
+
+  Name                   Plays                                       Rules
+  h9_te_<name>           Team Elimination (the match mode)           teamplay
+  h9_siege_<name>        Siege (the match mode with objectives)      teamplay
+  h9_up_<name>           Capture the Uplink                          teamplay
+  h9_ws_<name>           Wave Survival                               teamplay
+  h9_mw_<name>           Mech Warrior                                teamplay
+  any other h9_ or       Team Elimination, or Siege when the map     teamplay
+  tsm_ name              has objectives
+  h9_dm_<name>           TS's own deathmatch, as the game ships      deathmatch
+  h9_tdm_<name>          TS's own team deathmatch                    teamplay
+  h9_ctb_<name>          TS's own Capture the Briefcase              teamplay
+  h9_ctf_<name>          TS's own Capture the Flag                   teamplay
+  ts_<name>, and any     the game as it ships: TS's deathmatch       deathmatch
+  other name
+  roleplay names         the game as it ships, whatever else the     deathmatch
+                         name says: rp_ or tsrp_ at the start, or
+                         _rp_ or _tsrp_ anywhere (h9_tsrp_hive)
+
+"As the game ships" means the match mode stays out entirely: no warmup or ready-up, no
+side or class menus, no bots of its own (tsm_bots is 0 there), TS's own cash (usecash 0)
+and powerups, and the server browser shows TS's own game name. A map's own worldspawn
+"gamemode" key (1 deathmatch, 2 teamplay, 3 last man standing, 4 The One) still wins over
+the rules column, as it does in the stock game.
+
+Name a map for what it plays: the part after h9_ is also what the Discord card and the
+server list call the mode.
+
+THE MAP'S OWN MAPCONFIG HAS THE LAST WORD (section 4). Two lines in it are read as the map
+loads, ahead of the name: "tsm_enabled 1" makes any map a match-mode map on teamplay rules,
+"tsm_enabled 0" makes even an h9_ map play as the game ships, and "mp_teamplay 0" or "1"
+picks the rules alone. A stock map can be played as a match without renaming it:
+
+    // ts\mapconfigs\ts_bikini.cfg
+    tsm_enabled 1
+
+The server log says what each map got: "[TSM] <map>: an H9 map, the match mode plays, on
+teamplay rules" or "not an H9 map, the game as it ships, on deathmatch rules".
+
+
+2. THE MODES
+------------
+
+TEAM ELIMINATION  (ts_matchmode.amxx, configs\ts_matchmode.cfg)
+  Two sides, MSR and the Insurgents, in elimination rounds: wipe the other side out. Each
+  player picks a class at the freeze; every class has lives (tsm_class_lives), and the
+  fallen come back with their side's respawn wave (every tsm_respawn_wave, 60, seconds)
+  while their lives last. The last minute is sudden death (tsm_sudden_death). A match is
+  best of tsm_rounds (9). Everyone readies up with .ready in chat; COMMANDS.txt has every
+  command and cvar.
+
+SIEGE  (ts_matchmode.amxx)
+  Team elimination with objectives: the attacking side (tsm_obj_team) plants charges on the
+  map's objectives in order, and the last one falling wins the round. Every fall but the
+  last gives lives and time back (tsm_siege_rewardlives, tsm_siege_extratime). A map is a
+  siege map because it has objectives, whatever its name; no mode may claim one.
 
 CAPTURE THE UPLINK  (ts_uplink.amxx, configs\ts_uplink.cfg)
--------------------------------------------------------------
-Both sides fight over one carried objective, the uplink.
-
-  The uplink   appears each round at the map's point named tsm_uplink. Walk over it to take
-               it; the carrier wears it on their back, keeps every weapon, and is marked to
-               BOTH sides. It drops where the carrier falls, and goes home after
+  Both sides fight over one carried objective, the uplink.
+  The uplink   appears each round at the map's uplink point. Walk over it to take it; the
+               carrier wears it on their back, keeps every weapon, and is marked to BOTH
+               sides. It drops where the carrier falls, and goes home after
                tsm_uplink_return (20) seconds untouched. "dropuplink" in the console (bind
                it) or .drop in chat lets it go.
-  The zones    tsm_cap_1 .. tsm_cap_9. Only the carrier takes a zone: tsm_cap_time (15)
-               seconds inside it with no living enemy in it. Leaving, dropping, dying or a
-               contest starts it over. Each zone shows a ring on the floor in its holder's
-               colour (grey, MSR blue, Insurgent red; amber while being taken) and a flag
-               over it.
+  The zones    up to nine. Only the carrier takes a zone: tsm_cap_time (15) seconds inside
+               it with no living enemy in it. Leaving, dropping, dying or a contest starts it
+               over. Each zone shows a ring on the floor in its holder's colour (grey, MSR
+               blue, Insurgent red; amber while being taken) and a flag over it.
   Lives        a taken zone gives lives back by tsm_uplink_rewardlives: 1 the taking side,
-               2 both, 0 none. Lives are SET to the class's count, never added; the fallen
-               return with their side's next wave (every tsm_uplink_wave, 30, seconds).
-               Needs tsm_respawns 1.
+               2 both, 0 none. Lives are SET to the class's count, never added, and the
+               fallen come back AT ONCE, not with the next wave. Needs tsm_respawns 1.
+  Waves        on an uplink map tsm_uplink_wave (30), not tsm_respawn_wave, sets both sides'
+               respawn waves; .reinforce resets to it too.
   Winning      holding every zone wins at once. A side wiped out (no lives, nobody waiting)
                loses at once, whatever it held. When the clock runs out the side holding
                more zones wins; equal is a draw. There is no sudden death.
+  Bots         fight, but do not yet carry the uplink or take zones.
   Switch       tsm_uplink_mode 1 (0 turns it off everywhere). Browser name:
-               tsm_gamedesc_uplink "Uplink".
-
-  Making a map an uplink map: place info_target entities named tsm_cap_1.. and tsm_uplink,
-  or stand in game and use amx_tsm_cap_add [n] [radius], amx_tsm_uplink_set, then
-  amx_tsm_uplink_save (writes configs\tsm_uplink_<map>.cfg). amx_tsm_cap_list,
-  amx_tsm_cap_del <n>, amx_tsm_cap_give <n> <0|1|2> and amx_tsm_uplink (the state) help.
-
+               tsm_gamedesc_uplink "Capture the Uplink".
+  Admin        amx_tsm_uplink (the state), amx_tsm_cap_give <n> <0|1|2> (hand a zone over,
+               to test).
 
 WAVE SURVIVAL  (ts_survival.amxx, configs\ts_survival.cfg)
-------------------------------------------------------------
-Side 1 are the survivors; side 2 is a wave of bots that never runs out. A person picking
-side 2 is made a spectator.
-
+  Side 1 are the survivors; side 2 is a wave of bots that never runs out. A person picking
+  side 2 is made a spectator.
   Waves        a wave is over only when its last mutant is dead. Then a breather of
                tsm_ws_wave (30) seconds, counted down on screen, and the next wave comes all
                at once: the count goes up, xom_laugh plays for everyone, every fallen
-               survivor comes back and every survivor's lives are set to their class's count.
-               No round clock, no sudden death; the HUD shows WAVE n.
-  The run ends when side 1 is wiped out: chat says how far they got (and the best on this
-               map), the match is over, and it is back to warmup.
+               survivor comes back, every survivor's lives are set to their class's count,
+               and each wave is a new round for the once-a-round abilities: the stim, .ammo,
+               the class abilities and the Mech's rockets are all ready again. No round
+               clock, no sudden death; the HUD shows WAVE n.
+  The run      ends when side 1 is wiped out: chat says how far they got (and the best on
+               this map), the match is over, and it is back to warmup.
   It grows     health +tsm_ws_hp_per_wave (5) percent per wave; guns by tsm_ws_gun_odds
                (40% at first, 60% from wave 16, all from wave 25); the kung fu powerup after
                wave tsm_ws_kungfu_after (30).
   A stall      after tsm_ws_stall (120) seconds with three or fewer mutants left and none
                falling, they are taken off the board and the wave counts as cleared.
-  Switch       any map named h9_ws_..., while tsm_mutants_mode is 1. Mutant count: tsm_bots.
-               Browser name: tsm_gamedesc_survival "Wave Survival".
-  Admin        amx_tsm_ws (the state), amx_tsm_ws_wave <n> (jump the count to test it).
+  Switch       tsm_mutants_mode 1. Browser name: tsm_gamedesc_survival "Wave Survival".
+  Admin        amx_tsm_ws (the state), amx_tsm_ws_wave <n> (jump the count, to test).
+
+MECH WARRIOR  (ts_mechwarrior.amxx, configs\ts_mechwarrior.cfg)
+  The match as in team elimination -- rounds, respawn waves, sudden death -- with the
+  classes cut down to two: one Officer a side on two lives, and as many Mechs as a side
+  likes on three lives each. Every other class is gone from the class menu, and every bot
+  plays a Mech.
+  Classes      found by their perks in ts_matchmode.cfg's tsm_classN lines (the Officer's,
+               perk 4, and the Mech's, perk 7), so reordering the classes does not break it.
+               tsm_mw_officers (1, 0 for no Officer), tsm_mw_officer_lives (2), tsm_mw_mechs
+               (0, no limit) and tsm_mw_mech_lives (3); a change counts from the next round.
+               The lives need tsm_respawns 1.
+  Switch       tsm_mechwarrior_mode 1. Browser name: tsm_gamedesc_mechwarrior "Mech
+               Warrior".
+  Admin        amx_tsm_mw (the state).
 
 
-PROFILES AND PER-MAP SETTINGS
------------------------------
-  h9_presets   H9XASH\presets: ts_uplink.Siege.cfg and ts_survival.Siege.cfg have the modes
-               on; the .TeamElimination copies have them off. Both plugins.*.ini list the
-               two plugins (they are inert where the mode is off). See AMX_PRESETS.txt.
-  mapconfigs   H9XASH\ts\mapconfigs\<map>.cfg runs after the plugins' own configs
-               (h9_autoconfig), so a map can change any mode cvar for itself.
-  Spawns       configs\tsm_spawns_<map>.cfg, as for any map (CUSTOM_SPAWNPOINTS.txt).
+3. SETTING UP A MAP
+-------------------
+Build and compile the map as for any TS map, then:
+
+  1. NAME IT for its mode (section 1): h9_te_, h9_siege_, h9_up_, h9_ws_ or h9_mw_.
+
+  2. SPAWNS. Place info_player_deathmatch points in the map as for any TS map, then give
+     each side its own, at least as many as players it will have (16 a side is a
+     comfortable number): stand on each spot in the game, facing the way players should
+     face, and use the commands, which write configs\tsm_spawns_<map>.cfg:
+         amx_tsm_spawn_add 1 [tier]  (or 2) a point for that side where you stand
+         amx_tsm_spawn_list          what is placed
+         amx_tsm_spawn_tp <1|2> <n>  go to one, to check it
+         amx_tsm_spawn_del <1|2> <n> take one away
+         amx_tsm_spawn_save          write the file
+     Without that file the match mode splits the map's deathmatch points into two groups
+     by where they stand, which is only a guess. Leave 64 units between points: a player is
+     never placed on top of somebody standing there. docs\CUSTOM_SPAWNPOINTS.txt has the
+     rest (forward tiers for siege maps, pruning).
+
+  3. WHAT THE MODE NEEDS
+     Team Elimination  nothing more.
+     Siege             the objectives: brush entities named tsm_obj_1 .. tsm_obj_9, in the
+                       order they fall, and optionally tsm_obj_N_reset relays and
+                       Engineer-only doors named tsm_eng_door. MAP_ENTITIES.txt is the full
+                       account; amx_tsm_obj shows what the map has.
+     Capture the       the zones and the uplink's point. In the map: any entity named
+     Uplink            tsm_cap_1 .. tsm_cap_9 (an info_target's origin is a zone's middle,
+                       tsm_cap_radius, 128, units round it; a brush entity's box is its
+                       footprint) and an info_target named tsm_uplink. Or in the game, then
+                       saved to configs\tsm_uplink_<map>.cfg:
+                           amx_tsm_cap_add [n] [radius]   a zone where you stand
+                           amx_tsm_cap_del <n>            remove one
+                           amx_tsm_cap_list               the zones and who holds them
+                           amx_tsm_uplink_set             the uplink's point where you stand
+                           amx_tsm_uplink_save            write the file
+                       Put the zones where both sides have to fight for them, and the
+                       uplink's point between the two sides' starts, the same distance
+                       from each.
+     Wave Survival     the name alone. Spawns: side 1 (the survivors) somewhere they can
+                       hold; side 2 (the mutants) where waves should come from, far enough
+                       away that a wave arrives rather than appears. How many mutants a wave
+                       has is tsm_bots, so set it in the mapconfig.
+     Mech Warrior      the name alone. Mechs are slow, so give the round time
+                       (tsm_roundtime) in the mapconfig.
+
+  4. A MAPCONFIG (section 4) for anything this map plays differently: respawns, round time,
+     how many bots.
+
+  5. BOTS need waypoints to find their way: rcbot\waypoints\ts\<map>.rcw. Make them with
+     rcbot's own waypoint editor in the game (its documentation is in the rcbot folder).
+     Without them bots stand around.
+
+  6. CONTENT a player may not have -- a sky, sounds, models, sprites, a wad -- goes in a
+     <map>.res file beside the .bsp, one path per line relative to ts\ (gfx/env/<sky>rt.tga
+     and so on), so the server sends it with the map. Textures can instead be put inside the
+     .bsp by the compiler (-wadinclude).
+
+  7. TEST IT: load the map, check the server log's line for which game it plays, and use
+     amx_tsm_debug (the core), amx_tsm_obj (siege), amx_tsm_uplink (uplink), amx_tsm_ws
+     (survival) or amx_tsm_mw (Mech Warrior) to see the mode's state. tsm_test_solo 1 lets a
+     match run with only one side filled.
+
+  8. THE DISCORD CARD shows a picture of the map when the HAVOC 9 Discord application has an
+     art asset named after the map (docs\RICH_PRESENCE.txt).
 
 
-THE DRAINAGE MAPS  (export-map\h9_drainage)
--------------------------------------------
-h9_up_drainage and h9_ws_drainage are one place: the city's storm-drain works, a canal 704
-deep with a basin at each end, two box culverts with open decks over them, a pumping
-station in the middle, service galleries inside the walls, a filter room and a generator
-room; rain, a toxic storm sky, the city's distant gunfire and the works' own sounds.
+4. PER-MAP CONFIGS
+------------------
+  ts\mapconfigs\<map>.cfg   any console commands and cvars, run by the H9XASH engine once the
+                            map and its plugins are up (h9_autoconfig 1), so they override the
+                            plugins' own configs for that map alone; the next map's configs
+                            set everything back. Its tsm_enabled and mp_teamplay lines are also
+                            read as the map loads (section 1). A Steam hlds server does not run
+                            these files.
+  configs\tsm_spawns_<map>.cfg    the spawn points (amx_tsm_spawn_save writes it).
+  configs\tsm_uplink_<map>.cfg    the uplink's zones and point (amx_tsm_uplink_save):
+                                  tsm_cap <n> <x> <y> <z> [radius] and tsm_uplink_at <x> <y> <z>.
+  H9XASH\presets            h9_presets.bat swaps whole profiles: the .Siege copies of
+                            ts_uplink.cfg, ts_survival.cfg and ts_mechwarrior.cfg have their mode
+                            on, the .TeamElimination copies have it off (AMX_PRESETS.txt).
+
+  A mapconfig, for example, ts\mapconfigs\h9_up_drainage.cfg:
+
+      echo "[h9_autoconfig] h9_up_drainage.cfg applied"
+      tsm_respawns 1
+      tsm_roundtime 420
+
+
+5. THE DRAINAGE MAPS  (export-map\h9_drainage)
+----------------------------------------------
+h9_up_drainage, h9_ws_drainage and h9_mw_drainage are one place: the city's storm-drain
+works at night, a canal 704 deep with a basin at each end, two box culverts with open decks
+over them, a pumping station in the middle, service galleries inside the walls, a filter
+room and a generator room. Rain falls from high over the city's toxic storm sky, dirty haze
+lies along the floors, and litter is everywhere. The sky gives little light; the lamps give
+the rest, their lit faces shining. Over each basin the city's elevated line crosses on a
+steel bridge between two tunnels, and every two minutes or so a train comes through, loud,
+the ground shaking under everyone round the basin.
 
   h9_up_drainage   MSR on the north basin's platform, the Insurgents on the south's (16
-                   each). Zones: 1 the north culvert, 2 the filter room, 3 the south culvert;
-                   the uplink in the station. Mapconfig: tsm_respawns 1, tsm_roundtime 420.
+                   each). Zones: 1 the north culvert, 2 the filter room, 3 the south culvert,
+                   4 the generator room; the uplink in the station. Mapconfig:
+                   tsm_respawns 1, tsm_roundtime 420.
   h9_ws_drainage   16 survivors in the station; mutants from both platforms and the
                    galleries' far ends. Mapconfig: tsm_respawns 1, tsm_bots 12.
+  h9_mw_drainage   the sides start as on h9_up_drainage, with no zones. Mapconfig:
+                   tsm_respawns 1, tsm_roundtime 420.
 
   Rebuilding them  in export-map\h9_drainage (node, SMAK beside TSM):
     node sky.mjs deploy          the sky (gfx\env\h9drain*.tga)
-    node sprites.mjs deploy      the zone, flag, marker and rain sprites
+    node sprites.mjs deploy      the zone, flag, marker, rain and haze sprites
     node uplink.mjs deploy       models\tsm_uplink.mdl
-    node drainage.mjs --compile deploy   both maps, their .res and spawn configs
-    node waypoints.mjs deploy    the bots' waypoints, under both names
+    node drainage.mjs --compile deploy   all three maps, their .res and spawn configs
+    node waypoints.mjs deploy    the bots' waypoints, under all three names
     node preview.mjs             a reel of stills and a flythrough with its sound

@@ -26,10 +26,11 @@
  * time-up, lives, waves, who is in play -- comes through include\tsm_api.inc. With
  * ts_matchmode missing the native filter below lets this plugin load, and it does nothing.
  *
- * BOTS. rcbot is patched to play the objective (rcbot-patch, CHANGE 7): it looks for the
- * entity with the classname tsm_uplink (its aiment is the carrier while it is carried) and
- * for the zone rings, classname tsm_cap, whose team field is the owner (0, 1 or 2), fuser1
- * the radius and iuser1 the zone's number. Keep those fields as they are.
+ * BOTS fight on an uplink map but do not play the objective: no rcbot change reads it yet.
+ * For one that would, the uplink is the entity with the classname tsm_uplink (its aiment is
+ * the carrier while it is carried), and the zone rings are classname tsm_cap, whose team
+ * field is the owner (0, 1 or 2), fuser1 the radius and iuser1 the zone's number. Keep
+ * those fields as they are.
  *
  * Written to the same rules as ts_matchmode.sma, for a strict compiler and a strict log:
  * ASCII only, explicit braces, no warnings.
@@ -45,7 +46,7 @@
 #define AUTHOR  "tsm"
 
 // Printed by amx_tsm_uplink, so there is never any doubt which build is loaded.
-#define UPL_BUILD "1.0-modes1"
+#define UPL_BUILD "1.0-modes2"
 
 #define UPL_MAXZONES   9
 #define UPL_TICK       0.1
@@ -118,6 +119,7 @@ new g_ring_frame;              // the shared animation frame of every ring
 
 // The uplink itself.
 new Float:g_home[3];
+new Float:g_waves_set;         // the wave interval last handed to ts_matchmode, for the log
 new bool:g_home_have, bool:g_home_cfg;
 new g_up_ent;                  // the entity; 0 when it is not in the world
 new g_carrier;                 // who carries it; 0 when it lies loose
@@ -211,7 +213,7 @@ public plugin_init()
 	g_cv_reward  = register_cvar("tsm_uplink_rewardlives", "1");
 	g_cv_wave    = register_cvar("tsm_uplink_wave",        "30");
 	g_cv_return  = register_cvar("tsm_uplink_return",      "20");
-	g_cv_desc    = register_cvar("tsm_gamedesc_uplink",    "Uplink");
+	g_cv_desc    = register_cvar("tsm_gamedesc_uplink",    "Capture the Uplink");
 
 	// The carrier lets go: bindable from the console, or typed in chat.
 	register_clcmd("dropuplink", "cmd_drop", 0, "- let the uplink go, if you carry it");
@@ -350,9 +352,28 @@ set_zone(n, const Float:org[3], Float:rad, bool:from_cfg)
 	g_zone_owner[n] = 0;
 }
 
+/*
+ * Both sides' respawn waves every tsm_uplink_wave seconds: on an uplink map this, not
+ * tsm_respawn_wave, sets them. Applied at the claim and again as each round starts, before
+ * ts_matchmode starts that round's wave clocks, so a map's mapconfig or a console change takes
+ * effect from the next round. Logged whenever the interval changes.
+ */
+apply_waves()
+{
+	new Float:wave = get_pcvar_float(g_cv_wave);
+	tsm_wave_seconds(1, wave);
+	tsm_wave_seconds(2, wave);
+	if (wave != g_waves_set)
+	{
+		g_waves_set = wave;
+		log_amx("[UPLINK] Respawn waves every %.0fs for both sides on %s.", wave, g_mapname);
+	}
+}
+
 try_claim()
 {
-	if (g_active || !g_have_core || !get_pcvar_num(g_cv_mode) || !g_zone_count)
+	// tsm_enabled 0: the map plays as the game ships (ts_matchmode's per-map rule, or the map's mapconfig).
+	if (g_active || !g_have_core || !get_pcvar_num(g_cv_mode) || !g_zone_count || !get_cvar_num("tsm_enabled"))
 	{
 		return;
 	}
@@ -361,7 +382,7 @@ try_claim()
 	get_pcvar_string(g_cv_desc, desc, charsmax(desc));
 	if (!desc[0])
 	{
-		copy(desc, charsmax(desc), "Uplink");
+		copy(desc, charsmax(desc), "Capture the Uplink");
 	}
 	if (!tsm_mode_claim("uplink", desc, TSM_MODE_NO_SUDDEN))
 	{
@@ -371,9 +392,7 @@ try_claim()
 	}
 
 	g_active = true;
-	new Float:wave = get_pcvar_float(g_cv_wave);
-	tsm_wave_seconds(1, wave);
-	tsm_wave_seconds(2, wave);
+	apply_waves();
 
 	if (!g_home_have)
 	{
@@ -1005,7 +1024,40 @@ capture_bar(id, side, Float:held, Float:need)
 	show_hudmessage(id, "TAKING THE ZONE^n[%s]", bar);
 }
 
-/// A zone falls to a side: painted, announced, lives back, and every zone held wins the round.
+/*
+ * What taking a zone gives back, by tsm_uplink_rewardlives: 1 the side that took it, 2 both
+ * sides, 0 nothing. Every count is SET to the player's class count, never added to, and the
+ * fallen are brought back at once by a forced wave rather than left for the next one. With
+ * waves off (tsm_respawns 0) ts_matchmode answers -1 and nothing changes.
+ */
+reward_capture(side, const sname[])
+{
+	new reward = get_pcvar_num(g_cv_reward);
+	if (reward != 1 && reward != 2)
+	{
+		return;
+	}
+	if (tsm_reward_lives(reward == 1 ? side : 0) < 0)
+	{
+		return;
+	}
+
+	new back = tsm_fire_wave(side);
+	if (reward == 2)
+	{
+		new other = tsm_fire_wave(3 - side);
+		client_print(0, print_chat, "[MATCH] Lives are back to full on both sides -- %d of the fallen are back in the fight.",
+			back + other);
+		log_amx("[UPLINK] Zone reward, both sides: lives reset, %d and %d back at once.", back, other);
+		return;
+	}
+	client_print(0, print_chat, "[MATCH] Lives are back to full for %s -- %d of their fallen %s back in the fight.",
+		sname, back, (back == 1) ? "is" : "are");
+	log_amx("[UPLINK] Zone reward for side %d: lives reset, %d back at once.", side, back);
+}
+
+/// A zone falls to a side: painted, announced, and either every zone held wins the round or the
+/// side's lives come back (reward_capture).
 capture_zone(z, side, id)
 {
 	g_zone_owner[z] = side;
@@ -1025,31 +1077,17 @@ capture_zone(z, side, id)
 	client_print(0, print_chat, "[MATCH] %s took zone %d for %s -- %s holds %d of %d.",
 		name, z, sname, sname, held[side], g_zone_count);
 
-	// The lives a capture gives back: 1 the capturing side's, 2 both sides', 0 none.
-	new reward = get_pcvar_num(g_cv_reward);
-	if (reward == 1 || reward == 2)
-	{
-		new back = tsm_reward_lives(reward == 1 ? side : 0);
-		if (back >= 0)
-		{
-			if (reward == 1)
-			{
-				client_print(0, print_chat, "[MATCH] Lives restored for %s -- their fallen return with the next wave.", sname);
-			}
-			else
-			{
-				client_print(0, print_chat, "[MATCH] Lives restored on both sides -- the fallen return with the next wave.");
-			}
-		}
-	}
-
 	refresh_hud();
 
+	// Every zone held ends the round on the spot: nothing is left to give lives back for.
 	if (held[side] >= g_zone_count)
 	{
 		client_print(0, print_chat, "[MATCH] %s holds every zone.", sname);
 		tsm_end_round(side);
+		return;
 	}
+
+	reward_capture(side, sname);
 }
 
 /// How many zones each side holds: held[1], held[2]; held[0] the neutral ones.
@@ -1130,6 +1168,9 @@ public tsm_round_start(round)
 	{
 		return;
 	}
+	// This round's waves, before ts_matchmode starts its clocks at go-live.
+	apply_waves();
+
 	// Every zone neutral again, and no uplink until the round goes live.
 	remove_uplink();
 	for (new n = 1; n <= UPL_MAXZONES; n++)

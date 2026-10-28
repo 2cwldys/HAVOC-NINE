@@ -1,14 +1,16 @@
 ===============================================================================
  TS MATCH MODE -- COMMAND REFERENCE
- Plugin: ts_matchmode.amxx        Build: 1.53-fixes36
+ Plugins: ts_matchmode.amxx 1.54-modes3   ts_uplink.amxx 1.0-modes2
+          ts_survival.amxx 1.0-modes2   ts_mechwarrior.amxx 1.0-modes2
 ===============================================================================
 
- Keep this file current. When a command is added, renamed or removed in
- ts_matchmode.sma, change it here in the same edit -- a reference that is only
+ Keep this file current. When a command or cvar is added, renamed or removed in
+ any of the plugins, change it here in the same edit -- a reference that is only
  sometimes right is worse than none, because it gets trusted.
 
- Cvars are NOT listed here. They live in ts_matchmode.cfg, which documents each
- one next to its value. This file is commands only.
+ Every cvar is listed at the end, in CVAR REFERENCE: its default, and the
+ shipped .cfg's value where that differs. The full account of each is beside it
+ in its plugin's .cfg. Which game each map plays is under WHICH GAME A MAP PLAYS.
 
  EDIT CONFIGS IN D:\Downloads\TSM. build.bat copies ts_matchmode.cfg over the
  server's copy on every build, so changes made server-side are overwritten.
@@ -53,11 +55,11 @@
      intact, so "we are in ready-up" does not mean no match is running. Picks
      are refused there too.
 
-     Two classes do something with +USE:
+     Four classes have a job of their own:
 
-       Combat Engineer   +USE on a teammate resupplies them. Once per round.
-                         They glow YELLOW while it lands and it is audible to
-                         anyone nearby.
+       Combat Engineer   +USE on a teammate resupplies them, every 30 seconds
+                         (tsm_eng_cooldown). They glow YELLOW while it lands
+                         and it is audible to anyone nearby.
        Breacher          +USE forces a DOOR open -- and shows "Breached." --
                          that part is still one press, and doors only respond
                          when they were actually LOCKED ("Use Only" spawnflag)
@@ -125,7 +127,8 @@
      people around you know you have spent it.
 
      It comes back at the start of the next round. It does NOT come back if you
-     respawn in the middle of one.
+     respawn in the middle of one. In Wave Survival every new wave is a new round
+     for it, as for .ammo, the class abilities and the Mech's rockets.
 
  .cloak    /    .uncloak
      Recon only, in a live round: shimmer near-invisible and back. The model stays
@@ -147,33 +150,32 @@
      If the match takes you out of the round some other way (eliminated, benched, the
      warmup hold) it ends on its own, silently.
 
-  .scan    (or bind a key to:  say .scan)
-      Officer only, in a live round: pulse the scanner and every cloaked ENEMY within
-      1024 units (tsm_scan_radius) of you is exposed to your WHOLE SIDE for 10 seconds
-      (tsm_scan_time) -- not just to you, to everyone wearing your colour. You are
-      told how many were caught, and your side is told with you.
+ .scan    (or bind a key to:  say .scan)
+     Officer only, in a live round: pulse the scanner and every cloaked ENEMY within
+     1024 units (tsm_scan_radius) of you is exposed to your WHOLE SIDE for 10 seconds
+     (tsm_scan_time) -- not just to you, to everyone wearing your colour. You are
+     told how many were caught, and your side is told with you.
 
-      The mark is a bright blue glow shell around each caught man, and for those ten
-      seconds his body is also drawn solid to your side, so the cloak is no use to
-      him until it fades. It is the medic's glow shell, which TS draws the same on
-      both engines, in line of sight. During sudden death on H9XASH the x-ray's
-      through-wall shell takes its place, over a body still drawn solid. Your side's
-      bots see him too and may open fire.
-      His own side sees none of that.
+     The mark is a bright blue glow shell around each caught man, and for those ten
+     seconds his body is also drawn solid to your side, so the cloak is no use to
+     him until it fades. It is the medic's glow shell, which TS draws the same on
+     both engines, in line of sight. During sudden death on H9XASH the x-ray's
+     through-wall shell takes its place, over a body still drawn solid. Your side's
+     bots see him too and may open fire.
+     His own side sees none of that.
 
-      The mark is TIME, not state: set when the scan fires, out on its own ten
-      seconds later. Uncloak inside the window and the blue stops mattering; recloak
-      and it is still live and finds you again.
+     The mark is TIME, not state: set when the scan fires, out on its own ten
+     seconds later. Uncloak inside the window and the blue stops mattering; recloak
+     and it is still live and finds you again.
 
-      Once per 30 seconds (tsm_scan_cooldown, measured from use, like the cloak's
-      cooldown), and it re-arms at the start of every round. The scan makes a ping
-      (tsm_scan_sound, heard by whoever is near the Officer -- BOTH sides) that is
-      silent until you put your own wav in sound\ and name it in ts_matchmode.cfg,
-      and flashes the same blue point light the Recon's cloak uses -- so an enemy
-      who saw a blue pulse knows either a Recon just slipped away or an Officer
-      just read the area.
+     Once per 30 seconds (tsm_scan_cooldown, measured from use, like the cloak's
+     cooldown), and it re-arms at the start of every round. The scan plays
+     scan.wav (tsm_scan_sound; empty makes it silent), heard by whoever is near
+     the Officer -- BOTH sides -- and flashes the same blue point light the
+     Recon's cloak uses, so an enemy who saw a blue pulse knows either a Recon
+     just slipped away or an Officer just read the area.
 
-      Bots cannot use it: no bot types chat commands.
+     Bots cannot use it: no bot types chat commands.
 
  .reinforce  (or bind a key to:  say .reinforce)
      Officer only, while alive: call the team's waiting dead back now. Every
@@ -201,7 +203,7 @@
 
  .advertise  /  .ad          (ts_advertise -- a separate plugin)
      Post to Discord that a match is being organised. The bot posts an embed with
-     the map, how many are on, how many of those are bots, what the match is doing
+     the map, the mode as the server browser names it, how many are on, how many of those are bots, what the match is doing
      and a connect line.
 
      ONE EVERY THIRTY MINUTES FOR THE WHOLE SERVER, not per player, and it survives
@@ -213,13 +215,13 @@
      The clock only starts once Discord has ACCEPTED the post. A failed advert does
      not cost anyone the next half hour.
 
-     Needs tsm_ad_token and tsm_ad_channel set in ts_advertise_local.cfg and the
+     Needs tsm_ad_token and tsm_ad_channel set in ts_advertise.cfg and the
      AmxxEasyHttp module installed; without them it says so in chat and posts
      nothing.
 
      THE DISCORD BOT DOES NOT HAVE TO BE RUNNING for this. A bot token is a
      credential rather than a connection, so the game server posts by itself.
-     Running discord-bot	s_bot.py adds what has to come back the other way:
+     Running discord-bot\ts_bot.py adds what has to come back the other way:
      the bot showing online, the /who /status /advertise slash commands, and the
      RSVP buttons on an advert.
 
@@ -261,13 +263,13 @@
      between them every frame.
 
      They are held as a LOOP, and it stays a loop for the whole round: beyond
-     tsm_squad_dist the plugin pulls a bot towards you, a bot that STAYS
-     beyond tsm_squad_leash (1200 units out) for 3 seconds is LEASHED back to a
-     clear spot beside you (never onto you, never into a body), and one that
-     wanders beyond tsm_squad_warp is warped to you immediately either way.
-     Between tsm_squad_dist and tsm_squad_leash is normal fight-from-range
-     play: pulled, never teleported. Inside tsm_squad_dist the bot is
-     rcbot's own to fight, path and roam with.
+     tsm_squad_dist (160 units) the plugin pulls a bot towards you, a bot that
+     STAYS out there for 3 seconds is LEASHED back to a clear spot beside you
+     (never onto you, never into a body), and one that wanders beyond
+     tsm_squad_warp (1200) is warped to you at once. tsm_squad_leash (50) is how
+     far out counts as gone: it sits inside tsm_squad_dist, so the 3-second
+     clock starts the moment a bot leaves the formation. Inside tsm_squad_dist
+     the bot is rcbot's own to fight, path and roam with.
 
      An Officer is told about both commands in chat when the round starts, so
      the perk is not invisible.
@@ -284,15 +286,16 @@
  .rocket                       (Mech class only, while alive)
      Fire a rocket at whatever your crosshair is on, up to 2000 units away: a
      white trail to the spot and a blast there with splash damage, 65 at the
-     centre. Four a life, 30 seconds apart; every spawn hands all four back.
+     centre. Four a life, 30 seconds apart; every spawn hands all four back, and
+     so does every new wave in Wave Survival.
 
  .light
      Toggle your flashlight on or off, whatever weapon you are holding. Only
      while playing in a live round.
 
  .ammo
-     +25 spare rounds for every gun you carry, ONCE A ROUND, while playing in a
-     live round. Guns that share a calibre share the 25. If everything is
+     +25 spare rounds for every gun you carry, ONCE A ROUND (once a wave in Wave
+     Survival), while playing in a live round. Guns that share a calibre share the 25. If everything is
      already at TS's own cap nothing lands, you are told your guns are full,
      and it is not spent. Same yellow glow and ammo sound as an engineer's
      resupply.
@@ -384,9 +387,9 @@
      are off until the round ends. Living players are never moved to a forward
      point. Nobody respawns on a tier whose objective has not fallen yet.
 
-     CAUTION: do not run this while standing on the map's own spawn point, or
-     you will record it as a custom spawn -- and if you do it for both teams
-     they will share that position.
+     It refuses while you stand on one of the map's own spawn points: that
+     position would become a custom spawn, and done for both teams the two
+     would share it. Step off it first; tsm_spawn_prune 0 lets it through.
 
  amx_tsm_spawn_list
      Each point shows its tier. The numbers are the ones amx_tsm_spawn_del takes.
@@ -418,7 +421,7 @@
      Write the current set to the per-map cfg. Nothing is persisted until you
      run this.
 
- tsm_spawn <team> <x> <y> <z> <pitch> <yaw> [tier]   (server command)
+ tsm_spawn <team> <x> <y> <z> [pitch] [yaw] [tier]   (server command)
      Defines one spawn. This is what the saved cfg is made of. Hand edits are
      fine: docs/CUSTOM_SPAWNPOINTS.txt, Part 3, shows how.
 
@@ -495,11 +498,8 @@
  amx_tsm_ents
      Every entity classname in the world right now, with a count of each.
 
-     Run it with a body on the floor to find out what TS actually calls its
-     corpse: the corpse is whatever is in the list that should not be. The
-     corpse holder was written against the classname "deadcorpse" and never
-     matched anything, which is why no value of tsm_corpse_hold ever changed
-     how long a body stayed -- the function was not acting on an entity at all.
+     Run it with a body on the floor to see the corpse for what it is: TS's
+     own deadcorpse entity, not the player.
 
 
 ===============================================================================
@@ -732,6 +732,13 @@
      alive, counted the way the round logic counts them. The game reads them for the
      Discord card.
 
+ tsm_pres_mode, tsm_pres_prog
+     Set by the plugin once a second, not by hand: the mode ("match", "siege", or a
+     claimed mode's key: "uplink", "survival", "mechwarrior") and the mode's
+     progress (the uplink's zones, the survival wave). The card names the mode by
+     them, or by the map's name where they are empty; every tsm_pres_* is empty
+     where the match mode is off.
+
  ts_richpresence 1
      Shows your game on Discord as Rich Presence. On by default. Set 0 to turn it off,
      in config.cfg or userconfig.cfg. The Discord desktop app has to be running. See
@@ -814,17 +821,28 @@
  every map load -- before any plugin runs, so the first map of a session is
  covered too.
 
+ On a map that is not H9's (WHICH GAME A MAP PLAYS) the plugin puts TS's own
+ values back instead -- usecash 0, initial_cash 1200, cashforwin 10000,
+ cashforlose 1200, nopowerup 0 -- and holds nobody's wallet: that map plays as
+ the game ships.
+
 
 ===============================================================================
  REQUIRED MODULES
 ===============================================================================
 
- addons/amxmodx/configs/modules.ini MUST list:
+ What each plugin needs:
 
-     hamsandwich
-     tsfun
+     ts_matchmode     fakemeta, fun, hamsandwich, tsfun
+     ts_uplink        fakemeta
+     ts_survival      fakemeta, fun
+     ts_mechwarrior   nothing beyond AMXX itself
+     ts_advertise     nvault, and AmxxEasyHttp (a third-party module)
 
- The plugin will not load without hamsandwich. Ham_TakeDamage is the only
+ AMXX loads its own modules by itself when a plugin needs one. AmxxEasyHttp has
+ to be installed and listed in addons/amxmodx/configs/modules.ini.
+
+ ts_matchmode will not load without hamsandwich. Ham_TakeDamage is the only
  friendly-fire block that works on bots -- register_event("Damage") is driven by
  the network message sent to the damaged client, and a fake client is sent none,
  so bot-on-bot friendly fire was never blocked at all.
@@ -849,16 +867,23 @@
 
  Waypoints live in  half-life/rcbot/waypoints/ts/<mapname>.rcw  and are
  REQUIRED -- bots will not navigate a map without them. 45 TS maps ship with
- rcbot; h9_te_neuropolis is not one of them.
+ rcbot's own; the H9 maps carry theirs (h9_te_neuropolis, h9_te_meridian,
+ h9_tsrp_hive and the three drainage maps).
 
- tsm_bots 0 zeroes rcbot's quota as well, so no bots join at all.
- tsm_bots 1 also sets balance_teams 1, because only rcbot can move its own
- bots in a way TS agrees with -- moving them plugin-side made bots shoot their
- own teammates and use the wrong spawn points.
- NOTE: tsm_bots 1 does NOT restore the quota on a 0->1 toggle; bots stay gone
- until a full server restart (the build workflow includes a restart anyway).
+ tsm_bots IS A COUNT: the plugin keeps that many bots on the server, adding one
+ every two seconds through rcbot (rcbot's own fill is switched off, max_bots -1)
+ and taking one away the same way when there are too many. It also sets
+ balance_teams 1, because only rcbot can move its own bots in a way TS agrees
+ with -- moving them plugin-side made bots shoot their own teammates and use the
+ wrong spawn points.
 
- With tsm_bots 1 the bots sit in SPECTATOR until a human picks a side. Filling
+ tsm_bots 0 zeroes rcbot's quota and kicks every bot, a quarter second apart.
+ A change in the console lasts for the map: ts_matchmode.cfg runs again as every
+ map loads and puts its value back. To keep bots off, set tsm_bots 0 in
+ ts_matchmode.cfg, or in a map's mapconfig for that map. On a map that is not
+ H9's the plugin sets 0 for that map by itself.
+
+ With bots on, the bots sit in SPECTATOR until a human picks a side. Filling
  starts from that point, so the first person to join is not dropped into a server
  whose teams were already settled without them. If nothing is happening and the
  server is all bots, that is why -- join a side.
@@ -892,14 +917,134 @@
  ORDER OF OPERATIONS FOR A NEW MAP
 ===============================================================================
 
+ 0. Name it for its mode (WHICH GAME A MAP PLAYS; docs\GAME_MODES.txt has the
+    whole setup for each mode).
  1. Load the map.
  2. amx_tsm_spawn_add 1   at several positions on one side
     amx_tsm_spawn_add 2   at several positions on the other
-    -- do NOT stand on the map's own spawn when you add the first one
+    -- it refuses on the map's own spawn points; step off them
  3. amx_tsm_spawn_list    confirm no position appears under both teams
  4. amx_tsm_spawn_save
  5. rcbot autowaypoint 1, walk the map, save per rcbot's docs
  6. Restart, then amx_tsm_debug to confirm the spawn cfg loaded
+
+
+===============================================================================
+ WHICH GAME A MAP PLAYS
+===============================================================================
+
+ The map's name decides, as it loads: h9_te_ Team Elimination, h9_siege_ Siege,
+ h9_up_ Capture the Uplink, h9_ws_ Wave Survival, h9_mw_ Mech Warrior; any other
+ h9_ or tsm_ name plays the match mode too. A stock ts_ map, a roleplay map and
+ TS's own modes under H9 names (h9_dm_, h9_tdm_, h9_ctb_, h9_ctf_) play as the
+ game ships: tsm_enabled 0, tsm_bots 0, TS's own cash and powerups, and the
+ plugin picks deathmatch or teamplay rules for them before the world spawns. A
+ tsm_enabled or mp_teamplay line in the map's own ts\mapconfigs\<map>.cfg
+ decides in place of the name. The full list, and how to set up a map for each
+ mode, is docs\GAME_MODES.txt.
+
+ The server log says what each map got:
+
+     [TSM] h9_te_neuropolis: an H9 map, the match mode plays, on teamplay rules.
+     [TSM] ts_bikini: not an H9 map, the game as it ships, on deathmatch rules.
+
+
+===============================================================================
+ CAPTURE THE UPLINK  (ts_uplink.amxx)
+===============================================================================
+
+ dropuplink                      (console; bind a key to it)
+ .drop                           (chat)
+     Let the uplink go, if you carry it. It lies where it falls and goes home
+     after tsm_uplink_return seconds untouched. Anyone else's .drop goes out as
+     ordinary chat.
+
+ amx_tsm_cap_add [n] [radius]    (admin, ADMIN_CFG)
+     A control zone where you stand: the next free number, or zone n, with a
+     radius of tsm_cap_radius (128) unless one is given. Nothing is kept until
+     amx_tsm_uplink_save.
+
+ amx_tsm_cap_del <n>             (admin)
+     Remove zone n.
+
+ amx_tsm_cap_list                (admin)
+     Every zone: its number, where it is, its radius, and who holds it.
+
+ amx_tsm_cap_give <n> <0|1|2>    (admin)
+     Hand zone n to a side (0 neutral) as though it had been taken: to test the
+     rings, the flags, the lives reward and the win.
+
+ amx_tsm_uplink_set              (admin)
+     The uplink's point, where you stand.
+
+ amx_tsm_uplink_save             (admin)
+     Write this map's zones and uplink point to configs\tsm_uplink_<map>.cfg,
+     which is read as the map loads.
+
+ amx_tsm_uplink                  (admin)
+     The mode's whole state: its build, whether it claimed the map, the zones
+     and who holds them, the uplink and its carrier, the wave interval.
+
+ tsm_cap <n> <x> <y> <z> [radius]    (server command)
+ tsm_uplink_at <x> <y> <z>           (server command)
+     What configs\tsm_uplink_<map>.cfg is made of. Hand edits are fine.
+
+ Taking a zone sets the taking side's lives back to their class counts and
+ brings its fallen back at once (tsm_uplink_rewardlives). On an uplink map
+ tsm_uplink_wave, not tsm_respawn_wave, sets both sides' respawn waves, and
+ .reinforce resets to it too. The mode is described in docs\GAME_MODES.txt.
+
+
+===============================================================================
+ WAVE SURVIVAL  (ts_survival.amxx)
+===============================================================================
+
+ amx_tsm_ws                      (admin, ADMIN_CFG)
+     The mode's whole state: its build, the wave and the best on this map, the
+     gun odds, the mutants up, the breather and the stall clock.
+
+ amx_tsm_ws_wave <n>             (admin)
+     Set the wave count, to see how the waves grow without playing up to them.
+
+ Each new wave brings the fallen survivors back, sets every survivor's lives to
+ their class's count, and is a new round for the once-a-round abilities: .stim,
+ .ammo, the class abilities and the Mech's rockets are all ready again.
+
+
+===============================================================================
+ MECH WARRIOR  (ts_mechwarrior.amxx)
+===============================================================================
+
+ amx_tsm_mw                      (admin, ADMIN_CFG)
+     The mode's whole state: its build, whether it claimed the map, the
+     Officer's and the Mech's classes with their limits and lives, and who is
+     still in the round on each side.
+
+ One Officer a side on two lives, any number of Mechs on three; every other
+ class is off the class menu, and every bot plays a Mech. The tsm_mw_* cvars
+ below set the counts.
+
+ A Mech that does a TS stunt -- a dive, a cartwheel, a wall jump or climb, a
+ roll -- sounds a hydraulic surge as it leaps and a heavy stomp as it lands, in
+ any mode.
+
+
+===============================================================================
+ H9XASH CLIENT  (the H9XASH engine's own; typed in the game's console)
+===============================================================================
+
+ spray                           list the pictures on the ts\logos shelf
+ spray <name>                    equip one of them as your spray
+ spray off                       take the pick off, so an uploaded
+                                 tempdecal.wad sprays as it is
+ ts_richpresence 0|1             the Discord card (docs\RICH_PRESENCE.txt)
+ cl_h9_cloakfix 0|1              show a server-side cloak on your own model (1)
+ cl_h9_userid                    this install's regenerable client id
+                                 (docs\CUSTOM_XASH_USERID.txt)
+ listmasters                     the server lists the Internet tab asks
+                                 (docs\NETWORKING.txt)
+ h9_autoconfig 0|1               on a server running H9XASH: run the map's
+                                 ts\mapconfigs\<map>.cfg once it is up (1)
 
 
 ===============================================================================
@@ -953,3 +1098,359 @@
  addons/amxmodx/logs/tsm_debug.log. Level 4 also echoes to the console.
 
 
+===============================================================================
+ CVAR REFERENCE
+===============================================================================
+
+ Every cvar the H9 plugins register, with its default. Where the shipped .cfg
+ sets something else, its value follows in brackets: [cfg 6]. The full account
+ of each is beside it in its plugin's .cfg. A map's own ts\mapconfigs\<map>.cfg
+ can change any of them for that map alone; the next map's configs set them
+ back.
+
+ Name                      Default    What it does
+
+ TS MATCH MODE  (ts_matchmode.amxx, configs\ts_matchmode.cfg)
+
+ -- the match
+ tsm_enabled               1          the match mode on. Set to 0 by the plugin
+                                      on maps that are not H9's (see WHICH GAME A
+                                      MAP PLAYS)
+ tsm_rounds                9          best of: 9 is first to 5
+ tsm_freezetime            10         seconds frozen at the start of each round
+                                      [cfg 6]
+ tsm_roundtime             300        the round's time limit, in seconds
+ tsm_show_timer            1          the round clock on screen
+ tsm_roundend_delay        4.0        seconds from the last enemy dying to the
+                                      round ending
+ tsm_min_per_team          1          players each side needs before ready-up can
+                                      start the match
+ tsm_test_solo             0          1 lets a match run with one side filled, to
+                                      test alone
+ tsm_lock_teams            1          refuse side changes once a match is under way
+ tsm_force_spawn           1          respawn anyone still dead as a round starts
+ tsm_autofill              1          fill a short side at a round's start: 0 never,
+                                      1 from late joiners, 2 spectators too
+ tsm_warmup_hold           1          hold everyone, frozen and unhurt, through
+                                      warmup and ready-up
+ tsm_warmup_hide           1          hide players in warmup as well as freezing
+ tsm_reset_loadout         0          removed; accepted and ignored
+ tsm_reset_delay           1.0        accepted and ignored
+
+ -- sides and teams
+ tsm_team_mode             auto       how the two sides are learned: auto, name,
+                                      or number
+ tsm_team1_name            (empty)    side 1's TS team name, 15 characters at most
+                                      [cfg msr]
+ tsm_team2_name            (empty)    side 2's [cfg insurgents]
+ tsm_team1_short           (empty)    side 1's short name on the score line
+ tsm_team2_short           (empty)    side 2's
+ tsm_team1_label           the Middle Sea Republic   side 1's name in the side
+                                      menu
+ tsm_team2_label           the Insurrectionists      side 2's
+ tsm_force_teamlist        1          set mp_teamlist again once the map is up
+ tsm_force_teammodels      (empty)    set mp_teammodels too, when not empty
+ tsm_spectator_team        spectator  the real third TS team for people not playing
+ tsm_spectate_index        3          that team's place in mp_teamlist
+ tsm_spectator_model       Invisible  the model a spectator wears
+ tsm_default_spectator     1          put a new arrival with no side on the
+                                      spectator team, with the side menu
+ tsm_block_spectator       0          put a player the mod drifts to spectator
+                                      back on their side
+ tsm_block_teamvgui        1          refuse changeteam, which opens TS's own team
+                                      panel
+ tsm_menu_delay            3          seconds after joining before the side menu
+                                      is offered
+
+ -- even sides and halts
+ tsm_balance_gap           1          the largest allowed difference in side sizes
+ tsm_balance_mode          block      off, warn, block (hold ready-up), or shuffle
+ tsm_halt_on_leave         1          stop a round whose sides went uneven, replay
+                                      it, keep the score
+ tsm_halt_humans           1          a halt counts people, not bots
+ tsm_halt_delay            3.0        seconds after a leave before the sides are
+                                      counted
+ tsm_halt_bypass           0          1 never halts
+
+ -- holds and death
+ tsm_freeze_method         2          how a hold freezes: 2 clamps maxspeed (the
+                                      one that works), 1 FL_FROZEN
+ tsm_force_maxspeed        1          restore a released player's maxspeed when TS
+                                      leaves it at 0
+ tsm_hold_height           900        how far above their death spot a dead player
+                                      is parked with nobody to watch
+ tsm_disarm                2          how an eliminated player is stopped: 1
+                                      buttons, 2 buttons and speed, 3 neither
+ tsm_death_delay           10.0       ceiling on how long a dying player is left
+                                      before becoming a spectator [cfg 4]
+ tsm_death_linger          3.0        seconds a dying player is left untouched
+                                      [cfg 10.5]
+ tsm_death_grace           2.5        seconds an eliminated player is left alone
+                                      before being taken out of play
+
+ -- spawns
+ tsm_spawn_mode            auto       auto (the map's spawn cfg, else its
+                                      entities), config, or entity
+ tsm_spawn_prune           1          keep the map's own spawn points out of the
+                                      custom set
+ tsm_spawn_prune_dist      64         how near a map spawn must be to count as one
+ tsm_spawn_health          100        health given at the start of each round
+
+ -- classes and models
+ tsm_classes               1          the class system on
+ tsm_class1, tsm_class2, tsm_class3, tsm_class4, tsm_class5, tsm_class6,
+ tsm_class7, tsm_class8, tsm_class9
+                           (see cfg)  each class: name; weapons for each side;
+                                      models for each side; health; armour; perk;
+                                      speed; height
+ tsm_class_limits          (empty)    how many may take each class, a side
+                                      [cfg 0,4,2,2,4,2,1,4,1]
+ tsm_class_lives           (empty)    lives for each class [cfg 2,1,1,1,1,1,1,1,1]
+ tsm_default_class         1          the class of someone who never picks
+ tsm_class_retry           1.0        seconds between re-offering the class menu
+ tsm_class_scale           1          apply each class's height (drawn only)
+ tsm_model_mode            teamonly   force (class models, re-asserted) or
+                                      teamonly (TS's own) [cfg force]
+ tsm_model_post            1          write the class model from a POST hook,
+                                      after TS
+ tsm_model_verify          0          seconds between re-checking a player's
+                                      model; 0 never
+ tsm_model_fallback_class  1          the class a blank model field borrows from
+ tsm_class_icons           1          a class sprite over each head, shown to its
+                                      own side
+ tsm_icon_height           52.0       units above the player's origin
+ tsm_icon_scale            0.25       the sprite's scale
+ tsm_hover_info            1          aim at a teammate to see their class and
+                                      health
+ tsm_hover_range           640        how far that reaches
+
+ -- weapons, economy, pickups
+ tsm_weapon_mode           2          2 hands out the class weapons; 0 none
+ tsm_loadout               9:3,25:0   what a player spawns holding without a
+                                      class (id:clips pairs)
+ tsm_arm_delay             2.5        seconds between writing a loadout and the
+                                      respawn that applies it
+ tsm_arm_order             0          1 issues the class line back to front, so
+                                      the first weapon is in hand [cfg 1]
+ tsm_wpn_extra             0          attachments on every class weapon (bitmask:
+                                      1 silencer, 2 laser, 4 light, 8 scope)
+ tsm_clip_bonus            2          spare magazines added to every weapon [cfg 6]
+ tsm_clip_max              6          most spare magazines for one weapon [cfg 14]
+ tsm_clip_sparepct         100        how much of those magazines is held, percent
+ tsm_ammo_mags             2          spare magazines of every ammo type [cfg 6]
+ tsm_nocash                1          economy on, wallet held at 0: no buying
+ tsm_block_buy             1          refuse TS's buy-menu commands
+ tsm_no_powerups           1          take TS's powerups out of match play
+ tsm_no_weapons            0          1 sweeps every weapon off the map, once a
+                                      second (set per map in its mapconfig)
+ tsm_sweep_drops           1          remove what players dropped, at each round's
+                                      start
+ tsm_clean_drops           0          strip weapons dropped on death before the
+                                      next round
+ tsm_friendlyfire          0          teammates can hurt each other
+
+ -- lives and respawn waves
+ tsm_respawns              1          classes with lives come back in waves; 0
+                                      makes every elimination final
+ tsm_respawn_wave          60.0       seconds between a side's waves [cfg 60]
+ tsm_respawn_seconds       5.0        seconds dead before a wave can take someone
+                                      [cfg 5]
+ tsm_respawn_sudden        0          1 runs waves in sudden death too
+ tsm_reinforce_cooldown    120.0      seconds between an Officer's .reinforce
+                                      calls [cfg 120]
+
+ -- the stim (everyone, once a round)
+ tsm_stim                  1          the stimpack on
+ tsm_stim_min              25         least health it gives
+ tsm_stim_max              50         most
+ tsm_stim_glow             1.5        seconds of its white glow
+ tsm_stim_shell            16         that glow's thickness
+
+ -- Combat Engineer
+ tsm_eng_range             96         how far its +USE reaches
+ tsm_eng_clips             3          magazines handed over per resupply
+ tsm_eng_cooldown          30.0       seconds between resupplies
+ tsm_eng_glow              1.5        seconds of the yellow glow on whoever got it
+ tsm_eng_shell             16         that glow's thickness
+ tsm_eng_sound             items/9mmclip1.wav   the resupply's sound
+ tsm_eng_entities          (empty)    entity classnames the engineer may +USE
+ tsm_eng_door_class        Combat Engineer      the class tsm_eng_door doors
+                                      answer to
+ tsm_eng_door_team         0          which side's: 0 either, 1 or 2 that side's
+
+ -- Breacher
+ tsm_breach_entities       func_door,func_door_rotating,func_wall_toggle,
+                           func_button
+                                      what a Breacher can force open with +USE
+ tsm_breach_range          96         how far that reaches
+ amx_tsm_forcedoor         0          1 lets an admin's tsm_opendoor work
+
+ -- Medic
+ tsm_medic_heal            50         health per heal
+ tsm_medic_cooldown        15.0       seconds between heals
+ tsm_medic_range           96         how far the heal reaches
+ tsm_medic_glow            1.5        seconds of the red glow on the healed
+ tsm_medic_shell           16         that glow's thickness
+ tsm_medic_sound           items/medshot4.wav   the heal's sound
+
+ -- Heavy (health regeneration, perk 5)
+ tsm_regen_amount          10         health back each tick
+ tsm_regen_interval        15.0       seconds between ticks
+ tsm_regen_pause           15.0       seconds unhurt before it starts again
+
+ -- Recon (the cloak)
+ tsm_cloak_enabled         1          .cloak and .uncloak on
+ tsm_cloak_duration        30.0       seconds a cloak lasts by itself
+ tsm_cloak_cooldown        30.0       seconds after a cloak ends before the next
+ tsm_cloak_opacity         12.0       how solid a cloaked Recon looks, 0-255
+                                      [cfg 10.0]
+
+ -- Officer
+ tsm_scan_radius           1024       how far .scan reaches
+ tsm_scan_cooldown         30.0       seconds between scans
+ tsm_scan_time             10.0       seconds a scanned enemy stays exposed
+ tsm_scan_sound            (empty)    the scan's sound; empty is silent [cfg scan.wav]
+ tsm_squad_dist            280        how close a squad bot keeps; inside it,
+                                      rcbot steers [cfg 160]
+ tsm_squad_leash           50         how far out counts as lost: 3 seconds out
+                                      there and the bot is brought back
+ tsm_squad_warp            1200       beyond this a bot is warped to the Officer
+                                      at once
+ tsm_squad_speed           240        how fast squad bots are steered
+ tsm_squad_steer           1          steering on
+ tsm_officerslain_sound    1          both sides hear it when an Officer falls
+
+ -- siege
+ tsm_obj_team              2          the side that attacks the objectives
+ tsm_obj_class             Breacher   the class that plants; empty, any class
+ tsm_obj_time              10.0       seconds to hold +USE to plant
+ tsm_obj_fuse              5.0        seconds a planted charge burns
+ tsm_obj_slay              1          the last objective's fall kills everyone left
+ tsm_obj_range             96         how far a planter can reach
+ tsm_siege_rewardlives     1          a fall sets everyone's lives back to their
+                                      class's count
+ tsm_siege_extratime       1          a fall puts time back on the clock
+ tsm_addtime               150        the most one fall puts back, in seconds
+ tsm_obj_msg_1             (empty)    side 1's round-start banner
+ tsm_obj_msg_2             (empty)    side 2's
+ tsm_alarm                 1          the siren from the first attack on
+ tsm_alarm_vol             0.3        its volume, 0.0 to 1.0
+ tsm_alarm_msg             BREACH IN PROGRESS   the defenders' warning line
+                                      [cfg BREACH|IN PROGRESS]
+ tsm_alarm_msg_attack      YOUR TEAM IS CURRENTLY SIEGING THE MAP
+                                      the attackers' line
+
+ -- sudden death
+ tsm_sudden_death          60         the last N seconds of a round; 0 is off
+ tsm_sudden_sound          xom_laugh.wav   played to everyone as it starts
+ tsm_sudden_xray           1          enemies through walls on H9XASH
+ tsm_sudden_fog_r          40         the fog's red, 0-255
+ tsm_sudden_fog_g          140        green
+ tsm_sudden_fog_b          45         blue
+ tsm_sudden_fog_density    90         its strength, 0-255
+ h9_fog_r, h9_fog_g,       0          the H9XASH engine's fog, which the plugin
+ h9_fog_b, h9_fog_density             sets through sudden death; not by hand
+
+ -- sounds and music
+ tsm_welcome_sound         welcome.wav   played to a player who has just joined
+ tsm_startsound            1          each side's own stinger one second into a
+                                      round
+ tsm_music_volume          0.5        the background music's volume [cfg 0.6]
+
+ -- bots (rcbot)
+ tsm_bots                  0          how many bots; 0 kicks them all [cfg 10].
+                                      Set to 0 by the plugin on maps that are not
+                                      H9's
+ tsm_bot_teams             both       which sides bots go on: both, 1 or 2
+ tsm_bot_class             0          0 tsm_default_class, spread, or a class
+                                      number [cfg 1]
+ tsm_bot_loadout           0          arm bots from their class
+ tsm_bot_ready             1          count bots as ready
+ tsm_bot_return            6.0        seconds bots sit out after a match
+ tsm_bot_reload            5.0        seconds between forcing a bot to reload
+ tsm_bot_resupply          20.0       seconds between topping a bot up with ammo
+ tsm_bot_blind_ff          1          teammates hidden from bots' sight, so they
+                                      never target one
+ tsm_bot_names             1          rename bots after their side
+ tsm_bot_name1             Enforcer   side 1's bot name prefix
+ tsm_bot_name2             Insurgent  side 2's
+
+ -- reports
+ tsm_report_kills          1          team-scoped elimination messages
+ tsm_report_hp             1          with the killer's health and armour left
+
+ -- the server browser and the Discord card
+ tsm_gamedesc              Match Mode   the browser's game name; a claimed mode's
+                                      tsm_gamedesc_* stands in for it while it runs
+ tsm_gamedesc_siege        Siege      the game name on a siege map
+ tsm_pres_siege, tsm_pres_attack, tsm_pres_side1, tsm_pres_side2,
+ tsm_pres_alive1, tsm_pres_alive2, tsm_pres_mode, tsm_pres_prog
+                           (empty)    set by the plugin once a second for the
+                                      Discord card; not by hand (SERVER LISTS AND
+                                      PRESENCE)
+
+ -- logging and the engine
+ tsm_logging               0          the plugin's own log lines on
+ tsm_debug_log             1          0 off, 1 logs/tsm_debug.log, 2 also the
+                                      console, 3 verbose, 4 verbose to the console
+                                      [cfg 0]
+ sv_visiblemaxplayers      -1         a stand-in made on Xash only, for AMXX's
+                                      adminslots plugin
+
+ CAPTURE THE UPLINK  (ts_uplink.amxx, configs\ts_uplink.cfg)
+
+ tsm_uplink_mode           1          the mode on, on every map with control zones
+ tsm_gamedesc_uplink       Capture the Uplink   the browser's game name while it
+                                      runs
+ tsm_cap_time              15         seconds the carrier must hold a zone
+ tsm_cap_radius            128        a zone's radius, unless given
+ tsm_uplink_rewardlives    1          what a taken zone gives back: 1 the taking
+                                      side's lives and fallen at once, 2 both
+                                      sides', 0 nothing
+ tsm_uplink_wave           30         seconds between both sides' respawn waves on
+                                      an uplink map
+ tsm_uplink_return         20         seconds a dropped uplink lies before going
+                                      home
+
+ WAVE SURVIVAL  (ts_survival.amxx, configs\ts_survival.cfg)
+
+ tsm_mutants_mode          1          the mode on, on every h9_ws_ map
+ tsm_gamedesc_survival     Wave Survival   the browser's game name while it runs
+ tsm_ws_wave               30         the breather between waves, in seconds
+ tsm_ws_wave_sound         xom_laugh.wav   played to everyone as a wave comes
+ tsm_ws_stall              120        seconds with three or fewer mutants left
+                                      and none falling before the wave is cleared
+ tsm_ws_class              1          the class every mutant plays
+ tsm_ws_hp_per_wave        5          percent more health each wave
+ tsm_ws_gun_odds           1:40,16:60,25:100   the chance of a gun, by wave
+ tsm_ws_guns               13:3,3:3,7:3,20:3   the guns, one at random
+ tsm_ws_melee              25,34,35,0          the blades, one at random
+ tsm_ws_kungfu_after       30         the kung fu powerup after this wave
+
+ MECH WARRIOR  (ts_mechwarrior.amxx, configs\ts_mechwarrior.cfg)
+
+ tsm_mechwarrior_mode      1          the mode on, on every h9_mw_ map
+ tsm_gamedesc_mechwarrior  Mech Warrior   the browser's game name while it runs
+ tsm_mw_officers           1          Officers a side; 0 no Officer
+ tsm_mw_officer_lives      2          each Officer's lives
+ tsm_mw_mechs              0          Mechs a side; 0 no limit
+ tsm_mw_mech_lives         3          each Mech's lives
+
+ DISCORD ADVERTS  (ts_advertise.amxx, configs\ts_advertise.cfg)
+
+ tsm_ad_token              (empty)    the Discord bot's token; never shown
+ tsm_ad_channel            (empty)    the channel the advert goes to
+ tsm_ad_role               (a role id)   the role the advert pings
+ tsm_ad_cooldown           1800       seconds between adverts, for the whole
+                                      server
+ tsm_ad_connect            (empty)    the address in the advert's connect line
+ tsm_ad_flag               (empty)    an admin flag needed to advertise; empty,
+                                      anyone
+ tsm_ad_minplayers         1          players needed on before an advert goes
+
+ FLOATING CHAT  (ts_floatchat.amxx: built and shipped, but not loaded)
+
+ fc_enabled, fc_range, fc_hold, fc_type_hold, fc_rise, fc_scale, fc_red,
+ fc_green, fc_blue, fc_y_tweak
+                                      read only if the plugin is put back in
+                                      plugins.ini; game.cfg sets fc_enabled 0

@@ -3,7 +3,11 @@
 # h9xash.bat runs this before HAVOC 9.exe starts. It writes:
 #   ts\xashcomm.lst               the server lists the Internet tab asks. masterstatic and
 #                                 mastergs lines, read by engine\common\masterlist.c
-#   ts\networking_resolved.cfg    cl_ticket_generator, run by ts\userconfig.cfg
+#   ts\networking_resolved.cfg    cl_ticket_generator, then clearmasters and the same lists
+#                                 again, run by ts\userconfig.cfg. The engine adds its own
+#                                 FWGS list (xash.su) before it reads xashcomm.lst; that list
+#                                 has no ts list and answers every Internet refresh with an
+#                                 error, so only H9's lists are left to ask
 #   steam\steam_appid.txt         only when the Steam broker starts, with the AppID it
 #   steam\steam_browse_appid.txt  should use
 #   steam\steam_broker.pid        only while a broker this launch started is running
@@ -164,7 +168,10 @@ try
 	foreach ($url in $lists) { $masters += "masterstatic `"$url`"" }
 	if ($brokerProc) { $masters += "mastergs $BrokerAddress" }
 	Write-Lines (Join-Path $TsDir 'xashcomm.lst') $masters
-	Write-Lines (Join-Path $TsDir 'networking_resolved.cfg') @($Banner, "cl_ticket_generator $ticket")
+	$resolved = @($Banner, "cl_ticket_generator $ticket", 'clearmasters')
+	foreach ($url in $lists) { $resolved += "addmasterstatic `"$url`"" }
+	if ($brokerProc) { $resolved += "addmaster $BrokerAddress gs" }
+	Write-Lines (Join-Path $TsDir 'networking_resolved.cfg') $resolved
 	Write-Note ("server lists: {0} set. Ticket generator: {1}." -f $lists.Count, $ticket)
 }
 catch

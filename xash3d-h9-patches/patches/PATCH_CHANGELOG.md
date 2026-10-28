@@ -279,3 +279,27 @@ place again); then a reverse check of every patch in `xash.bat`'s order --
 the four webassembly patches and all 19 here -- all in place. Registered
 `engine-h9-deltabits.patch` in `xash.bat` after autoconfig, and added both
 to its ENGINE.txt list and the `xash.dll` description.
+
+### 2026-10-28 -- engine-h9-presence.patch (regenerated)
+
+The card's details line now names every mode instead of only siege or "Match
+Mode". New `H9P_Mode()` in `cl_presence.c`, in order: the server's
+`tsm_pres_mode` key ("siege", "uplink", "survival", "mechwarrior"; a
+non-empty `tsm_pres_siege` still means Siege, for older plugins); then the
+map's name -- `h9_te_` Team Elimination, `h9_siege_` Siege, `h9_up_` Capture
+the Uplink, `h9_mw_` Mech Warrior, `h9_ws_` Wave Survival, `h9_dm_`
+Deathmatch, `h9_tdm_` Team Deathmatch, `h9_ctb_` Capture the Briefcase,
+`h9_ctf_` Capture the Flag, and a name starting `rp_`/`tsrp_` or holding
+`_rp_`/`_tsrp_` Roleplay; then "match" from an H9 server is Match Mode; and
+anything else (a stock `ts_` map) is Deathmatch. `H9P_Activity()` adds the
+progress `tsm_pres_prog` carries: each side's zones in Capture the Uplink,
+the wave in Wave Survival. ts_matchmode 1.54-modes2 publishes
+`tsm_pres_mode` as "match"/"siege"/the claimed mode's key whenever
+`tsm_enabled` is on.
+
+Only the `cl_presence.c` new-file section changed (498 -> 591 lines, blob
+`ee2632a5`), rebuilt from the live file; the `cl_main.c`, `client.h`,
+`host.c`, `game.rc` and `havoc9.ico` sections are untouched. Verified:
+reverse check in place against the live tree; round trip (`git apply
+--reverse`, `cl_presence.c` gone, `git apply --check`, `git apply`) with every
+file byte-identical afterwards. No other patch touches `cl_presence.c`.

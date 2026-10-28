@@ -9,7 +9,9 @@
  * before is dead. Clearing a wave starts a breather, tsm_ws_wave seconds counted down on
  * everyone's screen, and then the next wave comes all at once: the wave count goes up, the
  * sting plays for everyone, every fallen survivor comes back with it and every survivor's
- * lives are set to their class's count again. There is no round clock and no sudden death:
+ * lives are set to their class's count again. Each wave is a new round for the once-a-round
+ * abilities too: the stim, .ammo, the class abilities and the Mech's rockets are all ready
+ * again. There is no round clock and no sudden death:
  * the run goes on until side 1 is wiped out -- nobody standing, no lives left, nobody waiting
  * -- and then the match is over, chat says how far they got, and it is back to warmup.
  *
@@ -40,7 +42,7 @@
 #define VERSION "1.0"
 #define AUTHOR  "tsm"
 
-#define WS_BUILD "1.0-modes1"
+#define WS_BUILD "1.0-modes2"
 
 #define WS_TICK        0.5
 #define WS_TASK_TICK   71201
@@ -138,7 +140,8 @@ public plugin_cfg()
 
 public task_claim()
 {
-	new bool:want = (g_have_core && get_pcvar_num(g_cv_mode) != 0
+	// tsm_enabled 0: the map plays as the game ships (ts_matchmode's per-map rule, or the map's mapconfig).
+	new bool:want = (g_have_core && get_pcvar_num(g_cv_mode) != 0 && get_cvar_num("tsm_enabled") != 0
 		&& equali(g_mapname, WS_PREFIX, strlen(WS_PREFIX)));
 
 	if (want)
@@ -319,8 +322,8 @@ keep_mutant_classes()
 }
 
 /*
- * The next wave: the count goes up, the survivors come back in full, the mutants come back
- * stronger, and everyone hears it.
+ * The next wave: the count goes up, the survivors come back in full with their once-a-round
+ * abilities ready again, the mutants come back stronger, and everyone hears it.
  */
 next_wave()
 {
@@ -341,12 +344,16 @@ next_wave()
 	// And the mutants, every one of them, armed for this wave as they arrive (tsm_loadout).
 	tsm_fire_wave(2);
 
+	// A wave is a new round for what can be used once a round: the stim, .ammo, the class
+	// abilities, the Mech's rockets.
+	tsm_refresh_abilities(0);
+
 	sting();
 	refresh_hud();
 
 	set_hudmessage(255, 80, 60, -1.0, 0.32, 0, 0.0, 2.5, 0.1, 0.5, 4);
 	show_hudmessage(0, "WAVE %d", g_wave);
-	client_print(0, print_chat, "[MATCH] WAVE %d -- the fallen are back with you. Hold them off.", g_wave);
+	client_print(0, print_chat, "[MATCH] WAVE %d -- the fallen are back with you, and .stim, .ammo and your class abilities are ready again. Hold them off.", g_wave);
 
 	// The milestones, said once each as they arrive.
 	if (g_wave == 16)

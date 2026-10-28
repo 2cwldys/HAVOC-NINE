@@ -1,4 +1,5 @@
-// tsm_api.inc -- the mode API ts_matchmode offers to mode plugins (ts_uplink, ts_survival).
+// tsm_api.inc -- the mode API ts_matchmode offers to mode plugins (ts_uplink, ts_survival,
+// ts_mechwarrior).
 //
 // ts_matchmode is the core: rounds, sides, lives, waves, classes and the HUD. A mode plugin
 // CLAIMS a map with tsm_mode_claim() and from then on the core asks it at the points below.
@@ -39,6 +40,17 @@
 #define TSM_LOADOUT_LEN  64
 #define TSM_LOADOUT_MAX  8
 
+/* ---- class perks, as a tsm_classN line names them (tsm_class_of_perk) ------------------- */
+
+#define TSM_PERK_NONE        0
+#define TSM_PERK_ENGINEER    1
+#define TSM_PERK_BREACHER    2
+#define TSM_PERK_MEDIC       3
+#define TSM_PERK_OFFICER     4
+#define TSM_PERK_REGEN       5
+#define TSM_PERK_RECON       6
+#define TSM_PERK_MECH        7
+
 #if !defined TSM_CORE
 
 /* ---- natives ---------------------------------------------------------------------------- */
@@ -47,8 +59,9 @@
  * Claims this map for a mode. One claim per map: a second is refused, and so is any claim on
  * a map with siege objectives (tsm_obj_#), which stays a siege map.
  *
- * @param name    the mode's short key, lowercase: "uplink", "survival". Published as tsm_pres_mode.
- * @param desc    what the server browser shows while the mode runs, e.g. "Uplink".
+ * @param name    the mode's short key, lowercase: "uplink", "survival", "mechwarrior". Published
+ *                as tsm_pres_mode, which the H9 client's rich presence names the mode by.
+ * @param desc    what the server browser shows while the mode runs, e.g. "Capture the Uplink".
  * @param flags   TSM_MODE_* bits.
  * @return        1 when the map is now this mode's, 0 when the claim was refused.
  */
@@ -110,6 +123,35 @@ native tsm_class_hp(id);
  * side), "12" for a survival wave. The core empties both whenever no mode runs.
  */
 native tsm_set_progress(const text[]);
+
+/**
+ * Every once-a-round ability ready again for side 1 or 2 (0 both), as a new round leaves them:
+ * the stim, .ammo, the Engineer's resupply, the Medic's heal, the Officer's scan and
+ * reinforcements, the Mech's rockets. Silent: the caller says what happened.
+ *
+ * @return  how many players were refreshed.
+ */
+native tsm_refresh_abilities(side);
+
+/** How many classes ts_matchmode.cfg defines (tsm_class1 and up). */
+native tsm_class_count();
+
+/** The first class (1 and up) carrying a TSM_PERK_* perk; 0 when no class has it. */
+native tsm_class_of_perk(perk);
+
+/**
+ * A class's rule while the mode runs: at most limit players a side take it (0 no limit, -1
+ * not played at all -- the class menu leaves it out) and it carries lives lives (0 keeps
+ * tsm_class_lives). The first rule a map gets starts every other class from the config's own
+ * limits; anyone holding a class left out gives it up. Call it again each map: a claim lasts
+ * one map, and so do these.
+ *
+ * @return  1 when cls was a real class.
+ */
+native tsm_class_rule(cls, limit, lives);
+
+/** The class every bot plays while the mode runs, ahead of tsm_bot_class; 0 hands it back. */
+native tsm_mode_bot_class(cls);
 
 /* ---- forwards ---------------------------------------------------------------------------- */
 

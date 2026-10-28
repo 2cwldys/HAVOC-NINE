@@ -33,7 +33,7 @@ one that runs a different game folder from `gamedir`.
    this list's `0.0.0.0:8080` wildcard bind, so the list would run and look fine while
    silently never receiving a single request from the game.
 4. Run `run.bat` and leave its window open. The list writes `serverlist.log` beside itself.
-5. Open `http://127.0.0.1:8080/v1/servers/ts` in a browser. It shows a comment line and no
+5. Open `http://127.0.0.1:8081/v1/servers/ts` in a browser. It shows a comment line and no
    `ip` lines until a server gets on.
 
 `serverlist.cfg` holds secrets and is git-ignored. Do not copy it anywhere that is shared.
@@ -41,7 +41,7 @@ one that runs a different game folder from `gamedir`.
 To point the game at the list, set this in `networking.ini` in H9XASH, with an address the
 players can reach:
 
-    list_bot=http://<public address>:8080
+    list_bot=http://<public address>:8081
 
 The game reads it at each launch of `h9xash.bat`. Players can only reach the list if the port
 is open from the internet, so forward it on the router, or host the list somewhere public.
@@ -63,7 +63,7 @@ empty, anyone with Manage Server.
 A heartbeat adds a server. The list then keeps it the same way as any other, by querying it.
 The body is JSON:
 
-    curl -X POST http://<list address>:8080/v1/heartbeat -H "Content-Type: application/json" -d "{\"key\":\"<heartbeat_key>\",\"address\":\"<server public address>:27015\"}"
+    curl -X POST http://<list address>:8081/v1/heartbeat -H "Content-Type: application/json" -d "{\"key\":\"<heartbeat_key>\",\"address\":\"<server public address>:27015\"}"
 
 Answers: 200 when the server answered its query, 401 for a wrong or missing key, 400 for a bad
 address or a body that is not JSON, and 422 when no server answered at that address, or the
@@ -97,7 +97,9 @@ fields instead of a `#` comment a page would otherwise have to parse:
 
 * **mode** comes straight from the server's own game-description answer -- in this mod,
   `ts_matchmode.sma`'s `fw_gamedesc`, which already switches between `"Match Mode"` and
-  `"Siege"` (or `"Siege n/m"` once an objective round is live) on its own, once a second.
+  `"Siege"` (or `"Siege n/m"` once an objective round is live) on its own, once a second,
+  and names a claimed mode while one runs: `"Capture the Uplink"`, `"Wave Survival"`,
+  `"Mech Warrior"` (each mode plugin's `tsm_gamedesc_*` cvar).
   Nothing new to run on the plugin side; this list was already receiving it on every query
   it makes and just wasn't reading it back.
 * **ping_ms** is this bot's own round-trip time to the server, not a given website

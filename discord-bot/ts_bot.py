@@ -330,6 +330,10 @@ def build_embed(cfg, info, players, organiser=None):
     humans = [p for p in players if p.name]
     bots = max(0, info.bot_count)
     embed.add_field(name="Map", value=info.map_name, inline=True)
+    # The mode, as the server browser names it: the game description every A2S answer carries.
+    mode = (getattr(info, "game", "") or "").strip()
+    if mode:
+        embed.add_field(name="Mode", value=mode, inline=True)
     embed.add_field(name="Players", value=f"{max(0, info.player_count - bots)} / {info.max_players}", inline=True)
     if bots:
         embed.add_field(name="Bots", value=str(bots), inline=True)

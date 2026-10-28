@@ -8,8 +8,9 @@
  The short version
    * H9XASH players can join servers that run on Xash. A Xash client cannot join
      a Steam hlds server ("STEAM validation rejected", see ENGINE_DIFFERENTIALS).
-   * The Internet tab lists the FWGS public list plus any server lists named in
-     networking.ini (next to h9xash.bat). The default needs no Steam.
+   * The Internet tab lists the server lists named in networking.ini (next to
+     h9xash.bat). The default needs no Steam. The engine's own FWGS public list is
+     dropped at every launch: it has no ts list, and only ever answered with an error.
    * A server appears only when its address is in a list: a line in a list file
      (section 4), or the H9 list bot (section 7), confirmed working this way.
    * Steam sign-in is optional, through the Steam broker (section 6). A shortcut
@@ -24,13 +25,19 @@
    ip host:port     an Xash server (ours), answered with Xash's own query
    gs host:port     a Steam hlds server, answered with the GoldSrc query
 
- Three sources are combined:
-   * the FWGS public list, always on (http://xash.su/server-list)
+ Two sources are combined:
    * masterstatic lines in ts\xashcomm.lst, written from networking.ini
    * console commands, for testing this session only:
        addmasterstatic <base-url>   add a list now
        listmasters                  show every list; "(in flight)" while fetching
        clearmasters                 remove them all
+
+ The engine also has a built-in list of its own, the FWGS public list
+ (http://xash.su/server-list). It holds no ts list, so every refresh of the Internet tab
+ answered "Error: : file not found" for it. ts\networking_resolved.cfg, which
+ ts\userconfig.cfg runs at startup, clears every list (clearmasters) and adds
+ networking.ini's back (addmasterstatic, and addmaster for the broker), so only H9's are
+ asked. listmasters shows what is left.
 
  engine.log says what each list gave. Run h9xash.bat -dev 2 -log, then look for:
    masterstatic: http://example.org/v1/servers/ts yielded 3 server(s)
@@ -54,7 +61,10 @@
                            both there. If either is missing, the launcher says so
                            and carries on without it.
    list_static=            comma-separated base URLs of HTTP server lists
-   list_bot=               the H9 list, once the list bot is running
+   list_bot=               the H9 list bot's public address, once it is hosted. Ships
+                           blank. A local test address left here (http://127.0.0.1:8081)
+                           makes the Internet tab report "cannot connect to server: error
+                           10061" whenever that bot is not running on this machine.
 
    [broker]
    steam_appid=480         the AppID the broker starts Steam with (section 6B)
@@ -73,7 +83,9 @@
    ts\xashcomm.lst               the lists: masterstatic lines, plus
                                  mastergs 127.0.0.1:27420 while the broker runs
    ts\networking_resolved.cfg    cl_ticket_generator steam while the broker runs,
-                                 otherwise revemu2013 (the engine's default)
+                                 otherwise revemu2013 (the engine's default); then
+                                 clearmasters, and the same lists again (addmasterstatic,
+                                 addmaster 127.0.0.1:27420 gs while the broker runs)
    steam\steam_appid.txt         written only when the broker starts
    steam\steam_browse_appid.txt  written only when the broker starts
    steam\steam_broker.pid        only while a broker this launch started is running
@@ -204,9 +216,10 @@
 
  Working example from this install:
    serverlist-bot\serverlist.ini   [http] port = 8081
-   networking.ini                  list_bot=http://127.0.0.1:8081   (or the server's
-                                    real LAN/public address, once the port is forwarded
-                                    so players outside this machine can reach it)
+   networking.ini                  list_bot=http://127.0.0.1:8081   (while testing on this
+                                    machine with the bot running; for players, the
+                                    server's real LAN/public address once the port is
+                                    forwarded. Set it back to blank when the test is done)
 
  Setup, the Discord application, the heartbeat example and the limits are in
  serverlist-bot\README.md.

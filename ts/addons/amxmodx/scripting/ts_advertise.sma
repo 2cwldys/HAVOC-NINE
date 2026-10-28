@@ -58,9 +58,17 @@
  */
 native tsm_match_info(out[4]);
 
+/**
+ * The game description the server browser shows -- "Match Mode", "Siege 2/5", "Capture the
+ * Uplink", "Wave Survival", "Mech Warrior" -- for the embed's Mode field. Through the same
+ * native filter: with ts_matchmode absent or older than it, the field is left out.
+ */
+native tsm_match_desc(out[], len);
+
 new g_cv_token, g_cv_channel, g_cv_role, g_cv_cooldown, g_cv_connect, g_cv_flag, g_cv_minplayers;
 new g_vault = INVALID_HANDLE;
 new bool:g_have_match = true;      // cleared by the native filter if ts_matchmode is not there
+new bool:g_have_desc = true;       // the same for tsm_match_desc
 new bool:g_sending = false;        // one request in flight at a time
 
 /**
@@ -155,6 +163,11 @@ public native_filter(const name[], index, trap)
 	if (equal(name, "tsm_match_info"))
 	{
 		g_have_match = false;
+		return PLUGIN_HANDLED;
+	}
+	if (equal(name, "tsm_match_desc"))
+	{
+		g_have_desc = false;
 		return PLUGIN_HANDLED;
 	}
 	return PLUGIN_CONTINUE;
@@ -312,6 +325,13 @@ send_advert(id, const token[], const channel[])
 
 	new EzJSON:fields = ezjson_init_array();
 	add_field(fields, "Map", map, true);
+
+	// The mode, as the server browser names it.
+	new mode[64];
+	if (g_have_desc && tsm_match_desc(mode, charsmax(mode)) && mode[0])
+	{
+		add_field(fields, "Mode", mode, true);
+	}
 
 	// HUMANS, not everyone. get_playersnum() counts bots along with people -- its one
 	// argument is about players still connecting, not about bots -- so a server with

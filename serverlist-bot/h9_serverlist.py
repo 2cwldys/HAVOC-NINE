@@ -97,8 +97,9 @@ async def probe(target, timeout):
     that needed a new query or a plugin-side change:
       - info.game is the GoldSrc/Source "game description" field -- in this mod, exactly
         what ts_matchmode.sma's fw_gamedesc (FM_GetGameDescription) answers every server
-        query with, switching between "Match Mode" and "Siege ..." on its own a second at
-        a time (see refresh_gamedesc() in ts_matchmode.sma). Every server already sends
+        query with, switching between "Match Mode", "Siege ..." and a claimed mode's own
+        name ("Capture the Uplink", "Wave Survival", "Mech Warrior") on its own a second
+        at a time (see refresh_gamedesc() in ts_matchmode.sma). Every server already sends
         this on every query a browser or this bot makes; nothing here reads it back.
       - info.ping is the library's own measured round-trip time for THIS query, in
         seconds (time.monotonic() before/after the request, a2s_sync.py) -- the bot's own
@@ -283,8 +284,10 @@ async def handle_list_json(request):
                   (cl_presence.c sends it straight as large_image), so a page can reuse
                   that convention: look up an image named after this value, fall back to
                   a generic one for any map that doesn't have one yet
-        mode      "Match Mode", or "Siege" / "Siege n/m" while an objective round is live
-                  (ts_matchmode.sma's own fw_gamedesc -- not derived or guessed here)
+        mode      "Match Mode", or "Siege" / "Siege n/m" while an objective round is live,
+                  or a claimed mode's name while it runs ("Capture the Uplink", "Wave
+                  Survival", "Mech Warrior") -- ts_matchmode.sma's own fw_gamedesc, not
+                  derived or guessed here
         players   current player count, bots included
         max       the server's player slots
         bots      of "players", how many are bots
