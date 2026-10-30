@@ -183,10 +183,10 @@ static void SetWeaponClip(edict_t *pEdict, int weapon, int clip)
 		pGun->m_iClip = clip;
 }
 
-static rets_interface_t BuildInterface()
+static rets_interface_t BuildInterface(int version)
 {
 	rets_interface_t i = {};
-	i.version = RETS_INTERFACE_VERSION;
+	i.version = version;
 	i.GetCash = GetCash;
 	i.SetCash = SetCash;
 	i.GetFreeSlots = GetFreeSlots;
@@ -241,9 +241,19 @@ static rets_interface_t BuildInterface()
 	return i;
 }
 
-static const rets_interface_t g_RetsInterface = BuildInterface();
+static const rets_interface_t g_RetsInterface = BuildInterface(RETS_INTERFACE_VERSION);
+
+// Interface 5 is a strict PREFIX of 6: 6 appended PowerUpTouch and moved nothing. The shipped
+// reTSX module (tsx_amxx.dll, built 2026-10-20) still asks for 5, so serve it the same table
+// with the version field it expects; it never reads the appended slot. Without this, every
+// ReTS_GetInterface native silently returns null against a source-built mp.dll.
+static const rets_interface_t g_RetsInterfaceV5 = BuildInterface(5);
 
 extern "C" DLLEXPORT const rets_interface_t *ReTS_GetInterface(int version)
 {
-	return version == RETS_INTERFACE_VERSION ? &g_RetsInterface : nullptr;
+	if (version == RETS_INTERFACE_VERSION)
+		return &g_RetsInterface;
+	if (version == 5)
+		return &g_RetsInterfaceV5;
+	return nullptr;
 }

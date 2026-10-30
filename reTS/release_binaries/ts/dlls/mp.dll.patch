@@ -1,8 +1,128 @@
-TSM mp.dll patches -- reTS's server DLL, two changes
-=====================================================
+TSM mp.dll -- reTS's server DLL, built from source
+==================================================
 
-What this is: reTS's mp.dll (ts\dlls\mp.dll) with two binary patches, built from the shipped
-file in this order:
+What this is
+------------
+
+ts\dlls\mp.dll is no longer the shipped reTS release DLL with binary patches applied on top.
+It is now built from the reTS source tree: the upstream The Specialists source through
+2026-10-29, plus the local changes listed below. The two binary patches this file used to
+describe (A, the 81-slot ceiling; B, the powerup grant) are now source changes in that tree.
+Their byte-level history is kept as an appendix, for the release pair and for rollback.
+
+Deployed file : mp.dll
+Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
+                (CMake, Win32, Release; targets hl and client)
+Size          : 988672 bytes
+SHA256        : ADE12259BFAB0EB780E27D397FC3A74DFE003BD74A362D8F8C04A1EE421BA742
+client.dll    : 895488 bytes
+SHA256        : EB8865E560331DD4D7D21B5F6C213B6C04E46244F750957C5F74E770249202E0
+Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29)
+
+Both DLLs are also in reTS\binaries\ts\ (the staging folder xash.bat's assemble step and
+export.bat's GoldSrc block copy from), in H9XASH\ts\, export\H9XASH\ts\, and the GoldSrc
+package (export\ts\ and the Steam install).
+
+
+What the source build contains, beyond the release DLL
+------------------------------------------------------
+
+1. A, source form -- no second 81-slot ceiling
+
+   The release DLL checked a weapon give twice: the pickup gate (RVA 0x567a0) counted the
+   bonus ts_setuserslots stores, then the inventory add routine (RVA 0x622d0) refused past a
+   fixed 81 carried-weight. Patch A nop'd the second check. In the source there is no second
+   check to remove: CTSGun::TakeWeapon (dlls\ts_gun.cpp) has no weight test at all, and the
+   only gate is TSPlayerFreeSlots (dlls\ts_gun.cpp; RVA 0x61460 in the release), which is
+   81 - carried - flag(20) - kevlar(10) + the plugin's bonus. A player the plugin never gave
+   room is therefore still held to 81 exactly as before.
+
+2. B, source form -- the powerup grant, for ts_matchmode only
+
+   CTSPowerUp::Spawn (dlls\ts_powerup.cpp) arms the powerup's touch handler at spawn, before
+   the materialize think, when spawnflags has bit 30 (SF_TSM_PWUP_GRANT) and the cvar
+   tsm_enabled exists and is non-zero. Every other powerup still gets Touch = NULL until it
+   lands with nopowerup off, so nopowerup 1 still blocks every other powerup, and every server
+   without ts_matchmode. This is the source-level replacement for patch B's 7-byte hook and
+   its .h9pwup stub.
+
+3. The disarm fix
+
+   A disarm calls CBasePlayer::DropWeapon(-2, damage); past the melee-pressure threshold it
+   calls CTSGun::DropWeapon(type, fThrow = false). That used to clear the item and leave the
+   player holding a weapon with nothing owned behind it -- still deployed, still firable.
+   CTSGun::DropWeapon now calls HolsterWeapon() when the dropped type is the active one and
+   fThrow is false, so the player goes to bare hands (viewmodel, weaponmodel, active pointers,
+   m_weaponType -> TSW_MELEE, kung-fu draw). A real throw (the drop key, type -1) still calls
+   GetBetterWeapon() and auto-selects the next-best weapon, as before.
+
+   Faithful to TS: a normal weapon is removed outright; stackable spares (knife, sealknife,
+   m61) and a single whose akimbo is also owned keep the remainder, and those paths already
+   holstered.
+
+4. Interface 5/6 alias
+
+   The source defines RETS_INTERFACE_VERSION 6 and appends PowerUpTouch after every v5 slot.
+   The deployed reTSX module (tsx_amxx.dll) still calls ReTS_GetInterface(5) and never reads
+   the table's version field, so against a source build every ReTS native returned null
+   (ts_setusercash, weaponrestriction, ...). dlls\rets_api.cpp now builds two tables:
+   BuildInterface(6) for callers that ask for 6, and BuildInterface(5) -- the same 0xD0-byte
+   layout with version = 5 -- for callers that ask for 5. Both are static, filled at load.
+   Interface 5 is a strict prefix of 6, so a v5 caller reading any v5 slot gets the right
+   function; it never reads the appended PowerUpTouch.
+
+5. The two upstream commits of 2026-10-29
+
+   e82e40282a4d "Moving fire penalises only the M60 and the Barrett, as TS 3.0 does"
+     dlls\ts_gun.cpp, CTSGun::StandardFire: the x5 moving growth is now the M60's alone
+     (over 175 u/s), and the Barrett sets the spread accumulator to 0.3 over 35 u/s. Every
+     other gun keeps its standing growth however fast the player moves.
+
+   bd3f6c3c1aa3 "Gunshot and ricochet pitch unclamped, as TS 3.0 plays them"
+     cl_dll\ev_ts.cpp: the 255/1 clamp is gone from the gunshot, linked-fire and ricochet
+     pitches. pitch = 100 + 300 * slow, 400 at normal speed; neither GoldSrc nor Xash caps
+     pitch, so normal fire plays at 4x again instead of 2.55x.
+
+
+Building and deploying
+----------------------
+
+    cd reTS
+    $env:RETS_REBUILD = '1'
+    .\scripts\build-win32-dropin.ps1
+
+writes binaries\ts\dlls\mp.dll and binaries\ts\cl_dlls\client.dll. xash.bat's assemble step
+sets RETS_REBUILD=1 itself, so the H9XASH package takes this pair rather than the older
+release_binaries pair. Without RETS_REBUILD=1 the script copies release_binaries\ts\ -- the
+shipped release DLL with binary patches A and B (see the appendix) -- and none of the changes
+above is present.
+
+
+Rollback
+--------
+
+The pair deployed before this build is kept in
+backups\reTS_upstream_20261029\deployed_before\ (mp.dll 988160 bytes, SHA256
+26165FD7A7FA336AF2E7A118F0457C0FE0C6F6B83230C75A8221E22448A31082; client.dll 895488 bytes,
+SHA256 DA5A8031859DC8C42FC21615216A8D13514809767E5EA93829E684E2F60CFE99). Copy both over
+ts\dlls\mp.dll and ts\cl_dlls\client.dll with the server closed.
+
+The GoldSrc package's previous pair -- the release mp.dll with binary patches A and B, and
+the stock client with the binary cloak patch -- is in backups\goldsrc_source_build_20261029\
+(mp.dll 1021440 bytes, MD5 1371ffbc1450d16685c83881d9c246b2; client.dll 865280 bytes, MD5
+74fc8b3039032a31f7d81440bbde0e80). Copy them over ts\dlls\mp.dll and ts\cl_dlls\client.dll
+with the game closed.
+
+The older release pair is release_binaries\ts\ (mp.dll 1021440 bytes, MD5
+1371ffbc1450d16685c83881d9c246b2; client.dll 861184 bytes, MD5 cfc60e4e96c51903e6ef7d2b9839b3b7).
+The binary patch chain that produces that mp.dll, and the shipped file it starts from (MD5
+00b12524dcc913a3cd80d74449670df4, kept as mp.dll.original), are described in the appendix.
+
+Appendix -- the previous deployment: the release DLL with binary patches A and B
+==============================================================================
+
+What this is: the shipped reTS release mp.dll (ts\dlls\mp.dll) with two binary patches, built
+from that file in this order:
 
   A. The weapon inventory's fixed 81-slot ceiling is lifted, so the room ts_setuserslots grants
      is the only slot limit a player has. 2 bytes. (build_patch_mp_slots.py)
@@ -11,8 +131,10 @@ file in this order:
      nopowerup 1 still blocks every powerup. A 7-byte hook and one new section.
      (build_patch_mp_pwup.py)
 
-It is deployed as ts\dlls\mp.dll, with this file beside it as mp.dll.patch, in the Steam
-install and in H9XASH.
+That pair was deployed as ts\dlls\mp.dll, with this file beside it as mp.dll.patch, in the
+Steam install and in H9XASH, until the source build replaced it on 2026-10-29. It is still
+what release_binaries\ts\ holds, and what build-win32-dropin.ps1 copies when RETS_REBUILD is
+not set. Everything below applies to that file, not to the source build described above.
 
 Original file : mp.dll.original (reTS mp.dll as shipped)
 After A       : mp_patched_slots.dll
@@ -227,7 +349,7 @@ The existing sections are untouched; the new one is appended after the original 
 PE checksum is 0, as shipped.
 
 
-Rollback
+Rollback (previous deployment)
 -------------------------------------------------------------
 
 The original (MD5 00b12524dcc913a3cd80d74449670df4) is kept as mp.dll.original next to the build scripts, and in the Steam

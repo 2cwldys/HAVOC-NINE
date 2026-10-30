@@ -789,6 +789,13 @@ void V_CalcNormalRefdef(struct ref_params_s* pparams)
 		cl_entity_t* lp = gEngfuncs.GetLocalPlayer();
 		if (lp)
 		{
+			// Cloak -- source port of the old binary patch (decompile_dll\build_patch_cloak.py,
+			// client.dll.patch): the server sends a cloaked local player as kRenderTransTexture
+			// with renderamt < 255. That state has to survive this pass -- the fixed third-person
+			// fade below overwrites it every frame, which is why tsm_cloak_opacity never reached
+			// the cloaker's own model. Non-cloak frames take the original path unchanged.
+			const bool bServerCloak = lp->curstate.rendermode == kRenderTransTexture &&
+			                          lp->curstate.renderamt < 255;
 			// cl_thirdtransparency gates the fade TARGET only (dossier cont94 §1, read @0x678e6):
 			// registered default "1" = ON — the original's registration default, the parity target
 			// (the .scr's 0 is only the listen-server GUI suggestion, NOT the binary default).
@@ -804,7 +811,7 @@ void V_CalcNormalRefdef(struct ref_params_s* pparams)
 				lp->curstate.rendermode = kRenderNormal; // 0 — opaque hard-reset
 				lp->curstate.renderamt = 255;
 			}
-			else
+			else if (!bServerCloak)
 			{
 				// §1a: 100 aiming at a player AND cl_thirdtransparency on / 255 opaque.
 				// Test form is the original's ftol truncation — (int)value != 0, so 0.5 reads OFF.

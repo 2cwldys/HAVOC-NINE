@@ -39,6 +39,12 @@ motion, kevlar, free slots and the rest), so it does not depend on member offset
 goldsrc-net's AMX Mod X fork, uses it whenever the game library exports it. Not in the original; it exists
 because of the layout differences below. Detail: CLAUDE.md §4a, `dlls/rets_api.h`.
 
+The current struct is version 6 (v6 appended `PowerUpTouch`; v5 only changed `PowerupTime` to `int`, and
+every earlier slot kept its offset). The shipped `tsx_amxx.dll` still requests version 5, so
+`ReTS_GetInterface` also answers 5 with a second copy of the table whose `version` field reads 5. A v5
+caller never reads the appended slot, so the prefix is safe. Builds that raise the version again must keep
+appending, not inserting, or the v5 alias has to be dropped together with the module.
+
 ### g_pGameRules exported on Windows (server export)
 
 AMX Mod X's fakemeta finds the game rules object for its get/set_gamerules_* natives by the name

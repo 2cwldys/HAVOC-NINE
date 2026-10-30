@@ -8,8 +8,10 @@
 *
 *      extern "C" const rets_interface_t *ReTS_GetInterface(int version);
 *
-*  which returns NULL for any version but RETS_INTERFACE_VERSION. Any change to this struct bumps the
-*  version. An entry is NULL when reTS has no such state; the caller then refuses.
+*  which returns NULL for any version but RETS_INTERFACE_VERSION, plus 5: the shipped reTSX module
+*  still asks for 5, and v6 only appended PowerUpTouch, so the same table is served with version 5
+*  (see dlls/rets_api.cpp). Any change to this struct bumps the version. An entry is NULL when reTS
+*  has no such state; the caller then refuses.
 *  Every function but GetAmmoMaxCarry, GetKnifeThrower and PowerUpTouch takes the player's edict and
 *  does nothing (returns 0) for a non-player.
 *

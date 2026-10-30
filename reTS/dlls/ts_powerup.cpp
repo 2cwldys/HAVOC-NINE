@@ -123,7 +123,19 @@ void CTSPowerUp::Spawn()
 	UTIL_SetOrigin(pev, pev->origin);
 	UTIL_SetSize(pev, g_vecZero, g_vecZero); // @Spawn: a POINT hull while falling (orig zero size)
 
-	SetTouch(NULL);
+	// Normally Touch stays NULL until Fall()/OnGround() arm it once nopowerup is off and the
+	// powerup has landed (see Fall() below) -- so a powerup is untouchable while nopowerup 1.
+	// tsm_grant_powerup() (ts_matchmode.sma) bypasses that think entirely: it calls Spawn() then
+	// Touch() in the same frame, so Fall() never runs. Arm Touch here, immediately, ONLY for a
+	// powerup it marked (SF_TSM_PWUP_GRANT) and ONLY while its mode is on (tsm_enabled, a plugin
+	// cvar read by name like nopowerup is at TS_gamerulesclass.cpp:991 -- 0 if the cvar doesn't
+	// exist, e.g. ts_matchmode isn't loaded). Every other powerup, and every powerup on a server
+	// without ts_matchmode, is unaffected: this is the source-level replacement for
+	// decompile_dll/build_patch_mp_pwup.py's hex patch B.
+	if ((pev->spawnflags & SF_TSM_PWUP_GRANT) && CVAR_GET_FLOAT("tsm_enabled") != 0.0f)
+		SetTouch(&CTSPowerUp::WaitTouch);
+	else
+		SetTouch(NULL);
 	SetThink(&CTSPowerUp::Fall);
 	pev->nextthink = gpGlobals->time + 0.1f;
 	pev->framerate = 1.0f;

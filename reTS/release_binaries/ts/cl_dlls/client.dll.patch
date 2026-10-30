@@ -1,0 +1,190 @@
+TSM client.dll -- reTS's client DLL, built from source
+======================================================
+
+What this is
+------------
+
+ts\cl_dlls\client.dll is built from the reTS client source (cl_dll\), not from the stock TS
+client plus a binary patch. The cloak fix that used to be a binary patch is now a source change
+in cl_dll\view.cpp; its byte-level history is kept as an appendix, together with the stock
+client it was applied to.
+
+Deployed file : client.dll
+Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
+                (CMake, Win32, Release; target client)
+Size          : 895488 bytes
+SHA256        : EB8865E560331DD4D7D21B5F6C213B6C04E46244F750957C5F74E770249202E0
+Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29)
+
+What the source build contains, beyond the stock client
+-------------------------------------------------------
+
+1. Local-player cloak alpha -- now in source
+
+   The stock client has a per-frame block (around RVA 0x4d0af) that overwrites the local
+   player's curstate rendermode/renderamt with a fixed third-person transparency taken from
+   cl_thirdtransparency, so a server cloak (tsm_cloak_opacity) never reached the cloaker's own
+   model. The binary patch added a pre-check that skipped that block when the server had already
+   sent kRenderTransTexture with renderamt below 255. The same check is now in
+   cl_dll\view.cpp, in the same block: bServerCloak skips the third-person fade, so the
+   server's state survives to the studio draw. The hard reset (spectator/dead/first-person) is
+   unchanged, and every non-cloak frame takes the original path.
+
+   Verified in the built DLL: cmp [edi+0x2f8],2 / cmp [edi+0x2fc],0xff, then skip the fade.
+
+2. Gunshot and ricochet pitch unclamped (upstream bd3f6c3c1aa3)
+
+   cl_dll\ev_ts.cpp: the 255/1 clamp is gone from the gunshot, linked-fire and ricochet
+   pitches. pitch = 100 + 300 * slow, 400 at normal speed; neither GoldSrc nor Xash caps pitch,
+   so normal fire plays at 4x again instead of 2.55x.
+
+3. Everything else reTS already had
+
+   The reTS client is a recompilation of the whole TS client, so it also carries the third-person
+   self-transparency fade, the predicted viewmodel body, the HUD and the rest of the reTS client
+   work -- none of that is a patch on top of the stock DLL.
+
+Building and deploying
+----------------------
+
+    cd reTS
+    $env:RETS_REBUILD = '1'
+    .\scripts\build-win32-dropin.ps1
+
+writes binaries\ts\cl_dlls\client.dll (and the server's mp.dll). xash.bat's assemble step sets
+RETS_REBUILD=1, so the H9XASH package takes this pair; export.bat's GoldSrc block copies the
+same pair into export\ts\, and the Steam install's ts\cl_dlls\client.dll is this build too.
+
+The older stock client with the binary cloak patch (865280 bytes, MD5
+74fc8b3039032a31f7d81440bbde0e80) is kept in
+backups\goldsrc_source_build_20261029\cl_dlls\client.dll and decompile_dll\client_patched_cloak.dll;
+the appendix describes that build.
+
+Rollback
+--------
+
+The pair deployed before this build is kept in
+backups\reTS_upstream_20261029\deployed_before\ (client.dll 895488 bytes, SHA256
+94251155A1B435A12F7A2DB5E11C1EA5541D36C01EC6F9E506824F2B1A43F9C5). The GoldSrc package's
+previous client -- the stock client with the binary cloak patch (865280 bytes, MD5
+74fc8b3039032a31f7d81440bbde0e80) -- is in backups\goldsrc_source_build_20261029\cl_dlls\
+and in decompile_dll\client_patched_cloak.dll. Copy either over ts\cl_dlls\client.dll with
+the game closed.
+
+Appendix -- the previous deployment: the stock client with the binary cloak patch
+================================================================================
+
+STEAM_LEGACY ONLY
+
+What this is: a binary patch to Half-Life's TS client DLL (cl_dlls\client.dll) that lets the
+server's cloak render amount apply to the local player's own third-person model.
+
+The TS client has a per-frame block (around RVA 0x4d0af) that grabs the local player entity and
+overwrites its curstate rendermode/renderamt with a fixed third-person transparency based on
+cl_thirdtransparency. It uses 100 when cl_thirdtransparency is 1 and third-person is active,
+otherwise 255. That overwrite is why changing tsm_cloak_opacity never changed the cloaker's own
+model: the client replaced the server's value every frame.
+
+This patch adds a small pre-check before that block. If the local player's current client state is
+already kRenderTransTexture (2) with renderamt below 255 -- which is exactly what the server sends
+for a cloak -- the client skips the fixed override and leaves the server's render state alone.
+Every non-cloak frame still takes the original path, so normal cl_thirdtransparency behavior is
+unchanged.
+
+Original file : client.dll.original (stock client.dll)
+Patched file  : client_patched_cloak.dll
+Original MD5  : cfc60e4e96c51903e6ef7d2b9839b3b7
+Patched MD5   : 74fc8b3039032a31f7d81440bbde0e80
+Original size : 861184 bytes
+Patched size  : 865280 bytes (+4096)
+
+1. The two hooks
+-------------------------------------------------------------
+
+There are two paths into the same local-player transparency block at 0x4d0b7:
+
+    0x4cfe6  jne 0x1004d0b7
+    0x4d0b1  je  0x1004d191
+
+Both are 6-byte relative branches with no relocation entries, so both can be replaced safely.
+The block at 0x4d0b7 starts with a relocated cmp immediate at 0x4d0bb, which is why the hook is
+not placed there: overwriting that byte would let the PE loader corrupt the patch at load time.
+
+    hook 1, file offset 0x4c3e6:
+      original: 0f 85 cb 00 00 00   (jne 0x1004d0b7)
+      patched:  e9 15 b0 28 00 90   (jmp stub; nop)
+
+    hook 2, file offset 0x4c4b1:
+      original: 0f 84 da 00 00 00   (je 0x1004d191)
+      patched:  e9 4a af 28 00 90   (jmp stub; nop)
+
+Both hooks are relative jmps, so they stay correct if the DLL is relocated. The original bytes at
+0x4d0b7 and after are untouched.
+
+2. PE header changes -- registering the new section
+-------------------------------------------------------------
+
+  * File header, NumberOfSections: 7 -> 8
+  * Optional header, SizeOfImage: 0x2d8000 -> 0x2d9000
+  * New section table entry appended into existing header slack:
+
+      Name             .cloak
+      VirtualAddress   0x2d8000
+      VirtualSize      0x1000
+      PointerToRawData 0xd2400
+      SizeOfRawData    0x1000
+      Characteristics  0x60000020  (CODE | EXECUTE | READ -- not writable)
+
+Existing sections are untouched. The new section is appended after the original last byte.
+
+3. The new .cloak section (file offset 0xd2400, 4096 bytes)
+-------------------------------------------------------------
+
+The first 57 bytes are the stub; the rest is zero padding. The stub is position
+independent: `call L0 / pop ecx / sub ecx,0x2d8007` turns ecx into the module base, and all
+engine addresses are reached as base+RVA.
+
+Stub disassembly (VA 0x102d8000):
+
+    102d8000  89c7                     mov edi, eax
+    102d8002  e800000000               call 0x102d8007
+    102d8007  59                       pop ecx
+    102d8008  81e907802d00             sub ecx, 0x2d8007
+    102d800e  85ff                     test edi, edi
+    102d8010  741f                     je 0x102d8031
+    102d8012  83bff802000002           cmp dword ptr [edi + 0x2f8], 2
+    102d8019  750c                     jne 0x102d8027
+    102d801b  81bffc020000ff000000     cmp dword ptr [edi + 0x2fc], 0xff
+    102d8025  720a                     jb 0x102d8031
+    102d8027  89f8                     mov eax, edi
+    102d8029  8d91b7d00400             lea edx, [ecx + 0x4d0b7]
+    102d802f  ffe2                     jmp edx
+    102d8031  8d9191d10400             lea edx, [ecx + 0x4d191]
+    102d8037  ffe2                     jmp edx
+
+The checks are:
+
+  * edi is the local player entity pointer (or 0).
+  * [edi+0x2f8] is curstate.rendermode. 2 is kRenderTransTexture.
+  * [edi+0x2fc] is curstate.renderamt. The server cloak uses 10 in the current config.
+  * If rendermode == 2 and renderamt < 255, jump to 0x4d191 and do not overwrite the state.
+  * Otherwise restore eax=edi and jump to 0x4d0b7, where the original cl_thirdtransparency code
+    runs exactly as before.
+
+4. What it does not change
+-------------------------------------------------------------
+
+The server-side cloak is unchanged. Other players still receive the cloak state through
+AddToFullPack. The normal cl_thirdtransparency fixed alpha (100) is still used on every frame
+where the local player is not in a texture-render cloak state. No other client behavior is
+touched.
+
+5. Rollback (previous deployment)
+-------------------------------------------------------------
+
+The original unmodified client.dll (MD5 cfc60e4e96c51903e6ef7d2b9839b3b7) is kept in the backup folder and as
+client.dll.original next to the build script. Restore it by copying it back over client.dll in
+both locations, with the game client closed.
+
+Original: cfc60e4e96c51903e6ef7d2b9839b3b7
+Patched : 74fc8b3039032a31f7d81440bbde0e80

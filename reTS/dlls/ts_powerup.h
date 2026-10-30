@@ -29,6 +29,14 @@ enum
 #define TS_PWUP_INSTANT (TS_PWUP_INFCLIP | TS_PWUP_KUNGFU | TS_PWUP_GRENADE | TS_PWUP_HEALTH | 0x80 | TS_PWUP_LOWGRAV)
 #define TS_PWUP_ARMOR 0x80
 
+// spawnflags bit 30 on a ts_powerup: ts_matchmode's tsm_grant_powerup() (ts_matchmode.sma) sets
+// this on a powerup it builds and hands over itself (Spawn + an immediate Touch, same frame, no
+// think in between) so it works under `nopowerup 1`. Numerically == SF_NORESPAWN (cbase.h) and
+// == the old decompile_dll/build_patch_mp_pwup.py hex patch's spawnflags bit; CTSPowerUp reads
+// neither of those for anything else, and ts_matchmode.sma already emits this exact bit
+// (TSM_PWUP_GRANT_SF = 1073741824), so keeping the value identical needs zero .sma changes.
+#define SF_TSM_PWUP_GRANT (1 << 30)
+
 class CTSPowerUp : public CBaseAnimating
 {
 public:

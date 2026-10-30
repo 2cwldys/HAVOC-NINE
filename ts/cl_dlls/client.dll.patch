@@ -1,5 +1,78 @@
-TSM client.dll patch -- local-player cloak alpha
-=================================================
+TSM client.dll -- reTS's client DLL, built from source
+======================================================
+
+What this is
+------------
+
+ts\cl_dlls\client.dll is built from the reTS client source (cl_dll\), not from the stock TS
+client plus a binary patch. The cloak fix that used to be a binary patch is now a source change
+in cl_dll\view.cpp; its byte-level history is kept as an appendix, together with the stock
+client it was applied to.
+
+Deployed file : client.dll
+Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
+                (CMake, Win32, Release; target client)
+Size          : 895488 bytes
+SHA256        : EB8865E560331DD4D7D21B5F6C213B6C04E46244F750957C5F74E770249202E0
+Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29)
+
+What the source build contains, beyond the stock client
+-------------------------------------------------------
+
+1. Local-player cloak alpha -- now in source
+
+   The stock client has a per-frame block (around RVA 0x4d0af) that overwrites the local
+   player's curstate rendermode/renderamt with a fixed third-person transparency taken from
+   cl_thirdtransparency, so a server cloak (tsm_cloak_opacity) never reached the cloaker's own
+   model. The binary patch added a pre-check that skipped that block when the server had already
+   sent kRenderTransTexture with renderamt below 255. The same check is now in
+   cl_dll\view.cpp, in the same block: bServerCloak skips the third-person fade, so the
+   server's state survives to the studio draw. The hard reset (spectator/dead/first-person) is
+   unchanged, and every non-cloak frame takes the original path.
+
+   Verified in the built DLL: cmp [edi+0x2f8],2 / cmp [edi+0x2fc],0xff, then skip the fade.
+
+2. Gunshot and ricochet pitch unclamped (upstream bd3f6c3c1aa3)
+
+   cl_dll\ev_ts.cpp: the 255/1 clamp is gone from the gunshot, linked-fire and ricochet
+   pitches. pitch = 100 + 300 * slow, 400 at normal speed; neither GoldSrc nor Xash caps pitch,
+   so normal fire plays at 4x again instead of 2.55x.
+
+3. Everything else reTS already had
+
+   The reTS client is a recompilation of the whole TS client, so it also carries the third-person
+   self-transparency fade, the predicted viewmodel body, the HUD and the rest of the reTS client
+   work -- none of that is a patch on top of the stock DLL.
+
+Building and deploying
+----------------------
+
+    cd reTS
+    $env:RETS_REBUILD = '1'
+    .\scripts\build-win32-dropin.ps1
+
+writes binaries\ts\cl_dlls\client.dll (and the server's mp.dll). xash.bat's assemble step sets
+RETS_REBUILD=1, so the H9XASH package takes this pair; export.bat's GoldSrc block copies the
+same pair into export\ts\, and the Steam install's ts\cl_dlls\client.dll is this build too.
+
+The older stock client with the binary cloak patch (865280 bytes, MD5
+74fc8b3039032a31f7d81440bbde0e80) is kept in
+backups\goldsrc_source_build_20261029\cl_dlls\client.dll and decompile_dll\client_patched_cloak.dll;
+the appendix describes that build.
+
+Rollback
+--------
+
+The pair deployed before this build is kept in
+backups\reTS_upstream_20261029\deployed_before\ (client.dll 895488 bytes, SHA256
+94251155A1B435A12F7A2DB5E11C1EA5541D36C01EC6F9E506824F2B1A43F9C5). The GoldSrc package's
+previous client -- the stock client with the binary cloak patch (865280 bytes, MD5
+74fc8b3039032a31f7d81440bbde0e80) -- is in backups\goldsrc_source_build_20261029\cl_dlls\
+and in decompile_dll\client_patched_cloak.dll. Copy either over ts\cl_dlls\client.dll with
+the game closed.
+
+Appendix -- the previous deployment: the stock client with the binary cloak patch
+================================================================================
 
 STEAM_LEGACY ONLY
 
@@ -106,7 +179,7 @@ AddToFullPack. The normal cl_thirdtransparency fixed alpha (100) is still used o
 where the local player is not in a texture-render cloak state. No other client behavior is
 touched.
 
-5. Rollback
+5. Rollback (previous deployment)
 -------------------------------------------------------------
 
 The original unmodified client.dll (MD5 cfc60e4e96c51903e6ef7d2b9839b3b7) is kept in the backup folder and as
