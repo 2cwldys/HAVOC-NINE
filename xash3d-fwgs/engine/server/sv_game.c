@@ -2790,6 +2790,18 @@ pfnWriteCoord
 */
 static void GAME_EXPORT pfnWriteCoord( float flValue )
 {
+	// H9: the game's own messages (msg_index 0 and up) are read by its client library, whose
+	// READ_COORD takes eighths of a unit whatever the engine does, so they keep that encoding even
+	// with big-world coordinates on; the engine's messages (temp entities and the like) are read by
+	// the engine, in big-world's whole units
+	if( svgame.msg_index >= 0 )
+	{
+		MSG_WriteShort( &sv.multicast, (int)( flValue * 8.0f ));
+		if( svgame.msg_trace ) Con_Printf( "\t^3%s( %f )\n", __func__, flValue );
+		svgame.msg_realsize += 2;
+		return;
+	}
+
 	MSG_WriteCoord( &sv.multicast, flValue );
 	if( svgame.msg_trace ) Con_Printf( "\t^3%s( %f )\n", __func__, flValue );
 	svgame.msg_realsize += 2;

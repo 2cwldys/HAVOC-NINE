@@ -65,6 +65,7 @@ about the first kind:
 | 20 | `engine-h9-concolor.patch` | `dll_int/cl_game.c` | `pfnDrawConsoleString`: a string with no colour set is drawn in con_color (GoldSrc's way), so every chat line is, not white |
 | 21 | `engine-h9-consolemusic.patch` | `sound/s_stream.c` | the main menu's music plays on while the console is open over the menu |
 | 22 | `engine-h9-chatinput.patch` | `dll_int/cl_game.c`, `console.c` | the say: line under the chat lines, not at the top left |
+| 23 | `engine-h9-bigworld.patch` | `server/sv_init.c` | big-world coordinates on for a map past +/-4096 |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -434,3 +435,26 @@ Only the `cl_presence.c` new-file section changed (591 -> 596 lines, blob
 `88907ed4`), rebuilt from the live file; the other sections are untouched.
 Verified: reverse check in place against the live tree.
 
+### 2026-10-31 -- engine-h9-bigworld.patch (new)
+
+A map wider than the stock +/-4096 box (New Byzantium) needs two things past it. WRITE_COORD, which carries
+the positions of temp entities, sounds and the like, is a 16-bit count of eighths of a unit (+/-4096) unless
+the engine's ENGINE_WRITE_LARGE_COORD feature is on (whole units, +/-32768); and the origin fields of
+`ts\delta.lst` (entities 16 bits / 8, players 18 / 32, events 16 / 8: +/-4096) are widened alongside this
+patch (to 19 / 8, 21 / 32, 19 / 8; clientdata 23 / 128, custom entities 19 / 8: +/-32768), the server
+sending its tables to every client. Engine features come from a game's physics interface, which TS has
+not, so `SV_SpawnServer` now turns ENGINE_WRITE_LARGE_COORD on itself when the world model's bounds reach
+past +/-4096, and off again for a map that fits (only if it turned it on, so a game that asks for it keeps
+it). The features reach each client in svc_serverdata, as before.
+
+Made from a snapshot of `sv_init.c` as the tree had it (engine-h9-autoconfig.patch's hunk in
+`SV_ActivateServer` is far from this one, by the world's load); both reverse-check in place together.
+Registered last in `xash.bat`, after chatinput, in its ENGINE.txt list and the `xash.dll` description.
+Verified: reverse check in place against the live tree.
+
+Also `sv_game.c`'s `pfnWriteCoord`: with big-world coordinates on, the first test map
+(h9_tsrp_bigtest) was stuck in TS's slow motion. The game DLL's own user messages are read by its client
+library, whose READ_COORD divides by 8 whatever the engine does, so a value TS sends with WRITE_COORD came
+out an eighth of itself. A coordinate written into a user message (`svgame.msg_index` 0 and up) keeps the
+classic eighths now; the engine's own messages (temp entities and the like, read by the engine) take
+big-world's whole units.

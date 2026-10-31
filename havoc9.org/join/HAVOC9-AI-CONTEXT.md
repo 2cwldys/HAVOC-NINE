@@ -14,8 +14,6 @@ Hand this file to an AI coding agent (Claude, OpenCode, Freebuff, Cursor, etc.) 
 - Repo: https://github.com/2cwldys/HAVOC-NINE  
 - Discord: https://discord.gg/b76pqqVsNY  
 
-You **must** own a legal copy of Half-Life. The project does not ship Valve content.
-
 License: GPLv3 (nested tools may be GPLv2 / MIT). Non-commercial fan project. See `NON_COMMERCIAL.MD` and `SECURITY.MD` in the repo.
 
 ---

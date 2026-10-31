@@ -1,0 +1,60 @@
+diff --git a/engine/server/sv_init.c b/engine/server/sv_init.c
+--- a/engine/server/sv_init.c
++++ b/engine/server/sv_init.c
+@@ -1042,6 +1042,34 @@ qboolean SV_SpawnServer( const char *mapname, const char *startspot, qboolean ba
+ 	sv.worldmodel = sv.models[WORLD_INDEX] = Mod_LoadWorld( sv.model_precache[WORLD_INDEX], true );
+ 	CRC32_MapFile( &sv.worldmapCRC, sv.model_precache[WORLD_INDEX], svs.maxclients > 1 );
+ 
++	// H9: a world reaching past +/-4096 needs wider coordinates than WRITE_COORD's 16-bit eighths, so
++	// the engine's big-world writing (whole units, +/-32768) is on for this map; it reaches each client
++	// in svc_serverdata. Only what this turned on is turned off again for a map that fits, so a game
++	// whose physics interface asks for it keeps it.
++	{
++		static qboolean h9_bigworld;
++		qboolean big = false;
++		int k;
++
++		for( k = 0; sv.worldmodel && k < 3; k++ )
++		{
++			if( sv.worldmodel->mins[k] < -4096.0f || sv.worldmodel->maxs[k] > 4096.0f )
++				big = true;
++		}
++
++		if( big && !FBitSet( host.features, ENGINE_WRITE_LARGE_COORD ))
++		{
++			SetBits( host.features, ENGINE_WRITE_LARGE_COORD );
++			h9_bigworld = true;
++			Con_Reportf( "%s: the world reaches past +/-4096, big-world coordinates on\n", __func__ );
++		}
++		else if( !big && h9_bigworld )
++		{
++			ClearBits( host.features, ENGINE_WRITE_LARGE_COORD );
++			h9_bigworld = false;
++		}
++	}
++
+ 	if( FBitSet( host.features, ENGINE_QUAKE_COMPATIBLE ) && FS_FileExists( "progs.dat", false ))
+ 	{
+ 		file_t *f = FS_Open( "progs.dat", "rb", false );
+diff --git a/engine/server/sv_game.c b/engine/server/sv_game.c
+--- a/engine/server/sv_game.c
++++ b/engine/server/sv_game.c
+@@ -2790,6 +2790,18 @@ pfnWriteCoord
+ */
+ static void GAME_EXPORT pfnWriteCoord( float flValue )
+ {
++	// H9: the game's own messages (msg_index 0 and up) are read by its client library, whose
++	// READ_COORD takes eighths of a unit whatever the engine does, so they keep that encoding even
++	// with big-world coordinates on; the engine's messages (temp entities and the like) are read by
++	// the engine, in big-world's whole units
++	if( svgame.msg_index >= 0 )
++	{
++		MSG_WriteShort( &sv.multicast, (int)( flValue * 8.0f ));
++		if( svgame.msg_trace ) Con_Printf( "\t^3%s( %f )\n", __func__, flValue );
++		svgame.msg_realsize += 2;
++		return;
++	}
++
+ 	MSG_WriteCoord( &sv.multicast, flValue );
+ 	if( svgame.msg_trace ) Con_Printf( "\t^3%s( %f )\n", __func__, flValue );
+ 	svgame.msg_realsize += 2;

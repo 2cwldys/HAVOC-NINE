@@ -1042,6 +1042,34 @@ qboolean SV_SpawnServer( const char *mapname, const char *startspot, qboolean ba
 	sv.worldmodel = sv.models[WORLD_INDEX] = Mod_LoadWorld( sv.model_precache[WORLD_INDEX], true );
 	CRC32_MapFile( &sv.worldmapCRC, sv.model_precache[WORLD_INDEX], svs.maxclients > 1 );
 
+	// H9: a world reaching past +/-4096 needs wider coordinates than WRITE_COORD's 16-bit eighths, so
+	// the engine's big-world writing (whole units, +/-32768) is on for this map; it reaches each client
+	// in svc_serverdata. Only what this turned on is turned off again for a map that fits, so a game
+	// whose physics interface asks for it keeps it.
+	{
+		static qboolean h9_bigworld;
+		qboolean big = false;
+		int k;
+
+		for( k = 0; sv.worldmodel && k < 3; k++ )
+		{
+			if( sv.worldmodel->mins[k] < -4096.0f || sv.worldmodel->maxs[k] > 4096.0f )
+				big = true;
+		}
+
+		if( big && !FBitSet( host.features, ENGINE_WRITE_LARGE_COORD ))
+		{
+			SetBits( host.features, ENGINE_WRITE_LARGE_COORD );
+			h9_bigworld = true;
+			Con_Reportf( "%s: the world reaches past +/-4096, big-world coordinates on\n", __func__ );
+		}
+		else if( !big && h9_bigworld )
+		{
+			ClearBits( host.features, ENGINE_WRITE_LARGE_COORD );
+			h9_bigworld = false;
+		}
+	}
+
 	if( FBitSet( host.features, ENGINE_QUAKE_COMPATIBLE ) && FS_FileExists( "progs.dat", false ))
 	{
 		file_t *f = FS_Open( "progs.dat", "rb", false );

@@ -29,6 +29,7 @@ The engine. The webassembly patch's engine part (emscripten code, compiled out o
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), engine-h9-bigworld.patch (big-world coordinates, whole units to +/-32768, for a map whose world reaches past +/-4096; with ts\delta.lst's widened origin fields, maps larger than the stock box), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 == Patch history ==
 Generated Wed 10/21/2026 23:42:15.60, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -710,6 +711,75 @@ Lines of the previous diff that this build replaced, kept here:
 +	const char	*key = Info_ValueForKey( cl.serverinfo, "tsm_pres_mode" );
 +	const char	*prog = Info_ValueForKey( cl.serverinfo, "tsm_pres_prog" );
 Diff sha256 c4c29a38210fae8cd3b57475cee0fa8b41542cb3cc7a508c35c19021f54dcba9, the diff below.
+
+Generated Sat 10/31/2026 16:05:32.91, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/sound/s_stream.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/common/net_encode.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 928e912cfe6601b0d0fbf67af6b0e276b2b556b23c67d995f750f469d678905d, the diff below.
+
+Generated Sat 10/31/2026 16:13:03.87, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/sound/s_stream.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/common/net_encode.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 882a628e0e8895c0c0e175c2fe631eb447ded8b3a57497060fff5bfa5fabbc37, the diff below.
 
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
@@ -4260,8 +4330,31 @@ index c95ce9a7..e17797dc 100644
  		Info_SetValueForKeyf( s, "maxcl", sizeof( s ), "%i", svs.maxclients );
  		Info_SetValueForKey( s, "gamedir", GI->gamefolder, sizeof( s ));
  		Info_SetValueForKey( s, "password", SV_HavePassword() ? "1" : "0", sizeof( s ));
+diff --git a/engine/server/sv_game.c b/engine/server/sv_game.c
+index 37e79df8..3074ea4d 100644
+--- a/engine/server/sv_game.c
++++ b/engine/server/sv_game.c
+@@ -2790,6 +2790,18 @@ pfnWriteCoord
+ */
+ static void GAME_EXPORT pfnWriteCoord( float flValue )
+ {
++	// H9: the game's own messages (msg_index 0 and up) are read by its client library, whose
++	// READ_COORD takes eighths of a unit whatever the engine does, so they keep that encoding even
++	// with big-world coordinates on; the engine's messages (temp entities and the like) are read by
++	// the engine, in big-world's whole units
++	if( svgame.msg_index >= 0 )
++	{
++		MSG_WriteShort( &sv.multicast, (int)( flValue * 8.0f ));
++		if( svgame.msg_trace ) Con_Printf( "\t^3%s( %f )\n", __func__, flValue );
++		svgame.msg_realsize += 2;
++		return;
++	}
++
+ 	MSG_WriteCoord( &sv.multicast, flValue );
+ 	if( svgame.msg_trace ) Con_Printf( "\t^3%s( %f )\n", __func__, flValue );
+ 	svgame.msg_realsize += 2;
 diff --git a/engine/server/sv_init.c b/engine/server/sv_init.c
-index 3df187a8..d434dede 100644
+index 3df187a8..7d18a6f7 100644
 --- a/engine/server/sv_init.c
 +++ b/engine/server/sv_init.c
 @@ -597,6 +597,12 @@ void SV_ActivateServer( int runPhysics )
@@ -4277,6 +4370,41 @@ index 3df187a8..d434dede 100644
  	SV_SetStringArrayMode( true );
  
  	// parse user-specified resources
+@@ -1036,6 +1042,34 @@ qboolean SV_SpawnServer( const char *mapname, const char *startspot, qboolean ba
+ 	sv.worldmodel = sv.models[WORLD_INDEX] = Mod_LoadWorld( sv.model_precache[WORLD_INDEX], true );
+ 	CRC32_MapFile( &sv.worldmapCRC, sv.model_precache[WORLD_INDEX], svs.maxclients > 1 );
+ 
++	// H9: a world reaching past +/-4096 needs wider coordinates than WRITE_COORD's 16-bit eighths, so
++	// the engine's big-world writing (whole units, +/-32768) is on for this map; it reaches each client
++	// in svc_serverdata. Only what this turned on is turned off again for a map that fits, so a game
++	// whose physics interface asks for it keeps it.
++	{
++		static qboolean h9_bigworld;
++		qboolean big = false;
++		int k;
++
++		for( k = 0; sv.worldmodel && k < 3; k++ )
++		{
++			if( sv.worldmodel->mins[k] < -4096.0f || sv.worldmodel->maxs[k] > 4096.0f )
++				big = true;
++		}
++
++		if( big && !FBitSet( host.features, ENGINE_WRITE_LARGE_COORD ))
++		{
++			SetBits( host.features, ENGINE_WRITE_LARGE_COORD );
++			h9_bigworld = true;
++			Con_Reportf( "%s: the world reaches past +/-4096, big-world coordinates on\n", __func__ );
++		}
++		else if( !big && h9_bigworld )
++		{
++			ClearBits( host.features, ENGINE_WRITE_LARGE_COORD );
++			h9_bigworld = false;
++		}
++	}
++
+ 	if( FBitSet( host.features, ENGINE_QUAKE_COMPATIBLE ) && FS_FileExists( "progs.dat", false ))
+ 	{
+ 		file_t *f = FS_Open( "progs.dat", "rb", false );
 diff --git a/engine/server/sv_main.c b/engine/server/sv_main.c
 index 985e4388..7141d332 100644
 --- a/engine/server/sv_main.c
