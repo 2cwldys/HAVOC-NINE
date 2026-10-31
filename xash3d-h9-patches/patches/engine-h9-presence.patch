@@ -67,10 +67,10 @@ index 1d8bbcc9..fa1cc5c1 100644
 +IDI_ICON1	ICON    DISCARDABLE		"havoc9.ico"
 diff --git a/engine/client/cl_presence.c b/engine/client/cl_presence.c
 new file mode 100644
-index 00000000..ee2632a5
+index 00000000..88907ed4
 --- /dev/null
 +++ b/engine/client/cl_presence.c
-@@ -0,0 +1,591 @@
+@@ -0,0 +1,596 @@
 +/*
 +cl_presence.c - Discord Rich Presence, sent by the engine itself
 +
@@ -366,17 +366,22 @@ index 00000000..ee2632a5
 +*/
 +static void H9P_Activity( char *out, size_t size )
 +{
-+	const char	*siege = Info_ValueForKey( cl.serverinfo, "tsm_pres_siege" );
-+	const char	*attack = Info_ValueForKey( cl.serverinfo, "tsm_pres_attack" );
-+	const char	*side1 = Info_ValueForKey( cl.serverinfo, "tsm_pres_side1" );
-+	const char	*side2 = Info_ValueForKey( cl.serverinfo, "tsm_pres_side2" );
-+	const char	*alive1 = Info_ValueForKey( cl.serverinfo, "tsm_pres_alive1" );
-+	const char	*alive2 = Info_ValueForKey( cl.serverinfo, "tsm_pres_alive2" );
-+	const char	*key = Info_ValueForKey( cl.serverinfo, "tsm_pres_mode" );
-+	const char	*prog = Info_ValueForKey( cl.serverinfo, "tsm_pres_prog" );
++	// each value copied out at once: Info_ValueForKey hands back one of four buffers it reuses,
++	// so the fifth call would write over the first
++	char		siege[16], attack[8], side1[8], side2[8], alive1[8], alive2[8], key[32], prog[32];
++	char		details[96], state[160], title[160];
++
++	Q_strncpy( siege, Info_ValueForKey( cl.serverinfo, "tsm_pres_siege" ), sizeof( siege ));
++	Q_strncpy( attack, Info_ValueForKey( cl.serverinfo, "tsm_pres_attack" ), sizeof( attack ));
++	Q_strncpy( side1, Info_ValueForKey( cl.serverinfo, "tsm_pres_side1" ), sizeof( side1 ));
++	Q_strncpy( side2, Info_ValueForKey( cl.serverinfo, "tsm_pres_side2" ), sizeof( side2 ));
++	Q_strncpy( alive1, Info_ValueForKey( cl.serverinfo, "tsm_pres_alive1" ), sizeof( alive1 ));
++	Q_strncpy( alive2, Info_ValueForKey( cl.serverinfo, "tsm_pres_alive2" ), sizeof( alive2 ));
++	Q_strncpy( key, Info_ValueForKey( cl.serverinfo, "tsm_pres_mode" ), sizeof( key ));
++	Q_strncpy( prog, Info_ValueForKey( cl.serverinfo, "tsm_pres_prog" ), sizeof( prog ));
++
 +	const char	*atk = attack[0] == '1' ? H9P_SIDE1_NAME : ( attack[0] == '2' ? H9P_SIDE2_NAME : "" );
 +	const char	*mode = H9P_Mode( h9p.map, key, siege );
-+	char		details[96], state[160], title[160];
 +	char		e_details[192], e_state[320], e_map[160], e_title[320];
 +
 +	if( siege[0] && atk[0] )

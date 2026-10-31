@@ -67,6 +67,12 @@
 #define UPL_RING_CAP       "sprites/tsm_zone_ring_cap.spr"
 #define UPL_FLAG           "sprites/tsm_zone_flag.spr"
 #define UPL_MARK           "sprites/tsm_uplink_mark.spr"
+// The marker over the uplink while it lies on the ground, the siege objectives' own sprite
+// (ts_matchmode): group 0 a red reticle (take it), group 1 a blue shield (get it back)
+#define UPL_GROUND_MARK    "sprites/tsm_obj_mark.spr"
+#define UPL_GROUND_HIGH    44.0    // this far above the uplink's origin
+#define UPL_RENDER_GLOW    3       // drawn only with a clear line to it, the same size at any distance
+#define UPL_FX_NODISS      14
 
 // Stock Half-Life sounds every client already has.
 #define UPL_SND_PICKUP  "items/gunpickup2.wav"
@@ -129,6 +135,9 @@ new g_dropper;                 // who dropped it last, kept off it for UPL_DROP_
 new Float:g_dropped_at;
 new Float:g_carrier_at[3];     // where the carrier was last seen, for a drop when he vanishes
 new g_mark_ent;                // the marker over the carrier
+new bool:g_ground_ok;          // tsm_obj_mark.spr precached
+new g_ground_mark[2];          // the ground markers: [0] the take-it reticle, [1] the get-it-back shield
+new g_last_side;               // the side of whoever carried it last, 0 while it has not left its post
 
 // The capture in progress.
 new g_cap_zone;                // zone being taken; 0 when none
@@ -196,6 +205,11 @@ public plugin_precache()
 	{
 		precache_model(UPL_MARK);
 	}
+	g_ground_ok = (file_exists(UPL_GROUND_MARK, true) != 0);
+	if (g_ground_ok)
+	{
+		precache_model(UPL_GROUND_MARK);
+	}
 
 	precache_sound(UPL_SND_PICKUP);
 	precache_sound(UPL_SND_DROP);
@@ -235,6 +249,8 @@ public plugin_init()
 
 	// The carrier's marker follows him every frame, not every tick.
 	register_forward(FM_StartFrame, "fw_startframe_post", 1);
+	// Each side is sent only its own ground marker.
+	register_forward(FM_AddToFullPack, "fw_addtofullpack_pre", 0);
 }
 
 public plugin_cfg()
@@ -570,6 +586,10 @@ put_uplink(const Float:org[3], bool:home)
 
 	g_carrier = 0;
 	g_at_home = home;
+	if (home)
+	{
+		g_last_side = 0;   // back at its post: nobody's to get back, everybody's to take
+	}
 	g_loose_since = get_gametime();
 	hide_mark();
 }
@@ -599,6 +619,7 @@ pick_up(id)
 
 	g_carrier = id;
 	g_at_home = false;
+	g_last_side = tsm_side_of(id);
 	pev(id, pev_origin, g_carrier_at);
 
 	// Carried on the back: the model follows the carrier and merges onto his skeleton.
@@ -719,8 +740,79 @@ show_mark(id)
 	set_pev(g_mark_ent, pev_effects, pev(g_mark_ent, pev_effects) & ~UPL_EF_NODRAW);
 }
 
+/*
+ * The markers over the uplink while it lies on the ground, at its post or dropped: the side whose
+ * carrier dropped it sees the shield, to get it back, and everyone else the reticle, to take it;
+ * at its post, never carried, everyone sees the reticle. Glow sprites, which the engine draws only
+ * when the viewer has a clear line to them. Moved with it every frame (a dropped uplink is thrown
+ * and falls), and hidden while it is carried or out of the world.
+ */
+ground_marks()
+{
+	if (!g_ground_ok)
+	{
+		return;
+	}
+	new bool:show = g_active && !g_carrier && g_up_ent > 0 && pev_valid(g_up_ent);
+	new Float:at[3];
+	if (show)
+	{
+		pev(g_up_ent, pev_origin, at);
+		at[2] += UPL_GROUND_HIGH;
+	}
+	for (new k = 0; k < 2; k++)
+	{
+		new mark = g_ground_mark[k];
+		if (!show)
+		{
+			if (mark > 0 && pev_valid(mark))
+			{
+				set_pev(mark, pev_effects, pev(mark, pev_effects) | UPL_EF_NODRAW);
+			}
+			continue;
+		}
+		if (mark <= 0 || !pev_valid(mark))
+		{
+			mark = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+			if (mark <= 0)
+			{
+				continue;
+			}
+			set_pev(mark, pev_classname, "tsm_uplink_ground_mark");
+			engfunc(EngFunc_SetModel, mark, UPL_GROUND_MARK);
+			set_pev(mark, pev_movetype, UPL_MT_NOCLIP);
+			set_pev(mark, pev_solid, UPL_SOLID_NOT);
+			set_pev(mark, pev_rendermode, UPL_RENDER_GLOW);
+			set_pev(mark, pev_renderfx, UPL_FX_NODISS);
+			set_pev(mark, pev_renderamt, 255.0);
+			set_pev(mark, pev_scale, 0.35);
+			set_pev(mark, pev_frame, float(k));   // the group: 0 the reticle, 1 the shield
+			g_ground_mark[k] = mark;
+		}
+		engfunc(EngFunc_SetOrigin, mark, at);
+		set_pev(mark, pev_effects, pev(mark, pev_effects) & ~UPL_EF_NODRAW);
+	}
+}
+
+public fw_addtofullpack_pre(es, e, ent, host, hostflags, player, pSet)
+{
+	if (ent <= 0 || (ent != g_ground_mark[0] && ent != g_ground_mark[1]))
+	{
+		return FMRES_IGNORED;
+	}
+	new side = (host >= 1 && host <= 32) ? tsm_side_of(host) : 0;
+	new want = (g_last_side && side == g_last_side) ? g_ground_mark[1] : g_ground_mark[0];
+	if (ent != want)
+	{
+		forward_return(FMV_CELL, 0);
+		return FMRES_SUPERCEDE;
+	}
+	return FMRES_IGNORED;
+}
+
 public fw_startframe_post()
 {
+	ground_marks();
 	if (!g_active || !g_carrier || g_mark_ent <= 0 || !pev_valid(g_mark_ent) || !is_user_connected(g_carrier))
 	{
 		return FMRES_IGNORED;

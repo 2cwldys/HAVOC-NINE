@@ -1302,7 +1302,7 @@
  tsm_turret_hp             400        its health
  tsm_turret_resist         0.5        share of each hit its armour turns aside
  tsm_turret_range          1000       how far it sees and shoots
- tsm_turret_damage         72         damage a round
+ tsm_turret_damage         16         damage a round
  tsm_turret_rate           8.0        rounds a second
  tsm_turret_spread         1.5        spread, degrees
  tsm_turret_repair         100        health one +USE repair puts back
@@ -1355,6 +1355,7 @@
 
  -- siege
  tsm_obj_team              2          the side that attacks the objectives
+ tsm_obj_markers           1          a marker over each objective, each side its own colour; 0 off
  tsm_obj_class             Breacher   the class that plants; empty, any class
  tsm_obj_time              10.0       seconds to hold +USE to plant
  tsm_obj_fuse              5.0        seconds a planted charge burns

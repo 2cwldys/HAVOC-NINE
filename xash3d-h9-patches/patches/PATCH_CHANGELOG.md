@@ -420,3 +420,17 @@ mainui-h9-sprayui all reverse-check in place together against the live tree;
 round trip (`git apply --reverse`, `BaseMenu.cpp` back to its snapshot, `git
 apply`, byte-identical); `xash.bat engine` lists it in place and builds menu.dll
 with `BaseMenu.cpp` clean.
+
+### 2026-10-31 -- engine-h9-presence.patch (regenerated)
+
+The Discord card showed mixed-up values ("Siege 6", "Alive: MSR 6/siege"):
+`H9P_Activity` kept the pointers from eight `Info_ValueForKey` calls, but that
+function returns one of four static buffers it reuses in turn, so the last four
+reads wrote over the first four (side 1's total became the mode key, the siege
+progress an alive count). Each value is now copied into its own local buffer as
+it is read, and the attacking side and the mode are worked out after the copies.
+
+Only the `cl_presence.c` new-file section changed (591 -> 596 lines, blob
+`88907ed4`), rebuilt from the live file; the other sections are untouched.
+Verified: reverse check in place against the live tree.
+

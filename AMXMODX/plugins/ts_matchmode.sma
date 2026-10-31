@@ -74,7 +74,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.54-lift3"
+#define TSM_BUILD "1.54-lift6"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -88,6 +88,9 @@
  * draws nothing where the icon should be.
  */
 #define TSM_ICON_SPR "sprites/tsm_class.spr"
+// The marker over a siege objective: group 0 for the side that attacks it, group 1 for the side
+// that defends it (export-map\h9_drainage\sprites.mjs)
+#define TSM_OBJ_MARK_SPR "sprites/tsm_obj_mark.spr"
 
 /*
  * WHICH FRAME OF THE SHEET IS EACH CLASS'S INSURGENT COPY.
@@ -1082,6 +1085,10 @@ new g_icon_owner[2048];      // edict -> the player whose class icon it is, 0 fo
 new bool:g_sudden;           // the last minute has begun, and it is announced once
 new bool:g_fogtest;           // tsm_fogtest's own toggle; never touched while g_sudden is real
 new bool:g_icon_ok;          // the sheet precached, so the entities may be made
+new g_objmark_ent[TSM_OBJ_MAX + 1][2];  // each objective's two markers: [n][0] attack, [n][1] defend
+new g_objmark_kind[2048];               // edict -> 1 an attack marker, 2 a defend marker, 0 anything else
+new bool:g_objmark_ok;                  // tsm_obj_mark.spr precached
+new g_cv_objmarks;                      // tsm_obj_markers
 new g_maxplayers;            // the slot count, read once at precache: players are 1..g_maxplayers
 new g_join_tries[MAXPL];     // jointeam attempts for the current pick
 new g_teaminfo_seen = 0;     // TeamInfo messages from the mod since map load
@@ -4120,6 +4127,11 @@ public plugin_precache()
 	// Guarded, because precaching a file that is not there is a fatal Host_Error
 	// that closes the server -- the same failure the class models are guarded
 	// against.
+	if (file_exists(TSM_OBJ_MARK_SPR))
+	{
+		precache_model(TSM_OBJ_MARK_SPR);
+		g_objmark_ok = true;
+	}
 	if (file_exists(TSM_ICON_SPR))
 	{
 		precache_model(TSM_ICON_SPR);
@@ -4715,7 +4727,7 @@ public plugin_init()
 	g_cv_turret_hp       = register_cvar("tsm_turret_hp",              "400");
 	g_cv_turret_resist   = register_cvar("tsm_turret_resist",          "0.5");
 	g_cv_turret_range    = register_cvar("tsm_turret_range",           "1000");
-	g_cv_turret_dmg      = register_cvar("tsm_turret_damage",          "72");
+	g_cv_turret_dmg      = register_cvar("tsm_turret_damage",          "16");
 	g_cv_turret_rate     = register_cvar("tsm_turret_rate",            "8.0");
 	g_cv_turret_spread   = register_cvar("tsm_turret_spread",          "1.5");
 	g_cv_turret_repair   = register_cvar("tsm_turret_repair",          "100");
@@ -4788,6 +4800,7 @@ public plugin_init()
 	 * away a player may stand.
 	 */
 	g_cv_objteam  = register_cvar("tsm_obj_team",  "2");
+	g_cv_objmarks = register_cvar("tsm_obj_markers", "1");
 	g_cv_objclass = register_cvar("tsm_obj_class", "Breacher");
 	g_cv_objtime  = register_cvar("tsm_obj_time",  "10.0");
 	g_cv_objfuse  = register_cvar("tsm_obj_fuse",  "5.0");
@@ -5622,6 +5635,24 @@ public fw_addtofullpack_pre(es, e, ent, host, hostflags, player, pSet)
 		if (g_cloak_nodraw[ent])
 		{
 			set_pev(ent, pev_effects, pev(ent, pev_effects) & ~TSM_EF_NODRAW);
+		}
+		return FMRES_IGNORED;
+	}
+
+	// A siege objective's marker: each side is sent only its own, the attackers the reticle and
+	// the defenders the shield; anyone on no side, a spectator, the attackers'.
+	if (ent < sizeof g_objmark_kind && g_objmark_kind[ent])
+	{
+		if (host < 1 || host >= MAXPL)
+		{
+			return FMRES_IGNORED;
+		}
+		new side = g_match_team[host];
+		new want = (side < 1 || side == get_pcvar_num(g_cv_objteam)) ? 1 : 2;
+		if (g_objmark_kind[ent] != want)
+		{
+			forward_return(FMV_CELL, 0);
+			return FMRES_SUPERCEDE;
 		}
 		return FMRES_IGNORED;
 	}
@@ -11915,6 +11946,76 @@ siege_count()
 	return n;
 }
 
+/*
+ * The markers over the siege objectives, so a player who can see one knows what to take or keep:
+ * two per objective standing, an attack reticle and a defend shield, of which fw_addtofullpack_pre
+ * sends each side only its own. Glow sprites, which the engine draws only when the viewer has a
+ * clear line to them and at the same size at any distance. Placed once a second from task_tick,
+ * above the middle of the objective's top; hidden while it lies fallen, with tsm_enabled 0 or
+ * tsm_obj_markers 0, and on a map with no objectives.
+ */
+#define TSM_OBJ_MARK_HIGH    40.0
+objmarks_update()
+{
+	if (!g_objmark_ok)
+	{
+		return;
+	}
+	new bool:on = get_pcvar_num(g_cv_enabled) && get_pcvar_num(g_cv_objmarks);
+	new count = on ? siege_count() : 0;
+	for (new n = 1; n <= TSM_OBJ_MAX; n++)
+	{
+		new obj = n <= count ? siege_by_number(n) : 0;
+		new bool:show = obj > 0 && pev_valid(obj);
+		new Float:at[3];
+		if (show)
+		{
+			new Float:lo[3], Float:hi[3];
+			pev(obj, pev_absmin, lo);
+			pev(obj, pev_absmax, hi);
+			at[0] = (lo[0] + hi[0]) * 0.5;
+			at[1] = (lo[1] + hi[1]) * 0.5;
+			at[2] = hi[2] + TSM_OBJ_MARK_HIGH;
+		}
+		for (new k = 0; k < 2; k++)
+		{
+			new mark = g_objmark_ent[n][k];
+			if (!show)
+			{
+				if (mark > 0 && pev_valid(mark))
+				{
+					set_pev(mark, pev_effects, pev(mark, pev_effects) | TSM_EF_NODRAW);
+				}
+				continue;
+			}
+			if (mark <= 0 || !pev_valid(mark))
+			{
+				mark = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+				if (mark <= 0)
+				{
+					continue;
+				}
+				set_pev(mark, pev_classname, "tsm_obj_mark");
+				engfunc(EngFunc_SetModel, mark, TSM_OBJ_MARK_SPR);
+				set_pev(mark, pev_movetype, TSM_MOVETYPE_NOCLIP);
+				set_pev(mark, pev_solid, TSM_SOLID_NOT);
+				set_pev(mark, pev_rendermode, TSM_RENDER_GLOW);
+				set_pev(mark, pev_renderfx, TSM_RENDERFX_NODISS);
+				set_pev(mark, pev_renderamt, 255.0);
+				set_pev(mark, pev_scale, 0.35);
+				set_pev(mark, pev_frame, float(k));   // the group: 0 attack, 1 defend
+				g_objmark_ent[n][k] = mark;
+				if (mark < sizeof g_objmark_kind)
+				{
+					g_objmark_kind[mark] = k + 1;
+				}
+			}
+			engfunc(EngFunc_SetOrigin, mark, at);
+			set_pev(mark, pev_effects, pev(mark, pev_effects) & ~TSM_EF_NODRAW);
+		}
+	}
+}
+
 /// The objective under this player's crosshair and within tsm_obj_range, or 0.
 siege_aimed(id)
 {
@@ -13830,7 +13931,7 @@ public cmd_opendoor(id, level, cid)
  * here. The body faces where it was put down; the head turns by the model's two bone controllers,
  * 0 the yaw (0-360 degrees) and 1 the pitch (-60 to 60). task_turrets sees and fires for every
  * turret ten times a second. Every turret goes at each round's start, at the end of a match, with
- * tsm_enabled 0, and when its engineer leaves.
+ * tsm_enabled 0, and when its engineer leaves; and blows up when its engineer dies.
  */
 
 /// The slot of a turret's entity, -1 when it is not one.
@@ -14165,6 +14266,19 @@ public task_turrets()
 			g_turret[t] = 0;
 			continue;
 		}
+		// A turret does not outlive its engineer: whenever they die, in any phase of the match,
+		// it blows up with them. Watched here rather than at a death hook, because DeathMsg is
+		// not sent for every death and the match's death handling only runs in a live round.
+		new owner = g_turret_owner[t];
+		if (owner && is_user_connected(owner) && !is_user_alive(owner))
+		{
+			if (!is_user_bot(owner))
+			{
+				client_print(owner, print_chat, "[TSM] Your turret went down with you.");
+			}
+			turret_destroy(t);
+			continue;
+		}
 		if (now < g_turret_ready_at[t])
 		{
 			continue;
@@ -14273,6 +14387,25 @@ turret_damage(t, attacker, Float:damage)
 		return;
 	}
 
+	new owner = g_turret_owner[t];
+	if (is_user_connected(owner) && !is_user_bot(owner))
+	{
+		client_print(owner, print_chat, "[TSM] Your turret was destroyed.");
+	}
+	turret_destroy(t);
+}
+
+/// Blows a turret up: the explosion and its sounds, the body a moment in its death sequence,
+/// harmless, before it goes; and forgets it.
+turret_destroy(t)
+{
+	new ent = g_turret[t];
+	if (!ent || !pev_valid(ent))
+	{
+		turret_remove(t);
+		return;
+	}
+
 	new Float:org[3];
 	pev(ent, pev_origin, org);
 	org[2] += 24.0;
@@ -14289,13 +14422,6 @@ turret_damage(t, attacker, Float:damage)
 	emit_sound(ent, CHAN_WEAPON, TSM_OBJ_BOOM_A, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 	emit_sound(ent, CHAN_BODY, "debris/metal2.wav", 1.0, ATTN_NORM, 0, PITCH_NORM);
 
-	new owner = g_turret_owner[t];
-	if (is_user_connected(owner) && !is_user_bot(owner))
-	{
-		client_print(owner, print_chat, "[TSM] Your turret was destroyed.");
-	}
-
-	// The body lies a moment in its death sequence, harmless, before it goes.
 	set_pev(ent, pev_takedamage, 0.0);
 	set_pev(ent, pev_solid, SOLID_NOT);
 	turret_sequence(ent, TURRET_SEQ_DIE);
@@ -22715,6 +22841,7 @@ refresh_player_flags()
 public task_tick()
 {
 	watch_enabled();
+	objmarks_update();
 	refresh_player_flags();
 	clean_all_weapons();
 
