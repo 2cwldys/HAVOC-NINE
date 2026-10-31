@@ -249,3 +249,50 @@ the ground shaking under everyone round the basin.
     node drainage.mjs --compile deploy   all three maps, their .res and spawn configs
     node waypoints.mjs deploy    the bots' waypoints, under all three names
     node preview.mjs             a reel of stills and a flythrough with its sound
+
+6. THE SKYLIFT  (export-map\h9_siege_lift)
+------------------------------------------
+A skylift car climbing its tether to orbit over the burning city: one car, four maps, as
+the drainage works are three. The world outside streams down past the windows (conveyor
+cloud cards, the tether, drifting cloud banks) under a still, toxic red sky; red radiated
+haze clings to the gantry and the dock; the car groans, creaks and sways, everyone's view
+rolling with it.
+
+  h9_siege_lift  the siege. The Insurgents boarded underneath (the pod, with a dock off it)
+                 and attack upward; MSR start on the top deck and keep the lift climbing. The
+                 drive's fall stops the world outside.
+  h9_up_lift     Capture the Uplink: zones 1 the clamp bay, 2 the power room, 3 the drive
+                 room, 4 the mess; the uplink on the passenger deck. MSR on the drive deck,
+                 the Insurgents in the pod and the cargo deck. Mapconfig: tsm_respawns 1,
+                 tsm_roundtime 420.
+  h9_ws_lift     Wave Survival: the survivors hold the passenger deck; the hordes come from
+                 the pod, the cargo deck and the drive deck. Mapconfig: tsm_respawns 1,
+                 tsm_bots 12.
+  h9_mw_lift     Mech Warrior: the sides start as on h9_up_lift, with no zones. Mapconfig:
+                 tsm_respawns 1, tsm_roundtime 420.
+  The three mode maps have no siege objectives: the machines stand as scenery.
+
+  Objectives     (the siege) 1 the tether clamps (cargo deck), 2 the power core (passenger
+                 deck), 3 the drive (drive deck).
+  Rooms          each machine in a walled room, four ways in: a door anyone opens; a door
+                 only a Breacher forces (named tsm_breach_*); a door only a Combat Engineer
+                 opens (tsm_eng_door); and a crawl vent behind a grate anyone can break.
+  Routes         stairs between the decks; two maintenance shafts behind engineers' doors;
+                 the gantry outside every deck, by its hatches and ladders (through holes in
+                 the grating), open to everyone. Falling off it kills.
+  Spawns         (the siege) MSR on the drive deck; Insurgents in the pod, then (forward
+                 tiers) the cargo deck once the clamps fall and the passenger deck once the
+                 power is cut.
+  Mapconfig      (the siege) tsm_obj_team 2, the objective banners, tsm_respawns 1,
+                 tsm_roundtime 480.
+
+  Rebuilding it  in export-map\h9_siege_lift (node, SMAK beside TSM):
+    node sky.mjs deploy          the sky (gfx\env\h9lift*.tga)
+    smak sound sounds.json -o .. ..   its sounds, into TSM\sound\h9lift
+    node sprites.mjs deploy      the haze sprite (sprites\h9_lift_haze.spr)
+    node lift.mjs --compile deploy    the four maps, their .res and spawn configs
+                                 (out\h9_lift.wad holds the scrolling textures, built into
+                                 each .bsp; LIFT_ONLY=siege, up, ws or mw does one)
+    node lift.mjs --views        pictures from inside, sky and all
+    node waypoints.mjs deploy    the bots' waypoints, one walk under all four names
+    node tactical.mjs            the tactical map: doors, shafts, hatches, ladders, spawns

@@ -1974,14 +1974,20 @@ static int GAME_EXPORT pfnDrawCharacter( int x, int y, int number, int r, int g,
 pfnDrawConsoleString
 
 drawing string like a console string
+
+H9: a colour set with pfnDrawSetTextColor is used by the next string only; a string
+drawn with none set is drawn in con_color, as GoldSrc does. The chat sets a colour
+once and then draws all its lines, so they all come out in con_color.
 =============
 */
 int GAME_EXPORT pfnDrawConsoleString( int x, int y, char *string )
 {
 	cl_font_t *font = Con_GetFont( con_fontsize.value );
 	rgba_t color;
-	Vector4Copy( clgame.ds.textColor, color );
-	Vector4Set( clgame.ds.textColor, 255, 255, 255, 255 );
+	if( clgame.ds.textColor[3] )
+		Vector4Copy( clgame.ds.textColor, color );
+	else Vector4Copy( g_color_table[7], color );
+	Vector4Set( clgame.ds.textColor, 0, 0, 0, 0 );
 
 	return x + CL_DrawString( x, y, string, color, font, FONT_DRAW_UTF8 | FONT_DRAW_HUD );
 }
@@ -3771,6 +3777,56 @@ static IVoiceTweak gVoiceApi =
 	Voice_GetControlFloat,
 };
 
+// H9: the chat lines the game draws in the lower left, by frame, for the say: line
+// (CL_ChatLinesPosition, console.c's Con_DrawNotify)
+static uint chat_lines_frame = (uint)-1;
+static int chat_lines_left, chat_lines_bottom;
+
+/*
+=============
+pfnDrawConsoleStringNoted
+
+H9: the game's DrawConsoleString. Notes where the strings in the lower left of the
+screen (x under a third of the width, y below half the height: the chat) land
+this frame, then draws as pfnDrawConsoleString does
+=============
+*/
+static int GAME_EXPORT pfnDrawConsoleStringNoted( int x, int y, char *string )
+{
+	if( x < refState.width / 3 && y > refState.height / 2 )
+	{
+		if( chat_lines_frame != host.framecount )
+		{
+			chat_lines_frame = host.framecount;
+			chat_lines_left = x;
+			chat_lines_bottom = 0;
+		}
+
+		chat_lines_left = Q_min( chat_lines_left, x );
+		chat_lines_bottom = Q_max( chat_lines_bottom, y + Con_GetFont( con_fontsize.value )->charHeight );
+	}
+
+	return pfnDrawConsoleString( x, y, string );
+}
+
+/*
+=============
+CL_ChatLinesPosition
+
+H9: the left edge and the bottom of the chat lines the game drew this frame, so
+the say: line can go under them; false when it drew none
+=============
+*/
+qboolean CL_ChatLinesPosition( int *x, int *y )
+{
+	if( chat_lines_frame != host.framecount )
+		return false;
+
+	*x = chat_lines_left;
+	*y = chat_lines_bottom;
+	return true;
+}
+
 // engine callbacks
 static cl_enginefunc_t gEngfuncs =
 {
@@ -3801,7 +3857,7 @@ static cl_enginefunc_t gEngfuncs =
 	AngleVectors,
 	CL_TextMessageGet,
 	pfnDrawCharacter,
-	pfnDrawConsoleString,
+	pfnDrawConsoleStringNoted,
 	pfnDrawSetTextColor,
 	pfnDrawConsoleStringLen,
 	pfnConsolePrint,

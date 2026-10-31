@@ -39,6 +39,37 @@ static int g_codepage = 0;
 
 static qboolean g_messagemode_privileged = true;
 
+// H9: where the game drew its chat lines this frame (dll_int/cl_game.c)
+qboolean CL_ChatLinesPosition( int *x, int *y );
+
+/*
+================
+Con_ChatInputPosition
+
+H9: where the say: line goes. The game's HUD_ChatInputPosition moves it first, if
+the game has one; when it leaves the position as it was (GoldSrc clients have none,
+and the HL SDK's own moves it only while spectating) the line goes under the chat
+lines the game drew this frame, at their left edge, or with none on screen where
+the HL SDK's chat area ends, just above the HUD
+================
+*/
+static void Con_ChatInputPosition( int *x, int *y )
+{
+	int left = *x, top = *y;
+
+	if( clgame.dllFuncs.pfnChatInputPosition )
+		clgame.dllFuncs.pfnChatInputPosition( x, y );
+
+	if( *x != left || *y != top )
+		return;
+
+	if( !CL_ChatLinesPosition( x, y ))
+	{
+		*x = 10;
+		*y = refState.height - 60 - Con_GetFont( con_fontsize.value )->charHeight;
+	}
+}
+
 #define CON_TIMES		4	// notify lines
 #define CON_MAX_TIMES	64	// notify max lines
 #define COLOR_DEFAULT	'7'
@@ -1837,8 +1868,7 @@ static void Con_DrawNotify( void )
 		int	len;
 
 		// update chatline position from client.dll
-		if( clgame.dllFuncs.pfnChatInputPosition )
-			clgame.dllFuncs.pfnChatInputPosition( &x, &y );
+		Con_ChatInputPosition( &x, &y );
 
 		Q_snprintf( buf, sizeof( buf ), "%s: ", con.chat_cmd );
 
@@ -2163,16 +2193,8 @@ qboolean Con_GetInputRect( int *x, int *y, int *w, int *h )
 		*x = con.curFont->charWidths[' '];
 		*y = 0;
 
-		if( clgame.dllFuncs.pfnChatInputPosition )
-		{
-			clgame.dllFuncs.pfnChatInputPosition( x, y );
-			*h = con.curFont->charHeight;
-		}
-		else
-		{
-			// chat line is pushed down by the notify lines drawn above it
-			*h = con.curFont->charHeight * ( con.num_times + 1 );
-		}
+		Con_ChatInputPosition( x, y );
+		*h = con.curFont->charHeight;
 
 		*w = refState.width - *x;
 		return true;

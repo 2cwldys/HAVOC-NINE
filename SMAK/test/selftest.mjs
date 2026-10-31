@@ -115,6 +115,15 @@ const areas = [
   "96-map-teams", // a map's two teams as ts_matchmode splits them, its spawn file, sight and walks across; profiles by name, the game found, a mod's own dressing, lamp faces
   "95-rcbot-waypoints", // RCBot's .rcw read and written byte for byte; waypoints from the walk (a ladder, a jump, a crouching passage); smak map-waypoints
   "19-example-and-kit-faults", // the examples' wrong arguments and refused models; the kits' fittings and rings
+  "108-play-native", // the Steam game's driver against a fake engine: the console loop, a command once, a map entered, its screenshot, its refusals
+  "109-source", // the Source engine: VTF, SMD, a GoldSrc model ported to GMod and why it changes, VPK, VMT, compiled where GMod's studiomdl is
+  "110-source-map", // Source's maps: the BSP written lump by lump and read back, its light, visibility and PAKFILE
+  "111-source-game", // GMod while it runs: RCON against a server speaking it, a probe run end to end
+  "112-sbox", // s&box: DMX of a mesh and an animation, ModelDoc's document, a material, a port compiled where s&box is
+  "113-demo", // a GoldSrc demo read: each frame's view of the player, its command, the server's movement settings
+  "114-model-light", // a model lit as GoldSrc lights one: the sky's or the floor's light, its shade, the map's light tree, the studio shader
+  "115-sbox-map-state", // a map's animated, scrolling and added faces, a brush entity's slot for its state; on The Specialists' maps when found
+  "107-broken-cases", // every checker failing an input broken in one way, by the sentence it must give, and passing its twin whole
 ];
 
 // one after another: each file runs its cases as it is loaded, and the servers' cases wait for their answers

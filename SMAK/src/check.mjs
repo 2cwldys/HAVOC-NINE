@@ -4,6 +4,8 @@
 // The two engines read the same file and differ in how much of it they hold:
 //   goldsrc   Half-Life's own engine (Steam), which a GoldSrc mod runs on today
 //   xash      Xash3D FWGS, which holds more
+//   source    a model the kit builds for Source (builtToGmod, src/source/gmod.mjs): this file is only the step between, ported
+//             to Source's compiler's files, so it is held to what that port and Source take, not to GoldSrc's
 // A model that passes for goldsrc passes for xash.
 import {
   readMdl,
@@ -18,6 +20,7 @@ import {
   boneControllers,
   boneMatrices,
   basesByRule,
+  events,
 } from "./mdl.mjs";
 import { sub, dot, cross } from "./vec.mjs";
 import { FRONT } from "./mesh.mjs";
@@ -37,6 +40,19 @@ export const LIMITS = {
     meshes: 256,
     sequences: 2048,
     texture: 512,
+  },
+  // a submodel's corners are 16-bit numbers in this file (Source's own .vvd holds 65536); Source's bones are
+  // MAXSTUDIOBONES, 128; its pictures 4096 a side at the most here, the kit's choice: Half-Life 2's own are 2048 at
+  // the most (scripts/source-budgets.mjs)
+  source: {
+    verts: 32767,
+    bones: 128,
+    textures: 256,
+    bodyparts: 32,
+    models: 32,
+    meshes: 256,
+    sequences: 2048,
+    texture: 4096,
   },
   xash: {
     verts: 16384,
@@ -86,6 +102,7 @@ const CORNER = { vertex: 0, normal: 2, sizeof: 8 };
 const TEXTURES_READ = {
   goldsrc:
     "that is the compiler's limit (studiomdl's MAXSTUDIOSKINS), not one found in an engine: Xash and a dedicated server read as many as the file has, and GoldSrc's own client, whose source is closed, is not known to count them. A model made here never passes through that compiler; try it in the game on Steam's engine before it is relied on",
+  source: "a port writes one material a texture, and Source's compiler takes many more",
   xash: "Xash's studio.h names 256 (MAXSTUDIOSKINS) and nothing in the engine uses it: the textures are loaded as many as the file has, into the renderer's table of every texture of the game (8192; 1024 in the software renderer built for little memory)",
 };
 
@@ -226,6 +243,25 @@ function checkSequences(src, seqs, { errors }) {
       errors.push(`the animation ${s.name} cannot be read to its last frame`);
     }
   }
+}
+
+/**
+ * The events on frames their animation has not. The engine looks an animation's events up by the frames it
+ * passed since it last looked (the SDK's GetAnimationEvent on the server and StudioProcessEvents in the client,
+ * from memory of them): the frames run from 0 to frames - 1, so an event on frame `frames` or after, or under
+ * 0, is never passed and never fires. The model loads, and the sound or the swing's hit is never heard.
+ */
+function checkEvents(src, seqs, { warnings }) {
+  const off = [];
+  seqs.forEach((s, q) => {
+    for (const e of events(src, q))
+      if (e.frame < 0 || e.frame >= Math.max(1, s.frames))
+        off.push(`${s.name}'s event ${e.event} on frame ${e.frame} of ${Math.max(1, s.frames)}`);
+  });
+  if (off.length)
+    warnings.push(
+      `${off.length} events are on frames their animation has not (${some(off)}): the engine fires an event as the animation passes its frame, numbered from 0 to the count less one, so these never fire`,
+    );
 }
 
 /** The angle between two bones' turns (the 3 by 3 of their matrices), in degrees. */
@@ -384,7 +420,7 @@ function inspect(src, engine, info, report) {
   const elsewhere = seqs.filter((s) => s.group);
   if (elsewhere.length)
     warnings.push(
-      `${elsewhere.length} animations are kept in other files (name01.mdl...): they cannot be read or changed here`,
+      `${elsewhere.length} animations are kept in other files (name01.mdl...): they cannot be read or changed here, and the engine finds them by this file's own name, so a copy under a new name needs them copied under it too (barney_olive.mdl takes barney_olive01.mdl...)`,
     );
   if (!info.textures.length && info.bodyparts.some((bp) => bp.models.some((m) => m.meshes.length)))
     warnings.push(
@@ -418,6 +454,7 @@ function inspect(src, engine, info, report) {
       `${count.turned} of ${count.total} triangles look the other way from their normals: right for a sheet seen from both sides (a leaf, a cloth), wrong for a solid, which would be seen from inside`,
     );
   checkSequences(src, seqs, report);
+  checkEvents(src, seqs, report);
   checkLoops(src, seqs, info.bones, report);
   checkParts(src, seqs, info.bones, count.total > 0, report);
   facts.push(
@@ -439,7 +476,7 @@ const cutShort = (src) =>
  * said apart from this file's own; `inherited` counts those warnings.
  */
 export function check(src, engine = "goldsrc", { source, sourceTextures } = {}) {
-  if (!LIMITS[engine]) throw new Error(`engine: goldsrc or xash, not ${engine}`);
+  if (!LIMITS[engine]) throw new Error(`engine: ${Object.keys(LIMITS).join(", ")}, not ${engine}`);
   if (source) return withSource(check(src, engine, { sourceTextures: texturesOf(source) }), check(source, engine));
   const errors = [];
   const warnings = [];

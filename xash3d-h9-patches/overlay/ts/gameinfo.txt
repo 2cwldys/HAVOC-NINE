@@ -25,3 +25,6 @@ max_edicts	4098
 max_tempents	500
 max_beams		128
 max_particles	4096
+// The main menu's buttons drawn as text, in colors.lst's purple, not as FWGS's
+// btns_main.bmp pictures (extras.pk3 carries those)
+render_picbutton_text	1

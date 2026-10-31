@@ -139,7 +139,7 @@ const reachOf = (points, mid) =>
  * takes, so that they are all drawn to one scale.
  */
 export function framing(src, list) {
-  const points = list.flatMap((options) => pointsOf(posed(src, options).tris));
+  const points = list.flatMap((options) => pointsOf(options.tris ?? posed(src, options).tris));
   if (!points.length) return { mid: [0, 0, 0], far: 1 };
   const mid = middleOf(points);
   return { mid, far: reachOf(points, mid) };
@@ -251,6 +251,7 @@ function cutNear(polygon, near) {
  *   ground      true: a line across the picture where z = 0 is, the floor a thing stands on, drawn over the
  *               model so that a foot under it is seen crossed. Only a level orbit view has such a line
  *               (pitch 0: "side", "front"); any other is refused
+ *   near        with perspective: what is nearer the eye than this is cut off (GoldSrc cuts at 4: gl_znear)
  *   width, height, background [r, g, b], light (false: the texture as it is), cull (false: both sides of
  *   every triangle; "solid": both sides of every triangle but a masked one's, whose holes show its far side
  *   on purpose: a net)
@@ -274,7 +275,9 @@ export function render(src, opts = {}) {
     light = true,
     cull = true,
   } = opts;
-  const all = posed(src, opts).tris;
+  // `tris`: triangles of another kind of model, as posed gives them (a Source model's, source/draw.mjs), each
+  // `tex` with its own `rgba`; `src` is then not read
+  const all = opts.tris ?? posed(src, opts).tris;
   const tris = opts.parts ? all.filter((t) => opts.parts.includes(t.where.bodypart)) : all;
 
   // the picture in dots, several to a pixel: each dot's colour, and how far from the camera what it shows is
@@ -291,11 +294,11 @@ export function render(src, opts = {}) {
     return [dot(d, right), dot(d, up), dot(d, forward)];
   };
   const lamp = unit([0, 1, 2].map((a) => -forward[a] * LAMP.back + up[a] * LAMP.up - right[a] * LAMP.left));
-  const near = first || !perspective ? NEAR_FIRST : Math.max(NEAR_LEAST, opts.dist / NEAR_SHARE);
+  const near = opts.near ?? (first || !perspective ? NEAR_FIRST : Math.max(NEAR_LEAST, opts.dist / NEAR_SHARE));
 
   const pictures = new Map();
   const pictureOf = (texture) => {
-    if (!pictures.has(texture)) pictures.set(texture, bytesOf(src, texture));
+    if (!pictures.has(texture)) pictures.set(texture, texture.rgba ? texture : bytesOf(src, texture));
     return pictures.get(texture);
   };
 
@@ -370,17 +373,21 @@ export function render(src, opts = {}) {
             const u = Math.floor((wa * a.u + wb * b.u + wc * c.u) / w);
             const v = Math.floor((wa * a.v + wb * b.v + wc * c.v) / w);
             // the texture repeats past its edges
-            const index =
-              picture.pixels[
-                (((v % tex.height) + tex.height) % tex.height) * tex.width +
-                  (((u % tex.width) + tex.width) % tex.width)
+            const texel =
+              (((v % tex.height) + tex.height) % tex.height) * tex.width + (((u % tex.width) + tex.width) % tex.width);
+            if (picture.rgba) {
+              // a picture of its own colours (a Source model's): a hole is where its alpha is under half
+              if (flags & TEXTURE.masked && picture.rgba[texel * 4 + 3] < 128) continue;
+              rgb = [picture.rgba[texel * 4], picture.rgba[texel * 4 + 1], picture.rgba[texel * 4 + 2]];
+            } else {
+              const index = picture.pixels[texel];
+              if (flags & TEXTURE.masked && index === HOLE_INDEX) continue;
+              rgb = [
+                picture.palette[index * 3],
+                picture.palette[index * 3 + 1],
+                picture.palette[index * 3 + 2],
               ];
-            if (flags & TEXTURE.masked && index === HOLE_INDEX) continue;
-            rgb = [
-              picture.palette[index * 3],
-              picture.palette[index * 3 + 1],
-              picture.palette[index * 3 + 2],
-            ];
+            }
           }
           const lit = (wa * a.l + wb * b.l + wc * c.l) / w;
           if (added) for (let k = 0; k < 3; k++) colour[dotAt * 3 + k] += rgb[k];

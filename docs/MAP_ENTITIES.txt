@@ -212,7 +212,7 @@
   (a) LOCKED STOCK DOORS, breachable by CLASS, no naming needed:
       every entity of a class named in tsm_breach_entities (default:
       func_door, func_door_rotating, func_wall_toggle, func_button) whose
-      "Use Only" spawnflag (32) has it locked for everyone. The Breacher's
+      "Use Only" spawnflag (256) has it locked for everyone. The Breacher's
       use CLEARS that flag, the doorway stays open for the rest of the
       round, and the centre-screen "Breached." callout flashes. An ordinary
       UNLOCKED door under the crosshair gets stock TS behaviour and prints
@@ -238,6 +238,14 @@
       A door named on a list is treated as breachable EVEN IF its lock is
       a master chain, and +USE on it always breaches (and therefore prints
       "Breached."), whatever its spawnflags say.
+
+  (c) NAMED BREACH DOORS, in the map, no list needed:
+
+      a door whose targetname begins with tsm_breach_ (tsm_breach_1,
+      tsm_breach_drive ...) is a breach door on every server, whether or
+      not it runs a map config. Give it a targetname and no Use Only flag:
+      a named door opens for nobody on touch or +USE, and the Breacher's
+      +USE forces it. h9_siege_lift's are named this way.
 
   EVERY BREACH FIRES: the door itself, and everything the door targets in
   the same frame -- so a shell door firing the real mover opens the whole

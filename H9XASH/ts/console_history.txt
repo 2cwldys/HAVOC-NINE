@@ -1,64 +1,18 @@
-tsm_logging
-tsm_fogtest
-exec thirdshoulder
-cam_back 60
-cam_back
-cam_back 128
+mp3 on
+mp3 help
+mp3 loop sound/music/equilibrium.mp3
+MP3Volume 
+hpk_max_size
+quit
+mp3 loop sound/music/equilibrium.mp3
+exec userconfig.cfg
+cl_camtype
+amx_match_restart
+amx_match_cancel
+amx_match_restart
+tsm_opendoor
+amx_tsm_forcedoor 1
+tsm_opendoor
+quit
 default_fov 120
-amx_match_restart
-exec camfix
 quit
-map h9_te_neuropolis
-map h9_tsrp_hive
-quit
-noclip
-sv_cheats
-sv_cheats 1
-noclip
-quit
-h9_autoconfig 
-tsm_no_weapons 1
-tsm_no_weapons 0
-noclip
-sv_cheats 1
-noclip
-tsm_loc
-noclip
-tsm_loc
-noclip
-tsm_loc
-tsm_no_weapons
-noclip
-tsm_loc
-noclip
-tsm_loc
-noclip
-tsm_loc
-noclip
-tsm_loc
-noclip
-tsm_loc
-noclip
-tsm_loc
-tsm-loc
-tsm_loc
-quit
-sv_cheats 1
-noclip
-tsm_loc
-noclip
-kill
-restart
-quit
-noclip
-quit
-amx_match_restart
-map h9_ws_drainage
-default_fov 120
-mp3volume
-mp3volume 1
-mp3volume 0.08
-mp3volume 0.060
-quit
-amx_match_restart
-map h9_up_drainage

@@ -46,6 +46,7 @@ about the first kind:
 | 3 | `engine-mainui.patch` | `3rdparty/mainui` | webassembly patch, mainui part |
 | 4 | `freevgui.patch` | `3rdparty/freevgui` | upstream freevgui |
 | 5 | `freevgui-h9-scheme.patch` | `3rdparty/freevgui` | H9's VGUI color scheme |
+| 5a | `freevgui-h9-fonts.patch` | `3rdparty/freevgui` (`platform/win32/font.cpp`) | the game's own fonts: `<game>\resource\fonts\*.ttf/.otf` registered privately, `fonts.txt` there mapping requested faces onto them (docs/CUSTOM_FONT.txt) |
 | 6 | `engine-h9-cloak.patch` | `cl_frame.c`, `cl_main.c`, `cl_view.c`, `client.h` | server-side cloak shown on your own model |
 | 7 | `engine-h9-cmdbuf.patch` | `cmd.c` | command buffer holding H9's configs |
 | 8 | `engine-h9-chatmouse.patch` | `input.c` | mouse-look stays on while typing in chat |
@@ -58,8 +59,12 @@ about the first kind:
 | 15 | `engine-h9-userid.patch` | `cl_main.c`, `client.h`, `identification.c` | `cl_h9_userid`: a plain, regenerable client id, salted per destination server via `ID_GetMD5ForAddressEx`, sent as userinfo key `h9_clientid`. **Applies after #12/#13** -- its `CL_InitLocal` registration hunk and connect-packet hunk are numbered against the file state *after* spraypicker+spraycmd. See `docs\CUSTOM_XASH_USERID.txt` |
 | 16 | `engine-h9-presence.patch` | `cl_main.c`, `client.h`, `host.c`, `game_launch\game.rc`, `cl_presence.c` (new), `game_launch\havoc9.ico` (new, binary) | Discord Rich Presence: `CL_Presence_Init/Frame/Shutdown/ServerReply`, the exe icon swap to `havoc9.ico`. **Applies after #15** -- its `CL_InitLocal` registration hunk is numbered against the file state *after* userid's own registration line exists. See `docs\RICH_PRESENCE.txt` |
 | 17 | `mainui-h9-sprayui.patch` | `3rdparty\mainui\menus\PlayerSetup.cpp` | Customize screen's logo picker: `Reload()` now chains up so it resyncs with console-side `spray`/`spray off`; `WriteNewLogo()` saves a colored pick back to the shelf file itself (`logos\<name>.<ext>`) instead of a now-unread `remapped.*`; a synthetic `none` row lets a player keep a hand-dropped `tempdecal.wad` as-is, visible and selectable instead of only an incidental, non-durable display fallback. Independent of `mainui-h9-gamestartup.patch` -- different function, no ordering dependency between the two |
+| 17a | `mainui-h9-hover.patch` | `3rdparty/mainui/BaseMenu.cpp` | a hover sound: `uiSounds[SND_MOVE]` names `media/launch_move1.wav` |
 | 18 | `engine-h9-autoconfig.patch` | `sv_main.c` (`SV_Init`), `sv_init.c` (`SV_ActivateServer`) | `h9_autoconfig` (default on): a second, independent per-map cfg lookup in its own `mapconfigs/<mapname>.cfg` folder, separate from the existing mapper-facing `maps/<mapname>_load.cfg` convention. The exec is queued right after `pfnServerActivate`, so the cfg runs after Metamod/AMXX plugins register their cvars and run their own configs, and overrides them. Server-host-facing, same audience as `engine-h9-userid.patch`. Independent of every other patch in this list -- no ordering dependency |
 | 19 | `engine-h9-deltabits.patch` | `net_encode.c` (`Delta_ParseField`, new `Delta_H9WidenIndexField`) | widens `delta.lst`'s model-index fields (`viewmodel`, `modelindex`, `weaponmodel`) to `MAX_MODEL_BITS` and entity-index fields (`aiment`, `event_t.entindex`, `entity_state_t.skin`) to `MAX_ENTITY_BITS` (+1 when signed), `owner` to `MAX_CLIENT_BITS + 1`, when the local `delta.lst` is parsed. The server sends its tables to clients, so clients follow. Never touches `Delta_ParseTableField`: a client must use exactly the widths the server sends. Independent of every other patch -- no ordering dependency |
+| 20 | `engine-h9-concolor.patch` | `dll_int/cl_game.c` | `pfnDrawConsoleString`: a string with no colour set is drawn in con_color (GoldSrc's way), so every chat line is, not white |
+| 21 | `engine-h9-consolemusic.patch` | `sound/s_stream.c` | the main menu's music plays on while the console is open over the menu |
+| 22 | `engine-h9-chatinput.patch` | `dll_int/cl_game.c`, `console.c` | the say: line under the chat lines, not at the top left |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -303,3 +308,115 @@ Only the `cl_presence.c` new-file section changed (498 -> 591 lines, blob
 reverse check in place against the live tree; round trip (`git apply
 --reverse`, `cl_presence.c` gone, `git apply --check`, `git apply`) with every
 file byte-identical afterwards. No other patch touches `cl_presence.c`.
+
+### 2026-10-31 -- freevgui-h9-fonts.patch (new)
+
+VGUI1 text (the chat, menus, scoreboard, MOTD) took its fonts from Windows by
+name, so only an installed font could be used. `FontPlat_Win32::init` in
+`platform/win32/font.cpp` now, once per process: registers every `.ttf`/`.otf`
+in `<exe dir>\<game>\resource\fonts` and `valve\resource\fonts` with
+`AddFontResourceExA(FR_PRIVATE)` (the game is taken from `-game` on the command
+line, `valve` without one); reads `fonts.txt` there (the game's, else valve's),
+whose `font <asked> = <face> [size <percent>] [weight <n>]` lines map a requested
+face onto another; and creates the GDI font in the mapped face, height and
+weight. The font keeps the name and size it was asked for, which is what
+freevgui's font cache matches on. Lines not starting with `font` (the console
+line, comments) are ignored. See docs/CUSTOM_FONT.txt.
+
+Made against freevgui HEAD c83f47f (freevgui.patch and freevgui-h9-scheme.patch
+already committed there); the only file touched is `platform/win32/font.cpp`,
+which neither earlier patch changes. Registered in `xash.bat` after the scheme
+patch, in its ENGINE.txt list and the `vgui.dll` description. Verified: reverse
+check in place against the live tree; round trip (`git apply --reverse`, file back
+at HEAD, `git apply --check`, `git apply`, byte-identical, in place again); `xash.bat
+engine` lists it in place and builds vgui.dll with font.cpp clean under werror.
+
+### 2026-10-31 -- engine-h9-concolor.patch (new)
+
+TS's chat sets a text colour once and then draws each of its lines with
+`DrawConsoleString`. FWGS's `pfnDrawConsoleString` used the set colour for one
+string and reset it to white, so only the first chat line came out in the set
+colour and the rest white. GoldSrc draws a console string with no colour set in
+the player's con_color. Now `pfnDrawConsoleString` uses the colour set by
+`pfnDrawSetTextColor` for the next string only, and draws a string with none set
+(alpha 0: never set, or used by the string before) in `g_color_table[7]`, the
+console's colour from con_color.
+
+Made with `git diff` against xash3d-fwgs HEAD 17c23c81; `cl_game.c` had no
+uncommitted change from another patch (sprguard's part of it is committed).
+Registered last in `xash.bat`, after deltabits, and in its ENGINE.txt list and
+the `xash.dll` description. Verified: reverse check in place against the live
+tree; round trip (`git apply --reverse`, `cl_game.c` back at HEAD, `git apply
+--check`, `git apply`, byte-identical, in place again); `xash.bat engine` lists
+it in place and builds xash.dll with `cl_game.c` clean.
+
+### 2026-10-31 -- engine-h9-consolemusic.patch (new)
+
+`S_StreamBackgroundTrack` stopped feeding the background track whenever the
+console was open: a track started from the menu (the main menu's `mp3 loop`) is
+paused when `key_dest` is anything but `key_menu`, and the console is
+`key_console`; on a background map the console paused it outright. Opening the
+console over the main menu froze the music until it closed. Now a menu track
+plays while `key_dest` is `key_menu` or `key_console`, and the background-map
+branch no longer pauses for the console; a track started in a game still pauses
+in the menu as before.
+
+Made with `git diff` against xash3d-fwgs HEAD 17c23c81; no other patch touches
+`s_stream.c`. Registered last in `xash.bat`, after concolor, and in its
+ENGINE.txt list and the `xash.dll` description. Verified: reverse check in place
+against the live tree; round trip (`git apply --reverse`, `s_stream.c` back at
+HEAD, `git apply`, byte-identical, in place again); `xash.bat engine` lists it
+in place and builds xash.dll with `s_stream.c` clean.
+
+### 2026-10-31 -- engine-h9-chatinput.patch (new)
+
+The line typed into with `messagemode` / `messagemode2` (say:, say_team:) was
+drawn by `Con_DrawNotify` at the top left of the screen, below the notify lines,
+unless the client exports Xash's `pfnChatInputPosition`, which no GoldSrc client
+does, TS's included; TS's chat lines are at the bottom left. Now the client's
+DrawConsoleString is `pfnDrawConsoleStringNoted`, a wrapper beside the
+`gEngfuncs` table that notes, per frame (`host.framecount`), the left edge and
+bottom of the strings drawn in the lower-left area (x under a third of the width,
+y below half the height: the chat) and then calls `pfnDrawConsoleString`;
+`CL_ChatLinesPosition` hands the position over. `Con_ChatInputPosition`, used
+by both `Con_DrawNotify` (the line) and the input rect for on-screen keyboards,
+lets the client's `HUD_ChatInputPosition` move it first; when that leaves it
+where it was, the line goes under the chat lines, or with none on screen where
+the HL SDK's chat area ends (x 10, one line above the 60-pixel HUD margin).
+"Leaves it where it was" matters: reTS's client.dll exports the HL SDK's own
+`HUD_ChatInputPosition`, which moves the line only while spectating, so a rule
+of "only for clients without the export" (the first version) never applied
+under H9XASH. The HUD is drawn before the console overlay in `V_PostRender`, so
+the position is from the same frame.
+
+A wrapper rather than lines in `pfnDrawConsoleString`, because that function is
+engine-h9-concolor.patch's hunk: a second patch inside it would make concolor
+fail `xash.bat`'s reverse check (the first try did exactly that and stopped the
+build at concolor). Made from snapshots of the two files as the tree had them
+(cl_game.c carrying concolor uncommitted). `CL_ChatLinesPosition` is declared in
+`console.c` rather than `client.h`, which other patches change. Registered after
+consolemusic, last in `xash.bat`, and in its ENGINE.txt list and the `xash.dll`
+description. Verified: concolor, consolemusic and chatinput all reverse-check in
+place together against the live tree; round trip (`git apply --reverse`, both
+files back to their snapshots, `git apply`, byte-identical); `xash.bat engine`
+lists every patch in place and builds xash.dll with both files clean.
+
+### 2026-10-31 -- mainui-h9-hover.patch (new)
+
+The menu plays `uiStatic.sounds[SND_MOVE]` when the pointer moves onto another
+item (`CMenuItemsHolder::MouseMove`) and when the arrow keys move the cursor
+(`CMenuItemsHolder::Key`), but FWGS's `uiSounds[]` leaves that slot empty, so the
+menu had no hover sound. The patch names `media/launch_move1.wav` for it; as for
+the other menu sounds, a missing `media/` file is looked for under
+`sound/common/`, where valve_replacements' `tools/make_menu_sounds.mjs` writes it.
+`SND_ROLLOVER` stays empty: nothing in mainui plays it.
+
+Made from a snapshot of `BaseMenu.cpp` as the tree had it (an uncommitted hunk at
+its lines 36-43 from another patch, well away from `uiSounds[]`); LF line
+endings, as the index stores the file and the other mainui patches are.
+Registered in `xash.bat` after mainui-h9-sprayui, in its ENGINE.txt list and the
+`menu.dll` description. Verified: it and engine-mainui, mainui-h9-gamestartup and
+mainui-h9-sprayui all reverse-check in place together against the live tree;
+round trip (`git apply --reverse`, `BaseMenu.cpp` back to its snapshot, `git
+apply`, byte-identical); `xash.bat engine` lists it in place and builds menu.dll
+with `BaseMenu.cpp` clean.

@@ -1,0 +1,222 @@
+===============================================================================
+ H9XASH CUSTOM FONTS: HOW THE MODULAR FONT SYSTEM WORKS, AND HOW TO CHANGE IT
+===============================================================================
+
+ Every font H9XASH draws text in is chosen in one file:
+
+     ts\resource\fonts\fonts.txt
+
+ The font files sit beside it, in the same folder. To change a font:
+
+     1. put the .ttf or .otf file in ts\resource\fonts\
+     2. edit the matching line of fonts.txt
+     3. restart the game (and, for the console font, run the build step in 5)
+
+ Nothing is installed on Windows. The game loads that folder's fonts for itself
+ alone, so a font there works on any PC that runs H9XASH, and is gone again when
+ the game closes.
+
+ The source of that folder is TSM\xash3d-h9-patches\overlay\ts\resource\fonts\.
+ xash.bat copies the overlay into H9XASH, and export.bat carries H9XASH into the
+ git mirror: edit the overlay's copy for a change that ships, and H9XASH's own
+ copy to try something on one machine.
+
+===============================================================================
+ PART 1   THE TWO KINDS OF TEXT
+===============================================================================
+
+ H9XASH draws text two ways, and fonts.txt has a line for each.
+
+   VGUI1 text      the in-game menus, the scoreboard, the MOTD, the class and
+                   map descriptions. Drawn by freevgui (H9XASH's open VGUI1, in
+                   vgui.dll) with a TrueType font it asks for by name. Chosen by
+                   the "font" lines. Takes effect at the next start.
+
+   console text    the console, the chat, and the other text the engine draws
+                   on the HUD for the game. A bitmap font: ts\font0_cp1252.fnt,
+                   font1 and font2, one per screen size. Drawn from a TrueType
+                   font by tools\make_con_fonts.py. Chosen by the "console" line,
+                   built by the build step in PART 5.
+
+ The main menu is neither: it draws its own text, from extras.pk3's fonts, and
+ fonts.txt does not change it.
+
+===============================================================================
+ PART 2   fonts.txt, LINE BY LINE
+===============================================================================
+
+ // starts a comment, to the end of the line. Blank lines are ignored. Lines in
+ any other form are ignored too, so a typo does nothing rather than break the
+ game.
+
+ 2.1  font LINES (VGUI1 text)
+
+     font <face the game asks for> = <face to draw instead> [size <percent>] [weight <100-900>]
+
+ TS asks for its fonts by name: every *_textscheme.txt in ts\ names "Arial", and
+ freevgui's own defaults name Arial and FixedSys. A font line answers every
+ request for that name with another face:
+
+     font Arial = Square721 BT weight 700
+
+ Each part:
+
+   the asked face   the name the game asks for, as the textschemes write it
+                    (Arial, FixedSys). Not case-sensitive.
+   the drawn face   the family name the font is known by, which is NOT its file
+                    name. fonts.txt lists the families of the fonts that ship;
+                    PART 4 says how to read one from a new font.
+   size <percent>   scales the height the game asked for. 100 leaves it, 90
+                    makes it a tenth smaller. A wide font such as Square 721 may
+                    need 90 or so to keep long labels inside their buttons.
+   weight <n>       replaces the weight the game asked for: 400 regular, 700
+                    bold. Within one family, this picks which of its files is
+                    used (Square721 BT: SQR721N at 400, SQR721B at 700).
+
+ size and weight may be left out, in either order. A name with no font line
+ keeps the face it asked for. Up to 32 font lines are read.
+
+ 2.2  THE console LINE (console text)
+
+     console <file in this folder> [rows <font0>,<font1>,<font2>]
+
+     console SQR721B.TTF rows 15,18,22
+
+ The file is the font's file name in ts\resource\fonts. The three rows are the
+ heights in pixels of font0, font1 and font2. The console uses font0 on screens
+ up to 640 wide, font1 up to 1279, and font2 from 1280 (con_fontnum 0, 1 or 2
+ picks one by hand). Text the engine draws on the HUD uses the one con_fontsize
+ names (1 in the stock config: font1). The rows must fit a 256 x 256 sheet: past about 22 px a wide font
+ stops fitting, and make_con_fonts.py says so.
+
+===============================================================================
+ PART 3   EXAMPLES
+===============================================================================
+
+ Lighter menus and scoreboard (the regular cut instead of bold):
+
+     font Arial = Square721 BT
+
+ Narrower menus and scoreboard, so long labels fit their buttons:
+
+     font Arial = Square721 Cn BT weight 700
+
+ A lighter chat and console, in the regular cut:
+
+     console SQR721N.TTF rows 15,18,22
+
+ A narrower chat, so more of a line fits:
+
+     console SQR721BC.TTF rows 15,18,22
+
+ Back to Windows' own Arial everywhere: comment the font line out.
+
+     // font Arial = Square721 BT weight 700
+
+ A new font altogether: copy MyFont-Bold.ttf into ts\resource\fonts and
+
+     font Arial = My Font weight 700
+     console MyFont-Bold.ttf
+
+===============================================================================
+ PART 4   ADDING A NEW FONT
+===============================================================================
+
+ Any TrueType (.ttf) or OpenType (.otf) font works for VGUI1 text; the console
+ needs a .ttf or .otf that Python's Pillow can read, which is the same set.
+
+ Its family name: open the file in Windows (double-click it); the "Font name"
+ at the top is the family, e.g. "Square721 BT". Bold and italic files of one
+ family share that name, and weight picks between them.
+
+ Licences: a font in ts\resource\fonts travels with every H9XASH install and
+ the git mirror. Check that its licence allows that before shipping it. Fonts
+ under the SIL Open Font License (most of Google Fonts) do.
+
+===============================================================================
+ PART 5   BUILDING THE CONSOLE FONT
+===============================================================================
+
+ The console .fnt files are made from the console line, not read at run time.
+ xash.bat rebuilds them on every assemble and assets run (its :confonts step),
+ and export.bat runs assets, so an export picks up a changed console line by
+ itself. To try a change at once:
+
+     py -3 tools\make_con_fonts.py deploy
+
+ writes the three fonts into the overlay and copies them into H9XASH\ts. To try
+ a font without editing fonts.txt, and look at it first:
+
+     py -3 tools\make_con_fonts.py some.ttf --preview look.png
+
+ It needs Python 3 with Pillow (py -3 -m pip install pillow). Without them,
+ xash.bat warns and keeps the fonts already in the overlay.
+
+ Each glyph is drawn as a light core inside a dark one-pixel outline, so the
+ engine's text colour tints it and it reads over any background.
+
+===============================================================================
+ PART 6   THE SETTINGS AROUND IT
+===============================================================================
+
+ ts\userconfig.cfg (run at every start) holds four console settings:
+
+   con_oldfont "0"        load font0/1/2_cp1252.fnt. With 1, the engine uses the
+                          CONCHARS picture in valve\gfx.wad instead, and the
+                          console line does nothing.
+   con_fontscale "1.0"    draw the fonts at their own size. The engine stretches
+                          a font pixel by pixel, so any other scale makes letters
+                          uneven; change the rows instead.
+   con_color "..."        the console text's colour (the purple, 190 140 255).
+   con_charset "cp1252"   the codepage, and the end of the font files' names:
+                          font1_cp1252.fnt. FWGS's own default is cp1251
+                          (Cyrillic); make_con_fonts.py writes a set for both,
+                          leaving out characters the font has no glyph for.
+
+ The colour of VGUI1 text comes from the textschemes (FgColor) and the game,
+ not from fonts.txt.
+
+===============================================================================
+ PART 7   HOW IT WORKS, AND WHERE
+===============================================================================
+
+   freevgui-h9-fonts.patch    (xash3d-h9-patches\patches, built into vgui.dll)
+       Once, when the first VGUI1 font is made: registers every .ttf and .otf in
+       <game>\resource\fonts and valve\resource\fonts for the game alone
+       (Windows' AddFontResourceEx, private); reads fonts.txt (the game's, or
+       valve's when the game has none); and from then on creates each font the
+       game asks for in the face, height and weight its font line gives. The
+       game is the one HAVOC 9.exe was started with (-game ts, as h9xash.bat
+       does); without -game it is valve.
+   tools\make_con_fonts.py    draws the console fonts from the console line.
+   xash.bat :confonts         runs make_con_fonts.py on every assemble and
+                              assets run.
+
+===============================================================================
+ PART 8   WHEN SOMETHING'S WRONG
+===============================================================================
+
+ The menus or scoreboard are still in Arial:
+     - the font line's drawn face is not the font's family name (PART 4); a
+       face Windows cannot find falls back to a default font;
+     - the font file is not in the game's resource\fonts folder;
+     - the game was not restarted after the edit;
+     - vgui.dll is older than freevgui-h9-fonts.patch: rebuild with
+       xash.bat engine.
+
+ The console or the chat has not changed:
+     - con_charset names a codepage there are no .fnt files for (the files are
+       font<N>_<con_charset>.fnt): it should be cp1252;
+     - the .fnt files were not rebuilt: run py -3 tools\make_con_fonts.py deploy;
+     - con_oldfont is 1 in the config, or userconfig.cfg's line was removed.
+
+ Long labels run out of their buttons: give the font line a size below 100, or
+ pick a narrower family (Square721 Cn BT).
+
+===============================================================================
+ PART 9   THE FONTS THAT SHIP
+===============================================================================
+
+ Square 721 (Bitstream), the System Shock 2 interface font, in all twelve of
+ its cuts. It is Bitstream's commercial typeface, shipped by H9's choice; to
+ ship without it, replace the files and the lines in fonts.txt.

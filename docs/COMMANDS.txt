@@ -1,6 +1,6 @@
 ===============================================================================
  TS MATCH MODE -- COMMAND REFERENCE
- Plugins: ts_matchmode.amxx 1.54-turret8   ts_uplink.amxx 1.0-modes2
+ Plugins: ts_matchmode.amxx 1.54-lift2   ts_uplink.amxx 1.0-modes2
           ts_survival.amxx 1.0-modes2   ts_mechwarrior.amxx 1.0-modes2
 ===============================================================================
 
@@ -1299,11 +1299,12 @@
  -- the sentry turret (.turret, Combat Engineer)
  tsm_turret                1          turrets on
  tsm_turret_per_team       2          standing at once per side
- tsm_turret_hp             250        its health
+ tsm_turret_hp             400        its health
+ tsm_turret_resist         0.5        share of each hit its armour turns aside
  tsm_turret_range          1000       how far it sees and shoots
- tsm_turret_damage         48         damage a round
+ tsm_turret_damage         72         damage a round
  tsm_turret_rate           8.0        rounds a second
- tsm_turret_spread         2.0        spread, degrees
+ tsm_turret_spread         1.5        spread, degrees
  tsm_turret_repair         100        health one +USE repair puts back
  tsm_turret_repair_cooldown 30        seconds between repairs of one turret
  tsm_eng_door_class        Combat Engineer      the class tsm_eng_door doors

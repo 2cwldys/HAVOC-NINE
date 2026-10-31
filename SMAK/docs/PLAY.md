@@ -5,10 +5,96 @@ says, does a list of steps, and writes down what happened: pictures, a sheet of 
 game said, with its time**. A step can wait for a line and a run can be held to lines, so a test passes or
 fails by text and nobody has to read its pictures.
 
-It needs two things that are not part of this kit: a browser build of the engine served at an address, and
+Or it plays the person's own game from Steam, by its console (`smak play native`, below), with nothing more
+than Node. The browser build needs two things that are not part of this kit: the build served at an address, and
 Playwright (`npm install playwright` in a folder of your own; name the folder with `--playwright` or
 `PLAYWRIGHT_DIR`). The library is `src/play.mjs` (`import { play } from "smak"`); `docs/API.md` has its
 functions.
+
+In short, for the usual tests:
+
+- To test a fight, write `{ "fight": { "heal": 0.5, "post": [...] }, "until": "<the line that ends it>" }`,
+  not a loop outside: the summary line is the measure of difficulty.
+- A held mouse button charges in Master Sword: use `tap`.
+- A fight strikes the nearest unless told: `prefer: "lantern"` goes for the healer first, `chase` walks
+  round a crowd to it (sidesteps), `dodge` steps out of a place a line warns of (a test copy's line: the
+  real game shows a sprite). Their counts are in the fight's line ("A fight", below).
+- A session (`--serve`) keeps a fight of any length; `--over msc=<folder>` puts a model rebuilt since the
+  game started.
+- To film it, run with `--show --gpu` (a window on the graphics card: software draws a town at a few frames a
+  second) and put `{ "record": "name" }` ... `{ "record": false }` round the steps to film; `face` and `look`
+  with `ms` pan the view. Each clip is written `NN_name.mp4` beside the pictures (needs ffmpeg).
+- A run ends in one line, `PASS: ...` or `FAIL: ...`, and says which picture to look at, or that none is
+  needed (`docs/COMMANDS.md`, "Answers in text first").
+
+## The Steam game itself: `smak play native`
+
+```
+smak play native --map h9_te_neuropolis --mod ts --steps steps.json -o work/run1 --expect-not "Couldn't load"
+```
+
+The same run in the game Steam installed, GoldSrc's own engine, with nothing but Node: no browser, no
+Playwright, and no key pressed unless asked for (`--input`, below). The game is started as `hl.exe -game <folder> -insecure
+-windowed -condebug +exec smak_run.cfg` and driven by its console alone (src/play-native.mjs, which says how):
+a command is put in a `.cfg` the game reads every few frames, and answered in a tenth of a second; what the
+game says is read from `qconsole.log`; a picture is its own `screenshot`. A run is in the map 2 seconds after
+the start and over in 4 to 9 (Neuropolis in TS, 2026-10-24).
+
+- The Half-Life folder is found in Steam's libraries (or `--half-life <folder>`, `SMAK_HALF_LIFE`); the game's
+  folder is the profile's (`ts`, `msc`), or `--game-folder`, or `valve`. Steam is running (without it was not
+  tried); one game at a time.
+- `-insecure` keeps it off VAC, and a run never joins a server: `connect` and `retry` are refused.
+- It has no view: a walk (`+forward`), a turn by time, `command`, `say`, `until`, `expect` and `shot` work;
+  `look`, `face`, `where`, `goto` with a check and a fight's aim do not, and say so. `--put`, `--over`,
+  `--serve` and `record` are the browser's.
+- **Keys and the mouse** (`hold`, `press`, `click`, `mouse`, `tap`, `mouseDown`) only with `--input`, and
+  only once the person has said yes: they are real keys and buttons (Windows' `SendInput`, by scan code, so
+  the person's own binds apply), and they take the keyboard and mouse while the run lasts. They are sent only
+  while the game's window is in front, never brought there; the first waits until the keyboard and mouse have
+  been left alone `--quiet` milliseconds (5000), for up to a minute; the person touching either after that
+  stops the run, and whatever was held is let go. Only the windows of the process the run started are
+  reached, by its id. Keys are Playwright's names (`"w"`, `"Enter"`, `"Space"`, `"ArrowUp"`); `click` is in
+  the window's pixels.
+- **Pictures of the window** (`--window-pictures`): each `shot` is the game's window as the person sees it
+  (PrintWindow, which draws a window of the graphics card), in place of the game's own `screenshot`. When the
+  game does not answer, the sentence says what its windows show, a box's words first ("Fatal Error ...").
+- Its log is the mod's own words, including what it could not load: a missing sound, sky or model is a line
+  (`Warning:  Unable to open ...`, `R_LoadSkys: Couldn't load ...`), so `--expect-not` holds a map to having
+  every file it names.
+- The person's settings are theirs: the game saves its binds and settings into the mod's `config.cfg` as it
+  quits, so the run keeps the file as it was and puts it back (a step's `bind` does not stay).
+- In The Specialists the player begins as a spectator with the buy menu open. `slot7` takes its Random and
+  closes it; "Press Fire To Play!" then wants the key bound to `+attack`, which TS's client reads itself, and
+  `+attack` from the console does not let him in (measured 2026-10-24). With `--input`, `{ "tap": "left" }`
+  is that key, when the person has MOUSE1 bound to `+attack`: the first click takes the prompt away and a second
+  puts the player in (`{ "tap": "left", "times": 2, "every": 2000 }`; measured 2026-10-25, `h9_te_neuropolis`,
+  the second by the person; real W and D moved the free-look camera before it). Without `--input` a TS run looks round its map as a spectator and is held to
+  what the game says (a missing file, a script's line), not walked.
+- Real keys are the person's binds: a key they have not bound does nothing, and says nothing. TS's
+  `config.cfg` on this machine was found with `unbindall` and three binds left (2026-10-24; not by a run), and
+  every key step did nothing until the person bound them again. When a key seems to do nothing, read the
+  mod's `config.cfg` first.
+- Two starts of `ts_lobbyduel` in seven ended by themselves as the player connected (code 0, no line): the run
+  stops and says the game ended; run it again.
+
+## A demo, read: `play.readDemo`
+
+```js
+const demo = smak.play.readDemo(readFileSync("Half-Life/ts/walk.dem"));
+demo.frames[0]; // { time, frametime, origin, velocity, onGround, waterLevel, viewHeight, viewAngles, cmd, movevars }
+```
+
+A GoldSrc demo (the console's `record <name>`, ended by `stop`) keeps, with every network message, the view the
+client drew that frame with: the player where the client predicted them (`origin`, `velocity`, `onGround`, the eye's
+`viewHeight`), the command it sent (`cmd`: `msec`, `forward`, `side`, `up`, `buttons`, `viewAngles`) and the
+server's movement settings (`movevars`: gravity, maxspeed, friction, accelerate...). `commands` are the console
+commands it kept. So a demo of a run is the player's own movement frame by frame, as exact as the game had it,
+whether the run was played by the person or by `smak play native` (whose console moves need no `--input`). A
+spectator's `viewHeight` is 0. The layout is Xash3D's cl_demo.c's (demo protocol 5).
+
+In The Specialists a run of `smak play native` did not get the player in (2026-10-28): the buy menu, a VGUI menu,
+stays open over `slot7`, takes real clicks, and the server let no `respawn` from the console through, with an empty
+loadout either. The walk was played by the person and recorded.
 
 ## The commands
 
@@ -53,7 +139,14 @@ run in a session after 6, where the fixed waits of 0.11 took 79.
 - `--port <n>` (with `--serve`): several sessions side by side, each with its own engine and port, for
   several agents testing at once.
 - `--expect <pattern>`, `--expect-not <pattern>`: lines the whole run is held to.
-- `--no-sheet`, `--show` (the browser's window seen), `--loads <ms>`, `--width`, `--height`.
+- `--no-sheet`, `--show` (the browser's window seen), `--gpu` (with `--show`: WebGL on the graphics card, smooth
+  enough to film; the pictures then depend on the card), `--loads <ms>`, `--width`, `--height`.
+- `--full-pictures`: the pictures at the page's size. Unless told, each is written a third of it each way
+  (341 by 256 for a page of 1024 by 768), which tells where the player stands and what he sees; the clicks
+  and the page keep their size, and `sheet.png` its own. In a script, a run's `shrink` (1 unless told).
+- `--verbose`: each step printed as it is done, and every picture and section line after the run, as before
+  0.27. Unless told, a run that passes prints four lines: where its steps and the game's lines were written,
+  its fight's line (or the run's), which picture to look at, if any, and `PASS: ...`.
 
 **A long run** (a fight of ten minutes) is answered as it goes: the session sends its answer's headers at
 once, a line for each thing done, and a beat (`{ "beat": seconds }`) every 30 seconds in which the run says
@@ -62,7 +155,8 @@ nothing; `--attach` reads the answer with Node's own `http` and no time limit. B
 process with `FAILED: terminated` while it went on in the game.
 
 What a run leaves in its folder: `NN_name.png` for each picture, `sheet.png` (all of them in one, each under
-its name), `log.txt` and `log.jsonl` (what was heard), `result.json` (the steps with their times, the
+its name), `log.txt` and `log.jsonl` (what was heard), `told.txt` (what the command printed before 0.27:
+each step done with its times, the pictures, the fights and sections, ending in PASS or FAIL), `result.json` (the steps with their times, the
 expectations, `passed`, and the `failure` when it stopped), and `summary.json` (below, **A run in
 sections**).
 
@@ -87,6 +181,8 @@ A JSON list. Each step is an object with at most one thing to do:
 | `{ "hold": "w", "ms": 2000 }`, `{ "press": "Enter" }`, `{ "click": [512, 330] }` | a key held, a key pressed, a click on the page |
 | `{ "goto": [512, 96, 36] }` | the player put at that place (the middle of his box: the floor and 36), by the profile's command, the profile's `lift` over it (Master Sword: 4, so that he drops onto a path brush two units high instead of being set into it); then read back, and the run stops if he is not there |
 | `{ "census": 6000 }` | the living monsters within that radius (`true`: 6000) counted as the profile's `play.census` asks, and printed as a table in the log, of the kind `census`: `census (step 3): 2 within 6000, 1 an enemy`, then a line each: name, health, place, and whose enemy |
+| `{ "face": 270, "ms": 4000 }` | (with `look` too) the view eased there over that time, the shorter way round: a camera's pan, for a clip |
+| `{ "record": "plaza" }` | the page filmed from here as a clip of that name until the next `record` or the run's end, written as `NN_plaza.mp4` (H.264, 30 a second, through ffmpeg) numbered with the pictures; `{ "record": false }` ends it. The browser's driver films what the page draws (its screencast): in a window on the graphics card (`--show --gpu`) a map is drawn smoothly, in software at a few frames a second |
 | `{ "where": "gate" }` | a line in the log: `where gate: origin 512 96 36, yaw 90, pitch -30` |
 | `{ "map": "road" }` | another map loaded and entered, in the same run |
 | `{ "travel": true }` | through the way to another map the player stands in: the profile's `play.travel` commands (Master Sword: `accept`), its line of the next map's server (`Spawn Server: <map>`), the map's `loaded` line and the profile's `enter` steps. `"travel": "barrowroad"` stops the run if the way led elsewhere; `within` is the longest each wait is (the profile's `loads`) |
@@ -214,7 +310,7 @@ smak play http://127.0.0.1:8098 --attach --stay --steps fullrun.json --from tomb
 A step with `"onFail": "continue"` (or in a section whose step says so) does not stop the run when it fails: a
 mere expectation ("the gate grinds open in 15 seconds") is held to and the run goes on to the next section.
 Its failure is an expectation (`FAIL  step {...} (step 26): play: the game never said ...`) and the run ends
-`FAILED`.
+`FAIL` (before 0.27, `FAILED`).
 
 **A way to another map.** `{ "travel": true }` does what the player does at a way out: the game asks
 "Press (enter) to continue", the profile's command answers (`accept`), the next map's server starts, its files
@@ -318,8 +414,9 @@ it counts as on him (Master Sword's helper: within 128), when the profile reads 
 profile's `died` line; the fight then waits for the player's health to come back (he has risen) with its
 blows going on (a game may want a button to rise), and puts him at `post`.
 
-An expectation that does not hold does not stop the run: every one is looked at, and the run ends `FAILED`
-with each on a line (`PASS  expect /.../ (step 10): the line that decided`). A line an `until` waited for in
+An expectation that does not hold does not stop the run: every one is looked at, and the run ends `FAIL` (`FAILED`
+before 0.27) with the ones that failed on a line each above it (`FAIL  expect /.../ (step 10): no such line was
+heard`), and every one in `told.txt` (`PASS  expect /.../ (step 10): the line that decided`). A line an `until` waited for in
 vain does stop it: the steps after it would be done in a game that is not where they think.
 
 ## What is heard

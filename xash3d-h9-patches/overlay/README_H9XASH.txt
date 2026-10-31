@@ -26,17 +26,13 @@
  a token in this copy only if that is what you want; it is never overwritten, and
  it is git-ignored.
 
- YOU NEED YOUR OWN HALF-LIFE
- ---------------------------
- valve\ is Valve's Half-Life content and is NOT in this folder or the repo; only
- valve\extras.pk3 is (it is Xash's own file). On the first launch h9xash.bat finds
- a Steam Half-Life by itself and copies its valve folder in (about 450 MB, once).
- Without Steam, copy it by hand, next to HAVOC 9.exe:
-
-     <your Half-Life install>\valve   ->   H9XASH\valve
-
- Keep the extras.pk3 that is already here. Starting HAVOC 9.exe directly, without
- valve\, stops at once with "couldn't load gfx.wad".
+ NO HALF-LIFE NEEDED
+ -------------------
+ valve\ here is H9's own, not Half-Life's: replacements made for HAVOC 9 for every
+ Half-Life file TS and its maps use, under the same names, and Xash's own
+ extras.pk3. valve\REPLACEMENTS.md lists each one and where it comes from. Nothing
+ copies Half-Life's files in. Keep valve\ next to HAVOC 9.exe: without it the game
+ stops at once with "couldn't load gfx.wad".
 
  Starting the game
  -----------------

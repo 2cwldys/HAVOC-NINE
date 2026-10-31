@@ -3,8 +3,227 @@
 
 #include "platform/win32/font.h"
 #include "vgui_internal.h"
+#include <stdlib.h>
 
 using namespace vgui;
+
+// H9: the game's own fonts. Every .ttf / .otf in <game>\resource\fonts (and valve\resource\fonts)
+// is registered for this process only, so a scheme can name it without it being installed;
+// and fonts.txt there maps a face the game asks for onto another, for instance
+//     font Arial = Square721 BT size 95 weight 700
+// so every scheme that names Arial draws in that font. size is a percentage of the
+// requested height and weight replaces the requested one; both may be left out.
+// Lines that do not start with "font" (the console font line, comments) are ignored.
+namespace
+{
+struct FaceMap
+{
+	char from[LF_FACESIZE];
+	char to[LF_FACESIZE];
+	int sizePercent;
+	int weight;
+};
+
+static FaceMap faceMaps[32];
+static int faceMapCount = 0;
+static bool gameFontsLoaded = false;
+
+static void trim( char *s )
+{
+	char *start = s;
+
+	while( *start == ' ' || *start == '\t' )
+		start++;
+
+	if( start != s )
+		memmove( s, start, strlen( start ) + 1 );
+
+	for( size_t len = strlen( s ); len && ( s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\r' || s[len - 1] == '\n' ); len-- )
+		s[len - 1] = 0;
+}
+
+// the folder HAVOC 9.exe runs from, and the game it was started with (-game ts)
+static void gameFolders( char *base, size_t baseSize, char *game, size_t gameSize )
+{
+	base[0] = 0;
+	::GetModuleFileNameA( nullptr, base, (DWORD)baseSize );
+	char *slash = strrchr( base, '\\' );
+
+	if( slash )
+		*slash = 0;
+
+	strncpy( game, "valve", gameSize - 1 );
+	game[gameSize - 1] = 0;
+
+	const char *cmd = ::GetCommandLineA();
+	const char *arg = cmd ? strstr( cmd, " -game " ) : nullptr;
+
+	if( !arg )
+		return;
+
+	arg += 7;
+
+	while( *arg == ' ' )
+		arg++;
+
+	bool quoted = *arg == '"';
+
+	if( quoted )
+		arg++;
+
+	size_t i = 0;
+
+	while( arg[i] && i < gameSize - 1 && ( quoted ? arg[i] != '"' : arg[i] != ' ' ))
+	{
+		game[i] = arg[i];
+		i++;
+	}
+
+	game[i] = 0;
+}
+
+static void registerFolder( const char *dir )
+{
+	static const char *const kinds[] = { "*.ttf", "*.otf" };
+
+	for( const char *kind : kinds )
+	{
+		char pattern[MAX_PATH];
+		_snprintf( pattern, sizeof( pattern ) - 1, "%s\\%s", dir, kind );
+		pattern[sizeof( pattern ) - 1] = 0;
+
+		WIN32_FIND_DATAA fd;
+		HANDLE find = ::FindFirstFileA( pattern, &fd );
+
+		if( find == INVALID_HANDLE_VALUE )
+			continue;
+
+		do
+		{
+			char path[MAX_PATH];
+			_snprintf( path, sizeof( path ) - 1, "%s\\%s", dir, fd.cFileName );
+			path[sizeof( path ) - 1] = 0;
+
+			if( ::AddFontResourceExA( path, FR_PRIVATE, nullptr ) <= 0 )
+				vgui_dprintf( "vgui: could not register font %s\n", path );
+		} while( ::FindNextFileA( find, &fd ));
+
+		::FindClose( find );
+	}
+}
+
+static bool readFaceMaps( const char *dir )
+{
+	char path[MAX_PATH];
+	_snprintf( path, sizeof( path ) - 1, "%s\\fonts.txt", dir );
+	path[sizeof( path ) - 1] = 0;
+
+	FILE *f = fopen( path, "r" );
+
+	if( !f )
+		return false;
+
+	char line[256];
+
+	while( fgets( line, sizeof( line ), f ) && faceMapCount < (int)( sizeof( faceMaps ) / sizeof( faceMaps[0] )))
+	{
+		char *comment = strstr( line, "//" );
+
+		if( comment )
+			*comment = 0;
+
+		trim( line );
+
+		if( _strnicmp( line, "font ", 5 ))
+			continue;
+
+		char *eq = strchr( line, '=' );
+
+		if( !eq )
+			continue;
+
+		*eq = 0;
+		FaceMap &m = faceMaps[faceMapCount];
+		memset( &m, 0, sizeof( m ));
+		m.sizePercent = 100;
+
+		strncpy( m.from, line + 5, sizeof( m.from ) - 1 );
+		trim( m.from );
+
+		// the face is every word up to "size" or "weight"
+		char face[LF_FACESIZE * 2] = { 0 };
+
+		for( char *word = strtok( eq + 1, " \t" ); word; word = strtok( nullptr, " \t" ))
+		{
+			if( !_stricmp( word, "size" ) || !_stricmp( word, "weight" ))
+			{
+				char *value = strtok( nullptr, " \t" );
+
+				if( value && !_stricmp( word, "size" ))
+					m.sizePercent = atoi( value );
+				else if( value )
+					m.weight = atoi( value );
+
+				continue;
+			}
+
+			if( face[0] )
+				strncat( face, " ", sizeof( face ) - strlen( face ) - 1 );
+
+			strncat( face, word, sizeof( face ) - strlen( face ) - 1 );
+		}
+
+		strncpy( m.to, face, sizeof( m.to ) - 1 );
+
+		if( m.from[0] && m.to[0] && m.sizePercent > 0 )
+			faceMapCount++;
+	}
+
+	fclose( f );
+	return true;
+}
+
+static void loadGameFonts()
+{
+	if( gameFontsLoaded )
+		return;
+
+	gameFontsLoaded = true;
+
+	char base[MAX_PATH], game[64];
+	gameFolders( base, sizeof( base ), game, sizeof( game ));
+
+	const char *games[] = { game, "valve" };
+	bool mapped = false;
+
+	for( int i = 0; i < 2; i++ )
+	{
+		if( i == 1 && !_stricmp( game, "valve" ))
+			break;
+
+		char dir[MAX_PATH];
+		_snprintf( dir, sizeof( dir ) - 1, "%s\\%s\\resource\\fonts", base, games[i] );
+		dir[sizeof( dir ) - 1] = 0;
+
+		registerFolder( dir );
+
+		// the game's own mapping wins; valve's is read only when the game has none
+		if( !mapped )
+			mapped = readFaceMaps( dir );
+	}
+}
+
+static const FaceMap *findFaceMap( const char *name )
+{
+	for( int i = 0; i < faceMapCount; i++ )
+	{
+		if( !_stricmp( faceMaps[i].from, name ))
+			return &faceMaps[i];
+	}
+
+	return nullptr;
+}
+}
 
 FontPlat_Win32::FontPlat_Win32() : name( nullptr ), tall( 0 ), wide( 0 ), weight( 0 ),
 	rotation( 0.0f ),
@@ -74,10 +293,28 @@ bool FontPlat_Win32::init( const char *newName, int newTall, int newWide, float 
 	// escapement and orientation are in tenths of a degree
 	int escapement = (int)( rotation * 10.0f );
 
-	font = ::CreateFontA( tall, wide, escapement, escapement, weight, italic, underline, strikeout,
+	// H9: the face, height and weight fonts.txt gives for this name. The font keeps the name and
+	// size it was asked for, which is how freevgui finds it again in its cache.
+	loadGameFonts();
+
+	const char *face = name;
+	int faceTall = tall, faceWide = wide, faceWeight = weight;
+	const FaceMap *map = findFaceMap( name );
+
+	if( map )
+	{
+		face = map->to;
+		faceTall = tall * map->sizePercent / 100;
+		faceWide = wide * map->sizePercent / 100;
+
+		if( map->weight > 0 )
+			faceWeight = map->weight;
+	}
+
+	font = ::CreateFontA( faceTall, faceWide, escapement, escapement, faceWeight, italic, underline, strikeout,
 		symbol ? SYMBOL_CHARSET : DEFAULT_CHARSET,
 		OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, PROOF_QUALITY,
-		DEFAULT_PITCH | FF_DONTCARE, name );
+		DEFAULT_PITCH | FF_DONTCARE, face );
 
 	if( !font )
 	{

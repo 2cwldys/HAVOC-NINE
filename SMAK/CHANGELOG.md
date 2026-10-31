@@ -3,6 +3,588 @@
 The newest first. A version that changes what a model's file looks like, or that a model made before needs
 mending for, says so under **Mind**.
 
+## 0.37.0 (2026-10-30)
+
+s&box, a map's liquids and see-through faces (`map.mjs`, `lightmap.mjs`):
+- The world's liquid faces are drawn apart, in a `worldspawn liquid` object that blocks nothing (a liquid is swum in:
+  a game reads where it is from the map's contents); a func_water or func_door of special contents (a skin) and a
+  passable door (spawnflag 8) block nothing either (doors.cpp).
+- A brush entity's liquid shows its top only, as Xash3D's R_SortBrushModelSurfaces draws it: of its liquid faces, none
+  whose plane is not level (unless EF_WATERSIDES) and none at its bottom. The compiler gives a liquid every face both
+  ways, and those under the top showed through it as dark shapes that moved with the view (ts_casa's pool).
+- With lightmaps, a see-through brush entity (rendermode 1 to 3) is drawn by the lightmapped shader, `F_TRANSLUCENT 1`,
+  blended by its `renderamt` (`g_flOpacityScale`), in full light and with none of s&box's lighting: complex.shader's
+  translucent pass took the screen's ambient occlusion from what lies behind it.
+- TS's slow-motion zone (`ts_slowmotion`) is one of the classes never drawn.
+
+s&box, a map's dynamic lights (`lightmap.mjs`):
+- The lightmapped shader adds GoldSrc's dynamic lights (dlights: a flashlight) to a face's light as the engine does
+  (R_AddDynamicLights): a light's radius less its distance off the face's plane, (rad - d) x its colour at each of the
+  face's samples, d measured in texels the engine's way, on the lightmap's own scale (a sample x 264), mixed between
+  samples as the lightmap is. Up to `DLIGHTS` (8), handed to every material by the game (`SmakDlight0..`,
+  `SmakDlightColor0..`: Scene.RenderAttributes). Measured in Momentum Break: on a wall whose texture is scaled 2 across,
+  a light of 120 reaches 133 units up and past 150 across, as GoldSrc's does, and lifts the wall from 97 to 167 where
+  GoldSrc's sum gives 163..177.
+
+s&box, a map's faces that change (`lightmap.mjs`, `map.mjs`; Xash3D R_TextureAnimation, DrawGLPoly):
+- An animated texture plays: its frames (`+0`..`+9`, `+a`..`+j`) side by side in one picture, `g_flFrames` and
+  `g_flOtherFrames` of them, stepped at `ANIMATION_RATE` (20) a second from the face's own set, or from the other
+  while its entity's frame is on (a button pressed). Measured on The Specialists' maps: ts_lobby's screens, the
+  elevator buttons' lit and unlit sets.
+- A conveyor's texture (`scroll*`) moves along s by -speed / its width a second: a func_conveyor's `speed` as
+  CFuncConveyor::UpdateSpeed codes it, any other brush entity's `rendercolor` read the same way.
+- A brush entity whose state a game may change wears a slot, its model's number (`g_flSlot`): a texture with another
+  set of frames, a func_conveyor's, one an env_render names. A game hands every material a picture of the slots
+  (`SmakEntities`, with `SmakEntitiesSet` 1), 8 bits a channel: red full while its frame is on, green full while its
+  conveyor runs the other way, blue its render amount with alpha full (alpha 0: the map's). Until it does, each face is drawn as the map starts it.
+- A brush entity an env_render names is drawn though the map starts it unseen (render amount 0), so its amount can
+  rise.
+- With lightmaps, an added brush entity (rendermode 5) is drawn by the lightmapped shader, `F_TRANSLUCENT 2`: the
+  texture times its amount, unlit, added (ONE, ONE), writing no depth.
+
+s&box, a model's folder (`port.mjs`): a nested `folder` ("ts/props") is kept as folders, each part named as before;
+it was made one name (`ts_props`).
+
+s&box, a model's render mode (`studio.mjs`):
+- The model shader's `F_TRANSLUCENT` draws an entity's render mode as GoldSrc's studio renderer does (Xash
+  GL_StudioSetRenderMode): 1 blended by `SmakModelBlend` (the render amount over 255) and still writing depth, for
+  kRenderTransColor, TransTexture, Glow and TransAlpha; 2 kRenderTransAdd, the texture times the amount added (ONE, ONE),
+  unlit, unfogged, writing no depth. A game sets it on copies of a model's materials; added in linear light, not on the
+  screen's colours as GoldSrc adds.
+
+s&box, a model's dynamic lights (`studio.mjs`):
+- The model shader takes `SmakModelLightTotal` and `SmakModelLightReach`, set by a game when dynamic lights reach a
+  model as the engine's R_EntityDynamicLight adds them (each within its radius adds radius - distance to the total,
+  pulls the light's way toward itself by as much, and tints the light): the total, and the pulled way's length, of
+  which v_direct shades. Unset, a model is lit as before. Measured in Momentum Break: a white light of 120 40 in front
+  of a player model raised its total from 63 to 143 and its way to 102 long, the engine's numbers.
+
+s&box, GoldSrc's additive drawing:
+- `sbox.additiveShader()` and `ADDITIVE_SHADER`: a shader that adds a texture to the frame as GoldSrc adds
+  (kRenderTransAdd), on the screen's colours, from a copy of the frame behind it. s&box's own additive blend adds in
+  linear light, where a faint sprite (TS's gun smoke and laser beam, at most 27 of 255) adds about a tenth of what
+  GoldSrc adds on a lit wall. For quads drawn from code (Graphics.Draw); measured in Momentum Break: a quad of 27 adds
+  27 on every part of a wall, dark or lit.
+
+Sprites:
+- `maps.spriteFrameRgba(sprite, n)`: a sprite's frame as a picture, as the engine reads its format (additive and
+  normal opaque, alpha test's holes black and clear, index alpha the last colour with the index as alpha), for a game
+  that draws sprites itself (Momentum Break's TS impact particles).
+
+s&box, a map's surfaces (`docs/SBOX.md`, "A map, as a scene"):
+- Each material of a ported map names its texture's type (the game's `sound/materials.txt`) as a physics surface of
+  the kit's own, `goldsrc_<type>` (`surfaces/goldsrc_<type>.surface`, made on the nearest of s&box's), which a trace
+  that hits the face reports: what a game picks a step's or an impact's sound and particles by. `surfaceOfType`,
+  `SURFACE_OF_TYPE`; `vmatOf`'s `surface`.
+- `sboxDecal` (`src/sbox/decal.mjs`): a decals.wad texture (a bullet's hole, blood) as an s&box decal definition and
+  its picture, read as the engine reads it (`maps.decalRgba`: masked when the palette's last colour is pure blue, else
+  a gradient of that colour), at its texture's size in units. The lightmapped shader lays s&box's decals on the
+  texture before its light (`Decals::Apply`), so a hole is lit by its face's lightmap as GoldSrc lights a decal;
+  Momentum Break's {shot} holes on ts_lobby measured so.
+
+Play (`docs/PLAY.md`, "A demo, read"):
+- `play.readDemo`: a GoldSrc demo (.dem, the console's `record`) read, every frame the client drew: where it had the
+  player, how fast, on the ground or not, the eye's height, the command sent and the server's movement settings.
+  Momentum Break's walk test held s&box's port of TS's movement to a demo of TS played by hand on ts_lobby: top
+  speed, acceleration, the stop, the jump, the duck, all within 1%.
+
+s&box, a map's light (`docs/SBOX.md`, "A map, as a scene"):
+- A map is lit by its own lightmaps (`lighting: "lightmaps"`, the default; `src/sbox/lightmap.mjs`): every face's
+  lightmap in one picture of the map's, each face's place there in its corners' vertex colour, and SMAK's shader
+  (`shaders/smak_lightmapped.shader`, written into the project) laying it on the texture as GoldSrc does. TS's
+  ts_lobby: 1.02 times as bright as GoldSrc draws it, every start within 1.00 to 1.04, correlated 1.00, nothing to bake
+  (with s&box's lights, 0.12: TS's lamps are in no lights.rad). `lightmapAtlas`, `lightmapShader`,
+  `LIGHTMAP_SHADER`, `LIGHTMAP_SCALE`, `OFFSET_BIAS` exported; `meshBlob` takes a polygon's `color`.
+- Its light styles played as the game plays them: a steady style added at its letter's share, one that changes (a
+  flicker, a light's own pattern) in a layer of the atlas below the faces, its pattern in `lightstyles.png`, played
+  by the shader's clock. `stylePatterns` and `GOLDSRC_STYLES` (`src/maps/light.mjs`) say each style's pattern as the
+  map starts. ts_parking (Half-Life's flicker on 109 faces): every start 1.00 to 1.04, correlated 1.00. A light
+  switched by its name stays as the map starts it (no stock TS map switches one).
+- The lightmapped faces take no shine from s&box's lights (the shader ends without them): ts_parking's 131 lights
+  had put patches of gloss on its walls.
+- s&box's lights stay as `lighting: "lights"` (`--lighting lights` on `sbox-map` and `sbox-map-check`), with: the
+  indirect light at 4 probes per 1024 units (`INDIRECT_LIGHT_DENSITY`, was 8: ts_lobby's 66096 probes baked at 6 to 26
+  a second); its bake kept while the port writes the same (`smak_bake.json`, `bakeKeyOf`, `recordBake`), older
+  bakes' files removed; its time allowed from its probes (`indirectProbes`), the editor's minimized windows shown
+  while it bakes (`editorWindowsShown`).
+- A brush entity in render mode 1 to 3 is drawn seen through at its `renderamt` and lit by itself (it was opaque);
+  one at `renderamt` 0, and the classes the game never draws (triggers, ladders, monster clips, zones), not drawn.
+  Those classes do not block: ts_lobby's trigger_hurts had blocked 3.5 spots in a hundred.
+- A `{` texture's holes are open only on a brush entity in render mode 4; on the world and in any other mode they
+  are filled with the palette's last colour, as the game draws them (`drawMap`'s `lookOf`).
+- The sky's picture laid as s&box's sky shader reads it: -X in its middle (measured with a picture coloured by the
+  way each part faces). With +X there, as before, ts_lobby's sky was turned half round.
+- Sky brushes are solid for players (`clipBrushesOf(bsp, { skySolid: true })`): ts_lobby's open roof had let
+  4.6 spots in a hundred through. And the world's sky faces collide, never drawn (`sky clip`, under `clip`): a sky
+  face that closes the map has the void behind it, where the clip brushes' samples miss the hull's growth
+  (ts_parking: 2.24 spots in a hundred blocked otherwise than in GoldSrc, 0.40 with them).
+- A texture drawn translucent (render mode 1 to 3 or 5) whose sides are not powers of two wears a copy that is
+  (`_pot.png`): complex.shader's translucent mipmaps failed on ts_parking's `ts_wall19` (96 by 128).
+- `sbox-map-check` writes each start's two pictures (`shots`), and sbox-cli calls get their own time
+  (`--request-timeout`). It pictures each start twice, the first to stream the textures in: with one, coarse
+  mipmaps of ts_parking's atlas had put three starts at 1.14 to 1.18.
+
+s&box, a model lit as GoldSrc lights one (`docs/SBOX.md`, "Lit as GoldSrc lights a model"):
+- `src/maps/model-light.mjs`: Xash3D's R_EntityDynamicLight, R_RecursiveLightPoint and R_StudioLighting ported.
+  `lightAt` (the sky's light when a line toward the sun comes to sky, else the floor's under the model, leant by
+  its gradient), `lightAlong`, `floorLight`, `meetsSky`, `modelShade` (v_direct 0.9, ambient 128 at most),
+  `vertexLight` (SHADE_LAMBERT 1.495), `skyLight` (TS's sv_skycolor and sv_skyvec, after stevenlafl's), `styleLevels`.
+- A map ported with lightmaps writes its light tree (`materials/<folder>/maps/<map>/lighttree.bin`; `lightTree`,
+  `lightTreeBytes`, the port's `modelLight`): what those walks read, so a game lights a model to the sample.
+- `sbox-port --lighting goldsrc` (`lighting: "goldsrc"`): a model's textures on SMAK's studio shader
+  (`shaders/smak_studio.shader`; `src/sbox/studio.mjs`: `studioShader`, `studioVmatOf`, `STUDIO_SHADER`,
+  `STUDIO_SCALE`), lit by the light the game hands its renderer (`SmakModelLight`, `SmakModelLightWay`,
+  `SmakModelLit`); an additive texture stays complex.shader's.
+  Its colour is the engine's (texgamma's texture, `STUDIO_TEXGAMMA` 0.8, times illum / 255) times 1.5
+  (`STUDIO_SCALE`), measured against TS on Steam from a demo's own camera (ts_lobby's hallway: TS's agent's suit
+  within 0.2 of TS's by channel, the world there 1.07).
+- Momentum Break's C# port of the walks agrees with SMAK's at ts_lobby's 17 starts and 300 spots round them, to the
+  sample; TS's gordon drawn at the starts in s&box's editor.
+- The self-test runs `113-demo` (it had been left out of the list) and `114-model-light`.
+- A light_environment's `pitch` followed by `angles` takes the later one's, as CLight::KeyValue does (ts_lobby's sun
+  is level in the game, though its lightmaps were baked 30 degrees down).
+- `sbox-port` no longer passes on the GMod port's own warnings (a weapon script's activities, the Lua for a view
+  model's sounds).
+
+## 0.36.0 (2026-10-27)
+
+s&box, a map's light (`docs/SBOX.md`, "A map, as a scene"):
+- A brush entity in render mode 5 is added in linear light: its `renderamt` share to the power 2.2. test_scripts'
+  shield had washed s&box's whole view purple, and the check had counted that as the room's light (0.84, a false PASS).
+- A shining texture's light as hlrad counts it: its value times its colour, area and reflectivity over pi, made
+  s&box's light by `TEXLIGHT_SCALE` (1e-7) to the power 1.21, reaching where hlrad's falls to one level in 255 (it
+  had ended where a small face's brightness said: test_scripts' crystals 35 to 192 units out, its walls black). A
+  map's own `info_texlights` in the older compilers' measure, without the reflectivity and pi. `TEXLIGHT_AREA` is
+  gone; `TEXLIGHT_SCALE`, `TEXLIGHT_POWER` and `TEXLIGHT_REACH` are exported.
+- Measured: test_scripts' light 0.82 times as bright as GoldSrc's (PASS; it was 0.38 with the shield fixed),
+  stalkyard's 1.02 (PASS, 5 of 21 starts within a third where it had 9).
+
+## 0.35.0 (2026-10-27)
+
+s&box: a map, as a scene (`docs/SBOX.md`, "A map, as a scene"; `src/sbox/map.mjs`, `mapcheck.mjs`):
+- `sbox-map` makes a GoldSrc map an s&box scene: each face of the BSP a polygon of the scene editor's own meshes
+  (MeshComponent, written as s&box saves one: drawn, collided with, editable), the world's in one, each brush
+  entity's in its own; its clip brushes rebuilt from the player's hulls (`clipBrushesOf`, now shared with
+  `gmod-map`, whose maps come out byte for byte as before), solid and seen in the editor only; its textures, its sky
+  as one picture round the world, its starts as SpawnPoints, its lights as s&box's, and a face whose texture shines
+  lit by itself with a light before it.
+- `sbox-map-check` opens it in the editor and holds it to the GoldSrc map: its meshes and materials (each compiled),
+  where a player is blocked at 5000 spots standing and ducked, each start's floor, and its light pictured from each
+  start beside GoldSrc's lightmaps.
+- Its bounced light: GoldSrc's light compiler bounced every light round the map into its lightmaps, and s&box's
+  lights are direct only (MSC's test_scripts, a closed room lit by glowing crystals, came out an eighth as bright).
+  Each map gets an `IndirectLightVolume` (s&box's DDGI) over the world, the clip brushes out of it, and
+  `sbox-map-check` bakes it before picturing the light.
+- A mod's own starts (`--mod msc`: `ms_player_begin`, `ms_player_spawn`), for both commands; a map's
+  `info_texlights` read as its shining textures.
+- A brush entity is solid with every one of its brushes, faces never drawn too (test_scripts' shield, a cage with an
+  undrawn lid: the player walked through its top), as hidden solids under it tagged `brush`; render mode 5 drawn
+  additive at its `renderamt`.
+- The check: a brush entity's brushes count as blocking on GoldSrc's side as on s&box's, the traces ask for the world
+  and the brush entities, and a tab already open on the scene is closed first (it showed the scene as it was when
+  opened, not the new port).
+- Measured on stalkyard: blocked otherwise than in GoldSrc at 0.16 and 0.18 in a hundred of the spots (GMod: 0.10,
+  0.18); its light 0.97 times as bright, correlated 0.82 (without the indirect light, 1.04 and 0.85; 9 starts of
+  21 within a third either way, where 17 were). On test_scripts: 0.32 and 0.24 in a hundred; its light 0.23 times as
+  bright, a FAIL: the bounce now there, its glowing textures' own light is too weak, and not yet fitted.
+- A fullbright texture's material (a model's too) has a white picture as its self-illumination mask: as a colour,
+  s&box drew it red.
+
+s&box: a port's materials, and how it looks (`docs/SBOX.md`, "How a port is checked"):
+- A masked texture whose sides are not powers of two is made so (its picture opaque, its holes in its mask): s&box
+  made no mipmaps of it and the material failed, the model compiling all the same (Counter-Strike's four trees,
+  Master Sword's two).
+- `sbox-port`'s compile names every material, and fails, saying which, when one is not compiled by the run: the
+  compiler left a model's other skins' materials uncompiled (Half-Life's can, chumtoad, hgrunt, houndeye, icky,
+  scientist and bullsquid), and a deep project folder runs the generated textures' paths past Windows' 260
+  characters, which the error now says.
+- `sbox-check` asks the editor to compile each material, and pictures the model: s&box's drawing in a scene of its
+  own beside the kit's renderer, from four views, its silhouette and colours held region by region (`--no-look`).
+  Its limits measured on Half-Life's 205 models, all of which pass (`-o` writes the pictures side by side); each of
+  their materials drawn red, as s&box draws one not compiled, is caught 349 times in 480 where it is a twentieth of
+  the model or more.
+
+## 0.34.0 (2026-10-26)
+
+s&box: a model's sounds, as `.sound` assets (`docs/SBOX.md`, "Its sounds"; `src/sbox/sound.mjs`):
+- `sbox-port` copies the sounds a model's events play (1004, 1008, 5004) from the game's sound folders (its mod's,
+  then valve's) under `sounds/<folder>/`, and beside each a `.sound` heard as GoldSrc heard it: its gain a line from 1
+  to 0 at 1000 units over its attenuation (a monster's 500, a view model's 1250), no occlusion or reverb. A loop is
+  told in a `.meta` (s&box's compiler does not read the cue chunk). The events become `AE_CL_PLAYSOUND` (5004 at the
+  first attachment), which s&box plays with no game code; the `.wav` is compiled with the model (`compileSounds`).
+- `sbox-check` reads each `.sound` back as the editor compiled it (its file, length, distance, falloff, and its
+  loudness 10 ms by 10 ms against the original), plays each to see that a loop loops, and plays each animation with
+  sound events through, hearing its sounds.
+- Measured: Half-Life's 13 models with sounds, 69 sounds and 185 sound events, pass; a model of the tests' with a
+  loop and a view model's clip at an unnamed attachment passes in the editor too.
+
+## 0.33.0 (2026-10-26)
+
+s&box: an animation's blends, in an animation graph (`docs/SBOX.md`, `src/sbox/graph.mjs`):
+- `sbox-port` writes every blend of an animation (before, the first only), each an animation of its own
+  (`shootgun_blend1`) after the model's own, and a model one of whose animations blends gets an animation graph
+  (`<name>.vanmgrph`, named by the `.vmdl`, compiled beside it): a selector on the enum `sequence` (an option each
+  animation, a new one started at its first frame), under it each animation that blends a blend node on the GMod
+  port's pose parameter (`blend_xr`) at the values its blends stand for, one on two axes a 2D blend. A game's code
+  does what GoldSrc's did: `Set( "sequence", "shootgun" )`, `Set( "blend_xr", 20f )`.
+- Measured: s&box's blend node mixes as GoldSrc's renderer does (barney's `shootgun` within 0.008 units at five
+  values); a graph played at a rate of 0 is not played at all.
+- `sbox-check` holds each blend as an animation, and plays the graph: each animation that blends at its blends'
+  start, middle and end, held to GoldSrc's mix (`blendedPoseAt`). The seven of Half-Life's models that blend (agrunt,
+  barney, hassassin, hgrunt, icky, player, tentacle2) pass, 207 blends within 0.023 units (tentacle2's tip 0.19).
+
+## 0.32.0 (2026-10-26)
+
+s&box: what a port collides as (`docs/SBOX.md`, `src/sbox/physics.mjs`):
+- `sbox-port` makes what the GMod port makes, from the same code (`--collision`, `--surfaceprop`, `--mass`): a
+  model of one bone its convex hull, a figure with hit boxes a ragdoll, a view model and a `p_` model nothing. Each
+  piece a `PhysicsHullFile` of its own on its bone; each joint a revolute one (a bone its animations turn about one
+  axis) or a conical one along the bone, anchored at the child's place at rest; a ragdoll's 90 kg shared by volume,
+  its pieces' inertia and damping as the GMod port's QC has them; GMod's surfaceprop as the s&box surface like it.
+- Measured in s&box's editor and its own physics: a hull file is read in the model's space and put on its bone, a
+  body a bone; a joint turns about its frame's z; a cone holds 90 degrees of swing at most (wider ones are held to
+  it, said); a hull of more than 255 half-edges is dropped ("Hull Too Complex for Runtime"), and the compiler's own
+  simplifying left hulls up to 14 units off, so the port keeps a hull to 44 corners itself and has it made exactly;
+  s&box pushes pieces that start inside each other apart (barney's hands 13 units, 10 to 44 as a game's ragdoll), so
+  pieces that meet at rest and are not joined are trimmed apart; a joint between pieces of weights far apart gives
+  (loader thrown thousands of units), so no piece weighs less than a tenth of one joined to it, and the rest presses
+  a light piece through the floor (big_mom's), so none weighs less than 1% of the whole; s&box's code cannot read a
+  model with a `PhysicsJointNull`.
+- Gibs are no ragdoll (both ports, `--collision auto`): a body part whose choices are each on bones of their own,
+  the model as first drawn on one bone with hit boxes at most (hgibs.mdl, woodgibs.mdl), is shown a choice at a
+  time; said, and nothing made unless told. Before, GMod's port made a ragdoll of all its gibs together.
+- `sbox-check` holds the physics too: each piece's hull, mass, surface and joint as written, then tried in physics
+  worlds of its own: held at rest (no piece pushes another), held in the sampled poses inside its joints' limits
+  that its animations do not stretch, and dropped onto a floor until still (not through the floor, its joints
+  together). All 210 of Half-Life's models pass: 60 ragdolls, 55 hulls.
+- `source.portToSource` also returns `parts.collision`; `RAGDOLL_BODY` (the QC's `$inertia`, `$damping`,
+  `$rotdamping`).
+
+## 0.31.0 (2026-10-26)
+
+s&box (Source 2), models first (`docs/SBOX.md`):
+- `smak sbox-port <mdl> -o <Assets>`: a GoldSrc model ported to s&box and compiled by s&box's own
+  resourcecompiler. Its meshes and animations as DMX (s&box reads no SMD), its bodygroups, skins (material
+  groups), attachments, hit boxes, animations' activities and events in a `.vmdl`, its textures as PNG and
+  `.vmat` (masked alpha-tested, additive, fullbright). A loop's travel is taken out as root motion; an event is
+  kept as s&box's generic one, its number and options.
+- `smak sbox-check <mdl> --project <folder>`: the port read back in s&box's own editor (through sbox-cli, which comes
+  with s&box: the editor open on the project, or one opened and closed) and held to the original: its bones under
+  their parents, animations of their lengths, parts, skins, attachments, hit boxes, and each animation stopped at
+  its first and middle frames with every bone where GoldSrc's frame puts it, within 0.1 units and 0.0005 of the
+  bone's chain (s&box compresses rotations). All 210 of Half-Life's models pass, in 8 minutes; the farthest bone
+  is 0.19 units off, the end of tentacle2's tentacle.
+- `sbox.portToSboxFile`, `portToSbox`, `writeSboxPort`, `dmxOf`, `vmdlOf`, `vmatOf`, `kv3`, `findSbox`, `compileVmdl`,
+  `checkSboxPort`, `compareSbox`, `expectedOf`, `probeCode`, `editorFor`, `sboxCall`, `runCsharp`.
+- `source.portToSource` also returns `parts`, what its QC and SMDs say as data. The GMod port is unchanged.
+- Measured in s&box's editor: no turn (`forwardParity 1`); bones named as s&box keeps them (`Bip01_Pelvis`,
+  `Stealth_`), or an animation moves nothing; no bone culled, or barney loses his root's turn; no hyphen in a
+  mesh's node name, which fails the compile unsaid why; no bodygroup name ending in a number after a letter, which
+  ModelDoc renumbers (loader.mdl's `leg2` is `leg_2`). A `p_` model keeps its own bones' names.
+- All 210 of Half-Life's models port and compile, in 3.5 minutes together.
+
+## 0.30.1 (2026-10-26)
+
+What a GoldSrc map's port is made of, to the physics and to traces (`docs/SOURCE.md` "A GoldSrc map in GMod"):
+- **Corrected:** 0.30.0 said the game reads a physics convex's game data as its surfaceprop. It does not, as
+  stevenlafl found and measured: to the physics every hit on the world was `default`. Now each of the world's
+  triangles takes the surfaceprop of the brush side it lies on, and the lump's text carries the
+  `materialtable`, as vbsp does (stevenlafl's, ported). A brush entity's solid takes its textures'
+  surfaceprop with the most area. On stalkyard, 21 crates: 90 hits all `default` before; concrete, wood and
+  metalgrate now, each crate's first its floor's own. **Mind:** port a map again for it.
+- `source.physCollideLump(models, { materials, surfaceprops })`: convexes as `{ planes, mins, maxs }`, each plane
+  with its `material`; `portMapToSource` gives `physicsMaterials` and `physicsSurfaceprops`.
+- GMod's 64-bit vphysics.dll has one slot more before `CreateQueryModel` than Valve's header; the helper
+  calls it there.
+- A rebuilt brush's side takes the texture of the face lying on it, not the first face on its plane. 11 to 25
+  in a hundred of the world's drawn area read as another surfaceprop or none (boot_camp's floors as
+  toolsnodraw's `default_silent`); now 0.0 to 2.2. Bullets' impacts and footsteps read it too.
+- A rebuilt clip brush is left out at more than 10 in a hundred of its grown faces' points open, not 2: at 2,
+  real clip of TS's ts_bikini was lost. Half-Life's eight maps still agree on all but 0.02 to 0.48 in a hundred
+  spots (datacore ducked 0.48, was 0.34).
+- The `map` probe checks that a crate hits its floor, to the physics, as the floor's own surfaceprop. It looks
+  256 down for a start's floor and notes one over 64, as Half-Life's own maps have them.
+
+## 0.30.0 (2026-10-26)
+
+GoldSrc maps in GMod (PLAN.md 6f, `docs/SOURCE.md` "A GoldSrc map in GMod"), ported from stevenlafl's converter:
+- `smak gmod-map`, `source.portMapToSource` and `portMapToGmod`. The BSP 30 is rewritten as BSP 20 lump by lump:
+  its geometry, light and visibility kept, its collision brushes and clip rebuilt, its entities as Source reads
+  them, its textures, sky and sprites as VTF and VMT.
+- `source.writeSourceBsp` and `readSourceBsp`, and the lumps' pieces (`Packer`, `colorRgbExp`, `visibilityLump`,
+  `storedZip`).
+- `source.physCollideLump`: the map's physics, made by GMod's own vphysics through `src/source/vcollide.cpp`,
+  built once with Visual Studio.
+- `writeVtf` takes `frames`, `alpha: "smooth"` and `keepHoles`; `bleedHoles`.
+- **Mind:** every VTF now has a thumbnail (up to 16 a side, BGR888), models' too. Without one, the engine had no
+  colour for a bullet's chips and dust, and they came out yellow. Port a model again for it.
+- Each texture's `$surfaceprop` from the game's `sound/materials.txt` (`source.textureTypes`,
+  `surfacepropOfType`), and each physics convex tagged with its surfaceprop's index in GMod's table, as vbsp
+  does (wrong: the game does not read it; corrected in 0.30.1).
+- Seen in GMod: Half-Life's stalkyard loads, drawn, lit, walked on, with physics. All 115 of Half-Life's maps
+  port, with physics.
+
+GMod driven while it runs (`docs/SOURCE.md` "GMod while it runs"), after stevenlafl's tools:
+- `smak gmod-rcon`, `source.rcon`: console commands over Source's RCON, found on the LAN address a listen
+  server answers on.
+- `smak gmod-probe`, `source.runProbe`: Lua run inside the game, PASS or FAIL from its `check()` lines. The
+  built-in `map` probe holds a `gmod-map` port: physics, starts, floors' surfaceprops, a crate that lands.
+- `smak gmod-shoot`, `source.shoot`: a screenshot from a spot, the HUD and view model hidden, no setting changed.
+- `smak gmod-server`, `source.startGmodServer`: a dedicated server from SteamCMD, on port 27016.
+- `smak gmod-collision`, `source.checkCollision`: where a player is blocked in the GoldSrc map and in its port,
+  spot by spot (stevenlafl's `check-collision`). Eight of Half-Life's maps agree on all but 0.02 to 0.34 in a
+  hundred spots.
+- Clip brushes rebuilt closer to the map's: each side sampled in a grid, and one that does not lie inside both
+  players' hulls when grown left out (`source.clipOutsideHull`). Datacore's came out 8 to 16 units too big.
+  Brushes carry vbsp's edge bevels too. **Mind:** a map ported before is ported again for it; a port takes 5 to
+  24 s where it took 1 to 6.
+
+A ported ragdoll fitted to the body, its joints measured on its animations (`docs/SOURCE.md`):
+- Each piece is the convex hull of its bone's corners, the triangles' sides between pieces shared out among
+  them. A bone with hit boxes and no body of its own is left to the piece above. GoldSrc's hit boxes are the
+  pieces only of a model whose corners make none.
+- Each joint bends as far as the model's animations turn it from its rest, about each axis; an axis it never
+  turns about is held, so knees and elbows are hinges. Valve's convention measured on a Half-Life 2 citizen's
+  `.phy`. A bone never turned, or a model with no animation, bends 40 degrees each way, said.
+- A ragdoll weighs 90 kg, as Valve's do whatever their build.
+- `portToSource` takes `densities(surfaceprop)`, which `portToGmod` gives from GMod's own table.
+
+A model made for Source (PLAN.md, 6d): a spec's `"engine": "source"`, or `smak build --engine source`.
+- Held to Half-Life 2's props and people, measured on GMod's packs (`scripts/source-budgets.mjs`;
+  `SOURCE_PROP_TRIANGLES`, `SOURCE_CHARACTER_TRIANGLES`), not Half-Life's. Painted on 512 a side (1024 a
+  character's) unless told.
+- Its pictures kept in full colour (`buildModelSpec`'s `pictures`), not cut to 256 colours.
+- `check`'s `source` profile (`--engine source`).
+- Written, compiled and drawn under `<name>_source/` (`builtToGmod`), colliding as a port does.
+- A Source weapon is refused for now.
+- A character keeps its base's animations kept apart, and is bound in the stance it was built in.
+- A port keeps a bone no vertex is on (`$bonemerge`): Source's compiler dropped it and then could not find it
+  for a hit box (a body built on Half-Life's grunt left its toes empty).
+
+A port's blends and travel (`docs/SOURCE.md`):
+- An animation's blends ported on a pose parameter named by GoldSrc's motion (`blend_xr` for Half-Life's
+  aiming), over GoldSrc's range; four of two axes a grid two by two. `blendingOf(seq)`.
+- The compiled port held to it: each loop's travel taken out in one straight piece, as far as GoldSrc's; each
+  animation's blends and pose parameters; a view model's fades. Half-Life's 210 models pass.
+- `readSourceMdl` reads the animations and their travel, the pose parameters, a sequence's blends and fades.
+- `sequences` reads each blend's motion and range; `writeMdl` and `buildMdl` write blends (`blendFrames`).
+
+From stevenlafl's port of The Specialists to GMod, measured there:
+- A port's travel comes out as GoldSrc's: `$motionrollback 0`, so a walk's travel is extracted in one straight
+  line (Half-Life's grunt walks 112.19 and runs 172.27, as in GoldSrc), and a one-shot stays in place, as
+  GoldSrc played it (Source extracts a one-shot's travel along a curve).
+- A view model (a name that begins `v_`, or `view`) starts its animations outright (`fadein 0 fadeout 0`), and
+  collides as nothing. Its animations with no activity are given Source's by their names (`VIEW_ACTIVITIES`:
+  shoot `ACT_VM_PRIMARYATTACK`, deploy `ACT_VM_DRAW`...), as a GMod weapon's script plays them; its first
+  attachment is its `muzzle`, turned along the gun's forward.
+- The sounds a port's events play (1004, 1008, 5004) moved under `sound/<folder>/` and copied into the addon
+  from the mod's `sound/` or `valve/`'s (`soundFoldersOf`); one the game has not is said. A view model's (5004)
+  are played by client Lua written beside it (`viewSoundsLua`) and left out of the model: GMod never plays a
+  view model's own (stevenlafl's finding in their port of The Specialists). A sound at a rate Source does not
+  play (it plays 11025, 22050 and 44100 Hz only), or not 8 or 16-bit PCM, is rewritten as 16-bit at 44100
+  (`sourceWav`, their finding too).
+- A player (`--kind player`; one under `models/player/`) and a weapon held in its hand (`--kind held`, a `p_`
+  model) made a biped GMod knows (`valveBiped`): Valve's bone names, the hands turned as Valve's (measured by
+  the thumb: Half-Life's are 180 degrees from male_07's), nothing moved in any frame. A player also gets GMod's
+  `anim_attachment_RH` and `LH`, stands on its feet (its animations lifted 36) and is lit from its middle
+  (`$illumposition`); `--upper` copies each animation from the spine up (`<name>_upper`). A held one collides as
+  nothing. GMod's own player animations are not made to work on it.
+- Chrome drawn as GoldSrc draws it: where each corner is in the picture worked out by how it faces the eye
+  (R_StudioChrome), once, in the first animation's first frame, from the view's eye for a view model; no room's
+  reflection over it, which drew a view model's gloves as mirrors in GMod. A view or held model is known by its
+  file's name (`v_`, `p_`) whatever `--name` it is ported as.
+- The compiled model's `.dx80.vtx` and `.sw.vtx` left out: GMod reads only the `.dx90.vtx`, and gmad refuses a
+  `.sw.vtx`.
+
+## 0.29.0 (2026-10-25)
+
+The Source engine, first step (PLAN.md, phase 6): a GoldSrc model ported to Garry's Mod (`docs/SOURCE.md`).
+- `smak gmod-port <mdl> -o <folder>`, `source.portToGmod`. The kit reads the model and writes Source's
+  compiler's files: SMD for each submodel and animation, a QC, a VTF and a VMT for each texture. GMod's own
+  studiomdl compiles them, in a folder of its own. The compiled model is read back and held to the original,
+  corner by corner, and drawn.
+  - Kept: bones, animations (those in `01.mdl` files too), bodygroups and their empty submodels, skin families,
+    attachments, hit boxes, activities, events, a walk's travel.
+  - Changed, each said: what Source refuses (a bone with no name, two bones or animations of one name in any
+    case, fps or weight 0, a triangle of no area).
+  - Left, each said: chrome, bone controllers, blends after the first.
+  - Measured on all 210 of Half-Life's models: every one compiles and holds every corner.
+- Source models read and drawn:
+  - `smak source-info`, `source-render` and `source-sheet`;
+  - `readSourceMdl`, `readVvd`, `readVtx`, `sourceTriangles`;
+  - VMTs and VTFs, including DXT;
+  - Valve's packs (`openVpk`), so Half-Life 2's own models are read from GMod's packs.
+  - `render` takes another kind of model's triangles (`tris`), with textures of their own colours.
+- What a port collides as and weighs (seen in GMod: a barrel too heavy, a grunt with no collisions):
+  - `--collision hull` (by default for a model of one bone): the convex hull of all its triangles, made by the
+    kit (`convexHull`). Source's compiler refuses a collision mesh of several pieces.
+  - `--collision ragdoll` (by default for a figure with hit boxes): a box a bone from its hit boxes, joined,
+    with a `ragdoll` animation. Half-Life's grunt: 22 pieces, 21 joints.
+  - `--surfaceprop`: taken from a kit-built model's record, `flesh` for a ragdoll.
+  - `--mass`. Unless given, the hull's volume at the surfaceprop's density from GMod's
+    `surfaceproperties.txt`, since GMod's compiler weighs everything as `default`; 90 kg a ragdoll.
+  - `readPhy`: the PASS line says what it collides as.
+  - A built model's record (`<name>.built.json`) keeps each part's material.
+- `ACTIVITY` names every number of `activity.h`, 1 to 76, held to Half-Life's models. 47 is `ACT_IDLE_ANGRY`
+  ("combatidle", "madidle"), where the table had `ACT_COMBAT_IDLE`, which is 62.
+
+`AGENTS.md`, "Handing work to another agent": one task a worker, its guide named, every `WARN` quoted in its
+report, the pictures looked at by the agent that gave the task, against what the person asked; and
+`.claude/agents/smak-worker.md`, such a worker for Claude Code, on Sonnet (PLAN.md, "Which model does the work").
+
+## 0.28.0 (2026-10-25)
+
+The Steam game's window (PLAN.md, phases 3b and 3c), by `src/play-window.mjs`: a helper of C# that PowerShell
+compiles (nothing installed), for the windows of the one process a run started, by its id.
+- `smak play native --window-pictures`: each picture is the game's window as the person sees it (PrintWindow,
+  which draws a window of the graphics card: 36 ms a picture). A game that does not answer is said with what
+  its windows show, a box's words first.
+- `smak play native --input [--quiet 5000]`: `hold`, `press`, `click`, `mouse`, `tap` and `mouseDown` as real
+  keys and buttons (SendInput, scan code and key), only while the game's window is in front (never brought
+  there), only after the keyboard and mouse have been left alone `--quiet` ms, and the run stopped, and what
+  it held let go, when the person touches either. Without `--input`, a mouse step is refused before the game
+  starts and a key step says how. Measured in TS: a real left click takes "Press Fire To Play!" away and a
+  second puts the player in; W and D move the camera.
+
+## 0.27.0 (2026-10-25)
+
+Art from a generator (PLAN.md, phase 5): `docs/IMPORT.md`, "Art from a generator": a generated texture as a
+material's photograph, a generated mesh through `smak import` (`--triangles`, `--fit`, `--origin base`) or as a
+spec's `mesh`, when to ask the person first, what a generator gets wrong, and ComfyUI's API for a script.
+
+What nine agents tripped on (PLAN.md, "Which model does the work"):
+- **`findCompilers`** finds SDHLT's programs under the folder it unpacks to (`tools/Win64`, `tools/Linux`), so
+  `VHLT_DIR` or `--vhlt` may name that folder as it is.
+- **`smak build`** of a map with `--game <Half-Life>/valve` and no FGD holds its entities to the kit's own
+  profile of Half-Life (`--mod goldsrc`), which ships no `.fgd`; the no-FGD warning names the flags that give one.
+- **A room's own texture** given in place (`surfaces: { floor: { texture } }`) is reported by its room
+  (`rooms gallery.surfaces.floor: ...`), not as `[object Object]`.
+- **`smak item`** ends with a `PASS`/`FAIL` line, and the picture to look at.
+- **`check`'s warning on animations kept in other files** says the engine finds them by the file's own name, so a
+  copy under a new name needs them copied under it too.
+- **`AGENTS.md`**: a script imports the kit by its `file://` URL.
+
+Before sharing (PLAN.md, phase 4): `smak check --publish <folder>`.
+- **`publishCheck`** fails a folder that holds a file of the game's byte for byte, one of the game's textures
+  inside a `.wad` or a `.bsp` of it (by its pixels and palette, under any name), a path into the person's own
+  folder (in a text or a map's entities) or a key or a token; it warns of another absolute path, an archive over
+  50 MB and a missing readme. The game is the Half-Life folder Steam has unless `--game`; `--ours` names a file
+  of the person's installed there. The whole Half-Life folder (16,805 files, 8,861 textures) costs 3 seconds.
+  Its four broken cases are in `test/broken/publish.mjs`.
+
+The Steam game played by its console (PLAN.md, phase 3a): `smak play native`.
+- **`smak play native --map <name> --mod ts`** plays the game Steam installed, GoldSrc's own engine, with
+  nothing but Node: `hl.exe -game <folder> -insecure -windowed -condebug +exec smak_run.cfg`, a loop in that
+  `.cfg` reading a file every few frames, each command in a file of its own that runs once and answers
+  (0.1 to 0.2 s), the console read from `qconsole.log` from where the run began, a map waited for until
+  `status` names the player, the game's own `screenshot` made a PNG (`pngOfTga`), `quit` at the end. A run of
+  Neuropolis in TS is in the map in 2 s and over in 4. It never joins a server; it has no keys, mouse or view.
+  The person's `config.cfg` is put back as it was after the run (the game saves a step's `bind` into it).
+  In TS the player stays a spectator: its client lets him in only on the key bound to `+attack`.
+- `play.nativeDriver`, and a driver's `loaded`: the line a session waits for after `map` in place of the
+  profile's (the Steam game never says Xash's "Custom resource propagation complete").
+
+Fewer tokens a task (PLAN.md, phase 1): an agent reads a short index and the one guide its task needs, and a
+check answers in a line.
+- **`AGENTS.md` is an index**: what the kit is and needs, the loop, the rules short, how to report, and a table
+  "the task, the guide, the template" (7 KB where it was 112). What it held is in guides of its own, word for
+  word where nothing held it before: `docs/COMMANDS.md` (the command line, and how a check answers),
+  `docs/MODELS.md` (how a model is put together, the rules in full, a new model, an `.obj`, animations, a
+  monster), `docs/RESKIN.md`, `docs/SHAPES.md`, `docs/FIGURES.md`, `docs/TROUBLE.md` (what it can and cannot
+  do, and when something is wrong), `docs/MAPS-LOOKING.md` (looking at a map, changing its entities). A new
+  map's steps went into `docs/MAPS-MAKING.md`'s loop, a `.wad` of one's own into its "Textures", the walk
+  test's use to the head of `docs/MAPS-CHECKS.md`, the bought models' advice into `docs/IMPORT.md`, the
+  usual tests into `docs/PLAY.md`. `docs/SPEC.md`'s map specs are `docs/SPEC-MAPS.md`.
+- The table of what it can and cannot do says what 0.26 can: FBX, glTF and JPEG pictures are read
+  (`smak import`), a map is played in the game where there is a browser build of it (`smak play`), SDHLT
+  compiles as VHLT does.
+- **Answers in text first**: `check`, `map-check`, `figure-judge`, `figure-texture`, `figure-shape` and `play`
+  end in one line, `PASS: ...` or `FAIL: ...`, with the reasons. A pass prints five lines or fewer; the detail
+  goes to a file it names (`--report <file>`, or `smak/` in the system's temp folder; `told.txt` in a run's
+  folder), and `--verbose` prints it as before. The judges pass a figure at or over the lower quarter of the
+  game's own figures (style) or with no measure far out of the corpus' middle half (texture, shape), and end 0
+  either way. A command that draws says which picture to look at, or that none is needed.
+- **Pictures cheap by default**: `smak play` writes each picture a third of the page each way (a run's
+  `shrink`, 1 in a script; `sheet.png` keeps its size; `smallerPng`), the judges' sheets two pixels a texel and
+  silhouettes at half size (`textureSheet`'s and `shapeSheet`'s `scale`); `--full-pictures` for the full size.
+- The MCP `guide` reads `AGENTS.md` and the guides its briefing went to as one, so its sections are found as
+  before, and every guide of `docs/` by its name (`doc: "play"`, `"spec-maps"`).
+
+**Mind**: the last line of `check` and `map-check` is `PASS: fit for goldsrc` where it was `fit for goldsrc`,
+and the facts are in the file unless `--verbose`; `play` ends `PASS:` or `FAIL:` where it ended `PASSED:` or
+`FAILED:`, and its pictures are smaller unless `--full-pictures`.
+
+A broken case for every checker (PLAN.md, phase 2a): a checker that always says PASS no longer goes unnoticed.
+- **`test/broken/`, the self-test's area `107-broken-cases`**: for each checker, inputs made in the case with
+  exactly one thing wrong and the sentence it must give; a case fails when the checker passes the input, fails
+  it for another reason, or fails its twin whole. 74 cases for 40 checkers: models (the engine's limits, a
+  texture's size, a loop that does not come back, an event on no frame, a hit box or an attachment on no bone),
+  maps (a leak, an entity the mod has not, a spawn in a wall, a monster walled off), specs, sounds and sprites,
+  the figure judges (a figure in another game's manner, on corpora made in the case: no game's files), `play`'s
+  expectations, and five command lines by their exit code. `test/broken/checkers.mjs` lists every checker of the kit with where it is, and the area
+  fails while one has no case and no reason written beside it.
+- **`check` tells of an event on a frame its animation has not**: the engine fires an event as the animation
+  passes its frame (0 to the count less one), so one past the last never fires. It passed before.
+- **`motionOverlaps` asks a piece's middle too**: a piece driven onto one of its own size and place had every
+  corner on the other's faces, at no depth, and was not told.
+- **`contractOf` reads a model's bone controllers**: it read them from where `readMdl` keeps none, so a
+  contract's controllers were always none. `compareContract` still does not hold a model to them (a case of
+  `107-broken-cases` marked known, for the owner to decide).
+
+## 0.26.0 (2026-10-24)
+
+The game filmed by the tool that tests it: SMAK's showcase video was made this way (docs/media).
+- **`record`, a step of `smak play`**: `{ "record": "plaza" }` films the page from there as a clip of that name,
+  until the next `record` or the run's end, written `NN_plaza.mp4` beside the pictures (H.264 at 30 a second,
+  through ffmpeg); `{ "record": false }` ends it. The browser's driver films what the page draws (Chromium's
+  screencast: a JPEG each time it is drawn, with its moment) through `recordStart()` and `recordStop()`, and a
+  clip left open when a run stops is still written.
+- **`encodeTimed(frames, { fps })`** (video.mjs): pictures that came with their moments made an MP4 at a steady
+  rate, each moment showing the last picture drawn by then (a slow stretch is held, never played fast).
+- **Pans**: `face` and `look` take `ms`, the view eased there over that time by the shorter way round.
+- **`--gpu`** with `--show`: WebGL on the graphics card (`HARDWARE_GL`), a map drawn smoothly enough to film
+  (a walled town at 40 to 90 frames a second where software drew 3 to 7). The pictures then depend on the card:
+  checks stay on `SOFTWARE_GL`.
+- README: shorter, with what the kit has made and its measures.
+
+## 0.25.2 (2026-10-24)
+
+- **`house` builds a house one goes into** (`inside: true`): its storeys one room up to the roof's beams, walls 16
+  thick (plaster within, `within` of the set; boards on the floor, `boards`), the doorway open with its leaf swung
+  in against the wall, tie beams a bay apart under the attic. It returns `room` (`min`, `max`, `floor`, `ceiling`,
+  `door`, `toMap`, `turn`) to furnish it by. `doorAt` puts the door at a place along the front (the seed's
+  otherwise; the seed's draws are kept in their order, so a house without it is as before). Made for Moria's
+  Captain's hall (msr-web, the Old Orchard's third version).
+- **`render` takes `near`**: what is nearer the eye than it is cut off (GoldSrc cuts at 4), for first-person views
+  of a view model.
+
+## 0.25.1 (2026-10-22)
+
+What Havoc9's first play of h9_te_meridian found, and the checks that would have told it before:
+- **`fitted` makes words read on every side unless told** (`readable` is true unless `readable: false`): a sign
+  fitted to a north or a west face read backwards (Meridian's RECORDS did). A picture is never meant mirrored.
+- **`checkPlan` tells func_detail that hangs in the air**: a piece of detail brushes (those that touch one another)
+  that touches no seen brush of the world or of another entity, with where it is and what it wears: a lamp in a
+  doorway, a sign with no bracket, pipes off their wall, a light in a stair's well. Meridian had eight.
+- **`propsOf` (`map-props`) has a thing hang on a wall only when most of a side has wall behind it**, looked at
+  over that side's breadth and height. It took one point near the floor before, so a picture in a doorway with a
+  jamb by its edge passed as hung.
+- **RCBot's waypoints, as the bots played them** (bots ran at crates, scraped walls, and the msr side dropped into
+  Meridian's truck pit):
+  - The file's first 50 waypoints are open floor and starts, spread farthest-first. RCBot picks its roaming goals
+    among the first 50 only (`WaypointFindRandomGoal`), and those had been jump takeoffs and crate tops.
+  - A path's line keeps 8 units of room beside the body, short of what a narrow way offers. A line where the body
+    only just fits is used only where no other way joins the two waypoints, and is marked `tight`.
+  - Waypoints stand off the walls: corners are found on a walk that keeps from them, and are moved into room.
+  - Drops are no shortcuts: one is left out where a walk of about its length reaches the same place. A crate top a
+    jump reaches is a side trip, and nothing on what breaks is waypointed.
+  - Where the nearest waypoint a place sees is on another floor (a bot that lost its way walks at it), a waypoint is
+    put on that place's own floor.
+  - On Meridian: lines a body does not fit along 199 to 27, one-way drops 585 to 98.
+
+**Mind:** a map that fits a picture to a north or a west face with no `readable` now shows it flipped from before
+(words read; a pattern that was mirrored is not). Pass `readable: false` to keep the old way.
+
 ## 0.25.0 (2026-10-21)
 
 - **The Specialists' map spec** (`profiles/specialists.mjs`, `SPEC`): a map spec with `"mod"` The Specialists is

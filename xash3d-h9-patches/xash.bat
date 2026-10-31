@@ -6,8 +6,8 @@ REM
 REM  Usage:  xash.bat            engine, then assemble
 REM          xash.bat engine     build TSM\xash3d-fwgs (32-bit, MSVC) into H9XASH
 REM          xash.bat assemble   lay stock TS 3.0, reTS, the H9TE client and the Xash
-REM                              overlay into H9XASH, copy your Half-Life's valve\,
-REM                              then the server side (addons, below)
+REM                              overlay into H9XASH, then the server side (addons,
+REM                              below)
 REM          xash.bat addons     only the server side: Metamod, AMXX with ts_matchmode
 REM                              and RCBot from the live install. build.bat runs this
 REM                              after every deploy, so H9XASH hosts what was built.
@@ -19,7 +19,8 @@ REM                              menus as the Steam install.
 REM
 REM  TSM IS THE SOURCE OF TRUTH. H9XASH is generated: edit TSM\xash3d-h9-patches\overlay
 REM  and the patches beside this script, never the copies in H9XASH. export.bat carries
-REM  H9XASH into export\ and the git mirror, without valve\ (see README_H9XASH.txt).
+REM  H9XASH into export\ and the git mirror. Nothing here copies Half-Life's valve\:
+REM  H9XASH\valve is H9's own (valve\REPLACEMENTS.md).
 REM ===========================================================================
 setlocal enabledelayedexpansion
 cd /d "%~dp0.."
@@ -109,6 +110,7 @@ if exist "%FWGS%\.git" (
     call :patch "%FWGS%\3rdparty\mainui" "%WEB%\engine-mainui.patch" || exit /b 1
     call :patch "%FWGS%\3rdparty\freevgui" "%WEB%\freevgui.patch" || exit /b 1
     call :patch "%FWGS%\3rdparty\freevgui" "%XASH%\patches\freevgui-h9-scheme.patch" || exit /b 1
+    call :patch "%FWGS%\3rdparty\freevgui" "%XASH%\patches\freevgui-h9-fonts.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-cloak.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-cmdbuf.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-chatmouse.patch" || exit /b 1
@@ -119,10 +121,14 @@ if exist "%FWGS%\.git" (
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-spraycmd.patch" || exit /b 1
     call :patch "%FWGS%\3rdparty\mainui" "%XASH%\patches\mainui-h9-gamestartup.patch" || exit /b 1
     call :patch "%FWGS%\3rdparty\mainui" "%XASH%\patches\mainui-h9-sprayui.patch" || exit /b 1
+    call :patch "%FWGS%\3rdparty\mainui" "%XASH%\patches\mainui-h9-hover.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-userid.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-presence.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-autoconfig.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-deltabits.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-concolor.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-consolemusic.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-chatinput.patch" || exit /b 1
 )
 
 REM Configured once; waf reconfigures by itself when a wscript changes.
@@ -183,12 +189,15 @@ for /f %%c in ('git -C "%FWGS%" rev-parse --short origin/master 2^>nul') do set 
     echo Upstream: master !BASE!
     echo Built:    branch h9 at !HEAD!, %DATE% %TIME%
     echo Patches:  webassembly-patch\*.patch, then from xash3d-h9-patches\patches:
-    echo           freevgui-h9-scheme.patch, engine-h9-cloak.patch, engine-h9-cmdbuf.patch,
+    echo           freevgui-h9-scheme.patch, freevgui-h9-fonts.patch,
+    echo           engine-h9-cloak.patch, engine-h9-cmdbuf.patch,
     echo           engine-h9-chatmouse.patch, engine-h9-suddendeath.patch, engine-h9-xray.patch,
     echo           engine-h9-sprguard.patch, engine-h9-spraypicker.patch, engine-h9-spraycmd.patch,
-    echo           mainui-h9-gamestartup.patch, mainui-h9-sprayui.patch,
+    echo           mainui-h9-gamestartup.patch, mainui-h9-sprayui.patch, mainui-h9-hover.patch,
     echo           engine-h9-userid.patch, engine-h9-presence.patch,
-    echo           engine-h9-autoconfig.patch, and engine-h9-deltabits.patch
+    echo           engine-h9-autoconfig.patch, engine-h9-deltabits.patch,
+    echo           engine-h9-concolor.patch, engine-h9-consolemusic.patch,
+    echo           and engine-h9-chatinput.patch
 )
 powershell -NoProfile -ExecutionPolicy Bypass -File "%XASH%\dllmerge.ps1" "%H9%\ENGINE.txt" "%H9%\ENGINE.txt.new" || exit /b 1
 
@@ -196,11 +205,11 @@ REM Each DLL built from patched source carries ^<dll^>.patch beside it: what it 
 REM the diff against upstream FWGS it was built with, paths from the xash3d-fwgs root so
 REM "git apply" replays it on a fresh clone. Written from git on every build, so it always
 REM matches the binary next to it.
-call :dllpatch xash.dll "engine common" "3rdparty/library_suffix" "The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present)." "" || exit /b 1
+call :dllpatch xash.dll "engine common" "3rdparty/library_suffix" "The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present)." "" || exit /b 1
 call :dllpatch ref_gl.dll "ref/gl" "" "The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game) and engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls)." "" || exit /b 1
 call :dllpatch filesystem_stdio.dll "filesystem" "" "The filesystem. The webassembly patch's one change here is emscripten-only." "" || exit /b 1
-call :dllpatch menu.dll "" "3rdparty/mainui" "The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music)." "" || exit /b 1
-call :dllpatch vgui.dll "" "3rdparty/freevgui" "The VGUI1 library, FWGS's open freevgui. freevgui.patch (webassembly) and freevgui-h9-scheme.patch: H9's purple scheme." "Those six colours are all that H9's patched GoldSrc vgui.dll changes (18 bytes, see Half-Life\vgui.dll.patch); the textschemes, HUD and menu colours live in ts\, not here." || exit /b 1
+call :dllpatch menu.dll "" "3rdparty/mainui" "The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), mainui-h9-hover.patch (a sound, launch_move1.wav, when the pointer or the arrow keys move onto another item), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music)." "" || exit /b 1
+call :dllpatch vgui.dll "" "3rdparty/freevgui" "The VGUI1 library, FWGS's open freevgui. freevgui.patch (webassembly), freevgui-h9-scheme.patch: H9's purple scheme, and freevgui-h9-fonts.patch: the fonts in ts\resource\fonts registered for the game alone, and fonts.txt there mapping the faces the game asks for onto them (see docs\CUSTOM_FONT.txt)." "Those six colours are all that H9's patched GoldSrc vgui.dll changes (18 bytes, see Half-Life\vgui.dll.patch); the textschemes, HUD and menu colours live in ts\, not here." || exit /b 1
 call :dllpatch "HAVOC 9.exe" "game_launch" "" "The launcher, game_launch's own xash3d.exe target, copied in under H9's name by this script rather than renamed at the source. Its icon comes from game_launch\havoc9.ico (game.rc), the same picture as ts\game.ico." "" || exit /b 1
 
 echo   engine !HEAD! installed into %H9%
@@ -283,6 +292,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%TSM%\make_commands_cfg.ps1
 if errorlevel 1 exit /b 1
 exit /b 0
 
+:confonts
+REM The console and chat font: ts\font0/1/2_cp1252.fnt, drawn by tools\make_con_fonts.py from
+REM the "console" line of the overlay's ts\resource\fonts\fonts.txt (docs\CUSTOM_FONT.txt). Rebuilt
+REM on every assemble and assets run, so editing that line and exporting is all a font change
+REM takes. Without Python and Pillow the fonts already in the overlay stay as they are.
+echo --- console fonts from ts\resource\fonts\fonts.txt ---
+if not exist "%TSM%\tools\make_con_fonts.py" (
+    echo   [WARN] no tools\make_con_fonts.py here: the console fonts stay as they are
+    exit /b 0
+)
+where py >nul 2>nul
+if errorlevel 1 (
+    echo   [WARN] no py launcher: the console fonts stay as they are
+    exit /b 0
+)
+py -3 "%TSM%\tools\make_con_fonts.py"
+if errorlevel 1 exit /b 1
+exit /b 0
+
 :assemble
 echo --- assemble: %H9% ---
 if not exist "%TSM%\ts3.0\ts\liblist.gam" (
@@ -290,9 +318,11 @@ if not exist "%TSM%\ts3.0\ts\liblist.gam" (
     exit /b 1
 )
 
-REM reTS: drops mp.dll/client.dll into reTS\binaries\ts\. Pristine release_binaries by default;
-REM set RETS_REBUILD=1 to build from source instead (see build-win32-dropin.ps1 for why that's
-REM not the default -- a HEAD build breaks the RETS_INTERFACE_VERSION handshake with reTSX).
+REM reTS: drops mp.dll/client.dll into reTS\binaries\ts\. Build from source here: the source
+REM tree carries the local ts_matchmode patches (the melee disarm), and dlls/rets_api.cpp now
+REM answers interface 5 as well as 6, so the shipped reTSX module works with it. The standalone
+REM script still defaults to release_binaries; see build-win32-dropin.ps1.
+set "RETS_REBUILD=1"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%TSM%\reTS\scripts\build-win32-dropin.ps1"
 if errorlevel 1 exit /b 1
 
@@ -329,22 +359,13 @@ echo   3 H9TE client
 
 REM 4. The Xash overlay.
 call :commands || exit /b 1
+call :confonts || exit /b 1
 robocopy "%XASH%\overlay" "%H9%" /E /XF networking.ini /NJH /NJS /NDL /NFL /NP >nul
 if errorlevel 8 exit /b 1
 REM networking.ini is the player's file once it exists: a fresh install gets the template,
 REM and a rebuild keeps whatever was edited there.
 if not exist "%H9%\networking.ini" copy /y "%XASH%\overlay\networking.ini" "%H9%\" >nul
 echo   4 Xash overlay
-
-REM 5. Valve's Half-Life content, from YOUR install. Never exported: it is Valve's,
-REM    and a copy of the repo has to bring its owner's own Half-Life.
-if exist "%HLROOT%\valve\liblist.gam" (
-    robocopy "%HLROOT%\valve" "%H9%\valve" /E /XF extras.pk3 /NJH /NJS /NDL /NFL /NP >nul
-    if errorlevel 8 exit /b 1
-    echo   5 valve\ from %HLROOT%
-) else (
-    echo   [WARN] no Half-Life at %HLROOT% -- copy your valve\ folder into %H9% by hand
-)
 exit /b 0
 
 
@@ -363,6 +384,7 @@ robocopy "%TSM%\export\ts" "%H9%\ts" /E /XO /XD addons cl_dlls /NJH /NJS /NDL /N
 if errorlevel 8 exit /b 1
 echo   3 H9TE client
 call :commands || exit /b 1
+call :confonts || exit /b 1
 robocopy "%XASH%\overlay" "%H9%" /E /XO /XF networking.ini /NJH /NJS /NDL /NFL /NP >nul
 if errorlevel 8 exit /b 1
 if not exist "%H9%\networking.ini" copy /y "%XASH%\overlay\networking.ini" "%H9%\" >nul

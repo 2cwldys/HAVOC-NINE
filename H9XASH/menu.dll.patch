@@ -13,6 +13,7 @@ of each build, read from git when that build was made. The newest block describe
 The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), and ui_background_video: a looping video background (media/mainmenu_bg.avi) layered in ahead of the WON/Steam/color background, off by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available.
 The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
 The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
+The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), mainui-h9-hover.patch (a sound, launch_move1.wav, when the pointer or the arrow keys move onto another item), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
 == Patch history ==
 Generated Wed 10/21/2026 23:42:19.26, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -155,8 +156,25 @@ In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f0878
 e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
 Diff sha256 256c1e3f55392626fb519a532e79672cf57873650fd4a65ffba6e83bb11f766e, the diff below.
 
+Generated Sat 10/31/2026  1:44:15.96, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/CreateGame.cpp
+ M menus/PlayerSetup.cpp
+ M sdk_includes/engine/menu_int.h
+?? menus/PlayerSetup.cpp.bak_sprayfix
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Diff sha256 73c81a03d7a23f2cff1723380e7b2688afb906481173822926d9aa7bd1e85c21, the diff below.
+
 diff --git a/3rdparty/mainui/BaseMenu.cpp b/3rdparty/mainui/BaseMenu.cpp
-index 7b727eb..1bdcd11 100755
+index 7b727eb..a070408 100755
 --- a/3rdparty/mainui/BaseMenu.cpp
 +++ b/3rdparty/mainui/BaseMenu.cpp
 @@ -36,6 +36,8 @@ cvar_t		*ui_show_window_stack;
@@ -168,6 +186,15 @@ index 7b727eb..1bdcd11 100755
  cvar_t		*ui_logohorizontal;
  
  uiStatic_t	uiStatic;
+@@ -52,7 +54,7 @@ const char	*uiSounds[] = {
+ 	"media/launch_deny2.wav",
+ 	"media/launch_select1.wav",
+ 	"media/launch_deny1.wav",
+-	"",
++	"media/launch_move1.wav", // H9: SND_MOVE, the pointer or the arrow keys onto another item
+ 	""
+ };
+ 
 @@ -624,6 +626,29 @@ static bool UI_UpdateWindowInsets( void )
  	return changed;
  }

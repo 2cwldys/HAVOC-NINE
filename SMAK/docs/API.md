@@ -23,7 +23,7 @@ Words used below: `which` is a texture's or an animation's number or its name. `
 | `bodyOf(b, body)` | For a body number, the submodel shown of each bodypart: `[index]`. The body number of submodel `k` of a bodypart is `k * base`; add one from each bodypart. |
 | `skinFamilies(b)` | `[[texture number for each skinref]]`, one list a family. A model shown with skin `n` wears family `n`. |
 | `textureOf(b, which)` | `{ name, flags, width, height, pixels, palette }`, copied out. |
-| `sequences(b)` | `[{ name, fps, frames, loops, flags, activity, actweight, movement, motiontype, speed, bbmin, bbmax, blends, group }]`. `activity`: what a monster's code asks for it as (`ACTIVITY[n]` is its name, for those known), `actweight` how often it is picked among its activity's. `movement` `[x, y, z]`: how far the model travels in one play of it (the frames stay in place); `speed`: that in units a second, `distance * fps / (frames - 1)`; `motiontype`: the `MOTION` bits (`LX` 64, `LY` 128, `LZ` 256 for the axes of the travel). `bbmin`, `bbmax`: the box about the model through the animation, which the engine culls by. `group` is not 0 for an animation kept in another file. (`move` and `motion` are `movement` and `motiontype` under their older names.) |
+| `sequences(b)` | `[{ name, fps, frames, loops, flags, activity, actweight, movement, motiontype, speed, bbmin, bbmax, blends, blendtype, blendstart, blendend, group }]`. `blends`: how many animations it blends between; `blendtype`, `blendstart`, `blendend`: for each of two axes, the `MOTION` bit the game's value turns (`XR` on Half-Life's aiming) and the values its first and last blend stand for. `activity`: what a monster's code asks for it as (`ACTIVITY[n]` is its name, for those known), `actweight` how often it is picked among its activity's. `movement` `[x, y, z]`: how far the model travels in one play of it (the frames stay in place); `speed`: that in units a second, `distance * fps / (frames - 1)`; `motiontype`: the `MOTION` bits (`LX` 64, `LY` 128, `LZ` 256 for the axes of the travel). `bbmin`, `bbmax`: the box about the model through the animation, which the engine culls by. `group` is not 0 for an animation kept in another file. (`move` and `motion` are `movement` and `motiontype` under their older names.) |
 | `sequenceAt(b, which)` | The animation's number, or -1. |
 | `readSequence(b, which, blend = 0, groups)` | What `sequences` tells, plus `index` and `frames[frame][bone] = [x, y, z, rx, ry, rz]`. |
 | `frameValues(b, seq, frame, blend = 0, groups)` | One frame of that. Throws, naming the bone, when the file's values for a bone end before that frame (a broken file). An animation kept in another file (`group` not 0) is read from `groups[group]`, that file's bytes (`sequenceFilesOf`); without it, it throws "an animation kept in another file". |
@@ -41,6 +41,7 @@ Words used below: `which` is a texture's or an animation's number or its name. `
 | Function | Gives |
 | --- | --- |
 | `restPose(b)` | Every bone's matrix with the bones at rest. |
+| `poseOfValues(values, parents)` | Every bone's matrix for a frame of six numbers a bone, each bone's parent given: `poseOf` for a skeleton that is not the file's (bones added). |
 | `poseAt(b, seq, frame, blend = 0, groups)` | The same at one frame of an animation (`seq` is a number). Throws as `frameValues` does when a bone's values end before that frame, or the animation is in a file not given. |
 | `poseBetween(b, seq, at, loop = true, groups)` | At a moment between two frames (`at` may be fractional). An animation kept in another file is read from `groups`, as `poseAt` reads it. |
 | `poseOf(b, values)` | For a frame given as numbers (`[bone][6]`), not yet in the file. |
@@ -181,6 +182,15 @@ format's numbers by name (`ACTIVITY` only those read off Half-Life's own models:
 
 `smak contract <mdl> [--json] [--against reference.mdl]` prints it, or what the model breaks (exit code 1).
 
+## Before sharing (`src/publish.mjs`)
+
+`publishCheck(folder, { game, ours = [], home })` → `{ errors, warnings, facts }`, each a sentence naming the
+file. Errors: a file that is one of `game`'s byte for byte (found by size, then hashed), one of the game's
+textures (the same pixels and palette, whatever its name) inside a `.wad` or a `.bsp` of the folder, a path into
+`home` or any person's folder (`C:\Users\<name>`, `/home/<name>`) in a text or a map's entities, a key or a
+token. Warnings: another absolute path in a text or a map, an archive over 50 MB, no readme. `ours`: paths in
+the game's folder that are the person's own and not held against. `smak check --publish <folder>`.
+
 ## Animations written as poses (`src/animate.mjs`, exported as `animate`)
 
 A pose is `{ q, p }`: for each bone a turn and a place, plain data that no call changes.
@@ -246,7 +256,9 @@ buildMdl({
 - `eyes: [x, y, z]`: where it sees from (the header's `eyeposition`). `min`, `max` (the box it moves with) and
   `bbmin`, `bbmax` (the box it is clipped by): the header's four; each is the model's own box through its
   animations unless told (studiomdl leaves them at zero unless the QC says: pass zeros for that).
-- Without those: no hit boxes, attachments or bone controllers. One blend an animation.
+- Without those: no hit boxes, attachments or bone controllers. One blend an animation, unless it gives
+  `blendFrames` (each further blend's frames, as many as `frames`) with `blendtype`, `blendstart` and
+  `blendend`, as `sequences` reads them.
 
 ## From an .obj file (`src/obj.mjs`)
 
@@ -715,7 +727,7 @@ change a model call it themselves: use it on files that came from elsewhere.
 `import { maps } from "smak"` (or `"smak/maps"`, or `./smak/src/maps/index.mjs`). Their functions are listed in
 two documents of their own: `docs/MAPS.md` (a compiled map read and checked, its entities, textures and `.wad`
 files, its pictures: `drawMap`, `planOf`, `viewsOf`, `compareOf`, `drawSource`, `planOfSource`, `sectionOf`, `storeysOf`,
-`openingViews`, what they draw of the game's files: `figuresOf`, `spritesOf`, `readSpr`, `skyOf`, `readTga`,
+`openingViews`, what they draw of the game's files: `figuresOf`, `spritesOf`, `readSpr`, `spriteFrameRgba(sprite, n)` (a frame as a picture, by its format), `skyOf`, `readTga`,
 the walk test: `reachOf`, `spaceOf`, `restOf`, `storeyCuts`, waypoints for bots and RCBot's file: `waypointsOf`,
 `readRcw`, `writeRcw`, `waypointFlagNames`, `RCW_FLAGS`, a map in numbers: `measure`, `measureTable`, a
 map's two teams as a team plugin plays it: `teamsOf`, `collectSpawns`, `partitionSpawns`, `readSpawnCfg`,
@@ -730,6 +742,180 @@ mod: `checkEntities`, `definitionsOf`, `learnEntities`, `classesOfDll`, `GOLDSRC
 and `docs/MAPS-DESIGN.md` (what makes a map good to look at and to play, as rules of thumb and recipes; how a
 map's monsters come: `spawnsOf`, `spawnsTable`; its character in numbers: `characterOf`, `characterAgainst`,
 `learnCharacter`).
+
+## The Source engine (`src/source/`, exported as `source`)
+
+`import { source } from "smak"`. What a port keeps, changes and leaves, and why: `docs/SOURCE.md`.
+
+- `portToGmod(file, { out, name, folder, collision, surfaceprop, mass, kind, handRoll, upper, sounds, studiomdl, gmod, compile, picture })` →
+  `{ passed, faults, warnings, said, qc, files, modelname, picture, physics }`: the whole port of a GoldSrc model.
+  - It reads the model (its `t.mdl` and `01.mdl` files beside it), writes the files, compiles them, holds the
+    compiled model to the original and draws it (`picture`, a sheet).
+  - Its surfaceprop comes from a kit-built model's `<name>.built.json` (`surfacepropOfBuild(file)`).
+  - It is weighed at that surfaceprop's density, from GMod's `surfaceproperties.txt`.
+  - `physics`: what it collides as (`readPhy`).
+- `builtToGmod(mdl, { pictures, record, out, name, ... })`: the same for a model the kit built for Source
+  (`buildModelSpec` of a spec with `engine: "source"`, which returns `pictures`, its textures in full colour by name).
+  `record` (`summaryOf`'s) gives its surfaceprop (`surfacepropOfRecord`).
+- `portToSource(src, { name, folder = "smak", groups, collision = "auto", surfaceprop, mass, density, densities, pictures, bind, kind, handRoll, upper })` → `{ name,
+  modelname, qc, files: [{ path, data }], sounds, viewSounds, warnings, facts }`: the compiler's files of a model,
+  with no disk and no compiler. `viewSounds`: a view model's sound events, `[{ sequence, name, frames, loops,
+  events: [{ frame, sound }] }]`, written as `viewSoundsLua(modelname, viewSounds)` (client Lua that plays them). `collision`: one of `COLLISIONS` (`auto`, `hull`, `box`, `ragdoll`, `none`); `density` (kg a cubic
+  metre), or `densities(surfaceprop)`, weighs a hull or a box when no `mass` is given; a ragdoll weighs 90 kg.
+- `convexHull(points)` → `{ points, faces }` or null; `readPhy(bytes)` → `{ solids, mass, surfaceprops, joints,
+  text }`; `readSurfaceProps(text)`, `densityOf(name, props)`, `massOf(volume, density)`, `SURFACEPROP_OF_BASE`.
+  - `facts`: what the compiled model must have again (bones, sequences, materials, bodygroups, skins,
+    attachments, hitboxes, corners).
+  - `writePort(port, out)` writes the files and returns the QC's path.
+  - `vmtOf(path, flags)`: the VMT of a GoldSrc texture's flags.
+  - `sourceName(name)`: a name as Source's files want it.
+- `findStudiomdl({ file, env })`, `findGmod({ env })`, `compileQc(qcFile, { studiomdl, out, gmod, timeout })` →
+  `{ files, warnings, said, took }`: GMod's compiler, run in a game folder of its own. It throws, with the
+  compiler's `ERROR` lines, on a failure.
+- `comparePort(facts, compiled, triangles)` → `{ passed, faults, said }`: the compiled model (`readSourceMdl`)
+  and, with `triangles`, its corners held to the port's facts.
+- `readSourceMdl(bytes)` → `{ version, name, bones, sequences, animations, poses, materials, cdmaterials, skins,
+  bodyparts, attachments, hitboxes, eyes, hull, view }`: Source's `.mdl`, versions 44 to 49. A sequence's
+  `animations` are numbers in `animations` (its blends, row by row of its `grid`), its `params` `[{ pose,
+  start, end }]` the pose parameters it blends on, with `fadein` and `fadeout`; an animation's `movements`
+  `[{ endframe, flags, position }]` the travel taken out of its frames, piece by piece.
+- `SOUND_EVENTS` (1004, 1008, 5004): the events whose sound a port moves under its folder (`port.sounds`
+  `[{ from, to }]`); `portToGmod` copies them from `sounds` (`soundFoldersOf(file)`: the mod's `sound/`,
+  then `valve/`'s, unless told).
+- `valveBiped(skeleton, { player, handRoll })` → `{ skeleton, frame(values), point(bone, p), box(bone, min, max),
+  attachments, named, kept, rolls, warnings }`: a GoldSrc biped made Valve's (`src/source/biped.mjs`);
+  `valveBipedName(name)`; `VALVE_THUMB`, `GOLDSRC_HAND_ROLL`, `HAND_ATTACHMENTS`. `PORT_KINDS` (`kind` of
+  portToSource and portToGmod: thing, view, held, player), `PLAYER_LIFT` (36).
+- `VIEW_ACTIVITIES`, `viewActivityOf(name)`: a view model's animation's activity by its name, or null.
+- `blendingOf(seq)` → `{ count, axes: [{ pose, start, end }], left }`: a GoldSrc animation's blends as a port
+  writes them (`left`: what is not ported, as a sentence).
+- `readVvd(bytes)`, `readVtx(bytes)`, `sourceTriangles(mdl, vvd, vtx)` → `[{ bodypart, model, mesh, material,
+  corners: [{ p, n, uv, bones }] }]`: its triangles at rest, in model space (LOD 0).
+- `sourceFiles({ folders, vpks })` and `gmodFiles(gmod, { more })` → `{ has, read }`: a game's files, the folders
+  before the packs.
+  - `readSourceModel(path, files)` → `{ mdl, triangles, materials, missing }`: a model with its VMTs and VTFs.
+  - `readVmt(text)` → `{ shader, keys }`.
+  - `sourceTris(model, { body, skin })`: its triangles as `render` takes them (`render(null, { tris })`).
+  - `renderSource(model, { sheet, ...render's options })`.
+- `openVpk(dirFile)` → `{ files, has, read }`: Valve's packs, versions 1 and 2.
+- `writeVtf({ width, height, rgba }, { alpha, flags, keepHoles, frames })`, `readVtf(bytes)` → `{ width, height,
+  rgba, format, flags, mips }`, `powerOfTwo(picture, { alpha })`, `bleedHoles(rgba, width, height)`, `VTF_FORMAT`,
+  `VTF_FLAG`: Source's textures. Written uncompressed (BGR888; BGRA8888 with one-bit alpha, or eight-bit with
+  `alpha: "smooth"`), with a thumbnail; DXT1, DXT3 and DXT5 are read too.
+- `smdOf({ bones, frames, triangles })`: the compiler's text of a mesh or an animation.
+- `portMapToSource(file, { name, folder, folders, valve, physics })` → `{ name, bsp, files: [{ path, data }],
+  props: [{ file, model, name }], physics, warnings, facts }`: a GoldSrc map as a Source map (`docs/SOURCE.md`, "A
+  GoldSrc map in GMod"). `physics(models)` makes the PHYSCOLLIDE lump, or returns null.
+  - `portMapToGmod(file, { out, name, folder, folders, valve, physics, vphysics, helper, gmod, studiomdl })`: the same
+    written as an addon under `out/addon/`, with its physics and its props ported; adds `file` and `written`.
+  - `textureTypes(folders)` → `(textureName) => letter`: a game's `sound/materials.txt`, read as the engine reads it;
+    `surfacepropOfType(letter)`; `materialName(name)`; `worldLightsLump(entities, clusterAt)`.
+  - `regionOf(planes)`, `brushesOfTree(bsp, head, isBrush, mins, maxs)`, `brushesOfClipHull(bsp, head, half, mins,
+    maxs)`, `clipContents(bsp, head, point)`: the collision brushes rebuilt from a GoldSrc map's trees.
+- `physCollideLump(models, { materials, surfaceprops, vphysics, helper, gmod })`: a map's physics made by GMod's
+  vphysics; `models` for each model its convexes, `[{ planes, mins, maxs }]`, each plane `{ normal, dist, material }`.
+  A world plane's `material` is its surfaceprop's number in `materials` plus 1 (the world's `materialtable`, at
+  most 126), 0 for `default`; `surfaceprops[model]` a brush entity's. `portMapToSource` gives them as
+  `physics`, `physicsMaterials` and `physicsSurfaceprops`. `findVphysics()`, `vcollideHelper()` (built once into
+  `~/.smak/`).
+- `rcon(commands, { host, port = 27015, password, timeout, gap })` → what the game answered: console commands
+  over Source's RCON, tried on 127.0.0.1 and each LAN address (`rconHosts()`); `SMAK_RCON_PASSWORD`.
+- `runProbe(lua, { name, game, client, wait, ...rcon })` → `{ passed, failed, notes, done, timedOut, text }`: a Lua
+  probe run in the game (`probeLua(name, body)` puts `check`, `note` and `done` before it; `probeAnswer(text)`
+  reads its lines). `builtInProbe(name)`, `builtInProbes()`: `map`.
+- `shoot([x, y, z], [pitch, yaw], { game, fov, wait, ...rcon })` → the new screenshot's file, from GMod's client.
+- `startGmodServer(folder, { map, port = 27016, password, gamemode, players })` → `{ process, port, log }`: a
+  dedicated server (SteamCMD's app 4020) started on a map.
+- `checkCollision(file, { name, count = 5000, seed = 1, ducked, noclip, game, wait, ...rcon })` → `{ spots, both, free,
+  onlyGoldSrc, onlySource, probe }`: a GoldSrc map held against its port loaded in the game, spot by spot;
+  `collisionSpots(bsp, { count, seed })`, `worldInBox(bsp, point, half)`.
+- `clipOutsideHull(bsp, brush, head, half)` → the share of a rebuilt clip brush's grown faces a player's hull has open.
+- `writeSourceBsp(lumps, { revision })`, `readSourceBsp(bytes)` → `{ version, revision, lumps: [{ version, bytes }] }`,
+  `Packer`, `colorRgbExp`, `visibilityLump(pvs, pas)`, `storedZip(files)`, `SOURCE_LUMP`, `SURF`, `CONTENTS`.
+
+## s&box (`src/sbox/`, exported as `sbox`)
+
+`import { sbox } from "smak"`. What a port keeps, changes and leaves, and why: `docs/SBOX.md`.
+
+- `portToSboxFile(file, { out, name, folder, kind, collision, surfaceprop, mass, compile = true, sbox })` → the port
+  and `{ written, compiled }`: a GoldSrc model read (its `t.mdl` and `01.mdl` files beside it), written under `out`
+  (an s&box project's `Assets`) and compiled (`compiled`: `compileVmdl`'s, or null).
+- `portToSbox(src, { name, folder = "smak", groups, kind, collision = "auto", surfaceprop, mass })` → `{ name, vmdl,
+  files: [{ path, data }], warnings, physics, facts }`: the files from the model's bytes. `facts`: `bones`, `meshes`,
+  `sequences`, `materials`, `skins`, `bodygroups`, `attachments`, `hitboxes`, `collision` (`hull`, `box`, `ragdoll`
+  or `none`). `physics`: `physicsOf`'s, or null. `writeSboxPort(port, out)` writes them and returns the `.vmdl`'s path.
+- What it collides as (`physics.mjs`): `physicsOf(collision, data, bones, rest, { base, nameOf })` → `{ shapes: [{
+  name, file, bone, surface, points }], bodies: [{ bone, mass }], joints: [{ parent, child, kind, axis, min, max |
+  twist, swing, origin, angles }], trimmed: [[bone, bone, depth]], files, warnings }` from Source's port's
+  `parts.collision`. `jointOf(limits)` (a hinge about the one axis turned, else a cone along x), `surfaceOf(name)` →
+  `{ surface, kept }` and `SBOX_SURFACES`, `restOf(bones, rest)` (each bone's turn and place at rest),
+  `anchorOf(placed, above, bone, axis)` → `{ origin, angles }`, `anglesOf(turn)` (Source's pitch, yaw, roll),
+  `quaternionOfTurn(turn)`, `hullsMeet(a, b, margin)` (GJK), `trimApart(hulls, names, joints)` and `TRIM_GAP` (0.1),
+  `insideLimits(limits, rest, pose, above, bone)` (degrees inside its joint as s&box holds it; `STILL_SLACK`, 1) and
+  `jointStretch(rest, pose, above, bone)` (units a pose moves a bone off the piece above), `CONE_MOST` (90, the
+  widest swing a cone holds), `simplifyHull(hull, most)` → `{ hull, inset }` and `HULL_CORNERS` (44),
+  `evenOut(bodies, joints)` (weights evened in place, the pieces raised returned; `MASS_LEAST`
+  0.01 of the whole, `MASS_RATIO` 10 across a joint).
+- `dmxOf({ bones, frames, triangles }, { fps, name })` → the text of a mesh's DMX (with triangles) or an
+  animation's: `smdOf`'s input. `boneNameOf(name)` (spaces as underscores, as s&box keeps them),
+  `quaternionOf([rx, ry, rz])`.
+- `vmdlOf({ meshes, materials, skins, bodygroups, sequences, attachments, hitboxes, physics, graph })` → a `.vmdl`'s text;
+  `vmatOf({ color, mask, flags, surface })` → a `.vmat`'s (`surface`: its physics surface's name); `kv3(value)` with `KV3_FLOAT(v)`, `KV3_INT(v)`.
+- `graphOf({ sequences, poses, fade, preview })` → a `.vanmgrph`'s text: a selector on the enum `GRAPH_SEQUENCE`
+  ("sequence"), an option each of `sequences` (`[{ name, loops, blends: [{ pose, start, end }], files }]`, `files`
+  the animation of each blend), a blend node an animation that blends on one axis, a 2D blend one on two, a float
+  parameter each of `poses` (`[{ name, min, max }]`). `portToSbox` returns it as `graph` (its path, or "") and
+  `graphed` (`{ sequences, poses }`), and `facts.poses`.
+- `sboxSound(bytes, { path, distance })` → a GoldSrc `.wav` as s&box's files: `{ files, sound, vsnd, wav, duration,
+  loop, distance }` (the `.wav` as it is, a `.meta` when it loops, a `.sound` heard to `distance` in a line, no
+  occlusion or reverb), or `{ unread }`; `soundEventOf({ file, distance })` → a `.sound`'s text; `distanceOf(attn)`
+  → 1000 / attn, how far GoldSrc heard a sound (`ATTENUATION`: norm 0.8, idle 2, static 1.25);
+  `soundEnvelope(x, rate)` → its loudness 10 ms by 10 ms. `portToSbox`'s `sounds` (the game's sound folders) makes
+  the sounds its events play, returned as `sounds` and `soundEvents` (`[{ sequence, sounds }]`).
+- `compileSounds(assets, wavs, { sbox })` → `{ compiled, said, took }`: sound files compiled in one run, each to its
+  `.vsnd_c`.
+- `portMapToSbox(file, { name, folder, folders, starts })` → a GoldSrc map as an s&box scene: `{ name, scene, files, meshes,
+  spawns, lights, sky, warnings, facts }` (its faces as MeshComponents, its clip brushes, each brush entity solid
+  with every brush, textures, sky, starts (`starts`: a mod's start classes), light: `lighting` "lightmaps" (the default: the
+  map's own, in an atlas SMAK's shader reads) or "lights" (s&box's, with texture lights and an indirect light volume)); `writeSboxMap(port, out)`; `portMapToSboxFile(file, { out, ... })`. `surfaceOfType(type)` → `{ name, path, data }`, a GoldSrc texture type's surface (`goldsrc_<type>`; `SURFACE_OF_TYPE`), which each of a ported map's materials names. `sboxDecal(texture, { picture })` → `{ decal, png, width, height, gradient }`, a decals.wad texture as an s&box decal definition and its picture (`maps.decalRgba(texture)` → `{ width, height, rgba, gradient }`, as the engine reads a decal). The lightmapped shader takes up to `DLIGHTS` (8) dynamic lights from the scene's render attributes, `SmakDlight<n>` (place, radius) and `SmakDlightColor<n>` (colour 0..1, minlight), added to a face's light as GoldSrc's R_AddDynamicLights adds them. `additiveShader()` → the text of `ADDITIVE_SHADER` (`shaders/smak_additive.shader`), GoldSrc's additive drawing for quads drawn from code: the texture times the render colour added to a copy of the frame (`FrameBufferCopyTexture`) on the screen's colours, as GoldSrc adds, not in linear light. `meshBlob(polygons)` → a
+  PolygonMesh's saved blob (base64) of `[{ corners, uvs, material }]`, each polygon its own corners, anticlockwise;
+  `rotationOf([pitch, yaw, roll])` → Source's angles as s&box's quaternion text. `WORLD_TAG`, `CLIP_TAG`, `BRUSH_TAG`,
+  `INDIRECT_LIGHT`, `SUN_SCALE`, `SKY_LIGHT_SHARE`, `LIGHT_REACH`, `TEXLIGHT_SCALE`, `TEXLIGHT_POWER`, `TEXLIGHT_REACH`.
+- `checkSboxMap(file, { project, name, folder, folders, starts, count, seed, allow, light, sbox, shot })` → `{ passed, faults,
+  said, collision, light, port, shot }`: the map ported and held to the original in the editor. Its parts:
+  `expectedMapOf(file, port, { count, seed })`, `mapProbeCode(scene, spots, floors)`, `compareSboxMap(expected, read,
+  { allow })`; `lightViewsOf(port)`, `lightCamerasCode(views)`, `lightCamerasGoneCode()`, `bakeIndirectLightCode()`, `brightnessGrid(picture)`,
+  `compareLight(goldsrc, sbox, { ratio, likeness })`; `compileFailures(answered, paths)`.
+- `findSbox({ folder, env })` → s&box's folder (`SMAK_SBOX`, `FACEPUNCH_ENGINE`, a Steam library);
+  `compileVmdl(assets, vmdl, { sbox, timeout, materials })` → `{ compiled, said, notes, took }`, throwing what the
+  compiler said, or which of `materials` (the .vmat files it wears, named in the same run) it did not compile.
+- `portToSource(...)` also returns `parts`: its SMDs as data by path (`smd`), its `bones`, `bodygroups`, `skins`,
+  `textures` (pixels and flags), `sequences` (each with its `index` in the original), `attachments`, `hitboxes` and
+  `eyes`, which the s&box port writes from; `portToSbox` hands them on as its `parts`.
+- `checkSboxPort(file, { project, name, folder, kind, collision, surfaceprop, mass, sbox, perSequence = 2, tolerance =
+  0.1, look = true, shot })` → `{ passed, faults, said, worst, looks, shot, opened }` (async): the port read back and posed in the
+  project's editor and held to the original. Its parts: `expectedOf(src, port, { groups, perSequence })` (the bones,
+  animations' lengths, parts, skins, attachments, hit boxes, GoldSrc's poses at the sampled frames, each blend's too, and `physics`:
+  the hulls, masses and joints written, and the poses to hold the ragdoll in; and `graph`, `graphParameters`,
+  `graphSamples`, `graphPoses`: its graph's blends at their start, middle and end), `probeCode(vmdl, samples,
+  graphSamples)` (the C# that reads and poses it, and plays its graph), `soundProbeCode(vmdl, sounds,
+  soundEvents)` and `compareSounds(expected, read)` (its sounds read back, played, and its animations' sound events
+  heard), `blendedPoseAt(src, seq, frame, share,
+  groups)` (every bone's matrix `share` of the way from an animation's first blend to its second, as GoldSrc's
+  renderer mixes them), `removeProbeCode()`, `compareSbox(expected, read, { tolerance })` → `{ passed, faults,
+  said, worst }`, `POSE_TOLERANCE` (0.1 units) and `REACH_TOLERANCE` (0.0005 of a bone's chain);
+  `physicsProbeCode(vmdl, poses)` (the C# that reads its physics and tries it in worlds of its own: at rest, posed,
+  dropped), `comparePhysics(expected, read)` → `{ faults, said }`, `REST_HOLD` (0.1 units), `POSE_HOLD` (1),
+  `LIMIT_MARGIN` (5 degrees), `STRETCH_MOST` (0.5 units), `HULL_TOLERANCE` (0.5 units), `DROP_TOLERANCE` (dropped,
+  through the floor or a joint apart: 1 unit or 0.01 of its size, whichever is more). How it looks:
+  `lookViewsOf({ mid, far })` → `{ mid, dist, views }` (LOOK's four eyes), `lookKitOf(src, looks)` → `{ kit, skip }`
+  (the kit's pictures, and each one's chrome pixels), `lookProbeCode(vmdl, views)` (the C# that draws it in a scene
+  of its own), `compareLooks(kit, sbox, { skip })` → `{ views, shape, colour, faults }`; `LOOK`, `LOOK_SHAPE` (0.95),
+  `LOOK_COLOUR` (0.12 of the regions), `LOOK_REGION_FAR` (80).
+- The editor, through sbox-cli: `editorFor(project, { sbox, wait })` → `{ opened, close() }` (async: the one open, or
+  one opened that close() closes), `sboxCall(project, tool, args)`, `runCsharp(project, code)`, `projectFolder(project)`,
+  `compileAssets(project, paths)` (the editor's asset_compile, the paths it could not compile),
+  `sboxCli(sbox)`.
 
 ## Playing a map in the game (`src/play.mjs`, exported as `play`)
 
@@ -760,6 +946,21 @@ that runs a browser build of Xash3D. `playwright` is the Playwright module (`{ c
 holds its `node_modules`; `engine` and `readyFlag` are the page's names for the engine's Emscripten module and
 for the flag it sets when the engine takes commands. Nothing is opened before `ready()`.
 
+`play.nativeDriver({ halfLife, mod = "valve", exe = "hl.exe", width = 1024, height = 768, args = [],
+readyWithin = 90000, enterWithin = 120000, answerWithin = 20000, input = false, quiet = 5000, quietWithin = 60000,
+pictures = "console", spawn, windows })` → a driver for the person's own game from Steam, by its console
+(`smak play native`; src/play-native.mjs says how). `halfLife` is the
+Half-Life folder (unless told, `findHalfLife`'s), `mod` the game's folder in it. `command(text)` resolves when
+the game has run it, a `map` once the player is in (the driver then says `SMAK entered <map>`, its `loaded`,
+which a session waits for in place of the profile's line); `shot(file)` is the game's own screenshot as a PNG;
+`windowShot(file)` is its window as the person sees it (every `shot`, with `pictures: "window"`); keys and
+the mouse are real ones only with `input: true` (the person asked first), sent while its window is in front
+once the hands have been off `quiet` ms, and the run stopped when they touch the machine; without it a key
+throws and there is no `mouseDown`; `close()` quits the game, or ends it by its process id, and takes its `smak_*.cfg`
+files out of the mod's folder. `spawn` is how the program is started (a test's fake engine), `windows` how the
+window helper is made (src/play-window.mjs's `windowHelper`; a test's fake).
+`play.pngOfTga(bytes)` → a TGA screenshot (24 or 32 bits, raw or run-length) as a PNG's bytes.
+
 `play.playwrightFrom(folder)` → the Playwright module of that folder's `node_modules`, looked for there and
 nowhere else; it throws a sentence when it is not there. `play.playPartOf(mod)` → the profile's `play` field
 made whole from `GOLDSRC`'s: `{ enter, say, loads, yawspeed, screen }`.
@@ -767,7 +968,8 @@ made whole from `GOLDSRC`'s: `{ enter, say, loads, yawspeed, screen }`.
 A session (`docs/PLAY.md` has the whole of it): `play.playSession({ driver, mod, pause, tell, over })` →
 `{ ready(), run(run), close(), state }`. `over: [{ path: "msc", folder }]`: folders laid over the game's files,
 marked as the session begins; a `run({ ..., over })` that names one puts every file in it new or changed since
-(size or time) and moves the mark on. `play.serveSession({ session, port = 8098, host, tell, beat = 30000 })`
+(size or time) and moves the mark on; a `run({ ..., shrink: 3 })` writes each picture that many times smaller each way
+(`play.smallerPng(bytes, k)`; `smak play` asks 3 unless `--full-pictures`). `play.serveSession({ session, port = 8098, host, tell, beat = 30000 })`
 serves it: a run's answer is a line of JSON a thing done, with `{ beat }` every `beat` ms while the run is quiet.
 `play.attachSession(address, run, { tell })` does a run there and reads its answer with `node:http`, with no
 time limit (a fight of fifteen minutes reports its result). A fight's `prefer`, `sidestep` and `dodge`, and the
@@ -993,7 +1195,7 @@ texels), chartDiag, aoFollow, aoFollowAll (darker where the surface is hidden: a
 | `textureOfPicture(img, { box, scale, ground, tolerance })` | A picture of an atlas: the painting told from its ground (the commonest colour of the box's border unless given), brought back to one pixel a texel (`scale`, or found from the period of its hard steps, `periodOf`: a screenshot of an editor's UV view at 4 pixels a texel reads 4.00). `{ measures, atlases, scale }`. `atlasOfPicture`, `atlasOfTexture(tex, tris)`, `textureMeasures(atlases)` under it. |
 | `referenceOfMeasures(list)` | A reference of several figures (the game's own, or of the manner wanted): each measure's median. |
 | `judgeTexture(measures, data, games, ref, { leave, refName, yard })` | `{ fit, findings, toward, refDistance, refPlace, refCorpusMedian }`: the corpus measure by measure, then the reference (`{ measures }` or the measures), each measure apart in yardsticks (the library's middle halves over all its figures, `textureYardstick`), the distance over every measure both have, and the share of the corpus' figures nearer the reference. `textureTold(name, verdict, games, refName)` in words. |
-| `validateTexture(data, { refs, weights, games, alike })`, `textureSheet(items, data)`, `textureSeparation(data, { games, of })` | The validation (AUC, who stands best where, the references against each corpus); a picture of atlases side by side with every measure as a bar over the library's spread. |
+| `validateTexture(data, { refs, weights, games, alike })`, `textureSheet(items, data, { scale })`, `textureSeparation(data, { games, of })` | The validation (AUC, who stands best where, the references against each corpus); a picture of atlases side by side (`scale` pixels a texel, 3) with every measure as a bar over the library's spread. |
 
 ### The shape judge (`shape.mjs`, `silhouettes.mjs`, `judge-shape.mjs`)
 
@@ -1009,7 +1211,7 @@ near twin), boxes. Holes and notches are also told by band of the height (`BANDS
 | `masksLikeReference(src, { pose, views, background, scale })` | A model drawn as a reference's figure is seen: in `pose` (a pose made to match the reference's), each view `{ mask, yaw, pitch, dist, fov, target }` from the reference's camera in perspective, framed so its top, bottom and middle across stand where the reference mask's figure does. → masks for `shapeOfModel(src, { masks })`: like with like. |
 | `shapeOfReference(masks)`, `shapeOfMasks(masks)`, `masksOnViewport(img, views)` | A reference from masks by view (`{ view: { mask, img } }`, `img` the picture under it for the inside's edges), summarised over its own views; masks cut from a screenshot of an editor's viewport (`maskOnViewport`: its grey ground, grid, axis lines and gizmos taken out). |
 | `silhouetteMeasures(mask, img)`, `modelSilhouettes(src, { views })`, `summary(views, names)` | One silhouette brought to 400 pixels tall and measured; a model's views; their summary. |
-| `judgeShape(x, data, games, ref, refName, { leave, yard })` | As the texture judge's, with the band or part at fault (`shapeWhere`); the reference's distance over the silhouette measures (`PICTURE_KEYS`). `shapeTold`, `validateShape(data, { refs, ours, reference, weights, games, alike })`, `shapeSheet(items)`. |
+| `judgeShape(x, data, games, ref, refName, { leave, yard })` | As the texture judge's, with the band or part at fault (`shapeWhere`); the reference's distance over the silhouette measures (`PICTURE_KEYS`). `shapeTold`, `validateShape(data, { refs, ours, reference, weights, games, alike })`, `shapeSheet(items, { scale })` (the silhouettes at `scale` of their size, 0.75). |
 
 What the research found: holes as a share are a trustworthy measure of a
 screenshot's mask, `holeCount` is not (it moves with the mask's settings); holes and asymmetry depend on the pose

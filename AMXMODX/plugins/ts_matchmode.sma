@@ -74,7 +74,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.54-turret8"
+#define TSM_BUILD "1.54-lift3"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -707,10 +707,10 @@ new g_cv_musicvol, g_cv_startsound;   // tsm_startsound gates the round-start an
  * cut. music_is_wav() below has to know about index 6 as well as index 5, or this would put the
  * same problem straight back, worse.
  */
-new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav", "vangelis.wav", "floatingmuseum.mp3", "grammaton_cleric.mp3", "burned.mp3", "supression.mp3", "alwaysknew.mp3", "equilibrium_suite.mp3" };
-new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0, 618.8, 305.6, 78.5, 129.9, 147.9, 306.9, 1105.2 };
-new g_music_order[13] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
-new g_music_pos = 13;        // matches sizeof g_music_order: forces a shuffle before the first track
+new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav", "vangelis.wav", "floatingmuseum.mp3", "grammaton_cleric.mp3", "burned.mp3", "supression.mp3", "alwaysknew.mp3", "equilibrium_suite.mp3", "equilibrium_final_countdown.mp3" };
+new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0, 618.8, 305.6, 78.5, 129.9, 147.9, 306.9, 1105.2, 858.0 };
+new g_music_order[14] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 };   // one slot per track in g_music_mp3
+new g_music_pos = 14;        // matches sizeof g_music_order: forces a shuffle before the first track
 new g_music_cur = -1;        // the track currently playing, -1 before the first
 new bool:g_music_off[MAXPL];
 
@@ -878,6 +878,7 @@ new g_turret_boom;        // the explosion sprite's index
 new g_turret_blood, g_turret_bloodspray;   // the blood sprites a hit shows, 0 when the game has none
 new g_turret_flash;   // TS's own muzzle flash sprite, 0 when the game has none
 new g_turret_trail, bool:g_turret_bullet;   // TS's slow-motion bullet trail and its bullet model, 0/false when missing
+new g_cv_turret_resist;   // the share of every hit its armour turns aside
 new g_cv_turret, g_cv_turret_per_team, g_cv_turret_hp, g_cv_turret_range, g_cv_turret_dmg;
 new g_cv_turret_rate, g_cv_turret_spread, g_cv_turret_repair, g_cv_turret_repaircd;
 new const g_turret_fire_snd[][] = { "turret/turret-1.wav", "turret/turret-2.wav", "turret/turret-3.wav", "turret/turret-4.wav" };
@@ -4641,20 +4642,22 @@ public plugin_init()
 	// Shown instead of tsm_gamedesc, on maps that have siege objectives (tsm_obj_1 and
 	// on) -- siege_count() decides which, refresh_gamedesc() picks between them.
 	g_cv_gamedesc_siege = register_cvar("tsm_gamedesc_siege", "Siege");
-	// The siege progress the Discord presence helper reads from the server rules: "2/5" on a siege
-	// map, empty elsewhere. refresh_presence() writes it, so nothing sets it by hand.
-	g_cv_presiege = register_cvar("tsm_pres_siege", "", FCVAR_SERVER);
-	g_cv_presattack = register_cvar("tsm_pres_attack", "", FCVAR_SERVER);
-	g_cv_presside1 = register_cvar("tsm_pres_side1", "", FCVAR_SERVER);
-	g_cv_presside2 = register_cvar("tsm_pres_side2", "", FCVAR_SERVER);
-	g_cv_presalive1 = register_cvar("tsm_pres_alive1", "", FCVAR_SERVER);
-	g_cv_presalive2 = register_cvar("tsm_pres_alive2", "", FCVAR_SERVER);
+	// What the Discord card reads, written by refresh_presence() through pres_set into the serverinfo
+	// the client is sent: the siege progress ("2/5" on a siege map, empty elsewhere) and the rest
+	// below. Plain cvars, not FCVAR_SERVER: a server cvar never reaches serverinfo, and each change
+	// of one is printed to every player as "x" changed to "y".
+	g_cv_presiege = register_cvar("tsm_pres_siege", "");
+	g_cv_presattack = register_cvar("tsm_pres_attack", "");
+	g_cv_presside1 = register_cvar("tsm_pres_side1", "");
+	g_cv_presside2 = register_cvar("tsm_pres_side2", "");
+	g_cv_presalive1 = register_cvar("tsm_pres_alive1", "");
+	g_cv_presalive2 = register_cvar("tsm_pres_alive2", "");
 	// The mode's key ("match", "siege", or a claimed mode's: "uplink", "survival", "mechwarrior"),
 	// empty with tsm_enabled 0: the card picks its details line by it. The mode plugins publish
 	// their own progress beside it.
-	g_cv_presmode = register_cvar("tsm_pres_mode", "", FCVAR_SERVER);
+	g_cv_presmode = register_cvar("tsm_pres_mode", "");
 	// And its progress, in the mode's own short form ("1/2/3/1" zones and carrier, "12" a wave).
-	g_cv_presprog = register_cvar("tsm_pres_prog", "", FCVAR_SERVER);
+	g_cv_presprog = register_cvar("tsm_pres_prog", "");
 
 	/*
 	 * The mode API's forwards. A mode plugin implements whichever it needs as a public of the
@@ -4709,11 +4712,12 @@ public plugin_init()
 	// and its repair.
 	g_cv_turret          = register_cvar("tsm_turret",                 "1");
 	g_cv_turret_per_team = register_cvar("tsm_turret_per_team",        "2");
-	g_cv_turret_hp       = register_cvar("tsm_turret_hp",              "250");
+	g_cv_turret_hp       = register_cvar("tsm_turret_hp",              "400");
+	g_cv_turret_resist   = register_cvar("tsm_turret_resist",          "0.5");
 	g_cv_turret_range    = register_cvar("tsm_turret_range",           "1000");
-	g_cv_turret_dmg      = register_cvar("tsm_turret_damage",          "48");
+	g_cv_turret_dmg      = register_cvar("tsm_turret_damage",          "72");
 	g_cv_turret_rate     = register_cvar("tsm_turret_rate",            "8.0");
-	g_cv_turret_spread   = register_cvar("tsm_turret_spread",          "2.0");
+	g_cv_turret_spread   = register_cvar("tsm_turret_spread",          "1.5");
 	g_cv_turret_repair   = register_cvar("tsm_turret_repair",          "100");
 	g_cv_turret_repaircd = register_cvar("tsm_turret_repair_cooldown", "30");
 
@@ -13519,7 +13523,8 @@ bool:classname_in_list(pcvar, const classname[])
 	return false;
 }
 
-/// True when name appears in any of tsm_breachdoor_1..8.
+/// True when name appears in any of tsm_breachdoor_1..8, or begins with tsm_breach_ -- a map's own breach door,
+/// which needs no list (and so works on a server that runs no map config).
 ///
 /// Those lists accept comma OR space separation. The split is done locally, onto a
 /// scratch copy with the spaces folded to commas -- classname_in_list cannot be used
@@ -13529,6 +13534,10 @@ bool:breachdoor_listed(const name[])
 	if (!name[0])
 	{
 		return false;
+	}
+	if (equali(name, "tsm_breach_", 11))
+	{
+		return true;
 	}
 
 	for (new i = 0; i < 8; i++)
@@ -14133,7 +14142,10 @@ turret_fire(t, Float:pivot[3], Float:yaw, Float:pitch)
 		{
 			by = ent;
 		}
+		new before = get_user_health(hit);
 		ExecuteHamB(Ham_TakeDamage, hit, ent, by, get_pcvar_float(g_cv_turret_dmg), DMG_BULLET);
+		dbgv("turret %d hit %d for %.0f: health %d -> %d", t, hit, get_pcvar_float(g_cv_turret_dmg), before,
+			is_user_alive(hit) ? get_user_health(hit) : 0);
 	}
 }
 
@@ -14249,7 +14261,8 @@ turret_damage(t, attacker, Float:damage)
 	{
 		return;
 	}
-	g_turret_hp[t] -= damage;
+	// its armour turns aside tsm_turret_resist of every hit (never all of it)
+	g_turret_hp[t] -= damage * (1.0 - floatclamp(get_pcvar_float(g_cv_turret_resist), 0.0, 0.95));
 	new ent = g_turret[t];
 	set_pev(ent, pev_health, g_turret_hp[t] > 1.0 ? g_turret_hp[t] : 1.0);
 	// Metal hammered, on every hit, as a mech's armour rings: one fixed channel, so each clang takes
@@ -17168,23 +17181,44 @@ presence_side_count(side)
 	return n;
 }
 
-/// What the Discord card reads, published as server cvars once a second: the siege progress
+/// What the Discord card reads, published into serverinfo (pres_set) once a second: the siege progress
 /// ("2/5" on a siege map, empty elsewhere; between rounds a siege map reads 0 of its
 /// objectives), the side that attacks the objectives ("1" or "2", empty elsewhere), and how
 /// many players each side has, and how many of them are alive.
+/*
+ * One of the card's values, kept in its cvar and, on Xash, in serverinfo: "serverinfo <key> <value>"
+ * sets it there and sends every client the whole string again, which is what the card reads from.
+ * Only when it changed, since each send is the whole string to everyone. Steam's GoldSrc has no such
+ * command, and no client of it reads the card, so there the cvar alone is kept.
+ */
+pres_set(pcvar, const key[], const value[])
+{
+	new was[64];
+	get_pcvar_string(pcvar, was, charsmax(was));
+	if (equal(was, value))
+	{
+		return;
+	}
+	set_pcvar_string(pcvar, value);
+	if (g_xash)
+	{
+		server_cmd("serverinfo %s ^"%s^"", key, value);
+	}
+}
+
 refresh_presence()
 {
 	// The match mode off: nothing for the card but the map's own name and the player counts.
 	if (!get_pcvar_num(g_cv_enabled))
 	{
-		set_pcvar_string(g_cv_presiege, "");
-		set_pcvar_string(g_cv_presattack, "");
-		set_pcvar_string(g_cv_presmode, "");
-		set_pcvar_string(g_cv_presprog, "");
-		set_pcvar_string(g_cv_presside1, "");
-		set_pcvar_string(g_cv_presside2, "");
-		set_pcvar_string(g_cv_presalive1, "");
-		set_pcvar_string(g_cv_presalive2, "");
+		pres_set(g_cv_presiege, "tsm_pres_siege", "");
+		pres_set(g_cv_presattack, "tsm_pres_attack", "");
+		pres_set(g_cv_presmode, "tsm_pres_mode", "");
+		pres_set(g_cv_presprog, "tsm_pres_prog", "");
+		pres_set(g_cv_presside1, "tsm_pres_side1", "");
+		pres_set(g_cv_presside2, "tsm_pres_side2", "");
+		pres_set(g_cv_presalive1, "tsm_pres_alive1", "");
+		pres_set(g_cv_presalive2, "tsm_pres_alive2", "");
 		return;
 	}
 	new count = siege_count();
@@ -17196,41 +17230,41 @@ refresh_presence()
 		formatex(text, charsmax(text), "%d/%d", (g_state == ST_LIVE) ? g_obj_taken : 0, count);
 		num_to_str(get_pcvar_num(g_cv_objteam), attack, charsmax(attack));
 	}
-	set_pcvar_string(g_cv_presiege, text);
-	set_pcvar_string(g_cv_presattack, attack);
+	pres_set(g_cv_presiege, "tsm_pres_siege", text);
+	pres_set(g_cv_presattack, "tsm_pres_attack", attack);
 	// The mode, named whenever match mode runs, so the card never has to guess on an H9 server: the
 	// claimed mode's key ("uplink", "survival", "mechwarrior"), else "siege" on a siege map, else
 	// "match". Empty with tsm_enabled 0: the card then names the mode by the map.
 	if (!get_pcvar_num(g_cv_enabled))
 	{
-		set_pcvar_string(g_cv_presmode, "");
+		pres_set(g_cv_presmode, "tsm_pres_mode", "");
 	}
 	else if (g_mode_name[0])
 	{
-		set_pcvar_string(g_cv_presmode, g_mode_name);
+		pres_set(g_cv_presmode, "tsm_pres_mode", g_mode_name);
 	}
 	else
 	{
-		set_pcvar_string(g_cv_presmode, (count > 0) ? "siege" : "match");
+		pres_set(g_cv_presmode, "tsm_pres_mode", (count > 0) ? "siege" : "match");
 	}
 	if (g_mode_name[0])
 	{
-		set_pcvar_string(g_cv_presprog, g_mode_prog);
+		pres_set(g_cv_presprog, "tsm_pres_prog", g_mode_prog);
 	}
 	else
 	{
-		set_pcvar_string(g_cv_presprog, "");
+		pres_set(g_cv_presprog, "tsm_pres_prog", "");
 	}
 
 	num_to_str(presence_side_count(1), num, charsmax(num));
-	set_pcvar_string(g_cv_presside1, num);
+	pres_set(g_cv_presside1, "tsm_pres_side1", num);
 	num_to_str(presence_side_count(2), num, charsmax(num));
-	set_pcvar_string(g_cv_presside2, num);
+	pres_set(g_cv_presside2, "tsm_pres_side2", num);
 
 	num_to_str(count_alive(1), num, charsmax(num));
-	set_pcvar_string(g_cv_presalive1, num);
+	pres_set(g_cv_presalive1, "tsm_pres_alive1", num);
 	num_to_str(count_alive(2), num, charsmax(num));
-	set_pcvar_string(g_cv_presalive2, num);
+	pres_set(g_cv_presalive2, "tsm_pres_alive2", num);
 }
 
 public fw_prethink(id)
@@ -21532,6 +21566,7 @@ watch_enabled()
 	{
 		restore_all();
 		turrets_clear();
+		music_stop_all();
 	}
 	g_was_enabled = enabled;
 }
@@ -21703,15 +21738,46 @@ public cmd_music(id, level, cid)
 }
 
 // A track for every player who wants it, then the next one armed for when it ends.
-// One at a time, so two tracks can never overlap on the same client.
+// One at a time, so two tracks can never overlap on the same client. With tsm_enabled 0
+// the server is running TS's own game and nothing plays: the queue looks again every
+// MUSIC_IDLE_POLL seconds, so the music starts once the match mode is turned on.
+#define MUSIC_IDLE_POLL 10.0
 public task_music_queue()
 {
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		g_music_cur = -1;
+		set_task(MUSIC_IDLE_POLL, "task_music_queue", TSM_TASK_MUSIC);
+		return;
+	}
+
 	new idx = music_next();
 	g_music_cur = idx;
 	music_play(idx, 0);
 	tlog("[TSM] Ambient music: %s", g_music_mp3[idx]);
 
 	set_task(g_music_len[idx] + 2.0, "task_music_queue", TSM_TASK_MUSIC);
+}
+
+// Stops the ambient track for everyone when the match mode is turned off, and sets the
+// queue looking again: it starts a fresh track once tsm_enabled is back on.
+music_stop_all()
+{
+	if (g_music_cur < 0)
+	{
+		return;
+	}
+	g_music_cur = -1;
+	new players[32], pnum;
+	get_players(players, pnum, "c");
+	for (new i = 0; i < pnum; i++)
+	{
+		// the same pair cmd_music sends: mp3 stop for the mp3 tracks, stopsound for the wavs
+		client_cmd(players[i], "mp3 stop");
+		client_cmd(players[i], "stopsound");
+	}
+	remove_task(TSM_TASK_MUSIC);
+	set_task(MUSIC_IDLE_POLL, "task_music_queue", TSM_TASK_MUSIC);
 }
 
 // A fresh player joins the track that is already playing rather than waiting out a

@@ -179,29 +179,39 @@ export const HITGROUP = {
   rightLeg: 7,
 };
 /**
- * The names of a sequence's `activity` number (the SDK's activity.h), by which a monster's code asks for
- * "a walk" without knowing the sequence's name. Only numbers met in Half-Life's own models are here
- * (zombie.mdl, hgrunt.mdl, headcrab.mdl), each on a sequence that fits it: "walk" has 3, "reload_mp5" 32,
- * "victorydance" 65, "diegutshot" 68. The spellings are activity.h's as remembered, not read from it, and for
- * a few the sequence's name bears out only that the number is used (5 is on hgrunt's "repel_shoot", 28 on its
- * "crouching_mp5", 40 to 43 on "barnacled1" to "barnacled4"). A number that is not here has a name too,
- * which this kit does not know.
+ * The names of a sequence's `activity` number (the SDK's activity.h, in its order: ACT_IDLE = 1 to
+ * ACT_FLINCH_RIGHTLEG = 76; 0 is none, the sequence asked for by its name alone), by which a monster's code asks
+ * for "a walk" without knowing the sequence's name. The order was held to the sequences of Half-Life's 301
+ * models (2026-10-25), each number on sequences that fit its name: "walk_scared" 63, "run1" 64, "draw" and
+ * "pull_needle" 33, "disarm" 34, "chewcycle" 35, "fear1" 58, "combatidle" and "madidle" 47, "drop_grenade" 60,
+ * "repel_repel" 51, "threat" 57, "victorydance" 65, "diegutshot" 68. A number past 76 is a mod's own
+ * (Half-Life's tentacle has 1010 to 1044), named only by its game's code.
  */
 export const ACTIVITY = {
   1: "ACT_IDLE",
+  2: "ACT_GUARD",
   3: "ACT_WALK",
   4: "ACT_RUN",
   5: "ACT_FLY",
+  6: "ACT_SWIM",
+  7: "ACT_HOP",
+  8: "ACT_LEAP",
   9: "ACT_FALL",
   10: "ACT_LAND",
   11: "ACT_STRAFE_LEFT",
   12: "ACT_STRAFE_RIGHT",
+  13: "ACT_ROLL_LEFT",
+  14: "ACT_ROLL_RIGHT",
   15: "ACT_TURN_LEFT",
   16: "ACT_TURN_RIGHT",
   17: "ACT_CROUCH",
+  18: "ACT_CROUCHIDLE",
+  19: "ACT_STAND",
+  20: "ACT_USE",
   21: "ACT_SIGNAL1",
   22: "ACT_SIGNAL2",
   23: "ACT_SIGNAL3",
+  24: "ACT_TWITCH",
   25: "ACT_COWER",
   26: "ACT_SMALL_FLINCH",
   27: "ACT_BIG_FLINCH",
@@ -210,19 +220,46 @@ export const ACTIVITY = {
   30: "ACT_MELEE_ATTACK1",
   31: "ACT_MELEE_ATTACK2",
   32: "ACT_RELOAD",
+  33: "ACT_ARM",
+  34: "ACT_DISARM",
+  35: "ACT_EAT",
   36: "ACT_DIESIMPLE",
   37: "ACT_DIEBACKWARD",
   38: "ACT_DIEFORWARD",
+  39: "ACT_DIEVIOLENT",
   40: "ACT_BARNACLE_HIT",
   41: "ACT_BARNACLE_PULL",
   42: "ACT_BARNACLE_CHOMP",
   43: "ACT_BARNACLE_CHEW",
-  47: "ACT_COMBAT_IDLE",
+  44: "ACT_SLEEP",
+  45: "ACT_INSPECT_FLOOR",
+  46: "ACT_INSPECT_WALL",
+  47: "ACT_IDLE_ANGRY",
   48: "ACT_WALK_HURT",
   49: "ACT_RUN_HURT",
+  50: "ACT_HOVER",
+  51: "ACT_GLIDE",
+  52: "ACT_FLY_LEFT",
+  53: "ACT_FLY_RIGHT",
+  54: "ACT_DETECT_SCENT",
+  55: "ACT_SNIFF",
+  56: "ACT_BITE",
+  57: "ACT_THREAT_DISPLAY",
+  58: "ACT_FEAR_DISPLAY",
+  59: "ACT_EXCITED",
+  60: "ACT_SPECIAL_ATTACK1",
+  61: "ACT_SPECIAL_ATTACK2",
+  62: "ACT_COMBAT_IDLE",
+  63: "ACT_WALK_SCARED",
+  64: "ACT_RUN_SCARED",
   65: "ACT_VICTORY_DANCE",
   66: "ACT_DIE_HEADSHOT",
+  67: "ACT_DIE_CHESTSHOT",
   68: "ACT_DIE_GUTSHOT",
+  69: "ACT_DIE_BACKSHOT",
+  70: "ACT_FLINCH_HEAD",
+  71: "ACT_FLINCH_CHEST",
+  72: "ACT_FLINCH_STOMACH",
   73: "ACT_FLINCH_LEFTARM",
   74: "ACT_FLINCH_RIGHTARM",
   75: "ACT_FLINCH_LEFTLEG",
@@ -1060,7 +1097,7 @@ export function restPose(mdl) {
 }
 /**
  * The model's animations: [{ name, fps, frames, loops, flags, activity, actweight, movement, motiontype,
- * speed, bbmin, bbmax, blends, group }] (mstudioseqdesc_t, 176 bytes).
+ * speed, bbmin, bbmax, blends, blendtype, blendstart, blendend, group }] (mstudioseqdesc_t, 176 bytes).
  *  `loops`: the sequence is marked looping (STUDIO_LOOPING, the one bit studio.h gives `flags`).
  *  `activity`: what a monster's code asks for it as (ACTIVITY has the names; 0: only by its name), and
  *  `actweight` how often it is picked among the sequences of one activity.
@@ -1069,6 +1106,10 @@ export function restPose(mdl) {
  *  SDK's GetSequenceInfo gives a monster as m_flGroundSpeed; the engine also plays a player's legs by it, in
  *  StudioProcessGait). `motiontype`: the MOTION bits, LX LY LZ for the axes of `movement`.
  *  `bbmin`, `bbmax`: the box about the model through the whole sequence, in the model's space.
+ *  `blends`: how many animations it blends between (1: none). `blendtype`, `blendstart`, `blendend`: for each
+ *  of its two axes, the MOTION bit the game's value turns (XR, a pitch, on Half-Life's aiming) and the values the
+ *  first and the last blend stand for (barney.mdl's shootgun: XR, -50 to 50); the game's 0 to 255 is laid over
+ *  that range. Of four blends, the first two are the second axis's start, the next two its end.
  *  `group`: not 0 when the animation is kept in another file (poseAt cannot read it).
  *  `move` and `motion` are `movement` and `motiontype` under their older names.
  */
@@ -1097,6 +1138,9 @@ export function sequences(mdl) {
       bbmin: vec3At(mdl, seq + SEQ.bbmin),
       bbmax: vec3At(mdl, seq + SEQ.bbmax),
       blends: int32(mdl, seq + SEQ.numblends),
+      blendtype: [0, 1].map((axis) => int32(mdl, seq + SEQ.blendtype + axis * 4)),
+      blendstart: [0, 1].map((axis) => mdl.readFloatLE(seq + SEQ.blendstart + axis * 4)),
+      blendend: [0, 1].map((axis) => mdl.readFloatLE(seq + SEQ.blendend + axis * 4)),
       group: int32(mdl, seq + SEQ.seqgroup),
     };
   });
@@ -1309,11 +1353,14 @@ function scalesFor(rest, sequences) {
     CHANNELS.map((j) => {
       let widest = 0;
       for (const sequence of sequences)
-        for (const frame of sequence.frames) widest = Math.max(widest, Math.abs(frame[i][j] - restOfBone[j]));
+        for (const frames of blendsOf(sequence))
+          for (const frame of frames) widest = Math.max(widest, Math.abs(frame[i][j] - restOfBone[j]));
       return widest ? widest / STEPS_USED : restScale(j);
     }),
   );
 }
+/** A sequence's frames, blend by blend: its own `frames`, then each of `blendFrames`. */
+const blendsOf = (sequence) => [sequence.frames, ...(sequence.blendFrames ?? [])];
 /** A channel's values as runs of up to 255, every value written (none held). */
 function plainRuns(steps) {
   const runs = [];
@@ -1412,7 +1459,7 @@ function writeSequences(file, sequences, { rest, scale, parents, carried, boxes 
   const table = Buffer.alloc(sequences.length * SEQ.sizeof);
   // for a model of no points, the box it had before boxes were measured: every position any bone takes in
   // any frame, and LEAST_BOX each way at the least
-  const allValues = sequences.flatMap((sequence) => sequence.frames.flat());
+  const allValues = sequences.flatMap((sequence) => blendsOf(sequence).flat(2));
   const plain = {
     min: [0, 1, 2].map((axis) => allValues.reduce((v, six) => Math.min(v, six[axis]), -LEAST_BOX)),
     max: [0, 1, 2].map((axis) => allValues.reduce((v, six) => Math.max(v, six[axis]), LEAST_BOX)),
@@ -1420,15 +1467,21 @@ function writeSequences(file, sequences, { rest, scale, parents, carried, boxes 
   // every sequence's box together: what the header says when it is not told
   const whole = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
   sequences.forEach((sequence, q) => {
-    const anim = animTable(rest.length);
-    for (let i = 0; i < rest.length; i++)
-      for (const j of CHANNELS) {
-        const steps = sequence.frames.map((frame) => Math.round((frame[i][j] - rest[i][j]) / scale[i][j]));
-        if (steps.every((step) => !step)) continue;
-        if (!anim.put(i, j, plainRuns(steps))) throw new Error(`the animation ${sequence.name} is too long`);
-      }
     const entry = q * SEQ.sizeof;
     const said = `${sequence.name}: `;
+    const blends = blendsOf(sequence);
+    if (blends.some((frames) => frames.length !== sequence.frames.length))
+      throw new Error(`${said}every blend has as many frames as its frames (${sequence.frames.length})`);
+    // the tables of every blend first, then each channel's values, as the compiler lays them
+    const anim = animTable(blends.length * rest.length);
+    blends.forEach((frames, blend) => {
+      for (let i = 0; i < rest.length; i++)
+        for (const j of CHANNELS) {
+          const steps = frames.map((frame) => Math.round((frame[i][j] - rest[i][j]) / scale[i][j]));
+          if (steps.every((step) => !step)) continue;
+          if (!anim.put(blend * rest.length + i, j, plainRuns(steps))) throw new Error(`the animation ${sequence.name} is too long`);
+        }
+    });
     writeName(table, entry + SEQ.label, sequence.name, SHORT_NAME);
     table.writeFloatLE(sequence.fps, entry + SEQ.fps);
     table.writeInt32LE((sequence.flags ?? 0) | (sequence.loops ? STUDIO_LOOPING : 0), entry + SEQ.flags);
@@ -1441,7 +1494,7 @@ function writeSequences(file, sequences, { rest, scale, parents, carried, boxes 
     writeVec3(table, entry + SEQ.linearmovement, movement);
     // its box: told, or measured about the model's points through its frames
     const measured =
-      sequence.bbmin && sequence.bbmax ? null : (boxThrough(parents, carried, [sequence.frames]) ?? plain);
+      sequence.bbmin && sequence.bbmax ? null : (boxThrough(parents, carried, blends) ?? plain);
     const bbmin = threeNumbers(sequence.bbmin ?? measured.min, `${said}bbmin`);
     const bbmax = threeNumbers(sequence.bbmax ?? measured.max, `${said}bbmax`);
     writeVec3(table, entry + SEQ.bbmin, bbmin);
@@ -1454,7 +1507,12 @@ function writeSequences(file, sequences, { rest, scale, parents, carried, boxes 
       table.writeInt32LE(sequence.events.length, entry + SEQ.numevents);
       table.writeInt32LE(add(eventTable(sequence.events)), entry + SEQ.eventindex);
     }
-    table.writeInt32LE(1, entry + SEQ.numblends);
+    table.writeInt32LE(blends.length, entry + SEQ.numblends);
+    for (let axis = 0; axis < 2; axis++) {
+      table.writeInt32LE(sequence.blendtype?.[axis] ?? 0, entry + SEQ.blendtype + axis * 4);
+      table.writeFloatLE(sequence.blendstart?.[axis] ?? 0, entry + SEQ.blendstart + axis * 4);
+      table.writeFloatLE(sequence.blendend?.[axis] ?? (blends.length > 1 && !axis ? 1 : 0), entry + SEQ.blendend + axis * 4);
+    }
     table.writeInt32LE(add(anim.bytes()), entry + SEQ.animindex);
   });
   head.writeInt32LE(sequences.length, HDR.numseq);
@@ -1566,7 +1624,9 @@ function writeTextures(file, textures, skins) {
  * and, for a thing that lives (a monster), what the rest of the format holds:
  *   sequences  each may also say activity and actweight, movement [x, y, z] (how far the model travels in
  *              one play of it, its frames staying in place: see travelBits for the motiontype that sets, or
- *              give motiontype), events [{ frame, event, options, type }], flags, and bbmin and bbmax (its
+ *              give motiontype), events [{ frame, event, options, type }], flags, blendFrames (the frames of each blend
+ *              after its first, `frames`: a gun aimed down, then up) with blendtype, blendstart and blendend
+ *              (each of two axes, as `sequences` reads them), and bbmin and bbmax (its
  *              box, which is otherwise measured about the model's points through its frames, as studiomdl
  *              does: the engine culls by it)
  *   hitboxes   [{ bone (its number or name), group (HITGROUP; 0 unless told), min, max (in the bone's
@@ -1810,6 +1870,11 @@ export function poseOf(mdl, values) {
   const parents = boneParents(mdl);
   return chain(values, (i) => parents[i]);
 }
+/**
+ * Every bone's matrix for a frame of numbers and each bone's parent's number (a parent before its children): what
+ * poseOf gives, for a skeleton that is not the file's (one with bones added).
+ */
+export const poseOfValues = (values, parents) => chain(values, (i) => parents[i]);
 /**
  * The bones as they rest: [{ name, parent, pos [x, y, z], rot [about x, y, z], scale (what one stored step
  * of each of the six is worth) }].

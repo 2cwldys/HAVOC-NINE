@@ -20,34 +20,6 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 set "HERE=%~dp0"
 
-REM ---- Valve's Half-Life files, borrowed from YOUR install on first launch -----
-REM H9XASH ships without valve\: it is Valve's, and owning Half-Life is the price of
-REM entry. Without it the engine stops at once with "couldn't load gfx.wad".
-REM Paths are used through !HERE! inside this block, so a folder name with
-REM parentheses in it cannot end the block early.
-if not exist "valve\gfx.wad" (
-    set "HLVALVE="
-    for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -File "!HERE!find_halflife.ps1"`) do set "HLVALVE=%%P"
-    if not defined HLVALVE (
-        echo.
-        echo  H9XASH needs Half-Life's valve folder, and no Steam Half-Life was found.
-        echo  Copy the valve folder from your Half-Life install into
-        echo      !HERE!
-        echo  so that !HERE!valve\gfx.wad exists, then run this again.
-        echo.
-        pause
-        exit /b 1
-    )
-    echo [h9xash] first launch: copying Half-Life's valve folder from !HLVALVE!
-    echo          ^(once, about 450 MB^)
-    robocopy "!HLVALVE!" "!HERE!valve" /E /XF extras.pk3 /NJH /NJS /NDL /NFL /NP >nul
-    if errorlevel 8 (
-        echo [h9xash] the copy failed -- copy the valve folder by hand, see README_H9XASH.txt
-        pause
-        exit /b 1
-    )
-)
-
 REM ---- server lists and the optional Steam broker ----------------------------------
 REM networking.ini says which HTTP server lists the Internet tab reads, and whether the
 REM Steam broker starts with the game. h9_networking.ps1 writes ts\xashcomm.lst and

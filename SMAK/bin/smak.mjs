@@ -9,6 +9,7 @@
 // function and to its lines of the help.
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, dirname, basename, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import * as smak from "../src/index.mjs";
 import { heightPlanOf } from "../src/maps/heightplan.mjs";
@@ -34,6 +35,15 @@ const BODIES_LISTED = 6;
 const BONES_LISTED = 4;
 // the flags that are followed by a value: one given with nothing after it is said, not guessed at
 const VALUE_FLAGS = [
+  "password",
+  "allow",
+  "seed",
+  "show",
+  "map",
+  "gamemode",
+  "players",
+  "host",
+  "wait",
   "reference",
   "against",
   "landmark",
@@ -142,10 +152,19 @@ const VALUE_FLAGS = [
   "sheet",
   "weights",
   "cfg",
+  "report",
+  "folder",
+  "collision",
+  "studiomdl",
+  "gmod",
+  "addon",
+  "surfaceprop",
+  "mass",
 ];
 // the flags of the map commands that may be given more than once: each time adds to a list
 const LISTED_FLAGS = [
   "game",
+  "ours",
   "focus",
   "dll",
   "wad",
@@ -170,11 +189,18 @@ const LISTED_FLAGS = [
 ];
 // `map-entities` and `map-plan` print no more lines than this of one list unless told all of it is wanted
 const MARKS_PRINTED = 40;
+// a play run that stopped prints this many of the last steps it did (all of them are in its told.txt)
+const STOPPED_STEPS = 4;
+// how many times smaller (each way) `play` writes the pictures it takes, unless --full-pictures
+const PLAY_SHRINK = 3;
 const LIGHTS = ["start", "off", "steady", "all"];
 const MARKED = ["all", "models", "game", "none"];
 const DOORS = ["open", "closed"];
 const VIEWS = ["orbit", "first", ...Object.keys(smak.NAMED_VIEWS)];
-const ENGINES = ["goldsrc", "xash"];
+// the engines --engine names: check holds a model to goldsrc, xash or source; a model spec is built for goldsrc or source
+const ENGINES = ["goldsrc", "xash", "source"];
+// the engines a GoldSrc file is held to wherever it may be played: an item is checked for both
+const GAME_ENGINES = ["goldsrc", "xash"];
 
 // ── the arguments ──────────────────────────────────────────────────────────
 /**
@@ -504,23 +530,77 @@ function info({ file, src, flags }) {
       );
 }
 
+// ── a check's answer, text first ───────────────────────────────────────────
+// how many lines of what a check found a pass prints before the rest are left to its file
+const SHOWN_ON_PASS = 2;
+/**
+ * Where a checking command writes its detail: --report <file>, or a file named after the command and what it
+ * read, in smak/ under the system's temp folder (nothing is written beside a game's files).
+ */
+function reportFile(command, file, flags) {
+  if (typeof flags.report === "string") return flags.report;
+  return join(tmpdir(), "smak", `${command}-${basename(String(file)).replace(/[^A-Za-z0-9_.-]/g, "_")}.txt`);
+}
+/**
+ * A checking command's answer. The detail (every line it printed before 0.27) goes to its report file; the
+ * terminal gets what decides: on a pass the first SHOWN_ON_PASS of `shown`, the file and the PASS line (five
+ * lines at most); on a fail all of `shown` (the errors and warnings, or the findings), the file and the FAIL
+ * line. `look` says which picture to look at, or that none is needed. --verbose prints the detail as before.
+ * The last line is always `PASS: <said>` or `FAIL: <said>`.
+ */
+function answered(command, file, flags, { detail, passed, said, shown = [], look }) {
+  const to = reportFile(command, file, flags);
+  const last = `${passed ? "PASS" : "FAIL"}: ${said}`;
+  save(to, `${[...detail, ...(look ? [look] : []), last].join("\n")}\n`);
+  if (flags.verbose) for (const line of detail) console.log(line);
+  else {
+    const top = passed ? shown.slice(0, SHOWN_ON_PASS) : shown;
+    for (const line of top) console.log(line);
+    const more = shown.length - top.length;
+    console.log(`the detail: ${to}${more ? ` (${more} more lines like these)` : ""}`);
+  }
+  if (look) console.log(look);
+  console.log(last);
+}
+
 // ── check ──────────────────────────────────────────────────────────────────
-function check({ src, flags }) {
+function check({ file, src, flags }) {
   const engine = flags.engine ?? "goldsrc";
   // --source: the file it was made from; what that has too is said as inherited
   const source = flags.source === undefined ? undefined : readModel(existing(flags.source), "check");
   const report = smak.check(src, engine, { source });
-  for (const fact of report.facts) console.log(`      ${fact}`);
-  for (const warning of report.warnings) console.log(`WARN  ${warning}`);
-  for (const error of report.errors) console.log(`ERROR ${error}`);
+  const warnings = report.warnings.map((warning) => `WARN  ${warning}`);
+  const errors = report.errors.map((error) => `ERROR ${error}`);
   const inherited = report.inherited ? ` (${report.inherited} inherited from ${flags.source})` : "";
   const warned = report.warnings.length ? `, with ${report.warnings.length} warnings${inherited}` : "";
-  console.log(
-    report.errors.length
-      ? `${report.errors.length} errors: not fit for ${engine}`
-      : `fit for ${engine}${warned}`,
-  );
+  answered("check", file, flags, {
+    detail: [...report.facts.map((fact) => `      ${fact}`), ...warnings, ...errors],
+    passed: !report.errors.length,
+    said: report.errors.length ? `${report.errors.length} errors: not fit for ${engine}` : `fit for ${engine}${warned}`,
+    shown: [...errors, ...warnings],
+  });
   process.exit(report.errors.length ? 1 : 0);
+}
+
+/**
+ * check --publish: a folder about to be shared, held against the game's files (--game, else the Half-Life
+ * folder Steam has) for what is not the person's to share (src/publish.mjs).
+ */
+function checkPublish({ file, flags, listed }) {
+  if (!statSync(file).isDirectory()) fail(`check --publish: ${file} is a file: give the folder that is to be shared`);
+  const game = listed.game?.[0] ?? maps.findHalfLife();
+  const report = smak.publishCheck(file, { game: game ?? undefined, ours: listed.ours ?? [] });
+  const errors = report.errors.map((error) => `ERROR ${error}`);
+  const warnings = report.warnings.map((warning) => `WARN  ${warning}`);
+  const unheld = game ? "" : " (no game's folder was found: its files and textures were not held against; --game <folder>)";
+  answered("check-publish", file, flags, {
+    detail: [...report.facts.map((fact) => `      ${fact}`), ...errors, ...warnings],
+    passed: !errors.length,
+    said: errors.length ? `${errors.length} ${errors.length === 1 ? "thing" : "things"} not to share${unheld}` : `fit to share${warnings.length ? `, with ${warnings.length} warnings` : ""}${unheld}`, // prettier-ignore
+    shown: [...errors, ...warnings],
+    look: "no picture to look at: the files decided",
+  });
+  process.exit(errors.length ? 1 : 0);
 }
 
 // ── pictures of the model ──────────────────────────────────────────────────
@@ -817,6 +897,30 @@ async function figureSurvey({ command, file, flags }) {
   console.log("(measures of the game's own figures, on this machine: keep the file out of any repository you share)");
 }
 
+// a judge's finding this many of the corpus' middle halves out is "far": a figure with one fails
+const FAR = 1.5;
+/** What a finding measures: its words before the value (`triangles: 216 ...` is "triangles"). */
+const measureOf = (said) => /^(.*?): [-\d]/.exec(said)?.[1] ?? said.split("; ")[0];
+/** Far findings as the reasons of a FAIL: what each measures, the first three. */
+const farText = (far) =>
+  `${far.length} measures far out of the corpus' middle half: ${far.slice(0, 3).map((finding) => measureOf(finding.said)).join("; ")}${far.length > 3 ? "; ..." : ""}`; // prettier-ignore
+/**
+ * The texture and shape judges' answer: a pass when no measure is far out of the corpus' middle half. Their
+ * sheet (--sheet) is looked at on a fail, where the measures far out are drawn; on a pass the text decides.
+ */
+function judgedBy(command, file, flags, { told, fit, findings }) {
+  const far = findings.filter((finding) => finding.distance >= FAR);
+  const sheet = typeof flags.sheet === "string" ? flags.sheet : null;
+  const head = told.findIndex((line) => / of 100$/.test(line));
+  answered(command, file, flags, {
+    detail: told,
+    passed: !far.length,
+    said: far.length ? farText(far) : `measures one at a time ${fit} of 100, none far out of the corpus' middle half`,
+    shown: far.length ? told : told.slice(Math.max(0, head), head + 1),
+    look: sheet ? (far.length ? `look at ${sheet}: the measures far out are drawn there` : "no picture to look at: the measures decide") : undefined, // prettier-ignore
+  });
+}
+
 /** figure-judge: the style judge, a model against the corpus of its game's profile (or --against). */
 async function figureJudge({ command, file, flags }) {
   if (!/\.mdl$/i.test(file)) fail(`${command}: a model (.mdl)`);
@@ -831,10 +935,24 @@ async function figureJudge({ command, file, flags }) {
   const { measures, by } = F.styleMeasures(f);
   const prep = F.prepareStyle(F.styleCorpus(data, games), w);
   const verdict = F.judgeStyle(measures, prep, { hash: f.hash, textures: by.textures, parts: by.parts });
-  verdict.among = F.rangeOf(Object.values(F.styleLeaveOneOut(prep)).map((v) => v.score));
+  const own = Object.values(F.styleLeaveOneOut(prep)).map((v) => v.score);
+  verdict.among = F.rangeOf(own);
   if (flags.json) return console.log(JSON.stringify({ file, corpus: games, profile: style.name, measures, ...verdict }, null, 1));
-  console.log(F.styleTold(basename(file), verdict, games, { most: flags.all ? 99 : 12 }));
-  if (style.name && weights !== "library") console.log(`  (weighed as ${style.title}: the profile's weights)`);
+  const told = F.styleTold(basename(file), verdict, games, { most: flags.all ? 99 : 12 }).split("\n");
+  if (style.name && weights !== "library") told.push(`  (weighed as ${style.title}: the profile's weights)`);
+  // it passes where the game's own figures do: at or over the lower quarter of their scores against the rest
+  const floor = [...own].sort((a, b) => a - b)[Math.floor(own.length / 4)];
+  const passed = verdict.score >= floor;
+  const far = verdict.findings.filter((finding) => finding.distance >= FAR && !finding.told);
+  answered(command, file, flags, {
+    detail: told,
+    passed,
+    said: passed
+      ? `${verdict.score} of 100, at or over the lower quarter of the game's own figures (${floor})`
+      : `${verdict.score} of 100, under the lower quarter of the game's own figures (${floor})${far.length ? `: ${farText(far)}` : ""}`,
+    shown: passed ? told.slice(0, 1) : told,
+    look: passed ? undefined : `look: draw it beside the nearest of the game's (${verdict.nearest[0]?.figure ?? "none"}) with render and tile, for the owner's eye`, // prettier-ignore
+  });
 }
 
 /** A texture's measures from a file: a model's textures, or a picture of an atlas (its box, its pixels a texel). */
@@ -865,13 +983,16 @@ async function figureTexture({ command, file, flags }) {
   const v = F.judgeTexture(own.measures, library.texture, games, ref?.measures, { refName });
   if (flags.sheet) {
     const items = [{ name: basename(file).replace(/\.\w+$/, ""), ...own }, ...(ref ? [{ name: refName, ...ref }] : [])];
-    const img = F.textureSheet(items, library.texture);
+    const img = F.textureSheet(items, library.texture, { scale: flags["full-pictures"] === true ? 3 : 2 });
     save(flags.sheet, smak.png(img.width, img.height, img.rgba));
-    console.log(`${flags.sheet}: the atlases side by side, every measure over the library's spread`);
   }
   if (flags.json) return console.log(JSON.stringify({ file, corpus: games, reference: ref ? refName : null, scale: own.scale, measures: own.measures, ...v }, null, 1)); // prettier-ignore
-  if (own.scale && own.scale !== 1) console.log(`(the picture read at ${own.scale.toFixed(2)} pixels a texel)`);
-  console.log(F.textureTold(basename(file), v, games, refName));
+  const told = [
+    ...(flags.sheet ? [`${flags.sheet}: the atlases side by side, every measure over the library's spread`] : []),
+    ...(own.scale && own.scale !== 1 ? [`(the picture read at ${own.scale.toFixed(2)} pixels a texel)`] : []),
+    ...F.textureTold(basename(file), v, games, refName).split("\n"),
+  ];
+  judgedBy(command, file, flags, { told, fit: v.fit, findings: v.findings });
 }
 
 /**
@@ -928,12 +1049,15 @@ async function figureShape({ command, file, flags, listed }) {
   const v = F.judgeShape(x, library.shape, games, ref, refName);
   if (flags.sheet) {
     const items = Object.entries(x.pictures ?? {}).map(([view, p]) => ({ name: `${basename(file).replace(/\.\w+$/, "")} ${view}`, at: p.at, note: `HOLES ${(100 * x.views[view].measures.holes).toFixed(1)}PC` })); // prettier-ignore
-    const img = F.shapeSheet(items);
+    const img = F.shapeSheet(items, { scale: flags["full-pictures"] === true ? 0.75 : 0.5 });
     save(flags.sheet, smak.png(img.width, img.height, img.rgba));
-    console.log(`${flags.sheet}: the silhouettes as measured`);
   }
   if (flags.json) return console.log(JSON.stringify({ file, corpus: games, reference: ref ? refName : null, measures: x.measures, bands: x.bands, ...v }, null, 1)); // prettier-ignore
-  console.log(F.shapeTold(basename(file), v, games, refName));
+  const told = [
+    ...(flags.sheet ? [`${flags.sheet}: the silhouettes as measured`] : []),
+    ...F.shapeTold(basename(file), v, games, refName).split("\n"),
+  ];
+  judgedBy(command, file, flags, { told, fit: v.fit, findings: v.findings });
 }
 
 /** figure-validate: does each judge tell the library's corpora apart (AUC, confusion), with each one's own weights or the library's. */
@@ -1271,7 +1395,7 @@ const importRow = (row) =>
 function sayChecks(mdl) {
   const told = new Set();
   let errors = 0;
-  for (const engine of ENGINES) {
+  for (const engine of GAME_ENGINES) {
     const checked = smak.check(mdl, engine);
     errors += checked.errors.length;
     for (const line of [
@@ -1445,7 +1569,7 @@ async function item({ command, file, flags, listed }) {
       if (!line.ok) wrong++;
       console.log(`${line.ok ? "ok   " : "FAIL "} ${path}: ${line.text}`);
     }
-    for (const engine of ENGINES) {
+    for (const engine of GAME_ENGINES) {
       const report = smak.check(mdl, engine);
       wrong += report.errors.length;
       for (const error of report.errors) console.log(`ERROR ${path} (${engine}): ${error}`);
@@ -1462,6 +1586,17 @@ async function item({ command, file, flags, listed }) {
   }
   console.log(`its script${family.script ? ` (after ${family.script})` : ""}:`);
   for (const line of smak.itemConstants(result)) console.log(`  ${line}`);
+  // the last line says what decides, as a checking command's does; the pictures are what the checks cannot see
+  console.log(
+    flags.pictures
+      ? `look at ${join(to, "pictures")}: the checks cannot tell whether it is the shape asked for`
+      : "no pictures: --pictures draws each new submodel beside the one it was laid on, to look at",
+  );
+  console.log(
+    wrong
+      ? `FAIL: ${wrong} faults in ${name} (above)`
+      : `PASS: ${name} added to ${result.files.size} files; each checks for ${GAME_ENGINES.join(" and ")} and keeps what it had`,
+  );
   process.exit(wrong ? 1 : 0);
 }
 
@@ -1833,24 +1968,27 @@ async function mapCheck({ file, flags, listed }) {
   const report = source
     ? maps.checkPlan(maps.readMap(readFileSync(file, "utf8")), defined({ ...against, folders, textures }))
     : maps.checkBsp(readFileSync(file), { engine, folders, ...against });
-  for (const fact of report.facts) console.log(`      ${fact}`);
-  for (const warning of report.warnings) console.log(`WARN  ${warning}`);
-  for (const error of report.errors) console.log(`ERROR ${error}`);
+  const facts = report.facts.map((fact) => `      ${fact}`);
+  const warnings = report.warnings.map((warning) => `WARN  ${warning}`);
+  const errors = report.errors.map((error) => `ERROR ${error}`);
   // the script folders given, against the game's pack: one of ours that replaces nothing and is named by
   // nothing is laid over the pack for no one (`smak scripts` lists them all). Of this map's own only, unless
   // --all: a script of another map is named by that map, which is not looked at here
-  let unnamed = 0;
+  const scripted = [];
   if (listed.scripts?.length && against.mod?.scriptPack) {
     const only = flags.all === true ? undefined : [mapForScripts(file).name];
     const placed = placeScripts(against.mod, listed.scripts, [file], flags.shipped && existingFolder(flags.shipped), only); // prettier-ignore
-    for (const fact of placed.facts.slice(1)) console.log(`      ${fact}`);
-    unnamed = sayScripts(placed, { all: false });
+    scripted.push(...placed.facts.slice(1).map((fact) => `      ${fact}`), ...placed.warnings.map((warning) => `WARN  ${warning}`)); // prettier-ignore
   }
+  const unnamed = scripted.filter((line) => line.startsWith("WARN")).length;
   const warned = report.warnings.length + unnamed ? `, with ${report.warnings.length + unnamed} warnings` : "";
   const fitFor = source ? "to compile" : `for ${engine}`;
-  console.log(
-    report.errors.length ? `${report.errors.length} errors: not fit ${fitFor}` : `fit ${fitFor}${warned}`,
-  );
+  answered("map-check", file, flags, {
+    detail: [...facts, ...warnings, ...errors, ...scripted],
+    passed: !report.errors.length,
+    said: report.errors.length ? `${report.errors.length} errors: not fit ${fitFor}` : `fit ${fitFor}${warned}`,
+    shown: [...errors, ...warnings, ...scripted.filter((line) => line.startsWith("WARN"))],
+  });
   process.exit(report.errors.length ? 1 : 0);
 }
 /**
@@ -2625,6 +2763,46 @@ async function changedSince(folder, base, kind, spec, report) {
   return changesOf(before, now).lines.map((line) => `CHANGED since the last build of ${base}: ${line}`);
 }
 /**
+ * A model built for Source (the spec's engine "source"): under -o, <name>_source/ with src/ (the compiler's files)
+ * and addon/ (into garrysmod/addons/<name>/), compiled by GMod's studiomdl, held to the built model and drawn
+ * (<name>-source-sheet.png); what it says goes into the build's report. --no-compile writes the files only.
+ */
+async function sourceOfBuilt({ command, flags, spec, base, mdl, pictures, baseFile, report, out, shown }) {
+  const { summaryOf } = await import("../src/spec/changes.mjs");
+  if (flags.collision !== undefined && !smak.source.COLLISIONS.includes(flags.collision))
+    fail(`${command}: --collision ${smak.source.COLLISIONS.join(", ")}, not ${flags.collision}`);
+  const mass = numberOf(flags, "mass");
+  if (mass !== undefined && !(mass > 0)) fail(`${command}: --mass is kilograms, more than 0, not ${flags.mass}`);
+  const to = join(out, `${base}_source`);
+  let result;
+  try {
+    result = smak.source.builtToGmod(mdl, defined({
+      pictures,
+      baseFile,
+      record: summaryOf("model", spec, report),
+      out: to,
+      name: smak.source.sourceName(base),
+      folder: flags.folder,
+      collision: flags.collision,
+      surfaceprop: flags.surfaceprop,
+      mass,
+      studiomdl: flags.studiomdl,
+      gmod: flags.gmod,
+      compile: flags.compile !== false,
+    })); // prettier-ignore
+  } catch (error) {
+    report.errors.push(`Source: ${error.message}`);
+    report.ok = false;
+    return;
+  }
+  report.warnings.push(...result.warnings.map((line) => `Source: ${line}`));
+  report.faults.push(...result.faults.map((line) => `Source: ${line}`));
+  report.facts.push(...result.said.map((line) => `Source: ${line}`), `Source: the QC ${result.qc}; the addon ${join(to, "addon")} (into garrysmod/addons/<name>/), models/${result.modelname}`); // prettier-ignore
+  if (!result.passed) report.ok = false;
+  if (result.picture) shown("source-sheet", result.picture, "six views of the Source model, read back from its compiled files");
+}
+
+/**
  * model (smak.model/1, docs/SPEC.md): the model written under -o (beside the spec unless told) with its sheet of
  * six views; a character on a base seen running; a weapon's files in the game's names in a folder of their own,
  * the game's first-person view beside the new one and its attack; --reference drawn beside it; --focus the parts
@@ -2633,7 +2811,8 @@ async function changedSince(folder, base, kind, spec, report) {
  */
 async function modelSpecCommand({ command, file, flags, listed }) {
   const { buildModelSpec } = await import("../src/spec/model.mjs");
-  const spec = specOf(command, file, "model");
+  // --engine source: the spec made for Source whatever it says
+  const spec = flags.engine === undefined ? specOf(command, file, "model") : { ...specOf(command, file, "model"), engine: String(flags.engine) };
   const folder = dirname(resolve(file));
   const out = flags.o === undefined ? folder : String(flags.o);
   const name = spec.name ?? "model.mdl";
@@ -2646,7 +2825,7 @@ async function modelSpecCommand({ command, file, flags, listed }) {
     }
   };
   const readFile = (given) => readFileSync(existing(resolve(folder, String(given).replace(/^(work|models):/, ""))));
-  const { mdl, report, files = [] } = buildModelSpec(spec, { folder, out: join(out, name), games: (listed.game ?? []).map(existingFolder), readPicture, readFile });
+  const { mdl, report, files = [], pictures, baseFile } = buildModelSpec(spec, { folder, out: join(out, name), games: (listed.game ?? []).map(existingFolder), readPicture, readFile });
   if (mdl) {
     save(join(out, name), mdl);
     console.log(`      ${join(out, name)} (${mdl.length} bytes)`);
@@ -2704,12 +2883,15 @@ async function modelSpecCommand({ command, file, flags, listed }) {
       const views = [[35, 20], [215, 20], [35, -35]].map(([yaw, pitch]) => smak.render(mdl, { seq: 0, yaw, pitch, within, width: 320, height: 320 }));
       shown("focus", smak.tile(views, 3, ["front", "back", "from below"]), `${focus.join(", ")} close`);
     }
+    // made for Source: the file above is the step between; ported with its pictures in full colour, compiled by
+    // GMod's studiomdl, held to itself and drawn from the compiled files (src/source/gmod.mjs, builtToGmod)
+    if (spec.engine === "source") await sourceOfBuilt({ command, flags, spec, base, mdl, pictures, baseFile, report, out, shown });
   }
   reportOut(report, "built, and every check passed");
 }
 
 /**
- * map (smak.map/1, docs/SPEC.md): the map built in a folder of its name beside the spec (-o another): its .map,
+ * map (smak.map/1, docs/SPEC-MAPS.md): the map built in a folder of its name beside the spec (-o another): its .map,
  * its own .wad, its models and sounds, compiled when the compilers are found (VHLT_DIR, the PATH or --vhlt) and
  * then walked and lit, and its pictures (plan, views, sections, props). --game the folders the game's .wad files
  * and models are found in; --fgd entity definitions its entities are held to; --reference drawn beside the plan;
@@ -2730,7 +2912,10 @@ async function mapSpecCommand({ command, file, flags, listed }) {
   };
   const readFile = (given) => readFileSync(existing(resolve(folder, String(given).replace(/^(work|models):/, ""))));
   // a mod's profile: --mod, or the spec's own `mod` (a profile's file beside the spec, or goldsrc)
-  const modGiven = flags.mod ?? (typeof spec.mod === "string" ? (spec.mod === "goldsrc" ? "goldsrc" : resolve(folder, spec.mod)) : undefined);
+  // and a map for Half-Life itself (--game <Half-Life>/valve, no FGD named) is held to the kit's own profile of it,
+  // since Half-Life ships no .fgd of its own to hold it to
+  const forHalfLife = (listed.game ?? []).length > 0 && listed.game.every((given) => basename(resolve(given)).toLowerCase() === "valve") && !flags.fgd && !spec.fgd; // prettier-ignore
+  const modGiven = flags.mod ?? (typeof spec.mod === "string" ? (spec.mod === "goldsrc" ? "goldsrc" : resolve(folder, spec.mod)) : forHalfLife ? "goldsrc" : undefined); // prettier-ignore
   const mod = await profileOf({ ...flags, mod: modGiven }, listed);
   const { report, files } = buildMapSpec(spec, {
     out,
@@ -3395,6 +3580,394 @@ function mapDecompile({ command, file, flags, listed }) {
   console.log(`${to}: decompiled in ${((performance.now() - started) / 1000).toFixed(1)} s`);
 }
 
+// ── the Source engine (GMod) ───────────────────────────────────────────────
+/**
+ * gmod-port: a GoldSrc model ported to Garry's Mod (src/source/gmod.mjs): its compiler's files and an addon
+ * folder under -o, compiled by GMod's studiomdl, the compiled model held to the original and drawn.
+ */
+function gmodPort({ command, file, flags }) {
+  const out = need(command, flags.o, "-o <folder>: where the port goes (src/ and addon/ under it)");
+  if (flags.collision !== undefined && !smak.source.COLLISIONS.includes(flags.collision))
+    fail(`${command}: --collision ${smak.source.COLLISIONS.join(", ")}, not ${flags.collision}`);
+  const mass = numberOf(flags, "mass");
+  if (mass !== undefined && !(mass > 0)) fail(`${command}: --mass is kilograms, more than 0, not ${flags.mass}`);
+  if (flags.kind !== undefined && !smak.source.PORT_KINDS.includes(flags.kind))
+    fail(`${command}: --kind ${smak.source.PORT_KINDS.join(", ")}, not ${flags.kind}`);
+  const handRoll = numberOf(flags, "hand-roll");
+  const result = smak.source.portToGmod(
+    file,
+    defined({
+      out,
+      name: flags.name,
+      folder: flags.folder,
+      collision: flags.collision,
+      surfaceprop: flags.surfaceprop,
+      mass,
+      kind: flags.kind,
+      handRoll,
+      upper: flags.upper === true ? true : undefined,
+      studiomdl: flags.studiomdl,
+      gmod: flags.gmod,
+      compile: flags.compile !== false,
+    }),
+  );
+  const warnings = result.warnings.map((warning) => `WARN  ${warning}`);
+  const faults = result.faults.map((fault) => `ERROR ${fault}`);
+  let look;
+  if (result.picture) {
+    const to = join(out, "sheet.png");
+    save(to, smak.png(result.picture.width, result.picture.height, result.picture.rgba));
+    look = `look at ${to}: six views of the compiled model, read back from its own files`;
+  }
+  const where = `${join(out, "addon")} (into garrysmod/addons/<name>/), models/${result.modelname}`;
+  answered(command, file, flags, {
+    detail: [...result.said.map((line) => `      ${line}`), `      the QC: ${result.qc}`, `      the addon: ${where}`, ...warnings, ...faults], // prettier-ignore
+    passed: result.passed,
+    said:
+      flags.compile === false
+        ? `written, not compiled (--no-compile): ${result.qc}`
+        : result.passed
+          ? `compiled and whole: ${where}; ${result.said.find((line) => /^collides as/.test(line))}${warnings.length ? `; ${warnings.length} ${warnings.length === 1 ? "warning" : "warnings"}` : ""}`
+          : `${faults.length} things lost on the way to Source`,
+    shown: [...faults, ...warnings],
+    look,
+  });
+  process.exit(result.passed ? 0 : 1);
+}
+
+// ── s&box (Source 2) ───────────────────────────────────────────────────────
+/**
+ * sbox-port: a GoldSrc model ported to s&box (src/sbox/port.mjs): DMX, a .vmdl, PNG and .vmat under -o (a project's
+ * Assets folder), compiled by s&box's own resourcecompiler.
+ */
+/** The options a model's port to s&box is made with, from the flags (sbox-port's, and sbox-check's to make it again). */
+function sboxPortOptions(command, flags) {
+  if (flags.kind !== undefined && !smak.source.PORT_KINDS.includes(flags.kind))
+    fail(`${command}: --kind ${smak.source.PORT_KINDS.join(", ")}, not ${flags.kind}`);
+  if (flags.collision !== undefined && !smak.source.COLLISIONS.includes(flags.collision))
+    fail(`${command}: --collision ${smak.source.COLLISIONS.join(", ")}, not ${flags.collision}`);
+  const mass = numberOf(flags, "mass");
+  if (mass !== undefined && !(mass > 0)) fail(`${command}: --mass is kilograms, more than 0, not ${flags.mass}`);
+  if (flags.lighting !== undefined && !["sbox", "goldsrc"].includes(flags.lighting))
+    fail(`${command}: --lighting sbox or goldsrc, not ${flags.lighting}`);
+  return { name: flags.name, folder: flags.folder, kind: flags.kind, collision: flags.collision, surfaceprop: flags.surfaceprop, mass, lighting: flags.lighting, sbox: flags.sbox }; // prettier-ignore
+}
+
+function sboxPort({ command, file, flags }) {
+  const out = need(command, flags.o, "-o <folder>: an s&box project's Assets folder (models/ and materials/ under it)");
+  const result = smak.sbox.portToSboxFile(
+    existing(file),
+    defined({ out, ...sboxPortOptions(command, flags), compile: flags.compile !== false }),
+  );
+  const f = result.facts;
+  const warnings = result.warnings.map((warning) => `WARN  ${warning}`);
+  const notes = (result.compiled?.notes ?? []).map((note) => `NOTE  ${note}`);
+  const { physics } = result;
+  const collides = !physics
+    ? "collides as nothing"
+    : f.collision === "ragdoll"
+      ? `collides as a ragdoll of ${physics.shapes.length} pieces and ${physics.joints.length} joints (${physics.shapes[0].surface})`
+      : `collides as its ${f.collision} (${physics.shapes[0].surface})`;
+  const graph = result.graph ? ` (${f.poses.join(", ")} blended in its graph)` : "";
+  const sounds = f.sounds ? `; ${f.sounds} ${f.sounds === 1 ? "sound" : "sounds"} its events play` : "";
+  const made = `${f.bones.length} bones, ${f.meshes.length} meshes, ${f.sequences.length} animations${graph}, ${f.skins} ${f.skins === 1 ? "skin" : "skins"}, ${f.bodygroups.length} bodygroups, ${f.attachments.length} attachments, ${f.hitboxes} hit boxes; ${collides}${sounds}`; // prettier-ignore
+  answered(command, file, flags, {
+    detail: [`      ${made}`, `      the model: ${result.written}`, ...(result.graph ? [`      its animation graph: ${result.graph}`] : []), ...notes, ...warnings], // prettier-ignore
+    passed: true,
+    said:
+      flags.compile === false
+        ? `written, not compiled (--no-compile): ${result.written}`
+        : `compiled in ${(result.compiled.took / 1000).toFixed(1)} s: ${result.vmdl} (${made})${warnings.length ? `; ${warnings.length} ${warnings.length === 1 ? "warning" : "warnings"}` : ""}`,
+    shown: [...notes, ...warnings],
+  });
+}
+
+/**
+ * sbox-check: a model's port read back in s&box's editor and held to the original (src/sbox/check.mjs): its
+ * bones, animations, parts, skins, attachments and hit boxes, and each animation's poses bone by bone.
+ */
+async function sboxCheck({ command, file, flags }) {
+  const project = need(command, flags.project, "--project <folder>: the s&box project the port is in (its .sbproj's folder)");
+  const result = await smak.sbox.checkSboxPort(
+    existing(file),
+    defined({
+      project,
+      ...sboxPortOptions(command, flags),
+      perSequence: numberOf(flags, "frames"),
+      tolerance: numberOf(flags, "tolerance"),
+      look: flags.look !== false,
+      shot: flags.o,
+    }),
+  );
+  const faults = result.faults.map((fault) => `ERROR ${fault}`);
+  answered(command, file, flags, {
+    detail: [...result.said.map((line) => `      ${line}`), `      the editor: ${result.opened ? "opened for the check, and closed" : "the one open on the project"}`, ...faults], // prettier-ignore
+    passed: result.passed,
+    said: result.passed ? `whole in s&box: ${result.said.join("; ")}` : `${faults.length} things not as the original has them`,
+    shown: faults,
+    look: result.shot ? `look at ${result.shot}: the original drawn by the kit (above) and the port by s&box (below), four views` : undefined,
+  });
+  process.exit(result.passed ? 0 : 1);
+}
+
+/**
+ * sbox-map: a GoldSrc map made an s&box scene (src/sbox/map.mjs): its faces as the scene editor's meshes, its
+ * textures, sky, clip brushes, starts and lights, under -o (a project's Assets folder).
+ */
+async function sboxMap({ command, file, flags, listed }) {
+  const out = need(command, flags.o, "-o <folder>: an s&box project's Assets folder (scenes/ and materials/ under it)");
+  // --mod: the game's own start classes (MSC's ms_player_spawn and ms_player_begin)
+  const mod = await profileOf(flags, listed);
+  const result = smak.sbox.portMapToSboxFile(
+    existing(file),
+    defined({ out, name: flags.name, folder: flags.folder, folders: flags.game ? [existingFolder(flags.game)] : undefined, starts: mod?.starts, lighting: flags.lighting }), // prettier-ignore
+  );
+  const f = result.facts;
+  const warnings = result.warnings.map((warning) => `WARN  ${warning}`);
+  const clips = result.meshes.filter((m) => m.collision === "Hull").length;
+  const made = `${f.faces} faces in ${f.meshes - clips} meshes, ${clips} clip brushes, ${f.materials} materials, sky ${f.sky ?? "none"}, ${f.spawns} ${f.spawns === 1 ? "start" : "starts"}, ${f.lights} ${f.lights === 1 ? "light" : "lights"}`; // prettier-ignore
+  answered(command, file, flags, {
+    detail: [`      ${made}`, `      the scene: ${join(out, result.scene)}`, ...warnings],
+    passed: true,
+    said: `written: ${result.scene} (${made})${warnings.length ? `; ${warnings.length} ${warnings.length === 1 ? "warning" : "warnings"}` : ""}`, // prettier-ignore
+    shown: warnings,
+  });
+}
+
+/**
+ * sbox-map-check: a map's port opened in s&box's editor and held to the GoldSrc map (src/sbox/mapcheck.mjs): its
+ * meshes and materials, where a player is blocked, its starts' floors, and its light pictured beside GoldSrc's.
+ */
+async function sboxMapCheck({ command, file, flags, listed }) {
+  const project = need(command, flags.project, "--project <folder>: the s&box project the port goes in (its .sbproj's folder)");
+  const mod = await profileOf(flags, listed);
+  const result = await smak.sbox.checkSboxMap(
+    existing(file),
+    defined({
+      project,
+      name: flags.name,
+      folder: flags.folder,
+      folders: flags.game ? [existingFolder(flags.game)] : undefined,
+      starts: mod?.starts,
+      lighting: flags.lighting,
+      count: numberOf(flags, "count"),
+      seed: numberOf(flags, "seed"),
+      allow: numberOf(flags, "allow"),
+      light: flags.light !== false,
+      sbox: flags.sbox,
+      shot: flags.o,
+    }),
+  );
+  const faults = result.faults.map((fault) => `ERROR ${fault}`);
+  answered(command, file, flags, {
+    detail: [...result.said.map((line) => `      ${line}`), `      the editor: ${result.opened ? "opened for the check, and closed" : "the one open on the project"}`, ...faults], // prettier-ignore
+    passed: result.passed,
+    said: result.passed ? `whole in s&box: ${result.said.join("; ")}` : `${faults.length} things not as the GoldSrc map has them`,
+    shown: faults,
+    look: result.shot ? `look at ${result.shot}: GoldSrc's view from the first start (left) beside s&box's (right)` : undefined,
+  });
+  process.exit(result.passed ? 0 : 1);
+}
+
+/**
+ * gmod-map: a GoldSrc map rewritten as a Source map for Garry's Mod (src/source/map.mjs), its geometry, light and
+ * visibility kept, its collision rebuilt, its physics made by GMod's own vphysics: an addon folder under -o.
+ */
+function gmodMap({ command, file, flags }) {
+  const out = need(command, flags.o, "-o <folder>: where the port goes (addon/ under it)");
+  const result = smak.source.portMapToGmod(
+    existing(file),
+    defined({
+      out,
+      name: flags.name,
+      folder: flags.folder,
+      folders: flags.game ? [existingFolder(flags.game)] : undefined,
+      valve: flags.valve === undefined ? undefined : flags.valve === "none" ? null : existingFolder(flags.valve),
+      physics: flags.physics !== false,
+      vphysics: flags.vphysics,
+      gmod: flags.gmod,
+      studiomdl: flags.studiomdl,
+    }),
+  );
+  const f = result.facts;
+  const warnings = result.warnings.map((warning) => `WARN  ${warning}`);
+  const where = `${join(out, "addon")} (into garrysmod/addons/<name>/), maps/${result.name}.bsp`;
+  answered(command, file, flags, {
+    detail: [
+      `      ${f.faces} faces, ${f.brushes} brushes (${f.clipBrushes} clip), ${f.clusters} clusters, ${f.leaves} leaves (${f.solidSplitOff} solid split off)`, // prettier-ignore
+      `      textures from ${f.textureSources.join(", ") || "none"}; ${f.packed} files inside the map, ${result.files.length} shared in the addon; sky ${f.sky}`, // prettier-ignore
+      `      physics: ${f.physics ? "made by GMod's vphysics" : "none"}; props ported: ${result.props.length}`,
+      `      the addon: ${where}`,
+      ...warnings,
+    ],
+    passed: true,
+    said: `written: ${where}; ${f.faces} faces, ${f.brushes} brushes, ${f.physics ? "with" : "without"} physics${warnings.length ? `; ${warnings.length} ${warnings.length === 1 ? "warning" : "warnings"}` : ""}`, // prettier-ignore
+    shown: warnings,
+  });
+}
+
+/** The RCON options a command was given: --host, --port, --password (else SMAK_RCON_PASSWORD). */
+const rconOf = (flags) => defined({ host: flags.host, port: numberOf(flags, "port"), password: flags.password });
+
+/** gmod-rcon: console commands sent to a running GMod, its answer printed. */
+async function gmodRcon({ file, rest, flags }) {
+  process.stdout.write(await smak.source.rcon([file, ...rest], rconOf(flags)));
+}
+
+/**
+ * gmod-probe: a Lua probe run in the game (a file, or a built-in one by its name: map), its PASS, FAIL and
+ * NOTE lines said, and PASS or FAIL for the whole: FAIL on any failed line, or no DONE in time.
+ */
+async function gmodProbe({ command, file, flags }) {
+  const own = existsSync(file) && !statSync(file).isDirectory();
+  const lua = own ? readFileSync(file, "utf8") : smak.source.builtInProbe(file);
+  if (lua === null) fail(`${command}: no file ${file}, and no built-in probe of that name (${smak.source.builtInProbes().join(", ")})`);
+  const name = flags.name ?? basename(file).replace(/\.lua$/i, "").replace(/\W/g, "_");
+  const wait = numberOf(flags, "wait");
+  const answer = await smak.source.runProbe(lua, defined({ name, game: flags.game, client: flags.client === true, wait, ...rconOf(flags) }));
+  const lines = [
+    ...answer.passed.map((line) => `PASS  ${line}`),
+    ...answer.notes.map((line) => `NOTE  ${line}`),
+    ...answer.failed.map((line) => `FAIL  ${line}`),
+  ];
+  if (answer.timedOut) lines.push(`FAIL  no DONE from the probe in ${(wait ?? 30000) / 1000} s${answer.text ? "" : ": it never called done(), or the game did not run it (its console says)"}`); // prettier-ignore
+  const passed = !answer.failed.length && !answer.timedOut;
+  if (flags.o) save(flags.o, `${lines.join("\n")}\n`);
+  else for (const line of lines) console.log(line);
+  console.log(`${passed ? "PASS" : "FAIL"}: probe ${name}: ${answer.passed.length} passed, ${answer.failed.length + (answer.timedOut ? 1 : 0)} failed${flags.o ? ` (the lines: ${flags.o})` : ""}`); // prettier-ignore
+  process.exit(passed ? 0 : 1);
+}
+
+/**
+ * gmod-collision: a GoldSrc map held against its port loaded in the game, spot by spot. PASS when they agree
+ * on all but --allow of the spots (in hundredths of one: 0.5 is half of one in a hundred).
+ */
+async function gmodCollision({ command, file, flags }) {
+  const allow = numberOf(flags, "allow") ?? 0.5;
+  const result = await smak.source.checkCollision(
+    existing(file),
+    defined({
+      name: flags.name,
+      count: numberOf(flags, "count"),
+      seed: numberOf(flags, "seed"),
+      ducked: flags.ducked === true,
+      noclip: flags.noclip === true,
+      game: flags.game,
+      wait: numberOf(flags, "wait"),
+      ...rconOf(flags),
+    }),
+  );
+  const { spots, both, free, onlyGoldSrc, onlySource, intoWorld, unexplained } = result;
+  const show = (list) => list.slice(0, numberOf(flags, "show") ?? 15).map((p) => p.join(" ")).join(" | ");
+  // a spot where the drawn world is inside the player's box is blocked rightly by Source, whatever GoldSrc's
+  // looser hull says
+  const off = onlyGoldSrc.length + unexplained.length;
+  const share = (100 * off) / spots;
+  const passed = share <= allow;
+  answered(command, file, flags, {
+    detail: [
+      `      ${spots} spots: blocked in both ${both}, free in both ${free}`,
+      `      blocked only in GoldSrc ${onlyGoldSrc.length}${onlyGoldSrc.length ? `: ${show(onlyGoldSrc)}` : ""}`,
+      `      blocked only in the port ${onlySource.length}: ${intoWorld.length} with the drawn world inside the player's box (GoldSrc's hull looser than its geometry), ${unexplained.length} not${unexplained.length ? `: ${show(unexplained)}` : ""}`, // prettier-ignore
+    ],
+    passed,
+    said: `${spots} spots, ${off} where GoldSrc and the port disagree (${share.toFixed(2)} in a hundred; ${allow} allowed); ${intoWorld.length} more blocked only in the port, rightly, the world inside the box`, // prettier-ignore
+    shown: [
+      ...(onlyGoldSrc.length ? [`only GoldSrc (the player's middle): ${show(onlyGoldSrc)}`] : []),
+      ...(unexplained.length ? [`only the port, the world not in the box (the player's middle): ${show(unexplained)}`] : []),
+    ],
+  });
+  process.exit(passed ? 0 : 1);
+}
+
+/**
+ * gmod-server: a dedicated GMod server (SteamCMD's app 4020) started on a map, the console in
+ * garrysmod/console.log; it runs until it is stopped.
+ */
+async function gmodServer({ command, file, flags }) {
+  const map = need(command, flags.map, "--map <name>: the map it starts on");
+  const child = smak.source.startGmodServer(
+    file,
+    defined({ map, port: numberOf(flags, "port"), password: flags.password, gamemode: flags.gamemode, players: numberOf(flags, "players") }),
+  );
+  console.log(`gmod-server: srcds started on ${map}, port ${child.port}, its console in ${child.log}; stopped by gmod-rcon quit --port ${child.port}`);
+  await new Promise((resolve) => child.process.on("exit", resolve));
+}
+
+/** gmod-shoot: a screenshot from GMod's client with the eye at x y z, looking along pitch yaw. */
+async function gmodShoot({ command, file, rest, flags }) {
+  const [y, z, pitch = 0, yaw = 0] = rest;
+  if (z === undefined) fail(`${command}: <x> <y> <z> [pitch yaw]: the eye's place, and where it looks`);
+  const shot = await smak.source.shoot([file, y, z], [pitch, yaw], defined({ game: flags.game, fov: numberOf(flags, "fov"), ...rconOf(flags) })); // prettier-ignore
+  if (flags.o) {
+    save(flags.o, readFileSync(shot));
+    console.log(flags.o);
+  } else console.log(shot);
+}
+
+/**
+ * A Source model named on the command line: a .mdl on the disk (its .vvd and .vtx beside it, its materials
+ * looked for under the folder that holds its models/, --addon, and GMod's), or a path under the game
+ * (models/kleiner.mdl) found in GMod's folders and packs.
+ */
+function sourceModelOf(command, file, flags) {
+  const gmod = flags.gmod ?? smak.source.findGmod();
+  const onDisk = existsSync(file);
+  let path = file;
+  const more = flags.addon ? [existingFolder(flags.addon)] : [];
+  if (onDisk) {
+    // the folder above models/ is an addon's (or the game's), where its materials are
+    const full = resolve(file).replace(/\\/g, "/");
+    const at = full.toLowerCase().lastIndexOf("/models/");
+    if (at < 0) fail(`${command}: ${file} is not under a models/ folder, and its materials are looked for beside that`);
+    more.unshift(full.slice(0, at));
+    path = full.slice(at + 1);
+  }
+  const files = gmod ? smak.source.gmodFiles(gmod, { more }) : smak.source.sourceFiles({ folders: more });
+  if (!onDisk && !files.has(path)) fail(`${command}: no file ${file}, and none of that path in GMod's folders and packs${gmod ? "" : " (no GMod found: --gmod)"}`); // prettier-ignore
+  return smak.source.readSourceModel(path, files);
+}
+
+/** source-info: what a Source model holds. */
+function sourceInfo({ command, file, flags }) {
+  const model = sourceModelOf(command, file, flags);
+  const { mdl } = model;
+  if (flags.json) {
+    const materials = model.materials.map(({ texture, ...m }) => ({ ...m, texture: texture && { width: texture.width, height: texture.height, format: texture.format } })); // prettier-ignore
+    console.log(JSON.stringify({ ...mdl, triangles: model.triangles.length, materials, missing: model.missing }));
+    return;
+  }
+  console.log(`${mdl.name}: Source model, version ${mdl.version}; ${model.triangles.length} triangles`);
+  console.log(`  bones (${mdl.bones.length}): ${mdl.bones.map((b) => b.name).join(", ")}`);
+  console.log(`  bodygroups: ${mdl.bodyparts.map((part) => `${part.name} [${part.models.map((m) => `${m.name || "blank"} ${m.vertices}v`).join(", ")}]`).join("; ")}`); // prettier-ignore
+  for (const material of model.materials)
+    console.log(`  material ${material.name}: ${material.vmt ? `${material.shader}, ${material.texture ? `${material.texture.width}x${material.texture.height}` : "its picture not found"}` : "not found"}`); // prettier-ignore
+  console.log(`  skin families: ${mdl.skins.length}; attachments: ${mdl.attachments.map((a) => a.name).join(", ") || "none"}; hit boxes: ${mdl.hitboxes.length}`); // prettier-ignore
+  console.log(`  animations (${mdl.sequences.length}): ${mdl.sequences.map((s) => (s.activity ? `${s.name} (${s.activity})` : s.name)).join(", ")}`); // prettier-ignore
+}
+
+/** source-render, source-sheet: a Source model drawn by the kit (render's views; --body, --skin). */
+function sourceRender({ command, file, flags }) {
+  const to = need(command, flags.o, "-o out.png");
+  const model = sourceModelOf(command, file, flags);
+  const options = defined({
+    sheet: command === "source-sheet",
+    size: numberOf(flags, "size"),
+    view: flags.view,
+    yaw: numberOf(flags, "yaw"),
+    pitch: numberOf(flags, "pitch"),
+    zoom: numberOf(flags, "zoom"),
+    width: numberOf(flags, "width"),
+    height: numberOf(flags, "height"),
+    body: numberOf(flags, "body"),
+    skin: numberOf(flags, "skin"),
+  });
+  const picture = smak.source.renderSource(model, options);
+  save(to, smak.png(picture.width, picture.height, picture.rgba));
+  if (model.missing.length) console.log(`WARN  materials found nowhere (drawn grey): ${model.missing.join(", ")}`);
+  console.log(to);
+}
+
 // ── play ───────────────────────────────────────────────────────────────────
 /**
  * play: a map seen in the game itself, in a browser build of the engine at an address. The steps are checked
@@ -3402,7 +3975,7 @@ function mapDecompile({ command, file, flags, listed }) {
  * pictures' paths at the end.
  */
 async function playMap({ command, file: url, flags, listed }) {
-  const { playOf, playPartOf, messagesOf, playwrightFrom, browserDriver, playSession, patternOf } = smak.play;
+  const { playOf, playPartOf, messagesOf, playwrightFrom, browserDriver, playSession, patternOf, HARDWARE_GL } = smak.play;
   const { serveSession, attachSession, closeSession, sessionState, expectationLine, fightLine, summaryLines, SESSION_PORT } =
     smak.play;
   /** The steps of a file, or the command stopped: a file that is not there, or is no JSON. */
@@ -3414,35 +3987,83 @@ async function playMap({ command, file: url, flags, listed }) {
       return fail(`${command}: --steps is a JSON file that holds a list of steps, and ${file} does not read as JSON (${error.message})`); // prettier-ignore
     }
   };
-  /** One run printed: its pictures, its log, and whether what it expected held. False when it did not. */
+  // what a run tells as it goes (a line a step): printed as it comes with --verbose, else kept for the run's
+  // folder (told.txt), so that a run that passes prints five lines or fewer
+  let told = [];
+  const tell = (line) => (flags.verbose ? console.log(line) : told.push(line));
+  /** The lines of the run so far, written beside its pictures: the file's path. */
+  const toldFile = (out, more) => {
+    const to = join(out, "told.txt");
+    save(to, `${[...told, ...more].join("\n")}\n`);
+    told = [];
+    return to;
+  };
+  /**
+   * One run printed: whether what it expected held, last, as PASS or FAIL, and which picture to look at.
+   * Every line of before 0.27 (each picture, each fight, each section) is in told.txt, and printed with
+   * --verbose. False when an expectation did not hold.
+   */
   const report = (run) => {
-    console.log(`${run.pictures.length} pictures in ${run.out}${run.sheet ? `, all of them in ${run.sheet}` : ""}`); // prettier-ignore
-    for (const picture of run.pictures) console.log(`  ${picture}`);
-    console.log(`what the game said: ${run.logFile}${run.linesFile ? ` (and ${run.linesFile})` : ""}`);
-    for (const fight of run.fights ?? []) console.log(fightLine(fight));
-    for (const line of run.summary ? summaryLines(run.summary) : []) console.log(line);
     const failed = run.expectations.filter((each) => !each.passed);
-    if (run.expectations.length) {
-      for (const each of run.expectations) console.log(expectationLine(each));
-      console.log(`${run.passed ? "PASSED" : "FAILED"}: ${run.expectations.length - failed.length} of ${run.expectations.length} expectations held   (${(run.took / 1000).toFixed(1)} s)`); // prettier-ignore
-    } else console.log(`done in ${(run.took / 1000).toFixed(1)} s (nothing was expected of it: no pass and no fail)`); // prettier-ignore
+    const held = `${run.expectations.length - failed.length} of ${run.expectations.length} expectations held   (${(run.took / 1000).toFixed(1)} s)`; // prettier-ignore
+    const last = run.expectations.length
+      ? `${failed.length ? "FAIL" : "PASS"}: ${held}`
+      : `PASS: done in ${(run.took / 1000).toFixed(1)} s (nothing was expected of it: its pictures are the test)`;
+    const fights = (run.fights ?? []).map(fightLine);
+    const summary = run.summary ? summaryLines(run.summary) : [];
+    const detail = [
+      `${run.pictures.length} pictures in ${run.out}${run.sheet ? `, all of them in ${run.sheet}` : ""}`,
+      ...run.pictures.map((picture) => `  ${picture}`),
+      `what the game said: ${run.logFile}${run.linesFile ? ` (and ${run.linesFile})` : ""}`,
+      ...fights,
+      ...summary,
+      ...run.expectations.map(expectationLine),
+    ];
+    const pictures = run.sheet ?? run.pictures.at(-1);
+    const look = !pictures
+      ? "no picture was taken"
+      : !run.expectations.length
+        ? `look at ${pictures}: nothing was expected, so only the pictures tell`
+        : failed.length
+          ? `look at ${pictures} (the pictures, ${run.pictures.length}) beside the lines that failed`
+          : "no picture to look at: the expectations decided";
+    const file = toldFile(run.out, [...detail, look, last]);
+    if (flags.verbose) for (const line of detail) console.log(line);
+    else {
+      console.log(`what was done: ${file}; what the game said: ${run.logFile}`);
+      if (failed.length) for (const each of failed) console.log(expectationLine(each));
+      // one fight's line is the measure of its difficulty; the run's own line counts the rest
+      console.log(fights.length === 1 ? fights[0] : (summary.at(-1) ?? `${run.steps?.length ?? 0} steps`));
+    }
+    console.log(look);
+    console.log(last);
     return failed.length === 0;
   };
   /** A run that stopped, printed; false. */
-  const stopped = (error) => {
-    for (const fight of error.fights ?? []) console.error(fightLine(fight));
-    for (const line of error.summary ? summaryLines(error.summary) : []) console.error(line);
-    for (const each of error.expectations ?? []) console.error(expectationLine(each));
-    if (error.sheet) console.error(`the pictures up to there: ${error.sheet}`);
-    if (error.logFile) console.error(`what the game said up to there: ${error.logFile}`);
-    console.error(`FAILED: ${/^play: /.test(error.message) ? error.message : `${command}: ${sayOf(error)}`}`);
+  const stopped = (error, out) => {
+    const lines = [
+      ...(error.fights ?? []).map(fightLine),
+      ...(error.summary ? summaryLines(error.summary) : []),
+      ...(error.expectations ?? []).map(expectationLine),
+      ...(error.sheet ? [`the pictures up to there: ${error.sheet}`] : []),
+      ...(error.logFile ? [`what the game said up to there: ${error.logFile}`] : []),
+    ];
+    const last = `FAIL: ${/^play: /.test(error.message) ? error.message : `${command}: ${sayOf(error)}`}`;
+    // the last steps done say where it stopped; all of them are in told.txt
+    if (!flags.verbose) for (const line of told.slice(-STOPPED_STEPS)) console.error(line);
+    if (told.length && out) console.error(`what was done up to there: ${toldFile(out, [...lines, last])}`);
+    for (const line of lines) console.error(line);
+    console.error(last);
     return false;
   };
+  // `smak play native ...`: the person's own game from Steam, by its console, in place of a page
+  const native = url === "native";
   try {
-    if (!/^https?:\/\//i.test(url))
+    if (!native && !/^https?:\/\//i.test(url))
       fail(
-        `${command}: the address of the page that runs the game comes first (http://...), not ${url}${flags.attach ? `: with --attach it is the session's (http://127.0.0.1:${SESSION_PORT})` : ""}`,
+        `${command}: the address of the page that runs the game comes first (http://...), or native for the game Steam installed, not ${url}${flags.attach ? `: with --attach it is the session's (http://127.0.0.1:${SESSION_PORT})` : ""}`,
       );
+    if (native && flags.attach) fail(`${command}: native plays the installed game from here; --attach is a page's session`); // prettier-ignore
     if (flags.attach && flags.close) {
       await closeSession(url);
       return console.log(`${url}: the session is closed`);
@@ -3478,6 +4099,8 @@ async function playMap({ command, file: url, flags, listed }) {
       out: all.length > 1 ? join(out, `${index + 1}-${String(map).replace(/[^A-Za-z0-9_-]/g, "_")}`) : out,
       ...defined({ loads: numberOf(flags, "loads"), from: index ? undefined : flags.from }),
       ...{ expect, expectNot, sheet: flags.sheet !== false },
+      // a third of the page each way unless told: the size that tells where the player is and what he sees
+      shrink: flags["full-pictures"] === true ? 1 : PLAY_SHRINK,
       // the files are put once, before the first map
       put: index ? [] : put,
       ...(over.length ? { over } : {}),
@@ -3488,8 +4111,8 @@ async function playMap({ command, file: url, flags, listed }) {
       await sessionState(url);
       let held = true;
       for (const run of runs) {
-        console.log(`${url}: ${run.stay ? "staying" : `map ${run.map}`}, ${run.steps.length} steps      (from the start, it took, what)`); // prettier-ignore
-        held = (await attachSession(url, run, { tell: (line) => console.log(line) }).then(report, stopped)) && held; // prettier-ignore
+        tell(`${url}: ${run.stay ? "staying" : `map ${run.map}`}, ${run.steps.length} steps      (from the start, it took, what)`); // prettier-ignore
+        held = (await attachSession(url, run, { tell }).then(report, (error) => stopped(error, run.out))) && held; // prettier-ignore
       }
       if (!held) process.exit(1);
       return;
@@ -3500,13 +4123,23 @@ async function playMap({ command, file: url, flags, listed }) {
     const [wide, high] = playPartOf(mod).screen ?? [];
     const width = numberOf(flags, "width") ?? wide;
     const height = numberOf(flags, "height") ?? high;
-    const playwright = playwrightFrom(flags.playwright ?? process.env.PLAYWRIGHT_DIR);
-    const driver = browserDriver(
-      defined({ url, playwright, width, height, messages: messagesOf(mod), headless: flags.show !== true }),
-    );
+    // the game's folder: --game-folder, else the profile's (ts, msc), else Half-Life's own
+    const gameFolder = flags["game-folder"] ?? maps.mapProfileOf(flags.mod)?.folder ?? "valve";
+    const driver = native
+      ? smak.play.nativeDriver(
+          defined({
+            ...{ halfLife: flags["half-life"], mod: gameFolder, width, height },
+            ...{ input: flags.input === true, quiet: numberOf(flags, "quiet") },
+            pictures: flags["window-pictures"] === true ? "window" : undefined,
+          }),
+        )
+      : browserDriver(
+          defined({ url, playwright: playwrightFrom(flags.playwright ?? process.env.PLAYWRIGHT_DIR), width, height, messages: messagesOf(mod), headless: flags.show !== true, args: flags.gpu ? HARDWARE_GL : undefined }), // prettier-ignore
+        );
     if (wide && (width !== wide || height !== high))
       console.log(`WARN  the profile's clicks were measured on a page of ${wide} by ${high}, and this one is ${width} by ${height}`); // prettier-ignore
-    const session = playSession({ driver, mod, over, tell: (line) => console.log(line) });
+    // a session served keeps printing what its runs do: it is the window onto the runs attached to it
+    const session = playSession({ driver, mod, over, tell: flags.serve ? (line) => console.log(line) : tell });
 
     if (flags.serve) {
       const began = Date.now();
@@ -3518,7 +4151,7 @@ async function playMap({ command, file: url, flags, listed }) {
       console.log(`  smak play ${served.address} --attach --map <name> --steps steps.json -o <folder>     a run in it`); // prettier-ignore
       console.log(`  smak play ${served.address} --attach --close                                        its end`); // prettier-ignore
       let held = true;
-      for (const run of runs) held = (await session.run(run).then(report, stopped)) && held;
+      for (const run of runs) held = (await session.run(run).then(report, (error) => stopped(error, run.out))) && held; // prettier-ignore
       await served.closed;
       console.log("the session is closed");
       if (!held) process.exit(1);
@@ -3528,8 +4161,8 @@ async function playMap({ command, file: url, flags, listed }) {
     let held = true;
     try {
       for (const run of runs) {
-        console.log(`${url}: map ${run.map}, ${run.steps.length} steps      (from the start, it took, what)`);
-        held = (await session.run(run).then(report, stopped)) && held;
+        tell(`${url}: map ${run.map}, ${run.steps.length} steps      (from the start, it took, what)`);
+        held = (await session.run(run).then(report, (error) => stopped(error, run.out))) && held;
       }
     } finally {
       await session.close().catch(() => {});
@@ -3553,8 +4186,9 @@ const COMMANDS = {
   },
   check: {
     run: check,
-    help: `  check <mdl> [--engine goldsrc|xash] [--source original.mdl]   what would break or draw wrong in the game (exit code 1 on
-                                            an error); --source: warnings the original has too are marked "inherited"`,
+    help: `  check <mdl> [--engine goldsrc|xash|source] [--source original.mdl]   what would break or draw wrong in the game (exit code 1 on
+                                            an error); --source: warnings the original has too are marked "inherited". Ends in a
+                                            line PASS or FAIL; the facts go to a file (--report <file>), --verbose prints them`,
   },
   render: {
     run: draw,
@@ -3671,7 +4305,10 @@ const COMMANDS = {
                                             layers, mirror, likeness, boxes) against the game's figures and a reference's. --pose:
                                             a module exporting pose(src) (the bones' matrices) and views ({ front: { yaw, pitch,
                                             dist, fov, target } }): the model drawn in the reference's pose, from its cameras, framed
-                                            as its masks' figure stands`,
+                                            as its masks' figure stands. The three judges end in a line PASS or FAIL (style: at or
+                                            over the game's own figures' lower quarter; texture, shape: no measure far out of the
+                                            corpus' middle half), exit code 0 either way; the detail goes to a file (--report),
+                                            --verbose prints it; the sheets are drawn small unless --full-pictures`,
   },
   "figure-validate": {
     run: figureValidate,
@@ -3684,7 +4321,7 @@ const COMMANDS = {
   reskin: {
     run: reskin,
     help: `  reskin <mdl> <rules.json|rules.mjs> -o out.mdl [--body n] [--pictures <folder>]
-                                            its textures recoloured, weathered and painted over by rules (AGENTS.md, "A re-skin
+                                            its textures recoloured, weathered and painted over by rules (docs/RESKIN.md, "A re-skin
                                             by rules"); --pictures: each changed texture before and after; checked against the original`,
   },
   inline: {
@@ -3780,7 +4417,8 @@ const COMMANDS = {
                                             entities against the mod: a class or a key that does not exist, a value of the wrong
                                             kind, a name nothing answers to, the mod's rules, the files it names (--scripts: folders of
                                             scripts of your own, for a profile whose mod names scripts: of those named by nothing,
-                                            this map's own are warned of, and every one with --all)`,
+                                            this map's own are warned of, and every one with --all). Ends in a line PASS or FAIL;
+                                            the facts go to a file (--report <file>), --verbose prints them`,
   },
   "map-fgd": {
     run: mapFgd,
@@ -3942,13 +4580,15 @@ const COMMANDS = {
   build: {
     run: buildCommand,
     own: true,
-    help: `  build <spec.json> [-o <folder>] [--game <folder>]... [--reference x.png] [--focus <part> ...] [--fgd x.fgd ...] [--vhlt <folder>] [--mod <profile>]
+    help: `  build <spec.json> [-o <folder>] [--game <folder>]... [--reference x.png] [--focus <part> ...] [--fgd x.fgd ...] [--vhlt <folder>] [--mod <profile>] [--engine source]
                                             a spec built by its kind (its "spec"; docs/SPEC.md): smak.map/1 a map of rooms laid
                                             out by words, in a folder of its name: its .map and own .wad, compiled when VHLT is
                                             found, walked, lit, its plan, views and sections drawn (--mod, or the spec's "mod":
                                             a mod's map, its starts, classes, textures and rooms' uses); smak.model/1 a model of parts,
                                             checked, with its sheet of six views (a character on a game's skeleton, a weapon in
-                                            place of a game's; --reference drawn beside it, --focus parts seen close); smak.wad/1
+                                            place of a game's; --reference drawn beside it, --focus parts seen close; --engine
+                                            source, or the spec's "engine": made for Source, held to Half-Life 2's, compiled for
+                                            GMod under <name>_source/, docs/SOURCE.md); smak.wad/1
                                             textures painted into a .wad with a sheet of them (preview: { map, each }: the map
                                             drawn wearing them, each at its place); smak.video/1 a video of models and maps from
                                             its shots (MP4 with ffmpeg, a GIF without; --preview its contact sheet alone);
@@ -4148,7 +4788,7 @@ const COMMANDS = {
     address: true,
     help: `  play <url> --map <name> [--steps steps.json] [-o <folder>] [--mod <profile>] [--game <folder> ...] [--playwright <folder>]
                               [--width 1024] [--height 768] [--loads ms] [--expect <pattern> ...] [--expect-not <pattern> ...]
-                              [--put <place>=<file> ...] [--no-sheet] [--show]
+                              [--put <place>=<file> ...] [--no-sheet] [--show] [--gpu] [--full-pictures] [--verbose]
                                             the map seen in the game itself: a browser build of Xash3D at that address is opened,
                                             the map loaded, the game entered as the mod's profile says, and the steps done
                                             (steps.json: a list such as [{ "walk": 3000, "shot": "gate" }, { "face": 90, "look": -20 },
@@ -4158,8 +4798,20 @@ const COMMANDS = {
                                             time. --expect, --expect-not: lines the whole run is held to. It ends with 1 when an
                                             expectation did not hold or the run stopped. --map and --steps given several times: one
                                             run each, in one start of the engine. --put: a file written into the engine first.
+                                            A run ends in a line PASS or FAIL and says which picture to look at, if any; what
+                                            it did step by step is in told.txt (--verbose: printed as it goes). The pictures
+                                            are a third of the page each way (--full-pictures: the page's size).
                                             It needs Playwright, an outside program: --playwright names the folder that holds its
                                             node_modules (or PLAYWRIGHT_DIR)
+  play native --map <name> [--mod ts] [--half-life <folder>] [--game-folder ts] [--steps ...] [-o ...] [--expect ...]
+              [--input [--quiet 5000]] [--window-pictures]
+                                            the same run in the game Steam installed (hl.exe, -insecure, never a server), by its
+                                            console: no view read or set; walks and turns by time, commands, what it says and its
+                                            own screenshots. The Half-Life folder is found in Steam's libraries (or --half-life,
+                                            SMAK_HALF_LIFE); the game's folder is the profile's (or --game-folder). --input: real
+                                            keys and mouse buttons to its window (ask the person first): only while it is in front,
+                                            after the keyboard and mouse are left alone --quiet ms, and stopped if they are touched.
+                                            --window-pictures: the pictures are of its window, as the person sees it
   play <url> --serve [--port 8098] [--over <place>=<folder> ...] [--mod ...] [--playwright ...]
                                             the game started and KEPT: a session served on this machine, for runs that pay for
                                             their map and not for the engine. --over: a folder laid over the game's (msc=mine/msc),
@@ -4169,6 +4821,199 @@ const COMMANDS = {
   play <session> --attach --close                                        the session ended
 `,
   },
+  "gmod-map": {
+    run: gmodMap,
+    own: true,
+    help: `  gmod-map <bsp> -o <folder> [--name n] [--folder smak] [--game <mod folder>] [--valve <folder>|none] [--no-physics]
+                              [--vphysics <dll>] [--gmod <folder>] [--studiomdl <exe>]
+                                            a GoldSrc map rewritten as a Source map (BSP 20) for Garry's Mod, ported from
+                                            stevenlafl's converter: its geometry, baked light and visibility kept lump by lump,
+                                            its collision brushes rebuilt from the tree (clip brushes from the player's hulls), its
+                                            entities as Source reads them, its textures, sky and sprites as VTF and VMT (a wad's
+                                            shared in the addon; the map's own and Valve's inside the map), its physics made by
+                                            GMod's own vphysics (bin/win64/vphysics.dll, through a small helper built once with
+                                            Visual Studio; SMAK_VPHYSICS, SMAK_VCOLLIDE). <folder>/addon goes into
+                                            garrysmod/addons/<name>/. --game: the mod's folder, for its wads, skies, sprites and
+                                            models. --valve: Half-Life's valve folder (found in Steam's libraries unless given).
+`,
+  },
+  "gmod-port": {
+    run: gmodPort,
+    own: true,
+    help: `  gmod-port <mdl> -o <folder> [--name n] [--folder smak] [--collision auto|hull|box|ragdoll|none] [--surfaceprop wood] [--mass kg]
+                              [--kind thing|view|held|player] [--upper] [--hand-roll degrees] [--studiomdl <exe>] [--gmod <folder>] [--no-compile]
+                                            a GoldSrc model ported to Garry's Mod: its bones, animations (those in <name>01.mdl
+                                            too), bodygroups, skins, attachments and hit boxes as Source's compiler's files
+                                            (<folder>/src: the QC and SMDs) and its textures as VTF and VMT (<folder>/addon), then
+                                            compiled by GMod's own studiomdl (an outside program that comes with GMod; --studiomdl,
+                                            SMAK_STUDIOMDL), the compiled model read back and held to the original, corner by
+                                            corner, and drawn (<folder>/sheet.png). <folder>/addon goes into garrysmod/addons/<name>/.
+                                            What Source has no place for is warned of. Ends in PASS or FAIL.
+                                            --collision (auto): a hull for a model of one bone (a physics prop that rolls), a
+                                            ragdoll for a figure with hit boxes (pieces fitted to the body, joints that bend as its
+                                            animations bend them), box, none. --surfaceprop:
+                                            what it is made of (taken from a kit-built model's record, else default; flesh for a
+                                            ragdoll); --mass: kg (else its hull's volume at its surfaceprop's density; 90 a ragdoll).
+                                            --kind: view (a v_ model: no fades, activities by name, a muzzle), held (a p_ model)
+                                            and player (one under models/player/): Valve's bone names and hands, so GMod finds the
+                                            hand; a player also stands on its feet and has GMod's hand attachments. --upper: a
+                                            player's animations each copied from the spine up (<name>_upper). The sounds its events
+                                            play are copied under addon/sound/<folder>/.`,
+  },
+  "sbox-port": {
+    run: sboxPort,
+    own: true,
+    help: `  sbox-port <mdl> -o <Assets folder> [--name n] [--folder smak] [--kind thing|view|held|player] [--collision auto|hull|box|ragdoll|none]
+                              [--surfaceprop wood] [--mass kg] [--lighting sbox|goldsrc] [--sbox <folder>] [--no-compile]
+                                            a GoldSrc model ported to s&box: its meshes and animations (those in <name>01.mdl
+                                            too) as DMX, its bodygroups, skins, attachments, hit boxes, animations' activities,
+                                            events and travel in a .vmdl (models/<folder>/<name>.vmdl), its textures as PNG and
+                                            .vmat (materials/models/<folder>/<name>/), under -o, an s&box project's Assets folder;
+                                            then compiled by s&box's own resourcecompiler (an outside program that comes with
+                                            s&box; --sbox, SMAK_SBOX). A loop's travel is taken out as root motion. An event that
+                                            plays a sound plays it in s&box (AE_CL_PLAYSOUND): its .wav copied from the game's
+                                            sound/ folders (its mod's, then valve's) under sounds/<folder>/, beside it a .sound
+                                            heard as far as GoldSrc heard it, a loop told in its .meta; any other event, and one
+                                            whose sound is not found, is kept as s&box's generic one (its number, its options).
+                                            It collides as gmod-port's
+                                            does (--collision, --surfaceprop, --mass as there): its hull, or a ragdoll of a hull
+                                            a piece and joints that bend as its animations bend it (a hinge or a cone), its weight
+                                            shared by volume; pieces that meet at rest and are not joined are trimmed apart. An
+                                            animation's blends (Half-Life's aiming) go in an animation graph (<name>.vanmgrph):
+                                            an animation chosen by its "sequence", blended by blend_xr and the like, as GoldSrc's
+                                            game code did; each blend is an animation of its own too.
+                                            --lighting goldsrc: lit as GoldSrc lights a model (shaders/smak_studio.shader: one
+                                            light, the sky's or the floor's, that the game hands its renderer; docs/SBOX.md).`,
+  },
+  "sbox-check": {
+    run: sboxCheck,
+    own: true,
+    help: `  sbox-check <mdl> --project <folder> [-o shot.png] [--name n] [--folder smak] [--kind ...] [--collision ...] [--surfaceprop s] [--mass kg]
+                              [--frames 2] [--tolerance 0.1] [--no-look] [--sbox <folder>]
+                                            a model's port (sbox-port's, in the project's Assets) read back in s&box's own editor
+                                            and held to the original: every bone under its parent, every animation of its length,
+                                            the bodygroups, skins, attachments and hit boxes, and each animation stopped at
+                                            --frames of its frames (its first and middle by default) with every bone where
+                                            GoldSrc's frame puts it, within --tolerance units; each blend too, and the graph's
+                                            blends at their start, middle and end, where GoldSrc's renderer mixes them. What it
+                                            collides as: each piece's hull, mass, surface and joint as the port wrote them, then
+                                            tried in a physics world of its own: held at rest (no piece pushes another), held in
+                                            the poses inside its joints' limits, and dropped onto a floor (it comes to rest, its
+                                            joints together). Its sounds: each .sound as the editor compiled it, as long, as far
+                                            heard and as loud, 10 ms by 10 ms, as the original; played, a loop still playing
+                                            after its length; and each animation played through, its sound events heard. Every
+                                            material compiled by the editor (one that is not, s&box draws red). How it looks
+                                            (--no-look: not pictured): drawn by s&box from four views round it in a scene of its
+                                            own, and by the kit's own renderer from the same eyes: its silhouette and its colours,
+                                            region by region, the original's. Give it the port's options (--name, --collision...).
+                                            Uses the editor open on the project, else opens one (sbox-cli, which comes with s&box)
+                                            and closes it after. -o: the two rows of pictures. Ends in PASS or FAIL.`,
+  },
+  "sbox-map": {
+    run: sboxMap,
+    own: true,
+    help: `  sbox-map <bsp> -o <Assets folder> [--name n] [--folder smak] [--game <mod folder>] [--mod msc] [--lighting lights]
+                                            a GoldSrc map made an s&box scene (scenes/<folder>/<name>.scene), under -o, an s&box
+                                            project's Assets folder: each face of the BSP a polygon of the scene editor's own
+                                            meshes (MeshComponent: drawn, collided with, editable), the world's in one, each
+                                            brush entity's in its own at its origin; its clip brushes rebuilt from the player's
+                                            hulls (as gmod-map's), solid, seen in the editor only; its textures as PNG and .vmat
+                                            (a wad's under materials/<folder>/<wad>/, shared), its sky one picture round the world;
+                                            its starts as SpawnPoints at their feet; its light the map's own lightmaps (one
+                                            picture of the map's, read by SMAK's shader as GoldSrc lays light on a texture),
+                                            its light entities as s&box's lights for what moves. --lighting lights: s&box's
+                                            lights instead (a face whose texture shines lit by itself with a light before it, an
+                                            indirect light volume to bake). --game: the mod's folder, for its wads and sky. --mod: a
+                                            profile (msc, ts, or a file), whose start classes the starts are. Not yet:
+                                            doors, buttons and other moving brushes (drawn where they start), items, sounds.`,
+  },
+  "sbox-map-check": {
+    run: sboxMapCheck,
+    own: true,
+    help: `  sbox-map-check <bsp> --project <folder> [-o shot.png] [--name n] [--folder smak] [--game <mod folder>] [--mod msc]
+                              [--lighting lights] [--count 5000] [--seed 1] [--allow 0.5] [--no-light] [--sbox <folder>]
+                                            the map ported (sbox-map's, into the project's Assets) and held to the GoldSrc map in
+                                            s&box's own editor: every mesh with its faces and its materials compiled, the sky, the
+                                            starts and lights where they were; where a player is blocked, at --count spots
+                                            standing and ducked (GoldSrc's hulls against s&box's physics; within --allow in a
+                                            hundred, as gmod-collision); each start's floor where GoldSrc's is; and its light,
+                                            pictured from each start beside GoldSrc's lightmaps as the game draws them, as bright
+                                            and lit in the same places. Uses the editor open on the project, else opens one and
+                                            closes it after. -o: GoldSrc's view from the first start beside s&box's. Ends in PASS
+                                            or FAIL.`,
+  },
+  "gmod-rcon": {
+    run: gmodRcon,
+    own: true,
+    address: true,
+    help: `  gmod-rcon <command> [<command> ...] [--password p] [--host a] [--port 27015]
+                                            console commands sent to a running GMod over Source's RCON (a dedicated server, or
+                                            the game started with -usercon +rcon_password p), its answer printed. It is looked for
+                                            on 127.0.0.1 and each LAN address (a listen server answers on the LAN's);
+                                            SMAK_RCON_HOST, SMAK_RCON_PASSWORD. A command a line: several at once trip GMod's
+                                            guard against floods, so longer Lua goes by gmod-probe.`,
+  },
+  "gmod-probe": {
+    run: gmodProbe,
+    own: true,
+    address: true,
+    help: `  gmod-probe <file.lua | map> [--name n] [--client] [--wait ms] [--game <folder>] [-o lines.txt] [--password p] ...
+                                            a Lua probe run inside the game: written under garrysmod/lua/ (a new name each run),
+                                            run by lua_openscript over RCON (--client: lua_openscript_cl), its lines read from
+                                            garrysmod/data/. The probe calls check(ok, what), note(text) and done() (by a timer
+                                            too); an error is a FAIL. Ends in PASS or FAIL. Built in: map (a gmod-map port loaded:
+                                            the world's physics, each start's floor and room, the floors' surfaceprops, a crate
+                                            dropped that lands; the models the game lacks noted). --game: the folder holding
+                                            garrysmod/ (a dedicated server's install), else GMod's.`,
+  },
+  "gmod-collision": {
+    run: gmodCollision,
+    own: true,
+    help: `  gmod-collision <GoldSrc bsp> [--count 5000] [--seed 1] [--ducked] [--noclip] [--allow 0.5] [--name n] [--game <folder>] [--port p] [--password p]
+                                            where a player is blocked in a GoldSrc map and in its gmod-map port loaded in the
+                                            game, ported from stevenlafl's check-collision: random spots inside the map, each asked
+                                            of the GoldSrc map's hull 1 (the standing player's, clip brushes in it; --ducked: hull 3)
+                                            and of the game (a player-sized TraceHull, MASK_PLAYERSOLID, the world only; --noclip:
+                                            player and NPC clip left out). PASS when they disagree on no more than --allow spots in
+                                            a hundred. --game: the server's install (the folder holding garrysmod/).`,
+  },
+  "gmod-server": {
+    run: gmodServer,
+    own: true,
+    folder: true,
+    help: `  gmod-server <dedicated server folder> --map <name> [--port 27016] [--password p] [--gamemode sandbox] [--players 4]
+                                            a dedicated GMod server (SteamCMD: app_update 4020) started on a map for probes and
+                                            gmod-collision: off the server list (sv_lan 1), cheats on, RCON with --password
+                                            (SMAK_RCON_PASSWORD), its console in garrysmod/console.log. Port 27016 by default, so the
+                                            game's own 27015 stays free. On Windows in a minimized window of its own, until
+                                            gmod-rcon quit --port 27016.`,
+  },
+  "gmod-shoot": {
+    run: gmodShoot,
+    own: true,
+    address: true,
+    help: `  gmod-shoot <x> <y> <z> [pitch yaw] [-o shot.jpg] [--fov 75] [--game <folder>] [--password p] ...
+                                            a screenshot from GMod's client (a listen server, -usercon): player 1 in noclip with
+                                            its eye at x y z looking along pitch yaw, the HUD and view model off for it.`,
+  },
+  "source-info": {
+    run: sourceInfo,
+    own: true,
+    address: true,
+    help: `  source-info <mdl | models/...mdl> [--json] [--gmod <folder>] [--addon <folder>]
+                                            what a Source model holds: bones, bodygroups, materials (found as the game finds them),
+                                            skins, attachments, hit boxes, animations. A path under the game (models/kleiner.mdl) is
+                                            read from GMod's folders and packs`,
+  },
+  "source-render": {
+    run: sourceRender,
+    own: true,
+    address: true,
+    help: `  source-render <mdl | models/...mdl> -o out.png [--view ...] [--yaw] [--pitch] [--zoom] [--body n] [--skin n]
+  source-sheet <mdl | models/...mdl> -o out.png [--size 384]
+                                            a Source model drawn at rest, as render and sheet draw a GoldSrc one`,
+  },
+  "source-sheet": { run: sourceRender, own: true, address: true },
   mcp: {
     run: mcp,
     help: `  mcp --work <folder> [--models <folder>] [--no-run]
@@ -4179,12 +5024,19 @@ const COMMANDS = {
 const HELP = `smak <command> <model.mdl | map.bsp | file> [...]        (node bin/smak.mjs ...)
 
 ${Object.values(COMMANDS)
+  // a command said in another's help (source-sheet in source-render's) has none of its own
+  .filter((entry) => entry.help)
   .map((entry) => entry.help)
   .join("\n")}
 `;
 
 // ── the start ──────────────────────────────────────────────────────────────
 const { flags, args, listed } = parseArgs(process.argv.slice(2));
+// `check --publish <folder>`: the folder was taken for the flag's value
+if (args[0] === "check" && typeof flags.publish === "string") {
+  args.splice(1, 0, flags.publish);
+  flags.publish = true;
+}
 const [command, file, ...rest] = args;
 if (!command || command === "help" || flags.help) {
   console.log(HELP);
@@ -4196,6 +5048,15 @@ if (!file) fail(HELP);
 const entry = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : null;
 // `address: true`: what follows the command is a page's address, not a file
 if (!entry?.address && !existsSync(file)) fail(`no such file: ${file}`);
+// check --publish is handed a folder to be shared, not a model
+if (command === "check" && flags.publish) {
+  checkFlags(flags);
+  try {
+    checkPublish({ file, flags, listed });
+  } catch (error) {
+    fail(`check --publish: ${sayOf(error)}`);
+  }
+}
 // a page is handed a folder as readily as a model; every other command reads a file
 if (!entry?.page && !entry?.folder && !entry?.address) existing(file);
 checkFlags(flags);

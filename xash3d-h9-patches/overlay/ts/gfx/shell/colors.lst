@@ -10,7 +10,7 @@
 
 HELP_COLOR		176 158 209	// hint letters: DimBaseText
 PROMPT_BG_COLOR		63 40 94	// dialog background: WindowBG
-PROMPT_TEXT_COLOR	223 213 245	// dialog and button letters: BaseText
-PROMPT_FOCUS_COLOR	186 116 255	// focused letters: DepressedMenuColor
+PROMPT_TEXT_COLOR	190 140 255	// dialog and button letters: purple
+PROMPT_FOCUS_COLOR	236 222 255	// focused letters: lit up, near white
 INPUT_TEXT_COLOR	225 212 250	// field text: ControlText
 INPUT_FG_COLOR		138 66 196	// field, list and checkbox foreground: SelectionBG

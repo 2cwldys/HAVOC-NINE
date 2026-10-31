@@ -233,14 +233,13 @@ void S_StreamBackgroundTrack( void )
 	if( !s_musicvolume.value || cl.paused || snd.stream_paused )
 		return;
 
+	// pause music by source type. H9: the console opened over the menu is still the menu, so the
+	// menu's music plays on under it, on a background map too
 	if( !cl.background )
 	{
-		// pause music by source type
 		if( s_bgTrack.source == key_game && cls.key_dest == key_menu ) return;
-		if( s_bgTrack.source == key_menu && cls.key_dest != key_menu ) return;
+		if( s_bgTrack.source == key_menu && cls.key_dest != key_menu && cls.key_dest != key_console ) return;
 	}
-	else if( cls.key_dest == key_console )
-		return;
 
 	rawchan_t *ch = S_FindRawChannel( S_RAW_SOUND_BACKGROUNDTRACK, true );
 

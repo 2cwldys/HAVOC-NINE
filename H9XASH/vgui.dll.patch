@@ -11,6 +11,8 @@ Working tree status for these paths. Anything listed is not committed, and is in
 Below is the whole source change, paths from the xash3d-fwgs root; "git apply" replays it on a clone.
 The notes above were written by an earlier build and are kept as they were. The history below is the record
 of each build, read from git when that build was made. The newest block describes the diff at the end.
+The VGUI1 library, FWGS's open freevgui. freevgui.patch (webassembly), freevgui-h9-scheme.patch: H9's purple scheme, and freevgui-h9-fonts.patch: the fonts in ts\resource\fonts registered for the game alone, and fonts.txt there mapping the faces the game asks for onto them (see docs\FONTS.txt).
+The VGUI1 library, FWGS's open freevgui. freevgui.patch (webassembly), freevgui-h9-scheme.patch: H9's purple scheme, and freevgui-h9-fonts.patch: the fonts in ts\resource\fonts registered for the game alone, and fonts.txt there mapping the faces the game asks for onto them (see docs\CUSTOM_FONT.txt).
 == Patch history ==
 Generated Wed 10/21/2026 23:42:20.46, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -19,6 +21,15 @@ In 3rdparty/freevgui, since its upstream commit 410c35cd7ed4271ebc0b49ddb5351a24
 839501d 2026-10-20 h9: webassembly support (freevgui.patch)
 c83f47f 2026-10-20 h9: purple VGUI1 scheme defaults (freevgui-h9-scheme.patch)
 Diff sha256 0b35dab7c3c2766e4b6cd381460c9020e723eb93f9dcd30230c65f273eed42a1, the diff below.
+
+Generated Sat 10/31/2026  0:56:19.73, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M platform/win32/font.cpp
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/freevgui, since its upstream commit 410c35cd7ed4271ebc0b49ddb5351a248447c319:
+839501d 2026-10-20 h9: webassembly support (freevgui.patch)
+c83f47f 2026-10-20 h9: purple VGUI1 scheme defaults (freevgui-h9-scheme.patch)
+Diff sha256 7a247d273029ce8d452b763bd78f48b37d82b3a0442032dc09cd82104e566c9c, the diff below.
 
 diff --git a/3rdparty/freevgui/platform/emscripten/font.cpp b/3rdparty/freevgui/platform/emscripten/font.cpp
 new file mode 100644
@@ -173,6 +184,270 @@ index 0000000..4055686
 +{
 +	return new FontPlat_Canvas( name, tall, weight, italic );
 +}
+diff --git a/3rdparty/freevgui/platform/win32/font.cpp b/3rdparty/freevgui/platform/win32/font.cpp
+index 44854ce..35540e5 100644
+--- a/3rdparty/freevgui/platform/win32/font.cpp
++++ b/3rdparty/freevgui/platform/win32/font.cpp
+@@ -3,9 +3,228 @@
+ 
+ #include "platform/win32/font.h"
+ #include "vgui_internal.h"
++#include <stdlib.h>
+ 
+ using namespace vgui;
+ 
++// H9: the game's own fonts. Every .ttf / .otf in <game>\resource\fonts (and valve\resource\fonts)
++// is registered for this process only, so a scheme can name it without it being installed;
++// and fonts.txt there maps a face the game asks for onto another, for instance
++//     font Arial = Square721 BT size 95 weight 700
++// so every scheme that names Arial draws in that font. size is a percentage of the
++// requested height and weight replaces the requested one; both may be left out.
++// Lines that do not start with "font" (the console font line, comments) are ignored.
++namespace
++{
++struct FaceMap
++{
++	char from[LF_FACESIZE];
++	char to[LF_FACESIZE];
++	int sizePercent;
++	int weight;
++};
++
++static FaceMap faceMaps[32];
++static int faceMapCount = 0;
++static bool gameFontsLoaded = false;
++
++static void trim( char *s )
++{
++	char *start = s;
++
++	while( *start == ' ' || *start == '\t' )
++		start++;
++
++	if( start != s )
++		memmove( s, start, strlen( start ) + 1 );
++
++	for( size_t len = strlen( s ); len && ( s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\r' || s[len - 1] == '\n' ); len-- )
++		s[len - 1] = 0;
++}
++
++// the folder HAVOC 9.exe runs from, and the game it was started with (-game ts)
++static void gameFolders( char *base, size_t baseSize, char *game, size_t gameSize )
++{
++	base[0] = 0;
++	::GetModuleFileNameA( nullptr, base, (DWORD)baseSize );
++	char *slash = strrchr( base, '\\' );
++
++	if( slash )
++		*slash = 0;
++
++	strncpy( game, "valve", gameSize - 1 );
++	game[gameSize - 1] = 0;
++
++	const char *cmd = ::GetCommandLineA();
++	const char *arg = cmd ? strstr( cmd, " -game " ) : nullptr;
++
++	if( !arg )
++		return;
++
++	arg += 7;
++
++	while( *arg == ' ' )
++		arg++;
++
++	bool quoted = *arg == '"';
++
++	if( quoted )
++		arg++;
++
++	size_t i = 0;
++
++	while( arg[i] && i < gameSize - 1 && ( quoted ? arg[i] != '"' : arg[i] != ' ' ))
++	{
++		game[i] = arg[i];
++		i++;
++	}
++
++	game[i] = 0;
++}
++
++static void registerFolder( const char *dir )
++{
++	static const char *const kinds[] = { "*.ttf", "*.otf" };
++
++	for( const char *kind : kinds )
++	{
++		char pattern[MAX_PATH];
++		_snprintf( pattern, sizeof( pattern ) - 1, "%s\\%s", dir, kind );
++		pattern[sizeof( pattern ) - 1] = 0;
++
++		WIN32_FIND_DATAA fd;
++		HANDLE find = ::FindFirstFileA( pattern, &fd );
++
++		if( find == INVALID_HANDLE_VALUE )
++			continue;
++
++		do
++		{
++			char path[MAX_PATH];
++			_snprintf( path, sizeof( path ) - 1, "%s\\%s", dir, fd.cFileName );
++			path[sizeof( path ) - 1] = 0;
++
++			if( ::AddFontResourceExA( path, FR_PRIVATE, nullptr ) <= 0 )
++				vgui_dprintf( "vgui: could not register font %s\n", path );
++		} while( ::FindNextFileA( find, &fd ));
++
++		::FindClose( find );
++	}
++}
++
++static bool readFaceMaps( const char *dir )
++{
++	char path[MAX_PATH];
++	_snprintf( path, sizeof( path ) - 1, "%s\\fonts.txt", dir );
++	path[sizeof( path ) - 1] = 0;
++
++	FILE *f = fopen( path, "r" );
++
++	if( !f )
++		return false;
++
++	char line[256];
++
++	while( fgets( line, sizeof( line ), f ) && faceMapCount < (int)( sizeof( faceMaps ) / sizeof( faceMaps[0] )))
++	{
++		char *comment = strstr( line, "//" );
++
++		if( comment )
++			*comment = 0;
++
++		trim( line );
++
++		if( _strnicmp( line, "font ", 5 ))
++			continue;
++
++		char *eq = strchr( line, '=' );
++
++		if( !eq )
++			continue;
++
++		*eq = 0;
++		FaceMap &m = faceMaps[faceMapCount];
++		memset( &m, 0, sizeof( m ));
++		m.sizePercent = 100;
++
++		strncpy( m.from, line + 5, sizeof( m.from ) - 1 );
++		trim( m.from );
++
++		// the face is every word up to "size" or "weight"
++		char face[LF_FACESIZE * 2] = { 0 };
++
++		for( char *word = strtok( eq + 1, " \t" ); word; word = strtok( nullptr, " \t" ))
++		{
++			if( !_stricmp( word, "size" ) || !_stricmp( word, "weight" ))
++			{
++				char *value = strtok( nullptr, " \t" );
++
++				if( value && !_stricmp( word, "size" ))
++					m.sizePercent = atoi( value );
++				else if( value )
++					m.weight = atoi( value );
++
++				continue;
++			}
++
++			if( face[0] )
++				strncat( face, " ", sizeof( face ) - strlen( face ) - 1 );
++
++			strncat( face, word, sizeof( face ) - strlen( face ) - 1 );
++		}
++
++		strncpy( m.to, face, sizeof( m.to ) - 1 );
++
++		if( m.from[0] && m.to[0] && m.sizePercent > 0 )
++			faceMapCount++;
++	}
++
++	fclose( f );
++	return true;
++}
++
++static void loadGameFonts()
++{
++	if( gameFontsLoaded )
++		return;
++
++	gameFontsLoaded = true;
++
++	char base[MAX_PATH], game[64];
++	gameFolders( base, sizeof( base ), game, sizeof( game ));
++
++	const char *games[] = { game, "valve" };
++	bool mapped = false;
++
++	for( int i = 0; i < 2; i++ )
++	{
++		if( i == 1 && !_stricmp( game, "valve" ))
++			break;
++
++		char dir[MAX_PATH];
++		_snprintf( dir, sizeof( dir ) - 1, "%s\\%s\\resource\\fonts", base, games[i] );
++		dir[sizeof( dir ) - 1] = 0;
++
++		registerFolder( dir );
++
++		// the game's own mapping wins; valve's is read only when the game has none
++		if( !mapped )
++			mapped = readFaceMaps( dir );
++	}
++}
++
++static const FaceMap *findFaceMap( const char *name )
++{
++	for( int i = 0; i < faceMapCount; i++ )
++	{
++		if( !_stricmp( faceMaps[i].from, name ))
++			return &faceMaps[i];
++	}
++
++	return nullptr;
++}
++}
++
+ FontPlat_Win32::FontPlat_Win32() : name( nullptr ), tall( 0 ), wide( 0 ), weight( 0 ),
+ 	rotation( 0.0f ),
+ 	italic( false ), underline( false ), strikeout( false ), symbol( false ),
+@@ -74,10 +293,28 @@ bool FontPlat_Win32::init( const char *newName, int newTall, int newWide, float
+ 	// escapement and orientation are in tenths of a degree
+ 	int escapement = (int)( rotation * 10.0f );
+ 
+-	font = ::CreateFontA( tall, wide, escapement, escapement, weight, italic, underline, strikeout,
++	// H9: the face, height and weight fonts.txt gives for this name. The font keeps the name and
++	// size it was asked for, which is how freevgui finds it again in its cache.
++	loadGameFonts();
++
++	const char *face = name;
++	int faceTall = tall, faceWide = wide, faceWeight = weight;
++	const FaceMap *map = findFaceMap( name );
++
++	if( map )
++	{
++		face = map->to;
++		faceTall = tall * map->sizePercent / 100;
++		faceWide = wide * map->sizePercent / 100;
++
++		if( map->weight > 0 )
++			faceWeight = map->weight;
++	}
++
++	font = ::CreateFontA( faceTall, faceWide, escapement, escapement, faceWeight, italic, underline, strikeout,
+ 		symbol ? SYMBOL_CHARSET : DEFAULT_CHARSET,
+ 		OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, PROOF_QUALITY,
+-		DEFAULT_PITCH | FF_DONTCARE, name );
++		DEFAULT_PITCH | FF_DONTCARE, face );
+ 
+ 	if( !font )
+ 	{
 diff --git a/3rdparty/freevgui/platform/xash3d-fwgs/support.h b/3rdparty/freevgui/platform/xash3d-fwgs/support.h
 index c269ce6..87659c8 100644
 --- a/3rdparty/freevgui/platform/xash3d-fwgs/support.h

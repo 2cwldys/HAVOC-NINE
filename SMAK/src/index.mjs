@@ -13,6 +13,7 @@ export * from "./render.mjs";
 export * from "./anim-gif.mjs";
 export * from "./icon.mjs";
 export * from "./check.mjs";
+export * from "./publish.mjs";
 export * from "./qem.mjs";
 export * from "./sound.mjs";
 export * from "./layout.mjs";
@@ -32,6 +33,10 @@ export * from "./blender.mjs";
 export { rand, noise, fbm, fbm3, seeded, step, mix, times, bell } from "./workshop.mjs";
 export * from "./reskin.mjs";
 export * as maps from "./maps/index.mjs";
+// the Source engine (GMod): a GoldSrc model ported, Source models and textures read (src/source/)
+export * as source from "./source/index.mjs";
+// s&box (Source 2): a GoldSrc model ported as its compiler reads one (src/sbox/)
+export * as sbox from "./sbox/index.mjs";
 export * as play from "./play.mjs";
 export * as animate from "./animate.mjs";
 export * as audio from "./audio/index.mjs";

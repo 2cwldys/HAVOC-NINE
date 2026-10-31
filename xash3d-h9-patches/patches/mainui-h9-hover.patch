@@ -1,0 +1,12 @@
+diff --git a/BaseMenu.cpp b/BaseMenu.cpp
+--- a/BaseMenu.cpp
++++ b/BaseMenu.cpp
+@@ -54,7 +54,7 @@ const char	*uiSounds[] = {
+ 	"media/launch_deny2.wav",
+ 	"media/launch_select1.wav",
+ 	"media/launch_deny1.wav",
+-	"",
++	"media/launch_move1.wav", // H9: SND_MOVE, the pointer or the arrow keys onto another item
+ 	""
+ };
+ 

@@ -26,6 +26,9 @@ The engine. The webassembly patch's engine part (emscripten code, compiled out o
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 == Patch history ==
 Generated Wed 10/21/2026 23:42:15.60, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -521,6 +524,149 @@ Lines of the previous diff that this build replaced, kept here:
 +		Q_snprintf( details, sizeof( details ), "Siege %s", siege );
 +		Q_strncpy( details, "Match Mode", sizeof( details ));
 Diff sha256 93ccd4de2ef8a96d2b47e31f3bc2d0a6cd7d2af11417474d3e53d4d19ea86672, the diff below.
+
+Generated Sat 10/31/2026  1:14:10.00, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/common/net_encode.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 6dfbaeda0444b305d5d0cff938a82c73d74f55f04a19b2472b2e99af628902f6, the diff below.
+
+Generated Sat 10/31/2026  1:23:49.44, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/sound/s_stream.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/common/net_encode.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 42c0e112d86169c6ae28732a9325380dc237ae2b1a24f7a29246c170c52621ed, the diff below.
+
+Generated Sat 10/31/2026  1:35:30.79, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/sound/s_stream.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/common/net_encode.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 7837eb02cce2a381603a4d58adfa6f26537abaadbde90e4701922bb752c806af, the diff below.
+
+Generated Sat 10/31/2026  1:40:30.39, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/sound/s_stream.c
+ M engine/common/common.h
+ M engine/common/host.c
+ M engine/common/net_encode.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
+ 		if( clgame.dllFuncs.pfnChatInputPosition )
+ 			clgame.dllFuncs.pfnChatInputPosition( &x, &y );
++			// H9: a game that does not say where (GoldSrc's do not) gets the say: line under its
++			// chat lines, at their left edge; with none on screen, where the HL SDK's chat area
++			// ends, just above the HUD
++			int lineHeight = Con_GetFont( con_fontsize.value )->charHeight;
++			if( !CL_ChatLinesPosition( &x, &y ))
++				x = 10;
++				y = refState.height - 60 - lineHeight;
+Diff sha256 ab9907243f900206d18f0b629d0ef830e4e54d228e3301027944ce730dd06682, the diff below.
 
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
@@ -2896,8 +3042,79 @@ index e5db2dac..7e53edc0 100644
  
  //
  // titles.c
+diff --git a/engine/client/console.c b/engine/client/console.c
+index f4cb6806..7768570c 100644
+--- a/engine/client/console.c
++++ b/engine/client/console.c
+@@ -39,6 +39,37 @@ static int g_codepage = 0;
+ 
+ static qboolean g_messagemode_privileged = true;
+ 
++// H9: where the game drew its chat lines this frame (dll_int/cl_game.c)
++qboolean CL_ChatLinesPosition( int *x, int *y );
++
++/*
++================
++Con_ChatInputPosition
++
++H9: where the say: line goes. The game's HUD_ChatInputPosition moves it first, if
++the game has one; when it leaves the position as it was (GoldSrc clients have none,
++and the HL SDK's own moves it only while spectating) the line goes under the chat
++lines the game drew this frame, at their left edge, or with none on screen where
++the HL SDK's chat area ends, just above the HUD
++================
++*/
++static void Con_ChatInputPosition( int *x, int *y )
++{
++	int left = *x, top = *y;
++
++	if( clgame.dllFuncs.pfnChatInputPosition )
++		clgame.dllFuncs.pfnChatInputPosition( x, y );
++
++	if( *x != left || *y != top )
++		return;
++
++	if( !CL_ChatLinesPosition( x, y ))
++	{
++		*x = 10;
++		*y = refState.height - 60 - Con_GetFont( con_fontsize.value )->charHeight;
++	}
++}
++
+ #define CON_TIMES		4	// notify lines
+ #define CON_MAX_TIMES	64	// notify max lines
+ #define COLOR_DEFAULT	'7'
+@@ -1837,8 +1868,7 @@ static void Con_DrawNotify( void )
+ 		int	len;
+ 
+ 		// update chatline position from client.dll
+-		if( clgame.dllFuncs.pfnChatInputPosition )
+-			clgame.dllFuncs.pfnChatInputPosition( &x, &y );
++		Con_ChatInputPosition( &x, &y );
+ 
+ 		Q_snprintf( buf, sizeof( buf ), "%s: ", con.chat_cmd );
+ 
+@@ -2163,16 +2193,8 @@ qboolean Con_GetInputRect( int *x, int *y, int *w, int *h )
+ 		*x = con.curFont->charWidths[' '];
+ 		*y = 0;
+ 
+-		if( clgame.dllFuncs.pfnChatInputPosition )
+-		{
+-			clgame.dllFuncs.pfnChatInputPosition( x, y );
+-			*h = con.curFont->charHeight;
+-		}
+-		else
+-		{
+-			// chat line is pushed down by the notify lines drawn above it
+-			*h = con.curFont->charHeight * ( con.num_times + 1 );
+-		}
++		Con_ChatInputPosition( x, y );
++		*h = con.curFont->charHeight;
+ 
+ 		*w = refState.width - *x;
+ 		return true;
 diff --git a/engine/client/dll_int/cl_game.c b/engine/client/dll_int/cl_game.c
-index 495245d7..4e2ec824 100644
+index 495245d7..8723bad0 100644
 --- a/engine/client/dll_int/cl_game.c
 +++ b/engine/client/dll_int/cl_game.c
 @@ -1413,8 +1413,15 @@ int EXPORT pfnSPR_Frames( HSPRITE hPic );
@@ -2947,6 +3164,95 @@ index 495245d7..4e2ec824 100644
  
  	return sprWidth;
  }
+@@ -1957,14 +1974,20 @@ static int GAME_EXPORT pfnDrawCharacter( int x, int y, int number, int r, int g,
+ pfnDrawConsoleString
+ 
+ drawing string like a console string
++
++H9: a colour set with pfnDrawSetTextColor is used by the next string only; a string
++drawn with none set is drawn in con_color, as GoldSrc does. The chat sets a colour
++once and then draws all its lines, so they all come out in con_color.
+ =============
+ */
+ int GAME_EXPORT pfnDrawConsoleString( int x, int y, char *string )
+ {
+ 	cl_font_t *font = Con_GetFont( con_fontsize.value );
+ 	rgba_t color;
+-	Vector4Copy( clgame.ds.textColor, color );
+-	Vector4Set( clgame.ds.textColor, 255, 255, 255, 255 );
++	if( clgame.ds.textColor[3] )
++		Vector4Copy( clgame.ds.textColor, color );
++	else Vector4Copy( g_color_table[7], color );
++	Vector4Set( clgame.ds.textColor, 0, 0, 0, 0 );
+ 
+ 	return x + CL_DrawString( x, y, string, color, font, FONT_DRAW_UTF8 | FONT_DRAW_HUD );
+ }
+@@ -3754,6 +3777,56 @@ static IVoiceTweak gVoiceApi =
+ 	Voice_GetControlFloat,
+ };
+ 
++// H9: the chat lines the game draws in the lower left, by frame, for the say: line
++// (CL_ChatLinesPosition, console.c's Con_DrawNotify)
++static uint chat_lines_frame = (uint)-1;
++static int chat_lines_left, chat_lines_bottom;
++
++/*
++=============
++pfnDrawConsoleStringNoted
++
++H9: the game's DrawConsoleString. Notes where the strings in the lower left of the
++screen (x under a third of the width, y below half the height: the chat) land
++this frame, then draws as pfnDrawConsoleString does
++=============
++*/
++static int GAME_EXPORT pfnDrawConsoleStringNoted( int x, int y, char *string )
++{
++	if( x < refState.width / 3 && y > refState.height / 2 )
++	{
++		if( chat_lines_frame != host.framecount )
++		{
++			chat_lines_frame = host.framecount;
++			chat_lines_left = x;
++			chat_lines_bottom = 0;
++		}
++
++		chat_lines_left = Q_min( chat_lines_left, x );
++		chat_lines_bottom = Q_max( chat_lines_bottom, y + Con_GetFont( con_fontsize.value )->charHeight );
++	}
++
++	return pfnDrawConsoleString( x, y, string );
++}
++
++/*
++=============
++CL_ChatLinesPosition
++
++H9: the left edge and the bottom of the chat lines the game drew this frame, so
++the say: line can go under them; false when it drew none
++=============
++*/
++qboolean CL_ChatLinesPosition( int *x, int *y )
++{
++	if( chat_lines_frame != host.framecount )
++		return false;
++
++	*x = chat_lines_left;
++	*y = chat_lines_bottom;
++	return true;
++}
++
+ // engine callbacks
+ static cl_enginefunc_t gEngfuncs =
+ {
+@@ -3784,7 +3857,7 @@ static cl_enginefunc_t gEngfuncs =
+ 	AngleVectors,
+ 	CL_TextMessageGet,
+ 	pfnDrawCharacter,
+-	pfnDrawConsoleString,
++	pfnDrawConsoleStringNoted,
+ 	pfnDrawSetTextColor,
+ 	pfnDrawConsoleStringLen,
+ 	pfnConsolePrint,
 diff --git a/engine/client/dll_int/cl_gameui.c b/engine/client/dll_int/cl_gameui.c
 index 993304fa..56073e34 100644
 --- a/engine/client/dll_int/cl_gameui.c
@@ -3163,6 +3469,28 @@ index 09dfa2a0..be4943cc 100644
  	{
  		IN_ActivateMouse();
  	}
+diff --git a/engine/client/sound/s_stream.c b/engine/client/sound/s_stream.c
+index e74a4d26..9effee5a 100644
+--- a/engine/client/sound/s_stream.c
++++ b/engine/client/sound/s_stream.c
+@@ -233,14 +233,13 @@ void S_StreamBackgroundTrack( void )
+ 	if( !s_musicvolume.value || cl.paused || snd.stream_paused )
+ 		return;
+ 
++	// pause music by source type. H9: the console opened over the menu is still the menu, so the
++	// menu's music plays on under it, on a background map too
+ 	if( !cl.background )
+ 	{
+-		// pause music by source type
+ 		if( s_bgTrack.source == key_game && cls.key_dest == key_menu ) return;
+-		if( s_bgTrack.source == key_menu && cls.key_dest != key_menu ) return;
++		if( s_bgTrack.source == key_menu && cls.key_dest != key_menu && cls.key_dest != key_console ) return;
+ 	}
+-	else if( cls.key_dest == key_console )
+-		return;
+ 
+ 	rawchan_t *ch = S_FindRawChannel( S_RAW_SOUND_BACKGROUNDTRACK, true );
+ 
 diff --git a/engine/common/cmd.c b/engine/common/cmd.c
 index d640a991..9a615b68 100644
 --- a/engine/common/cmd.c

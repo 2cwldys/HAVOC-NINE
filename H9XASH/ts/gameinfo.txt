@@ -17,9 +17,9 @@ icon		"h9_logo_32.ico"
 gamemode		"multiplayer_only"
 sp_entity		"info_player_start"
 mp_entity		"info_player_deathmatch"
-max_edicts	4098
-max_tempents	500
-max_beams		128
-max_particles	4096
+max_edicts	8192
+max_tempents	2048
+max_beams		512
+max_particles	8192
 internal_vgui_support		0
-render_picbutton_text		0
+render_picbutton_text		1

@@ -1,0 +1,27 @@
+diff --git a/engine/client/dll_int/cl_game.c b/engine/client/dll_int/cl_game.c
+index 4e2ec824..e89fb34f 100644
+--- a/engine/client/dll_int/cl_game.c
++++ b/engine/client/dll_int/cl_game.c
+@@ -1974,14 +1974,20 @@ static int GAME_EXPORT pfnDrawCharacter( int x, int y, int number, int r, int g,
+ pfnDrawConsoleString
+ 
+ drawing string like a console string
++
++H9: a colour set with pfnDrawSetTextColor is used by the next string only; a string
++drawn with none set is drawn in con_color, as GoldSrc does. The chat sets a colour
++once and then draws all its lines, so they all come out in con_color.
+ =============
+ */
+ int GAME_EXPORT pfnDrawConsoleString( int x, int y, char *string )
+ {
+ 	cl_font_t *font = Con_GetFont( con_fontsize.value );
+ 	rgba_t color;
+-	Vector4Copy( clgame.ds.textColor, color );
+-	Vector4Set( clgame.ds.textColor, 255, 255, 255, 255 );
++	if( clgame.ds.textColor[3] )
++		Vector4Copy( clgame.ds.textColor, color );
++	else Vector4Copy( g_color_table[7], color );
++	Vector4Set( clgame.ds.textColor, 0, 0, 0, 0 );
+ 
+ 	return x + CL_DrawString( x, y, string, color, font, FONT_DRAW_UTF8 | FONT_DRAW_HUD );
+ }

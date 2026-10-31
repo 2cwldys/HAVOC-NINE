@@ -17,11 +17,6 @@ rcbot/bot_playerids.ini
 export-map/
 src/
 
-# H9XASH: Valve's Half-Life content stays out -- a copy of this repo brings its owner's
-# own Half-Life (see H9XASH/README_H9XASH.txt). extras.pk3 is Xash's own file and stays in.
-H9XASH/valve/*
-!H9XASH/valve/extras.pk3
-
 # Files Xash writes into the game folder while it runs, for anyone playing from here.
 H9XASH/**/video.cfg
 H9XASH/**/opengl.cfg
@@ -29,6 +24,10 @@ H9XASH/**/.xash_id
 H9XASH/**/.fontcache/
 H9XASH/**/voice_ban.dt
 H9XASH/**/custom.hpk
+# The settings Xash keeps in valve (ts/config.cfg is the stock one, shipped on purpose),
+# and the app id the Steam broker writes.
+H9XASH/valve/config.cfg
+H9XASH/**/steam_appid.txt
 H9XASH/**/save/
 H9XASH/**/logs/
 H9XASH/**/screenshots/
@@ -75,3 +74,7 @@ H9XASH/user_id.ini
 H9XASH/ts/demoheader.tmp
 H9XASH/ts/userid_resolved.cfg
 H9XASH/discord-bot/bot.log
+
+# wad2png output: the PNGs are generated, only the folder is kept.
+wad2png/exported/*
+!wad2png/exported/.keep

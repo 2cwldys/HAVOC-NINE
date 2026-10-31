@@ -1,0 +1,18 @@
+// H9's fonts. Every .ttf / .otf in this folder is loaded for the game alone (nothing is
+// installed on Windows); this file says where each one is used. See docs\CUSTOM_FONT.txt.
+//
+// font <face the game asks for> = <face to draw instead> [size <percent>] [weight <100-900>]
+//   VGUI1 text: the menus, scoreboard and MOTD. Read when the game starts.
+//   A face is the family name Windows knows the font by, not its file name:
+//     Square721 BT       SQR721N (Roman), SQR721B (weight 700), SQR721I, SQR721BI
+//     Square721 Cn BT    SQR721C, SQR721BC (condensed)
+//     Square721 Ex BT    SQR721E (extended)      Square721 BdEx BT   SQR721BE
+//     Square721 Dm       SQR721DN, SQR721DI      Square721 Blk       SQR721KN, SQR721KI
+font Arial = Square721 BT weight 700
+font FixedSys = Square721 BT
+//
+// console <file in this folder> [rows <font0>,<font1>,<font2>]
+//   The console and chat font, also the one the engine draws other HUD text in. Built from this line into
+//   ts\font0/1/2_cp1252.fnt by tools\make_con_fonts.py on every export; the rows are the
+//   heights for small, middle and 1280-and-wider screens.
+console SQR721B.TTF rows 15,18,22
