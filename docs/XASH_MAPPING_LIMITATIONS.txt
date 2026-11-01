@@ -1,0 +1,185 @@
+Mapping for H9's Xash: the limits, exactly
+==========================================
+
+H9XASH runs Xash3D FWGS, which loads maps far past what Valve's GoldSrc takes. H9's
+compilers (export-map\sdhlt-goldsrc-net) hold a map to one engine's limits or the
+other's, chosen on the command line. This file lists every limit a map meets, from the
+compiler to the running game, each with its exact number and where it comes from.
+
+
+1. Choosing the engine
+----------------------
+
+Every compiler takes the same switch, and all four must get the same one:
+
+  -engine xash      (or -xash)   Xash3D FWGS's limits: the numbers in the "Xash" columns
+  -engine goldsrc   (or nothing)  stock GoldSrc's: the "GoldSrc" columns, as before
+
+The tools do not look at the map to decide. Each log starts with "Limits of GoldSrc"
+or "Limits of Xash3D FWGS", so a log always says which one it held the map to.
+
+The file comes out in the smallest layout that fits (-format bsp30|bsp30ext|bsp2 to
+force one):
+
+  bsp30      the stock version 30 file: 16-bit numbers everywhere. Every engine loads it.
+  bsp30ext   version 30 with 32-bit clipnodes, past 32,767 of them. Xash only.
+  BSP2       Xash's 32-bit layout, past any 16-bit count (vertexes, nodes, leaves,
+             faces, marksurfaces). Xash only.
+
+Steam's Half-Life, HLDS and SMAK's map readers (renders, views, compiled-map checks)
+take version 30 files only.
+
+
+2. What the compilers hold a map to
+-----------------------------------
+
+The arrays are sized for Xash; the limit enforced is the chosen engine's
+(sdhlt common/bspfile.h, and the per-engine table in common/bspfile.cpp).
+
+                          GoldSrc        Xash          Over Xash's limit, the engine
+  brushes, in all         32,768         32,768        (compiler only: hlcsg stops)
+  brush sides             196,608        196,608       (6 a brush; compiler only)
+  entities, compiled      16,384         16,384        (see 4 for what runs)
+  entity text             2 MB           2 MB          warns
+  brush models            512            2,048         refuses the map
+  planes                  32,768         131,072       warns
+  vertexes                65,535         524,288       warns
+  nodes                   32,767         262,144       refuses the map
+  leaves                  32,760         131,072       refuses the map
+    world leaves          8,192 (warns)  131,072
+  faces                   65,535         262,144       refuses the map
+    world faces           32,768         262,144
+  texinfo                 32,767         32,767        refuses past 262,144
+  clipnodes               32,767         524,288       warns
+    in one hull of one    32,767         32,767        (bsp30ext only; BSP2 has none)
+    model
+  marksurfaces            65,535         524,288       warns
+  edges                   256,000        1,048,576     warns
+  surfedges               512,000        2,097,152     warns
+  textures in the map     4,096          4,096         (renderer: 8,192 loaded at once)
+  texture data            32 MB          32 MB         warns past 32 MB
+  light data              48 MB          48 MB         warns past 32 MB
+  vis data                8 MB           16 MB         warns
+  lightmap pages          64             256           stops loading: "LM_AllocBlock: full"
+                          A page is 128 x 128 luxels in a version 30 or bsp30ext map. Xash
+                          makes it 1,024 x 1,024 in a BSP2 map (or with r_large_lightmaps 1),
+                          so a BSP2 map has 64 times the room. The compiler's count assumes
+                          128 x 128.
+  hlbsp t-junction        0x40000        0x100000      (compiler only)
+    edge points
+  hlbsp t-junction edges  0x20000        0x80000       (compiler only)
+
+Of these, only the brush count (32,768 in all, detail and brush entities included) is
+the same ceiling for both engines. Every other limit in the Xash column is Xash's own,
+read from its common/bspfile.h and its map loader's lump table
+(engine/common/mod_bmodel.c).
+
+The four limits that refuse a map outright are nodes, texinfo, faces and leaves (the
+loader's CHECK_OVERFLOW lumps), plus brush models. Past any other limit it warns in
+the console and loads the map anyway.
+
+hlvis and hlrad have limits of their own:
+
+  vis leaves (portal leafs)    32,760   both engines. hlvis works on the BSP's leaves
+                                        grouped round detail brushes, so a map with
+                                        40,000 leaves can have 4,000 vis leaves.
+  portals on one vis leaf      256
+  light patches                1,048,560 (65,535 x 16)
+  light styles on one face     4
+  light styles in the map      64 (switchable lights use 32 to 63)
+  lightmap density             one luxel per 16 units of a face; hlbsp splits faces
+                               at 240 units (-subdivide), keeping each under 16 luxels
+
+
+3. How far a map can reach
+--------------------------
+
+  stock GoldSrc         +/-4,096   (the network's origin bits)
+  H9 on Xash            +/-32,768
+
+H9 widens the network to +/-32,768 in two places:
+- ts\delta.lst gives every origin enough bits:
+  - entities 19 bits in eighths;
+  - players 21 bits in 32nds;
+  - client data 23 bits in 128ths;
+  - custom entities and events 19 bits in eighths.
+- engine-h9-bigworld.patch (xash3d-h9-patches) writes coordinates as whole units,
+  +/-32,768, whenever the world reaches past +/-4,096.
+
+User messages from the game DLL keep eighths, as its client reads them.
+
+hlcsg accepts geometry to +/-65,536 (-worldextent), so stay inside +/-32,768 yourself.
+Its "origin outside +/-4096" warnings for entities are GoldSrc's, and harmless on H9.
+
+
+4. What the running game holds
+------------------------------
+
+Xash3D FWGS's own limits (engine/common/protocol.h and common.h, client/sound.h,
+ref/gl/gl_local.h, filesystem/gameinfo.c):
+
+  edicts                       8,192 at most (13 bits). The mod's own number rules:
+                               H9's liblist.gam and gameinfo.txt say 4,098; Xash's
+                               default without one is 1,200. Every door, func_wall,
+                               sprite, sound and player takes one. A light without a
+                               targetname frees its edict as it spawns.
+  entities sent per frame      2,048 (GoldSrc: 256)
+  model precache               4,096 (GoldSrc: 512)
+  sound precache               2,048 (GoldSrc: 512)
+  generic files                1,024
+  events                       1,024
+  user messages                197
+  light styles                 256 on the network; the compiler writes 64
+  dynamic lights in a frame    32
+  entity lights in a frame     128
+  static entities              3,096
+  decals                       512 sent, 4,096 drawn in a level
+  static sound channels        256 (every looping ambient_generic takes one, near or
+                               far); 64 dynamic channels besides
+  leaves an entity touches     48 in a version 30 map, 24 in a 32-bit one. A brush
+                               entity spread over more leaves can drop out of view:
+                               keep doors and func_walls compact in a big map.
+  players                      32
+
+
+5. A worked example: New Byzantium
+----------------------------------
+
+h9_tsrp_newbyzantium (export-map\h9_tsrp_newbyzantium), compiled -engine xash, is a
+BSP2 file. Its counts against the Xash column:
+
+  brushes        29,846 of 32,768   (17,129 world, the rest detail and entities)
+  entities       3,868 compiled; doors, signs, sprites and 240 sounds run
+  leaves         46,737 of 131,072  (world 40,616)
+  vis leaves     4,100 of 32,760, with 6,045 portals
+  faces          128,464 of 262,144
+  nodes          68,121 of 262,144
+  clipnodes      171,493 of 524,288
+  marksurfaces   203,995 of 524,288
+  vertexes       191,717 of 524,288
+  edges          328,893 of 1,048,576
+  surfedges      601,370 of 2,097,152
+  planes         33,415 of 131,072
+
+The brush count is its real ceiling. The city's rooms are carved from rock tile by
+tile, and a floor between stacked rooms is one detail slab, so that it stays under
+32,768.
+
+
+6. Where the numbers come from
+------------------------------
+
+  export-map\sdhlt-goldsrc-net\src\sdhlt\common\bspfile.h     the compilers' arrays
+  export-map\sdhlt-goldsrc-net\src\sdhlt\common\bspfile.cpp   s_goldsrc and s_xash
+  export-map\sdhlt-goldsrc-net\src\sdhlt\sdHLVIS\vis.h        vis leaves, portals
+  export-map\sdhlt-goldsrc-net\src\sdhlt\sdHLRAD\qrad.h       patches, light styles
+  xash3d-fwgs\common\bspfile.h                                Xash's map limits
+  xash3d-fwgs\engine\common\mod_bmodel.c                      which of them refuse
+  xash3d-fwgs\engine\common\protocol.h, common.h              network and edicts
+  xash3d-fwgs\engine\client\sound.h                           sound channels
+  xash3d-fwgs\ref\gl\gl_local.h                               lightmap pages
+  H9XASH\ts\delta.lst, xash3d-h9-patches\patches\engine-h9-bigworld.patch
+                                                              how far a map reaches
+
+The changes that let the compilers take Xash's limits carry a "// 2CWLDYS" line in
+the source, each beside what it changed.

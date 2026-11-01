@@ -130,6 +130,11 @@ if exist "%FWGS%\.git" (
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-consolemusic.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-chatinput.patch" || exit /b 1
     call :patch "%FWGS%" "%XASH%\patches\engine-h9-bigworld.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-websound.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-cvarresync.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-webmenu.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-phsbudget.patch" || exit /b 1
+    call :patch "%FWGS%" "%XASH%\patches\engine-h9-motd.patch" || exit /b 1
 )
 
 REM Configured once; waf reconfigures by itself when a wscript changes.
@@ -198,7 +203,10 @@ for /f %%c in ('git -C "%FWGS%" rev-parse --short origin/master 2^>nul') do set 
     echo           engine-h9-userid.patch, engine-h9-presence.patch,
     echo           engine-h9-autoconfig.patch, engine-h9-deltabits.patch,
     echo           engine-h9-concolor.patch, engine-h9-consolemusic.patch,
-    echo           engine-h9-chatinput.patch, and engine-h9-bigworld.patch
+    echo           engine-h9-chatinput.patch, engine-h9-bigworld.patch,
+    echo           engine-h9-websound.patch, engine-h9-cvarresync.patch,
+    echo           engine-h9-webmenu.patch, engine-h9-phsbudget.patch
+    echo           and engine-h9-motd.patch
 )
 powershell -NoProfile -ExecutionPolicy Bypass -File "%XASH%\dllmerge.ps1" "%H9%\ENGINE.txt" "%H9%\ENGINE.txt.new" || exit /b 1
 
@@ -206,7 +214,7 @@ REM Each DLL built from patched source carries ^<dll^>.patch beside it: what it 
 REM the diff against upstream FWGS it was built with, paths from the xash3d-fwgs root so
 REM "git apply" replays it on a fresh clone. Written from git on every build, so it always
 REM matches the binary next to it.
-call :dllpatch xash.dll "engine common" "3rdparty/library_suffix" "The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), engine-h9-bigworld.patch (big-world coordinates, whole units to +/-32768, for a map whose world reaches past +/-4096; with ts\delta.lst's widened origin fields, maps larger than the stock box), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present)." "" || exit /b 1
+call :dllpatch xash.dll "engine common" "3rdparty/library_suffix" "The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), engine-h9-bigworld.patch (big-world coordinates, whole units to +/-32768, for a map whose world reaches past +/-4096; with ts\delta.lst's widened origin fields, maps larger than the stock box), engine-h9-websound.patch (the browser build only: the sound mixer skips the time a long frame already played instead of painting into it, and mixes at least 0.2 s ahead whatever _snd_mixahead says; this Windows build compiles as before), engine-h9-cvarresync.patch (setting a cvar to the string it already holds reads its value from that string again, as GoldSrc does, so the cam_ideal* and cam_snapto values the client writes directly can be set back), engine-h9-webmenu.patch (the browser build only: the main menu's background video decoded by the page and drawn by the engine, and quit and minimize handed to the page; this Windows build compiles as before), engine-h9-phsbudget.patch (no PHS for a world whose PHS would take more than 192 MB, or more than 8 GB of merging rows, as a large open map or a draft vis makes it, so a map of tens of thousands of leaves loads on a multiplayer server, its sounds reaching every player; below that the PHS is allocated once instead of once per row), engine-h9-motd.patch (the splash MOTD: a server's picture or web page shown at join in place of the text MOTD, from the H9Motd message h9_motd.sma sends; the picture fetched over https and drawn by the engine, a page opened in the system browser only on a click; cl_h9_motd 0 turns it off; see docs\H9_MOTD.txt), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present)." "" || exit /b 1
 call :dllpatch ref_gl.dll "ref/gl" "" "The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game) and engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls)." "" || exit /b 1
 call :dllpatch filesystem_stdio.dll "filesystem" "" "The filesystem. The webassembly patch's one change here is emscripten-only." "" || exit /b 1
 call :dllpatch menu.dll "" "3rdparty/mainui" "The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), mainui-h9-hover.patch (a sound, launch_move1.wav, when the pointer or the arrow keys move onto another item), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music)." "" || exit /b 1
@@ -399,18 +407,24 @@ REM    copied from the live install -- where build.bat deploys ts_matchmode -- s
 REM    H9XASH runs it exactly as the Steam TS install does. Its logs\ stay behind,
 REM    and so does rcbot's bot_playerids.ini, which is the live server's own state.
 REM
-REM    ts_advertise.cfg is the one file not copied: the live one holds the Discord bot
-REM    token, and a local test server would post its matches to Discord. H9XASH gets
-REM    TSM's empty template, once -- the plugin loads and stays unconfigured until a
-REM    token is put in H9XASH's own copy, which is never overwritten.
+REM    ts_advertise.cfg is not copied: the live one holds the Discord bot token, and a
+REM    local test server would post its matches to Discord. H9XASH gets TSM's empty
+REM    template, once -- the plugin loads and stays unconfigured until a token is put in
+REM    H9XASH's own copy, which is never overwritten. h9_presence.cfg likewise: the live
+REM    one holds that server's h9web presence key, and a local server reporting with it
+REM    would report its players as the live server's. H9XASH gets h9_presence.cfg.example
+REM    as its h9_presence.cfg, once, and never over its own. data\h9_presence.key stays
+REM    behind for the same reason: it is the live server's enrolled key, and an H9XASH
+REM    dedicated server enrolls with its own.
 if not exist "%HLROOT%\ts\addons\metamod\dlls\metamod.dll" (
     echo   [WARN] no Metamod at %HLROOT%\ts\addons -- H9XASH cannot host H9 matches,
     echo          and its gameinfo.txt loads Metamod: point gamedll at dlls/mp.dll
     exit /b 0
 )
-robocopy "%HLROOT%\ts\addons" "%H9%\ts\addons" /E /XD logs /XF ts_advertise.cfg /NJH /NJS /NDL /NFL /NP >nul
+robocopy "%HLROOT%\ts\addons" "%H9%\ts\addons" /E /XD logs /XF ts_advertise.cfg h9_presence.cfg h9_presence.key /NJH /NJS /NDL /NFL /NP >nul
 if errorlevel 8 exit /b 1
 if not exist "%H9%\ts\addons\amxmodx\configs\ts_advertise.cfg" copy /y "%TSM%\ts_advertise.cfg" "%H9%\ts\addons\amxmodx\configs\" >nul
+if exist "%TSM%\h9_presence.cfg.example" if not exist "%H9%\ts\addons\amxmodx\configs\h9_presence.cfg" copy /y "%TSM%\h9_presence.cfg.example" "%H9%\ts\addons\amxmodx\configs\h9_presence.cfg" >nul
 robocopy "%HLROOT%\rcbot" "%H9%\rcbot" /E /XF bot_playerids.ini /NJH /NJS /NDL /NFL /NP >nul
 if errorlevel 8 exit /b 1
 echo   6 Metamod, AMXX ^(ts_matchmode^) and RCBot from %HLROOT%

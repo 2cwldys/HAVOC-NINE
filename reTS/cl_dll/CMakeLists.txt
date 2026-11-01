@@ -105,6 +105,31 @@ target_compile_definitions(client PRIVATE
 if(HALFLIFE_EMSCRIPTEN)
 	target_include_directories(client PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/../utils/vgui/include)
+
+	# H9 web client: VGUI is FWGS's freevgui (with H9's scheme), compiled into the client with its
+	# Xash3D support layer. INTERNAL_VGUI_SUPPORT names the entry point InitVGUISupportAPI, so the
+	# engine hosts VGUI from the client library (gameinfo.txt: internal_vgui_support 1). Text is drawn
+	# by the browser font backend (platform/emscripten/font.cpp; posix's draws none), and
+	# FREEVGUI_NO_GLOBAL_NEW leaves operator new to the engine. An object library, so the entry points,
+	# which nothing in the client calls, are linked in all the same.
+	set(HALFLIFE_XASH3D_DIR "${CMAKE_SOURCE_DIR}/../xash3d-fwgs" CACHE PATH
+		"Xash3D FWGS source: freevgui and the engine's vgui_api.h, for the Emscripten client")
+	set(H9_FREEVGUI "${HALFLIFE_XASH3D_DIR}/3rdparty/freevgui")
+	if(NOT EXISTS "${H9_FREEVGUI}/platform/emscripten/font.cpp" OR NOT EXISTS "${HALFLIFE_XASH3D_DIR}/engine/vgui_api.h")
+		message(FATAL_ERROR "No freevgui with the browser font backend under ${HALFLIFE_XASH3D_DIR}: set HALFLIFE_XASH3D_DIR")
+	endif()
+	file(GLOB H9_FREEVGUI_SOURCES
+		${H9_FREEVGUI}/*.cpp
+		${H9_FREEVGUI}/controls/*.cpp
+		${H9_FREEVGUI}/platform/common/*.cpp
+		${H9_FREEVGUI}/platform/posix/app.cpp
+		${H9_FREEVGUI}/platform/emscripten/font.cpp
+		${H9_FREEVGUI}/platform/xash3d-fwgs/*.cpp)
+	add_library(freevgui OBJECT ${H9_FREEVGUI_SOURCES})
+	target_compile_features(freevgui PRIVATE cxx_std_11)
+	target_compile_definitions(freevgui PRIVATE INTERNAL_VGUI_SUPPORT FREEVGUI_NO_GLOBAL_NEW)
+	target_include_directories(freevgui PRIVATE ${H9_FREEVGUI} ${HALFLIFE_XASH3D_DIR}/engine)
+	target_link_libraries(client PRIVATE freevgui)
 else()
 	target_link_libraries(client PRIVATE
 		$<$<PLATFORM_ID:Windows>:delayimp>

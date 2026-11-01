@@ -1,0 +1,9 @@
+{
+  "servers": [
+    { "name": "HAVOC 9", "address": "203.0.113.10:27015" },
+    { "name": "HAVOC 9 (on this VPS)", "address": "198.51.100.20:27015", "target": "127.0.0.1:27015",
+      "notes": "the relay sends to the loopback address; players and the engine see 198.51.100.20:27015" },
+    { "name": "HAVOC 9 test", "address": "203.0.113.10:27016", "listed": false,
+      "notes": "joinable through the relay, but not in the server browser or on the website" }
+  ]
+}

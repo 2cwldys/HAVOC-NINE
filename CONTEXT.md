@@ -115,4 +115,23 @@ export\ts into H9XASH with /XO, so edits made in H9XASH are kept. Then commands.
 
 ## tools.zip
 
-A barebones copy of the same tools for another project. It contains config.cmd (the paths and the KEEP_ONCE list), build.bat, export.bat, xash.bat (the engine and addons steps), dllmerge.ps1 (the same script, with one comment generalised) and README.md. It leaves out the project's plugin list, sounds, maps, the H9TE client, the stock base, the assemble and assets steps, and the web build. Its build, export, addons and missing-engine paths were run against a fake install. The engine build itself was not run.
+A barebones copy of the same tools for another project. It contains:
+
+- config.cmd: the paths, the KEEP_ONCE list, and the web client's paths.
+- build.bat.
+- export.bat: it ends with the web client's pack, from the repo's copy of the client folder.
+- xash.bat: the engine and addons steps.
+- dllmerge.ps1: the same script, with one comment generalised.
+- webclient.bat: the browser client's engine, client, pack and serve steps.
+- make_webclient_game.py and serve_webclient.py: the same files as tools\, the mod folder named by WEB_GAMEDIR.
+- README.md.
+
+It leaves out the project's plugin list, sounds, maps, the H9TE client, the stock base, the assemble and assets steps, the web page and its loader, and the relay and accounts service.
+
+What was tested against a fake install:
+
+- the build, export, addons and missing-engine paths;
+- the web client's pack, its skip, and its errors;
+- export.bat's pack from the repo's copy.
+
+The engine build and the browser engine and client builds were not run.

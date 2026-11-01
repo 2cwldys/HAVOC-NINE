@@ -2,6 +2,8 @@
  TS MATCH MODE -- COMMAND REFERENCE
  Plugins: ts_matchmode.amxx 1.54-lift2   ts_uplink.amxx 1.0-modes2
           ts_survival.amxx 1.0-modes2   ts_mechwarrior.amxx 1.0-modes2
+          h9_presence.amxx 1.1   h9_motd.amxx 1.0   tsrp_roambots.amxx 1.0
+          h9_community.amxx 1.0
 ===============================================================================
 
  Keep this file current. When a command or cvar is added, renamed or removed in
@@ -337,6 +339,24 @@
      chosen, whether it is on disk, and the list it was drawn from with "pick n
      of m". An m smaller than the names in the config means the list is being
      cut short somewhere.
+
+ .relay <text>
+     Says <text> to the whole community this server is in: every one of its
+     servers and its page on havoc9.org show "[Tag] YourUsername: text", and
+     lines written on the site come as "[Web] Name: text". Needs a havoc9.org
+     account linked to your game (docs\H9_PRESENCE.txt); one line every 2
+     seconds. The server sets the prefix (h9_community_prefix).
+
+ /find <name>, /where <name>
+     Where a havoc9.org player is, as far as they show it: the server and the
+     address to type after connect, or on havoc9.org, in the H9 web client, or
+     offline. This community's players come first. .find and .where too.
+
+ Portals
+     A ring on some maps leads to another server of the community; its name
+     and players show as you come near. Press E (or walk in, where it says
+     so) and pick 1. Go. The server cannot move you itself yet, so it gives
+     you the address: open the console and type connect <address>.
 
 
 ===============================================================================
@@ -765,8 +785,81 @@
      in config.cfg or userconfig.cfg. The Discord desktop app has to be running. See
      docs\RICH_PRESENCE.txt.
 
+ h9_presence_status                (server console)
+     What the havoc9.org presence plugin is doing: its self-test, whether it
+     reports, its enrollment and server id, the challenge and names switches,
+     and the players in its last accepted report. Its cvars are under CVAR
+     REFERENCE; the whole guide is docs\H9_PRESENCE.txt.
+
+ Your name on H9 maps
+     With h9_presence_names 1 on the server, a player whose H9XASH proves
+     their havoc9.org player id plays under their account's username on H9
+     maps, and anyone else using an account's name plays as "Player NNNN" for
+     the map. Roleplay maps and stock ts_ maps keep names free. A username is
+     changed on havoc9.org, in the account's settings.
+
  Which servers the Internet tab lists is set in networking.ini, next to
  h9xash.bat, not in the game. See docs\NETWORKING.txt.
+
+
+===============================================================================
+ COMMUNITIES  (h9_community.amxx: chat across servers, find, portals)
+===============================================================================
+
+ h9_community_status               (server console)
+     Whether havoc9.org answers the server, which community it is in and as
+     which tag, whether its chat is on here, its portals, and the calls other
+     plugins have in flight.
+
+ h9_community_claim [new]          (server console, or rcon)
+     A one-time code, good for 15 minutes, that links this server to a
+     community: its owner or an admin enters it with a tag on
+     havoc9.org/community/. Over rcon the code shows on the server's own
+     console; run the command again to see it. new asks for a fresh one.
+
+ amx_h9_claim [new]                (admin, ADMIN_RCON)
+     The same, in game: the code goes to your console.
+
+ h9_portal <tag|server id> <x> <y> <z> [yaw] [radius] [walk]
+                                   (server console: a map's mapconfig)
+     A portal to another server of the community, as a line in
+     ts\mapconfigs\<map>.cfg: a ring, the server's name and players, E (or
+     walking in, with walk 1) and a confirm. radius 16 to 256 (48), yaw the
+     way it faces (0); at most 16 a map. Hidden while the tag or server id is
+     not one of the community's other servers.
+
+ amx_h9_portal_add <tag|server id> [radius] [walk]   (admin, ADMIN_CFG)
+     A portal where you stand, facing where you look. Prints its h9_portal
+     line to paste into the mapconfig; its ring shows from the next map whose
+     mapconfig has an h9_portal line.
+
+ amx_h9_portal_list                (admin, ADMIN_CFG)
+     This map's portals, as h9_portal lines.
+
+ The players' side (.relay, /find, /where, portals) is under PLAYER
+ COMMANDS, the cvars under CVAR REFERENCE. docs\H9_COMMUNITIES.txt is the
+ guide.
+
+
+===============================================================================
+ SPLASH MOTD  (h9_motd.amxx: a server's picture or web page)
+===============================================================================
+
+ motd                              (console)
+     Shows the server's MOTD again: its splash where it has one, even after a
+     once-a-connection splash was seen; otherwise TS's text MOTD.
+
+ cl_h9_motd 0|1                    (your own console; kept in config.cfg)
+     1 shows a server's splash in place of its text MOTD, the default. 0
+     always shows the text MOTD. A server cannot change it.
+
+ ESC, ENTER, SPACE or CLOSE close the splash. OPEN PAGE shows the page's
+ whole address first; only a click on OPEN IN BROWSER opens it.
+
+ Hosts turn it on with h9_motd image or page, and h9_motd_url "https://...",
+ in configs\h9_motd.cfg or in a map's ts\mapconfigs\<map>.cfg. It is off by
+ default. The cvars are under CVAR REFERENCE. docs\H9_MOTD.txt explains it;
+ docs\HTTP_SERVER_MOTD.txt is the host's guide.
 
 
 ===============================================================================
@@ -890,6 +983,19 @@
  REQUIRED -- bots will not navigate a map without them. 45 TS maps ship with
  rcbot's own; the H9 maps carry theirs (h9_te_neuropolis, h9_te_meridian,
  h9_tsrp_hive and the three drainage maps).
+ h9_tsrp_newbyzantium carries roam waypoints, laid in its public spaces only
+ for the roaming citizens (ROAMING CITIZENS, below).
+
+ ROAM MODE (rcbot-patch CHANGE 8, rcbot-ts-roam.patch). While
+ tsrp_roambots.amxx runs citizens it holds tsrp_roambots_active at 1, and
+ then every bot roams: random waypoints for goals, at a walk
+ (tsrp_roambots_speed), a pause now and then (tsrp_roambots_pause), no
+ enemies, no pickups, nothing bought, and weapons only with
+ tsrp_roambots_weapons 1. RCBot reads those cvars once a second; there is no
+ rcbot command or config setting for it. The same patch lets waypoints reach
+ +/-16384 across the map (stock RCBot drops any past +4096), for H9's
+ big-world maps. It works once rcbot_mm.dll is rebuilt from all six patches
+ (rcbot-patch\README.txt).
 
  tsm_bots IS A COUNT: the plugin keeps that many bots on the server, adding one
  every two seconds through rcbot (rcbot's own fill is switched off, max_bots -1)
@@ -932,6 +1038,55 @@
  Bots are renamed after the side they land on: Enforcer 1, Insurgent 1 and so on
  (tsm_bot_names, tsm_bot_name1, tsm_bot_name2). Set tsm_bot_names 0 to keep
  rcbot's own profile names.
+
+
+===============================================================================
+ ROAMING CITIZENS  (tsrp_roambots.amxx, configs\tsrp_roambots.cfg)
+===============================================================================
+
+ RCBots that walk a roleplay city's public streets, plazas, halls, galleries
+ and stairs at the pace of a player's walk key, stop now and then to look
+ about, and never fight, pick anything up or buy, so the city looks lived in.
+ They keep out of homes, shops and MSR space because the map's roam waypoints
+ do: they are laid in its public spaces only. Players can hurt and kill them
+ (tsrp_roambots_god 1 stops that); a killed citizen is back at once in another
+ district with another face, and its body stays where it fell.
+
+ WHICH MAPS. Roleplay maps only -- rp_ or tsrp_ at the start of the name, or
+ _rp_ or _tsrp_ in it, the same test that turns the match mode off -- and only
+ those whose mapconfig asks for them. On every other map the plugin does
+ nothing at all. It also stands down where a mapconfig turns the match mode
+ back on (tsm_enabled 1).
+
+ TURNING THEM ON, in the map's ts\mapconfigs\<map>.cfg, as
+ h9_tsrp_newbyzantium.cfg does:
+
+  tsrp_roambots 1
+  tsrp_roambots_count 12
+  tsrp_roambots_weapons 0
+  tsrp_roambots_models "proletarian_healthy;proletarian;prole_fem;prole_bfem"
+
+ The map needs its roam waypoints too, rcbot/waypoints/ts/<map>.rcw, and the
+ places its citizens appear, configs\tsrp_roamspots_<map>.cfg (a district and
+ a place on each line). New Byzantium's build lays both, from its plan's
+ public spaces (export-map\h9_tsrp_newbyzantium\roamwaypoints.mjs). The
+ plugin reads the mapconfig's tsrp_roambots lines itself as well, so they
+ hold on a server that does not run mapconfigs; configs\tsrp_roambots.cfg
+ holds the server's defaults, and every value goes back to them as each
+ roleplay map loads.
+
+ SLOTS. tsrp_roambots_reserve slots are always left free for real players.
+ When people join, a citizen leaves (a dead one, or the one farthest from
+ everyone); they come back one every two seconds as people leave. rcbot's
+ own fill is switched off (min_bots -1, max_bots -1) while they run.
+
+ amx_roambots                      (server console, or an admin)
+     What the citizens are doing: the cvars, how many models, names and spots
+     the plugin has, every counter (ticks, postthink calls, joins asked,
+     citizens adopted and sent away, spawns, placements, pickups refused,
+     weapons dropped), and each citizen: name, model, alive, district, where
+     and how fast. On a map that is not a roleplay map it says it does
+     nothing there.
 
 
 ===============================================================================
@@ -1066,6 +1221,10 @@
                                  (docs\NETWORKING.txt)
  h9_autoconfig 0|1               on a server running H9XASH: run the map's
                                  ts\mapconfigs\<map>.cfg once it is up (1)
+ cl_h9_motd 0|1                  a server's splash MOTD in place of its
+                                 text MOTD (1) (docs\H9_MOTD.txt)
+ h9_motd_result                  the web client's page answers a splash
+                                 with it; nothing to type
 
 
 ===============================================================================
@@ -1114,6 +1273,14 @@
                                    logs/tsm_debug.log. They show solid, nodraw,
                                    rendermode and renderamt every frame after a
                                    death, so whatever hides the body names itself.
+
+ A splash MOTD does not show       the player's console says why ("H9 MOTD:
+                                   ..."). The server's AMXX log has an "[H9 MOTD]"
+                                   line when it refused an address. A player
+                                   with cl_h9_motd 0 always gets the text MOTD
+
+ Presence shows nobody on a server h9_presence_status in the server console
+ Community chat or /find is silent h9_community_status in the server console
 
  Verbose tracing: tsm_debug_log 3 writes per-tick detail to
  addons/amxmodx/logs/tsm_debug.log. Level 4 also echoes to the console.
@@ -1481,6 +1648,78 @@
  tsm_ad_flag               (empty)    an admin flag needed to advertise; empty,
                                       anyone
  tsm_ad_minplayers         1          players needed on before an advert goes
+
+ SPLASH MOTD  (h9_motd.amxx, configs\h9_motd.cfg)
+
+ h9_motd                   text       text: TS's own text MOTD (the splash off);
+                                      image: a picture; page: a web page
+ h9_motd_url               (empty)    https address of the picture or the page
+ h9_motd_image             (empty)    page only: a picture H9XASH shows in the
+                                      page's place
+ h9_motd_link              (empty)    image only: the page OPEN PAGE offers
+ h9_motd_show              connect    connect: once a connection; map: at every
+                                      map
+
+ PRESENCE  (h9_presence.amxx, configs\h9_presence.cfg)
+
+ h9_presence_url           https://havoc9.org/api/presence/report
+                                      where reports go; without its /report,
+                                      where the server enrolls and where
+                                      h9_community's calls go
+ h9_presence_server        (empty)    a hand-made key's server: its public
+                                      IPv4:port, as havoc9.org lists it
+ h9_presence_key           (empty)    a hand-made key; never shown
+ h9_presence_interval      60         seconds between reports, 30 to 600
+ h9_presence_challenge     0          1: each H9XASH client proves its player
+                                      id; leave 0 until that build is out
+ h9_presence_names         0          1: havoc9.org names on H9 maps (needs
+                                      h9_presence_challenge 1)
+ h9_presence_autoenroll    1          a dedicated server with no hand-made key
+                                      enrolls with havoc9.org by itself; a
+                                      listen server never does
+ h9_presence_enroll        (empty)    set by the plugin, not by hand: the code
+                                      havoc9.org looks for while enrolling
+
+ COMMUNITIES  (h9_community.amxx, configs\h9_community.cfg)
+
+ h9_community_prefix       .relay     what a player types before a line for
+                                      the whole community
+ h9_community_chat         1          the community's chat shows here and
+                                      players may relay; 0: neither
+                                      (announcements still show)
+ h9_community_find         1          /find and /where (and .find, .where)
+ h9_community_portal_wait  10         seconds before a player may travel
+                                      through a portal again
+ h9_community_travel       0          1: a portal's Go also sends h9_travel,
+                                      an engine command H9XASH does not have
+                                      yet; leave it 0
+
+ ROAMING CITIZENS  (tsrp_roambots.amxx, configs\tsrp_roambots.cfg; its
+ values are these defaults. [h9_tsrp_newbyzantium ...] is what that map's
+ mapconfig sets)
+
+ tsrp_roambots             0          1: citizens on this roleplay map
+                                      [h9_tsrp_newbyzantium 1]
+ tsrp_roambots_count       12         how many at most; fewer when real players
+                                      need the slots [h9_tsrp_newbyzantium 12]
+ tsrp_roambots_reserve     2          slots always kept free for real players
+                                      (at least 1)
+ tsrp_roambots_weapons     0          0: unarmed, and nothing picked up; 1:
+                                      armed by RCBot as usual, never firing
+                                      [h9_tsrp_newbyzantium 0]
+ tsrp_roambots_models      proletarian_healthy;proletarian;prole_fem;prole_bfem
+                                      the faces they wear, ";" between
+                                      [h9_tsrp_newbyzantium the same four]
+ tsrp_roambots_names       (empty)    their names, ";" between; empty: the
+                                      plugin's own 48
+ tsrp_roambots_speed       120        the walk, units a second (RCBot reads it)
+ tsrp_roambots_pause       40         percent chance of a pause before each
+                                      walk (RCBot reads it)
+ tsrp_roambots_god         0          1: citizens cannot be hurt
+ tsrp_roambots_debug       0          1: log placements, refused pickups and
+                                      dropped weapons
+ tsrp_roambots_active      0          set by the plugin, not by hand: 1 while
+                                      citizens run (RCBot reads it)
 
  FLOATING CHAT  (ts_floatchat.amxx: built and shipped, but not loaded)
 

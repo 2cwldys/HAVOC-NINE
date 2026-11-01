@@ -880,6 +880,229 @@ static qboolean AVI_ValidateFFmpegVersion( void )
 
 	return true;
 }
+#elif XASH_EMSCRIPTEN
+#include <emscripten.h>
+
+// H9 web client: a browser has no FFmpeg, so the page decodes the video (Module.video, client.js)
+// and this hands its pictures to the renderer the way the FFmpeg branch above does. The page
+// answers open(path) with { handle, width, height } or null, frame(handle, heap, dst, width, height)
+// with true once it has written a new picture into heap at dst as width * height RGBA pixels, and
+// close(handle). It loops the video by itself, and no sound is played. The main menu's background
+// (CIN_MENUBG, cl_gameui.c) is what uses it; AVI_Initailize still reports no AVI support, so
+// AVI_LoadVideo's cinematics stay off.
+EM_JS( int, AVI_PageOpen, ( const char *path, int *size ), {
+	var video = Module.video;
+	var opened = video && video.open ? video.open( UTF8ToString( path )) : null;
+	if( !opened )
+		return 0;
+	HEAP32[size >> 2] = opened.width;
+	HEAP32[( size >> 2 ) + 1] = opened.height;
+	return opened.handle;
+});
+
+EM_JS( int, AVI_PageFrame, ( int handle, byte *dst, int width, int height ), {
+	var video = Module.video;
+	return video && video.frame && video.frame( handle, HEAPU8, dst, width, height ) ? 1 : 0;
+});
+
+EM_JS( void, AVI_PageClose, ( int handle ), {
+	var video = Module.video;
+	if( video && video.close )
+		video.close( handle );
+});
+
+struct movie_state_s
+{
+	byte *dst;   // the page's latest picture, xres * yres RGBA
+	int handle;  // the page's video, 0 when there is none
+	int xres;
+	int yres;
+
+	// rendering video parameters
+	int x, y, w, h; // passed to R_DrawStretchPic
+	int texture; // passed to GL_UpdateTexture
+
+	qboolean active;
+	qboolean paused;
+	qboolean shown; // a picture has reached the texture
+};
+
+int AVI_GetVideoFrameNumber( movie_state_t *Avi, float time )
+{
+	return 0;
+}
+
+byte *AVI_GetVideoFrame( movie_state_t *Avi, int frame )
+{
+	return Avi->dst;
+}
+
+qboolean AVI_GetVideoInfo( movie_state_t *Avi, int *xres, int *yres, float *duration )
+{
+	if( !Avi->active )
+		return false;
+
+	if( xres )
+		*xres = Avi->xres;
+
+	if( yres )
+		*yres = Avi->yres;
+
+	if( duration )
+		*duration = 0.0f; // the page loops the video, nothing here needs its length
+
+	return true;
+}
+
+qboolean AVI_HaveAudioTrack( const movie_state_t *Avi )
+{
+	return false;
+}
+
+void AVI_CloseVideo( movie_state_t *Avi )
+{
+	if( Avi->handle )
+		AVI_PageClose( Avi->handle );
+
+	if( Avi->dst )
+		Mem_Free( Avi->dst );
+
+	memset( Avi, 0, sizeof( *Avi ));
+}
+
+void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audio, int quiet )
+{
+	int size[2] = { 0, 0 };
+
+	if( Avi->active )
+		AVI_CloseVideo( Avi );
+
+	if( !filename )
+		return;
+
+	Avi->handle = AVI_PageOpen( filename, size );
+
+	if( !Avi->handle || size[0] <= 0 || size[1] <= 0 )
+	{
+		if( !quiet )
+			Con_Printf( S_ERROR "%s: the page cannot show %s\n", __func__, filename );
+
+		AVI_CloseVideo( Avi );
+		return;
+	}
+
+	Avi->xres = size[0];
+	Avi->yres = size[1];
+	Avi->dst = Mem_Calloc( host.mempool, Avi->xres * Avi->yres * 4 );
+	Avi->active = true;
+}
+
+qboolean AVI_Think( movie_state_t *Avi )
+{
+	qboolean redraw;
+
+	if( !Avi->active )
+		return false;
+
+	if( Avi->paused )
+		return true;
+
+	redraw = AVI_PageFrame( Avi->handle, Avi->dst, Avi->xres, Avi->yres ) != 0;
+
+	if( redraw )
+		Avi->shown = true;
+
+	if( Avi->texture == 0 )
+	{
+		int cinTexture = SCR_GetCinematicTexture();
+		int w = Avi->w >= 0 ? Avi->w : refState.width;
+		int h = Avi->h >= 0 ? Avi->h : refState.height;
+
+		// until the page has decoded the first picture there is nothing to draw
+		if( !Avi->shown )
+			return true;
+
+		if( redraw )
+			ref.dllFuncs.GL_UpdateTexture( cinTexture, Avi->xres, Avi->yres, Avi->xres, Avi->yres, Avi->dst, PF_RGBA_32 );
+
+		// the same state the FFmpeg branch sets before its blit
+		ref.dllFuncs.GL_SetRenderMode( kRenderNormal );
+		ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
+		ref.dllFuncs.R_DrawStretchPic( Avi->x, Avi->y, w, h, 0, 0, 1, 1, cinTexture );
+	}
+	else if( redraw && Avi->texture > 0 )
+		ref.dllFuncs.GL_UpdateTexture( Avi->texture, Avi->xres, Avi->yres, Avi->w, Avi->h, Avi->dst, PF_RGBA_32 );
+
+	return true;
+}
+
+qboolean AVI_SetParm( movie_state_t *Avi, enum movie_parms_e parm, ... )
+{
+	qboolean ret = true;
+	va_list va;
+	va_start( va, parm );
+
+	while( parm != AVI_PARM_LAST )
+	{
+		switch( parm )
+		{
+		case AVI_RENDER_TEXNUM:
+			Avi->texture = va_arg( va, int );
+			break;
+		case AVI_RENDER_X:
+			Avi->x = va_arg( va, int );
+			break;
+		case AVI_RENDER_Y:
+			Avi->y = va_arg( va, int );
+			break;
+		case AVI_RENDER_W:
+			Avi->w = va_arg( va, int );
+			break;
+		case AVI_RENDER_H:
+			Avi->h = va_arg( va, int );
+			break;
+		case AVI_REWIND:
+			ret = Avi->active; // the page loops the video by itself
+			break;
+		case AVI_ENTNUM:
+		case AVI_VOLUME:
+			(void)va_arg( va, int ); // no sound
+			break;
+		case AVI_ATTN:
+			(void)va_arg( va, double );
+			break;
+		case AVI_PAUSE:
+			Avi->paused = true;
+			break;
+		case AVI_RESUME:
+			Avi->paused = false;
+			break;
+		default:
+			ret = false;
+		}
+
+		parm = va_arg( va, enum movie_parms_e );
+	}
+
+	va_end( va );
+
+	return ret;
+}
+
+static qboolean AVI_ValidateFFmpegVersion( void )
+{
+	return false;
+}
+
+static qboolean AVI_LoadFFmpeg( void )
+{
+	return false;
+}
+
+static void AVI_UnloadFFmpeg( void )
+{
+
+}
 #else
 struct movie_state_s
 {

@@ -55,6 +55,17 @@ scope. Set `guild_id` in `serverlist.ini` to the server's id, so the commands ap
 * `/servers` lists the servers that answer now.
 * `/addserver address` adds one. `/removeserver address` takes one off.
 
+The bot's status follows the list, checked every 15 seconds:
+
+* green, "3 servers tracked across relay": at least one server on the list answers;
+* yellow, "no servers to track": the list is empty;
+* red, "2 servers unreachable": servers are on the list, but none has answered in the last
+  two polls. A server that stays silent is taken off after `expire_seconds`, and the status
+  then turns yellow;
+* red, "server list unreachable": `public_url` is set in `serverlist.ini` and the list cannot
+  be fetched there;
+* grey: the bot is not running. Discord shows that by itself.
+
 Who may change the list: members with `role_id` (set in `serverlist.ini`), or, when that is
 empty, anyone with Manage Server.
 

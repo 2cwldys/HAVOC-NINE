@@ -26,9 +26,10 @@
       </button>
       <ul class="nav-links" id="navLinks">
         <li><a href="../index.html">HOME</a></li>
-        <li><a href="../play/index.html">PLAY</a></li>
+        <li><a href="../webclient/index.html">PLAY</a></li>
         <li><a href="../downloads/index.html">DOWNLOADS</a></li>
         <li><a href="./index.html" class="active">SERVERS</a></li>
+        <li><a href="../forum/index.html">FORUM</a></li>
         <li><a href="../join/index.html">JOIN</a></li>
         <li><a href="../museum/index.html">MUSEUM</a></li>
         <li><a href="../credits/index.html">CREDITS</a></li>
@@ -45,12 +46,14 @@
       </div>
 
       <!--
-        data-master points this page at the bot's JSON list -- one server list, fed to any
-        page that cares, reconfigurable here without touching the fetch/render code below.
+        data-master points this page at the live server list. /api/servers is h9web's
+        (h9web/README.txt): servers.json, the one list the web client's relay and its server
+        browser use too, queried live and answered in the shape of serverlist-bot's JSON list.
         See serverlist-bot/README.md, "For a website: the JSON list", for the field
         reference this script relies on (mode, ping_ms, map as the thumbnail key, etc.).
+        The bot's own http://<list address>:8081/v1/servers/ts.json works here as well.
       -->
-      <div id="serverBoard" class="server-board" data-master="" data-refresh="30">
+      <div id="serverBoard" class="server-board" data-master="/api/servers" data-refresh="30">
         <table class="server-table">
           <thead>
             <tr>
@@ -68,6 +71,10 @@
           </tbody>
         </table>
       </div>
+
+      <!-- who's playing: each server's havoc9.org players, then the web client and the site (assets/presence.js) -->
+      <h2 class="sub-title">WHO'S PLAYING</h2>
+      <div class="presence-now" data-h9-presence="now"></div>
 
       <a href="https://discord.gg/b76pqqVsNY" target="_blank" rel="noopener" class="discord-cta">
         <svg class="discord-icon" viewBox="0 0 24 24" fill="currentColor" style="color: #ff4d00;">
@@ -95,10 +102,12 @@
   </footer>
 
   <script src="../script.js"></script>
+  <script src="../assets/account.js"></script>
+  <script src="../assets/presence.js"></script>
   <script>
     /*
-     * The live table above. Points at serverlist-bot's JSON endpoint
-     * (GET /v1/servers/<gamedir>.json -- see serverlist-bot/README.md) and redraws every
+     * The live table above. Points at the JSON list data-master names (h9web's /api/servers,
+     * in the shape of serverlist-bot's GET /v1/servers/<gamedir>.json) and redraws every
      * data-refresh seconds, so the page never needs a reload to catch a server coming up,
      * a map changing, or someone joining.
      *

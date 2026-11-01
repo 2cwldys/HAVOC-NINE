@@ -1,0 +1,29 @@
+diff --git a/engine/client/sound/s_main.c b/engine/client/sound/s_main.c
+--- a/engine/client/sound/s_main.c
++++ b/engine/client/sound/s_main.c
+@@ -1546,10 +1546,25 @@
+ 	// updates DMA time
+ 	snd.soundtime = S_GetSoundtime();
+ 
++#if XASH_EMSCRIPTEN
++	// H9 web client: a frame in a browser can run long (a game file fetched the first time it is
++	// read, software WebGL). After a frame longer than the mix-ahead the device has already played
++	// past what was painted; painting from there would put the late sound behind the play position,
++	// where it is heard a whole buffer later, so the time already played is skipped
++	if( snd.paintedtime < snd.soundtime )
++		snd.paintedtime = snd.soundtime;
++#endif
++
+ 	// soundtime - total samples that have been played out to hardware at dmaspeed
+ 	// paintedtime - total samples that have been mixed at speed
+ 	// endtime - target for samples in mixahead buffer at speed
++#if XASH_EMSCRIPTEN
++	// and it mixes at least 0.2 s ahead, whatever a config.cfg made for the Windows game asks (TS's
++	// own sets _snd_mixahead 0.1), so the device does not run dry before the next frame
++	endtime = snd.soundtime + Q_max( s_mixahead.value, 0.2f ) * SOUND_DMA_SPEED;
++#else
+ 	endtime = snd.soundtime + s_mixahead.value * SOUND_DMA_SPEED;
++#endif
+ 	samps = snd.samples >> 1;
+ 
+ 	if((int)(endtime - snd.soundtime) > samps )

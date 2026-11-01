@@ -1,0 +1,17 @@
+{
+  "name": "h9web",
+  "version": "1.0.0",
+  "description": "HAVOC 9 accounts, sessions and the web client's WebSocket-to-UDP relay",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "h9web-admin": "bin/h9web-admin.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test --test-timeout=30000 \"test/*.test.js\""
+  }
+}

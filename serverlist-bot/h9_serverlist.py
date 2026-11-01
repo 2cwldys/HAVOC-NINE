@@ -36,6 +36,7 @@ from pathlib import Path
 
 try:
     import a2s
+    import aiohttp
     from a2s.info import GoldSrcInfo
     from aiohttp import web
 except ImportError as exc:                                  # noqa: BLE001
@@ -52,6 +53,9 @@ DEFAULT_PORT = 27015                                        # the engine's defau
 GAMEDIR_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
 MAX_LISTED = 15                                             # /servers stays under Discord's message size
+STATUS_SECONDS = 15                                         # how often the bot's Discord status is looked at
+LIST_CHECK_SECONDS = 60                                     # how often public_url is fetched
+LIST_CHECK_TIMEOUT = 10                                     # how long that fetch may take, in seconds
 
 
 def log(message):
@@ -123,6 +127,38 @@ async def probe(target, timeout):
     }
 
 
+def plural(count, word):
+    return f"{count} {word}" + ("" if count == 1 else "s")
+
+
+def status_for(served, answering, silent, list_ok):
+    """
+    The bot's Discord status as (status, text). "dnd" (red) while the list cannot be reached
+    at public_url, or while servers are on it and none of them answers; "online" (green) while
+    a server on the list answers; "idle" (yellow) when nothing is on the list. While the bot
+    itself is down, Discord shows it offline (grey) on its own.
+    """
+    if not list_ok:
+        return "dnd", "server list unreachable"
+    if answering:
+        return "online", plural(max(served, answering), "server") + " tracked across relay"
+    if silent:
+        return "dnd", plural(silent, "server") + " unreachable"
+    return "idle", "no servers to track"
+
+
+async def list_reachable(settings):
+    """Whether the list answers at public_url, the address players are given for it."""
+    url = f"{settings.public_url.rstrip('/')}/v1/servers/{settings.gamedir}"
+    try:
+        timeout = aiohttp.ClientTimeout(total=LIST_CHECK_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as response:
+                return response.status == 200
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
 def new_entry(host, port, source):
     return {
         "host": host,
@@ -153,6 +189,7 @@ class Settings:
         secrets.read(SECRETS, encoding="utf-8")
         self.host = ini.get("http", "host", fallback="0.0.0.0").strip()
         self.port = ini.getint("http", "port", fallback=8080)
+        self.public_url = ini.get("http", "public_url", fallback="").strip()
         self.gamedir = ini.get("list", "gamedir", fallback="ts").strip()
         self.poll_seconds = ini.getfloat("list", "poll_seconds", fallback=30.0)
         self.expire_seconds = ini.getfloat("list", "expire_seconds", fallback=300.0)
@@ -165,6 +202,8 @@ class Settings:
             sys.exit(f"gamedir {self.gamedir!r} in serverlist.ini is not a game folder name")
         if self.guild_id and not self.guild_id.isdigit():
             sys.exit(f"guild_id {self.guild_id!r} in serverlist.ini is not a number")
+        if self.public_url and not self.public_url.startswith(("http://", "https://")):
+            sys.exit(f"public_url {self.public_url!r} in serverlist.ini does not start with http:// or https://")
 
 
 class ServerList:
@@ -173,6 +212,7 @@ class ServerList:
     def __init__(self, settings):
         self.settings = settings
         self.entries = {}
+        self.first_poll = asyncio.Event()                   # set once every seed has been asked
 
     def live(self, gamedir):
         """The servers in this game folder that answered within expire_seconds."""
@@ -181,6 +221,24 @@ class ServerList:
                 if entry["folder"] == gamedir
                 and entry["seen"]
                 and now - entry["seen"] <= self.settings.expire_seconds]
+
+    def standing(self, gamedir):
+        """
+        (served, answering, silent) for the Discord status: how many servers the list serves
+        now (as live() counts them), how many answered at one of the last two polls, and how
+        many are on the list without having answered in that time.
+        """
+        now = time.time()
+        recent = 2 * (self.settings.poll_seconds + self.settings.probe_timeout)
+        answering = silent = 0
+        for entry in self.entries.values():
+            if entry["folder"] not in (gamedir, ""):        # "" is a seed that has not answered yet
+                continue
+            if entry["seen"] and now - entry["seen"] <= recent:
+                answering += 1
+            else:
+                silent += 1
+        return len(self.live(gamedir)), answering, silent
 
     async def add(self, target, source):
         """
@@ -241,6 +299,7 @@ class ServerList:
             if now - (entry["seen"] or entry["added"]) > self.settings.expire_seconds:
                 log(f"dropped {key}: no answer for {self.settings.expire_seconds:g} s")
                 del self.entries[key]
+        self.first_poll.set()
 
 
 def make_app(state, settings):
@@ -412,6 +471,9 @@ def make_bot(state, settings):
         def __init__(self):
             super().__init__(intents=discord.Intents.default())
             self.tree = app_commands.CommandTree(self)
+            self.shown = None                               # the (status, text) Discord shows now
+            self.list_ok = True                             # the last public_url check; true when there is none
+            self.status_task = None
             register_commands(self.tree, state, settings)
 
         async def setup_hook(self):
@@ -421,9 +483,35 @@ def make_bot(state, settings):
                 await self.tree.sync(guild=guild)
             else:
                 await self.tree.sync()
+            self.status_task = asyncio.create_task(self.keep_status())
 
         async def on_ready(self):
             log(f"Discord: online as {self.user}")
+            self.shown = None                               # a new session starts with no status: send it again
+
+        async def keep_status(self):
+            """
+            Keeps the bot's status in step with the list (status_for): looked at every
+            STATUS_SECONDS, sent to Discord only when it changes. The first one waits for the
+            first poll, so seeds that have not been asked yet are not shown as unreachable.
+            """
+            await self.wait_until_ready()
+            await state.first_poll.wait()
+            checked = None
+            while not self.is_closed():
+                try:
+                    if settings.public_url and (checked is None or time.monotonic() - checked >= LIST_CHECK_SECONDS):
+                        self.list_ok = await list_reachable(settings)
+                        checked = time.monotonic()
+                    wanted = status_for(*state.standing(settings.gamedir), self.list_ok)
+                    if wanted != self.shown:
+                        await self.change_presence(status=discord.Status(wanted[0]),
+                                                   activity=discord.CustomActivity(name=wanted[1]))
+                        self.shown = wanted
+                        log(f"Discord: status {wanted[0]}, {wanted[1]!r}")
+                except Exception as exc:                    # noqa: BLE001
+                    log(f"Discord: status not changed: {exc}")
+                await asyncio.sleep(STATUS_SECONDS)
 
     return ListBot()
 

@@ -1,0 +1,287 @@
+===============================================================================
+ H9 SPLASH MOTD -- A SERVER'S PICTURE OR WEB PAGE IN PLACE OF TS'S TEXT MOTD
+===============================================================================
+
+ For server hosts, for players, and for whoever works on H9XASH, the web
+ client or the plugin. The host's hands-on guide (where the files go, a web
+ server example, troubleshooting) is docs\HTTP_SERVER_MOTD.txt.
+
+ The short version
+   * TS shows a text MOTD (motd.txt) to every player who joins. A host can
+     show a picture or a web page instead, the way Source servers do. It is
+     OFF by default: h9_motd "text" leaves TS's text MOTD alone.
+   * Hosts: h9_motd image or page, and h9_motd_url "https://...", in
+     addons\amxmodx\configs\h9_motd.cfg, or for one map in that map's
+     mapconfigs\<map>.cfg. Once a connection or at every map: h9_motd_show.
+   * Players: cl_h9_motd 0 in the console (kept in config.cfg) brings the
+     text MOTD back on every server. ESC, ENTER, SPACE or CLOSE close it.
+   * https only. Pictures up to 2 MB and 2048 x 2048 pixels. The host the
+     picture or page comes from is always on screen. Nothing opens the
+     system browser but a click, after the whole address has been shown.
+   * A client that cannot show it (stock TS on Steam, an older H9XASH) shows
+     the text MOTD, as it always has.
+
+ CONTENTS
+    1. What players see
+    2. Setting it up
+    3. The player's switch: cl_h9_motd
+    4. In H9XASH
+    5. In the web client
+    6. Stock and older clients
+    7. Security
+    8. How it works
+    9. The files
+   10. Building it
+
+
+ 1. WHAT PLAYERS SEE
+ -------------------
+   On joining, instead of TS's text window: a panel over the game with the
+   server's name, a line saying where its content comes from ("Picture from
+   example.com", "Web page at example.com"), the picture or the page, and a
+   CLOSE button. When the host has given a page, an OPEN PAGE button shows
+   the page's whole address first; a second click opens it.
+
+   Closing it leaves the player where TS's text window would have: in the
+   game, on the spectator view or the buy menu. Nothing about joining waits
+   on it, and closing it sends nothing to the server.
+
+   When anything goes wrong (the address, the download, the picture), the
+   player gets the text MOTD instead, as on a server without a splash.
+
+
+ 2. SETTING IT UP
+ ----------------
+   The plugin is h9_motd.amxx (source h9_motd.sma). build.bat builds and
+   registers it; the H9XASH presets list it after h9_presence.amxx. With its
+   defaults it does nothing.
+
+     cvar           default    what it does
+     h9_motd        "text"     text: TS's own text MOTD (the splash is off)
+                               image: a picture, h9_motd_url
+                               page: a web page, h9_motd_url
+     h9_motd_url    ""         https address of the picture (image) or of
+                               the page (page)
+     h9_motd_image  ""         page only: a picture H9XASH shows in the
+                               page's place, since it draws no web pages;
+                               empty, and it shows the text MOTD there
+     h9_motd_link   ""         image only: a web page the picture's OPEN
+                               PAGE button offers; empty for none
+     h9_motd_show   "connect"  connect: once a connection; the next maps
+                               show neither the splash nor the text MOTD
+                               map: at every map, as TS shows its text
+
+   Where to set them
+     * addons\amxmodx\configs\h9_motd.cfg: the plugin runs it when it loads.
+       TSM keeps the master copy (TSM\h9_motd.cfg), which build.bat copies
+       over the server's on every build: edit it in TSM.
+     * ts\mapconfigs\<map>.cfg: h9_autoconfig runs it after the plugins'
+       own configs, so one map can turn the splash on or off, or point it
+       elsewhere.
+     * amxx.cfg works too. server.cfg may run before the plugin has made its
+       cvars; use h9_motd.cfg.
+   The cvars are read as each player joins, so a change counts from the
+   next player on; nobody needs to reconnect for the next map.
+
+   Example, a picture with a link to the server's rules:
+     h9_motd "image"
+     h9_motd_url "https://example.com/h9/motd.png"
+     h9_motd_link "https://example.com/h9/rules.html"
+
+   Example, a page, with a picture for H9XASH:
+     h9_motd "page"
+     h9_motd_url "https://example.com/h9/motd.html"
+     h9_motd_image "https://example.com/h9/motd.png"
+
+   The addresses: https://, then a host name with a dot in it (not an IP
+   address, not localhost, no user:password@ before it), an optional port,
+   and no spaces, quotes, backslashes or any of <>^`{|}, 255 characters at
+   most. A picture's address needs a path (https://example.com/motd.png)
+   and no #part. The plugin checks this and writes "[H9 MOTD] ..." into the
+   AMXX log when it refuses one; the players then get the text MOTD.
+
+
+ 3. THE PLAYER'S SWITCH: CL_H9_MOTD
+ ---------------------------------
+     cl_h9_motd 1    the splash, when a server has one (default)
+     cl_h9_motd 0    never: every server's text MOTD, as TS shows it
+
+   It is kept in config.cfg (in the web client, config.cfg is kept in the
+   browser). A server cannot change it: it is a privileged cvar, out of
+   reach of the server's commands.
+
+   The motd console command asks the server for its MOTD again; on a server
+   with a splash it shows the splash again, even after a once-a-connection
+   one has been seen.
+
+
+ 4. IN H9XASH
+ ------------
+   H9XASH's engine shows the splash itself (engine-h9-motd.patch), whatever
+   client DLL is loaded.
+
+   A picture
+     * PNG (best), TGA or BMP. Not JPEG, GIF or WebP: H9XASH's image
+       loader has none of them, and the text MOTD is shown instead.
+     * Up to 2 MB, and 2048 x 2048 pixels. The size is read from the file's
+       header before anything decodes it.
+     * Fetched by the engine's own HTTP client, over https, the server's
+       certificate checked against cacert.pem (in valve\extras.pk3). It
+       sends no cookies and no referrer; its User-Agent names the engine.
+       Redirects are followed, up to 5, never from https to http.
+     * 10 seconds to arrive, or the text MOTD is shown instead.
+     * Scaled to fit the screen, never stretched out of shape; a small one
+       grows up to the screen's own scale.
+
+   A page
+     H9XASH has no web browser inside it. For a page it shows h9_motd_image
+     when the host gave one, or else the server's text MOTD inside the
+     panel, and an OPEN PAGE button.
+
+   OPEN PAGE
+     A box with the page's site on its own line and the whole address under
+     it, and two buttons: OPEN IN BROWSER and CANCEL. Only a mouse click on
+     OPEN IN BROWSER opens the system's web browser; ESC, ENTER or SPACE
+     close the box, and so does a click outside it. Nothing else ever opens
+     a browser.
+
+   While it is up
+     * It has the keyboard: ESC, ENTER and SPACE close it; the arrows, the
+       mouse wheel, PGUP/PGDN, HOME and END scroll the text. The console
+       key still opens the console.
+     * It has the mouse: mouse look stops and a pointer shows; the game gets
+       the mouse back when it closes.
+     * Keys and buttons held as it comes up are let go, as when the console
+       or the menu opens, so nothing keeps firing or walking.
+
+   The console says why when the splash is not shown ("H9 MOTD: ..."), for
+   example a picture that could not be fetched or is too large.
+
+
+ 5. IN THE WEB CLIENT
+ --------------------
+   The page (havoc9.org\webclient\client.js) shows the splash over the game,
+   when the engine hands it over.
+
+   A picture
+     Any picture the browser shows (PNG, JPEG, GIF, WebP), up to 2048 x
+     2048 pixels, fetched with no referrer and shown once it has loaded,
+     within 10 seconds. The browser does not tell the page the size of a
+     file from another site, so there is no byte limit here; H9XASH's 2 MB
+     limit is the one to keep to.
+
+   A page
+     In a frame, sandboxed: its scripts, forms and links work, and a link
+     opens in a new tab, only on the player's click. It runs as an opaque
+     origin: no access to the game's page or to havoc9.org's cookies, and
+     no cookies or storage of its own. No referrer. None of the browser's
+     permissions (camera, microphone, location, full screen, payment, USB,
+     screen capture, reading the clipboard), no alert or confirm dialogs, no
+     navigating the game's page. In browsers that offer it (Chrome, Edge)
+     the frame is credentialless too. A page that refuses to be framed
+     (X-Frame-Options, or a frame-ancestors policy without havoc9.org) stays
+     blank: OPEN IN NEW TAB, under it, opens it in a tab of its own.
+
+   Addresses on havoc9.org itself are taken only under /motd/: anything
+   else on the site would be fetched with the player's sign-in.
+
+   While it is up the game gets no key presses (releases still reach it, so
+   nothing stays held) and no mouse. Esc closes it while the keyboard is on
+   the panel; once the player has clicked into a page, the page has the
+   keyboard, and CLOSE is the way out. After it closes, a click on the game
+   gives the game the mouse again.
+
+
+ 6. STOCK AND OLDER CLIENTS
+ --------------------------
+   * The plugin sends the splash only to clients that send the h9_clientid
+     userinfo key: H9XASH and the web client. Stock TS on Steam never gets
+     it and shows the text MOTD.
+   * An H9XASH without engine-h9-motd.patch gets the message, has nothing
+     to handle it with, skips it, and shows the text MOTD.
+   * On a GoldSrc (Steam) server the plugin works the same: Steam players
+     keep the text MOTD.
+
+
+ 7. SECURITY
+ -----------
+   What a malicious host cannot do, by design:
+     * Use anything but https. Plain http, file:, javascript: and the like
+       are refused by the plugin, the engine and the page alike.
+     * Reach the player's machine or account. H9XASH only fetches a picture
+       (no cookies, no referrer) and decodes it with its own loader, after
+       checking its size; it runs nothing from the server. The web client's
+       frame has no access to havoc9.org or its cookies.
+     * Open a browser or a tab by itself. H9XASH opens the system browser
+       only on a click on OPEN IN BROWSER, with the address on screen. In
+       the web client a page can open a tab only on the player's click.
+     * Hide where the content comes from: the host is always on screen, as
+       a name the address check allows (letters, digits, dots and dashes; a
+       name in another script must be given in its xn-- form, and shows so).
+     * Trap the player. ESC and CLOSE always work; the game's console stays
+       reachable; a splash that does not arrive within 10 seconds gives way
+       to the text MOTD; a new map or a disconnect takes it down.
+     * Change the player's choice: cl_h9_motd cannot be set by a server.
+   What it can do is what any web site can: see the player's IP address and
+   browser or engine version when the picture or page is fetched, and show
+   whatever its page shows. A page could ask for a password; players see
+   its host name, and H9 never asks for a password inside a server's page.
+
+
+ 8. HOW IT WORKS
+ ---------------
+   The message. TS sends its text MOTD from InitHUD, on the player's first
+   PreThink of each map. h9_motd.sma sends the H9Motd user message from a
+   hook that runs just before that PreThink, so it arrives first. (A user
+   message sent earlier, from client_putinserver, is dropped by the engine:
+   the player is not in the game yet.) H9Motd comes in parts, like TS's
+   MOTD: a byte, 1 on the last part, then up to 150 characters. The parts
+   make one info string:
+
+     \v\1\type\image\show\connect\image\<address>\page\<address>\title\<name>
+
+   with \asked\1 at the end when the player typed motd. type is image or
+   page, show connect or map, image the picture (for a page, its stand-in),
+   page the page (for a picture, OPEN PAGE's address), title the hostname.
+
+   The engine (engine\client\cl_motd.c) takes H9Motd itself; the client DLL
+   never sees it. It checks cl_h9_motd and the addresses, then holds TS's
+   MOTD parts that follow. A splash that shows drops them; one that fails
+   hands them to the client DLL as they came, so TS's own text window opens,
+   exactly as without a splash. "Once a connection" is the engine's: after
+   a splash has shown, the next maps' H9Motd and text MOTD are both dropped,
+   unless the player asked. A disconnect starts over.
+
+   H9XASH fetches the picture with HTTP_GetToMemory and draws the panel over
+   the HUD and VGUI. The web build hands the splash to the page instead
+   (Module.motd.show), which answers with the console command
+   h9_motd_result 1 (shown) or 0 (not shown: the text MOTD follows). No
+   answer within 10 seconds, or a page without Module.motd, and the text
+   MOTD is shown.
+
+
+ 9. THE FILES
+ ------------
+   TSM\h9_motd.sma                     the plugin
+   TSM\h9_motd.cfg                     its config, with the defaults
+   xash3d-h9-patches\patches\engine-h9-motd.patch
+                                       the engine side (cl_motd.c, cl_motd.h,
+                                       and hooks in cl_main.c, cl_view.c,
+                                       cl_parse.c, in_keys.c, input.c)
+   havoc9.org\webclient\client.js      the web client's overlay (motdOverlay)
+   havoc9.org\webclient\index.html     its styles; frames only over https
+   docs\HTTP_SERVER_MOTD.txt           the host's guide
+
+
+ 10. BUILDING IT
+ ---------------
+   One heavy build at a time on this PC.
+   1. The plugin: build.bat (h9_motd is in its list), or build.bat h9_motd
+      alone. Restart the server so the cvars register.
+   2. H9XASH: xash3d-h9-patches\xash.bat engine replays the whole patch
+      chain (engine-h9-motd.patch last) and builds xash.dll; then
+      export.bat. ENGINE.txt lists engine-h9-motd.patch once it is in.
+   3. The web client: copy the tree into webclient-build again (DEPLOY.txt
+      3B), so cl_motd.c and cl_motd.h are there, then waf build; package
+      (3D); deploy the engine, client.js and index.html.
+   Nothing in reTS changes: the client DLL never sees the splash.

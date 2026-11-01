@@ -78,3 +78,56 @@ H9XASH/discord-bot/bot.log
 # wad2png output: the PNGs are generated, only the folder is kept.
 wad2png/exported/*
 !wad2png/exported/.keep
+
+# The Discord bot token's files and any copy of them, anywhere in the tree: ts_advertise.cfg,
+# and ts_advertise_local.cfg, the one ts_advertise_local.cfg.example says to make. The list
+# bot's token and heartbeat key likewise. Only the .example templates are tracked.
+ts_advertise*.cfg*
+!ts_advertise*.cfg.example
+
+# The presence plugin's key for h9web (h9_presence.sma, docs/H9_PRESENCE.txt), and any copy of it,
+# anywhere in the tree: whoever has it can report players onto that server. A hand-made key sits
+# in h9_presence.cfg (only the .example template is tracked), an enrolled one in h9_presence.key.
+# And the per-install device id the id proof uses, which is never shared.
+h9_presence.cfg*
+!h9_presence.cfg.example
+h9_presence.key*
+device_id.ini*
+serverlist-bot/serverlist.cfg*
+!serverlist-bot/serverlist.cfg.example
+
+# A player's own files, wherever a game folder sits: the H9 id (H9XASH writes it from
+# user_id.ini at every launch), Xash's id, and the console history, which keeps whatever was
+# typed, an rcon_password included.
+user_id.ini*
+userid_resolved.cfg
+.xash_id
+console_history.txt
+history_servers.lst
+
+# Records of other people, wherever a game or bot folder sits: AMX Mod X's logs (names, Steam
+# ids, addresses, admin logins), its TS stats, the server's ban lists, the bot's RSVPs.
+**/addons/amxmodx/logs/
+tsstats.dat
+banned.cfg
+listip.cfg
+rsvp.json
+
+# Windows' thumbnail caches: they keep pictures of what was in a folder, deleted files too.
+Thumbs.db
+
+# The web client's build, copied in at deploy time (havoc9.org/webclient/DEPLOY.txt): generated,
+# and the game package alone is over a gigabyte.
+havoc9.org/webclient/engine/
+havoc9.org/webclient/game/
+havoc9.org/webclient/manifest.json
+havoc9.org/webclient/preload.json
+webclient-build/
+
+# Python writes these beside any script it runs: never source.
+__pycache__/
+
+# Client ZIPs and their reports from stage-h9xash.cmd, and older hand-made ZIPs of H9XASH.
+/dist/
+/H9XASH.zip
+/H9XASH-*.zip

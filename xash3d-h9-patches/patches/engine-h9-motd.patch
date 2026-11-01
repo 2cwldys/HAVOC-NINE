@@ -1,0 +1,1489 @@
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -16,6 +16,7 @@
+ #include <inttypes.h>
+ #include "common.h"
+ #include "client.h"
++#include "cl_motd.h"
+ #include "net_encode.h"
+ #include "cl_tent.h"
+ #include "input.h"
+@@ -1792,6 +1793,7 @@
+ 	Cvar_SetValue( "scr_loading", 0.0f );
+ 	host.allow_console = host.allow_console_init;
+ 	HTTP_ClearCustomServers();
++	CL_Motd_Reset( false ); // H9: a new map takes any splash MOTD away (cl_motd.c)
+ }
+ 
+ /*
+@@ -1948,6 +1950,7 @@
+ 	memset( &cls.bandwidth_test, 0, sizeof( cls.bandwidth_test ));
+ 	cls.signon = 0;
+ 	cls.net_protocol = PROTO_CURRENT;
++	CL_Motd_Reset( true ); // H9: the next connection may show a splash MOTD again (cl_motd.c)
+ 
+ 	// back to menu in non-developer mode
+ 	if( host_developer.value || cls.key_dest == key_menu )
+@@ -4090,6 +4093,9 @@
+ 	// handle spectator movement
+ 	CL_MoveSpectatorCamera();
+ 
++	// H9: the splash MOTD comes up, or gives way to the text MOTD (cl_motd.c)
++	CL_Motd_Frame();
++
+ 	// catch changes video settings
+ 	VID_CheckChanges();
+ 
+@@ -4134,6 +4140,7 @@
+ 
+ 	ID_Init();
+ 	SteamBroker_Init();
++	CL_Motd_Init(); // H9: the splash MOTD's cl_h9_motd (cl_motd.c)
+ 
+ 	// client must be always initialized last so it can fetch all cvars
+ 	if( !CL_LoadProgs( libpath ))
+diff --git a/engine/client/cl_view.c b/engine/client/cl_view.c
+--- a/engine/client/cl_view.c
++++ b/engine/client/cl_view.c
+@@ -21,6 +21,7 @@
+ #include "sound.h"
+ #include "input.h" // touch
+ #include "platform/platform.h" // GL_UpdateSwapInterval
++#include "cl_motd.h"
+ 
+ /*
+ ===============
+@@ -576,6 +577,7 @@
+ 		SCR_TileClear();
+ 		CL_DrawHUD( CL_ACTIVE );
+ 		VGui_Paint();
++		CL_Motd_Draw(); // H9: the splash MOTD, over the HUD and VGUI (cl_motd.c)
+ 	}
+ 
+ 	switch( cls.scrshot_action )
+diff --git a/engine/client/parse/cl_parse.c b/engine/client/parse/cl_parse.c
+--- a/engine/client/parse/cl_parse.c
++++ b/engine/client/parse/cl_parse.c
+@@ -21,6 +21,7 @@
+ #include "shake.h"
+ #include "input.h"
+ #include "eiface.h"
++#include "cl_motd.h"
+ 
+ #if XASH_LOW_MEMORY != 2
+ int CL_UPDATE_BACKUP = SINGLEPLAYER_BACKUP;
+@@ -2285,6 +2286,10 @@
+ 			clgame.msg[i].name, iSize, clgame.msg[i].number );
+ 	}
+ 
++	// H9: the splash MOTD takes H9Motd, and holds TS's MOTD while a splash loads (cl_motd.c)
++	if( CL_Motd_UserMessage( clgame.msg[i].name, pbuf, iSize ))
++		return;
++
+ 	if( clgame.msg[i].func )
+ 	{
+ 		clgame.msg[i].func( clgame.msg[i].name, iSize, pbuf );
+diff --git a/engine/client/input/in_keys.c b/engine/client/input/in_keys.c
+--- a/engine/client/input/in_keys.c
++++ b/engine/client/input/in_keys.c
+@@ -18,6 +18,7 @@
+ #include "client.h"
+ #include "vgui_draw.h"
+ #include "platform/platform.h"
++#include "cl_motd.h"
+ 
+ typedef struct
+ {
+@@ -732,6 +733,10 @@
+ 	const char *kb = keys[key].binding;
+ 	keys[key].down = down ? true : false;
+ 
++	// H9: the splash MOTD takes the keys while it is up, the console key excepted (cl_motd.c)
++	if( CL_Motd_KeyEvent( key, down ))
++		return;
++
+ #ifdef HACKS_RELATED_HLMODS
+ 	if(( cls.key_dest == key_game ) && ( cls.state == ca_cinematic ) && ( key != K_ESCAPE || !down ))
+ 	{
+diff --git a/engine/client/input/input.c b/engine/client/input/input.c
+--- a/engine/client/input/input.c
++++ b/engine/client/input/input.c
+@@ -25,6 +25,7 @@
+ #include "vgui_draw.h"
+ #include "cursor_type.h"
+ #include "platform/platform.h"
++#include "cl_motd.h"
+ 
+ static qboolean	in_mouseactive;				// false when not focus app
+ static qboolean	in_mouseinitialized;
+@@ -386,6 +387,10 @@
+ 		SetBits( in_mstate, BIT( key ));
+ 	else ClearBits( in_mstate, BIT( key ));
+ 
++	// H9: the splash MOTD takes the clicks while it is up (cl_motd.c)
++	if( CL_Motd_MouseEvent( key, down ))
++		return;
++
+ 	// touch emulation overrides all input
+ 	if( Touch_WantVisibleCursor( ))
+ 	{
+@@ -669,7 +674,7 @@
+ 
+ 		IN_CollectInput( &forward, &side, &pitch, &yaw, in_mouseinitialized && !m_ignore.value );
+ 
+-		if( cls.key_dest == key_game )
++		if( cls.key_dest == key_game && !CL_Motd_Active( ))
+ 		{
+ 			clgame.dllFuncs.pfnLookEvent( yaw, pitch );
+ 			clgame.dllFuncs.pfnMoveEvent( forward, side );
+@@ -679,6 +684,19 @@
+ 	if( !in_mouseinitialized )
+ 		return;
+ 
++	// H9: the splash MOTD has the mouse while it is up, and gives it back after (cl_motd.c)
++	switch( CL_Motd_MouseFrame( in_mouseactive ))
++	{
++	case 1:
++		IN_DeactivateMouse();
++		break;
++	case 2:
++		IN_ActivateMouse();
++		break;
++	default:
++		break;
++	}
++
+ 	IN_CheckMouseState( in_mouseactive );
+ }
+ 
+diff --git a/engine/client/cl_motd.h b/engine/client/cl_motd.h
+new file mode 100644
+--- /dev/null
++++ b/engine/client/cl_motd.h
+@@ -0,0 +1,36 @@
++/*
++cl_motd.h - H9: the splash MOTD, a server's picture or web page shown at join (cl_motd.c)
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++*/
++
++#ifndef CL_MOTD_H
++#define CL_MOTD_H
++
++#include "xash3d_types.h"
++
++void CL_Motd_Init( void );
++void CL_Motd_Reset( qboolean connection );
++void CL_Motd_Frame( void );
++void CL_Motd_Draw( void );
++
++// called for every user message once its bytes are read; true when the engine took it
++qboolean CL_Motd_UserMessage( const char *name, const byte *buf, int size );
++
++// the native splash is up and has the keyboard and mouse (key_game, connected)
++qboolean CL_Motd_Active( void );
++qboolean CL_Motd_KeyEvent( int key, qboolean down );
++qboolean CL_Motd_MouseEvent( int button, qboolean down );
++
++// once a frame from IN_Commands: 1 = turn the game's mouse off, 2 = give it back, 0 = nothing
++int CL_Motd_MouseFrame( qboolean mouse_active );
++
++#endif // CL_MOTD_H
+diff --git a/engine/client/cl_motd.c b/engine/client/cl_motd.c
+new file mode 100644
+--- /dev/null
++++ b/engine/client/cl_motd.c
+@@ -0,0 +1,1284 @@
++/*
++cl_motd.c - H9: the splash MOTD, a server's picture or web page shown at join
++
++A server running h9_motd.sma sends the H9Motd user message to each H9 client just before
++the game's own MOTD (TS's "MOTD" user message, the text window). It comes in parts, as TS's
++MOTD does: a byte, 1 on the last part, then a string. The parts make one info string:
++
++	\v\1\type\image\show\connect\image\<address>\page\<address>\title\<name>[\asked\1]
++
++	type   image: the splash is the picture. page: the splash is the web page.
++	show   connect: once a connection. map: at every map.
++	image  the picture: the splash itself for type image; for type page, what a client
++	       that cannot show web pages shows in its place (may be empty).
++	page   the web page: the splash itself for type page; for type image, where the
++	       OPEN PAGE button goes (may be empty).
++	title  the panel's title: the server's name.
++	asked  the player typed motd: it is shown again even when show is connect.
++
++The engine takes H9Motd itself; the client library never sees it. While a splash is on its
++way, the engine holds the TS MOTD parts that follow. A splash that shows drops them; one that
++fails hands them to the client library as they came, so the player gets TS's text window,
++exactly as on a server without a splash. A client without this code (stock TS, an older
++H9XASH) has no handler for H9Motd, skips it and shows the text. With show connect and the
++splash already shown this connection, the next maps show neither the splash nor the text.
++
++The addresses must be https, with a host name (no IP address, no single-label name such
++as localhost, no user name before the host) and no spaces, quotes or backslashes. The host
++is always on screen.
++
++Native build: the picture is fetched with the engine's HTTP client (HTTP_GetToMemory: https
++certificates are checked against cacert.pem from valve\extras.pk3; no cookies, no referrer),
++refused over H9M_MAX_BYTES, refused over H9M_MAX_SIDE pixels on a side before it is decoded
++(its size is read from the file's header), decoded by imagelib (PNG, TGA, BMP) and drawn over
++the HUD and VGUI. A web page cannot be drawn here: type page shows its picture, or the text
++of the held TS MOTD, with the page's address and OPEN PAGE. OPEN PAGE asks first, with the
++whole address on screen, and opens the system browser only on a mouse click, never on a key.
++While the panel is up it takes the keyboard (the console key excepted) and the mouse; ESC,
++ENTER, SPACE or CLOSE end it, and the game gets its mouse back.
++
++Browser build: the page (havoc9.org\webclient\client.js, Module.motd) shows the splash in
++its own overlay, the picture as an image and the page in a sandboxed frame, and answers
++with h9_motd_result: 1 shown, 0 not shown (the text is handed on).
++
++cl_h9_motd 0 (kept in config.cfg) turns it off for this player: TS's text MOTD as it comes.
++docs\H9_MOTD.txt has the whole picture.
++*/
++
++#include "common.h"
++#include "client.h"
++#include "const.h"
++#include "keydefs.h"
++#include "platform/platform.h"
++#include "cl_motd.h"
++#if XASH_EMSCRIPTEN
++#include <emscripten.h>
++#endif
++
++#define H9M_MAX_URL     256      // an address, its terminator included
++#define H9M_MAX_HOST    128
++#define H9M_MAX_TITLE   64
++#define H9M_MAX_INFO    1024     // the whole H9Motd info string
++#define H9M_MAX_BYTES   ( 2 * 1024 * 1024 ) // the largest picture file
++#define H9M_MAX_SIDE    2048     // the largest picture side in pixels, checked before decoding
++#define H9M_HELD_MAX    4096     // TS's MOTD parts held while a splash loads (TS sends 1536 characters at most)
++#define H9M_TEXT_MAX    2048
++#define H9M_WAIT        10.0     // seconds a splash may take to arrive before the text is shown instead
++#define H9M_TEXT_WAIT   2.0      // seconds a page's text stand-in waits for TS's MOTD
++
++static CVAR_DEFINE_AUTO( cl_h9_motd, "1", FCVAR_ARCHIVE | FCVAR_PRIVILEGED, "H9: show a server's splash MOTD (a picture or a web page) in place of its text MOTD: 1 = on, 0 = the text MOTD" );
++
++typedef enum
++{
++	H9M_IDLE = 0,
++	H9M_FETCH,     // native: the picture is on its way
++	H9M_TEXT,      // native: a page with no picture, waiting for TS's text to stand in for it
++	H9M_OPEN,      // native: the panel is up
++	H9M_WEB_ASK,   // browser: to be handed to the page once the game is up
++	H9M_WEB_WAIT,  // browser: the page has it; its answer is awaited
++	H9M_WEB_OPEN,  // browser: the page shows it
++} h9m_state_t;
++
++typedef enum
++{
++	H9M_TEXT_PASS = 0, // TS's MOTD goes to the client library as it comes
++	H9M_TEXT_HOLD,     // held until the splash shows or fails
++	H9M_TEXT_DROP,     // dropped up to its last part
++} h9m_textfate_t;
++
++typedef enum
++{
++	H9M_PIC_NONE = 0,
++	H9M_PIC_LOADING,
++	H9M_PIC_READY,
++	H9M_PIC_FAILED,
++} h9m_picture_t;
++
++typedef struct
++{
++	int x, y, w, h;
++	qboolean shown;
++} h9m_rect_t;
++
++enum
++{
++	H9M_BTN_CLOSE = 0,
++	H9M_BTN_OPEN,
++	H9M_BTN_GO,
++	H9M_BTN_CANCEL,
++	H9M_BTN_DIALOG,
++	H9M_BTN_COUNT
++};
++
++static struct
++{
++	// H9Motd as its parts arrive
++	char     info[H9M_MAX_INFO];
++	size_t   infolen;
++	qboolean infobad;
++
++	// the splash
++	h9m_state_t state;
++	qboolean is_page;
++	char     image[H9M_MAX_URL];
++	char     image_host[H9M_MAX_HOST];
++	char     page[H9M_MAX_URL];
++	char     page_host[H9M_MAX_HOST];
++	char     title[H9M_MAX_TITLE];
++	double   started;
++	int      gen;      // the current request; an answer for an older one is dropped
++	h9m_picture_t picture;
++	int      texture;
++	int      picw, pich;
++
++	// TS's MOTD, while the splash decides its fate
++	h9m_textfate_t textfate;
++	byte     held[H9M_HELD_MAX]; // each part: its size (2 bytes, low first), then its bytes
++	size_t   heldlen;
++	char     text[H9M_TEXT_MAX]; // its text, for a page with no picture
++	qboolean text_done;
++
++	// the panel
++	qboolean confirm;  // OPEN PAGE was clicked: the address is up for a second click
++	int      scroll, lines, visible; // the text, in lines
++	h9m_rect_t btn[H9M_BTN_COUNT];
++	byte     eat[256]; // keys and buttons the splash took: their releases are its too
++	qboolean took_mouse;
++
++	// this connection
++	qboolean shown;
++} motd;
++
++#if XASH_EMSCRIPTEN
++// The page shows the splash (Module.motd in client.js): show() takes it and answers true when
++// it will put it up, hide() takes it down. The page then runs h9_motd_result.
++EM_JS( int, H9M_PageShow, ( int is_page, const char *image, const char *page, const char *title ), {
++	var motd = Module.motd;
++	if( !motd || !motd.show )
++		return 0;
++	try {
++		return motd.show({ type: is_page ? "page" : "image", image: UTF8ToString( image ), page: UTF8ToString( page ), title: UTF8ToString( title ) }) ? 1 : 0;
++	} catch( e ) {
++		return 0;
++	}
++});
++
++EM_JS( void, H9M_PageHide, ( void ), {
++	var motd = Module.motd;
++	if( motd && motd.hide ) {
++		try { motd.hide(); } catch( e ) { }
++	}
++});
++#endif
++
++/*
++==============================================================================
++
++	THE MESSAGE
++
++==============================================================================
++*/
++
++// printable ASCII only; line breaks only where lines is set, else spaces
++static void H9M_Append( char *dst, size_t size, const char *src, size_t srclen, qboolean lines )
++{
++	size_t n = Q_strlen( dst );
++
++	for( size_t i = 0; i < srclen && src[i]; i++ )
++	{
++		char c = src[i];
++
++		if( c == '\t' || ( c == '\n' && !lines ))
++			c = ' ';
++
++		if(!(( c >= ' ' && c < 127 ) || c == '\n' ))
++			continue;
++
++		if( n + 1 >= size )
++			break;
++
++		dst[n++] = c;
++	}
++
++	dst[n] = '\0';
++}
++
++// the value of key in an info string, refused (false) when it is longer than size allows;
++// Info_ValueForKey stops at 127 characters, shorter than an address may be
++static qboolean H9M_Value( const char *info, const char *key, char *out, size_t size )
++{
++	const char *s = info;
++	size_t keylen = Q_strlen( key );
++
++	out[0] = '\0';
++
++	while( *s == '\\' )
++	{
++		const char *k = ++s;
++		const char *v;
++		size_t klen, vlen;
++
++		while( *s && *s != '\\' )
++			s++;
++
++		klen = s - k;
++
++		if( *s != '\\' )
++			return false;
++
++		v = ++s;
++
++		while( *s && *s != '\\' )
++			s++;
++
++		vlen = s - v;
++
++		if( klen == keylen && !Q_strncmp( k, key, klen ))
++		{
++			if( vlen >= size )
++				return false;
++
++			memcpy( out, v, vlen );
++			out[vlen] = '\0';
++			return true;
++		}
++	}
++
++	return false;
++}
++
++// An address the splash may use: https; a host name with a dot and a letter in it (no IP
++// address, no single-label name such as localhost), made of letters, digits, dots and dashes
++// (no user name before it, no IPv6 brackets); then an optional port; printable ASCII without
++// spaces, quotes, backslashes or <>^`{|}; shorter than H9M_MAX_URL. need_path: a path must
++// follow the host and no #fragment may follow it (the HTTP client sends the path as it is).
++// host gets the host in lower case, to be shown.
++static qboolean H9M_CheckURL( const char *url, qboolean need_path, char *host, size_t hostsize )
++{
++	size_t len = Q_strlen( url ), n = 0;
++	qboolean letter = false;
++	const char *a;
++
++	host[0] = '\0';
++
++	if( len <= 8 || len >= H9M_MAX_URL || Q_strnicmp( url, "https://", 8 ))
++		return false;
++
++	for( size_t i = 0; i < len; i++ )
++	{
++		byte c = (byte)url[i];
++
++		if( c <= ' ' || c >= 127 || Q_strchr( "\"'\\<>^`{|}", (char)c ))
++			return false;
++	}
++
++	for( a = url + 8; *a && *a != '/' && *a != '?' && *a != '#' && *a != ':'; a++ )
++	{
++		char c = *a;
++
++		if( c >= 'A' && c <= 'Z' )
++			c += 'a' - 'A';
++
++		if( c >= 'a' && c <= 'z' )
++			letter = true;
++		else if(!(( c >= '0' && c <= '9' ) || c == '.' || c == '-' ) || n + 1 >= hostsize )
++		{
++			host[0] = '\0';
++			return false;
++		}
++
++		host[n++] = c;
++	}
++
++	host[n] = '\0';
++
++	if( *a == ':' )
++	{
++		int port = 0, digits = 0;
++
++		for( a++; *a >= '0' && *a <= '9'; a++, digits++ )
++		{
++			port = port * 10 + ( *a - '0' );
++
++			if( port > 65535 )
++				break;
++		}
++
++		if( !digits || port < 1 || port > 65535 || ( *a && *a != '/' && *a != '?' && *a != '#' ))
++		{
++			host[0] = '\0';
++			return false;
++		}
++	}
++
++	if( !n || !letter || !Q_strchr( host, '.' ) || host[0] == '.' || host[n - 1] == '.' || Q_strstr( host, ".." ))
++	{
++		host[0] = '\0';
++		return false;
++	}
++
++	if( need_path && ( *a != '/' || Q_strchr( url, '#' )))
++	{
++		host[0] = '\0';
++		return false;
++	}
++
++	return true;
++}
++
++/*
++==============================================================================
++
++	TS'S TEXT MOTD
++
++==============================================================================
++*/
++
++// what is held goes to the client library as it came, and so does whatever follows
++static void H9M_PassText( void )
++{
++	size_t at = 0;
++
++	motd.textfate = H9M_TEXT_PASS;
++
++	while( at + 2 <= motd.heldlen )
++	{
++		int size = motd.held[at] | ( motd.held[at + 1] << 8 );
++
++		at += 2;
++
++		if( at + size > motd.heldlen )
++			break;
++
++		CL_DispatchUserMessage( "MOTD", size, motd.held + at );
++		at += size;
++	}
++
++	motd.heldlen = 0;
++}
++
++// what is held is dropped, and so is the rest of it, up to its last part
++static void H9M_DropText( void )
++{
++	motd.heldlen = 0;
++	motd.textfate = motd.text_done ? H9M_TEXT_PASS : H9M_TEXT_DROP;
++}
++
++// one part of TS's MOTD (a byte, 1 on the last part, then a string): true when it is held or dropped
++static qboolean H9M_TextPart( const byte *buf, int size )
++{
++	qboolean last = size > 0 && buf[0] != 0;
++
++	switch( motd.textfate )
++	{
++	case H9M_TEXT_DROP:
++		if( last )
++			motd.textfate = H9M_TEXT_PASS;
++		return true;
++	case H9M_TEXT_HOLD:
++		break;
++	default:
++		return false;
++	}
++
++	if( size < 0 || motd.heldlen + 2 + (size_t)size > sizeof( motd.held ))
++	{
++		// more than TS ever sends: what is held goes on, then this part
++		H9M_PassText();
++		return false;
++	}
++
++	motd.held[motd.heldlen++] = size & 0xff;
++	motd.held[motd.heldlen++] = ( size >> 8 ) & 0xff;
++	memcpy( motd.held + motd.heldlen, buf, size );
++	motd.heldlen += size;
++
++	if( size > 1 )
++		H9M_Append( motd.text, sizeof( motd.text ), (const char *)buf + 1, size - 1, true );
++
++	if( last )
++		motd.text_done = true;
++
++	return true;
++}
++
++/*
++==============================================================================
++
++	THE SPLASH
++
++==============================================================================
++*/
++
++static void H9M_FreePicture( void )
++{
++	if( motd.texture && ref.initialized )
++		ref.dllFuncs.GL_FreeTexture( motd.texture );
++
++	motd.texture = 0;
++	motd.picw = motd.pich = 0;
++	motd.picture = H9M_PIC_NONE;
++}
++
++// the splash goes away; TS's text is left as it stands
++static void H9M_Stop( void )
++{
++#if XASH_EMSCRIPTEN
++	if( motd.state == H9M_WEB_WAIT || motd.state == H9M_WEB_OPEN )
++		H9M_PageHide();
++#endif
++	motd.gen++; // an answer still on its way is for nobody
++	H9M_FreePicture();
++	motd.state = H9M_IDLE;
++	motd.confirm = false;
++	motd.scroll = 0;
++}
++
++// the splash cannot be shown: TS's text instead, as on a server without one
++static void H9M_Fail( const char *why )
++{
++	Con_Printf( "H9 MOTD: %s; the server's text MOTD is shown instead\n", why );
++	H9M_Stop();
++	H9M_PassText();
++}
++
++// the splash is on screen: TS's text is not shown
++static void H9M_Shown( h9m_state_t state )
++{
++	motd.state = state;
++	motd.shown = true;
++	H9M_DropText();
++}
++
++#if !XASH_EMSCRIPTEN
++static int H9M_Side( uint v )
++{
++	return v > H9M_MAX_SIDE ? H9M_MAX_SIDE + 1 : (int)v;
++}
++
++// a picture's format and size from its header, before anything decodes it: PNG and BMP by their
++// signatures, TGA (which has none) only when the address names a .tga file
++static qboolean H9M_PictureSize( const byte *b, size_t size, const char **ext, int *w, int *h )
++{
++	static const byte png[8] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n' };
++	const char *path = Q_strchr( motd.image + 8, '/' );
++	char tail[8];
++
++	if( size >= 24 && !memcmp( b, png, sizeof( png )) && !memcmp( b + 12, "IHDR", 4 ))
++	{
++		*ext = "png";
++		*w = H9M_Side(((uint)b[16] << 24 ) | ((uint)b[17] << 16 ) | ((uint)b[18] << 8 ) | b[19] );
++		*h = H9M_Side(((uint)b[20] << 24 ) | ((uint)b[21] << 16 ) | ((uint)b[22] << 8 ) | b[23] );
++		return true;
++	}
++
++	if( size >= 26 && b[0] == 'B' && b[1] == 'M' )
++	{
++		uint dib = b[14] | ( b[15] << 8 ) | ( b[16] << 16 ) | ((uint)b[17] << 24 );
++
++		*ext = "bmp";
++
++		if( dib == 12 ) // OS/2: 16-bit sides
++		{
++			*w = b[18] | ( b[19] << 8 );
++			*h = b[20] | ( b[21] << 8 );
++		}
++		else
++		{
++			int sw = (int)( b[18] | ( b[19] << 8 ) | ( b[20] << 16 ) | ((uint)b[21] << 24 ));
++			int sh = (int)( b[22] | ( b[23] << 8 ) | ( b[24] << 16 ) | ((uint)b[25] << 24 ));
++
++			// a negative height is a top-down picture
++			if( sh < 0 && sh > -( H9M_MAX_SIDE + 1 ))
++				sh = -sh;
++
++			*w = sw < 0 ? 0 : H9M_Side( sw );
++			*h = sh < 0 ? 0 : H9M_Side( sh );
++		}
++
++		return true;
++	}
++
++	if( path && size >= 18 && ( b[2] == 1 || b[2] == 2 || b[2] == 3 || b[2] == 9 || b[2] == 10 || b[2] == 11 ))
++	{
++		size_t n = strcspn( path, "?" );
++
++		if( n >= 4 )
++		{
++			Q_strncpy( tail, path + n - 4, 5 );
++
++			if( !Q_stricmp( tail, ".tga" ))
++			{
++				*ext = "tga";
++				*w = b[12] | ( b[13] << 8 );
++				*h = b[14] | ( b[15] << 8 );
++				return true;
++			}
++		}
++	}
++
++	return false;
++}
++
++// HTTP_GetToMemory's answer; the frame decides what to do with it
++static void H9M_Received( const char *url, qboolean success, const byte *data, size_t size, void *userdata )
++{
++	const char *ext = NULL;
++	char name[32];
++	rgbdata_t *pic;
++	int w = 0, h = 0;
++
++	if( (int)(intptr_t)userdata != motd.gen || motd.state != H9M_FETCH || motd.picture != H9M_PIC_LOADING )
++		return;
++
++	motd.picture = H9M_PIC_FAILED;
++
++	if( !success || !data || !size )
++	{
++		Con_Printf( "H9 MOTD: the picture could not be fetched from %s\n", motd.image_host );
++		return;
++	}
++
++	if( size > H9M_MAX_BYTES )
++	{
++		Con_Printf( "H9 MOTD: the picture is %d bytes, over the limit of %d\n", (int)size, H9M_MAX_BYTES );
++		return;
++	}
++
++	if( !H9M_PictureSize( data, size, &ext, &w, &h ))
++	{
++		Con_Printf( "H9 MOTD: the picture from %s is not a PNG, TGA or BMP file\n", motd.image_host );
++		return;
++	}
++
++	if( w < 1 || h < 1 || w > H9M_MAX_SIDE || h > H9M_MAX_SIDE )
++	{
++		Con_Printf( "H9 MOTD: the picture is larger than %d x %d pixels\n", H9M_MAX_SIDE, H9M_MAX_SIDE );
++		return;
++	}
++
++	Q_snprintf( name, sizeof( name ), "#h9motd.%s", ext );
++	pic = FS_LoadImage( name, data, size );
++
++	if( !pic )
++	{
++		Con_Printf( "H9 MOTD: the picture from %s could not be decoded\n", motd.image_host );
++		return;
++	}
++
++	if( pic->width < 1 || pic->height < 1 || pic->width > H9M_MAX_SIDE || pic->height > H9M_MAX_SIDE )
++	{
++		Con_Printf( "H9 MOTD: the picture is larger than %d x %d pixels\n", H9M_MAX_SIDE, H9M_MAX_SIDE );
++		FS_FreeImage( pic );
++		return;
++	}
++
++	Q_snprintf( name, sizeof( name ), "#h9motd%d", motd.gen );
++	motd.texture = ref.dllFuncs.GL_LoadTextureFromBuffer( name, pic, TF_IMAGE, false );
++	motd.picw = pic->width;
++	motd.pich = pic->height;
++	FS_FreeImage( pic );
++
++	if( !motd.texture )
++	{
++		Con_Printf( "H9 MOTD: the picture could not be made into a texture\n" );
++		motd.picw = motd.pich = 0;
++		return;
++	}
++
++	motd.picture = H9M_PIC_READY;
++}
++
++// the panel comes up: keys and buttons held as it does are let go, as for the console or the menu
++static void H9M_Open( void )
++{
++	if( cls.key_dest == key_game )
++		Key_ClearStates();
++
++	memset( motd.eat, 0, sizeof( motd.eat ));
++	motd.confirm = false;
++	motd.scroll = 0;
++	H9M_Shown( H9M_OPEN );
++}
++#endif // !XASH_EMSCRIPTEN
++
++// the whole message is here: check it, then fetch the picture or hand it to the page
++static void H9M_Begin( const char *info )
++{
++	char value[H9M_MAX_URL];
++	qboolean is_page, every_map, asked;
++
++	if( !cl_h9_motd.value )
++	{
++		Con_Reportf( "H9 MOTD: cl_h9_motd is 0, the server's text MOTD is shown\n" );
++		return;
++	}
++
++	if( cls.demoplayback || cls.spectator )
++		return;
++
++	if( !H9M_Value( info, "v", value, sizeof( value )) || Q_atoi( value ) < 1 )
++		return;
++
++	H9M_Value( info, "type", value, sizeof( value ));
++
++	if( !Q_stricmp( value, "page" ))
++		is_page = true;
++	else if( !Q_stricmp( value, "image" ))
++		is_page = false;
++	else return;
++
++	H9M_Value( info, "show", value, sizeof( value ));
++	every_map = !Q_stricmp( value, "map" );
++	asked = H9M_Value( info, "asked", value, sizeof( value )) && Q_atoi( value ) != 0;
++
++	if( !every_map && motd.shown && !asked )
++	{
++		// once a connection, and it was shown: this map's text MOTD stays away too
++		H9M_Stop();
++		motd.heldlen = 0;
++		motd.text_done = false;
++		motd.textfate = H9M_TEXT_DROP;
++		return;
++	}
++
++	// a splash already up gives way to this one
++	H9M_Stop();
++	motd.is_page = is_page;
++	motd.image[0] = motd.image_host[0] = '\0';
++	motd.page[0] = motd.page_host[0] = '\0';
++	motd.title[0] = '\0';
++
++	if( H9M_Value( info, "image", value, sizeof( value )) && value[0] )
++	{
++		if( H9M_CheckURL( value, true, motd.image_host, sizeof( motd.image_host )))
++			Q_strncpy( motd.image, value, sizeof( motd.image ));
++		else Con_Printf( "H9 MOTD: the server's picture address was refused: it must be https://<host name>/<path>\n" );
++	}
++
++	if( H9M_Value( info, "page", value, sizeof( value )) && value[0] )
++	{
++		if( H9M_CheckURL( value, false, motd.page_host, sizeof( motd.page_host )))
++			Q_strncpy( motd.page, value, sizeof( motd.page ));
++		else Con_Printf( "H9 MOTD: the server's page address was refused: it must be https://<host name>\n" );
++	}
++
++	if( H9M_Value( info, "title", value, sizeof( value )))
++		H9M_Append( motd.title, sizeof( motd.title ), value, Q_strlen( value ), false );
++
++	if( is_page ? !motd.page[0] : !motd.image[0] )
++		return; // TS's text, as it comes
++
++	motd.text[0] = '\0';
++	motd.text_done = false;
++	motd.heldlen = 0;
++	motd.textfate = H9M_TEXT_HOLD;
++	motd.started = host.realtime;
++
++#if XASH_EMSCRIPTEN
++	motd.state = H9M_WEB_ASK;
++#else
++	if( motd.image[0] )
++	{
++		motd.state = H9M_FETCH;
++		motd.picture = H9M_PIC_LOADING;
++
++		if( !HTTP_GetToMemory( motd.image, H9M_Received, (void *)(intptr_t)motd.gen ))
++			motd.picture = H9M_PIC_FAILED;
++	}
++	else motd.state = H9M_TEXT;
++#endif
++}
++
++// one part of H9Motd: a byte, 1 on the last part, then a string
++static void H9M_InfoPart( const byte *buf, int size )
++{
++	qboolean last;
++	size_t n;
++
++	if( size < 1 )
++		return;
++
++	last = buf[0] != 0;
++	n = Q_strnlen((const char *)buf + 1, size - 1 );
++
++	if( motd.infolen + n < sizeof( motd.info ))
++	{
++		memcpy( motd.info + motd.infolen, buf + 1, n );
++		motd.infolen += n;
++		motd.info[motd.infolen] = '\0';
++	}
++	else motd.infobad = true;
++
++	if( !last )
++		return;
++
++	if( motd.infobad )
++		Con_Printf( "H9 MOTD: the server's splash message is too long; the text MOTD is shown\n" );
++	else H9M_Begin( motd.info );
++
++	motd.infolen = 0;
++	motd.info[0] = '\0';
++	motd.infobad = false;
++}
++
++qboolean CL_Motd_UserMessage( const char *name, const byte *buf, int size )
++{
++	if( !Q_strcmp( name, "H9Motd" ))
++	{
++		H9M_InfoPart( buf, size );
++		return true;
++	}
++
++	if( !Q_strcmp( name, "MOTD" ))
++		return H9M_TextPart( buf, size );
++
++	return false;
++}
++
++#if XASH_EMSCRIPTEN
++// the page's answer: 1, the splash is on screen; 0, it cannot be shown
++static void H9M_Result_f( void )
++{
++	if( motd.state != H9M_WEB_WAIT )
++		return;
++
++	if( Q_atoi( Cmd_Argv( 1 )))
++		H9M_Shown( H9M_WEB_OPEN );
++	else H9M_Fail( "the browser could not show the splash" );
++}
++#endif
++
++void CL_Motd_Frame( void )
++{
++	if( motd.state == H9M_IDLE || motd.state == H9M_OPEN || motd.state == H9M_WEB_OPEN )
++		return;
++
++	// a splash comes up in the game, never over the loading screen
++	if( cls.state != ca_active || cls.signon != SIGNONS )
++		return;
++
++	switch( motd.state )
++	{
++#if XASH_EMSCRIPTEN
++	case H9M_WEB_ASK:
++		motd.started = host.realtime; // the page's own time to load it starts now
++		if( H9M_PageShow( motd.is_page, motd.image, motd.page, motd.title ))
++			motd.state = H9M_WEB_WAIT;
++		else H9M_Fail( "this page cannot show a splash" );
++		break;
++	case H9M_WEB_WAIT:
++		if( host.realtime - motd.started > H9M_WAIT )
++			H9M_Fail( "the browser did not show the splash in time" );
++		break;
++#else
++	case H9M_FETCH:
++		if( motd.picture == H9M_PIC_READY )
++		{
++			H9M_Open();
++		}
++		else if( motd.picture == H9M_PIC_FAILED || host.realtime - motd.started > H9M_WAIT )
++		{
++			if( motd.picture != H9M_PIC_FAILED )
++				Con_Printf( "H9 MOTD: the picture took longer than %d seconds\n", (int)H9M_WAIT );
++
++			if( motd.is_page )
++			{
++				// a page's picture only stands in for it: the text and OPEN PAGE instead
++				motd.gen++;
++				H9M_FreePicture();
++				motd.state = H9M_TEXT;
++			}
++			else H9M_Fail( "the picture could not be shown" );
++		}
++		break;
++	case H9M_TEXT:
++		if( motd.text_done || host.realtime - motd.started > H9M_TEXT_WAIT )
++			H9M_Open();
++		break;
++#endif
++	default:
++		break;
++	}
++}
++
++/*
++==============================================================================
++
++	THE PANEL (native build)
++
++==============================================================================
++*/
++
++qboolean CL_Motd_Active( void )
++{
++	return motd.state == H9M_OPEN && cls.state == ca_active && cls.key_dest == key_game;
++}
++
++int CL_Motd_MouseFrame( qboolean mouse_active )
++{
++	if( CL_Motd_Active( ))
++	{
++		if( !mouse_active )
++			return 0;
++
++		motd.took_mouse = true;
++		return 1;
++	}
++
++	if( !motd.took_mouse )
++		return 0;
++
++	// given back once; out of the game (console, menu) the key_dest change gives it back
++	motd.took_mouse = false;
++	return ( !mouse_active && cls.key_dest == key_game ) ? 2 : 0;
++}
++
++#if !XASH_EMSCRIPTEN
++static const rgba_t h9m_white = { 255, 250, 255, 255 };
++static const rgba_t h9m_light = { 223, 213, 245, 255 };
++static const rgba_t h9m_soft  = { 178, 146, 226, 255 };
++
++static void H9M_Fill( int x, int y, int w, int h, byte r, byte g, byte b, byte a )
++{
++	ref.dllFuncs.FillRGBA( kRenderTransTexture, x, y, w, h, r, g, b, a );
++}
++
++static void H9M_Border( int x, int y, int w, int h, int t )
++{
++	H9M_Fill( x, y, w, t, 138, 66, 196, 255 );
++	H9M_Fill( x, y + h - t, w, t, 138, 66, 196, 255 );
++	H9M_Fill( x, y, t, h, 138, 66, 196, 255 );
++	H9M_Fill( x + w - t, y, t, h, 138, 66, 196, 255 );
++}
++
++static int H9M_Width( cl_font_t *font, const char *s, int n )
++{
++	int w = 0;
++
++	for( int i = 0; i < n && s[i]; i++ )
++		w += font->charWidths[(byte)s[i]];
++
++	return w;
++}
++
++static void H9M_Text( cl_font_t *font, int x, int y, const char *s, int n, const rgba_t color )
++{
++	for( int i = 0; i < n && s[i]; i++ )
++		x += CL_DrawCharacter( x, y, (byte)s[i], color, font, 0 );
++}
++
++// how many characters of s fit in maxw (one at least), broken after a space when words is set
++static int H9M_Fit( cl_font_t *font, const char *s, int maxw, qboolean words )
++{
++	int w = 0, i, space = -1;
++
++	for( i = 0; s[i] && s[i] != '\n'; i++ )
++	{
++		int cw = font->charWidths[(byte)s[i]];
++
++		if( w + cw > maxw && i > 0 )
++			return ( words && space > 0 ) ? space + 1 : i;
++
++		if( s[i] == ' ' )
++			space = i;
++
++		w += cw;
++	}
++
++	return i;
++}
++
++// s wrapped to maxw; draws count lines from line first at x, y, and returns how many lines it makes
++static int H9M_Lines( cl_font_t *font, const char *s, int maxw, qboolean words, int first, int count, int x, int y, const rgba_t color )
++{
++	int line = 0;
++
++	while( *s )
++	{
++		int n = H9M_Fit( font, s, maxw, words );
++
++		if( line >= first && line < first + count )
++			H9M_Text( font, x, y + ( line - first ) * font->charHeight, s, n, color );
++
++		line++;
++		s += n;
++
++		if( *s == '\n' )
++			s++;
++	}
++
++	return line;
++}
++
++// one line, cut short with ... when it does not fit
++static void H9M_Line( cl_font_t *font, int x, int y, int maxw, const char *s, const rgba_t color )
++{
++	int len = Q_strlen( s ), n;
++
++	if( H9M_Width( font, s, len ) <= maxw )
++	{
++		H9M_Text( font, x, y, s, len, color );
++		return;
++	}
++
++	n = H9M_Fit( font, s, Q_max( 0, maxw - H9M_Width( font, "...", 3 )), false );
++	H9M_Text( font, x, y, s, n, color );
++	H9M_Text( font, x + H9M_Width( font, s, n ), y, "...", 3, color );
++}
++
++static void H9M_SetRect( int id, int x, int y, int w, int h )
++{
++	motd.btn[id].x = x;
++	motd.btn[id].y = y;
++	motd.btn[id].w = w;
++	motd.btn[id].h = h;
++	motd.btn[id].shown = true;
++}
++
++static qboolean H9M_Hit( int id, int x, int y )
++{
++	const h9m_rect_t *r = &motd.btn[id];
++
++	return r->shown && x >= r->x && x < r->x + r->w && y >= r->y && y < r->y + r->h;
++}
++
++static void H9M_Button( cl_font_t *font, int id, int x, int y, int w, int h, const char *label, int mx, int my )
++{
++	qboolean hot;
++	int tw = Q_min( w, H9M_Width( font, label, Q_strlen( label )));
++
++	H9M_SetRect( id, x, y, w, h );
++	hot = H9M_Hit( id, mx, my );
++
++	H9M_Fill( x, y, w, h, hot ? 138 : 40, hot ? 66 : 24, hot ? 196 : 58, 255 );
++	H9M_Border( x, y, w, h, 1 );
++	H9M_Line( font, x + ( w - tw ) / 2, y + ( h - font->charHeight ) / 2, w, label, h9m_white );
++}
++
++// the mouse pointer: the game hides the system's while it plays
++static void H9M_Cursor( int x, int y, int u )
++{
++	for( int r = 0; r < 13; r++ )
++		H9M_Fill( x, y + r * u, ( r < 11 ? r + 1 : 11 ) * u, u, 0, 0, 0, 255 );
++
++	for( int r = 2; r < 11; r++ )
++		H9M_Fill( x + u, y + r * u, ( r - 1 ) * u, u, 255, 250, 255, 255 );
++}
++
++static void H9M_Scroll( int delta )
++{
++	int most = Q_max( 0, motd.lines - motd.visible );
++
++	motd.scroll = bound( 0, motd.scroll + delta, most );
++}
++
++// a page with no picture shows TS's text in its place
++static const char *H9M_Body( void )
++{
++	if( motd.text[0] )
++		return motd.text;
++
++	return "This server's message of the day is a web page. OPEN PAGE opens it in your web browser.";
++}
++
++// the address OPEN PAGE goes to, whole, with the site on its own line, before a second click
++static void H9M_DrawConfirm( cl_font_t *font, int W, int H, int pad, int bh, int mx, int my )
++{
++	static const char ask[] = "Open this address in your web browser?";
++	char site[H9M_MAX_HOST + 8];
++	int lh = font->charHeight;
++	int dw = Q_min( W - pad * 4, H9M_Width( font, "n", 1 ) * 64 + pad * 2 );
++	int tw = dw - pad * 2;
++	int asklines = H9M_Lines( font, ask, tw, true, 0, 0, 0, 0, h9m_white );
++	int urllines = H9M_Lines( font, motd.page, tw, false, 0, 0, 0, 0, h9m_white );
++	int dh = pad + lh * ( asklines + 1 ) + pad / 2 + lh * urllines + pad + bh + pad;
++	int dx = ( W - dw ) / 2, dy = ( H - dh ) / 2, y, cw, gw;
++
++	H9M_Fill( 0, 0, W, H, 0, 0, 0, 120 );
++	H9M_Fill( dx, dy, dw, dh, 20, 10, 30, 250 );
++	H9M_Border( dx, dy, dw, dh, 2 );
++	H9M_SetRect( H9M_BTN_DIALOG, dx, dy, dw, dh );
++
++	y = dy + pad;
++	H9M_Lines( font, ask, tw, true, 0, asklines, dx + pad, y, h9m_light );
++	y += lh * asklines;
++
++	Q_snprintf( site, sizeof( site ), "Site: %s", motd.page_host );
++	H9M_Line( font, dx + pad, y, tw, site, h9m_white );
++	y += lh + pad / 2;
++
++	H9M_Lines( font, motd.page, tw, false, 0, urllines, dx + pad, y, h9m_soft );
++	y += lh * urllines + pad;
++
++	cw = H9M_Width( font, "CANCEL", 6 ) + pad * 2;
++	gw = H9M_Width( font, "OPEN IN BROWSER", 15 ) + pad * 2;
++	H9M_Button( font, H9M_BTN_CANCEL, dx + dw - pad - cw, y, cw, bh, "CANCEL", mx, my );
++	H9M_Button( font, H9M_BTN_GO, dx + dw - pad - cw - pad - gw, y, gw, bh, "OPEN IN BROWSER", mx, my );
++}
++#endif // !XASH_EMSCRIPTEN
++
++void CL_Motd_Draw( void )
++{
++#if !XASH_EMSCRIPTEN
++	char label[H9M_MAX_HOST + 32];
++	cl_font_t *font;
++	int W, H, lh, pad, bh, margin, head, foot, maxw, maxh, minw;
++	int pw, ph, px, py, bodyw, bodyh, mx, my, bmx, bmy;
++
++	if( motd.state != H9M_OPEN || cls.state != ca_active )
++		return;
++
++	font = Con_GetCurFont();
++
++	if( !font || !font->valid || font->charHeight <= 0 )
++		return;
++
++	W = refState.width;
++	H = refState.height;
++	lh = font->charHeight;
++	pad = Q_max( 6, lh / 2 );
++	bh = lh + pad;
++	margin = Q_max( 8, Q_min( W, H ) / 30 );
++	head = pad + lh * 2 + pad;
++	foot = pad + bh + pad;
++	maxw = W - margin * 2;
++	maxh = H - margin * 2;
++	minw = Q_min( maxw, H9M_Width( font, "M", 1 ) * 36 + pad * 2 );
++
++	if( maxw <= pad * 4 || maxh <= head + foot + lh )
++		return;
++
++	memset( motd.btn, 0, sizeof( motd.btn ));
++	Platform_GetMousePos( &mx, &my );
++
++	// the panel's buttons do not light up under the address box
++	bmx = motd.confirm ? -1 : mx;
++	bmy = motd.confirm ? -1 : my;
++
++	if( motd.texture )
++	{
++		// the picture fits the screen; a small one grows up to the screen's own scale
++		float s = Q_min(( maxw - pad * 2 ) / (float)motd.picw, ( maxh - head - foot ) / (float)motd.pich );
++
++		s = Q_min( s, Q_max( 1.0f, H / 768.0f ));
++		bodyw = Q_max( 1, (int)( motd.picw * s ));
++		bodyh = Q_max( 1, (int)( motd.pich * s ));
++		pw = Q_max( bodyw + pad * 2, minw );
++	}
++	else
++	{
++		pw = Q_max( minw, Q_min( maxw, H9M_Width( font, "n", 1 ) * 72 + pad * 2 ));
++		bodyw = pw - pad * 2;
++		motd.lines = H9M_Lines( font, H9M_Body(), bodyw - pad, true, 0, 0, 0, 0, h9m_white );
++		motd.visible = Q_max( 1, ( maxh - head - foot ) / lh );
++		motd.visible = Q_min( motd.visible, Q_max( motd.lines, 4 ));
++		bodyh = motd.visible * lh;
++		H9M_Scroll( 0 );
++	}
++
++	ph = head + bodyh + foot;
++	px = ( W - pw ) / 2;
++	py = ( H - ph ) / 2;
++
++	H9M_Fill( 0, 0, W, H, 0, 0, 0, 150 );
++	H9M_Fill( px, py, pw, ph, 14, 8, 20, 240 );
++	H9M_Border( px, py, pw, ph, Q_max( 1, lh / 12 ));
++
++	// the title, then where it comes from: the host is always on screen
++	H9M_Line( font, px + pad, py + pad, pw - pad * 2, motd.title[0] ? motd.title : "Message of the day", h9m_light );
++
++	if( motd.is_page )
++		Q_snprintf( label, sizeof( label ), "Web page at %s", motd.page_host );
++	else Q_snprintf( label, sizeof( label ), "Picture from %s", motd.image_host );
++
++	H9M_Line( font, px + pad, py + pad + lh, pw - pad * 2, label, h9m_soft );
++
++	if( motd.texture )
++	{
++		ref.dllFuncs.GL_SetRenderMode( kRenderTransTexture );
++		ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
++		ref.dllFuncs.R_DrawStretchPic( px + ( pw - bodyw ) / 2, py + head, bodyw, bodyh, 0, 0, 1, 1, motd.texture );
++	}
++	else
++	{
++		H9M_Lines( font, H9M_Body(), bodyw - pad, true, motd.scroll, motd.visible, px + pad, py + head, h9m_white );
++
++		if( motd.lines > motd.visible )
++		{
++			int thumb = Q_max( lh / 2, bodyh * motd.visible / motd.lines );
++			int at = ( bodyh - thumb ) * motd.scroll / Q_max( 1, motd.lines - motd.visible );
++
++			H9M_Fill( px + pw - pad - 3, py + head + at, 3, thumb, 138, 66, 196, 255 );
++		}
++	}
++
++	// CLOSE at the right, OPEN PAGE beside it when there is a page
++	{
++		int y = py + ph - pad - bh;
++		int cw = H9M_Width( font, "CLOSE (ESC)", 11 ) + pad * 2;
++		int x = px + pw - pad - cw;
++
++		H9M_Button( font, H9M_BTN_CLOSE, x, y, cw, bh, "CLOSE (ESC)", bmx, bmy );
++
++		if( motd.page[0] )
++		{
++			int ow;
++
++			Q_snprintf( label, sizeof( label ), "OPEN PAGE (%s)", motd.page_host );
++			ow = Q_min( H9M_Width( font, label, Q_strlen( label )) + pad * 2, x - px - pad * 2 );
++
++			if( ow > pad * 4 )
++				H9M_Button( font, H9M_BTN_OPEN, x - pad - ow, y, ow, bh, label, bmx, bmy );
++		}
++	}
++
++	if( motd.confirm )
++		H9M_DrawConfirm( font, W, H, pad, bh, mx, my );
++
++	if( !host.mouse_visible )
++		H9M_Cursor( mx, my, Q_max( 1, H / 540 ));
++
++	ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
++	ref.dllFuncs.GL_SetRenderMode( kRenderNormal );
++#endif // !XASH_EMSCRIPTEN
++}
++
++qboolean CL_Motd_KeyEvent( int key, qboolean down )
++{
++	if( key < 0 || key >= (int)ARRAYSIZE( motd.eat ))
++		return false;
++
++	if( !down )
++	{
++		// the release of a key the splash took is the splash's too
++		if( !motd.eat[key] )
++			return false;
++
++		motd.eat[key] = false;
++		return true;
++	}
++
++	// the console stays within reach
++	if( !CL_Motd_Active( ) || key == '`' || key == '~' )
++		return false;
++
++#if !XASH_EMSCRIPTEN
++	motd.eat[key] = true;
++
++	switch( key )
++	{
++	case K_ESCAPE:
++	case K_ENTER:
++	case K_KP_ENTER:
++	case K_SPACE:
++		// a key closes the address box or the splash; it never opens the browser
++		if( motd.confirm )
++			motd.confirm = false;
++		else H9M_Stop();
++		break;
++	case K_UPARROW:
++	case K_MWHEELUP:
++		H9M_Scroll( -1 );
++		break;
++	case K_DOWNARROW:
++	case K_MWHEELDOWN:
++		H9M_Scroll( 1 );
++		break;
++	case K_PGUP:
++		H9M_Scroll( -Q_max( 1, motd.visible - 1 ));
++		break;
++	case K_PGDN:
++		H9M_Scroll( Q_max( 1, motd.visible - 1 ));
++		break;
++	case K_HOME:
++		motd.scroll = 0;
++		break;
++	case K_END:
++		H9M_Scroll( motd.lines );
++		break;
++	default:
++		break;
++	}
++
++	return true;
++#else
++	return false;
++#endif
++}
++
++qboolean CL_Motd_MouseEvent( int button, qboolean down )
++{
++	int key = K_MOUSE1 + button;
++
++	if( key < K_MOUSE1 || key > K_MOUSE5 )
++		return false;
++
++	if( !down )
++	{
++		if( !motd.eat[key] )
++			return false;
++
++		motd.eat[key] = false;
++		return true;
++	}
++
++	if( !CL_Motd_Active( ))
++		return false;
++
++#if !XASH_EMSCRIPTEN
++	motd.eat[key] = true;
++
++	if( key == K_MOUSE1 )
++	{
++		int mx, my;
++
++		Platform_GetMousePos( &mx, &my );
++
++		if( motd.confirm )
++		{
++			// the only way to the browser: a click on OPEN IN BROWSER, with the address on screen
++			if( H9M_Hit( H9M_BTN_GO, mx, my ))
++			{
++				Con_Printf( "H9 MOTD: opening %s in the web browser\n", motd.page );
++				Platform_ShellExecute( motd.page, NULL );
++				motd.confirm = false;
++			}
++			else if( H9M_Hit( H9M_BTN_CANCEL, mx, my ) || !H9M_Hit( H9M_BTN_DIALOG, mx, my ))
++				motd.confirm = false;
++		}
++		else if( H9M_Hit( H9M_BTN_CLOSE, mx, my ))
++			H9M_Stop();
++		else if( motd.page[0] && H9M_Hit( H9M_BTN_OPEN, mx, my ))
++			motd.confirm = true;
++	}
++
++	return true;
++#else
++	return false;
++#endif
++}
++
++void CL_Motd_Reset( qboolean connection )
++{
++	H9M_Stop();
++	motd.textfate = H9M_TEXT_PASS;
++	motd.heldlen = 0;
++	motd.text[0] = '\0';
++	motd.text_done = false;
++	motd.infolen = 0;
++	motd.info[0] = '\0';
++	motd.infobad = false;
++	memset( motd.eat, 0, sizeof( motd.eat ));
++
++	if( connection )
++		motd.shown = false;
++}
++
++void CL_Motd_Init( void )
++{
++	Cvar_RegisterVariable( &cl_h9_motd );
++#if XASH_EMSCRIPTEN
++	Cmd_AddRestrictedCommand( "h9_motd_result", H9M_Result_f, "H9: the web client's answer to a splash MOTD (1 shown, 0 not shown)" );
++#endif
++}

@@ -1,0 +1,10 @@
+# h9web's state and the settings of one machine: never committed.
+# data/ holds secrets.json (the player id key and the password pepper) and the database.
+data/
+*.db
+*.db-wal
+*.db-shm
+secrets.json
+config.json
+servers.json
+node_modules/

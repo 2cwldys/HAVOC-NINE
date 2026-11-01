@@ -50,6 +50,10 @@ GNU General Public License for more details.
 #include <vitasdk.h>
 #endif
 
+#if XASH_EMSCRIPTEN
+#include <emscripten.h>
+#endif
+
 #include "menu_int.h" // _UPDATE_PAGE macro
 
 #include "library.h"
@@ -472,7 +476,16 @@ Sys_Quit
 void Sys_Quit( const char *reason )
 {
 	Host_ShutdownWithReason( reason );
+#if XASH_EMSCRIPTEN
+	// H9 web client: a page has no main() to return to (Host_Main sets no jump buffer here). The
+	// frames stop, the page is told the game is over and whether an error ended it (Sys_Error
+	// comes here too), and nothing after this call runs again
+	emscripten_cancel_main_loop();
+	EM_ASM({ Module.callbacks?.gameQuit?.( $0 ); }, host.status == HOST_ERR_FATAL );
+	emscripten_exit_with_live_runtime();
+#else
 	Host_ExitInMain();
+#endif
 }
 
 /*

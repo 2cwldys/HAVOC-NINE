@@ -1,0 +1,605 @@
+===============================================================================
+ H9 PRESENCE: WHO IS PLAYING, ON HAVOC9.ORG, AND THE PERKS THAT FOLLOW
+===============================================================================
+
+ Who this is for: whoever runs an H9 game server or the havoc9.org VPS, and
+ anyone who wants to know what the site shows about them and why.
+
+ The short version
+   * A plugin on each H9 game server, h9_presence.sma, tells havoc9.org who is
+     in game there. The site shows it: "PLAYING ON <server> / <map> (<mode>) /
+     <n> MIN" with the map's picture, beside forum posts, on a player's card and
+     in "who's playing".
+   * Only players whose game uses their havoc9.org account's player id count
+     (section 2). Everyone else's id is thrown away the moment it arrives.
+   * An account that has been seen in game gets a PLAYS IN GAME badge, its
+     playtime and a "last seen".
+   * Six privacy switches on the ACCOUNT page decide what others see
+     (section 6). The player always sees all of their own.
+   * h9_clientid alone proves nothing: anyone on the same server can copy it.
+     A challenge the game answers with the raw player id closes that (section
+     8); until H9XASH answers it, game presence shows as "unverified" and
+     counts for nothing.
+   * This is not the Discord card. docs\RICH_PRESENCE.txt is the engine's own
+     Discord Rich Presence; this is the website's. The two name the mode the
+     same way, on purpose.
+   * A server gets its key by itself: it enrolls with havoc9.org and proves
+     its address (section 4a). Communities, chat across servers, bans and
+     shared data build on that: docs\H9_COMMUNITIES.txt.
+
+ CONTENTS
+    1. How it works
+    2. Who counts: the player id
+    3. Setting up the VPS (h9web)
+    4. Setting up a game server
+   4a. Enrollment: a server's key, by itself
+   4b. What the answer to a report says
+    5. What the site shows: the states
+    6. The privacy switches
+    7. Privacy: what is kept, for how long, and who sees it
+    8. The id proof: challenge and response (the engine's side)
+    9. Devices, two places at once, and the admin panel's hooks
+   10. Names in game
+   11. What this protects against, and what it does not
+   12. Troubleshooting
+   13. Files
+
+ 1. HOW IT WORKS
+ ---------------
+ Every 60 seconds, and a few seconds after anyone joins, leaves or changes
+ name, h9_presence.sma POSTs a report to h9web (the service behind
+ havoc9.org) at /api/presence/report. A report holds:
+   * the map, and the mode named the way the Discord card names it (Team
+     Elimination, Siege, Capture the Uplink, Wave Survival, Mech Warrior,
+     Roleplay, Match Mode, Deathmatch), with the mode's progress where there is
+     one ("Siege - Insurgents attacking: 2 of 5 objectives");
+   * for every human player with an h9_clientid: that id, the name, when they
+     joined and how long they have been in game. Bots and HLTV are left out.
+ Each report is signed with that server's own key (section 4a; HMAC-SHA256
+ over the whole body) and carries a timestamp, which must be within 2
+ minutes of h9web's clock and later than the last report h9web took from
+ that server. A forged, changed, stale or replayed report is refused.
+
+ h9web works out, for every account, what that account's h9_clientid is on
+ that server (only h9web can: it holds the player ids). An id that belongs to
+ no account is dropped there and then, with its name: it is never stored and
+ never logged. What matches becomes a session: when it started, how long it
+ has been counted, and on which server.
+
+ A player missing from one report is "away", not gone: a map change looks like
+ that. Back within 2 minutes, the same session goes on. A server that sends
+ nothing for 3 minutes is taken to be down, and its sessions end at its last
+ report. Playtime counts the time between two sightings, at most 150 seconds
+ at a time, so an outage is never counted as play.
+
+ Web client players need no plugin: the relay already knows which signed-in
+ account each browser player is, and tells the presence module when that
+ account starts and stops playing on a server (section 3, "core hooks").
+
+ 2. WHO COUNTS: THE PLAYER ID
+ ----------------------------
+ docs\CUSTOM_XASH_USERID.txt has the whole story. In short: H9XASH sends each
+ server h9_clientid = MD5(cl_h9_userid + the server's IPv4 address). A
+ havoc9.org account has a player id of the same shape. A player whose game
+ uses the account's player id is that account to every H9 server:
+   * in the browser, the web client uses it by itself;
+   * in the downloaded game, run enter_userid.cmd in the H9XASH folder and
+     paste the player id from the ACCOUNT page (COPY on its PLAYER ID line).
+     It takes effect on the next launch.
+ A player who keeps H9XASH's own random id is not an account and is never
+ tracked. Nothing is stored about them.
+
+ The id is salted with the address the game connected to, which must be the
+ address the server enrolled with (with a hand-made key, the one servers.json
+ lists): a player who joins over a LAN address, or a server reached at
+ another address, sends an id that matches nobody. Two servers on one IP
+ (different ports) see the same h9_clientid for a player; that is how the
+ engine salts it.
+
+ 3. SETTING UP THE VPS (H9WEB)
+ -----------------------------
+ The presence module lives in h9web\modules\presence (its README.txt has the
+ detail). On the VPS:
+
+   1. The core hooks. The module needs a few things only h9web's core has
+      (the player ids, servers.json, the relay's sockets, site activity).
+      h9web's core gives them to every module (modules\presence\README.txt,
+      "Core hooks"): nothing to do here.
+   2. Load it: in /etc/h9web/config.json, "modules": [..., "presence"], then
+      systemctl restart h9web. The tables are made on that start.
+   3. Keys: none to make. Each dedicated server enrolls by itself (section
+      4a). One on servers.json goes live as soon as it proves its address;
+      any other waits until an H9 admin approves it on havoc9.org/community/
+      (H9 ADMIN, ENROLLED SERVERS), unless enrollAutoApprove is on. Enrolled
+      keys are worked out from a secret h9web makes on its first start,
+      /var/lib/h9web/modules/presence/enroll-key (mode 0600), and a salt per
+      server: the keys themselves are stored nowhere on the VPS. A new
+      enroll-key turns every enrolled key off at once, and each server then
+      enrolls again by itself.
+      A key made by hand still works for a server on servers.json, and wins
+      over its enrollment. As the service's user:
+        sudo -u h9web node /opt/h9web/modules/presence/bin/presence-key.js \
+          --config /etc/h9web/config.json add 203.0.113.10:27015
+      It prints two lines for that server's h9_presence.cfg, once. The keys
+      live in /var/lib/h9web/modules/presence/server-keys.json (mode 0600).
+      rotate gives a server a new key, remove takes it away, list shows which
+      servers have one (never the keys). No restart: the file is read again
+      when it changes.
+   4. servers.json: a server listed there with the address it enrolls with
+      goes live without an approval and shows under the name servers.json
+      gives it; an approved server that is not listed shows under its own
+      hostname.
+   5. nginx: nothing new. Reports, enrollment and the communities' calls go to
+      /api/presence/..., which the existing location /api/ already passes on
+      (client_max_body_size 64k is plenty: a full 32-player report is about
+      10 KB; proxy_read_timeout 30s covers the communities' 20-second
+      long-poll). Keep trustProxy on, so h9web sees each server's own
+      address, and let the VPS send UDP to the game servers: enrollment reads
+      their rules.
+   6. The map pictures (optional). presence\maps\<map>.png are the Discord
+      card's art. To show them on the site without a second copy in git, a
+      deploy step copies them into the web root:
+        install -d -m 755 /var/www/havoc9.org/assets/maps
+        cp /opt/h9-src/presence/maps/*.png /var/www/havoc9.org/assets/maps/
+      (not the *.bak_* files), and config.json gets
+        "moduleSettings": { "presence": {
+          "mapPicturesDir": "/var/www/havoc9.org/assets/maps" } }
+      h9web then gives a picture URL only for a map that has one; a map with
+      none shows as text, as the Discord card does. servers\index.html looks
+      for assets/maps/<map>.jpg; change .jpg to .png there to share them.
+
+ Settings (moduleSettings.presence; all have defaults):
+   privacy               the switches' defaults (section 6)
+   requireProof          false: an unproven game sighting shows as unverified
+                         and counts for nothing; true: it is dropped
+   inGameNames           true: answer a server that asks for names (section 10)
+   siteActiveSeconds     300: how recent a signed-in request is "on the site"
+   sessionTimeoutSeconds 180, rejoinSeconds 120, maxCreditSeconds 150,
+   clockSkewSeconds 120, proofMaxAgeSeconds 86400,
+   sessionRetentionDays 90, netRetentionDays 30, flagRetentionDays 90,
+   batchMax 50, cacheSeconds 15, mapPicturesDir, mapPicturesUrl
+   enrollSameIp          true: a server enrolls only the address its request
+                         comes from
+   enrollAutoApprove     false: a proven server not on servers.json waits for
+                         an admin; true: it goes live at once
+   enrollStaleDays 30, enrollPendingMinutes 60, enrollProbeSeconds 10,
+   enrollProbeTimeoutMs 2500
+   limits                reportPerIp, reportPerServer, readPerIp,
+                         settingsPerAccount, adminPerAccount, enrollPerIp,
+                         enrollPerAddress
+ The communities' settings and limits: docs\H9_COMMUNITIES.txt, section 11.
+
+ 4. SETTING UP A GAME SERVER
+ ---------------------------
+   1. The AmxxEasyHttp module and its CA bundle, as for ts_advertise:
+        ts\addons\amxmodx\modules\easy_http_amxx.dll
+        ts\addons\amxmodx\data\amxx_easy_http_cacert.pem
+      build.bat installs both from compts\ when they are missing.
+   2. h9_presence.amxx in plugins and in plugins.ini. build.bat builds,
+      deploys and registers it with the other plugins.
+   3. Nothing more for a dedicated server: the plugin enrolls it by itself
+      (section 4a) and keeps the key in addons\amxmodx\data\h9_presence.key.
+      h9web has to reach the server over UDP at the address players use (it
+      can, if players can join it).
+      ts\addons\amxmodx\configs\h9_presence.cfg (build.bat makes it from
+      h9_presence.cfg.example once, and never touches it again) is only for
+      changing a setting, or for a key made by hand:
+        h9_presence_server  "<this server's address, as servers.json lists it>"
+        h9_presence_key     "<the key presence-key.js printed>"
+      Never commit either file: the .gitignore files leave them out,
+      export.bat never copies them, xash.bat gives H9XASH the empty template
+      and never the live server's h9_presence.key, and the client package
+      leaves *.key out.
+   4. The server's clock must be right (NTP): a report more than 2 minutes off
+      h9web's clock is refused.
+   5. Restart the server, or change map. In the server console,
+      h9_presence_status says whether it reports, whether its self-test
+      passed, its enrollment and public server id, and the last answer from
+      h9web.
+
+ The other cvars (h9_presence.cfg):
+   h9_presence_url        default https://havoc9.org/api/presence/report
+   h9_presence_interval   seconds between reports, 30 to 600 (default 60)
+   h9_presence_challenge  1: the id proof (section 8). Leave 0 until H9XASH
+                          answers it
+   h9_presence_names      1: names in game (section 10). Needs the challenge
+   h9_presence_autoenroll 1: a dedicated server enrolls by itself (default);
+                          0: a hand-made key only
+   h9_presence_enroll     the enrollment code, set and cleared by the plugin
+                          (in the server's rules while h9web looks for it)
+
+ The plugin logs to the AMXX log only when something changes: "h9web accepts
+ this server's reports", or why not ("HTTP 401 bad_signature", "Could not
+ reach h9web"), and once when the server is enrolled ("Enrolled with
+ havoc9.org as server <id>"). Waiting for a proof or an approval, it logs
+ nothing. It never logs the key, a player's id, name or address.
+
+ Reading the mode: the plugin reads ts_matchmode's tsm_pres_mode,
+ tsm_pres_siege, tsm_pres_attack and tsm_pres_prog cvars, the same ones the
+ Discord card reads from the serverinfo, and the map's name; without
+ ts_matchmode it names the mode by the map alone.
+
+ 4a. ENROLLMENT: A SERVER'S KEY, BY ITSELF
+ -----------------------------------------
+ A dedicated server with h9_presence_autoenroll 1 (the default) gets its own
+ key without anyone typing one; a listen server (a player's own game) never
+ enrolls. The steps, all of them quiet:
+   1. The plugin POSTs { "v": 1, "port": <hostport> } to
+      /api/presence/enroll. h9web takes the address from the request itself
+      (the caller's IP, through nginx) and that port: a server enrolls only
+      its own address (enrollSameIp). The answer holds a key, a one-time
+      code and the server's public id. The key does nothing yet.
+   2. The plugin puts the code in the cvar h9_presence_enroll, which is
+      FCVAR_SERVER (in the server's rules, as server browsers read them) and
+      FCVAR_UNLOGGED (no "changed to" line for anyone).
+   3. The plugin asks /api/presence/enroll/status, signed with the new key.
+      h9web reads the server's rules over UDP (A2S_RULES, with the challenge
+      FWGS and HLDS ask for) at that exact address, at most every 10 seconds.
+      The code there proves that whoever holds the key runs the server at
+      that address.
+   4. The key goes live: at once for a server on servers.json (or with
+      enrollAutoApprove), otherwise once an H9 admin approves it on
+      havoc9.org/community/ (H9 ADMIN). The plugin clears the cvar, keeps
+      the key, the address, the server id and the state in
+      addons\amxmodx\data\h9_presence.key, and starts reporting.
+ A server h9web cannot reach (behind NAT, a LAN game) never proves its code.
+ It stays unenrolled and asks again less and less often, from 10 seconds to
+ every 6 hours, without a word. An unproven enrollment is forgotten after an
+ hour (enrollPendingMinutes).
+
+ Enrolling again: an address that already has a live key gets a new one that
+ replaces the old only once proven, and an approved address stays approved.
+ h9web flags it (re-enrolled) for the admins and writes it to the audit log.
+ A server whose key file is gone, or whose key stops working (revoked, or a
+ new enroll-key on the VPS), enrolls again by itself after three refused
+ reports.
+
+ Housekeeping: a live key with no report for 30 days (enrollStaleDays)
+ expires; the server enrolls again when it is back. H9's admins approve,
+ revoke (the key stops; the server may enroll again, and waits for approval
+ again) or block (it may not enroll at all) on havoc9.org/community/ or
+ through /api/presence/admin/servers (docs\H9_COMMUNITIES.txt, section 12).
+
+ The public server id: ten characters of a to z and 2 to 9, given at the
+ first enrollment and kept for the address. It names the server on the
+ communities' pages and in portals, and is no secret; like the key it is kept
+ on the server only in h9_presence.key, never in a shipped file.
+
+ The key file, addons\amxmodx\data\h9_presence.key, is the server's secret:
+ whoever has it can report players onto that server. The client package
+ (stage-h9xash.ps1) and git leave *.key out; export.bat and xash.bat never
+ copy it. Delete it to make the server enroll again.
+
+ 4b. WHAT THE ANSWER TO A REPORT SAYS
+ ------------------------------------
+ h9web answers every report it takes with
+   { "ok": true, "players": <n>, "serverId": "<id>",
+     "actions": { "<slot>": { "kick": "<reason>" } or { "mute": true } } }
+ and "names" when the report asked for them (section 10).
+   kick   a ban of the account in the server's community or H9-wide, or a
+          one-off kick (docs\H9_COMMUNITIES.txt, section 5). The plugin runs
+          kick #<userid> "<reason>", the reason cut to letters, digits,
+          spaces and . , : ! ? ( ) -
+   mute   the plugin drops the player's say and say_team (and so
+          h9_community's .relay) until an answer no longer says so
+ For h9_community.amxx and other plugins, h9_presence also offers natives
+ (include\h9_community.inc): h9p_ready, h9p_server, h9p_server_id, h9p_api,
+ h9p_sign (the live key's signature of a body; the key never leaves the
+ plugin), h9p_nonce, h9p_report_soon and h9p_muted.
+
+ 5. WHAT THE SITE SHOWS: THE STATES
+ ----------------------------------
+ A player is in one state at a time, the highest that is true and that they
+ show (section 6):
+
+   1. IN GAME, from a game server's plugin or the web client's relay:
+        PLAYING ON <server> / <map> (<mode>) / <n> MIN
+      with the map's picture where the site has one. "UNVERIFIED" is added
+      when the game did not prove the player id (section 8).
+   2. IN THE WEB CLIENT: the web client is open (the relay has a socket for
+      the account) but on no listed server, in its menu.
+   3. ON THE SITE: the account made a signed-in request to havoc9.org in the
+      last 5 minutes (any page load counts: every page asks who is signed in).
+   4. OFFLINE: "LAST SEEN <time> AGO", or nothing when the player hides it.
+
+ The downloaded game in its own main menu reports to nobody (it only talks to
+ a server once it joins one), so that reads as offline, or as on the site if
+ the player is browsing too.
+
+ Where it shows, through havoc9.org\assets\presence.js:
+   * beside every forum post: a dot and the state, the badge, the playtime;
+   * a player's card, which opens from any name marked for it;
+   * "who's playing": each server with its map picture, "<map> (<mode>)" and
+     its players; then players in game who hide the server, and who is in the
+     web client or on the site;
+   * "online now": one line with the counts and the names;
+   * the player's own ACCOUNT page: everything about them, and the switches.
+
+ 5a. The badge and the numbers
+   PLAYS IN GAME   the account has been seen in game, verified
+   playtime        the counted time, in total and per server
+   first seen      the first verified sighting
+   last seen       the last time in any state the player shows
+
+ 6. THE PRIVACY SWITCHES
+ -----------------------
+ On the ACCOUNT page, each saved as soon as it is changed:
+
+   SHOW THAT I'M IN GAME        others see state 1
+   SHOW WHICH SERVER AND MAP    with it, the server, map, mode and picture;
+                                without it, just IN GAME / <n> MIN
+   SHOW WHEN I'M IN THE WEB CLIENT   state 2
+   SHOW WHEN I'M ON THE SITE         state 3
+   SHOW MY PLAYTIME             the playtime, first seen, the per-server
+                                list, and the badge
+   SHOW "LAST SEEN"             state 4's time
+
+ All six are on for a new account (moduleSettings.presence.privacy sets the
+ defaults; an account that never chose follows a changed default). A hidden
+ state is skipped, never faked: with "in game" off a player in game shows the
+ next lower state that is true, or offline. A hidden kind never shows through
+ "last seen" either: a session still open counts from the one before it, and
+ the site counts only when "on the site" is shown.
+
+ Every read honours the switches before anything leaves h9web: the card
+ (/api/presence/account/<name>), the batch read for a forum thread
+ (/api/presence/accounts?u=...), and who's playing (/api/presence/now). The
+ player always sees all of their own (/api/presence/me). Admins see more only
+ where an admin action needs it: the flags list and the admin view of one
+ account (section 9).
+
+ 7. PRIVACY: WHAT IS KEPT, FOR HOW LONG, AND WHO SEES IT
+ -------------------------------------------------------
+ Kept, only for accounts:
+   sessions now        server, since when, the in-game name (owner and
+                       admins only), counted seconds
+   finished sessions   90 days (sessionRetentionDays), owner and admins only
+   playtime            per server, first and last seen: while the account exists
+   devices             a hash of each device id that proved the account's
+                       player id (never the id itself); admins only
+   networks            a keyed hash of the player's network cut to /24 (IPv4)
+                       or /48 (IPv6), 30 days (netRetentionDays); admins see
+                       only "known network" or "new network" on a flag
+   flags               until resolved, then 90 days (flagRetentionDays)
+   privacy switches    while the account exists
+ Never kept, never logged:
+   * any h9_clientid that is not an account's, with its name;
+   * names sent only for the name check (section 10);
+   * raw IP addresses: the plugin sends a coarse prefix only with a proof,
+     and h9web hashes it at once with a key of its own (net-key in its data
+     folder) and keeps nothing else;
+   * player ids, keys, signatures, proofs, nonces, device ids.
+ Deleting an account deletes all of its presence. A hand-made key never
+ leaves h9web's data folder and the server's own config; an enrolled key is
+ stored nowhere on the VPS (it is worked out again from enroll-key and a
+ salt) and on the server only in h9_presence.key.
+
+ 8. THE ID PROOF: CHALLENGE AND RESPONSE (THE ENGINE'S SIDE)
+ -----------------------------------------------------------
+ Why: h9_clientid is the same for a player on a server every time, and every
+ player on that server receives it in the player's userinfo. Anyone who reads
+ it can send it as theirs. So h9_clientid says who a player claims to be; the
+ proof shows they hold the raw player id it was made from.
+
+ Status: h9web and the plugin are built and tested; the engine side below is
+ a spec for engine-h9-userid.patch, not yet written. Until it ships:
+ h9_presence_challenge stays 0, no game sighting is proven, every one shows as
+ unverified and counts for nothing (no playtime, badge, last seen or session),
+ and web client players (verified by the relay) are the only ones counted.
+
+ The exchange
+   1. The client says it can answer: userinfo key _h9idv "1" (a key starting
+      with "_" is not sent to other players), set when cl_h9_userid is set
+      and the device id is available.
+   2. The plugin, at client_putinserver (and again every 6 hours), sends the
+      client one nonce, as a server command:
+        h9_idchallenge <nonce>
+      nonce: 32 lowercase hex characters: the unix time it was made (8 hex)
+      and 24 random hex characters. A new one on every map, since the plugin
+      starts over.
+   3. The client answers with a client command, which only the server sees:
+        h9_idproof <nonce> <devmask> <proof>
+   4. The plugin takes an answer only to the nonce it gave that slot, once,
+      and puts nonce, devmask and proof in that player's entry in the next
+      report. h9web checks it with the account's player id.
+
+ The engine's side (engine-h9-userid.patch)
+   * A per-install device id: 16 random bytes from the OS (BCryptGenRandom on
+     Windows, getrandom on Linux), made on first use and kept in
+     H9XASH\device_id.ini ([device] id=<32 hex>), apart from user_id.ini.
+     enter_userid.cmd and h9_regenerate_userid.bat never touch it; it is never
+     sent anywhere in the clear. Deleting it makes a new device (section 9).
+     The .gitignore files ignore device_id.ini*.
+   * Register h9_idchallenge so that it runs when the server sends it with
+     svc_stufftext, cl_filterstuffcmd 1 included. On it:
+       - ignore it unless connected, cl_h9_userid is 32 hex and the nonce is
+         32 lowercase hex; answer at most 4 a minute;
+       - P = cl_h9_userid as text (32 ASCII bytes): the HMAC key below;
+       - S = the address the client is connected to, "a.b.c.d:port" (the
+         same address h9_clientid is salted with);
+       - mask = the first 16 bytes of HMAC-SHA256(P, "h9dev1:" + nonce);
+       - devmask = hex(device id XOR mask), 32 lowercase hex;
+       - proof = hex(HMAC-SHA256(P, "h9proof1:" + nonce + ":" + S + ":" +
+         devmask)), 64 lowercase hex;
+       - send "h9_idproof <nonce> <devmask> <proof>" as a clc_stringcmd.
+     FWGS has MD5 but no SHA-256: the patch adds one (FIPS 180-4).
+   * The browser build does not set _h9idv and does not register the command:
+     its presence comes from the relay, which knows the signed-in account.
+   * An old client has no _h9idv and is never challenged; it stays
+     unverified. A client that never answers is left out of reports for 8
+     seconds, then reported unproven.
+
+ Test vectors (h9web's tests check the same numbers):
+   P (player id)  0123456789abcdef0123456789abcdef
+   device id      fedcba9876543210fedcba9876543210
+   nonce          6724a2c000112233445566778899aabb
+   S              203.0.113.10:27015
+   mask           c3795fccc8d837c61d1edf9a2827c855
+   devmask        3da5e554be8c05d6e3c265025e73fa45
+   proof          cc3fd059d636b90d80456c1692ac059047bd208076deffdf336a3a4bf1db6af4
+   h9_clientid    6f25203910203f1f3c7e4f98e15fe7ae (MD5(P + 4 IP bytes))
+   device hash    9dca7efc8a5cfe1677a2df1cf4731c6f (what h9web keeps:
+                  SHA-256("h9device1:" + the 16 bytes), first 32 hex)
+
+ h9web's checks: the proof matches the account's player id for that server's
+ address; the nonce was made no more than a day ago (proofMaxAgeSeconds); the
+ device is the account's (section 9). A proof that fails is refused and
+ flagged (bad_proof, stale_proof); the player then shows nothing at all.
+
+ 9. DEVICES, TWO PLACES AT ONCE, AND THE ADMIN PANEL'S HOOKS
+ -----------------------------------------------------------
+ Devices. The first device whose proof checks out for an account is bound to
+ it. A proof from any other device is refused: no presence, no playtime, no
+ badge, no name in game, and a second_device flag for the admins, with
+ whether it came from a network the account has used in the last 30 days (a
+ second PC at home looks like that; a leaked id rarely does). An admin may
+ allow the extra device, or unbind one.
+
+ Two places at once. An account counted on one server is held anywhere else
+ at the same time: not shown, not counted, and flagged (concurrent). When the
+ first place ends, the held one takes over and counts from then. An
+ unverified sighting beside a verified one is not shown either (it is most
+ likely a copied h9_clientid) and is flagged the same way.
+
+ The admin panel's hooks (h9web routes, admins only, every change written to
+ the audit log; the admin panel's PRESENCE tab uses them, docs\H9WEB_ADMIN.txt
+ section 16):
+   GET  /api/presence/admin/flags?status=open|resolved|all&page=N
+   POST /api/presence/admin/flags/<id>/resolve           { note }
+   GET  /api/presence/admin/accounts/<name>   devices, flags, sessions, state
+   POST /api/presence/admin/accounts/<name>/devices/<device>/allow    { note }
+        an extra device for the account; its open second_device flag closes
+   POST /api/presence/admin/accounts/<name>/devices/<device>/unbind   { note }
+        with no device left, the next one to prove the id is bound
+   POST /api/presence/admin/accounts/<name>/move-id   { to, confirm, password }
+        the player id, and its presence history and devices, move to the
+        account "to": the same install, unchanged, now counts as that account;
+        <name> gets a new player id, and "to"'s old one stops working.
+        confirm is <name>, typed
+   POST /api/presence/admin/accounts/<name>/reset-id  { confirm, keepDevices,
+                                                          password }
+        a new player id, so a leaked one dies at once; the owner enters the new
+        one with enter_userid.cmd. keepDevices (default true) keeps the bound
+        device
+ move-id and reset-id use core's movePlayerId and resetPlayerId
+ (modules\presence\README.txt); without them they answer 503. Both need the
+ acting admin's own password in the same request (password), checked as the
+ admin panel checks its other confirmations; the panel asks for it.
+
+ 10. NAMES IN GAME
+ -----------------
+ With h9_presence_names 1 (which needs h9_presence_challenge 1, and h9web's
+ core to check proofs), on every map but roleplay maps and stock TS maps:
+   * a player whose account is verified (a proof, or the relay's signed-in
+     session) plays under the account's havoc9.org username. The plugin sets it
+     on join and on every map change, puts it back at once if the player
+     changes it, and says why in one chat line ("[H9] On H9 maps you play
+     under your havoc9.org name, Neo."). A rename on the site (an admin
+     approves it; docs\H9WEB_ADMIN.txt) follows at the next report;
+   * anyone else whose name is an account's username, or a name held after a
+     rename, without regard to case or look-alikes ("Ne0" is "Neo", the same
+     rule as sign-up), plays as "Player 1234" for the rest of the map, with
+     "[H9] That name belongs to a havoc9.org account. On H9 maps you play as
+     Player 1234." The space in it means no account can ever own it.
+ Free maps: a roleplay map (rp_ or tsrp_ at the start, _rp_ or _tsrp_
+ anywhere: roleplay_map() in ts_matchmode.sma, copied exactly into
+ h9_presence.sma) and a stock ts_ map. Elsewhere names are fixed.
+ How it travels: a report on a fixed map says "names": true and gives each
+ player's slot; players without an h9_clientid go in as slot and name only.
+ h9web answers per slot { "set": "<username>" } or { "taken": true }. Those
+ names are checked and dropped; they are never stored or logged. Off by
+ default; until the engine answers the challenge nobody is proven, so with it
+ off every player keeps their own name.
+
+ 11. WHAT THIS PROTECTS AGAINST, AND WHAT IT DOES NOT
+ ----------------------------------------------------
+ What a game server can know of a player, plainly:
+   * not a MAC address. It never reaches a game server, and a client can send
+     any value it likes in its place. Binding to a MAC cannot be done.
+   * the IP address, which changes: home connections are reassigned, phones
+     move between networks, VPNs and the relay put many players behind one
+     address. An IP is a soft signal for an admin to read, never a lock.
+   * h9_clientid, which is client-asserted, the same on every visit, and
+     received by every other player on that server. Whoever has a player's
+     h9_clientid for a server can appear as them on that server. On its own
+     it identifies honest players; it cannot stop a copy.
+
+ Protected:
+   * forged, changed or replayed reports: each is signed with that server's
+     key and must be newer than the last;
+   * a copied h9_clientid, once the challenge is on: without the raw player id
+     no proof can be made, so the copy counts for nothing, earns nothing, gets
+     no name, and the real player's name cannot be taken by it;
+   * a proof captured on the way: it answers one nonce the plugin gave one
+     slot, for one server's address; another slot, another server, or a day
+     later it is refused;
+   * a leaked or handed-over raw player id: the device binding refuses
+     another install (and flags it); an admin resets the id and the leak dies;
+   * one account in two places: only the first counts, and admins are told;
+   * a registered name in game: protected on H9 maps by section 10;
+   * players without an account: nothing about them is kept.
+
+ Not protected:
+   * a copied install. user_id.ini and device_id.ini together are the
+     account to H9's servers; whoever has both, has the account in game. Keep
+     the H9XASH folder to yourself, as you would a saved password.
+   * a game server's key, or the server itself. A server holding a key can
+     report anything about the players it really sees; it cannot make proofs,
+     so with requireProof it cannot invent verified players. Revoke an
+     enrolled key, or rotate a hand-made one, when a server changes hands.
+   * presence before the challenge ships: game sightings are unverified until
+     then, shown as such, and never counted.
+   * the downloaded game in its own menu: nothing reports it.
+   * what other players see in game. h9_clientid stays readable by everyone
+     on the server; moving it to a "_" key would hide it from other players,
+     but would change what existing plugins read, so it is not done here.
+
+ 12. TROUBLESHOOTING
+ -------------------
+ Nothing shows for a player
+   - Does their game use the account's player id (section 2)? The ACCOUNT
+     page shows what each server sees as their h9_clientid.
+   - Are they hiding it (section 6)? The ACCOUNT page shows their switches.
+   - Before the challenge ships they show as unverified and earn nothing.
+ h9_presence_status says "not reporting"
+   - "enrollment: not enrolled": h9web cannot read the server's rules over
+     UDP at the address it enrolls (a LAN or NAT server, a firewall in the
+     way, or a server players reach through another address). It keeps
+     asking, less and less often.
+   - "waiting for an H9 admin": approve it on havoc9.org/community/.
+   - "a listen server never enrolls": as designed.
+   - With a hand-made key, the AMXX log says why: an address that is not
+     IPv4:port, or a key that is not 64 hex characters.
+ h9web refused the report
+   401 bad_signature   the key does not match: copy it again, or rotate it
+   401 stale           the server's clock is off: fix NTP
+   403 unknown_server  h9_presence_server is not on servers.json, or differs
+   403 no_key          presence-key.js add was never run for that address
+   403 not_enrolled    the address has no live key yet: it is enrolling
+   403 pending_approval   proven, waiting for an H9 admin
+   409 replay          harmless once, after a map change in the same second
+   429                 too many reports: the plugin backs off for a minute
+   503 not_ready       h9web's core lacks the hooks (section 3)
+ The self-test failed
+   - The plugin's own SHA-256 disagrees with the test vectors. It reports
+     nothing. Rebuild it with build.bat and tell whoever maintains it.
+
+ 13. FILES
+ ---------
+ TSM\h9_presence.sma                 the plugin
+ TSM\h9_presence.cfg.example         the config template; the live
+                                     ts\addons\amxmodx\configs\h9_presence.cfg
+                                     is never committed or exported
+ h9web\modules\presence\             the h9web module (README.txt inside)
+ h9web\modules\presence\bin\presence-key.js   hand-made keys
+ h9web\modules\presence\enroll.js    enrollment; a2s.js reads a server's rules;
+                                     serverauth.js checks signed calls
+ h9web\test\presence.test.js         its tests, core's hooks included
+ h9web\test\community.test.js        enrollment's and communities' tests
+ TSM\include\h9_community.inc        the natives, for other plugins
+ docs\H9_COMMUNITIES.txt             communities, chat, find, data, portals
+ havoc9.org\assets\presence.js       the site's script
+ presence\maps\<map>.png             the map pictures (shared with Discord)
+ On the VPS: /var/lib/h9web/modules/presence/server-keys.json, net-key and
+ enroll-key, all mode 0600, never in git. On a game server:
+ addons\amxmodx\data\h9_presence.key, never shared or committed.

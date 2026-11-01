@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>COMMUNITIES -- HAVOC9</title>
+  <meta name="description" content="HAVOC 9 communities: groups of game servers with one chat across them and the site, their players, and their own admins">
+  <link rel="icon" type="image/gif" href="../h9helmet_glitch.gif">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../assets/account.css">
+</head>
+<body>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="../index.html" class="logo">
+        <img src="../h9helmet_glitch.gif" alt="Havoc9" class="logo-img">
+        <span class="logo-text">HAVOC<span class="orange">9</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="../index.html">HOME</a></li>
+        <li><a href="../webclient/index.html">PLAY</a></li>
+        <li><a href="../downloads/index.html">DOWNLOADS</a></li>
+        <li><a href="../servers/index.html">SERVERS</a></li>
+        <li><a href="../forum/index.html">FORUM</a></li>
+        <li><a href="../join/index.html">JOIN</a></li>
+        <li><a href="../museum/index.html">MUSEUM</a></li>
+        <li><a href="../credits/index.html">CREDITS</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="page account-page">
+    <div class="container">
+      <div class="page-header">
+        <span class="section-label">// COMMUNITIES</span>
+        <h1 class="section-title" id="communityTitle">COMMUNITIES</h1>
+        <div class="title-line"></div>
+      </div>
+
+      <div data-h9-community></div>
+
+      <noscript>
+        <div class="placeholder-box">
+          <h2>JAVASCRIPT</h2>
+          <p>This page reads the communities from the site as it opens, which needs JavaScript.</p>
+        </div>
+      </noscript>
+
+      <div class="account-section">
+        <h2 class="sub-title">WHAT A COMMUNITY IS</h2>
+        <p>A group of game servers run by one havoc9.org account, its owner, and the admins the owner names. Its players talk across all its servers and this page: <code>.relay &lt;text&gt;</code> in game chat, or the chat box here when signed in. In game, <code>/find &lt;name&gt;</code> or <code>/where &lt;name&gt;</code> says where a player is, this community's servers first, and portals on its maps lead to its other servers.</p>
+        <p>A server joins once it is enrolled with havoc9.org, which the H9 presence plugin does by itself, and its console's <code>h9_community_claim</code> code is entered here by the community's owner or an admin. A ban or a mute here holds on every server of the community. What a player hides with the switches on their ACCOUNT page stays hidden here too.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-logo">
+          <img src="../h9helmet_glitch.gif" alt="Havoc9">
+          <span>HAVOC<span class="orange">9</span></span>
+        </div>
+        <p class="footer-tag">Open source &middot; Inspired by the original Havoc9 community</p>
+        <p class="footer-copy">Non-commercial &middot; See NON_COMMERCIAL.md</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../script.js"></script>
+  <script src="../assets/account.js"></script>
+  <script src="../assets/presence.js"></script>
+  <script src="../assets/community.js"></script>
+</body>
+</html>

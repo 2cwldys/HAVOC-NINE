@@ -30,6 +30,8 @@ The engine. The webassembly patch's engine part (emscripten code, compiled out o
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), engine-h9-bigworld.patch (big-world coordinates, whole units to +/-32768, for a map whose world reaches past +/-4096; with ts\delta.lst's widened origin fields, maps larger than the stock box), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), engine-h9-bigworld.patch (big-world coordinates, whole units to +/-32768, for a map whose world reaches past +/-4096; with ts\delta.lst's widened origin fields, maps larger than the stock box), engine-h9-websound.patch (the browser build only: the sound mixer paints 0.2 s ahead and skips the time a long frame already played instead of painting into it; this Windows build compiles as before), engine-h9-cvarresync.patch (setting a cvar to the string it already holds reads its value from that string again, as GoldSrc does, so the cam_ideal* and cam_snapto values the client writes directly can be set back), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
+The engine. The webassembly patch's engine part (emscripten code, compiled out on Windows), engine-h9-cloak.patch (a server-side cloak on your own model), engine-h9-cmdbuf.patch (a command buffer that holds H9's configs), engine-h9-chatmouse.patch (mouse-look while typing in chat), engine-h9-suddendeath.patch (sudden-death fog read from the h9_fog_* server cvars into movevars; the four cvars exist from engine start, so config.cfg keeps them), engine-h9-spraypicker.patch (the spray picker is honored again: the bitmap picked from ts\logos is remapped into the player's own tempdecal.wad and sent under every protocol, an uploaded tempdecal.wad spraying unchanged when there is no pick), engine-h9-spraycmd.patch (the spray command: spray lists every picture on the ts\logos shelf, spray name equips one of them, spray off takes the pick off so an uploaded tempdecal sprays), engine-h9-sprguard.patch (the client's sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing -- the guard for installs with missing or foreign content), engine-h9-userid.patch (cl_h9_userid: a plain, regenerable client id salted per destination server and sent as the userinfo key h9_clientid, see docs/CUSTOM_XASH_USERID.txt), engine-h9-presence.patch (Discord Rich Presence via cl_presence.c, see docs/RICH_PRESENCE.txt), engine-h9-autoconfig.patch (h9_autoconfig: the cfg in mapconfigs/ named after the map is exec'd after ServerActivate, so it runs after the plugins' own cvars and configs and overrides them), engine-h9-deltabits.patch (delta.lst model-index fields widened to 12 bits and entity-index fields to 13, so maps with more than 1023 models or 2047 edicts stop drawing everything past the limit as one model), engine-h9-concolor.patch (the client's console strings, the chat among them, in con_color when it sets no colour of its own, as on GoldSrc), engine-h9-consolemusic.patch (the main menu's music plays on while the console is open over the menu), engine-h9-chatinput.patch (the say: line under the chat lines rather than at the top of the screen, for games that do not place it themselves), engine-h9-bigworld.patch (big-world coordinates, whole units to +/-32768, for a map whose world reaches past +/-4096; with ts\delta.lst's widened origin fields, maps larger than the stock box), engine-h9-websound.patch (the browser build only: the sound mixer skips the time a long frame already played instead of painting into it, and mixes at least 0.2 s ahead whatever _snd_mixahead says; this Windows build compiles as before), engine-h9-cvarresync.patch (setting a cvar to the string it already holds reads its value from that string again, as GoldSrc does, so the cam_ideal* and cam_snapto values the client writes directly can be set back), engine-h9-webmenu.patch (the browser build only: the main menu's background video decoded by the page and drawn by the engine, and quit and minimize handed to the page; this Windows build compiles as before), engine-h9-phsbudget.patch (no PHS for a world whose PHS would take more than 192 MB, so a map of tens of thousands of leaves loads on a multiplayer server, its sounds reaching every player; below that the PHS is allocated once instead of once per row), and a new CIN_MENUBG video slot plus extended menu API v2 (the main menu's video background; cvar-gated in menu.dll, falls back cleanly if off, missing, or FFmpeg isn't present).
 == Patch history ==
 Generated Wed 10/21/2026 23:42:15.60, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -781,6 +783,1194 @@ In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb0
 e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
 Diff sha256 882a628e0e8895c0c0e175c2fe631eb447ded8b3a57497060fff5bfa5fabbc37, the diff below.
 
+Generated Sun 11/01/2026  2:37:15.33, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/net_encode.c
+ M engine/menu_int.h
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+?? engine/client/sound/s_main.c.bak_websound
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 eb6758a0d6afc57ba8a78bec31b89b970ba5f24a35e3644703389659b7d52adc, the diff below.
+
+Generated Sun 11/01/2026  5:28:24.62, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_encode.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/avi/avi_ffmpeg.c.bak_fullbright_fix
+?? engine/client/cl_presence.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
+ static CVAR_DEFINE( s_volume, "volume", "0.7", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "sound volume" );
+ CVAR_DEFINE( s_musicvolume, "MP3Volume", "1.0", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "background music volume" );
+ CVAR_DEFINE( s_musicfadetime, "MP3FadeTime", "2.0", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "background music fade out time in seconds for \"cd fadeout\" command" );
++// H9 web client: a frame in a browser can run long (a game file fetched the first time it is read,
++// software WebGL), so the mixer paints further ahead to keep the device from running dry
++static CVAR_DEFINE( s_mixahead, "_snd_mixahead", "0.2", FCVAR_FILTERABLE, "how much sound to mix ahead of time" );
+ static CVAR_DEFINE( s_mixahead, "_snd_mixahead", "0.12", FCVAR_FILTERABLE, "how much sound to mix ahead of time" );
+ static CVAR_DEFINE_AUTO( s_show, "0", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "show playing sounds" );
+ CVAR_DEFINE_AUTO( s_lerping, "0", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "apply interpolation to sound output" );
+ static CVAR_DEFINE( s_ambient_level, "ambient_level", "0.3", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "volume of environment noises (water and wind)" );
++	// H9 web client: after a frame longer than the mix-ahead the device has already played past
++	// what was painted. Painting from there would put the late sound behind the play position, where
++	// it is heard a whole buffer later; the time already played is skipped instead
++++ b/engine/client/sound/s_main.c.bak_websound
++s_main.c - sound engine
++Copyright (C) 2009 Uncle Mike
++#include "sound.h"
++#include "con_nprint.h"
++#include "pm_local.h"
++#include "platform/platform.h"
++// structure used for fading in and out client sound volume.
++struct
++	int    start_percent;
++	int    percent;
++	double start_time;
++	int    out_seconds;
++	int    hold_time;
++	int    in_seconds;
++} soundfade;
++poolhandle_t sndpool;
++qboolean     snd_fade_sequence = false;
++// this confuses the shit out of qt creator parser
++// and good luck if you rely on shitty old msvc
++snd_globals_t snd =
++	.channels         = (channel_t[MAX_CHANNELS]){ 0 },
++	.max_channels     = MAX_CHANNELS,
++	.raw_channels     = (rawchan_t*[MAX_RAW_CHANNELS]){ 0 },
++	.max_raw_channels = MAX_RAW_CHANNELS,
++static CVAR_DEFINE( s_volume, "volume", "0.7", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "sound volume" );
++CVAR_DEFINE( s_musicvolume, "MP3Volume", "1.0", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "background music volume" );
++CVAR_DEFINE( s_musicfadetime, "MP3FadeTime", "2.0", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "background music fade out time in seconds for \"cd fadeout\" command" );
++static CVAR_DEFINE( s_mixahead, "_snd_mixahead", "0.12", FCVAR_FILTERABLE, "how much sound to mix ahead of time" );
++static CVAR_DEFINE_AUTO( s_show, "0", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "show playing sounds" );
++CVAR_DEFINE_AUTO( s_lerping, "0", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "apply interpolation to sound output" );
++static CVAR_DEFINE( s_ambient_level, "ambient_level", "0.3", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "volume of environment noises (water and wind)" );
++static CVAR_DEFINE( s_ambient_fade, "ambient_fade", "1000", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "rate of volume fading when client is moving" );
++CVAR_DEFINE_AUTO( snd_mute_losefocus, "1", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "silence the audio when game window loses focus" );
++CVAR_DEFINE_AUTO( s_test, "0", 0, "engine developer cvar for quick testing new features" );
++CVAR_DEFINE_AUTO( s_samplecount, "0", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "sample count (0 for default value)" );
++CVAR_DEFINE_AUTO( s_warn_late_precache, "0", FCVAR_ARCHIVE|FCVAR_FILTERABLE, "warn about late precached sounds on client-side" );
++=============================================================================
++		SOUNDS PROCESSING
++=============================================================================
++static int S_AdjustLoopedSamplePosition( const wavdata_t *source, int current_sample, qboolean enable_looping )
++	// check if looping is enabled and we've exceeeded the sample boundary
++	if( enable_looping && FBitSet( source->flags, SOUND_LOOPED ) && current_sample >= source->samples )
++		int loop_start = Q_min( source->loop_start, source->samples );
++		int loop_range = source->samples - loop_start;
++		// apply modulo to wrap within loop bounds
++		if( loop_range > 0 )
++			current_sample = loop_start + (( current_sample - loop_start ) % loop_range );
++			current_sample = source->samples;
++	return current_sample;
++int S_RetrieveAudioSamples( const wavdata_t *source, const void **output_buffer, int start_position, int num_samples, qboolean enable_looping )
++	// handle looping
++	start_position = S_AdjustLoopedSamplePosition( source, start_position, enable_looping );
++	// calculate how many samples are available from current position
++	int available_samples = Q_max( 0, source->samples - start_position );
++	// limit requested samples to available samples
++	if( num_samples > available_samples )
++		num_samples = available_samples;
++	// if none, exit early
++	if( num_samples <= 0 )
++	// calculate the size of each sample frame
++	int frame_size = Q_max( 1, source->width * source->channels );
++	// convert sample position to byte offset
++	start_position *= frame_size;
++	*output_buffer = source->buffer + start_position;
++	return num_samples;
++S_GetMasterVolume
++float S_GetMasterVolume( void )
++	float	scale = 1.0f;
++	if( host.status == HOST_NOFOCUS && snd_mute_losefocus.value != 0.0f )
++		// we return zero volume to keep sounds running
++		return 0.0f;
++	// apparently goldsrc doesn't care about soundfade
++	// despite this, let's keep support for it
++	if( cls.key_dest != key_menu && soundfade.percent != 0 )
++		scale = soundfade.percent / 100.f;
++		scale = bound( 0.0f, scale, 1.0f );
++		scale = 1.0f - scale;
++	return s_volume.value * scale;
++S_SoundFade
++void S_SoundFade( int fade_percent, int hold_time, int fade_out_seconds, int fade_in_seconds )
++	soundfade.start_percent = fade_percent;
++	soundfade.hold_time     = hold_time;
++	soundfade.out_seconds   = fade_out_seconds;
++	soundfade.in_seconds    = fade_in_seconds;
++	soundfade.start_time = host.realtime;
++S_IsClient
++static qboolean S_IsClient( int entnum )
++	return entnum == snd.entnum;
++S_NotifyChannelUpdate
++static void S_NotifyChannelUpdate( int ch_idx, const channel_t *ch, sound_t handle )
++	if( !clgame.soundFuncs.pfnS_UpdateChannel )
++	clgame.soundFuncs.pfnS_UpdateChannel( ch_idx, ch, handle );
++// free channel so that it may be allocated by the
++// next request to play a sound.  If sound is a
++// word in a sentence, release the sentence.
++// Works for static, dynamic, sentence and stream sounds
++S_FreeChannel
++void S_FreeChannel( channel_t *ch )
++	S_NotifyChannelUpdate( ch - snd.channels, NULL, -1 );
++	// free the currently loaded word's audio cache before nuking the channel
++	if( ch->words )
++		VOX_FreeWord( ch );
++	ch->sfx = NULL;
++	ch->name[0] = '\0';
++	ch->flags = 0;
++	ch->forced_end = ch->sample = 0.0;
++	ch->data = NULL;
++	Mem_Free2( &ch->words );
++	SND_CloseMouth( ch );
++S_NotifyRawChannelUpdate
++static void S_NotifyRawChannelUpdate( int raw_idx, rawchan_t *ch )
++	if( !clgame.soundFuncs.pfnS_UpdateRawChannel )
++	clgame.soundFuncs.pfnS_UpdateRawChannel( raw_idx, ch );
++S_UpdateSoundFade
++static void S_UpdateSoundFade( void )
++	if( host.realtime < soundfade.in_seconds + soundfade.out_seconds + soundfade.hold_time + soundfade.start_time )
++		float f = host.realtime - soundfade.start_time;
++		if( soundfade.out_seconds && ( f < soundfade.out_seconds ))
++			soundfade.percent = soundfade.start_percent * ( f / soundfade.out_seconds );
++		else if ( f >= soundfade.hold_time + soundfade.out_seconds )
++			f = f - ( soundfade.hold_time + soundfade.out_seconds );
++			soundfade.percent = soundfade.start_percent * ( 1.0f - f / (float)soundfade.out_seconds );
++			soundfade.percent = soundfade.start_percent;
++		if( snd_fade_sequence )
++			S_MusicFade( soundfade.percent );
++			if( soundfade.percent >= 100 )
++				S_StopAllSounds( false );
++				S_StopBackgroundTrack();
++				snd_fade_sequence = false;
++		soundfade.percent = 0;
++SND_FStreamIsPlaying
++Select a channel from the dynamic channel allocation area.  For the given entity,
++override any other sound playing on the same channel (see code comments below for
++exceptions).
++static qboolean SND_FStreamIsPlaying( sfx_t *sfx )
++	for( int i = NUM_AMBIENTS; i < MAX_DYNAMIC_CHANNELS; i++ )
++		if( snd.channels[i].sfx == sfx )
++SND_GetChannelTimeLeft
++TODO: this function needs to be removed after whole sound subsystem rewrite
++static int SND_GetChannelTimeLeft( const channel_t *ch )
++	int remaining;
++	if( FBitSet( ch->flags, FL_CHAN_FINISHED ) || !ch->sfx || !ch->sfx->cache )
++	if( ch->words ) // sentences are special, count all remaining words
++		if( FBitSet( ch->flags, FL_CHAN_SENTENCE_FINISHED ) )
++			return 0;
++		// current word
++		remaining = ch->forced_end - ch->sample;
++		// here we count all remaining words, stopping if no sfx or sound file is available
++		// see VOX_LoadWord
++		for( int i = ch->word_index + 1; i < CVOXWORDMAX; i++ )
++			wavdata_t *sc;
++			int end;
++			// don't continue with broken sentences
++			if( !ch->words[i].sfx )
++			if( !( sc = S_LoadSound( ch->words[i].sfx )))
++			end = ch->words[i].end;
++			if( end )
++				remaining += sc->samples * 0.01f * end;
++			else remaining += sc->samples;
++		int samples = ch->sfx->cache->samples;
++		int curpos = S_AdjustLoopedSamplePosition( ch->sfx->cache, ch->sample, FBitSet( ch->flags, FL_CHAN_USE_LOOP ));
++		remaining = bound( 0, samples - curpos, samples );
++	return remaining;
++SND_PickDynamicChannel
++Select a channel from the dynamic channel allocation area.  For the given entity,
++override any other sound playing on the same channel (see code comments below for
++exceptions).
++channel_t *SND_PickDynamicChannel( int entnum, int channel, sfx_t *sfx, qboolean *ignore )
++	int	first_to_die = -1;
++	int	life_left = 0x7fffffff;
++	if( ignore ) *ignore = false;
++	if( channel == CHAN_STREAM && SND_FStreamIsPlaying( sfx ))
++		if( ignore )
++			*ignore = true;
++	for( int ch_idx = NUM_AMBIENTS; ch_idx < MAX_DYNAMIC_CHANNELS; ch_idx++ )
++		channel_t	*ch = &snd.channels[ch_idx];
++		int	timeleft;
++		// Never override a streaming sound that is currently playing or
++		// voice over IP data that is playing or any sound on CHAN_VOICE( acting )
++		if( ch->sfx && ( ch->entchannel == CHAN_STREAM ))
++		if( channel != CHAN_AUTO && ch->entnum == entnum && ( ch->entchannel == channel || channel == -1 ))
++			// always override sound from same entity
++			first_to_die = ch_idx;
++		// don't let monster sounds override player sounds
++		if( ch->sfx && S_IsClient( ch->entnum ) && !S_IsClient( entnum ))
++		// try to pick the sound with the least amount of data left to play
++		timeleft = SND_GetChannelTimeLeft( ch );
++		if( timeleft < life_left )
++			life_left = timeleft;
++			first_to_die = ch_idx;
++	if( first_to_die == -1 )
++	if( snd.channels[first_to_die].sfx )
++		// don't restart looping sounds for the same entity
++		wavdata_t	*sc = snd.channels[first_to_die].sfx->cache;
++		if( sc && FBitSet( sc->flags, SOUND_LOOPED ))
++			channel_t	*ch = &snd.channels[first_to_die];
++			if( ch->entnum == entnum && ch->entchannel == channel && ch->sfx == sfx )
++				if( ignore ) *ignore = true;
++				// same looping sound, same ent, same channel, don't restart the sound
++				return NULL;
++		// be sure and release previous channel if sentence.
++		S_FreeChannel( &( snd.channels[first_to_die] ));
++	return &snd.channels[first_to_die];
++SND_PickStaticChannel
++Pick an empty channel from the static sound area, or allocate a new
++channel.  Only fails if we're at max_channels (128!!!) or if
++we're trying to allocate a channel for a stream sound that is
++already playing.
++channel_t *SND_PickStaticChannel( const vec3_t pos, sfx_t *sfx )
++	channel_t	*ch = NULL;
++	// check for replacement sound, or find the best one to replace
++	for( i = MAX_DYNAMIC_CHANNELS; i < snd.total_channels; i++ )
++ 	{
++		if( snd.channels[i].sfx == NULL )
++		if( VectorCompare( pos, snd.channels[i].origin ) && snd.channels[i].sfx == sfx )
++	if( i < snd.total_channels )
++		// reuse an empty static sound channel
++		ch = &snd.channels[i];
++		// no empty slots, alloc a new static sound channel
++		if( snd.total_channels == snd.max_channels )
++			Con_DPrintf( S_ERROR "%s: no free channels\n", __func__ );
++			return NULL;
++		// get a channel for the static sound
++		ch = &snd.channels[snd.total_channels];
++		snd.total_channels++;
++	return ch;
++static qboolean S_MaybeAlterChannel( channel_t *ch, int entnum, int entchannel, int flags, const sfx_t *sfx, int pitch, int vol )
++	if( !ch->sfx )
++	if( ch->entnum != entnum )
++	// if no sfx passed, check if it's a sentence
++	if( !sfx )
++		if( !ch->words )
++		if( ch->sfx != sfx )
++	if( ch->entchannel != entchannel )
++	if( FBitSet( flags, SND_STOP ))
++		S_FreeChannel( ch );
++	if( FBitSet( flags, SND_CHANGE_PITCH ))
++		ch->basePitch = pitch;
++	if( FBitSet( flags, SND_CHANGE_VOL ))
++		ch->master_vol = vol;
++S_AlterChannel
++search through all channels for a channel that matches this
++soundsource, entchannel and sfx, and perform alteration on channel
++as indicated by 'flags' parameter. If shut down request and
++sfx contains a sentence name, shut off the sentence.
++returns TRUE if sound was altered,
++returns FALSE if sound was not found (sound is not playing)
++static int S_AlterChannel( int entnum, int channel, const sfx_t *sfx, int vol, int pitch, int flags )
++	// This is a sentence name.
++	// For sentences: assume that the entity is only playing one sentence
++	// at a time, so we can just shut off
++	// any channel that has ch->is_sentence >= 0 and matches the entnum.
++	qboolean is_sentence = S_TestSoundChar( sfx->name, '!' );
++	for( int i = NUM_AMBIENTS; i < snd.total_channels; i++ )
++		channel_t *ch = &snd.channels[i];
++		if( S_MaybeAlterChannel( ch, entnum, channel, flags, is_sentence ? NULL : sfx, pitch, vol ))
++	// channel not found
++S_SpatializeChannel
++static void S_SpatializeChannel( short *left_vol, short *right_vol, int master_vol, float dot, float dist )
++	float scale;
++	// add in distance effect
++	scale = ( 1.0f - dist ) * ( 1.0f + dot );
++	float rvol = round( master_vol * scale );
++	scale = ( 1.0f - dist ) * ( 1.0f - dot );
++	float lvol = round( master_vol * scale );
++	*right_vol = (int)( bound( 0.0f, rvol, 255.0f ));
++	*left_vol = (int)( bound( 0.0f, lvol, 255.0f ));
++SND_Spatialize
++static void SND_Spatialize( channel_t *ch )
++	if( clgame.soundFuncs.pfnS_Spatialize )
++		clgame.soundFuncs.pfnS_Spatialize( ch );
++	// anything coming from the view entity will allways be full volume
++	if( S_IsClient( ch->entnum ))
++		ch->leftvol = ch->master_vol;
++		ch->rightvol = ch->master_vol;
++		// if playing a word, set volume
++		VOX_SetChanVol( ch );
++	if( !FBitSet( ch->flags, FL_CHAN_STATIC_SOUND ))
++		if( !CL_GetEntitySpatialization( ch ))
++			// origin is null and entity not exist on client
++			ch->leftvol = ch->rightvol = 0;
++	// source_vec is vector from listener to sound source
++	// player sounds come from 1' in front of player
++	vec3_t source_vec;
++	VectorSubtract( ch->origin, snd.origin, source_vec );
++	// normalize source_vec and get distance from listener to source
++	float dist = VectorNormalizeLength( source_vec );
++	float dot = DotProduct( snd.right, source_vec );
++	if( !FBitSet( host.bugcomp, BUGCOMP_SPATIALIZE_SOUND_WITH_ATTN_NONE ))
++		// don't pan sounds with no attenuation
++		if( ch->dist_mult <= 0.0f ) dot = 0.0f;
++	// fill out channel volumes for single location
++	S_SpatializeChannel( &ch->leftvol, &ch->rightvol, ch->master_vol, dot, dist * ch->dist_mult );
++	// if playing a word, set volume
++	VOX_SetChanVol( ch );
++====================
++S_StartSound
++Start a sound effect for the given entity on the given channel (ie; voice, weapon etc).
++Try to grab a channel out of the 8 dynamic spots available.
++Currently used for looping sounds, streaming sounds, sentences, and regular entity sounds.
++NOTE: volume is 0.0 - 1.0 and attenuation is 0.0 - 1.0 when passed in.
++Pitch changes playback pitch of wave by % above or below 100.  Ignored if pitch == 100
++NOTE: it's not a good idea to play looping sounds through StartDynamicSound, because
++if the looping sound starts out of range, or is bumped from the buffer by another sound
++it will never be restarted.  Use StartStaticSound (pass CHAN_STATIC to EMIT_SOUND or
++SV_StartSound.
++====================
++void S_StartSound( const vec3_t pos, int ent, int chan, sound_t handle, float fvol, float attn, int pitch, int flags )
++	wavdata_t	*pSource;
++	sfx_t	*sfx = NULL;
++	channel_t	*target_chan;
++	int	vol;
++	qboolean	bIgnore = false;
++	if( !snd.initialized ) return;
++	sfx = S_GetSfxByHandle( handle );
++	if( !sfx ) return;
++	vol = bound( 0, fvol * 255, 255 );
++	if( pitch <= 1 ) pitch = PITCH_NORM; // Invasion issues
++	if( flags & ( SND_STOP|SND_CHANGE_VOL|SND_CHANGE_PITCH ))
++		if( S_AlterChannel( ent, chan, sfx, vol, pitch, flags ))
++		if( flags & SND_STOP ) return;
++		// fall through - if we're not trying to stop the sound,
++		// and we didn't find it (it's not playing), go ahead and start it up
++	if( !pos ) pos = refState.vieworg;
++	if( chan == CHAN_STREAM )
++		SetBits( flags, SND_STOP_LOOPING );
++	// pick a channel to play on
++	if( chan == CHAN_STATIC )
++		target_chan = SND_PickStaticChannel( pos, sfx );
++		target_chan = SND_PickDynamicChannel( ent, chan, sfx, &bIgnore );
++	if( !target_chan )
++		if( !bIgnore )
++			Con_DPrintf( S_ERROR "dropped sound \"" DEFAULT_SOUNDPATH "%s\"\n", sfx->name );
++	// spatialize
++	memset( target_chan, 0, sizeof( *target_chan ));
++	VectorCopy( pos, target_chan->origin );
++	if( ent == 0 )
++		SetBits( target_chan->flags, FL_CHAN_STATIC_SOUND );
++	if( !FBitSet( flags, SND_STOP_LOOPING ))
++		SetBits( target_chan->flags, FL_CHAN_USE_LOOP );
++	if( FBitSet( flags, SND_LOCALSOUND ))
++		SetBits( target_chan->flags, FL_CHAN_LOCAL_SOUND );
++	target_chan->dist_mult = (attn / SND_CLIP_DISTANCE);
++	target_chan->master_vol = vol;
++	target_chan->entnum = ent;
++	target_chan->entchannel = chan;
++	target_chan->basePitch = pitch;
++	target_chan->sfx = sfx;
++	pSource = NULL;
++	if( S_TestSoundChar( sfx->name, '!' ))
++		// this is a sentence
++		// link all words and load the first word
++		// NOTE: sentence names stored in the cache lookup are
++		// prepended with a '!'.  Sentence names stored in the
++		// sentence file do not have a leading '!'.
++		VOX_LoadSound( target_chan, S_SkipSoundChar( sfx->name ));
++		Q_strncpy( target_chan->name, sfx->name, sizeof( target_chan->name ));
++		sfx = target_chan->sfx;
++		if( sfx ) pSource = sfx->cache;
++		// regular or streamed sound fx
++		pSource = S_LoadSound( sfx );
++		target_chan->name[0] = '\0';
++	if( !pSource )
++		S_FreeChannel( target_chan );
++	SND_Spatialize( target_chan );
++	// If a client can't hear a sound when they FIRST receive the StartSound message,
++	// the client will never be able to hear that sound. This is so that out of
++	// range sounds don't fill the playback buffer. For streaming sounds, we bypass this optimization.
++	if( !target_chan->leftvol && !target_chan->rightvol )
++		// looping sounds don't use this optimization because they should stick around until they're killed.
++		if( !sfx->cache || !FBitSet( sfx->cache->flags, SOUND_LOOPED ))
++			// if this is a streaming sound, play the whole thing.
++			if( chan != CHAN_STREAM )
++				S_FreeChannel( target_chan );
++				return; // not audible at all
++	S_NotifyChannelUpdate( target_chan - snd.channels, target_chan, handle );
++	// Init client entity mouth movement vars
++	SND_InitMouth( ent, chan );
++====================
++S_RestoreSound
++Restore a sound effect for the given entity on the given channel
++====================
++void S_RestoreSound( const vec3_t pos, int ent, int chan, sound_t handle, float fvol, float attn, int pitch, int flags, double sample, double end, uint wordIndex )
++	wavdata_t	*pSource;
++	sfx_t	*sfx = NULL;
++	channel_t	*target_chan;
++	qboolean	bIgnore = false;
++	int	vol;
++	if( !snd.initialized ) return;
++	sfx = S_GetSfxByHandle( handle );
++	if( !sfx ) return;
++	vol = bound( 0, fvol * 255, 255 );
++	if( pitch <= 1 ) pitch = PITCH_NORM; // Invasion issues
++	// pick a channel to play on
++	if( chan == CHAN_STATIC )
++		target_chan = SND_PickStaticChannel( pos, sfx );
++		target_chan = SND_PickDynamicChannel( ent, chan, sfx, &bIgnore );
++	if( !target_chan )
++		if( !bIgnore )
++			Con_DPrintf( S_ERROR "dropped sound \"" DEFAULT_SOUNDPATH "%s\"\n", sfx->name );
++	// spatialize
++	memset( target_chan, 0, sizeof( *target_chan ));
++	VectorCopy( pos, target_chan->origin );
++	if( ent == 0 )
++		SetBits( target_chan->flags, FL_CHAN_STATIC_SOUND );
++	if( !FBitSet( flags, SND_STOP_LOOPING ))
++		SetBits( target_chan->flags, FL_CHAN_USE_LOOP );
++	if( FBitSet( flags, SND_LOCALSOUND ))
++		SetBits( target_chan->flags, FL_CHAN_LOCAL_SOUND );
++	target_chan->dist_mult = (attn / SND_CLIP_DISTANCE);
++	target_chan->master_vol = vol;
++	target_chan->entnum = ent;
++	target_chan->entchannel = chan;
++	target_chan->basePitch = pitch;
++	target_chan->sfx = sfx;
++	pSource = NULL;
++	if( S_TestSoundChar( sfx->name, '!' ))
++		// this is a sentence
++		// link all words and load the first word
++		// NOTE: sentence names stored in the cache lookup are
++		// prepended with a '!'.  Sentence names stored in the
++		// sentence file do not have a leading '!'.
++		VOX_LoadSound( target_chan, S_SkipSoundChar( sfx->name ));
++		Q_strncpy( target_chan->name, sfx->name, sizeof( target_chan->name ));
++		// not a first word in sentence!
++		if( wordIndex != 0 )
++			uint word_count = 0;
++			if( target_chan->words )
++				while( word_count < CVOXWORDMAX && target_chan->words[word_count].sfx )
++					word_count++;
++			if( wordIndex >= word_count )
++				SetBits( target_chan->flags, FL_CHAN_SENTENCE_FINISHED );
++			else
++				VOX_FreeWord( target_chan ); // release first loaded word
++				target_chan->word_index = wordIndex; // restore current word
++				VOX_LoadWord( target_chan );
++				if( !FBitSet( target_chan->flags, FL_CHAN_SENTENCE_FINISHED ))
++				{
++					target_chan->sfx = target_chan->words[target_chan->word_index].sfx;
++					sfx = target_chan->sfx;
++					pSource = sfx->cache;
++				}
++			sfx = target_chan->sfx;
++			if( sfx ) pSource = sfx->cache;
++		// regular or streamed sound fx
++		pSource = S_LoadSound( sfx );
++		target_chan->name[0] = '\0';
++	if( !pSource )
++		S_FreeChannel( target_chan );
++	SND_Spatialize( target_chan );
++	// NOTE: first spatialization may be failed because listener position is invalid at this time
++	// so we should keep all sounds an actual and waiting for player spawn.
++	// apply the sample offests
++	target_chan->sample = sample;
++	target_chan->forced_end = end;
++	S_NotifyChannelUpdate( target_chan - snd.channels, target_chan, handle );
++	// Init client entity mouth movement vars
++	SND_InitMouth( ent, chan );
++S_AmbientSound
++Start playback of a sound, loaded into the static portion of the channel array.
++Currently, this should be used for looping ambient sounds, looping sounds
++that should not be interrupted until complete, non-creature sentences,
++and one-shot ambient streaming sounds.  Can also play 'regular' sounds one-shot,
++in case designers want to trigger regular game sounds.
++Pitch changes playback pitch of wave by % above or below 100.  Ignored if pitch == 100
++NOTE: volume is 0.0 - 1.0 and attenuation is 0.0 - 1.0 when passed in.
++void S_AmbientSound( const vec3_t pos, int ent, sound_t handle, float fvol, float attn, int pitch, int flags )
++	channel_t	*ch;
++	wavdata_t	*pSource = NULL;
++	sfx_t	*sfx = NULL;
++	int	vol;
++	if( !snd.initialized ) return;
++	sfx = S_GetSfxByHandle( handle );
++	if( !sfx ) return;
++	vol = bound( 0, fvol * 255, 255 );
++	if( pitch <= 1 ) pitch = PITCH_NORM; // Invasion issues
++	if( flags & (SND_STOP|SND_CHANGE_VOL|SND_CHANGE_PITCH))
++		if( S_AlterChannel( ent, CHAN_STATIC, sfx, vol, pitch, flags ))
++		if( flags & SND_STOP ) return;
++	// pick a channel to play on from the static area
++	ch = SND_PickStaticChannel( pos, sfx );
++	if( !ch ) return;
++	VectorCopy( pos, ch->origin );
++	ch->entnum = ent;
++	CL_GetEntitySpatialization( ch );
++	if( S_TestSoundChar( sfx->name, '!' ))
++		// this is a sentence. link words to play in sequence.
++		// NOTE: sentence names stored in the cache lookup are
++		// prepended with a '!'.  Sentence names stored in the
++		// sentence file do not have a leading '!'.
++		// link all words and load the first word
++		VOX_LoadSound( ch, S_SkipSoundChar( sfx->name ));
++		Q_strncpy( ch->name, sfx->name, sizeof( ch->name ));
++		sfx = ch->sfx;
++		if( sfx ) pSource = sfx->cache;
++		// load regular or stream sound
++		pSource = S_LoadSound( sfx );
++		ch->sfx = sfx;
++		ch->name[0] = '\0';
++	if( !pSource )
++		S_FreeChannel( ch );
++	pitch *= (sys_timescale.value + 1) / 2;
++	// never update positions if source entity is 0
++	if( ent == 0 ) SetBits( ch->flags, FL_CHAN_STATIC_SOUND );
++	else ClearBits( ch->flags, FL_CHAN_STATIC_SOUND );
++	if( !FBitSet( flags, SND_STOP_LOOPING )) SetBits( ch->flags, FL_CHAN_USE_LOOP );
++	else ClearBits( ch->flags, FL_CHAN_USE_LOOP );
++	if( FBitSet( flags, SND_LOCALSOUND )) SetBits( ch->flags, FL_CHAN_LOCAL_SOUND );
++	else ClearBits( ch->flags, FL_CHAN_LOCAL_SOUND );
++	ch->master_vol = vol;
++	ch->dist_mult = (attn / SND_CLIP_DISTANCE);
++	ch->entchannel = CHAN_STATIC;
++	ch->basePitch = pitch;
++	S_NotifyChannelUpdate( ch - snd.channels, ch, handle );
++	SND_Spatialize( ch );
++S_StartLocalSound
++void S_StartLocalSound( const char *name, float volume, qboolean reliable )
++	sound_t	sfxHandle;
++	int	flags = (SND_LOCALSOUND|SND_STOP_LOOPING);
++	int	channel = CHAN_AUTO;
++	if( reliable ) channel = CHAN_STATIC;
++	if( !snd.initialized ) return;
++	sfxHandle = S_RegisterSound( name );
++	S_StartSound( NULL, snd.entnum, channel, sfxHandle, volume, ATTN_NONE, PITCH_NORM, flags );
++S_GetCurrentStaticSounds
++grab all static sounds playing at current channel
++int S_GetCurrentStaticSounds( soundlist_t *pout, int size )
++	int	sounds_left = size;
++	if( !snd.initialized )
++	for( int i = MAX_DYNAMIC_CHANNELS; i < snd.total_channels && sounds_left; i++ )
++		const channel_t *ch = &snd.channels[i];
++		if( ch->entchannel != CHAN_STATIC || !ch->sfx || !ch->sfx->name[0] )
++		if( ch->words && ch->name[0] )
++			Q_strncpy( pout->name, ch->name, sizeof( pout->name ));
++			Q_strncpy( pout->name, ch->sfx->name, sizeof( pout->name ));
++		pout->entnum = ch->entnum;
++		VectorCopy( ch->origin, pout->origin );
++		pout->volume = (float)ch->master_vol / 255.0f;
++		pout->attenuation = ch->dist_mult * SND_CLIP_DISTANCE;
++		pout->looping = ( FBitSet( ch->flags, FL_CHAN_USE_LOOP ) && FBitSet( ch->sfx->cache->flags, SOUND_LOOPED ));
++		pout->pitch = ch->basePitch;
++		pout->channel = ch->entchannel;
++		pout->wordIndex = ch->word_index;
++		pout->samplePos = ch->sample;
++		pout->forcedEnd = ch->forced_end;
++		sounds_left--;
++		pout++;
++	return ( size - sounds_left );
++S_GetCurrentStaticSounds
++grab all static sounds playing at current channel
++int S_GetCurrentDynamicSounds( soundlist_t *pout, int size )
++	int	sounds_left = size;
++	if( !snd.initialized )
++	for( int i = 0; i < snd.max_channels && sounds_left; i++ )
++		const channel_t *ch = &snd.channels[i];
++		int looped;
++		if( !ch->sfx || !ch->sfx->name[0] || !Q_stricmp( ch->sfx->name, "*default" ))
++			continue;	// don't serialize default sounds
++		looped = ( FBitSet( ch->flags, FL_CHAN_USE_LOOP ) && FBitSet( ch->sfx->cache->flags, SOUND_LOOPED ));
++		if( ch->entchannel == CHAN_STATIC && looped && !Host_IsQuakeCompatible())
++			continue;	// never serialize static looped sounds. It will be restoring in game code
++		if( ch->words && ch->name[0] )
++			Q_strncpy( pout->name, ch->name, sizeof( pout->name ));
++			Q_strncpy( pout->name, ch->sfx->name, sizeof( pout->name ));
++		pout->entnum = (ch->entnum < 0) ? 0 : ch->entnum;
++		VectorCopy( ch->origin, pout->origin );
++		pout->volume = (float)ch->master_vol / 255.0f;
++		pout->attenuation = ch->dist_mult * SND_CLIP_DISTANCE;
++		pout->pitch = ch->basePitch;
++		pout->channel = ch->entchannel;
++		pout->wordIndex = ch->word_index;
++		pout->samplePos = ch->sample;
++		pout->forcedEnd = ch->forced_end;
++		pout->looping = looped;
++		sounds_left--;
++		pout++;
++	return ( size - sounds_left );
++===================
++S_InitAmbientChannels
++===================
++static void S_InitAmbientChannels( void )
++	for( int i = 0; i < NUM_AMBIENTS; i++ )
++		channel_t *ch = &snd.channels[i];
++		SetBits( ch->flags, FL_CHAN_USE_LOOP | FL_CHAN_STATIC_SOUND );
++		ch->entchannel = CHAN_STATIC;
++		ch->dist_mult = (ATTN_NONE / SND_CLIP_DISTANCE);
++		ch->basePitch = PITCH_NORM;
++===================
++S_UpdateAmbientSounds
++===================
++static void S_UpdateAmbientSounds( void )
++	if( !snd.have_ambient_sfx )
++	// calc ambient sound levels
++	if( !cl.worldmodel )
++	mleaf_t	*leaf = Mod_PointInLeaf( snd.origin, cl.worldmodel->nodes, cl.worldmodel );
++	if( !leaf || !s_ambient_level.value )
++		for( int i = 0; i < NUM_AMBIENTS; i++ )
++			snd.channels[i].sfx = NULL;
++	for( int i = 0; i < NUM_AMBIENTS; i++ )
++		channel_t *chan = &snd.channels[i];
++		chan->sfx = S_GetSfxByHandle( snd.ambient_sfx[i] );
++		// ambient is unused
++		if( !chan->sfx )
++			chan->rightvol = 0;
++			chan->leftvol = 0;
++		float vol = s_ambient_level.value * leaf->ambient_sound_level[i];
++		if( vol < 0.0f )
++			vol = 0.0f;
++		// don't adjust volume too fast
++		if( chan->master_vol < vol )
++			chan->master_vol += round( cl_clientframetime() * s_ambient_fade.value );
++			if( chan->master_vol > vol )
++				chan->master_vol = vol;
++		else if( chan->master_vol > vol )
++			chan->master_vol -= round( cl_clientframetime() * s_ambient_fade.value );
++			if( chan->master_vol < vol )
++				chan->master_vol = vol;
++		chan->leftvol = chan->rightvol = chan->master_vol;
++=============================================================================
++		SOUND STREAM RAW SAMPLES
++=============================================================================
++===================
++S_FindRawChannel
++===================
++rawchan_t *S_FindRawChannel( int entnum, qboolean create )
++	if( !sndpool )
++		return NULL; // sound is not active
++	if( !entnum )
++		return NULL; // world is unused
++	// check for replacement sound, or find the best one to replace
++	int best_time = 0x7fffffff;
++	int best = -1;
++	int free = -1;
++	for( int i = 0; i < snd.max_raw_channels; i++ )
++		ch = snd.raw_channels[i];
++		if( free < 0 && !ch )
++			free = i;
++		else if( ch )
++			int	time;
++			// exact match
++			if( ch->entnum == entnum )
++				return ch;
++			time = ch->s_rawend - snd.paintedtime;
++			if( time < best_time )
++				best = i;
++				best_time = time;
++	if( !create )
++	if( free >= 0 )
++		best = free;
++	if( best < 0 )
++		return NULL; // no free slots
++	if( !snd.raw_channels[best] )
++		size_t raw_samples = MAX_RAW_SAMPLES;
++		snd.raw_channels[best] = Mem_Calloc( sndpool, sizeof( *ch ) + sizeof( portable_samplepair_t ) * raw_samples );
++		snd.raw_channels[best]->max_samples = raw_samples;
++	ch = snd.raw_channels[best];
++	ch->entnum = entnum;
++	ch->s_rawend = 0;
++	S_NotifyRawChannelUpdate( best, ch );
++	return ch;
++===================
++S_RawSamplesStereo
++===================
++uint S_RawSamplesStereo( portable_samplepair_t *rawsamples, uint rawend, uint max_samples, uint samples, uint rate, word width, word channels, const byte *data )
++	uint	src;
++	if( rawend < snd.paintedtime )
++		rawend = snd.paintedtime;
++	uint fracstep = ((double) rate / (double)SOUND_DMA_SPEED) * (double)(1 << S_RAW_SAMPLES_PRECISION_BITS);
++	uint samplefrac = 0;
++	if( width == 2 )
++		const short *in = (const short *)data;
++		if( channels == 2 )
++			for( src = 0; src < samples; samplefrac += fracstep, src = ( samplefrac >> S_RAW_SAMPLES_PRECISION_BITS ))
++				uint dst = rawend++ & ( max_samples - 1 );
++				rawsamples[dst].left = in[src*2+0];
++				rawsamples[dst].right = in[src*2+1];
++			for( src = 0; src < samples; samplefrac += fracstep, src = ( samplefrac >> S_RAW_SAMPLES_PRECISION_BITS ))
++				uint dst = rawend++ & ( max_samples - 1 );
++				rawsamples[dst].left = in[src];
++				rawsamples[dst].right = in[src];
++		if( channels == 2 )
++			const char *in = (const char *)data;
++			for( src = 0; src < samples; samplefrac += fracstep, src = ( samplefrac >> S_RAW_SAMPLES_PRECISION_BITS ))
++				uint dst = rawend++ & ( max_samples - 1 );
++				rawsamples[dst].left = in[src*2+0] << 8;
++				rawsamples[dst].right = in[src*2+1] << 8;
++			for( src = 0; src < samples; samplefrac += fracstep, src = ( samplefrac >> S_RAW_SAMPLES_PRECISION_BITS ))
++				uint dst = rawend++ & ( max_samples - 1 );
++				rawsamples[dst].left = ( data[src] - 128 ) << 8;
++				rawsamples[dst].right = ( data[src] - 128 ) << 8;
++	return rawend;
++===================
++S_RawEntSamples
++===================
++void S_RawEntSamples( int entnum, uint samples, uint rate, word width, word channels, const byte *data, int snd_vol, float attn )
++	rawchan_t	*ch;
++	if( snd_vol < 0 )
++		snd_vol = 0;
++	if( !( ch = S_FindRawChannel( entnum, true )))
++	ch->master_vol = snd_vol;
++	ch->dist_mult = (attn / SND_CLIP_DISTANCE);
++	ch->s_rawend = S_RawSamplesStereo( ch->rawsamples, ch->s_rawend, ch->max_samples, samples, rate, width, channels, data );
++	ch->leftvol = ch->rightvol = snd_vol;
++===================
++S_FreeIdleRawChannels
++Free raw channel that have been idling for too long.
++===================
++static void S_FreeIdleRawChannels( void )
++	for( int i = 0; i < snd.max_raw_channels; i++ )
++		rawchan_t *ch = snd.raw_channels[i];
++		if( !ch )
++		if( ch->s_rawend >= snd.paintedtime )
++		if( ch->entnum > 0 )
++			SND_ForceCloseMouth( ch->entnum );
++			if( CL_IsPlayerIndex( ch->entnum ))
++				Voice_StopChannel( ch->entnum );
++		if(( snd.paintedtime - ch->s_rawend ) / SOUND_DMA_SPEED >= S_RAW_SOUND_IDLE_SEC )
++			snd.raw_channels[i] = NULL;
++			Mem_Free( ch );
++===================
++S_ClearRawChannels
++===================
++static void S_ClearRawChannels( void )
++	for( int i = 0; i < snd.max_raw_channels; i++ )
++		rawchan_t *ch = snd.raw_channels[i];
++		if( !ch ) continue;
++		ch->s_rawend = 0;
++		ch->oldtime = -1;
++===================
++S_SpatializeRawChannels
++===================
++static void S_SpatializeRawChannels( void )
++	for( int i = 0; i < snd.max_raw_channels; i++ )
++		rawchan_t *ch = snd.raw_channels[i];
++		if( !ch )
++		if( ch->s_rawend < snd.paintedtime )
++			ch->leftvol = ch->rightvol = 0;
++		// spatialization
++		if( !S_IsClient( ch->entnum ) && ch->dist_mult && ch->entnum >= 0 && ch->entnum < GI->max_edicts )
++			if( !CL_GetMovieSpatialization( ch ))
++				// origin is null and entity not exist on client
++				ch->leftvol = ch->rightvol = 0;
++			else
++				vec3_t	source_vec;
++				VectorSubtract( ch->origin, snd.origin, source_vec );
++				// normalize source_vec and get distance from listener to source
++				float dist = VectorNormalizeLength( source_vec );
++				float dot = DotProduct( snd.right, source_vec );
++				// don't pan sounds with no attenuation
++				if( ch->dist_mult <= 0.0f ) dot = 0.0f;
++				// fill out channel volumes for single location
++				S_SpatializeChannel( &ch->leftvol, &ch->rightvol, ch->master_vol, dot, dist * ch->dist_mult );
++			ch->leftvol = ch->rightvol = ch->master_vol;
++===================
++S_FreeRawChannels
++===================
++static void S_FreeRawChannels( void )
++	// free raw samples
++	for( int i = 0; i < snd.max_raw_channels; i++ )
++		Mem_Free2( &snd.raw_channels[i] );
++//=============================================================================
++S_ClearBuffer
++static void S_ClearBuffer( void )
++	S_ClearRawChannels();
++	SNDDMA_BeginPainting ();
++	if( snd.buffer )
++		memset( snd.buffer, 0, snd.samples * 2 );
++	SNDDMA_Submit ();
++	S_ClearBuffers( PAINTBUFFER_SIZE );
++S_StopSound
++stop all sounds for entity on a channel.
++void GAME_EXPORT S_StopSound( int entnum, int channel, const char *soundname )
++	sfx_t	*sfx;
++	if( !snd.initialized ) return;
++	sfx = S_FindName( soundname, NULL );
++	S_AlterChannel( entnum, channel, sfx, 0, 0, SND_STOP );
++S_StopAllSounds
++void S_StopAllSounds( qboolean ambient )
++	if( !snd.initialized ) return;
++	snd.total_channels = MAX_DYNAMIC_CHANNELS;	// no statics
++	for( int i = 0; i < snd.max_channels; i++ )
++		if( !snd.channels[i].sfx )
++		S_FreeChannel( &snd.channels[i] );
++	SX_ClearState();
++	// clear all the channels
++	memset( snd.channels, 0, sizeof( snd.channels[0] ) * snd.max_channels );
++	// restart the ambient sounds
++	if( ambient ) S_InitAmbientChannels ();
++	S_ClearBuffer ();
++	// clear any remaining soundfade
++	memset( &soundfade, 0, sizeof( soundfade ));
++==============
++S_GetSoundtime
++update global soundtime
++(was part of platform code)
++===============
++static int S_GetSoundtime( void )
++	static int buffers, oldsamplepos;
++	int fullsamples = snd.samples / 2;
++	// it is possible to miscount buffers
++	// if it has wrapped twice between
++	// calls to S_Update.  Oh well.
++	int samplepos = snd.samplepos;
++	if( samplepos < oldsamplepos )
++		buffers++; // buffer wrapped
++		if( snd.paintedtime > 0x40000000 )
++			// time to chop things off to avoid 32 bit limits
++			buffers     = 0;
++			snd.paintedtime = fullsamples;
++			S_StopAllSounds( true );
++	oldsamplepos = samplepos;
++	return ( buffers * fullsamples + samplepos / 2 );
++//=============================================================================
++static void S_UpdateChannels( void )
++	uint	endtime;
++	int	samps;
++	SNDDMA_BeginPainting();
++	if( !snd.buffer ) return;
++	// updates DMA time
++	snd.soundtime = S_GetSoundtime();
++	// soundtime - total samples that have been played out to hardware at dmaspeed
++	// paintedtime - total samples that have been mixed at speed
++	// endtime - target for samples in mixahead buffer at speed
++	endtime = snd.soundtime + s_mixahead.value * SOUND_DMA_SPEED;
++	samps = snd.samples >> 1;
++	if((int)(endtime - snd.soundtime) > samps )
++		endtime = snd.soundtime + samps;
++	if(( endtime - snd.paintedtime ) & 0x3 )
++		// the difference between endtime and painted time should align on
++		// boundaries of 4 samples. this is important when upsampling from 11khz -> 44khz.
++		endtime -= ( endtime - snd.paintedtime ) & 0x3;
++	if( clgame.soundFuncs.pfnS_PaintChannels )
++		clgame.soundFuncs.pfnS_PaintChannels( endtime );
++		S_PaintChannels( endtime );
++	SNDDMA_Submit();
++S_ExtraUpdate
++Don't let sound skip if going slow
++void S_ExtraUpdate( void )
++	if( !snd.initialized ) return;
++	S_UpdateChannels ();
++============
++S_UpdateFrame
++update listener position
++============
++void S_UpdateFrame( struct ref_viewpass_s *rvp )
++	if( !FBitSet( rvp->flags, RF_DRAW_WORLD ) || FBitSet( rvp->flags, RF_ONLY_CLIENTDRAW ))
++	VectorCopy( rvp->vieworigin, snd.origin );
++	AngleVectors( rvp->viewangles, snd.forward, snd.right, snd.up );
++	snd.entnum = rvp->viewentity; // can be camera entity too
++============
++SND_UpdateSound
++Called once each time through the main loop
++============
++void SND_UpdateSound( void )
++	if( !snd.initialized ) return;
++	if( clgame.soundFuncs.pfnS_UpdateSound )
++		clgame.soundFuncs.pfnS_UpdateSound();
++	// if the loading plaque is up, clear everything
++	// out to make sure we aren't looping a dirty
++	// dma buffer while loading
++	// update any client side sound fade
++	S_UpdateSoundFade();
++	// release raw-channels that no longer used more than 10 secs
++	S_FreeIdleRawChannels();
++	// update general area ambient sound sources
++	S_UpdateAmbientSounds();
++	// update spatialization for static and dynamic sounds
++	for( int i = NUM_AMBIENTS; i < snd.total_channels; i++ )
++		channel_t *ch = &snd.channels[i];
++		if( !ch->sfx )
++		SND_Spatialize( ch ); // respatialize channel
++	S_SpatializeRawChannels();
++	// debugging output
++	if( s_show.value != 0.0f )
++		con_nprint_t info =
++			.color[0] = 1.0f,
++			.color[1] = 0.6f,
++			.color[2] = 0.0f,
++			.index = 1,
++			.time_to_live = 0.5f,
++		};
++		for( int i = 0; i < MAX_CHANNELS; i++ )
++			channel_t *ch = &snd.channels[i];
++			if( !ch->sfx || ( !ch->leftvol && !ch->rightvol ))
++			Con_NXPrintf( &info, "chan %i, pos (%.f %.f %.f) ent %i, lv%3i rv%3i %s\n",
++				i, ch->origin[0], ch->origin[1], ch->origin[2], ch->entnum, ch->leftvol, ch->rightvol, ch->sfx->name );
++			info.index++;
++		int total = info.index - 1;
++		VectorSet( info.color, 1.0f, 1.0f, 1.0f );
++		info.index = 0;
++		Con_NXPrintf( &info, "room_type: %i (%s) ----(%i)---- painted: %i\n", idsp_room, Cvar_VariableString( "dsp_coeff_table" ), total, snd.paintedtime );
++	S_StreamBackgroundTrack ();
++	// mix some sound
++	S_UpdateChannels ();
++===============================================================================
++console functions
++===============================================================================
++static void S_Play_f( void )
++	if( Cmd_Argc() == 1 )
++		Con_Printf( S_USAGE "play <soundfile>\n" );
++	S_StartLocalSound( Cmd_Argv( 1 ), VOL_NORM, false );
++static void S_Play2_f( void )
++	int	i = 1;
++	if( Cmd_Argc() == 1 )
++		Con_Printf( S_USAGE "play2 <soundfile>\n" );
++	while( i < Cmd_Argc( ))
++		S_StartLocalSound( Cmd_Argv( i ), VOL_NORM, true );
++		i++;
++static void S_PlayVol_f( void )
++	if( Cmd_Argc() == 1 )
++		Con_Printf( S_USAGE "playvol <soundfile volume>\n" );
++	S_StartLocalSound( Cmd_Argv( 1 ), Q_atof( Cmd_Argv( 2 )), false );
++static void S_Say( const char *name, qboolean reliable )
++	char sentence[1024];
++	// predefined vox sentence
++	if( name[0] == '!' )
++		S_StartLocalSound( name, 1.0f, reliable );
++	Q_snprintf( sentence, sizeof( sentence ), "!#%s", name );
++	S_StartLocalSound( sentence, 1.0f, reliable );
++static void S_Say_f( void )
++	if( Cmd_Argc() == 1 )
++		Con_Printf( S_USAGE "speak <vox sentence>\n" );
++	S_Say( Cmd_Argv( 1 ), false );
++static void S_SayReliable_f( void )
++	if( Cmd_Argc() == 1 )
++		Con_Printf( S_USAGE "spk <vox sentence>\n" );
++	S_Say( Cmd_Argv( 1 ), true );
++S_Music_f
++static void S_Music_f( void )
++	int	c = Cmd_Argc();
++	// run background track
++	if( c == 1 )
++		// blank name stopped last track
++		S_StopBackgroundTrack();
++	else if( c == 2 )
++		string	intro, main, track;
++		const char	*ext[] = { "mp3", "wav" };
++		Q_strncpy( track, Cmd_Argv( 1 ), sizeof( track ));
++		Q_snprintf( intro, sizeof( intro ), "%s_intro", Cmd_Argv( 1 ));
++		Q_snprintf( main, sizeof( main ), "%s_main", Cmd_Argv( 1 ));
++		for( int i = 0; i < 2; i++ )
++			char intro_path[MAX_VA_STRING];
++			char main_path[MAX_VA_STRING];
++			char track_path[MAX_VA_STRING];
++			Q_snprintf( intro_path, sizeof( intro_path ), "media/%s.%s", intro, ext[i] );
++			Q_snprintf( main_path, sizeof( main_path ), "media/%s.%s", main, ext[i] );
++			if( FS_FileExists( intro_path, false ) && FS_FileExists( main_path, false ))
++				// combined track with introduction and main loop theme
++				S_StartBackgroundTrack( intro, main, 0, false );
++			Q_snprintf( track_path, sizeof( track_path ), "media/%s.%s", track, ext[i] );
++			if( FS_FileExists( track_path, false ))
++				// single non-looped theme
++				S_StartBackgroundTrack( track, NULL, 0, false );
++	else if( c == 3 )
++		S_StartBackgroundTrack( Cmd_Argv( 1 ), Cmd_Argv( 2 ), 0, false );
++	else if( c == 4 && Q_atoi( Cmd_Argv( 3 )) != 0 )
++		// restore command for singleplayer: all arguments are valid
++		S_StartBackgroundTrack( Cmd_Argv( 1 ), Cmd_Argv( 2 ), Q_atoi( Cmd_Argv( 3 )), false );
++	else Con_Printf( S_USAGE "music <musicfile> [loopfile]\n" );
++S_StopSound_f
++static void S_StopSound_f( void )
++	S_StopAllSounds( true );
++S_SoundFade_f
++static void S_Fade_f( void )
++	int hold_time = 5;
++		hold_time = Q_atof( Cmd_Argv( 1 )); // was float
++		hold_time = bound( 1, hold_time, 60 );
++	S_SoundFade( 100, 1, hold_time, 0 );
++	snd_fade_sequence = true;
++S_SoundFade_f
++static void S_SoundFade_f( void )
++	int c = Cmd_Argc();
++	int fade_percent;
++	int hold_time;
++	int fade_out_seconds = 0;
++	int fade_in_seconds = 0;
++	if( c != 3 && c != 5 )
++		Con_Printf( S_USAGE "soundfade: <percent> <hold> [out] [in]\n" );
++	fade_percent = Q_atoi( Cmd_Argv( 1 ));
++	fade_percent = bound( 0, fade_percent, 100 );
++	hold_time = Q_atoi( Cmd_Argv( 2 ));
++	hold_time = Q_min( hold_time, 255 );
++	if( c == 5 )
++		fade_out_seconds = Q_atoi( Cmd_Argv( 3 ));
++		fade_out_seconds = Q_min( fade_out_seconds, 255 );
++		fade_in_seconds = Q_atoi( Cmd_Argv( 4 ));
++		fade_in_seconds = Q_min( fade_in_seconds, 255 );
++	S_SoundFade( fade_percent, hold_time, fade_out_seconds, fade_in_seconds );
++	snd_fade_sequence = true;
++S_SoundInfo_f
++void S_SoundInfo_f( void )
++	Con_Printf( "Audio backend: %s\n", snd.backend_name );
++	Con_Printf( "%5d channel(s)\n", 2 );
++	Con_Printf( "%5d samples\n", snd.samples );
++	Con_Printf( "%5d bits/sample\n", 16 );
++	Con_Printf( "%5d bytes/sec\n", SOUND_DMA_SPEED );
++	Con_Printf( "%5d total_channels\n", snd.total_channels );
++	S_PrintBackgroundTrackState ();
++S_VoiceRecordStart_f
++static void S_VoiceRecordStart_f( void )
++	if( cls.state != ca_active )
++	Voice_RecordStart();
++S_VoiceRecordStop_f
++static void S_VoiceRecordStop_f( void )
++	if( cls.state != ca_active || !Voice_IsRecording() )
++	CL_AddVoiceToDatagram();
++	Voice_RecordStop();
++static const sound_api_t gSoundAPI = {
++	CL_GetEntitySpatialization,
++	S_GetSfxByHandle,
++	S_RawEntSamples,
++	SND_ForceInitMouth,
++	Voice_GetAudioInfo,
++S_InitSoundAPI
++qboolean S_InitSoundAPI( void )
++	// make sure what sound functions is cleared
++	memset( &clgame.soundFuncs, 0, sizeof( clgame.soundFuncs ));
++	if( clgame.dllFuncs.pfnGetSoundInterface )
++		if( clgame.dllFuncs.pfnGetSoundInterface( CL_SOUND_INTERFACE_VERSION, &gSoundAPI, &clgame.soundFuncs ))
++			Con_Reportf( "%s: ^2initailized extended SoundAPI ^7ver. %i\n", __func__, CL_SOUND_INTERFACE_VERSION );
++		Con_Reportf( "%s: ^1failed to initialize extended SoundAPI ^7ver. %i\n", __func__, CL_SOUND_INTERFACE_VERSION );
++		// make sure what sound functions is cleared
++		memset( &clgame.soundFuncs, 0, sizeof( clgame.soundFuncs ));
++	if( clgame.soundFuncs.pfnS_Init )
++		clgame.soundFuncs.pfnS_Init( &snd );
++S_Init
++qboolean S_Init( void )
++	Cvar_RegisterVariable( &s_volume );
++	Cvar_RegisterVariable( &s_musicvolume );
++	Cvar_RegisterVariable( &s_musicfadetime );
++	Cvar_RegisterVariable( &s_mixahead );
++	Cvar_RegisterVariable( &s_show );
++	Cvar_RegisterVariable( &s_lerping );
++	Cvar_RegisterVariable( &s_ambient_level );
++	Cvar_RegisterVariable( &s_ambient_fade );
++	Cvar_RegisterVariable( &snd_mute_losefocus );
++	Cvar_RegisterVariable( &s_test );
++	Cvar_RegisterVariable( &s_samplecount );
++	Cvar_RegisterVariable( &s_warn_late_precache );
++	if( Sys_CheckParm( "-nosound" ))
++		Con_Printf( "Audio: Disabled\n" );
++	Cmd_AddCommand( "play", S_Play_f, "playing a specified sound file" );
++	Cmd_AddCommand( "play2", S_Play2_f, "playing a group of specified sound files" ); // nehahra stuff
++	Cmd_AddCommand( "playvol", S_PlayVol_f, "playing a specified sound file with specified volume" );
++	Cmd_AddCommand( "stopsound", S_StopSound_f, "stop all sounds" );
++	// HLU SDK have command with the same name
++	Cmd_AddCommandWithFlags( "music", S_Music_f, "starting a background track", CMD_OVERRIDABLE );
++	Cmd_AddCommand( "soundlist", S_SoundList_f, "display loaded sounds" );
++	Cmd_AddCommand( "s_info", S_SoundInfo_f, "print sound system information" );
++	Cmd_AddCommand( "s_fade", S_Fade_f, "fade all sounds then stop all" );
++	Cmd_AddCommand( "soundfade", S_SoundFade_f, "fade all sounds then stop all (goldsrc compatible)" );
++	Cmd_AddCommand( "+voicerecord", S_VoiceRecordStart_f, "start voice recording" );
++	Cmd_AddCommand( "-voicerecord", S_VoiceRecordStop_f, "stop voice recording" );
++	Cmd_AddCommand( "spk", S_SayReliable_f, "reliable play a specified sententce" );
++	Cmd_AddCommand( "speak", S_Say_f, "playing a specified sententce" );
++	sndpool = Mem_AllocPool( "Sound Zone" );
++	snd.backend_name = "None";
++	if( !SNDDMA_Init( ))
++		Con_Printf( "Audio: sound system can't be initialized\n" );
++		Mem_FreePool( &sndpool );
++	snd.soundtime = 0;
++	snd.paintedtime = 0;
++	// clear ambient sounds
++	memset( snd.ambient_sfx, 0, sizeof( snd.ambient_sfx ));
++	SX_Init ();
++	S_StopAllSounds ( true );
++	S_InitSounds ();
++	VOX_Init ();
++============
++S_Shutdown
++============
++void S_Shutdown( void )
++	if( !snd.initialized ) return;
++	Cmd_RemoveCommand( "play" );
++	Cmd_RemoveCommand( "playvol" );
++	Cmd_RemoveCommand( "stopsound" );
++	if( Cmd_Exists( "music" ))
++		Cmd_RemoveCommand( "music" );
++	Cmd_RemoveCommand( "soundlist" );
++	Cmd_RemoveCommand( "s_info" );
++	Cmd_RemoveCommand( "s_fade" );
++	Cmd_RemoveCommand( "soundfade" );
++	Cmd_RemoveCommand( "+voicerecord" );
++	Cmd_RemoveCommand( "-voicerecord" );
++	Cmd_RemoveCommand( "speak" );
++	Cmd_RemoveCommand( "spk" );
++	if( clgame.soundFuncs.pfnS_Shutdown )
++		clgame.soundFuncs.pfnS_Shutdown();
++	S_StopAllSounds (false);
++	S_FreeRawChannels ();
++	S_FreeSounds ();
++	VOX_Shutdown ();
++	SX_Free ();
++	SNDDMA_Shutdown ();
++	Mem_FreePool( &sndpool );
+Diff sha256 12f3fd944f7c0283edce0d22d0b435f1f281bde00216b9852fd9a34025b88093, the diff below.
+
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
 --- a/common/port.h
@@ -799,7 +1989,7 @@ index 61c764d9..da646545 100644
  #elif XASH_WIN32
  	#define HSPRITE WINAPI_HSPRITE
 diff --git a/engine/client/avi/avi_ffmpeg.c b/engine/client/avi/avi_ffmpeg.c
-index 70f4b2f5..5746444b 100644
+index 70f4b2f5..ddd05807 100644
 --- a/engine/client/avi/avi_ffmpeg.c
 +++ b/engine/client/avi/avi_ffmpeg.c
 @@ -18,6 +18,7 @@ GNU General Public License for more details.
@@ -1049,7 +2239,237 @@ index 70f4b2f5..5746444b 100644
  };
  
  static const dllfunc_t libavcodec_funcs[] =
-@@ -880,7 +942,7 @@ static void AVI_UnloadFFmpeg( void )
+@@ -817,6 +879,229 @@ static qboolean AVI_ValidateFFmpegVersion( void )
+ 	}
+ 
+ 	return true;
++}
++#elif XASH_EMSCRIPTEN
++#include <emscripten.h>
++
++// H9 web client: a browser has no FFmpeg, so the page decodes the video (Module.video, client.js)
++// and this hands its pictures to the renderer the way the FFmpeg branch above does. The page
++// answers open(path) with { handle, width, height } or null, frame(handle, heap, dst, width, height)
++// with true once it has written a new picture into heap at dst as width * height RGBA pixels, and
++// close(handle). It loops the video by itself, and no sound is played. The main menu's background
++// (CIN_MENUBG, cl_gameui.c) is what uses it; AVI_Initailize still reports no AVI support, so
++// AVI_LoadVideo's cinematics stay off.
++EM_JS( int, AVI_PageOpen, ( const char *path, int *size ), {
++	var video = Module.video;
++	var opened = video && video.open ? video.open( UTF8ToString( path )) : null;
++	if( !opened )
++		return 0;
++	HEAP32[size >> 2] = opened.width;
++	HEAP32[( size >> 2 ) + 1] = opened.height;
++	return opened.handle;
++});
++
++EM_JS( int, AVI_PageFrame, ( int handle, byte *dst, int width, int height ), {
++	var video = Module.video;
++	return video && video.frame && video.frame( handle, HEAPU8, dst, width, height ) ? 1 : 0;
++});
++
++EM_JS( void, AVI_PageClose, ( int handle ), {
++	var video = Module.video;
++	if( video && video.close )
++		video.close( handle );
++});
++
++struct movie_state_s
++{
++	byte *dst;   // the page's latest picture, xres * yres RGBA
++	int handle;  // the page's video, 0 when there is none
++	int xres;
++	int yres;
++
++	// rendering video parameters
++	int x, y, w, h; // passed to R_DrawStretchPic
++	int texture; // passed to GL_UpdateTexture
++
++	qboolean active;
++	qboolean paused;
++	qboolean shown; // a picture has reached the texture
++};
++
++int AVI_GetVideoFrameNumber( movie_state_t *Avi, float time )
++{
++	return 0;
++}
++
++byte *AVI_GetVideoFrame( movie_state_t *Avi, int frame )
++{
++	return Avi->dst;
++}
++
++qboolean AVI_GetVideoInfo( movie_state_t *Avi, int *xres, int *yres, float *duration )
++{
++	if( !Avi->active )
++		return false;
++
++	if( xres )
++		*xres = Avi->xres;
++
++	if( yres )
++		*yres = Avi->yres;
++
++	if( duration )
++		*duration = 0.0f; // the page loops the video, nothing here needs its length
++
++	return true;
++}
++
++qboolean AVI_HaveAudioTrack( const movie_state_t *Avi )
++{
++	return false;
++}
++
++void AVI_CloseVideo( movie_state_t *Avi )
++{
++	if( Avi->handle )
++		AVI_PageClose( Avi->handle );
++
++	if( Avi->dst )
++		Mem_Free( Avi->dst );
++
++	memset( Avi, 0, sizeof( *Avi ));
++}
++
++void AVI_OpenVideo( movie_state_t *Avi, const char *filename, qboolean load_audio, int quiet )
++{
++	int size[2] = { 0, 0 };
++
++	if( Avi->active )
++		AVI_CloseVideo( Avi );
++
++	if( !filename )
++		return;
++
++	Avi->handle = AVI_PageOpen( filename, size );
++
++	if( !Avi->handle || size[0] <= 0 || size[1] <= 0 )
++	{
++		if( !quiet )
++			Con_Printf( S_ERROR "%s: the page cannot show %s\n", __func__, filename );
++
++		AVI_CloseVideo( Avi );
++		return;
++	}
++
++	Avi->xres = size[0];
++	Avi->yres = size[1];
++	Avi->dst = Mem_Calloc( host.mempool, Avi->xres * Avi->yres * 4 );
++	Avi->active = true;
++}
++
++qboolean AVI_Think( movie_state_t *Avi )
++{
++	qboolean redraw;
++
++	if( !Avi->active )
++		return false;
++
++	if( Avi->paused )
++		return true;
++
++	redraw = AVI_PageFrame( Avi->handle, Avi->dst, Avi->xres, Avi->yres ) != 0;
++
++	if( redraw )
++		Avi->shown = true;
++
++	if( Avi->texture == 0 )
++	{
++		int cinTexture = SCR_GetCinematicTexture();
++		int w = Avi->w >= 0 ? Avi->w : refState.width;
++		int h = Avi->h >= 0 ? Avi->h : refState.height;
++
++		// until the page has decoded the first picture there is nothing to draw
++		if( !Avi->shown )
++			return true;
++
++		if( redraw )
++			ref.dllFuncs.GL_UpdateTexture( cinTexture, Avi->xres, Avi->yres, Avi->xres, Avi->yres, Avi->dst, PF_RGBA_32 );
++
++		// the same state the FFmpeg branch sets before its blit
++		ref.dllFuncs.GL_SetRenderMode( kRenderNormal );
++		ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
++		ref.dllFuncs.R_DrawStretchPic( Avi->x, Avi->y, w, h, 0, 0, 1, 1, cinTexture );
++	}
++	else if( redraw && Avi->texture > 0 )
++		ref.dllFuncs.GL_UpdateTexture( Avi->texture, Avi->xres, Avi->yres, Avi->w, Avi->h, Avi->dst, PF_RGBA_32 );
++
++	return true;
++}
++
++qboolean AVI_SetParm( movie_state_t *Avi, enum movie_parms_e parm, ... )
++{
++	qboolean ret = true;
++	va_list va;
++	va_start( va, parm );
++
++	while( parm != AVI_PARM_LAST )
++	{
++		switch( parm )
++		{
++		case AVI_RENDER_TEXNUM:
++			Avi->texture = va_arg( va, int );
++			break;
++		case AVI_RENDER_X:
++			Avi->x = va_arg( va, int );
++			break;
++		case AVI_RENDER_Y:
++			Avi->y = va_arg( va, int );
++			break;
++		case AVI_RENDER_W:
++			Avi->w = va_arg( va, int );
++			break;
++		case AVI_RENDER_H:
++			Avi->h = va_arg( va, int );
++			break;
++		case AVI_REWIND:
++			ret = Avi->active; // the page loops the video by itself
++			break;
++		case AVI_ENTNUM:
++		case AVI_VOLUME:
++			(void)va_arg( va, int ); // no sound
++			break;
++		case AVI_ATTN:
++			(void)va_arg( va, double );
++			break;
++		case AVI_PAUSE:
++			Avi->paused = true;
++			break;
++		case AVI_RESUME:
++			Avi->paused = false;
++			break;
++		default:
++			ret = false;
++		}
++
++		parm = va_arg( va, enum movie_parms_e );
++	}
++
++	va_end( va );
++
++	return ret;
++}
++
++static qboolean AVI_ValidateFFmpegVersion( void )
++{
++	return false;
++}
++
++static qboolean AVI_LoadFFmpeg( void )
++{
++	return false;
++}
++
++static void AVI_UnloadFFmpeg( void )
++{
++
+ }
+ #else
+ struct movie_state_s
+@@ -880,7 +1165,7 @@ static void AVI_UnloadFFmpeg( void )
  }
  #endif // XASH_AVI == AVI_NULL
  
@@ -3587,6 +5007,36 @@ index 09dfa2a0..be4943cc 100644
  	{
  		IN_ActivateMouse();
  	}
+diff --git a/engine/client/sound/s_main.c b/engine/client/sound/s_main.c
+index 2cd7030b..ae72880d 100644
+--- a/engine/client/sound/s_main.c
++++ b/engine/client/sound/s_main.c
+@@ -1546,10 +1546,25 @@ static void S_UpdateChannels( void )
+ 	// updates DMA time
+ 	snd.soundtime = S_GetSoundtime();
+ 
++#if XASH_EMSCRIPTEN
++	// H9 web client: a frame in a browser can run long (a game file fetched the first time it is
++	// read, software WebGL). After a frame longer than the mix-ahead the device has already played
++	// past what was painted; painting from there would put the late sound behind the play position,
++	// where it is heard a whole buffer later, so the time already played is skipped
++	if( snd.paintedtime < snd.soundtime )
++		snd.paintedtime = snd.soundtime;
++#endif
++
+ 	// soundtime - total samples that have been played out to hardware at dmaspeed
+ 	// paintedtime - total samples that have been mixed at speed
+ 	// endtime - target for samples in mixahead buffer at speed
++#if XASH_EMSCRIPTEN
++	// and it mixes at least 0.2 s ahead, whatever a config.cfg made for the Windows game asks (TS's
++	// own sets _snd_mixahead 0.1), so the device does not run dry before the next frame
++	endtime = snd.soundtime + Q_max( s_mixahead.value, 0.2f ) * SOUND_DMA_SPEED;
++#else
+ 	endtime = snd.soundtime + s_mixahead.value * SOUND_DMA_SPEED;
++#endif
+ 	samps = snd.samples >> 1;
+ 
+ 	if((int)(endtime - snd.soundtime) > samps )
 diff --git a/engine/client/sound/s_stream.c b/engine/client/sound/s_stream.c
 index e74a4d26..9effee5a 100644
 --- a/engine/client/sound/s_stream.c
@@ -3666,6 +5116,32 @@ index 8d471f11..9674e8f2 100644
  
  #if XASH_LOW_MEMORY == 0
  #define MAX_DECALS		512	// touching TE_DECAL messages, etc
+diff --git a/engine/common/cvar.c b/engine/common/cvar.c
+index 0084a31f..0d8945c5 100644
+--- a/engine/common/cvar.c
++++ b/engine/common/cvar.c
+@@ -602,7 +602,21 @@ static void Cvar_SanitizeAndSet( convar_t *var, const char *value )
+ 
+ 	// nothing to change
+ 	if( !Q_strcmp( fixed_string, var->string ))
++	{
++		// H9: the value is read from the string again, as GoldSrc does on every set.
++		// A game or client DLL may write a cvar's value and leave its string as it
++		// was (the HL SDK camera writes cam_idealpitch, cam_idealyaw and cam_idealdist
++		// every frame, and its snapto command flips cam_snapto), so setting the string
++		// the cvar already holds has to bring the value back to it.
++		float fixed_value = Q_atof( var->string );
++
++		if( var->value != fixed_value )
++		{
++			var->value = fixed_value;
++			Cvar_Changed( var );
++		}
+ 		return;
++	}
+ 
+ 	// fill it cls.userinfo, svs.serverinfo
+ 	if( !Cvar_UpdateInfo( var, fixed_string, true ))
 diff --git a/engine/common/host.c b/engine/common/host.c
 index 81ac9c38..74e18c65 100644
 --- a/engine/common/host.c
@@ -3725,6 +5201,57 @@ index 81ac9c38..74e18c65 100644
  
  	return 0;
  }
+diff --git a/engine/common/mod_bmodel.c b/engine/common/mod_bmodel.c
+index d1fe48e2..29b3db2c 100644
+--- a/engine/common/mod_bmodel.c
++++ b/engine/common/mod_bmodel.c
+@@ -3701,6 +3701,19 @@ static void Mod_CalcPHS( model_t *mod )
+ 	if( !mod->visdata )
+ 		return;
+ 
++	// H9: the PHS takes rowbytes * count * 2 bytes at once, and work that grows with the square of
++	// the leaf count. New Byzantium's 46,744 leaves would need 521 MB here: more than a 32-bit
++	// server can count on, and minutes of work. Past the budget no PHS is built: Mod_FatPVS then
++	// treats every leaf as audible (its own fallback), so sounds and PAS messages reach every player.
++	const uint64_t phs_bytes = (uint64_t)rowbytes * count * 2;
++	const uint64_t phs_budget = (uint64_t)192 << 20;
++	if( phs_bytes > phs_budget )
++	{
++		Con_Printf( "PHS not built: %u leaves would need %u MB, past the %u MB budget; sounds reach every player\n",
++			(uint)count, (uint)( phs_bytes >> 20 ), (uint)( phs_budget >> 20 ));
++		return;
++	}
++
+ #if defined( HAVE_OPENMP )
+ 	Con_Reportf( "Building PHS in %d threads...\n", omp_get_max_threads( ));
+ #else
+@@ -3769,6 +3782,18 @@ static void Mod_CalcPHS( model_t *mod )
+ 
+ 	// since I can't predict at which spot compressed array
+ 	// should be put, this loop is single threaded
++	// H9: two passes, sizing the compressed array first so it is allocated once. Growing it row by
++	// row copies everything compressed so far each time: quadratic in the leaf count.
++	for( i = 0; i < count; i++ )
++	{
++		byte temp_compressed_row[(MAX_MAP_LEAFS+1)/4]; // compression for this row might be ineffective
++
++		total_compressed_size += Mod_CompressPVS( temp_compressed_row, &uncompressed_phs[rowbytes * i], rowbytes );
++	}
++
++	world.compressed_phs = Mem_Malloc( mod->mempool, total_compressed_size );
++	total_compressed_size = 0;
++
+ 	for( i = 0; i < count; i++ )
+ 	{
+ 		const byte *src = &uncompressed_phs[rowbytes * i];
+@@ -3776,7 +3801,6 @@ static void Mod_CalcPHS( model_t *mod )
+ 
+ 		size_t compressed_size = Mod_CompressPVS( temp_compressed_row, src, rowbytes );
+ 
+-		world.compressed_phs = Mem_Realloc( mod->mempool, world.compressed_phs, total_compressed_size + compressed_size );
+ 		memcpy( &world.compressed_phs[total_compressed_size], temp_compressed_row, compressed_size );
+ 		world.phsofs[i]	= total_compressed_size;
+ 
 diff --git a/engine/common/msr_webauth.h b/engine/common/msr_webauth.h
 new file mode 100644
 index 00000000..629696e0
@@ -4037,6 +5564,38 @@ index d139dff7..55a5360f 100644
  #define NET_USE_FRAGMENTS
  
  #define MAX_LOOPBACK		4
+diff --git a/engine/common/system.c b/engine/common/system.c
+index d36dcde3..58c9afe7 100644
+--- a/engine/common/system.c
++++ b/engine/common/system.c
+@@ -50,6 +50,10 @@ GNU General Public License for more details.
+ #include <vitasdk.h>
+ #endif
+ 
++#if XASH_EMSCRIPTEN
++#include <emscripten.h>
++#endif
++
+ #include "menu_int.h" // _UPDATE_PAGE macro
+ 
+ #include "library.h"
+@@ -472,7 +476,16 @@ Sys_Quit
+ void Sys_Quit( const char *reason )
+ {
+ 	Host_ShutdownWithReason( reason );
++#if XASH_EMSCRIPTEN
++	// H9 web client: a page has no main() to return to (Host_Main sets no jump buffer here). The
++	// frames stop, the page is told the game is over and whether an error ended it (Sys_Error
++	// comes here too), and nothing after this call runs again
++	emscripten_cancel_main_loop();
++	EM_ASM({ Module.callbacks?.gameQuit?.( $0 ); }, host.status == HOST_ERR_FATAL );
++	emscripten_exit_with_live_runtime();
++#else
+ 	Host_ExitInMain();
++#endif
+ }
+ 
+ /*
 diff --git a/engine/menu_int.h b/engine/menu_int.h
 index a83a58a3..a7f52b18 100644
 --- a/engine/menu_int.h
@@ -4306,6 +5865,36 @@ index 3698d2e4..bc3e49c2 100644
  #ifdef XASH_ALLOW_SAVERESTORE_OFFSETS
  	return COM_OffsetNameForFunction( function );
  #else
+diff --git a/engine/platform/sdl2/vid_sdl2.c b/engine/platform/sdl2/vid_sdl2.c
+index e85afd29..b16556b2 100644
+--- a/engine/platform/sdl2/vid_sdl2.c
++++ b/engine/platform/sdl2/vid_sdl2.c
+@@ -26,6 +26,10 @@ GNU General Public License for more details.
+ #include <vrtld.h>
+ #endif // XASH_PSVITA
+ 
++#if XASH_EMSCRIPTEN
++#include <emscripten.h>
++#endif // XASH_EMSCRIPTEN
++
+ static vidmode_t *vidmodes = NULL;
+ static int num_vidmodes = 0;
+ static void GL_SetupAttributes( void );
+@@ -45,8 +49,14 @@ struct
+ 
+ void Platform_Minimize_f( void )
+ {
++#if XASH_EMSCRIPTEN
++	// H9 web client: a page has no window to minimize; the page is asked instead (client.js
++	// leaves full screen and gives the mouse back)
++	EM_ASM({ Module.callbacks?.gameMinimize?.(); });
++#else
+ 	if( host.hWnd )
+ 		SDL_MinimizeWindow( host.hWnd );
++#endif
+ }
+ 
+ qboolean SW_CreateBuffer( int width, int height, uint *stride, uint *bpp, uint *r, uint *g, uint *b )
 diff --git a/engine/server/server.h b/engine/server/server.h
 index d61e51bd..2860305b 100644
 --- a/engine/server/server.h

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CREATE ACCOUNT -- HAVOC9</title>
+  <meta name="description" content="Create a HAVOC 9 account: a name and a password, nothing else">
+  <link rel="icon" type="image/gif" href="../../h9helmet_glitch.gif">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../styles.css">
+  <link rel="stylesheet" href="../../assets/account.css">
+</head>
+<body>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="../../index.html" class="logo">
+        <img src="../../h9helmet_glitch.gif" alt="Havoc9" class="logo-img">
+        <span class="logo-text">HAVOC<span class="orange">9</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="../../index.html">HOME</a></li>
+        <li><a href="../../webclient/index.html">PLAY</a></li>
+        <li><a href="../../downloads/index.html">DOWNLOADS</a></li>
+        <li><a href="../../servers/index.html">SERVERS</a></li>
+        <li><a href="../../forum/index.html">FORUM</a></li>
+        <li><a href="../../join/index.html">JOIN</a></li>
+        <li><a href="../../museum/index.html">MUSEUM</a></li>
+        <li><a href="../../credits/index.html">CREDITS</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="page account-page">
+    <div class="container">
+      <div class="page-header">
+        <span class="section-label">// ACCOUNT</span>
+        <h1 class="section-title">CREATE ACCOUNT</h1>
+        <div class="title-line"></div>
+      </div>
+
+      <div class="notice-box account-notice" role="note">
+        <div class="notice-icon">!</div>
+        <div class="notice-body">
+          <strong>ONE PASSWORD. ONE PLACE.</strong>
+          <p>Make up a new password for HAVOC 9 and use it nowhere else. Not the one for your email, Discord or Steam, and not one you have ever used before. When some other site leaks its passwords, every account that shares one falls with it, and this one would be next.</p>
+        </div>
+      </div>
+
+      <div class="account-box">
+        <form class="account-form" id="signupForm" novalidate>
+          <div class="account-field">
+            <label for="username">USERNAME</label>
+            <input id="username" name="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="20" required>
+            <p class="account-hint">3 to 20 letters, digits and . _ - . Other players see this name.</p>
+          </div>
+          <div class="account-field">
+            <label for="password">PASSWORD</label>
+            <input id="password" name="password" type="password" autocomplete="new-password" maxlength="256" required>
+            <p class="account-warn"><strong>Only for HAVOC 9.</strong> At least 10 characters. A few unrelated words strung together are easy to remember and hard to guess.</p>
+          </div>
+          <div class="account-field">
+            <label for="password2">PASSWORD AGAIN</label>
+            <input id="password2" name="password2" type="password" autocomplete="new-password" maxlength="256" required>
+          </div>
+          <p class="account-error" id="formError" role="alert"></p>
+          <button type="submit" class="btn btn-primary">CREATE ACCOUNT</button>
+        </form>
+        <p class="account-alt">Have an account? <a href="../login/" data-keep-next>SIGN IN</a></p>
+      </div>
+
+      <div class="account-section">
+        <p class="account-small">No email address is asked for, so there is no reset by email: if you lose your password, an admin can set a new one for you (ask on Discord). <a href="../#privacy">What we keep, and why</a>.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-logo">
+          <img src="../../h9helmet_glitch.gif" alt="Havoc9">
+          <span>HAVOC<span class="orange">9</span></span>
+        </div>
+        <p class="footer-tag">Open source &middot; Inspired by the original Havoc9 community</p>
+        <p class="footer-copy">Non-commercial &middot; See NON_COMMERCIAL.md</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../../script.js"></script>
+  <script src="../../assets/account.js"></script>
+  <script src="../forms.js"></script>
+</body>
+</html>

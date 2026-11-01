@@ -1,0 +1,63 @@
+// ---------------------------------------------------------------------------
+//  h9_presence.cfg -- h9_presence.amxx's settings (havoc9.org's presence)
+//
+//  Optional. A dedicated server needs nothing here: the plugin enrolls the
+//  server with havoc9.org by itself and keeps the key it gets in
+//  addons\amxmodx\data\h9_presence.key, which client packages and git leave
+//  out. docs\H9_PRESENCE.txt is the whole guide.
+//
+//  To change a setting, copy this file to
+//
+//      ts\addons\amxmodx\configs\h9_presence.cfg
+//
+//  (build.bat makes that copy once if there is none, and never overwrites it).
+//  With a hand-made key in it, NEVER COMMIT IT. The .gitignore files keep
+//  h9_presence.cfg out of git, and export.bat never copies it.
+// ---------------------------------------------------------------------------
+
+
+// Where reports go; without its /report, also where the server enrolls and
+// where h9_community's calls go. https only on the internet; the plugin needs
+// the AmxxEasyHttp module and its CA bundle, as ts_advertise does.
+h9_presence_url "https://havoc9.org/api/presence/report"
+
+
+// 1: a dedicated server asks havoc9.org for a key of its own and proves its
+// address with a code h9web reads from the server's rules (the
+// h9_presence_enroll cvar, which the plugin sets and clears: leave it alone).
+// A server h9web cannot reach (behind NAT, on a LAN) stays unenrolled and
+// quiet. A listen server never enrolls. 0: only a hand-made key, below.
+h9_presence_autoenroll "1"
+
+
+// A HAND-MADE KEY, in place of enrolling: both lines or neither. h9web takes it
+// only for a server on its servers.json. The address exactly as servers.json
+// lists it: the public IPv4:port players connect to (not a host name, not a
+// LAN address).
+h9_presence_server ""
+
+
+// The key: 64 hex characters, made on the VPS with
+//     sudo -u h9web node /opt/h9web/modules/presence/bin/presence-key.js --config /etc/h9web/config.json add <address>
+// It is shown once. Whoever has it can report players onto this server, so it
+// stays in this file only. Lost or leaked: run presence-key.js rotate on the VPS
+// and put the new one here.
+h9_presence_key ""
+
+
+// Seconds between reports (30 to 600). Joins, leaves and name changes report
+// within a few seconds anyway.
+h9_presence_interval "60"
+
+
+// The id proof: 1 sends each joining H9XASH client a one-time challenge, and
+// h9web counts presence only from clients that prove they hold the player id.
+// Leave it 0 until the H9XASH build that answers it is out (_h9idv in the
+// client's userinfo); old clients just stay unverified either way.
+h9_presence_challenge "0"
+
+
+// Names: 1 makes a proven account play under its havoc9.org username, and gives
+// anyone else using an account's name a neutral "Player 1234", on every map but
+// roleplay maps and stock ts_ maps. Needs h9_presence_challenge 1.
+h9_presence_names "0"

@@ -1,0 +1,15 @@
+{
+  "engine": "engine/",
+  "game": "game/",
+  "manifest": "manifest.json",
+  "preload": "preload.json",
+  "gamedir": "ts",
+  "args": [],
+  "commands": ["voice_enable 0"],
+  "fonts": [],
+  "relay": "relay",
+  "master": "192.0.2.1:27010",
+  "servers": [
+    { "name": "HAVOC 9", "address": "" }
+  ]
+}

@@ -1,0 +1,677 @@
+===============================================================================
+ HAVOC 9 WEB CLIENT -- DEPLOY NOTES
+===============================================================================
+
+ This folder is the web client's page, served at https://havoc9.org/webclient/.
+ It runs H9XASH, built for WebAssembly, in the player's browser. PLAY starts the
+ game to H9's main menu, as starting H9XASH does; the menu's server browser lists
+ H9's servers and joins them through one relay. Until a build is published beside
+ it, the page says the client is in preparation.
+
+ Nothing in this file is a secret, and nothing secret may be added to it: it
+ sits in the site folder. The nginx config in section 8 hides it anyway.
+
+
+ 1. WHAT IS HERE
+ ---------------
+   index.html      the page, in the site's own style (nav, header, footer)
+   client.js       the loader: checks for a build, fetches the game files,
+                   starts the engine, carries its network over the relay, keeps
+                   the player's settings in the browser
+   settings.json   where the build is, the relay, the master address and the
+                   JOIN links (section 4)
+   DEPLOY.txt      this file
+
+   Made by the packer (section 3D) and copied in at deploy time:
+   engine/         xash.js, xash.wasm
+   manifest.json   every game file with its size and hash, and the fonts for
+                   VGUI text
+   preload.json    the files fetched before the engine starts
+   game/           the game files: the engine's disk (on the VPS it lives
+                   outside the site folder, see section 5)
+
+   Tools, in TSM\tools (copies in the repository's tools\):
+   make_webclient_game.py   the packer (3D)
+   serve_webclient.py       serves the site and a package on this PC the way the
+                            VPS does, to try a build (3E)
+
+
+ 2. WHERE THINGS STAND (2026-11-01)
+ ----------------------------------
+   * Built and running in a browser. emsdk 6.0.12 is installed in TSM\emsdk; the
+     engine, with every H9 patch, and reTS's client are built for WebAssembly on
+     this PC, in Windows, and packaged. Tried in Opera GX (headless, drawing on
+     the GPU) against serve_webclient.py: PLAY fetches the game, starts the
+     engine and reaches H9's main menu, and from there:
+       - the menu as in H9XASH: H9's purple text menu, "Search for HAVOC 9
+         servers", and the Console entry (the engine starts with -console, as
+         h9xash.bat starts it);
+       - the menu's music: a random track from ts\menu_music.txt, as h9xash.bat
+         picks it, fetched in the background and started when it is here;
+       - H9's console: its background, con_color, the Square721 console font;
+       - userconfig.cfg and the files h9xash.bat writes (cl_h9_userid,
+         networking, music), all run before the menu shows;
+       - VGUI hosted from reTS's client ("VGui_ProbeNewAPI: initialized API
+         version 1 in client module"), its fonts as fonts.txt maps them (Arial
+         and FixedSys drawn in Square721, measured in the page);
+       - Multiplayer > Internet games: the server browser asked the master
+         address, listed the servers it was given with their ping, and connect,
+         disconnect and connect to another server all went out through one
+         relay socket, by each server's own address (section 6).
+       - the main menu's video (ts\media\mainmenu_bg.avi, picked from
+         ts\menu_bg_videos.txt as h9xash.bat picks it) plays behind the menu:
+         the page decodes its Motion-JPEG frames (section 11);
+       - the menu's X opens its "Are you sure you want to quit?", and quitting,
+         from there or with quit in the console, goes back to the site's front
+         page (index.html), as LEAVE does; tried through h9web's local site
+         (h9web\bin\local-site.js) with an account made there.
+     The relay and the servers in the relay test were stand-ins (a relay in
+     the agreed framing and two responders that only answer "info"), not game
+     servers. A real join is the next step (section 10).
+   * Not like the native game:
+       - The menu's minimize button leaves full screen and gives the mouse
+         back: a page has no window to minimize.
+       - No LAN tab discovery: the page drops broadcasts. Servers on H9's list
+         only: the relay sends to nothing else.
+       - At start the engine looks for a server library
+         (dlls/mp_emscripten_wasm32.wasm), logs that there is none and asks the
+         web server for it once (a 404). Expected: the page starts no server.
+       - The version line says "build -1": the build copy has no git history.
+   * The same in native H9XASH, not the browser's doing: seven HUD sprites the
+     client asks for are Half-Life's own and in neither H9XASH\ts nor
+     H9XASH\valve (sprites\muzzleflash1-3.spr, dot.spr, animglow01.spr,
+     richo1.spr, shellchrome.spr); resource\valve_english.txt,
+     mainui_english.txt and ts_english.txt are missing; TS 3.0's stock
+     config.cfg names cvars Xash does not have.
+
+
+ 3. BUILDING
+ -----------
+ Everything here runs on Windows, from Git Bash or cmd. One build at a time on
+ this PC (a map compile counts): waf and ninja are run with 6 jobs.
+
+ A. emsdk, once
+
+     cd D:\Downloads\TSM\emsdk
+     emsdk.bat install 6.0.12
+     emsdk.bat activate 6.0.12
+     emsdk.bat install ninja-1.13.2-64bit
+     emsdk_env.bat                          (in every new cmd window)
+
+   6.0.12 is 6e9f6885cb17a3d6c8fd488a5cff730f50aba61d (TSM\EMSDK-VERSION.txt),
+   about 700 MB to download. On Windows it ships emcc.exe, em++.exe and
+   emar.exe, the names the patched scripts\waifulib\xcompile.py asks for, so
+   waf runs from a Windows shell: no WSL or Docker needed. ninja is emsdk's own,
+   for reTS's CMake. Git Bash takes the same environment as:
+
+     export EMSDK=D:/Downloads/TSM/emsdk
+     export EM_CONFIG=D:/Downloads/TSM/emsdk/.emscripten
+     export PATH="/d/Downloads/TSM/emsdk:/d/Downloads/TSM/emsdk/upstream/emscripten:/d/Downloads/TSM/emsdk/node/24.19.0_64bit:/d/Downloads/TSM/emsdk/ninja/1.13.2_64bit:$PATH"
+
+ B. The engine
+
+   From a copy of TSM\xash3d-fwgs as xash.bat leaves it (every patch of section
+   12 applied), so the build never writes into the source tree:
+
+     robocopy D:\Downloads\TSM\xash3d-fwgs D:\Downloads\TSM\webclient-build\xash3d-fwgs
+              /E /XD .git build /XF .git .lock-waf_win32_build *.bak_*
+     robocopy D:\Downloads\TSM\xash3d-fwgs\3rdparty\mpg123\mpg123\build
+              D:\Downloads\TSM\webclient-build\xash3d-fwgs\3rdparty\mpg123\mpg123\build /E
+     cd D:\Downloads\TSM\webclient-build\xash3d-fwgs
+     python waf configure --emscripten -T release -o build-web
+     python waf build -j6
+
+   (The second robocopy puts back a source folder that /XD build also skips.)
+   The configure turns the WebGL2 renderer on by itself; leave out
+   --enable-ffmpeg. The first build fetches SDL2 through Emscripten's ports
+   (emsdk\upstream\emscripten\cache\ports), so it needs the network once. No
+   --disable-werror was needed: the whole tree, H9's patches with it, builds
+   clean under clang's warnings-as-errors list. After the source changes, copy
+   the changed files into the copy (or copy it again) and run waf build.
+
+   The build, 2026-11-01 (bytes; gzip -9 in brackets):
+     build-web\engine\xash.js                       555 445    (122 867)
+     build-web\engine\xash.wasm                   4 788 086  (1 766 275)
+     build-web\filesystem\filesystem_stdio.wasm      56 765     (26 976)
+     build-web\ref\gl\libref_webgl2.wasm            221 519     (97 171)
+     build-web\3rdparty\mainui\libmenu.wasm         316 259    (127 440)
+     build-web\3rdparty\extras\extras.pk3         1 689 094
+
+ C. The client library: reTS, for the browser
+
+   reTS stands in for TS 3.0's closed client.dll, as it already does natively:
+   the web client is built from the same reTS source as H9XASH's client.dll
+   (the cloak in view.cpp, the mouse-button release in inputw32.cpp).
+
+   VGUI: reTS\cl_dll\CMakeLists.txt's Emscripten branch (the block marked "H9
+   web client") compiles FWGS's freevgui into the client: its Xash3D support
+   layer with INTERNAL_VGUI_SUPPORT, which names the entry point
+   InitVGUISupportAPI; the browser font backend platform\emscripten\font.cpp
+   (posix's draws no text); FREEVGUI_NO_GLOBAL_NEW. The sources come from
+   HALFLIFE_XASH3D_DIR, by default ..\xash3d-fwgs, so H9's VGUI scheme
+   (freevgui-h9-scheme.patch) comes with them. gameinfo.txt's
+   internal_vgui_support 1, written by the packer, makes the engine take VGUI
+   from the client. reTS's own openvgui and vgui_support folders stay empty.
+
+     emcmake cmake -S D:\Downloads\TSM\reTS -B D:\Downloads\TSM\webclient-build\reTS-wasm
+           -G Ninja -DCMAKE_BUILD_TYPE=Release
+           -DCMAKE_INSTALL_PREFIX=D:\Downloads\TSM\webclient-build\reTS-install\ts
+     cmake --build D:\Downloads\TSM\webclient-build\reTS-wasm --target client -- -j6
+
+   (The install prefix must end in the mod's folder name; nothing is
+   installed.) Output: reTS-wasm\cl_dll\client_emscripten_wasm32.wasm, 832 418
+   bytes (277 570 gzip). It compiled with no error and no source change beyond
+   that CMake block. Its 1036 imports all resolve against xash.wasm's exports
+   and xash.js's functions, and it exports F (the client API), the classic
+   exports, InitVGUISupportAPI, GetVGUISupportAPI, IN_ClientLookEvent and
+   IN_ClientMoveEvent.
+
+   CMake 4.3.0 prints a warning from Emscripten's toolchain that it "does not
+   support emscripten shared libraries". reTS turns shared libraries back on
+   after project() and links with -sSIDE_MODULE=1, and the output is a proper
+   side module, so the warning does not apply here (CMake 4.3.3 and later do
+   not print it).
+
+   The server library is not built: the page joins servers and starts none.
+
+ D. The game files
+
+     py -3 D:\Downloads\TSM\tools\make_webclient_game.py
+          --h9xash D:\Downloads\TSM\H9XASH --out D:\Downloads\TSM\webclient-build\stage
+          --engine-build D:\Downloads\TSM\webclient-build\xash3d-fwgs\build-web
+          --client D:\Downloads\TSM\webclient-build\reTS-wasm\cl_dll\client_emscripten_wasm32.wasm
+          --hl-valve D:\SteamLibrary\steamapps\common\Half-Life\valve
+          --replace
+
+   It writes <out>\engine\, <out>\game\, <out>\manifest.json and
+   <out>\preload.json, and never writes into H9XASH. --dry-run checks and lists
+   without writing; --replace clears what an earlier run wrote.
+
+   2026-11-01: 1742 files, 1155.9 MB (ts 1141.2, valve 14.4, the root's two
+   side modules 0.3); preload 242 files, 30.4 MB. Left out: ts\addons
+   (Metamod, AMXX with ts_advertise.cfg and its bot token, RCBot), ts\dlls,
+   ts\cl_dlls, ts\mapconfigs, ts\.fontcache, the server's configs, the
+   developer's own config.cfg, video.cfg, ids and *_resolved.cfg, backups, and
+   the 30 files that are byte for byte Half-Life's own (section 9). A new
+   player starts with TS 3.0's own config.cfg (TSM\ts3.0\ts\config.cfg); after
+   that the browser keeps the player's. ts\delta.lst, with H9's widened origin
+   fields, goes in.
+
+   The fonts: the manifest's "fonts" list is made from
+   ts\resource\fonts\fonts.txt and the family names inside the font files, by
+   the rules freevgui-h9-fonts.patch follows on Windows (section 12), and the
+   run prints it. Today: Arial = SQR721B (its weight 700) at every weight,
+   FixedSys = SQR721N up to 550 and SQR721B above, with the italic files for
+   italic. A "size" in fonts.txt is not applied in the browser; the run says so.
+
+ E. Trying it on this PC
+
+     py -3 D:\Downloads\TSM\tools\serve_webclient.py --site D:\Downloads\TSM\havoc9.org
+          --stage D:\Downloads\TSM\webclient-build\stage --port 8091
+
+   then http://127.0.0.1:8091/webclient/index.html. It serves engine\, game\
+   and the two lists from the stage at the addresses the VPS uses, and leaves
+   the site folder alone. --relay ws://127.0.0.1:<port>/ uses a relay running
+   on this PC, --server NAME=IP:PORT adds a JOIN link, --args "-dev 2" puts
+   the engine's loading messages in window.h9web.log (the page's console).
+   None of them changes settings.json.
+
+   Headless Opera GX did the tests above, started with its own profile
+   (--user-data-dir) and --remote-debugging-port, from the version folder's
+   opera.exe (%LOCALAPPDATA%\Programs\Opera GX\<version>\opera.exe). It needs
+   no GPU flags: WebGL 2 runs on the GPU. The SwiftShader flags
+   (--use-angle=swiftshader) left that page without WebGL 2.
+
+
+ 4. SETTINGS.JSON
+ ----------------
+   engine     folder with xash.js and xash.wasm             "engine/"
+   game       folder the game files are served from          "game/"
+   manifest   the packer's file list                         "manifest.json"
+   preload    the packer's preload list                      "preload.json"
+   gamedir    the game folder on the engine's disk           "ts"
+   args       more engine arguments, e.g. ["-dev", "2"]
+   commands   console commands once the engine is up         ["voice_enable 0"]
+   fonts      [{ family, file, weight, style }] in place of the manifest's
+              list (3D); empty, as shipped, to use the manifest's
+   relay      the relay's path on this site, or a wss:// URL "relay"
+   master     the address the relay answers as the master    "192.0.2.1:27010"
+              server (section 6); the page writes "clearmasters" and
+              "addmaster <master>" into ts\networking_resolved.cfg
+   servers    [{ name, address }]: small JOIN links under PLAY, shortcuts
+              that join a server as soon as the game is up. address is
+              ip:port, numbers: the browser engine resolves no host names. An
+              entry without an address is not shown.
+
+   The engine starts as h9xash.bat starts it: -game ts -console, then
+   settings.json's args. Before the menu shows, the page writes for the
+   player: userid_resolved.cfg (cl_h9_userid, from the signed-in account's
+   player id, window.h9webAccount.playerId, or else an id kept in this
+   browser), networking_resolved.cfg (the master), menu_bg_video_resolved.cfg
+   (a video picked from menu_bg_videos.txt, fetched with the preload), an empty
+   menu_music_resolved.cfg (the page starts a random track of menu_music.txt
+   itself once it has fetched it), the config.cfg kept in this browser, and
+   .xash_id.
+
+   The game's X, its Quit and quit or exit in the console end on the site's
+   front page (../index.html), as LEAVE does; the config.cfg the engine writes
+   as it shuts down is kept first. An error that ends the game stays on the
+   screen instead. The menu's minimize button leaves full screen.
+
+
+ 5. WHERE THE FILES GO ON THE VPS
+ --------------------------------
+   /var/www/havoc9.org/                 the site: this repository's havoc9.org
+                                        folder, without *.bak* files, zips and
+                                        deploy/
+   /var/www/havoc9.org/webclient/       index.html, client.js, settings.json,
+                                        manifest.json, preload.json
+   /var/www/havoc9.org/webclient/engine/  xash.js, xash.wasm
+   /srv/h9web/game/                     <stage>\game: 1.2 GB, kept out of the
+                                        site folder and out of git; served at
+                                        /webclient/game/
+   the relay                            h9web's (section 6)
+
+   From a clone of the repository, as root, after the site is in place:
+
+     bash havoc9.org/deploy/webclient-setup.sh
+     REPACK=1 bash havoc9.org/deploy/webclient-setup.sh   (after a pull)
+
+   It makes the package in <clone>/webclient-build/stage with python3 and
+   tools/make_webclient_game.py when there is none (or with REPACK=1): the game
+   from the clone's H9XASH, the browser builds from webclient-bin, Half-Life's
+   own files left out by tools/webclient_leave_out.txt; no Half-Life install is
+   needed. Then it copies the game files to /srv/h9web/game, the engine and the
+   two lists into the site's webclient folder (the lists last), keeps gzip
+   copies beside the large files for nginx's gzip_static (made again only where
+   a file is newer than its copy), and checks every listed file is there at its
+   size. git ignores webclient-build/; webclient-bin/ is tracked, with a
+   BUILDINFO.txt naming the emsdk, the engine's source state and every patch
+   each build carries (tools/make_webclient_bin.py writes both on the build PC).
+
+   By hand, the gzip copies are:
+
+     find /srv/h9web/game -type f -size +4k \( -name '*.bsp' -o -name '*.mdl' \
+       -o -name '*.wad' -o -name '*.wav' -o -name '*.spr' -o -name '*.tga' \
+       -o -name '*.wasm' -o -name '*.txt' \) -exec gzip -k -f -9 {} \;
+     gzip -k -f -9 /var/www/havoc9.org/webclient/engine/xash.wasm
+
+
+ 6. THE RELAY
+ ------------
+   A page cannot send UDP. The relay, with the site's accounts and login, is
+   h9web's (its own README.txt). What the page and the engine expect of it:
+
+   * One WebSocket per engine UDP socket, at /webclient/relay, for every H9
+     server. The browser sends the site's session cookie with it; the relay
+     takes signed-in players only, and only from the site's own Origin.
+   * Every binary message, both ways, is one datagram: bytes 0-3 an IPv4
+     address, bytes 4-5 a port (both network order), then the UDP payload.
+     From the page the address is the destination; from the relay, the source.
+     So the engine's sendto and recvfrom keep each server's own address.
+   * It sends only to the servers on H9's list, from one UDP port of its own
+     per WebSocket for the life of that WebSocket, so a server sees one stable
+     address per player socket.
+   * The master server: 192.0.2.1:27010 (TEST-NET-1: never a real server). The
+     page adds it as the engine's only master, and the relay answers the
+     server browser's query there itself with H9's list. The engine sends
+       31 FF "0.0.0.0:0" 00 <infostring> 00
+     (no FF FF FF FF; the infostring has \gamedir\ts and \key\1 among others)
+     and parses the reply
+       FF FF FF FF 66 0A   7F KK KK KK KK 00   then 6 bytes per server
+       (4 IPv4 + 2 port, network order)   then 00 00 00 00 00 00
+     The 7F block must be there: for an Xash master the engine always reads
+     one byte before the list. Then the engine asks each server
+     "FF FF FF FF info 49" itself; that and every connect go to the server's
+     own address, as normal datagrams.
+   * Datagrams up to at least 1500 bytes (the connect's bandwidth test sends
+     1400-byte fragments). After an idle close the page opens a new WebSocket
+     on the engine's next datagram.
+   * A refused upgrade (the page sees a close before any open) or a close for
+     sending too much (4429) makes the page wait 3 s before it asks again,
+     then twice as long each time up to 30 s; the engine's datagrams in
+     between are dropped. 4401 (signed out) and 4403 (suspended) put a line on
+     the game's screen and are asked again every 30 s.
+   * LAN discovery (broadcast) is not carried.
+
+   One relay serves every H9 server. The page needs nothing per server but the
+   relay's list.
+
+
+ 7. THE GAME SERVER
+ ------------------
+   The relay's list holds Xash servers: H9XASH's h9xash_server.bat (HAVOC 9.exe
+   -dedicated, with Metamod, AMXX and RCBot). A Steam hlds server refuses every
+   Xash client, browser or native ("STEAM validation rejected",
+   docs\ENGINE_DIFFERENTIALS.txt). The relay may run on the VPS while the game
+   servers stay where they are; a server then sees every browser player coming
+   from the relay's address.
+
+   Because every browser player comes from the relay's one address, in each
+   server's config:
+
+     sv_connect_max_per_ip 0   default 3: a fourth browser player still loading
+                               is refused while three others load
+     sv_timeout 120            a browser loading a map it has not fetched yet
+                               stands still for a while
+     sv_query_rate_limit 30    default 1: one info, ping, players or rules
+                               reply a second per address (a burst of 5).
+                               Every browser player's server browser asks from
+                               the relay's address, so with 1 most of them see
+                               the server missing from the list. 0 turns the
+                               limit off
+
+   The engine also allows about one challenge and one connect a second per
+   address (a burst of 5; not a cvar), so players joining in the same few
+   seconds retry for a moment. None of H9's plugins look at player addresses;
+   each browser player still has its own h9_clientid (cl_h9_userid).
+
+   Open each server's UDP port to the relay's address (and to native players).
+
+
+ 8. NGINX
+ --------
+   /etc/nginx/sites-available/havoc9.org, linked into sites-enabled. Always
+   nginx -t before systemctl reload nginx.
+
+     server {
+         listen 80;
+         listen [::]:80;
+         server_name havoc9.org www.havoc9.org;
+
+         # Let's Encrypt's checks, at every renewal (the certificate, below)
+         location /.well-known/acme-challenge/ { root /var/www/letsencrypt; }
+         location / { return 301 https://havoc9.org$request_uri; }
+     }
+
+     server {
+         listen 443 ssl;
+         listen [::]:443 ssl;
+         server_name www.havoc9.org;
+         ssl_certificate     /etc/letsencrypt/live/havoc9.org/fullchain.pem;
+         ssl_certificate_key /etc/letsencrypt/live/havoc9.org/privkey.pem;
+         return 301 https://havoc9.org$request_uri;
+     }
+
+     server {
+         listen 443 ssl;
+         listen [::]:443 ssl;
+         http2 on;
+         server_name havoc9.org;
+         ssl_certificate     /etc/letsencrypt/live/havoc9.org/fullchain.pem;
+         ssl_certificate_key /etc/letsencrypt/live/havoc9.org/privkey.pem;
+
+         root /var/www/havoc9.org;
+         index index.html;
+         add_header Strict-Transport-Security "max-age=31536000" always;
+
+         # backups, archives, these notes and the VPS scripts are not for visitors
+         location ~ \.(bak[^/]*|zip)$ { return 404; }
+         location = /webclient/DEPLOY.txt { return 404; }
+         location ^~ /deploy/ { return 404; }
+
+         # the page, the loader and the lists change with every build
+         location /webclient/ {
+             add_header Cache-Control "no-cache" always;
+             add_header Strict-Transport-Security "max-age=31536000" always;
+         }
+
+         location /webclient/engine/ {
+             types { application/wasm wasm; text/javascript js; }
+             gzip_static on;
+             add_header Cache-Control "no-cache" always;
+             add_header Strict-Transport-Security "max-age=31536000" always;
+         }
+
+         # each address carries the file's hash (?v=), so a copy may be kept long
+         location /webclient/game/ {
+             alias /srv/h9web/game/;
+             types { application/wasm wasm; }
+             default_type application/octet-stream;
+             gzip_static on;
+             add_header Cache-Control "public, max-age=604800" always;
+             add_header Strict-Transport-Security "max-age=31536000" always;
+         }
+
+         # h9web: the accounts API (h9web/README.txt, sections 9 and 3)
+         location /api/ {
+             proxy_pass http://127.0.0.1:8090;
+             proxy_http_version 1.1;
+             proxy_set_header Host $host;
+             proxy_set_header X-Real-IP $remote_addr;
+             proxy_set_header Connection "";
+             client_max_body_size 64k;
+             proxy_read_timeout 30s;
+             add_header Strict-Transport-Security "max-age=31536000" always;
+         }
+
+         # h9web: a profile picture, up to 10 MB (h9web/README.txt, section 15)
+         location = /api/forum/avatar {
+             proxy_pass http://127.0.0.1:8090;
+             proxy_http_version 1.1;
+             proxy_set_header Host $host;
+             proxy_set_header X-Real-IP $remote_addr;
+             proxy_set_header Connection "";
+             client_max_body_size 11m;
+             proxy_read_timeout 60s;
+             add_header Strict-Transport-Security "max-age=31536000" always;
+         }
+
+         # h9web's relay: the same service and port, the path passed as it is
+         location = /webclient/relay {
+             if ($http_origin !~* "^https://(www\.)?havoc9\.org$") { return 403; }
+             proxy_pass http://127.0.0.1:8090;
+             proxy_http_version 1.1;
+             proxy_set_header Host $host;
+             proxy_set_header Upgrade $http_upgrade;
+             proxy_set_header Connection "upgrade";
+             proxy_set_header X-Real-IP $remote_addr;
+             proxy_buffering off;
+             client_max_body_size 1k;
+             proxy_read_timeout 300s;
+             proxy_send_timeout 300s;
+             add_header Strict-Transport-Security "max-age=31536000" always;
+         }
+     }
+
+   A location with an add_header of its own drops the server's, which is why
+   Strict-Transport-Security is repeated. nginx passes the Cookie header on to
+   the relay as it is.
+
+   http2 on; needs nginx 1.25.1 or later (nginx -v). On an older nginx
+   (Ubuntu 24.04 has 1.24, Debian 12 has 1.22) leave that line out and write
+   listen 443 ssl http2; and listen [::]:443 ssl http2; in the havoc9.org
+   block instead.
+
+   MIME types: .wasm must be application/wasm (nginx's stock mime.types may
+   lack it, hence the types blocks), .js text/javascript, .json
+   application/json; game files are application/octet-stream, and the page
+   reads them as bytes whatever the type says.
+
+   COOP / COEP: not needed. This engine build has no threads (no -pthread in
+   engine\wscript's link flags), so it needs no SharedArrayBuffer and no
+   cross-origin isolation. If a later build adds threads, isolate /webclient/
+   only, in its locations:
+
+       add_header Cross-Origin-Opener-Policy "same-origin" always;
+       add_header Cross-Origin-Embedder-Policy "credentialless" always;
+
+   "credentialless" keeps the page's Google Fonts loading; "require-corp" would
+   need CORS headers on them. self.crossOriginIsolated in the page's console
+   tells whether it took.
+
+   THE CERTIFICATE comes from Let's Encrypt, by havoc9.org/deploy/https-setup.sh.
+   Run it as root on the VPS once DNS points both names at it, before this
+   file is installed: nginx refuses a site whose certificate files do not
+   exist yet. It installs certbot, puts up a small plain-HTTP site that only
+   answers Let's Encrypt's checks (from /var/www/letsencrypt) and sends
+   everything else to HTTPS, fetches a test file through each name the way
+   Let's Encrypt will, asks for one certificate for havoc9.org and
+   www.havoc9.org, and adds the hook that reloads nginx after each renewal:
+
+     bash https-setup.sh               a test certificate, from Let's Encrypt's
+                                       staging service
+     STAGING=0 bash https-setup.sh     the real one, in the test one's place
+
+   The test one first: a wrong DNS record or a shut port 80 then costs
+   nothing, where the real service allows 5 failed checks per name an hour
+   and 5 certificates for the same names a week. Then
+   havoc9.org/deploy/nginx-setup.sh installs this file for the domain, takes
+   out the stand-in site and reloads: the port-80 block above answers the
+   checks from then on. On a fresh VPS nginx-setup.sh alone does all of it:
+   it installs nginx and, with no certificate yet, runs https-setup.sh (a
+   test certificate, then the real one) first. nginx-setup.sh writes the
+   config of this section; keep the two in step.
+
+   * Renewal: certbot's own timer (snap.certbot.renew.timer, or certbot.timer
+     from apt) renews it through the port-80 block. Keep that location and
+     port 80 open, or renewals fail. certbot renew --dry-run tests it.
+   * Nothing warns before it expires: Let's Encrypt stopped its expiry emails
+     in 2025. certbot certificates shows the date; an outside expiry check is
+     worth having. The certificates are getting shorter too (90 days, 64 from
+     February 2027, then 45), so never put one in by hand.
+   * Strict-Transport-Security makes a browser that has seen the site refuse
+     plain HTTP for it, and refuse a bad certificate with no way past, for a
+     year: a certificate that lapses locks those visitors out until it is
+     renewed.
+   * No ssl_stapling: Let's Encrypt's certificates carry no OCSP address any
+     more (it ended OCSP in 2025).
+   * Optional: a CAA record, havoc9.org. CAA 0 issue "letsencrypt.org", so no
+     other certificate authority may issue for the domain.
+   * The script must reach the VPS with Unix line ends, as git keeps it
+     (deploy/.gitattributes). If bash answers $'\r': command not found, it
+     was saved with Windows ones: sed -i 's/\r$//' https-setup.sh
+
+
+ 9. NEVER SERVED
+ ---------------
+   * ts_advertise.cfg (the Discord bot token) or anything else from ts\addons.
+     The packer refuses to write a package that holds ts_advertise.cfg, and the
+     package has no ts\addons at all.
+   * Server configs, rcon passwords, the relay's state, anyone's config.cfg,
+     ids (.xash_id, user_id.ini, userid_resolved.cfg).
+   * h9web's data and settings: /var/lib/h9web (secrets.json, the accounts
+     database and its backups) and /etc/h9web, outside the site folder and
+     out of git (h9web/README.txt, section 7).
+   * Valve's files. H9XASH\valve is H9's own (valve\REPLACEMENTS.md). No
+     Half-Life folder is served, and none of the msr-web kit's borrow.py, which
+     copies Half-Life's files into the public web folder, is used.
+     These 30 files in H9XASH\ts are byte for byte Half-Life's (from TS 3.0 and
+     its maps) and the packer leaves them out; the browser game lacks them
+     until H9 has its own (valve_replacements):
+       ts/sound: bigwarning.wav, get_satchel.wav, ambience/antro_techamb.wav,
+         ambience/dronemachine2.wav, de_pripyat/spawn/sp_shum.wav,
+         debris/metal1.wav, debris/metal3.wav, debris/metal4.wav,
+         debris/metal5.wav, debris/metal6.wav, player/land.wav,
+         ts_gpc/ts_stoom1.wav, weapons/rocketfire1.wav, weapons/sshell1.wav,
+         weapons/sshell2.wav, weapons/sshell3.wav
+       ts/sprites: WN_glow02.spr, WN_glow03.spr, WN_glow04.spr, glow01.spr,
+         redfl1.spr, strat_wsplash3.spr, xsmoke1.spr, yelflare1.spr,
+         TS_GPC/TS_GPC1.SPR, TS_GPC/TS_GPC2.SPR, mapsprites/ts_gpc1.spr,
+         mapsprites/ts_gpc2.spr, teahouse/glow.spr, teahouse/steam.spr
+   * The SQR721 fonts in ts\resource\fonts are Bitstream's Square 721. Check
+     that their licence allows serving them on the web; without them the
+     manifest lists no fonts and VGUI text uses the browser's.
+
+
+ 10. THE VPS AND THE DOMAIN, IN ORDER
+ ------------------------------------
+   1. Build the engine (3B) and reTS's client (3C), package (3D). Try it on
+      this PC with serve_webclient.py (3E).
+   2. A real join on the LAN, before anything public: an H9 server on the LAN
+      (h9xash_server.bat), h9web's relay on this PC with that server on its
+      list, serve_webclient.py --relay ws://127.0.0.1:<relay port>/. PLAY,
+      Multiplayer > Internet games: the server is listed; join it from there,
+      leave it, join it again; also "connect <ip>:<port>" in the console.
+   3. The VPS: a current Debian or Ubuntu with nginx and certbot.
+   4. DNS: A (and AAAA) records for havoc9.org and www.havoc9.org.
+   5. The certificate: havoc9.org/deploy/https-setup.sh (section 8).
+   6. The site and the build in place (section 5).
+   7. h9web: accounts and the relay, with H9's server list (section 6).
+   8. settings.json: the relay and master as shipped; JOIN links only if
+      wanted (section 4).
+   9. nginx: havoc9.org/deploy/nginx-setup.sh (section 8).
+   10. Each game server's cvars and firewall (section 7).
+   11. Checks:
+         curl -sI https://havoc9.org/webclient/
+             200
+         curl -sI https://havoc9.org/webclient/engine/xash.wasm
+             200, content-type: application/wasm
+         curl -s https://havoc9.org/webclient/manifest.json | head -c 120
+             {"version":1,...
+         curl -sI https://havoc9.org/webclient/game/ts/addons/amxmodx/configs/ts_advertise.cfg
+             404
+         curl -sI https://havoc9.org/webclient/DEPLOY.txt
+             404
+         curl -sI https://havoc9.org/deploy/https-setup.sh
+             404
+       Then in a browser: sign in, PLAY, the main menu; Multiplayer > Internet
+       games lists the servers; join one, and its console shows the player
+       coming from the relay's address. window.h9web.log in the page's console
+       holds the engine's log.
+
+
+ 11. ENGINE CHANGES FOR THE BROWSER
+ ----------------------------------
+   * engine-h9-websound.patch (xash3d-h9-patches\patches, registered in xash.bat,
+     logged in PATCH_CHANGELOG.md): in the browser build only (#if
+     XASH_EMSCRIPTEN), the sound mixer skips the time a long frame already
+     played instead of painting into it, and mixes at least 0.2 s ahead,
+     whatever _snd_mixahead says (TS 3.0's config.cfg sets 0.1). A frame in a
+     browser can run long: a game file is fetched the first time it is read.
+     Written for H9 from the msr-web kit's description; none of the kit's files
+     was copied. The Windows build compiles as before.
+   * engine-h9-webmenu.patch (the same, row 26 of PATCH_CHANGELOG.md), in the
+     browser build only: the main menu's video is decoded by the page and drawn
+     by the engine (avi_ffmpeg.c gets an XASH_EMSCRIPTEN branch beside the
+     FFmpeg one: Module.video in client.js decodes H9's Motion-JPEG AVI with the
+     browser's own JPEG decoder, and the engine uploads each picture with
+     GL_UpdateTexture and draws it as the FFmpeg branch does); Sys_Quit stops
+     the frames and tells the page instead of jumping to a jump buffer the
+     browser build never set (the X and Quit used to leave a dead canvas); the
+     minimize command asks the page. The packer re-encodes a menu video in any
+     other codec to Motion-JPEG with ffmpeg, so the page needs only the one
+     decoder; H9's needs none.
+   * Not carried: the kit's freevgui App::panelRemoved. It guards against a
+     panel deleted while the app still points at it; reTS's client takes panels
+     out (CListBox, CGrid, the command menu's removeAllChildren) without
+     deleting them, so the case does not arise in TS.
+   * No engine change was needed for the relay: the webassembly patch's socket
+     hooks already hand each datagram's address to the page (Module.net), and
+     client.js frames it.
+
+
+ 12. H9'S PATCHES IN THE BROWSER BUILD
+ -------------------------------------
+   All of xash.bat's chain is applied in TSM\xash3d-fwgs and built into the
+   browser engine. How each one fares there:
+
+   webassembly-patch (library_suffix, engine, mainui, freevgui)
+                          the browser port itself
+   freevgui-h9-scheme     in the client: freevgui is compiled into reTS's wasm
+                          client from TSM\xash3d-fwgs (3C)
+   freevgui-h9-fonts      Win32 GDI only (platform\win32\font.cpp). Its job is
+                          done by the manifest's font list, made from fonts.txt
+                          by the same rules (3D), which the page registers
+                          before the engine starts
+   engine-h9-cloak, cmdbuf, chatmouse, sprguard, spraypicker, spraycmd, userid,
+   deltabits, concolor, consolemusic, chatinput, cvarresync
+                          plain engine code, built in. userid: cl_h9_userid
+                          comes from the page (section 4). spray: ts\logos is
+                          in the package, tempdecal.wad is written in memory
+   engine-h9-suddendeath, engine-h9-xray
+                          built in; their renderer parts are in
+                          libref_webgl2.wasm (the fog goes through gl2_shim)
+   engine-h9-bigworld     built in; a joining client takes the large
+                          coordinates from the server, and ts\delta.lst with
+                          the widened origin fields is in the package
+   engine-h9-autoconfig   server side; nothing for a client to do
+   engine-h9-presence     everything under #if XASH_WIN32: does nothing here
+   mainui-h9-gamestartup, sprayui, hover
+                          in libmenu.wasm (the menu)
+   engine-h9-websound, engine-h9-webmenu
+                          the browser build only (section 11)
+   uncommitted menu-video work (CIN_MENUBG)
+                          built in; the browser build has no FFmpeg (it still
+                          logs "AVI: Not supported"), and the menu's video
+                          comes through engine-h9-webmenu instead

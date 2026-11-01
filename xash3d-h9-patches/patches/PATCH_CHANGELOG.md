@@ -66,6 +66,11 @@ about the first kind:
 | 21 | `engine-h9-consolemusic.patch` | `sound/s_stream.c` | the main menu's music plays on while the console is open over the menu |
 | 22 | `engine-h9-chatinput.patch` | `dll_int/cl_game.c`, `console.c` | the say: line under the chat lines, not at the top left |
 | 23 | `engine-h9-bigworld.patch` | `server/sv_init.c` | big-world coordinates on for a map past +/-4096 |
+| 24 | `engine-h9-websound.patch` | `sound/s_main.c` (`S_UpdateChannels`) | the browser build only (`#if XASH_EMSCRIPTEN`): the mixer skips the time a long frame already played instead of painting into it, and mixes at least 0.2 s ahead whatever `_snd_mixahead` says. The Windows build compiles as before |
+| 25 | `engine-h9-cvarresync.patch` | `common/cvar.c` (`Cvar_SanitizeAndSet`) | setting a cvar to the string it already holds reads its value from that string again, as GoldSrc does, so a value the client DLL wrote directly (the HL SDK camera's `cam_idealpitch`/`cam_idealyaw`/`cam_idealdist`, `cam_snapto`) can be set back. Independent of every other patch -- no other patch touches `cvar.c` |
+| 26 | `engine-h9-webmenu.patch` | `client/avi/avi_ffmpeg.c` (a new `#elif XASH_EMSCRIPTEN` branch), `common/system.c` (`Sys_Quit`), `platform/sdl2/vid_sdl2.c` (`Platform_Minimize_f`) | the browser build only: the main menu's background video (the CIN_MENUBG work) decoded by the page (`Module.video`, client.js) and drawn through the same `GL_UpdateTexture`/`R_DrawStretchPic` calls as the FFmpeg branch; `Sys_Quit` stops the frames and tells the page (`Module.callbacks.gameQuit`, with whether an error ended it) instead of longjmp-ing to a jump buffer the browser build never set; `minimize` asks the page (`Module.callbacks.gameMinimize`). The FFmpeg branch and the Windows build are untouched. Independent of every other patch -- no other patch touches these files |
+| 27 | `engine-h9-phsbudget.patch` | `common/mod_bmodel.c` (`Mod_CalcPHS`) | no PHS for a world whose PHS would take more than 192 MB (New Byzantium's 46,744 leaves: 521 MB, which froze a 32-bit listen server or ran it out of memory while the map loaded), or whose rows would take more than 8 GB of merging (a later New Byzantium build, draft vis, 60% of its leaves seen from the average leaf: about 1,300 GB, hours of a frozen load); sounds and PAS messages then reach every player, by `Mod_FatPVS`'s own fallback. Below the budget the compressed PHS is sized in a first pass and allocated once instead of reallocated for every row. Independent of every other patch -- no other patch touches `mod_bmodel.c` |
+| 28 | `engine-h9-motd.patch` | `client/cl_motd.c` and `client/cl_motd.h` (new), `cl_main.c` (`CL_ClearState`, `CL_Disconnect`, `Host_ClientFrame`, `CL_Init`, an include), `cl_view.c` (`V_PostRender`), `parse/cl_parse.c` (`CL_ParseUserMessage`), `input/in_keys.c` (`Key_Event`), `input/input.c` (`IN_MouseEvent`, `IN_Commands`) | the splash MOTD: the engine takes the `H9Motd` user message `h9_motd.sma` sends, holds TS's `MOTD` text while the splash loads, shows a server's picture (fetched over https, capped at 2 MB and 2048 px a side) or, for a web page, its picture or text with OPEN PAGE (system browser after a confirmation showing the address, on a click only), and hands the text to the client library when the splash fails; in the browser build `Module.motd` (client.js) shows it and answers with `h9_motd_result`. `cl_h9_motd 0` turns it off. **Applies after the whole chain**: its `cl_main.c` include hunk sits after `client.h`, clear of the context of `engine.patch`'s `msr_webauth.h` hunk (an include placed right after `msr_webauth.h` broke that patch's reverse check), and its other hunks are clear of cloak/userid/presence's. See `docs\H9_MOTD.txt` |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -458,3 +463,183 @@ library, whose READ_COORD divides by 8 whatever the engine does, so a value TS s
 out an eighth of itself. A coordinate written into a user message (`svgame.msg_index` 0 and up) keeps the
 classic eighths now; the engine's own messages (temp entities and the like, read by the engine) take
 big-world's whole units.
+
+### 2026-11-01 -- engine-h9-websound.patch (new)
+
+For the browser build of the engine (the H9 web client, havoc9.org\webclient). A frame in a browser can
+run long: a game file is fetched the first time the engine reads it, and many players draw through
+software WebGL. When a frame outlasts `_snd_mixahead`, the sound device has played past `paintedtime`;
+`S_UpdateChannels` then painted from the old `paintedtime`, into ring-buffer space the device had
+already played, and that late sound was heard a whole buffer later: doubled sounds, garble in a fight.
+Quake's mixer moved `paintedtime` up to `soundtime` in that case; this tree had lost that. The patch
+puts it back after `S_GetSoundtime`. It also mixes at least 0.2 s ahead, whatever `_snd_mixahead`
+says: a first version gave the cvar a default of 0.2, but TS 3.0's own config.cfg, the one a new
+browser player starts with, sets `_snd_mixahead "0.1"`, and the browser's log showed 0.1 in force.
+The cvar keeps its 0.12 default and its definition is untouched.
+
+Both changes are inside `#if XASH_EMSCRIPTEN`, so the Windows build compiles exactly as before (the
+catch-up would help a native hitch too; it was kept to the browser so H9XASH is unaffected). Written
+for H9 from the description in havoc9.org\webclient\DEPLOY.txt section 11; no file of the msr-web kit
+was copied.
+
+Made with `diff -u` against xash3d-fwgs HEAD's `s_main.c` (no other patch, tracked or webassembly,
+touches that file, so it cannot overlap another patch's context). Registered last in `xash.bat`, after
+bigworld, in its ENGINE.txt list and the `xash.dll` description. Verified: `git apply --check` against
+the live tree; applied; reverse check in place; round trip (`git apply --reverse`, `s_main.c` back at
+HEAD, `git apply --check`, `git apply`, byte-identical); then a reverse check of every patch in
+`xash.bat`'s order, all in place. Built for the browser with emsdk 6.0.12 (`waf build`, werror on,
+clean) in a copy of the tree, webclient-build\xash3d-fwgs, and run in Opera GX: the engine reaches the
+main menu with the mixer up ("Using SDL audio driver: emscripten @ 44100 Hz").
+
+### 2026-11-01 -- engine-h9-cvarresync.patch (new)
+
+Third-person camera cvars set from the console could stay where the client had put them. The HL SDK
+camera that TS's client keeps (reTS `cl_dll\in_camera.cpp`) writes `cam_idealpitch`, `cam_idealyaw` and
+`cam_idealdist` through the cvar pointer in `CAM_Think` (`->value`, the string untouched), and its
+`snapto` command flips `cam_snapto->value`. `Cvar_SanitizeAndSet` returned early when the new string
+equalled the stored one, so after `+camin`/`+camout`/`+campitchup`/`+cammousemove`/`snapto` had moved a
+value, setting the string the cvar still held (`cam_idealdist 100`, `cam_snapto 0`) changed nothing.
+GoldSrc's `Cvar_DirectSet` copies the string and re-reads the value on every set. Now the early return
+first reads the value from the string again and calls `Cvar_Changed` when it differs; the string, the
+userinfo and the "changed to" broadcast stay as before. This covers the console, configs,
+`Cvar_Set`/`Cvar_SetValue` from the DLLs and the menu (all through `Cvar_DirectSet`). The `set` and
+`reset` commands (`Cvar_Set2`, FWGS's own, not in GoldSrc) keep their own early return.
+
+Note for whoever reads this about the camera: TS's camera does not use `cam_idealdist` for the
+position, and it uses `cam_back`/`cam_right`/`cam_up` only while `cl_camtype` is 3 (reTS `view.cpp`,
+`V_CalcNormalRefdef`); types 0, 1, 2 and anything else are fixed offsets. That is a client rule, the
+same on GoldSrc, not something this patch changes.
+
+Made with `git diff` against xash3d-fwgs HEAD 17c23c81 (`cvar.c` had no uncommitted change; no other
+patch, tracked or webassembly, touches it). Registered last in `xash.bat`, after websound, in its
+ENGINE.txt list and the `xash.dll` description. Verified: reverse check in place against the live tree;
+round trip (`git apply --reverse`, `cvar.c` back at HEAD, `git apply --check`, `git apply`,
+byte-identical, in place again); `xash.bat engine` (run with `JOBS=6`) lists all 27 patches in place,
+compiles `cvar.c` without a warning and installs xash.dll into H9XASH.
+
+### 2026-11-01 -- engine-h9-webmenu.patch (new)
+
+For the browser build (the H9 web client). Two things the browser build lacked, both inside
+`XASH_EMSCRIPTEN` so the Windows build compiles exactly as before.
+
+The main menu's background video. The CIN_MENUBG work (uncommitted in the tree: `cl_gameui.c`'s
+`UI_PrecacheMenuBgVideo`/`UI_DrawMenuBgVideo`, mainui's `BackgroundBitmap.cpp`) plays
+`media/<ui_background_video_file>` through the AVI functions, which the browser build compiled as
+`avi_ffmpeg.c`'s no-FFmpeg stubs, so the menu showed its plain colour. A new `#elif XASH_EMSCRIPTEN`
+branch, between the FFmpeg branch and the stubs, implements the same functions with the page as the
+decoder: `AVI_OpenVideo` asks `Module.video.open(path)` (EM_JS) for a handle and the picture size,
+`AVI_Think` asks `Module.video.frame` to write the current picture into `Avi->dst` as RGBA when it
+has a new one, then uploads it with `GL_UpdateTexture( ..., PF_RGBA_32 )` and draws it with
+`R_DrawStretchPic`, setting the same render mode and colour first as the FFmpeg branch does. The page
+loops the video itself (`AVI_REWIND` only reports whether it is active); no sound. `AVI_Initailize`
+is left as it is, so it still reports no AVI support and `AVI_LoadVideo`'s cinematics stay off: only
+the menu background, which `cl_gameui.c` opens directly, uses the branch. H9's menu video is an MJPEG
+AVI (each frame a complete JPEG), which client.js decodes with the browser's own JPEG decoder.
+
+Quit and minimize. The browser build's `Host_Main` sets no jump buffer (`setjmp` is under
+`!XASH_EMSCRIPTEN`), so `Sys_Quit`'s `Host_ExitInMain` longjmp-ed to an unset buffer after the
+shutdown while the main loop went on calling the freed engine: the menu's X, Quit and the console's
+quit left a dead canvas. In the browser build `Sys_Quit` now cancels the main loop, calls
+`Module.callbacks.gameQuit( error )` (error is 1 when `Sys_Error` brought it there, `HOST_ERR_FATAL`)
+and ends the call with `emscripten_exit_with_live_runtime()`, which does not return, as `Sys_Quit`
+must not. `Platform_Minimize_f` (the menu's minimize button) calls `Module.callbacks.gameMinimize()`
+instead of `SDL_MinimizeWindow`, which a page cannot do. client.js answers: back to the site's front
+page, or the error on screen; minimize leaves full screen.
+
+Made with `diff -u`: `system.c` and `vid_sdl2.c` against HEAD (no uncommitted change in either);
+`avi_ffmpeg.c` against a snapshot of the file as the tree had it, with the CIN_MENUBG work, so only
+the new branch is in the patch. Its hunk is about 60 lines from the CIN_MENUBG work's nearest change
+(`avi[3]`) and has none of its lines as context, and it applies to HEAD's file as well. No other patch,
+tracked or webassembly, touches the three files. Registered last in `xash.bat`, after cvarresync, in
+its ENGINE.txt list and the `xash.dll` description. Verified: reverse check in place against the live
+tree; forward check and apply on copies of the three files as they were before the change, each then
+identical to the live file; a reverse check of all 28 patches in `xash.bat`'s order, all in place. Not
+yet built: no emcc build was allowed while a map compile ran.
+
+### 2026-11-01 -- engine-h9-phsbudget.patch (new)
+
+New Byzantium froze a listen server, or ran it out of memory, while the map loaded. A multiplayer
+server builds the world's PHS (`Mod_CalcPHS`, called when `svs.maxclients > 1`): it decompresses every
+leaf's PVS and ORs together the rows of every leaf each one sees, in one allocation of
+`rowbytes * (numleafs + 1) * 2` bytes, then compresses the result into an array that grew by one
+`Mem_Realloc` per row. Both grow with the square of the leaf count: for New Byzantium's 46,744 leaves
+that is 521 MB at once in a 32-bit process, and each realloc copying all the rows before it. The hive
+(23,797 leaves) needs 135 MB and loads.
+
+Past a budget of 192 MB, between the two, no PHS is built and the console says so. `Mod_FatPVS`
+already treats every leaf as audible when it is asked for a PHS the world does not have, so sounds and
+PAS messages reach every player: more traffic on a big map, nothing wrong. Below the budget the
+compressed rows are measured in a first pass and the array is allocated once, so a large map's PHS no
+longer costs a quadratic amount of copying. The budget is a constant in `Mod_CalcPHS`.
+
+Made with `diff -u` against HEAD's `mod_bmodel.c` (no uncommitted change in it; no other patch, tracked
+or webassembly, touches the file). Registered last in `xash.bat`, after webmenu, in its ENGINE.txt list
+and the `xash.dll` description. Verified: reverse check in place against the live tree; forward check on
+a copy of the file as it was before the change.
+
+### 2026-11-01 -- engine-h9-phsbudget.patch (work budget)
+
+A later New Byzantium build froze the load again, with this patch in place. Its world has 26,388
+leaves, so the PHS needs only 166 MB and passed the memory budget; but it was compiled with a draft
+vis (`-fast`), and from the average leaf 15,842 leaves (60%) are visible. Building the PHS merges one
+row of 3,300 bytes for every visible leaf of every leaf: about 1,300 GB of OR operations, hours of a
+server at 100% of one core with nothing logged after "Building PHS...".
+
+`Mod_CalcPHS` now also counts the visible leaves from the compressed PVS before allocating anything
+(its zero runs skipped; a leaf without visinfo counts as seeing every leaf, as `Mod_DecompressPVS`
+treats it) and builds no PHS when the merging would pass 8 GB, a few seconds of work. The console
+names both numbers. The memory budget is unchanged.
+
+Made with `git diff HEAD -- engine/common/mod_bmodel.c` (still the only patch touching the file).
+Verified: reverse check in place against the live tree; a dedicated server from the repo's H9XASH,
+with xash.dll built from the h9 tree minus the unfinished engine-h9-motd.patch, loaded the build in
+8 seconds ("PHS not built: 26389 leaves see 15841 leaves each on average, 1284 GB of merging, past
+the 8 GB budget"), where the previous xash.dll stopped at "Building PHS...".
+
+### 2026-11-01 -- engine-h9-motd.patch (new)
+
+The splash MOTD (docs\H9_MOTD.txt): a server host can show a picture or a web page at join in place of
+TS's text MOTD, the way Source servers do, off unless the host turns it on. The server side is
+`h9_motd.sma`; this patch is the client side, in the engine so that it works whatever client library
+is loaded and in both builds.
+
+Transport. `h9_motd.sma` registers the `H9Motd` user message and sends it to each H9 client (those
+with the `h9_clientid` userinfo key) on its first `PlayerPreThink` of a map, which runs before the
+game's own `PreThink` -> `UpdateClientData` -> `InitHUD` -> `SendMOTDToClient`; a user message sent
+from `client_putinserver` is dropped by `SV_Multicast` (the client is not `cs_spawned` yet). The
+message comes in parts like TS's MOTD (a byte, 1 on the last part, then a string) and makes an info
+string: type (image or page), show (connect or map), the picture's and the page's addresses, the
+title, and asked (the player typed motd). `cl_motd.c` parses it itself: `Info_ValueForKey` stops
+values at 127 characters. `CL_ParseUserMessage` hands every user message to `CL_Motd_UserMessage`
+after reading its bytes, next to the engine's own ScreenShake/ScreenFade handling: `H9Motd` never
+reaches the client library (which has no handler for it), and TS's `MOTD` parts are held while a
+splash loads, dropped once it shows, and dispatched to the client library as they came
+(`CL_DispatchUserMessage`) when it fails, so the player then gets TS's text window. A client without
+this patch skips `H9Motd` (no pfn) and shows the text.
+
+Native build. The picture is fetched with `HTTP_GetToMemory` (mbedTLS, cacert.pem from extras.pk3),
+refused over 2 MB, refused over 2048 px a side from its header before decoding, decoded by imagelib
+(PNG, TGA, BMP) and drawn by `CL_Motd_Draw` from `V_PostRender`, after `VGui_Paint`. A page cannot be
+drawn: its picture, or the held text, with OPEN PAGE, which shows the whole address and opens
+`Platform_ShellExecute` on a click of OPEN IN BROWSER only. While it is up `Key_Event` and
+`IN_MouseEvent` give it the keys and clicks (the console key excepted; the release of anything it
+took is its too), `IN_Commands` turns the game's mouse off (`IN_DeactivateMouse`) and back on after,
+and sends no look events; it draws its own pointer when VGUI has not shown the system's. Addresses
+must be https with a host name; 10 s for the picture, then the text. `CL_ClearState` takes it down at
+a new map; `CL_Disconnect` clears the once-a-connection flag.
+
+Browser build. `CL_Motd_Frame` hands it to the page (`EM_JS` -> `Module.motd.show`, client.js), which
+answers with the restricted command `h9_motd_result 1|0`; no answer in 10 s, or no `Module.motd`, and
+the text is shown.
+
+Made with `diff -u` of `cl_main.c`, `cl_view.c`, `parse/cl_parse.c`, `input/in_keys.c` and
+`input/input.c` against copies taken before the change (the tree as the whole chain leaves it), and
+the two new files against /dev/null. Registered last in `xash.bat`, after phsbudget, in its
+ENGINE.txt list and the `xash.dll` description. Verified: a reverse check of all 30 patches in
+`xash.bat`'s order against the live tree, all in place (a first cut put the `cl_main.c` include right
+after `msr_webauth.h`, which broke `engine.patch`'s reverse check, hence its place after `client.h`);
+a forward check and apply on a copy of the five files as they were before, the result the same text
+as the live tree; a syntax-only compile of `cl_motd.c` and the five edited files with clang, once in
+cl mode with the native build's own include paths and defines (build\compile_commands.json) and once
+for wasm32-emscripten with the browser build's: no error, and no warning in `cl_motd.c`. Not built:
+the engine build (`xash.bat engine`) and the browser build are left to the user's schedule.

@@ -63,6 +63,18 @@
  Set it back to 1 to turn it on again. docs\RICH_PRESENCE.txt has what the card
  shows.
 
+ A server's splash MOTD
+ ----------------------
+ A server can show a picture or a web page when you join, in place of TS's text
+ MOTD. ESC, ENTER, SPACE or CLOSE close it, and its OPEN PAGE button shows the
+ page's whole address before anything opens. To always get the text MOTD
+ instead, put this in the console (config.cfg keeps it):
+
+     cl_h9_motd 0
+
+ Typing motd in the console shows the server's MOTD again. docs\H9_MOTD.txt has
+ the whole account, and docs\HTTP_SERVER_MOTD.txt is the guide for hosts.
+
  Finding servers and joining them
  --------------------------------
  The Internet tab shows the FWGS public list, plus any server lists named in

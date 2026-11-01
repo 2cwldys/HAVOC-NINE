@@ -1,0 +1,657 @@
+===============================================================================
+ H9WEB ADMIN -- RUNNING HAVOC9.ORG'S ACCOUNTS, WEB CLIENT AND SERVER LIST
+===============================================================================
+
+ For the people who run havoc9.org: what the site does, what each role is,
+ and the command for every admin job. How the service is built and set up
+ is in h9web\README.txt; the web server, the certificate and the web
+ client's build are in havoc9.org\webclient\DEPLOY.txt.
+
+ Nothing in this file is secret, and nothing secret may be added to it: no
+ passwords, nothing from secrets.json, no rcon passwords, no player's
+ details. It is in the public repository.
+
+ CONTENTS
+    1. What the site does
+    2. Roles
+    3. The admin command
+    4. Every account command
+    5. Everyday jobs
+    6. The server list (servers.json)
+    7. Settings (config.json)
+    8. Keeping it running
+    9. Rules for admins
+   10. What players do for themselves
+   11. The forum, for moderators
+   12. The admin panel
+   13. Profile pictures
+   14. Username changes
+   15. Discord and the registered role
+   16. Presence: who is playing, devices and the player id
+
+
+ 1. WHAT THE SITE DOES
+ ---------------------
+   * Pages: HOME, PLAY, DOWNLOADS, SERVERS, FORUM, JOIN, MUSEUM and CREDITS.
+     Every page's nav has SIGN IN and CREATE ACCOUNT, or, once signed in, the
+     username and ACCOUNT, and ADMIN for moderators and admins.
+   * Accounts. Anyone can make one with a username and a password; there is
+     no email. A sign-in lasts 30 days, or 14 days unused.
+   * PLAY is the web client: H9XASH in the browser, from the main menu to
+     the server browser to a game. It starts only for a signed-in account
+     that is not suspended. Its game traffic goes through the relay on the
+     VPS, and the relay talks only to the servers on the server list
+     (section 6).
+   * SERVERS lists the servers on the server list that answered recently,
+     with their map, mode and players. h9web asks each one every 30
+     seconds.
+   * Each account has a player id. The web client hands it to the game as
+     cl_h9_userid, so a server sees the same player the same way every time
+     (its h9_clientid). The ACCOUNT page shows the first 8 characters of the
+     id and what each listed server sees, and the whole id on SHOW (or COPY) in
+     that PLAYER ID row,
+     for a player who puts it into the downloaded H9XASH with
+     enter_userid.cmd so both clients count as the same player
+     (docs\CUSTOM_XASH_USERID.txt, section 2).
+   * FORUM is the forum (section 11): categories, threads and posts, with
+     profile pictures (section 13).
+   * ACCOUNT has DISCORD: a player links their Discord account once and gets
+     the registered role in H9's Discord (section 15).
+   * Presence (section 16): who is in game on H9's servers, in the web
+     client or on the site, shown beside forum posts, on a player's card,
+     as "online now" on HOME and "who's playing" on SERVERS, with playtime
+     and a PLAYS IN GAME badge. Each player chooses what others see.
+   * ADMIN is the admin panel (section 12), for moderators and admins: the
+     forum's reports and tools, suspensions, accounts, name changes (section
+     14), presence (section 16) and the audit log. The admin command on the
+     VPS (section 3) does the rest, and is the only way to make or unmake an
+     admin.
+
+
+ 2. ROLES
+ --------
+   Every account has one of three roles:
+     user        every new account: a player
+     moderator   set by an admin, in the admin panel or with the admin command
+     admin       set only with the admin command on the VPS
+   PLAY and the server list treat all three the same. On the forum and in the
+   admin panel (sections 11 and 12):
+     moderator   the forum's tools (pin, lock, move, remove and restore threads
+                 and posts; the report queue), posting off and on, removing a
+                 profile picture, and suspending a player for up to 7 days
+     admin       all of that, and the forum's categories, suspensions of any
+                 length and lifting them, signing an account out, password
+                 resets, deleting accounts, making players moderators and back,
+                 name changes, and the audit log
+   Nobody acts on an account of their own role or above: nobody suspends,
+   deletes or demotes themselves, and moderators act on players only.
+
+   The real admin power is the VPS: whoever can log in to it and run the
+   admin command can do everything in section 4, whatever role their own
+   account has. Keep that to the people who run the site.
+
+   The first admin: sign up on the site like anyone else, then on the VPS
+     $A set-role <your username> admin
+
+
+ 3. THE ADMIN COMMAND
+ --------------------
+   Log in to the VPS (ssh), then set this once per shell:
+
+     A="sudo -u h9web /usr/bin/node /opt/h9web/bin/h9web-admin.js --config /etc/h9web/config.json"
+
+   and run each command as  $A <command> ...  for example  $A list
+
+   * It runs as the service's own user with the service's settings, so it
+     works on the same database. Keep the "sudo -u h9web": run as root it
+     can leave files in /var/lib/h9web that the service cannot write.
+   * The service must have started once: it makes the database.
+   * A change counts on the site at once. A web client player already in a
+     game notices within 60 seconds: a suspension or a sign-out cuts them
+     off then.
+   * It never takes a password as an argument (the shell would keep it in
+     its history). The passwords it makes are printed once and cannot be
+     shown again.
+
+
+ 4. EVERY ACCOUNT COMMAND
+ ------------------------
+   $A list [--limit N] [--offset N]
+       The accounts, oldest first, 100 at a time: id, username, role, when
+       made, last sign-in, suspension. --offset 100 shows the next 100.
+
+   $A show <username>
+       One account: role, made, last sign-in, last password change,
+       suspension, how many sessions are signed in now, and the first 8
+       characters of its player id.
+
+   $A create <username> [--role user|moderator|admin]
+       A new account with a random password, printed once (four groups of
+       five letters and digits). For a staff account, or a player who
+       cannot use the form. The username rules of section 10 apply here
+       too.
+
+   $A reset-password <username>
+       A new random password, printed once, and every session of the
+       account ends. Send it to the player privately; they change it under
+       ACCOUNT, CHANGE PASSWORD.
+
+   $A set-role <username> <user|moderator|admin>
+
+   $A ban <username> [--days N] [--reason "TEXT"]
+       Suspends the account: it cannot sign in, every session ends, and a
+       web client game it is in is cut off within 60 seconds. With --days N
+       it ends by itself after N days; without, it lasts until unban. The
+       player sees the end and the reason the next time they sign in with
+       the right password ("This account is suspended until ... Reason:
+       ..."), so write the reason for them to read.
+
+   $A unban <username>
+       Lifts a suspension at once.
+
+   $A revoke-sessions <username>
+       Signs the account out everywhere: every browser, and the web client.
+
+   $A delete <username> --yes
+       Deletes the account and its sessions for good; nothing brings it
+       back. Its player id never comes back either, and its username can be
+       taken again. Without --yes it refuses and says what it would delete.
+
+   $A rename <username> <new name>
+       Changes a username at once, with the sign-up checks; the old name is
+       held for 30 days (section 14).
+
+   $A backup <file>
+       A copy of the whole database, safe to make while the site runs
+       (section 8).
+
+   Every command here that changes an account goes into the audit log, as
+   "(command line)" (section 12).
+
+
+ 5. EVERYDAY JOBS
+ ----------------
+ A player forgot their password
+   There is no email, so the site cannot tell who is asking: you do. Make
+   sure the person asking owns the account (for example, the Discord account
+   they are known by), then
+     $A reset-password <username>
+   send the password by direct message, never in a channel, and have them
+   change it under ACCOUNT straight away.
+
+ A player thinks someone else is in their account
+     $A revoke-sessions <username>
+     $A reset-password <username>
+   and send the new password privately, as above.
+
+ A player breaks the rules
+   On the site and in the web client:
+     $A ban <username> --days 7 --reason "Cheating. Appeal on Discord."
+   or in the admin panel, ACCOUNTS (section 12). For the forum alone, turn
+   their posting off instead (section 11).
+   Every web client player reaches the game servers from the relay's one
+   address, so never ban a web client player by IP on a game server: that
+   bans every web client player at once. Ban the account here. A player on
+   the downloaded client is banned on the game server as usual.
+
+ Telling who a web client player is, on a game server
+   Each account shows on a server as one h9_clientid, the same every time;
+   the player can see theirs under ACCOUNT, WHAT THE SERVERS SEE. It tells
+   honest players apart. It does not prove who someone is: a modified
+   client can send any value (h9web\README.txt, section 4).
+
+ A wave of junk accounts
+   Sign-ups are limited to 5 an hour from one address. Delete the junk
+   accounts (delete ... --yes). If it keeps up, lower
+   limits.signupPerIp.max in config.json (section 7).
+
+ A player asks for their account to be deleted
+   The ACCOUNT page tells players to ask an admin on Discord. Make sure the
+   owner is asking, then
+     $A delete <username> --yes
+   The service's logs keep its sign-ins for up to 30 days after that, as
+   the privacy note on the ACCOUNT page says; then they are gone too.
+
+ Adding, hiding or removing a game server
+   Edit servers.json (section 6). The site, the relay and the web client's
+   server browser follow within 2 seconds; nothing needs a restart.
+
+ A game server that web client players will use
+   Besides putting it in servers.json, set on that server
+     sv_connect_max_per_ip 0
+     sv_query_rate_limit 30
+     sv_timeout 120
+   and open its UDP port to the relay's address
+   (havoc9.org\webclient\DEPLOY.txt, section 7).
+
+
+ 6. THE SERVER LIST (servers.json)
+ ---------------------------------
+   /etc/h9web/servers.json is the one list of H9's servers. The relay sends
+   game traffic to these and to nothing else, the web client's server
+   browser lists them, SERVERS shows them, and the ACCOUNT page shows what
+   each one sees. Edit it with  sudo nano /etc/h9web/servers.json ; it is
+   read again within 2 seconds of being saved.
+
+     {
+       "servers": [
+         { "name": "HAVOC 9", "address": "203.0.113.10:27015" },
+         { "name": "HAVOC 9 (on this VPS)", "address": "198.51.100.20:27015",
+           "target": "127.0.0.1:27015" },
+         { "name": "HAVOC 9 test", "address": "203.0.113.10:27016", "listed": false }
+       ]
+     }
+
+   (Those addresses are documentation examples, not H9's.)
+
+   name     the name shown on the site (default: the server's own)
+   address  the server's public IPv4 address and port, numbers only: the
+            browser game looks up no host names
+   target   where the relay really sends, when that differs: 127.0.0.1:port
+            for a game server on the VPS itself
+   listed   false: joinable through the web client with "connect
+            address" in its console, but not in the server browser or on
+            SERVERS (a test server)
+   gamedir  "ts" unless set
+   notes    anything; not read
+
+   A file with a mistake in it leaves the last good list working, and a bad
+   entry is skipped; both are noted in the log (section 8).
+
+   The JOIN shortcuts under PLAY are separate: settings.json in the site's
+   webclient folder (DEPLOY.txt, section 4).
+
+
+ 7. SETTINGS (config.json)
+ -------------------------
+   /etc/h9web/config.json. A setting it leaves out keeps its default
+   (h9web\lib\config.js, DEFAULTS). After a change:
+     sudo systemctl restart h9web
+   A restart keeps everyone signed in, but drops every web client player
+   from the game they are in (they join again), so pick a quiet moment.
+
+   The ones an admin may want:
+     session.days, session.idleDays   how long a sign-in lasts: 30 days,
+                                      14 unused
+     password.minLength               10
+     limits.loginPerIp                sign-in tries per address
+     limits.loginPerUser              failed sign-ins per username
+     limits.signupPerIp               sign-ups per address
+     limits.passwordPerAccount        wrong current passwords per account
+                                      Each is max tries in windowSeconds,
+                                      then a block of blockSeconds that
+                                      doubles up to maxBlockSeconds.
+     relay.enabled                    false: the relay is off; PLAY starts,
+                                      but the game reaches no server
+     relay.maxSocketsPerAccount       4: web client connections one account
+                                      may hold at once
+     relay.maxSocketsTotal            512: web client connections for
+                                      everyone at once
+     status.pollSeconds               30: how often SERVERS is refreshed
+     admin.modSuspendMaxDays          7: the longest suspension a moderator
+                                      gives
+     admin.auditRetentionDays         90: how long the audit log keeps a row
+     admin.renameHoldDays             30: how long an old username is held
+     admin.renameCooldownDays         30: the wait between name changes
+     moduleSettings.forum             the forum's: guestRead, posting limits,
+                                      picture sizes (h9web\README.txt, 15)
+     moduleSettings.discord           Discord linking: clientId, guildId, the
+                                      role, the reconcile (README.txt, 18)
+     logLevel                         "info"
+
+   Never on the VPS: insecureCookies (it strips the sign-in cookie's
+   protection), devStatic, or a dataDir inside the site's folder (the
+   service refuses that). allowedOrigins stays the site's own address,
+   ["https://havoc9.org"].
+
+
+ 8. KEEPING IT RUNNING
+ ---------------------
+   Where things are
+     /opt/h9web/                  the code
+     /etc/h9web/config.json       the settings (section 7)
+     /etc/h9web/servers.json      the server list (section 6)
+     /var/lib/h9web/              secrets.json, h9web.db (the accounts,
+                                  the forum, the audit log), backups/,
+                                  modules/forum/avatars/ (pictures)
+
+   Is it up?
+     systemctl status h9web
+     curl -s https://havoc9.org/api/me          answers {"signedIn":false}
+
+   Its log, live
+     journalctl -u h9web -f
+   One line per sign-up, sign-in, failed sign-in, sign-out, password change
+   and web client connection, and per forum post, report, moderator step and
+   admin panel action (never what a post says). Never a password, a cookie
+   or a token.
+
+   Restart
+     sudo systemctl restart h9web               (section 7's warning)
+
+   Backups
+     The daily backup timer (h9web\README.txt, section 10) copies the
+     database into /var/lib/h9web/backups and keeps 14 days of them. Copy
+     that folder off the VPS now and then. A copy right now:
+       $A backup /var/lib/h9web/backups/h9web-now.db
+   Restore: h9web\README.txt, section 10.
+
+   Updates
+     Copy the new code into /opt/h9web, then restart. A change to the
+     database's layout is made at start, after a copy of the database goes
+     into /var/lib/h9web/backups.
+
+   The certificate
+     It renews by itself; sudo certbot certificates shows when it runs out
+     (DEPLOY.txt, section 8).
+
+   Logs are kept 30 days at most, as the ACCOUNT page promises: journald's
+   MaxRetentionSec=30day and nginx's logrotate (h9web\README.txt,
+   section 10).
+
+
+ 9. RULES FOR ADMINS
+ -------------------
+   * /var/lib/h9web/secrets.json holds the key behind every player id and
+     the pepper mixed into every password. Keep one copy offline (a password
+     manager or an encrypted drive) and nowhere else: never in git, the
+     site, Discord or a screenshot. If it is lost, every password and every
+     player id is lost with it. If it leaks, tell the players: with it and
+     a copy of the database, passwords can be guessed offline.
+   * Backups of the database hold every username and password hash. Keep
+     them as private as the VPS.
+   * Never ask a player for their password. No admin job needs it.
+   * Send a reset password by direct message, never in a channel.
+   * Run the admin command as written in section 3 (sudo -u h9web).
+   * Ban web client players by account, never by IP on a game server.
+   * Only the people who run the site get a login on the VPS.
+
+
+ 10. WHAT PLAYERS DO FOR THEMSELVES
+ ----------------------------------
+   * Make an account: a username of 3 to 20 letters, digits, dots, dashes
+     and underscores, and a password of at least 10 characters. Usernames
+     are unique without regard to case or look-alikes ("Ne0" cannot sit
+     beside "neo"), and staff-looking names are refused for everyone, the
+     admin command included: admin, moderator, staff, official and havoc9
+     anywhere in the name, names that start with h9 or msr, and a few more
+     (h9web\lib\usernames.js has the lists). The sign-up page tells players
+     to use a password they use nowhere else.
+   * Sign in and out, and SIGN OUT EVERYWHERE.
+   * Change their password (ACCOUNT, CHANGE PASSWORD); their other sessions
+     end.
+   * See the first 8 characters of their player id and what each server
+     sees of them; show or copy the whole id (SHOW and COPY in the PLAYER ID
+     row) to put into
+     the downloaded H9XASH with enter_userid.cmd, so the servers see both
+     clients as the same player. Optional; they keep it to themselves.
+   * PLAY.
+   * Write on the forum (section 11) and add a profile picture (section 13).
+   * Ask for a new username under ACCOUNT; an admin decides (section 14).
+   * Choose what others see of their presence under ACCOUNT, WHAT OTHERS SEE:
+     in game, which server and map, the web client, the site, playtime and
+     "last seen", each on or off (section 16). They always see all of their
+     own under IN GAME AND ONLINE.
+   They cannot get a forgotten password back or delete their account: an
+   admin does those (sections 4, 5 and 12).
+
+
+ 11. THE FORUM, FOR MODERATORS
+ -----------------------------
+   The forum is at havoc9.org/forum/ (h9web\README.txt, section 15). Anyone reads it
+   (unless guestRead is off); a signed-in, unsuspended account whose posting is on
+   writes. Moderators and admins get a MODERATE bar on every thread and the forum
+   tabs of the admin panel (section 12). Each step goes into the audit log.
+
+   On a thread
+     PIN / UNPIN          pinned threads stay at the top of their category
+     LOCK / UNLOCK        locked: no new replies, except from moderators and admins;
+                          the authors cannot edit or remove their posts in it
+     RENAME               a new title
+     MOVE                 to another category
+     REMOVE THREAD        hidden from everyone but moderators and admins; RESTORE
+                          THREAD on the same bar, or in the panel, brings it back
+   In a category's list
+     PIN / UNPIN, LOCK / UNLOCK on each thread's row, without opening it
+   On a post
+     EDIT                 any post, any time; readers see "edited by a moderator"
+     REMOVE               leaves "Removed by a moderator." in its place; you still see
+                          the text and a RESTORE button. Removing a post closes its
+                          reports
+     ACCOUNT TOOLS        opens the panel's ACCOUNTS tab for its author
+   Likes and dislikes: every signed-in member has one vote per post (not on their
+   own post, not while suspended or with posting off). Everyone sees each post's
+   likes and dislikes, and the author's likes in all beside their picture. A removed
+   post keeps its votes hidden until it is restored.
+   Removing is never final: a removed post or thread is kept and can be restored. A
+   thread whose posts were all removed hides itself, and comes back when one of its
+   posts is restored.
+
+   Reports: REPORT under a post sends it to the panel's REPORTS tab, with the reason
+   and a copy of the post as it was then (an author editing it afterwards does not
+   change the copy). DISMISS closes a report (write what was done, if anything);
+   REMOVE THE POST removes it and closes its reports. The reporter's name is shown to
+   moderators only.
+
+   Posting off: for an account that keeps breaking the forum's rules but may still
+   play. The panel's ACCOUNTS tab, POSTING ON THE FORUM: a username, an optional
+   number of days, and a reason the player reads when they try to post. They still
+   sign in, read, report and play. TURN POSTING BACK ON lifts it. Moderators do this
+   to players only.
+
+   What the forum keeps, and the rules, are on its front page. It stores no IP
+   address with a post. An account's posts stay when the account is deleted, shown
+   as from a deleted account; remove them one by one first if they must go.
+
+
+ 12. THE ADMIN PANEL
+ -------------------
+   havoc9.org/admin/, the ADMIN link in the nav of a moderator or an admin. The server
+   checks every click again: the panel shows only what a role may do, and a link
+   alone opens nothing. Nobody acts on an account of their own role or above, so
+   nobody suspends, deletes or demotes themselves, moderators act on players, and
+   admins on players and moderators.
+
+   Moderators
+     REPORTS      the forum's report queue (section 11)
+     FORUM        removed threads, with RESTORE
+     ACCOUNTS     PLAYERS: the players, newest first, with a search that filters
+                  as you type (the start of a name, any case, look-alikes too) and
+                  SUSPENDED or POSTING OFF badges; a click fills the name into the
+                  forms below
+                  SUSPEND AN ACCOUNT: a player, 1 to 7 days (config admin.
+                  modSuspendMaxDays), with a reason the player sees when signing in
+                  POSTING ON THE FORUM: section 11
+                  REMOVE A PROFILE PICTURE (section 13)
+   Admins, also
+     FORUM        the categories: name, description, who starts threads, who
+                  replies, visible or hidden (a hidden one is for staff only), order
+                  (UP, DOWN), ADD A CATEGORY, DELETE (refused while it holds threads,
+                  unless you pick where its threads move)
+     ACCOUNTS     the list shows every account at once, newest first; sort it
+                  (oldest, last sign-in, name), search as you type, show one role,
+                  or the suspended, or those with posting off. Click one to open
+                  its details, its
+                  audit trail, and:
+                    suspend for any time; empty DAYS means no end
+                    LIFT THE SUSPENSION
+                    SIGN OUT EVERYWHERE
+                    RESET PASSWORD: a new random password, shown once in the panel;
+                      send it privately, as in section 5
+                    SET ROLE: player or moderator
+                    DELETE THE ACCOUNT: type its username exactly
+     NAME CHANGES WAITING FOR A DECISION: APPROVE or DENY (section 14);
+                  SHOW DECIDED lists those approved, denied or cancelled
+     PRESENCE     the presence flags, and one account's presence: its devices,
+                  RESET THE PLAYER ID and MOVE THE PLAYER ID (section 16)
+     AUDIT LOG    every moderator and admin action, the latest first, all or by a
+                  name; kept 90 days (config admin.auditRetentionDays)
+
+   Your own password: a suspension with no end, RESET PASSWORD, SET ROLE, DELETE,
+   APPROVE, RESET THE PLAYER ID and MOVE THE PLAYER ID ask for it when pressed: a
+   small prompt opens under the button, says why, and the password goes with that
+   one action only; it is never kept.
+   Five wrong ones in 15 minutes block those buttons for 15 minutes.
+
+   Admins are made and unmade only with the admin command on the VPS
+     $A set-role <username> admin        (or user / moderator)
+   never in the panel, so a stolen admin session can neither make admins nor lock
+   the real ones out. Everything the admin command changes is in the audit log too,
+   as "(command line)".
+
+
+ 13. PROFILE PICTURES
+ --------------------
+   A player adds, replaces and removes their own under ACCOUNT, PROFILE PICTURE. It
+   shows beside their forum posts and on their forum profile; without one, the forum
+   shows the H9 default picture.
+   * PNG, JPEG, WebP or GIF (a GIF or WebP may move), never SVG, never a link to a
+     picture elsewhere. Up to 10 MB, 512 x 512, 300 frames (config, the forum's
+     pictureMax* settings). The file's own bytes decide its type, not its name.
+   * The details a picture file carries (camera, place, date, comments, editing
+     history) are removed before it is kept; nothing is re-drawn. A photo that only
+     looked upright because of its EXIF orientation shows sideways: the player saves
+     it upright and uploads it again.
+   * Kept on the VPS under /var/lib/h9web/modules/forum/avatars, never in the site,
+     at most 1 GiB in all (pictureQuotaBytes); 10 uploads an hour per account.
+   * A moderator removes a picture that breaks the rules: in the panel, ACCOUNTS,
+     REMOVE A PROFILE PICTURE, or REMOVE PICTURE on the member's forum profile. The
+     audit log records it, with the reason.
+   * Beside posts, a picture over 512 KB (a long GIF, say) shows the default one
+     until the reader hovers or taps it, so a page of posts stays light.
+   * nginx needs the location of h9web\README.txt, section 15, for the upload.
+
+
+ 14. USERNAME CHANGES
+ --------------------
+   A player asks under ACCOUNT, CHANGE USERNAME; an admin decides under NAME CHANGES
+   in the panel.
+   * The new name has to pass the sign-up rules (section 10) when asked for and again
+     at APPROVE: no other account's name in any case, nothing that looks like one, no
+     name still held. Two players may ask for the same name; the first one approved
+     gets it, and the other approval fails.
+   * APPROVE asks for your own password. The account keeps its sign-in, its sessions,
+     its player id and its forum posts, under the new name.
+   * The old name is held for 30 days (config admin.renameHoldDays): nobody else can
+     take it, or a look-alike, to pass as that player. Its owner may take it back.
+   * DENY with a reason the player sees under ACCOUNT.
+   * One request waiting per player; after a change, the next request only after 30
+     days (admin.renameCooldownDays).
+   * On the VPS, at once, with the same checks and the hold:
+       $A rename <username> <new name>
+   * The audit log records the old and the new name.
+
+
+ 15. DISCORD AND THE REGISTERED ROLE
+ -----------------------------------
+   A player links their Discord account under ACCOUNT, DISCORD (SYNC YOUR DISCORD):
+   Discord asks them to share their name, and the registered role in H9's Discord
+   follows. A player who is not in H9's Discord yet gets the role once they join,
+   within 15 minutes. One Discord account per HAVOC 9 account and the other way round;
+   the player cannot unlink or replace it. A SYNC finishes only in the browser that
+   started it (a short-lived cookie ties the two together), so nobody can start one and
+   get another player to finish it on Discord to take that player's Discord account; a
+   refused attempt links nothing, sends the player back to ACCOUNT to start again, and
+   is in the audit log as discord.link.refused.
+
+   Freeing a link (admins): when a player has lost their Discord account and needs to
+   link a new one. Admin panel, ACCOUNTS, open the account, DISCORD, FREE THE LINK (a
+   reason is optional). The registered role is taken from the old Discord account at
+   once (or at the next reconcile, if Discord is busy), the link goes, and the player
+   can SYNC again. The audit log records it.
+
+   Automatic: a suspension takes the role away and lifting it gives it back; a deleted
+   account loses it. Every 15 minutes the reconcile puts the role back where a link
+   says it belongs and takes it where none does (a change made by hand in Discord is
+   undone for linked players). People with the role and no link keep it unless
+   removeUnlinked is switched on, so staff can still give it by hand. RECONCILE NOW in
+   the panel runs it at once.
+
+   Setting it up is in h9web\README.txt, section 18: the redirect address in the
+   Discord Developer Portal, the bot's Manage Roles permission with its role ABOVE the
+   registered role, and the secrets file (the client secret and the bot token) in
+   /var/lib/h9web/modules/discord/secrets.json, mode 0600. Without that file Discord
+   linking is off and everything else works.
+
+
+ 16. PRESENCE: WHO IS PLAYING, DEVICES AND THE PLAYER ID
+ -------------------------------------------------------
+   The site shows who is in game on H9's servers ("PLAYING ON <server> / <map>
+   (<mode>) / <n> MIN"), in the web client, on the site, or when they were last
+   seen, with their playtime and a PLAYS IN GAME badge: beside forum posts, on the
+   card a click on a name opens, as "online now" on HOME and "who's playing" on
+   SERVERS. Only accounts count: a player whose game uses the account's player id
+   (the web client does by itself; H9XASH after enter_userid.cmd). Everyone else's
+   id is thrown away on arrival. Each player picks what others see under ACCOUNT,
+   WHAT OTHERS SEE. docs\H9_PRESENCE.txt is the whole story: the game server plugin,
+   what is kept and for how long, what it does and does not protect against, and
+   troubleshooting (its section 12).
+
+   Turning it on (the VPS): "presence" in "modules" in /etc/h9web/config.json, then
+     sudo systemctl restart h9web
+   Its tables are made on that start.
+
+   A key for each game server. A server reports who is on it, signed with a key of
+   its own; h9web refuses a report without the right signature. As the service's
+   user:
+     P="sudo -u h9web node /opt/h9web/modules/presence/bin/presence-key.js"
+     P="$P --config /etc/h9web/config.json"
+     $P add 203.0.113.10:27015       a key for that server, printed once
+     $P rotate 203.0.113.10:27015    a new key (a server that changed hands)
+     $P remove 203.0.113.10:27015    the server reports no more
+     $P list                         which servers have a key (never the keys)
+   The address must be the server's as servers.json lists it (section 6). add and
+   rotate print two lines for that server's
+   ts\addons\amxmodx\configs\h9_presence.cfg; copy them there and nowhere else, and
+   never into git or a chat. The keys live in
+   /var/lib/h9web/modules/presence/server-keys.json (mode 0600) and are read again
+   when the file changes: no restart.
+
+   The admin panel's PRESENCE tab (admins only; every action is in the audit log):
+     FLAGS        OPEN FLAGS, RESOLVED, ALL. Each says who, what, where, how often:
+                    SECOND DEVICE       an install that is not the account's proved
+                                        its player id and was refused. "From a
+                                        network the account has used" usually means
+                                        a second PC at home: ALLOW THIS DEVICE.
+                                        From a new network, it may be a leaked id:
+                                        ask the player, and RESET THE PLAYER ID if
+                                        it leaked.
+                    TWO PLACES AT ONCE  the account was counted on one server and
+                                        seen on another at the same time; only the
+                                        first counted. Two PCs, or a copied id.
+                    BAD PROOF,          a game sent an id check that does not match,
+                    STALE PROOF         or answers an old challenge: most likely a
+                                        copied h9_clientid. It counted for nothing.
+                  RESOLVE closes a flag, with a note for the audit log.
+     AN ACCOUNT   type a name and OPEN (or OPEN <NAME> on a flag): where it is now,
+                  its playtime, its devices and its flags.
+                    UNBIND        a device stops counting as the account. With no
+                                  device left, the next install to prove the id is
+                                  bound to it.
+                    RESET THE PLAYER ID
+                                  a new player id for the account: the old one,
+                                  and every h9_clientid made from it, stops working
+                                  at once, so a leaked id is dead. Its open
+                                  sessions end. Type the username, keep or drop the
+                                  bound device, then your own password. The player
+                                  copies the new id from the ACCOUNT page into
+                                  enter_userid.cmd; the web client needs nothing.
+                    MOVE THE PLAYER ID
+                                  for a player whose game counted on the wrong
+                                  account (a second account they made): the id,
+                                  with its presence history and devices, goes to
+                                  the account you name, so the same install
+                                  counts as that account. The account you opened
+                                  gets a new id. WARNING: the other account's own
+                                  player id is thrown away for good; any game set
+                                  up with it stops counting as anyone, and nothing
+                                  brings it back. Type the opened account's
+                                  username, the account that gets the id, then
+                                  your own password.
+   Audit log actions: presence.flag.resolve, presence.device.allow,
+   presence.device.unbind, presence.id.reset, presence.id.move.
+
+   What admins see, and do not: the in-game names and finished sessions of an
+   account, its devices as hashes, and whether a flagged network was one it has
+   used, never the network itself or an IP address. Nobody sees a player id or
+   a device id.

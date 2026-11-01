@@ -54,6 +54,15 @@
  Like networking.ini's own settings, this takes effect on your NEXT launch,
  not instantly.
 
+ To use your havoc9.org account's id instead, so a server sees this install
+ and the web client in the browser as the same player: sign in on
+ havoc9.org, open ACCOUNT and show your player id, then run enter_userid.cmd
+ from the H9XASH folder and paste it. Or write it into user_id.ini by hand,
+ as id= under [client]. The id it replaces is kept in user_id.ini.bak. It is
+ optional: a random id works as before, and h9_regenerate_userid.bat makes a
+ new random one any time. Keep your account's id to yourself: whoever has it
+ is you to H9's servers. It takes effect on your NEXT launch.
+
  3. HOW IT REACHES A SERVER
  ----------------------------
  The engine never sends the raw value in user_id.ini to anyone. Every time you
@@ -174,6 +183,7 @@
                                made fresh per install, kept once it exists
  h9_userid.ps1                makes/refreshes it, every launch (section 2)
  h9_regenerate_userid.bat     forces a new one on the next launch (section 2)
+ enter_userid.cmd             puts your havoc9.org account's id in it (section 2)
  h9xash.bat                   runs h9_userid.ps1 before the game starts
  ts\userconfig.cfg             execs the resolved cfg below at startup
 

@@ -1,0 +1,34 @@
+# Files in H9XASH that are byte for byte Half-Life's own, left out of the web client's package
+# by tools/make_webclient_game.py: <SHA-1> <path under the game root>. A listed file goes into
+# the package again once H9 replaces it, as its SHA-1 then differs. Written by
+# make_webclient_game.py --hl-valve <Half-Life's valve folder> --write-leave-out.
+d0133a9aa699aa01ede4ef102272d8e11ce021d5 ts/sound/ambience/antro_techamb.wav
+915824f8bed982f7533d5dc09f439621fcd3ee93 ts/sound/ambience/dronemachine2.wav
+bece94e31458864e2a68e36e3b4d399d5a3ce136 ts/sound/bigwarning.wav
+a6444346440f5cd0130187f6f41b72903ed2fac5 ts/sound/de_pripyat/spawn/sp_shum.wav
+0b65609c14beca276c68e9bc955cec6bbe678ace ts/sound/debris/metal1.wav
+53e1e35718af63fe6a4e76cf726eb12228533fdd ts/sound/debris/metal3.wav
+14e2669536ab6ad20dc04e0732d362f80374b14b ts/sound/debris/metal4.wav
+dc94a3b24874ba6269653cc0f0dda80ea2ea4244 ts/sound/debris/metal5.wav
+a4b66e6edde914b46e1d4be138cd6100442ad25a ts/sound/debris/metal6.wav
+bb6572ab0acc57a7182dd9a6798a65a73e640663 ts/sound/get_satchel.wav
+06ef25e2048aa153bbbd81fc93a2b5ff17b4db45 ts/sound/player/land.wav
+0e3da94b54b02358397cccd43b5a9737f8e0a58b ts/sound/ts_gpc/ts_stoom1.wav
+00823fe79e85c64ae3fb57c4cb94339a7d770947 ts/sound/weapons/rocketfire1.wav
+7101d496dc28658645e01d4c3befcad66a1d8b4e ts/sound/weapons/sshell1.wav
+ea319344ffe0da03e7b199c8d9c11818dfb338a0 ts/sound/weapons/sshell2.wav
+740df215a028377c5eb2abfb2bc2bb35f695b293 ts/sound/weapons/sshell3.wav
+5d1d30d2a826f9b483ca0d0dc2cc0ed36c62c625 ts/sprites/glow01.spr
+0a826cc2490f50ee69bd7fe1ee9f9828435796a6 ts/sprites/mapsprites/ts_gpc1.spr
+58ebc36f5e5edad0ef9fdf06b6a02efc952129e6 ts/sprites/mapsprites/ts_gpc2.spr
+4d22ec1fb222f9c54ba6eb9054a23b9c4328b0e0 ts/sprites/redfl1.spr
+aea9017a7bbcdf95f5fd06aa5a69803d469e59e4 ts/sprites/strat_wsplash3.spr
+7e9a2e12c589bd2e4a6457a63ca5f8de56f67bfb ts/sprites/teahouse/glow.spr
+0a826cc2490f50ee69bd7fe1ee9f9828435796a6 ts/sprites/teahouse/steam.spr
+0a826cc2490f50ee69bd7fe1ee9f9828435796a6 ts/sprites/TS_GPC/TS_GPC1.SPR
+58ebc36f5e5edad0ef9fdf06b6a02efc952129e6 ts/sprites/TS_GPC/TS_GPC2.SPR
+1d4d6176a3c89461f20c952b28d25cc500f0d4a8 ts/sprites/WN_glow02.spr
+7e9a2e12c589bd2e4a6457a63ca5f8de56f67bfb ts/sprites/WN_glow03.spr
+907ad1019be998c9ba9254aa42743fa5d4d0918b ts/sprites/WN_glow04.spr
+0a826cc2490f50ee69bd7fe1ee9f9828435796a6 ts/sprites/xsmoke1.spr
+93918e84da3285674aaaee659546bdc8a56e7745 ts/sprites/yelflare1.spr

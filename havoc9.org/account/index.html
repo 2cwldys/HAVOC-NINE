@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ACCOUNT -- HAVOC9</title>
+  <meta name="description" content="Your HAVOC 9 account: player id, password, sessions, and what we keep">
+  <link rel="icon" type="image/gif" href="../h9helmet_glitch.gif">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../assets/account.css">
+</head>
+<body>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="../index.html" class="logo">
+        <img src="../h9helmet_glitch.gif" alt="Havoc9" class="logo-img">
+        <span class="logo-text">HAVOC<span class="orange">9</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="../index.html">HOME</a></li>
+        <li><a href="../webclient/index.html">PLAY</a></li>
+        <li><a href="../downloads/index.html">DOWNLOADS</a></li>
+        <li><a href="../servers/index.html">SERVERS</a></li>
+        <li><a href="../forum/index.html">FORUM</a></li>
+        <li><a href="../join/index.html">JOIN</a></li>
+        <li><a href="../museum/index.html">MUSEUM</a></li>
+        <li><a href="../credits/index.html">CREDITS</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="page account-page">
+    <div class="container">
+      <div class="page-header">
+        <span class="section-label">// ACCOUNT</span>
+        <h1 class="section-title" id="accountTitle">ACCOUNT</h1>
+        <div class="title-line"></div>
+      </div>
+
+      <div class="placeholder-box" id="accountLoading">
+        <p class="dim">Checking who you are&hellip;</p>
+      </div>
+
+      <div class="placeholder-box" id="accountUnavailable" hidden>
+        <h2>OFFLINE</h2>
+        <p>The account service is not answering right now. Try again in a minute.</p>
+      </div>
+
+      <div class="placeholder-box" id="signedOut" hidden>
+        <img src="../h9helmet_glitch.gif" alt="Havoc9" class="placeholder-logo">
+        <h2>NOT SIGNED IN</h2>
+        <p>An account is a name and a password, nothing else. It opens the web client and gives you a player id the servers know you by.</p>
+        <div class="hero-cta" style="margin-top: 2rem;">
+          <a href="login/" class="btn btn-primary">SIGN IN</a>
+          <a href="signup/" class="btn btn-ghost">CREATE ACCOUNT</a>
+        </div>
+      </div>
+
+      <div id="signedIn" hidden>
+        <div class="feature-list">
+          <div class="feature-row"><span class="feature-label">USERNAME</span><span class="feature-value" id="fUsername"></span></div>
+          <div class="feature-row"><span class="feature-label">ROLE</span><span class="feature-value" id="fRole"></span></div>
+          <div class="feature-row"><span class="feature-label">MEMBER SINCE</span><span class="feature-value" id="fCreated"></span></div>
+          <div class="feature-row"><span class="feature-label">LAST SIGN-IN</span><span class="feature-value" id="fLastLogin"></span></div>
+          <div class="feature-row"><span class="feature-label">PLAYER ID</span><span class="feature-value"><code id="fPlayerId"></code> <button type="button" class="account-mini" id="playerIdShow">SHOW</button> <button type="button" class="account-mini" id="playerIdCopy">COPY</button> <span class="account-done" id="playerIdDone" role="status" hidden></span><span class="account-error" id="playerIdError" role="alert"></span><span class="account-rownote">Only the start is shown so it stays out of screenshots: the full id is what makes a game client count as you. Use it with enter_userid.cmd.</span></span></div>
+          <div class="feature-row"><span class="feature-label">SIGNED IN ON</span><span class="feature-value" id="fSessions"></span></div>
+        </div>
+
+        <div class="account-section">
+          <h2 class="sub-title">WHAT THE SERVERS SEE</h2>
+          <p>Your player id stays with this account for good. When you play in the browser, the game sends it to each H9 server mixed with that server's own address, as <code>h9_clientid</code>: every server sees its own value for you, the same one on every visit, and no two servers can match you up by it. Below is what each H9 server sees; a server admin can use it to tell you apart from everyone else.</p>
+        </div>
+        <div class="account-ids" id="serverIds" style="margin-top: 1.25rem;"></div>
+
+        <div class="account-section">
+          <h2 class="sub-title">YOUR PLAYER ID</h2>
+          <p>Optional. The downloaded H9XASH client makes up a random id of its own, and that keeps working. To have the servers see the downloaded client and the web client as the same player, put this account's id into H9XASH: run <code>enter_userid.cmd</code> in the H9XASH folder and paste it, or write it into <code>H9XASH\user_id.ini</code> as <code>id=</code> under <code>[client]</code>. It counts from the client's next start.</p>
+          <p>SHOW and COPY are on the PLAYER ID line at the top of this page: COPY puts the whole id on your clipboard without showing it.</p>
+          <p class="account-warn"><strong>Keep it to yourself.</strong> Whoever has it is you to H9's servers.</p>
+        </div>
+
+        <div class="account-section">
+          <h2 class="sub-title">IN GAME AND ONLINE</h2>
+          <p>What havoc9.org knows of you right now: in game on an H9 server, in the web client, on the site, or when you were last seen, with your playtime and the PLAYS IN GAME badge. You always see all of it here; the switches under it decide what others see.</p>
+          <div class="account-presence" data-h9-presence="account"></div>
+        </div>
+
+        <div class="account-section">
+          <h2 class="sub-title">WHAT OTHERS SEE</h2>
+          <div class="account-presence" data-h9-presence-settings></div>
+        </div>
+
+        <div class="account-section" id="discord" hidden>
+          <h2 class="sub-title">DISCORD</h2>
+          <p>Link your Discord account to this one, once, and you get the registered role in H9's Discord. Discord shows you what it shares first: your Discord name and number, nothing else.</p>
+          <p class="account-note" id="discordState" role="status" hidden></p>
+          <div class="account-actions">
+            <button type="button" class="btn btn-primary" id="discordSync" hidden>SYNC YOUR DISCORD</button>
+            <a class="btn btn-ghost" id="discordInvite" target="_blank" rel="noopener" hidden>JOIN H9'S DISCORD</a>
+          </div>
+          <p class="account-error" id="discordError" role="alert"></p>
+        </div>
+
+        <div class="account-section" id="pictureSection" hidden>
+          <h2 class="sub-title">PROFILE PICTURE</h2>
+          <div class="account-box">
+            <img id="pictureImg" class="account-pic" src="../assets/avatar-default.png" alt="Your profile picture" width="128" height="128">
+            <p class="account-small" id="pictureInfo"></p>
+            <form class="account-form" id="pictureForm" novalidate>
+              <div class="account-field">
+                <label for="pictureFile">A PNG, JPEG, WEBP OR GIF</label>
+                <input id="pictureFile" name="picture" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+                <p class="account-hint" id="pictureRules">It shows beside your forum posts and on your forum profile. The camera, the place and the other details a file carries are removed before it is kept.</p>
+              </div>
+              <p class="account-error" id="pictureError" role="alert"></p>
+              <button type="submit" class="btn btn-primary">UPLOAD</button>
+              <button type="button" class="btn btn-ghost" id="pictureRemove" hidden>REMOVE PICTURE</button>
+            </form>
+          </div>
+        </div>
+
+        <div class="account-section" id="renameSection" hidden>
+          <h2 class="sub-title">CHANGE USERNAME</h2>
+          <p>An admin looks at every change. Your sign-in, your player id and your forum posts stay with your account, under the new name. Your old name stays reserved for you for a while, so nobody else can take it and pass as you.</p>
+          <p class="account-note" id="renameState" role="status" hidden></p>
+          <div class="account-box">
+            <form class="account-form" id="renameForm" novalidate>
+              <div class="account-field">
+                <label for="renameName">NEW USERNAME</label>
+                <input id="renameName" name="username" type="text" maxlength="20" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+                <p class="account-hint">3 to 20 letters, digits and . _ - , as at sign-up. A name too close to another player's is refused.</p>
+              </div>
+              <p class="account-error" id="renameError" role="alert"></p>
+              <button type="submit" class="btn btn-primary">ASK FOR THIS NAME</button>
+              <button type="button" class="btn btn-ghost" id="renameCancel" hidden>CANCEL MY REQUEST</button>
+            </form>
+          </div>
+        </div>
+
+        <div class="account-section">
+          <h2 class="sub-title">CHANGE PASSWORD</h2>
+          <div class="account-box">
+            <form class="account-form" id="passwordForm" novalidate>
+              <input type="text" name="username" autocomplete="username" id="pwUsername" hidden>
+              <div class="account-field">
+                <label for="currentPassword">CURRENT PASSWORD</label>
+                <input id="currentPassword" name="currentPassword" type="password" autocomplete="current-password" maxlength="256" required>
+              </div>
+              <div class="account-field">
+                <label for="newPassword">NEW PASSWORD</label>
+                <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" maxlength="256" required>
+                <p class="account-warn"><strong>Pick one used only here.</strong> Never a password from another site, old or new: at least 10 characters, and unique to HAVOC 9.</p>
+              </div>
+              <div class="account-field">
+                <label for="newPassword2">NEW PASSWORD AGAIN</label>
+                <input id="newPassword2" name="newPassword2" type="password" autocomplete="new-password" maxlength="256" required>
+              </div>
+              <p class="account-error" id="formError" role="alert"></p>
+              <p class="account-done" id="formDone" role="status" hidden>Password changed. Every other browser signed in to this account has been signed out.</p>
+              <button type="submit" class="btn btn-primary">CHANGE PASSWORD</button>
+            </form>
+          </div>
+        </div>
+
+        <div class="account-actions">
+          <button type="button" class="btn btn-ghost" id="signOut">SIGN OUT</button>
+          <button type="button" class="btn btn-ghost" id="signOutAll">SIGN OUT EVERYWHERE</button>
+        </div>
+      </div>
+
+      <div class="account-section" id="privacy">
+        <h2 class="sub-title">WHAT WE KEEP, AND WHY</h2>
+        <p>An account here holds:</p>
+        <ul>
+          <li>your username;</li>
+          <li>your password, only as a salted scrypt hash: nobody can read it back, us included;</li>
+          <li>when the account was made, when you last signed in, and when the password last changed;</li>
+          <li>your role (player, moderator or admin), and a suspension with its reason if there ever is one;</li>
+          <li>a random number made for the account, from which your player id is worked out with a key only the server knows;</li>
+          <li>your signed-in sessions: a hashed token and when it was made and last used, until you sign out or it runs out (30 days at most);</li>
+          <li>your profile picture, if you add one, with the details a picture file carries (such as the camera and the place it was taken) removed;</li>
+          <li>a username change you ask for, and your earlier name, kept reserved for you for 30 days after a change;</li>
+          <li>if you sync your Discord: its user number and display name, and when it was linked. The registered role in H9's Discord follows the link; only an admin can free it.</li>
+          <li>when you play on an H9 server as this account, or in the web client: which server and since when, the name you used in game, your playtime per server, and when you were first and last seen. Finished sessions are kept for 90 days. For the id check, a hash of each device that proved your player id, and a keyed hash of the first part of your network address for 30 days; only admins see those, as "known" or "new". The switches under WHAT OTHERS SEE decide what everyone else sees.</li>
+        </ul>
+        <p>When a moderator or an admin acts on your account or on what you wrote (a suspension, a removed post, a name change), an audit log records who did what and when, kept for up to 90 days.</p>
+        <p>No email address, no real name, no tracking or advertising cookies. The one cookie is the session cookie that keeps you signed in.</p>
+        <p>Why: to sign you in, to keep the web client for members, and so that H9 servers know a returning player. What a server keeps against its <code>h9_clientid</code>, such as stats or a ban, is up to that server.</p>
+        <p>The server's logs note sign-ins, failed sign-ins and web client connections by username, and the web server's access logs note IP addresses. Both are kept for up to 30 days, to run the site and stop abuse. When you play in the browser, game servers see the relay's address, not yours.</p>
+        <p>To delete your account and everything above, ask an admin on <a href="https://discord.gg/b76pqqVsNY" target="_blank" rel="noopener">Discord</a>.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-logo">
+          <img src="../h9helmet_glitch.gif" alt="Havoc9">
+          <span>HAVOC<span class="orange">9</span></span>
+        </div>
+        <p class="footer-tag">Open source &middot; Inspired by the original Havoc9 community</p>
+        <p class="footer-copy">Non-commercial &middot; See NON_COMMERCIAL.md</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../script.js"></script>
+  <script src="../assets/account.js"></script>
+  <script src="../assets/presence.js"></script>
+  <script src="./forms.js"></script>
+</body>
+</html>

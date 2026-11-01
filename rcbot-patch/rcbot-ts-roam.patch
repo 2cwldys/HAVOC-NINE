@@ -1,0 +1,395 @@
+diff --git a/dlls/bot.cpp b/dlls/bot.cpp
+--- a/dlls/bot.cpp
++++ b/dlls/bot.cpp
+@@ -89,6 +89,48 @@ extern CBotGlobals gBotGlobals; // defined in DLL.CPP
+ // all waypoints
+ extern WAYPOINTS waypoints;
+ 
++// Roaming citizens (CHANGE 8): the settings tsrp_roambots.sma gives them, read once a second.
++// ROAMING CITIZENS, over CBot::IsRoamer, says what each one does.
++namespace
++{
++	constexpr float ROAM_WALK_SPEED = 120.0f;
++	constexpr float ROAM_GOAL_NEAREST = 512.0f;
++	constexpr float ROAM_GOAL_FARTHEST = 3072.0f;
++	constexpr float ROAM_PAUSE_LEAST = 3.0f;
++	constexpr float ROAM_PAUSE_MOST = 10.0f;
++	constexpr int ROAM_GOAL_TRIES = 64;
++
++	struct RoamSettings
++	{
++		bool bOn = false;
++		bool bArmed = false;
++		float fWalk = ROAM_WALK_SPEED;
++		int iPause = 0;
++		float fNextRead = 0.0f;
++	};
++
++	RoamSettings g_Roam;
++
++	const RoamSettings& RoamNow()
++	{
++		// the clock starts again at each map, so a read due far ahead of it is due now
++		if (g_Roam.fNextRead <= gpGlobals->time || g_Roam.fNextRead > gpGlobals->time + 2.0f)
++		{
++			g_Roam.fNextRead = gpGlobals->time + 1.0f;
++			g_Roam.bOn = gBotGlobals.IsMod(MOD_TS) && CVAR_GET_FLOAT("tsrp_roambots_active") > 0.0f;
++			g_Roam.bArmed = CVAR_GET_FLOAT("tsrp_roambots_weapons") > 0.0f;
++
++			const float fWalk = CVAR_GET_FLOAT("tsrp_roambots_speed");
++			g_Roam.fWalk = fWalk > 0.0f ? fWalk : ROAM_WALK_SPEED;
++
++			const int iPause = static_cast<int>(CVAR_GET_FLOAT("tsrp_roambots_pause"));
++			g_Roam.iPause = std::min(std::max(iPause, 0), 100);
++		}
++
++		return g_Roam;
++	}
++}
++
+ // Science and Industry
+ extern bot_research_t g_Researched[2][NUM_RESEARCH_OPTIONS];
+ 
+@@ -2871,7 +2913,8 @@ void CBot::Think()
+ 
+ 				m_GASurvival->setFitness(fFitness);
+ 
+-				if (gBotGlobals.IsMod(MOD_TS))
++				// a roaming citizen's life says nothing about its weapons: kept out of what bots learn (CHANGE 8)
++				if (gBotGlobals.IsMod(MOD_TS) && !IsRoamer())
+ 				{
+ 					m_pTSWeaponSelect->setFitness(fFitness);
+ 
+@@ -2901,7 +2944,8 @@ void CBot::Think()
+ 				m_fSpawnTime = 0;
+ 
+ 				/// doesn't work... ??
+-				if (gBotGlobals.IsMod(MOD_TS))
++				// a roaming citizen buys nothing (CHANGE 8)
++				if (gBotGlobals.IsMod(MOD_TS) && !IsRoamer())
+ 				{
+ 					FakeClientCommand(m_pEdict, "buy");
+ 					FakeClientCommand(m_pEdict, "menuselect 7"); // buy random
+@@ -3055,7 +3099,8 @@ void CBot::Think()
+ 				//	m_pTSWeaponSelect->add(RANDOM_FLOAT(0,1)); // start 8 num 37, 7+37 = 44 (45)// fire percent
+ 			}
+ 
+-			if (!gBotGlobals.IsConfigSettingOn(BOT_CONFIG_TS_KUNGFU))
++			// a roaming citizen is armed only when tsrp_roambots_weapons says so (CHANGE 8)
++			if (!gBotGlobals.IsConfigSettingOn(BOT_CONFIG_TS_KUNGFU) && (!IsRoamer() || RoamNow().bArmed))
+ 			{
+ 				UTIL_makeTSweapon(m_pEdict, static_cast<TSWeapon>(static_cast<int>(m_pTSWeaponSelect->get(0) * 35)));
+ 				UTIL_makeTSweapon(m_pEdict, static_cast<TSWeapon>(static_cast<int>(m_pTSWeaponSelect->get(1) * 35)));
+@@ -3669,10 +3714,95 @@ void CBot::Think()
+ 	return;
+ }
+ 
++////////////////////////////////////////////////////////////////////////////////
++// ROAMING CITIZENS (rcbot-patch CHANGE 8)
++//
++// tsrp_roambots.sma fills a roleplay map with citizens: bots that walk the public streets at a
++// walk, stop now and then, and never fight. While it runs them it holds the server cvar
++// tsrp_roambots_active at 1 (0 at any other time, and on every other map), and then every bot
++// is a roamer. The plugin's cvars carry the rest:
++//   tsrp_roambots_speed     the walk, in units a second (120: the TS client's walk key,
++//                           cl_movespeedkey 0.3 x cl_forwardspeed 400)
++//   tsrp_roambots_weapons   0: no weapons made for a roamer; 1: armed as usual, still never
++//                           firing. A roamer never buys
++//   tsrp_roambots_pause     the chance, in percent, of a pause before each walk
++// They are read once a second. A cvar that does not exist reads 0, so a server without the
++// plugin has no roamers and nothing here changes how its bots play.
++//
++// A roamer's goals are random waypoints between ROAM_GOAL_NEAREST and ROAM_GOAL_FARTHEST away
++// (any distance when none comes up), never a ladder, lift, jump, crouch or teleport waypoint.
++// The map's waypoints say where it may walk: a roleplay map gives its citizens waypoints only in
++// its public streets and halls (export-map\h9_tsrp_newbyzantium\roamwaypoints.mjs).
++
++bool CBot::IsRoamer() const
++{
++	return RoamNow().bOn;
++}
++
++// A roamer's next schedule: a pause now and then, then a walk to a random goal.
++void CBot::RoamLookForNewTasks()
++{
++	const RoamSettings& roam = RoamNow();
++	const int iSchedule = m_Tasks.GetNewScheduleId();
++
++	m_CurrentLookTask = BOT_LOOK_TASK_LOOK_AROUND;
++
++	if (RANDOM_LONG(1, 100) <= roam.iPause)
++	{
++		// stand and look one way for a while, at eye height
++		const float fYaw = RANDOM_FLOAT(-180.0f, 180.0f) * (3.14159265f / 180.0f);
++		const Vector vLook = pev->origin + pev->view_ofs + Vector(std::cos(fYaw), std::sin(fYaw), 0.0f) * 256.0f;
++
++		AddTask(CBotTask(BOT_TASK_WAIT_AND_FACE_VECTOR, iSchedule, nullptr, 0, RANDOM_FLOAT(ROAM_PAUSE_LEAST, ROAM_PAUSE_MOST), vLook));
++	}
++
++	const int iGoal = RoamGoal();
++
++	if (iGoal != -1)
++		AddTask(CBotTask(BOT_TASK_FIND_PATH, iSchedule, nullptr, iGoal, -1));
++	else
++		AddTask(CBotTask(BOT_TASK_WAIT, iSchedule, nullptr, 0, 2.0f));
++}
++
++// A random waypoint for a roamer to walk to, or -1 when the map has none it may use.
++int CBot::RoamGoal()
++{
++	extern int num_waypoints;
++
++	if (num_waypoints < 1)
++		return -1;
++
++	const int iNotGoal = W_FL_DELETED | W_FL_LADDER | W_FL_LIFT | W_FL_JUMP | W_FL_CROUCH | W_FL_TELEPORT |
++		W_FL_UNREACHABLE | W_FL_AIMING | W_FL_WAIT_FOR_LIFT | W_FL_FLY | W_FL_HUMAN_TOWER | W_FL_OPENS_LATER;
++
++	int iAnyDistance = -1;
++
++	for (int iTry = 0; iTry < ROAM_GOAL_TRIES; iTry++)
++	{
++		const int iWpt = RANDOM_LONG(0, num_waypoints - 1);
++
++		if (waypoints[iWpt].flags & iNotGoal)
++			continue;
++		if (iWpt == m_iCurrentWaypointIndex || m_FailedGoals.IsMember(iWpt))
++			continue;
++
++		const float fDistance = (waypoints[iWpt].origin - pev->origin).Length();
++
++		if (fDistance >= ROAM_GOAL_NEAREST && fDistance <= ROAM_GOAL_FARTHEST)
++			return iWpt;
++
++		if (iAnyDistance == -1)
++			iAnyDistance = iWpt;
++	}
++
++	return iAnyDistance;
++}
++
+ bool CBot::WantToFindEnemy() const
+ {
+ 	if (gBotGlobals.IsMod(MOD_TS)) {
+-		return !gBotGlobals.IsConfigSettingOn(BOT_CONFIG_DONT_SHOOT);
++		// a roaming citizen never looks for a fight (CHANGE 8)
++		return !IsRoamer() && !gBotGlobals.IsConfigSettingOn(BOT_CONFIG_DONT_SHOOT);
+ 	}
+ 	// can't shoot, bot don't shoot setting is on?
+ 	if (HasCondition(BOT_CONDITION_CANT_SHOOT) ||
+@@ -3708,6 +3838,14 @@ bool CBot::WantToFindEnemy() const
+ 
+ void CBot::LookForNewTasks()
+ {
++	// A roaming citizen only ever walks and pauses: no pickups, objectives or anything else (CHANGE 8)
++	if (IsRoamer())
++	{
++		StopMoving();
++		RoamLookForNewTasks();
++		return;
++	}
++
+ 	// Do a big check for new tasks
+ 	///////////////////////////////
+ 	bool bRoam = false;
+@@ -8530,6 +8668,28 @@ void CBot::RunPlayerMove()
+ 		}
+ 	}*/
+ 
++	// A roaming citizen walks (CHANGE 8). The next frame's move is worked out from the walk, and
++	// this one is held to it as well, whatever set it (getting unstuck strafes at full speed): the
++	// forward and side moves together are what a player's walk key leaves of his. And while it is
++	// alive it presses nothing that fires, stunts, reloads or uses -- the dead keep the presses
++	// that bring them back.
++	if (IsRoamer())
++	{
++		const float fWalk = RoamNow().fWalk;
++		const float fMove = std::sqrt(m_fMoveSpeed * m_fMoveSpeed + m_fStrafeSpeed * m_fStrafeSpeed);
++
++		m_fIdealMoveSpeed = fWalk;
++
++		if (fMove > fWalk)
++		{
++			m_fMoveSpeed *= fWalk / fMove;
++			m_fStrafeSpeed *= fWalk / fMove;
++		}
++
++		if (IsAlive())
++			pev->button &= ~(IN_ATTACK | IN_ATTACK2 | IN_ALT1 | IN_USE | IN_RELOAD);
++	}
++
+ 	//TODO: Don't convert `pev->button` and `pev->impulse` into C++ casts
+ 	//otherwise TS bots won't stunt dive [APG]RoboCop[CL]
+ 	(*g_engfuncs.pfnRunPlayerMove)(m_pEdict, pev->angles, m_fMoveSpeed, m_fStrafeSpeed, m_fUpSpeed, pev->button,
+@@ -8888,6 +9048,10 @@ bool CBot::IsEnemy(edict_t* pEntity)
+ 	if (pEntity == m_pEdict)
+ 		return false; // can't shoot self...!
+ 
++	// a roaming citizen has no enemies, not even one who shoots at it (CHANGE 8)
++	if (IsRoamer())
++		return false;
++
+ 	if (pEntity->v.takedamage == DAMAGE_NO)
+ 		return false; // can't shoot it...
+ 
+diff --git a/dlls/bot.h b/dlls/bot.h
+--- a/dlls/bot.h
++++ b/dlls/bot.h
+@@ -3165,6 +3165,12 @@ public:
+ 
+ 	bool WantToFindEnemy() const;
+ 
++	// Roaming citizens (rcbot-patch CHANGE 8, bot.cpp): while tsrp_roambots_active is on, a bot
++	// walks between random waypoints, pauses now and then, and never fights or picks anything up.
++	bool IsRoamer() const;
++	void RoamLookForNewTasks();
++	int RoamGoal();
++
+ 	void PlayerDead(edict_t* pPlayer)
+ 	{
+ 		if (pPlayer == m_pSpySpotted)
+diff --git a/dlls/waypoint.cpp b/dlls/waypoint.cpp
+--- a/dlls/waypoint.cpp
++++ b/dlls/waypoint.cpp
+@@ -91,11 +91,20 @@ static unsigned char g_iFailedWaypoints[MAX_WAYPOINTS];
+ 
+ extern CBotGlobals gBotGlobals;
+ 
++int CWaypointLocations::bucketOf(const float fCoord, const bool bXY)
++{
++	const float fReach = bXY ? WPT_LOC_REACH_XY : WPT_LOC_REACH_Z;
++	const int iMost = (bXY ? MAX_WPT_LOCATIONS_XY : MAX_WPT_LOCATIONS_Z) - 1;
++	const int iBucket = static_cast<int>(std::floor((fCoord + fReach) / static_cast<float>(WPT_LOC_SIZE)));
++
++	return std::min(std::max(iBucket, 0), iMost);
++}
++
+ void CWaypointLocations::getMaxMins(const Vector& vOrigin, int& mini, int& minj, int& mink, int& maxi, int& maxj, int& maxk)
+ {
+-	const int iLoc = std::abs(static_cast<int>(vOrigin.x + 4096.0f) / 256);
+-	const int jLoc = std::abs(static_cast<int>(vOrigin.y + 4096.0f) / 256);
+-	const int kLoc = std::abs(static_cast<int>(vOrigin.z + 4096.0f) / 256);
++	const int iLoc = bucketOf(vOrigin.x, true);
++	const int jLoc = bucketOf(vOrigin.y, true);
++	const int kLoc = bucketOf(vOrigin.z, false);
+ 
+ 	// get current area
+ 	mini = iLoc - 1;
+@@ -107,14 +116,15 @@ void CWaypointLocations::getMaxMins(const Vector& vOrigin, int& mini, int& minj,
+ 	mink = kLoc - 1;
+ 	maxk = kLoc + 1;
+ 
+-	constexpr int iMaxLoc = MAX_WPT_LOCATIONS - 1;
++	constexpr int iMaxLocXY = MAX_WPT_LOCATIONS_XY - 1;
++	constexpr int iMaxLocZ = MAX_WPT_LOCATIONS_Z - 1;
+ 
+ 	mini = std::max(mini, 0);
+ 	minj = std::max(minj, 0);
+ 	mink = std::max(mink, 0);
+-	maxi = std::min(maxi, iMaxLoc);
+-	maxj = std::min(maxj, iMaxLoc);
+-	maxk = std::min(maxk, iMaxLoc);
++	maxi = std::min(maxi, iMaxLocXY);
++	maxj = std::min(maxj, iMaxLocXY);
++	maxk = std::min(maxk, iMaxLocZ);
+ }
+ 
+ #define FOR_EACH_WPT_LOC_BUCKET(origin)\
+@@ -183,9 +193,9 @@ void CWaypointLocations::AddWptLocation(const int iIndex, const float* fOrigin)
+ {
+ 	// Add a waypoint with index and at origin (for quick insertion in the list)
+ 	//
+-	const int i = std::abs(static_cast<int>(fOrigin[0] + 4096.0f) / 256);
+-	const int j = std::abs(static_cast<int>(fOrigin[1] + 4096.0f) / 256);
+-	const int k = std::abs(static_cast<int>(fOrigin[2] + 4096.0f) / 256);
++	const int i = bucketOf(fOrigin[0], true);
++	const int j = bucketOf(fOrigin[1], true);
++	const int k = bucketOf(fOrigin[2], false);
+ 
+ 	m_iLocations[i][j][k].Push(iIndex);
+ }
+@@ -194,9 +204,9 @@ void CWaypointLocations::DeleteWptLocation(const int iIndex, const float* fOrigi
+ // Delete the waypoint index at the origin (for finding it quickly in the list)
+ //
+ {
+-	const int i = std::abs(static_cast<int>(fOrigin[0] + 4096.0f) / 256);
+-	const int j = std::abs(static_cast<int>(fOrigin[1] + 4096.0f) / 256);
+-	const int k = std::abs(static_cast<int>(fOrigin[2] + 4096.0f) / 256);
++	const int i = bucketOf(fOrigin[0], true);
++	const int j = bucketOf(fOrigin[1], true);
++	const int k = bucketOf(fOrigin[2], false);
+ 
+ 	m_iLocations[i][j][k].Remove(iIndex);
+ }
+@@ -528,7 +538,7 @@ bool WaypointLoad(edict_t* pEntity)
+ 					//TODO: Experimental optimisation using waypoint_origin [APG]RoboCop[CL]
+ 					const Vector& waypoint_origin = waypoints[i].origin;
+ 
+-					if (waypoint_origin.x > 4096.0f || waypoint_origin.y > 4096.0f || waypoint_origin.z > 4096.0f)
++					if (std::fabs(waypoint_origin.x) > WPT_LOC_REACH_XY || std::fabs(waypoint_origin.y) > WPT_LOC_REACH_XY || std::fabs(waypoint_origin.z) > WPT_LOC_REACH_Z)
+ 					{
+ 						BotMessage(pEntity, 0, "ERROR!!! Invalid waypoint (id: %d) origin outside map !!!", i);
+ 						waypoints[i].flags |= W_FL_DELETED;
+diff --git a/dlls/waypoint.h b/dlls/waypoint.h
+--- a/dlls/waypoint.h
++++ b/dlls/waypoint.h
+@@ -58,6 +58,16 @@
+ constexpr int MAX_WPT_LOCATIONS = 32;
+ constexpr int MAX_WPT_LOC = 31;
+ 
++// The buckets are cubes of WPT_LOC_SIZE units. Across the map (x and y) they reach
++// +/-WPT_LOC_REACH_XY: H9's big-world maps (engine-h9-bigworld) are built past the stock
++// +/-4096, and h9_tsrp_newbyzantium's streets reach about +/-5000. Up and down (z) they keep
++// the stock +/-4096. A waypoint past either reach is not loaded (WaypointLoad).
++constexpr int WPT_LOC_SIZE = 256;
++constexpr float WPT_LOC_REACH_XY = 16384.0f;
++constexpr float WPT_LOC_REACH_Z = 4096.0f;
++constexpr int MAX_WPT_LOCATIONS_XY = 128; // 2 * WPT_LOC_REACH_XY / WPT_LOC_SIZE
++constexpr int MAX_WPT_LOCATIONS_Z = MAX_WPT_LOCATIONS; // 2 * WPT_LOC_REACH_Z / WPT_LOC_SIZE
++
+ class CWaypointLocations
+ 	// Hash table of waypoint indexes accross certian
+ 	// buckets in the map on X/Y Co-ords for quicker
+@@ -72,9 +82,9 @@ public:
+ 
+ 	void Init()
+ 	{
+-		for (dataStack<int>(&m_iLocation)[32][32] : m_iLocations)
++		for (dataStack<int>(&m_iLocation)[MAX_WPT_LOCATIONS_XY][MAX_WPT_LOCATIONS_Z] : m_iLocations)
+ 		{
+-			for (dataStack<int>(&j)[32] : m_iLocation)
++			for (dataStack<int>(&j)[MAX_WPT_LOCATIONS_Z] : m_iLocation)
+ 			{
+ 				for (dataStack<int>& k : j)
+ 					k.Init();
+@@ -84,9 +94,9 @@ public:
+ 
+ 	void Clear()
+ 	{
+-		for (dataStack<int> (&m_iLocation)[32][32] : m_iLocations)
++		for (dataStack<int> (&m_iLocation)[MAX_WPT_LOCATIONS_XY][MAX_WPT_LOCATIONS_Z] : m_iLocations)
+ 		{
+-			for (dataStack<int>(&j)[32] : m_iLocation)
++			for (dataStack<int>(&j)[MAX_WPT_LOCATIONS_Z] : m_iLocation)
+ 			{
+ 				for (dataStack<int>& k : j)
+ 					k.Destroy();
+@@ -94,6 +104,9 @@ public:
+ 		}
+ 	}
+ 
++	// The bucket a coordinate falls in, along x or y (bXY) or z, kept inside the table.
++	static int bucketOf(float fCoord, bool bXY);
++
+ 	static void getMaxMins(const Vector& vOrigin, int& mini, int& minj, int& mink, int& maxi, int& maxj, int& maxk);
+ 
+ 	int GetCoverWaypoint(const Vector& vPlayerOrigin, const Vector& vCoverFrom, dataStack<int>* iIgnoreWpts) const;
+@@ -116,7 +129,7 @@ public:
+ 
+ private:
+ 
+-	dataStack<int> m_iLocations[MAX_WPT_LOCATIONS][MAX_WPT_LOCATIONS][MAX_WPT_LOCATIONS];
++	dataStack<int> m_iLocations[MAX_WPT_LOCATIONS_XY][MAX_WPT_LOCATIONS_XY][MAX_WPT_LOCATIONS_Z];
+ };
+ 
+ constexpr float REACHABLE_RANGE = 400.0f;

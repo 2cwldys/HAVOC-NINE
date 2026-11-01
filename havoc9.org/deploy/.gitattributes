@@ -1,0 +1,2 @@
+# Shell scripts run on the Linux VPS: Unix line ends, even in a Windows checkout.
+*.sh text eol=lf

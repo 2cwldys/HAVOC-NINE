@@ -5,6 +5,10 @@
 #                             h9_regenerate_userid.bat is run, or -Force is passed here)
 #   ts\userid_resolved.cfg   cl_h9_userid, set from user_id.ini, run by ts\userconfig.cfg
 #
+# -SetId <id> (enter_userid.cmd) puts the player id of the player's havoc9.org account in
+# user_id.ini instead, so servers see this install and the web client as the same player.
+# The id it replaces is kept in user_id.ini.bak.
+#
 # The raw id in user_id.ini is never sent to a server as-is -- the engine salts it
 # per destination server before it goes out. See docs\CUSTOM_XASH_USERID.txt.
 #
@@ -12,7 +16,8 @@
 
 param(
 	[string]$Root = $PSScriptRoot,
-	[switch]$Force
+	[switch]$Force,
+	[string]$SetId
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,7 +62,8 @@ function Write-StoredId([string]$Path, [string]$Id)
 		"; user_id.ini -- this install's regenerable client id. Made once, on first run.",
 		'; NOT a hardware fingerprint: a plain random value you can throw away and replace',
 		'; any time with h9_regenerate_userid.bat. The engine never sends this value as-is',
-		'; to a server -- see docs\CUSTOM_XASH_USERID.txt.',
+		'; to a server -- see docs\CUSTOM_XASH_USERID.txt. It may instead be the player id',
+		'; of your havoc9.org account, put here by enter_userid.cmd or by hand.',
 		'',
 		'[client]',
 		"id=$Id"
@@ -70,7 +76,32 @@ $id = $null
 try { $id = Read-StoredId $IniPath } catch { $id = $null }
 $valid = $id -and ($id -match '^[0-9a-f]{32}$')
 
-if ($Force -or -not $valid)
+if ($PSBoundParameters.ContainsKey('SetId'))
+{
+	# a pasted id may carry spaces, quotes or capitals; the engine salts the lowercase text
+	$new = ($SetId -replace '[\s"'']', '').ToLowerInvariant()
+	if ($new -notmatch '^[0-9a-f]{32}$')
+	{
+		Write-Warn 'that is not a player id: it is 32 characters, 0-9 and a-f (havoc9.org, ACCOUNT). Nothing was changed.'
+		exit 1
+	}
+	if ($valid -and $id -eq $new)
+	{
+		Write-Note 'this install already uses that id.'
+	}
+	else
+	{
+		if (Test-Path -LiteralPath $IniPath)
+		{
+			Copy-Item -LiteralPath $IniPath -Destination "$IniPath.bak" -Force
+			Write-Note 'the id it replaces is kept in user_id.ini.bak.'
+		}
+		Write-StoredId $IniPath $new
+		Write-Note 'id saved to user_id.ini: servers now see this install as the same player as your havoc9.org account.'
+	}
+	$id = $new
+}
+elseif ($Force -or -not $valid)
 {
 	if ($Force) { Write-Note 'making a new id (-Force).' }
 	elseif ($id) { Write-Warn "user_id.ini's id looked wrong -- making a new one." }

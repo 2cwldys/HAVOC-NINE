@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+// local-site: the whole site on this PC, to try it: the pages, the accounts, the modules (the forum)
+// and the web client, on one origin (http://127.0.0.1:8090), from this checkout. It sets itself up
+// at every start:
+//   * a folder of its own outside the checkout: %LOCALAPPDATA%\h9web-local on Windows,
+//     ~/.h9web-local elsewhere, or H9WEB_LOCAL. It holds the accounts database and the secrets of
+//     this PC's copy (accounts made here stay here), config.json, written fresh each start, and
+//     servers.json, made once (an empty list) and kept, so a LAN server put in it stays;
+//   * webclient\ in that folder: the site's web client page files with the package's
+//     manifest.json and preload.json, copied fresh each start (h9web serves folders, not single
+//     files);
+//   * every module in modules\ that has an index.js (H9WEB_MODULES=a,b names them instead).
+// The site's pages are served from the checkout as they are, so an edit to one shows on a reload;
+// an edit to the web client's page files shows after a restart.
+//
+//   node bin/local-site.js [--port 8090] [--stage <folder>] [--open]
+//
+// The web client package (make_webclient_game.py's output) is, in order: --stage, H9WEB_STAGE,
+// webclient-build\stage in the checkout, or in TSM_ROOT from the checkout's buildpaths.ini (the git
+// copy names TSM there). Without one, PLAY says the client is in preparation. --open opens the
+// site in the default browser. Ctrl+C stops it.
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const HOME = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = path.resolve(HOME, "..");
+const SITE = path.join(ROOT, "havoc9.org");
+
+function fail(message) {
+  console.error("local-site: " + message);
+  process.exit(1);
+}
+
+const args = process.argv.slice(2);
+function option(name) {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+const port = Number(option("--port") || process.env.H9WEB_PORT || 8090);
+if (!Number.isInteger(port) || port < 1 || port > 65535) fail("--port must be a port number");
+if (!fs.existsSync(path.join(SITE, "index.html"))) fail("no site at " + SITE);
+
+const LOCAL = path.resolve(
+  process.env.H9WEB_LOCAL ||
+    (process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "h9web-local") : path.join(os.homedir(), ".h9web-local")),
+);
+if (LOCAL === ROOT || LOCAL.startsWith(ROOT + path.sep)) fail(LOCAL + " is inside the checkout: its accounts and secrets must stay out of git");
+fs.mkdirSync(LOCAL, { recursive: true });
+
+// TSM_ROOT from the checkout's buildpaths.ini, when it has one
+function tsmRoot() {
+  const ini = path.join(ROOT, "buildpaths.ini");
+  if (!fs.existsSync(ini)) return null;
+  const m = fs.readFileSync(ini, "utf8").match(/^\s*TSM_ROOT\s*=\s*(.+?)\s*$/m);
+  return m ? m[1] : null;
+}
+const tsm = tsmRoot();
+const STAGE = [option("--stage"), process.env.H9WEB_STAGE, path.join(ROOT, "webclient-build", "stage"), tsm && path.join(tsm, "webclient-build", "stage")]
+  .filter(Boolean)
+  .map((p) => path.resolve(p))
+  .find((p) => fs.existsSync(path.join(p, "manifest.json")));
+
+// webclient\: the page files (never DEPLOY.txt, backups or archives) and the package's two lists
+const WC = path.join(LOCAL, "webclient");
+fs.rmSync(WC, { recursive: true, force: true });
+fs.mkdirSync(WC);
+const pageDir = path.join(SITE, "webclient");
+for (const name of fs.readdirSync(pageDir)) {
+  const from = path.join(pageDir, name);
+  if (!fs.statSync(from).isFile() || /\.bak/i.test(name) || /\.zip$/i.test(name) || name === "DEPLOY.txt") continue;
+  fs.copyFileSync(from, path.join(WC, name));
+}
+if (STAGE) for (const name of ["manifest.json", "preload.json"]) fs.copyFileSync(path.join(STAGE, name), path.join(WC, name));
+
+const SERVERS = path.join(LOCAL, "servers.json");
+if (!fs.existsSync(SERVERS)) fs.writeFileSync(SERVERS, JSON.stringify({ servers: [] }, null, 2) + "\n");
+
+const MODULES = path.join(HOME, "modules");
+const modules = process.env.H9WEB_MODULES
+  ? process.env.H9WEB_MODULES.split(",").map((s) => s.trim()).filter(Boolean)
+  : fs.existsSync(MODULES)
+    ? fs.readdirSync(MODULES).filter((d) => fs.existsSync(path.join(MODULES, d, "index.js"))).sort()
+    : [];
+
+const origin = "http://127.0.0.1:" + port;
+const config = {
+  listen: { host: "127.0.0.1", port },
+  allowedOrigins: [origin],
+  dataDir: path.join(LOCAL, "data"),
+  serversFile: SERVERS,
+  modulesDir: MODULES,
+  modules,
+  devStatic: {
+    "/": SITE,
+    "/webclient/": WC,
+    ...(STAGE ? { "/webclient/engine/": path.join(STAGE, "engine"), "/webclient/game/": path.join(STAGE, "game") } : {}),
+  },
+};
+const CONFIG = path.join(LOCAL, "config.json");
+fs.writeFileSync(CONFIG, JSON.stringify(config, null, 2) + "\n");
+
+console.log("local-site: " + origin + "/   (Ctrl+C stops it)");
+console.log("  site      " + SITE);
+console.log("  package   " + (STAGE || "none: PLAY says the client is in preparation"));
+console.log("  modules   " + (modules.join(", ") || "none"));
+console.log("  this PC's accounts and settings: " + LOCAL);
+
+const server = spawn(process.execPath, [path.join(HOME, "server.js"), "--config", CONFIG], { stdio: "inherit", cwd: LOCAL });
+server.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => server.kill(sig));
+
+if (args.includes("--open")) {
+  setTimeout(() => {
+    const url = origin + "/";
+    if (process.platform === "win32") spawn("cmd", ["/c", "start", "", url], { stdio: "ignore", detached: true }).unref();
+    else spawn(process.platform === "darwin" ? "open" : "xdg-open", [url], { stdio: "ignore", detached: true }).unref();
+  }, 1000);
+}

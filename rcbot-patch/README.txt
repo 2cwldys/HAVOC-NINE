@@ -15,6 +15,9 @@ with this install -- with additive changes:
      a bot's way (see CHANGE 6)
   5. Sentry turrets: the other side's .turret is an enemy, one's own never is
      (see CHANGE 7)
+  6. Roaming citizens: while tsrp_roambots.sma runs a roleplay map's citizens,
+     every bot walks between random waypoints, pauses now and then and never
+     fights; and waypoints reach +/-16384 across the map (see CHANGE 8)
 
 Win32, MetaMod Release, MSVC v145.
 
@@ -259,6 +262,63 @@ default priority, 10, the same as a player, and picks the nearer of the two.
 
 
 ===============================================================================
+CHANGE 8: ROAMING CITIZENS AND BIG-WORLD WAYPOINTS (rcbot-ts-roam.patch)
+===============================================================================
+
+    the waypoint location table, waypoint.h and waypoint.cpp
+
+RCBot finds the waypoints near a point through a table of 256-unit buckets. Stock,
+it covered -4096..+4096 on each axis, and WaypointLoad deleted any waypoint with
+an x, y or z over +4096 (one under -4096 landed in a mirrored bucket by accident).
+H9's big-world maps reach past that (engine-h9-bigworld): h9_tsrp_newbyzantium's
+streets run to about +/-5000. The table now covers +/-WPT_LOC_REACH_XY (16384)
+across the map and keeps +/-4096 up and down (WPT_LOC_REACH_Z), 128 x 128 x 32
+buckets (2 MB); CWaypointLocations::bucketOf keeps every index inside it, and a
+waypoint past either reach is not loaded. Inside +/-4096 the buckets are the same
+ones as before, so no other map's waypoints behave differently.
+
+    roam mode, bot.cpp (ROAMING CITIZENS, over CBot::IsRoamer) and bot.h
+
+tsrp_roambots.sma puts citizens on a roleplay map: bots that walk the public
+streets at a walk, never fight, and look like people. While it runs them it holds
+the server cvar tsrp_roambots_active at 1 -- 0 at any other time, and on every
+other map -- and then every bot is a roamer. Read once a second, with:
+
+    tsrp_roambots_speed    the walk in units a second; 120 is the TS client's walk
+                           key (cl_movespeedkey 0.3 x cl_forwardspeed 400, from
+                           cl_dlls\client.dll; the client sends no extra button)
+    tsrp_roambots_weapons  0: no weapons are made for a roamer; 1: armed as usual
+    tsrp_roambots_pause    percent chance of a pause before each walk
+
+A cvar that does not exist reads 0, so without the plugin there are no roamers
+and nothing here changes how any bot plays.
+
+A roamer:
+  - LookForNewTasks: does nothing else at all. RoamLookForNewTasks gives it, now
+    and then (tsrp_roambots_pause), a BOT_TASK_WAIT_AND_FACE_VECTOR of 3 to 10
+    seconds looking one way at eye height, then a BOT_TASK_FIND_PATH to
+    RoamGoal(): a random waypoint 512 to 3072 units away (any distance when 64
+    tries find none), never a ladder, lift, jump, crouch, teleport or other
+    special waypoint, never one it failed to reach. No pickups, objectives,
+    buttons or chargers. Where it may walk is the map's waypoints: a roleplay
+    map's roam waypoints are laid only in its public streets and halls
+    (export-map\h9_tsrp_newbyzantium\roamwaypoints.mjs).
+  - IsEnemy is false for everything and WantToFindEnemy is false, so FindEnemy
+    never runs, no attack task is made from any event, and a TS breakable door
+    in its way is never shot (CHANGE 6 takes a door through IsEnemy).
+  - RunPlayerMove: the next frame's move is worked out from the walk, and this
+    one's forward and side moves together are held to it, whatever set them (the
+    unstuck code strafes at full speed). While alive it presses nothing that
+    fires, stunts, reloads or uses. The stuck check compares its speed with the
+    walk, so walking is not taken for being stuck.
+  - Buys nothing on death; is made weapons at spawn only with
+    tsrp_roambots_weapons 1; and its life is kept out of the TS weapon learning
+    (tsweaps.rld), which its weapons have no part in.
+  - Respawns as TS respawns it ("respawn", the attack presses while dead): the
+    plugin moves it after it is back on its feet, never while it is dying.
+
+
+===============================================================================
 REBUILDING
 ===============================================================================
 
@@ -270,11 +330,13 @@ REBUILDING
     git apply rcbot-build-fixes.patch
     git apply rcbot-waypoints-doors.patch
     git apply rcbot-ts-turrets.patch
+    git apply rcbot-ts-roam.patch
     MSBuild dlls\HPB_bot.vcxproj /p:Configuration="MetaMod Release" /p:Platform=Win32
 
-In this order. The five together give, file for file, the source in src\ (and
-the shipped rcbot_mm.dll was built from exactly that); without the third the
-tree does not compile. On a clone with core.autocrlf true, apply with --index.
+In this order. The six together give, file for file, the source in src\; without
+the third the tree does not compile. On a clone with core.autocrlf true, apply
+with --index. The shipped rcbot_mm.dll (and rcbot_mm.dll.patch) is the build of
+the first five; CHANGE 8 is in it once it is rebuilt from all six.
 
 Output lands at
     dlls\HPB_bot___Win32_MetaMod_Release\HPB_bot.dll

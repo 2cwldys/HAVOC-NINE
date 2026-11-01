@@ -1,0 +1,27 @@
+{
+  "listen": { "host": "127.0.0.1", "port": 8090 },
+  "allowedOrigins": ["https://havoc9.org"],
+  "trustProxy": true,
+  "dataDir": "/var/lib/h9web",
+  "serversFile": "/etc/h9web/servers.json",
+  "gamedir": "ts",
+  "session": { "days": 30, "idleDays": 14 },
+  "relay": {
+    "path": "/webclient/relay",
+    "master": "192.0.2.1:27010",
+    "maxSocketsPerAccount": 4,
+    "maxSocketsPerIp": 12,
+    "idleSeconds": 180
+  },
+  "modules": ["forum", "discord", "presence"],
+  "moduleSettings": {
+    "forum": { "guestRead": true },
+    "discord": {
+      "clientId": "",
+      "guildId": "",
+      "roleId": "1566395367036035123",
+      "redirectUri": "https://havoc9.org/api/discord/callback"
+    }
+  },
+  "logLevel": "info"
+}

@@ -1,0 +1,262 @@
+===============================================================================
+ HTTP SERVER MOTD -- A SPLASH PICTURE OR WEB PAGE FOR YOUR H9 SERVER
+===============================================================================
+
+ For the people who run an H9 game server: how to show players a picture or
+ a web page when they join, in place of TS's text MOTD, and how to serve it
+ from your own web server. The full picture (how each client draws it, how
+ it works inside) is docs\H9_MOTD.txt.
+
+ Nothing in this file is secret, and nothing secret belongs in the splash:
+ no rcon password, no admin page, no address you would not hand to every
+ player.
+
+ CONTENTS
+    1. What the splash MOTD is
+    2. Setting it up
+    3. Where the picture or page goes
+    4. Formats and limits
+    5. Serving it from your own web server
+    6. What each client shows
+    7. When the address fails
+    8. Security
+    9. Troubleshooting
+
+
+ 1. WHAT THE SPLASH MOTD IS
+ --------------------------
+   TS shows every player a text window when they join: motd.txt. With the
+   splash MOTD (the h9_motd.amxx plugin) you show a picture or a web page
+   there instead, the way Source servers do. The player closes it with ESC,
+   ENTER, SPACE or CLOSE, and plays.
+
+   It is OFF by default. Until you set h9_motd, your players see motd.txt
+   as always. Players can switch it off for themselves (cl_h9_motd 0), and
+   anyone whose client cannot show it gets motd.txt. So keep motd.txt
+   worth reading: it is still the fallback.
+
+
+ 2. SETTING IT UP
+ ----------------
+   The plugin ships loaded: build.bat registers h9_motd.amxx in plugins.ini,
+   and both H9XASH presets list it. Its settings go in
+       ts\addons\amxmodx\configs\h9_motd.cfg
+   which the plugin runs when it loads. On the H9 build machine edit
+   TSM\h9_motd.cfg instead: build.bat copies it over the server's.
+
+     cvar           default    what it does
+     h9_motd        "text"     text: motd.txt, as always (the splash is off)
+                               image: show the picture at h9_motd_url
+                               page: show the web page at h9_motd_url
+     h9_motd_url    ""         the https address of the picture or page
+     h9_motd_image  ""         page only: a picture H9XASH shows in the
+                               page's place (H9XASH draws no web pages);
+                               empty: it shows motd.txt there instead
+     h9_motd_link   ""         image only: a page the OPEN PAGE button
+                               under the picture offers; empty for none
+     h9_motd_show   "connect"  connect: once a connection (the next maps
+                               show nothing, not even motd.txt)
+                               map: at every map
+
+   A picture:
+     h9_motd "image"
+     h9_motd_url "https://motd.example.com/h9/motd.png"
+     h9_motd_link "https://motd.example.com/h9/rules.html"
+
+   A page, with a picture for H9XASH players:
+     h9_motd "page"
+     h9_motd_url "https://motd.example.com/h9/motd.html"
+     h9_motd_image "https://motd.example.com/h9/motd.png"
+
+   One map different: put the same cvars in ts\mapconfigs\<map>.cfg. It runs
+   after h9_motd.cfg (h9_autoconfig), so it wins for that map. The cvars are
+   read as each player joins, so a change counts from the next join on.
+
+   Not server.cfg: it can run before the plugin has created its cvars.
+
+   Testing: join with H9XASH; type motd in the console to see it again;
+   cl_h9_motd 0 shows you what Steam players and opted-out players see.
+
+
+ 3. WHERE THE PICTURE OR PAGE GOES
+ ---------------------------------
+   On any web server that answers over https, NOT in the game server's
+   folders: the game server serves no web pages, and its FastDL
+   (sv_downloadurl) is for map content. Good homes:
+     * your own site or VPS (section 5 has an nginx example);
+     * a static host with https built in (GitHub Pages, Cloudflare Pages,
+       Netlify and the like);
+     * your FastDL host, if it answers over https with a valid certificate.
+   For H9's own servers there is havoc9.org/motd/ (a folder in the site's
+   root on the VPS): the web client takes havoc9.org addresses only under
+   /motd/.
+
+   Give the file a new name when you change it (motd-2025-11.png): clients
+   and caches may hold the old one for a while (section 5).
+
+
+ 4. FORMATS AND LIMITS
+ ---------------------
+   The picture
+     * PNG, for everyone. H9XASH reads PNG, TGA and BMP only; JPEG, GIF and
+       WebP work in the web client but H9XASH shows motd.txt for them.
+     * At most 2 MB, and at most 2048 x 2048 pixels. 1280 x 720 or 1024 x
+       768 suits most screens; make the text big enough to read when the
+       picture is scaled down.
+     * It must arrive within 10 seconds.
+     * It is scaled to fit the player's screen, never out of shape.
+   The page
+     * Any https page. The web client shows it in a frame of about 1060
+       pixels by most of the screen's height; H9XASH shows its picture, or
+       motd.txt, with an OPEN PAGE button.
+     * Keep it light and self-contained: scripts work, but it gets no
+       cookies or storage (section 8).
+   The address
+     * https:// and a host NAME with a dot (motd.example.com). Not an IP
+       address, not localhost, no user:password@ in front of the host.
+     * An optional port (https://motd.example.com:8443/...).
+     * No spaces, quotes, backslashes or any of <>^`{|}; 255 characters at
+       most. Percent-encode anything else (%20 for a space).
+     * A picture's address needs a path (.../motd.png) and no #part.
+   The AMXX log says "[H9 MOTD] ... refused (why)" when an address breaks a
+   rule, and the players get motd.txt.
+
+
+ 5. SERVING IT FROM YOUR OWN WEB SERVER
+ --------------------------------------
+   HTTPS ONLY. Plain http is refused by every client: a picture or page that
+   anyone on the way could swap is not shown to players. A free certificate
+   from Let's Encrypt (certbot) is all it takes. H9XASH checks the
+   certificate against a standard CA list, so a self-signed one fails.
+
+   An nginx site for the files, in /var/www/h9motd/h9/:
+
+     server {
+         listen 443 ssl;
+         listen [::]:443 ssl;
+         server_name motd.example.com;
+         ssl_certificate
+             /etc/letsencrypt/live/motd.example.com/fullchain.pem;
+         ssl_certificate_key
+             /etc/letsencrypt/live/motd.example.com/privkey.pem;
+         root /var/www/h9motd;
+
+         location /h9/ {
+             types { image/png png; image/jpeg jpg jpeg; image/bmp bmp;
+                     image/x-tga tga; text/html html; text/css css;
+                     text/javascript js; }
+             # a few minutes: a changed file reaches players soon
+             add_header Cache-Control "public, max-age=300" always;
+             add_header X-Content-Type-Options "nosniff" always;
+             # the web client shows the page in a frame on havoc9.org
+             add_header Content-Security-Policy
+                 "frame-ancestors https://havoc9.org" always;
+         }
+     }
+
+   (Keep the port-80 block certbot needs for renewals; it may send
+   everything else to https.)
+
+   What matters to the clients
+     * A plain 200 answer with Content-Length (or chunked), as nginx gives
+       for a static file. Redirects are followed, up to 5, https to https.
+     * No forced compression of the picture. H9XASH does not ask for gzip,
+       and refuses an answer that is compressed anyway. nginx compresses
+       only when asked, so the default is right; a CDN that always
+       compresses images is not.
+     * No CORS headers are needed. H9XASH is not a browser, and the web
+       client shows the picture as a plain image and the page in a frame;
+       neither reads them across sites.
+     * The page must let havoc9.org frame it: no "X-Frame-Options: DENY" or
+       SAMEORIGIN, and a frame-ancestors policy, if any, that includes
+       https://havoc9.org, as above. A page that refuses shows blank in the
+       web client, with OPEN IN NEW TAB under it.
+     * H9XASH sends "Host: motd.example.com:443" (with the port); nginx and
+       most servers match the name either way.
+     * Caching: H9XASH fetches the picture at every splash; browsers keep it
+       as Cache-Control says. A new file name is the sure way to change it.
+
+
+ 6. WHAT EACH CLIENT SHOWS
+ -------------------------
+   H9XASH (the downloadable client)
+     The engine draws a panel over the game: your server's name, "Picture
+     from <host>" or "Web page at <host>", the picture, CLOSE, and OPEN PAGE
+     when there is a page. OPEN PAGE shows the whole address and opens the
+     player's own browser only when they click OPEN IN BROWSER. For a page
+     it shows h9_motd_image, or motd.txt inside the panel. Mouse look stops
+     while it is up.
+   The web client (PLAY on havoc9.org)
+     An overlay over the game: the picture, or the page live in a sandboxed
+     frame (links and buttons work), your host's name above it, CLOSE.
+   Stock TS on Steam, and an H9XASH older than the splash MOTD
+     motd.txt, as always. The plugin sends the splash only to H9XASH and the
+     web client (they send h9_clientid); an older H9XASH skips it.
+   Players with cl_h9_motd 0
+     motd.txt, as always.
+
+
+ 7. WHEN THE ADDRESS FAILS
+ -------------------------
+   Every failure ends the same way: the player gets motd.txt, as on a
+   server without a splash.
+     * the cvar's address breaks a rule: the plugin sends nothing ("[H9
+       MOTD]" in the AMXX log);
+     * the server cannot be reached, the certificate is bad, the answer is
+       not 200, or it redirects to http: no picture;
+     * the picture is too large, not PNG/TGA/BMP (H9XASH), or does not
+       arrive within 10 seconds;
+     * for a page, H9XASH falls back to motd.txt in the panel when the
+       picture fails; the page's OPEN PAGE still works.
+   H9XASH writes the reason in its console ("H9 MOTD: ..."); the web client
+   in the browser's console (window.h9web.log).
+
+
+ 8. SECURITY
+ -----------
+   What your page can do in the web client: run scripts, take clicks and
+   scrolling, submit forms, open a link in a new tab when the player clicks
+   it, play sound after the player clicks. What it cannot do: read
+   havoc9.org's page or cookies, keep cookies or storage of its own (it
+   runs as an opaque origin), see where the player came from (no
+   referrer), open tabs or popups without a click, navigate the game's
+   page, show alert or confirm dialogs, or use the camera, microphone,
+   location, full screen, payment, USB, screen capture or the clipboard.
+   In H9XASH no page code runs at all.
+   Your server's host name is always on screen. Do not ask players for
+   passwords in a splash page; H9 never does, and players are told so.
+   Every fetch shows your web server the player's IP address and browser or
+   engine version, as any visit to a web site does; nothing more.
+
+
+ 9. TROUBLESHOOTING
+ ------------------
+   Players still see the text MOTD
+     * h9_motd is still "text", or was set in server.cfg: set it in
+       h9_motd.cfg and restart or change map.
+     * The plugin is not loaded: amxx plugins, in the server console, should
+       list h9_motd.amxx as running.
+     * The AMXX log has an "[H9 MOTD] ... refused" line: fix the address.
+     * The player's client: Steam TS never shows it; H9XASH needs a build
+       with engine-h9-motd.patch (H9XASH\ENGINE.txt lists it); cl_h9_motd
+       must be 1.
+     * The player's console has "H9 MOTD: ..." with the reason.
+   "could not be fetched"
+     The certificate (self-signed, expired, wrong name), a status other
+     than 200, a redirect to http, or a server that only speaks HTTP/2.
+     Check from any machine:
+       curl -sI https://motd.example.com/h9/motd.png
+     wants HTTP 200, content-type: image/png and a content-length.
+   "is not a PNG, TGA or BMP file"
+     Save it as PNG. A .png name on a JPEG file still fails.
+   "larger than 2048 x 2048 pixels" or "over the limit"
+     Make it smaller; most pictures fit 2 MB as PNG at 1280 x 720.
+   The page is blank in the web client
+     The page forbids framing (section 5), or loads http:// pieces the
+     browser blocks on an https page. OPEN IN NEW TAB still works.
+   The page works but forgets things
+     It runs without cookies or storage in the web client, by design.
+   It shows at every map
+     h9_motd_show is "map"; "connect" shows it once a connection.
+   Players see it again after reconnecting
+     By design: a new connection is a new join.

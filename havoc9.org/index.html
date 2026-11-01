@@ -26,9 +26,10 @@
       </button>
       <ul class="nav-links" id="navLinks">
         <li><a href="./index.html" class="active">HOME</a></li>
-        <li><a href="./play/index.html">PLAY</a></li>
+        <li><a href="./webclient/index.html">PLAY</a></li>
         <li><a href="./downloads/index.html">DOWNLOADS</a></li>
         <li><a href="./servers/index.html">SERVERS</a></li>
+        <li><a href="./forum/index.html">FORUM</a></li>
         <li><a href="./join/index.html">JOIN</a></li>
         <li><a href="./museum/index.html">MUSEUM</a></li>
         <li><a href="./credits/index.html">CREDITS</a></li>
@@ -49,9 +50,11 @@
       <p class="hero-tagline">SIEGE · TEAM ELIMINATION · ROLEPLAY · TEAM DEATHMATCH · DEATHMATCH · CAPTURE THE UPLINK · WAVE SURVIVAL · MECH WARRIOR</p>
       <p class="hero-sub">A highly modified version of The Specialists 3.0 — featuring progressive siege, team elimination, roleplay, team deathmatch, deathmatch, capture the uplink, wave survival, and mech warrior gamemodes, with intense suspenseful gameplay; alongside the passionate spirit and vision of the original community!</p>
       <div class="hero-cta">
-        <a href="./play/index.html" class="btn btn-primary">PLAY</a>
+        <a href="./webclient/index.html" class="btn btn-primary">PLAY</a>
         <a href="./downloads/index.html" class="btn btn-ghost">DOWNLOAD CLIENT</a>
       </div>
+      <!-- online now: who is in game, in the web client and on the site (assets/presence.js) -->
+      <div class="presence-online" data-h9-presence="online"></div>
     </div>
     <div class="scroll-indicator"><span></span></div>
   </header>
@@ -212,5 +215,7 @@
   </footer>
 
   <script src="./script.js"></script>
+  <script src="./assets/account.js"></script>
+  <script src="./assets/presence.js"></script>
 </body>
 </html>

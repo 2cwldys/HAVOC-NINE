@@ -840,6 +840,18 @@ h1, h2, h3, h4 {
   margin: 0 auto;
 }
 
+/* the presence spots (assets/presence.js draws into them): online now on the home page, who's
+   playing on the servers page */
+.presence-online {
+  margin-top: 1.75rem;
+  text-align: center;
+}
+
+.presence-now {
+  max-width: 900px;
+  margin: 0 auto 2rem;
+}
+
 .sub-title {
   font-family: var(--font-display);
   font-size: 1.1rem;
@@ -1377,3 +1389,42 @@ h1, h2, h3, h4 {
 }
 
 .footer-copy a { color: #ff4d00; }
+
+/* ========== NAV: ROOM FOR FORUM AND THE ACCOUNT'S LINKS ========== */
+/* The nav carries FORUM and, from assets/account.js, the account's own links (ADMIN for staff).
+   On a wide screen a nav that does not fit on one line wraps to a second one instead of running
+   off the edge; between phone and laptop widths the menu button takes over, as on a phone. */
+@media (min-width: 1001px) {
+  .nav .nav-links {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    column-gap: 1.6rem;
+    row-gap: 0.4rem;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1000px) {
+  .nav-toggle {
+    display: flex;
+  }
+
+  .nav .nav-links {
+    position: fixed;
+    top: 0;
+    right: -100%;
+    width: min(280px, 80vw);
+    height: 100vh;
+    background: rgba(10, 6, 8, 0.98);
+    flex-direction: column;
+    flex-wrap: nowrap;
+    padding: 5rem 2rem 2rem;
+    gap: 1.5rem;
+    border-left: 1px solid var(--border);
+    transition: right 0.3s ease;
+    z-index: 999;
+  }
+
+  .nav .nav-links.open {
+    right: 0;
+  }
+}

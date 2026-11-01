@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>SEARCH -- FORUM -- HAVOC9</title>
+  <meta name="description" content="Search the HAVOC 9 forum's thread titles">
+  <link rel="icon" type="image/gif" href="../../h9helmet_glitch.gif">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../styles.css">
+  <link rel="stylesheet" href="../../forum/forum.css">
+</head>
+<body data-forum-page="search">
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="../../index.html" class="logo">
+        <img src="../../h9helmet_glitch.gif" alt="Havoc9" class="logo-img">
+        <span class="logo-text">HAVOC<span class="orange">9</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="../../index.html">HOME</a></li>
+        <li><a href="../../webclient/index.html">PLAY</a></li>
+        <li><a href="../../downloads/index.html">DOWNLOADS</a></li>
+        <li><a href="../../servers/index.html">SERVERS</a></li>
+        <li><a href="../../forum/index.html" class="active">FORUM</a></li>
+        <li><a href="../../join/index.html">JOIN</a></li>
+        <li><a href="../../museum/index.html">MUSEUM</a></li>
+        <li><a href="../../credits/index.html">CREDITS</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="page forum-page">
+    <div class="container">
+      <div class="page-header">
+        <span class="section-label" id="forumLabel">// FORUM</span>
+        <h1 class="section-title forum-title" id="forumTitle">SEARCH</h1>
+        <div class="title-line"></div>
+      </div>
+
+      <div class="forum-bar">
+        <ol class="forum-crumbs" id="forumCrumbs" aria-label="Where you are"></ol>
+        <form class="forum-search" id="forumSearch" role="search" action="../search/" method="get">
+          <input class="forum-input" type="search" name="q" maxlength="100" placeholder="SEARCH THREAD TITLES" aria-label="Search thread titles">
+        </form>
+        <div class="forum-who" id="forumWho"></div>
+      </div>
+
+      <p class="forum-status" id="forumStatus" role="status">Loading&hellip;</p>
+      <noscript><p class="forum-status">The forum needs JavaScript.</p></noscript>
+      <div id="forumMain"></div>
+
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-logo">
+          <img src="../../h9helmet_glitch.gif" alt="Havoc9">
+          <span>HAVOC<span class="orange">9</span></span>
+        </div>
+        <p class="footer-tag">Open source &middot; Inspired by the original Havoc9 community</p>
+        <p class="footer-copy">Non-commercial &middot; See NON_COMMERCIAL.md</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../../script.js"></script>
+  <script src="../../assets/account.js"></script>
+  <script src="../../assets/presence.js"></script>
+  <script src="../../forum/forum.js"></script>
+</body>
+</html>

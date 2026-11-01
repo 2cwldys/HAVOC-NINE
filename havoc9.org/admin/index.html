@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <meta name="robots" content="noindex">
+  <title>ADMIN PANEL -- HAVOC9</title>
+  <meta name="description" content="The HAVOC 9 admin panel, for moderators and admins">
+  <link rel="icon" type="image/gif" href="../h9helmet_glitch.gif">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../forum/forum.css">
+</head>
+<body>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="../index.html" class="logo">
+        <img src="../h9helmet_glitch.gif" alt="Havoc9" class="logo-img">
+        <span class="logo-text">HAVOC<span class="orange">9</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="../index.html">HOME</a></li>
+        <li><a href="../webclient/index.html">PLAY</a></li>
+        <li><a href="../downloads/index.html">DOWNLOADS</a></li>
+        <li><a href="../servers/index.html">SERVERS</a></li>
+        <li><a href="../forum/index.html">FORUM</a></li>
+        <li><a href="../join/index.html">JOIN</a></li>
+        <li><a href="../museum/index.html">MUSEUM</a></li>
+        <li><a href="../credits/index.html">CREDITS</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="page forum-page">
+    <div class="container">
+      <div class="page-header">
+        <span class="section-label">// STAFF</span>
+        <h1 class="section-title">ADMIN PANEL</h1>
+        <div class="title-line"></div>
+      </div>
+
+      <p class="forum-status" id="panelStatus" role="status">Checking who you are&hellip;</p>
+      <noscript><p class="forum-status">The admin panel needs JavaScript.</p></noscript>
+
+      <div class="panel-tabs" id="panelTabs" role="tablist" aria-label="Admin panel" hidden>
+        <button type="button" role="tab" data-tab="reports" aria-selected="false">REPORTS</button>
+        <button type="button" role="tab" data-tab="forum" aria-selected="false">FORUM</button>
+        <button type="button" role="tab" data-tab="accounts" aria-selected="false">ACCOUNTS</button>
+        <button type="button" role="tab" data-tab="renames" aria-selected="false" data-admin hidden>NAME CHANGES</button>
+        <button type="button" role="tab" data-tab="presence" aria-selected="false" data-admin hidden>PRESENCE</button>
+        <button type="button" role="tab" data-tab="audit" aria-selected="false" data-admin hidden>AUDIT LOG</button>
+      </div>
+
+      <section id="tab-reports" role="tabpanel" hidden></section>
+      <section id="tab-forum" role="tabpanel" hidden></section>
+      <section id="tab-accounts" role="tabpanel" hidden></section>
+      <section id="tab-renames" role="tabpanel" hidden></section>
+      <section id="tab-presence" role="tabpanel" hidden></section>
+      <section id="tab-audit" role="tabpanel" hidden></section>
+
+      <div class="forum-about">
+        <h2 class="sub-title">HOW THIS WORKS</h2>
+        <ul>
+          <li>Every button here is checked again by the server; the panel only shows what your role may do.</li>
+          <li>Nobody acts on an account of their own role or above. Moderators act on players; admins on players and moderators.</li>
+          <li>Admins are made and unmade only with the admin command on the server, never here.</li>
+          <li>Reset password, delete, a role change, a suspension with no end, approving a name change, and resetting or moving a player id ask for your own password.</li>
+          <li>Every action goes into the audit log, which admins can read and which is kept for a limited time.</li>
+        </ul>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-logo">
+          <img src="../h9helmet_glitch.gif" alt="Havoc9">
+          <span>HAVOC<span class="orange">9</span></span>
+        </div>
+        <p class="footer-tag">Open source &middot; Inspired by the original Havoc9 community</p>
+        <p class="footer-copy">Non-commercial &middot; See NON_COMMERCIAL.md</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../script.js"></script>
+  <script src="../assets/account.js"></script>
+  <script src="./admin.js"></script>
+</body>
+</html>

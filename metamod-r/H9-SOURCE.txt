@@ -1,0 +1,11 @@
+metamod-r, as H9 carries it
+===========================
+Upstream:  https://github.com/rehlds/metamod-r
+Branch:    master
+Commit:    56590c5c70fa95775051888b7fe0a4e285856ebb (2026-09-17, "ci: fix Linux build after Debian 11 EOL (#95)")
+Licence:   GNU GPL version 3 (LICENSE in this folder).
+Build:     msvc\ (Visual Studio solution) on Windows; CMakeLists.txt and build.sh on Linux.
+
+Copied as plain files without upstream's git history, the way AMXMODX\ is carried, so H9's own
+changes (player slot expansion: see docs\PLAYER_LIMIT_128.txt) show as ordinary diffs against
+this commit. It replaces the metamod-p source H9 carried before (2026-11-01).

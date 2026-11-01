@@ -1,0 +1,610 @@
+===============================================================================
+ H9 COMMUNITIES: SERVERS THAT TALK TO EACH OTHER, AND TO HAVOC9.ORG
+===============================================================================
+
+ Who this is for: whoever runs an H9 game server or a community of them,
+ whoever writes an AMX Mod X plugin that keeps data for players, and whoever
+ runs the havoc9.org VPS.
+
+ The short version
+   * A community is a havoc9.org account's group of game servers, run by that
+     account (its owner) and the admins the owner names. Its page is
+     havoc9.org/community/?c=<short name>.
+   * A server joins in two steps. It enrolls with havoc9.org by itself
+     (h9_presence does that: docs\H9_PRESENCE.txt, section 4a), then its
+     console's h9_community_claim prints a one-time code that the owner or an
+     admin enters on the community's page.
+   * Players chat across all the community's servers and its page: ".relay
+     <text>" in game, the chat box on the site when signed in. "/find <name>"
+     says where a player is. Portals on a map lead to the community's other
+     servers.
+   * The community's admins ban, mute and kick across all its servers, and
+     announce to all of them. H9's site admins do the same H9-wide.
+   * Plugins keep per-account data for the community through
+     include\h9_community.inc: shared by every server of the community, safe
+     against a server that is not in it.
+   * Two plugins do the game's side: h9_presence.amxx (enrollment, the key,
+     reports, kicks and mutes) and h9_community.amxx (everything else here),
+     in that order in plugins.ini. Both are in every H9 preset; until a
+     server has a key they do nothing and print nothing.
+
+ CONTENTS
+    1. Setting up a server
+    2. Making a community and linking servers
+    3. Community chat
+    4. Finding a player
+    5. Bans, mutes, kicks and announcements
+    6. Shared data for plugins (h9_community.inc)
+    7. The trust model: who can do what
+    8. How the shared data is protected
+    9. Portals
+   10. Latency and cost
+   11. The VPS
+   12. The API
+   13. Commands and cvars
+   14. Troubleshooting
+   15. Files
+
+ 1. SETTING UP A SERVER
+ ----------------------
+   1. Enrollment first: docs\H9_PRESENCE.txt, sections 4 and 4a. A dedicated
+      server with h9_presence.amxx enrolls by itself. "h9_presence_status" in
+      its console says "enrollment: live" and the public server id once it
+      has a live key. A server on h9web's servers.json goes live as soon as
+      havoc9.org has seen its enrollment code; any other waits for an H9
+      admin to approve it (on havoc9.org/community/, H9 ADMIN).
+   2. h9_community.amxx in plugins and in plugins.ini, on the line after
+      h9_presence.amxx. build.bat builds, deploys and registers it; the H9
+      presets (H9XASH\presets) list it.
+   3. include\h9_community.inc goes into scripting\include (build.bat syncs
+      it), for plugins that use the shared data.
+   4. addons\amxmodx\configs\h9_community.cfg: the settings (section 13).
+      Nothing in it is secret; build.bat copies TSM's over the server's on
+      every build.
+   5. Link the server to a community (section 2).
+   6. "h9_community_status" in the server's console says whether h9web is
+      answering, which community the server is in, and its portals.
+
+ h9_community needs nothing else: no key of its own and no address. It signs
+ every call with h9_presence's key through h9_presence's natives; the key
+ itself never leaves h9_presence. Without h9_presence loaded it stays inert.
+
+ 2. MAKING A COMMUNITY AND LINKING SERVERS
+ -----------------------------------------
+ Making one. Signed in on havoc9.org/community/: a short name (3 to 32 of
+ a to z, 0 to 9 and -, starting with a letter or digit; it never changes and
+ is the page's address) and a name (up to 40 characters). The account that
+ makes it owns it. An account owns at most 3 (communitiesPerAccount); H9's
+ site admins have no limit.
+
+ Linking a server.
+   1. On the server's console, or over rcon: h9_community_claim
+      (in game: amx_h9_claim, for admins with the rcon flag). It prints
+        [H9] Link code: abcd-2345 (good for 15 more minutes, once).
+      Over rcon the answer comes after the command has returned, so it shows
+      on the server's own console; run the command again to see the same code
+      (h9_community_claim new asks for a fresh one).
+   2. On the community's page, RUNNING IT, LINK A SERVER: the code and a tag
+      for the server (1 to 12 letters, digits, space, _ . -, starting with a
+      letter or digit). The tag marks its players' chat lines: [Tag] Name.
+ The code is only a proof that whoever enters it can see the server's
+ console. It works once, for 15 minutes (claimMinutes), and h9web keeps only
+ its hash. A server is in one community at a time: one linked elsewhere
+ stays there until that community's staff unlink it. Linking it again to the
+ same community changes its tag.
+
+ Each linked server, on the community's page (staff only): its tag, READ-ONLY
+ DATA (the server may read the shared data and not write it, section 8), and
+ UNLINK, which cuts it off from the community's chat and data at once.
+
+ The community's settings (staff): its name; CHAT ON (the community's chat,
+ on by default); CHAT NEEDS PROVEN PLAYERS and DATA NEEDS PROVEN PLAYERS (off
+ by default): only players whose game proved its player id (h9_presence's
+ challenge, docs\H9_PRESENCE.txt section 8) may relay a line, or have data
+ written for them. Until H9XASH answers the challenge nobody is proven, so
+ turning either on stops that for everyone.
+
+ Admins: the owner names them by username (ADMINS) and removes them. They do
+ everything on the page except naming admins, putting data back and deleting
+ the community, which only the owner (and H9's site admins) can do.
+
+ Deleting: the owner types the short name. The community, its servers'
+ links, its chat, its bans and mutes and its shared data go; the servers stay
+ enrolled with havoc9.org.
+
+ 3. COMMUNITY CHAT
+ -----------------
+ In game: ".relay <text>" in say or say_team (h9_community_prefix sets the
+ prefix). The line goes to every other server of the community and to its
+ page, and shows here for everyone as the others see it:
+     [Tag] Username: text
+ From the site: anyone signed in on havoc9.org can read a community's chat
+ and write in it (the chat box on its page); a line shows in game as
+     [Web] Username: text
+ Announcements show as [Community name] text, and H9's as [H9] text.
+
+ Who can relay from a game: a player whose h9_clientid is a havoc9.org
+ account's (docs\H9_PRESENCE.txt, section 2), while h9web has that account in
+ game on that server by the server's own report (so not in the first few
+ seconds after joining), not muted or banned in the community or H9-wide, and
+ with CHAT NEEDS PROVEN PLAYERS on, only with a proven game. The line carries
+ the account's username, not the name in game.
+
+ What a line may hold: h9web cleans every line, and the plugin cleans what it
+ shows again: no control characters, no Xash colour codes (^0 to ^9), % made
+ a space (a client reads % in a chat line as a format), no # at the start, and
+ white space run together; at most 120 characters (chatMaxChars). The plugin
+ prints every line from h9web with "%s", never as a format string.
+
+ Limits: one line every 2 seconds per account (chatCooldownSeconds, game and
+ site together), 12 a minute per account (chatPerAccount, and chatWebPerAccount
+ on the site), 60 a minute per server (chatPerServer); the plugin also keeps a
+ player to one line every 2 seconds before asking. Over a limit the player is
+ told to wait.
+
+ Moderation: the community's staff delete a line on its page (it goes from the
+ page and from what servers have not fetched yet; a line already shown in game
+ stays on those screens) and MUTE its writer from there (section 5). The chat
+ is kept 7 days (chatRetentionDays), then deleted.
+
+ h9_community_chat 0 on a server shows none of the community's chat there and
+ lets nobody relay from it; announcements still show.
+
+ 4. FINDING A PLAYER
+ -------------------
+ In game: "/find <name>" or "/where <name>" (".find" and ".where" too;
+ h9_community_find 0 turns them off). The answer, to the asker only, for the
+ exact username and up to four that start with what was typed, this
+ community's players first:
+     [H9] Neo is on HAVOC 9 RP -- to join, type in the console:
+          connect 203.0.113.10:27015                   (one line in game)
+     [H9] Neo is here.
+     [H9] Trinity is in game.                         (she hides where)
+     [H9] Tank is on havoc9.org. / is in the H9 web client. / is offline.
+ Each account's own switches on its ACCOUNT page decide what shows
+ (docs\H9_PRESENCE.txt, section 6), exactly as on the site. A server cannot
+ move a player to another server (section 9), so the address is given to
+ type. One search every 5 seconds per player; 60 a minute per server.
+
+ 5. BANS, MUTES, KICKS AND ANNOUNCEMENTS
+ ---------------------------------------
+ On the community's page (staff), BANS, MUTES AND KICKS: a username, what,
+ why and for how long.
+   ban    kicked from every server of the community and kept out, until
+          revoked or for 1 to 3650 days. A ban also follows the account's
+          proven devices: another account playing from a device the banned
+          account proved its id on is kicked too.
+   mute   the account's chat goes nowhere: in game (h9_presence stops the
+          player's say and say_team, and .relay) and on the site.
+   kick   once: the account is kicked from the server it is on, if it plays
+          on one of the community's servers within the hour.
+ The reason (up to 60 letters, digits, spaces and . , : ! ? ( ) -) is what
+ the kicked player reads: "Banned from Zion: griefing". Staff cannot sanction
+ the owner, and only H9's site admins can sanction a site admin.
+
+ How it reaches the servers: h9web asks each server of the community to
+ report at its next poll (a second or so later), and the answer to that
+ report names the players to kick and those muted (docs\H9_PRESENCE.txt,
+ section 4b). The plugin kicks with "kick #<userid> <reason>". A banned player
+ who joins later is kicked at the report after their join, about 3 seconds.
+
+ H9's site admins do the same H9-wide on havoc9.org/community/ (H9 ADMIN): it
+ holds on every enrolled server, in every community or none.
+
+ Announcements: ANNOUNCE on the community's page sends a line to every server
+ of the community and to its chat; H9's site admins send one to every
+ enrolled server and every community's chat.
+
+ Every sanction, revoke, announcement, deleted line and link is in h9web's
+ audit log (docs\H9WEB_ADMIN.txt), with who did it.
+
+ 6. SHARED DATA FOR PLUGINS (H9_COMMUNITY.INC)
+ ---------------------------------------------
+ A community keeps a small store per account: named text values that every
+ server of the community reads and writes for its players, so a roleplay
+ server's money, a rank or a preference follows the player across the
+ community's servers. A plugin uses it through include\h9_community.inc,
+ with h9_community.amxx loaded:
+
+   h9c_ready()                          in a community, and h9web answering
+   h9c_server_id(out[], len)            this server's public id
+   h9c_community(out[], len)            the community's short name
+   h9c_get(id, key[], callback[], data = 0)
+       public my_get(id, status, const key[], const value[], version, data)
+   h9c_set(id, key[], value[], version = -1, callback[] = "", data = 0)
+       public my_set(id, status, const key[], const value[], version, data)
+   h9c_delete(id, key[], version = -1, callback[] = "", data = 0)
+   h9c_find(name[], callback[], data = 0)
+       public my_find(status, index, count, const username[], const state[],
+                      const server[], const address[], same_community, data)
+ and h9_presence's own: h9p_ready, h9p_server, h9p_server_id, h9p_api,
+ h9p_sign, h9p_nonce, h9p_report_soon, h9p_muted.
+
+ Each call returns at once: true when it went out (its callback will run),
+ false when it could not (no live key, id not a player here with an
+ h9_clientid, a bad key name, no callback for a read, a value over 1023
+ bytes, or 24 calls already in flight). In the callback, id is 0 when the
+ player left before the answer came.
+
+ status in a callback:
+   H9C_OK          done
+   H9C_NOT_FOUND   h9c_get: the key is not there (value "", version 0)
+   H9C_CONFLICT    the version given is not the one there: value and version
+                   are what is there now
+   H9C_DENIED      no community, a read-only server, a banned account, or a
+                   community that wants proven players
+   H9C_LIMIT       a limit below, or too many calls a minute
+   H9C_ERROR       havoc9.org did not answer, or not as expected
+   H9C_NO_ACCOUNT  the player's h9_clientid is no account's
+   H9C_NOT_HERE    h9web has not seen the player here yet: h9_presence
+                   reports a player about 3 seconds after they join
+
+ Limits (h9web's defaults, moduleSettings.presence):
+   key        1 to 32 of a to z, 0 to 9, _ . -
+   value      text, UTF-8, at most 512 bytes (dataValueMax); numbers as text
+   keys       64 per account in each community (dataKeysPerAccount)
+   store      200000 values per community (dataRowsPerCommunity)
+   calls      per server 600 reads and 300 writes a minute
+              (dataReadPerServer, dataWritePerServer); per account 60 writes
+              a minute (dataWritePerAccount); a request at most 4 KB
+
+ Conflicts: every value has a version, 0 while it is not there, then one
+ more with each write. With version -1 a write goes over whatever is there:
+ the last write wins. With the version read, it goes in only if nobody wrote
+ since; otherwise H9C_CONFLICT brings what is there, to merge and write
+ again. Use the version for anything two servers may change at once (a
+ balance); -1 is fine for what one server owns (a preference).
+
+ Latency: one HTTPS request a call; the callback runs 50 to 300 ms later as a
+ rule, up to 15 seconds (the timeout, then H9C_ERROR) when havoc9.org is slow.
+ Never wait for it inside a game event. Read a player's values once they are
+ in (10 seconds after client_putinserver is safe), keep them in the plugin,
+ and write a value when it changes, or at round end and on disconnect.
+
+ An example (a balance kept with the version, so two servers never undo each
+ other's change):
+
+   #include <amxmodx>
+   #include <h9_community>
+
+   new g_money[33], g_ver[33];
+
+   public client_putinserver(id)
+   {
+       set_task(10.0, "load_money", id);
+   }
+
+   public load_money(id)
+   {
+       h9c_get(id, "rp.money", "got_money");
+   }
+
+   public got_money(id, status, const key[], const value[], version, data)
+   {
+       if (!id)
+       {
+           return;
+       }
+       if (status == H9C_NOT_HERE)
+       {
+           set_task(10.0, "load_money", id);
+           return;
+       }
+       g_money[id] = (status == H9C_OK) ? str_to_num(value) : 0;
+       g_ver[id] = version;
+   }
+
+   save_money(id)
+   {
+       new v[16];
+       num_to_str(g_money[id], v, charsmax(v));
+       h9c_set(id, "rp.money", v, g_ver[id], "saved_money");
+   }
+
+   public saved_money(id, status, const key[], const value[], version, data)
+   {
+       if (id && status == H9C_OK)
+       {
+           g_ver[id] = version;
+       }
+       else if (id && status == H9C_CONFLICT)
+       {
+           // another server changed it since: take what is there now
+           g_money[id] = str_to_num(value);
+           g_ver[id] = version;
+       }
+   }
+
+ 7. THE TRUST MODEL: WHO CAN DO WHAT
+ -----------------------------------
+ A game server (whoever holds its key: the server, its host, anyone with its
+ files)
+   can   report the players it really has, under the names they use;
+         relay chat for an account while that account is in game on it;
+         read its own community's data, for any account (by username too);
+         write its community's data for an account in game on it now,
+         unless the server is read-only;
+         find players; get a link code for itself.
+   can't reach another community's data or chat; write data or relay chat
+         for an account that is not in game on it; prove a player it does
+         not have (it cannot make the challenge's proof without the player's
+         raw id); sanction anyone; see any key, player id, device or IP.
+   Note: a server can put words in the mouth of a player who is really on
+   it, and write that player's data however it likes. CHAT NEEDS PROVEN
+   PLAYERS and DATA NEEDS PROVEN PLAYERS make sure the player was really
+   there; they cannot make sure the player typed the line. Link only servers
+   you trust, and make a server read-only when it only needs to read.
+
+ A community's admin (named by the owner)
+   can   link servers (with a code from the server's console), set tags and
+         read-only, unlink; ban, mute and kick in the community; announce;
+         delete chat lines; read the shared data's history.
+   can't name admins, put data back, delete the community; sanction the
+         owner or an H9 site admin; touch another community; see keys,
+         player ids, devices or players' addresses.
+
+ A community's owner
+   can   all of the above; name and remove admins; put the shared data back
+         to any time in the last 30 days; delete the community.
+   can't touch another community, H9-wide sanctions or enrollment.
+
+ H9's site admins
+   can   everything above in every community; H9-wide bans, mutes, kicks and
+         announcements; approve, revoke and block enrolled servers; read the
+         audit log.
+
+ Whoever runs the VPS: the database, and so everything; backups hold it too.
+
+ A player: chats where not muted, finds others, and decides with the switches
+ on the ACCOUNT page what others see of them, on the site and through /find.
+
+ 8. HOW THE SHARED DATA IS PROTECTED
+ -----------------------------------
+   * Every call is signed with the server's own key: HMAC-SHA256 over the
+     exact body, a time within 2 minutes of h9web's clock, and a one-time
+     nonce h9web keeps for 10 minutes in its database (a restart forgets
+     none). A forged, changed, stale or replayed call is refused.
+   * Nothing in a call names a community. h9web takes the community from the
+     server the key belongs to, so a server reaches only its own.
+   * A write is only for a player in game on that server now: h9web maps the
+     player's h9_clientid to the account with core's own index and checks the
+     server's latest report has that account in game. A banned account's data
+     is not written; DATA NEEDS PROVEN PLAYERS asks for a proven game.
+   * Quotas and rate limits, per server and per account (section 6), sizes
+     and types (a value is text or nothing), key names checked.
+   * The owner (or an admin) makes a server READ-ONLY: it reads and cannot
+     write.
+   * Versions: a write can be made to fail if anything changed since it was
+     read (section 6).
+   * Every write is logged: the account, the key, the value before and
+     after, both versions, the server that wrote it, and when; kept 30 days
+     (dataLogRetentionDays). Staff read the log on the community's page
+     (SHARED DATA); the owner puts every value, or one account's, back as it
+     was at a time in those 30 days, and that too is logged and audited.
+     h9web's daily database backup (docs\H9WEB_ADMIN.txt) is the rest of the
+     safety net.
+   * A key stops at once: an H9 site admin revokes or blocks an enrolled
+     server (H9 ADMIN, ENROLLED SERVERS), presence-key.js removes a
+     hand-made one, and unlinking a server cuts it off from its community.
+
+ 9. PORTALS
+ ----------
+ A portal is a ring on a map that leads to another server of the community.
+ It is placed with a line in ts\mapconfigs\<map>.cfg, which h9_autoconfig
+ runs once the map is up (docs\GAME_MODES.txt, section 4), the way spawns are
+ placed for the match mode:
+
+   h9_portal <tag|server id> <x> <y> <z> [yaw] [radius] [walk]
+
+   tag | server id   the destination: its tag in this community, or its
+                     public server id (quote a tag with a space in it)
+   x y z             where it stands: a player's origin (36 units above the
+                     floor), as amx_h9_portal_add records it
+   yaw               which way the ring faces (default 0)
+   radius            its size, 16 to 256 (default 48)
+   walk              1: walking into it offers the trip too (default 0)
+
+ for example
+   h9_portal "RP 2" 1024 -512 100 90 48 0
+
+ amx_h9_portal_add <tag|server id> [radius] [walk] (admins with the cfg flag)
+ places one where the admin stands, facing where the admin looks, and prints
+ its line to paste into the mapconfig; amx_h9_portal_list prints every
+ portal's line. At most 16 portals a map.
+
+ In game: the ring (sprites\tsm_zone_ring_0.spr, the uplink zones' ring,
+ stood upright) shows only while the destination is one of the community's
+ servers; a portal to an unknown tag, or to this server, is hidden. Near it a
+ player sees its name and players ("HAVOC 9 RP / 5 / 16 players / Press E
+ to travel"), refreshed with each poll. E, or walking in with walk 1, opens a
+ confirm menu (1. Go, 2. Stay); after Go the player waits
+ h9_community_portal_wait seconds (10) before the next. The ring is precached
+ only for a map whose mapconfig has an h9_portal line, and only if the sprite
+ is on the server (a missing precached file stops a map from loading). A
+ Steam hlds server does not run mapconfigs, so it shows no portals.
+
+ What moves a client: nothing a server can do, today.
+   * The obvious way is the server telling the client to run "connect
+     <address>" (stufftext). FWGS registers connect with
+     Cmd_AddRestrictedCommand, so it is CMD_PRIVILEGED, and
+     Cmd_ShouldAllowCommand refuses every privileged command that comes from
+     the server, whatever cl_filterstuffcmd says. H9XASH and the web client
+     are FWGS: they ignore it. Steam's Half-Life filters server commands too.
+   * GoldSrc has no "redirect" message for a server to send.
+ So Go gives the address: "[H9] HAVOC 9 RP is at 203.0.113.10:27016 -- open
+ the console (~) and type: connect 203.0.113.10:27016", in chat and in the
+ console. The player types it.
+
+ Moving the player for real needs an engine patch. With
+ h9_community_travel 1 the plugin also sends "h9_travel <address>" after Go;
+ an engine without the patch says the command is unknown and nothing else
+ happens, so leave it 0 until the patch ships. The patch, for the H9XASH
+ engine (the coordinator builds engine patches):
+   * A client command h9_travel <a.b.c.d:port>, registered with
+     Cmd_AddCommand (not restricted), so a server's stufftext may run it.
+   * It does nothing unless the client is connected (cls.state ==
+     ca_active), the argument is an IPv4 address with a port and nothing
+     else, and cl_h9_travel (a new archived cvar, default 1) is on. A
+     loopback or private address is refused unless the server the client is
+     on is itself private. At most one h9_travel every 10 seconds.
+   * It never connects on its own. It shows the player, in the engine's own
+     text where no server can draw (Con_NPrintf at the top of the screen, or
+     a mainui message box), "Travel to <address>? Y: go, N: stay", for 15
+     seconds, and takes the key itself in Key_Event while it is up: Y runs
+     the connect as if typed (Cbuf_AddText "connect <address>"), N or Esc or
+     the time running out drops it. A server cannot press Y, so a server
+     that skips the plugin's menu still cannot move anyone.
+   * The web client: the same check in its JS before it reconnects through
+     the relay, which keeps its own allowlist of H9 servers.
+ With the patch in and h9_community_travel 1, Go and then Y take the player
+ there; the chat line stays as a fallback.
+
+ 10. LATENCY AND COST
+ --------------------
+ Each server keeps one call open to havoc9.org: a long-poll that h9web holds
+ up to 20 seconds (pollHoldSeconds) and answers at once when there is
+ something for it. The next one goes out a second after an answer, or after
+ 5 seconds to 5 minutes when havoc9.org did not answer (each failure waits
+ longer). A server that is waiting for a key or an approval asks nothing.
+
+   game to game     a line reaches the community's other servers in about
+                    0.1 to 0.5 seconds, and at most about 1.5 seconds
+   site to game     the same
+   game to site     the chat box asks every 4 seconds while it is in view
+   a sanction       a second or so to the poll, about 3 seconds more to the
+                    report whose answer kicks
+   portals, /find   the label's players are as fresh as the last poll (20
+                    seconds at most); /find asks h9web each time
+
+ Cost per server: about 3 small HTTPS requests a minute when nothing
+ happens, one held connection on h9web, and one more request for each line,
+ search or data call. On h9web, a waiting poll is a few hundred bytes of
+ memory; 100 servers are 100 open connections through nginx. A chat line
+ is one database row, kept 7 days.
+
+ 11. THE VPS
+ -----------
+ Nothing to install: communities are part of the presence module
+ (h9web\modules\presence); migration 2 makes their tables on the first start
+ after an update. Check:
+   * nginx's /api/ location keeps proxy_read_timeout 30s or more
+     (havoc9.org\deploy\nginx-setup.sh does): pollHoldSeconds (20) must stay
+     under it. nginx's own limit, 10 requests a second per address with a
+     burst of 60, covers a server's calls; servers sharing one address share
+     it.
+   * config.json "trustProxy": true behind nginx (as deployed), so h9web
+     sees a server's real address: enrollment checks it (enrollSameIp).
+   * The VPS may send UDP out to the game servers' ports: that is how h9web
+     reads an enrolling server's rules (A2S_RULES).
+   * The site page: havoc9.org\community\index.html with
+     havoc9.org\assets\community.js, deployed with the rest of the site.
+
+ Settings (moduleSettings.presence; all have defaults):
+   pollHoldSeconds 20, chatMaxChars 120, chatRetentionDays 7,
+   chatCooldownSeconds 2, dataValueMax 512, dataKeysPerAccount 64,
+   dataRowsPerCommunity 200000, dataLogRetentionDays 30,
+   communitiesPerAccount 3, claimMinutes 15
+   limits: serverCallsPerIp, pollPerServer, chatPerServer, chatPerAccount,
+   chatWebPerAccount, findPerServer, dataReadPerServer, dataWritePerServer,
+   dataWritePerAccount, claimPerServer, communityPerAccount
+ Enrollment's own settings are in docs\H9_PRESENCE.txt, section 3.
+
+ 12. THE API
+ -----------
+ Game servers (signed; h9_community.sma makes these calls):
+   POST /api/presence/server/poll      { since, hold }   the long-poll
+   POST /api/presence/server/chat      { id, text }      a relayed line
+   POST /api/presence/server/find      { q }             where an account is
+   POST /api/presence/server/data/get  { id | account, keys }
+   POST /api/presence/server/data/set  { id, key, value, version }
+   POST /api/presence/server/claim                       a link code
+ Each body is { "v": 1, "server": "<ip:port>", "ts": <unix seconds>,
+ "nonce": "<16 to 64 hex>", ... }, with X-H9-Server: <ip:port> and
+ X-H9-Signature: <hex HMAC-SHA256 of the body with the server's key>.
+ The site (signed in; staff = the owner, its admins and H9's site admins):
+   GET    /api/presence/communities
+   POST   /api/presence/communities                 { slug, name }
+   GET    /api/presence/communities/<slug>
+   PATCH  /api/presence/communities/<slug>          { name, chat, chatProof,
+                                                      dataProof }   staff
+   DELETE /api/presence/communities/<slug>          { confirm }     owner
+   POST   /api/presence/communities/<slug>/claim    { code, tag }   staff
+   POST   .../servers/<serverId>   { tag, readOnly }   DELETE (unlink)  staff
+   POST   .../staff  { username }   DELETE .../staff/<username>        owner
+   GET    .../sanctions   POST .../sanctions { username, kind, reason, days }
+   POST   .../sanctions/<id>/revoke                                     staff
+   POST   .../announce { text }                                         staff
+   GET    .../chat?since=<id>   POST .../chat { text }        signed in
+   DELETE .../chat/<id>                                                 staff
+   GET    .../data/log?username=                                        staff
+   POST   .../data/rollback { to, username }                            owner
+ H9's site admins:
+   GET  /api/presence/admin/servers?status=all|pending_approval|active|
+        pending_proof|blocked
+   POST /api/presence/admin/servers/<serverId>/approve | revoke | block |
+        unblock | flags/resolve
+   GET  /api/presence/admin/sanctions   POST /api/presence/admin/sanctions
+   POST /api/presence/admin/sanctions/<id>/revoke
+   POST /api/presence/admin/announce  { text }
+
+ 13. COMMANDS AND CVARS
+ ----------------------
+ Players (say or say_team):
+   .relay <text>             a line to the whole community
+   /find <name>, /where <name>   (and .find, .where) where a player is
+ Server console:
+   h9_community_status       the link, the community, portals, calls
+   h9_community_claim [new]  a link code (section 2)
+   h9_portal ...             a portal, from a mapconfig (section 9)
+ Admins in game (console):
+   amx_h9_claim [new]        a link code (rcon flag)
+   amx_h9_portal_add <tag|server id> [radius] [walk]   (cfg flag)
+   amx_h9_portal_list        (cfg flag)
+ Cvars (h9_community.cfg; a mapconfig may set them for one map):
+   h9_community_prefix       ".relay"  what a player types before a line
+   h9_community_chat         1   the community's chat here; 0: none
+   h9_community_find         1   /find and /where
+   h9_community_portal_wait  10  seconds between two trips through a portal
+   h9_community_travel       0   1: Go also sends h9_travel (section 9)
+
+ 14. TROUBLESHOOTING
+ -------------------
+ h9_community_status says "key not live"
+   - h9_presence_status says why: not enrolled (h9web cannot reach the server
+     over UDP: a LAN or NAT server stays so), waiting for an H9 admin, or no
+     key at all on a listen server. docs\H9_PRESENCE.txt, section 12.
+ "havoc9.org: not answering"
+   - HTTP 0: the server cannot reach havoc9.org (DNS, firewall, the
+     AmxxEasyHttp module or its CA bundle missing).
+   - 401 stale: the server's clock is more than 2 minutes off: fix NTP.
+   - 401 bad_signature or 403 no_key: the key changed or was revoked;
+     h9_presence enrolls again by itself.
+ "community: none"
+   - Link it (section 2). A code that "is wrong or has run out": ask the
+     console for a new one (h9_community_claim new).
+ ".relay" says "havoc9.org has not seen you on this server yet"
+   - Wait a few seconds after joining; and the player's game must send the
+     account's player id (docs\H9_PRESENCE.txt, section 2).
+ A portal does not show
+   - Its tag or server id must be one of the community's other servers
+     (h9_community_status counts the portals "leading somewhere"); the
+     mapconfig must have the line, on an H9XASH server (Steam hlds runs no
+     mapconfigs); the ring needs sprites\tsm_zone_ring_0.spr on the server.
+ A plugin's h9c_ call returns false
+   - No live key, the player has no h9_clientid, a key name with capitals or
+     spaces, or 24 calls in flight.
+
+ 15. FILES
+ ---------
+ TSM\h9_community.sma            the plugin (chat, find, data, portals, links)
+ TSM\h9_community.cfg            its settings
+ TSM\include\h9_community.inc    the natives, for other plugins
+ TSM\h9_presence.sma             enrollment, the key, reports, kicks, mutes
+ h9web\modules\presence\community.js   communities, chat, sanctions, data
+ h9web\modules\presence\enroll.js      enrollment; a2s.js reads the rules;
+                                       serverauth.js checks signed calls
+ h9web\test\community.test.js    their tests
+ havoc9.org\community\index.html  the page; havoc9.org\assets\community.js
+ On a game server: addons\amxmodx\data\h9_presence.key holds the server's
+ enrolled key: a secret, never shared or committed (client packages and git
+ leave *.key out).

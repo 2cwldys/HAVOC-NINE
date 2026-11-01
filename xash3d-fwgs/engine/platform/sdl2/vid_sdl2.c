@@ -26,6 +26,10 @@ GNU General Public License for more details.
 #include <vrtld.h>
 #endif // XASH_PSVITA
 
+#if XASH_EMSCRIPTEN
+#include <emscripten.h>
+#endif // XASH_EMSCRIPTEN
+
 static vidmode_t *vidmodes = NULL;
 static int num_vidmodes = 0;
 static void GL_SetupAttributes( void );
@@ -45,8 +49,14 @@ struct
 
 void Platform_Minimize_f( void )
 {
+#if XASH_EMSCRIPTEN
+	// H9 web client: a page has no window to minimize; the page is asked instead (client.js
+	// leaves full screen and gives the mouse back)
+	EM_ASM({ Module.callbacks?.gameMinimize?.(); });
+#else
 	if( host.hWnd )
 		SDL_MinimizeWindow( host.hWnd );
+#endif
 }
 
 qboolean SW_CreateBuffer( int width, int height, uint *stride, uint *bpp, uint *r, uint *g, uint *b )
