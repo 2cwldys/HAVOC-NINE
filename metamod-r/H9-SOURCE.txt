@@ -9,3 +9,31 @@ Build:     msvc\ (Visual Studio solution) on Windows; CMakeLists.txt and build.s
 Copied as plain files without upstream's git history, the way AMXMODX\ is carried, so H9's own
 changes (player slot expansion: see docs\PLAYER_LIMIT_128.txt) show as ordinary diffs against
 this commit. It replaces the metamod-p source H9 carried before (2026-11-01).
+
+H9's changes
+------------
+Each is a patch in this folder, made by diff against the upstream files, and is applied in
+the source here already. An upstream update: take the new commit's files, then apply these
+again (git apply), in this order.
+
+  h9-slots128.patch   metamod\src\mplayer.h, mplayer.cpp: the client-cvar query table,
+                      MPlayerList::m_players, holds 128 player slots (it held MAX_CLIENTS
+                      + 1 from the HLSDK's const.h, 32 + 1), and every look-up is bounded
+                      by that size as well as by gpGlobals->maxClients. Upstream bounds
+                      the look-ups only by maxClients, so on a server past 32 slots a
+                      query from slot 33 and up is written past the table.
+
+Building (Windows): msvc\metamod.sln, Release|Win32, with the toolset of the Visual
+Studio at hand (/p:PlatformToolset=v145 for Visual Studio 2026; the project names only
+v120 to v142). Output: metamod\msvc\Release\metamod.dll. Interface version 5:13, the one
+AMX Mod X 1.10 and RCBot ask for.
+
+Against the goldsrc-net prebuilt H9 shipped before (Metamod-r 1.3.0.196, goldsrc-net/
+Metamod-R b2ea6fb): goldsrc-net forked rehlds at 4db16ff (2025-07-22). Upstream has had only
+Linux CI and packaging commits since. The fork adds a rewritten hook JIT on AsmJit with x64
+and aarch64 support, plugin file name suffixes for 64-bit builds, Linux glibc/libstdc++
+floors, and fixes to its own JIT rewrite (b2ea6fb: the return value picked before the meta
+globals are restored; eb82b66: variadic engine functions hooked again). Upstream's x86 JIT,
+built here, already picks the return value first and formats variadic calls itself. For
+H9's 32-bit Windows server nothing it relies on differs: the same plugin interface, the
+same plugins.ini, the same game support list.

@@ -190,6 +190,8 @@ test("pictures: JPEG loses its EXIF (with the GPS block), XMP, comments and anyt
   assert.equal(inspectPicture(r.data, LIMITS).data.equals(r.data), true);
   assert.equal(inspectPicture(jpeg(64, 48).subarray(0, 60), LIMITS).ok, false, "cut short");
   assert.match(inspectPicture(jpeg(2000, 10), LIMITS).message, /2000 x 10/);
+  const huge = jpegSegment(0xc2, Buffer.from([8, 0xea, 0x60, 0xea, 0x60, 1, 1, 0x11, 0]));
+  assert.equal(inspectPicture(jpeg(64, 48, { segments: [huge] }), LIMITS).ok, false, "two frame headers: a small second one cannot vouch for a huge first");
 });
 
 test("pictures: GIF keeps its frames and NETSCAPE2.0, loses comments, XMP, plain text and trailing data", () => {

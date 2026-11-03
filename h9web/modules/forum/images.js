@@ -118,7 +118,8 @@ function jpeg(buf, limits) {
     if (length < 2 || p + length > buf.length) return fail(DAMAGED);
     const segment = buf.subarray(p - 2, p + length);
     if (JPEG_SOF.has(marker)) {
-      if (length < 8) return fail(DAMAGED);
+      // one frame header only: the size checked is then the size a reader decodes
+      if (length < 8 || frame) return fail(DAMAGED);
       height = buf.readUInt16BE(p + 3);
       width = buf.readUInt16BE(p + 5);
       frame = true;

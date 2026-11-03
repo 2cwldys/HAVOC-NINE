@@ -188,7 +188,7 @@ void R_Set2DMode( qboolean enable )
 		pglDepthMask( GL_TRUE );
 		pglEnable( GL_DEPTH_TEST );
 		// restore the scene fog that was disabled in 2D mode
-		if( gl_fog.value && ( RI.fogEnabled || RI.fogCustom ))
+		if( R_FogAllowed( ) && ( RI.fogEnabled || RI.fogCustom ))
 			pglEnable( GL_FOG );
 		glState.in2DMode = false;
 

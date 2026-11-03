@@ -8,3 +8,10 @@ secrets.json
 config.json
 servers.json
 node_modules/
+# The data key (it opens the Discord links), any other key, h9web-backup's archives and the
+# backup passphrase file: never committed, wherever they are put.
+data.key
+*.key
+*.h9backup
+*.h9backup.partial
+backup-passphrase*

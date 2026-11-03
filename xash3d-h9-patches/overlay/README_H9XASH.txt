@@ -46,6 +46,52 @@
  different one each launch. Set ui_background_video 0 to turn the video off entirely.
  Then it runs  HAVOC 9.exe -game ts -console .
 
+ Updating
+ --------
+ H9XASH-Updater.exe, in the dist folder of the HAVOC-NINE repository
+ (github.com/2cwldys/HAVOC-NINE), brings this folder up to date instead of a new
+ ZIP: it asks havoc9.org which files the current build has, downloads only the
+ ones that are new or changed (each checked against its SHA-256), and never
+ touches your own (config.cfg, user_id.ini, device_id.ini, networking.ini, saves,
+ screenshots, logs, histories, downloads, your spray). It needs no Git. Close the
+ game, put the updater beside this folder or in it, and run it. --check shows
+ what an update would change and --rollback undoes the last one. On its first
+ run it offers to link this install to your havoc9.org account.
+ tools\updater\README_UPDATER.txt in the repository has the details.
+
+ The port
+ --------
+ A server started here takes the port named by port= under [server] in
+ networking.ini, 27015 as it ships: h9xash_server.bat and h9xash_server_debug.bat
+ for a dedicated server, and Create Game (h9xash.bat passes it as -port). Change it
+ to run a second server on this PC, or where a network blocks 27015, and open it in
+ the firewall and the router. A -port given to a launcher wins. A networking.ini
+ from before the port was in it gets the line at the next launch, through
+ h9xash.bat; one you set stays as you set it.
+
+ Priority, cores and memory
+ --------------------------
+ priority= under [process] in networking.ini is the priority h9xash.bat,
+ h9xash_server.bat and h9xash_server_debug.bat start HAVOC 9.exe at: Normal,
+ AboveNormal (as it ships, and when the line is missing) or High. It matters only
+ while the PC is busy; High suits a PC that only hosts. Realtime runs as High: a
+ busy game at Realtime holds back Windows' own input, disk and network work.
+ Nothing pins the game to some cores: Windows runs it on any of them. Its game
+ simulation is one thread, so a faster core helps a server and more cores do not;
+ they run other servers and programs beside it. HAVOC 9.exe is a 32-bit program
+ marked large-address-aware: on 64-bit Windows it can use 4 GB of memory, not 2.
+
+ Your havoc9.org account
+ -----------------------
+ Link your Account in the main menu (a red, broken chain beside it) links this game
+ to your havoc9.org account: it shows a code, OPEN PAGE opens havoc9.org/link in your
+ browser, you sign in and press LINK, and from then on H9's servers see this game as
+ your account (presence, your name in game, your picture on the scoreboard). The
+ button then reads Unlink your Account, with a green chain. On an H9 server, .link in chat
+ does the same. The game keeps its id protected for your Windows user in user_id.ini,
+ so a copy of this folder on another PC is not your account there.
+ docs\CUSTOM_XASH_USERID.txt in the repository has the details.
+
  Command reference
  -----------------
  Type exec commands in the game console to print the command reference: the text of
@@ -66,14 +112,52 @@
  A server's splash MOTD
  ----------------------
  A server can show a picture or a web page when you join, in place of TS's text
- MOTD. ESC, ENTER, SPACE or CLOSE close it, and its OPEN PAGE button shows the
- page's whole address before anything opens. To always get the text MOTD
- instead, put this in the console (config.cfg keeps it):
+ MOTD. A web page is shown live inside the game: it scrolls, and its links and
+ buttons work. It uses Microsoft Edge WebView2, which Windows 10 and 11 already
+ have (otherwise: https://go.microsoft.com/fwlink/p/?LinkId=2124703). ESC or
+ CLOSE close the splash; ESC works inside the page too. When a page cannot be
+ shown in the game (no WebView2, exclusive full screen -- fullscreen 1 -- or a
+ page that fails to load), the panel says so and offers OPEN PAGE, which shows
+ the page's whole address before your own browser opens it. To always get the
+ text MOTD instead, put this in the console (config.cfg keeps it):
 
      cl_h9_motd 0
 
  Typing motd in the console shows the server's MOTD again. docs\H9_MOTD.txt has
  the whole account, and docs\HTTP_SERVER_MOTD.txt is the guide for hosts.
+
+ On Linux (Wine or Proton) pictures and the text MOTD work as on Windows, but a
+ web page is not shown in the game unless you turn it on: the panel offers
+ OPEN PAGE instead, which opens your Linux browser. Chromium's sandbox does not
+ run under Wine, so a page there runs without it, and a runtime installed into
+ a Wine prefix does not update itself; that is your choice to make. To turn it
+ on: Wine 10 or later (a GE-Proton based Proton), the WebView2 runtime in the
+ prefix (winetricks has no WebView2 entry: run Microsoft's "Evergreen
+ Standalone Installer" from developer.microsoft.com/microsoft-edge/webview2 in
+ the prefix, MicrosoftEdgeWebView2RuntimeInstallerX64.exe /silent /install;
+ README_LINUX.txt shows the command), then
+
+     cl_h9_motd_wine 1
+
+ (2 if pages show blank or black: it turns the GPU off for them). H9XASH then
+ sets Wine's Windows version for msedgewebview2.exe to win8 if you have not set
+ one. Instead of installing it you can put Microsoft's Fixed Version WebView2
+ runtime (x86) in webview2\runtime beside HAVOC 9.exe, on Linux or Windows; it
+ never updates itself, so replace it for security fixes. docs\H9_MOTD.txt,
+ section 5, has the details.
+
+ Portals to other servers
+ ------------------------
+ On a community's servers a ring on the map can lead to another of its
+ servers. After you pick 1. Go, the game itself asks: "Travel to <name>?", with
+ the address and the server that offered it, YES (Y) or NO (N). Only your own
+ YES connects; a server cannot press it for you, and the offer closes by itself
+ after 15 seconds. To ignore such offers (servers then give you the address to
+ type instead):
+
+     cl_h9_travel 0
+
+ docs\H9_COMMUNITIES.txt, section 9, has the whole account.
 
  Finding servers and joining them
  --------------------------------
@@ -81,16 +165,17 @@
  networking.ini, which sits next to h9xash.bat:
 
      [client]
-     list_static=https://example.org
-     list_bot=http://127.0.0.1:8081
+     list_static=
+     list_bot=https://havoc9.org/serverlist
      steam_broker=0
 
  Every launch rewrites ts\xashcomm.lst and ts\networking_resolved.cfg from that
  file, so edit networking.ini and start the game again. A server list is a small text
  file the game fetches from <address>/v1/servers/ts. Each line is "ip host:port" for
  an Xash server. list_bot points at the H9 list bot (TSM serverlist-bot\), a small
- service that tracks which servers are actually up -- docs\NETWORKING.txt section 7
- has its setup and a port it's best to avoid on Windows. docs\NETWORKING.txt has the
+ service that tracks which servers are actually up, hosted at havoc9.org (for a test
+ with one running on this PC: list_bot=http://127.0.0.1:8081) --
+ docs\NETWORKING.txt section 7 has its setup and a port it's best to avoid on Windows. docs\NETWORKING.txt has the
  full guide: the file format, how to run a list on your own machine for testing, and
  the Steam trade-offs.
 

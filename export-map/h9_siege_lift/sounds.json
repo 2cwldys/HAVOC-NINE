@@ -1,0 +1,1031 @@
+{
+  "spec": "smak.sound/1",
+  "sounds": [
+    {
+      "name": "h9lift/drive_hum.wav",
+      "class": "loop machine",
+      "seed": 101,
+      "length": 4,
+      "loop": {
+        "crossfade": 0.4
+      },
+      "layers": [
+        {
+          "id": "base",
+          "kind": "tone",
+          "f": 48,
+          "wave": "saw",
+          "filter": [
+            {
+              "type": "lowpass",
+              "f": 420
+            }
+          ],
+          "gain": -6,
+          "length": 4,
+          "env": {
+            "attack": 0.005,
+            "hold": 3.99,
+            "decay": 0.005
+          }
+        },
+        {
+          "id": "octave",
+          "kind": "tone",
+          "f": 96,
+          "wave": "triangle",
+          "gain": -12,
+          "length": 4,
+          "env": {
+            "attack": 0.005,
+            "hold": 3.99,
+            "decay": 0.005
+          }
+        },
+        {
+          "id": "whine",
+          "kind": "tone",
+          "f": 384,
+          "wave": "sine",
+          "gain": -26,
+          "length": 4,
+          "env": {
+            "attack": 0.005,
+            "hold": 3.99,
+            "decay": 0.005
+          }
+        },
+        {
+          "id": "body",
+          "kind": "noise",
+          "color": "brown",
+          "filter": [
+            {
+              "type": "lowpass",
+              "f": 260
+            }
+          ],
+          "gain": -10,
+          "length": 4,
+          "env": {
+            "attack": 0.005,
+            "hold": 3.99,
+            "decay": 0.005
+          }
+        }
+      ],
+      "finish": {
+        "saturate": 1.6,
+        "peak": -3
+      }
+    },
+    {
+      "name": "h9lift/rollers.wav",
+      "class": "loop machine",
+      "seed": 102,
+      "length": 2.4,
+      "loop": {
+        "crossfade": 0.05
+      },
+      "layers": [
+        {
+          "id": "clack",
+          "kind": "particles",
+          "every": 0.3,
+          "jitter": 0.04,
+          "band": [
+            500,
+            2400
+          ],
+          "grain": 0.012,
+          "gain": -4,
+          "length": 2.4,
+          "env": {
+            "attack": 0.005,
+            "hold": 2.39,
+            "decay": 0.005
+          }
+        },
+        {
+          "id": "thump",
+          "kind": "particles",
+          "every": 0.6,
+          "jitter": 0.02,
+          "band": [
+            60,
+            220
+          ],
+          "grain": 0.03,
+          "gain": -3,
+          "length": 2.4,
+          "env": {
+            "attack": 0.005,
+            "hold": 2.39,
+            "decay": 0.005
+          }
+        },
+        {
+          "id": "grind",
+          "kind": "noise",
+          "color": "pink",
+          "filter": [
+            {
+              "type": "bandpass",
+              "f": 900,
+              "q": 1.2
+            }
+          ],
+          "gain": -22,
+          "length": 2.4,
+          "env": {
+            "attack": 0.005,
+            "hold": 2.39,
+            "decay": 0.005
+          }
+        }
+      ],
+      "finish": {
+        "saturate": 2.2,
+        "room": {
+          "decay": 0.2,
+          "wet": 0.12
+        },
+        "peak": -2
+      }
+    },
+    {
+      "name": "h9lift/cable_sing.wav",
+      "class": "loop drone",
+      "seed": 103,
+      "length": 5,
+      "loop": {
+        "crossfade": 0.6
+      },
+      "layers": [
+        {
+          "id": "sing",
+          "kind": "fm",
+          "f": 880,
+          "ratio": 2.01,
+          "index": 0.5,
+          "gain": -10,
+          "length": 5,
+          "env": {
+            "attack": 0.005,
+            "hold": 4.99,
+            "decay": 0.005
+          }
+        },
+        {
+          "id": "beat",
+          "kind": "tone",
+          "f": 1323,
+          "wave": "sine",
+          "gain": -20,
+          "length": 5,
+          "env": {
+            "attack": 0.005,
+            "hold": 4.99,
+            "decay": 0.005
+          }
+        },
+        {
+          "id": "air",
+          "kind": "particles",
+          "rate": 900,
+          "band": [
+            2000,
+            6000
+          ],
+          "grain": 0.002,
+          "gain": -28,
+          "length": 5,
+          "env": {
+            "attack": 0.005,
+            "hold": 4.99,
+            "decay": 0.005
+          }
+        }
+      ],
+      "finish": {
+        "room": {
+          "decay": 0.4,
+          "wet": 0.2
+        },
+        "peak": -6
+      }
+    },
+    {
+      "name": "h9lift/stress_rumble.wav",
+      "class": "loop drone",
+      "seed": 104,
+      "length": 8,
+      "loop": {
+        "crossfade": 1
+      },
+      "layers": [
+        {
+          "id": "rock",
+          "kind": "noise",
+          "color": "brown",
+          "filter": [
+            {
+              "type": "lowpass",
+              "f": 160
+            }
+          ],
+          "env": {
+            "points": [
+              [
+                0,
+                -12
+              ],
+              [
+                1.6,
+                -2
+              ],
+              [
+                3.4,
+                -11
+              ],
+              [
+                5.2,
+                -1
+              ],
+              [
+                6.8,
+                -10
+              ],
+              [
+                8,
+                -12
+              ]
+            ]
+          },
+          "gain": 0,
+          "length": 8
+        },
+        {
+          "id": "sub",
+          "kind": "tone",
+          "f": 34,
+          "wave": "sine",
+          "env": {
+            "points": [
+              [
+                0,
+                -14
+              ],
+              [
+                1.6,
+                -4
+              ],
+              [
+                3.4,
+                -13
+              ],
+              [
+                5.2,
+                -3
+              ],
+              [
+                6.8,
+                -12
+              ],
+              [
+                8,
+                -14
+              ]
+            ]
+          },
+          "gain": -2,
+          "length": 8
+        },
+        {
+          "id": "strain",
+          "kind": "noise",
+          "color": "pink",
+          "filter": [
+            {
+              "type": "bandpass",
+              "f": 420,
+              "q": 3
+            }
+          ],
+          "env": {
+            "points": [
+              [
+                0,
+                -30
+              ],
+              [
+                1.8,
+                -12
+              ],
+              [
+                3.4,
+                -30
+              ],
+              [
+                5.4,
+                -10
+              ],
+              [
+                6.8,
+                -30
+              ],
+              [
+                8,
+                -30
+              ]
+            ]
+          },
+          "gain": -10,
+          "length": 8
+        }
+      ],
+      "finish": {
+        "saturate": 1.4,
+        "peak": -2
+      }
+    },
+    {
+      "name": "h9lift/groan1.wav",
+      "class": "metal hit",
+      "seed": 105,
+      "length": 2.6,
+      "layers": [
+        {
+          "id": "groan",
+          "kind": "tone",
+          "f": 74,
+          "wave": "saw",
+          "sweep": {
+            "to": 52,
+            "time": 2.2
+          },
+          "filter": [
+            {
+              "type": "bandpass",
+              "f": 320,
+              "q": 1.4
+            }
+          ],
+          "env": {
+            "attack": 0.4,
+            "hold": 1.2,
+            "decay": 0.9
+          },
+          "gain": -2
+        },
+        {
+          "id": "plate",
+          "kind": "modes",
+          "f": 118,
+          "ratios": "plate",
+          "decay": 2.2,
+          "damping": 0.7,
+          "gain": -8
+        },
+        {
+          "id": "friction",
+          "kind": "particles",
+          "rate": 120,
+          "band": [
+            300,
+            1400
+          ],
+          "grain": 0.02,
+          "env": {
+            "attack": 0.5,
+            "hold": 1,
+            "decay": 0.8
+          },
+          "gain": -14
+        }
+      ],
+      "finish": {
+        "room": {
+          "decay": 0.6,
+          "wet": 0.25
+        },
+        "peak": -3
+      },
+      "variants": [
+        {
+          "name": "h9lift/groan2.wav",
+          "seed": 106,
+          "pitch": -12
+        },
+        {
+          "name": "h9lift/groan3.wav",
+          "seed": 107,
+          "pitch": 9
+        }
+      ]
+    },
+    {
+      "name": "h9lift/creak1.wav",
+      "class": "metal hit",
+      "seed": 108,
+      "length": 1.4,
+      "layers": [
+        {
+          "id": "start",
+          "kind": "modes",
+          "f": 1300,
+          "ratios": "bar",
+          "decay": 0.12,
+          "damping": 1.8,
+          "gain": -12
+        },
+        {
+          "id": "creak",
+          "kind": "particles",
+          "every": 0.035,
+          "jitter": 0.4,
+          "band": [
+            700,
+            2600
+          ],
+          "grain": 0.006,
+          "length": 0.9,
+          "env": {
+            "attack": 0.1,
+            "hold": 0.5,
+            "decay": 0.3
+          },
+          "gain": -4
+        },
+        {
+          "id": "tick",
+          "kind": "modes",
+          "f": 1600,
+          "ratios": "bar",
+          "decay": 0.15,
+          "damping": 1.6,
+          "at": 1,
+          "gain": -10
+        }
+      ],
+      "finish": {
+        "room": {
+          "decay": 0.4,
+          "wet": 0.2
+        },
+        "peak": -4
+      },
+      "variants": [
+        {
+          "name": "h9lift/creak2.wav",
+          "seed": 109,
+          "pitch": -8
+        }
+      ]
+    },
+    {
+      "name": "h9lift/joint.wav",
+      "class": "metal hit",
+      "seed": 110,
+      "length": 1.8,
+      "layers": [
+        {
+          "id": "clank",
+          "kind": "modes",
+          "f": 140,
+          "ratios": "clamped",
+          "decay": 1.2,
+          "damping": 1.1,
+          "gain": -1
+        },
+        {
+          "id": "thud",
+          "kind": "noise",
+          "color": "brown",
+          "filter": [
+            {
+              "type": "lowpass",
+              "f": 300
+            }
+          ],
+          "env": {
+            "attack": 0.002,
+            "decay": 0.4
+          },
+          "gain": -2
+        },
+        {
+          "id": "rattle",
+          "kind": "particles",
+          "every": 0.025,
+          "jitter": 0.6,
+          "band": [
+            900,
+            4000
+          ],
+          "grain": 0.004,
+          "at": 0.05,
+          "length": 0.5,
+          "env": {
+            "attack": 0.002,
+            "decay": 0.5
+          },
+          "gain": -12
+        }
+      ],
+      "finish": {
+        "saturate": 1.8,
+        "room": {
+          "decay": 0.5,
+          "wet": 0.2
+        },
+        "peak": -1
+      }
+    },
+    {
+      "name": "h9lift/gust1.wav",
+      "class": "loop drone",
+      "seed": 111,
+      "length": 3.6,
+      "layers": [
+        {
+          "id": "howl",
+          "kind": "noise",
+          "color": "pink",
+          "filter": [
+            {
+              "type": "bandpass",
+              "f": 650,
+              "q": 2.2
+            }
+          ],
+          "env": {
+            "points": [
+              [
+                0,
+                -18
+              ],
+              [
+                1.5,
+                0
+              ],
+              [
+                2.4,
+                -4
+              ],
+              [
+                3.6,
+                -60
+              ]
+            ]
+          },
+          "gain": -2
+        },
+        {
+          "id": "hiss",
+          "kind": "noise",
+          "color": "white",
+          "filter": [
+            {
+              "type": "highpass",
+              "f": 2500
+            }
+          ],
+          "env": {
+            "points": [
+              [
+                0,
+                -18
+              ],
+              [
+                1.5,
+                0
+              ],
+              [
+                2.4,
+                -4
+              ],
+              [
+                3.6,
+                -60
+              ]
+            ]
+          },
+          "gain": -16
+        },
+        {
+          "id": "whistle",
+          "kind": "tone",
+          "f": 1100,
+          "wave": "sine",
+          "sweep": {
+            "to": 1450,
+            "time": 1.8
+          },
+          "env": {
+            "points": [
+              [
+                0,
+                -18
+              ],
+              [
+                1.5,
+                0
+              ],
+              [
+                2.4,
+                -4
+              ],
+              [
+                3.6,
+                -60
+              ]
+            ]
+          },
+          "gain": -24
+        }
+      ],
+      "finish": {
+        "peak": -3
+      },
+      "variants": [
+        {
+          "name": "h9lift/gust2.wav",
+          "seed": 112,
+          "pitch": -15
+        }
+      ]
+    },
+    {
+      "name": "h9lift/war1.wav",
+      "class": "explosion",
+      "seed": 113,
+      "length": 3.5,
+      "layers": [
+        {
+          "id": "boom",
+          "kind": "tone",
+          "f": 46,
+          "wave": "sine",
+          "sweep": {
+            "to": 24,
+            "time": 0.6
+          },
+          "env": {
+            "attack": 0.02,
+            "decay": 1.6
+          },
+          "gain": 0
+        },
+        {
+          "id": "roll",
+          "kind": "noise",
+          "color": "brown",
+          "filter": [
+            {
+              "type": "lowpass",
+              "f": 180
+            }
+          ],
+          "env": {
+            "attack": 0.03,
+            "decay": 3
+          },
+          "gain": -2
+        },
+        {
+          "id": "debris",
+          "kind": "particles",
+          "rate": 40,
+          "band": [
+            150,
+            700
+          ],
+          "grain": 0.02,
+          "at": 0.3,
+          "length": 2,
+          "env": {
+            "attack": 0.1,
+            "decay": 1.8
+          },
+          "gain": -18
+        }
+      ],
+      "finish": {
+        "room": {
+          "decay": 1.2,
+          "wet": 0.3
+        },
+        "peak": -6
+      },
+      "variants": [
+        {
+          "name": "h9lift/war2.wav",
+          "seed": 114,
+          "pitch": -10
+        }
+      ]
+    },
+    {
+      "name": "h9lift/pa_chime.wav",
+      "class": "click",
+      "seed": 115,
+      "length": 1.6,
+      "layers": [
+        {
+          "id": "hi",
+          "kind": "tone",
+          "f": 880,
+          "wave": "sine",
+          "length": 0.5,
+          "env": {
+            "attack": 0.005,
+            "decay": 0.5
+          },
+          "gain": -6
+        },
+        {
+          "id": "lo",
+          "kind": "tone",
+          "f": 659,
+          "wave": "sine",
+          "at": 0.45,
+          "length": 1,
+          "env": {
+            "attack": 0.005,
+            "decay": 1
+          },
+          "gain": -6
+        },
+        {
+          "id": "speaker",
+          "kind": "noise",
+          "color": "white",
+          "filter": [
+            {
+              "type": "bandpass",
+              "f": 2400,
+              "q": 1
+            }
+          ],
+          "env": {
+            "attack": 0.01,
+            "hold": 1.2,
+            "decay": 0.2
+          },
+          "gain": -36
+        }
+      ],
+      "finish": {
+        "room": {
+          "decay": 0.5,
+          "wet": 0.25
+        },
+        "peak": -6
+      }
+    },
+    {
+      "name": "h9lift/alarm.wav",
+      "class": "loop machine",
+      "seed": 116,
+      "length": 2,
+      "loop": {
+        "crossfade": 0.01
+      },
+      "layers": [
+        {
+          "id": "a",
+          "kind": "tone",
+          "f": 440,
+          "wave": "square",
+          "length": 1,
+          "filter": [
+            {
+              "type": "bandpass",
+              "f": 900,
+              "q": 0.8
+            }
+          ],
+          "gain": -8,
+          "env": {
+            "attack": 0.005,
+            "hold": 0.99,
+            "decay": 0.005
+          }
+        },
+        {
+          "id": "b",
+          "kind": "tone",
+          "f": 554,
+          "wave": "square",
+          "at": 1,
+          "length": 1,
+          "filter": [
+            {
+              "type": "bandpass",
+              "f": 900,
+              "q": 0.8
+            }
+          ],
+          "gain": -8,
+          "env": {
+            "attack": 0.005,
+            "hold": 0.99,
+            "decay": 0.005
+          }
+        }
+      ],
+      "finish": {
+        "saturate": 1.5,
+        "peak": -4
+      }
+    },
+    {
+      "name": "h9lift/spindown.wav",
+      "class": "explosion",
+      "seed": 117,
+      "length": 4,
+      "layers": [
+        {
+          "id": "motor",
+          "kind": "tone",
+          "f": 140,
+          "wave": "saw",
+          "sweep": {
+            "to": 18,
+            "time": 3.6
+          },
+          "filter": [
+            {
+              "type": "lowpass",
+              "f": 900
+            }
+          ],
+          "env": {
+            "attack": 0.01,
+            "hold": 2.4,
+            "decay": 1.5
+          },
+          "gain": -3
+        },
+        {
+          "id": "whine",
+          "kind": "tone",
+          "f": 1200,
+          "wave": "sine",
+          "sweep": {
+            "to": 90,
+            "time": 3.4
+          },
+          "env": {
+            "attack": 0.01,
+            "decay": 3.4
+          },
+          "gain": -14
+        },
+        {
+          "id": "grind",
+          "kind": "particles",
+          "rate": 300,
+          "band": [
+            400,
+            2400
+          ],
+          "grain": 0.008,
+          "length": 3.5,
+          "env": {
+            "attack": 0.01,
+            "decay": 3.4
+          },
+          "gain": -12
+        }
+      ],
+      "finish": {
+        "saturate": 1.8,
+        "room": {
+          "decay": 0.8,
+          "wet": 0.25
+        },
+        "peak": -2
+      }
+    },
+    {
+      "name": "h9lift/shriek.wav",
+      "class": "metal hit",
+      "seed": 118,
+      "length": 2.5,
+      "layers": [
+        {
+          "id": "tear",
+          "kind": "fm",
+          "f": 1150,
+          "ratio": 1.41,
+          "index": 3,
+          "indexDecay": 1.4,
+          "env": {
+            "attack": 0.005,
+            "decay": 2
+          },
+          "gain": -4
+        },
+        {
+          "id": "bang",
+          "kind": "modes",
+          "f": 210,
+          "ratios": "plate",
+          "decay": 1.5,
+          "damping": 0.9,
+          "gain": -2
+        },
+        {
+          "id": "scrape",
+          "kind": "particles",
+          "rate": 400,
+          "band": [
+            1200,
+            5000
+          ],
+          "grain": 0.005,
+          "length": 1.6,
+          "env": {
+            "attack": 0.005,
+            "decay": 1.5
+          },
+          "gain": -12
+        }
+      ],
+      "finish": {
+        "saturate": 2,
+        "room": {
+          "decay": 0.7,
+          "wet": 0.25
+        },
+        "peak": -1
+      }
+    },
+    {
+      "name": "h9lift/crackle.wav",
+      "class": "metal hit",
+      "seed": 119,
+      "length": 2.2,
+      "layers": [
+        {
+          "id": "arcs",
+          "kind": "particles",
+          "rate": 260,
+          "band": [
+            2000,
+            9000
+          ],
+          "grain": 0.003,
+          "length": 1.8,
+          "env": {
+            "attack": 0.002,
+            "hold": 0.6,
+            "decay": 1.2
+          },
+          "gain": -2
+        },
+        {
+          "id": "buzz",
+          "kind": "tone",
+          "f": 120,
+          "wave": "square",
+          "length": 1.6,
+          "filter": [
+            {
+              "type": "lowpass",
+              "f": 1500
+            }
+          ],
+          "env": {
+            "attack": 0.002,
+            "hold": 0.8,
+            "decay": 0.8
+          },
+          "gain": -10
+        },
+        {
+          "id": "pop",
+          "kind": "noise",
+          "color": "white",
+          "filter": [
+            {
+              "type": "highpass",
+              "f": 600
+            }
+          ],
+          "env": {
+            "attack": 0.001,
+            "decay": 0.08
+          },
+          "gain": -2
+        }
+      ],
+      "finish": {
+        "saturate": 2.4,
+        "peak": -2
+      }
+    }
+  ]
+}

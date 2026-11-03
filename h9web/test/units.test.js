@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import { PassThrough } from "node:stream";
 import os from "node:os";
 import path from "node:path";
 import { checkUsername, skeleton, isReserved } from "../lib/usernames.js";
@@ -12,6 +13,9 @@ import { parseMasterQuery, buildMasterReplies, readMasterReply } from "../lib/ma
 import { parseAddress, validateServers, parseInfoReply } from "../lib/servers.js";
 import { openDatabase, migrate } from "../lib/db.js";
 import { resolveConfig, loadSecrets } from "../lib/config.js";
+import { createDataBox, loadDataKey } from "../lib/datakey.js";
+import { serveStatic } from "../lib/static.js";
+import { backupDatabase } from "../lib/db.js";
 
 test("usernames: length, characters, case and look-alikes", () => {
   assert.equal(checkUsername("Neo").ok, true);
@@ -213,4 +217,115 @@ test("config: the data folder may not be inside a served folder", () => {
   assert.throws(() => resolveConfig({ dataDir: "/srv/site/data", devStatic: { "/": "/srv/site" } }, "/"), /inside the served folder/);
   assert.throws(() => resolveConfig({ password: { minLength: 8 } }), /below 10/);
   assert.throws(() => resolveConfig({ relay: { maxDatagram: 1000 } }), /1500/);
+});
+
+test("data key: sealed values open only with their key and for their purpose; the index is keyed", () => {
+  const box = createDataBox(crypto.randomBytes(32));
+  const sealed = box.seal("123456789012345678", "discord.user");
+  assert.match(sealed, /^h9e1\.[0-9a-f]{8}\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+$/);
+  assert.equal(box.keyIdOf(sealed), box.keyId);
+  assert.ok(!sealed.includes("123456789012345678"));
+  assert.equal(box.open(sealed, "discord.user"), "123456789012345678");
+  assert.notEqual(box.seal("123456789012345678", "discord.user"), sealed, "a fresh nonce every time");
+  assert.equal(box.open(box.seal("", "discord.name"), "discord.name"), "", "empty text");
+  assert.equal(box.open(box.seal("N\u00e9o \u2603", "discord.name"), "discord.name"), "N\u00e9o \u2603", "any text");
+  const code = (fn) => { try { fn(); return "opened"; } catch (e) { return e.code || e.message; } };
+  assert.equal(code(() => box.open(sealed, "discord.name")), "damaged", "another purpose");
+  const p = sealed.split(".");
+  const body = Buffer.from(p[3], "base64url");
+  body[0] ^= 1;
+  assert.equal(code(() => box.open([p[0], p[1], p[2], body.toString("base64url")].join("."), "discord.user")), "damaged", "a changed byte");
+  assert.equal(code(() => box.open([p[0], p[1], Buffer.alloc(12).toString("base64url"), p[3]].join("."), "discord.user")), "damaged", "another nonce");
+  const other = createDataBox(crypto.randomBytes(32));
+  assert.notEqual(other.keyId, box.keyId);
+  assert.equal(code(() => other.open(sealed, "discord.user")), "other_key", "another key");
+  assert.equal(code(() => box.open("123456789012345678", "discord.user")), "not_sealed");
+  assert.equal(code(() => box.open(null, "discord.user")), "not_sealed");
+  assert.throws(() => box.seal("x", "Bad Purpose"), /bad purpose/);
+  assert.equal(box.index("42", "discord.user"), box.index("42", "discord.user"), "the index is stable");
+  assert.match(box.index("42", "discord.user"), /^[0-9a-f]{64}$/);
+  assert.notEqual(box.index("42", "discord.user"), box.index("42", "discord.name"), "per purpose");
+  assert.notEqual(box.index("42", "discord.user"), other.index("42", "discord.user"), "per key");
+  assert.notEqual(box.index("42", "discord.user"), crypto.createHash("sha256").update("42").digest("hex"));
+  assert.throws(() => createDataBox(Buffer.alloc(16)), /32-byte/);
+});
+
+test("data key file: made once with mode 0600, never replaced, a damaged one stops the start", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "h9web-datakey-"));
+  try {
+    const file = path.join(dir, "sub", "data.key");
+    assert.throws(() => loadDataKey(file), /does not exist/, "only the service makes it");
+    const logs = [];
+    const log = { warn: (event, fields) => logs.push(event + " " + JSON.stringify(fields)) };
+    const key = loadDataKey(file, { create: true, log });
+    assert.equal(key.length, 32);
+    assert.ok(logs.some((l) => l.startsWith("datakey.created")), "the log says to back it up");
+    if (process.platform !== "win32") {
+      assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+      assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
+    }
+    assert.ok(loadDataKey(file, { create: true }).equals(key), "the same key at every start");
+    assert.ok(!JSON.stringify(logs).includes(key.toString("base64")), "the key is never logged");
+    fs.writeFileSync(file, "not a key\n");
+    assert.throws(() => loadDataKey(file, { create: true }), /Restore it from the backup/);
+    assert.equal(fs.readFileSync(file, "utf8"), "not a key\n", "a damaged file is never replaced");
+    // the configured place, apart from the data folder; never inside a served folder
+    const c = resolveConfig({ dataDir: "/var/lib/h9web", dataKeyFile: "/etc/h9web/data.key" }, "/");
+    assert.equal(c.dataKeyFile, path.resolve("/etc/h9web/data.key"));
+    assert.equal(resolveConfig({ dataDir: "/var/lib/h9web" }, "/").dataKeyFile, path.join(path.resolve("/var/lib/h9web"), "data.key"));
+    assert.throws(() => resolveConfig({ dataDir: "/var/lib/h9web", dataKeyFile: "/srv/site/k/data.key", devStatic: { "/": "/srv/site" } }, "/"), /dataKeyFile is inside the served folder/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("static (the local site only): no dot files, backups, or paths Windows reads as other files", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "h9web-static-"));
+  try {
+    const root = path.join(dir, "site");
+    fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+    fs.writeFileSync(path.join(root, ".git", "config"), "secret");
+    fs.writeFileSync(path.join(root, "index.html"), "<p>hi</p>");
+    fs.writeFileSync(path.join(root, "page.zip"), "zip");
+    fs.writeFileSync(path.join(root, "notes.txt.bak_x"), "old");
+    fs.writeFileSync(path.join(dir, "outside.txt"), "outside");
+    const get = (url) => new Promise((resolve) => {
+      const res = new PassThrough();
+      let status = 0;
+      const chunks = [];
+      res.writeHead = (s) => { status = s; };
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => resolve({ status, text: Buffer.concat(chunks).toString() }));
+      if (!serveStatic({ method: "GET", url }, res, { "/": root })) resolve({ status: 0, text: "" });
+    });
+    assert.deepEqual(await get("/index.html"), { status: 200, text: "<p>hi</p>" });
+    for (const url of ["/.git/config", "/%2egit/config", "/x%5c..%5c.git%5cconfig", "/page.zip", "/page.zip.", "/index.html%20",
+      "/index.html%3a%3a%24DATA", "/GIT~1/config", "/..%2foutside.txt", "/notes.txt.bak_x", "/notes.txt.bak_x%20"]) {
+      const r = await get(url);
+      assert.equal(r.status, 404, url);
+      assert.ok(!/secret|outside|zip|old/.test(r.text), url);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("database files: the database and its backups are for the service's user only (0600)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "h9web-dbmode-"));
+  const old = process.umask(0o022);
+  try {
+    const db = openDatabase(path.join(dir, "data", "h9web.db"));
+    db.exec("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1)");
+    const copy = backupDatabase(db, path.join(dir, "data", "backups", "copy.db"));
+    db.close();
+    if (process.platform !== "win32") {
+      for (const f of [path.join(dir, "data", "h9web.db"), copy]) assert.equal(fs.statSync(f).mode & 0o777, 0o600, f);
+      for (const d of [path.join(dir, "data"), path.join(dir, "data", "backups")]) assert.equal(fs.statSync(d).mode & 0o777, 0o700, d);
+    } else {
+      assert.ok(fs.existsSync(copy), "Windows has no Unix modes; the copy is made");
+    }
+  } finally {
+    process.umask(old);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

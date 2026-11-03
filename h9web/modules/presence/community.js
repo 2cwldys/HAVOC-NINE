@@ -15,7 +15,9 @@
 //   GET    /api/presence/communities                    the list
 //   POST   /api/presence/communities  { slug, name }    make one, owned by you
 //   GET    /api/presence/communities/:slug              its servers and who is on them
-//   PATCH  /api/presence/communities/:slug              staff: { name, chat, chatProof, dataProof }
+//   PATCH  /api/presence/communities/:slug              staff: { name, chat, chatProof, dataProof, joinMode,
+//                                                       visibility, whitelist, whitelistProof }; the owner
+//                                                       also chatOpen (the web chat open to every account)
 //   DELETE /api/presence/communities/:slug              owner: { confirm }
 //   POST   /api/presence/communities/:slug/claim        staff: { code, tag }  link a server
 //   POST   /api/presence/communities/:slug/servers/:serverId   staff: { tag, readOnly }
@@ -26,20 +28,44 @@
 //   POST   /api/presence/communities/:slug/sanctions    staff: { username, kind ban|mute|kick, reason, days }
 //   POST   /api/presence/communities/:slug/sanctions/:id/revoke   staff
 //   POST   /api/presence/communities/:slug/announce     staff: { text }
-//   GET    /api/presence/communities/:slug/chat?since=N signed in
-//   POST   /api/presence/communities/:slug/chat         signed in: { text }
+//   GET    /api/presence/communities/:slug/chat?since=N members (with chatOpen, every account signed in)
+//   POST   /api/presence/communities/:slug/chat         the same: { text }
 //   DELETE /api/presence/communities/:slug/chat/:id     staff
 //   GET    /api/presence/communities/:slug/data/log     staff: ?username=
 //   POST   /api/presence/communities/:slug/data/rollback   owner: { to, username }
+// Membership (the owner and its admins always belong):
+//   POST   /api/presence/communities/:slug/join         signed in: join (open), ask (request), or
+//                                                       take an invitation (any mode)
+//   POST   /api/presence/communities/:slug/leave        signed in: leave, or withdraw a request
+//   POST   /api/presence/communities/:slug/invitation/decline   the invited account
+//   GET    /api/presence/communities/:slug/members      members: the list; staff also requests, invites
+//   POST   /api/presence/communities/:slug/requests/:username/approve | refuse   staff
+//   POST   /api/presence/communities/:slug/invites      staff: { username }
+//   DELETE /api/presence/communities/:slug/invites/:username   staff
+//   DELETE /api/presence/communities/:slug/members/:username   staff (an admin: the owner only)
 // H9's site admins, H9-wide:
+//   PUT  /api/presence/communities/:slug/discord   { channel }  bridge the community's chat with a
+//                                       Discord channel (null: no bridge), through the discord module
 //   GET  /api/presence/admin/sanctions   POST /api/presence/admin/sanctions   (as above)
 //   POST /api/presence/admin/sanctions/:id/revoke   POST /api/presence/admin/announce { text }
-// Every staff and admin action goes into the audit log.
+// Every staff and admin action goes into the audit log, member changes by staff included.
+//
+// Visibility: listed (on the list), unlisted (by link), private (members and H9's site admins only;
+// its servers are left out of the public lists, the site's server board and /find for anyone not a
+// member). Members-only servers (whitelist): the answer to a report kicks whoever is not a member.
+// The web chat is the members'; the owner may open it to every signed-in account (chatOpen), except
+// in a private community.
+// The Discord bridge (docs\H9_COMMUNITIES.txt section 4a): an H9 site admin names a Discord channel
+// for a community; every chat line and announcement of the community but Discord's own goes there
+// ("discord-relay-out"), and the channel's lines come back ("discord-relay-in") as [Discord] lines
+// to every server on the community's relay and to the web chat. The discord module, which alone
+// holds the bot's token, does the talking to Discord.
 
 import crypto from "node:crypto";
 import { cleanText } from "./modes.js";
 
 const SLUG = /^[a-z0-9][a-z0-9-]{2,31}$/;
+const CHANNEL = /^[0-9]{17,20}$/;
 const TAG = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,11}$/;
 const DATA_KEY = /^[a-z0-9_.-]{1,32}$/;
 const CLIENT_ID = /^[0-9a-f]{32}$/;
@@ -60,6 +86,15 @@ export function reasonText(value) {
   return String(value || "").replace(/[^A-Za-z0-9 .,:!?()-]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
+// A members-only server's kick message: as reasonText, with / and = for the join link, and longer.
+// h9_presence 1.2 keeps both in the reason it hands the kick command.
+export function kickText(value) {
+  return String(value || "").replace(/[^A-Za-z0-9 .,:!?()\/=-]/g, "").replace(/\s+/g, " ").trim().slice(0, 140);
+}
+
+const JOIN_MODES = ["open", "request", "invite"];
+const VISIBILITIES = ["listed", "unlisted", "private"];
+
 function claimCode() {
   const b = crypto.randomBytes(8);
   let s = "";
@@ -69,6 +104,7 @@ function claimCode() {
 
 export function createCommunity(deps) {
   const { db, s, log, router, auth, accounts, serverAuth, enrollment, limit, ipKey, audit, store } = deps;
+  const events = deps.events || null;
   const { HttpError } = deps.http;
   const now = deps.now;
   const tx = deps.transaction;
@@ -76,11 +112,40 @@ export function createCommunity(deps) {
   const q = {
     community: db.prepare("SELECT * FROM presence_communities WHERE slug = ?"),
     communityById: db.prepare("SELECT * FROM presence_communities WHERE id = ?"),
-    communities: db.prepare(`SELECT c.*, a.username AS owner, (SELECT count(*) FROM presence_community_servers x WHERE x.community_id = c.id) AS servers
-      FROM presence_communities c LEFT JOIN accounts a ON a.id = c.owner_id ORDER BY c.name COLLATE NOCASE LIMIT 500`),
+    communities: db.prepare(`SELECT c.*, a.username AS owner, (SELECT count(*) FROM presence_community_servers x WHERE x.community_id = c.id) AS servers,
+      (SELECT count(*) FROM presence_community_members m WHERE m.community_id = c.id) AS members
+      FROM presence_communities c LEFT JOIN accounts a ON a.id = c.owner_id WHERE c.visibility = 'listed' ORDER BY c.name COLLATE NOCASE LIMIT 500`),
+    mine: db.prepare(`SELECT c.*, (SELECT count(*) FROM presence_community_members m WHERE m.community_id = c.id) AS members FROM presence_communities c
+      WHERE c.owner_id = ? OR EXISTS (SELECT 1 FROM presence_community_members m WHERE m.community_id = c.id AND m.account_id = ?)
+      OR EXISTS (SELECT 1 FROM presence_community_staff s WHERE s.community_id = c.id AND s.account_id = ?) ORDER BY c.name COLLATE NOCASE LIMIT 100`),
+    invitationsOf: db.prepare(`SELECT c.slug, c.name, i.created_at, b.username AS by_name FROM presence_community_invites i
+      JOIN presence_communities c ON c.id = i.community_id LEFT JOIN accounts b ON b.id = i.invited_by WHERE i.account_id = ? ORDER BY i.created_at DESC LIMIT 100`),
+    requestsOf: db.prepare(`SELECT c.slug, c.name, r.created_at FROM presence_community_requests r JOIN presence_communities c ON c.id = r.community_id
+      WHERE r.account_id = ? ORDER BY r.created_at DESC LIMIT 100`),
+    member: db.prepare("SELECT 1 AS k FROM presence_community_members WHERE community_id = ? AND account_id = ?"),
+    memberAdd: db.prepare("INSERT OR IGNORE INTO presence_community_members (community_id, account_id, joined_at, added_by) VALUES (?, ?, ?, ?)"),
+    memberRemove: db.prepare("DELETE FROM presence_community_members WHERE community_id = ? AND account_id = ?"),
+    memberCount: db.prepare("SELECT count(*) AS n FROM presence_community_members WHERE community_id = ?"),
+    membersOf: db.prepare(`SELECT m.account_id, m.joined_at, a.username FROM presence_community_members m JOIN accounts a ON a.id = m.account_id
+      WHERE m.community_id = ? ORDER BY a.username_key LIMIT 2000`),
+    request: db.prepare("SELECT * FROM presence_community_requests WHERE community_id = ? AND account_id = ?"),
+    requestAdd: db.prepare("INSERT OR IGNORE INTO presence_community_requests (community_id, account_id, created_at) VALUES (?, ?, ?)"),
+    requestRemove: db.prepare("DELETE FROM presence_community_requests WHERE community_id = ? AND account_id = ?"),
+    requestsFor: db.prepare(`SELECT r.created_at, a.username FROM presence_community_requests r JOIN accounts a ON a.id = r.account_id
+      WHERE r.community_id = ? ORDER BY r.created_at LIMIT 500`),
+    invite: db.prepare("SELECT * FROM presence_community_invites WHERE community_id = ? AND account_id = ?"),
+    inviteAdd: db.prepare("INSERT OR REPLACE INTO presence_community_invites (community_id, account_id, invited_by, created_at) VALUES (?, ?, ?, ?)"),
+    inviteRemove: db.prepare("DELETE FROM presence_community_invites WHERE community_id = ? AND account_id = ?"),
+    invitesFor: db.prepare(`SELECT i.created_at, a.username, b.username AS by_name FROM presence_community_invites i JOIN accounts a ON a.id = i.account_id
+      LEFT JOIN accounts b ON b.id = i.invited_by WHERE i.community_id = ? ORDER BY i.created_at LIMIT 500`),
     ownedBy: db.prepare("SELECT count(*) AS n FROM presence_communities WHERE owner_id = ?"),
     insertCommunity: db.prepare("INSERT INTO presence_communities (slug, name, owner_id, created_at) VALUES (?, ?, ?, ?)"),
-    updateCommunity: db.prepare("UPDATE presence_communities SET name = ?, chat = ?, chat_proof = ?, data_proof = ? WHERE id = ?"),
+    updateCommunity: db.prepare(`UPDATE presence_communities SET name = ?, chat = ?, chat_proof = ?, data_proof = ?, join_mode = ?, visibility = ?,
+      whitelist = ?, whitelist_proof = ?, chat_open = ? WHERE id = ?`),
+    byDiscord: db.prepare("SELECT * FROM presence_communities WHERE discord_channel = ?"),
+    discordAll: db.prepare("SELECT discord_channel, discord_last FROM presence_communities WHERE discord_channel IS NOT NULL"),
+    setDiscord: db.prepare("UPDATE presence_communities SET discord_channel = ?, discord_by = ?, discord_at = ?, discord_last = NULL WHERE id = ?"),
+    discordLast: db.prepare("UPDATE presence_communities SET discord_last = ? WHERE id = ?"),
     deleteCommunity: db.prepare("DELETE FROM presence_communities WHERE id = ?"),
     staff: db.prepare("SELECT s.account_id, a.username FROM presence_community_staff s JOIN accounts a ON a.id = s.account_id WHERE s.community_id = ? ORDER BY a.username_key"),
     isStaff: db.prepare("SELECT 1 AS k FROM presence_community_staff WHERE community_id = ? AND account_id = ?"),
@@ -153,11 +218,37 @@ export function createCommunity(deps) {
   const mustStaff = (account, c) => { if (!isStaff(account, c)) throw new HttpError(403, "forbidden", "Only this community's admins may do that."); };
   const mustOwner = (account, c) => { if (!isOwner(account, c)) throw new HttpError(403, "forbidden", "Only this community's owner may do that."); };
 
+  // Members: the owner and the admins always; everyone else by a row in presence_community_members.
+  // H9's site admins are not members, but may see and do whatever a member may.
+  const belongs = (accountId, c) => !!accountId && (c.owner_id === accountId || !!q.member.get(c.id, accountId) || !!q.isStaff.get(c.id, accountId));
+  const mustMember = (account, c) => {
+    if (!account || !(belongs(account.id, c) || isSiteAdmin(account))) throw new HttpError(403, "members_only", "Only this community's members may do that.");
+  };
+  // The web chat: members and H9's site admins; while the owner keeps it open (chat_open), every
+  // signed-in account too, except in a private community.
+  const mayWebChat = (account, c) => !!account && ((c.chat_open === 1 && c.visibility !== "private") || belongs(account.id, c) || isSiteAdmin(account));
+  const mustWebChat = (account, c) => {
+    if (!mayWebChat(account, c)) throw new HttpError(403, "members_only", "Only this community's members may use its chat.");
+  };
+
   function communityOfServer(server) {
     const cs = q.serverRow.get(server);
     if (!cs) return null;
     const c = q.communityById.get(cs.community_id);
     return c ? { ...c, tag: cs.tag, readOnly: cs.read_only === 1 } : null;
+  }
+
+  // A private community's server, left out of the public lists and of /find for non-members.
+  function privateCommunityOf(server) {
+    const c = communityOfServer(server);
+    return c && c.visibility === "private" ? c : null;
+  }
+
+  // Whether the server is members-only: the answer to its reports says so ("members": true), and
+  // the plugin then lists its players with no usable h9_clientid too, by slot.
+  function membersOnly(server) {
+    const c = communityOfServer(server);
+    return !!(c && c.whitelist === 1);
   }
 
   function record(rc, action, c, subject, detail, target = null) {
@@ -183,20 +274,33 @@ export function createCommunity(deps) {
   }
 
   // What a report's answer tells the plugin to do with each slot: { kick: reason } for a banned
-  // account or a waiting one-off kick, { mute: true } for a muted one. entries: [{ slot, accountId,
-  // device }] for every player whose h9_clientid is an account's, proven or not.
+  // account, a waiting one-off kick, or anyone a members-only server turns away; { mute: true }
+  // for a muted account. entries: [{ slot, accountId, device, proven }] for every player the report
+  // listed with a slot; accountId is null for one whose h9_clientid is no account's, or who had
+  // none (listed by slot alone, which the plugin does on a members-only server).
   function reportActions(server, entries) {
     const c = communityOfServer(server);
     const cid = c ? c.id : null;
+    const gate = !!(c && c.whitelist === 1);
     const t = now();
     const out = {};
     for (const e of entries) {
       if (!e.slot) continue;
-      const ban = sanctioned(e.accountId, cid, "ban", e.device);
-      if (ban) {
-        out[e.slot] = { kick: reasonText("Banned" + (ban.community_id ? " from " + (c ? c.name : "this community") : " from H9") + (ban.reason ? ": " + ban.reason : "")) };
-        continue;
+      if (e.accountId) {
+        const ban = sanctioned(e.accountId, cid, "ban", e.device);
+        if (ban) {
+          out[e.slot] = { kick: reasonText("Banned" + (ban.community_id ? " from " + (c ? c.name : "this community") : " from H9") + (ban.reason ? ": " + ban.reason : "")) };
+          continue;
+        }
       }
+      if (gate) {
+        const refusal = gateRefusal(c, e);
+        if (refusal) {
+          out[e.slot] = { kick: refusal };
+          continue;
+        }
+      }
+      if (!e.accountId) continue;
       const kick = q.kickFor.get(e.accountId, t - 3600, cid);
       if (kick) {
         q.kickDone.run(t, kick.id);
@@ -206,6 +310,19 @@ export function createCommunity(deps) {
       if (sanctioned(e.accountId, cid, "mute")) out[e.slot] = { mute: true };
     }
     return out;
+  }
+
+  // A members-only server's answer for one player: null to let in, else the kick's reason. The
+  // owner, the community's admins and H9's site admins always get in as members; with
+  // whitelist_proof every one of them needs a game that proved the player id (proven: the
+  // plugin's proof, or the web client's relay), since an h9_clientid alone can be copied.
+  function gateRefusal(c, e) {
+    const forMembers = kickText("This server is for members of " + c.name + ". Join at havoc9.org/community/?c=" + c.slug);
+    const account = e.accountId ? accounts.getById(e.accountId) : null;
+    if (!account) return forMembers;
+    if (!(belongs(account.id, c) || isStaff(account, c))) return forMembers;
+    if (c.whitelist_proof === 1 && !e.proven) return kickText("This server is for members of " + c.name + " whose game proves their H9 id.");
+    return null;
   }
 
   // ---- the long-poll -----------------------------------------------------------------------------
@@ -236,16 +353,15 @@ export function createCommunity(deps) {
     return rows.map((m) => ({ id: m.id, kind: m.kind, source: m.source, line: lineOf(m, c) }));
   }
 
-  function serversView(c, nowView) {
+  // The community's servers, with who is on each as each player's switches allow (deps.playersOn
+  // counts a private community's servers too: only its members and site admins see this).
+  function serversView(c) {
     if (!c) return [];
-    const live = new Map();
-    for (const e of nowView().servers) live.set(e.server.address, e);
     return q.serversOf.all(c.id).map((r) => {
-      const e = live.get(r.server);
       const info = deps.serverInfo(r.server);
       return {
         serverId: enrollment.serverIdFor(r.server), tag: r.tag, address: r.server, name: info.name, map: info.map, mode: info.mode,
-        humans: info.humans, max: info.max, readOnly: r.read_only === 1, players: e ? e.players.map((p) => p.username) : [],
+        humans: info.humans, max: info.max, bots: info.bots, readOnly: r.read_only === 1, players: deps.playersOn(r.server),
       };
     });
   }
@@ -283,7 +399,7 @@ export function createCommunity(deps) {
     rc.json(200, {
       ok: true, last: since, messages, report, serverId: enrollment.serverIdFor(server),
       community: c ? { slug: c.slug, name: c.name, tag: c.tag, chat: c.chat === 1, readOnly: c.readOnly } : null,
-      servers: serversView(c, deps.nowView),
+      servers: serversView(c),
     });
   }, { csrf: false });
 
@@ -306,8 +422,78 @@ export function createCommunity(deps) {
     const t = now();
     const id = Number(q.message.run(c ? c.id : null, kind, source, server || null, tag, account ? account.id : null, name, text, t).lastInsertRowid);
     wake(c ? c.id : null);
+    // the community's Discord channel, when one is bridged: every line but those from Discord
+    if (c && c.discord_channel && source !== "discord" && events) {
+      events.emit("discord-relay-out", { channel: c.discord_channel, kind, tag, name, text });
+    }
     return id;
   }
+
+  // ---- the Discord bridge ------------------------------------------------------------------------
+
+  const relayStatus = new Map(); // channel -> { ok, error, at }: how the channel last answered
+
+  // the bridged channels, for the discord module to read, each from the last message relayed
+  function discordWatch() {
+    if (!events) return;
+    events.emit("discord-relay-watch", { channels: q.discordAll.all().map((r) => ({ channel: r.discord_channel, after: r.discord_last || null })) });
+  }
+
+  // A person's line in a bridged channel: to every server on the community's relay and to its web
+  // chat, as [Discord] name: text, with the game chat's own cleaning. Lines older than 10 minutes (a
+  // gap while h9web was down) and lines past discordInPerCommunity are dropped.
+  function fromDiscord(m) {
+    if (!m || typeof m.channel !== "string") return;
+    const c = q.byDiscord.get(m.channel);
+    if (!c) return;
+    if (typeof m.id === "string" && /^[0-9]{1,20}$/.test(m.id)) q.discordLast.run(m.id, c.id);
+    if (c.chat !== 1) return;
+    if (Number.isFinite(m.at) && now() - m.at > 600) return;
+    try {
+      limit("discordInPerCommunity", "c:" + c.id);
+    } catch (e) {
+      return;
+    }
+    const text = chatText(m.text, s.chatMaxChars);
+    const name = chatText(m.name, 32).replace(/[\[\]:]/g, "").trim() || "someone";
+    if (!text) return;
+    post(c, { kind: "chat", source: "discord", tag: "Discord", account: null, name, text });
+  }
+
+  const relayListeners = {
+    "discord-relay-in": (m) => {
+      try {
+        fromDiscord(m);
+      } catch (e) {
+        log.warn("presence.discord_in", { error: e.message });
+      }
+    },
+    "discord-relay-ready": () => discordWatch(),
+    "discord-relay-status": (e) => {
+      if (e && typeof e.channel === "string") relayStatus.set(e.channel, { ok: !!e.ok, error: e.error || null, at: iso(now()) });
+    },
+  };
+  if (events) for (const [name, fn] of Object.entries(relayListeners)) events.on(name, fn);
+  discordWatch();
+
+  // H9's site admins bridge a community's chat with a Discord channel, by its id, or stop it (null).
+  router.put("/api/presence/communities/:slug/discord", auth.requireRole("admin", async (req, res, rc) => {
+    limit("communityPerAccount", "a:" + rc.account.id);
+    const c = communityOrThrow(rc.params.slug);
+    const body = await rc.body();
+    const channel = body.channel === null || body.channel === "" ? null : typeof body.channel === "string" ? body.channel.trim() : undefined;
+    if (channel === undefined || (channel !== null && !CHANNEL.test(channel))) {
+      throw new HttpError(400, "bad_request", "channel is the Discord channel's id (17 to 20 digits), or null for no bridge.");
+    }
+    if (channel) {
+      const other = q.byDiscord.get(channel);
+      if (other && other.id !== c.id) throw new HttpError(409, "in_use", "That channel is bridged with " + other.name + " already.");
+    }
+    q.setDiscord.run(channel, channel ? rc.account.id : null, channel ? now() : null, c.id);
+    record(rc, "community.discord", c, "community " + c.slug, channel ? "bridged with Discord channel " + channel : "no Discord bridge");
+    discordWatch();
+    rc.json(200, communityView(q.communityById.get(c.id), rc.account));
+  }));
 
   // The account behind a player on this server: the h9_clientid must be an account's, and that
   // account in game here now by the plugin's own report.
@@ -349,6 +535,16 @@ export function createCommunity(deps) {
     const name = cleanText(body.q, 32);
     if (!name) throw new HttpError(400, "bad_request", "Who? { q: name }");
     const c = communityOfServer(server);
+    // who asks: optional, the asking player's h9_clientid, an account in game on this server. A
+    // private community's servers show only to its members.
+    let asker = null;
+    if (body.id !== undefined) {
+      try {
+        asker = presentAccount(server, body.id).account;
+      } catch (e) {
+        asker = null;
+      }
+    }
     const ids = [];
     const exact = accounts.getByUsername(name);
     if (exact) ids.push(exact.id);
@@ -358,10 +554,13 @@ export function createCommunity(deps) {
       const a = accounts.getById(id);
       if (!a) continue;
       const place = deps.publicPlace(a.id);
-      const cs = place && place.server ? q.serverRow.get(place.server) : null;
+      let shown = place && place.server ? place.server : null;
+      const hidden = shown ? privateCommunityOf(shown) : null;
+      if (hidden && !(asker && (belongs(asker.id, hidden) || isSiteAdmin(asker)))) shown = null;
+      const cs = shown ? q.serverRow.get(shown) : null;
       results.push({
         username: a.username, state: place ? place.state : "offline",
-        server: place && place.server ? place.name : null, address: place && place.server ? place.server : null,
+        server: shown ? place.name : null, address: shown,
         tag: cs ? cs.tag : null, community: !!(c && cs && cs.community_id === c.id),
       });
     }
@@ -460,21 +659,53 @@ export function createCommunity(deps) {
     return handler(req, res, rc);
   });
 
+  // What the viewer is to the community.
+  function meIn(c, viewer) {
+    if (!viewer) return { signedIn: false };
+    return {
+      signedIn: true, member: belongs(viewer.id, c), staff: isStaff(viewer, c), owner: isOwner(viewer, c), siteAdmin: isSiteAdmin(viewer), chat: mayWebChat(viewer, c),
+      invited: !!q.invite.get(c.id, viewer.id), requested: !!q.request.get(c.id, viewer.id), banned: !!sanctioned(viewer.id, c.id, "ban"),
+    };
+  }
+
+  // A private community, to someone who may not see it: its name and how to get in, nothing else.
+  // null when even that is not shown (no invitation or request, and by invitation only).
+  function stubView(c, viewer) {
+    const me = meIn(c, viewer);
+    if (c.join_mode === "invite" && !me.invited && !me.requested) return null;
+    return { slug: c.slug, name: c.name, visibility: "private", joinMode: c.join_mode, private: true, me };
+  }
+
   function communityView(c, viewer) {
+    const me = meIn(c, viewer);
+    if (c.visibility === "private" && !me.member && !me.siteAdmin) return stubView(c, viewer);
     return {
       slug: c.slug, name: c.name, created: iso(c.created_at),
       owner: c.owner_id ? (accounts.getById(c.owner_id) || {}).username || null : null,
       staff: q.staff.all(c.id).map((r) => r.username),
-      chat: c.chat === 1, chatProof: c.chat_proof === 1, dataProof: c.data_proof === 1,
-      servers: serversView(c, deps.nowView),
-      me: viewer ? { signedIn: true, staff: isStaff(viewer, c), owner: isOwner(viewer, c) } : { signedIn: false },
+      chat: c.chat === 1, chatProof: c.chat_proof === 1, dataProof: c.data_proof === 1, chatOpen: c.chat_open === 1,
+      joinMode: c.join_mode, visibility: c.visibility, whitelist: c.whitelist === 1, whitelistProof: c.whitelist_proof === 1,
+      discord: !!c.discord_channel,
+      ...(me.siteAdmin ? { discordChannel: c.discord_channel || null, discordStatus: (c.discord_channel && relayStatus.get(c.discord_channel)) || null } : {}),
+      members: q.memberCount.get(c.id).n,
+      servers: serversView(c),
+      me,
     };
   }
 
-  router.get("/api/presence/communities", async (req, res, rc) => {
+  // The listed communities; signed in, also the viewer's own (any visibility), invitations and
+  // requests waiting.
+  router.get("/api/presence/communities", auth.optionalSession(async (req, res, rc) => {
     limit("readPerIp", ipKey(rc.ip));
-    rc.json(200, { communities: q.communities.all().map((c) => ({ slug: c.slug, name: c.name, owner: c.owner, servers: c.servers })) });
-  });
+    const out = { communities: q.communities.all().map((c) => ({ slug: c.slug, name: c.name, owner: c.owner, servers: c.servers, members: c.members, joinMode: c.join_mode })) };
+    if (rc.account) {
+      const id = rc.account.id;
+      out.mine = q.mine.all(id, id, id).map((c) => ({ slug: c.slug, name: c.name, visibility: c.visibility, members: c.members, owner: c.owner_id === id }));
+      out.invitations = q.invitationsOf.all(id).map((r) => ({ slug: r.slug, name: r.name, by: r.by_name || null, created: iso(r.created_at) }));
+      out.requests = q.requestsOf.all(id).map((r) => ({ slug: r.slug, name: r.name, created: iso(r.created_at) }));
+    }
+    rc.json(200, out);
+  }));
 
   router.post("/api/presence/communities", staffRoute(async (req, res, rc) => {
     const body = await rc.body();
@@ -486,7 +717,10 @@ export function createCommunity(deps) {
       throw new HttpError(409, "too_many", "An account owns at most " + s.communitiesPerAccount + " communities.");
     }
     try {
-      q.insertCommunity.run(slug, name, rc.account.id, now());
+      tx(() => {
+        q.insertCommunity.run(slug, name, rc.account.id, now());
+        q.memberAdd.run(q.community.get(slug).id, rc.account.id, now(), null);
+      });
     } catch (e) {
       if (/UNIQUE/.test(String(e.message))) throw new HttpError(409, "taken", "That short name is taken.");
       throw e;
@@ -498,7 +732,9 @@ export function createCommunity(deps) {
 
   router.get("/api/presence/communities/:slug", auth.optionalSession(async (req, res, rc) => {
     limit("readPerIp", ipKey(rc.ip));
-    rc.json(200, communityView(communityOrThrow(rc.params.slug), rc.account));
+    const view = communityView(communityOrThrow(rc.params.slug), rc.account);
+    if (!view) throw new HttpError(404, "not_found", "No such community.");
+    rc.json(200, view);
   }));
 
   router.patch("/api/presence/communities/:slug", staffRoute(async (req, res, rc) => {
@@ -511,9 +747,23 @@ export function createCommunity(deps) {
     const chat = flag(body.chat, c.chat);
     const chatProof = flag(body.chatProof, c.chat_proof);
     const dataProof = flag(body.dataProof, c.data_proof);
-    if ([chat, chatProof, dataProof].includes(null)) throw new HttpError(400, "bad_request", "chat, chatProof and dataProof are true or false.");
-    q.updateCommunity.run(name, chat, chatProof, dataProof, c.id);
-    record(rc, "community.settings", c, "community " + c.slug, JSON.stringify({ name, chat, chatProof, dataProof }));
+    const whitelist = flag(body.whitelist, c.whitelist);
+    const whitelistProof = flag(body.whitelistProof, c.whitelist_proof);
+    const chatOpen = flag(body.chatOpen, c.chat_open);
+    if ([chat, chatProof, dataProof, whitelist, whitelistProof, chatOpen].includes(null)) {
+      throw new HttpError(400, "bad_request", "chat, chatProof, dataProof, whitelist, whitelistProof and chatOpen are true or false.");
+    }
+    if (chatOpen !== c.chat_open && !isOwner(rc.account, c)) {
+      throw new HttpError(403, "forbidden", "Only this community's owner may open its chat to everyone, or close it again.");
+    }
+    const joinMode = body.joinMode === undefined ? c.join_mode : body.joinMode;
+    const visibility = body.visibility === undefined ? c.visibility : body.visibility;
+    if (!JOIN_MODES.includes(joinMode)) throw new HttpError(400, "bad_request", "joinMode is open, request or invite.");
+    if (!VISIBILITIES.includes(visibility)) throw new HttpError(400, "bad_request", "visibility is listed, unlisted or private.");
+    q.updateCommunity.run(name, chat, chatProof, dataProof, joinMode, visibility, whitelist, whitelistProof, chatOpen, c.id);
+    if (deps.refresh) deps.refresh();
+    if (whitelist !== c.whitelist || whitelistProof !== c.whitelist_proof) askReports(c.id);
+    record(rc, "community.settings", c, "community " + c.slug, JSON.stringify({ name, chat, chatProof, dataProof, joinMode, visibility, whitelist, whitelistProof, chatOpen }));
     rc.json(200, communityView(q.communityById.get(c.id), rc.account));
   }));
 
@@ -524,6 +774,7 @@ export function createCommunity(deps) {
     if (String(body.confirm || "").toLowerCase() !== c.slug) throw new HttpError(400, "confirm", "Type the community's short name in confirm.");
     q.deleteCommunity.run(c.id);
     record(rc, "community.delete", c, "community " + c.slug);
+    if (c.discord_channel) discordWatch();
     rc.json(200, { ok: true });
   }));
 
@@ -582,7 +833,12 @@ export function createCommunity(deps) {
     mustOwner(rc.account, c);
     const body = await rc.body();
     const a = accountOrThrow(body.username);
-    q.addStaff.run(c.id, a.id, rc.account.id, now());
+    tx(() => {
+      q.addStaff.run(c.id, a.id, rc.account.id, now());
+      q.memberAdd.run(c.id, a.id, now(), rc.account.id);
+      q.requestRemove.run(c.id, a.id);
+      q.inviteRemove.run(c.id, a.id);
+    });
     record(rc, "community.staff.add", c, "community " + c.slug, null, a);
     rc.json(200, communityView(c, rc.account));
   }));
@@ -665,6 +921,7 @@ export function createCommunity(deps) {
   router.get("/api/presence/communities/:slug/chat", auth.requireSession(async (req, res, rc) => {
     limit("readPerIp", ipKey(rc.ip));
     const c = communityOrThrow(rc.params.slug);
+    mustWebChat(rc.account, c);
     const since = Math.max(0, Number.parseInt(rc.query.get("since") || "0", 10) || 0);
     const rows = q.forWeb.all(since, now() - s.chatRetentionDays * 86400, c.id).reverse();
     rc.json(200, {
@@ -674,6 +931,7 @@ export function createCommunity(deps) {
   }));
   router.post("/api/presence/communities/:slug/chat", auth.requireSession(async (req, res, rc) => {
     const c = communityOrThrow(rc.params.slug);
+    mustWebChat(rc.account, c);
     if (c.chat !== 1) throw new HttpError(403, "chat_off", "This community's chat is off.");
     if (sanctioned(rc.account.id, c.id, "ban") || sanctioned(rc.account.id, c.id, "mute")) throw new HttpError(403, "muted", "You are muted in this community.");
     limit("chatWebPerAccount", "a:" + rc.account.id);
@@ -691,6 +949,139 @@ export function createCommunity(deps) {
     if (!m || m.community_id !== c.id) throw new HttpError(404, "not_found", "No such message here.");
     q.messageDelete.run(now(), rc.account.id, m.id);
     record(rc, "community.chat.delete", c, "message " + m.id, m.name + ": " + m.text);
+    rc.json(200, { ok: true });
+  }));
+
+  // ---- membership ------------------------------------------------------------------------------
+
+  const memberRoute = (handler) => auth.requireSession(async (req, res, rc) => {
+    limit("membershipPerAccount", "a:" + rc.account.id);
+    return handler(req, res, rc);
+  });
+
+  // A private community one may not even know of answers as if it were not there.
+  function reachable(c, account) {
+    if (c.visibility !== "private" || belongs(account.id, c) || isSiteAdmin(account)) return c;
+    if (!stubView(c, account)) throw new HttpError(404, "not_found", "No such community.");
+    return c;
+  }
+
+  // Join: an open community at once; a request-mode one asks its staff; an invitation is taken in
+  // any mode. Banned (here or H9-wide): never.
+  router.post("/api/presence/communities/:slug/join", memberRoute(async (req, res, rc) => {
+    const c = reachable(communityOrThrow(rc.params.slug), rc.account);
+    const a = rc.account;
+    let status = "member";
+    if (!belongs(a.id, c)) {
+      if (sanctioned(a.id, c.id, "ban")) throw new HttpError(403, "banned", "You are banned from this community.");
+      const t = now();
+      if (q.invite.get(c.id, a.id) || c.join_mode === "open") {
+        tx(() => {
+          q.memberAdd.run(c.id, a.id, t, null);
+          q.inviteRemove.run(c.id, a.id);
+          q.requestRemove.run(c.id, a.id);
+        });
+      } else if (c.join_mode === "request") {
+        q.requestAdd.run(c.id, a.id, t);
+        status = "requested";
+      } else {
+        throw new HttpError(403, "invite_only", "This community takes members by invitation only.");
+      }
+    }
+    rc.json(200, { ok: true, status, community: communityView(c, a) });
+  }));
+
+  // Leave, or withdraw a request. The owner stays: a community always has its owner.
+  router.post("/api/presence/communities/:slug/leave", memberRoute(async (req, res, rc) => {
+    const c = communityOrThrow(rc.params.slug);
+    const a = rc.account;
+    if (c.owner_id === a.id) throw new HttpError(409, "owner", "The owner cannot leave. Delete the community instead.");
+    tx(() => {
+      q.memberRemove.run(c.id, a.id);
+      q.removeStaff.run(c.id, a.id);
+      q.requestRemove.run(c.id, a.id);
+    });
+    rc.json(200, { ok: true });
+  }));
+
+  router.post("/api/presence/communities/:slug/invitation/decline", memberRoute(async (req, res, rc) => {
+    const c = communityOrThrow(rc.params.slug);
+    q.inviteRemove.run(c.id, rc.account.id);
+    rc.json(200, { ok: true });
+  }));
+
+  // The members: to members, staff and site admins; staff also see requests and invitations.
+  router.get("/api/presence/communities/:slug/members", auth.requireSession(async (req, res, rc) => {
+    limit("readPerIp", ipKey(rc.ip));
+    const c = communityOrThrow(rc.params.slug);
+    mustMember(rc.account, c);
+    const staffIds = new Set(q.staff.all(c.id).map((r) => r.account_id));
+    const out = {
+      members: q.membersOf.all(c.id).map((r) => ({
+        username: r.username, joined: iso(r.joined_at), role: r.account_id === c.owner_id ? "owner" : staffIds.has(r.account_id) ? "admin" : "member",
+      })),
+    };
+    if (isStaff(rc.account, c)) {
+      out.requests = q.requestsFor.all(c.id).map((r) => ({ username: r.username, created: iso(r.created_at) }));
+      out.invites = q.invitesFor.all(c.id).map((r) => ({ username: r.username, by: r.by_name || null, created: iso(r.created_at) }));
+    }
+    rc.json(200, out);
+  }));
+
+  router.post("/api/presence/communities/:slug/requests/:username/:decision", staffRoute(async (req, res, rc) => {
+    const c = communityOrThrow(rc.params.slug);
+    mustStaff(rc.account, c);
+    const decision = rc.params.decision;
+    if (decision !== "approve" && decision !== "refuse") throw new HttpError(404, "not_found", "approve or refuse.");
+    const a = accountOrThrow(rc.params.username);
+    if (!q.request.get(c.id, a.id)) throw new HttpError(404, "not_found", "No such request.");
+    if (decision === "approve") {
+      if (sanctioned(a.id, c.id, "ban")) throw new HttpError(403, "banned", "That account is banned here.");
+      tx(() => {
+        q.memberAdd.run(c.id, a.id, now(), rc.account.id);
+        q.requestRemove.run(c.id, a.id);
+      });
+    } else {
+      q.requestRemove.run(c.id, a.id);
+    }
+    record(rc, "community.member." + decision, c, "community " + c.slug, null, a);
+    rc.json(200, { ok: true });
+  }));
+
+  router.post("/api/presence/communities/:slug/invites", staffRoute(async (req, res, rc) => {
+    limit("invitePerAccount", "a:" + rc.account.id);
+    const c = communityOrThrow(rc.params.slug);
+    mustStaff(rc.account, c);
+    const body = await rc.body();
+    const a = accountOrThrow(body.username);
+    if (belongs(a.id, c)) throw new HttpError(409, "member", "That account is a member already.");
+    if (sanctioned(a.id, c.id, "ban")) throw new HttpError(403, "banned", "That account is banned here.");
+    q.inviteAdd.run(c.id, a.id, rc.account.id, now());
+    record(rc, "community.member.invite", c, "community " + c.slug, null, a);
+    rc.json(201, { ok: true });
+  }));
+
+  router.delete("/api/presence/communities/:slug/invites/:username", staffRoute(async (req, res, rc) => {
+    const c = communityOrThrow(rc.params.slug);
+    mustStaff(rc.account, c);
+    const a = accountOrThrow(rc.params.username);
+    q.inviteRemove.run(c.id, a.id);
+    record(rc, "community.member.uninvite", c, "community " + c.slug, null, a);
+    rc.json(200, { ok: true });
+  }));
+
+  // Staff remove a member; only the owner removes an admin (who stops being one), and nobody the owner.
+  router.delete("/api/presence/communities/:slug/members/:username", staffRoute(async (req, res, rc) => {
+    const c = communityOrThrow(rc.params.slug);
+    mustStaff(rc.account, c);
+    const a = accountOrThrow(rc.params.username);
+    if (a.id === c.owner_id) throw new HttpError(403, "forbidden", "The owner is always a member.");
+    if (q.isStaff.get(c.id, a.id) && !isOwner(rc.account, c)) throw new HttpError(403, "forbidden", "Only the owner removes an admin.");
+    tx(() => {
+      q.memberRemove.run(c.id, a.id);
+      q.removeStaff.run(c.id, a.id);
+    });
+    record(rc, "community.member.remove", c, "community " + c.slug, null, a);
     rc.json(200, { ok: true });
   }));
 
@@ -769,7 +1160,8 @@ export function createCommunity(deps) {
 
   function stop() {
     for (const w of [...waiters.values()]) w.finish();
+    if (events) for (const [name, fn] of Object.entries(relayListeners)) events.off(name, fn);
   }
 
-  return { reportActions, sanctioned, communityOfServer, sweep, stop };
+  return { reportActions, sanctioned, communityOfServer, privateCommunityOf, membersOnly, sweep, stop };
 }

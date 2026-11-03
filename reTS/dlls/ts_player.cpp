@@ -163,9 +163,9 @@ void CBasePlayer::DeactivateSlowMotionFlow()
 	m_flSlowMotionRamp = 0;
 	m_flSlowMotionScale = 0;
 	m_bSlowBullets = 0;
-	for (int i = 0; i < 32; i++)
+	for (int i = 0; i < MAX_PLAYERS; i++)
 	{
-		CBaseEntity *e = m_hSlowPlayers[i];
+		CBaseEntity *e = SlowPlayer(i);
 		if (!e)
 			continue;
 		CBasePlayer *p = (CBasePlayer *)e;
@@ -174,7 +174,7 @@ void CBasePlayer::DeactivateSlowMotionFlow()
 			p->GoSlow(1.0f, 0);
 			p->m_bSlowBullets = 0;
 		}
-		m_hSlowPlayers[i] = NULL;
+		SlowPlayer(i) = NULL;
 	}
 	// @0x86b55: then every grenade, knife and dropped gun the bubble slowed goes back to 1 and the list
 	// is emptied.
@@ -231,14 +231,14 @@ void CBasePlayer::SlowMotionFlow()
 	bool overridden = false;
 
 	// Pass 1: decide which other players I slow (line of sight), honoring slow-tier conflicts.
-	for (int i = 1; i <= gpGlobals->maxClients && !overridden; i++)
+	for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS && !overridden; i++)
 	{
-		CBaseEntity *cached = m_hSlowPlayers[i - 1];
+		CBaseEntity *cached = SlowPlayer(i - 1);
 		if (cached)
 		{
 			if (((CBasePlayer *)cached)->m_flSlowMotionScale == 0.0f)
 				continue;            // still just a victim → keep it cached
-			m_hSlowPlayers[i - 1] = NULL; // they started self-slowing → drop & re-resolve
+			SlowPlayer(i - 1) = NULL; // they started self-slowing → drop & re-resolve
 		}
 		CBasePlayer *other = (CBasePlayer *)UTIL_PlayerByIndex(i);
 		if (!other || !other->IsPlayer() || other == this)
@@ -251,9 +251,9 @@ void CBasePlayer::SlowMotionFlow()
 		if (tr.flFraction >= 1.0f)   // clear line of sight
 		{
 			if (other->m_flSlowMotionScale == 0.0f)
-				m_hSlowPlayers[i - 1] = other;          // not slowing themselves → I slow them
+				SlowPlayer(i - 1) = other;          // not slowing themselves → I slow them
 			else if (m_flSlowMotionRamp <= other->m_flSlowMotionRamp)
-				m_hSlowPlayers[i - 1] = other;          // my slow is equal/stronger → I slow them
+				SlowPlayer(i - 1) = other;          // my slow is equal/stronger → I slow them
 			else
 				overridden = true;                       // they're slowing harder → abort this tick
 		}
@@ -263,9 +263,9 @@ void CBasePlayer::SlowMotionFlow()
 
 	// Apply: slow self, then the cached others to the others-scale.
 	GoSlow(m_flSlowMotionScale, m_bSlowBullets);
-	for (int i = 0; i < gpGlobals->maxClients && i < 32; i++)
+	for (int i = 0; i < gpGlobals->maxClients && i < MAX_PLAYERS; i++)
 	{
-		CBaseEntity *e = m_hSlowPlayers[i];
+		CBaseEntity *e = SlowPlayer(i);
 		if (!e)
 			continue;
 		CBasePlayer *p = (CBasePlayer *)e;
@@ -275,7 +275,7 @@ void CBasePlayer::SlowMotionFlow()
 			p->m_bSlowBullets = m_bSlowBullets;
 		}
 		else
-			m_hSlowPlayers[i] = NULL;
+			SlowPlayer(i) = NULL;
 	}
 
 	// @0x86ea4: the projectiles, while the list has room

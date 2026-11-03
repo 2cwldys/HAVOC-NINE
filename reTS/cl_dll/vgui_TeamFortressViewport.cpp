@@ -66,8 +66,8 @@ int g_iUser2 = 0;
 int g_iUser3 = 0;
 
 // Scoreboard positions
-#define SBOARD_INDENT_X XRES(104)
-#define SBOARD_INDENT_Y YRES(40)
+#define SBOARD_INDENT_X XRES(16)
+#define SBOARD_INDENT_Y YRES(16)
 
 // low-res scoreboard indents
 #define SBOARD_INDENT_X_512 30
@@ -1092,6 +1092,7 @@ void TeamFortressViewport::HideScoreBoard()
 	if (m_pScoreBoard)
 	{
 		m_pScoreBoard->setVisible(false);
+		m_pScoreBoard->ResetScroll(); // H9 SCROLL
 
 		GetClientVoiceMgr()->StopSquelchMode();
 
@@ -1765,6 +1766,8 @@ void TeamFortressViewport::paintBackground()
 		m_pScoreBoard->Update();
 		m_flScoreBoardLastUpdated = gHUD.m_flTime + 0.5;
 	}
+	if (m_pScoreBoard->isVisible())
+		m_pScoreBoard->ScrollThink(); // H9 SCROLL: the eased motion, every frame
 
 	int extents[4];
 	getAbsExtents(extents[0], extents[1], extents[2], extents[3]);
@@ -1822,6 +1825,25 @@ bool TeamFortressViewport::SlotInput(int iSlot)
 // Direct Key Input
 bool TeamFortressViewport::KeyInput(bool down, int keynum, const char* pszCurrentBinding)
 {
+	// ---- H9 SCROLL: while the scoreboard is held open and a column of it scrolls, the wheel
+	// and PgUp/PgDn move it instead of reaching their bindings (the wheel changes no weapon).
+	if (down && m_pScoreBoard && m_pScoreBoard->isVisible() && 0 == gEngfuncs.Con_IsVisible())
+	{
+		int dir = 0;
+		bool page = false;
+		if (keynum == K_MWHEELUP)
+			dir = -1;
+		else if (keynum == K_MWHEELDOWN)
+			dir = 1;
+		else if (keynum == K_PGUP)
+			dir = -1, page = true;
+		else if (keynum == K_PGDN)
+			dir = 1, page = true;
+		if (0 != dir && m_pScoreBoard->ScrollInput(dir, page))
+			return false;
+	}
+	// ---- end H9 SCROLL
+
 	// Enter gets out of Spectator Mode by bringing up the Team Menu
 	if (0 != m_iUser1 && 0 == gEngfuncs.Con_IsVisible())
 	{
@@ -2074,6 +2096,57 @@ bool TeamFortressViewport::MsgFunc_ScoreInfo(const char* pszName, int iSize, voi
 	return true;
 }
 
+// Message handler for H9Assists (H9's ts_matchmode)
+// accepts two values:
+//		byte: client number; 0 only says the server counts assists
+//		short: the player's assists
+// The scoreboard shows the assists column once this map's server has sent one.
+bool TeamFortressViewport::MsgFunc_H9Assists(const char* pszName, int iSize, void* pbuf)
+{
+	BEGIN_READ(pbuf, iSize);
+	const int cl = READ_BYTE();
+	const int assists = READ_SHORT();
+
+	g_bScoreAssists = true;
+	if (cl > 0 && cl <= MAX_PLAYERS_HUD)
+		g_PlayerExtraInfo[cl].assists = assists;
+
+	return true;
+}
+
+// Message handler for H9Lives (H9's ts_matchmode)
+// accepts three values:
+//		byte: client number; 0 says no lives are counted now, and the column empties
+//		byte: lives left, the one being played included; 255 on a side that never runs out
+//		byte: the class's lives; 0 when none are counted for the player
+// The scoreboard shows the lives column, and sums each team's, while the server counts them.
+bool TeamFortressViewport::MsgFunc_H9Lives(const char* pszName, int iSize, void* pbuf)
+{
+	BEGIN_READ(pbuf, iSize);
+	const int cl = READ_BYTE();
+	const int left = READ_BYTE();
+	const int lives = READ_BYTE();
+
+	if (cl == 0)
+	{
+		g_bScoreLives = false;
+		for (int i = 1; i <= MAX_PLAYERS_HUD; i++)
+		{
+			g_PlayerExtraInfo[i].lives_left = 0;
+			g_PlayerExtraInfo[i].lives_max = 0;
+		}
+		return true;
+	}
+
+	g_bScoreLives = true;
+	if (cl <= MAX_PLAYERS_HUD)
+	{
+		g_PlayerExtraInfo[cl].lives_left = left;
+		g_PlayerExtraInfo[cl].lives_max = lives;
+	}
+	return true;
+}
+
 // Message handler for TeamScore message
 // accepts three values:
 //		string: team name
@@ -2119,7 +2192,8 @@ bool TeamFortressViewport::MsgFunc_TeamInfo(const char* pszName, int iSize, void
 	if (cl > 0 && cl <= MAX_PLAYERS_HUD)
 	{
 		// set the players team
-		strncpy(g_PlayerExtraInfo[cl].teamname, READ_STRING(), MAX_TEAM_NAME);
+		strncpy(g_PlayerExtraInfo[cl].teamname, READ_STRING(), MAX_TEAM_NAME - 1);
+		g_PlayerExtraInfo[cl].teamname[MAX_TEAM_NAME - 1] = '\0';
 	}
 
 	// rebuild the list of teams

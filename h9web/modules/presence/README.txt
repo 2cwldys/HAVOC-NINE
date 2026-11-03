@@ -6,8 +6,9 @@
  last seen and the PLAYS IN GAME badge; the privacy switches; the id proof,
  device binding and the admin panel's hooks; names in game. Game servers
  enrolling for their own keys; communities: chat across servers and the site,
- find, bans, mutes and kicks, announcements and per-account shared data.
- docs\H9_PRESENCE.txt and docs\H9_COMMUNITIES.txt are the guides for game
+ find, bans, mutes and kicks, announcements and per-account shared data;
+ rated play (compts's Elo and the LADDER page). docs\H9_PRESENCE.txt,
+ docs\H9_COMMUNITIES.txt and docs\H9_COMPETITIVE.txt are the guides for game
  servers, players and the engine side. This file is for whoever runs or
  changes h9web.
 
@@ -26,13 +27,27 @@
    migrations.js     its tables (presence_*), and what each column means
    store.js          every SQL statement it runs
    keys.js           the hand-made per-server keys file
-   enroll.js         enrollment: a server's own key, proven over A2S_RULES;
-                     approvals, re-enrollment flags, expiry, server ids
+   enroll.js         enrollment: a server's own key, proven over A2S_RULES, or
+                     for a listen server (Create Game) by its own player's ID
+                     proof; approvals, re-enrollment flags, expiry, server ids
    a2s.js            A2S_RULES over UDP (the challenge, split answers)
    serverauth.js     signed server calls: the HMAC, the time, the nonce table
+   avatars.js        the scoreboard's pictures: PNG and GIF decoded, squared to
+                     64 x 64, written as PNG
+   default-picture.png   the site's default picture (havoc9.org/assets/
+                     avatar-default.png, the same bytes: a test checks), the
+                     scoreboard's picture for a proven account with none
    community.js      communities, linking, staff, chat and the long-poll,
-                     sanctions and kicks, announcements, find, shared data
+                     sanctions and kicks, announcements, find, shared data;
+                     the owner's open chat; the Discord bridge (the events
+                     below, which the discord module answers)
    modes.js          the mode's name, as the Discord card names it
+   compete.js        rated play: compts's Elo per kill and per match, the three
+                     tables, the game server's calls (/api/presence/compete/
+                     start, kills, end, rating), the LADDER page's reads, the
+                     staff switches, voids, disputes and decay; its settings are
+                     moduleSettings.presence.compete (docs\H9_COMPETITIVE.txt,
+                     section 11), its tables migration 5
    bin/presence-key.js   add | rotate | remove | list a hand-made key
  Data (never in git): <dataDir>/modules/presence/server-keys.json, net-key and
  enroll-key (the secret enrolled keys are worked out from), all mode 0600.
@@ -98,16 +113,53 @@
  Communities (the site, signed in; communityPerAccount limit; staff is the
  owner, its admins and site admins; audit actions community.*):
    GET/POST /api/presence/communities, GET/PATCH/DELETE .../<slug>, and
-   .../<slug>/claim, servers/<serverId>, staff, sanctions, announce, chat,
-   data/log, data/rollback: docs\H9_COMMUNITIES.txt section 12.
+   .../<slug>/claim, servers/<serverId>, staff, sanctions, announce, chat
+   (members), data/log, data/rollback; membership: join, leave,
+   invitation/decline (membershipPerAccount), members, requests/<username>/
+   approve|refuse, invites (invitePerAccount), members/<username>:
+   docs\H9_COMMUNITIES.txt sections 2a and 12. A private community answers a
+   non-member with its name and join mode at most, or 404.
  Game servers (csrf: false; their own authentication; reportPerIp and
  serverCallsPerIp before the signature is checked, the per-server limits
  only after):
    POST /api/presence/report         section 4
-   POST /api/presence/enroll         { v, port }: a key, inactive, and a code
-   POST /api/presence/enroll/status  signed: proves the code over A2S_RULES
+   POST /api/presence/enroll         { v, port }: a key, inactive, and a code;
+                                     with listen: true also a nonce (always the
+                                     caller's own IP)
+   POST /api/presence/enroll/status  signed: proves the code over A2S_RULES; a
+                                     listen enrollment by { host: { id, nonce,
+                                     devmask, proof } }, its own player's proof
+   POST /api/presence/server/nonce   signed { count }: nonces for the ID proof's
+                                     challenge; a proof counts only for one of
+                                     these, issued to that server within
+                                     proofMaxAgeSeconds (presence_proof_nonces)
+ Public:
+   GET  /api/presence/avatar/<account>/<version>.png   a proven player's forum
+                                     picture as a 64 x 64 PNG, for H9XASH's
+                                     scoreboard (immutable: a new picture is a
+                                     new version); the report answer's "avatars"
+                                     names them. Account 2147483647
+                                     (DEFAULT_ACCOUNT) is the site's default
+                                     picture, for a proven account with none
+ Signed in:
+   GET  /api/presence/avatar         the ACCOUNT page's: { picture, needed,
+                                     game, side }: whether a JPEG or WebP
+                                     picture still needs its game copy
+   POST /api/presence/avatar         { v, png }: that copy, made by the owner's
+                                     browser, a PNG of exactly 64 x 64 (the size
+                                     read from its header before any decoding),
+                                     written again here, first copy per version
+                                     kept (gamePicturePerAccount)
+   POST /api/presence/web            the web client's page, once a minute: the
+                                     account is IN THE WEB CLIENT for
+                                     webClientSeconds (webClientPerAccount)
+   PUT  /api/presence/communities/<slug>/discord   H9's site admins: the
+                                     Discord bridge (community.js)
    POST /api/presence/server/poll, chat, find, data/get, data/set, claim
                                      signed (serverauth.js): community.js
+ A report may list players by slot alone ({ slot, name }): for the name check
+ and for a members-only server's gate. The answer then kicks every slot whose
+ player is not a member, and says "members": true.
 
  4. THE REPORT
  -------------
@@ -138,7 +190,9 @@
  The answer: { ok: true, players: <entries read>, serverId, actions: {
  "<slot>": { kick: "<reason>" } | { mute: true } } } and, when the report
  said "names": true and core can check proofs, names: { "<slot>": { set:
- "<username>" } | { taken: true } } (docs\H9_PRESENCE.txt sections 4b, 10).
+ "<username>" } | { taken: true } } (docs\H9_PRESENCE.txt sections 4b, 10), and levels:
+ { "<slot>": 0 to 99 } for each proven player, the account's level from the H9
+ ladder (compete.js; docs\H9_COMPETITIVE.txt section 8a), which h9_presence sends as H9Level.
 
  5. SETTINGS
  -----------
@@ -147,7 +201,7 @@
    requireProof false     inGameNames true      siteActiveSeconds 300
    maxBodyBytes 16384     maxPlayers 128        clockSkewSeconds 120
    sessionTimeoutSeconds 180   rejoinSeconds 120   maxCreditSeconds 150
-   proofMaxAgeSeconds 86400    sweepSeconds 30     sessionRetentionDays 90
+   proofMaxAgeSeconds 600      sweepSeconds 30     sessionRetentionDays 90
    netRetentionDays 30    flagRetentionDays 90  batchMax 50   cacheSeconds 15
    mapPicturesDir null (an absolute path)   mapPicturesUrl "/assets/maps/"
    enrollSameIp true      enrollAutoApprove false    enrollStaleDays 30
@@ -156,11 +210,15 @@
    chatCooldownSeconds 2  dataValueMax 512      dataKeysPerAccount 64
    dataRowsPerCommunity 200000   dataLogRetentionDays 30
    communitiesPerAccount 3   claimMinutes 15
+   defaultPicture null (default-picture.png; or an absolute path)
+   webClientSeconds 180
    limits { reportPerIp, reportPerServer, readPerIp, settingsPerAccount,
             adminPerAccount, enrollPerIp, enrollPerAddress, serverCallsPerIp,
             pollPerServer, chatPerServer, chatPerAccount, chatWebPerAccount,
             findPerServer, dataReadPerServer, dataWritePerServer,
-            dataWritePerAccount, claimPerServer, communityPerAccount }
+            dataWritePerAccount, claimPerServer, communityPerAccount,
+            membershipPerAccount, invitePerAccount, gamePicturePerAccount,
+            webClientPerAccount, discordInPerCommunity }
             (RateLimiter options)
 
  6. CORE HOOKS: WHAT CORE GIVES IT
@@ -205,6 +263,22 @@
         that is not connectionless) starts a game, 15 seconds without it or
         the socket closing ends it.
 
+ The events it shares with the discord module (core's ctx.events), for the
+ Discord bridge (docs\H9_COMMUNITIES.txt section 3a):
+   discord-relay-watch  { channels: [{ channel, after }] }   presence: the
+                        bridged channels, each from its last relayed message
+   discord-relay-out    { channel, kind, tag, name, text }  presence: a line for
+                        a channel (never one that came from Discord)
+   discord-relay-in     { channel, id, name, text, at }     discord: a person's
+                        message, mentions written out
+   discord-relay-status { channel, ok, error }              discord: how a
+                        channel answers
+   discord-relay-ready  {}                                  discord: send the
+                        list again
+ The site's server board: the module hands core a filter
+ (ctx.servers.hideFromBoard) that leaves out private communities' servers
+ and listen servers.
+
  7. TESTS
  --------
    node --test --test-timeout=30000 test/presence.test.js
@@ -223,7 +297,7 @@
  the id proof's test vectors. test/relay.test.js has the relay's own events.
 
    node --test --test-timeout=30000 test/community.test.js
- 20 tests: A2S_RULES (the challenge, a split answer); enrolling only one's own
+ 31 tests: A2S_RULES (the challenge, a split answer); enrolling only one's own
  address, the inactive key, approval, re-enrolling and its flag, a stranger
  never getting a live key, blocking, expiry, the rate limit; communities,
  linking by code, staff; chat from the game (cleaned) and the site (CSRF),
@@ -232,4 +306,18 @@
  kicks; find and its privacy; the shared data's versions, limits, read-only
  servers, proof, log and rollback; signed calls refused when wrong, stale or
  replayed; no key or code in the logs; and every call exactly as
- h9_community.sma writes it.
+ h9_community.sma writes it; joining in each mode, requests, invitations,
+ leaving and removing, bans that keep an account out, the members-only web
+ chat, unlisted and private communities (the list, the page, who's playing,
+ the card, /find), the members-only server's kicks (members, strangers, staff,
+ site admins, no h9_clientid, the proof switch) and the membership limits;
+ proof nonces (issued and fresh, a plugin's own, too old), the picture codec
+ against Pillow's decoding, and the report answer's pictures and their address.
+
+   node --test --test-timeout=30000 test/compete.test.js
+ 15 tests: compts's rule per kill (the bonus, headshots, team kills, unproven
+ players), batch order, a forged call, match results and their rules, the
+ three tables and NETWORK LADDER, the boards and pages under the privacy
+ switches, voids and disputes, a community's ladder, say /rank, a deleted
+ account, deathmatch places, the pair cap, abandoning and decay
+ (docs\H9_COMPETITIVE.txt, section 12).

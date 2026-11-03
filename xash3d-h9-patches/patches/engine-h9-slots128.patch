@@ -1,0 +1,377 @@
+diff --git a/common/xash3d_types.h b/common/xash3d_types.h
+--- a/common/xash3d_types.h
++++ b/common/xash3d_types.h
+@@ -17,8 +17,8 @@
+ #define CS_TIME	      16  // size of time string
+ 
+ // FIXME: find better place for the shared definition
+-#define MAX_CLIENT_BITS 5
+-#define MAX_CLIENTS     (1<<MAX_CLIENT_BITS)// 5 bits == 32 clients ( int32 limit )
++#define MAX_CLIENT_BITS 7
++#define MAX_CLIENTS     (1<<MAX_CLIENT_BITS)// 7 bits == 128 clients
+ 
+ // platform-specific alignment for types, to not break ABI
+ #if XASH_PSP
+diff --git a/engine/common/protocol.h b/engine/common/protocol.h
+--- a/engine/common/protocol.h
++++ b/engine/common/protocol.h
+@@ -73,8 +73,8 @@
+ #define svc_director		51	// <variable sized>
+ #define svc_voiceinit		52	// <see code>
+ #define svc_voicedata		53	// [byte][short][...]
+-// reserved
+-// reserved
++#define svc_h9updateuserinfo	54	// H9: svc_updateuserinfo with [byte] playernum, from a server of more than 32 slots
++#define svc_h9pings		55	// H9: svc_pings with the slot in 8 bits, from a server of more than 32 slots
+ #define svc_resourcelocation		56	// [string]
+ #define svc_querycvarvalue		57	// [string]
+ #define svc_querycvarvalue2		58	// [string][int] (context)
+@@ -282,6 +282,13 @@
+ // FWGS extensions
+ #define NET_EXT_SPLITSIZE       (1U<<0) // set splitsize by cl_dlmax
+ #define NET_EXT_NETCHAN_COOKIE  (1U<<1) // per-connection 64-bit netchan cookie validated on every sequenced packet
++#define NET_EXT_H9_SLOTS128     (1U<<24) // H9: reads svc_h9updateuserinfo and svc_h9pings; a server of more than 32 slots refuses a client without it
++
++// The slot field of svc_updateuserinfo and svc_pings, the width GoldSrc uses: 5 bits, 32 slots.
++// A server of more slots sends svc_h9updateuserinfo and svc_h9pings instead, so a server of 32
++// or fewer sends what it always has.
++#define MAX_CLIENT_BITS_LEGACY  5
++#define MAX_CLIENTS_LEGACY      ( 1 << MAX_CLIENT_BITS_LEGACY )
+ 
+ // GoldSrc protocol definitions
+ #define PROTOCOL_GOLDSRC_VERSION 48
+@@ -310,7 +317,7 @@
+ #define MAX_GOLDSRC_RESOURCE_BITS 12
+ #define MAX_GOLDSRC_ENTITY_BITS   11
+ // #define MAX_GOLDSRC_EDICTS        BIT( MAX_ENTITY_BITS )
+-#define MAX_GOLDSRC_EDICTS        ( BIT( MAX_ENTITY_BITS ) + ( MAX_CLIENTS * 15 ))
++#define MAX_GOLDSRC_EDICTS        ( BIT( MAX_ENTITY_BITS ) + ( MAX_CLIENTS_LEGACY * 15 )) // a GoldSrc server has 32 slots at most
+ #define LAST_GOLDSRC_EDICT        ( BIT( MAX_ENTITY_BITS ) - 1 )
+ 
+ // Master Server protocol
+diff --git a/engine/common/net_buffer.c b/engine/common/net_buffer.c
+--- a/engine/common/net_buffer.c
++++ b/engine/common/net_buffer.c
+@@ -261,8 +261,8 @@
+ 	"svc_director",
+ 	"svc_voiceinit",
+ 	"svc_voicedata",
+-	"svc_unused54",
+-	"svc_unused55",
++	"svc_h9updateuserinfo",
++	"svc_h9pings",
+ 	"svc_resourcelocation",
+ 	"svc_querycvarvalue",
+ 	"svc_querycvarvalue2",
+diff --git a/engine/common/net_encode.c b/engine/common/net_encode.c
+--- a/engine/common/net_encode.c
++++ b/engine/common/net_encode.c
+@@ -620,6 +620,62 @@
+ 	else MSG_WriteOneBit( msg, 0 );
+ }
+ 
++/*
++=====================
++Delta_H9SlotField
++
++H9: a player slot field holds 1..maxclients: entity_state_t's and entity_state_player_t's
++owner, and clientdata_t's iuser2, the spectator's target. On a server of more than 32 slots it
++takes MAX_CLIENT_BITS + 1 bits. On one of 32 or fewer it keeps the width it had at 32 slots, so
++the server sends what it always has: owner MAX_CLIENT_BITS_LEGACY + 1 bits, where
++Delta_H9WidenIndexField's MAX_CLIENT_BITS + 1 is narrowed back, iuser2 what delta.lst says.
++Runs once a field is parsed; clients follow, as the server sends its parsed tables to them.
++=====================
++*/
++static void Delta_H9SlotField( const delta_info_t *dt, delta_t *pField )
++{
++	static struct
++	{
++		const char	*table;
++		const char	*field;
++		qboolean	widened;	// Delta_H9WidenIndexField gives it MAX_CLIENT_BITS + 1 bits
++		qboolean	reported;
++	} slots[] =
++	{
++	{ "entity_state_t",		"owner",	true },
++	{ "entity_state_player_t",	"owner",	true },
++	{ "clientdata_t",		"iuser2",	false },
++	};
++
++	for( size_t i = 0; i < ARRAYSIZE( slots ); i++ )
++	{
++		if( Q_strcmp( dt->pName, slots[i].table ) || Q_strcmp( pField->name, slots[i].field ))
++			continue;
++
++		int limit = FBitSet( pField->flags, DT_BYTE ) ? 8 : FBitSet( pField->flags, DT_SHORT ) ? 16 : 32;
++		int sign = FBitSet( pField->flags, DT_SIGNED ) ? 1 : 0;
++		int wide = Q_min( MAX_CLIENT_BITS + 1 + sign, limit );
++		int want = pField->bits;
++
++		if( SV_GetMaxClients() > MAX_CLIENTS_LEGACY )
++			want = Q_max( pField->bits, wide );
++		else if( slots[i].widened && pField->bits == wide )
++			want = Q_min( MAX_CLIENT_BITS_LEGACY + 1 + sign, limit );
++
++		if( want != pField->bits )
++		{
++			// delta.lst is re-read on every map spawn; one line per field per run is enough
++			if( !slots[i].reported )
++			{
++				Con_Reportf( "delta: %s.%s at %d bits for %d player slots\n", dt->pName, pField->name, want, SV_GetMaxClients() );
++				slots[i].reported = true;
++			}
++			pField->bits = want;
++		}
++		return;
++	}
++}
++
+ void Delta_ParseTableField( sizebuf_t *msg )
+ {
+ 	float mul = 1.0f, post_mul = 1.0f;
+@@ -856,6 +912,8 @@
+ 	*delta_script = COM_ParseFile( *delta_script, token, sizeof( token ));
+ 	if( token[0] != ',' ) *delta_script = oldpos; // not a ','
+ 
++	Delta_H9SlotField( dt, pField );
++
+ 	return true;
+ }
+ 
+diff --git a/engine/server/server.h b/engine/server/server.h
+--- a/engine/server/server.h
++++ b/engine/server/server.h
+@@ -211,6 +211,11 @@
+ 	int  		first_entity;		// into the circular sv_packet_entities[]
+ } client_frame_t;
+ 
++// sv_client_t::listeners, one bit a player slot (0-based): this client's voice goes to the slots set
++#define SV_LISTENER_TEST( cl, slot )  FBitSet(( cl )->listeners[( slot ) >> 5], BIT(( slot ) & 31 ))
++#define SV_LISTENER_SET( cl, slot )   SetBits(( cl )->listeners[( slot ) >> 5], BIT(( slot ) & 31 ))
++#define SV_LISTENER_CLEAR( cl, slot ) ClearBits(( cl )->listeners[( slot ) >> 5], BIT(( slot ) & 31 ))
++
+ typedef struct sv_client_s
+ {
+ 	cl_state_t  state;
+@@ -225,7 +230,7 @@
+ 	char useragent[MAX_INFO_STRING];
+ 
+ 	byte ignorecmdtime_warned; // did we warn our server operator in the log for this batch of commands?
+-	uint listeners;   // which other clients does this guy's voice stream go to?
++	uint listeners[MAX_CLIENTS / 32];   // which other clients does this guy's voice stream go to? one bit a slot
+ 
+ 	int ignorecmdtime_warns; // how many times client time was faster than server during this session
+ 	int userid;              // identifying number on server
+diff --git a/engine/server/sv_client.c b/engine/server/sv_client.c
+--- a/engine/server/sv_client.c
++++ b/engine/server/sv_client.c
+@@ -402,6 +402,17 @@
+ 	qport = Q_atoi( Info_ValueForKey( protinfo, "qport" ));
+ 	extensions = Q_atoi( Info_ValueForKey( protinfo, "ext" ));
+ 
++	// A server of more than 32 player slots sends the slot in svc_h9updateuserinfo and
++	// svc_h9pings, which only a client with NET_EXT_H9_SLOTS128 reads: any other is refused with
++	// the reason, instead of dropping out on the first message it cannot read. The local client
++	// is this engine.
++	if( svs.maxclients > MAX_CLIENTS_LEGACY && !FBitSet( extensions, NET_EXT_H9_SLOTS128 ) && !NET_IsLocalAddress( from ))
++	{
++		SV_RejectConnection( from, "This server needs a newer H9XASH: download it from https://havoc9.org/downloads/ "
++			"(the server has %d player slots, older clients take 32)\n", svs.maxclients );
++		return;
++	}
++
+ 	if( FBitSet( extensions, NET_EXT_NETCHAN_COOKIE ))
+ 	{
+ 		const char *cookie_str = Info_ValueForKey( protinfo, "cookie" );
+@@ -508,7 +519,7 @@
+ 
+ 	// HACKHACK: can hear all players by default to avoid issues
+ 	// with server.dll without voice game manager
+-	newcl->listeners = -1;
++	memset( newcl->listeners, 0xff, sizeof( newcl->listeners ));
+ 
+ 	// initailize netchan
+ 	if( !Host_IsLocalClient( ))
+@@ -1299,8 +1310,18 @@
+ 
+ 	int i = cl - svs.clients;
+ 
+-	MSG_BeginServerCmd( msg, svc_updateuserinfo );
+-	MSG_WriteUBitLong( msg, i, MAX_CLIENT_BITS );
++	// the slot in 5 bits while every slot fits, as GoldSrc; a server of more slots sends
++	// svc_h9updateuserinfo, the same message with the slot as a byte
++	if( svs.maxclients > MAX_CLIENTS_LEGACY )
++	{
++		MSG_BeginServerCmd( msg, svc_h9updateuserinfo );
++		MSG_WriteByte( msg, i );
++	}
++	else
++	{
++		MSG_BeginServerCmd( msg, svc_updateuserinfo );
++		MSG_WriteUBitLong( msg, i, MAX_CLIENT_BITS_LEGACY );
++	}
+ 	MSG_WriteLong( msg, cl->userid );
+ 
+ 	if( cl->name[0] )
+@@ -3663,7 +3684,7 @@
+ 			if( cur->state < cs_connected )
+ 				continue;
+ 
+-			if( !FBitSet( cl->listeners, BIT( i )))
++			if( !SV_LISTENER_TEST( cl, i ))
+ 				continue;
+ 		}
+ 
+diff --git a/engine/server/sv_frame.c b/engine/server/sv_frame.c
+--- a/engine/server/sv_frame.c
++++ b/engine/server/sv_frame.c
+@@ -488,7 +488,12 @@
+ 	sv_client_t *cl;
+ 	int i;
+ 
+-	MSG_BeginServerCmd( msg, svc_pings );
++	// the slot in 5 bits while every slot fits, as GoldSrc; a server of more slots sends
++	// svc_h9pings, the same message with the slot in 8 bits
++	const qboolean byteslot = svs.maxclients > MAX_CLIENTS_LEGACY;
++	const int slotbits = byteslot ? 8 : MAX_CLIENT_BITS_LEGACY;
++
++	MSG_BeginServerCmd( msg, byteslot ? svc_h9pings : svc_pings );
+ 
+ 	for( i = 0, cl = svs.clients; i < svs.maxclients; i++, cl++ )
+ 	{
+@@ -499,9 +504,9 @@
+ 
+ 		SV_GetPlayerStats( cl, &ping, &packet_loss );
+ 
+-		// there are 25 bits for each client
++		// 1 + slotbits + 12 + 7 bits for each client
+ 		MSG_WriteOneBit( msg, 1 );
+-		MSG_WriteUBitLong( msg, i, MAX_CLIENT_BITS );
++		MSG_WriteUBitLong( msg, i, slotbits );
+ 		MSG_WriteUBitLong( msg, ping, 12 );
+ 		MSG_WriteUBitLong( msg, packet_loss, 7 );
+ 	}
+diff --git a/engine/server/sv_game.c b/engine/server/sv_game.c
+--- a/engine/server/sv_game.c
++++ b/engine/server/sv_game.c
+@@ -4535,7 +4535,7 @@
+ 	if( iReceiver < 0 || iReceiver >= svs.maxclients || iSender < 0 || iSender >= svs.maxclients )
+ 		return false;
+ 
+-	return (FBitSet( svs.clients[iSender].listeners, BIT( iReceiver )) != 0 );
++	return ( SV_LISTENER_TEST( &svs.clients[iSender], iReceiver ) != 0 );
+ }
+ 
+ /*
+@@ -4552,8 +4552,8 @@
+ 	if( iReceiver < 0 || iReceiver >= svs.maxclients || iSender < 0 || iSender >= svs.maxclients )
+ 		return false;
+ 
+-	if( bListen ) SetBits( svs.clients[iSender].listeners, BIT( iReceiver ));
+-	else ClearBits( svs.clients[iSender].listeners, BIT( iReceiver ));
++	if( bListen ) SV_LISTENER_SET( &svs.clients[iSender], iReceiver );
++	else SV_LISTENER_CLEAR( &svs.clients[iSender], iReceiver );
+ 
+ 	return true;
+ }
+diff --git a/engine/server/sv_init.c b/engine/server/sv_init.c
+--- a/engine/server/sv_init.c
++++ b/engine/server/sv_init.c
+@@ -836,7 +836,13 @@
+ #endif
+ 
+ 	svs.clients = Z_Realloc( svs.clients, sizeof( sv_client_t ) * svs.maxclients );
+-	svs.num_client_entities = svs.maxclients * SV_UPDATE_BACKUP * NUM_PACKET_ENTITIES;
++	// The packet entity ring holds SV_UPDATE_BACKUP frames a client of NUM_PACKET_ENTITIES entities
++	// on average; past 32 slots of half that, which still keeps about a second of frames for a client
++	// that sees 300 entities at cl_updaterate 30. The ring follows maxplayers, 340 bytes an entry, in
++	// a 32-bit server's 2 GB: 170 MiB at 32 slots, 170 at 64, 340 at 128. A frame whose delta base
++	// has rolled off the ring is sent whole (SV_EmitPacketEntities).
++	svs.num_client_entities = svs.maxclients * SV_UPDATE_BACKUP *
++		( svs.maxclients > MAX_CLIENTS_LEGACY ? NUM_PACKET_ENTITIES / 2 : NUM_PACKET_ENTITIES );
+ 	svs.packet_entities = Z_Realloc( svs.packet_entities, sizeof( entity_state_t ) * svs.num_client_entities );
+ 	Con_Reportf( "%s alloced by server packet entities\n", Q_memprint( sizeof( entity_state_t ) * svs.num_client_entities ));
+ 
+diff --git a/engine/client/parse/cl_parse.c b/engine/client/parse/cl_parse.c
+--- a/engine/client/parse/cl_parse.c
++++ b/engine/client/parse/cl_parse.c
+@@ -1356,7 +1356,7 @@
+ collect userinfo from all players
+ ================
+ */
+-static void CL_UpdateUserinfo( sizebuf_t *msg, connprotocol_t proto )
++static void CL_UpdateUserinfo( sizebuf_t *msg, connprotocol_t proto, qboolean byteslot )
+ {
+ 	int slot, id;
+ 	qboolean active;
+@@ -1369,7 +1369,8 @@
+ 	}
+ 	else
+ 	{
+-		slot = MSG_ReadUBitLong( msg, MAX_CLIENT_BITS );
++		// svc_h9updateuserinfo carries the slot as a byte, svc_updateuserinfo in 5 bits
++		slot = byteslot ? MSG_ReadByte( msg ) : MSG_ReadUBitLong( msg, MAX_CLIENT_BITS_LEGACY );
+ 		id = MSG_ReadLong( msg );	// unique user ID
+ 		active = MSG_ReadOneBit( msg ) ? true : false;
+ 	}
+@@ -1472,8 +1473,17 @@
+ collect pings and packet lossage from clients
+ ================
+ */
++static void CL_UpdateUserPingsSlotBits( sizebuf_t *msg, int slotbits );
++
++// svc_pings, and GoldSrc's: the slot in 5 bits
+ void CL_UpdateUserPings( sizebuf_t *msg )
+ {
++	CL_UpdateUserPingsSlotBits( msg, MAX_CLIENT_BITS_LEGACY );
++}
++
++// svc_pings' slot in slotbits bits: 5 there, 8 in svc_h9pings
++static void CL_UpdateUserPingsSlotBits( sizebuf_t *msg, int slotbits )
++{
+ 	// a1ba: there was a MAX_PLAYERS check but it doesn't make sense
+ 	// because pings message always ends by null bit
+ 	while( 1 )
+@@ -1481,7 +1491,7 @@
+ 		if( !MSG_ReadOneBit( msg ))
+ 			break; // end of message
+ 
+-		int slot = MSG_ReadUBitLong( msg, MAX_CLIENT_BITS );
++		int slot = MSG_ReadUBitLong( msg, slotbits );
+ 
+ 		if( unlikely( slot >= MAX_CLIENTS ))
+ 		{
+@@ -2448,7 +2458,7 @@
+ 		CL_ParseServerData( msg, proto );
+ 		break;
+ 	case svc_updateuserinfo:
+-		CL_UpdateUserinfo( msg, proto );
++		CL_UpdateUserinfo( msg, proto, false );
+ 		break;
+ 	case svc_particle:
+ 		CL_ParseParticles( msg, proto );
+@@ -2646,6 +2656,12 @@
+ 		case svc_pings:
+ 			CL_UpdateUserPings( msg );
+ 			break;
++		case svc_h9pings:
++			CL_UpdateUserPingsSlotBits( msg, 8 );
++			break;
++		case svc_h9updateuserinfo:
++			CL_UpdateUserinfo( msg, PROTO_CURRENT, true );
++			break;
+ 		case svc_restoresound:
+ 			CL_ParseSoundPacket( msg, true );
+ 			cl.frames[cl.parsecountmod].graphdata.sound += MSG_GetNumBytesRead( msg ) - bufStart;
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -1429,7 +1429,7 @@
+ 	else
+ 	{
+ 		const char *qport = Cvar_VariableString( "net_qport" );
+-		int extensions = adrtype == NA_LOOPBACK ? 0 : ( NET_EXT_SPLITSIZE | NET_EXT_NETCHAN_COOKIE );
++		int extensions = adrtype == NA_LOOPBACK ? 0 : ( NET_EXT_SPLITSIZE | NET_EXT_NETCHAN_COOKIE | NET_EXT_H9_SLOTS128 );
+ 		string key;
+ 
+ 		ID_GetMD5ForAddress( key, adr, sizeof( key ));

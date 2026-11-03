@@ -1,5 +1,5 @@
 // tsm_api.inc -- the mode API ts_matchmode offers to mode plugins (ts_uplink, ts_survival,
-// ts_mechwarrior).
+// ts_mechwarrior), and the match's own state to any plugin that needs it (ts_rtv).
 //
 // ts_matchmode is the core: rounds, sides, lives, waves, classes and the HUD. A mode plugin
 // CLAIMS a map with tsm_mode_claim() and from then on the core asks it at the points below.
@@ -96,11 +96,33 @@ native tsm_hud_line(const text[]);
 /** The match state: one of TSM_ST_*. */
 native tsm_state();
 
+/**
+ * 1 while a match is under way: a round frozen, live or just ended, or the match halted in
+ * ready-up with its score kept. 0 in warmup, in the ready-up before a match, once a match is
+ * over, and with the match mode off (tsm_enabled 0).
+ */
+native tsm_match_running();
+
+/**
+ * The rounds side 1 or 2 has won in this match. A finished match keeps its score until warmup
+ * clears it, so it can still be read in tsm_match_complete and tsm_match_forfeit. 0 for any
+ * other side.
+ */
+native tsm_score(side);
+
 /** The side a player belongs to this match, 1 or 2; 0 for nobody's. Eliminated players keep theirs. */
 native tsm_side_of(id);
 
 /** 1 when a player is playing right now: alive, on a side, not eliminated and not sitting out. */
 native tsm_in_play(id);
+
+/**
+ * 1 while the match mode draws a player as he is: in play (tsm_in_play), the round frozen, live
+ * or just ended, and not cloaked. 0 in warmup, in ready-up and at a match's end, where the holds
+ * hide everyone, and for anyone eliminated, benched, spectating or under the Recon's .cloak.
+ * With the match mode off (tsm_enabled 0) it hides nobody: 1 for anyone alive.
+ */
+native tsm_shown(id);
 
 /** Players a side still has in the round: alive, or eliminated and waiting for a wave. */
 native tsm_side_alive(side);
@@ -182,5 +204,28 @@ forward tsm_loadout(id, spec[], len);
 
 /** A player's loadout and health have just been set, at the round going live or a wave. */
 forward tsm_armed(id);
+
+/**
+ * A match has been played to its end: a side reached the win total (winner 1 or 2), or a
+ * one-run mode's run is over (winner 0). Sent whether or not a mode claimed the map, as the
+ * match goes back to warmup. Not sent for a match cancelled, forfeited or left with an empty side.
+ */
+forward tsm_match_complete(winner);
+
+/**
+ * A player has died in a live round and lost a life: left is how many he has still to come, 0
+ * for none. Sent only while a mode claims the map. Return PLUGIN_HANDLED once you have told him
+ * in your own words; PLUGIN_CONTINUE lets the core say its own line ("2 lives left -- back in the
+ * next wave"), and with none left the core says nothing.
+ */
+forward tsm_life_lost(id, left);
+
+/**
+ * A match a side forfeited: all of its people voted .forfeit, or it was left with no players
+ * while the other side still had some. winner is the side that stayed. Sent as the match goes
+ * back to warmup, with its score final (tsm_score). A cancelled match, one both sides left, and
+ * one whose side ran out of humans ("Nobody wins") send nothing.
+ */
+forward tsm_match_forfeit(winner);
 
 #endif

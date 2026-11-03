@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https://i.imgur.com https://i.redd.it https://i.postimg.cc https://i.ibb.co https://media.giphy.com https://i.giphy.com https://upload.wikimedia.org https://images.steamusercontent.com; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
   <meta name="robots" content="noindex">
   <title>ADMIN PANEL -- HAVOC9</title>
   <meta name="description" content="The HAVOC 9 admin panel, for moderators and admins">
@@ -13,6 +13,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css">
   <link rel="stylesheet" href="../forum/forum.css">
+  <link rel="stylesheet" href="../assets/needs.css">
 </head>
 <body>
   <div class="scanlines"></div>
@@ -33,6 +34,8 @@
         <li><a href="../downloads/index.html">DOWNLOADS</a></li>
         <li><a href="../servers/index.html">SERVERS</a></li>
         <li><a href="../forum/index.html">FORUM</a></li>
+        <li><a href="../community/index.html">COMMUNITY</a></li>
+        <li><a href="../media/index.html">MEDIA</a></li>
         <li><a href="../join/index.html">JOIN</a></li>
         <li><a href="../museum/index.html">MUSEUM</a></li>
         <li><a href="../credits/index.html">CREDITS</a></li>
@@ -55,16 +58,21 @@
         <button type="button" role="tab" data-tab="reports" aria-selected="false">REPORTS</button>
         <button type="button" role="tab" data-tab="forum" aria-selected="false">FORUM</button>
         <button type="button" role="tab" data-tab="accounts" aria-selected="false">ACCOUNTS</button>
+        <button type="button" role="tab" data-tab="needs" aria-selected="false">WHAT WE NEED</button>
         <button type="button" role="tab" data-tab="renames" aria-selected="false" data-admin hidden>NAME CHANGES</button>
         <button type="button" role="tab" data-tab="presence" aria-selected="false" data-admin hidden>PRESENCE</button>
+        <button type="button" role="tab" data-tab="levels" aria-selected="false" data-admin hidden>LEVELS</button>
         <button type="button" role="tab" data-tab="audit" aria-selected="false" data-admin hidden>AUDIT LOG</button>
       </div>
 
+      <p class="forum-row-meta" id="communityLink" hidden title="An enrolled server is a game server with a havoc9.org key: it can report who is playing and take part in communities (linked servers, relay chat, members-only servers, the ladder). A dedicated server running h9_presence enrolls by itself, a Create Game server through its host's ID proof, or a site admin gives it a hand-made key.">Enrolled game servers (game servers with a havoc9.org key, so they can report who is playing and take part in communities), the ones waiting for approval among them, and H9-wide bans, mutes, kicks and announcements: <a href="../community/index.html">COMMUNITY</a>, in its H9 ADMIN section.</p>
       <section id="tab-reports" role="tabpanel" hidden></section>
       <section id="tab-forum" role="tabpanel" hidden></section>
       <section id="tab-accounts" role="tabpanel" hidden></section>
+      <section id="tab-needs" role="tabpanel" hidden></section>
       <section id="tab-renames" role="tabpanel" hidden></section>
       <section id="tab-presence" role="tabpanel" hidden></section>
+      <section id="tab-levels" role="tabpanel" hidden></section>
       <section id="tab-audit" role="tabpanel" hidden></section>
 
       <div class="forum-about">
@@ -95,6 +103,7 @@
 
   <script src="../script.js"></script>
   <script src="../assets/account.js"></script>
+  <script src="../assets/forum-render.js"></script>
   <script src="./admin.js"></script>
 </body>
 </html>

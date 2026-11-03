@@ -21,6 +21,7 @@ GNU General Public License for more details.
 #include "sound.h"
 #include "input.h" // touch
 #include "platform/platform.h" // GL_UpdateSwapInterval
+#include "cl_motd.h"
 
 /*
 ===============
@@ -576,6 +577,7 @@ void V_PostRender( void )
 		SCR_TileClear();
 		CL_DrawHUD( CL_ACTIVE );
 		VGui_Paint();
+		CL_Motd_Draw(); // H9: the splash MOTD, over the HUD and VGUI (cl_motd.c)
 	}
 
 	switch( cls.scrshot_action )

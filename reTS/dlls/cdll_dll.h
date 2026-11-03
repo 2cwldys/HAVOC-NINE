@@ -19,7 +19,9 @@
 
 #pragma once
 
-constexpr int MAX_PLAYERS = 32;
+// Player slots both game DLLs are built for. Every player table, bit vector and HUD list is
+// sized by it; the engine's maxplayers at run time may be anything up to it.
+constexpr int MAX_PLAYERS = 128;
 #define MAX_WEAPONS 64 // ???
 
 #define MAX_WEAPON_SLOTS 5 // hud item selection slots

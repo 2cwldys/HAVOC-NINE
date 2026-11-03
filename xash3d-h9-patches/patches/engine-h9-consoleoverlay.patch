@@ -1,0 +1,29 @@
+diff --git a/engine/client/console.c b/engine/client/console.c
+index 7768570..5f75f7f 100644
+--- a/engine/client/console.c
++++ b/engine/client/console.c
+@@ -25,6 +25,7 @@ GNU General Public License for more details.
+ 
+ static CVAR_DEFINE_AUTO( scr_conspeed, "600", FCVAR_ARCHIVE, "console moving speed" );
+ static CVAR_DEFINE_AUTO( con_notifytime, "3", FCVAR_ARCHIVE, "notify time to live" );
++static CVAR_DEFINE_AUTO( con_shownotify, "0", FCVAR_ARCHIVE, "draw console notify lines over the game" );
+ CVAR_DEFINE_AUTO( con_fontsize, "1", FCVAR_ARCHIVE, "console font number (0, 1 or 2)" );
+ static CVAR_DEFINE_AUTO( con_fontrender, "2", FCVAR_ARCHIVE, "console font render mode (0: additive, 1: holes, 2: trans)" );
+ static CVAR_DEFINE_AUTO( con_charset, "cp1251", FCVAR_ARCHIVE, "console font charset (only cp1251 supported now)" );
+@@ -830,6 +831,7 @@ void Con_Init( void )
+ 	// must be init before startup video subsystem
+ 	Cvar_RegisterVariable( &scr_conspeed );
+ 	Cvar_RegisterVariable( &con_notifytime );
++	Cvar_RegisterVariable( &con_shownotify );
+ 	Cvar_RegisterVariable( &con_fontsize );
+ 	Cvar_RegisterVariable( &con_charset );
+ 	Cvar_RegisterVariable( &con_fontscale );
+@@ -1848,7 +1850,7 @@ static void Con_DrawNotify( void )
+ 
+ 	int x = con.curFont->charWidths[' ']; // offset one space at left screen side
+ 
+-	if( host.allow_console && !Con_BackgroundMapActive( ))
++	if( host.allow_console && !Con_BackgroundMapActive( ) && con_shownotify.value != 0.0f )
+ 	{
+ 		for( int i = Q_max( 0, CON_LINES_COUNT - con.num_times ); i < CON_LINES_COUNT; i++ )
+ 		{

@@ -3931,7 +3931,8 @@ static void GAME_EXPORT pfnSetClientKeyValue( int clientIndex, char *infobuffer,
 
 	cl = &svs.clients[clientIndex];
 
-	Info_SetValueForStarKey( infobuffer, key, value, MAX_INFO_STRING );
+	// a player's own buffer holds H9_MAX_USERINFO (server.h)
+	Info_SetValueForStarKey( infobuffer, key, value, infobuffer == cl->userinfo ? sizeof( cl->userinfo ) : MAX_INFO_STRING );
 	SetBits( cl->flags, FCL_RESEND_USERINFO );
 	cl->next_sendinfotime = 0.0;	// send immediately
 }
@@ -4535,7 +4536,7 @@ static qboolean GAME_EXPORT pfnVoice_GetClientListening( int iReceiver, int iSen
 	if( iReceiver < 0 || iReceiver >= svs.maxclients || iSender < 0 || iSender >= svs.maxclients )
 		return false;
 
-	return (FBitSet( svs.clients[iSender].listeners, BIT( iReceiver )) != 0 );
+	return ( SV_LISTENER_TEST( &svs.clients[iSender], iReceiver ) != 0 );
 }
 
 /*
@@ -4552,8 +4553,8 @@ static qboolean GAME_EXPORT pfnVoice_SetClientListening( int iReceiver, int iSen
 	if( iReceiver < 0 || iReceiver >= svs.maxclients || iSender < 0 || iSender >= svs.maxclients )
 		return false;
 
-	if( bListen ) SetBits( svs.clients[iSender].listeners, BIT( iReceiver ));
-	else ClearBits( svs.clients[iSender].listeners, BIT( iReceiver ));
+	if( bListen ) SV_LISTENER_SET( &svs.clients[iSender], iReceiver );
+	else SV_LISTENER_CLEAR( &svs.clients[iSender], iReceiver );
 
 	return true;
 }

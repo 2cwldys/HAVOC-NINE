@@ -178,8 +178,28 @@ The server's MOTD
   Steam  TS's text MOTD (motd.txt) in its VGUI1 window, on every server.
   Xash   The same, unless the server runs h9_motd.amxx with a picture or a web
          page: the engine (engine-h9-motd.patch) then shows that splash in place
-         of the text, and falls back to the text whenever it cannot. cl_h9_motd 0
-         keeps the text MOTD. See docs\H9_MOTD.txt.
+         of the text. A web page is shown live inside the panel, hosted by
+         Microsoft Edge WebView2 through h9webview.dll (H9's own, beside
+         HAVOC 9.exe). When the page cannot be shown (no WebView2 runtime,
+         exclusive full screen, Wine or Proton without cl_h9_motd_wine 1, a
+         load error or 10 s without it) the panel shows the page's picture or
+         the text with an OPEN PAGE button; a picture that fails gives the
+         text window as before. cl_h9_motd 0 keeps the text MOTD. See
+         docs\H9_MOTD.txt.
+
+A portal's trip to another server
+  Steam  No server can connect a client anywhere: a community portal's Go
+         gives the address, and the player types connect <address>.
+  Xash   connect is refused from a server here too, but the engine
+         (engine-h9-travel.patch) answers a server's h9_travel <address>
+         [name] with its own prompt: "Travel to <name>?", the address, the
+         server that offered it, YES (Y) and NO (N). Only the player's YES
+         connects. Public IPv4 addresses only (a LAN address only from a LAN
+         server), one offer at a time, 10 s between offers and at most 4 from
+         one server in 2 minutes; cl_h9_travel 0 ignores offers. The userinfo
+         key _h9travel "1" tells h9_community.amxx to send it; the web client
+         offers YES only for H9's listed servers, which its relay reaches.
+         See docs\H9_COMMUNITIES.txt section 9.
 
 Renderer extras
   The webassembly patch set is part of the Xash build. On Windows its browser code

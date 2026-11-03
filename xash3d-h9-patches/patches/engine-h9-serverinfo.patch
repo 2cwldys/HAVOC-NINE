@@ -1,0 +1,37 @@
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+index df24ed5f..7b963c4e 100644
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -2361,7 +2361,10 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+ 	Info_SetValueForKey( s, "dm", "0", sizeof( s )); // obsolete keys
+ 	Info_SetValueForKey( s, "team", "0", sizeof( s ));
+ 	Info_SetValueForKey( s, "coop", "0", sizeof( s ));
+-	Info_SetValueForKeyf( s, "numcl", sizeof( s ), "%i", numcl );
++	// H9: GoldSrc counts the bots among the players; mainui gets the people alone and the bots apart,
++	// as an Xash server's own info reply has them
++	Info_SetValueForKeyf( s, "numcl", sizeof( s ), "%i", numcl > bots ? numcl - bots : 0 );
++	Info_SetValueForKeyf( s, "bots", sizeof( s ), "%i", bots );
+ 	Info_SetValueForKeyf( s, "maxcl", sizeof( s ), "%i", maxcl );
+ 	Info_SetValueForKey( s, "gamedir", gamedir, sizeof( s ));
+ 	Info_SetValueForKey( s, "password", password ? "1" : "0", sizeof( s ));
+diff --git a/engine/server/sv_client.c b/engine/server/sv_client.c
+index fd2180b3..6aa13229 100644
+--- a/engine/server/sv_client.c
++++ b/engine/server/sv_client.c
+@@ -1066,10 +1066,16 @@ static void SV_Info( netadr_t from, int protocolVersion )
+ 		Info_SetValueForKey( s, "team", svgame.globals->teamplay ? "1" : "0", sizeof( s ));
+ 		Info_SetValueForKey( s, "coop", svgame.globals->coop ? "1" : "0", sizeof( s ));
+ 		Info_SetValueForKeyf( s, "numcl", sizeof( s ), "%i", count );
++		Info_SetValueForKeyf( s, "bots", sizeof( s ), "%i", bots );
+ 		Info_SetValueForKeyf( s, "maxcl", sizeof( s ), "%i", svs.maxclients );
+ 		Info_SetValueForKey( s, "gamedir", GI->gamefolder, sizeof( s ));
+ 		Info_SetValueForKey( s, "password", SV_HavePassword() ? "1" : "0", sizeof( s ));
+ 
++		// H9: "auth" 1 while the server takes only players with a havoc9.org account
++		// (h9_presence's h9_require_account), for the server browser's account icon
++		if( Cvar_VariableInteger( "h9_require_account" ) == 1 )
++			Info_SetValueForKey( s, "auth", "1", sizeof( s ));
++
+ 		// write host last so we can try to cut off too long hostnames
+ 		// TODO: value size limit for infostrings
+ 		remaining = sizeof( s ) - Q_strlen( s ) - sizeof( "\\host\\" ) - 1;

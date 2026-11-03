@@ -66,7 +66,9 @@
 
 #define CSUITNOREPEAT 32
 
-#define TEAM_NAME_LENGTH 16
+// A player's team name, NUL included: as long as TSGameRules keeps a team's (TS_TEAMNAME_LEN), so a
+// full name such as "Middle Sea Republic" reaches TeamInfo. The original's is 16.
+#define TEAM_NAME_LENGTH 32
 
 typedef enum
 {
@@ -226,7 +228,7 @@ public:
 	int m_nCustomSprayFrames = -1; // Custom clan logo frames for this player
 	float m_flNextDecalTime;  // next time this player can spray a decal
 
-	char m_szTeamName[TEAM_NAME_LENGTH];
+	char m_szTeamNameAtOrig[16]; // the original's 16-byte slot, unused: m_szTeamName is at the class end
 
 	void Spawn() override;
 	void Pain();
@@ -599,6 +601,14 @@ public:
 	int m_iTSInit77c[3] = {};      // 0x77c, 0x780, 0x784
 	int m_iTSInit184[33] = {};     // 0x184..0x204 (a rep stos of 33 dwords)
 	int m_iTSInit788 = 0;          // 0x788
+	// SlowMotionFlow's cache for the players past slot 32; m_hSlowPlayers holds slots 1 to 32 at
+	// the original's offset. Kept last so no other member moves.
+	EHANDLE m_hSlowPlayersHigh[MAX_PLAYERS - 32];
+	// The cache by client index (entindex - 1), 0 to MAX_PLAYERS - 1.
+	EHANDLE &SlowPlayer(int i) { return i < 32 ? m_hSlowPlayers[i] : m_hSlowPlayersHigh[i - 32]; }
+	// The player's team name, TEAM_NAME_LENGTH long (m_szTeamNameAtOrig keeps the original's 16-byte
+	// slot). Kept last so no other member moves.
+	char m_szTeamName[TEAM_NAME_LENGTH] = {};
 };
 
 inline void CBasePlayer::SetWeaponBit(int id)

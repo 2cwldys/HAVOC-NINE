@@ -13,13 +13,16 @@
      editing these files (section 13); the forum is one (section 15);
    * the admin panel's API with the audit log (section 16), and username
      changes (section 17);
-   * Discord linking and the registered role, a module too (section 18).
+   * Discord linking and the registered role, a module too (section 18);
+   * linking a downloaded game to an account with a code, and the linked games
+     on the account page (section 19).
 
  The pages that use it live in the site:
    havoc9.org/account/            the account page (and the privacy note)
    havoc9.org/account/login/      SIGN IN
    havoc9.org/account/signup/     CREATE ACCOUNT
    havoc9.org/account/forms.js    the three pages' script
+   havoc9.org/link/               LINK A GAME: the code a game shows (section 19)
    havoc9.org/assets/account.js   every page: SIGN IN / CREATE ACCOUNT, or the
                                   username and ACCOUNT, in the nav
    havoc9.org/assets/account.css  the account pages' styles
@@ -49,12 +52,15 @@
    16. The admin panel and the audit log
    17. Username changes
    18. Discord: the registered role
+   19. Linking a game
 
 
  1. FILES
  --------
    server.js               the service: node server.js --config <file>
    bin/h9web-admin.js      admin tasks (section 11)
+   bin/h9web-backup.js     backups, restores, JSON export and import
+                           (section 10; lib/backup.js does the work)
    lib/app.js              puts it together
    lib/config.js           settings (DEFAULTS lists every one) and secrets
    lib/db.js               SQLite (node:sqlite), migrations, backups
@@ -62,6 +68,7 @@
                            requireSession / requireRole / optionalSession
    lib/accounts.js         accounts, roles, suspensions, player ids
    lib/passwords.js        scrypt hashing and the password rules
+   lib/datakey.js          the data key: encryption at rest (section 2)
    lib/usernames.js        the username rules
    lib/playerid.js         the player id and what servers see of it
    lib/clientids.js        each account's h9_clientid on a game server, for
@@ -77,9 +84,12 @@
    lib/audit.js            the audit log (section 16)
    lib/admin.js            the admin panel's API (section 16)
    lib/renames.js          username changes (section 17)
+   lib/link.js             linking a game to an account (section 19)
    lib/static.js           local testing only: serves the site (section 12)
    config.example.json     settings for the VPS
    servers.example.json    the server list's format
+   backup.cmd              this PC's local site: a backup now (section 10)
+   backup-task.ps1         the same on a schedule, Task Scheduler (section 10)
    modules/                where modules go: forum/ (section 15), discord/
                            (section 18), presence/ (its own README.txt)
    test/                   node:test tests (section 14)
@@ -172,6 +182,25 @@
      refuses to start on a damaged file rather than make new ones (new ones
      would lose every password and every player id). It refuses a dataDir
      inside a folder it serves.
+ Encryption at rest
+   * <dataDir>/data.key (config "dataKeyFile" may name another place): 32
+     random bytes, made on the first start with mode 0600 and never written
+     again, apart from the database and its backups. lib/datakey.js seals with
+     it (AES-256-GCM, a fresh nonce per value, the value's place as additional
+     data) what must be read back but a copy of the database alone should not
+     give away: a Discord link's Discord user id and display name (section 18),
+     found through a keyed index, never stored in the clear. Modules get it as
+     ctx.dataKey (section 13); the key itself never leaves core.
+   * What else is stored needs no reading back or is public anyway: password
+     hashes (scrypt, peppered), session token hashes, player ids (computed
+     from secrets.json, never stored), the presence module's hashed devices and
+     networks; usernames, forum posts and pictures. No email address, no IP
+     address with an account, no Discord or other OAuth token.
+   * The database, its -wal and -shm files and every backup are mode 0600, the
+     data folder and its backups/ 0700 (lib/db.js, the unit's UMask=0077).
+   * A damaged data.key stops the start, as a damaged secrets.json does. With
+     another data.key than the links were sealed with, Discord linking turns
+     itself off and keeps the links until the right file is back (section 10).
  Roles and suspensions
    * user, moderator, admin. Moderators and admins work in the admin panel
      (section 16), which moves accounts between user and moderator; only the
@@ -205,12 +234,20 @@
                        403 bad_credentials     400 invalid_password
    GET  /api/player    signed in: { playerId } (the web client only)
    GET  /api/servers   { gamedir, generated, servers: [{ address, kind, name,
-                       map, mode, players, max, bots, ping_ms }] }: the
+                       map, mode, players, max, bots, ping_ms, online }] }: the
                        listed servers that answered lately, the shape
-                       servers/index.html reads (data-master="/api/servers")
+                       servers/index.html reads (data-master="/api/servers").
+                       name is the server's own hostname (servers.json's name
+                       when it has none). A query and its retry that go
+                       unanswered make it online: false (players 0, ping
+                       null) until status.expireSeconds after its last answer;
+                       then it leaves the list, and its next answer brings it
+                       back;
+                       a module may leave some out (ctx.servers.hideFromBoard:
+                       the presence module, a private community's servers)
 
  Username changes: section 17. The admin panel's API: section 16. The
- forum's: section 15.
+ forum's: section 15. Linking a game (/api/link/...): section 19.
 
  Signed-in routes answer 401 not_signed_in or 403 account_suspended. Every
  POST needs the site's Origin (403 csrf) and Content-Type: application/json
@@ -241,10 +278,11 @@
  what a server admin can use to tell a player apart. SHOW and COPY in its
  PLAYER ID row fetch the whole id from GET /api/player when pressed (SHOW puts
  it in the row until HIDE or the page is left; COPY copies it without showing
- it), and keep it nowhere: a player who wants the downloaded H9XASH to count as the same
- player puts it into H9XASH\user_id.ini with enter_userid.cmd
- (docs\CUSTOM_XASH_USERID.txt, section 2). Optional: H9XASH's own random id
- keeps working. Whoever has the id is that player to H9's servers, so the
+ it), and keep it nowhere. A player who wants the downloaded H9XASH to count as
+ the same player links it (section 19: a code, no id to paste), or, the older
+ way, puts the id into H9XASH\user_id.ini with enter_userid.cmd
+ (docs\CUSTOM_XASH_USERID.txt, sections 2 and 2a); the game keeps it protected
+ either way. Optional: H9XASH's own random id keeps working. Whoever has the id is that player to H9's servers, so the
  page tells players to keep it to themselves.
 
  What it is not: proof of identity. The value is client-asserted, like every
@@ -347,7 +385,8 @@
        /opt/h9web/               this folder (code only), owned by root
        /etc/h9web/config.json    settings (from config.example.json)
        /etc/h9web/servers.json   the server list (from servers.example.json)
-       /var/lib/h9web/           data: secrets.json, h9web.db, backups/
+       /var/lib/h9web/           data: secrets.json, data.key, h9web.db,
+                                 backups/ (the service's user, 0700; files 0600)
    * Commands:
        sudo useradd --system --home /var/lib/h9web --shell /usr/sbin/nologin h9web
        sudo mkdir -p /opt/h9web /etc/h9web
@@ -360,7 +399,10 @@
    * config.json for the VPS, as config.example.json has it:
        listen 127.0.0.1:8090 (nginx only), allowedOrigins
        ["https://havoc9.org"], trustProxy true (X-Real-IP from nginx),
-       dataDir /var/lib/h9web, serversFile /etc/h9web/servers.json.
+       dataDir /var/lib/h9web, serversFile /etc/h9web/servers.json,
+       modulesDir /opt/h9web/modules (a relative path counts from the config
+       file's folder, so without it the modules would be looked for in
+       /etc/h9web/modules).
      Every other setting has a default in lib/config.js (DEFAULTS).
      Never set insecureCookies on the VPS.
    * First start: systemctl enable --now h9web. The service makes
@@ -371,6 +413,15 @@
        sudo cat /var/lib/h9web/secrets.json
      It never changes after this. Losing it loses every password and every
      player id; the database alone cannot be used without it.
+     It also makes /var/lib/h9web/data.key (mode 0600; log line datakey.created),
+     the key of the encryption at rest (section 2). Back it up offline as well,
+     apart from the database's backups (a backup and its key in one place is a
+     backup anyone can open):
+       sudo cat /var/lib/h9web/data.key
+     Losing it loses only the Discord links (players link again; section 10).
+     /etc/h9web needs no secret: config.json and servers.json hold none, so
+     root-owned 0644 is fine there; the Discord secrets file, if it is put in
+     /etc/h9web, is owned by h9web with mode 0600 (section 18).
    * The first admin: sign up on the site, then
        sudo -u h9web node /opt/h9web/bin/h9web-admin.js --config /etc/h9web/config.json set-role <name> admin
    * Updates: copy the new code into /opt/h9web, systemctl restart h9web. A
@@ -492,38 +543,137 @@
    * nginx's access logs: Debian's /etc/logrotate.d/nginx keeps 14 days
      (rotate 14, daily); keep it at 30 or less.
 
- Backups: the database, daily; secrets.json, once, offline (section 7).
-   sudo -u h9web node /opt/h9web/bin/h9web-admin.js --config /etc/h9web/config.json backup /var/lib/h9web/backups/h9web-$(date +%F).db
- is a consistent copy while the service runs (SQLite VACUUM INTO). Never copy
- h9web.db itself while it runs (its -wal file holds the newest writes).
+ Backups: bin/h9web-backup.js, run as the service's user with the service's
+ config. Each backup is one file,
+   h9web-<host>-<yyyyMMdd-HHmmss>.h9backup     (UTC; <host> from allowedOrigins)
+ a gzip'd tar of manifest.json (the time, the host, the h9web version, each
+ module's migration version, every table's row count, the SHA-256 of every
+ file), the database (VACUUM INTO: consistent while the service runs; never
+ copy h9web.db itself while it runs, its -wal file holds the newest writes)
+ and <dataDir>/modules (the forum's pictures, the presence keys ...). Never
+ in it: <dataDir>/backups (the copies made before migrations, restores and
+ imports). secrets.json, data.key and a module's secrets.json (Discord's)
+ only with --with-keys, which needs --encrypt: the database and its keys in
+ one plain file would undo the encryption at rest (section 2). Back the keys
+ up once, offline, apart from the backups (section 7).
 
- A daily timer, /etc/systemd/system/h9web-backup.service:
-   [Unit]
-   Description=h9web database backup
-   [Service]
-   Type=oneshot
-   User=h9web
-   ExecStart=/bin/sh -c '/usr/bin/node /opt/h9web/bin/h9web-admin.js --config /etc/h9web/config.json backup /var/lib/h9web/backups/h9web-$(date +%%F).db && find /var/lib/h9web/backups -name "h9web-*.db" -mtime +14 -delete'
- and /etc/systemd/system/h9web-backup.timer:
-   [Unit]
-   Description=Daily h9web database backup
-   [Timer]
-   OnCalendar=daily
-   Persistent=true
-   [Install]
-   WantedBy=timers.target
-   sudo systemctl enable --now h9web-backup.timer
- Then copy /var/lib/h9web/backups off the machine (rsync, scp) on a schedule
- of your own. A backup holds password hashes: keep it as private as the
- server.
+   B="sudo -u h9web /usr/bin/node /opt/h9web/bin/h9web-backup.js --config /etc/h9web/config.json"
+   $B backup [--out DIR] [--keep N]    a backup into DIR (default
+                                       <dataDir>/backups); --keep N deletes
+                                       this host's oldest ones there beyond N
+   $B backup --encrypt [--with-keys] [--passphrase-file FILE]
+                                       sealed: AES-256-GCM, its key from the
+                                       passphrase by scrypt
+   $B list [--out DIR]                 the backups in DIR, checked, with their
+                                       versions and counts
+   $B verify <file>                    one backup checked through: checksums,
+                                       the database's quick_check, its rows
+                                       against the manifest
+   $B restore <file> [--only PART[,PART]] [--yes] [--allow-other-keys]
+   $B export --only forum|community [--format json] [--out FILE]
+   $B import <file.json> [--only forum|community] [--yes]
+ The passphrase comes from H9WEB_BACKUP_PASSPHRASE or the first line of
+ --passphrase-file (12 characters or more), never from the command line;
+ list, verify and restore of an encrypted backup need it too. A wrong one is
+ refused, as is a backup whose files do not match its manifest.
 
- Restore:
-   sudo systemctl stop h9web
-   sudo cp h9web-YYYY-MM-DD.db /var/lib/h9web/h9web.db
-   sudo rm -f /var/lib/h9web/h9web.db-wal /var/lib/h9web/h9web.db-shm
-   sudo chown h9web:h9web /var/lib/h9web/h9web.db && sudo chmod 600 /var/lib/h9web/h9web.db
-   (secrets.json must be the one the backup was made with)
-   sudo systemctl start h9web
+ restore and import change data, so each of them
+   * refuses while h9web runs on that data (its database open in another
+     process, or its listen port answering): stop it first, sudo systemctl
+     stop h9web (on this PC: Ctrl+C in the local site's window);
+   * checks the whole backup first, then copies the data as it is to
+     <dataDir>/backups/pre-restore-<time>.h9backup (pre-import-...): undoing
+     it is restoring that file;
+   * shows what it will do and asks for "yes" in a terminal; elsewhere it
+     needs --yes. It prints the rows per table afterwards.
+ A restore brings back the sessions the backup holds, so a session revoked
+ since then (a password reset, a revoke-sessions, a sign-out everywhere)
+ works again. After restoring past a security incident, revoke sessions
+ before the service starts: one account's with $A revoke-sessions <name>
+ or reset-password (section 11), or everyone's, the service stopped:
+   sudo -u h9web /usr/bin/node -e "const { DatabaseSync } = require('node:sqlite'); console.log(new DatabaseSync('/var/lib/h9web/h9web.db').prepare('DELETE FROM sessions').run().changes)"
+ A whole restore replaces the database and <dataDir>/modules. Keys: a backup
+ made --with-keys brings its own (the ones in place are kept beside them as
+ <name>.pre-restore-<time>); otherwise the ones in place stay and must be
+ the ones the backup was made with (the manifest names them by a hash):
+ another secrets.json, or none, is refused (every password and player id
+ would fail) unless --allow-other-keys; another data key is a warning (the
+ Discord links stay sealed until it is back).
+
+ restore --only PART puts back one part and leaves the rest as it is, in one
+ transaction, with the backup's database attached:
+   forum       the forum_ tables, and <dataDir>/modules/forum (the pictures)
+   community   the communities: presence_communit... and every presence
+               table that refers to them (staff, members, requests, invites,
+               linked servers, sanctions, kicks, chat and announcements, the
+               shared data and its log); no files
+   accounts    core's tables: accounts, sessions, the audit log, username
+               requests and held names
+   <module>    a module's tables (presence, discord) and its files
+ Tables are found by name (a module's are <module>_...), so a module's new
+ tables join its part without a change here. A part is restored only
+ between the same migration version of its module (the manifest has them);
+ with another h9web, run the one the backup was made with, restore, then
+ update, or restore the whole backup. A row put back whose account no
+ longer exists is handled as the module handles a deleted account: ON
+ DELETE CASCADE rows (votes, signatures, memberships, requests, invites,
+ pictures) are left out, ON DELETE SET NULL references (a post's author, who
+ invited) are cleared, so the post shows as from a deleted account; restore
+ prints the counts. --only accounts does the same to every module's rows of
+ the accounts it takes away.
+
+ export and import move the forum or the communities to another h9web as
+ JSON, readable, one row per line, accounts named by username:
+   $B export --only forum --out /var/lib/h9web/forum.json
+   (copy it over)    $B import forum.json
+ import replaces that part of the target with the file's, mapping each
+ username to the target's account of that name; it makes no account. A name
+ with no account there is a deleted account: its own rows (votes,
+ signatures, posting restrictions, memberships, requests, invites) are left
+ out, and where someone else's row names it (a post's or a thread's author,
+ who added, invited or moderated) the name is cleared, so its posts show as
+ from a deleted account. Profile pictures are not in an export (files named
+ by account id): the target keeps its own; they move with a backup. Both
+ sides need the same migration version of the module (the export says
+ which). import refuses while h9web runs, takes a safety backup first, works
+ in one transaction and prints each table's rows before and after, and what
+ was left out or cleared.
+
+ On the VPS: the daily timer, encrypted copies off the machine, restoring on
+ a new VPS and the order of a move are in havoc9.org/webclient/DEPLOY.txt,
+ section 13. On this PC (the local site that local-site.cmd starts):
+   backup.cmd                    a backup now, into
+                                 %USERPROFILE%\Documents\h9web-backups (the
+                                 newest 30 kept); double-click it
+   backup-task.ps1 -Install [-Time 04:00] [-Daily|-Hourly] [-Out DIR] [-Keep N]
+                                 the same in Task Scheduler, as you, only
+                                 while you are signed in (no stored
+                                 password, no admin); each run logged to
+                                 h9web-backup.log beside the backups
+   backup-task.ps1 -Status | -RunNow | -Remove        (-WhatIf: show only)
+ docs/H9WEB_ADMIN.txt section 18 is the short version for admins.
+
+ After an update that seals values that were stored in the clear before (the
+ Discord links: the log says discord.sealed), the older backups and the
+ backups/pre-migrate-*.db copy still hold them in the clear: once the new
+ start is checked, delete those (the timer's --keep 14 does it in time).
+
+ A plain .db copy (h9web-admin backup, backups/pre-migrate-*.db) goes back by
+ hand: stop the service, copy it over /var/lib/h9web/h9web.db, delete
+ h9web.db-wal and h9web.db-shm, chown h9web:h9web and chmod 600 it, start.
+ secrets.json and data.key must be the ones it was made with.
+
+ The data key lost (data.key gone or damaged, and no copy):
+   * A damaged file stops the start (log: datakey ... is not a data key).
+     Restore the copy; nothing else can open what it sealed.
+   * With no copy: move the damaged file away and start; a new data.key is
+     made, and the log says discord.datakey: Discord linking is off, the links
+     are kept. To give them up: "dropUnreadable": true in moduleSettings.discord,
+     restart (log: discord.dropped; the audit log too), take the setting out
+     again; their players link again under ACCOUNT. Their Discord role stays
+     until removeUnlinked takes it or staff do.
+   * A data.key restored over a new one: restart; the links open again and
+     linking is back on.
 
 
  11. ADMIN TASKS
@@ -630,7 +780,10 @@
                lastActive(accountId) -> unix seconds of the account's last
                signed-in request (any request sessionFromRequest answered;
                after a restart the sessions' last_seen_at), or null;
-               activeSince(unixSeconds) -> the account ids with one since then
+               activeSince(unixSeconds) -> the account ids with one since then,
+               leaving out any signed out after it;
+               signedOutAt(accountId) -> unix seconds its last live session
+               ended (signing out, or every session revoked), or null
                confirmAdmin(rc, password), in an admin-only route: the acting
                admin's own password, sent with the request, checked as the
                admin panel checks it (section 16); returns the admin's row
@@ -652,7 +805,13 @@
                one, or is held after a username change (the sign-up rule)
    servers     get(address) -> { name, address, listed, gamedir } or null,
                listed() -> the listed entries, status(address) -> { name, map,
-               mode, players, max, bots } from the last A2S answer, or null
+               mode, players, max, bots } from the last A2S answer, or null;
+               hideFromBoard(fn): fn(address) -> true keeps that server off the
+               site's server board (/api/servers) for as long as fn answers so
+               (it stays in servers.json, the relay and the master's list; a fn
+               that throws hides nothing); returns a function that takes the
+               filter away. The presence module hides private communities'
+               servers with it
    db          the shared node:sqlite DatabaseSync (foreign keys on, WAL);
                transaction(fn) runs fn in BEGIN IMMEDIATE ... COMMIT
    limits      RateLimiter({ max, windowSeconds, blockSeconds,
@@ -661,13 +820,25 @@
    http        HttpError, sendJson, readJson, clientIp(req)
    audit       record({ actor, action, target, subject, detail }): a row in
                the audit log (section 16); actor and target are accounts rows
+   dataKey     encryption at rest with the data key (section 2, lib/datakey.js):
+               seal(text, purpose) -> "h9e1...." to store; open(sealed, purpose)
+               -> the text, or throws (code other_key, damaged or not_sealed);
+               index(text, purpose) -> 64 hex, to look a value up or keep it
+               unique without storing it; keyIdOf(sealed), keyId. purpose names
+               the value's place (a-z 0-9 . _ -, such as "discord.user"): a
+               value opens only for the purpose it was sealed with. For what
+               must be read back but a copy of the database should not show
    events      account-created { id }, account-role { id, role },
                account-banned { id, until }, account-unbanned { id },
                account-password { id }, account-deleted { id, username }
                (before the row goes), session-ended { tokenHash },
                account-sessions-ended { accountId }, account-renamed
                { id, from, to }, account-player-id { id } (resetPlayerId,
-               movePlayerId); from the relay: relay-open { accountId },
+               movePlayerId), account-link { id, link, device } (a game was
+               linked to the account; device its device hash, presence's
+               form, or null) and account-unlink { id, link, device, reason }
+               (reason revoked, unlinked, replaced or player-id; section 19);
+               from the relay: relay-open { accountId },
                relay-close { accountId }, relay-game-start { accountId,
                server } (the socket began sending that listed server the
                game's own traffic) and relay-game-end { accountId, server }
@@ -704,7 +875,7 @@
    cd h9web
    node --test --test-timeout=30000 "test/*.test.js"      (or: npm test)
 
- 183 tests in the files below, about 10 seconds, light on the CPU (scrypt at a
+ 294 tests in the files below, about 10 seconds, light on the CPU (scrypt at a
  test cost). They
  start the service on a free port in a temporary folder:
    units.test.js       username rules, passwords (scrypt, pepper, rehash),
@@ -739,6 +910,24 @@
    forum-markup.test.js  the renderer: the formatting, and XSS (script tags,
                        javascript: links, attribute breakouts, unicode tricks),
                        hostile input in linear time
+   forum-media.test.js the MEDIA page: YouTube links (good and bad), posting and its
+                       rules, comments for members only, staff pin, hide and remove
+                       (audit log, hidden for staff only), the front page's limit and
+                       the archive at the boundary, search, CSRF, rate limits, the
+                       page's CSP against the code; hidden threads everywhere
+   forum-needs.test.js the "What we need" page: anyone reads it, its editors save it
+                       (needsEditors, the audit log, CSRF), its checks, the preview,
+                       pictures by the post rules; the Suggestions category, once;
+                       the DEVELOPER flag (admins only, the audit log, the views, with
+                       a role, editing the page and nothing more)
+   forum-signatures.test.js  signatures: the settings and their ranges, the markup
+                       (no code blocks or quotes, the picture cap, plain text for
+                       new accounts), the limits, SHOW SIGNATURES, removed posts,
+                       posting off, suspension, CSRF, clearing and blocking
+   forum-images.test.js  pictures in posts: listed https hosts only, imgur links,
+                       albums as links, the alone-on-a-line rule, the limit at the
+                       default and a custom value, the HTML, the CSP agreeing with
+                       IMAGE_HOSTS, REMOVE PICTURE
    forum-pictures.test.js  pictures: each format's metadata stripped (a JPEG
                        with GPS EXIF), SVG and polyglots refused or cut, GIF
                        frames and screen, WebP flags, upload, serving and its
@@ -764,6 +953,14 @@
                        and core's hooks for it: site activity (a request
                        counts, the relay's re-check does not), clientIdIndex
                        as accounts come, go, reset and move ids, nameInUse
+   backup.test.js      h9web-backup: a backup while the database is open, the
+                       manifest and checksums, a changed archive refused,
+                       encryption and a wrong passphrase, keys only encrypted,
+                       --keep, restore refused while the service runs, a whole
+                       restore and the keys check, --only forum, community
+                       and accounts leaving the rest alone, a version mismatch
+                       refused, the JSON export and import by username, the
+                       safety backups, nothing written inside the checkout
 
 
  15. THE FORUM
@@ -785,10 +982,13 @@
 
  Switching it on
    config.json: "modules": ["forum"]. The first start makes its tables (migrations 1
-   to 3, after a copy of the database) and seven categories: Announcements (only
-   moderators and admins start threads), General, Servers and Match Mode, Roleplay,
-   Modding (maps, models, sounds, plugins), Web Client and Support, Off-topic. Admins
-   change them in the admin panel.
+   to 10, after a copy of the database) and eight categories: Announcements (only
+   moderators and admins start threads), General, Servers (the servers, Match Mode and
+   organising games), Roleplay, Modding (maps, models, sounds, plugins), Support (the
+   web client, H9XASH, getting the game to run), Off-topic, Suggestions (ideas for the
+   game and the site; migration 7 adds it unless a category with its address exists).
+   Their addresses: announcements, general, servers, roleplay, modding, support,
+   off-topic, suggestions. Admins change them in the admin panel.
    nginx: the pages need nothing new (they are site files; the API is under /api/),
    but a picture upload is up to 10 MB, more than location /api/ takes, so it gets a
    location of its own, in the havoc9.org server block beside location /api/:
@@ -815,6 +1015,24 @@
    postMax             10000       characters in a post
    editWindowMinutes   60          how long authors may edit a post or their title
    newAccountHours     24          accounts younger than this post more slowly
+   maxImagesPerPost    25          pictures a post shows (0 to 200); the ones after
+                                   that stay links. For example:
+                                   "moduleSettings": { "forum": { "maxImagesPerPost": 40 } }
+   signatureMaxChars   300         characters in a signature (0 to 2000; 0 switches
+                                   signatures off)
+   signatureMaxLines   4           its lines (1 to 20)
+   signatureImages     1           pictures in it (0 to 10; 0: none)
+   signatureImageHeight 100        how tall a signature's picture shows, in px (16
+                                   to 480). For example:
+                                   "moduleSettings": { "forum": { "signatureMaxChars": 500,
+                                     "signatureMaxLines": 6, "signatureImages": 0 } }
+   needsEditors        ["moderator", "developer"]   who edits the "What we need"
+                                   page besides admins: moderators, accounts with the
+                                   DEVELOPER flag, both, or neither ([]: admins only), e.g.
+                                   "moduleSettings": { "forum": { "needsEditors": ["developer"] } }
+   mediaFrontCount     30          the MEDIA page shows the pinned posts and this many
+                                   others (1 to 200); older ones are in the archive, by
+                                   month, e.g. "moduleSettings": { "forum": { "mediaFrontCount": 50 } }
    pictureMaxBytes     10485760    10 MB a picture
    pictureMaxSide      512         width and height: the picture, a GIF's screen,
                                    a WebP's canvas and every frame
@@ -832,6 +1050,8 @@
      edit        20 in 10 minutes          report       10 an hour
      preview     30 in 5 minutes           picture      10 uploads an hour
      vote        30 a minute
+     signature   10 changes an hour        signaturePreview 120 in 5 minutes
+     needs       30 saves an hour          needsPreview 120 in 5 minutes
    A new thread counts as a post too. Over a limit: 429 with Retry-After and a message
    that says how long. The new* limits are for accounts under newAccountHours, and
    say so; moderators and admins are never new. A bad value stops the start with a
@@ -846,12 +1066,119 @@
    was written: it turns it into a tree of plain data, and the pages build elements
    from that with createElement and textContent (never innerHTML). Links are http or
    https only, as the URL parser normalises them, never with a user name or password,
-   and get rel="nofollow ugc noopener noreferrer". No pictures in posts (a remote
-   picture would tell its host every reader's address) and no uploads but profile
-   pictures. Text is cleaned on the way in: control characters, the bidi override and
+   and get rel="nofollow ugc noopener noreferrer". Text is cleaned on the way in: control characters, the bidi override and
    isolate characters, zero-width spaces and other invisible fillers are dropped, NFC,
    at most 4 combining marks on a character, and a lone surrogate becomes U+FFFD.
    A post is rendered when read, the latest 400 texts kept in memory.
+
+ Pictures in posts: links to pictures on other sites, shown from there
+   * ![words](https://...) shows a picture, and so does a picture link alone on its
+     line (its path ending in .png, .jpg, .jpeg, .gif, .webp or .avif), when it is
+     https on one of the picture hosts: markup.js IMAGE_HOSTS, by default
+     i.imgur.com, i.redd.it, i.postimg.cc, i.ibb.co, media.giphy.com, i.giphy.com,
+     upload.wikimedia.org and images.steamusercontent.com. An imgur link to one
+     picture (imgur.com/<id>) shows https://i.imgur.com/<id>.png, and .gifv shows as
+     .gif; imgur albums and galleries, every other address, and a link inside a
+     sentence stay links. The words between [ ] are its alt text.
+   * Nothing is uploaded or copied: a reader's browser loads the picture from its host,
+     which sees the reader's address as any site does. The <img> sends no Referer
+     (referrerpolicy no-referrer), loads lazily, fits the post's width and about
+     480 px of height, and a click opens it in a new tab (noopener noreferrer); one
+     that does not load shows as its link. The tree names only https addresses on the
+     list, and toHtml checks again.
+   * A post shows at most maxImagesPerPost pictures (25); the ones after stay links,
+     and saving such a post (and the preview) answers a note that says so.
+   * The forum pages' Content-Security-Policy (img-src in havoc9.org/forum/index.html
+     and forum/*/index.html) names the same hosts, so a picture from anywhere else
+     never loads. To change the list, change IMAGE_HOSTS in modules/forum/markup.js
+     and img-src in those five pages together; test/forum-images.test.js fails while
+     the two differ.
+
+ The "What we need" page (modules/forum/needs.js; migration 8, forum_needs)
+   * havoc9.org/join/needs/ (linked from JOIN): what the team is looking for right now.
+     A title, an intro, and items, each with a category (maps, models, sounds, code,
+     art, direction, other), a status (needed, in_progress, done), a title and a
+     description; the page lists them by status, needed first.
+   * Anyone reads it: GET /api/forum/needs (with canEdit for the reader). Its editors
+     (admins, and whom needsEditors names: moderators and developers by default) edit
+     it in the admin panel's WHAT WE NEED tab or with EDIT THIS PAGE on the page, with a live preview (POST
+     /api/forum/needs/preview) and SAVE (PUT /api/forum/needs, the whole page), each
+     save in the audit log as forum.needs.edit. At most 50 items; the intro 4000
+     characters, a description 2000.
+   * The intro and the descriptions take the forum's markup with the post rules for
+     pictures (https on IMAGE_HOSTS, maxImagesPerPost in each text), shown from their
+     host; the page's CSP (and the admin panel's, for the preview) lists the same
+     hosts, and test/forum-images.test.js checks it. It has
+     the forum pages' CSP with img-src 'self'. The page is one row of JSON: the
+     backup tool carries it with the forum's tables.
+
+ The MEDIA page (modules/forum/media.js; migration 10, forum_media_posts and
+ forum_media_comments)
+   * havoc9.org/media/ (MEDIA in the header): members post YouTube videos of their
+     games: a title, a link (youtube.com/watch?v=, youtu.be/, /shorts/, /embed/, and
+     youtube-nocookie.com/embed/; anything else is refused) of which only the
+     11-character video id is kept, and an optional description in the forum's markup
+     without pictures. The forum's posting rules hold: signed in, not suspended,
+     posting on; a media post counts as a thread and a comment as a post for the
+     limits, with the slower ones for new accounts.
+   * The page shows i.ytimg.com's picture of each video; nothing loads from YouTube
+     until a visitor presses play, which puts youtube-nocookie.com's player in its
+     place. The page's CSP has img-src 'self' https://i.ytimg.com and frame-src
+     https://www.youtube-nocookie.com (media.js THUMB_HOST and EMBED_HOST;
+     test/forum-media.test.js checks they agree).
+   * The front page: every pinned post, then the newest mediaFrontCount (30) others;
+     no endless scrolling. Older posts are in the ARCHIVE, linked by year and month,
+     each month 20 a page. A title search (every word, at most 30, newest first). Every
+     post keeps its own page (media/?p=<id>) and its comments for good.
+   * Comments: for members only, never guests (a guest sees how many there are and
+     SIGN IN); the forum's markup without pictures; edit your own within
+     editWindowMinutes, remove your own; staff remove any.
+   * Staff (moderators and admins): PIN / UNPIN, HIDE / UNHIDE and REMOVE on each post,
+     inline on the page. A hidden post is seen only by staff, marked HIDDEN, on the
+     front page and in the archive alike; a removed one by nobody. The author may edit
+     within editWindowMinutes and remove their own. The audit log has forum.media.pin,
+     .unpin, .hide, .unhide, .remove, .edit, and forum.media.comment.edit and .remove
+     for staff acting on someone else's.
+   * API (under /api/forum/): GET media, media/archive/<year>/<month>, media/search,
+     media/<id>; POST media, media/<id>/comments; PATCH and DELETE media/<id> and
+     media/comments/<id>.
+
+ The DEVELOPER flag (migration 9, forum_developers)
+   * A flag, not a role: it goes with player, moderator or admin alike (a developer may
+     also be a moderator), so the role hierarchy stays as it is.
+   * Admins give and take it in the admin panel: ACCOUNTS, open the account,
+     DEVELOPER, MAKE DEVELOPER or REMOVE DEVELOPER (GET, POST and DELETE
+     /api/forum/developers/<name>), into the audit log as forum.developer.add and
+     forum.developer.remove.
+   * The forum shows the name in purple (#be8cff, the site's purple) with a DEVELOPER
+     tag: beside posts, in thread lists (started by, last by), on the front page's
+     latest thread, on the thread page and on the member page (ROLE says Player,
+     Developer and the like). A quote's "wrote:" line is text the writer can change, and
+     the player card is the presence module's: neither is coloured.
+   * Its one power: editing the "What we need" page (needsEditors). No moderation.
+
+ Signatures (modules/forum/signatures.js; migration 6, forum_signatures)
+   * ACCOUNT, FORUM SIGNATURE: a member writes a few lines, sees them as the forum will
+     (a live preview from POST /api/forum/signature/preview) and saves them (PUT
+     /api/forum/signature { signature }). Within signatureMaxChars and
+     signatureMaxLines; refused while posting is off, while a moderator blocks it, and
+     for a suspended account (the guard); limits.signature per account.
+   * The post markup in one paragraph (markup.js parseSignature): bold, italic,
+     `code`, links, and up to signatureImages pictures from the picture hosts, shown
+     with the post rules (https, no Referer) no taller than signatureImageHeight. No
+     code blocks or quotes: those marks stay text. An account younger than
+     newAccountHours shows it as plain text, links and pictures as written.
+   * Shown under each of the author's posts below a thin rule, muted, and on the
+     member page; never under a removed post, never inside a quote (QUOTE takes the
+     post's text only). A reader who turns SHOW SIGNATURES off (PUT
+     /api/forum/signature { showSignatures: false }) gets nobody's.
+   * Moderators, on accounts below their own role, into the audit log: CLEAR
+     SIGNATURE (in the post's author box, or on the member page; POST
+     /api/forum/signatures/<name>/clear { reason }: forum.signature.clear), and BLOCK
+     SIGNATURE (member page; POST .../block { reason, days }, no days for no end:
+     forum.signature.block; DELETE .../block lifts it: forum.signature.unblock). While
+     blocked, the account cannot set one and its signature is not shown; lifting the
+     block shows it again unless it was cleared.
 
  Reading, writing and roles
    * Guests read unless guestRead is false; a suspended account reads as a guest.
@@ -881,8 +1208,19 @@
      so a thread is pinned or locked without opening it; the MODERATE bar inside a
      thread has the rest.
    * Threads: pin and unpin; lock and unlock (no new replies while locked: moderators
-     and admins can still reply); rename; move to another category; remove and
-     restore. Posts: edit, remove and restore.
+     and admins can still reply); hide and unhide; rename; move to another category;
+     remove and restore. Posts: edit, remove and restore.
+   * HIDE (migration 10, forum_threads.hidden_at): a hidden thread is seen only by
+     moderators and admins, marked HIDDEN in the lists and on the thread, and left out
+     of everyone else's lists, counts, latest thread, search and profiles (404 for
+     them, its author included). PATCH /api/forum/threads/<id> { hidden }; in the
+     category list's row tools, the MODERATE bar, and on the thread's first post (HIDE
+     THREAD); forum.thread.hide and forum.thread.unhide in the audit log. The same
+     staff (moderators and admins) as pin, lock and remove.
+   * REMOVE PICTURE under a picture takes that one
+     picture out (POST /api/forum/posts/<id>/pictures/remove { src, reason }): each
+     place the post shows it becomes "(picture removed by a moderator)", as an edit by
+     the moderator, and the audit log has forum.post.picture.remove.
    * Removing is soft. A removed post leaves "Removed by a moderator" or "Removed by
      its author" in its place; moderators still see its text and can restore it. A
      thread whose every post is removed is hidden (removed, kind "empty") and comes back
@@ -941,7 +1279,8 @@
  The API (modules/forum/index.js's header lists every route): GET categories,
  categories/<slug>, threads/<id>, users/<name>, search, avatars/<id> (readers);
  POST categories/<slug>/threads, threads/<id>/posts, posts/<id>/report, preview;
- PATCH and DELETE posts/<id>; PUT posts/<id>/vote; PATCH threads/<id>; GET, PUT
+ PATCH and DELETE posts/<id>; PUT posts/<id>/vote; POST posts/<id>/pictures/remove; GET and PUT signature, POST signature/preview,
+ POST signatures/<name>/clear, POST and DELETE signatures/<name>/block; PATCH threads/<id>; GET, PUT
  and DELETE avatar (members); and the moderators' and admins' routes, all under
  /api/forum/.
 
@@ -1078,7 +1417,7 @@
      SYNC finishes only in the browser that started it: nobody can start one and get
      another player to finish it on Discord, linking that player's Discord to their own
      account. h9web exchanges the code, reads
-     /users/@me, keeps the Discord user id and display name, and drops the token (it is
+     /users/@me, keeps the Discord user id and display name (sealed, below), and drops the token (it is
      never stored). Its answer is a small page that goes on to /account/ by itself, a
      same-site step that carries the session cookie again, where the player reads what
      happened.
@@ -1137,8 +1476,27 @@
    removeUnlinked         false
    suspensionRemovesRole  true
    restoreOnUnsuspend     true
+   dropUnreadable         false; true only when data.key is lost for good: links
+                          another data key sealed are deleted at start (section 10)
    secretsFile            <dataDir>/modules/discord/secrets.json
    apiBase, authorizeUrl  Discord's own; the tests point them at a stand-in
+   relayPollSeconds       3: how often each bridged channel is read (below)
+   relaySendMs            1200: the least time between two of the bot's messages
+                          in one bridged channel
+
+ The community relay: the same bot carries a community's chat to the Discord
+ channel an H9 admin bridged with it, and back (docs\H9_COMMUNITIES.txt section
+ 3a). The presence module asks over core's events (modules\presence\README.txt
+ lists them); only this module holds the token. It needs the secrets file, not
+ clientId or guildId, and in Discord's developer portal the bot's MESSAGE CONTENT
+ intent; in the channel, View Channel, Read Message History and Send Messages.
+ Lines go out with every mention switched off and Discord's markdown escaped.
+
+ At rest: each link's Discord user id and display name are sealed with the data
+ key (section 2), the user id found through a keyed index; the audit log names a
+ Discord account as "Discord account #<12 hex>" (a prefix of that index), never by
+ its id or name. Links from before are sealed at the first start of this version
+ (log: discord.sealed); the older backups still hold them in the clear (section 10).
 
  The API
    GET  /api/discord/status            (signed in) { enabled, link, inviteUrl }
@@ -1148,3 +1506,88 @@
    POST /api/discord/links/<name>/free (admin) { reason }
    POST /api/discord/reconcile         (admin) the reconcile, at once
    GET  /api/discord/admin             (admin) on or off, the counts, the last reconcile
+
+
+ 19. LINKING A GAME
+ ------------------
+ The downloaded game (H9XASH) gets its account's player id without anyone
+ typing or pasting it: a device code, in RFC 8628's shape (lib/link.js; the
+ engine's side is engine-h9-link.patch, docs\CUSTOM_XASH_USERID.txt section 2a).
+   1. The game asks for a code: GET /api/link/start. It shows the user code
+      (WDJB-MJHT: 8 letters with no vowels and no digits) and opens
+      havoc9.org/link/?code=... in the browser when the player asks.
+   2. The page (havoc9.org/link/, signed in) shows what is asking: the game's
+      own word for itself (H9XASH on Windows, or under Wine or Proton), when it
+      asked, and whether it asked from the network the browser is on. LINK or
+      NOT ME.
+   3. The game polls GET /api/link/poll every interval seconds. Once LINK is
+      pressed, the next poll is answered, once, with the account's player id,
+      its username and a link token, and the code is spent.
+ Core, not a module: the player id leaves core only here, to the holder of the
+ device code its signed-in owner approved, as it does in GET /api/player for the
+ web client; modules never see a player id (section 13).
+
+ The game's routes are GETs, with no session and no Origin: the engine's HTTP
+ client sends GET only and reads a body only from a 200, so every outcome the
+ game acts on is a 200 with a status:
+   GET /api/link/start?v=1&device=<32 hex>&os=windows|wine
+       { status: "ok", userCode, deviceCode (43 base64url), interval (5),
+         expiresIn (600), linkUrl }
+       { status: "busy", retryAfter }   too many codes from this address
+   GET /api/link/poll?code=<deviceCode>
+       { status: "pending" }   { status: "slow_down", interval }
+       { status: "approved", playerId, account, token }   once
+       { status: "denied" }    NOT ME, or the account suspended meanwhile
+       { status: "expired" }   no such code, out of time, or spent
+   GET /api/link/status?token=<token>   once a start of a linked game
+       { status: "linked", account } or { status: "unlinked" }
+   GET /api/link/unlink?token=<token>   the game's h9_unlink: { status: "unlinked" }
+ device is the game's device hash in the presence module's form
+ (SHA-256("h9device1:" + the device id), first 32 hex); a game without one sends
+ none. A game that polls faster than told is told a longer interval.
+
+ The site's routes, signed in (the CSRF guard as everywhere):
+   GET  /api/link/code?code=WDJB-MJHT    { code, label, os, created, expiresIn,
+                                         sameNetwork }   400 bad_code, 404 no_code
+   POST /api/link/approve { code }       200 { ok }      409 code_used (answered
+                                         already, by this account or another)
+   POST /api/link/deny    { code }       200 { ok }
+   GET  /api/link/devices                { devices: [{ id, label, os, device (its
+                                         first 8 hex), linked, lastSeen }] }
+   POST /api/link/devices/<id>/revoke    200 { ok }      404 not_found (no such
+                                         game on this account)
+ The account page lists the account's games under LINKED GAMES, each with
+ REVOKE. A revoked game hears "unlinked" at its next status check and gets an id
+ of its own again.
+
+ Kept: a waiting code lives in memory only, for codeSeconds: the SHA-256 of its
+ device code, the user code, the game's device hash and system, and the asking
+ address's limiter key (to say "the same network" and to count per address). A
+ restart forgets every waiting code; the game asks for a new one. A link is a
+ row of account_links (core migration v3): the account, the SHA-256 of the link
+ token (the token itself is sent once and kept nowhere here), the device hash,
+ the system and label, when it was made and when the game last checked in.
+ Every link, NOT ME, REVOKE and h9_unlink goes into the audit log (account.link,
+ account.link.deny, account.link.revoke, account.link.unlink; section 16).
+
+ A new player id (reset-id, move-id: the presence module's admin routes) ends
+ every link of the account: each game holds the old id and unlinks itself at
+ its next status check. Deleting an account deletes its links. Each link and
+ its end are also the events account-link and account-unlink (section 13).
+
+ Settings (link) and limits (limits):
+   codeSeconds 600, intervalSeconds 5, maxPending 10000, maxPendingPerIp 5
+   linkStartPerIp        10 in 10 minutes: codes a game asks for
+   linkPollPerIp         400 in 10 minutes: the game's polls
+   linkStatusPerIp       60 in 10 minutes: status checks and h9_unlink
+   linkCodePerAccount    10 in 10 minutes, and linkCodePerIp 20: codes looked at,
+                         approved or denied on the site, wrong ones included,
+                         so a code cannot be guessed
+   linkRevokePerAccount  30 in 10 minutes
+ Over a limit the game's routes answer 200 busy or slow_down; the site's, 429.
+
+ nginx: nothing new (/api/ already passes). The game's routes carry the device
+ code and the link token in the query string, so the access log has them: a
+ device code is spent within seconds of its approval and a link token only
+ checks or ends its own link, so this is no wider than the log's readers already
+ are; to keep them out, give location /api/link/ its own access_log off.

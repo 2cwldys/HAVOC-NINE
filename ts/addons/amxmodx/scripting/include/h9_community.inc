@@ -90,6 +90,22 @@ native h9p_report_soon();
 /** Whether h9web says this player's account is muted on this server's community. */
 native h9p_muted(id);
 
+/**
+ * Sends the player a challenge of the calling plugin's own: nonce is 32 lowercase hex characters
+ * (make one unguessable; h9web's own come from POST .../server/nonce). The game answers any
+ * well-formed nonce, at most four a minute, so h9_presence's own challenges (one a player every
+ * 5 minutes) share that with it. The answer comes in h9p_proof. Returns false for a bad nonce or a
+ * slot with no player.
+ */
+native h9p_challenge(id, const nonce[]);
+
+/**
+ * Every well-formed answer a player's game sends (h9_idproof <nonce> <devmask> <proof>), whoever
+ * challenged it. The proof is HMAC-SHA256 keyed with the player's raw id (docs\H9_PRESENCE.txt,
+ * section 8): only h9web, which knows the id, can check it.
+ */
+forward h9p_proof(id, const nonce[], const devmask[], const proof[]);
+
 #if !defined H9C_CORE
 
 /* ---- h9_community.amxx ------------------------------------------------------------------ */

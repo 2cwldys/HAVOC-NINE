@@ -2,13 +2,18 @@
 // (its post count, its last post, its place in the lists) in step with its posts. The routes
 // call the writes inside a transaction.
 //
+// A thread is listed while it is not removed; a hidden one (hidden_at) only for staff (the
+// staff arguments below).
+//
 // A thread is listed while it is not removed. refreshThread recounts a thread after any post
 // is added, removed or restored: a thread whose last remaining post goes is removed with the
 // kind 'empty', and comes back by itself when one of its posts is restored; a thread a
 // moderator removed ('moderator') comes back only when a moderator restores it.
 
+// author_dev and last_dev: whether the thread's author and its last poster have the DEVELOPER flag
 const THREAD_ROW = `SELECT t.id, t.category_id, t.title, t.pinned, t.locked, t.created_at, t.post_count, t.last_post_id,
-    t.last_post_at, t.deleted_at, t.deleted_kind, a.username AS author_name, a.role AS author_role, l.username AS last_name
+    t.last_post_at, t.deleted_at, t.deleted_kind, t.hidden_at, a.username AS author_name, a.role AS author_role, l.username AS last_name,
+    EXISTS (SELECT 1 FROM forum_developers d WHERE d.account_id = t.account_id) AS author_dev, EXISTS (SELECT 1 FROM forum_developers d WHERE d.account_id = t.last_account_id) AS last_dev
   FROM forum_threads t
   LEFT JOIN accounts a ON a.id = t.account_id
   LEFT JOIN accounts l ON l.id = t.last_account_id`;
@@ -28,10 +33,11 @@ export function createStore(db) {
     categories: db.prepare("SELECT * FROM forum_categories ORDER BY position, id"),
     category: db.prepare("SELECT * FROM forum_categories WHERE id = ?"),
     categoryBySlug: db.prepare("SELECT * FROM forum_categories WHERE slug = ?"),
-    categoryStats: db.prepare("SELECT count(*) AS threads, coalesce(sum(post_count), 0) AS posts FROM forum_threads WHERE category_id = ? AND deleted_at IS NULL"),
-    categoryLatest: db.prepare(`SELECT t.id, t.title, t.last_post_id, t.last_post_at, a.username AS last_name
+    categoryStats: db.prepare("SELECT count(*) AS threads, coalesce(sum(post_count), 0) AS posts FROM forum_threads WHERE category_id = ? AND deleted_at IS NULL AND (hidden_at IS NULL OR ? = 1)"),
+    categoryLatest: db.prepare(`SELECT t.id, t.title, t.last_post_id, t.last_post_at, a.username AS last_name,
+        EXISTS (SELECT 1 FROM forum_developers d WHERE d.account_id = t.last_account_id) AS last_dev
       FROM forum_threads t LEFT JOIN accounts a ON a.id = t.last_account_id
-      WHERE t.category_id = ? AND t.deleted_at IS NULL ORDER BY t.last_post_at DESC, t.id DESC LIMIT 1`),
+      WHERE t.category_id = ? AND t.deleted_at IS NULL AND (t.hidden_at IS NULL OR ? = 1) ORDER BY t.last_post_at DESC, t.id DESC LIMIT 1`),
     categoryHolds: db.prepare("SELECT count(*) AS threads, coalesce(sum(deleted_at IS NOT NULL), 0) AS removed FROM forum_threads WHERE category_id = ?"),
     categoryInsert: db.prepare(`INSERT INTO forum_categories (slug, name, description, position, start_role, reply_role, visible, created_at)
       VALUES (?, ?, ?, (SELECT coalesce(max(position), 0) + 1 FROM forum_categories), ?, ?, ?, ?)`),
@@ -40,16 +46,17 @@ export function createStore(db) {
     categoryDelete: db.prepare("DELETE FROM forum_categories WHERE id = ?"),
     categoryMoveAll: db.prepare("UPDATE forum_threads SET category_id = ? WHERE category_id = ?"),
 
-    threadCount: db.prepare("SELECT count(*) AS n FROM forum_threads WHERE category_id = ? AND deleted_at IS NULL"),
-    threadPage: db.prepare(`${THREAD_ROW} WHERE t.category_id = ? AND t.deleted_at IS NULL
+    threadCount: db.prepare("SELECT count(*) AS n FROM forum_threads WHERE category_id = ? AND deleted_at IS NULL AND (hidden_at IS NULL OR ? = 1)"),
+    threadPage: db.prepare(`${THREAD_ROW} WHERE t.category_id = ? AND t.deleted_at IS NULL AND (t.hidden_at IS NULL OR ? = 1)
       ORDER BY t.pinned DESC, t.last_post_at DESC, t.id DESC LIMIT ? OFFSET ?`),
     removedCount: db.prepare("SELECT count(*) AS n FROM forum_threads WHERE deleted_at IS NOT NULL"),
     removedPage: db.prepare(`${THREAD_ROW} WHERE t.deleted_at IS NOT NULL ORDER BY t.deleted_at DESC, t.id DESC LIMIT ? OFFSET ?`),
-    thread: db.prepare(`SELECT t.*, a.username AS author_name, a.role AS author_role
+    thread: db.prepare(`SELECT t.*, a.username AS author_name, a.role AS author_role, EXISTS (SELECT 1 FROM forum_developers d WHERE d.account_id = t.account_id) AS author_dev
       FROM forum_threads t LEFT JOIN accounts a ON a.id = t.account_id WHERE t.id = ?`),
     threadInsert: db.prepare("INSERT INTO forum_threads (category_id, account_id, title, created_at, last_post_at) VALUES (?, ?, ?, ?, ?)"),
     threadTitle: db.prepare("UPDATE forum_threads SET title = ? WHERE id = ?"),
     threadFlags: db.prepare("UPDATE forum_threads SET pinned = ?, locked = ? WHERE id = ?"),
+    threadHidden: db.prepare("UPDATE forum_threads SET hidden_at = ?, hidden_by = ? WHERE id = ?"),
     threadMove: db.prepare("UPDATE forum_threads SET category_id = ? WHERE id = ?"),
     threadRemove: db.prepare("UPDATE forum_threads SET deleted_at = ?, deleted_by = ?, deleted_kind = 'moderator' WHERE id = ?"),
     threadRestore: db.prepare("UPDATE forum_threads SET deleted_at = NULL, deleted_by = NULL, deleted_kind = NULL WHERE id = ?"),
@@ -70,6 +77,7 @@ export function createStore(db) {
     postCount: db.prepare("SELECT count(*) AS n FROM forum_posts WHERE thread_id = ?"),
     postsBefore: db.prepare("SELECT count(*) AS n FROM forum_posts WHERE thread_id = ? AND id < ?"),
     postPage: db.prepare(`SELECT p.*, a.username AS author_name, a.role AS author_role, a.created_at AS author_created,
+        EXISTS (SELECT 1 FROM forum_developers d WHERE d.account_id = p.account_id) AS author_dev,
         av.version AS pic_version, av.bytes AS pic_bytes, av.frames AS pic_frames, av.type AS pic_type
       FROM forum_posts p
       LEFT JOIN accounts a ON a.id = p.account_id
@@ -87,7 +95,7 @@ export function createStore(db) {
     // ? = 1 counts the hidden categories in too (for moderators)
     recentPosts: db.prepare(`SELECT p.id, p.created_at, t.id AS thread_id, t.title
       FROM forum_posts p JOIN forum_threads t ON t.id = p.thread_id JOIN forum_categories c ON c.id = t.category_id
-      WHERE p.account_id = ? AND p.deleted_at IS NULL AND t.deleted_at IS NULL AND (c.visible = 1 OR ? = 1)
+      WHERE p.account_id = ? AND p.deleted_at IS NULL AND t.deleted_at IS NULL AND ((c.visible = 1 AND t.hidden_at IS NULL) OR ? = 1)
       ORDER BY p.id DESC LIMIT ?`),
 
     restriction: db.prepare(`SELECT r.*, b.username AS by_name FROM forum_restrictions r LEFT JOIN accounts b ON b.id = r.by_id
@@ -135,6 +143,10 @@ export function createStore(db) {
     pictureRemove: db.prepare("DELETE FROM forum_avatars WHERE account_id = ?"),
     pictureBytes: db.prepare("SELECT coalesce(sum(bytes), 0) AS n FROM forum_avatars"),
     pictureVersions: db.prepare("SELECT account_id, version FROM forum_avatars"),
+
+    developer: db.prepare("SELECT 1 AS yes FROM forum_developers WHERE account_id = ?"),
+    developerAdd: db.prepare("INSERT INTO forum_developers (account_id, added_by, added_at) VALUES (?, ?, ?) ON CONFLICT (account_id) DO NOTHING"),
+    developerRemove: db.prepare("DELETE FROM forum_developers WHERE account_id = ?"),
   };
 
   function refreshThread(threadId, actorId, now) {
@@ -154,7 +166,7 @@ export function createStore(db) {
   function searchStatements(words) {
     let st = searches.get(words);
     if (!st) {
-      const where = "t.deleted_at IS NULL AND (c.visible = 1 OR ? = 1)" + " AND t.title LIKE ? ESCAPE '\\'".repeat(words);
+      const where = "t.deleted_at IS NULL AND ((c.visible = 1 AND t.hidden_at IS NULL) OR ? = 1)" + " AND t.title LIKE ? ESCAPE '\\'".repeat(words);
       st = {
         count: db.prepare(`SELECT count(*) AS n FROM forum_threads t JOIN forum_categories c ON c.id = t.category_id WHERE ${where}`),
         page: db.prepare(`${THREAD_ROW} JOIN forum_categories c ON c.id = t.category_id WHERE ${where}
@@ -180,8 +192,8 @@ export function createStore(db) {
     categories: () => q.categories.all(),
     category: (id) => q.category.get(id) || null,
     categoryBySlug: (slug) => q.categoryBySlug.get(slug) || null,
-    categoryStats: (id) => q.categoryStats.get(id),
-    categoryLatest: (id) => q.categoryLatest.get(id) || null,
+    categoryStats: (id, staff) => q.categoryStats.get(id, staff ? 1 : 0),
+    categoryLatest: (id, staff) => q.categoryLatest.get(id, staff ? 1 : 0) || null,
     categoryHolds: (id) => q.categoryHolds.get(id),
     addCategory: (slug, f, now) => q.categoryInsert.run(slug, f.name, f.description, f.startRole, f.replyRole, f.visible ? 1 : 0, now),
     updateCategory: (id, f) => q.categoryUpdate.run(f.name, f.description, f.startRole, f.replyRole, f.visible ? 1 : 0, id),
@@ -189,8 +201,8 @@ export function createStore(db) {
     deleteCategory: (id) => q.categoryDelete.run(id),
     moveAllThreads: (fromId, toId) => Number(q.categoryMoveAll.run(toId, fromId).changes),
 
-    threadCount: (categoryId) => q.threadCount.get(categoryId).n,
-    threadPage: (categoryId, limit, offset) => q.threadPage.all(categoryId, limit, offset),
+    threadCount: (categoryId, staff) => q.threadCount.get(categoryId, staff ? 1 : 0).n,
+    threadPage: (categoryId, limit, offset, staff) => q.threadPage.all(categoryId, staff ? 1 : 0, limit, offset),
     removedCount: () => q.removedCount.get().n,
     removedPage: (limit, offset) => q.removedPage.all(limit, offset),
     thread: (id) => q.thread.get(id) || null,
@@ -204,6 +216,7 @@ export function createStore(db) {
     },
     setTitle: (id, title) => q.threadTitle.run(title, id),
     setFlags: (id, pinned, locked) => q.threadFlags.run(pinned ? 1 : 0, locked ? 1 : 0, id),
+    setHidden: (id, hidden, byId, now) => q.threadHidden.run(hidden ? now : null, hidden ? byId : null, id),
     moveThread: (id, categoryId) => q.threadMove.run(categoryId, id),
     removeThread: (id, now, actorId) => q.threadRemove.run(now, actorId, id),
     restoreThread: (id) => q.threadRestore.run(id),
@@ -282,5 +295,10 @@ export function createStore(db) {
     removePicture: (accountId) => q.pictureRemove.run(accountId),
     pictureBytes: () => q.pictureBytes.get().n,
     pictureVersions: () => q.pictureVersions.all(),
+
+    // the DEVELOPER flag (migration 9)
+    isDeveloper: (accountId) => !!(accountId && q.developer.get(accountId)),
+    addDeveloper: (accountId, byId, now) => Number(q.developerAdd.run(accountId, byId, now).changes) > 0,
+    removeDeveloper: (accountId) => Number(q.developerRemove.run(accountId).changes) > 0,
   };
 }

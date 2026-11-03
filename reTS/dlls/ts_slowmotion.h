@@ -6,6 +6,7 @@
 #define TS_SLOWMOTION_H
 
 #define TS_SLOMO_MAX_PLAYERS 33 // 0x21 — gpGlobals->maxClients + 1, indexed by ENTINDEX
+#define TS_SLOMO_SLOTS (MAX_PLAYERS + 1) // every player entindex, 0 to MAX_PLAYERS
 
 class CTSSlowMotion : public CBaseEntity
 {
@@ -32,6 +33,11 @@ public:
 	float slow_ammount = 0.5f; // 0xfc — "slowamt" (GoSlow scale)
 	int m_iAllMap = 0;        // 0x100 — SF_ALL_MAP: global slow-motion
 	int m_bSlowBullets = 0;   // 0x104 — SF_SLOW_BULLETS
+
+	// entindex 33 to MAX_PLAYERS; m_hPlayers holds 0 to 32 at the original's offset. Kept last so
+	// no other member moves.
+	EHANDLE m_hPlayersHigh[TS_SLOMO_SLOTS - TS_SLOMO_MAX_PLAYERS];
+	EHANDLE &PlayerAt(int idx) { return idx < TS_SLOMO_MAX_PLAYERS ? m_hPlayers[idx] : m_hPlayersHigh[idx - TS_SLOMO_MAX_PLAYERS]; }
 };
 
 #endif // TS_SLOWMOTION_H

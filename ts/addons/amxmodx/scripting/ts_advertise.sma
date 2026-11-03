@@ -275,6 +275,36 @@ cmd_advertise(id)
 
 // ── the payload ────────────────────────────────────────────────────────────
 
+/**
+ * src into dest with a backslash before each of Discord's markdown characters:
+ * \ * _ ~ ` | [ ] ( ) < > #. Stops, whole characters only, when dest is full.
+ */
+md_escape(const src[], dest[], maxlen)
+{
+	new j = 0;
+	for (new i = 0; src[i] != EOS; i++)
+	{
+		new bool:special = false;
+		switch (src[i])
+		{
+			case 92, '*', '_', '~', '`', '|', '[', ']', '(', ')', '<', '>', '#':   // 92 is the backslash
+			{
+				special = true;
+			}
+		}
+		if (j + (special ? 2 : 1) > maxlen)
+		{
+			break;
+		}
+		if (special)
+		{
+			dest[j++] = 92;
+		}
+		dest[j++] = src[i];
+	}
+	dest[j] = EOS;
+}
+
 send_advert(id, const token[], const channel[])
 {
 	new name[32], host[128], map[64], role[32], connect[64];
@@ -283,6 +313,12 @@ send_advert(id, const token[], const channel[])
 	get_mapname(map, charsmax(map));
 	get_pcvar_string(g_cv_role, role, charsmax(role));
 	trim(role);
+	// A role id is digits only: anything else in the cvar pings nobody.
+	if (role[0] && !is_str_num(role))
+	{
+		log_amx("[ADVERT] tsm_ad_role is not a role id (digits only); posting without the role ping.");
+		role[0] = EOS;
+	}
 
 	get_pcvar_string(g_cv_connect, connect, charsmax(connect));
 	trim(connect);
@@ -317,8 +353,13 @@ send_advert(id, const token[], const channel[])
 	ezjson_object_set_value(root, "allowed_mentions", allow);
 
 	new EzJSON:embed = ezjson_init_object();
-	new line[192];
-	formatex(line, charsmax(line), "%s is organising a match on %s", name, host);
+	// The player's and the server's names as written: Discord's markdown characters in them are
+	// escaped, so neither can carry formatting, a masked link or a heading into the embed.
+	new ename[2 * sizeof name], ehost[2 * sizeof host];
+	md_escape(name, ename, charsmax(ename));
+	md_escape(host, ehost, charsmax(ehost));
+	new line[384];
+	formatex(line, charsmax(line), "%s is organising a match on %s", ename, ehost);
 	ezjson_object_set_string(embed, "title", "Someone is looking for a match");
 	ezjson_object_set_string(embed, "description", line);
 	ezjson_object_set_number(embed, "color", 0xA78BFA);   // the embed sidebar: light purple
@@ -421,7 +462,7 @@ send_advert(id, const token[], const channel[])
  */
 count_players(&humans, &bots)
 {
-	new list[32], n;
+	new list[MAX_PLAYERS], n;
 	get_players(list, n, "ch");
 	humans = n;
 	get_players(list, n, "dh");
@@ -500,7 +541,7 @@ public on_posted(EzHttpRequest:request_id)
 
 announce(const msg[])
 {
-	new players[32], pnum;
+	new players[MAX_PLAYERS], pnum;
 	get_players(players, pnum, "ch");
 	for (new i = 0; i < pnum; i++)
 	{

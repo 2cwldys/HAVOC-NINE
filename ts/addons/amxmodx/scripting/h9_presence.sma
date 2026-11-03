@@ -24,19 +24,62 @@
  * git leave out. A server h9web cannot reach (behind NAT, on a LAN) stays unenrolled and asks
  * again less and less often, from 10 seconds to every 6 hours, without a word in the console.
  *
+ * CREATE GAME (a listen server). Its own player joins over loopback, which has no address, so the
+ * plugin tells that player's game the address the server reports as (h9_idlisten <address>; H9XASH
+ * with engine-h9-listen.patch, _h9idl 1 in its userinfo): the game then salts its h9_clientid with
+ * it, as a player joining from elsewhere has it, and proves its id for it (h9_idlisten <address>
+ * <nonce>, in place of h9_idchallenge). With no hand-made key, the listen server enrolls once its own
+ * player is in game: h9web gives a key and a nonce for the caller's IP and this port ({ listen: true }),
+ * the player's game answers the nonce, and that proof makes the key live at once, no rules probe and
+ * no admin. h9web counts proven players only on such a server and never shows its address. Its state
+ * is kept in addons/amxmodx/data/h9_presence_listen.key, apart from a dedicated server's.
+ *
  * KICKS AND MUTES. h9web's answer to each report says which players to kick (a ban of their
  * account, in this server's community or H9-wide, or a one-off kick) and which are muted; a muted
- * player's chat goes nowhere.
+ * player's chat goes nowhere. On a members-only server ("members": true in the answer) the report
+ * lists every player, by slot alone when there is no usable h9_clientid, and h9web names whoever
+ * is not a member of the server's community, to be kicked with a link to join.
  *
  * FOR OTHER PLUGINS: natives h9p_ready, h9p_server, h9p_server_id, h9p_api, h9p_sign, h9p_nonce,
  * h9p_report_soon and h9p_muted (include/h9_community.inc), which h9_community.sma uses.
  *
  * THE PROOF (h9_presence_challenge 1, once the engine answers it). h9_clientid is the same value
  * for a player every time and every player on the server can read it, so on its own it proves
- * nothing. A client that advertises _h9idv 1 in its userinfo gets a one-time nonce
- * (h9_idchallenge <nonce>) and answers with HMAC-SHA256(its raw player id, nonce + this server's
- * address) and its masked device id (h9_idproof <nonce> <devmask> <proof>); the plugin forwards
- * the answer to its own challenge only, and h9web checks it. Off by default.
+ * nothing. A client that advertises _h9idv 1 in its userinfo gets a one-time nonce, which h9web
+ * issues for it (POST .../server/nonce, signed), as h9_idchallenge <nonce>, and answers with
+ * HMAC-SHA256(its raw player id, nonce + this server's address) and its masked device id
+ * (h9_idproof <nonce> <devmask> <proof>); its own player on a listen server gets h9_idlisten instead
+ * (CREATE GAME, above). The plugin reports the answer to its own challenge only,
+ * and h9web checks it: a proof counts while its nonce is younger than 10 minutes, so every player
+ * is challenged again every 5 (RECHALLENGE), the last proof reported until the next one answers.
+ * Every answer also goes to other plugins (the h9p_proof forward), and h9p_challenge sends a
+ * plugin's own nonce. Off by default.
+ *
+ * PICTURES. h9web's answer to each report names the havoc9.org picture of each proven player
+ * ("avatars": slot, account and version: their own picture, or the site's default one), and the
+ * plugin tells every client in the H9Avatar user message (byte slot, long account, long version;
+ * account 0: none), a joining client the whole table, and every client when a slot empties.
+ * H9XASH fetches the picture from havoc9.org itself (engine-h9-avatars.patch) for the scoreboard;
+ * other clients ignore the message. The same players are "linked" in the H9Link user message
+ * (byte slot, byte 1 linked, 0 not, 2 a bot), which H9's client.dll (on H9XASH and on Steam alike)
+ * shows on the scoreboard as a green chain, a red broken one, or H9's grey helmet for a bot.
+ * The same players' havoc9.org levels ("levels": slot and level, Lv 0 to 99 from the H9 ladder,
+ * docs\H9_COMPETITIVE.txt) go in the H9Level user message (byte slot, byte level; 255: none),
+ * which H9's client.dll draws as "Lv N" by the name; a joining client gets the whole table.
+ *
+ * ACCOUNTS ONLY (h9_require_account 1, an FCVAR_SERVER cvar, so it is in the server's rules and, on
+ * H9XASH, in its server-browser answer as auth 1). Every game is challenged, whatever
+ * h9_presence_challenge says. A game that cannot prove a havoc9.org account (no _h9idv 1 in its
+ * userinfo, or no h9_clientid: a Steam client, an older H9XASH, a game with no player id) is kicked
+ * at once; one that can gets h9_require_account_grace seconds (45) to prove it, and is kicked if it
+ * has not. The kick says why: "This server requires a havoc9.org account: link your game from the
+ * main menu". It fails open: while h9web has not answered a report lately (2 report intervals), and
+ * while it has given a player no challenge, nobody is kicked for it, and the check comes again later.
+ * The listen server's own player and bots are never kicked for it.
+ *
+ * A LISTEN SERVER'S OWN PLAYER. Its report names that player's slot ("host"), and h9web answers
+ * how it knows that player ("host": "proven", "known" or "unknown"); the plugin logs each change
+ * and h9_presence_status shows it, so a game whose player id is not its account's says so.
  *
  * NAMES (h9_presence_names 1, which needs h9_presence_challenge 1). On every map but roleplay
  * maps (roleplay_map(), as ts_matchmode.sma has it) and stock ts_ maps, the report asks h9web
@@ -59,26 +102,31 @@
 
 #include <amxmodx>
 #include <amxmisc>
+#include <fakemeta>
 #include <easy_http>
 
 #pragma dynamic 8192
 
 #define PLUGIN  "H9 Presence"
-#define VERSION "1.1"
+#define VERSION "1.6"
 #define AUTHOR  "2cwldys"
 
-#define MAX_BODY        12288   // the largest report, in bytes (h9web takes up to 16384)
+#define MAX_BODY        (MAX_PLAYERS * ROOM_PER_PLAYER + 2048)   // the largest report, in bytes: every
+                                // slot's entry at its largest, plus the rest (h9web takes up to 131072)
 #define ROOM_PER_PLAYER 640     // the most one player's entry can take, escaped
 #define REPORT_DELAY    3.0     // seconds after a join, a leave or a new name before the report
 #define FIRST_DELAY     15.0    // seconds after the map starts before the first report
 #define PROOF_WAIT      8       // seconds a challenged player is left out while its answer comes
-#define RECHALLENGE     21600   // seconds before a player is challenged again (h9web takes a day)
+#define RECHALLENGE     300     // seconds before a player is challenged again (h9web takes 10 minutes)
 
 #define TASK_TICK  59210
 #define TASK_SOON  59211
 #define TASK_ENROLL 59212
+#define TASK_REQUIRE 59400               // + slot: h9_require_account's check after the grace period
 
 new g_cv_url, g_cv_server, g_cv_key, g_cv_interval, g_cv_challenge, g_cv_names, g_cv_enroll, g_cv_autoenroll;
+new g_cv_require, g_cv_require_grace;    // h9_require_account and its grace period
+new const REQUIRE_REASON[] = "This server requires a havoc9.org account: link your game from the main menu";
 // ts_matchmode's tsm_pres_* cvars, the Discord card's source (0 when ts_matchmode is not loaded)
 new g_cv_mode, g_cv_siege, g_cv_attack, g_cv_prog;
 
@@ -131,13 +179,46 @@ new g_estate = ES_NONE;
 new g_enext = 0;                         // when the next enrollment step may run (unix time)
 new g_etries = 0;                        // steps in a row that failed or waited (the backoff)
 new bool:g_ebusy = false;                // an enrollment request in flight
+new bool:g_listen = false;               // a listen server enrolling by its own player's ID proof
+new g_lnonce[40];                        // the nonce that player proves this address with
+new g_lhost = 0;                         // that player's slot, and who held it (g_gen)
+new g_lgen = 0;
 new g_bad = 0;                           // reports refused in a row because of the key
 new bool:g_muted[MAX_PLAYERS + 1];       // h9web says this slot's account is muted here
 new g_mute_told[MAX_PLAYERS + 1];
+// members-only servers: h9web's answers say so, and then every player goes in the report
+new bool:g_members = false;
 new g_signbuf[MAX_BODY];                 // what another plugin asks h9p_sign to sign
+new g_pnonce[MAX_PLAYERS + 1][33];       // the nonce the slot's proof answers (g_nonce: the one asked)
+new bool:g_fetching[MAX_PLAYERS + 1];    // a nonce on its way from h9web for the slot
+new g_fwd_proof;                         // h9p_proof, every answer for other plugins
+new g_msg_avatar;                        // H9Avatar, 0 when it could not be registered
+new g_msg_link;                          // H9Link, 0 when it could not be registered
+new bool:g_linked[MAX_PLAYERS + 1];      // what every client was last told: a proven account here
+new g_msg_level;                         // H9Level, 0 when it could not be registered
+new g_level[MAX_PLAYERS + 1];            // the level every client was last told for each slot, + 1 (0: none)
+new bool:g_isbot[MAX_PLAYERS + 1];       // a bot in the slot: H9Link says 2, never a chain
+new g_hoststate[16];                     // h9web's word on this listen server's own player, or ""
+new g_answered_at = 0;                   // when h9web last took a report (h9_require_account fails open without)
+new bool:g_proven[MAX_PLAYERS + 1];      // the answer's "proven": the slot proved a havoc9.org account
+new g_av_account[MAX_PLAYERS + 1];       // the picture every client was last told for each slot
+new g_av_version[MAX_PLAYERS + 1];
+#define TASK_AVATARS 59300               // + slot: the table to a client that just joined
 new const BACKOFF[] = { 10, 30, 60, 120, 300, 900, 1800, 3600, 21600 };
 
 new const HEX[] = "0123456789abcdef";
+
+public plugin_precache()
+{
+	// Begun with fakemeta's EngFunc_MessageBegin: AMX Mod X's message_begin refuses a
+	// message a plugin registered, because Metamod-R records only the game DLL's own.
+	// the scoreboard's pictures: byte slot, long account, long version (engine-h9-avatars.patch)
+	g_msg_avatar = engfunc(EngFunc_RegUserMsg, "H9Avatar", 9);
+	// the scoreboard's chain: byte slot, byte linked (H9's client.dll)
+	g_msg_link = engfunc(EngFunc_RegUserMsg, "H9Link", 2);
+	// the scoreboard's level: byte slot, byte level 0 to 99, 255 none (H9's client.dll)
+	g_msg_level = engfunc(EngFunc_RegUserMsg, "H9Level", 2);
+}
 
 public plugin_init()
 {
@@ -155,8 +236,13 @@ public plugin_init()
 	// FCVAR_UNLOGGED keeps each change out of the log and off every player's screen.
 	g_cv_enroll     = register_cvar("h9_presence_enroll", "", FCVAR_SERVER | FCVAR_UNLOGGED);
 	g_cv_autoenroll = register_cvar("h9_presence_autoenroll", "1");
+	// Accounts only. FCVAR_SERVER: in the server's rules, and the engine's server-browser answer
+	// says auth 1 while it is 1 (engine-h9-serverinfo.patch).
+	g_cv_require       = register_cvar("h9_require_account", "0", FCVAR_SERVER);
+	g_cv_require_grace = register_cvar("h9_require_account_grace", "45");
 
 	register_clcmd("h9_idproof", "cmd_idproof");
+	g_fwd_proof = CreateMultiForward("h9p_proof", ET_IGNORE, FP_CELL, FP_STRING, FP_STRING, FP_STRING);
 	register_clcmd("say", "hook_say");
 	register_clcmd("say_team", "hook_say");
 	register_srvcmd("h9_presence_status", "cmd_status");
@@ -219,10 +305,22 @@ public plugin_cfg()
 		return;
 	}
 
-	// A player's own listen server never enrolls. A dedicated one does, by itself and quietly: one
-	// that h9web cannot reach (a LAN server) just stays unenrolled, asking again less and less often.
-	if (!is_dedicated_server() || !get_pcvar_num(g_cv_autoenroll))
+	// A dedicated server enrolls by itself and quietly: one that h9web cannot reach (a LAN server)
+	// just stays unenrolled, asking again less and less often. A listen server (Create Game) enrolls
+	// by its own player's ID proof once that player is in game (listen_enroll), from a state file of
+	// its own.
+	if (!get_pcvar_num(g_cv_autoenroll))
 	{
+		return;
+	}
+	if (!is_dedicated_server())
+	{
+		g_listen = true;
+		load_state();
+		if (g_estate == ES_ACTIVE)
+		{
+			go_live();
+		}
 		return;
 	}
 	load_state();
@@ -241,6 +339,11 @@ public plugin_cfg()
 go_live()
 {
 	g_ready = true;
+
+	// members-only, as the last answer before this map said
+	new members[4];
+	get_localinfo("h9p_members", members, charsmax(members));
+	g_members = members[0] == '1';
 
 	if (get_pcvar_num(g_cv_names))
 	{
@@ -268,6 +371,41 @@ go_live()
 	remove_task(TASK_TICK);
 	set_task(every, "task_tick", TASK_TICK, "", 0, "b");
 	set_task(FIRST_DELAY, "task_soon", TASK_SOON);
+
+	// players already in game (a listen server that went live once its own player proved it): that
+	// player's address first, then everyone's challenge
+	for (new id = 1; id <= g_max; id++)
+	{
+		if (!g_in[id])
+		{
+			continue;
+		}
+		if (is_loopback(id) && can_listen(id))
+		{
+			client_cmd(id, "h9_idlisten %s", g_server);
+		}
+		challenge(id);
+	}
+}
+
+/** The listen server's own player: joined over loopback, with no address. */
+bool:is_loopback(id)
+{
+	if (is_dedicated_server())
+	{
+		return false;
+	}
+	new ip[32];
+	get_user_ip(id, ip, charsmax(ip), 1);
+	return equali(ip, "loopback") != 0;
+}
+
+/** A game that answers h9_idlisten (engine-h9-listen.patch): _h9idl 1 in its userinfo. */
+bool:can_listen(id)
+{
+	new can[8];
+	get_user_info(id, "_h9idl", can, charsmax(can));
+	return equal(can, "1") != 0;
 }
 
 /** Whether h9_presence_url can be used. */
@@ -322,6 +460,13 @@ bool:hex_ok(s[])
 
 public client_putinserver(id)
 {
+	if (id >= 1 && id <= g_max && is_user_bot(id) && !is_user_hltv(id))
+	{
+		// a bot: the scoreboard shows it as one (H9Link 2), never with a chain
+		g_isbot[id] = true;
+		send_link(0, id, 2);
+		return;
+	}
 	if (id < 1 || id > g_max || is_user_bot(id) || is_user_hltv(id))
 	{
 		return;
@@ -330,12 +475,41 @@ public client_putinserver(id)
 	g_gen[id]++;
 	g_joined[id] = get_systime();
 	forget_proof(id);
+	// the listen server's own player: its h9_clientid salted with this server's address first
+	if (is_loopback(id))
+	{
+		if (g_ready && can_listen(id))
+		{
+			client_cmd(id, "h9_idlisten %s", g_server);
+		}
+		else if (g_listen && !g_ready)
+		{
+			listen_enroll(id);
+		}
+	}
 	challenge(id);
 	soon();
+	set_task(3.0, "task_avatars_to", TASK_AVATARS + id);
+	// h9_require_account: a game that cannot prove an account goes at once, any other after the
+	// grace period if it has not proved one by then (task_require)
+	if (require_on() && !is_loopback(id))
+	{
+		if (!can_prove(id) && h9web_answering())
+		{
+			kick_with(id, REQUIRE_REASON);
+			return;
+		}
+		set_task(float(require_grace()), "task_require", TASK_REQUIRE + id);
+	}
 }
 
 public client_disconnected(id, bool:drop, message[], maxlen)
 {
+	if (id >= 1 && id <= g_max && g_isbot[id])
+	{
+		g_isbot[id] = false;
+		send_link(0, id, 0);
+	}
 	if (id < 1 || id > g_max || !g_in[id])
 	{
 		return;
@@ -343,6 +517,25 @@ public client_disconnected(id, bool:drop, message[], maxlen)
 	g_in[id] = false;
 	g_gen[id]++;
 	forget_proof(id);
+	remove_task(TASK_AVATARS + id);
+	remove_task(TASK_REQUIRE + id);
+	g_proven[id] = false;
+	if (g_av_account[id])
+	{
+		g_av_account[id] = 0;
+		g_av_version[id] = 0;
+		send_avatar(0, id, 0, 0);
+	}
+	if (g_linked[id])
+	{
+		g_linked[id] = false;
+		send_link(0, id, 0);
+	}
+	if (g_level[id])
+	{
+		g_level[id] = 0;
+		send_level(0, id, 255);
+	}
 	soon();
 }
 
@@ -373,6 +566,8 @@ public client_infochanged(id)
 forget_proof(id)
 {
 	g_nonce[id][0] = 0;
+	g_pnonce[id][0] = 0;
+	g_fetching[id] = false;
 	g_devmask[id][0] = 0;
 	g_proof[id][0] = 0;
 	g_asked[id] = 0;
@@ -384,13 +579,13 @@ forget_proof(id)
 // ---- the challenge ------------------------------------------------------------------------------
 
 /**
- * Sends a one-time nonce to a client that says it can answer (_h9idv 1 in its userinfo). The
- * nonce is the unix time (8 hex) and 24 random hex characters; only an answer to this slot's own
- * nonce is taken (cmd_idproof).
+ * Asks h9web for a nonce for a client that says it can answer (_h9idv 1 in its userinfo), and
+ * sends it as the challenge (on_nonce). Only an answer to the slot's own nonce is reported
+ * (cmd_idproof); the slot's last proof stays in the reports until then.
  */
 challenge(id)
 {
-	if (!g_ready || !get_pcvar_num(g_cv_challenge))
+	if (!g_ready || !(get_pcvar_num(g_cv_challenge) || get_pcvar_num(g_cv_require) == 1) || g_fetching[id])
 	{
 		return;
 	}
@@ -400,15 +595,78 @@ challenge(id)
 	{
 		return;
 	}
-	hex32(get_systime(), g_nonce[id], 0);
-	hex32(random32(), g_nonce[id], 8);
-	hex32(random32(), g_nonce[id], 16);
-	hex32(random32(), g_nonce[id], 24);
-	g_nonce[id][32] = 0;
-	g_devmask[id][0] = 0;
-	g_proof[id][0] = 0;
+	// over loopback the proof must sign this server's address, which only h9_idlisten does
+	if (is_loopback(id) && !can_listen(id))
+	{
+		return;
+	}
+	new url[200], body[192], sig[65], nonce[17];
+	api_url(url, charsmax(url), "/server/nonce");
+	make_nonce(nonce);
+	formatex(body, charsmax(body), "{^"v^":1,^"server^":^"%s^",^"ts^":%d,^"nonce^":^"%s^",^"count^":1}", g_server, get_systime(), nonce);
+	hmac_sha256(g_key, strlen(g_key), body, strlen(body), sig, charsmax(sig));
+	new EzHttpOptions:opt = ezhttp_create_options();
+	ezhttp_option_set_header(opt, "Content-Type", "application/json");
+	ezhttp_option_set_header(opt, "X-H9-Server", g_server);
+	ezhttp_option_set_header(opt, "X-H9-Signature", sig);
+	ezhttp_option_set_user_agent(opt, "h9_presence/1.5");
+	ezhttp_option_set_timeout(opt, 8000);
+	ezhttp_option_set_connect_timeout(opt, 5000);
+	ezhttp_option_set_body(opt, body);
+	new ud[2];
+	ud[0] = id;
+	ud[1] = g_gen[id];
+	ezhttp_option_set_user_data(opt, ud, sizeof(ud));
+	g_fetching[id] = true;
 	g_asked[id] = get_systime();
-	client_cmd(id, "h9_idchallenge %s", g_nonce[id]);
+	ezhttp_post(url, "on_nonce", opt);
+}
+
+public on_nonce(EzHttpRequest:request_id)
+{
+	new ud[2];
+	ezhttp_get_user_data(request_id, ud);
+	new id = ud[0];
+	if (id < 1 || id > g_max)
+	{
+		return;
+	}
+	g_fetching[id] = false;
+	if (!g_in[id] || ud[1] != g_gen[id] || ezhttp_get_error_code(request_id) != EZH_OK || ezhttp_get_http_code(request_id) != 200)
+	{
+		return;
+	}
+	new EzJSON:root = ezhttp_parse_json_response(request_id);
+	if (root == EzInvalid_JSON)
+	{
+		return;
+	}
+	new nonce[40];
+	nonce[0] = 0;
+	new EzJSON:list = ezjson_object_get_value(root, "nonces");
+	if (list != EzInvalid_JSON)
+	{
+		if (ezjson_get_type(list) == EzJSONArray && ezjson_array_get_count(list) > 0)
+		{
+			ezjson_array_get_string(list, 0, nonce, charsmax(nonce));
+		}
+		ezjson_free(list);
+	}
+	ezjson_free(root);
+	if (strlen(nonce) != 32 || !hex_ok(nonce))
+	{
+		return;
+	}
+	copy(g_nonce[id], charsmax(g_nonce[]), nonce);
+	g_asked[id] = get_systime();
+	if (is_loopback(id))
+	{
+		client_cmd(id, "h9_idlisten %s %s", g_server, g_nonce[id]);
+	}
+	else
+	{
+		client_cmd(id, "h9_idchallenge %s", g_nonce[id]);
+	}
 }
 
 random32()
@@ -426,10 +684,13 @@ hex32(value, out[], pos)
 	}
 }
 
-/** The client's answer: h9_idproof <nonce> <devmask> <proof>, for this slot's own challenge only. */
+/**
+ * The client's answer: h9_idproof <nonce> <devmask> <proof>. Every well-formed one goes to the
+ * h9p_proof forward; the one to this slot's own challenge goes into the reports.
+ */
 public cmd_idproof(id, level, cid)
 {
-	if (id < 1 || id > g_max || !g_in[id] || !g_nonce[id][0] || g_proof[id][0])
+	if (id < 1 || id > g_max || !g_in[id])
 	{
 		return PLUGIN_HANDLED;
 	}
@@ -441,12 +702,23 @@ public cmd_idproof(id, level, cid)
 	{
 		return PLUGIN_HANDLED;
 	}
-	if (!equal(nonce, g_nonce[id]))
+	new ret;
+	ExecuteForward(g_fwd_proof, ret, id, nonce, devmask, proof);
+	// the listen server's own player proving this address for its enrollment
+	if (g_listen && g_estate == ES_PROOF && id == g_lhost && g_gen[id] == g_lgen && g_lnonce[0] && equal(nonce, g_lnonce))
+	{
+		g_lnonce[0] = 0;
+		send_listen_proof(id, nonce, devmask, proof);
+		return PLUGIN_HANDLED;
+	}
+	if (!g_nonce[id][0] || !equal(nonce, g_nonce[id]))
 	{
 		return PLUGIN_HANDLED;
 	}
+	copy(g_pnonce[id], charsmax(g_pnonce[]), nonce);
 	copy(g_devmask[id], charsmax(g_devmask[]), devmask);
 	copy(g_proof[id], charsmax(g_proof[]), proof);
+	g_nonce[id][0] = 0;
 	soon();
 	return PLUGIN_HANDLED;
 }
@@ -469,13 +741,22 @@ public task_soon()
 
 public task_tick()
 {
-	// a challenge answered long ago is asked again, before h9web's day runs out
+	// every proof is asked for again before h9web's 10 minutes run out
 	new now = get_systime();
 	for (new id = 1; id <= g_max; id++)
 	{
 		if (g_in[id] && g_asked[id] && now - g_asked[id] > RECHALLENGE)
 		{
 			challenge(id);
+		}
+		// h9_require_account switched on while they were in: they get the grace period from now
+		if (g_in[id] && require_on() && !player_proven(id) && !is_loopback(id) && !task_exists(TASK_REQUIRE + id))
+		{
+			if (!g_asked[id])
+			{
+				challenge(id);
+			}
+			set_task(float(require_grace()), "task_require", TASK_REQUIRE + id);
 		}
 	}
 	// an empty server that h9web already knows is empty is not reported again
@@ -530,7 +811,7 @@ send_report(const reason[])
 	ezhttp_option_set_header(opt, "Content-Type", "application/json");
 	ezhttp_option_set_header(opt, "X-H9-Server", g_server);
 	ezhttp_option_set_header(opt, "X-H9-Signature", sig);
-	ezhttp_option_set_user_agent(opt, "h9_presence/1.1");
+	ezhttp_option_set_user_agent(opt, "h9_presence/1.5");
 	ezhttp_option_set_timeout(opt, 8000);
 	ezhttp_option_set_connect_timeout(opt, 5000);
 	ezhttp_option_set_body(opt, g_body);
@@ -557,14 +838,30 @@ public on_report_done(EzHttpRequest:request_id)
 			g_last_count = g_sent_count;
 			g_accepted++;
 			g_bad = 0;
+			g_answered_at = get_systime();
 			note_result(200, "");
 			new EzJSON:root = ezhttp_parse_json_response(request_id);
 			if (root != EzInvalid_JSON)
 			{
 				apply_actions(root);
+				apply_avatars(root);
+				apply_levels(root);
+				apply_host(root);
+				apply_proven(root);
 				if (g_names)
 				{
 					apply_names(root);
+				}
+				// members-only servers: once h9web says so, the next report lists everyone
+				new bool:members = ezjson_object_has_value(root, "members", EzJSONBoolean) && ezjson_object_get_bool(root, "members");
+				if (members != g_members)
+				{
+					g_members = members;
+					set_localinfo("h9p_members", members ? "1" : "0");
+					if (members)
+					{
+						g_again = true;
+					}
 				}
 				ezjson_free(root);
 			}
@@ -655,7 +952,7 @@ build_report(const reason[], const server[])
 		app_raw(",^"detail^":");
 		app_str(detail);
 	}
-	new host[64], list[32], humans;
+	new host[64], list[MAX_PLAYERS], humans;
 	get_cvar_string("hostname", host, charsmax(host));
 	get_players(list, humans, "ch");
 	app_raw(",^"name^":");
@@ -664,6 +961,16 @@ build_report(const reason[], const server[])
 	app_num(humans);
 	app_raw(",^"max^":");
 	app_num(g_max);
+	// a listen server's own player, so h9web says how it knows that player (apply_host)
+	for (new h = 1; h <= g_max; h++)
+	{
+		if (g_in[h] && is_loopback(h))
+		{
+			app_raw(",^"host^":");
+			app_num(h);
+			break;
+		}
+	}
 	if (g_names)
 	{
 		app_raw(",^"names^":true");
@@ -677,13 +984,13 @@ build_report(const reason[], const server[])
 		{
 			continue;
 		}
-		if (g_nonce[id][0] && !g_proof[id][0] && now - g_asked[id] < PROOF_WAIT)
+		if ((g_nonce[id][0] || g_fetching[id]) && !g_proof[id][0] && now - g_asked[id] < PROOF_WAIT)
 		{
 			continue;
 		}
 		get_user_info(id, "h9_clientid", g_ids[n], charsmax(g_ids[]));
 		g_hasid[n] = strlen(g_ids[n]) == 32 && hex_ok(g_ids[n]);
-		if (!g_hasid[n] && !g_names)
+		if (!g_hasid[n] && !g_names && !g_members)
 		{
 			continue;
 		}
@@ -693,13 +1000,13 @@ build_report(const reason[], const server[])
 	}
 
 	// with names on, a player without a usable h9_clientid goes in by slot and name alone, for
-	// h9web's check that the name is not an account's
+	// h9web's check that the name is not an account's; on a members-only server too, to be turned away
 	new sent = 0;
 	g_left_out = 0;
 	for (new i = 0; i < n; i++)
 	{
 		new bool:full = g_hasid[i] && !listed_twice(i, n);
-		if (!full && !g_names)
+		if (!full && !g_names && !g_members)
 		{
 			continue;
 		}
@@ -759,7 +1066,7 @@ app_player(id, const cid[])
 	if (g_proof[id][0])
 	{
 		app_raw(",^"nonce^":");
-		app_str(g_nonce[id]);
+		app_str(g_pnonce[id]);
 		app_raw(",^"devmask^":");
 		app_str(g_devmask[id]);
 		app_raw(",^"proof^":");
@@ -834,7 +1141,14 @@ state_path(out[], len)
 {
 	new dir[64];
 	get_datadir(dir, charsmax(dir));
-	formatex(out, len, "%s/h9_presence.key", dir);
+	if (g_listen)
+	{
+		formatex(out, len, "%s/h9_presence_listen.key", dir);
+	}
+	else
+	{
+		formatex(out, len, "%s/h9_presence.key", dir);
+	}
 }
 
 load_state()
@@ -942,6 +1256,16 @@ public task_enroll()
 	{
 		return;
 	}
+	if (g_listen)
+	{
+		// a listen server enrolls afresh each time, with its own player still in game
+		if (g_lhost && g_in[g_lhost] && g_gen[g_lhost] == g_lgen)
+		{
+			forget_key();
+			send_enroll();
+		}
+		return;
+	}
 	if (g_estate == ES_NONE || !g_key[0])
 	{
 		send_enroll();
@@ -964,12 +1288,19 @@ send_enroll()
 	{
 		port = 27015;
 	}
-	new url[200], body[48];
+	new url[200], body[64];
 	api_url(url, charsmax(url), "/enroll");
-	formatex(body, charsmax(body), "{^"v^":1,^"port^":%d}", port);
+	if (g_listen)
+	{
+		formatex(body, charsmax(body), "{^"v^":1,^"port^":%d,^"listen^":true}", port);
+	}
+	else
+	{
+		formatex(body, charsmax(body), "{^"v^":1,^"port^":%d}", port);
+	}
 	new EzHttpOptions:opt = ezhttp_create_options();
 	ezhttp_option_set_header(opt, "Content-Type", "application/json");
-	ezhttp_option_set_user_agent(opt, "h9_presence/1.1");
+	ezhttp_option_set_user_agent(opt, "h9_presence/1.5");
 	ezhttp_option_set_timeout(opt, 8000);
 	ezhttp_option_set_connect_timeout(opt, 5000);
 	ezhttp_option_set_body(opt, body);
@@ -991,7 +1322,11 @@ public on_enroll(EzHttpRequest:request_id)
 		wait_more();
 		return;
 	}
-	new key[72], code[24], server[48], sid[16];
+	new key[72], code[24], server[48], sid[16], lnonce[40];
+	if (g_listen && ezjson_object_has_value(root, "nonce", EzJSONString))
+	{
+		ezjson_object_get_string(root, "nonce", lnonce, charsmax(lnonce));
+	}
 	if (ezjson_object_has_value(root, "key", EzJSONString))
 	{
 		ezjson_object_get_string(root, "key", key, charsmax(key));
@@ -1020,8 +1355,74 @@ public on_enroll(EzHttpRequest:request_id)
 	copy(g_serverid, charsmax(g_serverid), sid);
 	g_estate = ES_PROOF;
 	g_etries = 0;
+	if (g_listen)
+	{
+		// the proof comes from this server's own player, over loopback (cmd_idproof); no answer
+		// within a minute and it starts again, later
+		if (strlen(lnonce) != 32 || !hex_ok(lnonce) || !g_lhost || !g_in[g_lhost] || g_gen[g_lhost] != g_lgen)
+		{
+			forget_key();
+			wait_more();
+			return;
+		}
+		copy(g_lnonce, charsmax(g_lnonce), lnonce);
+		client_cmd(g_lhost, "h9_idlisten %s %s", g_server, g_lnonce);
+		schedule_enroll(60);
+		return;
+	}
 	set_pcvar_string(g_cv_enroll, g_code);
 	schedule_enroll(5);
+}
+
+/**
+ * A listen server's enrollment: h9web gives a key and a nonce for this address, the server's own
+ * player answers the nonce over loopback (h9_idlisten), and that proof makes the key live
+ * (send_listen_proof).
+ */
+listen_enroll(id)
+{
+	if (g_ebusy || g_estate == ES_ACTIVE || !g_selftest || !url_ok())
+	{
+		return;
+	}
+	if (!can_listen(id))
+	{
+		log_amx("[PRESENCE] Not reporting: this listen server's own player's game does not answer h9_idlisten (H9XASH from 2026-11-02 on does).");
+		return;
+	}
+	g_lhost = id;
+	g_lgen = g_gen[id];
+	forget_key();
+	send_enroll();
+}
+
+/** The listen server's own player's proof for this address, in the enrollment's status call. */
+send_listen_proof(id, const nonce[], const devmask[], const proof[])
+{
+	new cid[40];
+	get_user_info(id, "h9_clientid", cid, charsmax(cid));
+	if (strlen(cid) != 32 || !hex_ok(cid))
+	{
+		forget_key();
+		wait_more();
+		return;
+	}
+	new url[200], body[400], sig[65], n[17];
+	api_url(url, charsmax(url), "/enroll/status");
+	make_nonce(n);
+	formatex(body, charsmax(body), "{^"v^":1,^"server^":^"%s^",^"ts^":%d,^"nonce^":^"%s^",^"host^":{^"id^":^"%s^",^"nonce^":^"%s^",^"devmask^":^"%s^",^"proof^":^"%s^"}}", g_server, get_systime(), n, cid, nonce, devmask, proof);
+	hmac_sha256(g_key, strlen(g_key), body, strlen(body), sig, charsmax(sig));
+	new EzHttpOptions:opt = ezhttp_create_options();
+	ezhttp_option_set_header(opt, "Content-Type", "application/json");
+	ezhttp_option_set_header(opt, "X-H9-Server", g_server);
+	ezhttp_option_set_header(opt, "X-H9-Signature", sig);
+	ezhttp_option_set_user_agent(opt, "h9_presence/1.5");
+	ezhttp_option_set_timeout(opt, 12000);
+	ezhttp_option_set_connect_timeout(opt, 5000);
+	ezhttp_option_set_body(opt, body);
+	g_ebusy = true;
+	remove_task(TASK_ENROLL);
+	ezhttp_post(url, "on_enroll_status", opt);
 }
 
 /** Asks whether h9web has seen the code (and checks again when it is time). */
@@ -1036,7 +1437,7 @@ send_enroll_status()
 	ezhttp_option_set_header(opt, "Content-Type", "application/json");
 	ezhttp_option_set_header(opt, "X-H9-Server", g_server);
 	ezhttp_option_set_header(opt, "X-H9-Signature", sig);
-	ezhttp_option_set_user_agent(opt, "h9_presence/1.1");
+	ezhttp_option_set_user_agent(opt, "h9_presence/1.5");
 	ezhttp_option_set_timeout(opt, 12000);
 	ezhttp_option_set_connect_timeout(opt, 5000);
 	ezhttp_option_set_body(opt, body);
@@ -1158,7 +1559,7 @@ make_nonce(out[17])
 /** The answer's actions: kick a banned account or a one-off kick, and who is muted. */
 apply_actions(EzJSON:root)
 {
-	new key[32], reason[72];
+	new key[32], reason[160];
 	for (new id = 1; id <= g_max; id++)
 	{
 		if (!g_in[id] || g_sent_gen[id] != g_gen[id])
@@ -1169,8 +1570,7 @@ apply_actions(EzJSON:root)
 		if (ezjson_object_has_value(root, key, EzJSONString, true))
 		{
 			ezjson_object_get_string(root, key, reason, charsmax(reason), true);
-			clean_reason(reason);
-			server_cmd("kick #%d ^"%s^"", get_user_userid(id), reason);
+			kick_with(id, reason);
 			continue;
 		}
 		formatex(key, charsmax(key), "actions.%d.mute", id);
@@ -1178,14 +1578,116 @@ apply_actions(EzJSON:root)
 	}
 }
 
-/** A reason as it may go into a server command: letters, digits, space and . , : ! ? ( ) - only. */
+/** Kicks the slot's player with a reason, cleaned for the server command (the answer's kicks, h9_require_account). */
+kick_with(id, const why[])
+{
+	new reason[160];
+	copy(reason, charsmax(reason), why);
+	clean_reason(reason);
+	server_cmd("kick #%d ^"%s^"", get_user_userid(id), reason);
+}
+
+/** h9_require_account 1, on a server that reports (with no key it cannot check anyone: it fails open). */
+bool:require_on()
+{
+	return g_ready && get_pcvar_num(g_cv_require) == 1;
+}
+
+/** The grace period, 10 to 300 seconds. */
+require_grace()
+{
+	new g = get_pcvar_num(g_cv_require_grace);
+	return g < 10 ? 10 : g > 300 ? 300 : g;
+}
+
+/** h9web took a report within two report intervals: the requirement is kept; else it fails open. */
+bool:h9web_answering()
+{
+	new every = floatround(get_pcvar_float(g_cv_interval));
+	if (every < 30)
+	{
+		every = 30;
+	}
+	else if (every > 600)
+	{
+		every = 600;
+	}
+	return g_answered_at > 0 && get_systime() - g_answered_at <= 2 * every + 30;
+}
+
+/** A game that can prove a havoc9.org account: _h9idv 1 and an h9_clientid of 32 hex characters. */
+bool:can_prove(id)
+{
+	new can[8], cid[40];
+	get_user_info(id, "_h9idv", can, charsmax(can));
+	get_user_info(id, "h9_clientid", cid, charsmax(cid));
+	return equal(can, "1") != 0 && strlen(cid) == 32 && hex_ok(cid);
+}
+
+/** h9web's last answer counted the slot as a proven account (its "proven", or a picture named for it). */
+bool:player_proven(id)
+{
+	return g_proven[id] || g_linked[id];
+}
+
+/** The answer's "proven": the slots of this report that proved a havoc9.org account. */
+apply_proven(EzJSON:root)
+{
+	new EzJSON:list = ezjson_object_get_value(root, "proven");
+	if (list == EzInvalid_JSON)
+	{
+		return;
+	}
+	if (ezjson_get_type(list) == EzJSONArray)
+	{
+		for (new id = 1; id <= g_max; id++)
+		{
+			if (g_in[id] && g_sent_gen[id] == g_gen[id])
+			{
+				g_proven[id] = false;
+			}
+		}
+		new n = ezjson_array_get_count(list);
+		for (new i = 0; i < n; i++)
+		{
+			new slot = ezjson_array_get_number(list, i);
+			if (slot >= 1 && slot <= g_max && g_in[slot] && g_sent_gen[slot] == g_gen[slot])
+			{
+				g_proven[slot] = true;
+			}
+		}
+	}
+	ezjson_free(list);
+}
+
+/**
+ * h9_require_account's check, the grace period after a join: a player with no proven account is
+ * kicked. While h9web is not answering, and while it has given the player no challenge, it fails
+ * open and looks again a grace period later.
+ */
+public task_require(task)
+{
+	new id = task - TASK_REQUIRE;
+	if (id < 1 || id > g_max || !g_in[id] || !require_on() || player_proven(id) || is_loopback(id))
+	{
+		return;
+	}
+	if (!h9web_answering() || (can_prove(id) && !g_nonce[id][0] && !g_pnonce[id][0]))
+	{
+		set_task(float(require_grace()), "task_require", TASK_REQUIRE + id);
+		return;
+	}
+	kick_with(id, REQUIRE_REASON);
+}
+
+/** A reason as it may go into a server command: letters, digits, space and . , : ! ? ( ) - / = only. */
 clean_reason(s[])
 {
 	new j = 0;
 	for (new i = 0; s[i]; i++)
 	{
 		new c = s[i];
-		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ' ' || c == '.' || c == ',' || c == ':' || c == '!' || c == '?' || c == '(' || c == ')' || c == '-')
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ' ' || c == '.' || c == ',' || c == ':' || c == '!' || c == '?' || c == '(' || c == ')' || c == '-' || c == '/' || c == '=')
 		{
 			s[j] = c;
 			j++;
@@ -1227,6 +1729,7 @@ public plugin_natives()
 	register_native("h9p_nonce", "nat_nonce");
 	register_native("h9p_report_soon", "nat_report_soon");
 	register_native("h9p_muted", "nat_muted");
+	register_native("h9p_challenge", "nat_challenge");
 }
 
 public nat_ready(plugin, params)
@@ -1282,10 +1785,224 @@ public nat_report_soon(plugin, params)
 	return 1;
 }
 
+/** h9p_challenge(id, const nonce[]): a plugin's own challenge; the answer comes in h9p_proof. */
+public nat_challenge(plugin, params)
+{
+	new id = get_param(1);
+	new nonce[40];
+	get_string(2, nonce, charsmax(nonce));
+	if (id < 1 || id > g_max || !g_in[id] || strlen(nonce) != 32)
+	{
+		return 0;
+	}
+	for (new i = 0; i < 32; i++)
+	{
+		if (!((nonce[i] >= '0' && nonce[i] <= '9') || (nonce[i] >= 'a' && nonce[i] <= 'f')))
+		{
+			return 0;
+		}
+	}
+	client_cmd(id, "h9_idchallenge %s", nonce);
+	return 1;
+}
+
 public nat_muted(plugin, params)
 {
 	new id = get_param(1);
 	return id >= 1 && id <= g_max && g_muted[id];
+}
+
+// ---- the scoreboard's pictures -------------------------------------------------------------------
+
+/** H9Avatar to one client (to > 0) or to every client (0): byte slot, long account, long version. */
+send_avatar(to, slot, account, version)
+{
+	if (!g_msg_avatar)
+	{
+		return;
+	}
+	if (to)
+	{
+		if (!is_user_connected(to) || is_user_bot(to))
+		{
+			return;
+		}
+		engfunc(EngFunc_MessageBegin, MSG_ONE, g_msg_avatar, Float:{0.0, 0.0, 0.0}, to);
+	}
+	else
+	{
+		engfunc(EngFunc_MessageBegin, MSG_ALL, g_msg_avatar, Float:{0.0, 0.0, 0.0}, 0);
+	}
+	write_byte(slot);
+	write_long(account);
+	write_long(version);
+	message_end();
+}
+
+/** H9Link to one client (to) or every client (0): the slot is a proven havoc9.org account (1), not (0), or a bot (2). */
+send_link(to, slot, linked)
+{
+	if (!g_msg_link)
+	{
+		return;
+	}
+	if (to)
+	{
+		if (!is_user_connected(to) || is_user_bot(to))
+		{
+			return;
+		}
+		engfunc(EngFunc_MessageBegin, MSG_ONE, g_msg_link, Float:{0.0, 0.0, 0.0}, to);
+	}
+	else
+	{
+		engfunc(EngFunc_MessageBegin, MSG_ALL, g_msg_link, Float:{0.0, 0.0, 0.0}, 0);
+	}
+	write_byte(slot);
+	write_byte(linked);
+	message_end();
+}
+
+/** H9Level to one client (to) or every client (0): the slot's level, 0 to 99, or 255 for none. */
+send_level(to, slot, level)
+{
+	if (!g_msg_level)
+	{
+		return;
+	}
+	if (to)
+	{
+		if (!is_user_connected(to) || is_user_bot(to))
+		{
+			return;
+		}
+		engfunc(EngFunc_MessageBegin, MSG_ONE, g_msg_level, Float:{0.0, 0.0, 0.0}, to);
+	}
+	else
+	{
+		engfunc(EngFunc_MessageBegin, MSG_ALL, g_msg_level, Float:{0.0, 0.0, 0.0}, 0);
+	}
+	write_byte(slot);
+	write_byte(level);
+	message_end();
+}
+
+/** The answer's "levels": { "<slot>": level }, for proven players; a slot not there has none. */
+apply_levels(EzJSON:root)
+{
+	new bool:any = ezjson_object_has_value(root, "levels", EzJSONObject);
+	new key[32], lv;
+	for (new id = 1; id <= g_max; id++)
+	{
+		if (!g_in[id] || g_sent_gen[id] != g_gen[id])
+		{
+			continue;
+		}
+		lv = 0;
+		formatex(key, charsmax(key), "levels.%d", id);
+		if (any && ezjson_object_has_value(root, key, EzJSONNumber, true))
+		{
+			lv = clamp(ezjson_object_get_number(root, key, true), 0, 99) + 1;
+		}
+		if (lv != g_level[id])
+		{
+			g_level[id] = lv;
+			send_level(0, id, lv ? lv - 1 : 255);
+		}
+	}
+}
+
+/** The answer's "avatars": { "<slot>": { "a": account, "v": version } }, for proven players. */
+apply_avatars(EzJSON:root)
+{
+	if (!ezjson_object_has_value(root, "avatars", EzJSONObject))
+	{
+		return;
+	}
+	new key[32], a, v;
+	for (new id = 1; id <= g_max; id++)
+	{
+		if (!g_in[id] || g_sent_gen[id] != g_gen[id])
+		{
+			continue;
+		}
+		formatex(key, charsmax(key), "avatars.%d.a", id);
+		a = ezjson_object_has_value(root, key, EzJSONNumber, true) ? ezjson_object_get_number(root, key, true) : 0;
+		formatex(key, charsmax(key), "avatars.%d.v", id);
+		v = ezjson_object_has_value(root, key, EzJSONNumber, true) ? ezjson_object_get_number(root, key, true) : 0;
+		if (a < 0 || v < 0)
+		{
+			a = 0;
+			v = 0;
+		}
+		if (a != g_av_account[id] || v != g_av_version[id])
+		{
+			g_av_account[id] = a;
+			g_av_version[id] = v;
+			send_avatar(0, id, a, v);
+		}
+		if ((a != 0) != g_linked[id])
+		{
+			g_linked[id] = a != 0;
+			send_link(0, id, g_linked[id] ? 1 : 0);
+		}
+	}
+}
+
+/**
+ * h9web's word on this listen server's own player ("host": "proven", "known" or "unknown"),
+ * logged when it changes: "unknown" is a game whose player id is no havoc9.org account's.
+ */
+apply_host(EzJSON:root)
+{
+	new word[16];
+	word[0] = 0;
+	if (ezjson_object_has_value(root, "host", EzJSONString))
+	{
+		ezjson_object_get_string(root, "host", word, charsmax(word));
+	}
+	if (!word[0] || equal(word, g_hoststate))
+	{
+		return;
+	}
+	copy(g_hoststate, charsmax(g_hoststate), word);
+	if (equal(word, "proven"))
+	{
+		log_amx("[PRESENCE] This game's own player is a proven havoc9.org account here.");
+	}
+	else if (equal(word, "known"))
+	{
+		log_amx("[PRESENCE] havoc9.org knows this game's own player but has no proof yet: an H9XASH from before 2026-11-02, or h9_presence_challenge 0.");
+	}
+	else
+	{
+		log_amx("[PRESENCE] havoc9.org does not know this game's own player: the player id in H9XASH's user_id.ini is not a havoc9.org account's (the ACCOUNT page shows the start of yours; docs/CUSTOM_XASH_USERID.txt).");
+	}
+}
+
+/** A client that just joined: every slot's picture there is, who is linked, and each level. */
+public task_avatars_to(task)
+{
+	new to = task - TASK_AVATARS;
+	for (new id = 1; id <= g_max; id++)
+	{
+		if (g_av_account[id])
+		{
+			send_avatar(to, id, g_av_account[id], g_av_version[id]);
+		}
+		if (g_linked[id])
+		{
+			send_link(to, id, 1);
+		}
+		else if (g_isbot[id])
+		{
+			send_link(to, id, 2);
+		}
+		if (g_level[id])
+		{
+			send_level(to, id, g_level[id] - 1);
+		}
+	}
 }
 
 // ---- names ------------------------------------------------------------------------------------
@@ -1469,15 +2186,11 @@ mode_name(const map[], const key[], const siege[], out[], len)
  */
 detail_line(const mode[], const key[], const siege[], const attack[], const prog[], out[], len)
 {
-	new side[16];
+	new side[40];
 	side[0] = 0;
-	if (attack[0] == '1')
+	if (attack[0] == '1' || attack[0] == '2')
 	{
-		copy(side, charsmax(side), "MSR");
-	}
-	else if (attack[0] == '2')
-	{
-		copy(side, charsmax(side), "Insurgents");
+		team_label(attack[0] - '0', false, side, charsmax(side));
 	}
 
 	if (siege[0] && side[0])
@@ -1502,7 +2215,17 @@ detail_line(const mode[], const key[], const siege[], const attack[], const prog
 			}
 			at += cut + 1;
 		}
-		formatex(out, len, "%s - zones: MSR %d, Insurgents %d of %d", mode, held[0], held[1], held[2]);
+		new t1[40], t2[40];
+		team_label(1, false, t1, charsmax(t1));
+		team_label(2, false, t2, charsmax(t2));
+		formatex(out, len, "%s - zones: %s %d, %s %d of %d", mode, t1, held[0], t2, held[1], held[2]);
+		// h9web keeps 96 characters of it: long names go short
+		if (strlen(out) > 90)
+		{
+			team_label(1, true, t1, charsmax(t1));
+			team_label(2, true, t2, charsmax(t2));
+			formatex(out, len, "%s - zones: %s %d, %s %d of %d", mode, t1, held[0], t2, held[1], held[2]);
+		}
 	}
 	else if (equali(key, "survival") && prog[0])
 	{
@@ -1512,6 +2235,42 @@ detail_line(const mode[], const key[], const siege[], const attack[], const prog
 	{
 		copy(out, len, mode);
 	}
+}
+
+/**
+ * A side's name as ts_matchmode names it (tsm_team1_name, tsm_team2_name, up to 31 characters), or
+ * MSR and Insurgents without it; short: the initials of a name of several words that is longer
+ * than 12 characters ("Middle Sea Republic" is "MSR").
+ */
+team_label(team, bool:short, out[], len)
+{
+	new name[40];
+	name[0] = 0;
+	new cv = get_cvar_pointer(team == 1 ? "tsm_team1_name" : "tsm_team2_name");
+	if (cv)
+	{
+		get_pcvar_string(cv, name, charsmax(name));
+		trim(name);
+	}
+	if (!name[0])
+	{
+		copy(out, len, team == 1 ? "MSR" : "Insurgents");
+		return;
+	}
+	if (!short || strlen(name) <= 12 || contain(name, " ") < 0)
+	{
+		copy(out, len, name);
+		return;
+	}
+	new n = 0;
+	for (new i = 0; name[i] && n < len; i++)
+	{
+		if (name[i] != ' ' && (i == 0 || name[i - 1] == ' '))
+		{
+			out[n++] = (name[i] >= 'a' && name[i] <= 'z') ? name[i] - 32 : name[i];
+		}
+	}
+	out[n] = 0;
 }
 
 // ---- the JSON body ------------------------------------------------------------------------------
@@ -1816,8 +2575,14 @@ public cmd_status()
 	server_print("  self-test: %s", g_selftest ? "passed" : "FAILED (nothing is reported)");
 	server_print("  config: %s (server ^"%s^", key %s)", g_ready ? "reporting" : "not reporting", g_server, g_key[0] ? "set" : "not set");
 	new const STATES[][] = { "not enrolled", "enrolled, waiting for h9web to see the code", "enrolled, waiting for an H9 admin", "live" };
-	server_print("  enrollment: %s%s; server id %s", g_manual ? "a hand-made key" : STATES[g_estate], is_dedicated_server() ? "" : " (a listen server never enrolls)", g_serverid[0] ? g_serverid : "none yet");
+	server_print("  enrollment: %s%s; server id %s", g_manual ? "a hand-made key" : STATES[g_estate], is_dedicated_server() ? "" : " (a listen server: enrolled by its own player's ID proof)", g_serverid[0] ? g_serverid : "none yet");
 	server_print("  challenge: %s; names: %s", get_pcvar_num(g_cv_challenge) ? "on" : "off", g_names ? "fixed on this map" : "free on this map");
+	if (!is_dedicated_server())
+	{
+		server_print("  this game's own player: %s", g_hoststate[0] ? g_hoststate : "not reported yet");
+	}
+	server_print("  accounts only: %s%s", get_pcvar_num(g_cv_require) == 1 ? "on" : "off",
+		get_pcvar_num(g_cv_require) != 1 ? "" : !g_ready ? " (not reporting: nobody is kicked for it)" : h9web_answering() ? " (h9web answering)" : " (h9web not answering lately: nobody is kicked for it)");
 	new ids = 0, proven = 0;
 	for (new id = 1; id <= g_max; id++)
 	{

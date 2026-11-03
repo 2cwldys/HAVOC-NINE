@@ -166,8 +166,8 @@ void CTSSlowMotion::Spawn()
 	m_flStopTime = 0;
 	m_iToggledOn = 0;
 	pev->nextthink = gpGlobals->time + 0.5f;
-	for (int i = 0; i < TS_SLOMO_MAX_PLAYERS; i++)
-		m_hPlayers[i] = NULL;
+	for (int i = 0; i < TS_SLOMO_SLOTS; i++)
+		PlayerAt(i) = NULL;
 
 	m_iRadius = (int)((pev->absmax - pev->absmin).Length() * 0.5f);
 	m_iAllMap = (pev->spawnflags & SF_SLOMO_ALL_MAP) ? 1 : 0;
@@ -203,19 +203,19 @@ void CTSSlowMotion::DeactivateSlow()
 
 	if (!m_iAllMap)
 	{
-		for (int i = 0; i < TS_SLOMO_MAX_PLAYERS; i++)
+		for (int i = 0; i < TS_SLOMO_SLOTS; i++)
 		{
-			CBaseEntity *pEnt = m_hPlayers[i];
+			CBaseEntity *pEnt = PlayerAt(i);
 			if (pEnt && pEnt->IsPlayer())
 				((CBasePlayer *)pEnt)->GoSlow(1.0f, 0);
-			m_hPlayers[i] = NULL;
+			PlayerAt(i) = NULL;
 		}
 	}
 	else
 	{
 		TSGameRules->GlobalSlowMotion2(0, 0);
-		for (int i = 0; i < TS_SLOMO_MAX_PLAYERS; i++)
-			m_hPlayers[i] = NULL;
+		for (int i = 0; i < TS_SLOMO_SLOTS; i++)
+			PlayerAt(i) = NULL;
 	}
 }
 
@@ -236,8 +236,8 @@ void CTSSlowMotion::WaitTouch(CBaseEntity *pOther)
 	pPlayer->m_bSlowBullets = m_bSlowBullets != 0;
 
 	int idx = ENTINDEX(pOther->edict());
-	if (idx >= 0 && idx < TS_SLOMO_MAX_PLAYERS)
-		m_hPlayers[idx] = pOther;
+	if (idx >= 0 && idx < TS_SLOMO_SLOTS)
+		PlayerAt(idx) = pOther;
 }
 
 // @ WaitThink__13CTSSlowMotion — poll: keep the slow applied / time it out.
@@ -276,9 +276,9 @@ void CTSSlowMotion::WaitThink()
 void CTSSlowMotion::CheckPlayersDistance()
 {
 	Vector center = Center();
-	for (int i = 0; i < TS_SLOMO_MAX_PLAYERS; i++)
+	for (int i = 0; i < TS_SLOMO_SLOTS; i++)
 	{
-		CBaseEntity *pEnt = m_hPlayers[i];
+		CBaseEntity *pEnt = PlayerAt(i);
 		if (!pEnt || !pEnt->IsPlayer())
 			continue;
 
@@ -290,7 +290,7 @@ void CTSSlowMotion::CheckPlayersDistance()
 		if (dist > m_iRadius)
 		{
 			pPlayer->GoSlow(1.0f, 0);
-			m_hPlayers[i] = NULL;
+			PlayerAt(i) = NULL;
 		}
 	}
 }
@@ -330,8 +330,8 @@ void CTSSlowMotionPoint::Spawn()
 	m_flScale = 0;
 	m_flValue = 0;
 	m_bSlowBullets = false;
-	for (int i = 0; i < 33; i++)
-		m_hPlayers[i] = NULL;
+	for (int i = 0; i < MAX_PLAYERS + 1; i++)
+		PlayerAt(i) = NULL;
 }
 
 // @0x618ac ActivateSlow — the slow factor and the lifetime
@@ -371,20 +371,20 @@ void CTSSlowMotionPoint::WaitThink()
 		p->GoSlow(m_flScale, 0);
 		p->m_bSlowBullets = m_bSlowBullets;
 		const int idx = ENTINDEX(p->edict());
-		if (idx < 33)
-			m_hPlayers[idx] = p;
+		if (idx < MAX_PLAYERS + 1)
+			PlayerAt(idx) = p;
 	}
 }
 
 // @0x6166c DeactivateSlow — everyone this bubble slowed goes back to normal speed.
 void CTSSlowMotionPoint::DeactivateSlow()
 {
-	for (int i = 0; i < 33; i++)
+	for (int i = 0; i < MAX_PLAYERS + 1; i++)
 	{
-		CBaseEntity *p = m_hPlayers[i];
+		CBaseEntity *p = PlayerAt(i);
 		if (p)
 			p->GoSlow(1.0f, 0);
-		m_hPlayers[i] = NULL;
+		PlayerAt(i) = NULL;
 	}
 }
 

@@ -14,7 +14,8 @@
       the font cache, the spray cache, AMXX stats and vaults, RCBot's player-name list;
     - logs, process ids, backups (*.bak*), temporary and junk files.
   A new player then starts from the stock files a fresh install would have:
-    - ts\config.cfg from TS 3.0 (reTS\game\ts or ts3.0\ts beside H9XASH);
+    - ts\config.cfg from TS 3.0: H9XASH\ts\config.stock.cfg, or reTS\game\ts or ts3.0\ts
+      beside H9XASH;
     - networking.ini from the overlay template (xash3d-h9-patches\overlay);
     - tempdecal.wad from TS 3.0, when there is one.
   Every config-like file left (.cfg .ini .lst .rc .json) is then scrubbed line by line:
@@ -24,21 +25,51 @@
   private key anywhere in it stops the run before a ZIP is written.
   H9XASH itself is only read, never changed.
 
+  Unless -NoLinux is given, the same staged tree also goes out for Linux players, as
+  dist\H9XASH-linux.zip with one H9XASH\ folder in it. It holds h9xash.sh, h9_userid.sh
+  and README_LINUX.txt (from xash3d-h9-patches\overlay when H9XASH has none yet), the .sh
+  files with LF line ends and Unix mode 0755, which unzip and Linux archive managers give
+  back. Python's zipfile writes it, through the py launcher; without Python the .zip keeps
+  no file modes, so its players start the game with "bash h9xash.sh". Left out of both
+  packages as well: a Wine prefix kept inside H9XASH (drive_c, dosdevices, its .reg
+  files), the MOTD web view's webview2\data and webview2\runtime folders, and
+  .gitattributes.
+
+  H9XASH.zip and H9XASH-linux.zip are the names havoc9.org's downloads page links to: both
+  go in the site's downloads folder. The run warns when that page (havoc9.org\downloads\
+  index.html beside this script) does not link them or shows another build.
+
+  Unless -NoWebFiles is given, the same staged tree is published for H9XASH-Updater too
+  (tools\updater\publish_files.py, through the py launcher), into -FilesDir: manifest.json,
+  the build and every file's path, size, SHA-256 and mode, and each distinct file once,
+  named by its SHA-256. havoc9.org serves that folder as /files/, and the updater downloads
+  only the files a player's folder lacks or has changed. The files a new player starts from
+  (the stock config.cfg, networking.ini and tempdecal.wad above) go in as seeds, which the
+  updater puts only where a player has none. Files neither this release nor the one before
+  it names are removed. Copy the folder to the site's files/ (tools\updater\
+  README_UPDATER.txt, section 3).
+
 .PARAMETER Source
   The H9XASH folder to pack. Default: H9XASH beside this script.
 
 .PARAMETER OutDir
-  Where the ZIP and its report go. Default: dist beside this script (git ignores it).
+  Where the two ZIPs and the report go. Default: dist beside this script (git ignores it).
+
+.PARAMETER StageDir
+  Where the temporary copy is built before zipping (about 1.3 GB). Default: .stage inside
+  OutDir, on the output's own drive; never %TEMP%, which is usually on C:.
 
 .PARAMETER Name
-  The ZIP's file name without .zip. Default: H9XASH-<build>-<yyyyMMdd-HHmm>, the build
-  read from VERSION.txt beside H9XASH.
+  The ZIP's file name without .zip. Default: H9XASH, the name the downloads page links;
+  the Linux package is <Name>-linux.zip. The build, read from VERSION.txt beside H9XASH,
+  is in the report.
 
 .PARAMETER AllowIp
   Public IP addresses that may stay in config files (a master server, say).
 
 .PARAMETER DryRun
-  Stage and scrub, write the report, keep the staged folder, but make no ZIP.
+  Stage and scrub, write the report, keep the staged folder, but make no ZIP and no
+  Linux package.
 
 .PARAMETER KeepStage
   Keep the staged folder after zipping, to test-play it first.
@@ -46,19 +77,35 @@
 .PARAMETER Compression
   Optimal (default) or Fastest.
 
+.PARAMETER NoLinux
+  Make the Windows ZIP only, no Linux package.
+
+.PARAMETER FilesDir
+  Where the web files for H9XASH-Updater go. Default: dist\files beside this script (git
+  ignores it).
+
+.PARAMETER NoWebFiles
+  Publish no web files for H9XASH-Updater.
+
 .EXAMPLE
   .\stage-h9xash.ps1
   .\stage-h9xash.ps1 -DryRun
   .\stage-h9xash.ps1 -Source D:\Downloads\TSM\H9XASH -KeepStage
+  .\stage-h9xash.ps1 -NoLinux
+  .\stage-h9xash.ps1 -NoWebFiles
 #>
 [CmdletBinding()]
 param(
     [string]$Source,
     [string]$OutDir,
+    [string]$StageDir,
     [string]$Name,
     [string[]]$AllowIp = @(),
     [switch]$DryRun,
     [switch]$KeepStage,
+    [switch]$NoLinux,
+    [string]$FilesDir,
+    [switch]$NoWebFiles,
     [ValidateSet('Optimal', 'Fastest')][string]$Compression = 'Optimal'
 )
 
@@ -69,6 +116,8 @@ $ErrorActionPreference = 'Stop'
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $Source) { $Source = Join-Path $Here 'H9XASH' }
 if (-not $OutDir) { $OutDir = Join-Path $Here 'dist' }
+if (-not $StageDir) { $StageDir = Join-Path $OutDir '.stage' }
+if (-not $FilesDir) { $FilesDir = Join-Path $OutDir 'files' }
 
 # ---- rules ----------------------------------------------------------------------------
 
@@ -76,7 +125,8 @@ if (-not $OutDir) { $OutDir = Join-Path $Here 'dist' }
 $SkipDirNames = @('logs', 'save', 'screenshots', 'scrshots', 'ts_downloads', 'downloads',
     '.fontcache', 'userconfig.d', '__pycache__', '.venv', 'venv', '.git', 'node_modules')
 # Folders left out at this path under H9XASH. Each is made again, empty, when $RecreateDirs lists it.
-$SkipDirPaths = @('presets\backup', 'ts\addons\amxmodx\data\vault')
+# webview2\data is the splash MOTD's embedded browser's own files; webview2\runtime a player's own WebView2 runtime.
+$SkipDirPaths = @('presets\backup', 'ts\addons\amxmodx\data\vault', 'webview2\data', 'webview2\runtime')
 $RecreateDirs = @('ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\logs')
 
 # Files left out wherever they are (lower case).
@@ -92,11 +142,18 @@ $SkipExt = @('.log', '.pid', '.tmp', '.new', '.orig', '.rej', '.dmp', '.mdmp', '
 # File names matched by pattern: backups, files h9xash.bat writes per launch, stray build output.
 $SkipPatterns = @('\.bak($|[._-])', '_resolved\.cfg$', '^user_id\.ini', '^device_id\.ini',
     '^h9_presence.*\.(key|cfg\.bak.*)$', 'downloadstsm')
+# A Wine prefix someone keeps inside H9XASH (its drive_c and dosdevices folders and its
+# registry files), and git's attribute file: never in a package.
+$SkipDirNames += @('drive_c', 'dosdevices')
+# H9XASH-Updater's own folder in an install it keeps (tools\updater): its record of the
+# installed files, its log, and the previous files it keeps for a rollback.
+$SkipDirNames += @('.h9xash-updater')
+$SkipNames += @('.gitattributes', 'system.reg', 'user.reg', 'userdef.reg', '.update-timestamp')
 
 # Files a new player gets from a stock source instead. Relative to H9XASH, then the candidates
 # relative to the folder H9XASH sits in.
 $Replacements = @(
-    @{ At = 'ts\config.cfg'; From = @('reTS\game\ts\config.cfg', 'ts3.0\ts\config.cfg'); Fallback = 'scrub' },
+    @{ At = 'ts\config.cfg'; From = @('H9XASH\ts\config.stock.cfg', 'reTS\game\ts\config.cfg', 'ts3.0\ts\config.cfg'); Fallback = 'scrub' },
     @{ At = 'networking.ini'; From = @('xash3d-h9-patches\overlay\networking.ini'); Fallback = 'scrub' },
     @{ At = 'ts\tempdecal.wad'; From = @('reTS\game\ts\tempdecal.wad', 'ts3.0\ts\tempdecal.wad'); Fallback = 'drop' }
 )
@@ -107,11 +164,15 @@ $Essentials = @('HAVOC 9.exe', 'xash.dll', 'menu.dll', 'ref_gl.dll', 'SDL2.dll',
     'ts\liblist.gam', 'ts\gameinfo.txt', 'ts\delta.lst', 'ts\dlls\mp.dll', 'ts\cl_dlls\client.dll',
     'ts\autoexec.cfg', 'ts\userconfig.cfg', 'ts\addons\metamod\plugins.ini',
     'ts\addons\amxmodx\configs\plugins.ini', 'ts\addons\amxmodx\configs\amxx.cfg')
+# The Linux launcher, its id tool and their README (README_LINUX.txt), in H9XASH from the overlay.
+$LinuxFiles = @('h9xash.sh', 'h9_userid.sh', 'README_LINUX.txt')
+$Essentials += $LinuxFiles
 
 # Config-like files are scrubbed line by line; every text file is scanned for hard secrets.
 $ConfigExt = @('.cfg', '.ini', '.lst', '.rc', '.json')
 $TextExt = @('.cfg', '.ini', '.lst', '.rc', '.json', '.txt', '.md', '.htm', '.html', '.xml', '.yml', '.yaml',
     '.csv', '.bat', '.cmd', '.ps1', '.py', '.sma', '.inc', '.gam', '.example', '.pem', '.url', '.js', '.res')
+$TextExt += @('.sh')
 
 # Settings whose value is a secret or a player id.
 $SecretKeyExact = '^(cl_h9_userid|h9_clientid|h9_userid|h9_deviceid|device_id|_pw|password|rcon_password|sv_password|h9_presence_key|tsm_ad_token)$'
@@ -130,6 +191,82 @@ $RxHard = @(
 $ExampleIps = @('123.45.67.89')
 
 # ---- helpers ---------------------------------------------------------------------------
+# The Linux package's writer, run through the py launcher: the staged H9XASH folder as one
+# H9XASH/ folder in a .zip made as a Unix one -- folders 0755, files 0644, .sh files 0755 with
+# LF line ends, in sorted order -- then read back and checked against those rules. unzip and
+# Linux archive managers give the .sh files their mode 0755 back.
+$LinuxZipPy = @'
+import os, shutil, stat, sys, time, zipfile
+
+stage, out = sys.argv[1], sys.argv[2]
+part = out + '.part'
+top = 'H9XASH'
+count = {'dirs': 0, 'files': 0, 'sh': 0}
+
+
+def entry(name, mode, mtime):
+    when = time.localtime(mtime)[:6]
+    if when[0] < 1980:
+        when = (1980, 1, 1, 0, 0, 0)
+    zi = zipfile.ZipInfo(name, when)
+    zi.create_system = 3
+    zi.external_attr = mode << 16
+    if stat.S_ISDIR(mode):
+        zi.external_attr |= 0x10
+    else:
+        zi.compress_type = zipfile.ZIP_DEFLATED
+    return zi
+
+
+with zipfile.ZipFile(part, 'w', zipfile.ZIP_DEFLATED, allowZip64=True, compresslevel=6) as zf:
+    for root, dirs, files in os.walk(stage):
+        dirs.sort()
+        files.sort()
+        rel = os.path.relpath(root, stage)
+        arc = top if rel == '.' else top + '/' + rel.replace(os.sep, '/')
+        zf.writestr(entry(arc + '/', stat.S_IFDIR | 0o755, os.stat(root).st_mtime), b'')
+        count['dirs'] += 1
+        for f in files:
+            p = os.path.join(root, f)
+            st = os.stat(p)
+            if f.lower().endswith('.sh'):
+                with open(p, 'rb') as fh:
+                    data = fh.read().replace(b'\r\n', b'\n')
+                zf.writestr(entry(arc + '/' + f, stat.S_IFREG | 0o755, st.st_mtime), data)
+                count['sh'] += 1
+            else:
+                zi = entry(arc + '/' + f, stat.S_IFREG | 0o644, st.st_mtime)
+                with open(p, 'rb') as fh, zf.open(zi, 'w', force_zip64=st.st_size > 0x7fffffff) as dst:
+                    shutil.copyfileobj(fh, dst, 1 << 20)
+            count['files'] += 1
+
+problems = []
+with zipfile.ZipFile(part) as zf:
+    infos = zf.infolist()
+    for zi in infos:
+        if not zi.filename.startswith(top + '/'):
+            problems.append('outside H9XASH/: ' + zi.filename)
+        if zi.create_system != 3:
+            problems.append('not a Unix entry: ' + zi.filename)
+        if not zi.is_dir() and zi.filename.lower().endswith('.sh'):
+            if (zi.external_attr >> 16) & 0o777 != 0o755:
+                problems.append('mode %o: %s' % ((zi.external_attr >> 16) & 0o777, zi.filename))
+            if b'\r' in zf.read(zi):
+                problems.append('a CR in ' + zi.filename)
+    bad = zf.testzip()
+    if bad:
+        problems.append('bad CRC: ' + bad)
+if len(infos) != count['dirs'] + count['files']:
+    problems.append('%d entries read back, %d written' % (len(infos), count['dirs'] + count['files']))
+if problems:
+    print('STOPPED: ' + '; '.join(problems[:10]))
+    os.remove(part)
+    sys.exit(1)
+os.replace(part, out)
+print('%d files in %d folders, all under H9XASH/; %d .sh files at mode 0755 with LF line ends; read back and checked'
+      % (count['files'], count['dirs'], count['sh']))
+'@
+
 
 $Latin1 = [Text.Encoding]::GetEncoding(28591)
 $Report = New-Object System.Collections.Generic.List[string]
@@ -224,6 +361,13 @@ if (-not (Test-Path -LiteralPath (Join-Path $Source 'ts') -PathType Container)) 
 $Root = Split-Path $Source -Parent
 $OutDir = [IO.Path]::GetFullPath($OutDir)
 
+# A clone made without Git LFS holds pointer files in place of the maps, models and archives, and
+# the ZIP would ship them: tools\check-lfs.ps1 lists them with the fix (docs\BUILDING.txt).
+$lfsCheck = Join-Path $Here 'tools\check-lfs.ps1'
+if (-not (Test-Path -LiteralPath $lfsCheck)) { throw "No $lfsCheck beside this script: the game files cannot be checked." }
+& $lfsCheck -Path $Source
+if ($LASTEXITCODE -ne 0) { throw 'H9XASH holds Git LFS pointers or cut-short game files (listed above); no ZIP was written.' }
+
 $build = 'local'
 $versionFile = Join-Path $Root 'VERSION.txt'
 if (Test-Path -LiteralPath $versionFile) {
@@ -231,8 +375,9 @@ if (Test-Path -LiteralPath $versionFile) {
     if ($vm) { $build = $vm.Matches[0].Groups[1].Value }
 }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
-if (-not $Name) { $Name = "H9XASH-$build-$stamp" }
+if (-not $Name) { $Name = 'H9XASH' }
 $zipPath = Join-Path $OutDir "$Name.zip"
+$linuxZip = Join-Path $OutDir "$Name-linux.zip"
 $reportPath = Join-Path $OutDir "$Name.report.txt"
 
 Say "stage-h9xash: $Source"
@@ -247,7 +392,7 @@ try {
     if ($running) { Warn "the game is running from this folder ($(($running | Select-Object -ExpandProperty ProcessName -Unique) -join ', ')); files it is writing are left out anyway" }
 } catch { }
 
-$stageBase = Join-Path ([IO.Path]::GetTempPath()) "h9xash-stage-$stamp-$PID"
+$stageBase = Join-Path ([IO.Path]::GetFullPath($StageDir)) "h9xash-stage-$stamp-$PID"
 $stage = Join-Path $stageBase 'H9XASH'
 
 $all = Get-ChildItem -LiteralPath $Source -Recurse -Force -File -ErrorAction Stop
@@ -309,6 +454,51 @@ foreach ($r in $Replacements) {
         Warn "$($r.At): no stock copy found beside H9XASH, so this install's own was scrubbed instead ($n lines removed)"
     } else {
         Say "  $($r.At): no stock copy, left out"
+    }
+}
+
+# ---- the Linux package's own files -----------------------------------------------------
+
+$linuxOk = $false
+$PyVersion = $null
+if (-not $NoLinux) {
+    Say ''
+    Say '2b. Linux files (h9xash.sh, h9_userid.sh, README_LINUX.txt)'
+    $overlay = Join-Path $Root 'xash3d-h9-patches\overlay'
+    $linuxOk = $true
+    foreach ($lf in $LinuxFiles) {
+        $dest = Join-Path $stage $lf
+        $ov = Join-Path $overlay $lf
+        if (-not (Test-Path -LiteralPath $dest -PathType Leaf)) {
+            if (Test-Path -LiteralPath $ov -PathType Leaf) {
+                Copy-Item -LiteralPath $ov -Destination $dest -Force
+                Say "  $lf <- $ov (H9XASH has none yet; xash.bat assets puts it there)"
+            } else {
+                Warn "$lf is in neither H9XASH nor the overlay, so there is no Linux package"
+                $linuxOk = $false
+            }
+        } elseif ((Test-Path -LiteralPath $ov -PathType Leaf) -and
+            ((Get-FileHash -LiteralPath $dest).Hash -ne (Get-FileHash -LiteralPath $ov).Hash)) {
+            Warn "$lf in H9XASH differs from the overlay's; H9XASH's goes out (xash.bat assets brings the overlay's in)"
+        }
+    }
+    # a Windows checkout may have given the .sh files CRLF line ends; bash on Linux needs LF
+    $lfFixed = 0
+    foreach ($f in @(Get-ChildItem -LiteralPath $stage -Recurse -Force -File -Filter '*.sh' | Where-Object { $_.Extension -ieq '.sh' })) {
+        $t = Read-Text $f.FullName
+        if ($t.Contains("`r`n")) { Write-Text $f.FullName $t.Replace("`r`n", "`n"); $lfFixed++ }
+    }
+    Say "  .sh files given LF line ends: $lfFixed"
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        try {
+            $v = @(& py -3 -c "import sys, zipfile, zlib; print(sys.version.split()[0])")
+            if ($LASTEXITCODE -eq 0 -and $v.Count -gt 0) { $PyVersion = [string]$v[0] }
+        } catch { $PyVersion = $null }
+    }
+    if ($linuxOk -and $PyVersion) {
+        Say "  package: $linuxZip (Python $PyVersion's zipfile; Unix mode 0755 on the .sh files)"
+    } elseif ($linuxOk) {
+        Say "  package: $linuxZip (no Python 3 through the py launcher: no file modes; players run bash h9xash.sh)"
     }
 }
 
@@ -395,6 +585,74 @@ $level = [IO.Compression.CompressionLevel]::$Compression
 $zipInfo = Get-Item -LiteralPath $zipPath
 $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
 Say ("  {0:N0} MB, SHA-256 {1}" -f ($zipInfo.Length / 1MB), $hash)
+
+# ---- the Linux package -----------------------------------------------------------------
+
+if ($linuxOk) {
+    Say ''
+    $linuxFile = $null
+    if (Test-Path -LiteralPath $linuxZip) { Remove-Item -LiteralPath $linuxZip -Force }
+    if ($PyVersion) {
+        Say "6. Linux package: $linuxZip"
+        $pyScript = Join-Path $stageBase 'make_linux_zip.py'
+        [IO.File]::WriteAllText($pyScript, $LinuxZipPy, [Text.Encoding]::ASCII)
+        $pyOut = @(& py -3 -I $pyScript $stage $linuxZip)
+        $pyRc = $LASTEXITCODE
+        foreach ($l in $pyOut) { Say "  $l" }
+        if ($pyRc -eq 0 -and (Test-Path -LiteralPath $linuxZip)) { $linuxFile = $linuxZip }
+        else { Warn "the Linux package was not made (Python exit $pyRc); the Windows ZIP is done" }
+    } else {
+        Say "6. Linux package: $linuxZip (no Python, so no file modes: Linux players start it with bash h9xash.sh)"
+        [IO.Compression.ZipFile]::CreateFromDirectory($stage, $linuxZip, $level, $true)
+        $linuxFile = $linuxZip
+    }
+    if ($linuxFile) {
+        $linuxInfo = Get-Item -LiteralPath $linuxFile
+        $linuxHash = (Get-FileHash -LiteralPath $linuxFile -Algorithm SHA256).Hash
+        Say ("  {0:N0} MB, SHA-256 {1}" -f ($linuxInfo.Length / 1MB), $linuxHash)
+    }
+}
+
+# ---- the web files for H9XASH-Updater -------------------------------------------------
+
+if (-not $NoWebFiles) {
+    Say ''
+    $FilesDir = [IO.Path]::GetFullPath($FilesDir)
+    $publisher = Join-Path $Here 'tools\updater\publish_files.py'
+    $webPy = $null
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        try {
+            $v = @(& py -3 -c "import sys; print(sys.version.split()[0])")
+            if ($LASTEXITCODE -eq 0 -and $v.Count -gt 0) { $webPy = [string]$v[0] }
+        } catch { $webPy = $null }
+    }
+    if (-not (Test-Path -LiteralPath $publisher)) {
+        Warn "no $publisher, so no web files for H9XASH-Updater were published"
+    } elseif (-not $webPy) {
+        Warn 'no Python 3 through the py launcher, so no web files for H9XASH-Updater were published'
+    } else {
+        Say "7. web files for H9XASH-Updater: $FilesDir (Python $webPy)"
+        $seedArgs = @()
+        foreach ($r in $Replacements) {
+            if (Test-Path -LiteralPath (Join-Path $stage $r.At) -PathType Leaf) { $seedArgs += @('--seed', $r.At) }
+        }
+        $pyOut = @(& py -3 -I $publisher $stage $FilesDir --build $build --name $Name @seedArgs)
+        $pyRc = $LASTEXITCODE
+        foreach ($l in $pyOut) { Say "  $l" }
+        if ($pyRc -ne 0) { Warn "the web files were not published (Python exit $pyRc); the ZIPs are done" }
+        else { Say "  copy $FilesDir to the site's files/ (tools\updater\README_UPDATER.txt, section 3)" }
+    }
+}
+
+# The downloads page beside this script links the two packages by name and shows the build.
+$page = Join-Path $Here 'havoc9.org\downloads\index.html'
+if (Test-Path -LiteralPath $page) {
+    $html = Read-Text $page
+    foreach ($want in @("href=`"$Name.zip`"", "href=`"$Name-linux.zip`"")) {
+        if (-not $html.Contains($want)) { Warn "the downloads page ($page) has no $want" }
+    }
+    if (-not $html.Contains("Version $build<")) { Warn "the downloads page does not show Version $build; update its two download notes" }
+}
 
 if ($KeepStage) { Say "  stage kept: $stage" }
 else { Remove-Item -LiteralPath $stageBase -Recurse -Force }

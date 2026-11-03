@@ -38,13 +38,18 @@ one that runs a different game folder from `gamedir`.
 
 `serverlist.cfg` holds secrets and is git-ignored. Do not copy it anywhere that is shared.
 
-To point the game at the list, set this in `networking.ini` in H9XASH, with an address the
-players can reach:
+The game finds the list through `networking.ini` in H9XASH, which ships with
 
-    list_bot=http://<public address>:8081
+    list_bot=https://havoc9.org/serverlist
 
-The game reads it at each launch of `h9xash.bat`. Players can only reach the list if the port
-is open from the internet, so forward it on the router, or host the list somewhere public.
+On the VPS the list listens on 127.0.0.1:8081 and nginx passes `https://havoc9.org/serverlist/`
+on to it (`havoc9.org/deploy/nginx-setup.sh`; `vps/linux/README-VPS.txt` sets the whole VPS up, the
+list as the `h9-serverlist` service). The game reads `networking.ini` at each launch of
+`h9xash.bat`. For a test list on this PC: `list_bot=http://127.0.0.1:8081` there, and in
+`serverlist.ini` `public_url =` empty (and `host = 0.0.0.0` for players on the LAN, who use
+`http://<this PC's LAN address>:8081`). `H9_SERVERLIST_HOME`, when set, names the folder that
+holds `serverlist.ini`, `serverlist.cfg`, `servers.txt` and `serverlist.log` instead of this
+one.
 
 ## Discord
 
@@ -72,16 +77,28 @@ empty, anyone with Manage Server.
 ## Heartbeats
 
 A heartbeat adds a server. The list then keeps it the same way as any other, by querying it.
-The body is JSON:
+The body is JSON, in one of two kinds:
 
-    curl -X POST http://<list address>:8081/v1/heartbeat -H "Content-Type: application/json" -d "{\"key\":\"<heartbeat_key>\",\"address\":\"<server public address>:27015\"}"
+* Without a key, the server announces itself: the list takes the address the heartbeat comes
+  from (behind nginx, the X-Real-IP it names) with the port in the body. This is what a
+  dedicated server started with `h9xash_server.bat` sends every two minutes (`h9_heartbeat.ps1`
+  beside it; `heartbeat=0` under `[server]` in its `networking.ini` turns that off). Any other
+  server can do the same on a timer, for example from cron:
 
-Answers: 200 when the server answered its query, 401 for a wrong or missing key, 400 for a bad
-address or a body that is not JSON, and 422 when no server answered at that address, or the
-server runs another game folder.
+      curl -X POST https://havoc9.org/serverlist/v1/heartbeat -H "Content-Type: application/json" -d "{\"port\":27015}"
 
-Nothing in this folder sends heartbeats for you. A plugin that sends them on a timer is not
-written yet.
+  `open_heartbeats = 0` in `serverlist.ini` refuses these.
+* With `heartbeat_key` from `serverlist.cfg`, any address:
+
+      curl -X POST https://havoc9.org/serverlist/v1/heartbeat -H "Content-Type: application/json" -d "{\"key\":\"<heartbeat_key>\",\"address\":\"<server public address>:27015\"}"
+
+A server that `servers.txt` names by a host name (`havoc9.org:27015`) and that heartbeats from
+that name's address is the same entry, not a second one.
+
+Answers: 200 when the server answered its query, 401 for a wrong key (or no key while
+`open_heartbeats` is 0), 403 for a keyless heartbeat that names another address, 400 for a bad
+address or port or a body that is not JSON, and 422 when no server answered at that address
+(its UDP port is shut, say), or the server runs another game folder.
 
 ## For a website: the JSON list
 

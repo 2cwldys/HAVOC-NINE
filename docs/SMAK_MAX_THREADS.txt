@@ -1,0 +1,42 @@
+===============================================================================
+ MAP COMPILE THREADS: TURNING THEM DOWN ON A WEAKER OR OLDER PC
+===============================================================================
+
+ hlcsg, hlbsp, hlvis and hlrad (the four tools that turn a .map into a .bsp) all
+ auto-detect your CPU and use every logical core it has, by default, for the
+ whole length of the compile. On a big map hlvis and hlrad can run for minutes
+ to hours, which means every core pinned at 100% for that whole time -- fine on
+ a modern, well-cooled desktop, but real strain on an older laptop, a small-form
+ -factor PC, a machine with dust-clogged fans, or anything else with less
+ cooling headroom than a full tower. Turning the thread count down trades
+ compile time for lower peak load: the same work gets done, just spread over
+ fewer cores and more wall-clock minutes.
+
+ 1. CHECKING HOW MANY THREADS YOUR CPU HAS
+ ------------------------------------------
+   Easiest, graphical:
+     1. Right-click the Windows taskbar and choose Task Manager (or Ctrl+Shift+Esc).
+     2. Click the "Performance" tab, then "CPU" in the left list.
+     3. The number in the bottom-right corner, labelled "Logical processors", is
+        your thread count. ("Cores" just above it is the physical count; with
+        hyperthreading/SMT, logical processors is usually double that.)
+
+   Command line (either works, pick whichever you have open):
+     Command Prompt:    echo %NUMBER_OF_PROCESSORS%
+     PowerShell:         (Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors
+
+ 2. TURNING IT DOWN
+ --------------------
+   -threads is a real flag on all four compiler tools (hlcsg, hlbsp, hlvis,
+   hlrad). However you're invoking a compile -- the smak CLI, or a script built
+   on SMAK's own maps.compileMap() -- pass it explicitly to bring the count down
+   from the auto-detected default, e.g. `-threads 4` on the command line, or
+   `args: { hlvis: ["-threads", "4"] }` (and likewise for the other three tools)
+   if you're calling compileMap() from a script.
+
+   Lower is gentler on the machine and slower in wall-clock time; higher is the
+   reverse. There's no fixed "right" number -- if a compile is making the system
+   too hot, loud or sluggish to use for anything else while it runs, lower the
+   number; if a compile that finishes fine is just taking longer than you'd
+   like and the machine handles it comfortably, raise it. Leaving the flag off
+   entirely goes back to using every core (the default).

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <meta name="referrer" content="no-referrer">
+  <title>LINK A GAME -- HAVOC9</title>
+  <meta name="description" content="Link your downloaded HAVOC 9 game to your havoc9.org account with the code it shows">
+  <link rel="icon" type="image/gif" href="../h9helmet_glitch.gif">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../assets/account.css">
+</head>
+<body>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="../index.html" class="logo">
+        <img src="../h9helmet_glitch.gif" alt="Havoc9" class="logo-img">
+        <span class="logo-text">HAVOC<span class="orange">9</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="../index.html">HOME</a></li>
+        <li><a href="../webclient/index.html">PLAY</a></li>
+        <li><a href="../downloads/index.html">DOWNLOADS</a></li>
+        <li><a href="../servers/index.html">SERVERS</a></li>
+        <li><a href="../forum/index.html">FORUM</a></li>
+        <li><a href="../community/index.html">COMMUNITY</a></li>
+        <li><a href="../media/index.html">MEDIA</a></li>
+        <li><a href="../join/index.html">JOIN</a></li>
+        <li><a href="../museum/index.html">MUSEUM</a></li>
+        <li><a href="../credits/index.html">CREDITS</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="page account-page">
+    <div class="container">
+      <div class="page-header">
+        <span class="section-label">// ACCOUNT</span>
+        <h1 class="section-title">LINK A GAME</h1>
+        <div class="title-line"></div>
+      </div>
+
+      <div class="placeholder-box" id="linkLoading">
+        <p class="dim">Checking who you are&hellip;</p>
+      </div>
+
+      <div class="placeholder-box" id="linkUnavailable" hidden>
+        <h2>OFFLINE</h2>
+        <p>The account service is not answering right now. Try again in a minute: the code in your game works for 10 minutes.</p>
+      </div>
+
+      <div class="placeholder-box" id="linkSignedOut" hidden>
+        <img src="../h9helmet_glitch.gif" alt="Havoc9" class="placeholder-logo">
+        <h2>SIGN IN FIRST</h2>
+        <p>Sign in to the account your game should play as, and you come back here with the code.</p>
+        <div class="hero-cta" style="margin-top: 2rem;">
+          <a href="../account/login/" class="btn btn-primary" id="linkSignIn">SIGN IN</a>
+          <a href="../account/signup/" class="btn btn-ghost" id="linkSignUp">CREATE ACCOUNT</a>
+        </div>
+      </div>
+
+      <div id="linkSignedIn" hidden>
+        <div class="account-box">
+          <form class="account-form" id="codeForm" novalidate>
+            <div class="account-field">
+              <label for="linkCode">THE CODE YOUR GAME SHOWS</label>
+              <input id="linkCode" name="code" type="text" maxlength="16" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="WDJB-MJHT">
+              <p class="account-hint">Eight letters. Your game shows it after Link your Account in its main menu, or .link in chat on an H9 server.</p>
+            </div>
+            <p class="account-error" id="codeError" role="alert"></p>
+            <button type="submit" class="btn btn-primary">CONTINUE</button>
+          </form>
+        </div>
+
+        <div class="account-box" id="linkAsk" hidden style="margin-top: 1.5rem;">
+          <p class="account-small" style="text-align: left;">A game is asking to play as your account, <strong id="linkAccount"></strong>:</p>
+          <div class="feature-list" style="margin: 1rem 0;">
+            <div class="feature-row"><span class="feature-label">CODE</span><span class="feature-value"><code id="linkShownCode"></code></span></div>
+            <div class="feature-row"><span class="feature-label">GAME</span><span class="feature-value" id="linkLabel"></span></div>
+            <div class="feature-row"><span class="feature-label">ASKED</span><span class="feature-value" id="linkCreated"></span></div>
+            <div class="feature-row"><span class="feature-label">NETWORK</span><span class="feature-value" id="linkNetwork"></span></div>
+          </div>
+          <p class="account-warn" id="linkWarn"><strong>Only a code your own game shows you.</strong> The game that shows this code plays as you on H9's servers once you press LINK, whoever runs it. If somebody sent you this code or this page, press NOT ME.</p>
+          <p class="account-error" id="askError" role="alert"></p>
+          <div class="account-actions">
+            <button type="button" class="btn btn-primary" id="linkApprove">LINK</button>
+            <button type="button" class="btn btn-ghost" id="linkDeny">NOT ME</button>
+          </div>
+        </div>
+
+        <div class="account-box" id="linkDone" hidden style="margin-top: 1.5rem;">
+          <p class="account-done" id="linkDoneText" role="status"></p>
+        </div>
+
+        <div class="account-section">
+          <h2 class="sub-title">WHAT LINKING DOES</h2>
+          <p>Your game then plays as this account on every H9 server: presence, your name in game, your picture on the scoreboard and the PLAYS IN GAME badge all follow. Nobody types or pastes an id: the game is given its player id here, once, and keeps it protected for its Windows user.</p>
+          <p>Your linked games are listed on your <a href="../account/">ACCOUNT</a> page, each with REVOKE. A revoked game finds out the next time it starts, and gets an id of its own again. In the game, Unlink your Account in the main menu does the same from its side.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-logo">
+          <img src="../h9helmet_glitch.gif" alt="Havoc9">
+          <span>HAVOC<span class="orange">9</span></span>
+        </div>
+        <p class="footer-tag">Open source &middot; Inspired by the original Havoc9 community</p>
+        <p class="footer-copy">Non-commercial &middot; See NON_COMMERCIAL.md</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../script.js"></script>
+  <script src="../assets/account.js"></script>
+  <script src="./link.js"></script>
+</body>
+</html>

@@ -1504,7 +1504,16 @@ static void R_StudioSetupSkin( studiohdr_t *ptexturehdr, int index )
 	mstudiotexture_t	*ptexture = NULL;
 
 	if( FBitSet( g_nForceFaceFlags, STUDIO_NF_CHROME ))
+	{
+		// H9: the glow shell draws with the chrome sprite its pass bound. When
+		// sprites/shellchrome.spr is not loaded nothing was bound, and the shell would
+		// take the last skin the model drew: white leaves it the entity's rendercolor
+		model_t *chrome = gEngfuncs.GetDefaultSprite( REF_CHROME_SPRITE );
+
+		if( !chrome || chrome->type != mod_sprite || !chrome->cache.data )
+			GL_Bind( XASH_TEXTURE0, tr.whiteTexture );
 		return;
+	}
 
 	if( ptexturehdr == NULL )
 		return;

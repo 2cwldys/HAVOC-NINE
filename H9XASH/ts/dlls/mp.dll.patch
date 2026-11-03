@@ -12,12 +12,16 @@ Their byte-level history is kept as an appendix, for the release pair and for ro
 
 Deployed file : mp.dll
 Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
-                (CMake, Win32, Release; targets hl and client)
-Size          : 988672 bytes
-SHA256        : ADE12259BFAB0EB780E27D397FC3A74DFE003BD74A362D8F8C04A1EE421BA742
-client.dll    : 895488 bytes
-SHA256        : EB8865E560331DD4D7D21B5F6C213B6C04E46244F750957C5F74E770249202E0
-Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29)
+                (CMake, Win32, Release; targets hl and client); the builds of
+                2026-11-02 are target hl alone (changes 7 and 8; the client is built
+                apart, its own client.dll.patch)
+Size          : 989184 bytes
+SHA256        : D1C1CF7A18BD3F6739A112F0AC6491383F1DAB59D5981240D9F91894929B2538
+client.dll    : 798720 bytes (its own client.dll.patch)
+SHA256        : 95BD711CEC0E1DAF87813C9527E412B334B532DDFC88DBEE14A6E4DA32FA465D
+Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
+                plus the 128-slot build below (2026-11-01) and changes 7 and 8
+                (2026-11-02)
 
 Both DLLs are also in reTS\binaries\ts\ (the staging folder xash.bat's assemble step and
 export.bat's GoldSrc block copy from), in H9XASH\ts\, export\H9XASH\ts\, and the GoldSrc
@@ -84,6 +88,55 @@ What the source build contains, beyond the release DLL
      pitch, so normal fire plays at 4x again instead of 2.55x.
 
 
+6. Built for 128 player slots (docs\PLAYER_LIMIT_128.txt)
+
+   dlls\cdll_dll.h: MAX_PLAYERS 128, shared with the client. Every table sized by it follows
+   (the voice ban and game-rules masks, pm_shared's stuck tables), and:
+   - game_shared\bitvec.h: CBitVec's dword count came out as 1 for any size (an operator
+     precedence slip in NUM_DWORDS); it rounds NUM_BITS up to whole dwords. Every bit vector
+     past 32 bits depends on it.
+   - VoiceMask carries a [rules, ban] dword pair per 32 slots in use, sized once per process at
+     its first registration: 8 bytes on a server of 32 or fewer.
+   - CBasePlayer::m_hSlowPlayers (32 entries, at the original's offset 0x188) holds slots 1 to 32
+     of the slow-motion cache; slots 33 and up are in m_hSlowPlayersHigh, a new member at the end
+     of CBasePlayer. SlowMotionFlow used to write up to maxplayers entries into the 32: memory
+     past the table on a server of more than 32 slots.
+   - CTSSlowMotion, CTSSlowMotionPoint and CTSTeamEscape keep their 33-entry tables in place and
+     take entindex 33 and up in new members at their class ends. Flying bullets' hit boxes
+     (vecBoxes) and The One's draw (eligible) cover every slot.
+   - trigger_hurt: slots 1 to 32 keep their "hurt this tick" bit in pev->impulse; slots past 32
+     have theirs in CTriggerHurt::m_touchedHigh.
+   - AddToFullPack sends entities up to the engine's own limit on Xash (gpGlobals->maxEntities,
+     gameinfo.txt's max_edicts) and up to 2047 on GoldSrc (11-bit entity numbers); Xash is told
+     apart by its host_ver cvar.
+   No member moves: every new member is at the end of its class. On a server of 32 slots or fewer
+   the game plays and sends what it did before.
+
+7. A shot fired lying down keeps its pose
+
+   dlls\ts_animation.cpp, CTSAnimation::Animate, case 3 -- the lying pose HandleSlide asks for
+   every frame while a player is down after a dive: it records m_iLastActivity = 3 also when it
+   leaves a shot's slide_<dir>_<grip>_shoot pose playing, as TS 3.0 does (its case 3 breaks out
+   of the switch, and the code after the switch records the activity either way; Animate,
+   ts_i386.so 0x5b470). From the next frame Region B's case 3 runs instead, which re-poses only
+   when the aim swaps side, so a player firing while prone stays in the firing pose. Before,
+   the lying pose came back each time a shot's sequence ended, and steady fire bobbed the body
+   up and down against the floor. Server-side only: the client does not compile
+   ts_animation.cpp.
+
+8. Team names up to 31 characters
+
+   dlls\player.h, dlls\teamplay_gamerules.h, dlls\teamplay_gamerules.cpp: a player's team name
+   (CBasePlayer::m_szTeamName, TEAM_NAME_LENGTH) and the teamplay rules' list of team names
+   (MAX_TEAMNAME_LENGTH) hold 32 bytes, as TSGameRules' own m_teamNames already did, so a name such
+   as "Middle Sea Republic" reaches TeamInfo, the scoreboard and the HUD whole and as written; the
+   original's 16 cut a name at 15 characters. m_szTeamName is now CBasePlayer's last member and its
+   original 16-byte slot stays where it was, unused (m_szTeamNameAtOrig), so no other member moves.
+   Every copy into these is cut to fit and ended, a client's "team" key included. The client keeps
+   a team name in 32 bytes too (cl_dll\global_consts.h MAX_TEAM_NAME, TeamInfo's copy ended), in
+   the client.dll built 2026-11-02. A name of 15 characters or fewer plays as before.
+
+
 Building and deploying
 ----------------------
 
@@ -97,11 +150,24 @@ release_binaries pair. Without RETS_REBUILD=1 the script copies release_binaries
 shipped release DLL with binary patches A and B (see the appendix) -- and none of the changes
 above is present.
 
+The GoldSrc package does not take this pair yet: while reTS\binaries\goldsrc\ holds a pair,
+export.bat's GoldSrc block copies that one into export\ts\, the last pair built for 32 player
+slots (mp.dll 988672 bytes, SHA256
+ADE12259BFAB0EB780E27D397FC3A74DFE003BD74A362D8F8C04A1EE421BA742), and the Steam install keeps
+it. This pair goes there once it has passed the regression tests at 32
+(docs\PLAYER_LIMIT_128.txt, section 23) and reTS\binaries\goldsrc\ is removed.
+
 
 Rollback
 --------
 
-The pair deployed before this build is kept in
+The pair this build replaces, the last one built for 32 player slots, is kept in
+reTS\binaries\goldsrc\ (mp.dll 988672 bytes, SHA256
+ADE12259BFAB0EB780E27D397FC3A74DFE003BD74A362D8F8C04A1EE421BA742; client.dll 895488 bytes,
+SHA256 92E1BFF2614EA881692CDEA86BAF405AD95D3F70BDBDE19BD958C8E0A5267E97). Copy both over
+ts\dlls\mp.dll and ts\cl_dlls\client.dll with the server closed.
+
+The pair deployed before the 2026-10-29 build is kept in
 backups\reTS_upstream_20261029\deployed_before\ (mp.dll 988160 bytes, SHA256
 26165FD7A7FA336AF2E7A118F0457C0FE0C6F6B83230C75A8221E22448A31082; client.dll 895488 bytes,
 SHA256 DA5A8031859DC8C42FC21615216A8D13514809767E5EA93829E684E2F60CFE99). Copy both over

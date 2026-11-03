@@ -34,6 +34,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define ART_BANNER_LAN      "gfx/shell/head_lan"
 #define ART_BANNER_LOCK     "gfx/shell/lock"
 #define ART_BANNER_FAVORITE "gfx/shell/favorite"
+#define ART_BANNER_ACCOUNT  "gfx/shell/h9_account" // H9: a server for havoc9.org accounts only
 
 #define MAX_PING 9.999f
 #define FILTER_MAX_MAPS 16
@@ -44,6 +45,7 @@ class CMenuServerBrowser;
 enum
 {
 	COLUMN_PASSWORD = 0,
+	COLUMN_ACCOUNT, // H9: the server takes havoc9.org accounts only (its info's "auth")
 	COLUMN_FAVORITE,
 	COLUMN_NAME,
 	COLUMN_MAP,
@@ -58,7 +60,8 @@ struct server_t
 	netadr_t adr;
 	char  info[512];
 	float ping;
-	int  numcl;
+	int  numcl; // the people: Xash servers send bots apart, and GoldSrc's are taken out of it
+	int  bots;
 	int  maxcl;
 	char name[64];
 	char mapname[64];
@@ -67,6 +70,7 @@ struct server_t
 	char ipstr[64];
 	bool favorite;
 	bool havePassword;
+	bool needAccount;
 	bool isGoldSrc;
 	bool pending_info;
 
@@ -105,6 +109,8 @@ struct server_t
 	{
 		if( numcl > other.numcl ) return 1;
 		else if( numcl < other.numcl ) return -1;
+		if( bots > other.bots ) return 1;
+		else if( bots < other.bots ) return -1;
 		return 0;
 	}
 
@@ -115,14 +121,15 @@ struct server_t
 		return 0;
 	}
 
+	// H9: a server with bots on it is not empty, and its bots take slots as players do
 	bool IsEmpty( ) const
 	{
-		return numcl == 0;
+		return numcl == 0 && bots == 0;
 	}
 
 	bool IsFull( ) const
 	{
-		return numcl >= maxcl;
+		return numcl + bots >= maxcl;
 	}
 
 #define GENERATE_COMPAR_FN( method ) \
@@ -273,7 +280,7 @@ public:
 
 	ECellType GetCellType( int line, int column ) override
 	{
-		if( column == COLUMN_PASSWORD || column == COLUMN_FAVORITE )
+		if( column == COLUMN_PASSWORD || column == COLUMN_ACCOUNT || column == COLUMN_FAVORITE )
 			return CELL_IMAGE_ADDITIVE;
 		return CELL_TEXT;
 	}
@@ -283,6 +290,7 @@ public:
 		switch( column )
 		{
 		case COLUMN_PASSWORD: return servers[line].havePassword ? ART_BANNER_LOCK : NULL;
+		case COLUMN_ACCOUNT: return servers[line].needAccount ? ART_BANNER_ACCOUNT : NULL;
 		case COLUMN_FAVORITE: return servers[line].favorite ? ART_BANNER_FAVORITE : NULL;
 		case COLUMN_NAME: return servers[line].name;
 		case COLUMN_MAP: return servers[line].mapname;
@@ -509,9 +517,14 @@ void server_t::UpdateData( void )
 	Q_strncpy( mapname, Info_ValueForKey( info, "map" ), sizeof( mapname ));
 	Q_strncpy( ipstr, EngFuncs::NET_AdrToString( adr ), sizeof( ipstr ));
 	numcl = atoi( Info_ValueForKey( info, "numcl" ));
+	bots = atoi( Info_ValueForKey( info, "bots" ));
 	maxcl = atoi( Info_ValueForKey( info, "maxcl" ));
-	snprintf( clientsstr, sizeof( clientsstr ), "%d\\%d", numcl, maxcl );
+	// H9: the people, the slots, and the bots apart: "1/64 (+63 bots)"
+	if( bots > 0 )
+		snprintf( clientsstr, sizeof( clientsstr ), "%d/%d (+%d %s)", numcl, maxcl, bots, bots == 1 ? "bot" : "bots" );
+	else snprintf( clientsstr, sizeof( clientsstr ), "%d/%d", numcl, maxcl );
 	havePassword = !strcmp( Info_ValueForKey( info, "password" ), "1" );
+	needAccount = !strcmp( Info_ValueForKey( info, "auth" ), "1" );
 	isGoldSrc = !strcmp( Info_ValueForKey( info, "gs" ), "1" );
 }
 
@@ -533,6 +546,7 @@ bool CMenuGameListModel::Sort(int column, bool ascend)
 	switch( column )
 	{
 	case COLUMN_PASSWORD:
+	case COLUMN_ACCOUNT:
 		return false;
 	case COLUMN_NAME:
 		qsort( servers.Base(), servers.Count(), sizeof( server_t ),
@@ -1195,10 +1209,11 @@ void CMenuServerBrowser::_Init( void )
 
 	gameList.SetCharSize( QM_SMALLFONT );
 	gameList.SetupColumn( COLUMN_PASSWORD, NULL, 32.0f, true );
+	gameList.SetupColumn( COLUMN_ACCOUNT, NULL, 32.0f, true );
 	gameList.SetupColumn( COLUMN_FAVORITE, NULL, 32.0f, true );
 	gameList.SetupColumn( COLUMN_NAME, L( "Name" ), 0.40f );
 	gameList.SetupColumn( COLUMN_MAP, L( "GameUI_Map" ), 0.25f );
-	gameList.SetupColumn( COLUMN_PLAYERS, L( "Players" ), 100.0f, true );
+	gameList.SetupColumn( COLUMN_PLAYERS, L( "Players" ), 180.0f, true );
 	gameList.SetupColumn( COLUMN_PING, L( "Ping" ), 120.0f, true );
 	gameList.SetupColumn( COLUMN_IP, L( "IP" ), 0, true );
 	gameList.SetModel( &gameListModel );

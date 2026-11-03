@@ -31,9 +31,23 @@
 // removeUnlinked is on, from members holding it with no link (staff may give it by hand). Events in
 // this process act at once; the admin command's changes wait for the reconcile.
 //
+// At rest: a link's Discord user id and display name are sealed with h9web's data key
+// (ctx.dataKey, lib/datakey.js; AES-256-GCM), and the user id is found through a keyed index
+// (user_index), so a copy of the database alone does not say which Discord account belongs to
+// which player. Links from before that are sealed at the next start. Should the data key be
+// another than the one the links were sealed with (data.key lost or swapped), Discord linking
+// switches itself off, leaves the links as they are and says so in the log; putting the right
+// data.key back brings them back. The audit log names a Discord account by a short prefix of
+// its index, never by its id or name.
+//
+// The same bot also carries a community's chat to a Discord channel and back, when an H9 site admin
+// bridged them (the presence module, docs\H9_COMMUNITIES.txt section 4a; "the community relay",
+// below): only this module holds the token.
+//
 // Settings (config.json "moduleSettings": { "discord": { ... } }): enabled, clientId, guildId,
 // roleId, redirectUri, inviteUrl, reconcileMinutes, removeUnlinked, suspensionRemovesRole,
-// restoreOnUnsuspend, secretsFile, apiBase, authorizeUrl. The secrets, clientSecret and botToken,
+// restoreOnUnsuspend, dropUnreadable, secretsFile, apiBase, authorizeUrl, relayPollSeconds,
+// relaySendMs. The secrets, clientSecret and botToken,
 // live in their own file (secretsFile, mode 0600, never in git, never logged); without that file,
 // or without clientId and guildId, Discord linking is off and everything else runs.
 //
@@ -58,12 +72,18 @@ export const DEFAULTS = Object.freeze({
   inviteUrl: "https://discord.gg/b76pqqVsNY",
   reconcileMinutes: 15,
   removeUnlinked: false,
+  // only when data.key is lost for good: links sealed with another key are deleted at start
+  dropUnreadable: false,
   suspensionRemovesRole: true,
   restoreOnUnsuspend: true,
   secretsFile: "",
   apiBase: "https://discord.com/api/v10",
   authorizeUrl: "https://discord.com/oauth2/authorize",
   accountPath: "/account/",
+  // the community relay: how often each bridged channel is read, and the least time between two of
+  // the bot's messages in one channel (lines that come meanwhile go together)
+  relayPollSeconds: 3,
+  relaySendMs: 1200,
 });
 
 const SNOWFLAKE = /^[0-9]{5,25}$/;
@@ -137,6 +157,34 @@ export default {
         `);
       },
     },
+    {
+      version: 3,
+      description: "Discord user ids and names sealed with the data key",
+      up(db) {
+        // the sealed columns: user_index (the keyed index, unique), user_box and name_box. A
+        // migration has no key, so rows from before keep their clear columns until setup seals
+        // them and empties those columns.
+        db.exec(`
+          CREATE TABLE discord_links_v3 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER UNIQUE REFERENCES accounts(id) ON DELETE SET NULL,
+            user_index TEXT UNIQUE,
+            user_box TEXT,
+            name_box TEXT,
+            discord_user_id TEXT UNIQUE,
+            display_name TEXT,
+            linked_at INTEGER NOT NULL,
+            linked_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+            role_state TEXT NOT NULL DEFAULT 'pending' CHECK (role_state IN ('pending', 'granted', 'withheld')),
+            checked_at INTEGER
+          );
+          INSERT INTO discord_links_v3 (id, account_id, discord_user_id, display_name, linked_at, linked_by, role_state, checked_at)
+            SELECT id, account_id, discord_user_id, display_name, linked_at, linked_by, role_state, checked_at FROM discord_links;
+          DROP TABLE discord_links;
+          ALTER TABLE discord_links_v3 RENAME TO discord_links;
+        `);
+      },
+    },
   ],
 
   async setup(ctx) {
@@ -146,6 +194,8 @@ export default {
       s[k] = String(s[k]);
     }
     if (!(Number(s.reconcileMinutes) >= 1)) throw new Error("discord: moduleSettings.discord.reconcileMinutes must be 1 or more");
+    if (!(Number(s.relayPollSeconds) >= 1)) throw new Error("discord: moduleSettings.discord.relayPollSeconds must be 1 or more");
+    if (!(Number(s.relaySendMs) >= 250)) throw new Error("discord: moduleSettings.discord.relaySendMs must be 250 or more");
     const { HttpError } = ctx.http;
     const { log, auth, db } = ctx;
     const secretsFile = s.secretsFile ? path.resolve(s.secretsFile) : path.join(ctx.dataDir, "secrets.json");
@@ -170,16 +220,37 @@ export default {
       return { clientSecret: parsed.clientSecret, botToken: parsed.botToken };
     }
     const secrets = s.enabled ? readSecrets() : null;
-    const on = !!(s.enabled && secrets && s.clientId && s.guildId && s.roleId);
+    let on = !!(s.enabled && secrets && s.clientId && s.guildId && s.roleId);
     if (!on) {
       log.info("discord.off", { reason: !s.enabled ? "enabled is false" : !secrets ? "no secrets file at " + secretsFile : "clientId, guildId or roleId missing" });
     }
 
+    // ---- the links at rest: sealed with the data key -------------------------------------------
+    const box = ctx.dataKey;
+    if (!box) throw new Error("discord: this h9web gives modules no data key (lib/datakey.js)");
+    const USER = "discord.user";
+    const NAME = "discord.name";
+    const userIndex = (userId) => box.index(String(userId), USER);
+    // how the audit log names a Discord account: a prefix of its index, never its id or name
+    const tagOf = (userId) => "Discord account #" + userIndex(userId).slice(0, 12);
+    // a row with its Discord user id and display name opened; null for both when a value does
+    // not open (unreadable is then true)
+    function unseal(row) {
+      if (!row) return null;
+      try {
+        return { ...row, discord_user_id: box.open(row.user_box, USER), display_name: box.open(row.name_box, NAME), unreadable: false };
+      } catch (e) {
+        return { ...row, discord_user_id: null, display_name: null, unreadable: true };
+      }
+    }
+
     const q = {
-      linkFor: db.prepare("SELECT * FROM discord_links WHERE account_id = ?"),
-      linkByUser: db.prepare("SELECT * FROM discord_links WHERE discord_user_id = ?"),
-      links: db.prepare("SELECT * FROM discord_links ORDER BY id"),
-      insert: db.prepare("INSERT INTO discord_links (account_id, discord_user_id, display_name, linked_at, linked_by) VALUES (?, ?, ?, ?, ?)"),
+      linkForRow: db.prepare("SELECT * FROM discord_links WHERE account_id = ?"),
+      linkByIndex: db.prepare("SELECT * FROM discord_links WHERE user_index = ?"),
+      linkRows: db.prepare("SELECT * FROM discord_links ORDER BY id"),
+      insert: db.prepare("INSERT INTO discord_links (account_id, user_index, user_box, name_box, linked_at, linked_by) VALUES (?, ?, ?, ?, ?, ?)"),
+      clearOld: db.prepare("SELECT id, discord_user_id, display_name FROM discord_links WHERE user_box IS NULL AND discord_user_id IS NOT NULL"),
+      sealOld: db.prepare("UPDATE discord_links SET user_index = ?, user_box = ?, name_box = ?, discord_user_id = NULL, display_name = NULL WHERE id = ?"),
       state: db.prepare("UPDATE discord_links SET role_state = ?, checked_at = ? WHERE id = ?"),
       orphan: db.prepare("UPDATE discord_links SET account_id = NULL WHERE id = ?"),
       drop: db.prepare("DELETE FROM discord_links WHERE id = ?"),
@@ -189,13 +260,48 @@ export default {
       statesForAccount: db.prepare("DELETE FROM discord_states WHERE account_id = ?"),
       statesExpired: db.prepare("DELETE FROM discord_states WHERE expires_at <= ?"),
     };
+    // the links as the code below reads them: opened
+    q.linkFor = { get: (accountId) => unseal(q.linkForRow.get(accountId)) };
+    q.linkByUser = { get: (userId) => unseal(q.linkByIndex.get(userIndex(userId))) };
+    q.links = { all: () => q.linkRows.all().map(unseal) };
+
+    // links from before the data key: sealed now, their clear columns emptied
+    {
+      const old = q.clearOld.all();
+      if (old.length) {
+        ctx.transaction(() => {
+          for (const r of old) q.sealOld.run(userIndex(r.discord_user_id), box.seal(r.discord_user_id, USER), box.seal(r.display_name || "", NAME), r.id);
+        });
+        // the clear values' old pages leave the write-ahead log too (secure_delete clears the file's)
+        db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+        log.info("discord.sealed", { links: old.length, note: "older backups still hold them in the clear: delete them once this start is checked" });
+      }
+    }
+    // links sealed with another data key: linking stays off, and the links stay as they are,
+    // until the data.key they were sealed with is back. With dropUnreadable (the data key is lost
+    // for good), they are deleted instead, and their players link again.
+    {
+      const other = q.linkRows.all().filter((r) => box.keyIdOf(r.user_box) !== box.keyId);
+      if (other.length && s.dropUnreadable === true) {
+        const drop = db.prepare("DELETE FROM discord_links WHERE id = ?");
+        ctx.transaction(() => { for (const r of other) drop.run(r.id); });
+        ctx.audit.record({ actorName: ROBOT, action: "discord.dropped", detail: other.length + " links that another data key sealed (dropUnreadable)" });
+        log.warn("discord.dropped", { links: other.length, note: "their players link again; take dropUnreadable out of config.json" });
+      } else if (other.length) {
+        on = false;
+        log.error("discord.datakey", {
+          links: other.length, sealedWith: [...new Set(other.map((r) => box.keyIdOf(r.user_box) || "none"))].join(","), thisKey: box.keyId,
+          fix: "put back the data.key these links were sealed with and restart; Discord linking is off until then (README section 10)",
+        });
+      }
+    }
 
     // ---- Discord's REST API, minding its rate limits ------------------------------------------
 
     // { status, data } or { status: 0 } when Discord cannot be reached. A 429 is waited out (its
     // Retry-After, or the body's retry_after) and tried again, up to `attempts` times, unless the
     // wait is longer than maxWait seconds; then the 429 is the answer.
-    async function discord(method, route, { bearer, form, reason, attempts = 3, maxWait = 30, bot = true } = {}) {
+    async function discord(method, route, { bearer, form, json, reason, attempts = 3, maxWait = 30, bot = true } = {}) {
       for (let i = 1; ; i++) {
         const headers = { "User-Agent": "h9web (https://havoc9.org, 1)", Accept: "application/json" };
         if (bearer) headers.Authorization = "Bearer " + bearer;
@@ -205,6 +311,9 @@ export default {
         if (form) {
           headers["Content-Type"] = "application/x-www-form-urlencoded";
           body = new URLSearchParams(form).toString();
+        } else if (json) {
+          headers["Content-Type"] = "application/json";
+          body = JSON.stringify(json);
         }
         let r;
         try {
@@ -256,6 +365,10 @@ export default {
       q.statesExpired.run(now());
       for (const link of q.links.all()) {
         summary.checked++;
+        if (link.unreadable) {
+          summary.failed++;
+          continue;
+        }
         const account = link.account_id ? ctx.accounts.getById(link.account_id) : null;
         const want = link.account_id !== null && accountWants(account);
         const member = await discord("GET", "/guilds/" + s.guildId + "/members/" + link.discord_user_id);
@@ -275,7 +388,7 @@ export default {
           if (done === "member") {
             q.state.run("granted", now(), link.id);
             summary.given++;
-            robot("discord.role.give", account, "to " + link.display_name + " (reconcile)");
+            robot("discord.role.give", account, "to " + tagOf(link.discord_user_id) + " (reconcile)");
           } else summary.failed++;
         } else if (!want && has) {
           const done = await setRole(link.discord_user_id, false, link.account_id === null ? "HAVOC 9 link freed or account deleted" : "HAVOC 9 account suspended");
@@ -283,7 +396,7 @@ export default {
             summary.taken++;
             if (link.account_id === null) q.drop.run(link.id);
             else q.state.run("withheld", now(), link.id);
-            robot("discord.role.take", account, "from " + link.display_name + " (reconcile)");
+            robot("discord.role.take", account, "from " + tagOf(link.discord_user_id) + " (reconcile)");
           } else summary.failed++;
         } else if (link.account_id === null) {
           q.drop.run(link.id);
@@ -291,8 +404,11 @@ export default {
           q.state.run(want ? "granted" : "withheld", now(), link.id);
         }
       }
-      if (s.removeUnlinked) {
-        const linked = new Set(q.links.all().filter((l) => l.account_id !== null).map((l) => l.discord_user_id));
+      const current = q.links.all();
+      // with a link that does not open, its member would look unlinked: nobody's role goes then
+      if (s.removeUnlinked && current.some((l) => l.unreadable)) log.warn("discord.reconcile.unlinked_skipped", { reason: "a link does not open with this data key" });
+      else if (s.removeUnlinked) {
+        const linked = new Set(current.filter((l) => l.account_id !== null).map((l) => l.discord_user_id));
         let after = "0";
         for (let pages = 0; pages < 50; pages++) {
           const list = await discord("GET", "/guilds/" + s.guildId + "/members?limit=1000&after=" + after);
@@ -302,7 +418,7 @@ export default {
             if (id && Array.isArray(m.roles) && m.roles.includes(s.roleId) && !linked.has(id)) {
               if ((await setRole(id, false, "No HAVOC 9 account is linked to this Discord account")) === "member") {
                 summary.unlinkedTaken++;
-                robot("discord.role.take", null, "from Discord user " + id + ", who has no link");
+                robot("discord.role.take", null, "from " + tagOf(id) + ", which has no link");
               }
             }
           }
@@ -327,6 +443,180 @@ export default {
       stoppers.add(() => clearInterval(timer));
     }
 
+    // ---- the community relay (the presence module; docs\H9_COMMUNITIES.txt section 4a) ----------
+    // The presence module names the channels H9's site admins bridged with a community
+    // ("discord-relay-watch" { channels: [{ channel, after }] }) and hands over the lines for them
+    // ("discord-relay-out" { channel, kind, tag, name, text }). This module posts those lines, at
+    // most one message a channel every relaySendMs (lines that come meanwhile go together, up to 50
+    // waiting), with every mention switched off (allowed_mentions), link previews off, and
+    // Discord's markdown escaped; and it reads each channel every relayPollSeconds, handing
+    // people's new messages (never a bot's, a webhook's or a system message, so never its own)
+    // back as "discord-relay-in" { channel, id, name, text, at }, mentions written out as @name,
+    // #channel and @role. "discord-relay-status" { channel, ok, error } says how a channel
+    // answers; "discord-relay-ready" asks presence for its list again. It needs the bot in the
+    // channel with View Channel, Read Message History and Send Messages, and the bot's MESSAGE
+    // CONTENT intent on in Discord's developer portal: without it every message reads empty.
+    const relayOn = !!(s.enabled && secrets);
+    const relay = new Map(); // channel id -> { after, outbox, sending, nextSend, flush, wait, failing }
+    let relayPolling = false;
+
+    function relayWatch(e) {
+      if (!relayOn || !e || !Array.isArray(e.channels)) return;
+      const want = new Map();
+      for (const w of e.channels) {
+        const id = w && String(w.channel || "");
+        if (!SNOWFLAKE.test(id)) continue;
+        want.set(id, w.after && SNOWFLAKE.test(String(w.after)) ? String(w.after) : null);
+      }
+      for (const [id, ch] of relay) {
+        if (want.has(id)) continue;
+        if (ch.flush) clearTimeout(ch.flush);
+        relay.delete(id);
+      }
+      for (const [id, after] of want) {
+        if (!relay.has(id)) relay.set(id, { after, outbox: [], sending: false, nextSend: 0, flush: null, wait: 0, failing: null });
+      }
+    }
+
+    function relayFine(id, ch) {
+      ch.wait = 0;
+      if (ch.failing !== false) {
+        ch.failing = false;
+        ctx.events.emit("discord-relay-status", { channel: id, ok: true, error: null });
+      }
+    }
+
+    function relayTrouble(id, ch, r, error) {
+      const why = error || (r.status === 0 ? "unreachable" : r.status === 401 ? "bad_token" : r.status === 403 ? "no_access"
+        : r.status === 404 ? "no_such_channel" : r.status === 429 ? "rate_limited" : "http_" + r.status);
+      ch.wait = Date.now() + (r.status === 429 ? Math.ceil((r.retryAfter || 5) * 1000) : r.status === 0 ? 10000 : 60000);
+      if (ch.failing !== why) {
+        ch.failing = why;
+        log.warn("discord.relay", { channel: id, error: why });
+        ctx.events.emit("discord-relay-status", { channel: id, ok: false, error: why });
+      }
+    }
+
+    // a person's message as plain text, or null when it is not relayed
+    function relayText(m) {
+      if (!m.author || m.author.bot || m.webhook_id || (m.type !== 0 && m.type !== 19)) return null;
+      const names = new Map((Array.isArray(m.mentions) ? m.mentions : []).map((u) => [String(u.id), u.global_name || u.username || "someone"]));
+      let text = String(m.content || "")
+        .replace(/<@!?([0-9]+)>/g, (x, uid) => "@" + (names.get(uid) || "someone"))
+        .replace(/<@&[0-9]+>/g, "@role")
+        .replace(/<#[0-9]+>/g, "#channel")
+        .replace(/<a?:([A-Za-z0-9_]+):[0-9]+>/g, ":$1:")
+        .replace(/<t:([0-9]+)(:[A-Za-z])?>/g, (x, sec) => new Date(Number(sec) * 1000).toISOString().slice(0, 16).replace("T", " "));
+      if (text.trim()) return text;
+      if (Array.isArray(m.attachments) && m.attachments.length) return "(an attachment)";
+      if (Array.isArray(m.sticker_items) && m.sticker_items.length) return "(a sticker)";
+      return "";
+    }
+
+    async function relayPoll() {
+      if (!relayOn || relayPolling) return;
+      relayPolling = true;
+      try {
+        for (const [id, ch] of relay) {
+          if (Date.now() < ch.wait) continue;
+          const route = "/channels/" + id + "/messages?limit=" + (ch.after ? "50&after=" + ch.after : "1");
+          const r = await discord("GET", route, { attempts: 1, maxWait: 5 });
+          if (r.status !== 200 || !Array.isArray(r.data)) {
+            relayTrouble(id, ch, r);
+            continue;
+          }
+          const first = !ch.after;
+          const list = r.data.filter((m) => m && SNOWFLAKE.test(String(m.id))).sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+          let empty = false;
+          for (const m of list) {
+            ch.after = String(m.id);
+            // the first read only finds where the channel is: nothing from before is relayed
+            if (first) continue;
+            const text = relayText(m);
+            if (text === null) continue;
+            if (!text) {
+              empty = true;
+              continue;
+            }
+            const name = String((m.member && m.member.nick) || m.author.global_name || m.author.username || "someone");
+            ctx.events.emit("discord-relay-in", { channel: id, id: String(m.id), name, text, at: Math.floor(Date.parse(m.timestamp) / 1000) || now() });
+          }
+          // a person's message with nothing in it at all: the bot cannot read message content
+          if (empty) relayTrouble(id, ch, { status: 200 }, "message_content_intent");
+          else relayFine(id, ch);
+        }
+      } finally {
+        relayPolling = false;
+      }
+    }
+
+    // Discord's markdown taken literally; @ escaped too, though allowed_mentions already pings nobody
+    const relayEscape = (t) => String(t).replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/[\\*_~`|<>#\[\]()@]/g, "\\$&");
+
+    function relayLine(e) {
+      const text = relayEscape(e.text || "").slice(0, 1500).trim();
+      if (!text) return null;
+      if (e.kind === "announce") return "**" + relayEscape("[" + (e.tag || "H9") + "]") + "** " + text;
+      return "**" + relayEscape("[" + (e.tag || "") + "] " + (e.name || "")) + ":** " + text;
+    }
+
+    async function relayFlush(id, ch) {
+      if (ch.sending || !ch.outbox.length || relay.get(id) !== ch) return;
+      const wait = ch.nextSend - Date.now();
+      if (wait > 0) {
+        if (!ch.flush) {
+          ch.flush = setTimeout(() => {
+            ch.flush = null;
+            relayFlush(id, ch);
+          }, wait);
+          ch.flush.unref();
+        }
+        return;
+      }
+      ch.sending = true;
+      let content = "";
+      while (ch.outbox.length && content.length + 1 + ch.outbox[0].length <= 1900) content += (content ? "\n" : "") + ch.outbox.shift();
+      if (!content) content = ch.outbox.shift().slice(0, 1900);
+      try {
+        const r = await discord("POST", "/channels/" + id + "/messages", { json: { content, allowed_mentions: { parse: [] }, flags: 4 }, attempts: 3, maxWait: 10 });
+        if (r.status === 200) relayFine(id, ch);
+        else relayTrouble(id, ch, r);
+      } finally {
+        ch.sending = false;
+        ch.nextSend = Date.now() + Number(s.relaySendMs);
+        if (ch.outbox.length) relayFlush(id, ch);
+      }
+    }
+
+    function relayOut(e) {
+      if (!relayOn || !e) return;
+      const id = String(e.channel || "");
+      const ch = relay.get(id);
+      if (!ch) return;
+      const line = relayLine(e);
+      if (!line) return;
+      ch.outbox.push(line);
+      if (ch.outbox.length > 50) ch.outbox.splice(0, ch.outbox.length - 50);
+      relayFlush(id, ch);
+    }
+
+    if (relayOn) {
+      ctx.events.on("discord-relay-watch", relayWatch);
+      ctx.events.on("discord-relay-out", relayOut);
+      const timer = setInterval(() => relayPoll().catch((e) => log.warn("discord.relay.error", { error: e.message })), Math.round(Number(s.relayPollSeconds) * 1000));
+      timer.unref();
+      stoppers.add(() => {
+        clearInterval(timer);
+        ctx.events.off("discord-relay-watch", relayWatch);
+        ctx.events.off("discord-relay-out", relayOut);
+        for (const ch of relay.values()) if (ch.flush) clearTimeout(ch.flush);
+        relay.clear();
+      });
+      ctx.events.emit("discord-relay-ready", {});
+    } else {
+      log.info("discord.relay.off", { reason: !s.enabled ? "enabled is false" : "no secrets file at " + secretsFile });
+    }
+
     // ---- this process's own account changes, at once ---------------------------------------------
 
     function soon(fn) {
@@ -336,19 +626,19 @@ export default {
     ctx.events.on("account-deleted", () => soon(reconcile));
     ctx.events.on("account-banned", ({ id }) => soon(async () => {
       const link = q.linkFor.get(id);
-      if (!link || !s.suspensionRemovesRole) return;
+      if (!link || link.unreadable || !s.suspensionRemovesRole) return;
       if ((await setRole(link.discord_user_id, false, "HAVOC 9 account suspended", { attempts: 2, maxWait: 5 })) !== "failed") {
         q.state.run("withheld", now(), link.id);
-        robot("discord.role.take", ctx.accounts.getById(id), "from " + link.display_name + " (suspended)");
+        robot("discord.role.take", ctx.accounts.getById(id), "from " + tagOf(link.discord_user_id) + " (suspended)");
       }
     }));
     ctx.events.on("account-unbanned", ({ id }) => soon(async () => {
       const link = q.linkFor.get(id);
-      if (!link || !s.restoreOnUnsuspend) return;
+      if (!link || link.unreadable || !s.restoreOnUnsuspend) return;
       const done = await setRole(link.discord_user_id, true, "HAVOC 9 account no longer suspended", { attempts: 2, maxWait: 5 });
       if (done === "member") {
         q.state.run("granted", now(), link.id);
-        robot("discord.role.give", ctx.accounts.getById(id), "to " + link.display_name + " (suspension lifted)");
+        robot("discord.role.give", ctx.accounts.getById(id), "to " + tagOf(link.discord_user_id) + " (suspension lifted)");
       } else if (done === "absent") q.state.run("pending", now(), link.id);
     }));
 
@@ -440,11 +730,11 @@ export default {
         if (other && other.account_id !== null) return "taken";
         // a freed link of this Discord account whose role is still on its way out is replaced
         if (other) q.drop.run(other.id);
-        q.insert.run(account.id, userId, display, now(), account.id);
+        q.insert.run(account.id, userIndex(userId), box.seal(userId, USER), box.seal(display, NAME), now(), account.id);
         return "linked";
       });
       if (linked !== "linked") return landing(res, linked);
-      ctx.audit.record({ actor: account, action: "discord.link", target: account, detail: "Discord user " + display });
+      ctx.audit.record({ actor: account, action: "discord.link", target: account, detail: tagOf(userId) });
       log.info("discord.link", { user: account.username });
       const link = q.linkFor.get(account.id);
       const done = await setRole(userId, true, "HAVOC 9 account " + account.username + " linked", { attempts: 2, maxWait: 5 });
@@ -478,10 +768,11 @@ export default {
       // the link goes now, so the player can link another Discord account at once; the role goes
       // now when Discord answers, or at the next reconcile
       q.orphan.run(link.id);
-      let removed = !on ? "later" : await setRole(link.discord_user_id, false, "HAVOC 9 link freed by an admin", { attempts: 2, maxWait: 5 });
+      let removed = !on || link.unreadable ? "later" : await setRole(link.discord_user_id, false, "HAVOC 9 link freed by an admin", { attempts: 2, maxWait: 5 });
       if (removed === "member" || removed === "absent") q.drop.run(link.id);
       else removed = "later";
-      ctx.audit.record({ actor: rc.account, action: "discord.free", target: account, detail: "Discord user " + link.display_name + (reason ? ": " + reason : "") });
+      const which = link.unreadable ? "a Discord link that does not open with this data key" : tagOf(link.discord_user_id);
+      ctx.audit.record({ actor: rc.account, action: "discord.free", target: account, detail: which + (reason ? ": " + reason : "") });
       log.info("discord.free", { by: rc.account.username, user: account.username });
       rc.json(200, { ok: true, changed: true, role: removed === "later" ? "at the next reconcile" : "removed" });
     }));

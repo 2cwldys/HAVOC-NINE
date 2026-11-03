@@ -81,3 +81,40 @@ Built:    branch h9 at 17c23c81, Sun 11/01/2026  2:37:14.72
 Built:    branch h9 at 17c23c81, Sun 11/01/2026  5:28:23.99
           engine-h9-websound.patch, engine-h9-cvarresync.patch,
           engine-h9-webmenu.patch and engine-h9-phsbudget.patch
+Built:    branch h9 at 17c23c81, Sun 11/01/2026 20:02:52.33
+          engine-h9-webmenu.patch, engine-h9-phsbudget.patch,
+          engine-h9-motd.patch, engine-h9-travel.patch,
+          engine-h9-slots128.patch and mainui-h9-slots128.patch
+h9webview.dll: built from xash3d-h9-patches\webview with the Microsoft Edge WebView2
+          SDK (h9webview.dll.patch says which, and holds its whole source)
+Built:    branch h9 at 17c23c81, Mon 11/02/2026  0:59:07.00
+          engine-h9-slots128.patch, mainui-h9-slots128.patch,
+          engine-h9-idproof.patch, engine-h9-avatars.patch
+          and engine-h9-shellwhite.patch
+Built:    branch h9 at 17c23c81, Mon 11/02/2026  2:20:11.71
+          engine-h9-idproof.patch, engine-h9-avatars.patch,
+          engine-h9-shellwhite.patch and engine-h9-consoleoverlay.patch
+Built:    branch h9 at 17c23c81, Mon 11/02/2026  5:04:10.36
+          engine-h9-shellwhite.patch, engine-h9-consoleoverlay.patch,
+          engine-h9-webquit.patch, engine-h9-typing.patch,
+          engine-h9-brushshell.patch and engine-h9-serverfog.patch
+Built:    branch h9 at 17c23c81, Mon 11/02/2026  5:09:14.29
+Built:    branch h9 at 17c23c81, Mon 11/02/2026  5:14:30.24
+          engine-h9-brushshell.patch, engine-h9-serverfog.patch
+          and engine-h9-listen.patch
+Built:    branch h9 at 17c23c81, Mon 11/02/2026 10:09:35.25
+          engine-h9-brushshell.patch, engine-h9-serverfog.patch,
+          engine-h9-listen.patch and engine-h9-reliableburst.patch
+Built:    branch h9 at 17c23c81, Mon 11/02/2026 12:04:44.85
+          engine-h9-listen.patch, engine-h9-reliableburst.patch,
+          engine-h9-link.patch, mainui-h9-link.patch
+          and mainui-h9-default64.patch
+Built:    branch h9 at 17c23c81, Mon 11/02/2026 13:14:21.66
+Built:    branch h9 at 17c23c81, Mon 11/02/2026 16:15:50.23
+          engine-h9-link.patch, engine-h9-userinfo.patch,
+          engine-h9-serverinfo.patch, mainui-h9-link.patch,
+          mainui-h9-default64.patch and mainui-h9-browser.patch
+Built:    branch h9 at 17c23c81, Mon 11/02/2026 16:17:39.91
+Built:    branch h9 at 17c23c81, Mon 11/02/2026 20:14:21.78
+          mainui-h9-default64.patch, mainui-h9-browser.patch and
+          engine-h9-largeaddress.patch

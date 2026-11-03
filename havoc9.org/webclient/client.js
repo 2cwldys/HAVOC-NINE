@@ -34,10 +34,10 @@
 // A server's splash MOTD (docs\H9_MOTD.txt), a picture or a web page in place of TS's text MOTD,
 // is shown by this page over the game (motdOverlay), when the engine hands it over.
 //
-// Kept in this browser (localStorage): the player's config.cfg, the engine's .xash_id and, when no
-// account is signed in, a random H9 client id. A signed-in page hands over the account's player id
-// (window.h9webAccount.playerId), which becomes cl_h9_userid instead. The page talks to nothing but
-// this site and its relay.
+// Kept in this browser (localStorage): the player's config.cfg without its id lines (withoutIds),
+// the engine's .xash_id and, when no account is signed in, a random H9 client id. A signed-in page
+// hands over the account's player id (window.h9webAccount.playerId) at every start, which becomes
+// cl_h9_userid instead; it is never kept here. The page talks to nothing but this site and its relay.
 // window.h9web holds the engine's log and the module, for the browser's console.
 (() => {
   "use strict";
@@ -54,6 +54,12 @@
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode: not kept */ } },
   };
+  // The id lines of the engine's config.cfg: cl_h9_userid (with an account, its player id, which the
+  // page hands over at every start through userid_resolved.cfg) and the h9_clientid last sent. They
+  // stay out of the browser's storage, where any script on this site could read them and a later
+  // player of this browser would find them.
+  const ID_LINES = /^[ \t]*(?:"?cl_h9_userid"?|setinfo[ \t]+"?h9_clientid"?)[ \t][^\n]*\n?/gim;
+  const withoutIds = (text) => String(text).replace(ID_LINES, "");
 
   let settings = DEFAULTS;
   let engineBase = null, gameBase = null, manifest = null, manifestFonts = [], mod = null;
@@ -300,6 +306,7 @@
       net: relayNet(settings.relay),
       video: pageVideo(() => config.FS),
       motd: motdOverlay(),
+      travel: travelReach(),
       preRun: [(m) => mountDisk((m && m.FS) || config.FS, warm)],
       callbacks: {
         gameReady: () => onReady(config, server, warm),
@@ -364,7 +371,7 @@
     // runs at every start, after config.cfg: H9's colours and the files above, whatever config.cfg holds
     own.set(gd + "/userconfig.d/h9web.cfg", "exec userconfig.cfg\n");
     const cfg = store.get(KEY.config);
-    if (cfg) own.set(gd + "/config.cfg", cfg);
+    if (cfg) own.set(gd + "/config.cfg", withoutIds(cfg));
     const xid = store.get(KEY.xashId);
     if (/^[0-9A-Fa-f]{16}$/.test(xid || "")) own.set(gd + "/.xash_id", xid);
     return own;
@@ -475,11 +482,11 @@
   }
 
   // config.cfg is memory here. The engine writes it on host_writeconfig; the copy it wrote last is
-  // kept in the browser and put back on the next start.
+  // kept in the browser, without its id lines, and put back on the next start.
   function saveConfig(ask) {
     if (!mod || stopped) return;
     try {
-      const text = mod.FS.readFile("/" + settings.gamedir + "/config.cfg", { encoding: "utf8" });
+      const text = withoutIds(mod.FS.readFile("/" + settings.gamedir + "/config.cfg", { encoding: "utf8" }));
       if (text !== configKept) {
         store.set(KEY.config, text);
         configKept = text;
@@ -602,6 +609,41 @@
     };
   }
 
+  // h9_travel (engine-h9-travel.patch, docs\H9_COMMUNITIES.txt section 9): a community portal's
+  // offer to send the player to another server, which the engine shows as its own YES/NO prompt.
+  // Through the relay the page reaches only H9's listed servers, so the engine asks first:
+  // reachable(address) answers true for one of them, false for any other address, and nothing
+  // until the list has arrived (the relay then decides). The list is /api/servers, the one the
+  // SERVERS page shows, read when the game starts and every minute after; the JOIN links of
+  // settings.json count too.
+  function travelReach() {
+    let listed = null;
+    const api = new URL("../api/servers", location.href).href;
+    const read = async () => {
+      try {
+        const r = await fetch(api, { cache: "no-cache" });
+        if (!r.ok) return;
+        const j = await r.json();
+        const set = new Set();
+        for (const s of (j && Array.isArray(j.servers) ? j.servers : [])) {
+          if (s && typeof s.address === "string") set.add(s.address);
+        }
+        for (const s of settings.servers || []) {
+          if (s && typeof s.address === "string") set.add(s.address);
+        }
+        listed = set;
+      } catch (e) { /* the last list stands, or none */ }
+    };
+    read();
+    setInterval(read, 60000);
+    return {
+      reachable(address) {
+        if (!listed) return undefined;
+        return listed.has(String(address));
+      },
+    };
+  }
+
   // A server's splash MOTD (docs\H9_MOTD.txt): at join, a server running h9_motd.sma asks for a
   // picture or a web page in place of TS's text MOTD. The engine (engine-h9-motd.patch) checks the
   // message and the player's cl_h9_motd, holds the text MOTD and hands the splash here through
@@ -616,12 +658,16 @@
   // the browser's permissions (camera, microphone, location, full screen and the like) and no
   // dialogs; where the browser offers it, the frame is credentialless as well. Its host is always
   // on screen, and OPEN PAGE shows the whole address before a second click opens it in a new tab.
-  //   An address must be https with a host name (no IP address, no user name), and one on this site
-  // itself only under /motd/: anything else here would be fetched with the player's sign-in.
+  //   An address must be https with a host name (no IP address, no user name, no private network
+  // name such as .local or .lan), and one on this site itself only under /motd/: anything else here
+  // would be fetched with the player's sign-in. OPEN IN NEW TAB stays under a page all the time: a
+  // site that refuses to be framed shows blank, and the page cannot tell.
   //   While it is up the game gets no key presses (releases still reach it, so nothing stays held)
   // and no mouse; Esc or CLOSE end it, and the game has the keyboard and the mouse back.
   function motdOverlay() {
     const MAX_SIDE = 2048;
+    // localhost's family and the usual names of private networks: no splash comes from them
+    const PRIVATE = [".localhost", ".local", ".localdomain", ".lan", ".home", ".internal", ".intranet", ".corp", ".home.arpa", ".private"];
     let box = null, pending = null;
 
     function address(raw, picture) {
@@ -636,6 +682,7 @@
       const host = u.hostname.toLowerCase();
       if (u.protocol !== "https:" || u.username || u.password) return null;
       if (!/^[a-z0-9.-]+$/.test(host) || !/[a-z]/.test(host) || !host.includes(".") || host.startsWith(".") || host.endsWith(".")) return null;
+      if (PRIVATE.some((tail) => host.endsWith(tail))) return null;
       const own = location.hostname.toLowerCase();
       if ((host === own || host.endsWith("." + own)) && !u.pathname.startsWith("/motd/")) return null;
       if (picture && u.hash) return null;

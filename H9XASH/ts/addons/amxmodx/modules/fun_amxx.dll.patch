@@ -1,0 +1,40 @@
+H9 fun_amxx.dll -- AMX Mod X's Fun module, built from source for 128 player slots
+=================================================================================
+
+What this is
+------------
+
+ts\addons\amxmodx\modules\fun_amxx.dll is AMX Mod X's Fun module,
+built by H9 from TSM\AMXMODX: goldsrc-net/amxmodx (the AMX Mod X fork reTS ships with),
+branch 64bit at commit dedff660dff3fa615a96d6ba3890d6000b588ed1,
+with H9's changes as uncommitted working-tree changes (AMXMODX\H9-SOURCE.txt).
+The core and every module H9 ships but three are built together from that one tree, for
+128 player slots: tsx_amxx.dll stays reTSX (docs\PLAYER_LIMIT_128.txt, section 8.5),
+easy_http_amxx.dll is a third-party module, and mysql_amxx.dll (it links MySQL's C
+connector, and no H9 plugin loads it) stays the release's.
+
+H9's changes in it
+------------------
+
+  modules\fun\fun.h
+          kMaxClients 128 (upstream 32): its per-player tables cover 128 slots.
+
+Deployed file : fun_amxx.dll
+Size          : 453632 bytes
+SHA256        : DC69774CFACDA8F489DEB0D910840AF09D30071532282B874CC4E376767F471F
+Built         : 2026-11-02, MSBuild modules\fun\msvc12\fun.vcxproj, Release|Win32, toolset
+                v145 (Visual Studio 2026), from a copy of TSM\AMXMODX, against the SDKs
+                the fork's CI uses: goldsrc-net/hlsdk branch 64bit (dd2c6d61) and
+                alliedmodders/metamod-hl1 (18a10db6). The msvc12 projects lag AMBuild's
+                (three source files, HAVE_STDINT_H, default struct packing), fixed in
+                the copy (H9-SOURCE.txt, Building on Windows).
+
+Against the build it replaces
+-----------------------------
+
+The fun_amxx.dll H9 shipped before, from the reTS AMX Mod X build (1.10.0-manual):
+154112 bytes, SHA256 4643E6FEE70D3B474E0A6CB35DFB5F666F85786E287B87A954EAB52945DF036B,
+kept as fun_amxx.dll.bak_slots beside this file. To go back, copy that over fun_amxx.dll.
+
+On servers of 32 slots or fewer nothing changes: the tables are longer, and every loop and
+bound in them still stops at the server's maxplayers.

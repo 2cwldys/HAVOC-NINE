@@ -1,0 +1,3 @@
+# Scripts that run on Linux (h9xash.sh, h9_userid.sh): Unix line ends, even in a
+# Windows checkout.
+*.sh text eol=lf

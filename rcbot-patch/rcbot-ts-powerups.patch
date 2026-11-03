@@ -1,0 +1,69 @@
+diff --git a/dlls/bot.cpp b/dlls/bot.cpp
+--- a/dlls/bot.cpp
++++ b/dlls/bot.cpp
+@@ -129,6 +129,35 @@
+ 
+ 		return g_Roam;
+ 	}
++
++	// Powerups (CHANGE 10): whether a bot may walk to a TS powerup and use one. Not while the
++	// server's nopowerup is on, and not while ts_matchmode's match mode is on (tsm_enabled) with
++	// its tsm_bot_powerups at 0. A cvar that does not exist holds no bot back, so without the
++	// plugin this is the nopowerup test alone. Read once a second.
++	struct PowerupSettings
++	{
++		bool bAllowed = true;
++		float fNextRead = 0.0f;
++	};
++
++	PowerupSettings g_Powerups;
++
++	bool BotPowerupsAllowed()
++	{
++		// the clock starts again at each map, so a read due far ahead of it is due now
++		if (g_Powerups.fNextRead <= gpGlobals->time || g_Powerups.fNextRead > gpGlobals->time + 2.0f)
++		{
++			g_Powerups.fNextRead = gpGlobals->time + 1.0f;
++
++			const cvar_t* pMode = CVAR_GET_POINTER("tsm_enabled");
++			const cvar_t* pBots = CVAR_GET_POINTER("tsm_bot_powerups");
++			const bool bHeldBack = pMode != nullptr && pMode->value > 0.0f && pBots != nullptr && pBots->value <= 0.0f;
++
++			g_Powerups.bAllowed = CVAR_GET_FLOAT("nopowerup") <= 0.0f && !bHeldBack;
++		}
++
++		return g_Powerups.bAllowed;
++	}
+ }
+ 
+ // Science and Industry
+@@ -763,13 +792,14 @@
+ 			Impulse(SAYING_4);
+ 		break;
+ 	case MOD_TS:
+-		// Honour the server's nopowerup setting.
++		// Honour the server's nopowerup setting, and ts_matchmode's tsm_bot_powerups
++		// (BotPowerupsAllowed, CHANGE 10).
+ 		//
+ 		// Bots fired usepowerup unconditionally on sighting an enemy, so a server that
+ 		// had turned powerups off still had its bots using them -- and nothing on the
+ 		// server side can stop that, because a fake client sends no client commands for
+ 		// a plugin to intercept.
+-		if (CVAR_GET_FLOAT("nopowerup") <= 0.0f)
++		if (BotPowerupsAllowed())
+ 			FakeClientCommand(m_pEdict, "usepowerup");
+ 
+ 		// more chance of using special if good skilled
+@@ -8346,9 +8376,10 @@
+ 		const char* szClassname = const_cast<char*>(STRING(pPickup->v.classname));
+ 
+ 		// quad damage etc.. but not when the server has switched them off, or bots
+-		// spend the round walking to pickups they are not allowed to have.
++		// spend the round walking to pickups they are not allowed to have; nor while
++		// tsm_bot_powerups keeps the bots off them (BotPowerupsAllowed, CHANGE 10).
+ 		if (std::strncmp(szClassname, "ts_powerup", 10) == 0)
+-			return CVAR_GET_FLOAT("nopowerup") <= 0.0f;
++			return BotPowerupsAllowed();
+ 		if (std::strcmp(szClassname, "ts_groundweapon") == 0)
+ 			return true;
+ 	}

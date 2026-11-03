@@ -1,0 +1,100 @@
+diff --git a/engine/client/input/in_keys.c b/engine/client/input/in_keys.c
+--- a/engine/client/input/in_keys.c
++++ b/engine/client/input/in_keys.c
+@@ -998,6 +998,60 @@ void Key_EnableTextInput( qboolean enable, qboolean force )
+ 	Key_SetTextInputBuffer( NULL );
+ }
+ 
++/*
++=========
++Key_H9Typing
++
++H9: the chat line (key_message) opened or closed, told to the server as the client command
++"h9_typing 1" while it is open and "h9_typing 0" once it closes, sent or not, every time. The
++engine runs messagemode on the client and never tells the server, so a game had no way to show
++who is typing (ts_floatchat.sma's bubble). A command rather than a userinfo key: a userinfo change
++is sent on to every player, and the server's userinfo flood penalty (sv_userinfo_penalty_*) drops
++the changes of anyone who opens and closes the chat line a few times in a row. Sent only to a
++server whose game registered the H9Typing user message, which is how a server says it takes the
++command; any other is told nothing.
++=========
++*/
++static qboolean Key_H9TypingServer( void )
++{
++	for( int i = 0; i < MAX_USER_MESSAGES && clgame.msg[i].name[0]; i++ )
++	{
++		if( !Q_stricmp( clgame.msg[i].name, "H9Typing" ))
++			return clgame.msg[i].number > 0;
++	}
++	return false;
++}
++
++#define H9_TYPING_KEEPALIVE 2.0 // while the chat line stays open, h9_typing 1 again this often
++
++static double h9_typing_next; // when the open chat line is next said again
++
++static void Key_H9Typing( qboolean typing )
++{
++	h9_typing_next = host.realtime + H9_TYPING_KEEPALIVE;
++
++	if( cls.state != ca_active || cls.demoplayback || !Key_H9TypingServer( ))
++		return;
++
++	CL_ServerCommand( true, "h9_typing %d\n", typing ? 1 : 0 );
++}
++
++/*
++=========
++Key_H9TypingFrame
++
++H9: every frame (Host_InputFrame). While the chat line stays open, h9_typing 1 again every
++H9_TYPING_KEEPALIVE seconds, so a server can let a typing bubble go when it hears nothing for a
++few seconds (a close it never heard), and a line still open across a level change is said again
++on the new one.
++=========
++*/
++void Key_H9TypingFrame( void )
++{
++	if( cls.key_dest == key_message && host.realtime >= h9_typing_next )
++		Key_H9Typing( true );
++}
++
+ /*
+ =========
+ Key_SetKeyDest
+@@ -1005,6 +1059,8 @@ Key_SetKeyDest
+ */
+ void GAME_EXPORT Key_SetKeyDest( int key_dest )
+ {
++	qboolean was_typing = cls.key_dest == key_message; // H9: Key_H9Typing
++
+ 	IN_ToggleClientMouse( key_dest, cls.key_dest );
+ 
+ 	switch( key_dest )
+@@ -1031,6 +1087,9 @@ void GAME_EXPORT Key_SetKeyDest( int key_dest )
+ 		Host_Error( "%s: wrong destination (%i)\n", __func__, key_dest );
+ 		break;
+ 	}
++
++	if( was_typing != ( cls.key_dest == key_message ))
++		Key_H9Typing( cls.key_dest == key_message );
+ }
+ 
+ /*
+diff --git a/engine/client/input/input.c b/engine/client/input/input.c
+--- a/engine/client/input/input.c
++++ b/engine/client/input/input.c
+@@ -711,9 +711,13 @@ Host_InputFrame
+ Called every frame, even if not generating commands
+ ==================
+ */
++void Key_H9TypingFrame( void ); // in_keys.c: H9, the open chat line said again (engine-h9-typing.patch)
++
+ void Host_InputFrame( void )
+ {
+ 	IN_Commands();
+ 
+ 	IN_MouseMove();
++
++	Key_H9TypingFrame();
+ }

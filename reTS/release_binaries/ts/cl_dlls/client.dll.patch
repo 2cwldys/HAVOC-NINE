@@ -12,9 +12,11 @@ client it was applied to.
 Deployed file : client.dll
 Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 (CMake, Win32, Release; target client)
-Size          : 895488 bytes
-SHA256        : EB8865E560331DD4D7D21B5F6C213B6C04E46244F750957C5F74E770249202E0
-Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29)
+Size          : 796160 bytes
+SHA256        : C31D553E409C0D4280EE27DA5DB4A4E3CA9CC16CED5AF408A3A8C45318248B09
+Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
+                plus the local mouse-release fix below, the 128-slot build (2026-11-01) and the
+                scoreboard's pictures (2026-11-02)
 
 What the source build contains, beyond the stock client
 -------------------------------------------------------
@@ -32,13 +34,60 @@ What the source build contains, beyond the stock client
 
    Verified in the built DLL: cmp [edi+0x2f8],2 / cmp [edi+0x2fc],0xff, then skip the fade.
 
-2. Gunshot and ricochet pitch unclamped (upstream bd3f6c3c1aa3)
+2. Mouse-button releases forwarded while the cursor is up (new-round magdump fix)
+
+   cl_dll\inputw32.cpp, IN_MouseEvent. While the cursor is up (the TS buy menu, a VGUI
+   panel, the spectator camera) the function gives the click to the menu and returns
+   without turning it into a key event. That is correct for a press, but it also ate the
+   RELEASE of a button that was already held when the cursor came up. The TS buy menu
+   opens automatically on entering spectate at a round start, so a fire button held
+   across that edge (the round-end shot, or a click that closed the menu) kept its
+   kbutton down: in_attack stayed set, the client predicted fire through the freeze, and
+   at unfreeze the server saw IN_ATTACK still down and emptied the magazine, with the
+   client-side aim recoil climbing to the ceiling. The cursor-up branch now forwards a
+   Key_Event(K_MOUSE1 + i, 0) for every button that went from down to up, before syncing
+   mouse_oldbuttonstate. Presses are still consumed by the menu; a release whose press
+   was consumed matches no down key in KeyUp and is dropped by the engine while the key
+   is up, so it is harmless.
+
+3. Gunshot and ricochet pitch unclamped (upstream bd3f6c3c1aa3)
 
    cl_dll\ev_ts.cpp: the 255/1 clamp is gone from the gunshot, linked-fire and ricochet
    pitches. pitch = 100 + 300 * slow, 400 at normal speed; neither GoldSrc nor Xash caps pitch,
    so normal fire plays at 4x again instead of 2.55x.
 
-3. Everything else reTS already had
+4. Built for 128 player slots (docs\PLAYER_LIMIT_128.txt)
+
+   MAX_PLAYERS 128 (dlls\cdll_dll.h) and MAX_PLAYERS_HUD = MAX_PLAYERS + 1, so the HUD's player
+   lists, the spectator, the overview map, the team menu and the motion-blur ghosts cover every
+   slot.
+   - Voice: "vban" holds one mask per 32 slots in use ("vban <mask>" on a server of 32 or
+     fewer), and VoiceMask is read for as many [rules, ban] pairs as the message carries.
+   - The scoreboard (vgui_ScorePanel.cpp) shows up to 64 players on one screen, without
+     scrolling: two columns side by side, one per team (team 1 left, team 2 right; free-for-all
+     split in two), a team of more than a column continuing in the other one under "(cont.)".
+     Each row: an avatar cell (the default silhouette until a picture for the slot arrives),
+     status in short form (DEAD, 3K, 6K, SPEC, UNSTOP, ONE, WAIT), name, kills, deaths, assists,
+     ping ("BOT" for a player whose userinfo has *bot 1) and the voice icon. Players with no team
+     are listed in a strip at the bottom; the title line has the server, the map and the player
+     count. Rows are 12 units high (YRES), shorter when a layout needs more rows, and the fonts
+     follow the row height.
+   - H9Assists (byte slot, short assists; slot 0 says the server counts assists), sent by H9's
+     ts_matchmode, fills the assists column. A server that never sends it leaves it empty.
+   - The team menu's name list holds every slot's name, and its strncat bounds leave room for
+     the terminator.
+
+6. The scoreboard's havoc9.org pictures (HUD_H9Avatar)
+
+   An export, HUD_H9Avatar(int slot, int version, int wide, int tall, const unsigned char *rgba)
+   (vgui_ScorePanel.cpp), through which an H9XASH engine with engine-h9-avatars.patch hands over
+   a slot's picture: RGBA pixels, at most 64 x 64, which the slot's avatar cell draws scaled to
+   the cell in place of the silhouette; rgba NULL puts the silhouette back. The bitmap a new
+   picture replaces is freed at the next level, since a cell may still hold it. Nothing else
+   calls it: on another engine, or on a server that sends no H9Avatar, every cell keeps the
+   silhouette.
+
+7. Everything else reTS already had
 
    The reTS client is a recompilation of the whole TS client, so it also carries the third-person
    self-transparency fade, the predicted viewmodel body, the HUD and the rest of the reTS client
@@ -52,8 +101,12 @@ Building and deploying
     .\scripts\build-win32-dropin.ps1
 
 writes binaries\ts\cl_dlls\client.dll (and the server's mp.dll). xash.bat's assemble step sets
-RETS_REBUILD=1, so the H9XASH package takes this pair; export.bat's GoldSrc block copies the
-same pair into export\ts\, and the Steam install's ts\cl_dlls\client.dll is this build too.
+RETS_REBUILD=1, so the H9XASH package takes this pair. The GoldSrc package does not yet: while
+reTS\binaries\goldsrc\ holds a pair, export.bat's GoldSrc block copies that one into export\ts\,
+the last pair built for 32 player slots (client.dll 895488 bytes, SHA256
+92E1BFF2614EA881692CDEA86BAF405AD95D3F70BDBDE19BD958C8E0A5267E97), and the Steam install keeps it.
+This pair goes there once it has passed the regression tests at 32 (docs\PLAYER_LIMIT_128.txt,
+section 23) and reTS\binaries\goldsrc\ is removed.
 
 The older stock client with the binary cloak patch (865280 bytes, MD5
 74fc8b3039032a31f7d81440bbde0e80) is kept in
@@ -63,7 +116,13 @@ the appendix describes that build.
 Rollback
 --------
 
-The pair deployed before this build is kept in
+The client this build replaces, the 128-slot build of 2026-11-01 (795648 bytes, SHA256
+8956760D78DE4025563027CD117D891146CE6E45CD0F12402798BF0371872EE0), is kept
+beside it as client.dll.bak_avatars. The client this build replaces, the last one built for 32 player slots (895488 bytes, SHA256
+92E1BFF2614EA881692CDEA86BAF405AD95D3F70BDBDE19BD958C8E0A5267E97), is kept in
+reTS\binaries\goldsrc\cl_dlls\. The one before it (the 2026-10-29 build, 895488 bytes, SHA256
+EB8865E560331DD4D7D21B5F6C213B6C04E46244F750957C5F74E770249202E0) is kept in
+backups\reTS_client_20261101-014835\client.dll. The pair before that is in
 backups\reTS_upstream_20261029\deployed_before\ (client.dll 895488 bytes, SHA256
 94251155A1B435A12F7A2DB5E11C1EA5541D36C01EC6F9E506824F2B1A43F9C5). The GoldSrc package's
 previous client -- the stock client with the binary cloak patch (865280 bytes, MD5

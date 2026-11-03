@@ -746,8 +746,14 @@ void CTSAnimation::Animate(CBasePlayer *pPlayer, int activity)
 			}
 			strcat(name, grip[0] ? grip : "akimbo");
 			SetAnim(pPlayer, name, 0x94, 0);
-			m_iLastActivity = activity;
 		}
+		// @orig: case 3 breaks out of the switch either way, and the code after it sets
+		// m_iLastActivity = a1 (3) -- a held fire pose included. From the next frame Region B's
+		// case 3 runs instead (BlendAnimationsForSlide, which re-poses only when the aim swaps
+		// side), so a shot fired lying down keeps its slide_*_shoot pose rather than the lying
+		// pose coming back as each shot's sequence ends. The leg block after the switch does
+		// nothing while lying (iuser4 & 0x20), hence the return.
+		m_iLastActivity = activity;
 		return;
 	}
 

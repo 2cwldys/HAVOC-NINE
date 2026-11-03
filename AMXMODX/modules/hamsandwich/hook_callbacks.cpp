@@ -28,6 +28,7 @@
 
 #include "ham_const.h"	
 #include "ham_utils.h"
+#include "vector_return.h"
 
 #include "DataHandler.h"
 
@@ -61,7 +62,7 @@ extern bool gDoForwards;
 #define P_CBASE(__PARAM, __INDEX)	__vec->append(new Data(RET_CBASE, (void *) & (__PARAM), reinterpret_cast<int *>(& (__INDEX))));
 #define P_ENTVAR(__PARAM, __INDEX)	__vec->append(new Data(RET_ENTVAR, (void *) & (__PARAM), reinterpret_cast<int *>(& (__INDEX))));
 #define P_EDICT(__PARAM, __INDEX)	__vec->append(new Data(RET_EDICT, (void *) & (__PARAM), reinterpret_cast<int *>(& (__INDEX))));
-#define P_TRACE(__PARAM)			__vec->append(new Data(RET_TRACE, (void *) (__PARAM)));
+#define P_TRACE(__PARAM)			__vec->append(new Data(RET_TRACE, (void *) & (__PARAM)));
 #define P_PTRVECTOR(__PARAM)		__vec->append(new Data(RET_VECTOR, (void *) (__PARAM)));
 #define P_PTRFLOAT(__PARAM)			__vec->append(new Data(RET_FLOAT, (void *) (__PARAM)));
 #define P_ITEMINFO(__PARAM)			__vec->append(new Data(RET_ITEMINFO, (void *) & (__PARAM)));
@@ -868,7 +869,7 @@ void Hook_Vector_Float_Cbase_Int(Hook *hook, Vector *out, void *pthis, float f1,
 #if defined(_WIN32)
 	reinterpret_cast<void (__fastcall*)(void*, int, Vector *, float, void *, int)>(hook->func)(pthis, 0, &origret, f1, cb, i1);
 #elif defined(__linux__) || defined(__APPLE__)
-	origret = reinterpret_cast<Vector(*)(void*, float, void *, int)>(hook->func)(pthis, f1, cb, i1);
+	origret = CallVectorReturn(hook->func, pthis, f1, cb, i1);
 #endif
 
 	POST_START()
@@ -926,17 +927,17 @@ void Hook_Void_Entvar_Float_Vector_Trace_Int(Hook *hook, void *pthis, entvars_t 
 	P_INT(i1)
 
 	PRE_START()
-		,iev1, f1, MF_PrepareCellArrayA(reinterpret_cast<cell *>(&v1), 3, false), tr1, i1
+		,iev1, f1, MF_PrepareCellArrayA(reinterpret_cast<cell *>(&v1), 3, false), MF_PointerToHandle(tr1), i1
 	PRE_END()
 
 #if defined(_WIN32)
 	reinterpret_cast<void (__fastcall*)(void*, int, entvars_t *, float, Vector, TraceResult *, int)>(hook->func)(pthis, 0, ev1, f1, v1, tr1, i1);
 #elif defined(__linux__) || defined(__APPLE__)
-	reinterpret_cast<void (*)(void*, entvars_t *, float, Vector, TraceResult *, int)>(hook->func)(pthis, ev1, f1, v1, tr1, i1);
+	GameCall<void (*)(void*, entvars_t *, float, Vector, TraceResult *, int)>::call(hook->func, pthis, ev1, f1, v1, tr1, i1);
 #endif
 
 	POST_START()
-		, iev1, f1, MF_PrepareCellArrayA(reinterpret_cast<cell *>(&v1), 3, false), tr1, i1
+		, iev1, f1, MF_PrepareCellArrayA(reinterpret_cast<cell *>(&v1), 3, false), MF_PointerToHandle(tr1), i1
 	POST_END()
 
 	KILL_VECTOR()
@@ -954,17 +955,17 @@ void Hook_Void_Float_Vector_Trace_Int(Hook *hook, void *pthis, float f1, Vector 
 	P_INT(i1)
 
 	PRE_START()
-		, f1, MF_PrepareCellArrayA(reinterpret_cast<cell *>(&v1), 3, false), tr1, i1
+		, f1, MF_PrepareCellArrayA(reinterpret_cast<cell *>(&v1), 3, false), MF_PointerToHandle(tr1), i1
 	PRE_END()
 
 #if defined(_WIN32)
 	reinterpret_cast<void (__fastcall*)(void*, int, float, Vector, TraceResult *, int)>(hook->func)(pthis, 0, f1, v1, tr1, i1);
 #elif defined(__linux__) || defined(__APPLE__)
-	reinterpret_cast<void (*)(void*, float, Vector, TraceResult *, int)>(hook->func)(pthis, f1, v1, tr1, i1);
+	GameCall<void (*)(void*, float, Vector, TraceResult *, int)>::call(hook->func, pthis, f1, v1, tr1, i1);
 #endif
 
 	POST_START()
-		, f1, MF_PrepareCellArrayA(reinterpret_cast<cell *>(&v1), 3, false), tr1, i1
+		, f1, MF_PrepareCellArrayA(reinterpret_cast<cell *>(&v1), 3, false), MF_PointerToHandle(tr1), i1
 	POST_END()
 
 	KILL_VECTOR()
@@ -1047,7 +1048,7 @@ void Hook_Vector_Void(Hook *hook, Vector *out, void *pthis)
 #if defined(_WIN32)
 	reinterpret_cast<void (__fastcall*)(void*, int, Vector *)>(hook->func)(pthis, 0, &origret);
 #elif defined(__linux__) || defined(__APPLE__)
-	origret=reinterpret_cast<Vector (*)(void *)>(hook->func)(pthis);
+	origret = CallVectorReturn(hook->func, pthis);
 #endif
 
 	POST_START()
@@ -1084,7 +1085,7 @@ void Hook_Vector_pVector(Hook *hook, Vector *out, void *pthis, Vector *v1)
 #if defined(_WIN32)
 	reinterpret_cast<void (__fastcall*)(void*, int, Vector *, Vector *)>(hook->func)(pthis, 0, &origret, v1);
 #elif defined(__linux__) || defined(__APPLE__)
-	origret=reinterpret_cast<Vector (*)(void*, Vector *)>(hook->func)(pthis, v1);
+	origret = CallVectorReturn(hook->func, pthis, v1);
 #endif
 
 	POST_START()
@@ -1486,7 +1487,7 @@ void Hook_Vector_Float(Hook *hook, Vector *out, void *pthis, float f1)
 #if defined(_WIN32)
 		reinterpret_cast<void (__fastcall*)(void*, int, Vector *, float)>(hook->func)(pthis, 0, &origret, f1);
 #elif defined(__linux__) || defined(__APPLE__)
-		origret=reinterpret_cast<Vector (*)(void *, float)>(hook->func)(pthis, f1);
+		origret = CallVectorReturn(hook->func, pthis, f1);
 #endif
 
 	POST_START()
@@ -1787,7 +1788,7 @@ int Hook_Int_Vector_Vector_Float_Float(Hook *hook, void *pthis, Vector v1, Vecto
 #if defined(_WIN32)
 		origret=reinterpret_cast<int (__fastcall*)(void*, int, Vector, Vector, float, float)>(hook->func)(pthis, 0, v1, v2, f1, f2);
 #elif defined(__linux__) || defined(__APPLE__)
-		origret=reinterpret_cast<int (*)(void*, Vector, Vector, float, float)>(hook->func)(pthis, v1, v2, f1, f2);
+		origret=GameCall<int (*)(void*, Vector, Vector, float, float)>::call(hook->func, pthis, v1, v2, f1, f2);
 #endif
 
 	POST_START()
@@ -1894,7 +1895,7 @@ void Hook_Void_Vector_Entvar_Entvar_Float_Int_Int(Hook *hook, void *pthis, Vecto
 #if defined(_WIN32)
 		reinterpret_cast<void (__fastcall*)(void*, int, Vector, entvars_t *, entvars_t *, float, int, int)>(hook->func)(pthis, 0, source, inflictor, attacker, damage, classignore, damagebits);
 #elif defined(__linux__) || defined(__APPLE__)
-		reinterpret_cast<void (*)(void*, Vector, entvars_t *, entvars_t *, float, int, int)>(hook->func)(pthis, source, inflictor, attacker, damage, classignore, damagebits);
+		GameCall<void (*)(void*, Vector, entvars_t *, entvars_t *, float, int, int)>::call(hook->func, pthis, source, inflictor, attacker, damage, classignore, damagebits);
 #endif
 
 	POST_START()
@@ -2046,7 +2047,7 @@ void Hook_Void_Vector_Vector(Hook *hook, void *pthis, Vector v1, Vector v2)
 #if defined(_WIN32)
 		reinterpret_cast<void (__fastcall*)(void*, int, Vector, Vector)>(hook->func)(pthis, 0, v1, v2);
 #elif defined(__linux__) || defined(__APPLE__)
-		reinterpret_cast<void (*)(void*, Vector, Vector)>(hook->func)(pthis, v1, v2);
+		GameCall<void (*)(void*, Vector, Vector)>::call(hook->func, pthis, v1, v2);
 #endif
 
 	POST_START()
@@ -2329,7 +2330,7 @@ void Hook_Void_Vector(Hook *hook, void *pthis, Vector v1)
 #if defined(_WIN32)
 		reinterpret_cast<void (__fastcall*)(void*, int, Vector)>(hook->func)(pthis, 0, v1);
 #elif defined(__linux__) || defined(__APPLE__)
-		reinterpret_cast<void (*)(void*, Vector)>(hook->func)(pthis, v1);
+		GameCall<void (*)(void*, Vector)>::call(hook->func, pthis, v1);
 #endif
 
 	POST_START()
@@ -2365,7 +2366,7 @@ int Hook_Int_Str_Vector_Str(Hook *hook, void *pthis, const char *sz1, Vector v2,
 #if defined(_WIN32)
 		origret=reinterpret_cast<int (__fastcall*)(void*, int, const char *, Vector, const char *)>(hook->func)(pthis, 0, a.chars(), v2, b.chars());
 #elif defined(__linux__) || defined(__APPLE__)
-		origret=reinterpret_cast<int (*)(void*, const char *, Vector, const char *)>(hook->func)(pthis, a.chars(), v2, b.chars());
+		origret=GameCall<int (*)(void*, const char *, Vector, const char *)>::call(hook->func, pthis, a.chars(), v2, b.chars());
 #endif
 
 	POST_START()
@@ -2677,7 +2678,7 @@ int Hook_Int_Vector_Vector(Hook *hook, void *pthis, Vector v1, Vector v2)
 #if defined(_WIN32)
 	origret=reinterpret_cast<int (__fastcall*)(void*, int, Vector, Vector)>(hook->func)(pthis, 0, v1, v2);
 #elif defined(__linux__) || defined(__APPLE__)
-	origret=reinterpret_cast<int (*)(void*, Vector, Vector)>(hook->func)(pthis, v1, v2);
+	origret=GameCall<int (*)(void*, Vector, Vector)>::call(hook->func, pthis, v1, v2);
 #endif
 
 	POST_START()
@@ -2988,7 +2989,7 @@ int Hook_Int_Vector_Cbase(Hook *hook, void *pthis, Vector v1, void* cb)
 #if defined(_WIN32)
 	origret=reinterpret_cast<int (__fastcall*)(void*, int, Vector, void*)>(hook->func)(pthis, 0, v1, cb);
 #elif defined(__linux__) || defined(__APPLE__)
-	origret=reinterpret_cast<int (*)(void*, Vector, void*)>(hook->func)(pthis, v1, cb);
+	origret=GameCall<int (*)(void*, Vector, void*)>::call(hook->func, pthis, v1, cb);
 #endif
 
 	POST_START()
@@ -3020,7 +3021,7 @@ int Hook_Int_Vector(Hook *hook, void *pthis, Vector v1)
 #if defined(_WIN32)
 		origret=reinterpret_cast<int (__fastcall*)(void*, int, Vector)>(hook->func)(pthis, 0, v1);
 #elif defined(__linux__) || defined(__APPLE__)
-		origret=reinterpret_cast<int (*)(void*, Vector)>(hook->func)(pthis, v1);
+		origret=GameCall<int (*)(void*, Vector)>::call(hook->func, pthis, v1);
 #endif
 
 	POST_START()
@@ -3281,7 +3282,7 @@ void Hook_Vector_Vector_Vector_Vector(Hook *hook, Vector *out, void *pthis, Vect
 #if defined(_WIN32)
 	reinterpret_cast<void (__fastcall*)(void*, int, Vector *, Vector, Vector, Vector)>(hook->func)(pthis, 0, &origret, v1, v2, v3);
 #elif defined(__linux__) || defined(__APPLE__)
-	origret=reinterpret_cast<Vector (*)(void*, Vector, Vector, Vector)>(hook->func)(pthis, v1, v2, v3);
+	origret = CallVectorReturn(hook->func, pthis, v1, v2, v3);
 #endif
 
 	POST_START()
@@ -3362,3 +3363,58 @@ void Hook_Deprecated(Hook* hook)
 {
 
 }
+
+#if !defined(_WIN32)
+// Register-returning entry points for game libraries with "vector_return"
+// "registers": the trampoline tail-jumps here, the Vector comes back in
+// registers like the game's own virtual returns it.
+static GameVector ToVectorReturn(const Vector &v)
+{
+	GameVector ret = { v.x, v.y, v.z };
+	return ret;
+}
+
+GameVector Hook_Vector_Float_Cbase_Int_Reg(Hook *hook, void *pthis, float f1, void *cb, int i1)
+{
+	Vector out;
+	Hook_Vector_Float_Cbase_Int(hook, &out, pthis, f1, cb, i1);
+	return ToVectorReturn(out);
+}
+
+GameVector Hook_Vector_Void_Reg(Hook *hook, void *pthis)
+{
+	Vector out;
+	Hook_Vector_Void(hook, &out, pthis);
+	return ToVectorReturn(out);
+}
+
+GameVector Hook_Vector_pVector_Reg(Hook *hook, void *pthis, Vector *v1)
+{
+	Vector out;
+	Hook_Vector_pVector(hook, &out, pthis, v1);
+	return ToVectorReturn(out);
+}
+
+GameVector Hook_Vector_Float_Reg(Hook *hook, void *pthis, float f1)
+{
+	Vector out;
+	Hook_Vector_Float(hook, &out, pthis, f1);
+	return ToVectorReturn(out);
+}
+
+void *GetRegisterReturnDispatcher(void *target)
+{
+	if (target == reinterpret_cast<void *>(Hook_Vector_Float_Cbase_Int))
+		return reinterpret_cast<void *>(Hook_Vector_Float_Cbase_Int_Reg);
+	if (target == reinterpret_cast<void *>(Hook_Vector_Void))
+		return reinterpret_cast<void *>(Hook_Vector_Void_Reg);
+	if (target == reinterpret_cast<void *>(Hook_Vector_pVector))
+		return reinterpret_cast<void *>(Hook_Vector_pVector_Reg);
+	if (target == reinterpret_cast<void *>(Hook_Vector_Float))
+		return reinterpret_cast<void *>(Hook_Vector_Float_Reg);
+
+	// Hook_Vector_Vector_Vector_Vector also takes Vector by value, which this
+	// module's SDK Vector passes differently from such a game library.
+	return nullptr;
+}
+#endif

@@ -1,0 +1,59 @@
+
+=== h9_tsrp_hive
+  cities:
+    alexandria    8491 brushes   621 entities  shift 0 0 -2440  (49 below the cut)  (26 empty)  (5 ground weapons dropped)  (13 fences made solid)  (3 push triggers fixed)  (8 contents settled)  (7 pruned)  (15 origin keys)  (6 shell)
+    paradise      6013 brushes   611 entities  shift 0 0 2077  (1 extra sun)  (3 fences made solid)  (1 contents settled)  (6 shell)
+    xenon         3732 brushes   457 entities  shift 0 0 955  (1 extra sun)  (8 fences made solid)  (3 pruned)  (6 duplicate faces)  (7 origin keys)  (6 shell)
+  total: 18236 world brushes, 1707 entities
+  solids  min -3968 -4036 -4040  max 3792 4040 4040
+  points  min -3928 -3780 -4030  max 3513 3955 3710
+  sealed  -3832,-4036,-4040..3792,4040,-1488   -3968,-3976,-1488..3256,3803,411   -2915,-2544,411..1822,2987,4040
+  points outside every sealed city: 0
+  within +/-4096: yes
+  textures used: 807   wads: 14
+  switched lights: 32 names (the engine has 32); 8 left always on (pc_tvset2 pc_tvset1 pc_tvset3 pc_tvset4 pc_tvsetgear pc_tvsetcit2 pc_tvsetcit6 pc_tvsetnew3)
+  gates:
+    pc  paradise    anchor (-468, 1895, -306)  -> al at (-384, 1896, -306)
+    al  alexandria  anchor (-1280, -257, -3480)  -> pc at (-1200, -256, -3480)   -> xe at (-1248, -184, -3480)
+    xe  xenon       anchor (-39, 152, 979)  -> al at (40, 152, 979)
+
+  checkPlan: 1 errors, 52 warnings
+    ERROR 479 brushes that are no sound convex solid: world brush 43: face 3 (grey_creteflr2) has no area: the other faces cut it away; world brush 44: face 3 (sinfuturefloor) has no area: the other faces cut it away; world brush 44: face 4 (sinfuturefloor) has no area: the other faces cut it away; world brush 45: face 3 (sinfuturefloor) has no area: the other faces cut it away; world brush 47: face 3 (grey_creteflr2) has no area: the other faces cut it away; world brush 47: face 4 (grey_creteflr2) has no area: the other faces cut it away; world brush 49: face 3 (sinfuturefloor) has no area: the other faces cut it away; world brush 49: face 4 (sinfuturefloor) has no area: the other faces cut it away; and 471 more
+    warn  11967 brushes have planes written with points off the grid of 1: where two such brushes should share a plane a crack can open, and the compiler may complain. Round them (a builder's snap option, or snapped) where they have to meet others: world brush 6 at 2592 3060 -2318.5; world brush 7 at 2584.63 3111.37 -1896; world brush 9 at 2336 3672.45 -2248; world brush 11 at 2208 3588 -2198.5; world brush 14 at 2432 3552.5 -2248; world brush 16 at 2319.84 3442 -2289; world brush 18 at 2310.8 3442 -2306.5; world brush 19 at 2198.63 3329.37 -2248; and 11959 more
+    warn  info_texlights names the texture +0~GENERIC65 , which no face wears: it lights nothing
+    warn  info_texlights names the texture GENERIC87A, which no face wears: it lights nothing
+    warn  info_texlights names the texture GENERIC88A, which no face wears: it lights nothing
+    warn  info_texlights names the texture GENERIC89A, which no face wears: it lights nothing
+    warn  info_texlights names the texture GENERIC90A, which no face wears: it lights nothing
+    warn  info_texlights names the texture GENERIC105, which no face wears: it lights nothing
+    warn  info_texlights names the texture GENERIC106, which no face wears: it lights nothing
+    warn  info_texlights names the texture GENERIC107, which no face wears: it lights nothing
+    warn  info_texlights names the texture GEN_VEND1, which no face wears: it lights nothing
+    warn  info_texlights names the texture EMERGLIGHT, which no face wears: it lights nothing
+    warn  info_texlights names the texture +0~FIFTS_LGHT01 , which no face wears: it lights nothing
+    fact  18236 world brushes, 1921 brushes in 872 brush entities, 122154 faces, 835 point entities
+    fact  the world runs from -3968 -4036 -4040 to 3792 4040 4040: 7760 8076 8080 units
+    fact  807 textures: !cd_blood; !fog; !gwater3; !seawater; !water1; +0BLUENIMATEXT; +0BLUEWATERDN; +0BUTTON4; and 799 more
+    fact  places to start: 26 info_player_deathmatch
+    fact  32 of the 32 names a map may give its switched lights
+    fact  no way out to the void found from 576 entities (a hint from a flood on a grid of 128; the compiler's word is final)
+    fact  the map is large: flooded on a grid of 128, not 16
+
+  wrote D:\Downloads\TSM\export-map\h9_tsrp_hive\out\h9_tsrp_hive.map  (14.18 MB)
+
+  compiling draft with D:/Downloads/TSM/export-map/sdhlt-goldsrc-net/tools (Xash limits, BSP2)...
+  bsp: D:\Downloads\TSM\export-map\h9_tsrp_hive\out\h9_tsrp_hive.bsp
+  warn  hlcsg: Warning: 1590 entities: Xash3D FWGS holds as many as the mod's gameinfo max_edicts says, 1200 when it says nothing
+  warn  hlcsg: Warning: Illegal Brush (edge without opposite face): Entity 0, Brush 300
+  warn  hlcsg: Warning: Illegal Brush (edge without opposite face): Entity 0, Brush 451
+  warn  hlcsg: Warning: Illegal Brush (edge without opposite face): Entity 0, Brush 453
+  warn  hlcsg: Warning: Illegal Brush (edge without opposite face): Entity 0, Brush 458
+  warn  hlcsg: Warning: Illegal Brush (edge without opposite face): Entity 0, Brush 462
+  warn  hlcsg: Warning: Illegal Brush (edge without opposite face): Entity 0, Brush 466
+  warn  hlcsg: Warning: Illegal Brush (edge without opposite face): Entity 0, Brush 537
+  warn  hlcsg: Warning: Illegal Brush (edge without opposite face): Entity 0, Brush 625
+  warn  hlcsg: Warning: Illegal Brush (edge without opposite face): Entity 0, Brush 672
+  hlcsg: 0 in 59.8s
+  hlbsp: 0 in 68.0s
+  hlvis: 0 in 62.0s
+  hlrad: 0 in 737.2s

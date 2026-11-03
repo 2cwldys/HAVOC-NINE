@@ -444,7 +444,7 @@ int AMXAPI amx_Callback(AMX *amx, cell index, cell *result, cell *params)
 #endif
     assert(index>=0 && index<(cell)NUMENTRIES(hdr,natives,libraries));
     func=GETENTRY(hdr,natives,index);
-    f=(AMX_NATIVE)func->address;
+    f=(AMX_NATIVE)AMX_FUNC_LOAD(amx, func->address);
 #if defined AMX_NATIVETABLE
   } /* if */
 #endif
@@ -453,7 +453,7 @@ int AMXAPI amx_Callback(AMX *amx, cell index, cell *result, cell *params)
   /* As of AMX Mod X 1.56, we don't patch sysreq.c to sysreq.d anymore.
    * Otherwise, we'd have no way of knowing the last native to be used.
    */
-  amx->usertags[UT_NATIVE] = (void *)index;
+  amx->usertags[UT_NATIVE] = (void *)(intptr_t)index;
 
   /* Note:
    *   params[0] == number of bytes for the additional parameters passed to the native function
@@ -491,7 +491,14 @@ int AMXAPI amx_Callback(AMX *amx, cell index, cell *result, cell *params)
   extern "C" int AMXAPI asm_runJIT(void *sourceAMXbase, void *jumparray, void *compiledAMXbase);
 #endif
 
-#if PAWN_CELL_SIZE==16
+#if PAWN_CELL_SIZE==16 || (defined(__SIZEOF_POINTER__) ? __SIZEOF_POINTER__ : 4) > (PAWN_CELL_SIZE / 8)
+  /* Cells too narrow to hold a native pointer (16-bit cells, or 32-bit
+   * cells on 64-bit hosts). Skip the relocate-to-absolute pass; jump
+   * targets stay as code-relative offsets in the bytecode and JUMPABS
+   * resolves base+offset on the fly. The labels-as-values dispatcher
+   * is gated off on the same condition, so only the switch dispatcher
+   * uses these and JUMPABS still returns a real cell* pointer.
+   */
   #define JUMPABS(base,ip)      ((cell *)((base) + *(ip)))
   #define RELOC_ABS(base, off)
   #define RELOC_VALUE(base, v)
@@ -541,7 +548,14 @@ static int amx_BrowseRelocate(AMX *amx)
   assert(OP_SYMBOL==126);
 
   amx->sysreq_d=0;      /* preset */
-  #if (defined __GNUC__ || defined ASM32 || defined JIT) 
+  /* The opcode-list / label-table dance only applies to dispatch paths that
+   * substitute label addresses (or JIT/ASM trampolines) for raw opcode small
+   * ints inside the bytecode. That includes ASM32, JIT, and GCC labels-as-
+   * values when sizeof(void*) <= sizeof(cell). On 64-bit non-JIT builds the
+   * switch dispatcher consumes raw opcode small ints and any relocation
+   * truncates a 64-bit label/JIT address into a 32-bit cell, corrupting the
+   * bytecode (later amx_Exec hits the default case → assert(0)). */
+  #if defined ASM32 || defined JIT || (defined __GNUC__ && (defined(__SIZEOF_POINTER__) ? __SIZEOF_POINTER__ : 4) <= (PAWN_CELL_SIZE / 8))
     amx_Exec(amx, (cell*)(void*)&opcode_list, 0);
     /* to use direct system requests, a function pointer must fit in a cell;
      * because the native function's address will be stored as the parameter
@@ -551,13 +565,13 @@ static int amx_BrowseRelocate(AMX *amx)
       amx->sysreq_d=opcode_list[OP_SYSREQ_D];
 	amx->userdata[UD_OPCODELIST] = (void *)opcode_list;
   #else
-    /* ANSI C
-     * to use direct system requests, a function pointer must fit in a cell;
-     * see the comment above
+    /* Switch-dispatch interpreter (used on 64-bit non-JIT builds): leave
+     * the opcode list null and SYSREQ.D disabled. amx_Exec compares the
+     * raw opcode int against case labels.
      */
     if (sizeof(AMX_NATIVE)<=sizeof(cell))
       amx->sysreq_d=OP_SYSREQ_D;
-	amx->userdata[UD_OPCODELIST] = (long)NULL;
+	amx->userdata[UD_OPCODELIST] = NULL;
   #endif
 
   /* start browsing code */
@@ -568,10 +582,12 @@ static int amx_BrowseRelocate(AMX *amx)
       amx->flags &= ~AMX_FLAG_BROWSE;
       return AMX_ERR_INVINSTR;
     } /* if */
-    #if defined __GNUC__ || defined ASM32 || defined JIT
+    #if defined ASM32 || defined JIT || (defined __GNUC__ && (defined(__SIZEOF_POINTER__) ? __SIZEOF_POINTER__ : 4) <= (PAWN_CELL_SIZE / 8))
       /* relocate opcode (only works if the size of an opcode is at least
        * as big as the size of a pointer (jump address); so basically we
-       * rely on the opcode and a pointer being 32-bit
+       * rely on the opcode and a pointer being 32-bit. On 64-bit non-JIT
+       * builds we leave the raw opcode small int in place so the switch
+       * dispatcher matches it.
        */
       *(cell *)(code+(int)cip) = opcode_list[op];
     #endif
@@ -641,7 +657,7 @@ static int amx_BrowseRelocate(AMX *amx)
     case OP_SYSREQ_C:
 		{
 			if (hook)
-#if defined __GNUC__ || defined ASM32 || defined JIT
+#if defined ASM32 || defined JIT || (defined __GNUC__ && (defined(__SIZEOF_POINTER__) ? __SIZEOF_POINTER__ : 4) <= (PAWN_CELL_SIZE / 8))
 				hook(amx, opcode_list, &cip);
 #else
 				hook(amx, NULL, &cip);
@@ -1035,27 +1051,29 @@ int AMXAPI amx_Cleanup(AMX *amx)
     for (i=0; i<numlibraries; i++) {
       lib=GETENTRY(hdr,libraries,i);
       if (lib->address!=0) {
+        void *libhandle = AMX_FUNC_LOAD(amx, lib->address);
         char funcname[sNAMEMAX+12]; /* +1 for '\0', +4 for 'amx_', +7 for 'Cleanup' */
         strcpy(funcname,"amx_");
         strcat(funcname,GETENTRYNAME(hdr,lib));
         strcat(funcname,"Cleanup");
         #if defined _Windows
-          libcleanup=(AMX_ENTRY)GetProcAddress((HINSTANCE)lib->address,funcname);
+          libcleanup=(AMX_ENTRY)GetProcAddress((HINSTANCE)libhandle,funcname);
         #elif defined LINUX || defined __FreeBSD__ || defined __OpenBSD__ || defined __APPLE__
-          libcleanup=(AMX_ENTRY)dlsym((void*)lib->address,funcname);
+          libcleanup=(AMX_ENTRY)dlsym(libhandle,funcname);
         #endif
         if (libcleanup!=NULL)
           libcleanup(amx);
         #if defined _Windows
-          FreeLibrary((HINSTANCE)lib->address);
+          FreeLibrary((HINSTANCE)libhandle);
         #elif defined LINUX || defined __FreeBSD__ || defined __OpenBSD__ || defined __APPLE__
-          dlclose((void*)lib->address);
+          dlclose(libhandle);
         #endif
       } /* if */
     } /* for */
   #else
     (void)amx;
   #endif
+  amx_NativeAddrTeardown(amx);
   return AMX_ERR_NONE;
 }
 #endif /* AMX_CLEANUP */
@@ -1472,7 +1490,7 @@ int AMXAPI amx_RegisterToAny(AMX *amx, AMX_NATIVE f)
   for (i=0; i<numnatives; i++) {
     if (func->address==0) {
       /* this function is not yet located */
-      func->address=(ucell)f;
+      AMX_FUNC_STORE(amx, func->address, f);
     } /* if */
     func=(AMX_FUNCSTUB*)((unsigned char*)func+hdr->defsize);
   } /* for */
@@ -1502,7 +1520,7 @@ int AMXAPI amx_Reregister(AMX *amx, const AMX_NATIVE_INFO *list, int number)
       funcptr=(list!=NULL) ? findfunction(GETENTRYNAME(hdr,func),list,number) : NULL;
       if (funcptr!=NULL)
       {
-        func->address=(ucell)funcptr;
+        AMX_FUNC_STORE(amx, func->address, funcptr);
         count++;
       }
     } /* if */
@@ -1532,7 +1550,7 @@ int AMXAPI amx_Register(AMX *amx, const AMX_NATIVE_INFO *list, int number)
       funcptr=(list!=NULL) ? findfunction(GETENTRYNAME(hdr,func),list,number) : NULL;
       if (funcptr!=NULL)
       {
-        func->address=(ucell)funcptr;
+        AMX_FUNC_STORE(amx, func->address, funcptr);
       } else {
         no_function = GETENTRYNAME(hdr,func);
         err=AMX_ERR_NOTFOUND;
@@ -1624,9 +1642,13 @@ int AMXAPI amx_PushString(AMX *amx, cell *amx_addr, cell **phys_addr, const char
 #define SKIPPARAM(n)    ( cip=(cell *)cip+(n) )
 #define PUSH(v)         ( stk-=sizeof(cell), *(cell *)(data+(int)stk)=v )
 #define POP(v)          ( v=*(cell *)(data+(int)stk), stk+=sizeof(cell) )
+/* cip is saved as a code-relative offset to match every other amx->cip
+ * write site (and amx_Exec's restore at AMX_EXEC_CONT, which does
+ * code + (int)amx->cip). Storing the absolute pointer would silently
+ * truncate on 64-bit hosts where sizeof(void*) > sizeof(cell). */
 #define ABORT(amx,v)    { (amx)->stk=reset_stk; \
 						  (amx)->hea=reset_hea; \
-						  (amx)->cip=(cell)cip; \
+						  (amx)->cip=(cell)((unsigned char *)cip - code); \
 						  (amx)->pri=pri; \
 						  (amx)->alt=alt; \
 						  return v; \
@@ -1636,9 +1658,12 @@ int AMXAPI amx_PushString(AMX *amx, cell *amx_addr, cell **phys_addr, const char
 #define CHKSTACK()      if (stk>amx->stp) return AMX_ERR_STACKLOW
 #define CHKHEAP()       if (hea<amx->hlw) return AMX_ERR_HEAPLOW
 
-#if defined __GNUC__ && !(defined ASM32 || defined JIT)
+#if defined __GNUC__ && !(defined ASM32 || defined JIT) && (defined(__SIZEOF_POINTER__) ? __SIZEOF_POINTER__ : 4) <= (PAWN_CELL_SIZE / 8)
     /* GNU C version uses the "labels as values" extension to create
-     * fast "indirect threaded" interpreter.
+     * fast "indirect threaded" interpreter. Disabled when sizeof(void*) >
+     * sizeof(cell), since amx_BrowseRelocate stuffs label addresses into
+     * cells; on 64-bit hosts with PAWN_CELL_SIZE=32 the addresses don't
+     * fit and the switch-dispatch fallback below is used instead.
      */
 
 #define NEXT(cip)       goto *(const void *)*cip++
@@ -2571,6 +2596,8 @@ static const void * const amx_opcodelist[] = {
     if (!offs2)
        fnum = floor(fnum + 0.5);
 	else  if (offs2 == 1)
+       fnum = floor(fnum);
+	else  if (offs2 == 3 && fnum >= 0)
        fnum = floor(fnum);
 	else
        fnum = ceil(fnum);
@@ -3508,7 +3535,11 @@ int AMXAPI amx_Exec(AMX *amx, cell *retval, int index)
       amx->stk=stk;
       amx->pri=pri;
       amx->alt=alt;
-      pri=((AMX_NATIVE)offs)(amx,(cell *)(data+(int)stk));
+      /* Dead path on 64-bit: amx_BrowseRelocate gates SYSREQ.D enablement on
+       * sizeof(AMX_NATIVE) <= sizeof(cell), so a 32-bit cell can never
+       * receive a 64-bit native pointer here. Cast through uintptr_t so the
+       * unreachable branch still type-checks. */
+      pri=((AMX_NATIVE)(uintptr_t)offs)(amx,(cell *)(data+(int)stk));
       if (amx->error!=AMX_ERR_NONE) {
         if (amx->error==AMX_ERR_SLEEP) {
           amx->pri=pri;
@@ -3600,6 +3631,8 @@ int AMXAPI amx_Exec(AMX *amx, cell *retval, int index)
       if (!offs2)
          fnum = (REAL)floor(fnum + 0.5);
       else  if (offs2 == 1)
+         fnum = floor(fnum);
+      else  if (offs2 == 3 && fnum >= 0)
          fnum = floor(fnum);
 	  else
          fnum = ceil(fnum);

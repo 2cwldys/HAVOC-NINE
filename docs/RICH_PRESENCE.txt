@@ -28,6 +28,9 @@
                                 of its total, then the bots and the map. Alive is counted
                                 the way the round logic counts it. A side's total is every
                                 connected player on that side, bots included.
+   (3 of 64)                    the party: the people on the server out of its slots,
+                                bots left out, from the server's own status reply. Discord
+                                adds it after the state line.
    large picture                the map's picture, from section 5. Its hover text is
                                 HAVOC 9: and the map name.
    small picture                the HAVOC 9 helmet. Its hover text is HAVOC 9.

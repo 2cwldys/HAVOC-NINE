@@ -52,6 +52,38 @@
 //   presence_data, presence_data_log   the h9_community.inc store per community and account, and
 //                       every change to it, kept dataLogRetentionDays, for rollback
 
+// v3 (membership, H9_COMMUNITIES.txt section 3):
+//   presence_communities.join_mode   open (anyone signed in joins), request (staff approve), invite
+//   presence_communities.visibility  listed, unlisted (by link only), private (members only)
+//   presence_communities.whitelist, whitelist_proof   members-only servers, and whether a member's
+//                       game has to prove its player id to get in
+//   presence_community_members    who belongs: the owner and every admin as well, added as they
+//                       become one (and here for every community that had them before v3)
+//   presence_community_requests   requests to join a request-mode community, until decided
+//   presence_community_invites    invitations, until accepted, declined or withdrawn
+
+// v4 (the ID proof, H9_PRESENCE.txt section 8):
+//   presence_proof_nonces   the nonces h9web gave each server for its challenges, and when; a proof
+//                       counts only while its nonce is younger than proofMaxAgeSeconds
+
+// v6 (open chat, the Discord relay, game pictures):
+//   presence_communities.chat_open   1: the web chat is open to every signed-in account, not only
+//                       to members (the owner's switch; a private community's stays members-only)
+//   presence_communities.discord_channel, discord_by, discord_at, discord_last   the Discord
+//                       channel an H9 site admin bridged the community's chat with, who did and
+//                       when, and the last Discord message relayed from it (H9_COMMUNITIES.txt
+//                       section 4a)
+//   presence_messages   rebuilt as it was, with 'discord' among the sources
+//   presence_game_pictures   per account, the 64 x 64 PNG its owner's browser made of a JPEG or WebP
+//                       profile picture, for the scoreboard, and the picture version it was made
+//                       from (H9_PRESENCE.txt section 4b)
+
+// v7 (Create Game servers, H9_PRESENCE.txt section 8a):
+//   presence_enrolled.listen, pend_listen, owner_id   a listen server enrolled by its own player's ID
+//                       proof (no A2S_RULES probe, no admin approval): its reports count proven
+//                       players only and its address is never shown; pend_listen marks such an
+//                       enrollment while it waits for the proof; owner_id is the account that proved it
+
 export const MIGRATIONS = [
   {
     version: 1,
@@ -289,6 +321,278 @@ export const MIGRATIONS = [
           at INTEGER NOT NULL
         );
         CREATE INDEX presence_data_log_c ON presence_data_log(community_id, at);
+      `);
+    },
+  },
+  {
+    version: 3,
+    description: "presence: community membership, visibility, members-only servers",
+    up(db) {
+      db.exec(`
+        ALTER TABLE presence_communities ADD COLUMN join_mode TEXT NOT NULL DEFAULT 'open' CHECK (join_mode IN ('open', 'request', 'invite'));
+        ALTER TABLE presence_communities ADD COLUMN visibility TEXT NOT NULL DEFAULT 'listed' CHECK (visibility IN ('listed', 'unlisted', 'private'));
+        ALTER TABLE presence_communities ADD COLUMN whitelist INTEGER NOT NULL DEFAULT 0 CHECK (whitelist IN (0, 1));
+        ALTER TABLE presence_communities ADD COLUMN whitelist_proof INTEGER NOT NULL DEFAULT 0 CHECK (whitelist_proof IN (0, 1));
+        CREATE TABLE presence_community_members (
+          community_id INTEGER NOT NULL REFERENCES presence_communities(id) ON DELETE CASCADE,
+          account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          joined_at INTEGER NOT NULL,
+          added_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          PRIMARY KEY (community_id, account_id)
+        );
+        CREATE INDEX presence_community_members_a ON presence_community_members(account_id);
+        CREATE TABLE presence_community_requests (
+          community_id INTEGER NOT NULL REFERENCES presence_communities(id) ON DELETE CASCADE,
+          account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY (community_id, account_id)
+        );
+        CREATE TABLE presence_community_invites (
+          community_id INTEGER NOT NULL REFERENCES presence_communities(id) ON DELETE CASCADE,
+          account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          invited_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY (community_id, account_id)
+        );
+        CREATE INDEX presence_community_invites_a ON presence_community_invites(account_id);
+        INSERT OR IGNORE INTO presence_community_members (community_id, account_id, joined_at, added_by)
+          SELECT id, owner_id, created_at, NULL FROM presence_communities WHERE owner_id IS NOT NULL;
+        INSERT OR IGNORE INTO presence_community_members (community_id, account_id, joined_at, added_by)
+          SELECT community_id, account_id, added_at, added_by FROM presence_community_staff;
+      `);
+    },
+  },
+  {
+    version: 4,
+    description: "presence: the ID proof's nonces, issued by h9web",
+    up(db) {
+      db.exec(`
+        CREATE TABLE presence_proof_nonces (
+          nonce TEXT PRIMARY KEY,
+          server TEXT NOT NULL,
+          issued_at INTEGER NOT NULL
+        );
+        CREATE INDEX presence_proof_nonces_at ON presence_proof_nonces(issued_at);
+      `);
+    },
+  },
+  {
+    version: 5,
+    description: "presence: rated play (compete.js): flags, matches, players, ratings, deltas",
+    up(db) {
+      // compete_servers      a rated server's flags: network (NETWORK LADDER, an H9 site admin's)
+      //                      and ladder_community (COUNTS FOR THE LADDER: the community it counts
+      //                      for, while it is linked there); last_match, when its last one began
+      // compete_communities  ladder: the community's staff turned its ladder on
+      // compete_matches      one per match: scopes is the space-separated scopes it counts in
+      //                      ("s:<address>", "c:<community id>", "n"), fixed at its start and
+      //                      emptied by a void; seq, the last batch of kills taken; kills and
+      //                      unrated_kills, how many moved ratings and how many could not; rated,
+      //                      whether its result did; why, why not
+      // compete_players      a proven account's part in a match (nobody else gets a row); NULL
+      //                      account_id once the account is deleted ("a deleted player")
+      // compete_ratings      per scope, ladder and account; decayed_at, the day (unix days) the
+      //                      last decay was taken up to, NULL while the player is active
+      // compete_deltas       what each match gave and took per scope and account, for a void
+      // compete_pairs        kills one account scored on another per day, for pairKillsPerDay
+      // compete_disputes     a player's DISPUTE of a match, until an H9 admin resolves it
+      db.exec(`
+        CREATE TABLE compete_servers (
+          server TEXT PRIMARY KEY,
+          network INTEGER NOT NULL DEFAULT 0 CHECK (network IN (0, 1)),
+          network_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          network_at INTEGER,
+          ladder_community INTEGER REFERENCES presence_communities(id) ON DELETE SET NULL,
+          last_match INTEGER
+        );
+        CREATE TABLE compete_communities (
+          community_id INTEGER PRIMARY KEY REFERENCES presence_communities(id) ON DELETE CASCADE,
+          ladder INTEGER NOT NULL DEFAULT 0 CHECK (ladder IN (0, 1)),
+          set_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          set_at INTEGER
+        );
+        CREATE TABLE compete_matches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          server TEXT NOT NULL,
+          community_id INTEGER REFERENCES presence_communities(id) ON DELETE SET NULL,
+          scopes TEXT NOT NULL,
+          ladder TEXT NOT NULL CHECK (ladder IN ('match', 'dm')),
+          map TEXT,
+          mode TEXT,
+          started_at INTEGER NOT NULL,
+          last_at INTEGER NOT NULL,
+          ended_at INTEGER,
+          status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'over', 'voided')),
+          how TEXT CHECK (how IN ('finished', 'forfeit', 'cancelled', 'abandoned')),
+          winner INTEGER,
+          score1 INTEGER,
+          score2 INTEGER,
+          rounds INTEGER,
+          rated INTEGER NOT NULL DEFAULT 0 CHECK (rated IN (0, 1)),
+          why TEXT,
+          seq INTEGER NOT NULL DEFAULT 0,
+          kills INTEGER NOT NULL DEFAULT 0,
+          unrated_kills INTEGER NOT NULL DEFAULT 0,
+          humans INTEGER,
+          bots INTEGER,
+          voided_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          voided_at INTEGER,
+          void_note TEXT
+        );
+        CREATE INDEX compete_matches_server ON compete_matches(server, started_at);
+        CREATE INDEX compete_matches_open ON compete_matches(status, last_at);
+        CREATE TABLE compete_players (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          match_id INTEGER NOT NULL REFERENCES compete_matches(id) ON DELETE CASCADE,
+          account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          side INTEGER NOT NULL DEFAULT 0,
+          kills INTEGER NOT NULL DEFAULT 0,
+          deaths INTEGER NOT NULL DEFAULT 0,
+          headshots INTEGER NOT NULL DEFAULT 0,
+          teamkills INTEGER NOT NULL DEFAULT 0,
+          rounds INTEGER NOT NULL DEFAULT 0,
+          seconds INTEGER NOT NULL DEFAULT 0,
+          left_early INTEGER NOT NULL DEFAULT 0 CHECK (left_early IN (0, 1)),
+          result TEXT CHECK (result IN ('win', 'loss', 'left')),
+          place INTEGER
+        );
+        CREATE UNIQUE INDEX compete_players_one ON compete_players(match_id, account_id);
+        CREATE INDEX compete_players_account ON compete_players(account_id, match_id);
+        CREATE TABLE compete_ratings (
+          scope TEXT NOT NULL,
+          ladder TEXT NOT NULL CHECK (ladder IN ('match', 'dm')),
+          account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          elo INTEGER NOT NULL,
+          kills INTEGER NOT NULL DEFAULT 0,
+          deaths INTEGER NOT NULL DEFAULT 0,
+          headshots INTEGER NOT NULL DEFAULT 0,
+          wins INTEGER NOT NULL DEFAULT 0,
+          losses INTEGER NOT NULL DEFAULT 0,
+          matches INTEGER NOT NULL DEFAULT 0,
+          last_at INTEGER NOT NULL,
+          decayed_at INTEGER,
+          PRIMARY KEY (scope, ladder, account_id)
+        );
+        CREATE INDEX compete_ratings_board ON compete_ratings(scope, ladder, elo);
+        CREATE INDEX compete_ratings_account ON compete_ratings(account_id);
+        CREATE TABLE compete_deltas (
+          match_id INTEGER NOT NULL REFERENCES compete_matches(id) ON DELETE CASCADE,
+          scope TEXT NOT NULL,
+          account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          delta INTEGER NOT NULL DEFAULT 0,
+          kills INTEGER NOT NULL DEFAULT 0,
+          deaths INTEGER NOT NULL DEFAULT 0,
+          headshots INTEGER NOT NULL DEFAULT 0,
+          wins INTEGER NOT NULL DEFAULT 0,
+          losses INTEGER NOT NULL DEFAULT 0,
+          matches INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (match_id, scope, account_id)
+        );
+        CREATE TABLE compete_pairs (
+          day INTEGER NOT NULL,
+          killer INTEGER NOT NULL,
+          victim INTEGER NOT NULL,
+          n INTEGER NOT NULL,
+          PRIMARY KEY (day, killer, victim)
+        );
+        CREATE TABLE compete_disputes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          match_id INTEGER NOT NULL REFERENCES compete_matches(id) ON DELETE CASCADE,
+          account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          reason TEXT,
+          at INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+          resolved_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          resolved_at INTEGER,
+          note TEXT
+        );
+      `);
+    },
+  },
+  {
+    version: 6,
+    description: "presence: open community chat, the Discord relay, game copies of JPEG and WebP pictures",
+    up(db) {
+      // presence_messages takes a fourth source; SQLite changes a CHECK only by a new table. The
+      // ids and the AUTOINCREMENT counter go across, so no server's "since" ever sees an id twice.
+      db.exec(`
+        ALTER TABLE presence_communities ADD COLUMN chat_open INTEGER NOT NULL DEFAULT 0 CHECK (chat_open IN (0, 1));
+        ALTER TABLE presence_communities ADD COLUMN discord_channel TEXT;
+        ALTER TABLE presence_communities ADD COLUMN discord_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL;
+        ALTER TABLE presence_communities ADD COLUMN discord_at INTEGER;
+        ALTER TABLE presence_communities ADD COLUMN discord_last TEXT;
+        CREATE TABLE presence_messages_v6 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          community_id INTEGER REFERENCES presence_communities(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('chat', 'announce')),
+          source TEXT NOT NULL CHECK (source IN ('game', 'web', 'admin', 'discord')),
+          server TEXT,
+          tag TEXT NOT NULL,
+          account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          name TEXT NOT NULL,
+          text TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          deleted_at INTEGER,
+          deleted_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL
+        );
+        INSERT INTO presence_messages_v6 (id, community_id, kind, source, server, tag, account_id, name, text, created_at, deleted_at, deleted_by)
+          SELECT id, community_id, kind, source, server, tag, account_id, name, text, created_at, deleted_at, deleted_by FROM presence_messages;
+        DELETE FROM sqlite_sequence WHERE name = 'presence_messages_v6';
+        INSERT INTO sqlite_sequence (name, seq) SELECT 'presence_messages_v6', seq FROM sqlite_sequence WHERE name = 'presence_messages';
+        DROP TABLE presence_messages;
+        ALTER TABLE presence_messages_v6 RENAME TO presence_messages;
+        CREATE INDEX presence_messages_c ON presence_messages(community_id, id);
+        CREATE TABLE presence_game_pictures (
+          account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+          version INTEGER NOT NULL,
+          png BLOB NOT NULL,
+          made_at INTEGER NOT NULL
+        );
+      `);
+    },
+  },
+  {
+    version: 7,
+    description: "presence: Create Game servers enrolled by their own player's ID proof",
+    up(db) {
+      db.exec(`
+        ALTER TABLE presence_enrolled ADD COLUMN listen INTEGER NOT NULL DEFAULT 0 CHECK (listen IN (0, 1));
+        ALTER TABLE presence_enrolled ADD COLUMN pend_listen INTEGER NOT NULL DEFAULT 0 CHECK (pend_listen IN (0, 1));
+        ALTER TABLE presence_enrolled ADD COLUMN owner_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL;
+      `);
+    },
+  },
+  {
+    version: 8,
+    description: "presence: account levels Lv 0-99 from the H9 ladder (compete.js)",
+    up(db) {
+      // compete_config   the site admins' settings for levels: key and value as text (the rule,
+      //                  "elo" or "career", and each rule's tuning); a key not there takes its default
+      // compete_xp       a career's experience: what each match counted on the H9 ladder gave each
+      //                  player, so a void takes back exactly that match's
+      // compete_levels   each account's level, worked out again whenever its H9 ladder rating, its
+      //                  experience or the settings change: what the report answer and the site show
+      db.exec(`
+        CREATE TABLE compete_config (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          set_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          set_at INTEGER
+        );
+        CREATE TABLE compete_xp (
+          match_id INTEGER NOT NULL REFERENCES compete_matches(id) ON DELETE CASCADE,
+          account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          xp INTEGER NOT NULL,
+          PRIMARY KEY (match_id, account_id)
+        );
+        CREATE INDEX compete_xp_account ON compete_xp(account_id);
+        CREATE TABLE compete_levels (
+          account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+          level INTEGER NOT NULL,
+          xp INTEGER NOT NULL DEFAULT 0,
+          rule TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
       `);
     },
   },

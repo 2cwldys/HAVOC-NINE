@@ -1,0 +1,7 @@
+D:/Downloads/TSM/export-map/sdhlt-goldsrc-net/build-win64/CMakeFiles/BSP.dir
+D:/Downloads/TSM/export-map/sdhlt-goldsrc-net/build-win64/CMakeFiles/CSG.dir
+D:/Downloads/TSM/export-map/sdhlt-goldsrc-net/build-win64/CMakeFiles/RAD.dir
+D:/Downloads/TSM/export-map/sdhlt-goldsrc-net/build-win64/CMakeFiles/VIS.dir
+D:/Downloads/TSM/export-map/sdhlt-goldsrc-net/build-win64/CMakeFiles/RIPENT.dir
+D:/Downloads/TSM/export-map/sdhlt-goldsrc-net/build-win64/CMakeFiles/ALL_BUILD.dir
+D:/Downloads/TSM/export-map/sdhlt-goldsrc-net/build-win64/CMakeFiles/ZERO_CHECK.dir

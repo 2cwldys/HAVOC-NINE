@@ -25,7 +25,10 @@
 //
 // Site activity, for "on the site" (modules/presence):
 //   auth.lastActive(accountId)   unix seconds of the account's last signed-in request, or null
-//   auth.activeSince(unixSeconds) the account ids with a signed-in request since then
+//   auth.activeSince(unixSeconds) the account ids with a signed-in request since then, leaving
+//                                 out any signed out after it
+//   auth.signedOutAt(accountId)  unix seconds its last live session ended (signed out, or every
+//                                 session revoked), or null; set only when no live session is left
 //   sessionFromRequest records each request it answers for a live, unsuspended session. The
 //   relay's re-check of its sockets calls sessionByHash, which records nothing: an open web
 //   client is not being on the site. After a restart lastActive falls back to the sessions'
@@ -59,6 +62,7 @@ export function createAuth({ db, config, accounts, events }) {
     lastSeen: db.prepare("SELECT max(last_seen_at) AS t FROM sessions WHERE account_id = ?"),
   };
   const recent = new Map(); // account id -> unix seconds of its last signed-in request
+  const signedOut = new Map(); // account id -> unix seconds its last live session ended
 
   function tokenHash(token) {
     return crypto.createHash("sha256").update(token).digest("hex");
@@ -119,18 +123,25 @@ export function createAuth({ db, config, accounts, events }) {
 
   function activeSince(t) {
     const out = [];
-    for (const [id, at] of recent) if (at >= t) out.push(id);
+    for (const [id, at] of recent) if (at >= t && !(signedOut.get(id) >= at)) out.push(id);
     return out;
   }
 
+  function signedOutAt(accountId) {
+    return signedOut.has(accountId) ? signedOut.get(accountId) : null;
+  }
+
   function revokeSession(hash, reason = "signed-out") {
+    const row = q.get.get(hash);
     q.remove.run(hash);
+    if (row && activeSessions(row.account_id) === 0) signedOut.set(row.account_id, nowSeconds());
     emit("session-ended", { tokenHash: hash, reason });
   }
 
   function revokeAllSessions(accountId, { except = null, reason = "signed-out" } = {}) {
     if (except) q.removeAccountExcept.run(accountId, except);
     else q.removeAccount.run(accountId);
+    if (!except) signedOut.set(accountId, nowSeconds());
     emit("account-sessions-ended", { accountId, except, reason });
   }
 
@@ -142,6 +153,7 @@ export function createAuth({ db, config, accounts, events }) {
   function sweep() {
     const t = nowSeconds();
     for (const [id, at] of recent) if (at < t - 86400) recent.delete(id);
+    for (const [id, at] of signedOut) if (at < t - 86400) signedOut.delete(id);
     return Number(q.sweep.run(t, t - idle).changes);
   }
 
@@ -211,7 +223,7 @@ export function createAuth({ db, config, accounts, events }) {
     cookieName, ROLES,
     tokenHash, newSession, setSessionCookie, clearSessionCookie,
     sessionByHash, sessionFromRequest, tokenFromCookieHeader,
-    revokeSession, revokeAllSessions, activeSessions, sweep, lastActive, activeSince,
+    revokeSession, revokeAllSessions, activeSessions, sweep, lastActive, activeSince, signedOutAt,
     checkSameOrigin, checkWebSocketOrigin, originAllowed,
     roleAtLeast, requireSession, requireRole, optionalSession,
   };

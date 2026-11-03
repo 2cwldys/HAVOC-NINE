@@ -16,6 +16,7 @@ GNU General Public License for more details.
 #include <inttypes.h>
 #include "common.h"
 #include "client.h"
+#include "cl_motd.h"
 #include "net_encode.h"
 #include "cl_tent.h"
 #include "input.h"
@@ -1428,7 +1429,7 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
 	else
 	{
 		const char *qport = Cvar_VariableString( "net_qport" );
-		int extensions = adrtype == NA_LOOPBACK ? 0 : ( NET_EXT_SPLITSIZE | NET_EXT_NETCHAN_COOKIE );
+		int extensions = adrtype == NA_LOOPBACK ? 0 : ( NET_EXT_SPLITSIZE | NET_EXT_NETCHAN_COOKIE | NET_EXT_H9_SLOTS128 );
 		string key;
 
 		ID_GetMD5ForAddress( key, adr, sizeof( key ));
@@ -1792,6 +1793,7 @@ void CL_ClearState( void )
 	Cvar_SetValue( "scr_loading", 0.0f );
 	host.allow_console = host.allow_console_init;
 	HTTP_ClearCustomServers();
+	CL_Motd_Reset( false ); // H9: a new map takes any splash MOTD away (cl_motd.c)
 }
 
 /*
@@ -1948,6 +1950,7 @@ void CL_Disconnect( void )
 	memset( &cls.bandwidth_test, 0, sizeof( cls.bandwidth_test ));
 	cls.signon = 0;
 	cls.net_protocol = PROTO_CURRENT;
+	CL_Motd_Reset( true ); // H9: the next connection may show a splash MOTD again (cl_motd.c)
 
 	// back to menu in non-developer mode
 	if( host_developer.value || cls.key_dest == key_menu )
@@ -2358,7 +2361,10 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
 	Info_SetValueForKey( s, "dm", "0", sizeof( s )); // obsolete keys
 	Info_SetValueForKey( s, "team", "0", sizeof( s ));
 	Info_SetValueForKey( s, "coop", "0", sizeof( s ));
-	Info_SetValueForKeyf( s, "numcl", sizeof( s ), "%i", numcl );
+	// H9: GoldSrc counts the bots among the players; mainui gets the people alone and the bots apart,
+	// as an Xash server's own info reply has them
+	Info_SetValueForKeyf( s, "numcl", sizeof( s ), "%i", numcl > bots ? numcl - bots : 0 );
+	Info_SetValueForKeyf( s, "bots", sizeof( s ), "%i", bots );
 	Info_SetValueForKeyf( s, "maxcl", sizeof( s ), "%i", maxcl );
 	Info_SetValueForKey( s, "gamedir", gamedir, sizeof( s ));
 	Info_SetValueForKey( s, "password", password ? "1" : "0", sizeof( s ));
@@ -3895,6 +3901,7 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &cl_bmodelinterp );
 	Cvar_RegisterVariable( &cl_clockreset );
 	Cvar_RegisterVariable( &cl_fixtimerate );
+	CL_H9Listen_Init(); // H9: h9_idlisten, for a listen server's own player in presence (cl_h9listen.c)
 	Cvar_RegisterVariable( &hud_fontscale );
 	Cvar_RegisterVariable( &hud_fontrender );
 	Cvar_RegisterVariable( &hud_scale );
@@ -3974,6 +3981,7 @@ static void CL_InitLocal( void )
 	Cmd_AddCommand( "richpresence_update", Cmd_Null_f, "compatibility command, does nothing" );
 
 	Cmd_AddCommand( "cl_list_messages", CL_ListMessages_f, "list registered user messages" );
+	CL_H9Link_Init(); // H9: the id from user_id.ini, kept protected, and h9_link (cl_h9link.c)
 }
 
 //============================================================================
@@ -4090,6 +4098,9 @@ void Host_ClientFrame( void )
 	// handle spectator movement
 	CL_MoveSpectatorCamera();
 
+	// H9: the splash MOTD comes up, or gives way to the text MOTD (cl_motd.c)
+	CL_Motd_Frame();
+
 	// catch changes video settings
 	VID_CheckChanges();
 
@@ -4123,6 +4134,7 @@ void CL_Init( void )
 	CL_InitLocal();
 
 	VID_Init();	// init video
+	CL_Travel_Init(); // H9: h9_travel, which asks the player before any trip (cl_travel.c)
 
 	// unreliable buffer. unsed for unreliable commands and voice stream
 	MSG_Init( &cls.datagram, "cls.datagram", cls.datagram_buf, sizeof( cls.datagram_buf ));
@@ -4134,16 +4146,19 @@ void CL_Init( void )
 
 	ID_Init();
 	SteamBroker_Init();
+	CL_Motd_Init(); // H9: the splash MOTD's cl_h9_motd (cl_motd.c)
 
 	// client must be always initialized last so it can fetch all cvars
 	if( !CL_LoadProgs( libpath ))
 		Host_Error( "can't initialize %s: %s\n", libpath, COM_GetLibraryError( ));
 
+	CL_H9Id_Init(); // H9: the presence ID proof's device id and h9_idchallenge (cl_idproof.c)
 	cls.build_num = 0;
 	cls.initialized = true;
 	cl.maxclients = 1; // allow to drawing player in menu
 	cls.olddemonum = -1;
 	cls.demonum = -1;
+	CL_Avatar_Init(); // H9: players' havoc9.org pictures on the scoreboard (cl_avatar.c)
 }
 
 /*
@@ -4164,6 +4179,7 @@ void CL_Shutdown( void )
 		Touch_WriteConfig();
 	}
 
+	CL_Motd_Reset( true ); // H9: the splash MOTD's page view closes while the game window is still there (cl_motd.c)
 	Joy_Shutdown ();
 	CL_CloseDemoHeader ();
 	IN_Shutdown ();

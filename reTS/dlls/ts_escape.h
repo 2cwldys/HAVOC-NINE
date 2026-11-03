@@ -27,6 +27,11 @@ public:
 	int     escape_percentage = 0;  // +0xf4 — keyvalue "escapepercentage": 0 one / 1 third / 2 two-thirds / 3 all
 	EHANDLE m_present[33];           // +0x6c.. — players counted this window (by entindex)
 	int     m_count = 0;             // +0xf0 — distinct attacker-team players inside
+
+	// entindex 33 to MAX_PLAYERS; m_present holds 0 to 32 at the original's offset. Kept last so
+	// no other member moves.
+	EHANDLE m_presentHigh[MAX_PLAYERS + 1 - 33];
+	EHANDLE &PresentAt(int idx) { return idx < 33 ? m_present[idx] : m_presentHigh[idx - 33]; }
 };
 
 #endif // TS_ESCAPE_H

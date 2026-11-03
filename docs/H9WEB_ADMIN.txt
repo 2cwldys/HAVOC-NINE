@@ -28,6 +28,9 @@
    14. Username changes
    15. Discord and the registered role
    16. Presence: who is playing, devices and the player id
+   17. Communities: enrolled servers, members, private communities
+   18. Backups and restore
+   19. Rated play: the ladder
 
 
  1. WHAT THE SITE DOES
@@ -311,9 +314,11 @@
      /opt/h9web/                  the code
      /etc/h9web/config.json       the settings (section 7)
      /etc/h9web/servers.json      the server list (section 6)
-     /var/lib/h9web/              secrets.json, h9web.db (the accounts,
-                                  the forum, the audit log), backups/,
-                                  modules/forum/avatars/ (pictures)
+     /var/lib/h9web/              secrets.json, data.key, h9web.db (the
+                                  accounts, the forum, the audit log),
+                                  backups/, modules/forum/avatars/
+                                  (pictures); the h9web user's only, the
+                                  folders 0700, the files 0600
 
    Is it up?
      systemctl status h9web
@@ -330,11 +335,21 @@
      sudo systemctl restart h9web               (section 7's warning)
 
    Backups
-     The daily backup timer (h9web\README.txt, section 10) copies the
-     database into /var/lib/h9web/backups and keeps 14 days of them. Copy
-     that folder off the VPS now and then. A copy right now:
-       $A backup /var/lib/h9web/backups/h9web-now.db
-   Restore: h9web\README.txt, section 10.
+     The daily backup timer (havoc9.org\webclient\DEPLOY.txt, section 13)
+     backs up the database, the forum's pictures and the presence keys into
+     /var/lib/h9web/backups and keeps the newest 14. Only encrypted copies
+     leave the VPS, never the whole of /var/lib/h9web. Backing up by hand,
+     restoring, and moving the forum or the communities: section 18.
+
+   The data key (data.key)
+     Made on the first start, with the log line datakey.created. It seals
+     what the database keeps that should not be readable from a copy of the
+     database alone: each Discord link's Discord user id and display name.
+     Keep one copy offline, apart from the database's backups; a backup and
+     its key in one place is a backup anyone can open. Lost with no copy:
+     only the Discord links are lost; the log says discord.datakey and
+     Discord linking is off until "dropUnreadable" lets them go
+     (h9web\README.txt, section 10), after which the players link again.
 
    Updates
      Copy the new code into /opt/h9web, then restart. A change to the
@@ -358,8 +373,13 @@
      site, Discord or a screenshot. If it is lost, every password and every
      player id is lost with it. If it leaks, tell the players: with it and
      a copy of the database, passwords can be guessed offline.
+   * /var/lib/h9web/data.key: the same care as secrets.json, kept apart
+     from the database's backups (section 8).
    * Backups of the database hold every username and password hash. Keep
-     them as private as the VPS.
+     them as private as the VPS, and encrypted wherever they are copied to.
+   * The VPS's disk: turn on the provider's disk or volume encryption where
+     it offers it, so a disk that leaves the provider (a snapshot, a resold
+     drive) holds nothing readable; it does not protect a running server.
    * Never ask a player for their password. No admin job needs it.
    * Send a reset password by direct message, never in a channel.
    * Run the admin command as written in section 3 (sudo -u h9web).
@@ -392,6 +412,8 @@
      in game, which server and map, the web client, the site, playtime and
      "last seen", each on or off (section 16). They always see all of their
      own under IN GAME AND ONLINE.
+   * Make a community, join one, ask to join, accept an invitation, leave,
+     and chat in the communities they belong to (section 17).
    They cannot get a forgotten password back or delete their account: an
    admin does those (sections 4, 5 and 12).
 
@@ -405,6 +427,11 @@
 
    On a thread
      PIN / UNPIN          pinned threads stay at the top of their category
+     HIDE / UNHIDE        a hidden thread is seen only by moderators and admins
+                          (marked HIDDEN); for everyone else it is gone until
+                          UNHIDE. Also on the thread's first post (HIDE THREAD) and
+                          in the category list's row tools. Audit log:
+                          forum.thread.hide, forum.thread.unhide
      LOCK / UNLOCK        locked: no new replies, except from moderators and admins;
                           the authors cannot edit or remove their posts in it
      RENAME               a new title
@@ -419,6 +446,11 @@
                           the text and a RESTORE button. Removing a post closes its
                           reports
      ACCOUNT TOOLS        opens the panel's ACCOUNTS tab for its author
+     CLEAR SIGNATURE      in the author box: empties the author's signature, with your
+                          reason in the audit log (forum.signature.clear)
+     REMOVE PICTURE       under a picture: takes that one picture out of the post
+                          (it reads "(picture removed by a moderator)"), with your
+                          reason in the audit log (forum.post.picture.remove)
    Likes and dislikes: every signed-in member has one vote per post (not on their
    own post, not while suspended or with posting off). Everyone sees each post's
    likes and dislikes, and the author's likes in all beside their picture. A removed
@@ -432,6 +464,56 @@
    change the copy). DISMISS closes a report (write what was done, if anything);
    REMOVE THE POST removes it and closes its reports. The reporter's name is shown to
    moderators only.
+
+   Pictures in posts are links to pictures on other sites, shown from there: nothing
+   is uploaded to havoc9.org. A picture shows only from the picture hosts on the list
+   (i.imgur.com, i.redd.it, i.postimg.cc, i.ibb.co, media.giphy.com, i.giphy.com,
+   upload.wikimedia.org, images.steamusercontent.com); any other link stays a link.
+   A post shows up to 25 pictures, the rest as links. Both are settings:
+     the number:  config.json "moduleSettings": { "forum": { "maxImagesPerPost": 40 } }
+                  (0 to 200), then restart h9web
+     the hosts:   IMAGE_HOSTS in h9web/modules/forum/markup.js AND img-src in the
+                  Content-Security-Policy line of havoc9.org/forum/index.html and the
+                  four forum/*/index.html pages; change both together (h9web's tests
+                  fail while they differ), deploy both, restart h9web
+   The site a picture is on sees the address of everyone who reads the post, as any
+   website does; the forum's front page tells players so.
+
+   Suggestions: a category for players' ideas (address suggestions), open to every
+   member like General. The "What we need" page links to it.
+
+   MEDIA (havoc9.org/media/): members post YouTube videos of their games; members
+   comment, guests only watch. On each post, for moderators and admins:
+     PIN / UNPIN          pinned posts stay at the top of the front page
+     HIDE / UNHIDE        seen only by staff (marked HIDDEN), there and in the archive
+     REMOVE               gone for everyone
+   and REMOVE under any comment. Each goes into the audit log (forum.media.*). The
+   front page shows the pinned posts and the newest 30 others; older ones move to
+   the ARCHIVE by month. The number is a setting:
+     "moduleSettings": { "forum": { "mediaFrontCount": 50 } }   (1 to 200)
+   Videos show as pictures until someone presses play; then YouTube's privacy mode
+   (youtube-nocookie.com) plays them.
+
+   DEVELOPER: a flag an admin gives under ACCOUNTS, open the account, DEVELOPER (MAKE
+   DEVELOPER, REMOVE DEVELOPER; audit log forum.developer.add and .remove). It goes
+   with any role, shows the name in purple with a DEVELOPER tag across the forum, and
+   lets the account edit the "What we need" page. It gives no moderation powers.
+
+   Signatures: a member sets a few lines under ACCOUNT, FORUM SIGNATURE; they show
+   under each of their posts (not under removed ones, never in quotes), with bold,
+   italic, links and a picture from the picture hosts. A new account's shows as plain
+   text. A reader can turn everyone's off there too (SHOW SIGNATURES). Moderators, on
+   accounts below their role, from the member page:
+     CLEAR SIGNATURE      empties it (also in a post's author box)
+     BLOCK SIGNATURE      the account cannot set one, and its signature is hidden,
+                          for some days or until LET SIGNATURE BACK; the player sees
+                          your reason. In the audit log as forum.signature.block and
+                          forum.signature.unblock
+   The limits are settings (config.json, then restart h9web):
+     "moduleSettings": { "forum": { "signatureMaxChars": 300, "signatureMaxLines": 4,
+       "signatureImages": 1, "signatureImageHeight": 100 } }
+   (characters 0 to 2000, 0 switching signatures off; lines 1 to 20; pictures 0 to
+   10; picture height 16 to 480 px.)
 
    Posting off: for an account that keeps breaking the forum's rules but may still
    play. The panel's ACCOUNTS tab, POSTING ON THE FORUM: a username, an optional
@@ -484,6 +566,14 @@
                   SHOW DECIDED lists those approved, denied or cancelled
      PRESENCE     the presence flags, and one account's presence: its devices,
                   RESET THE PLAYER ID and MOVE THE PLAYER ID (section 16)
+     WHAT WE NEED the "What we need" page (havoc9.org/join/needs/): its title,
+                  intro and items (category, status, title, description; pictures
+                  from the forum's picture hosts, as in posts), ADD ITEM, UP, DOWN,
+                  REMOVE, a live preview, SAVE (into the audit log as
+                  forum.needs.edit). Admins, moderators and developers by default;
+                  the page itself has EDIT THIS PAGE for them. Who besides admins:
+                  "moduleSettings": { "forum": { "needsEditors": ["moderator", "developer"] } }
+                  ([] leaves it to admins)
      AUDIT LOG    every moderator and admin action, the latest first, all or by a
                   name; kept 90 days (config admin.auditRetentionDays)
 
@@ -520,6 +610,12 @@
    * Beside posts, a picture over 512 KB (a long GIF, say) shows the default one
      until the reader hovers or taps it, so a page of posts stays light.
    * nginx needs the location of h9web\README.txt, section 15, for the upload.
+   * On the in-game scoreboard (docs\H9_PRESENCE.txt section 4b) a proven player
+     shows the middle square of their picture at 64 x 64; a player with none shows
+     the H9 default picture; the silhouette is for players with no account and
+     games that did not prove the player id. h9web makes the game's copy of a PNG
+     or GIF itself; for a JPEG or WebP the owner's browser makes it on the ACCOUNT
+     page and sends it. Removing a picture removes its game copy with it.
 
 
  14. USERNAME CHANGES
@@ -592,8 +688,11 @@
    Its tables are made on that start.
 
    A key for each game server. A server reports who is on it, signed with a key of
-   its own; h9web refuses a report without the right signature. As the service's
-   user:
+   its own; h9web refuses a report without the right signature. A dedicated server
+   gets its key by itself: it enrolls with havoc9.org and proves its address
+   (docs\H9_PRESENCE.txt, section 4a); one not on servers.json waits for an admin
+   to approve it (section 17). A key made by hand still works for a server on
+   servers.json, and wins over its enrollment. As the service's user:
      P="sudo -u h9web node /opt/h9web/modules/presence/bin/presence-key.js"
      P="$P --config /etc/h9web/config.json"
      $P add 203.0.113.10:27015       a key for that server, printed once
@@ -655,3 +754,188 @@
    account, its devices as hashes, and whether a flagged network was one it has
    used, never the network itself or an IP address. Nobody sees a player id or
    a device id.
+
+ 17. COMMUNITIES: ENROLLED SERVERS, MEMBERS, PRIVATE COMMUNITIES
+ ---------------------------------------------------------------
+   A community is an account's group of game servers with one chat across them
+   and the site, members, and its own admins; havoc9.org/community/ is its page.
+   docs\H9_COMMUNITIES.txt is the whole story. What is an H9 admin's (role admin):
+
+   Enrolled servers (havoc9.org/community/, H9 ADMIN, ENROLLED SERVERS). Game
+   servers enroll by themselves. One on servers.json goes live once it proves its
+   address; any other shows as "pending approval" until APPROVE. REVOKE stops a
+   key at once (the server may enroll again, and waits again); BLOCK stops an
+   address from enrolling at all; UNBLOCK lifts that. "re-enrolled" flags a key
+   that a new enrollment replaced; RESOLVE FLAGS once looked at. Approve only a
+   server whose host you know: an approved server reports players and, linked to
+   a community, reaches its chat and data.
+   A "listen" server is a player's own game (Create Game), live without anyone's
+   approval because its own player proved their H9 id for it; the list names that
+   account. Its reports count proven players only and its address is never shown
+   (docs\H9_PRESENCE.txt section 8a). REVOKE and BLOCK work on it as on any other.
+
+   Every community, whatever its settings: an H9 admin sees a private community's
+   page, servers, members and chat, and may do whatever its owner may (settings,
+   members, requests and invitations, bans, mutes and kicks, announcements,
+   deleting chat lines, putting its data back, deleting it). Membership does not
+   apply to H9 admins: they read and write any community's chat without joining,
+   and a members-only server always lets them in. Use that for moderation, not to
+   read private chats out of interest.
+
+   H9-wide (H9 ADMIN): BANS, MUTES AND KICKS on every enrolled server and in every
+   community (a ban also keeps the account out of every community: it cannot join,
+   ask or be invited), and ANNOUNCE to every server and every community's chat.
+
+   The Discord bridge, an H9 admin's alone: on a community's own page, DISCORD
+   BRIDGE (H9 ADMIN) takes a Discord channel's id. The community's chat (its
+   servers' .relay lines, its page's chat, its announcements) then goes to that
+   channel through H9's bot, and what people write there comes to every server of
+   the community and to its page as [Discord] lines; mentions never ping, and
+   Discord's formatting is taken literally. Give it to a community you trust with
+   a channel H9 runs or knows: the bot posts as H9. The bot needs View Channel,
+   Read Message History and Send Messages in that channel and the Message Content
+   intent on in Discord's developer portal; the panel says how the channel last
+   answered. STOP ends it. docs\H9_COMMUNITIES.txt section 3a.
+
+   What a community's own settings do, in short: JOIN open (anyone signed in),
+   request (its admins approve) or invite; VISIBILITY listed, unlisted (by link
+   only) or private (members only; its servers are left out of the site's public
+   lists, the SERVERS page and /find for anyone else); CHAT OPEN TO EVERYONE (the
+   owner's switch: every signed-in player may use the page's chat; never in a
+   private community); MEMBERS-ONLY SERVERS (whoever is not a
+   member is kicked, Steam clients always), which a copied h9_clientid can fool
+   unless WHITELIST NEEDS PROVEN PLAYERS is on: then only games that proved the
+   player id get in (H9XASH with the ID proof, on a server with
+   h9_presence_challenge 1, and the web client), and an older H9XASH does not.
+
+   Audit log actions: community.create, .settings, .delete, .server.link,
+   .server.update, .server.unlink, .staff.add, .staff.remove, .member.approve,
+   .member.refuse, .member.invite, .member.uninvite, .member.remove,
+   .sanction.<kind>, .sanction.revoke, .announce, .chat.delete, .data.rollback,
+   .discord; presence.server.enroll, .reenroll, .listen, .approve, .revoke, .block,
+   .unblock, .flags_resolve; presence.sanction.<kind>, .sanction.revoke;
+   presence.announce.
+   A member joining or leaving by themselves is not in the audit log.
+
+
+ 18. BACKUPS AND RESTORE
+ -----------------------
+   One command does every backup job. Set it once per shell, like $A
+   (section 3):
+
+     B="sudo -u h9web /usr/bin/node /opt/h9web/bin/h9web-backup.js --config /etc/h9web/config.json"
+
+   Every option is in h9web\README.txt, section 10; the VPS's timer, copies
+   off the VPS and moving to a new VPS in havoc9.org\webclient\DEPLOY.txt,
+   section 13.
+
+ What a backup holds
+   One file, h9web-<host>-<date>-<time>.h9backup (the time in UTC): the
+   database (accounts, the forum, the communities, presence, the Discord
+   links, the audit log), the forum's profile pictures, the presence keys,
+   and a list of all of it with checksums. It is taken while the site runs.
+   Not in it: secrets.json and data.key (the keys), unless you ask for them
+   with --with-keys, which works only with --encrypt. Keep one copy of the
+   keys offline, apart from the backups (section 8): a backup and its keys
+   in one plain file is a backup anyone can open.
+
+ Backing up by hand
+     $B backup                    into /var/lib/h9web/backups
+     $B backup --keep 14          the same, and the older ones beyond 14 go
+     $B list                      what is there, each one checked
+     $B verify <file>             one backup checked through
+   Encrypted, for copies that leave the VPS: the passphrase in the first
+   line of a file only h9web can read (or in H9WEB_BACKUP_PASSPHRASE), then
+     $B backup --encrypt --passphrase-file /etc/h9web/backup-passphrase
+   The command refuses a passphrase typed on the command line. Lose the
+   passphrase and its backups are lost with it: keep it offline with the
+   keys.
+
+ Backing up on a schedule
+   The VPS: the daily timer (DEPLOY.txt, section 13).
+   A Windows PC with the local site: h9web\backup.cmd makes a backup now
+   (double-click it; into Documents\h9web-backups, the newest 30 kept). For
+   a schedule, in PowerShell in the h9web folder:
+     .\backup-task.ps1 -Install                  every day at 04:00
+     .\backup-task.ps1 -Install -Hourly          every hour
+     .\backup-task.ps1 -Install -Time 22:30 -Keep 60 -Out D:\h9web-backups
+     .\backup-task.ps1 -Status                   the last run and its result
+     .\backup-task.ps1 -RunNow                   the same backup, now
+     .\backup-task.ps1 -Remove
+   It runs as you, only while you are signed in, so it needs no password and
+   no admin; a run missed while the PC was off runs when it is next on.
+   -WhatIf shows what -Install or -Remove would do and does nothing. Each
+   run is logged in h9web-backup.log beside the backups.
+
+ Restoring everything
+   Stop the site first; restore refuses while it runs:
+     sudo systemctl stop h9web
+     $B verify <file>
+     $B restore <file>
+     sudo systemctl start h9web
+   It shows what it will replace and asks you to type yes. Before it changes
+   anything it saves the data as it is to
+   /var/lib/h9web/backups/pre-restore-<time>.h9backup: to undo the restore,
+   restore that file. secrets.json and data.key stay as they are unless the
+   backup holds them, and they must be the ones the backup was made with:
+   restore refuses another secrets.json (every password would stop working).
+   A restore also brings back the sessions the backup holds: after restoring
+   past a security incident (a stolen password, a hijacked account), sign the
+   accounts involved out before starting the site again, with
+   $A revoke-sessions <username> or reset-password (section 4); to sign
+   everyone out, h9web\README.txt section 10 has the command.
+
+ Restoring only the forum, or only the communities
+     $B restore <file> --only forum
+     $B restore <file> --only community
+   That part goes back to how it was in the backup; the accounts and
+   everything else stay as they are now. The forum comes with its profile
+   pictures; the communities with their members, requests, invitations,
+   admins, linked servers, bans and mutes, chat and data. An account deleted
+   since the backup stays deleted: its posts come back as from a deleted
+   account, its votes, signature and memberships do not come back. It works
+   only between the same h9web version and says so otherwise (restore with
+   the version the backup was made with, then update). --only accounts puts
+   back the accounts alone, with sessions, the audit log and username
+   changes.
+
+ Moving the forum or the communities to another site (export, import)
+     $B export --only forum --out /var/lib/h9web/forum.json
+     $B export --only community --out /var/lib/h9web/community.json
+   Copy the file to the other site, stop that site, and there
+     $B import forum.json
+   The import replaces that site's forum (or communities) with the file's.
+   Accounts are matched by username and none is made. Posts by a name the
+   other site does not have show as from a deleted account; that name's
+   votes, signature, memberships, requests and invitations are dropped.
+   Profile pictures stay with each site's accounts and do not travel this
+   way. Like restore, it takes a safety backup first (pre-import-<time>).
+
+ Moving to a new VPS
+   In this order (DEPLOY.txt, section 13, has the commands):
+     1. Set up the new VPS with the same h9web version; do not start it.
+     2. Put the old secrets.json and data.key into /var/lib/h9web (owner
+        h9web, mode 0600), unless the backup holds them.
+     3. Stop h9web on the old VPS, take a last backup there, copy it over.
+     4. $B restore <file> on the new VPS, start h9web there, check it.
+     5. Point the DNS at the new VPS. Keep the old one stopped, with its
+        data, until the new one has run well for a few days.
+
+
+ 19. RATED PLAY: THE LADDER
+ --------------------------
+   havoc9.org/ladder/ shows the ratings of rated play: xjiro's compts Elo, per kill and
+   per match, on havoc9.org accounts. docs\H9_COMPETITIVE.txt is the whole story.
+   What is an H9 admin's (role admin), on the LADDER page:
+     NETWORK LADDER    open a server's own table and press COUNT IT FOR THE H9 LADDER
+                       (or TAKE IT OFF): only the servers marked so count for the H9
+                       ladder. Mark only servers whose operators you trust: a server
+                       reports its own kills and results
+     VOID              on any match page: takes back exactly what the match gave and
+                       took, in every table
+     DISPUTES          on the H9 ladder: the open disputes players filed (48 hours
+                       after a match), with RESOLVE
+   A community's staff turn their own ladder on, tick the servers that count for it
+   and void a match on it, from their ladder's page. Audit log actions:
+   presence.server.compete, presence.compete.void, presence.compete.dispute.resolve,
+   community.compete, community.server.compete, community.compete.void.

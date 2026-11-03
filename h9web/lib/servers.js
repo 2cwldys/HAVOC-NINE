@@ -19,11 +19,14 @@
 // logged.
 //
 // The status poller asks every server for A2S_INFO every status.pollSeconds and keeps the
-// answers for /api/servers, in the JSON shape servers/index.html reads.
+// answers for /api/servers, in the JSON shape servers/index.html reads. A module may keep a server
+// off that board (ctx.servers.hideFromBoard, lib/modules.js): the presence module hides private
+// communities' servers.
 
 import fs from "node:fs";
 import dgram from "node:dgram";
 import { EventEmitter } from "node:events";
+import { queryRules as defaultQueryRules } from "./a2s.js";
 
 // "a.b.c.d:port" -> { ip, port, key, bytes } or null.
 export function parseAddress(text) {
@@ -197,16 +200,33 @@ export function parseInfoReply(buf) {
 }
 
 export class StatusPoller {
-  constructor({ servers, log = null, pollSeconds = 30, timeoutMs = 1500, expireSeconds = 120, gamedir = "ts" }) {
+  constructor({ servers, log = null, pollSeconds = 30, timeoutMs = 1500, expireSeconds = 120, rulesSeconds = 60, gamedir = "ts", queryRules = defaultQueryRules }) {
     this.servers = servers;
     this.log = log;
     this.pollMs = pollSeconds * 1000;
     this.timeoutMs = timeoutMs;
     this.expireMs = expireSeconds * 1000;
+    this.rulesMs = rulesSeconds * 1000;
+    this.queryRules = queryRules;
     this.gamedir = gamedir;
-    this.state = new Map(); // target key -> { sentAt, answer, answeredAt, ping }
+    // target key -> { sentAt, answer, answeredAt, ping, missedAt, rulesAt, rulesBusy, requireAccount }
+    this.state = new Map();
+    this.boardFilters = new Set(); // modules' fn(address) -> true: not on the board
     this.socket = null;
     this.timer = null;
+  }
+
+  // Whether a module's filter keeps the server at this address off the board. A filter that
+  // throws hides nothing.
+  hiddenFromBoard(address) {
+    for (const fn of this.boardFilters) {
+      try {
+        if (fn(address)) return true;
+      } catch (e) {
+        /* that module's own trouble */
+      }
+    }
+    return false;
   }
 
   start() {
@@ -230,16 +250,53 @@ export class StatusPoller {
     this.socket = null;
   }
 
-  send(entry, extra) {
+  // A query, and when it goes unanswered for timeoutMs, one more; when that goes unanswered too
+  // the server is marked missed (offline on the board until it answers again). A challenge's
+  // follow-up (extra) rides on the timer of the query it answers.
+  send(entry, extra, retry = false) {
     if (!this.socket) return;
-    const st = this.state.get(entry.target.key) || {};
-    st.sentAt = Date.now();
-    this.state.set(entry.target.key, st);
+    const key = entry.target.key;
+    const st = this.state.get(key) || {};
+    const at = Date.now();
+    st.sentAt = at;
+    this.state.set(key, st);
     this.socket.send(extra ? Buffer.concat([A2S_INFO, extra]) : A2S_INFO, entry.target.port, entry.target.ip);
+    if (extra) return;
+    const timer = setTimeout(() => {
+      const now = this.state.get(key);
+      if (!now || !this.socket || (now.answeredAt || 0) >= at) return;
+      if (!retry) return this.send(entry, null, true);
+      now.missedAt = Date.now();
+    }, this.timeoutMs);
+    timer.unref();
   }
 
   poll() {
     for (const e of this.servers.entries) this.send(e);
+    // the rules half a round later, so a server's per-address query limit is not hit by both
+    setTimeout(() => this.pollRules(), Math.min(this.pollMs / 2, 15000)).unref();
+  }
+
+  // h9_require_account from each answering server's rules (A2S_RULES), at most every rulesSeconds;
+  // a server that does not answer its rules counts as not requiring an account.
+  pollRules() {
+    const t = Date.now();
+    for (const e of this.servers.entries) {
+      const st = this.state.get(e.target.key);
+      if (!st || !st.answer || st.rulesBusy || this.offline(st, t) || t - (st.rulesAt || 0) < this.rulesMs) continue;
+      st.rulesBusy = true;
+      Promise.resolve()
+        .then(() => this.queryRules(e.target.ip, e.target.port, { timeoutMs: this.timeoutMs, retries: 0 }))
+        .then((rules) => {
+          st.requireAccount = !!rules && String(rules.get("h9_require_account") || "").trim() === "1";
+        }, () => {
+          st.requireAccount = false;
+        })
+        .finally(() => {
+          st.rulesAt = Date.now();
+          st.rulesBusy = false;
+        });
+    }
   }
 
   onMessage(msg, rinfo) {
@@ -256,18 +313,35 @@ export class StatusPoller {
     this.state.set(key, st);
   }
 
-  // The servers that answered lately, in the shape servers/index.html reads.
+  // Whether a server has stopped answering: its last query and the retry went unanswered, or it
+  // has been silent for two rounds of queries (a poller that could not send at all).
+  offline(st, t = Date.now()) {
+    return (st.missedAt || 0) > (st.answeredAt || 0) || t - (st.answeredAt || 0) > 2 * this.pollMs + 2 * this.timeoutMs;
+  }
+
+  // The servers that answered lately, in the shape servers/index.html reads. A server that answers
+  // is named as it names itself (its hostname), and servers.json's name stands in only for one
+  // that does not. One that stopped answering stays on the board as online: false (players and
+  // ping gone) for expireSeconds after its last answer, then leaves it; it is back with its next
+  // answer.
   snapshot() {
     const t = Date.now();
     const servers = [];
     for (const e of this.servers.entries) {
-      if (!e.listed) continue;
+      if (!e.listed || this.hiddenFromBoard(e.address.key)) continue;
       const st = this.state.get(e.target.key);
       if (!st || !st.answer || t - st.answeredAt > this.expireMs) continue;
       const a = st.answer;
+      if (this.offline(st, t)) {
+        servers.push({
+          address: e.address.key, kind: a.kind, name: e.name || a.name || e.address.key, map: a.map, mode: a.mode,
+          players: 0, max: a.max, bots: 0, ping_ms: null, online: false, requireAccount: !!st.requireAccount,
+        });
+        continue;
+      }
       servers.push({
-        address: e.address.key, kind: a.kind, name: e.name || a.name || e.address.key, map: a.map, mode: a.mode,
-        players: a.players, max: a.max, bots: a.bots, ping_ms: st.ping,
+        address: e.address.key, kind: a.kind, name: a.name || e.name || e.address.key, map: a.map, mode: a.mode,
+        players: a.players, max: a.max, bots: a.bots, ping_ms: st.ping, online: true, requireAccount: !!st.requireAccount,
       });
     }
     return { gamedir: this.gamedir, generated: new Date(t).toISOString().replace(/\.\d+Z$/, "Z"), servers };

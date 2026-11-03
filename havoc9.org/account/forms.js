@@ -238,6 +238,57 @@
       }
     }
 
+    // ---- linked games (h9web's lib/link.js): the games that play as this account, each with REVOKE ----
+    async function loadLinked() {
+      const box = $("linkedList");
+      let res = null;
+      try { res = await call("GET", "link/devices"); } catch (e) { /* offline */ }
+      box.textContent = "";
+      const note = (text) => {
+        const p = document.createElement("p");
+        p.className = "account-small";
+        p.style.padding = "1rem";
+        p.textContent = text;
+        box.appendChild(p);
+      };
+      if (!res || res.status !== 200) return note(res ? message(res) : OFFLINE);
+      const games = res.data.devices || [];
+      if (!games.length) return note("No game is linked to this account yet.");
+      for (const g of games) {
+        const row = document.createElement("div");
+        row.className = "feature-row";
+        const label = document.createElement("span");
+        label.className = "feature-label";
+        label.textContent = g.label;
+        const value = document.createElement("span");
+        value.className = "feature-value";
+        value.append("Linked " + day(g.linked) + ", last checked in " + day(g.lastSeen, true) + (g.device ? ". Device " : "."));
+        if (g.device) {
+          const code = document.createElement("code");
+          code.textContent = g.device;
+          value.append(code);
+        }
+        const revoke = document.createElement("button");
+        revoke.type = "button";
+        revoke.className = "account-mini";
+        revoke.textContent = "REVOKE";
+        revoke.addEventListener("click", async () => {
+          $("linkedError").textContent = "";
+          if (!window.confirm("Revoke " + g.label + ", linked " + day(g.linked) + "? It finds out the next time it starts, and gets an id of its own again.")) return;
+          revoke.disabled = true;
+          const r = await call("POST", "link/devices/" + g.id + "/revoke", {}).catch(() => null);
+          if (r && r.status === 200) loadLinked();
+          else {
+            revoke.disabled = false;
+            say($("linkedError"), r ? message(r) : OFFLINE);
+          }
+        });
+        value.append(" ", revoke);
+        row.append(label, value);
+        box.appendChild(row);
+      }
+    }
+
     $("discordSync").addEventListener("click", async () => {
       $("discordError").textContent = "";
       const res = await call("POST", "discord/sync", {}).catch(() => null);
@@ -266,11 +317,62 @@
         : "No picture yet: the forum shows the default one.";
       $("pictureRemove").hidden = !p;
       $("pictureRules").textContent = "Up to " + mb(pictureLimits.maxBytes) + " and " + pictureLimits.maxSide + " x " + pictureLimits.maxSide
-        + "; a GIF or WebP may move (" + pictureLimits.maxFrames + " frames at most). It shows beside your forum posts and on your forum profile. The camera, the place and the other details a file carries are removed before it is kept.";
+        + "; a GIF or WebP may move (" + pictureLimits.maxFrames + " frames at most). It shows beside your forum posts, on your forum profile and, its middle square, on the in-game scoreboard. The camera, the place and the other details a file carries are removed before it is kept.";
       if (!pictureLimits.enabled) {
         $("pictureRules").textContent = "Profile pictures are switched off on this site for now.";
         busy($("pictureForm"), true);
       }
+      gameCopy(p);
+    }
+
+    // The scoreboard's copy of a JPEG or WebP picture (the site decodes PNG and GIF itself): this
+    // browser draws the picture the forum keeps, takes its middle square at 64 x 64 and sends it as a
+    // PNG (POST /api/presence/avatar). Right after an upload, and on a later visit for a picture whose
+    // copy is still missing. Until it comes, the scoreboard shows the site's default picture.
+    async function gameCopy(p) {
+      if (!p || (p.type !== "image/jpeg" && p.type !== "image/webp") || typeof createImageBitmap !== "function") return;
+      let st = null;
+      try { st = await call("GET", "presence/avatar"); } catch (e) { /* offline */ }
+      if (!st || st.status !== 200 || !st.data.needed || !st.data.picture || st.data.picture.v !== p.v) return;
+      try {
+        const r = await fetch(new URL("api/forum/avatars/" + p.id + "?v=" + p.v, root).href, { credentials: "same-origin", cache: "no-store" });
+        if (!r.ok) return;
+        const img = await createImageBitmap(await r.blob());
+        const side = st.data.side || 64;
+        let size = Math.min(img.width, img.height);
+        let source = img;
+        let sx = (img.width - size) / 2;
+        let sy = (img.height - size) / 2;
+        // halved in steps first, so the last step averages evenly
+        while (size >= side * 2) {
+          const half = Math.ceil(size / 2);
+          const c = document.createElement("canvas");
+          c.width = half;
+          c.height = half;
+          const g = c.getContext("2d");
+          g.imageSmoothingQuality = "high";
+          g.drawImage(source, sx, sy, size, size, 0, 0, half, half);
+          source = c;
+          sx = 0;
+          sy = 0;
+          size = half;
+        }
+        const out = document.createElement("canvas");
+        out.width = side;
+        out.height = side;
+        const g = out.getContext("2d");
+        g.imageSmoothingEnabled = size > side;
+        g.imageSmoothingQuality = "high";
+        g.drawImage(source, sx, sy, size, size, 0, 0, side, side);
+        if (img.close) img.close();
+        const blob = await new Promise((resolve) => out.toBlob(resolve, "image/png"));
+        if (!blob) return;
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let bin = "";
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        const res = await call("POST", "presence/avatar", { v: p.v, png: btoa(bin) });
+        if (res.status !== 200) say($("pictureError"), "The in-game copy: " + message(res));
+      } catch (e) { /* the scoreboard keeps the default picture; the next visit tries again */ }
     }
 
     $("pictureForm").addEventListener("submit", async (e) => {
@@ -306,6 +408,118 @@
       const res = await call("DELETE", "forum/avatar").catch(() => null);
       if (res && res.status === 200) loadPicture();
       else say($("pictureError"), res ? message(res) : OFFLINE);
+    });
+
+    // ---- the forum signature (the section stays hidden without the forum module) ----
+    // Its preview is the server's own reading of it (POST forum/signature/preview), drawn here
+    // with createElement and textContent: pictures from the hosts the server allows only, with no
+    // Referer, no taller than the forum's signatureImageHeight.
+    let signatureLimits = null;
+    function drawSignature(tree, box) {
+      box.textContent = "";
+      const add = (nodes, parent) => {
+        for (const n of Array.isArray(nodes) ? nodes : []) {
+          if (typeof n === "string") {
+            n.split("\n").forEach((part, i) => {
+              if (i) parent.append(document.createElement("br"));
+              if (part) parent.append(part);
+            });
+          } else if (n && (n.t === "b" || n.t === "i")) {
+            const e = document.createElement(n.t === "b" ? "strong" : "em");
+            add(n.c, e);
+            parent.append(e);
+          } else if (n && n.t === "code") {
+            const e = document.createElement("code");
+            e.textContent = String(n.text || "");
+            parent.append(e);
+          } else if (n && n.t === "a" && /^https?:\/\//i.test(String(n.href))) {
+            const e = document.createElement("a");
+            e.href = n.href;
+            e.rel = "nofollow ugc noopener noreferrer";
+            e.target = "_blank";
+            e.textContent = String(n.text || n.href);
+            parent.append(e);
+          } else if (n && n.t === "img" && /^https:\/\//i.test(String(n.src))) {
+            const img = document.createElement("img");
+            img.src = n.src;
+            img.alt = n.alt || "Picture";
+            img.setAttribute("referrerpolicy", "no-referrer");
+            img.loading = "lazy";
+            if (signatureLimits) img.style.maxHeight = signatureLimits.imageHeight + "px";
+            parent.append(img);
+          }
+        }
+      };
+      for (const b of Array.isArray(tree) ? tree : []) {
+        const p = document.createElement("p");
+        add(b.c, p);
+        box.append(p);
+      }
+      if (!box.childNodes.length) box.textContent = "No signature.";
+    }
+
+    async function loadSignature() {
+      let res = null;
+      try { res = await call("GET", "forum/signature"); } catch (e) { /* offline */ }
+      if (!res || res.status !== 200) return;
+      const d = res.data;
+      signatureLimits = d.limits;
+      $("signatureSection").hidden = false;
+      $("signatureText").value = d.signature || "";
+      $("signatureText").maxLength = d.limits.maxChars;
+      $("signatureShow").checked = d.showSignatures !== false;
+      $("signatureRules").textContent = "Up to " + d.limits.maxChars + " characters on " + d.limits.maxLines + " lines"
+        + (d.limits.images ? ", with " + d.limits.images + " picture" + (d.limits.images === 1 ? "" : "s") + " at most " + d.limits.imageHeight + " px tall" : ", no pictures") + "."
+        + (d.limits.plainText ? " Your account is new: for now your signature shows as plain text, without links or pictures." : "");
+      const state = $("signatureState");
+      state.hidden = !d.block;
+      if (d.block) state.textContent = "A moderator has stopped this account from setting a signature" + (d.block.until ? " until " + day(d.block.until, true) : "") + ". Reason: " + d.block.reason;
+      if (!d.limits.enabled) {
+        $("signatureRules").textContent = "Signatures are switched off on this site for now.";
+        busy($("signatureForm"), true);
+      }
+      drawSignature(d.content, $("signaturePreview"));
+    }
+
+    let previewTimer = null;
+    let previewSeq = 0;
+    $("signatureText").addEventListener("input", () => {
+      $("signatureDone").hidden = true;
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(async () => {
+        const seq = ++previewSeq;
+        const res = await call("POST", "forum/signature/preview", { signature: $("signatureText").value }).catch(() => null);
+        if (!res || seq !== previewSeq) return;
+        if (res.status !== 200) return say($("signatureError"), message(res));
+        $("signatureError").textContent = res.data.error || "";
+        drawSignature(res.data.content, $("signaturePreview"));
+      }, 500);
+    });
+
+    $("signatureForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("signatureError").textContent = "";
+      $("signatureDone").hidden = true;
+      busy($("signatureForm"), true);
+      try {
+        const res = await call("PUT", "forum/signature", { signature: $("signatureText").value });
+        if (res.status !== 200) return say($("signatureError"), message(res));
+        $("signatureDone").hidden = false;
+        drawSignature(res.data.content, $("signaturePreview"));
+      } catch (x) {
+        say($("signatureError"), OFFLINE);
+      } finally {
+        busy($("signatureForm"), false);
+      }
+    });
+
+    $("signatureShow").addEventListener("change", async () => {
+      const want = $("signatureShow").checked;
+      const res = await call("PUT", "forum/signature", { showSignatures: want }).catch(() => null);
+      if (!res || res.status !== 200) {
+        $("signatureShow").checked = !want;
+        say($("signatureError"), res ? message(res) : OFFLINE);
+      }
     });
 
     // ---- a username change: asked for here, decided by an admin ----
@@ -361,8 +575,10 @@
       fill(res.data);
       show("signedIn");
       loadPicture();
+      loadSignature();
       loadRename();
       loadDiscord();
+      loadLinked();
     })();
 
     const pwForm = $("passwordForm");

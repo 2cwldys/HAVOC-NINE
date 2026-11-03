@@ -29,7 +29,9 @@ ONE PROCESS, TWO JOBS
 import asyncio
 import configparser
 import hmac
+import os
 import re
+import socket
 import sys
 import time
 from pathlib import Path
@@ -44,18 +46,25 @@ except ImportError as exc:                                  # noqa: BLE001
 
 
 HERE = Path(__file__).resolve().parent
-INI = HERE / "serverlist.ini"
-SECRETS = HERE / "serverlist.cfg"
-SEEDS = HERE / "servers.txt"
-LOG = HERE / "serverlist.log"
+# The settings, the secrets, the seed list and the log: beside this script, or in the folder
+# H9_SERVERLIST_HOME names (on the VPS the code is in /opt/h9-serverlist and these are in
+# /var/lib/h9-serverlist).
+DATA_DIR = Path(os.environ.get("H9_SERVERLIST_HOME") or HERE).resolve()
+INI = DATA_DIR / "serverlist.ini"
+SECRETS = DATA_DIR / "serverlist.cfg"
+SEEDS = DATA_DIR / "servers.txt"
+LOG = DATA_DIR / "serverlist.log"
 
 DEFAULT_PORT = 27015                                        # the engine's default for a bare host
 GAMEDIR_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
+IPV4_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 MAX_LISTED = 15                                             # /servers stays under Discord's message size
 STATUS_SECONDS = 15                                         # how often the bot's Discord status is looked at
 LIST_CHECK_SECONDS = 60                                     # how often public_url is fetched
 LIST_CHECK_TIMEOUT = 10                                     # how long that fetch may take, in seconds
+HEARTBEAT_FAILS = 10                                        # wrong keys one address may send in HEARTBEAT_WINDOW
+HEARTBEAT_WINDOW = 600                                      # seconds; past the limit, 429 until the window ends
 
 
 def log(message):
@@ -187,9 +196,10 @@ class Settings:
         ini.read(INI, encoding="utf-8")
         secrets = configparser.ConfigParser(interpolation=None)
         secrets.read(SECRETS, encoding="utf-8")
-        self.host = ini.get("http", "host", fallback="0.0.0.0").strip()
-        self.port = ini.getint("http", "port", fallback=8080)
-        self.public_url = ini.get("http", "public_url", fallback="").strip()
+        self.host = ini.get("http", "host", fallback="127.0.0.1").strip()
+        self.port = ini.getint("http", "port", fallback=8081)
+        self.public_url = ini.get("http", "public_url", fallback="https://havoc9.org/serverlist").strip()
+        self.open_heartbeats = ini.getboolean("http", "open_heartbeats", fallback=True)
         self.gamedir = ini.get("list", "gamedir", fallback="ts").strip()
         self.poll_seconds = ini.getfloat("list", "poll_seconds", fallback=30.0)
         self.expire_seconds = ini.getfloat("list", "expire_seconds", fallback=300.0)
@@ -252,12 +262,37 @@ class ServerList:
             return None, f"it runs the {info['folder']!r} game folder, not {self.settings.gamedir!r}"
         host, port = target
         address = f"{host}:{port}"
+        if address not in self.entries:
+            same = await self.same_server(host, port)
+            if same:
+                address = same
+                host = self.entries[same]["host"]
         entry = self.entries.get(address) or new_entry(host, port, source)
         entry.update(info)
         entry["seen"] = time.time()
         self.entries[address] = entry
         log(f"listed {address} ({entry['name']}, {entry['map']}) from {source}")
         return entry, None
+
+    async def same_server(self, host, port):
+        """
+        The key of an entry that names this IPv4 address and port by a host name (servers.txt's
+        havoc9.org:27015, say), so that a heartbeat from that server refreshes it instead of
+        listing the server twice. None when there is none.
+        """
+        if not IPV4_RE.match(host):
+            return None
+        loop = asyncio.get_running_loop()
+        for key, entry in list(self.entries.items()):
+            if entry["port"] != port or IPV4_RE.match(entry["host"]):
+                continue
+            try:
+                found = await loop.getaddrinfo(entry["host"], port, family=socket.AF_INET, type=socket.SOCK_DGRAM)
+            except OSError:
+                continue
+            if any(info[4][0] == host for info in found):
+                return key
+        return None
 
     def remove(self, target):
         host, port = target
@@ -306,6 +341,7 @@ def make_app(state, settings):
     app = web.Application()
     app["state"] = state
     app["settings"] = settings
+    app["fails"] = {}                                       # address -> [wrong keys, when the window started]
     app.router.add_get("/v1/servers/{gamedir}", handle_list)
     app.router.add_get("/v1/servers/{gamedir}.json", handle_list_json)
     app.router.add_post("/v1/heartbeat", handle_heartbeat)
@@ -378,8 +414,55 @@ async def handle_list_json(request):
     return web.json_response(body)
 
 
+def heartbeat_blocked(fails, address, now):
+    """Whether an address has sent HEARTBEAT_FAILS wrong keys in the current window."""
+    entry = fails.get(address)
+    if entry and now - entry[1] > HEARTBEAT_WINDOW:
+        del fails[address]
+        entry = None
+    return bool(entry) and entry[0] >= HEARTBEAT_FAILS
+
+
+def heartbeat_failed(fails, address, now):
+    """Counts one wrong key; returns the count in this window. The table stays small."""
+    if len(fails) > 10000:
+        for key in [k for k, v in fails.items() if now - v[1] > HEARTBEAT_WINDOW]:
+            del fails[key]
+    if len(fails) > 10000:
+        fails.clear()
+    entry = fails.setdefault(address, [0, now])
+    entry[0] += 1
+    return entry[0]
+
+
+def client_address(request):
+    """
+    The address a request came from. Behind nginx (havoc9.org/deploy/nginx-setup.sh) every
+    request reaches the list from this machine, and nginx names the real one in X-Real-IP; the
+    header is believed only from this machine.
+    """
+    remote = request.remote or ""
+    if remote in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+        real = request.headers.get("X-Real-IP", "").strip()
+        if real:
+            return real
+    return remote
+
+
 async def handle_heartbeat(request):
+    """
+    POST /v1/heartbeat. With the key ({"key": ..., "address": "host:port"}): any address. Without
+    one ({"port": 27015}, as h9_heartbeat.ps1 sends it): the server it comes from, by the address
+    it comes from and the port it names, unless open_heartbeats = 0 in serverlist.ini. Either
+    way the server is listed only once it answers a query from this game folder.
+    """
     settings = request.app["settings"]
+    fails = request.app["fails"]
+    now = time.monotonic()
+    sender = client_address(request)
+    if heartbeat_blocked(fails, sender, now):
+        return web.json_response({"ok": False, "error": "too many wrong keys from this address; wait"},
+                                 status=429, headers={"Retry-After": str(HEARTBEAT_WINDOW)})
     try:
         body = await request.json()
     except ValueError:
@@ -388,21 +471,46 @@ async def handle_heartbeat(request):
         return web.json_response({"ok": False, "error": "the body is not an object"}, status=400)
     given = str(body.get("key", "")).encode("utf-8")
     wanted = settings.heartbeat_key.encode("utf-8")
-    if not wanted or not hmac.compare_digest(given, wanted):
-        log(f"heartbeat from {request.remote} refused: wrong or missing key")
+    keyed = bool(given) and bool(wanted) and hmac.compare_digest(given, wanted)
+    if (given and not keyed) or (not given and not settings.open_heartbeats):
+        count = heartbeat_failed(fails, sender, now)
+        if count == 1 or count == HEARTBEAT_FAILS:
+            log(f"heartbeat from {sender} refused: wrong or missing key"
+                + (f" ({count} in {HEARTBEAT_WINDOW} s: refused for the rest of that time)" if count == HEARTBEAT_FAILS else ""))
         return web.json_response({"ok": False, "error": "wrong or missing key"}, status=401)
-    try:
-        target = parse_address(str(body.get("address", "")))
-    except ValueError as exc:
-        return web.json_response({"ok": False, "error": str(exc)}, status=400)
-    entry, reason = await request.app["state"].add(target, f"heartbeat from {request.remote}")
+    if keyed:
+        try:
+            target = parse_address(str(body.get("address", "")))
+        except ValueError as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=400)
+    else:
+        if not IPV4_RE.match(sender):
+            return web.json_response({"ok": False, "error": "a heartbeat without the key comes over IPv4"}, status=400)
+        try:
+            if body.get("address"):
+                host, port = parse_address(str(body["address"]))
+                if host != sender:
+                    return web.json_response({"ok": False, "error": "a heartbeat without the key lists only the address it comes from"}, status=403)
+            else:
+                port = int(body.get("port", DEFAULT_PORT))
+                if not 0 < port <= 65535:
+                    raise ValueError(f"bad port {port}")
+        except (TypeError, ValueError) as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=400)
+        target = (sender, port)
+    entry, reason = await request.app["state"].add(target, f"heartbeat from {sender}")
     if entry is None:
         return web.json_response({"ok": False, "error": reason}, status=422)
     return web.json_response({"ok": True, "address": entry["address"], "name": entry["name"]})
 
 
 def register_commands(tree, state, settings):
+    import discord
     from discord import app_commands
+
+    def shown(text):
+        """A server's own text as it goes into a Discord message: no markdown, no mentions."""
+        return discord.utils.escape_markdown(discord.utils.escape_mentions(str(text or "")))
 
     def may_change_list(interaction):
         user = interaction.user
@@ -418,7 +526,7 @@ def register_commands(tree, state, settings):
         if not entries:
             text = "No server on the list answers right now."
         else:
-            text = "\n".join(f"**{e['name']}** | {e['map']} | {e['players']}/{e['max']} | `{e['address']}`"
+            text = "\n".join(f"**{shown(e['name'])}** | {shown(e['map'])} | {e['players']}/{e['max']} | `{e['address']}`"
                              for e in entries)
         await interaction.response.send_message(text)
 
@@ -440,7 +548,7 @@ def register_commands(tree, state, settings):
             await interaction.followup.send(f"Not added: {reason}.", ephemeral=True)
         else:
             tag = " (GoldSrc)" if entry["kind"] == "gs" else ""
-            await interaction.followup.send(f"Listed {entry['address']} ({entry['name']}){tag}.", ephemeral=True)
+            await interaction.followup.send(f"Listed {entry['address']} ({shown(entry['name'])}){tag}.", ephemeral=True)
 
     @tree.command(name="removeserver", description="Take a server off the list")
     @app_commands.describe(address="host:port, as /servers shows it")
@@ -469,7 +577,8 @@ def make_bot(state, settings):
 
     class ListBot(discord.Client):
         def __init__(self):
-            super().__init__(intents=discord.Intents.default())
+            # no message of the bot pings anyone
+            super().__init__(intents=discord.Intents.default(), allowed_mentions=discord.AllowedMentions.none())
             self.tree = app_commands.CommandTree(self)
             self.shown = None                               # the (status, text) Discord shows now
             self.list_ok = True                             # the last public_url check; true when there is none

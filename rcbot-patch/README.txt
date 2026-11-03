@@ -16,8 +16,13 @@ with this install -- with additive changes:
   5. Sentry turrets: the other side's .turret is an enemy, one's own never is
      (see CHANGE 7)
   6. Roaming citizens: while tsrp_roambots.sma runs a roleplay map's citizens,
-     every bot walks between random waypoints, pauses now and then and never
-     fights; and waypoints reach +/-16384 across the map (see CHANGE 8)
+     every bot walks between random waypoints, pauses now and then, fights only
+     whoever hurt it (and, in an insurgency, the players), and is moved on when
+     it gets nowhere; and waypoints reach +/-16384 across the map (see CHANGE 8)
+  7. Player slots: every bot and client table covers 128 slots, so a server past
+     32 players runs bots in every slot (see CHANGE 9)
+  8. Powerups: while ts_matchmode's match mode is on, tsm_bot_powerups 0 keeps
+     every bot off TS's powerups, whatever nopowerup says (see CHANGE 10)
 
 Win32, MetaMod Release, MSVC v145.
 
@@ -76,6 +81,8 @@ as fair game, regardless of the server's own nopowerup cvar. A server that had
 turned powerups off still had its bots using and collecting them -- nothing on the
 server side can stop that, because a fake client sends no client commands for a
 plugin to intercept. Both paths now check CVAR_GET_FLOAT("nopowerup") first.
+CHANGE 10 puts both behind one test, BotPowerupsAllowed(), which reads
+ts_matchmode's tsm_bot_powerups as well.
 
     CBot::Think, bot.cpp
 
@@ -280,15 +287,20 @@ ones as before, so no other map's waypoints behave differently.
     roam mode, bot.cpp (ROAMING CITIZENS, over CBot::IsRoamer) and bot.h
 
 tsrp_roambots.sma puts citizens on a roleplay map: bots that walk the public
-streets at a walk, never fight, and look like people. While it runs them it holds
-the server cvar tsrp_roambots_active at 1 -- 0 at any other time, and on every
-other map -- and then every bot is a roamer. Read once a second, with:
+streets at a walk, fight only when they have to, and look like people. While it
+runs them it holds the server cvar tsrp_roambots_active at 1 -- 0 at any other
+time, and on every other map -- and then every bot is a roamer. Read once a
+second, with:
 
     tsrp_roambots_speed    the walk in units a second; 120 is the TS client's walk
                            key (cl_movespeedkey 0.3 x cl_forwardspeed 400, from
                            cl_dlls\client.dll; the client sends no extra button)
     tsrp_roambots_weapons  0: no weapons are made for a roamer; 1: armed as usual
     tsrp_roambots_pause    percent chance of a pause before each walk
+    tsrp_roambots_defend   1: a roamer someone hurts fights that one back
+    tsrp_roambots_insurgency      1: the citizens are insurgents, set on players
+    tsrp_roambots_insurgent_team  0: every player who is not a bot; a team
+                                  number: only the players of that team
 
 A cvar that does not exist reads 0, so without the plugin there are no roamers
 and nothing here changes how any bot plays.
@@ -303,19 +315,97 @@ A roamer:
     buttons or chargers. Where it may walk is the map's waypoints: a roleplay
     map's roam waypoints are laid only in its public streets and halls
     (export-map\h9_tsrp_newbyzantium\roamwaypoints.mjs).
-  - IsEnemy is false for everything and WantToFindEnemy is false, so FindEnemy
-    never runs, no attack task is made from any event, and a TS breakable door
-    in its way is never shot (CHANGE 6 takes a door through IsEnemy).
+  - IsEnemy (RoamIsEnemy) is true only for its attacker -- and, in an
+    insurgency, for the players tsrp_roambots_insurgent_team names -- and
+    WantToFindEnemy only while it has one of those, so a TS breakable door in
+    its way is never shot (CHANGE 6 takes a door through IsEnemy).
+  - Its attacker. TS sends no Damage message (reTS player.cpp, UpdateClientData),
+    so RCBot's hurt event never names anyone; TS's TakeDamage leaves what hurt a
+    player in pev->dmg_inflictor (reTS combat.cpp). A roamer hurt since the last
+    frame (RoamThink) takes the player behind it -- the entity, or the player
+    who owns a grenade or a thrown blade -- for its attacker for the rest of
+    that life (SpawnInit forgets him), turns to him, wields its fists
+    ("weapon_0", TS's weapon-select command for its hands) and fights with
+    them, whatever it carries. Another bot, the world or itself is no
+    attacker, so one fight starts no brawl. tsrp_roambots_defend 0: none.
+  - Getting anywhere (RoamCheckProgress). Progress is distance, not speed: 64
+    units from where it last got to. A pause, a wait, a fight or the plugin's
+    hold is no lack of it. After 5 seconds without progress it gives its goal
+    up (30 seconds among its failed goals) and the way it was walking; after 12
+    it asks tsrp_roambots.sma to move it with the server command
+    "tsrp_roambots_unstick <entity index>", again every 2 seconds until it has
+    got somewhere. A move of more than 256 units in one frame (a portal, the
+    plugin's placement) forgets the way it was walking. CheckStuck never kills
+    a roamer for standing still.
+  - The plugin's hold: with FL_FROZEN (two citizens stopped to talk) a roamer
+    stands, presses nothing, and Think goes no further that frame, so its
+    view stays as the plugin set it.
   - RunPlayerMove: the next frame's move is worked out from the walk, and this
     one's forward and side moves together are held to it, whatever set them (the
-    unstuck code strafes at full speed). While alive it presses nothing that
-    fires, stunts, reloads or uses. The stuck check compares its speed with the
+    unstuck code strafes at full speed); a roamer that fights runs. While alive
+    it never jumps, ducks, stunts or uses, fires only while it fights and
+    reloads only as an insurgent. The stuck check compares its speed with the
     walk, so walking is not taken for being stuck.
   - Buys nothing on death; is made weapons at spawn only with
     tsrp_roambots_weapons 1; and its life is kept out of the TS weapon learning
     (tsweaps.rld), which its weapons have no part in.
   - Respawns as TS respawns it ("respawn", the attack presses while dead): the
     plugin moves it after it is back on its feet, never while it is dying.
+
+
+===============================================================================
+CHANGE 9: PLAYER SLOTS (rcbot-ts-slots.patch)
+===============================================================================
+
+    MAX_PLAYERS, bot_const.h
+
+Every client and bot table is sized by it (bot.h: CBotGlobals::m_Clients,
+m_Bots, m_iJoiningClients), and every look-up by edict index is bounded by it
+(GetBot, GetClientByIndex, ClientConnected), so a bot or player in a slot past it
+is only half known to RCBot. It is 128, the slot count H9's game DLLs, Metamod and
+AMX Mod X are built for.
+
+    CBotGlobals' addbot, bot_commands.cpp
+
+addbot tests the free bot slot against MAX_PLAYERS; upstream's literal 32 there
+refuses the 33rd bot whatever the tables hold.
+
+    the dry-weapon drop, bot.cpp (CHANGE 2)
+
+Its per-bot clock, a table by edict index, holds MAX_PLAYERS + 1 entries.
+
+The bot quota is the server's: "rcbot config max_bots" in rcbot\bot_config.ini.
+On a server of 32 slots or fewer nothing here changes how any bot plays.
+
+
+===============================================================================
+CHANGE 10: POWERUPS (rcbot-ts-powerups.patch)
+===============================================================================
+
+    BotPowerupsAllowed, bot.cpp (beside the roam settings, over CBot)
+    CBot::EnemyFound and CBot::CanPickup, bot.cpp, case MOD_TS
+
+A TS bot uses powerups two ways: it walks to a ts_powerup it can see
+(CanPickup), and it sends "usepowerup" on sighting an enemy (EnemyFound), which
+sets off a powerup it carries. CHANGE 2 held both to the server's nopowerup. A
+server that gives powerups to its players -- nopowerup 0 -- could not keep them
+from its bots, and no plugin can: a fake client sends no client commands, and the
+walk to a pickup is the bot's own decision.
+
+Both now ask BotPowerupsAllowed(), read once a second:
+
+    nopowerup <= 0, and not (tsm_enabled > 0 and tsm_bot_powerups <= 0)
+
+tsm_bot_powerups belongs to ts_matchmode.sma (default 1; the TeamElimination and
+Siege configs set 0), and it counts only while the plugin's match mode is on, as
+its other tsm_ settings do: on a map TS plays as it ships (tsm_enabled 0) the bots
+take powerups as nopowerup lets them. A cvar that does not exist holds no bot back,
+so without the plugin this is CHANGE 2's nopowerup test alone.
+
+A powerup the plugin itself grants -- the Officer's kung fu, what a mode hands
+out -- is no pickup and needs no usepowerup, so this does not touch it. The
+plugin also refuses a bot's touch of a ts_powerup under tsm_bot_powerups 0, for a
+bot that walks over one on its way somewhere else.
 
 
 ===============================================================================
@@ -331,12 +421,14 @@ REBUILDING
     git apply rcbot-waypoints-doors.patch
     git apply rcbot-ts-turrets.patch
     git apply rcbot-ts-roam.patch
+    git apply rcbot-ts-slots.patch
+    git apply rcbot-ts-powerups.patch
     MSBuild dlls\HPB_bot.vcxproj /p:Configuration="MetaMod Release" /p:Platform=Win32
 
-In this order. The six together give, file for file, the source in src\; without
-the third the tree does not compile. On a clone with core.autocrlf true, apply
+In this order. The eight together give, file for file, the source in src\;
+without the third the tree does not compile. On a clone with core.autocrlf true, apply
 with --index. The shipped rcbot_mm.dll (and rcbot_mm.dll.patch) is the build of
-the first five; CHANGE 8 is in it once it is rebuilt from all six.
+all eight.
 
 Output lands at
     dlls\HPB_bot___Win32_MetaMod_Release\HPB_bot.dll

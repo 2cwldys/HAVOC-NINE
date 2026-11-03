@@ -31,6 +31,11 @@ CPlayerBitVec g_SentGameRulesMasks[MAX_PLAYERS]; // These store the masks we las
 CPlayerBitVec g_SentBanMasks[MAX_PLAYERS];		 // we need to resend them.
 CPlayerBitVec g_bWantModEnable;
 
+// VoiceMask is a [rules, ban] dword pair per 32 player slots: 8 bytes up to 32 slots. The engine
+// keeps the size a message is first registered with for the life of the process, whatever a
+// later map's maxplayers is, so the pair count is decided once, at the first registration.
+static int s_iVoiceMaskDWords = 0;
+
 cvar_t voice_serverdebug = {"voice_serverdebug", "0"};
 
 // Set game rules to allow all clients to talk to each other.
@@ -101,7 +106,9 @@ bool CVoiceGameMgr::Init(
 	m_nMaxPlayers = MAX_PLAYERS < maxClients ? MAX_PLAYERS : maxClients;
 	g_engfuncs.pfnPrecacheModel("sprites/voiceicon.spr");
 
-	m_msgPlayerVoiceMask = REG_USER_MSG("VoiceMask", VOICE_MAX_PLAYERS_DW * 4 * 2);
+	if (s_iVoiceMaskDWords == 0)
+		s_iVoiceMaskDWords = V_max(1, (m_nMaxPlayers + 31) / 32);
+	m_msgPlayerVoiceMask = REG_USER_MSG("VoiceMask", s_iVoiceMaskDWords * 4 * 2);
 	m_msgRequestState = REG_USER_MSG("ReqState", 0);
 
 	// register voice_serverdebug if it hasn't been registered already
@@ -252,7 +259,7 @@ void CVoiceGameMgr::UpdateMasks()
 
 			MESSAGE_BEGIN(MSG_ONE, m_msgPlayerVoiceMask, NULL, pPlayer->pev);
 			int dw;
-			for (dw = 0; dw < VOICE_MAX_PLAYERS_DW; dw++)
+			for (dw = 0; dw < s_iVoiceMaskDWords; dw++)
 			{
 				WRITE_LONG(gameRulesMask.GetDWord(dw));
 				WRITE_LONG(g_BanMasks[iClient].GetDWord(dw));

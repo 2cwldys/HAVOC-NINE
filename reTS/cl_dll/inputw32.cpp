@@ -505,6 +505,24 @@ void DLLEXPORT IN_MouseEvent(int mstate)
 		// state and synthesizes a spurious Key_Event(K_MOUSE1) = +attack DOWN, which fires the freshly
 		// spawned weapon (the "buy-menu click -> fire on spawn" bug). A click the menu or VGUI consumed
 		// must not leak.
+		//
+		// But a button that was already down when the cursor came up still has to deliver its release.
+		// The TS buy menu auto-opens the moment the player enters spectate at a round start, so a click
+		// held across that edge (the round-end shot, or a click that closed the menu) would otherwise
+		// have its release eaten here. The kbutton then stays held (in_attack), the client keeps
+		// predicting fire through the freeze, and at unfreeze the server sees IN_ATTACK still down and
+		// empties the magazine (the new-round magdump). Forward the releases only: a release whose press
+		// was swallowed above matches no down key in KeyUp, and Key_Event drops it while the engine has
+		// the key up, so it is harmless.
+		for (i = 0; i < mouse_buttons; i++)
+		{
+			if ((mstate & (1 << i)) == 0 &&
+				(mouse_oldbuttonstate & (1 << i)) != 0)
+			{
+				gEngfuncs.Key_Event(K_MOUSE1 + i, 0);
+			}
+		}
+
 		mouse_oldbuttonstate = mstate;
 		return;
 	}

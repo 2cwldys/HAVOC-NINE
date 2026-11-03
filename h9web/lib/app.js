@@ -1,6 +1,7 @@
 // Puts the service together: settings, secrets, the database and its migrations, the shared
 // auth layer, the core routes, the audit log, username changes and the admin panel's routes, the
-// relay, the server list, the game servers' view of each account (clientids.js), and the modules.
+// relay, the server list, the game servers' view of each account (clientids.js), linking a game
+// to an account (link.js), and the modules.
 // server.js runs it; the tests make their own on a free port.
 
 import http from "node:http";
@@ -24,11 +25,15 @@ import { createAudit } from "./audit.js";
 import { createRenames, registerRenameRoutes } from "./renames.js";
 import { registerAdminRoutes } from "./admin.js";
 import { createClientIds } from "./clientids.js";
+import { loadDataKey, createDataBox } from "./datakey.js";
+import { createLinks, registerLinkRoutes } from "./link.js";
 
 export async function createApp(config, { logSink, logLevel } = {}) {
   const log = createLogger("h9web", { level: logLevel || config.logLevel, sink: logSink });
   if (config.insecureCookies) log.warn("config.insecure_cookies", { note: "session cookies without Secure: for a test without HTTPS only" });
   const secrets = loadSecrets(config.dataDir, { create: true, log });
+  // encryption at rest for modules' stored values (lib/datakey.js); the raw key stays here
+  const dataKey = createDataBox(loadDataKey(config.dataKeyFile || path.join(config.dataDir, "data.key"), { create: true, log }));
   const db = openDatabase(path.join(config.dataDir, "h9web.db"));
   const backupDir = path.join(config.dataDir, "backups");
   migrate(db, "core", CORE_MIGRATIONS, { backupDir, log });
@@ -55,10 +60,12 @@ export async function createApp(config, { logSink, logLevel } = {}) {
   const renames = createRenames({ db, accounts, audit, config, events });
   registerRenameRoutes(router, { auth, renames, limits, config, log: log.child("account") });
   const adminRoutes = registerAdminRoutes(router, { db, auth, accounts, renames, audit, limits, config, log: log.child("admin") });
+  const links = createLinks({ db, accounts, audit, config, events, clientIds, log: log.child("link") });
+  registerLinkRoutes(router, { auth, links, limits });
   const relay = createRelay({ config, auth, servers, events, log: log.child("relay") });
   const modules = await loadModules({
     names: config.modules, dir: config.modulesDir, router, db, auth, accounts, audit, events, config, log, backupDir,
-    servers, status, clientIds, confirmAdmin: adminRoutes.confirmAdmin,
+    servers, status, clientIds, confirmAdmin: adminRoutes.confirmAdmin, dataKey,
   });
 
   const server = http.createServer({ maxHeaderSize: 16384 }, async (req, res) => {
@@ -114,6 +121,7 @@ export async function createApp(config, { logSink, logLevel } = {}) {
     if (stopped) return;
     stopped = true;
     clearInterval(housekeeping);
+    links.stop();
     await relay.stop();
     status.stop();
     servers.stop();
@@ -126,5 +134,5 @@ export async function createApp(config, { logSink, logLevel } = {}) {
     log.info("stopped");
   }
 
-  return { config, log, db, events, accounts, clientIds, confirmAdmin: adminRoutes.confirmAdmin, auth, audit, renames, limits, servers, status, relay, router, modules, server, listen, stop };
+  return { config, log, db, events, accounts, clientIds, confirmAdmin: adminRoutes.confirmAdmin, dataKey, auth, audit, renames, links, limits, servers, status, relay, router, modules, server, listen, stop };
 }

@@ -620,6 +620,62 @@ static void Delta_WriteTableField( sizebuf_t *msg, int tableIndex, const delta_t
 	else MSG_WriteOneBit( msg, 0 );
 }
 
+/*
+=====================
+Delta_H9SlotField
+
+H9: a player slot field holds 1..maxclients: entity_state_t's and entity_state_player_t's
+owner, and clientdata_t's iuser2, the spectator's target. On a server of more than 32 slots it
+takes MAX_CLIENT_BITS + 1 bits. On one of 32 or fewer it keeps the width it had at 32 slots, so
+the server sends what it always has: owner MAX_CLIENT_BITS_LEGACY + 1 bits, where
+Delta_H9WidenIndexField's MAX_CLIENT_BITS + 1 is narrowed back, iuser2 what delta.lst says.
+Runs once a field is parsed; clients follow, as the server sends its parsed tables to them.
+=====================
+*/
+static void Delta_H9SlotField( const delta_info_t *dt, delta_t *pField )
+{
+	static struct
+	{
+		const char	*table;
+		const char	*field;
+		qboolean	widened;	// Delta_H9WidenIndexField gives it MAX_CLIENT_BITS + 1 bits
+		qboolean	reported;
+	} slots[] =
+	{
+	{ "entity_state_t",		"owner",	true },
+	{ "entity_state_player_t",	"owner",	true },
+	{ "clientdata_t",		"iuser2",	false },
+	};
+
+	for( size_t i = 0; i < ARRAYSIZE( slots ); i++ )
+	{
+		if( Q_strcmp( dt->pName, slots[i].table ) || Q_strcmp( pField->name, slots[i].field ))
+			continue;
+
+		int limit = FBitSet( pField->flags, DT_BYTE ) ? 8 : FBitSet( pField->flags, DT_SHORT ) ? 16 : 32;
+		int sign = FBitSet( pField->flags, DT_SIGNED ) ? 1 : 0;
+		int wide = Q_min( MAX_CLIENT_BITS + 1 + sign, limit );
+		int want = pField->bits;
+
+		if( SV_GetMaxClients() > MAX_CLIENTS_LEGACY )
+			want = Q_max( pField->bits, wide );
+		else if( slots[i].widened && pField->bits == wide )
+			want = Q_min( MAX_CLIENT_BITS_LEGACY + 1 + sign, limit );
+
+		if( want != pField->bits )
+		{
+			// delta.lst is re-read on every map spawn; one line per field per run is enough
+			if( !slots[i].reported )
+			{
+				Con_Reportf( "delta: %s.%s at %d bits for %d player slots\n", dt->pName, pField->name, want, SV_GetMaxClients() );
+				slots[i].reported = true;
+			}
+			pField->bits = want;
+		}
+		return;
+	}
+}
+
 void Delta_ParseTableField( sizebuf_t *msg )
 {
 	float mul = 1.0f, post_mul = 1.0f;
@@ -855,6 +911,8 @@ static qboolean Delta_ParseField( char **delta_script, const delta_info_t *dt, d
 	char *oldpos = *delta_script;
 	*delta_script = COM_ParseFile( *delta_script, token, sizeof( token ));
 	if( token[0] != ',' ) *delta_script = oldpos; // not a ','
+
+	Delta_H9SlotField( dt, pField );
 
 	return true;
 }

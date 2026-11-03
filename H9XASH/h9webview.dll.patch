@@ -1,0 +1,1374 @@
+H9XASH h9webview.dll -- built from source by TSM\xash3d-h9-patches\webview\build_webview.bat
+
+The splash MOTD's embedded web page: a server's h9_motd "page", shown inside the MOTD panel with
+Microsoft Edge WebView2 (docs\H9_MOTD.txt). The engine loads it by name (cl_motd.c,
+engine-h9-motd.patch) and falls back to the page's picture or text without it.
+
+Built: Mon 11/02/2026 20:14:21.53, 32-bit, MSVC /O2 /MT, against the WebView2 SDK 1.0.4258.31 (NuGet
+Microsoft.Web.WebView2, its LICENSE.txt shipped as h9webview.WebView2-LICENSE.txt), with
+WebView2LoaderStatic.lib linked in: no WebView2Loader.dll is needed.
+
+Below is the whole source: webview\h9webview.h, then webview\h9webview.cpp.
+
+/*
+h9webview.h - the C interface of h9webview.dll, H9XASH's embedded web page for a server's
+splash MOTD (Microsoft Edge WebView2). The engine loads the DLL itself (cl_motd.c, Windows
+only) and calls these by name; cl_motd.c keeps its own copy of the numbers below, so a change
+here is a change there, with H9WV_API_VERSION raised.
+
+Every call is made on the thread that owns the parent window (the game's main thread), which
+pumps its messages every frame: WebView2 answers through that message loop, and so does the
+status callback.
+*/
+
+#ifndef H9WEBVIEW_H
+#define H9WEBVIEW_H
+
+#define H9WV_API_VERSION 1
+
+// what the view tells the engine; detail is ASCII
+enum
+{
+	H9WV_READY = 1,   // the page has loaded: the view may be shown
+	H9WV_FAILED,      // the page cannot be shown; detail says why
+	H9WV_ESCAPE,      // ESC was pressed in the page
+	H9WV_NEWWINDOW,   // the page asked for a new window; detail is its address (nothing was opened)
+	H9WV_NAVIGATED,   // the page is going to detail, an address the rules allow
+	H9WV_BLOCKED      // a navigation was refused; detail is its address
+};
+
+// H9WV_Open's flags
+#define H9WV_NOSANDBOX  1 // Wine: --no-sandbox (Chromium's sandbox does not run under Wine)
+#define H9WV_NOGPU      2 // Wine: --disable-gpu as well
+#define H9WV_WINEFIX    4 // Wine: set HKCU\Software\Wine\AppDefaults\msedgewebview2.exe\Version
+                          // to win8 when it is not set (DirectComposition fails at 8.1 and up)
+
+typedef void ( *h9wv_status_fn )( int status, const char *detail, void *user );
+
+// the DLL exports these; anyone else only declares them
+#ifdef H9WV_BUILD
+#define H9WV_EXPORT __declspec( dllexport )
+#else
+#define H9WV_EXPORT
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// H9WV_API_VERSION
+H9WV_EXPORT int H9WV_ApiVersion( void );
+
+// 1 when a WebView2 runtime is there to use, with its version in buf: the Fixed Version runtime
+// in <this DLL's folder>\webview2\runtime when that folder has one, else the installed one
+H9WV_EXPORT int H9WV_Runtime( char *buf, int size );
+
+// 1 under Wine or Proton (ntdll exports wine_get_version), with Wine's version in buf
+H9WV_EXPORT int H9WV_Wine( char *buf, int size );
+
+// Starts a hidden view in parent (an HWND) and sends it to url. NULL, with the reason in why,
+// when it cannot start; otherwise status reports what follows. user is handed back as it is.
+H9WV_EXPORT void *H9WV_Open( void *parent, const char *url, int flags, h9wv_status_fn status, void *user, char *why, int whysize );
+
+// Where the view sits, in the game's render coordinates: x, y, w, h of a render_w x render_h
+// screen, scaled to the parent window's client area. visible 0 hides it.
+H9WV_EXPORT void H9WV_Place( void *view, int x, int y, int w, int h, int render_w, int render_h, int visible );
+
+// Takes the view down. No status call follows. The game's window gets the keyboard back when
+// the page had it.
+H9WV_EXPORT void H9WV_Close( void *view );
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // H9WEBVIEW_H
+
+/*
+h9webview.cpp - h9webview.dll: H9XASH's embedded web page for a server's splash MOTD
+
+A server running h9_motd.sma with h9_motd "page" names a web page; the engine (cl_motd.c,
+engine-h9-motd.patch) shows it inside the MOTD panel through this DLL, which hosts it with
+Microsoft Edge WebView2: Chromium, kept up to date by Windows itself on Windows 10 and 11. The
+engine loads this DLL by name and calls the five functions of h9webview.h; when any of it is
+missing or fails, the engine shows the page's picture or text and an OPEN PAGE button instead.
+
+The view is locked down:
+  * a private (InPrivate) session: no cookies, storage or history are kept. The browser's own
+    files live in <this DLL's folder>\webview2\data;
+  * no host objects and no web messages: the page has no way into the game;
+  * downloads cancelled; every permission request denied (camera, microphone, location,
+    notifications, clipboard and the rest), screen capture refused; no external programs
+    (mailto:, steam: and other schemes); no HTTP or client-certificate sign-in prompts;
+  * no developer tools, default context menu, status bar, script dialogs, browser shortcut
+    keys, zoom keys, swipe navigation, autofill or password saving; no sign-in with the
+    Windows account; tracking prevention strict;
+  * every navigation, the first one, every later one, every redirect and every frame's, is
+    https to a host name: an IP address, localhost, a single-label name and the usual private
+    names (.local, .lan, .internal and the like) are cancelled;
+  * a new window is never opened: its address goes to the engine, which shows it in its
+    confirm box and opens the system browser only on a click;
+  * ESC in the page closes the splash (AcceleratorKeyPressed);
+  * every connection the page makes, of any kind, goes through this DLL's own proxy on
+    127.0.0.1, which resolves the host itself and connects only to public addresses (the
+    address it checked is the one it connects to); plain http and WebRTC's UDP do not
+    leave at all.
+
+Under Wine or Proton the engine asks for --no-sandbox (Chromium's sandbox does not run under
+Wine), and --disable-gpu when the player wants it, and for Wine's per-application Windows
+version for msedgewebview2.exe (win8) when the prefix has none; only with the player's
+cl_h9_motd_wine. A Fixed Version WebView2 runtime in <this DLL's folder>\webview2\runtime is
+used in place of the installed one, on Windows or under Wine.
+
+Built by build_webview.bat (32-bit, MSVC, static CRT) against the WebView2 SDK in ..\deps, with
+WebView2Loader linked in statically: the DLL needs nothing but Windows and the WebView2 runtime.
+*/
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <objbase.h>
+#include <urlmon.h>
+#include <wrl.h>
+
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <cwctype>
+#include <memory>
+#include <mutex>
+#include <new>
+#include <string>
+#include <thread>
+
+#include "WebView2.h"
+#include "WebView2EnvironmentOptions.h"
+
+#define H9WV_BUILD
+#include "h9webview.h"
+
+using Microsoft::WRL::Callback;
+using Microsoft::WRL::ComPtr;
+using Microsoft::WRL::Make;
+
+// the oldest runtime with private sessions in the controller options; older ones are refused
+static const wchar_t kTargetVersion[] = L"101.0.1210.39";
+
+namespace
+{
+
+std::string Narrow( const wchar_t *s )
+{
+	std::string out;
+
+	if( !s )
+		return out;
+
+	int n = WideCharToMultiByte( CP_UTF8, 0, s, -1, nullptr, 0, nullptr, nullptr );
+
+	if( n <= 1 )
+		return out;
+
+	out.resize( n - 1 );
+	WideCharToMultiByte( CP_UTF8, 0, s, -1, &out[0], n, nullptr, nullptr );
+
+	// the engine draws and prints ASCII only
+	for( char &c : out )
+	{
+		if(( unsigned char )c < 32 || ( unsigned char )c > 126 )
+			c = '?';
+	}
+
+	return out;
+}
+
+std::wstring Widen( const char *s )
+{
+	std::wstring out;
+
+	if( !s )
+		return out;
+
+	int n = MultiByteToWideChar( CP_UTF8, 0, s, -1, nullptr, 0 );
+
+	if( n <= 1 )
+		return out;
+
+	out.resize( n - 1 );
+	MultiByteToWideChar( CP_UTF8, 0, s, -1, &out[0], n );
+	return out;
+}
+
+std::string HexResult( HRESULT hr )
+{
+	char b[16];
+	snprintf( b, sizeof( b ), "%08lx", ( unsigned long )hr );
+	return std::string( b );
+}
+
+// a navigation's failure, in a few words
+std::string WebError( COREWEBVIEW2_WEB_ERROR_STATUS err )
+{
+	switch( err )
+	{
+	case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT:
+	case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED:
+	case COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS:
+	case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED:
+	case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID:
+		return "its certificate is not valid";
+	case COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED:
+		return "its host name was not found";
+	case COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE:
+	case COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT:
+	case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED:
+	case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET:
+	case COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED:
+		return "its server could not be reached";
+	case COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT:
+		return "its server did not answer in time";
+	case COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED:
+		return "it went to an address that is not allowed";
+	case COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED:
+		return "its redirect failed";
+	default:
+		return "WebView2 error " + std::to_string(( int )err );
+	}
+}
+
+void Copy( char *dst, int size, const std::string &src )
+{
+	if( !dst || size <= 0 )
+		return;
+
+	size_t n = src.size() < ( size_t )size - 1 ? src.size() : ( size_t )size - 1;
+	memcpy( dst, src.data(), n );
+	dst[n] = '\0';
+}
+
+// <this DLL's folder>\name, without a trailing backslash
+std::wstring Beside( const wchar_t *name )
+{
+	HMODULE self = nullptr;
+	wchar_t path[MAX_PATH * 2];
+
+	GetModuleHandleExW( GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+		( LPCWSTR )&Beside, &self );
+
+	DWORD n = GetModuleFileNameW( self, path, ARRAYSIZE( path ));
+
+	if( !n || n >= ARRAYSIZE( path ))
+		return std::wstring();
+
+	std::wstring dir( path, n );
+	size_t slash = dir.find_last_of( L"\\/" );
+
+	if( slash == std::wstring::npos )
+		return std::wstring();
+
+	dir.resize( slash + 1 );
+	return dir + name;
+}
+
+// the Fixed Version runtime the player put beside the game, when there is one
+std::wstring RuntimeFolder( void )
+{
+	std::wstring dir = Beside( L"webview2\\runtime" );
+
+	if( dir.empty())
+		return dir;
+
+	DWORD attr = GetFileAttributesW(( dir + L"\\msedgewebview2.exe" ).c_str());
+
+	if( attr == INVALID_FILE_ATTRIBUTES || ( attr & FILE_ATTRIBUTE_DIRECTORY ))
+		return std::wstring();
+
+	return dir;
+}
+
+bool EndsWith( const std::wstring &s, const wchar_t *tail )
+{
+	size_t n = wcslen( tail );
+	return s.size() >= n && s.compare( s.size() - n, n, tail ) == 0;
+}
+
+// An address the view may go to: https, a host name (not an IP address), no user name before
+// it, not localhost, a single-label name or one of the usual private names.
+bool Allowed( const wchar_t *uri )
+{
+	ComPtr<IUri> u;
+	BSTR scheme = nullptr, user = nullptr, host = nullptr;
+	DWORD type = Uri_HOST_UNKNOWN;
+	bool ok = false;
+
+	if( !uri || FAILED( CreateUri( uri, Uri_CREATE_CANONICALIZE, 0, &u )))
+		return false;
+
+	if( SUCCEEDED( u->GetSchemeName( &scheme )) && scheme && !_wcsicmp( scheme, L"https" )
+		&& SUCCEEDED( u->GetHostType( &type )) && ( type == Uri_HOST_DNS || type == Uri_HOST_IDN )
+		&& SUCCEEDED( u->GetUserInfo( &user )) && ( !user || !SysStringLen( user ))
+		&& SUCCEEDED( u->GetHost( &host )) && host && SysStringLen( host ))
+	{
+		std::wstring h( host, SysStringLen( host ));
+
+		for( wchar_t &c : h )
+			c = towlower( c );
+
+		while( !h.empty() && h.back() == L'.' )
+			h.pop_back();
+
+		static const wchar_t *const kPrivate[] =
+		{
+			L".localhost", L".local", L".localdomain", L".lan", L".home", L".internal",
+			L".intranet", L".corp", L".home.arpa", L".private"
+		};
+
+		ok = h.find( L'.' ) != std::wstring::npos && h != L"localhost";
+
+		for( const wchar_t *tail : kPrivate )
+		{
+			if( EndsWith( h, tail ))
+				ok = false;
+		}
+	}
+
+	SysFreeString( scheme );
+	SysFreeString( user );
+	SysFreeString( host );
+	return ok;
+}
+
+// ---- the page's only way out ------------------------------------------------------------
+// Every connection the page makes goes through this: a CONNECT-only proxy on 127.0.0.1 that
+// resolves each host itself and connects only when every address the name resolves to is
+// public (not loopback, private, link-local, CGNAT, multicast or reserved). The address it
+// checked is the one it connects to, so a name cannot be pointed elsewhere in between, and a
+// hex or short-form address (0x7f.1) is judged by what it resolves to. Plain http through it is
+// refused; Chromium is told to send loopback through it too and to keep WebRTC's UDP off. It
+// answers only while a view is open.
+
+std::atomic<int> g_views( 0 );
+SOCKET g_listen = INVALID_SOCKET;
+int g_port = 0;
+
+// the last host refused for a private or reserved address, and when: a failed load says so
+std::mutex g_refusedLock;
+std::string g_refused;
+DWORD g_refusedAt = 0;
+
+void NoteRefused( const std::string &host )
+{
+	std::lock_guard<std::mutex> lock( g_refusedLock );
+	g_refused = host;
+	g_refusedAt = GetTickCount();
+}
+
+std::string RecentlyRefused( void )
+{
+	std::lock_guard<std::mutex> lock( g_refusedLock );
+	return ( !g_refused.empty() && GetTickCount() - g_refusedAt < 30000 ) ? g_refused : std::string();
+}
+
+bool PublicV4( const unsigned char *a )
+{
+	if( a[0] == 0 || a[0] == 10 || a[0] == 127 || a[0] >= 224 )
+		return false; // this network, private, loopback, multicast, reserved, broadcast
+	if( a[0] == 100 && ( a[1] & 0xc0 ) == 64 )
+		return false; // carrier-grade NAT
+	if( a[0] == 169 && a[1] == 254 )
+		return false; // link-local
+	if( a[0] == 172 && ( a[1] & 0xf0 ) == 16 )
+		return false;
+	if( a[0] == 192 && a[1] == 168 )
+		return false;
+	if( a[0] == 192 && a[1] == 0 && ( a[2] == 0 || a[2] == 2 ))
+		return false; // IETF protocol assignments, TEST-NET-1
+	if( a[0] == 192 && a[1] == 88 && a[2] == 99 )
+		return false;
+	if( a[0] == 198 && ( a[1] & 0xfe ) == 18 )
+		return false; // benchmarking
+	if( a[0] == 198 && a[1] == 51 && a[2] == 100 )
+		return false; // TEST-NET-2
+	if( a[0] == 203 && a[1] == 0 && a[2] == 113 )
+		return false; // TEST-NET-3
+	return true;
+}
+
+bool PublicAddress( const sockaddr *sa )
+{
+	if( sa->sa_family == AF_INET )
+		return PublicV4(( const unsigned char * )&(( const sockaddr_in * )sa )->sin_addr );
+
+	if( sa->sa_family != AF_INET6 )
+		return false;
+
+	const unsigned char *a = ( const unsigned char * )&(( const sockaddr_in6 * )sa )->sin6_addr;
+	static const unsigned char kMapped[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
+	static const unsigned char kNat64[12] = { 0, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+	if( !memcmp( a, kMapped, 12 ) || !memcmp( a, kNat64, 12 ))
+		return PublicV4( a + 12 );
+	if( a[0] == 0x20 && a[1] == 0x02 )
+		return PublicV4( a + 2 ); // 6to4
+	if(( a[0] & 0xe0 ) != 0x20 )
+		return false; // only global unicast
+	if( a[0] == 0x20 && a[1] == 0x01 && (( a[2] == 0x0d && a[3] == 0xb8 ) || ( a[2] == 0 && a[3] == 0 ) || ( a[2] == 0 && ( a[3] & 0xf0 ) == 0x10 )))
+		return false; // documentation, Teredo, ORCHID
+	return true;
+}
+
+void SendAll( SOCKET s, const char *data, int len )
+{
+	while( len > 0 )
+	{
+		int n = send( s, data, len, 0 );
+
+		if( n <= 0 )
+			return;
+
+		data += n;
+		len -= n;
+	}
+}
+
+void Reply( SOCKET s, const char *status )
+{
+	std::string r = std::string( "HTTP/1.1 " ) + status + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+	SendAll( s, r.data(), ( int )r.size());
+}
+
+// the request's head, up to its blank line: 8 KB and 10 s at most
+bool RecvHead( SOCKET s, std::string &head )
+{
+	char buf[1024];
+	DWORD start = GetTickCount();
+
+	while( head.find( "\r\n\r\n" ) == std::string::npos )
+	{
+		if( head.size() > 8192 || GetTickCount() - start > 10000 )
+			return false;
+
+		fd_set r;
+		FD_ZERO( &r );
+		FD_SET( s, &r );
+		timeval tv = { 1, 0 };
+		int n = select( 0, &r, nullptr, nullptr, &tv );
+
+		if( n < 0 )
+			return false;
+
+		if( n == 0 )
+			continue;
+
+		int got = recv( s, buf, sizeof( buf ), 0 );
+
+		if( got <= 0 )
+			return false;
+
+		head.append( buf, got );
+	}
+
+	return true;
+}
+
+SOCKET ConnectWithin( const sockaddr *sa, int len, int ms )
+{
+	SOCKET t = socket( sa->sa_family, SOCK_STREAM, IPPROTO_TCP );
+
+	if( t == INVALID_SOCKET )
+		return t;
+
+	u_long nb = 1;
+	ioctlsocket( t, FIONBIO, &nb );
+	connect( t, sa, len );
+
+	fd_set w, e;
+	FD_ZERO( &w );
+	FD_ZERO( &e );
+	FD_SET( t, &w );
+	FD_SET( t, &e );
+	timeval tv = { ms / 1000, ( ms % 1000 ) * 1000 };
+	int err = 0, errlen = sizeof( err );
+
+	if( select( 0, nullptr, &w, &e, &tv ) <= 0 || FD_ISSET( t, &e )
+		|| getsockopt( t, SOL_SOCKET, SO_ERROR, ( char * )&err, &errlen ) || err )
+	{
+		closesocket( t );
+		return INVALID_SOCKET;
+	}
+
+	nb = 0;
+	ioctlsocket( t, FIONBIO, &nb );
+	return t;
+}
+
+// both ways, until either end closes or 120 s pass with nothing
+void Tunnel( SOCKET a, SOCKET b )
+{
+	char buf[16384];
+	DWORD last = GetTickCount();
+
+	for( ;; )
+	{
+		fd_set r;
+		FD_ZERO( &r );
+		FD_SET( a, &r );
+		FD_SET( b, &r );
+		timeval tv = { 1, 0 };
+		int n = select( 0, &r, nullptr, nullptr, &tv );
+
+		if( n < 0 )
+			return;
+
+		if( n == 0 )
+		{
+			if( GetTickCount() - last > 120000 )
+				return;
+			continue;
+		}
+
+		SOCKET from[2] = { a, b }, to[2] = { b, a };
+
+		for( int i = 0; i < 2; i++ )
+		{
+			if( !FD_ISSET( from[i], &r ))
+				continue;
+
+			int got = recv( from[i], buf, sizeof( buf ), 0 );
+
+			if( got <= 0 )
+				return;
+
+			SendAll( to[i], buf, got );
+		}
+
+		last = GetTickCount();
+	}
+}
+
+bool HostChars( const std::string &host )
+{
+	if( host.empty() || host.size() > 253 )
+		return false;
+
+	for( char c : host )
+	{
+		if( !(( c >= 'a' && c <= 'z' ) || ( c >= 'A' && c <= 'Z' ) || ( c >= '0' && c <= '9' ) || c == '.' || c == '-' ))
+			return false;
+	}
+
+	return true;
+}
+
+void Serve( SOCKET c )
+{
+	std::string head;
+
+	if( g_views.load() <= 0 || !RecvHead( c, head ))
+	{
+		closesocket( c );
+		return;
+	}
+
+	// CONNECT host:port HTTP/1.1
+	size_t eol = head.find( "\r\n" );
+	size_t sp1 = head.find( ' ' );
+	size_t sp2 = sp1 == std::string::npos ? std::string::npos : head.find( ' ', sp1 + 1 );
+
+	if( sp1 == std::string::npos || sp2 == std::string::npos || sp2 > eol || head.compare( 0, sp1, "CONNECT" ))
+	{
+		Reply( c, "405 Method Not Allowed" ); // https only
+		closesocket( c );
+		return;
+	}
+
+	std::string target = head.substr( sp1 + 1, sp2 - sp1 - 1 );
+	size_t colon = target.rfind( ':' );
+	std::string host = colon == std::string::npos ? std::string() : target.substr( 0, colon );
+	std::string port = colon == std::string::npos ? std::string() : target.substr( colon + 1 );
+	int portnum = port.empty() || port.size() > 5 || port.find_first_not_of( "0123456789" ) != std::string::npos ? 0 : atoi( port.c_str());
+
+	if( !HostChars( host ) || portnum < 1 || portnum > 65535 )
+	{
+		Reply( c, "403 Forbidden" );
+		closesocket( c );
+		return;
+	}
+
+	addrinfo hints = {};
+	addrinfo *res = nullptr;
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+
+	if( getaddrinfo( host.c_str(), port.c_str(), &hints, &res ) || !res )
+	{
+		Reply( c, "502 Bad Gateway" );
+		closesocket( c );
+		return;
+	}
+
+	bool allowed = true;
+
+	for( addrinfo *a = res; a; a = a->ai_next )
+	{
+		if( !PublicAddress( a->ai_addr ))
+			allowed = false;
+	}
+
+	SOCKET t = INVALID_SOCKET;
+
+	for( addrinfo *a = res; allowed && a && t == INVALID_SOCKET; a = a->ai_next )
+		t = ConnectWithin( a->ai_addr, ( int )a->ai_addrlen, 10000 );
+
+	freeaddrinfo( res );
+
+	if( !allowed )
+		NoteRefused( host );
+
+	if( !allowed || t == INVALID_SOCKET )
+	{
+		Reply( c, allowed ? "502 Bad Gateway" : "403 Forbidden" );
+		closesocket( c );
+		return;
+	}
+
+	static const char kEstablished[] = "HTTP/1.1 200 Connection established\r\n\r\n";
+	SendAll( c, kEstablished, sizeof( kEstablished ) - 1 );
+
+	// anything sent after the head goes on to the server
+	size_t end = head.find( "\r\n\r\n" ) + 4;
+	if( end < head.size())
+		SendAll( t, head.data() + end, ( int )( head.size() - end ));
+
+	Tunnel( c, t );
+	closesocket( t );
+	closesocket( c );
+}
+
+// started once, on the first view, and kept for the life of the process: each view's browser is
+// told its port
+bool ProxyStart( void )
+{
+	static bool tried = false;
+
+	if( tried )
+		return g_port != 0;
+
+	tried = true;
+
+	WSADATA wsa;
+
+	if( WSAStartup( MAKEWORD( 2, 2 ), &wsa ))
+		return false;
+
+	SOCKET l = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
+
+	if( l == INVALID_SOCKET )
+		return false;
+
+	BOOL exclusive = TRUE;
+	setsockopt( l, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, ( const char * )&exclusive, sizeof( exclusive ));
+
+	sockaddr_in a = {};
+	a.sin_family = AF_INET;
+	a.sin_addr.s_addr = htonl( INADDR_LOOPBACK );
+	int len = sizeof( a );
+
+	if( bind( l, ( sockaddr * )&a, sizeof( a )) || listen( l, 64 ) || getsockname( l, ( sockaddr * )&a, &len ))
+	{
+		closesocket( l );
+		return false;
+	}
+
+	g_listen = l;
+
+	try
+	{
+		std::thread( []()
+		{
+			for( ;; )
+			{
+				SOCKET c = accept( g_listen, nullptr, nullptr );
+
+				if( c == INVALID_SOCKET )
+				{
+					Sleep( 50 );
+					continue;
+				}
+
+				try
+				{
+					std::thread( Serve, c ).detach();
+				}
+				catch( ... )
+				{
+					closesocket( c );
+				}
+			}
+		} ).detach();
+	}
+	catch( ... )
+	{
+		closesocket( l );
+		g_listen = INVALID_SOCKET;
+		return false;
+	}
+
+	g_port = ntohs( a.sin_port );
+	return true;
+}
+
+// Wine's own Windows version for msedgewebview2.exe, set only when the prefix has none
+void WineVersionFix( void )
+{
+	static const wchar_t kKey[] = L"Software\\Wine\\AppDefaults\\msedgewebview2.exe";
+	static const wchar_t kValue[] = L"win8";
+	HKEY key = nullptr;
+
+	if( RegOpenKeyExW( HKEY_CURRENT_USER, kKey, 0, KEY_QUERY_VALUE, &key ) == ERROR_SUCCESS )
+	{
+		LSTATUS st = RegQueryValueExW( key, L"Version", nullptr, nullptr, nullptr, nullptr );
+		RegCloseKey( key );
+
+		if( st == ERROR_SUCCESS )
+			return; // the player's or winetricks' own setting stays
+	}
+
+	if( RegCreateKeyExW( HKEY_CURRENT_USER, kKey, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr ) == ERROR_SUCCESS )
+	{
+		RegSetValueExW( key, L"Version", 0, REG_SZ, ( const BYTE * )kValue, sizeof( kValue ));
+		RegCloseKey( key );
+	}
+}
+
+struct View
+{
+	HWND parent = nullptr;
+	h9wv_status_fn status = nullptr;
+	void *user = nullptr;
+	std::wstring url;
+
+	ComPtr<ICoreWebView2Environment> env;
+	ComPtr<ICoreWebView2Controller> controller;
+	ComPtr<ICoreWebView2> webview;
+
+	bool closed = false;
+	bool ready = false;   // the first page has loaded
+	bool failed = false;  // FAILED was sent
+
+	// where the engine wants it
+	int x = 0, y = 0, w = 0, h = 0, rw = 0, rh = 0;
+	bool visible = false;
+
+	// where it is
+	RECT bounds = {};
+	bool shown = false;
+
+	void Report( int s, const std::string &detail )
+	{
+		if( !closed && status )
+			status( s, detail.c_str(), user );
+	}
+
+	void Fail( const std::string &why )
+	{
+		if( failed )
+			return;
+
+		failed = true;
+		Report( H9WV_FAILED, why );
+	}
+
+	void Apply( void )
+	{
+		if( !controller || closed )
+			return;
+
+		RECT client = {};
+		GetClientRect( parent, &client );
+
+		RECT r = {};
+
+		if( rw > 0 && rh > 0 )
+		{
+			double sx = ( double )( client.right - client.left ) / rw;
+			double sy = ( double )( client.bottom - client.top ) / rh;
+			r.left = ( LONG )( x * sx + 0.5 );
+			r.top = ( LONG )( y * sy + 0.5 );
+			r.right = ( LONG )(( x + w ) * sx + 0.5 );
+			r.bottom = ( LONG )(( y + h ) * sy + 0.5 );
+		}
+
+		if( memcmp( &r, &bounds, sizeof( r )))
+		{
+			bounds = r;
+			controller->put_Bounds( r );
+		}
+
+		bool want = visible && ready && !failed && r.right > r.left && r.bottom > r.top;
+
+		if( want != shown )
+		{
+			shown = want;
+			controller->put_IsVisible( want ? TRUE : FALSE );
+		}
+	}
+};
+
+struct Handle
+{
+	std::shared_ptr<View> view;
+};
+
+void Settings( ICoreWebView2 *webview )
+{
+	ComPtr<ICoreWebView2Settings> s;
+
+	if( FAILED( webview->get_Settings( &s )) || !s )
+		return;
+
+	s->put_IsScriptEnabled( TRUE );
+	s->put_IsWebMessageEnabled( FALSE );
+	s->put_AreHostObjectsAllowed( FALSE );
+	s->put_AreDefaultScriptDialogsEnabled( FALSE );
+	s->put_IsStatusBarEnabled( FALSE );
+	s->put_AreDevToolsEnabled( FALSE );
+	s->put_AreDefaultContextMenusEnabled( FALSE );
+	s->put_IsZoomControlEnabled( FALSE );
+	s->put_IsBuiltInErrorPageEnabled( TRUE );
+
+	ComPtr<ICoreWebView2Settings3> s3;
+	if( SUCCEEDED( s.As( &s3 )))
+		s3->put_AreBrowserAcceleratorKeysEnabled( FALSE );
+
+	ComPtr<ICoreWebView2Settings4> s4;
+	if( SUCCEEDED( s.As( &s4 )))
+	{
+		s4->put_IsPasswordAutosaveEnabled( FALSE );
+		s4->put_IsGeneralAutofillEnabled( FALSE );
+	}
+
+	ComPtr<ICoreWebView2Settings6> s6;
+	if( SUCCEEDED( s.As( &s6 )))
+		s6->put_IsSwipeNavigationEnabled( FALSE );
+
+	ComPtr<ICoreWebView2Settings8> s8;
+	if( SUCCEEDED( s.As( &s8 )))
+		s8->put_IsReputationCheckingRequired( TRUE );
+
+	ComPtr<ICoreWebView2_13> w13;
+	ComPtr<ICoreWebView2Profile> profile;
+	ComPtr<ICoreWebView2Profile3> p3;
+	if( SUCCEEDED( webview->QueryInterface( IID_PPV_ARGS( &w13 ))) && SUCCEEDED( w13->get_Profile( &profile ))
+		&& SUCCEEDED( profile.As( &p3 )))
+		p3->put_PreferredTrackingPreventionLevel( COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_STRICT );
+}
+
+// every event the view listens to; each handler holds the view weakly, so a closed view is left alone
+void Events( const std::shared_ptr<View> &v )
+{
+	std::weak_ptr<View> weak = v;
+	ICoreWebView2 *wv = v->webview.Get();
+	EventRegistrationToken token;
+
+	// the first navigation, every later one and every redirect: https to a host name only
+	wv->add_NavigationStarting( Callback<ICoreWebView2NavigationStartingEventHandler>(
+		[weak]( ICoreWebView2 *, ICoreWebView2NavigationStartingEventArgs *args ) -> HRESULT
+		{
+			auto view = weak.lock();
+			LPWSTR uri = nullptr;
+
+			args->get_Uri( &uri );
+
+			if( !Allowed( uri ))
+			{
+				args->put_Cancel( TRUE );
+
+				if( view )
+					view->Report( H9WV_BLOCKED, Narrow( uri ));
+			}
+			else if( view )
+			{
+				view->Report( H9WV_NAVIGATED, Narrow( uri ));
+			}
+
+			CoTaskMemFree( uri );
+			return S_OK;
+		} ).Get(), &token );
+
+	// the page's frames follow the same rule
+	wv->add_FrameNavigationStarting( Callback<ICoreWebView2NavigationStartingEventHandler>(
+		[]( ICoreWebView2 *, ICoreWebView2NavigationStartingEventArgs *args ) -> HRESULT
+		{
+			LPWSTR uri = nullptr;
+
+			args->get_Uri( &uri );
+
+			// about:blank and about:srcdoc frames are the page's own documents
+			if( uri && _wcsnicmp( uri, L"about:", 6 ) && !Allowed( uri ))
+				args->put_Cancel( TRUE );
+
+			CoTaskMemFree( uri );
+			return S_OK;
+		} ).Get(), &token );
+
+	// the first page shows once it has loaded, and not on an HTTP error
+	wv->add_NavigationCompleted( Callback<ICoreWebView2NavigationCompletedEventHandler>(
+		[weak]( ICoreWebView2 *, ICoreWebView2NavigationCompletedEventArgs *args ) -> HRESULT
+		{
+			auto view = weak.lock();
+
+			if( !view || view->closed || view->ready || view->failed )
+				return S_OK;
+
+			BOOL ok = FALSE;
+			int code = 0;
+			COREWEBVIEW2_WEB_ERROR_STATUS err = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
+
+			args->get_IsSuccess( &ok );
+			args->get_WebErrorStatus( &err );
+
+			ComPtr<ICoreWebView2NavigationCompletedEventArgs2> args2;
+			if( SUCCEEDED( args->QueryInterface( IID_PPV_ARGS( &args2 ))))
+				args2->get_HttpStatusCode( &code );
+
+			if( code >= 400 )
+			{
+				view->Fail( "the page answered HTTP " + std::to_string( code ));
+			}
+			else if( !ok )
+			{
+				std::string refused = RecentlyRefused();
+
+				if( !refused.empty())
+					view->Fail( "it leads to a private or reserved address (" + refused + ")" );
+				else view->Fail( "the page did not load: " + WebError( err ));
+			}
+			else
+			{
+				view->ready = true;
+				view->Apply();
+				view->Report( H9WV_READY, std::string());
+			}
+
+			return S_OK;
+		} ).Get(), &token );
+
+	// no window is ever opened: the address goes to the engine's confirm box
+	wv->add_NewWindowRequested( Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+		[weak]( ICoreWebView2 *, ICoreWebView2NewWindowRequestedEventArgs *args ) -> HRESULT
+		{
+			auto view = weak.lock();
+			LPWSTR uri = nullptr;
+
+			args->put_Handled( TRUE );
+			args->get_Uri( &uri );
+
+			if( view && Allowed( uri ))
+				view->Report( H9WV_NEWWINDOW, Narrow( uri ));
+			else if( view )
+				view->Report( H9WV_BLOCKED, Narrow( uri ));
+
+			CoTaskMemFree( uri );
+			return S_OK;
+		} ).Get(), &token );
+
+	wv->add_PermissionRequested( Callback<ICoreWebView2PermissionRequestedEventHandler>(
+		[]( ICoreWebView2 *, ICoreWebView2PermissionRequestedEventArgs *args ) -> HRESULT
+		{
+			args->put_State( COREWEBVIEW2_PERMISSION_STATE_DENY );
+			return S_OK;
+		} ).Get(), &token );
+
+	wv->add_ProcessFailed( Callback<ICoreWebView2ProcessFailedEventHandler>(
+		[weak]( ICoreWebView2 *, ICoreWebView2ProcessFailedEventArgs *args ) -> HRESULT
+		{
+			auto view = weak.lock();
+			COREWEBVIEW2_PROCESS_FAILED_KIND kind = COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
+
+			args->get_ProcessFailedKind( &kind );
+
+			if( view && ( kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED
+				|| kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED ))
+			{
+				view->Fail( "the page's browser process stopped" );
+			}
+
+			return S_OK;
+		} ).Get(), &token );
+
+	ComPtr<ICoreWebView2_4> w4;
+	if( SUCCEEDED( v->webview.As( &w4 )))
+	{
+		w4->add_DownloadStarting( Callback<ICoreWebView2DownloadStartingEventHandler>(
+			[]( ICoreWebView2 *, ICoreWebView2DownloadStartingEventArgs *args ) -> HRESULT
+			{
+				args->put_Cancel( TRUE );
+				args->put_Handled( TRUE );
+				return S_OK;
+			} ).Get(), &token );
+	}
+
+	ComPtr<ICoreWebView2_5> w5;
+	if( SUCCEEDED( v->webview.As( &w5 )))
+	{
+		w5->add_ClientCertificateRequested( Callback<ICoreWebView2ClientCertificateRequestedEventHandler>(
+			[]( ICoreWebView2 *, ICoreWebView2ClientCertificateRequestedEventArgs *args ) -> HRESULT
+			{
+				args->put_Cancel( TRUE );
+				args->put_Handled( TRUE );
+				return S_OK;
+			} ).Get(), &token );
+	}
+
+	ComPtr<ICoreWebView2_10> w10;
+	if( SUCCEEDED( v->webview.As( &w10 )))
+	{
+		w10->add_BasicAuthenticationRequested( Callback<ICoreWebView2BasicAuthenticationRequestedEventHandler>(
+			[]( ICoreWebView2 *, ICoreWebView2BasicAuthenticationRequestedEventArgs *args ) -> HRESULT
+			{
+				args->put_Cancel( TRUE );
+				return S_OK;
+			} ).Get(), &token );
+	}
+
+	ComPtr<ICoreWebView2_18> w18;
+	if( SUCCEEDED( v->webview.As( &w18 )))
+	{
+		w18->add_LaunchingExternalUriScheme( Callback<ICoreWebView2LaunchingExternalUriSchemeEventHandler>(
+			[]( ICoreWebView2 *, ICoreWebView2LaunchingExternalUriSchemeEventArgs *args ) -> HRESULT
+			{
+				args->put_Cancel( TRUE );
+				return S_OK;
+			} ).Get(), &token );
+	}
+
+	ComPtr<ICoreWebView2_27> w27;
+	if( SUCCEEDED( v->webview.As( &w27 )))
+	{
+		w27->add_ScreenCaptureStarting( Callback<ICoreWebView2ScreenCaptureStartingEventHandler>(
+			[]( ICoreWebView2 *, ICoreWebView2ScreenCaptureStartingEventArgs *args ) -> HRESULT
+			{
+				args->put_Cancel( TRUE );
+				return S_OK;
+			} ).Get(), &token );
+	}
+
+	// ESC in the page closes the splash; the page never sees it
+	v->controller->add_AcceleratorKeyPressed( Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
+		[weak]( ICoreWebView2Controller *, ICoreWebView2AcceleratorKeyPressedEventArgs *args ) -> HRESULT
+		{
+			COREWEBVIEW2_KEY_EVENT_KIND kind = COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP;
+			UINT key = 0;
+
+			args->get_KeyEventKind( &kind );
+			args->get_VirtualKey( &key );
+
+			if( key == VK_ESCAPE )
+			{
+				args->put_Handled( TRUE );
+
+				auto view = weak.lock();
+
+				if( view && ( kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN ))
+					view->Report( H9WV_ESCAPE, std::string());
+			}
+
+			return S_OK;
+		} ).Get(), &token );
+}
+
+void ControllerReady( const std::shared_ptr<View> &v, ICoreWebView2Controller *controller )
+{
+	v->controller = controller;
+	v->controller->put_IsVisible( FALSE );
+
+	if( FAILED( v->controller->get_CoreWebView2( &v->webview )) || !v->webview )
+	{
+		v->Fail( "WebView2 gave no page" );
+		return;
+	}
+
+	Settings( v->webview.Get());
+	Events( v );
+	v->Apply();
+
+	if( FAILED( v->webview->Navigate( v->url.c_str())))
+		v->Fail( "WebView2 refused the address" );
+}
+
+void EnvironmentReady( const std::shared_ptr<View> &v, ICoreWebView2Environment *env )
+{
+	ComPtr<ICoreWebView2Environment10> env10;
+	ComPtr<ICoreWebView2ControllerOptions> options;
+
+	v->env = env;
+
+	// a private session or none: the runtime must have the controller options for it
+	if( FAILED( v->env.As( &env10 )) || FAILED( env10->CreateCoreWebView2ControllerOptions( &options ))
+		|| FAILED( options->put_IsInPrivateModeEnabled( TRUE )))
+	{
+		v->Fail( "the WebView2 runtime is too old for a private session" );
+		return;
+	}
+
+	std::weak_ptr<View> weak = v;
+
+	HRESULT hr = env10->CreateCoreWebView2ControllerWithOptions( v->parent, options.Get(),
+		Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+		[weak]( HRESULT result, ICoreWebView2Controller *controller ) -> HRESULT
+		{
+			auto view = weak.lock();
+
+			if( !view || view->closed )
+			{
+				// closed while it was being made
+				if( controller )
+					controller->Close();
+				return S_OK;
+			}
+
+			if( FAILED( result ) || !controller )
+			{
+				view->Fail( "WebView2 could not make the view (0x" + HexResult( result ) + ")" );
+				return S_OK;
+			}
+
+			ControllerReady( view, controller );
+			return S_OK;
+		} ).Get());
+
+	if( FAILED( hr ))
+		v->Fail( "WebView2 could not start the view" );
+}
+
+} // namespace
+
+extern "C" H9WV_EXPORT int H9WV_ApiVersion( void )
+{
+	return H9WV_API_VERSION;
+}
+
+extern "C" H9WV_EXPORT int H9WV_Runtime( char *buf, int size )
+{
+	std::wstring folder = RuntimeFolder();
+	LPWSTR version = nullptr;
+
+	Copy( buf, size, std::string());
+
+	HRESULT hr = GetAvailableCoreWebView2BrowserVersionString( folder.empty() ? nullptr : folder.c_str(), &version );
+
+	if( FAILED( hr ) || !version )
+	{
+		CoTaskMemFree( version );
+		return 0;
+	}
+
+	Copy( buf, size, Narrow( version ) + ( folder.empty() ? "" : " (webview2\\runtime)" ));
+	CoTaskMemFree( version );
+	return 1;
+}
+
+extern "C" H9WV_EXPORT int H9WV_Wine( char *buf, int size )
+{
+	typedef const char *( __cdecl *wine_get_version_t )( void );
+	HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" );
+	wine_get_version_t get = ntdll ? ( wine_get_version_t )( void * )GetProcAddress( ntdll, "wine_get_version" ) : nullptr;
+
+	Copy( buf, size, std::string());
+
+	if( !get )
+		return 0;
+
+	const char *version = get();
+	Copy( buf, size, version ? std::string( version ) : std::string( "unknown" ));
+	return 1;
+}
+
+extern "C" H9WV_EXPORT void *H9WV_Open( void *parent, const char *url, int flags, h9wv_status_fn status, void *user, char *why, int whysize )
+{
+	Copy( why, whysize, std::string());
+
+	if( !parent || !IsWindow(( HWND )parent ) || !url || !status )
+	{
+		Copy( why, whysize, "no game window" );
+		return nullptr;
+	}
+
+	std::wstring wurl = Widen( url );
+
+	if( !Allowed( wurl.c_str()))
+	{
+		Copy( why, whysize, "the address is not one the view may open" );
+		return nullptr;
+	}
+
+	// WebView2 answers through this thread's message loop, which must be a single-threaded apartment
+	static bool com = false;
+
+	if( !com )
+	{
+		HRESULT hr = CoInitializeEx( nullptr, COINIT_APARTMENTTHREADED );
+
+		if( hr == RPC_E_CHANGED_MODE )
+		{
+			Copy( why, whysize, "the game's thread is not a single-threaded COM apartment" );
+			return nullptr;
+		}
+
+		if( FAILED( hr ))
+		{
+			Copy( why, whysize, "COM did not start (0x" + HexResult( hr ) + ")" );
+			return nullptr;
+		}
+
+		com = true; // kept for the life of the process
+	}
+
+	std::wstring runtime = RuntimeFolder();
+	std::wstring data = Beside( L"webview2\\data" );
+
+	if( data.empty())
+	{
+		Copy( why, whysize, "no folder for the browser's files" );
+		return nullptr;
+	}
+
+	CreateDirectoryW( Beside( L"webview2" ).c_str(), nullptr );
+
+	auto options = Make<CoreWebView2EnvironmentOptions>();
+
+	if( !options )
+	{
+		Copy( why, whysize, "out of memory" );
+		return nullptr;
+	}
+
+	if( !ProxyStart())
+	{
+		Copy( why, whysize, "the view's proxy could not start" );
+		return nullptr;
+	}
+
+	// every connection through the proxy, loopback's too; WebRTC's UDP only through it, which is never
+	std::wstring args = L"--proxy-server=http://127.0.0.1:" + std::to_wstring( g_port )
+		+ L" --proxy-bypass-list=<-loopback> --force-webrtc-ip-handling-policy=disable_non_proxied_udp";
+
+	if( flags & H9WV_NOSANDBOX )
+		args += L" --no-sandbox";
+
+	if( flags & H9WV_NOGPU )
+		args += L" --disable-gpu";
+
+	options->put_AdditionalBrowserArguments( args.c_str());
+
+	options->put_AllowSingleSignOnUsingOSPrimaryAccount( FALSE );
+	options->put_TargetCompatibleBrowserVersion( kTargetVersion );
+
+	ComPtr<ICoreWebView2EnvironmentOptions5> options5;
+	if( SUCCEEDED( options.As( &options5 )))
+		options5->put_EnableTrackingPrevention( TRUE );
+
+	if( flags & H9WV_WINEFIX )
+		WineVersionFix();
+
+	auto view = std::make_shared<View>();
+	view->parent = ( HWND )parent;
+	view->status = status;
+	view->user = user;
+	view->url = wurl;
+
+	std::weak_ptr<View> weak = view;
+
+	HRESULT hr = CreateCoreWebView2EnvironmentWithOptions( runtime.empty() ? nullptr : runtime.c_str(), data.c_str(), options.Get(),
+		Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+		[weak]( HRESULT result, ICoreWebView2Environment *env ) -> HRESULT
+		{
+			auto v = weak.lock();
+
+			if( !v || v->closed )
+				return S_OK;
+
+			if( FAILED( result ) || !env )
+			{
+				if( result == HRESULT_FROM_WIN32( ERROR_FILE_NOT_FOUND ))
+					v->Fail( "no WebView2 runtime" );
+				else v->Fail( "WebView2 did not start (0x" + HexResult( result ) + ")" );
+				return S_OK;
+			}
+
+			EnvironmentReady( v, env );
+			return S_OK;
+		} ).Get());
+
+	if( FAILED( hr ))
+	{
+		if( hr == HRESULT_FROM_WIN32( ERROR_FILE_NOT_FOUND ))
+			Copy( why, whysize, "no WebView2 runtime" );
+		else Copy( why, whysize, "WebView2 did not start (0x" + HexResult( hr ) + ")" );
+		return nullptr;
+	}
+
+	Handle *handle = new( std::nothrow ) Handle;
+
+	if( !handle )
+	{
+		view->closed = true;
+		Copy( why, whysize, "out of memory" );
+		return nullptr;
+	}
+
+	handle->view = view;
+	g_views++;
+	return handle;
+}
+
+extern "C" H9WV_EXPORT void H9WV_Place( void *handle, int x, int y, int w, int h, int render_w, int render_h, int visible )
+{
+	Handle *hd = ( Handle * )handle;
+
+	if( !hd || !hd->view )
+		return;
+
+	View *v = hd->view.get();
+	v->x = x;
+	v->y = y;
+	v->w = w;
+	v->h = h;
+	v->rw = render_w;
+	v->rh = render_h;
+	v->visible = visible != 0;
+	v->Apply();
+}
+
+extern "C" H9WV_EXPORT void H9WV_Close( void *handle )
+{
+	Handle *hd = ( Handle * )handle;
+
+	if( !hd )
+		return;
+
+	std::shared_ptr<View> v = hd->view;
+	delete hd;
+	g_views--;
+
+	if( !v )
+		return;
+
+	// the keyboard goes back to the game when the page had it
+	HWND focus = GetFocus();
+	if( focus && focus != v->parent && IsChild( v->parent, focus ))
+		SetFocus( v->parent );
+
+	v->closed = true;
+
+	if( v->controller )
+		v->controller->Close();
+
+	v->webview.Reset();
+	v->controller.Reset();
+	v->env.Reset();
+}

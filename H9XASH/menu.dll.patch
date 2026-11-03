@@ -14,6 +14,9 @@ The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.
 The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
 The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
 The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), mainui-h9-hover.patch (a sound, launch_move1.wav, when the pointer or the arrow keys move onto another item), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
+The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), mainui-h9-hover.patch (a sound, launch_move1.wav, when the pointer or the arrow keys move onto another item), mainui-h9-slots128.patch (Create Game takes up to 128 players, the engine's MAX_CLIENTS), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
+The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), mainui-h9-hover.patch (a sound, launch_move1.wav, when the pointer or the arrow keys move onto another item), mainui-h9-slots128.patch (Create Game takes up to 128 players, the engine's MAX_CLIENTS), mainui-h9-link.patch (Link your Account and Unlink account in the main menu, with the scoreboard's chain beside it, green and whole when linked, red and broken when not; not in the browser build), mainui-h9-default64.patch (Create Game's Max players starts at 64), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
+The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), mainui-h9-hover.patch (a sound, launch_move1.wav, when the pointer or the arrow keys move onto another item), mainui-h9-slots128.patch (Create Game takes up to 128 players, the engine's MAX_CLIENTS), mainui-h9-link.patch (Link your Account and Unlink your Account in the main menu, below Change Game, with the scoreboard's chain beside it, green and whole when linked, red and broken when not, its dialogs naming the site the engine talks to; not in the browser build), mainui-h9-default64.patch (Create Game's Max players starts at 64), mainui-h9-browser.patch (the server browser shows people and bots apart, 1/64 (+63 bots), counts a server with bots on it as not empty and its bots against its slots, and marks a server for havoc9.org accounts only with an account icon, gfx/shell/h9_account), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
 == Patch history ==
 Generated Wed 10/21/2026 23:42:19.26, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -172,6 +175,544 @@ In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f0878
 4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
 e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
 Diff sha256 73c81a03d7a23f2cff1723380e7b2688afb906481173822926d9aa7bd1e85c21, the diff below.
+
+Generated Sun 11/01/2026 20:02:59.06, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/CreateGame.cpp
+ M menus/PlayerSetup.cpp
+ M sdk_includes/common/xash3d_types.h
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Lines of the previous diff that this build replaced, kept here:
+new file mode 100644
+--- /dev/null
++++ b/3rdparty/mainui/menus/PlayerSetup.cpp.bak_sprayfix
++Copyright (C) 1997-2001 Id Software, Inc.
++This program is free software; you can redistribute it and/or
++modify it under the terms of the GNU General Public License
++as published by the Free Software Foundation; either version 2
++of the License, or (at your option) any later version.
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
++See the GNU General Public License for more details.
++You should have received a copy of the GNU General Public License
++along with this program; if not, write to the Free Software
++Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++#include "Framework.h"
++#include "Bitmap.h"
++#include "PicButton.h"
++#include "CheckBox.h"
++#include "Slider.h"
++#include "Field.h"
++#include "SpinControl.h"
++#include "YesNoMessageBox.h"
++#include "PlayerModelView.h"
++#include "StringVectorModel.h"
++#include "ColorPickerDialog.h"
++#define ART_BANNER		"gfx/shell/head_customize"
++class CMenuPlayerSetup : public CMenuFramework
++private:
++	void _Init() override;
++	void Reload() override;
++public:
++	CMenuPlayerSetup() : CMenuFramework( "CMenuPlayerSetup" ), msgBox( true ) { }
++	void SetConfig();
++	void UpdateModel();
++	void UpdateLogo();
++	void ApplyColorToImagePreview();
++	void ApplyColorToLogoPreview();
++	void WriteNewLogo();
++	void ShowColorPicker();
++	void OnColorPickerOk();
++	void SaveAndPopMenu() override;
++	class CModelListModel : public CStringVectorModel
++	public:
++		void Update() override;
++	} modelsModel;
++	class CLogosListModel : public CStringVectorModel
++	public:
++		void Update() override;
++		int GetFullPath( char *buf, size_t size, int pos )
++		{
++			const char *file, *ext;
++			file = Element( pos ).String();
++			ext = IsPng( pos ) ? "png" : "bmp";
++			return snprintf( buf, size, "logos/%s.%s", file, ext );
++		}
++		bool IsPng( int pos )
++		{
++			return m_isPngs[pos];
++		}
++	private:
++		CUtlVector<bool> m_isPngs;
++	} logosModel;
++	CMenuPlayerModelView	view;
++	CMenuCheckBox showModels;
++	CMenuCheckBox hiModels;
++	CMenuCheckBox voiceEnable;
++	CMenuSlider transmitVolume;
++	CMenuSlider receiveVolume;
++	CMenuAction noProprietaryCodecNotice;
++	CMenuSlider	topColor;
++	CMenuSlider	bottomColor;
++	CMenuField	name;
++	CMenuSpinControl	model;
++	class CMenuLogoPreview : public CMenuBaseItem
++	public:
++		virtual void Draw();
++		HIMAGE hImage;
++		const byte ( *stripes )[3];
++		int stripeCount;
++		bool colorable;
++		const bool *horizontal;
++	} logoImage;
++	CMenuSpinControl	logo;
++	CMenuPicButton		btnChooseColor;
++	CMenuColorPickerDialog	colorPickerDlg;
++	byte			m_stripes[MAX_LOGO_STRIPES][3];
++	int			m_stripeCount;
++	bool			m_horizontal;
++	bool			m_logoColorable;
++	void ParseLogoColorCvar();
++	void WriteLogoColorCvar();
++	CMenuYesNoMessageBox msgBox;
++	bool hideModels, hideLogos;
++};
++void CMenuPlayerSetup::CMenuLogoPreview::Draw()
++	if( !hImage )
++		// draw the background
++		UI_FillRect( m_scPos, m_scSize, uiPromptBgColor );
++		UI_DrawString( font, m_scPos, m_scSize, L( "No logo" ), colorBase, m_scChSize, QM_CENTER, ETF_SHADOW );
++	else if( !colorable || stripeCount <= 1 )
++		byte r = colorable ? stripes[0][0] : 255;
++		byte g = colorable ? stripes[0][1] : 255;
++		byte b = colorable ? stripes[0][2] : 255;
++		EngFuncs::PIC_Set( hImage, r, g, b );
++		EngFuncs::PIC_DrawTrans( m_scPos, m_scSize );
++	else
++		const Size img_sz = EngFuncs::PIC_Size( hImage );
++		const bool hz = horizontal && *horizontal;
++		const double tex_per_stripe = ( hz ? img_sz.w  : img_sz.h  ) / (double)stripeCount;
++		const double scr_per_stripe = ( hz ? m_scSize.w : m_scSize.h ) / (double)stripeCount;
++		for( int i = 0; i < stripeCount; i++ )
++		{
++			int scr_start = (int)( i * scr_per_stripe + 0.5 );
++			int scr_next  = (int)(( i + 1 ) * scr_per_stripe + 0.5 );
++			int tex_start = (int)( i * tex_per_stripe + 0.5 );
++			int tex_next  = (int)(( i + 1 ) * tex_per_stripe + 0.5 );
++			wrect_t rc = {};
++			if( hz )
++			{
++				rc.left   = tex_start;
++				rc.right  = tex_next;
++				rc.bottom = img_sz.h;
++			}
++			else
++			{
++				rc.right  = img_sz.w;
++				rc.top    = tex_start;
++				rc.bottom = tex_next;
++			}
++			Point ui_pt = hz ? Point( m_scPos.x + scr_start, m_scPos.y ) : Point( m_scPos.x, m_scPos.y + scr_start );
++			Size  ui_sz = hz ? Size( scr_next - scr_start, m_scSize.h ) : Size( m_scSize.w, scr_next - scr_start );
++			EngFuncs::PIC_Set( hImage, stripes[i][0], stripes[i][1], stripes[i][2] );
++			EngFuncs::PIC_DrawTrans( ui_pt, ui_sz, &rc );
++		}
++	int textHeight = m_scPos.y - (m_scChSize * 1.5f);
++	uint textflags = ( iFlags & QMF_DROPSHADOW ) ? ETF_SHADOW : 0;
++	UI_DrawString( font, m_scPos.x, textHeight, m_scSize.w, m_scChSize, szName, uiColorHelp, m_scChSize, QM_LEFT, textflags | ETF_FORCECOL | ETF_NOSIZELIMIT );
++	// draw the rectangle
++	if( eFocusAnimation == QM_HIGHLIGHTIFFOCUS && IsCurrentSelected() )
++		UI_DrawRectangle( m_scPos, m_scSize, uiInputTextColor );
++	else
++		UI_DrawRectangle( m_scPos, m_scSize, uiInputFgColor );
++UI_PlayerSetup_FindModels
++void CMenuPlayerSetup::CModelListModel::Update( void )
++	char	**filenames;
++	int numFiles, i;
++	RemoveAll();
++	// Get file list
++	// search in basedir too, because that's how GoldSrc does this
++	filenames = EngFuncs::GetFilesList(  "models/player/*", &numFiles, false );
++	// build the model list
++	for( i = 0; i < numFiles; i++ )
++		char name[128], path[512];
++		COM_FileBase( filenames[i], name, sizeof( name ));
++		// check if the path is a valid model
++		snprintf( path, sizeof( path ), "models/player/%s/%s.mdl", name, name );
++		if( !EngFuncs::FileExists( path ))
++			continue;
++		AddToTail( name );
++CMenuPlayerSetup::FindLogos
++void CMenuPlayerSetup::CLogosListModel::Update( )
++	char	**filenames;
++	int numFiles, i;
++	m_isPngs.RemoveAll();
++	RemoveAll();
++	// Get file list
++	filenames = EngFuncs::GetFilesList( "logos/*.*", &numFiles, false );
++	// build the model list
++	for( i = 0; i < numFiles; i++ )
++		CUtlString logoFileName = filenames[i];
++		char temp[256];
++		bool png = logoFileName.BEndsWithCaseless( ".png" );
++		if( png || logoFileName.BEndsWithCaseless( ".bmp" ))
++		{
++			COM_FileBase( logoFileName.String(), temp, sizeof( temp ));
++			if( !stricmp( temp, "remapped" ))
++				continue;
++			AddToTail( temp );
++			m_isPngs.AddToTail( png );
++		}
++UI_PlayerSetup_SetConfig
++void CMenuPlayerSetup::SetConfig( void )
++	name.WriteCvar();
++	model.WriteCvar();
++	topColor.WriteCvar();
++	bottomColor.WriteCvar();
++	hiModels.WriteCvar();
++	showModels.WriteCvar();
++	WriteNewLogo();
++void CMenuPlayerSetup::SaveAndPopMenu()
++	if( !UI::Names::CheckIsNameValid( name.GetBuffer() ) )
++		msgBox.Show();
++	SetConfig();
++	CMenuFramework::SaveAndPopMenu();
++void CMenuPlayerSetup::UpdateModel()
++	char image[256];
++	const char *mdl = model.GetCurrentString();
++	// seems we DON'T have this model locally
++	// just force display string and do nothing
++	if( !mdl )
++		model.ForceDisplayString( EngFuncs::GetCvarString( "model" ));
++	snprintf( image, sizeof( image ), "models/player/%s/%s.bmp", mdl, mdl );
++	view.hPlayerImage = EngFuncs::PIC_Load( image, PIC_KEEP_SOURCE );
++	ApplyColorToImagePreview();
++	EngFuncs::CvarSetString( "model", mdl );
++	if( !strcmp( mdl, "player" ))
++		strcpy( image, "models/player.mdl" );
++	else
++		snprintf( image, sizeof( image ), "models/player/%s/%s.mdl", mdl, mdl );
++	if( view.ent )
++		EngFuncs::SetModel( view.ent, image );
++void CMenuPlayerSetup::UpdateLogo()
++	const int pos = logo.GetCurrentValue();
++	bool colorable = false;
++	if( pos < 0 )
++		logoImage.hImage = 0;
++	else
++		char filename[1024];
++		const int temp = logosModel.GetFullPath( filename, sizeof( filename ), pos );
++		if(( temp < 0 ) || ( temp > sizeof( filename )))
++		{
++			logoImage.hImage = 0;
++		}
++		else
++		{
++			logoImage.hImage = EngFuncs::PIC_Load( filename, 0 );
++			if( !logosModel.IsPng( pos ))
++			{
++				CBMP *bmpFile = CBMP::LoadFile( filename );
++				if( bmpFile->GetBitmapHdr()->bitsPerPixel == 8 )
++					colorable = true;
++				delete bmpFile;
++			}
++		}
++	m_logoColorable    = colorable;
++	logoImage.colorable    = m_logoColorable;
++	logoImage.stripes      = m_stripes;
++	logoImage.stripeCount  = m_stripeCount;
++	logoImage.horizontal   = &m_horizontal;
++	btnChooseColor.SetGrayed( !m_logoColorable );
++void CMenuPlayerSetup::ShowColorPicker()
++	if( !m_logoColorable )
++	colorPickerDlg.Show( m_stripes, m_stripeCount, m_horizontal, logoImage.hImage );
++void CMenuPlayerSetup::OnColorPickerOk()
++	colorPickerDlg.GetStripes( m_stripes, m_stripeCount, m_horizontal );
++	EngFuncs::CvarSetValue( "ui_logohorizontal", m_horizontal ? 1.f : 0.f );
++	ApplyColorToLogoPreview();
++void CMenuPlayerSetup::ApplyColorToImagePreview()
++	EngFuncs::ProcessImage( view.hPlayerImage, -1,
++		topColor.GetCurrentValue(), bottomColor.GetCurrentValue() );
++void CMenuPlayerSetup::ApplyColorToLogoPreview()
++	logoImage.colorable = m_logoColorable;
++	logoImage.stripes = m_stripes;
++	logoImage.stripeCount = m_stripeCount;
++	logoImage.horizontal = &m_horizontal;
++void CMenuPlayerSetup::ParseLogoColorCvar()
++	m_stripeCount = 1;
++	m_stripes[0][0] = m_stripes[0][1] = m_stripes[0][2] = 255;
++	const char *logoColor = EngFuncs::GetCvarString( "cl_logocolor" );
++	if( !logoColor || !*logoColor )
++	int parsed = 0;
++	const char *p = logoColor;
++	while( parsed < MAX_LOGO_STRIPES )
++		int r, g, b, n = 0;
++		while( *p == ' ' || *p == '\t' || *p == ',' )
++			p++;
++		if( !*p )
++			break;
++		if( sscanf( p, "%d %d %d%n", &r, &g, &b, &n ) != 3 || n <= 0 )
++			break;
++		m_stripes[parsed][0] = (byte)Q_max( 0, Q_min( 255, r ));
++		m_stripes[parsed][1] = (byte)Q_max( 0, Q_min( 255, g ));
++		m_stripes[parsed][2] = (byte)Q_max( 0, Q_min( 255, b ));
++		parsed++;
++		p += n;
++	if( parsed > 0 )
++		m_stripeCount = parsed;
++void CMenuPlayerSetup::WriteLogoColorCvar()
++	CUtlString s;
++	for( int i = 0; i < m_stripeCount; i++ )
++		if( i > 0 )
++			s += " ";
++		CUtlString triple;
++		triple.Format( "%d %d %d", m_stripes[i][0], m_stripes[i][1], m_stripes[i][2] );
++		s += triple;
++	EngFuncs::CvarSetString( "cl_logocolor", s.String() );
++void CMenuPlayerSetup::WriteNewLogo( void )
++	char filename[1024];
++	int pos = logo.GetCurrentValue();
++	if( pos < 0 || hideLogos )
++	EngFuncs::DeleteFile( "logos/remapped.png" );
++	EngFuncs::DeleteFile( "logos/remapped.bmp" );
++	logosModel.GetFullPath( filename, sizeof( filename ), pos );
++	// TODO: check file size and throw a messagebox if it's too big?
++	if( logosModel.IsPng( pos ))
++		int len;
++		void *afile = EngFuncs::COM_LoadFile( filename, &len );
++		// just copy file, nothing special
++		EngFuncs::COM_SaveFile( "logos/remapped.png", afile, len );
++		EngFuncs::COM_FreeFile( afile );
++		EngFuncs::CvarSetString( "cl_logoext", "png" );
++	else
++		CBMP *bmpFile = CBMP::LoadFile( filename );
++		// not valid logo BMP file
++		if( !bmpFile )
++			return;
++		// remap logo if needed
++		if( m_logoColorable )
++			bmpFile->RemapLogo( m_stripeCount, &m_stripes[0][0], m_horizontal );
++		bmpFile->Save( "logos/remapped.bmp" );
++		EngFuncs::CvarSetString( "cl_logoext", "bmp" );
++		delete bmpFile;
++	if( m_logoColorable )
++		WriteLogoColorCvar();
++	logo.WriteCvar();
++	EngFuncs::CvarSetValue( "@cl_logoupdate", !EngFuncs::GetCvarFloat( "@cl_logoupdate" ));
++UI_PlayerSetup_Init
++void CMenuPlayerSetup::_Init( void )
++	int addFlags = 0;
++	hideModels = hideLogos = false;
++	ParseLogoColorCvar();
++	m_horizontal = EngFuncs::GetCvarFloat( "ui_logohorizontal" ) != 0.f;
++	m_logoColorable = false;
++	logoImage.stripes = m_stripes;
++	logoImage.stripeCount = m_stripeCount;
++	logoImage.horizontal = &m_horizontal;
++	logoImage.colorable = false;
++	// disable playermodel preview for HLRally to prevent crash
++	if( !stricmp( gMenu.m_gameinfo.gamefolder, "hlrally" ))
++		hideModels = true;
++	if( gMenu.m_gameinfo.flags & GFL_NOMODELS )
++		addFlags |= QMF_INACTIVE;
++	banner.SetPicture(ART_BANNER);
++	name.szName = L( "GameUI_PlayerName" );
++	name.iMaxLength = 32;
++	name.LinkCvar( "name" );
++	name.SetRect( 360, 270, 300, 36 );
++	view.iFlags |= addFlags;
++	view.SetRect( 700, 270, 260, 300 );
++	modelsModel.Update();
++	if( !modelsModel.GetRows( ))
++		model.SetVisibility( false );
++		hideModels = true;
++	else
++		model.Setup( &modelsModel );
++		model.LinkCvar( "model", CMenuEditable::CVAR_STRING );
++		model.onChanged = VoidCb( &CMenuPlayerSetup::UpdateModel );
++		model.SetRect( 700, 570 + UI_OUTLINE_WIDTH, 260, 32 );
++	topColor.iFlags |= addFlags;
++	topColor.szName = L( "Colors" );
++	topColor.Setup( 0, 255, 1 );
++	topColor.LinkCvar( "topcolor" );
++	topColor.onCvarChange = CMenuEditable::WriteCvarCb;
++	topColor.onChanged = VoidCb( &CMenuPlayerSetup::ApplyColorToImagePreview );
++	topColor.SetCoord( 700, 660 );
++	topColor.size.w = 260;
++	bottomColor.iFlags |= addFlags;
++	bottomColor.Setup( 0, 255, 1 );
++	bottomColor.LinkCvar( "bottomcolor" );
++	bottomColor.onCvarChange = CMenuEditable::WriteCvarCb;
++	bottomColor.onChanged = VoidCb( &CMenuPlayerSetup::ApplyColorToImagePreview );;
++	bottomColor.SetCoord( 700, 700 );
++	bottomColor.size.w = 260;
++	msgBox.SetMessage( L( "Please, choose another player name" ) );
++	msgBox.Link( this );
++	AddItem( banner );
++	AddButton( L( "Done" ), nullptr, PC_DONE, VoidCb( &CMenuPlayerSetup::SaveAndPopMenu ) );
++	CMenuPicButton *gameOpt = AddButton( L( "Game options" ), nullptr, PC_GAME_OPTIONS );
++	SET_EVENT_MULTI( gameOpt->onReleased,
++		((CMenuPlayerSetup*)pSelf->Parent())->SetConfig();
++		UI_AdvUserOptions_Menu();
++	});
++	AddButton( L( "Adv. Options" ), nullptr, PC_ADV_OPT, UI_GameOptions_Menu );
++	gameOpt->SetGrayed( !UI_AdvUserOptions_IsAvailable() );
++	showModels.iFlags |= addFlags;
++	showModels.szName = L( "Show 3D preview" );
++	showModels.onCvarChange = CMenuEditable::WriteCvarCb;
++	showModels.LinkCvar( "ui_showmodels" );
++	showModels.SetCoord( 77, 230 + m_iBtnsNum * 50 + 10 );
++	hiModels.iFlags |= addFlags;
++	hiModels.szName = L( "GameUI_HighModels" );
++	hiModels.onCvarChange = CMenuEditable::WriteCvarCb;
++	hiModels.LinkCvar( "cl_himodels" );
++	hiModels.SetCoord( 77, showModels.pos.y + 50 );
++	voiceEnable.szName = L( "GameUI_EnableVoice" );
++	voiceEnable.onCvarChange = CMenuEditable::WriteCvarCb;
++	voiceEnable.LinkCvar( "voice_modenable" ); // unlike engine's voice_enable, this is synchronized with server
++	voiceEnable.SetCoord( 77, hiModels.pos.y + 50 );
++	transmitVolume.szName = L( "GameUI_VoiceTransmitVolume" );
++	transmitVolume.onCvarChange = CMenuEditable::WriteCvarCb;
++	transmitVolume.Setup( 0, 1, 0.05f );
++	transmitVolume.LinkCvar( "voice_transmit_scale" );
++	transmitVolume.SetCoord( 77, voiceEnable.pos.y + 100 );
++	transmitVolume.size.w = 300;
++	receiveVolume.szName = L( "GameUI_VoiceReceiveVolume" );
++	receiveVolume.onCvarChange = CMenuEditable::WriteCvarCb;
++	receiveVolume.Setup( 0, 1, 0.05f );
++	receiveVolume.LinkCvar( "voice_scale" );
++	receiveVolume.SetCoord( 77, transmitVolume.pos.y + 50 );
++	receiveVolume.size.w = 300;
++	noProprietaryCodecNotice.szName = L( "* Uses Opus Codec.\nOpen, royalty-free, highly versatile audio codec." );
++	noProprietaryCodecNotice.colorBase = uiColorHelp;
++	noProprietaryCodecNotice.SetCharSize( QM_SMALLFONT );
++	noProprietaryCodecNotice.SetRect( 77, receiveVolume.pos.y + 30, 400, 100 );
++	if( !hideLogos )
++		logosModel.Update();
++		if( !logosModel.GetRows() )
++		{
++			// don't add to framework
++			hideLogos = true;
++		}
++		else
++		{
++		logoImage.szName = L( "GameUI_SpraypaintImage" );
++		logoImage.SetRect( 460, 370, 200, 200 );
++		logo.Setup( &logosModel );
++		logo.LinkCvar( "cl_logofile", CMenuEditable::CVAR_STRING );
++		logo.onChanged = VoidCb( &CMenuPlayerSetup::UpdateLogo );
++		logo.SetRect( 460, logoImage.pos.y + logoImage.size.h + UI_OUTLINE_WIDTH, 200, 32 );
++		btnChooseColor.szName = L( "Choose logo color" );
++		btnChooseColor.SetRect( 460, logo.pos.y + logo.size.h + UI_OUTLINE_WIDTH, 200, 32 );
++		btnChooseColor.onReleased = VoidCb( &CMenuPlayerSetup::ShowColorPicker );
++		colorPickerDlg.Link( this );
++		colorPickerDlg.onOk = VoidCb( &CMenuPlayerSetup::OnColorPickerOk );
++	AddItem( name );
++	AddItem( voiceEnable );
++	AddItem( transmitVolume );
++	AddItem( receiveVolume );
++	AddItem( noProprietaryCodecNotice );
++	if( !hideLogos )
++		UpdateLogo();
++		AddItem( logo );
++		AddItem( btnChooseColor );
++		AddItem( logoImage );
++	if( !(gMenu.m_gameinfo.flags & GFL_NOMODELS) )
++		AddItem( topColor );
++		AddItem( bottomColor );
++		AddItem( showModels );
++		AddItem( hiModels );
++		AddItem( model );
++		// disable playermodel preview for HLRally to prevent crash
++		if( !hideModels )
++		{
++			AddItem( view );
++		}
++void CMenuPlayerSetup::Reload()
++	if( !hideLogos )
++		ParseLogoColorCvar();
++		m_horizontal = EngFuncs::GetCvarFloat( "ui_logohorizontal" ) != 0.f;
++		UpdateLogo();
++	if( !hideModels ) UpdateModel();
++ADD_MENU( menu_playersetup, CMenuPlayerSetup, UI_PlayerSetup_Menu );
+Diff sha256 86e2c1bf85815b99000efb7a9b6276c18a981e0a50e54f145b4d91b851434776, the diff below.
+
+Generated Mon 11/02/2026 12:04:50.47, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/CreateGame.cpp
+ M menus/Main.cpp
+ M menus/PlayerSetup.cpp
+ M sdk_includes/common/xash3d_types.h
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Lines of the previous diff that this build replaced, kept here:
++			self->SetBuffer( "32" );
+Diff sha256 c65d551468b60286c3cff32321247c72d4b8e5b12b2b572d0d48a5c8b8f9d8fc, the diff below.
+
+Generated Mon 11/02/2026 16:17:45.74, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/CreateGame.cpp
+ M menus/Main.cpp
+ M menus/PlayerSetup.cpp
+ M menus/ServerBrowser.cpp
+ M sdk_includes/common/xash3d_types.h
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Lines of the previous diff that this build replaced, kept here:
++H9: Link your Account / Unlink account
++runs h9_unlink. It stands above the console button's place at the top of the column, or in that
++place while the console button is hidden. Everything it shows comes from the engine's cvars: no
++network call.
++			snprintf( m_message, sizeof( m_message ), "%s\n\n%s   %s\n\n%s\n%s\n\n%s",
++				L( "LINK THIS GAME TO YOUR HAVOC9.ORG ACCOUNT" ), L( "Your code:" ), EngFuncs::GetCvarString( "_h9link_code" ),
++				L( "OPEN PAGE opens havoc9.org/link in your web browser. Sign in there," ),
++			snprintf( m_message, sizeof( m_message ), "%s\n\n%s", L( "LINK THIS GAME TO YOUR HAVOC9.ORG ACCOUNT" ), text );
++			snprintf( m_message, sizeof( m_message ), "%s\n\n%s", L( "LINK THIS GAME TO YOUR HAVOC9.ORG ACCOUNT" ),
++				flow == 1 && text[0] ? text : L( "Asking havoc9.org for a code..." ));
++	CMenuPicButton *place = nullptr; // the console button: this one stands above its place
++					SetNameAndStatus( L( "Unlink account" ), L( "This game is linked to your havoc9.org account: unlink it" ));
++				else SetNameAndStatus( L( "Link your Account" ), L( "Link this game to your havoc9.org account: no id to type" ));
++		if( state >= 0 && place )
++			const int ygap = (( 404 - 373 ) / 480.0 ) * 768.0;
++			const int y = place->IsVisible() ? place->pos.y - ygap : place->pos.y;
++			if( pos.x != place->pos.x || pos.y != y )
++				SetCoord( place->pos.x, y );
++				CalcPosition();
++				CalcSizes();
++	// H9: Link your Account / Unlink account, and its dialog
++	snprintf( question, sizeof( question ), "%s %s?\n\n%s",
++		L( "Unlink this game from havoc9.org account" ), EngFuncs::GetCvarString( "_h9link_account" ),
++		L( "It gets a new id, and plays as a guest until you link it again." ));
++	// H9: Link your Account / Unlink account (CMenuH9LinkButton above); hidden until the engine says
++	h9link.SetNameAndStatus( L( "Link your Account" ), L( "Link this game to your havoc9.org account: no id to type" ));
++	h9link.place = &console;
+Diff sha256 96e697b7220992a5e6553c5fa1be5ad8b7ab28aa2ef4ed55834f647a919188e8, the diff below.
 
 diff --git a/3rdparty/mainui/BaseMenu.cpp b/3rdparty/mainui/BaseMenu.cpp
 index 7b727eb..a070408 100755
@@ -508,7 +1049,7 @@ index 36326cf..748aaf1 100644
  	{
  		return textfuncs.pfnGetRenderers( num, sz1, s1, sz2, s2 ) != 0;
 diff --git a/3rdparty/mainui/menus/CreateGame.cpp b/3rdparty/mainui/menus/CreateGame.cpp
-index 00deec5..1b467f3 100644
+index 00deec5..a1e5623 100644
 --- a/3rdparty/mainui/menus/CreateGame.cpp
 +++ b/3rdparty/mainui/menus/CreateGame.cpp
 @@ -267,7 +267,7 @@ void CMenuCreateGame::_Init( void )
@@ -516,15 +1057,298 @@ index 00deec5..1b467f3 100644
  		int players = atoi( buf );
  		if( players <= 1 )
 -			self->SetBuffer( "16" );
-+			self->SetBuffer( "32" );
++			self->SetBuffer( "64" );
  		else if( players > MAX_CLIENTS )
  			self->SetBuffer( MAX_CLIENTS_STRING() );
  	});
 diff --git a/3rdparty/mainui/menus/Main.cpp b/3rdparty/mainui/menus/Main.cpp
-index 4d1a382..5c4b5ab 100644
+index 4d1a382..6abf7bd 100644
 --- a/3rdparty/mainui/menus/Main.cpp
 +++ b/3rdparty/mainui/menus/Main.cpp
-@@ -322,11 +322,15 @@ void CMenuMain::VidInit( bool connected )
+@@ -38,6 +38,181 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ #define ART_CLOSEBTN_F	"gfx/shell/cls_f"
+ #define ART_CLOSEBTN_D	"gfx/shell/cls_d"
+ 
++#if !defined( __EMSCRIPTEN__ )
++/*
++=================
++H9: Link your Account / Unlink your Account
++
++The engine keeps this game's id and its link to a havoc9.org account (cl_h9link.c,
++engine-h9-link.patch): _h9lnk is "1" while the game is linked and "0" while it is not, and an
++engine without it has no _h9lnk, so the button stays hidden. Beside the text is the scoreboard's
++chain: gfx/vgui/h9_link.tga, green and whole, when linked; gfx/vgui/h9_unlink.tga, red and broken,
++when not. Not linked, the button opens the link dialog, which runs h9_link; linked, it asks, then
++runs h9_unlink. It stands in the column directly below Change Game, above Quit
++(CMenuMain::H9LinkPlace). The dialogs name the site the engine talks to, _h9link_site: havoc9.org,
++or the local test site cl_h9_site names. Everything shown comes from the engine's cvars: no network
++call.
++=================
++*/
++class CMenuH9LinkDialog : public CMenuYesNoMessageBox
++{
++public:
++	CMenuH9LinkDialog() : CMenuYesNoMessageBox( false ) { bAutoHide = false; }
++
++	void Open()
++	{
++		EngFuncs::ClientCmd( false, "h9_link\n" );
++		Show();
++	}
++
++	void Draw() override
++	{
++		Refresh();
++		CMenuYesNoMessageBox::Draw();
++	}
++
++private:
++	void _Init() override
++	{
++		SetPositiveButton( L( "OPEN PAGE" ), PC_OK, 40 );
++		SetNegativeButton( L( "GameUI_Cancel" ), PC_CANCEL );
++		onPositive.pExtra = onNegative.pExtra = this;
++		SET_EVENT_MULTI( onPositive, { ((CMenuH9LinkDialog *)pExtra)->Positive(); });
++		SET_EVENT_MULTI( onNegative, { ((CMenuH9LinkDialog *)pExtra)->Negative(); });
++		CMenuYesNoMessageBox::_Init();
++	}
++
++	// _h9link_flow: 0 nothing yet, 1 asking for a code, 2 waiting for its approval, 3 linked, 4 failed
++	void Refresh()
++	{
++		const int flow = (int)EngFuncs::GetCvarFloat( "_h9link_flow" );
++		const char *text = EngFuncs::GetCvarString( "_h9link_text" );
++		const char *site = EngFuncs::GetCvarString( "_h9link_site" );
++		char title[96];
++
++		snprintf( title, sizeof( title ), "%s %s", L( "LINK THIS GAME TO YOUR ACCOUNT ON" ), site );
++		switch( flow )
++		{
++		case 2:
++			snprintf( m_message, sizeof( m_message ), "%s\n\n%s   %s\n\n%s %s/link %s\n%s\n\n%s",
++				title, L( "Your code:" ), EngFuncs::GetCvarString( "_h9link_code" ),
++				L( "OPEN PAGE opens" ), site, L( "in your web browser. Sign in there," ),
++				L( "check that it shows this code, and press LINK." ), text );
++			yes.szName = L( "OPEN PAGE" );
++			no.szName = L( "GameUI_Cancel" );
++			no.Show();
++			break;
++		case 3:
++			snprintf( m_message, sizeof( m_message ), "%s\n\n%s", L( "LINKED" ), text );
++			yes.szName = L( "GameUI_OK" );
++			no.Hide();
++			break;
++		case 4:
++			snprintf( m_message, sizeof( m_message ), "%s\n\n%s", title, text );
++			yes.szName = L( "TRY AGAIN" );
++			no.szName = L( "Close" );
++			no.Show();
++			break;
++		default:
++			if( flow == 1 && text[0] )
++				snprintf( m_message, sizeof( m_message ), "%s\n\n%s", title, text );
++			else snprintf( m_message, sizeof( m_message ), "%s\n\n%s %s %s", title, L( "Asking" ), site, L( "for a code..." ));
++			yes.szName = L( "OPEN PAGE" );
++			no.szName = L( "GameUI_Cancel" );
++			no.Show();
++			break;
++		}
++		SetMessage( m_message );
++	}
++
++	void Positive()
++	{
++		switch( (int)EngFuncs::GetCvarFloat( "_h9link_flow" ))
++		{
++		case 1:
++			break; // still asking
++		case 2:
++			EngFuncs::ClientCmd( false, "h9_link open\n" );
++			break;
++		case 4:
++			EngFuncs::ClientCmd( false, "h9_link\n" );
++			break;
++		default:
++			Hide();
++			break;
++		}
++	}
++
++	void Negative()
++	{
++		const int flow = (int)EngFuncs::GetCvarFloat( "_h9link_flow" );
++
++		if( flow == 1 || flow == 2 )
++			EngFuncs::ClientCmd( false, "h9_link cancel\n" );
++		Hide();
++	}
++
++	char m_message[512];
++};
++
++class CMenuH9LinkButton : public CMenuPicButton
++{
++public:
++	void Think() override
++	{
++		const char *lnk = EngFuncs::GetCvarString( "_h9lnk" );
++		const int state = !lnk || !lnk[0] ? -1 : ( lnk[0] == '1' ? 1 : 0 );
++
++		if( state != m_state )
++		{
++			m_state = state;
++			if( state < 0 )
++				Hide();
++			else
++			{
++				if( state )
++					SetNameAndStatus( L( "Unlink your Account" ), L( "This game is linked to your havoc9.org account" ));
++				else SetNameAndStatus( L( "Link your Account" ), L( "Link this game to your havoc9.org account" ));
++				Show();
++			}
++		}
++
++		CMenuPicButton::Think();
++	}
++
++	void Draw() override
++	{
++		CMenuPicButton::Draw();
++
++		if( !m_looked )
++		{
++			m_looked = true;
++			m_picLinked = EngFuncs::PIC_Load( "gfx/vgui/h9_link.tga" );
++			m_picUnlinked = EngFuncs::PIC_Load( "gfx/vgui/h9_unlink.tga" );
++		}
++
++		const HIMAGE pic = m_state == 1 ? m_picLinked : m_picUnlinked;
++
++		if( !pic || !szName )
++			return;
++
++		// the chain, as tall as the text, right after it
++		const int side = m_scChSize;
++		const int x = m_scPos.x + g_FontMgr->GetTextWideScaled( font, szName, m_scChSize ) + side / 3;
++		const int y = m_scPos.y + ( m_scSize.h - side ) / 2;
++
++		EngFuncs::PIC_Set( pic, 255, 255, 255, FBitSet( iFlags, QMF_GRAYED ) ? 128 : 255 );
++		EngFuncs::PIC_DrawTrans( x, y, side, side );
++	}
++
++private:
++	int m_state = -2; // -1 hidden (an engine without the link), 0 not linked, 1 linked
++	bool m_looked = false;
++	HIMAGE m_picLinked = 0;
++	HIMAGE m_picUnlinked = 0;
++};
++#endif // !__EMSCRIPTEN__
++
+ class CMenuMain: public CMenuFramework
+ {
+ public:
+@@ -58,6 +233,10 @@ private:
+ 	void DisconnectDialogCb();
+ 	void HazardCourseDialogCb();
+ 	void HazardCourseCb();
++#if !defined( __EMSCRIPTEN__ )
++	void H9LinkCb();
++	void H9LinkPlace();
++#endif
+ 
+ 	CMenuAnimatedBanner animatedBanner;
+ 	CMenuMovieBanner movieBanner;
+@@ -81,6 +260,12 @@ private:
+ 	// quit dialog
+ 	CMenuYesNoMessageBox dialog;
+ 
++#if !defined( __EMSCRIPTEN__ )
++	// H9: Link your Account / Unlink your Account, and its dialog
++	CMenuH9LinkButton h9link;
++	CMenuH9LinkDialog h9linkDialog;
++#endif
++
+ 	bool bTrainMap;
+ 	bool bCustomGame;
+ };
+@@ -100,6 +285,9 @@ void CMenuMain::DisconnectCb()
+ {
+ 	EngFuncs::ClientCmd( false, "disconnect\n" );
+ 	VidInit( false );
++#if !defined( __EMSCRIPTEN__ )
++	H9LinkPlace();
++#endif
+ 	CalcPosition();
+ 	CalcSizes();
+ 	VidInitItems();
+@@ -119,6 +307,48 @@ void CMenuMain::HazardCourseDialogCb()
+ 	dialog.Show();
+ }
+ 
++#if !defined( __EMSCRIPTEN__ )
++// H9: not linked, the link dialog; linked, the question first
++void CMenuMain::H9LinkCb()
++{
++	static char question[256];
++
++	if( EngFuncs::GetCvarString( "_h9lnk" )[0] != '1' )
++	{
++		h9linkDialog.Open();
++		return;
++	}
++
++	snprintf( question, sizeof( question ), "%s %s %s %s?\n\n%s",
++		L( "Unlink this game from account" ), EngFuncs::GetCvarString( "_h9link_account" ), L( "on" ),
++		EngFuncs::GetCvarString( "_h9link_site" ), L( "It gets a new id, and plays as a guest until you link it again." ));
++	dialog.onPositive.SetCommand( false, "h9_unlink\n" );
++	dialog.SetMessage( question );
++	dialog.Show();
++}
++
++// H9: the column, as VidInit lays it out, makes room for Link your Account in the row above Quit,
++// directly below Change Game: every button above that row moves up one. An engine without the
++// link (no _h9lnk) keeps the column as it is. Buttons this menu does not show keep their places.
++void CMenuMain::H9LinkPlace()
++{
++	const int ygap = (( 404 - 373 ) / 480.0 ) * 768.0;
++	CMenuBaseItem *column[] = { &console, &resumeGame, &disconnect, &newGame, &configuration, &saveRestore, &multiPlayer, &previews,
++		bTrainMap ? &hazardCourse : NULL, bCustomGame ? &customGame : NULL };
++
++	if( !EngFuncs::GetCvarString( "_h9lnk" )[0] )
++		return;
++
++	for( CMenuBaseItem *item : column )
++	{
++		// the console button is placed whether it shows or not: developer shows it later
++		if( item && ( item->IsVisible() || item == &console ) && item->pos.y < quit.pos.y )
++			item->pos.y -= ygap;
++	}
++	h9link.SetCoord( quit.pos.x, quit.pos.y - ygap );
++}
++#endif
++
+ /*
+ =================
+ CMenuMain::Key
+@@ -301,6 +531,17 @@ void CMenuMain::_Init( void )
+ 	AddItem( quit );
+ 	AddItem( minimizeBtn );
+ 	AddItem( quitButton );
++
++#if !defined( __EMSCRIPTEN__ )
++	// H9: Link your Account / Unlink your Account (CMenuH9LinkButton above); hidden until the engine
++	// says, placed by H9LinkPlace
++	h9link.SetNameAndStatus( L( "Link your Account" ), L( "Link this game to your havoc9.org account" ));
++	h9link.iFlags |= QMF_NOTIFY;
++	h9link.onReleased = VoidCb( &CMenuMain::H9LinkCb );
++	h9link.Hide();
++	h9linkDialog.Link( this );
++	AddItem( h9link );
++#endif
+ }
+ 
+ /*
+@@ -322,11 +563,15 @@ void CMenuMain::VidInit( bool connected )
  	minimizeBtn.SetRect( uiStatic.width - 72, 13, 32, 32 );
  	quitButton.SetRect( uiStatic.width - 36, 13, 32, 32 );
  
@@ -541,7 +1365,7 @@ index 4d1a382..5c4b5ab 100644
  
  	if( bCustomGame )
  	{
-@@ -339,8 +343,11 @@ void CMenuMain::VidInit( bool connected )
+@@ -339,8 +584,11 @@ void CMenuMain::VidInit( bool connected )
  
  	bool single = gpGlobals->maxClients < 2;
  
@@ -555,7 +1379,7 @@ index 4d1a382..5c4b5ab 100644
  
  	configuration.SetCoord( hoffset, yoffset );
  	yoffset -= ygap;
-@@ -351,8 +358,11 @@ void CMenuMain::VidInit( bool connected )
+@@ -351,8 +599,11 @@ void CMenuMain::VidInit( bool connected )
  		yoffset -= ygap;
  	}
  
@@ -569,7 +1393,7 @@ index 4d1a382..5c4b5ab 100644
  
  	if( connected )
  	{
-@@ -371,6 +381,9 @@ void CMenuMain::VidInit( bool connected )
+@@ -371,6 +622,9 @@ void CMenuMain::VidInit( bool connected )
  
  	// now figure out what's visible
  	resumeGame.SetVisibility( connected );
@@ -579,6 +1403,16 @@ index 4d1a382..5c4b5ab 100644
  	disconnect.SetVisibility( connected && !single );
  
  	if( connected && single )
+@@ -390,6 +644,9 @@ void CMenuMain::VidInit( bool connected )
+ void CMenuMain::_VidInit()
+ {
+ 	VidInit( CL_IsActive() );
++#if !defined( __EMSCRIPTEN__ )
++	H9LinkPlace();
++#endif
+ }
+ 
+ void CMenuMain::Think()
 diff --git a/3rdparty/mainui/menus/PlayerSetup.cpp b/3rdparty/mainui/menus/PlayerSetup.cpp
 index edcbe50..16cfb70 100644
 --- a/3rdparty/mainui/menus/PlayerSetup.cpp
@@ -687,680 +1521,125 @@ index edcbe50..16cfb70 100644
  	if( !hideLogos )
  	{
  		ParseLogoColorCvar();
-diff --git a/3rdparty/mainui/menus/PlayerSetup.cpp.bak_sprayfix b/3rdparty/mainui/menus/PlayerSetup.cpp.bak_sprayfix
-new file mode 100644
-index 0000000..edcbe50
---- /dev/null
-+++ b/3rdparty/mainui/menus/PlayerSetup.cpp.bak_sprayfix
-@@ -0,0 +1,668 @@
-+/*
-+Copyright (C) 1997-2001 Id Software, Inc.
-+
-+This program is free software; you can redistribute it and/or
-+modify it under the terms of the GNU General Public License
-+as published by the Free Software Foundation; either version 2
-+of the License, or (at your option) any later version.
-+
-+This program is distributed in the hope that it will be useful,
-+but WITHOUT ANY WARRANTY; without even the implied warranty of
-+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-+
-+See the GNU General Public License for more details.
-+
-+You should have received a copy of the GNU General Public License
-+along with this program; if not, write to the Free Software
-+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-+
-+*/
-+
-+#include "Framework.h"
-+#include "Bitmap.h"
-+#include "PicButton.h"
-+#include "CheckBox.h"
-+#include "Slider.h"
-+#include "Field.h"
-+#include "SpinControl.h"
-+#include "YesNoMessageBox.h"
-+#include "PlayerModelView.h"
-+#include "StringVectorModel.h"
-+#include "ColorPickerDialog.h"
-+
-+#define ART_BANNER		"gfx/shell/head_customize"
-+
-+class CMenuPlayerSetup : public CMenuFramework
-+{
-+private:
-+	void _Init() override;
-+	void Reload() override;
-+public:
-+	CMenuPlayerSetup() : CMenuFramework( "CMenuPlayerSetup" ), msgBox( true ) { }
-+
-+	void SetConfig();
-+	void UpdateModel();
-+	void UpdateLogo();
-+	void ApplyColorToImagePreview();
-+	void ApplyColorToLogoPreview();
-+	void WriteNewLogo();
-+	void ShowColorPicker();
-+	void OnColorPickerOk();
-+	void SaveAndPopMenu() override;
-+
-+	class CModelListModel : public CStringVectorModel
-+	{
-+	public:
-+		void Update() override;
-+	} modelsModel;
-+
-+	class CLogosListModel : public CStringVectorModel
-+	{
-+	public:
-+		void Update() override;
-+
-+		int GetFullPath( char *buf, size_t size, int pos )
-+		{
-+			const char *file, *ext;
-+
-+			file = Element( pos ).String();
-+			ext = IsPng( pos ) ? "png" : "bmp";
-+
-+			return snprintf( buf, size, "logos/%s.%s", file, ext );
-+		}
-+
-+		bool IsPng( int pos )
-+		{
-+			return m_isPngs[pos];
-+		}
-+
-+	private:
-+		CUtlVector<bool> m_isPngs;
-+	} logosModel;
-+
-+	CMenuPlayerModelView	view;
-+
-+	CMenuCheckBox showModels;
-+	CMenuCheckBox hiModels;
-+
-+	CMenuCheckBox voiceEnable;
-+	CMenuSlider transmitVolume;
-+	CMenuSlider receiveVolume;
-+	CMenuAction noProprietaryCodecNotice;
-+
-+	CMenuSlider	topColor;
-+	CMenuSlider	bottomColor;
-+
-+	CMenuField	name;
-+	CMenuSpinControl	model;
-+
-+	class CMenuLogoPreview : public CMenuBaseItem
-+	{
-+	public:
-+		virtual void Draw();
-+		HIMAGE hImage;
-+		const byte ( *stripes )[3];
-+		int stripeCount;
-+		bool colorable;
-+		const bool *horizontal;
-+	} logoImage;
-+
-+	CMenuSpinControl	logo;
-+	CMenuPicButton		btnChooseColor;
-+	CMenuColorPickerDialog	colorPickerDlg;
-+	byte			m_stripes[MAX_LOGO_STRIPES][3];
-+	int			m_stripeCount;
-+	bool			m_horizontal;
-+	bool			m_logoColorable;
-+
-+	void ParseLogoColorCvar();
-+	void WriteLogoColorCvar();
-+
-+	CMenuYesNoMessageBox msgBox;
-+
-+	bool hideModels, hideLogos;
-+};
-+
-+void CMenuPlayerSetup::CMenuLogoPreview::Draw()
-+{
-+	if( !hImage )
-+	{
-+		// draw the background
-+		UI_FillRect( m_scPos, m_scSize, uiPromptBgColor );
-+
-+		UI_DrawString( font, m_scPos, m_scSize, L( "No logo" ), colorBase, m_scChSize, QM_CENTER, ETF_SHADOW );
-+	}
-+	else if( !colorable || stripeCount <= 1 )
-+	{
-+		byte r = colorable ? stripes[0][0] : 255;
-+		byte g = colorable ? stripes[0][1] : 255;
-+		byte b = colorable ? stripes[0][2] : 255;
-+		EngFuncs::PIC_Set( hImage, r, g, b );
-+		EngFuncs::PIC_DrawTrans( m_scPos, m_scSize );
-+	}
-+	else
-+	{
-+		const Size img_sz = EngFuncs::PIC_Size( hImage );
-+		const bool hz = horizontal && *horizontal;
-+
-+		const double tex_per_stripe = ( hz ? img_sz.w  : img_sz.h  ) / (double)stripeCount;
-+		const double scr_per_stripe = ( hz ? m_scSize.w : m_scSize.h ) / (double)stripeCount;
-+
-+		for( int i = 0; i < stripeCount; i++ )
-+		{
-+			int scr_start = (int)( i * scr_per_stripe + 0.5 );
-+			int scr_next  = (int)(( i + 1 ) * scr_per_stripe + 0.5 );
-+			int tex_start = (int)( i * tex_per_stripe + 0.5 );
-+			int tex_next  = (int)(( i + 1 ) * tex_per_stripe + 0.5 );
-+
-+			wrect_t rc = {};
-+			if( hz )
-+			{
-+				rc.left   = tex_start;
-+				rc.right  = tex_next;
-+				rc.bottom = img_sz.h;
-+			}
-+			else
-+			{
-+				rc.right  = img_sz.w;
-+				rc.top    = tex_start;
-+				rc.bottom = tex_next;
-+			}
-+
-+			Point ui_pt = hz ? Point( m_scPos.x + scr_start, m_scPos.y ) : Point( m_scPos.x, m_scPos.y + scr_start );
-+			Size  ui_sz = hz ? Size( scr_next - scr_start, m_scSize.h ) : Size( m_scSize.w, scr_next - scr_start );
-+
-+			EngFuncs::PIC_Set( hImage, stripes[i][0], stripes[i][1], stripes[i][2] );
-+			EngFuncs::PIC_DrawTrans( ui_pt, ui_sz, &rc );
-+		}
-+	}
-+
-+	int textHeight = m_scPos.y - (m_scChSize * 1.5f);
-+	uint textflags = ( iFlags & QMF_DROPSHADOW ) ? ETF_SHADOW : 0;
-+	UI_DrawString( font, m_scPos.x, textHeight, m_scSize.w, m_scChSize, szName, uiColorHelp, m_scChSize, QM_LEFT, textflags | ETF_FORCECOL | ETF_NOSIZELIMIT );
-+
-+	// draw the rectangle
-+	if( eFocusAnimation == QM_HIGHLIGHTIFFOCUS && IsCurrentSelected() )
-+		UI_DrawRectangle( m_scPos, m_scSize, uiInputTextColor );
-+	else
-+		UI_DrawRectangle( m_scPos, m_scSize, uiInputFgColor );
-+
-+}
-+
-+/*
-+=================
-+UI_PlayerSetup_FindModels
-+=================
-+*/
-+void CMenuPlayerSetup::CModelListModel::Update( void )
-+{
-+	char	**filenames;
-+	int numFiles, i;
-+
-+	RemoveAll();
-+
-+	// Get file list
-+	// search in basedir too, because that's how GoldSrc does this
-+	filenames = EngFuncs::GetFilesList(  "models/player/*", &numFiles, false );
-+
-+	// build the model list
-+	for( i = 0; i < numFiles; i++ )
-+	{
-+		char name[128], path[512];
-+		COM_FileBase( filenames[i], name, sizeof( name ));
-+
-+		// check if the path is a valid model
-+		snprintf( path, sizeof( path ), "models/player/%s/%s.mdl", name, name );
-+		if( !EngFuncs::FileExists( path ))
-+			continue;
-+
-+		AddToTail( name );
-+	}
-+}
-+
-+/*
-+=================
-+CMenuPlayerSetup::FindLogos
-+
-+=================
-+*/
-+void CMenuPlayerSetup::CLogosListModel::Update( )
-+{
-+	char	**filenames;
-+	int numFiles, i;
-+
-+	m_isPngs.RemoveAll();
-+	RemoveAll();
-+
-+	// Get file list
-+	filenames = EngFuncs::GetFilesList( "logos/*.*", &numFiles, false );
-+
-+	// build the model list
-+	for( i = 0; i < numFiles; i++ )
-+	{
-+		CUtlString logoFileName = filenames[i];
-+		char temp[256];
-+		bool png = logoFileName.BEndsWithCaseless( ".png" );
-+
-+		if( png || logoFileName.BEndsWithCaseless( ".bmp" ))
-+		{
-+			COM_FileBase( logoFileName.String(), temp, sizeof( temp ));
-+
-+			if( !stricmp( temp, "remapped" ))
-+				continue;
-+
-+			AddToTail( temp );
-+			m_isPngs.AddToTail( png );
-+		}
-+	}
-+}
-+
-+/*
-+=================
-+UI_PlayerSetup_SetConfig
-+=================
-+*/
-+void CMenuPlayerSetup::SetConfig( void )
-+{
-+	name.WriteCvar();
-+	model.WriteCvar();
-+	topColor.WriteCvar();
-+	bottomColor.WriteCvar();
-+	hiModels.WriteCvar();
-+	showModels.WriteCvar();
-+	WriteNewLogo();
-+}
-+
-+void CMenuPlayerSetup::SaveAndPopMenu()
-+{
-+	if( !UI::Names::CheckIsNameValid( name.GetBuffer() ) )
-+	{
-+		msgBox.Show();
-+		return;
-+	}
-+
-+	SetConfig();
-+	CMenuFramework::SaveAndPopMenu();
-+}
-+
-+void CMenuPlayerSetup::UpdateModel()
-+{
-+	char image[256];
-+	const char *mdl = model.GetCurrentString();
-+
-+	// seems we DON'T have this model locally
-+	// just force display string and do nothing
-+	if( !mdl )
-+	{
-+		model.ForceDisplayString( EngFuncs::GetCvarString( "model" ));
-+		return;
-+	}
-+
-+	snprintf( image, sizeof( image ), "models/player/%s/%s.bmp", mdl, mdl );
-+	view.hPlayerImage = EngFuncs::PIC_Load( image, PIC_KEEP_SOURCE );
-+	ApplyColorToImagePreview();
-+
-+	EngFuncs::CvarSetString( "model", mdl );
-+	if( !strcmp( mdl, "player" ))
-+		strcpy( image, "models/player.mdl" );
-+	else
-+		snprintf( image, sizeof( image ), "models/player/%s/%s.mdl", mdl, mdl );
-+
-+	if( view.ent )
-+		EngFuncs::SetModel( view.ent, image );
-+}
-+
-+void CMenuPlayerSetup::UpdateLogo()
-+{
-+	const int pos = logo.GetCurrentValue();
-+	bool colorable = false;
-+
-+	if( pos < 0 )
-+	{
-+		logoImage.hImage = 0;
-+	}
-+	else
-+	{
-+		char filename[1024];
-+		const int temp = logosModel.GetFullPath( filename, sizeof( filename ), pos );
-+		if(( temp < 0 ) || ( temp > sizeof( filename )))
-+		{
-+			logoImage.hImage = 0;
-+		}
-+		else
-+		{
-+			logoImage.hImage = EngFuncs::PIC_Load( filename, 0 );
-+
-+			if( !logosModel.IsPng( pos ))
-+			{
-+				CBMP *bmpFile = CBMP::LoadFile( filename );
-+				if( bmpFile->GetBitmapHdr()->bitsPerPixel == 8 )
-+					colorable = true;
-+				delete bmpFile;
-+			}
-+		}
-+	}
-+
-+	m_logoColorable    = colorable;
-+	logoImage.colorable    = m_logoColorable;
-+	logoImage.stripes      = m_stripes;
-+	logoImage.stripeCount  = m_stripeCount;
-+	logoImage.horizontal   = &m_horizontal;
-+
-+	btnChooseColor.SetGrayed( !m_logoColorable );
-+}
-+
-+void CMenuPlayerSetup::ShowColorPicker()
-+{
-+	if( !m_logoColorable )
-+		return;
-+
-+	colorPickerDlg.Show( m_stripes, m_stripeCount, m_horizontal, logoImage.hImage );
-+}
-+
-+void CMenuPlayerSetup::OnColorPickerOk()
-+{
-+	colorPickerDlg.GetStripes( m_stripes, m_stripeCount, m_horizontal );
-+	EngFuncs::CvarSetValue( "ui_logohorizontal", m_horizontal ? 1.f : 0.f );
-+	ApplyColorToLogoPreview();
-+}
-+
-+void CMenuPlayerSetup::ApplyColorToImagePreview()
-+{
-+	EngFuncs::ProcessImage( view.hPlayerImage, -1,
-+		topColor.GetCurrentValue(), bottomColor.GetCurrentValue() );
-+}
-+
-+void CMenuPlayerSetup::ApplyColorToLogoPreview()
-+{
-+	logoImage.colorable = m_logoColorable;
-+	logoImage.stripes = m_stripes;
-+	logoImage.stripeCount = m_stripeCount;
-+	logoImage.horizontal = &m_horizontal;
-+}
-+
-+void CMenuPlayerSetup::ParseLogoColorCvar()
-+{
-+	m_stripeCount = 1;
-+	m_stripes[0][0] = m_stripes[0][1] = m_stripes[0][2] = 255;
-+
-+	const char *logoColor = EngFuncs::GetCvarString( "cl_logocolor" );
-+	if( !logoColor || !*logoColor )
-+		return;
-+
-+	int parsed = 0;
-+	const char *p = logoColor;
-+	while( parsed < MAX_LOGO_STRIPES )
-+	{
-+		int r, g, b, n = 0;
-+		while( *p == ' ' || *p == '\t' || *p == ',' )
-+			p++;
-+		if( !*p )
-+			break;
-+		if( sscanf( p, "%d %d %d%n", &r, &g, &b, &n ) != 3 || n <= 0 )
-+			break;
-+		m_stripes[parsed][0] = (byte)Q_max( 0, Q_min( 255, r ));
-+		m_stripes[parsed][1] = (byte)Q_max( 0, Q_min( 255, g ));
-+		m_stripes[parsed][2] = (byte)Q_max( 0, Q_min( 255, b ));
-+		parsed++;
-+		p += n;
-+	}
-+
-+	if( parsed > 0 )
-+		m_stripeCount = parsed;
-+}
-+
-+void CMenuPlayerSetup::WriteLogoColorCvar()
-+{
-+	CUtlString s;
-+	for( int i = 0; i < m_stripeCount; i++ )
-+	{
-+		if( i > 0 )
-+			s += " ";
-+		CUtlString triple;
-+		triple.Format( "%d %d %d", m_stripes[i][0], m_stripes[i][1], m_stripes[i][2] );
-+		s += triple;
-+	}
-+	EngFuncs::CvarSetString( "cl_logocolor", s.String() );
-+}
-+
-+void CMenuPlayerSetup::WriteNewLogo( void )
-+{
-+	char filename[1024];
-+	int pos = logo.GetCurrentValue();
-+
-+	if( pos < 0 || hideLogos )
-+		return;
-+
-+	EngFuncs::DeleteFile( "logos/remapped.png" );
-+	EngFuncs::DeleteFile( "logos/remapped.bmp" );
-+
-+	logosModel.GetFullPath( filename, sizeof( filename ), pos );
-+
-+	// TODO: check file size and throw a messagebox if it's too big?
-+	if( logosModel.IsPng( pos ))
-+	{
-+		int len;
-+		void *afile = EngFuncs::COM_LoadFile( filename, &len );
-+
-+		// just copy file, nothing special
-+		EngFuncs::COM_SaveFile( "logos/remapped.png", afile, len );
-+
-+		EngFuncs::COM_FreeFile( afile );
-+
-+		EngFuncs::CvarSetString( "cl_logoext", "png" );
-+	}
-+	else
-+	{
-+		CBMP *bmpFile = CBMP::LoadFile( filename );
-+
-+		// not valid logo BMP file
-+		if( !bmpFile )
-+			return;
-+
-+		// remap logo if needed
-+		if( m_logoColorable )
-+			bmpFile->RemapLogo( m_stripeCount, &m_stripes[0][0], m_horizontal );
-+
-+		bmpFile->Save( "logos/remapped.bmp" );
-+		EngFuncs::CvarSetString( "cl_logoext", "bmp" );
-+
-+		delete bmpFile;
-+	}
-+
-+	if( m_logoColorable )
-+		WriteLogoColorCvar();
-+
-+	logo.WriteCvar();
-+
-+	EngFuncs::CvarSetValue( "@cl_logoupdate", !EngFuncs::GetCvarFloat( "@cl_logoupdate" ));
-+}
-+
-+/*
-+=================
-+UI_PlayerSetup_Init
-+=================
-+*/
-+void CMenuPlayerSetup::_Init( void )
-+{
-+	int addFlags = 0;
-+
-+	hideModels = hideLogos = false;
-+
-+	ParseLogoColorCvar();
-+	m_horizontal = EngFuncs::GetCvarFloat( "ui_logohorizontal" ) != 0.f;
-+	m_logoColorable = false;
-+	logoImage.stripes = m_stripes;
-+	logoImage.stripeCount = m_stripeCount;
-+	logoImage.horizontal = &m_horizontal;
-+	logoImage.colorable = false;
-+
-+	// disable playermodel preview for HLRally to prevent crash
-+	if( !stricmp( gMenu.m_gameinfo.gamefolder, "hlrally" ))
-+		hideModels = true;
-+
-+	if( gMenu.m_gameinfo.flags & GFL_NOMODELS )
-+		addFlags |= QMF_INACTIVE;
-+
-+	banner.SetPicture(ART_BANNER);
-+
-+	name.szName = L( "GameUI_PlayerName" );
-+	name.iMaxLength = 32;
-+	name.LinkCvar( "name" );
-+	name.SetRect( 360, 270, 300, 36 );
-+
-+	view.iFlags |= addFlags;
-+	view.SetRect( 700, 270, 260, 300 );
-+
-+	modelsModel.Update();
-+	if( !modelsModel.GetRows( ))
-+	{
-+		model.SetVisibility( false );
-+		hideModels = true;
-+	}
-+	else
-+	{
-+		model.Setup( &modelsModel );
-+		model.LinkCvar( "model", CMenuEditable::CVAR_STRING );
-+		model.onChanged = VoidCb( &CMenuPlayerSetup::UpdateModel );
-+		model.SetRect( 700, 570 + UI_OUTLINE_WIDTH, 260, 32 );
-+	}
-+
-+	topColor.iFlags |= addFlags;
-+	topColor.szName = L( "Colors" );
-+	topColor.Setup( 0, 255, 1 );
-+	topColor.LinkCvar( "topcolor" );
-+	topColor.onCvarChange = CMenuEditable::WriteCvarCb;
-+	topColor.onChanged = VoidCb( &CMenuPlayerSetup::ApplyColorToImagePreview );
-+	topColor.SetCoord( 700, 660 );
-+	topColor.size.w = 260;
-+
-+	bottomColor.iFlags |= addFlags;
-+	bottomColor.Setup( 0, 255, 1 );
-+	bottomColor.LinkCvar( "bottomcolor" );
-+	bottomColor.onCvarChange = CMenuEditable::WriteCvarCb;
-+	bottomColor.onChanged = VoidCb( &CMenuPlayerSetup::ApplyColorToImagePreview );;
-+	bottomColor.SetCoord( 700, 700 );
-+	bottomColor.size.w = 260;
-+
-+	msgBox.SetMessage( L( "Please, choose another player name" ) );
-+	msgBox.Link( this );
-+
-+	AddItem( banner );
-+
-+	AddButton( L( "Done" ), nullptr, PC_DONE, VoidCb( &CMenuPlayerSetup::SaveAndPopMenu ) );
-+	CMenuPicButton *gameOpt = AddButton( L( "Game options" ), nullptr, PC_GAME_OPTIONS );
-+	SET_EVENT_MULTI( gameOpt->onReleased,
-+	{
-+		((CMenuPlayerSetup*)pSelf->Parent())->SetConfig();
-+		UI_AdvUserOptions_Menu();
-+	});
-+
-+	AddButton( L( "Adv. Options" ), nullptr, PC_ADV_OPT, UI_GameOptions_Menu );
-+	gameOpt->SetGrayed( !UI_AdvUserOptions_IsAvailable() );
-+
-+	showModels.iFlags |= addFlags;
-+	showModels.szName = L( "Show 3D preview" );
-+	showModels.onCvarChange = CMenuEditable::WriteCvarCb;
-+	showModels.LinkCvar( "ui_showmodels" );
-+	showModels.SetCoord( 77, 230 + m_iBtnsNum * 50 + 10 );
-+
-+	hiModels.iFlags |= addFlags;
-+	hiModels.szName = L( "GameUI_HighModels" );
-+	hiModels.onCvarChange = CMenuEditable::WriteCvarCb;
-+	hiModels.LinkCvar( "cl_himodels" );
-+	hiModels.SetCoord( 77, showModels.pos.y + 50 );
-+
-+	voiceEnable.szName = L( "GameUI_EnableVoice" );
-+	voiceEnable.onCvarChange = CMenuEditable::WriteCvarCb;
-+	voiceEnable.LinkCvar( "voice_modenable" ); // unlike engine's voice_enable, this is synchronized with server
-+	voiceEnable.SetCoord( 77, hiModels.pos.y + 50 );
-+
-+	transmitVolume.szName = L( "GameUI_VoiceTransmitVolume" );
-+	transmitVolume.onCvarChange = CMenuEditable::WriteCvarCb;
-+	transmitVolume.Setup( 0, 1, 0.05f );
-+	transmitVolume.LinkCvar( "voice_transmit_scale" );
-+	transmitVolume.SetCoord( 77, voiceEnable.pos.y + 100 );
-+	transmitVolume.size.w = 300;
-+
-+	receiveVolume.szName = L( "GameUI_VoiceReceiveVolume" );
-+	receiveVolume.onCvarChange = CMenuEditable::WriteCvarCb;
-+	receiveVolume.Setup( 0, 1, 0.05f );
-+	receiveVolume.LinkCvar( "voice_scale" );
-+	receiveVolume.SetCoord( 77, transmitVolume.pos.y + 50 );
-+	receiveVolume.size.w = 300;
-+
-+	noProprietaryCodecNotice.szName = L( "* Uses Opus Codec.\nOpen, royalty-free, highly versatile audio codec." );
-+	noProprietaryCodecNotice.colorBase = uiColorHelp;
-+	noProprietaryCodecNotice.SetCharSize( QM_SMALLFONT );
-+	noProprietaryCodecNotice.SetRect( 77, receiveVolume.pos.y + 30, 400, 100 );
-+
-+	if( !hideLogos )
-+	{
-+		logosModel.Update();
-+		if( !logosModel.GetRows() )
-+		{
-+			// don't add to framework
-+			hideLogos = true;
-+		}
-+		else
-+		{
-+		logoImage.szName = L( "GameUI_SpraypaintImage" );
-+		logoImage.SetRect( 460, 370, 200, 200 );
-+
-+		logo.Setup( &logosModel );
-+		logo.LinkCvar( "cl_logofile", CMenuEditable::CVAR_STRING );
-+		logo.onChanged = VoidCb( &CMenuPlayerSetup::UpdateLogo );
-+		logo.SetRect( 460, logoImage.pos.y + logoImage.size.h + UI_OUTLINE_WIDTH, 200, 32 );
-+
-+		btnChooseColor.szName = L( "Choose logo color" );
-+		btnChooseColor.SetRect( 460, logo.pos.y + logo.size.h + UI_OUTLINE_WIDTH, 200, 32 );
-+		btnChooseColor.onReleased = VoidCb( &CMenuPlayerSetup::ShowColorPicker );
-+
-+		colorPickerDlg.Link( this );
-+		colorPickerDlg.onOk = VoidCb( &CMenuPlayerSetup::OnColorPickerOk );
-+	}
-+	}
-+
-+	AddItem( name );
-+	AddItem( voiceEnable );
-+	AddItem( transmitVolume );
-+	AddItem( receiveVolume );
-+	AddItem( noProprietaryCodecNotice );
-+
-+	if( !hideLogos )
-+	{
-+		UpdateLogo();
-+		AddItem( logo );
-+		AddItem( btnChooseColor );
-+		AddItem( logoImage );
-+	}
-+
-+	if( !(gMenu.m_gameinfo.flags & GFL_NOMODELS) )
-+	{
-+		AddItem( topColor );
-+		AddItem( bottomColor );
-+		AddItem( showModels );
-+		AddItem( hiModels );
-+		AddItem( model );
-+		// disable playermodel preview for HLRally to prevent crash
-+		if( !hideModels )
-+		{
-+			AddItem( view );
-+		}
-+	}
-+}
-+
-+void CMenuPlayerSetup::Reload()
-+{
-+	if( !hideLogos )
-+	{
-+		ParseLogoColorCvar();
-+		m_horizontal = EngFuncs::GetCvarFloat( "ui_logohorizontal" ) != 0.f;
-+		UpdateLogo();
-+	}
-+	if( !hideModels ) UpdateModel();
-+}
-+
-+
-+ADD_MENU( menu_playersetup, CMenuPlayerSetup, UI_PlayerSetup_Menu );
+diff --git a/3rdparty/mainui/menus/ServerBrowser.cpp b/3rdparty/mainui/menus/ServerBrowser.cpp
+index 9656eb7..080d973 100644
+--- a/3rdparty/mainui/menus/ServerBrowser.cpp
++++ b/3rdparty/mainui/menus/ServerBrowser.cpp
+@@ -34,6 +34,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ #define ART_BANNER_LAN      "gfx/shell/head_lan"
+ #define ART_BANNER_LOCK     "gfx/shell/lock"
+ #define ART_BANNER_FAVORITE "gfx/shell/favorite"
++#define ART_BANNER_ACCOUNT  "gfx/shell/h9_account" // H9: a server for havoc9.org accounts only
+ 
+ #define MAX_PING 9.999f
+ #define FILTER_MAX_MAPS 16
+@@ -44,6 +45,7 @@ class CMenuServerBrowser;
+ enum
+ {
+ 	COLUMN_PASSWORD = 0,
++	COLUMN_ACCOUNT, // H9: the server takes havoc9.org accounts only (its info's "auth")
+ 	COLUMN_FAVORITE,
+ 	COLUMN_NAME,
+ 	COLUMN_MAP,
+@@ -58,7 +60,8 @@ struct server_t
+ 	netadr_t adr;
+ 	char  info[512];
+ 	float ping;
+-	int  numcl;
++	int  numcl; // the people: Xash servers send bots apart, and GoldSrc's are taken out of it
++	int  bots;
+ 	int  maxcl;
+ 	char name[64];
+ 	char mapname[64];
+@@ -67,6 +70,7 @@ struct server_t
+ 	char ipstr[64];
+ 	bool favorite;
+ 	bool havePassword;
++	bool needAccount;
+ 	bool isGoldSrc;
+ 	bool pending_info;
+ 
+@@ -105,6 +109,8 @@ struct server_t
+ 	{
+ 		if( numcl > other.numcl ) return 1;
+ 		else if( numcl < other.numcl ) return -1;
++		if( bots > other.bots ) return 1;
++		else if( bots < other.bots ) return -1;
+ 		return 0;
+ 	}
+ 
+@@ -115,14 +121,15 @@ struct server_t
+ 		return 0;
+ 	}
+ 
++	// H9: a server with bots on it is not empty, and its bots take slots as players do
+ 	bool IsEmpty( ) const
+ 	{
+-		return numcl == 0;
++		return numcl == 0 && bots == 0;
+ 	}
+ 
+ 	bool IsFull( ) const
+ 	{
+-		return numcl >= maxcl;
++		return numcl + bots >= maxcl;
+ 	}
+ 
+ #define GENERATE_COMPAR_FN( method ) \
+@@ -273,7 +280,7 @@ public:
+ 
+ 	ECellType GetCellType( int line, int column ) override
+ 	{
+-		if( column == COLUMN_PASSWORD || column == COLUMN_FAVORITE )
++		if( column == COLUMN_PASSWORD || column == COLUMN_ACCOUNT || column == COLUMN_FAVORITE )
+ 			return CELL_IMAGE_ADDITIVE;
+ 		return CELL_TEXT;
+ 	}
+@@ -283,6 +290,7 @@ public:
+ 		switch( column )
+ 		{
+ 		case COLUMN_PASSWORD: return servers[line].havePassword ? ART_BANNER_LOCK : NULL;
++		case COLUMN_ACCOUNT: return servers[line].needAccount ? ART_BANNER_ACCOUNT : NULL;
+ 		case COLUMN_FAVORITE: return servers[line].favorite ? ART_BANNER_FAVORITE : NULL;
+ 		case COLUMN_NAME: return servers[line].name;
+ 		case COLUMN_MAP: return servers[line].mapname;
+@@ -509,9 +517,14 @@ void server_t::UpdateData( void )
+ 	Q_strncpy( mapname, Info_ValueForKey( info, "map" ), sizeof( mapname ));
+ 	Q_strncpy( ipstr, EngFuncs::NET_AdrToString( adr ), sizeof( ipstr ));
+ 	numcl = atoi( Info_ValueForKey( info, "numcl" ));
++	bots = atoi( Info_ValueForKey( info, "bots" ));
+ 	maxcl = atoi( Info_ValueForKey( info, "maxcl" ));
+-	snprintf( clientsstr, sizeof( clientsstr ), "%d\\%d", numcl, maxcl );
++	// H9: the people, the slots, and the bots apart: "1/64 (+63 bots)"
++	if( bots > 0 )
++		snprintf( clientsstr, sizeof( clientsstr ), "%d/%d (+%d %s)", numcl, maxcl, bots, bots == 1 ? "bot" : "bots" );
++	else snprintf( clientsstr, sizeof( clientsstr ), "%d/%d", numcl, maxcl );
+ 	havePassword = !strcmp( Info_ValueForKey( info, "password" ), "1" );
++	needAccount = !strcmp( Info_ValueForKey( info, "auth" ), "1" );
+ 	isGoldSrc = !strcmp( Info_ValueForKey( info, "gs" ), "1" );
+ }
+ 
+@@ -533,6 +546,7 @@ bool CMenuGameListModel::Sort(int column, bool ascend)
+ 	switch( column )
+ 	{
+ 	case COLUMN_PASSWORD:
++	case COLUMN_ACCOUNT:
+ 		return false;
+ 	case COLUMN_NAME:
+ 		qsort( servers.Base(), servers.Count(), sizeof( server_t ),
+@@ -1195,10 +1209,11 @@ void CMenuServerBrowser::_Init( void )
+ 
+ 	gameList.SetCharSize( QM_SMALLFONT );
+ 	gameList.SetupColumn( COLUMN_PASSWORD, NULL, 32.0f, true );
++	gameList.SetupColumn( COLUMN_ACCOUNT, NULL, 32.0f, true );
+ 	gameList.SetupColumn( COLUMN_FAVORITE, NULL, 32.0f, true );
+ 	gameList.SetupColumn( COLUMN_NAME, L( "Name" ), 0.40f );
+ 	gameList.SetupColumn( COLUMN_MAP, L( "GameUI_Map" ), 0.25f );
+-	gameList.SetupColumn( COLUMN_PLAYERS, L( "Players" ), 100.0f, true );
++	gameList.SetupColumn( COLUMN_PLAYERS, L( "Players" ), 180.0f, true );
+ 	gameList.SetupColumn( COLUMN_PING, L( "Ping" ), 120.0f, true );
+ 	gameList.SetupColumn( COLUMN_IP, L( "IP" ), 0, true );
+ 	gameList.SetModel( &gameListModel );
 diff --git a/3rdparty/mainui/menus/VideoOptions.cpp b/3rdparty/mainui/menus/VideoOptions.cpp
 index 69dd50a..cc4b1e2 100644
 --- a/3rdparty/mainui/menus/VideoOptions.cpp
@@ -1414,6 +1693,21 @@ index 69dd50a..cc4b1e2 100644
  }
  
  void CMenuVidOptions::_VidInit()
+diff --git a/3rdparty/mainui/sdk_includes/common/xash3d_types.h b/3rdparty/mainui/sdk_includes/common/xash3d_types.h
+index 9b98264..bed4c69 100644
+--- a/3rdparty/mainui/sdk_includes/common/xash3d_types.h
++++ b/3rdparty/mainui/sdk_includes/common/xash3d_types.h
+@@ -17,8 +17,8 @@
+ #define CS_TIME	      16  // size of time string
+ 
+ // FIXME: find better place for the shared definition
+-#define MAX_CLIENT_BITS 5
+-#define MAX_CLIENTS     (1<<MAX_CLIENT_BITS)// 5 bits == 32 clients ( int32 limit )
++#define MAX_CLIENT_BITS 7
++#define MAX_CLIENTS     (1<<MAX_CLIENT_BITS)// 7 bits == 128 clients
+ 
+ // platform-specific alignment for types, to not break ABI
+ #if XASH_PSP
 diff --git a/3rdparty/mainui/sdk_includes/engine/menu_int.h b/3rdparty/mainui/sdk_includes/engine/menu_int.h
 index a83a58a..a7f52b1 100644
 --- a/3rdparty/mainui/sdk_includes/engine/menu_int.h

@@ -1,0 +1,100 @@
+AMX Mod X, as H9 carries it
+===========================
+Upstream:  https://github.com/goldsrc-net/amxmodx (goldsrc-net's fork of alliedmodders/amxmodx)
+Branch:    64bit (the fork's default)
+Commit:    dedff660 ("TSX tests: a loadout over 81 slots fits once ts_setuserslots raises them")
+Submodules: extern/asmjit at 0bd5787, public/amtl at bee3fc5
+Licence:   GNU GPL version 3 (see the source files' headers).
+Build:     AMBuild (configure.py) upstream; on H9's Windows PC the msvc12 Visual Studio projects
+           with the installed toolset (see below).
+
+A git checkout of that commit. H9's changes are uncommitted working-tree changes against it (git status
+and git diff show them), so they can be reviewed and committed as one set, and an update to a newer
+goldsrc-net commit takes them along. It replaces the alliedmodders master tree H9 carried before
+(2026-11-02; kept with its two H9 commits in TSM\backups\AMXMODX-alliedmodders-20261102).
+
+Why this tree: the AMX Mod X H9 ships ("1.10.0-manual", from the reTS release) is this fork. Its core
+reads the "gamedll_export" condition in a gamedata file's #supported block, which H9's gamedata needs to
+pick reTS's offsets and drop TS 3.0's on reTS. alliedmodders master has no such condition.
+
+H9's changes
+------------
+1. Player slots, built for 128 (docs\PLAYER_LIMIT_128.txt):
+     amxmodx\amxmodx.h       AMXX_MAX_PLAYERS 128; extern CPlayer g_players[AMXX_MAX_PLAYERS + 1]
+     amxmodx\meta_api.cpp    CPlayer g_players[AMXX_MAX_PLAYERS + 1]
+     amxmodx\emsg.cpp        DeathMsg's killer and victim: a player up to maxClients, not < 33
+     plugins\include\amxconst.inc   MAX_PLAYERS 128 (plugins' tables and get_players() buffers)
+     modules\engine\engine.h, engine.cpp   plinfo[ENGINE_MAX_PLAYERS + 1], 128
+     modules\fun\fun.h       kMaxClients 128
+     modules\ts\tsx\CMisc.h, tsx.h, moduleconfig.cpp, usermsg.cpp
+                             TSX_MAX_PLAYERS 128: players[], each one's attackers[] and victims[],
+                             TeamInfo's bound
+2. TSX counts Xash3D's bots as bots (was H9 commit d6ca4c4b on the old tree):
+     modules\ts\tsx\CMisc.h  CPlayer::IsBot also takes GetPlayerAuthId "ID_BOT" when the host_ver cvar
+                             exists (Xash3D FWGS); on GoldSrc the answer is unchanged.
+3. The TS 3.0 and reTS gamedata H9 runs (was H9 commit abaca32d, from the reTS AMX Mod X build):
+     gamedata\common.games\entities.games\ts\offsets-cbaseplayer.txt, offsets-ctsgun.txt,
+     others.games\ts\offsets-s_ammo_info.txt, offsets-s_weapon_status.txt,
+     modules.games\game.ts.txt
+                             "#supported": game ts, gamedll_export "!ReTS_GetInterface" -- TS 3.0's
+                             own library only; game.ts.txt keeps the fork's CTSPowerUp::WaitTouch
+     gamedata\common.games\virtual.games\ts\offsets-rets.txt (new)   reTS's Ham vtable offsets
+     gamedata\common.games\globalvars-rets.txt (new)                 reTS's globals
+     gamedata\common.games\master.games.txt   lists the two reTS files right after
+                             virtual.games\ts\offsets-common.txt: a later file's key wins, so on
+                             reTS its offsets replace TS 3.0's (as the installed gamedata has it)
+4. plugins\: H9's plugin sources (ts_*.sma, h9_*.sma, tsrp_roambots.sma) and include\tsm_api.inc,
+   include\h9_community.inc, copied in by TSM\build.bat on every run from TSM's own copies, which are
+   the source of truth.
+5. TSX's reTS backend (H9's own; see TSX and reTS below):
+     modules\ts\tsx\rets_api.h (new)   the same file as reTS\dlls\rets_api.h; change both together
+     modules\ts\tsx\moduleconfig.cpp   ReTS(): the game library's ReTS_GetInterface, found as the core's
+                             gamedll_export condition finds an export; version 6, else 5
+     modules\ts\tsx\tsx.h       ReTS() and RETS_REQUIRE
+     modules\ts\tsx\NBase.cpp   every native that reads or writes player state: the interface on
+                             reTS, TS 3.0's members by gamedata otherwise
+     modules\ts\tsx\usermsg.cpp the thrown knife's thrower from the interface on reTS; the thrower
+                             must be a player's edict (it indexes players[])
+6. TSX's player natives refuse a player who is not in game after logging the error (NBase.cpp,
+   BEGIN_USER_FUNC), where upstream went on to read him.
+7. client_disconnected and client_remove without an SV_DropClient hook (amxmodx\meta_api.cpp):
+   the core fires them from the game library's ClientDisconnect for every leave no SV_DropClient
+   hook saw first, with drop false and no message. Xash3D has no hook for the core (no ReHLDS
+   API, and no SV_DropClient the gamedata could find: its own differs in arguments and in the
+   client struct), so upstream never fired either forward there and logged "client_disconnected
+   and client_remove forwards have been disabled"; the core now logs "No SV_DropClient hook".
+
+TSX and reTS
+------------
+This fork's TSX reads TS 3.0's members through the gamedata above, which applies only to TS 3.0's own
+library ("!ReTS_GetInterface"): reTS keeps that state at other offsets, or computes it. reTS exports
+ReTS_GetInterface (reTS\dlls\rets_api.h), a table of get/set functions for every field TSX touches,
+and H9's backend (change 5) uses it whenever the game library exports it: cash, free slots and the
+move speed that follows them, ammo reserves and stack counts, the status message, powerups, slow
+motion, the bullet trail, kung fu and superjump, the powerup pickup, the thrown knife's thrower. A
+function a reTS leaves NULL refuses its native ("Native %s is not supported by this reTS").
+
+Free slots on reTS are derived from the arsenal (plus what ts_setuserslots set), the grenade and
+knife stacks included, so ts_setuserammo on a stack sets its count and only updates the move speed;
+on TS 3.0 it moves the slot counter itself, as before.
+
+It replaces reTSX, the tsx_amxx.dll the reTS release ships, whose own reTS backend is in no branch or
+commit of this repository (docs\PLAYER_LIMIT_128.txt, section 8.5).
+
+Building on Windows (H9's PC: Visual Studio 2026, no AMBuild)
+-------------------------------------------------------------
+Each <project>\msvc12\*.vcxproj with /p:PlatformToolset=v145 /p:Platform=Win32 and
+/p:Configuration=Release (the core: JITRelease), from a copy of this tree, with the environment the
+projects read:
+  NASM_PATH  D:\msys64\mingw32\bin\  (the core's JIT, *.asm)
+  HLSDK      goldsrc-net/hlsdk, branch 64bit: the SDK this fork's CI builds with
+             (.github\workflows\build-release.yml); an older HL SDK clashes with public\resdk
+  METAMOD    alliedmodders/metamod-hl1, the CI's too (metamod\meta_api.h)
+The msvc12 projects lag AMBuild's (the AMBuilder files), so the copy's projects are set as those:
+  * sources: the core's sm_crc32.cpp, hamsandwich's hook_signatures.cpp and Trampolines.cpp;
+  * HAVE_STDINT_H defined (fun, tsfun and tsx lack it, and int32_t clashes with stdint.h);
+  * default struct packing: engine, nvault, sqlite and tsx set /Zp4, which the Windows SDK's
+    winnt.h (10.0.26100) refuses.
+mysqlx also links MySQL's C connector from a mysql-5.5 folder beside the tree (the CI downloads
+mysql-connector-c 6.1.1).
+H9's build of 2026-11-02: hlsdk dd2c6d61, metamod-hl1 18a10db6; every project H9 ships but mysqlx.

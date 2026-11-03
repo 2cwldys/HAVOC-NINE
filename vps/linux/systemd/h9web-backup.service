@@ -1,0 +1,12 @@
+# The daily h9web backup into /var/lib/h9web/backups, the newest 14 kept
+# (havoc9.org/webclient/DEPLOY.txt section 13A). The find line deletes the h9web-*.db copies an
+# older backup unit made, as they age.
+[Unit]
+Description=h9web backup
+
+[Service]
+Type=oneshot
+User=h9web
+UMask=0077
+ExecStart=/usr/bin/node /opt/h9web/bin/h9web-backup.js --config /etc/h9web/config.json backup --out /var/lib/h9web/backups --keep 14
+ExecStartPost=/usr/bin/find /var/lib/h9web/backups -name "h9web-*.db" -mtime +14 -delete

@@ -66,11 +66,25 @@ native ts_wpnlogtoid(const logname[]);
 native ts_getusercash( index );
 native ts_setusercash( index, money );
 
+/* Gets or sets a player's free slots. His move speed follows them, as it does when the game
+ * changes them. */
 native ts_getuserslots( index );
 native ts_setuserslots( index, slots );
 
 native ts_getuserstate( index );
 native ts_getuserwpn( index,&clip=0,&ammo=0,&mode=0,&extra=0 );
+
+/* Gets or sets a player's ammo for a weapon, by The Specialists 3.0 weapon id (36 is the
+ * Contender there; kung fu has no ammo): for a gun, the spare rounds of its caliber, which every
+ * gun of that caliber reloads from, up to the most the game lets a player carry (set by the
+ * ammocount cvar); for the grenade and the knives, how many the player carries (at least 1, only
+ * if he has the weapon, and each one takes free slots, which set his move speed).
+ * The player's HUD follows as it does for the game's own changes.
+ * ts_setuserammo returns 1 if it set the amount, 0 otherwise (the player has no gun or not that
+ * grenade or knife, not enough free slots, a weapon without ammo). */
+native ts_getuserammo( index,weapon );
+native ts_setuserammo( index,weapon,ammo );
+
 native ts_getuserspace( index );
 
 native ts_getuserkillflags(killer);
@@ -109,8 +123,8 @@ stock ts_has_armor(id) {
 	return (ts_getuserpwup(id) &TSPWUP_ARMOR);
 }
 
-/* Function will create pwup entity and return its index (pwupent) */
-native ts_createpwup( pwup );
+/* Function will create pwup entity at origin and return its index (pwupent) */
+native ts_createpwup( pwup, const Float:origin[3] = {0.0, 0.0, 0.0} );
 
 native ts_givepwup( index,pwupent );
 
@@ -162,9 +176,11 @@ stock ts_is_theone(id) {
 }
 
 // Return one on true, 0 on false
-// UNAVAILABLE IN 1.70
-native ts_has_superjump(id);					//!
-native ts_has_fupowerup(id);					//!
+native ts_has_superjump(id);
+native ts_has_fupowerup(id);
+
+// Returns the game time (a Float) the slow motion the player runs ends at: his ts_set_speed, or
+// his slow motion or slow pause powerup. 0 if he runs none.
 native ts_is_in_slowmo(id);
 
 // Get and set consecutive frags
@@ -172,21 +188,26 @@ native ts_is_in_slowmo(id);
 //native ts_get_cons_frags(id);
 //native ts_set_cons_frags(id,num);
 
-// Set to see cool bullet trails. Only id will see them.
+// Set to see cool bullet trails. Only id will see them. This is the game's bullet time flag,
+// which its slow pause powerup sets and clears.
 native ts_set_bullettrail(id,yesorno);
 
-// Sets fake versions of slow mo and slow pause. Use ts_set_speed for more options.
+// Runs slow motion or slow pause for time seconds, as if the player had picked up the powerup
+// and used it. Use ts_set_speed for more options.
 native ts_set_fakeslowmo(id,Float:time);
 native ts_set_fakeslowpause(id,Float:time);
 
 /* Sets speed artificially. 1.0 is default, Go into fractions and decimals for slower
-* and put in higher numbers for higher speeds. Aura is how far things around you are effected
-* Time is the time until it wears off. 0.0 for speed will freeze people. Do not use negatives. */
+* and put in higher numbers for higher speeds. Aura is how far (in units) players around you are
+* effected, Time is the time until it wears off. 0.0 for speed will freeze people (so does
+* anything below 0.1). Negatives are an error. As with the game's own slow motion, grenades in the
+* aura are slowed too, and so are thrown knives and dropped guns while they move. */
 
 native ts_set_speed(id,Float:speed,Float:auradist,Float:time);
 
-/* Sets physics speed artificially. Things like sparks and sounds will be effected.
-* Any negative number will render all physics paused. */
+/* Sets physics speed artificially. Things like sparks and sounds will be effected: this is the
+* slow motion amount the game sends the player's client, which plays them at that rate. His own
+* movement keeps its speed. The game sets it again when slow motion reaches or leaves him. */
 native ts_set_physics_speed(id,Float:speed);
 
 // Returns 0 if no powerup is running. Returns the powerup type otherwise.

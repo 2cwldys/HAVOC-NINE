@@ -1,16 +1,18 @@
-# h9_userid.ps1 -- makes this install's client id once, and turns it into what the engine reads.
+# h9_userid.ps1 -- this install's client id: what the launcher still does for it, and the old ways
+# of changing it by hand.
 #
-# h9xash.bat runs this before HAVOC 9.exe starts. It writes:
-#   user_id.ini              this install's id, made once and kept after that (unless
-#                             h9_regenerate_userid.bat is run, or -Force is passed here)
-#   ts\userid_resolved.cfg   cl_h9_userid, set from user_id.ini, run by ts\userconfig.cfg
+# The engine owns the id now (engine-h9-link.patch, docs\CUSTOM_XASH_USERID.txt): it keeps it in
+# user_id.ini protected for this Windows user, reads it itself, makes it when there is none, and
+# links it to a havoc9.org account from the main menu (Link your Account). So on every launch
+# (h9xash.bat runs this before HAVOC 9.exe starts) this script only clears the id out of the plain
+# text files older builds left it in:
+#   ts\userid_resolved.cfg   written again with no id in it (ts\userconfig.cfg still runs it: the
+#                            web client writes its own copy there)
+#   ts\config.cfg            any cl_h9_userid line taken out, everything else left as it is
 #
-# -SetId <id> (enter_userid.cmd) puts the player id of the player's havoc9.org account in
-# user_id.ini instead, so servers see this install and the web client as the same player.
-# The id it replaces is kept in user_id.ini.bak.
-#
-# The raw id in user_id.ini is never sent to a server as-is -- the engine salts it
-# per destination server before it goes out. See docs\CUSTOM_XASH_USERID.txt.
+# -SetId <id> (enter_userid.cmd) puts a player id in user_id.ini as a plain id= line, beside the
+# protected records already there; the game takes it and protects it at its next start.
+# -Force (h9_regenerate_userid.bat) deletes user_id.ini: the game makes a new id at its next start.
 #
 # A failure never stops the game. Written for Windows PowerShell 5.1.
 
@@ -25,7 +27,10 @@ $Root = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\')
 $TsDir = Join-Path $Root 'ts'
 $IniPath = Join-Path $Root 'user_id.ini'
 $Utf8 = New-Object System.Text.UTF8Encoding $false
-$Banner = '// Written by h9_userid.ps1 from user_id.ini on every launch. Do not edit here.'
+$Resolved = @(
+	'// Written by h9_userid.ps1 on every launch. Do not edit here.',
+	'// The engine reads this install''s id from user_id.ini itself, protected: nothing to set here.'
+)
 
 function Write-Note([string]$Text)
 {
@@ -37,9 +42,11 @@ function Write-Warn([string]$Text)
 	Write-Host "[h9-uid] WARNING: $Text" -ForegroundColor Yellow
 }
 
-function Read-StoredId([string]$Path)
+# the protected= lines under [client], as they are
+function Read-Protected([string]$Path)
 {
-	if (-not (Test-Path -LiteralPath $Path)) { return $null }
+	$kept = @()
+	if (-not (Test-Path -LiteralPath $Path)) { return $kept }
 	$section = ''
 	foreach ($raw in [System.IO.File]::ReadAllLines($Path))
 	{
@@ -48,34 +55,15 @@ function Read-StoredId([string]$Path)
 		if ($line -match '^\[(.+)\]$') { $section = $Matches[1].Trim().ToLowerInvariant(); continue }
 		if ($section -ne 'client') { continue }
 		$eq = $line.IndexOf('=')
-		if ($eq -ge 1 -and $line.Substring(0, $eq).Trim().ToLowerInvariant() -eq 'id')
+		if ($eq -ge 1 -and $line.Substring(0, $eq).Trim().ToLowerInvariant() -eq 'protected')
 		{
-			return $line.Substring($eq + 1).Trim()
+			$kept += $line.Substring($eq + 1).Trim()
 		}
 	}
-	return $null
+	return $kept
 }
 
-function Write-StoredId([string]$Path, [string]$Id)
-{
-	$lines = @(
-		"; user_id.ini -- this install's regenerable client id. Made once, on first run.",
-		'; NOT a hardware fingerprint: a plain random value you can throw away and replace',
-		'; any time with h9_regenerate_userid.bat. The engine never sends this value as-is',
-		'; to a server -- see docs\CUSTOM_XASH_USERID.txt. It may instead be the player id',
-		'; of your havoc9.org account, put here by enter_userid.cmd or by hand.',
-		'',
-		'[client]',
-		"id=$Id"
-	)
-	[System.IO.File]::WriteAllText($Path, (($lines -join "`r`n") + "`r`n"), $Utf8)
-}
-
-# ---- main ------------------------------------------------------------------------
-$id = $null
-try { $id = Read-StoredId $IniPath } catch { $id = $null }
-$valid = $id -and ($id -match '^[0-9a-f]{32}$')
-
+# ---- -SetId: enter_userid.cmd ---------------------------------------------------------
 if ($PSBoundParameters.ContainsKey('SetId'))
 {
 	# a pasted id may carry spaces, quotes or capitals; the engine salts the lowercase text
@@ -85,52 +73,74 @@ if ($PSBoundParameters.ContainsKey('SetId'))
 		Write-Warn 'that is not a player id: it is 32 characters, 0-9 and a-f (havoc9.org, ACCOUNT). Nothing was changed.'
 		exit 1
 	}
-	if ($valid -and $id -eq $new)
-	{
-		Write-Note 'this install already uses that id.'
-	}
-	else
-	{
-		if (Test-Path -LiteralPath $IniPath)
-		{
-			Copy-Item -LiteralPath $IniPath -Destination "$IniPath.bak" -Force
-			Write-Note 'the id it replaces is kept in user_id.ini.bak.'
-		}
-		Write-StoredId $IniPath $new
-		Write-Note 'id saved to user_id.ini: servers now see this install as the same player as your havoc9.org account.'
-	}
-	$id = $new
-}
-elseif ($Force -or -not $valid)
-{
-	if ($Force) { Write-Note 'making a new id (-Force).' }
-	elseif ($id) { Write-Warn "user_id.ini's id looked wrong -- making a new one." }
-	else { Write-Note 'no user_id.ini yet -- making this install''s id.' }
-
-	$id = [guid]::NewGuid().ToString('N')
 	try
 	{
-		Write-StoredId $IniPath $id
-		Write-Note 'id saved to user_id.ini.'
+		$lines = @(
+			'; user_id.ini -- this install''s client id. The engine reads and writes this file.',
+			'; The id= line below was put here by enter_userid.cmd: the game takes it and protects',
+			'; it at its next start. See docs\CUSTOM_XASH_USERID.txt.',
+			'',
+			'[client]',
+			"id=$new"
+		)
+		foreach ($p in (Read-Protected $IniPath)) { $lines += "protected=$p" }
+		[System.IO.File]::WriteAllText($IniPath, (($lines -join "`r`n") + "`r`n"), $Utf8)
+		Write-Note 'id saved to user_id.ini. The game protects it at its next start, and servers then see this install as that player.'
+		Write-Note 'Easier next time: Link your Account in the game''s main menu, with no id to paste.'
 	}
 	catch
 	{
-		Write-Warn "could not write user_id.ini: $($_.Exception.Message). Using this id for this launch only."
+		Write-Warn "could not write user_id.ini: $($_.Exception.Message). Nothing was changed."
+		exit 1
 	}
-}
-else
-{
-	Write-Note 'using the id already in user_id.ini.'
+	exit 0
 }
 
+# ---- -Force: h9_regenerate_userid.bat --------------------------------------------------
+if ($Force)
+{
+	try
+	{
+		if (Test-Path -LiteralPath $IniPath) { Remove-Item -LiteralPath $IniPath -Force }
+		Write-Note 'user_id.ini deleted: the game makes a new id at its next start, not linked to any account.'
+	}
+	catch
+	{
+		Write-Warn "could not delete user_id.ini: $($_.Exception.Message). Nothing was changed."
+		exit 1
+	}
+	exit 0
+}
+
+# ---- every launch: no id left in plain text where older builds put it ------------------
 try
 {
 	New-Item -ItemType Directory -Force -Path $TsDir | Out-Null
-	[System.IO.File]::WriteAllText((Join-Path $TsDir 'userid_resolved.cfg'),
-		(($Banner, "cl_h9_userid `"$id`"") -join "`r`n") + "`r`n", $Utf8)
+	[System.IO.File]::WriteAllText((Join-Path $TsDir 'userid_resolved.cfg'), (($Resolved -join "`r`n") + "`r`n"), $Utf8)
 }
 catch
 {
-	Write-Warn "could not write ts\userid_resolved.cfg: $($_.Exception.Message). The engine will have no id this launch."
+	Write-Warn "could not write ts\userid_resolved.cfg: $($_.Exception.Message)."
+}
+
+$Config = Join-Path $TsDir 'config.cfg'
+try
+{
+	if (Test-Path -LiteralPath $Config)
+	{
+		# byte for byte: Latin-1 maps every byte to one character and back, whatever the file holds
+		$latin = [System.Text.Encoding]::GetEncoding(28591)
+		$text = $latin.GetString([System.IO.File]::ReadAllBytes($Config))
+		$clean = [regex]::Replace($text, '(?im)^[ \t]*cl_h9_userid\b[^\r\n]*(\r?\n)?', '')
+		if ($clean -ne $text)
+		{
+			[System.IO.File]::WriteAllBytes($Config, $latin.GetBytes($clean))
+			Write-Note 'took the id out of ts\config.cfg: the engine keeps it protected in user_id.ini.'
+		}
+	}
+}
+catch
+{
+	Write-Warn "could not read or write ts\config.cfg: $($_.Exception.Message)."
 }
 exit 0

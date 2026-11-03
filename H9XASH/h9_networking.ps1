@@ -113,12 +113,118 @@ function Start-Broker([string]$AppId, [string]$BrowseId)
 	return $proc
 }
 
+# networking.ini from before the H9 list was hosted shipped list_bot= empty, under the comment
+# in $OldListBot. A file that still has that comment with list_bot= still empty gets the hosted
+# list, comment and value together, kept in the file's own line ends. Any other list_bot, the
+# player's own value or a blank under any other comment, stays as it is. Once moved the old
+# comment is gone, so this changes a file once and never again: running it on every launch is
+# safe.
+$OldListBot = @(
+	'; The H9 list from the list bot (serverlist-bot\ in the TSM repo): its public address,',
+	'; once it is hosted. A local test address left here makes the Internet tab report',
+	'; "cannot connect" whenever that bot is not running.'
+)
+$NewListBot = @(
+	'; The H9 list from the list bot (serverlist-bot\ in the TSM repo), hosted at havoc9.org',
+	'; behind its HTTPS. To try a list bot running on this PC instead, set',
+	'; list_bot=http://127.0.0.1:8081 (the port in its serverlist.ini), and set it back after:',
+	'; while that bot is not running, the Internet tab reports "cannot connect".',
+	'list_bot=https://havoc9.org/serverlist'
+)
+
+function Update-OldListBot([string]$Path)
+{
+	if (-not (Test-Path -LiteralPath $Path)) { return }
+	$text = [System.IO.File]::ReadAllText($Path)
+	$nl = "`n"
+	if ($text.Contains("`r`n")) { $nl = "`r`n" }
+	$pattern = '(?m)^' + (($OldListBot | ForEach-Object { [regex]::Escape($_) + '[ \t]*\r?\n' }) -join '') + 'list_bot=[ \t]*(?=\r?$)'
+	$m = [regex]::Match($text, $pattern)
+	if (-not $m.Success) { return }
+	$text = $text.Substring(0, $m.Index) + ($NewListBot -join $nl) + $text.Substring($m.Index + $m.Length)
+	$tmp = $Path + '.tmp'
+	[System.IO.File]::WriteAllText($tmp, $text, (New-Object System.Text.UTF8Encoding $false))
+	Move-Item -LiteralPath $tmp -Destination $Path -Force
+	Write-Note 'networking.ini: list_bot now points at the hosted H9 list, https://havoc9.org/serverlist.'
+}
+
+# networking.ini from before a setting was shipped has not got it: port= under [server], or
+# priority= under [process]. Each one missing gets the shipped file's own lines for it, comment
+# and default together, at the end of its section, or the section with them at the end of the
+# file when it has none, in the file's own line ends. A key already there, whatever its value,
+# stays as it is, so each changes a file once and never again.
+$PortLines = @(
+	'; The UDP port a server started here takes: a dedicated one (h9xash_server.bat and',
+	'; h9xash_server_debug.bat, whose heartbeat names it too) and Create Game (h9xash.bat and',
+	'; h9xash.sh pass it to the game). 27015 is the default; change it to run two servers on one',
+	'; PC, or for a network that blocks 27015, and open it in the firewall and the router. A',
+	'; -port given on a launcher''s own command line wins.',
+	'port=27015'
+)
+
+$PriorityLines = @(
+	'; The priority h9xash.bat, h9xash_server.bat and h9xash_server_debug.bat start HAVOC 9.exe at:',
+	'; Normal, AboveNormal or High. AboveNormal when this line is missing or holds anything else.',
+	'; It matters only while the PC is busy: Windows then gives the game the CPU first, and other',
+	'; programs wait. High suits a PC that does nothing but host. Realtime runs as High: a busy game',
+	'; at Realtime holds back Windows'' own input, disk and network work. The game is never pinned to',
+	'; some cores; Windows runs it on any of them. h9xash.sh (Linux) does not read this line.',
+	'priority=AboveNormal'
+)
+
+function Add-MissingSetting([string]$Path, [string]$Section, [string]$Key, [string[]]$Lines)
+{
+	# the locals' names differ from the parameters': PowerShell's ignore case
+	if (-not (Test-Path -LiteralPath $Path)) { return }
+	$want = $Section.ToLowerInvariant()
+	$wantKey = $Key.ToLowerInvariant()
+	$text = [System.IO.File]::ReadAllText($Path)
+	$cr = ''
+	if ($text.Contains("`r`n")) { $cr = "`r" }
+	if ($text -ne '' -and -not $text.EndsWith("`n")) { $text += $cr + "`n" }
+	# split at LF only: each line keeps its CR, and joined with LF they are the file again
+	$rows = New-Object System.Collections.Generic.List[string]
+	$rows.AddRange([string[]]($text -split "`n"))
+	$current = ''
+	$hasSection = $false
+	$after = -1
+	for ($i = 0; $i -lt $rows.Count; $i++)
+	{
+		$row = $rows[$i].Trim()
+		if ($row -match '^\[(.+)\]$')
+		{
+			$current = $Matches[1].Trim().ToLowerInvariant()
+			if ($current -eq $want) { $hasSection = $true; $after = $i }
+			continue
+		}
+		if ($current -ne $want -or $row -eq '' -or $row.StartsWith(';') -or $row.StartsWith('#')) { continue }
+		$eq = $row.IndexOf('=')
+		if ($eq -lt 1) { continue }
+		if ($row.Substring(0, $eq).Trim().ToLowerInvariant() -eq $wantKey) { return }
+		$after = $i
+	}
+	$add = @()
+	if ($text.Trim() -ne '') { $add += '' }
+	if (-not $hasSection) { $add += '[' + $Section + ']' }
+	$add += $Lines
+	$at = $after + 1
+	if (-not $hasSection) { $at = $rows.Count - 1 }
+	$rows.InsertRange($at, [string[]]($add | ForEach-Object { $_ + $cr }))
+	$tmp = $Path + '.tmp'
+	[System.IO.File]::WriteAllText($tmp, ($rows -join "`n"), (New-Object System.Text.UTF8Encoding $false))
+	Move-Item -LiteralPath $tmp -Destination $Path -Force
+	Write-Note ('networking.ini: ' + $Lines[-1] + ' added under [' + $Section + '].')
+}
+
 # ---- main ------------------------------------------------------------------------
 $brokerProc = $null
 $lists = New-Object System.Collections.ArrayList
 try
 {
 	New-Item -ItemType Directory -Force -Path $TsDir | Out-Null
+	try { Update-OldListBot (Join-Path $Root 'networking.ini') } catch { Write-Warn "networking.ini could not be moved to the hosted list: $($_.Exception.Message)" }
+	try { Add-MissingSetting (Join-Path $Root 'networking.ini') 'server' 'port' $PortLines } catch { Write-Warn "networking.ini could not be given its port line: $($_.Exception.Message)" }
+	try { Add-MissingSetting (Join-Path $Root 'networking.ini') 'process' 'priority' $PriorityLines } catch { Write-Warn "networking.ini could not be given its priority line: $($_.Exception.Message)" }
 	$ini = Read-Ini (Join-Path $Root 'networking.ini')
 
 	foreach ($key in @('list_static', 'list_bot'))

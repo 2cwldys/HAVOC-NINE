@@ -852,6 +852,11 @@ h1, h2, h3, h4 {
   margin: 0 auto 2rem;
 }
 
+.presence-now .h9p-quiet,
+.presence-now .h9p-online {
+  text-align: center;
+}
+
 .sub-title {
   font-family: var(--font-display);
   font-size: 1.1rem;
@@ -1417,6 +1422,55 @@ h1, h2, h3, h4 {
     background: rgba(10, 6, 8, 0.98);
     flex-direction: column;
     flex-wrap: nowrap;
+    padding: 5rem 2rem 2rem;
+    gap: 1.5rem;
+    border-left: 1px solid var(--border);
+    transition: right 0.3s ease;
+    z-index: 999;
+  }
+
+  .nav .nav-links.open {
+    right: 0;
+  }
+}
+
+/* ========== NAV: A WIDER BAR THAN THE PAGE ========== */
+/* With FORUM, COMMUNITY and the account's own links the nav fills a 1200px bar, so the bar is
+   1500px wide, wider than the page below it: the logo sits further left, never squeezed, with room
+   before the links. Below 1240px, where the links would no longer fit on one line, the menu
+   button takes over. */
+.nav-inner {
+  max-width: 1500px;
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+
+.logo {
+  flex-shrink: 0;
+  margin-right: 2.5rem;
+}
+
+@media (min-width: 1241px) {
+  .nav .nav-links {
+    column-gap: clamp(1rem, 1.3vw, 1.6rem);
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1240px) {
+  .nav-toggle {
+    display: flex;
+  }
+
+  .nav .nav-links {
+    position: fixed;
+    top: 0;
+    right: -100%;
+    width: min(280px, 80vw);
+    height: 100vh;
+    background: rgba(10, 6, 8, 0.98);
+    flex-direction: column;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
     padding: 5rem 2rem 2rem;
     gap: 1.5rem;
     border-left: 1px solid var(--border);

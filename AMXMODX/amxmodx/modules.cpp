@@ -32,6 +32,7 @@
 #include "CDataPack.h"
 #include "CGameConfigs.h"
 #include <amtl/os/am-path.h>
+#include <amtl/am-hashmap.h>
 
 ke::InlineList<CModule> g_modules;
 ke::InlineList<CScript> g_loadedscripts;
@@ -773,6 +774,10 @@ bool ConvertModuleName(const char *pathString, char *path)
 				{
 					foundAmxx = true;
 					break;
+				} else if (strncmp(p, "aarch64.so", 10) == 0)
+				{
+					foundAmxx = true;
+					break;
 				} else if (p[0] == 'i') {
 					p++;
 					if (isdigit(p[0]) && p[1] == '8' && p[2] == '6')
@@ -808,7 +813,9 @@ bool ConvertModuleName(const char *pathString, char *path)
 	auto length = ke::path::Format(path, PLATFORM_MAX_PATH, "%s/%s_amxx", orig_path, tmpname);
 
 #if defined PLATFORM_LINUX
-# if defined AMD64 || PAWN_CELL_SIZE == 64
+# if defined(__aarch64__)
+	length += strncopy(path + length, "_aarch64", PLATFORM_MAX_PATH - length);
+# elif defined AMD64 || PAWN_CELL_SIZE == 64
 	length += strncopy(path + length, "_amd64", PLATFORM_MAX_PATH - length);
 # else
 	length += ke::SafeSprintf(path + length, PLATFORM_MAX_PATH - length, "_i%c86", iDigit);
@@ -1751,6 +1758,70 @@ IGameConfigManager *MNF_GetConfigManager()
 	return &ConfigManager;
 }
 
+// Pointers that modules hand to plugins (TraceResult and the like) go through
+// one table so a handle from one module resolves in another. A cell holds a
+// pointer on 32-bit, so there the handle is the pointer itself. On 64-bit it is
+// a stable 1-based index: the same pointer always gets the same handle, and
+// handles are never reused, like the raw pointers they stand for.
+//
+// Lifetime: the table names addresses, it owns nothing. Whoever owns the memory
+// frees it (fakemeta's free_tr2 returns a TraceResult to its pool, which keeps
+// the address and so the handle). A handle a hook or forward passes for the
+// game's own TraceResult names that object only while the hook runs; after it
+// returns the handle still resolves to the same address, exactly as the raw
+// pointer did, and must not be used. Entries are kept for the server's lifetime,
+// one per distinct address ever handed out.
+#if !defined(__i386__) && !defined(_M_IX86)
+static ke::Vector<void *> g_PointerHandles;
+static ke::HashMap<void *, cell, ke::PointerPolicy<void>> g_PointerHandleLookup;
+#endif
+
+cell MNF_PointerToHandle(void *ptr)
+{
+#if defined(__i386__) || defined(_M_IX86)
+	return reinterpret_cast<cell>(ptr);
+#else
+	if (!ptr)
+	{
+		return 0;
+	}
+
+	static bool initialized = g_PointerHandleLookup.init();
+
+	if (!initialized)
+	{
+		return 0;
+	}
+
+	auto i = g_PointerHandleLookup.findForAdd(ptr);
+
+	if (i.found())
+	{
+		return i->value;
+	}
+
+	g_PointerHandles.append(ptr);
+	cell handle = static_cast<cell>(g_PointerHandles.length());
+	g_PointerHandleLookup.add(i, ptr, handle);
+
+	return handle;
+#endif
+}
+
+void *MNF_HandleToPointer(cell handle)
+{
+#if defined(__i386__) || defined(_M_IX86)
+	return reinterpret_cast<void *>(handle);
+#else
+	if (handle <= 0 || static_cast<size_t>(handle) > g_PointerHandles.length())
+	{
+		return nullptr;
+	}
+
+	return g_PointerHandles[handle - 1];
+#endif
+}
+
 void Module_CacheFunctions()
 {
 	REGISTER_FUNC("BuildPathname", build_pathname)
@@ -1764,6 +1835,8 @@ void Module_CacheFunctions()
 	REGISTER_FUNC("RegisterFunction", MNF_RegisterFunction);
 	REGISTER_FUNC("RegisterFunctionEx", MNF_RegisterFunctionEx);
 	REGISTER_FUNC("GetConfigManager", MNF_GetConfigManager);
+	REGISTER_FUNC("PointerToHandle", MNF_PointerToHandle);
+	REGISTER_FUNC("HandleToPointer", MNF_HandleToPointer);
 
 	// Amx scripts loading / unloading / managing
 	REGISTER_FUNC("GetAmxScript", MNF_GetAmxScript)

@@ -154,7 +154,8 @@ async def watch_server(bot):
 
 class Bot(discord.Client):
     def __init__(self, cfg):
-        super().__init__(intents=discord.Intents.default())
+        # Nothing the bot writes pings anyone unless a message says so (the advert names its role).
+        super().__init__(intents=discord.Intents.default(), allowed_mentions=discord.AllowedMentions.none())
         self.cfg = cfg
         self.tree = app_commands.CommandTree(self)
         self.rsvp = load_rsvp()
@@ -314,11 +315,16 @@ class RsvpView(discord.ui.View):
         await self.answer(interaction, False)
 
 
+def shown(text):
+    """Text a game server or a player chose, as it goes into a Discord message: no markdown, no mentions."""
+    return discord.utils.escape_markdown(discord.utils.escape_mentions(str(text or "")))
+
+
 def build_embed(cfg, info, players, organiser=None):
     """The same embed the plugin builds, so an advert looks the same whoever posted it."""
     title = "Someone is looking for a match"
     if organiser:
-        desc = f"{organiser} is organising a match"
+        desc = f"{shown(organiser)} is organising a match"
     else:
         desc = "A match is being organised"
 
@@ -329,12 +335,12 @@ def build_embed(cfg, info, players, organiser=None):
 
     humans = [p for p in players if p.name]
     bots = max(0, info.bot_count)
-    embed.add_field(name="Map", value=info.map_name, inline=True)
+    embed.add_field(name="Map", value=shown(info.map_name), inline=True)
     embed.add_field(name="Players", value=f"{max(0, info.player_count - bots)} / {info.max_players}", inline=True)
     if bots:
         embed.add_field(name="Bots", value=str(bots), inline=True)
     if humans:
-        embed.add_field(name="On now", value=", ".join(p.name for p in humans[:20]), inline=False)
+        embed.add_field(name="On now", value=", ".join(shown(p.name) for p in humans[:20]), inline=False)
 
     connect = cfg.get("tsm_ad_connect", "").strip()
     if connect:
@@ -361,10 +367,10 @@ def main():
         info, players = got
         named = [p for p in players if p.name]
         if not named:
-            await interaction.followup.send(f"Nobody on **{info.server_name}** ({info.map_name}).")
+            await interaction.followup.send(f"Nobody on **{shown(info.server_name)}** ({shown(info.map_name)}).")
             return
-        lines = "\n".join(f"  {p.name} -- {int(p.score)}" for p in sorted(named, key=lambda q: -q.score))
-        await interaction.followup.send(f"**{info.server_name}** on `{info.map_name}`\n{lines}")
+        lines = "\n".join(f"  {shown(p.name)} -- {int(p.score)}" for p in sorted(named, key=lambda q: -q.score))
+        await interaction.followup.send(f"**{shown(info.server_name)}** on {shown(info.map_name)}\n{lines}")
 
     @bot.tree.command(name="status", description="What the game server is doing")
     async def status(interaction: discord.Interaction):

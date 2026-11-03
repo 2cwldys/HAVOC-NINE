@@ -34,10 +34,12 @@
     4. Setting up a game server
    4a. Enrollment: a server's key, by itself
    4b. What the answer to a report says
+   4c. Accounts-only servers (h9_require_account)
     5. What the site shows: the states
     6. The privacy switches
     7. Privacy: what is kept, for how long, and who sees it
     8. The id proof: challenge and response (the engine's side)
+   8a. Create Game: a listen server, its own player and its key
     9. Devices, two places at once, and the admin panel's hooks
    10. Names in game
    11. What this protects against, and what it does not
@@ -83,11 +85,20 @@
  havoc9.org account has a player id of the same shape. A player whose game
  uses the account's player id is that account to every H9 server:
    * in the browser, the web client uses it by itself;
-   * in the downloaded game, run enter_userid.cmd in the H9XASH folder and
-     paste the player id from the ACCOUNT page (COPY on its PLAYER ID line).
-     It takes effect on the next launch.
+   * in the downloaded game, Link your Account in the main menu (or .link in
+     chat on an H9 server, h9_link.sma) shows a code; approved on
+     havoc9.org/link, the game is handed the player id and keeps it protected
+     (docs\CUSTOM_XASH_USERID.txt, section 2a). The older way still works:
+     enter_userid.cmd in the H9XASH folder, with the player id from the
+     ACCOUNT page (COPY on its PLAYER ID line), from the next launch.
  A player who keeps H9XASH's own random id is not an account and is never
  tracked. Nothing is stored about them.
+
+ A completed link is also an event on h9web's core (h9web\README.txt, section
+ 13): account-link { id, link, device } and account-unlink { id, link, device,
+ reason }, device being the game's device hash in this module's own form
+ (section 9). The presence module does not act on them today: a linked game's
+ device is bound or refused by its first proof, as any other.
 
  The id is salted with the address the game connected to, which must be the
  address the server enrolled with (with a hand-made key, the one servers.json
@@ -131,8 +142,10 @@
       hostname.
    5. nginx: nothing new. Reports, enrollment and the communities' calls go to
       /api/presence/..., which the existing location /api/ already passes on
-      (client_max_body_size 64k is plenty: a full 32-player report is about
-      10 KB; proxy_read_timeout 30s covers the communities' 20-second
+      (client_max_body_size 128k: a full 32-player report is about 10 KB, and
+      h9_presence's report is at most about 82 KiB, every one of 128 slots at
+      its largest; h9web's own limit, the presence module's maxBodyBytes, is
+      128 KiB. proxy_read_timeout 30s covers the communities' 20-second
       long-poll). Keep trustProxy on, so h9web sees each server's own
       address, and let the VPS send UDP to the game servers: enrollment reads
       their rules.
@@ -155,9 +168,14 @@
    inGameNames           true: answer a server that asks for names (section 10)
    siteActiveSeconds     300: how recent a signed-in request is "on the site"
    sessionTimeoutSeconds 180, rejoinSeconds 120, maxCreditSeconds 150,
-   clockSkewSeconds 120, proofMaxAgeSeconds 86400,
+   clockSkewSeconds 120, proofMaxAgeSeconds 600,
    sessionRetentionDays 90, netRetentionDays 30, flagRetentionDays 90,
    batchMax 50, cacheSeconds 15, mapPicturesDir, mapPicturesUrl
+   defaultPicture        null: the scoreboard's picture for an account with
+                         none is modules\presence\default-picture.png, the
+                         site's default; or the absolute path of a PNG or GIF
+   webClientSeconds      180: how long the web client's page counts as open
+                         after it last said so (it says so every minute)
    enrollSameIp          true: a server enrolls only the address its request
                          comes from
    enrollAutoApprove     false: a proven server not on servers.json waits for
@@ -166,7 +184,8 @@
    enrollProbeTimeoutMs 2500
    limits                reportPerIp, reportPerServer, readPerIp,
                          settingsPerAccount, adminPerAccount, enrollPerIp,
-                         enrollPerAddress
+                         enrollPerAddress, gamePicturePerAccount (20 an
+                         hour), webClientPerAccount (10 a minute)
  The communities' settings and limits: docs\H9_COMMUNITIES.txt, section 11.
 
  4. SETTING UP A GAME SERVER
@@ -282,10 +301,91 @@
           spaces and . , : ! ? ( ) -
    mute   the plugin drops the player's say and say_team (and so
           h9_community's .relay) until an answer no longer says so
+   proven   [slot, ...]: the slots that proved a havoc9.org account (section 4c)
+   avatars  { "<slot>": { "a": account, "v": version } } for each proven player.
+          The plugin sends it to every client in the H9Avatar message; H9XASH
+          (engine-h9-avatars.patch) fetches
+          https://havoc9.org/api/presence/avatar/<a>/<v>.png, a 64 x 64 PNG, for
+          the scoreboard (docs\PLAYER_LIMIT_128.txt 11.7), and keeps it.
+ The scoreboard's picture, slot by slot:
+   * An account with a picture gets their picture: the middle square of their
+     forum profile picture at 64 x 64. h9web makes it from a PNG or a GIF (its
+     first frame); a JPEG or WebP picture is decoded by its owner's browser,
+     which the ACCOUNT page has make the 64 x 64 PNG and send it (POST
+     /api/presence/avatar, checked as a PNG of exactly 64 x 64 and kept with
+     that picture's version), right after the upload, or the next time the
+     owner opens the ACCOUNT page for a picture uploaded before.
+   * An account with no picture gets the site's default picture, the one the
+     forum and the site show for it (havoc9.org\assets\avatar-default.png;
+     the module keeps a copy, modules\presence\default-picture.png, which a
+     test holds to the site's). It goes under one address for everybody,
+     account 2147483647 and a version that changes only when the picture does,
+     so every game fetches it once. So does a JPEG or WebP picture until its
+     copy has come.
+   * The silhouette is for players with no havoc9.org account, and for
+     players who cannot be proven: a game that did not prove the player id
+     (section 8), and Steam clients.
+ The link icon, slot by slot: a small, half-transparent icon over the lower
+ right corner of each row's picture (the whole picture in the shortest rows,
+ 8 to 12 pixels), drawn by H9's client.dll (reTS):
+   * a green chain: a proven havoc9.org account on this server -- the same
+     players the answer's "avatars" names, their own picture or the default;
+     h9_presence tells every client in the H9Link user message (byte slot,
+     byte 1 linked, 0 not, 2 a bot), a joining client the whole table;
+   * a red broken chain: anyone else -- no account, a game that did not prove
+     the player id, a Steam client; on a server without h9_presence, everyone;
+   * H9's helmet in grey: a bot, never a chain. h9_presence says which slots
+     are bots (H9Link 2, from is_user_bot: RCBot's bots carry no *bot key on
+     Xash); on a server without it, *bot 1 in the userinfo still counts.
+ A double-click on a picture with a green chain (a first click brings up the
+ pointer) opens that player's havoc9.org profile in the web browser, your own
+ row's yours. H9XASH's h9_profile <slot> (engine-h9-avatars.patch) opens
+ <site>/api/link/profile/<account>: the site is the game's own (havoc9.org, or
+ cl_h9_site's test site), the account the number the server named for that
+ picture, so a server gives a number and nothing else. h9web sends the browser on
+ to the account's forum profile, whose card shows only what the account's
+ switches let others see (section 6). A player with the site's default picture
+ comes as account 2147483647, everybody's, so no profile opens for them. A single
+ click on such a picture mutes nobody; the rest of the row mutes as before. On
+ an engine without h9_profile (Steam's) the picture mutes like any other cell.
+ Steam (GoldSrc) players with H9's client.dll see the same icons: green for
+ the proven H9XASH players, red for the rest. A GoldSrc game cannot prove its
+ own id, so its own row is always red. cl_h9_linkicons 0 in a client leaves
+ the icons out. The icons are ts\gfx\vgui\h9_link.tga, h9_unlink.tga and
+ h9_bot.tga, 64 x 64 TGA with alpha, H9's own drawing and H9's helmet
+ (havoc9.org\h9helmet.png) in grey (tools\make_link_icons.py makes them; the
+ main menu may use the same files); a client without them draws no icon.
  For h9_community.amxx and other plugins, h9_presence also offers natives
  (include\h9_community.inc): h9p_ready, h9p_server, h9p_server_id, h9p_api,
  h9p_sign (the live key's signature of a body; the key never leaves the
- plugin), h9p_nonce, h9p_report_soon and h9p_muted.
+ plugin), h9p_nonce, h9p_report_soon, h9p_muted and h9p_challenge, and the
+ h9p_proof forward.
+
+ 4c. ACCOUNTS-ONLY SERVERS (H9_REQUIRE_ACCOUNT)
+ ---------------------------------------------
+ h9_require_account 1 in a server's h9_presence.cfg (h9_presence 1.5) lets in
+ only games that prove a havoc9.org account:
+   * every game is challenged (section 8), whatever h9_presence_challenge says;
+   * a game that cannot prove an account -- no _h9idv 1 in its userinfo, or no
+     h9_clientid: a Steam client, an H9XASH from before the proof, a game with
+     no player id -- is kicked at once;
+   * any other gets h9_require_account_grace seconds (45; 10 to 300) and is
+     kicked if h9web has not counted it as a proven account by then (the
+     answer's "proven" slots, or its picture in "avatars").
+ The kick reads "This server requires a havoc9.org account: link your game
+ from the main menu". It fails open: while h9web has taken no report for two
+ report intervals (it is down, or the server has no key), and while h9web has
+ given a player no challenge, nobody is kicked for it, and the check comes
+ again a grace period later. The listen server's own player and bots are never
+ kicked for it. Switched on in the middle of a map, it reaches the players
+ already in at the next report tick. h9_presence_status says "accounts only:
+ on" or "off", and whether h9web is answering.
+ The cvar is FCVAR_SERVER, so it is in the server's rules (A2S_RULES, for the
+ site's lock icon), and an H9XASH server says auth 1 in its server-browser
+ answer while it is 1 (engine-h9-serverinfo.patch), for the browser's account
+ icon. A newly linked game (Link your Account) may prove its account at once:
+ h9web allows its device beside the account's bound one when it is linked
+ (core's account-link event), and takes it away when the link is revoked.
 
  5. WHAT THE SITE SHOWS: THE STATES
  ----------------------------------
@@ -296,8 +396,10 @@
         PLAYING ON <server> / <map> (<mode>) / <n> MIN
       with the map's picture where the site has one. "UNVERIFIED" is added
       when the game did not prove the player id (section 8).
-   2. IN THE WEB CLIENT: the web client is open (the relay has a socket for
-      the account) but on no listed server, in its menu.
+   2. IN THE WEB CLIENT: the web client's page is open, the game running or
+      not, on no listed server: the page says so every minute (POST
+      /api/presence/web; three minutes without, webClientSeconds, and it no
+      longer counts), and the relay's socket for the account counts too.
    3. ON THE SITE: the account made a signed-in request to havoc9.org in the
       last 5 minutes (any page load counts: every page asks who is signed in).
    4. OFFLINE: "LAST SEEN <time> AGO", or nothing when the player hides it.
@@ -381,35 +483,45 @@
  it can send it as theirs. So h9_clientid says who a player claims to be; the
  proof shows they hold the raw player id it was made from.
 
- Status: h9web and the plugin are built and tested; the engine side below is
- a spec for engine-h9-userid.patch, not yet written. Until it ships:
- h9_presence_challenge stays 0, no game sighting is proven, every one shows as
- unverified and counts for nothing (no playtime, badge, last seen or session),
- and web client players (verified by the relay) are the only ones counted.
+ Status: built. h9web, the plugin (h9_presence 1.3) and the engine
+ (engine-h9-idproof.patch, engine\client\cl_idproof.c) all have their part.
+ Turn h9_presence_challenge 1 on once the H9XASH build with the patch is the
+ one players have: until then an older game is never challenged (it has no
+ _h9idv), its sightings stay unverified and count for nothing (no playtime,
+ badge, last seen or session), and web client players (verified by the relay)
+ are the only ones counted.
 
  The exchange
    1. The client says it can answer: userinfo key _h9idv "1" (a key starting
       with "_" is not sent to other players), set when cl_h9_userid is set
       and the device id is available.
-   2. The plugin, at client_putinserver (and again every 6 hours), sends the
-      client one nonce, as a server command:
+   2. The plugin, at client_putinserver and again every 5 minutes, asks h9web
+      for a nonce (POST /api/presence/server/nonce, signed with the server's
+      key: 16 random bytes as 32 lowercase hex, kept with the server and the
+      time) and sends it to the client as a server command:
         h9_idchallenge <nonce>
-      nonce: 32 lowercase hex characters: the unix time it was made (8 hex)
-      and 24 random hex characters. A new one on every map, since the plugin
-      starts over.
+      A new one on every map, since the plugin starts over.
    3. The client answers with a client command, which only the server sees:
         h9_idproof <nonce> <devmask> <proof>
    4. The plugin takes an answer only to the nonce it gave that slot, once,
-      and puts nonce, devmask and proof in that player's entry in the next
-      report. h9web checks it with the account's player id.
+      and puts nonce, devmask and proof in that player's entry in every report
+      until the next answer replaces it. h9web checks it with the account's
+      player id. Every well-formed answer also goes to other plugins (the
+      h9p_proof forward), and h9p_challenge sends a plugin's own nonce
+      (include\h9_community.inc).
 
- The engine's side (engine-h9-userid.patch)
-   * A per-install device id: 16 random bytes from the OS (BCryptGenRandom on
-     Windows, getrandom on Linux), made on first use and kept in
-     H9XASH\device_id.ini ([device] id=<32 hex>), apart from user_id.ini.
+ The engine's side (engine-h9-idproof.patch, engine\client\cl_idproof.c)
+   * A per-install device id: 16 random bytes from the OS (RtlGenRandom on
+     Windows, from advapi32, which the engine already links; /dev/urandom
+     elsewhere), made on first use and kept in H9XASH\device_id.ini ([device]
+     then id=<32 hex>), apart from user_id.ini. A device_id.ini that holds no
+     valid id is left alone and the game answers no challenge.
      enter_userid.cmd and h9_regenerate_userid.bat never touch it; it is never
      sent anywhere in the clear. Deleting it makes a new device (section 9).
-     The .gitignore files ignore device_id.ini*.
+     The .gitignore files and the client package (stage-h9xash.ps1) leave
+     device_id.ini out.
+   * _h9idv is a cvar of the engine's (FCVAR_USERINFO, FCVAR_PRIVILEGED), 1
+     while the device id is there.
    * Register h9_idchallenge so that it runs when the server sends it with
      svc_stufftext, cl_filterstuffcmd 1 included. On it:
        - ignore it unless connected, cl_h9_userid is 32 hex and the nonce is
@@ -442,9 +554,81 @@
                   SHA-256("h9device1:" + the 16 bytes), first 32 hex)
 
  h9web's checks: the proof matches the account's player id for that server's
- address; the nonce was made no more than a day ago (proofMaxAgeSeconds); the
- device is the account's (section 9). A proof that fails is refused and
- flagged (bad_proof, stale_proof); the player then shows nothing at all.
+ address; the nonce is one h9web issued to that server, no more than 10
+ minutes ago (proofMaxAgeSeconds 600), so a server that saw a player once
+ cannot go on reporting them as proven; the device is the account's (section
+ 9). A proof that does not match, or answers a nonce issued too long ago, is
+ refused and flagged (bad_proof, stale_proof); the player then shows nothing
+ at all. A proof for a nonce h9web never issued (an older plugin makes its
+ own) is not refused and not flagged: the sighting is unverified.
+ "Proven" therefore means proven in the last 10 minutes, and it is what the
+ members-only servers' proof switch (docs\H9_COMMUNITIES.txt section 2a) and
+ the scoreboard's pictures (section 4b) go by.
+
+ 8a. CREATE GAME: A LISTEN SERVER, ITS OWN PLAYER AND ITS KEY
+ ------------------------------------------------------------
+ A game started with Create Game is a listen server: the player who starts it
+ plays on it, and others may join. Presence works there for both, with H9XASH
+ from 2026-11-02 on (engine-h9-listen.patch) and h9_presence 1.4.
+
+ Its own player. That player joins over "loopback", which has no address, and
+ both h9_clientid and the proof are tied to the address a player joins
+ (section 2, section 8). So h9_presence tells that player's game the address
+ it reports as:
+   h9_idlisten <a.b.c.d:port>          sent as the player joins: the game salts
+                                       its h9_clientid with that address, as a
+                                       player joining from elsewhere has it,
+                                       and tells the server (setinfo)
+   h9_idlisten <a.b.c.d:port> <nonce>  in place of h9_idchallenge: the same,
+                                       then the proof's answer with S = that
+                                       address
+ The game answers only over loopback, never in a demo, so no server elsewhere
+ can choose the address a player's id is salted with or signed for. The
+ userinfo key _h9idl is 1 in a game that has it; a listen server's own player
+ without it is never challenged (its proof would sign "loopback").
+
+ Its key. A listen server with no hand-made key enrolls once its own player is
+ in game, and differently from a dedicated server:
+   1. The plugin POSTs { "v": 1, "port": <hostport>, "listen": true } to
+      /api/presence/enroll. h9web answers with an inactive key for the
+      caller's own IP and that port, always the caller's own (whatever
+      enrollSameIp says), and a nonce.
+   2. The plugin sends its own player h9_idlisten <address> <nonce>, and the
+      game answers.
+   3. The plugin calls /api/presence/enroll/status, signed with the new key,
+      with that answer: { "host": { id, nonce, devmask, proof } }. h9web checks
+      that the nonce is the one it issued for this enrollment (used once, 10
+      minutes at most), that h9_clientid is an account's on that address, that
+      the account is not suspended, that the proof is that account's for that
+      address, and that the device is one the account's id may be proven from
+      (section 9). Then the key is live at once: no rules probe, no admin.
+ Why that is safe: h9web counts only proven players on a listen server (as
+ requireProof does everywhere), so such a server can show nobody who is not
+ really there with a game holding that player's id; it cannot invent anyone.
+ Its address is a player's own, so it is never shown: its players are "in
+ game" with no server, map or address (as a private community's server, docs\
+ H9_COMMUNITIES.txt section 3), it is left off the site's server board, and the
+ admins see it (H9 ADMIN, ENROLLED SERVERS) as a listen server with the account
+ that proved it. A listen server keeps its key in
+ addons\amxmodx\data\h9_presence_listen.key, apart from a dedicated server's.
+ Players joining from elsewhere need its address to reach it (a forwarded
+ port); players on the same LAN joining by a LAN address are, as on any
+ server, not recognised.
+
+ How h9web knows the listen server's own player: the report names that
+ player's slot ("host"), and the answer says "proven", "known" (the account,
+ no proof yet) or "unknown" (no account has that h9_clientid here: the game's
+ cl_h9_userid is not the account's player id). The plugin logs each change in
+ the AMXX log ("[PRESENCE] havoc9.org does not know this game's own player
+ ..."), and h9_presence_status shows it as "this game's own player". The
+ player id is the one the site gives the account (GET /api/player, the web
+ client's; the ACCOUNT page shows its start), never the account's uid.
+
+ A hand-made key (h9_presence_server and h9_presence_key in h9_presence.cfg)
+ still wins on a listen server, as on a dedicated one: the server reports as
+ that address, its own player is told that address, and h9web treats it as
+ any server with a hand-made key. The local test set-up uses one
+ (D:\temp\LOCAL-PRESENCE-TEST.txt).
 
  9. DEVICES, TWO PLACES AT ONCE, AND THE ADMIN PANEL'S HOOKS
  -----------------------------------------------------------
@@ -478,9 +662,10 @@
         confirm is <name>, typed
    POST /api/presence/admin/accounts/<name>/reset-id  { confirm, keepDevices,
                                                           password }
-        a new player id, so a leaked one dies at once; the owner enters the new
-        one with enter_userid.cmd. keepDevices (default true) keeps the bound
-        device
+        a new player id, so a leaked one dies at once; every game linked to
+        the account unlinks itself at its next start, and the owner links it
+        again (or enters the new id with enter_userid.cmd). keepDevices
+        (default true) keeps the bound device
  move-id and reset-id use core's movePlayerId and resetPlayerId
  (modules\presence\README.txt); without them they answer 503. Both need the
  acting admin's own password in the same request (password), checked as the
@@ -540,9 +725,14 @@
    * players without an account: nothing about them is kept.
 
  Not protected:
-   * a copied install. user_id.ini and device_id.ini together are the
-     account to H9's servers; whoever has both, has the account in game. Keep
-     the H9XASH folder to yourself, as you would a saved password.
+   * a copied install, partly. user_id.ini and device_id.ini together are the
+     account to H9's servers. On Windows user_id.ini is protected for its
+     Windows user (DPAPI, docs\CUSTOM_XASH_USERID.txt section 2), so a copy of
+     the folder taken to another PC or user is not the account there; malware
+     running as that same user still is. Under Wine and Proton the protection
+     is keyed to the user name alone. Keep the H9XASH folder to yourself, as
+     you would a saved password, and REVOKE a game you no longer have on the
+     ACCOUNT page.
    * a game server's key, or the server itself. A server holding a key can
      report anything about the players it really sees; it cannot make proofs,
      so with requireProof it cannot invent verified players. Revoke an
@@ -567,7 +757,10 @@
      way, or a server players reach through another address). It keeps
      asking, less and less often.
    - "waiting for an H9 admin": approve it on havoc9.org/community/.
-   - "a listen server never enrolls": as designed.
+   - On a listen server, "a listen server: enrolled by its own player's ID
+     proof": it enrolls once its own player is in game, with H9XASH from
+     2026-11-02 on (section 8a). "Not reporting: this listen server's own
+     player's game does not answer h9_idlisten" in the AMXX log: an older game.
    - With a hand-made key, the AMXX log says why: an address that is not
      IPv4:port, or a key that is not 64 hex characters.
  h9web refused the report
@@ -577,6 +770,11 @@
    403 no_key          presence-key.js add was never run for that address
    403 not_enrolled    the address has no live key yet: it is enrolling
    403 pending_approval   proven, waiting for an H9 admin
+ Enrolling a listen server (section 8a), the status call's answer
+   403 not_an_account  the server's own player has no account (or is suspended)
+   403 bad_proof       the proof is not that account's for that address
+   403 stale_proof     a nonce of another enrollment, or older than 10 minutes
+   403 second_device   a device the account's id may not be proven from
    409 replay          harmless once, after a map change in the same second
    429                 too many reports: the plugin backs off for a minute
    503 not_ready       h9web's core lacks the hooks (section 3)
@@ -594,6 +792,15 @@
  h9web\modules\presence\bin\presence-key.js   hand-made keys
  h9web\modules\presence\enroll.js    enrollment; a2s.js reads a server's rules;
                                      serverauth.js checks signed calls
+ h9web\modules\presence\avatars.js   the scoreboard's 64 x 64 pictures
+ xash3d-fwgs engine\client\cl_idproof.c and cl_avatar.c   the engine's halves
+                                     (engine-h9-idproof.patch, -avatars.patch)
+ xash3d-fwgs engine\client\cl_h9listen.c   h9_idlisten (engine-h9-listen.patch)
+ reTS cl_dll\vgui_ScorePanel.cpp     the scoreboard: pictures (HUD_H9Avatar) and
+                                     link icons (H9 LINK ICONS, H9Link)
+ ts\gfx\vgui\h9_link.tga, h9_unlink.tga, h9_bot.tga   the link icons
+                                     (tools\make_link_icons.py)
+ h9web\modules\presence\default-picture.png   the site's default picture
  h9web\test\presence.test.js         its tests, core's hooks included
  h9web\test\community.test.js        enrollment's and communities' tests
  TSM\include\h9_community.inc        the natives, for other plugins
@@ -602,4 +809,5 @@
  presence\maps\<map>.png             the map pictures (shared with Discord)
  On the VPS: /var/lib/h9web/modules/presence/server-keys.json, net-key and
  enroll-key, all mode 0600, never in git. On a game server:
- addons\amxmodx\data\h9_presence.key, never shared or committed.
+ addons\amxmodx\data\h9_presence.key (and h9_presence_listen.key on a game
+ that hosted Create Game), never shared or committed.

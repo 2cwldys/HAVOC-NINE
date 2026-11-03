@@ -53,8 +53,8 @@ describe("forum: reading, writing and roles", () => {
   test("the seeded categories, in order, readable by guests", async () => {
     const r = await get(t, "/api/forum/categories");
     assert.equal(r.status, 200);
-    assert.deepEqual(r.json.categories.map((c) => c.slug), ["announcements", "general", "servers", "roleplay", "modding", "support", "off-topic"]);
-    assert.deepEqual(r.json.categories.map((c) => c.name), ["Announcements", "General", "Servers and Match Mode", "Roleplay", "Modding", "Web Client and Support", "Off-topic"]);
+    assert.deepEqual(r.json.categories.map((c) => c.slug), ["announcements", "general", "servers", "roleplay", "modding", "support", "off-topic", "suggestions"]);
+    assert.deepEqual(r.json.categories.map((c) => c.name), ["Announcements", "General", "Servers", "Roleplay", "Modding", "Support", "Off-topic", "Suggestions"]);
     assert.equal(r.json.categories[0].startRole, "moderator");
     assert.equal(r.json.categories[0].canStart, false);
     assert.deepEqual(r.json.viewer, { signedIn: false });
@@ -142,7 +142,7 @@ describe("forum: reading, writing and roles", () => {
     const up = await request(t.base, "PATCH", "/api/forum/categories/events", { cookie: adm.cookie, body: { move: "up" } });
     assert.equal(up.json.changed, true);
     const order = (await get(t, "/api/forum/categories")).json.categories.map((c) => c.slug);
-    assert.deepEqual(order.slice(-2), ["events", "off-topic"]);
+    assert.deepEqual(order.slice(-2), ["events", "suggestions"]);
     const ev = await startThread(t, user, "events", "Match night", "Who is in?");
     assert.equal(ev.status, 201);
     assert.equal((await reply(t, other, ev.json.thread.id, "me")).status, 403, "replyRole moderator");
@@ -614,6 +614,20 @@ describe("forum: reading, writing and roles", () => {
     }
   });
 
+  test("title searches are rate-limited per address", async () => {
+    const app = await forumApp({ limits: { ...roomyForum(), search: { max: 3, windowSeconds: 60, blockSeconds: 30, maxBlockSeconds: 30 } } });
+    try {
+      const search = (ip) => request(app.base, "GET", "/api/forum/search?q=anything", { ip });
+      for (let i = 0; i < 3; i++) assert.equal((await search("198.51.100.7")).status, 200);
+      const r = await search("198.51.100.7");
+      assert.equal(r.status, 429);
+      assert.equal(r.headers["retry-after"], "30");
+      assert.equal((await search("198.51.100.8")).status, 200, "another address is not held up");
+    } finally {
+      await app.close();
+    }
+  });
+
   test("the logs hold no post text, no title and no session token", async () => {
     await startThread(t, user, "general", "A very private title", "a secret only the forum knows");
     const all = t.logs.join("\n");
@@ -751,18 +765,35 @@ describe("forum: posting limits", () => {
 });
 
 describe("forum: migrations", () => {
-  test("v1 to v4 make the tables and the categories once; deleting an account keeps its posts", async () => {
+  test("v1 to v10 make the tables and the categories once; deleting an account keeps its posts", async () => {
     const t = await forumApp();
     try {
       const v = t.app.db.prepare("SELECT version FROM schema_migrations WHERE module = 'forum'").all();
-      assert.deepEqual(v.map((r) => r.version), [1, 2, 3, 4]);
+      assert.deepEqual(v.map((r) => r.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_media_posts").get().n, 0, "v10: the MEDIA page");
+      assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_developers").get().n, 0, "v9: the developer flag");
+      assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_needs").get().n, 0, "v8: the What we need page");
+      // v7 again (a forum that has its own Suggestions already): still one
+      forum.migrations.find((m) => m.version === 7).up(t.app.db);
+      assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_categories WHERE slug = 'suggestions'").get().n, 1, "v7: one Suggestions");
+      assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_signatures").get().n, 0, "v6: signatures");
       assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_votes").get().n, 0, "v4: votes");
       const modding = t.app.db.prepare("SELECT name FROM forum_categories WHERE slug = 'modding'").get();
       assert.equal(modding?.name, "Modding", "v3: Maps and Mapping became Modding");
+      const name = (slug) => t.app.db.prepare("SELECT name FROM forum_categories WHERE slug = ?").get(slug).name;
+      assert.equal(name("servers"), "Servers", "v5: Servers and Match Mode became Servers");
+      assert.equal(name("support"), "Support", "v5: Web Client and Support became Support");
+      // v5 on a forum where an admin renamed one already: that name stands
+      const v5 = forum.migrations.find((m) => m.version === 5);
+      t.app.db.prepare("UPDATE forum_categories SET name = 'Our servers' WHERE slug = 'servers'").run();
+      t.app.db.prepare("UPDATE forum_categories SET name = 'Web Client and Support' WHERE slug = 'support'").run();
+      v5.up(t.app.db);
+      assert.equal(name("servers"), "Our servers");
+      assert.equal(name("support"), "Support");
       assert.equal(t.app.db.prepare("SELECT visible FROM forum_categories LIMIT 1").get().visible, 1, "v2: categories are visible");
       assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_restrictions").get().n, 0);
       assert.deepEqual(migrate(t.app.db, "forum", forum.migrations, {}), [], "nothing runs twice");
-      assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_categories").get().n, 7);
+      assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM forum_categories").get().n, 8);
       const who = await account(t, "Kid");
       const th = await startThread(t, who, "general", "Before I go", "my post");
       t.app.accounts.remove(who.id);

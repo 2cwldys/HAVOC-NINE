@@ -10,6 +10,10 @@
 //   - the account service is not answering: the page says so, and ready() resolves false.
 // The relay checks the session on its own, so this gate is for the visitor's sake: a page that
 // skipped it would still reach no server.
+//
+// Signed in, the page also tells the site it is open, once a minute while it stays open (POST
+// /api/presence/web): the player then shows as IN THE WEB CLIENT, game running or not, and as on
+// the site. It stops when the site answers that the player is signed out or has no presence.
 (() => {
   "use strict";
 
@@ -85,7 +89,26 @@
       return false;
     }
     window.h9webAccount = Object.freeze({ playerId: id, username: me.user.username });
+    heartbeat();
     return true;
+  }
+
+  // "the web client is open", every minute while the page is
+  let beating = false;
+  function heartbeat() {
+    if (beating) return;
+    beating = true;
+    const beat = async () => {
+      try {
+        const r = await fetch(api("presence/web"), {
+          method: "POST", credentials: "same-origin", cache: "no-store",
+          headers: { Accept: "application/json", "Content-Type": "application/json" }, body: "{}",
+        });
+        if (r.status === 401 || r.status === 404) clearInterval(timer);
+      } catch (e) { /* offline: the next minute tries again */ }
+    };
+    const timer = setInterval(beat, 60000);
+    beat();
   }
 
   window.h9auth = { ready };

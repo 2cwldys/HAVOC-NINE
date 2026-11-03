@@ -1,0 +1,144 @@
+TSM client.dll patch -- main menu ambient music (+ startup diagnostic)
+========================================================================
+
+What this is: a binary patch to Half-Life's TS client DLL (cl_dlls\client.dll) that plays a
+looping mp3 track while the main menu is up, before the player joins a server, plus a temporary
+diagnostic that records whether and when the hook function actually runs. This file documents
+exactly what bytes changed and why, byte-for-byte, generated directly from a diff of the original
+and patched files rather than written by hand -- so it cannot drift from what the patch actually
+does.
+
+Original file : client.dll
+Patched file  : client_patched_v5.dll
+Original MD5  : cfc60e4e96c51903e6ef7d2b9839b3b7
+Patched MD5   : 0a787eae3642fd42a070c0be030fd40f
+Original size : 861184 bytes
+Patched size  : 865280 bytes (+4096)
+
+Nothing in the original file's bytes is deleted or moved. The patch is: one 5-byte instruction
+changed in place, a handful of PE header fields updated to describe a new section, and one new
+4096-byte section appended to the end of the file. Every existing function, byte offset, and
+relocation entry outside the one 5-byte hook is untouched.
+
+This version (v5) differs from the prior v4 patch only by adding an unconditional diagnostic
+write, described in section 3b. The menu-music logic itself (sections 3a, 4) is unchanged from
+v4's design.
+
+
+1. The hook -- HUD_VidInit, RVA 0x501f (file offset 0x441f)
+-------------------------------------------------------------
+
+HUD_VidInit is a function the engine calls once video mode is set up, early in startup, before
+the main menu is shown. Its original code (unchanged apart from the one line below):
+
+    0x5010  mov ecx, 0x100c9d28
+    0x5015  call 0x10009d10
+    0x501a  call 0x1003db50
+    0x501f  mov eax, 1          <-- replaced
+    0x5024  ret
+
+The instruction at 0x501f is a 5-byte "mov eax, 1" (bytes: B8 01 00 00 00), which just sets
+HUD_VidInit's return value. The patch replaces exactly those 5 bytes with a 5-byte call into new
+code appended at the end of the file (bytes: E8 98 30 2D 00 -> call 0x102d8098... the exact target
+below). Nothing else in HUD_VidInit moves: the "ret" at 0x5024 is still the original, untouched
+byte. The new code ends with its own "mov eax, 1; ret", so it has the same observable effect on
+the caller as the instruction it replaced, plus the side effects described below, and control
+returns to exactly 0x5024 afterward, same as before the patch.
+
+    file offset 0x441f-0x4423:
+      original: b8 01 00 00 00    (mov eax, 1)
+      patched:  e8 98 30 2d 00    (call into the new .mus section)
+
+
+2. PE header changes -- registering the new section
+-------------------------------------------------------------
+
+  * File header, NumberOfSections: 7 -> 8
+  * Optional header, SizeOfImage: 0x2d8000 -> 0x2d9000
+  * New section table entry appended (into the slack that already existed after the 7 existing
+    entries -- no existing entry moved):
+
+      Name             .mus
+      VirtualAddress   0x2d8000
+      VirtualSize      0x1000
+      PointerToRawData 0xd2400  (immediately after the original file's last byte)
+      SizeOfRawData    0x1000
+      Characteristics  0x60000020  (CODE | EXECUTE | READ -- not writable)
+
+These are the standard, minimal edits to add a new section to a PE image; nothing about any
+existing section (.text, .rdata, .data, .reloc, etc.) is touched.
+
+
+3. The new .mus section (file offset 0xd2400, 4096 bytes, all new)
+-------------------------------------------------------------------
+
+Laid out as:
+
+  0x2d8000  UTF-16 path, "ts\cl_dlls\vidinit_debug.txt" (diagnostic log, see 3b)
+  0x2d803a  UTF-16 path, "ts\cl_dlls\menu_music.txt" (the track-list config, see 4)
+  0x2d806e  ASCII fallback track name, "vangelis.mp3"
+  0x2d807b  ASCII command template, "MP3Volume 1\nmp3 on\nmp3 loop sound/music/"
+  0x2d80a3  ASCII diagnostic message, "HUD_VidInit fired, call #"
+  0x2d80bc  the actual code (214 bytes); the rest of the section is unused zero padding
+
+3a. The menu-music logic, run once (guarded by a flag so it cannot re-trigger on a later video
+    mode change):
+
+  1. Opens "ts\cl_dlls\menu_music.txt" (relative to the game's working directory, i.e. right next
+     to this DLL) via CreateFileW/ReadFile/CloseHandle -- all three already imported by the
+     original client.dll from KERNEL32.dll, so no new imports were added for this part either.
+  2. If the file is missing, reads its contents (up to 4095 bytes) into a scratch buffer.
+  3. Splits the contents into lines. A line is ignored if it is empty or its first character is
+     '#'. Every other line is recorded as a candidate track filename.
+  4. If zero candidates were found, the fallback name "vangelis.mp3" is used. If exactly one, that
+     one is used. If more than one, one is chosen uniformly at random via the engine's own
+     pfnRandomLong function.
+  5. Builds "MP3Volume 1\nmp3 on\nmp3 loop sound/music/<chosen name>\n" and sends it exactly once
+     via the engine's pfnClientCmd -- the same mechanism the TS server plugin (ts_matchmode.sma)
+     already uses for its own in-map ambient jukebox.
+
+3b. The diagnostic, run on EVERY call, with no guard (temporary -- for finding out whether and
+    when HUD_VidInit actually runs, before the menu-music feature's own timing can be trusted):
+
+  1. Increments a call counter kept in client.dll's own scratch memory (capped at 99 for display).
+  2. Renders "HUD_VidInit fired, call #<NN>\n" into a small buffer.
+  3. Overwrites "ts\cl_dlls\vidinit_debug.txt" with that line via CreateFileW (CREATE_ALWAYS) /
+     WriteFile / CloseHandle -- the same three KERNEL32 imports as 3a, plus WriteFile, already
+     imported by the original DLL as well.
+
+  This file's presence (or absence) after a normal launch answers directly whether this hook
+  point fires before the main menu is shown, and the call number shows roughly how many times.
+  It is meant to be removed again once that question is answered.
+
+All scratch buffers the code writes to at runtime (read buffers, the candidate list, the final
+command string, the one-shot guard flag, the diagnostic counter) live in client.dll's own .data
+section, in its existing zero-filled slack space -- no new writable memory was added; .mus itself
+is marked read+execute only, consistent with it containing only code and constants.
+
+Every address the new code touches -- the engine function table, the KERNEL32 imports, its own
+constants, its own scratch variables -- is computed at runtime relative to the module's own
+actual load address (via a standard position-independent "call/pop" sequence at the top of the
+stub), rather than being a fixed address baked into the file. This means the new code needs no
+new entries in the .reloc directory and works correctly regardless of where Windows actually
+loads the DLL -- confirmed by checking that no relocation entry exists inside either the hook
+bytes or the new section.
+
+
+4. The config file
+-------------------------------------------------------------
+
+Location: ts\cl_dlls\menu_music.txt, next to client.dll itself.
+
+Format: one mp3 filename per line (matching a file already in sound\music\). Blank lines and
+lines starting with '#' are ignored. If the file is missing, or has no usable lines, the DLL
+falls back to "vangelis.mp3". If it lists more than one track, one is picked at random every time
+the game starts.
+
+Changing the menu music later never requires touching the DLL: edit this text file.
+
+
+5. Rollback
+-------------------------------------------------------------
+
+The original, unmodified client.dll (MD5 cfc60e4e96c51903e6ef7d2b9839b3b7) is kept alongside this
+patch. Restoring it is a single file copy back over ts\cl_dlls\client.dll, with the game closed.

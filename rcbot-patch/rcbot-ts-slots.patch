@@ -1,0 +1,41 @@
+diff --git a/dlls/bot_const.h b/dlls/bot_const.h
+--- a/dlls/bot_const.h
++++ b/dlls/bot_const.h
+@@ -1284,7 +1284,8 @@
+ #define BOT_VER_CVAR "rcbot_ver"
+ #define BOT_COMMAND_ACCESS "rcbot" // main bot command
+ 
+-constexpr int MAX_PLAYERS = 32;
++// Player slots the bot tables cover: every client and bot slot of a server up to 128 players.
++constexpr int MAX_PLAYERS = 128;
+ constexpr int RCBOT_ACCESS_FORCE_GRIP = 9;
+ 
+ constexpr const char* BOT_CRASHLOG_FILE = "rcbot_crashlog.txt";
+diff --git a/dlls/bot_commands.cpp b/dlls/bot_commands.cpp
+--- a/dlls/bot_commands.cpp
++++ b/dlls/bot_commands.cpp
+@@ -1565,7 +1565,7 @@
+ 	while (iBotIndex < MAX_PLAYERS && gBotGlobals.m_Bots[iBotIndex].IsUsed())
+ 		iBotIndex++;
+ 
+-	if (iBotIndex >= 32)
++	if (iBotIndex >= MAX_PLAYERS)
+ 	{
+ 		BotMessage(pEntity, 0, "Error : Max Bots Already Added!!!");
+ 		return BOT_CVAR_ERROR;
+diff --git a/dlls/bot.cpp b/dlls/bot.cpp
+--- a/dlls/bot.cpp
++++ b/dlls/bot.cpp
+@@ -2776,10 +2776,10 @@
+ 	if (gBotGlobals.IsMod(MOD_TS) && m_pCurrentWeapon != nullptr
+ 		&& m_pCurrentWeapon->OutOfAmmo() && !m_pCurrentWeapon->CanReload())
+ 	{
+-		static float s_fNextDryDrop[33] = { 0.0f };
++		static float s_fNextDryDrop[MAX_PLAYERS + 1] = { 0.0f };
+ 		const int iDryIdx = ENTINDEX(m_pEdict);
+ 
+-		if (iDryIdx > 0 && iDryIdx < 33 && s_fNextDryDrop[iDryIdx] < gpGlobals->time)
++		if (iDryIdx > 0 && iDryIdx <= MAX_PLAYERS && s_fNextDryDrop[iDryIdx] < gpGlobals->time)
+ 		{
+ 			s_fNextDryDrop[iDryIdx] = gpGlobals->time + 3.0f;
+ 			FakeClientCommand(m_pEdict, "drop");

@@ -118,10 +118,10 @@
 
   // ---- tabs --------------------------------------------------------------------------------------
 
-  const TABS = { reports: showReports, forum: showForum, accounts: showAccounts, renames: showRenames, presence: showPresence, audit: showAudit };
+  const TABS = { reports: showReports, forum: showForum, accounts: showAccounts, needs: showNeeds, renames: showRenames, presence: showPresence, levels: showLevels, audit: showAudit };
 
   function open(tab) {
-    if (!TABS[tab] || (tab !== "accounts" && !me.admin && (tab === "renames" || tab === "presence" || tab === "audit")) || (!forumOn && (tab === "reports" || tab === "forum"))) tab = forumOn ? "reports" : "accounts";
+    if (!TABS[tab] || (tab !== "accounts" && !me.admin && (tab === "renames" || tab === "presence" || tab === "levels" || tab === "audit")) || (!forumOn && (tab === "reports" || tab === "forum" || tab === "needs"))) tab = forumOn ? "reports" : "accounts";
     for (const b of $("panelTabs").querySelectorAll("button")) b.setAttribute("aria-selected", b.getAttribute("data-tab") === tab ? "true" : "false");
     for (const name of Object.keys(TABS)) $("tab-" + name).hidden = name !== tab;
     TABS[tab]($("tab-" + tab));
@@ -444,6 +444,28 @@
     detail.append(panel);
     const discord = await discordOf(a.username, again);
     if (discord) panel.insertBefore(discord, panel.querySelector(".forum-section"));
+    const dev = me.admin ? await developerOf(a.username) : null;
+    if (dev) panel.insertBefore(dev, panel.querySelector(".forum-section"));
+  }
+
+  // The account's DEVELOPER flag (the forum module), for admins: it goes with any role, shows the
+  // name in purple on the forum, and lets the account edit the "What we need" page.
+  async function developerOf(name) {
+    const r = await call("GET", "forum/developers/" + encodeURIComponent(name));
+    if (r.status !== 200) return null;
+    const msg = note();
+    const box = el("div", null, el("h3", { class: "forum-section", text: "DEVELOPER" }));
+    const draw = (on) => {
+      box.textContent = "";
+      box.append(el("h3", { class: "forum-section", text: "DEVELOPER" }),
+        el("p", { text: on ? name + " is a developer: a purple name on the forum, and an editor of What we need." : name + " is not a developer." }),
+        el("div", { class: "panel-actions" }, button(on ? "REMOVE DEVELOPER" : "MAKE DEVELOPER", async () => {
+          const res = await call(on ? "DELETE" : "POST", "forum/developers/" + encodeURIComponent(name), on ? undefined : {});
+          if (say(msg, res, on ? "No longer a developer." : "Now a developer.")) draw(!on);
+        }, on ? "danger" : null)), msg);
+    };
+    draw(r.data.developer);
+    return box;
   }
 
   // The account's Discord link (the discord module), with FREE: the link goes, and the
@@ -694,6 +716,68 @@
     detail.append(panel);
   }
 
+  // ---- the "What we need" page (join/needs/; the forum module's needs.js) --------------------------------
+
+  // The page's editor (assets/forum-render.js needsEditor): its title, intro and items, a live
+  // preview drawn as the page draws it, and SAVE, which stores the whole page and goes into the
+  // audit log. Admins edit it, and whom the forum's needsEditors names (moderators, developers).
+  async function showNeeds(section) {
+    const res = await call("GET", "forum/needs");
+    section.textContent = "";
+    if (res.status !== 200) return section.append(el("p", { class: "forum-error", text: problem(res) }));
+    const d = res.data;
+    const link = el("a", { href: new URL("join/needs/", root).href, text: "the page" });
+    if (!d.canEdit) {
+      return section.append(box("WHAT WE NEED", el("p", { class: "forum-row-meta" }, "You do not edit ", link, " on this site (the forum's needsEditors).")));
+    }
+    const editor = el("div");
+    section.append(box("WHAT WE NEED", el("p", { class: "forum-row-meta" }, "What the team is looking for, on ", link, "."), editor));
+    window.H9ForumRender.needsEditor(editor, d, call);
+  }
+
+  // ---- levels: Lv 0-99 from the H9 ladder (h9web's modules/presence/compete.js) -----------------------------
+
+  const LEVEL_FIELDS = [
+    ["eloBase", "ELO RULE: THE RATING AT LV 1"],
+    ["eloPerLevel", "ELO RULE: RATING POINTS A LEVEL"],
+    ["matchXp", "CAREER: EXPERIENCE A RATED MATCH"],
+    ["winXp", "CAREER: MORE FOR A WIN"],
+    ["kdaMin", "CAREER: LOWEST KILLS-TO-DEATHS FACTOR"],
+    ["kdaMax", "CAREER: HIGHEST KILLS-TO-DEATHS FACTOR"],
+    ["eloMultMin", "CAREER: LOWEST RATING FACTOR"],
+    ["eloMultMax", "CAREER: HIGHEST RATING FACTOR"],
+    ["xpPerLevel", "CAREER: EXPERIENCE SCALE"],
+  ];
+
+  async function showLevels(section) {
+    const res = await call("GET", "presence/compete/levels");
+    section.textContent = "";
+    if (res.status === 404) return section.append(box("LEVELS", el("p", { class: "forum-row-meta", text: "Rated play is not on this site." })));
+    if (res.status !== 200) return section.append(el("p", { class: "forum-error", text: problem(res) }));
+    const { settings, defaults } = res.data;
+    const rule = el("select", { class: "forum-select", "aria-label": "The rule" },
+      el("option", { value: "elo", text: "ELO bands: up and down with the H9 ladder rating" }),
+      el("option", { value: "career", text: "Career: experience from rated matches, only rises" }));
+    rule.value = settings.rule;
+    const inputs = {};
+    const grid = el("div", { class: "panel-grid" }, field("RULE", rule));
+    for (const [k, label] of LEVEL_FIELDS) {
+      inputs[k] = input({ value: String(settings[k]), inputmode: "decimal", "aria-label": label });
+      grid.append(field(label + " (" + defaults[k] + ")", inputs[k]));
+    }
+    const msg = el("p", { class: "forum-row-meta" });
+    const save = button("SAVE, AND WORK OUT EVERY LEVEL AGAIN", async () => {
+      const body = { rule: rule.value };
+      for (const [k] of LEVEL_FIELDS) body[k] = inputs[k].value.trim();
+      const r = await call("POST", "presence/compete/levels", body);
+      msg.textContent = r.status === 200 ? "Saved: " + r.data.accounts + " accounts' levels worked out again." : problem(r);
+    }, "primary");
+    section.append(box("LEVELS",
+      el("p", { class: "forum-row-meta", text: "Every account's level, Lv 0 to 99, shown in game by the name on the scoreboard and on the ladder, comes from the H9 ladder's match table. No rated match there is Lv 0." }),
+      el("p", { class: "forum-row-meta", text: "ELO bands: Lv = (rating - the rating at Lv 1) / points a level + 1, from 1 to 99, moving up and down with the rating. Career: each rated match gives (experience a match + more for a win) x the player's kills-to-deaths factor x their rating / 1000, each factor kept between its lowest and highest; Lv = the square root of (experience / the scale), from 1 to 99, and it only rises. A leaver gets no experience, and a voided match's is taken back." }),
+      grid, el("div", { class: "panel-actions" }, save), msg));
+  }
+
   // ---- the audit log ----------------------------------------------------------------------------------------
 
   async function showAudit(section, page = 1, name = shown.auditName || "") {
@@ -737,10 +821,13 @@
     tabs.hidden = false;
     for (const b of tabs.querySelectorAll("button")) {
       const tab = b.getAttribute("data-tab");
-      if ((b.hasAttribute("data-admin") && !me.admin) || (!forumOn && (tab === "reports" || tab === "forum"))) b.hidden = true;
+      if ((b.hasAttribute("data-admin") && !me.admin) || (!forumOn && (tab === "reports" || tab === "forum" || tab === "needs"))) b.hidden = true;
       else b.hidden = false;
       b.addEventListener("click", () => open(tab));
     }
+    // the community page's site-admin tools (enrolled game servers, H9-wide sanctions), for admins
+    const community = $("communityLink");
+    if (me.admin && community) community.hidden = false;
     open(params.get("tab") || "reports");
   })().catch(() => {
     $("panelStatus").textContent = OFFLINE;

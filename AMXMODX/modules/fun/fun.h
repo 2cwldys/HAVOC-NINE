@@ -40,7 +40,7 @@ void PlayerPreThink(edict_t *pEntity);
 void TraceLine_Post(const float *v1, const float *v2, int fNoMonsters, edict_t *shooter, TraceResult *ptr);
 
 static const auto kHitGroupsBits = (1 << HITGROUP_MAX) - 1;
-static const auto kMaxClients = 32u;
+static const auto kMaxClients = 128u; // player slots, as the rest of H9's AMX Mod X build
 
 class CPlayer
 {

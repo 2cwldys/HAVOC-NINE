@@ -1,0 +1,12 @@
+# What setting a host up from here may leave beside these files: never committed. h9web's keys
+# (secrets.json, data.key, any *.key), its backups (*.h9backup) and the backup passphrase, the
+# list's secrets (serverlist.cfg), and the Windows host's downloads and logs.
+secrets.json
+data.key
+*.key
+*.h9backup
+*.h9backup.partial
+backup-passphrase*
+serverlist.cfg
+*.log
+windows/downloads/

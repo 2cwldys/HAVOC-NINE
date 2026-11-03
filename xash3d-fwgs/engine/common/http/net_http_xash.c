@@ -159,6 +159,7 @@ typedef struct httpfile_s
 	size_t   mem_size;
 	size_t   mem_cap;
 	http_memory_cb_t mem_cb;
+	int      mem_flags; // H9: HTTP_MEM_* from HTTP_GetToMemoryEx
 	void    *mem_user;
 	char     url[1024];
 
@@ -337,11 +338,86 @@ static int HTTP_FileQueue( httpfile_t *file )
 	return 1;
 }
 
+/*
+===================
+HTTP_PublicAddress
+
+H9: a public unicast address: not unspecified, loopback, private, CGNAT, link-local,
+benchmarking, documentation, multicast or reserved (IPv4); for IPv6 only global unicast
+(2000::/3) outside its documentation, Teredo and ORCHID blocks, with the IPv4 inside a
+v4-mapped, NAT64 or 6to4 address held to the IPv4 rules
+===================
+*/
+static qboolean HTTP_PublicIPv4( const byte *a )
+{
+	if( a[0] == 0 || a[0] == 10 || a[0] == 127 || a[0] >= 224 )
+		return false; // this network, private, loopback, multicast, reserved, broadcast
+	if( a[0] == 100 && ( a[1] & 0xc0 ) == 64 )
+		return false; // 100.64.0.0/10, carrier-grade NAT
+	if( a[0] == 169 && a[1] == 254 )
+		return false; // link-local
+	if( a[0] == 172 && ( a[1] & 0xf0 ) == 16 )
+		return false; // 172.16.0.0/12
+	if( a[0] == 192 && a[1] == 168 )
+		return false;
+	if( a[0] == 192 && a[1] == 0 && ( a[2] == 0 || a[2] == 2 ))
+		return false; // IETF protocol assignments, TEST-NET-1
+	if( a[0] == 192 && a[1] == 88 && a[2] == 99 )
+		return false; // the old 6to4 relay anycast
+	if( a[0] == 198 && ( a[1] & 0xfe ) == 18 )
+		return false; // 198.18.0.0/15, benchmarking
+	if( a[0] == 198 && a[1] == 51 && a[2] == 100 )
+		return false; // TEST-NET-2
+	if( a[0] == 203 && a[1] == 0 && a[2] == 113 )
+		return false; // TEST-NET-3
+	return true;
+}
+
+static qboolean HTTP_PublicAddress( const struct sockaddr_storage *addr )
+{
+	if( addr->ss_family == AF_INET )
+		return HTTP_PublicIPv4( (const byte *)&((const struct sockaddr_in *)addr)->sin_addr );
+
+	if( addr->ss_family == AF_INET6 )
+	{
+		const byte *a = (const byte *)&((const struct sockaddr_in6 *)addr)->sin6_addr;
+		static const byte mapped[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
+		static const byte nat64[12] = { 0, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+		if( !memcmp( a, mapped, 12 ) || !memcmp( a, nat64, 12 ))
+			return HTTP_PublicIPv4( a + 12 );
+		if( a[0] == 0x20 && a[1] == 0x02 )
+			return HTTP_PublicIPv4( a + 2 ); // 6to4
+		if(( a[0] & 0xe0 ) != 0x20 )
+			return false; // not global unicast: loopback, ULA, link-local, multicast and the rest
+		if( a[0] == 0x20 && a[1] == 0x01 && (( a[2] == 0x0d && a[3] == 0xb8 ) || ( a[2] == 0 && a[3] == 0 ) || ( a[2] == 0 && ( a[3] & 0xf0 ) == 0x10 )))
+			return false; // documentation, Teredo, ORCHID
+		return true;
+	}
+
+	return false;
+}
+
+// H9: a request that asked for public addresses only stops here on any other
+static qboolean HTTP_FileAddressAllowed( httpfile_t *file )
+{
+	if( !FBitSet( file->mem_flags, HTTP_MEM_PUBLIC_ONLY ) || HTTP_PublicAddress( &file->addr ))
+		return true;
+
+	Con_Printf( S_ERROR "%s: %s is a private or reserved address; refused\n", file->to_memory ? file->url : file->path, file->server->host );
+	HTTP_FreeFile( file, true );
+	return false;
+}
+
 static int HTTP_FileResolveNS( httpfile_t *file )
 {
 	if( file->server->resolved )
 	{
 		file->addr = file->server->addr;
+
+		if( !HTTP_FileAddressAllowed( file ))
+			return 0;
+
 		file->pfn_process = HTTP_FileCreateSocket;
 		return 1;
 	}
@@ -378,6 +454,10 @@ static int HTTP_FileResolveNS( httpfile_t *file )
 
 	file->server->addr = file->addr;
 	file->server->resolved = true;
+
+	// H9: the address checked is the one the connection is made to
+	if( !HTTP_FileAddressAllowed( file ))
+		return 0;
 
 	file->pfn_process = HTTP_FileCreateSocket;
 	return 1;
@@ -461,6 +541,14 @@ static int HTTP_FilePrepareRequest( httpfile_t *file )
 
 	if( file->server->secure )
 	{
+		// H9: a request that needs its certificate checked does not go on unchecked
+		if( FBitSet( file->mem_flags, HTTP_MEM_VERIFY_TLS ) && !HTTP_TlsVerifies( ))
+		{
+			Con_Printf( S_ERROR "%s: no CA bundle loaded (or http_tls_insecure is set): its certificate cannot be checked; refused\n", file->url );
+			HTTP_FreeFile( file, true );
+			return 0;
+		}
+
 		file->tls = HTTP_TlsNew( file->socket, file->server->host );
 		if( !file->tls )
 		{
@@ -1334,6 +1422,18 @@ and handed to the callback when the request completes (success or failure).
 */
 qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata )
 {
+	return HTTP_GetToMemoryEx( url, cb, userdata, 0 );
+}
+
+/*
+===================
+HTTP_GetToMemoryEx
+
+H9: HTTP_GetToMemory with HTTP_MEM_* flags (net_ws.h)
+===================
+*/
+qboolean HTTP_GetToMemoryEx( const char *url, http_memory_cb_t cb, void *userdata, int flags )
+{
 	if( Q_strpbrk( url, "\r\n" ))
 	{
 		Con_Printf( S_ERROR "%s: refused, URL contains CRLF\n", __func__ );
@@ -1348,6 +1448,13 @@ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata 
 		return false;
 	}
 
+	if( FBitSet( flags, HTTP_MEM_VERIFY_TLS ) && !server->secure )
+	{
+		Con_Printf( S_ERROR "%s: \"%s\" is not https\n", __func__, url );
+		Mem_Free( server );
+		return false;
+	}
+
 	httpfile_t *httpfile = Mem_Calloc( http_mempool, sizeof( *httpfile ));
 
 	httpfile->size = -1;
@@ -1358,6 +1465,7 @@ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata 
 	httpfile->to_memory = true;
 	httpfile->mem_cb = cb;
 	httpfile->mem_user = userdata;
+	httpfile->mem_flags = flags;
 	httpfile->pfn_process = HTTP_FileQueue;
 	Q_strncpy( httpfile->url, url, sizeof( httpfile->url ));
 	// file->path is empty; the full path lives in server->path

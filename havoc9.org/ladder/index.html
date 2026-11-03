@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <title>LADDER -- HAVOC9</title>
+  <meta name="description" content="HAVOC 9 ratings: the H9 ladder, each community's ladder and each rated server's own table, with every player's matches">
+  <link rel="icon" type="image/gif" href="../h9helmet_glitch.gif">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="../assets/account.css">
+</head>
+<body>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="../index.html" class="logo">
+        <img src="../h9helmet_glitch.gif" alt="Havoc9" class="logo-img">
+        <span class="logo-text">HAVOC<span class="orange">9</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="../index.html">HOME</a></li>
+        <li><a href="../webclient/index.html">PLAY</a></li>
+        <li><a href="../downloads/index.html">DOWNLOADS</a></li>
+        <li><a href="../servers/index.html">SERVERS</a></li>
+        <li><a href="../forum/index.html">FORUM</a></li>
+        <li><a href="../community/index.html">COMMUNITY</a></li>
+        <li><a href="../join/index.html">JOIN</a></li>
+        <li><a href="../museum/index.html">MUSEUM</a></li>
+        <li><a href="../credits/index.html">CREDITS</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main class="page account-page">
+    <div class="container">
+      <div class="page-header">
+        <span class="section-label">// RATED PLAY</span>
+        <h1 class="section-title" id="ladderTitle">LADDER</h1>
+        <div class="title-line"></div>
+      </div>
+
+      <div data-h9-ladder></div>
+
+      <noscript>
+        <div class="placeholder-box">
+          <h2>JAVASCRIPT</h2>
+          <p>This page reads the ratings from the site as it opens, which needs JavaScript.</p>
+        </div>
+      </noscript>
+
+      <div class="account-section">
+        <h2 class="sub-title">HOW THE RATING WORKS</h2>
+        <p>The rule is xjiro's Competitive TS, the plugin TS players have known as compts. Everyone starts at 1000. A kill is +1 to the killer and -1 to the victim, and a headshot is +1 more. Killing a better player pays +1 more for each 100 points between you, and they lose half of that too. A rated match is +100 to each winner and -70 to each loser, and leaving a match, or forfeiting it, counts as a loss. After 30 days without a counted kill or match, a rating loses 10 a day.</p>
+        <p>Only players whose game proves their havoc9.org player id count: the web client does that by itself, and the downloaded game with your account's id in it (ACCOUNT, PLAYER ID). Bots, team kills and suicides count for nothing. Every server keeps its own table; a community's ladder counts the servers its staff choose, and the H9 ladder counts the servers H9's admins mark. A server reports its own matches, so each table is only as honest as the servers it counts. Your ACCOUNT page's privacy switches decide what others see: SHOW MY PLAYTIME for your numbers, SHOW WHICH SERVER AND MAP and SHOW "LAST SEEN" for your matches.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-logo">
+          <img src="../h9helmet_glitch.gif" alt="Havoc9">
+          <span>HAVOC<span class="orange">9</span></span>
+        </div>
+        <p class="footer-tag">Open source &middot; Inspired by the original Havoc9 community</p>
+        <p class="footer-copy">Non-commercial &middot; See NON_COMMERCIAL.md</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../script.js"></script>
+  <script src="../assets/account.js"></script>
+  <script src="../assets/ladder.js"></script>
+</body>
+</html>

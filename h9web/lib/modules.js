@@ -30,6 +30,10 @@ const RESERVED = new Set(["api", "core", "account", "accounts", "assets", "webcl
 //   listed()        the entries with listed true
 //   status(address) { name, map, mode, players, max, bots } from the server's last A2S answer
 //                   (within status.expireSeconds), or null
+//   hideFromBoard(fn)  fn(address) -> true keeps that server off the site's server board
+//                   (/api/servers) for as long as fn answers so; it stays in servers.json, the
+//                   relay and the master's list. Returns a function that takes the filter away.
+//                   The presence module hides private communities' servers with it.
 export function serversHook({ servers, status }) {
   const view = (e) => Object.freeze({ name: e.name, address: e.address.key, listed: e.listed, gamedir: e.gamedir });
   return Object.freeze({
@@ -45,10 +49,15 @@ export function serversHook({ servers, status }) {
       const a = st.answer;
       return Object.freeze({ name: a.name, map: a.map, mode: a.mode, players: a.players, max: a.max, bots: a.bots });
     },
+    hideFromBoard: (fn) => {
+      if (!status || !status.boardFilters || typeof fn !== "function") return () => {};
+      status.boardFilters.add(fn);
+      return () => status.boardFilters.delete(fn);
+    },
   });
 }
 
-export async function loadModules({ names, dir, router, db, auth, accounts, audit, events, config, log, backupDir, servers, status, clientIds, confirmAdmin }) {
+export async function loadModules({ names, dir, router, db, auth, accounts, audit, events, config, log, backupDir, servers, status, clientIds, confirmAdmin, dataKey }) {
   const serverView = servers ? serversHook({ servers, status }) : null;
   const loaded = [];
   for (const name of names) {
@@ -79,6 +88,9 @@ export async function loadModules({ names, dir, router, db, auth, accounts, audi
         // site activity (lib/auth.js): the last signed-in request of an account, and who made one lately
         lastActive: auth.lastActive,
         activeSince: auth.activeSince,
+        // when an account's last live session ended, or null: signed out since its last request,
+        // it is not on the site
+        signedOutAt: auth.signedOutAt,
         // inside an admin-only route: the acting admin's own password, sent with the request
         // (lib/admin.js); the admin's accounts row read again, or a 400, 403 or 429 thrown
         confirmAdmin,
@@ -100,6 +112,9 @@ export async function loadModules({ names, dir, router, db, auth, accounts, audi
       limits: Object.freeze({ RateLimiter, TokenBucket, ipKey }),
       // a moderator's or admin's action, into the audit log (lib/audit.js)
       audit: Object.freeze({ record: audit.record }),
+      // encryption at rest with the data key (lib/datakey.js): seal, open, index, keyIdOf, keyId;
+      // the key itself never leaves core
+      dataKey: dataKey || null,
       servers: serverView,
       events,
       log: mlog,

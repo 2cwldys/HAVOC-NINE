@@ -271,7 +271,7 @@ public cmd_teams(id, level, cid)
 	new tp = cvar_exists("mp_teamplay") ? get_cvar_num("mp_teamplay") : -1;
 	plog("mp_teamplay = %d%s", tp, tp == 1 ? "" : "   <-- teams will likely be meaningless unless this is 1");
 
-	new players[32], pnum;
+	new players[MAX_PLAYERS], pnum;
 	get_players(players, pnum, "c");   // "c" = skip bots? ("c" excludes bots)
 
 	if (!pnum)
@@ -548,7 +548,7 @@ public cmd_obs(id, level, cid)
 	// something real -- pointing it at nothing could be rejected for its own
 	// reasons and would muddy the result.
 	new follow = 0;
-	new players[32], pnum;
+	new players[MAX_PLAYERS], pnum;
 	get_players(players, pnum, "a");   // "a" = alive only
 	for (new i = 0; i < pnum; i++)
 	{
@@ -655,7 +655,7 @@ public cmd_dead(id, level, cid)
 
 	// Someone living to follow, preferring anyone other than the target.
 	new follow = 0;
-	new players[32], pnum;
+	new players[MAX_PLAYERS], pnum;
 	get_players(players, pnum, "a");
 	for (new i = 0; i < pnum; i++)
 	{

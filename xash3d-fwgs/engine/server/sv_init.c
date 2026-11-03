@@ -836,7 +836,13 @@ static void SV_SetupClients( void )
 #endif
 
 	svs.clients = Z_Realloc( svs.clients, sizeof( sv_client_t ) * svs.maxclients );
-	svs.num_client_entities = svs.maxclients * SV_UPDATE_BACKUP * NUM_PACKET_ENTITIES;
+	// The packet entity ring holds SV_UPDATE_BACKUP frames a client of NUM_PACKET_ENTITIES entities
+	// on average; past 32 slots of half that, which still keeps about a second of frames for a client
+	// that sees 300 entities at cl_updaterate 30. The ring follows maxplayers, 340 bytes an entry, in
+	// a 32-bit server's 2 GB: 170 MiB at 32 slots, 170 at 64, 340 at 128. A frame whose delta base
+	// has rolled off the ring is sent whole (SV_EmitPacketEntities).
+	svs.num_client_entities = svs.maxclients * SV_UPDATE_BACKUP *
+		( svs.maxclients > MAX_CLIENTS_LEGACY ? NUM_PACKET_ENTITIES / 2 : NUM_PACKET_ENTITIES );
 	svs.packet_entities = Z_Realloc( svs.packet_entities, sizeof( entity_state_t ) * svs.num_client_entities );
 	Con_Reportf( "%s alloced by server packet entities\n", Q_memprint( sizeof( entity_state_t ) * svs.num_client_entities ));
 

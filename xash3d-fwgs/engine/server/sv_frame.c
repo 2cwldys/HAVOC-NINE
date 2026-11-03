@@ -488,7 +488,12 @@ static void SV_EmitPings( sizebuf_t *msg )
 	sv_client_t *cl;
 	int i;
 
-	MSG_BeginServerCmd( msg, svc_pings );
+	// the slot in 5 bits while every slot fits, as GoldSrc; a server of more slots sends
+	// svc_h9pings, the same message with the slot in 8 bits
+	const qboolean byteslot = svs.maxclients > MAX_CLIENTS_LEGACY;
+	const int slotbits = byteslot ? 8 : MAX_CLIENT_BITS_LEGACY;
+
+	MSG_BeginServerCmd( msg, byteslot ? svc_h9pings : svc_pings );
 
 	for( i = 0, cl = svs.clients; i < svs.maxclients; i++, cl++ )
 	{
@@ -499,9 +504,9 @@ static void SV_EmitPings( sizebuf_t *msg )
 
 		SV_GetPlayerStats( cl, &ping, &packet_loss );
 
-		// there are 25 bits for each client
+		// 1 + slotbits + 12 + 7 bits for each client
 		MSG_WriteOneBit( msg, 1 );
-		MSG_WriteUBitLong( msg, i, MAX_CLIENT_BITS );
+		MSG_WriteUBitLong( msg, i, slotbits );
 		MSG_WriteUBitLong( msg, ping, 12 );
 		MSG_WriteUBitLong( msg, packet_loss, 7 );
 	}
@@ -725,9 +730,55 @@ SV_UpdateUserInfo
 */
 static void SV_UpdateUserInfo( sv_client_t *cl )
 {
-	SV_FullClientUpdate( cl, &sv.reliable_datagram );
+	byte	buf[MAX_INFO_STRING + 64];
+	sizebuf_t	msg;
+
+	// written apart first, and into the shared datagram only whole: one cut off at its end reaches
+	// every client as an unreadable message. One that does not fit waits for a later frame with
+	// FCL_RESEND_USERINFO still set, as when there was no room at all.
+	MSG_Init( &msg, "UserInfo", buf, sizeof( buf ));
+	SV_FullClientUpdate( cl, &msg );
+
+	if( MSG_CheckOverflow( &msg ) || MSG_GetNumBitsWritten( &msg ) > MSG_GetNumBitsLeft( &sv.reliable_datagram ))
+		return;
+
+	MSG_WriteBits( &sv.reliable_datagram, MSG_GetData( &msg ), MSG_GetNumBitsWritten( &msg ));
 	ClearBits( cl->flags, FCL_RESEND_USERINFO );
 	cl->next_sendinfotime = host.realtime + 1.0;
+}
+
+/*
+=======================
+SV_BroadcastReliable
+
+A message for every client's reliable stream: into sv.reliable_datagram when it
+fits whole, else straight into each client's own stream, so nothing is cut off
+=======================
+*/
+void SV_BroadcastReliable( sizebuf_t *src )
+{
+	int	bits = MSG_GetNumBitsWritten( src );
+	int	i;
+
+	if( MSG_CheckOverflow( src ) || bits <= 0 )
+		return;
+
+	if( bits <= MSG_GetNumBitsLeft( &sv.reliable_datagram ))
+	{
+		MSG_WriteBits( &sv.reliable_datagram, MSG_GetData( src ), bits );
+		return;
+	}
+
+	for( i = 0; i < svs.maxclients; i++ )
+	{
+		sv_client_t *cl = &svs.clients[i];
+
+		if( cl->state < cs_connected || FBitSet( cl->flags, FCL_FAKECLIENT ))
+			continue;
+
+		if( bits <= MSG_GetNumBitsLeft( &cl->netchan.message ))
+			MSG_WriteBits( &cl->netchan.message, MSG_GetData( src ), bits );
+	}
 }
 
 /*
@@ -748,9 +799,10 @@ static void SV_UpdateToReliableMessages( void )
 		if( cl->state != cs_spawned )
 			continue;
 
+		// an update is the userinfo and about 24 bytes around it (command, slot, userid, digest)
 		if( FBitSet( cl->flags, FCL_RESEND_USERINFO ) && cl->next_sendinfotime <= host.realtime )
 		{
-			if( MSG_GetNumBytesLeft( &sv.reliable_datagram ) >= ( Q_strlen( cl->userinfo ) + 6 ))
+			if( MSG_GetNumBytesLeft( &sv.reliable_datagram ) >= ( Q_strlen( cl->userinfo ) + 32 ))
 				SV_UpdateUserInfo( cl );
 		}
 
@@ -773,6 +825,21 @@ static void SV_UpdateToReliableMessages( void )
 	{
 		Con_DPrintf( S_ERROR "sv.spec_datagram overflowed!\n" );
 		MSG_Clear( &sv.spec_datagram );
+	}
+
+	// sv.reliable_datagram's other writers write into it directly: one that overflowed it left a
+	// message cut off at its end, unreadable to every client. Its messages are dropped instead,
+	// and every player's userinfo goes out again, which may have been among them.
+	if( MSG_CheckOverflow( &sv.reliable_datagram ))
+	{
+		Con_Printf( S_ERROR "sv.reliable_datagram overflowed, its messages dropped\n" );
+		MSG_Clear( &sv.reliable_datagram );
+
+		for( i = 0, cl = svs.clients; i < svs.maxclients; i++, cl++ )
+		{
+			if( cl->state == cs_spawned )
+				SetBits( cl->flags, FCL_RESEND_USERINFO );
+		}
 	}
 
 	// now send the reliable and server datagrams to all clients.

@@ -91,6 +91,46 @@ echo [ts]          The server will start anyway, and adverts will still post.
 :run
 echo.
 
+REM ---- the port --------------------------------------------------------------------
+REM port= under [server] in networking.ini (27015 when it is missing or not a port). A -port
+REM or +port given to this script wins: its value is the port, and none is added. Anything
+REM given to this script goes on to the engine after its own arguments.
+set "H9PORT=27015"
+if exist "networking.ini" for /f "usebackq eol=; tokens=1,2 delims== " %%a in ("networking.ini") do if /i "%%a"=="port" set "H9PORT=%%b"
+set "H9PORTARG=-port"
+set "H9NEXT="
+for %%x in (%*) do call :portarg "%%~x"
+if not defined H9PORT set "H9PORT=27015"
+set "H9PORTN="
+set /a "H9PORTN=H9PORT" 2>nul
+if not "%H9PORTN%"=="%H9PORT%" set "H9PORT=27015"
+if %H9PORT% lss 1 set "H9PORT=27015"
+if %H9PORT% gtr 65535 set "H9PORT=27015"
+if defined H9PORTARG set "H9PORTARG=-port %H9PORT%"
+
+REM ---- the process priority ----------------------------------------------------------
+REM priority= under [process] in networking.ini: Normal, AboveNormal or High, and AboveNormal
+REM when it is missing or none of these. While the PC is busy, Windows gives the CPU to
+REM HAVOC 9.exe before programs of a lower priority; on an idle PC nothing changes. Realtime runs
+REM as High: a busy game at Realtime holds back Windows' own input, disk and network work. No core
+REM is pinned: Windows runs the game on any of the PC's cores.
+set "H9PRIO="
+if exist "networking.ini" for /f "usebackq eol=; tokens=1,2 delims== " %%a in ("networking.ini") do if /i "%%a"=="priority" set "H9PRIO=%%~b"
+set "H9PRIOSW=/ABOVENORMAL"
+if /i "%H9PRIO%"=="Normal" set "H9PRIOSW=/NORMAL"
+if /i "%H9PRIO%"=="High" set "H9PRIOSW=/HIGH"
+if /i "%H9PRIO%"=="Realtime" set "H9PRIOSW=/HIGH"
+if /i "%H9PRIO%"=="Realtime" echo [ts] priority=Realtime in networking.ini runs as High.
+if defined H9PRIO if /i not "%H9PRIO%"=="Normal" if /i not "%H9PRIO%"=="AboveNormal" if /i not "%H9PRIO%"=="High" if /i not "%H9PRIO%"=="Realtime" echo [ts] priority= in networking.ini is not Normal, AboveNormal or High: AboveNormal is used.
+
+REM ---- the H9 server list ------------------------------------------------------------
+REM h9_heartbeat.ps1 runs beside the server: every two minutes while HAVOC 9.exe -dedicated
+REM on that port runs, it tells the H9 server list (heartbeat_url in networking.ini,
+REM https://havoc9.org/serverlist) that this server is up, so it shows in every player's
+REM Internet tab. heartbeat=0 under [server] in networking.ini turns it off (a LAN or
+REM private server). It stops by itself when the server does.
+start "" /b powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0h9_heartbeat.ps1" -Port %H9PORT%
+
 REM -log makes the engine mirror its console to engine.log (default name; see
 REM Sys_CheckParm("-log") in xash3d-fwgs\engine\common\sys_con.c). Without it a crash
 REM leaves NOTHING behind: the AMXX log records the map change and stops there, and a
@@ -102,8 +142,9 @@ REM By full path, same reason h9xash.bat uses one: a shell with
 REM NoDefaultCurrentDirectoryInExePath set will not run a program from the current
 REM folder by its bare name. -dedicated is the engine's own flag (see -help), not a
 REM separate binary -- host.c switches it into headless mode at startup, same as
-REM HLDS does from the one GoldSrc engine.
-"%~dp0HAVOC 9.exe" -dedicated -game ts -console -log -num_edicts 4096 -port 27015 +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 32 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION"
+REM HLDS does from the one GoldSrc engine. start /b /wait runs it in this window at the
+REM priority above and waits for it to exit, its exit code in ERRORLEVEL.
+start "" /b /wait %H9PRIOSW% "%~dp0HAVOC 9.exe" -dedicated -game ts -console -log -num_edicts 4096 %H9PORTARG% +ip 0.0.0.0 +mp_teamplay 1 +sv_lan 0 +maxplayers 64 +map h9_te_neuropolis +hostname "HAVOC 9 TEAM ELIMINATION" %*
 set "SRVEXIT=%ERRORLEVEL%"
 
 REM hlds has exited -- by quit, by crash, or by this window being closed. Take the bot
@@ -149,3 +190,17 @@ echo  This window is staying open on purpose so the above can be read.
 pause
 
 endlocal
+
+goto :eof
+
+REM a -port or +port among this script's arguments: the next one is the port, and the
+REM engine gets it from there
+:portarg
+if defined H9NEXT (
+    set "H9PORT=%~1"
+    set "H9NEXT="
+    set "H9PORTARG="
+)
+if /i "%~1"=="-port" set "H9NEXT=1"
+if /i "%~1"=="+port" set "H9NEXT=1"
+goto :eof

@@ -15,6 +15,7 @@
 
 #include "offsets.h"
 #include "ham_utils.h"
+#include "vector_return.h"
 #include "hooklist.h"
 #include "forward.h"
 #include "hook.h"
@@ -459,7 +460,7 @@ cell Call_Vector_Float_Cbase_Int(AMX *amx, cell *params)
 	Vector ret;
 	reinterpret_cast<void(__fastcall *)(void *, int, Vector*, float, void *, int)>(__func)(pv, 0, &ret, f3, p4, i5);
 #elif defined(__linux__) || defined(__APPLE__)
-	Vector ret = reinterpret_cast<Vector(*)(void *, float, void *, int)>(__func)(pv, f3, p4, i5);
+	Vector ret = CallVectorReturn(__func, pv, f3, p4, i5);
 #endif
 
 	float *out = (float *)MF_GetAmxAddr(amx, params[6]);
@@ -501,7 +502,7 @@ cell Call_Void_Entvar_Float_Vector_Trace_Int(AMX *amx, cell *params)
 	int id3=*MF_GetAmxAddr(amx, params[3]);
 	float f4=amx_ctof(*MF_GetAmxAddr(amx, params[4]));
 	Vector v5;
-	TraceResult *tr6=reinterpret_cast<TraceResult *>(*MF_GetAmxAddr(amx, params[6]));
+	TraceResult *tr6=reinterpret_cast<TraceResult *>(MF_HandleToPointer(*MF_GetAmxAddr(amx, params[6])));
 	int i7=*MF_GetAmxAddr(amx, params[7]);
 
 	float *fl5=(float *)MF_GetAmxAddr(amx, params[5]);
@@ -522,7 +523,7 @@ cell Call_Void_Entvar_Float_Vector_Trace_Int(AMX *amx, cell *params)
 #if defined(_WIN32)
 	reinterpret_cast<void (__fastcall *)(void *, int, entvars_t *, float, Vector, TraceResult *, int)>(__func)(pv, 0, ev3, f4, v5, tr6, i7);
 #elif defined(__linux__) || defined(__APPLE__)
-	reinterpret_cast<void (*)(void *, entvars_t *, float, Vector, TraceResult *, int)>(__func)(pv, ev3, f4, v5, tr6, i7);
+	GameCall<void (*)(void *, entvars_t *, float, Vector, TraceResult *, int)>::call(__func, pv, ev3, f4, v5, tr6, i7);
 #endif
 
 	return 1;
@@ -534,7 +535,7 @@ cell Call_Void_Float_Vector_Trace_Int(AMX *amx, cell *params)
 
 	float f3=amx_ctof(*MF_GetAmxAddr(amx, params[3]));
 	Vector v4;
-	TraceResult *tr5=reinterpret_cast<TraceResult *>(*MF_GetAmxAddr(amx, params[5]));
+	TraceResult *tr5=reinterpret_cast<TraceResult *>(MF_HandleToPointer(*MF_GetAmxAddr(amx, params[5])));
 	int i6=*MF_GetAmxAddr(amx, params[6]);
 
 	float *fl4=(float *)MF_GetAmxAddr(amx, params[4]);
@@ -552,7 +553,7 @@ cell Call_Void_Float_Vector_Trace_Int(AMX *amx, cell *params)
 #if defined(_WIN32)
 	reinterpret_cast<void (__fastcall *)(void *, int, float, Vector, TraceResult *, int)>(__func)(pv, 0, f3, v4, tr5, i6);
 #elif defined(__linux__) || defined(__APPLE__)
-	reinterpret_cast<void (*)(void *, float, Vector, TraceResult *, int)>(__func)(pv, f3, v4, tr5, i6);
+	GameCall<void (*)(void *, float, Vector, TraceResult *, int)>::call(__func, pv, f3, v4, tr5, i6);
 #endif
 
 	return 1;
@@ -604,7 +605,7 @@ cell Call_Vector_Void(AMX *amx, cell *params)
 	Vector ret;
 	reinterpret_cast<void (__fastcall *)(void *, int,Vector*)>(__func)(pv, 0,&ret);
 #elif defined(__linux__) || defined(__APPLE__)
-	Vector ret=reinterpret_cast<Vector (*)(void *)>(__func)(pv);
+	Vector ret = CallVectorReturn(__func, pv);
 #endif
 	float *out=(float *)MF_GetAmxAddr(amx, params[3]);
 	out[0]=ret.x;
@@ -628,7 +629,7 @@ cell Call_Vector_pVector(AMX *amx, cell *params)
 	Vector ret;
 	reinterpret_cast<void (__fastcall *)(void *, int, Vector*, Vector*)>(__func)(pv, 0, &ret, &v3);
 #elif defined(__linux__) || defined(__APPLE__)
-	Vector ret=reinterpret_cast<Vector (*)(void *, Vector*)>(__func)(pv, &v3);
+	Vector ret = CallVectorReturn(__func, pv, &v3);
 #endif
 	float *out=(float *)MF_GetAmxAddr(amx, params[4]);
 	out[0]=ret.x;
@@ -888,7 +889,7 @@ cell Call_Vector_Float(AMX *amx, cell *params)
 	Vector ret;
 	reinterpret_cast<void (__fastcall *)(void *, int, Vector*, float)>(__func)(pv, 0, &ret, f3);
 #elif defined(__linux__) || defined(__APPLE__)
-	Vector ret = reinterpret_cast<Vector(*)(void *, float)>(__func)(pv, f3);
+	Vector ret = CallVectorReturn(__func, pv, f3);
 #endif
 	float *out=(float *)MF_GetAmxAddr(amx, params[4]);
 	out[0]=ret.x;
@@ -1076,7 +1077,7 @@ cell Call_Int_Vector_Vector_Float_Float(AMX *amx, cell *params)
 #if defined(_WIN32)
 	return reinterpret_cast<int (__fastcall *)(void *, int, Vector, Vector, float, float)>(__func)(pv, 0, v3, v4, f5, f6);
 #elif defined(__linux__) || defined(__APPLE__)
-	return reinterpret_cast<int (*)(void *, Vector, Vector, float, float)>(__func)(pv, v3, v4, f5, f6);
+	return GameCall<int (*)(void *, Vector, Vector, float, float)>::call(__func, pv, v3, v4, f5, f6);
 #endif
 }
 
@@ -1144,7 +1145,7 @@ cell Call_Void_Vector_Entvar_Entvar_Float_Int_Int(AMX *amx, cell *params)
 #if defined(_WIN32)
 	reinterpret_cast<void (__fastcall *)(void *, int, Vector, entvars_t *, entvars_t *, float, int, int)>(__func)(pv, 0, v3, ev4, ev5, f6, i7, i8);
 #elif defined(__linux__) || defined(__APPLE__)
-	reinterpret_cast<void (*)(void *, Vector, entvars_t *, entvars_t *, float, int, int)>(__func)(pv, v3, ev4, ev5, f6, i7, i8);
+	GameCall<void (*)(void *, Vector, entvars_t *, entvars_t *, float, int, int)>::call(__func, pv, v3, ev4, ev5, f6, i7, i8);
 #endif
 
 	return 1;
@@ -1237,7 +1238,7 @@ cell Call_Void_Vector_Vector(AMX *amx, cell *params)
 #if defined(_WIN32)
 	reinterpret_cast<void (__fastcall *)(void *, int, Vector, Vector)>(__func)(pv, 0, v3, v4);
 #elif defined(__linux__) || defined(__APPLE__)
-	reinterpret_cast<void (*)(void *, Vector, Vector)>(__func)(pv, v3, v4);
+	GameCall<void (*)(void *, Vector, Vector)>::call(__func, pv, v3, v4);
 #endif
 
 	return 1;
@@ -1398,7 +1399,7 @@ cell Call_Void_Vector(AMX *amx, cell *params)
 #if defined(_WIN32)
 	reinterpret_cast<void (__fastcall *)(void *, int, Vector)>(__func)(pv, 0, v3);
 #elif defined(__linux__) || defined(__APPLE__)
-	reinterpret_cast<void (*)(void *, Vector)>(__func)(pv, v3);
+	GameCall<void (*)(void *, Vector)>::call(__func, pv, v3);
 #endif
 
 	return 1;
@@ -1421,7 +1422,7 @@ cell Call_Int_Str_Vector_Str(AMX* amx, cell* params)
 #if defined(_WIN32)
 	return reinterpret_cast<int (__fastcall *)(void*, int, const char *, Vector,  const char *)>(__func)(pv, 0, sz3, v4, sz5);
 #elif defined(__linux__) || defined(__APPLE__)
-	return reinterpret_cast<int (*)(void *, const char *, Vector,  const char *)>(__func)(pv, sz3, v4, sz5);
+	return GameCall<int (*)(void *, const char *, Vector,  const char *)>::call(__func, pv, sz3, v4, sz5);
 #endif
 }
 
@@ -1655,7 +1656,7 @@ cell Call_Int_Vector_Vector(AMX *amx, cell *params)
 #if defined(_WIN32)
 	return reinterpret_cast<int (__fastcall *)(void *, int, Vector, Vector)>(__func)(pv, 0, v3, v4);
 #elif defined(__linux__) || defined(__APPLE__)
-	return reinterpret_cast<int (*)(void *, Vector, Vector)>(__func)(pv, v3, v4);
+	return GameCall<int (*)(void *, Vector, Vector)>::call(__func, pv, v3, v4);
 #endif
 }
 
@@ -1877,7 +1878,7 @@ cell Call_Int_Vector_Cbase(AMX *amx, cell *params)
 #if defined(_WIN32)
 	int ret=reinterpret_cast<int (__fastcall *)(void *, int, Vector, void*)>(__func)(pv, 0, v3, p4);
 #elif defined(__linux__) || defined(__APPLE__)
-	int ret=reinterpret_cast<int (*)(void *, Vector, void*)>(__func)(pv, v3, p4);
+	int ret=GameCall<int (*)(void *, Vector, void*)>::call(__func, pv, v3, p4);
 #endif
 
 	fl3[0]=v3.x;
@@ -1902,7 +1903,7 @@ cell Call_Int_Vector(AMX *amx, cell *params)
 #if defined(_WIN32)
 	return reinterpret_cast<int (__fastcall *)(void *, int, Vector)>(__func)(pv, 0, v3);
 #elif defined(__linux__) || defined(__APPLE__)
-	return reinterpret_cast<int (*)(void *, Vector)>(__func)(pv, v3);
+	return GameCall<int (*)(void *, Vector)>::call(__func, pv, v3);
 #endif
 }
 
@@ -2055,7 +2056,7 @@ cell Call_Vector_Vector_Vector_Vector(AMX *amx, cell *params)
 	Vector ret;
 	reinterpret_cast<void (__fastcall *)(void *, int, Vector*, Vector, Vector, Vector)>(__func)(pv, 0, &ret, v3, v4, v5);
 #elif defined(__linux__) || defined(__APPLE__)
-	Vector ret=reinterpret_cast<Vector (*)(void *, Vector, Vector, Vector)>(__func)(pv, v3, v4, v5);
+	Vector ret = CallVectorReturn(__func, pv, v3, v4, v5);
 #endif
 	float *out=(float *)MF_GetAmxAddr(amx, params[6]);
 	out[0]=ret.x;

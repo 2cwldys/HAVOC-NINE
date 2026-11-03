@@ -7687,3 +7687,22 @@ gate was inverted (it re-poses while the sequence is NOT finished, @0x5d386). Pl
   evidence in reference/coverage/spawnflags_checked.tsv. Now 0 missing, 0 extra.
 - Proof: builds (i386, amd64); CFade::Use calls UTIL_EntitiesInBox; spawnflags.py clean. Built, not yet
   checked in the engine (needs a client inside a neobaroque fade brush).
+
+## 2026-11-01: mouse releases while the cursor is up (new-round magdump)
+
+- reTS IN_MouseEvent (cl_dll/inputw32.cpp) returned early whenever iMouseInUse or g_iVisibleMouse was
+  set, only syncing mouse_oldbuttonstate. That is right for a press (the TS buy menu / VGUI consume it),
+  but it also swallowed the RELEASE of a button already held when the cursor came up. The TS buy menu
+  opens on entering spectate at a round start (CHudSpectate::Draw -> CHudTSBuyMenu::Open ->
+  UpdateCursorState), so a fire button held across that edge kept in_attack down: the client predicted
+  fire through the freeze, and at unfreeze Xash's SV_ParseClientMove stopped zeroing buttons and the
+  server ran the still-held IN_ATTACK into a magdump, with the client-side TS aim recoil climbing to the
+  ceiling. Occasional because it needs the press to land before the menu opens and the release after.
+- Fix: the cursor-up branch now forwards Key_Event(K_MOUSE1+i, 0) for every button that went down->up
+  before syncing mouse_oldbuttonstate. Presses are still consumed by the menu; a release whose press was
+  consumed finds no down key in KeyUp and Key_Event drops it while the engine key is up, so it is
+  harmless. Also covers focus loss while a menu is up (Key_ClearStates -> IN_ClearMouseState).
+- Proof: Win32 Release client built (895488 bytes, SHA256 92E1BFF2614EA881692CDEA86BAF405AD95D3F70BDBDE19BD958C8E0A5267E97),
+  xash.bat assemble deployed it to H9XASH; the byte diff from the 10/29 build is the +0x60-byte .text
+  growth plus the address shifts it causes (same raw section sizes, .data byte-identical). Not yet
+  playtested; the repro still needs the weapon/fire mode and whether the buy/class menu was up.

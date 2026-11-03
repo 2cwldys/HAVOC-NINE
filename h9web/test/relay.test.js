@@ -90,7 +90,8 @@ describe("relay", () => {
     const m = unframe(await ws.next());
     assert.equal(m.address, "203.0.113.50:27015");
     assert.equal(m.payload.toString(), "echo:hello");
-    assert.equal(echo2.received.length, 1);
+    // the page's datagram, once (the status poller's queries reach the same port)
+    assert.equal(echo2.received.filter((r) => r.msg.toString() === "hello").length, 1);
     ws.close();
   });
 
@@ -238,10 +239,13 @@ describe("relay", () => {
     list.servers = list.servers.filter((s) => s.name !== "Hidden");
     list.servers.push({ name: "HAVOC 9 Live", address: "127.0.0.1:" + game.address().port });
     fs.writeFileSync(t.serversFile, JSON.stringify(list));
+    const address = "127.0.0.1:" + game.address().port;
     const s = await until(async () => {
       const r = await request(t.base, "GET", "/api/servers");
-      return r.json.servers.find((x) => x.name === "HAVOC 9 Live");
+      return r.json.servers.find((x) => x.address === address);
     }, 10000, 200);
+    assert.equal(s.name, "Live One", "an answering server goes by its own hostname, not servers.json's name");
+    assert.equal(s.online, true);
     assert.equal(s.map, "h9_te_neuropolis");
     assert.equal(s.players, 5);
     assert.equal(s.max, 16);

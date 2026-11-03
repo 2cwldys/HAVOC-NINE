@@ -28,7 +28,8 @@ extern engine_studio_api_t IEngineStudio;
 extern float g_flClientSlow;        // the DAT_100963e8 equivalent — smoothed slow-mo timescale (ts_powerup_hud.cpp)
 extern "C" int CL_IsThirdPerson();  // in_camera.cpp (engine export, C linkage)
 
-// The 32-entry blur array (original DAT_100dff48, entry stride 0x18), entry index == entindex.
+// The blur array (the original's DAT_100dff48, entry stride 0x18), entry index == entindex. One
+// entry per player entindex, 0 to MAX_PLAYERS; the original's 32 entries left entindex 32 out.
 struct blurentry_t
 {
 	int active;      // +0x00
@@ -36,7 +37,7 @@ struct blurentry_t
 	int frames;      // +0x08  ghosts to spawn in total
 	double nextTime; // +0x10  next spawn time (gHUD.m_flTime clock)
 };
-static blurentry_t g_TSBlur[32];
+static blurentry_t g_TSBlur[MAX_PLAYERS + 1];
 
 static cvar_t* s_cl_motionblur = nullptr;
 static cvar_t* s_cl_fx = nullptr;
@@ -73,7 +74,7 @@ static int __MsgFunc_TSMBlur(const char* pszName, int iSize, void* pbuf)
 		s_cl_motionblur = gEngfuncs.pfnGetCvarPointer("cl_motionblur");
 	if (s_cl_motionblur == nullptr || (int)s_cl_motionblur->value == 0)
 		return 1;
-	if (idx < 0 || idx >= 32) // entry index == entindex; the spawner loops 0..31 (entindex 32 never ghosts)
+	if (idx < 0 || idx > MAX_PLAYERS) // entry index == entindex
 		return 1;
 
 	blurentry_t* e = &g_TSBlur[idx];
@@ -117,7 +118,7 @@ void TS_UpdateMotionBlur()
 
 	cl_entity_t* local = gEngfuncs.GetLocalPlayer();
 
-	for (int i = 0; i < 32; i++) // 0..31 — entindex 32 never ghosts (original quirk)
+	for (int i = 0; i <= MAX_PLAYERS; i++) // every player entindex
 	{
 		blurentry_t* e = &g_TSBlur[i];
 		if (e->active == 0 || e->nextTime > gHUD.m_flTime)

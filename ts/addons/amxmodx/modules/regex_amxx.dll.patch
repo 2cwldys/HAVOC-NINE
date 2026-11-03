@@ -1,0 +1,37 @@
+H9 regex_amxx.dll -- AMX Mod X's RegEx module, built from source for 128 player slots
+=====================================================================================
+
+What this is
+------------
+
+ts\addons\amxmodx\modules\regex_amxx.dll is AMX Mod X's RegEx module,
+built by H9 from TSM\AMXMODX: goldsrc-net/amxmodx (the AMX Mod X fork reTS ships with),
+branch 64bit at commit dedff660dff3fa615a96d6ba3890d6000b588ed1,
+with H9's changes as uncommitted working-tree changes (AMXMODX\H9-SOURCE.txt).
+The core and every module H9 ships but three are built together from that one tree, for
+128 player slots: tsx_amxx.dll stays reTSX (docs\PLAYER_LIMIT_128.txt, section 8.5),
+easy_http_amxx.dll is a third-party module, and mysql_amxx.dll (it links MySQL's C
+connector, and no H9 plugin loads it) stays the release's.
+
+H9's changes in it: none. It is built unchanged from the same tree, so it matches the core
+it loads in; nothing in it is sized by the player count.
+
+Deployed file : regex_amxx.dll
+Size          : 314368 bytes
+SHA256        : D7088A499D80A7A27DE0A6721B2960E3199F370FA64F0CB346861B3E71F81540
+Built         : 2026-11-02, MSBuild modules\regex\msvc12\regex.vcxproj, Release|Win32, toolset
+                v145 (Visual Studio 2026), from a copy of TSM\AMXMODX, against the SDKs
+                the fork's CI uses: goldsrc-net/hlsdk branch 64bit (dd2c6d61) and
+                alliedmodders/metamod-hl1 (18a10db6). The msvc12 projects lag AMBuild's
+                (three source files, HAVE_STDINT_H, default struct packing), fixed in
+                the copy (H9-SOURCE.txt, Building on Windows).
+
+Against the build it replaces
+-----------------------------
+
+The regex_amxx.dll H9 shipped before, from the reTS AMX Mod X build (1.10.0-manual):
+326144 bytes, SHA256 C0A6FDC7CD933355B47C80FDF1A7FDE21602D0B5ED829CF6B1D200522E02D354,
+kept as regex_amxx.dll.bak_slots beside this file. To go back, copy that over regex_amxx.dll.
+
+On servers of 32 slots or fewer nothing changes: the tables are longer, and every loop and
+bound in them still stops at the server's maxplayers.

@@ -3,16 +3,30 @@
 ===============================================================================
 
  Who this is for: whoever decides whether H9 servers go past 32 players, and
- whoever then does the work. This is research and a plan only: nothing in the
- tree was changed to write it. It describes the tree as it stood on 2026-11-01.
+ whoever then does the work. It began as research and a plan, describing the
+ tree as it stood on 2026-11-01; section 27 records what has been built since.
  File:line references are into D:\Downloads\TSM unless they say otherwise.
 
  The short version
+   * Where it stands, 2026-11-02: built for 128 slots, running at 64. The
+     engine, reTS's client and server, Metamod-R, AMX Mod X with H9's TSX,
+     every plugin and RCBot (127 bot profiles) all take 128 slots; the server
+     launchers and the Create Game menu default to maxplayers 64. Load tests
+     at 64 slots with 63 bots ran clean, without AMX Mod X and with it (TSX
+     checks 39 of 39), and a bot kicked from slot 48 fires client_disconnected
+     and client_remove (2026-11-02, ts_bikini, every slot full). Not yet proven:
+       - a server past 64 slots (no test has run there);
+       - a human joining a full 64-slot match: the staggered bot join and the
+         engine's reliable-burst fix are built, not yet played;
+       - a full server's presence report: until 2026-11-02 h9_presence held
+         12 KB (about 40 players) and h9web took 16 KB; both now hold all 128
+         slots (H9_PRESENCE.txt), live with the next build and site restart;
+       - 32 spawn points a side on every map that runs at 64.
    * The plan: build every limit, protocol field and array for 128 slots, and
-     run servers at maxplayers 64. The default stays 32 everywhere until the
-     whole job is done and passes the checklist in section 23; switching the
-     default to 64 is the last step, one known set of changes.
-   * Nothing in H9 can run more than 32 players today:
+     run servers at maxplayers 64. The default went to 64 on 2026-11-02, on
+     the user's word, ahead of the checklist in section 23 (its change set
+     says what moved).
+   * Before this work nothing in H9 could run more than 32 players:
        - the engine clamps maxplayers to 32 (xash3d-fwgs engine\server\
          sv_init.c:822-823);
        - lift that clamp alone and AMX Mod X writes past its own 33-entry
@@ -24,9 +38,10 @@
      reTS's client and server, Metamod, AMX Mod X and its modules, TSX, every
      plugin, RCBot; plus configs, map spawn points and the scoreboard. All of it
      is source H9 has (mp.dll included: since 2026-10-29 it is built from reTS
-     source), except reTSX and Metamod-R, which come prebuilt from goldsrc-net.
-     metamod-p's source is now in TSM (section 7). Expect a period of chasing
-     bugs: bots make most of it testable (section 19).
+     source; Metamod-R too: TSM\metamod-r, section 7), except reTSX and the AMX
+     Mod X core, which come prebuilt from goldsrc-net's fork (section 8.5).
+     Expect a period of chasing bugs: bots make most of it testable (section
+     19). What is built so far: section 27.
    * Compatibility: a server of 32 slots or fewer behaves exactly as now, for
      every client. Only a server with more than 32 slots needs the new client;
      older and stock Xash clients never list it and cannot join it (cleanly).
@@ -50,7 +65,7 @@
    4  Per binary and source: what changes, its risk, how to test it
    5  The engine (xash3d-fwgs)
    6  The game DLLs (reTS mp.dll and client.dll)
-   7  Metamod: Metamod-R as shipped, metamod-p source in TSM
+   7  Metamod: Metamod-R, built from source
    8  AMX Mod X and TSX
    9  H9's plugins
    10 RCBot
@@ -70,6 +85,7 @@
    24 Risks
    25 Decisions for the user
    26 Where the numbers come from
+   27 Status, 2026-11-02: what is built
 
 
  1. CORRECTIONS TO THE STARTING BRIEF
@@ -114,10 +130,9 @@
  Run at 64. Servers that go past 32 run maxplayers 64. Raising a server past 64
  is a separate, later decision, made on measurements (section 21).
 
- The default stays 32. Every launcher, config and preset keeps maxplayers 32
- while the work goes on; 64 runs only on a test server. When everything is
- built, tested with bots and real clients, and the scoreboard is reworked, the
- default changes in one known set of files (section 23).
+ The default is 64 (2026-11-02, the user's call, ahead of section 23's
+ checklist): H9XASH's server launchers and the Create Game menu start at 64.
+ The checklist stays the list of what has to hold for matches past 32.
 
  The steps (effort in section 22):
    0. Measure today's 32-slot server with bots (section 19, L0).
@@ -176,8 +191,8 @@
    cl_dll\vgui_teammenu.cpp:203       team list buffer of 31 names           TABLE
 
  Metamod, AMX Mod X, TSX
-   metamod-p\metamod\mplayer.h        MAX_PLAYERS 32, players[33]            CONST
-   metamod-p\metamod\mplayer.cpp:186-192   bound by maxClients: reads past   CONST
+   metamod-r\metamod\src\mplayer.h    m_players[MAX_CLIENTS + 1], 33        CONST
+   metamod-r\metamod\src\mplayer.cpp  look-ups bounded by maxClients only  CONST
    AMXMODX amxmodx\amxmodx.h:169, meta_api.cpp:72   CPlayer g_players[33]   BIN
    AMXMODX amxmodx\emsg.cpp:332, 336  DeathMsg ignores 33 and up            BIN
    AMXMODX modules\engine\engine.cpp:17   plinfo[33]                        BIN
@@ -273,13 +288,15 @@
      Risk: none known; the server sends its tables, so clients follow.
      Test: in-eye spectating of slot 64.
 
-  8. metamod.dll. Shipped: Metamod-R, prebuilt. Source in TSM: metamod-p.
-     Changes: two lines in metamod-p (7.2); build it with MinGW-w64 (7.3).
-     Risk: metamod-p dispatches hooks more slowly than Metamod-R (7.4).
+  8. metamod.dll. Metamod-R, built by H9 from TSM\metamod-r (7.1).
+     Changes: the cvar-query table holds 128 slots and its look-ups are
+     bounded by it (7.2); built with Visual Studio (7.3).
+     Risk: low; the same interface as the prebuilt (7.4).
      Test:
        - AMXX and RCBot load messages;
        - a client cvar query from slot 40;
-       - bot run L1 and L2 under each Metamod, comparing frame time.
+       - bot run L1 and L2 under the prebuilt and under H9's build, comparing
+         frame time.
 
   9. amxmodx_mm.dll, AMX Mod X core.
      Changes: g_players to MAX_PLAYERS + 1 at 128; DeathMsg bounds;
@@ -515,77 +532,53 @@
  update. Harmless.
 
 
- 7. METAMOD: METAMOD-R AS SHIPPED, METAMOD-P SOURCE IN TSM
- ---------------------------------------------------------
+ 7. METAMOD: METAMOD-R, BUILT FROM SOURCE
+ ---------------------------------------
 
- 7.1 What ships
- addons\metamod\dlls\metamod.dll is Metamod-r 1.3.0.196, from goldsrc-net/
- Metamod-R commit b2ea6fb, byte-identical to reTS\release_binaries. Its source
- is not in TSM.
+ 7.1 What ships, and what H9 builds
+ addons\metamod\dlls\metamod.dll was Metamod-r 1.3.0.196, prebuilt by
+ goldsrc-net (goldsrc-net/Metamod-R b2ea6fb). H9 now builds Metamod-R itself
+ from TSM\metamod-r: upstream rehlds/metamod-r at commit 56590c5c
+ (2026-09-17), carried as plain files (metamod-r\H9-SOURCE.txt). H9's changes
+ are patches in that folder, made by diff against the commit and applied in
+ it, so an upstream update is the new commit's files plus the patches again.
+ metamod-p, which H9 carried before, is gone (a backup:
+ TSM\backups\metamod-p-replaced-20261101).
 
- 7.2 metamod-p in TSM, and its changes
- metamod-p\ is upstream Bots-United/metamod-p at commit 7ec9b014, carried as
- plain files (metamod-p\H9-SOURCE.txt). Its player state, all of it:
-   * metamod\mplayer.h: #define MAX_PLAYERS 32, and MPlayerList::players
-     [NUM_SLOTS] with NUM_SLOTS = MAX_PLAYERS + 1. That is the table of
-     pending client-cvar queries, one per player.
-   * mplayer.cpp:149-154, 161-166: set and clear are bounded by NUM_SLOTS, so
-     slots past 32 are silently not tracked.
-   * mplayer.cpp:186-192: is_querying_cvar is bounded by
-     gpGlobals->maxClients, then reads players[indx]. Past 32 it reads beyond
-     the table and returns whatever pointer lies there. It is reached through
-     the meta utility IsQueryingClientCvar (mutil.cpp:355-357). AMX Mod X 1.10
-     does not call it: it uses the engine's request-ID query path
-     (C_CvarValue2, AMXMODX amxmodx\meta_api.cpp:1574). Latent, not live, for
-     H9's plugins.
-   * mreg.h:62 #define MAX_CLIENTS_CONNECTED 32: used nowhere.
-   * mutil.cpp:133: the centersay loop runs to gpGlobals->maxClients over
-     INDEXENT: fine.
- Nothing else in metamod is sized by players, and it sizes nothing from
- maxplayers.
- The source changes:
-   1. mplayer.h: MAX_PLAYERS 32 -> 128.
-   2. mplayer.cpp:188: bound by NUM_SLOTS, as set and clear already are.
-   3. mreg.h:62: remove MAX_CLIENTS_CONNECTED or set it to 128, so nobody
-      trusts it later.
- Metamod-R is a rework of metamod-p and very likely carries the same table.
- If its source is obtained, make the same two changes there.
+ 7.2 Its player state, and the change
+   * metamod\src\mplayer.h: MPlayerList::m_players[MAX_CLIENTS + 1], with
+     MAX_CLIENTS 32 from the HLSDK's const.h: the table of pending
+     client-cvar queries, one per player.
+   * mplayer.cpp: set, clear, clear-all and is_querying_cvar are bounded only
+     by gpGlobals->maxClients, so on a server past 32 slots a query from slot
+     33 and up is written past the table.
+   * mutil.cpp:142, the centersay loop to maxClients over INDEXENT: fine.
+ Nothing else in Metamod-R is sized by players. The change
+ (metamod-r\h9-slots128.patch): the table holds 128 slots + 1 (MAX_SLOTS in
+ MPlayerList), and every look-up is bounded by it as well as by maxClients.
 
- 7.3 Building metamod-p for Windows
- GNU make and the MinGW-w64 i686 cross compiler; there is no MSVC project.
-   * metamod\Makefile, shared by the plugin folders, picks the OS from COMSPEC
-     and uname (:19-34). It uses i686-w64-mingw32-gcc, -windres and -dllwrap
-     (:71-84). Config.mak adds the i386pe.merge linker script on Windows.
-   * It links with -mdll, --add-stdcall-alias and -static-libgcc
-     (:272-290), and `make win32 OPT=opt` writes
-     metamod\opt.win32\metamod.dll.
-   * Upstream's CI (.github\workflows\build.yml:95, 110) builds on Ubuntu:
-       apt-get install gcc-mingw-w64 g++-mingw-w64
-       make -j4 -C metamod CC_WIN="i686-w64-mingw32-g++" OS=windows OPT=opt win32
-     and .github\scripts\check_dll.py checks the exports and that the DLL
-     imports only KERNEL32.dll and msvcrt.dll.
-   * Interface version "5:13" (metamod\meta_api.h:66), the one AMXX 1.10 and
-     RCBot expect.
- What H9 would add:
-   * a toolchain: WSL Ubuntu with gcc-mingw-w64, or MSYS2 with
-     mingw-w64-i686-gcc and make (pass OS=windows explicitly; the Makefile's
-     detection only knows Cygwin);
-   * a small TSM build script that runs the CI line, then check_dll.py (Python
-     with pefile);
-   * deployment into the Steam install's ts\addons\metamod\dlls, the copy
-     xash.bat's addons step mirrors into H9XASH (xash.bat:417), and into
-     H9XASH;
-   * metamod.dll.patch beside each shipped copy (H9's rule for rebuilt DLLs);
-   * one heavy build at a time.
+ 7.3 Building it
+   * Visual Studio: metamod\msvc\metamod.vcxproj, Release|Win32. The project
+     names toolsets up to v142; Visual Studio 2026 builds it with
+     /p:PlatformToolset=v145. Output metamod\msvc\Release\metamod.dll.
+   * Its pre-build step writes version files into the tree, so H9 builds it
+     from a copy.
+   * Interface version "5:13", the one AMX Mod X 1.10 and RCBot ask for.
+   * Deployment: the Steam install's ts\addons\metamod\dlls (the copy
+     xash.bat's addons step mirrors into H9XASH) and H9XASH, with
+     metamod.dll.patch beside each.
 
- 7.4 Metamod-R or metamod-p
- Switching is possible: same interface version, same file name, same
- plugins.ini, so AMXX and RCBot load under either. But Metamod-R's reason to
- exist is a faster hook dispatch, and at 64 players with per-entity hooks
- (section 17) every hooked call pays the dispatch. So:
-   * keep Metamod-R and patch its two lines if its source is obtainable;
-   * otherwise use metamod-p, with its frame time against Metamod-R's measured
-     in bot runs L1 and L2 (section 19).
+ 7.4 Against the goldsrc-net prebuilt
+ goldsrc-net forked rehlds at 4db16ff (2025-07-22). Upstream has had only
+ Linux CI and packaging commits since. The fork adds a hook JIT rewritten on
+ AsmJit with x64 and aarch64 support, file name suffixes for 64-bit plugins,
+ Linux library floors, and fixes to its own rewrite (b2ea6fb picks a hooked
+ call's return value before restoring the meta globals; eb82b66 hooks
+ variadic engine functions again). Upstream's x86 JIT, which H9 builds,
+ picks the return value first and formats variadic calls itself. Compared:
+ the same exports, interface version and game support list. For H9's 32-bit
+ Windows server nothing it relies on differs. Bot runs L1 and L2 still
+ compare the two builds' frame times (section 19).
 
 
  8. AMX MOD X AND TSX
@@ -636,6 +629,42 @@
  Anything rebuilt and put only into H9XASH is overwritten by the next clean
  build. Deploy to the Steam install too (HLDS runs them at 32, which they still
  handle), or change that step.
+
+ 8.5 The sources H9 has, and the decision (2026-11-02)
+   * TSM\AMXMODX is now goldsrc-net's AMX Mod X fork (github.com/goldsrc-net/
+     amxmodx, branch 64bit at dedff660, with its submodules), the source of
+     the AMX Mod X H9 ships ("1.10.0-manual": its core reads the
+     "gamedll_export" gamedata condition, which H9's gamedata needs to pick
+     reTS's Ham offsets and drop TS 3.0's). H9's changes are uncommitted
+     working-tree changes against that commit (AMXMODX\H9-SOURCE.txt): the
+     128 slots (core g_players, the DeathMsg bounds, amxconst.inc's
+     MAX_PLAYERS 128, engine's plinfo, fun's kMaxClients, TSX's tables),
+     TSX's Xash bot test, and the TS 3.0 and reTS gamedata H9 runs. The
+     alliedmodders tree it replaces is in TSM\backups\AMXMODX-alliedmodders-
+     20261102.
+   * The fork's TSX (modules\ts\tsx) is the TS 3.0 path: every gamedata file
+     it reads applies only to TS 3.0's own library ("!ReTS_GetInterface"), so
+     on reTS its player-state natives find no offsets and fail. The shipped
+     reTSX has a reTS backend as well (it calls ReTS_GetInterface; "Native %s
+     is not supported by this reTS"), which is in no branch or commit of the
+     fork.
+   * H9's plugins call ten TSX natives and none of its forwards:
+     ts_getusercash, ts_setusercash, ts_getuserslots, ts_setuserslots,
+     ts_getuserwpn, ts_getuserammo, ts_setuserammo, ts_giveweapon,
+     ts_has_fupowerup, ts_set_speed. No enabled stock plugin needs TSX.
+ The options for TSX at 128: (a) the fork's TSX with a reTS backend H9
+ writes on reTS's interface (reTS\dlls\rets_api.h), native by native where
+ the TS 3.0 path reads an offset; (b) reTSX binary-patched to 128: every
+ table, bound and the CPlayer stride, too fragile; (c) reTSX kept, on servers
+ of 32 or fewer only: its tables end at slot 32 (a player past it is written
+ past them), and it cannot just be left out, as ts_matchmode's classes,
+ loadouts and speeds need TSX; (d) the backend's source asked of
+ goldsrc-net.
+ Decided (2026-11-02, by the user): (a). H9's backend is in TSM\AMXMODX's
+ TSX (AMXMODX\H9-SOURCE.txt, change 5): on reTS every player-state native
+ goes through ReTS_GetInterface, on TS 3.0 through the gamedata as before.
+ It replaces reTSX once its check run on reTS passes (section 27). The AMX
+ Mod X core and the other modules are built from TSM\AMXMODX at 128.
 
 
  9. H9'S PLUGINS
@@ -816,8 +845,11 @@
    * in ts_matchmode (Pawn), which already hooks player TakeDamage
      (ts_matchmode.sma:5016).
  Sent as a new message (player byte, assists short), so ScoreInfo stays stock
- and unknown to stock clients. What counts as an assist (damage share, time
- window) is the user's call.
+ and unknown to stock clients. Decided and built: ts_matchmode counts them
+ (Ham_TakeDamage pre and post: the health each hit took, 48 hits a victim
+ kept); an assist is 30 or more health lost to an enemy other than the
+ killer in the 10 seconds before the kill; H9Assists (byte slot, short
+ assists; slot 0 says the server counts them) goes to every client.
 
  11.6 Where the code lives
    * reTS cl_dll\vgui_ScorePanel.cpp and .h: columns (:58-68), grid
@@ -838,6 +870,59 @@
  resolution above and in the browser; every name visible, sorting, the
  overflow rule, the pinned row; and the same board at 32 against a stock TS 3.0
  server on Steam.
+
+ 11.7 The avatar cell, and how its picture arrives
+ Every player row starts with a square cell one row high (12 units, as wide
+ in pixels as the row is tall). It shows a default silhouette for everyone,
+ drawn by the client (CAvatarBitmap, cl_dll\vgui_ScorePanel.cpp). The client
+ keeps a picture field per slot, g_PlayerAvatars[slot]: RGBA pixels, size,
+ version, and the bitmap drawn at the cell size. A picture drops in there
+ without another layout change. The pipeline, not built:
+   1. The server learns whose account a player is: the presence ID proof
+      ties the slot to a havoc9.org account. Pieces: the engine (the proof,
+      an engine change not built yet) and h9_presence.sma (it already sends
+      the challenge, takes the answer and reports to h9web).
+   2. h9web knows each account's picture and its version (the forum's
+      profile pictures, re-encoded on upload) and serves each as a small PNG
+      (64 x 64) at a URL that carries the version.
+   3. The server tells clients which picture each slot has: an H9 user
+      message, slot, version and account id. The client builds the
+      havoc9.org URL itself, so no server can point clients at another host.
+      Piece: h9_presence.sma sends it, from h9web's report answer.
+   4. The engine fetches the PNG over https from havoc9.org only, size-capped
+      (a few KB, 64 x 64 at most), and caches it on disk by account and
+      version, so each picture is fetched once. The engine already has the
+      parts: HTTP_GetToMemory with mbedTLS and its caps (engine-h9-motd.patch
+      uses them) and imagelib's PNG decoder. Piece: the engine, with a client
+      extension call that hands client.dll the decoded RGBA by slot.
+   5. The client draws it: g_PlayerAvatars[slot] takes the pixels and
+      version; the scoreboard scales them to the cell (a box filter over the
+      silhouette's background). Piece: reTS cl_dll.
+ Steam/GoldSrc clients (the GoldSrc package on HLDS) never get pictures: the
+ GoldSrc engine has none of steps 1 and 4. They always show the silhouette.
+ The cache: downloads\h9avatars\<site>_<account>_<version>.png, <site> havoc9, or
+ local<port> while cl_h9_site names the local test site, so the two never mix. A
+ picture that fails says so once in the console (its address, and whether it could
+ not be fetched or was not a PNG of 64 x 64 at most) and is not asked again until the
+ game restarts or cl_h9_site changes.
+
+ 11.8 As built (2026-11-01)
+ reTS cl_dll\vgui_ScorePanel.cpp/.h: the board inset XRES(16), YRES(16); two
+ columns, one per team in team-number order (team 1 left), free-for-all
+ split in two; a team past its column continues in the other under
+ "<team> (cont.)"; rows 12 units, shorter (down to 8 px) when a layout needs
+ more, and past that each team keeps its own column and the column scrolls
+ (cl_h9_scoreboard_scroll 1, the default: the mouse wheel or PgUp/PgDn while
+ the board is held open, eased, the team header pinned, a thin bar at the
+ column's edge), or with scrolling off "... N more"; cells avatar (row
+ height), status 46 (DEAD, 3K, 6K, SPEC, UNSTOP, ONE, WAIT), name (the rest,
+ cut with ".."), K 24, D 24, A 24, LIVES 34 (H9Lives from ts_matchmode: lives
+ left / the class's), ping 30 ("BOT" for a player whose userinfo has *bot 1),
+ voice 16;
+ team header rows: name (N), team K, D, A and average ping; players with no
+ team in a strip at the bottom; the title line: server, map, N/max. Fonts
+ follow the row height. Assists (11.5) come in H9Assists from ts_matchmode;
+ a server that never sends it leaves the A column empty.
 
 
  12. EDICTS AND MAPS
@@ -868,6 +953,46 @@
  32 a side, and TS's own picker looks at only the first 32 points it finds
  (TS_gamerules.cpp:69-74). Each map that runs at 64 needs 32 or more points a
  side placed with amx_tsm_spawn_save (docs\CUSTOM_SPAWNPOINTS.txt).
+
+ Spawn points per side (tsm_spawns_<map>.cfg, in H9XASH and the Steam
+ install; the hive's in H9XASH only), 2026-11-02. TSM\tools\spawns64.py
+ --check, reading the compiled map (BSP v30 or BSP2), passes every point in
+ every file: the standing hull clear; a floor within 18 units, level under the
+ whole body (no stair, ramp or ledge's edge); out of water; clear of
+ trigger_hurt, trigger_teleport, ladders and solid brush entities (by each
+ one's own hull, as the engine touches them); 64 or more from every point in
+ use with it (TSM_SPAWN_CLEARANCE); and a clear hull line to another point of
+ its set. A forward tier replaces tier 0 for the respawns it serves, so each
+ tier holds a whole side and is counted on its own.
+   map                     before         after          how
+   h9_te_neuropolis        36 / 36        36 / 36        3 points on a curb's edge
+   h9_siege_neuropolis     (31 valid)                    replaced in the yard; one
+                                                         hand point moved 4.5 units
+   h9_siege_lift           42 / 9+5+6     42 / 34+37+36  lift.mjs: the pod in rows,
+                           (side 2 tiers 0+1+2)          tiers 1 and 2 on the cargo
+                                                         and passenger decks
+   h9_mw_lift, h9_up_lift  42 / 14        42 / 44        lift.mjs: the pod in rows
+   h9_ws_lift              16 / 22        36 / 60        lift.mjs: two rings on the
+                                                         passenger deck
+   h9_mw/up_drainage       16 / 16        34 / 34        drainage.mjs: two rows on
+                                                         each basin's floor
+   h9_ws_drainage          16 / 36        34 / 40        drainage.mjs: the station
+                                                         at 80 apart (its width
+                                                         takes no more at 96)
+   h9_te_meridian           9 / 8         11 / 11        too small, below
+   h9_tsrp_hive            16 / 16        32 / 32        spawns.mjs; used only if
+                           (0, 2 valid)                  its mapconfig turns the
+                                                         match mode on
+   h9_tsrp_newbyzantium    52 map spawns, no cfg         below
+ Too small for 64: h9_te_meridian. Its spawn rooms take 11 a side at 96 apart;
+ side 2's (about 192 x 416, one corridor a body wide out of it) takes 14 at 80
+ and about 20 at 64. 32 a side needs bigger spawn rooms (the map was built
+ outside this repo) or fewer players on it: the user decides.
+ New Byzantium: 52 info_player_deathmatch, one to a street across the city;
+ the auto split makes about 22 and 30 a side, and no point stands with
+ another of its side. As a roleplay map it plays TS's own spawns. A
+ match-mode version needs a cfg with two home areas of 32 or more each, which
+ its generator can write as the hive's spawns.mjs does.
 
 
  13. MEMORY: THE 32-BIT ADDRESS SPACE
@@ -910,6 +1035,9 @@
       not.
  Recommended: (a) at 64, (c) if tight, (b) after its own test. Past 64, (b)
  and (c) both.
+ Decided and built: (c), in engine-h9-slots128.patch: past 32 slots the
+ ring holds NUM_PACKET_ENTITIES / 2 a frame, 170 MiB at 64, 340 at 128; at
+ 32 or fewer it is as before.
 
 
  14. AROUND THE GAME
@@ -999,6 +1127,16 @@
      player's spray (sv_send_logos 1, sv_uploadmax 0.5 MB each,
      sv_main.c:51-57).
 
+ The numbers for a server of more than 32 slots (decision 9):
+   * clients: rate 60000, cl_updaterate 30, cl_cmdrate 30;
+   * server: sv_minrate 20000, sv_maxrate 100000, sv_minupdaterate 20,
+     sv_maxupdaterate 60;
+   * upstream: 64 players at about 60 KB/s is 3.8 MB/s (31 Mbit/s); plan for
+     50 Mbit/s with joins, sprays and fights;
+   * relay egress for browser players: about 60 KB/s each.
+ They go into the 64-slot server's own config; the defaults stay as they are
+ (rate 25000, cl_updaterate 20) until section 23.
+
 
  17. WHERE THE FRAME TIME GOES
  -----------------------------
@@ -1060,9 +1198,8 @@
        - SV_EmitPacketEntities (time, entities written, baselines tried);
        - Netchan_Transmit (time, bytes);
        - per-client totals.
-   * metamod-p has a META_PERFMON build option (commented out in
-     metamod\Config.mak; commands_meta.cpp:48-70, metamod.h:200-256) for its
-     own dispatch.
+   * Metamod-R has no per-hook timer of its own: its share shows in the
+     differential runs below and in sv_profile's totals.
    * AMXX: differential runs. A test cvar in ts_matchmode that unregisters its
      AddToFullPack, TraceLine and Touch hooks shows their share.
    * Windows: perfmon for CPU per process and private bytes.
@@ -1227,7 +1364,7 @@
  (bot_commands.cpp:1567). Maps need RCBot waypoints for bots to fight sensibly.
  Commands: rcbot config max_bots N, rcbot addbot (COMMANDS.txt:880-890).
 
- Layers, each on a test server; the default stays 32 everywhere else:
+ Layers, each on a test server:
    L0  today's build, 32 slots, 31 bots and one human observer: the baseline.
    L1  new engine, reTS, Metamod and RCBot; AMXX unloaded (its line taken out
        of addons\metamod\plugins.ini); 64 slots, 63 bots, one human. The
@@ -1236,8 +1373,8 @@
    L3  with H9's plugins, in each mode (Team Elimination, Siege, Uplink,
        Survival, Mech Warrior) on New Byzantium, the hive and neuropolis.
    L4  only if going past 64: 96, then 127 bots.
- Run L1 and L2 under Metamod-R and under metamod-p if both are available
- (7.4).
+ Run L1 and L2 under the goldsrc-net prebuilt Metamod-R and under H9's
+ build of it (7.4).
 
  What to measure, every run:
    * Server frame time: `stats` FPS against sys_ticrate, every 10 seconds;
@@ -1345,8 +1482,8 @@
 
  23. THE LAST STEP: THE DEFAULT GOES TO 64
  -----------------------------------------
- The default stays 32 until every item below holds. Then it changes, in one
- set of files.
+ The default went to 64 on 2026-11-02, by the user's decision, before every
+ item below held; they stay the acceptance list for matches past 32.
 
  Acceptance checklist
    1. Every component of section 4 built for 128 and deployed, as one set:
@@ -1383,17 +1520,16 @@
         - kills, deaths, assists, ping, status/award and voice for everyone.
    6. Every map that will run at 64 has 32 or more spawn points a side.
    7. Docs updated: this file, XASH_MAPPING_LIMITATIONS.txt's player limit,
-      COMMANDS.txt.
+      COMMANDS.txt. Done 2026-11-02, with H9_PRESENCE.txt's report size.
 
  Every place the default of 32 lives (the change set)
-   * xash3d-h9-patches\overlay\h9xash_server.bat:106: +maxplayers 32 -> 64.
-     Copied to H9XASH\h9xash_server.bat by xash.bat's assemble step. The same
-     line's -num_edicts 4096 is ignored by FWGS (12): drop it.
-   * xash3d-h9-patches\overlay\h9xash_server_debug.bat:111: the same (its
-     -num_edicts 2048 is ignored too). Copied to H9XASH.
-   * COMMANDS.txt:883, the RCBot note "+maxplayers 32 leaves 12 human slots".
-     Its generated copies: xash3d-h9-patches\overlay\ts\commands.cfg:885,
-     H9XASH\ts\commands.cfg:885, webclient-build\stage\game\ts\commands.cfg:885.
+   * Done 2026-11-02: xash3d-h9-patches\overlay\h9xash_server.bat and
+     h9xash_server_debug.bat pass +maxplayers 64 (copied to H9XASH and the git
+     copy); their -num_edicts, which FWGS ignores (12), are still on the line.
+   * Done 2026-11-02: COMMANDS.txt's RCBot note reads "+maxplayers 64 leaves 44
+     human slots", with its generated commands.cfg copies.
+   * Done 2026-11-02: the Create Game menu's field starts at 64 (mainui
+     CreateGame.cpp, its own patch).
    * rcbot\bot_config.ini:6, config max_bots 10: the bot fill for 64. Also the
      Steam install's copy, which xash.bat mirrors to H9XASH\rcbot.
    * ts_matchmode.cfg:1633-1636: tsm_corpse_max 24 and its "32 slot server"
@@ -1407,15 +1543,16 @@
        - sv_minrate;
        - for relay players, sv_connect_max_per_ip 0 and sv_query_rate_limit 30
          (config.cfg:285, 298 still ship 3 and 1).
-   * docs\XASH_MAPPING_LIMITATIONS.txt:142 ("players 32"): this changes with
-     the engine (to 128), not with the default.
+   * Done 2026-11-02: docs\XASH_MAPPING_LIMITATIONS.txt:142 reads 128, the
+     engine's limit, and says servers run at 64 by default.
    * The per-map spawn files of every map that runs at 64.
  Not part of it:
    * ts.bat:98 and ts-debug.bat:98 start Steam HLDS, whose limit is 32. They
      stay.
    * The engine's own maxplayers default is "1" (sv_main.c:138); a dedicated
      server takes its count from the launcher.
-   * Listen servers take it from the Create Game field (mainui), which allows
+   * Listen servers take it from the Create Game field (mainui, 64 to start
+     with since 2026-11-02), which allows
      up to MAX_CLIENTS once rebuilt.
 
 
@@ -1423,10 +1560,9 @@
  ---------
    * CPU (sections 17 and 18): the biggest unknown. 64 may need the per-viewer
      hooks moved into reTS first, and perhaps the threaded encode.
-   * The goldsrc-net sources: if the AMXX fork does not build, or differs from
-     what ships, TSX would need binary patches at every 33 and 32, which is
-     fragile. ts_matchmode depends on TSX natives. If Metamod-R's source cannot
-     be had, metamod-p replaces it, at some dispatch cost.
+   * The goldsrc-net sources: the AMX Mod X core needs the fork's source,
+     and reTSX's reTS backend is in no public source (8.5). ts_matchmode
+     depends on TSX natives.
    * A partial deploy: any server component left at 32 corrupts memory at slot
      33 (AMXX core worst). Hence the guard rail (9.1 g) and the checklist.
    * Memory: 340 MiB at 64 is likely fine; LAA needs its own test.
@@ -1441,29 +1577,43 @@
      players.
 
 
- 25. DECISIONS FOR THE USER
- --------------------------
-   1. Confirm: built for 128, run at 64, default 32 until section 23 holds.
-   2. Wire format: new H9 messages above 32 slots (recommended), or a
-      handshake bit plus a demo marker.
-   3. Refuse old clients with a message (recommended), or leave them to their
-      own console error.
-   4. Memory: nothing / a smaller ring / the large-address flag, and when.
-   5. Metamod: keep Metamod-R (needs goldsrc-net's source) or switch to
-      metamod-p (source in TSM, slower dispatch). AMXX and reTSX: build
-      goldsrc-net's fork, or binary-patch reTSX.
-   6. Assists: computed in reTS or in ts_matchmode, and what counts as one.
-   7. The scoreboard's 64 layout as in 11.2, and whether to build the 128 view
-      now or only if servers go past 64.
-   8. Performance: thresholds for the checklist; whether to move the cloak,
-      icons, scan and x-ray into reTS; sys_ticrate; and whether to fund the
-      threaded encode if the cuts are not enough.
-   9. Rates and hosting for 64-slot servers (rate, cl_updaterate, sv_minrate,
-      upstream bandwidth).
-  10. Which maps run at 64 (spawn placement for each) and the bot fill
-      (max_bots).
-  11. Whether the GoldSrc package and the Steam install take the 128-built
-      reTS DLLs too (harmless at 32), or stay on the 32 build.
+ 25. DECISIONS (recorded 2026-11-01; the user may overrule any)
+ -------------------------------------------------------------
+   1. Limits: built for 128, run at 64. The default stayed 32 until section
+      23's checklist passed; on 2026-11-02 the user moved it to 64 ahead of
+      the checklist (section 23's change set).
+   2. Network: two new messages with a full-byte slot, svc_h9updateuserinfo
+      (54) and svc_h9pings (55), sent only by a server of more than 32 slots.
+      A server of 32 or fewer sends exactly today's bytes; the delta fields
+      that hold a slot keep their widths there too.
+   3. Old clients joining a server of more than 32 slots are refused with
+      "This server needs a newer H9XASH: download it from
+      https://havoc9.org/downloads/ ...". They are told apart by the connect
+      packet's "ext" field, which every FWGS client already sends: H9's
+      client sets bit 24 (NET_EXT_H9_SLOTS128) in it.
+   4. Memory: the oversized table, the packet entity ring, holds half as many
+      entities a frame past 32 slots (13 c): 170 MiB at 64, 340 at 128. No
+      large-address flag.
+   5. Toolchain: Metamod-R built from source with MSVC (section 7). AMX Mod X
+      and TSX: section 8.5 (the core waits for goldsrc-net's fork source;
+      reTSX stays at 32 until an H9 TSX or its source).
+   6. Assists: counted in ts_matchmode: 30 or more health lost to an enemy
+      other than the killer in the 10 seconds before the kill; sent in
+      H9Assists (byte slot, short assists); the reTS scoreboard shows them.
+   7. Scoreboard: the 64 layout (11.2, as built 11.8) with an avatar cell
+      (11.7). The 128 view later.
+   8. Performance: measure before optimising (section 27's procedure);
+      threading only if measurement at 64 demands it, and only the engine's
+      per-client encode (18.5).
+   9. Rates and bandwidth: section 16's numbers.
+  10. Maps: 64 runs on maps with 32 or more spawns a side: h9_te_neuropolis
+      and h9_siege_neuropolis (36), the lift maps (34 to 60), the drainage
+      maps (34 to 40), h9_tsrp_hive (32, match mode only). New Byzantium
+      plays TS's own spawns. Too small: h9_te_meridian (11). Section 12.
+  11. Steam: the GoldSrc package takes the 128-built reTS DLLs only after
+      they pass the regression tests at 32; until then export.bat copies the
+      last 32-slot pair from reTS\binaries\goldsrc\. GoldSrc itself still
+      caps at 32.
 
 
  26. WHERE THE NUMBERS COME FROM
@@ -1496,9 +1646,9 @@
    ts_status.cpp, ts_spectate.cpp; INSTALL.md
    H9XASH\ts\dlls\mp.dll.patch, decompile_dll\mp_patched_slots.dll.patch
  Metamod
-   metamod-p\H9-SOURCE.txt; metamod\mplayer.h, mplayer.cpp, mutil.cpp,
-   mreg.h, meta_api.h, Makefile, Config.mak, commands_meta.cpp, metamod.h;
-   .github\workflows\build.yml, .github\scripts\check_dll.py
+   metamod-r\H9-SOURCE.txt, h9-slots128.patch; metamod\src\mplayer.h,
+   mplayer.cpp, mutil.cpp, callback_jit.cpp; metamod\msvc\metamod.vcxproj;
+   the goldsrc-net/Metamod-R and rehlds/metamod-r commit histories
  AMX Mod X (upstream source, for reference) and the shipped binaries
    AMXMODX\amxmodx\amxmodx.h, meta_api.cpp, amxmodx.cpp, emsg.cpp;
    modules\engine\engine.cpp, fun\fun.h, ts\tsx\*, ts\tsfun\AMBuilder;
@@ -1523,3 +1673,81 @@
  Maps
    H9XASH\ts\maps\h9_tsrp_newbyzantium.bsp, h9_tsrp_hive.bsp,
    h9_te_neuropolis.bsp (entity lumps counted directly)
+
+ 27. STATUS, 2026-11-02: WHAT IS BUILT
+ -------------------------------------
+ Per binary (sources mirrored to the git copy at the same paths):
+   * reTS mp.dll and client.dll: built (989,184 and 795,648 bytes; the
+     .patch files beside them list the changes) and shipped to H9XASH. Not
+     to the Steam install or the GoldSrc package (decision 11).
+   * delta.lst: unchanged; the engine widens the slot fields past 32.
+   * ts_matchmode and the plugins: built by build.bat against amxconst.inc's
+     MAX_PLAYERS 128 (the Steam install's scripting\include and H9XASH's),
+     all 12 clean. TSM_SLOTS follows MAX_PLAYERS (get_players() buffers must
+     match it), and so do ts_floatchat's and ts_probe's get_players()
+     buffers; a guard refuses a server of more slots than the plugin was
+     built for.
+   * rcbot_mm.dll: built from seven patches (CHANGE 9: 128 slots) and
+     shipped to the Steam install's two copies, H9XASH's two and rcbot-patch.
+   * RCBot's profiles: RCBot gives a bot only a profile that rcbot\
+     bot_profiles.ini lists, and it listed 1 to 31, so no more than 31 bots
+     joined. Profiles 33 to 127 (distinct names; RCBot writes their .brn,
+     .rcr and .rld itself once they have played) and a list of 1 to 127 are
+     in the Steam install's two rcbot folders, H9XASH's two and the git copy.
+   * metamod.dll: Metamod-R built from source (section 7), shipped to the
+     Steam install and H9XASH.
+   * amxmodx_mm.dll and eleven modules (engine, fun, fakemeta, hamsandwich,
+     tsfun, geoip, json, nvault, regex, sockets, sqlite): built from
+     TSM\AMXMODX for 128 (8.5) and shipped to the Steam install and H9XASH,
+     each with its .patch, the build it replaced kept as .bak_slots.
+     mysql_amxx.dll (it links MySQL's C connector; nothing H9 runs loads it)
+     and easy_http_amxx.dll stay the release's.
+   * tsx_amxx.dll: H9's TSX, the fork's built for 128 with H9's reTS backend
+     (8.5). It replaces reTSX in the Steam install and H9XASH once its check
+     run on reTS passes: the natives set and read back on live players
+     (loadtest64-plugins.ps1 -Tsx h9 -Check), then deploy_tsx.ps1.
+   * The 20 enabled stock plugins: compiled against the 128 include
+     (get_players() writes one cell per player into the buffer it is given)
+     and shipped to the Steam install, H9XASH and the git copy, the release
+     builds kept as <name>.amxx.bak_slots.
+   * xash.dll, ref_gl.dll, menu.dll: built with the whole chain, in H9XASH.
+   * The web client's engine and reTS client: rebuilt with the next web
+     build.
+ Past 32 slots with AMX Mod X loaded: safe once H9's TSX has shipped (the
+ tsx_amxx.dll item above); every other part is built for 128. Until then a
+ server past 32 runs without AMX Mod X (its line taken out of
+ addons\metamod\plugins.ini), as L1 does.
+ Found while building, not in the sections above:
+   * game_shared\bitvec.h: CBitVec's NUM_DWORDS was 1 for any size (an
+     operator precedence slip); every bit vector past 32 bits overflowed.
+   * VoiceMask: the engine keeps a user message's first registered size for
+     the process (Xash drops a mismatched write, GoldSrc stops), so its size
+     is decided once, from the first map's maxplayers.
+   * Metamod-R's cvar-query table overflows past 32 (7.2).
+   * The engine's voice listeners were one uint a client: slot 33 shared
+     slot 1's bit. Now a bit array.
+   * engine-h9-deltabits.patch widens owner to MAX_CLIENT_BITS + 1; the slot
+     patch narrows it back on a server of 32 or fewer.
+ Load tests (they need a time when the user is not playing):
+   1. A hidden headless dedicated server (h9xash_server.bat's command line,
+      -dedicated, +maxplayers 64, -log), stopped by its own PID, on
+      h9_te_neuropolis, then New Byzantium and the hive.
+   2. rcbot config max_bots 63, then rcbot addbot to 63 (a 32-slot run first:
+      31 bots, the L0 baseline).
+   3. Every 10 s into the log: stats (FPS, CPU, in/out) and edict_usage; a
+      typeperf of HAVOC 9.exe's private bytes and processor time; amx_tsm_debug
+      for Ham_TakeDamage's hit count (assists rest on it).
+   4. Per run 30 minutes, then a two-hour soak; ten map changes in a row.
+   5. Pass: no crash, no AMXX run time error, no "no free edicts", private
+      bytes with headroom, frame rate at sys_ticrate in a full fight.
+ Results so far, h9_te_neuropolis, hidden dedicated servers:
+   * 32 slots, 31 bots: 11% of one core, 267 MB private.
+   * L1, 64 slots, 25 minutes, twice with 31 bots (the profile list above):
+     no crash, no errors, about 280 MB.
+   * L1, 64 slots, 63 bots, 25 minutes (2026-11-02): all 63 in, no crash, no
+     error-like log lines, 24% of one core, 285 MB peak private.
+ Still to run for L1: New Byzantium and the hive, the two-hour soak and the
+ ten map changes. L2 and L3 (loadtest64-plugins.ps1) take 64 slots once
+ H9's TSX has shipped; before that its 32-slot run checks H9's TSX in the
+ test copy (-Tsx h9 -Check), and amx_tsm_debug's Ham_TakeDamage count
+ shows whether the assists' hook fires.

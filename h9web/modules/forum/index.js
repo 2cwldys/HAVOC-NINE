@@ -20,22 +20,29 @@
 //   PUT    /api/forum/posts/:id/vote            { value: 1 | -1 | 0 }   like, dislike, or take it back
 //   PATCH  /api/forum/threads/:id               { title }    the author, for editWindowMinutes
 //   POST   /api/forum/preview                   { body }     the rendered tree; nothing is stored
+//   GET, PUT /api/forum/signature, POST /api/forum/signature/preview   your signature (signatures.js)
+//   GET    /api/forum/needs; PUT and POST /api/forum/needs/preview for its editors
+//                                               the "What we need" page (needs.js)
 //   GET    /api/forum/avatar                                 your picture, and what a picture may be
 //   PUT    /api/forum/avatar                    the picture's own bytes, sent as image/png,
 //                                               image/jpeg, image/webp or image/gif
 //   DELETE /api/forum/avatar
 // Moderators and admins; every action goes into h9web's audit log:
-//   PATCH  /api/forum/threads/:id               { title, pinned, locked, category }
+//   PATCH  /api/forum/threads/:id               { title, pinned, locked, hidden, category }
 //   DELETE /api/forum/threads/:id               POST /api/forum/threads/:id/restore
 //   PATCH and DELETE /api/forum/posts/:id on any post;  POST /api/forum/posts/:id/restore
+//   POST   /api/forum/posts/:id/pictures/remove { src, reason }   the post without that picture
 //   GET    /api/forum/removed?page=N            removed threads, the latest first
 //   GET    /api/forum/reports?status=open|closed&page=N
 //   POST   /api/forum/reports/:id/close         { outcome }
 //   POST   /api/forum/avatars/:name/remove      { reason }   only an account below your own role
+//   POST   /api/forum/signatures/:name/clear, POST and DELETE /api/forum/signatures/:name/block
 // Admins:
 //   POST   /api/forum/categories                { slug, name, description, startRole, replyRole }
 //   PATCH  /api/forum/categories/:slug          { name, description, startRole, replyRole } or { move: "up"|"down" }
 //   DELETE /api/forum/categories/:slug          only a category that holds no thread at all
+//   GET, POST and DELETE /api/forum/developers/:name   the DEVELOPER flag (purple; edits "What we need")
+// The MEDIA page's routes, /api/forum/media...: media.js.
 //
 // No IP address is stored with anything here; the rate limits key on accounts (and on addresses
 // in memory only), and the log lines name the account and the thread or post, never the text.
@@ -45,7 +52,10 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { MIGRATIONS } from "./migrations.js";
 import { createStore } from "./store.js";
-import { parse, cleanText, cleanLine } from "./markup.js";
+import { createSignatures } from "./signatures.js";
+import { createNeeds } from "./needs.js";
+import { createMedia } from "./media.js";
+import { parse, cleanText, cleanLine, imageCount, imageSource, withoutImage, MAX_IMAGES, IMAGE_HOSTS } from "./markup.js";
 import { inspectPicture, PICTURE_TYPES } from "./images.js";
 
 const MB = 1024 * 1024;
@@ -58,6 +68,19 @@ export const DEFAULTS = Object.freeze({
   postMax: 10000,
   editWindowMinutes: 60,
   newAccountHours: 24,
+  // pictures a post shows (links to pictures on the hosts in markup.js); the ones after stay links
+  maxImagesPerPost: MAX_IMAGES,
+  // signatures (signatures.js): signatureMaxChars 0 switches them off
+  signatureMaxChars: 300,
+  signatureMaxLines: 4,
+  signatureImages: 1,
+  signatureImageHeight: 100,
+  // who edits the "What we need" page (needs.js) besides admins: "moderator" (moderators),
+  // "developer" (accounts with the DEVELOPER flag), both, or neither
+  needsEditors: Object.freeze(["moderator", "developer"]),
+  // the MEDIA page (media.js): its front page shows the pinned posts and this many others; older
+  // ones are in the archive, by month
+  mediaFrontCount: 30,
   pictureMaxBytes: 10 * MB,
   pictureMaxSide: 512,
   pictureMaxFrames: 300,
@@ -78,12 +101,20 @@ export const DEFAULTS = Object.freeze({
     preview: { max: 30, windowSeconds: 300, blockSeconds: 60, maxBlockSeconds: 600 },
     picture: { max: 10, windowSeconds: 3600, blockSeconds: 1800, maxBlockSeconds: 7200 },
     vote: { max: 30, windowSeconds: 60, blockSeconds: 60, maxBlockSeconds: 600 },
+    signature: { max: 10, windowSeconds: 3600, blockSeconds: 600, maxBlockSeconds: 3600 },
+    signaturePreview: { max: 120, windowSeconds: 300, blockSeconds: 60, maxBlockSeconds: 600 },
+    needs: { max: 30, windowSeconds: 3600, blockSeconds: 600, maxBlockSeconds: 3600 },
+    needsPreview: { max: 120, windowSeconds: 300, blockSeconds: 60, maxBlockSeconds: 600 },
+    // title searches, per address (guests search too): each one reads every title
+    search: { max: 30, windowSeconds: 60, blockSeconds: 30, maxBlockSeconds: 300 },
   }),
 });
 
 const WHOLE = {
   threadsPerPage: [1, 100], postsPerPage: [1, 100], titleMax: [10, 300], postMax: [100, 100000],
-  editWindowMinutes: [0, 525600], newAccountHours: [0, 8760],
+  editWindowMinutes: [0, 525600], newAccountHours: [0, 8760], maxImagesPerPost: [0, 200],
+  signatureMaxChars: [0, 2000], signatureMaxLines: [1, 20], signatureImages: [0, 10], signatureImageHeight: [16, 480],
+  mediaFrontCount: [1, 200],
   pictureMaxBytes: [1024, 50 * MB], pictureMaxSide: [16, 4096], pictureMaxFrames: [1, 10000],
   pictureInlineBytes: [0, 50 * MB], pictureQuotaBytes: [0, Number.MAX_SAFE_INTEGER], picturesAtOnce: [1, 16],
 };
@@ -92,6 +123,9 @@ export function forumSettings(raw = {}) {
   const s = { ...DEFAULTS, ...raw, limits: {} };
   for (const [k, def] of Object.entries(DEFAULTS.limits)) s.limits[k] = { ...def, ...((raw.limits && raw.limits[k]) || {}) };
   if (typeof s.guestRead !== "boolean") throw new Error("forum: moduleSettings.forum.guestRead must be true or false");
+  if (!Array.isArray(s.needsEditors) || s.needsEditors.some((x) => x !== "moderator" && x !== "developer")) {
+    throw new Error("forum: moduleSettings.forum.needsEditors must be a list of \"moderator\" and \"developer\" (admins always edit)");
+  }
   for (const [k, [lo, hi]] of Object.entries(WHOLE)) {
     if (!Number.isInteger(s[k]) || s[k] < lo || s[k] > hi) throw new Error("forum: moduleSettings.forum." + k + " must be a whole number from " + lo + " to " + hi);
   }
@@ -179,7 +213,7 @@ export default {
       if (tree) {
         rendered.delete(text);
       } else {
-        tree = parse(text);
+        tree = parse(text, { maxImages: s.maxImagesPerPost });
         if (rendered.size >= 400) rendered.delete(rendered.keys().next().value);
       }
       rendered.set(text, tree);
@@ -200,10 +234,11 @@ export default {
       return c;
     }
 
-    // A thread the account may see: a removed one, or one in a hidden category, only for moderators.
+    // A thread the account may see: a removed or hidden one, or one in a hidden category, only for
+    // moderators.
     function threadFor(id, a) {
       const t = store.thread(id);
-      if (!t || (t.deleted_at && !isMod(a)) || !seen(store.category(t.category_id), a)) throw notFound("No such thread.");
+      if (!t || ((t.deleted_at || t.hidden_at) && !isMod(a)) || !seen(store.category(t.category_id), a)) throw notFound("No such thread.");
       return t;
     }
 
@@ -243,6 +278,14 @@ export default {
       return t;
     }
 
+    // What a save tells its writer about the text's pictures: past maxImagesPerPost they are links.
+    function imageNotes(text) {
+      const n = imageCount(text);
+      return n > s.maxImagesPerPost
+        ? ["This post has " + n + " pictures: it shows the first " + s.maxImagesPerPost + ", and the others as links."]
+        : [];
+    }
+
     function optionalText(value, max, what) {
       if (value === undefined || value === null || value === "") return null;
       if (typeof value !== "string") throw invalid("bad_request", what + " must be text.");
@@ -269,7 +312,7 @@ export default {
       if (!a) return { signedIn: false };
       const v = {
         signedIn: true, id: a.id, username: a.username, role: a.role, moderator: isMod(a), admin: auth.roleAtLeast(a, "admin"),
-        postingBlocked: postingBlock(a),
+        postingBlocked: postingBlock(a), imagesPerPost: s.maxImagesPerPost, imageHosts: IMAGE_HOSTS,
       };
       if (v.moderator) v.openReports = store.openReportCount();
       return v;
@@ -284,11 +327,11 @@ export default {
         visible: !!c.visible, canStart: !!a && auth.roleAtLeast(a, c.start_role),
       };
       if (withStats) {
-        const st = store.categoryStats(c.id);
-        const last = store.categoryLatest(c.id);
+        const st = store.categoryStats(c.id, isMod(a));
+        const last = store.categoryLatest(c.id, isMod(a));
         v.threads = st.threads;
         v.posts = st.posts;
-        v.last = last ? { thread: last.id, title: last.title, post: last.last_post_id, at: iso(last.last_post_at), by: last.last_name || null } : null;
+        v.last = last ? { thread: last.id, title: last.title, post: last.last_post_id, at: iso(last.last_post_at), by: last.last_name || null, byDeveloper: !!last.last_dev } : null;
       }
       return v;
     }
@@ -296,9 +339,9 @@ export default {
     function threadRow(t) {
       return {
         id: t.id, title: t.title, pinned: !!t.pinned, locked: !!t.locked, created: iso(t.created_at),
-        by: t.author_name ? { username: t.author_name, role: t.author_role } : null,
-        posts: t.post_count, lastPost: t.last_post_id, lastAt: iso(t.last_post_at), lastBy: t.last_name || null,
-        removed: t.deleted_at ? t.deleted_kind : null,
+        by: t.author_name ? { username: t.author_name, role: t.author_role, developer: !!t.author_dev } : null,
+        posts: t.post_count, lastPost: t.last_post_id, lastAt: iso(t.last_post_at), lastBy: t.last_name || null, lastByDeveloper: !!t.last_dev,
+        removed: t.deleted_at ? t.deleted_kind : null, hidden: !!t.hidden_at,
       };
     }
 
@@ -313,8 +356,8 @@ export default {
       else if (postingBlock(a)) replyBlock = "posting_disabled";
       return {
         id: t.id, title: t.title, pinned: !!t.pinned, locked: !!t.locked,
-        removed: t.deleted_at ? t.deleted_kind : null, created: iso(t.created_at),
-        by: t.author_name ? { username: t.author_name, role: t.author_role } : null, posts: t.post_count,
+        removed: t.deleted_at ? t.deleted_kind : null, hidden: !!t.hidden_at, created: iso(t.created_at),
+        by: t.author_name ? { username: t.author_name, role: t.author_role, developer: !!t.author_dev } : null, posts: t.post_count,
         replyBlock, replyRole: c.reply_role,
         can: {
           reply: !replyBlock,
@@ -337,7 +380,7 @@ export default {
         id: p.id, number, created: iso(p.created_at),
         edited: p.edited_at ? { at: iso(p.edited_at), byModerator: p.edited_by !== null && p.edited_by !== p.account_id } : null,
         by: p.author_name ? {
-          id: p.account_id, username: p.author_name, role: p.author_role, joined: iso(p.author_created),
+          id: p.account_id, username: p.author_name, role: p.author_role, joined: iso(p.author_created), developer: !!p.author_dev,
           posts: counts.get(p.account_id) || 0,
           likes: likes.get(p.account_id) || 0,
           picture: pictureRef(p.account_id, p.pic_version, p.pic_bytes, p.pic_frames, p.pic_type),
@@ -356,6 +399,10 @@ export default {
         v.body = p.body;
         v.content = contentOf(p.body);
       }
+      // a removed post shows no signature
+      const sig = live && p.account_id !== null ? page.signatures.get(p.account_id) : null;
+      if (sig) v.signature = sig;
+      v.can.clearSignature = !!sig && mod && outranks(a, { id: p.account_id, role: p.author_role });
       // a removed post keeps its votes, but they are not shown
       if (live) v.votes = { ...(votes.get(p.id) || { likes: 0, dislikes: 0 }), mine: mine.get(p.id) || 0 };
       return v;
@@ -377,6 +424,37 @@ export default {
     const moderator = (h) => auth.requireRole("moderator", h);
     const admin = (h) => auth.requireRole("admin", h);
     const r = ctx.router;
+    const sigs = createSignatures({
+      ctx, s, now, iso, isMod, isNew, outranks, requirePosting, take, audit, optionalText, cleanLine, member, moderator,
+    });
+    createNeeds({ ctx, s, now, iso, take, audit, isMod, isDeveloper: (a) => !!a && store.isDeveloper(a.id) });
+    createMedia({
+      ctx, s, store, now, iso, isMod, postingBlock, requirePosting, take, ipKey, idOf, audit, limitThread, limitPost, reader, member,
+    });
+
+    // ---- the DEVELOPER flag (admins give and take it; every change into the audit log) ---------
+
+    function developerTarget(name) {
+      const target = ctx.accounts.getByUsername(name);
+      if (!target) throw notFound("No such account.");
+      return target;
+    }
+    r.get("/api/forum/developers/:name", admin(async (req, res, rc) => {
+      const target = developerTarget(rc.params.name);
+      rc.json(200, { username: target.username, developer: store.isDeveloper(target.id) });
+    }));
+    r.post("/api/forum/developers/:name", admin(async (req, res, rc) => {
+      const target = developerTarget(rc.params.name);
+      const changed = store.addDeveloper(target.id, rc.account.id, now());
+      if (changed) audit(rc.account, "forum.developer.add", { target });
+      rc.json(200, { ok: true, changed, developer: true });
+    }));
+    r.delete("/api/forum/developers/:name", admin(async (req, res, rc) => {
+      const target = developerTarget(rc.params.name);
+      const changed = store.removeDeveloper(target.id);
+      if (changed) audit(rc.account, "forum.developer.remove", { target });
+      rc.json(200, { ok: true, changed, developer: false });
+    }));
 
     // ---- reading -------------------------------------------------------------------------------
 
@@ -389,11 +467,11 @@ export default {
       const a = rc.account;
       const c = categoryOr404(rc.params.slug, a);
       const per = s.threadsPerPage;
-      const total = store.threadCount(c.id);
+      const total = store.threadCount(c.id, isMod(a));
       const pg = paging(rc.query.get("page"), total, per);
       rc.json(200, {
         viewer: viewer(a), category: categoryView(c, a, false),
-        threads: store.threadPage(c.id, per, pg.offset).map(threadRow),
+        threads: store.threadPage(c.id, per, pg.offset, isMod(a)).map(threadRow),
         page: pg.page, pages: pg.pages, perPage: per, total,
       });
     }));
@@ -417,6 +495,7 @@ export default {
       const page = {
         counts: store.authorCounts(authors), likes: store.likesReceived(authors),
         votes: store.voteCounts(ids), mine: store.votesBy(a ? a.id : null, ids), blocked: !!postingBlock(a),
+        signatures: sigs.forPosts(rows, a),
       };
       const out = {
         viewer: viewer(a),
@@ -426,6 +505,7 @@ export default {
         page: pg.page, pages: pg.pages, perPage: per, total,
         editWindowMinutes: s.editWindowMinutes,
         pictureInlineBytes: s.pictureInlineBytes,
+        signatureImageHeight: s.signatureImageHeight,
       };
       if (isMod(a)) out.categories = store.categories().map((x) => ({ slug: x.slug, name: x.name }));
       rc.json(200, out);
@@ -437,6 +517,7 @@ export default {
       if (!u) throw notFound("No such member.");
       const pic = store.picture(u.id);
       const mod = isMod(a);
+      const sig = sigs.profile(u, a);
       rc.json(200, {
         viewer: viewer(a),
         user: {
@@ -444,9 +525,14 @@ export default {
           posts: store.authorCounts([u.id]).get(u.id) || 0, threads: store.threadsBy(u.id),
           likes: store.likesReceived([u.id]).get(u.id) || 0,
           picture: pic ? pictureRef(u.id, pic.version, pic.bytes, pic.frames, pic.type) : null,
+          signature: sig.signature, signatureBlock: sig.block, developer: store.isDeveloper(u.id),
         },
+        signatureImageHeight: s.signatureImageHeight,
         recent: store.recentPosts(u.id, 10, mod).map((p) => ({ post: p.id, thread: p.thread_id, title: p.title, at: iso(p.created_at) })),
-        can: { removePicture: mod && !!pic && outranks(a, u), suspend: mod && outranks(a, u) },
+        can: {
+          removePicture: mod && !!pic && outranks(a, u), suspend: mod && outranks(a, u),
+          clearSignature: mod && sig.hasSignature && outranks(a, u), blockSignature: mod && outranks(a, u),
+        },
         pictureInlineBytes: s.pictureInlineBytes,
       });
     }));
@@ -464,7 +550,7 @@ export default {
       limitThread(a, rc.ip);
       const ids = ctx.transaction(() => store.createThread(c.id, a.id, title, text, now()));
       log.info("forum.thread", { user: a.username, category: c.slug, thread: ids.threadId });
-      rc.json(201, { ok: true, thread: { id: ids.threadId }, post: { id: ids.postId } });
+      rc.json(201, { ok: true, thread: { id: ids.threadId }, post: { id: ids.postId }, notes: imageNotes(text) });
     }));
 
     r.post("/api/forum/threads/:id/posts", member(async (req, res, rc) => {
@@ -482,7 +568,7 @@ export default {
       const postId = ctx.transaction(() => store.addPost(t.id, a.id, text, now()));
       const page = Math.floor(store.postsBefore(t.id, postId) / s.postsPerPage) + 1;
       log.info("forum.post", { user: a.username, thread: t.id, post: postId });
-      rc.json(201, { ok: true, post: { id: postId }, page });
+      rc.json(201, { ok: true, post: { id: postId }, page, notes: imageNotes(text) });
     }));
 
     r.patch("/api/forum/posts/:id", member(async (req, res, rc) => {
@@ -507,7 +593,7 @@ export default {
       take([["edit", "a:" + a.id, "You can edit again"]]);
       ctx.transaction(() => store.editPost(p.id, text, now(), a.id));
       if (!own) audit(a, "forum.post.edit", { targetId: p.account_id, subject: "post " + p.id });
-      rc.json(200, { ok: true, changed: true });
+      rc.json(200, { ok: true, changed: true, notes: imageNotes(text) });
     }));
 
     r.delete("/api/forum/posts/:id", member(async (req, res, rc) => {
@@ -540,6 +626,23 @@ export default {
       });
       audit(a, "forum.post.restore", { targetId: p.account_id, subject: "post " + p.id });
       rc.json(200, { ok: true, changed: true, threadRemoved: result.empty ? "empty" : (store.thread(t.id).deleted_kind || null) });
+    }));
+
+    // A moderator takes one picture out of a post: each place the post shows it from src becomes
+    // "(picture removed by a moderator)", as an edit by the moderator, into the audit log.
+    r.post("/api/forum/posts/:id/pictures/remove", moderator(async (req, res, rc) => {
+      const id = idOf(rc.params.id, "No such post.");
+      const input = await rc.body();
+      const a = rc.account;
+      const { p } = postFor(id, a);
+      const src = typeof input.src === "string" ? imageSource(input.src) : null;
+      if (!src || src !== input.src) throw invalid("bad_request", "src is the address of a picture the post shows.");
+      const reason = optionalText(input.reason, 300, "The reason");
+      const text = withoutImage(p.body, src);
+      if (text === p.body) throw notFound("That picture is not in this post.");
+      ctx.transaction(() => store.editPost(p.id, text, now(), a.id));
+      audit(a, "forum.post.picture.remove", { targetId: p.account_id, subject: "post " + p.id, detail: (reason ? reason + "; " : "") + src });
+      rc.json(200, { ok: true, changed: true });
     }));
 
     r.post("/api/forum/posts/:id/report", member(async (req, res, rc) => {
@@ -587,7 +690,7 @@ export default {
       const text = cleanText(input.body);
       if (text.length > s.postMax) throw invalid("invalid_body", "Keep a post to " + s.postMax + " characters; this one has " + text.length + ".");
       take([["preview", "a:" + rc.account.id, "You can preview again"]]);
-      rc.json(200, { content: parse(text) });
+      rc.json(200, { content: parse(text, { maxImages: s.maxImagesPerPost }), notes: imageNotes(text) });
     }));
 
     // ---- threads: the author's title, and the moderators' tools ---------------------------------
@@ -607,9 +710,9 @@ export default {
         if (own) requirePosting(a);
         change.title = checkTitle(input.title);
       }
-      for (const k of ["pinned", "locked"]) {
+      for (const k of ["pinned", "locked", "hidden"]) {
         if (input[k] === undefined) continue;
-        if (!mod) throw refuse("forbidden", "Only moderators pin and lock threads.");
+        if (!mod) throw refuse("forbidden", "Only moderators pin, lock and hide threads.");
         if (typeof input[k] !== "boolean") throw invalid("bad_request", k + " must be true or false.");
         change[k] = input[k];
       }
@@ -631,6 +734,10 @@ export default {
         if (pinned !== !!t.pinned) done.push([pinned ? "forum.thread.pin" : "forum.thread.unpin", null]);
         if (locked !== !!t.locked) done.push([locked ? "forum.thread.lock" : "forum.thread.unlock", null]);
         if (pinned !== !!t.pinned || locked !== !!t.locked) store.setFlags(t.id, pinned, locked);
+        if (change.hidden !== undefined && change.hidden !== !!t.hidden_at) {
+          store.setHidden(t.id, change.hidden, a.id, now());
+          done.push([change.hidden ? "forum.thread.hide" : "forum.thread.unhide", null]);
+        }
         if (change.category && change.category.id !== t.category_id) {
           const from = store.category(t.category_id);
           store.moveThread(t.id, change.category.id);
@@ -808,6 +915,7 @@ export default {
       const query = cleanLine(String(rc.query.get("q") || "")).slice(0, 100);
       const words = query.split(" ").filter(Boolean).slice(0, 5);
       if (!words.length || query.length < 2) throw invalid("invalid_query", "Search for at least 2 characters of a thread title.");
+      take([["search", ipKey(rc.ip), "You can search again"]]);
       const per = s.threadsPerPage;
       const first = store.search(words, isMod(a), per, 0);
       const pg = paging(rc.query.get("page"), first.total, per);

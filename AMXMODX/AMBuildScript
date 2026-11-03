@@ -21,6 +21,17 @@ class AMXXConfig(object):
     self.csx_app = None
     self.stdcxx_path = None
     self.nasm_path = None
+    self.target_arch = 'i386'
+    self.asmjit = None
+    self.pcre = None
+
+  def detectTargetArch(self):
+    arch = (getattr(builder.options, 'target_arch', '') or '').lower()
+    if not arch:
+      arch = 'i386'
+    if arch not in ('i386', 'amd64', 'aarch64'):
+      raise Exception('Unsupported --target-arch={0} (expected i386, amd64, or aarch64)'.format(arch))
+    self.target_arch = arch
 
   def use_auto_versioning(self):
     if builder.backend != 'amb2':
@@ -91,7 +102,13 @@ class AMXXConfig(object):
     if not len(mysql_path):
       mysql_path = os.getenv('MYSQL55', '')
 
-    if len(mysql_path):
+    if mysql_path == 'system':
+      # Sentinel: build mysqlx against the distro's libmariadb-dev
+      # install (Debian / Ubuntu). modules/mysqlx/AMBuilder honors this
+      # value and resolves headers to /usr/include/mariadb plus a
+      # dynamic link against libmariadb.so.3.
+      self.mysql_path = 'system'
+    elif len(mysql_path):
       self.mysql_path = os.path.join(builder.originalCwd, mysql_path)
       if not os.path.exists(self.mysql_path):
         raise Exception('MySQL path does not exist: {0}'.format(mysql_path))
@@ -107,6 +124,8 @@ class AMXXConfig(object):
         raise Exception('Could not find MySQL! Try passing --mysql to configure.py.')
 
   def detectNASM(self):
+    if self.target_arch == 'aarch64':
+      return
     import subprocess
 
     nasm_paths = [
@@ -178,6 +197,12 @@ class AMXXConfig(object):
       'AMXX_USE_VERSIONLIB',
     ]
 
+    # AMD64 in this codebase means "64-bit pointer build with no x86 NASM JIT".
+    # Defined on both amd64 and aarch64 so the existing `#if defined AMD64` gates
+    # turn off asm-dependent features (cvar query, CpuSupport) on aarch64 too.
+    if self.target_arch in ('amd64', 'aarch64'):
+      cxx.defines += ['AMD64']
+
     if self.use_auto_versioning():
       cxx.defines += ['AMXX_GENERATED_BUILD']
       cxx.includes += [os.path.join(builder.buildPath, 'includes')]
@@ -204,14 +229,22 @@ class AMXXConfig(object):
       '-Wno-switch',
       '-Wno-format',
       '-Wno-format-security',
-      '-m32',
     ]
+    if self.target_arch == 'i386':
+      cxx.cflags += ['-m32']
+      cxx.linkflags += ['-m32']
+    elif self.target_arch == 'amd64':
+      cxx.cflags += ['-m64']
+      cxx.linkflags += ['-m64']
+      cxx.cflags += ['-fPIC']
+    elif self.target_arch == 'aarch64':
+      # arch is determined by the toolchain prefix (e.g. CC=aarch64-linux-gnu-gcc);
+      # no -m flag.
+      cxx.cflags += ['-fPIC']
     cxx.cxxflags += [
       '-Wno-invalid-offsetof',
       '-std=c++11',
     ]
-
-    cxx.linkflags += ['-m32']
 
     have_gcc = cxx.vendor == 'gcc'
     have_clang = cxx.vendor == 'clang'
@@ -285,8 +318,13 @@ class AMXXConfig(object):
       '/GR-',
       '/TP',
     ]
+    machine = {
+      'i386': '/MACHINE:X86',
+      'amd64': '/MACHINE:X64',
+      'aarch64': '/MACHINE:ARM64',
+    }[self.target_arch]
     cxx.linkflags += [
-      '/MACHINE:X86',
+      machine,
       '/SUBSYSTEM:WINDOWS',
       'kernel32.lib',
       'user32.lib',
@@ -324,7 +362,12 @@ class AMXXConfig(object):
     elif cxx.vendor == 'clang':
       cxx.linkflags  += ['-lgcc_eh']
     if cxx.like('gcc'):
-      self.stdcxx_path = self.invokeCompiler(['-m32', '-print-file-name=' + 'libstdc++.a'])[0]
+      arch_flag = {
+        'i386': ['-m32'],
+        'amd64': ['-m64'],
+        'aarch64': [],
+      }[self.target_arch]
+      self.stdcxx_path = self.invokeCompiler(arch_flag + ['-print-file-name=' + 'libstdc++.a'])[0]
 
   def configure_mac(self, cxx):
     cxx.defines += ['OSX', '_OSX', 'POSIX']
@@ -332,9 +375,14 @@ class AMXXConfig(object):
       '-mmacosx-version-min=10.7',
       '-Wno-address-of-packed-member',
     ]
+    mac_arch = {
+      'i386': 'i386',
+      'amd64': 'x86_64',
+      'aarch64': 'arm64',
+    }[self.target_arch]
     cxx.linkflags += [
       '-mmacosx-version-min=10.7',
-      '-arch', 'i386',
+      '-arch', mac_arch,
       '-lstdc++',
       '-stdlib=libc++',
       '-framework', 'CoreServices',
@@ -394,7 +442,7 @@ class AMXXConfig(object):
     if builder.target_platform == 'mac' or builder.target_platform == 'windows':
       name = name + '_mm'
     elif builder.target_platform == 'linux':
-      name = name + '_mm_i386'
+      name = '{0}_mm_{1}'.format(name, self.target_arch)
     binary = context.compiler.Library(name)
     self.ConfigureForModule(context, binary.compiler)
     return self.AddVersioning(binary)
@@ -403,7 +451,7 @@ class AMXXConfig(object):
     if builder.target_platform == 'mac' or builder.target_platform == 'windows':
       name = name + '_amxx'
     elif builder.target_platform == 'linux':
-      name = name + '_amxx_i386'
+      name = '{0}_amxx_{1}'.format(name, self.target_arch)
     binary = context.compiler.Library(name)
     self.ConfigureForModule(context, binary.compiler)
     return self.AddVersioning(binary)
@@ -413,12 +461,15 @@ class AMXXConfig(object):
     return self.AddVersioning(binary)
 
   def AddAssembly(self, context, binary, input_file, output_file, includes=[], extra_argv=[]):
+    if self.target_arch == 'aarch64':
+      raise Exception('AddAssembly: NASM does not target aarch64; callers must skip on this arch')
+    nasm_arch = {'i386': '32', 'amd64': '64'}[self.target_arch]
     if builder.target_platform == 'windows':
-      obj_type = 'win32'
+      obj_type = 'win' + nasm_arch
     elif builder.target_platform == 'linux':
-      obj_type = 'elf32'
+      obj_type = 'elf' + nasm_arch
     elif builder.target_platform == 'mac':
-      obj_type = 'macho32'
+      obj_type = 'macho' + nasm_arch
 
     input_path = os.path.join(context.currentSourcePath, input_file)
     output_path = output_file
@@ -443,6 +494,7 @@ class AMXXConfig(object):
     binary.compiler.linkflags += [output_nodes[0]]
 
 AMXX = AMXXConfig()
+AMXX.detectTargetArch()
 AMXX.detectProductVersion()
 AMXX.detectMetamod()
 AMXX.detectHlsdk()
@@ -472,33 +524,45 @@ AMXX.utf8rewind = builder.RunScript(
   'third_party/utf8rewind/AMBuilder'
 )
 
-builder.RunBuildScripts(
-  [
-    'amxmodx/AMBuilder',
-    'compiler/amxxpc/AMBuilder',
-    'compiler/libpc300/AMBuilder',
-    'modules/cstrike/cstrike/AMBuilder',
-    'modules/cstrike/csx/AMBuilder',
-    'modules/dod/dodfun/AMBuilder',
-    'modules/dod/dodx/AMBuilder',
-    'modules/engine/AMBuilder',
-    'modules/fakemeta/AMBuilder',
-    'modules/fun/AMBuilder',
-    'modules/geoip/AMBuilder',
-    'modules/hamsandwich/AMBuilder',
-    'modules/json/AMBuilder',
-    'modules/mysqlx/AMBuilder',
-    'modules/ns/AMBuilder',
-    'modules/nvault/AMBuilder',
-    'modules/regex/AMBuilder',
-    'modules/sockets/AMBuilder',
-    'modules/sqlite/AMBuilder',
-    'modules/tfcx/AMBuilder',
-    'modules/ts/tsfun/AMBuilder',
-    'modules/ts/tsx/AMBuilder',
-  ],
+AMXX.asmjit = builder.RunScript(
+  'support/asmjit/AMBuilder',
   { 'AMXX': AMXX }
 )
+
+AMXX.pcre = builder.RunScript(
+  'support/pcre/AMBuilder',
+  { 'AMXX': AMXX }
+)
+
+core_scripts = [
+  'amxmodx/AMBuilder',
+  'compiler/amxxpc/AMBuilder',
+  'compiler/libpc300/AMBuilder',
+]
+
+module_scripts = [
+  'modules/cstrike/cstrike/AMBuilder',
+  'modules/cstrike/csx/AMBuilder',
+  'modules/dod/dodfun/AMBuilder',
+  'modules/dod/dodx/AMBuilder',
+  'modules/engine/AMBuilder',
+  'modules/fakemeta/AMBuilder',
+  'modules/fun/AMBuilder',
+  'modules/geoip/AMBuilder',
+  'modules/hamsandwich/AMBuilder',
+  'modules/json/AMBuilder',
+  'modules/mysqlx/AMBuilder',
+  'modules/ns/AMBuilder',
+  'modules/nvault/AMBuilder',
+  'modules/regex/AMBuilder',
+  'modules/sockets/AMBuilder',
+  'modules/sqlite/AMBuilder',
+  'modules/tfcx/AMBuilder',
+  'modules/ts/tsfun/AMBuilder',
+  'modules/ts/tsx/AMBuilder',
+]
+
+builder.RunBuildScripts(core_scripts + module_scripts, { 'AMXX': AMXX })
 
 # The csstats.dat reader is Windows-only.
 if builder.target_platform == 'windows':

@@ -122,6 +122,44 @@ def skip_reason(rel):
     return None
 
 
+LFS_POINTER = b"version https://git-lfs.github.com/spec/v1"
+
+
+def not_whole(path):
+    """Why a file is not whole, or None: a Git LFS pointer (a clone made without Git LFS has one in
+    place of each map, model and archive), or a .bsp, .mdl, .wad, .pk3 or .zip shorter than its own
+    header says, as a download cut short leaves it. tools\\check-lfs.ps1 checks the same."""
+    size = os.path.getsize(path)
+    ext = os.path.splitext(path)[1].lower()
+    with open(path, "rb") as f:
+        head = f.read(124)
+        if size < 1024 and head.startswith(LFS_POINTER):
+            return "a Git LFS pointer, not the file"
+        if ext == ".bsp":
+            if size < 124:
+                return "a .bsp of %d bytes" % size
+            if struct.unpack("<i", head[:4])[0] != 30 and head[:4] not in (b"BSP2", b"2PSB"):
+                return "not a GoldSrc or BSP2 map"
+            lumps = struct.unpack("<30i", head[4:124])
+            need = max(lumps[i * 2] + lumps[i * 2 + 1] for i in range(15))
+        elif ext == ".mdl":
+            if size < 76 or head[:4] not in (b"IDST", b"IDSQ"):
+                return "not a studio model"
+            need = struct.unpack("<i", head[72:76])[0]
+        elif ext == ".wad":
+            if size < 12 or head[:4] not in (b"WAD2", b"WAD3"):
+                return "not a WAD"
+            count, offset = struct.unpack("<ii", head[4:12])
+            need = offset + count * 32
+        elif ext in (".pk3", ".zip"):
+            tail = min(size, 65557)
+            f.seek(size - tail)
+            return None if f.read(tail).rfind(b"PK\x05\x06") >= 0 else "no end-of-archive record: cut short"
+        else:
+            return None
+    return "its header says %d bytes, the file has %d" % (need, size) if need > size else None
+
+
 def never(rel):
     name = rel.split("/")[-1].lower()
     return name in NEVER_NAMES or name.endswith(NEVER_EXT)
@@ -428,6 +466,16 @@ def main():
     bad = [at for at, _ in files if never(at)]
     if bad:
         sys.exit("refusing: these must never be served:\n  " + "\n  ".join(bad))
+
+    broken = [(at, why) for at, why in ((at, not_whole(src)) for at, src in files) if why]
+    if broken:
+        lfs = any(why.startswith("a Git LFS pointer") for _, why in broken)
+        sys.exit("refusing: %d files are not whole:\n  %s%s\n%s" % (
+            len(broken), "\n  ".join("%s -- %s" % b for b in broken[:25]),
+            "\n  ... and %d more" % (len(broken) - 25) if len(broken) > 25 else "",
+            "This clone was made without Git LFS. Install Git LFS, then in the checkout run\n"
+            "  git lfs install\n  git lfs pull\nand run this again." if lfs else
+            "Get these files again (git lfs pull, or git checkout -- <file>) and run this again."))
 
     # Byte-identical copies of Half-Life's own files stay out.
     valve_hits = []

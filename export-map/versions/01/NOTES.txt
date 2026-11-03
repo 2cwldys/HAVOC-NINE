@@ -1,0 +1,7 @@
+version 01
+built   2026-10-19 22:26:00
+base    2635 brushes, 872 entities
+built   2635 brushes, 872 entities
+bsp     6517196 bytes  (DRAFT lighting)
+
+(say what was tried in this version here)

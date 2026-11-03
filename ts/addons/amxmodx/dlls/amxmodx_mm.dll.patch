@@ -1,0 +1,68 @@
+H9 amxmodx_mm.dll -- AMX Mod X's core (a Metamod plugin), built from source for 128 player slots
+================================================================================================
+
+What this is
+------------
+
+ts\addons\amxmodx\dlls\amxmodx_mm.dll is AMX Mod X's core (a Metamod plugin),
+built by H9 from TSM\AMXMODX: goldsrc-net/amxmodx (the AMX Mod X fork reTS ships with),
+branch 64bit at commit dedff660dff3fa615a96d6ba3890d6000b588ed1,
+with H9's changes as uncommitted working-tree changes (AMXMODX\H9-SOURCE.txt).
+The core and every module H9 ships but three are built together from that one tree, for
+128 player slots: tsx_amxx.dll stays reTSX (docs\PLAYER_LIMIT_128.txt, section 8.5),
+easy_http_amxx.dll is a third-party module, and mysql_amxx.dll (it links MySQL's C
+connector, and no H9 plugin loads it) stays the release's.
+
+H9's changes in it
+------------------
+
+  amxmodx\amxmodx.h, meta_api.cpp
+          AMXX_MAX_PLAYERS 128: the core keeps a CPlayer for edict 1 to 128
+          (g_players[AMXX_MAX_PLAYERS + 1]; upstream g_players[33]). Every look-up
+          is still bounded by the server's maxplayers.
+  amxmodx\emsg.cpp
+          DeathMsg's killer and victim are taken up to maxplayers (and 128) instead
+          of up to 32, so kills past slot 32 reach client_death and the stats.
+  plugins\include\amxconst.inc
+          MAX_PLAYERS 128, deployed with this core to scripting\include: H9's
+          plugins (build.bat) are compiled against it.
+  amxmodx\meta_api.cpp
+          client_disconnected and client_remove fire from the game's ClientDisconnect
+          whenever no SV_DropClient hook saw the leave first: on Xash3D, which has
+          no hook for the core (no ReHLDS API, no gamedata signature), every leave,
+          with drop false and no message. Upstream fired neither there, and logged
+          "client_disconnected and client_remove forwards have been disabled"; the
+          core now logs "No SV_DropClient hook (...): ... fire from ClientDisconnect".
+
+Deployed file : amxmodx_mm.dll
+Size          : 2272768 bytes
+SHA256        : ABB10442C7BDE2D0165C4C149568782FBED1AFCD39EE8DDF7A6F59415FE00043
+Built         : 2026-11-02, MSBuild amxmodx\msvc12\amxmodx_mm.vcxproj, JITRelease|Win32, toolset
+                v145 (Visual Studio 2026), from a copy of TSM\AMXMODX, against the SDKs
+                the fork's CI uses: goldsrc-net/hlsdk branch 64bit (dd2c6d61) and
+                alliedmodders/metamod-hl1 (18a10db6). The msvc12 projects lag AMBuild's
+                (three source files, HAVE_STDINT_H, default struct packing), fixed in
+                the copy (H9-SOURCE.txt, Building on Windows).
+
+Against the build it replaces
+-----------------------------
+
+The amxmodx_mm.dll H9 shipped before, from the reTS AMX Mod X build (1.10.0-manual):
+1964544 bytes, SHA256 69F648702AAB829BF6E9F5617082FB50D1B099C9390FF32823FB520C04446594,
+kept as amxmodx_mm.dll.bak_slots beside this file. To go back, copy that over amxmodx_mm.dll.
+
+On servers of 32 slots or fewer nothing changes: the tables are longer, and every loop and
+bound in them still stops at the server's maxplayers.
+
+Past 32 slots
+-------------
+
+This core is safe past 32; AMX Mod X as a whole is not yet. A server past 32 slots runs
+with AMX Mod X loaded only once both of these are done too:
+  * tsx_amxx.dll: reTSX is built for 32 slots. The TSX it extends keeps 33-entry
+    player tables, indexed by edict number up to maxplayers, so a player in slot 33
+    or up is written past them. TS 3.0's TSX in this tree is built for 128 but has
+    no reTS backend (docs\PLAYER_LIMIT_128.txt, section 8.5).
+  * The stock plugins (admin.amxx and the rest) are the release's, compiled for
+    MAX_PLAYERS 32: get_players() writes one cell per player into their 32-cell
+    buffers. They need compiling against this amxconst.inc.

@@ -103,6 +103,9 @@ public:
 	// sets the correct image in the label for the player
 	void	UpdateSpeakerImage(vgui::Label *pLabel, int iPlayer);
 
+	// forgets every player's scoreboard label, before the scoreboard attaches them again
+	void	DetachBanButtons();
+
 	// Call from the HUD_CreateEntities function so it can add sprites above player heads.
 	void	CreateEntities();
 

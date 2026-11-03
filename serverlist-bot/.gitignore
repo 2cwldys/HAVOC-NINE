@@ -1,0 +1,7 @@
+# The list's secrets (the Discord token and the heartbeat key) and what it writes as it runs:
+# never committed. Only serverlist.cfg.example is tracked.
+serverlist.cfg
+serverlist.cfg.*
+!serverlist.cfg.example
+serverlist.log
+__pycache__/

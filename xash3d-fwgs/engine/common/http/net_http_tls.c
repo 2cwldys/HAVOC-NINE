@@ -160,6 +160,12 @@ qboolean HTTP_TlsAvailable( void )
 	return g_tls.inited;
 }
 
+// H9: whether a connection made now has its certificate checked (HTTP_MEM_VERIFY_TLS asks)
+qboolean HTTP_TlsVerifies( void )
+{
+	return g_tls.inited && g_tls.has_ca && http_tls_insecure.value == 0;
+}
+
 tlsctx_t *HTTP_TlsNew( int socket, const char *hostname )
 {
 	if( !g_tls.inited )

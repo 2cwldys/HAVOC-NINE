@@ -18,7 +18,9 @@
 
 // Where reports go; without its /report, also where the server enrolls and
 // where h9_community's calls go. https only on the internet; the plugin needs
-// the AmxxEasyHttp module and its CA bundle, as ts_advertise does.
+// the AmxxEasyHttp module and its CA bundle, as ts_advertise does. For a test
+// against a local h9web (the 8090 test site), and only there:
+//     h9_presence_url "http://127.0.0.1:8090/api/presence/report"
 h9_presence_url "https://havoc9.org/api/presence/report"
 
 
@@ -61,3 +63,14 @@ h9_presence_challenge "0"
 // anyone else using an account's name a neutral "Player 1234", on every map but
 // roleplay maps and stock ts_ maps. Needs h9_presence_challenge 1.
 h9_presence_names "0"
+
+
+// Accounts only: 1 lets in only games that prove a havoc9.org account. Every game is
+// challenged (whatever h9_presence_challenge says); one that cannot prove an account (a
+// Steam client, an older H9XASH, a game with no player id) is kicked at once, one that
+// can after h9_require_account_grace seconds if it has not proved it by then, with
+// "This server requires a havoc9.org account: link your game from the main menu". While
+// h9web is not answering, nobody is kicked for it. The cvar is in the server's rules, and
+// H9XASH's server browser shows such a server with an account icon.
+h9_require_account "0"
+h9_require_account_grace "45"

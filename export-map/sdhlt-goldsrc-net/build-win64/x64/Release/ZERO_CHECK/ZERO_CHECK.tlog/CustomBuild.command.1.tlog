@@ -1,0 +1,10 @@
+^D:\DOWNLOADS\TSM\EXPORT-MAP\SDHLT-GOLDSRC-NET\BUILD-WIN64\CMAKEFILES\79F2328183D5B2725AEE6D74DE6A43A5\GENERATE.STAMP.RULE
+setlocal
+D:\CMake\bin\cmake.exe -SD:/Downloads/TSM/export-map/sdhlt-goldsrc-net -BD:/Downloads/TSM/export-map/sdhlt-goldsrc-net/build-win64 --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/Downloads/TSM/export-map/sdhlt-goldsrc-net/build-win64/sdhlt.slnx
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

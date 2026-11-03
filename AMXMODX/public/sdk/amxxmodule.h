@@ -360,9 +360,10 @@ typedef struct tagAMX {
   cell stp              PACKED; /* top of the stack: relative to base + amxhdr->dat */
   int flags             PACKED; /* current status, see amx_Flags() */
   /* user data */
-  long usertags[AMX_USERNUM] PACKED;
+  void _FAR *usertags[AMX_USERNUM] PACKED;
   //okay userdata[3] in AMX Mod X is for the CPlugin * pointer
   //we're also gonna set userdata[2] to a special debug structure
+  //lastly, userdata[1] is for opcode_list from amx_BrowseRelocate
   void _FAR *userdata[AMX_USERNUM] PACKED;
   /* native functions can raise an error */
   int error             PACKED;
@@ -377,6 +378,13 @@ typedef struct tagAMX {
   /* support variables for the JIT */
   int reloc_size      PACKED; /* required temporary buffer for relocations */
   long code_size      PACKED; /* estimated memory footprint of the native code */
+  /* 64-bit native-address side-table — see amx.h for rationale.
+   * Layout MUST match amxmodx/amx.h or modules and core will disagree
+   * on AMX struct size/offsets at the ABI boundary.
+   */
+  void _FAR **native_addr_table   PACKED;
+  int native_addr_count           PACKED;
+  int native_addr_capacity        PACKED;
 } PACKED AMX;
 
 enum {
@@ -2222,6 +2230,8 @@ typedef int				(*PFN_AMX_REREGISTER)			(AMX * /*amx*/, AMX_NATIVE_INFO * /*list*
 typedef void *			(*PFN_REGISTERFUNCTIONEX)		(void * /*pfn*/, const char * /*desc*/);
 typedef void			(*PFN_MESSAGE_BLOCK)			(int /* mode */, int /* message */, int * /* opt */);
 typedef IGameConfigManager* (*PFN_GET_CONFIG_MANAGER)   ();
+typedef cell			(*PFN_POINTER_TO_HANDLE)		(void * /*ptr*/);
+typedef void *			(*PFN_HANDLE_TO_POINTER)		(cell /*handle*/);
 
 extern PFN_ADD_NATIVES				g_fn_AddNatives;
 extern PFN_ADD_NEW_NATIVES			g_fn_AddNewNatives;
@@ -2304,6 +2314,8 @@ extern PFN_AMX_REREGISTER			g_fn_AmxReRegister;
 extern PFN_REGISTERFUNCTIONEX		g_fn_RegisterFunctionEx;
 extern PFN_MESSAGE_BLOCK			g_fn_MessageBlock;
 extern PFN_GET_CONFIG_MANAGER		g_fn_GetConfigManager;
+extern PFN_POINTER_TO_HANDLE		g_fn_PointerToHandle;
+extern PFN_HANDLE_TO_POINTER		g_fn_HandleToPointer;
 
 #ifdef MAY_NEVER_BE_DEFINED
 // Function prototypes for intellisense and similar systems
@@ -2382,6 +2394,8 @@ int				MF_AmxReRegister			(AMX *amx, AMX_NATIVE_INFO *list, int number) { return
 void *			MF_RegisterFunctionEx		(void *pfn, const char *description) { }
 void *			MF_MessageBlock				(int mode, int msg, int *opt) { }
 IGameConfigManager* MF_GetConfigManager     (void) { }
+cell			MF_PointerToHandle			(void *ptr) { }
+void *			MF_HandleToPointer			(cell handle) { }
 #endif	// MAY_NEVER_BE_DEFINED
 
 #define MF_AddNatives g_fn_AddNatives
@@ -2466,6 +2480,8 @@ void MF_LogError(AMX *amx, int err, const char *fmt, ...);
 #define MF_RegisterFunctionEx g_fn_RegisterFunctionEx
 #define MF_MessageBlock g_fn_MessageBlock
 #define MF_GetConfigManager g_fn_GetConfigManager
+#define MF_PointerToHandle g_fn_PointerToHandle
+#define MF_HandleToPointer g_fn_HandleToPointer
 
 #ifdef MEMORY_TEST
 /*** Memory ***/

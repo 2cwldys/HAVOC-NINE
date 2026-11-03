@@ -60,6 +60,10 @@ extern int SV_UPDATE_BACKUP;
 #define MAX_PUSHED_ENTS	256
 #define MAX_VIEWENTS	128
 #define MAX_LOCALINFO_STRING	32768	// localinfo used on server and not sended to the clients
+// a player's userinfo as the server keeps it: twice what a client keeps of another player, so
+// the game's own keys (TS's team name, H9's) fit beside the client's; SV_FullClientUpdate sends
+// the other players no more than MAX_INFO_STRING of it
+#define H9_MAX_USERINFO	( MAX_INFO_STRING * 2 )
 
 #define MAX_ENT_LEAFS( ext ) (( ext ) ? MAX_ENT_LEAFS_32 : MAX_ENT_LEAFS_16 )
 
@@ -211,6 +215,11 @@ typedef struct
 	int  		first_entity;		// into the circular sv_packet_entities[]
 } client_frame_t;
 
+// sv_client_t::listeners, one bit a player slot (0-based): this client's voice goes to the slots set
+#define SV_LISTENER_TEST( cl, slot )  FBitSet(( cl )->listeners[( slot ) >> 5], BIT(( slot ) & 31 ))
+#define SV_LISTENER_SET( cl, slot )   SetBits(( cl )->listeners[( slot ) >> 5], BIT(( slot ) & 31 ))
+#define SV_LISTENER_CLEAR( cl, slot ) ClearBits(( cl )->listeners[( slot ) >> 5], BIT(( slot ) & 31 ))
+
 typedef struct sv_client_s
 {
 	cl_state_t  state;
@@ -220,12 +229,12 @@ typedef struct sv_client_s
 	uint        extensions; // protocol extensions
 
 	char hashedcdkey[34];            // MD5 hash is 32 hex #'s, plus trailing 0
-	char userinfo[MAX_INFO_STRING];  // name, etc (received from client)
+	char userinfo[H9_MAX_USERINFO];  // name, etc (received from client)
 	char physinfo[MAX_INFO_STRING];  // set on server (transmit to client)
 	char useragent[MAX_INFO_STRING];
 
 	byte ignorecmdtime_warned; // did we warn our server operator in the log for this batch of commands?
-	uint listeners;   // which other clients does this guy's voice stream go to?
+	uint listeners[MAX_CLIENTS / 32];   // which other clients does this guy's voice stream go to? one bit a slot
 
 	int ignorecmdtime_warns; // how many times client time was faster than server during this session
 	int userid;              // identifying number on server
@@ -547,6 +556,7 @@ const char *SV_GetClientIDString( sv_client_t *cl );
 sv_client_t *SV_ClientById( int id );
 sv_client_t *SV_ClientByName( const char *name );
 void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg );
+void SV_BroadcastReliable( sizebuf_t *src );
 void SV_FullUpdateMovevars( sv_client_t *cl, sizebuf_t *msg );
 void SV_GetPlayerStats( sv_client_t *cl, int *ping, int *packet_loss );
 void SV_SendServerdata( sizebuf_t *msg, sv_client_t *cl );

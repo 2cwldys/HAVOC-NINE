@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
   <title>COMMUNITIES -- HAVOC9</title>
   <meta name="description" content="HAVOC 9 communities: groups of game servers with one chat across them and the site, their players, and their own admins">
   <link rel="icon" type="image/gif" href="../h9helmet_glitch.gif">
@@ -31,6 +32,8 @@
         <li><a href="../downloads/index.html">DOWNLOADS</a></li>
         <li><a href="../servers/index.html">SERVERS</a></li>
         <li><a href="../forum/index.html">FORUM</a></li>
+        <li><a href="../community/index.html" class="active">COMMUNITY</a></li>
+        <li><a href="../media/index.html">MEDIA</a></li>
         <li><a href="../join/index.html">JOIN</a></li>
         <li><a href="../museum/index.html">MUSEUM</a></li>
         <li><a href="../credits/index.html">CREDITS</a></li>
@@ -57,8 +60,17 @@
 
       <div class="account-section">
         <h2 class="sub-title">WHAT A COMMUNITY IS</h2>
-        <p>A group of game servers run by one havoc9.org account, its owner, and the admins the owner names. Its players talk across all its servers and this page: <code>.relay &lt;text&gt;</code> in game chat, or the chat box here when signed in. In game, <code>/find &lt;name&gt;</code> or <code>/where &lt;name&gt;</code> says where a player is, this community's servers first, and portals on its maps lead to its other servers.</p>
-        <p>A server joins once it is enrolled with havoc9.org, which the H9 presence plugin does by itself, and its console's <code>h9_community_claim</code> code is entered here by the community's owner or an admin. A ban or a mute here holds on every server of the community. What a player hides with the switches on their ACCOUNT page stays hidden here too.</p>
+        <p>A community is a home on havoc9.org for a group of players: a clan or a team, a project such as a map pack or a mod, a roleplay group, or a network of game servers. It gets its own page, listed here for anyone to find, so it is also how you show your group or your project to everyone on H9.</p>
+        <p>What it gives a group:</p>
+        <ul>
+          <li>a page: its name, who runs it, its members, and its game servers with who is on each right now;</li>
+          <li>members: anyone signed in joins an open community; others take requests or invitations, and a community can keep its page and its servers to its members alone;</li>
+          <li>its game servers, linked: their players talk to each other and to this page with <code>.relay &lt;text&gt;</code> in game chat, portals on its maps lead to its other servers, and <code>/find &lt;name&gt;</code> or <code>/where &lt;name&gt;</code> says where a player is;</li>
+          <li>a chat on this page that reaches the game: its members, or every signed-in player when the owner opens it, write here and the players on its servers read it in game; H9's admins can bridge it with a Discord channel too;</li>
+          <li>announcements from its owner and admins, shown on every one of its servers and here;</li>
+          <li>its own moderation: a ban or a mute here holds on every one of its servers.</li>
+        </ul>
+        <p>To start one, sign in and make it on this page: you own it, and you name its admins. A server joins once it is enrolled with havoc9.org, that is, once it has a havoc9.org key, so it can report who is playing and take part in community features: a dedicated server running the H9 presence plugin enrolls by itself, a Create Game server through its host's ID proof, or a site admin gives it a hand-made key. Then its console's <code>h9_community_claim</code> code is entered here by the community's owner or an admin. What a player hides with the switches on their ACCOUNT page stays hidden here too.</p>
       </div>
     </div>
   </main>

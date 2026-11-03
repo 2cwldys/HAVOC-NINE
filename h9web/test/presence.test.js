@@ -142,11 +142,19 @@ function makeProof(pid, server, device, nonce) {
   return { nonce, devmask, proof: hmac(pid, "h9proof1:" + nonce + ":" + server + ":" + devmask).toString("hex") };
 }
 
+// A nonce as h9web issues it to a server for its challenge (POST /api/presence/server/nonce), at the
+// time the test nonce carries in its first 8 hex.
+function issue(t, server, nonce) {
+  t.app.db.prepare("INSERT OR IGNORE INTO presence_proof_nonces (nonce, server, issued_at) VALUES (?, ?, ?)").run(nonce, server, parseInt(nonce.slice(0, 8), 16));
+}
+
 // A player as the plugin reports it: proven (the client answered the challenge) unless proof is false.
 function entry(t, pid, server, { device = DEV1, proof = true, nonce, net = NET1, name = "player", joined, time, proofServer } = {}) {
   const e = { id: clientIdFor(pid, server), name, joined: joined === undefined ? t.sec() - 5 : joined, time: time === undefined ? 5 : time };
   if (proof) {
-    Object.assign(e, makeProof(pid, proofServer || server, device, nonce || nonceAt(t.sec())));
+    const n = nonce || nonceAt(t.sec());
+    issue(t, server, n);
+    Object.assign(e, makeProof(pid, proofServer || server, device, n));
     if (net) e.net = net;
   }
   return e;
@@ -1242,6 +1250,7 @@ describe("presence: keys, the registry, and no secret in the logs", () => {
       await until(async () => {
         const ts = Math.floor(Date.now() / 1000);
         const player = { id: clientIdFor(pid, A), name: "Neo-ingame", joined: ts - 5, time: 5, ...makeProof(pid, A, DEV1, nonceAt(ts)), net: NET1 };
+        issue(t, A, player.nonce);
         const body = JSON.stringify({ v: 1, server: A, ts, reason: "tick", map: "h9_te_neuropolis", mode: "Team Elimination", players: [player] });
         const r = await request(t.base, "POST", "/api/presence/report", { body, origin: null, headers: { "x-h9-server": A, "x-h9-signature": hmac(KEYS[A], body).toString("hex") } });
         return r.status === 200;
@@ -1260,6 +1269,11 @@ describe("presence: keys, the registry, and no secret in the logs", () => {
       ws.close();
       await ws.closed;
       await until(async () => (await card("Trinity")).state === "site");
+      // signing out ends "on the site" at once
+      assert.equal((await request(t.base, "POST", "/api/logout", { cookie: trin })).status, 200);
+      const gone = await card("Trinity");
+      assert.equal(gone.state, "offline", "signed out: not on the site");
+      assert.ok(gone.lastSeen, "the sign-out's request is kept as last seen");
     } finally {
       for (const ws of sockets) try { ws.close(); } catch (e) { /* closed */ }
       await t.close();
@@ -1323,6 +1337,12 @@ describe("presence: core's hooks", () => {
       await request(t.base, "GET", "/api/me", { cookie: smith });
       assert.deepEqual(auth.activeSince(before), [walker], "a suspended account's request does not count");
       assert.equal(auth.lastActive(424242), null);
+      // signing out: no longer active at once, its last request kept as its last seen
+      assert.equal(auth.signedOutAt(walker), null);
+      assert.equal((await request(t.base, "POST", "/api/logout", { cookie })).status, 200);
+      assert.deepEqual(auth.activeSince(before), [], "a signed-out account is not on the site");
+      assert.ok(auth.signedOutAt(walker) >= before);
+      assert.ok(auth.lastActive(walker) >= before, "its last request stays its last seen");
     } finally {
       await t.close();
     }

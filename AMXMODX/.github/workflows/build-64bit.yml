@@ -1,0 +1,327 @@
+name: Build 64bit
+# Parallel workflow for the 64bit branch. Mirrors build-release.yml's
+# packaging behaviour but adds an arch matrix (i386 + amd64 + aarch64
+# on Linux, x86 on Windows). Uses the goldsrc-net/build-containers
+# debian10 image — same base (debian:buster + clang-11) as upstream
+# amxmodx's release CI, just with cross-toolchain + multilib additions
+# baked in. glibc floor for produced binaries is 2.28 (debian:buster).
+# Master-branch CI is unaffected.
+
+on:
+  push:
+    branches:
+      - 64bit
+  pull_request:
+    branches:
+      - 64bit
+  workflow_dispatch:
+
+env:
+  # MariaDB Connector/C version. Picked to match debian:buster's
+  # libmariadb-dev (1:10.3.39-0+deb10u2 embeds Connector/C 3.1.21
+  # via the bundled mariadb-10.3 source). Same minor for both Linux
+  # (statically linked from /opt/mariadb-static-<arch>/ baked into the
+  # buildchain image) and Windows (extracted from the official MSI in
+  # this workflow). Uniform wire-protocol coverage across all 5
+  # build-matrix rows.
+  MARIADB_CC_VERSION: '3.1.21'
+
+jobs:
+  build:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux i386 (legacy; same image as master CI — upstream's
+          # debian10 base, just with our additions superset.)
+          - platform: linux
+            target_arch: i386
+            os: ubuntu-latest
+            os_short: linux
+            container_image: ghcr.io/goldsrc-net/build-containers/debian10:latest
+
+          # Linux amd64 (new for this branch)
+          - platform: linux
+            target_arch: amd64
+            os: ubuntu-latest
+            os_short: linux
+            container_image: ghcr.io/goldsrc-net/build-containers/debian10:latest
+
+          # Linux aarch64 — runs on the native arm64 runner so AMBuild's
+          # compile-and-run probe works without qemu/binfmt. The
+          # build-containers/debian10 image publishes both linux/amd64
+          # and linux/arm64 manifests; this row pulls the arm64 one.
+          - platform: linux
+            target_arch: aarch64
+            os: ubuntu-24.04-arm
+            os_short: linux
+            container_image: ghcr.io/goldsrc-net/build-containers/debian10:latest
+
+          # Windows x86 (legacy; matches master CI.)
+          - platform: windows
+            target_arch: i386
+            os: windows-latest
+            os_short: win
+
+          # Windows amd64 (new for this branch — feeds ReHLDS Win64).
+          - platform: windows
+            target_arch: amd64
+            os: windows-latest
+            os_short: win
+
+    name: ${{ matrix.platform }}-${{ matrix.target_arch }}
+    runs-on: ${{ matrix.os }}
+    container:
+      image: ${{ matrix.container_image }}
+
+    steps:
+      # build-containers/debian10 bakes in: clang-11, gcc-multilib +
+      # libc6-dev-i386, gcc-aarch64-linux-gnu cross + arm64 multiarch
+      # runtime, cmake (Kitware 3.29.6), rsync, nasm, libmariadb-dev,
+      # ambuild. No per-job apt install needed for the standard set.
+
+      - name: Checkout AMX Mod X
+        uses: actions/checkout@v6
+        with:
+          path: amxmodx
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Resolve paths
+        id: path_helper
+        shell: bash
+        run: |
+          echo "dependencies=$GITHUB_WORKSPACE/dependencies" >> $GITHUB_OUTPUT
+
+      - name: Cache dependencies
+        uses: actions/cache@v5
+        env:
+          cache-name: amxx-deps-64bit
+        with:
+          path: ${{ steps.path_helper.outputs.dependencies }}
+          key: ${{ runner.os }}-${{ matrix.target_arch }}-build-${{ env.cache-name }}-mariadb${{ env.MARIADB_CC_VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target_arch }}-build-${{ env.cache-name }}-
+
+      - name: Install dependencies (Linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          mkdir -p '${{ steps.path_helper.outputs.dependencies }}'
+          cd '${{ steps.path_helper.outputs.dependencies }}'
+
+          # Pre-clone hlsdk from the goldsrc-net/hlsdk @ 64bit fork before
+          # running checkout-deps.sh. Upstream alliedmodders/hlsdk has
+          # extdll.h's `#define max(a,b) ...` which collides with the
+          # C++17 stdlib (cmath → tr1/ell_integral pulls std::max) and
+          # breaks the build. The 64bit fork renames these to minm/maxm.
+          # checkout-deps.sh's checkout function is a no-op when the
+          # target dir already exists, so this pre-clone wins.
+          if [ ! -d hlsdk ]; then
+            git clone --depth=1 -b 64bit https://github.com/goldsrc-net/hlsdk
+          fi
+
+          # Satisfy checkout-deps requirement for an "amxmodx" folder.
+          mkdir -p amxmodx
+          ../amxmodx/support/checkout-deps.sh
+
+      - name: Setup MSVC (Windows)
+        if: matrix.platform == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.target_arch == 'amd64' && 'x64' || 'x86' }}
+
+      - name: Setup NASM (Windows)
+        if: matrix.platform == 'windows'
+        uses: ilammy/setup-nasm@v1
+
+      - name: Install dependencies (Windows)
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: |
+          DEPS='${{ steps.path_helper.outputs.dependencies }}'
+          mkdir -p "$DEPS"
+          cd "$DEPS"
+
+          if [ ! -d "metamod-am" ]; then
+            git clone https://github.com/alliedmodders/metamod-hl1 metamod-am
+          fi
+          if [ ! -d "hlsdk" ]; then
+            # 64bit branch of the goldsrc-net fork; carries the
+            # min/max → minm/maxm rename so amxmodx's C++ stdlib
+            # template chains (algorithm, cmath, string, ...) don't
+            # collide with extdll.h's function-like macros.
+            git clone -b 64bit https://github.com/goldsrc-net/hlsdk
+          fi
+          if [ ! -d "mariadb-connector-c" ]; then
+            # MariaDB Connector/C — matches the Linux base image's
+            # libmariadb-dev (debian:buster ships Connector/C 3.1.21
+            # internally via mariadb-10.3). dlm.mariadb.com paths are
+            # stable per-file tokens that 302-redirect to a fresh
+            # signed GCS URL on every fetch; URL works in CI today
+            # and indefinitely without regeneration.
+            if [ "${{ matrix.target_arch }}" = "amd64" ]; then
+              MSI_URL="https://dlm.mariadb.com/3216035/Connectors/c/connector-c-${{ env.MARIADB_CC_VERSION }}/mariadb-connector-c-${{ env.MARIADB_CC_VERSION }}-win64.msi"
+            else
+              MSI_URL="https://dlm.mariadb.com/3216039/Connectors/c/connector-c-${{ env.MARIADB_CC_VERSION }}/mariadb-connector-c-${{ env.MARIADB_CC_VERSION }}-win32.msi"
+            fi
+            curl -sSL -o mariadb-cc.msi "$MSI_URL"
+            # Admin install (/a) extracts files with their proper
+            # names (mariadbclient.lib etc.) — the raw CAB inside the
+            # MSI stores them under WiX file IDs like 'libstatic',
+            # which 7z would extract unnamed. /qn = no UI. //a / //qn
+            # are Git-Bash escapes for the Windows tool's /a /qn args.
+            mkdir -p mariadb-extracted
+            msiexec.exe //a "$(cygpath -w "$PWD/mariadb-cc.msi")" //qn TARGETDIR="$(cygpath -w "$PWD/mariadb-extracted")"
+            # MSI layout differs by arch:
+            #   win32: <TARGETDIR>/Program Files/MariaDB/MariaDB Connector C/
+            #   win64: <TARGETDIR>/MariaDB/MariaDB Connector C 64-bit/
+            # Different top-level + " 64-bit" suffix on the SDK dir
+            # name for win64. Locate via glob so both shapes match.
+            sdk_root=$(find mariadb-extracted -type d -name 'MariaDB Connector C*' | head -1)
+            if [ -z "$sdk_root" ]; then
+              echo "::error::failed to locate MariaDB Connector C SDK dir under mariadb-extracted/"
+              find mariadb-extracted -maxdepth 6 -type d
+              exit 1
+            fi
+            mv "$sdk_root" mariadb-connector-c
+            # amxmodx's mysqlx/AMBuilder hardcodes lib/mysqlclient.lib
+            # for Windows (Oracle's filename convention). MariaDB's
+            # MSI ships mariadbclient.lib (static) and libmariadb.lib
+            # (import for the DLL). Rename the static one so the
+            # existing AMBuilder line resolves without change.
+            mv mariadb-connector-c/lib/mariadbclient.lib mariadb-connector-c/lib/mysqlclient.lib
+            rm -rf mariadb-extracted mariadb-cc.msi
+          fi
+
+          if [ ! -d "ambuild" ]; then
+            git clone https://github.com/alliedmodders/ambuild
+          fi
+          pip install ./ambuild
+
+      - name: Build
+        working-directory: amxmodx
+        shell: bash
+        run: |
+          DEPS='${{ steps.path_helper.outputs.dependencies }}'
+          mkdir build
+          cd build
+          # Linux: per-arch static-link staging tree baked into the
+          # buildchain image at /opt/mariadb-static-<arch>/{include,lib}.
+          # Produces a mysql_amxx_<arch>.so with no libmariadb.so.3 in
+          # NEEDED — no apt install libmariadb3 required on deploy hosts.
+          #
+          # Windows: SDK extracted from the official MSI in the install
+          # step above. Same Connector/C version as Linux.
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            MYSQL_FLAG="--mysql=/opt/mariadb-static-${{ matrix.target_arch }}"
+          else
+            MYSQL_FLAG="--mysql=$DEPS/mariadb-connector-c"
+          fi
+          python3 ../configure.py \
+            --target-arch=${{ matrix.target_arch }} \
+            --enable-optimize \
+            --symbol-files \
+            "--metamod=$DEPS/metamod-am" \
+            "--hlsdk=$DEPS/hlsdk" \
+            "$MYSQL_FLAG"
+          ambuild
+
+      - name: Package
+        id: package
+        working-directory: amxmodx/build
+        shell: bash
+        run: |
+          version_base=$(cat ../product.version)
+          version_base=${version_base%-dev}
+          version_rev=$(git rev-list --count HEAD)
+          version="${version_base}.${version_rev}"
+          expanded_version="${version_base}-git${version_rev}"
+
+          packages=(base cstrike dod esf ns tfc ts)
+          release_dir="release"
+          mkdir -p "$release_dir"
+
+          for pkg in "${packages[@]}"; do
+            pkg_dir="packages/$pkg"
+            if [ ! -d "$pkg_dir" ]; then
+              echo "Warning: package directory $pkg_dir not found, skipping"
+              continue
+            fi
+
+            if [ "${{ matrix.platform }}" = "windows" ]; then
+              filename="amxmodx-${expanded_version}-${pkg}-${{ matrix.platform }}-${{ matrix.target_arch }}.zip"
+              (cd "$pkg_dir" && 7z a "../../${release_dir}/${filename}" addons)
+            else
+              filename="amxmodx-${expanded_version}-${pkg}-${{ matrix.platform }}-${{ matrix.target_arch }}.tar.gz"
+              tar zcf "${release_dir}/${filename}" -C "$pkg_dir" addons
+            fi
+          done
+
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "expanded_version=$expanded_version" >> $GITHUB_OUTPUT
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: amxmodx-${{ matrix.platform }}-${{ matrix.target_arch }}
+          path: amxmodx/build/release/*
+
+  # One job publishes the release once every build has uploaded its
+  # artifacts. Each build job used to create the release itself, and
+  # two of them could race to create the same tag ("already_exists").
+  # Only on direct 64bit branch pushes, not PR runs (PRs from forks
+  # don't have GITHUB_TOKEN write).
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/64bit'
+    needs: build
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout AMX Mod X
+        uses: actions/checkout@v6
+        with:
+          path: amxmodx
+          fetch-depth: 0
+
+      - name: Version
+        id: version
+        working-directory: amxmodx
+        shell: bash
+        run: |
+          version_base=$(cat product.version)
+          version_base=${version_base%-dev}
+          echo "version=${version_base}.$(git rev-list --count HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: amxmodx-*
+          path: release
+          merge-multiple: true
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1.21.0
+        with:
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitDraftDuringUpdate: true
+          omitNameDuringUpdate: true
+          omitPrereleaseDuringUpdate: true
+          omitBody: true
+
+          artifacts: release/*
+          artifactErrorsFailBuild: false
+
+          tag: 64bit-${{ steps.version.outputs.version }}
+          commit: ${{ github.sha }}
+          generateReleaseNotes: true
+
+          draft: false
+          prerelease: true
+          token: ${{ secrets.GITHUB_TOKEN }}

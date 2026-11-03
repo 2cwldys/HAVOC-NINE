@@ -25,6 +25,7 @@ GNU General Public License for more details.
 #include "vgui_draw.h"
 #include "cursor_type.h"
 #include "platform/platform.h"
+#include "cl_motd.h"
 
 static qboolean	in_mouseactive;				// false when not focus app
 static qboolean	in_mouseinitialized;
@@ -310,6 +311,10 @@ void IN_ActivateMouse( void )
 	if( !in_mouseinitialized )
 		return;
 
+	// H9: not while the splash MOTD keeps the mouse off; it gives the mouse back when it closes (cl_motd.c)
+	if( CL_Motd_KeepsMouse( ))
+		return;
+
 	IN_CheckMouseState( true );
 	if( clgame.dllFuncs.IN_ActivateMouse )
 		clgame.dllFuncs.IN_ActivateMouse();
@@ -385,6 +390,10 @@ void IN_MouseEvent( int key, int down )
 	if( down )
 		SetBits( in_mstate, BIT( key ));
 	else ClearBits( in_mstate, BIT( key ));
+
+	// H9: the splash MOTD takes the clicks while it is up (cl_motd.c)
+	if( CL_Motd_MouseEvent( key, down ))
+		return;
 
 	// touch emulation overrides all input
 	if( Touch_WantVisibleCursor( ))
@@ -669,7 +678,7 @@ static void IN_Commands( void )
 
 		IN_CollectInput( &forward, &side, &pitch, &yaw, in_mouseinitialized && !m_ignore.value );
 
-		if( cls.key_dest == key_game )
+		if( cls.key_dest == key_game && !CL_Motd_Active( ))
 		{
 			clgame.dllFuncs.pfnLookEvent( yaw, pitch );
 			clgame.dllFuncs.pfnMoveEvent( forward, side );
@@ -678,6 +687,19 @@ static void IN_Commands( void )
 
 	if( !in_mouseinitialized )
 		return;
+
+	// H9: the splash MOTD has the mouse while it is up, and gives it back after (cl_motd.c)
+	switch( CL_Motd_MouseFrame( in_mouseactive ))
+	{
+	case 1:
+		IN_DeactivateMouse();
+		break;
+	case 2:
+		IN_ActivateMouse();
+		break;
+	default:
+		break;
+	}
 
 	IN_CheckMouseState( in_mouseactive );
 }
@@ -689,9 +711,13 @@ Host_InputFrame
 Called every frame, even if not generating commands
 ==================
 */
+void Key_H9TypingFrame( void ); // in_keys.c: H9, the open chat line said again (engine-h9-typing.patch)
+
 void Host_InputFrame( void )
 {
 	IN_Commands();
 
 	IN_MouseMove();
+
+	Key_H9TypingFrame();
 }

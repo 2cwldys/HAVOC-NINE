@@ -30,7 +30,8 @@
  * and asked. A part stays well under GoldSrc's 192-byte user message limit.
  *
  * THE ADDRESSES. https only, a host name with a dot and a letter (no IP address, no localhost,
- * no user name before the host), no spaces, quotes or backslashes, at most 255 characters; the
+ * no private network name such as .local or .lan, no user name before the host), no spaces,
+ * quotes or backslashes, at most 255 characters; the
  * picture's address needs a path. The engine checks the same and refuses anything else; this
  * plugin checks first so a host sees why in the AMXX log, and then sends nothing (the text MOTD).
  *
@@ -68,6 +69,8 @@ new g_warned[64];
 public plugin_precache()
 {
 	// registered while the map loads, so every client gets it in the list sent at connect
+	// Begun with fakemeta's EngFunc_MessageBegin: AMX Mod X's message_begin refuses a
+	// message a plugin registered, because Metamod-R records only the game DLL's own.
 	g_msgH9Motd = engfunc(EngFunc_RegUserMsg, "H9Motd", -1);
 }
 
@@ -235,7 +238,7 @@ send_info(id, const info[], len)
 	{
 		copy(part, MOTD_PART, info[at]);
 
-		message_begin(MSG_ONE, g_msgH9Motd, _, id);
+		engfunc(EngFunc_MessageBegin, MSG_ONE, g_msgH9Motd, Float:{0.0, 0.0, 0.0}, id);
 		write_byte((at + MOTD_PART >= len) ? 1 : 0);
 		write_string(part);
 		message_end();
@@ -456,6 +459,15 @@ bool:check_url(const url[], bool:need_path, why[], whylen)
 		return false;
 	}
 
+	new host[128];
+	copy(host, min(hostlen, charsmax(host)), url[8]);
+
+	if (private_host(host))
+	{
+		copy(why, whylen, "the host is a private network name (.local, .lan, .internal and the like)");
+		return false;
+	}
+
 	if (i < len && url[i] == ':')
 	{
 		new port = 0, digits = 0;
@@ -491,6 +503,29 @@ bool:check_url(const url[], bool:need_path, why[], whylen)
 	}
 
 	return true;
+}
+
+// localhost's family and the usual names of private networks, which no client fetches from
+bool:private_host(const host[])
+{
+	static const tails[][] =
+	{
+		".localhost", ".local", ".localdomain", ".lan", ".home", ".internal", ".intranet",
+		".corp", ".home.arpa", ".private"
+	};
+
+	new len = strlen(host);
+
+	for (new i = 0; i < sizeof(tails); i++)
+	{
+		new n = strlen(tails[i]);
+
+		if (len >= n && equali(host[len - n], tails[i]))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 // Logged once a map for each kind of problem, so a wrong cvar does not fill the log

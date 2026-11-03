@@ -7,6 +7,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { startApp, request, signup, until } from "./helpers.js";
+import { createApp } from "../lib/app.js";
+import { backupDatabase } from "../lib/db.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MODULES = path.join(HERE, "..", "modules");
@@ -126,7 +128,12 @@ describe("Discord: linking and the registered role", () => {
     const back = await comeBack(state, binding, code);
     return { back, state, code, binding, outcome: outcomeOf(back) };
   }
-  const linkRow = (who) => t.app.db.prepare("SELECT * FROM discord_links WHERE account_id = ?").get(who.id);
+  // a link as stored, with its sealed Discord user id and display name opened with the data key
+  const linkRow = (who) => {
+    const row = t.app.db.prepare("SELECT * FROM discord_links WHERE account_id = ?").get(who.id);
+    return row ? { ...row, discord_user_id: t.app.dataKey.open(row.user_box, "discord.user"), display_name: t.app.dataKey.open(row.name_box, "discord.name") } : undefined;
+  };
+  const linksOf = (discordId) => t.app.db.prepare("SELECT count(*) AS n FROM discord_links WHERE user_index = ?").get(t.app.dataKey.index(discordId, "discord.user")).n;
   const hasRole = (user) => !!(fake.st.members.get(user.id) && fake.st.members.get(user.id).has(ROLE));
 
   before(async () => {
@@ -260,7 +267,7 @@ describe("Discord: linking and the registered role", () => {
     const steal = await link(people.Morpheus, { id: neoId, username: "neo_matrix" });
     assert.equal(steal.outcome, "taken", "that Discord is linked to Trinity");
     assert.equal(linkRow(people.Morpheus), undefined);
-    assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM discord_links WHERE discord_user_id = ?").get(neoId).n, 1);
+    assert.equal(linksOf(neoId), 1);
   });
 
   test("not in the guild yet: pending; then joins; the reconcile gives the role", async () => {
@@ -319,7 +326,7 @@ describe("Discord: linking and the registered role", () => {
     assert.ok(hasRole({ id: uid }));
     t.app.accounts.remove(people.Switch.id);
     await until(() => !hasRole({ id: uid }));
-    assert.equal(t.app.db.prepare("SELECT count(*) AS n FROM discord_links WHERE discord_user_id = ?").get(uid).n, 0, "the link goes too");
+    assert.equal(linksOf(uid), 0, "the link goes too");
   });
 
   test("Discord's rate limit: a 429 is waited out and tried again", async () => {
@@ -352,6 +359,101 @@ describe("Discord: linking and the registered role", () => {
     for (const b of bindings) assert.ok(!all.includes(b), "a binding cookie");
     const audit = JSON.stringify(t.app.db.prepare("SELECT * FROM audit_log").all());
     assert.ok(!audit.includes(SECRET) && !audit.includes(BOT));
+  });
+
+  test("at rest: no Discord user id or name in the clear, in the links, the audit log or the database file", async () => {
+    const rows = t.app.db.prepare("SELECT * FROM discord_links").all();
+    assert.ok(rows.length >= 2, "there are links to look at");
+    const ids = [];
+    for (const row of rows) {
+      assert.deepEqual([row.discord_user_id, row.display_name], [null, null]);
+      assert.match(row.user_box, /^h9e1\.[0-9a-f]{8}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+      assert.match(row.name_box, /^h9e1\.[0-9a-f]{8}\./);
+      assert.match(row.user_index, /^[0-9a-f]{64}$/);
+      ids.push(t.app.dataKey.open(row.user_box, "discord.user"));
+    }
+    assert.throws(() => t.app.dataKey.open(rows[0].user_box, "discord.name"), (e) => e.code === "damaged", "a value opens only where it was sealed");
+    const audit = JSON.stringify(t.app.db.prepare("SELECT * FROM audit_log").all());
+    assert.match(audit, /Discord account #[0-9a-f]{12}/, "the audit log names a Discord account by its index");
+    const copy = path.join(t.dir, "at-rest-check.db");
+    backupDatabase(t.app.db, copy);
+    const bytes = fs.readFileSync(copy).toString("latin1");
+    for (const id of ids) {
+      assert.ok(!audit.includes(id), "no Discord user id in the audit log");
+      assert.ok(!bytes.includes(id), "no Discord user id anywhere in the database file");
+    }
+    assert.ok(!bytes.includes("neo_new") && !audit.includes("neo_new"), "no display name in the database file");
+  });
+});
+
+describe("Discord: the links at rest, across starts", () => {
+  test("links from before the data key are sealed at the next start; another data key turns linking off and keeps them", async () => {
+    const fake = await fakeDiscord();
+    const secrets = secretsFile();
+    const t = await discordApp(fake, secrets.file);
+    let app = null;
+    const start = async (logs) => {
+      app = await createApp(t.config, { logSink: (level, line) => logs.push(line), logLevel: "debug" });
+      const addr = await app.listen(0, "127.0.0.1");
+      return "http://127.0.0.1:" + addr.port;
+    };
+    const stop = async () => {
+      if (app) await app.stop();
+      app = null;
+    };
+    try {
+      await signup(t.base, "Ghost");
+      const ghost = t.app.accounts.getByUsername("Ghost");
+      const id = userId();
+      // a link as the Discord module stored it before the data key: in the clear
+      t.app.db.prepare("INSERT INTO discord_links (account_id, discord_user_id, display_name, linked_at, linked_by, role_state) VALUES (?, ?, ?, ?, ?, 'granted')")
+        .run(ghost.id, id, "Ghost Dog", 1, ghost.id);
+      await t.app.stop();
+      const logs = [];
+      await start(logs);
+      const row = app.db.prepare("SELECT * FROM discord_links WHERE account_id = ?").get(ghost.id);
+      assert.deepEqual([row.discord_user_id, row.display_name], [null, null], "the clear columns are emptied");
+      assert.equal(app.dataKey.open(row.user_box, "discord.user"), id);
+      assert.equal(app.dataKey.open(row.name_box, "discord.name"), "Ghost Dog");
+      assert.equal(row.user_index, app.dataKey.index(id, "discord.user"));
+      assert.ok(logs.some((l) => /discord\.sealed/.test(l) && /links=1/.test(l)));
+      await stop();
+      // another data key (data.key lost, and a new one made): linking off, the link left as it was
+      const keyFile = path.join(t.config.dataDir, "data.key");
+      const rightKey = fs.readFileSync(keyFile);
+      fs.writeFileSync(keyFile, crypto.randomBytes(32).toString("base64") + "\n");
+      const logs2 = [];
+      const base = await start(logs2);
+      const login = await request(base, "POST", "/api/login", { body: { username: "Ghost", password: "correct horse battery staple" } });
+      const status = await request(base, "GET", "/api/discord/status", { cookie: login.cookie });
+      assert.equal(status.json.enabled, false, "linking is off");
+      assert.equal(status.json.link.discordUser, null, "and the link shows nothing it cannot open");
+      assert.ok(logs2.some((l) => /discord\.datakey/.test(l) && /links=1/.test(l)), "the log says why");
+      assert.equal(app.db.prepare("SELECT user_box FROM discord_links WHERE account_id = ?").get(ghost.id).user_box, row.user_box, "the link is untouched");
+      await stop();
+      // the right data.key back: the link opens again and linking is on
+      fs.writeFileSync(keyFile, rightKey);
+      const logs3 = [];
+      await start(logs3);
+      assert.equal(app.dataKey.open(app.db.prepare("SELECT user_box FROM discord_links WHERE account_id = ?").get(ghost.id).user_box, "discord.user"), id);
+      assert.ok(!logs3.some((l) => /discord\.datakey/.test(l)));
+      await stop();
+      // the data key lost for good: dropUnreadable deletes what nothing can open, and linking is on
+      fs.writeFileSync(keyFile, crypto.randomBytes(32).toString("base64") + "\n");
+      t.config.moduleSettings.discord.dropUnreadable = true;
+      const logs4 = [];
+      const base4 = await start(logs4);
+      assert.equal(app.db.prepare("SELECT count(*) AS n FROM discord_links").get().n, 0);
+      assert.ok(logs4.some((l) => /discord\.dropped/.test(l) && /links=1/.test(l)));
+      assert.equal(app.db.prepare("SELECT count(*) AS n FROM audit_log WHERE action = 'discord.dropped'").get().n, 1);
+      const login4 = await request(base4, "POST", "/api/login", { body: { username: "Ghost", password: "correct horse battery staple" } });
+      assert.equal((await request(base4, "GET", "/api/discord/status", { cookie: login4.cookie })).json.enabled, true);
+    } finally {
+      await stop();
+      fs.rmSync(t.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      fake.server.close();
+      fs.rmSync(secrets.dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -395,5 +497,128 @@ describe("Discord: switched off, and removing unlinked roles", () => {
       fake.server.close();
       fs.rmSync(secrets.dir, { recursive: true, force: true });
     }
+  });
+});
+
+// A stand-in for Discord's channel routes: reading a channel's messages and posting one.
+function fakeChannels() {
+  const st = { channels: new Map(), posts: [], gets: [], forbidden: new Set() };
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const url = new URL(req.url, "http://fake");
+      const send = (status, obj) => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(obj === undefined ? "" : JSON.stringify(obj));
+      };
+      if (req.headers.authorization !== "Bot " + BOT) return send(401, { code: 0 });
+      const m = /^\/api\/channels\/(\d+)\/messages$/.exec(url.pathname);
+      if (!m) return send(404, { code: 0 });
+      if (st.forbidden.has(m[1])) return send(403, { message: "Missing Access", code: 50001 });
+      const list = st.channels.get(m[1]) || [];
+      if (req.method === "GET") {
+        st.gets.push({ channel: m[1], limit: url.searchParams.get("limit"), after: url.searchParams.get("after") });
+        const after = BigInt(url.searchParams.get("after") || "0");
+        const limit = Number(url.searchParams.get("limit") || 50);
+        // Discord's order: newest first
+        const newer = list.filter((x) => BigInt(x.id) > after).sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+        const pick = url.searchParams.get("after") ? newer.slice(0, limit) : newer.slice(-limit);
+        return send(200, pick.reverse());
+      }
+      if (req.method === "POST") {
+        st.posts.push({ channel: m[1], type: req.headers["content-type"], body: JSON.parse(Buffer.concat(chunks).toString("utf8")) });
+        return send(200, { id: String(900000000000000000n + BigInt(st.posts.length)) });
+      }
+      send(405, { code: 0 });
+    });
+  });
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ st, server, base: "http://127.0.0.1:" + server.address().port + "/api" })));
+}
+
+describe("Discord: the community relay (the presence module's bridged channels)", () => {
+  const CH = "444444444444444444";
+  const CLOSED = "555555555555555555";
+  let t;
+  let fake;
+  let secrets;
+  const got = [];
+  const status = [];
+  let seq = 600000000000000000n;
+  const say = (channel, fields) => {
+    seq += 1n;
+    const list = fake.st.channels.get(channel) || [];
+    list.push({ id: String(seq), type: 0, timestamp: new Date().toISOString(), author: { id: "700000000000000001", username: "tank", global_name: "Tank" }, content: "", mentions: [], ...fields });
+    fake.st.channels.set(channel, list);
+  };
+  before(async () => {
+    fake = await fakeChannels();
+    secrets = secretsFile();
+    t = await startApp({
+      modules: ["discord"],
+      moduleSettings: { discord: { secretsFile: secrets.file, apiBase: fake.base, relayPollSeconds: 1, relaySendMs: 250 } },
+    }, { modulesDir: MODULES });
+    t.app.events.on("discord-relay-in", (e) => got.push(e));
+    t.app.events.on("discord-relay-status", (e) => status.push(e));
+  });
+  after(async () => {
+    await t.close();
+    fake.server.close();
+    fs.rmSync(secrets.dir, { recursive: true, force: true });
+  });
+
+  test("people's messages come in, written out; bots, webhooks and what came before do not", async () => {
+    say(CH, { content: "from before the bridge" });
+    t.app.events.emit("discord-relay-watch", { channels: [{ channel: CH, after: null }] });
+    await until(() => fake.st.gets.some((g) => g.channel === CH && g.limit === "1"), 4000);
+    await until(() => fake.st.gets.some((g) => g.channel === CH && g.after), 4000);
+    assert.equal(got.length, 0, "the first read only finds where the channel is");
+    say(CH, { content: "hi <@700000000000000002> see <#1> <:pog:123> <@&5>", mentions: [{ id: "700000000000000002", username: "neo", global_name: "Neo" }] });
+    say(CH, { content: "beep", author: { id: "8", username: "somebot", bot: true } });
+    say(CH, { content: "hooked", webhook_id: "9", author: { id: "9", username: "hook" } });
+    say(CH, { type: 7, content: "joined" });
+    say(CH, { type: 19, content: "a reply", member: { nick: "Tanky" } });
+    say(CH, { content: "", attachments: [{ id: "1" }] });
+    await until(() => got.length >= 3, 5000);
+    await new Promise((r) => setTimeout(r, 1200));
+    assert.deepEqual(got.map((e) => [e.channel, e.name, e.text]), [
+      [CH, "Tank", "hi @Neo see #channel :pog: @role"],
+      [CH, "Tanky", "a reply"],
+      [CH, "Tank", "(an attachment)"],
+    ]);
+    assert.ok(got.every((e) => /^[0-9]+$/.test(e.id) && Number.isInteger(e.at)));
+  });
+
+  test("lines go out escaped, with every mention off, and together when they come together", async () => {
+    t.app.events.emit("discord-relay-out", { channel: CH, kind: "chat", tag: "Zion", name: "Neo_", text: "@everyone **look** <@1> `x`" });
+    t.app.events.emit("discord-relay-out", { channel: CH, kind: "chat", tag: "Web", name: "Morpheus", text: "second" });
+    t.app.events.emit("discord-relay-out", { channel: CH, kind: "announce", tag: "Zion", name: "Morpheus", text: "restart [soon](x)" });
+    t.app.events.emit("discord-relay-out", { channel: "999999999999999999", kind: "chat", tag: "X", name: "x", text: "not bridged" });
+    await until(() => fake.st.posts.reduce((n, p) => n + p.body.content.split("\n").length, 0) >= 3, 5000);
+    for (const p of fake.st.posts) {
+      assert.equal(p.channel, CH);
+      assert.match(p.type, /application\/json/);
+      assert.deepEqual(p.body.allowed_mentions, { parse: [] });
+      assert.equal(p.body.flags, 4, "no link previews");
+    }
+    const lines = fake.st.posts.flatMap((p) => p.body.content.split("\n"));
+    assert.deepEqual(lines, [
+      "**\\[Zion\\] Neo\\_:** \\@everyone \\*\\*look\\*\\* \\<\\@1\\> \\`x\\`",
+      "**\\[Web\\] Morpheus:** second",
+      "**\\[Zion\\]** restart \\[soon\\]\\(x\\)",
+    ]);
+    assert.ok(fake.st.posts.length <= 2, "lines that come together go together");
+  });
+
+  test("a channel the bot cannot read says so; a bot without message content says so", async () => {
+    fake.st.forbidden.add(CLOSED);
+    t.app.events.emit("discord-relay-watch", { channels: [{ channel: CH, after: null }, { channel: CLOSED, after: null }] });
+    await until(() => status.some((s) => s.channel === CLOSED && s.error === "no_access"), 5000);
+    say(CH, { content: "" });
+    await until(() => status.some((s) => s.channel === CH && s.error === "message_content_intent"), 5000);
+    t.app.events.emit("discord-relay-watch", { channels: [] });
+    const before = fake.st.gets.length;
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.equal(fake.st.gets.length, before, "no channels, no reads");
   });
 });

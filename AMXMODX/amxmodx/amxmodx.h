@@ -142,6 +142,10 @@ char* utf8stristr(const char *string1, const char *string2);
 int utf8strncasecmp(const char *string1, const char *string2, size_t n);
 int utf8strcasecmp(const char *string1, const char *string2);
 
+// Player slots the core keeps a CPlayer for, by edict index 1 to AMXX_MAX_PLAYERS: H9 builds it
+// for 128, as its engine, game DLLs, Metamod and plugins (amxconst.inc's MAX_PLAYERS).
+#define AMXX_MAX_PLAYERS 128
+
 #define GET_PLAYER_POINTER(e)   (&g_players[ENTINDEX(e)])
 //#define GET_PLAYER_POINTER(e)   (&g_players[(((int)e-g_edict_point)/sizeof(edict_t))])
 #define GET_PLAYER_POINTER_I(i) (&g_players[i])
@@ -166,7 +170,7 @@ extern CLog g_log;
 extern CPluginMngr g_plugins;
 extern CTaskMngr g_tasksMngr;
 extern CFrameActionMngr g_frameActionMngr;
-extern CPlayer g_players[33];
+extern CPlayer g_players[AMXX_MAX_PLAYERS + 1];
 extern CPlayer* mPlayer;
 extern CmdMngr g_commands;
 extern ke::Vector<ke::AutoPtr<ForceObject>> g_forcemodels;

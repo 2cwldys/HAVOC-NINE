@@ -1,0 +1,34 @@
+# h9web: accounts, sessions, the forum and the web client's relay (h9web/README.txt section 8).
+# vps/linux/setup.sh installs it as /etc/systemd/system/h9web.service.
+[Unit]
+Description=HAVOC 9 accounts and web client relay (h9web)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=h9web
+Group=h9web
+WorkingDirectory=/opt/h9web
+ExecStart=/usr/bin/node /opt/h9web/server.js --config /etc/h9web/config.json
+Restart=always
+RestartSec=5
+StateDirectory=h9web
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryMax=512M
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

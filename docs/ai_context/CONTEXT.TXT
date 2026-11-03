@@ -1,0 +1,170 @@
+# TSM Match Mode - AI Context Document
+# Created: 2026-10-18
+# Purpose: Track all class system modifications for Recon and Mech classes
+
+## CURRENT STATE ANALYSIS
+
+### Class System Overview (ts_matchmode.sma)
+- 7 existing classes defined in ts_matchmode.cfg (tsm_class1 through tsm_class7)
+- Classes: Assault, Combat Engineer, Marksman, Heavy, Breacher, Medic, Officer
+- Each class has: weapons per team, models per team, health, armor, perk, movement multiplier
+- Class limits enforced via tsm_class_limits cvar
+- Model mode: "force" with mp_teammodels_force 0
+
+### Existing Classes (from ts_matchmode.cfg lines 415-422)
+```
+tsm_class1 "Assault;5:3,22:2;13:3,22:2;repuheavy_pack,repuheavy_fem_pack,repuheavy_soot_blood,repuheavy_blooded|XCCPSoldier-wartorn,XCCPmutant,XCCPsgts_helmet_off,ins_proletarian,ins_prole_helm;100;0;0"
+tsm_class2 "Combat Engineer;23:3,22:2;23:3,22:2;RepuHeavyGld,RepuHeavyGld_dust,RepuHeavyGld_soot,RepuHeavyGld_mud,RepuHeavyGld_blooded,RepuHeavyGld_stripped,RepuHeavyGld_sootbld,RepuHeavyGld_smashed|XCCPsgts;100;0;1"
+tsm_class3 "Marksman;18:2,22:2;18:2,22:2;repughillie,repughillie_dust,repughillie_soot,repughillie_mud,repughillie_blooded,repughillie_stripped,repughillie_soot_blood,repughillie_smashed|;85;0;0"
+tsm_class4 "Heavy;32:2,22:2,24:0;32:2,22:2,24:0;RepuHeavyW,RepuHeavyW_dust,RepuHeavyW_soot,RepuHeavyW_mud,RepuHeavyW_blooded,RepuHeavyW_stripped,RepuHeavyW_soot_blood,RepuHeavyW_smashed|XCCPsgg;200;50;5;0.60;1.50"
+tsm_class5 "Breacher;4:4,22:2;4:4,22:2;;125;0;2"
+tsm_class6 "Medic;22:4;22:4;RepuHeavyM,RepuHeavyM_dust,RepuHeavyM_soot,RepuHeavyM_mud,RepuHeavyM_blooded,RepuHeavyM_stripped,RepuHeavyM_soot_blood,RepuHeavyM_smashed|ins_medic_belt,ins_medic_fem;100;0;3"
+tsm_class7 "Officer;1:4,34:0;1:4,34:0;RepuTengu,RepuTengu_dust,RepuTengu_soot,RepuTengu_mud,RepuTengu_blooded,RepuTengu_soot_blood,RepuTengu_smashed,RepuTengu_stripped|XCCPRurik,XCCPRurik_battle-worn,XCCPRurik_scuffed,XCCPRurik_wrecked;100;0;4"
+```
+
+### Class Limits (tsm_class_limits)
+"0,4,2,2,4,2,1" - Assault unlimited, Engineer 4, Marksman 2, Heavy 2, Breacher 4, Medic 2, Officer 1
+
+### Perks (TSM_PERK_*)
+- TSM_PERK_NONE = 0
+- TSM_PERK_ENGINEER = 1
+- TSM_PERK_BREACHER = 2
+- TSM_PERK_MEDIC = 3
+- TSM_PERK_OFFICER = 4
+- TSM_PERK_REGEN = 5 (Heavy has this)
+
+### Class Menu System
+- Classes chosen via menu at round start
+- g_player_class[MAXPL] stores chosen class (0 = not picked)
+- Class locked for whole match
+- apply_class() applies loadout, model, health, etc.
+- g_class_menu_at tracks menu cooldown
+
+### Sprites
+- tsm_class.spr - class selection icons
+- tsm_panel.spr - panel background
+- tsm_banner.spr - banner display
+- tsm_typing.spr - typing indicator
+- Location: TSM/export/ts/sprites/
+
+### Model System
+- Models defined per class per team (team1|team2 format)
+- mp_teammodels in ts/game.cfg must include all models
+- Model verification at map load
+- tsm_model_mode "force" enforces class models
+
+---
+
+## REQUIRED CHANGES
+
+### 1. RECON CLASS (New Class 8)
+- **Health**: 75 max
+- **Movement**: Slightly faster than normal (1.1x?)
+- **Weapons**: Desert Eagle (12), Steyr AUG (15) - both teams
+- **Models**: 
+  - MSR: repuheavy_recon (new model - head from scda_Spy02 on repuheavy_stripped body)
+  - INS: falls back to Assault pool
+- **Armor**: 0
+- **Perk**: None (0) or new perk?
+- **Class Limit**: 4 per team
+- **Icon**: Boot with wings (need to add to tsm_classes.spr)
+
+### 2. MECH CLASS (New Class 9)
+- **Health**: 400 max
+- **Movement**: Same as Heavy (0.60x)
+- **Damage Resistance**: 50% to all incoming damage
+- **No Regen**: Like Heavy but no regen perk
+- **No Stimpack**: Does not start with stimpack
+- **Cannot .stim**: Block stim command for mech
+- **Medic Healing**: Medics cannot heal mech (not "alive" biologically)
+- **Weapons**: M60 (32) only, plenty of reserve ammo
+- **Weapon Visibility**: Worldmodel hidden for other players (EF_NODRAW on weapon entity), viewmodel visible for Mech player
+- **Special Ability**: .rocket command
+  - Fires explosion sprite at crosshair location
+  - White decaying line trail from player to explosion
+  - 50-65 damage AoE
+  - 30 second cooldown
+  - Max 4 uses per life
+- **Class Limit**: 1 per team
+- **Icon**: Robot head (need to add to tsm_classes.spr)
+- **Models**: mech_msr_bot / mech_ins_bot (existing mech models)
+
+### 3. SPRITE UPDATES
+- tsm_classes.spr: Add Recon boot+wings icon, Mech robot head icon
+- tsm_banner.spr: Show above breacher placing satchel (below class icon, above head)
+- tsm_typing.spr: Verify appears on T key, disappears on ESC/Enter, below class icon above head
+
+### 4. MODEL CREATION
+- Create repuheavy_recon.mdl using SMAK
+- Source: scda_Spy02.mdl (head) + repuheavy_stripped.mdl (body)
+- Output: repuheavy_recon.mdl for MSR team
+
+### 5. FLOATCHAT PLUGIN
+- Rename to proper AMXX plugin
+- Add to plugins.ini
+- Add to game.cfg
+
+---
+
+## IMPLEMENTATION ORDER
+
+1. [ ] Create CONTEXT.TXT ✓
+2. [ ] Backup tsm_classes.spr
+3. [ ] Study sprite structure and class menu logic
+4. [ ] Add Recon class definition to ts_matchmode.cfg
+5. [ ] Add Mech class definition to ts_matchmode.cfg
+6. [ ] Update tsm_class_limits cvar
+7. [ ] Add new perk constants if needed
+8. [ ] Implement Recon class logic in ts_matchmode.sma
+9. [ ] Implement Mech class logic in ts_matchmode.sma
+10. [ ] Add .rocket command handler
+11. [ ] Add damage resistance for Mech
+12. [ ] Block medic healing for Mech
+13. [ ] Block .stim for Mech
+14. [ ] Add sprites for new class icons
+15. [ ] Create repuheavy_recon.mdl via SMAK
+16. [ ] Update model lists in config
+17. [ ] Implement tsm_banner.spr for breacher
+18. [ ] Verify tsm_typing.spr behavior
+19. [ ] Convert floatchat to AMXX plugin
+20. [ ] Build and test
+21. [ ] Generate PNG previews
+
+---
+
+## TECHNICAL NOTTS
+
+### Key Functions to Modify
+- apply_class() - apply new class loadouts
+- fw_takedamage() - add Mech 50% damage resistance
+- death_voice() - handle Mech elimination sound
+- medic_heal() - block healing Mech
+- cmd_stim() - block for Mech
+- Class menu building - add new classes
+- g_class_perk array - add new perks
+
+### New Constants Needed
+- TSM_PERK_MECH (or use existing with flags)
+- TSM_PERK_RECON
+- Mech rocket cooldown tracking
+- Mech rocket uses per life tracking
+
+### Config Updates
+- Add tsm_class8 and tsm_class9
+- Update tsm_class_limits to "0,4,2,2,4,2,1,4,1"
+- Verify all models in mp_teammodels
+
+---
+
+## QUESTIONS FOR USER
+
+1. Recon movement speed multiplier? (Heavy is 0.60, normal is 1.0, suggest 1.1-1.2)
+2. Recon armor? (Assault has 0, suggest 0)
+3. Recon perk? (None = 0, or create new?)
+4. Mech movement speed = Heavy (0.60) confirmed?
+4. Mech armor? (Heavy has 50, Mech has 400 HP so maybe 0 armor?)
+5. Mech .rocket - explosion sprite? (Use existing g_obj_boom_spr / zerogxplode.spr?)
+6. Mech .rocket - trail effect? (TE_BEAMPOINTS or TE_BEAMENTPOINT?)
+7. Mech .rocket - damage radius?
+8. Model creation: Use SMAK tools/make-menu-panel.mjs or manual?
+9. Floatchat: Existing source in TSM/compts/?

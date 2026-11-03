@@ -1,0 +1,499 @@
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -4153,6 +4153,7 @@
+ 	cl.maxclients = 1; // allow to drawing player in menu
+ 	cls.olddemonum = -1;
+ 	cls.demonum = -1;
++	CL_Avatar_Init(); // H9: players' havoc9.org pictures on the scoreboard (cl_avatar.c)
+ }
+ 
+ /*
+diff --git a/engine/client/client.h b/engine/client/client.h
+--- a/engine/client/client.h
++++ b/engine/client/client.h
+@@ -1096,6 +1096,12 @@
+ qboolean CL_ConvertImageToWAD3( const char *filename );
+ 
+ //
++// cl_avatar.c (H9: players' havoc9.org pictures on the scoreboard)
++//
++void CL_Avatar_Init( void );
++void CL_Avatar_Message( sizebuf_t *msg );
++
++//
+ // cl_efrag.c
+ //
+ void R_StoreEfrags( efrag_t **ppefrag, int framecount );
+diff --git a/engine/client/parse/cl_parse.c b/engine/client/parse/cl_parse.c
+--- a/engine/client/parse/cl_parse.c
++++ b/engine/client/parse/cl_parse.c
+@@ -2268,6 +2268,12 @@
+ 	else if( !Q_strcmp( clgame.msg[i].name, "ScreenFade" ))
+ 	{
+ 		CL_ParseScreenFade( msg );
++		return;
++	}
++	else if( !Q_strcmp( clgame.msg[i].name, "H9Avatar" ) && clgame.msg[i].size == 9 )
++	{
++		// H9: a player slot's havoc9.org picture (cl_avatar.c)
++		CL_Avatar_Message( msg );
+ 		return;
+ 	}
+ 
+diff --git a/engine/client/cl_avatar.c b/engine/client/cl_avatar.c
+new file mode 100644
+index 00000000..7504bca2
+--- /dev/null
++++ b/engine/client/cl_avatar.c
+@@ -0,0 +1,450 @@
++/*
++cl_avatar.c - H9: players' havoc9.org pictures on the scoreboard (docs/PLAYER_LIMIT_128.txt, 11.7)
++Copyright (C) 2026 HAVOC 9
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++A server running h9_presence 1.2 tells clients whose havoc9.org account each proven player is, in the
++user message H9Avatar: a byte, the player's slot, then two longs, the account's number and its
++picture's version (account 0: no picture for that slot). The server names no address: this file
++builds it, always on havoc9.org,
++
++  https://havoc9.org/api/presence/avatar/<account>/<version>.png
++
++so no server can send clients to another host. cl_h9_site may replace the site, for testing only,
++with http://127.0.0.1:<port> or http://localhost:<port> and nothing else (the scheme may be left
++out, and a slash at the end does not matter, as cl_h9link.c reads it); servers cannot set it.
++
++A picture is fetched once: over https with the certificate checked and to a public address only
++(HTTP_GetToMemoryEx), at most 32 KB, a PNG of at most 64 x 64, then kept in
++downloads/h9avatars/<site>_<account>_<version>.png (<site> havoc9, or local<port> for the test
++site), so the same picture never comes over the network again, and the test site's pictures
++never pass for havoc9.org's.
++imagelib decodes it, and the RGBA pixels go to the client library's HUD_H9Avatar( slot, version,
++wide, tall, rgba ), which the scoreboard draws in the slot's avatar cell (rgba NULL: the silhouette
++again). A client library without HUD_H9Avatar gets nothing, and neither does a slot whose picture
++could not be fetched or read; four fetches go at once, and a picture that failed is not asked
++again until the game restarts or cl_h9_site names another site; each one that failed says so
++once in the console. cl_h9_avatars 0 turns it all off.
++
++The browser build reads the message and keeps the silhouette.
++
++h9_profile <slot> opens the havoc9.org profile of the player in that slot in the web browser, the way
++the main menu's OPEN PAGE opens the link page (Platform_ShellExecute). H9's client.dll runs it on a
++double-click on a linked player's picture (the green chain). The address is this file's site and the
++account the server last named in H9Avatar for the player now in that slot,
++
++  https://havoc9.org/api/link/profile/<account>
++
++which h9web answers by sending the browser on to the account's forum profile (lib/link.js), so a
++server gives a number and nothing else, as for the pictures. A player with the site's default
++picture comes as account 2147483647, which is everybody's: no profile opens for them. Servers
++cannot run it, and a burst of clicks opens one page.
++*/
++
++#include "common.h"
++#include "client.h"
++#include "library.h"
++#include "net_ws.h"
++#include "platform/platform.h"
++
++#define H9AV_SITE      "https://havoc9.org"
++#define H9AV_MAX_BYTES ( 32 * 1024 )
++#define H9AV_MAX_SIDE  64
++#define H9AV_FETCHES   4
++#define H9AV_FAILED    32
++#define H9AV_DEFAULT_ACCOUNT 2147483647 // the site's default picture, shared by every account without one
++
++static CVAR_DEFINE_AUTO( cl_h9_avatars, "1", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "H9: show players' havoc9.org pictures on the scoreboard (cl_avatar.c)" );
++static CVAR_DEFINE_AUTO( cl_h9_site, "", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "H9: for testing only, http://127.0.0.1:<port> or http://localhost:<port> in place of https://havoc9.org for the scoreboard's pictures" );
++
++typedef void (*pfnH9Avatar_t)( int slot, int version, int wide, int tall, const byte *rgba );
++
++static struct
++{
++	int want_account[MAX_CLIENTS + 1];       // the picture each slot waits for, 0 for none
++	int want_version[MAX_CLIENTS + 1];
++	int fetch_account[H9AV_FETCHES];         // in flight, 0 for a free entry
++	int fetch_version[H9AV_FETCHES];
++	int failed_account[H9AV_FAILED];         // not asked again this session
++	int failed_version[H9AV_FAILED];
++	int failed_next;
++	char failed_site[64];                    // the cl_h9_site the failed list is for
++	int slot_account[MAX_CLIENTS + 1];       // the account the server last named for each slot, 0 for none
++	int slot_userid[MAX_CLIENTS + 1];        // the userid of the slot's player then: another player is not them
++	double profile_opened;                   // when h9_profile last opened a page
++	pfnH9Avatar_t give;
++	qboolean looked;
++} av;
++
++#if !XASH_EMSCRIPTEN
++static void H9Av_Profile_f( void );
++#endif
++
++/*
++==============
++CL_Avatar_Init
++==============
++*/
++void CL_Avatar_Init( void )
++{
++	Cvar_RegisterVariable( &cl_h9_avatars );
++	Cvar_RegisterVariable( &cl_h9_site );
++#if !XASH_EMSCRIPTEN
++	Cmd_AddRestrictedCommand( "h9_profile", H9Av_Profile_f, "H9: open the havoc9.org profile of the player in a slot in the web browser (the scoreboard's double-click on a linked player's picture)" );
++#endif
++}
++
++// the client library's HUD_H9Avatar, looked up once
++static pfnH9Avatar_t H9Av_Give( void )
++{
++	if( !av.looked && clgame.hInstance )
++	{
++		av.give = (pfnH9Avatar_t)COM_GetProcAddress( clgame.hInstance, "HUD_H9Avatar" );
++		av.looked = true;
++	}
++	return av.give;
++}
++
++#if !XASH_EMSCRIPTEN
++
++// http://127.0.0.1:<port> or http://localhost:<port>, the port 1 to 65535 with no leading zero, and
++// nothing else
++static qboolean H9Av_LocalSite( const char *s )
++{
++	const char *p;
++	int digits = 0, port = 0;
++
++	if( !Q_strncmp( s, "http://127.0.0.1:", 17 ))
++		p = s + 17;
++	else if( !Q_strncmp( s, "http://localhost:", 17 ))
++		p = s + 17;
++	else return false;
++
++	if( *p == '0' )
++		return false;
++	for( ; *p; p++, digits++ )
++	{
++		if( *p < '0' || *p > '9' || digits >= 5 )
++			return false;
++		port = port * 10 + ( *p - '0' );
++	}
++	return digits >= 1 && port <= 65535;
++}
++
++// the site the pictures come from: the local test site cl_h9_site names, in its canonical form
++// (127.0.0.1:<port> and localhost:<port> get http://, the host is lowered, slashes at the end are
++// dropped), else https://havoc9.org
++static const char *H9Av_Site( void )
++{
++	static char site[64];
++	char v[96];
++	const char *p = cl_h9_site.string, *hostport;
++	size_t n;
++
++	while( *p == ' ' || *p == '\t' )
++		p++;
++	Q_strncpy( v, p, sizeof( v ));
++	for( n = Q_strlen( v ); n > 0 && ( v[n - 1] == '/' || v[n - 1] == ' ' || v[n - 1] == '\t' ); n-- )
++		v[n - 1] = 0;
++	hostport = !Q_strnicmp( v, "http://", 7 ) ? v + 7 : v;
++	if( !v[0] || Q_strstr( hostport, "://" ) || Q_strlen( hostport ) + 8 > sizeof( site ))
++		return H9AV_SITE;
++	Q_snprintf( site, sizeof( site ), "http://%s", hostport );
++	for( n = 7; site[n]; n++ )
++	{
++		if( site[n] >= 'A' && site[n] <= 'Z' )
++			site[n] = site[n] - 'A' + 'a';
++	}
++	return H9Av_LocalSite( site ) ? site : H9AV_SITE;
++}
++
++// the site's part of a cached picture's name: "havoc9", or "local<port>" for the test site;
++// site may be a whole address on that site
++static void H9Av_SiteKey( const char *site, char *out, size_t size )
++{
++	const char *p = NULL;
++	int n = 0;
++
++	if( !Q_strncmp( site, "http://127.0.0.1:", 17 ) || !Q_strncmp( site, "http://localhost:", 17 ))
++		p = site + 17;
++	if( !p )
++	{
++		Q_strncpy( out, "havoc9", size );
++		return;
++	}
++	Q_strncpy( out, "local", size );
++	for( n = 5; *p >= '0' && *p <= '9' && n + 1 < (int)size; p++ )
++		out[n++] = *p;
++	out[n] = '\0';
++}
++
++static void H9Av_CachePath( char *out, size_t size, const char *site, int account, int version )
++{
++	char key[16];
++
++	H9Av_SiteKey( site, key, sizeof( key ));
++	Q_snprintf( out, size, "downloads/h9avatars/%s_%d_%d.png", key, account, version );
++}
++
++// the failed list is for one site: another cl_h9_site starts it over
++static void H9Av_SiteCheck( void )
++{
++	if( !Q_strcmp( av.failed_site, cl_h9_site.string ))
++		return;
++	Q_strncpy( av.failed_site, cl_h9_site.string, sizeof( av.failed_site ));
++	memset( av.failed_account, 0, sizeof( av.failed_account ));
++	memset( av.failed_version, 0, sizeof( av.failed_version ));
++	av.failed_next = 0;
++}
++
++static qboolean H9Av_Failed( int account, int version )
++{
++	int i;
++
++	H9Av_SiteCheck();
++	for( i = 0; i < H9AV_FAILED; i++ )
++	{
++		if( av.failed_account[i] == account && av.failed_version[i] == version )
++			return true;
++	}
++	return false;
++}
++
++// A PNG of at most 64 x 64 and 32 KB, by its own header, decoded and given to the slot.
++static qboolean H9Av_Show( int slot, int version, const byte *data, size_t size )
++{
++	pfnH9Avatar_t give = H9Av_Give();
++	rgbdata_t *pic;
++	int w, h;
++
++	if( !give || !data || size < 33 || size > H9AV_MAX_BYTES )
++		return false;
++	if( memcmp( data, "\x89PNG\r\n\x1a\n", 8 ) || memcmp( data + 12, "IHDR", 4 ))
++		return false;
++	w = ( data[16] << 24 ) | ( data[17] << 16 ) | ( data[18] << 8 ) | data[19];
++	h = ( data[20] << 24 ) | ( data[21] << 16 ) | ( data[22] << 8 ) | data[23];
++	if( w < 1 || h < 1 || w > H9AV_MAX_SIDE || h > H9AV_MAX_SIDE )
++		return false;
++
++	pic = FS_LoadImage( "#h9avatar.png", data, size );
++	if( !pic )
++		return false;
++	if( !Image_Process( &pic, 0, 0, IMAGE_FORCE_RGBA, 0.0f ) || pic->width != w || pic->height != h || !pic->buffer )
++	{
++		FS_FreeImage( pic );
++		return false;
++	}
++	give( slot, version, pic->width, pic->height, pic->buffer );
++	FS_FreeImage( pic );
++	return true;
++}
++
++static void H9Av_Pump( void );
++
++// HTTP_GetToMemoryEx's answer for fetch entry (intptr_t)userdata
++static void H9Av_Received( const char *url, qboolean success, const byte *data, size_t size, void *userdata )
++{
++	int k = (int)(intptr_t)userdata;
++	int account, version, slot;
++	qboolean shown = false;
++	char path[64];
++
++	if( k < 0 || k >= H9AV_FETCHES || !av.fetch_account[k] )
++		return;
++	account = av.fetch_account[k];
++	version = av.fetch_version[k];
++	av.fetch_account[k] = av.fetch_version[k] = 0;
++
++	for( slot = 1; slot <= MAX_CLIENTS; slot++ )
++	{
++		if( av.want_account[slot] != account || av.want_version[slot] != version )
++			continue;
++		if( success && H9Av_Show( slot, version, data, size ))
++			shown = true;
++		av.want_account[slot] = av.want_version[slot] = 0;
++	}
++
++	if( shown )
++	{
++		H9Av_CachePath( path, sizeof( path ), url, account, version );
++		FS_WriteFile( path, data, size );
++	}
++	else
++	{
++		H9Av_SiteCheck();
++		av.failed_account[av.failed_next] = account;
++		av.failed_version[av.failed_next] = version;
++		av.failed_next = ( av.failed_next + 1 ) % H9AV_FAILED;
++		Con_Printf( "H9 AVATARS: no picture for account %d (version %d): %s, %s\n", account, version, url,
++			success ? "not a PNG of at most 64 x 64, or a client library without HUD_H9Avatar" : "it could not be fetched" );
++	}
++
++	H9Av_Pump();
++}
++
++// Starts fetches for the pictures slots wait for, up to H9AV_FETCHES at once.
++static void H9Av_Pump( void )
++{
++	const char *site = H9Av_Site();
++	int flags = !Q_strcmp( site, H9AV_SITE ) ? ( HTTP_MEM_PUBLIC_ONLY | HTTP_MEM_VERIFY_TLS ) : 0;
++	char url[256];
++	int slot, k, spare;
++
++	for( slot = 1; slot <= MAX_CLIENTS; slot++ )
++	{
++		const int account = av.want_account[slot], version = av.want_version[slot];
++		qboolean going = false;
++
++		if( !account )
++			continue;
++		spare = -1;
++		for( k = 0; k < H9AV_FETCHES; k++ )
++		{
++			if( av.fetch_account[k] == account && av.fetch_version[k] == version )
++				going = true;
++			else if( !av.fetch_account[k] && spare < 0 )
++				spare = k;
++		}
++		if( going )
++			continue;
++		if( spare < 0 )
++			return;
++
++		Q_snprintf( url, sizeof( url ), "%s/api/presence/avatar/%d/%d.png", site, account, version );
++		av.fetch_account[spare] = account;
++		av.fetch_version[spare] = version;
++		if( !HTTP_GetToMemoryEx( url, H9Av_Received, (void *)(intptr_t)spare, flags ))
++		{
++			av.fetch_account[spare] = av.fetch_version[spare] = 0;
++			av.want_account[slot] = av.want_version[slot] = 0;
++		}
++	}
++}
++
++/*
++==============
++H9Av_Profile_f
++
++h9_profile <slot>
++==============
++*/
++static void H9Av_Profile_f( void )
++{
++	const char *arg = Cmd_Argv( 1 );
++	const player_info_t *player;
++	char url[256];
++	int slot = 0, account, i;
++
++	for( i = 0; i < 3 && arg[i] >= '0' && arg[i] <= '9'; i++ )
++		slot = slot * 10 + ( arg[i] - '0' );
++	if( Cmd_Argc() != 2 || arg[i] || slot < 1 || slot > MAX_CLIENTS )
++	{
++		Con_Printf( S_USAGE "h9_profile <player slot, 1 to %d>\n", MAX_CLIENTS );
++		return;
++	}
++
++	player = &cl.players[slot - 1];
++	if( cls.state != ca_active || !player->name[0] )
++	{
++		Con_Printf( "H9 PROFILE: nobody is in slot %d\n", slot );
++		return;
++	}
++
++	account = av.slot_userid[slot] == player->userid ? av.slot_account[slot] : 0;
++	if( account == H9AV_DEFAULT_ACCOUNT )
++	{
++		Con_Printf( "H9 PROFILE: the server did not say which account %s is: it names one only with a picture of its own\n", player->name );
++		return;
++	}
++	if( account <= 0 )
++	{
++		Con_Printf( "H9 PROFILE: %s is not a havoc9.org account this server proved\n", player->name );
++		return;
++	}
++
++	if( av.profile_opened > 0.0 && host.realtime - av.profile_opened < 1.0 )
++		return;
++	av.profile_opened = host.realtime;
++
++	Q_snprintf( url, sizeof( url ), "%s/api/link/profile/%d", H9Av_Site( ), account );
++	Con_Printf( "H9 PROFILE: opening %s in the web browser\n", url );
++	Platform_ShellExecute( url, NULL );
++}
++
++#endif // !XASH_EMSCRIPTEN
++
++/*
++==============
++CL_Avatar_Message
++
++H9Avatar: byte slot, long account, long version
++==============
++*/
++void CL_Avatar_Message( sizebuf_t *msg )
++{
++	const int slot = MSG_ReadByte( msg );
++	const int account = MSG_ReadLong( msg );
++	const int version = MSG_ReadLong( msg );
++#if !XASH_EMSCRIPTEN
++	pfnH9Avatar_t give;
++	char path[64];
++	fs_offset_t size = 0;
++	byte *data;
++
++	if( slot < 1 || slot > MAX_CLIENTS )
++		return;
++
++	// for h9_profile, whether the pictures show or not
++	av.slot_account[slot] = account > 0 ? account : 0;
++	av.slot_userid[slot] = cl.players[slot - 1].userid;
++
++	if( !cl_h9_avatars.value )
++		return;
++	give = H9Av_Give();
++	if( !give )
++		return;
++
++	if( account <= 0 )
++	{
++		av.want_account[slot] = av.want_version[slot] = 0;
++		give( slot, 0, 0, 0, NULL );
++		return;
++	}
++
++	// kept from an earlier fetch: no network at all
++	H9Av_CachePath( path, sizeof( path ), H9Av_Site( ), account, version );
++	data = FS_LoadFile( path, &size, true );
++	if( data )
++	{
++		qboolean shown = H9Av_Show( slot, version, data, (size_t)size );
++
++		Mem_Free( data );
++		if( shown )
++		{
++			av.want_account[slot] = av.want_version[slot] = 0;
++			return;
++		}
++	}
++
++	// the silhouette until this picture is here: never the slot's previous player's
++	give( slot, 0, 0, 0, NULL );
++	if( H9Av_Failed( account, version ))
++		return;
++	av.want_account[slot] = account;
++	av.want_version[slot] = version;
++	H9Av_Pump();
++#else
++	(void)slot;
++	(void)account;
++	(void)version;
++#endif
++}

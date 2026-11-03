@@ -329,11 +329,11 @@ void Client_DeathMsg(void* mValue)
 	{
 		case 0:
 			killer_id = *(int*)mValue;
-			killer = (killer_id > 0 && killer_id < 33) ? GET_PLAYER_POINTER_I(killer_id) : 0;
+			killer = (killer_id > 0 && killer_id <= gpGlobals->maxClients && killer_id <= AMXX_MAX_PLAYERS) ? GET_PLAYER_POINTER_I(killer_id) : 0;
 			break;
 		case 1:
 			victim_id = *(int*)mValue;
-			victim = (victim_id > 0 && victim_id < 33) ? GET_PLAYER_POINTER_I(victim_id) : 0;
+			victim = (victim_id > 0 && victim_id <= gpGlobals->maxClients && victim_id <= AMXX_MAX_PLAYERS) ? GET_PLAYER_POINTER_I(victim_id) : 0;
 			break;
 		case 2:	
 			hs = *(int*)mValue;

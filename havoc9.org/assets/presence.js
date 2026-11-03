@@ -51,7 +51,7 @@
 
   const STYLE = [
     ".h9p-dot{display:inline-block;width:.55em;height:.55em;border-radius:50%;background:var(--text-muted,#5c4538);margin-right:.45em;vertical-align:middle;flex-shrink:0}",
-    ".is-online>.h9p-dot,.h9p-dot.is-online{background:#2ecc71;box-shadow:0 0 8px rgba(46,204,113,.6)}",
+    ".is-online>.h9p-dot,.h9p-dot.is-online{background:#be8cff;box-shadow:0 0 8px rgba(190,140,255,.55)}",
     ".h9p-dot.is-web{background:#4aa3df;box-shadow:0 0 8px rgba(74,163,223,.55)}",
     ".h9p-dot.is-site{background:var(--orange,#ff4d00);box-shadow:0 0 8px var(--orange-glow,rgba(255,77,0,.35))}",
     ".h9p-status.is-web{color:#4aa3df}.h9p-status.is-site{color:var(--orange,#ff4d00)}",
@@ -63,7 +63,8 @@
     "border:1px solid var(--border,rgba(255,77,0,.25));padding:.05rem .4rem;white-space:nowrap}",
     ".h9p-author{display:flex;flex-direction:column;gap:.2rem;margin-top:.15rem;font-family:var(--font-mono,monospace);font-size:.72rem;",
     "letter-spacing:.06em;color:var(--text-dim,#9a7f6e);min-width:0}",
-    ".h9p-author .h9p-status{color:#2ecc71;display:flex;align-items:center}",
+    ".h9p-author .h9p-status{color:#be8cff;display:flex;align-items:center}",
+    ".h9p-author .h9p-status.is-site{color:var(--orange,#ff4d00)}",
     ".h9p-author .h9p-where,.h9p-card .h9p-where{color:var(--text-dim,#9a7f6e);overflow-wrap:anywhere}",
     ".h9p-author .h9p-line{display:flex;flex-wrap:wrap;gap:.3rem .5rem;align-items:center}",
     ".h9p-card{background:var(--bg-card,#1a0f14);border:1px solid var(--border,rgba(255,77,0,.25));color:var(--text,#e8d5c4);overflow:hidden}",
@@ -71,8 +72,11 @@
     ".h9p-card-body{padding:1.1rem 1.25rem 1.25rem;display:flex;flex-direction:column;gap:.75rem}",
     ".h9p-card-head{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem .75rem}",
     ".h9p-card-name{font-family:var(--font-display,sans-serif);font-size:1.15rem;letter-spacing:.06em;color:#fff;overflow-wrap:anywhere}",
+    // the forum's DEVELOPER flag: the name in the forum's developer purple wherever presence draws it
+    ".h9p-card-name.is-developer,a.h9p-name.is-developer,.h9p-online a.h9p-name.is-developer,.h9p-names a.h9p-name.is-developer{color:#be8cff}",
+    "a.h9p-name.is-developer:hover{color:#fff}",
     ".h9p-card .h9p-status{font-family:var(--font-mono,monospace);font-size:.85rem;letter-spacing:.05em;display:flex;align-items:baseline;flex-wrap:wrap;color:var(--text,#e8d5c4)}",
-    ".h9p-card .h9p-status.is-online{color:#2ecc71}",
+    ".h9p-card .h9p-status.is-online{color:#be8cff}",
     ".h9p-author .h9p-status.is-unverified,.h9p-card .h9p-status.is-unverified,.h9p-names .is-unverified{color:var(--text-dim,#9a7f6e)}",
     ".h9p-card .h9p-detail{font-family:var(--font-mono,monospace);font-size:.8rem;color:var(--text-dim,#9a7f6e)}",
     ".h9p-rows{max-width:none;margin:0}",
@@ -91,7 +95,11 @@
     ".h9p-names li{display:flex;align-items:center}",
     ".h9p-names .h9p-for{color:var(--text-muted,#5c4538);margin-left:.4rem;font-size:.78rem}",
     ".h9p-online{font-family:var(--font-mono,monospace);font-size:.85rem;letter-spacing:.08em;color:var(--text-dim,#9a7f6e)}",
-    ".h9p-online .h9p-count{color:#2ecc71}",
+    ".h9p-online .h9p-count{color:#be8cff}",
+    ".h9p-online .h9p-count.is-site,.h9p-online .h9p-label.is-site{color:var(--orange,#ff4d00)}",
+    // the players online, by name: on the online line and in the who's-playing block
+    ".h9p-online .h9p-name,.h9p-names .h9p-name{color:#fff}",
+    ".h9p-online .h9p-name:hover,.h9p-names .h9p-name:hover{color:var(--orange,#ff4d00)}",
     ".h9p-account{display:flex;flex-direction:column;gap:1rem;max-width:640px;margin:0 auto}",
     ".h9p-account .h9p-card .h9p-status{font-size:.9rem}",
     ".h9p-list{list-style:none;margin:0;padding:0;font-family:var(--font-mono,monospace);font-size:.82rem;color:var(--text-dim,#9a7f6e)}",
@@ -194,9 +202,9 @@
     return u.href;
   }
 
-  // A player's name: a link to their forum profile that opens their card.
-  function nameLink(name, className) {
-    return el("a", { class: className || "h9p-name", href: profileHref(name), "data-h9-card": name, text: name });
+  // A player's name: a link to their forum profile that opens their card; a developer's in purple.
+  function nameLink(name, className, developer) {
+    return el("a", { class: (className || "h9p-name") + (developer ? " is-developer" : ""), href: profileHref(name), "data-h9-card": name, text: name });
   }
 
   // A map picture, or nothing: one that fails to load takes itself away and leaves the text.
@@ -336,7 +344,7 @@
     if (view && view.state === "game" && view.playing) card.append(picture(view.playing.mapPicture, "h9p-card-pic") || "");
     const body = el("div", { class: "h9p-card-body" });
     card.append(body);
-    body.append(el("div", { class: "h9p-card-head" }, el("span", { class: "h9p-card-name", text: username }), badge(view)));
+    body.append(el("div", { class: "h9p-card-head" }, el("span", { class: "h9p-card-name" + (view && view.developer ? " is-developer" : ""), text: username }), badge(view)));
     if (!view) {
       body.append(el("p", { class: "h9p-quiet", text: "No such player, or the site could not be reached." }));
       return card;
@@ -366,7 +374,7 @@
       box.append(el("p", { class: "h9p-quiet", text: data ? "Nobody with a havoc9.org account is in game right now." : "Who's playing could not be read just now." }));
     }
     const who = (p) => el("li", p.verified === false ? { class: "is-unverified", title: UNVERIFIED } : null,
-      el("i", { class: p.verified === false ? "h9p-dot" : "h9p-dot is-online" }), nameLink(p.username),
+      el("i", { class: p.verified === false ? "h9p-dot" : "h9p-dot is-online" }), nameLink(p.username, null, p.developer),
       el("span", { class: "h9p-for", text: p.verified === false ? "unverified" : typeof p.minutes === "number" ? p.minutes + " min" : "" }));
     for (const s of servers) {
       box.append(el("div", { class: "h9p-server" }, picture(s.mapPicture, "h9p-thumb"),
@@ -384,10 +392,10 @@
     }
     for (const [list, label, cls] of [[data && data.web, "IN THE WEB CLIENT", "is-web"], [data && data.site, "ON THE SITE", "is-site"]]) {
       if (!list || !list.length) continue;
-      const line = el("div", { class: "h9p-online" }, el("i", { class: "h9p-dot " + cls }), label + ": ");
+      const line = el("div", { class: "h9p-online" }, el("i", { class: "h9p-dot " + cls }), el("span", { class: "h9p-label " + cls, text: label }), ": ");
       list.forEach((p, i) => {
         if (i) line.append(", ");
-        line.append(nameLink(p.username));
+        line.append(nameLink(p.username, null, p.developer));
       });
       box.append(line);
     }
@@ -400,10 +408,10 @@
     const line = el("div", { class: "h9p-online" });
     if (!data) return line;
     const game = [];
-    for (const s of data.servers || []) for (const p of s.players) game.push(p.username);
-    for (const p of data.elsewhere || []) game.push(p.username);
-    const web = (data.web || []).map((p) => p.username);
-    const site = (data.site || []).map((p) => p.username);
+    for (const s of data.servers || []) for (const p of s.players) game.push(p);
+    for (const p of data.elsewhere || []) game.push(p);
+    const web = data.web || [];
+    const site = data.site || [];
     if (!game.length && !web.length && !site.length) {
       line.append(el("i", { class: "h9p-dot" }), "NOBODY ONLINE RIGHT NOW");
       return line;
@@ -411,12 +419,12 @@
     const counts = [[game, "IN GAME", "is-online"], [web, "IN THE WEB CLIENT", "is-web"], [site, "ON THE SITE", "is-site"]].filter(([l]) => l.length);
     counts.forEach(([l, label, cls], i) => {
       if (i) line.append(DOT);
-      line.append(el("i", { class: "h9p-dot " + cls }), el("span", { class: "h9p-count", text: l.length + " " + label }));
+      line.append(el("i", { class: "h9p-dot " + cls }), el("span", { class: "h9p-count " + cls, text: l.length + " " + label }));
     });
     line.append(": ");
-    [...game, ...web, ...site].forEach((n, i) => {
+    [...game, ...web, ...site].forEach((p, i) => {
       if (i) line.append(", ");
-      line.append(nameLink(n));
+      line.append(nameLink(p.username, null, p.developer));
     });
     return line;
   }

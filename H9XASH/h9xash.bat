@@ -20,6 +20,12 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 set "HERE=%~dp0"
 
+REM ---- a new install's settings ------------------------------------------------------
+REM With no ts\config.cfg yet, the game starts from TS's stock binds and settings in
+REM ts\config.stock.cfg. A config.cfg that exists is the player's own (it holds their id)
+REM and is never replaced.
+if not exist "ts\config.cfg" if exist "ts\config.stock.cfg" copy /y "ts\config.stock.cfg" "ts\config.cfg" >nul
+
 REM ---- server lists and the optional Steam broker ----------------------------------
 REM networking.ini says which HTTP server lists the Internet tab reads, and whether the
 REM Steam broker starts with the game. h9_networking.ps1 writes ts\xashcomm.lst and
@@ -28,9 +34,10 @@ REM FWGS list only.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0h9_networking.ps1"
 
 REM ---- this install's client id -----------------------------------------------------
-REM user_id.ini holds a random id H9XASH makes once on first run (h9_userid.ps1) and
-REM keeps using after that, unless h9_regenerate_userid.bat is run. Writes
-REM ts\userid_resolved.cfg so the engine has it in cl_h9_userid. See
+REM user_id.ini holds this install's id, which the engine makes on its first start, keeps
+REM protected for this Windows user and reads itself (Link your Account in the main menu
+REM links it to a havoc9.org account). h9_userid.ps1 only takes the id out of the plain
+REM text files older builds kept it in: ts\userid_resolved.cfg and ts\config.cfg. See
 REM docs\CUSTOM_XASH_USERID.txt.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0h9_userid.ps1"
 
@@ -103,10 +110,40 @@ if %BGCOUNT% GTR 0 (
 
 echo [h9xash] main menu video: !BGCHOSEN!
 
+REM ---- the port Create Game takes ------------------------------------------------------
+REM port= under [server] in networking.ini (27015 when it is missing or not a port), passed
+REM as -port, the engine's own switch for the port a server here binds. A -port or +port
+REM given to this script wins: then none is added.
+set "H9PORT=27015"
+if exist "networking.ini" for /f "usebackq eol=; tokens=1,2 delims== " %%a in ("networking.ini") do if /i "%%a"=="port" set "H9PORT=%%b"
+if not defined H9PORT set "H9PORT=27015"
+set "H9PORTN="
+set /a "H9PORTN=H9PORT" 2>nul
+if not "!H9PORTN!"=="!H9PORT!" set "H9PORT=27015"
+if !H9PORT! lss 1 set "H9PORT=27015"
+if !H9PORT! gtr 65535 set "H9PORT=27015"
+set "H9PORTARG=-port !H9PORT!"
+(echo(%*) | findstr /i /c:"-port" /c:"+port" >nul && set "H9PORTARG="
+
+REM ---- the process priority ----------------------------------------------------------
+REM priority= under [process] in networking.ini: Normal, AboveNormal or High, and AboveNormal
+REM when it is missing or none of these. While the PC is busy, Windows gives the CPU to
+REM HAVOC 9.exe before programs of a lower priority; on an idle PC nothing changes. Realtime runs
+REM as High: a busy game at Realtime holds back Windows' own input, disk and network work. No core
+REM is pinned: Windows runs the game on any of the PC's cores.
+set "H9PRIO="
+if exist "networking.ini" for /f "usebackq eol=; tokens=1,2 delims== " %%a in ("networking.ini") do if /i "%%a"=="priority" set "H9PRIO=%%~b"
+set "H9PRIOSW=/ABOVENORMAL"
+if /i "!H9PRIO!"=="Normal" set "H9PRIOSW=/NORMAL"
+if /i "!H9PRIO!"=="High" set "H9PRIOSW=/HIGH"
+if /i "!H9PRIO!"=="Realtime" set "H9PRIOSW=/HIGH"
+if /i "!H9PRIO!"=="Realtime" echo [h9xash] priority=Realtime in networking.ini runs as High.
+if defined H9PRIO if /i not "!H9PRIO!"=="Normal" if /i not "!H9PRIO!"=="AboveNormal" if /i not "!H9PRIO!"=="High" if /i not "!H9PRIO!"=="Realtime" echo [h9xash] priority= in networking.ini is not Normal, AboveNormal or High: AboveNormal is used.
+
 REM By full path: a shell with NoDefaultCurrentDirectoryInExePath set will not run a
-REM program from the current folder by its bare name. cmd waits for HAVOC 9.exe to exit
-REM before the next line runs.
-"%~dp0HAVOC 9.exe" -game ts -console %*
+REM program from the current folder by its bare name. start /b /wait runs it at the priority
+REM above and waits for it to exit before the next line runs, its exit code in ERRORLEVEL.
+start "" /b /wait !H9PRIOSW! "%~dp0HAVOC 9.exe" -game ts -console !H9PORTARG! %*
 set "GAMEEXIT=!ERRORLEVEL!"
 
 REM ---- stop the Steam broker this launch started, and no other ----------------------

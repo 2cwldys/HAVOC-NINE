@@ -4,6 +4,7 @@
   "trustProxy": true,
   "dataDir": "/var/lib/h9web",
   "serversFile": "/etc/h9web/servers.json",
+  "modulesDir": "/opt/h9web/modules",
   "gamedir": "ts",
   "session": { "days": 30, "idleDays": 14 },
   "relay": {

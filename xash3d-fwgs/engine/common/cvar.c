@@ -602,7 +602,21 @@ static void Cvar_SanitizeAndSet( convar_t *var, const char *value )
 
 	// nothing to change
 	if( !Q_strcmp( fixed_string, var->string ))
+	{
+		// H9: the value is read from the string again, as GoldSrc does on every set.
+		// A game or client DLL may write a cvar's value and leave its string as it
+		// was (the HL SDK camera writes cam_idealpitch, cam_idealyaw and cam_idealdist
+		// every frame, and its snapto command flips cam_snapto), so setting the string
+		// the cvar already holds has to bring the value back to it.
+		float fixed_value = Q_atof( var->string );
+
+		if( var->value != fixed_value )
+		{
+			var->value = fixed_value;
+			Cvar_Changed( var );
+		}
 		return;
+	}
 
 	// fill it cls.userinfo, svs.serverinfo
 	if( !Cvar_UpdateInfo( var, fixed_string, true ))

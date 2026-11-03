@@ -4,6 +4,9 @@
 //
 //   clientIdIndex(address) -> { get(h9_clientid) -> account id, has(h9_clientid), size }
 //     for the server at address ("a.b.c.d:port").
+//   adoptIndex() -> { get(key) -> account id, size }, key = adoptKey(player id): a game that asks
+//     to be linked by the id it already holds names its account this way (lib/link.js, "adopt"),
+//     with no player id on the wire.
 //
 // The engine salts with the 4 IPv4 bytes the client connects to (not the port), so the lookup is
 // kept per IP: two servers on one address share it. Player ids are worked out once, the lookups
@@ -12,8 +15,15 @@
 // deleted by another process (the admin script) is noticed by the accounts' count and highest id,
 // looked at once a minute, which rebuilds them too.
 
+import crypto from "node:crypto";
 import { derivePlayerId, serverClientId } from "./playerid.js";
 import { parseAddress } from "./servers.js";
+
+// HMAC-SHA256( key: the player id as its 32 ASCII characters, "h9adopt-key1" ), the first 32 hex:
+// what engine-h9-link.patch sends to be linked by the id it holds
+export function adoptKey(playerId) {
+  return crypto.createHmac("sha256", String(playerId)).update("h9adopt-key1").digest("hex").slice(0, 32);
+}
 
 export function createClientIds({ db, secrets, events, recheckMs = 60000, now = Date.now }) {
   const all = db.prepare("SELECT id, uid FROM accounts");
@@ -25,6 +35,7 @@ export function createClientIds({ db, secrets, events, recheckMs = 60000, now = 
   };
   let pids = null; // account id -> player id
   const byIp = new Map(); // "a.b.c.d" -> { bytes, map: Map(h9_clientid -> account id) }
+  let adopt = null; // adoptKey(player id) -> account id, made on first use
   let known = null;
   let restamp = false;
   let checkedAt = 0;
@@ -33,6 +44,7 @@ export function createClientIds({ db, secrets, events, recheckMs = 60000, now = 
     pids = new Map();
     for (const r of all.iterate()) pids.set(r.id, derivePlayerId(secrets.playerIdKey, r.uid));
     byIp.clear();
+    adopt = null;
     known = stampText();
     restamp = false;
     checkedAt = now();
@@ -67,6 +79,16 @@ export function createClientIds({ db, secrets, events, recheckMs = 60000, now = 
     return Object.freeze({ get: (clientId) => map.get(clientId), has: (clientId) => map.has(clientId), size: map.size });
   }
 
+  function adoptIndex() {
+    fresh();
+    if (!adopt) {
+      adopt = new Map();
+      for (const [id, pid] of pids) adopt.set(adoptKey(pid), id);
+    }
+    const map = adopt;
+    return Object.freeze({ get: (key) => map.get(key), size: map.size });
+  }
+
   if (events) {
     events.on("account-created", ({ id }) => {
       if (!pids) return;
@@ -75,6 +97,7 @@ export function createClientIds({ db, secrets, events, recheckMs = 60000, now = 
       const pid = derivePlayerId(secrets.playerIdKey, r.uid);
       pids.set(id, pid);
       for (const e of byIp.values()) e.map.set(serverClientId(pid, e.bytes), id);
+      if (adopt) adopt.set(adoptKey(pid), id);
       restamp = true;
     });
     // sent before the row goes: the stamp is taken again on the next look
@@ -83,6 +106,7 @@ export function createClientIds({ db, secrets, events, recheckMs = 60000, now = 
       const pid = pids.get(id);
       pids.delete(id);
       if (pid) for (const e of byIp.values()) e.map.delete(serverClientId(pid, e.bytes));
+      if (pid && adopt) adopt.delete(adoptKey(pid));
       restamp = true;
     });
     events.on("account-player-id", () => {
@@ -90,5 +114,5 @@ export function createClientIds({ db, secrets, events, recheckMs = 60000, now = 
     });
   }
 
-  return { clientIdIndex };
+  return { clientIdIndex, adoptIndex };
 }

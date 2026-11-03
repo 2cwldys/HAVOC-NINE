@@ -1,0 +1,553 @@
+/*
+cl_travel.c - H9: h9_travel, a server's offer to send the player to another server
+
+A community portal (h9_community.sma, docs\H9_COMMUNITIES.txt section 9) leads to another H9
+server. A server cannot move a player itself: connect is a privileged command, and FWGS refuses
+it from a server. h9_travel is the way it asks instead:
+
+	h9_travel <a.b.c.d:port> [name]
+
+Any server may send it (it is not privileged), and it never connects by itself. It puts up a
+prompt the engine draws and answers itself, in the same panel kit as the splash MOTD
+(cl_motd.h): "Travel to <name>?", the address, the server that offered it (the name it gave at
+join and the address the engine is connected to), YES and NO. Only the
+player's own Y, ENTER or click on YES runs the connect, from the engine's own command buffer;
+N, ESC, NO or 15 seconds drop it. A server can neither press it, skip it nor fake its answer:
+the prompt takes its keys in Key_Event before anything else, and the server has no way to write
+into the console's command line for it.
+
+The offer is refused, with a line in the console, when:
+	* cl_h9_travel is 0 (the player turned offers off), or the game is not connected and in play,
+	  or a demo is playing;
+	* the address is not a plain IPv4 address and port (no names, no other form);
+	* it is a loopback, private, link-local, CGNAT, multicast or reserved address and the
+	  server the player is on is not itself on such a network (LAN play);
+	* it is the server the player is already on;
+	* an offer is already up, the last one ended less than H9T_COOLDOWN seconds ago, or this
+	  server has made H9T_BURST offers in the last H9T_WINDOW seconds.
+
+The userinfo key _h9travel tells a server whether this client answers h9_travel: "1" while
+cl_h9_travel is on, "0" when it is off. A client without this code has no key, and the server
+prints the address instead.
+
+Browser build: the same prompt. The connect goes through the relay, which reaches only H9's listed
+servers: the page (Module.travel in havoc9.org\webclient\client.js) says whether the address is
+one of them, and for any other the prompt says the browser cannot reach it and offers no YES.
+*/
+
+#include "common.h"
+#include "client.h"
+#include "keydefs.h"
+#include "platform/platform.h"
+#include "cl_motd.h"
+#if XASH_EMSCRIPTEN
+#include <emscripten.h>
+#endif
+
+#define H9T_SHOW       15.0  // seconds the prompt stays up
+#define H9T_COOLDOWN   10.0  // seconds after one offer ends before the next is shown
+#define H9T_WINDOW     120.0 // seconds over which a server's offers are counted
+#define H9T_BURST      4     // offers one server may make in that time
+#define H9T_MAX_NAME   48
+
+static CVAR_DEFINE_AUTO( cl_h9_travel, "1", FCVAR_ARCHIVE | FCVAR_PRIVILEGED, "H9: a server may offer to send you to another server (community portals): 1 = ask me, 0 = ignore its offers" );
+
+enum
+{
+	H9T_BTN_YES = 0,
+	H9T_BTN_NO,
+	H9T_BTN_COUNT
+};
+
+static struct
+{
+	qboolean up;          // the prompt is up
+	char     address[32]; // a.b.c.d:port
+	char     name[H9T_MAX_NAME];
+	char     from[96];    // the server that offered it: its name and address
+	qboolean reachable;   // the browser build: the relay can reach it
+	double   shown_at;
+	double   ended_at;    // when the last prompt went
+	h9ui_rect_t btn[H9T_BTN_COUNT];
+	byte     eat[256];    // keys and buttons the prompt took: their releases are its too
+
+	// the offers of the server the player is on, for the rate limit
+	char     server[64];
+	double   offers[H9T_BURST];
+	int      numoffers;
+
+	int      advertised;  // the _h9travel value last put into the userinfo, -1 none yet
+} travel;
+
+#if XASH_EMSCRIPTEN
+// The page knows which servers its relay reaches (Module.travel in client.js): 1 yes, 0 no, -1 it
+// cannot tell (no list yet, or an older page), which counts as yes: the relay still refuses the rest.
+EM_JS( int, H9T_PageReachable, ( const char *address ), {
+	var travel = Module.travel;
+	if( !travel || !travel.reachable )
+		return -1;
+	try {
+		var r = travel.reachable( UTF8ToString( address ));
+		return r === true ? 1 : ( r === false ? 0 : -1 );
+	} catch( e ) {
+		return -1;
+	}
+});
+#endif
+
+// a.b.c.d:port and nothing else: decimal octets without leading zeros, a port from 1 to 65535
+static qboolean H9T_ParseAddress( const char *s, byte ip[4], int *port )
+{
+	for( int part = 0; part < 4; part++ )
+	{
+		int value = 0, digits = 0;
+
+		while( *s >= '0' && *s <= '9' )
+		{
+			if( digits && value == 0 )
+				return false; // a leading zero
+
+			value = value * 10 + ( *s++ - '0' );
+
+			if( ++digits > 3 || value > 255 )
+				return false;
+		}
+
+		if( !digits || *s++ != ( part < 3 ? '.' : ':' ))
+			return false;
+
+		ip[part] = (byte)value;
+	}
+
+	*port = 0;
+
+	for( int digits = 0; *s; s++ )
+	{
+		if( *s < '0' || *s > '9' || ++digits > 5 )
+			return false;
+
+		*port = *port * 10 + ( *s - '0' );
+	}
+
+	return *port >= 1 && *port <= 65535;
+}
+
+// public unicast: not this network, private, loopback, CGNAT, link-local, benchmarking,
+// documentation, multicast or reserved
+static qboolean H9T_PublicIPv4( const byte *a )
+{
+	if( a[0] == 0 || a[0] == 10 || a[0] == 127 || a[0] >= 224 )
+		return false;
+	if( a[0] == 100 && ( a[1] & 0xc0 ) == 64 )
+		return false;
+	if( a[0] == 169 && a[1] == 254 )
+		return false;
+	if( a[0] == 172 && ( a[1] & 0xf0 ) == 16 )
+		return false;
+	if( a[0] == 192 && a[1] == 168 )
+		return false;
+	if( a[0] == 192 && a[1] == 0 && ( a[2] == 0 || a[2] == 2 ))
+		return false;
+	if( a[0] == 198 && ( a[1] & 0xfe ) == 18 )
+		return false;
+	if( a[0] == 198 && a[1] == 51 && a[2] == 100 )
+		return false;
+	if( a[0] == 203 && a[1] == 0 && a[2] == 113 )
+		return false;
+	return true;
+}
+
+// a LAN or this machine: loopback, private, CGNAT or link-local (never multicast or reserved)
+static qboolean H9T_LocalIPv4( const byte *a )
+{
+	return a[0] == 10 || a[0] == 127 || ( a[0] == 172 && ( a[1] & 0xf0 ) == 16 ) || ( a[0] == 192 && a[1] == 168 )
+		|| ( a[0] == 100 && ( a[1] & 0xc0 ) == 64 ) || ( a[0] == 169 && a[1] == 254 );
+}
+
+// the server the player is on is itself on a LAN or this machine
+static qboolean H9T_OnLocalServer( void )
+{
+	netadr_t a = cls.netchan.remote_address;
+	netadrtype_t type = NET_NetadrType( &a );
+
+	if( type == NA_LOOPBACK )
+		return true;
+
+	if( type == NA_IP )
+		return !H9T_PublicIPv4( a.ip );
+
+	return NET_IsReservedAdr( a );
+}
+
+// printable ASCII, no quotes or color codes, cut to size
+static void H9T_Clean( char *dst, size_t size, const char *src )
+{
+	size_t n = 0;
+
+	for( ; src && *src && n + 1 < size; src++ )
+	{
+		char c = *src;
+
+		if( c < ' ' || c > '~' || c == '"' || c == '^' || c == '\\' )
+			c = ' ';
+
+		dst[n++] = c;
+	}
+
+	dst[n] = '\0';
+}
+
+// "1" while offers are answered, "0" while they are turned off
+static void H9T_Advertise( void )
+{
+	int want = cl_h9_travel.value != 0.0f ? 1 : 0;
+
+	if( want == travel.advertised )
+		return;
+
+	travel.advertised = want;
+	Info_SetValueForKey( CL_Userinfo(), "_h9travel", want ? "1" : "0", MAX_INFO_STRING );
+
+	if( cls.state >= ca_connected )
+		CL_UpdateInfo( "_h9travel", want ? "1" : "0" );
+}
+
+static void H9T_Close( void )
+{
+	travel.up = false;
+	travel.ended_at = host.realtime;
+}
+
+// the offers this server made lately, the old ones forgotten; false when it has made too many
+static qboolean H9T_RateOk( void )
+{
+	const char *server = NET_AdrToString( cls.netchan.remote_address );
+	int kept = 0;
+
+	if( Q_strcmp( server, travel.server ))
+	{
+		Q_strncpy( travel.server, server, sizeof( travel.server ));
+		travel.numoffers = 0;
+	}
+
+	for( int i = 0; i < travel.numoffers; i++ )
+	{
+		if( host.realtime - travel.offers[i] < H9T_WINDOW )
+			travel.offers[kept++] = travel.offers[i];
+	}
+
+	travel.numoffers = kept;
+
+	if( travel.numoffers >= H9T_BURST )
+		return false;
+
+	travel.offers[travel.numoffers++] = host.realtime;
+	return true;
+}
+
+/*
+=================
+H9T_Travel_f
+
+h9_travel <a.b.c.d:port> [name]: the offer, from the server or typed
+=================
+*/
+static void H9T_Travel_f( void )
+{
+	byte ip[4];
+	int port;
+	const char *hostname;
+	char shown[64];
+
+	if( Cmd_Argc() < 2 || Cmd_Argc() > 3 )
+	{
+		Con_Printf( S_USAGE "h9_travel <a.b.c.d:port> [name]\n" );
+		return;
+	}
+
+	if( cl_h9_travel.value == 0.0f )
+	{
+		Con_Printf( "H9 TRAVEL: an offer to go to %s was ignored (cl_h9_travel is 0)\n", Cmd_Argv( 1 ));
+		return;
+	}
+
+	if( cls.state != ca_active || cls.demoplayback )
+		return;
+
+	if( !H9T_ParseAddress( Cmd_Argv( 1 ), ip, &port ))
+	{
+		Con_Printf( "H9 TRAVEL: an offer was refused: \"%s\" is not an IPv4 address and port\n", Cmd_Argv( 1 ));
+		return;
+	}
+
+	Q_snprintf( shown, sizeof( shown ), "%d.%d.%d.%d:%d", ip[0], ip[1], ip[2], ip[3], port );
+
+	if( ip[0] == 0 || ip[0] >= 224 || ( !H9T_PublicIPv4( ip ) && !( H9T_LocalIPv4( ip ) && H9T_OnLocalServer( ))))
+	{
+		Con_Printf( "H9 TRAVEL: an offer to go to %s was refused: not a public address\n", shown );
+		return;
+	}
+
+	if( !Q_strcmp( shown, NET_AdrToString( cls.netchan.remote_address )))
+		return; // the server the player is on
+
+	if( travel.up )
+	{
+		Con_Printf( "H9 TRAVEL: an offer to go to %s was ignored: another is up\n", shown );
+		return;
+	}
+
+	if( travel.ended_at > 0.0 && host.realtime - travel.ended_at < H9T_COOLDOWN )
+	{
+		Con_Printf( "H9 TRAVEL: an offer to go to %s was ignored: too soon after the last\n", shown );
+		return;
+	}
+
+	if( !H9T_RateOk( ))
+	{
+		Con_Printf( "H9 TRAVEL: an offer to go to %s was ignored: this server made too many\n", shown );
+		return;
+	}
+
+	Q_strncpy( travel.address, shown, sizeof( travel.address ));
+	H9T_Clean( travel.name, sizeof( travel.name ), Cmd_Argc() > 2 ? Cmd_Argv( 2 ) : "" );
+
+	// its name as it gave it at join (cl_motd.c keeps it), else a hostname in its serverinfo
+	hostname = H9UI_ServerName();
+	if( !hostname[0] )
+		hostname = Info_ValueForKey( cl.serverinfo, "hostname" );
+	H9T_Clean( shown, sizeof( shown ), hostname );
+	Q_snprintf( travel.from, sizeof( travel.from ), "%s%s%s", shown[0] ? shown : "", shown[0] ? ", " : "", NET_AdrToString( cls.netchan.remote_address ));
+
+#if XASH_EMSCRIPTEN
+	travel.reachable = H9T_PageReachable( travel.address ) != 0;
+#else
+	travel.reachable = true;
+#endif
+
+	// keys and buttons held as it comes up are let go, as for the console or the menu
+	if( cls.key_dest == key_game )
+		Key_ClearStates();
+
+	memset( travel.eat, 0, sizeof( travel.eat ));
+	travel.up = true;
+	travel.shown_at = host.realtime;
+	Con_Printf( "H9 TRAVEL: %s offers a trip to %s (%s): Y to go, N to stay\n", travel.from, travel.name[0] ? travel.name : travel.address, travel.address );
+}
+
+// YES: the connect, from the engine's own command buffer
+static void H9T_Go( void )
+{
+	if( !travel.up || !travel.reachable )
+		return;
+
+	Con_Printf( "H9 TRAVEL: going to %s\n", travel.address );
+	Cbuf_AddText( va( "connect %s\n", travel.address ));
+	H9T_Close();
+}
+
+/*
+==============================================================================
+
+	THE PROMPT (a panel of cl_motd.c's kind)
+
+==============================================================================
+*/
+
+static qboolean H9T_Active( void )
+{
+	return travel.up && cls.state == ca_active && cls.key_dest == key_game;
+}
+
+static qboolean H9T_KeyEvent( int key, qboolean down )
+{
+	if( key < 0 || key >= (int)ARRAYSIZE( travel.eat ))
+		return false;
+
+	if( !down )
+	{
+		if( !travel.eat[key] )
+			return false;
+
+		travel.eat[key] = false;
+		return true;
+	}
+
+	// the console stays within reach
+	if( !H9T_Active( ) || key == '`' || key == '~' )
+		return false;
+
+	travel.eat[key] = true;
+
+	switch( key )
+	{
+	case 'y':
+	case 'Y':
+	case K_ENTER:
+	case K_KP_ENTER:
+		H9T_Go();
+		break;
+	case 'n':
+	case 'N':
+	case K_ESCAPE:
+		Con_Printf( "H9 TRAVEL: staying\n" );
+		H9T_Close();
+		break;
+	default:
+		break;
+	}
+
+	return true;
+}
+
+static qboolean H9T_MouseEvent( int key, qboolean down )
+{
+	int mx, my;
+
+	if( key < K_MOUSE1 || key > K_MOUSE5 )
+		return false;
+
+	if( !down )
+	{
+		if( !travel.eat[key] )
+			return false;
+
+		travel.eat[key] = false;
+		return true;
+	}
+
+	if( !H9T_Active( ))
+		return false;
+
+	travel.eat[key] = true;
+
+	if( key != K_MOUSE1 )
+		return true;
+
+	Platform_GetMousePos( &mx, &my );
+
+	if( H9UI_Hit( &travel.btn[H9T_BTN_YES], mx, my ))
+	{
+		H9T_Go();
+	}
+	else if( H9UI_Hit( &travel.btn[H9T_BTN_NO], mx, my ))
+	{
+		Con_Printf( "H9 TRAVEL: staying\n" );
+		H9T_Close();
+	}
+
+	return true;
+}
+
+static void H9T_Frame( void )
+{
+	H9T_Advertise();
+
+	if( travel.up && ( cls.state != ca_active || host.realtime - travel.shown_at > H9T_SHOW ))
+		H9T_Close();
+}
+
+static void H9T_Draw( void )
+{
+	char line[160], yes[32], no[32];
+	cl_font_t *font;
+	int W, H, lh, pad, bh, pw, ph, px, py, y, mx, my, yw, nw, left;
+
+	if( !travel.up || cls.state != ca_active )
+		return;
+
+	font = Con_GetCurFont();
+
+	if( !font || !font->valid || font->charHeight <= 0 )
+		return;
+
+	W = refState.width;
+	H = refState.height;
+	lh = font->charHeight;
+	pad = Q_max( 6, lh / 2 );
+	bh = lh + pad;
+	pw = Q_min( W - pad * 4, H9UI_Width( font, "n", 1 ) * 60 + pad * 2 );
+	ph = pad + lh * ( travel.reachable ? 4 : 6 ) + pad + bh + pad;
+	px = ( W - pw ) / 2;
+	py = ( H - ph ) / 3;
+	left = (int)( H9T_SHOW - ( host.realtime - travel.shown_at ) + 0.999 );
+
+	memset( travel.btn, 0, sizeof( travel.btn ));
+	Platform_GetMousePos( &mx, &my );
+
+	H9UI_Fill( 0, 0, W, H, 0, 0, 0, 120 );
+	H9UI_Fill( px, py, pw, ph, 14, 8, 20, 245 );
+	H9UI_Border( px, py, pw, ph, Q_max( 1, lh / 12 ));
+
+	y = py + pad;
+	Q_snprintf( line, sizeof( line ), "Travel to %s?", travel.name[0] ? travel.name : "another server" );
+	H9UI_Line( font, px + pad, y, pw - pad * 2, line, h9ui_light );
+	y += lh;
+
+	Q_snprintf( line, sizeof( line ), "Address: %s", travel.address );
+	H9UI_Line( font, px + pad, y, pw - pad * 2, line, h9ui_white );
+	y += lh;
+
+	Q_snprintf( line, sizeof( line ), "Offered by the server you are on: %s", travel.from );
+	H9UI_Line( font, px + pad, y, pw - pad * 2, line, h9ui_soft );
+	y += lh;
+
+	Q_snprintf( line, sizeof( line ), "This closes by itself in %d s.", Q_max( 0, left ));
+	H9UI_Line( font, px + pad, y, pw - pad * 2, line, h9ui_soft );
+	y += lh;
+
+	if( !travel.reachable )
+	{
+		H9UI_Line( font, px + pad, y, pw - pad * 2, "The browser cannot reach this server: the web client", h9ui_white );
+		y += lh;
+		H9UI_Line( font, px + pad, y, pw - pad * 2, "joins only H9's listed servers.", h9ui_white );
+		y += lh;
+	}
+
+	y += pad;
+	Q_strncpy( no, travel.reachable ? "NO (N)" : "OK (N)", sizeof( no ));
+	Q_strncpy( yes, "YES (Y)", sizeof( yes ));
+	nw = H9UI_Width( font, no, Q_strlen( no )) + pad * 2;
+	yw = H9UI_Width( font, yes, Q_strlen( yes )) + pad * 2;
+
+	H9UI_Button( font, &travel.btn[H9T_BTN_NO], px + pw - pad - nw, y, nw, bh, no, mx, my );
+
+	if( travel.reachable )
+		H9UI_Button( font, &travel.btn[H9T_BTN_YES], px + pw - pad - nw - pad - yw, y, yw, bh, yes, mx, my );
+
+	if( !host.mouse_visible )
+		H9UI_Cursor( mx, my, Q_max( 1, H / 540 ));
+
+	ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
+	ref.dllFuncs.GL_SetRenderMode( kRenderNormal );
+}
+
+static void H9T_Reset( qboolean connection )
+{
+	if( travel.up )
+		H9T_Close();
+
+	memset( travel.eat, 0, sizeof( travel.eat ));
+}
+
+static const h9ui_panel_t h9t_panel =
+{
+	H9T_Active,
+	H9T_KeyEvent,
+	H9T_MouseEvent,
+	H9T_Frame,
+	H9T_Draw,
+	H9T_Reset,
+};
+
+void CL_Travel_Init( void )
+{
+	Cvar_RegisterVariable( &cl_h9_travel );
+
+	// not restricted: a server may send it, and it only asks
+	Cmd_AddCommand( "h9_travel", H9T_Travel_f, "H9: a server's offer to send you to another server; it asks you first (Y/N)" );
+
+	travel.advertised = -1;
+	H9T_Advertise();
+	H9UI_AddPanel( &h9t_panel );
+}

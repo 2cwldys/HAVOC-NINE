@@ -1,0 +1,201 @@
+===============================================================================
+ BUILDING H9 -- every build in this repository, and where it starts
+===============================================================================
+
+ Everything H9 builds has its source here. What is not here is fetched at a
+ pinned version (the web client's toolchain, section 9) or comes from your own
+ install of Half-Life and The Specialists 3.0, which is never copied into the
+ repository: the stock TS 3.0 base (ts-3-final.exe) and Valve's content.
+
+ The scripts were written on Windows for the paths of the PC H9 is made on:
+ build.bat, export.bat and xash.bat set the Half-Life install and the TSM
+ folder at their top. In this repository they sit where export.bat puts them:
+ src\build.bat, src\export.bat, xash3d-h9-patches\xash.bat.
+
+ One build at a time: an engine build, the web client build and a map compile
+ each take every core they are given.
+
+
+ 0. FIRST: GIT LFS
+ ---------------------------------------------------------------------------
+   The repository keeps its maps, models and archives in Git LFS (.gitattributes:
+   .bsp, .mdl, .zip, .7z, .rar, .bsp.ztmp): about 790 files, 1.1 GB. A clone
+   made without Git LFS gets, in place of each, a text file of about 130 bytes
+   that starts "version https://git-lfs.github.com/spec/v1". So, before any
+   build:
+       install Git LFS (https://git-lfs.com; Git for Windows includes it)
+       git lfs install
+       git lfs pull                (in the checkout; or clone after installing)
+   The entry points that read the game files check them first and stop, naming
+   the files and this fix, when one is a pointer or is shorter than its own
+   header says (a download cut short): build-webclient (H9XASH, before the
+   toolchain is fetched), stage-h9xash (H9XASH), make-vps-package (what it
+   packs, and the web client's stage with -WebClient), and
+   tools\make_webclient_game.py (every file it would stage). The check is
+   tools\check-lfs.ps1: a .bsp must hold its lumps (version 30 or BSP2), a .mdl
+   the length in its header, a .wad its directory, a .pk3 or .zip its end
+   record. Run it by hand on any folder:
+       powershell -ExecutionPolicy Bypass -File tools\check-lfs.ps1 -Path H9XASH
+   If git lfs pull fails with a quota or bandwidth error, the host has run out
+   of LFS allowance; the release ZIPs carry the same files.
+   No file in the repository is over 100 MB, GitHub's limit for a file; the
+   largest outside LFS is ts\sound\music\vangelis.wav (and its H9XASH copy),
+   54.6 MB, over GitHub's 50 MB warning. The client ZIPs (dist\, over 700 MB)
+   are never committed.
+
+
+ 1. THE PLUGINS (AMX Mod X)                           src\build.bat
+ ---------------------------------------------------------------------------
+   ts_matchmode and the other .sma files in src\ (also in
+   ts\addons\amxmodx\scripting\), compiled with the game's amxxpc.exe.
+   build.bat copies them into the game folder, compiles, deploys, registers
+   them in plugins.ini, then runs "xash.bat addons" and export.bat.
+     build.bat                one plugin set (ts_matchmode, ts_probe, ...)
+     build.bat <name>         one plugin
+     build.bat all            every .sma
+   The includes are src\include\ (tsm_api.inc, h9_community.inc) and
+   ts\addons\amxmodx\scripting\include\ (easy_http.inc). Commands and cvars:
+   docs\COMMANDS.txt.
+
+ 2. THE ENGINE (Xash3D FWGS, 32-bit Windows)     xash3d-h9-patches\xash.bat
+ ---------------------------------------------------------------------------
+   xash3d-fwgs\ is FWGS's source with H9's whole patch chain already applied
+   (the four webassembly-patch\ patches, then xash3d-h9-patches\patches\ in
+   the order xash.bat lists; PATCH_CHANGELOG.md beside them says what each
+   one does). In the PC's own clone, xash.bat replays and checks every patch
+   before it builds; this copy has no .git, so it builds as it stands.
+     xash.bat engine          waf with Visual Studio, SDL2 2.32.10 fetched
+                              into deps\, FFmpeg from the folder xash.bat
+                              names (32-bit, built once with MSYS2), then
+                              the DLLs, ENGINE.txt and each DLL's .patch
+                              into H9XASH\
+     xash.bat assemble        a fresh H9XASH from the stock TS 3.0 base,
+                              reTS, the H9TE client, the overlay and your
+                              own Half-Life files
+     xash.bat addons          Metamod, AMX Mod X and RCBot into H9XASH
+     xash.bat assets          export\ts and the overlay into H9XASH
+   xash.bat assemble and assets run make_commands_cfg.ps1 (the repository's
+   root) to write commands.cfg from COMMANDS.txt.
+
+ 3. reTS (mp.dll and client.dll)              reTS\scripts\build-win32-dropin.ps1
+ ---------------------------------------------------------------------------
+   The reconstruction of TS 3.0's server and client, with H9's changes. The
+   drop-in script builds the 32-bit Windows pair into reTS\binaries\ts\;
+   reTS\BUILDING.md covers its other builds (Linux, clang-cl).
+
+ 4. AMX MOD X                                                    AMXMODX\
+ ---------------------------------------------------------------------------
+   AMX Mod X's source with H9's edits (AMBuild: configure.py). It is being
+   replaced by goldsrc-net's AMX Mod X with TSX; that work adds its own
+   build notes here.
+
+ 5. RCBOT                                                    rcbot-patch\
+ ---------------------------------------------------------------------------
+   rcbot_mm.dll is RCBot v1.51b13 with H9's patch chain. rcbot-patch\README.txt,
+   section REBUILDING: clone APGRoboCop/rcbotold at v1.51b13, apply the patches
+   in the order listed there, build dlls\HPB_bot.vcxproj ("MetaMod Release",
+   Win32) with MSBuild.
+
+ 6. METAMOD-R                                                  metamod-r\
+ ---------------------------------------------------------------------------
+   Upstream commit and H9's patch: metamod-r\H9-SOURCE.txt. Windows:
+   msvc\metamod.sln, Release|Win32 (/p:PlatformToolset=v145 for Visual Studio
+   2026); its pre-build step is metamod\msvc\PreBuild.bat. Linux: CMakeLists.txt
+   and build.sh.
+
+ 7. THE CLIENT PACKAGE                                   stage-h9xash.cmd
+ ---------------------------------------------------------------------------
+   H9XASH as players download it: dist\H9XASH-<build>.zip, and a Linux one in
+   dist\linux unless -NoLinux. -DryRun stages without zipping.
+
+ 8. THE HOST PACKAGE (havoc9.org on a server)         make-vps-package.cmd
+ ---------------------------------------------------------------------------
+   dist\havoc9-vps-linux-<build>.zip and dist\havoc9-vps-windows-<build>.zip,
+   each with its setup script (vps\linux, vps\windows); -Target picks one,
+   -WebClient adds the web client's files. vps\linux\README-VPS.txt and
+   vps\windows\README-WINDOWS.txt.
+
+ 9. THE WEB CLIENT (H9XASH in a browser)               build-webclient.cmd
+ ---------------------------------------------------------------------------
+   From a fresh clone, on Windows 10 or later, with nothing installed
+   beforehand but Windows PowerShell 5.1 (it comes with Windows):
+
+       build-webclient.cmd
+
+   It builds the engine and reTS's client for WebAssembly and lays out the
+   files the page serves:
+     webclient-build\webclient-bin\   the builds: xash.js, xash.wasm, the
+                                      side modules, extras.pk3, the client
+                                      library, BUILDINFO.txt (each file's
+                                      SHA-1 and what it was built from)
+     webclient-build\stage\           engine\, game\, manifest.json and
+                                      preload.json, for the web server
+   webclient-build\ is ignored by git. Options: -Out <dir>, -Jobs <n>
+   (default 6), -NoStage, -UpdateTracked (copy the builds over webclient-bin\,
+   the folder git tracks and the packer reads by default), -Clean.
+   havoc9.org\webclient\DEPLOY.txt says how the stage is served.
+
+   What it fetches, the first time (about 820 MB), each checked against the
+   SHA-256 written in build-webclient.ps1 before it is used:
+
+     Emscripten SDK 6.0.12, release 6e9f6885cb17a3d6c8fd488a5cff730f50aba61d,
+     installed by the emsdk scripts in emsdk\ (they are in the repository;
+     the toolchain goes into emsdk\upstream, node, python and ninja, which
+     emsdk\.gitignore ignores). From
+     https://storage.googleapis.com/webassembly/emscripten-releases-builds/:
+       win/6e9f6885.../wasm-binaries.zip       700,727,317 bytes
+         51ac2e51a2c6eeba09fa04418496750662b5c1f022665814b0ee8f557c8328c9
+       deps/python-3.13.3-0-win-amd64.zip       29,736,374 bytes
+         6fe7a540c6b8b185780467cf7495e884ee62316ec4abb19e1c735b8a77c62465
+       deps/node-v24.19.0-win-x64.zip           37,304,352 bytes
+         57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73
+       deps/ninja-1.13.2-win-x64.zip               291,570 bytes
+         07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65
+     Google publishes no SHA-256 for these; the values above were measured on
+     the download of 2026-11-02 (python's MD5 matched Google's x-goog-hash).
+
+     CMake 4.3.0, for reTS's client, unpacked into webclient-build\tools:
+       https://github.com/Kitware/CMake/releases/download/v4.3.0/
+       cmake-4.3.0-windows-x86_64.zip           52,903,533 bytes
+         0f664f44eeb5b35b77f83e0984459c0dfa70539bd215c54ae1059604fd4f77ea
+     (Kitware's own cmake-4.3.0-SHA-256.txt.)
+
+     SDL2 2.32.10, which the engine's first build takes from Emscripten's
+     ports (github.com/libsdl-org/SDL, release-2.32.10). Emscripten 6.0.12
+     names that release and checks its SHA-512 itself.
+
+   The steps: the toolchain; the engine, from a copy of xash3d-fwgs in
+   webclient-build\xash3d-fwgs (waf configure --emscripten -T release
+   -o build-web; waf build); reTS's cl_dll with emcmake and ninja, with
+   xash3d-fwgs\3rdparty\freevgui compiled in (reTS\cl_dll\CMakeLists.txt, the
+   block marked "H9 web client"); tools\make_webclient_bin.py; and
+   tools\make_webclient_game.py, which lays the stage out from H9XASH and
+   leaves out everything a player must never be served (DEPLOY.txt section 9).
+
+   How long: about 10 minutes the first time on the PC H9 is made on (589 s on
+   2026-11-02, from a fresh clone, 6 jobs): the toolchain 223 s (fetching and
+   unpacking about 820 MB), the engine 293 s, the client library 30 s, the
+   stage 41 s. A later run reuses the toolchain and rebuilds only what changed.
+
+ 10. THE MAPS, MODELS AND ART
+ ---------------------------------------------------------------------------
+   export-map\        the map pipeline in Node, on SMAK (SMAK\, the repository's
+                      copy of the kit): make.mjs builds h9_te_neuropolis from
+                      base\h9_te_neuropolis.map; each map folder has its own
+                      script (h9_drainage\drainage.mjs, h9_siege_lift\lift.mjs,
+                      h9_tsrp_hive\merge.mjs, h9_tsrp_newbyzantium\city.mjs).
+                      They compile with sdhlt-goldsrc-net\tools (SDHLT with
+                      h9-bigcity-limits.patch). export-map\README.txt.
+   modelling\         the player model scripts, on SMAK (modelling\README.txt).
+   gfxwad-replace\    the purple gfx.wad: build.bat (it reads Half-Life's own
+                      gfx.wad from your install).
+   tools\             the class-icon sprite, console fonts, shell art, spawn
+                      helper and the web client's packer.
+
+ 11. THE SERVER PACKAGE AND THIS REPOSITORY                  src\export.bat
+ ---------------------------------------------------------------------------
+   export.bat (build.bat runs it) assembles export\ on the PC H9 is made on and
+   copies it into this repository: never deleting here, keeping any file that
+   is newer here, and never copying .gitignore files, rcbot's player ids or
+   binary backups (*.bak_*). Then it lays out the web client's stage from the
+   repository's H9XASH with the builds in webclient-bin\.

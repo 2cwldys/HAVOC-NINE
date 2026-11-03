@@ -103,4 +103,9 @@ void HTTP_Run( void );
 typedef void ( *http_memory_cb_t )( const char *url, qboolean success, const byte *data, size_t size, void *userdata );
 qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata );
 
+// H9: HTTP_GetToMemoryEx's flags (the splash MOTD's picture, cl_motd.c)
+#define HTTP_MEM_PUBLIC_ONLY BIT( 0 ) // connect only to a public address: the one it resolved, checked, is the one it uses
+#define HTTP_MEM_VERIFY_TLS  BIT( 1 ) // https only with the server's certificate checked against a loaded CA bundle
+qboolean HTTP_GetToMemoryEx( const char *url, http_memory_cb_t cb, void *userdata, int flags );
+
 #endif//NET_WS_H

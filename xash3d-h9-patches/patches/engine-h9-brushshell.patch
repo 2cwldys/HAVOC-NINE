@@ -1,0 +1,87 @@
+diff --git a/ref/gl/gl_rsurf.c b/ref/gl/gl_rsurf.c
+--- a/ref/gl/gl_rsurf.c
++++ b/ref/gl/gl_rsurf.c
+@@ -1843,6 +1843,72 @@ static int R_SortBrushModelSurfaces( cl_entity_t *e, model_t *clmodel, vec3_t mi
+ R_DrawBrushModel
+ =================
+ */
++/*
++=================
++R_DrawBrushShell
++
++H9: kRenderFxGlowShell on a brush entity. GoldSrc and Xash draw the glow shell on studio
++models only; a brush sent with it (ts_matchmode's siege objectives, coloured per viewer) gets
++one more pass after its own here: each of its faces again, pushed out along the face's plane
++by H9_BRUSH_SHELL_PUSH plus renderamt / 128 units, through the chrome sprite (white when
++sprites/shellchrome.spr is not loaded, as engine-h9-shellwhite.patch does for a model), in the
++entity's rendercolor, additive, and scrolling as the chrome does.
++=================
++*/
++#define H9_BRUSH_SHELL_PUSH 1.0f
++
++static void R_DrawBrushShell( cl_entity_t *e, model_t *clmodel )
++{
++	msurface_t *psurf = &clmodel->surfaces[clmodel->firstmodelsurface];
++	model_t *chrome = gEngfuncs.GetDefaultSprite( REF_CHROME_SPRITE );
++	float push = H9_BRUSH_SHELL_PUSH + e->curstate.renderamt * ( 1.0f / 128.0f );
++	float scroll = gp_cl->time * 0.25f;
++
++	GL_CleanUpTextureUnits( 0 );
++	if( !TriSpriteTexture( chrome, 0 ))
++		GL_Bind( XASH_TEXTURE0, tr.whiteTexture );
++
++	R_AllowFog( false );
++	pglEnable( GL_BLEND );
++	pglBlendFunc( GL_SRC_ALPHA, GL_ONE );
++	pglDepthMask( GL_FALSE );
++	pglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
++	pglColor4ub( e->curstate.rendercolor.r, e->curstate.rendercolor.g, e->curstate.rendercolor.b, 255 );
++
++	for( int i = 0; i < clmodel->nummodelsurfaces; i++, psurf++ )
++	{
++		vec3_t normal;
++
++		if( FBitSet( psurf->flags, SURF_DRAWSKY ) || !psurf->polys || !psurf->plane )
++			continue;
++
++		VectorCopy( psurf->plane->normal, normal );
++		if( FBitSet( psurf->flags, SURF_PLANEBACK ))
++			VectorNegate( normal, normal );
++
++		for( glpoly2_t *p = psurf->polys; p; p = p->next )
++		{
++			pglBegin( GL_POLYGON );
++			for( int j = 0; j < p->numverts; j++ )
++			{
++				const float *v = p->verts[j];
++				vec3_t pos;
++
++				VectorMA( v, push, normal, pos );
++				pglTexCoord2f(( v[0] + v[1] ) * ( 1.0f / 64.0f ) + scroll, v[2] * ( 1.0f / 64.0f ) + scroll );
++				pglVertex3fv( pos );
++			}
++			pglEnd();
++		}
++	}
++
++	pglColor4ub( 255, 255, 255, 255 );
++	pglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE );
++	pglDepthMask( GL_TRUE );
++	pglDisable( GL_BLEND );
++	R_AllowFog( true );
++}
++
+ void R_DrawBrushModel( cl_entity_t *e )
+ {
+ 	vec3_t mins, maxs;
+@@ -1959,6 +2025,10 @@ void R_DrawBrushModel( cl_entity_t *e )
+ 	pglDisable( GL_BLEND );
+ 	pglDepthMask( GL_TRUE );
+ 
++	// H9: a glow shell on the brush (R_DrawBrushShell)
++	if( e->curstate.renderfx == kRenderFxGlowShell )
++		R_DrawBrushShell( e, clmodel );
++
+ 	if( r_showhull->value > 0.0f )
+ 	{
+ 		GL_PushPolygonOffset( 1.0f, 2.0f );

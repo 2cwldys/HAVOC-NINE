@@ -1,0 +1,137 @@
+===============================================================================
+ CUSTOM XASH SPRAYS
+===============================================================================
+
+ How a spray gets from one player's ts\ folder onto everyone else's screen,
+ and how a player sets their own. One file per machine holds the spray; every
+ player uploads their own and the server hands each one to the others. There
+ is nothing to configure on the server and nothing to download by hand.
+
+   PART 1   THE ONE FILE             what the spray is, what others see
+   PART 2   THE PICKER               choosing from the logos list
+   PART 3   THE FILE DROP            a tempdecal.wad without the menu
+   PART 4   WHAT IMAGE WORKS         formats and sizes
+   PART 5   SHARING AND DIAGNOSIS    giving a spray away, fixing problems
+
+===============================================================================
+ PART 1   THE ONE FILE
+===============================================================================
+
+ 1.1  WHAT THE SPRAY IS
+
+ A spray is one file: ts\tempdecal.wad. It is a WAD3 holding a single decal
+ lump -- the picture the game stamps on the world when the player sprays
+ (the spray key, impulse 201). It is per-machine state: one install carries
+ the file its player chose, and no default travels with a match.
+
+ 1.2  WHAT OTHERS SEE -- THE UPLOAD
+
+ At connect the engine takes the player's own ts\tempdecal.wad, hashes it
+ (MD5) and offers it to the server as a custom decal resource. The server
+ keeps it in its custom.hpk cache and relays it to every other client, so
+ when that player sprays, everyone sees THAT player's picture. Two players
+ with different sprays each see their own on their walls and the other's on
+ theirs.
+
+ This is engine work on client and server: no plugin, no AMX module, no
+ download config, on the Steam hlds and on the H9XASH host alike. The H9XASH
+ build relays the tempdecal under every protocol (engine-h9-spraypicker.patch
+ writes the client side), so a spray that works on one server works on the
+ other with no changes.
+
+===============================================================================
+ PART 2   THE PICKER
+===============================================================================
+
+ 2.1  THE LIST
+
+ The spray list in Options (Multiplayer tab) reads ts\logos and nothing
+ else. The package ships H9's remapped logo there, and no Half-Life logos:
+ it is what the list offers on a fresh install. Files under valve\logos
+ never appear while ts is the active mod.
+
+ 2.2  ADDING YOUR OWN PICTURE
+
+ Any image dropped into ts\logos joins the same list, listed under its file
+ name. A player who wants a spray nobody else has: make the picture, drop it
+ in ts\logos, pick it in Options.
+
+ 2.3  WHAT A PICK DOES
+
+ The pick is stored as cl_logofile in ts\config.cfg (cl_logoext holds the
+ extension, bmp or png). On the H9XASH build the engine remaps that bitmap
+ into the player's own ts\tempdecal.wad -- the file the Part 1 upload reads
+ -- and the Steam client's picker does the same conversion natively. So:
+ pick, connect, spray. A pick made while connected re-offers the decal at
+ once; otherwise it lands at the next connect.
+
+ 2.4  THE PICK AND A HAND-DROPPED WAD
+
+ One rule keeps the two systems honest: the pick, while it can be found,
+ defines the spray. Every connect re-converts logos\<cl_logofile> into
+ ts\tempdecal.wad, over whatever was in the file. A pick that does NOT
+ resolve -- a name with no matching file in ts\logos, like the stock
+ config's "xash" -- converts nothing and overwrites nothing: whatever
+ tempdecal.wad the player dropped in keeps spraying. That is the
+ coexistence rule, and it means an install whose cl_logofile points at no
+ file runs on the drop-in file alone.
+
+===============================================================================
+ PART 3   THE FILE DROP
+===============================================================================
+
+ A ready-made tempdecal.wad into ts\ works with no menu and no picking, on
+ the Steam install and on H9XASH alike. The format is identical between
+ them: a tempdecal.wad made on one install sprays on the other unchanged.
+
+ Two things to remember with a dropped file:
+  - the stock config's pick (PART 2.4) must not resolve, or the drop-in is
+    re-converted away at the next connect. A config whose cl_logofile names
+    nothing protects the drop-in on its own;
+  - a pick that resolves replaces the drop-in, not the other way round: a
+    player who wants the drop-in for good keeps cl_logofile pointing at
+    nothing.
+
+===============================================================================
+ PART 4   WHAT IMAGE WORKS
+===============================================================================
+
+ 8-bit paletted bmp: converted as-is, palette preserved exactly. 24/32-bit
+ bmp and png: quantized to 256 colors; in a png, pixels with alpha below
+ half land on index 255, the invisible color of a decal.
+
+ Size: the engine resamples onto a 16-pixel grid under a ~12,000 pixel
+ surface budget, aspect kept -- 64x64 passes untouched, bigger pictures
+ come down to size. The palette rides along for paletted inputs.
+
+===============================================================================
+ PART 5   SHARING AND DIAGNOSIS
+===============================================================================
+
+ 5.1  GIVING A SPRAY TO SOMEONE
+
+ Send the image: they drop it in ts\logos, pick it, and it uploads to
+ everyone they meet from then on. Or send your ts\tempdecal.wad itself:
+ they drop it in ts\ and spray at once, no menu, no picking.
+
+ 5.2  WHEN SOMETHING'S WRONG
+
+ No spray at all:        ts\tempdecal.wad missing AND cl_logofile naming no
+                         file in ts\logos. The stock pick, lambda, is not
+                         shipped, so a fresh install sprays nothing until
+                         remapped (or another logo) is picked, or a drop-in
+                         is added.
+
+ The wrong spray sprays: cl_logofile names a logo whose file still exists;
+                         every connect re-writes tempdecal.wad from it.
+                         Change the pick in the menu, or make the name
+                         unresolvable.
+
+ Stale spray on others:  the relay is keyed to the file's MD5 and offered
+                         again each connect; a spray changed in the menu
+                         reaches others at the latest on the next connect.
+
+ 5.3  SERVER SIDE
+
+ Nothing to do. custom.hpk collects what clients offer; what is in it is
+ per-server state and rebuilds itself as players connect.

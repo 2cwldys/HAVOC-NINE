@@ -1,0 +1,405 @@
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -4147,6 +4147,7 @@
+ 	if( !CL_LoadProgs( libpath ))
+ 		Host_Error( "can't initialize %s: %s\n", libpath, COM_GetLibraryError( ));
+ 
++	CL_H9Id_Init(); // H9: the presence ID proof's device id and h9_idchallenge (cl_idproof.c)
+ 	cls.build_num = 0;
+ 	cls.initialized = true;
+ 	cl.maxclients = 1; // allow to drawing player in menu
+diff --git a/engine/client/client.h b/engine/client/client.h
+--- a/engine/client/client.h
++++ b/engine/client/client.h
+@@ -1048,6 +1048,11 @@
+ void CL_ParseQuakeMessage( sizebuf_t *msg );
+ 
+ //
++// cl_idproof.c (H9: the client's half of the presence ID proof)
++//
++void CL_H9Id_Init( void );
++
++//
+ // cl_frame.c
+ //
+ struct channel_s;
+diff --git a/engine/client/cl_idproof.c b/engine/client/cl_idproof.c
+new file mode 100644
+--- /dev/null
++++ b/engine/client/cl_idproof.c
+@@ -0,0 +1,374 @@
++/*
++cl_idproof.c - H9: the presence ID proof, the client's half (docs/H9_PRESENCE.txt, section 8)
++Copyright (C) 2026 HAVOC 9
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++h9_clientid (identification.c, from cl_h9_userid) is the same value for a player on a server every
++time, and every player on that server receives it, so on its own it proves nothing. A server running
++h9_presence sends a joining client a one-time challenge, "h9_idchallenge <nonce>", and this file
++answers it with an HMAC keyed with the raw cl_h9_userid, which never leaves the game:
++
++  P        cl_h9_userid as its 32 ASCII characters, the HMAC key
++  S        the address the client is connected to, "a.b.c.d:port" (the one h9_clientid is salted with)
++  mask     the first 16 bytes of HMAC-SHA256(P, "h9dev1:" + nonce)
++  devmask  hex(device id XOR mask): the device id, which only h9web, knowing P, can unmask
++  proof    hex(HMAC-SHA256(P, "h9proof1:" + nonce + ":" + S + ":" + devmask))
++  answer   the client command "h9_idproof <nonce> <devmask> <proof>"
++
++The device id is 16 random bytes made by the OS on first use and kept in device_id.ini in the root
++folder ("[device]" then "id=<32 hex>"), apart from user_id.ini; nothing else reads it, and it is never
++sent in the clear. The userinfo key _h9idv is "1" while the device id is there, which is what makes a
++server challenge the client at all (a key starting with "_" is not sent to other players).
++
++h9_idchallenge is an ordinary command so that a server's stufftext runs it (cl_filterstuffcmd 1
++included: no filtered prefix). It answers only while connected, only a nonce of 32 lowercase hex
++characters, only with a cl_h9_userid of 32 lowercase hex characters, and at most four times a minute.
++
++SHA-256 is FIPS 180-4 and HMAC is RFC 2104: FWGS has MD5 and no SHA-256. A test build compiles the
++hashing part alone with H9_IDPROOF_SELFTEST defined.
++
++The browser build has neither the command nor the key: its players are vouched for by h9web's relay.
++*/
++
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++
++#ifndef H9_IDPROOF_SELFTEST
++#include "common.h"
++#include "client.h"
++#endif
++
++// ---- SHA-256 and HMAC-SHA256 ------------------------------------------------------------------
++
++typedef struct h9sha_s
++{
++	uint32_t h[8];
++	uint8_t  block[64];
++	size_t   blen;
++	uint64_t total;
++} h9sha_t;
++
++static const uint32_t h9sha_k[64] =
++{
++	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
++	0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
++	0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
++	0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
++	0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
++	0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
++	0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
++	0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
++};
++
++#define H9_ROTR( x, n ) ((( x ) >> ( n )) | (( x ) << ( 32 - ( n ))))
++
++static void H9Sha_Block( h9sha_t *s )
++{
++	uint32_t w[64], a, b, c, d, e, f, g, h;
++	int i;
++
++	for( i = 0; i < 16; i++ )
++		w[i] = ((uint32_t)s->block[i * 4] << 24 ) | ((uint32_t)s->block[i * 4 + 1] << 16 ) | ((uint32_t)s->block[i * 4 + 2] << 8 ) | s->block[i * 4 + 3];
++	for( i = 16; i < 64; i++ )
++	{
++		uint32_t s0 = H9_ROTR( w[i - 15], 7 ) ^ H9_ROTR( w[i - 15], 18 ) ^ ( w[i - 15] >> 3 );
++		uint32_t s1 = H9_ROTR( w[i - 2], 17 ) ^ H9_ROTR( w[i - 2], 19 ) ^ ( w[i - 2] >> 10 );
++		w[i] = w[i - 16] + s0 + w[i - 7] + s1;
++	}
++
++	a = s->h[0]; b = s->h[1]; c = s->h[2]; d = s->h[3];
++	e = s->h[4]; f = s->h[5]; g = s->h[6]; h = s->h[7];
++	for( i = 0; i < 64; i++ )
++	{
++		uint32_t S1 = H9_ROTR( e, 6 ) ^ H9_ROTR( e, 11 ) ^ H9_ROTR( e, 25 );
++		uint32_t ch = ( e & f ) ^ ( ~e & g );
++		uint32_t t1 = h + S1 + ch + h9sha_k[i] + w[i];
++		uint32_t S0 = H9_ROTR( a, 2 ) ^ H9_ROTR( a, 13 ) ^ H9_ROTR( a, 22 );
++		uint32_t mj = ( a & b ) ^ ( a & c ) ^ ( b & c );
++		uint32_t t2 = S0 + mj;
++		h = g; g = f; f = e; e = d + t1;
++		d = c; c = b; b = a; a = t1 + t2;
++	}
++	s->h[0] += a; s->h[1] += b; s->h[2] += c; s->h[3] += d;
++	s->h[4] += e; s->h[5] += f; s->h[6] += g; s->h[7] += h;
++}
++
++static void H9Sha_Init( h9sha_t *s )
++{
++	static const uint32_t iv[8] = { 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19 };
++
++	memcpy( s->h, iv, sizeof( iv ));
++	s->blen = 0;
++	s->total = 0;
++}
++
++static void H9Sha_Update( h9sha_t *s, const uint8_t *data, size_t len )
++{
++	while( len-- )
++	{
++		s->block[s->blen++] = *data++;
++		s->total++;
++		if( s->blen == 64 )
++		{
++			H9Sha_Block( s );
++			s->blen = 0;
++		}
++	}
++}
++
++static void H9Sha_Final( h9sha_t *s, uint8_t out[32] )
++{
++	uint64_t bits = s->total * 8;
++	uint8_t pad = 0x80;
++	int i;
++
++	H9Sha_Update( s, &pad, 1 );
++	pad = 0;
++	while( s->blen != 56 )
++		H9Sha_Update( s, &pad, 1 );
++	for( i = 7; i >= 0; i-- )
++	{
++		uint8_t b = (uint8_t)( bits >> ( i * 8 ));
++		H9Sha_Update( s, &b, 1 );
++	}
++	for( i = 0; i < 8; i++ )
++	{
++		out[i * 4] = (uint8_t)( s->h[i] >> 24 );
++		out[i * 4 + 1] = (uint8_t)( s->h[i] >> 16 );
++		out[i * 4 + 2] = (uint8_t)( s->h[i] >> 8 );
++		out[i * 4 + 3] = (uint8_t)s->h[i];
++	}
++}
++
++// HMAC-SHA256(key, msg) into out; keys longer than a block are hashed first (RFC 2104)
++static void H9_HmacSha256( const uint8_t *key, size_t keylen, const uint8_t *msg, size_t msglen, uint8_t out[32] )
++{
++	uint8_t k[64], pad[64], inner[32];
++	h9sha_t s;
++	int i;
++
++	memset( k, 0, sizeof( k ));
++	if( keylen > 64 )
++	{
++		H9Sha_Init( &s );
++		H9Sha_Update( &s, key, keylen );
++		H9Sha_Final( &s, k );
++	}
++	else memcpy( k, key, keylen );
++
++	for( i = 0; i < 64; i++ )
++		pad[i] = k[i] ^ 0x36;
++	H9Sha_Init( &s );
++	H9Sha_Update( &s, pad, 64 );
++	H9Sha_Update( &s, msg, msglen );
++	H9Sha_Final( &s, inner );
++
++	for( i = 0; i < 64; i++ )
++		pad[i] = k[i] ^ 0x5c;
++	H9Sha_Init( &s );
++	H9Sha_Update( &s, pad, 64 );
++	H9Sha_Update( &s, inner, 32 );
++	H9Sha_Final( &s, out );
++}
++
++static void H9_ToHex( const uint8_t *in, size_t n, char *out )
++{
++	static const char hex[] = "0123456789abcdef";
++	size_t i;
++
++	for( i = 0; i < n; i++ )
++	{
++		out[i * 2] = hex[in[i] >> 4];
++		out[i * 2 + 1] = hex[in[i] & 15];
++	}
++	out[n * 2] = 0;
++}
++
++// exactly n characters of 0-9 a-f
++static int H9_IsHex( const char *s, size_t n )
++{
++	size_t i;
++
++	for( i = 0; i < n; i++ )
++	{
++		if( !(( s[i] >= '0' && s[i] <= '9' ) || ( s[i] >= 'a' && s[i] <= 'f' )))
++			return 0;
++	}
++	return s[n] == 0;
++}
++
++static int H9_HexValue( char c )
++{
++	if( c >= '0' && c <= '9' ) return c - '0';
++	if( c >= 'a' && c <= 'f' ) return c - 'a' + 10;
++	if( c >= 'A' && c <= 'F' ) return c - 'A' + 10;
++	return -1;
++}
++
++// The answer to one challenge: devmask (33 bytes) and proof (65 bytes), as h9web checks them.
++static void H9_IdProof( const char *userid, const uint8_t device[16], const char *nonce, const char *server, char devmask[33], char proof[65] )
++{
++	uint8_t mac[32], dm[16];
++	char text[256];
++	size_t n;
++	int i;
++
++	n = (size_t)snprintf( text, sizeof( text ), "h9dev1:%s", nonce );
++	H9_HmacSha256( (const uint8_t *)userid, strlen( userid ), (const uint8_t *)text, n, mac );
++	for( i = 0; i < 16; i++ )
++		dm[i] = device[i] ^ mac[i];
++	H9_ToHex( dm, 16, devmask );
++
++	n = (size_t)snprintf( text, sizeof( text ), "h9proof1:%s:%s:%s", nonce, server, devmask );
++	H9_HmacSha256( (const uint8_t *)userid, strlen( userid ), (const uint8_t *)text, n, mac );
++	H9_ToHex( mac, 32, proof );
++}
++
++#ifndef H9_IDPROOF_SELFTEST
++#if !XASH_EMSCRIPTEN
++
++#if XASH_WIN32
++#include <windows.h>
++// RtlGenRandom, as ntsecapi.h declares it (advapi32, which the engine links)
++BOOLEAN NTAPI SystemFunction036( PVOID RandomBuffer, ULONG RandomBufferLength );
++#endif
++
++static CVAR_DEFINE( cl_h9idv, "_h9idv", "0", FCVAR_USERINFO|FCVAR_PRIVILEGED, "H9: 1 while this game can answer the presence ID proof (set by the engine, cl_idproof.c)" );
++
++static uint8_t h9_device[16];
++static qboolean h9_device_ok;
++static double h9_answered[4]; // when the last four answers went, a ring
++static int h9_next;
++
++static qboolean H9_RandomBytes( uint8_t *out, size_t n )
++{
++#if XASH_WIN32
++	return SystemFunction036( out, (ULONG)n ) ? true : false;
++#else
++	FILE *f = fopen( "/dev/urandom", "rb" );
++	size_t got;
++
++	if( !f )
++		return false;
++	got = fread( out, 1, n, f );
++	fclose( f );
++	return got == n;
++#endif
++}
++
++// device_id.ini in the root folder: read it, or make it when there is none. A file that is there but
++// cannot be read as one is left alone, and the game answers no challenge.
++static qboolean H9_DeviceLoad( void )
++{
++	char root[MAX_SYSPATH], path[MAX_SYSPATH], text[512], hex[33];
++	const char *id;
++	FILE *f;
++	size_t n;
++	int i;
++
++	if( !g_fsapi.GetRootDirectory( root, sizeof( root )))
++		return false;
++	Q_snprintf( path, sizeof( path ), "%s/device_id.ini", root );
++
++	f = fopen( path, "rb" );
++	if( f )
++	{
++		n = fread( text, 1, sizeof( text ) - 1, f );
++		fclose( f );
++		text[n] = 0;
++		id = Q_strstr( text, "id=" );
++		if( !id )
++		{
++			Con_Printf( S_WARN "%s has no id= line: the presence ID proof is off\n", path );
++			return false;
++		}
++		id += 3;
++		for( i = 0; i < 16; i++ )
++		{
++			int hi = H9_HexValue( id[i * 2] ), lo = H9_HexValue( id[i * 2 + 1] );
++
++			if( hi < 0 || lo < 0 )
++			{
++				Con_Printf( S_WARN "%s holds no device id of 32 hex characters: the presence ID proof is off\n", path );
++				return false;
++			}
++			h9_device[i] = (uint8_t)( hi * 16 + lo );
++		}
++		return true;
++	}
++
++	if( !H9_RandomBytes( h9_device, sizeof( h9_device )))
++		return false;
++	f = fopen( path, "wb" );
++	if( !f )
++		return false;
++	H9_ToHex( h9_device, sizeof( h9_device ), hex );
++	fprintf( f, "[device]\nid=%s\n", hex );
++	fclose( f );
++	return true;
++}
++
++/*
++==============
++CL_H9IdChallenge_f
++
++h9_idchallenge <nonce>, from the server
++==============
++*/
++static void CL_H9IdChallenge_f( void )
++{
++	const char *nonce = Cmd_Argv( 1 );
++	char server[64], devmask[33], proof[65];
++	int i, recent = 0;
++
++	if( Cmd_Argc() != 2 || cls.state < ca_connected || !h9_device_ok )
++		return;
++	if( !H9_IsHex( nonce, 32 ) || !H9_IsHex( cl_h9_userid.string, 32 ))
++		return;
++
++	for( i = 0; i < 4; i++ )
++	{
++		if( h9_answered[i] > 0.0 && host.realtime - h9_answered[i] < 60.0 )
++			recent++;
++	}
++	if( recent >= 4 )
++		return;
++
++	Q_strncpy( server, NET_AdrToString( cls.netchan.remote_address ), sizeof( server ));
++	H9_IdProof( cl_h9_userid.string, h9_device, nonce, server, devmask, proof );
++	CL_ServerCommand( true, "h9_idproof %s %s %s", nonce, devmask, proof );
++	h9_answered[h9_next] = host.realtime;
++	h9_next = ( h9_next + 1 ) % 4;
++}
++
++/*
++==============
++CL_H9Id_Init
++==============
++*/
++void CL_H9Id_Init( void )
++{
++	Cvar_RegisterVariable( &cl_h9idv );
++	Cmd_AddCommand( "h9_idchallenge", CL_H9IdChallenge_f, "H9: answers the server's presence ID challenge (docs/H9_PRESENCE.txt)" );
++	h9_device_ok = H9_DeviceLoad();
++	Cvar_DirectSet( &cl_h9idv, h9_device_ok ? "1" : "0" );
++}
++
++#else // XASH_EMSCRIPTEN
++
++void CL_H9Id_Init( void )
++{
++}
++
++#endif // XASH_EMSCRIPTEN
++#endif // H9_IDPROOF_SELFTEST

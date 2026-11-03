@@ -7,11 +7,14 @@
 
 #pragma once
 
+#include "../dlls/cdll_dll.h"
+
 enum 
 { 
-	MAX_PLAYERS_HUD = 64,
+	// player slots 1 to MAX_PLAYERS: the HUD's loops run i < MAX_PLAYERS_HUD
+	MAX_PLAYERS_HUD = MAX_PLAYERS + 1,
 	MAX_TEAMS = 64,
-	MAX_TEAM_NAME = 16,
+	MAX_TEAM_NAME = 32, // the server's TEAM_NAME_LENGTH; the original's is 16
 };
 
 #define MAX_SCORES					10

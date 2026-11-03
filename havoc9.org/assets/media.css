@@ -1,0 +1,160 @@
+/* The MEDIA page (media/): video cards, the click-to-play player, comments and the archive. */
+.media-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.media-head .media-compose {
+  flex-basis: 100%;
+}
+
+.media-search {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.media-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.media-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+
+.media-card.is-hidden {
+  opacity: 0.7;
+  border-style: dashed;
+}
+
+.media-card-body {
+  padding: 0.8rem 1rem 1rem;
+}
+
+.media-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.6rem;
+  margin: 0.4rem 0;
+}
+
+.media-title {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.media-title:hover {
+  color: var(--orange);
+}
+
+.media-video {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+
+.media-video.is-big {
+  max-width: 960px;
+  margin: 0 auto 1rem;
+}
+
+.media-video iframe,
+.media-play,
+.media-play img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.media-play {
+  position: relative;
+  padding: 0;
+  background: #000;
+  cursor: pointer;
+}
+
+.media-play img {
+  object-fit: cover;
+}
+
+.media-play-mark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0.5rem 1.1rem;
+  background: rgba(10, 6, 8, 0.85);
+  border: 1px solid var(--orange);
+  font-family: var(--font-mono);
+  letter-spacing: 0.2em;
+  color: var(--orange);
+}
+
+.media-play:hover .media-play-mark,
+.media-play:focus-visible .media-play-mark {
+  background: var(--orange);
+  color: #fff;
+}
+
+.media-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.media-back {
+  margin-bottom: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.15em;
+}
+
+.media-back a,
+.media-months a {
+  color: var(--orange);
+}
+
+.media-desc {
+  max-width: 960px;
+  margin: 0.5rem auto 0;
+}
+
+.media-comments {
+  max-width: 960px;
+  margin: 2.5rem auto 0;
+}
+
+.media-comment {
+  padding: 0.8rem 0;
+  border-bottom: 1px solid rgba(255, 77, 0, 0.12);
+}
+
+.media-archive {
+  margin-top: 2.5rem;
+}
+
+.media-months {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}

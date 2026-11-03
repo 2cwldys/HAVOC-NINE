@@ -18,7 +18,7 @@
 
 #pragma once
 
-#define MAX_TEAMNAME_LENGTH 16
+#define MAX_TEAMNAME_LENGTH 32 // as TS_TEAMNAME_LEN; the original's is 16
 #define MAX_TEAMS 32
 
 #define TEAMPLAY_TEAMLISTLENGTH MAX_TEAMS* MAX_TEAMNAME_LENGTH

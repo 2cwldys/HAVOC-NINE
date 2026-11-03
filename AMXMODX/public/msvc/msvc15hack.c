@@ -2,14 +2,22 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <stdlib.h>
+#include <stdio.h>
 
-// Fix from from https://stackoverflow.com/a/34655235.
+// Fix from https://stackoverflow.com/a/34655235.
 //
-// __iob_func required by the MySQL we use,
-// but no longer exists in the VS 14.0+ crt.
+// __iob_func required by the legacy MySQL connector (built against
+// the pre-VS14 CRT), but no longer exported by the VS 14.0+ CRT.
+
+#pragma warning(disable:4091) // 'typedef ': ignored on left of '' when no variable is declared
+
+#ifdef _M_IX86
+// x86 keeps the original StackWalk-based heuristic so MySQL gets the
+// correct stdin / stdout / stderr depending on which index it was about
+// to access. Uses inline __asm to capture Eip/Ebp/Esp from CONTEXT,
+// which MSVC only supports on x86.
 
 #pragma comment(lib, "DbgHelp.lib")
-#pragma warning(disable:4091) // 'typedef ': ignored on left of '' when no variable is declared
 #include <DbgHelp.h>
 #include <corecrt_wstdio.h>
 
@@ -75,6 +83,29 @@ FILE * __cdecl __iob_func(void)
 
 	return NULL;
 }
+
+#else // _M_X64
+
+// MSVC x64 has no inline asm, so we can't replicate the StackWalk
+// heuristic the x86 path uses. Instead, return a static 3-element FILE
+// array whose entries are copies of the current process's stdin /
+// stdout / stderr. MySQL's typical pattern is &__iob_func()[N] which
+// then indexes into this array — and FILE is `struct _iobuf` on MSVC
+// (a complete type), so the copies are well-defined.
+FILE * __cdecl __iob_func(void)
+{
+	static FILE iob[3];
+	static int initialized = 0;
+	if (!initialized) {
+		iob[0] = *stdin;
+		iob[1] = *stdout;
+		iob[2] = *stderr;
+		initialized = 1;
+	}
+	return iob;
+}
+
+#endif // _M_IX86 vs _M_X64
 
 // Adapted from dosmap.c in Visual Studio 12.0 CRT sources.
 //

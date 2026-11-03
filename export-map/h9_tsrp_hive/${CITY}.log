@@ -1,0 +1,29 @@
+sdHLCSG v1.3.1 64-bit (Oct 25 2026)
+seedee's Half-Life Compilation Tools
+Based on code modifications by Sean 'Zoner' Cavanaugh and Vluzacn
+Based on Valve's version, modified with permission.
+Submit detailed bug reports to (github.com/seedee/SDHLT/issues)
+-----  BEGIN  sdHLCSG -----
+Command line: D:\Downloads\TSM\export-map\compilers-xash\sdhlt-v1.3.1-xash\tools\Win64\sdHLCSG_x64.exe -engine xash ${CITY} 
+Arguments: -engine xash ${CITY} -low 
+Error: Error opening ${CITY}.map: No such file or directory
+
+-----   END   sdHLCSG -----
+
+
+
+sdHLBSP v1.3.1 64-bit (Oct 25 2026)
+seedee's Half-Life Compilation Tools
+Based on code modifications by Sean 'Zoner' Cavanaugh and Vluzacn
+Based on Valve's version, modified with permission.
+Submit detailed bug reports to (github.com/seedee/SDHLT/issues)
+-----  BEGIN  sdHLBSP -----
+Command line: D:\Downloads\TSM\export-map\compilers-xash\sdhlt-v1.3.1-xash\tools\Win64\sdHLBSP_x64.exe -engine xash ${CITY} 
+Arguments: -engine xash ${CITY} -low 
+>> There was a problem compiling the map.
+>> Check the file ${CITY}.log for the cause.
+
+-----   END   sdHLBSP -----
+
+
+

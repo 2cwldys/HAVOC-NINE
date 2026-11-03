@@ -1,0 +1,37 @@
+H9 json_amxx.dll -- AMX Mod X's JSON module, built from source for 128 player slots
+===================================================================================
+
+What this is
+------------
+
+ts\addons\amxmodx\modules\json_amxx.dll is AMX Mod X's JSON module,
+built by H9 from TSM\AMXMODX: goldsrc-net/amxmodx (the AMX Mod X fork reTS ships with),
+branch 64bit at commit dedff660dff3fa615a96d6ba3890d6000b588ed1,
+with H9's changes as uncommitted working-tree changes (AMXMODX\H9-SOURCE.txt).
+The core and every module H9 ships but three are built together from that one tree, for
+128 player slots: tsx_amxx.dll stays reTSX (docs\PLAYER_LIMIT_128.txt, section 8.5),
+easy_http_amxx.dll is a third-party module, and mysql_amxx.dll (it links MySQL's C
+connector, and no H9 plugin loads it) stays the release's.
+
+H9's changes in it: none. It is built unchanged from the same tree, so it matches the core
+it loads in; nothing in it is sized by the player count.
+
+Deployed file : json_amxx.dll
+Size          : 182784 bytes
+SHA256        : 3D33E573B7A26CEE44D7E9A11C7DF908918025C4DA7213F4B80EB8B1F59720E5
+Built         : 2026-11-02, MSBuild modules\json\msvc12\json.vcxproj, Release|Win32, toolset
+                v145 (Visual Studio 2026), from a copy of TSM\AMXMODX, against the SDKs
+                the fork's CI uses: goldsrc-net/hlsdk branch 64bit (dd2c6d61) and
+                alliedmodders/metamod-hl1 (18a10db6). The msvc12 projects lag AMBuild's
+                (three source files, HAVE_STDINT_H, default struct packing), fixed in
+                the copy (H9-SOURCE.txt, Building on Windows).
+
+Against the build it replaces
+-----------------------------
+
+The json_amxx.dll H9 shipped before, from the reTS AMX Mod X build (1.10.0-manual):
+191488 bytes, SHA256 1FAD357DC2A2A44D7C0EC56496BAA133FD70D13579ED813D6000C23974F844BE,
+kept as json_amxx.dll.bak_slots beside this file. To go back, copy that over json_amxx.dll.
+
+On servers of 32 slots or fewer nothing changes: the tables are longer, and every loop and
+bound in them still stops at the server's maxplayers.

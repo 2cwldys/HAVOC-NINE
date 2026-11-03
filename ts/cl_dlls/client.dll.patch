@@ -13,8 +13,9 @@ Deployed file : client.dll
 Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 (CMake, Win32, Release; target client)
 Size          : 895488 bytes
-SHA256        : EB8865E560331DD4D7D21B5F6C213B6C04E46244F750957C5F74E770249202E0
-Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29)
+SHA256        : 92E1BFF2614EA881692CDEA86BAF405AD95D3F70BDBDE19BD958C8E0A5267E97
+Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
+                plus the local mouse-release fix below (2026-11-01)
 
 What the source build contains, beyond the stock client
 -------------------------------------------------------
@@ -32,13 +33,29 @@ What the source build contains, beyond the stock client
 
    Verified in the built DLL: cmp [edi+0x2f8],2 / cmp [edi+0x2fc],0xff, then skip the fade.
 
-2. Gunshot and ricochet pitch unclamped (upstream bd3f6c3c1aa3)
+2. Mouse-button releases forwarded while the cursor is up (new-round magdump fix)
+
+   cl_dll\inputw32.cpp, IN_MouseEvent. While the cursor is up (the TS buy menu, a VGUI
+   panel, the spectator camera) the function gives the click to the menu and returns
+   without turning it into a key event. That is correct for a press, but it also ate the
+   RELEASE of a button that was already held when the cursor came up. The TS buy menu
+   opens automatically on entering spectate at a round start, so a fire button held
+   across that edge (the round-end shot, or a click that closed the menu) kept its
+   kbutton down: in_attack stayed set, the client predicted fire through the freeze, and
+   at unfreeze the server saw IN_ATTACK still down and emptied the magazine, with the
+   client-side aim recoil climbing to the ceiling. The cursor-up branch now forwards a
+   Key_Event(K_MOUSE1 + i, 0) for every button that went from down to up, before syncing
+   mouse_oldbuttonstate. Presses are still consumed by the menu; a release whose press
+   was consumed matches no down key in KeyUp and is dropped by the engine while the key
+   is up, so it is harmless.
+
+3. Gunshot and ricochet pitch unclamped (upstream bd3f6c3c1aa3)
 
    cl_dll\ev_ts.cpp: the 255/1 clamp is gone from the gunshot, linked-fire and ricochet
    pitches. pitch = 100 + 300 * slow, 400 at normal speed; neither GoldSrc nor Xash caps pitch,
    so normal fire plays at 4x again instead of 2.55x.
 
-3. Everything else reTS already had
+4. Everything else reTS already had
 
    The reTS client is a recompilation of the whole TS client, so it also carries the third-person
    self-transparency fade, the predicted viewmodel body, the HUD and the rest of the reTS client
@@ -63,7 +80,9 @@ the appendix describes that build.
 Rollback
 --------
 
-The pair deployed before this build is kept in
+The client this build replaces (the 2026-10-29 build, 895488 bytes, SHA256
+EB8865E560331DD4D7D21B5F6C213B6C04E46244F750957C5F74E770249202E0) is kept in
+backups\reTS_client_20261101-014835\client.dll. The pair before that is in
 backups\reTS_upstream_20261029\deployed_before\ (client.dll 895488 bytes, SHA256
 94251155A1B435A12F7A2DB5E11C1EA5541D36C01EC6F9E506824F2B1A43F9C5). The GoldSrc package's
 previous client -- the stock client with the binary cloak patch (865280 bytes, MD5

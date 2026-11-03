@@ -41,6 +41,13 @@
 				"windows"   "\xD9\x44\x24\x04\xD8\x1D\x2A\x2A\x2A\x2A\x8B\x44\x24\x04\x56\x8B\xF1\x89\x86\x3C\x05\x00\x00"
 				"linux"     "@SetPlayerSpeed__11CBasePlayerf"
 			}
+
+			"CTSPowerUp::WaitTouch"  // void CTSPowerUp::WaitTouch(CBaseEntity *pOther)
+			{
+				"library"   "server"
+				"windows"   "@?WaitTouch@CTSPowerUp@@QAEXPAVCBaseEntity@@@Z"
+				"linux"     "@WaitTouch__10CTSPowerUpP11CBaseEntity"
+			}
 		}
 	}
 }

@@ -18,8 +18,18 @@
 #include "amxxmodule.h"
 #include "CRank.h"
 
+// Player slots TSX keeps a CPlayer for, by edict index 1 to TSX_MAX_PLAYERS, and each one's
+// attacker and victim tables (H9 builds AMX Mod X for 128).
+#define TSX_MAX_PLAYERS 128
+
 #define TSMAX_CUSTOMWPNS		5
-#define TSMAX_WEAPONS			39 + TSMAX_CUSTOMWPNS
+#define TSMAX_WEAPONS			40 + TSMAX_CUSTOMWPNS
+
+// The Specialists 3.0 weapon ids run 0 (kung fu) to 37; TSX adds the thrown knife. The stats keep
+// every weapon's totals in slot 0, so kung fu's own stats go in a slot of their own.
+#define TSWEAPON_KUNGFU			0
+#define TSWEAPON_TKNIFE			38
+#define TSWEAPON_KUNGFU_STATS	39
 
 
 #if defined(_WIN32)
@@ -28,32 +38,14 @@
 #define TSKNIFE_OFFSET			35
 #endif
 
+#define TS_SPEED_ENTITIES		32 // CBasePlayer's slowed entities
+
 #define TSPWUP_SLOWMO			1
 #define TSPWUP_INFAMMO			2
 #define TSPWUP_KUNGFU			4
 #define TSPWUP_SLOWPAUSE		8
 #define TSPWUP_DFIRERATE		16
 #define TSPWUP_SJUMP			256
-
-#if defined(__linux__) || defined(__APPLE__)
-#define EXTRAOFFSET	5
-#else
-#define EXTRAOFFSET 0
-#endif
-
-#define TSX_SDUCK_OFFSET		(27+EXTRAOFFSET)
-#define TSX_SPEED1_OFFSET		(85+EXTRAOFFSET)
-#define TSX_PHYSICS_OFFSET		(86+EXTRAOFFSET)
-#define TSX_BTRAIL_OFFSET		(87+EXTRAOFFSET)
-#define TSX_ISSLO_OFFSET		(89+EXTRAOFFSET)
-#define TSX_SPEED2_OFFSET		(90+EXTRAOFFSET)
-#define TSX_SROLL_OFFSET		(158+EXTRAOFFSET)
-#define TSX_MONEY_OFFSET		(301+EXTRAOFFSET)
-#define TSX_SLOTS_OFFSET		(304+EXTRAOFFSET)
-#define TSX_SLOMO1_OFFSET		(423+EXTRAOFFSET)
-#define TSX_SLOMO2_OFFSET		(425+EXTRAOFFSET)
-#define TSX_MSG_OFFSET			(433+EXTRAOFFSET)
-#define TSX_TIME_OFFSET			(444+EXTRAOFFSET)
 
 #define TSITEM_KUNGFU			1<<0
 #define TSITEM_SUPERJUMP		1<<1
@@ -84,13 +76,25 @@ struct CPlayer {
 	int items; // "stale" przedmioty , super jump i kung fu bonus
 
 	//
-	int killingSpree;
-	int is_specialist;
+	int killingSpree; // the game's streak (player+0x744): kills since spawn, up to 255
 	int killFlags;
 	int lastFrag; // oblicz ostatni frag, sprawdza czy poprawna jest detekcja broni i bonusow 
-	float lastKill;  // kiedy ostatni , dla double kill
+	float lastKill;  // the game's last kill time (player+0x748), 0 after a double kill
 	//
 	int frags; // suma dla kontroli ostatniego fraga, to - v.frags = lastfrag
+	// The game's DeathMsg for this player's last death: who killed him, whether it names kung fu,
+	// and the TSKF_ stunt flag the killer's movement earned then. With it, what PlayerKilled
+	// read when it scored the kill: whether it was a double kill, this player's streak and the
+	// killer's streak counting this kill.
+	int deathKiller;
+	bool deathKungFu;
+	int deathStunt;
+	bool deathDouble;
+	int deathSpree;
+	int deathKillerSpree;
+	bool deathScores; // the kill was worth points (no team kill, and in The One mode a kill by the One)
+	bool died; // since his last spawn, which is when the game clears his streak
+	bool theOne; // The One mode: he is the One (his team is "The ONE")
 
 	bool ingame;
 	float clearStats;
@@ -98,6 +102,21 @@ struct CPlayer {
 	int checkstate;
 	int state;
 	int oldstate;
+
+	// ts_set_speed: this player's time scale and how far around him it reaches, until speedEnd;
+	// speedBy is the player whose ts_set_speed scales this one now.
+	bool speedActive;
+	float speedEnd;
+	float speedValue;
+	float speedAura;
+	int speedBy;
+	// The grenades, thrown knives and dropped guns his ts_set_speed scales now (entity index and
+	// serial number), at most as many as the game's own slow motion keeps per player.
+	struct SpeedEntity {
+		int index;
+		int serial;
+	} speedEntities[TS_SPEED_ENTITIES];
+	int speedEntityCount;
 	
 	struct PlayerWeapon : public Stats {
 		char*		name;
@@ -108,8 +127,8 @@ struct CPlayer {
 	};
 
 	PlayerWeapon	weapons[TSMAX_WEAPONS];
-	PlayerWeapon	attackers[33];
-	PlayerWeapon	victims[33];
+	PlayerWeapon	attackers[TSX_MAX_PLAYERS + 1];
+	PlayerWeapon	victims[TSX_MAX_PLAYERS + 1];
 	Stats			weaponsRnd[TSMAX_WEAPONS]; // DEC-Weapon (Round) stats
 	Stats			life;
 
@@ -123,14 +142,6 @@ struct CPlayer {
 	void saveHit(CPlayer* pVictim, int weapon, int damage, int aiming);
 	void saveShot(int weapon);
 	void restartStats(bool all = true);
-	void SetMoney(int money);
-	void SetSlots(int slots);
-	int GetSlots();
-	void SetOffset(int offs, int val);
-	int GetOffset(int offs);
-	void SetOffsetF(int offs, float val);
-	float GetOffsetF(int offs);
-	float GetTime();
 
 	inline bool IsBot(){
 		const char* auth= (*g_engfuncs.pfnGetPlayerAuthId)(pEdict);

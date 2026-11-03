@@ -59,6 +59,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
+import { fileURLToPath } from "node:url";
 import { MIGRATIONS } from "./migrations.js";
 import { createStore } from "./store.js";
 import { KeyStore, keysPath, addressKey } from "./keys.js";
@@ -66,6 +68,8 @@ import { modeFor, keyFromDescription, cleanMap, cleanText } from "./modes.js";
 import { createServerAuth } from "./serverauth.js";
 import { createEnrollment } from "./enroll.js";
 import { createCommunity } from "./community.js";
+import { gamePicture, gameVersion, decodePng, encodePng, AVATAR_SIDE, GAME_TYPES } from "./avatars.js";
+import { createCompete } from "./compete.js";
 
 export { MIGRATIONS };
 
@@ -93,8 +97,10 @@ export const DEFAULTS = Object.freeze({
   rejoinSeconds: 120,
   // the most playtime one gap between two sightings counts (at most sessionTimeoutSeconds)
   maxCreditSeconds: 150,
-  // a proof answers a nonce the plugin made; one issued longer ago than this is refused
-  proofMaxAgeSeconds: 86400,
+  // a proof answers a nonce h9web issued to that server (POST /api/presence/server/nonce); it
+  // counts while the nonce is younger than this, so the plugin asks again more often (300 s), and
+  // one older than this is refused as stale
+  proofMaxAgeSeconds: 600,
   sweepSeconds: 30,
   sessionRetentionDays: 90,
   // the coarse network hashes, and resolved flags, are deleted after this long
@@ -108,6 +114,13 @@ export const DEFAULTS = Object.freeze({
   // <map>.png there is shown as text
   mapPicturesDir: null,
   mapPicturesUrl: "/assets/maps/",
+  // the scoreboard's picture for a proven account with none of its own: the site's default picture
+  // (havoc9.org/assets/avatar-default.png). null: this module's copy of it, default-picture.png; or
+  // the absolute path of a PNG or GIF
+  defaultPicture: null,
+  // the web client's page says it is open every minute (POST /api/presence/web); this long after the
+  // last time it said so, the account is no longer in the web client
+  webClientSeconds: 180,
   // enrollment (enroll.js): the caller's IP must be the address it enrolls; a server not on
   // servers.json goes live without an admin; a live key with no report this long expires; an
   // unproven enrollment is forgotten after this long; the rules are asked at most this often, and
@@ -150,6 +163,12 @@ export const DEFAULTS = Object.freeze({
     dataWritePerAccount: Object.freeze({ max: 60, windowSeconds: 60, blockSeconds: 30, maxBlockSeconds: 300 }),
     claimPerServer: Object.freeze({ max: 10, windowSeconds: 3600, blockSeconds: 600, maxBlockSeconds: 3600 }),
     communityPerAccount: Object.freeze({ max: 120, windowSeconds: 60, blockSeconds: 60, maxBlockSeconds: 600 }),
+    noncePerServer: Object.freeze({ max: 600, windowSeconds: 60, blockSeconds: 30, maxBlockSeconds: 300 }),
+    membershipPerAccount: Object.freeze({ max: 30, windowSeconds: 3600, blockSeconds: 300, maxBlockSeconds: 3600 }),
+    invitePerAccount: Object.freeze({ max: 60, windowSeconds: 3600, blockSeconds: 300, maxBlockSeconds: 3600 }),
+    gamePicturePerAccount: Object.freeze({ max: 20, windowSeconds: 3600, blockSeconds: 600, maxBlockSeconds: 3600 }),
+    webClientPerAccount: Object.freeze({ max: 10, windowSeconds: 60, blockSeconds: 60, maxBlockSeconds: 300 }),
+    discordInPerCommunity: Object.freeze({ max: 30, windowSeconds: 60, blockSeconds: 30, maxBlockSeconds: 300 }),
   }),
 });
 
@@ -160,7 +179,7 @@ const WHOLE = {
   enrollStaleDays: [1, 3650], enrollPendingMinutes: [1, 10080], enrollProbeSeconds: [1, 3600], enrollProbeTimeoutMs: [100, 30000],
   pollHoldSeconds: [0, 25], chatMaxChars: [10, 160], chatRetentionDays: [1, 365], chatCooldownSeconds: [0, 600],
   dataValueMax: [16, 4096], dataKeysPerAccount: [1, 1024], dataRowsPerCommunity: [100, 10000000], dataLogRetentionDays: [1, 365],
-  communitiesPerAccount: [1, 100], claimMinutes: [1, 1440],
+  communitiesPerAccount: [1, 100], claimMinutes: [1, 1440], webClientSeconds: [60, 3600],
 };
 
 export function presenceSettings(raw = {}) {
@@ -181,6 +200,9 @@ export function presenceSettings(raw = {}) {
   if (s.maxCreditSeconds > s.sessionTimeoutSeconds) throw new Error("presence: maxCreditSeconds must not be above sessionTimeoutSeconds");
   if (s.mapPicturesDir !== null && (typeof s.mapPicturesDir !== "string" || !path.isAbsolute(s.mapPicturesDir))) {
     throw new Error("presence: moduleSettings.presence.mapPicturesDir must be an absolute path, or null");
+  }
+  if (s.defaultPicture !== null && (typeof s.defaultPicture !== "string" || !path.isAbsolute(s.defaultPicture))) {
+    throw new Error("presence: moduleSettings.presence.defaultPicture must be an absolute path, or null");
   }
   if (typeof s.mapPicturesUrl !== "string" || !/^\/[A-Za-z0-9._~\/-]*\/$/.test(s.mapPicturesUrl)) {
     throw new Error("presence: moduleSettings.presence.mapPicturesUrl must be a path that starts and ends with /");
@@ -220,6 +242,13 @@ const NET = /^[0-9a-f.:]{1,45}$/;
 const PLUGIN = 1;
 const RELAY = 2;
 const VIA = { 1: "game", 2: "web", 3: "both" };
+
+// The scoreboard's picture for a proven account with no picture of its own: the site's default, under
+// an account number no account has, so every game fetches and keeps it once (H9_PRESENCE.txt 4b).
+export const DEFAULT_ACCOUNT = 2147483647;
+const DEFAULT_PICTURE_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "default-picture.png");
+// profile pictures browsers decode and h9web does not: their 64 x 64 copy comes from the owner's browser
+const BROWSER_TYPES = new Set(["image/jpeg", "image/webp"]);
 const iso = (t) => (t ? new Date(t * 1000).toISOString().replace(/\.\d+Z$/, "Z") : null);
 const whole = (v) => Number.isSafeInteger(v) && v >= 0;
 
@@ -251,6 +280,7 @@ export function createPresence(deps) {
   const nameInUse = hook("nameInUse");
   const lastActive = typeof auth.lastActive === "function" ? auth.lastActive : null;
   const activeSince = typeof auth.activeSince === "function" ? auth.activeSince : null;
+  const signedOutAt = typeof auth.signedOutAt === "function" ? auth.signedOutAt : null;
   const confirmAdmin = typeof auth.confirmAdmin === "function" ? auth.confirmAdmin : null;
   const audit = deps.audit && typeof deps.audit.record === "function" ? deps.audit : null;
   const s = presenceSettings(deps.settings || {});
@@ -260,6 +290,49 @@ export function createPresence(deps) {
   const store = createStore(db);
   const keys = new KeyStore(keysPath(deps.dataDir), { log });
   const serverAuth = createServerAuth({ db, HttpError, settings: s, now });
+  const nq = {
+    issue: db.prepare("INSERT OR IGNORE INTO presence_proof_nonces (nonce, server, issued_at) VALUES (?, ?, ?)"),
+    issued: db.prepare("SELECT issued_at FROM presence_proof_nonces WHERE nonce = ? AND server = ?"),
+    prune: db.prepare("DELETE FROM presence_proof_nonces WHERE issued_at < ?"),
+  };
+  // the forum's profile pictures (modules\forum): its table and files, once the forum has made them
+  let pictureRow = null;
+  const pictureStmt = () => {
+    if (!pictureRow) {
+      try {
+        pictureRow = db.prepare("SELECT version, type FROM forum_avatars WHERE account_id = ?");
+      } catch (e) {
+        pictureRow = null;
+      }
+    }
+    return pictureRow;
+  };
+  const pictureDir = path.join(deps.dataDir || ".", "..", "forum", "avatars");
+  // the 64 x 64 copies browsers made of JPEG and WebP pictures (migration v6)
+  const gq = {
+    version: db.prepare("SELECT version FROM presence_game_pictures WHERE account_id = ?"),
+    png: db.prepare("SELECT png FROM presence_game_pictures WHERE account_id = ? AND version = ?"),
+    put: db.prepare(`INSERT INTO presence_game_pictures (account_id, version, png, made_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT (account_id) DO UPDATE SET version = excluded.version, png = excluded.png, made_at = excluded.made_at`),
+  };
+  // the forum's DEVELOPER flag (forum_developers, the forum's migration v9): those names in purple on
+  // the cards and lists, as the forum shows them. Looked for again at most once a minute while absent.
+  let devRow = null;
+  let devTried = 0;
+  function isDeveloper(accountId) {
+    if (!devRow && Date.now() - devTried > 60000) {
+      devTried = Date.now();
+      try {
+        devRow = db.prepare("SELECT 1 AS k FROM forum_developers WHERE account_id = ?");
+      } catch (e) {
+        devRow = null;
+      }
+    }
+    return !!(devRow && devRow.get(accountId));
+  }
+  const dev = (accountId) => (isDeveloper(accountId) ? { developer: true } : {});
+  const PICTURE_EXT = { "image/png": "png", "image/gif": "gif" };
+  const gamePictures = new Map(); // "<account>/<version>" -> PNG bytes, the newest 256
   let netKey = null;
 
   const limiters = {};
@@ -279,11 +352,26 @@ export function createPresence(deps) {
   // module's store, limits and signed-call checks.
   const enrollment = createEnrollment({
     db, s, log, router, auth, servers, keys, serverAuth, limit, ipKey, audit, http: deps.http, now, transaction: tx,
-    dataDir: deps.dataDir, queryRules: deps.queryRules,
+    dataDir: deps.dataDir, queryRules: deps.queryRules, accounts, clientIdIndex, verifyIdProof,
+    // a device may prove an account's id when it is bound or allowed, or when the account has none yet
+    deviceAllowed: (accountId, device) => store.deviceCount(accountId) === 0 || !!store.device(accountId, device),
   });
   const community = createCommunity({
     db, s, log, router, auth, accounts, serverAuth, enrollment, limit, ipKey, audit, store, http: deps.http, now, transaction: tx,
     nowView: () => nowView(), publicPlace: (id) => publicPlace(id), serverInfo: (key) => serverInfo(key),
+    playersOn: (key) => playersOn(key), refresh: () => changed(), events,
+  });
+
+  // A private community's server (community.js), and a listen server (Create Game, enroll.js: its
+  // address is a player's own): left out of everything public, as a hidden "where" is. A private
+  // community's members see its servers on the community's own page.
+  const privateServer = (key) => !!community.privateCommunityOf(key) || enrollment.isListen(key);
+
+  // Rated play (compete.js, docs\H9_COMPETITIVE.txt): compts's Elo per kill and its scoreboard, on
+  // this module's keys, proven players and communities.
+  const compete = createCompete({
+    db, router, auth, accounts, serverAuth, enrollment, community, limit, ipKey, audit, log, now, transaction: tx,
+    http: deps.http, limits: deps.limits, settings: s, privacyOf: (id) => privacyOf(id), serverName: (key) => serverView(key).name,
   });
 
   // A refused report is logged once a minute per server and reason, and never with its body,
@@ -406,10 +494,18 @@ export function createPresence(deps) {
   // last one closed. In memory, as the relay's sockets do not outlive the process either.
   const webSockets = new Map(); // account id -> sockets open
   const webClosed = new Map(); // account id -> unix seconds the last one closed
+  const webPage = new Map(); // account id -> unix seconds the web client's page last said it is open
+  const pageOpen = (accountId, t) => t - (webPage.get(accountId) || 0) <= s.webClientSeconds;
 
   function siteAt(accountId) {
     const v = lastActive ? lastActive(accountId) : null;
     return Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
+  }
+
+  // signed out at or after its last request: not on the site, though that request stays its last seen
+  function signedOutSince(accountId, at) {
+    const v = signedOutAt ? signedOutAt(accountId) : null;
+    return Number.isFinite(v) && v >= at;
   }
 
   // Where an account is, as others may see it under its switches, highest first:
@@ -428,13 +524,13 @@ export function createPresence(deps) {
       if (p) return { state: "game", row: p.row, verified: p.verified };
     }
     const webInGame = rows.some((r) => r.relay === 1 && serverView(r.server).listed);
-    if (priv.web && (webSockets.get(account.id) || 0) > 0 && !webInGame) return { state: "web" };
+    if (priv.web && ((webSockets.get(account.id) || 0) > 0 || pageOpen(account.id, t)) && !webInGame) return { state: "web" };
     const site = siteAt(account.id);
-    if (priv.site && site !== null && t - site <= s.siteActiveSeconds) return { state: "site" };
+    if (priv.site && site !== null && t - site <= s.siteActiveSeconds && !signedOutSince(account.id, site)) return { state: "site" };
     let last = null;
     if (priv.lastSeen) {
       const game = rows.some(active) ? store.lastEnded(account.id) : store.totalsOf(account.id).last_seen;
-      last = Math.max(game || 0, webClosed.get(account.id) || 0, priv.site && site ? site : 0) || null;
+      last = Math.max(game || 0, webClosed.get(account.id) || 0, webPage.get(account.id) || 0, priv.site && site ? site : 0) || null;
     }
     return { state: "offline", lastSeen: last };
   }
@@ -460,14 +556,15 @@ export function createPresence(deps) {
     const totals = priv.playtime ? store.totalsOf(account.id) : null;
     const card = {
       username: account.username,
+      ...dev(account.id),
       state: st.state,
       online: st.state === "game",
-      playing: st.state === "game" ? playingView(st.row, t, st.verified, priv.where) : null,
+      playing: st.state === "game" ? playingView(st.row, t, st.verified, priv.where && !privateServer(st.row.server)) : null,
       badge: !!(totals && totals.servers > 0),
       playtimeSeconds: totals ? totals.seconds : null,
       firstSeen: totals ? iso(totals.first_seen) : null,
       lastSeen: st.state === "offline" ? iso(st.lastSeen) : null,
-      servers: totals && priv.where ? store.playtimeOf(account.id).filter((x) => serverView(x.server).listed).slice(0, 5).map((x) => {
+      servers: totals && priv.where ? store.playtimeOf(account.id).filter((x) => serverView(x.server).listed && !privateServer(x.server)).slice(0, 5).map((x) => {
         const sv = serverView(x.server);
         return { server: { name: sv.name, address: sv.address }, seconds: x.seconds };
       }) : [],
@@ -524,10 +621,21 @@ export function createPresence(deps) {
 
   // Who is where, for "who's playing" and "online now": in game by server (or, with "where"
   // hidden, in game somewhere), in the web client's menu, and on the site; each account under its
-  // own switches. At most 200 names in each list.
+  // own switches. At most 200 names in each list. A private community's servers are not listed:
+  // their players are in game somewhere ("elsewhere"); playersOn still names them, for that
+  // community's own page.
   function nowView() {
+    return nowAll().data;
+  }
+
+  function playersOn(key) {
+    const e = nowAll().byServer.get(key);
+    return e ? e.players.map((p) => p.username) : [];
+  }
+
+  function nowAll() {
     const tms = nowMs();
-    if (nowCache && tms - nowCache.at < s.cacheSeconds * 1000) return nowCache.data;
+    if (nowCache && tms - nowCache.at < s.cacheSeconds * 1000) return nowCache;
     const t = now();
     const byServer = new Map();
     const elsewhere = [];
@@ -544,7 +652,7 @@ export function createPresence(deps) {
       const st = stateFor(account, priv, t);
       if (st.state === "game") {
         players++;
-        const who = { username: account.username, since: iso(st.row.since), minutes: Math.max(0, Math.floor((t - st.row.since) / 60)), verified: st.verified };
+        const who = { username: account.username, ...dev(accountId), since: iso(st.row.since), minutes: Math.max(0, Math.floor((t - st.row.since) / 60)), verified: st.verified };
         if (!priv.where) {
           if (elsewhere.length < 200) elsewhere.push(who);
           return;
@@ -558,23 +666,29 @@ export function createPresence(deps) {
         }
         if (entry.players.length < 200) entry.players.push(who);
       } else if (st.state === "web") {
-        if (web.length < 200) web.push({ username: account.username });
+        if (web.length < 200) web.push({ username: account.username, ...dev(accountId) });
       } else if (st.state === "site") {
-        if (site.length < 200) site.push({ username: account.username });
+        if (site.length < 200) site.push({ username: account.username, ...dev(accountId) });
       }
     }
     for (const id of store.activeAccounts()) consider(id);
     for (const [id, n] of webSockets) if (n > 0) consider(id);
+    for (const id of webPage.keys()) if (pageOpen(id, t)) consider(id);
     if (activeSince) for (const id of activeSince(t - s.siteActiveSeconds) || []) consider(id);
     const bySince = (a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : a.username.localeCompare(b.username));
-    for (const e of byServer.values()) e.players.sort(bySince);
+    const shown = [];
+    for (const [key, e] of byServer) {
+      e.players.sort(bySince);
+      if (!privateServer(key)) shown.push(e);
+      else for (const who of e.players) if (elsewhere.length < 200) elsewhere.push(who);
+    }
     elsewhere.sort(bySince);
     web.sort((a, b) => a.username.localeCompare(b.username));
     site.sort((a, b) => a.username.localeCompare(b.username));
-    const list = [...byServer.values()].sort((a, b) => b.players.length - a.players.length || a.server.name.localeCompare(b.server.name));
+    const list = shown.sort((a, b) => b.players.length - a.players.length || a.server.name.localeCompare(b.server.name));
     const data = { generated: iso(t), players, servers: list, elsewhere, web, site };
-    nowCache = { at: tms, data };
-    return data;
+    nowCache = { at: tms, data, byServer };
+    return nowCache;
   }
 
   // ---- sessions, playtime, flags -----------------------------------------------------------------
@@ -710,9 +824,10 @@ export function createPresence(deps) {
     });
   }
 
-  // The players a report lists, checked; a malformed one refuses the whole report. A report that
-  // asks for names may also list players with no h9_clientid ({ slot, name } only): they are
-  // there for the name check alone, and are never stored or logged.
+  // The players a report lists, checked; a malformed one refuses the whole report. A report may
+  // also list players with no usable h9_clientid by slot ({ slot, name } only): for the name check
+  // (a report that asks for names) and for a members-only server's gate. They are never stored or
+  // logged.
   function readPlayers(list, withNames) {
     if (!Array.isArray(list)) throw new HttpError(400, "bad_request", "players must be a list.");
     if (list.length > s.maxPlayers) throw new HttpError(413, "too_many_players", "At most " + s.maxPlayers + " players a report.");
@@ -720,7 +835,7 @@ export function createPresence(deps) {
     for (const p of list) {
       if (!p || typeof p !== "object" || Array.isArray(p)) throw new HttpError(400, "bad_request", "Each player must be an object.");
       if (p.slot !== undefined && !(Number.isSafeInteger(p.slot) && p.slot >= 1 && p.slot <= 255)) throw new HttpError(400, "bad_request", "slot must be a player slot, 1 to 255.");
-      if (p.id === undefined && withNames && p.slot !== undefined) {
+      if (p.id === undefined && p.slot !== undefined) {
         out.push({ id: null, slot: p.slot, name: cleanText(p.name, 64), proof: null, net: null });
         continue;
       }
@@ -788,6 +903,8 @@ export function createPresence(deps) {
     const count = new Map();
     for (const p of players) if (p.id) count.set(p.id, (count.get(p.id) || 0) + 1);
     const index = clientIdIndex(server);
+    // a listen server's report counts proven players only (enroll.js), as requireProof does everywhere
+    const proofOnly = s.requireProof || enrollment.isListen(server);
     const sightings = new Map(); // account id -> { p, proven, device, net }
     const refusals = []; // [account id, kind, about, fields]
     const slots = []; // [{ slot, accountId, device }]: every account here, for its bans, kicks and mutes
@@ -806,14 +923,21 @@ export function createPresence(deps) {
           refusals.push([accountId, "bad_proof", server, { server, detail: "the proof does not match the account's player id" }]);
           continue;
         }
-        const issued = parseInt(p.proof.nonce.slice(0, 8), 16);
-        if (t - issued > s.proofMaxAgeSeconds || issued - t > s.clockSkewSeconds) {
-          refusals.push([accountId, "stale_proof", server, { server, detail: "the proof answers a nonce issued " + (t - issued) + " seconds ago" }]);
+        // a nonce h9web never issued to this server (an older plugin's own) proves nothing new: the
+        // sighting stays unverified. One it issued too long ago is an old proof sent again: refused.
+        const issued = nq.issued.get(p.proof.nonce, server);
+        if (!issued) {
+          if (proofOnly) continue;
+          sightings.set(accountId, { p, proven: false, device: null, net: null });
+          continue;
+        }
+        if (t - issued.issued_at > s.proofMaxAgeSeconds) {
+          refusals.push([accountId, "stale_proof", server, { server, detail: "the proof answers a nonce issued " + (t - issued.issued_at) + " seconds ago" }]);
           continue;
         }
         sightings.set(accountId, { p, proven: true, device: v.device, net: p.net ? netHash(p.net) : null });
       } else {
-        if (s.requireProof) continue;
+        if (proofOnly) continue;
         sightings.set(accountId, { p, proven: false, device: null, net: null });
       }
     }
@@ -877,9 +1001,121 @@ export function createPresence(deps) {
     });
     changed(touched);
     log.debug("presence.report", { server, players: players.length, matched: sightings.size });
-    const reply = { ok: true, players: players.length, serverId: enrollment.serverIdFor(server), actions: community.reportActions(server, slots) };
+    // every other slot the report lists, for a members-only server's gate: an id no account gives
+    // here, an id listed twice, or none
+    const placedSlots = new Set(slots.map((e) => e.slot).filter(Boolean));
+    for (const p of players) {
+      if (!p.slot || placedSlots.has(p.slot)) continue;
+      placedSlots.add(p.slot);
+      slots.push({ slot: p.slot, accountId: null, device: null });
+    }
+    for (const e of slots) {
+      const row = e.accountId ? store.online(e.accountId, server) : null;
+      e.proven = !!(row && row.plugin_at !== null && (row.proven === 1 || row.relay === 1));
+    }
+    const reply = { ok: true, players: players.length, serverId: enrollment.serverIdFor(server), actions: community.reportActions(server, slots), avatars: avatarsFor(slots) };
+    // a listen server's own player (the report's "host" slot): how h9web knows that player, for the
+    // plugin's log and h9_presence_status. Only that slot's: the server runs on that player's game.
+    if (Number.isInteger(body.host) && body.host >= 1 && body.host <= 255) {
+      const e = slots.find((x) => x.slot === body.host && x.accountId);
+      reply.host = !e ? "unknown" : e.proven ? "proven" : "known";
+    }
+    if (community.membersOnly(server)) reply.members = true;
     if (withNames && s.inGameNames && verifyIdProof) reply.names = nameDecisions(players, count, index, sightings, server);
     rc.json(200, reply);
+  }
+
+  // ---- the scoreboard's pictures ------------------------------------------------------------------
+
+  // The forum's row for an account's profile picture: { version, type }, or null.
+  function forumPicture(accountId) {
+    const stmt = pictureStmt();
+    return (stmt && stmt.get(accountId)) || null;
+  }
+
+  // The picture an account has for the game: a PNG or GIF profile picture, made 64 x 64 here; or a
+  // JPEG or WebP one whose 64 x 64 copy its owner's browser sent (POST /api/presence/avatar), as
+  // browsers decode those and h9web does not. { version, type, sent } or null.
+  function pictureOf(accountId) {
+    const r = forumPicture(accountId);
+    if (!r) return null;
+    if (GAME_TYPES.has(r.type)) return { version: r.version, type: r.type, sent: false };
+    if (BROWSER_TYPES.has(r.type)) {
+      const g = gq.version.get(accountId);
+      if (g && g.version === r.version) return { version: r.version, type: r.type, sent: true };
+    }
+    return null;
+  }
+
+  // The site's default picture as the game's 64 x 64 PNG, and its version (a checksum of the file, so
+  // a changed default is fetched again); null when it cannot be read: those slots keep the silhouette.
+  let defaultPic; // undefined until read
+  function defaultPicture() {
+    if (defaultPic !== undefined) return defaultPic;
+    defaultPic = null;
+    const file = s.defaultPicture || DEFAULT_PICTURE_FILE;
+    try {
+      const bytes = fs.readFileSync(file);
+      const type = bytes.subarray(0, 4).toString("latin1") === "GIF8" ? "image/gif" : "image/png";
+      defaultPic = { version: ((zlib.crc32(bytes) >>> 0) % 2147483646) + 1, png: gamePicture(bytes, type) };
+    } catch (e) {
+      log.warn("presence.default_picture_unreadable", { file, error: String(e.message || e) });
+    }
+    return defaultPic;
+  }
+
+  // The report answer's "avatars": { "<slot>": { a: account, v: version } } for each proven player:
+  // its own picture, or the site's default for an account with none (DEFAULT_ACCOUNT, the one version
+  // every game fetches once). The plugin tells every client in the H9Avatar message. A slot not named
+  // keeps the silhouette: no havoc9.org account, or a game that did not prove the player id.
+  function avatarsFor(slots) {
+    const out = {};
+    const dflt = defaultPicture();
+    for (const e of slots) {
+      if (!e.slot || !e.accountId || !e.proven) continue;
+      const pic = pictureOf(e.accountId);
+      if (pic) out[e.slot] = { a: e.accountId, v: gameVersion(pic.version) };
+      else if (dflt) out[e.slot] = { a: DEFAULT_ACCOUNT, v: dflt.version };
+    }
+    return out;
+  }
+
+  // The 64 x 64 PNG for an account and game version (the site's default for DEFAULT_ACCOUNT), made once
+  // per account and version; null when the version is not the current one.
+  async function gamePictureOf(accountId, version) {
+    if (accountId === DEFAULT_ACCOUNT) {
+      const d = defaultPicture();
+      return d && d.version === version ? d.png : null;
+    }
+    const pic = pictureOf(accountId);
+    if (!pic || gameVersion(pic.version) !== version) return null;
+    const k = accountId + "/" + version;
+    if (gamePictures.has(k)) return gamePictures.get(k);
+    let png = null;
+    try {
+      if (pic.sent) {
+        const r = gq.png.get(accountId, pic.version);
+        png = r ? Buffer.from(r.png) : null;
+      } else {
+        const bytes = await fs.promises.readFile(path.join(pictureDir, accountId + "-" + pic.version + "." + PICTURE_EXT[pic.type]));
+        png = gamePicture(bytes, pic.type);
+      }
+    } catch (e) {
+      log.warn("presence.avatar_unreadable", { account: accountId, error: String(e.message || e) });
+      return null;
+    }
+    if (!png) return null;
+    if (gamePictures.size >= 256) gamePictures.delete(gamePictures.keys().next().value);
+    gamePictures.set(k, png);
+    return png;
+  }
+
+  // A picture of one colour all over: what a browser that will not let a page read pictures back
+  // (fingerprinting protection) hands over in place of the real one.
+  function flat(img) {
+    const d = img.rgba;
+    for (let i = 4; i < d.length; i++) if (d[i] !== d[i % 4]) return false;
+    return true;
   }
 
   // What each slot of a report that asked for names is to be called, for the plugin to apply on
@@ -1009,7 +1245,14 @@ export function createPresence(deps) {
       enrollment.sweep(t);
       community.sweep(t);
       serverAuth.prune(t);
+      nq.prune.run(t - s.proofMaxAgeSeconds - 60);
     });
+    for (const [id, at] of webPage) {
+      if (t - at > s.webClientSeconds) {
+        webPage.delete(id);
+        webClosed.set(id, at);
+      }
+    }
     changed(null);
     if (ended) log.info("presence.sessions_timed_out", { count: ended });
     return ended;
@@ -1175,6 +1418,99 @@ export function createPresence(deps) {
 
   router.post("/api/presence/report", report, { csrf: false });
 
+  // Nonces for the ID proof's challenge, made here so a proof can only be as old as the nonce:
+  // signed like the other server calls, { count } (1 to 8), answered with { nonces }.
+  router.post("/api/presence/server/nonce", async (req, res, rc) => {
+    limit("serverCallsPerIp", ipKey(rc.ip));
+    const { server, body } = await serverAuth.verify(req, (srv) => enrollment.candidates(srv), { maxBytes: 1024 });
+    limit("noncePerServer", server);
+    const count = body.count === undefined ? 1 : body.count;
+    if (!Number.isInteger(count) || count < 1 || count > 8) throw new HttpError(400, "bad_request", "count: 1 to 8.");
+    const t = now();
+    const nonces = [];
+    for (let i = 0; i < count; i++) {
+      const n = crypto.randomBytes(16).toString("hex");
+      nq.issue.run(n, server, t);
+      nonces.push(n);
+    }
+    rc.json(200, { ok: true, nonces, maxAge: s.proofMaxAgeSeconds });
+  }, { csrf: false });
+
+  // The signed-in account's scoreboard picture, for the ACCOUNT page: whether its JPEG or WebP picture
+  // still needs the 64 x 64 copy its browser makes (POST below), and the address the game reads.
+  router.get("/api/presence/avatar", auth.requireSession(async (req, res, rc) => {
+    limit("readPerIp", ipKey(rc.ip));
+    const id = rc.account.id;
+    const r = forumPicture(id);
+    const pic = pictureOf(id);
+    const dflt = defaultPicture();
+    rc.json(200, {
+      picture: r ? { v: r.version, type: r.type } : null,
+      needed: !!(r && BROWSER_TYPES.has(r.type) && !pic),
+      game: pic ? "api/presence/avatar/" + id + "/" + gameVersion(pic.version) + ".png"
+        : dflt ? "api/presence/avatar/" + DEFAULT_ACCOUNT + "/" + dflt.version + ".png" : null,
+      side: AVATAR_SIDE,
+    });
+  }));
+
+  // The 64 x 64 copy of the account's JPEG or WebP picture, made by its owner's browser (the ACCOUNT
+  // page): { v: the picture's version, png: base64 }. Taken only as a PNG of exactly 64 x 64, written
+  // again by h9web, kept for that version, and never replaced: a new copy comes with a new picture.
+  router.post("/api/presence/avatar", auth.requireSession(async (req, res, rc) => {
+    const a = rc.account;
+    limit("gamePicturePerAccount", "a:" + a.id);
+    const body = await rc.body({ maxBytes: 48 * 1024 });
+    const r = forumPicture(a.id);
+    if (!r) throw new HttpError(409, "no_picture", "You have no profile picture.");
+    if (!BROWSER_TYPES.has(r.type)) throw new HttpError(409, "not_needed", "The site makes the game's copy of a PNG or GIF picture itself.");
+    if (body.v !== r.version) throw new HttpError(409, "stale", "Your picture changed since this page read it. Reload the page.");
+    const game = "api/presence/avatar/" + a.id + "/" + gameVersion(r.version) + ".png";
+    const made = gq.version.get(a.id);
+    if (made && made.version === r.version) return rc.json(200, { ok: true, changed: false, game });
+    const png = typeof body.png === "string" && body.png.length <= 44000 && /^[A-Za-z0-9+/]+={0,2}$/.test(body.png) ? Buffer.from(body.png, "base64") : null;
+    // the size in the header first: nothing larger is ever decoded
+    let img = null;
+    if (png && png.length > 24 && png.readUInt32BE(16) === AVATAR_SIDE && png.readUInt32BE(20) === AVATAR_SIDE) {
+      try {
+        img = decodePng(png);
+      } catch (e) {
+        img = null;
+      }
+    }
+    if (!img || img.width !== AVATAR_SIDE || img.height !== AVATAR_SIDE) throw new HttpError(400, "invalid_picture", "That is not a PNG of 64 x 64.");
+    if (flat(img)) {
+      throw new HttpError(400, "blank_picture", "The picture arrived as one flat colour: this browser may not let pages read pictures back. Try another browser.");
+    }
+    gq.put.run(a.id, r.version, encodePng(img), now());
+    rc.json(200, { ok: true, changed: true, game });
+  }));
+
+  // The web client's page, open: it says so every minute (havoc9.org/webclient/auth.js), and the
+  // account is in the web client while it does, the game running or not.
+  router.post("/api/presence/web", auth.requireSession(async (req, res, rc) => {
+    limit("webClientPerAccount", "a:" + rc.account.id);
+    await rc.body({ optional: true, maxBytes: 256 });
+    const first = !webPage.has(rc.account.id);
+    webPage.set(rc.account.id, now());
+    if (first) changed([rc.account.id]);
+    rc.json(200, { ok: true, every: 60 });
+  }));
+
+  // A player's picture for the in-game scoreboard: the account's forum profile picture as a 64 x 64
+  // PNG, at a version that never changes what it shows (the game builds this address itself).
+  router.get("/api/presence/avatar/:id/:file", async (req, res, rc) => {
+    limit("readPerIp", ipKey(rc.ip));
+    const id = /^[1-9][0-9]{0,9}$/.test(rc.params.id) ? Number(rc.params.id) : 0;
+    const m = /^([0-9]{1,10})\.png$/.exec(rc.params.file || "");
+    const png = id && m ? await gamePictureOf(id, Number(m[1])) : null;
+    if (!png) throw new HttpError(404, "not_found", "No such picture.");
+    res.writeHead(200, {
+      "Content-Type": "image/png", "Content-Length": png.length, "Cache-Control": "public, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Cross-Origin-Resource-Policy": "cross-origin",
+    });
+    res.end(req.method === "HEAD" ? undefined : png);
+  });
+
   router.get("/api/presence/now", async (req, res, rc) => {
     limit("readPerIp", ipKey(rc.ip));
     rc.json(200, nowView(), publicHeaders());
@@ -1238,6 +1574,7 @@ export function createPresence(deps) {
   // ---- start and stop ----------------------------------------------------------------------------
 
   let timer = null;
+  let offBoard = null;
   const listeners = {
     "relay-game-start": (e) => { try { relayStart(e); } catch (err) { log.error("presence.relay_event", { error: err.message }); } },
     "relay-game-end": (e) => { try { relayEnd(e); } catch (err) { log.error("presence.relay_event", { error: err.message }); } },
@@ -1255,7 +1592,10 @@ export function createPresence(deps) {
     if (!lastActive || !activeSince) log.warn("presence.core_hook_missing", { hook: "auth.lastActive/activeSince", effect: "nobody shows as on the site" });
     if (!confirmAdmin) log.warn("presence.core_hook_missing", { hook: "auth.confirmAdmin", effect: "move-id and reset-id answer 503" });
     netKey = loadNetKey(deps.dataDir, log);
+    // the site's server board (/api/servers) leaves out what presence keeps private (lib/modules.js)
+    if (servers && typeof servers.hideFromBoard === "function") offBoard = servers.hideFromBoard((address) => privateServer(address));
     enrollment.start();
+    compete.start();
     forgetRelay();
     if (events) for (const [name, fn] of Object.entries(listeners)) events.on(name, fn);
     timer = setInterval(() => {
@@ -1267,11 +1607,14 @@ export function createPresence(deps) {
   function stop() {
     if (timer) clearInterval(timer);
     timer = null;
+    if (offBoard) offBoard();
+    offBoard = null;
     if (events) for (const [name, fn] of Object.entries(listeners)) events.off(name, fn);
     community.stop();
+    compete.stop();
   }
 
-  return { settings: s, store, keys, enrollment, community, start, stop, sweep, nowView, cardView, compactView, ownView };
+  return { settings: s, store, keys, enrollment, community, compete, start, stop, sweep, nowView, cardView, compactView, ownView };
 }
 
 let instance = null;

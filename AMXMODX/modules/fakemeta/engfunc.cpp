@@ -12,6 +12,7 @@
 //
 
 #include "fakemeta_amxx.h"
+#include "fm_handles.h"
 #include <engine_strucs.h>
 
 TraceResult g_tr;
@@ -404,7 +405,7 @@ static cell AMX_NATIVE_CALL engfunc(AMX *amx, cell *params)
 			if (*ptr == 0)
 				tr = &g_tr_2;
 			else
-				tr = reinterpret_cast<TraceResult *>(*ptr);
+				tr = reinterpret_cast<TraceResult *>(MF_HandleToPointer(*ptr));
 		} else {
 			tr = &g_tr;
 		}
@@ -425,7 +426,7 @@ static cell AMX_NATIVE_CALL engfunc(AMX *amx, cell *params)
 			if (*ptr == 0)
 				tr = &g_tr_2;
 			else
-				tr = reinterpret_cast<TraceResult *>(*ptr);
+				tr = reinterpret_cast<TraceResult *>(MF_HandleToPointer(*ptr));
 		} else {
 			tr = &g_tr;
 		}
@@ -456,7 +457,7 @@ static cell AMX_NATIVE_CALL engfunc(AMX *amx, cell *params)
 			if (*ptr == 0)
 				tr = &g_tr_2;
 			else
-				tr = reinterpret_cast<TraceResult *>(*ptr);
+				tr = reinterpret_cast<TraceResult *>(MF_HandleToPointer(*ptr));
 		} else {
 			tr = &g_tr;
 		}
@@ -486,7 +487,7 @@ static cell AMX_NATIVE_CALL engfunc(AMX *amx, cell *params)
 			if (*ptr == 0)
 				tr = &g_tr_2;
 			else
-				tr = reinterpret_cast<TraceResult *>(*ptr);
+				tr = reinterpret_cast<TraceResult *>(MF_HandleToPointer(*ptr));
 		} else {
 			tr = &g_tr;
 		}
@@ -514,7 +515,7 @@ static cell AMX_NATIVE_CALL engfunc(AMX *amx, cell *params)
 			if (*ptr == 0)
 				tr = &g_tr_2;
 			else
-				tr = reinterpret_cast<TraceResult *>(*ptr);
+				tr = reinterpret_cast<TraceResult *>(MF_HandleToPointer(*ptr));
 		} else {
 			tr = &g_tr;
 		}
@@ -945,7 +946,7 @@ static cell AMX_NATIVE_CALL engfunc(AMX *amx, cell *params)
 		index = cRet[0];
 		CHECK_ENTITY(index);
 		cRet = MF_GetAmxAddr(amx, params[3]);
-		pset = (unsigned char *)cRet[0];
+		pset = (unsigned char *)pdata_cell_to_pointer(cRet[0]);
 		return (*g_engfuncs.pfnCheckVisibility)(TypeConversion.id_to_edict(index), pset);
 
 		// pfnGetCurrentPlayer
@@ -1023,7 +1024,7 @@ static cell AMX_NATIVE_CALL engfunc(AMX *amx, cell *params)
 		return 1;
 	case	EngFunc_InfoKeyValue:	// char*	)			(char *infobuffer, char *key);
 		cRet = MF_GetAmxAddr(amx,params[2]);
-		temp = reinterpret_cast<char *>(cRet[0]);
+		temp = fm_cell_to_ptr<char>(cRet[0]);
 		temp2 = MF_GetAmxString(amx,params[3],0,&len);
 
 		temp = (*g_engfuncs.pfnInfoKeyValue)(temp, temp2);
@@ -1036,7 +1037,7 @@ static cell AMX_NATIVE_CALL engfunc(AMX *amx, cell *params)
 
 	case	EngFunc_SetKeyValue:	// void )			(char *infobuffer, char *key, char *value);
 		cRet = MF_GetAmxAddr(amx, params[2]);
-		temp3 = reinterpret_cast<char *>(cRet[0]);
+		temp3 = fm_cell_to_ptr<char>(cRet[0]);
 		temp = MF_GetAmxString(amx, params[3], 1, &len);
 		temp2 = MF_GetAmxString(amx, params[4], 2, &len);
 		(*g_engfuncs.pfnSetKeyValue)(temp3, temp, temp2);
@@ -1048,7 +1049,7 @@ static cell AMX_NATIVE_CALL engfunc(AMX *amx, cell *params)
 		CHECK_ENTITY(index);
 
 		cRet = MF_GetAmxAddr(amx, params[3]);
-		temp = reinterpret_cast<char *>(cRet[0]);
+		temp = fm_cell_to_ptr<char>(cRet[0]);
 
 		temp2 = MF_GetAmxString(amx, params[4], 0, &len);
 		temp3 = MF_GetAmxString(amx, params[5], 1, &len);
@@ -1078,7 +1079,7 @@ static cell AMX_NATIVE_CALL engfunc(AMX *amx, cell *params)
 		}
 
 		temp = (*g_engfuncs.pfnGetInfoKeyBuffer)((index == -1) ? NULL : TypeConversion.id_to_edict(index));
-		return reinterpret_cast<cell>(temp);
+		return fm_ptr_to_cell(temp);
 	case EngFunc_AlertMessage:			// void )			(ALERT_TYPE atype, char *szFmt, ...);
 		cRet = MF_GetAmxAddr(amx, params[2]);
 		iparam1 = cRet[0];

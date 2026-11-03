@@ -604,6 +604,8 @@ public:
 	bool MsgFunc_RandomPC( const char *pszName, int iSize, void *pbuf );
 	bool MsgFunc_ServerName( const char *pszName, int iSize, void *pbuf );
 	bool MsgFunc_ScoreInfo( const char *pszName, int iSize, void *pbuf );
+	bool MsgFunc_H9Assists( const char *pszName, int iSize, void *pbuf );
+	bool MsgFunc_H9Lives( const char *pszName, int iSize, void *pbuf );
 	bool MsgFunc_TeamScore( const char *pszName, int iSize, void *pbuf );
 	bool MsgFunc_TeamInfo( const char *pszName, int iSize, void *pbuf );
 	bool MsgFunc_Spectator( const char *pszName, int iSize, void *pbuf );

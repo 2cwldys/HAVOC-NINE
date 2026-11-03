@@ -1,0 +1,140 @@
+TS Match Mode — FFmpeg / Menu Background Video
+
+==============================================
+
+What this is: a real, looping video background for the H9XASH main menu,
+layered in ahead of the existing WON/Steam/color background. Built on the
+engine's existing (previously unused) FFmpeg AVI playback support.
+
+Video requirements
+-------------------
+Container: must actually BE an AVI container. The engine opens it with the
+format forced to "avi" (not auto-detected — see "Why the format is forced"
+below), so a file merely renamed to .avi with different contents inside
+will fail to open.
+
+Codec: MJPEG, encoded as shown below. The full default FFmpeg codec set is
+built in, so other codecs likely decode too, but MJPEG is the one actually
+proven end-to-end. Audio is not loaded for menu backgrounds even if present
+— encode without an audio stream (-an).
+
+Dimensions: no hard requirement — Draw() scales whatever it gets to fill
+the screen (cover-crop by default; ui_background_stretch 1 distorts-to-fill
+instead of cropping). Practically:
+  - Close to a common screen aspect ratio (16:9 ~1.78:1, 16:10 ~1.6:1) means
+    less gets cropped off the sides/top on a typical monitor.
+  - Our shipped mainmenu_bg.avi is 900x387 (~2.33:1, from the source GIF's
+    native size) — wider than 16:9, so on a 1920x1080 screen it scales to
+    fill height and the sides get cropped. Looks fine, just worth knowing.
+  - No benefit to shipping higher than roughly 1280x720 — it's a blurred-out
+    backdrop behind menu buttons, not a focal element.
+
+File size: AVI/MJPEG is intraframe-only (every frame fully encoded, no
+delta compression between frames) — chosen deliberately so the loop point
+has no GOP-boundary artifact, since a short loop shows that seam constantly.
+This means file size scales directly with duration: keep clips SHORT (a
+couple of seconds, looped) rather than long. Our 1.2s/900x387/12-frame clip
+is ~1.16 MB; a 10-second clip at the same settings would be roughly 10x
+that for no practical benefit, since it's just ambient background motion.
+
+Conversion command (ffmpeg):
+-----------------------------
+ffmpeg -y -i input.gif -c:v mjpeg -q:v 3 -pix_fmt yuvj420p -an output.avi
+
+-q:v 3 is a reasonable quality/size tradeoff; lower = higher quality/bigger
+file. Any ffmpeg build works for this conversion step — it's a one-time
+asset-authoring task on the dev machine, unrelated to the i686 FFmpeg the
+engine itself loads at runtime (see "Build Integration" below).
+
+Adding more videos (random pick per launch, same as menu music)
+------------------------------------------------------------------
+1. Drop the .avi into xash3d-h9-patches\overlay\ts\media\
+2. Add its filename as a new line in
+   xash3d-h9-patches\overlay\ts\menu_bg_videos.txt (one per line, # comments
+   and blank lines ignored — same format as menu_music.txt)
+3. h9xash.bat picks one at random on every launch and writes it to
+   ts\menu_bg_video_resolved.cfg (ui_background_video_file "chosen.avi"),
+   which ts\userconfig.cfg execs at startup. Same mechanism as the existing
+   menu-music picker, just for video.
+
+Turning it off: ui_background_video 0 (console or autoexec). Falls back to
+the existing WON/Steam/color background cleanly either way — removing the
+asset, removing the FFmpeg DLLs, or a mid-session decode failure all fall
+back the same way, no crash.
+
+Why the format is forced
+--------------------------
+avformat_open_input(..., NULL, ...) (format = NULL) makes FFmpeg
+auto-probe every registered demuxer against the file's header bytes to
+guess the container. On this build, gsm_probe() (an unrelated telephony-
+audio demuxer, never otherwise used here) segfaults when probed against
+our file. Forcing the format explicitly to "avi" (av_find_input_format
+("avi"), passed instead of NULL) skips the auto-probe entirely and avoids
+the whole class of bug — confirmed via gdb backtrace, root-caused to
+gsm_probe specifically, fixed in engine\client\avi\avi_ffmpeg.c's
+AVI_OpenVideo(). This is also why any file added here must be a genuine
+AVI container: the forced format means FFmpeg no longer figures out the
+real container type on its own.
+
+Key learnings (build-breaking, non-obvious)
+-----------------------------------------------
+1. No prebuilt 32-bit Windows FFmpeg 9.0.x exists anywhere (both gyan.dev
+   and BtbN/FFmpeg-Builds dropped 32-bit as of the 9.0.x line) — had to be
+   built from source via MSYS2's MINGW32 environment as the i686 cross-
+   toolchain. One-time cost per build machine; see Build Integration.
+2. MSYS2's bundled binutils only ships bare tool names (ar.exe, nm.exe,
+   ranlib.exe, windres.exe) in the MINGW32 environment, not
+   i686-w64-mingw32-prefixed ones. FFmpeg's configure defaults to the
+   prefixed names and fails with "command not found" — pass
+   --ar=ar --nm=nm --ranlib=ranlib --strip=strip --windres=windres
+   explicitly.
+3. Any POSIX-style absolute path (/tmp/..., /c/Users/...) handed as a
+   literal string argument to a native (non-MSYS) Windows binary — curl.exe,
+   cc1.exe, strip.exe, all hit this — gets misresolved as "root of the
+   current drive" instead of the real path, since only MSYS-linked binaries
+   understand MSYS's path remapping. Fix: use drive-letter-style paths
+   (D:/msys64/tmp/...) for anything that crosses into a native tool,
+   including FFmpeg's own --prefix, TMPDIR, and any -I/-L flags for a
+   manual compile.
+4. FFmpeg's shared-Windows `make install` unconditionally tries to install
+   an MSVC-style <lib>.lib import library that a MinGW --enable-shared
+   build never produces under that name, and aborts the whole install on
+   the first library it hits (libavfilter). Workaround: skip `make install`
+   for the DLLs/headers and copy the already-built artifacts directly from
+   each library's own build subdirectory (libavutil/avutil-61.dll, etc.) —
+   they're fully built and valid at that point, only the install step's own
+   bookkeeping is broken. Not needed at all if dlopen mode (what this
+   project uses) is the only concern, since no import library is required
+   either way.
+5. THE important one: a 32-bit MinGW-built DLL using SSE code (FFmpeg,
+   heavily, via nasm-compiled asm) crashes with an access violation deep
+   inside its own internals (first reproduced as a crash in avio_seek, but
+   actually reachable from avformat_open_input itself) when called from an
+   MSVC-compiled caller (the engine, xash.dll) — but works perfectly fine
+   when called from a GCC/MinGW-compiled caller (a standalone test program
+   built with the same toolchain). Root cause: MSVC and GCC have different
+   default stack-alignment guarantees at the call boundary on 32-bit
+   Windows, and GCC's SSE-using code assumes 16-byte alignment unless told
+   otherwise. Fix: --extra-cflags="-mstackrealign" on FFmpeg's own configure,
+   forcing every function to defensively re-align its own stack on entry
+   regardless of what the caller provided. This is NOT caught by testing
+   with a same-toolchain test harness — it only shows up when the actual
+   MSVC-built caller is involved. Confirmed by writing a minimal MSVC-
+   compiled probe that LoadLibrary/GetProcAddress's the DLLs exactly like
+   the engine does, reproducing the exact crash in isolation, then
+   confirming it goes away after the rebuild with this flag.
+
+Build Integration
+--------------------
+The i686 FFmpeg 9.0.2 build (headers + the 5 FFmpeg DLLs + the 6 MinGW
+runtime DLLs they depend on — libgcc_s_dw2-1, libwinpthread-1, libbz2-1,
+libiconv-2, liblzma-5, zlib1) lives in
+xash3d-h9-patches\deps\ffmpeg-9.0.2\{include,lib}, same treatment as SDL2's
+own deps\ folder: fetched/built once per machine, never committed (see
+xash3d-h9-patches\deps\ in the git mirror's .gitignore), reused by every
+xash.bat engine run after that. xash.bat checks for it and fails clearly
+if missing, since (unlike SDL2) it can't auto-fetch a prebuilt package —
+rebuilding it from scratch means redoing the MSYS2/toolchain setup and the
+items above.
+
+Date: 2026-10-22

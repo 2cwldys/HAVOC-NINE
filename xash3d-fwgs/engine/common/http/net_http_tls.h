@@ -31,6 +31,7 @@ enum
 void HTTP_TlsInit( void );
 void HTTP_TlsShutdown( void );
 qboolean HTTP_TlsAvailable( void );
+qboolean HTTP_TlsVerifies( void ); // H9: a CA bundle is loaded and http_tls_insecure is off
 tlsctx_t *HTTP_TlsNew( int socket, const char *hostname );
 void HTTP_TlsFree( tlsctx_t *ctx );
 int HTTP_TlsHandshake( tlsctx_t *ctx );
@@ -42,6 +43,7 @@ int HTTP_TlsRecv( tlsctx_t *ctx, void *buf, int len );
 static inline void HTTP_TlsInit( void ) { }
 static inline void HTTP_TlsShutdown( void ) { }
 static inline qboolean HTTP_TlsAvailable( void ) { return false; }
+static inline qboolean HTTP_TlsVerifies( void ) { return false; }
 static inline tlsctx_t *HTTP_TlsNew( int socket, const char *hostname ) { return NULL; }
 static inline void HTTP_TlsFree( tlsctx_t *ctx ) { }
 static inline int HTTP_TlsHandshake( tlsctx_t *ctx ) { return HTTP_TLS_ERROR; }

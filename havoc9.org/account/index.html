@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https://i.imgur.com https://i.redd.it https://i.postimg.cc https://i.ibb.co https://media.giphy.com https://i.giphy.com https://upload.wikimedia.org https://images.steamusercontent.com; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
   <title>ACCOUNT -- HAVOC9</title>
   <meta name="description" content="Your HAVOC 9 account: player id, password, sessions, and what we keep">
   <link rel="icon" type="image/gif" href="../h9helmet_glitch.gif">
@@ -31,6 +32,8 @@
         <li><a href="../downloads/index.html">DOWNLOADS</a></li>
         <li><a href="../servers/index.html">SERVERS</a></li>
         <li><a href="../forum/index.html">FORUM</a></li>
+        <li><a href="../community/index.html">COMMUNITY</a></li>
+        <li><a href="../media/index.html">MEDIA</a></li>
         <li><a href="../join/index.html">JOIN</a></li>
         <li><a href="../museum/index.html">MUSEUM</a></li>
         <li><a href="../credits/index.html">CREDITS</a></li>
@@ -71,7 +74,7 @@
           <div class="feature-row"><span class="feature-label">ROLE</span><span class="feature-value" id="fRole"></span></div>
           <div class="feature-row"><span class="feature-label">MEMBER SINCE</span><span class="feature-value" id="fCreated"></span></div>
           <div class="feature-row"><span class="feature-label">LAST SIGN-IN</span><span class="feature-value" id="fLastLogin"></span></div>
-          <div class="feature-row"><span class="feature-label">PLAYER ID</span><span class="feature-value"><code id="fPlayerId"></code> <button type="button" class="account-mini" id="playerIdShow">SHOW</button> <button type="button" class="account-mini" id="playerIdCopy">COPY</button> <span class="account-done" id="playerIdDone" role="status" hidden></span><span class="account-error" id="playerIdError" role="alert"></span><span class="account-rownote">Only the start is shown so it stays out of screenshots: the full id is what makes a game client count as you. Use it with enter_userid.cmd.</span></span></div>
+          <div class="feature-row"><span class="feature-label">PLAYER ID</span><span class="feature-value"><code id="fPlayerId"></code> <button type="button" class="account-mini" id="playerIdShow">SHOW</button> <button type="button" class="account-mini" id="playerIdCopy">COPY</button> <span class="account-done" id="playerIdDone" role="status" hidden></span><span class="account-error" id="playerIdError" role="alert"></span><span class="account-rownote">Only the start is shown so it stays out of screenshots: the full id is what makes a game client count as you. You need it only for enter_userid.cmd: linking the game (below) brings it there by itself.</span></span></div>
           <div class="feature-row"><span class="feature-label">SIGNED IN ON</span><span class="feature-value" id="fSessions"></span></div>
         </div>
 
@@ -81,11 +84,14 @@
         </div>
         <div class="account-ids" id="serverIds" style="margin-top: 1.25rem;"></div>
 
-        <div class="account-section">
-          <h2 class="sub-title">YOUR PLAYER ID</h2>
-          <p>Optional. The downloaded H9XASH client makes up a random id of its own, and that keeps working. To have the servers see the downloaded client and the web client as the same player, put this account's id into H9XASH: run <code>enter_userid.cmd</code> in the H9XASH folder and paste it, or write it into <code>H9XASH\user_id.ini</code> as <code>id=</code> under <code>[client]</code>. It counts from the client's next start.</p>
-          <p>SHOW and COPY are on the PLAYER ID line at the top of this page: COPY puts the whole id on your clipboard without showing it.</p>
-          <p class="account-warn"><strong>Keep it to yourself.</strong> Whoever has it is you to H9's servers.</p>
+        <div class="account-section" id="linkedGames">
+          <h2 class="sub-title">LINKED GAMES</h2>
+          <p>Optional. The downloaded H9XASH client makes up a random id of its own, and that keeps working. To have the servers see the downloaded client and the web client as the same player, link it: press <strong>Link your Account</strong> in its main menu (or type <code>.link</code> in chat on an H9 server), and approve the code it shows on <a href="../link/">havoc9.org/link</a>. The game is handed this account's player id and keeps it protected for its Windows user; nobody types or pastes it.</p>
+          <div class="account-ids" id="linkedList" style="margin-top: 1.25rem;"></div>
+          <p class="account-error" id="linkedError" role="alert"></p>
+          <p>REVOKE takes a game off this account: it finds out the next time it starts, and gets an id of its own again. A game you no longer have, or do not know, should go. Its id is this account's player id, so a game that was copied keeps it until an admin gives the account a new one.</p>
+          <p>The older way still works: run <code>enter_userid.cmd</code> in the H9XASH folder and paste the id from SHOW or COPY on the PLAYER ID line above. The game protects it at its next start, but it is not listed here.</p>
+          <p class="account-warn"><strong>Keep your player id to yourself.</strong> Whoever has it is you to H9's servers.</p>
         </div>
 
         <div class="account-section">
@@ -126,6 +132,26 @@
               <button type="button" class="btn btn-ghost" id="pictureRemove" hidden>REMOVE PICTURE</button>
             </form>
           </div>
+        </div>
+
+        <div class="account-section" id="signatureSection" hidden>
+          <h2 class="sub-title">FORUM SIGNATURE</h2>
+          <p>A few lines under each of your forum posts. The forum's formatting works in it: **bold**, *italic*, links, and pictures linked from the picture hosts the forum lists (imgur and others), shown from that site. No code blocks or quotes.</p>
+          <p class="account-note" id="signatureState" role="status" hidden></p>
+          <div class="account-box">
+            <form class="account-form" id="signatureForm" novalidate>
+              <div class="account-field">
+                <label for="signatureText">YOUR SIGNATURE</label>
+                <textarea id="signatureText" name="signature" rows="4"></textarea>
+                <p class="account-hint" id="signatureRules"></p>
+              </div>
+              <div class="account-sig-preview" id="signaturePreview" aria-live="polite"></div>
+              <p class="account-error" id="signatureError" role="alert"></p>
+              <p class="account-done" id="signatureDone" role="status" hidden>Saved.</p>
+              <button type="submit" class="btn btn-primary">SAVE</button>
+            </form>
+          </div>
+          <label class="account-check"><input type="checkbox" id="signatureShow"> SHOW SIGNATURES: other members' signatures under their posts</label>
         </div>
 
         <div class="account-section" id="renameSection" hidden>
@@ -190,9 +216,10 @@
           <li>your profile picture, if you add one, with the details a picture file carries (such as the camera and the place it was taken) removed;</li>
           <li>a username change you ask for, and your earlier name, kept reserved for you for 30 days after a change;</li>
           <li>if you sync your Discord: its user number and display name, and when it was linked. The registered role in H9's Discord follows the link; only an admin can free it.</li>
+          <li>each game you link: what it said it is (such as H9XASH on Windows), a hash of its device id, when it was linked and when it last checked in, and a hash of the token it holds, until you revoke it or it unlinks itself;</li>
           <li>when you play on an H9 server as this account, or in the web client: which server and since when, the name you used in game, your playtime per server, and when you were first and last seen. Finished sessions are kept for 90 days. For the id check, a hash of each device that proved your player id, and a keyed hash of the first part of your network address for 30 days; only admins see those, as "known" or "new". The switches under WHAT OTHERS SEE decide what everyone else sees.</li>
         </ul>
-        <p>When a moderator or an admin acts on your account or on what you wrote (a suspension, a removed post, a name change), an audit log records who did what and when, kept for up to 90 days.</p>
+        <p>When a moderator or an admin acts on your account or on what you wrote (a suspension, a removed post, a name change), an audit log records who did what and when, kept for up to 90 days. So does every game you link, turn down at the link page, revoke or unlink.</p>
         <p>No email address, no real name, no tracking or advertising cookies. The one cookie is the session cookie that keeps you signed in.</p>
         <p>Why: to sign you in, to keep the web client for members, and so that H9 servers know a returning player. What a server keeps against its <code>h9_clientid</code>, such as stats or a ban, is up to that server.</p>
         <p>The server's logs note sign-ins, failed sign-ins and web client connections by username, and the web server's access logs note IP addresses. Both are kept for up to 30 days, to run the site and stop abuse. When you play in the browser, game servers see the relay's address, not yours.</p>

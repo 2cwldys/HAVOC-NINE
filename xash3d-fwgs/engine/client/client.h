@@ -1008,6 +1008,11 @@ void CL_InitNetgraph( void );
 void SCR_DrawNetGraph( void );
 
 //
+// cl_travel.c (H9: h9_travel, a server's offer to send the player elsewhere)
+//
+void CL_Travel_Init( void );
+
+//
 // cl_view.c
 //
 
@@ -1016,6 +1021,11 @@ void V_Shutdown( void );
 qboolean V_PreRender( void );
 void V_PostRender( void );
 void V_RenderView( void );
+
+//
+// cl_h9listen.c (H9: a listen server's own player in presence)
+//
+void CL_H9Listen_Init( void );
 
 //
 // cl_pmove.c
@@ -1041,6 +1051,11 @@ void CL_SetIdealPitch( void );
 // cl_qparse.c
 //
 void CL_ParseQuakeMessage( sizebuf_t *msg );
+
+//
+// cl_idproof.c (H9: the client's half of the presence ID proof)
+//
+void CL_H9Id_Init( void );
 
 //
 // cl_frame.c
@@ -1072,6 +1087,11 @@ qboolean CL_EntitySetRemapColors( cl_entity_t *e, model_t *mod, int top, int bot
 void CL_ClearAllRemaps( void );
 
 //
+// cl_h9link.c (H9: this game's id kept protected, and linking it to a havoc9.org account)
+//
+void CL_H9Link_Init( void );
+
+//
 // cl_render.c
 //
 qboolean R_InitRenderAPI( void );
@@ -1084,6 +1104,12 @@ const ref_overview_t *GL_GetOverviewParms( void );
 // cl_spray.c
 //
 qboolean CL_ConvertImageToWAD3( const char *filename );
+
+//
+// cl_avatar.c (H9: players' havoc9.org pictures on the scoreboard)
+//
+void CL_Avatar_Init( void );
+void CL_Avatar_Message( sizebuf_t *msg );
 
 //
 // cl_efrag.c

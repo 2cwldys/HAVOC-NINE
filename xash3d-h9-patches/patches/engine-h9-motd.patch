@@ -43,6 +43,14 @@ diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
  
  	// client must be always initialized last so it can fetch all cvars
  	if( !CL_LoadProgs( libpath ))
+@@ -4164,6 +4171,7 @@
+ 		Touch_WriteConfig();
+ 	}
+ 
++	CL_Motd_Reset( true ); // H9: the splash MOTD's page view closes while the game window is still there (cl_motd.c)
+ 	Joy_Shutdown ();
+ 	CL_CloseDemoHeader ();
+ 	IN_Shutdown ();
 diff --git a/engine/client/cl_view.c b/engine/client/cl_view.c
 --- a/engine/client/cl_view.c
 +++ b/engine/client/cl_view.c
@@ -117,7 +125,18 @@ diff --git a/engine/client/input/input.c b/engine/client/input/input.c
  
  static qboolean	in_mouseactive;				// false when not focus app
  static qboolean	in_mouseinitialized;
-@@ -386,6 +387,10 @@
+@@ -310,6 +311,10 @@
+ 	if( !in_mouseinitialized )
+ 		return;
+ 
++	// H9: not while the splash MOTD keeps the mouse off; it gives the mouse back when it closes (cl_motd.c)
++	if( CL_Motd_KeepsMouse( ))
++		return;
++
+ 	IN_CheckMouseState( true );
+ 	if( clgame.dllFuncs.IN_ActivateMouse )
+ 		clgame.dllFuncs.IN_ActivateMouse();
+@@ -386,6 +391,10 @@
  		SetBits( in_mstate, BIT( key ));
  	else ClearBits( in_mstate, BIT( key ));
  
@@ -128,7 +147,7 @@ diff --git a/engine/client/input/input.c b/engine/client/input/input.c
  	// touch emulation overrides all input
  	if( Touch_WantVisibleCursor( ))
  	{
-@@ -669,7 +674,7 @@
+@@ -669,7 +678,7 @@
  
  		IN_CollectInput( &forward, &side, &pitch, &yaw, in_mouseinitialized && !m_ignore.value );
  
@@ -137,7 +156,7 @@ diff --git a/engine/client/input/input.c b/engine/client/input/input.c
  		{
  			clgame.dllFuncs.pfnLookEvent( yaw, pitch );
  			clgame.dllFuncs.pfnMoveEvent( forward, side );
-@@ -679,6 +684,19 @@
+@@ -679,6 +688,19 @@
  	if( !in_mouseinitialized )
  		return;
  
@@ -157,11 +176,224 @@ diff --git a/engine/client/input/input.c b/engine/client/input/input.c
  	IN_CheckMouseState( in_mouseactive );
  }
  
+diff --git a/engine/common/net_ws.h b/engine/common/net_ws.h
+--- a/engine/common/net_ws.h
++++ b/engine/common/net_ws.h
+@@ -103,4 +103,9 @@
+ typedef void ( *http_memory_cb_t )( const char *url, qboolean success, const byte *data, size_t size, void *userdata );
+ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata );
+ 
++// H9: HTTP_GetToMemoryEx's flags (the splash MOTD's picture, cl_motd.c)
++#define HTTP_MEM_PUBLIC_ONLY BIT( 0 ) // connect only to a public address: the one it resolved, checked, is the one it uses
++#define HTTP_MEM_VERIFY_TLS  BIT( 1 ) // https only with the server's certificate checked against a loaded CA bundle
++qboolean HTTP_GetToMemoryEx( const char *url, http_memory_cb_t cb, void *userdata, int flags );
++
+ #endif//NET_WS_H
+diff --git a/engine/common/http/net_http_tls.h b/engine/common/http/net_http_tls.h
+--- a/engine/common/http/net_http_tls.h
++++ b/engine/common/http/net_http_tls.h
+@@ -31,6 +31,7 @@
+ void HTTP_TlsInit( void );
+ void HTTP_TlsShutdown( void );
+ qboolean HTTP_TlsAvailable( void );
++qboolean HTTP_TlsVerifies( void ); // H9: a CA bundle is loaded and http_tls_insecure is off
+ tlsctx_t *HTTP_TlsNew( int socket, const char *hostname );
+ void HTTP_TlsFree( tlsctx_t *ctx );
+ int HTTP_TlsHandshake( tlsctx_t *ctx );
+@@ -42,6 +43,7 @@
+ static inline void HTTP_TlsInit( void ) { }
+ static inline void HTTP_TlsShutdown( void ) { }
+ static inline qboolean HTTP_TlsAvailable( void ) { return false; }
++static inline qboolean HTTP_TlsVerifies( void ) { return false; }
+ static inline tlsctx_t *HTTP_TlsNew( int socket, const char *hostname ) { return NULL; }
+ static inline void HTTP_TlsFree( tlsctx_t *ctx ) { }
+ static inline int HTTP_TlsHandshake( tlsctx_t *ctx ) { return HTTP_TLS_ERROR; }
+diff --git a/engine/common/http/net_http_tls.c b/engine/common/http/net_http_tls.c
+--- a/engine/common/http/net_http_tls.c
++++ b/engine/common/http/net_http_tls.c
+@@ -160,6 +160,12 @@
+ 	return g_tls.inited;
+ }
+ 
++// H9: whether a connection made now has its certificate checked (HTTP_MEM_VERIFY_TLS asks)
++qboolean HTTP_TlsVerifies( void )
++{
++	return g_tls.inited && g_tls.has_ca && http_tls_insecure.value == 0;
++}
++
+ tlsctx_t *HTTP_TlsNew( int socket, const char *hostname )
+ {
+ 	if( !g_tls.inited )
+diff --git a/engine/common/http/net_http_xash.c b/engine/common/http/net_http_xash.c
+--- a/engine/common/http/net_http_xash.c
++++ b/engine/common/http/net_http_xash.c
+@@ -159,6 +159,7 @@
+ 	size_t   mem_size;
+ 	size_t   mem_cap;
+ 	http_memory_cb_t mem_cb;
++	int      mem_flags; // H9: HTTP_MEM_* from HTTP_GetToMemoryEx
+ 	void    *mem_user;
+ 	char     url[1024];
+ 
+@@ -337,11 +338,86 @@
+ 	return 1;
+ }
+ 
++/*
++===================
++HTTP_PublicAddress
++
++H9: a public unicast address: not unspecified, loopback, private, CGNAT, link-local,
++benchmarking, documentation, multicast or reserved (IPv4); for IPv6 only global unicast
++(2000::/3) outside its documentation, Teredo and ORCHID blocks, with the IPv4 inside a
++v4-mapped, NAT64 or 6to4 address held to the IPv4 rules
++===================
++*/
++static qboolean HTTP_PublicIPv4( const byte *a )
++{
++	if( a[0] == 0 || a[0] == 10 || a[0] == 127 || a[0] >= 224 )
++		return false; // this network, private, loopback, multicast, reserved, broadcast
++	if( a[0] == 100 && ( a[1] & 0xc0 ) == 64 )
++		return false; // 100.64.0.0/10, carrier-grade NAT
++	if( a[0] == 169 && a[1] == 254 )
++		return false; // link-local
++	if( a[0] == 172 && ( a[1] & 0xf0 ) == 16 )
++		return false; // 172.16.0.0/12
++	if( a[0] == 192 && a[1] == 168 )
++		return false;
++	if( a[0] == 192 && a[1] == 0 && ( a[2] == 0 || a[2] == 2 ))
++		return false; // IETF protocol assignments, TEST-NET-1
++	if( a[0] == 192 && a[1] == 88 && a[2] == 99 )
++		return false; // the old 6to4 relay anycast
++	if( a[0] == 198 && ( a[1] & 0xfe ) == 18 )
++		return false; // 198.18.0.0/15, benchmarking
++	if( a[0] == 198 && a[1] == 51 && a[2] == 100 )
++		return false; // TEST-NET-2
++	if( a[0] == 203 && a[1] == 0 && a[2] == 113 )
++		return false; // TEST-NET-3
++	return true;
++}
++
++static qboolean HTTP_PublicAddress( const struct sockaddr_storage *addr )
++{
++	if( addr->ss_family == AF_INET )
++		return HTTP_PublicIPv4( (const byte *)&((const struct sockaddr_in *)addr)->sin_addr );
++
++	if( addr->ss_family == AF_INET6 )
++	{
++		const byte *a = (const byte *)&((const struct sockaddr_in6 *)addr)->sin6_addr;
++		static const byte mapped[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
++		static const byte nat64[12] = { 0, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0 };
++
++		if( !memcmp( a, mapped, 12 ) || !memcmp( a, nat64, 12 ))
++			return HTTP_PublicIPv4( a + 12 );
++		if( a[0] == 0x20 && a[1] == 0x02 )
++			return HTTP_PublicIPv4( a + 2 ); // 6to4
++		if(( a[0] & 0xe0 ) != 0x20 )
++			return false; // not global unicast: loopback, ULA, link-local, multicast and the rest
++		if( a[0] == 0x20 && a[1] == 0x01 && (( a[2] == 0x0d && a[3] == 0xb8 ) || ( a[2] == 0 && a[3] == 0 ) || ( a[2] == 0 && ( a[3] & 0xf0 ) == 0x10 )))
++			return false; // documentation, Teredo, ORCHID
++		return true;
++	}
++
++	return false;
++}
++
++// H9: a request that asked for public addresses only stops here on any other
++static qboolean HTTP_FileAddressAllowed( httpfile_t *file )
++{
++	if( !FBitSet( file->mem_flags, HTTP_MEM_PUBLIC_ONLY ) || HTTP_PublicAddress( &file->addr ))
++		return true;
++
++	Con_Printf( S_ERROR "%s: %s is a private or reserved address; refused\n", file->to_memory ? file->url : file->path, file->server->host );
++	HTTP_FreeFile( file, true );
++	return false;
++}
++
+ static int HTTP_FileResolveNS( httpfile_t *file )
+ {
+ 	if( file->server->resolved )
+ 	{
+ 		file->addr = file->server->addr;
++
++		if( !HTTP_FileAddressAllowed( file ))
++			return 0;
++
+ 		file->pfn_process = HTTP_FileCreateSocket;
+ 		return 1;
+ 	}
+@@ -379,6 +455,10 @@
+ 	file->server->addr = file->addr;
+ 	file->server->resolved = true;
+ 
++	// H9: the address checked is the one the connection is made to
++	if( !HTTP_FileAddressAllowed( file ))
++		return 0;
++
+ 	file->pfn_process = HTTP_FileCreateSocket;
+ 	return 1;
+ }
+@@ -461,6 +541,14 @@
+ 
+ 	if( file->server->secure )
+ 	{
++		// H9: a request that needs its certificate checked does not go on unchecked
++		if( FBitSet( file->mem_flags, HTTP_MEM_VERIFY_TLS ) && !HTTP_TlsVerifies( ))
++		{
++			Con_Printf( S_ERROR "%s: no CA bundle loaded (or http_tls_insecure is set): its certificate cannot be checked; refused\n", file->url );
++			HTTP_FreeFile( file, true );
++			return 0;
++		}
++
+ 		file->tls = HTTP_TlsNew( file->socket, file->server->host );
+ 		if( !file->tls )
+ 		{
+@@ -1334,6 +1422,18 @@
+ */
+ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata )
+ {
++	return HTTP_GetToMemoryEx( url, cb, userdata, 0 );
++}
++
++/*
++===================
++HTTP_GetToMemoryEx
++
++H9: HTTP_GetToMemory with HTTP_MEM_* flags (net_ws.h)
++===================
++*/
++qboolean HTTP_GetToMemoryEx( const char *url, http_memory_cb_t cb, void *userdata, int flags )
++{
+ 	if( Q_strpbrk( url, "\r\n" ))
+ 	{
+ 		Con_Printf( S_ERROR "%s: refused, URL contains CRLF\n", __func__ );
+@@ -1348,6 +1448,13 @@
+ 		return false;
+ 	}
+ 
++	if( FBitSet( flags, HTTP_MEM_VERIFY_TLS ) && !server->secure )
++	{
++		Con_Printf( S_ERROR "%s: \"%s\" is not https\n", __func__, url );
++		Mem_Free( server );
++		return false;
++	}
++
+ 	httpfile_t *httpfile = Mem_Calloc( http_mempool, sizeof( *httpfile ));
+ 
+ 	httpfile->size = -1;
+@@ -1358,6 +1465,7 @@
+ 	httpfile->to_memory = true;
+ 	httpfile->mem_cb = cb;
+ 	httpfile->mem_user = userdata;
++	httpfile->mem_flags = flags;
+ 	httpfile->pfn_process = HTTP_FileQueue;
+ 	Q_strncpy( httpfile->url, url, sizeof( httpfile->url ));
+ 	// file->path is empty; the full path lives in server->path
 diff --git a/engine/client/cl_motd.h b/engine/client/cl_motd.h
 new file mode 100644
 --- /dev/null
 +++ b/engine/client/cl_motd.h
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,80 @@
 +/*
 +cl_motd.h - H9: the splash MOTD, a server's picture or web page shown at join (cl_motd.c)
 +
@@ -197,12 +429,56 @@ new file mode 100644
 +// once a frame from IN_Commands: 1 = turn the game's mouse off, 2 = give it back, 0 = nothing
 +int CL_Motd_MouseFrame( qboolean mouse_active );
 +
++// IN_ActivateMouse asks first: true while the splash keeps the mouse off (it gives it back when it closes)
++qboolean CL_Motd_KeepsMouse( void );
++
++
++// ---- H9's engine-drawn panels -------------------------------------------------------------
++// The drawing kit the splash uses, for any other panel (needs client.h before this header), and a
++// registry of those panels: each registered one gets the keys, the mouse and a frame before the
++// splash, is drawn above it, and is reset with it (a new map, a disconnect).
++
++typedef struct
++{
++	int x, y, w, h;
++	qboolean shown;
++} h9ui_rect_t;
++
++typedef struct h9ui_panel_s
++{
++	qboolean ( *Active )( void );                       // up in the game: it has the keys and the mouse
++	qboolean ( *KeyEvent )( int key, qboolean down );   // true when it took the key (and so its release)
++	qboolean ( *MouseEvent )( int key, qboolean down ); // the same for K_MOUSE1..K_MOUSE5
++	void ( *Frame )( void );
++	void ( *Draw )( void );                             // in 2D, after the HUD, VGUI and the splash
++	void ( *Reset )( qboolean connection );
++} h9ui_panel_t;
++
++void H9UI_AddPanel( const h9ui_panel_t *panel );
++
++// the name the server the player is on gave itself (the game's ServerName message, its
++// hostname), printable ASCII only; empty before it came and after a disconnect
++const char *H9UI_ServerName( void );
++
++extern const rgba_t h9ui_white, h9ui_light, h9ui_soft;
++void H9UI_Fill( int x, int y, int w, int h, byte r, byte g, byte b, byte a );
++void H9UI_Border( int x, int y, int w, int h, int t );
++int H9UI_Width( cl_font_t *font, const char *s, int n );
++void H9UI_Text( cl_font_t *font, int x, int y, const char *s, int n, const rgba_t color );
++int H9UI_Fit( cl_font_t *font, const char *s, int maxw, qboolean words );
++int H9UI_Lines( cl_font_t *font, const char *s, int maxw, qboolean words, int first, int count, int x, int y, const rgba_t color );
++void H9UI_Line( cl_font_t *font, int x, int y, int maxw, const char *s, const rgba_t color );
++void H9UI_SetRect( h9ui_rect_t *r, int x, int y, int w, int h );
++qboolean H9UI_Hit( const h9ui_rect_t *r, int x, int y );
++void H9UI_Button( cl_font_t *font, h9ui_rect_t *r, int x, int y, int w, int h, const char *label, int mx, int my );
++void H9UI_Cursor( int x, int y, int u );
++
 +#endif // CL_MOTD_H
 diff --git a/engine/client/cl_motd.c b/engine/client/cl_motd.c
 new file mode 100644
 --- /dev/null
 +++ b/engine/client/cl_motd.c
-@@ -0,0 +1,1284 @@
+@@ -0,0 +1,1896 @@
 +/*
 +cl_motd.c - H9: the splash MOTD, a server's picture or web page shown at join
 +
@@ -214,8 +490,8 @@ new file mode 100644
 +
 +	type   image: the splash is the picture. page: the splash is the web page.
 +	show   connect: once a connection. map: at every map.
-+	image  the picture: the splash itself for type image; for type page, what a client
-+	       that cannot show web pages shows in its place (may be empty).
++	image  the picture: the splash itself for type image; for type page, what is shown
++	       when the page itself cannot be (may be empty).
 +	page   the web page: the splash itself for type page; for type image, where the
 +	       OPEN PAGE button goes (may be empty).
 +	title  the panel's title: the server's name.
@@ -229,25 +505,41 @@ new file mode 100644
 +splash already shown this connection, the next maps show neither the splash nor the text.
 +
 +The addresses must be https, with a host name (no IP address, no single-label name such
-+as localhost, no user name before the host) and no spaces, quotes or backslashes. The host
-+is always on screen.
++as localhost, none of the usual private names such as .local or .lan, no user name before the
++host) and no spaces, quotes or backslashes. The host is always on screen.
 +
-+Native build: the picture is fetched with the engine's HTTP client (HTTP_GetToMemory: https
-+certificates are checked against cacert.pem from valve\extras.pk3; no cookies, no referrer),
-+refused over H9M_MAX_BYTES, refused over H9M_MAX_SIDE pixels on a side before it is decoded
++Native build. A picture is fetched with the engine's HTTP client (HTTP_GetToMemoryEx: https
++only, refused when no CA bundle is loaded, certificates checked against cacert.pem from
++valve\extras.pk3; the host's resolved address must be public -- not loopback, private,
++link-local, CGNAT, multicast or reserved -- and is the one connected to; no cookies, no
++referrer), refused over H9M_MAX_BYTES, refused over H9M_MAX_SIDE pixels on a side before it is decoded
 +(its size is read from the file's header), decoded by imagelib (PNG, TGA, BMP) and drawn over
-+the HUD and VGUI. A web page cannot be drawn here: type page shows its picture, or the text
-+of the held TS MOTD, with the page's address and OPEN PAGE. OPEN PAGE asks first, with the
-+whole address on screen, and opens the system browser only on a mouse click, never on a key.
-+While the panel is up it takes the keyboard (the console key excepted) and the mouse; ESC,
-+ENTER, SPACE or CLOSE end it, and the game gets its mouse back.
++the HUD and VGUI.
++
++A web page is shown inside the panel by h9webview.dll (xash3d-h9-patches\webview), which
++hosts it with Microsoft Edge WebView2 in a child window over the panel's body, locked down
++(h9webview.cpp lists how); the panel draws the title, "Web page at <host>" and CLOSE (ESC)
++around it. The view is made hidden and shown once its page has loaded. When the page cannot
++be shown here -- no h9webview.dll, no WebView2 runtime, exclusive full screen (where the game
++minimizes as soon as another window takes the keyboard), Wine or Proton without
++cl_h9_motd_wine, a page that fails or has not loaded within H9M_WAIT seconds, a view that
++stops later -- the panel is the fallback: one line saying so, the page's picture when the
++server gave one, else the held TS MOTD's text, and OPEN PAGE. The reason goes to the console.
++
++OPEN PAGE, and any new window the page asks for, go through the confirm box: the whole
++address on screen, and the system browser opens only on a mouse click on OPEN IN BROWSER,
++never on a key. While the panel is up it has the keyboard (the console key excepted) and the
++mouse; ESC or CLOSE end it, ENTER and SPACE too when no page is on screen, and the game gets
++its mouse back. A page the player has clicked into has the keyboard itself; ESC there closes
++the splash too.
 +
 +Browser build: the page (havoc9.org\webclient\client.js, Module.motd) shows the splash in
 +its own overlay, the picture as an image and the page in a sandboxed frame, and answers
 +with h9_motd_result: 1 shown, 0 not shown (the text is handed on).
 +
 +cl_h9_motd 0 (kept in config.cfg) turns it off for this player: TS's text MOTD as it comes.
-+docs\H9_MOTD.txt has the whole picture.
++cl_h9_motd_wine (Windows build under Wine or Proton): 1 shows web pages there too, without
++Chromium's sandbox, 2 also with the GPU off. docs\H9_MOTD.txt has the whole picture.
 +*/
 +
 +#include "common.h"
@@ -258,6 +550,9 @@ new file mode 100644
 +#include "cl_motd.h"
 +#if XASH_EMSCRIPTEN
 +#include <emscripten.h>
++#endif
++#if XASH_WIN32
++#include <wchar.h>
 +#endif
 +
 +#define H9M_MAX_URL     256      // an address, its terminator included
@@ -277,7 +572,8 @@ new file mode 100644
 +{
 +	H9M_IDLE = 0,
 +	H9M_FETCH,     // native: the picture is on its way
-+	H9M_TEXT,      // native: a page with no picture, waiting for TS's text to stand in for it
++	H9M_PAGE,      // native: the web page is loading in its view, its picture (if any) on its way
++	H9M_TEXT,      // native: a page shown by its text, waiting for TS's text to arrive
 +	H9M_OPEN,      // native: the panel is up
 +	H9M_WEB_ASK,   // browser: to be handed to the page once the game is up
 +	H9M_WEB_WAIT,  // browser: the page has it; its answer is awaited
@@ -298,12 +594,6 @@ new file mode 100644
 +	H9M_PIC_READY,
 +	H9M_PIC_FAILED,
 +} h9m_picture_t;
-+
-+typedef struct
-+{
-+	int x, y, w, h;
-+	qboolean shown;
-+} h9m_rect_t;
 +
 +enum
 +{
@@ -331,28 +621,99 @@ new file mode 100644
 +	char     page_host[H9M_MAX_HOST];
 +	char     title[H9M_MAX_TITLE];
 +	double   started;
-+	int      gen;      // the current request; an answer for an older one is dropped
++	int      gen;      // the current picture request; an answer for an older one is dropped
 +	h9m_picture_t picture;
 +	int      texture;
 +	int      picw, pich;
++
++	// the page's view (Windows, h9webview.dll)
++	void    *view;
++	void    *view_window;  // the game window it was made in
++	int      viewgen;      // the current view; a report from an older one is dropped
++	qboolean view_tried;
++	qboolean view_ready;   // its page has loaded
++	qboolean view_failed;  // it cannot be shown here, or stopped
++	qboolean view_escape;  // ESC was pressed in it
++	qboolean view_lost;    // it reported that it cannot show the page; view_why says why
++	char     view_why[128];
++	char     view_host[H9M_MAX_HOST]; // the host its page is at now
++	char     newwin[H9M_MAX_URL];     // a new window it asked for, for the confirm box
++	int      view_x, view_y, view_w, view_h; // the panel's body, in render coordinates
++	qboolean view_placed;
 +
 +	// TS's MOTD, while the splash decides its fate
 +	h9m_textfate_t textfate;
 +	byte     held[H9M_HELD_MAX]; // each part: its size (2 bytes, low first), then its bytes
 +	size_t   heldlen;
-+	char     text[H9M_TEXT_MAX]; // its text, for a page with no picture
++	char     text[H9M_TEXT_MAX]; // its text, for a page shown by its text
 +	qboolean text_done;
 +
 +	// the panel
-+	qboolean confirm;  // OPEN PAGE was clicked: the address is up for a second click
++	qboolean confirm;  // an address is up for a second click
++	char     confirm_url[H9M_MAX_URL];
++	char     confirm_host[H9M_MAX_HOST];
 +	int      scroll, lines, visible; // the text, in lines
-+	h9m_rect_t btn[H9M_BTN_COUNT];
++	h9ui_rect_t btn[H9M_BTN_COUNT];
 +	byte     eat[256]; // keys and buttons the splash took: their releases are its too
 +	qboolean took_mouse;
 +
 +	// this connection
 +	qboolean shown;
 +} motd;
++
++// Other engine-drawn panels (cl_travel.c registers its prompt): each comes before the splash for
++// the keys and the mouse, and is drawn above it.
++#define H9UI_MAX_PANELS 4
++static const h9ui_panel_t *h9ui_panels[H9UI_MAX_PANELS];
++static int h9ui_numpanels;
++
++void H9UI_AddPanel( const h9ui_panel_t *panel )
++{
++	if( panel && h9ui_numpanels < H9UI_MAX_PANELS )
++		h9ui_panels[h9ui_numpanels++] = panel;
++}
++
++// the server's name, as its ServerName message gave it at join: the server's own word
++static char h9ui_server[64];
++
++const char *H9UI_ServerName( void )
++{
++	return h9ui_server;
++}
++
++// ServerName carries one string (the hostname cvar); quotes, carets, backslashes and anything
++// outside printable ASCII become spaces
++static void H9UI_NoteServerName( const byte *buf, int size )
++{
++	int n = 0;
++
++	for( int i = 0; i < size && buf[i] && n + 1 < (int)sizeof( h9ui_server ); i++ )
++	{
++		byte c = buf[i];
++
++		h9ui_server[n++] = ( c < ' ' || c > '~' || c == '"' || c == '^' || c == '\\' ) ? ' ' : (char)c;
++	}
++
++	h9ui_server[n] = '\0';
++}
++
++// another panel is up in the game: it has the keys and the mouse
++static qboolean H9UI_PanelUp( void )
++{
++	for( int i = 0; i < h9ui_numpanels; i++ )
++	{
++		if( h9ui_panels[i]->Active( ))
++			return true;
++	}
++
++	return false;
++}
++
++// the splash itself is up in the game
++static qboolean H9M_Up( void )
++{
++	return motd.state == H9M_OPEN && cls.state == ca_active && cls.key_dest == key_game;
++}
 +
 +#if XASH_EMSCRIPTEN
 +// The page shows the splash (Module.motd in client.js): show() takes it and answers true when
@@ -374,6 +735,42 @@ new file mode 100644
 +		try { motd.hide(); } catch( e ) { }
 +	}
 +});
++#endif
++
++#if XASH_WIN32
++// h9webview.dll's interface, as xash3d-h9-patches\webview\h9webview.h has it: the same numbers,
++// and H9WV_API_VERSION raised there and here with any change
++#define H9WV_API_VERSION 1
++#define H9WV_READY       1
++#define H9WV_FAILED      2
++#define H9WV_ESCAPE      3
++#define H9WV_NEWWINDOW   4
++#define H9WV_NAVIGATED   5
++#define H9WV_BLOCKED     6
++#define H9WV_NOSANDBOX   1
++#define H9WV_NOGPU       2
++#define H9WV_WINEFIX     4
++
++typedef void ( *h9wv_status_fn )( int status, const char *detail, void *user );
++typedef int ( *h9wv_api_fn )( void );
++typedef int ( *h9wv_str_fn )( char *buf, int size );
++typedef void *( *h9wv_open_fn )( void *parent, const char *url, int flags, h9wv_status_fn status, void *user, char *why, int whysize );
++typedef void ( *h9wv_place_fn )( void *view, int x, int y, int w, int h, int render_w, int render_h, int visible );
++typedef void ( *h9wv_close_fn )( void *view );
++
++static struct
++{
++	qboolean      tried;
++	qboolean      ok;
++	qboolean      wine;   // the game runs under Wine or Proton
++	char          why[96];
++	h9wv_str_fn   Runtime;
++	h9wv_open_fn  Open;
++	h9wv_place_fn Place;
++	h9wv_close_fn Close;
++} h9wv;
++
++static CVAR_DEFINE_AUTO( cl_h9_motd_wine, "0", FCVAR_ARCHIVE | FCVAR_PRIVILEGED, "H9: under Wine or Proton, show a server's web page inside the game with Edge WebView2, without Chromium's sandbox: 0 = no, its picture or text and OPEN PAGE; 1 = yes; 2 = yes, with the GPU off" );
 +#endif
 +
 +/*
@@ -452,12 +849,33 @@ new file mode 100644
 +	return false;
 +}
 +
++// localhost's family and the usual names of private networks: no splash is fetched from them
++static qboolean H9M_PrivateHost( const char *host )
++{
++	static const char *const tails[] =
++	{
++		".localhost", ".local", ".localdomain", ".lan", ".home", ".internal", ".intranet",
++		".corp", ".home.arpa", ".private"
++	};
++	size_t len = Q_strlen( host );
++
++	for( size_t i = 0; i < ARRAYSIZE( tails ); i++ )
++	{
++		size_t n = Q_strlen( tails[i] );
++
++		if( len >= n && !Q_stricmp( host + len - n, tails[i] ))
++			return true;
++	}
++
++	return false;
++}
++
 +// An address the splash may use: https; a host name with a dot and a letter in it (no IP
-+// address, no single-label name such as localhost), made of letters, digits, dots and dashes
-+// (no user name before it, no IPv6 brackets); then an optional port; printable ASCII without
-+// spaces, quotes, backslashes or <>^`{|}; shorter than H9M_MAX_URL. need_path: a path must
-+// follow the host and no #fragment may follow it (the HTTP client sends the path as it is).
-+// host gets the host in lower case, to be shown.
++// address, no single-label name such as localhost, no private name such as .local), made of
++// letters, digits, dots and dashes (no user name before it, no IPv6 brackets); then an optional
++// port; printable ASCII without spaces, quotes, backslashes or <>^`{|}; shorter than
++// H9M_MAX_URL. need_path: a path must follow the host and no #fragment may follow it (the HTTP
++// client sends the path as it is). host gets the host in lower case, to be shown.
 +static qboolean H9M_CheckURL( const char *url, qboolean need_path, char *host, size_t hostsize )
 +{
 +	size_t len = Q_strlen( url ), n = 0;
@@ -516,7 +934,8 @@ new file mode 100644
 +		}
 +	}
 +
-+	if( !n || !letter || !Q_strchr( host, '.' ) || host[0] == '.' || host[n - 1] == '.' || Q_strstr( host, ".." ))
++	if( !n || !letter || !Q_strchr( host, '.' ) || host[0] == '.' || host[n - 1] == '.' || Q_strstr( host, ".." )
++		|| H9M_PrivateHost( host ))
 +	{
 +		host[0] = '\0';
 +		return false;
@@ -530,6 +949,36 @@ new file mode 100644
 +
 +	return true;
 +}
++
++#if XASH_WIN32
++// the host of any address, for the panel's "Web page at" line: lower case, and anything that is
++// not a letter, digit, dot or dash shown as ?
++static void H9M_HostOf( const char *url, char *host, size_t size )
++{
++	const char *s = Q_strstr( url, "://" );
++	size_t n = 0;
++
++	host[0] = '\0';
++
++	if( !s )
++		return;
++
++	for( s += 3; *s && *s != '/' && *s != '?' && *s != '#' && *s != ':' && n + 1 < size; s++ )
++	{
++		char c = *s;
++
++		if( c >= 'A' && c <= 'Z' )
++			c += 'a' - 'A';
++
++		if(!(( c >= 'a' && c <= 'z' ) || ( c >= '0' && c <= '9' ) || c == '.' || c == '-' ))
++			c = '?';
++
++		host[n++] = c;
++	}
++
++	host[n] = '\0';
++}
++#endif
 +
 +/*
 +==============================================================================
@@ -610,6 +1059,233 @@ new file mode 100644
 +/*
 +==============================================================================
 +
++	THE PAGE'S VIEW (Windows: h9webview.dll)
++
++==============================================================================
++*/
++
++// the view goes; a report still on its way from it is for nobody
++static void H9M_ViewClose( void )
++{
++#if XASH_WIN32
++	if( motd.view )
++	{
++		motd.viewgen++;
++		h9wv.Close( motd.view );
++	}
++#endif
++	motd.view = NULL;
++	motd.view_window = NULL;
++	motd.view_placed = false;
++}
++
++#if !XASH_EMSCRIPTEN
++// the page cannot be shown here: the reason goes to the console once, and the view goes
++static void H9M_ViewFail( const char *why )
++{
++	if( !motd.view_failed )
++	{
++		motd.view_failed = true;
++		Con_Printf( "H9 MOTD: the page could not be shown here: %s\n", why ? why : "no reason given" );
++	}
++
++	H9M_ViewClose();
++}
++
++#if XASH_WIN32
++// h9webview.dll from the game's own folder, once a session
++static qboolean H9WV_Load( void )
++{
++	wchar_t path[MAX_PATH];
++	wchar_t *slash;
++	DWORD n;
++	HMODULE dll;
++	h9wv_api_fn api;
++	h9wv_str_fn wine;
++	char version[64];
++
++	if( h9wv.tried )
++		return h9wv.ok;
++
++	h9wv.tried = true;
++	Q_strncpy( h9wv.why, "h9webview.dll is missing", sizeof( h9wv.why ));
++
++	n = GetModuleFileNameW( NULL, path, MAX_PATH );
++
++	if( !n || n >= MAX_PATH || !( slash = wcsrchr( path, L'\\' )) || ( slash - path ) + 15 >= MAX_PATH )
++		return false;
++
++	wcscpy( slash + 1, L"h9webview.dll" );
++	dll = LoadLibraryExW( path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH );
++
++	if( !dll )
++		return false;
++
++	api = (h9wv_api_fn)GetProcAddress( dll, "H9WV_ApiVersion" );
++	wine = (h9wv_str_fn)GetProcAddress( dll, "H9WV_Wine" );
++	h9wv.Runtime = (h9wv_str_fn)GetProcAddress( dll, "H9WV_Runtime" );
++	h9wv.Open = (h9wv_open_fn)GetProcAddress( dll, "H9WV_Open" );
++	h9wv.Place = (h9wv_place_fn)GetProcAddress( dll, "H9WV_Place" );
++	h9wv.Close = (h9wv_close_fn)GetProcAddress( dll, "H9WV_Close" );
++
++	if( !api || !wine || !h9wv.Runtime || !h9wv.Open || !h9wv.Place || !h9wv.Close || api() != H9WV_API_VERSION )
++	{
++		Q_strncpy( h9wv.why, "h9webview.dll is not the one this engine needs", sizeof( h9wv.why ));
++		FreeLibrary( dll );
++		return false;
++	}
++
++	h9wv.wine = wine( version, sizeof( version )) != 0;
++
++	if( h9wv.wine )
++		Con_Reportf( "H9 MOTD: running under Wine %s\n", version );
++
++	h9wv.ok = true;
++	return true;
++}
++
++static void *H9M_GameWindow( void )
++{
++	void *window = NULL;
++
++	if( R_GetWindowHandle( &window, REF_WINDOW_TYPE_WIN32 ) != REF_WINDOW_TYPE_WIN32 )
++		return NULL;
++
++	return window;
++}
++
++// What the view says, in the middle of the game's message loop: only noted here; the frame acts on it.
++static void H9M_ViewStatus( int status, const char *detail, void *user )
++{
++	char host[H9M_MAX_HOST];
++
++	// a view already closed has a new number; a report may also come before H9WV_Open returns
++	if( (int)(intptr_t)user != motd.viewgen )
++		return;
++
++	switch( status )
++	{
++	case H9WV_READY:
++		motd.view_ready = true;
++		break;
++	case H9WV_FAILED:
++		if( !motd.view_lost )
++		{
++			motd.view_lost = true;
++			Q_strncpy( motd.view_why, detail ? detail : "no reason given", sizeof( motd.view_why ));
++		}
++		break;
++	case H9WV_ESCAPE:
++		motd.view_escape = true;
++		break;
++	case H9WV_NEWWINDOW:
++		if( detail && H9M_CheckURL( detail, false, host, sizeof( host )))
++			Q_strncpy( motd.newwin, detail, sizeof( motd.newwin ));
++		else Con_Printf( "H9 MOTD: the page asked to open an address the splash may not use\n" );
++		break;
++	case H9WV_NAVIGATED:
++		if( detail )
++			H9M_HostOf( detail, motd.view_host, sizeof( motd.view_host ));
++		break;
++	case H9WV_BLOCKED:
++		Con_Printf( "H9 MOTD: the page went to an address that is not allowed (https and a host name only): %s\n", detail ? detail : "" );
++		break;
++	default:
++		break;
++	}
++}
++#endif // XASH_WIN32
++
++// the page's view, made hidden; or why it cannot be
++static void H9M_ViewOpen( void )
++{
++	motd.view_tried = true;
++
++#if XASH_WIN32
++	{
++		char why[128], version[96];
++		void *window;
++		int flags = 0;
++
++		if( refState.window_mode == WINDOW_MODE_FULLSCREEN )
++		{
++			H9M_ViewFail( "the game is in exclusive full screen (fullscreen 1): fullscreen 2 or 0 shows it" );
++			return;
++		}
++
++		if( !H9WV_Load( ))
++		{
++			H9M_ViewFail( h9wv.why );
++			return;
++		}
++
++		if( h9wv.wine )
++		{
++			if( cl_h9_motd_wine.value <= 0.0f )
++			{
++				H9M_ViewFail( "web pages are not shown under Wine or Proton unless cl_h9_motd_wine is 1 (docs\\H9_MOTD.txt)" );
++				return;
++			}
++
++			flags = H9WV_NOSANDBOX | H9WV_WINEFIX;
++
++			if( cl_h9_motd_wine.value >= 2.0f )
++				flags |= H9WV_NOGPU;
++		}
++
++		if( !h9wv.Runtime( version, sizeof( version )))
++		{
++			if( h9wv.wine )
++				Con_Printf( "H9 MOTD: no WebView2 runtime in this Wine prefix: run Microsoft's WebView2 Evergreen Standalone Installer in it (wine MicrosoftEdgeWebView2RuntimeInstallerX64.exe /silent /install, see README_LINUX.txt), or put a Fixed Version runtime in H9XASH\\webview2\\runtime\n" );
++			else Con_Printf( "H9 MOTD: the Microsoft Edge WebView2 Runtime is not installed: https://go.microsoft.com/fwlink/p/?LinkId=2124703\n" );
++
++			H9M_ViewFail( "no WebView2 runtime" );
++			return;
++		}
++
++		window = H9M_GameWindow();
++
++		if( !window )
++		{
++			H9M_ViewFail( "no game window" );
++			return;
++		}
++
++		motd.viewgen++;
++		motd.view_window = window;
++		motd.view = h9wv.Open( window, motd.page, flags, H9M_ViewStatus, (void *)(intptr_t)motd.viewgen, why, sizeof( why ));
++
++		if( !motd.view )
++		{
++			H9M_ViewFail( why );
++			return;
++		}
++
++		Con_Reportf( "H9 MOTD: loading %s with WebView2 %s\n", motd.page_host, version );
++	}
++#else
++	H9M_ViewFail( "this build has no web view" );
++#endif
++}
++#endif // !XASH_EMSCRIPTEN
++
++// where the view sits and whether it shows: with its panel up, in the game, with no confirm box over it
++static void H9M_ViewSync( void )
++{
++#if XASH_WIN32
++	qboolean show;
++
++	if( !motd.view )
++		return;
++
++	show = motd.state == H9M_OPEN && motd.view_ready && motd.view_placed && !motd.confirm && H9M_Up( ) && !H9UI_PanelUp( );
++	h9wv.Place( motd.view, motd.view_x, motd.view_y, motd.view_w, motd.view_h, refState.width, refState.height, show );
++#endif
++}
++
++/*
++==============================================================================
++
 +	THE SPLASH
 +
 +==============================================================================
@@ -632,11 +1308,20 @@ new file mode 100644
 +	if( motd.state == H9M_WEB_WAIT || motd.state == H9M_WEB_OPEN )
 +		H9M_PageHide();
 +#endif
-+	motd.gen++; // an answer still on its way is for nobody
++	H9M_ViewClose();
++	motd.gen++; // a picture still on its way is for nobody
 +	H9M_FreePicture();
 +	motd.state = H9M_IDLE;
 +	motd.confirm = false;
 +	motd.scroll = 0;
++	motd.view_tried = false;
++	motd.view_ready = false;
++	motd.view_failed = false;
++	motd.view_escape = false;
++	motd.view_lost = false;
++	motd.view_why[0] = '\0';
++	motd.view_host[0] = '\0';
++	motd.newwin[0] = '\0';
 +}
 +
 +// the splash cannot be shown: TS's text instead, as on a server without one
@@ -733,7 +1418,7 @@ new file mode 100644
 +	rgbdata_t *pic;
 +	int w = 0, h = 0;
 +
-+	if( (int)(intptr_t)userdata != motd.gen || motd.state != H9M_FETCH || motd.picture != H9M_PIC_LOADING )
++	if( (int)(intptr_t)userdata != motd.gen || ( motd.state != H9M_FETCH && motd.state != H9M_PAGE ) || motd.picture != H9M_PIC_LOADING )
 +		return;
 +
 +	motd.picture = H9M_PIC_FAILED;
@@ -794,9 +1479,27 @@ new file mode 100644
 +	motd.picture = H9M_PIC_READY;
 +}
 +
++// the picture is asked for; the frame waits for it
++static void H9M_Fetch( void )
++{
++	motd.picture = H9M_PIC_LOADING;
++
++	// a public address only, checked once resolved and then the one connected to (a host name can
++	// point anywhere, 0x7f.1 included), and https only with the certificate checked
++	if( !HTTP_GetToMemoryEx( motd.image, H9M_Received, (void *)(intptr_t)motd.gen, HTTP_MEM_PUBLIC_ONLY | HTTP_MEM_VERIFY_TLS ))
++		motd.picture = H9M_PIC_FAILED;
++}
++
 +// the panel comes up: keys and buttons held as it does are let go, as for the console or the menu
 +static void H9M_Open( void )
 +{
++	// a page on screen needs no picture
++	if( motd.view )
++	{
++		motd.gen++;
++		H9M_FreePicture();
++	}
++
 +	if( cls.key_dest == key_game )
 +		Key_ClearStates();
 +
@@ -805,9 +1508,48 @@ new file mode 100644
 +	motd.scroll = 0;
 +	H9M_Shown( H9M_OPEN );
 +}
++
++// the panel is up with the page on screen: ESC in the page, a failure, a new window, the window's mode
++static void H9M_ViewFrame( void )
++{
++#if XASH_WIN32
++	if( !motd.view )
++		return;
++
++	if( motd.view_escape )
++	{
++		H9M_Stop();
++		return;
++	}
++
++	if( motd.view_lost )
++		H9M_ViewFail( motd.view_why );
++	else if( refState.window_mode == WINDOW_MODE_FULLSCREEN )
++		H9M_ViewFail( "the game went to exclusive full screen (fullscreen 1)" );
++	else if( H9M_GameWindow() != motd.view_window )
++		H9M_ViewFail( "the game's window was made again" );
++
++	// gone: the panel stays as the fallback, the text and OPEN PAGE
++	if( !motd.view )
++	{
++		motd.confirm = false;
++		return;
++	}
++
++	if( motd.newwin[0] )
++	{
++		Q_strncpy( motd.confirm_url, motd.newwin, sizeof( motd.confirm_url ));
++		H9M_HostOf( motd.confirm_url, motd.confirm_host, sizeof( motd.confirm_host ));
++		motd.newwin[0] = '\0';
++		motd.confirm = true;
++	}
++
++	H9M_ViewSync();
++#endif
++}
 +#endif // !XASH_EMSCRIPTEN
 +
-+// the whole message is here: check it, then fetch the picture or hand it to the page
++// the whole message is here: check it, then fetch the picture, load the page or hand it to the page
 +static void H9M_Begin( const char *info )
 +{
 +	char value[H9M_MAX_URL];
@@ -883,15 +1625,19 @@ new file mode 100644
 +#if XASH_EMSCRIPTEN
 +	motd.state = H9M_WEB_ASK;
 +#else
-+	if( motd.image[0] )
++	if( is_page )
++	{
++		// the page itself, and its picture alongside for the fallback
++		motd.state = H9M_PAGE;
++
++		if( motd.image[0] )
++			H9M_Fetch();
++	}
++	else
 +	{
 +		motd.state = H9M_FETCH;
-+		motd.picture = H9M_PIC_LOADING;
-+
-+		if( !HTTP_GetToMemory( motd.image, H9M_Received, (void *)(intptr_t)motd.gen ))
-+			motd.picture = H9M_PIC_FAILED;
++		H9M_Fetch();
 +	}
-+	else motd.state = H9M_TEXT;
 +#endif
 +}
 +
@@ -938,6 +1684,10 @@ new file mode 100644
 +	if( !Q_strcmp( name, "MOTD" ))
 +		return H9M_TextPart( buf, size );
 +
++	// the game's own handler reads it too
++	if( !Q_strcmp( name, "ServerName" ))
++		H9UI_NoteServerName( buf, size );
++
 +	return false;
 +}
 +
@@ -956,12 +1706,26 @@ new file mode 100644
 +
 +void CL_Motd_Frame( void )
 +{
-+	if( motd.state == H9M_IDLE || motd.state == H9M_OPEN || motd.state == H9M_WEB_OPEN )
++	for( int i = 0; i < h9ui_numpanels; i++ )
++		h9ui_panels[i]->Frame();
++
++	if( motd.state == H9M_IDLE || motd.state == H9M_WEB_OPEN )
 +		return;
++
++#if !XASH_EMSCRIPTEN
++	if( motd.state == H9M_OPEN )
++	{
++		H9M_ViewFrame();
++		return;
++	}
++#endif
 +
 +	// a splash comes up in the game, never over the loading screen
 +	if( cls.state != ca_active || cls.signon != SIGNONS )
++	{
++		H9M_ViewSync();
 +		return;
++	}
 +
 +	switch( motd.state )
 +	{
@@ -987,14 +1751,41 @@ new file mode 100644
 +			if( motd.picture != H9M_PIC_FAILED )
 +				Con_Printf( "H9 MOTD: the picture took longer than %d seconds\n", (int)H9M_WAIT );
 +
-+			if( motd.is_page )
-+			{
-+				// a page's picture only stands in for it: the text and OPEN PAGE instead
-+				motd.gen++;
-+				H9M_FreePicture();
-+				motd.state = H9M_TEXT;
-+			}
-+			else H9M_Fail( "the picture could not be shown" );
++			H9M_Fail( "the picture could not be shown" );
++		}
++		break;
++	case H9M_PAGE:
++		if( !motd.view_tried )
++			H9M_ViewOpen();
++
++		if( motd.view && motd.view_lost )
++			H9M_ViewFail( motd.view_why );
++
++		if( motd.view && motd.view_ready )
++		{
++			H9M_Open(); // the page itself
++			break;
++		}
++
++		if( motd.view && host.realtime - motd.started <= H9M_WAIT )
++		{
++			H9M_ViewSync();
++			break; // still loading
++		}
++
++		if( motd.view )
++			H9M_ViewFail( "it did not load within 10 seconds" );
++
++		// the fallback: the page's picture, else TS's text
++		if( motd.picture == H9M_PIC_READY )
++		{
++			H9M_Open();
++		}
++		else if( motd.picture != H9M_PIC_LOADING || host.realtime - motd.started > H9M_WAIT )
++		{
++			motd.gen++;
++			H9M_FreePicture();
++			motd.state = H9M_TEXT;
 +		}
 +		break;
 +	case H9M_TEXT:
@@ -1010,14 +1801,14 @@ new file mode 100644
 +/*
 +==============================================================================
 +
-+	THE PANEL (native build)
++	THE PANELS: who has the input, and the drawing kit every H9 panel uses
 +
 +==============================================================================
 +*/
 +
 +qboolean CL_Motd_Active( void )
 +{
-+	return motd.state == H9M_OPEN && cls.state == ca_active && cls.key_dest == key_game;
++	return H9M_Up( ) || H9UI_PanelUp( );
 +}
 +
 +int CL_Motd_MouseFrame( qboolean mouse_active )
@@ -1039,25 +1830,34 @@ new file mode 100644
 +	return ( !mouse_active && cls.key_dest == key_game ) ? 2 : 0;
 +}
 +
-+#if !XASH_EMSCRIPTEN
-+static const rgba_t h9m_white = { 255, 250, 255, 255 };
-+static const rgba_t h9m_light = { 223, 213, 245, 255 };
-+static const rgba_t h9m_soft  = { 178, 146, 226, 255 };
++qboolean CL_Motd_KeepsMouse( void )
++{
++	if( !CL_Motd_Active( ))
++		return false;
 +
-+static void H9M_Fill( int x, int y, int w, int h, byte r, byte g, byte b, byte a )
++	// whoever wanted the mouse on gets it when the panel closes
++	motd.took_mouse = true;
++	return true;
++}
++
++const rgba_t h9ui_white = { 255, 250, 255, 255 };
++const rgba_t h9ui_light = { 223, 213, 245, 255 };
++const rgba_t h9ui_soft  = { 178, 146, 226, 255 };
++
++void H9UI_Fill( int x, int y, int w, int h, byte r, byte g, byte b, byte a )
 +{
 +	ref.dllFuncs.FillRGBA( kRenderTransTexture, x, y, w, h, r, g, b, a );
 +}
 +
-+static void H9M_Border( int x, int y, int w, int h, int t )
++void H9UI_Border( int x, int y, int w, int h, int t )
 +{
-+	H9M_Fill( x, y, w, t, 138, 66, 196, 255 );
-+	H9M_Fill( x, y + h - t, w, t, 138, 66, 196, 255 );
-+	H9M_Fill( x, y, t, h, 138, 66, 196, 255 );
-+	H9M_Fill( x + w - t, y, t, h, 138, 66, 196, 255 );
++	H9UI_Fill( x, y, w, t, 138, 66, 196, 255 );
++	H9UI_Fill( x, y + h - t, w, t, 138, 66, 196, 255 );
++	H9UI_Fill( x, y, t, h, 138, 66, 196, 255 );
++	H9UI_Fill( x + w - t, y, t, h, 138, 66, 196, 255 );
 +}
 +
-+static int H9M_Width( cl_font_t *font, const char *s, int n )
++int H9UI_Width( cl_font_t *font, const char *s, int n )
 +{
 +	int w = 0;
 +
@@ -1067,14 +1867,14 @@ new file mode 100644
 +	return w;
 +}
 +
-+static void H9M_Text( cl_font_t *font, int x, int y, const char *s, int n, const rgba_t color )
++void H9UI_Text( cl_font_t *font, int x, int y, const char *s, int n, const rgba_t color )
 +{
 +	for( int i = 0; i < n && s[i]; i++ )
 +		x += CL_DrawCharacter( x, y, (byte)s[i], color, font, 0 );
 +}
 +
 +// how many characters of s fit in maxw (one at least), broken after a space when words is set
-+static int H9M_Fit( cl_font_t *font, const char *s, int maxw, qboolean words )
++int H9UI_Fit( cl_font_t *font, const char *s, int maxw, qboolean words )
 +{
 +	int w = 0, i, space = -1;
 +
@@ -1095,16 +1895,16 @@ new file mode 100644
 +}
 +
 +// s wrapped to maxw; draws count lines from line first at x, y, and returns how many lines it makes
-+static int H9M_Lines( cl_font_t *font, const char *s, int maxw, qboolean words, int first, int count, int x, int y, const rgba_t color )
++int H9UI_Lines( cl_font_t *font, const char *s, int maxw, qboolean words, int first, int count, int x, int y, const rgba_t color )
 +{
 +	int line = 0;
 +
 +	while( *s )
 +	{
-+		int n = H9M_Fit( font, s, maxw, words );
++		int n = H9UI_Fit( font, s, maxw, words );
 +
 +		if( line >= first && line < first + count )
-+			H9M_Text( font, x, y + ( line - first ) * font->charHeight, s, n, color );
++			H9UI_Text( font, x, y + ( line - first ) * font->charHeight, s, n, color );
 +
 +		line++;
 +		s += n;
@@ -1117,58 +1917,73 @@ new file mode 100644
 +}
 +
 +// one line, cut short with ... when it does not fit
-+static void H9M_Line( cl_font_t *font, int x, int y, int maxw, const char *s, const rgba_t color )
++void H9UI_Line( cl_font_t *font, int x, int y, int maxw, const char *s, const rgba_t color )
 +{
 +	int len = Q_strlen( s ), n;
 +
-+	if( H9M_Width( font, s, len ) <= maxw )
++	if( H9UI_Width( font, s, len ) <= maxw )
 +	{
-+		H9M_Text( font, x, y, s, len, color );
++		H9UI_Text( font, x, y, s, len, color );
 +		return;
 +	}
 +
-+	n = H9M_Fit( font, s, Q_max( 0, maxw - H9M_Width( font, "...", 3 )), false );
-+	H9M_Text( font, x, y, s, n, color );
-+	H9M_Text( font, x + H9M_Width( font, s, n ), y, "...", 3, color );
++	n = H9UI_Fit( font, s, Q_max( 0, maxw - H9UI_Width( font, "...", 3 )), false );
++	H9UI_Text( font, x, y, s, n, color );
++	H9UI_Text( font, x + H9UI_Width( font, s, n ), y, "...", 3, color );
 +}
 +
++void H9UI_SetRect( h9ui_rect_t *r, int x, int y, int w, int h )
++{
++	r->x = x;
++	r->y = y;
++	r->w = w;
++	r->h = h;
++	r->shown = true;
++}
++
++qboolean H9UI_Hit( const h9ui_rect_t *r, int x, int y )
++{
++	return r->shown && x >= r->x && x < r->x + r->w && y >= r->y && y < r->y + r->h;
++}
++
++void H9UI_Button( cl_font_t *font, h9ui_rect_t *r, int x, int y, int w, int h, const char *label, int mx, int my )
++{
++	qboolean hot;
++	int tw = Q_min( w, H9UI_Width( font, label, Q_strlen( label )));
++
++	H9UI_SetRect( r, x, y, w, h );
++	hot = H9UI_Hit( r, mx, my );
++
++	H9UI_Fill( x, y, w, h, hot ? 138 : 40, hot ? 66 : 24, hot ? 196 : 58, 255 );
++	H9UI_Border( x, y, w, h, 1 );
++	H9UI_Line( font, x + ( w - tw ) / 2, y + ( h - font->charHeight ) / 2, w, label, h9ui_white );
++}
++
++// the mouse pointer: the game hides the system's while it plays
++void H9UI_Cursor( int x, int y, int u )
++{
++	for( int r = 0; r < 13; r++ )
++		H9UI_Fill( x, y + r * u, ( r < 11 ? r + 1 : 11 ) * u, u, 0, 0, 0, 255 );
++
++	for( int r = 2; r < 11; r++ )
++		H9UI_Fill( x + u, y + r * u, ( r - 1 ) * u, u, 255, 250, 255, 255 );
++}
++
++#if !XASH_EMSCRIPTEN
++// the splash's own buttons, by their number
 +static void H9M_SetRect( int id, int x, int y, int w, int h )
 +{
-+	motd.btn[id].x = x;
-+	motd.btn[id].y = y;
-+	motd.btn[id].w = w;
-+	motd.btn[id].h = h;
-+	motd.btn[id].shown = true;
++	H9UI_SetRect( &motd.btn[id], x, y, w, h );
 +}
 +
 +static qboolean H9M_Hit( int id, int x, int y )
 +{
-+	const h9m_rect_t *r = &motd.btn[id];
-+
-+	return r->shown && x >= r->x && x < r->x + r->w && y >= r->y && y < r->y + r->h;
++	return H9UI_Hit( &motd.btn[id], x, y );
 +}
 +
 +static void H9M_Button( cl_font_t *font, int id, int x, int y, int w, int h, const char *label, int mx, int my )
 +{
-+	qboolean hot;
-+	int tw = Q_min( w, H9M_Width( font, label, Q_strlen( label )));
-+
-+	H9M_SetRect( id, x, y, w, h );
-+	hot = H9M_Hit( id, mx, my );
-+
-+	H9M_Fill( x, y, w, h, hot ? 138 : 40, hot ? 66 : 24, hot ? 196 : 58, 255 );
-+	H9M_Border( x, y, w, h, 1 );
-+	H9M_Line( font, x + ( w - tw ) / 2, y + ( h - font->charHeight ) / 2, w, label, h9m_white );
-+}
-+
-+// the mouse pointer: the game hides the system's while it plays
-+static void H9M_Cursor( int x, int y, int u )
-+{
-+	for( int r = 0; r < 13; r++ )
-+		H9M_Fill( x, y + r * u, ( r < 11 ? r + 1 : 11 ) * u, u, 0, 0, 0, 255 );
-+
-+	for( int r = 2; r < 11; r++ )
-+		H9M_Fill( x + u, y + r * u, ( r - 1 ) * u, u, 255, 250, 255, 255 );
++	H9UI_Button( font, &motd.btn[id], x, y, w, h, label, mx, my );
 +}
 +
 +static void H9M_Scroll( int delta )
@@ -1178,7 +1993,7 @@ new file mode 100644
 +	motd.scroll = bound( 0, motd.scroll + delta, most );
 +}
 +
-+// a page with no picture shows TS's text in its place
++// a page shown by its text: TS's text, or a line saying where the page is
 +static const char *H9M_Body( void )
 +{
 +	if( motd.text[0] )
@@ -1187,49 +2002,58 @@ new file mode 100644
 +	return "This server's message of the day is a web page. OPEN PAGE opens it in your web browser.";
 +}
 +
-+// the address OPEN PAGE goes to, whole, with the site on its own line, before a second click
++// an address up for a second click
++static void H9M_Confirm( const char *url, const char *host )
++{
++	Q_strncpy( motd.confirm_url, url, sizeof( motd.confirm_url ));
++	Q_strncpy( motd.confirm_host, host, sizeof( motd.confirm_host ));
++	motd.confirm = true;
++}
++
++// the address OPEN IN BROWSER goes to, whole, with the site on its own line, before a second click
 +static void H9M_DrawConfirm( cl_font_t *font, int W, int H, int pad, int bh, int mx, int my )
 +{
 +	static const char ask[] = "Open this address in your web browser?";
 +	char site[H9M_MAX_HOST + 8];
 +	int lh = font->charHeight;
-+	int dw = Q_min( W - pad * 4, H9M_Width( font, "n", 1 ) * 64 + pad * 2 );
++	int dw = Q_min( W - pad * 4, H9UI_Width( font, "n", 1 ) * 64 + pad * 2 );
 +	int tw = dw - pad * 2;
-+	int asklines = H9M_Lines( font, ask, tw, true, 0, 0, 0, 0, h9m_white );
-+	int urllines = H9M_Lines( font, motd.page, tw, false, 0, 0, 0, 0, h9m_white );
++	int asklines = H9UI_Lines( font, ask, tw, true, 0, 0, 0, 0, h9ui_white );
++	int urllines = H9UI_Lines( font, motd.confirm_url, tw, false, 0, 0, 0, 0, h9ui_white );
 +	int dh = pad + lh * ( asklines + 1 ) + pad / 2 + lh * urllines + pad + bh + pad;
 +	int dx = ( W - dw ) / 2, dy = ( H - dh ) / 2, y, cw, gw;
 +
-+	H9M_Fill( 0, 0, W, H, 0, 0, 0, 120 );
-+	H9M_Fill( dx, dy, dw, dh, 20, 10, 30, 250 );
-+	H9M_Border( dx, dy, dw, dh, 2 );
++	H9UI_Fill( 0, 0, W, H, 0, 0, 0, 120 );
++	H9UI_Fill( dx, dy, dw, dh, 20, 10, 30, 250 );
++	H9UI_Border( dx, dy, dw, dh, 2 );
 +	H9M_SetRect( H9M_BTN_DIALOG, dx, dy, dw, dh );
 +
 +	y = dy + pad;
-+	H9M_Lines( font, ask, tw, true, 0, asklines, dx + pad, y, h9m_light );
++	H9UI_Lines( font, ask, tw, true, 0, asklines, dx + pad, y, h9ui_light );
 +	y += lh * asklines;
 +
-+	Q_snprintf( site, sizeof( site ), "Site: %s", motd.page_host );
-+	H9M_Line( font, dx + pad, y, tw, site, h9m_white );
++	Q_snprintf( site, sizeof( site ), "Site: %s", motd.confirm_host );
++	H9UI_Line( font, dx + pad, y, tw, site, h9ui_white );
 +	y += lh + pad / 2;
 +
-+	H9M_Lines( font, motd.page, tw, false, 0, urllines, dx + pad, y, h9m_soft );
++	H9UI_Lines( font, motd.confirm_url, tw, false, 0, urllines, dx + pad, y, h9ui_soft );
 +	y += lh * urllines + pad;
 +
-+	cw = H9M_Width( font, "CANCEL", 6 ) + pad * 2;
-+	gw = H9M_Width( font, "OPEN IN BROWSER", 15 ) + pad * 2;
++	cw = H9UI_Width( font, "CANCEL", 6 ) + pad * 2;
++	gw = H9UI_Width( font, "OPEN IN BROWSER", 15 ) + pad * 2;
 +	H9M_Button( font, H9M_BTN_CANCEL, dx + dw - pad - cw, y, cw, bh, "CANCEL", mx, my );
 +	H9M_Button( font, H9M_BTN_GO, dx + dw - pad - cw - pad - gw, y, gw, bh, "OPEN IN BROWSER", mx, my );
 +}
 +#endif // !XASH_EMSCRIPTEN
 +
-+void CL_Motd_Draw( void )
-+{
 +#if !XASH_EMSCRIPTEN
++static void H9M_Draw( void )
++{
 +	char label[H9M_MAX_HOST + 32];
 +	cl_font_t *font;
 +	int W, H, lh, pad, bh, margin, head, foot, maxw, maxh, minw;
 +	int pw, ph, px, py, bodyw, bodyh, mx, my, bmx, bmy;
++	qboolean page_up, fallback;
 +
 +	if( motd.state != H9M_OPEN || cls.state != ca_active )
 +		return;
@@ -1239,19 +2063,23 @@ new file mode 100644
 +	if( !font || !font->valid || font->charHeight <= 0 )
 +		return;
 +
++	// the page on screen, or a page shown by its picture or text: the fallback
++	page_up = motd.view != NULL;
++	fallback = motd.is_page && !page_up;
++
 +	W = refState.width;
 +	H = refState.height;
 +	lh = font->charHeight;
 +	pad = Q_max( 6, lh / 2 );
 +	bh = lh + pad;
 +	margin = Q_max( 8, Q_min( W, H ) / 30 );
-+	head = pad + lh * 2 + pad;
++	head = pad + lh * ( fallback ? 3 : 2 ) + pad;
 +	foot = pad + bh + pad;
 +	maxw = W - margin * 2;
 +	maxh = H - margin * 2;
-+	minw = Q_min( maxw, H9M_Width( font, "M", 1 ) * 36 + pad * 2 );
++	minw = Q_min( maxw, H9UI_Width( font, "M", 1 ) * 36 + pad * 2 );
 +
-+	if( maxw <= pad * 4 || maxh <= head + foot + lh )
++	if( maxw <= pad * 4 || maxh <= head + foot + lh * 4 )
 +		return;
 +
 +	memset( motd.btn, 0, sizeof( motd.btn ));
@@ -1261,7 +2089,14 @@ new file mode 100644
 +	bmx = motd.confirm ? -1 : mx;
 +	bmy = motd.confirm ? -1 : my;
 +
-+	if( motd.texture )
++	if( page_up )
++	{
++		// most of the screen, as a browser window would have it
++		pw = Q_max( minw, maxw * 92 / 100 );
++		bodyw = pw - pad * 2;
++		bodyh = Q_max( lh * 4, maxh * 92 / 100 - head - foot );
++	}
++	else if( motd.texture )
 +	{
 +		// the picture fits the screen; a small one grows up to the screen's own scale
 +		float s = Q_min(( maxw - pad * 2 ) / (float)motd.picw, ( maxh - head - foot ) / (float)motd.pich );
@@ -1273,9 +2108,9 @@ new file mode 100644
 +	}
 +	else
 +	{
-+		pw = Q_max( minw, Q_min( maxw, H9M_Width( font, "n", 1 ) * 72 + pad * 2 ));
++		pw = Q_max( minw, Q_min( maxw, H9UI_Width( font, "n", 1 ) * 72 + pad * 2 ));
 +		bodyw = pw - pad * 2;
-+		motd.lines = H9M_Lines( font, H9M_Body(), bodyw - pad, true, 0, 0, 0, 0, h9m_white );
++		motd.lines = H9UI_Lines( font, H9M_Body(), bodyw - pad, true, 0, 0, 0, 0, h9ui_white );
 +		motd.visible = Q_max( 1, ( maxh - head - foot ) / lh );
 +		motd.visible = Q_min( motd.visible, Q_max( motd.lines, 4 ));
 +		bodyh = motd.visible * lh;
@@ -1286,20 +2121,33 @@ new file mode 100644
 +	px = ( W - pw ) / 2;
 +	py = ( H - ph ) / 2;
 +
-+	H9M_Fill( 0, 0, W, H, 0, 0, 0, 150 );
-+	H9M_Fill( px, py, pw, ph, 14, 8, 20, 240 );
-+	H9M_Border( px, py, pw, ph, Q_max( 1, lh / 12 ));
++	H9UI_Fill( 0, 0, W, H, 0, 0, 0, 150 );
++	H9UI_Fill( px, py, pw, ph, 14, 8, 20, 240 );
++	H9UI_Border( px, py, pw, ph, Q_max( 1, lh / 12 ));
 +
 +	// the title, then where it comes from: the host is always on screen
-+	H9M_Line( font, px + pad, py + pad, pw - pad * 2, motd.title[0] ? motd.title : "Message of the day", h9m_light );
++	H9UI_Line( font, px + pad, py + pad, pw - pad * 2, motd.title[0] ? motd.title : "Message of the day", h9ui_light );
 +
 +	if( motd.is_page )
-+		Q_snprintf( label, sizeof( label ), "Web page at %s", motd.page_host );
++		Q_snprintf( label, sizeof( label ), "Web page at %s", ( page_up && motd.view_host[0] ) ? motd.view_host : motd.page_host );
 +	else Q_snprintf( label, sizeof( label ), "Picture from %s", motd.image_host );
 +
-+	H9M_Line( font, px + pad, py + pad + lh, pw - pad * 2, label, h9m_soft );
++	H9UI_Line( font, px + pad, py + pad + lh, pw - pad * 2, label, h9ui_soft );
 +
-+	if( motd.texture )
++	if( fallback )
++		H9UI_Line( font, px + pad, py + pad + lh * 2, pw - pad * 2, "This page could not be shown here.", h9ui_white );
++
++	if( page_up )
++	{
++		// the page's own window covers this; until it shows, the panel's colour
++		H9UI_Fill( px + pad, py + head, bodyw, bodyh, 24, 14, 32, 255 );
++		motd.view_x = px + pad;
++		motd.view_y = py + head;
++		motd.view_w = bodyw;
++		motd.view_h = bodyh;
++		motd.view_placed = true;
++	}
++	else if( motd.texture )
 +	{
 +		ref.dllFuncs.GL_SetRenderMode( kRenderTransTexture );
 +		ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
@@ -1307,31 +2155,31 @@ new file mode 100644
 +	}
 +	else
 +	{
-+		H9M_Lines( font, H9M_Body(), bodyw - pad, true, motd.scroll, motd.visible, px + pad, py + head, h9m_white );
++		H9UI_Lines( font, H9M_Body(), bodyw - pad, true, motd.scroll, motd.visible, px + pad, py + head, h9ui_white );
 +
 +		if( motd.lines > motd.visible )
 +		{
 +			int thumb = Q_max( lh / 2, bodyh * motd.visible / motd.lines );
 +			int at = ( bodyh - thumb ) * motd.scroll / Q_max( 1, motd.lines - motd.visible );
 +
-+			H9M_Fill( px + pw - pad - 3, py + head + at, 3, thumb, 138, 66, 196, 255 );
++			H9UI_Fill( px + pw - pad - 3, py + head + at, 3, thumb, 138, 66, 196, 255 );
 +		}
 +	}
 +
-+	// CLOSE at the right, OPEN PAGE beside it when there is a page
++	// CLOSE at the right; OPEN PAGE beside it when there is a page that is not on screen
 +	{
 +		int y = py + ph - pad - bh;
-+		int cw = H9M_Width( font, "CLOSE (ESC)", 11 ) + pad * 2;
++		int cw = H9UI_Width( font, "CLOSE (ESC)", 11 ) + pad * 2;
 +		int x = px + pw - pad - cw;
 +
 +		H9M_Button( font, H9M_BTN_CLOSE, x, y, cw, bh, "CLOSE (ESC)", bmx, bmy );
 +
-+		if( motd.page[0] )
++		if( motd.page[0] && !page_up )
 +		{
 +			int ow;
 +
 +			Q_snprintf( label, sizeof( label ), "OPEN PAGE (%s)", motd.page_host );
-+			ow = Q_min( H9M_Width( font, label, Q_strlen( label )) + pad * 2, x - px - pad * 2 );
++			ow = Q_min( H9UI_Width( font, label, Q_strlen( label )) + pad * 2, x - px - pad * 2 );
 +
 +			if( ow > pad * 4 )
 +				H9M_Button( font, H9M_BTN_OPEN, x - pad - ow, y, ow, bh, label, bmx, bmy );
@@ -1341,16 +2189,35 @@ new file mode 100644
 +	if( motd.confirm )
 +		H9M_DrawConfirm( font, W, H, pad, bh, mx, my );
 +
-+	if( !host.mouse_visible )
-+		H9M_Cursor( mx, my, Q_max( 1, H / 540 ));
++	// the pointer, where the game has it; over the page the system's own shows instead
++	if( !host.mouse_visible && !H9UI_PanelUp( ) && !( page_up && !motd.confirm && mx >= motd.view_x && mx < motd.view_x + motd.view_w
++		&& my >= motd.view_y && my < motd.view_y + motd.view_h ))
++		H9UI_Cursor( mx, my, Q_max( 1, H / 540 ));
 +
 +	ref.dllFuncs.Color4ub( 255, 255, 255, 255 );
 +	ref.dllFuncs.GL_SetRenderMode( kRenderNormal );
++}
 +#endif // !XASH_EMSCRIPTEN
++
++void CL_Motd_Draw( void )
++{
++#if !XASH_EMSCRIPTEN
++	H9M_Draw();
++#endif
++
++	for( int i = 0; i < h9ui_numpanels; i++ )
++		h9ui_panels[i]->Draw();
 +}
 +
 +qboolean CL_Motd_KeyEvent( int key, qboolean down )
 +{
++	// another panel above the splash comes first
++	for( int i = 0; i < h9ui_numpanels; i++ )
++	{
++		if( h9ui_panels[i]->KeyEvent( key, down ))
++			return true;
++	}
++
 +	if( key < 0 || key >= (int)ARRAYSIZE( motd.eat ))
 +		return false;
 +
@@ -1365,7 +2232,7 @@ new file mode 100644
 +	}
 +
 +	// the console stays within reach
-+	if( !CL_Motd_Active( ) || key == '`' || key == '~' )
++	if( !H9M_Up( ) || key == '`' || key == '~' )
 +		return false;
 +
 +#if !XASH_EMSCRIPTEN
@@ -1374,13 +2241,19 @@ new file mode 100644
 +	switch( key )
 +	{
 +	case K_ESCAPE:
-+	case K_ENTER:
-+	case K_KP_ENTER:
-+	case K_SPACE:
-+		// a key closes the address box or the splash; it never opens the browser
++		// ESC closes the address box, else the splash; it never opens the browser
 +		if( motd.confirm )
 +			motd.confirm = false;
 +		else H9M_Stop();
++		break;
++	case K_ENTER:
++	case K_KP_ENTER:
++	case K_SPACE:
++		// the same for a picture or text; with the page on screen these are left alone
++		if( motd.confirm )
++			motd.confirm = false;
++		else if( !motd.view )
++			H9M_Stop();
 +		break;
 +	case K_UPARROW:
 +	case K_MWHEELUP:
@@ -1416,6 +2289,12 @@ new file mode 100644
 +{
 +	int key = K_MOUSE1 + button;
 +
++	for( int i = 0; i < h9ui_numpanels; i++ )
++	{
++		if( h9ui_panels[i]->MouseEvent( key, down ))
++			return true;
++	}
++
 +	if( key < K_MOUSE1 || key > K_MOUSE5 )
 +		return false;
 +
@@ -1428,7 +2307,7 @@ new file mode 100644
 +		return true;
 +	}
 +
-+	if( !CL_Motd_Active( ))
++	if( !H9M_Up( ))
 +		return false;
 +
 +#if !XASH_EMSCRIPTEN
@@ -1445,8 +2324,8 @@ new file mode 100644
 +			// the only way to the browser: a click on OPEN IN BROWSER, with the address on screen
 +			if( H9M_Hit( H9M_BTN_GO, mx, my ))
 +			{
-+				Con_Printf( "H9 MOTD: opening %s in the web browser\n", motd.page );
-+				Platform_ShellExecute( motd.page, NULL );
++				Con_Printf( "H9 MOTD: opening %s in the web browser\n", motd.confirm_url );
++				Platform_ShellExecute( motd.confirm_url, NULL );
 +				motd.confirm = false;
 +			}
 +			else if( H9M_Hit( H9M_BTN_CANCEL, mx, my ) || !H9M_Hit( H9M_BTN_DIALOG, mx, my ))
@@ -1454,8 +2333,8 @@ new file mode 100644
 +		}
 +		else if( H9M_Hit( H9M_BTN_CLOSE, mx, my ))
 +			H9M_Stop();
-+		else if( motd.page[0] && H9M_Hit( H9M_BTN_OPEN, mx, my ))
-+			motd.confirm = true;
++		else if( motd.page[0] && !motd.view && H9M_Hit( H9M_BTN_OPEN, mx, my ))
++			H9M_Confirm( motd.page, motd.page_host );
 +	}
 +
 +	return true;
@@ -1477,12 +2356,21 @@ new file mode 100644
 +	memset( motd.eat, 0, sizeof( motd.eat ));
 +
 +	if( connection )
++	{
 +		motd.shown = false;
++		h9ui_server[0] = '\0';
++	}
++
++	for( int i = 0; i < h9ui_numpanels; i++ )
++		h9ui_panels[i]->Reset( connection );
 +}
 +
 +void CL_Motd_Init( void )
 +{
 +	Cvar_RegisterVariable( &cl_h9_motd );
++#if XASH_WIN32
++	Cvar_RegisterVariable( &cl_h9_motd_wine );
++#endif
 +#if XASH_EMSCRIPTEN
 +	Cmd_AddRestrictedCommand( "h9_motd_result", H9M_Result_f, "H9: the web client's answer to a splash MOTD (1 shown, 0 not shown)" );
 +#endif

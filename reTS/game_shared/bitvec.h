@@ -54,7 +54,8 @@ public:
 
 private:
 
-	enum {NUM_DWORDS = NUM_BITS/32 + (NUM_BITS & 31) != 0 ? 1 : 0};
+	// Whole dwords holding NUM_BITS bits, rounded up.
+	enum {NUM_DWORDS = NUM_BITS/32 + ((NUM_BITS & 31) != 0 ? 1 : 0)};
 	uint32	m_DWords[NUM_DWORDS];
 };
 

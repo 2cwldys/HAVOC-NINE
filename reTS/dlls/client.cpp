@@ -1313,11 +1313,15 @@ we could also use the pas/ pvs that we set in SetupVisibility, if we wanted to. 
 */
 int AddToFullPack(struct entity_state_s* state, int e, edict_t* ent, edict_t* host, int hostflags, int player, unsigned char* pSet)
 {
-	// Entities with an index greater than this will corrupt the client's heap because 
-	// the index is sent with only 11 bits of precision (2^11 == 2048).
-	// So we don't send them, just like having too many entities would result
-	// in the entity not being sent.
-	if (e >= MAX_EDICTS)
+	// GoldSrc sends entity numbers in 11 bits (2^11 == 2048): an index past that would corrupt
+	// the client's heap, so it is not sent, just like having too many entities would result in
+	// the entity not being sent. Xash sends 13 bits, and its own entity limit
+	// (gpGlobals->maxEntities, gameinfo.txt's max_edicts) is the bound there. Xash is told
+	// apart by its read-only host_ver cvar, which GoldSrc does not have.
+	static int s_iXashEngine = -1;
+	if (s_iXashEngine < 0)
+		s_iXashEngine = CVAR_GET_POINTER("host_ver") != nullptr ? 1 : 0;
+	if (e >= (0 != s_iXashEngine ? gpGlobals->maxEntities : MAX_EDICTS))
 	{
 		return 0;
 	}

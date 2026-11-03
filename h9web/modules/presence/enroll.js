@@ -11,6 +11,14 @@
 //   3. Proven: a server on servers.json goes live at once; any other waits for an admin
 //      (enrollAutoApprove switches that off). The plugin keeps the key in its data folder and
 //      clears the cvar.
+// A listen server (Create Game; h9_presence 1.4, docs\H9_PRESENCE.txt section 8a) enrolls the same
+// way with { listen: true }, always for the caller's own IP, and proves itself differently: h9web
+// answers with a nonce as well, the plugin hands it to its own player over loopback (h9_idlisten, the
+// engine's engine-h9-listen.patch), and the next status call carries that player's ID proof for the
+// address ({ host: { id, nonce, devmask, proof } }). A proof from an account (not suspended, from a
+// device the account may use) makes the key live at once, with no rules probe and no admin: such a
+// server's reports count proven players only, so it can show nobody who is not really there with a
+// game holding that player's id, and its address (a player's own) is never shown.
 // An address that already has a live key keeps it until a new enrollment is proven; then the new
 // key replaces it, the audit log says so and admins get a re_enrolled flag. A live key with no
 // report for enrollStaleDays expires; an enrollment not proven within enrollPendingMinutes is
@@ -37,6 +45,25 @@ function randomText(n) {
 
 const sha256 = (text) => crypto.createHash("sha256").update(text).digest("hex");
 
+// Whether an IPv4 address can be a game server on the internet: not this network, private,
+// carrier-grade NAT, loopback, link-local, the documentation and benchmark ranges, multicast or
+// reserved. h9web probes such an address only for a caller at that very address, or for a server
+// on servers.json, so an enrollment cannot aim its UDP probes into the VPS's own networks.
+export function publicIpv4(ip) {
+  const b = String(ip).split(".").map(Number);
+  if (b.length !== 4 || b.some((x) => !Number.isInteger(x) || x < 0 || x > 255)) return false;
+  if (b[0] === 0 || b[0] === 10 || b[0] === 127 || b[0] >= 224) return false;
+  if (b[0] === 100 && b[1] >= 64 && b[1] <= 127) return false;
+  if (b[0] === 169 && b[1] === 254) return false;
+  if (b[0] === 172 && b[1] >= 16 && b[1] <= 31) return false;
+  if (b[0] === 192 && b[1] === 168) return false;
+  if (b[0] === 192 && b[1] === 0 && (b[2] === 0 || b[2] === 2)) return false;
+  if (b[0] === 198 && (b[1] === 18 || b[1] === 19)) return false;
+  if (b[0] === 198 && b[1] === 51 && b[2] === 100) return false;
+  if (b[0] === 203 && b[1] === 0 && b[2] === 113) return false;
+  return true;
+}
+
 export function loadEnrollKey(dir, log) {
   const file = path.join(dir, "enroll-key");
   try {
@@ -55,6 +82,12 @@ export function loadEnrollKey(dir, log) {
 export function createEnrollment(deps) {
   const { db, s, log, router, auth, servers, keys, serverAuth, limit, ipKey, audit } = deps;
   const { HttpError } = deps.http;
+  // for a listen server's proof (index.js hands these over): core's hooks, and whether a device may
+  // prove the account's id
+  const accounts = deps.accounts || null;
+  const clientIdIndex = typeof deps.clientIdIndex === "function" ? deps.clientIdIndex : null;
+  const verifyIdProof = typeof deps.verifyIdProof === "function" ? deps.verifyIdProof : null;
+  const deviceAllowed = typeof deps.deviceAllowed === "function" ? deps.deviceAllowed : () => true;
   const now = deps.now;
   const tx = deps.transaction;
   const queryRules = deps.queryRules || defaultQueryRules;
@@ -64,16 +97,19 @@ export function createEnrollment(deps) {
     row: db.prepare("SELECT * FROM presence_enrolled WHERE server = ?"),
     byId: db.prepare("SELECT * FROM presence_enrolled WHERE server_id = ?"),
     insert: db.prepare("INSERT INTO presence_enrolled (server, server_id, created_at) VALUES (?, ?, ?)"),
-    pend: db.prepare("UPDATE presence_enrolled SET pend_salt = ?, pend_code = ?, pend_at = ?, probe_at = NULL WHERE server = ?"),
+    pend: db.prepare("UPDATE presence_enrolled SET pend_salt = ?, pend_code = ?, pend_at = ?, probe_at = NULL, pend_listen = ? WHERE server = ?"),
     probe: db.prepare("UPDATE presence_enrolled SET probe_at = ? WHERE server = ?"),
     promote: db.prepare(`UPDATE presence_enrolled SET live_salt = pend_salt, live_since = ?, approved = ?, approved_by = NULL,
-      pend_salt = NULL, pend_code = NULL, pend_at = NULL WHERE server = ?`),
+      pend_salt = NULL, pend_code = NULL, pend_at = NULL, pend_listen = 0, listen = ?, owner_id = ? WHERE server = ?`),
     approve: db.prepare("UPDATE presence_enrolled SET approved = 1, approved_by = ? WHERE server = ?"),
-    revoke: db.prepare("UPDATE presence_enrolled SET live_salt = NULL, live_since = NULL, approved = 0, pend_salt = NULL, pend_code = NULL, pend_at = NULL WHERE server = ?"),
+    revoke: db.prepare("UPDATE presence_enrolled SET live_salt = NULL, live_since = NULL, approved = 0, pend_salt = NULL, pend_code = NULL, pend_at = NULL, pend_listen = 0 WHERE server = ?"),
     block: db.prepare("UPDATE presence_enrolled SET blocked = ? WHERE server = ?"),
     reported: db.prepare("UPDATE presence_enrolled SET last_report = ? WHERE server = ?"),
     staleLive: db.prepare("SELECT server FROM presence_enrolled WHERE live_salt IS NOT NULL AND COALESCE(last_report, live_since) < ?"),
-    stalePend: db.prepare("UPDATE presence_enrolled SET pend_salt = NULL, pend_code = NULL, pend_at = NULL WHERE pend_at IS NOT NULL AND pend_at < ?"),
+    stalePend: db.prepare("UPDATE presence_enrolled SET pend_salt = NULL, pend_code = NULL, pend_at = NULL, pend_listen = 0 WHERE pend_at IS NOT NULL AND pend_at < ?"),
+    nonceIssue: db.prepare("INSERT OR IGNORE INTO presence_proof_nonces (nonce, server, issued_at) VALUES (?, ?, ?)"),
+    nonceGet: db.prepare("SELECT issued_at FROM presence_proof_nonces WHERE nonce = ? AND server = ?"),
+    nonceUse: db.prepare("DELETE FROM presence_proof_nonces WHERE nonce = ?"),
     list: db.prepare("SELECT * FROM presence_enrolled ORDER BY created_at DESC LIMIT 500"),
     flag: db.prepare("SELECT * FROM presence_server_flags WHERE server = ? AND kind = ? AND status = 'open'"),
     flagAdd: db.prepare("INSERT INTO presence_server_flags (server, kind, detail, first_at, last_at) VALUES (?, ?, ?, ?, ?)"),
@@ -149,6 +185,41 @@ export function createEnrollment(deps) {
     return shown.length >= 8 && sha256(shown) === codeHash;
   }
 
+  // A listen server's own player's ID proof for its address ({ id, nonce, devmask, proof }): the
+  // account it proves, or a 400 or 403. The nonce is the one the enrollment issued, used once.
+  function listenProof(server, host) {
+    const h = host && typeof host === "object" ? host : {};
+    const id = typeof h.id === "string" ? h.id.toLowerCase() : "";
+    const hex = (v, n) => typeof v === "string" && v.length === n && /^[0-9a-f]+$/.test(v);
+    if (!hex(id, 32) || !hex(h.nonce, 32) || !hex(h.devmask, 32) || !hex(h.proof, 64)) {
+      throw new HttpError(400, "bad_request", "host is { id, nonce, devmask, proof }: the server's own player's answer.");
+    }
+    const issued = q.nonceGet.get(h.nonce, server);
+    if (!issued || now() - issued.issued_at > s.proofMaxAgeSeconds) {
+      throw new HttpError(403, "stale_proof", "That nonce was not issued to this enrollment, or it is too old: enroll again.");
+    }
+    const accountId = clientIdIndex(server).get(id);
+    const account = accountId === undefined || accountId === null ? null : accounts.getById(accountId);
+    if (!account || (typeof accounts.isBanned === "function" && accounts.isBanned(account))) {
+      throw new HttpError(403, "not_an_account", "The server's own player has no havoc9.org account in good standing.");
+    }
+    const v = verifyIdProof(account.id, { nonce: h.nonce, server, devmask: h.devmask, proof: h.proof });
+    if (!v || !v.valid) throw new HttpError(403, "bad_proof", "The server's own player's ID proof does not check out.");
+    if (!deviceAllowed(account.id, v.device)) {
+      throw new HttpError(403, "second_device", "That game is not a device this account's id may be proven from.");
+    }
+    q.nonceUse.run(h.nonce);
+    return account;
+  }
+
+  // Whether the server reports with a listen server's key: its reports count proven players only,
+  // and its address is never shown. A hand-made key is never a listen server's.
+  function isListen(server) {
+    if (servers && servers.get(server) && keys.get(server)) return false;
+    const r = q.row.get(server);
+    return !!(r && r.listen === 1 && r.live_salt && !r.blocked);
+  }
+
   function statusOf(row) {
     if (!row) return "unknown";
     if (row.blocked) return "blocked";
@@ -165,8 +236,15 @@ export function createEnrollment(deps) {
     if (body.server !== undefined) server = addressKey(body.server);
     else if (Number.isInteger(body.port) && body.port >= 1 && body.port <= 65535) server = addressKey(caller + ":" + body.port);
     if (!server) throw new HttpError(400, "bad_request", "Send { port } from the server itself, or { server: \"ip:port\" }.");
-    if (s.enrollSameIp && server.split(":")[0] !== caller) {
+    const listen = body.listen === true;
+    if (listen && !(clientIdIndex && verifyIdProof && accounts)) {
+      throw new HttpError(503, "listen_unavailable", "This h9web cannot check a player's ID proof, so listen servers cannot enroll.");
+    }
+    if ((s.enrollSameIp || listen) && server.split(":")[0] !== caller) {
       throw new HttpError(403, "address_mismatch", "A server enrolls its own address: this request comes from another one.");
+    }
+    if (server.split(":")[0] !== caller && !publicIpv4(server.split(":")[0]) && !(servers && servers.get(server))) {
+      throw new HttpError(403, "address_not_public", "Only a public address enrolls from elsewhere: this one is private, local or reserved.");
     }
     limit("enrollPerAddress", server);
     const t = now();
@@ -176,18 +254,38 @@ export function createEnrollment(deps) {
     tx(() => {
       row = ensureRow(server);
       if (row.blocked) return;
-      q.pend.run(salt, sha256(code), t, server);
+      q.pend.run(salt, sha256(code), t, listen ? 1 : 0, server);
     });
     if (row.blocked) throw new HttpError(403, "blocked", "This address may not enroll. Ask H9's admins.");
-    log.info("presence.enroll_asked", { server });
-    rc.json(200, { ok: true, server, serverId: row.server_id, key: keyFrom(server, salt), code, status: "pending_proof", checkAfter: 5 });
+    log.info("presence.enroll_asked", { server, listen });
+    const answer = { ok: true, server, serverId: row.server_id, key: keyFrom(server, salt), code, status: "pending_proof", checkAfter: 5 };
+    if (listen) {
+      // the nonce the server's own player proves the address with (h9_idlisten <server> <nonce>)
+      answer.listen = true;
+      answer.nonce = crypto.randomBytes(16).toString("hex");
+      q.nonceIssue.run(answer.nonce, server, t);
+    }
+    rc.json(200, answer);
   }, { csrf: false });
 
   router.post("/api/presence/enroll/status", async (req, res, rc) => {
     limit("enrollPerIp", ipKey(rc.ip));
-    const { server, kind } = await serverAuth.verify(req, (srv) => candidates(srv, { pending: true }), { maxBytes: 2048 });
+    const { server, kind, body } = await serverAuth.verify(req, (srv) => candidates(srv, { pending: true }), { maxBytes: 2048 });
     let row = q.row.get(server);
-    if (kind === "pending" && row && row.pend_salt) {
+    if (kind === "pending" && row && row.pend_salt && row.pend_listen === 1) {
+      if (body.host !== undefined) {
+        const account = listenProof(server, body.host);
+        const t = now();
+        const replacing = !!row.live_salt;
+        tx(() => {
+          q.promote.run(t, 1, 1, account.id, server);
+          if (replacing) serverFlag(server, "re_enrolled", "a new key replaced the live one");
+        });
+        if (audit) audit.record({ actorName: "(enrollment)", action: "presence.server.listen", target: account, targetName: server, subject: "server " + row.server_id, detail: "Create Game server of " + account.username + ", live" });
+        log.info("presence.enrolled", { server, listen: true, replacing });
+        row = q.row.get(server);
+      }
+    } else if (kind === "pending" && row && row.pend_salt) {
       const t = now();
       const due = !row.probe_at || t - row.probe_at >= s.enrollProbeSeconds;
       if (due) {
@@ -198,7 +296,7 @@ export function createEnrollment(deps) {
           const replacing = !!row.live_salt;
           const approved = listed || s.enrollAutoApprove || (replacing && row.approved === 1) ? 1 : 0;
           tx(() => {
-            q.promote.run(t, approved, server);
+            q.promote.run(t, approved, 0, null, server);
             if (replacing) serverFlag(server, "re_enrolled", "a new key replaced the live one");
             if (!approved) serverFlag(server, "pending_approval", "enrolled; not on servers.json");
           });
@@ -218,6 +316,8 @@ export function createEnrollment(deps) {
   const view = (r) => ({
     serverId: r.server_id, address: r.server, status: statusOf(r), listed: !!(servers && servers.get(r.server)), manual: !!keys.get(r.server),
     created: iso(r.created_at), live: iso(r.live_since), lastReport: iso(r.last_report), pending: iso(r.pend_at), blocked: !!r.blocked,
+    listen: r.listen === 1 || r.pend_listen === 1,
+    owner: r.owner_id && accounts ? (accounts.getById(r.owner_id) || {}).username || null : null,
   });
   const byServerId = (id) => {
     const r = q.byId.get(String(id));
@@ -296,5 +396,5 @@ export function createEnrollment(deps) {
     return r && r.live_salt && !r.blocked ? { serverId: r.server_id, approved: !!r.approved } : null;
   }
 
-  return { reportKey, candidates, serverIdFor, markReport, enrolled, sweep, start, byServerId: (id) => q.byId.get(String(id)) || null };
+  return { reportKey, candidates, serverIdFor, markReport, enrolled, isListen, sweep, start, byServerId: (id) => q.byId.get(String(id)) || null };
 }

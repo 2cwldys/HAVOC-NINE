@@ -371,15 +371,36 @@
 
  8. NGINX
  --------
-   /etc/nginx/sites-available/havoc9.org, linked into sites-enabled. Always
-   nginx -t before systemctl reload nginx.
+   /etc/nginx/sites-available/havoc9.org, linked into sites-enabled, and the
+   two snippets it includes from /etc/nginx/snippets/ (below). nginx-setup.sh
+   writes all three. Always nginx -t before systemctl reload nginx.
+
+     # havoc9.org, written by havoc9.org/deploy/nginx-setup.sh (DEPLOY.txt section 8 explains each
+     # part). After an edit by hand: nginx -t && systemctl reload nginx
+
+     # Rate limits in front of h9web, per client address (h9web keeps its own as well); over one,
+     # nginx answers 429. Sign-in, sign-up and the password and name forms share a stricter one.
+     map $uri $h9web_auth_limit {
+         ~^/api/(?:login|signup|password|account/rename)$  $binary_remote_addr;
+         default                                           "";
+     }
+     limit_req_zone $binary_remote_addr zone=h9web_api:10m rate=10r/s;
+     limit_req_zone $h9web_auth_limit zone=h9web_auth:10m rate=6r/m;
+
+     # H9XASH-Updater's own requests, by its X-H9-Updater header and its User-Agent: only those get
+     # the files under /files/ (DEPLOY.txt section 8). It hides the folder; it is not access control.
+     map "$http_x_h9_updater:$http_user_agent" $h9_updater {
+         ~^1:H9XASH-Updater/  1;
+         default              0;
+     }
 
      server {
          listen 80;
          listen [::]:80;
          server_name havoc9.org www.havoc9.org;
+         server_tokens off;
 
-         # Let's Encrypt's checks, at every renewal (the certificate, below)
+         # Let's Encrypt's checks, at every renewal
          location /.well-known/acme-challenge/ { root /var/www/letsencrypt; }
          location / { return 301 https://havoc9.org$request_uri; }
      }
@@ -388,8 +409,11 @@
          listen 443 ssl;
          listen [::]:443 ssl;
          server_name www.havoc9.org;
+         server_tokens off;
          ssl_certificate     /etc/letsencrypt/live/havoc9.org/fullchain.pem;
          ssl_certificate_key /etc/letsencrypt/live/havoc9.org/privkey.pem;
+         include snippets/havoc9.org-tls.conf;
+         add_header Strict-Transport-Security "max-age=31536000" always;
          return 301 https://havoc9.org$request_uri;
      }
 
@@ -398,29 +422,60 @@
          listen [::]:443 ssl;
          http2 on;
          server_name havoc9.org;
+         server_tokens off;
          ssl_certificate     /etc/letsencrypt/live/havoc9.org/fullchain.pem;
          ssl_certificate_key /etc/letsencrypt/live/havoc9.org/privkey.pem;
+         include snippets/havoc9.org-tls.conf;
 
          root /var/www/havoc9.org;
          index index.html;
-         add_header Strict-Transport-Security "max-age=31536000" always;
+         include snippets/havoc9.org-headers.conf;
 
-         # backups, archives, these notes and the VPS scripts are not for visitors
-         location ~ \.(bak[^/]*|zip)$ { return 404; }
+         # only the methods the site and h9web use; small request bodies unless a location below
+         # allows more; slow clients are cut off
+         if ($request_method !~ "^(?:GET|HEAD|POST|PUT|PATCH|DELETE)$") { return 405; }
+         client_max_body_size 16k;
+         client_header_timeout 15s;
+         client_body_timeout 30s;
+         keepalive_timeout 30s;
+
+         # never for visitors: dot files and folders (.git, .env, .gitattributes), backups, archives,
+         # sources, scripts, keys and logs, these notes and the VPS scripts
+         location ~ /\.(?!well-known/) { return 404; }
+         location ~* (?:\.(?:bak[^/]*|orig|rej|old|save|swp|swo|tmp|zip|7z|rar|tar|tgz|sql|sqlite3?|db-wal|db-shm|log|pem|key|crt|p12|pfx|env|sh|ps1|bat|cmd|py|sma|inc|amxx|patch|diff)|~)$ { return 404; }
          location = /webclient/DEPLOY.txt { return 404; }
          location ^~ /deploy/ { return 404; }
 
+         # H9XASH-Updater's files (stage-h9xash.ps1 publishes them; tools/updater/README_UPDATER.txt):
+         # the manifest, and each file under its SHA-256. Without the updater's header and User-Agent
+         # every address there is a 404, so is any other name, and there is no listing. This keeps the
+         # folder out of browsers and search engines; it is not access control.
+         location = /files/manifest.json {
+             if ($h9_updater = 0) { return 404; }
+             include snippets/havoc9.org-headers.conf;
+             add_header Cache-Control "no-cache" always;
+             add_header Vary "X-H9-Updater, User-Agent" always;
+         }
+         location ~ "^/files/[0-9a-f]{64}$" {
+             if ($h9_updater = 0) { return 404; }
+             default_type application/octet-stream;
+             include snippets/havoc9.org-headers.conf;
+             add_header Cache-Control "public, max-age=31536000, immutable" always;
+             add_header Vary "X-H9-Updater, User-Agent" always;
+         }
+         location /files/ { return 404; }
+
          # the page, the loader and the lists change with every build
          location /webclient/ {
+             include snippets/havoc9.org-headers.conf;
              add_header Cache-Control "no-cache" always;
-             add_header Strict-Transport-Security "max-age=31536000" always;
          }
 
          location /webclient/engine/ {
              types { application/wasm wasm; text/javascript js; }
              gzip_static on;
+             include snippets/havoc9.org-headers.conf;
              add_header Cache-Control "no-cache" always;
-             add_header Strict-Transport-Security "max-age=31536000" always;
          }
 
          # each address carries the file's hash (?v=), so a copy may be kept long
@@ -429,12 +484,13 @@
              types { application/wasm wasm; }
              default_type application/octet-stream;
              gzip_static on;
+             include snippets/havoc9.org-headers.conf;
              add_header Cache-Control "public, max-age=604800" always;
-             add_header Strict-Transport-Security "max-age=31536000" always;
          }
 
-         # h9web: the accounts API (h9web/README.txt, sections 9 and 3)
-         location /api/ {
+         # h9web: the accounts API. ^~: the file-name rules above never apply to it (a username
+         # may end in .sh)
+         location ^~ /api/ {
              proxy_pass http://127.0.0.1:8090;
              proxy_http_version 1.1;
              proxy_set_header Host $host;
@@ -442,10 +498,13 @@
              proxy_set_header Connection "";
              client_max_body_size 64k;
              proxy_read_timeout 30s;
+             limit_req zone=h9web_api burst=60 nodelay;
+             limit_req zone=h9web_auth burst=10 nodelay;
+             limit_req_status 429;
              add_header Strict-Transport-Security "max-age=31536000" always;
          }
 
-         # h9web: a profile picture, up to 10 MB (h9web/README.txt, section 15)
+         # h9web: a profile picture, up to 10 MB
          location = /api/forum/avatar {
              proxy_pass http://127.0.0.1:8090;
              proxy_http_version 1.1;
@@ -453,13 +512,16 @@
              proxy_set_header X-Real-IP $remote_addr;
              proxy_set_header Connection "";
              client_max_body_size 11m;
+             client_body_timeout 60s;
              proxy_read_timeout 60s;
+             limit_req zone=h9web_api burst=20 nodelay;
+             limit_req_status 429;
              add_header Strict-Transport-Security "max-age=31536000" always;
          }
 
          # h9web's relay: the same service and port, the path passed as it is
          location = /webclient/relay {
-             if ($http_origin !~* "^https://(www\.)?havoc9\.org$") { return 403; }
+             if ($http_origin !~* "^https://(havoc9\.org|www\.havoc9\.org)$") { return 403; }
              proxy_pass http://127.0.0.1:8090;
              proxy_http_version 1.1;
              proxy_set_header Host $host;
@@ -470,13 +532,116 @@
              client_max_body_size 1k;
              proxy_read_timeout 300s;
              proxy_send_timeout 300s;
+             limit_req zone=h9web_api burst=20 nodelay;
+             limit_req_status 429;
              add_header Strict-Transport-Security "max-age=31536000" always;
+         }
+
+         # the H9 server list (serverlist-bot, the h9-serverlist service), its prefix taken off: the
+         # game's Internet tab reads /serverlist/v1/servers/ts (networking.ini's list_bot), pages
+         # /serverlist/v1/servers/ts.json, and game servers may POST heartbeats to
+         # /serverlist/v1/heartbeat
+         location ^~ /serverlist/ {
+             proxy_pass http://127.0.0.1:8081/;
+             proxy_http_version 1.1;
+             proxy_set_header Host $host;
+             proxy_set_header X-Real-IP $remote_addr;
+             proxy_set_header Connection "";
+             client_max_body_size 4k;
+             proxy_read_timeout 15s;
+             limit_req zone=h9web_api burst=30 nodelay;
+             limit_req_status 429;
+             include snippets/havoc9.org-headers.conf;
+             add_header Cache-Control "no-cache" always;
          }
      }
 
+   /etc/nginx/snippets/havoc9.org-tls.conf:
+
+     ssl_protocols TLSv1.2 TLSv1.3;
+     ssl_ecdh_curve X25519:prime256v1:secp384r1;
+     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+     ssl_prefer_server_ciphers off;
+     ssl_session_timeout 1d;
+     ssl_session_cache shared:H9SSL:10m;
+     ssl_session_tickets off;
+
+   /etc/nginx/snippets/havoc9.org-headers.conf:
+
+     add_header Strict-Transport-Security "max-age=31536000" always;
+     add_header X-Content-Type-Options "nosniff" always;
+     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+     add_header X-Frame-Options "SAMEORIGIN" always;
+     add_header Content-Security-Policy "frame-ancestors 'self'; base-uri 'self'; object-src 'none'" always;
+     add_header Permissions-Policy "camera=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), midi=(), display-capture=(), browsing-topics=()" always;
+
    A location with an add_header of its own drops the server's, which is why
-   Strict-Transport-Security is repeated. nginx passes the Cookie header on to
-   the relay as it is.
+   the pages' locations include the headers snippet again and h9web's
+   locations add Strict-Transport-Security (h9web sends its own security
+   headers: h9web/lib/http.js). nginx passes the Cookie header on to the relay
+   as it is.
+
+   WHAT AN .htaccess FILE WOULD DO. nginx reads no .htaccess (that is
+   Apache's); the same rules live in the config above:
+   * Never served (404): dot files and folders (.git, .env, .gitattributes;
+     .well-known excepted), backups (*.bak*, *.orig, *.old, *.swp, *~ ...),
+     archives, sources and scripts (.sma, .inc, .amxx, .sh, .ps1, .bat, .cmd,
+     .py, .patch, .diff), keys and certificates, SQL and database side files,
+     logs, these notes and deploy/. Game files under /webclient/game/ keep
+     their own names (.cfg, .txt, .lst, .db ...), so the list leaves those
+     alone. /api/ is ^~, so the list never touches h9web's addresses (a
+     username may end in .sh).
+   * Methods: GET, HEAD, POST, PUT, PATCH and DELETE (405 for any other). No
+     OPTIONS: no other site may call the API (h9web sends no CORS headers).
+   * Request bodies: 16k unless a location allows more (64k for /api/, 11m for
+     the picture upload, 1k for the relay, 4k for the server list); slow
+     headers (15 s) and bodies (30 s, 60 s for a picture) are cut off.
+   * /serverlist/ is the H9 server list (serverlist-bot\README.md), which
+     listens on 127.0.0.1:8081 only; networking.ini's list_bot is
+     https://havoc9.org/serverlist. With the list stopped nginx answers 502
+     there and the game's Internet tab shows no H9 list.
+   * /files/ holds H9XASH-Updater's files (tools\updater\README_UPDATER.txt):
+     manifest.json and each game file under its SHA-256, which
+     stage-h9xash.ps1 publishes into dist\files for copying here. Only the
+     updater's own requests get them: without its X-H9-Updater: 1 header
+     and an H9XASH-Updater/ User-Agent (the map $h9_updater), every address
+     there is a 404, so is any other name, and there is no listing. That
+     keeps the folder out of browsers and search engines; it is not access
+     control (the files are the public game). The manifest is revalidated
+     each time (no-cache), the files are kept a year (immutable).
+   * Rate limits per client address: 10 requests a second (bursts of 60) to
+     /api/, and 6 a minute (bursts of 10) to sign-in, sign-up, password change
+     and name change requests; the relay's upgrades and picture uploads share
+     the first. h9web's own limits (h9web/README.txt section 2) stay; these
+     stop a flood before it reaches Node. Behind a CDN or another proxy every
+     visitor would share its address: set real_ip_header and set_real_ip_from
+     for it first.
+   * server_tokens off: the Server header and the error pages name no version.
+   * Headers on every page and file: Strict-Transport-Security for a year,
+     X-Content-Type-Options nosniff, Referrer-Policy
+     strict-origin-when-cross-origin, X-Frame-Options SAMEORIGIN and
+     Content-Security-Policy frame-ancestors 'self' (no other site may frame a
+     page; the web client framing a server's MOTD page is the other way round),
+     base-uri 'self' and object-src 'none', and a Permissions-Policy that turns
+     off the camera, location, payments, USB, serial, HID, Bluetooth, MIDI,
+     screen capture and Topics. The forum, admin and account pages carry their
+     full Content-Security-Policy in a <meta> tag; the web client's page allows
+     https: frames for a server's splash MOTD; the MEDIA page (media/) allows
+     pictures from https://i.ytimg.com and frames from
+     https://www.youtube-nocookie.com only, for its videos (nothing in nginx to
+     change for it).
+
+   TLS (the tls snippet): TLS 1.2 and 1.3 only, Mozilla's "intermediate"
+   ciphers without its DHE ones (no dhparam file needed; every TLS 1.2 client
+   in use has ECDHE), a shared session cache and no session tickets. nginx
+   settles the TLS version on a port with the default server of that port:
+   with other sites on this VPS, the first 443 site (or the one marked
+   default_server) must include the same snippet, or older versions stay on.
+   nginx-setup.sh's last check says whether a TLS 1.1 handshake is refused.
+   Left as they are, for the owner to decide: includeSubDomains and preload in
+   Strict-Transport-Security (every subdomain would have to serve HTTPS, and
+   preload is hard to undo), and a full Content-Security-Policy header for the
+   pages that have none (it has to be tried in a browser first).
 
    http2 on; needs nginx 1.25.1 or later (nginx -v). On an older nginx
    (Ubuntu 24.04 has 1.24, Debian 12 has 1.22) leave that line out and write
@@ -550,9 +715,17 @@
      package has no ts\addons at all.
    * Server configs, rcon passwords, the relay's state, anyone's config.cfg,
      ids (.xash_id, user_id.ini, userid_resolved.cfg).
-   * h9web's data and settings: /var/lib/h9web (secrets.json, the accounts
-     database and its backups) and /etc/h9web, outside the site folder and
-     out of git (h9web/README.txt, section 7).
+   * h9web's data and settings: /var/lib/h9web (secrets.json, data.key, the
+     accounts database and its backups) and /etc/h9web, outside the site
+     folder and out of git (h9web/README.txt, section 7). /var/lib/h9web is
+     the h9web user's only: folders 0700, files 0600 (the service makes them
+     so). data.key seals the stored Discord links (encryption at rest,
+     h9web/README.txt section 2): back it up offline once, apart from the
+     database's backups, and copy only encrypted backups off the VPS
+     (section 13).
+   * Backups, dot files and scripts in the site folder: copy the site without
+     *.bak* files, zips and deploy/ (section 5); nginx answers 404 for them
+     anyway (section 8), and nginx-setup.sh warns when it finds some.
    * Valve's files. H9XASH\valve is H9's own (valve\REPLACEMENTS.md). No
      Half-Life folder is served, and none of the msr-web kit's borrow.py, which
      copies Half-Life's files into the public web folder, is used.
@@ -576,6 +749,13 @@
 
  10. THE VPS AND THE DOMAIN, IN ORDER
  ------------------------------------
+   Steps 3 and 5 to 9 (all but the DNS and the web client's game files) and
+   h9web's backups (section 13) come as one package:
+   make-vps-package.ps1 in the repository's root writes
+   dist\havoc9-vps-linux-<build>.zip, and its setup.sh does them on the VPS, step by
+   step in vps/linux/README-VPS.txt (dist\havoc9-vps-windows-<build>.zip and
+   vps/windows/README-WINDOWS.txt for a Windows host). The order below is the
+   same.
    1. Build the engine (3B) and reTS's client (3C), package (3D). Try it on
       this PC with serve_webclient.py (3E).
    2. A real join on the LAN, before anything public: an H9 server on the LAN
@@ -583,11 +763,16 @@
       list, serve_webclient.py --relay ws://127.0.0.1:<relay port>/. PLAY,
       Multiplayer > Internet games: the server is listed; join it from there,
       leave it, join it again; also "connect <ip>:<port>" in the console.
-   3. The VPS: a current Debian or Ubuntu with nginx and certbot.
+   3. The VPS: a current Debian or Ubuntu with nginx and certbot. Where the
+      provider offers disk or volume encryption, turn it on (it protects a
+      disk or snapshot that leaves the provider, not a running server); SSH
+      by key only; unattended-upgrades for security updates; a firewall open
+      only for SSH, 80, 443 and the game ports.
    4. DNS: A (and AAAA) records for havoc9.org and www.havoc9.org.
    5. The certificate: havoc9.org/deploy/https-setup.sh (section 8).
    6. The site and the build in place (section 5).
-   7. h9web: accounts and the relay, with H9's server list (section 6).
+   7. h9web: accounts and the relay, with H9's server list (section 6),
+      and its backup timer (section 13).
    8. settings.json: the relay and master as shipped; JOIN links only if
       wanted (section 4).
    9. nginx: havoc9.org/deploy/nginx-setup.sh (section 8).
@@ -675,3 +860,96 @@
                           built in; the browser build has no FFmpeg (it still
                           logs "AVI: Not supported"), and the menu's video
                           comes through engine-h9-webmenu instead
+
+
+ 13. H9WEB BACKUPS ON THE VPS
+ ----------------------------
+   h9web's state is /var/lib/h9web: the database, the modules' files (the
+   forum's pictures, the presence keys), secrets.json and data.key. It is
+   not in git. bin/h9web-backup.js backs it up and puts it back
+   (h9web/README.txt section 10 has every option); it runs as h9web:
+     B="sudo -u h9web /usr/bin/node /opt/h9web/bin/h9web-backup.js --config /etc/h9web/config.json"
+
+ 13A. The daily timer
+   /etc/systemd/system/h9web-backup.service:
+     [Unit]
+     Description=h9web backup
+     [Service]
+     Type=oneshot
+     User=h9web
+     UMask=0077
+     ExecStart=/usr/bin/node /opt/h9web/bin/h9web-backup.js --config /etc/h9web/config.json backup --out /var/lib/h9web/backups --keep 14
+     ExecStartPost=/usr/bin/find /var/lib/h9web/backups -name "h9web-*.db" -mtime +14 -delete
+   /etc/systemd/system/h9web-backup.timer:
+     [Unit]
+     Description=Daily h9web backup
+     [Timer]
+     OnCalendar=daily
+     Persistent=true
+     [Install]
+     WantedBy=timers.target
+   then
+     sudo systemctl daemon-reload
+     sudo systemctl enable --now h9web-backup.timer
+   It takes the place of the unit that ran h9web-admin backup; the
+   ExecStartPost line deletes that unit's h9web-*.db copies as they age. A
+   backup holds the password hashes and the presence keys: the files are
+   0600 and the folder 0700 (UMask=0077 and the command itself). Check it:
+     systemctl list-timers h9web-backup.timer
+     journalctl -u h9web-backup --since today
+     $B list
+
+ 13B. Encrypted copies off the VPS
+   Only encrypted backups leave the VPS. A passphrase file only h9web reads:
+     sudo install -m 600 -o h9web -g h9web /dev/null /etc/h9web/backup-passphrase
+     sudo nano /etc/h9web/backup-passphrase     (one line, 12 characters or more)
+   Keep a copy of the passphrase offline, with secrets.json and data.key:
+   without it the encrypted backups cannot be opened, and they hold the keys.
+   /etc/systemd/system/h9web-backup-offsite.service, as h9web-backup.service
+   but with
+     Description=h9web encrypted backup for copies off the VPS
+     ExecStart=/usr/bin/node /opt/h9web/bin/h9web-backup.js --config /etc/h9web/config.json backup --encrypt --with-keys --passphrase-file /etc/h9web/backup-passphrase --out /var/lib/h9web/offsite --keep 7
+   and no ExecStartPost, and h9web-backup-offsite.timer as the daily one
+   (OnCalendar=daily); sudo systemctl enable --now h9web-backup-offsite.timer.
+   Then copy /var/lib/h9web/offsite off the machine (rsync or scp as root,
+   on a schedule of your own); never the whole of /var/lib/h9web. Each copy
+   carries secrets.json and data.key too (--with-keys), sealed under the
+   passphrase with the rest, so one file and the passphrase are enough for a
+   new VPS. Without --with-keys the offline copy of the keys is needed as
+   well. Check a copy where it lands (any machine with Node 24 and h9web):
+     H9WEB_BACKUP_PASSPHRASE=... node bin/h9web-backup.js verify <file>
+   or with --passphrase-file <file> instead of the variable.
+
+ 13C. Restoring on a new VPS
+   1. Set the new VPS up as h9web/README.txt section 7 says, with the h9web
+      code the backup was made with (verify prints its h9web and module
+      versions) and the old /etc/h9web/config.json and servers.json; do not
+      start h9web (or stop it).
+   2. The keys, unless the backup holds them (--with-keys):
+        sudo install -d -m 700 -o h9web -g h9web /var/lib/h9web
+        sudo install -m 600 -o h9web -g h9web secrets.json data.key /var/lib/h9web/
+      and for an encrypted backup the passphrase file as in 13B.
+   3. The backup, where h9web can read it, then restore:
+        sudo install -m 600 -o h9web -g h9web <file> /var/lib/h9web/
+        $B verify /var/lib/h9web/<file> --passphrase-file /etc/h9web/backup-passphrase
+        $B restore /var/lib/h9web/<file> --passphrase-file /etc/h9web/backup-passphrase
+      (no --passphrase-file for a backup that is not encrypted). restore
+      refuses a secrets.json other than the backup's: every password and
+      player id would fail.
+   4. sudo systemctl enable --now h9web; the checks of h9web/README.txt
+      section 9; sign in with an existing account. The timers (13A, 13B).
+   5. Delete the copied backup file from /var/lib/h9web once all is well.
+
+ 13D. Moving to another VPS, in order
+   1. A day before: lower the DNS records' TTL, so the switch is quick.
+   2. The new VPS ready as in 13C steps 1 and 2, h9web not started.
+   3. The old VPS: sudo systemctl stop h9web (nothing changes after this),
+      then a last backup with all of it:
+        $B backup --out /var/lib/h9web/move
+   4. Copy that file to the new VPS (scp), restore it (13C step 3), start
+      h9web there and check it.
+   5. Point havoc9.org's A and AAAA records at the new VPS. Each game
+      server's firewall opens its UDP port to the relay's address (section
+      7): add the new address. The presence keys came with the backup, so
+      the game servers go on reporting as before.
+   6. Keep the old VPS stopped, with its data, for a few days; then wipe it.

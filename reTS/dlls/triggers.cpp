@@ -27,6 +27,7 @@
 #include "saverestore.h"
 #include "trains.h" // trigger_camera has train functionality
 #include "gamerules.h"
+#include "bitvec.h"
 
 #define SF_TRIGGER_PUSH_START_OFF 2		   //spawnflag that makes trigger_push spawn turned OFF
 #define SF_TRIGGER_HURT_TARGETONCE 1	   // Only fire hurt target once
@@ -586,7 +587,38 @@ class CTriggerHurt : public CBaseTrigger
 public:
 	void Spawn() override;
 	void EXPORT RadiationThink();
+
+	// HurtTouch's "already hurt this player this tick" marks for the players past slot 32.
+	// Slots 1 to 32 keep theirs in pev->impulse, one bit each, as in the original.
+	CBitVec<MAX_PLAYERS - 32> m_touchedHigh;
 };
+
+// HurtTouch is only ever the touch function of a CTriggerHurt (CTriggerHurt::Spawn sets it), so
+// the trigger these are called with is one.
+static bool HurtTouched(CBaseTrigger* pTrigger, CBaseEntity* pPlayer)
+{
+	const int slot = pPlayer->entindex() - 1;
+	if (slot < 32)
+		return (pTrigger->pev->impulse & (int)(1u << slot)) != 0;
+	if (slot >= MAX_PLAYERS)
+		return false;
+	return static_cast<CTriggerHurt*>(pTrigger)->m_touchedHigh[slot - 32];
+}
+
+static void SetHurtTouched(CBaseTrigger* pTrigger, CBaseEntity* pPlayer)
+{
+	const int slot = pPlayer->entindex() - 1;
+	if (slot < 32)
+		pTrigger->pev->impulse |= (int)(1u << slot);
+	else if (slot < MAX_PLAYERS)
+		static_cast<CTriggerHurt*>(pTrigger)->m_touchedHigh[slot - 32] = true;
+}
+
+static void ClearHurtTouched(CBaseTrigger* pTrigger)
+{
+	pTrigger->pev->impulse = 0;
+	static_cast<CTriggerHurt*>(pTrigger)->m_touchedHigh.Init(0);
+}
 
 LINK_ENTITY_TO_CLASS(trigger_hurt, CTriggerHurt);
 
@@ -922,8 +954,6 @@ void CBaseTrigger::HurtTouch(CBaseEntity* pOther)
 	if ((pev->spawnflags & SF_TRIGGER_HURT_NO_CLIENTS) != 0 && pOther->IsPlayer())
 		return;
 
-	static_assert(MAX_PLAYERS <= 32, "Rework the player mask logic to support more than 32 players");
-
 	// HACKHACK -- In multiplayer, players touch this based on packet receipt.
 	// So the players who send packets later aren't always hurt.  Keep track of
 	// how much time has passed and whether or not you've touched that player
@@ -935,15 +965,12 @@ void CBaseTrigger::HurtTouch(CBaseEntity* pOther)
 			{ // too early to hurt again, and not same frame with a different entity
 				if (pOther->IsPlayer())
 				{
-					int playerMask = 1 << (pOther->entindex() - 1);
-
 					// If I've already touched this player (this time), then bail out
-					if ((pev->impulse & playerMask) != 0)
+					if (HurtTouched(this, pOther))
 						return;
 
 					// Mark this player as touched
-					// BUGBUG - There can be only 32 players!
-					pev->impulse |= playerMask;
+					SetHurtTouched(this, pOther);
 				}
 				else
 				{
@@ -954,14 +981,11 @@ void CBaseTrigger::HurtTouch(CBaseEntity* pOther)
 		else
 		{
 			// New clock, "un-touch" all players
-			pev->impulse = 0;
+			ClearHurtTouched(this);
 			if (pOther->IsPlayer())
 			{
-				int playerMask = 1 << (pOther->entindex() - 1);
-
 				// Mark this player as touched
-				// BUGBUG - There can be only 32 players!
-				pev->impulse |= playerMask;
+				SetHurtTouched(this, pOther);
 			}
 		}
 	}

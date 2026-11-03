@@ -519,25 +519,34 @@ void CVoiceStatus::UpdateServerState(bool bForce)
 	sprintf(str, "vban");
 	bool bChange = false;
 
-	for (unsigned long dw = 0; dw < VOICE_MAX_PLAYERS_DW; dw++)
-	{
-		//The ban mask is a 32 bit int, so make sure this doesn't silently break.
-		//Note that the server will also need updating.
-		static_assert(MAX_PLAYERS <= 32, "The voice ban bit vector only supports up to 32 players");
+	// One mask per 32 player slots in use: a server of 32 or fewer gets "vban <mask>".
+	int maxClients = gEngfuncs.GetMaxClients();
+	if (maxClients > MAX_PLAYERS)
+		maxClients = MAX_PLAYERS;
+	unsigned long numDWords = (unsigned long)(maxClients + 31) / 32;
+	if (numDWords < 1)
+		numDWords = 1;
 
+	for (unsigned long dw = 0; dw < numDWords; dw++)
+	{
+		// dword dw holds client indexes dw * 32 to dw * 32 + 31
 		unsigned long serverBanMask = 0;
 		unsigned long banMask = 0;
-		for (unsigned long i = 0; i < MAX_PLAYERS; i++)
+		for (unsigned long i = 0; i < 32; i++)
 		{
+			const unsigned long iClient = dw * 32 + i;
+			if (iClient >= (unsigned long)maxClients)
+				break;
+
 			char playerID[16];
-			if (0 == gEngfuncs.GetPlayerUniqueID(i + 1, playerID))
+			if (0 == gEngfuncs.GetPlayerUniqueID(iClient + 1, playerID))
 				continue;
 
 			if (m_BanMgr.GetPlayerBan(playerID))
-				banMask |= 1 << i;
+				banMask |= 1ul << i;
 
-			if (m_ServerBannedPlayers[dw * MAX_PLAYERS + i])
-				serverBanMask |= 1 << i;
+			if (m_ServerBannedPlayers[iClient])
+				serverBanMask |= 1ul << i;
 		}
 
 		if (serverBanMask != banMask)
@@ -573,8 +582,15 @@ void CVoiceStatus::UpdateServerState(bool bForce)
 
 void CVoiceStatus::UpdateSpeakerImage(Label* pLabel, int iPlayer)
 {
+	if (iPlayer < 1 || iPlayer > MAX_PLAYERS)
+		return;
 	m_pBanButtons[iPlayer - 1] = pLabel;
 	UpdateBanButton(iPlayer - 1);
+}
+
+void CVoiceStatus::DetachBanButtons()
+{
+	memset(m_pBanButtons, 0, sizeof(m_pBanButtons));
 }
 
 void CVoiceStatus::UpdateBanButton(int iClient)
@@ -628,8 +644,19 @@ void CVoiceStatus::HandleVoiceMaskMsg(int iSize, void* pbuf)
 {
 	BEGIN_READ(pbuf, iSize);
 
+	// One [rules, ban] pair per 32 slots the server uses: 8 bytes from a server of 32 or fewer.
+	// Pairs the message does not carry are cleared.
+	unsigned long numDWords = (unsigned long)(iSize / 8);
+	if (numDWords > VOICE_MAX_PLAYERS_DW)
+		numDWords = VOICE_MAX_PLAYERS_DW;
+	for (unsigned long rest = numDWords; rest < VOICE_MAX_PLAYERS_DW; rest++)
+	{
+		m_AudiblePlayers.SetDWord(rest, 0);
+		m_ServerBannedPlayers.SetDWord(rest, 0);
+	}
+
 	unsigned long dw;
-	for (dw = 0; dw < VOICE_MAX_PLAYERS_DW; dw++)
+	for (dw = 0; dw < numDWords; dw++)
 	{
 		m_AudiblePlayers.SetDWord(dw, (unsigned long)READ_LONG());
 		m_ServerBannedPlayers.SetDWord(dw, (unsigned long)READ_LONG());

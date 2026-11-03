@@ -1,0 +1,234 @@
+<#
+.SYNOPSIS
+  Packs havoc9.org for a host: dist\havoc9-vps-linux-<build>.zip (vps\linux\setup.sh) and
+  dist\havoc9-vps-windows-<build>.zip (vps\windows\setup.ps1).
+
+.DESCRIPTION
+  Each ZIP has one folder in it, havoc9-vps-<target>-<build>\, holding:
+    linux:    README-VPS.txt, setup.sh, systemd\, hardening\      from vps\linux\
+    windows:  README-WINDOWS.txt, setup.ps1, setup.cmd,
+              Caddyfile.template                                  from vps\windows\
+    both:
+      h9web\            h9web's code: server.js, package.json, lib, bin, modules, the README
+                        and the two example configs; never data\, config.json, servers.json,
+                        tests, backups or the Windows scripts
+      havoc9.org\       the site, with deploy\ (the nginx and certificate scripts); never
+                        backups (*.bak*), archives (*.zip) or dot files
+      serverlist-bot\   the list's code, requirements.txt, README.md, serverlist.ini,
+                        servers.txt and serverlist.cfg.example; never serverlist.cfg (the
+                        Discord token and heartbeat key) or its log
+      BUILD.txt         the build, the time and where it was packed from
+  Only files picked by name and kind go in. Last, each staged tree is scanned: a secret's file
+  name (secrets.json, data.key, serverlist.cfg, ts_advertise.cfg, a database, a key or
+  certificate, a backup) or a secret's content (a Discord bot token or webhook URL, a private
+  key, a filled-in heartbeat_key, discord_token, password pepper or player id key) stops the
+  run before a ZIP is written. The values found are never printed.
+
+  The build comes from VERSION.txt beside this script ("Build: ..."), with the time it was
+  packed: havoc9-vps-linux-1.54-lift6-20261102-0130.zip. The sources are only read.
+
+  With -WebClient, the web client's files go in a third ZIP, havoc9-vps-webclient-<build>.zip:
+  webclient-build\stage (about 1.2 GB, made by export.bat or tools\make_webclient_game.py) and
+  tools\make_webclient_game.py, laid out for either package (README-VPS.txt and
+  README-WINDOWS.txt, step 12).
+
+.PARAMETER Target
+  all (the default), linux or windows.
+
+.PARAMETER OutDir
+  Where the ZIPs and the reports go. Default: dist beside this script (git ignores it).
+
+.PARAMETER WebClient
+  Also pack the web client's files.
+
+.PARAMETER KeepStage
+  Keep the staged folders after zipping, to look through them.
+
+.EXAMPLE
+  .\make-vps-package.ps1
+  .\make-vps-package.ps1 -Target windows
+  .\make-vps-package.ps1 -WebClient
+#>
+[CmdletBinding()]
+param(
+    [ValidateSet('all', 'linux', 'windows')][string]$Target = 'all',
+    [string]$OutDir,
+    [switch]$WebClient,
+    [switch]$KeepStage
+)
+
+$ErrorActionPreference = 'Stop'
+$Root = $PSScriptRoot
+if (-not $OutDir) { $OutDir = Join-Path $Root 'dist' }
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+function Say([string]$text) { Write-Host $text }
+function Fail([string]$text) { Write-Host "[FAIL] $text" -ForegroundColor Red; exit 1 }
+
+$Targets = @('linux', 'windows')
+if ($Target -ne 'all') { $Targets = @($Target) }
+$Own = @{
+    linux = @(@('vps\linux\README-VPS.txt', 'README-VPS.txt'), @('vps\linux\setup.sh', 'setup.sh'), @('vps\linux\systemd', 'systemd'), @('vps\linux\hardening', 'hardening'))
+    windows = @(@('vps\windows\README-WINDOWS.txt', 'README-WINDOWS.txt'), @('vps\windows\setup.ps1', 'setup.ps1'), @('vps\windows\setup.cmd', 'setup.cmd'),
+                @('vps\windows\Caddyfile.template', 'Caddyfile.template'))
+}
+$need = @('h9web\server.js', 'h9web\bin\h9web-backup.js', 'havoc9.org\index.html', 'havoc9.org\deploy\nginx-setup.sh', 'serverlist-bot\h9_serverlist.py')
+foreach ($t in $Targets) { foreach ($pair in $Own[$t]) { $need += $pair[0] } }
+foreach ($n in $need) { if (-not (Test-Path -LiteralPath (Join-Path $Root $n))) { Fail "$n is missing beside this script ($Root)" } }
+
+# A clone made without Git LFS holds pointer files in place of maps, models and archives: what this
+# packs is checked first (tools\check-lfs.ps1, docs\BUILDING.txt), the web client's stage with it.
+$lfsCheck = Join-Path $Root 'tools\check-lfs.ps1'
+if (-not (Test-Path -LiteralPath $lfsCheck)) { Fail "tools\check-lfs.ps1 is missing beside this script ($Root)" }
+$lfsPaths = @('h9web', 'havoc9.org', 'serverlist-bot', 'vps') | ForEach-Object { Join-Path $Root $_ }
+if ($WebClient) { $lfsPaths += Join-Path $Root 'webclient-build\stage' }
+& $lfsCheck -Path $lfsPaths
+if ($LASTEXITCODE -ne 0) { Fail 'files this packs are Git LFS pointers or cut short (listed above); no ZIP was written' }
+
+$build = 'dev'
+$versionFile = Join-Path $Root 'VERSION.txt'
+if (Test-Path -LiteralPath $versionFile) {
+    $m = [regex]::Match([IO.File]::ReadAllText($versionFile), '(?m)^\s*Build:\s*(\S+)')
+    if ($m.Success) { $build = $m.Groups[1].Value }
+}
+$build = ($build -replace '[^A-Za-z0-9._-]', '-')
+$Stamp = (Get-Date).ToString('yyyyMMdd-HHmm')
+$Temp = Join-Path ([IO.Path]::GetTempPath()) ('havoc9-vps-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+
+# Leaves out what never belongs on a host, whatever folder it is in.
+$SkipFile = '(\.bak|\.orig$|\.rej$|\.tmp$|\.log$|~$|\.zip$|\.7z$|^Thumbs\.db$|^desktop\.ini$|^\.)'
+$SkipDir = '^(\.git|\.vs|node_modules|__pycache__|data|test)$'
+
+function Copy-One([string]$from, [string]$to, $list, [string]$stage) {
+    $dir = Split-Path -Parent $to
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    Copy-Item -LiteralPath $from -Destination $to -Force
+    $list.Add($to.Substring($stage.Length + 1))
+}
+
+function Copy-Tree([string]$from, [string]$to, $list, [string]$stage) {
+    foreach ($item in Get-ChildItem -LiteralPath $from -Force) {
+        if ($item.PSIsContainer) {
+            if ($item.Name -match $SkipDir) { continue }
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+            Copy-Tree $item.FullName (Join-Path $to $item.Name) $list $stage
+        } else {
+            if ($item.Name -match $SkipFile) { continue }
+            Copy-One $item.FullName (Join-Path $to $item.Name) $list $stage
+        }
+    }
+}
+
+# entries: { Src = <file>; Entry = <path in the ZIP, with /> }
+function Write-Zip([string]$zipPath, $entries, [string]$level) {
+    if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+    $zip = [IO.Compression.ZipFile]::Open($zipPath, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($e in $entries) {
+            [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $e.Src, $e.Entry, [IO.Compression.CompressionLevel]::$level)
+        }
+    } finally {
+        $zip.Dispose()
+    }
+}
+
+$BadName = '^(secrets\.json|data\.key|serverlist\.cfg|ts_advertise\.cfg|backup-passphrase.*|\.env|id_rsa.*|id_ed25519.*|id_ecdsa.*)$|\.(db|db-wal|db-shm|db-journal|sqlite3?|h9backup|pem|key|p12|pfx|crt|ppk)$'
+$TextExt = '\.(js|mjs|cjs|json|html|htm|css|txt|md|ini|cfg|sh|ps1|cmd|py|service|timer|conf|example|template|xml|svg)$|^[^.]+$'
+$Hard = @(
+    @{ Why = 'a Discord bot token'; Rx = [regex]'[MNO][A-Za-z\d_\-]{23,27}\.[A-Za-z\d_\-]{6}\.[A-Za-z\d_\-]{27,40}' },
+    @{ Why = 'a Discord webhook URL'; Rx = [regex]'discord(?:app)?\.com/api/webhooks/\d+/[\w\-]+' },
+    @{ Why = 'a private key'; Rx = [regex]'-----BEGIN [A-Z ]*PRIVATE KEY-----' },
+    @{ Why = 'a filled-in heartbeat_key or discord_token'; Rx = [regex]'(?m)^[ \t]*(heartbeat_key|discord_token)[ \t]*=[ \t]*[^\s;#<]' },
+    @{ Why = "h9web's password pepper or player id key"; Rx = [regex]'"(passwordPepper|playerIdKey)"\s*:\s*"[A-Za-z0-9+/=]{16,}"' },
+    @{ Why = 'a filled-in client secret or bot token'; Rx = [regex]'"(clientSecret|botToken|client_secret|bot_token)"\s*:\s*"[^"]{8,}"' }
+)
+$Latin1 = [Text.Encoding]::GetEncoding(28591)
+$made = @()
+
+$step = 0
+foreach ($t in $Targets) {
+    $step++
+    $Name = "havoc9-vps-$t-$build-$Stamp"
+    $Stage = Join-Path $Temp $Name
+    $copied = New-Object System.Collections.Generic.List[string]
+    Say "$step. $Name"
+    New-Item -ItemType Directory -Force -Path $Stage | Out-Null
+    foreach ($pair in $Own[$t]) {
+        $from = Join-Path $Root $pair[0]
+        if (Test-Path -LiteralPath $from -PathType Container) { Copy-Tree $from (Join-Path $Stage $pair[1]) $copied $Stage }
+        else { Copy-One $from (Join-Path $Stage $pair[1]) $copied $Stage }
+    }
+    $h9web = Join-Path $Root 'h9web'
+    foreach ($f in @('server.js', 'package.json', 'README.txt', 'config.example.json', 'servers.example.json')) { Copy-One (Join-Path $h9web $f) (Join-Path $Stage "h9web\$f") $copied $Stage }
+    foreach ($d in @('lib', 'bin', 'modules')) { Copy-Tree (Join-Path $h9web $d) (Join-Path $Stage "h9web\$d") $copied $Stage }
+    Copy-Tree (Join-Path $Root 'havoc9.org') (Join-Path $Stage 'havoc9.org') $copied $Stage
+    $list = Join-Path $Root 'serverlist-bot'
+    foreach ($f in @('h9_serverlist.py', 'requirements.txt', 'README.md', 'serverlist.ini', 'servers.txt', 'serverlist.cfg.example')) {
+        Copy-One (Join-Path $list $f) (Join-Path $Stage "serverlist-bot\$f") $copied $Stage
+    }
+    $guide = 'README-VPS.txt'; if ($t -eq 'windows') { $guide = 'README-WINDOWS.txt' }
+    $buildText = @("havoc9.org $t host package ($guide)", '', "Build:   $build", ('Packed:  ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')),
+                   "Source:  $Root", ('Files:   ' + ($copied.Count + 1))) -join "`n"
+    [IO.File]::WriteAllText((Join-Path $Stage 'BUILD.txt'), $buildText + "`n", (New-Object Text.UTF8Encoding $false))
+    $copied.Add('BUILD.txt')
+    Say ("  {0} files staged" -f $copied.Count)
+
+    $found = New-Object System.Collections.Generic.List[string]
+    foreach ($rel in $copied) {
+        $leaf = Split-Path -Leaf $rel
+        if ($leaf -match $BadName) { $found.Add("$rel (a secret's file name)"); continue }
+        if ($rel -match '^h9web\\(config|servers)\.json$') { $found.Add("$rel (a real config)"); continue }
+        if ($leaf -notmatch $TextExt) { continue }
+        $text = $Latin1.GetString([IO.File]::ReadAllBytes((Join-Path $Stage $rel)))
+        foreach ($h in $Hard) { if ($h.Rx.IsMatch($text)) { $found.Add("$rel ($($h.Why))") } }
+    }
+    if ($found.Count -gt 0) {
+        foreach ($f in $found) { Write-Host "  [STOP] $f" -ForegroundColor Red }
+        Remove-Item -LiteralPath $Temp -Recurse -Force
+        Fail ('the scan found ' + $found.Count + ' secret(s) above; no ZIP was written. Take them out of the sources and pack again.')
+    }
+    Say '  scan: no secret files, tokens, webhooks, private keys or filled-in keys'
+
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+    $zipPath = Join-Path $OutDir ($Name + '.zip')
+    $entries = $copied | Sort-Object | ForEach-Object { [pscustomobject]@{ Src = (Join-Path $Stage $_); Entry = ($Name + '/' + ($_ -replace '\\', '/')) } }
+    Write-Zip $zipPath $entries 'Optimal'
+    $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLower()
+    $size = (Get-Item -LiteralPath $zipPath).Length
+    Say ("  {0} ({1:N1} MB), SHA-256 {2}" -f $zipPath, ($size / 1MB), $hash)
+    $report = @("$Name.zip", "SHA-256: $hash", "Size:    $size bytes", $buildText, '', 'Scan: clean', '', 'Files:') + ($copied | Sort-Object | ForEach-Object { '  ' + $_ })
+    [IO.File]::WriteAllText((Join-Path $OutDir ($Name + '.report.txt')), (($report -join "`r`n") + "`r`n"), (New-Object Text.UTF8Encoding $false))
+    $made += $zipPath
+}
+
+if ($WebClient) {
+    $step++
+    $Name = "havoc9-vps-webclient-$build-$Stamp"
+    Say "$step. $Name"
+    $stageDir = Join-Path $Root 'webclient-build\stage'
+    $tool = Join-Path $Root 'tools\make_webclient_game.py'
+    if (-not (Test-Path -LiteralPath (Join-Path $stageDir 'manifest.json'))) { Fail "no $stageDir\manifest.json: run export.bat first (DEPLOY.txt section 3)" }
+    if (-not (Test-Path -LiteralPath $tool)) { Fail "no $tool" }
+    $entries = New-Object System.Collections.Generic.List[object]
+    $entries.Add([pscustomobject]@{ Src = $tool; Entry = "$Name/tools/make_webclient_game.py" })
+    $bad = New-Object System.Collections.Generic.List[string]
+    foreach ($f in Get-ChildItem -LiteralPath $stageDir -Recurse -File -Force) {
+        $rel = $f.FullName.Substring($stageDir.Length + 1) -replace '\\', '/'
+        if ($f.Name -match '^(ts_advertise.*|\.xash_id|user_id\.ini|device_id\.ini|.*_resolved\.cfg|config\.cfg|secrets\.json|serverlist\.cfg)$') { $bad.Add($rel) }
+        $entries.Add([pscustomobject]@{ Src = $f.FullName; Entry = "$Name/webclient-build/stage/$rel" })
+    }
+    if ($bad.Count -gt 0) { foreach ($x in $bad) { Write-Host "  [STOP] $x" -ForegroundColor Red }; Fail 'the web client stage holds files that never ship; no web client ZIP was written' }
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+    $wcZip = Join-Path $OutDir ($Name + '.zip')
+    Write-Zip $wcZip $entries 'Fastest'
+    Say ("  {0} ({1:N0} MB, {2} files)" -f $wcZip, ((Get-Item -LiteralPath $wcZip).Length / 1MB), $entries.Count)
+    $made += $wcZip
+}
+
+if ($KeepStage) { Say "the staged folders stay: $Temp" } elseif (Test-Path -LiteralPath $Temp) { Remove-Item -LiteralPath $Temp -Recurse -Force }
+Say 'done:'
+foreach ($z in $made) { Say "  $z" }
+Say '  Linux: unzip, cd into the folder, sudo bash setup.sh (README-VPS.txt).'
+Say '  Windows: Extract All, right-click setup.cmd, Run as administrator (README-WINDOWS.txt).'
+exit 0

@@ -73,8 +73,8 @@ GNU General Public License for more details.
 #define svc_director		51	// <variable sized>
 #define svc_voiceinit		52	// <see code>
 #define svc_voicedata		53	// [byte][short][...]
-// reserved
-// reserved
+#define svc_h9updateuserinfo	54	// H9: svc_updateuserinfo with [byte] playernum, from a server of more than 32 slots
+#define svc_h9pings		55	// H9: svc_pings with the slot in 8 bits, from a server of more than 32 slots
 #define svc_resourcelocation		56	// [string]
 #define svc_querycvarvalue		57	// [string]
 #define svc_querycvarvalue2		58	// [string][int] (context)
@@ -282,6 +282,13 @@ extern const char *const svc_goldsrc_strings[svc_lastmsg+1];
 // FWGS extensions
 #define NET_EXT_SPLITSIZE       (1U<<0) // set splitsize by cl_dlmax
 #define NET_EXT_NETCHAN_COOKIE  (1U<<1) // per-connection 64-bit netchan cookie validated on every sequenced packet
+#define NET_EXT_H9_SLOTS128     (1U<<24) // H9: reads svc_h9updateuserinfo and svc_h9pings; a server of more than 32 slots refuses a client without it
+
+// The slot field of svc_updateuserinfo and svc_pings, the width GoldSrc uses: 5 bits, 32 slots.
+// A server of more slots sends svc_h9updateuserinfo and svc_h9pings instead, so a server of 32
+// or fewer sends what it always has.
+#define MAX_CLIENT_BITS_LEGACY  5
+#define MAX_CLIENTS_LEGACY      ( 1 << MAX_CLIENT_BITS_LEGACY )
 
 // GoldSrc protocol definitions
 #define PROTOCOL_GOLDSRC_VERSION 48
@@ -310,7 +317,7 @@ extern const char *const svc_goldsrc_strings[svc_lastmsg+1];
 #define MAX_GOLDSRC_RESOURCE_BITS 12
 #define MAX_GOLDSRC_ENTITY_BITS   11
 // #define MAX_GOLDSRC_EDICTS        BIT( MAX_ENTITY_BITS )
-#define MAX_GOLDSRC_EDICTS        ( BIT( MAX_ENTITY_BITS ) + ( MAX_CLIENTS * 15 ))
+#define MAX_GOLDSRC_EDICTS        ( BIT( MAX_ENTITY_BITS ) + ( MAX_CLIENTS_LEGACY * 15 )) // a GoldSrc server has 32 slots at most
 #define LAST_GOLDSRC_EDICT        ( BIT( MAX_ENTITY_BITS ) - 1 )
 
 // Master Server protocol

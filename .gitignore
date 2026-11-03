@@ -14,8 +14,19 @@ rcbot/bot_playerids.ini
 
 # H9 Stuff
 *.backup
-export-map/
-src/
+# Binary backups beside a rebuilt DLL or EXE (<file>.bak_<tag>) stay in TSM: git is the backup.
+*.bak_*
+# The map pipeline's outputs, when its scripts run in a checkout: the maps that ship are under
+# ts/maps, and export-map/ holds the sources and generators.
+export-map/**/out/
+export-map/**/tmp/
+# Metamod-R's build output. Upstream's own .gitignore is left out of the mirror (export.bat):
+# it ignores *.bat, and with it msvc/PreBuild.bat, which the Windows build runs.
+metamod-r/**/msvc/Release*/
+metamod-r/**/msvc/Debug*/
+metamod-r/**/msvc/.vs/
+metamod-r/**/msvc/*.user
+metamod-r/metamod/version/appversion.h
 
 # Files Xash writes into the game folder while it runs, for anyone playing from here.
 H9XASH/**/video.cfg
@@ -24,8 +35,7 @@ H9XASH/**/.xash_id
 H9XASH/**/.fontcache/
 H9XASH/**/voice_ban.dt
 H9XASH/**/custom.hpk
-# The settings Xash keeps in valve (ts/config.cfg is the stock one, shipped on purpose),
-# and the app id the Steam broker writes.
+# The settings Xash keeps in valve, and the app id the Steam broker writes.
 H9XASH/valve/config.cfg
 H9XASH/**/steam_appid.txt
 H9XASH/**/save/
@@ -35,7 +45,11 @@ H9XASH/ts_downloads/
 H9XASH/*.log
 H9XASH/ts/menu_music_resolved.cfg
 
-# What building xash3d-fwgs here leaves behind.
+# What building xash3d-fwgs here leaves behind. FWGS's own .gitignore files are left out of the
+# mirror (export.bat): written for its submodule layout, they ignore Makefile, CMakeLists.txt and
+# source folders the submodules track, which the engine build needs. FWGS's CI signing
+# certificate (scripts/fwgs.pfx, a key container) is left out too.
+xash3d-fwgs/**/*.pfx
 xash3d-fwgs/build/
 xash3d-fwgs/waf3-*/
 xash3d-fwgs/.lock-waf*
@@ -51,6 +65,8 @@ H9XASH/ts/addons/amxmodx/data/vault/
 H9XASH/ts/addons/amxmodx/data/vault.ini
 H9XASH/ts/addons/amxmodx/data/tsstats.dat
 H9XASH/rcbot/bot_playerids.ini
+# A player's own settings: config.cfg holds their player id (cl_h9_userid). New players start
+# from the tracked ts/config.stock.cfg, which h9xash.bat copies to ts/config.cfg when there is none.
 H9XASH/ts/config.cfg
 H9XASH/ts/config.cfg.bak
 H9XASH/ts/console_history.txt
@@ -127,7 +143,30 @@ webclient-build/
 # Python writes these beside any script it runs: never source.
 __pycache__/
 
-# Client ZIPs and their reports from stage-h9xash.cmd, and older hand-made ZIPs of H9XASH.
-/dist/
+# Client ZIPs and their reports from stage-h9xash.cmd, and older hand-made ZIPs of H9XASH. Of dist\,
+# only the updater (tools\updater\build.cmd makes it) and the .keep file that holds the folder are tracked.
+/dist/*
+!/dist/H9XASH-Updater.exe
+!/dist/.keep
+# The updater's build folder: its venv, PyInstaller's work files and caches.
+tools/updater/.build/
 /H9XASH.zip
 /H9XASH-*.zip
+
+# h9web's keys and backups, anywhere in the tree (h9web/README.txt sections 7 and 10). None of
+# them is ever safe to ship or commit: secrets.json (the password pepper and the player id key:
+# with it and a copy of the database, every password can be attacked offline), data.key (it
+# opens the Discord links in the database), any other *.key, h9web-backup's archives (*.h9backup:
+# the database, and with --with-keys the keys too) and their unfinished .partial files, the
+# backup passphrase file, h9web's data folders, and .env files. The CA bundles (cacert.pem) and
+# mbedTLS's test keys under xash3d-fwgs/3rdparty are public, so those stay tracked.
+secrets.json
+data.key
+*.key
+!xash3d-fwgs/3rdparty/**/*.key
+*.h9backup
+*.h9backup.partial
+backup-passphrase*
+h9web/data/
+h9web-local/
+.env

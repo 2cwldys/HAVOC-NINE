@@ -1,0 +1,308 @@
+===============================================================================
+ LINUX SUPPORT -- H9XASH on Linux today, and the plan for a native client
+ and a Linux dedicated server
+===============================================================================
+
+ For whoever takes H9XASH to Linux next. Section 2 is what ships now. The
+ rest is a study and a plan, written 2026-11-01: nothing in sections 3 to 9
+ has been built, installed or tested.
+
+ CONTENTS
+    1. The short version
+    2. Today: the Windows client under Wine or Proton
+    3. The engine on Linux, and H9's patches one by one
+    4. The game libraries: reTS, freevgui, mainui
+    5. Hosting on Linux: Metamod-R, AMX Mod X and reTSX, RCBot
+    6. Three roads to a Linux dedicated server
+    7. Toolchain: Docker images, not the user's own Ubuntu
+    8. Packaging a native build in dist\linux
+    9. The plan: order, effort, blockers, decisions
+
+
+ 1. THE SHORT VERSION
+ --------------------
+   * Players: H9XASH runs on Linux now as the Windows game under Wine or
+     Proton, started by h9xash.sh (section 2). Its scripts are tested here
+     against the Windows ones; the game itself has not yet run on a Linux
+     machine.
+   * The VPS: the shortest real road is a native 32-bit (i386) dedicated
+     server: FWGS built with -d, reTS's ts_i386.so, Metamod-R, AMX Mod X
+     with reTSX, and RCBot, all from source in Docker (section 6, road B):
+     about 2 to 4 days. A stopgap with no builds at all: the Windows server
+     under Wine on the VPS (road A, untested).
+   * A native Linux client is the long road (1 to 2 weeks). Its blockers:
+     freevgui has no Linux font backend (every VGUI1 letter draws as a box
+     with hex digits), Discord presence speaks only Windows pipes, SDL2,
+     FFmpeg and 32-bit libraries must ship with it, and Edge WebView2 has
+     no Linux build.
+   * So: the server first, the client later or never, while Wine and Proton
+     serve players. One blocker for any build: C: has about 2 GB free, and
+     Docker Desktop keeps its disk image on C: unless it is moved to D:.
+
+
+ 2. TODAY: THE WINDOWS CLIENT UNDER WINE OR PROTON
+ -------------------------------------------------
+   In H9XASH, from xash3d-h9-patches\overlay (xash.bat assets copies them):
+     h9xash.sh          the launcher: what h9xash.bat does, in bash
+     h9_userid.sh       the client id: h9_userid.ps1, enter_userid.cmd and
+                        h9_regenerate_userid.bat in one (--set, --new)
+     README_LINUX.txt   the players' guide: Wine, Proton, umu-run, Discord
+                        bridges, the splash MOTD, troubleshooting
+     .gitattributes     keeps *.sh LF in a Windows checkout
+   stage-h9xash.ps1 (repository root) packs dist\H9XASH-linux.zip beside
+   the Windows dist\H9XASH.zip, the names the downloads page links: the
+   same staged tree, the .sh files LF and Unix mode 0755 (without Python
+   the .zip keeps no modes, played with bash h9xash.sh). -NoLinux skips it.
+
+   What h9xash.sh writes is byte for byte what the Windows scripts write
+   (comment lines naming the .ps1 scripts included), so one H9XASH folder
+   plays from both systems. Checked here, in scratch folders, against
+   h9_userid.ps1, h9_networking.ps1 and h9xash.bat's own music and video
+   lines: 50 id cases, 6 networking.ini cases, 5 list cases and the set of
+   random picks. The Wine side was checked with stand-in wine programs
+   only: argument order, the prefix, the 32-bit check.
+
+   Not on Linux, by design: the Steam broker (a Windows program), the
+   server and presets .bat files, h9_add_to_steam.ps1. valve\ needs no
+   copying: it is H9's own.
+
+   A tester's checklist, on a Linux PC and a Steam Deck:
+     1. ./h9xash.sh --check on Debian or Ubuntu (wine32:i386), Fedora, Arch.
+     2. First start: the prefix is made, the menu music and video play
+        (the FFmpeg DLLs under Wine), the VGUI menus are in Square721
+        (GDI's private fonts under Wine).
+     3. Join a server: its log shows the player's h9_clientid.
+     4. A listen server with bots: Metamod, AMX Mod X, RCBot under Wine.
+     5. Discord card through wine-discord-ipc-bridge or rpc-bridge.
+     6. A splash MOTD picture; OPEN PAGE opens the Linux browser.
+     7. Steam shortcut with --prepare-only %command%; umu-run.
+     8. Mouse look, fullscreen and alt-tab under X11 and Wayland.
+     9. When the WebView2 MOTD view is built: cl_h9_motd_wine 1 with the
+        Evergreen runtime in the prefix. winetricks has no webview2 verb
+        (checked in winetricks' verb list, 2026-11-01): the runtime is
+        Microsoft's Evergreen Standalone Installer run in the prefix, as
+        README_LINUX.txt says.
+
+
+ 3. THE ENGINE ON LINUX, AND H9'S PATCHES ONE BY ONE
+ ---------------------------------------------------
+   FWGS builds on Linux with the same waf as on Windows:
+     ./waf configure -T release [-8] [-d] ...; ./waf build; ./waf install
+   * Bitness: 32-bit by default on x86 (-4 forces it), 64-bit with -8. The
+     engine, the game libraries, Metamod, AMX Mod X and RCBot must all be
+     the same: a 64-bit engine cannot load i386 .so files.
+   * -d builds only the dedicated server: xash and filesystem_stdio.so,
+     with no SDL2 and no FFmpeg. --enable-dedicated builds it beside the
+     client.
+   * The client needs SDL2, a font library for the menu (FreeType, or
+     --enable-stbtt), and opus, vorbis, bzip2 (--enable-bundled-deps builds
+     them from 3rdparty). FFmpeg is optional: with --enable-ffmpeg-dlopen
+     the engine loads libavutil.so.<major> etc. for the majors it was built
+     against, so the .so files must ship with the client.
+   * FWGS's own CI is the recipe to reuse: scripts\gha\deps_linux.sh and
+     build_linux.sh (SDL2 2.x built from source, FFmpeg from FWGS's
+     FFmpeg-Builds, xash3d-fwgs-linux-<arch>.tar.gz and xashds-linux-<arch>
+     .tar.gz), and scripts\xashds@.service, a systemd unit with a watchdog.
+
+   H9's patches (xash3d-h9-patches\patches, plus webassembly-patch\):
+     webassembly patches   browser branches under XASH_EMSCRIPTEN; native
+       (library_suffix,    code unchanged. The first Linux build is the
+       engine, mainui,     proof that engine.patch's own files compile
+       freevgui)           there.
+     freevgui-h9-scheme    portable (scheme.cpp).
+     freevgui-h9-fonts     Windows only: platform\win32\font.cpp, GDI. On
+                           Linux freevgui's platform\posix\font.cpp returns
+                           no font, and StubFontPlat draws every letter as a
+                           box with its hex code: TS's team and buy menus,
+                           scoreboard and MOTD window are unreadable. The
+                           cure is a FreeType backend for posix (FWGS has
+                           FreeType in 3rdparty\freetype) that also reads
+                           resource\fonts\*.ttf and fonts.txt. 1 to 2 days.
+                           Not needed for a dedicated server.
+     cloak, cmdbuf,        portable C, no platform code: apply as they are.
+     chatmouse,
+     suddendeath, xray,
+     sprguard,
+     spraypicker,
+     spraycmd, userid,
+     autoconfig,
+     deltabits, concolor,
+     consolemusic,
+     chatinput, bigworld,
+     cvarresync,
+     phsbudget
+     mainui-h9-gamestartup,  portable C++.
+     -sprayui, -hover
+     engine-h9-presence    Windows only: the Discord pipe \\.\pipe\discord-
+                           ipc-N under #if XASH_WIN32; elsewhere every
+                           function returns at once. Linux needs a POSIX
+                           branch: a unix socket at $XDG_RUNTIME_DIR/discord-
+                           ipc-0..9 (Flatpak Discord: app/com.discordapp.
+                           Discord/ under it), the same 8-byte header and
+                           JSON. About 150 lines. Its game.rc icon is
+                           Windows only (Linux: a .desktop file and a PNG).
+     engine-h9-websound,   browser only; nothing on Linux.
+     engine-h9-webmenu
+     engine-h9-motd        the picture splash is portable (HTTP_GetToMemory,
+                           imagelib, Platform_ShellExecute is xdg-open on
+                           Linux). The WebView2 page view (h9webview.dll,
+                           XASH_WIN32 blocks) is Windows and Wine only: a
+                           native Linux build shows the fallback. A WebKitGTK
+                           helper is possible but hard (a GTK main loop and a
+                           window inside SDL's, on X11 and Wayland): not
+                           recommended.
+   Committed on the h9 branch (spraywad and the base commits): portable C.
+
+
+ 4. THE GAME LIBRARIES: RETS, FREEVGUI, MAINUI
+ ---------------------------------------------
+   reTS (TSM\reTS) is CMake, and builds Linux i386, amd64 and aarch64 as
+   well as Win32:
+     scripts/build.sh i386 all    -> build-i386/dlls/hl.so, cl_dll/client.so
+   inside the goldsrc-net/buildchain image hlds64-buildchain:debian10
+   (Debian 10, glibc 2.28 floor; built once with "make image" in a
+   buildchain checkout). TSM\reTS already holds H9's source changes (the
+   81-slot ceiling, the powerup grant, the disarm fix, the cloak in
+   view.cpp, the mouse-button release in inputw32.cpp), so the same tree
+   gives Linux libraries with them. As TS names it, the server goes in as
+   ts\dlls\ts_i386.so: liblist.gam's gamedll_linux already says so.
+   What is missing or to watch:
+     * TSM\reTS has no .git: Version.cmake falls back without git describe,
+       and scripts/package.sh refuses to run; use build.sh.
+     * third_party\openvgui and third_party\vgui_support are empty. Only the
+       64-bit client needs them (it links openvgui in); the i386 client
+       links linux\release\vgui.so (Valve's, for linking only; at run time
+       FWGS's freevgui vgui.so takes its place).
+     * The i386 client reads mouse look through SDL2 (TS_INPUT_SDL) and
+       links libSDL2-2.0.so.0, which the engine provides: check mouse look
+       on FWGS i386 early.
+     * reTS\release_binaries\ts\dlls\ts_i386.so and cl_dlls\client.so are
+       the upstream v0.0.2-22 release, without H9's changes: do not ship
+       them.
+   freevgui builds vgui.so on Linux (platform\posix) and works but for the
+   fonts (section 3). mainui builds menu.so on Linux; H9's three mainui
+   patches are portable.
+
+
+ 5. HOSTING ON LINUX: METAMOD-R, AMX MOD X AND RETSX, RCBOT
+ ----------------------------------------------------------
+   Metamod-R. H9 chose it (2026-11-01); its source is TSM\metamod-r
+   (rehlds/metamod-r 56590c5), with CMakeLists.txt and build.sh for Linux:
+   metamod_i386.so. The shipped Windows build (goldsrc-net's) runs on FWGS;
+   the core does not require ReHLDS (only its example plugin asks for the
+   ReHLDS API), so the Linux build should load on FWGS too: test it first.
+   buildchain also builds it ("make metamod-r-i386").
+
+   AMX Mod X. Linux i386 builds of 1.10 exist, but H9 needs reTSX: the TS
+   module that asks reTS for player data. goldsrc-net/amxmodx (public) has
+   the TSX work for TS 3.0 and reTS on its 64bit branch, and buildchain
+   builds goldsrc-net/amxmodx for linux i386, amd64 and aarch64 ("make
+   amxmodx-i386"). To confirm: that the branch is the source of the
+   tsx_amxx.dll H9 ships (the reTS release names tsx-ts3 756873eb). H9's
+   ID_BOT rule (on Windows a binary patch) goes in as source: TSM\AMXMODX
+   commit d6ca4c4b, modules\ts\tsx\CMisc.h. The reTS gamedata has linux
+   entries next to the windows ones (offsets-rets.txt). H9's .amxx plugins
+   run on either system; h9_presence needs the sockets module, part of
+   AMX Mod X's Linux build.
+
+   RCBot. rcbotold v1.51b13 (TSM\rcbot-upstream) has dlls\Makefile (clang++
+   -m32 -> rcbot_mm.so) and an AMBuildScript with a linux target. The six
+   H9 patches touch bot.cpp, bot.h, bot_const.h, ga.cpp, globals.cpp,
+   util.cpp, waypoint.cpp and waypoint.h, and keep rcbot's own
+   #ifdef __linux__ path branches. buildchain builds goldsrc-net's rcbotold
+   fork ("make rcbot-i386", or a local tree with SRC_ROOT). On Linux file
+   names are case-sensitive: waypoint files must match the map names.
+
+   Config for Linux: gameinfo.txt gamedll_linux "addons/metamod/dlls/
+   metamod_i386.so"; addons\metamod\plugins.ini "linux" lines for
+   amxmodx_mm_i386.so and ../rcbot/dlls/rcbot_mm.so. The Discord bot
+   (Python) runs as it is; h9xash_server.bat becomes h9xash_server.sh.
+
+
+ 6. THREE ROADS TO A LINUX DEDICATED SERVER
+ ------------------------------------------
+   A. Stopgap, no builds: the Windows server under Wine on the VPS.
+        wine "HAVOC 9.exe" -dedicated -game ts -port 27015 +map ...
+      (27015, or the port= under [server] in networking.ini the Windows
+      launchers use; vps\linux\setup.sh opens it with H9XASH_DIR set)
+      Needs 32-bit Wine on the VPS. FWGS's Windows dedicated console may
+      want a display (xvfb-run). Untested. Hours, with unknowns.
+   B. Recommended: native i386. FWGS -d with the whole patch chain (no
+      SDL2, no FFmpeg, no font backend needed), reTS ts_i386.so, Metamod-R,
+      AMX Mod X with reTSX, RCBot with the six patches, H9's configs and
+      plugins; h9xash_server.sh and FWGS's xashds@.service. Test it in a
+      local container with bots before the VPS. About 2 to 4 days.
+   C. Later: amd64 throughout, with goldsrc-net's 64-bit stack. More
+      unknowns (AMX Mod X and RCBot 64-bit are forks), no 32-bit libraries
+      on the server.
+
+
+ 7. TOOLCHAIN: DOCKER IMAGES, NOT THE USER'S OWN UBUNTU
+ ------------------------------------------------------
+   Docker Desktop (installed, stopped) with its WSL2 backend: reproducible
+   images, and nothing installed into the user's Ubuntu. WSL2 Ubuntu would
+   need apt installs in the user's own distribution: not preferred.
+   Images:
+     1. hlds64-buildchain:debian10, from goldsrc-net/buildchain ("make
+        image"; it starts from ghcr.io/goldsrc-net/build-containers/
+        debian10): reTS, Metamod-R, AMX Mod X, RCBot.
+     2. One image to write for FWGS, i386, Debian 10 or 11:
+          dpkg --add-architecture i386
+          apt-get install build-essential gcc-multilib g++-multilib
+            python3 git pkg-config                    (enough for -d)
+        and for the client, as FWGS's CI: cmake ninja-build, and the :i386
+        -dev packages of alsa, pulse, x11, xext, xrandr, xcursor, xi, xss,
+        wayland, xkbcommon, gl1-mesa, egl1-mesa, dbus-1, udev, freetype;
+        SDL2 built from source; FFmpeg from FWGS/FFmpeg-Builds.
+   Needs the user's OK: starting Docker Desktop, pulling about 2 GB of
+   images, and first moving Docker's disk image to D: (C: is nearly full).
+   One heavy build at a time, -j8, as everywhere on this PC.
+
+
+ 8. PACKAGING A NATIVE BUILD IN DIST\LINUX
+ -----------------------------------------
+   dist\linux\H9XASH-linux-native-<build>-<stamp>.tar.gz, one H9XASH/
+   folder: the engine (xash3d, libxash.so, libref_gl.so, libmenu.so,
+   filesystem_stdio.so, vgui.so), libSDL2-2.0.so.0 and the FFmpeg .so
+   files; ts\cl_dlls\client.so, ts\dlls\ts_i386.so, metamod_i386.so,
+   amxmodx_mm_i386.so and the *_amxx_i386.so modules, rcbot_mm.so; the same
+   game data as now. h9xash.sh runs ./xash3d natively when it is there,
+   Wine otherwise. And a server tarball, H9XASH-server-linux-i386-...: xash,
+   filesystem_stdio.so, the server files and addons only.
+   stage-h9xash.ps1 would take a -LinuxNative <folder> (the Docker build's
+   install tree), lay it over a copy of the stage for the Linux package,
+   leave the Windows files (*.exe, *.dll, *.bat, *.cmd, *.ps1) out of it,
+   and run the same final scan. Each rebuilt .so carries a .patch beside it
+   (H9's rule for rebuilt libraries).
+
+
+ 9. THE PLAN: ORDER, EFFORT, BLOCKERS, DECISIONS
+ -----------------------------------------------
+   Order
+     0. Now: a tester runs section 2's checklist (Linux PC, Steam Deck).
+     1. Free C:, or move Docker's disk to D:; the user OKs starting Docker
+        Desktop and the image pulls.
+     2. Server (road B): the buildchain image; reTS i386 from TSM\reTS;
+        Metamod-R, AMX Mod X with reTSX and ID_BOT, RCBot with the six
+        patches; FWGS -d with the chain; assemble; a container test with
+        bots on h9_te_neuropolis and h9_tsrp_newbyzantium; then the VPS.
+     3. h9xash_server.sh, the systemd unit, docs.
+     4. Client, if wanted: the freevgui FreeType backend, presence over a
+        unix socket, the FWGS client build, reTS client.so, packaging,
+        h9xash.sh's native mode, tests on real Linux hardware.
+   Effort: road A half a day; road B 2 to 4 days; the native client 1 to 2
+   weeks on top.
+   Blockers
+     * C: free space (Docker's disk image).
+     * reTSX's Linux source: confirm goldsrc-net/amxmodx's 64bit branch.
+     * No Linux machine with a GPU here: the server can be tested in Docker,
+       the client cannot.
+   Decisions for the user
+     1. Road A on the VPS now, road B next, or road B only?
+     2. i386 (matches H9XASH and stock AMX Mod X) or amd64 for native builds?
+     3. Docker Desktop: OK to start it, pull about 2 GB, and move its disk
+        to D:?
+     4. A native client at all, while Wine and Proton serve players? If
+        yes, the font backend first.
+     5. The WebView2 MOTD on a native Linux client: the fallback (picture,
+        text, OPEN PAGE), or a WebKitGTK helper?

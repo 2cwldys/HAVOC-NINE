@@ -39,11 +39,28 @@ static int R_RankForRenderMode( int rendermode )
 	return 0;
 }
 
+/*
+=============
+R_FogAllowed
+
+H9: gl_fog is the player's switch for the engine's fog. The Specialists' client.dll
+registers a gl_fog of its own (default 0: its switch for a map's ts_fog), and the engine
+gives an existing cvar the default of whoever registers it again, so gl_fog reads 0
+whenever no config sets it back after client.dll has loaded. The server's fog
+(movevars fog_settings: sudden death's bog) belongs to the game, not to a map's
+atmosphere, so it is drawn whatever gl_fog says.
+=============
+*/
+qboolean R_FogAllowed( void )
+{
+	return gl_fog.value || ( RI.fogEnabled && gp_movevars->fog_settings );
+}
+
 void R_AllowFog( qboolean allowed )
 {
 	if( allowed )
 	{
-		if( glState.isFogEnabled && gl_fog.value )
+		if( glState.isFogEnabled && R_FogAllowed( ))
 			pglEnable( GL_FOG );
 	}
 	else
@@ -806,7 +823,7 @@ R_DrawFog
 */
 void R_DrawFog( void )
 {
-	if( !RI.fogEnabled || !gl_fog.value )
+	if( !RI.fogEnabled || !R_FogAllowed( ))
 		return;
 
 	pglEnable( GL_FOG );

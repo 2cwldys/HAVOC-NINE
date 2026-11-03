@@ -99,11 +99,21 @@ namespace
 	constexpr float ROAM_PAUSE_LEAST = 3.0f;
 	constexpr float ROAM_PAUSE_MOST = 10.0f;
 	constexpr int ROAM_GOAL_TRIES = 64;
+	constexpr float ROAM_PROGRESS_DISTANCE = 64.0f;  // this far from where it last got to is progress
+	constexpr float ROAM_REGOAL_AFTER = 5.0f;        // seconds without progress before it gives its goal up
+	constexpr float ROAM_UNSTICK_AFTER = 12.0f;      // before it asks the plugin to move it elsewhere
+	constexpr float ROAM_UNSTICK_AGAIN = 2.0f;       // and again this often while it still gets nowhere
+	constexpr float ROAM_FAILED_GOAL_MEMORY = 30.0f; // a goal given up is not picked again for this long
+	constexpr float ROAM_MOVED_AWAY = 256.0f;        // farther than this in one frame is a teleport
+	constexpr float ROAM_FISTS_AGAIN = 2.0f;         // how often a citizen fighting back asks for its fists
 
 	struct RoamSettings
 	{
 		bool bOn = false;
 		bool bArmed = false;
+		bool bDefend = false;
+		bool bHostile = false;
+		int iHostileTeam = 0;
 		float fWalk = ROAM_WALK_SPEED;
 		int iPause = 0;
 		float fNextRead = 0.0f;
@@ -119,6 +129,9 @@ namespace
 			g_Roam.fNextRead = gpGlobals->time + 1.0f;
 			g_Roam.bOn = gBotGlobals.IsMod(MOD_TS) && CVAR_GET_FLOAT("tsrp_roambots_active") > 0.0f;
 			g_Roam.bArmed = CVAR_GET_FLOAT("tsrp_roambots_weapons") > 0.0f;
+			g_Roam.bDefend = CVAR_GET_FLOAT("tsrp_roambots_defend") > 0.0f;
+			g_Roam.bHostile = CVAR_GET_FLOAT("tsrp_roambots_insurgency") > 0.0f;
+			g_Roam.iHostileTeam = static_cast<int>(CVAR_GET_FLOAT("tsrp_roambots_insurgent_team"));
 
 			const float fWalk = CVAR_GET_FLOAT("tsrp_roambots_speed");
 			g_Roam.fWalk = fWalk > 0.0f ? fWalk : ROAM_WALK_SPEED;
@@ -128,6 +141,35 @@ namespace
 		}
 
 		return g_Roam;
+	}
+
+	// Powerups (CHANGE 10): whether a bot may walk to a TS powerup and use one. Not while the
+	// server's nopowerup is on, and not while ts_matchmode's match mode is on (tsm_enabled) with
+	// its tsm_bot_powerups at 0. A cvar that does not exist holds no bot back, so without the
+	// plugin this is the nopowerup test alone. Read once a second.
+	struct PowerupSettings
+	{
+		bool bAllowed = true;
+		float fNextRead = 0.0f;
+	};
+
+	PowerupSettings g_Powerups;
+
+	bool BotPowerupsAllowed()
+	{
+		// the clock starts again at each map, so a read due far ahead of it is due now
+		if (g_Powerups.fNextRead <= gpGlobals->time || g_Powerups.fNextRead > gpGlobals->time + 2.0f)
+		{
+			g_Powerups.fNextRead = gpGlobals->time + 1.0f;
+
+			const cvar_t* pMode = CVAR_GET_POINTER("tsm_enabled");
+			const cvar_t* pBots = CVAR_GET_POINTER("tsm_bot_powerups");
+			const bool bHeldBack = pMode != nullptr && pMode->value > 0.0f && pBots != nullptr && pBots->value <= 0.0f;
+
+			g_Powerups.bAllowed = CVAR_GET_FLOAT("nopowerup") <= 0.0f && !bHeldBack;
+		}
+
+		return g_Powerups.bAllowed;
 	}
 }
 
@@ -763,13 +805,14 @@ void CBot::EnemyFound(edict_t* pEnemy)
 			Impulse(SAYING_4);
 		break;
 	case MOD_TS:
-		// Honour the server's nopowerup setting.
+		// Honour the server's nopowerup setting, and ts_matchmode's tsm_bot_powerups
+		// (BotPowerupsAllowed, CHANGE 10).
 		//
 		// Bots fired usepowerup unconditionally on sighting an enemy, so a server that
 		// had turned powerups off still had its bots using them -- and nothing on the
 		// server side can stop that, because a fake client sends no client commands for
 		// a plugin to intercept.
-		if (CVAR_GET_FLOAT("nopowerup") <= 0.0f)
+		if (BotPowerupsAllowed())
 			FakeClientCommand(m_pEdict, "usepowerup");
 
 		// more chance of using special if good skilled
@@ -1703,6 +1746,19 @@ void CBot::SpawnInit(const bool bInit)
 	m_fWallAtRightTime = 0.0f;
 
 	m_fUpdateVisiblesTime = 0.0f;
+
+	// A roaming citizen's attacker is its attacker for this life only, and its count of where it
+	// has got to starts again with the next one (RoamThink, CHANGE 8).
+	m_bRoamStarted = false;
+	m_vRoamLastOrigin = Vector(0, 0, 0);
+	m_vRoamProgressFrom = Vector(0, 0, 0);
+	m_fRoamProgressTime = 0.0f;
+	m_fRoamNextRegoal = 0.0f;
+	m_fRoamNextUnstick = 0.0f;
+	m_fRoamHealth = 0.0f;
+	m_pRoamAttacker = nullptr;
+	m_iRoamAttackerId = 0;
+	m_fRoamNextFists = 0.0f;
 
 	////////////////////////////
 	// NATURAL SELECTION RELATED
@@ -2776,10 +2832,10 @@ void CBot::Think()
 	if (gBotGlobals.IsMod(MOD_TS) && m_pCurrentWeapon != nullptr
 		&& m_pCurrentWeapon->OutOfAmmo() && !m_pCurrentWeapon->CanReload())
 	{
-		static float s_fNextDryDrop[33] = { 0.0f };
+		static float s_fNextDryDrop[MAX_PLAYERS + 1] = { 0.0f };
 		const int iDryIdx = ENTINDEX(m_pEdict);
 
-		if (iDryIdx > 0 && iDryIdx < 33 && s_fNextDryDrop[iDryIdx] < gpGlobals->time)
+		if (iDryIdx > 0 && iDryIdx <= MAX_PLAYERS && s_fNextDryDrop[iDryIdx] < gpGlobals->time)
 		{
 			s_fNextDryDrop[iDryIdx] = gpGlobals->time + 3.0f;
 			FakeClientCommand(m_pEdict, "drop");
@@ -3013,6 +3069,11 @@ void CBot::Think()
 
 	//////////////////////
 	// MOVE/LOOK CODE
+
+	// A roaming citizen's own upkeep comes first; while the plugin holds it, nothing else this
+	// frame (RoamThink, CHANGE 8).
+	if (IsRoamer() && RoamThink())
+		return;
 
 	WorkViewAngles();
 
@@ -3718,14 +3779,19 @@ void CBot::Think()
 // ROAMING CITIZENS (rcbot-patch CHANGE 8)
 //
 // tsrp_roambots.sma fills a roleplay map with citizens: bots that walk the public streets at a
-// walk, stop now and then, and never fight. While it runs them it holds the server cvar
-// tsrp_roambots_active at 1 (0 at any other time, and on every other map), and then every bot
-// is a roamer. The plugin's cvars carry the rest:
-//   tsrp_roambots_speed     the walk, in units a second (120: the TS client's walk key,
-//                           cl_movespeedkey 0.3 x cl_forwardspeed 400)
-//   tsrp_roambots_weapons   0: no weapons made for a roamer; 1: armed as usual, still never
-//                           firing. A roamer never buys
-//   tsrp_roambots_pause     the chance, in percent, of a pause before each walk
+// walk, stop now and then, and fight only when they have to. While it runs them it holds the
+// server cvar tsrp_roambots_active at 1 (0 at any other time, and on every other map), and then
+// every bot is a roamer. The plugin's cvars carry the rest:
+//   tsrp_roambots_speed            the walk, in units a second (120: the TS client's walk key,
+//                                  cl_movespeedkey 0.3 x cl_forwardspeed 400)
+//   tsrp_roambots_weapons          0: no weapons made for a roamer; 1: armed as usual. A roamer
+//                                  never buys
+//   tsrp_roambots_pause            the chance, in percent, of a pause before each walk
+//   tsrp_roambots_defend           1: a roamer someone hurts fights that one back, with its
+//                                  hands, for the rest of that life
+//   tsrp_roambots_insurgency       1: the citizens are insurgents, hostile to players
+//   tsrp_roambots_insurgent_team   0: insurgents are set on every player who is not a bot; a team
+//                                  number: only on the players of that team (pev->team)
 // They are read once a second. A cvar that does not exist reads 0, so a server without the
 // plugin has no roamers and nothing here changes how its bots play.
 //
@@ -3733,6 +3799,32 @@ void CBot::Think()
 // (any distance when none comes up), never a ladder, lift, jump, crouch or teleport waypoint.
 // The map's waypoints say where it may walk: a roleplay map gives its citizens waypoints only in
 // its public streets and halls (export-map\h9_tsrp_newbyzantium\roamwaypoints.mjs).
+//
+// GETTING ANYWHERE. Progress is distance, not speed: a citizen pressing into a wall, or turning on
+// the spot, has speed and goes nowhere. RoamCheckProgress keeps where the roamer last got to, and
+// when; ROAM_PROGRESS_DISTANCE away from there is progress. A pause, a wait, a fight and the
+// plugin's hold are no lack of it. After ROAM_REGOAL_AFTER seconds without progress the roamer
+// gives its goal up for another; after ROAM_UNSTICK_AFTER it asks the plugin to move it, quietly,
+// to another part of the city (the server command "tsrp_roambots_unstick <entity index>"), and
+// asks again every ROAM_UNSTICK_AGAIN seconds until it has got somewhere. RCBot's own stuck check
+// never kills a roamer for standing still, and a roamer never jumps or ducks: jumping and
+// crouching on the spot is what kept a blocked citizen out of that check for ever.
+//
+// FIGHTING BACK. TS sends no Damage message, so RCBot's hurt event never names anyone; TS's
+// TakeDamage leaves what hurt a player in pev->dmg_inflictor. A roamer hurt since the last frame
+// takes the player behind that entity (the entity itself, or the player who threw it) for its
+// attacker, for the rest of that life: IsEnemy is true for him (RoamIsEnemy), the roamer turns to
+// him, wields its fists ("weapon_0") and fights with its hands whatever it carries, runs while it
+// fights, and walks on when it no longer sees him. Its next life starts with no attacker
+// (SpawnInit). Another bot's stray blow makes no attacker, so one fight starts no brawl.
+//
+// INSURGENTS. While tsrp_roambots_insurgency is on, the plugin dresses and arms the citizens, and
+// every roamer also takes the players tsrp_roambots_insurgent_team names for enemies and fights
+// them with what it carries.
+//
+// THE PLUGIN'S HOLD. While two citizens stop to talk, the plugin holds them with FL_FROZEN and
+// turns them to face each other: a roamer with FL_FROZEN stands, presses nothing and leaves its
+// view as the plugin set it (RoamThink).
 
 bool CBot::IsRoamer() const
 {
@@ -3798,11 +3890,223 @@ int CBot::RoamGoal()
 	return iAnyDistance;
 }
 
+// A roamer's own upkeep, every frame while it is alive and before it looks or moves: where it has
+// got to, who hurt it, and the plugin's hold. True while the plugin holds it: it then stands, and
+// Think goes no further this frame, so its view stays as the plugin set it.
+bool CBot::RoamThink()
+{
+	const RoamSettings& roam = RoamNow();
+	const float fNow = gpGlobals->time;
+
+	// a new life, or a new map's clock: everything is counted from here
+	if (!m_bRoamStarted || m_fRoamProgressTime > fNow)
+	{
+		m_bRoamStarted = true;
+		m_vRoamLastOrigin = pev->origin;
+		m_fRoamHealth = pev->health;
+		RoamProgressFrom(fNow);
+	}
+
+	// Farther in one frame than anyone walks or falls: a portal took it, or the plugin placed it
+	// somewhere else. The way it was walking starts from somewhere it no longer is.
+	if ((pev->origin - m_vRoamLastOrigin).Length() > ROAM_MOVED_AWAY)
+	{
+		RoamForgetWay();
+		RoamProgressFrom(fNow);
+	}
+
+	m_vRoamLastOrigin = pev->origin;
+
+	// hurt since the last frame: by whatever TS says hurt it
+	if (pev->health < m_fRoamHealth && roam.bDefend)
+		RoamNoteAttacker(pev->dmg_inflictor);
+
+	m_fRoamHealth = pev->health;
+
+	// he has left the server: whoever has his slot now did nothing
+	if (m_pRoamAttacker != nullptr && RoamAttacker() == nullptr)
+		m_pRoamAttacker = nullptr;
+
+	// fighting its attacker back with its hands: TS wields them on "weapon_0"
+	if (!roam.bHostile && m_pEnemy != nullptr && m_pEnemy == m_pRoamAttacker && !RoamHoldsMelee() &&
+		m_fRoamNextFists <= fNow)
+	{
+		m_fRoamNextFists = fNow + ROAM_FISTS_AGAIN;
+		FakeClientCommand(m_pEdict, "weapon_0");
+	}
+
+	// Held by the plugin (FL_FROZEN) while two citizens talk: it stands, presses nothing and leaves
+	// its view alone, and standing so is no lack of progress.
+	if (pev->flags & FL_FROZEN)
+	{
+		StopMoving();
+		m_fStrafeSpeed = 0.0f;
+		pev->button = 0;
+		RoamProgressFrom(fNow);
+		return true;
+	}
+
+	RoamCheckProgress(fNow);
+
+	return false;
+}
+
+// Whether a roamer is getting anywhere (GETTING ANYWHERE, above): ROAM_PROGRESS_DISTANCE from
+// where it last got to. A pause, a wait or a fight counts as getting somewhere.
+void CBot::RoamCheckProgress(const float fNow)
+{
+	const CBotTask* pTask = m_Tasks.CurrentTask();
+	const bool bPausing = pTask != nullptr &&
+		(pTask->Task() == BOT_TASK_WAIT_AND_FACE_VECTOR || pTask->Task() == BOT_TASK_WAIT);
+
+	if (bPausing || m_pEnemy != nullptr || (pev->origin - m_vRoamProgressFrom).Length() >= ROAM_PROGRESS_DISTANCE)
+	{
+		RoamProgressFrom(fNow);
+		return;
+	}
+
+	if (m_fRoamNextRegoal <= fNow)
+	{
+		m_fRoamNextRegoal = fNow + ROAM_REGOAL_AFTER;
+		RoamGiveUpGoal();
+	}
+
+	if (m_fRoamNextUnstick <= fNow)
+	{
+		m_fRoamNextUnstick = fNow + ROAM_UNSTICK_AGAIN;
+
+		char szUnstick[64];
+		snprintf(szUnstick, sizeof(szUnstick), "tsrp_roambots_unstick %d\n", ENTINDEX(m_pEdict));
+		SERVER_COMMAND(szUnstick);
+	}
+}
+
+// Progress counted from here and now.
+void CBot::RoamProgressFrom(const float fNow)
+{
+	m_vRoamProgressFrom = pev->origin;
+	m_fRoamProgressTime = fNow;
+	m_fRoamNextRegoal = fNow + ROAM_REGOAL_AFTER;
+	m_fRoamNextUnstick = fNow + ROAM_UNSTICK_AFTER;
+}
+
+// Gives the walk it is on up: its goal is not picked again for ROAM_FAILED_GOAL_MEMORY, the
+// waypoint it stood by is not where its next way starts, and the next think finds it a new goal.
+void CBot::RoamGiveUpGoal()
+{
+	if (m_iWaypointGoalIndex != -1 && !m_FailedGoals.IsMember(m_iWaypointGoalIndex))
+	{
+		m_FailedGoals.Push(m_iWaypointGoalIndex);
+		m_fNextClearFailedGoals = gpGlobals->time + ROAM_FAILED_GOAL_MEMORY;
+	}
+
+	m_iLastFailedWaypoint = m_iCurrentWaypointIndex;
+
+	RoamForgetWay();
+}
+
+// Every task and the way it was walking, forgotten: the next think starts afresh from where it is.
+void CBot::RoamForgetWay()
+{
+	m_Tasks.FlushTasks();
+	m_CurrentTask = nullptr;
+	m_stBotPaths.Destroy();
+
+	m_iWaypointGoalIndex = -1;
+	m_iCurrentWaypointIndex = -1;
+	m_iPrevWaypointIndex = -1;
+	m_iCurrentWaypointFlags = 0;
+	m_fPrevWaypointDist = 4096.0f;
+	m_bMoveToIsValid = false;
+
+	m_fStuckTime = 0.0f;
+	m_fStrafeTime = 0.0f;
+	m_fStrafeSpeed = 0.0f;
+
+	m_CurrentLookTask = BOT_LOOK_TASK_LOOK_AROUND;
+}
+
+// The player behind what hurt a roamer -- the entity itself, or the player who owns it (a grenade,
+// a thrown blade) -- becomes its attacker, and a roamer not fighting yet turns to him. The world,
+// itself or another bot: no one.
+void CBot::RoamNoteAttacker(edict_t* pInflictor)
+{
+	if (pInflictor == nullptr || FNullEnt(pInflictor))
+		return;
+
+	edict_t* pAttacker = pInflictor;
+
+	if (!(pAttacker->v.flags & FL_CLIENT))
+		pAttacker = pInflictor->v.owner;
+
+	if (pAttacker == nullptr || FNullEnt(pAttacker) || pAttacker == m_pEdict ||
+		!(pAttacker->v.flags & FL_CLIENT) || (pAttacker->v.flags & FL_FAKECLIENT))
+		return;
+
+	if (pAttacker != m_pRoamAttacker && m_pEnemy == nullptr)
+		AddPriorityTask(CBotTask(BOT_TASK_FACE_EDICT, 0, pAttacker, 0, 1.0f));
+
+	m_pRoamAttacker = pAttacker;
+	m_iRoamAttackerId = GETPLAYERUSERID(pAttacker);
+}
+
+// The attacker of this life while he is still on the server; an edict a new player has taken
+// since is someone else.
+edict_t* CBot::RoamAttacker() const
+{
+	if (m_pRoamAttacker == nullptr || m_pRoamAttacker->free || !(m_pRoamAttacker->v.flags & FL_CLIENT) ||
+		GETPLAYERUSERID(m_pRoamAttacker) != m_iRoamAttackerId)
+		return nullptr;
+
+	return m_pRoamAttacker;
+}
+
+// Whom a roamer fights: its attacker, and, while the citizens are insurgents, every player who is
+// not a bot -- or only the players of tsrp_roambots_insurgent_team. Never anything else, not even
+// a door in its way.
+bool CBot::RoamIsEnemy(edict_t* pEntity) const
+{
+	if (pEntity == nullptr || pEntity == m_pEdict || !(pEntity->v.flags & FL_CLIENT))
+		return false;
+
+	if (pEntity->v.takedamage == DAMAGE_NO || (pEntity->v.effects & EF_NODRAW) || !EntityIsAlive(pEntity))
+		return false;
+
+	if (pEntity == RoamAttacker())
+		return true;
+
+	const RoamSettings& roam = RoamNow();
+
+	if (!roam.bHostile || (pEntity->v.flags & FL_FAKECLIENT))
+		return false;
+
+	return roam.iHostileTeam <= 0 || pEntity->v.team == roam.iHostileTeam;
+}
+
+// Whether a roamer has a fight to look for: an attacker, or players to hunt as an insurgent.
+bool CBot::RoamWantsFight() const
+{
+	return RoamAttacker() != nullptr || RoamNow().bHostile;
+}
+
+// Whether a roamer holds a hand weapon: its fists (kung fu, 36 here), a knife or the katana. What
+// it holds is not known until TS has told: then it is taken for its hands.
+bool CBot::RoamHoldsMelee() const
+{
+	if (m_pCurrentWeapon == nullptr)
+		return true;
+
+	const int iId = m_pCurrentWeapon->GetID();
+
+	return iId == 36 || iId == 25 || iId == 34 || iId == 35;
+}
+
 bool CBot::WantToFindEnemy() const
 {
 	if (gBotGlobals.IsMod(MOD_TS)) {
-		// a roaming citizen never looks for a fight (CHANGE 8)
-		return !IsRoamer() && !gBotGlobals.IsConfigSettingOn(BOT_CONFIG_DONT_SHOOT);
+		// a roaming citizen looks for a fight only when it has one: its attacker, or the players it
+		// is set against as an insurgent (CHANGE 8)
+		return (!IsRoamer() || RoamWantsFight()) && !gBotGlobals.IsConfigSettingOn(BOT_CONFIG_DONT_SHOOT);
 	}
 	// can't shoot, bot don't shoot setting is on?
 	if (HasCondition(BOT_CONDITION_CANT_SHOOT) ||
@@ -8346,9 +8650,10 @@ bool CBot::CanPickup(const edict_t* pPickup) const
 		const char* szClassname = const_cast<char*>(STRING(pPickup->v.classname));
 
 		// quad damage etc.. but not when the server has switched them off, or bots
-		// spend the round walking to pickups they are not allowed to have.
+		// spend the round walking to pickups they are not allowed to have; nor while
+		// tsm_bot_powerups keeps the bots off them (BotPowerupsAllowed, CHANGE 10).
 		if (std::strncmp(szClassname, "ts_powerup", 10) == 0)
-			return CVAR_GET_FLOAT("nopowerup") <= 0.0f;
+			return BotPowerupsAllowed();
 		if (std::strcmp(szClassname, "ts_groundweapon") == 0)
 			return true;
 	}
@@ -8668,26 +8973,41 @@ void CBot::RunPlayerMove()
 		}
 	}*/
 
-	// A roaming citizen walks (CHANGE 8). The next frame's move is worked out from the walk, and
-	// this one is held to it as well, whatever set it (getting unstuck strafes at full speed): the
-	// forward and side moves together are what a player's walk key leaves of his. And while it is
-	// alive it presses nothing that fires, stunts, reloads or uses -- the dead keep the presses
-	// that bring them back.
+	// A roaming citizen walks (CHANGE 8), and runs only while it fights. The next frame's move is
+	// worked out from the walk, and this one is held to it as well, whatever set it (getting
+	// unstuck strafes at full speed): the forward and side moves together are what a player's walk
+	// key leaves of his. While it is alive it never jumps, ducks, stunts or uses, fires only while
+	// it fights, and reloads only as an insurgent -- the dead keep the presses that bring them back.
 	if (IsRoamer())
 	{
-		const float fWalk = RoamNow().fWalk;
-		const float fMove = std::sqrt(m_fMoveSpeed * m_fMoveSpeed + m_fStrafeSpeed * m_fStrafeSpeed);
+		const RoamSettings& roam = RoamNow();
+		const bool bFighting = m_pEnemy != nullptr;
 
-		m_fIdealMoveSpeed = fWalk;
-
-		if (fMove > fWalk)
+		if (!bFighting)
 		{
-			m_fMoveSpeed *= fWalk / fMove;
-			m_fStrafeSpeed *= fWalk / fMove;
+			const float fWalk = roam.fWalk;
+			const float fMove = std::sqrt(m_fMoveSpeed * m_fMoveSpeed + m_fStrafeSpeed * m_fStrafeSpeed);
+
+			m_fIdealMoveSpeed = fWalk;
+
+			if (fMove > fWalk)
+			{
+				m_fMoveSpeed *= fWalk / fMove;
+				m_fStrafeSpeed *= fWalk / fMove;
+			}
 		}
 
 		if (IsAlive())
-			pev->button &= ~(IN_ATTACK | IN_ATTACK2 | IN_ALT1 | IN_USE | IN_RELOAD);
+		{
+			int iNever = IN_ALT1 | IN_USE | IN_JUMP | IN_DUCK;
+
+			if (!bFighting)
+				iNever |= IN_ATTACK | IN_ATTACK2;
+			if (!roam.bHostile)
+				iNever |= IN_RELOAD;
+
+			pev->button &= ~iNever;
+		}
 	}
 
 	//TODO: Don't convert `pev->button` and `pev->impulse` into C++ casts
@@ -9048,9 +9368,10 @@ bool CBot::IsEnemy(edict_t* pEntity)
 	if (pEntity == m_pEdict)
 		return false; // can't shoot self...!
 
-	// a roaming citizen has no enemies, not even one who shoots at it (CHANGE 8)
+	// a roaming citizen fights only whoever hurt it in this life and, as an insurgent, the players
+	// it is set against (RoamIsEnemy, CHANGE 8)
 	if (IsRoamer())
-		return false;
+		return RoamIsEnemy(pEntity);
 
 	if (pEntity->v.takedamage == DAMAGE_NO)
 		return false; // can't shoot it...
@@ -14871,7 +15192,8 @@ if ( !HasUser4Mask(MASK_UPGRADE_9) )
 
 					weap_id = static_cast<float>(iweapid) / static_cast<float>(MAX_WEAPONS);
 
-					if (!m_pCurrentWeapon || (m_pCurrentWeapon->GetID() == 34 || m_pCurrentWeapon->GetID() == 35 || m_pCurrentWeapon->GetID() == 36 || m_pCurrentWeapon->GetID() == 25))
+					// a citizen fighting its attacker back fights with its hands, whatever it carries (CHANGE 8)
+					if (!m_pCurrentWeapon || (IsRoamer() && !RoamNow().bHostile) || (m_pCurrentWeapon->GetID() == 34 || m_pCurrentWeapon->GetID() == 35 || m_pCurrentWeapon->GetID() == 36 || m_pCurrentWeapon->GetID() == 25))
 					{
 						/*	if ( fEnemyDist < 100 )
 							{
@@ -16270,6 +16592,10 @@ void CBot::CheckStuck()
 
 		bCheckIfStuck = m_fIdealMoveSpeed > 0 && m_bMoveToIsValid && pev->waterlevel < 3 &&
 			(!m_CurrentTask || (m_CurrentTask->Task() == BOT_TASK_FIND_PATH || m_CurrentTask->Task() == BOT_TASK_MOVE_TO_VECTOR));
+
+		// a roaming citizen is never killed for standing still: RoamCheckProgress moves it on (CHANGE 8)
+		if (IsRoamer())
+			bCheckIfStuck = false;
 
 		if (bCheckIfStuck)
 		{

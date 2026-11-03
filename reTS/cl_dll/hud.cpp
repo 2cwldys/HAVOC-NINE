@@ -234,6 +234,24 @@ int __MsgFunc_ScoreInfo(const char* pszName, int iSize, void* pbuf)
 	return 0;
 }
 
+int __MsgFunc_H9Link(const char* pszName, int iSize, void* pbuf); // vgui_ScorePanel.cpp, H9 LINK ICONS
+int __MsgFunc_H9Level(const char* pszName, int iSize, void* pbuf); // vgui_ScorePanel.cpp, H9 LEVELS
+int __MsgFunc_H9Board(const char* pszName, int iSize, void* pbuf); // vgui_ScorePanel.cpp, H9 BOARD
+
+int __MsgFunc_H9Assists(const char* pszName, int iSize, void* pbuf)
+{
+	if (gViewPort)
+		return static_cast<int>(gViewPort->MsgFunc_H9Assists(pszName, iSize, pbuf));
+	return 0;
+}
+
+int __MsgFunc_H9Lives(const char* pszName, int iSize, void* pbuf)
+{
+	if (gViewPort)
+		return static_cast<int>(gViewPort->MsgFunc_H9Lives(pszName, iSize, pbuf));
+	return 0;
+}
+
 int __MsgFunc_TeamScore(const char* pszName, int iSize, void* pbuf)
 {
 	if (gViewPort)
@@ -292,6 +310,11 @@ void CHud::Init()
 	HOOK_MESSAGE(RandomPC);
 	HOOK_MESSAGE(ServerName);
 	HOOK_MESSAGE(ScoreInfo);
+	HOOK_MESSAGE(H9Assists);
+	HOOK_MESSAGE(H9Lives); // H9: lives left and the class's lives, for the scoreboard's LIVES column
+	HOOK_MESSAGE(H9Board); // H9: the scoreboard's name for a list without teams ("Roleplay")
+	HOOK_MESSAGE(H9Link); // H9: who is a proven havoc9.org account, for the scoreboard's link icons
+	HOOK_MESSAGE(H9Level); // H9: each proven account's havoc9.org level, "Lv N" by its name on the scoreboard
 	HOOK_MESSAGE(TeamScore);
 	HOOK_MESSAGE(TeamInfo);
 
@@ -301,8 +324,10 @@ void CHud::Init()
 	// VGUI Menus
 	HOOK_MESSAGE(VGUIMenu);
 
-	CVAR_CREATE("hud_classautokill", "1", FCVAR_ARCHIVE | FCVAR_USERINFO); // controls whether or not to suicide immediately on TF class switch
-	CVAR_CREATE("hud_takesshots", "0", FCVAR_ARCHIVE);					   // controls whether or not to automatically take screenshots at the end of a round
+	CVAR_CREATE("hud_classautokill", "1", FCVAR_ARCHIVE); // controls whether or not to suicide immediately on TF class switch; client-side only, so not in the userinfo
+	CVAR_CREATE("hud_takesshots", "0", FCVAR_ARCHIVE);
+	CVAR_CREATE("cl_h9_scoreboard_scroll", "1", FCVAR_ARCHIVE); // H9: a scoreboard column too long for the board scrolls (vgui_ScorePanel.cpp, H9 SCROLL)
+	CVAR_CREATE("cl_h9_linkicons", "1", FCVAR_ARCHIVE); // H9: the scoreboard's link icons (vgui_ScorePanel.cpp)					   // controls whether or not to automatically take screenshots at the end of a round
 
 
 	m_iLogo = 0;

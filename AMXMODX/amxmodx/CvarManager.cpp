@@ -17,13 +17,7 @@ CvarManager g_CvarManager;
 
 void (*Cvar_DirectSet_Actual)(struct cvar_s* var, const char *value) = nullptr;
 
-#if defined(__linux__)
-void (*Cvar_DirectSet_RegParm_Actual)(struct cvar_s* var, const char *value) __attribute__((regparm(3))) = nullptr;
-#else 
-#define Cvar_DirectSet_RegParm_Actual Cvar_DirectSet_Actual
-#endif
-
-void Cvar_DirectSet_Custom(struct cvar_s *var, const char *value, IRehldsHook_Cvar_DirectSet *chain = nullptr, bool useRegParm = false)
+void Cvar_DirectSet_Custom(struct cvar_s *var, const char *value, IRehldsHook_Cvar_DirectSet *chain = nullptr)
 {
 	CvarInfo* info = nullptr;
 
@@ -31,7 +25,7 @@ void Cvar_DirectSet_Custom(struct cvar_s *var, const char *value, IRehldsHook_Cv
 		|| strcmp(var->string, value) == 0                // Make sure old and new values are different to not trigger callbacks.
 		|| !g_CvarManager.CacheLookup(var->name, &info))  // No data in cache, nothing to do.
 	{
-		chain ? chain->callNext(var, value) : (useRegParm ? Cvar_DirectSet_RegParm_Actual(var, value) : Cvar_DirectSet_Actual(var, value));
+		chain ? chain->callNext(var, value) : Cvar_DirectSet_Actual(var, value);
 		return;
 	}
 
@@ -65,7 +59,7 @@ void Cvar_DirectSet_Custom(struct cvar_s *var, const char *value, IRehldsHook_Cv
 		oldValue = var->string;
 	}
 
-	chain ? chain->callNext(var, value) : (useRegParm ? Cvar_DirectSet_RegParm_Actual(var, value) : Cvar_DirectSet_Actual(var, value));
+	chain ? chain->callNext(var, value) : Cvar_DirectSet_Actual(var, value);
 
 	if (!info->binds.empty())
 	{
@@ -103,18 +97,11 @@ void Cvar_DirectSet_Custom(struct cvar_s *var, const char *value, IRehldsHook_Cv
 
 			if (hook->forward->state == AutoForward::FSTATE_OK) // Our callback can be enable/disabled by natives.
 			{
-				executeForwards(hook->forward->id, reinterpret_cast<cvar_t*>(var), oldValue.chars(), var->string);
+				executeForwards(hook->forward->id, cvar_to_handle(var), oldValue.chars(), var->string);
 			}
 		}
 	}
 }
-
-#if defined(__linux__)
-void __attribute__((regparm(3))) Cvar_DirectSet_RegParm(struct cvar_s *var, const char *value)
-{
-    Cvar_DirectSet_Custom(var, value, nullptr, true);
-}
-#endif
 
 void Cvar_DirectSet(struct cvar_s *var, const char *value)
 {
@@ -150,21 +137,7 @@ void CvarManager::CreateCvarHook(void)
 		if (CommonConfig && CommonConfig->GetMemSig("Cvar_DirectSet", &functionAddress) && functionAddress)
 		{
 			// Disabled by default.
-
-#if defined(__linux__)
-			const char* raw = CommonConfig->GetKeyValue("RegParm");
-			bool useRegParm = raw ? (atoi(raw) != 0) : false; 
-			if(useRegParm)
-			{
-				m_HookDetour = DETOUR_CREATE_STATIC_FIXED(Cvar_DirectSet_RegParm, functionAddress);
-			}
-			else
-			{
-				m_HookDetour = DETOUR_CREATE_STATIC_FIXED(Cvar_DirectSet, functionAddress);
-			}
-#else 
 			m_HookDetour = DETOUR_CREATE_STATIC_FIXED(Cvar_DirectSet, functionAddress);
-#endif
 		}
 		else
 		{

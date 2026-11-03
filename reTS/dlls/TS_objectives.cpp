@@ -716,8 +716,8 @@ void CTSTeamEscape::Spawn()
 	SetTouch(&CTSTeamEscape::WaitTouch);
 	SetThink(&CTSTeamEscape::WaitThink);
 	pev->nextthink = gpGlobals->time + 1.0f;
-	for (int i = 0; i < 33; i++)
-		m_present[i] = NULL;
+	for (int i = 0; i < MAX_PLAYERS + 1; i++)
+		PresentAt(i) = NULL;
 	m_count = 0;
 }
 
@@ -725,8 +725,8 @@ void CTSTeamEscape::Spawn()
 void CTSTeamEscape::EnableObjective(bool enable)
 {
 	m_bActive = enable;
-	for (int i = 0; i < 33; i++)
-		m_present[i] = NULL;
+	for (int i = 0; i < MAX_PLAYERS + 1; i++)
+		PresentAt(i) = NULL;
 	m_count = 0;
 	pev->solid = enable ? SOLID_TRIGGER : SOLID_NOT;
 }
@@ -747,11 +747,11 @@ void CTSTeamEscape::WaitTouch(CBaseEntity *pOther)
 		teamSize = TSCountPlayers(TSGameRules->m_teamNames[attacker_team], true);
 
 	const int idx = pPlayer->entindex();
-	if ((unsigned int)idx < 33)
+	if ((unsigned int)idx < MAX_PLAYERS + 1)
 	{
-		if ((CBaseEntity *)m_present[idx] == NULL)
+		if ((CBaseEntity *)PresentAt(idx) == NULL)
 			m_count++;
-		m_present[idx] = pPlayer;
+		PresentAt(idx) = pPlayer;
 	}
 
 	int threshold = 0;
@@ -777,8 +777,8 @@ void CTSTeamEscape::WaitTouch(CBaseEntity *pOther)
 void CTSTeamEscape::WaitThink()
 {
 	pev->nextthink = gpGlobals->time + 1.0f;
-	for (int i = 0; i < 33; i++)
-		m_present[i] = NULL;
+	for (int i = 0; i < MAX_PLAYERS + 1; i++)
+		PresentAt(i) = NULL;
 	m_count = 0;
 }
 

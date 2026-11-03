@@ -60,13 +60,13 @@ void CBulletManager::DestroyBullet(int slot)
 // @0x5f4f4 UTIL_TraceLine_Expanded — inflate every live player's absbox by +/-32u so the
 // swept bullet can't thread a player hull between frames, run the stock trace, then restore
 // ONLY absmax (the original's literal behavior — absmin stays inflated until the engine
-// relinks the player next frame). vecBoxes[33] = the per-player saved absmax.
-Vector vecBoxes[33];
+// relinks the player next frame). vecBoxes[MAX_PLAYERS + 1] = the per-player saved absmax.
+Vector vecBoxes[MAX_PLAYERS + 1];
 
 void UTIL_TraceLine_Expanded(const Vector &vecStart, const Vector &vecEnd,
 	IGNORE_MONSTERS igmon, edict_t *pentIgnore, TraceResult *ptr)
 {
-	for (int i = 1; i <= gpGlobals->maxClients && i <= 32; i++)
+	for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; i++)
 	{
 		CBaseEntity *p = UTIL_PlayerByIndex(i);
 		if (!p)
@@ -79,7 +79,7 @@ void UTIL_TraceLine_Expanded(const Vector &vecStart, const Vector &vecEnd,
 		}
 	}
 	UTIL_TraceLine(vecStart, vecEnd, igmon, pentIgnore, ptr);
-	for (int i = 1; i <= gpGlobals->maxClients && i <= 32; i++)
+	for (int i = 1; i <= gpGlobals->maxClients && i <= MAX_PLAYERS; i++)
 	{
 		CBaseEntity *p = UTIL_PlayerByIndex(i);
 		if (p)

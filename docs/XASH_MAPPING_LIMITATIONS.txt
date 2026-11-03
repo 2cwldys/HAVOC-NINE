@@ -139,7 +139,8 @@ ref/gl/gl_local.h, filesystem/gameinfo.c):
   leaves an entity touches     48 in a version 30 map, 24 in a 32-bit one. A brush
                                entity spread over more leaves can drop out of view:
                                keep doors and func_walls compact in a big map.
-  players                      32
+  players                      128 (H9's engine; servers run at 64 by default,
+                               docs\PLAYER_LIMIT_128.txt)
 
 
 5. A worked example: New Byzantium

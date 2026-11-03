@@ -13,8 +13,11 @@
    * Hosts: h9_motd image or page, and h9_motd_url "https://...", in
      addons\amxmodx\configs\h9_motd.cfg, or for one map in that map's
      mapconfigs\<map>.cfg. Once a connection or at every map: h9_motd_show.
+   * H9XASH shows a web page inside the game, live (Microsoft Edge
+     WebView2, part of Windows 10 and 11). When it cannot, it shows the
+     page's picture or the text MOTD with an OPEN PAGE button.
    * Players: cl_h9_motd 0 in the console (kept in config.cfg) brings the
-     text MOTD back on every server. ESC, ENTER, SPACE or CLOSE close it.
+     text MOTD back on every server. ESC or CLOSE close the splash.
    * https only. Pictures up to 2 MB and 2048 x 2048 pixels. The host the
      picture or page comes from is always on screen. Nothing opens the
      system browser but a click, after the whole address has been shown.
@@ -24,14 +27,15 @@
  CONTENTS
     1. What players see
     2. Setting it up
-    3. The player's switch: cl_h9_motd
+    3. The player's switches: cl_h9_motd, cl_h9_motd_wine
     4. In H9XASH
-    5. In the web client
-    6. Stock and older clients
-    7. Security
-    8. How it works
-    9. The files
-   10. Building it
+    5. Linux (Wine and Proton)
+    6. In the web client
+    7. Stock and older clients
+    8. Security
+    9. How it works
+   10. The files
+   11. Building it
 
 
  1. WHAT PLAYERS SEE
@@ -39,15 +43,20 @@
    On joining, instead of TS's text window: a panel over the game with the
    server's name, a line saying where its content comes from ("Picture from
    example.com", "Web page at example.com"), the picture or the page, and a
-   CLOSE button. When the host has given a page, an OPEN PAGE button shows
-   the page's whole address first; a second click opens it.
+   CLOSE (ESC) button. A web page is live: it scrolls, its links and buttons
+   work.
+
+   When a page cannot be shown inside the game, the panel says so in one
+   line ("This page could not be shown here."), shows the page's picture or
+   the server's text MOTD, and an OPEN PAGE button that shows the page's
+   whole address first; a second click opens it in the player's browser.
 
    Closing it leaves the player where TS's text window would have: in the
    game, on the spectator view or the buy menu. Nothing about joining waits
    on it, and closing it sends nothing to the server.
 
-   When anything goes wrong (the address, the download, the picture), the
-   player gets the text MOTD instead, as on a server without a splash.
+   When a picture cannot be shown (the address, the download, the file),
+   the player gets the text MOTD instead, as on a server without a splash.
 
 
  2. SETTING IT UP
@@ -62,9 +71,9 @@
                                page: a web page, h9_motd_url
      h9_motd_url    ""         https address of the picture (image) or of
                                the page (page)
-     h9_motd_image  ""         page only: a picture H9XASH shows in the
-                               page's place, since it draws no web pages;
-                               empty, and it shows the text MOTD there
+     h9_motd_image  ""         page only: the picture shown when the page
+                               itself cannot be (the fallback); empty, and
+                               the text MOTD is shown there
      h9_motd_link   ""         image only: a web page the picture's OPEN
                                PAGE button offers; empty for none
      h9_motd_show   "connect"  connect: once a connection; the next maps
@@ -88,27 +97,40 @@
      h9_motd_url "https://example.com/h9/motd.png"
      h9_motd_link "https://example.com/h9/rules.html"
 
-   Example, a page, with a picture for H9XASH:
+   Example, a page, with a picture for when it cannot be shown:
      h9_motd "page"
      h9_motd_url "https://example.com/h9/motd.html"
      h9_motd_image "https://example.com/h9/motd.png"
 
    The addresses: https://, then a host name with a dot in it (not an IP
-   address, not localhost, no user:password@ before it), an optional port,
-   and no spaces, quotes, backslashes or any of <>^`{|}, 255 characters at
-   most. A picture's address needs a path (https://example.com/motd.png)
-   and no #part. The plugin checks this and writes "[H9 MOTD] ..." into the
-   AMXX log when it refuses one; the players then get the text MOTD.
+   address, not localhost, not a private network name such as .local, .lan
+   or .internal, no user:password@ before it), an optional port, and no
+   spaces, quotes, backslashes or any of <>^`{|}, 255 characters at most. A
+   picture's address needs a path (https://example.com/motd.png) and no
+   #part. The plugin checks this and writes "[H9 MOTD] ..." into the AMXX
+   log when it refuses one; the players then get the text MOTD.
 
 
- 3. THE PLAYER'S SWITCH: CL_H9_MOTD
- ---------------------------------
-     cl_h9_motd 1    the splash, when a server has one (default)
-     cl_h9_motd 0    never: every server's text MOTD, as TS shows it
+ 3. THE PLAYER'S SWITCHES: CL_H9_MOTD, CL_H9_MOTD_WINE
+ ----------------------------------------------------
+     cl_h9_motd 1        the splash, when a server has one (default)
+     cl_h9_motd 0        never: every server's text MOTD, as TS shows it
 
-   It is kept in config.cfg (in the web client, config.cfg is kept in the
-   browser). A server cannot change it: it is a privileged cvar, out of
-   reach of the server's commands.
+     cl_h9_motd_wine 0   under Wine or Proton (Linux): a web page is not
+                         embedded; its picture or text and OPEN PAGE
+                         instead (default)
+     cl_h9_motd_wine 1   under Wine or Proton: embed it with Edge WebView2,
+                         without Chromium's sandbox (section 5)
+     cl_h9_motd_wine 2   the same, with the GPU off (--disable-gpu), for a
+                         prefix where 1 shows a blank or black page
+     On Windows cl_h9_motd_wine does nothing.
+     Folders: H9XASH\webview2\data (the embedded browser's own files, no
+     cookies or history kept) and H9XASH\webview2\runtime (optional: a
+     Fixed Version WebView2 runtime the player puts there).
+
+   Both are kept in config.cfg (in the web client, config.cfg is kept in
+   the browser). A server cannot change them: they are privileged cvars,
+   out of reach of the server's commands.
 
    The motd console command asks the server for its MOTD again; on a server
    with a splash it shows the splash again, even after a once-a-connection
@@ -126,17 +148,50 @@
      * Up to 2 MB, and 2048 x 2048 pixels. The size is read from the file's
        header before anything decodes it.
      * Fetched by the engine's own HTTP client, over https, the server's
-       certificate checked against cacert.pem (in valve\extras.pk3). It
-       sends no cookies and no referrer; its User-Agent names the engine.
-       Redirects are followed, up to 5, never from https to http.
+       certificate checked against cacert.pem (in valve\extras.pk3); with
+       no CA bundle loaded it is not fetched at all. The host name is
+       resolved first and must lead to a public address (not loopback,
+       private, link-local, CGNAT, multicast or reserved), and that address
+       is the one connected to. It sends no cookies and no referrer; its
+       User-Agent names the engine. Redirects are followed, up to 5, never
+       from https to http, each checked the same way.
      * 10 seconds to arrive, or the text MOTD is shown instead.
      * Scaled to fit the screen, never stretched out of shape; a small one
        grows up to the screen's own scale.
 
-   A page
-     H9XASH has no web browser inside it. For a page it shows h9_motd_image
-     when the host gave one, or else the server's text MOTD inside the
-     panel, and an OPEN PAGE button.
+   A web page
+     * Shown inside the panel by h9webview.dll, beside HAVOC 9.exe, which
+       hosts it with Microsoft Edge WebView2: the Chromium that Windows 10
+       and 11 keep up to date themselves. H9XASH ships no browser engine;
+       the DLL is 221 KB and needs only Windows and that runtime.
+     * The page is a real top-level page, not a frame, so a site that
+       refuses to be framed (google.com, github.com) still shows.
+     * It loads hidden and shows once it has loaded; the panel keeps the
+       title, "Web page at <host>" (the host the page is on now, as the
+       player follows links) and CLOSE (ESC), and has no OPEN PAGE.
+     * Clicking into the page gives it the keyboard; ESC there closes the
+       splash. A link that would open a new window opens nothing: the
+       panel's confirm box shows its address, and only a click on OPEN IN
+       BROWSER hands it to the system browser.
+     * Most of the screen, scaled with it; the view follows the window when
+       it is resized or moved, and hides while the console, the menu or the
+       confirm box is up.
+
+   When the page cannot be shown here (the fallback)
+     * No h9webview.dll, or no WebView2 runtime (Windows 10 and 11 have it;
+       otherwise https://go.microsoft.com/fwlink/p/?LinkId=2124703).
+     * Exclusive full screen (fullscreen 1): there the game minimizes as
+       soon as another window, the page included, takes the keyboard. H9's
+       default, borderless full screen (fullscreen 2), and windowed (0)
+       show the page.
+     * Wine or Proton without cl_h9_motd_wine (section 5).
+     * The page fails to load (an unreachable server, a bad certificate, an
+       HTTP error such as 404, an address the rules do not allow), or has
+       not loaded within 10 seconds, or its browser stops later.
+     Then: "This page could not be shown here.", the page's picture
+     (h9_motd_image) or the server's text MOTD inside the panel, and an
+     OPEN PAGE button with its confirm box. The console says why
+     ("H9 MOTD: the page could not be shown here: ...").
 
    OPEN PAGE
      A box with the page's site on its own line and the whole address under
@@ -146,19 +201,63 @@
      a browser.
 
    While it is up
-     * It has the keyboard: ESC, ENTER and SPACE close it; the arrows, the
-       mouse wheel, PGUP/PGDN, HOME and END scroll the text. The console
-       key still opens the console.
+     * It has the keyboard: ESC closes it (ENTER and SPACE too, for a
+       picture or text); the arrows, the mouse wheel, PGUP/PGDN, HOME and
+       END scroll the text. The console key still opens the console.
      * It has the mouse: mouse look stops and a pointer shows; the game gets
        the mouse back when it closes.
      * Keys and buttons held as it comes up are let go, as when the console
        or the menu opens, so nothing keeps firing or walking.
+     * While a page has the keyboard the game window counts as unfocused, as
+       with any other window: sound follows snd_mute_losefocus.
 
    The console says why when the splash is not shown ("H9 MOTD: ..."), for
    example a picture that could not be fetched or is too large.
 
 
- 5. IN THE WEB CLIENT
+ 5. LINUX (WINE AND PROTON)
+ --------------------------
+   H9XASH is a Windows program; on Linux it runs under Wine or Proton.
+   Pictures and the text MOTD work there as on Windows.
+
+   Web pages are NOT embedded by default under Wine: the panel shows the
+   page's picture or the text MOTD and OPEN PAGE, and OPEN IN BROWSER hands
+   the address to the Linux browser (Wine's winebrowser). The reason, in one
+   paragraph: Chromium's sandbox, which keeps a web page away from the rest
+   of the machine, does not run under Wine, so WebView2 there must run with
+   --no-sandbox; and a runtime installed into a Wine prefix does not keep
+   itself updated as Windows does. A server's page would run unsandboxed in
+   an engine that may be months old. That is a choice for the player, so it
+   is off until they make it.
+
+   To have pages shown inside the game anyway:
+     1. Wine 10 or later (a GE-Proton based Proton for Steam).
+     2. The WebView2 runtime in the prefix. winetricks has no WebView2
+        entry: get Microsoft's "Evergreen Standalone Installer" from
+        developer.microsoft.com/microsoft-edge/webview2 (x64 for a 64-bit
+        prefix, the usual one; x86 for a 32-bit prefix) and run it in the
+        prefix:
+            WINEPREFIX=~/.local/share/h9xash/prefix wine \
+                MicrosoftEdgeWebView2RuntimeInstallerX64.exe /silent /install
+        (under Proton, the same through protontricks' wine). The installer
+        can stop part way under Wine; run it again. Or put Microsoft's
+        Fixed Version runtime (the x86 one) in H9XASH\webview2\runtime.
+     3. In the game's console: cl_h9_motd_wine 1. If pages then show blank
+        or black: cl_h9_motd_wine 2 (the GPU off).
+   With it on, H9XASH starts WebView2 with --no-sandbox, and sets Wine's
+   per-application Windows version for msedgewebview2.exe to win8
+   (HKCU\Software\Wine\AppDefaults\msedgewebview2.exe, Version) when the
+   prefix has none: DirectComposition fails under Wine at Windows 8.1 and
+   up (WineHQ bug 58921). A version the player set is left alone. Every
+   other rule of section 8 still applies. With no runtime in the prefix the
+   console says how to install one, and the fallback shows.
+
+   A Fixed Version runtime never updates itself, on Linux or Windows:
+   replace the folder with a newer one from Microsoft for security fixes.
+   H9XASH never ships one, and the client ZIPs leave the folder out.
+
+
+ 6. IN THE WEB CLIENT
  --------------------
    The page (havoc9.org\webclient\client.js) shows the splash over the game,
    when the engine hands it over.
@@ -178,9 +277,12 @@
      permissions (camera, microphone, location, full screen, payment, USB,
      screen capture, reading the clipboard), no alert or confirm dialogs, no
      navigating the game's page. In browsers that offer it (Chrome, Edge)
-     the frame is credentialless too. A page that refuses to be framed
-     (X-Frame-Options, or a frame-ancestors policy without havoc9.org) stays
-     blank: OPEN IN NEW TAB, under it, opens it in a tab of its own.
+     the frame is credentialless too.
+     A frame is not a top-level page: a site that refuses to be framed
+     (X-Frame-Options, or a frame-ancestors policy without havoc9.org) shows
+     blank, and no website can get around that; it is the site's choice. The
+     page cannot tell when that happens, so OPEN IN NEW TAB stays under the
+     frame all the time.
 
    Addresses on havoc9.org itself are taken only under /motd/: anything
    else on the site would be fetched with the player's sign-in.
@@ -192,7 +294,7 @@
    gives the game the mouse again.
 
 
- 6. STOCK AND OLDER CLIENTS
+ 7. STOCK AND OLDER CLIENTS
  --------------------------
    * The plugin sends the splash only to clients that send the h9_clientid
      userinfo key: H9XASH and the web client. Stock TS on Steam never gets
@@ -203,32 +305,65 @@
      keep the text MOTD.
 
 
- 7. SECURITY
+ 8. SECURITY
  -----------
    What a malicious host cannot do, by design:
      * Use anything but https. Plain http, file:, javascript: and the like
-       are refused by the plugin, the engine and the page alike.
-     * Reach the player's machine or account. H9XASH only fetches a picture
-       (no cookies, no referrer) and decodes it with its own loader, after
-       checking its size; it runs nothing from the server. The web client's
-       frame has no access to havoc9.org or its cookies.
-     * Open a browser or a tab by itself. H9XASH opens the system browser
-       only on a click on OPEN IN BROWSER, with the address on screen. In
-       the web client a page can open a tab only on the player's click.
+       are refused by the plugin, the engine, the embedded view and the
+       web page alike.
+     * Reach the player's machine or account. H9XASH fetches a picture
+       itself (no cookies, no referrer) and decodes it with its own loader,
+       after checking its size. A page in H9XASH's view runs in a private
+       session, locked down (below); the web client's frame has no access
+       to havoc9.org or its cookies.
+     * Open a browser, a tab or a window by itself. H9XASH opens the system
+       browser only on a click on OPEN IN BROWSER, with the address on
+       screen; the embedded page's new windows go to that same box. In the
+       web client a page can open a tab only on the player's click.
      * Hide where the content comes from: the host is always on screen, as
        a name the address check allows (letters, digits, dots and dashes; a
        name in another script must be given in its xn-- form, and shows so).
-     * Trap the player. ESC and CLOSE always work; the game's console stays
-       reachable; a splash that does not arrive within 10 seconds gives way
-       to the text MOTD; a new map or a disconnect takes it down.
-     * Change the player's choice: cl_h9_motd cannot be set by a server.
+     * Trap the player. ESC and CLOSE always work, ESC inside the page too;
+       the game's console stays reachable; a splash that does not arrive
+       within 10 seconds gives way; a new map or a disconnect takes it down.
+     * Change the player's choices: cl_h9_motd and cl_h9_motd_wine cannot be
+       set by a server.
+
+   The embedded page in H9XASH (h9webview.dll), all of it at once:
+     * a private (InPrivate) session: no cookies, storage or history kept;
+       the browser's own files live in H9XASH\webview2\data;
+     * no host objects and no web messages: the page has no way into the
+       game;
+     * downloads cancelled; every permission request denied (camera,
+       microphone, location, notifications, clipboard and the rest), screen
+       capture refused; no external programs (mailto:, steam: and other
+       schemes); no HTTP or client-certificate sign-in prompts;
+     * no developer tools, default context menu, status bar, script
+       dialogs, browser shortcut keys, zoom keys, swipe navigation, autofill
+       or password saving; no sign-in with the Windows account; tracking
+       prevention strict; SmartScreen on;
+     * every navigation (the first, every later one, every redirect and
+       every frame's) is https to a host name: an IP address, localhost, a
+       single-label name or a private network name is cancelled;
+     * every connection the page makes, of any kind, goes through the
+       DLL's own proxy on 127.0.0.1, which resolves the host itself and
+       connects only when the name leads to public addresses, to the very
+       address it checked: a name that points into the player's network,
+       or a hex address such as 0x7f.1, gets nowhere; plain http and
+       WebRTC's UDP do not leave at all;
+     * a new window is never opened: its address goes to the confirm box;
+     * ESC in the page closes the splash.
    What it can do is what any web site can: see the player's IP address and
    browser or engine version when the picture or page is fetched, and show
    whatever its page shows. A page could ask for a password; players see
    its host name, and H9 never asks for a password inside a server's page.
+   A host name is judged by the address it resolves to, not by how it is
+   spelled, in H9XASH's picture fetch and in its embedded page alike. The
+   web client's frame is the browser's own: Chromium's and Firefox's
+   private-network rules apply there.
 
 
- 8. HOW IT WORKS
+ 9. HOW IT WORKS
  ---------------
    The message. TS sends its text MOTD from InitHUD, on the player's first
    PreThink of each map. h9_motd.sma sends the H9Motd user message from a
@@ -252,36 +387,52 @@
    a splash has shown, the next maps' H9Motd and text MOTD are both dropped,
    unless the player asked. A disconnect starts over.
 
-   H9XASH fetches the picture with HTTP_GetToMemory and draws the panel over
-   the HUD and VGUI. The web build hands the splash to the page instead
-   (Module.motd.show), which answers with the console command
-   h9_motd_result 1 (shown) or 0 (not shown: the text MOTD follows). No
-   answer within 10 seconds, or a page without Module.motd, and the text
-   MOTD is shown.
+   H9XASH fetches a picture with HTTP_GetToMemory and draws the panel over
+   the HUD and VGUI. For a page it loads h9webview.dll (by its full path
+   beside HAVOC 9.exe) and asks it for a view in the game's own window,
+   hidden; the picture is fetched alongside. The view reports back (loaded,
+   failed, ESC, a new window, where the page went); the engine places the
+   view's child window over the panel's body every frame, shows it only
+   while the panel is up in the game, and falls back as section 4 says.
+
+   The web build hands the splash to the page instead (Module.motd.show),
+   which answers with the console command h9_motd_result 1 (shown) or 0
+   (not shown: the text MOTD follows). No answer within 10 seconds, or a
+   page without Module.motd, and the text MOTD is shown.
 
 
- 9. THE FILES
- ------------
+ 10. THE FILES
+ -------------
    TSM\h9_motd.sma                     the plugin
    TSM\h9_motd.cfg                     its config, with the defaults
    xash3d-h9-patches\patches\engine-h9-motd.patch
                                        the engine side (cl_motd.c, cl_motd.h,
                                        and hooks in cl_main.c, cl_view.c,
                                        cl_parse.c, in_keys.c, input.c)
+   xash3d-h9-patches\webview\          h9webview.dll's source (h9webview.h,
+                                       h9webview.cpp) and build_webview.bat
+   xash3d-h9-patches\deps\Microsoft.Web.WebView2.1.0.4258.31\
+                                       the WebView2 SDK (NuGet), with its
+                                       licence; fetched when it is missing
+   H9XASH\h9webview.dll                the helper, with h9webview.dll.patch
+                                       and h9webview.WebView2-LICENSE.txt
    havoc9.org\webclient\client.js      the web client's overlay (motdOverlay)
    havoc9.org\webclient\index.html     its styles; frames only over https
    docs\HTTP_SERVER_MOTD.txt           the host's guide
 
 
- 10. BUILDING IT
+ 11. BUILDING IT
  ---------------
    One heavy build at a time on this PC.
    1. The plugin: build.bat (h9_motd is in its list), or build.bat h9_motd
       alone. Restart the server so the cvars register.
    2. H9XASH: xash3d-h9-patches\xash.bat engine replays the whole patch
-      chain (engine-h9-motd.patch last) and builds xash.dll; then
-      export.bat. ENGINE.txt lists engine-h9-motd.patch once it is in.
+      chain (engine-h9-motd.patch last), builds xash.dll, then builds
+      h9webview.dll (webview\build_webview.bat, into stage\webview) and
+      copies it, its .patch and the SDK's licence into H9XASH; then
+      export.bat. ENGINE.txt lists engine-h9-motd.patch and h9webview.dll.
    3. The web client: copy the tree into webclient-build again (DEPLOY.txt
       3B), so cl_motd.c and cl_motd.h are there, then waf build; package
-      (3D); deploy the engine, client.js and index.html.
+      (3D); deploy the engine, client.js and index.html. The browser build
+      has no h9webview.dll; its page shows the splash.
    Nothing in reTS changes: the client DLL never sees the splash.

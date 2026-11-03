@@ -18,6 +18,9 @@
 #include "amxxmodule.h"
 #include "CMisc.h"
 #include "CRank.h"
+#include <IGameConfigs.h>
+#include <HLTypeConversion.h>
+#include "rets_api.h"
 
 #define RANK_SVERSION "0.2"
 
@@ -49,17 +52,20 @@ extern int gmsgWStatus;
 extern int gmsgTSCash;
 extern int gmsgTSSpace;
 extern int gmsgPwUp;
+extern int gmsgDeathMsg;
 
 void Client_ResetHUD_End(void*);
 void Client_WeaponInfo(void*);
 void Client_ClipInfo(void*);
 void Client_ScoreInfo(void*);
+void Client_TeamInfo(void*);
 void Client_TSHealth_End(void*);
 void Client_TSState(void*);
 void Client_WStatus(void* mValue);
 void Client_TSCash(void* mValue);
 void Client_TSSpace(void* mValue);
 void Client_PwUp(void* mValue);
+void Client_DeathMsg(void* mValue);
 
 typedef void (*funEventCall)(void*);
 extern funEventCall modMsgsEnd[MAX_REG_MSGS];
@@ -72,7 +78,7 @@ extern cvar_t* tsstats_rank;
 extern cvar_t* tsstats_reset;
 
 extern RankSystem g_rank;
-extern CPlayer players[33];
+extern CPlayer players[TSX_MAX_PLAYERS + 1];
 
 extern CPlayer* mPlayer;
 extern int mPlayerIndex;
@@ -95,6 +101,49 @@ struct weapon_t {
 extern int gKnifeOffset;
 
 extern weapon_t weaponData[TSMAX_WEAPONS];
+
+extern IGameConfig *CommonConfig;
+extern IGameConfig *MainConfig;
+
+#define GET_OFFSET(classname, member)												\
+	static int member = -1;															\
+	if (member == -1)																\
+	{                                                                               \
+		TypeDescription type;                                                       \
+		if (!CommonConfig || !CommonConfig->GetOffsetByClass(classname, #member, &type) || type.fieldOffset < 0)\
+		{																			\
+			MF_LogError(amx, AMX_ERR_NATIVE, "Invalid %s offset. Native %s is disabled", #member, __FUNCTION__);\
+			return 0;																\
+		}																			\
+		member = type.fieldOffset;                                                  \
+	}
+
+#define GET_SIGNATURE(name, function)												\
+	static void *function = nullptr;												\
+	if (!function)																	\
+	{																				\
+		if (!MainConfig || !MainConfig->GetMemSig(name, &function) || !function)	\
+		{																			\
+			MF_LogError(amx, AMX_ERR_NATIVE, "Invalid %s signature. Native %s is disabled", name, __FUNCTION__);\
+			return 0;																\
+		}																			\
+	}
+
+// reTS, the source rebuild of The Specialists 3.0, keeps the player state TSX reads at no offset the
+// gamedata knows and exports ReTS_GetInterface (rets_api.h) for it instead. ReTS() is that interface
+// when the game library exports it, else NULL: the natives then read TS 3.0's members by gamedata.
+const rets_interface_t *ReTS();
+
+// On reTS a native that needs a function this reTS leaves NULL refuses, as reTSX does.
+#define RETS_REQUIRE(rets, fn)														\
+	if (!(rets)->fn)																\
+	{																			\
+		MF_LogError(amx, AMX_ERR_NATIVE, "Native %s is not supported by this reTS", __FUNCTION__);\
+		return 0;																	\
+	}
+
+void UpdateSpeed(CPlayer *pPlayer);
+void EndSpeed(CPlayer *pPlayer);
 
 bool isModuleActive();
 bool ignoreBots (edict_t *pEnt, edict_t *pOther = NULL);

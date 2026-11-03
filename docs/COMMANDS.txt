@@ -1,9 +1,10 @@
 ===============================================================================
  TS MATCH MODE -- COMMAND REFERENCE
- Plugins: ts_matchmode.amxx 1.54-lift2   ts_uplink.amxx 1.0-modes2
+ Plugins: ts_matchmode.amxx 1.54-gameplay7   ts_uplink.amxx 1.0-modes2
           ts_survival.amxx 1.0-modes2   ts_mechwarrior.amxx 1.0-modes2
-          h9_presence.amxx 1.1   h9_motd.amxx 1.0   tsrp_roambots.amxx 1.0
-          h9_community.amxx 1.0
+          h9_presence.amxx 1.6   h9_motd.amxx 1.0   tsrp_roambots.amxx 1.1
+          h9_community.amxx 1.1   ts_rtv.amxx 1.0-h9.2   h9_compete.amxx 1.0
+          ts_floatchat.amxx 1.0
 ===============================================================================
 
  Keep this file current. When a command or cvar is added, renamed or removed in
@@ -126,8 +127,8 @@
      Using it at full health is refused AND KEEPS IT -- you are told so and can still
      use it later in the round.
 
-     You glow white while it lands, where a medic's heal glows red and an engineer's
-     resupply yellow, and it makes the medic's healing noise from your own body so the
+     You glow red while it lands, as a medic's heal does (an engineer's resupply glows
+     yellow), and it makes the medic's healing noise from your own body so the
      people around you know you have spent it.
 
      It comes back at the start of the next round. It does NOT come back if you
@@ -203,7 +204,8 @@
      side is left empty. Votes are cleared at the start of every round.
 
  .status
-     Print the current match state to chat.
+     Print the current match state to chat (to your console with tsm_verbosity
+     0).
 
  .advertise  /  .ad          (ts_advertise -- a separate plugin)
      Post to Discord that a match is being organised. The bot posts an embed with
@@ -332,13 +334,40 @@
  tsm_music 0|1                 (console)
      Ambient music on or off, for you alone; on by default, and with no number
      it flips. Remembered through setinfo, so it survives a reconnect. Off also
-     silences the round-start anthems.
+     silences the round-start anthems. The queue plays every track once before
+     any plays again, never one twice in a row, and keeps its place from map to
+     map; an admin's tsm_music_skip moves it on for everyone.
+
+ .rtv
+     Rock the vote: you want a new map. Once 60% of the people on the server
+     have said it, everyone gets a menu of maps to vote on (ts_rtv.amxx; ROCK
+     THE VOTE, below). Not while a match is in progress, unless the server
+     sets tsm_rtv_in_match 1, and not on a roleplay map, unless it sets
+     tsm_rtv_roleplay 1. While a vote runs, .rtv brings its menu back.
+
+ .nominate [part of a map's name]
+     Puts a map on the next vote. One map that matches is nominated at once,
+     several are offered in a menu, and .nominate alone lists every map that
+     can be nominated here. One nomination each: a second replaces the first.
+
+ .unnominate
+     Takes your nomination back.
+
+ .unrtv
+     Takes your .rtv back, while the vote has not started.
 
  tsm_model                     (console)
      Which player model the gamemode picked for you: class, side, the model
      chosen, whether it is on disk, and the list it was drawn from with "pick n
      of m". An m smaller than the names in the config means the list is being
      cut short somewhere.
+
+ .link
+     Links your game to your havoc9.org account from in game (h9_link.amxx):
+     your game shows a code, you approve it on havoc9.org/link while signed
+     in, and from then on the game plays as your account. H9XASH only; the
+     web client is signed in already. Link your Account in the game's main
+     menu does the same. docs\CUSTOM_XASH_USERID.txt section 2a.
 
  .relay <text>
      Says <text> to the whole community this server is in: every one of its
@@ -350,13 +379,24 @@
  /find <name>, /where <name>
      Where a havoc9.org player is, as far as they show it: the server and the
      address to type after connect, or on havoc9.org, in the H9 web client, or
-     offline. This community's players come first. .find and .where too.
+     offline. This community's players come first. .find and .where too. A
+     private community's server shows only to its members; to anyone else
+     its players are just "in game".
+
+ Members-only servers
+     A community can keep its servers for its members. Anyone else is kicked
+     with "This server is for members of <name>. Join at
+     havoc9.org/community/?c=<short name>", and a Steam client always is: join
+     there, with the havoc9.org account your game uses, and come back.
 
  Portals
      A ring on some maps leads to another server of the community; its name
      and players show as you come near. Press E (or walk in, where it says
-     so) and pick 1. Go. The server cannot move you itself yet, so it gives
-     you the address: open the console and type connect <address>.
+     so) and pick 1. Go. H9XASH and the web client then ask you themselves:
+     "Travel to <name>?" with YES (Y) and NO (N); only your YES connects
+     (cl_h9_travel 0 turns these offers off). Elsewhere the server cannot
+     move you, so it gives you the address: open the console and type
+     connect <address>.
 
 
 ===============================================================================
@@ -403,6 +443,14 @@
      tsm_halt_on_leave (1 = on), tsm_halt_delay (grace period before the
      sides are counted, so rcbot can refill one first) and tsm_halt_bypass
      (1 = never halt at all).
+
+ tsm_music_skip
+     The ambient music's next track, now, for everyone listening. The queue
+     is one for the whole server -- every listener is sent the same track at
+     the same moment, and the next one is armed from the length of the one
+     playing -- so moving it on is an admin's, from the console or rcon. A
+     skip for one player alone would be cut off as soon as the shared queue
+     moved on; a player who does not want the music has tsm_music 0.
 
 
 ===============================================================================
@@ -622,8 +670,9 @@
 
  amx_tsm_loc   /   tsm_loc
      Find your exact XYZ coordinates to pass to agents using module JS & SMAK.
-     Both spellings do the same: your feet (the .map coordinate) to chat and
-     console, and to the console your eyes and view angles, the floor below
+     Both spellings do the same: your feet (the .map coordinate) to chat (the
+     console alone with tsm_verbosity 0) and console, and to the console your
+     eyes and view angles, the floor below
      you, and the point and entity under your crosshair -- classname,
      targetname and target.
 
@@ -666,6 +715,47 @@
 
  say / say_team
      Parsed for the player commands at the top of this file.
+
+
+===============================================================================
+ CHAT AND CENTRE TEXTS  (tsm_verbosity)
+===============================================================================
+
+ Every line the match mode says in chat starts "[MATCH]", and all of them go
+ through one switch, tsm_verbosity (1). At 0 none of them is printed: round
+ starts and ends, picks, refusals, kill reports, all of it. Players then go by
+ what they see -- the HUD, the scoreboard, and the centre texts below. .status
+ and tsm_loc answer in the console at 0. The class abilities' own "[TSM]"
+ replies are not "[MATCH]" lines and stay.
+
+ THE CENTRE TEXTS. Whatever tsm_verbosity says, an action of a player's own
+ that shows nothing by itself is answered in the middle of his screen, in the
+ centre style the siege refusals already used ("That is yours to defend.");
+ the same text twice within 1.5 seconds shows once. They answer:
+   - doors: an engineer door used by the wrong class ("Only a Combat Engineer
+     opens this door.") or by the other side's engineer; a breach door that
+     stays shut for anyone but the Breacher ("Only a Breacher can force this
+     door.") -- a func_door or func_door_rotating in tsm_breach_entities,
+     locked Use Only or named in tsm_breachdoor_1..8, looked at again a moment
+     after the +USE, so one that opens for him says nothing -- and a Breacher
+     at an engineer door ("This door has no lock to break.")
+   - an engineer's +USE on the other side's turret
+   - the side menu, .team and jointeam: a match in progress, a full side, the
+     enemy wave's side, joining, spectating, waiting for the map vote
+   - the class menu and .class: a full class, one not played on the map,
+     already picked or locked, classes off, the pick itself, and the class
+     given to anyone who picked none
+   - .ready, .unready, .forfeit (with the vote's count), joining or being
+     benched mid-match, the team lock, a short side filled with you
+   - friendly fire on a teammate, a refused powerup, .music
+   - the medic's heal and the engineer's resupply, to both players
+   - the Officer's .follow, .unfollow, .scan (to him) and .reinforce
+   - .stim, .rocket, .cloak, .uncloak and the cloak running out, .light's
+     refusals, .ammo, .turret, .pickup, .unstick and .roam
+ What already had one keeps it: siege's refusals and the satchel, the
+ medkit, resupply, scanner and reinforcement timers, a turret repair,
+ "Breached.". Announcements -- a round won, a player eliminated, a tier
+ raised -- are no player's action and have none.
 
 
 ===============================================================================
@@ -836,8 +926,48 @@
  amx_h9_portal_list                (admin, ADMIN_CFG)
      This map's portals, as h9_portal lines.
 
+ h9_travel <a.b.c.d:port> [name]   (sent by the server; H9XASH, web client)
+     A server's offer to send you to another server: a portal's Go sends it
+     to a game whose userinfo has _h9travel "1". It never connects by
+     itself. The game shows its own prompt for 15 seconds ("Travel to
+     <name>?", the address, the server that offered it), and only your Y,
+     Enter or click on YES connects; N, Esc or NO stay. Refused, with an
+     "H9 TRAVEL:" console line: anything but a public IPv4 address and port
+     (a LAN address only from a LAN server), a second offer while one is
+     up, one within 10 seconds of the last, or a fifth from one server in 2
+     minutes. docs\H9_COMMUNITIES.txt section 9.
+
+ cl_h9_travel 0|1                  (your own console; kept in config.cfg)
+     1, the default: a server's h9_travel offer shows the prompt. 0: offers
+     are ignored, with a line in the console, and servers give you the
+     address to type instead. A server cannot change it.
+
  The players' side (.relay, /find, /where, portals) is under PLAYER
  COMMANDS, the cvars under CVAR REFERENCE. docs\H9_COMMUNITIES.txt is the
+ guide.
+
+
+===============================================================================
+ RATED PLAY  (h9_compete.amxx: compts's Elo and scoreboard, on havoc9.org)
+===============================================================================
+
+ say /rank   (also /elo, !rank, !elo; say or say_team)
+     Your rating on this server's table and on the H9 ladder, with your rank
+     in each. Only a player whose game proves their havoc9.org player id here
+     is rated. On a rated server each player's rating is also told to
+     everyone 15 seconds after they join, when their ACCOUNT page shows their
+     numbers (SHOW MY PLAYTIME), as compts did.
+
+ h9_compete_status                 (server console)
+     The ladder this map plays (match, dm or off), whether h9_presence has a
+     live key, and the match under way: its number at havoc9.org, its
+     rounds, the batches of kills taken and the kills still waiting.
+
+ The rule (compts's): everyone starts at 1000; a kill +1 and -1, a headshot
+ +1 more, +1 for each 100 points the victim is above the killer (who takes
+ half of that from them too); a rated match +100 to each winner, -70 to each
+ loser, a leaver or a side that forfeits included; 30 idle days cost 10 a
+ day. The boards are on havoc9.org/ladder/. docs\H9_COMPETITIVE.txt is the
  guide.
 
 
@@ -853,8 +983,18 @@
      1 shows a server's splash in place of its text MOTD, the default. 0
      always shows the text MOTD. A server cannot change it.
 
- ESC, ENTER, SPACE or CLOSE close the splash. OPEN PAGE shows the page's
- whole address first; only a click on OPEN IN BROWSER opens it.
+ cl_h9_motd_wine 0|1|2             (your own console; kept in config.cfg)
+     Only under Wine or Proton (Linux). 0, the default: a server's web page
+     is not shown in the game; its picture or the text MOTD and OPEN PAGE
+     instead. 1: shown with Edge WebView2, without Chromium's sandbox
+     (needs the WebView2 runtime in the prefix). 2: the same with the GPU
+     off, for a page that shows blank or black. Does nothing on Windows. A
+     server cannot change it. docs\H9_MOTD.txt section 5.
+
+ A web page is shown live inside the panel (Microsoft Edge WebView2). ESC or
+ CLOSE close the splash; ESC works inside the page too. When a page cannot
+ be shown in the game, the panel says so and shows OPEN PAGE, which shows the
+ page's whole address first; only a click on OPEN IN BROWSER opens it.
 
  Hosts turn it on with h9_motd image or page, and h9_motd_url "https://...",
  in configs\h9_motd.cfg or in a map's ts\mapconfigs\<map>.cfg. It is off by
@@ -883,6 +1023,44 @@
  tsm_respawns 0 turns it all off: no wave is attempted and every elimination is
  final. tsm_respawn_sudden 0 (the default) means nobody waiting comes back in the
  last minute of a round.
+
+ BIGGER MATCHES. tsm_scale_players lists player counts, each the start of a
+ tier ("24,40,56" in ts_matchmode.cfg): a round that starts with 24 or more
+ players on the two sides, bots included, is tier 1, with 40 or more tier 2,
+ and with 56 or more tier 3. Each tier adds tsm_scale_limits (1) to every
+ class's limit a side, a class without a limit staying without one.
+
+ EXTRA LIVES. With tsm_respawns 1 a bigger match gives lives too: a class's
+ extra lives at a tier are its tsm_scale_lives number -- one number for every
+ class, or a list in class order -- times the tier's tsm_scale_lives_tiers
+ number: the first for tier 1, the second for tier 2, the last for any tier
+ past the list. A 0 in tsm_scale_lives leaves that class out; with
+ tsm_scale_lives_tiers empty, a tier's number is the tier itself, so each
+ tier adds tsm_scale_lives once more. The Siege setup (ts_matchmode.cfg and
+ the Siege preset) gives every class but the Mech one more life at tiers 1
+ and 2 and two at tier 3:
+     tsm_scale_lives "1,1,1,1,1,1,1,1,0"
+     tsm_scale_lives_tiers "1,1,2"
+ Team Elimination's preset plays one life and sets tsm_scale_lives 0.
+
+ PER MAP. tsm_class_limits and tsm_class_lives, as the configs and the map's
+ own mapconfig leave them, are the baseline: read again at every round
+ start, the tiers on top, so nothing is raised twice and a mapconfig's values
+ are what get raised. Every one of these cvars can be set in a map's
+ ts\mapconfigs\<map>.cfg for that map alone; the next map's configs set them
+ back. A small siege map that should scale sooner, count the Mech too and
+ give no extra life before tier 2 would say:
+     tsm_scale_players "16,28,40"
+     tsm_scale_lives "1"
+     tsm_scale_lives_tiers "0,1,2"
+ Chat says when the tier changes (tsm_verbosity 1); tsm_scale_tier shows it.
+ A mode's own class rules (Mech Warrior, Wave Survival) are not raised.
+
+ THE SCOREBOARD. While a match is under way the H9 client's scoreboard (reTS)
+ has a LIVES column: each player's lives left, the one being played included,
+ out of his class's lives ("1/2"), "-" on a side that never runs out (Wave
+ Survival's mutants), and each team's header row the sum of its players'
+ ("9/14"). ts_matchmode sends it in the H9Lives message as values change.
 
  SIEGE: A FALL GIVES THE ROUND BACK. Every objective but the last leaves the
  round going, and gives both sides back what a new round would, in the same
@@ -973,7 +1151,7 @@
 
  rcbot addbot                         add one bot
  rcbot config min_bots 0              live value; player can always join (kicks a bot if quota > 0)
- rcbot config max_bots 20             live value; 10v10 bots total, +maxplayers 32 leaves 12 human slots
+ rcbot config max_bots 20             live value; 10v10 bots total, +maxplayers 64 leaves 44 human slots
  rcbot config balance_teams 1         rcbot evens its own bots across sides
  rcbot autowaypoint <0|1|2>           drop waypoints as you walk
  rcbot waypoint on|off|add|delete     manual waypointing
@@ -989,13 +1167,30 @@
  ROAM MODE (rcbot-patch CHANGE 8, rcbot-ts-roam.patch). While
  tsrp_roambots.amxx runs citizens it holds tsrp_roambots_active at 1, and
  then every bot roams: random waypoints for goals, at a walk
- (tsrp_roambots_speed), a pause now and then (tsrp_roambots_pause), no
- enemies, no pickups, nothing bought, and weapons only with
- tsrp_roambots_weapons 1. RCBot reads those cvars once a second; there is no
- rcbot command or config setting for it. The same patch lets waypoints reach
- +/-16384 across the map (stock RCBot drops any past +4096), for H9's
- big-world maps. It works once rcbot_mm.dll is rebuilt from all six patches
- (rcbot-patch\README.txt).
+ (tsrp_roambots_speed), a pause now and then (tsrp_roambots_pause), never a
+ jump or a crouch, no pickups, nothing bought, and weapons only with
+ tsrp_roambots_weapons 1. Its only enemy is whoever hurt it in this life
+ (tsrp_roambots_defend), fought with its hands, and, in an insurgency
+ (tsrp_roambots_insurgency), the players tsrp_roambots_insurgent_team names.
+ It is judged by how far it gets, not how fast it moves: about 5 seconds
+ without getting anywhere and it picks another goal, about 12 and it asks
+ the plugin to move it (tsrp_roambots_unstick); RCBot's own stuck check never
+ kills it. While the plugin holds it (FL_FROZEN, two citizens talking) it
+ stands and leaves its view alone. RCBot reads those cvars once a second;
+ there is no rcbot command or config setting for it. The same patch lets
+ waypoints reach +/-16384 across the map (stock RCBot drops any past +4096),
+ for H9's big-world maps.
+
+ POWERUPS (rcbot-patch CHANGE 10, rcbot-ts-powerups.patch). A bot walks to a
+ powerup it can see, and sets off the one it carries when it sights an
+ enemy. While the match mode is on, tsm_bot_powerups 0 stops both, whatever
+ nopowerup says: RCBot reads it once a second, as a bot's own "usepowerup"
+ never reaches a plugin, and ts_matchmode refuses a bot's touch of a powerup
+ too. The plugin's default is 1; ts_matchmode.cfg and the TeamElimination and
+ Siege presets set 0. nopowerup 1 (game.cfg) already keeps everyone off them;
+ this is for a server that gives its players powerups but not its bots. The
+ Officer's kung fu and a mode's grants are not pickups and stay as they are.
+ Needs rcbot_mm.dll built from all eight patches.
 
  tsm_bots IS A COUNT: the plugin keeps that many bots on the server, adding one
  every two seconds through rcbot (rcbot's own fill is switched off, max_bots -1)
@@ -1003,6 +1198,17 @@
  balance_teams 1, because only rcbot can move its own bots in a way TS agrees
  with -- moving them plugin-side made bots shoot their own teammates and use the
  wrong spawn points.
+
+ THE BOT FLOW. A bot is put on its side, renamed and given its class one at a
+ time, through a queue: tsm_bot_flow_step bots (1) every tsm_bot_flow_interval
+ seconds (0: 0.35 up to 32 player slots, 0.6 above, so 63 bots on a 64-slot
+ server are placed in about 38 seconds). The first human to pick a
+ side used to move every waiting bot in the same second -- with 63 bots that
+ burst of team changes, name changes and respawns froze a 64-slot server and
+ threw its clients off. A bot that already has its side, its name and its
+ class is never queued, a bot that leaves is taken out, and a round does not
+ go live while bots are still queued, for as long as their pace needs and at
+ most 45 seconds ("Waiting for N bot(s) to take their places").
 
  tsm_bots 0 zeroes rcbot's quota and kicks every bot, a quarter second apart.
  A change in the console lasts for the map: ts_matchmode.cfg runs again as every
@@ -1046,11 +1252,13 @@
 
  RCBots that walk a roleplay city's public streets, plazas, halls, galleries
  and stairs at the pace of a player's walk key, stop now and then to look
- about, and never fight, pick anything up or buy, so the city looks lived in.
- They keep out of homes, shops and MSR space because the map's roam waypoints
- do: they are laid in its public spaces only. Players can hurt and kill them
- (tsrp_roambots_god 1 stops that); a killed citizen is back at once in another
- district with another face, and its body stays where it fell.
+ about or to talk, and never pick anything up or buy, so the city looks lived
+ in. They keep out of homes, shops and MSR space because the map's roam
+ waypoints do: they are laid in its public spaces only. Players can hurt and
+ kill them (tsrp_roambots_god 1 stops that); a citizen someone hurts fights
+ that one back with its hands for the rest of that life
+ (tsrp_roambots_defend); a killed citizen is back at once in another district
+ with another face, and its body stays where it fell.
 
  WHICH MAPS. Roleplay maps only -- rp_ or tsrp_ at the start of the name, or
  _rp_ or _tsrp_ in it, the same test that turns the match mode off -- and only
@@ -1064,7 +1272,15 @@
   tsrp_roambots 1
   tsrp_roambots_count 12
   tsrp_roambots_weapons 0
-  tsrp_roambots_models "proletarian_healthy;proletarian;prole_fem;prole_bfem"
+  tsrp_roambots_models "proletarian_healthy:m;proletarian:m;prole_fem:f;prole_bfem:f"
+
+ NAMES MATCH FACES. Each model carries its gender after a colon, ":f" or
+ ":m"; one without is neither. A citizen's name comes from the list for its
+ face's gender -- tsrp_roambots_names_f, tsrp_roambots_names_m, or
+ tsrp_roambots_names for a face with none; empty, the plugin's own 40, 40 and
+ 16 -- one no other citizen has had on the map while the list lasts, and the
+ new face it gets after a death is one of the same gender, so the name still
+ fits. Citizens are named as they join, one every two seconds.
 
  The map needs its roam waypoints too, rcbot/waypoints/ts/<map>.rcw, and the
  places its citizens appear, configs\tsrp_roamspots_<map>.cfg (a district and
@@ -1080,13 +1296,138 @@
  everyone); they come back one every two seconds as people leave. rcbot's
  own fill is switched off (min_bots -1, max_bots -1) while they run.
 
+ GETTING STUCK. A citizen that gets nowhere for about 5 seconds picks another
+ goal; after about 12 it is moved, quietly, as after a death but without one:
+ to another district, with a new face -- once no real player near it can see
+ it go. RCBot asks for that (the server command tsrp_roambots_unstick); it
+ judges by distance, so a citizen walking into a wall counts as stuck.
+
+ TALKING. Two citizens who meet -- within tsrp_roambots_talk_range, level, in
+ sight of each other, on the ground and unhurt -- stop with the chance
+ tsrp_roambots_talk, face each other and murmur in turns for 3 to 6 seconds,
+ then walk on. A pair is asked once as they pass. The murmurs are
+ sound\h9\murmur\murmur1.wav to murmur6.wav; each is precached only when it
+ is installed, so without them the citizens still stop, silently. A hurt
+ talker, or an insurgency, ends a talk at once.
+
+ INSURGENCY. .insurgency (below) turns every citizen into an insurgent: the
+ insurgent version of its face (tsrp_roambots_insurgent_models,
+ "civilian:insurgent" pairs), the weapons of tsrp_roambots_insurgent_weapons
+ ("id:magazines" as the class lines), and RCBot sets them on the players --
+ every player who is not a bot, or, with tsrp_roambots_insurgent_team set,
+ only that team's (the guards, once RP teamplay runs; never the civilians).
+ A killed insurgent comes back an insurgent. .civilians kills them all and
+ they come back as citizens. A mapconfig can start its map in an insurgency
+ (tsrp_roambots_insurgency 1) or switch both commands off
+ (tsrp_roambots_commands 0).
+
+ .insurgency  /  .civilians        (chat, roleplay maps; an admin with the
+                                   flags of tsrp_roambots_admin_flag, "h" by
+                                   default; empty: anyone)
+     Start the insurgency, or end it. Everyone is told in chat.
+
  amx_roambots                      (server console, or an admin)
-     What the citizens are doing: the cvars, how many models, names and spots
-     the plugin has, every counter (ticks, postthink calls, joins asked,
-     citizens adopted and sent away, spawns, placements, pickups refused,
-     weapons dropped), and each citizen: name, model, alive, district, where
-     and how fast. On a map that is not a roleplay map it says it does
+     What the citizens are doing: the cvars, how many models, names, spots and
+     murmurs the plugin has, every counter (ticks, postthink calls, joins
+     asked, citizens adopted and sent away, spawns, placements, pickups
+     refused, weapons dropped, stuck citizens asked about, waited for and
+     moved, talks, murmurs, insurgents armed and killed), and each citizen:
+     name, model, alive, district, where and how fast, and whether it is an
+     insurgent or talking. On a map that is not a roleplay map it says it does
      nothing there.
+
+
+===============================================================================
+ ROCK THE VOTE  (ts_rtv.amxx, configs\ts_rtv.cfg)
+===============================================================================
+
+ Built on "Rock The Vote" 1.0 by Destroyer7 (AlliedModders, thread 351317),
+ whose plugin it is; the original file states no licence.
+
+ .rtv, .unrtv, .nominate [name], .unnominate     (chat; PLAYER COMMANDS, above)
+
+ THE ROCK. Each person says .rtv once. When 60% of the people on the server
+ have, rounded up, the map is put to a vote. Bots never count and never vote;
+ spectators do, because between matches the match mode parks everyone without
+ a side on the spectator team, and a ts_ map plays TS deathmatch, which has no
+ teams to tell apart. The 60% is of whoever is here now, worked out again as
+ people come and go, and a player who leaves takes his .rtv, his nomination
+ and his vote with him. Alone on a server, your .rtv is all it takes.
+
+ NOT DURING A MATCH. With tsm_rtv_in_match 0 (the default), .rtv is refused
+ while a match is in progress: a round frozen, live or just ended, or a match
+ halted for uneven sides with its score kept. Warmup, the ready-up before a
+ match and the seconds after one are open.
+
+ NOT ON A ROLEPLAY MAP. With tsm_rtv_roleplay 0 (the default), a roleplay map
+ -- rp_ or tsrp_ at the start of its name, _rp_ or _tsrp_ inside it, the match
+ mode's own rule, so h9_tsrp_hive is one -- has no map vote at all: .rtv,
+ .unrtv, .nominate and .unnominate are answered "Rock the vote is off on
+ roleplay maps.", and no vote starts there, the one after a match included.
+
+ THE VOTE. Everyone gets a menu of tsm_rtv_maps maps (6) for 20 seconds; the
+ number keys vote, 0 passes, and .rtv brings the menu back if a TS panel took
+ it. Nominations go on first, up to tsm_rtv_nominations (4); the rest are
+ drawn at random. Most votes win, a tie is drawn, and the map changes 5
+ seconds later. A vote nobody answers keeps the map -- unless tsm_rtv_auto is
+ 1, when it picks one of the vote's maps at random.
+
+ AFTER A MATCH. With tsm_rtv_auto 1 (the default), a vote starts by itself
+ ten seconds after a match is played to its end -- a side reaching the win
+ total, or a Wave Survival run ending -- with the map just played kept as the
+ last choice, "Keep <map>", for a rematch. A match cancelled, forfeited or
+ left with an empty side starts none.
+
+ THE SIDE MENU WAITS. The match mode's side menu comes after the vote: it is
+ not offered in the ten seconds before tsm_rtv_auto's vote, nor, while a vote
+ runs, to a player who has not answered it with a map or 0, nor to anyone
+ while the map changes to the winner. "The map vote comes first; the side
+ menu follows it." says so, and the menu comes up once he has answered or
+ the vote is over (ts_rtv's rtv_vote_running and rtv_player_voted; without
+ ts_rtv the menu never waits).
+
+ WHICH MAPS. Read from the maps folder of the install, every time:
+   - the match mode on for this map (tsm_enabled 1): H9's game-mode maps only,
+     every h9_ map that is not a roleplay one -- not h9_tsrp_, not one with
+     rp_ or tsrp_ in its name -- so the te, siege, mw, up, ws and the like.
+   - the match mode off (a ts_ map, a roleplay map, any map TS plays as it
+     ships): any other map installed on the server, H9's included.
+ Never the map being played, and only what the current one allows can be
+ nominated.
+
+ NOMINATIONS. .nominate takes part of a name: "neuro" matches every map with
+ neuro in its name, h9_te_neuropolis and h9_siege_neuropolis among them, and
+ offers them in a menu; a whole name is taken at once. One each, a new one
+ replacing the old; a map someone else has nominated is refused, and
+ once the vote has tsm_rtv_nominations of them no more are taken. They last
+ until their player leaves or the map changes; tsm_rtv_nominations 0 turns
+ .nominate off.
+
+
+===============================================================================
+ DIAGNOSTIC PROBE  (ts_probe.amxx: built, not loaded -- ;ts_probe.amxx)
+===============================================================================
+
+ A throwaway diagnostic: it measures what TS does with teams, observer
+ mode, models and weapon gives, on the live server. Put it back in
+ plugins.ini (remove the ;) to use it. All ADMIN_CFG, from the console.
+
+ ts_probe_help                        lists the probe commands
+ ts_probe_info                        modules, cvars, the AMX Mod X version
+ ts_probe_teams                       every player's team number and name
+ ts_probe_obs <target>                do observer vars stick on him?
+ ts_probe_model <target> <model>      does a forced model stick?
+ ts_probe_dead <target>               the full dead treatment: observer,
+                                      hidden, not solid, unhurt
+ ts_probe_undead <target>             undoes ts_probe_dead and ts_probe_obs
+ ts_probe_team <target> <team>        tries every way of setting a team, and
+                                      says which works
+ ts_probe_give <target> <id> [clips]  does ts_giveweapon get past
+                                      weaponrestriction?
+ ts_probe_ammo <target> [id] [clips]  what ts_giveweapon's clips mean, by
+                                      draining reloads
+ ts_probe_m60 <target>                every way of giving the M60 (id 32),
+                                      each result logged
 
 
 ===============================================================================
@@ -1123,6 +1464,14 @@
 
      [TSM] h9_te_neuropolis: an H9 map, the match mode plays, on teamplay rules.
      [TSM] ts_bikini: not an H9 map, the game as it ships, on deathmatch rules.
+
+ A roleplay map -- rp_ or tsrp_ at the start of its name, or _rp_ or _tsrp_
+ inside it, h9_tsrp_ among them -- is reported as "Roleplay": the server's
+ game description, which havoc9.org's server list, the in-game browser and
+ the other lists show in place of TS's "The Specialists (DM)", and the H9
+ client's scoreboard heading for its list of players (H9Board), where any
+ other map without teams reads "Free for all". The match mode stays off
+ there all the same.
 
 
 ===============================================================================
@@ -1186,6 +1535,11 @@
  their class's count, and is a new round for the once-a-round abilities: .stim,
  .ammo, the class abilities and the Mech's rockets are all ready again.
 
+ A survivor who goes down is told plainly in chat how many lives he has left
+ and when he is back: at his side's next respawn (the countdown on his screen)
+ or when the wave of mutants is cleared; with none left, when his side clears
+ the wave. The mode says it through ts_matchmode's tsm_life_lost forward.
+
 
 ===============================================================================
  MECH WARRIOR  (ts_mechwarrior.amxx)
@@ -1215,16 +1569,88 @@
                                  tempdecal.wad sprays as it is
  ts_richpresence 0|1             the Discord card (docs\RICH_PRESENCE.txt)
  cl_h9_cloakfix 0|1              show a server-side cloak on your own model (1)
- cl_h9_userid                    this install's regenerable client id
+ cl_h9_userid                    this install's regenerable client id, read
+                                 from user_id.ini, where the engine keeps it
+                                 protected; read-only, never in config.cfg
                                  (docs\CUSTOM_XASH_USERID.txt)
+ h9_link                         link this game to your havoc9.org account:
+                                 a code to approve on havoc9.org/link (Link
+                                 your Account in the main menu does it too);
+                                 a server's .link sends it. Again while a
+                                 code is up, it shows the code again
+ h9_link open                    open havoc9.org/link with the code in your
+                                 web browser; only you, never a server
+ h9_link cancel                  drop the code
+ h9_unlink                       unlink this game (Unlink your Account in the
+                                 main menu); it gets a new id, and
+                                 havoc9.org drops it from your account. Only
+                                 you, never a server
+ _h9lnk                          1 while this game is linked, 0 while not:
+                                 set by the engine, sent to servers
+ _h9link_account, _h9link_flow, _h9link_code, _h9link_text, _h9link_site
+                                 the link's state for the main menu, and the
+                                 site it talks to: set by the engine,
+                                 read-only
  listmasters                     the server lists the Internet tab asks
                                  (docs\NETWORKING.txt)
  h9_autoconfig 0|1               on a server running H9XASH: run the map's
                                  ts\mapconfigs\<map>.cfg once it is up (1)
  cl_h9_motd 0|1                  a server's splash MOTD in place of its
                                  text MOTD (1) (docs\H9_MOTD.txt)
+ cl_h9_motd_wine 0|1|2           under Wine or Proton: show a server's web
+                                 page in the game (1), with the GPU off (2);
+                                 0, the picture or text and OPEN PAGE (0)
  h9_motd_result                  the web client's page answers a splash
                                  with it; nothing to type
+ cl_h9_travel 0|1                a server's offer to send you to another
+                                 server (a portal's Go) asks you first (1);
+                                 0 ignores offers (docs\H9_COMMUNITIES.txt)
+ h9_travel <a.b.c.d:port> [name] that offer; servers send it, and only your
+                                 YES (Y) connects
+ cl_h9_avatars 0|1               players' havoc9.org pictures on the
+                                 scoreboard (1); 0, the silhouette for all
+ h9_profile <slot>               open the havoc9.org profile of the player in
+                                 that slot in your web browser; a double-click
+                                 on a linked player's picture (a green chain)
+                                 on the scoreboard runs it. Only you, never a
+                                 server. A player with the site's default
+                                 picture has no account number in the game,
+                                 so no profile opens for them
+ cl_h9_scoreboard_scroll 0|1     a scoreboard column too long for the board
+                                 even at its shortest rows scrolls (1): the
+                                 mouse wheel, or PgUp/PgDn, while the board
+                                 is held open -- the column under the pointer,
+                                 both without one -- eased, its team header
+                                 pinned, a thin bar at its edge; the wheel
+                                 changes weapons as ever the rest of the time.
+                                 0: the column ends in "... N more". H9's
+                                 client.dll, on Steam too
+ cl_h9_linkicons 0|1             the scoreboard's link icons (1): a green
+                                 chain on a proven havoc9.org account, a red
+                                 broken one on anyone else, H9's grey helmet
+                                 on a bot; 0 leaves them out. H9's client.dll,
+                                 on Steam too (docs\H9_PRESENCE.txt 4b)
+ cl_h9_site <address>            testing only: the local test site in place
+                                 of https://havoc9.org, for the pictures and
+                                 for linking: 127.0.0.1:<port> or
+                                 localhost:<port> (no quotes needed; with
+                                 http:// it needs quotes, since the console
+                                 takes // for a comment). Empty, havoc9.org
+                                 (the default). The console says the site in
+                                 use, and why a value was not taken
+ h9_idchallenge <nonce>          an H9 server's ID proof challenge; servers
+                                 send it, the game answers by itself
+                                 (docs\H9_PRESENCE.txt section 8)
+ h9_idproof <nonce> <devmask> <proof>
+                                 that answer, sent back to the server, where
+                                 h9_presence.amxx takes it for its own
+                                 challenge only; never typed
+ h9_idlisten <a.b.c.d:port> [nonce]
+                                 your own Create Game server tells your game
+                                 the address it reports as (and with a nonce
+                                 asks the ID proof for it); answered only over
+                                 loopback; never typed (docs\H9_PRESENCE.txt
+                                 section 8a)
 
 
 ===============================================================================
@@ -1281,6 +1707,9 @@
 
  Presence shows nobody on a server h9_presence_status in the server console
  Community chat or /find is silent h9_community_status in the server console
+ A portal's Go shows no prompt     the player's console says why ("H9 TRAVEL:
+                                   ..."). Steam and older H9XASH get the
+                                   address in chat instead
 
  Verbose tracing: tsm_debug_log 3 writes per-tick detail to
  addons/amxmodx/logs/tsm_debug.log. Level 4 also echoes to the console.
@@ -1301,6 +1730,8 @@
  TS MATCH MODE  (ts_matchmode.amxx, configs\ts_matchmode.cfg)
 
  -- the match
+ tsm_verbosity             1          0: no "[MATCH]" chat line at all; the centre
+                                      texts stay (CHAT AND CENTRE TEXTS)
  tsm_enabled               1          the match mode on. Set to 0 by the plugin
                                       on maps that are not H9's (see WHICH GAME A
                                       MAP PLAYS)
@@ -1320,25 +1751,37 @@
  tsm_autofill              1          fill a short side at a round's start: 0 never,
                                       1 from late joiners, 2 spectators too
  tsm_warmup_hold           1          hold everyone, frozen and unhurt, through
-                                      warmup and ready-up
- tsm_warmup_hide           1          hide players in warmup as well as freezing
+                                      warmup and ready-up, and from a match's
+                                      end until warmup
+ tsm_warmup_hide           1          hide players in warmup as well as freezing,
+                                      and from a match's end until warmup
  tsm_reset_loadout         0          removed; accepted and ignored
  tsm_reset_delay           1.0        accepted and ignored
 
  -- sides and teams
  tsm_team_mode             auto       how the two sides are learned: auto, name,
                                       or number
- tsm_team1_name            (empty)    side 1's TS team name, 15 characters at most
-                                      [cfg msr]
+ tsm_team1_name            (empty)    side 1's TS team name on the GoldSrc package, 15
+                                      characters at most [cfg msr]
  tsm_team2_name            (empty)    side 2's [cfg insurgents]
- tsm_team1_short           (empty)    side 1's short name on the score line
- tsm_team2_short           (empty)    side 2's
+ tsm_team1_name_h9         Middle Sea Republic   side 1's on H9XASH, 31 characters
+                                      at most
+ tsm_team2_name_h9         Insurrectionists      side 2's on H9XASH
+                                      Each pair matches its platform's mp_teamlist in
+                                      ts\game.cfg: "msr;insurgents;spectator" on the
+                                      GoldSrc package, "Middle Sea Republic;
+                                      Insurrectionists;Spectator" on H9XASH, whose
+                                      game.cfg, server.cfg and listenserver.cfg
+                                      come from xash3d-h9-patches\overlay\ts\ alone
+ tsm_team1_short           (empty)    side 1's short name on the score line [cfg MSR]
+ tsm_team2_short           (empty)    side 2's [cfg INS]
  tsm_team1_label           the Middle Sea Republic   side 1's name in the side
                                       menu
  tsm_team2_label           the Insurrectionists      side 2's
  tsm_force_teamlist        1          set mp_teamlist again once the map is up
  tsm_force_teammodels      (empty)    set mp_teammodels too, when not empty
  tsm_spectator_team        spectator  the real third TS team for people not playing
+ tsm_spectator_team_h9     Spectator  the same on H9XASH
  tsm_spectate_index        3          that team's place in mp_teamlist
  tsm_spectator_model       Invisible  the model a spectator wears
  tsm_default_spectator     1          put a new arrival with no side on the
@@ -1394,6 +1837,20 @@
  tsm_class_limits          (empty)    how many may take each class, a side
                                       [cfg 0,4,2,2,4,2,1,4,1]
  tsm_class_lives           (empty)    lives for each class [cfg 2,1,1,1,1,1,1,1,1]
+ tsm_scale_players         (empty)    player counts that start each tier of a
+                                      bigger match; empty is off [cfg 24,40,56]
+ tsm_scale_limits          1          added to every class limit, per tier: one
+                                      number or a list in class order
+ tsm_scale_lives           0          a class's extra lives at a tier, times
+                                      tsm_scale_lives_tiers (tsm_respawns 1): one
+                                      number or a list in class order; 0 leaves a
+                                      class out [cfg 1,1,1,1,1,1,1,1,0; 0 in the
+                                      Team Elimination preset]
+ tsm_scale_lives_tiers     (empty)    each tier's number for those extra lives, in
+                                      tier order, the last for any tier past the
+                                      list; empty: the tier itself [cfg 1,1,2]
+ tsm_scale_tier            0          set by the plugin: the tier this round
+                                      started in
  tsm_default_class         1          the class of someone who never picks
  tsm_class_retry           1.0        seconds between re-offering the class menu
  tsm_class_scale           1          apply each class's height (drawn only)
@@ -1429,6 +1886,9 @@
  tsm_nocash                1          economy on, wallet held at 0: no buying
  tsm_block_buy             1          refuse TS's buy-menu commands
  tsm_no_powerups           1          take TS's powerups out of match play
+ tsm_bot_powerups          1          0: no bot walks to or uses a powerup
+                                      while the match mode is on (RCBot reads
+                                      it) [cfg 0]
  tsm_no_weapons            0          1 sweeps every weapon off the map, once a
                                       second (set per map in its mapconfig)
  tsm_sweep_drops           1          remove what players dropped, at each round's
@@ -1451,7 +1911,7 @@
  tsm_stim                  1          the stimpack on
  tsm_stim_min              25         least health it gives
  tsm_stim_max              50         most
- tsm_stim_glow             1.5        seconds of its white glow
+ tsm_stim_glow             1.5        seconds of its red glow
  tsm_stim_shell            16         that glow's thickness
 
  -- Combat Engineer
@@ -1522,7 +1982,9 @@
 
  -- siege
  tsm_obj_team              2          the side that attacks the objectives
- tsm_obj_markers           1          a marker over each objective, each side its own colour; 0 off
+ tsm_obj_markers           1          a marker over each objective, each side its own colour,
+                                      and each objective's glow: blue to defend, red to
+                                      attack, white for no side (H9XASH draws it); 0 off
  tsm_obj_class             Breacher   the class that plants; empty, any class
  tsm_obj_time              10.0       seconds to hold +USE to plant
  tsm_obj_fuse              5.0        seconds a planted charge burns
@@ -1575,6 +2037,10 @@
  tsm_bot_names             1          rename bots after their side
  tsm_bot_name1             Enforcer   side 1's bot name prefix
  tsm_bot_name2             Insurgent  side 2's
+ tsm_bot_flow_step         1          bots put on their sides, named and classed
+                                      each step of the bot flow
+ tsm_bot_flow_interval     0          seconds between those steps; 0: 0.35 up to
+                                      32 player slots, 0.6 above
 
  -- reports
  tsm_report_kills          1          team-scoped elimination messages
@@ -1654,11 +2120,12 @@
  h9_motd                   text       text: TS's own text MOTD (the splash off);
                                       image: a picture; page: a web page
  h9_motd_url               (empty)    https address of the picture or the page
- h9_motd_image             (empty)    page only: a picture H9XASH shows in the
-                                      page's place
+ h9_motd_image             (empty)    page only: the picture shown when the
+                                      page itself cannot be
  h9_motd_link              (empty)    image only: the page OPEN PAGE offers
  h9_motd_show              connect    connect: once a connection; map: at every
                                       map
+ (the player's own cl_h9_motd and cl_h9_motd_wine are under H9XASH CLIENT)
 
  PRESENCE  (h9_presence.amxx, configs\h9_presence.cfg)
 
@@ -1676,9 +2143,30 @@
                                       h9_presence_challenge 1)
  h9_presence_autoenroll    1          a dedicated server with no hand-made key
                                       enrolls with havoc9.org by itself; a
-                                      listen server never does
+                                      listen server (Create Game) does once its
+                                      own player is in game, by that player's
+                                      ID proof (docs\H9_PRESENCE.txt 8a)
  h9_presence_enroll        (empty)    set by the plugin, not by hand: the code
                                       havoc9.org looks for while enrolling
+ h9_require_account        0          1: havoc9.org accounts only. Every game
+                                      is challenged; one that cannot prove
+                                      an account is kicked at once, one that
+                                      can after h9_require_account_grace if
+                                      it has not. Fails open while h9web is
+                                      not answering. In the server's rules,
+                                      and H9XASH's browser shows it
+                                      (docs\H9_PRESENCE.txt section 4c)
+ h9_require_account_grace  45         seconds a game has to prove its
+                                      account (10 to 300)
+
+ LINKING  (h9_link.amxx)
+ h9_link_command           1          .link starts linking a player's game to
+                                      their havoc9.org account; 0 leaves .link
+                                      alone
+ h9_link_hint              0          1: a player whose H9XASH can link and is
+                                      not linked is told about .link once, a
+                                      while after joining (once per player on
+                                      this server, the vault h9_link_hints)
 
  COMMUNITIES  (h9_community.amxx, configs\h9_community.cfg)
 
@@ -1690,9 +2178,26 @@
  h9_community_find         1          /find and /where (and .find, .where)
  h9_community_portal_wait  10         seconds before a player may travel
                                       through a portal again
- h9_community_travel       0          1: a portal's Go also sends h9_travel,
-                                      an engine command H9XASH does not have
-                                      yet; leave it 0
+ h9_community_travel       0          1: a portal's Go sends h9_travel to
+                                      every client, also to those without
+                                      _h9travel "1" (H9XASH and the web
+                                      client get it anyway); leave it 0
+ (the player's own cl_h9_travel is under H9XASH CLIENT)
+
+ RATED PLAY  (h9_compete.amxx; set them in server.cfg or a preset)
+
+ h9_compete                0          1: this server's matches go to
+                                      havoc9.org and are rated (needs
+                                      h9_presence with a live key); shown
+                                      in the server's rules
+ h9_compete_ladder         auto       auto: a ts_matchmode match on h9_ and
+                                      tsm_ maps, deathmatch (kills only) on
+                                      h9_dm_, h9_tdm_ and h9_ctb_ maps, off
+                                      on Wave Survival, roleplay and stock
+                                      maps; or match, dm, off
+ h9_compete_notice         1          the join lines: that the server is
+                                      rated, and the player's rating to
+                                      everyone when they show it
 
  ROAMING CITIZENS  (tsrp_roambots.amxx, configs\tsrp_roambots.cfg; its
  values are these defaults. [h9_tsrp_newbyzantium ...] is what that map's
@@ -1705,25 +2210,118 @@
  tsrp_roambots_reserve     2          slots always kept free for real players
                                       (at least 1)
  tsrp_roambots_weapons     0          0: unarmed, and nothing picked up; 1:
-                                      armed by RCBot as usual, never firing
-                                      [h9_tsrp_newbyzantium 0]
- tsrp_roambots_models      proletarian_healthy;proletarian;prole_fem;prole_bfem
-                                      the faces they wear, ";" between
+                                      armed by RCBot as usual; it fights only
+                                      with its hands [h9_tsrp_newbyzantium 0]
+ tsrp_roambots_models      proletarian_healthy:m;proletarian:m;prole_fem:f;prole_bfem:f
+                                      the faces they wear, ";" between, each
+                                      with its gender, :f or :m
                                       [h9_tsrp_newbyzantium the same four]
- tsrp_roambots_names       (empty)    their names, ";" between; empty: the
-                                      plugin's own 48
+ tsrp_roambots_names_f     (empty)    women's names, ";" between; empty: the
+                                      plugin's own 40
+ tsrp_roambots_names_m     (empty)    men's names; empty: the plugin's own 40
+ tsrp_roambots_names       (empty)    names for a face with no gender; empty:
+                                      the plugin's own 16
  tsrp_roambots_speed       120        the walk, units a second (RCBot reads it)
  tsrp_roambots_pause       40         percent chance of a pause before each
                                       walk (RCBot reads it)
  tsrp_roambots_god         0          1: citizens cannot be hurt
  tsrp_roambots_debug       0          1: log placements, refused pickups and
                                       dropped weapons
+ tsrp_roambots_defend      1          1: a citizen someone hurts fights that
+                                      one back, with its hands, for the rest
+                                      of that life (RCBot reads it)
+ tsrp_roambots_talk        40         percent chance that two citizens who
+                                      meet stop to talk; 0: never
+ tsrp_roambots_talk_range  150        how close two citizens are when they
+                                      stop to talk (units)
+ tsrp_roambots_insurgency  0          1: the citizens are insurgents; set by
+                                      .insurgency and .civilians, or by a
+                                      mapconfig (RCBot reads it)
+ tsrp_roambots_insurgent_models  proletarian_healthy:ins_prole_helm;proletarian:ins_proletarian;prole_fem:ins_prole_fem;prole_bfem:ins_prole_bfem
+                                      "civilian:insurgent" faces, ";" between
+ tsrp_roambots_insurgent_weapons  13:3,22:2
+                                      the insurgents' weapons, "id:magazines"
+                                      as the class lines (AK47, Glock 20)
+ tsrp_roambots_insurgent_team  0      0: insurgents are set on every player
+                                      who is not a bot; a team number: only
+                                      on that team (RCBot reads it)
+ tsrp_roambots_admin_flag  h          the admin flags .insurgency and
+                                      .civilians need; empty: anyone
+ tsrp_roambots_commands    1          0: .insurgency and .civilians do
+                                      nothing on this map (for a mapconfig)
  tsrp_roambots_active      0          set by the plugin, not by hand: 1 while
                                       citizens run (RCBot reads it)
 
- FLOATING CHAT  (ts_floatchat.amxx: built and shipped, but not loaded)
+ ROCK THE VOTE  (ts_rtv.amxx, configs\ts_rtv.cfg)
 
- fc_enabled, fc_range, fc_hold, fc_type_hold, fc_rise, fc_scale, fc_red,
- fc_green, fc_blue, fc_y_tweak
-                                      read only if the plugin is put back in
-                                      plugins.ini; game.cfg sets fc_enabled 0
+ tsm_rtv_in_match          0          1 lets .rtv start a vote while a match is
+                                      in progress
+ tsm_rtv_auto              1          a vote 10 seconds after a match is played
+                                      to its end; a vote nobody answers then
+                                      picks a map
+ tsm_rtv_maps              6          maps on a vote, 2 to 8
+ tsm_rtv_nominations       4          nominations a vote takes, at most
+                                      tsm_rtv_maps; 0 turns .nominate off
+ tsm_rtv_roleplay          0          1 lets a roleplay map be voted away from;
+                                      0: no .rtv, .nominate or vote on one
+
+ FLOATING CHAT  (ts_floatchat.amxx; game.cfg sets its cvars)
+
+ fc_enabled                1          float chat on: typing bubbles and words over
+                                      heads; 0 off for everyone
+ fc_range                  900        how far away a talker's words still show
+ fc_hold                   5.0        seconds a line stays over a head
+ fc_rise                   24.0       how far above the eyes the bubble sits
+                                      (it follows a duck, prone or a dive); the
+                                      words rest just above it
+ fc_scale                  0.20       the bubble's size
+ fc_red, fc_green,         150, 215,  the words' colour
+ fc_blue                   255
+ fc_y_tweak                1.0        the words' height on a screen that is not 4:3
+ fc_self                   0          1: a player is sent his own words too,
+                                      centred near the top of his screen. His
+                                      own bubble sits over his head as anyone's
+                                      does: seen in third person, out of a
+                                      first-person view
+
+ It shows a typing bubble over a player every time his chat line opens, and
+ takes it down when the line closes, however it closes: Enter, Escape, the
+ console, the menu, a map change. While the line stays open the engine says
+ so again every 2 seconds, and a bubble with no word for 5 seconds -- or
+ whose player dies, changes team or leaves -- comes down by itself, so one
+ lost word can never leave it hanging. No engine tells a server that by itself
+ -- messagemode and messagemode2 run on the client and are never sent on --
+ so the H9XASH engine sends the client command h9_typing 1 as the line opens
+ and h9_typing 0 as it closes (engine-h9-typing.patch), to a server whose
+ game registered the H9Typing user message, as ts_floatchat does; any other
+ server is sent nothing. A command and not a userinfo key: the engine's
+ userinfo flood penalty dropped a key that changed at every chat line, so
+ the bubble showed once and then not again for a while. An earlier H9XASH
+ that sent the key _h9typing is still understood. A Steam client sends
+ nothing and shows no bubble.
+
+ .bubbles                        (chat, while the plugin is loaded)
+     Float chat off for you alone, or back on: no typing bubbles and no
+     words over heads are sent to you at all. Remembered by your
+     h9_clientid or authid (data\ts_floatchat_off.txt), so it holds on the
+     next map and the next visit. setinfo _h9bubbles 0 in your
+     userconfig.cfg keeps it off on every server and wins over .bubbles
+     while it is set; setinfo _h9bubbles 1 keeps it on.
+
+ What it sends a viewer who has it on: a talker's words only while the
+ talker is within fc_range, in his sight and on his screen, for fc_hold
+ seconds after each line, three talkers at most -- up to ten times a second
+ while the words move on his screen and about five while they stand still,
+ each about 25 bytes plus the line. A 40-character line is some 300 to 650
+ bytes a second per talker on screen. A typing player's bubble is an
+ ordinary entity, a few bytes a tick while it animates. A viewer who has it
+ off is sent neither, and the server keeps no extra per-entity hook running
+ unless someone on it has it off.
+
+ WHO IS SHOWN. With the match mode on for the map (tsm_enabled 1), only a
+ player it draws as he is: alive and in the match, the round frozen, live or
+ just ended, and not cloaked (ts_matchmode's tsm_shown). Nobody eliminated,
+ spectating, in warmup or ready-up, at a match's end or under the Recon's
+ .cloak gets a bubble or words, and a bubble or a line already up comes down
+ the moment its player stops being shown. With the match mode off, every
+ living player.

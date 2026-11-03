@@ -1,9 +1,9 @@
 // HAVOC9: who is signed in, shown in every page's nav.
 //
 // Every page loads this after script.js. It asks the account service once (GET /api/me) and adds
-// to the nav: SIGN IN and CREATE ACCOUNT when nobody is signed in; the username and ACCOUNT when
-// someone is, and ADMIN for moderators and admins (a link only: the server checks every request
-// the admin panel makes). A page without the nav (#navLinks) gets the same in any element marked
+// to the nav: SIGN IN and CREATE ACCOUNT when nobody is signed in; the username, ACCOUNT and
+// LOG OUT when someone is, and ADMIN for moderators and admins (a link only: the server checks
+// every request the admin panel makes). A page without the nav (#navLinks) gets the same in any element marked
 // data-h9-account. When the service does not answer (or the page is opened as a file), the nav
 // stays as it is.
 //
@@ -28,6 +28,11 @@
     "@media (min-width:769px) and (max-width:1180px){.nav-links{gap:1.1rem}.nav-links .h9a-wide{display:none}}",
     ".h9a-line{font-family:var(--font-mono,monospace);font-size:.85rem;letter-spacing:.1em}",
     ".h9a-line a{color:#ff4d00}",
+    ".nav-links button.h9a-out,.h9a-line button.h9a-out{background:none;border:0;padding:0;margin:0;cursor:pointer;",
+    "font-family:var(--font-mono);font-size:.85rem;letter-spacing:.15em;color:var(--text-dim)}",
+    ".h9a-line button.h9a-out{color:#ff4d00;letter-spacing:.1em}",
+    ".nav-links button.h9a-out:hover,.nav-links button.h9a-out:focus-visible,.h9a-line button.h9a-out:hover{color:var(--orange)}",
+    ".nav-links button.h9a-out:disabled,.h9a-line button.h9a-out:disabled{opacity:.5;cursor:default}",
   ].join("");
 
   // where SIGN IN brings the visitor back to: this page, as a path under the site's root, with its
@@ -45,6 +50,28 @@
     a.textContent = label;
     if (className) a.className = className;
     return a;
+  }
+
+  // LOG OUT: ends this browser's session (POST api/logout, which the server takes only from the
+  // site's own pages), then shows the page again, signed out. The account and admin pages need an
+  // account, so from them it goes to the home page instead.
+  function logoutButton() {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "h9a-out";
+    button.textContent = "LOG OUT";
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await fetch(new URL("api/logout", root), { method: "POST", credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } });
+      } catch (e) {
+        // the next page load shows whatever the server kept
+      }
+      const path = location.pathname;
+      if (path.startsWith(root.pathname + "account/") || path.startsWith(root.pathname + "admin/")) location.href = root.href;
+      else location.reload();
+    });
+    return button;
   }
 
   function item(child, className) {
@@ -80,6 +107,7 @@
         items.push(item(link(new URL("admin/", root).href, "ADMIN", onAdminPages ? "active" : ""), "h9a"));
       }
       items.push(item(link(new URL("account/", root).href, "ACCOUNT", onAccountPages ? "active" : ""), "h9a"));
+      items.push(item(logoutButton(), "h9a"));
     } else {
       items.push(item(link(withNext("account/login/"), "SIGN IN"), "h9a"));
       items.push(item(link(withNext("account/signup/"), "CREATE ACCOUNT", "h9a-cta"), "h9a h9a-wide"));
@@ -93,6 +121,8 @@
       if (signedIn) {
         box.append("Signed in as " + data.user.username + DOT);
         box.appendChild(link(new URL("account/", root).href, "ACCOUNT"));
+        box.append(DOT);
+        box.appendChild(logoutButton());
       } else {
         box.appendChild(link(withNext("account/login/"), "SIGN IN"));
         box.append(DOT);

@@ -88,6 +88,14 @@ static void Cbuf_AddTextToBuffer( cmdbuf_t *buf, const char *text )
 {
 	int l = Q_strlen( text );
 
+#if XASH_EMSCRIPTEN
+	// H9 web client: Sys_Quit leaves the module loaded for the page, which can still call in
+	// after the host has shut down (client.js sends disconnect from its pagehide handler); no
+	// frame runs after that, so nothing is queued
+	if( host.shutdown_issued )
+		return;
+#endif
+
 	if(( buf->cursize + l ) >= sizeof( buf->data ))
 	{
 		Con_Reportf( S_WARN "%s: overflow\n", __func__ );
@@ -878,6 +886,14 @@ static void Cmd_ExecuteStringWithPrivilegeCheck( const char *text, qboolean isPr
 	char		command[MAX_CMD_LINE];
 	char		*pcmd = command;
 	int		len = 0;
+
+#if XASH_EMSCRIPTEN
+	// H9 web client: a command from the page after the host has shut down runs nothing. The
+	// host's memory is freed by then, and tokenizing would free the last command's arguments
+	// a second time (Cmd_TokenizeString)
+	if( host.shutdown_issued )
+		return;
+#endif
 
 	cmd_condlevel = 0;
 

@@ -428,6 +428,7 @@ void R_FindViewLeaf( void );
 void R_PushScene( void );
 void R_PopScene( void );
 void R_DrawFog( void );
+qboolean R_FogAllowed( void );
 int CL_FxBlend( cl_entity_t *e );
 
 //

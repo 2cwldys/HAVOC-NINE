@@ -7,6 +7,12 @@
  runs the havoc9.org VPS.
 
  The short version
+   * What it is for: a home on havoc9.org for a group of players -- a clan or
+     a team, a project such as a map pack or a mod, a roleplay group, a
+     network of game servers. It gets a page listed on havoc9.org/community/
+     for anyone to find, so it is also how a group shows itself or its project
+     to everyone on H9: its members, its linked servers and who is on them,
+     its announcements, and a chat on its page that reaches the game.
    * A community is a havoc9.org account's group of game servers, run by that
      account (its owner) and the admins the owner names. Its page is
      havoc9.org/community/?c=<short name>.
@@ -14,10 +20,15 @@
      (h9_presence does that: docs\H9_PRESENCE.txt, section 4a), then its
      console's h9_community_claim prints a one-time code that the owner or an
      admin enters on the community's page.
+   * A community has members: anyone signed in joins an open one, asks to
+     join one that takes requests, or is invited (section 2a). It can be
+     listed, unlisted (by link) or private (members only), and its servers
+     can be for members only.
    * Players chat across all the community's servers and its page: ".relay
-     <text>" in game, the chat box on the site when signed in. "/find <name>"
-     says where a player is. Portals on a map lead to the community's other
-     servers.
+     <text>" in game, the chat box on the site for its members (or for every
+     signed-in player, when the owner opens it). H9's site admins can bridge
+     that chat with a Discord channel (section 3a). "/find <name>" says where
+     a player is. Portals on a map lead to the community's other servers.
    * The community's admins ban, mute and kick across all its servers, and
      announce to all of them. H9's site admins do the same H9-wide.
    * Plugins keep per-account data for the community through
@@ -31,7 +42,9 @@
  CONTENTS
     1. Setting up a server
     2. Making a community and linking servers
+   2a. Members, joining and private communities
     3. Community chat
+   3a. The Discord bridge
     4. Finding a player
     5. Bans, mutes, kicks and announcements
     6. Shared data for plugins (h9_community.inc)
@@ -97,20 +110,99 @@
  DATA (the server may read the shared data and not write it, section 8), and
  UNLINK, which cuts it off from the community's chat and data at once.
 
- The community's settings (staff): its name; CHAT ON (the community's chat,
- on by default); CHAT NEEDS PROVEN PLAYERS and DATA NEEDS PROVEN PLAYERS (off
- by default): only players whose game proved its player id (h9_presence's
- challenge, docs\H9_PRESENCE.txt section 8) may relay a line, or have data
- written for them. Until H9XASH answers the challenge nobody is proven, so
- turning either on stops that for everyone.
+ The community's settings (staff): its name; JOIN (open, request or invite)
+ and VISIBILITY (listed, unlisted or private), section 2a; CHAT ON (the
+ community's chat, on by default); CHAT NEEDS PROVEN PLAYERS and DATA NEEDS
+ PROVEN PLAYERS (off by default): only players whose game proved its player
+ id (h9_presence's challenge, docs\H9_PRESENCE.txt section 8) may relay a
+ line, or have data written for them; MEMBERS-ONLY SERVERS and WHITELIST
+ NEEDS PROVEN PLAYERS (off by default), section 2a. Until H9XASH answers the
+ challenge nobody is proven, so turning any of the proof switches on stops
+ that for everyone.
 
  Admins: the owner names them by username (ADMINS) and removes them. They do
  everything on the page except naming admins, putting data back and deleting
  the community, which only the owner (and H9's site admins) can do.
 
  Deleting: the owner types the short name. The community, its servers'
- links, its chat, its bans and mutes and its shared data go; the servers stay
- enrolled with havoc9.org.
+ links, its members, requests and invitations, its chat, its bans and mutes
+ and its shared data go; the servers stay enrolled with havoc9.org.
+
+ 2a. MEMBERS, JOINING AND PRIVATE COMMUNITIES
+ --------------------------------------------
+ Members. The owner and every admin always belong. Anyone else becomes a
+ member as the community's JOIN setting allows:
+   open      (the default) JOIN on the community's page: a member at once
+   request   REQUEST TO JOIN: the request waits under MEMBERS, REQUESTS TO
+             JOIN, until an admin approves or refuses it; the asker can
+             withdraw it meanwhile
+   invite    only accounts an admin invites by username (MEMBERS,
+             INVITATIONS); the invited account sees the invitation on
+             havoc9.org/community/ and on the community's page, and accepts
+             or declines it. An invitation works in any mode.
+ A member LEAVEs on the community's page; an admin who leaves stops being
+ one. The owner cannot leave (delete the community instead). Staff remove a
+ member under MEMBERS; only the owner removes an admin, and nobody the
+ owner. An account banned in the community or H9-wide cannot join, ask or be
+ invited, and an invitation it had does not let it in.
+
+ What shows: the member count, on the communities list and the community's
+ page (not for a private community); the member list, to members, staff and
+ H9's site admins; requests and invitations, to staff. On
+ havoc9.org/community/ a signed-in account sees YOUR COMMUNITIES (any
+ visibility), its invitations, and its requests waiting.
+
+ Joining, asking, accepting, declining and leaving are limited to 30 an hour
+ per account (membershipPerAccount); invitations to 60 an hour per admin
+ (invitePerAccount). Approving, refusing, inviting, withdrawing an invitation
+ and removing a member go into h9web's audit log (community.member.approve,
+ .refuse, .invite, .uninvite, .remove), with who did it.
+
+ Visibility:
+   listed     (the default) on the communities list; its page is public
+   unlisted   not on the list; its page opens for anyone with the link
+   private    only members and H9's site admins see its page, servers,
+              members and chat. Its servers are left out of the site's
+              public lists ("who's playing", "online now", a player's card),
+              where its players read as in game with the server hidden, as
+              when a player hides which server; off the site's server board
+              (the SERVERS page, /api/servers), though a server on servers.json
+              stays in the game's own server list; and out of /find for
+              anyone who is not a member (section 4).
+ What someone who is not a member can still learn of a private community:
+   * by its link, its name and how to get in, when it takes members (open
+     or request) or the account has an invitation or a request in; with
+     invite only and neither, the link answers as if there were no
+     community;
+   * that its members are in game (not where), if their own switches show
+     it; their playtime still counts in their totals, without the server;
+   * from inside one of its servers: the server itself, its players and
+     everything a game server shows anyone, the community's tag on relayed
+     lines and its announcements, and with members-only servers its name and
+     short name in the kick message;
+   * a server it has that is on h9web's servers.json stays on the site's
+     server list (/api/servers is H9's own list, set by servers.json);
+     leave such a server off servers.json, or set "listed": false there.
+
+ Members-only servers (MEMBERS-ONLY SERVERS, off by default). The answer to
+ each report from the community's servers names everyone who is not a member,
+ and h9_presence kicks them through the same path a ban uses:
+     This server is for members of Zion. Join at havoc9.org/community/?c=zion
+ Turned away: players whose h9_clientid is no account's or no member's, and
+ every player with no h9_clientid (a Steam client). The owner, the admins and
+ H9's site admins always get in. h9_presence 1.2 or later lists players
+ without an h9_clientid while the server is members-only (older ones do not,
+ so those players would stay); turning it on makes the servers report at
+ once, and anyone already on who is not a member is kicked then.
+ WITHOUT THE PROOF SWITCH THE WHITELIST CAN BE FOOLED: an h9_clientid is the
+ same on every visit and every player on a server can read it, so a copy
+ passes as the member it was copied from. WHITELIST NEEDS PROVEN PLAYERS (off
+ by default) lets in only games that proved the player id in the last 10
+ minutes (docs\H9_PRESENCE.txt section 8), staff included: H9XASH with the ID
+ proof (engine-h9-idproof.patch) on a server with h9_presence_challenge 1, and
+ the web client, which its relay vouches for. An older H9XASH cannot prove and
+ is turned away while the switch is on, so turn it on once the community's
+ players have the H9XASH build with the proof.
 
  3. COMMUNITY CHAT
  -----------------
@@ -118,9 +210,16 @@
  prefix). The line goes to every other server of the community and to its
  page, and shows here for everyone as the others see it:
      [Tag] Username: text
- From the site: anyone signed in on havoc9.org can read a community's chat
- and write in it (the chat box on its page); a line shows in game as
+ From the site: the community's members (and H9's site admins) read its chat
+ and write in it, in the chat box on its page; everyone else sees that it is
+ there and the community's JOIN or REQUEST TO JOIN. The owner (and only the
+ owner, or H9's site admins) may open it with CHAT OPEN TO EVERYONE: then
+ every signed-in player reads and writes it, member or not, banned and muted
+ accounts still kept out. A private community's chat stays its members'
+ whatever the switch says. Off by default. A line shows in game as
      [Web] Username: text
+ ".relay" in game does not need membership: anyone a server of the community
+ lets in may relay, and those lines reach the site for its members to read.
  Announcements show as [Community name] text, and H9's as [H9] text.
 
  Who can relay from a game: a player whose h9_clientid is a havoc9.org
@@ -150,6 +249,52 @@
  h9_community_chat 0 on a server shows none of the community's chat there and
  lets nobody relay from it; announcements still show.
 
+ 3a. THE DISCORD BRIDGE
+ ----------------------
+ H9's site admins may bridge a community's chat with one Discord channel, on
+ the community's own page (DISCORD BRIDGE (H9 ADMIN): the channel's id, then
+ BRIDGE; STOP ends it) or with PUT /api/presence/communities/<name>/discord
+ { "channel": "<id>" or null }. It is H9's to give, not the community's: the
+ bot posts as H9. Each change goes into the audit log. A channel serves one
+ community.
+   * Out: every line of the community's chat goes to the channel -- ".relay"
+     lines from any of its servers, its page's chat, and its announcements --
+     as
+         **[Tag] Username:** text      (an announcement: **[Tag]** text)
+     Discord's formatting in a line is taken literally (escaped), and nothing
+     in it can mention anyone: the bot posts with every mention switched off
+     (allowed_mentions empty; @everyone, roles and users alike) and without
+     link previews. Lines that come together go in one message; the bot posts
+     at most one message a channel every 1.2 seconds (relaySendMs) and keeps at
+     most 50 lines waiting.
+   * In: what people write in the channel goes to every server of the
+     community and to its page, as
+         [Discord] Name: text
+     with the game chat's own cleaning (section 3: no colour codes, % made a
+     space, at most 120 characters) and mentions written out as @name,
+     #channel and @role. Bots' and webhooks' messages, the bot's own among
+     them, and Discord's system messages are left out, so nothing comes back
+     twice; a message with only an attachment shows as "(an attachment)". At
+     most 30 lines a minute come in per community (discordInPerCommunity); a
+     line more than 10 minutes old (h9web was down) is dropped, as are all
+     lines while the community's chat is off. The channel is read every 3
+     seconds (relayPollSeconds), from the last message relayed, kept across
+     restarts.
+   * Who can mute or ban a Discord writer: nobody in the community; they are
+     not accounts here. The community's staff delete a [Discord] line on the
+     page like any other, and Discord's own moderators keep the channel.
+ What it needs, on Discord's side: H9's application (the discord module's,
+ README.txt section 18; its bot token stays in that module's secrets file and
+ nowhere else) in the server that has the channel, with View Channel, Read
+ Message History and Send Messages there, and MESSAGE CONTENT INTENT switched
+ on for the bot in Discord's developer portal (Bot, Privileged Gateway
+ Intents): without it every message reads empty, and the page says "The
+ channel does not answer: message_content_intent". The page shows H9's
+ admins how the channel last answered (no_access: the bot cannot see or
+ write there; no_such_channel: a wrong id; bad_token: the token).
+ The bridge needs h9web's discord module loaded with its secrets file; the
+ Discord account linking it also does is not needed for it.
+
  4. FINDING A PLAYER
  -------------------
  In game: "/find <name>" or "/where <name>" (".find" and ".where" too;
@@ -162,7 +307,10 @@
      [H9] Trinity is in game.                         (she hides where)
      [H9] Tank is on havoc9.org. / is in the H9 web client. / is offline.
  Each account's own switches on its ACCOUNT page decide what shows
- (docs\H9_PRESENCE.txt, section 6), exactly as on the site. A server cannot
+ (docs\H9_PRESENCE.txt, section 6), exactly as on the site. A private
+ community's server shows only when the player asking is that community's
+ member (h9_community 1.1 sends who asks); to anyone else that player is "in
+ game". A server cannot
  move a player to another server (section 9), so the address is given to
  type. One search every 5 seconds per player; 60 a minute per server.
 
@@ -335,13 +483,20 @@
    there; they cannot make sure the player typed the line. Link only servers
    you trust, and make a server read-only when it only needs to read.
 
+ A member
+   can   read and write the community's web chat; see its member list and,
+         when it is private, its page and servers; leave.
+   can't see requests or invitations, or change anything of the community.
+
  A community's admin (named by the owner)
    can   link servers (with a code from the server's console), set tags and
-         read-only, unlink; ban, mute and kick in the community; announce;
-         delete chat lines; read the shared data's history.
-   can't name admins, put data back, delete the community; sanction the
-         owner or an H9 site admin; touch another community; see keys,
-         player ids, devices or players' addresses.
+         read-only, unlink; change the settings (join mode, visibility,
+         members-only servers among them); approve and refuse requests,
+         invite, remove members; ban, mute and kick in the community;
+         announce; delete chat lines; read the shared data's history.
+   can't name admins, remove an admin, put data back, delete the community;
+         sanction the owner or an H9 site admin; touch another community;
+         see keys, player ids, devices or players' addresses.
 
  A community's owner
    can   all of the above; name and remove admins; put the shared data back
@@ -355,8 +510,13 @@
 
  Whoever runs the VPS: the database, and so everything; backups hold it too.
 
- A player: chats where not muted, finds others, and decides with the switches
- on the ACCOUNT page what others see of them, on the site and through /find.
+ A player: chats where not muted (on the site, in communities it is a member
+ of), finds others, and decides with the switches on the ACCOUNT page what
+ others see of them, on the site and through /find.
+
+ A members-only server trusts the h9_clientid a player's game sends unless
+ WHITELIST NEEDS PROVEN PLAYERS is on (section 2a): without it, membership
+ keeps out the honest, not a copied id.
 
  8. HOW THE SHARED DATA IS PROTECTED
  -----------------------------------
@@ -423,41 +583,72 @@
  is on the server (a missing precached file stops a map from loading). A
  Steam hlds server does not run mapconfigs, so it shows no portals.
 
- What moves a client: nothing a server can do, today.
-   * The obvious way is the server telling the client to run "connect
-     <address>" (stufftext). FWGS registers connect with
+ What moves a client: the player's own YES.
+   * A server cannot connect a client by itself. FWGS registers connect with
      Cmd_AddRestrictedCommand, so it is CMD_PRIVILEGED, and
      Cmd_ShouldAllowCommand refuses every privileged command that comes from
-     the server, whatever cl_filterstuffcmd says. H9XASH and the web client
-     are FWGS: they ignore it. Steam's Half-Life filters server commands too.
-   * GoldSrc has no "redirect" message for a server to send.
- So Go gives the address: "[H9] HAVOC 9 RP is at 203.0.113.10:27016 -- open
- the console (~) and type: connect 203.0.113.10:27016", in chat and in the
- console. The player types it.
+     the server (stufftext), whatever cl_filterstuffcmd says. Steam's
+     Half-Life filters server commands too, and GoldSrc has no "redirect"
+     message for a server to send.
+   * H9XASH and the H9 web client have h9_travel (engine-h9-travel.patch), a
+     command any server may send, which only asks:
+         h9_travel <a.b.c.d:port> [name]
+     Their userinfo says they have it: _h9travel "1" (a key that starts
+     with _ goes to the server only, never to the other players).
+   * After Go the plugin sends h9_travel, with the address and the
+     destination's name, to a client that says _h9travel "1", and puts the
+     address in its console. The engine draws its own prompt over the game:
 
- Moving the player for real needs an engine patch. With
- h9_community_travel 1 the plugin also sends "h9_travel <address>" after Go;
- an engine without the patch says the command is unknown and nothing else
- happens, so leave it 0 until the patch ships. The patch, for the H9XASH
- engine (the coordinator builds engine patches):
-   * A client command h9_travel <a.b.c.d:port>, registered with
-     Cmd_AddCommand (not restricted), so a server's stufftext may run it.
-   * It does nothing unless the client is connected (cls.state ==
-     ca_active), the argument is an IPv4 address with a port and nothing
-     else, and cl_h9_travel (a new archived cvar, default 1) is on. A
-     loopback or private address is refused unless the server the client is
-     on is itself private. At most one h9_travel every 10 seconds.
-   * It never connects on its own. It shows the player, in the engine's own
-     text where no server can draw (Con_NPrintf at the top of the screen, or
-     a mainui message box), "Travel to <address>? Y: go, N: stay", for 15
-     seconds, and takes the key itself in Key_Event while it is up: Y runs
-     the connect as if typed (Cbuf_AddText "connect <address>"), N or Esc or
-     the time running out drops it. A server cannot press Y, so a server
-     that skips the plugin's menu still cannot move anyone.
-   * The web client: the same check in its JS before it reconnects through
-     the relay, which keeps its own allowlist of H9 servers.
- With the patch in and h9_community_travel 1, Go and then Y take the player
- there; the chat line stays as a fallback.
+       Travel to HAVOC 9 RP?
+       Address: 203.0.113.10:27016
+       Offered by the server you are on: HAVOC 9 Siege, 203.0.113.10:27015
+       This closes by itself in 15 s.
+                                                  [ YES (Y) ]  [ NO (N) ]
+
+     Y, Enter or a click on YES connects, from the engine's own command
+     buffer, as if the player had typed connect. N, Esc, a click on NO, 15
+     seconds, a new map or a disconnect drop it. The console key still opens
+     the console. The prompt takes its keys before the game and any server
+     menu see them, so a server can neither press YES nor answer for the
+     player.
+   * Every other client (Steam Half-Life, an older H9XASH, or cl_h9_travel
+     0) is given the address to type: "[H9] HAVOC 9 RP is at
+     203.0.113.10:27016 -- open the console (~) and type: connect
+     203.0.113.10:27016", in chat and in the console.
+
+ The engine refuses an offer, with an "H9 TRAVEL:" line in its console,
+ when:
+   * cl_h9_travel is 0 (the player turned offers off);
+   * the address is not a plain IPv4 address and port: decimal octets
+     without leading zeros, no names, no IPv6, a port from 1 to 65535;
+   * it is a loopback, private, CGNAT or link-local address and the server
+     the player is on is not itself on a LAN or the same machine (LAN play
+     still works), or it is multicast or reserved;
+   * another offer is up, the last one ended less than 10 seconds ago, or
+     the server the player is on has made 4 offers in the last 120 seconds.
+ An offer to the server the player is already on, or one that comes while
+ the game is not in play or a demo is playing, is dropped silently.
+ "Offered by" is the name the server gave itself at join (its hostname) and
+ the address the game is connected to, which comes from the engine, not
+ from the server. The name after "Travel to" is the server's word; the
+ address under it is where YES goes.
+
+ Players: cl_h9_travel 1 (the default; archived, and no server can set it)
+ shows offers; 0 ignores them, with a console line for each, and sets
+ _h9travel "0", so servers give the address to type instead.
+
+ The web client shows the same prompt. Its connects go through havoc9.org's
+ relay, which joins only H9's listed servers, so the page tells the engine
+ which addresses it can reach: those on the SERVERS page (/api/servers) and
+ the page's own JOIN links. For any other address the prompt says "The
+ browser cannot reach this server: the web client joins only H9's listed
+ servers." and offers only OK. Until the page has the list, a moment after
+ it loads, the prompt offers YES and the relay refuses what it does not
+ serve.
+
+ Hosts set nothing. h9_community_travel 1 sends h9_travel after Go to every
+ client, also to those without _h9travel "1" (they still get the chat line;
+ an engine without the command prints that it is unknown). Leave it 0.
 
  10. LATENCY AND COST
  --------------------
@@ -506,7 +697,8 @@
    communitiesPerAccount 3, claimMinutes 15
    limits: serverCallsPerIp, pollPerServer, chatPerServer, chatPerAccount,
    chatWebPerAccount, findPerServer, dataReadPerServer, dataWritePerServer,
-   dataWritePerAccount, claimPerServer, communityPerAccount
+   dataWritePerAccount, claimPerServer, communityPerAccount,
+   membershipPerAccount, invitePerAccount
  Enrollment's own settings are in docs\H9_PRESENCE.txt, section 3.
 
  12. THE API
@@ -514,7 +706,8 @@
  Game servers (signed; h9_community.sma makes these calls):
    POST /api/presence/server/poll      { since, hold }   the long-poll
    POST /api/presence/server/chat      { id, text }      a relayed line
-   POST /api/presence/server/find      { q }             where an account is
+   POST /api/presence/server/find      { q, id }         where an account is
+                                       (id: the asker's h9_clientid, optional)
    POST /api/presence/server/data/get  { id | account, keys }
    POST /api/presence/server/data/set  { id, key, value, version }
    POST /api/presence/server/claim                       a link code
@@ -526,7 +719,9 @@
    POST   /api/presence/communities                 { slug, name }
    GET    /api/presence/communities/<slug>
    PATCH  /api/presence/communities/<slug>          { name, chat, chatProof,
-                                                      dataProof }   staff
+                     dataProof, joinMode, visibility, whitelist,
+                     whitelistProof }                               staff
+                     { chatOpen } as well                           owner
    DELETE /api/presence/communities/<slug>          { confirm }     owner
    POST   /api/presence/communities/<slug>/claim    { code, tag }   staff
    POST   .../servers/<serverId>   { tag, readOnly }   DELETE (unlink)  staff
@@ -534,7 +729,14 @@
    GET    .../sanctions   POST .../sanctions { username, kind, reason, days }
    POST   .../sanctions/<id>/revoke                                     staff
    POST   .../announce { text }                                         staff
-   GET    .../chat?since=<id>   POST .../chat { text }        signed in
+   GET    .../chat?since=<id>   POST .../chat { text }          members
+                     (every signed-in account while chatOpen, not private)
+   POST   .../join   (join, ask, or take an invitation)   POST .../leave
+   POST   .../invitation/decline                            signed in
+   GET    .../members  (staff also get requests and invites)    members
+   POST   .../requests/<username>/approve | refuse              staff
+   POST   .../invites { username }   DELETE .../invites/<username>   staff
+   DELETE .../members/<username>                                staff
    DELETE .../chat/<id>                                                 staff
    GET    .../data/log?username=                                        staff
    POST   .../data/rollback { to, username }                            owner
@@ -546,6 +748,9 @@
    GET  /api/presence/admin/sanctions   POST /api/presence/admin/sanctions
    POST /api/presence/admin/sanctions/<id>/revoke
    POST /api/presence/admin/announce  { text }
+   PUT  /api/presence/communities/<slug>/discord  { channel: "<id>" | null }
+        the Discord bridge (section 3a); the page's answer then carries
+        discordChannel and discordStatus for H9's site admins
 
  13. COMMANDS AND CVARS
  ----------------------
@@ -565,7 +770,10 @@
    h9_community_chat         1   the community's chat here; 0: none
    h9_community_find         1   /find and /where
    h9_community_portal_wait  10  seconds between two trips through a portal
-   h9_community_travel       0   1: Go also sends h9_travel (section 9)
+   h9_community_travel       0   1: h9_travel to every client (section 9)
+ The player's game (H9XASH and the web client):
+   cl_h9_travel              1   a portal's offer asks (Y/N); 0: ignored
+   h9_travel <a.b.c.d:port> [name]   the offer: a server sends it, it asks
 
  14. TROUBLESHOOTING
  -------------------
@@ -590,6 +798,14 @@
      (h9_community_status counts the portals "leading somewhere"); the
      mapconfig must have the line, on an H9XASH server (Steam hlds runs no
      mapconfigs); the ring needs sprites\tsm_zone_ring_0.spr on the server.
+ Go shows no travel prompt (H9XASH or the web client)
+   - The player's console says why, on an "H9 TRAVEL:" line: cl_h9_travel
+     0, not a public address (a portal to a LAN address works only from a
+     LAN server), too soon after the last offer, or 4 offers from this
+     server in two minutes. No such line and the address in chat: that game
+     has no h9_travel (Steam, or an H9XASH from before it).
+   - In the web client, "The browser cannot reach this server": the
+     destination is not one of H9's listed servers (the SERVERS page).
  A plugin's h9c_ call returns false
    - No live key, the player has no h9_clientid, a key name with capitals or
      spaces, or 24 calls in flight.
@@ -600,6 +816,9 @@
  TSM\h9_community.cfg            its settings
  TSM\include\h9_community.inc    the natives, for other plugins
  TSM\h9_presence.sma             enrollment, the key, reports, kicks, mutes
+ TSM\xash3d-h9-patches\patches\engine-h9-travel.patch
+                                 h9_travel and its prompt (cl_travel.c), in
+                                 the engine of H9XASH and the web client
  h9web\modules\presence\community.js   communities, chat, sanctions, data
  h9web\modules\presence\enroll.js      enrollment; a2s.js reads the rules;
                                        serverauth.js checks signed calls

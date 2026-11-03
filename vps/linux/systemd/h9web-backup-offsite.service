@@ -1,0 +1,14 @@
+# The daily encrypted h9web backup into /var/lib/h9web/offsite, the newest 7 kept: the copies that
+# leave the VPS (DEPLOY.txt section 13B). Each one carries secrets.json and data.key as well
+# (--with-keys), sealed with the rest, so one file and the passphrase rebuild the site on a new
+# VPS. The passphrase is the first line of /etc/h9web/backup-passphrase (owner h9web, mode
+# 0600); vps/linux/setup.sh turns the timer on only once that file exists.
+[Unit]
+Description=h9web encrypted backup for copies off the VPS
+ConditionPathExists=/etc/h9web/backup-passphrase
+
+[Service]
+Type=oneshot
+User=h9web
+UMask=0077
+ExecStart=/usr/bin/node /opt/h9web/bin/h9web-backup.js --config /etc/h9web/config.json backup --encrypt --with-keys --passphrase-file /etc/h9web/backup-passphrase --out /var/lib/h9web/offsite --keep 7

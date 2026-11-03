@@ -1,0 +1,41 @@
+H9 metamod.dll -- Metamod-R built from source
+==============================================
+
+What this is
+------------
+
+addons\metamod\dlls\metamod.dll is Metamod-R built by H9 from TSM\metamod-r: upstream
+rehlds/metamod-r at commit 56590c5c70fa95775051888b7fe0a4e285856ebb (2026-09-17), with H9's
+patches in that folder (metamod-r\H9-SOURCE.txt):
+
+  h9-slots128.patch   the client-cvar query table (MPlayerList::m_players) holds 128 player
+                      slots, and every look-up is bounded by it as well as by maxClients.
+                      Upstream sizes it from the HLSDK's MAX_CLIENTS (32) and bounds the
+                      look-ups by maxClients only, so on a server past 32 slots a query from
+                      slot 33 and up was written past the table.
+
+Deployed file : metamod.dll
+Size          : 353792 bytes
+SHA256        : 1463EFB298B065C7F76D47671477CD63998A3F0E9799080D5B98281DAEBE232E
+Built         : 2026-11-01, MSBuild metamod\msvc\metamod.vcxproj, Release|Win32, toolset
+                v145 (Visual Studio 2026), from a copy of TSM\metamod-r (its pre-build step
+                writes version files into the tree). Interface version 5:13; version string
+                1.3.0.0 (the copy has no git history to count).
+
+Against the build it replaces
+-----------------------------
+
+The goldsrc-net prebuilt, Metamod-r 1.3.0.196 (goldsrc-net/Metamod-R b2ea6fb), SHA256
+0A6B311F48F8708EF4FFF05CD31833E4B766AFC6DD705A11B6354D77FFF756B6, kept as metamod.dll.bak_slots beside this file.
+goldsrc-net forked rehlds at 4db16ff (2025-07-22); rehlds has had only Linux CI and packaging
+commits since. The fork adds a hook JIT rewritten on AsmJit with x64 and aarch64 support,
+plugin file name suffixes for 64-bit builds, Linux library floors, and fixes to its own JIT
+rewrite. This build runs rehlds' x86 JIT (jitasm), which picks a hooked call's return value
+before restoring the meta globals and formats variadic calls itself. Same exports, same
+interface version, same game support list, same plugins.ini: for H9's 32-bit Windows server
+nothing it relies on differs.
+
+Rollback
+--------
+
+Copy metamod.dll.bak_slots over metamod.dll with the server closed.

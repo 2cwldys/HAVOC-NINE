@@ -290,6 +290,13 @@
   white-space: nowrap;
 }
 
+/* a title's or a meta line's tags come after it, so their space goes before each one */
+.forum-row-title ~ .forum-tag,
+.forum-row-meta .forum-tag {
+  margin-right: 0;
+  margin-left: 0.5rem;
+}
+
 .forum-tag.is-hot {
   color: var(--orange);
   border-color: var(--orange);
@@ -926,4 +933,64 @@ a.forum-author-name:hover {
   .forum-modbar .forum-select {
     max-width: 100%;
   }
+}
+
+/* the DEVELOPER flag: the name in purple, and a purple tag */
+.is-developer,
+a.is-developer,
+.forum-author-name.is-developer {
+  color: #be8cff;
+}
+
+a.is-developer:hover {
+  color: #fff;
+}
+
+.forum-tag.is-dev {
+  color: #be8cff;
+  border-color: rgba(190, 140, 255, 0.55);
+}
+
+/* the author's signature under each post, and on the member page */
+.forum-signature {
+  margin-top: 0.9rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid rgba(255, 77, 0, 0.18);
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.forum-signature p {
+  margin: 0;
+}
+
+.forum-signature .forum-figure {
+  margin: 0.3rem 0;
+}
+
+/* pictures in posts, shown from their hosts: at most the post's width and about 480 px tall */
+.forum-figure {
+  display: block;
+  margin: 0.6rem 0;
+}
+
+.forum-img-link {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.forum-img {
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  width: auto;
+  height: auto;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.forum-figure .forum-act {
+  margin-top: 0.35rem;
 }

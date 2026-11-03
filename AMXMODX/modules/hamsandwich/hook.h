@@ -16,8 +16,14 @@
 
 #include "forward.h"
 #include "Trampolines.h"
+#include "vector_return.h"
 #include <amtl/am-vector.h>
 #include <amtl/am-string.h>
+
+#if defined(__linux__) || defined(__APPLE__)
+#  include <sys/mman.h>
+#  include <unistd.h>
+#endif
 
 #define ALIGN(ar) ((intptr_t)ar & ~(sysconf(_SC_PAGESIZE)-1))
 
@@ -39,7 +45,7 @@ public:
 	char			*ent;     // ent name that's being hooked
 	int              trampSize;
 
-	Hook(void **vtable_, int entry_, void *target_, bool voidcall, bool retbuf, int paramcount, const char *name) :
+	Hook(void **vtable_, int entry_, void *target_, const HamSig::HookSignature& sig_, const char *name) :
 		func(NULL), vtable(vtable_), entry(entry_), target(target_), exec(0), del(0), tramp(NULL), trampSize(0)
 		{
 			// original function is vtable[entry]
@@ -47,9 +53,29 @@ public:
 			int **ivtable=(int **)vtable;
 			func=(void *)ivtable[entry];
 
-			// now install a trampoline
-			// (int thiscall, int voidcall, int paramcount, void *extraptr)
-			tramp = CreateGenericTrampoline(true, voidcall, retbuf, paramcount, (void*)this, target, &trampSize);
+			// install a trampoline that prepends `this` (the owning Hook*)
+			// before forwarding to `target` (the C dispatcher Hook_<TAG>).
+#if !defined(_WIN32) && (defined(__x86_64__) || defined(__aarch64__))
+			if (sig_.ret == HamSig::ReturnKind::VectorSret && VectorReturnInRegisters)
+			{
+				// the game returns Vector in registers: tail-jump to a dispatcher that does too
+				void *regTarget = GetRegisterReturnDispatcher(target);
+				tramp = regTarget ? Trampolines::CreateRegisterReturnTrampoline(sig_, (void*)this, regTarget, &trampSize) : NULL;
+			}
+			else
+#endif
+			tramp = Trampolines::CreateGenericTrampoline(sig_, (void*)this, target, &trampSize);
+
+			size_t len=strlen(name);
+			ent=new char[len+1];
+
+			ke::SafeSprintf(ent, len + 1, "%s", name);
+
+			if (!tramp)
+			{
+				MF_Log("Could not create a trampoline for a hook on \"%s\"; the hook is not installed", ent);
+				return;
+			}
 
 			// Insert into vtable
 #if defined(_WIN32)
@@ -60,11 +86,6 @@ public:
 			mprotect(addr,sysconf(_SC_PAGESIZE),PROT_READ|PROT_WRITE);
 #endif
 			ivtable[entry]=(int*)tramp;
-
-			size_t len=strlen(name);
-			ent=new char[len+1];
-
-			ke::SafeSprintf(ent, len + 1, "%s", name);
 		};
 
 	~Hook()
@@ -72,22 +93,19 @@ public:
 		// Insert the original function back into the vtable
 		int **ivtable=(int **)vtable;
 
+		if (tramp)
+		{
 #if defined(_WIN32)
-		DWORD OldFlags;
-		VirtualProtect(&ivtable[entry],sizeof(int*),PAGE_READWRITE,&OldFlags);
+			DWORD OldFlags;
+			VirtualProtect(&ivtable[entry],sizeof(int*),PAGE_READWRITE,&OldFlags);
 #elif defined(__linux__) || defined(__APPLE__)
-		void *addr = (void *)ALIGN(&ivtable[entry]);
-		mprotect(addr,sysconf(_SC_PAGESIZE),PROT_READ|PROT_WRITE);
+			void *addr = (void *)ALIGN(&ivtable[entry]);
+			mprotect(addr,sysconf(_SC_PAGESIZE),PROT_READ|PROT_WRITE);
 #endif
 
-		ivtable[entry]=(int *)func;
-#if defined(_WIN32)
-		VirtualFree(tramp, 0, MEM_RELEASE);
-#elif defined(__linux__)
-		munmap(tramp, trampSize);
-#elif defined(__APPLE__)
-		free(tramp);
-#endif
+			ivtable[entry]=(int *)func;
+			Trampolines::FreeTrampoline(tramp, trampSize);
+		}
 
 		delete[] ent;
 

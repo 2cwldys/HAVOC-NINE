@@ -1,0 +1,13 @@
+diff --git a/menus/CreateGame.cpp b/menus/CreateGame.cpp
+index 00deec5..a1e5623 100644
+--- a/menus/CreateGame.cpp
++++ b/menus/CreateGame.cpp
+@@ -267,7 +267,7 @@ void CMenuCreateGame::_Init( void )
+ 
+ 		int players = atoi( buf );
+ 		if( players <= 1 )
+-			self->SetBuffer( "16" );
++			self->SetBuffer( "64" );
+ 		else if( players > MAX_CLIENTS )
+ 			self->SetBuffer( MAX_CLIENTS_STRING() );
+ 	});

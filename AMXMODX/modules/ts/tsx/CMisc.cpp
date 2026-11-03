@@ -31,11 +31,27 @@ void CPlayer::PutInServer()
 	restartStats();
 	ingame = true;
 
+	// The game tells a newcomer about his weapon, powerup and state only when they change, so what
+	// the last player in this slot had must not carry over.
+	current = TSWEAPON_KUNGFU;
+	aiming = 0;
+	money = 0;
+	space = 0;
+	PwUp = 0;
+	PwUpValue = 0;
+	killFlags = 0;
+	deathKiller = 0;
+	died = false;
+	state = oldstate = checkstate = 0;
+
+	speedActive = false;
+	speedBy = 0;
+	speedEntityCount = 0;
+
 	killingSpree = 0;
 	items = 0;
     lastFrag = 0;
     lastKill = 0.0;
-	is_specialist = 0;
 
 	//debug
 	frags = 0;
@@ -63,6 +79,7 @@ void CPlayer::PutInServer()
 }
 void CPlayer::Connect(const char* ippp)
 {
+	theOne = false;
 	strcpy(ip,ippp);
 	// Strip the port from the ip
 	for (size_t i = 0; i < sizeof(ip); i++)
@@ -92,6 +109,10 @@ void CPlayer::Init( int pi, edict_t* pe )
 	current = 0;
 	clearStats = 0.0f;
 	ingame = false;
+	theOne = false;
+	speedActive = false;
+	speedBy = 0;
+	speedEntityCount = 0;
 }
 
 void CPlayer::saveKill(CPlayer* pVictim, int wweapon, int hhs, int ttk)
@@ -101,18 +122,19 @@ void CPlayer::saveKill(CPlayer* pVictim, int wweapon, int hhs, int ttk)
 		return;
 
 	pVictim->attackers[index].name = (char*)weaponData[wweapon].name;
+	int vw = pVictim->current == TSWEAPON_KUNGFU ? TSWEAPON_KUNGFU_STATS : pVictim->current;
 	pVictim->attackers[index].kills++;
 	pVictim->attackers[index].hs += hhs;
 	pVictim->attackers[index].tks += ttk;
 	pVictim->attackers[0].kills++;
 	pVictim->attackers[0].hs += hhs;
 	pVictim->attackers[0].tks += ttk;
-	pVictim->weapons[pVictim->current].deaths++;
+	pVictim->weapons[vw].deaths++;
 	pVictim->weapons[0].deaths++;
 	pVictim->life.deaths++;
 	
 	
-	pVictim->weaponsRnd[pVictim->current].deaths++; // DEC-Weapon (round) stats
+	pVictim->weaponsRnd[vw].deaths++; // DEC-Weapon (round) stats
 	pVictim->weaponsRnd[0].deaths++;                   // DEC-Weapon (round) stats
 	
 	int vi = pVictim->index;
@@ -195,46 +217,6 @@ void CPlayer::saveShot(int weapon)
 	life.shots++;
 	weaponsRnd[weapon].shots++;       // DEC-Weapon (round) stats
 	weaponsRnd[0].shots++;            // DEC-Weapon (round) stats
-}
-
-void CPlayer::SetOffsetF(int offs, float val)
-{
-	*((float *)pEdict->pvPrivateData + offs) = val;
-}
-
-void CPlayer::SetOffset(int offs, int val)
-{
-	*((int *)pEdict->pvPrivateData + offs) = val;
-}
-
-float CPlayer::GetOffsetF(int offs)
-{
-	return *((float *)pEdict->pvPrivateData + offs);
-}
-
-int CPlayer::GetOffset(int offs)
-{
-	return *((int *)pEdict->pvPrivateData + offs);
-}
-
-float CPlayer::GetTime()
-{
-	return GetOffsetF(TSX_TIME_OFFSET);
-}
-
-void CPlayer::SetMoney(int money)
-{
-	SetOffset(TSX_MONEY_OFFSET, money);
-}
-
-void CPlayer::SetSlots(int slots)
-{
-	SetOffset(TSX_SLOTS_OFFSET, slots);
-}
-
-int CPlayer::GetSlots()
-{
-	return GetOffset(TSX_SLOTS_OFFSET);
 }
 
 

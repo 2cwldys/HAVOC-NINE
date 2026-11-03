@@ -274,7 +274,7 @@ public task_tick()
 /// How many mutants are on their feet right now: side 2, alive and in play.
 mutants_in_play()
 {
-	new players[32], pnum, n = 0;
+	new players[MAX_PLAYERS], pnum, n = 0;
 	get_players(players, pnum, "a");
 	for (new i = 0; i < pnum; i++)
 	{
@@ -288,7 +288,7 @@ mutants_in_play()
 
 slay_stragglers()
 {
-	new players[32], pnum;
+	new players[MAX_PLAYERS], pnum;
 	get_players(players, pnum, "a");
 	for (new i = 0; i < pnum; i++)
 	{
@@ -309,7 +309,7 @@ keep_mutant_classes()
 	{
 		return;
 	}
-	new players[32], pnum;
+	new players[MAX_PLAYERS], pnum;
 	get_players(players, pnum, "");
 	for (new i = 0; i < pnum; i++)
 	{
@@ -333,7 +333,8 @@ next_wave()
 	g_last_change = get_gametime();
 
 	// Every survivor's lives set to their class's again, the fallen among them back now.
-	if (tsm_reward_lives(1) < 0 && !g_told_respawns)
+	new restored = tsm_reward_lives(1);
+	if (restored < 0 && !g_told_respawns)
 	{
 		g_told_respawns = true;
 		log_amx("[SURVIVAL] tsm_respawns is 0, so the survivors cannot be brought back between waves -- set it to 1 for %s.",
@@ -353,7 +354,15 @@ next_wave()
 
 	set_hudmessage(255, 80, 60, -1.0, 0.32, 0, 0.0, 2.5, 0.1, 0.5, 4);
 	show_hudmessage(0, "WAVE %d", g_wave);
-	client_print(0, print_chat, "[MATCH] WAVE %d -- the fallen are back with you, and .stim, .ammo and your class abilities are ready again. Hold them off.", g_wave);
+	if (restored < 0)
+	{
+		// tsm_respawns 0: nobody comes back, so nothing is said about lives
+		client_print(0, print_chat, "[MATCH] WAVE %d. Your .stim, .ammo and class abilities are ready again. Hold them off.", g_wave);
+	}
+	else
+	{
+		client_print(0, print_chat, "[MATCH] WAVE %d. Everyone who fell is back, every survivor has full lives again, and .stim, .ammo and class abilities are ready. Hold them off.", g_wave);
+	}
 
 	// The milestones, said once each as they arrive.
 	if (g_wave == 16)
@@ -385,7 +394,7 @@ sting()
 	{
 		return;
 	}
-	new players[32], pnum;
+	new players[MAX_PLAYERS], pnum;
 	get_players(players, pnum, "c");
 	for (new i = 0; i < pnum; i++)
 	{
@@ -563,7 +572,37 @@ public tsm_round_live(round)
 	}
 	g_last_change = get_gametime();
 	sting();
-	client_print(0, print_chat, "[MATCH] WAVE 1 -- hold them off. Every wave you clear brings your fallen back.");
+	if (get_cvar_num("tsm_respawns"))
+	{
+		client_print(0, print_chat, "[MATCH] WAVE 1. Hold them off. Clear a wave and everyone who fell comes back for the next one, with full lives.");
+	}
+	else
+	{
+		client_print(0, print_chat, "[MATCH] WAVE 1. Hold them off. One life each: whoever falls is out for the rest of the run.");
+	}
+}
+
+/*
+ * A survivor is down, said plainly. The core's own line, "1 life left -- back in the next wave",
+ * reads here as if the mutants' next WAVE were meant, when it is the side's own respawn: this mode
+ * has two kinds of wave, so it says which. Nothing is said for a mutant (side 2 never runs out).
+ */
+public tsm_life_lost(id, left)
+{
+	if (!g_active || tsm_side_of(id) != 1)
+	{
+		return PLUGIN_CONTINUE;
+	}
+	if (left > 0)
+	{
+		client_print(id, print_chat, "[MATCH] You are down, with %d %s left. You come back at your side's next respawn (the countdown on your screen), or when this wave of mutants is cleared.",
+			left, left == 1 ? "life" : "lives");
+	}
+	else
+	{
+		client_print(id, print_chat, "[MATCH] You are down, with no lives left. If your side clears this wave of mutants, you come back for the next one.");
+	}
+	return PLUGIN_HANDLED;
 }
 
 /// The run is over: how far the survivors got, and the best on this map since it loaded.

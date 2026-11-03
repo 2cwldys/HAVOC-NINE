@@ -1,0 +1,37 @@
+# The H9 server list (serverlist-bot): the game's Internet tab and the site read it through nginx
+# at https://havoc9.org/serverlist/. Its code is in /opt/h9-serverlist, its settings, secrets,
+# seed list and log in /var/lib/h9-serverlist (H9_SERVERLIST_HOME). vps/linux/setup.sh installs it.
+[Unit]
+Description=HAVOC 9 server list (serverlist-bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=h9list
+Group=h9list
+WorkingDirectory=/var/lib/h9-serverlist
+Environment=H9_SERVERLIST_HOME=/var/lib/h9-serverlist
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/h9-serverlist/venv/bin/python /opt/h9-serverlist/h9_serverlist.py
+Restart=always
+RestartSec=5
+StateDirectory=h9-serverlist
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

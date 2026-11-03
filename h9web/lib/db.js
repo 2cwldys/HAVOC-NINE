@@ -12,9 +12,17 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
+// The database and its copies are readable by the service's user only (0600), whatever umask
+// the process had; SQLite gives its -wal and -shm files the database file's mode.
+function ownerOnly(file) {
+  if (process.platform === "win32") return;
+  try { fs.chmodSync(file, 0o600); } catch (e) { /* not ours to change: left as it is */ }
+}
+
 export function openDatabase(file) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(file);
+  ownerOnly(file);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA foreign_keys = ON");
@@ -45,6 +53,7 @@ export function backupDatabase(db, file) {
   if (fs.existsSync(file)) throw new Error("backup: " + file + " already exists");
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   db.prepare("VACUUM INTO ?").run(file);
+  ownerOnly(file);
   return file;
 }
 
@@ -102,6 +111,7 @@ export function appliedVersion(db, moduleName) {
 //   v1  accounts, sessions
 //   v2  audit_log (lib/audit.js); username_requests and username_holds, and
 //       accounts.username_changed_at (lib/renames.js)
+//   v3  account_links: the games linked to an account (lib/link.js)
 export const CORE_MIGRATIONS = [
   {
     version: 1,
@@ -178,6 +188,25 @@ export const CORE_MIGRATIONS = [
         );
         CREATE INDEX username_holds_key ON username_holds(username_key, held_until);
         CREATE INDEX username_holds_skeleton ON username_holds(username_skeleton, held_until);
+      `);
+    },
+  },
+  {
+    version: 3,
+    description: "games linked to an account",
+    up(db) {
+      db.exec(`
+        CREATE TABLE account_links (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          device TEXT,
+          os TEXT,
+          label TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL
+        );
+        CREATE INDEX account_links_account ON account_links(account_id);
       `);
     },
   },

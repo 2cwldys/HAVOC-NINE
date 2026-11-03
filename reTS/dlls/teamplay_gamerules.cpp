@@ -250,7 +250,8 @@ const char* CHalfLifeTeamplay::SetDefaultPlayerTeam(CBasePlayer* pPlayer)
 		src = g_engfuncs.pfnInfoKeyValue(g_engfuncs.pfnGetInfoKeyBuffer(pPlayer->edict()), "team");
 	else
 		src = TSGameRules->GetIndexedTeamName(pPlayer->m_bTheOne ? 0 : 1);
-	strncpy(pPlayer->m_szTeamName, src, TEAM_NAME_LENGTH);
+	strncpy(pPlayer->m_szTeamName, src, TEAM_NAME_LENGTH - 1);
+	pPlayer->m_szTeamName[TEAM_NAME_LENGTH - 1] = '\0';
 
 	RecountTeams(true);
 
@@ -258,7 +259,8 @@ const char* CHalfLifeTeamplay::SetDefaultPlayerTeam(CBasePlayer* pPlayer)
 		return pPlayer->m_szTeamName; // keep the infokey team
 
 	const char* pTeamName = (0 == defaultteam.value) ? TeamWithFewestPlayers() : team_names[0];
-	strncpy(pPlayer->m_szTeamName, pTeamName, TEAM_NAME_LENGTH);
+	strncpy(pPlayer->m_szTeamName, pTeamName, TEAM_NAME_LENGTH - 1);
+	pPlayer->m_szTeamName[TEAM_NAME_LENGTH - 1] = '\0';
 	return pPlayer->m_szTeamName;
 }
 
@@ -339,7 +341,8 @@ void CHalfLifeTeamplay::ChangePlayerTeam(CBasePlayer* pPlayer, const char* pTeam
 	else if (!pTeamName || pTeamName[0] == '\0' || !IsValidTeam(pTeamName))
 		pTeamName = TeamWithFewestPlayers();
 
-	strncpy(pPlayer->m_szTeamName, pTeamName, TEAM_NAME_LENGTH);
+	strncpy(pPlayer->m_szTeamName, pTeamName, TEAM_NAME_LENGTH - 1);
+	pPlayer->m_szTeamName[TEAM_NAME_LENGTH - 1] = '\0';
 
 	// TS DELTA B: the model infokey comes from the TEAM MODEL table (m_teamLimit==1 always in
 	// TS — @0xd4ad3 is the live path; the stock model-as-team stamp is dead). A team with no models
@@ -695,7 +698,8 @@ void CHalfLifeTeamplay::RecountTeams(bool bResendInfo)
 					tm = num_teams;
 					num_teams++;
 					team_scores[tm] = 0;
-					strncpy(team_names[tm], pTeamName, MAX_TEAMNAME_LENGTH);
+					strncpy(team_names[tm], pTeamName, MAX_TEAMNAME_LENGTH - 1);
+					team_names[tm][MAX_TEAMNAME_LENGTH - 1] = '\0';
 				}
 			}
 

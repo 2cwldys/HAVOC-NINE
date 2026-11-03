@@ -24,6 +24,11 @@ public:
 	float m_flScale = 0;     // +0xec — the slow factor applied
 	float m_flValue = 0;     // +0xf0 — ActivateSlow's third value (written, never read)
 	bool  m_bSlowBullets = false; // +0xf4 — the slowed players' bullets slow down too
+
+	// entindex 33 to MAX_PLAYERS; m_hPlayers holds 0 to 32 at the original's offset. Kept last so
+	// no other member moves.
+	EHANDLE m_hPlayersHigh[MAX_PLAYERS + 1 - 33];
+	EHANDLE &PlayerAt(int idx) { return idx < 33 ? m_hPlayers[idx] : m_hPlayersHigh[idx - 33]; }
 };
 
 #endif // TS_SLOWMOTIONPOINT_H

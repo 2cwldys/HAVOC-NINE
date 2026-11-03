@@ -14,6 +14,56 @@
 
 #include "tsx.h"
 
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
+
+// The game library's ReTS_GetInterface, looked up once in the library that holds the game's Spawn
+// (as the core's gamedll_export gamedata condition finds it). Version 6, else 5: a reTS from before
+// PowerUpTouch, whose table ends before that slot.
+static const rets_interface_t *g_pReTS = nullptr;
+static bool g_ReTSLookedUp = false;
+
+const rets_interface_t *ReTS()
+{
+	if (g_ReTSLookedUp)
+		return g_pReTS;
+	g_ReTSLookedUp = true;
+
+	void *addressInGame = reinterpret_cast<void *>(MDLL_Spawn);
+	if (!addressInGame)
+		return nullptr;
+
+	RETS_GETINTERFACE_FN getInterface = nullptr;
+#if defined(_WIN32)
+	MEMORY_BASIC_INFORMATION mem;
+	if (VirtualQuery(addressInGame, &mem, sizeof(mem)))
+		getInterface = reinterpret_cast<RETS_GETINTERFACE_FN>(GetProcAddress(reinterpret_cast<HMODULE>(mem.AllocationBase), RETS_GETINTERFACE_NAME));
+#else
+	Dl_info info;
+	if (dladdr(addressInGame, &info))
+	{
+		// The engine has the library loaded; this handle only finds the symbol in it.
+		void *handle = dlopen(info.dli_fname, RTLD_NOW);
+		if (handle)
+			getInterface = reinterpret_cast<RETS_GETINTERFACE_FN>(dlsym(handle, RETS_GETINTERFACE_NAME));
+	}
+#endif
+	if (!getInterface)
+		return nullptr;
+
+	g_pReTS = getInterface(RETS_INTERFACE_VERSION);
+	if (!g_pReTS)
+		g_pReTS = getInterface(5);
+	if (g_pReTS)
+		MF_Log("The game library is reTS: player natives use its interface, version %d", g_pReTS->version);
+	else
+		MF_Log("The game library exports %s but serves neither version %d nor 5", RETS_GETINTERFACE_NAME, RETS_INTERFACE_VERSION);
+	return g_pReTS;
+}
+
 funEventCall modMsgsEnd[MAX_REG_MSGS];
 funEventCall modMsgs[MAX_REG_MSGS];
 void (*function)(void*);
@@ -21,7 +71,7 @@ void (*endfunction)(void*);
 CPlayer* mPlayer;
 int mPlayerIndex;
 int mState;
-CPlayer players[33];
+CPlayer players[TSX_MAX_PLAYERS + 1];
 
 bool is_theonemode;
 bool rankBots;
@@ -35,6 +85,7 @@ int gmsgResetHUD;
 int gmsgWeaponInfo;
 int gmsgClipInfo;
 int gmsgScoreInfo;
+int gmsgTeamInfo;
 int gmsgTSHealth;
 int gmsgTSState;
 
@@ -42,8 +93,13 @@ int gmsgWStatus;
 int gmsgTSCash;
 int gmsgTSSpace;
 int gmsgPwUp;
+int gmsgDeathMsg;
 
 RankSystem g_rank;
+
+IGameConfig *CommonConfig;
+IGameConfig *MainConfig;
+IGameConfigManager *ConfigManager;
 
 cvar_t init_tsstats_maxsize ={"tsstats_maxsize","3500", 0 , 3500.0 };
 cvar_t init_tsstats_reset ={"tsstats_reset","0"};
@@ -68,12 +124,14 @@ struct sUserMsg
 	{ "WeaponInfo",&gmsgWeaponInfo,Client_WeaponInfo,false },
 	{ "ClipInfo",&gmsgClipInfo,Client_ClipInfo,false },
 	{ "ScoreInfo",&gmsgScoreInfo,Client_ScoreInfo,false },
+	{ "TeamInfo",&gmsgTeamInfo,Client_TeamInfo,false },
 	{ "TSHealth",&gmsgTSHealth,Client_TSHealth_End,true },
 	{ "TSState",&gmsgTSState,Client_TSState,false },
 	{ "WStatus",&gmsgWStatus,Client_WStatus,false },
 	{ "TSCash",&gmsgTSCash,Client_TSCash,false },
 	{ "TSSpace",&gmsgTSSpace,Client_TSSpace,false },
 	{ "PwUp",&gmsgPwUp,Client_PwUp,false},
+	{ "DeathMsg",&gmsgDeathMsg,Client_DeathMsg,false },
 
 	{ 0,0,0,false }
 };
@@ -131,7 +189,10 @@ void check_stunts(edict_s *player)
 void ServerActivate_Post( edict_t *pEdictList, int edictCount, int clientMax )
 {
 
-	is_theonemode =	(int)CVAR_GET_FLOAT("mp_theonemode") ? true:false;
+	// The game reads mp_theonemode when the map starts (DecideGamePlay, 0x667ac), before server.cfg
+	// runs again, so the cvar may already say otherwise; the game's description says what it plays.
+	const char *description = MDLL_GetGameDescription();
+	is_theonemode = description && !strcmp(description, "The Specialists (The One)");
 
 	rankBots = (int)tsstats_rankbots->value ? true:false;
 
@@ -146,6 +207,9 @@ void PlayerPreThink_Post( edict_t *pEntity )
 	CPlayer *pPlayer = GET_PLAYER_POINTER(pEntity);
 
 	check_stunts(pEntity);
+
+	if (pPlayer->speedActive)
+		UpdateSpeed(pPlayer);
 
 	if ( !isModuleActive() ) // stats only
 		return;
@@ -191,6 +255,7 @@ BOOL ClientConnect_Post( edict_t *pEntity, const char *pszName, const char *pszA
 void ClientDisconnect( edict_t *pEntity )
 {
 	CPlayer *pPlayer = GET_PLAYER_POINTER(pEntity);
+	if (pPlayer->speedActive) EndSpeed(pPlayer);
 	if (pPlayer->ingame) pPlayer->Disconnect();
 	RETURN_META(MRES_IGNORED);
 }
@@ -302,6 +367,45 @@ void TraceLine_Post(const float *v1, const float *v2, int fNoMonsters, edict_t *
 	RETURN_META(MRES_IGNORED);
 }
 
+// The Specialists 3.0 sends no ClipInfo. A gun plays one of these events for each shot (CTSGun::
+// StandardFire, AkimboFire and ShotgunFire), its weapon in iparam1; firelinked is both akimbo barrels.
+static unsigned short usFire;
+static unsigned short usFireLinked;
+static unsigned short usShotgunFire;
+
+unsigned short PrecacheEvent_Post(int type, const char *psz)
+{
+	unsigned short index = META_RESULT_ORIG_RET(unsigned short);
+	if (!strcmp(psz, "events/fire.sc"))
+		usFire = index;
+	else if (!strcmp(psz, "events/firelinked.sc"))
+		usFireLinked = index;
+	else if (!strcmp(psz, "events/pump.sc"))
+		usShotgunFire = index;
+	RETURN_META_VALUE(MRES_IGNORED, 0);
+}
+
+void PlaybackEvent_Post(int flags, const edict_t *pInvoker, unsigned short eventindex, float delay, float *origin, float *angles, float fparam1, float fparam2, int iparam1, int iparam2, int bparam1, int bparam2)
+{
+	if (!eventindex || !pInvoker || !(pInvoker->v.flags & (FL_CLIENT | FL_FAKECLIENT)) || !isModuleActive())
+		RETURN_META(MRES_IGNORED);
+
+	int shots = 0;
+	if (eventindex == usFire || eventindex == usShotgunFire)
+		shots = 1;
+	else if (eventindex == usFireLinked)
+		shots = 2;
+
+	if (shots)
+	{
+		CPlayer *pPlayer = GET_PLAYER_POINTER(pInvoker);
+		int weapon = (iparam1 > 0 && iparam1 < TSWEAPON_TKNIFE) ? iparam1 : pPlayer->current;
+		while (shots--)
+			pPlayer->saveShot(weapon);
+	}
+	RETURN_META(MRES_IGNORED);
+}
+
 void OnMetaAttach()
 {
 	
@@ -340,6 +444,21 @@ void OnAmxxAttach()
 	MF_AddNatives( stats_Natives );
 	MF_AddNatives( base_Natives );
 
+	ConfigManager = MF_GetConfigManager();
+
+	char error[256] = "";
+
+	if (!ConfigManager->LoadGameConfigFile("common.games", &CommonConfig, error, sizeof(error)) && *error)
+	{
+		MF_Log("Could not read common.games gamedata: %s", error);
+	}
+
+	error[0] = '\0';
+	if (!ConfigManager->LoadGameConfigFile("modules.games", &MainConfig, error, sizeof(error)) && *error)
+	{
+		MF_Log("Could not read modules.games gamedata: %s", error);
+	}
+
 	const char* path =  get_localinfo("tsstats_score","addons/amxmodx/data/tsstats.amxx");
 	if ( path && *path ) 
 	{
@@ -356,4 +475,7 @@ void OnAmxxDetach()
 {
 	g_rank.clear();
 	g_rank.unloadCalc();
+
+	ConfigManager->CloseGameConfigFile(CommonConfig);
+	ConfigManager->CloseGameConfigFile(MainConfig);
 }

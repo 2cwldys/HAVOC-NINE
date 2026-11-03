@@ -12,6 +12,11 @@ const TYPES = {
   ".ico": "image/x-icon", ".webp": "image/webp", ".wasm": "application/wasm", ".woff2": "font/woff2", ".ttf": "font/ttf",
 };
 
+// A part of the path that is never served: a dot file or folder, a backup or a zip, and the
+// shapes Windows reads as another file than they look (a\b, name:stream, "name." and "name ",
+// the short name NAME~1), which no address on the site has.
+const BAD_PART = /^\.|[\\:~]|[. ]$|\.(bak[^/]*|zip)$/i;
+
 export function serveStatic(req, res, mounts) {
   if (!mounts || (req.method !== "GET" && req.method !== "HEAD")) return false;
   let pathname;
@@ -24,7 +29,7 @@ export function serveStatic(req, res, mounts) {
   if (!prefix) return false;
   const root = mounts[prefix];
   const rel = pathname.slice(prefix.length);
-  if (rel.split("/").some((part) => part.startsWith(".") || /\.(bak[^/]*|zip)$/i.test(part)) || rel.includes("\0")) return notFound(res);
+  if (rel.split("/").some((part) => BAD_PART.test(part)) || rel.includes("\0")) return notFound(res);
   let file = path.resolve(root, rel);
   if (file !== root && !file.startsWith(root + path.sep)) return notFound(res);
   let stat;

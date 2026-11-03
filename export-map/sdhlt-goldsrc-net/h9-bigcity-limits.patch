@@ -1,0 +1,128 @@
+diff --git a/src/sdhlt/common/bspfile.cpp b/src/sdhlt/common/bspfile.cpp
+index 63907ef..d83d4af 100644
+--- a/src/sdhlt/common/bspfile.cpp
++++ b/src/sdhlt/common/bspfile.cpp
+@@ -18,12 +18,16 @@ static const enginelimits_t s_goldsrc =
+     "GoldSrc", 512, 32768, 32768, MAX_MAP_CLIPNODES_HLBSP, MAX_MAP_CLIPNODES_HLBSP,
+     32768, MAX_MAP_LEAFS_ENGINE, 64, 0x800000, 0, MAX_ENGINE_ENTITIES, 0,
+     65535, 32767, 65535, 65535,
++    // 2CWLDYS
++    256000, 512000, 0x40000, 0x20000,
+ };
+ static const enginelimits_t s_xash =
+ {
+     "Xash3D FWGS", 2048, 131072, 131072, MAX_MAP_CLIPNODES, MAX_MAP_CLIPNODES_HLBSP,
+     MAX_MAP_FACES, MAX_MAP_LEAFS, 256, 0x1000000, 0x2000000, 8192, 1200,  // 1200: its gameinfo.c's max_edicts
+     MAX_MAP_VERTS, MAX_MAP_NODES, MAX_MAP_FACES, MAX_MAP_MARKSURFACES,    // BSP2's, where its lump table refuses
++    // 2CWLDYS
++    MAX_MAP_EDGES, MAX_MAP_SURFEDGES, MAX_TJUNC_POINTS, MAX_TJUNC_EDGES,  // its lump table's edges; hlbsp's own arrays
+ };
+ const enginelimits_t* g_engine = &s_goldsrc;
+ 
+@@ -1545,8 +1549,9 @@ void            PrintBSPFileSizes()
+     totalmemory += ArrayUsage("leaves", g_numleafs, MAX_MAP_LEAFS, ENTRYSIZE(g_dleafs));
+     totalmemory += ArrayUsage("* worldleaves", (g_nummodels > 0? g_dmodels[0].visleafs: 0), g_engine->worldleaves, 0);
+     totalmemory += ArrayUsage("marksurfaces", g_nummarksurfaces, g_engine->marksurfaces, ENTRYSIZE(g_dmarksurfaces));
+-    totalmemory += ArrayUsage("surfedges", g_numsurfedges, ENTRIES(g_dsurfedges), ENTRYSIZE(g_dsurfedges));
+-    totalmemory += ArrayUsage("edges", g_numedges, ENTRIES(g_dedges), ENTRYSIZE(g_dedges));
++    // 2CWLDYS
++    totalmemory += ArrayUsage("surfedges", g_numsurfedges, g_engine->surfedges, ENTRYSIZE(g_dsurfedges));
++    totalmemory += ArrayUsage("edges", g_numedges, g_engine->edges, ENTRYSIZE(g_dedges));
+ 
+     totalmemory += GlobUsage("texdata", g_texdatasize, g_max_map_miptex);
+     totalmemory += GlobUsage("lightdata", g_lightdatasize, g_max_map_lightdata);
+diff --git a/src/sdhlt/common/bspfile.h b/src/sdhlt/common/bspfile.h
+index bda4edf..2545d16 100644
+--- a/src/sdhlt/common/bspfile.h
++++ b/src/sdhlt/common/bspfile.h
+@@ -60,8 +60,12 @@
+ #define MAX_INTERNAL_MAP_TEXINFO 262144
+ 
+ 
+-#define MAX_MAP_EDGES       256000
+-#define MAX_MAP_SURFEDGES   512000
++// 2CWLDYS
++#define MAX_MAP_EDGES       0x100000 // GoldSrc 256000 (g_engine->edges); Xash3D FWGS's common/bspfile.h takes this many
++#define MAX_MAP_SURFEDGES   0x200000 // GoldSrc 512000 (g_engine->surfedges)
++// hlbsp's t-junction pass (tjunc.cpp): the edge points and the edges it gathers over the whole world
++#define MAX_TJUNC_POINTS    0x100000 // GoldSrc 0x40000 (g_engine->tjuncpoints)
++#define MAX_TJUNC_EDGES     0x80000  // GoldSrc 0x20000 (g_engine->tjuncedges)
+ // arbtirary
+ 
+ #define DEFAULT_MAX_MAP_MIPTEX      0x2000000 //0x400000 //vluzacn
+@@ -528,6 +532,11 @@ typedef struct
+     int             nodes;
+     int             faces;
+     int             marksurfaces;
++    // 2CWLDYS
++    int             edges;
++    int             surfedges;
++    int             tjuncpoints;                           // hlbsp's t-junction pass: the edge points and edges it
++    int             tjuncedges;                            // gathers, which a city past the 4096 box outgrows
+ }
+ enginelimits_t;
+ extern const enginelimits_t* g_engine;
+diff --git a/src/sdhlt/sdHLBSP/surfaces.cpp b/src/sdhlt/sdHLBSP/surfaces.cpp
+index 744a59c..6340d4d 100644
+--- a/src/sdhlt/sdHLBSP/surfaces.cpp
++++ b/src/sdhlt/sdHLBSP/surfaces.cpp
+@@ -351,7 +351,8 @@ int             GetEdge(const vec3_t p1, const vec3_t p2, face_t* f)
+     }
+ 
+     // emit an edge
+-    hlassume(g_numedges < MAX_MAP_EDGES, assume_MAX_MAP_EDGES);
++    // 2CWLDYS
++    hlassume(g_numedges < g_engine->edges, assume_MAX_MAP_EDGES);
+     edge = &g_dedges[g_numedges];
+     g_numedges++;
+     edge->v[0] = v1;
+diff --git a/src/sdhlt/sdHLBSP/tjunc.cpp b/src/sdhlt/sdHLBSP/tjunc.cpp
+index 934be9d..172c981 100644
+--- a/src/sdhlt/sdHLBSP/tjunc.cpp
++++ b/src/sdhlt/sdHLBSP/tjunc.cpp
+@@ -22,8 +22,9 @@ static int      numwverts;
+ static int      tjuncs;
+ static int      tjuncfaces;
+ 
+-#define MAX_WVERTS   0x40000
+-#define MAX_WEDGES   0x20000
++// 2CWLDYS
++#define MAX_WVERTS   MAX_TJUNC_POINTS // the larger engine's; g_engine->tjuncpoints is the chosen one's
++#define MAX_WEDGES   MAX_TJUNC_EDGES
+ 
+ static wvert_t  wverts[MAX_WVERTS];
+ static wedge_t  wedges[MAX_WEDGES];
+@@ -226,7 +227,8 @@ static wedge_t *FindEdge(const vec3_t p1, const vec3_t p2, vec_t* t1, vec_t* t2)
+         return w;
+     }
+ 
+-    hlassume(numwedges < MAX_WEDGES, assume_MAX_WEDGES);
++    // 2CWLDYS
++    hlassume(numwedges < g_engine->tjuncedges, assume_MAX_WEDGES);
+     w = &wedges[numwedges];
+     numwedges++;
+ 
+@@ -269,7 +271,8 @@ static void     AddVert(const wedge_t* const w, const vec_t t)
+     while (1);
+ 
+     // insert a new wvert before v
+-    hlassume(numwverts < MAX_WVERTS, assume_MAX_WVERTS);
++    // 2CWLDYS
++    hlassume(numwverts < g_engine->tjuncpoints, assume_MAX_WVERTS);
+ 
+     newv = &wverts[numwverts];
+     numwverts++;
+diff --git a/src/sdhlt/sdHLBSP/writebsp.cpp b/src/sdhlt/sdHLBSP/writebsp.cpp
+index ee5b08c..95d0602 100644
+--- a/src/sdhlt/sdHLBSP/writebsp.cpp
++++ b/src/sdhlt/sdHLBSP/writebsp.cpp
+@@ -321,7 +321,8 @@ static void     WriteFace(face_t* f)
+     for (i = 0; i < f->numpoints; i++)
+     {
+ 		e = f->outputedges[i];
+-        hlassume(g_numsurfedges < MAX_MAP_SURFEDGES, assume_MAX_MAP_SURFEDGES);
++        // 2CWLDYS
++        hlassume(g_numsurfedges < g_engine->surfedges, assume_MAX_MAP_SURFEDGES);
+         g_dsurfedges[g_numsurfedges] = e;
+         g_numsurfedges++;
+     }

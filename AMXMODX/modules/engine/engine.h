@@ -217,7 +217,9 @@ extern bool g_inKeyValue;
 extern KeyValueData *g_pkvd;
 extern bool incmd;
 extern struct usercmd_s *g_cmd;
-extern struct PlayerInfo plinfo[33];
+// Player slots plinfo covers, by edict index 1 to ENGINE_MAX_PLAYERS (H9 builds AMX Mod X for 128).
+#define ENGINE_MAX_PLAYERS 128
+extern struct PlayerInfo plinfo[ENGINE_MAX_PLAYERS + 1];
 extern struct GlobalInfo glinfo;
 extern AMX_NATIVE_INFO engine_Natives[];
 extern AMX_NATIVE_INFO engine_NewNatives[];

@@ -49,9 +49,9 @@
                                image: show the picture at h9_motd_url
                                page: show the web page at h9_motd_url
      h9_motd_url    ""         the https address of the picture or page
-     h9_motd_image  ""         page only: a picture H9XASH shows in the
-                               page's place (H9XASH draws no web pages);
-                               empty: it shows motd.txt there instead
+     h9_motd_image  ""         page only: the picture shown when the page
+                               itself cannot be (H9XASH's fallback, below);
+                               empty: motd.txt is shown there instead
      h9_motd_link   ""         image only: a page the OPEN PAGE button
                                under the picture offers; empty for none
      h9_motd_show   "connect"  connect: once a connection (the next maps
@@ -63,7 +63,7 @@
      h9_motd_url "https://motd.example.com/h9/motd.png"
      h9_motd_link "https://motd.example.com/h9/rules.html"
 
-   A page, with a picture for H9XASH players:
+   A page, with a picture for when it cannot be shown:
      h9_motd "page"
      h9_motd_url "https://motd.example.com/h9/motd.html"
      h9_motd_image "https://motd.example.com/h9/motd.png"
@@ -106,14 +106,22 @@
      * It must arrive within 10 seconds.
      * It is scaled to fit the player's screen, never out of shape.
    The page
-     * Any https page. The web client shows it in a frame of about 1060
-       pixels by most of the screen's height; H9XASH shows its picture, or
-       motd.txt, with an OPEN PAGE button.
+     * Any https page. H9XASH shows it live in most of the screen; the web
+       client in a frame of about 1060 pixels by most of the screen's
+       height.
+     * It must load within 10 seconds, without an HTTP error, or H9XASH
+       shows the fallback: h9_motd_image or motd.txt, and OPEN PAGE.
      * Keep it light and self-contained: scripts work, but it gets no
-       cookies or storage (section 8).
+       cookies or storage kept (section 8).
    The address
      * https:// and a host NAME with a dot (motd.example.com). Not an IP
-       address, not localhost, no user:password@ in front of the host.
+       address, not localhost, not a private network name (.local, .lan,
+       .internal and the like), no user:password@ in front of the host.
+     * The name must lead to a PUBLIC address: H9XASH resolves it and
+       refuses loopback, private (10.x, 172.16-31.x, 192.168.x),
+       link-local, CGNAT (100.64.x), multicast and reserved addresses. A
+       splash served from your LAN is not shown, even to players on that
+       LAN.
      * An optional port (https://motd.example.com:8443/...).
      * No spaces, quotes, backslashes or any of <>^`{|}; 255 characters at
        most. Percent-encode anything else (%20 for a space).
@@ -167,10 +175,15 @@
      * No CORS headers are needed. H9XASH is not a browser, and the web
        client shows the picture as a plain image and the page in a frame;
        neither reads them across sites.
-     * The page must let havoc9.org frame it: no "X-Frame-Options: DENY" or
-       SAMEORIGIN, and a frame-ancestors policy, if any, that includes
-       https://havoc9.org, as above. A page that refuses shows blank in the
-       web client, with OPEN IN NEW TAB under it.
+     * For the web client only: the page must let havoc9.org frame it: no
+       "X-Frame-Options: DENY" or SAMEORIGIN, and a frame-ancestors policy,
+       if any, that includes https://havoc9.org, as above. A page that
+       refuses shows blank there; that is the site's choice and no website
+       can get around it, so OPEN IN NEW TAB stays under the frame all the
+       time. H9XASH opens the page as a page of its own, not in a frame, so
+       these headers do not matter to it.
+     * A certificate from a public authority (Let's Encrypt and the like):
+       H9XASH fetches nothing over https without checking it.
      * H9XASH sends "Host: motd.example.com:443" (with the port); nginx and
        most servers match the name either way.
      * Caching: H9XASH fetches the picture at every splash; browsers keep it
@@ -181,11 +194,21 @@
  -------------------------
    H9XASH (the downloadable client)
      The engine draws a panel over the game: your server's name, "Picture
-     from <host>" or "Web page at <host>", the picture, CLOSE, and OPEN PAGE
-     when there is a page. OPEN PAGE shows the whole address and opens the
-     player's own browser only when they click OPEN IN BROWSER. For a page
-     it shows h9_motd_image, or motd.txt inside the panel. Mouse look stops
-     while it is up.
+     from <host>" or "Web page at <host>", the picture or the page, and
+     CLOSE (ESC). A page is shown live, with Microsoft Edge WebView2 (part
+     of Windows 10 and 11): it scrolls, its links and buttons work. A link
+     that wants a new window shows its address in a confirm box, and only a
+     click on OPEN IN BROWSER opens the player's own browser. Mouse look
+     stops while it is up.
+     When the page cannot be shown there (no WebView2 runtime, exclusive
+     full screen, Linux without the player's opt-in, a load error, 10
+     seconds without the page), the panel says "This page could not be
+     shown here.", then shows h9_motd_image or motd.txt and an OPEN PAGE
+     button with the same confirm box.
+     A picture's OPEN PAGE (h9_motd_link) works the same way.
+   H9XASH on Linux (Wine or Proton)
+     The fallback above, unless the player has turned pages on
+     (cl_h9_motd_wine, docs\H9_MOTD.txt section 5).
    The web client (PLAY on havoc9.org)
      An overlay over the game: the picture, or the page live in a sandboxed
      frame (links and buttons work), your host's name above it, CLOSE.
@@ -206,8 +229,9 @@
        not 200, or it redirects to http: no picture;
      * the picture is too large, not PNG/TGA/BMP (H9XASH), or does not
        arrive within 10 seconds;
-     * for a page, H9XASH falls back to motd.txt in the panel when the
-       picture fails; the page's OPEN PAGE still works.
+     * for a page, H9XASH shows the fallback (h9_motd_image, or motd.txt
+       in the panel when there is no picture or it fails, and OPEN PAGE)
+       when the page cannot be shown.
    H9XASH writes the reason in its console ("H9 MOTD: ..."); the web client
    in the browser's console (window.h9web.log).
 
@@ -222,7 +246,13 @@
    referrer), open tabs or popups without a click, navigate the game's
    page, show alert or confirm dialogs, or use the camera, microphone,
    location, full screen, payment, USB, screen capture or the clipboard.
-   In H9XASH no page code runs at all.
+   In H9XASH your page runs in Microsoft Edge WebView2, in a private session
+   locked down further: no downloads, every permission refused, no new
+   windows (their address goes to a confirm box), no other programs
+   (mailto: and the like), no developer tools, no context menu, no
+   autofill or saved passwords; https only, to host names; every connection
+   it makes goes through H9XASH's own proxy, which lets it reach public
+   addresses only. docs\H9_MOTD.txt section 8 has the full list.
    Your server's host name is always on screen. Do not ask players for
    passwords in a splash page; H9 never does, and players are told so.
    Every fetch shows your web server the player's IP address and browser or
@@ -251,6 +281,14 @@
      Save it as PNG. A .png name on a JPEG file still fails.
    "larger than 2048 x 2048 pixels" or "over the limit"
      Make it smaller; most pictures fit 2 MB as PNG at 1280 x 720.
+   The page does not show in H9XASH, the fallback does
+     The player's console says why ("H9 MOTD: the page could not be shown
+     here: ..."). The usual ones: the page answered an HTTP error, or took
+     over 10 seconds; it went to http:// or to a private address; the
+     player has no WebView2 runtime (Windows 7 and 8, some cut-down
+     Windows 10 installs), plays in exclusive full screen (fullscreen 1;
+     H9's default, 2, shows pages), or plays on Linux without
+     cl_h9_motd_wine.
    The page is blank in the web client
      The page forbids framing (section 5), or loads http:// pieces the
      browser blocks on an https page. OPEN IN NEW TAB still works.

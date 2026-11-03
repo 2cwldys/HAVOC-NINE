@@ -10,7 +10,9 @@ Working rules for Claude in this repo. The build, export and engine details are 
 - Creating and editing files in the working tree is fine. The user makes the commits.
 
 ### Editing
-- Back up before changing anything a build overwrites: DLLs, .patch files, ENGINE.txt, server configs, compiled plugins.
+- No backup copies of text files (sources, .patch files, ENGINE.txt, configs): git is the backup. Only a binary a build overwrites (a DLL, EXE or compiled plugin) may keep one beside it, as `<file>.bak_<tag>`.
+- One heavy job at a time on this machine: engine, AMX Mod X, RCBot and reTS builds, build.bat, export.bat, map compiles and test servers. Only one agent holds the build lock, `D:\temp\HEAVY-JOB.lock`, unless told otherwise. Create it atomically (fail if it exists) in the same step that starts the job, write who, what and when in it, and delete it when done. If it exists, wait and check again every few minutes; never start a heavy job while another holds it, and never take it over. Maps compile at `-threads 8`.
+- Every new agent working with this codebase asks where its temporary files (work folders, builds, caches, downloads, test copies) will be stored before it proceeds. Never assume %TEMP% or C:; drive space differs per machine and C: may be a small SSD.
 - Change only what was asked. Do not remove or tidy surrounding code, imports or variables as a side effect. Suggest cleanups, and wait for a yes.
 - If a bug traces back to a feature nobody asked for, offer to remove the feature rather than patching the mechanism.
 - Code comments describe what the code does now, in the present tense. No references to plans, to "Part N" labels, or to what the code used to do.

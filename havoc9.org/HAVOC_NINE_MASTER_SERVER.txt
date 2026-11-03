@@ -8,5 +8,6 @@ data-master is /api/servers: h9web lists the servers in its servers.json there, 
 It is the same list the web client relay and the game server browser in the browser use, so a server added to
 servers.json shows on the page, in the browser game and on the account page at once.
 
-To show the bot list instead, set data-master to the bot JSON list (served over https, as the site is), for example:
-data-master="https://YOUR.HOST.HERE/v1/servers/ts.json"
+To show the bot list instead, set data-master to the bot JSON list, which nginx serves on this same site
+(havoc9.org/deploy/nginx-setup.sh, /serverlist/):
+data-master="/serverlist/v1/servers/ts.json"

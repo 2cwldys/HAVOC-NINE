@@ -402,6 +402,17 @@ static void SV_ConnectClient( netadr_t from )
 	qport = Q_atoi( Info_ValueForKey( protinfo, "qport" ));
 	extensions = Q_atoi( Info_ValueForKey( protinfo, "ext" ));
 
+	// A server of more than 32 player slots sends the slot in svc_h9updateuserinfo and
+	// svc_h9pings, which only a client with NET_EXT_H9_SLOTS128 reads: any other is refused with
+	// the reason, instead of dropping out on the first message it cannot read. The local client
+	// is this engine.
+	if( svs.maxclients > MAX_CLIENTS_LEGACY && !FBitSet( extensions, NET_EXT_H9_SLOTS128 ) && !NET_IsLocalAddress( from ))
+	{
+		SV_RejectConnection( from, "This server needs a newer H9XASH: download it from https://havoc9.org/downloads/ "
+			"(the server has %d player slots, older clients take 32)\n", svs.maxclients );
+		return;
+	}
+
 	if( FBitSet( extensions, NET_EXT_NETCHAN_COOKIE ))
 	{
 		const char *cookie_str = Info_ValueForKey( protinfo, "cookie" );
@@ -508,7 +519,7 @@ static void SV_ConnectClient( netadr_t from )
 
 	// HACKHACK: can hear all players by default to avoid issues
 	// with server.dll without voice game manager
-	newcl->listeners = -1;
+	memset( newcl->listeners, 0xff, sizeof( newcl->listeners ));
 
 	// initailize netchan
 	if( !Host_IsLocalClient( ))
@@ -711,8 +722,15 @@ void SV_DropClient( sv_client_t *cl, qboolean crash )
 	// don't send to other clients
 	cl->edict = NULL;
 
-	// send notification to all other clients
-	SV_FullClientUpdate( cl, &sv.reliable_datagram );
+	// send notification to all other clients, whole (SV_BroadcastReliable)
+	{
+		byte	buf[MAX_INFO_STRING + 64];
+		sizebuf_t	msg;
+
+		MSG_Init( &msg, "DropUserInfo", buf, sizeof( buf ));
+		SV_FullClientUpdate( cl, &msg );
+		SV_BroadcastReliable( &msg );
+	}
 
 	// if this was the last client on the server, send a heartbeat
 	// to the master so it is known the server is empty
@@ -1053,6 +1071,11 @@ static void SV_Info( netadr_t from, int protocolVersion )
 		Info_SetValueForKey( s, "gamedir", GI->gamefolder, sizeof( s ));
 		Info_SetValueForKey( s, "password", SV_HavePassword() ? "1" : "0", sizeof( s ));
 
+		// H9: "auth" 1 while the server takes only players with a havoc9.org account
+		// (h9_presence's h9_require_account), for the server browser's account icon
+		if( Cvar_VariableInteger( "h9_require_account" ) == 1 )
+			Info_SetValueForKey( s, "auth", "1", sizeof( s ));
+
 		// write host last so we can try to cut off too long hostnames
 		// TODO: value size limit for infostrings
 		remaining = sizeof( s ) - Q_strlen( s ) - sizeof( "\\host\\" ) - 1;
@@ -1283,6 +1306,34 @@ static float SV_CalcClientTime( sv_client_t *cl )
 
 /*
 ===================
+SV_UserinfoForOthers
+
+A player's userinfo cut down to the keys a client reads of another player, for one longer than
+the MAX_INFO_STRING a client keeps of each player. The server's own copy keeps every key.
+===================
+*/
+static void SV_UserinfoForOthers( char *info, size_t size )
+{
+	static const char *const keep[] = { "name", "model", "topcolor", "bottomcolor", "team", "skin", "*hltv", "*sid" };
+	char out[MAX_INFO_STRING];
+	string value;
+	size_t i;
+
+	out[0] = '\0';
+
+	for( i = 0; i < sizeof( keep ) / sizeof( keep[0] ); i++ )
+	{
+		Q_strncpy( value, Info_ValueForKey( info, keep[i] ), sizeof( value ));
+
+		if( value[0] )
+			Info_SetValueForStarKey( out, keep[i], value, sizeof( out ));
+	}
+
+	Q_strncpy( info, out, size );
+}
+
+/*
+===================
 SV_FullClientUpdate
 
 Writes all update values to a bitbuf
@@ -1290,7 +1341,7 @@ Writes all update values to a bitbuf
 */
 void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
 {
-	char		info[MAX_INFO_STRING];
+	char		info[H9_MAX_USERINFO];
 	char		digest[16];
 	MD5Context_t	ctx;
 
@@ -1299,8 +1350,18 @@ void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
 
 	int i = cl - svs.clients;
 
-	MSG_BeginServerCmd( msg, svc_updateuserinfo );
-	MSG_WriteUBitLong( msg, i, MAX_CLIENT_BITS );
+	// the slot in 5 bits while every slot fits, as GoldSrc; a server of more slots sends
+	// svc_h9updateuserinfo, the same message with the slot as a byte
+	if( svs.maxclients > MAX_CLIENTS_LEGACY )
+	{
+		MSG_BeginServerCmd( msg, svc_h9updateuserinfo );
+		MSG_WriteByte( msg, i );
+	}
+	else
+	{
+		MSG_BeginServerCmd( msg, svc_updateuserinfo );
+		MSG_WriteUBitLong( msg, i, MAX_CLIENT_BITS_LEGACY );
+	}
 	MSG_WriteLong( msg, cl->userid );
 
 	if( cl->name[0] )
@@ -1311,6 +1372,11 @@ void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
 
 		// remove server passwords, etc.
 		Info_RemovePrefixedKeys( info, '_' );
+
+		// what every client keeps of another player is MAX_INFO_STRING
+		if( Q_strlen( info ) >= MAX_INFO_STRING )
+			SV_UserinfoForOthers( info, sizeof( info ));
+
 		MSG_WriteString( msg, info );
 
 		MD5Init( &ctx );
@@ -3663,7 +3729,7 @@ static void SV_ParseVoiceData( sv_client_t *cl, sizebuf_t *msg )
 			if( cur->state < cs_connected )
 				continue;
 
-			if( !FBitSet( cl->listeners, BIT( i )))
+			if( !SV_LISTENER_TEST( cl, i ))
 				continue;
 		}
 

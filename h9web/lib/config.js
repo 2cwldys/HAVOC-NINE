@@ -22,6 +22,8 @@ export const DEFAULTS = {
   // take the client address from nginx's X-Real-IP, when the request comes from this machine
   trustProxy: true,
   dataDir: "./data",
+  // the data key (lib/datakey.js): encryption at rest; null = <dataDir>/data.key
+  dataKeyFile: null,
   serversFile: "./servers.json",
   modulesDir: "./modules",
   gamedir: "ts",
@@ -43,7 +45,25 @@ export const DEFAULTS = {
     renamePerAccount: { max: 10, windowSeconds: 86400, blockSeconds: 86400, maxBlockSeconds: 86400 },
     // the admin panel's account list (it searches as the name is typed), per acting account
     adminListPerAccount: { max: 120, windowSeconds: 60, blockSeconds: 30, maxBlockSeconds: 300 },
+    // linking a game (lib/link.js): codes a game asks for, per address; the game's polls and its
+    // status checks and h9_unlink, per address; codes looked at, approved or denied on the site, per
+    // account and per address (so a code cannot be guessed); REVOKE, per account
+    linkStartPerIp: { max: 10, windowSeconds: 600, blockSeconds: 600, maxBlockSeconds: 3600 },
+    linkPollPerIp: { max: 400, windowSeconds: 600, blockSeconds: 60, maxBlockSeconds: 600 },
+    linkStatusPerIp: { max: 60, windowSeconds: 600, blockSeconds: 300, maxBlockSeconds: 3600 },
+    linkCodePerAccount: { max: 10, windowSeconds: 600, blockSeconds: 600, maxBlockSeconds: 3600 },
+    linkCodePerIp: { max: 20, windowSeconds: 600, blockSeconds: 600, maxBlockSeconds: 3600 },
+    linkRevokePerAccount: { max: 30, windowSeconds: 600, blockSeconds: 300, maxBlockSeconds: 3600 },
+    // adopting the id a game holds: nonces and tries per address; proofs that did not check out,
+    // per account
+    linkAdoptPerIp: { max: 20, windowSeconds: 600, blockSeconds: 600, maxBlockSeconds: 3600 },
+    linkAdoptPerAccount: { max: 5, windowSeconds: 600, blockSeconds: 1800, maxBlockSeconds: 3600 },
+    // the scoreboard's double-click opening a player's profile, per address
+    linkProfilePerIp: { max: 60, windowSeconds: 600, blockSeconds: 300, maxBlockSeconds: 3600 },
   },
+  // linking a game (lib/link.js): how long a code waits for its approval, how often the game asks,
+  // how many codes may wait at once, in all and per address, and how long an adopt nonce lasts
+  link: { codeSeconds: 600, intervalSeconds: 5, maxPending: 10000, maxPendingPerIp: 5, adoptNonceSeconds: 300 },
   // the admin panel and username changes (lib/admin.js, lib/renames.js, lib/audit.js)
   admin: {
     modSuspendMaxDays: 7,      // the longest suspension a moderator may give (users only)
@@ -107,13 +127,16 @@ export function resolveConfig(raw = {}, base = HOME) {
   c.allowedOrigins = (Array.isArray(c.allowedOrigins) ? c.allowedOrigins : []).map(checkOrigin);
   if (!c.allowedOrigins.length) throw new Error("config: allowedOrigins is empty");
   for (const key of ["dataDir", "serversFile", "modulesDir"]) c[key] = path.resolve(base, String(c[key]));
+  c.dataKeyFile = c.dataKeyFile ? path.resolve(base, String(c.dataKeyFile)) : path.join(c.dataDir, "data.key");
   if (c.devStatic) {
     const mounts = {};
     for (const [prefix, dir] of Object.entries(c.devStatic)) {
       if (!prefix.startsWith("/") || !prefix.endsWith("/")) throw new Error("config: devStatic prefix " + prefix + " must start and end with /");
       mounts[prefix] = path.resolve(base, String(dir));
-      const rel = path.relative(mounts[prefix], c.dataDir);
-      if (!rel.startsWith("..") && !path.isAbsolute(rel)) throw new Error("config: dataDir is inside the served folder " + mounts[prefix]);
+      for (const [name, place] of [["dataDir", c.dataDir], ["dataKeyFile", c.dataKeyFile]]) {
+        const rel = path.relative(mounts[prefix], place);
+        if (!rel.startsWith("..") && !path.isAbsolute(rel)) throw new Error("config: " + name + " is inside the served folder " + mounts[prefix]);
+      }
     }
     c.devStatic = mounts;
   }
@@ -135,6 +158,7 @@ export function resolveConfig(raw = {}, base = HOME) {
   }
   if (!Array.isArray(c.modules)) throw new Error("config: modules must be a list of names");
   for (const k of ["modSuspendMaxDays", "auditRetentionDays", "renameCooldownDays", "renameHoldDays"]) positive(c.admin[k], "admin." + k);
+  for (const k of ["codeSeconds", "intervalSeconds", "maxPending", "maxPendingPerIp", "adoptNonceSeconds"]) positive(c.link[k], "link." + k);
   return c;
 }
 

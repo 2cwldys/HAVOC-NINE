@@ -10,6 +10,19 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css">
+  <style>
+    /* The map thumbnails: H9's square map pictures (assets/maps/), centred and cropped into the
+       table's 64 x 36 box. */
+    .server-thumb{object-fit:cover;object-position:center}
+    /* A server that stopped answering (h9web's online: false): greyed, until h9web drops it. */
+    .server-row-offline{opacity:.45}
+    .server-row-offline .col-players{font-family:var(--font-mono);font-size:.8rem;letter-spacing:.12em}
+    /* RANKED PLAY under the live table: a quiet note in the page's own type, no box of its own. */
+    .rated-note{max-width:900px;margin:-0.5rem auto 2.5rem;text-align:center}
+    .rated-note .section-label{margin-bottom:.35rem}
+    .rated-note-text{color:var(--text-dim);font-size:.95rem;line-height:1.5;max-width:640px;margin:0 auto .8rem}
+    .rated-note .btn{padding:.5rem 1.1rem;font-size:.75rem}
+  </style>
 </head>
 <body>
   <div class="scanlines"></div>
@@ -30,6 +43,8 @@
         <li><a href="../downloads/index.html">DOWNLOADS</a></li>
         <li><a href="./index.html" class="active">SERVERS</a></li>
         <li><a href="../forum/index.html">FORUM</a></li>
+        <li><a href="../community/index.html">COMMUNITY</a></li>
+        <li><a href="../media/index.html">MEDIA</a></li>
         <li><a href="../join/index.html">JOIN</a></li>
         <li><a href="../museum/index.html">MUSEUM</a></li>
         <li><a href="../credits/index.html">CREDITS</a></li>
@@ -51,9 +66,9 @@
         browser use too, queried live and answered in the shape of serverlist-bot's JSON list.
         See serverlist-bot/README.md, "For a website: the JSON list", for the field
         reference this script relies on (mode, ping_ms, map as the thumbnail key, etc.).
-        The bot's own http://<list address>:8081/v1/servers/ts.json works here as well.
+        The bot's own https://havoc9.org/serverlist/v1/servers/ts.json works here as well.
       -->
-      <div id="serverBoard" class="server-board" data-master="/api/servers" data-refresh="30">
+      <div id="serverBoard" class="server-board" data-master="/api/servers" data-refresh="15">
         <table class="server-table">
           <thead>
             <tr>
@@ -71,6 +86,13 @@
           </tbody>
         </table>
       </div>
+
+      <!-- ranked play: the ladder's tables (ladder/index.html, docs\H9_COMPETITIVE.txt) -->
+      <section class="rated-note" aria-label="Ranked play">
+        <span class="section-label">// RANKED PLAY</span>
+        <p class="rated-note-text">Ranked servers keep a table of every player who plays with their havoc9.org player id.</p>
+        <a class="btn btn-ghost" href="../ladder/index.html">SEE THE LADDER</a>
+      </section>
 
       <!-- who's playing: each server's havoc9.org players, then the web client and the site (assets/presence.js) -->
       <h2 class="sub-title">WHO'S PLAYING</h2>
@@ -138,13 +160,33 @@
         });
       }
 
-      // The same lookup key Discord Rich Presence already uses for this exact map
-      // (cl_presence.c sends the bare map name straight through as the "large_image"
-      // asset). No thumbnail art ships with this site yet, for any map -- every server
-      // falls back to the menu background until real per-map images exist at this path.
+      // H9's own map pictures, the ones Discord Rich Presence shows (cl_presence.c sends the
+      // bare map name as the "large_image" asset): presence\maps\<map>.png, copied into
+      // assets/maps/ at 256 x 256 by sync_map_pictures.ps1, which export.bat runs. The files
+      // are named in lowercase, so the map name is too. A map with no picture falls back to
+      // the menu background (the img's onerror below).
       function thumbFor(map) {
-        var safe = String(map || "").replace(/[^a-z0-9_-]/gi, "");
-        return "../assets/maps/" + safe + ".jpg";
+        var safe = String(map || "").toLowerCase().replace(/[^a-z0-9_.+-]/g, "");
+        return safe ? "../assets/maps/" + safe + ".png" : "../mainmenu.png";
+      }
+
+      // Roleplay maps, named as the engine's Discord card names them (H9P_Mode in
+      // engine/client/cl_presence.c, from xash3d-h9-patches\patches\engine-h9-presence.patch)
+      // and h9web does (modeFor() in h9web/modules/presence/modes.js): rp_ or tsrp_ at the
+      // start, or _rp_ or _tsrp_ anywhere (h9_tsrp_, h9_rp_), in any case.
+      function isRoleplayMap(map) {
+        var m = String(map || "").toLowerCase();
+        return m.indexOf("rp_") === 0 || m.indexOf("tsrp_") === 0 || m.indexOf("_rp_") !== -1 || m.indexOf("_tsrp_") !== -1;
+      }
+
+      // TS's own game descriptions ("The Specialists", "The Specialists (DM)" and the like) say
+      // nothing about the map, so on a roleplay map they show as Roleplay. Any other description
+      // is the server's own (an H9 server's "Roleplay", "Match Mode", "Siege") and always wins.
+      function modeFor(s) {
+        var mode = String(s.mode || "").trim();
+        var stock = !mode || /^the specialists(\s*\(.*\))?$/i.test(mode);
+        if (stock && isRoleplayMap(s.map)) return "Roleplay";
+        return mode || (s.kind === "gs" ? "GoldSrc" : "Xash");
       }
 
       function pingText(ms) {
@@ -166,14 +208,18 @@
           return;
         }
 
-        // Most populated first -- the server worth joining is the one with people on it.
-        servers = servers.slice().sort(function (a, b) { return (b.players || 0) - (a.players || 0); });
+        // Answering servers first, most populated first -- the server worth joining is the one
+        // with people on it. One that stopped answering (online: false) comes last, greyed.
+        servers = servers.slice().sort(function (a, b) {
+          return ((a.online === false) - (b.online === false)) || (b.players || 0) - (a.players || 0);
+        });
 
         rows.innerHTML = servers.map(function (s) {
-          var mode = s.mode || (s.kind === "gs" ? "GoldSrc" : "Xash");
+          var mode = modeFor(s);
           var siege = /siege/i.test(mode);
+          var down = s.online === false;
           return (
-            '<tr class="server-row">' +
+            '<tr class="server-row' + (down ? " server-row-offline" : "") + '">' +
               '<td class="col-map">' +
                 '<img class="server-thumb" src="' + thumbFor(s.map) + '" alt=""' +
                   ' onerror="this.onerror=null;this.src=\'../mainmenu.png\';">' +
@@ -185,8 +231,8 @@
               "</td>" +
               '<td class="col-mode"><span class="mode-tag' + (siege ? " mode-siege" : "") + '">'
                 + escapeHtml(mode) + "</span></td>" +
-              '<td class="col-players">' + (s.players || 0) + " / " + (s.max || 0) + "</td>" +
-              '<td class="col-ping"><span class="' + pingClass(s.ping_ms) + '">' + pingText(s.ping_ms) + "</span></td>" +
+              '<td class="col-players">' + (down ? "OFFLINE" : (Number(s.players) || 0) + " / " + (Number(s.max) || 0)) + "</td>" +
+              '<td class="col-ping"><span class="' + pingClass(s.ping_ms) + '">' + pingText(down ? null : s.ping_ms) + "</span></td>" +
             "</tr>"
           );
         }).join("");

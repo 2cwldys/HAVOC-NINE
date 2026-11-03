@@ -21,6 +21,7 @@ GNU General Public License for more details.
 #include "shake.h"
 #include "input.h"
 #include "eiface.h"
+#include "cl_motd.h"
 
 #if XASH_LOW_MEMORY != 2
 int CL_UPDATE_BACKUP = SINGLEPLAYER_BACKUP;
@@ -1355,7 +1356,7 @@ CL_UpdateUserinfo
 collect userinfo from all players
 ================
 */
-static void CL_UpdateUserinfo( sizebuf_t *msg, connprotocol_t proto )
+static void CL_UpdateUserinfo( sizebuf_t *msg, connprotocol_t proto, qboolean byteslot )
 {
 	int slot, id;
 	qboolean active;
@@ -1368,7 +1369,8 @@ static void CL_UpdateUserinfo( sizebuf_t *msg, connprotocol_t proto )
 	}
 	else
 	{
-		slot = MSG_ReadUBitLong( msg, MAX_CLIENT_BITS );
+		// svc_h9updateuserinfo carries the slot as a byte, svc_updateuserinfo in 5 bits
+		slot = byteslot ? MSG_ReadByte( msg ) : MSG_ReadUBitLong( msg, MAX_CLIENT_BITS_LEGACY );
 		id = MSG_ReadLong( msg );	// unique user ID
 		active = MSG_ReadOneBit( msg ) ? true : false;
 	}
@@ -1471,7 +1473,16 @@ CL_UpdateUserPings
 collect pings and packet lossage from clients
 ================
 */
+static void CL_UpdateUserPingsSlotBits( sizebuf_t *msg, int slotbits );
+
+// svc_pings, and GoldSrc's: the slot in 5 bits
 void CL_UpdateUserPings( sizebuf_t *msg )
+{
+	CL_UpdateUserPingsSlotBits( msg, MAX_CLIENT_BITS_LEGACY );
+}
+
+// svc_pings' slot in slotbits bits: 5 there, 8 in svc_h9pings
+static void CL_UpdateUserPingsSlotBits( sizebuf_t *msg, int slotbits )
 {
 	// a1ba: there was a MAX_PLAYERS check but it doesn't make sense
 	// because pings message always ends by null bit
@@ -1480,7 +1491,7 @@ void CL_UpdateUserPings( sizebuf_t *msg )
 		if( !MSG_ReadOneBit( msg ))
 			break; // end of message
 
-		int slot = MSG_ReadUBitLong( msg, MAX_CLIENT_BITS );
+		int slot = MSG_ReadUBitLong( msg, slotbits );
 
 		if( unlikely( slot >= MAX_CLIENTS ))
 		{
@@ -2259,6 +2270,12 @@ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto )
 		CL_ParseScreenFade( msg );
 		return;
 	}
+	else if( !Q_strcmp( clgame.msg[i].name, "H9Avatar" ) && clgame.msg[i].size == 9 )
+	{
+		// H9: a player slot's havoc9.org picture (cl_avatar.c)
+		CL_Avatar_Message( msg );
+		return;
+	}
 
 	iSize = clgame.msg[i].size;
 
@@ -2284,6 +2301,10 @@ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto )
 		Con_Reportf( "^3USERMSG %s SIZE %i SVC_NUM %i\n",
 			clgame.msg[i].name, iSize, clgame.msg[i].number );
 	}
+
+	// H9: the splash MOTD takes H9Motd, and holds TS's MOTD while a splash loads (cl_motd.c)
+	if( CL_Motd_UserMessage( clgame.msg[i].name, pbuf, iSize ))
+		return;
 
 	if( clgame.msg[i].func )
 	{
@@ -2443,7 +2464,7 @@ qboolean CL_ParseCommonHLMessage( sizebuf_t *msg, connprotocol_t proto, int svc_
 		CL_ParseServerData( msg, proto );
 		break;
 	case svc_updateuserinfo:
-		CL_UpdateUserinfo( msg, proto );
+		CL_UpdateUserinfo( msg, proto, false );
 		break;
 	case svc_particle:
 		CL_ParseParticles( msg, proto );
@@ -2640,6 +2661,12 @@ void CL_ParseServerMessage( sizebuf_t *msg )
 			break;
 		case svc_pings:
 			CL_UpdateUserPings( msg );
+			break;
+		case svc_h9pings:
+			CL_UpdateUserPingsSlotBits( msg, 8 );
+			break;
+		case svc_h9updateuserinfo:
+			CL_UpdateUserinfo( msg, PROTO_CURRENT, true );
 			break;
 		case svc_restoresound:
 			CL_ParseSoundPacket( msg, true );

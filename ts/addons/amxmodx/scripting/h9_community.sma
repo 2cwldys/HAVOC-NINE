@@ -34,9 +34,11 @@
  * ts\mapconfigs\<map>.cfg (run by h9_autoconfig once the map is up) place portals to the
  * community's other servers: a ring, a label with the server's name and players, E (or walking
  * in, with walk 1), a confirm menu and h9_community_portal_wait seconds before the next. A
- * server cannot move a client today: FWGS runs "connect" only when the player typed it. So a
- * portal gives the address to type; with h9_community_travel 1 it also asks the client to run
- * h9_travel, an engine command H9XASH does not have yet (docs\H9_COMMUNITIES.txt, PORTALS).
+ * server cannot move a client itself: FWGS runs "connect" only when the player typed it. A
+ * client whose userinfo has _h9travel "1" (H9XASH and the web client with engine-h9-travel.patch)
+ * is sent "h9_travel <address> <name>", which its engine shows as its own YES/NO prompt; every
+ * other client is given the address to type. h9_community_travel 1 sends h9_travel to those
+ * others too (docs\H9_COMMUNITIES.txt, PORTALS).
  * amx_h9_portal_add places one where an admin stands and prints its line.
  *
  * LINKING. h9_community_claim (server console or rcon) or amx_h9_claim (in game, rcon admins)
@@ -59,7 +61,7 @@
 #pragma dynamic 16384
 
 #define PLUGIN  "H9 Community"
-#define VERSION "1.0"
+#define VERSION "1.1"
 #define AUTHOR  "2cwldys"
 
 #define MAX_BODY      4096     // the largest call, in bytes (h9web takes up to 4096)
@@ -777,6 +779,17 @@ bool:send_find(const q[], id, fwd, data)
 	body_begin();
 	app_raw(",^"q^":");
 	app_str(q);
+	// who asks: h9web shows a private community's servers only to its members
+	if (id)
+	{
+		new cid[40];
+		get_user_info(id, "h9_clientid", cid, charsmax(cid));
+		if (cid_ok(cid))
+		{
+			app_raw(",^"id^":");
+			app_str(cid);
+		}
+	}
 	app_byte('}');
 	new ud[UD_SIZE];
 	ud[UD_KIND] = K_FIND;
@@ -1796,10 +1809,12 @@ public menu_portal(id, key)
 }
 
 /**
- * A server cannot connect a client elsewhere today (FWGS refuses "connect" unless the player
- * typed it), so the player is given the address. With h9_community_travel 1 the client is also
- * asked to run h9_travel, which an engine with docs\H9_COMMUNITIES.txt's patch would confirm
- * with the player itself before connecting; an engine without it says the command is unknown.
+ * A server cannot connect a client elsewhere (FWGS refuses "connect" unless the player typed
+ * it). A client that advertises h9_travel (_h9travel "1" in its userinfo) is sent
+ * "h9_travel <address> <name>": its engine asks the player itself, YES or NO, and only the
+ * player's YES connects. Every other client is given the address to type; with
+ * h9_community_travel 1 it is sent h9_travel as well (an engine without it says the command is
+ * unknown).
  */
 travel(id, s)
 {
@@ -1819,10 +1834,35 @@ travel(id, s)
 	{
 		return;
 	}
-	if (get_pcvar_num(g_cv_travel))
+	new adv[4];
+	get_user_info(id, "_h9travel", adv, charsmax(adv));
+	new bool:asks = (equal(adv, "1") != 0);
+
+	if (asks || get_pcvar_num(g_cv_travel))
 	{
-		client_cmd(id, "h9_travel %s", addr);
+		// the name as the prompt shows it: letters, digits, spaces and a few marks, nothing that
+		// could end the command
+		new name[48];
+		copy(name, charsmax(name), g_sname[s]);
+		for (new i = 0; name[i] != EOS; i++)
+		{
+			new c = name[i];
+			if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+				|| c == ' ' || c == '.' || c == '-' || c == '_' || c == ':' || c == '#' || c == '(' || c == ')'))
+			{
+				name[i] = ' ';
+			}
+		}
+		client_cmd(id, "h9_travel %s ^"%s^"", addr, name);
 	}
+
+	if (asks)
+	{
+		// the prompt is the engine's; the address stays in the console as well
+		client_print(id, print_console, "[H9] %s: connect %s", g_sname[s], addr);
+		return;
+	}
+
 	client_print(id, print_chat, "[H9] %s is at %s -- open the console (~) and type: connect %s", g_sname[s], addr, addr);
 	client_print(id, print_console, "[H9] %s: connect %s", g_sname[s], addr);
 }

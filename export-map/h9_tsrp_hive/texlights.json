@@ -1,0 +1,924 @@
+{
+ "originals": {
+  "alexandria": "D:/SteamLibrary/steamapps/common/Half-Life/ts_downloads/maps/alexandria_msr_b4v3.bsp",
+  "paradise": "D:/Downloads/TSM/H9XASH/ts/maps/paradisecity_revival_final.bsp",
+  "xenon": "D:/GIT Storage/The-Specialists-Archive/map-resources/maps/xenoncity_true_b3v2.bsp"
+ },
+ "emitters": [
+  {
+   "city": "alexandria",
+   "name": "~spotyellow",
+   "rgb": [
+    255,
+    240,
+    203
+   ],
+   "colour": "kit",
+   "value": 23100,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 530,
+   "lit": 530
+  },
+  {
+   "city": "alexandria",
+   "name": "~light3c",
+   "rgb": [
+    255,
+    249,
+    210
+   ],
+   "colour": "kit",
+   "value": 3300,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 134,
+   "lit": 134
+  },
+  {
+   "city": "alexandria",
+   "name": "+0~generic85",
+   "rgb": [
+    161,
+    217,
+    255
+   ],
+   "colour": "kit",
+   "value": 20700,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 71,
+   "lit": 71
+  },
+  {
+   "city": "alexandria",
+   "name": "~light3b",
+   "rgb": [
+    207,
+    207,
+    255
+   ],
+   "colour": "kit",
+   "value": 4800,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 71,
+   "lit": 71
+  },
+  {
+   "city": "alexandria",
+   "name": "+0~fifties_lgt2",
+   "rgb": [
+    217,
+    224,
+    255
+   ],
+   "colour": "kit",
+   "value": 2600,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 59,
+   "lit": 59
+  },
+  {
+   "city": "alexandria",
+   "name": "club_metal",
+   "rgb": [
+    233,
+    232,
+    255
+   ],
+   "colour": "texture",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 58,
+   "lit": 54
+  },
+  {
+   "city": "alexandria",
+   "name": "~light3a",
+   "rgb": [
+    255,
+    82,
+    82
+   ],
+   "colour": "kit",
+   "value": 1700,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 51,
+   "lit": 51
+  },
+  {
+   "city": "alexandria",
+   "name": "~light3d",
+   "rgb": [
+    168,
+    255,
+    95
+   ],
+   "colour": "texture",
+   "value": 3000,
+   "kind": "lamp",
+   "scale": 1,
+   "faces": 45,
+   "lit": 45
+  },
+  {
+   "city": "alexandria",
+   "name": "+0~tnnl_lgt3",
+   "rgb": [
+    215,
+    215,
+    255
+   ],
+   "colour": "kit",
+   "value": 5900,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 42,
+   "lit": 42
+  },
+  {
+   "city": "alexandria",
+   "name": "po_lightgrtora",
+   "rgb": [
+    255,
+    223,
+    164
+   ],
+   "colour": "texture",
+   "value": 3900,
+   "kind": "lamp",
+   "scale": 1.3,
+   "faces": 39,
+   "lit": 39
+  },
+  {
+   "city": "alexandria",
+   "name": "~light3e",
+   "rgb": [
+    140,
+    255,
+    219
+   ],
+   "colour": "kit",
+   "value": 3200,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 36,
+   "lit": 36
+  },
+  {
+   "city": "alexandria",
+   "name": "+0~light1",
+   "rgb": [
+    131,
+    161,
+    255
+   ],
+   "colour": "kit",
+   "value": 2500,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 33,
+   "lit": 33
+  },
+  {
+   "city": "alexandria",
+   "name": "po_lightgrtyel",
+   "rgb": [
+    255,
+    228,
+    193
+   ],
+   "colour": "texture",
+   "value": 5100,
+   "kind": "lamp",
+   "scale": 1.69,
+   "faces": 30,
+   "lit": 30
+  },
+  {
+   "city": "alexandria",
+   "name": "ax_heavensent",
+   "rgb": [
+    215,
+    222,
+    255
+   ],
+   "colour": "texture",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 28,
+   "lit": 28
+  },
+  {
+   "city": "alexandria",
+   "name": "~spotgreen",
+   "rgb": [
+    125,
+    255,
+    180
+   ],
+   "colour": "kit",
+   "value": 9800,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 26,
+   "lit": 26
+  },
+  {
+   "city": "alexandria",
+   "name": "sign_kline",
+   "rgb": [
+    255,
+    199,
+    202
+   ],
+   "colour": "light",
+   "value": 1500,
+   "kind": "sign",
+   "scale": 0.97,
+   "faces": 19,
+   "lit": 19
+  },
+  {
+   "city": "alexandria",
+   "name": "sign_character",
+   "rgb": [
+    255,
+    57,
+    47
+   ],
+   "colour": "texture",
+   "value": 1300,
+   "kind": "sign",
+   "scale": 0.88,
+   "faces": 16,
+   "lit": 16
+  },
+  {
+   "city": "alexandria",
+   "name": "sign_open",
+   "rgb": [
+    255,
+    119,
+    163
+   ],
+   "colour": "texture",
+   "value": 1300,
+   "kind": "sign",
+   "scale": 0.88,
+   "faces": 14,
+   "lit": 14
+  },
+  {
+   "city": "alexandria",
+   "name": "+A_cd_light0",
+   "rgb": [
+    250,
+    250,
+    255
+   ],
+   "colour": "texture",
+   "value": 3000,
+   "kind": "lamp",
+   "scale": 1,
+   "faces": 13,
+   "lit": 13
+  },
+  {
+   "city": "alexandria",
+   "name": "sign_vintagebee",
+   "rgb": [
+    255,
+    148,
+    77
+   ],
+   "colour": "texture",
+   "value": 2300,
+   "kind": "sign",
+   "scale": 1.51,
+   "faces": 13,
+   "lit": 13
+  },
+  {
+   "city": "alexandria",
+   "name": "lab_lite2blue2",
+   "rgb": [
+    221,
+    242,
+    255
+   ],
+   "colour": "texture",
+   "value": 3000,
+   "kind": "lamp",
+   "scale": 1,
+   "faces": 11,
+   "lit": 11
+  },
+  {
+   "city": "alexandria",
+   "name": "ax_fsg",
+   "rgb": [
+    255,
+    51,
+    89
+   ],
+   "colour": "texture",
+   "value": 1800,
+   "kind": "other",
+   "scale": 0.9,
+   "faces": 10,
+   "lit": 10
+  },
+  {
+   "city": "alexandria",
+   "name": "jap_sign7",
+   "rgb": [
+    255,
+    62,
+    52
+   ],
+   "colour": "texture",
+   "value": 2100,
+   "kind": "sign",
+   "scale": 1.41,
+   "faces": 8,
+   "lit": 8
+  },
+  {
+   "city": "alexandria",
+   "name": "lite2blue3",
+   "rgb": [
+    204,
+    233,
+    255
+   ],
+   "colour": "texture",
+   "value": 3000,
+   "kind": "lamp",
+   "scale": 1,
+   "faces": 8,
+   "lit": 8
+  },
+  {
+   "city": "alexandria",
+   "name": "+A_cd_light0s",
+   "rgb": [
+    250,
+    251,
+    255
+   ],
+   "colour": "texture",
+   "value": 3000,
+   "kind": "lamp",
+   "scale": 1,
+   "faces": 8,
+   "lit": 8
+  },
+  {
+   "city": "alexandria",
+   "name": "sign_coffee1",
+   "rgb": [
+    214,
+    255,
+    205
+   ],
+   "colour": "texture",
+   "value": 3400,
+   "kind": "sign",
+   "scale": 2.27,
+   "faces": 8,
+   "lit": 8
+  },
+  {
+   "city": "alexandria",
+   "name": "nl_wall3",
+   "rgb": [
+    235,
+    255,
+    248
+   ],
+   "colour": "texture",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 7,
+   "lit": 7
+  },
+  {
+   "city": "alexandria",
+   "name": "+0~tnnl_lgt2",
+   "rgb": [
+    255,
+    233,
+    110
+   ],
+   "colour": "kit",
+   "value": 14500,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 6,
+   "lit": 6
+  },
+  {
+   "city": "alexandria",
+   "name": "~spotred",
+   "rgb": [
+    255,
+    29,
+    25
+   ],
+   "colour": "light",
+   "value": 3000,
+   "kind": "lamp",
+   "scale": 1,
+   "faces": 5,
+   "lit": 5
+  },
+  {
+   "city": "alexandria",
+   "name": "red",
+   "rgb": [
+    255,
+    3,
+    2
+   ],
+   "colour": "kit",
+   "value": 1700,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 5,
+   "lit": 5
+  },
+  {
+   "city": "alexandria",
+   "name": "+0~generic86",
+   "rgb": [
+    255,
+    241,
+    172
+   ],
+   "colour": "kit",
+   "value": 16100,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 4,
+   "lit": 4
+  },
+  {
+   "city": "alexandria",
+   "name": "lite7dn",
+   "rgb": [
+    255,
+    255,
+    254
+   ],
+   "colour": "texture",
+   "value": 3000,
+   "kind": "lamp",
+   "scale": 1,
+   "faces": 4,
+   "lit": 4
+  },
+  {
+   "city": "alexandria",
+   "name": "sign_24",
+   "rgb": [
+    255,
+    97,
+    59
+   ],
+   "colour": "texture",
+   "value": 1400,
+   "kind": "sign",
+   "scale": 0.93,
+   "faces": 4,
+   "lit": 4
+  },
+  {
+   "city": "alexandria",
+   "name": "sign_ribs",
+   "rgb": [
+    255,
+    65,
+    48
+   ],
+   "colour": "texture",
+   "value": 1700,
+   "kind": "sign",
+   "scale": 1.1,
+   "faces": 4,
+   "lit": 4
+  },
+  {
+   "city": "alexandria",
+   "name": "sign_steakhouse",
+   "rgb": [
+    255,
+    131,
+    112
+   ],
+   "colour": "texture",
+   "value": 2600,
+   "kind": "sign",
+   "scale": 1.74,
+   "faces": 4,
+   "lit": 4
+  },
+  {
+   "city": "alexandria",
+   "name": "sign_christ",
+   "rgb": [
+    255,
+    196,
+    196
+   ],
+   "colour": "light",
+   "value": 3500,
+   "kind": "sign",
+   "scale": 2.34,
+   "faces": 4,
+   "lit": 4
+  },
+  {
+   "city": "alexandria",
+   "name": "cds_labcomp3",
+   "rgb": [
+    253,
+    255,
+    254
+   ],
+   "colour": "texture",
+   "value": 1000,
+   "kind": "screen",
+   "scale": 1,
+   "faces": 3,
+   "lit": 3
+  },
+  {
+   "city": "alexandria",
+   "name": "logo_rekall1",
+   "rgb": [
+    26,
+    25,
+    255
+   ],
+   "colour": "light",
+   "value": 400,
+   "kind": "sign",
+   "scale": 0.25,
+   "faces": 3,
+   "lit": 3
+  },
+  {
+   "city": "alexandria",
+   "name": "jap_sign16",
+   "rgb": [
+    194,
+    180,
+    255
+   ],
+   "colour": "texture",
+   "value": 1300,
+   "kind": "sign",
+   "scale": 0.88,
+   "faces": 2,
+   "lit": 2
+  },
+  {
+   "city": "alexandria",
+   "name": "~light5e",
+   "rgb": [
+    255,
+    2,
+    2
+   ],
+   "colour": "light",
+   "value": 3000,
+   "kind": "lamp",
+   "scale": 1,
+   "faces": 2,
+   "lit": 2
+  },
+  {
+   "city": "alexandria",
+   "name": "jap_sign6",
+   "rgb": [
+    78,
+    107,
+    255
+   ],
+   "colour": "texture",
+   "value": 2900,
+   "kind": "sign",
+   "scale": 1.94,
+   "faces": 2,
+   "lit": 2
+  },
+  {
+   "city": "alexandria",
+   "name": "cg_pinshaside2",
+   "rgb": [
+    240,
+    255,
+    255
+   ],
+   "colour": "light",
+   "value": 1700,
+   "kind": "other",
+   "scale": 0.83,
+   "faces": 2,
+   "lit": 2
+  },
+  {
+   "city": "alexandria",
+   "name": "cd_labeq1",
+   "rgb": [
+    255,
+    255,
+    255
+   ],
+   "colour": "texture",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 2,
+   "lit": 2
+  },
+  {
+   "city": "alexandria",
+   "name": "sign_coffee2",
+   "rgb": [
+    206,
+    162,
+    255
+   ],
+   "colour": "texture",
+   "value": 1800,
+   "kind": "sign",
+   "scale": 1.17,
+   "faces": 2,
+   "lit": 2
+  },
+  {
+   "city": "alexandria",
+   "name": "sign_devilopen",
+   "rgb": [
+    255,
+    210,
+    151
+   ],
+   "colour": "texture",
+   "value": 1200,
+   "kind": "sign",
+   "scale": 0.82,
+   "faces": 2,
+   "lit": 2
+  },
+  {
+   "city": "xenon",
+   "name": "+0~light1",
+   "rgb": [
+    131,
+    161,
+    255
+   ],
+   "colour": "kit",
+   "value": 2500,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 260,
+   "lit": 260
+  },
+  {
+   "city": "xenon",
+   "name": "+0~light5a",
+   "rgb": [
+    147,
+    181,
+    255
+   ],
+   "colour": "kit",
+   "value": 7600,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 65,
+   "lit": 65
+  },
+  {
+   "city": "xenon",
+   "name": "+0~generic86b",
+   "rgb": [
+    133,
+    255,
+    224
+   ],
+   "colour": "kit",
+   "value": 21000,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 62,
+   "lit": 62
+  },
+  {
+   "city": "xenon",
+   "name": "+0~fifties_lgt2",
+   "rgb": [
+    217,
+    224,
+    255
+   ],
+   "colour": "kit",
+   "value": 2600,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 42,
+   "lit": 42
+  },
+  {
+   "city": "xenon",
+   "name": "+0noisecomp",
+   "rgb": [
+    255,
+    186,
+    124
+   ],
+   "colour": "light",
+   "value": 1000,
+   "kind": "screen",
+   "scale": 1,
+   "faces": 24,
+   "lit": 24
+  },
+  {
+   "city": "xenon",
+   "name": "~light3e",
+   "rgb": [
+    140,
+    255,
+    219
+   ],
+   "colour": "kit",
+   "value": 3200,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 23,
+   "lit": 23
+  },
+  {
+   "city": "xenon",
+   "name": "{xc_cp1",
+   "rgb": [
+    249,
+    249,
+    255
+   ],
+   "colour": "texture",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 14,
+   "lit": 14
+  },
+  {
+   "city": "xenon",
+   "name": "{xc_enjoy",
+   "rgb": [
+    175,
+    255,
+    219
+   ],
+   "colour": "light",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 10,
+   "lit": 10
+  },
+  {
+   "city": "xenon",
+   "name": "+0~generic86r",
+   "rgb": [
+    255,
+    0,
+    0
+   ],
+   "colour": "kit",
+   "value": 13600,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 6,
+   "lit": 6
+  },
+  {
+   "city": "xenon",
+   "name": "{xc_cp2",
+   "rgb": [
+    248,
+    248,
+    255
+   ],
+   "colour": "texture",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 4,
+   "lit": 4
+  },
+  {
+   "city": "xenon",
+   "name": "{dragon",
+   "rgb": [
+    175,
+    255,
+    218
+   ],
+   "colour": "light",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 4,
+   "lit": 4
+  },
+  {
+   "city": "xenon",
+   "name": "+0~light4a",
+   "rgb": [
+    255,
+    249,
+    197
+   ],
+   "colour": "kit",
+   "value": 8600,
+   "kind": "kit",
+   "scale": 1,
+   "faces": 2,
+   "lit": 2
+  },
+  {
+   "city": "xenon",
+   "name": "{xc_uncle",
+   "rgb": [
+    255,
+    22,
+    24
+   ],
+   "colour": "light",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 2,
+   "lit": 2
+  },
+  {
+   "city": "xenon",
+   "name": "{xc_gear",
+   "rgb": [
+    175,
+    255,
+    218
+   ],
+   "colour": "light",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 2,
+   "lit": 2
+  },
+  {
+   "city": "xenon",
+   "name": "{xc_guns",
+   "rgb": [
+    255,
+    28,
+    16
+   ],
+   "colour": "light",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 2,
+   "lit": 2
+  },
+  {
+   "city": "xenon",
+   "name": "{xc_skybar",
+   "rgb": [
+    176,
+    255,
+    219
+   ],
+   "colour": "light",
+   "value": 2000,
+   "kind": "other",
+   "scale": 1,
+   "faces": 2,
+   "lit": 2
+  }
+ ]
+}

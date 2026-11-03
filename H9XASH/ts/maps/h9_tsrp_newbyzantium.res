@@ -11,7 +11,7 @@ sound/ambience/windambient4.wav
 sound/ambience/windy.wav
 sound/paradise/t_kitchen.wav
 sound/ambience/3dm_grn_mach.wav
-sound/amethyst/erhum.wav
+sound/ambience/computer_ambience.wav
 sound/ambience/toxicambience1.wav
 sound/ambience/3dm_grn_wtr.wav
 sound/ambience/rd_waves.wav
@@ -21,7 +21,6 @@ sound/paradise/city2.wav
 sound/paradise/air.wav
 sound/ambience/birds_outside1.wav
 sound/ambience/georfwater.wav
-sound/ambience/computer_ambience.wav
 sound/paradise/wind_bass.wav
 sound/ambience/qk_jazz.wav
 sound/ambience/antro_music_2.wav
@@ -35,7 +34,9 @@ sound/alexandria/gumnaam.wav
 sound/amethyst/ipanemaa.wav
 sound/paradise/olympia.wav
 sound/paradise/ksong.wav
+sound/paradise/enginermAMB.wav
+sound/ambience/3dm_grn_bird.wav
 sound/alexandria/flarestack_b1.wav
 sound/paradise/ind1.wav
-sound/ambience/3dm_grn_bird.wav
+sound/amethyst/erhum.wav
 sound/ambience/3dm_grn_hous.wav

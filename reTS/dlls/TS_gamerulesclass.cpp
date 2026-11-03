@@ -679,7 +679,7 @@ void CTSGameRules::SelectRandomTheOne()
 		return;
 	m_flNextTheOneSelect = gpGlobals->time + 10.0f;
 
-	CBasePlayer *eligible[33];
+	CBasePlayer *eligible[MAX_PLAYERS + 1];
 	int n = 0;
 	for (int i = 1; i <= gpGlobals->maxClients; i++)
 	{
@@ -688,7 +688,7 @@ void CTSGameRules::SelectRandomTheOne()
 			continue;
 		if (p->m_bTheOne)
 			return; // someone is already The One
-		if (p->IsAlive() && p->pev->iuser1 == 0 && n < 33)
+		if (p->IsAlive() && p->pev->iuser1 == 0 && n < MAX_PLAYERS + 1)
 			eligible[n++] = p;
 	}
 	if (n > 0)

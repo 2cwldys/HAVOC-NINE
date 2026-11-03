@@ -51,7 +51,7 @@ extern CBulletManager g_BulletManager;
 extern int glast_weaponid;
 
 // @0x5f4f4 UTIL_TraceLine_Expanded — the TS bullet trace: every player's absbox inflated
-// +/-32u (saved in vecBoxes[33]), stock trace, then ONLY absmax restored (original quirk;
+// +/-32u (saved in vecBoxes[MAX_PLAYERS + 1]), stock trace, then ONLY absmax restored (original quirk;
 // the engine relink heals absmin next frame). Defined in ts_bullet.cpp.
 void UTIL_TraceLine_Expanded(const Vector &vecStart, const Vector &vecEnd,
 	IGNORE_MONSTERS igmon, edict_t *pentIgnore, TraceResult *ptr);

@@ -1,0 +1,90 @@
+# havoc9.org on Windows, through Caddy: HTTPS from Let's Encrypt (made and renewed by Caddy
+# itself), the site, h9web and the H9 server list. vps\windows\setup.ps1 writes etc\Caddyfile
+# from this template on every run ({DOMAIN}, {ROOT}, {EMAIL_LINE} filled in); additions of your
+# own go in etc\Caddyfile.extra, which it imports and never touches. The same rules as the
+# Linux host's nginx (havoc9.org/webclient/DEPLOY.txt section 8), but for the rate limits:
+# Caddy has none built in, so h9web's own limits are the only ones here.
+{
+	storage file_system {ROOT}/data/caddy
+	{EMAIL_LINE}
+}
+
+{DOMAIN} {
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "SAMEORIGIN"
+		Content-Security-Policy "frame-ancestors 'self'; base-uri 'self'; object-src 'none'"
+		Permissions-Policy "camera=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), midi=(), display-capture=(), browsing-topics=()"
+		-Server
+	}
+
+	# never for visitors: dot files and folders, backups, archives, sources, scripts, keys and
+	# logs, these notes and the deploy scripts. h9web's and the list's addresses are left alone
+	# (a username may end in .sh).
+	@hidden {
+		path_regexp hidden (?i)(/\.|\.(bak[^/]*|orig|rej|old|save|swp|swo|tmp|zip|7z|rar|tar|tgz|sql|sqlite3?|db-wal|db-shm|log|pem|key|crt|p12|pfx|env|sh|ps1|bat|cmd|py|sma|inc|amxx|patch|diff)$|~$)
+		not path /.well-known/* /api/* /serverlist/*
+	}
+	@notes path /webclient/DEPLOY.txt /deploy/*
+	@api {
+		path /api/*
+		not path /api/forum/avatar
+	}
+
+	route {
+		respond @hidden 404
+		respond @notes 404
+
+		# request bodies: 64 KB for h9web's API, 11 MB for a profile picture, 4 KB for the list
+		request_body @api {
+			max_size 64KB
+		}
+		request_body /api/forum/avatar {
+			max_size 11MB
+		}
+		request_body /serverlist/* {
+			max_size 4KB
+		}
+
+		# h9web: the API and the web client's relay (a WebSocket), from this machine only
+		reverse_proxy /api/* 127.0.0.1:8090 {
+			header_up X-Real-IP {remote_host}
+		}
+		reverse_proxy /webclient/relay 127.0.0.1:8090 {
+			header_up X-Real-IP {remote_host}
+		}
+
+		# the H9 server list (networking.ini's list_bot), its prefix taken off
+		handle_path /serverlist/* {
+			header Cache-Control "no-cache"
+			reverse_proxy 127.0.0.1:8081 {
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		# the web client's game files: each address carries the file's hash, so they may be kept
+		handle_path /webclient/game/* {
+			root * {ROOT}/game
+			header Cache-Control "public, max-age=604800"
+			file_server {
+				precompressed gzip
+			}
+		}
+
+		# the page, the loader and the lists change with every build
+		header /webclient/* Cache-Control "no-cache"
+
+		root * {ROOT}/site
+		file_server
+	}
+}
+
+www.{DOMAIN} {
+	redir https://{DOMAIN}{uri} permanent
+}
+
+import {ROOT}/etc/Caddyfile.extra

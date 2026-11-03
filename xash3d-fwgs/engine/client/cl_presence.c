@@ -288,7 +288,9 @@ each side's zones in Capture the Uplink (tsm_pres_prog "1/2/4/0": side 1's, side
 the carrier's side), the wave in Wave Survival. State is the players alive on each side out
 of the total, the bots, and the map, or the totals alone from a plugin that does not publish
 the alive counts. The large image is the map's snapshot, named after the map in the
-application's art assets. The two buttons link to the Discord invite and the site.
+application's art assets. The two buttons link to the Discord invite and the site. The party
+is the people on the server out of its slots, bots left out ("3 of 64" beside the state), from
+the server's own status reply.
 =================
 */
 static void H9P_Activity( char *out, size_t size )
@@ -309,7 +311,7 @@ static void H9P_Activity( char *out, size_t size )
 
 	const char	*atk = attack[0] == '1' ? H9P_SIDE1_NAME : ( attack[0] == '2' ? H9P_SIDE2_NAME : "" );
 	const char	*mode = H9P_Mode( h9p.map, key, siege );
-	char		e_details[192], e_state[320], e_map[160], e_title[320];
+	char		e_details[192], e_state[320], e_map[160], e_title[320], party[64];
 
 	if( siege[0] && atk[0] )
 	{
@@ -358,12 +360,18 @@ static void H9P_Activity( char *out, size_t size )
 	H9P_Escape( e_map, sizeof( e_map ), h9p.map );
 	H9P_Escape( e_title, sizeof( e_title ), title );
 
+	// the people out of the slots: the game itself is one of them, so never fewer than 1
+	party[0] = '\0';
+	if( h9p.valid && h9p.maxplayers > 0 )
+		Q_snprintf( party, sizeof( party ), "\"party\":{\"size\":[%d,%d]},",
+			bound( 1, h9p.players, h9p.maxplayers ), h9p.maxplayers );
+
 	Q_snprintf( out, size,
-		"{\"details\":\"%s\",\"state\":\"%s\",\"timestamps\":{\"start\":%d},"
+		"{\"details\":\"%s\",\"state\":\"%s\",\"timestamps\":{\"start\":%d},%s"
 		"\"assets\":{\"large_image\":\"%s\",\"large_text\":\"%s\","
 		"\"small_image\":\"%s\",\"small_text\":\"HAVOC 9\"},"
 		"\"buttons\":[{\"label\":\"%s\",\"url\":\"%s\"},{\"label\":\"%s\",\"url\":\"%s\"}]}",
-		e_details, e_state, h9p.start, e_map, e_title, H9P_SMALL_KEY,
+		e_details, e_state, h9p.start, party, e_map, e_title, H9P_SMALL_KEY,
 		H9P_BUTTON1_LABEL, H9P_BUTTON1_URL, H9P_BUTTON2_LABEL, H9P_BUTTON2_URL );
 }
 

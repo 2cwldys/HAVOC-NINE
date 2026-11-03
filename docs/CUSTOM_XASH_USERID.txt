@@ -8,12 +8,22 @@
  The short version
    * H9XASH makes a random id for this install once, on first run, and keeps
      using it. It is NOT a hardware fingerprint -- see section 1.
+   * The engine keeps it in user_id.ini protected for your Windows user (DPAPI)
+     and reads it itself: it is not in plain text anywhere (section 2).
+   * Link your Account in the main menu (or .link in chat on an H9 server)
+     links the game to your havoc9.org account: you approve a code on
+     havoc9.org/link and the game plays as your account from then on. No id to
+     type or paste (section 2a).
    * A server never sees that raw id. It sees MD5(the id + that server's own
      address) -- a different value for every different server (section 3).
    * Delete user_id.ini, or run h9_regenerate_userid.bat, to get a new one on
      your next launch (section 2).
    * Any AMX Mod X plugin can read it with get_user_info(id, "h9_clientid",
      ...) -- no special permission needed (section 4).
+   * h9_clientid alone can be copied by anyone on the same server. H9XASH
+     also proves it holds the id behind it when an H9 server asks, with a
+     per-install device id kept in device_id.ini (section 3a). Keep user_id.ini
+     and device_id.ini to yourself: together they are your account in game.
 
  1. WHAT THIS IS, AND ISN'T
  ---------------------------
@@ -38,30 +48,110 @@
 
  2. USER_ID.INI, AND REGENERATING IT
  -------------------------------------
- H9XASH\user_id.ini holds this install's id, made the first time h9xash.bat
- runs and left alone after that:
+ H9XASH\user_id.ini holds this install's id. The engine makes it on the game's
+ first start and reads it itself on every start after that (engine-h9-link.patch,
+ engine\client\cl_h9link.c):
 
      [client]
-     id=3f9a2b7c4e1d4a8f9b6c0d2e5f7a1b3c
+     protected=01000000d08c9ddf0115d1118c7a00c04fc297eb0100...
 
- h9_userid.ps1 (run automatically by h9xash.bat, every launch) only writes a
- NEW id here if the file is missing or doesn't look like a real id -- a normal
- launch never changes it, the same way networking.ini's settings survive every
- launch untouched.
+ The value is the id sealed with Windows' own data protection (DPAPI,
+ CryptProtectData) for your Windows user, with an extra key of the game's own.
+ Only your user on this PC opens it: copy the H9XASH folder to another PC, or
+ run it as another Windows user, and the game there cannot read it, makes a new
+ id of its own, and is not linked to your account. The record of the other user
+ stays in the file (as another protected= line, three at most), so one folder
+ shared by two Windows users, or by both systems of a dual boot, keeps an id
+ for each. Under Wine and Proton the same calls go to Wine's own crypt32, which
+ keys DPAPI to the user name alone: the id is out of plain sight there, not
+ locked to the account.
+
+ The id is in plain text nowhere: not in ts\config.cfg (the engine no longer
+ saves cl_h9_userid there, and h9_userid.ps1 takes out a line an older build
+ left), not in ts\userid_resolved.cfg (the launcher writes it with no id), and
+ no config or console can set cl_h9_userid any more (it is read-only). A
+ launch straight from HAVOC 9.exe, without h9xash.bat, has its id too.
+
+ An older install's user_id.ini, with the id as plain text (id=), is taken as
+ it is and protected at the first start of this H9XASH; user_id.ini.bak (an
+ older id in plain text, from an older enter_userid.cmd) is deleted then.
 
  To get a new one on purpose -- the file was shared by mistake, or you simply
- want a clean slate -- run h9_regenerate_userid.bat from the H9XASH folder.
- Like networking.ini's own settings, this takes effect on your NEXT launch,
- not instantly.
+ want a clean slate -- run h9_regenerate_userid.bat from the H9XASH folder (it
+ deletes user_id.ini), or delete the file yourself. The game makes a new random
+ id at its next start, not linked to any account; a game running with its main
+ menu up notices within two seconds and makes it at once.
 
- To use your havoc9.org account's id instead, so a server sees this install
- and the web client in the browser as the same player: sign in on
- havoc9.org, open ACCOUNT and show your player id, then run enter_userid.cmd
- from the H9XASH folder and paste it. Or write it into user_id.ini by hand,
- as id= under [client]. The id it replaces is kept in user_id.ini.bak. It is
- optional: a random id works as before, and h9_regenerate_userid.bat makes a
- new random one any time. Keep your account's id to yourself: whoever has it
- is you to H9's servers. It takes effect on your NEXT launch.
+ To use your havoc9.org account instead, so a server sees this install and the
+ web client in the browser as the same player, link the game (section 2a). The
+ older way still works: sign in on havoc9.org, open ACCOUNT and show your player
+ id, then run enter_userid.cmd from the H9XASH folder and paste it, or write it
+ into user_id.ini by hand as id= under [client]. The game takes that id= line
+ at its next start and protects it; that is not "linked" in the sense of
+ section 2a (the account page does not list it, and Link your Account stays in
+ the menu), unless it is the id the game was linked with. Keep your account's
+ id to yourself: whoever has it is you to H9's servers.
+
+ 2a. LINKING THE GAME TO YOUR HAVOC9.ORG ACCOUNT
+ ------------------------------------------------
+ In the main menu, Link your Account (below Change Game, above Quit, with a red,
+ broken chain beside it):
+   1. The game asks havoc9.org for a code and shows it, such as WDJB-MJHT.
+   2. OPEN PAGE opens havoc9.org/link in your web browser with the code
+      filled in. Sign in there; the page shows what is asking (the game, when,
+      and whether it asked from the network you are on) and LINK and NOT ME.
+   3. LINK: within a few seconds the game shows "Linked", is handed your
+      account's player id, keeps it protected as in section 2, and plays as
+      your account from then on. The button reads Unlink your Account, with a
+      green chain, the same chain as on the scoreboard.
+ The code works for 10 minutes and once. In game on an H9 server, .link in chat
+ does the same (h9_link.sma): the code shows in a panel, and once you close it,
+ at the top of the screen until it is answered; h9_link in the console shows it
+ again. A server may only put a code up, three times in ten minutes at most: it
+ can never open your browser or unlink you.
+
+ Unlink your Account (it asks first), or h9_unlink in the console, ends it: the
+ game gets a new random id, and havoc9.org drops it from your account.
+
+ A link belongs to the site that made it. With cl_h9_site 127.0.0.1:8090 (the
+ local test site; localhost:8090 too, "http://127.0.0.1:8090" in quotes, a slash
+ at the end or not) the code, the page and the link are that site's, and the menu
+ and the panel name it. The console says the site in use a moment after start and
+ whenever cl_h9_site changes, and why a value was not taken (unquoted,
+ http://127.0.0.1:8090 is cut at // to http:, which the console takes for a
+ comment). The game checks a link with its own site only, and only while
+ cl_h9_site points to it: a link made on the test site is kept, id and all, after
+ cl_h9_site is cleared, and is checked again once it names that site again.
+ h9_unlink tells the link's site.
+
+ A game whose id is already an account's, but which was never linked (an id put
+ in with enter_userid.cmd, or from before linking), links itself: ten seconds after
+ start, and while the main menu is up, it asks the site in use whether its id is
+ an account's, proving it holds the id as the ID proof does (section 3a), with the
+ id itself never sent. When it is, the game is linked to that account and the menu
+ reads Unlink your Account. A random id of the install's own is no account's, and
+ nothing changes. A refusal (the account's id is bound to another device there, or
+ the account is suspended) is one line in the console.
+
+ Your linked games are listed on havoc9.org's ACCOUNT page (LINKED GAMES),
+ each with REVOKE. A linked game asks havoc9.org once a start, ten seconds in,
+ whether the link still stands; when it was revoked there, or an admin gave the
+ account a new player id (after a leak), the game unlinks itself and gets a new
+ id. The menu turns back to Link your Account by itself whenever the link is
+ gone: user_id.ini deleted or regenerated, another id put in it, h9_unlink, or
+ that check. Reading the button costs nothing: the engine keeps its state, and
+ the menu reads it with no network call.
+
+ What the game keeps for a link, sealed in user_id.ini: the account's player id
+ (as its id), the account's username, and a link token, which havoc9.org keeps
+ only as a hash and which only lets the game ask whether it is still linked and
+ unlink itself. The browser game has none of this: it is signed in to its
+ account already, so it has no Link your Account.
+
+ Console: h9_link (open | cancel), h9_unlink. The userinfo key _h9lnk is "1"
+ while the game is linked and "0" while it is not, which servers read (an older
+ game has none); _h9link_account, _h9link_flow, _h9link_code and _h9link_text
+ are read-only cvars the menu reads.
 
  3. HOW IT REACHES A SERVER
  ----------------------------
@@ -85,7 +175,60 @@
 
  Budget note for anyone adding more userinfo keys of their own: the whole
  userinfo string shares one 256-byte limit across every key a client sends
- (name, model, rate, and so on). h9_clientid costs about 45 of those bytes.
+ (name, model, rate, and so on). h9_clientid costs about 45 of those bytes,
+ _h9idv (section 3a) about 9, _h9lnk (section 2a) about 9.
+
+ Linked while connected (.link on a server), the game salts h9_clientid again
+ with the account's player id and sends it at once, so the server sees the
+ account without a reconnect. On your own listen server (section 3b) the next
+ h9_idlisten does it.
+
+ 3a. PROVING IT: THE ID PROOF
+ ----------------------------
+ h9_clientid is the same every time you join a server, and every player there
+ receives it, so on its own anyone could copy it and appear as you. H9XASH
+ answers a challenge only the holder of the raw id can (engine-h9-idproof.patch,
+ docs\H9_PRESENCE.txt section 8 for the exact exchange):
+   * On first run the engine makes a device id, 16 random bytes from the
+     operating system, and keeps it in device_id.ini in the H9XASH folder,
+     beside user_id.ini. Nothing regenerates it; delete it to make a new one
+     (an H9 admin may then need to allow the new device for your account).
+   * While the device id is there, the userinfo key _h9idv is "1", which tells
+     an H9 server it may ask.
+   * The server (h9_presence, with h9_presence_challenge 1) sends
+     h9_idchallenge <nonce>, a nonce havoc9.org made for it, at join and every
+     5 minutes. The engine answers with h9_idproof: an HMAC-SHA256 keyed with
+     the raw id (cl_h9_userid) over the nonce and the server's address, and
+     the device id masked so only havoc9.org can read it. Neither the raw id nor
+     the device id ever leaves the game in the clear.
+   * havoc9.org checks the answer and counts the player as proven for 10
+     minutes: playtime, the PLAYS IN GAME badge, a name on H9 maps, a
+     members-only community server, and your picture on the scoreboard all go
+     by it.
+ The engine answers at most four challenges a minute, only while connected,
+ and only with a cl_h9_userid of 32 lowercase hex characters. The browser game
+ has no device id and answers nothing: the web client's relay vouches for the
+ signed-in account instead.
+
+ 3b. CREATE GAME: YOUR OWN LISTEN SERVER
+ ---------------------------------------
+ On a game you start with Create Game you join your own server over
+ "loopback", which has no address, so the engine has nothing to salt
+ h9_clientid with or to sign the proof for. H9XASH from 2026-11-02 on
+ (engine-h9-listen.patch) asks the server instead: h9_presence (1.4) sends
+ your game h9_idlisten <the address it reports as>, and your game then
+   * salts h9_clientid with that address, the value a player joining you from
+     elsewhere would have for it, and tells the server at once; and
+   * answers the proof for that address (h9_idlisten <address> <nonce>, in
+     place of h9_idchallenge).
+ Only your own listen server can send it: the engine answers h9_idlisten over
+ loopback alone, never from a server elsewhere and never in a demo. The
+ userinfo key _h9idl is "1" in a game that has it. The server's own key, and
+ why havoc9.org lets a listen server report only proven players and never
+ shows its address: docs\H9_PRESENCE.txt section 8a. "this game's own player:
+ unknown" in h9_presence_status means user_id.ini does not hold the account's
+ player id (the id h9web derives for the account with the site's key, as
+ GET /api/player gives it; the uid in the database is not it).
 
  4. READING IT FROM AN AMX MOD X PLUGIN
  -----------------------------------------
@@ -166,25 +309,58 @@
  5. TROUBLESHOOTING
  --------------------
  h9_clientid is empty or missing server-side
-   - Did the game start through h9xash.bat? A direct exe launch skips
-     h9_userid.ps1 entirely, so cl_h9_userid is never set for that session.
-   - Check user_id.ini and ts\userid_resolved.cfg both exist and look right.
-     engine.log will say if either failed to write.
+   - The console (or engine.log) says why at start: user_id.ini could not be
+     written, or its id= line is not an id (it is left out, and a new id made).
+   - A game older than the link (engine-h9-link.patch) read its id from
+     ts\userid_resolved.cfg, which this launcher writes with no id: update
+     HAVOC 9.exe and xash.dll together with the scripts.
+
+ Link your Account says havoc9.org did not answer
+   - Check the connection; the game talks to https://havoc9.org itself. A
+     firewall that lets the game join servers but not reach the web blocks it.
+
+ The game says it is linked, but servers see a guest
+   - The link was revoked, or the account's player id reset: the game finds out
+     at its next start (ten seconds in) and offers Link your Account again.
+
+ After a copy to another PC the game is not linked
+   - Expected: the id is protected for the Windows user it was made for
+     (section 2). Link the game again on that PC.
 
  Regenerating didn't seem to change anything
-   - It takes effect on your NEXT launch, not the one you ran it from.
+   - It takes effect on your NEXT launch, or at once while the game's main menu
+     is up and no server is connected.
+
+ havoc9.org shows you in game but "unverified"
+   - The server does not challenge yet (h9_presence_challenge 0), or your
+     H9XASH predates the ID proof: update it.
+   - The console says device_id.ini "holds no device id": the file was edited
+     or damaged. Delete it; the next launch makes a new device (an H9 admin may
+     need to allow it on your account).
 
  The same install reads differently on two servers
    - Expected, and the entire point -- see section 3.
 
  6. FILES
  ---------
- user_id.ini                  this install's id. Not shipped as a template --
-                               made fresh per install, kept once it exists
- h9_userid.ps1                makes/refreshes it, every launch (section 2)
- h9_regenerate_userid.bat     forces a new one on the next launch (section 2)
- enter_userid.cmd             puts your havoc9.org account's id in it (section 2)
+ user_id.ini                  this install's id, protected (section 2), and its
+                               link (section 2a). Made and written by the
+                               engine; never shipped, never in git
+ device_id.ini                this install's device id for the ID proof
+                               (section 3a), made by the engine on first run;
+                               never shipped, never in git
+ h9_userid.ps1                every launch: the id out of ts\config.cfg and
+                               ts\userid_resolved.cfg (section 2)
+ h9_regenerate_userid.bat     deletes user_id.ini: a new id (section 2)
+ enter_userid.cmd             puts a player id in it, the older way (section 2)
  h9xash.bat                   runs h9_userid.ps1 before the game starts
- ts\userconfig.cfg             execs the resolved cfg below at startup
+ ts\userconfig.cfg             execs ts\userid_resolved.cfg, which only the web
+                               client fills
+ engine\client\cl_h9link.c    the engine's side (xash3d-fwgs,
+                               engine-h9-link.patch); mainui-h9-link.patch the
+                               menu's button
+ h9web\lib\link.js            havoc9.org's side (h9web\README.txt, "Linking a
+                               game"); havoc9.org\link\ the page
+ h9_link.sma                  .link on a server
 
  Generated, never edited by hand: ts\userid_resolved.cfg.

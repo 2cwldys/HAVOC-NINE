@@ -800,7 +800,7 @@ public fw_addtofullpack_pre(es, e, ent, host, hostflags, player, pSet)
 	{
 		return FMRES_IGNORED;
 	}
-	new side = (host >= 1 && host <= 32) ? tsm_side_of(host) : 0;
+	new side = (host >= 1 && host <= MAX_PLAYERS) ? tsm_side_of(host) : 0;
 	new want = (g_last_side && side == g_last_side) ? g_ground_mark[1] : g_ground_mark[0];
 	if (ent != want)
 	{
@@ -971,7 +971,7 @@ loose_tick()
 	new Float:now = get_gametime();
 
 	// Somebody takes it: the nearest player in play within reach.
-	new players[32], pnum, best = 0;
+	new players[MAX_PLAYERS], pnum, best = 0;
 	new Float:bestd = UPL_PICKUP;
 	get_players(players, pnum, "a");
 	for (new i = 0; i < pnum; i++)
@@ -1045,7 +1045,7 @@ zone_at(const Float:org[3])
 /// Is a living enemy of this side standing in the zone?
 bool:zone_contested(z, side)
 {
-	new players[32], pnum;
+	new players[MAX_PLAYERS], pnum;
 	get_players(players, pnum, "a");
 	for (new i = 0; i < pnum; i++)
 	{

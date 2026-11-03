@@ -69,7 +69,7 @@ ke::Vector<ke::AutoPtr<CPlayer *>> g_auth;
 ke::Vector<ke::AutoPtr<ForceObject>> g_forcemodels;
 ke::Vector<ke::AutoPtr<ForceObject>> g_forcesounds;
 ke::Vector<ke::AutoPtr<ForceObject>> g_forcegeneric;
-CPlayer g_players[33];
+CPlayer g_players[AMXX_MAX_PLAYERS + 1];
 CPlayer* mPlayer;
 CPluginMngr g_plugins;
 CTaskMngr g_tasksMngr;
@@ -166,16 +166,6 @@ int FF_ClientConnectEx = -1;
 
 IFileSystem* g_FileSystem;
 HLTypeConversion TypeConversion;
-
-enum class EngineType
-{
-    HL25,
-    Legacy,
-    Svengine,
-	Unknown //falls back to legacy
-};
-
-EngineType g_EngineType = EngineType::Unknown;
 
 bool ColoredMenus(const char *ModName)
 {
@@ -720,7 +710,8 @@ void C_ServerDeactivate()
 			// deprecated
 			executeForwards(FF_ClientDisconnect, static_cast<cell>(pPlayer->index));
 
-			if (g_isDropClientHookAvailable && !pPlayer->disconnecting)
+			// disconnecting is set only by an SV_DropClient hook, which then fired these itself
+			if (!pPlayer->disconnecting)
 			{
 				executeForwards(FF_ClientDisconnected, static_cast<cell>(pPlayer->index), FALSE, prepareCharArray(const_cast<char*>(""), 0), 0);
 			}
@@ -733,7 +724,7 @@ void C_ServerDeactivate()
 			pPlayer->Disconnect();
 			--g_players_num;
 
-			if (!wasDisconnecting && g_isDropClientHookAvailable)
+			if (!wasDisconnecting)
 			{
 				executeForwards(FF_ClientRemove, static_cast<cell>(pPlayer->index), FALSE, const_cast<char*>(""));
 			}
@@ -938,7 +929,10 @@ void C_ClientDisconnect(edict_t *pEntity)
 		// deprecated
 		executeForwards(FF_ClientDisconnect, static_cast<cell>(pPlayer->index));
 
-		if (g_isDropClientHookAvailable && !pPlayer->disconnecting)
+		// A leave the SV_DropClient hook did not see (it set disconnecting and fired these), or
+		// every leave when there is no hook (Xash3D; an engine the gamedata does not know): drop
+		// false, no message.
+		if (!pPlayer->disconnecting)
 		{
 			executeForwards(FF_ClientDisconnected, static_cast<cell>(pPlayer->index), FALSE, prepareCharArray(const_cast<char*>(""), 0), 0);
 		}
@@ -953,7 +947,7 @@ void C_ClientDisconnect(edict_t *pEntity)
 
 	pPlayer->Disconnect();
 
-	if (!wasDisconnecting && g_isDropClientHookAvailable)
+	if (!wasDisconnecting)
 	{
 		executeForwards(FF_ClientRemove, static_cast<cell>(pPlayer->index), FALSE, const_cast<char*>(""));
 	}
@@ -963,18 +957,7 @@ void C_ClientDisconnect(edict_t *pEntity)
 
 CPlayer* SV_DropClient_PreHook(edict_s *client, qboolean crash, const char *buffer, size_t buffer_size)
 {
-	CPlayer *pPlayer = nullptr;
-
-	if (client)
-	{
-		edict_t *pWorld = INDEXENT(0);
-		int ent = client - pWorld;
-
-		if (ent > 0 && ent <= gpGlobals->maxClients && !client->free)
-		{
-			pPlayer = GET_PLAYER_POINTER(client);
-		}
-	}
+	auto pPlayer = client ? GET_PLAYER_POINTER(client) : nullptr;
 
 	if (pPlayer)
 	{
@@ -998,7 +981,7 @@ void SV_DropClient_PostHook(CPlayer *pPlayer, qboolean crash, const char *buffer
 }
 
 // void SV_DropClient(client_t *cl, qboolean crash, const char *fmt, ...);
-DETOUR_DECL_STATIC3_VAR(SV_DropClient, void, void*, cl, qboolean, crash, const char*, format)
+DETOUR_DECL_STATIC3_VAR(SV_DropClient, void, client_t*, cl, qboolean, crash, const char*, format)
 {
 	char buffer[1024];
 
@@ -1007,21 +990,7 @@ DETOUR_DECL_STATIC3_VAR(SV_DropClient, void, void*, cl, qboolean, crash, const c
 	ke::SafeVsprintf(buffer, sizeof(buffer) - 1, format, ap);
 	va_end(ap);
 
-	edict_t *pClientEdict = nullptr;
-	switch(g_EngineType)
-	{
-		case EngineType::HL25:
-			pClientEdict = reinterpret_cast<client_t_hl25*>(cl)->edict;
-			break;
-		case EngineType::Svengine:
-			pClientEdict = reinterpret_cast<client_t_svengine*>(cl)->edict;
-			break;
-		default:
-			pClientEdict = reinterpret_cast<client_t*>(cl)->edict;
-			break;
-	}
-
-	auto pPlayer = SV_DropClient_PreHook(pClientEdict, crash, buffer, ARRAY_LENGTH(buffer));
+	auto pPlayer = SV_DropClient_PreHook(cl->edict, crash, buffer, ARRAY_LENGTH(buffer));
 
 	DETOUR_STATIC_CALL(SV_DropClient)(cl, crash, "%s", buffer);
 
@@ -1739,28 +1708,14 @@ C_DLLEXPORT	int	Meta_Attach(PLUG_LOADTIME now, META_FUNCTIONS *pFunctionTable, m
 
 		if (CommonConfig && CommonConfig->GetMemSig("SV_DropClient", &address) && address)
 		{
-			const char* raw = CommonConfig->GetKeyValue("EngineType");
-
-			if (strcmp(raw, "HL25") == 0)
-			{
-				g_EngineType = EngineType::HL25;
-			}
-			else if (strcmp(raw, "Svengine") == 0)
-			{
-				g_EngineType = EngineType::Svengine;
-			}
-			else
-			{
-				g_EngineType = EngineType::Legacy;
-			}
-
 			DropClientDetour = DETOUR_CREATE_STATIC_FIXED(SV_DropClient, address);
 			g_isDropClientHookAvailable = true;
+			g_isDropClientHookEnabled = true;
 		}
 		else
 		{
 			auto reason = RehldsApi ? "update ReHLDS" : "check your gamedata files";
-			AMXXLOG_Log("client_disconnected and client_remove forwards have been disabled - %s.", reason);
+			AMXXLOG_Log("No SV_DropClient hook (%s): client_disconnected and client_remove fire from ClientDisconnect, without the drop reason.", reason);
 		}
 	}
 
@@ -1972,4 +1927,3 @@ C_DLLEXPORT int GetNewDLLFunctions(NEW_DLL_FUNCTIONS *pNewFunctionTable, int *in
 	return 1;
 }
 #endif
- 
