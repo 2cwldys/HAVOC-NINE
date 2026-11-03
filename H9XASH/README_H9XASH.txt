@@ -65,7 +65,29 @@
  networking.ini, 27015 as it ships: h9xash_server.bat and h9xash_server_debug.bat
  for a dedicated server, and Create Game (h9xash.bat passes it as -port). Change it
  to run a second server on this PC, or where a network blocks 27015, and open it in
- the firewall and the router. A -port given to a launcher wins.
+ the firewall and the router. A -port given to a launcher wins. A networking.ini
+ from before the port was in it gets the line at the next launch, through
+ h9xash.bat; one you set stays as you set it.
+
+ Priority, cores and memory
+ --------------------------
+ priority= under [process] in networking.ini is the priority h9xash.bat,
+ h9xash_server.bat and h9xash_server_debug.bat start HAVOC 9.exe at: Normal,
+ AboveNormal (as it ships, and when the line is missing) or High. It matters only
+ while the PC is busy; High suits a PC that only hosts. Realtime runs as High: a
+ busy game at Realtime holds back Windows' own input, disk and network work.
+ Nothing pins the game to some cores: Windows runs it on any of them. Its game
+ simulation is one thread, so a faster core helps a server and more cores do not;
+ they run other servers and programs beside it. HAVOC 9.exe is a 32-bit program
+ marked large-address-aware: on 64-bit Windows it can use 4 GB of memory, not 2.
+
+ Overflow log
+ ------------
+ When the game or a server here meets one of the engine's overflow or limit
+ messages, it also writes a line to ts\logs\h9_overflow.log: the date and time,
+ server, listen (Create Game) or client, the map and the message, whether or not
+ the console shows it. The same message goes in once in 10 seconds at most. Send
+ that file with a report of a dropped game or a crash.
 
  Your havoc9.org account
  -----------------------

@@ -42,6 +42,9 @@ cvar_t teammodels = {"mp_teammodels", "", FCVAR_SERVER}; // the team model lists
 // reTS addition, not in TS 3.0 (reference/DEVIATIONS.md): how much the server forces player models.
 // 0 off (a plugin or the player owns the model key), 1 TS 3.0's own forcing, 2 own team's list only.
 cvar_t teammodels_force = {"mp_teammodels_force", "1", FCVAR_SERVER};
+// reTS addition, not in TS 3.0 (reference/DEVIATIONS.md): present and 1 when this game library has the PPSh-41 (weapon
+// 39), so a plugin can give a library without it another gun.
+cvar_t h9_ppsh41 = {"h9_ppsh41", "1", FCVAR_SERVER};
 cvar_t teamoverride = {"mp_teamoverride", "1"};
 cvar_t defaultteam = {"mp_defaultteam", "0"};
 cvar_t allowmonsters = {"mp_allowmonsters", "0", FCVAR_SERVER};
@@ -250,6 +253,7 @@ void GameDLLInit()
 	CVAR_REGISTER(&teamlist);
 	CVAR_REGISTER(&teammodels);
 	CVAR_REGISTER(&teammodels_force);
+	CVAR_REGISTER(&h9_ppsh41);
 	CVAR_REGISTER(&teamoverride);
 	CVAR_REGISTER(&defaultteam);
 	CVAR_REGISTER(&allowmonsters);

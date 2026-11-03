@@ -142,6 +142,7 @@ static void Sparta()
 // provenance comments). Recovered column-complete from compile_ammo_info @0x6f51c
 // (analysis_ff_gun.md; the old kAmmoMax table was the +0x20 RANGE column mislabeled as
 // the reserve cap, and kBulletSpeedUnit was in compile-WRITE order — both fixed here).
+// Caliber 14 (7.62 x 25mm, the PPSh-41's) is H9's; the original has 13.
 // Calibers: 1 9x19, 2 .45Acp, 3 SHELLS, 4 5.56, 5 .50AE, 6 7.62x39, 7 5.7x28, 8 50BMG,
 // 9 10mm, 10 .22LR, 11 .454, 12 .32Acp, 13 7.62x51 (M60 belt — NOT .45LC).
 //============================================================================
@@ -172,10 +173,10 @@ static void set_ammo(int cal, float f0, int price, int kind, int mag,
 // client (the SrvSett id-2 handler calls it so purchase/ammo bookkeeping matches).
 void Set_ammo_count(int mode)
 {
-	static const int mode0[13] = {210, 175, 60, 120, 70, 90, 160, 30, 90, 150, 50, 300, 35};
-	static const int mode1[13] = {90, 50, 32, 60, 21, 60, 40, 10, 30, 34, 15, 100, 15};
-	static const int mode2[13] = {30, 25, 16, 30, 7, 30, 20, 5, 15, 17, 5, 40, 5};
-	for (int cal = 1; cal <= 13; cal++)
+	static const int mode0[14] = {210, 175, 60, 120, 70, 90, 160, 30, 90, 150, 50, 300, 35, 213};
+	static const int mode1[14] = {90, 50, 32, 60, 21, 60, 40, 10, 30, 34, 15, 100, 15, 142};
+	static const int mode2[14] = {30, 25, 16, 30, 7, 30, 20, 5, 15, 17, 5, 40, 5, 71};
+	for (int cal = 1; cal <= 14; cal++)
 	{
 		int v;
 		switch (mode)
@@ -189,7 +190,7 @@ void Set_ammo_count(int mode)
 	}
 }
 
-// @0x6f51c compile_ammo_info — fill the 13 caliber rows (entries 0/14/15 stay zero except
+// @0x6f51c compile_ammo_info — fill the 14 caliber rows (entries 0/15 stay zero except
 // the 1.0 multiplier), then default the max-carry column. Assignments kept in the
 // original's source order (1,5,7,2,9,4,6,8,3,10,11,12,13 — the write-order trap the old
 // kBulletSpeedUnit fell into).
@@ -211,6 +212,7 @@ void compile_ammo_info(void)
 	set_ammo(11, 0.3f, 150, 1, 5, 0.75f, 20, 400, ".454 Casull");
 	set_ammo(12, 0.5f, 30, 1, 20, 0.0f, 40, 300, ".32Acp");
 	set_ammo(13, 0.2f, 150, 2, 5, 0.7f, 170, 850, "7.62 x 51mm");
+	set_ammo(14, 0.4f, 150, 1, 71, 0.5f, 90, 500, "7.62 x 25mm"); // the PPSh-41's: a buy is one 71-round drum
 	Set_ammo_count(0);
 	g_ammoInfoCompiled = true;
 }
@@ -878,6 +880,49 @@ void compile_weapons_info()
       g_weaponInfo[r.idx].pszShellModel = r.shell;
       g_weaponInfo[r.idx].iShellSetback = r.setback;
     }
+  }
+
+  // Id 38 is no weapon (TSW_UNUSED): an empty row, so every loop over the table passes it by (no name, no
+  // models, no sound, no akimbo pair).
+  Write(&g_weaponInfo[TSW_UNUSED], "", nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0.0f, 0, 0.0f, 0.0f, 0.0f);
+
+  // PPSh-41 (H9 addition, table index TSW_PPSH41). The row starts as the AK47's, whole: its v_/p_/w_
+  // models are TS's AK47 models with the gun's meshes swapped, so every animation block, hold stance,
+  // fire/reload/draw sequence and event is the AK47's. What is the PPSh's own is set below: name, models,
+  // sound, shell, clip (the 71-round drum), fire type (an SMG: the SMG restriction category and buy
+  // category), rate (900 rounds a minute), fire modes (auto and semi), caliber (7.62 x 25mm, 14), weight,
+  // price, no scope, and the combat feel (Sparta: 85% of the UMP's damage, as the drum holds 71).
+  {
+    s_weapon_info &p = g_weaponInfo[TSW_PPSH41];
+    p = g_weaponInfo[TSW_AK47];
+    p.pszName = "PPSh-41";
+    p.pszViewModel = "models/h9/v_ppsh41.mdl";
+    p.pszPlayerModel = "models/h9/p_ppsh41.mdl";
+    p.pszPlayerModelSil = nullptr;
+    p.pszWorldModel = "models/h9/w_ppsh41.mdl";
+    p.pszFireSound = "h9/ppsh41/fire.wav";
+    p.pszAltSound = nullptr;
+    p.pszShellModel = "models/56_shell.mdl";
+    p.iShellSetback = 15;
+    p.iClip = 71;
+    p.iFireType = TSFT_AUTO;
+    p.flFireRate = 0.067f;
+    p.iFireModes = 3;
+    p.iCaliber = 14;
+    p.slotCost = 35;
+    p.iPrice = 2000;
+    p.zoomFov1 = 0;
+    p.zoomFov2 = 0;
+    p.attachSupported = 0;
+    p.attachBuiltin = 0;
+    p.iBodySilencer = 0;
+    p.iBodyLaser = 0;
+    p.iBodyFlash = 0;
+    p.iBodyScope = 0;
+    p.iBodyLaserFlash = -1;
+    p.iAkimboType = -1;
+    p.iSingleType = TSW_PPSH41;
+    SetSpartaWeapon(TSW_PPSH41, 0.015f, 2.0f, 0.004f, 26.35f); // damage: 85% of the UMP's 31, for the 71-round drum
   }
 
   // the original chains the ammo table + the falloff LUT off the weapon-table build:

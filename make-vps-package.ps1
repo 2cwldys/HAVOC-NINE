@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-  Packs havoc9.org for a host: dist\havoc9-vps-linux-<build>.zip (vps\linux\setup.sh) and
-  dist\havoc9-vps-windows-<build>.zip (vps\windows\setup.ps1).
+  Packs havoc9.org for a host: dist\havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip (vps\linux\setup.sh)
+  and dist\havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip (vps\windows\setup.ps1).
 
 .DESCRIPTION
-  Each ZIP has one folder in it, havoc9-vps-<target>-<build>\, holding:
+  Each ZIP has one folder in it, named like the ZIP (havoc9-vps-<target>-<build>-<yyyyMMdd-HHmm>\), holding:
     linux:    README-VPS.txt, setup.sh, systemd\, hardening\      from vps\linux\
     windows:  README-WINDOWS.txt, setup.ps1, setup.cmd,
               Caddyfile.template                                  from vps\windows\
@@ -17,7 +17,7 @@
       serverlist-bot\   the list's code, requirements.txt, README.md, serverlist.ini,
                         servers.txt and serverlist.cfg.example; never serverlist.cfg (the
                         Discord token and heartbeat key) or its log
-      BUILD.txt         the build, the time and where it was packed from
+      BUILD.txt         the build, the time and the commit it was packed from, never a folder of this PC
   Only files picked by name and kind go in. Last, each staged tree is scanned: a secret's file
   name (secrets.json, data.key, serverlist.cfg, ts_advertise.cfg, a database, a key or
   certificate, a backup) or a secret's content (a Discord bot token or webhook URL, a private
@@ -27,10 +27,12 @@
   The build comes from VERSION.txt beside this script ("Build: ..."), with the time it was
   packed: havoc9-vps-linux-1.54-lift6-20261102-0130.zip. The sources are only read.
 
-  With -WebClient, the web client's files go in a third ZIP, havoc9-vps-webclient-<build>.zip:
+  With -WebClient, the web client's files go in a third ZIP, havoc9-vps-webclient-<build>-<yyyyMMdd-HHmm>.zip:
   webclient-build\stage (about 1.2 GB, made by export.bat or tools\make_webclient_game.py) and
   tools\make_webclient_game.py, laid out for either package (README-VPS.txt and
-  README-WINDOWS.txt, step 12).
+  README-WINDOWS.txt, step 12). A stage file that never ships (an id, a secret, a game server's
+  settings, a config.cfg) stops the run before that ZIP is written; the one config.cfg let through is
+  TS 3.0's own, at game/ts/config.cfg, when it is byte for byte reTS\game\ts\config.cfg.
 
 .PARAMETER Target
   all (the default), linux or windows.
@@ -133,6 +135,48 @@ function Write-Zip([string]$zipPath, $entries, [string]$level) {
     }
 }
 
+# TS 3.0's own config.cfg, as the SHA-256 of the copy tools\make_webclient_game.py takes the stage's from
+# (reTS\game\ts beside this script, else ts3.0\ts); $null when neither is there.
+function Get-StockConfigHash([string]$Base) {
+    foreach ($c in @('reTS\game\ts\config.cfg', 'ts3.0\ts\config.cfg')) {
+        $p = Join-Path $Base $c
+        if (Test-Path -LiteralPath $p) { return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash }
+    }
+    return $null
+}
+
+# True for a web client stage file that must never be served, which stops the web client ZIP: an id, a
+# secret, a game server's settings, or a config.cfg. The one config.cfg that may ship is TS 3.0's own,
+# which tools\make_webclient_game.py puts in the stage at game/ts/config.cfg for a new player to start
+# from: it passes only at that path and only when it is byte for byte the stock file ($StockHash, from
+# Get-StockConfigHash). Any other config.cfg, or a changed one, is refused.
+function Test-StageFileRefused([IO.FileInfo]$File, [string]$Rel, [string]$StockHash) {
+    if ($File.Name -notmatch '^(ts_advertise.*|\.xash_id|user_id\.ini|device_id\.ini|.*_resolved\.cfg|config\.cfg|secrets\.json|serverlist\.cfg)$') { return $false }
+    if ($Rel -ceq 'game/ts/config.cfg' -and $StockHash -and (Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash -eq $StockHash) { return $false }
+    return $true
+}
+
+# Where the package was packed from, for BUILD.txt and the report, which the host ZIPs carry to the public
+# file index: never a folder of this PC. The checkout's commit and branch when it is a git checkout (a .git
+# of its own beside this script), else only that it is a checkout of the repository.
+function Get-SourceText([string]$Dir) {
+    $plain = 'a checkout of the repository'
+    if (-not (Test-Path -LiteralPath (Join-Path $Dir '.git'))) { return $plain }
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $commit = [string]@(& git -C $Dir rev-parse --short HEAD 2>$null)[0]
+        if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{4,40}$') { return $plain }
+        $branch = [string]@(& git -C $Dir rev-parse --abbrev-ref HEAD 2>$null)[0]
+        if ($LASTEXITCODE -ne 0 -or $branch -notmatch '^[A-Za-z0-9._/-]+$' -or $branch -eq 'HEAD') { return "commit $commit of the repository" }
+        return "commit $commit on branch $branch of the repository"
+    } catch {
+        return $plain
+    } finally {
+        $ErrorActionPreference = $saved
+    }
+}
+
 $BadName = '^(secrets\.json|data\.key|serverlist\.cfg|ts_advertise\.cfg|backup-passphrase.*|\.env|id_rsa.*|id_ed25519.*|id_ecdsa.*)$|\.(db|db-wal|db-shm|db-journal|sqlite3?|h9backup|pem|key|p12|pfx|crt|ppk)$'
 $TextExt = '\.(js|mjs|cjs|json|html|htm|css|txt|md|ini|cfg|sh|ps1|cmd|py|service|timer|conf|example|template|xml|svg)$|^[^.]+$'
 $Hard = @(
@@ -145,6 +189,7 @@ $Hard = @(
 )
 $Latin1 = [Text.Encoding]::GetEncoding(28591)
 $made = @()
+$Source = Get-SourceText $Root
 
 $step = 0
 foreach ($t in $Targets) {
@@ -169,7 +214,7 @@ foreach ($t in $Targets) {
     }
     $guide = 'README-VPS.txt'; if ($t -eq 'windows') { $guide = 'README-WINDOWS.txt' }
     $buildText = @("havoc9.org $t host package ($guide)", '', "Build:   $build", ('Packed:  ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz')),
-                   "Source:  $Root", ('Files:   ' + ($copied.Count + 1))) -join "`n"
+                   "Source:  $Source", ('Files:   ' + ($copied.Count + 1))) -join "`n"
     [IO.File]::WriteAllText((Join-Path $Stage 'BUILD.txt'), $buildText + "`n", (New-Object Text.UTF8Encoding $false))
     $copied.Add('BUILD.txt')
     Say ("  {0} files staged" -f $copied.Count)
@@ -208,17 +253,22 @@ if ($WebClient) {
     Say "$step. $Name"
     $stageDir = Join-Path $Root 'webclient-build\stage'
     $tool = Join-Path $Root 'tools\make_webclient_game.py'
-    if (-not (Test-Path -LiteralPath (Join-Path $stageDir 'manifest.json'))) { Fail "no $stageDir\manifest.json: run export.bat first (DEPLOY.txt section 3)" }
+    if (-not (Test-Path -LiteralPath (Join-Path $stageDir 'manifest.json'))) { Fail "no $stageDir\manifest.json: build the web client first with build-webclient.cmd (docs\BUILDING.txt section 9)" }
     if (-not (Test-Path -LiteralPath $tool)) { Fail "no $tool" }
     $entries = New-Object System.Collections.Generic.List[object]
     $entries.Add([pscustomobject]@{ Src = $tool; Entry = "$Name/tools/make_webclient_game.py" })
+    $stockHash = Get-StockConfigHash $Root
     $bad = New-Object System.Collections.Generic.List[string]
     foreach ($f in Get-ChildItem -LiteralPath $stageDir -Recurse -File -Force) {
         $rel = $f.FullName.Substring($stageDir.Length + 1) -replace '\\', '/'
-        if ($f.Name -match '^(ts_advertise.*|\.xash_id|user_id\.ini|device_id\.ini|.*_resolved\.cfg|config\.cfg|secrets\.json|serverlist\.cfg)$') { $bad.Add($rel) }
+        if (Test-StageFileRefused $f $rel $stockHash) { $bad.Add($rel) }
         $entries.Add([pscustomobject]@{ Src = $f.FullName; Entry = "$Name/webclient-build/stage/$rel" })
     }
-    if ($bad.Count -gt 0) { foreach ($x in $bad) { Write-Host "  [STOP] $x" -ForegroundColor Red }; Fail 'the web client stage holds files that never ship; no web client ZIP was written' }
+    if ($bad.Count -gt 0) {
+        foreach ($x in $bad) { Write-Host "  [STOP] $x" -ForegroundColor Red }
+        if ($bad -contains 'game/ts/config.cfg') { Write-Host "  game/ts/config.cfg ships only as TS 3.0's own, byte for byte: reTS\game\ts\config.cfg, else ts3.0\ts\config.cfg" }
+        Fail 'the web client stage holds files that never ship; no web client ZIP was written'
+    }
     New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
     $wcZip = Join-Path $OutDir ($Name + '.zip')
     Write-Zip $wcZip $entries 'Fastest'

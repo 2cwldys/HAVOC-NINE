@@ -584,7 +584,10 @@ void CL_ParseGoldSrcServerMessage( sizebuf_t *msg )
 		case svc_disconnect:
 			s = MSG_ReadString( msg );
 			if( !COM_StringEmpty( s ))
+			{
 				Con_Printf( "Server issued disconnect. Reason: %s\n", s );
+				CL_H9Join_Drop( s ); // H9: the join screen says it (cl_h9join.c)
+			}
 			CL_Drop ();
 			Host_AbortCurrentFrame ();
 			break;

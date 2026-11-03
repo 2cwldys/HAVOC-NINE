@@ -1,0 +1,15 @@
+diff --git a/engine/client/vgui/vgui_draw.c b/engine/client/vgui/vgui_draw.c
+index e57f5612..07cf0061 100644
+--- a/engine/client/vgui/vgui_draw.c
++++ b/engine/client/vgui/vgui_draw.c
+@@ -259,7 +259,9 @@ static void GAME_EXPORT *VGUI_EngineMalloc( size_t size )
+ 
+ static qboolean GAME_EXPORT VGUI_IsInGame( void )
+ {
+-	return cls.state == ca_active && cls.key_dest == key_game;
++	// H9: the chat line (key_message) is part of the game, as on GoldSrc, so the VGUI panels stay up
++	// while the player types. The console and the menu still hide them.
++	return cls.state == ca_active && ( cls.key_dest == key_game || cls.key_dest == key_message );
+ }
+ 
+ static void GAME_EXPORT VGUI_GetMousePos( int *_x, int *_y )

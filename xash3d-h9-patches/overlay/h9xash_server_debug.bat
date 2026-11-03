@@ -2,8 +2,8 @@
 REM ---------------------------------------------------------------------------
 REM  h9xash_server_debug.bat -- the same as h9xash_server.bat, but with -dev 2 for
 REM  a verbose engine.log (the same flag docs\NETWORKING.txt's troubleshooting
-REM  section already tells players to add), and a smaller edict budget to make an
-REM  edict-related problem show up sooner rather than only at a full server.
+REM  section already tells players to add). Xash3D FWGS does not read -num_edicts:
+REM  the edict budget is max_edicts in ts\gameinfo.txt, the same for both launchers.
 REM
 REM  Run this from the H9XASH folder.
 REM

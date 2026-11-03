@@ -1110,12 +1110,30 @@ qboolean CL_ConvertImageToWAD3( const char *filename );
 //
 void CL_Avatar_Init( void );
 void CL_Avatar_Message( sizebuf_t *msg );
+void CL_Avatar_Account( sizebuf_t *msg );
 
 //
 // cl_efrag.c
 //
 void R_StoreEfrags( efrag_t **ppefrag, int framecount );
 void R_AddEfrags( cl_entity_t *ent );
+
+//
+// cl_h9join.c (H9: the menu's join screen while a server is joined)
+//
+void CL_H9Join_Init( void );
+qboolean CL_H9Join_Begin( const char *server );
+void CL_H9Join_Try( int retry );
+void CL_H9Join_ChangeLevel( void );
+qboolean CL_H9Join_ServerInfo( void );
+void CL_H9Join_PrecacheStart( void );
+void CL_H9Join_PrecacheWorld( void );
+void CL_H9Join_PrecacheStep( void );
+void CL_H9Join_Spawning( void );
+void CL_H9Join_End( void );
+void CL_H9Join_Drop( const char *reason );
+void CL_H9Join_Disconnect( void );
+qboolean CL_H9Join_Up( void );
 
 //
 // cl_tent.c

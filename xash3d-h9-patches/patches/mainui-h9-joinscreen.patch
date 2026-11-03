@@ -1,0 +1,571 @@
+diff --git a/BaseMenu.cpp b/BaseMenu.cpp
+index a070408..3d4d569 100644
+--- a/BaseMenu.cpp
++++ b/BaseMenu.cpp
+@@ -571,6 +571,12 @@ bool UI_StartBackGroundMap( void )
+ 	if( CL_IsActive() || EngFuncs::GetCvarFloat( "cl_background" ) != 0.0f || gpGlobals->demoplayback )
+ 		return false;
+ 
++	// H9: a join is on its way, under the engine's join screen (cl_h9join.c, mainui-h9-joinscreen.patch):
++	// the menu's first draw comes during it when the game starts with +connect, and a background map
++	// would end the join
++	if( EngFuncs::GetCvarFloat( "_h9join" ) != 0.0f )
++		return false;
++
+ 	int bgmapid = EngFuncs::RandomLong( 0, uiStatic.bgmaps.Count() - 1 );
+ 
+ 	char cmd[128];
+diff --git a/menus/ConnectionProgress.cpp b/menus/ConnectionProgress.cpp
+index 3581908..76ed69b 100644
+--- a/menus/ConnectionProgress.cpp
++++ b/menus/ConnectionProgress.cpp
+@@ -16,6 +16,16 @@ See the GNU General Public License for more details.
+ You should have received a copy of the GNU General Public License
+ along with this program; if not, write to the Free Software
+ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++H9: the join screen (mainui-h9-joinscreen.patch), which the engine's cl_h9join.c brings up when a join
++starts (connect, retry, this game's own server) and at each map change, and takes down once the player
++is in the game. Over the menu's own background, or its video, full screen: a panel in the menu's colours
++(gfx/shell/colors.lst: H9's purple) with the server it joins, the stage, the overall bar (scr_loading),
++and while a file downloads its line (the name, n of N, KB of KB) with its own bar. The engine keeps all of
++it in read-only cvars (_h9join, _h9join_server, _h9join_stage, _h9join_file, _h9join_fileprog), read
++here each frame. CANCEL, or ESC, ends the join at once; the console key opens the console in its place.
++A join, or a game, that ends with a reason (_h9_drop: refused, kicked, timed out, a file that could not
++come) says it, with OK, over the menu's own screens.
+ */
+ #include "extdll_menu.h"
+ #include "BaseMenu.h"
+@@ -26,22 +36,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ #include "PicButton.h"
+ #include "YesNoMessageBox.h"
+ 
+-enum EState
+-{
+-	STATE_NONE,
+-	STATE_MENU, // do not hide when disconnected or in game
+-	STATE_DOWNLOAD, // enlarge your connectionprogress window
+-	STATE_CONNECTING, // showing single progress
+-	STATE_CONSOLE // do not show until state reset
+-};
+-
+-enum ESource
+-{
+-	SOURCE_CONSOLE,
+-	SOURCE_SERVERBROWSER,
+-	SOURCE_CREATEGAME
+-};
+-
++#define JOIN_W 640
++#define JOIN_H 240
+ 
+ class CMenuConnectionProgress : public CMenuBaseWindow
+ {
+@@ -52,94 +48,30 @@ public:
+ 	void Draw() override;
+ 	bool DrawAnimation() override;
+ 	bool KeyDown( int key ) override;
+-	void Disconnect();
+-	void HandleDisconnect( void );
+-	void HandlePrecache( void )
+-	{
+-		SetCommonText( L( "GameUI_PrecachingResources" ) );
+-		commonProgress.LinkCvar( "scr_loading", 0, 100 );
+-		m_iState = STATE_CONNECTING;
+-	}
+-	void HandleStufftext( float flProgress, const char *pszText )
+-	{
+-		SetCommonText( pszText );
+-		commonProgress.SetValue( flProgress );
+-		m_iState = STATE_CONNECTING;
+-	}
+-	void HandleDownload( const char *pszFileName, const char *pszServerName, int iCurrent, int iTotal, const char *comment )
+-	{
+-		if( strstr( pszFileName, ".bsp" ) )
+-			uiStatic.needMapListUpdate = true;
+-		snprintf( sDownloadString, sizeof( sDownloadString ) - 1, L( "Downloading %s \nfrom %s" ), pszFileName, pszServerName );
+-		snprintf( sCommonString, sizeof( sCommonString ) - 1, "%d of %d %s", iCurrent + 1, iTotal, comment );
+-		m_iState = STATE_DOWNLOAD;
+-		commonProgress.SetValue( (float)iCurrent/iTotal +  0.01f / iTotal * EngFuncs::GetCvarFloat("scr_download") );
+-	}
+-	void HandleConnect( const char *pszText )
+-	{
+-		if( !pszText )
+-		{
+-			m_iSource = SOURCE_CREATEGAME;
+-			SetServer( "" );
+-			SetCommonText( L( "GameUI_StartingServer" ) );
+-		}
+-		else
+-		{
+-			m_iSource = SOURCE_SERVERBROWSER;
+-			SetServer( pszText );
+-			SetCommonText( L( "GameUI_EstablishingConnection" ) );
+-		}
+-
+-		commonProgress.LinkCvar( "scr_loading", 0, 100 );
+-	}
+ 
+-	void SetCommonText( const char *pszText )
+-	{
+-		Q_strncpy( sCommonString, pszText, sizeof( sCommonString ) );
+-		// snprintf( sCommonString, sizeof( sCommonString ) - 1, "%s", pszText );
+-	}
+-	void SetServer( const char *pszName )
+-	{
+-		if( m_iSource == SOURCE_CREATEGAME )
+-		{
+-			Q_strncpy( sTitleString, L( "GameUI_StartingServer" ), sizeof( sTitleString ) );
+-		}
+-		else if( !pszName[0] )
+-		{
+-			Q_strncpy( sTitleString, L( "GameUI_StartingServer" ), sizeof( sTitleString ) );
+-		}
+-		else
+-		{
+-			snprintf( sTitleString, sizeof( sTitleString ) - 1,
+-				"%s %s", L( "GameUI_EstablishingConnection" ), pszName );
+-		}
+-
+-		commonProgress.SetValue( 0 );
+-	}
++	void Begin();
++	void End();
+ 
+-	EState m_iState;
+-	ESource m_iSource;
+ private:
+-	CMenuBackgroundBitmap background;
+-	CMenuProgressBar commonProgress;
+-	CMenuProgressBar downloadProgress;
+-	CMenuPicButton consoleButton;
+-	CMenuPicButton disconnectButton;
+-	CMenuPicButton skipButton;
+-	CMenuYesNoMessageBox dialog;
++	void Cancel();
++	void Refresh();
++
++	CMenuBackgroundBitmap fullBackground; // the menu's own background, full screen (no parent: the whole screen)
++	CMenuBackgroundBitmap panel;          // the panel, in the dialog colour
+ 	CMenuAction title;
+-	CMenuAction downloadText;
+-	CMenuAction commonText;
+-	char sTitleString[256];
+-	char sDownloadString[512];
+-	char sCommonString[512];
++	CMenuAction stage;
++	CMenuAction fileLine;
++	CMenuProgressBar overall;
++	CMenuProgressBar fileBar;
++	CMenuPicButton cancelButton;
++	char sTitle[256];
++	char sStage[128];
++	char sFile[512];
+ };
+ 
+ CMenuConnectionProgress::CMenuConnectionProgress() : CMenuBaseWindow( "ConnectionProgress" )
+ {
+-	sDownloadString[0] = sCommonString[0] = sTitleString[0] = '\0';
+-	m_iSource = SOURCE_CONSOLE;
+-	m_iState = STATE_NONE;
++	sTitle[0] = sStage[0] = sFile[0] = '\0';
+ 	szName = "ConnectionProgress";
+ }
+ 
+@@ -147,171 +79,114 @@ bool CMenuConnectionProgress::KeyDown( int key )
+ {
+ 	if( UI::Key::IsEscape( key ))
+ 	{
+-		dialog.Show();
+ 		PlayLocalSound( uiStatic.sounds[SND_OUT] );
++		Cancel();
++		return true;
+ 	}
+-	else if( UI::Key::IsConsole( key ))
++	if( UI::Key::IsConsole( key ))
+ 	{
+-		consoleButton.onReleased( &consoleButton );
++		// the console in the screen's place, as upstream shows it: the join goes on. UI_CloseMenu takes
++		// every window down, this one with them
+ 		PlayLocalSound( uiStatic.sounds[SND_LAUNCH] );
+-	}
+-	else if( key == 'A' )
+-	{
+-		HandleDisconnect();
++		UI_CloseMenu();
++		UI_SetActiveMenu( false );
++		EngFuncs::KEY_SetDest( KEY_CONSOLE );
++		return true;
+ 	}
+ 
+ 	return CMenuItemsHolder::KeyDown( key );
+ }
+ 
+-void CMenuConnectionProgress::HandleDisconnect( void )
++// CANCEL or ESC: the join ends here; the engine's disconnect brings the menu's own screens back (End)
++void CMenuConnectionProgress::Cancel()
+ {
+-	if( m_iState == STATE_NONE )
+-		return;
+-
+-	if( m_iState == STATE_CONSOLE )
+-	{
+-		m_iState = STATE_NONE;
+-		return;
+-	}
+-
+-	if( UI_IsVisible() && m_pStack->Current() == this )
+-	{
+-		Hide();
+-		if( m_iSource != SOURCE_CONSOLE && m_iState != STATE_MENU )
+-		{
+-			UI_CloseMenu();
+-			UI_SetActiveMenu( true );
+-			UI_Main_Menu();
+-			UI_ServerBrowser_Menu();
+-			if( m_iSource == SOURCE_CREATEGAME )
+-				UI_CreateGame_Menu();
+-			if( m_iState == STATE_DOWNLOAD )
+-			{
+-				Show();
+-				return;
+-			}
+-			m_iSource = SOURCE_CONSOLE;
+-		}
+-	}
+-	
+-	SetCommonText( L( "GameUI_Disconnected" ) );
++	EngFuncs::ClientCmd( true, "http_clear\n" );
++	EngFuncs::ClientCmd( false, "disconnect\n" );
++}
+ 
+-	m_iState = STATE_NONE;
+-	VidInit();
++// a join or a map change: the screen, on top of whatever the menu shows. With the menu down (a join from
++// the console, a map change in the game) the main menu goes under it first: the menu's last window never
++// closes, so the screen alone could never hide, and a join that ends before the game ends on the main menu
++void CMenuConnectionProgress::Begin()
++{
++	Refresh();
++	if( !UI_IsVisible( ))
++		UI_Main_Menu();
++	if( !IsVisible( ))
++		Show();
+ }
+ 
+-void CMenuConnectionProgress::Disconnect()
++// the join is over before the game: the menu's own screens again, and the reason when the engine has one
++void CMenuConnectionProgress::End()
+ {
+-	if( m_iState == STATE_DOWNLOAD )
+-	{
+-		EngFuncs::ClientCmd( true, "http_clear\n" );
+-		m_iState = STATE_CONNECTING;
+-		HandleDisconnect();
+-	}
++	const char *reason = EngFuncs::GetCvarString( "_h9_drop" );
+ 
+-	EngFuncs::ClientCmd( false, "disconnect\n");
++	if( IsVisible( ))
++		Hide();
++	if( reason && reason[0] )
++		UI_ShowMessageBox( reason );
+ }
+ 
+ void CMenuConnectionProgress::_Init( void )
+ {
+ 	iFlags |= QMF_DIALOG;
+ 
+-	background.bForceColor = true;
+-	background.colorBase = uiPromptBgColor;
+-
+-	consoleButton.SetPicture( PC_CONSOLE );
+-	consoleButton.szName = L( "GameUI_Console" );
+-	SET_EVENT_MULTI( consoleButton.onReleased,
+-	{
+-		CMenuConnectionProgress *parent = (CMenuConnectionProgress *)pSelf->Parent();
+-		EngFuncs::KEY_SetDest( KEY_CONSOLE );
+-		parent->m_iState = STATE_CONSOLE;
+-		parent->m_iSource = SOURCE_CONSOLE;
+-		UI_CloseMenu();
+-		UI_SetActiveMenu( false );
+-	});
+-	consoleButton.bEnableTransitions = false;
+-
+-	disconnectButton.SetPicture( PC_DISCONNECT );
+-	disconnectButton.szName = L( "GameUI_GameMenu_Disconnect" );
+-	disconnectButton.onReleased = VoidCb( &CMenuConnectionProgress::Disconnect );
+-	disconnectButton.bEnableTransitions = false;
+-
+-	dialog.SetMessage( L( "Really disconnect?" ) );
+-	dialog.Link( this );
+-	dialog.onPositive = VoidCb( &CMenuConnectionProgress::Disconnect );
++	panel.bForceColor = true;
++	panel.colorBase = uiPromptBgColor;
++	panel.bDrawStroke = true;
++	panel.colorStroke = uiInputFgColor;
+ 
+ 	title.iFlags = QMF_INACTIVE|QMF_DROPSHADOW;
+ 	title.eTextAlignment = QM_CENTER;
+-	title.szName = sTitleString;
++	title.szName = sTitle;
++
++	stage.iFlags = QMF_INACTIVE;
++	stage.eTextAlignment = QM_CENTER;
++	stage.szName = sStage;
+ 
+-	skipButton.szName = L( "Skip" );
+-	skipButton.onReleased.SetCommand( true, "http_skip\n" );
+-	skipButton.bEnableTransitions = false;
++	fileLine.iFlags = QMF_INACTIVE;
++	fileLine.eTextAlignment = QM_CENTER;
++	fileLine.szName = sFile;
+ 
+-	downloadText.iFlags = commonText.iFlags = QMF_INACTIVE;
+-	downloadText.szName = sDownloadString;
+-	commonText.szName = sCommonString;
++	overall.LinkCvar( "scr_loading", 0.0f, 100.0f );
++	fileBar.LinkCvar( "_h9join_fileprog", 0.0f, 100.0f );
+ 
+-	downloadProgress.LinkCvar( "scr_download", 0.0f, 100.0f );
++	cancelButton.SetPicture( PC_CANCEL );
++	cancelButton.szName = L( "GameUI_Cancel" );
++	cancelButton.onReleased = VoidCb( &CMenuConnectionProgress::Cancel );
++	cancelButton.bEnableTransitions = false;
+ 
+-	AddItem( background );
+-	AddItem( consoleButton );
+-	AddItem( disconnectButton );
+-	AddItem( downloadProgress );
+-	AddItem( commonProgress );
++	AddItem( panel );
+ 	AddItem( title );
+-	AddItem( skipButton );
+-	AddItem( downloadText );
+-	AddItem( commonText );
++	AddItem( stage );
++	AddItem( overall );
++	AddItem( fileLine );
++	AddItem( fileBar );
++	AddItem( cancelButton );
+ }
+ 
+ void CMenuConnectionProgress::_VidInit( void )
+ {
+-	int dlg_h = ( m_iState == STATE_DOWNLOAD )?256:192;
+-	int dlg_y = 768 / 2 - dlg_h / 2;
+-	int cursor = dlg_h;
+-
+-	SetRect( DLG_X + 192, dlg_y, 640, dlg_h );
++	SetRect( ( 1024 - JOIN_W ) / 2, ( 768 - JOIN_H ) / 2, JOIN_W, JOIN_H );
+ 	pos.x += uiStatic.xOffset;
+ 	pos.y += uiStatic.yOffset;
+ 
++	fullBackground.VidInit();
++
+ 	title.SetCharSize( QM_DEFAULTFONT );
+-	title.SetRect( 0, 16, 640, 20 );
++	title.SetRect( 0, 18, JOIN_W, 24 );
+ 
+-	cursor -= 44;
+-	consoleButton.SetRect( 188, cursor, UI_BUTTONS_WIDTH / 2, UI_BUTTONS_HEIGHT );
+-	disconnectButton.SetRect( 338, cursor, UI_BUTTONS_WIDTH / 2, UI_BUTTONS_HEIGHT );
++	stage.SetCharSize( QM_SMALLFONT );
++	stage.SetRect( 0, 56, JOIN_W, 20 );
+ 
+-	if( gpGlobals->developer )
+-		consoleButton.Hide();
++	overall.SetRect( 20, 86, JOIN_W - 40, 20 );
+ 
+-	cursor -= 30;
+-	commonProgress.SetRect( 20, cursor, 600, 20 );
++	fileLine.SetCharSize( QM_SMALLFONT );
++	fileLine.SetRect( 0, 122, JOIN_W, 20 );
+ 
+-	cursor -= 50;
+-	commonText.SetCharSize( QM_SMALLFONT );
+-	commonText.SetRect( 20, cursor, 500, 40 );
++	fileBar.SetRect( 20, 148, JOIN_W - 40, 12 );
+ 
+-	if( m_iState == STATE_DOWNLOAD )
+-	{
+-		cursor -= 30;
+-		downloadProgress.Show();
+-		downloadProgress.SetRect( 20, cursor, 500, 20 );
+-		skipButton.SetRect( 540, cursor, UI_BUTTONS_WIDTH / 2, UI_BUTTONS_HEIGHT );
+-		skipButton.Show();
+-
+-		cursor -= 50;
+-		downloadText.Show();
+-		downloadText.SetCharSize( QM_SMALLFONT );
+-		downloadText.SetRect( 20, cursor, 500, 40 );
+-	}
+-	else
+-	{
+-		downloadProgress.Hide();
+-		skipButton.Hide();
+-		downloadText.Hide();
+-	}
++	cancelButton.SetRect( ( JOIN_W - UI_BUTTONS_WIDTH / 2 ) / 2, JOIN_H - 50, UI_BUTTONS_WIDTH / 2, UI_BUTTONS_HEIGHT );
+ 
+ 	CalcPosition();
+ 	CalcSizes();
+@@ -323,121 +198,83 @@ bool CMenuConnectionProgress::DrawAnimation()
+ 	return true;
+ }
+ 
++// the engine's word, each frame
++void CMenuConnectionProgress::Refresh( void )
++{
++	const char *server = EngFuncs::GetCvarString( "_h9join_server" );
++	const char *what = EngFuncs::GetCvarString( "_h9join_stage" );
++	const char *file = EngFuncs::GetCvarString( "_h9join_file" );
++
++	snprintf( sTitle, sizeof( sTitle ), "%s", server && server[0] ? server : L( "GameUI_EstablishingConnection" ));
++	snprintf( sStage, sizeof( sStage ), "%s", what && what[0] ? what : L( "GameUI_EstablishingConnection" ));
++	snprintf( sFile, sizeof( sFile ), "%s", file ? file : "" );
++
++	if( sFile[0] )
++	{
++		fileLine.Show();
++		fileBar.Show();
++	}
++	else
++	{
++		fileLine.Hide();
++		fileBar.Hide();
++	}
++}
++
+ void CMenuConnectionProgress::Draw( void )
+ {
+-	if( ( m_iState != STATE_MENU && CL_IsActive() ) || ( m_iState == STATE_NONE && m_pStack->Current() == this ) )
++	// the screen goes as the engine takes it down: the game is in, or the join is over
++	if( !EngFuncs::GetCvarFloat( "_h9join" ))
+ 	{
+-		m_iState = STATE_NONE;
+ 		Hide();
+ 		return;
+ 	}
+-	UI_FillRect( 0,0, gpGlobals->scrWidth, gpGlobals->scrHeight, m_iState == STATE_NONE ? 0xFF000000 : 0x40000000 );
++	Refresh();
++	fullBackground.Draw();
+ 	CMenuBaseWindow::Draw();
+ }
+ 
+ ADD_MENU3( menu_connectionprogress, CMenuConnectionProgress, UI_ConnectionProgress_f );
+ 
+-// exports
++// the engine's hooks (UI_EXTENDED_FUNCTIONS): a join's start and a map change bring the screen up, a join's
++// end takes it down; everything in between the engine says in its cvars
+ void UI_ConnectionProgress_Disconnect( void )
+ {
+-	menu_connectionprogress->HandleDisconnect();
++	menu_connectionprogress->End();
+ }
+ 
+ void UI_ConnectionProgress_Download( const char *pszFileName, const char *pszServerName, int iCurrent, int iTotal, const char *comment )
+ {
+-	if( menu_connectionprogress->m_iState == STATE_CONSOLE )
+-		return;
+-
+-	menu_connectionprogress->HandleDownload( pszFileName, pszServerName, iCurrent, iTotal, comment );
+-	menu_connectionprogress->Show();
++	if( strstr( pszFileName, ".bsp" ))
++		uiStatic.needMapListUpdate = true;
+ }
+ 
+ void UI_ConnectionProgress_DownloadEnd( void )
+ {
+-	if( menu_connectionprogress->m_iState == STATE_CONSOLE )
+-		return;
+-
+-	menu_connectionprogress->m_iState = STATE_CONNECTING;
+-	menu_connectionprogress->HandleDisconnect();
+-	menu_connectionprogress->Show();
+ }
+ 
+ void UI_ConnectionProgress_Precache( void )
+ {
+-	if( menu_connectionprogress->m_iState == STATE_CONSOLE )
+-		return;
+-
+-	menu_connectionprogress->HandlePrecache();
+-	menu_connectionprogress->Show();
+ }
+ 
+ void UI_ConnectionProgress_Connect( const char *server ) // NULL for local server
+ {
+-	if( menu_connectionprogress->m_iState == STATE_CONSOLE )
+-		return;
+-
+-	menu_connectionprogress->m_iState = STATE_MENU;
+-	menu_connectionprogress->HandleConnect( server );
+-	menu_connectionprogress->Show();
++	menu_connectionprogress->Begin();
+ }
+ 
+ void UI_ConnectionProgress_ChangeLevel( void )
+ {
+-	if( menu_connectionprogress->m_iState == STATE_CONSOLE )
+-		return;
+-
+-	menu_connectionprogress->m_iState = STATE_MENU;
+-	menu_connectionprogress->SetCommonText( L( "Changing level on server" ) );
+-	menu_connectionprogress->Show();
++	menu_connectionprogress->Begin();
+ }
+ 
+ void UI_ConnectionProgress_ParseServerInfo( const char *server )
+ {
+-	if( menu_connectionprogress->m_iState == STATE_CONSOLE )
+-		return;
+-
+-	menu_connectionprogress->SetServer( server );
+-	menu_connectionprogress->m_iState = STATE_CONNECTING;
+-	menu_connectionprogress->SetCommonText( L( "GameUI_ParseServerInfo" ) );
+-	menu_connectionprogress->Show();
+ }
+ 
+ void UI_ConnectionProgress_f( void )
+ {
+-	if( !strcmp( EngFuncs::CmdArgv(1), "disconnect" ) )
+-	{
++	if( !strcmp( EngFuncs::CmdArgv( 1 ), "disconnect" ))
+ 		UI_ConnectionProgress_Disconnect();
+-	}
+-	else if( !strcmp( EngFuncs::CmdArgv(1), "dl" ) )
+-	{
+-		UI_ConnectionProgress_Download( EngFuncs::CmdArgv( 2 ), EngFuncs::CmdArgv( 3 ), atoi(EngFuncs::CmdArgv( 4 )), atoi(EngFuncs::CmdArgv( 5 )), EngFuncs::CmdArgv( 6 ) );
+-	}
+-	else if( !strcmp( EngFuncs::CmdArgv(1), "dlend" ) )
+-	{
+-		UI_ConnectionProgress_DownloadEnd();
+-	}
+-	else if( !strcmp( EngFuncs::CmdArgv(1), "stufftext" ) )
+-	{
+-		menu_connectionprogress->HandleStufftext( atof( EngFuncs::CmdArgv( 2 ) ), EngFuncs::CmdArgv( 3 ) );
+-	}
+-	else if( !strcmp( EngFuncs::CmdArgv(1), "precache" ) )
+-	{
+-		UI_ConnectionProgress_Precache();
+-	}
+-	else if( !strcmp( EngFuncs::CmdArgv(1), "menu" ) )
+-	{
+-		UI_ConnectionProgress_Connect( EngFuncs::CmdArgv(2) );
+-	}
+-	else if( !strcmp( EngFuncs::CmdArgv(1), "localserver" ) )
+-	{
+-		UI_ConnectionProgress_Connect( NULL );
+-	}
+-	else if( !strcmp( EngFuncs::CmdArgv(1), "changelevel" ) )
+-	{
+-		UI_ConnectionProgress_ChangeLevel();
+-	}
+-	else if( !strcmp( EngFuncs::CmdArgv(1), "serverinfo" ) )
+-	{
+-		UI_ConnectionProgress_ParseServerInfo( EngFuncs::CmdArgv(2) );
+-	}
++	else if( !strcmp( EngFuncs::CmdArgv( 1 ), "menu" ) || !strcmp( EngFuncs::CmdArgv( 1 ), "changelevel" ))
++		menu_connectionprogress->Begin();
+ }

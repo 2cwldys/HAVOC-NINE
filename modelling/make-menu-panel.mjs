@@ -39,21 +39,18 @@ const OUTS = [
 ];
 
 /*
- * The palettes: dark metal with a coloured rail, because the text over it is white and the
+ * The palette: dark metal with a coloured rail, because the text over it is white and the
  * one job here is to give white something to be read against. The colour is the panel's
  * because the menu TEXT cannot carry it: the client parses a fixed four colours, red, yellow,
  * white and dim grey, and that is the whole set.
  *
- * The panels are H9's purple. Each colour is the blue ink's, with its OKLab lightness and
- * chroma kept and its hue turned to the OKLCH hue (302.5) of H9's purple: the site's accent
- * #be8cff (190 140 255, also the console colour). The VGUI scheme's purples in
- * freevgui-h9-scheme.patch sit within four degrees of it (138 66 196 at 306, 122 86 180 at
- * 299). A panel is as bright as the blue one, colour for colour.
- *
- * The typing bubble keeps the blue ink: blue because the MSR kit is and the class icons
- * already are.
+ * The ink is H9's purple, for the panels and the typing bubble alike: every colour sits at
+ * the OKLCH hue (302.5) of the site's accent #be8cff (190 140 255, also the console colour),
+ * the slab's greys barely tinted, the rail and brackets at full strength. The VGUI scheme's
+ * purples in freevgui-h9-scheme.patch sit within four degrees of that hue (138 66 196 at
+ * 306, 122 86 180 at 299).
  */
-const PANEL_INK = [
+const INK = [
   [8, 7, 10],        // 0  the rim, nearly black
   [22, 19, 26],      // 1  panel, deepest
   [33, 30, 39],      // 2  panel, mid
@@ -64,18 +61,6 @@ const PANEL_INK = [
   [182, 145, 234],   // 7  purple rail, lit
   [216, 192, 252],   // 8  purple, hot
   [16, 10, 24],      // 9  dark plum, the surround outside the chamfer
-];
-const TYPING_INK = [
-  [6, 8, 11],        // 0  the rim, nearly black
-  [17, 21, 27],      // 1  panel, deepest
-  [26, 32, 40],      // 2  panel, mid
-  [35, 43, 54],      // 3  panel, lit
-  [48, 58, 72],      // 4  brushed highlight
-  [22, 72, 112],     // 5  blue rail, shadow
-  [38, 124, 186],    // 6  blue rail
-  [74, 176, 240],    // 7  blue rail, lit
-  [150, 214, 255],   // 8  blue, hot
-  [9, 12, 26],       // 9  dark navy, the surround outside the chamfer
 ];
 const SURROUND = 9;
 
@@ -89,8 +74,7 @@ function inkPalette(ink) {
   return pal;
 }
 
-export const palette = inkPalette(PANEL_INK);
-const typingPalette = inkPalette(TYPING_INK);
+export const palette = inkPalette(INK);
 
 /*
  * One routine, two proportions.
@@ -287,7 +271,7 @@ function typingFrame(W, H, lit) {
     }
   }
 
-  // The blue rail down the cut edge, and the dark rim, as the panels have.
+  // The purple rail down the cut edge, and the dark rim, as the panels have.
   for (let y = T + CUT; y <= B - CUT; y++) {
     for (let x = Lx + 3; x < Lx + 6; x++) put(x, y, 7);
   }
@@ -371,21 +355,24 @@ if (isMain) {
   {
     const W = 128, H = 96;
     const frames = [0, 1, 2, -1].map((lit) => typingFrame(W, H, lit));
-    writeSprFrames("tsm_typing.spr", W, H, frames, typingPalette);
+    writeSprFrames("tsm_typing.spr", W, H, frames, palette);
 
     const rgba = Buffer.alloc(W * H * 4);
     for (let i = 0; i < W * H; i++) {
       const v = frames[0][i], o = i * 4;
       /*
-       * Dark navy where the sprite is transparent, the surround of its own blue ink, so the
-       * preview shows the colour you would actually see around it rather than a flag colour.
+       * Dark plum where the sprite is transparent, the panels' surround, so the preview
+       * shows the colour you would actually see around it rather than a flag colour.
        *
        * The BUBBLE really is transparent there and has to be: it is a tag with a stem
-       * hanging over somebody's head, and filling the corners would put a navy rectangle
+       * hanging over somebody's head, and filling the corners would put a plum rectangle
        * above every player instead of a shape.
        */
-      if (v === TRANSPARENT) { rgba[o] = 9; rgba[o + 1] = 12; rgba[o + 2] = 26; rgba[o + 3] = 255; continue; }
-      rgba[o] = typingPalette[v * 3]; rgba[o + 1] = typingPalette[v * 3 + 1]; rgba[o + 2] = typingPalette[v * 3 + 2]; rgba[o + 3] = 255;
+      if (v === TRANSPARENT) {
+        rgba[o] = palette[SURROUND * 3]; rgba[o + 1] = palette[SURROUND * 3 + 1]; rgba[o + 2] = palette[SURROUND * 3 + 2]; rgba[o + 3] = 255;
+        continue;
+      }
+      rgba[o] = palette[v * 3]; rgba[o + 1] = palette[v * 3 + 1]; rgba[o + 2] = palette[v * 3 + 2]; rgba[o + 3] = 255;
     }
     writeFileSync(join(process.cwd(), "..", "export-mdl", "tsm_typing.png"), K.png(W, H, rgba));
   }

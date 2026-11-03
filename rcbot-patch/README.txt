@@ -298,6 +298,8 @@ second, with:
     tsrp_roambots_weapons  0: no weapons are made for a roamer; 1: armed as usual
     tsrp_roambots_pause    percent chance of a pause before each walk
     tsrp_roambots_defend   1: a roamer someone hurts fights that one back
+    tsrp_roambots_defend_time     seconds it goes on without being hurt again
+                                  before it lets him be (30 without the cvar)
     tsrp_roambots_insurgency      1: the citizens are insurgents, set on players
     tsrp_roambots_insurgent_team  0: every player who is not a bot; a team
                                   number: only the players of that team
@@ -323,11 +325,14 @@ A roamer:
     so RCBot's hurt event never names anyone; TS's TakeDamage leaves what hurt a
     player in pev->dmg_inflictor (reTS combat.cpp). A roamer hurt since the last
     frame (RoamThink) takes the player behind it -- the entity, or the player
-    who owns a grenade or a thrown blade -- for its attacker for the rest of
-    that life (SpawnInit forgets him), turns to him, wields its fists
-    ("weapon_0", TS's weapon-select command for its hands) and fights with
-    them, whatever it carries. Another bot, the world or itself is no
-    attacker, so one fight starts no brawl. tsrp_roambots_defend 0: none.
+    who owns a grenade or a thrown blade -- for its attacker, turns to him,
+    wields its fists ("weapon_0", TS's weapon-select command for its hands)
+    and fights with them, whatever it carries. It forgets him once he is
+    dead (the life he comes back to did nothing to it), once he has left,
+    and once he has not hurt it for tsrp_roambots_defend_time seconds; its
+    own next life starts with no attacker (SpawnInit). Another bot, the
+    world or itself is no attacker, so one fight starts no brawl.
+    tsrp_roambots_defend 0: none.
   - Getting anywhere (RoamCheckProgress). Progress is distance, not speed: 64
     units from where it last got to. A pause, a wait, a fight or the plugin's
     hold is no lack of it. After 5 seconds without progress it gives its goal

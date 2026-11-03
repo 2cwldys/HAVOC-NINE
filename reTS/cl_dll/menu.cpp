@@ -25,6 +25,7 @@
 #include <stdio.h>
 
 #include "vgui_TeamFortressViewport.h"
+#include "h9_vgui.h" // H9 VGUI: a server's panel in the place of a menu's text
 
 #define MAX_MENU_STRING 512
 char g_szMenuString[MAX_MENU_STRING];
@@ -142,9 +143,14 @@ bool CHudMenu::Draw(float flTime)
 		{ // times up, shutoff
 			m_fMenuDisplayed = false;
 			m_iFlags &= ~HUD_ACTIVE;
+			H9Vgui_MenuGone();
 			return true;
 		}
 	}
+
+	// H9 VGUI: a server's panel stands for this menu, and draws it instead (h9_vgui.cpp).
+	if (H9Vgui_MenuSkinned())
+		return true;
 
 	// don't draw the menu if the scoreboard is being shown
 	if (gViewPort && gViewPort->IsScoreBoardVisible())
@@ -231,6 +237,7 @@ void CHudMenu::SelectMenuItem(int menu_item)
 		// remove the menu
 		m_fMenuDisplayed = false;
 		m_iFlags &= ~HUD_ACTIVE;
+		H9Vgui_MenuGone();
 	}
 }
 
@@ -271,6 +278,8 @@ bool CHudMenu::MsgFunc_ShowMenu(const char* pszName, int iSize, void* pbuf)
 
 		if (!NeedMore)
 		{ // we have the whole string, so we can localise it now
+			// H9 VGUI: an H9 menu whose TWIN names these keys and this text draws in its place.
+			H9Vgui_MenuArrived(m_bitsValidSlots, g_szPrelocalisedMenuString);
 			strcpy(g_szMenuString, gHUD.m_TextMessage.BufferedLocaliseTextString(g_szPrelocalisedMenuString));
 
 			// Swap in characters
@@ -288,6 +297,7 @@ bool CHudMenu::MsgFunc_ShowMenu(const char* pszName, int iSize, void* pbuf)
 	{
 		m_fMenuDisplayed = false; // no valid slots means that the menu should be turned off
 		m_iFlags &= ~HUD_ACTIVE;
+		H9Vgui_MenuGone();
 	}
 
 	m_fWaitingForMore = NeedMore;

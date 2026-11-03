@@ -399,7 +399,7 @@ void PlaybackEvent_Post(int flags, const edict_t *pInvoker, unsigned short event
 	if (shots)
 	{
 		CPlayer *pPlayer = GET_PLAYER_POINTER(pInvoker);
-		int weapon = (iparam1 > 0 && iparam1 < TSWEAPON_TKNIFE) ? iparam1 : pPlayer->current;
+		int weapon = ((iparam1 > 0 && iparam1 < TSWEAPON_TKNIFE) || iparam1 == TSWEAPON_PPSH41) ? iparam1 : pPlayer->current;
 		while (shots--)
 			pPlayer->saveShot(weapon);
 	}

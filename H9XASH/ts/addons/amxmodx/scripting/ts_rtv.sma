@@ -38,6 +38,7 @@
 #include <fakemeta>
 #include <newmenus>
 #include <tsm_api>
+#include <h9_vgui>      // an H9 game draws the vote and the nominations on panels
 
 #define PLUGIN  "Rock The Vote"
 #define VERSION "1.0-h9.2"
@@ -57,6 +58,8 @@
 #define RTV_TASK_SHOW     73200   // + player id: the vote menu, staggered
 
 #define RTV_MENU          "RTV Vote"
+#define RTV_NOM_MENU      "RTV Nominate"
+#define RTV_NOM_PAGE      7       // maps on one page of the nominations; 8 back, 9 more, 0 exit
 
 new g_cv_in_match, g_cv_auto, g_cv_maps, g_cv_noms, g_cv_roleplay;
 
@@ -66,6 +69,8 @@ new g_mapname[32];
 
 new bool:g_rocked[RTV_SLOTS];    // said .rtv on this map
 new g_nom[RTV_SLOTS][32];        // the map each player nominated; "" for none
+new g_nom_part[RTV_SLOTS][32];   // what his nominations menu matches; "" for every map
+new g_nom_page[RTV_SLOTS];       // its page
 
 // The maps the vote may offer here, read from maps\ each time they are needed.
 new g_maps[RTV_MAX_MAPS][32];
@@ -84,6 +89,11 @@ new bool:g_passed[RTV_SLOTS];    // answered the vote with 0, no vote
 new bool:g_vote_auto;            // the vote tsm_rtv_auto started after a match
 new g_vote_text[512];
 new g_vote_keys;
+
+public plugin_precache()
+{
+	h9vgui_precache();
+}
 
 public plugin_natives()
 {
@@ -122,6 +132,8 @@ public plugin_init()
 	register_clcmd("say_team", "hook_say");
 
 	register_menucmd(register_menuid(RTV_MENU), 1023, "vote_key");
+	register_menucmd(register_menuid(RTV_NOM_MENU), 1023, "nominate_key");
+	h9vgui_init("rtv");
 
 	// Xash3D FWGS: AMXX finds no SV_DropClient there, so client_disconnected never fires for a
 	// player leaving; Metamod's ClientDisconnect does, on any engine. ts_matchmode does the same.
@@ -625,7 +637,8 @@ public task_show_vote(taskid)
 
 show_vote(id)
 {
-	show_menu(id, g_vote_keys, g_vote_text, RTV_VOTE_TIME, RTV_MENU);
+	// An H9 game draws it on a panel, the first line its title; every game gets the text menu.
+	h9vgui_show_menu(id, g_vote_keys, g_vote_text, RTV_VOTE_TIME, RTV_MENU, "rtv.vote");
 }
 
 public vote_key(id, key)
@@ -926,49 +939,99 @@ nominate(id, idx)
 	}
 }
 
-/// The maps that can be nominated here, those matching `part` when it is not empty, in a menu.
+/// The maps that can be nominated here, those matching `part` when it is not empty, in a menu of
+/// RTV_NOM_PAGE a page with 8 back and 9 more: raw ShowMenu text, as the vote is, so an H9 game
+/// draws each page on a panel (h9_vgui.inc) and every other game gets the text.
 nominate_menu(id, const part[])
 {
-	new title[96];
-	if (part[0])
-	{
-		formatex(title, charsmax(title), "Nominate a map (matching %s)", part);
-	}
-	else
-	{
-		copy(title, charsmax(title), "Nominate a map");
-	}
-	new menu = menu_create(title, "nominate_menu_key");
-	new label[48];
+	copy(g_nom_part[id], charsmax(g_nom_part[]), part);
+	g_nom_page[id] = 0;
+	nominate_page(id);
+}
+
+/// The maps of a player's nominations menu, as indices into g_maps. How many.
+nominate_list(id, list[RTV_MAX_MAPS])
+{
+	new n = 0;
 	for (new i = 0; i < g_map_count; i++)
 	{
-		if (part[0] && containi(g_maps[i], part) == -1)
+		if (g_nom_part[id][0] && containi(g_maps[i], g_nom_part[id]) == -1)
 		{
 			continue;
 		}
-		if (nominated_by(g_maps[i]))
+		list[n++] = i;
+	}
+	return n;
+}
+
+/// One page of a player's nominations menu, built from the maps as they are now.
+nominate_page(id)
+{
+	new list[RTV_MAX_MAPS];
+	new n = nominate_list(id, list);
+	new pages = max(1, (n + RTV_NOM_PAGE - 1) / RTV_NOM_PAGE);
+	g_nom_page[id] = clamp(g_nom_page[id], 0, pages - 1);
+	new first = g_nom_page[id] * RTV_NOM_PAGE;
+
+	new text[512], pos, keys = (1 << 9);
+	if (g_nom_part[id][0])
+	{
+		pos = formatex(text, charsmax(text), "\yNominate a map (matching %s)^n^n", g_nom_part[id]);
+	}
+	else
+	{
+		pos = formatex(text, charsmax(text), "\yNominate a map^n^n");
+	}
+	for (new k = 0; k < RTV_NOM_PAGE && first + k < n; k++)
+	{
+		new m = list[first + k];
+		if (nominated_by(g_maps[m]))
 		{
-			formatex(label, charsmax(label), "%s (nominated)", g_maps[i]);
+			pos += formatex(text[pos], charsmax(text) - pos, "\y%d. \w%s  \d(nominated)^n", k + 1, g_maps[m]);
 		}
 		else
 		{
-			copy(label, charsmax(label), g_maps[i]);
+			pos += formatex(text[pos], charsmax(text) - pos, "\y%d. \w%s^n", k + 1, g_maps[m]);
 		}
-		menu_additem(menu, label, g_maps[i], 0);
+		keys |= (1 << k);
 	}
-	menu_display(id, menu, 0);
+	pos += formatex(text[pos], charsmax(text) - pos, "^n");
+	if (g_nom_page[id] > 0)
+	{
+		pos += formatex(text[pos], charsmax(text) - pos, "\y8. \wBack^n");
+		keys |= (1 << 7);
+	}
+	if (g_nom_page[id] < pages - 1)
+	{
+		pos += formatex(text[pos], charsmax(text) - pos, "\y9. \wMore^n");
+		keys |= (1 << 8);
+	}
+	formatex(text[pos], charsmax(text) - pos, "\y0. \wExit");
+	h9vgui_show_menu(id, keys, text, -1, RTV_NOM_MENU, "rtv.nominate");
 }
 
-public nominate_menu_key(id, menu, item)
+/// A key of the nominations menu, 0-based: 0-6 the page's maps, 7 back, 8 more, 9 exit.
+public nominate_key(id, key)
 {
-	if (item < 0)
+	if (key == 9 || id < 1 || id >= RTV_SLOTS)
 	{
-		menu_destroy(menu);
 		return PLUGIN_HANDLED;
 	}
-	new info[32], label[48], access, callback;
-	menu_item_getinfo(menu, item, access, info, charsmax(info), label, charsmax(label), callback);
-	menu_destroy(menu);
+	if (key == 7 || key == 8)
+	{
+		g_nom_page[id] += (key == 8) ? 1 : -1;
+		nominate_page(id);
+		return PLUGIN_HANDLED;
+	}
+	new list[RTV_MAX_MAPS];
+	new n = nominate_list(id, list);
+	new at = g_nom_page[id] * RTV_NOM_PAGE + key;
+	if (key >= RTV_NOM_PAGE || at >= n)
+	{
+		return PLUGIN_HANDLED;
+	}
+	new map[32];
+	copy(map, charsmax(map), g_maps[list[at]]);
 
 	if (g_voting || g_changing || !is_user_connected(id))
 	{
@@ -976,10 +1039,10 @@ public nominate_menu_key(id, menu, item)
 	}
 	// read again: the match mode, or the maps on disk, may have changed while the menu was up
 	build_map_list();
-	new idx = map_index(info);
+	new idx = map_index(map);
 	if (idx < 0)
 	{
-		client_print(id, print_chat, "[RTV] %s cannot be nominated here.", info);
+		client_print(id, print_chat, "[RTV] %s cannot be nominated here.", map);
 		return PLUGIN_HANDLED;
 	}
 	nominate(id, idx);

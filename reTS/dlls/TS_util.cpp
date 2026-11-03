@@ -84,7 +84,7 @@ void TSPrecache(void)
 		PRECACHE_SOUND((char *)fixed1[i]);
 
 	// 2. the weapon-table loop (models + sounds per weapon, @0x8f59b)
-	for (int i = 0; i < 0x26; i++)
+	for (int i = 0; i < TSW_COUNT; i++)
 	{
 		const s_weapon_info *wi = get_weapon_info((tsweapon_t)i);
 		if (wi->pszShellModel && wi->pszShellModel[0])
@@ -220,6 +220,8 @@ int gmsgTSCustomWeaponParams = 0;
 // @0x8eb98 SendWeaponParams — one weapon's tunables to one client (MSG_ONE) or everyone (MSG_ALL).
 void SendWeaponParams(tsweapon_t id, CBaseEntity *pOnly)
 {
+	// The original's 38 weapons only: the client's CustomWP handler takes any id, and the original client
+	// reads one past its table as slot 0, so the H9 weapon (the PPSh-41, id 39) is never broadcast.
 	if ((unsigned)id >= 0x26)
 		return;
 	const s_weapon_info *wi = get_weapon_info(id);
@@ -330,7 +332,7 @@ int adjust_weapon_value(char *pszFile)
 			fclose(fp);
 			return 1; // mid-file abort still reports handled (the original's literal behavior)
 		}
-		if ((unsigned)id < 0x26)
+		if ((unsigned)id < TSW_COUNT)
 		{
 			s_weapon_info *wi = (s_weapon_info *)get_weapon_info((tsweapon_t)id);
 			if (wi->pszName && wi->pszName[0])
@@ -372,7 +374,7 @@ int save_weapon_value(char *pszFile)
 		"//Example: 'customweapons weapons_custom.txt'\n"
 		"//===========================================\n\n",
 		fp);
-	for (int i = 0; i < 0x26; i++)
+	for (int i = 0; i < TSW_COUNT; i++)
 	{
 		const s_weapon_info *wi = get_weapon_info((tsweapon_t)i);
 		if (!wi->pszName || !wi->pszName[0])

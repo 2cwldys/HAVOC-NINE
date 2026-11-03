@@ -110,10 +110,12 @@
 
  8. THE HOST PACKAGE (havoc9.org on a server)         make-vps-package.cmd
  ---------------------------------------------------------------------------
-   dist\havoc9-vps-linux-<build>.zip and dist\havoc9-vps-windows-<build>.zip,
-   each with its setup script (vps\linux, vps\windows); -Target picks one,
-   -WebClient adds the web client's files. vps\linux\README-VPS.txt and
+   dist\havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip and
+   dist\havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip, each with its setup
+   script (vps\linux, vps\windows); -Target picks one, -WebClient adds the
+   web client's files. vps\linux\README-VPS.txt and
    vps\windows\README-WINDOWS.txt.
+   The whole site, launched and packed: docs\WEBSITE.txt.
 
  9. THE WEB CLIENT (H9XASH in a browser)               build-webclient.cmd
  ---------------------------------------------------------------------------
@@ -134,6 +136,7 @@
    (default 6), -NoStage, -UpdateTracked (copy the builds over webclient-bin\,
    the folder git tracks and the packer reads by default), -Clean.
    havoc9.org\webclient\DEPLOY.txt says how the stage is served.
+   The stage on a host and on your own PC: docs\WEBSITE.txt, section 7.
 
    What it fetches, the first time (about 820 MB), each checked against the
    SHA-256 written in build-webclient.ps1 before it is used:

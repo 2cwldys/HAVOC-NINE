@@ -28,6 +28,7 @@
 
 #include "ammohistory.h"
 #include "vgui_TeamFortressViewport.h"
+#include "h9_vgui.h" // H9 VGUI: H9Vgui_TakesSlot
 
 WEAPON* gpActiveSel; // NULL means off, 1 means just the menu bar, otherwise
 					 // this points to the active weapon menu item
@@ -713,6 +714,9 @@ static bool TS_MenuTakesSlot(int slot)
 		gHUD.m_Menu.SelectMenuItem(slot);
 		return true;
 	}
+	// H9 VGUI: next, a button of a server's panel on that number key (h9_vgui.cpp).
+	if (H9Vgui_TakesSlot(slot))
+		return true;
 	return false;
 }
 

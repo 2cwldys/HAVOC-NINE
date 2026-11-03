@@ -1,0 +1,723 @@
+===============================================================================
+ SETTING UP HAVOC9.ORG -- from nothing to a live site, step by step
+===============================================================================
+
+ This is the whole walk from an empty server to https://havoc9.org/ answering,
+ in the order to do it. It keeps to the decisions and the checks. The build
+ and the scripts are explained in docs\WEBSITE.txt, which this file points to
+ instead of repeating; the package carries the long, step-by-step procedure
+ for each kind of server (README-VPS.txt, README-WINDOWS.txt).
+
+ Nothing in this file is secret, and nothing secret may be added to it: it is
+ in the public repository. A value that belongs to you -- a password, a key,
+ a token -- is written as a placeholder in angle brackets, like
+ <your-discord-bot-token>. Never put a real one in the repository, a chat, a
+ screenshot, an issue or a pull request.
+
+ Allow about two hours of work, plus the time DNS takes to spread (minutes to
+ a day).
+
+ CONTENTS
+    1. Before you start
+    2. The domain
+    3. The server's first hour
+    4. Build the host package here, and copy it over
+    5. Run the setup, and check the site answers
+    6. First sign-in: the first admin
+    7. Secrets: what each is for, where it lives, how to keep it
+    8. Game servers
+    9. The web client and the downloads
+   10. Running it day to day
+   11. A security checklist
+
+
+ 1. BEFORE YOU START
+ ---------------------------------------------------------------------------
+   YOU NEED
+     * The domain havoc9.org and the right to edit its DNS records
+       (section 2).
+     * A server you have full control of, with a public IPv4 address (IPv6
+       as well is good), and a way to sign in to it as its administrator:
+         Linux     root and SSH. Debian 12 or later, or Ubuntu 22.04 or
+                   later. 1 vCPU and 1 GB of memory will do; 2 GB is
+                   comfortable. 10 GB of disk, 25 GB with the web client.
+         Windows   an administrator account and Remote Desktop. Windows
+                   Server 2019 or later, or Windows 10/11, 64-bit, that
+                   stays on and does not sleep. 2 GB of memory; 10 GB
+                   free, 25 GB with the web client.
+       A Linux VPS is the simpler and cheaper road. This file says "the
+       server" for either and marks what differs.
+     * A PC to build the package on: Windows, with Git, Git LFS and a
+       checkout of the repository (section 4). It need not be the server.
+     * An SSH key pair on that PC, to sign in to a Linux server with
+       (Windows: ssh-keygen in PowerShell makes C:\Users\<you>\.ssh\id_ed25519
+       and id_ed25519.pub). The .pub half is the only one that ever leaves
+       the PC.
+
+   WHAT RUNS ON THE SERVER
+     * h9web: one Node.js 24 program -- the accounts, the forum, the admin
+       panel and the web client's relay. Its data is a file in its own
+       folder; there is no database server.
+     * The web server in front of it: nginx with a Let's Encrypt certificate
+       on Linux, Caddy (which gets the certificate itself) on Windows. It
+       serves the pages and passes the rest on to h9web.
+     * The H9 server list the game's Internet tab reads: one small Python
+       program, served at /serverlist/.
+     * Nothing else. No AI service, no analytics or tracking, no email, no
+       advertising, no other database or web application.
+
+   WHAT THE SERVER TALKS TO OUTSIDE
+     * Let's Encrypt, for the certificate.
+     * Discord, only if you turn Discord linking (or the server list's bot)
+       on.
+     * Your game servers, over UDP, to ask who is on them.
+     * While it sets up, the publishers of what it installs: NodeSource and
+       the distribution's packages on Linux; nodejs.org, GitHub (Caddy and
+       WinSW), python.org and PyPI on Windows.
+     Visitors' own browsers also fetch the pages' fonts from Google Fonts,
+     forum pictures from a short list of picture hosts, and YouTube's
+     pictures and player on the MEDIA page.
+
+   WHAT IT COSTS (rough; check the providers' price lists)
+     * The domain: about 10 to 20 USD a year at most registrars.
+     * A Linux VPS with 1 to 2 GB of memory: about 4 to 12 USD a month. A
+       Windows server costs more, because the Windows licence is added:
+       often two to four times as much.
+     * Everything the site runs on is free: Node.js, nginx, certbot, Let's
+       Encrypt, Caddy, WinSW, Python.
+
+
+ 2. THE DOMAIN
+ ---------------------------------------------------------------------------
+   REGISTER IT. Buy havoc9.org at a registrar you trust, or confirm you hold
+   it. On the registrar's account turn on two-factor sign-in, auto-renew and
+   the domain lock: whoever controls the registrar controls the site's
+   address.
+
+   POINT IT AT THE SERVER. In the registrar's DNS page (or the DNS host you
+   use), for havoc9.org:
+     A      havoc9.org        <the server's IPv4 address>
+     A      www.havoc9.org    <the server's IPv4 address>
+     AAAA   havoc9.org        <the server's IPv6 address>   (if it has one)
+     AAAA   www.havoc9.org    <the server's IPv6 address>   (if it has one)
+   Remove any other A or AAAA records for those two names (a parking page's,
+   say). Set the TTL to 300, five minutes, so that a later move to another
+   server is quick. Optional: a CAA record, havoc9.org. CAA 0 issue
+   "letsencrypt.org", so that no other certificate authority may issue for
+   the domain.
+
+   WAIT AND CHECK. DNS takes from minutes to a day to spread. From your PC:
+
+       nslookup havoc9.org            (Windows)
+       dig +short havoc9.org A        (Linux)
+
+   and the same for www.havoc9.org. Both must answer the server's address
+   before the certificate can be made (section 5). Until they do, run the
+   setup with --no-tls and again, plainly, afterwards.
+
+
+ 3. THE SERVER'S FIRST HOUR
+ ---------------------------------------------------------------------------
+   These steps keep the server itself safe; do them before the site goes on.
+   The setup script (section 5) adds its own parts and says which. In the
+   commands, <address> is the server's IPv4 address and <you> the user name
+   you choose.
+
+   LINUX
+   1. Sign in as root with the key the provider put on the server (if it
+      gave a password instead, put your key on first, as README-VPS.txt
+      step 3 shows), and bring the system up to date:
+
+          ssh root@<address>                        (on your PC)
+          apt-get update && apt-get -y upgrade      (then, on the server)
+
+      Reboot if /var/run/reboot-required exists. If the provider's image
+      has no sudo (some Debian ones), apt-get install -y sudo.
+
+   2. Make a user of your own for every day, with sudo:
+
+          adduser <you>
+          usermod -aG sudo <you>
+
+   3. Give that user your SSH key (the same one root has), and try it from
+      your PC in a new window before you close the root one:
+
+          U=<you>
+          install -d -m 700 -o $U -g $U /home/$U/.ssh
+          install -m 600 -o $U -g $U /root/.ssh/authorized_keys /home/$U/.ssh/
+
+          ssh <you>@<address>                       (on your PC)
+          sudo -v                                   (on the server)
+
+   4. Keys only, no password sign-in. The setup script does this by itself,
+      as soon as a key can sign in (HARDEN_SSH=0 turns that off). To do it
+      now, with the same file name the script uses, so that it replaces it:
+
+          F=/etc/ssh/sshd_config.d/05-havoc9.conf
+          echo 'PasswordAuthentication no' | sudo tee $F
+          echo 'KbdInteractiveAuthentication no' | sudo tee -a $F
+          echo 'PermitRootLogin prohibit-password' | sudo tee -a $F
+          sudo sshd -t && sudo systemctl reload ssh
+          sudo sshd -T | grep -E 'passwordauthentication|permitrootlogin'
+
+      The last line must say passwordauthentication no. Open a second
+      window and sign in again before you close the first. If you are ever
+      locked out, the provider's web console lets you rm that file and
+      systemctl reload ssh.
+
+   5. The clock must be right (TLS, and the game servers' reports, depend
+      on it): timedatectl should say "System clock synchronized: yes".
+
+   6. The firewall and the automatic security updates are the setup
+      script's: it allows SSH (the port sshd reports), 80 and 443 over TCP
+      and the game's UDP port, turns ufw on, and turns on unattended
+      security updates. Also open the same ports in the provider's own
+      firewall, if it has one -- and let SSH in only from your own address
+      there, if it lets you say so.
+
+   7. Turn on the provider's disk encryption where it offers it, and its
+      snapshots or backups of the whole VPS if you want a second safety net.
+
+   WINDOWS
+   1. Run Windows Update until it has nothing left, and restart.
+   2. Change the Administrator password the provider gave you to a long one
+      of your own (a password manager makes and keeps it), or make an
+      administrator account of your own and stop using the built-in one.
+   3. Remote Desktop: leave Network Level Authentication on, and let the
+      port in only from your own address, in the provider's firewall or in
+      the scope of Windows Defender Firewall's Remote Desktop rule -- not
+      from the whole internet.
+   4. Leave Windows Defender and Windows Defender Firewall on. The setup
+      script adds two inbound rules, TCP 80 and 443 and the game's UDP
+      port, and nothing else.
+   5. Nothing else may use TCP 80 or 443 (IIS, another web server): Caddy
+      needs both.
+
+
+ 4. BUILD THE HOST PACKAGE HERE, AND COPY IT OVER
+ ---------------------------------------------------------------------------
+   On the build PC, in the repository's folder. docs\WEBSITE.txt section 4
+   has every option, what is inside the package and what stops the run.
+
+       git lfs install
+       git lfs pull
+       make-vps-package.cmd -Target linux            (or -Target windows)
+
+   The maps, models and archives live in Git LFS; the packer stops and names
+   the files if they are only pointers. The ZIP is written to dist\, with its
+   .report.txt beside it:
+
+       dist\havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip
+
+   Nothing secret is in it: the packer scans what it packs for secrets and
+   stops, without writing a ZIP, if it finds one, and the report says "Scan:
+   clean". BUILD.txt and the report name the checkout's commit as the
+   source, not a folder of your PC. Put on a server only a package you built
+   yourself from the repository.
+
+   Copy it over and check that it arrived whole; the report holds its
+   SHA-256:
+
+       On your PC (PowerShell):
+           Get-FileHash dist\havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip
+       On a Linux server:
+           sha256sum havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip
+
+   Linux:
+
+       scp dist\havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip <you>@<address>:
+
+   Windows: Remote Desktop. Copy the ZIP and paste it in; right-click it,
+   Properties, tick Unblock if it is there, Extract All (for example into
+   C:\setup).
+
+
+ 5. RUN THE SETUP, AND CHECK THE SITE ANSWERS
+ ---------------------------------------------------------------------------
+   docs\WEBSITE.txt section 5 says what each setup script does and which
+   ports it opens; README-VPS.txt and README-WINDOWS.txt are the full
+   procedure. Both scripts are safe to run again at any time.
+
+   LINUX. On the server, in your home folder:
+
+       sudo apt-get install -y unzip
+       unzip havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip
+       cd havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>
+       sudo bash setup.sh
+
+   Before DNS answers, sudo bash setup.sh --no-tls does everything but nginx
+   and the certificate; run it plainly once it does. The script installs what
+   is missing, puts h9web, the server list and the site in place, starts
+   them, turns on automatic security updates, turns SSH passwords off once a
+   key can sign in, opens the firewall for SSH, 80, 443 and the game's UDP
+   port, and gets the certificate. It ends with a list of warnings: read
+   every one. The one about the keys (section 7) matters most.
+
+   THE CERTIFICATE. The last step of setup.sh, havoc9.org/deploy/
+   nginx-setup.sh, asks Let's Encrypt for a test certificate first, then
+   for the real one, for havoc9.org and www.havoc9.org. certbot renews it by
+   itself, and nginx reloads after each renewal. It fails while DNS does not
+   point at the server, or while port 80 is closed at the provider's
+   firewall: fix that and run setup.sh again.
+
+   WINDOWS. In the unpacked folder, right-click setup.cmd and Run as
+   administrator (setup.cmd -WhatIf first shows every step and changes
+   nothing). It downloads Node.js, Caddy, WinSW and Python at pinned
+   versions, each checked, installs the three services, writes Caddy's
+   settings and opens the firewall for TCP 80 and 443 and the game's UDP
+   port. Caddy gets the certificate, and renews it, by itself, as soon as
+   DNS points at the machine and ports 80 and 443 reach it.
+
+   CHECK THAT IT ANSWERS.
+
+       sudo bash setup.sh --check              (Linux)
+       .\setup.ps1 -Check                      (Windows, administrator)
+
+   shows what is installed and running. Then, from any PC (on Windows use
+   curl.exe, not curl):
+
+       curl -s https://havoc9.org/api/me       answers {"signedIn":false}
+       curl -sI https://havoc9.org/            200
+       curl -sI http://havoc9.org/             301, to https://
+
+   In a browser https://havoc9.org/ opens with a padlock, and
+   https://havoc9.org/serverlist/v1/servers/ts answers (a comment line, then
+   one line for each game server that is up). A 502 on the account pages
+   means h9web is not running: its log says why (sudo journalctl -u h9web
+   -n 100 on Linux; C:\havoc9\logs on Windows).
+
+
+ 6. FIRST SIGN-IN: THE FIRST ADMIN
+ ---------------------------------------------------------------------------
+   The site starts with no accounts and no admin. You make the first admin
+   in two steps, the second of which only works on the server itself.
+
+   1. Open https://havoc9.org/ and choose CREATE ACCOUNT. Pick the username
+      you want to be known by (3 to 20 letters, digits, dots, dashes and
+      underscores; names that look like staff -- admin, moderator, staff,
+      official, havoc9 and the like -- are refused for everyone) and a long
+      password that you use nowhere else: at least 10 characters, made and
+      kept by a password manager.
+
+   2. Make that account an admin with the admin command, as the service's
+      own user. Linux:
+
+          A="sudo -u h9web /usr/bin/node /opt/h9web/bin/h9web-admin.js"
+          $A --config /etc/h9web/config.json set-role <your username> admin
+
+      Windows, in an administrator PowerShell:
+
+          $N = 'C:\havoc9\tools\node\node.exe'
+          $A = 'C:\havoc9\h9web\bin\h9web-admin.js'
+          $C = 'C:\havoc9\etc\config.json'
+          & $N $A --config $C set-role <your username> admin
+
+   3. Reload the site. ADMIN is now in the navigation, and the admin panel
+      is at https://havoc9.org/admin/.
+
+   Admins are made only this way, never in the panel, so a stolen session
+   can neither make an admin nor lock the real ones out.
+
+   CHANGE THE PASSWORD AT ONCE if anyone but you chose it. An account made
+   with the admin command's create has a random password, printed once: sign
+   in and change it under ACCOUNT, CHANGE PASSWORD straight away. The same
+   goes for a password that was ever sent to you (reset-password <username>
+   prints one): change it before you do anything else with the account.
+
+   Keep the admins few; give everyone else the moderator role at most
+   (set-role <username> moderator). docs\H9WEB_ADMIN.txt is the admin's
+   guide: roles (section 2), every account command (section 4) and the admin
+   panel (section 12).
+
+
+ 7. SECRETS: WHAT EACH IS FOR, WHERE IT LIVES, HOW TO KEEP IT
+ ---------------------------------------------------------------------------
+   The site's secrets are made, or typed, on the server and stay there. None
+   is in the package, the repository or this file. NEVER paste one into the
+   repository, a chat, a screenshot or an issue. One that has been is leaked:
+   section 11 says what to do.
+
+   The paths below are Linux's. On Windows read C:\havoc9\data\h9web\ for
+   /var/lib/h9web/, C:\havoc9\etc\ for /etc/h9web/ and
+   C:\havoc9\data\serverlist\ for /var/lib/h9-serverlist/; the setup script
+   gives those folders to SYSTEM, Administrators and LocalService only.
+
+   /var/lib/h9web/secrets.json                          (0600, h9web only)
+       The key every player id is worked out from, and the pepper mixed into
+       every password before it is hashed. h9web makes it on its first start
+       and never changes it. Without it no password and no player id works.
+   /var/lib/h9web/data.key                              (0600, h9web only)
+       Seals the stored Discord links. Made on the first start. If it is
+       lost, only the Discord links are lost.
+   /var/lib/h9web/modules/discord/secrets.json          (0600, h9web only)
+       Only if Discord linking is on. The Discord application's client
+       secret and the bot's token, written as
+         { "clientSecret": "<your-client-secret>",
+           "botToken": "<your-discord-bot-token>" }
+       They are never in config.json. The steps: h9web\README.txt section 18.
+   /var/lib/h9web/modules/presence/                     (0600 files)
+       The presence module's keys: server-keys.json (keys made by hand for
+       game servers), enroll-key (the enrolled servers' keys are worked out
+       from it) and net-key (the key the flags' network hashes are made with).
+   /var/lib/h9web/h9web.db, backups/ and offsite/       (0600 in 0700 folders)
+       Not keys, but private: the accounts, the forum, the backups.
+   /etc/h9web/backup-passphrase                         (0600, h9web only)
+       The passphrase of the encrypted backups that leave the server: 12
+       characters or more, on one line.
+   /var/lib/h9-serverlist/serverlist.cfg                (0600, h9list only)
+       The server list's heartbeat_key (any long random string, the same on
+       every server that sends heartbeats under it) and its discord_token
+       (optional, for its bot).
+   On each game server                                  (that server only)
+       ts\addons\amxmodx\data\h9_presence.key, that server's own key to the
+       site, made by the plugin; ts\addons\amxmodx\configs\h9_presence.cfg
+       when a key is made by hand there; and the game server's Discord bot
+       settings.
+   Off the server
+       Your SSH private key, and your registrar's, your provider's and your
+       password manager's logins.
+
+   /etc/h9web/config.json and servers.json hold no secret, by design:
+   root-owned and 0644 is right for them.
+
+   PERMISSIONS. The services make their own files 0600 and their folders
+   0700 (the unit's UMask=0077). Do not loosen them. A file you make by
+   hand -- the Discord secrets, the backup passphrase, serverlist.cfg --
+   gets its mode and its owner the moment it exists:
+
+       sudo install -m 600 -o h9web -g h9web /dev/null \
+            /etc/h9web/backup-passphrase
+       sudo chmod 600 /var/lib/h9web/modules/discord/secrets.json
+       sudo ls -l /var/lib/h9web /var/lib/h9web/modules/discord
+
+   h9web warns at start about a Discord secrets file that other users can
+   read.
+
+   BACK THEM UP, APART FROM THE SITE BACKUPS. A backup and its keys in one
+   place is a backup anyone can open, so the backup tool leaves the keys out
+   of a plain backup. Do two things:
+     1. The first time h9web has made secrets.json and data.key (the setup
+        script warns when it has), copy them off the server once, to
+        somewhere offline: a password manager that keeps files, or an
+        encrypted USB drive. They never change, so once is enough. Do the
+        same with the Discord secrets file. Step 6 of README-VPS.txt and
+        README-WINDOWS.txt shows the commands.
+     2. Set the backup passphrase (section 10). The encrypted daily backup
+        then carries the keys too, sealed with it, so one copy of that
+        backup and the passphrase are all a new server needs. Keep the
+        passphrase offline with the keys, never beside the backups.
+   Never copy the whole of /var/lib/h9web off the server: it holds the keys
+   next to the data.
+
+
+ 8. GAME SERVERS
+ ---------------------------------------------------------------------------
+   A game server meets the site in three places. Setting up the game server
+   itself is in its own docs (docs\NETWORKING.txt, docs\H9_PRESENCE.txt
+   section 4).
+
+   1. THE SITE'S LIST: servers.json. /etc/h9web/servers.json (Windows:
+      C:\havoc9\etc\servers.json) lists the H9 servers the web client may
+      join through the relay and the SERVERS page shows. Edit it as root;
+      the site reads it again within 2 seconds, with no restart:
+
+          { "servers": [
+              { "name": "HAVOC 9", "address": "<server-ip>:27015" } ] }
+
+      The address is the server's public IPv4 address and port, as numbers.
+      For a game server on the same machine as the site add
+      "target": "127.0.0.1:27015", where the relay really sends;
+      "listed": false hides a test server. docs\H9WEB_ADMIN.txt section 6
+      lists every field. For web client players set, on that game server,
+      sv_connect_max_per_ip 0, sv_query_rate_limit 30 and sv_timeout 120,
+      and open its UDP port to the relay's address
+      (havoc9.org\webclient\DEPLOY.txt section 7).
+
+   2. WHO IS PLAYING: the presence key. A dedicated server with the
+      h9_presence plugin enrolls itself: it asks the site for a key of its
+      own, proves its address with a code the site reads from the server's
+      rules over UDP, and signs its reports with that key from then on. A
+      server listed in servers.json goes live as soon as it proves its
+      address; any other waits until an H9 admin approves it at
+      https://havoc9.org/community/ (H9 ADMIN, ENROLLED SERVERS).
+      What you do: leave the plugin's report address as shipped,
+      https://havoc9.org/api/presence/report; keep the server's clock right
+      (NTP: a report more than two minutes off is refused); let the site
+      reach the server's UDP port. The key is kept on that game server, in
+      ts\addons\amxmodx\data\h9_presence.key, and is that server's secret
+      (section 7). To use a key made by hand instead, as the service's user
+      on the site:
+
+          K=/opt/h9web/modules/presence/bin/presence-key.js
+          C=/etc/h9web/config.json
+          sudo -u h9web node $K --config $C add <server-ip>:27015
+
+      It is shown once, as two lines for that server's h9_presence.cfg: copy
+      them there and nowhere else. docs\H9_PRESENCE.txt sections 3 to 4a are
+      the whole story.
+
+   3. THE SERVER LIST, for the game's Internet tab. A dedicated server
+      started with h9xash_server.bat sends a heartbeat to
+      https://havoc9.org/serverlist every two minutes by itself. The list
+      asks the server back and shows it while it answers, so the server's
+      UDP port (27015 as shipped) must be open on its firewall and the
+      provider's. Other ways in: a line in
+      /var/lib/h9-serverlist/servers.txt, /addserver in the list's Discord
+      bot, or a heartbeat from a cron job (serverlist-bot\README.md,
+      "Heartbeats").
+
+   HOW PLAYERS' GAMES FIND THE SITE. They need no telling. The game's own
+   defaults are https://havoc9.org for accounts, linking and pictures,
+   https://havoc9.org/serverlist for the Internet tab, and the plugin's
+   report address above. cl_h9_site exists only for testing a site on your
+   own PC, at 127.0.0.1 or localhost; leave it empty on every real install.
+
+
+ 9. THE WEB CLIENT AND THE DOWNLOADS
+ ---------------------------------------------------------------------------
+   THE WEB CLIENT. PLAY on the site runs the game in the browser. Its files
+   (about 1.2 GB) are a package of their own, not part of the host package;
+   without them PLAY says the client is in preparation and everything else
+   works. docs\WEBSITE.txt section 7 is the guide. In short:
+
+   1. On the build PC: build-webclient.cmd. The first run fetches about
+      820 MB and takes about 10 minutes; later runs rebuild only what
+      changed. It leaves webclient-build\stage\.
+
+   2. Put the stage on the server. Windows: copy webclient-build\stage over,
+      then
+
+          .\setup.ps1 -WebClientStage C:\setup\stage
+
+      Linux: from a clone of the repository made on the server, or from the
+      ZIP that make-vps-package.cmd -WebClient writes. README-VPS.txt step 12
+      has the exact commands and the folder layout; both routes end in
+      sudo bash webclient-setup.sh, run from havoc9.org/deploy.
+
+   3. Check: https://havoc9.org/webclient/engine/xash.wasm answers 200 with
+      the type application/wasm. Then sign in and press PLAY: the game's
+      main menu comes up, and Multiplayer, Internet games lists the servers
+      of section 8.
+
+   The builder, the packer and webclient-setup.sh each refuse a stage that
+   holds what a player must never be served: a game server's settings and
+   secrets, personal configs, ids. Never copy a game server's folder into
+   the stage by hand.
+
+   THE DOWNLOADS. The DOWNLOADS page's buttons, and ALL FILES behind them
+   (https://havoc9.org/downloads/files/), are files you put in the site
+   folder yourself, from dist\ on the build PC. The setup keeps them when
+   it updates the site. Step 13 of README-VPS.txt and README-WINDOWS.txt has
+   the details and the checks; docs\WEBSITE.txt section 6 sums them up. The
+   folders are /var/www/havoc9.org/downloads/ on Linux and
+   C:\havoc9\site\downloads\ on Windows:
+
+       downloads/        H9XASH.zip, H9XASH-linux.zip, H9XASH-Updater.exe
+       downloads/files/  the two host packages; the setup script adds the
+                         three files above as links, and SHA256SUMS.txt
+
+   On Linux. From your PC, in PowerShell in the repository's folder:
+
+       $D = 'root@havoc9.org:/var/www/havoc9.org/downloads'
+       scp dist\H9XASH.zip dist\H9XASH-linux.zip dist\H9XASH-Updater.exe $D/
+       scp dist\havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip $D/files/
+
+   (the Windows package the same way). On Windows copy the files in over
+   Remote Desktop. Then run the setup script for the index alone, on the
+   server, in the unpacked package folder (Windows: in an administrator
+   PowerShell):
+
+       sudo bash setup.sh --file-index           (Linux)
+       .\setup.ps1 -FileIndex                    (Windows)
+
+   Every full run of the setup does the same. It makes the three button
+   files symbolic links in the index (one copy on the disk, and the index
+   serves the file the button does), checks each by SHA-256 against
+   downloads/ and warns loudly if they differ, skips a button file that is
+   not published yet, and rewrites SHA256SUMS.txt. Step 13 shows how to
+   check it by hand.
+
+   Only .zip, .exe and .txt files are served from the index; any other file,
+   a subfolder and every dot file is a 404. Put nothing else in it -- never
+   a config, a key, a token, a backup or anyone's data -- and open the
+   listing in a browser after every change. The .report.txt files made
+   beside the packages stay off it unless the owner chooses otherwise.
+   H9XASH-Updater's own files are a different folder, /files/, that only the
+   updater is served; they are not the index.
+
+
+ 10. RUNNING IT DAY TO DAY
+ ---------------------------------------------------------------------------
+   BACKUPS. They run by themselves, once a day: on Linux the h9web-backup
+   timer, into /var/lib/h9web/backups; on Windows the task "havoc9 h9web
+   backup" at 03:30, into C:\havoc9\data\h9web\backups. The newest 14 are
+   kept. Copies that leave the server are encrypted: make the passphrase
+   file once (12 characters or more, on one line, and kept offline too),
+   then run the setup script again, which turns the encrypted daily backup
+   on (the newest 7, in the offsite folder next to backups):
+
+       sudo install -m 600 -o h9web -g h9web /dev/null \
+            /etc/h9web/backup-passphrase
+       sudo nano /etc/h9web/backup-passphrase
+       sudo bash setup.sh
+
+   On Windows: notepad C:\havoc9\etc\backup-passphrase, started as
+   administrator and with no .txt, then .\setup.ps1. Copy the offsite folder
+   to storage of your own now and then (README-VPS.txt step 8 shows how; on
+   Windows copy C:\havoc9\data\h9web\offsite). By hand: docs\WEBSITE.txt
+   section 3 has the exact commands for backup, list and verify <file>. Run
+   list now and then, and verify one backup soon after the first, to know
+   that a backup opens.
+
+   RESTORE. Stop h9web first (a restore refuses while it runs), then restore
+   the file; it saves the data as it was before it changes anything. On a
+   new server use the setup script's --restore (Windows: -Restore), which
+   puts the keys in place before h9web starts: docs\WEBSITE.txt section 6,
+   and step 9 of README-VPS.txt and README-WINDOWS.txt.
+
+   UPDATES: the safe routine.
+     1. The tests, on the build PC, in h9web\, all of them one at a time:
+
+            node --test --test-concurrency=1 "test/*.test.js"
+
+        Do not go on if one fails.
+     2. A backup. The setup script takes one itself before it touches a
+        running h9web; a hand-made one before a big change costs nothing.
+     3. Build the new package (section 4), copy it over, unpack it beside
+        the old one and run its setup script again. It keeps every setting,
+        key and all data, and restarts the services. Pick a quiet moment: a
+        restart drops web client players from the game they are in.
+     4. Check: setup.sh --check (Windows: setup.ps1 -Check) and the site in a
+        browser. To go back, run the older package's setup script, then
+        restore the backup the newer one took first.
+   docs\WEBSITE.txt sections 3 and 6 have the details.
+
+   THE SYSTEM. Linux: sudo apt-get update && sudo apt-get upgrade now and
+   then. Security updates install by themselves, but a reboot may be due
+   (/var/run/reboot-required), and Node.js 24 comes from NodeSource's
+   repository, which the upgrade also brings; after a Node.js update run
+   sudo systemctl restart h9web. Windows: Windows Update; the Node.js,
+   Caddy and WinSW the site runs on are pinned versions and come with each
+   new package.
+
+   LOGS. Linux: sudo journalctl -u h9web -f (-u h9-serverlist for the list);
+   nginx's are /var/log/nginx/access.log and error.log. Windows:
+   C:\havoc9\logs, a file a day for each service. Both are kept 30 days. They
+   never hold a password, a cookie or a token.
+
+   MOVING TO A NEW SERVER, in order: lower the DNS TTL to 300 a day before;
+   set the new server up as in sections 3 to 5 but do not start h9web; stop
+   h9web on the old one and take a last encrypted backup with the keys;
+   restore it on the new one with the setup script; point the A and AAAA
+   records at the new address; let each game server's firewall in; and keep
+   the old server stopped, with its data, for a few days. Step 10 of
+   README-VPS.txt and README-WINDOWS.txt is the checklist.
+
+
+ 11. A SECURITY CHECKLIST
+ ---------------------------------------------------------------------------
+   Go through this after the first setup, and again after every big change.
+
+   [ ] TLS. https://havoc9.org/ opens with a padlock, and http:// goes to
+       https://. The certificate renews by itself: sudo certbot certificates
+       shows its date. On Windows Caddy does it; its log is
+       C:\havoc9\logs\havoc9-caddy*.log.
+   [ ] Updates. The system and Node.js are current (section 10), and on
+       Linux the automatic security updates are on.
+   [ ] Only the needed ports are open: SSH, 80, 443 and the game's UDP
+       port. Linux: sudo ufw status. Windows:
+       Get-NetFirewallRule -DisplayName 'havoc9*'. The provider's firewall
+       says the same. h9web (127.0.0.1:8090) and the server list
+       (127.0.0.1:8081) are never opened to the network.
+   [ ] SSH takes keys only (section 3): sudo sshd -T | grep -E
+       'passwordauthentication|permitrootlogin'. On Windows, Remote Desktop
+       is open to your own address only.
+   [ ] Admin passwords and roles. Few admins, each with a long password used
+       nowhere else; everyone else who helps is a moderator, not an admin.
+       The admin command's list shows who holds which role (section 6).
+       When someone leaves: set-role <username> user, and revoke-sessions
+       <username>.
+   [ ] The audit log. The admin panel's AUDIT LOG shows every moderator and
+       admin action, and the admin command's changes, for 90 days. Read it
+       now and then.
+   [ ] Rate limits left on. nginx's limit_req rules and h9web's own limits
+       (config.json "limits") stop floods and password guessing. Do not
+       remove them or raise them to quiet a complaint; for a wave of junk
+       accounts, lower limits.signupPerIp.max (docs\H9WEB_ADMIN.txt
+       section 5).
+   [ ] What must never be served answers 404. Run these (curl.exe on
+       Windows); every one must say 404:
+
+           curl -sI https://havoc9.org/webclient/DEPLOY.txt
+           curl -sI https://havoc9.org/deploy/nginx-setup.sh
+           curl -sI https://havoc9.org/.git/config
+           curl -sI https://havoc9.org/index.html.bak
+           curl -sI https://havoc9.org/downloads/files/.htaccess
+
+       The web server answers 404 for dot files and folders, backups,
+       archives, databases, logs, keys and certificates, scripts and
+       sources, and the deploy notes. nginx-setup.sh prints the same checks
+       at the end of its run; on Windows Caddyfile.template holds the same
+       rules. h9web's data folder is outside the site folder: keep it so,
+       and never copy a secret, a backup, a config or a script into the
+       site folder.
+   [ ] Secrets (section 7): modes right, an offline copy of secrets.json,
+       data.key and the passphrase, and none of them in the repository, a
+       chat, a screenshot or an issue.
+   [ ] Backups work (section 10): list shows recent ones, and one has been
+       verified.
+   [ ] Packages. Only a package you built yourself goes on the server, and
+       its report says "Scan: clean".
+
+   IF A SECRET LEAKS -- it was pasted somewhere, committed, photographed, or
+   the machine holding it is lost -- rotate it, then find out how it got
+   out. A secret committed to git stays in the history even after the commit
+   is taken out: rotate it, do not rely on deleting.
+     Discord application secret or bot token
+         Reset it in the Discord Developer Portal, write the new value into
+         the secrets file (section 7), and sudo systemctl restart h9web. The
+         server list's own token: restart h9-serverlist.
+     heartbeat_key
+         A new long random string in serverlist.cfg and in whatever sends
+         heartbeats with it; sudo systemctl restart h9-serverlist.
+     A game server's presence key
+         A hand-made one: presence-key.js rotate <server-ip>:27015, and the
+         new key into that server's h9_presence.cfg; no restart. An enrolled
+         one: delete h9_presence.key on that game server, so that it enrolls
+         again, or have an H9 admin revoke it at https://havoc9.org/
+         community/ (H9 ADMIN, ENROLLED SERVERS).
+     The backup passphrase
+         A new passphrase file, then the setup script again; make a fresh
+         encrypted backup and delete the older copies you no longer need.
+     An SSH private key
+         Remove its public line from authorized_keys for every user on the
+         server, root too; make a new pair and add it; then look at who has
+         signed in: last, or sudo journalctl -u ssh.
+     A registrar, provider or DNS login
+         Change the password, end all sessions, and check the DNS records.
+     secrets.json or data.key
+         Do not replace either by hand: every password and player id depends
+         on secrets.json. Treat it as a breach of the whole site: tell the
+         players (docs\H9WEB_ADMIN.txt section 9), sign everyone out
+         (h9web\README.txt section 10 has the command), and have everyone
+         change their password.
+     One player's id (shown on ACCOUNT)
+         Admin panel, PRESENCE, open the account, RESET THE PLAYER ID. The
+         old id, and every h9_clientid made from it, stops working at once.
+         The player copies the new id from ACCOUNT into enter_userid.cmd.
+     One account's password or session
+         revoke-sessions <username> and reset-password <username>; send the
+         new password privately (docs\H9WEB_ADMIN.txt section 5).
+   Write down what was rotated and when -- never the value.
+
+
+ WHERE TO READ MORE
+ ---------------------------------------------------------------------------
+   docs\WEBSITE.txt                   the build, the scripts, the web client
+   vps\linux\README-VPS.txt           a Linux server, every step
+   vps\windows\README-WINDOWS.txt     a Windows server, every step
+   docs\H9WEB_ADMIN.txt               running the site: roles, accounts,
+                                      servers, settings, backups
+   h9web\README.txt                   the server: settings, secrets, backups
+   docs\H9_PRESENCE.txt               game servers and the presence key
+   docs\NETWORKING.txt                the server list and the game's addresses

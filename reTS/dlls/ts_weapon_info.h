@@ -62,7 +62,9 @@ enum tsweapon_t
 	TSW_SEALKNIFE = 35,
 	TSW_CONTENDER = 36,
 	TSW_SKORPION_AKIMBO = 37,
-	TSW_COUNT = 38
+	TSW_UNUSED = 38,       // no weapon: TSX keeps its thrown knife's stats at 38 ("not a game id"), so no game weapon is 38
+	TSW_PPSH41 = 39,       // H9 addition, not in the original roster (0..37): the PPSh-41 submachine gun
+	TSW_COUNT = 40
 };
 
 // Weapon stats — a clean modern subset of the original 988-byte s_weapon_info,
@@ -226,7 +228,7 @@ struct s_weapon_info
 
 // Per-caliber ammo: the 16 calibers, the mag/magazine size, and the max reserve (rounds),
 // from compile_ammo_info (@0x6f51c). Indices match the weapon iCaliber + the FGD ts_groundammo
-// magsN keyvalues (magN -> caliber N).
+// magsN keyvalues (magN -> caliber N). Caliber 14 (7.62 x 25mm, the PPSh-41's) is H9's.
 #define TS_NUM_CALIBERS 16
 // s_ammo_info — the per-caliber ammo table (original 0x38-byte struct; offsets are
 // provenance). Built by compile_ammo_info (chained from compile_weapons_info).

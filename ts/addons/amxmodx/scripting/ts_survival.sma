@@ -223,10 +223,24 @@ public task_tick()
 		new left = floatround(g_breather_until - now, floatround_ceil);
 		if (left > 0)
 		{
+			// An H9 game shows it on ts_matchmode's match bar, counting down by itself; every
+			// other game gets the hudmessage, each second.
+			new bar[64];
+			formatex(bar, charsmax(bar), "WAVE %d CLEARED -- NEXT WAVE IN {s}", g_wave);
+			tsm_hud_count(bar, left);
 			set_hudmessage(255, 200, 80, -1.0, 0.28, 0, 0.0, 0.6, 0.0, 0.1, 2);
-			show_hudmessage(0, "WAVE %d CLEARED^nNext wave in %d", g_wave, left);
+			new players[MAX_PLAYERS], pnum;
+			get_players(players, pnum, "c");
+			for (new i = 0; i < pnum; i++)
+			{
+				if (!tsm_bar_shown(players[i]))
+				{
+					show_hudmessage(players[i], "WAVE %d CLEARED^nNext wave in %d", g_wave, left);
+				}
+			}
 			return;
 		}
+		tsm_hud_count("", 0);
 		next_wave();
 		return;
 	}
@@ -267,6 +281,18 @@ public task_tick()
 		if (wait > 0.0)
 		{
 			client_print(0, print_chat, "[MATCH] Wave %d cleared! The next wave comes in %d seconds.", g_wave, floatround(wait));
+		}
+
+		// Everyone still in play on the survivors' side has survived the wave (ts_matchmode's
+		// tsm_score_wave each).
+		new pl[MAX_PLAYERS], pn;
+		get_players(pl, pn, "");
+		for (new i = 0; i < pn; i++)
+		{
+			if (tsm_side_of(pl[i]) == 1 && tsm_in_play(pl[i]))
+			{
+				tsm_points_award(pl[i], TSM_POINTS_WAVE);
+			}
 		}
 	}
 }

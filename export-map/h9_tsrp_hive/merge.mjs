@@ -132,7 +132,13 @@ const FENCE_TEXTURES = new Set([
 const LINK_KEYS = ["target", "master", "killtarget", "LaserTarget"];
 /** Classes whose `message` names what a train fires as it passes them, where every other class's is words. */
 const PASS_TARGET_CLASSES = new Set(["path_corner", "path_track"]);
-const linkKeysOf = (entity) => (PASS_TARGET_CLASSES.has(entity.classname) ? [...LINK_KEYS, "message"] : LINK_KEYS);
+/** Classes whose `netname` names what they fire as they close. */
+const CLOSE_TARGET_CLASSES = new Set(["func_door", "func_door_rotating", "momentary_door", "func_water"]);
+const linkKeysOf = (entity) => [
+  ...LINK_KEYS,
+  ...(PASS_TARGET_CLASSES.has(entity.classname) ? ["message"] : []),
+  ...(CLOSE_TARGET_CLASSES.has(entity.classname) ? ["netname"] : []),
+];
 /** Classes that exist only as geometry: without brushes they are nothing, whatever name they carry. */
 const BRUSH_ONLY = /^(func_|trigger_(push|teleport|multiple|once|hurt|gravity|waterydeath)$)/;
 
@@ -237,7 +243,7 @@ const prefixed = (prefix, name) => `${prefix}_${name}`;
  * key silently loses its manager, and nothing errors -- it just does not move. A name it fires more than
  * once is written `MDELEVATOR#1`, `MDELEVATOR#2`: the game reads the key up to the `#`, so the name before
  * it is prefixed and the `#` part kept. A path_corner's `message` is a name too: what it fires as a train
- * passes.
+ * passes; and so is a door's `netname`, what it fires as it closes.
  */
 function prefixedEntities(entities, names, prefix) {
   return (entities ?? []).map((entity) => {
@@ -523,6 +529,61 @@ function snapLeanPlane(map, plane) {
   return count;
 }
 
+/**
+ * A RAMP THE DECOMPILE TILTED IN ALEXANDRIA. The hall under the Golgotha apartments runs on two slopes the original
+ * compile has as whole-number planes, 12y + 35z = 23488 and 24888 (parallel to x); the decompile wrote both a hair
+ * off them (0.008 and 0.024, the normal turned 0.0005 degrees). In the standing player's hull that leaves a hole in
+ * the apartment floor over them, along its south wall inside the door (x 80..300, y 1008..1036 in the hive, 160
+ * deep): drawn floor over nothing. Every face on either slope, in every brush of the city, goes back on its plane
+ * through whole-number points, as the Xenon lean planes do. The face counts are checked: a changed source stops the build.
+ */
+const ALEXANDRIA_RAMP_PLANES = [
+  { b: 12, c: 35, k: 24888, faces: 17 },
+  { b: 12, c: 35, k: 23488, faces: 8 },
+];
+
+/** Whole numbers u, v with b u + c v = 1 (b and c with no common factor). */
+function bezout(b, c) {
+  let [r0, r1, s0, s1, t0, t1] = [b, c, 1, 0, 0, 1];
+  while (r1) {
+    const q = Math.floor(r0 / r1);
+    [r0, r1, s0, s1, t0, t1] = [r1, r0 - q * r1, s1, s0 - q * s1, t1, t0 - q * t1];
+  }
+  if (r0 !== 1) throw new Error(`${b} and ${c} share a factor`);
+  return [s0, t0];
+}
+
+function snapRampPlane(map, plane) {
+  const length = Math.hypot(plane.b, plane.c);
+  const exact = { n: [0, plane.b / length, plane.c / length], d: plane.k / length };
+  const [u, v] = bezout(plane.b, plane.c);
+  const sets = [map.brushes ?? [], ...(map.entities ?? []).filter((entity) => entity.brushes).map((entity) => entity.brushes)];
+  let count = 0;
+  for (const brushes of sets) {
+    for (const brush of brushes) {
+      let shape = null;
+      for (const face of brush.faces) {
+        // this slope and not its neighbour 11y + 32z (0.045 degrees away): the normal held within 1e-7
+        const own = planeOf(face);
+        if (Math.abs(dotOf(own.n, exact.n)) < 0.9999999 || !sideOn(face, exact, 0.05)) continue;
+        shape ??= M.shapeOf(brush);
+        // b y + c z = k through whole numbers, by the brush: y = u k + c t, z = v k - b t
+        const t = Math.round(((shape.min[1] + shape.max[1]) / 2 - u * plane.k) / plane.c);
+        const [y, z] = [u * plane.k + plane.c * t, v * plane.k - plane.b * t];
+        const x0 = Math.floor(shape.min[0]);
+        const x1 = Math.max(x0 + 1, Math.ceil(shape.max[0]));
+        let points = [[x0, y, z], [x1, y, z], [x0, y + plane.c, z - plane.b]];
+        if (dotOf(planeOf({ points }).n, own.n) < 0) points = [points[0], points[2], points[1]];
+        face.points = points;
+        face.exact = true;
+        count++;
+      }
+    }
+  }
+  if (count !== plane.faces) throw new Error(`alexandria ramp ${plane.b}y + ${plane.c}z = ${plane.k}: ${count} faces lie on it, not ${plane.faces} -- the source changed`);
+  return count;
+}
+
 function repairXenon(map) {
   for (const { brush: index, box: want, textures } of XENON_SLIVERS) {
     const label = `xenon world brush #${index}`;
@@ -549,9 +610,202 @@ function repairXenon(map) {
  * labentbutton, a func_door that moves nowhere (its lip is its whole width) and fires the gate each time it
  * toggles. The source gives the panel a name and no Use flag, so neither a touch (a named door ignores
  * touches) nor the use key works it, and the gate never opens. The Use flag (256) is added to its toggle (32).
+ * The two doors of the blue car under the meeting room (clabshores, shoresclab, the lift below) are toggle
+ * doors with names that nothing opens, and get the same flag: a player opens and shuts them with the use key.
  */
-const USABLE_PANELS = { alexandria: [{ targetname: "labentbutton", classname: "func_door", spawnflags: "32" }] };
+const USABLE_PANELS = {
+  alexandria: [
+    { targetname: "labentbutton", classname: "func_door", spawnflags: "32" },
+    { targetname: "clabshores", classname: "func_door", spawnflags: "32" },
+    { targetname: "shoresclab", classname: "func_door", spawnflags: "32" },
+  ],
+};
 const DOOR_USE_ONLY = 256;
+
+/**
+ * The blue car's two doors slid sideways into its walls (angles 0 0 0, the same in the original compile). They
+ * sink into the floor instead, as a lift's doors: straight down (angles 90 0 0), all of their 112 and 2 more
+ * (lip -2), so their tops end under the floor.
+ */
+const SINKING_DOORS = {
+  alexandria: [
+    { targetname: "clabshores", classname: "func_door", angles: "0 0 0", to: "90 0 0", lip: "-2" },
+    { targetname: "shoresclab", classname: "func_door", angles: "0 0 0", to: "90 0 0", lip: "-2" },
+  ],
+};
+
+/**
+ * Alexandria's jail cells close with cages the decompiles cut from 320 to 192 tall, floor to ceiling no more:
+ * their lip (192) was the original 320 less the 128 a cage rises, so the cut cages moved nowhere. A lip of 64
+ * gives them the same 128 of travel: a cage rises to the ceiling and leaves its cell open under it.
+ */
+const CELL_CAGES = { alexandria: { targetname: /^cell[1-4]$/, lip: "192", to: "64", count: 4 } };
+
+/**
+ * Alexandria's lab dial, the momentary_rot_button that slides lab_radio_bed into the scanner, is a NULL volume
+ * the b4v3 decompile left without its brush (it draws nothing), so the merge dropped it as empty. Its brush is
+ * the b5 decompile's (the same frame, as the push triggers'), with an ORIGIN brush at its middle so it turns
+ * where it stands rather than about the world's origin.
+ */
+function alexandriaDialFix(map) {
+  const source = readCity(ALEXANDRIA_PUSH_SOURCE).map.entities ?? [];
+  const isDial = (entity) => entity.classname === "momentary_rot_button" && entity.target === "lab_radio_bed";
+  let fixed = 0;
+  map.entities = (map.entities ?? []).map((entity) => {
+    if (!isDial(entity) || entity.brushes?.length) return entity;
+    const match = source.find((candidate) => isDial(candidate) && candidate.brushes?.length);
+    if (!match) return entity;
+    const box = match.brushes.map(boxOf).filter(Boolean).reduce((all, one) => ({ min: all.min.map((v, a) => Math.min(v, one.min[a])), max: all.max.map((v, a) => Math.max(v, one.max[a])) }));
+    const middle = box.min.map((v, a) => round((v + box.max[a]) / 2));
+    fixed++;
+    return { ...entity, brushes: [...match.brushes, M.box(middle.map((v) => v - 1), middle.map((v) => v + 1), "ORIGIN")] };
+  });
+  if (fixed !== 1) throw new Error(`alexandria: ${fixed} lab dials given their brush, not 1`);
+  return fixed;
+}
+
+/**
+ * The blue car between Alexandria's airlock doors (clabshores, shoresclab) has the look of a lift, and the
+ * meeting room 456 units over it had no way in. It is made one, in the city's own coordinates:
+ *
+ *   shaft    the rock over the car's south part cut out, up through the room's south wall (the room's
+ *            floor is at 536, its south wall at y -3152); every brush it cuts must be a box, or the build stops
+ *   floor    a func_door 2 over the car's floor that rises 454 to the room's floor and back, toggled
+ *   gate     a func_wall_toggle across the shaft's top, shut whenever the floor is not up there: the buttons
+ *            shut it before the floor moves, the floor opens it as it arrives at the top (its target fires at
+ *            both ends, its netname at the bottom only, after it, so at the bottom the gate ends shut)
+ *   buttons  one in the car over the part of its floor that stays, one at the top of the shaft, one in the
+ *            room beside the gate; each shuts the gate, then sends the floor half a second later
+ */
+const ALEXANDRIA_LIFT = {
+  shaft: { min: [-280, -3316, 212], max: [-104, -3152, 652] },
+  floor: { min: [-279, -3315, 66], max: [-105, -3157, 82] },
+  rise: 454,
+  gate: { min: [-280, -3156, 536], max: [-104, -3152, 652] },
+  buttons: [
+    { min: [-106, -3140, 124], max: [-104, -3124, 140], face: "west" },
+    { min: [-106, -3204, 580], max: [-104, -3188, 596], face: "west" },
+    { min: [-72, -3152, 580], max: [-56, -3150, 596], face: "north" },
+  ],
+  relays: [-192, -3134, 100],
+  light: [-192, -3236, 470],
+};
+const LIFT_WALL = "gm_04";
+
+/** The part of a brush on one side of the plane where `axis` is `value` (`above`: the greater side), or null. */
+function clipBrush(brush, axis, value, above, texture) {
+  const shape = M.shapeOf(brush);
+  const box = boundsOf(shape);
+  if (!box) return null;
+  if (above ? box.max[axis] <= value + 0.01 : box.min[axis] >= value - 0.01) return null;
+  if (above ? box.min[axis] >= value - 0.01 : box.max[axis] <= value + 0.01) return brush;
+  const normal = [0, 0, 0];
+  normal[axis] = above ? -1 : 1; // out of the kept solid
+  // two directions in the plane whose cross product is that normal, as planeOf winds them (cutBrush's)
+  const [a, b] = [[[0, 0, 1], [0, 1, 0]], [[1, 0, 0], [0, 0, 1]], [[0, 1, 0], [1, 0, 0]]][axis];
+  const [d0, d1] = above ? [a, b] : [b, a];
+  const centre = box.min.map((v, i) => round((v + box.max[i]) / 2));
+  centre[axis] = value;
+  const along = (d) => centre.map((v, i) => v + d[i] * 64);
+  const { u, v } = M.textureAxes(normal);
+  const face = { points: [along(d0), centre, along(d1)], texture, u: [...u, 0], v: [...v, 0], rotation: 0, scale: [1, 1] };
+  const kept = (point) => (above ? point[axis] > value + 0.01 : point[axis] < value - 0.01);
+  const faces = brush.faces.filter((_, index) => (shape.faces[index]?.polygon ?? []).some(kept));
+  return { faces: [...faces, face] };
+}
+
+/** A brush less a box: its pieces outside the box, cut along the box's planes. */
+function withoutBox(brush, hole, texture) {
+  const pieces = [];
+  let rest = brush;
+  for (let axis = 0; axis < 3 && rest; axis++) {
+    const under = clipBrush(rest, axis, hole.min[axis], false, texture);
+    if (under) pieces.push(under);
+    rest = clipBrush(rest, axis, hole.min[axis], true, texture);
+    if (!rest) break;
+    const over = clipBrush(rest, axis, hole.max[axis], true, texture);
+    if (over) pieces.push(over);
+    rest = clipBrush(rest, axis, hole.max[axis], false, texture);
+  }
+  return pieces.filter((piece) => M.shapeOf(piece).corners.length >= 8);
+}
+
+/** A box brush whose one `face` (east, west, north, south) shows `texture` once across, the rest the lift's wall. */
+function panelBox(min, max, face, texture) {
+  const brush = M.box(min, max, { top: LIFT_WALL, bottom: LIFT_WALL, sides: LIFT_WALL, [face]: texture.name });
+  const axis = { east: 0, west: 0, north: 1, south: 1 }[face];
+  const sign = { east: 1, west: -1, north: 1, south: -1 }[face];
+  const shape = M.shapeOf(brush);
+  brush.faces.forEach((f, index) => {
+    const n = shape.faces[index]?.normal;
+    if (!n || Math.round(n[axis]) !== sign) return;
+    // its texture fitted to the face: as many texels across as the picture has, starting at the face's corner
+    const span = (w) => [0, 1, 2].reduce((s, a) => s + Math.abs(w[a]) * (max[a] - min[a]), 0);
+    const width = span(f.u);
+    const height = span(f.v);
+    const scale = [width / texture.width, height / texture.height];
+    const corner = [0, 1, 2].map((a) => (f.u[a] < 0 ? max[a] : min[a]));
+    const cornerV = [0, 1, 2].map((a) => (f.v[a] < 0 ? max[a] : min[a]));
+    const dot = (w, p) => w[0] * p[0] + w[1] * p[1] + w[2] * p[2];
+    f.scale = scale.map((s) => round(s));
+    f.u = [...f.u.slice(0, 3), round(-dot(f.u, corner) / f.scale[0])];
+    f.v = [...f.v.slice(0, 3), round(-dot(f.v, cornerV) / f.scale[1])];
+  });
+  return brush;
+}
+
+function alexandriaLift(map) {
+  const lift = ALEXANDRIA_LIFT;
+  const hole = lift.shaft;
+  const meets = (box) => box && [0, 1, 2].every((a) => box.min[a] < hole.max[a] - 0.01 && box.max[a] > hole.min[a] + 0.01);
+  const axisAligned = (brush) => {
+    const shape = M.shapeOf(brush);
+    return brush.faces.length === 6 && shape.faces.every((face) => face.normal && face.normal.filter((v) => Math.abs(v) > 0.999).length === 1);
+  };
+  let cut = 0;
+  map.brushes = (map.brushes ?? []).flatMap((brush) => {
+    if (!meets(boxOf(brush))) return [brush];
+    if (!axisAligned(brush)) throw new Error(`alexandria: the lift's shaft cuts a brush that is not a box: ${JSON.stringify(boxOf(brush))}`);
+    cut++;
+    return withoutBox(brush, hole, LIFT_WALL);
+  });
+  if (cut !== 5) throw new Error(`alexandria: the lift's shaft cuts ${cut} brushes, not the 5 of the rock over the car`);
+  const at = (point) => point.join(" ");
+  const button = (b) => ({
+    classname: "func_button",
+    target: "lift_mm",
+    spawnflags: "1",
+    sounds: "3",
+    wait: "1",
+    speed: "5",
+    rendercolor: "0 0 0",
+    brushes: [panelBox(b.min, b.max, b.face, { name: "+0elev_up2", width: 32, height: 32 })],
+  });
+  map.entities.push(
+    {
+      classname: "func_door",
+      targetname: "lift",
+      target: "lift_gate_off",
+      netname: "lift_gate_on",
+      angles: "-90 0 0",
+      speed: "100",
+      wait: "-1",
+      lip: String(lift.floor.max[2] - lift.floor.min[2] - lift.rise),
+      spawnflags: "32",
+      movesnd: "7",
+      stopsnd: "3",
+      rendercolor: "0 0 0",
+      brushes: [M.box(lift.floor.min, lift.floor.max, { top: "gm_07", bottom: LIFT_WALL, sides: LIFT_WALL })],
+    },
+    { classname: "func_wall_toggle", targetname: "lift_gate", rendercolor: "0 0 0", brushes: [panelBox(lift.gate.min, lift.gate.max, "north", { name: "metaldoor21dn", width: 128, height: 128 })] },
+    { classname: "trigger_relay", targetname: "lift_gate_on", target: "lift_gate", triggerstate: "1", origin: at(lift.relays) },
+    { classname: "trigger_relay", targetname: "lift_gate_off", target: "lift_gate", triggerstate: "0", origin: at(lift.relays) },
+    { classname: "multi_manager", targetname: "lift_mm", origin: at(lift.relays), lift_gate_on: "0", lift: "0.5" },
+    ...lift.buttons.map(button),
+    { classname: "light", origin: at(lift.light), _light: "255 240 210 60" },
+  );
+  return cut;
+}
 
 /**
  * One city, ready to stack: its brushes cut and moved, its entity names local, its origins moved, and
@@ -563,6 +817,9 @@ function city(cityName) {
   const map = read.map;
   const repaired = cityName === "xenon" ? repairXenon(map) : { snapped: 0, dropped: 0 };
   const pushFixed = cityName === "alexandria" ? alexandriaPushFix(map) : 0;
+  const dialFixed = cityName === "alexandria" ? alexandriaDialFix(map) : 0;
+  const liftCut = cityName === "alexandria" ? alexandriaLift(map) : 0;
+  const rampSnapped = cityName === "alexandria" ? ALEXANDRIA_RAMP_PLANES.reduce((sum, plane) => sum + snapRampPlane(map, plane), 0) : 0;
   const { shift, cut, key: prefix } = layout;
 
   let pruned = 0;
@@ -608,6 +865,8 @@ function city(cityName) {
   let droppedWeapons = 0;
   let reclassedFences = 0;
   let usablePanels = 0;
+  let cagesFixed = 0;
+  let sunkDoors = 0;
   let strippedOrigins = 0;
   const texlights = [];
   for (const original of map.entities ?? []) {
@@ -677,13 +936,30 @@ function city(cityName) {
       entity.spawnflags = String(Number(panel.spawnflags) | DOOR_USE_ONLY);
       usablePanels++;
     }
+    const sinking = (SINKING_DOORS[cityName] ?? []).find((wanted) => wanted.targetname === entity.targetname);
+    if (sinking) {
+      if (entity.classname !== sinking.classname || String(entity.angles) !== sinking.angles)
+        throw new Error(`${cityName}: ${sinking.targetname} is a ${entity.classname} moving along ${entity.angles}, not the ${sinking.classname} along ${sinking.angles} that is made to sink`);
+      entity.angles = sinking.to;
+      entity.lip = sinking.lip;
+      sunkDoors++;
+    }
+    const cages = CELL_CAGES[cityName];
+    if (cages && entity.classname === "func_door" && cages.targetname.test(String(entity.targetname ?? "")) && String(entity.lip) === cages.lip) {
+      entity.lip = cages.to;
+      cagesFixed++;
+    }
     entities.push(entity);
   }
   if (usablePanels !== (USABLE_PANELS[cityName] ?? []).length)
     throw new Error(`${cityName}: ${usablePanels} of the ${(USABLE_PANELS[cityName] ?? []).length} panels to make usable were found`);
+  if (sunkDoors !== (SINKING_DOORS[cityName] ?? []).length)
+    throw new Error(`${cityName}: ${sunkDoors} of the ${(SINKING_DOORS[cityName] ?? []).length} doors to sink were found`);
+  if (cagesFixed !== (CELL_CAGES[cityName]?.count ?? 0))
+    throw new Error(`${cityName}: ${cagesFixed} of the ${CELL_CAGES[cityName]?.count ?? 0} cell cages to free were found`);
 
   const named = prefixedEntities(entities, namesOf(map), prefix);
-  return { cityName, file: read.file, prefix, shift, brushes, entities: named, texlights, droppedBelow, droppedSun, droppedEmpty, droppedWeapons, reclassedFences, usablePanels, pushFixed, snapped: repaired.snapped, dropped: repaired.dropped, settled, pruned, deduped, strippedOrigins, shell: shell.length, sealed: { min: shellMin, max: shellMax } };
+  return { cityName, file: read.file, prefix, shift, brushes, entities: named, texlights, droppedBelow, droppedSun, droppedEmpty, droppedWeapons, reclassedFences, usablePanels, sunkDoors, cagesFixed, dialFixed, liftCut, rampSnapped, pushFixed, snapped: repaired.snapped, dropped: repaired.dropped, settled, pruned, deduped, strippedOrigins, shell: shell.length, sealed: { min: shellMin, max: shellMax } };
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -882,7 +1158,7 @@ for (const entity of map.entities) {
 console.log(`\n=== ${NAME}`);
 console.log(`  cities:`);
 for (const built of Object.values(cities)) {
-  console.log(`    ${built.cityName.padEnd(12)} ${String(built.brushes.length).padStart(5)} brushes  ${String(built.entities.length).padStart(4)} entities  shift ${built.shift.join(" ")}${built.droppedBelow ? `  (${built.droppedBelow} below the cut)` : ""}${built.droppedSun ? `  (${built.droppedSun} extra sun)` : ""}${built.droppedEmpty ? `  (${built.droppedEmpty} empty)` : ""}${built.droppedWeapons ? `  (${built.droppedWeapons} ground weapons dropped)` : ""}${built.reclassedFences ? `  (${built.reclassedFences} fences made solid)` : ""}${built.usablePanels ? `  (${built.usablePanels} panel${built.usablePanels === 1 ? "" : "s"} made usable)` : ""}${built.pushFixed ? `  (${built.pushFixed} push triggers fixed)` : ""}${built.snapped ? `  (${built.snapped} faces snapped)` : ""}${built.dropped ? `  (${built.dropped} slivers dropped)` : ""}${built.settled ? `  (${built.settled} contents settled)` : ""}${built.pruned ? `  (${built.pruned} pruned)` : ""}${built.deduped ? `  (${built.deduped} duplicate faces)` : ""}${built.strippedOrigins ? `  (${built.strippedOrigins} origin keys)` : ""}  (${built.shell} shell)`);
+  console.log(`    ${built.cityName.padEnd(12)} ${String(built.brushes.length).padStart(5)} brushes  ${String(built.entities.length).padStart(4)} entities  shift ${built.shift.join(" ")}${built.droppedBelow ? `  (${built.droppedBelow} below the cut)` : ""}${built.droppedSun ? `  (${built.droppedSun} extra sun)` : ""}${built.droppedEmpty ? `  (${built.droppedEmpty} empty)` : ""}${built.droppedWeapons ? `  (${built.droppedWeapons} ground weapons dropped)` : ""}${built.reclassedFences ? `  (${built.reclassedFences} fences made solid)` : ""}${built.usablePanels ? `  (${built.usablePanels} doors and panels made usable)` : ""}${built.sunkDoors ? `  (${built.sunkDoors} doors made to sink)` : ""}${built.cagesFixed ? `  (${built.cagesFixed} cell cages freed)` : ""}${built.dialFixed ? `  (${built.dialFixed} lab dial given its brush)` : ""}${built.liftCut ? `  (a lift, its shaft cut from ${built.liftCut} brushes)` : ""}${built.rampSnapped ? `  (${built.rampSnapped} ramp faces put back on their planes)` : ""}${built.pushFixed ? `  (${built.pushFixed} push triggers fixed)` : ""}${built.snapped ? `  (${built.snapped} faces snapped)` : ""}${built.dropped ? `  (${built.dropped} slivers dropped)` : ""}${built.settled ? `  (${built.settled} contents settled)` : ""}${built.pruned ? `  (${built.pruned} pruned)` : ""}${built.deduped ? `  (${built.deduped} duplicate faces)` : ""}${built.strippedOrigins ? `  (${built.strippedOrigins} origin keys)` : ""}  (${built.shell} shell)`);
 }
 console.log(`  total: ${map.brushes.length} world brushes, ${map.entities.length} entities`);
 console.log(`  solids  min ${box.min.map((v) => Math.round(v)).join(" ")}  max ${box.max.map((v) => Math.round(v)).join(" ")}`);

@@ -86,6 +86,7 @@ static const TSWeapon s_weapons[] = {
 	{35, "Seal Knife", 100, 1, 10, true, 0x0, -1, 1, "sealknife"},
 	{36, "Contender G2", 1500, 15, 1, false, 0xA, -1, 2, "contender"},
 	{37, "Akimbo Skorpions", 1100, 15, 1, false, 0x0, -1, 5, "skorpion_akimbo"},
+	{39, "PPSh-41", 2000, 35, 1, false, 0x0, -1, 3, "ppsh41"},
 };
 static const TSWeapon* WeaponInfo(int id)
 {
@@ -97,15 +98,15 @@ static const TSWeapon* WeaponInfo(int id)
 
 // Per-weapon ammo caliber (weapon_info byte +0x08), read from the live weapon table. 0 = melee/no
 // ammo. reference/MENUS.md. Indexed by tsweapon_t id.
-static const signed char s_weaponCaliber[38] = {
+static const signed char s_weaponCaliber[40] = {
 	/*0*/ 0, 1, 1, 1, 3, 4, 1, 1, 1, 2, 2, 3, 5, 6, 7, 4, 1, 12, 8, 7,
-	/*20*/ 3, 2, 9, 2, 0, 0, 3, 4, 10, -1, 7, 11, 4, 3, 0, 0, 13, 12};
-static int WeaponCaliber(int id) { return (id >= 0 && id < 38) ? s_weaponCaliber[id] : 0; }
+	/*20*/ 3, 2, 9, 2, 0, 0, 3, 4, 10, -1, 7, 11, 4, 3, 0, 0, 13, 12, 0, 14};
+static int WeaponCaliber(int id) { return (id >= 0 && id < TSW_COUNT) ? s_weaponCaliber[id] : 0; }
 
 // The per-caliber ammo table DAT_1009ffc0 (stride 0xe ints), RUNTIME-captured from the live game
 // (the max field [3] resisted static RE). {cost per unit [1], max rounds [3], rounds per unit [4]}.
 // FUN_10039380 fills a weapon's caliber pool 1 unit at a time up to max; FUN_100392b0 distributes the
-// post-weapon budget across calibers. Calibers 0/14/15 = melee (no ammo).
+// post-weapon budget across calibers. Calibers 0/15 = melee (no ammo).
 struct TSCaliber { int cost, maxRounds, unit; };
 static const TSCaliber s_caliber[16] = {
 	{0, 0, 0},      // 0 (melee)
@@ -122,14 +123,15 @@ static const TSCaliber s_caliber[16] = {
 	{150, 50, 5},   // 11 .454
 	{30, 300, 20},  // 12 .32
 	{150, 35, 5},   // 13 .45-70
-	{0, 0, 0}, {0, 0, 0}};
+	{150, 213, 71}, // 14 7.62x25 (the PPSh-41's): a drum a buy, three carried
+	{0, 0, 0}};
 
 // The REAL roster (obj+0x2d6c, FUN_10036200) — Beretta 92F (#5) + Contender G2 (#10) in Handguns.
 #define TS_CATS 5
 #define TS_ROWS 12
 static const int s_roster[TS_CATS][TS_ROWS] = {
 	{1, 9, 12, 14, 2, 21, 22, 28, 31, 36, -1, -1}, // 0 Handguns
-	{3, 6, 7, 17, 19, 23, -1, -1, -1, -1, -1, -1}, // 1 SMGs
+	{3, 6, 7, 17, 19, 23, 39, -1, -1, -1, -1, -1}, // 1 SMGs
 	{5, 13, 15, 27, 18, -1, -1, -1, -1, -1, -1, -1}, // 2 Rifles
 	{4, 11, 20, 26, 33, -1, -1, -1, -1, -1, -1, -1}, // 3 Shotguns
 	{24, 25, 32, 34, 35, -1, -1, -1, -1, -1, -1, -1}, // 4 Special Purpose
@@ -317,7 +319,7 @@ static int RestrictionCategory(int id)
 // the other categories are never left out.
 static bool WeaponRestricted(int id, int mask)
 {
-	if (id <= 0 || id >= 0x26)
+	if (id <= 0 || id >= TSW_COUNT)
 		return false;
 	if (mask == 0)
 		return true;

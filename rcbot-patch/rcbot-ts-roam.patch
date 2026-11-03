@@ -1,7 +1,7 @@
 diff --git a/dlls/bot.cpp b/dlls/bot.cpp
 --- a/dlls/bot.cpp
 +++ b/dlls/bot.cpp
-@@ -89,6 +89,61 @@ extern CBotGlobals gBotGlobals; // defined in DLL.CPP
+@@ -89,6 +89,66 @@ extern CBotGlobals gBotGlobals; // defined in DLL.CPP
  // all waypoints
  extern WAYPOINTS waypoints;
  
@@ -22,6 +22,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
 +	constexpr float ROAM_FAILED_GOAL_MEMORY = 30.0f; // a goal given up is not picked again for this long
 +	constexpr float ROAM_MOVED_AWAY = 256.0f;        // farther than this in one frame is a teleport
 +	constexpr float ROAM_FISTS_AGAIN = 2.0f;         // how often a citizen fighting back asks for its fists
++	constexpr float ROAM_DEFEND_TIME = 30.0f;        // how long it fights its attacker without being hurt again
 +
 +	struct RoamSettings
 +	{
@@ -30,6 +31,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
 +		bool bDefend = false;
 +		bool bHostile = false;
 +		int iHostileTeam = 0;
++		float fDefendTime = ROAM_DEFEND_TIME;
 +		float fWalk = ROAM_WALK_SPEED;
 +		int iPause = 0;
 +		float fNextRead = 0.0f;
@@ -49,6 +51,9 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
 +			g_Roam.bHostile = CVAR_GET_FLOAT("tsrp_roambots_insurgency") > 0.0f;
 +			g_Roam.iHostileTeam = static_cast<int>(CVAR_GET_FLOAT("tsrp_roambots_insurgent_team"));
 +
++			const float fDefendTime = CVAR_GET_FLOAT("tsrp_roambots_defend_time");
++			g_Roam.fDefendTime = fDefendTime > 0.0f ? fDefendTime : ROAM_DEFEND_TIME;
++
 +			const float fWalk = CVAR_GET_FLOAT("tsrp_roambots_speed");
 +			g_Roam.fWalk = fWalk > 0.0f ? fWalk : ROAM_WALK_SPEED;
 +
@@ -63,7 +68,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
  // Science and Industry
  extern bot_research_t g_Researched[2][NUM_RESEARCH_OPTIONS];
  
-@@ -1662,6 +1717,19 @@ void CBot::SpawnInit(const bool bInit)
+@@ -1662,6 +1722,20 @@ void CBot::SpawnInit(const bool bInit)
  
  	m_fUpdateVisiblesTime = 0.0f;
  
@@ -78,12 +83,13 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
 +	m_fRoamHealth = 0.0f;
 +	m_pRoamAttacker = nullptr;
 +	m_iRoamAttackerId = 0;
++	m_fRoamHurtTime = 0.0f;
 +	m_fRoamNextFists = 0.0f;
 +
  	////////////////////////////
  	// NATURAL SELECTION RELATED
  
-@@ -2871,7 +2939,8 @@ void CBot::Think()
+@@ -2871,7 +2945,8 @@ void CBot::Think()
  
  				m_GASurvival->setFitness(fFitness);
  
@@ -93,7 +99,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
  				{
  					m_pTSWeaponSelect->setFitness(fFitness);
  
-@@ -2901,7 +2970,8 @@ void CBot::Think()
+@@ -2901,7 +2976,8 @@ void CBot::Think()
  				m_fSpawnTime = 0;
  
  				/// doesn't work... ??
@@ -103,7 +109,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
  				{
  					FakeClientCommand(m_pEdict, "buy");
  					FakeClientCommand(m_pEdict, "menuselect 7"); // buy random
-@@ -2970,6 +3040,11 @@ void CBot::Think()
+@@ -2970,6 +3046,11 @@ void CBot::Think()
  	//////////////////////
  	// MOVE/LOOK CODE
  
@@ -115,7 +121,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
  	WorkViewAngles();
  
  	WorkMoveDirection();
-@@ -3055,7 +3130,8 @@ void CBot::Think()
+@@ -3055,7 +3136,8 @@ void CBot::Think()
  				//	m_pTSWeaponSelect->add(RANDOM_FLOAT(0,1)); // start 8 num 37, 7+37 = 44 (45)// fire percent
  			}
  
@@ -125,7 +131,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
  			{
  				UTIL_makeTSweapon(m_pEdict, static_cast<TSWeapon>(static_cast<int>(m_pTSWeaponSelect->get(0) * 35)));
  				UTIL_makeTSweapon(m_pEdict, static_cast<TSWeapon>(static_cast<int>(m_pTSWeaponSelect->get(1) * 35)));
-@@ -3669,10 +3745,338 @@ void CBot::Think()
+@@ -3669,10 +3751,345 @@ void CBot::Think()
  	return;
  }
  
@@ -142,7 +148,9 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
 +//                                  never buys
 +//   tsrp_roambots_pause            the chance, in percent, of a pause before each walk
 +//   tsrp_roambots_defend           1: a roamer someone hurts fights that one back, with its
-+//                                  hands, for the rest of that life
++//                                  hands, until he dies or leaves or lets it be
++//   tsrp_roambots_defend_time      how long, in seconds, it goes on without being hurt again
++//                                  before it lets him be (ROAM_DEFEND_TIME without the cvar)
 +//   tsrp_roambots_insurgency       1: the citizens are insurgents, hostile to players
 +//   tsrp_roambots_insurgent_team   0: insurgents are set on every player who is not a bot; a team
 +//                                  number: only on the players of that team (pev->team)
@@ -167,10 +175,12 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
 +// FIGHTING BACK. TS sends no Damage message, so RCBot's hurt event never names anyone; TS's
 +// TakeDamage leaves what hurt a player in pev->dmg_inflictor. A roamer hurt since the last frame
 +// takes the player behind that entity (the entity itself, or the player who threw it) for its
-+// attacker, for the rest of that life: IsEnemy is true for him (RoamIsEnemy), the roamer turns to
-+// him, wields its fists ("weapon_0") and fights with its hands whatever it carries, runs while it
-+// fights, and walks on when it no longer sees him. Its next life starts with no attacker
-+// (SpawnInit). Another bot's stray blow makes no attacker, so one fight starts no brawl.
++// attacker: IsEnemy is true for him (RoamIsEnemy), the roamer turns to him, wields its fists
++// ("weapon_0") and fights with its hands whatever it carries, runs while it fights, and walks on
++// when it no longer sees him. It forgets him once he is dead (the life he comes back to did
++// nothing to it), once he has left, and once he has not hurt it for tsrp_roambots_defend_time
++// seconds; its own next life starts with no attacker (SpawnInit). Another bot's stray blow makes
++// no attacker, so one fight starts no brawl.
 +//
 +// INSURGENTS. While tsrp_roambots_insurgency is on, the plugin dresses and arms the citizens, and
 +// every roamer also takes the players tsrp_roambots_insurgent_team names for enemies and fights
@@ -277,8 +287,10 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
 +
 +	m_fRoamHealth = pev->health;
 +
-+	// he has left the server: whoever has his slot now did nothing
-+	if (m_pRoamAttacker != nullptr && RoamAttacker() == nullptr)
++	// Its attacker forgotten: he has left the server (whoever has his slot now did nothing), he is
++	// dead (the life he comes back to did nothing either), or he has let it be for a while.
++	if (m_pRoamAttacker != nullptr && (RoamAttacker() == nullptr || !EntityIsAlive(m_pRoamAttacker) ||
++		fNow - m_fRoamHurtTime > roam.fDefendTime))
 +		m_pRoamAttacker = nullptr;
 +
 +	// fighting its attacker back with its hands: TS wields them on "weapon_0"
@@ -402,6 +414,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
 +
 +	m_pRoamAttacker = pAttacker;
 +	m_iRoamAttackerId = GETPLAYERUSERID(pAttacker);
++	m_fRoamHurtTime = gpGlobals->time;
 +}
 +
 +// The attacker of this life while he is still on the server; an edict a new player has taken
@@ -465,7 +478,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
  	}
  	// can't shoot, bot don't shoot setting is on?
  	if (HasCondition(BOT_CONDITION_CANT_SHOOT) ||
-@@ -3708,6 +4112,14 @@ bool CBot::WantToFindEnemy() const
+@@ -3708,6 +4125,14 @@ bool CBot::WantToFindEnemy() const
  
  void CBot::LookForNewTasks()
  {
@@ -480,7 +493,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
  	// Do a big check for new tasks
  	///////////////////////////////
  	bool bRoam = false;
-@@ -8530,6 +8942,43 @@ void CBot::RunPlayerMove()
+@@ -8530,6 +8955,43 @@ void CBot::RunPlayerMove()
  		}
  	}*/
  
@@ -524,7 +537,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
  	//TODO: Don't convert `pev->button` and `pev->impulse` into C++ casts
  	//otherwise TS bots won't stunt dive [APG]RoboCop[CL]
  	(*g_engfuncs.pfnRunPlayerMove)(m_pEdict, pev->angles, m_fMoveSpeed, m_fStrafeSpeed, m_fUpSpeed, pev->button,
-@@ -8888,6 +9337,11 @@ bool CBot::IsEnemy(edict_t* pEntity)
+@@ -8888,6 +9350,11 @@ bool CBot::IsEnemy(edict_t* pEntity)
  	if (pEntity == m_pEdict)
  		return false; // can't shoot self...!
  
@@ -536,7 +549,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
  	if (pEntity->v.takedamage == DAMAGE_NO)
  		return false; // can't shoot it...
  
-@@ -14707,7 +15161,8 @@ if ( !HasUser4Mask(MASK_UPGRADE_9) )
+@@ -14707,7 +15174,8 @@ if ( !HasUser4Mask(MASK_UPGRADE_9) )
  
  					weap_id = static_cast<float>(iweapid) / static_cast<float>(MAX_WEAPONS);
  
@@ -546,7 +559,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
  					{
  						/*	if ( fEnemyDist < 100 )
  							{
-@@ -16107,6 +16562,10 @@ void CBot::CheckStuck()
+@@ -16107,6 +16575,10 @@ void CBot::CheckStuck()
  		bCheckIfStuck = m_fIdealMoveSpeed > 0 && m_bMoveToIsValid && pev->waterlevel < 3 &&
  			(!m_CurrentTask || (m_CurrentTask->Task() == BOT_TASK_FIND_PATH || m_CurrentTask->Task() == BOT_TASK_MOVE_TO_VECTOR));
  
@@ -560,7 +573,7 @@ diff --git a/dlls/bot.cpp b/dlls/bot.cpp
 diff --git a/dlls/bot.h b/dlls/bot.h
 --- a/dlls/bot.h
 +++ b/dlls/bot.h
-@@ -3165,6 +3165,35 @@ public:
+@@ -3165,6 +3165,36 @@ public:
  
  	bool WantToFindEnemy() const;
  
@@ -591,6 +604,7 @@ diff --git a/dlls/bot.h b/dlls/bot.h
 +	float m_fRoamHealth;        // its health last frame
 +	edict_t* m_pRoamAttacker;   // who hurt it in this life
 +	int m_iRoamAttackerId;      // his userid: a slot someone else takes later is not him
++	float m_fRoamHurtTime;      // when he last hurt it
 +	float m_fRoamNextFists;     // when it next asks for its fists while fighting him back
 +
  	void PlayerDead(edict_t* pPlayer)

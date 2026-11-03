@@ -1,0 +1,725 @@
+===============================================================================
+ THE H9 WEBSITE -- how it is built from this repository, and how to launch it
+===============================================================================
+
+ havoc9.org is the site players use: the pages, accounts, the forum, the web
+ client (H9XASH in a browser) and the server list the game's Internet tab
+ reads. This file says what it is made of, how to run all of it on your own
+ PC, how the host package (the "artifact") is built from a checkout, and how
+ that package is launched on a Linux VPS or a Windows server.
+
+ Commands are for Windows (cmd or PowerShell) unless a line says Linux. Paths
+ start at the root of a checkout: this repository, or the TSM folder on the
+ PC H9 is made on, which holds the same folders. Every other build in the
+ repository is in docs\BUILDING.txt.
+
+ Nothing in this file is secret, and nothing secret may be added to it: it is
+ in the public repository. A running site's secrets (h9web's secrets.json and
+ data.key, the server list's Discord token and heartbeat key, the backup
+ passphrase) are made or typed on the machine that runs it, and never go into
+ a package or into git.
+
+ THE SHORT VERSION
+   try the site on this PC     node h9web/bin/local-site.js --port 8090
+   pack it for a server        make-vps-package.cmd       (the ZIPs: dist\)
+   launch it on Linux          sudo bash setup.sh         (in the unpacked ZIP)
+   launch it on Windows        right-click setup.cmd, Run as administrator
+
+ CONTENTS
+    1. What the website is made of, and where each part lives
+    2. Launch it on your own PC
+    3. Before a restart
+    4. Build the host package (the artifact)
+    5. Launch the package, on a Linux VPS and on a Windows server
+    6. Update a running install; the downloads; back up and restore
+    7. The web client
+    8. When something fails
+
+
+ 1. WHAT THE WEBSITE IS MADE OF, AND WHERE EACH PART LIVES
+ ---------------------------------------------------------------------------
+   h9web\                  THE SERVER. One Node.js 24 program: nothing to
+                           install, nothing to build. It answers /api/
+                           (accounts, sessions, the player id, the live
+                           server list, the admin panel with its audit log)
+                           and the web client's relay at /webclient/relay (a
+                           WebSocket to UDP, for signed-in players, to the
+                           servers in servers.json only). Its guide is
+                           h9web\README.txt. Inside it:
+     modules\forum\        the forum, with profile pictures
+     modules\discord\      Discord linking and the registered role
+     modules\presence\     who is in game, communities, rated play, the LADDER
+     bin\                  h9web-admin.js, h9web-backup.js, local-site.js
+     test\                 its tests (section 3)
+
+   havoc9.org\             THE PAGES AND ASSETS: plain files, served as they
+                           are. index.html, styles.css, script.js; a folder
+                           for each page (play, servers, downloads, forum,
+                           community, ladder, media, museum, join, credits,
+                           link, account, admin); assets\ (their scripts,
+                           styles and pictures); webclient\ (the web client's
+                           page and loader); deploy\ (the nginx and
+                           certificate scripts of a Linux host, never served).
+
+   webclient-build\stage\  THE WEB CLIENT PACKAGE: engine\ (xash.js,
+                           xash.wasm), game\ (the engine's disk, about
+                           1.2 GB), manifest.json, preload.json. Built by
+                           build-webclient.cmd (section 7); git ignores
+                           webclient-build\. Without it the site works, and
+                           PLAY says the client is in preparation.
+
+   vps\                    THE HOST SETUP SCRIPTS: linux\ (setup.sh,
+                           README-VPS.txt, systemd\, hardening\) and
+                           windows\ (setup.ps1, setup.cmd, Caddyfile.template,
+                           README-WINDOWS.txt). With havoc9.org\deploy\ they
+                           are everything a host runs.
+
+   serverlist-bot\         THE H9 SERVER LIST the game's Internet tab reads:
+                           one Python program, served at /serverlist/. It
+                           travels in the host package with the parts above.
+
+   make-vps-package.cmd    packs the site for a host (section 4)
+   build-webclient.cmd     builds the web client package (section 7)
+   tools\check-lfs.ps1     the check both run first: it stops them when a file
+                           they need is a Git LFS pointer (docs\BUILDING.txt,
+                           section 0)
+
+   How they fit on a server: the browser asks the web server -- nginx on
+   Linux, Caddy on Windows -- for https://havoc9.org/. It answers the pages
+   itself, and passes /api/ and /webclient/relay to h9web on 127.0.0.1:8090
+   and /serverlist/ to the list on 127.0.0.1:8081. The web client's game
+   files are served from a folder outside the site's own. On your own PC
+   h9web serves the pages and the package itself, on one port (section 2).
+
+
+ 2. LAUNCH IT ON YOUR OWN PC                         h9web\local-site.cmd
+ ---------------------------------------------------------------------------
+   You need Node.js 24 or newer on PATH (node --version) and a checkout.
+   Nothing to install or build, no administrator rights, no HTTPS.
+
+   From the root of the checkout (this repository, or the TSM folder):
+
+       node h9web/bin/local-site.js --port 8090
+
+   Either slash works on Windows. The script finds the site from its own
+   place, so the folder you start it from does not matter. h9web\local-site.cmd
+   is the same with --open added, which opens your browser; double-click it,
+   or give it options: h9web\local-site.cmd --port 8095
+     --port <n>      the port, 1 to 65535 (default 8090; the H9WEB_PORT
+                     variable sets another default)
+     --stage <dir>   the web client package (below)
+     --files <dir>   the packages folder behind /downloads/files/ (below)
+     --open          open the site in the default browser
+
+   It prints the address, the site folder, the package folder, the downloads
+   folder, the modules and the folder that holds this PC's accounts, then
+   h9web's own log; the line "listening" says it is up.
+
+   A built host package runs the same way: unzip it and give the same command
+   in the unpacked folder (it carries h9web\bin\local-site.js beside
+   havoc9.org\), with --stage for the web client, which a host package does
+   not hold.
+
+   What it serves, at http://127.0.0.1:<port>/ (this PC only):
+     * the site's pages, straight from havoc9.org\ in the checkout: edit a
+       page, reload the browser;
+     * accounts, sessions and every module that has an index.js (forum,
+       discord, presence), through the same /api/ as havoc9.org. CREATE
+       ACCOUNT makes this PC's own account, not your havoc9.org one. Discord
+       linking is off here: it needs the Discord settings of a host's
+       config.json (h9web\README.txt section 18);
+     * the web client at /webclient/: the page files from havoc9.org\webclient\
+       (copied again at each start, so an edit shows after a restart) and
+       the package's engine\, game\, manifest.json and preload.json. The
+       package is the first of these that holds a manifest.json: --stage, the
+       H9WEB_STAGE variable, webclient-build\stage in the checkout, and the
+       same in the folder TSM_ROOT names in buildpaths.ini. With none, PLAY
+       says the client is in preparation;
+     * the downloads' file index, /downloads/files/ (ALL FILES on the
+       DOWNLOADS page): a read-only listing of the .zip, .exe and .txt files
+       in --files, the H9WEB_FILES variable or dist\ in the checkout, where
+       the packager and stage-h9xash write; an empty index with none. It is
+       not H9XASH-Updater's /files/, which is not served here. (h9web's
+       devStatic setting mounts such a folder as { "dir": <folder>,
+       "listing": true }: h9web\README.txt section 12.)
+   The relay sends game traffic only to the servers in servers.json, and this
+   PC's copy starts empty: put a LAN server in it (format in
+   h9web\servers.example.json, h9web\README.txt section 6); it is read again
+   within 2 seconds. The server list (/serverlist/) is not run here.
+
+   Where it keeps things: %LOCALAPPDATA%\h9web-local (the H9WEB_LOCAL variable
+   names another folder). It is always outside the checkout -- the script
+   refuses a folder inside it -- so no account or secret can reach git:
+     config.json     this run's settings, written fresh at each start
+     servers.json    the server list, made once and kept
+     webclient\      the web client's page files, copied fresh at each start
+     data\           h9web.db (the accounts, the forum, the rest; with its
+                     -wal and -shm files while it runs), secrets.json and
+                     data.key (the keys behind every password, player id and
+                     Discord link of this PC's accounts: do not delete them),
+                     modules\ (pictures, presence keys) and backups\ (the
+                     copies h9web makes before a migration or a restore)
+   Accounts made here stay here. There is no log file: h9web prints one line
+   per event in the window it runs in, never a password, cookie or token.
+
+   To stop it: Ctrl+C in its window, or close the window.
+
+   The port is a flag, and the game has to know it. In the game's console:
+
+       cl_h9_site 127.0.0.1:8090
+
+   with the number you gave --port. It is for testing only: the pictures and
+   "Link your Account" then use this site in place of https://havoc9.org
+   (localhost:<port> works too; written with http:// it needs quotes, because
+   the console reads // as a comment). Empty, the game goes back to havoc9.org
+   (docs\CUSTOM_XASH_USERID.txt section 2a, docs\COMMANDS.txt).
+   Some programs already hold common ports: Steam's web helper, for one, can
+   hold 127.0.0.1:8080 for its own debugging. Pick a free port. A taken port
+   stops h9web at once with an error that says EADDRINUSE: start it again
+   with another.
+
+
+ 3. BEFORE A RESTART
+ ---------------------------------------------------------------------------
+   Whenever h9web gets new code or new settings, on this PC or on a host, do
+   these three things in this order.
+
+   1. THE TESTS. All of them, one at a time, in h9web\:
+
+          cd h9web
+          node --test --test-concurrency=1 "test/*.test.js"
+
+      Each test starts its own copy of the service on a free port in a
+      temporary folder and removes it, so this is safe beside a running site
+      and touches none of its data. It is light on the CPU. A failing test is
+      named in the output and the exit code is not 0: do not restart on it.
+      (npm test runs the same files with a 30 second limit per test, not one
+      at a time.) h9web\README.txt section 14 says what each file covers.
+
+   2. A BACKUP, with h9web\bin\h9web-backup.js. It is safe while the site
+      runs. On this PC, for the local site:
+
+          h9web\backup.cmd
+
+      which runs this (cmd; a PowerShell prompt writes $env:LOCALAPPDATA):
+
+          node h9web\bin\h9web-backup.js backup ^
+               --config "%LOCALAPPDATA%\h9web-local\config.json" ^
+               --out "%USERPROFILE%\Documents\h9web-backups" --keep 30
+
+      The local site must have been started once, which writes that
+      config.json. On a host, as the service's own user and with its config.
+      Linux:
+
+          B="sudo -u h9web /usr/bin/node /opt/h9web/bin/h9web-backup.js"
+          $B --config /etc/h9web/config.json backup
+
+      Windows, in an administrator PowerShell:
+
+          $N = 'C:\havoc9\tools\node\node.exe'
+          $B = 'C:\havoc9\h9web\bin\h9web-backup.js'
+          & $N $B --config C:\havoc9\etc\config.json backup
+
+      The same command with list shows the backups in the folder, each one
+      checked; with verify <file> it checks one all the way through. A backup
+      holds no secrets.json or data.key unless it is made with --encrypt
+      --with-keys (section 6); the offline copy of the keys is separate.
+
+   3. THE RESTART.
+          this PC     Ctrl+C in the local site's window, then section 2's
+                      command again
+          Linux       sudo systemctl restart h9web
+          Windows     Restart-Service havoc9-h9web
+      Everyone stays signed in, but every web client player is dropped from
+      the game they are in and has to join again: pick a quiet moment. Then
+      open http://127.0.0.1:<port>/api/me (the host's port is 8090, on the
+      host itself): it answers {"signedIn":false}. A change to the database's
+      layout runs at the start, after one more copy into the backups folder.
+
+
+ 4. BUILD THE HOST PACKAGE (THE ARTIFACT)             make-vps-package.cmd
+ ---------------------------------------------------------------------------
+   make-vps-package.cmd packs the site for a server. It runs
+   make-vps-package.ps1 in Windows PowerShell 5.1, which comes with Windows.
+   From a terminal at the root of the checkout, or by double-click (it then
+   waits for a key at the end):
+
+       make-vps-package.cmd                      both host ZIPs
+       make-vps-package.cmd -Target linux        the Linux one only
+       make-vps-package.cmd -WebClient           and the web client's ZIP
+       make-vps-package.cmd -OutDir D:\out       somewhere other than dist\
+       make-vps-package.cmd -KeepStage           keep the staged folders
+
+   The options combine. Every parameter:
+     -Target <t>    all (the default), linux or windows.
+     -OutDir <dir>  where the ZIPs and the reports go. Default: dist\ beside
+                    the script; git ignores it.
+     -WebClient     also packs the web client package, webclient-build\stage
+                    (about 1.2 GB), into a third ZIP (section 7). It has to
+                    be built first.
+     -KeepStage     keeps the staged folders, in the Temp folder, after
+                    zipping, to look through them; the run prints where.
+                    Without it they are deleted.
+
+   What it needs:
+     * Windows PowerShell 5.1. No Node.js, no Python, no network.
+     * A whole checkout: beside the script, h9web\, havoc9.org\,
+       serverlist-bot\, vps\ and tools\check-lfs.ps1. It names the first
+       thing missing and stops. It packs what is in the folder it sits in;
+       the TSM folder and this repository are separate copies, so run it in
+       the one whose files you mean to ship.
+     * Git LFS content: git lfs install, then git lfs pull (BUILDING.txt,
+       section 0). The script runs tools\check-lfs.ps1 on h9web\, havoc9.org\,
+       serverlist-bot\ and vps\ (and webclient-build\stage with -WebClient)
+       and writes nothing if a file in them is a pointer or cut short.
+     * VERSION.txt beside the script, whose "Build:" line names the build.
+       The repository has one; the TSM folder has none, so a package made
+       there is called dev.
+     * For -WebClient, webclient-build\stage\manifest.json: the package
+       built (section 7).
+
+   What it writes goes into dist\ (or -OutDir). <stamp> is the time of the
+   run, as yyyyMMdd-HHmm:
+
+       havoc9-vps-linux-<build>-<stamp>.zip
+       havoc9-vps-linux-<build>-<stamp>.report.txt
+       havoc9-vps-windows-<build>-<stamp>.zip
+       havoc9-vps-windows-<build>-<stamp>.report.txt
+       havoc9-vps-webclient-<build>-<stamp>.zip          (-WebClient only)
+
+   for example havoc9-vps-linux-1.54-gameplay2-20261102-0457.zip. The build
+   is VERSION.txt's, with anything but letters, digits, dots, underscores and
+   hyphens turned into hyphens. The report holds the ZIP's name, SHA-256 and
+   size, the BUILD.txt text, "Scan: clean" and every file in the ZIP: compare
+   the SHA-256 with the copy on the server (Get-FileHash on Windows,
+   sha256sum on Linux). The run ends by printing where the ZIPs are and the
+   first command to run on a server; it exits 0, or 1 after a [FAIL].
+   BUILD.txt, and so the report, names where the package was packed from by
+   the checkout's commit and branch ("a checkout of the repository" when it
+   is not a git checkout), never by a folder of this PC: a host ZIP may be
+   published.
+
+   Inside each host ZIP is one folder, named like the ZIP:
+     Linux     README-VPS.txt, setup.sh, systemd\ (the services and timers),
+               hardening\ (SSH, log retention, automatic updates)
+     Windows   README-WINDOWS.txt, setup.ps1, setup.cmd, Caddyfile.template
+     both      h9web\ (server.js, package.json, lib\, bin\, modules\,
+               README.txt, config.example.json, servers.example.json),
+               havoc9.org\ (the site, with deploy\), serverlist-bot\
+               (h9_serverlist.py, requirements.txt, README.md, serverlist.ini,
+               servers.txt, serverlist.cfg.example), and BUILD.txt (the
+               build, the time and the commit it was packed from)
+   The web client ZIP holds webclient-build\stage\ and
+   tools\make_webclient_game.py, in a folder named like the ZIP. A stage file
+   that never ships (an id, a secret, a game server's settings, a config.cfg)
+   stops the run before it is written; the one config.cfg let through is TS
+   3.0's own, at game/ts/config.cfg, when it is byte for byte
+   reTS\game\ts\config.cfg.
+
+   Only files picked by name and kind go in, and the sources are only read.
+   Never in a package: h9web's data\, config.json, servers.json, tests,
+   backups or Windows scripts; backups and archives (*.bak*, *.zip, *.7z);
+   dot files; serverlist.cfg or its log. Last, each staged tree is scanned.
+   A secret's file name (secrets.json, data.key, serverlist.cfg, a game
+   server's Discord bot settings, a database, a key or certificate, a
+   backup) or a secret's content (a Discord bot token or webhook URL, a
+   private key, a filled-in heartbeat_key, discord_token, password pepper or
+   player id key) stops the run before a ZIP is written, and the values
+   found are never printed. The game's downloads (H9XASH.zip,
+   H9XASH-linux.zip, H9XASH-Updater.exe), the downloads' file index and
+   H9XASH-Updater's files\ are not in a host package: stage-h9xash and
+   tools\updater\build.cmd make them (BUILDING.txt, section 7), and section 6
+   says where they go on a host, which keeps the ones it has.
+
+
+ 5. LAUNCH THE PACKAGE                 README-VPS.txt, README-WINDOWS.txt
+ ---------------------------------------------------------------------------
+   The two READMEs are the full procedure, step by step, and either can be
+   followed by hand without its setup script. The shape is the same on both:
+     * DNS first: A records (AAAA too, when the host has IPv6) for havoc9.org
+       and www.havoc9.org, pointing at the host. A TTL of 300 makes a later
+       move quick.
+     * The host reachable from the internet on TCP 80 and 443 -- through the
+       provider's own firewall, or a home router, as well -- and on the game
+       server's UDP port (27015) where a game server runs.
+     * Copy the ZIP over, unpack it, run the setup script. It is safe to run
+       again at any time, and running it again is how an update goes in.
+     * Then, by hand: copy secrets.json and data.key off the host and keep
+       them offline (the first start makes them, they never change, and
+       without secrets.json every password is lost); make the first admin;
+       put the game servers in servers.json; set the server list's heartbeat
+       key and Discord token; set the backup passphrase and put the downloads
+       on the site (section 6). Steps 6 to 8 of the READMEs have the
+       commands, step 13 the downloads'.
+
+   LINUX VPS     Debian 12 or later, or Ubuntu 22.04 or later; root; 1 GB of
+   memory and 10 GB of disk (25 GB with the web client).
+
+       scp havoc9-vps-linux-<build>-<stamp>.zip root@<address>:/root/
+       ssh root@<address>
+       apt-get update && apt-get install -y unzip
+       unzip havoc9-vps-linux-<build>-<stamp>.zip
+       cd havoc9-vps-linux-<build>-<stamp>
+       sudo bash setup.sh
+
+   SETUP. With no DNS yet, sudo bash setup.sh --no-tls does everything but
+   nginx and the certificate; run it plain once DNS answers. sudo bash
+   setup.sh --check shows what is installed and running. setup.sh installs
+   what is missing (nginx, ufw, rsync, Python, and Node.js 24 from NodeSource
+   when the system's is older), makes the users h9web and h9list, puts h9web
+   in /opt/h9web, the list in /opt/h9-serverlist and the site in
+   /var/www/havoc9.org, makes /etc/h9web/config.json and servers.json when
+   there are none (ones that exist are never touched), installs and starts
+   the services (h9web, h9-serverlist, the daily backup timer), keeps logs 30
+   days, turns on automatic security updates, turns SSH passwords off once a
+   key can sign in, opens the firewall and runs nginx-setup.sh. It ends with
+   a list of warnings. Environment settings: DOMAIN, ALIASES, EMAIL,
+   GAME_PORTS, H9XASH_DIR, UFW=0 (leave the firewall alone), HARDEN_SSH=0
+   (leave SSH alone).
+
+   PORTS. ufw gets SSH (the port sshd reports, 22 by default), "Nginx Full"
+   (TCP 80 and 443) and the game ports: 27015/udp, or GAME_PORTS="27015/udp
+   27016/udp", or the port= under [server] in the networking.ini of the
+   H9XASH folder H9XASH_DIR names. h9web (127.0.0.1:8090) and the list
+   (127.0.0.1:8081) listen on the machine only; no rule opens them.
+
+   HTTPS. nginx with a Let's Encrypt certificate for havoc9.org and
+   www.havoc9.org, made by havoc9.org/deploy/https-setup.sh, which setup.sh's
+   last step (nginx-setup.sh) runs: a test certificate from Let's Encrypt's
+   staging service first (a mistake costs nothing), then the real one.
+   certbot renews it by itself and nginx reloads after each renewal. It fails
+   while DNS does not point at the host, or while port 80 is closed at the
+   provider. nginx-setup.sh also writes the security headers, the rate limits
+   in front of h9web and the rules that answer 404 for dot files, backups,
+   scripts and the deploy notes (havoc9.org\webclient\DEPLOY.txt, section 8).
+
+   WINDOWS SERVER     Windows Server 2019 or later, or Windows 10/11, 64-bit,
+   that stays on; 2 GB of memory and 10 GB free (25 GB with the web client);
+   an administrator account; nothing else on TCP 80 or 443 (IIS, another web
+   server). It needs the internet while it sets up.
+
+   Copy havoc9-vps-windows-<build>-<stamp>.zip over, right-click it,
+   Properties, tick Unblock if it is there, and Extract All (for example into
+   C:\setup). Then right-click setup.cmd and Run as administrator; or, in an
+   administrator PowerShell in that folder:
+
+       powershell -ExecutionPolicy Bypass -File .\setup.ps1
+
+   SETUP. Options (setup.cmd passes them on): -WhatIf shows every step and
+   changes nothing; -Check shows what is installed and running; -Root
+   D:\havoc9 puts it somewhere other than C:\havoc9; -Email you@... is the
+   address Let's Encrypt may write to; -GamePorts 27015/udp,27016/udp names
+   the game ports; -H9Xash D:\H9XASH reads the port= under [server] in its
+   networking.ini; -NoFirewall leaves the firewall alone. setup.ps1
+   downloads Node.js 24, Caddy, WinSW and Python at pinned versions, each
+   checked against its SHA-256 or SHA-512 (the list's Python packages come
+   from PyPI), and makes C:\havoc9: tools\, h9web\, serverlist\, site\,
+   game\, etc\, data\, logs\. It locks data\, etc\ and logs\ to SYSTEM,
+   Administrators and LocalService, puts the code and the site in, makes
+   etc\config.json and servers.json when there are none, and writes
+   etc\Caddyfile from Caddyfile.template (your own additions go in
+   etc\Caddyfile.extra, which it never writes). It installs and starts three
+   services -- havoc9-h9web, havoc9-serverlist, havoc9-caddy -- that run at
+   boot as LocalService; schedules the backup at 03:30 (and the encrypted
+   copy at 03:45, once a passphrase file exists) and a log cleanup at 04:00;
+   and opens the firewall.
+
+   PORTS. Two Windows Firewall inbound rules, "havoc9 web (Caddy, TCP 80 and
+   443)" and "havoc9 game server (27015/udp)" (one rule for each game port
+   given). h9web and the list listen on 127.0.0.1 only. On a home
+   connection, forward TCP 80 and 443, and UDP 27015, on the router to the
+   machine's fixed LAN address.
+
+   HTTPS. Caddy asks Let's Encrypt for the certificate itself, as soon as DNS
+   points havoc9.org and www.havoc9.org at the machine and port 80 or 443
+   reaches it, and renews it by itself. Nothing to run or to schedule. Its
+   log: C:\havoc9\logs\havoc9-caddy*.log.
+
+
+ 6. UPDATE A RUNNING INSTALL; THE DOWNLOADS; BACK UP AND RESTORE
+ ---------------------------------------------------------------------------
+   UPDATE. Build the new package (section 4), copy it over, unpack it beside
+   the old one and run its setup script again: sudo bash setup.sh on Linux,
+   setup.cmd as administrator on Windows (-WhatIf first shows what it would
+   do). It takes a backup of a running h9web first, puts in the new code,
+   site and services (on Windows, the tools too), keeps every setting, key
+   and all data, and keeps what is on the host and not in the package: the
+   downloads (H9XASH.zip, H9XASH-linux.zip, H9XASH-Updater.exe), the
+   downloads' file index (downloads/files/), H9XASH-Updater's files/ and the
+   web client's files. It then restarts the services. A change to the
+   database's layout runs when h9web starts, after one more copy into the
+   backups folder. Check with sudo bash setup.sh --check (Windows:
+   .\setup.ps1 -Check) and the site. To go back, run the older package's
+   setup script, then restore the backup the newer one took (list shows it).
+   A change to settings alone is an edit of /etc/h9web/config.json (Windows:
+   C:\havoc9\etc\config.json) and a restart (section 3).
+
+   DOWNLOADS. The DOWNLOADS page's buttons, and ALL FILES behind them, show
+   files you put in the site folder yourself, from dist\ on the PC that
+   builds them. Step 13 of README-VPS.txt and README-WINDOWS.txt has the
+   details and the checks. On Linux the folders are
+   /var/www/havoc9.org/downloads/ and downloads/files/; on Windows
+   C:\havoc9\site\downloads\ and downloads\files\:
+     downloads/        you copy in the buttons' files: H9XASH.zip and
+                       H9XASH-linux.zip (stage-h9xash), H9XASH-Updater.exe
+                       (tools\updater\build.cmd)
+     downloads/files/  ALL FILES, https://havoc9.org/downloads/files/: you
+                       copy in the host packages; the setup script adds the
+                       buttons' three files and SHA256SUMS.txt
+   Nothing else goes in the index: not dist\files (H9XASH-Updater's own
+   files, served at /files/ to the updater alone), not the web client's
+   files, and never a config, a key, a token, a backup or anyone's data. Only
+   .zip, .exe and .txt files are served from the index; any other file, a
+   subfolder and every dot file there is a 404. The .report.txt files made
+   beside the packages stay off the index unless the owner chooses otherwise
+   (step 13 says why).
+
+   On a Linux host, from your PC, in PowerShell in the repository's folder
+   (each file goes up once):
+
+       $D = 'root@havoc9.org:/var/www/havoc9.org/downloads'
+       scp dist\H9XASH.zip dist\H9XASH-linux.zip dist\H9XASH-Updater.exe $D/
+       scp dist\havoc9-vps-linux-<build>-<stamp>.zip $D/files/
+       scp dist\havoc9-vps-windows-<build>-<stamp>.zip $D/files/
+
+   On a Windows host, copy the files in over Remote Desktop. On either host
+   then run the setup script for the index alone, in the unpacked package
+   folder (Windows: in an administrator PowerShell):
+
+       sudo bash setup.sh --file-index           (Linux)
+       .\setup.ps1 -FileIndex                    (Windows)
+
+   Every full run of the setup script does the same. It makes the buttons'
+   three files symbolic links in downloads/files/, so the disk holds one copy
+   and the index serves exactly the file the button does; checks each by its
+   SHA-256 against the file in downloads/ and warns, loudly, when they differ
+   ([WARN] ... IS NOT THE SAME FILE); skips, saying so, a button file that is
+   not published yet; and writes SHA256SUMS.txt for every file the index
+   lists. Step 13 shows how to check it by hand. Remove a host package's
+   older build when its new one goes in. A player checks a download with
+   sha256sum -c SHA256SUMS.txt --ignore-missing (Linux) or Get-FileHash
+   <file> (Windows).
+
+   BACKUPS run by themselves, once a day, into the backups folder, the newest
+   14 kept:
+     Linux     the h9web-backup timer, into /var/lib/h9web/backups
+     Windows   the task "havoc9 h9web backup" at 03:30, into
+               C:\havoc9\data\h9web\backups; logs\backup.log has each run
+   Copies that leave the machine are encrypted, and each carries secrets.json
+   and data.key sealed under the passphrase, so one copy and the passphrase
+   are all a new host needs. They start once the passphrase file exists
+   (12 characters or more, on one line; Linux /etc/h9web/backup-passphrase,
+   Windows C:\havoc9\etc\backup-passphrase) and the setup script has run
+   again: one a day into the offsite folder next to backups\ (Windows: at
+   03:45), the newest 7 kept. Copy that folder to storage of your own now and
+   then. Never copy the whole data folder off the machine: it holds the keys.
+   Keep the passphrase offline with the keys. By hand, section 3's command
+   with backup, list, verify <file> or restore <file>; every option is in
+   h9web\README.txt section 10, and for admins in docs\H9WEB_ADMIN.txt
+   section 18. On this PC, backup.cmd makes one now; to schedule the local
+   site's backups, in PowerShell in h9web\:
+
+       .\backup-task.ps1 -Install            every day at 04:00
+       .\backup-task.ps1 -Status             (also -RunNow and -Remove)
+
+   RESTORE on a new host, in place of a plain setup run: h9web must not start
+   before the old keys are in place, and the restore refuses a secrets.json
+   other than the backup's. With the backup file (and, for a backup that
+   does not hold the keys, a folder with the old secrets.json and data.key;
+   and the passphrase file for an encrypted one) copied over:
+
+       sudo bash setup.sh --restore /root/<file>.h9backup \
+            --keys /root/h9keys --passphrase-file /root/pass.txt
+
+       .\setup.ps1 -Restore C:\setup\<file>.h9backup -Keys C:\setup\keys `
+            -PassphraseFile C:\setup\pass.txt
+
+   A copy from offsite\ holds the keys, so it needs no --keys. A backup made
+   on one kind of host restores on the other. When it is done, delete the
+   passphrase file and the keys folder and sign in with an existing account.
+   Moving to another host, in order (DNS, the last backup, the game servers'
+   firewalls): README-VPS.txt and README-WINDOWS.txt, step 10.
+
+   RESTORE on the same host: stop h9web (a restore refuses while it runs),
+   then restore <file> with section 3's command; it shows what it will
+   replace, asks for "yes", and first saves the data as it is to
+   pre-restore-<time>.h9backup in the backups folder. --only forum,
+   community, accounts or a module's name puts back that part alone. A
+   restore brings back the sessions the backup holds.
+
+
+ 7. THE WEB CLIENT                                       build-webclient.cmd
+ ---------------------------------------------------------------------------
+   HOW IT IS BUILT. From a fresh clone, on Windows 10 or later, with nothing
+   installed but Windows PowerShell 5.1 and a network connection the first
+   time:
+
+       build-webclient.cmd
+
+   BUILDING.txt section 9 has the versions, sizes and checksums. The first
+   run fetches about 820 MB and takes about 10 minutes; a later run reuses the
+   toolchain and rebuilds only what changed. It takes every core it is given
+   (-Jobs), so run nothing else heavy beside it. Before anything else it
+   checks the game folder for Git LFS pointers. Then, in order:
+     1. the toolchain: Emscripten SDK 6.0.12 into emsdk\, with its own
+        Python, Node and ninja, and CMake 4.3.0 into webclient-build\tools,
+        each file checked against a SHA-256 written in build-webclient.ps1;
+     2. the engine: xash3d-fwgs, with H9's patches applied, copied to
+        webclient-build\xash3d-fwgs and built for WebAssembly with waf;
+     3. the client library: reTS's cl_dll, built with CMake and ninja into
+        webclient-build\reTS-wasm;
+     4. webclient-build\webclient-bin\: the builds, with BUILDINFO.txt
+        (each file's SHA-1 and what it was built from), by
+        tools\make_webclient_bin.py;
+     5. webclient-build\stage\: engine\, game\, manifest.json and
+        preload.json, laid out from H9XASH\ by tools\make_webclient_game.py,
+        which leaves out everything a player must never be served: the
+        server side with its settings, server and personal configs, ids
+        (havoc9.org\webclient\DEPLOY.txt, section 9).
+   Options (after the name): -Out <dir> for somewhere other than
+   webclient-build\; -Jobs <n> for compile jobs (default 6); -H9Xash <dir>
+   for another game folder (default H9XASH\); -NoStage to stop after step 4;
+   -UpdateTracked to also copy the builds over webclient-bin\, the folder git
+   tracks; -Clean to build the engine and the client library from scratch.
+   The whole run is logged to build-webclient.log in the output folder.
+
+   HOW IT REACHES THE SITE. The page itself -- index.html, client.js,
+   auth.js, settings.json in havoc9.org\webclient\ -- is part of the site, and
+   travels in the host package. The stage supplies the rest: engine\ and the
+   two lists go into the site's webclient\ folder (served at /webclient/),
+   and game\ into a folder outside the site (served at /webclient/game/).
+     * This PC: nothing to copy. The local site (section 2) serves the stage
+       where it is.
+     * A Windows host: copy webclient-build\stage to the host, then
+           .\setup.ps1 -WebClientStage C:\setup\stage
+       which puts game\ in C:\havoc9\game and the rest in
+       C:\havoc9\site\webclient. A -WebClient ZIP holds that folder as
+       webclient-build\stage.
+     * A Linux host, from a clone of the repository made on the VPS, with
+       no upload from your PC:
+           cd <the clone>/havoc9.org/deploy
+           sudo REPACK=1 bash webclient-setup.sh
+       It makes the stage from the clone's H9XASH and webclient-bin\, with
+       python3 and no Half-Life install (the clone and its packages:
+       README-VPS.txt step 12).
+     * A Linux host, from the -WebClient ZIP: unzip it, put the two folders
+       it holds, tools\ and webclient-build\, in the unpacked package folder
+       beside havoc9.org\ (the ZIP has a folder of its own around them), then
+           cd havoc9.org/deploy && sudo bash webclient-setup.sh
+   webclient-setup.sh puts the game files in /srv/h9web/game, the engine and
+   the lists in /var/www/havoc9.org/webclient (the lists last), keeps gzip
+   copies beside the large files for nginx, and checks that every listed file
+   is there at its size. Later setup runs keep all of it.
+   Check: https://havoc9.org/webclient/engine/xash.wasm answers 200 with the
+   type application/wasm; then, in a browser, sign in and PLAY. The relay
+   takes the players to the servers in servers.json, so each game server
+   opens its UDP port to the relay's address and takes the settings of
+   havoc9.org\webclient\DEPLOY.txt, section 7.
+
+
+ 8. WHEN SOMETHING FAILS
+ ---------------------------------------------------------------------------
+   The scripts say what is wrong in their own words. These are the usual
+   ones. Every setup step is safe to repeat: fix the cause, run it again.
+
+   make-vps-package
+     "[FAIL] <file> is missing beside this script"
+         It was not run from a whole checkout. Run the copy that sits beside
+         h9web\, havoc9.org\, serverlist-bot\, vps\ and tools\.
+     "STOP: N of the files this needs are not whole (M of them Git LFS
+     pointers)", then "[FAIL] files this packs are Git LFS pointers"
+         git lfs install, then git lfs pull in the checkout. With a quota or
+         bandwidth error, take the files from a release ZIP.
+     "[STOP] <file> (a secret's file name)", or one of the Discord, key and
+     heartbeat messages, then "[FAIL] the scan found N secret(s)"
+         A secret is in the sources. Take it out of the source file and pack
+         again; no ZIP was written, and the value is never printed.
+     "[FAIL] no ...\webclient-build\stage\manifest.json" (-WebClient)
+         Build the web client package first: build-webclient.cmd
+         (section 7).
+     "[STOP] <file>", then "[FAIL] the web client stage holds files that
+     never ship" (-WebClient)
+         The stage holds an id, a secret, a game server's settings, or a
+         config.cfg other than TS 3.0's own (game/ts/config.cfg, byte for
+         byte reTS\game\ts\config.cfg). No web client ZIP was written.
+         Build the stage again (section 7).
+
+   build-webclient
+     "build-webclient: <path> is missing: run this from a whole checkout"
+         It needs emsdk\, xash3d-fwgs\, reTS\ and tools\ beside it.
+     "build-webclient: no game at ...\H9XASH (ts\gameinfo.txt)"
+         Give the game folder with -H9Xash, or use -NoStage.
+     the "STOP: ... Git LFS pointers" list
+         git lfs pull. It checks H9XASH before it fetches anything.
+     "build-webclient: <file>: SHA-256 <got>, expected <pinned>"
+         A download did not match its pinned checksum and was thrown away.
+         Run it again; the pinned value is never edited to make it pass.
+     "build-webclient: '<command>' exited with N"
+         build-webclient.log in the output folder holds the whole run.
+
+   the local site
+     "local-site: no site at <folder>"
+         h9web\ has no havoc9.org\ beside it. Use a whole checkout.
+     "local-site: <folder> is inside the checkout"
+         H9WEB_LOCAL names a folder in the checkout. Name one outside it.
+     "h9web needs Node.js 24 or newer (node:sqlite)", or "[FAIL] Node.js 24
+     or newer is not on PATH" (local-site.cmd, backup.cmd)
+         Install Node.js 24 or newer (nodejs.org), open a new terminal.
+     an error that says EADDRINUSE
+         The port is taken. Give --port another (section 2).
+     "h9web is running on this data" (restore, import)
+         Stop the site first: Ctrl+C in its window. Then run it again.
+     "no local site in <folder>: start local-site.cmd once first"
+         backup.cmd needs the config.json the local site writes.
+     PLAY says the client is in preparation
+         No package was found: the "package" line the local site printed at
+         its start says none. Build one (section 7) or give --stage.
+
+   setup.sh (Linux)
+     "[FAIL] run it as root" -- sudo bash setup.sh.
+     "[FAIL] this is for Debian or Ubuntu".
+     "[FAIL] <file> is missing: run this from the unpacked package"
+         Run it from the folder the ZIP unpacked into.
+     "[FAIL] /usr/bin/node is not Node.js 24 or newer".
+     "[WARN] nginx or the certificate did not finish"
+         Most often DNS does not point at the host yet, or port 80 is shut
+         at the provider's firewall. Fix that and run setup.sh again.
+     "[WARN] no SSH key signs in here yet"
+         SSH passwords stay on until a key can sign in. Add one, run it again.
+     "[WARN] the site folder holds files that are not for visitors"
+         A dot file, a backup or a ZIP in the site folder, which nginx
+         answers 404 for. Remove it, unless it is the .htaccess that
+         H9XASH-Updater's files/ carries (nginx ignores it). The two client
+         ZIPs in downloads/ and everything in downloads/files/ are not listed.
+     502 Bad Gateway on the account pages: h9web is not running. Its log says
+         why; a bad edit of config.json is the usual cause:
+             sudo journalctl -u h9web -n 100
+         502 at /serverlist/: the list is not running (-u h9-serverlist).
+     sudo bash setup.sh --check shows what runs and what answers.
+
+   setup.ps1 (Windows)
+     "[FAIL] run it in a PowerShell started as administrator".
+     "[FAIL] <file> is missing: run this from the unpacked package".
+     "its SHA256 is <got>, not the pinned <pinned>. Nothing was installed
+     from it."
+         A download was altered or cut off. Run it again.
+     No certificate: DNS does not point at the machine yet, or port 80 or
+         443 does not reach it. C:\havoc9\logs\havoc9-caddy*.log says which.
+         Ports taken (IIS, another web server): netstat -abno | findstr ":80 "
+     A service that will not start: Event Viewer (Windows Logs, System) and
+         the service's .wrapper.log in C:\havoc9\logs.
+     .\setup.ps1 -Check shows what runs and what answers.
+
+
+ WHERE TO READ MORE
+ ---------------------------------------------------------------------------
+   docs\HAVOC9_SETUP.txt                from nothing to a live site: domain,
+                                        server, secrets, security checklist
+   h9web\README.txt                     the server: settings, API, backups,
+                                        tests, the local test
+   docs\H9WEB_ADMIN.txt                 running it: roles, accounts, servers
+   vps\linux\README-VPS.txt             a Linux VPS, step by step
+   vps\windows\README-WINDOWS.txt       a Windows server, step by step
+   havoc9.org\webclient\DEPLOY.txt      the web client, nginx, backups on a VPS
+   serverlist-bot\README.md             the server list
+   docs\BUILDING.txt                    every other build

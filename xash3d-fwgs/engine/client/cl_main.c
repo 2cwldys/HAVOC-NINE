@@ -446,6 +446,7 @@ static void CL_CheckClientState( void )
 		}
 
 		Con_DPrintf( "client connected at %.2f sec\n", Platform_DoubleTime() - cls.timestart );
+		CL_H9Join_End(); // H9: the join screen goes, the game is in (cl_h9join.c)
 
 		if( cl_autorecord.value && !cls.demoplayback )
 		{
@@ -1538,6 +1539,7 @@ static void CL_CheckForResend( void )
 	// if the local server is running and we aren't then connect
 	if( cls.state == ca_disconnected && SV_Active( ))
 	{
+		CL_H9Join_Begin( NULL ); // H9: the join screen for this game's own server (cl_h9join.c)
 		cls.signon = 0;
 		cls.state = ca_connecting;
 		Q_strncpy( cls.servername, "localhost", sizeof( cls.servername ));
@@ -1571,6 +1573,7 @@ static void CL_CheckForResend( void )
 
 	if( res == NET_EAI_NONAME )
 	{
+		CL_H9Join_Drop( va( "No server is known by the name %s.", cls.servername ));
 		CL_Disconnect();
 		return;
 	}
@@ -1588,6 +1591,7 @@ static void CL_CheckForResend( void )
 		if( cls.bandwidth_test.retry >= CL_TEST_RETRIES )
 		{
 			Con_DPrintf( S_ERROR "%s: couldn't connect\n", __func__ );
+			CL_H9Join_Drop( "The server did not answer." );
 			CL_Disconnect();
 			return;
 		}
@@ -1600,11 +1604,13 @@ static void CL_CheckForResend( void )
 		if( cls.connect_retry >= CL_CONNECTION_RETRIES )
 		{
 			Con_DPrintf( S_ERROR "%s: couldn't connect\n", __func__ );
+			CL_H9Join_Drop( "The server did not answer." );
 			CL_Disconnect();
 			return;
 		}
 
 		cls.connect_retry++;
+		CL_H9Join_Try( cls.connect_retry ); // H9: the join screen's stage (cl_h9join.c)
 	}
 
 	cls.serveradr = adr;
@@ -1675,9 +1681,13 @@ static void CL_Connect_f( void )
 	Con_Printf( "server %s\n", server );
 	CL_Disconnect();
 
-	// TESTTEST: a see console during connection
-	UI_SetActiveMenu( false );
-	Key_SetKeyDest( key_console );
+	// H9: the menu's join screen when the menu has one (cl_h9join.c), else upstream's console
+	if( !CL_H9Join_Begin( server ))
+	{
+		// TESTTEST: a see console during connection
+		UI_SetActiveMenu( false );
+		Key_SetKeyDest( key_console );
+	}
 
 	cls.state = ca_connecting;
 	cls.net_protocol = proto;
@@ -1944,6 +1954,7 @@ void CL_Disconnect( void )
 	IN_LockInputDevices( false ); // unlock input devices
 
 	cls.state = ca_disconnected;
+	CL_H9Join_Disconnect(); // H9: the join screen's end, and why (cl_h9join.c)
 	memset( &cls.serveradr, 0, sizeof( cls.serveradr ));
 	cls.set_lastdemo = false;
 	cls.connect_retry = 0;
@@ -2078,6 +2089,7 @@ static void CL_Reconnect_f( void )
 
 	if( cls.state == ca_connected )
 	{
+		CL_H9Join_ChangeLevel(); // H9: the join screen through the map change (cl_h9join.c)
 		CL_Reconnect( false );
 		return;
 	}
@@ -2096,6 +2108,7 @@ static void CL_Reconnect_f( void )
 		cls.net_protocol = proto; // don't change protocol
 
 		Con_Printf( "reconnecting...\n" );
+		CL_H9Join_ChangeLevel(); // H9: the join screen through the map change, after the disconnect above (cl_h9join.c)
 	}
 }
 
@@ -2126,8 +2139,12 @@ static void CL_Retry_f( void )
 	Con_Printf( "Commencing connection retry to %s\n", cls.servername );
 	CL_Disconnect();
 
-	UI_SetActiveMenu( false );
-	Key_SetKeyDest( key_console );
+	// H9: the join screen, as for connect (cl_h9join.c)
+	if( !CL_H9Join_Begin( cls.servername ))
+	{
+		UI_SetActiveMenu( false );
+		Key_SetKeyDest( key_console );
+	}
 
 	cls.state = ca_connecting;
 	cls.connect_time = MAX_HEARTBEAT; // CL_CheckForResend() will fire immediately
@@ -2896,6 +2913,7 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
 	if( !CL_IsFromConnectingServer( from ))
 		return;
 
+	formatted_msg[0] = '\0'; // H9: nothing formatted yet (an Xash reject formats nothing, below)
 	if( msg != NULL && !Q_strcmp( c, S2C_ERRORMSG ))
 	{
 		const char *s = MSG_ReadString( msg );
@@ -2913,8 +2931,17 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
 			Q_snprintf( formatted_msg, sizeof( formatted_msg ), "^3Server message^7\n%s", args + 1 );
 	}
 
+	// H9: an Xash server's reject ("disconnect") has no text of its own, the errormsg just before it
+	// said why: nothing to show, and no stack garbage shown in its place
+	if( !formatted_msg[0] )
+		return;
+
+	// H9: the join screen says it, with OK, as the join ends (cl_h9join.c)
+	CL_H9Join_Drop( formatted_msg + sizeof( "^3Server message^7\n" ) - 1 );
+	if( CL_H9Join_Up( ))
+		Msg( "%s\n", formatted_msg );
 	// in case we're in console or it's classic mainui which doesn't support messageboxes
-	if( !UI_IsVisible() || !UI_ShowMessageBox( formatted_msg ))
+	else if( !UI_IsVisible() || !UI_ShowMessageBox( formatted_msg ))
 		Msg( "%s\n", formatted_msg );
 
 	// don't disconnect, errormsg is a FWGS extension and
@@ -3293,6 +3320,7 @@ static void CL_ReadPackets( void )
 		if( host.realtime - cls.netchan.last_received > cl_timeout.value )
 		{
 			Con_Printf( "\nServer connection timed out.\n" );
+			CL_H9Join_Drop( "The server stopped answering (timed out)." );
 			CL_Disconnect();
 			return;
 		}
@@ -3372,6 +3400,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
 	else if( !successfully_received )
 	{
 		Con_Printf( S_ERROR "server failed to transmit file '%s'\n", CL_CleanFileName( filename ));
+		CL_H9Join_Drop( va( "The server could not send %s.", CL_CleanFileName( filename )));
 	}
 
 	for( p = cl.resourcesneeded.pNext; p != &cl.resourcesneeded; p = p->pNext )
@@ -3607,6 +3636,8 @@ qboolean CL_PrecacheResources( void )
 {
 	resource_t	*pRes;
 
+	CL_H9Join_PrecacheStart(); // H9: the join screen's bar (cl_h9join.c)
+
 	// if we downloaded new WAD files or any other archives they must be added to searchpath
 	if( CL_ShouldRescanFilesystem( ))
 		FS_Rescan_f();
@@ -3620,6 +3651,7 @@ qboolean CL_PrecacheResources( void )
 		if( pRes->type != t_model || pRes->nIndex != WORLD_INDEX )
 			continue;
 
+		CL_H9Join_PrecacheWorld(); // H9: the join screen's "Loading the map" (cl_h9join.c)
 		cl.models[pRes->nIndex] = Mod_LoadWorld( pRes->szFileName, true );
 		SetBits( pRes->ucFlags, RES_PRECACHED );
 		cl.nummodels = 1;
@@ -3644,6 +3676,7 @@ qboolean CL_PrecacheResources( void )
 
 				if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
 				{
+					CL_H9Join_Drop( va( "The map's part %s is missing.", pRes->szFileName ));
 					CL_Disconnect_f();
 					return false;
 				}
@@ -3660,6 +3693,7 @@ qboolean CL_PrecacheResources( void )
 		if( FBitSet( pRes->ucFlags, RES_PRECACHED ))
 			continue;
 
+		CL_H9Join_PrecacheStep(); // H9: the join screen's bar (cl_h9join.c)
 		switch( pRes->type )
 		{
 		case t_sound:
@@ -3680,6 +3714,7 @@ qboolean CL_PrecacheResources( void )
 					{
 						if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
 						{
+							CL_H9Join_Drop( va( "The sound %s is missing.", pRes->szFileName ));
 							S_EndRegistration();
 							CL_Disconnect_f();
 							return false;
@@ -3709,6 +3744,7 @@ qboolean CL_PrecacheResources( void )
 						{
 							if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
 							{
+								CL_H9Join_Drop( va( "The model %s is missing.", pRes->szFileName ));
 								S_EndRegistration();
 								CL_Disconnect_f();
 								return false;
@@ -3863,6 +3899,7 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &hud_utf8 );
 
 	Cvar_RegisterVariable( &rcon_address );
+	CL_H9Join_Init(); // H9: the menu's join screen while a server is joined (cl_h9join.c)
 
 	Cvar_RegisterVariable( &cl_trace_consistency );
 	Cvar_RegisterVariable( &cl_trace_stufftext );

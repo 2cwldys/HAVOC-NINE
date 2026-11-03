@@ -99,6 +99,7 @@ void HTTP_Shutdown( void );
 void HTTP_ResetProcessState( void );
 void HTTP_Init( void );
 void HTTP_Run( void );
+qboolean HTTP_FileProgress( char *name, size_t len, int *downloaded, int *size ); // H9: the join screen's download (cl_h9join.c)
 
 typedef void ( *http_memory_cb_t )( const char *url, qboolean success, const byte *data, size_t size, void *userdata );
 qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata );
@@ -107,5 +108,6 @@ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata 
 #define HTTP_MEM_PUBLIC_ONLY BIT( 0 ) // connect only to a public address: the one it resolved, checked, is the one it uses
 #define HTTP_MEM_VERIFY_TLS  BIT( 1 ) // https only with the server's certificate checked against a loaded CA bundle
 qboolean HTTP_GetToMemoryEx( const char *url, http_memory_cb_t cb, void *userdata, int flags );
+int HTTP_MemoryStatus( void ); // H9: inside an http_memory_cb_t, the HTTP status its answer had; 0 for none
 
 #endif//NET_WS_H

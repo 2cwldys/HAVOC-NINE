@@ -3,7 +3,7 @@ serve_webclient.py - serves havoc9.org and a web client package on this PC, laid
 VPS's nginx serves them (havoc9.org\webclient\DEPLOY.txt, sections 5 and 8), for trying the web
 client before it is deployed.
 
-    py -3 serve_webclient.py --site D:\Downloads\TSM\havoc9.org --stage <package> [--port 8080]
+    py -3 serve_webclient.py --site D:\Downloads\TSM\havoc9.org --stage <package> [--port 8091]
                              [--relay ws://127.0.0.1:27016/] [--server NAME=IP:PORT ...]
                              [--args "-dev 2"]
 
@@ -18,11 +18,11 @@ client before it is deployed.
                as numbers; give it once per server
     --args     engine arguments in place of settings.json's "args", e.g. "-dev 2" for the engine's
                loading messages in the page's console (window.h9web.log)
-    --port     the port, on 127.0.0.1 only (default 8080)
+    --port     the port, on 127.0.0.1 only (default 8091: Steam's web helper can hold 127.0.0.1:8080)
 
 The site's own settings.json is never changed; what these options give is served in its place.
 
-Then open http://127.0.0.1:8080/webclient/index.html. As on the VPS, DEPLOY.txt and backups give 404.
+Then open http://127.0.0.1:8091/webclient/index.html. As on the VPS, DEPLOY.txt and backups give 404.
 """
 import argparse
 import http.server
@@ -114,7 +114,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip())
     ap.add_argument("--site", required=True)
     ap.add_argument("--stage", required=True)
-    ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument("--port", type=int, default=8091)
     ap.add_argument("--server", action="append", default=[])
     ap.add_argument("--relay")
     ap.add_argument("--args")

@@ -106,6 +106,7 @@ namespace
 	constexpr float ROAM_FAILED_GOAL_MEMORY = 30.0f; // a goal given up is not picked again for this long
 	constexpr float ROAM_MOVED_AWAY = 256.0f;        // farther than this in one frame is a teleport
 	constexpr float ROAM_FISTS_AGAIN = 2.0f;         // how often a citizen fighting back asks for its fists
+	constexpr float ROAM_DEFEND_TIME = 30.0f;        // how long it fights its attacker without being hurt again
 
 	struct RoamSettings
 	{
@@ -114,6 +115,7 @@ namespace
 		bool bDefend = false;
 		bool bHostile = false;
 		int iHostileTeam = 0;
+		float fDefendTime = ROAM_DEFEND_TIME;
 		float fWalk = ROAM_WALK_SPEED;
 		int iPause = 0;
 		float fNextRead = 0.0f;
@@ -132,6 +134,9 @@ namespace
 			g_Roam.bDefend = CVAR_GET_FLOAT("tsrp_roambots_defend") > 0.0f;
 			g_Roam.bHostile = CVAR_GET_FLOAT("tsrp_roambots_insurgency") > 0.0f;
 			g_Roam.iHostileTeam = static_cast<int>(CVAR_GET_FLOAT("tsrp_roambots_insurgent_team"));
+
+			const float fDefendTime = CVAR_GET_FLOAT("tsrp_roambots_defend_time");
+			g_Roam.fDefendTime = fDefendTime > 0.0f ? fDefendTime : ROAM_DEFEND_TIME;
 
 			const float fWalk = CVAR_GET_FLOAT("tsrp_roambots_speed");
 			g_Roam.fWalk = fWalk > 0.0f ? fWalk : ROAM_WALK_SPEED;
@@ -1758,6 +1763,7 @@ void CBot::SpawnInit(const bool bInit)
 	m_fRoamHealth = 0.0f;
 	m_pRoamAttacker = nullptr;
 	m_iRoamAttackerId = 0;
+	m_fRoamHurtTime = 0.0f;
 	m_fRoamNextFists = 0.0f;
 
 	////////////////////////////
@@ -3788,7 +3794,9 @@ void CBot::Think()
 //                                  never buys
 //   tsrp_roambots_pause            the chance, in percent, of a pause before each walk
 //   tsrp_roambots_defend           1: a roamer someone hurts fights that one back, with its
-//                                  hands, for the rest of that life
+//                                  hands, until he dies or leaves or lets it be
+//   tsrp_roambots_defend_time      how long, in seconds, it goes on without being hurt again
+//                                  before it lets him be (ROAM_DEFEND_TIME without the cvar)
 //   tsrp_roambots_insurgency       1: the citizens are insurgents, hostile to players
 //   tsrp_roambots_insurgent_team   0: insurgents are set on every player who is not a bot; a team
 //                                  number: only on the players of that team (pev->team)
@@ -3813,10 +3821,12 @@ void CBot::Think()
 // FIGHTING BACK. TS sends no Damage message, so RCBot's hurt event never names anyone; TS's
 // TakeDamage leaves what hurt a player in pev->dmg_inflictor. A roamer hurt since the last frame
 // takes the player behind that entity (the entity itself, or the player who threw it) for its
-// attacker, for the rest of that life: IsEnemy is true for him (RoamIsEnemy), the roamer turns to
-// him, wields its fists ("weapon_0") and fights with its hands whatever it carries, runs while it
-// fights, and walks on when it no longer sees him. Its next life starts with no attacker
-// (SpawnInit). Another bot's stray blow makes no attacker, so one fight starts no brawl.
+// attacker: IsEnemy is true for him (RoamIsEnemy), the roamer turns to him, wields its fists
+// ("weapon_0") and fights with its hands whatever it carries, runs while it fights, and walks on
+// when it no longer sees him. It forgets him once he is dead (the life he comes back to did
+// nothing to it), once he has left, and once he has not hurt it for tsrp_roambots_defend_time
+// seconds; its own next life starts with no attacker (SpawnInit). Another bot's stray blow makes
+// no attacker, so one fight starts no brawl.
 //
 // INSURGENTS. While tsrp_roambots_insurgency is on, the plugin dresses and arms the citizens, and
 // every roamer also takes the players tsrp_roambots_insurgent_team names for enemies and fights
@@ -3923,8 +3933,10 @@ bool CBot::RoamThink()
 
 	m_fRoamHealth = pev->health;
 
-	// he has left the server: whoever has his slot now did nothing
-	if (m_pRoamAttacker != nullptr && RoamAttacker() == nullptr)
+	// Its attacker forgotten: he has left the server (whoever has his slot now did nothing), he is
+	// dead (the life he comes back to did nothing either), or he has let it be for a while.
+	if (m_pRoamAttacker != nullptr && (RoamAttacker() == nullptr || !EntityIsAlive(m_pRoamAttacker) ||
+		fNow - m_fRoamHurtTime > roam.fDefendTime))
 		m_pRoamAttacker = nullptr;
 
 	// fighting its attacker back with its hands: TS wields them on "weapon_0"
@@ -4048,6 +4060,7 @@ void CBot::RoamNoteAttacker(edict_t* pInflictor)
 
 	m_pRoamAttacker = pAttacker;
 	m_iRoamAttackerId = GETPLAYERUSERID(pAttacker);
+	m_fRoamHurtTime = gpGlobals->time;
 }
 
 // The attacker of this life while he is still on the server; an edict a new player has taken

@@ -3,7 +3,9 @@
  *
  * Every 60 seconds, and a few seconds after anyone joins, leaves or changes name, this POSTs a
  * report to h9web's presence module (https://havoc9.org/api/presence/report): the map, the mode
- * (named the way the engine's Discord card names it), and for every human player with an
+ * (named the way the engine's Discord card names it, its sides by the names the game itself shows:
+ * entries 1 and 2 of mp_teamlist, "Middle Sea Republic" and "Insurrectionists" on H9XASH, else
+ * ts_matchmode's tsm_team1_name and tsm_team2_name), and for every human player with an
  * h9_clientid that id, the name, the join time and the time in game. Bots and HLTV are left out.
  * h9web keeps only the players whose h9_clientid belongs to a havoc9.org account and drops every
  * other id at once. docs\H9_PRESENCE.txt is the guide; docs\H9_COMMUNITIES.txt for communities.
@@ -43,6 +45,17 @@
  * FOR OTHER PLUGINS: natives h9p_ready, h9p_server, h9p_server_id, h9p_api, h9p_sign, h9p_nonce,
  * h9p_report_soon and h9p_muted (include/h9_community.inc), which h9_community.sma uses.
  *
+ * ACCOUNTS FOR OTHER PLUGINS (1.9, include/h9_presence.inc). h9p_account(id) is the slot's proven
+ * havoc9.org account, its number on the site (accounts.id), 0 for none: the same players as the
+ * green chain, so only a game that proved its player id (THE PROOF, below) ever has one, a second or
+ * two after it is in game (QUICK JOINS). h9p_account_name gives the account's current username and
+ * h9p_roles its roles here, both from h9web's answer ("usernames", "roles"): "h9_admin" or
+ * "h9_moderator" (its role on the site), then "owner", "staff" and "member" in this server's
+ * community. The forward h9p_account_changed(id, account) comes whenever any of the three changes for
+ * a slot: the answer that proves it, a rename or a new role on the site, an id that changes in game
+ * (account 0) and a player leaving (account 0). Nothing is kept across a map change: the map's first
+ * answer says it all again.
+ *
  * THE PROOF (h9_presence_challenge 1, once the engine answers it). h9_clientid is the same value
  * for a player every time and every player on the server can read it, so on its own it proves
  * nothing. A client that advertises _h9idv 1 in its userinfo gets a one-time nonce, which h9web
@@ -52,6 +65,10 @@
  * (CREATE GAME, above). The plugin reports the answer to its own challenge only,
  * and h9web checks it: a proof counts while its nonce is younger than 10 minutes, so every player
  * is challenged again every 5 (RECHALLENGE), the last proof reported until the next one answers.
+ * A game whose h9_clientid, _h9idv or _h9lnk changes while it plays (h9_unlink in it, or a REVOKE
+ * on the site it heard of, gives it a new id) loses its proof at once: every client hears that the
+ * slot is no proven account (H9Link 0, the red chain; the silhouette; no account; no level), the
+ * game is challenged again (at most once in IDCHAL_GAP seconds), and h9web hears soon.
  * Every answer also goes to other plugins (the h9p_proof forward), and h9p_challenge sends a
  * plugin's own nonce. Off by default.
  *
@@ -66,6 +83,24 @@
  * The same players' havoc9.org levels ("levels": slot and level, Lv 0 to 99 from the H9 ladder,
  * docs\H9_COMPETITIVE.txt) go in the H9Level user message (byte slot, byte level; 255: none),
  * which H9's client.dll draws as "Lv N" by the name; a joining client gets the whole table.
+ * The same players' own account numbers ("accounts": slot and account, only the slots with the
+ * chain) go in the H9Account user message (byte slot, long account; 0: none), which H9XASH keeps
+ * for h9_profile, the scoreboard's double-click on a linked player's picture
+ * (engine-h9-avatars.patch): it opens that account's havoc9.org profile, a player on the site's
+ * default picture included. A joining client gets the whole table, and every client hears when a
+ * slot empties. Each map starts with an empty table, so the map's first answer tells every client
+ * every slot's picture and account again, and a game asks again for a picture it could not fetch.
+ *
+ * QUICK JOINS (1.8). A proof's answer is reported at once (PROOF_REPORT), never later than the next
+ * report already due, and one report goes every FAST_GAP seconds at most, so a proven player's
+ * chain, picture and level reach every scoreboard a second or two after the player is in game, at a
+ * map's start too (where the first report waits FIRST_DELAY only while nobody has proved anything);
+ * a joining client gets the others' table after a second; and a slot is challenged at most once in
+ * CHAL_GAP seconds, so reconnecting quickly asks h9web for no more nonces.
+ *
+ * TASK IDS. The per-slot tasks (the table to a joining client, h9_require_account's check, a changed
+ * id's challenge) each have a range of their own, 200 apart, so at 128 slots no slot's task is
+ * another's (before 1.7 the first two met from slot 100 up).
  *
  * ACCOUNTS ONLY (h9_require_account 1, an FCVAR_SERVER cvar, so it is in the server's rules and, on
  * H9XASH, in its server-browser answer as auth 1). Every game is challenged, whatever
@@ -108,7 +143,7 @@
 #pragma dynamic 8192
 
 #define PLUGIN  "H9 Presence"
-#define VERSION "1.6"
+#define VERSION "1.9"
 #define AUTHOR  "2cwldys"
 
 #define MAX_BODY        (MAX_PLAYERS * ROOM_PER_PLAYER + 2048)   // the largest report, in bytes: every
@@ -116,13 +151,18 @@
 #define ROOM_PER_PLAYER 640     // the most one player's entry can take, escaped
 #define REPORT_DELAY    3.0     // seconds after a join, a leave or a new name before the report
 #define FIRST_DELAY     15.0    // seconds after the map starts before the first report
+#define PROOF_REPORT    0.3     // seconds after a proof's answer before the report that carries it
+#define FAST_GAP        2.0     // seconds between two reports at the least (h9web takes 40 a minute)
+#define CHAL_GAP        2       // seconds between two challenges of one slot at the least
 #define PROOF_WAIT      8       // seconds a challenged player is left out while its answer comes
 #define RECHALLENGE     300     // seconds before a player is challenged again (h9web takes 10 minutes)
 
-#define TASK_TICK  59210
-#define TASK_SOON  59211
-#define TASK_ENROLL 59212
-#define TASK_REQUIRE 59400               // + slot: h9_require_account's check after the grace period
+// task ids: the single ones, then each per-slot range (+ slot, 1 to MAX_PLAYERS, 128 at most) 200
+// apart, so no two ever meet
+#define TASK_TICK  59200
+#define TASK_SOON  59201
+#define TASK_ENROLL 59202
+#define TASK_REQUIRE 59600               // + slot: h9_require_account's check after the grace period
 
 new g_cv_url, g_cv_server, g_cv_key, g_cv_interval, g_cv_challenge, g_cv_names, g_cv_enroll, g_cv_autoenroll;
 new g_cv_require, g_cv_require_grace;    // h9_require_account and its grace period
@@ -150,6 +190,9 @@ new g_told[MAX_PLAYERS + 1];             // when the slot was last told why (one
 new bool:g_ready = false;                // configured, and the self-test passed
 new bool:g_selftest = false;
 new bool:g_sending = false;              // a report in flight
+new Float:g_soon_due = 0.0;              // get_gametime() the report waiting in TASK_SOON goes at
+new Float:g_report_at = -100.0;          // get_gametime() the last report went at
+new g_chal_last[MAX_PLAYERS + 1];        // when each slot was last challenged (kept across its players)
 new bool:g_again = false;                // something changed while it was in flight
 new g_last_ts = 0;                       // the ts of the last report built
 new g_last_count = -1;                   // players in the last accepted report (-1: none yet)
@@ -197,13 +240,22 @@ new g_msg_link;                          // H9Link, 0 when it could not be regis
 new bool:g_linked[MAX_PLAYERS + 1];      // what every client was last told: a proven account here
 new g_msg_level;                         // H9Level, 0 when it could not be registered
 new g_level[MAX_PLAYERS + 1];            // the level every client was last told for each slot, + 1 (0: none)
+new g_msg_account;                       // H9Account, 0 when it could not be registered
+new g_acct[MAX_PLAYERS + 1];             // the account every client was last told for each linked slot (0: none)
+new g_uname[MAX_PLAYERS + 1][64];        // that account's username on havoc9.org, for h9p_account_name ("": none)
+new g_roles[MAX_PLAYERS + 1][96];        // its roles here, for h9p_roles ("": none)
+new g_fwd_account;                       // h9p_account_changed: what h9p_account, _name or h9p_roles say changed
+new g_idinfo[MAX_PLAYERS + 1][80];       // h9_clientid, _h9idv and _h9lnk as the slot's game last had them
+new g_idchal_at[MAX_PLAYERS + 1];        // when a change of them last had the slot challenged
+#define TASK_IDCHAL 59800                // + slot: that challenge, when the one before was too recent
+#define IDCHAL_GAP  10                   // seconds between two challenges a change of them asks for
 new bool:g_isbot[MAX_PLAYERS + 1];       // a bot in the slot: H9Link says 2, never a chain
 new g_hoststate[16];                     // h9web's word on this listen server's own player, or ""
 new g_answered_at = 0;                   // when h9web last took a report (h9_require_account fails open without)
 new bool:g_proven[MAX_PLAYERS + 1];      // the answer's "proven": the slot proved a havoc9.org account
 new g_av_account[MAX_PLAYERS + 1];       // the picture every client was last told for each slot
 new g_av_version[MAX_PLAYERS + 1];
-#define TASK_AVATARS 59300               // + slot: the table to a client that just joined
+#define TASK_AVATARS 59400               // + slot: the table to a client that just joined
 new const BACKOFF[] = { 10, 30, 60, 120, 300, 900, 1800, 3600, 21600 };
 
 new const HEX[] = "0123456789abcdef";
@@ -218,6 +270,9 @@ public plugin_precache()
 	g_msg_link = engfunc(EngFunc_RegUserMsg, "H9Link", 2);
 	// the scoreboard's level: byte slot, byte level 0 to 99, 255 none (H9's client.dll)
 	g_msg_level = engfunc(EngFunc_RegUserMsg, "H9Level", 2);
+	// a linked player's own account, for the scoreboard's double-click: byte slot, long account
+	// (engine-h9-avatars.patch's h9_profile)
+	g_msg_account = engfunc(EngFunc_RegUserMsg, "H9Account", 5);
 }
 
 public plugin_init()
@@ -243,6 +298,7 @@ public plugin_init()
 
 	register_clcmd("h9_idproof", "cmd_idproof");
 	g_fwd_proof = CreateMultiForward("h9p_proof", ET_IGNORE, FP_CELL, FP_STRING, FP_STRING, FP_STRING);
+	g_fwd_account = CreateMultiForward("h9p_account_changed", ET_IGNORE, FP_CELL, FP_CELL);
 	register_clcmd("say", "hook_say");
 	register_clcmd("say_team", "hook_say");
 	register_srvcmd("h9_presence_status", "cmd_status");
@@ -370,7 +426,7 @@ go_live()
 	}
 	remove_task(TASK_TICK);
 	set_task(every, "task_tick", TASK_TICK, "", 0, "b");
-	set_task(FIRST_DELAY, "task_soon", TASK_SOON);
+	soon_within(FIRST_DELAY);
 
 	// players already in game (a listen server that went live once its own player proved it): that
 	// player's address first, then everyone's challenge
@@ -475,6 +531,8 @@ public client_putinserver(id)
 	g_gen[id]++;
 	g_joined[id] = get_systime();
 	forget_proof(id);
+	id_info(id, g_idinfo[id], charsmax(g_idinfo[]));
+	g_idchal_at[id] = 0;
 	// the listen server's own player: its h9_clientid salted with this server's address first
 	if (is_loopback(id))
 	{
@@ -487,9 +545,18 @@ public client_putinserver(id)
 			listen_enroll(id);
 		}
 	}
-	challenge(id);
+	// a slot challenged a moment ago (a player reconnecting quickly) waits out CHAL_GAP
+	new wait = g_chal_last[id] + CHAL_GAP - get_systime();
+	if (wait > 0)
+	{
+		set_task(float(wait), "task_idchal", TASK_IDCHAL + id);
+	}
+	else
+	{
+		challenge(id);
+	}
 	soon();
-	set_task(3.0, "task_avatars_to", TASK_AVATARS + id);
+	set_task(1.0, "task_avatars_to", TASK_AVATARS + id);
 	// h9_require_account: a game that cannot prove an account goes at once, any other after the
 	// grace period if it has not proved one by then (task_require)
 	if (require_on() && !is_loopback(id))
@@ -519,6 +586,8 @@ public client_disconnected(id, bool:drop, message[], maxlen)
 	forget_proof(id);
 	remove_task(TASK_AVATARS + id);
 	remove_task(TASK_REQUIRE + id);
+	remove_task(TASK_IDCHAL + id);
+	g_idinfo[id][0] = 0;
 	g_proven[id] = false;
 	if (g_av_account[id])
 	{
@@ -536,6 +605,7 @@ public client_disconnected(id, bool:drop, message[], maxlen)
 		g_level[id] = 0;
 		send_level(0, id, 255);
 	}
+	set_account(id, 0, "", "");
 	soon();
 }
 
@@ -544,6 +614,15 @@ public client_infochanged(id)
 	if (id < 1 || id > g_max || !g_in[id])
 	{
 		return;
+	}
+	// another id (h9_unlink, or a REVOKE the game heard of, gives it a new one), or another word on
+	// proving or linking: what the slot proved is no longer its
+	new info[80];
+	id_info(id, info, charsmax(info));
+	if (!equal(info, g_idinfo[id]))
+	{
+		copy(g_idinfo[id], charsmax(g_idinfo[]), info);
+		id_changed(id);
 	}
 	// here get_user_name still has the old name and the userinfo the new one
 	new was[64], now[64];
@@ -561,6 +640,69 @@ public client_infochanged(id)
 		return;
 	}
 	soon();
+}
+
+/** The slot's h9_clientid, _h9idv and _h9lnk, as one string to compare. */
+id_info(id, out[], len)
+{
+	new cid[40], idv[8], lnk[8];
+	get_user_info(id, "h9_clientid", cid, charsmax(cid));
+	get_user_info(id, "_h9idv", idv, charsmax(idv));
+	get_user_info(id, "_h9lnk", lnk, charsmax(lnk));
+	formatex(out, len, "%s|%s|%s", cid, idv, lnk);
+}
+
+/**
+ * The slot's game has another id, or says otherwise whether it can prove or is linked: its proof
+ * goes (a report answer on its way for the old one is not taken for the slot: g_gen), every client
+ * hears at once that the slot is no proven account, the game is challenged again when it can prove
+ * (at most once in IDCHAL_GAP seconds; a change sooner waits for the rest of them), and h9web hears
+ * soon.
+ */
+id_changed(id)
+{
+	g_gen[id]++;
+	forget_proof(id);
+	remove_task(TASK_IDCHAL + id);
+	g_proven[id] = false;
+	if (g_linked[id])
+	{
+		g_linked[id] = false;
+		send_link(0, id, 0);
+	}
+	if (g_av_account[id])
+	{
+		g_av_account[id] = 0;
+		g_av_version[id] = 0;
+		send_avatar(0, id, 0, 0);
+	}
+	set_account(id, 0, "", "");
+	if (g_level[id])
+	{
+		g_level[id] = 0;
+		send_level(0, id, 255);
+	}
+	new wait = g_idchal_at[id] + IDCHAL_GAP - get_systime();
+	if (wait > 0)
+	{
+		set_task(float(wait), "task_idchal", TASK_IDCHAL + id);
+	}
+	else
+	{
+		g_idchal_at[id] = get_systime();
+		challenge(id);
+	}
+	soon();
+}
+
+public task_idchal(task)
+{
+	new id = task - TASK_IDCHAL;
+	if (id >= 1 && id <= g_max && g_in[id])
+	{
+		g_idchal_at[id] = get_systime();
+		challenge(id);
+	}
 }
 
 forget_proof(id)
@@ -619,6 +761,7 @@ challenge(id)
 	ezhttp_option_set_user_data(opt, ud, sizeof(ud));
 	g_fetching[id] = true;
 	g_asked[id] = get_systime();
+	g_chal_last[id] = g_asked[id];
 	ezhttp_post(url, "on_nonce", opt);
 }
 
@@ -719,7 +862,8 @@ public cmd_idproof(id, level, cid)
 	copy(g_devmask[id], charsmax(g_devmask[]), devmask);
 	copy(g_proof[id], charsmax(g_proof[]), proof);
 	g_nonce[id][0] = 0;
-	soon();
+	// reported at once: the chain, the picture and the level come with h9web's answer
+	soon_within(PROOF_REPORT);
 	return PLUGIN_HANDLED;
 }
 
@@ -727,15 +871,37 @@ public cmd_idproof(id, level, cid)
 
 soon()
 {
-	if (!g_ready || task_exists(TASK_SOON))
+	soon_within(REPORT_DELAY);
+}
+
+/**
+ * A report within delay seconds: the one already waiting if it goes sooner, else this one in its
+ * place, but never sooner than FAST_GAP seconds after the last report went.
+ */
+soon_within(Float:delay)
+{
+	if (!g_ready)
 	{
 		return;
 	}
-	set_task(REPORT_DELAY, "task_soon", TASK_SOON);
+	new Float:now = get_gametime();
+	new Float:due = now + delay;
+	if (due < g_report_at + FAST_GAP)
+	{
+		due = g_report_at + FAST_GAP;
+	}
+	if (task_exists(TASK_SOON) && g_soon_due <= due)
+	{
+		return;
+	}
+	remove_task(TASK_SOON);
+	g_soon_due = due;
+	set_task(due - now > 0.1 ? due - now : 0.1, "task_soon", TASK_SOON);
 }
 
 public task_soon()
 {
+	g_soon_due = 0.0;
 	send_report("event");
 }
 
@@ -818,6 +984,7 @@ send_report(const reason[])
 
 	g_sending = true;
 	g_sent_count = count;
+	g_report_at = get_gametime();
 	ezhttp_post(url, "on_report_done", opt);
 }
 
@@ -845,6 +1012,7 @@ public on_report_done(EzHttpRequest:request_id)
 			{
 				apply_actions(root);
 				apply_avatars(root);
+				apply_accounts(root);
 				apply_levels(root);
 				apply_host(root);
 				apply_proven(root);
@@ -884,8 +1052,9 @@ public on_report_done(EzHttpRequest:request_id)
 	}
 	if (g_again)
 	{
+		// what changed while it was in flight (a proof among it) goes in the next, as soon as it may
 		g_again = false;
-		soon();
+		soon_within(PROOF_REPORT);
 	}
 }
 
@@ -1730,6 +1899,9 @@ public plugin_natives()
 	register_native("h9p_report_soon", "nat_report_soon");
 	register_native("h9p_muted", "nat_muted");
 	register_native("h9p_challenge", "nat_challenge");
+	register_native("h9p_account", "nat_account");
+	register_native("h9p_account_name", "nat_account_name");
+	register_native("h9p_roles", "nat_roles");
 }
 
 public nat_ready(plugin, params)
@@ -1812,6 +1984,43 @@ public nat_muted(plugin, params)
 	return id >= 1 && id <= g_max && g_muted[id];
 }
 
+/** h9p_account(id): the slot's proven havoc9.org account (accounts.id), 0 for none. */
+public nat_account(plugin, params)
+{
+	new id = get_param(1);
+	if (id < 1 || id > g_max || !g_in[id])
+	{
+		return 0;
+	}
+	return g_acct[id];
+}
+
+/** h9p_account_name(id, out[], len): that account's username; false (and "") for no account. */
+public nat_account_name(plugin, params)
+{
+	new id = get_param(1);
+	if (id < 1 || id > g_max || !g_in[id] || !g_acct[id])
+	{
+		set_string(2, "", get_param(3));
+		return 0;
+	}
+	set_string(2, g_uname[id], get_param(3));
+	return 1;
+}
+
+/** h9p_roles(id, out[], len): its roles here, comma-separated; false (and "") for no account. */
+public nat_roles(plugin, params)
+{
+	new id = get_param(1);
+	if (id < 1 || id > g_max || !g_in[id] || !g_acct[id])
+	{
+		set_string(2, "", get_param(3));
+		return 0;
+	}
+	set_string(2, g_roles[id], get_param(3));
+	return 1;
+}
+
 // ---- the scoreboard's pictures -------------------------------------------------------------------
 
 /** H9Avatar to one client (to > 0) or to every client (0): byte slot, long account, long version. */
@@ -1887,6 +2096,30 @@ send_level(to, slot, level)
 	message_end();
 }
 
+/** H9Account to one client (to) or every client (0): a linked slot's own account number, 0 for none. */
+send_account(to, slot, account)
+{
+	if (!g_msg_account)
+	{
+		return;
+	}
+	if (to)
+	{
+		if (!is_user_connected(to) || is_user_bot(to))
+		{
+			return;
+		}
+		engfunc(EngFunc_MessageBegin, MSG_ONE, g_msg_account, Float:{0.0, 0.0, 0.0}, to);
+	}
+	else
+	{
+		engfunc(EngFunc_MessageBegin, MSG_ALL, g_msg_account, Float:{0.0, 0.0, 0.0}, 0);
+	}
+	write_byte(slot);
+	write_long(account);
+	message_end();
+}
+
 /** The answer's "levels": { "<slot>": level }, for proven players; a slot not there has none. */
 apply_levels(EzJSON:root)
 {
@@ -1950,6 +2183,83 @@ apply_avatars(EzJSON:root)
 }
 
 /**
+ * The answer's "accounts": { "<slot>": account }, each linked player's own account number (h9web
+ * names the slots "avatars" names, the ones with the chain), for H9XASH's h9_profile and for other
+ * plugins (h9p_account), with "usernames" and "roles" for the same slots (h9p_account_name,
+ * h9p_roles). A slot without the chain is told none, whatever the answer says. An answer without
+ * "accounts" (an older h9web) changes nothing; one without "usernames" or "roles" (h9web before
+ * h9_presence 1.9) leaves them empty.
+ */
+apply_accounts(EzJSON:root)
+{
+	if (!ezjson_object_has_value(root, "accounts", EzJSONObject))
+	{
+		return;
+	}
+	new key[32], a, name[64], roles[96];
+	for (new id = 1; id <= g_max; id++)
+	{
+		if (!g_in[id] || g_sent_gen[id] != g_gen[id])
+		{
+			continue;
+		}
+		formatex(key, charsmax(key), "accounts.%d", id);
+		a = ezjson_object_has_value(root, key, EzJSONNumber, true) ? ezjson_object_get_number(root, key, true) : 0;
+		if (a < 0 || !g_linked[id])
+		{
+			a = 0;
+		}
+		name[0] = 0;
+		roles[0] = 0;
+		if (a)
+		{
+			formatex(key, charsmax(key), "usernames.%d", id);
+			if (ezjson_object_has_value(root, key, EzJSONString, true))
+			{
+				ezjson_object_get_string(root, key, name, charsmax(name), true);
+			}
+			formatex(key, charsmax(key), "roles.%d", id);
+			if (ezjson_object_has_value(root, key, EzJSONString, true))
+			{
+				ezjson_object_get_string(root, key, roles, charsmax(roles), true);
+			}
+		}
+		set_account(id, a, name, roles);
+	}
+}
+
+/**
+ * A slot's account (0: none), its username and its roles, as h9p_account, h9p_account_name and
+ * h9p_roles give them: every client hears in H9Account when the account changes, and the other
+ * plugins in h9p_account_changed when any of the three does.
+ */
+set_account(id, account, const name[], const roles[])
+{
+	new bool:changed = false;
+	if (account != g_acct[id])
+	{
+		g_acct[id] = account;
+		send_account(0, id, account);
+		changed = true;
+	}
+	if (!equal(name, g_uname[id]))
+	{
+		copy(g_uname[id], charsmax(g_uname[]), name);
+		changed = true;
+	}
+	if (!equal(roles, g_roles[id]))
+	{
+		copy(g_roles[id], charsmax(g_roles[]), roles);
+		changed = true;
+	}
+	if (changed)
+	{
+		new ret;
+		ExecuteForward(g_fwd_account, ret, id, account);
+	}
+}
+
+/**
  * h9web's word on this listen server's own player ("host": "proven", "known" or "unknown"),
  * logged when it changes: "unknown" is a game whose player id is no havoc9.org account's.
  */
@@ -1980,7 +2290,7 @@ apply_host(EzJSON:root)
 	}
 }
 
-/** A client that just joined: every slot's picture there is, who is linked, and each level. */
+/** A client that just joined: every slot's picture there is, who is linked, each level and account. */
 public task_avatars_to(task)
 {
 	new to = task - TASK_AVATARS;
@@ -2001,6 +2311,10 @@ public task_avatars_to(task)
 		if (g_level[id])
 		{
 			send_level(to, id, g_level[id] - 1);
+		}
+		if (g_acct[id])
+		{
+			send_account(to, id, g_acct[id]);
 		}
 	}
 }
@@ -2238,19 +2552,24 @@ detail_line(const mode[], const key[], const siege[], const attack[], const prog
 }
 
 /**
- * A side's name as ts_matchmode names it (tsm_team1_name, tsm_team2_name, up to 31 characters), or
- * MSR and Insurgents without it; short: the initials of a name of several words that is longer
- * than 12 characters ("Middle Sea Republic" is "MSR").
+ * A side's name as the game shows it: entry 1 or 2 of mp_teamlist when it is set and has that entry
+ * ("Middle Sea Republic;Insurrectionists;Spectator" on H9XASH), else ts_matchmode's
+ * tsm_team1_name or tsm_team2_name ("msr", "insurgents" on GoldSrc), else MSR and Insurgents; up to
+ * 39 characters. short: the initials of a name of several words that is longer than 12 characters
+ * ("Middle Sea Republic" is "MSR").
  */
 team_label(team, bool:short, out[], len)
 {
 	new name[40];
-	name[0] = 0;
-	new cv = get_cvar_pointer(team == 1 ? "tsm_team1_name" : "tsm_team2_name");
-	if (cv)
+	team_from_list(team, name, charsmax(name));
+	if (!name[0])
 	{
-		get_pcvar_string(cv, name, charsmax(name));
-		trim(name);
+		new cv = get_cvar_pointer(team == 1 ? "tsm_team1_name" : "tsm_team2_name");
+		if (cv)
+		{
+			get_pcvar_string(cv, name, charsmax(name));
+			trim(name);
+		}
 	}
 	if (!name[0])
 	{
@@ -2271,6 +2590,36 @@ team_label(team, bool:short, out[], len)
 		}
 	}
 	out[n] = 0;
+}
+
+/** Entry team (1 or 2) of mp_teamlist ("a;b;c"), trimmed; "" when it is not set or has no such entry. */
+team_from_list(team, out[], len)
+{
+	out[0] = 0;
+	new cv = get_cvar_pointer("mp_teamlist");
+	if (!cv)
+	{
+		return;
+	}
+	new list[192];
+	get_pcvar_string(cv, list, charsmax(list));
+	new at = 0, cut;
+	for (new i = 1; i < team; i++)
+	{
+		cut = contain(list[at], ";");
+		if (cut < 0)
+		{
+			return;
+		}
+		at += cut + 1;
+	}
+	cut = contain(list[at], ";");
+	if (cut >= 0)
+	{
+		list[at + cut] = 0;
+	}
+	copy(out, len, list[at]);
+	trim(out);
 }
 
 // ---- the JSON body ------------------------------------------------------------------------------

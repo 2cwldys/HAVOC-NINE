@@ -48,7 +48,7 @@ static const int s_weaponColumn[] = {
 	/*24 m61       */ 1, /*25 knife     */ 1, /*26 mossberg  */ 4, /*27 m16       */ 4,
 	/*28 ruger     */ 2, /*29 flag      */ 1, /*30 fnh_ak    */ 5, /*31 bull      */ 2,
 	/*32 m60       */ 4, /*33 sawedoff  */ 4, /*34 katana    */ 1, /*35 sealknife */ 1,
-	/*36 contender */ 2, /*37 skorpion_ak*/5,
+	/*36 contender */ 2, /*37 skorpion_ak*/5, /*38 none      */ 0, /*39 ppsh41    */ 3,
 };
 
 // Per-tsweapon_t select-grid row (0..16), each weapon's s_weapon_info +0x85 byte, read from every
@@ -65,7 +65,7 @@ static const int s_weaponRow[] = {
 	/*24 m61       */ 1, /*25 knife     */ 3, /*26 mossberg  */ 7, /*27 m16       */ 8,
 	/*28 ruger     */ 6, /*29 flag      */ 5, /*30 fnh_ak    */ 5, /*31 bull      */ 7,
 	/*32 m60       */ 9, /*33 sawedoff  */ 10, /*34 katana    */ 2, /*35 sealknife */ 4,
-	/*36 contender */ 8, /*37 skorpion_ak*/6,
+	/*36 contender */ 8, /*37 skorpion_ak*/6, /*38 none      */ 0, /*39 ppsh41    */ 7,
 };
 
 // Per-tsweapon_t icon sprite base name → sprites/weapons/<name>.spr (the files the
@@ -75,7 +75,7 @@ static const char* const s_spriteName[] = {
 	"mk23", "mk23_akimbo", "usas12", "desert", "ak47", "fnh", "aug", "uzi_akimbo",
 	"skorpion", "m82", "pdw", "spas12", "gold", "glock22", "ump", "m61", "knife",
 	"mossberg", "m16", "ruger", "", "fnh_akimbo", "bull", "m60", "sawedoff", "katana",
-	"sealknife", "contender", "skorpion_akimbo",
+	"sealknife", "contender", "skorpion_akimbo", "", "ppsh41",
 };
 static const int TSW_COUNT_LOCAL = sizeof(s_weaponColumn) / sizeof(s_weaponColumn[0]);
 
@@ -86,7 +86,7 @@ static const int TSW_COUNT_LOCAL = sizeof(s_weaponColumn) / sizeof(s_weaponColum
 // Five-seveN->AkFiveSeven, Skorpion->AkSkorpions.
 static const int s_weaponAkimbo[] = {
 	-1, -1, 8, 16, -1, -1, -1, -1, -1, 10, -1, -1, -1, -1, 30, -1, -1, 37, -1, -1,
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 
 bool CHudTSWeaponBar::Init()
 {

@@ -1,10 +1,11 @@
 ===============================================================================
  TS MATCH MODE -- COMMAND REFERENCE
- Plugins: ts_matchmode.amxx 1.54-gameplay7   ts_uplink.amxx 1.0-modes2
+ Plugins: ts_matchmode.amxx 1.54-gameplay8   ts_uplink.amxx 1.0-modes2
           ts_survival.amxx 1.0-modes2   ts_mechwarrior.amxx 1.0-modes2
-          h9_presence.amxx 1.6   h9_motd.amxx 1.0   tsrp_roambots.amxx 1.1
-          h9_community.amxx 1.1   ts_rtv.amxx 1.0-h9.2   h9_compete.amxx 1.0
-          ts_floatchat.amxx 1.0
+          h9_presence.amxx 1.9   h9_motd.amxx 1.0   tsrp_roambots.amxx 1.3
+          h9_community.amxx 1.1   ts_rtv.amxx 1.0-h9.2   h9_compete.amxx 1.1
+          ts_floatchat.amxx 1.0   h9_rank.amxx 1.0
+          Apollo RP (ARP_*.amxx, apollo-rp\ORIGIN.txt)
 ===============================================================================
 
  Keep this file current. When a command or cvar is added, renamed or removed in
@@ -15,13 +16,18 @@
  shipped .cfg's value where that differs. The full account of each is beside it
  in its plugin's .cfg. Which game each map plays is under WHICH GAME A MAP PLAYS.
 
- EDIT CONFIGS IN D:\Downloads\TSM. build.bat copies ts_matchmode.cfg over the
- server's copy on every build, so changes made server-side are overwritten.
-
- build.bat also regenerates D:\Downloads\TSM\export -- a drop-in server package
- for setting this up on another machine. It is GENERATED; never edit it by hand.
- See export\README.txt for what is in it and how to install it.
-
+;; NOT PRINTED: a line that starts with two semicolons is a note for whoever
+;; edits this file. make_commands_cfg.ps1 leaves it out of commands.cfg, so
+;; typing "exec commands" in the game console does not show it.
+;;
+;; EDIT CONFIGS IN THE SOURCE COPY (the project's TSM folder). build.bat
+;; copies ts_matchmode.cfg over the server's copy on every build, so changes
+;; made server-side are overwritten.
+;;
+;; build.bat also regenerates export\ in that folder -- a drop-in server
+;; package for setting this up on another machine. It is GENERATED; never edit
+;; it by hand. See export\README.txt for what is in it and how to install it.
+;;
 
 ===============================================================================
  PLAYER COMMANDS  (typed in chat, available to everyone)
@@ -369,6 +375,17 @@
      web client is signed in already. Link your Account in the game's main
      menu does the same. docs\CUSTOM_XASH_USERID.txt section 2a.
 
+ .rank [name]   (also /rank, !rank, /elo, !elo)
+     Your havoc9.org rank (h9_rank.amxx), to you alone: your level, your
+     rating and place on the H9 ladder and on this server's table, and this
+     season's matches, wins and losses, kills, deaths, assists (where a
+     server counted them) and K/D; one chat line, and the whole readout in
+     your console. With a name: that player's here (part of the name will
+     do), else the havoc9.org account of that name. A bot, or a player not
+     signed in to a havoc9.org account here, has no rank; an account whose
+     SHOW MY PLAYTIME switch is off keeps its rank private, except to
+     itself. docs\H9_COMPETITIVE.txt.
+
  .relay <text>
      Says <text> to the whole community this server is in: every one of its
      servers and its page on havoc9.org show "[Tag] YourUsername: text", and
@@ -402,6 +419,18 @@
 ===============================================================================
  MATCH CONTROL  (admin, ADMIN_CFG)
 ===============================================================================
+
+ WHO IS AN ADMIN. The admin commands here and below need AMX Mod X access
+ flags -- ADMIN_CFG is the "h" flag -- which AMX Mod X gives by authid, IP or
+ name in addons\amxmodx\configs\users.ini. On H9XASH a player has no SteamID:
+ his authid is ID_ followed by a hash his own game supplies (ID_LAN on a LAN
+ server), which cannot be trusted with flags, and a havoc9.org account is no
+ authid AMX Mod X can match. Never give 127.0.0.1 flags either: web client
+ players reach a game server on the same PC through h9web's relay and arrive
+ from 127.0.0.1, so that line would make every one of them an admin. Run admin
+ commands in the server's own console, or over rcon with an rcon_password set
+ on the server. Server cvars such as amx_tsm_forcedoor are set there too:
+ typed in a player's own console they never reach a dedicated server.
 
  amx_match_start
      Force the match live without waiting for ready-up. Warns if a side is
@@ -706,6 +735,11 @@
      Watched, not blocked. Logged to tsm_debug.log so a failed join can be
      told apart from one that never arrived.
 
+ h9vgui <id> <control> <value>
+     The reply of an H9 game's panel (include\h9_vgui.inc), taken for the
+     plugin's own panels only, tsm.*. Its side and class panels answer with
+     menuselect, as the text menus do, so today it acts on none.
+
  usepowerup / powerup
      TS's powerup key, and the cheat that grants one. With tsm_no_powerups 1
      they are refused in match mode ("Powerups are off in match mode."), with
@@ -722,7 +756,7 @@
 ===============================================================================
 
  Every line the match mode says in chat starts "[MATCH]", and all of them go
- through one switch, tsm_verbosity (1). At 0 none of them is printed: round
+ through one switch, tsm_verbosity (0). At 0 none of them is printed: round
  starts and ends, picks, refusals, kill reports, all of it. Players then go by
  what they see -- the HUD, the scoreboard, and the centre texts below. .status
  and tsm_loc answer in the console at 0. The class abilities' own "[TSM]"
@@ -952,11 +986,11 @@
 ===============================================================================
 
  say /rank   (also /elo, !rank, !elo; say or say_team)
-     Your rating on this server's table and on the H9 ladder, with your rank
-     in each. Only a player whose game proves their havoc9.org player id here
-     is rated. On a rated server each player's rating is also told to
+     The same as .rank (h9_rank.amxx, under PLAYER COMMANDS): your rank, to
+     you alone. Only a player whose game proves their havoc9.org player id
+     here is rated. On a rated server each player's rating is also told to
      everyone 15 seconds after they join, when their ACCOUNT page shows their
-     numbers (SHOW MY PLAYTIME), as compts did.
+     numbers (SHOW MY PLAYTIME), as compts did (h9_compete.amxx).
 
  h9_compete_status                 (server console)
      The ladder this map plays (match, dm or off), whether h9_presence has a
@@ -1062,6 +1096,41 @@
  Survival's mutants), and each team's header row the sum of its players'
  ("9/14"). ts_matchmode sends it in the H9Lives message as values change.
 
+ SCORE. With tsm_score 1 (the default) a player's points for the match are
+ his frags: the number every scoreboard already shows in its kill column and
+ sorts by -- Steam's TS client and the GoldSrc package's as much as H9XASH's --
+ and the server's player list reads too. Each side's points are the total in
+ its header row (TS's own TeamScore), and keep what its players earned after
+ they leave. TS's own frag for a kill is not added: the points are all there
+ is. They are cleared as each match begins and stay up through the warmup
+ after it. Every point is a cvar, so a map's ts\mapconfigs\<map>.cfg can set
+ its own:
+     tsm_score_kill 2         an enemy eliminated
+     tsm_score_teamkill -3    a teammate eliminated
+     tsm_score_assist 1       an assist (the scoreboard's A)
+     tsm_score_heal 1         a medic's heal
+     tsm_score_resupply 1     an engineer's resupply that gave rounds
+     tsm_score_plant 2        the siege satchel set
+     tsm_score_objective 5    a siege objective destroyed
+     tsm_score_zone 5         an uplink zone taken (Capture the Uplink)
+     tsm_score_carry 1        every tsm_score_carry_secs (15) seconds carrying
+                              the uplink
+     tsm_score_wave 3         a survival wave cleared while still in play
+ Points are given in a round under way only. tsm_score 0 leaves TS's own
+ frags, its kills, alone. Other plugins read them with tsm_points(id) and
+ tsm_points_side(side), and a mode gives its own with tsm_points_award(id,
+ TSM_POINTS_ZONE, _CARRY or _WAVE) (include\tsm_api.inc). With tsm_logging 1
+ every award is a line in the debug log ("points: 3 +2 for an elimination").
+
+ THE H9 SCOREBOARD with points on. The H9 client (reTS) heads the frags column
+ SCORE and puts the real kills in a K column beside it: every enemy each
+ player eliminated on this map, as A and D count this map too, with each
+ team's sum in its header (ts_matchmode sends them in H9Kills, byte slot and
+ short kills; slot 0 only says the frags are points). A teamkill is no kill
+ there. Other clients show the points under their own kill heading. With
+ tsm_score 0 no H9Kills is sent, and the board is the one it always was.
+ Plugins read a player's assists with tsm_assists(id).
+
  SIEGE: A FALL GIVES THE ROUND BACK. Every objective but the last leaves the
  round going, and gives both sides back what a new round would, in the same
  round:
@@ -1130,6 +1199,8 @@
      ts_survival      fakemeta, fun
      ts_mechwarrior   nothing beyond AMXX itself
      ts_advertise     nvault, and AmxxEasyHttp (a third-party module)
+     Apollo RP        engine, fakemeta, fun, hamsandwich, tsfun, tsx, and
+                      sqlite, which ARP_Core loads itself (#pragma loadlib)
 
  AMXX loads its own modules by itself when a plugin needs one. AmxxEasyHttp has
  to be installed and listed in addons/amxmodx/configs/modules.ini.
@@ -1169,9 +1240,11 @@
  then every bot roams: random waypoints for goals, at a walk
  (tsrp_roambots_speed), a pause now and then (tsrp_roambots_pause), never a
  jump or a crouch, no pickups, nothing bought, and weapons only with
- tsrp_roambots_weapons 1. Its only enemy is whoever hurt it in this life
- (tsrp_roambots_defend), fought with its hands, and, in an insurgency
- (tsrp_roambots_insurgency), the players tsrp_roambots_insurgent_team names.
+ tsrp_roambots_weapons 1. Its only enemy is whoever hurt it
+ (tsrp_roambots_defend), fought with its hands until he dies or leaves or
+ has not hurt it for tsrp_roambots_defend_time seconds, and, in an
+ insurgency (tsrp_roambots_insurgency), the players
+ tsrp_roambots_insurgent_team names, fought with the weapon in its hands.
  It is judged by how far it gets, not how fast it moves: about 5 seconds
  without getting anywhere and it picks another goal, about 12 and it asks
  the plugin to move it (tsrp_roambots_unstick); RCBot's own stuck check never
@@ -1256,9 +1329,10 @@
  in. They keep out of homes, shops and MSR space because the map's roam
  waypoints do: they are laid in its public spaces only. Players can hurt and
  kill them (tsrp_roambots_god 1 stops that); a citizen someone hurts fights
- that one back with its hands for the rest of that life
- (tsrp_roambots_defend); a killed citizen is back at once in another district
- with another face, and its body stays where it fell.
+ that one back with its hands until he dies or leaves, or has not hurt it
+ for tsrp_roambots_defend_time seconds (tsrp_roambots_defend); a killed
+ citizen is back at once in another district with another face, and its
+ body stays where it fell.
 
  WHICH MAPS. Roleplay maps only -- rp_ or tsrp_ at the start of the name, or
  _rp_ or _tsrp_ in it, the same test that turns the match mode off -- and only
@@ -1267,10 +1341,10 @@
  back on (tsm_enabled 1).
 
  TURNING THEM ON, in the map's ts\mapconfigs\<map>.cfg, as
- h9_tsrp_newbyzantium.cfg does:
+ h9_tsrp_newbyzantium.cfg does (h9_tsrp_hive.cfg too, with the first two):
 
   tsrp_roambots 1
-  tsrp_roambots_count 12
+  tsrp_roambots_count 32
   tsrp_roambots_weapons 0
   tsrp_roambots_models "proletarian_healthy:m;proletarian:m;prole_fem:f;prole_bfem:f"
 
@@ -1310,15 +1384,26 @@
  is installed, so without them the citizens still stop, silently. A hurt
  talker, or an insurgency, ends a talk at once.
 
+ A WORD TO A PLAYER. Press +use (E) on a citizen within reach and it murmurs
+ to you, from where it stands, and turns to face you for a moment
+ (tsrp_roambots_use). Then that citizen, and you, wait
+ tsrp_roambots_use_cooldown seconds before the next. A citizen that is
+ talking, hurt in this life, or an insurgent has nothing to say.
+
  INSURGENCY. .insurgency (below) turns every citizen into an insurgent: the
  insurgent version of its face (tsrp_roambots_insurgent_models,
  "civilian:insurgent" pairs), the weapons of tsrp_roambots_insurgent_weapons
  ("id:magazines" as the class lines), and RCBot sets them on the players --
  every player who is not a bot, or, with tsrp_roambots_insurgent_team set,
  only that team's (the guards, once RP teamplay runs; never the civilians).
- A killed insurgent comes back an insurgent. .civilians kills them all and
- they come back as citizens. A mapconfig can start its map in an insurgency
- (tsrp_roambots_insurgency 1) or switch both commands off
+ They take up arms one at a time, a quarter of a second apart, as the match
+ mode arms its players: the first weapon listed is given last, so it is the
+ one in their hands and the one they fight with. A killed insurgent comes
+ back an insurgent; of everything TS throws down as it dies, only the gun
+ in its hands is left (tsrp_roambots_insurgent_drop 0: nothing). .civilians
+ puts them down the same way, one at a time, leaving nothing on the ground,
+ and they come back as citizens. A mapconfig can start its map in an
+ insurgency (tsrp_roambots_insurgency 1) or switch both commands off
  (tsrp_roambots_commands 0).
 
  .insurgency  /  .civilians        (chat, roleplay maps; an admin with the
@@ -1330,11 +1415,44 @@
      What the citizens are doing: the cvars, how many models, names, spots and
      murmurs the plugin has, every counter (ticks, postthink calls, joins
      asked, citizens adopted and sent away, spawns, placements, pickups
-     refused, weapons dropped, stuck citizens asked about, waited for and
-     moved, talks, murmurs, insurgents armed and killed), and each citizen:
-     name, model, alive, district, where and how fast, and whether it is an
-     insurgent or talking. On a map that is not a roleplay map it says it does
-     nothing there.
+     refused, weapons dropped, thrown weapons taken off the ground or left
+     because TS had slowed them, stuck citizens asked about, waited for and
+     moved, talks, murmurs, insurgents armed and put down, murmurs to
+     players on +use), whether the insurgency's pace is running, and each
+     citizen: name, model, alive, district, where and how fast, and whether
+     it is an insurgent, talking or facing a player. On a map that is not a
+     roleplay map it says it does nothing there.
+
+
+===============================================================================
+ APOLLO RP  (ARP_*.amxx; apollo-rp\ in TSM, ORIGIN.txt says from where)
+===============================================================================
+
+ Apollo RP, github.com/DouglasSherk/Apollo-RP, copied whole with H9's changes
+ (apollo-rp\H9.patch): jobs, money and a bank, items, property and door keys,
+ jail, robbing, NPCs, zones and roleplay chat. Its own help is in the game:
+ arp_help in the console, /menu in chat.
+
+ WHICH MAPS. Roleplay maps only -- rp_ or tsrp_ at the start of the name, or
+ _rp_ or _tsrp_ in it, the match mode's own test. On any other map ARP_Core
+ pauses every ARP plugin before they do anything: they stay loaded (amx_plugins
+ lists them as paused) and touch nothing, not the map, the database or a
+ player.
+
+ ITS DATA. One SQLite database, addons\amxmodx\data\sqlite3\arp.sq3 (arp.ini:
+ arp_sql_type, arp_sql_db), opened only on a roleplay map. Players' money, jobs
+ and items are shared by every roleplay map; a map's properties, doors and keys
+ are its own, in tables named after it: arp_property_<map>, arp_doors_<map>,
+ arp_keys_<map>. Its NPCs, jail, rob spots and zones are files in
+ configs\arp\maps\<map>\ -- without that folder the map runs ARP with none of
+ them, and the core logs "Configuration directory missing".
+
+ FILES. build.bat builds ARP_Core, ARP_Commands, ARP_Config, ARP_HUD,
+ ARP_HungerMod, ARP_Items, ARP_JailMod, ARP_NPCs, ARP_RobMod, ARP_TalkArea,
+ ARP_Zones and ARP_TS, lists them in plugins.ini with ARP_Core first, and
+ installs configs\arp\ (arp.ini, arp.cfg, the maps' folders), models\arp and
+ sound\arp. Edit them in apollo-rp\ in TSM: build.bat copies them over the
+ game's. "build.bat apollo" builds Apollo RP alone.
 
 
 ===============================================================================
@@ -1519,6 +1637,10 @@
  tsm_uplink_wave, not tsm_respawn_wave, sets both sides' respawn waves, and
  .reinforce resets to it too. The mode is described in docs\GAME_MODES.txt.
 
+ Score: whoever takes a zone gets tsm_score_zone, and the carrier gets
+ tsm_score_carry for every tsm_score_carry_secs seconds he carries it in a
+ live round (ts_matchmode's SCORE).
+
 
 ===============================================================================
  WAVE SURVIVAL  (ts_survival.amxx)
@@ -1539,6 +1661,9 @@
  and when he is back: at his side's next respawn (the countdown on his screen)
  or when the wave of mutants is cleared; with none left, when his side clears
  the wave. The mode says it through ts_matchmode's tsm_life_lost forward.
+
+ Score: every survivor still in play when a wave is cleared gets
+ tsm_score_wave (ts_matchmode's SCORE).
 
 
 ===============================================================================
@@ -1613,9 +1738,10 @@
                                  that slot in your web browser; a double-click
                                  on a linked player's picture (a green chain)
                                  on the scoreboard runs it. Only you, never a
-                                 server. A player with the site's default
-                                 picture has no account number in the game,
-                                 so no profile opens for them
+                                 server. On a server whose h9_presence is
+                                 older than 1.7, a player with the site's
+                                 default picture has no account number in the
+                                 game, so no profile opens for them
  cl_h9_scoreboard_scroll 0|1     a scoreboard column too long for the board
                                  even at its shortest rows scrolls (1): the
                                  mouse wheel, or PgUp/PgDn, while the board
@@ -1630,6 +1756,20 @@
                                  broken one on anyone else, H9's grey helmet
                                  on a bot; 0 leaves them out. H9's client.dll,
                                  on Steam too (docs\H9_PRESENCE.txt 4b)
+ cl_h9_vgui 0|1                  a server's panels (1): the side and class
+                                 menus on H9's purple art, in the game's
+                                 fonts, their number keys as ever; ESC
+                                 closes one. 0: text menus, and the game
+                                 tells servers so. H9's client.dll
+                                 (docs\H9_VGUI.txt)
+ cl_h9_vgui_scale <0.5-2>        the panels' size (1)
+ cl_h9_vgui_top <pixels>         how far down panels may start, from the top
+                                 of the screen: 0 for 1.5% of the height (16
+                                 px at 1080); TS's own notices stand beneath
+                                 the panels at the top (0)
+ _h9vgui                         the panel protocol this game draws, 1, or 0
+                                 with cl_h9_vgui 0: set by the game, sent to
+                                 servers
  cl_h9_site <address>            testing only: the local test site in place
                                  of https://havoc9.org, for the pictures and
                                  for linking: 127.0.0.1:<port> or
@@ -1730,7 +1870,7 @@
  TS MATCH MODE  (ts_matchmode.amxx, configs\ts_matchmode.cfg)
 
  -- the match
- tsm_verbosity             1          0: no "[MATCH]" chat line at all; the centre
+ tsm_verbosity             0          0: no "[MATCH]" chat line at all; the centre
                                       texts stay (CHAT AND CENTRE TEXTS)
  tsm_enabled               1          the match mode on. Set to 0 by the plugin
                                       on maps that are not H9's (see WHICH GAME A
@@ -1792,6 +1932,9 @@
                                       panel
  tsm_menu_delay            3          seconds after joining before the side menu
                                       is offered
+ h9_vgui                   1          an H9 game draws the side and class menus
+                                      as panels; 0: text menus for every game
+                                      (include\h9_vgui.inc, docs\H9_VGUI.txt)
 
  -- even sides and halts
  tsm_balance_gap           1          the largest allowed difference in side sizes
@@ -2046,6 +2189,22 @@
  tsm_report_kills          1          team-scoped elimination messages
  tsm_report_hp             1          with the killer's health and armour left
 
+ -- score (SCORE, above)
+ tsm_score                 1          a match's points are the frags, each side's
+                                      its header total; 0 leaves TS's own frags
+ tsm_score_kill            2          an enemy eliminated
+ tsm_score_teamkill        -3         a teammate eliminated
+ tsm_score_assist          1          an assist
+ tsm_score_heal            1          a medic's heal
+ tsm_score_resupply        1          an engineer's resupply that gave rounds
+ tsm_score_plant           2          the siege satchel set
+ tsm_score_objective       5          a siege objective destroyed
+ tsm_score_zone            5          an uplink zone taken
+ tsm_score_carry           1          every tsm_score_carry_secs seconds
+                                      carrying the uplink
+ tsm_score_carry_secs      15         seconds of carrying for tsm_score_carry
+ tsm_score_wave            3          a survival wave cleared while in play
+
  -- the server browser and the Discord card
  tsm_gamedesc              Match Mode   the browser's game name; a claimed mode's
                                       tsm_gamedesc_* stands in for it while it runs
@@ -2168,6 +2327,11 @@
                                       while after joining (once per player on
                                       this server, the vault h9_link_hints)
 
+ RANKS  (h9_rank.amxx, configs\h9_rank.cfg)
+ h9_rank_command           1          .rank answers; 0 leaves .rank alone
+ h9_rank_cooldown          5          seconds between two .rank from one
+                                      player (1 to 60)
+
  COMMUNITIES  (h9_community.amxx, configs\h9_community.cfg)
 
  h9_community_prefix       .relay     what a player types before a line for
@@ -2204,9 +2368,10 @@
  mapconfig sets)
 
  tsrp_roambots             0          1: citizens on this roleplay map
-                                      [h9_tsrp_newbyzantium 1]
+                                      [h9_tsrp_newbyzantium and h9_tsrp_hive 1]
  tsrp_roambots_count       12         how many at most; fewer when real players
-                                      need the slots [h9_tsrp_newbyzantium 12]
+                                      need the slots [h9_tsrp_newbyzantium and
+                                      h9_tsrp_hive 32]
  tsrp_roambots_reserve     2          slots always kept free for real players
                                       (at least 1)
  tsrp_roambots_weapons     0          0: unarmed, and nothing picked up; 1:
@@ -2228,8 +2393,11 @@
  tsrp_roambots_debug       0          1: log placements, refused pickups and
                                       dropped weapons
  tsrp_roambots_defend      1          1: a citizen someone hurts fights that
-                                      one back, with its hands, for the rest
-                                      of that life (RCBot reads it)
+                                      one back, with its hands, until he dies
+                                      or leaves (RCBot reads it)
+ tsrp_roambots_defend_time 30         seconds it goes on without being hurt
+                                      again before it lets him be (RCBot
+                                      reads it)
  tsrp_roambots_talk        40         percent chance that two citizens who
                                       meet stop to talk; 0: never
  tsrp_roambots_talk_range  150        how close two citizens are when they
@@ -2241,14 +2409,22 @@
                                       "civilian:insurgent" faces, ";" between
  tsrp_roambots_insurgent_weapons  13:3,22:2
                                       the insurgents' weapons, "id:magazines"
-                                      as the class lines (AK47, Glock 20)
+                                      as the class lines (AK47, Glock 20);
+                                      the first is the one in their hands
  tsrp_roambots_insurgent_team  0      0: insurgents are set on every player
                                       who is not a bot; a team number: only
                                       on that team (RCBot reads it)
+ tsrp_roambots_insurgent_drop  1      what a dying insurgent leaves on the
+                                      ground: 1 the gun in its hands, 0
+                                      nothing
  tsrp_roambots_admin_flag  h          the admin flags .insurgency and
                                       .civilians need; empty: anyone
  tsrp_roambots_commands    1          0: .insurgency and .civilians do
                                       nothing on this map (for a mapconfig)
+ tsrp_roambots_use         1          1: +use (E) on a citizen gets a murmur
+                                      from it, and it faces you a moment
+ tsrp_roambots_use_cooldown 8         seconds before that citizen, or that
+                                      player, has another
  tsrp_roambots_active      0          set by the plugin, not by hand: 1 while
                                       citizens run (RCBot reads it)
 

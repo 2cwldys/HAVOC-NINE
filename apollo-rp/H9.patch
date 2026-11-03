@@ -1,0 +1,1717 @@
+diff --git a/base/addons/amxmodx/configs/arp/maps/h9_tsrp_hive/jailmod.ini b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_hive/jailmod.ini
+new file mode 100644
+--- /dev/null
++++ b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_hive/jailmod.ini
+@@ -0,0 +1,39 @@
++; Apollo RP's jails on h9_tsrp_hive: the four cells of the Alexandria district's jail (the Jail Mod
++; plugin, ARP_JailMod). Each jail, as in example_config\jailmod.ini:
++;   [name]   as the jail menu (jailmodmenu) and the HUD show it
++;   origin   where a jailed player is put: inside the cell, on its floor
++;   command  "jail <command>" in the console puts the player you look at there
++; and the map's own controls of the cell (H9):
++;   cage     the cell's cage, the door that shuts it
++;   toggle   what opens and shuts it (the map's manager: the cage, its glass and the siren); jailing
++;            someone here shuts the cage on him, freeing him opens it
++;   panel    the cell's wall panel, a door of the locked property "h9_jail": only police open and
++;            shut the cell with it (arp_police_access)
++
++[Cell 1]
++origin "-1824 -352 -3490"
++command "1"
++cage "al_cell1"
++toggle "al_cell1mm"
++panel "al_jail1act"
++
++[Cell 2]
++origin "-1824 -608 -3490"
++command "2"
++cage "al_cell2"
++toggle "al_cell2mm"
++panel "al_jail2act"
++
++[Cell 3]
++origin "-1568 -608 -3490"
++command "3"
++cage "al_cell3"
++toggle "al_cell3mm"
++panel "al_jail3act"
++
++[Cell 4]
++origin "-1568 -352 -3490"
++command "4"
++cage "al_cell4"
++toggle "al_cell4mm"
++panel "al_jail4act"
+diff --git a/base/addons/amxmodx/configs/arp/maps/h9_tsrp_hive/zones.ini b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_hive/zones.ini
+new file mode 100644
+--- /dev/null
++++ b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_hive/zones.ini
+@@ -0,0 +1,3 @@
++; Apollo RP's zones on h9_tsrp_hive (the Zones plugin, ARP_Zones): none yet. A zone is a named box; the
++; HUD's Location line names the one a player stands in. example_config\zones.ini shows how one is
++; written.
+diff --git a/base/addons/amxmodx/configs/arp/maps/h9_tsrp_newbyzantium/jailmod.ini b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_newbyzantium/jailmod.ini
+new file mode 100644
+--- /dev/null
++++ b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_newbyzantium/jailmod.ini
+@@ -0,0 +1,2 @@
++; Apollo RP's jails on h9_tsrp_newbyzantium (the Jail Mod plugin, ARP_JailMod): none yet.
++; h9_tsrp_hive\jailmod.ini and example_config\jailmod.ini show how one is written.
+diff --git a/base/addons/amxmodx/configs/arp/maps/h9_tsrp_newbyzantium/zones.ini b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_newbyzantium/zones.ini
+new file mode 100644
+--- /dev/null
++++ b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_newbyzantium/zones.ini
+@@ -0,0 +1,3 @@
++; Apollo RP's zones on h9_tsrp_newbyzantium (the Zones plugin, ARP_Zones): none yet. A zone is a named box; the
++; HUD's Location line names the one a player stands in. example_config\zones.ini shows how one is
++; written.
+diff --git a/base/addons/amxmodx/scripting/ARP_Commands.sma b/base/addons/amxmodx/scripting/ARP_Commands.sma
+--- a/base/addons/amxmodx/scripting/ARP_Commands.sma
++++ b/base/addons/amxmodx/scripting/ARP_Commands.sma
+@@ -6,10 +6,10 @@
+ new g_EmployMenu[] = "ARP_EmployMenu"
+ new g_FineMenu[] = "ARP_FineMenu"
+ 
+-new g_Finer[33]
+-new g_Employer[33]
+-new g_JobID[33]
+-new g_Amount[33]
++new g_Finer[MAX_PLAYERS + 1]
++new g_Employer[MAX_PLAYERS + 1]
++new g_JobID[MAX_PLAYERS + 1]
++new g_Amount[MAX_PLAYERS + 1]
+ 
+ public plugin_init()
+ {	
+@@ -213,7 +213,7 @@ public CmdDeleteJob(id,level,cid)
+ 	new JobName[33],JobId = Results[0]
+ 	ARP_GetJobName(JobId,JobName,32)
+ 	
+-	new Players[32],Playersnum,Player
++	new Players[MAX_PLAYERS],Playersnum,Player
+ 	get_players(Players,Playersnum)
+ 	
+ 	for(new Count;Count < Playersnum;Count++)
+diff --git a/base/addons/amxmodx/scripting/ARP_Config.sma b/base/addons/amxmodx/scripting/ARP_Config.sma
+--- a/base/addons/amxmodx/scripting/ARP_Config.sma
++++ b/base/addons/amxmodx/scripting/ARP_Config.sma
+@@ -39,8 +39,8 @@ new const g_Keys = MENU_KEY_0|MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_K
+ 
+ //new bool:g_FirstSet
+ 
+-new g_ModMode[33]
+-new g_Checker[33]
++new g_ModMode[MAX_PLAYERS + 1]
++new g_Checker[MAX_PLAYERS + 1]
+ 
+ new g_Offline
+ 
+@@ -78,7 +78,7 @@ new g_DataTable[64] = "arp_data"
+ 
+ new p_BackupDatabase
+ 
+-new g_BackupName[33]
++new g_BackupName[MAX_PLAYERS + 1]
+ new g_BackupQueries
+ new g_TotalBackupQueries
+ 
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -9,6 +9,10 @@
+ #include <fakemeta>
+ #include <engine>
+ #include <sqlx>
++
++// H9: the SQL driver arp.ini names by default, sqlite, is loaded with the core, so it works
++// without a line in configs\modules.ini (sqlx alone would load mysql, its default).
++#pragma loadlib sqlite
+ #include <hamsandwich>
+ //#include <tsx>
+ //#include <tfcx>
+@@ -63,7 +67,7 @@ new g_Pass[64] = ""
+ new g_Db[64] = "arp"
+ new g_Type[64] = "sqlite"
+ 
+-new g_Authid[33][36]
++new g_Authid[MAX_PLAYERS + 1][36]
+ 
+ new g_PluginEnd
+ 
+@@ -90,19 +94,19 @@ new g_JobSalaries[MAX_JOBS]*/
+ new g_Query[4096]
+ new g_Cache[4096]
+ 
+-new g_BankMoney[33]
+-new g_Money[33]
+-new g_Salary[33]
+-new g_UserItemArray[33]
+-new g_UserItemNum[33]
+-new g_ItemUse[33]
+-new g_JobId[33]
+-new g_Hunger[33]
+-new g_Access[33]
+-new g_AccessCache[33]
+-new g_JobRight[33]
+-new g_BadJob[33]
+-new g_Falling[33]
++new g_BankMoney[MAX_PLAYERS + 1]
++new g_Money[MAX_PLAYERS + 1]
++new g_Salary[MAX_PLAYERS + 1]
++new g_UserItemArray[MAX_PLAYERS + 1]
++new g_UserItemNum[MAX_PLAYERS + 1]
++new g_ItemUse[MAX_PLAYERS + 1]
++new g_JobId[MAX_PLAYERS + 1]
++new g_Hunger[MAX_PLAYERS + 1]
++new g_Access[MAX_PLAYERS + 1]
++new g_AccessCache[MAX_PLAYERS + 1]
++new g_JobRight[MAX_PLAYERS + 1]
++new g_BadJob[MAX_PLAYERS + 1]
++new g_Falling[MAX_PLAYERS + 1]
+ 
+ #if defined DEBUG
+ new g_TotalQueries
+@@ -142,7 +146,9 @@ enum _:HUD_CVARS
+ 
+ new p_Hud[HUD_NUM][HUD_CVARS]
+ new g_HudObjects[HUD_NUM]
+-new TravTrie:g_HudArray[33][HUD_NUM]
++new TravTrie:g_HudArray[MAX_PLAYERS + 1][HUD_NUM]
++// H9: whether each of a player's HUDs was last sent empty (RenderHud)
++new g_HudCleared[MAX_PLAYERS + 1][HUD_NUM]
+ new g_HudPending
+ 
+ new g_Time
+@@ -152,10 +158,10 @@ new g_ItemsNum
+ 
+ new TravTrie:g_EventTrie
+ 
+-new g_Display[33] = {1,...}
++new g_Display[MAX_PLAYERS + 1] = {1,...}
+ 
+-new g_GotInfo[33]
+-new g_Saving[33]
++new g_GotInfo[MAX_PLAYERS + 1]
++new g_Saving[MAX_PLAYERS + 1]
+ /*
+ new g_ItemsNames[MAX_ITEMS][33]
+ new g_ItemsIds[MAX_ITEMS]
+@@ -175,8 +181,8 @@ new g_CommandArray
+ 
+ new g_RegisterItem
+ 
+-new g_MenuPage[33]
+-new g_CurItem[33]
++new g_MenuPage[MAX_PLAYERS + 1]
++new g_CurItem[MAX_PLAYERS + 1]
+ new g_Keys = MENU_KEY_0|MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_5|MENU_KEY_6|MENU_KEY_7|MENU_KEY_8|MENU_KEY_9
+ new g_ItemsMenu[] = "ARP_ItemsMenu"
+ new g_ItemsDrop[] = "ARP_ItemsDrop"
+@@ -191,17 +197,17 @@ new TravTrie:g_ClassArray
+ new g_PropertyArray
+ new g_PropertyNum
+ 
+-new TravTrie:g_MenuArray[33]
+-new g_MenuAccepting[33]
++new TravTrie:g_MenuArray[MAX_PLAYERS + 1]
++new g_MenuAccepting[MAX_PLAYERS + 1]
+ 
+ //new TravTrie:g_Characters[33]
+ 
+ new g_DoorArray
+ new g_DoorNum
+ 
+-new g_Joined[33]
++new g_Joined[MAX_PLAYERS + 1]
+ 
+-new Float:g_MaxSpeed[33]
++new Float:g_MaxSpeed[MAX_PLAYERS + 1]
+ 
+ new g_ConfigsDir[128]
+ 
+@@ -209,9 +215,9 @@ new g_Version[] = ARP_VERSION
+ 
+ new TravTrie:g_PluginTrie
+ 
+-new TravTrie:g_SpeedTrie[33]
+-new Float:g_SpeedOverride[33]
+-new g_SpeedOverridePlugin[33]
++new TravTrie:g_SpeedTrie[MAX_PLAYERS + 1]
++new Float:g_SpeedOverride[MAX_PLAYERS + 1]
++new g_SpeedOverridePlugin[MAX_PLAYERS + 1]
+ 
+ enum MODS
+ {
+@@ -515,7 +521,7 @@ public SaveData()
+ 		return
+ 	}
+ 	
+-	new Players[32],Playersnum
++	new Players[MAX_PLAYERS],Playersnum
+ 	get_players(Players,Playersnum)
+ 	
+ 	for(new Count;Count < Playersnum;Count++)
+@@ -779,6 +785,14 @@ public plugin_precache()
+ 	register_cvar(g_MedicalAccessCvar,"b")
+ 	register_cvar(g_AdminAccessCvar,"z")
+ 	
++	// H9: Apollo RP plays on roleplay maps only. On any other map every ARP plugin stands down
++	// here, before its precache, its init and every hook: no config, no database, no player data.
++	if(!H9_RoleplayMap())
++	{
++		H9_StandDown()
++		return
++	}
++	
+ 	new MapName[33],ConfigFile[128]
+ 	
+ 	get_configsdir(ConfigFile,127)
+@@ -810,6 +824,13 @@ public plugin_precache()
+ 		if(File)
+ 			LoadConfigFile(File)
+ 	}
++	
++	// H9: a map's properties, doors and keys are its own. Their tables carry the map's name
++	// (arp_property_<map>, arp_doors_<map>, arp_keys_<map>), so one database serves every
++	// roleplay map; players, jobs, items and data stay shared.
++	H9_MapTable(g_PropertyTable,sizeof g_PropertyTable)
++	H9_MapTable(g_DoorsTable,sizeof g_DoorsTable)
++	H9_MapTable(g_KeysTable,sizeof g_KeysTable)
+ 
+ 	if(file_exists(g_ItemModel))
+ 		precache_model(g_ItemModel)
+@@ -821,7 +842,7 @@ public plugin_precache()
+ 	
+ 	g_ItemsArray = array_create()
+ 	
+-	for(new Count;Count < 33;Count++)
++	for(new Count;Count <= MAX_PLAYERS;Count++)
+ 	{
+ 		g_MenuArray[Count] = TravTrieCreate()
+ 		//g_Characters[Count] = TravTrieCreate()
+@@ -853,6 +874,102 @@ public plugin_precache()
+ 	SqlInit()
+ }
+ 
++// H9: a roleplay map by its name, the rule of ts_matchmode's roleplay_map() and of
++// tsrp_roambots: rp_ or tsrp_ at the start, or _rp_ or _tsrp_ inside it, in any case.
++bool:H9_RoleplayMap()
++{
++	new MapName[64]
++	get_mapname(MapName,sizeof MapName - 1)
++	
++	return equali(MapName,"rp_",3) || equali(MapName,"tsrp_",5) || containi(MapName,"_rp_") != -1 || containi(MapName,"_tsrp_") != -1
++}
++
++// H9: off a roleplay map, every loaded ARP plugin (ARP_*.amxx) is paused, this core last.
++// A paused plugin stays loaded and gets no forward, hook, command or task, so none of
++// them touches the map, the database or a player; the next map loads them all afresh.
++H9_StandDown()
++{
++	new MapName[64],Own[64],File[64],Temp[2],Paused
++	get_mapname(MapName,sizeof MapName - 1)
++	get_plugin(-1,Own,sizeof Own - 1,Temp,1,Temp,1,Temp,1,Temp,1)
++	
++	for(new Plugin = get_pluginsnum() - 1;Plugin >= 0;Plugin--)
++	{
++		get_plugin(Plugin,File,sizeof File - 1,Temp,1,Temp,1,Temp,1,Temp,1)
++		if(equali(File,"ARP_",4) && !equali(File,Own))
++		{
++			pause("ac",File)
++			Paused++
++		}
++	}
++	
++	log_amx("[ARP] %s is not a roleplay map: Apollo RP stands down (%d ARP plugins paused, and the core).",MapName,Paused)
++	
++	pause("a")
++}
++
++// H9: the map's own name added to a table's: "_" and the name, lower case, with anything but
++// letters and digits as "_".
++H9_MapTable(Table[],Len)
++{
++	new MapName[64],Suffix[66]
++	get_mapname(MapName,sizeof MapName - 1)
++	
++	Suffix[0] = '_'
++	for(new Count,Char;MapName[Count];Count++)
++	{
++		Char = tolower(MapName[Count])
++		Suffix[Count + 1] = ((Char >= 'a' && Char <= 'z') || (Char >= '0' && Char <= '9')) ? Char : '_'
++	}
++	
++	add(Table,Len - 1,Suffix)
++}
++
++// H9: a property's key holders, a bit for each player slot, 32 to a cell: slots 1 to 32 in its cell
++// 8, as upstream kept them all, and each further 32 in cell H9_KEY_CELLS + 1 on (slots 33 to 64 in
++// 101, and so on), so that a player past slot 32 holds no other player's keys. A cell never written
++// is no keys.
++#define H9_KEY_CELLS 100
++#define H9_KEY_WORDS ((MAX_PLAYERS + 31) / 32)
++
++H9_KeyCell(Word)
++	return Word ? H9_KEY_CELLS + Word : 8
++
++H9_HasKey(CurArray,id)
++{
++	new Cell = H9_KeyCell((id - 1) / 32)
++	return array_isfilled(CurArray,Cell) && (array_get_int(CurArray,Cell) & (1<<((id - 1) % 32)))
++}
++
++H9_SetKey(CurArray,id,Has)
++{
++	new Cell = H9_KeyCell((id - 1) / 32),Bit = 1<<((id - 1) % 32)
++	new Bits = array_isfilled(CurArray,Cell) ? array_get_int(CurArray,Cell) : 0
++	array_set_int(CurArray,Cell,Has ? (Bits | Bit) : (Bits & ~Bit))
++}
++
++H9_ClearKeys(CurArray)
++	for(new Word;Word < H9_KEY_WORDS;Word++)
++		array_set_int(CurArray,H9_KeyCell(Word),0)
++
++H9_AnyKeys(CurArray)
++{
++	for(new Word,Cell;Word < H9_KEY_WORDS;Word++)
++	{
++		Cell = H9_KeyCell(Word)
++		if(array_isfilled(CurArray,Cell) && array_get_int(CurArray,Cell))
++			return 1
++	}
++	return 0
++}
++
++H9_CopyKeys(To,From)
++	for(new Word,Cell;Word < H9_KEY_WORDS;Word++)
++	{
++		Cell = H9_KeyCell(Word)
++		array_set_int(To,Cell,array_isfilled(From,Cell) ? array_get_int(From,Cell) : 0)
++	}
++
+ LoadConfigFile(File)
+ {
+ 	new ConfigFile[128],Left[128],Right[128]
+@@ -1083,7 +1200,7 @@ public FetchProperties(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
+ 		array_set_int(CurArray,5,Locked)
+ 		array_set_int(CurArray,6,Access)
+ 		array_set_int(CurArray,7,Profit)	
+-		array_set_int(CurArray,8,0)
++		H9_ClearKeys(CurArray)
+ 		array_set_int(CurArray,9,0)
+ 		
+ 		SQL_NextRow(Query)
+@@ -1179,6 +1296,12 @@ public FetchJobs(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
+ 		SQL_NextRow(Query)
+ 	}
+ 	
++	// H9: the job every newcomer gets, made when the database has none (a fresh one, on a map no
++	// SQL file was loaded for): no player is ever without a job, and no look-up of one reads nothing
++	new Results[1]
++	if(!ARP_FindJobId("Unemployed",Results,1) || !UTIL_ARP_ValidJobId(Results[0] - 1))
++		UTIL_ARP_AddJob("Unemployed",5,0)
++	
+ 	return PLUGIN_CONTINUE
+ }
+ 
+@@ -1190,7 +1313,7 @@ public plugin_end()
+ 	
+ 	SaveData()
+ 	
+-	new Players[32],Playersnum
++	new Players[MAX_PLAYERS],Playersnum
+ 	get_players(Players,Playersnum)
+ 	
+ 	/*
+@@ -1209,7 +1332,7 @@ public plugin_end()
+ 	}
+ 	*/
+ 	
+-	for(new Count,Count2;Count < 33;Count++)	
++	for(new Count,Count2;Count <= MAX_PLAYERS;Count++)	
+ 	{
+ 		array_destroy(g_UserItemArray[Count])
+ 		TravTrieDestroy(g_MenuArray[Count])
+@@ -1274,6 +1397,10 @@ public client_disconnect(id)
+ 
+ public SaveUserData(id,Disconnected)
+ {
++	// H9: bots are never saved (client_putinserver)
++	if(is_user_bot(id))
++		return
++	
+ 	new Data[2]
+ 	Data[0] = id
+ 	Data[1] = Disconnected
+@@ -1284,7 +1411,8 @@ public SaveUserData(id,Disconnected)
+ 	new Access[27],JobRight[27],JobName[33]
+ 	ARP_IntToAccess(g_AccessCache[id],Access,26)
+ 	ARP_IntToAccess(g_JobRight[id],JobRight,26)
+-	array_get_string(array_get_int(g_JobsArray,g_JobId[id]),1,JobName,32)
++	if(UTIL_ARP_ValidJobId(g_JobId[id]))   // H9: never the job array of a job that is not there
++		array_get_string(array_get_int(g_JobsArray,g_JobId[id]),1,JobName,32)
+ 	
+ 	get_user_authid(id,g_Authid[id],35)
+ 	if(containi(g_Authid[id],"PENDING") != -1 || containi(g_Authid[id],"LAN") != -1 || equali(g_Authid[id],"STEAM_0:0") || containi(g_Authid[id],"UNKNOWN") != -1)
+@@ -1337,7 +1465,7 @@ ClearSettings(id)
+ 	for(new Count,CurArray;Count < g_PropertyNum;Count++)
+ 	{
+ 		CurArray = array_get_int(g_PropertyArray,Count)
+-		array_set_int(CurArray,8,array_get_int(CurArray,8) & ~(1<<(id - 1)))
++		H9_SetKey(CurArray,id,0)
+ 	}
+ 	
+ 	g_UserItemNum[id] = 0
+@@ -1444,7 +1572,7 @@ public CmdBuy(id)
+ 			
+ 			if(!Return)
+ 			{
+-				new Players[32],Playersnum,Player,PlayerAuthid[36],Flag
++				new Players[MAX_PLAYERS],Playersnum,Player,PlayerAuthid[36],Flag
+ 				get_players(Players,Playersnum)
+ 				
+ 				for(new Count;Count < Playersnum;Count++)
+@@ -1483,7 +1611,7 @@ public CmdBuy(id)
+ 				array_set_string(CurArray,2,Name)
+ 				array_set_string(CurArray,3,Authid)
+ 				array_set_int(CurArray,4,0) 
+-				array_set_int(CurArray,8,0)
++				H9_ClearKeys(CurArray)
+ 				array_set_int(CurArray,9,1)
+ 				
+ 				new InternalName[64]
+@@ -1851,7 +1979,7 @@ public client_PreThink(id)
+ 				get_user_authid(id,Authid,35)
+ 				array_get_string(CurArray,3,EntAuthid,35)
+ 				
+-				if(!array_get_int(CurArray,5) || array_get_int(CurArray,8) & (1<<(id - 1)) || equali(Authid,EntAuthid) || array_get_int(CurArray,6) & g_Access[id])
++				if(!array_get_int(CurArray,5) || H9_HasKey(CurArray,id) || equali(Authid,EntAuthid) || array_get_int(CurArray,6) & g_Access[id])
+ 				{
+ 					Data[0] = id
+ 					Data[1] = Index
+@@ -2009,7 +2137,9 @@ GetMsg(id,Index)
+ 	{
+ 		static JobName[33],Name[33]
+ 		get_user_name(Index,Name,32)
+-		array_get_string(array_get_int(g_JobsArray,g_JobId[Index]),1,JobName,32)
++		JobName[0] = 0
++		if(UTIL_ARP_ValidJobId(g_JobId[Index]))   // H9: never the job array of a job that is not there
++			array_get_string(array_get_int(g_JobsArray,g_JobId[Index]),1,JobName,32)
+ 		
+ 		UTIL_ARP_ClientPrint(id,"Name: %s^nJob: %s",Name,JobName)
+ 		
+@@ -3391,7 +3521,7 @@ public _ARP_DeleteJob(Plugin,Params)
+ 
+ UTIL_ARP_DeleteJob(JobId)
+ {
+-	new Players[32],Playersnum,Player,Jobs[1]
++	new Players[MAX_PLAYERS],Playersnum,Player,Jobs[1]
+ 	get_players(Players,Playersnum)
+ 	
+ 	if(!ARP_FindJobId("Unemployed",Jobs,1))
+@@ -3457,7 +3587,7 @@ public _ARP_AddProperty(Plugin,Params)
+ 	array_set_int(CurArray,5,Locked)
+ 	array_set_int(CurArray,6,Access)
+ 	array_set_int(CurArray,7,Profit)
+-	array_set_int(CurArray,8,0)
++	H9_ClearKeys(CurArray)
+ 	array_set_int(CurArray,9,1)
+ 	
+ 	//format(g_Query,4095,"INSERT INTO %s VALUES ('%s','%s','','','%d','0','','0','','%s')",g_PropertyTable,Targetname,Name,Price,FakeMsg)
+@@ -3498,7 +3628,7 @@ public _ARP_DeleteProperty(Plugin,Params)
+ 		array_set_int(CurArray,5,array_get_int(NextArray,5))
+ 		array_set_int(CurArray,6,array_get_int(NextArray,6))
+ 		array_set_int(CurArray,7,array_get_int(NextArray,7))
+-		array_set_int(CurArray,8,array_get_int(NextArray,8))
++		H9_CopyKeys(CurArray,NextArray)
+ 		array_set_int(CurArray,9,array_get_int(NextArray,9))
+ 		
+ 		array_set_int(g_PropertyArray,Count,NextArray)
+@@ -4038,7 +4168,7 @@ public _ARP_PropertyAddAccess(Plugin,Params)
+ 	format(g_Query,4095,"INSERT INTO %s VALUES('%s|%s')",g_KeysTable,Authid,InternalName)
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 	
+-	new PlayerAuthid[36],Players[32],Playersnum,Player
++	new PlayerAuthid[36],Players[MAX_PLAYERS],Playersnum,Player
+ 	get_players(Players,Playersnum)
+ 	
+ 	for(new Count;Count < Playersnum;Count++)
+@@ -4048,7 +4178,7 @@ public _ARP_PropertyAddAccess(Plugin,Params)
+ 		
+ 		if(equali(Authid,PlayerAuthid))
+ 		{
+-			array_set_int(CurArray,8,array_get_int(CurArray,8)|(1<<(Player - 1)))
++			H9_SetKey(CurArray,Player,1)
+ 			break
+ 		}
+ 	}
+@@ -4087,7 +4217,7 @@ public _ARP_PropertyRemoveAccess(Plugin,Params)
+ 	format(g_Query,4095,"DELETE FROM %s WHERE authidkey='%s|%s'",g_KeysTable,Authid,InternalName)
+ 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 	
+-	new PlayerAuthid[36],Players[32],Playersnum,Player
++	new PlayerAuthid[36],Players[MAX_PLAYERS],Playersnum,Player
+ 	get_players(Players,Playersnum)
+ 	
+ 	for(new Count;Count < Playersnum;Count++)
+@@ -4097,7 +4227,7 @@ public _ARP_PropertyRemoveAccess(Plugin,Params)
+ 		
+ 		if(equali(Authid,PlayerAuthid))
+ 		{
+-			array_set_int(CurArray,8,array_get_int(CurArray,8) & ~(1<<(Player - 1)))
++			H9_SetKey(CurArray,Player,0)
+ 			break
+ 		}
+ 	}
+@@ -4137,12 +4267,12 @@ UTIL_ARP_PropertyClearAccess(Property)
+ 	
+ 	ARP_SqlEscape(InternalName,63)
+ 	
+-	if(array_get_int(CurArray,8))
++	if(H9_AnyKeys(CurArray))
+ 	{
+ 		format(g_Query,4095,"DELETE FROM %s WHERE authidkey LIKE '%%|%s'",g_KeysTable,InternalName)
+ 		UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+ 		
+-		array_set_int(CurArray,8,0)
++		H9_ClearKeys(CurArray)
+ 	}
+ 	
+ 	return SUCCEEDED
+@@ -4969,23 +5099,21 @@ public _ARP_ThrowError(Plugin,Params)
+ 	
+ public client_putinserver(id)
+ {
+-	if(id > 32)
+-	{
+-		id -= 32
+-		if(g_Saving[id])
+-			set_task(0.5,"client_putinserver",id + 32)
+-		
+-		return
+-	}
++	// H9: a retry comes back as id + MAX_PLAYERS (a player can be in any slot up to MAX_PLAYERS); the
++	// player is loaded once his last save is done
++	if(id > MAX_PLAYERS)
++		id -= MAX_PLAYERS
+ 	
+ 	if(g_Saving[id])
+ 	{
+-		set_task(0.5,"client_putinserver",id + 32)
++		set_task(0.5,"client_putinserver",id + MAX_PLAYERS)
+ 		return
+ 	}
+ 	
+ 	g_Joined[id] = false
+ 	g_GotInfo[id] = 0
++	for(new Hud;Hud < HUD_NUM;Hud++)
++		g_HudCleared[id][Hud] = 0
+ 	
+ 	//g_Money[id] = 0
+ 	//g_BankMoney[id] = 0
+@@ -4993,7 +5121,25 @@ public client_putinserver(id)
+ 	g_ItemUse[id] = 0
+ 	
+ 	new Authid[36],Data[1],Results[1]
+-	if(ARP_FindJobId("Unemployed",Results,1)) g_JobId[id] = Results[0]
++	// H9: ARP_FindJobId gives 1-based ids; g_JobId is 0-based
++	if(ARP_FindJobId("Unemployed",Results,1)) g_JobId[id] = Results[0] - 1
++	
++	// H9: bots are not players of the roleplay: they share one auth id, so they are neither loaded
++	// from the database nor saved to it; they are Unemployed, with nothing, for as long as they stay.
++	if(is_user_bot(id))
++	{
++		g_Money[id] = 0
++		g_BankMoney[id] = 0
++		g_Hunger[id] = 0
++		g_Access[id] = 0
++		g_AccessCache[id] = 0
++		g_JobRight[id] = 0
++		g_Salary[id] = 0
++		g_BadJob[id] = 0
++		g_UserItemNum[id] = 0
++		array_clear(g_UserItemArray[id])
++		return
++	}
+ 	
+ 	get_user_authid(id,Authid,35)
+ 	Data[0] = id
+@@ -5050,8 +5196,9 @@ public FetchClientData(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
+ 		
+ 		Results[0] -= 1
+ 		
+-		//if(!UTIL_ARP_ValidJobId(Results[0]))
+-		//	Results[0] = ARP_AddJob("Unemployed",5,0) - 1
++		// H9: a database without the job gets it here (UTIL_ARP_AddJob gives the 0-based id)
++		if(!UTIL_ARP_ValidJobId(Results[0]))
++			Results[0] = UTIL_ARP_AddJob("Unemployed",5,0)
+ 		
+ 		g_Money[id] = StartMoney
+ 		g_Hunger[id] = 0
+@@ -5098,7 +5245,7 @@ public FetchClientData(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
+ 		
+ 		ARP_FindJobId("Unemployed",Results,1)
+ 		if(!UTIL_ARP_ValidJobId(Results[0] - 1))
+-			Results[0] = UTIL_ARP_AddJob("Unemployed",5,0)
++			Results[0] = UTIL_ARP_AddJob("Unemployed",5,0) + 1   // H9: + 1, the 1-based id
+ 			
+ 		g_JobId[id] = Results[0] - 1
+ 		g_Salary[id] = 5
+@@ -5111,7 +5258,7 @@ public FetchClientData(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
+ 		
+ 		ARP_FindJobId("Unemployed",Results,1)
+ 		if(!UTIL_ARP_ValidJobId(Results[0] - 1))
+-			Results[0] = UTIL_ARP_AddJob("Unemployed",5,0)
++			Results[0] = UTIL_ARP_AddJob("Unemployed",5,0) + 1   // H9: + 1, the 1-based id
+ 			
+ 		g_JobId[id] = Results[0] - 1
+ 		g_Salary[id] = 5
+@@ -5210,7 +5357,7 @@ public FetchClientKeys(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
+ 		
+ 		Property = UTIL_ARP_MatchProperty(InternalName)
+ 		if(Property != -1)		
+-			array_set_int(array_get_int(g_PropertyArray,Property),8,array_get_int(array_get_int(g_PropertyArray,Property),8)|(1<<(id - 1)))
++			H9_SetKey(array_get_int(g_PropertyArray,Property),id,1)
+ 		
+ 		SQL_NextRow(Query)
+ 	}
+@@ -5282,7 +5429,7 @@ public ShowHud()
+ 	if(g_Time <= 0)
+ 		g_Time = StartTime
+ 	
+-	new Players[32],Playersnum,Player/*,Pos*/,Retn,Fwd
++	new Players[MAX_PLAYERS],Playersnum,Player/*,Pos*/,Retn,Fwd
+ 		
+ 	get_players(Players,Playersnum)
+ 	
+@@ -5387,6 +5534,12 @@ RenderHud(id,Hud)
+ 		ShowSyncHudMsg(id,g_HudObjects[Hud],"%s",g_Query)
+ 	}*/
+ 	
++	// H9: a HUD with nothing to show is cleared once and not sent again until it has something, so
++	// ARP holds only the HUD channels it is using and leaves the rest to every other HUD text
++	if(!g_Query[0] && g_HudCleared[id][Hud])
++		return
++	g_HudCleared[id][Hud] = !g_Query[0]
++	
+ 	set_hudmessage(get_pcvar_num(p_Hud[Hud][R]),get_pcvar_num(p_Hud[Hud][G]),get_pcvar_num(p_Hud[Hud][B]),get_pcvar_float(p_Hud[Hud][X]),get_pcvar_float(p_Hud[Hud][Y]),0,0.0,999999.9,0.0,0.0,-1)
+ 	ShowSyncHudMsg(id,g_HudObjects[Hud],"%s",g_Query)
+ }
+@@ -5799,7 +5952,7 @@ UTIL_ARP_AddHudItem(id,Channel,Message[],Refresh)
+ 	
+ 	if(id == -1)
+ 	{
+-		new Players[32],Playersnum
++		new Players[MAX_PLAYERS],Playersnum
+ 		get_players(Players,Playersnum)
+ 		for(new Count;Count < Playersnum;Count++)
+ 			AddItem(Players[Count],Channel,Message,Refresh)
+diff --git a/base/addons/amxmodx/scripting/ARP_HungerMod.sma b/base/addons/amxmodx/scripting/ARP_HungerMod.sma
+--- a/base/addons/amxmodx/scripting/ARP_HungerMod.sma
++++ b/base/addons/amxmodx/scripting/ARP_HungerMod.sma
+@@ -14,8 +14,8 @@ new g_Steak
+ 
+ new p_HungerEnabled
+ 
+-new g_Starving[33]
+-new g_Eating[33]
++new g_Starving[MAX_PLAYERS + 1]
++new g_Eating[MAX_PLAYERS + 1]
+ 
+ public ARP_Init()
+ {
+@@ -35,7 +35,7 @@ public CheckHunger()
+ {
+ 	if(!get_pcvar_num(p_HungerEnabled)) return
+ 	
+-	new Players[32],Playersnum,id,Hunger
++	new Players[MAX_PLAYERS],Playersnum,id,Hunger
+ 	get_players(Players,Playersnum)
+ 	
+ 	for(new Count;Count < Playersnum;Count++)
+@@ -70,7 +70,7 @@ public SetHunger()
+ {
+ 	if(!get_pcvar_num(p_HungerEnabled) || random_num(0,5)) return
+ 	
+-	new Players[32],Playersnum,id
++	new Players[MAX_PLAYERS],Playersnum,id
+ 	get_players(Players,Playersnum)
+ 	
+ 	for(new Count;Count < Playersnum;Count++)
+diff --git a/base/addons/amxmodx/scripting/ARP_Items.sma b/base/addons/amxmodx/scripting/ARP_Items.sma
+--- a/base/addons/amxmodx/scripting/ARP_Items.sma
++++ b/base/addons/amxmodx/scripting/ARP_Items.sma
+@@ -15,13 +15,13 @@
+ new g_LockMenu[] = "ARP_LockMenu"
+ new g_Keys = MENU_KEY_0|MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_5|MENU_KEY_6|MENU_KEY_7|MENU_KEY_8|MENU_KEY_9
+ 
+-new g_Pick[33]
+-new g_Tazered[33]
+-new g_Color[33][3]
+-new g_Attachments[33]
+-new g_Gun[33]
++new g_Pick[MAX_PLAYERS + 1]
++new g_Tazered[MAX_PLAYERS + 1]
++new g_Color[MAX_PLAYERS + 1][3]
++new g_Attachments[MAX_PLAYERS + 1]
++new g_Gun[MAX_PLAYERS + 1]
+ 
+-new Float:g_LastTazer[33]
++new Float:g_LastTazer[MAX_PLAYERS + 1]
+ 
+ enum SMOKING
+ {
+@@ -29,11 +29,11 @@ enum SMOKING
+ 	TIME
+ }
+ 
+-new g_Smoking[33][SMOKING]
+-new g_Alcohol[33]
++new g_Smoking[MAX_PLAYERS + 1][SMOKING]
++new g_Alcohol[MAX_PLAYERS + 1]
+ 
+-new g_Taped[33]
+-new g_Roped[33]
++new g_Taped[MAX_PLAYERS + 1]
++new g_Roped[MAX_PLAYERS + 1]
+ 
+ new g_Smoke
+ new g_Lightning
+@@ -49,7 +49,7 @@ new g_HitSound[] = "debris/bustmetal2.wav"
+ new g_Model[] = "models/ceilinggibs.mdl"
+ new g_ModelId
+ 
+-new g_Flashlight[33]
++new g_Flashlight[MAX_PLAYERS + 1]
+ 
+ new g_Cigarette
+ new g_Cigar
+@@ -84,7 +84,9 @@ new g_Minigun
+ 
+ new g_DoorC2
+ 
+-new g_AssassinKnife[33]
++new g_AssassinKnife[MAX_PLAYERS + 1]
++// H9: Ham_TakeDamage hits on players this map (_Ham_TakeDamage logs the first)
++new g_H9DamageHits
+ 
+ enum MODS
+ {
+@@ -291,7 +293,7 @@ public _Debit(id,ItemId)
+ 	
+ public AlcoholCheck()
+ {
+-	new Players[32],Playersnum,Player,Command[12]
++	new Players[MAX_PLAYERS],Playersnum,Player,Command[12]
+ 	get_players(Players,Playersnum,"ac")
+ 	
+ 	for(new Count;Count < Playersnum;Count++)
+@@ -690,7 +692,7 @@ public LockMenuHandle(id,Key)
+ 
+ public _Flashbang(id,ItemId)
+ {
+-	new Players[32],Playersnum,Player,Float:tOrigin[3],Float:pOrigin[3]
++	new Players[MAX_PLAYERS],Playersnum,Player,Float:tOrigin[3],Float:pOrigin[3]
+ 	get_players(Players,Playersnum,"ac")
+ 	
+ 	entity_get_vector(id,EV_VEC_origin,pOrigin)
+@@ -839,7 +841,7 @@ public _Flashlight(id,ItemId)
+ 
+ public Flashlight()
+ {
+-	static Players[32],Playersnum,Player
++	static Players[MAX_PLAYERS],Playersnum,Player
+ 	get_players(Players,Playersnum,"a")
+ 	
+ 	for(new Count;Count < Playersnum;Count++)
+@@ -876,6 +878,10 @@ public _AssassinKnife(id,ItemId)
+ 
+ public _Ham_TakeDamage(id,Inflictor,Attacker,Float:Damage,DamageBits)
+ {
++	// H9: the proof this hook is delivered on this game: the first hit of each map is logged.
++	if(!g_H9DamageHits++)
++		log_amx("[ARP] Items: Ham_TakeDamage on player is delivered here, so the assassin knife works.")
++	
+ 	if(!is_user_alive(id) || !is_user_alive(Attacker) || !g_AssassinKnife[Attacker])
+ 		return HAM_IGNORED
+ 	
+@@ -1043,7 +1049,7 @@ public _Acid(id,ItemId)
+ 	set_pev(id,pev_health,float(clamp(floatround(Health + 50.0),0,200)))
+ 	
+ 	for(new Float:Count = 0.25;Count <= 180.0;Count += 0.5)
+-		set_task(Count,"Hallucinate",id + 32)
++		set_task(Count,"Hallucinate",id + MAX_PLAYERS)   // H9: MAX_PLAYERS, the slots there are
+ 	
+ 	set_task(181.0,"ClearEffects",id)
+ 	
+@@ -1066,7 +1072,7 @@ public ScreenPulse(id)
+ public ClearEffects(id)
+ {
+ 	//set_pev(id,pev_maxspeed,g_MaxSpeed[id])
+-	if(id > 32)
++	if(id > MAX_PLAYERS)   // H9: any slot is a player
+ 	{
+ 		id -= TASK_MULTIPLE
+ 		ARP_SetUserSpeed(id,Speed_Mul,2.0)
+@@ -1082,9 +1088,9 @@ public ClearEffects(id)
+ public Hallucinate(id)
+ {
+ 	new Mode
+-	if(id > 32)
++	if(id > MAX_PLAYERS)   // H9: any slot is a player
+ 	{
+-		id -= 32
++		id -= MAX_PLAYERS
+ 		Mode = 1
+ 		
+ 		set_rendering(id,kRenderFxGlowShell,random_num(0,255),random_num(0,255),random_num(0,255),kRenderNormal,16)
+diff --git a/base/addons/amxmodx/scripting/ARP_JailMod.sma b/base/addons/amxmodx/scripting/ARP_JailMod.sma
+--- a/base/addons/amxmodx/scripting/ARP_JailMod.sma
++++ b/base/addons/amxmodx/scripting/ARP_JailMod.sma
+@@ -13,7 +13,7 @@
+ 
+ #define ON_CHECK(%1) if(!get_pcvar_num(p_Mode)) return %1
+ 
+-new Class:g_Class[33]
++new Class:g_Class[MAX_PLAYERS + 1]
+ 
+ new p_Reconnect
+ new p_Death
+@@ -24,18 +24,26 @@ new p_Table
+ new g_JailNames[MAX_JAILS][33]
+ new Float:g_JailOrigins[MAX_JAILS][3]
+ new g_JailCommands[MAX_JAILS][32]
++// H9: a jail's own controls in the map, each one optional (jailmod.ini): its cage, the door that
++// shuts it; what opens and shuts it, fired to shut the cage on whoever is jailed there and to open
++// it for whoever is freed; and the panel police use to open and shut it by hand, a door of the
++// locked property g_JailProperty, which only police may use
++new g_JailCage[MAX_JAILS][33]
++new g_JailToggle[MAX_JAILS][33]
++new g_JailPanel[MAX_JAILS][33]
++new g_JailProperty[] = "h9_jail"
+ new g_JailNum
+ 
+ new g_Menu[] = "JailModMenu"
+ new g_Keys
+ 
+-new g_MenuPage[33]
++new g_MenuPage[MAX_PLAYERS + 1]
+ 
+-new g_Died[33]
++new g_Died[MAX_PLAYERS + 1]
+ 
+ new g_Flag
+ 
+-new Float:g_MaxSpeed[33]
++new Float:g_MaxSpeed[MAX_PLAYERS + 1]
+ 
+ new g_PluginEnd
+ 
+@@ -289,8 +297,13 @@ public ARP_Init()
+ 		g_Keys += (1<<Count)
+ 	
+ 	new File = ARP_FileOpen("jailmod.ini","r")
++	// H9: a map without a jail file of its own has no jails; cuffing and the menu work all the same
+ 	if(!File)
+-		return set_fail_state("Could not open jail file")
++	{
++		log_amx("[ARP] Jail Mod: no jailmod.ini for this map, so it has no jails.")
++		register_menucmd(register_menuid(g_Menu),g_Keys,"MenuHandle")
++		return PLUGIN_CONTINUE
++	}
+ 		
+ 	new Buffer[128],Left[33],Right[33],Origins[3][11]
+ 	while(!feof(File) && g_JailNum < MAX_JAILS)
+@@ -327,15 +340,80 @@ public ARP_Init()
+ 			
+ 			copy(g_JailCommands[g_JailNum],32,Right)
+ 		}
++		// H9: the map's own controls of the cell
++		else if(equali(Buffer,"cage",4) || equali(Buffer,"toggle",6) || equali(Buffer,"panel",5))
++		{
++			parse(Buffer,Left,32,Right,32)
++			remove_quotes(Right)
++			trim(Right)
++			
++			if(equali(Left,"cage"))
++				copy(g_JailCage[g_JailNum],32,Right)
++			else if(equali(Left,"toggle"))
++				copy(g_JailToggle[g_JailNum],32,Right)
++			else if(equali(Left,"panel"))
++				copy(g_JailPanel[g_JailNum],32,Right)
++		}
+ 	}	
+ 	
+ 	fclose(File)
+ 	
+ 	register_menucmd(register_menuid(g_Menu),g_Keys,"MenuHandle")
+ 	
++	H9_JailPanels()
++	
+ 	return PLUGIN_CONTINUE
+ }
+ 
++// H9: the jails' panels are the doors of one property of the map, g_JailProperty: locked, and open
++// to police (arp_police_access) alone. Made the first time a map's jail file names panels, and kept
++// in the map's own tables from then on.
++H9_JailPanels()
++{
++	new Any
++	for(new Count = 1;Count <= g_JailNum;Count++)
++		if(g_JailPanel[Count][0])
++			Any = 1
++	if(!Any)
++		return
++	
++	if(!ARP_ValidPropertyName(g_JailProperty))
++	{
++		new Access[JOB_ACCESSES + 1]
++		get_cvar_string(g_PoliceAccessCvar,Access,JOB_ACCESSES)
++		ARP_AddProperty(g_JailProperty,"Jail","","",0,1,ARP_AccessToInt(Access),0)
++	}
++	
++	for(new Count = 1;Count <= g_JailNum;Count++)
++		if(g_JailPanel[Count][0] && !ARP_ValidDoorName(g_JailPanel[Count]))
++			ARP_AddDoor(g_JailPanel[Count],0,g_JailProperty)
++}
++
++// H9: jail Num's cage shut (Shut 1) or opened (0), by firing what opens and shuts it, when the
++// jail has both and the cage is not that way already nor moving. The cage is a door: at rest where
++// it shuts the cell (its origin 0 0 0) or moved off it, open. By is the player it is done for.
++H9_SetCage(Num,Shut,By)
++{
++	if(Num < 1 || Num > g_JailNum || !g_JailCage[Num][0] || !g_JailToggle[Num][0])
++		return
++	
++	new Cage = find_ent_by_tname(0,g_JailCage[Num]),Toggle = find_ent_by_tname(0,g_JailToggle[Num])
++	if(Cage <= 0 || Toggle <= 0)
++		return
++	
++	new Float:Origin[3],Float:Velocity[3]
++	entity_get_vector(Cage,EV_VEC_origin,Origin)
++	entity_get_vector(Cage,EV_VEC_velocity,Velocity)
++	if(vector_length(Velocity) > 0.0)
++		return
++	
++	new Open = vector_length(Origin) > 1.0
++	if(Open != Shut)
++		return
++	
++	force_use(By,Toggle)
++}
++
+ public EventDeathMsg()
+ {	
+ 	ON_CHECK()
+@@ -372,13 +450,14 @@ public JailCommand(id)
+ 	{
+ 		if(equali(Arg,g_JailCommands[Count]))
+ 		{
+-			for(new Count2;Count2 < g_JailNum;Count2++)
++			// H9: jails are numbered from 1, as the menu has them
++			for(new Count2 = 1;Count2 <= g_JailNum;Count2++)
+ 				if(equali(g_JailCommands[Count],g_JailCommands[Count2]))
+ 					List[Num++] = Count2
+ 			
+ 			Count = List[random_num(0,Num - 1)]
+ 			
+-			PutInJail(id,Index,Count - 1)
++			PutInJail(id,Index,Count)
+ 			
+ 			break
+ 		}
+@@ -421,6 +500,7 @@ public EventResetHUD(id)
+ 	{
+ 		// get back in jail
+ 		entity_set_origin(id,g_JailOrigins[Jail])
++		H9_SetCage(Jail,1,id)
+ 		
+ 		client_print(id,print_chat,"[ARP] You are in jail.")
+ 	}
+@@ -519,6 +599,8 @@ PutInJail(id,Index,Num)
+ 		return
+ 	
+ 	entity_set_origin(Index,g_JailOrigins[Num])
++	// H9: and its cage shut on him
++	H9_SetCage(Num,1,id)
+ 
+ 	new Name[33],JailerName[33]
+ 	get_user_name(Index,Name,32)
+@@ -537,7 +619,8 @@ PutInJail(id,Index,Num)
+ 			
+ FreePlayer(id,Index)
+ {
+-	if(!IsJailed(Index) || !get_pcvar_num(p_Reconnect))
++	new Jail = IsJailed(Index)
++	if(!Jail || !get_pcvar_num(p_Reconnect))
+ 		return PLUGIN_CONTINUE
+ 	
+ 	new Name[33],JailerName[33]
+@@ -553,6 +636,8 @@ FreePlayer(id,Index)
+ 	ARP_Log("Jail: ^"%s<%d><%s><> freed player ^"%s<%d><%s><>^"",JailerName,get_user_userid(id),JailerAuthid,Name,get_user_userid(Index),Authid)
+ 	
+ 	ARP_ClassSetInt(g_Class[Index],"jail",0)
++	// H9: and his cage opened
++	H9_SetCage(Jail,0,id)
+ 	
+ 	return PLUGIN_HANDLED
+ }
+diff --git a/base/addons/amxmodx/scripting/ARP_NPCs.sma b/base/addons/amxmodx/scripting/ARP_NPCs.sma
+--- a/base/addons/amxmodx/scripting/ARP_NPCs.sma
++++ b/base/addons/amxmodx/scripting/ARP_NPCs.sma
+@@ -37,13 +37,14 @@ enum SELLING
+ 	LICENSE
+ }
+ 
+-#define MAX_WEAPONS 38
++// H9: H9's TSX numbers 0 to 38 (tsconst.inc), the throwing knife 38
++#define MAX_WEAPONS 39
+ new g_WeaponAmmo[MAX_WEAPONS] =
+ {
+-	0,//"",
++	0,//"kung_fu" (H9: 0 in H9's TSX)
+ 	210,//"glock18",
+-	// what the fuck is this anyway?
+-	0,//"unk1",
++	// H9: 2 is the Beretta 92F (TSW_BERETTA), on 9mm Parabellum as the akimbo pair
++	210,//"beretta",
+ 	210,//"uzi",
+ 	60,//"m3",
+ 	90,//"m4a1",
+@@ -77,8 +78,9 @@ new g_WeaponAmmo[MAX_WEAPONS] =
+ 	60,//"sawed_off",
+ 	0,//"katana",
+ 	0,//"sknife",
+-	0,//"kung_fu",
+-	0//"tknife"
++	35,//"contender" (H9: 36)
++	210,//"askorpion" (H9: 37, the akimbo Skorpions, as the Skorpion here)
++	0//"tknife" (H9: 38)
+ }
+ 
+ // the max possible in any given area is 44 assuming
+@@ -100,7 +102,7 @@ new g_NpcId[50]
+ //new Float:g_Time[50]
+ //new g_Extra[50][50]
+ 
+-new g_MenuPage[33]
++new g_MenuPage[MAX_PLAYERS + 1]
+ new g_Keys = MENU_KEY_0|MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_5|MENU_KEY_6|MENU_KEY_7|MENU_KEY_8|MENU_KEY_9
+ new g_EdekaMenu[] = "ARP_EdekaMenu"
+ new g_BankMenu[] = "ARP_BankMenu"
+@@ -111,7 +113,7 @@ new g_GunshopMenu[] = "ARP_GunshopMenu"
+ new g_GunshopUseMenu[] = "ARP_GunshopUseMenu"
+ 
+ // for ATM machines/gunshop
+-new g_Mode[33]
++new g_Mode[MAX_PLAYERS + 1]
+ 
+ new g_ModeNames[GUNSHOP_MODES][] =
+ {
+@@ -125,9 +127,9 @@ new g_ModeNames[GUNSHOP_MODES][] =
+ #endif
+ }
+ 
+-new g_CurNpc[33]
+-new g_CurNpcId[33]
+-new Float:g_MaxSpeed[33]
++new g_CurNpc[MAX_PLAYERS + 1]
++new g_CurNpcId[MAX_PLAYERS + 1]
++new Float:g_MaxSpeed[MAX_PLAYERS + 1]
+ 
+ new p_FillCost
+ new p_ProfitFraction
+@@ -1165,108 +1167,5 @@ FindNpc(Ent)
+ 	return FAILED
+ }
+ 
+- // Avalanches Ammo Code (Thanks for letting me use it)
+- // Set a user's ammo amount
+- public ts_setuserammo(id,weapon,ammo) {
+-
+-   // Kung Fu
+-   if(weapon == 36) {
+-     client_cmd(id,"weapon_0"); // switch to kung fu
+-     return 0; // stop now
+-   }
+-
+-   // Invalid Weapon
+-   if(weapon < 0 || weapon > 35) {
+-     return 0; // stop now
+-   }
+-
+-   client_cmd(id,"weapon_%d",weapon); // switch to whatever weapon
+-
+-   // C4 or Katana
+-   if(weapon == 29 || weapon == 34) {
+-     return 0; // stop now
+-   }
+-
+-   // TS AMMO OFFSETS
+-   new tsweaponoffset[37];
+-   tsweaponoffset[1] = 51; // Glock18
+-   tsweaponoffset[3] = 50; // Uzi
+-   tsweaponoffset[4] = 52; // M3
+-   tsweaponoffset[5] = 53; // M4A1
+-   tsweaponoffset[6] = 50; // MP5SD
+-   tsweaponoffset[7] = 50; // MP5K
+-   tsweaponoffset[8] = 50; // Beretta
+-   tsweaponoffset[9] = 51; // Socom
+-   tsweaponoffset[11] = 52; // USAS
+-   tsweaponoffset[12] = 59; // Desert Eagle
+-   tsweaponoffset[13] = 55; // AK47
+-   tsweaponoffset[14] = 56; // Fiveseven
+-   tsweaponoffset[15] = 53; // Steyr AUG
+-   tsweaponoffset[17] = 61; // Skorpion
+-   tsweaponoffset[18] = 57; // Barret
+-   tsweaponoffset[19] = 56; // Mp7
+-   tsweaponoffset[20] = 52; // Spas
+-   tsweaponoffset[21] = 51; // Golden Colts
+-   tsweaponoffset[22] = 58; // Glock20
+-   tsweaponoffset[23] = 51; // UMP
+-   tsweaponoffset[24] = 354; // M61 Grenade
+-   tsweaponoffset[25] = 366; // Combat Knife
+-   tsweaponoffset[26] = 52; // Mossberg
+-   tsweaponoffset[27] = 53; // M16
+-   tsweaponoffset[28] = 59; // Ruger Mk1
+-   tsweaponoffset[31] = 60; // Raging Bull
+-   tsweaponoffset[32] = 53; // M60
+-   tsweaponoffset[33] = 52; // Sawed Off
+-   tsweaponoffset[35] = 486; // Seal Knife
+-   tsweaponoffset[36] = 62; // Contender
+-
+-   new currentent = -1, tsgun = 0; // used for getting user's weapon_tsgun
+-
+-   // get origin
+-   new Float:origin[3];
+-   entity_get_vector(id,EV_VEC_origin,origin);
+-
+-   // loop through "user's" entities (whatever is stuck to user, basically)
+-   while((currentent = find_ent_in_sphere(currentent,origin,Float:1.0)) != 0) {
+-     new classname[32];
+-     entity_get_string(currentent,EV_SZ_classname,classname,31);
+-
+-     if(equal(classname,"weapon_tsgun")) { // Found weapon_tsgun
+-       tsgun = currentent; // remember it
+-     }
+-
+-   }
+-
+-   // Couldn't find weapon_tsgun
+-   if(tsgun == 0) {
+-     return 0; // stop now
+-   }
+-
+-   // Get some of their current settings
+-   new currclip, currammo, currmode, currextra;
+-   ts_getuserwpn(id,currclip,currammo,currmode,currextra);
+-
+-   set_pdata_int(tsgun,tsweaponoffset[weapon],ammo); // set their ammo
+-
+-   // Grenade or knife, set clip
+-   if(weapon == 24 || weapon == 25 || weapon == 35) {
+-     set_pdata_int(tsgun,41,ammo); // special clip storage
+-     set_pdata_int(tsgun,839,ammo); // more special clip storage
+-     currclip = ammo; // change what we send to WeaponInfo
+-     ammo = 0; // once again, change what we send to WeaponInfo
+-   }
+-   else { // Not a grenade or knife, set ammo
+-     set_pdata_int(tsgun,850,ammo); // special ammo storage
+-   }
+-
+-   // Update user's HUD
+-   message_begin(MSG_ONE,get_user_msgid("WeaponInfo"),{0,0,0},id);
+-   write_byte(weapon);
+-   write_byte(currclip);
+-   write_short(ammo);
+-   write_byte(currmode);
+-   write_byte(currextra);
+-   message_end();
+-
+-   return 1; // wooh!
+- }
+\ No newline at end of file
++// TS ammo: TSX's native ts_setuserammo (tsfun.inc), which H9's AMX Mod X provides for TS 3.0 and
++// reTS alike, in place of the TS 3.0 private-data writer that stood here.
+\ No newline at end of file
+diff --git a/base/addons/amxmodx/scripting/ARP_RobMod.sma b/base/addons/amxmodx/scripting/ARP_RobMod.sma
+--- a/base/addons/amxmodx/scripting/ARP_RobMod.sma
++++ b/base/addons/amxmodx/scripting/ARP_RobMod.sma
+@@ -711,7 +711,7 @@ public ExecuteStep()
+ 
+ UseEnt(Ent)
+ {
+-	new Players[32],Playersnum
++	new Players[MAX_PLAYERS],Playersnum
+ 	get_players(Players,Playersnum)
+ 
+ 	new id = Players[0]
+diff --git a/base/addons/amxmodx/scripting/ARP_TS.sma b/base/addons/amxmodx/scripting/ARP_TS.sma
+--- a/base/addons/amxmodx/scripting/ARP_TS.sma
++++ b/base/addons/amxmodx/scripting/ARP_TS.sma
+@@ -25,9 +25,9 @@ new g_AttachMenu[] = "ARP_AttachMenu"
+ 
+ new g_Keys = MENU_KEY_0|MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_5|MENU_KEY_6|MENU_KEY_7|MENU_KEY_8|MENU_KEY_9
+ 
+-new g_Attachments[33]
+-new g_Gun[33]
+-new g_Cell[33]
++new g_Attachments[MAX_PLAYERS + 1]
++new g_Gun[MAX_PLAYERS + 1]
++new g_Cell[MAX_PLAYERS + 1]
+ 
+ enum WEAPON
+ {
+@@ -73,17 +73,18 @@ new g_GunStats[TS_MAX_WEAPONS][WEAPON] =
+ 	{77,TSA_LASERSIGHT},
+ 	{78,0},
+ 	{79,0},
++	// H9: 36 the Contender, 37 the akimbo Skorpions, 38 the throwing knife (H9's TSX, tsconst.inc)
++	{80,TSA_LASERSIGHT|TSA_SCOPE},
+ 	{0,0},
+-	{0,0},
+-	{80,TSA_LASERSIGHT|TSA_SCOPE}
++	{0,0}
+ }
+ 
+ new g_WeaponAmmo[TS_MAX_WEAPONS] =
+ {
+-	0,//"",
++	0,//"kungfu" (H9: 0 in H9's TSX)
+ 	210,//"glock18",
+-	// what the fuck is this anyway?
+-	0,//"unk1",
++	// H9: 2 is the Beretta 92F (TSW_BERETTA), on 9mm Parabellum as the akimbo pair
++	210,//"beretta",
+ 	210,//"uzi",
+ 	60,//"m3",
+ 	90,//"m4a1",
+@@ -117,17 +118,17 @@ new g_WeaponAmmo[TS_MAX_WEAPONS] =
+ 	60,//"sawed_off",
+ 	0,//"katana",
+ 	0,//"sknife",
+-	0,//"kungfu",
+-	0,//"tknife",
+-	35,//"contender"	
++	35,//"contender" (H9: 36)
++	300,//"askorpion" (H9: 37, the akimbo Skorpions, as the Skorpion)
++	0//"tknife" (H9: 38)
+ }
+ 
+ new g_AmmoTypes[TS_MAX_WEAPONS] =
+ {
+-	0,//"",
++	0,//"kungfu" (H9: 0 in H9's TSX)
+ 	1,//"glock18",
+-	// what the fuck is this anyway?
+-	0,//"unk1",
++	// H9: 2 is the Beretta 92F (TSW_BERETTA), on 9mm Parabellum as the akimbo pair
++	1,//"beretta",
+ 	1,//"uzi",
+ 	2,//"m3",
+ 	3,//"m4a1",
+@@ -161,9 +162,9 @@ new g_AmmoTypes[TS_MAX_WEAPONS] =
+ 	2,//"sawed_off",
+ 	0,//"katana",6
+ 	0,//"sknife",
+-	0,//"kungfu",
+-	0,//"tknife",
+-	13//"contender"
++	13,//"contender" (H9: 36)
++	12,//"askorpion" (H9: 37, .32 ACP as the Skorpion)
++	0//"tknife" (H9: 38)
+ }
+ 
+ new Handle:g_SqlHandle
+@@ -561,108 +562,5 @@ public _Ammo(id,ItemId)
+ 	return ARP_ClientPrint(id,"You are not wielding any weapon with this ammo type.")
+ }	
+ 
+- // Avalanches Ammo Code (Thanks for letting me use it)
+- // Set a user's ammo amount
+- public ts_setuserammo(id,weapon,ammo) {
+-
+-   // Kung Fu
+-   if(weapon == 36) {
+-     client_cmd(id,"weapon_0"); // switch to kung fu
+-     return 0; // stop now
+-   }
+-
+-   // Invalid Weapon
+-   if(weapon < 0 || weapon > 35) {
+-     return 0; // stop now
+-   }
+-
+-   client_cmd(id,"weapon_%d",weapon); // switch to whatever weapon
+-
+-   // C4 or Katana
+-   if(weapon == 29 || weapon == 34) {
+-     return 0; // stop now
+-   }
+-
+-   // TS AMMO OFFSETS
+-   new tsweaponoffset[37];
+-   tsweaponoffset[1] = 51; // Glock18
+-   tsweaponoffset[3] = 50; // Uzi
+-   tsweaponoffset[4] = 52; // M3
+-   tsweaponoffset[5] = 53; // M4A1
+-   tsweaponoffset[6] = 50; // MP5SD
+-   tsweaponoffset[7] = 50; // MP5K
+-   tsweaponoffset[8] = 50; // Beretta
+-   tsweaponoffset[9] = 51; // Socom
+-   tsweaponoffset[11] = 52; // USAS
+-   tsweaponoffset[12] = 59; // Desert Eagle
+-   tsweaponoffset[13] = 55; // AK47
+-   tsweaponoffset[14] = 56; // Fiveseven
+-   tsweaponoffset[15] = 53; // Steyr AUG
+-   tsweaponoffset[17] = 61; // Skorpion
+-   tsweaponoffset[18] = 57; // Barret
+-   tsweaponoffset[19] = 56; // Mp7
+-   tsweaponoffset[20] = 52; // Spas
+-   tsweaponoffset[21] = 51; // Golden Colts
+-   tsweaponoffset[22] = 58; // Glock20
+-   tsweaponoffset[23] = 51; // UMP
+-   tsweaponoffset[24] = 354; // M61 Grenade
+-   tsweaponoffset[25] = 366; // Combat Knife
+-   tsweaponoffset[26] = 52; // Mossberg
+-   tsweaponoffset[27] = 53; // M16
+-   tsweaponoffset[28] = 59; // Ruger Mk1
+-   tsweaponoffset[31] = 60; // Raging Bull
+-   tsweaponoffset[32] = 53; // M60
+-   tsweaponoffset[33] = 52; // Sawed Off
+-   tsweaponoffset[35] = 486; // Seal Knife
+-   tsweaponoffset[36] = 62; // Contender
+-
+-   new currentent = -1, tsgun = 0; // used for getting user's weapon_tsgun
+-
+-   // get origin
+-   new Float:origin[3];
+-   entity_get_vector(id,EV_VEC_origin,origin);
+-
+-   // loop through "user's" entities (whatever is stuck to user, basically)
+-   while((currentent = find_ent_in_sphere(currentent,origin,Float:1.0)) != 0) {
+-     new classname[32];
+-     entity_get_string(currentent,EV_SZ_classname,classname,31);
+-
+-     if(equal(classname,"weapon_tsgun")) { // Found weapon_tsgun
+-       tsgun = currentent; // remember it
+-     }
+-
+-   }
+-
+-   // Couldn't find weapon_tsgun
+-   if(tsgun == 0) {
+-     return 0; // stop now
+-   }
+-
+-   // Get some of their current settings
+-   new currclip, currammo, currmode, currextra;
+-   ts_getuserwpn(id,currclip,currammo,currmode,currextra);
+-
+-   set_pdata_int(tsgun,tsweaponoffset[weapon],ammo); // set their ammo
+-
+-   // Grenade or knife, set clip
+-   if(weapon == 24 || weapon == 25 || weapon == 35) {
+-     set_pdata_int(tsgun,41,ammo); // special clip storage
+-     set_pdata_int(tsgun,839,ammo); // more special clip storage
+-     currclip = ammo; // change what we send to WeaponInfo
+-     ammo = 0; // once again, change what we send to WeaponInfo
+-   }
+-   else { // Not a grenade or knife, set ammo
+-     set_pdata_int(tsgun,850,ammo); // special ammo storage
+-   }
+-
+-   // Update user's HUD
+-   message_begin(MSG_ONE,get_user_msgid("WeaponInfo"),{0,0,0},id);
+-   write_byte(weapon);
+-   write_byte(currclip);
+-   write_short(ammo);
+-   write_byte(currmode);
+-   write_byte(currextra);
+-   message_end();
+-
+-   return 1; // wooh!
+- }
+\ No newline at end of file
++// TS ammo: TSX's native ts_setuserammo (tsfun.inc), which H9's AMX Mod X provides for TS 3.0 and
++// reTS alike, in place of the TS 3.0 private-data writer that stood here.
+\ No newline at end of file
+diff --git a/base/addons/amxmodx/scripting/ARP_TalkArea.sma b/base/addons/amxmodx/scripting/ARP_TalkArea.sma
+--- a/base/addons/amxmodx/scripting/ARP_TalkArea.sma
++++ b/base/addons/amxmodx/scripting/ARP_TalkArea.sma
+@@ -31,8 +31,8 @@ enum _:PHONE
+ #define STATUS_SETTINGS 3
+ #define RING_SETTINGS 3
+ 
+-new Float:g_LastCnn[33]
+-new Float:g_LastAdvert[33]
++new Float:g_LastCnn[MAX_PLAYERS + 1]
++new Float:g_LastAdvert[MAX_PLAYERS + 1]
+ 
+ new g_Motorola
+ new g_Sony
+@@ -60,7 +60,8 @@ new g_SmsSound[] = "arp/sms.wav"
+ new g_911Sound[] = "arp/9.wav"
+ new g_911Sound2[] = "arp/1.wav"
+ 
+-new g_Bugged[33]
++// H9: who has bugged whom, a cell for each pair of player slots ([victim][bugger])
++new g_Bugged[MAX_PLAYERS + 1][MAX_PLAYERS + 1]
+ 
+ new g_StatusMenuItems[ANSWER_ITEMS][] =
+ {
+@@ -83,8 +84,8 @@ new g_RingSettings[RING_SETTINGS][] =
+ 	"Silent"
+ }
+ 
+-new g_Phone[33][PHONE]
+-new g_ItemId[33]
++new g_Phone[MAX_PLAYERS + 1][PHONE]
++new g_ItemId[MAX_PLAYERS + 1]
+ 
+ //new g_MenuPage[33]
+ new g_ScanSound[] = "items/suitcharge1.wav"
+@@ -202,7 +203,7 @@ public ForwardPlayerThink(id)
+ 	if(!is_user_connected(id) || !get_pcvar_num(p_Voice))
+ 		return
+ 	
+-	new Players[32],Playersnum,Player,Float:tOrigin[3],Float:pOrigin[3]
++	new Players[MAX_PLAYERS],Playersnum,Player,Float:tOrigin[3],Float:pOrigin[3]
+ 	get_players(Players,Playersnum)
+ 	pev(id,pev_origin,pOrigin)
+ 	
+@@ -257,14 +258,17 @@ public EventDeathMsg()
+ {
+ 	new id = read_data(2)
+ 	BreakLine(id,"'s line has gone dead.")
+-	g_Bugged[id] = 0
++	arrayset(g_Bugged[id],0,sizeof g_Bugged[])
+ }
+ 
+ public client_disconnect(id)
+ {
+ 	BreakLine(id," has disconnected. The phone has been hung up.")
+ 	
+-	g_Bugged[id] = 0
++	arrayset(g_Bugged[id],0,sizeof g_Bugged[])
++	// H9: and the bugs he planted: whoever takes his slot next has planted none
++	for(new Victim = 1;Victim <= MAX_PLAYERS;Victim++)
++		g_Bugged[Victim][id] = 0
+ }
+ 
+ BreakLine(id,Msg[])
+@@ -320,8 +324,8 @@ public StatusHandle(id,Key)
+ 				return
+ 			}
+ 			
+-			//new Menu[512],Pos,Keys = MENU_KEY_8|MENU_KEY_9|MENU_KEY_0,Players[32],Playersnum,Name[33],Num
+-			new Players[32],Playersnum
++			//new Menu[512],Pos,Keys = MENU_KEY_8|MENU_KEY_9|MENU_KEY_0,Players[MAX_PLAYERS],Playersnum,Name[33],Num
++			new Players[MAX_PLAYERS],Playersnum
+ 			
+ 			GetPhonePlayers(Players,Playersnum,id)
+ 			
+@@ -509,7 +513,7 @@ public CmdSay(id)
+ 	{		
+ 		if(equali(Args,"//",2))
+ 		{
+-			new Players[32],Playersnum,Player,Float:SndOrigin[3],Float:RcvOrigin[3],Float:Range = get_pcvar_float(p_Range) * BASE_DISTANCE
++			new Players[MAX_PLAYERS],Playersnum,Player,Float:SndOrigin[3],Float:RcvOrigin[3],Float:Range = get_pcvar_float(p_Range) * BASE_DISTANCE
+ 			get_players(Players,Playersnum)
+ 			
+ 			replace(Args,255,"// ","")
+@@ -628,7 +632,7 @@ public CmdSay(id)
+ 				}
+ 			}
+ 			
+-			new Players[32],Playersnum
++			new Players[MAX_PLAYERS],Playersnum
+ 			get_players(Players,Playersnum)
+ 				
+ 			for(new Count;Count < Playersnum;Count++)
+@@ -669,7 +673,7 @@ public CmdSay(id)
+ 				}
+ 			}
+ 			
+-			new Players[32],Playersnum
++			new Players[MAX_PLAYERS],Playersnum
+ 			get_players(Players,Playersnum)
+ 				
+ 			for(new Count;Count < Playersnum;Count++)
+@@ -714,7 +718,7 @@ public CmdSay(id)
+ 				}
+ 			}
+ 			
+-			new Players[32],Playersnum
++			new Players[MAX_PLAYERS],Playersnum
+ 			get_players(Players,Playersnum)
+ 				
+ 			for(new Count;Count < Playersnum;Count++)
+@@ -759,7 +763,7 @@ public CmdSay(id)
+ 				}
+ 			}
+ 			
+-			new Players[32],Playersnum
++			new Players[MAX_PLAYERS],Playersnum
+ 			get_players(Players,Playersnum)
+ 				
+ 			for(new Count;Count < Playersnum;Count++)
+@@ -843,7 +847,7 @@ public CmdSay(id)
+ 		}
+ 		else if(equali(Args,"/911 ",5))
+ 		{
+-			new Players[32],Playersnum,Player
++			new Players[MAX_PLAYERS],Playersnum,Player
+ 			get_players(Players,Playersnum)
+ 			
+ 			replace(Args,255,"/911 ","")
+@@ -875,8 +879,8 @@ public CmdSay(id)
+ 					//ARP_ChatMessage(id,Player,Msg)
+ 					ARP_ChatMessage(id,Player,Msg)
+ 					Play911Sound(Player)
+-					set_task(1.0,"Play911Sound",Player + 32)
+-					set_task(2.0,"Play911Sound",Player + 32)
++					set_task(1.0,"Play911Sound",Player + MAX_PLAYERS)   // H9: MAX_PLAYERS, the slots there are
++					set_task(2.0,"Play911Sound",Player + MAX_PLAYERS)
+ 				}
+ 			}
+ 			
+@@ -931,7 +935,7 @@ public CmdSay(id)
+ 				}
+ 			}
+ 			
+-			new Players[32],Playersnum
++			new Players[MAX_PLAYERS],Playersnum
+ 			get_players(Players,Playersnum)
+ 			
+ 			for(new Count;Count < Playersnum;Count++)
+@@ -958,7 +962,7 @@ public CmdSay(id)
+ 	return End(Msg)
+ }
+ 
+-public Play911Sound(id) id < 32 ? client_cmd(id,"spk ^"%s^"",g_911Sound) : client_cmd(id - 32,"spk ^"%s^"",g_911Sound2)
++public Play911Sound(id) id <= MAX_PLAYERS ? client_cmd(id,"spk ^"%s^"",g_911Sound) : client_cmd(id - MAX_PLAYERS,"spk ^"%s^"",g_911Sound2)
+ 
+ CleanUp(Args[],PassLen,Mode[10])
+ {
+@@ -1077,9 +1081,9 @@ Message(sender,reciever,Float:Dist,const Msg[])
+ 		ARP_ChatMessage(sender,reciever,Msg)
+ }
+ 
+-GetPhonePlayers(Players[32],&Playersnum,Player)
++GetPhonePlayers(Players[MAX_PLAYERS],&Playersnum,Player)
+ {
+-	for(new id = 1;id <= 32;id++)
++	for(new id = 1;id <= MAX_PLAYERS;id++)
+ 	{		
+ 		if(!is_user_connected(id) || !is_user_alive(id) || (!ARP_GetUserItemNum(id,g_Motorola) && !ARP_GetUserItemNum(id,g_Nokia) && !ARP_GetUserItemNum(id,g_Sony)) || id == Player)
+ 			continue
+@@ -1109,7 +1113,7 @@ public _Bug(id,ItemId)
+ 	if(!Index || !is_user_alive(Index))
+ 		return client_print(id,print_chat,"[ARP] You are not looking at any people to bug.")
+ 	
+-	g_Bugged[Index] |= (1<<(id - 1))
++	g_Bugged[Index][id] = 1
+ 	
+ 	new Name[33]
+ 	get_user_name(Index,Name,32)
+@@ -1149,11 +1153,11 @@ public _Scanner(id,ItemId)
+ 
+ public Scan(Params[2])
+ {
+-	new id = Params[0],Index = Params[1],Players[32],Playersnum,Bugsnum
++	new id = Params[0],Index = Params[1],Players[MAX_PLAYERS],Playersnum,Bugsnum
+ 	get_players(Players,Playersnum)
+ 	
+ 	for(new Count;Count < Playersnum;Count++)
+-		if(g_Bugged[Index] & (1<<(Players[Count]) - 1))
++		if(g_Bugged[Index][Players[Count]])
+ 			Bugsnum++
+ 	
+ 	if(Bugsnum)
+@@ -1189,16 +1193,16 @@ public Scan(Params[2])
+ 		}
+ 	}
+ 	
+-	g_Bugged[Index] = 0
++	arrayset(g_Bugged[Index],0,sizeof g_Bugged[])
+ }
+ 
+ PrintBugMessage(id,Msg[])
+ {
+-	new Players[32],Playersnum
++	new Players[MAX_PLAYERS],Playersnum
+ 	get_players(Players,Playersnum)
+ 			
+ 	for(new Count;Count < Playersnum;Count++)
+-		if(is_user_alive(Players[Count]) && g_Bugged[id] & (1<<(Players[Count] - 1)))
++		if(is_user_alive(Players[Count]) && g_Bugged[id][Players[Count]])
+ 			client_print(Players[Count],print_chat,"[BUG] %s",Msg)
+ }
+ 
+diff --git a/base/addons/amxmodx/scripting/ARP_Zones.sma b/base/addons/amxmodx/scripting/ARP_Zones.sma
+--- a/base/addons/amxmodx/scripting/ARP_Zones.sma
++++ b/base/addons/amxmodx/scripting/ARP_Zones.sma
+@@ -7,7 +7,7 @@
+ #include <ApolloRP_Chat>
+ #include <xs>
+ 
+-new gZone[33][33]
++new gZone[MAX_PLAYERS + 1][33]
+ 
+ new TravTrie:gZones
+ 
+@@ -152,7 +152,7 @@ public client_PreThink( id )
+ 	if ( !is_user_connected( id ) )
+ 		return
+ 	
+-	static Float:lastOrigin[33][3], Float:lastCheck[33]
++	static Float:lastOrigin[MAX_PLAYERS + 1][3], Float:lastCheck[MAX_PLAYERS + 1]
+ 	new Float:newOrigin[3], Float:curTime = get_gametime()
+ 	
+ 	pev( id, pev_origin, newOrigin )
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_Chat.inc b/base/addons/amxmodx/scripting/include/ApolloRP_Chat.inc
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_Chat.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_Chat.inc
+@@ -67,7 +67,7 @@ stock ARP_StdChat(from,to,const msg[])
+ {		
+ 	if(!to)
+ 	{		
+-		new Players[32],Playersnum
++		new Players[MAX_PLAYERS],Playersnum
+ 		get_players(Players,Playersnum)
+ 		
+ 		for(new Count;Count < Playersnum;Count++)
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_Jobs.inc b/base/addons/amxmodx/scripting/include/ApolloRP_Jobs.inc
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_Jobs.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_Jobs.inc
+@@ -127,7 +127,7 @@ stock ARP_IsJobAdmin(id)
+ 
+ stock ARP_CopNum()
+ {
+-	new Players[32],Playersnum,Num
++	new Players[MAX_PLAYERS],Playersnum,Num
+ 	get_players(Players,Playersnum)
+ 	
+ 	for(new Count;Count < Playersnum;Count++)
+@@ -139,7 +139,7 @@ stock ARP_CopNum()
+ 
+ stock ARP_MedNum()
+ {
+-	new Players[32],Playersnum,Num
++	new Players[MAX_PLAYERS],Playersnum,Num
+ 	get_players(Players,Playersnum)
+ 	
+ 	for(new Count;Count < Playersnum;Count++)
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_Properties.inc b/base/addons/amxmodx/scripting/include/ApolloRP_Properties.inc
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_Properties.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_Properties.inc
+@@ -109,7 +109,7 @@ stock ARP_PropertyGetOwner(property)
+ 	new Authid[36]
+ 	ARP_PropertyGetOwnerAuth(property,Authid,35)
+ 	
+-	new PlayerAuthid[36],Players[32],Playersnum,Player
++	new PlayerAuthid[36],Players[MAX_PLAYERS],Playersnum,Player
+ 	get_players(Players,Playersnum)
+ 	
+ 	for(new Count;Count < Playersnum;Count++)

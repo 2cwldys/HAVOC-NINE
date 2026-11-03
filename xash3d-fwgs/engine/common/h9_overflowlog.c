@@ -1,0 +1,224 @@
+/*
+h9_overflowlog.c - H9: the engine's overflow and limit messages, also kept in <game>/logs/h9_overflow.log
+Copyright (C) 2026 HAVOC 9
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+Every console message, printed or held back by the developer level, passes through here
+(sys_con.c). One of the engine's overflow and limit messages (docs/PLAYER_LIMIT_128.txt, section
+27) is appended to logs/h9_overflow.log in the game folder, ts/logs/ for The Specialists, whatever
+-dev or -log say. A message counts when its format string matches the patterns below (the
+engine's messages are literal format strings), or when it is a Host_Error whose text matches; text
+a "%s" carries in, a player's chat among it, never counts by itself. A line holds the date and
+time, the side (server for a dedicated server, listen for a listen server, client for a game on
+another one), the map and the message. The same message (its first H9_OVERFLOW_KEY characters,
+so one overflow for many players is one message) is written at most once in H9_OVERFLOW_QUIET
+seconds, with the count of the ones held back since; a run writes at most H9_OVERFLOW_MAXLINES
+lines. The file is written with C stdio, opened and closed for each line, so a line is on disk
+before a crash.
+*/
+
+#include "common.h"
+#if XASH_WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#include <sys/types.h>
+#endif
+#include <time.h>
+#if !XASH_DEDICATED
+#include "client.h"
+#endif
+
+// matched against the message's text in any case
+static const char *const h9_overflow_patterns[] =
+{
+	"overflow",                                 // a buffer's overflow, "overflowed", "would overflow"
+	"too long (more than",                      // a user message past MAX_USERMSG_LENGTH
+	"limit exceeded",                           // MAX_MODELS, MAX_SOUNDS, MAX_STATIC_ENTITIES, user messages
+	"no free edicts",                           // gameinfo.txt's max_edicts
+	"not enough free beams",                    // gameinfo.txt's max_beams
+	"bytes, it written",                        // a fixed-size user message written with another size
+	"delta is outdated",                        // the packet entity counter's wrap
+	"out of date entities",                     // a delta base rolled off the packet entity ring
+	"too many entities in visible packet list", // MAX_VISIBLE_PACKET
+	"illegible server message",
+	"svc_bad",
+};
+
+#define H9_OVERFLOW_KEY      24    // characters of a message that make it the same message
+#define H9_OVERFLOW_QUIET    10.0  // seconds between two lines of the same message
+#define H9_OVERFLOW_SLOTS    16    // messages kept apart at once
+#define H9_OVERFLOW_MAXLINES 2000  // lines a run writes
+
+typedef struct
+{
+	char   key[H9_OVERFLOW_KEY + 1];
+	double next;
+	int    held;
+} h9_overflow_slot_t;
+
+static h9_overflow_slot_t h9_overflow_slots[H9_OVERFLOW_SLOTS];
+static int h9_overflow_lines;
+
+/*
+=============
+H9_OverflowCandidate
+
+true when the text, or a format string, holds one of the patterns
+=============
+*/
+qboolean H9_OverflowCandidate( const char *text )
+{
+	if( !text )
+		return false;
+
+	for( size_t i = 0; i < ARRAYSIZE( h9_overflow_patterns ); i++ )
+	{
+		if( Q_stristr( text, h9_overflow_patterns[i] ))
+			return true;
+	}
+
+	return false;
+}
+
+/*
+=============
+H9_OverflowSlot
+
+the slot of this message: its own, or the one quiet longest
+=============
+*/
+static h9_overflow_slot_t *H9_OverflowSlot( const char *key )
+{
+	h9_overflow_slot_t *slot = &h9_overflow_slots[0];
+
+	for( int i = 0; i < H9_OVERFLOW_SLOTS; i++ )
+	{
+		if( !Q_strcmp( h9_overflow_slots[i].key, key ))
+			return &h9_overflow_slots[i];
+
+		if( h9_overflow_slots[i].next < slot->next )
+			slot = &h9_overflow_slots[i];
+	}
+
+	Q_strncpy( slot->key, key, sizeof( slot->key ));
+	slot->next = 0.0;
+	slot->held = 0;
+
+	return slot;
+}
+
+/*
+=============
+H9_OverflowHostError
+
+true for Host_Error's own line, "Host_Error: <the error>" after a colour code
+=============
+*/
+static qboolean H9_OverflowHostError( const char *text )
+{
+	if( text[0] == '^' && text[1] )
+		text += 2;
+
+	return !Q_strncmp( text, "Host_Error", 10 );
+}
+
+/*
+=============
+H9_OverflowLog
+
+appends the text to logs/h9_overflow.log when it is one of the engine's overflow or limit messages
+=============
+*/
+void H9_OverflowLog( const char *fmt, const char *text )
+{
+	char clean[MAX_PRINT_MSG], key[H9_OVERFLOW_KEY + 1], dir[MAX_SYSPATH], path[MAX_SYSPATH], stamp[32];
+	const char *side = Host_IsDedicated( ) ? "server" : "client";
+	const char *map = "-";
+	h9_overflow_slot_t *slot;
+	size_t len;
+	FILE *f;
+
+	if( h9_overflow_lines >= H9_OVERFLOW_MAXLINES || !text )
+		return;
+
+	if( !H9_OverflowCandidate( fmt ) && !( H9_OverflowHostError( text ) && H9_OverflowCandidate( text )))
+		return;
+
+	// the game folder is known once the filesystem has read gameinfo.txt
+	if( !FI || !GI || COM_StringEmpty( GI->gamefolder ))
+		return;
+
+	len = Q_strlen( text );
+	if( len >= sizeof( clean ))
+		return;
+
+	COM_StripColors( text, clean );
+	len = Q_strlen( clean );
+	while( len > 0 && ( clean[len - 1] == '\n' || clean[len - 1] == '\r' || clean[len - 1] == ' ' ))
+		clean[--len] = '\0';
+
+	if( len == 0 )
+		return;
+
+	Q_strncpy( key, clean, sizeof( key ));
+	slot = H9_OverflowSlot( key );
+
+	if( host.realtime < slot->next )
+	{
+		slot->held++;
+		return;
+	}
+
+	slot->next = host.realtime + H9_OVERFLOW_QUIET;
+
+	if( SV_Active( ))
+	{
+		side = Host_IsDedicated( ) ? "server" : "listen";
+		if( !COM_StringEmpty( GameState->levelName ))
+			map = GameState->levelName;
+	}
+#if !XASH_DEDICATED
+	else if( !COM_StringEmpty( clgame.mapname ))
+	{
+		map = clgame.mapname;
+	}
+#endif
+
+	Q_snprintf( dir, sizeof( dir ), "%s/logs", GI->gamefolder );
+#if XASH_WIN32
+	_mkdir( dir );
+#else
+	mkdir( dir, 0755 );
+#endif
+	Q_snprintf( path, sizeof( path ), "%s/h9_overflow.log", dir );
+
+	f = fopen( path, "a" );
+	if( !f )
+		return;
+
+	time_t now = time( NULL );
+	const struct tm *tm = localtime( &now );
+	if( !tm || !strftime( stamp, sizeof( stamp ), "%Y-%m-%d %H:%M:%S", tm ))
+		Q_strncpy( stamp, "-", sizeof( stamp ));
+
+	fprintf( f, "%s  %s %s  %s", stamp, side, map, clean );
+	if( slot->held > 0 )
+		fprintf( f, "  (and %d more like it since its last line)", slot->held );
+	fputc( '\n', f );
+	slot->held = 0;
+
+	if( ++h9_overflow_lines == H9_OVERFLOW_MAXLINES )
+		fprintf( f, "%s  %d lines written, no more this run\n", stamp, H9_OVERFLOW_MAXLINES );
+
+	fclose( f );
+}

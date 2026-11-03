@@ -72,6 +72,13 @@ if exist "%~dp0reTS\binaries\ts\gfx\vgui\h9_link.tga" (
     if not exist "%EX%\ts\gfx\vgui" mkdir "%EX%\ts\gfx\vgui" >nul 2>&1
     copy /y "%~dp0reTS\binaries\ts\gfx\vgui\h9_*.tga" "%EX%\ts\gfx\vgui\" >nul && echo   ts\gfx\vgui\h9_*.tga ^(the scoreboard's link icons^)
 )
+REM And its level badges, drawn before each proven havoc9.org account's name (Lv 0 to 99, the
+REM site's own badges): gfx\vgui\h9_levels\lv-*.tga, made by modelling\make-level-badges.mjs.
+REM docs\H9_COMPETITIVE.txt section 8a.
+if exist "%~dp0reTS\binaries\ts\gfx\vgui\h9_levels\lv-0.tga" (
+    if not exist "%EX%\ts\gfx\vgui\h9_levels" mkdir "%EX%\ts\gfx\vgui\h9_levels" >nul 2>&1
+    copy /y "%~dp0reTS\binaries\ts\gfx\vgui\h9_levels\lv-*.tga" "%EX%\ts\gfx\vgui\h9_levels\" >nul && echo   ts\gfx\vgui\h9_levels\lv-*.tga ^(the scoreboard's level badges^)
+)
 
 REM ---- source of truth: this folder ----------------------------------------
 copy /y "%~dp0ts_matchmode.sma"  "%EX%\src\"                 >nul && echo   src\ts_matchmode.sma
@@ -86,9 +93,12 @@ copy /y "%~dp0h9_motd.sma"       "%EX%\src\"                 >nul && echo   src\
 copy /y "%~dp0tsrp_roambots.sma" "%EX%\src\"                 >nul && echo   src\tsrp_roambots.sma
 copy /y "%~dp0ts_rtv.sma"        "%EX%\src\"                 >nul && echo   src\ts_rtv.sma
 copy /y "%~dp0h9_compete.sma"    "%EX%\src\"                 >nul && echo   src\h9_compete.sma
+copy /y "%~dp0h9_rank.sma"       "%EX%\src\"                 >nul && echo   src\h9_rank.sma
 if not exist "%EX%\src\include" mkdir "%EX%\src\include" >nul 2>&1
 copy /y "%~dp0include\tsm_api.inc" "%EX%\src\include\"       >nul && echo   src\include\tsm_api.inc
 copy /y "%~dp0include\h9_community.inc" "%EX%\src\include\" >nul && echo   src\include\h9_community.inc
+copy /y "%~dp0include\h9_presence.inc" "%EX%\src\include\"  >nul && echo   src\include\h9_presence.inc
+copy /y "%~dp0include\h9_vgui.inc" "%EX%\src\include\"      >nul && echo   src\include\h9_vgui.inc
 copy /y "%~dp0build.bat"         "%EX%\src\"                 >nul && echo   src\build.bat
 copy /y "%~dp0export.bat"        "%EX%\src\"                 >nul && echo   src\export.bat
 copy /y "%~dp0COMMANDS.txt"      "%EX%\docs\"                >nul && echo   docs\COMMANDS.txt
@@ -167,6 +177,17 @@ if exist "%~dp0compiled\tsrp_roambots.amxx" (
     echo   [WARN] no compiled\tsrp_roambots.amxx -- package has no roaming citizens plugin
 )
 
+REM Apollo RP (apollo-rp\ORIGIN.txt): its plugins for TS as build.bat built them. On a map that
+REM is not a roleplay map ARP_Core pauses every one of them.
+for %%n in (ARP_Core ARP_Commands ARP_Config ARP_HUD ARP_HungerMod ARP_Items ARP_JailMod ARP_NPCs ARP_RobMod ARP_TalkArea ARP_Zones ARP_TS) do (
+    if exist "%~dp0compiled\%%n.amxx" (
+        copy /y "%~dp0compiled\%%n.amxx" "%EX%\ts\addons\amxmodx\plugins\" >nul
+        echo   ts\addons\amxmodx\plugins\%%n.amxx
+    ) else (
+        echo   [WARN] no compiled\%%n.amxx -- package has no Apollo RP %%n
+    )
+)
+
 REM Rock the Vote: .rtv and .nominate in chat, a map vote, and a vote after each finished match.
 if exist "%~dp0compiled\ts_rtv.amxx" (
     copy /y "%~dp0compiled\ts_rtv.amxx" "%EX%\ts\addons\amxmodx\plugins\" >nul
@@ -182,6 +203,14 @@ if exist "%~dp0compiled\h9_compete.amxx" (
     echo   ts\addons\amxmodx\plugins\h9_compete.amxx
 ) else (
     echo   [WARN] no compiled\h9_compete.amxx -- package has no rated play plugin
+)
+REM .rank: a player's havoc9.org rank in game, their own or anyone's (docs\H9_COMPETITIVE.txt).
+REM It goes below h9_presence in plugins.ini.
+if exist "%~dp0compiled\h9_rank.amxx" (
+    copy /y "%~dp0compiled\h9_rank.amxx" "%EX%\ts\addons\amxmodx\plugins\" >nul
+    echo   ts\addons\amxmodx\plugins\h9_rank.amxx
+) else (
+    echo   [WARN] no compiled\h9_rank.amxx -- package has no .rank plugin
 )
 
 REM The game modes, Capture the Uplink, Wave Survival and Mech Warrior: each its own
@@ -213,9 +242,23 @@ copy /y "%~dp0ts_rtv.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   confi
 copy /y "%~dp0ts_rtv.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 copy /y "%~dp0h9_compete.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_compete.cfg
 copy /y "%~dp0h9_compete.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
+copy /y "%~dp0h9_rank.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_rank.cfg
+copy /y "%~dp0h9_rank.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 for %%m in (ts_uplink ts_survival ts_mechwarrior) do (
     copy /y "%~dp0%%m.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\%%m.cfg
     copy /y "%~dp0%%m.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
+)
+
+REM Apollo RP: its configs (configs\arp\), and the sources and includes its plugins are built from.
+if exist "%~dp0apollo-rp\base\addons\amxmodx" (
+    xcopy /y /i /e /q "%~dp0apollo-rp\base\addons\amxmodx\configs\arp" "%EX%\ts\addons\amxmodx\configs\arp" >nul
+    echo   configs\arp\ ^(Apollo RP^)
+    for %%n in (ARP_Core ARP_Commands ARP_Config ARP_HUD ARP_HungerMod ARP_Items ARP_JailMod ARP_NPCs ARP_RobMod ARP_TalkArea ARP_Zones ARP_TS) do (
+        copy /y "%~dp0apollo-rp\base\addons\amxmodx\scripting\%%n.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
+    )
+    if not exist "%EX%\ts\addons\amxmodx\scripting\include" mkdir "%EX%\ts\addons\amxmodx\scripting\include" >nul 2>&1
+    xcopy /y /q "%~dp0apollo-rp\base\addons\amxmodx\scripting\include\*.inc" "%EX%\ts\addons\amxmodx\scripting\include\" >nul
+    echo   scripting\ARP_*.sma + include\ApolloRP*.inc ^(Apollo RP^)
 )
 
 REM easy_http.inc is needed to COMPILE ts_advertise and is not part of AMXX, so it
@@ -234,6 +277,11 @@ REM The presence and community natives: h9_community and any plugin using them c
 if exist "%~dp0include\h9_community.inc" (
     copy /y "%~dp0include\h9_community.inc" "%EX%\ts\addons\amxmodx\scripting\include\" >nul
     echo   scripting\include\h9_community.inc
+)
+REM H9 VGUI: the panel stocks ts_matchmode and any panel-drawing plugin compile against.
+if exist "%~dp0include\h9_vgui.inc" (
+    copy /y "%~dp0include\h9_vgui.inc" "%EX%\ts\addons\amxmodx\scripting\include\" >nul
+    echo   scripting\include\h9_vgui.inc
 )
 
 REM Per-map spawn sets live only in the game folder -- they are written there by
@@ -630,6 +678,13 @@ if exist "%SRC%sound\h9lift" (
     echo   ts\sound\h9lift\ ^(the skylift^)
 )
 
+REM Apollo RP's models and sounds, which its plugins precache on a roleplay map.
+if exist "%~dp0apollo-rp\base\models\arp" (
+    xcopy /y /i /q "%~dp0apollo-rp\base\models\arp\*.mdl" "%EX%\ts\models\arp\" >nul
+    xcopy /y /i /q "%~dp0apollo-rp\base\sound\arp\*.wav" "%EX%\ts\sound\arp\" >nul
+    echo   ts\models\arp\ + ts\sound\arp\ ^(Apollo RP^)
+)
+
 REM The export-map pipeline travels whole as export-map\, in the repo-exportmap-block below; the
 REM maps it builds travel under ts\maps.
 
@@ -724,6 +779,14 @@ REM its .patch. Mirrored without backups, or a DLL kept aside under another exte
 if exist "%~dp0rcbot-patch\BASE-COMMIT.txt" (
     robocopy "%~dp0rcbot-patch" "%EX%\rcbot-patch" /MIR /NJH /NJS /NDL /NFL /NP /XF *.bak_* *.five >nul
     if errorlevel 8 (echo   [WARN] the rcbot-patch copy reported errors) else (echo   rcbot-patch\ ^(RCBot patch chain^))
+)
+
+REM ---- apollo-rp ------------------------------------------------------- apollo-rp-block
+REM Apollo RP as H9 carries it: the upstream repository copied whole (ORIGIN.txt says from which
+REM commit) with H9's changes, H9.patch the diff. Mirrored without backups.
+if exist "%~dp0apollo-rp\ORIGIN.txt" (
+    robocopy "%~dp0apollo-rp" "%EX%\apollo-rp" /MIR /NJH /NJS /NDL /NFL /NP /XF *.bak_* >nul
+    if errorlevel 8 (echo   [WARN] the apollo-rp copy reported errors) else (echo   apollo-rp\ ^(Apollo RP source^))
 )
 
 REM ---- webassembly-patch -------------------------------------------- webassembly-block

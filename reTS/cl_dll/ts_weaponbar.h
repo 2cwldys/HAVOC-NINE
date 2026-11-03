@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include "../dlls/ts_weapon_info.h" // TSW_COUNT: the bar holds one cell per weapon of the roster
+
 class CHudTSWeaponBar : public CHudBase
 {
 public:
@@ -58,7 +60,6 @@ private:
 	void SetCursor(int t);      // cursor (row, col) to weapon t's cell
 	int FindOwned(int from, bool fNext, int colOnly) const; // next/prev owned in display order (colOnly<0 = any)
 
-	static const int TSW_COUNT = 38;
 	int m_iClip[TSW_COUNT];          // loaded rounds if owned, else -1
 	HSPRITE m_hIcon[TSW_COUNT];      // sprites/weapons/<name>.spr handle (0 if none)
 

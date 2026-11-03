@@ -170,3 +170,4 @@ backup-passphrase*
 h9web/data/
 h9web-local/
 .env
+/H9XASH/ts/downloads

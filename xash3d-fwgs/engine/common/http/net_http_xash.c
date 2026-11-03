@@ -160,6 +160,7 @@ typedef struct httpfile_s
 	size_t   mem_cap;
 	http_memory_cb_t mem_cb;
 	int      mem_flags; // H9: HTTP_MEM_* from HTTP_GetToMemoryEx
+	int      mem_status; // H9: the HTTP status the answer had, 0 while none was read (HTTP_MemoryStatus)
 	void    *mem_user;
 	char     url[1024];
 
@@ -201,6 +202,9 @@ static int HTTP_FileTlsHandshake( httpfile_t *file );
 static int HTTP_FileDecompress( httpfile_t *file );
 static httpserver_t *HTTP_ParseURL( const char *url_, qboolean full_path );
 static qboolean HTTP_FileRedirect( httpfile_t *file, const char *location );
+
+// H9: the status of the memory request whose callback is running (HTTP_MemoryStatus)
+static int http_mem_status;
 
 /*
 ==============
@@ -244,7 +248,11 @@ static void HTTP_FreeFile( httpfile_t *file, qboolean error )
 	if( file->to_memory )
 	{
 		if( file->mem_cb )
+		{
+			http_mem_status = file->mem_status;
 			file->mem_cb( file->url, !error, error ? NULL : file->mem_data, error ? 0 : file->mem_size, file->mem_user );
+			http_mem_status = 0;
+		}
 
 		if( file->mem_data )
 		{
@@ -1117,6 +1125,7 @@ static int HTTP_FileProcessStream( httpfile_t *curfile )
 					if( Q_isdigit( tmp ))
 						num = Q_atoi( tmp );
 				}
+				curfile->mem_status = num > 0 ? num : 0; // H9: HTTP_MemoryStatus
 
 				if( num != 200 )
 				{
@@ -1369,6 +1378,28 @@ void HTTP_Run( void )
 
 /*
 ===================
+HTTP_FileProgress
+
+H9: the file being downloaded to disk now (the join screen, cl_h9join.c): its path, the bytes come and
+its size (-1 while not known); false when none is
+===================
+*/
+qboolean HTTP_FileProgress( char *name, size_t len, int *downloaded, int *size )
+{
+	for( httpfile_t *f = http.first_file; f; f = f->next )
+	{
+		if( f->to_memory || f->socket == -1 )
+			continue;
+		Q_strncpy( name, f->path, len );
+		*downloaded = f->downloaded;
+		*size = f->size;
+		return true;
+	}
+	return false;
+}
+
+/*
+===================
 HTTP_AddDownload
 
 Add new download to end of queue
@@ -1474,6 +1505,19 @@ qboolean HTTP_GetToMemoryEx( const char *url, http_memory_cb_t cb, void *userdat
 	http.first_file = httpfile;
 
 	return true;
+}
+
+/*
+===================
+HTTP_MemoryStatus
+
+H9: called from an http_memory_cb_t, the HTTP status its request's answer had (200, 404, 503 ...), or
+0 when it had none: no answer, a timeout, a refused or broken connection
+===================
+*/
+int HTTP_MemoryStatus( void )
+{
+	return http_mem_status;
 }
 
 /*

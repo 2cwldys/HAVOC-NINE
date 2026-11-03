@@ -57,6 +57,7 @@
 
 #define H9C_CORE
 #include <h9_community>
+#include <h9_vgui>      // an H9 game draws the portal's confirm on a panel
 
 #pragma dynamic 16384
 
@@ -190,6 +191,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_precache()
 {
+	h9vgui_precache();
+
 	// The ring is precached only for a map whose mapconfig places a portal, and only when the
 	// sprite is there: a precached file that is missing stops the map from loading.
 	new map[64];
@@ -222,6 +225,7 @@ public plugin_init()
 
 	g_menuid = register_menuid("H9 Portal");
 	register_menucmd(g_menuid, (1 << 0) | (1 << 1) | (1 << 9), "menu_portal");
+	h9vgui_init("h9c");
 	g_hud = CreateHudSyncObj();
 
 	g_max = get_maxplayers();
@@ -1793,7 +1797,8 @@ offer(id, p)
 		formatex(players, charsmax(players), "%d / %d players", g_shumans[s], g_smax[s]);
 	}
 	formatex(text, charsmax(text), "\yTravel to %s?^n\w[%s] %s^n^n1. Go^n2. Stay", g_sname[s], g_stag[s], players);
-	show_menu(id, (1 << 0) | (1 << 1) | (1 << 9), text, 15, "H9 Portal");
+	// An H9 game draws it on a panel, the first line its title; every game gets the text menu.
+	h9vgui_show_menu(id, (1 << 0) | (1 << 1) | (1 << 9), text, 15, "H9 Portal", "h9c.portal");
 }
 
 public menu_portal(id, key)

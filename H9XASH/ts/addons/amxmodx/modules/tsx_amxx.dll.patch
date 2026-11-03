@@ -32,11 +32,17 @@ H9's changes in it
   modules\ts\tsx\NBase.cpp
           A player native given a player not in game refuses with its error instead of going
           on to read him.
+  modules\ts\tsx\CMisc.h, Utils.cpp, NBase.cpp, moduleconfig.cpp
+          The PPSh-41 of H9's reTS, weapon 39: its name and stats slot (weaponData), the ammo tables
+          (caliber 14) and a shot's weapon. 38 stays the thrown knife, which is no game weapon;
+          kung fu's own stats slot moves from 39 to 40 and TSMAX_WEAPONS grows by one, so the custom
+          weapons start at 41. On TS 3.0's own library the ammo natives refuse a weapon past 37
+          ("Weapon %d is not in TS 3.0"), as it has none.
 
 Deployed file : tsx_amxx.dll
-Size          : 495616 bytes
-SHA256        : 2F26FB9A6BA5FDA34C0CC62C92C58656765F41DDBA4F40371FF845B3CC084351
-Built         : 2026-11-02, MSBuild modules\ts\tsx\msvc12\tsx.vcxproj, Release|Win32, toolset
+Size          : 496128 bytes
+SHA256        : 5D60C59F297B21A891D917DFCB0048E8C89C08607F88943AC3D672E26AA10121
+Built         : 2026-11-03, MSBuild modules\ts\tsx\msvc12\tsx.vcxproj, Release|Win32, toolset
                 v145 (Visual Studio 2026), from a copy of TSM\AMXMODX, against the SDKs the
                 fork's CI uses: goldsrc-net/hlsdk branch 64bit (dd2c6d61) and
                 alliedmodders/metamod-hl1 (18a10db6), with the project fixes H9-SOURCE.txt lists.

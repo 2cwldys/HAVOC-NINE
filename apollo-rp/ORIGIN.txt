@@ -1,0 +1,90 @@
+Apollo RP, as H9 carries it
+===========================
+Upstream:  https://github.com/DouglasSherk/Apollo-RP
+Commit:    067c9d04d416e4a7d7eedce2d644ebaa8e09b52d ("Roll back Jail Mod to an older but working
+           version", Douglas Sherk, 2020-05-07), the head of the repository's default branch
+Copied:    2026-11-02: every file the repository tracks (230), byte for byte, line endings as
+           the repository stores them. The .git folder is not copied.
+Licence:   no licence file in the repository when copied, and no licence header in its sources.
+           Its README calls it "a plugin set for AMX Mod X" by the Apollo RP Team.
+Shipping:  H9 ships it publicly, the user agreed (2026-11-03).
+
+What it is
+----------
+README is upstream's own. base\ is Apollo RP's main package: AMX Mod X plugins (sources in
+base\addons\amxmodx\scripting, ARP_*.sma with include\ApolloRP*.inc, arrayx_travtrie.inc and
+celltravtrie.inc), their configs (base\addons\amxmodx\configs\arp\: arp.ini, arp.cfg, and a folder
+a map with its SQL and its ini files), models\arp and sound\arp. extra\ holds the author's other
+plugins and website\ the old apollorp.org site. The .amxx files under base\addons\amxmodx\plugins are
+upstream's own builds: H9 never ships them, build.bat builds its own into TSM\compiled. Upstream's
+plugins-arp.ini and modules.ini are not installed either: build.bat lists the plugins in plugins.ini.
+
+H9's changes (H9.patch, beside this file, is the whole diff against the commit above)
+-------------------------------------------------------------------------------------
+In base\addons\amxmodx\scripting, only in the set H9 builds for The Specialists: ARP_Core,
+ARP_Commands, ARP_Config, ARP_HUD, ARP_HungerMod, ARP_Items, ARP_JailMod, ARP_NPCs, ARP_RobMod,
+ARP_TalkArea, ARP_Zones and ARP_TS. ARP_CS, ARP_TFC, ARP_BCompat and extra\ are not built. And two
+folders of H9's own maps under base\addons\amxmodx\configs\arp\maps (item 13).
+
+1. Roleplay maps only (ARP_Core, plugin_precache). On a map whose name is not a roleplay one -- rp_
+   or tsrp_ at the start, or _rp_ or _tsrp_ inside it, in any case: the rule of ts_matchmode's
+   roleplay_map() and of tsrp_roambots -- H9_StandDown() pauses every loaded ARP_*.amxx and then the
+   core itself, before their own precache runs. A paused plugin stays loaded and gets no forward,
+   hook, command or task: no config is read, no database opened, no player touched, and the next map
+   loads them all afresh. The core is listed first in plugins.ini, so it runs first.
+2. A map's data keyed by its name (ARP_Core). The properties, doors and keys tables carry the map's
+   name -- arp_property_<map>, arp_doors_<map>, arp_keys_<map>, the name in lower case with anything
+   but letters and digits as "_" -- so one database serves every roleplay map. Users, jobs, items and
+   data stay shared. The per-map files under configs\arp\maps\<map>\ (npcs.ini, jailmod.ini, rob.ini,
+   zones.ini, the map's SQL) were the map's own already.
+3. The SQL driver (ARP_Core). arp.ini's sqlite is loaded with the core (#pragma loadlib sqlite): sqlx
+   alone loads mysql, its default, and H9's configs\modules.ini does not list sqlite.
+4. Player slots. Every per-player array sized for 32 slots is sized by MAX_PLAYERS (H9's AMX Mod X is
+   built for 128), and so are the get_players buffers (with H9's MAX_PLAYERS a smaller one does not
+   compile) and the three per-player loops.
+5. TS ammo (ARP_TS, ARP_NPCs). Each carried its own ts_setuserammo, Avalanche's code that writes TS
+   3.0's private data offsets; it clashed with TSX's native of the same name and is gone, so both
+   call the native, which H9's TSX provides for TS 3.0 and reTS alike.
+6. TS weapon numbers (ARP_TS, ARP_NPCs). Their tables -- a gun's attachments, the ammunition it
+   loads, the ammunition item it takes -- go by weapon id, and were written for 36 kung fu, 37 the
+   throwing knife and 38 the Contender. H9's TSX uses the game's own ids (tsconst.inc): 0 kung fu,
+   2 the Beretta 92F, 36 the Contender, 37 the akimbo Skorpions, 38 the throwing knife -- the order
+   ARP_TS's own item names already had. The rows follow it now; the Beretta and the akimbo Skorpions
+   load as the akimbo Berettas and the Skorpion do, and ARP_NPCs' ammunition table reaches 38.
+7. ARP_Items' Ham_TakeDamage (the assassin knife) stays on the hook ts_matchmode uses for damage and
+   assists, which H9's mp.dll (reTS) delivers, and logs its first hit on each map as the proof.
+8. Jobs (ARP_Core). A database with no jobs -- a fresh one, on a map no SQL file was loaded for --
+   left every player on job -1, and every look-up of his job read the job array of handle 0: the
+   hover line every frame and the HUD every second (TrieKeyExists on an invalid handle, which also
+   stopped the HUD's own task for the rest of the map), and the save. The core makes "Unemployed"
+   once the jobs are read when there is none, takes the 1-based id ARP_FindJobId gives as such, adds
+   the job with the id it is given, and looks a job up only when it is there.
+9. Bots (ARP_Core). Bots share one auth id, so the first one made a row and every other one failed
+   on its UNIQUE key: bots are neither loaded from the database nor saved to it, and are Unemployed
+   with nothing for as long as they stay.
+10. More slot encodings. The tasks that carried a player as id + 32 (the core's retry of a player
+   still being saved, ARP_Items' hallucination, ARP_TalkArea's 911 sounds) carry id + MAX_PLAYERS;
+   a property's key holders, one 32-bit mask (so slot 33 held slot 1's keys), are a bit for each
+   slot, 32 to a cell (H9_HasKey, H9_SetKey: cell 8 as before, then cells 101 on); ARP_TalkArea's
+   bugs are a cell for each pair of slots, and a player who leaves takes the bugs he planted.
+11. The jails (ARP_JailMod). A map without a jailmod.ini has no jails, and the plugin runs (it
+   stopped itself). jail <command> numbers jails from 1, as the menu does. A jail may name its
+   cell's own controls in the map -- cage (the door that shuts it), toggle (what opens and shuts it)
+   and panel (the cell's wall panel) -- and then jailing a player shuts the cage on him, freeing him
+   opens it, and the panels are the doors of one locked property, "h9_jail", that only police use.
+12. The HUD (ARP_Core, RenderHud). A HUD with nothing to show is cleared once and not sent again
+   until it has something: ARP's four HUDs no longer hold all four of AMX Mod X's HUD channels
+   every second, so other plugins' HUD text does not fight them for one.
+13. H9's maps (configs\arp\maps). h9_tsrp_hive: its jailmod.ini, the four cells of the Alexandria
+   jail wired to the map's cages (al_cell1-4), managers (al_cell1mm-4mm) and panels
+   (al_jail1act-4act), and an empty zones.ini. h9_tsrp_newbyzantium: an empty jailmod.ini and
+   zones.ini. Neither has NPCs, a rob.ini or an SQL file yet.
+
+Building and running it
+-----------------------
+build.bat builds the twelve with the game's amxxpc, deploys them, lists them in plugins.ini with
+ARP_Core first, and copies configs\arp\, models\arp and sound\arp into the live install; export.bat
+carries them, and this folder, on. ARP uses the AMX Mod X modules engine, fakemeta, hamsandwich,
+fun, tsx, tsfun and sqlite, all in H9's build (TSM\AMXMODX). On a roleplay map without a folder of
+its own under configs\arp\maps the core logs "Configuration directory missing" and runs with no
+doors, properties, NPCs or zones until one is made; H9's two have theirs (item 13).

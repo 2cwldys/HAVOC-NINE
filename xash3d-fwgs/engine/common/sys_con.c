@@ -27,6 +27,10 @@ GNU General Public License for more details.
 #include <io.h>
 #endif
 
+// H9: h9_overflowlog.c, the engine's overflow and limit messages kept in logs/h9_overflow.log
+qboolean H9_OverflowCandidate( const char *text );
+void H9_OverflowLog( const char *fmt, const char *text );
+
 // do not waste precious CPU cycles on mobiles or low memory devices
 #if !XASH_WIN32 && !XASH_MOBILE_PLATFORM && !XASH_LOW_MEMORY && !XASH_EMSCRIPTEN
 #define XASH_COLORIZE_CONSOLE 1
@@ -369,9 +373,31 @@ static void Con_Printfv( qboolean debug, const char *szFmt, va_list args )
 	if( debug && !Q_strcmp( buffer, "0\n" ))
 		return; // hlrally spam
 
+	H9_OverflowLog( szFmt, buffer );
+
 	Sys_Print( buffer );
 	if( add_newline )
 		Sys_Print( "\n" );
+}
+
+/*
+=============
+Con_H9Unprinted
+
+H9: a message the console does not print, for the developer level or for want of a console,
+still goes to logs/h9_overflow.log when it is an overflow or limit message (h9_overflowlog.c).
+A developer message is formatted only when its format string already matches.
+=============
+*/
+static void Con_H9Unprinted( qboolean format_any, const char *szFmt, va_list args )
+{
+	char buffer[MAX_PRINT_MSG];
+
+	if( !format_any && !H9_OverflowCandidate( szFmt ))
+		return;
+
+	Q_vsnprintf( buffer, sizeof( buffer ), szFmt, args );
+	H9_OverflowLog( szFmt, buffer );
 }
 
 /*
@@ -385,7 +411,12 @@ void GAME_EXPORT Con_Printf( const char *szFmt, ... )
 	va_list args;
 
 	if( !host.allow_console )
+	{
+		va_start( args, szFmt );
+		Con_H9Unprinted( true, szFmt, args );
+		va_end( args );
 		return;
+	}
 
 	va_start( args, szFmt );
 	Con_Printfv( false, szFmt, args );
@@ -403,7 +434,12 @@ void GAME_EXPORT Con_DPrintf( const char *szFmt, ... )
 	va_list args;
 
 	if( host_developer.value < DEV_NORMAL )
+	{
+		va_start( args, szFmt );
+		Con_H9Unprinted( false, szFmt, args );
+		va_end( args );
 		return;
+	}
 
 	va_start( args, szFmt );
 	Con_Printfv( true, szFmt, args );
@@ -421,7 +457,12 @@ void Con_Reportf( const char *szFmt, ... )
 	va_list args;
 
 	if( host_developer.value < DEV_EXTENDED )
+	{
+		va_start( args, szFmt );
+		Con_H9Unprinted( false, szFmt, args );
+		va_end( args );
 		return;
+	}
 
 	va_start( args, szFmt );
 	Con_Printfv( false, szFmt, args );

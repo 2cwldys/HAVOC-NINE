@@ -176,6 +176,7 @@ target_sources(client PRIVATE
 	flashlight.cpp
 	GameStudioModelRenderer.cpp
 	geiger.cpp
+	h9_vgui.cpp
 	health.cpp
 	hud.cpp
 	hud_msg.cpp
@@ -221,6 +222,7 @@ target_sources(client PRIVATE
 	util.cpp
 	vgui_ClassMenu.cpp
 	vgui_CustomObjects.cpp
+	vgui_H9Panel.cpp
 	vgui_int.cpp
 	vgui_MOTDWindow.cpp
 	vgui_SchemeManager.cpp
@@ -275,6 +277,7 @@ target_sources(client PRIVATE
 	demo.h
 	eventscripts.h
 	GameStudioModelRenderer.h
+	h9_vgui.h
 	health.h
 	hud.h
 	hud_spectator.h
@@ -289,6 +292,7 @@ target_sources(client PRIVATE
 	particleman/CMiniMem.h
 	StudioModelRenderer.h
 	tri.h
+	vgui_H9Panel.h
 	vgui_int.h
 	vgui_SchemeManager.h
 	vgui_ScorePanel.h

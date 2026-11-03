@@ -1,0 +1,1 @@
+h9xash.bat +exec autoexec.cfg

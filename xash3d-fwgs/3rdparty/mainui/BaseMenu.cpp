@@ -571,6 +571,12 @@ bool UI_StartBackGroundMap( void )
 	if( CL_IsActive() || EngFuncs::GetCvarFloat( "cl_background" ) != 0.0f || gpGlobals->demoplayback )
 		return false;
 
+	// H9: a join is on its way, under the engine's join screen (cl_h9join.c, mainui-h9-joinscreen.patch):
+	// the menu's first draw comes during it when the game starts with +connect, and a background map
+	// would end the join
+	if( EngFuncs::GetCvarFloat( "_h9join" ) != 0.0f )
+		return false;
+
 	int bgmapid = EngFuncs::RandomLong( 0, uiStatic.bgmaps.Count() - 1 );
 
 	char cmd[128];

@@ -44,7 +44,7 @@ if not exist "%PLUGINS%" (
 if not exist "%OUT%" mkdir "%OUT%"
 
 if "%~1"=="" (
-set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link"
+set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link h9_rank"
 ) else (
     if /i "%~1"=="all" (
         set "TARGETS="
@@ -87,6 +87,27 @@ if exist "%SRC%include\h9_community.inc" (
     copy /y "%SRC%include\h9_community.inc" "%SCRIPTING%\include\h9_community.inc" >nul
     if errorlevel 1 (echo [FAIL] could not sync include\h9_community.inc) else (echo   synced include\h9_community.inc)
     if exist "%SRC%AMXMODX\plugins\include" copy /y "%SRC%include\h9_community.inc" "%SRC%AMXMODX\plugins\include\h9_community.inc" >nul
+)
+REM The account natives (include\h9_presence.inc, h9_presence 1.9): any plugin that gives a
+REM player rights by their havoc9.org account compiles against it. Refreshed on every build like
+REM tsm_api.inc.
+if exist "%SRC%include\h9_presence.inc" (
+    copy /y "%SRC%include\h9_presence.inc" "%SCRIPTING%\include\h9_presence.inc" >nul
+    if errorlevel 1 (echo [FAIL] could not sync include\h9_presence.inc) else (echo   synced include\h9_presence.inc)
+    if exist "%SRC%AMXMODX\plugins\include" copy /y "%SRC%include\h9_presence.inc" "%SRC%AMXMODX\plugins\include\h9_presence.inc" >nul
+)
+REM H9 VGUI (include\h9_vgui.inc): the panel stocks ts_matchmode compiles against, and any
+REM plugin that draws panels on an H9 game. Refreshed on every build like tsm_api.inc.
+if exist "%SRC%include\h9_vgui.inc" (
+    copy /y "%SRC%include\h9_vgui.inc" "%SCRIPTING%\include\h9_vgui.inc" >nul
+    if errorlevel 1 (echo [FAIL] could not sync include\h9_vgui.inc) else (echo   synced include\h9_vgui.inc)
+    if exist "%SRC%AMXMODX\plugins\include" copy /y "%SRC%include\h9_vgui.inc" "%SRC%AMXMODX\plugins\include\h9_vgui.inc" >nul
+)
+REM The TS weapon ids (AMXMODX\plugins\include\tsconst.inc): H9 adds the PPSh-41 (TSW_PPSH41, 39), which
+REM ts_matchmode and the other plugins compile against. Refreshed on every build like tsm_api.inc.
+if exist "%SRC%AMXMODX\plugins\include\tsconst.inc" (
+    copy /y "%SRC%AMXMODX\plugins\include\tsconst.inc" "%SCRIPTING%\include\tsconst.inc" >nul
+    if errorlevel 1 (echo [FAIL] could not sync include\tsconst.inc) else (echo   synced include\tsconst.inc)
 )
 REM ts_advertise.cfg HOLDS THE DISCORD BOT TOKEN, and h9_presence.cfg may hold a hand-made
 REM h9web presence key, so each is only ever created, never overwritten. Syncing one like the
@@ -241,6 +262,66 @@ for %%n in (!TARGETS!) do (
         )
         echo.
     )
+)
+
+REM ---- Apollo RP (apollo-rp\) ----------------------------------------------
+REM Apollo RP, copied whole from github.com/DouglasSherk/Apollo-RP with H9's changes
+REM (apollo-rp\ORIGIN.txt): its plugins for The Specialists, built from
+REM apollo-rp\base\addons\amxmodx\scripting with the game's amxxpc, deployed and
+REM listed in plugins.ini like the plugins above, ARP_Core first -- the others use its
+REM natives, and on a map that is not a roleplay map it pauses every one of them, so
+REM they stay loaded and do nothing there. Its configs (configs\arp\), models\arp and
+REM sound\arp come along. Upstream's own plugins-arp.ini and modules.ini are not
+REM installed. Built by a plain build.bat, by "build.bat all" and by "build.bat apollo".
+set "ARP_SRC=%SRC%apollo-rp\base"
+set "ARP_TARGETS=ARP_Core ARP_Commands ARP_Config ARP_HUD ARP_HungerMod ARP_Items ARP_JailMod ARP_NPCs ARP_RobMod ARP_TalkArea ARP_Zones ARP_TS"
+set "BUILD_ARP="
+if "%~1"=="" set "BUILD_ARP=1"
+for %%a in (%*) do (
+    if /i "%%~a"=="all" set "BUILD_ARP=1"
+    if /i "%%~a"=="apollo" set "BUILD_ARP=1"
+)
+if defined BUILD_ARP if exist "%ARP_SRC%\addons\amxmodx\scripting\ARP_Core.sma" (
+    echo ===== Apollo RP =====
+    xcopy /y /q "%ARP_SRC%\addons\amxmodx\scripting\include\*.inc" "%SCRIPTING%\include\" >nul
+    echo   synced apollo-rp includes
+    for %%n in (!ARP_TARGETS!) do (
+        copy /y "%ARP_SRC%\addons\amxmodx\scripting\%%n.sma" "%SCRIPTING%\%%n.sma" >nul
+        if exist "%OUT%\%%n.amxx" del /q "%OUT%\%%n.amxx"
+        pushd "%SCRIPTING%"
+        "%AMXXPC%" "%%n.sma" -o"%OUT%\%%n.amxx"
+        popd
+        if exist "%OUT%\%%n.amxx" (
+            copy /y "%OUT%\%%n.amxx" "%PLUGINS%\%%n.amxx" >nul
+            if errorlevel 1 (
+                echo [FAIL] %%n compiled but could not copy to plugins.
+                set /a BAD+=1
+            ) else (
+                echo [OK]   deployed %%n.amxx
+                set /a OK+=1
+            )
+        ) else (
+            echo [FAIL] no %%n.amxx produced -- see compiler output above
+            set /a BAD+=1
+        )
+    )
+    xcopy /y /i /e /q "%ARP_SRC%\addons\amxmodx\configs\arp" "%CONFIGS%\arp" >nul
+    echo   synced configs\arp\
+    xcopy /y /i /q "%ARP_SRC%\models\arp\*.mdl" "%TSROOT%\..\..\models\arp\" >nul
+    echo   synced models\arp\
+    xcopy /y /i /q "%ARP_SRC%\sound\arp\*.wav" "%TSROOT%\..\..\sound\arp\" >nul
+    echo   synced sound\arp\
+    for %%n in (!ARP_TARGETS!) do (
+        if exist "%PLUGINS%\%%n.amxx" (
+            findstr /i /c:"%%n.amxx" "%CONFIGS%\plugins.ini" >nul 2>&1
+            if errorlevel 1 (
+                >> "%CONFIGS%\plugins.ini" echo.
+                >> "%CONFIGS%\plugins.ini" echo %%n.amxx
+                echo   registered %%n.amxx in plugins.ini
+            )
+        )
+    )
+    echo.
 )
 
 REM ---- the AmxxEasyHttp module ---------------------------------------------

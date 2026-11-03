@@ -179,7 +179,7 @@ diff --git a/engine/client/input/input.c b/engine/client/input/input.c
 diff --git a/engine/common/net_ws.h b/engine/common/net_ws.h
 --- a/engine/common/net_ws.h
 +++ b/engine/common/net_ws.h
-@@ -103,4 +103,9 @@
+@@ -103,4 +103,10 @@ void HTTP_Run( void );
  typedef void ( *http_memory_cb_t )( const char *url, qboolean success, const byte *data, size_t size, void *userdata );
  qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata );
  
@@ -187,6 +187,7 @@ diff --git a/engine/common/net_ws.h b/engine/common/net_ws.h
 +#define HTTP_MEM_PUBLIC_ONLY BIT( 0 ) // connect only to a public address: the one it resolved, checked, is the one it uses
 +#define HTTP_MEM_VERIFY_TLS  BIT( 1 ) // https only with the server's certificate checked against a loaded CA bundle
 +qboolean HTTP_GetToMemoryEx( const char *url, http_memory_cb_t cb, void *userdata, int flags );
++int HTTP_MemoryStatus( void ); // H9: inside an http_memory_cb_t, the HTTP status its answer had; 0 for none
 +
  #endif//NET_WS_H
 diff --git a/engine/common/http/net_http_tls.h b/engine/common/http/net_http_tls.h
@@ -227,15 +228,38 @@ diff --git a/engine/common/http/net_http_tls.c b/engine/common/http/net_http_tls
 diff --git a/engine/common/http/net_http_xash.c b/engine/common/http/net_http_xash.c
 --- a/engine/common/http/net_http_xash.c
 +++ b/engine/common/http/net_http_xash.c
-@@ -159,6 +159,7 @@
+@@ -159,6 +159,8 @@ typedef struct httpfile_s
  	size_t   mem_size;
  	size_t   mem_cap;
  	http_memory_cb_t mem_cb;
 +	int      mem_flags; // H9: HTTP_MEM_* from HTTP_GetToMemoryEx
++	int      mem_status; // H9: the HTTP status the answer had, 0 while none was read (HTTP_MemoryStatus)
  	void    *mem_user;
  	char     url[1024];
  
-@@ -337,11 +338,86 @@
+@@ -201,6 +203,9 @@ static int HTTP_FileDecompress( httpfile_t *file );
+ static httpserver_t *HTTP_ParseURL( const char *url_, qboolean full_path );
+ static qboolean HTTP_FileRedirect( httpfile_t *file, const char *location );
+ 
++// H9: the status of the memory request whose callback is running (HTTP_MemoryStatus)
++static int http_mem_status;
++
+ /*
+ ==============
+ HTTP_FreeFile
+@@ -243,7 +248,11 @@ static void HTTP_FreeFile( httpfile_t *file, qboolean error )
+ 	if( file->to_memory )
+ 	{
+ 		if( file->mem_cb )
++		{
++			http_mem_status = file->mem_status;
+ 			file->mem_cb( file->url, !error, error ? NULL : file->mem_data, error ? 0 : file->mem_size, file->mem_user );
++			http_mem_status = 0;
++		}
+ 
+ 		if( file->mem_data )
+ 		{
+@@ -337,11 +346,86 @@ static int HTTP_FileQueue( httpfile_t *file )
  	return 1;
  }
  
@@ -322,7 +346,7 @@ diff --git a/engine/common/http/net_http_xash.c b/engine/common/http/net_http_xa
  		file->pfn_process = HTTP_FileCreateSocket;
  		return 1;
  	}
-@@ -379,6 +455,10 @@
+@@ -379,6 +463,10 @@ static int HTTP_FileResolveNS( httpfile_t *file )
  	file->server->addr = file->addr;
  	file->server->resolved = true;
  
@@ -333,7 +357,7 @@ diff --git a/engine/common/http/net_http_xash.c b/engine/common/http/net_http_xa
  	file->pfn_process = HTTP_FileCreateSocket;
  	return 1;
  }
-@@ -461,6 +541,14 @@
+@@ -461,6 +549,14 @@ static int HTTP_FilePrepareRequest( httpfile_t *file )
  
  	if( file->server->secure )
  	{
@@ -348,10 +372,19 @@ diff --git a/engine/common/http/net_http_xash.c b/engine/common/http/net_http_xa
  		file->tls = HTTP_TlsNew( file->socket, file->server->host );
  		if( !file->tls )
  		{
-@@ -1334,6 +1422,18 @@
+@@ -1029,6 +1125,7 @@ static int HTTP_FileProcessStream( httpfile_t *curfile )
+ 					if( Q_isdigit( tmp ))
+ 						num = Q_atoi( tmp );
+ 				}
++				curfile->mem_status = num > 0 ? num : 0; // H9: HTTP_MemoryStatus
+ 
+ 				if( num != 200 )
+ 				{
+@@ -1333,6 +1430,18 @@ and handed to the callback when the request completes (success or failure).
+ ===================
  */
  qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata )
- {
++{
 +	return HTTP_GetToMemoryEx( url, cb, userdata, 0 );
 +}
 +
@@ -363,11 +396,10 @@ diff --git a/engine/common/http/net_http_xash.c b/engine/common/http/net_http_xa
 +===================
 +*/
 +qboolean HTTP_GetToMemoryEx( const char *url, http_memory_cb_t cb, void *userdata, int flags )
-+{
+ {
  	if( Q_strpbrk( url, "\r\n" ))
  	{
- 		Con_Printf( S_ERROR "%s: refused, URL contains CRLF\n", __func__ );
-@@ -1348,6 +1448,13 @@
+@@ -1348,6 +1457,13 @@ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata
  		return false;
  	}
  
@@ -381,7 +413,7 @@ diff --git a/engine/common/http/net_http_xash.c b/engine/common/http/net_http_xa
  	httpfile_t *httpfile = Mem_Calloc( http_mempool, sizeof( *httpfile ));
  
  	httpfile->size = -1;
-@@ -1358,6 +1465,7 @@
+@@ -1358,6 +1474,7 @@ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata
  	httpfile->to_memory = true;
  	httpfile->mem_cb = cb;
  	httpfile->mem_user = userdata;
@@ -389,6 +421,26 @@ diff --git a/engine/common/http/net_http_xash.c b/engine/common/http/net_http_xa
  	httpfile->pfn_process = HTTP_FileQueue;
  	Q_strncpy( httpfile->url, url, sizeof( httpfile->url ));
  	// file->path is empty; the full path lives in server->path
+@@ -1368,6 +1485,19 @@ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata
+ 	return true;
+ }
+ 
++/*
++===================
++HTTP_MemoryStatus
++
++H9: called from an http_memory_cb_t, the HTTP status its request's answer had (200, 404, 503 ...), or
++0 when it had none: no answer, a timeout, a refused or broken connection
++===================
++*/
++int HTTP_MemoryStatus( void )
++{
++	return http_mem_status;
++}
++
+ /*
+ ===============
+ HTTP_Download_f
 diff --git a/engine/client/cl_motd.h b/engine/client/cl_motd.h
 new file mode 100644
 --- /dev/null
@@ -476,6 +528,7 @@ new file mode 100644
 +#endif // CL_MOTD_H
 diff --git a/engine/client/cl_motd.c b/engine/client/cl_motd.c
 new file mode 100644
+index 00000000..70c6a06b
 --- /dev/null
 +++ b/engine/client/cl_motd.c
 @@ -0,0 +1,1896 @@
@@ -663,7 +716,7 @@ new file mode 100644
 +
 +// Other engine-drawn panels (cl_travel.c registers its prompt): each comes before the splash for
 +// the keys and the mouse, and is drawn above it.
-+#define H9UI_MAX_PANELS 4
++#define H9UI_MAX_PANELS 8
 +static const h9ui_panel_t *h9ui_panels[H9UI_MAX_PANELS];
 +static int h9ui_numpanels;
 +

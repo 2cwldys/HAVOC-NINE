@@ -32,6 +32,45 @@ Code: `dlls/game.cpp` (the cvar), `dlls/teamplay_gamerules.cpp` (the teamplay ga
 `ChangePlayerTeam`), `dlls/multiplay_gamerules.cpp` (the multiplayer check, for `0`).
 Requested by a server operator running model plugins under teamplay, 2026-10-15.
 
+### PPSh-41 (weapon 39) and caliber 14
+
+The roster has one weapon TS 3.0 does not: `TSW_PPSH41` (39), a submachine gun with a 71-round drum
+(`dlls/ts_weapon_info.cpp`, after the original's rows). TS 3.0's ids are 0 to 37. Id 38 is left empty
+(`TSW_UNUSED`: an empty row, no weapon) because AMX Mod X's TSX keeps its thrown knife's stats at 38 ("not a
+game id"), so no game weapon has that number; `TSW_COUNT` is 40. The PPSh-41's row is the AK47's taken whole, so
+its animation blocks, hold stance and events are the AK47's (its `models/h9/{v,p,w}_ppsh41.mdl` are TS's AK47
+models with the gun's meshes swapped), then its own name, models, sound (`h9/ppsh41/fire.wav`), shell, clip,
+fire type 9 (SMG), rate, caliber, price and Sparta values (26.35 damage, 85% of the UMP's). The ammo table
+gains caliber 14, 7.62 x 25mm (71 rounds a buy, 213 carried). The client has the matching buy-menu row (SMGs),
+weapon-bar cell and icon, and fire sound. H9 packages ship the models, sound and icon; a server precaches the
+weapon's files with every other weapon's, so it needs them. The server registers a read-only `h9_ppsh41` cvar
+(1) (`dlls/game.cpp`): a plugin that finds it knows this game library has the weapon (ts_matchmode gives the
+UMP in its place where it does not).
+
+What it breaks, against the original and plugins built for it:
+
+- The original client has no id 39: it has no buy-menu or weapon-bar row for the PPSh-41, and reads an id
+  past its table as slot 0. A player on one only gets the PPSh-41 from a plugin or the ground, and CustomWP
+  (`SendWeaponParams`) never broadcasts it (it stops at 37). `customweapons` lines for 39 load and save, and
+  act on the server.
+- `CTSGun::m_items` has two more elements (38 is empty), so the members after it move. reTSX does not read
+  them by offset (`ReTS_GetInterface` takes the weapon id, which is range-checked against the weapon count).
+- A plugin or module that sizes a table by TS 3.0's 38 weapons must know 39. H9's TSX does: weapon 39 is the
+  PPSh-41, the thrown knife stays 38, and kung fu's own stats slot moved from 39 to 40 (AMX Mod X's
+  `modules/ts/tsx`, `tsconst.inc`'s TSW_PPSH41).
+- The PPSh-41 is not in the random SMG pickup (`weapon_rpg` on a stock map), so none reaches an original
+  client that way.
+
+### TS's top notices beneath the H9 VGUI stack (client)
+
+TS 3.0 draws its top-row notices ("<name> is The Specialist", the killing sprees) from 32 px down, 16 px
+lower for each live one. On a server whose match mode draws a VGUI stack at the top of the screen (the match
+bar and banners, `docs/H9_VGUI.txt`), H9's client draws those notices beneath the stack instead: each is moved
+down by how far the stack's bottom edge is below 32 px (`H9Vgui_StackBottom()` in `cl_dll/h9_vgui.cpp`; the draw
+is `CHudTSMessage::Draw` in `cl_dll/ts_message.cpp`). With no stack on screen, as on every server that sends
+none, they are where TS puts them. The stack itself starts 1.5% of the screen height down (16 px at 1080;
+`cl_h9_vgui_top` sets it in pixels), where the original left its top band to these notices.
+
 ### ReTS_GetInterface (server export)
 
 A versioned struct of get/set functions for the player fields AMX Mod X's TS module touches (cash, slow

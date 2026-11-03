@@ -931,7 +931,11 @@ static void CL_ParseServerData( sizebuf_t *msg, connprotocol_t proto )
 	}
 
 	if( !cls.changedemo )
-		UI_SetActiveMenu( cl.background );
+	{
+		// H9: the join screen keeps the menu up (cl_h9join.c)
+		if( !CL_H9Join_ServerInfo( ))
+			UI_SetActiveMenu( cl.background );
+	}
 	else if( !cls.demoplayback )
 		Key_SetKeyDest( key_menu );
 
@@ -1740,6 +1744,7 @@ void CL_RegisterResources( sizebuf_t *msg, connprotocol_t proto )
 
 			// done with all resources, issue prespawn command.
 			// Include server count in case server disconnects and changes level during d/l
+			CL_H9Join_Spawning(); // H9: the join screen's last stage (cl_h9join.c)
 			MSG_BeginClientCmd( msg, clc_stringcmd );
 			if( proto == PROTO_GOLDSRC )
 			{
@@ -2276,6 +2281,12 @@ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto )
 		CL_Avatar_Message( msg );
 		return;
 	}
+	else if( !Q_strcmp( clgame.msg[i].name, "H9Account" ) && clgame.msg[i].size == 5 )
+	{
+		// H9: the havoc9.org account a linked player's slot is, for h9_profile (cl_avatar.c)
+		CL_Avatar_Account( msg );
+		return;
+	}
 
 	iSize = clgame.msg[i].size;
 
@@ -2616,6 +2627,7 @@ void CL_ParseServerMessage( sizebuf_t *msg )
 				S_StopAllSounds( true );
 
 				Con_Printf( "Server changing, reconnecting\n" );
+				CL_H9Join_ChangeLevel(); // H9: the join screen through the map change (cl_h9join.c)
 
 				if( cls.demoplayback )
 				{

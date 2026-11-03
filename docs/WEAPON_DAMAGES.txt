@@ -1,0 +1,207 @@
+WEAPON DAMAGES -- the damage of every weapon, as the game builds it
+=================================================================
+
+Every number here is read from the weapon table the game compiles (reTS dlls\ts_weapon_info.cpp,
+built into both mp.dll and client.dll): 39 weapons, TS 3.0's 38 (ids 0 to 37) and the PPSh-41 (id 39).
+Id 38 is no game weapon: AMX Mod X's TSX uses it for the throwing knife (section 4), so the game's own
+table leaves it empty. The table's damage is the shipped 'Sparta' value for the 32 firearms, which
+overrides the figure in each weapon's own row; the melee, grenade and briefcase rows keep their own. A
+server can change any of them with a weapons file (the 'customweapons' cvar, written by 'saveweapons');
+this is the stock table.
+
+
+1. THE FIREARMS, BY ID
+----------------------
+
+  Damage     what one bullet (one pellet, for a shotgun) does to a body, before range, armor and the
+             whole-number cut below
+  Pellets    bullets a shot sends (8 for every shotgun)
+  Per shot   Damage x Pellets: the most one pull of the trigger does
+  Rate       seconds between shots, as the table has it (a gun cannot fire faster)
+  Dmg/s      Per shot / Rate: a ceiling, since spread, recoil, reloads and the trigger lower it
+  Head       one bullet to the head: x2, or x1.5 for a shotgun pellet
+  %UMP       Damage against the UMP's 31
+
+  ID  Weapon             Class        Damage Pellets Per shot  Rate  Dmg/s   Head  %UMP  Fire modes
+  --  -----------------  -----------  ------ ------- -------- ----- ------ ------ ----- ---------------------
+   1  Glock-18           pistol           24       1       24 0.054    444     48   77%  auto, semi
+   2  Beretta 92F        pistol           27       1       27 0.100    270     54   87%  semi
+   3  Mini-Uzi           SMG              20       1       20 0.060    333     40   65%  auto, semi
+   4  Benelli M3         shotgun          12       8       96 0.225    427     18   39%  semi, pump
+   5  M4A1               rifle            33       1       33 0.070    471     66  106%  auto, semi
+   6  MP5SD              SMG              19       1       19 0.074    257     38   61%  auto, semi, burst
+   7  MP5K               SMG              23       1       23 0.066    348     46   74%  auto, semi, burst
+   8  Akimbo Berettas    akimbo           27       1       27 0.100    270     54   87%  semi, akimbo-alt
+   9  SOCOM-MK23         pistol           33       1       33 0.100    330     66  106%  semi
+  10  Akimbo MK23        akimbo           33       1       33 0.100    330     66  106%  semi, akimbo-alt
+  11  USAS-12            shotgun           7       8       56 0.166    337   10.5   23%  auto
+  12  Desert Eagle       pistol           49       1       49 0.100    490     98  158%  semi
+  13  AK47               rifle            39       1       39 0.080    488     78  126%  auto, semi
+  14  Five-seveN         pistol           23       1       23 0.100    230     46   74%  semi
+  15  STEYR-AUG          rifle            29       1       29 0.092    315     58   94%  auto, semi
+  16  Akimbo Mini-Uzi    akimbo           20       1       20 0.060    333     40   65%  auto, akimbo-both
+  17  Skorpion           SMG              16       1       16 0.070    229     32   52%  auto, semi
+  18  Barrett M82A1      sniper          185       1      185 0.700    264    370  597%  semi
+  19  MP7-PDW            SMG              16       1       16 0.063    254     32   52%  auto, semi
+  20  SPAS-12            shotgun          12       8       96 0.200    480     18   39%  semi, pump
+  21  Golden Colts       akimbo           40       1       40 0.100    400     80  129%  semi, akimbo-alt
+  22  Glock-20C          pistol           39       1       39 0.100    390     78  126%  semi
+  23  UMP                SMG              31       1       31 0.092    337     62  100%  auto, semi, burst
+  26  Mossberg 500       shotgun          16       8      128 0.250    512     24   52%  pump
+  27  M16A4              rifle            40       1       40 0.070    571     80  129%  semi, burst
+  28  Ruger-MK1          pistol           15       1       15 0.100    150     30   48%  semi
+  30  Akimbo Five-seveN  akimbo           23       1       23 0.100    230     46   74%  semi, akimbo-alt
+  31  Raging Bull        pistol           95       1       95 0.150    633    190  306%  semi
+  32  M60E3              machine gun      33       1       33 0.109    303     66  106%  auto
+  33  Sawed-off          shotgun          21       8      168 0.100   1680   31.5   68%  semi
+  36  Contender G2       pistol          100       1      100 0.250    400    200  323%  semi
+  37  Akimbo Skorpions   akimbo           16       1       16 0.070    229     32   52%  auto, akimbo-both
+  39  PPSh-41            SMG           26.35       1    26.35 0.067    393   52.7   85%  auto, semi
+
+  Akimbo weapons list one barrel: Damage is a bullet of either gun, Rate the time between shots of the
+  weapon. 'Dmg/s' counts one bullet per shot.
+
+  The PPSh-41 does 85% of the UMP's damage (26.35, which lands as 26), with a 71-round drum, 900 rounds
+  a minute, and a toggle between full auto and single fire (the fire-mode key switches, as on the AK47
+  and the Uzi).
+
+
+2. RANGE, AND WHAT A BULLET GOES THROUGH
+---------------------------------------
+
+A bullet keeps all its damage out to about ten range units of its caliber, then loses it as the
+square root of the distance: it does 0.95 of its damage at 11 range units, 0.5 at 40 and 0.32 at 100
+(a range unit is the number in the table below, in game units). A hit's damage is cut to a whole
+number when it is taken.
+
+  Cal  Ammo            Range unit  Full to (units)  Half at (units)  Pierce decay  Rounds a buy
+  ---  --------------  ----------  ---------------  ---------------  ------------  ------------
+    1  9 x 19mm                80              880             3200           0.2            30
+    2  .45Acp                  90              990             3600           0.2            12
+    3  SHELLS                  90              990             3600           0.0             8
+    4  5.56 Nato              150             1650             6000           0.9            30
+    5  .50AE                   90              990             3600           0.5            10
+    6  7.62 x 39mm            170             1870             6800           0.7            30
+    7  5.7 x 28               100             1100             4000           1.0            20
+    8  50BMG                  200             2200             8000           1.0             5
+    9  10mm AUTO               90              990             3600           0.5            15
+   10  .22 LR                  70              770             2800           0.9            17
+   11  .454 Casull             20              220              800          0.75             5
+   12  .32Acp                  40              440             1600           0.0            20
+   13  7.62 x 51mm            170             1870             6800           0.7             5
+   14  7.62 x 25mm             90              990             3600           0.5            71
+
+A bullet that still has more than 5 damage after a hit goes on through up to 48 units of material
+and hits once more, as one bullet with its damage times the pierce decay (half again if it went
+through a player). A decay of 0 never goes through: every shotgun's shells, and the .32.
+
+
+3. WHAT CHANGES A HIT
+--------------------
+
+  Head                 x2 for a bullet, x1.5 for a shotgun pellet; a blade or a fist gets nothing
+  Chest, stomach, arms x1: there is no torso multiplier
+  Legs                 x0.5
+  Kevlar               x0.7875 (the server's armor_absorb, 0.2125) on the chest, stomach and arms
+                       for a bullet; the head and the legs are not covered, and neither is a blade,
+                       a fall or an explosion
+  Bullet time dodge    x0.7 for a bullet taken during the 0.55 second dodge
+  Stunt and slow-mo    x0.7 for a player in a stunt or slow-motion state
+  Spawn protection     no damage at all for one second after a spawn
+  Friendly fire        no damage between teammates while mp_friendlyfire is off
+
+They multiply. A pistol bullet to the head of a player in kevlar is a head hit, so the kevlar does
+not count; to the chest it is x0.7875; to a leg it is x0.5.
+
+
+4. MELEE, THROWN BLADES, THE GRENADE, THE BRIEFCASE
+---------------------------------------------------
+
+A knife or katana blow is scaled by the melee bar (0 to 100): x(bar x 0.5 + 50) / 100, so x1.0 at a
+full bar and x0.5 at an empty one (the kung-fu blows are flat). A fist or a blade gets no head bonus.
+
+  ID  Weapon          Blow                                      Damage (at a full melee bar)
+  --  --------------  ----------------------------------------  --------------------------------
+   0  Kung-fu         punch                                     35 (flat: not scaled by the bar)
+                      kick                                      45
+                      back kick                                 55
+  25  Combat Knife    slash                                     30 (20 while stunting)
+                      thrown, touching a player                 100
+  35  Seal Knife      slash                                     20
+                      thrown, touching a player                 50
+  34  Katana          slash, on the ground                      45
+                      slash, ducking                            65
+                      slash while moving backward               75, swung behind the player
+                      slash in the air                          speed x 2/13, from 35 to 55
+                      slash during a stunt                      35
+                      thrown, touching a player                 150
+  38  Throwing Knife  any thrown blade that touches a player; TSX's id for it, not a game weapon:
+                      a thrown Combat Knife                     100
+                      a thrown Seal Knife                       50
+                      a thrown Katana                           150
+                      a thrown blade in flight, on glass and    0.1 x its speed
+                      what it can kill (never a player)
+  24  M61 Grenade     explosion                                 110 to everything within 300 units,
+                                                                less out to nothing at 1024
+  29  Briefcase       (the capture the flag objective)          0
+
+A thrown blade or grenade in flight shatters what it crosses that it can kill (glass and the like,
+never a player), taking 0.1 x its speed as the damage.
+
+Weapon 38, the Throwing Knife, is how AMX Mod X's TSX names any thrown blade: a kill or a hit made with one
+reaches plugins (client_death, client_damage) as weapon 38, whichever knife was thrown, and a kill with it
+is worth 2 points, as a kung-fu kill is (every other weapon's is worth 1). It is not a game weapon: the
+game's own ids are 0 to 37, and the PPSh-41's 39, so ts_giveweapon never takes 38.
+
+
+5. THE FIREARMS, BY DAMAGE
+-------------------------
+
+  Damage per bullet, largest first (a shotgun's is one pellet of eight):
+
+  Barrett M82A1        185  ########################################
+  Contender G2         100  ######################
+  Raging Bull           95  #####################
+  Desert Eagle          49  ###########
+  Golden Colts          40  #########
+  M16A4                 40  #########
+  AK47                  39  ########
+  Glock-20C             39  ########
+  M4A1                  33  #######
+  SOCOM-MK23            33  #######
+  Akimbo MK23           33  #######
+  M60E3                 33  #######
+  UMP                   31  #######
+  STEYR-AUG             29  ######
+  Beretta 92F           27  ######
+  Akimbo Berettas       27  ######
+  PPSh-41            26.35  ######
+  Glock-18              24  #####
+  MP5K                  23  #####
+  Five-seveN            23  #####
+  Akimbo Five-seveN     23  #####
+  Sawed-off             21  #####
+  Mini-Uzi              20  ####
+  Akimbo Mini-Uzi       20  ####
+  MP5SD                 19  ####
+  Skorpion              16  ###
+  MP7-PDW               16  ###
+  Mossberg 500          16  ###
+  Akimbo Skorpions      16  ###
+  Ruger-MK1             15  ###
+  Benelli M3            12  ###
+  SPAS-12               12  ###
+  USAS-12                7  ##
+
+
+6. WHERE THE NUMBERS LIVE
+-------------------------
+
+  reTS\dlls\ts_weapon_info.cpp   the table: each weapon's row (Write), its combat feel (Sparta())
+                                 and the ammo (set_ammo); shared by mp.dll and client.dll
+  reTS\dlls\TS_combat.cpp        the range falloff and the pierce (ShootBulletsPlayer)
+  reTS\dlls\player.cpp           the hit-location multipliers, kevlar and the dodge (TraceAttack,
+                                 TakeDamage)
+  reTS\dlls\ts_gun.cpp           the melee blows (KnifeFire, KatanaFire, CCombatAttack)
+  reTS\dlls\ts_grenades.cpp      the grenade and the thrown blades
+

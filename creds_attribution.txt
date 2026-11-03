@@ -10,3 +10,5 @@ reTS and recompiled source binaries - stevenlAFl
 sharing various tools and mapper assistance - babblingbrook
 compts elo plugin backend - xjiro
 h9_te_meridian - deoroot
+ppsh-41 weapon models (view, player and world) - based on "ppsh-41" by zillious, sketchfab.com/3d-models/ppsh-41-5c8a64490fa747389e9cfcaecc69c88a (licence: attribution, see ppsh41_ATTRIBUTION.txt)
+ppsh-41 firing sound - darkest hour: europe '44-'45 team (the free red orchestra mod)

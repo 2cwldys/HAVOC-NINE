@@ -30,24 +30,31 @@ site), so the same picture never comes over the network again, and the test site
 never pass for havoc9.org's.
 imagelib decodes it, and the RGBA pixels go to the client library's HUD_H9Avatar( slot, version,
 wide, tall, rgba ), which the scoreboard draws in the slot's avatar cell (rgba NULL: the silhouette
-again). A client library without HUD_H9Avatar gets nothing, and neither does a slot whose picture
-could not be fetched or read; four fetches go at once, and a picture that failed is not asked
-again until the game restarts or cl_h9_site names another site; each one that failed says so
-once in the console. cl_h9_avatars 0 turns it all off.
+again). A client library without HUD_H9Avatar gets nothing. Four fetches go at once. A picture that
+could not be fetched (no answer, a timeout, a refused connection, 429 or a 5xx: HTTP_MemoryStatus)
+is asked again while a slot still names it, 15 s, 60 s and 5 minutes after its first, second and
+third tries, then every 10 minutes; one that is not there or no use (another HTTP status, or a body
+that is no PNG of at most 64 x 64) waits 10 minutes. Each failure is one console line, with when it
+is tried again. A new H9Avatar for a slot asks again at once, the same picture or not (h9_presence
+names every slot's again at each map start), and another cl_h9_site starts the list over. The
+asking again runs in an H9UI panel's Frame (cl_motd.c), a panel that is never up.
+cl_h9_avatars 0 turns it all off.
 
 The browser build reads the message and keeps the silhouette.
 
 h9_profile <slot> opens the havoc9.org profile of the player in that slot in the web browser, the way
 the main menu's OPEN PAGE opens the link page (Platform_ShellExecute). H9's client.dll runs it on a
 double-click on a linked player's picture (the green chain). The address is this file's site and the
-account the server last named in H9Avatar for the player now in that slot,
+account the server last named for the player now in that slot,
 
   https://havoc9.org/api/link/profile/<account>
 
 which h9web answers by sending the browser on to the account's forum profile (lib/link.js), so a
-server gives a number and nothing else, as for the pictures. A player with the site's default
-picture comes as account 2147483647, which is everybody's: no profile opens for them. Servers
-cannot run it, and a burst of clicks opens one page.
+server gives a number and nothing else, as for the pictures. The account is H9Account's (byte slot,
+long account; h9_presence 1.7 names every linked player's own), else H9Avatar's; but a server older
+than that names an account only through a picture, and a player with the site's default picture
+comes as account 2147483647, which is everybody's: no profile opens for them there. Servers cannot
+run it, and a burst of clicks opens one page.
 */
 
 #include "common.h"
@@ -55,6 +62,7 @@ cannot run it, and a burst of clicks opens one page.
 #include "library.h"
 #include "net_ws.h"
 #include "platform/platform.h"
+#include "cl_motd.h"
 
 #define H9AV_SITE      "https://havoc9.org"
 #define H9AV_MAX_BYTES ( 32 * 1024 )
@@ -74,12 +82,19 @@ static struct
 	int want_version[MAX_CLIENTS + 1];
 	int fetch_account[H9AV_FETCHES];         // in flight, 0 for a free entry
 	int fetch_version[H9AV_FETCHES];
-	int failed_account[H9AV_FAILED];         // not asked again this session
-	int failed_version[H9AV_FAILED];
+	struct
+	{
+		int account, version;                // 0: a free entry
+		int tries;                           // fetches of it that failed
+		double retry_at;                     // host.realtime it may be asked for again
+	} failed[H9AV_FAILED];
 	int failed_next;
 	char failed_site[64];                    // the cl_h9_site the failed list is for
-	int slot_account[MAX_CLIENTS + 1];       // the account the server last named for each slot, 0 for none
+	double pump_at;                          // the frame's next look for a picture to ask again
+	int slot_account[MAX_CLIENTS + 1];       // the account H9Avatar last named for each slot, 0 for none
 	int slot_userid[MAX_CLIENTS + 1];        // the userid of the slot's player then: another player is not them
+	int named_account[MAX_CLIENTS + 1];      // the account H9Account last named for each slot, 0 for none
+	int named_userid[MAX_CLIENTS + 1];       // the same, for H9Account
 	double profile_opened;                   // when h9_profile last opened a page
 	pfnH9Avatar_t give;
 	qboolean looked;
@@ -87,6 +102,22 @@ static struct
 
 #if !XASH_EMSCRIPTEN
 static void H9Av_Profile_f( void );
+static void H9Av_Frame( void );
+static void H9Av_Reset( qboolean connection );
+static qboolean H9Av_NotUp( void ) { return false; }
+static qboolean H9Av_NoKey( int key, qboolean down ) { (void)key; (void)down; return false; }
+static void H9Av_NoDraw( void ) { }
+
+// never up: only its Frame (asking again for pictures) and its Reset (a new map or server) do work
+static const h9ui_panel_t h9av_panel =
+{
+	H9Av_NotUp,
+	H9Av_NoKey,
+	H9Av_NoKey,
+	H9Av_Frame,
+	H9Av_NoDraw,
+	H9Av_Reset,
+};
 #endif
 
 /*
@@ -100,6 +131,7 @@ void CL_Avatar_Init( void )
 	Cvar_RegisterVariable( &cl_h9_site );
 #if !XASH_EMSCRIPTEN
 	Cmd_AddRestrictedCommand( "h9_profile", H9Av_Profile_f, "H9: open the havoc9.org profile of the player in a slot in the web browser (the scoreboard's double-click on a linked player's picture)" );
+	H9UI_AddPanel( &h9av_panel );
 #endif
 }
 
@@ -201,22 +233,67 @@ static void H9Av_SiteCheck( void )
 	if( !Q_strcmp( av.failed_site, cl_h9_site.string ))
 		return;
 	Q_strncpy( av.failed_site, cl_h9_site.string, sizeof( av.failed_site ));
-	memset( av.failed_account, 0, sizeof( av.failed_account ));
-	memset( av.failed_version, 0, sizeof( av.failed_version ));
+	memset( av.failed, 0, sizeof( av.failed ));
 	av.failed_next = 0;
 }
 
-static qboolean H9Av_Failed( int account, int version )
+// the failed list's index for a picture, or -1
+static int H9Av_FailedEntry( int account, int version )
 {
 	int i;
 
 	H9Av_SiteCheck();
 	for( i = 0; i < H9AV_FAILED; i++ )
 	{
-		if( av.failed_account[i] == account && av.failed_version[i] == version )
-			return true;
+		if( av.failed[i].account == account && av.failed[i].version == version )
+			return i;
 	}
-	return false;
+	return -1;
+}
+
+// a picture that failed and may not be asked for yet
+static qboolean H9Av_Waiting( int account, int version )
+{
+	const int i = H9Av_FailedEntry( account, version );
+
+	return i >= 0 && host.realtime < av.failed[i].retry_at;
+}
+
+// a new word from the server on a picture: asked for again at once
+static void H9Av_Forget( int account, int version )
+{
+	const int i = H9Av_FailedEntry( account, version );
+
+	if( i >= 0 )
+		memset( &av.failed[i], 0, sizeof( av.failed[i] ));
+}
+
+// A fetch that brought no picture: when it may be asked for again. later: no answer, or a server that
+// will answer later (429, a 5xx); else the picture is not there or no use.
+static int H9Av_Failure( int account, int version, qboolean later )
+{
+	int i = H9Av_FailedEntry( account, version ), wait;
+
+	if( i < 0 )
+	{
+		i = av.failed_next;
+		av.failed_next = ( av.failed_next + 1 ) % H9AV_FAILED;
+		memset( &av.failed[i], 0, sizeof( av.failed[i] ));
+		av.failed[i].account = account;
+		av.failed[i].version = version;
+	}
+	av.failed[i].tries++;
+	if( !later )
+		wait = 600;
+	else if( av.failed[i].tries == 1 )
+		wait = 15;
+	else if( av.failed[i].tries == 2 )
+		wait = 60;
+	else if( av.failed[i].tries == 3 )
+		wait = 300;
+	else wait = 600;
+	av.failed[i].retry_at = host.realtime + wait;
+	return wait;
 }
 
 // A PNG of at most 64 x 64 and 32 KB, by its own header, decoded and given to the slot.
@@ -253,9 +330,10 @@ static void H9Av_Pump( void );
 // HTTP_GetToMemoryEx's answer for fetch entry (intptr_t)userdata
 static void H9Av_Received( const char *url, qboolean success, const byte *data, size_t size, void *userdata )
 {
+	const int status = HTTP_MemoryStatus();
 	int k = (int)(intptr_t)userdata;
 	int account, version, slot;
-	qboolean shown = false;
+	qboolean shown = false, wanted = false;
 	char path[64];
 
 	if( k < 0 || k >= H9AV_FETCHES || !av.fetch_account[k] )
@@ -264,29 +342,40 @@ static void H9Av_Received( const char *url, qboolean success, const byte *data, 
 	version = av.fetch_version[k];
 	av.fetch_account[k] = av.fetch_version[k] = 0;
 
+	// the slots that still name it: shown, or left wanting it for the next try
 	for( slot = 1; slot <= MAX_CLIENTS; slot++ )
 	{
 		if( av.want_account[slot] != account || av.want_version[slot] != version )
 			continue;
+		wanted = true;
 		if( success && H9Av_Show( slot, version, data, size ))
+		{
 			shown = true;
-		av.want_account[slot] = av.want_version[slot] = 0;
+			av.want_account[slot] = av.want_version[slot] = 0;
+		}
 	}
 
 	if( shown )
 	{
 		H9Av_CachePath( path, sizeof( path ), url, account, version );
 		FS_WriteFile( path, data, size );
+		H9Av_Forget( account, version );
 	}
-	else
+	else if( wanted )
 	{
-		H9Av_SiteCheck();
-		av.failed_account[av.failed_next] = account;
-		av.failed_version[av.failed_next] = version;
-		av.failed_next = ( av.failed_next + 1 ) % H9AV_FAILED;
-		Con_Printf( "H9 AVATARS: no picture for account %d (version %d): %s, %s\n", account, version, url,
-			success ? "not a PNG of at most 64 x 64, or a client library without HUD_H9Avatar" : "it could not be fetched" );
+		const qboolean later = !success && ( status == 0 || status == 429 || status >= 500 );
+		const int wait = H9Av_Failure( account, version, later );
+		char why[48];
+
+		if( success )
+			Q_strncpy( why, "not a PNG of at most 64 x 64", sizeof( why ));
+		else if( status )
+			Q_snprintf( why, sizeof( why ), "HTTP %d", status );
+		else Q_strncpy( why, "no answer", sizeof( why ));
+		Con_Printf( "H9 AVATARS: no picture for account %d (version %d): %s, %s; %s again in %d s\n", account, version, url, why,
+			later ? "trying" : "asked", wait );
 	}
+	// else no slot names it any more: nothing to keep, nothing to try again
 
 	H9Av_Pump();
 }
@@ -304,7 +393,7 @@ static void H9Av_Pump( void )
 		const int account = av.want_account[slot], version = av.want_version[slot];
 		qboolean going = false;
 
-		if( !account )
+		if( !account || H9Av_Waiting( account, version ))
 			continue;
 		spare = -1;
 		for( k = 0; k < H9AV_FETCHES; k++ )
@@ -327,6 +416,39 @@ static void H9Av_Pump( void )
 			av.fetch_account[spare] = av.fetch_version[spare] = 0;
 			av.want_account[slot] = av.want_version[slot] = 0;
 		}
+	}
+}
+
+// every second, while a slot waits for a picture: one that failed may be due again
+static void H9Av_Frame( void )
+{
+	int slot;
+
+	if( !cl_h9_avatars.value || host.realtime < av.pump_at )
+		return;
+	av.pump_at = host.realtime + 1.0;
+	for( slot = 1; slot <= MAX_CLIENTS; slot++ )
+	{
+		if( av.want_account[slot] )
+		{
+			H9Av_Pump();
+			return;
+		}
+	}
+}
+
+// a new map or another server: the slots wait for nothing until the server names their pictures again;
+// another server's accounts are not this one's
+static void H9Av_Reset( qboolean connection )
+{
+	memset( av.want_account, 0, sizeof( av.want_account ));
+	memset( av.want_version, 0, sizeof( av.want_version ));
+	if( connection )
+	{
+		memset( av.slot_account, 0, sizeof( av.slot_account ));
+		memset( av.slot_userid, 0, sizeof( av.slot_userid ));
+		memset( av.named_account, 0, sizeof( av.named_account ));
+		memset( av.named_userid, 0, sizeof( av.named_userid ));
 	}
 }
 
@@ -359,10 +481,13 @@ static void H9Av_Profile_f( void )
 		return;
 	}
 
-	account = av.slot_userid[slot] == player->userid ? av.slot_account[slot] : 0;
+	// H9Account's account for the player now in the slot, else H9Avatar's
+	account = av.named_userid[slot] == player->userid ? av.named_account[slot] : 0;
+	if( account <= 0 )
+		account = av.slot_userid[slot] == player->userid ? av.slot_account[slot] : 0;
 	if( account == H9AV_DEFAULT_ACCOUNT )
 	{
-		Con_Printf( "H9 PROFILE: the server did not say which account %s is: it names one only with a picture of its own\n", player->name );
+		Con_Printf( "H9 PROFILE: this server did not say which account %s is (its h9_presence is older than 1.7, which names every linked player's)\n", player->name );
 		return;
 	}
 	if( account <= 0 )
@@ -435,10 +560,10 @@ void CL_Avatar_Message( sizebuf_t *msg )
 		}
 	}
 
-	// the silhouette until this picture is here: never the slot's previous player's
+	// the silhouette until this picture is here: never the slot's previous player's; a picture that
+	// failed is asked for again at once, as the server names it again
 	give( slot, 0, 0, 0, NULL );
-	if( H9Av_Failed( account, version ))
-		return;
+	H9Av_Forget( account, version );
 	av.want_account[slot] = account;
 	av.want_version[slot] = version;
 	H9Av_Pump();
@@ -447,4 +572,22 @@ void CL_Avatar_Message( sizebuf_t *msg )
 	(void)account;
 	(void)version;
 #endif
+}
+
+/*
+==============
+CL_Avatar_Account
+
+H9Account: byte slot, long account (0: none), the account a linked player's slot is, for h9_profile
+==============
+*/
+void CL_Avatar_Account( sizebuf_t *msg )
+{
+	const int slot = MSG_ReadByte( msg );
+	const int account = MSG_ReadLong( msg );
+
+	if( slot < 1 || slot > MAX_CLIENTS )
+		return;
+	av.named_account[slot] = account > 0 ? account : 0;
+	av.named_userid[slot] = cl.players[slot - 1].userid;
 }

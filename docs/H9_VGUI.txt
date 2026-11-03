@@ -7,12 +7,22 @@
  plugins, and any plugin author who wants a real panel on an H9XASH
  player's screen instead of AMX Mod X's text.
 
- Status: DESIGN ONLY (2026-11-02). Nothing in it is built. The one asset
- change made with it: sprites\tsm_panel.spr and sprites\tsm_banner.spr
- are now H9 purple (section 9). Line numbers are those of ts_matchmode
- 1.54-gameplay7 (2026-11-02, 20:01) and ts_rtv 1.0-h9.2. Other work is
- editing those files and the reTS client, so when a number has moved,
- find the code by the function named beside it.
+ Status (2026-11-03): steps 1 and 2 of section 5 are built. The client
+ side is in reTS\cl_dll (h9_vgui.cpp, vgui_H9Panel.cpp, hooked in hud.cpp,
+ menu.cpp, ammo.cpp and the viewport's KeyInput), in the client.dll of
+ 2026-11-03 that also draws the scoreboard's level badges (SHA256
+ 417D00113232E0DA0CD358A22A7683E8
+ 7E51407CADFD14B9116D9A02D5F7D56C, item 14 of its client.dll.patch). The
+ plugin side is in include\h9_vgui.inc, and ts_matchmode sends its side
+ and class menus through it (h9_vgui 1). Then: the match bar (4g; the
+ client's protocol 2, and ts_survival's breather on it), and step 3's
+ menus, ts_rtv's map vote and nominations and h9_community's portal
+ confirm. The decisions of section 7 are taken. The panel sprites and
+ the chat bubble are H9 purple (section
+ 9). Line numbers are those of ts_matchmode 1.54-gameplay7 (2026-11-02,
+ 20:01) before this work and ts_rtv 1.0-h9.2. Other work is editing those
+ files and the reTS client, so when a number has moved, find the code by
+ the function named beside it.
 
  The short version
    * The match mode talks to players through AMX Mod X text menus (side,
@@ -33,10 +43,11 @@
      tells the server so.
    * Nothing new is needed in the engine or in AMX Mod X: one reTS client
      build, one include (include\h9_vgui.inc) and the plugins' own edits.
-   * Panels never cover TS's own kill notices ("<name> is The Specialist",
-     the killing sprees). Those stack down from 32 px at the top centre,
-     so every panel starts below a band 136 px tall, and the client keeps
-     panels out of the other bands the HUD writes in (section 4c).
+   * The panels' top stack takes the top of the screen, and TS's own
+     notices ("<name> is The Specialist", the killing sprees: they stack
+     down from 32 px at the top centre) are drawn beneath it while it
+     shows something. The client keeps panels out of the other bands the
+     HUD writes in (section 4c).
 
  CONTENTS
     1. What is on screen today
@@ -257,12 +268,12 @@
  1d. The screen, with the bands this design keeps clear
 
      0 px +---------------------------------------------------------------+
-          | powerup label   TS NOTICES from 32 px, +16 px   round time    |
-          |                 per live notice: Specialist,    kill feed     |
-          |                 sprees, frags, headshots        (20-100 px)   |
-          |                 [match mode's ROUND line, 0.03, today]        |
-   136 px - - - - - - - - - - - - - TOP BAND ENDS - - - - - - - - - - - - -
-          |               [ STATUS BANNER: tsm_banner art ]               |
+          | powerup label   [ STATUS BANNER: tsm_banner art ]  round time |
+   16 px  |                 (the stack starts 16 px down)     kill feed   |
+          |                                                   (20-100 px) |
+          |                 TS NOTICES beneath the stack: from 32 px,     |
+          |                 or its bottom edge, +16 px per live notice:   |
+          |                 Specialist, sprees, frags, headshots          |
           | stats' "who    csay 0.19-0.27, imessage 0.20                  |
           | killed you"    centre print 0.25, stats 0.25-0.35             |
    0.34 H | +-----------+ @@ say 0.29-0.37              Officer list      |
@@ -351,9 +362,11 @@
  at the art's scale, the edges stretched along their length, the middle
  both ways. At exactly the art's proportions that is the same as scaling
  the whole image; the rail, rim and brackets stay sharp at any other
- size. A bitmap is kept per art and size and built again only when the
- size changes (VGUI1 has no call that frees a texture, so the client
- reuses them, as the scoreboard does with its pictures).
+ size. Each bitmap is kept for the life of the client, per art and size
+ (VGUI1 has no call that frees a texture, so the client reuses them, as
+ the scoreboard does with its pictures). Widths are rounded, a menu's to
+ 8 px and a banner's to 16 px, so few sizes are ever made; past 64 a new
+ size draws without its art.
 
  Why the .spr and not a TGA copy in gfx\vgui: one file, one source. The
  generator stays the only thing that draws the art, and a recolour like
@@ -367,12 +380,13 @@
    3. a menu's rows share the content box's height: title, rows, footer;
    4. if they do not fit, the footer goes first, then the fonts step down
       one scheme (Primary Button Text, CommandMenu Text, Scoreboard Text),
-      then the panel grows, through the nine-slice, up to the safe area;
+      then the panel grows, through the nine-slice, inside the safe area,
+      or, on a screen too small for that (a phone's), on down over the
+      chat band, so that no row is ever cut off;
    5. a row wider than the box widens the panel the same way; text is
       never squeezed or cut;
-   6. what happens to a menu with few rows (the side menu has four) is a
-      question for the user (section 7, Q1): the art's full square, or
-      shortened to its rows through the nine-slice.
+   6. a menu with few rows (the side menu has four) keeps the art's full
+      square (decision 1, section 7).
  At 1920x1080 a menu is then 461 px square (content 335 x 403 px: twelve
  rows of 33 px, the class menu's maximum), a banner 346 x 130 px.
 
@@ -516,14 +530,19 @@
            notice replaces), text, a colour, hold and fade times and a
            style. The client draws it on the tsm_banner art or as plain
            scheme text, where 4c puts it.
+   STATUS  A notice that stays until its slot is replaced or cleared,
+           stacks first from the top of the safe area, and counts its own clock
+           down: {t} (m:ss) and {s} (seconds) in its text, from the one
+           message (protocol 2).
    PANEL   Any layout: a panel and its controls, each by id. Labels,
            images, buttons, a progress bar, a text entry. The reply is a
            client command, "h9vgui <panel> <control> <value>", that the
            plugin registers.
 
  The match mode's side and class menus are MENUs; its round line, the
- countdown, the warmup readout and the rest of 1b are NOTICEs; PANEL is
- what a plugin author uses for anything else.
+ freeze countdown, the warmup readout and a round's result are one
+ STATUS, the match bar (4g); the rest of 1b are NOTICEs; PANEL is what a
+ plugin author uses for anything else.
 
  4b. The message: H9Vgui
 
@@ -594,6 +613,9 @@
               b, byte hold and byte fade (tenths of a second), short value
               (0-1000 for a bar, else -1), string text ("^n" breaks lines,
               160 bytes at most)
+  21  STATUS  string slot, byte style (as NOTICE), byte r, g, b, short
+              clock (seconds, -1 none), string text, its {t} and {s}
+              the clock. Protocol 2. An empty text clears the slot.
 
  The client answers with exactly two commands, and nothing else:
    menuselect N      from a MENU: its number keys and, when it has the
@@ -612,7 +634,10 @@
                      and control characters and stops at 63 characters.
 
  How a client says it can draw them: userinfo _h9vgui, the protocol
- version, "1". The client registers it as a FCVAR_USERINFO cvar; FWGS puts
+ version: "1" for all but STATUS, "2" with it (the client of
+ 2026-11-03's match bar build). A plugin sends a STATUS only to a game
+ of protocol 2 (h9vgui_status says whether it did), and the rest keep
+ the hudmessage. The client registers it as a FCVAR_USERINFO cvar; FWGS puts
  such a cvar into the userinfo as soon as it exists (engine\common\
  cvar.c:463, from pfnCvar_RegisterClientVariable at engine\client\
  dll_int\cl_game.c:1753), and sends the change when it is set. It reads
@@ -659,12 +684,15 @@
  bands taken out where the HUD writes, in pixels as the client sees the
  screen:
 
-   top band     0 to 136 px, the full width. TS's notices start at 32 px
-                and come 16 px lower for each live one (ts_message.cpp:
-                75-103): 136 px holds six of them, besides the round time,
-                the kill feed and the powerup label. Below 900 px of
-                height it is 104 px (four notices), so a banner still fits
-                above the centre column. cl_h9_vgui_top changes it.
+   top margin   0 to 16 px (1.5% of the height, 8 at least), the full
+                width: the stack of notices and the panels anchored along
+                the top start there. TS's own notices start at 32 px and
+                come 16 px lower for each live one (ts_message.cpp:
+                75-103); while the stack shows something they are drawn
+                beneath it (H9Vgui_StackBottom, CHudTSMessage::Draw), else
+                they keep their place. The round time (top right) and the
+                powerup label (top left) are corner text the centred stack
+                does not meet. cl_h9_vgui_top changes the margin.
    bottom band  the full width, from 10 px above the chat's top, which is
                 H - 60 - 7 x the HUD font's height (saytext.cpp:248): 196 px
                 with the stock 18 px font. It also holds TS's bottom
@@ -682,7 +710,7 @@
                 of the height (see Default placement).
 
  Anchors: TL T TR, L C R, BL B BR (0-8), relative to the safe area: T is
- centred under the top band, L is 16 px from the left edge and centred on
+ centred along its top, L is 16 px from the left edge and centred on
  the safe area's height, and so on. x and y move the panel from its
  anchor, in virtual units. Whatever a plugin asks, the client clamps the
  result into the safe area (moving it, then shrinking it), keeps passive
@@ -694,10 +722,10 @@
               top at 0.34 of the height (the text menu's top is about
               there, menu.cpp:171, and it clears the TS stats plugin's
               "who killed you" card, 0.15 to about 0.33 on the left), then
-              moved up, never above the top band, if the bottom would
+              moved up, never above the top margin, if the bottom would
               reach the bottom band. 461 px square: 367 to 828 px.
-   banner     T: centred, its top edge on the top band, 346 x 130 px:
-              136 to 266 px. Its bottom stays above 0.25 of the height
+   banner     T: centred, its top edge on the top margin, 346 x 130 px:
+              16 to 146 px. Its bottom stays above 0.25 of the height
               (270 px here), where the centre print and the stats lines
               start: on a smaller screen the banner's scale comes down to
               keep it there, to half the art's size at least.
@@ -706,6 +734,10 @@
               satchel and zone) at its hudmessage's place, 0.47, just
               above the crosshair box, because it answers the player's
               own +USE.
+   TS's       beneath the stack: the top row of TS's own notices, which
+   notices    start 32 px down, is drawn from the stack's bottom edge
+              (+4 px) while the stack shows something, else where TS
+              puts it.
    panels     where the plugin anchors them, inside the safe area.
  What the defaults still meet: the left column overlaps adminchat's
  amx_tsay and "say @" lines (left, 0.64-0.72), and the centre column's
@@ -724,7 +756,9 @@
               A MODAL panel shows the cursor, like TS's team menu, and
               takes its own controls' clicks, the number keys and ESC; the
               movement keys still move. One modal at a time; the player's
-              cl_h9_vgui_mouse 0 makes every panel passive. A text entry
+              cl_h9_vgui_mouse 0 makes every panel passive. This client
+              keeps every panel passive, a modal one too (decision 2,
+              section 7): no cursor at all. A text entry
               takes keys only after the player clicks into it, and lets
               go on Enter, ESC or a click elsewhere. A server can never
               give focus, read a key, change a binding or run a command.
@@ -748,7 +782,9 @@
               VFileSystem009.h:107) where the file was found, and refuses
               one under ts_downloads, the folder FWGS mounts for downloads
               (filesystem\searchpath.c:376-377). Nothing is ever fetched
-              for a panel.
+              for a panel. This client draws the two built-in arts and
+              nothing else; other images, with that test, come with a
+              later build, and a text entry too (decision 8).
    Limits     8 server panels open at once, 48 controls a panel, 16 rows
               a menu; ids 23 characters, labels 63, a menu row's label and
               detail 31 each, a notice 160; a message over 192 bytes, or
@@ -836,9 +872,9 @@
  in the core to send twins for plugins that were never changed. Stocks
  do the first well enough; a hub plugin, h9_vgui.amxx with natives and a
  real multi-forward, would do the second if many plugins come to share
- the system (Q6); and the third is better done by the client (Q3: H9's
- client can skin any AMX text menu from its text, with no server change
- at all).
+ the system (not now: decision 6); and the third is better done by the
+ client, which could skin any AMX text menu from its text with no server
+ change at all (not now: decision 3).
 
  Is the engine needed? No. Each thing the system relies on is already
  there:
@@ -885,18 +921,47 @@
                       paired; the panel closes when CHudMenu turns off
    ammo.cpp           TS_MenuTakesSlot (705-716): after the text menu, a
                       passive panel's number-key buttons
-   vgui_TeamFortressViewport.cpp, .h
-                      the H9 panel host made after the scoreboard
-                      (CreateScoreBoard, 581); Initialize (610) closes
-                      every server panel; KeyInput (1826) closes one on
-                      ESC; UpdateCursorState (1656) and IsVGUIMenuUp (1697)
-                      count a modal H9 panel
+   vgui_TeamFortressViewport.cpp
+                      KeyInput (1826) closes one on ESC. The panels are
+                      made under the viewport by h9_vgui.cpp the first
+                      time it exists, and its HUD element closes them at
+                      a map change (InitHUDData); with no cursor, the
+                      cursor code is left as it is
    CMakeLists.txt     the four new files, in the explicit source list
                       (both the Windows and the web build use it)
  And the records: reTS\reference\DEVIATIONS.md (an added message, client
  command and cvars; coverage.py will list the cvars as EXTRA) and new
  items in reTS\binaries\ts\cl_dlls\client.dll.patch.
 
+
+ 4g. The match bar
+
+ ts_matchmode's round line (0.03), freeze countdown (0.28), warmup and
+ idle readouts (0.20, 0.22) and its round's result (0.18) are, for a
+ game of protocol 2, one STATUS in the slot tsm.bar: two lines on the
+ tsm_banner art, the first notice of the top stack, centred. The
+ first line is the state and its clock, the second the score:
+   idle        MATCH MODE IDLE / Waiting for players on two teams (red)
+   warmup      WARMUP -- PLAYERS HELD / the reason, or, while it is the
+               ready-up, TYPE .ready -- MSR 3/5 -- INS 2/5
+   freeze      ROUND 3 -- STARTING IN {s} / MSR 2  --  1 INS (orange)
+   live        ROUND 3 -- {t}, then " -- " and the mode's text (uplink's
+               ZONES 2 - 1, survival's WAVE 3) and " -- SUDDEN DEATH",
+               over the score; red in the last 15 seconds
+   breather    a mode's own countdown in the first line's place
+               (tsm_hud_count): WAVE 3 CLEARED -- NEXT WAVE IN {s}
+   round end   ROUND 3 WON BY MSR (or DRAWN) / the score -- FIRST TO 4
+   match end   MATCH OVER -- MSR WINS / the score; RUN OVER for a
+               one-run mode (green)
+ bar_set() in ts_matchmode composes it where the hudmessage is shown,
+ and bar_flush() sends it to a game only when its text or colour changed
+ or its clock was set to another end: a round costs a message at the
+ start, at 15 seconds, at sudden death and at each score or state
+ change. Every other game gets the hudmessages as before (bar_hud), and
+ ts_survival draws its breather's hudmessage only for those
+ (tsm_bar_shown). Mech Warrior has no text of its own: its bar is the
+ live one. With tsm_show_timer 0 the bar goes, as the round line does.
+ The LIVE and SUDDEN DEATH flashes stay hudmessages.
 
  5. ORDER OF WORK
  ----------------
@@ -940,10 +1005,12 @@
                        h9vgui_show_menu(id, g_team_menu_keys,
                        g_team_menu_text, -1, TSM_SIDE_MENU, "tsm.side",
                        "Pick a side")
-     show_class_menu() 3514: its row loop also calls h9vgui_menu_row()
-                       (name as the label; hp, lives and "N left" or
-                       "full" as the detail; full rows dim), and the
-                       show_menu at 3604 becomes h9vgui_menu_send()
+     show_class_menu() 3514: the show_menu at 3604 becomes
+                       h9vgui_show_menu(id, keys, text, -1,
+                       TSM_CLASS_MENU, "tsm.class", "Pick a class"):
+                       the rows come out of the menu's own text, the
+                       class the label, its hp, lives and "N left" or
+                       "full" the detail, a full class dim
      unchanged         team_menu_key 3184, class_menu_key 3616, pick_side,
                        pick_class, drop_class_menu 3501 (its no-key menu
                        closes the panel), task_freeze_tick's re-offer
@@ -961,10 +1028,10 @@
    h9_community.sma  offer() 1772: show_menu at 1796, "h9c.portal".
    The two new menus, ts_rtv's nominate_menu() 930 and ts_matchmode's
    cmd_legend() 8684, have no text of their own to twin: AMX Mod X writes
-   their pages. Either the client draws them from their text (Q3), or the
-   plugins send them as raw show_menu() pages with a menucmd handler like
-   the others (the legend has three rows; the nominations need their own
-   paging, 8 back and 9 more).
+   their pages. They stay text (decision 3) until the plugins send them
+   as raw show_menu() pages with a menucmd handler like the others (the
+   legend has three rows; the nominations need their own paging, 8 back
+   and 9 more).
    Build: build.bat ts_rtv h9_community ts_matchmode.
 
  Step 4. HUD text to NOTICEs: the BANNER, FLASH and BAR rows of 1b.
@@ -1000,71 +1067,53 @@
    * Overlap that placement cannot avoid: on a screen under about 600 px
      tall the banner, at half size, still meets the 0.25 band; a seventh
      TS notice in one burst; the left column against adminchat's tsay
-     and "say @" lines (4c).
+     and "say @" lines (4c); on a phone's screen a long menu over the
+     chat band.
+   * A notice of four lines, the freeze countdown, does not fit the band
+     above 0.25 of the height at a readable size (134 px at 1080): its
+     fonts step down to Scoreboard Small Text. Step 4 has to send it as
+     two lines, or let that banner pass the line.
    * Moving targets. ts_matchmode.sma changed twice while this was being
      written (the numbers here are of 1.54-gameplay7, 20:01), and cl_dll
      at 16:40: the line numbers drift, the function names do not.
    * reTS's swap contract. H9Vgui, the h9vgui reply and the cl_h9_vgui
-     cvars are additions to TS's client: DEVIATIONS.md lists them, and
-     coverage.py will report the cvars as EXTRA. A stock client never
-     receives H9Vgui, because it never sets _h9vgui.
+     cvars are additions to TS's client, as the scoreboard's H9 messages
+     are, and coverage.py will report the cvars as EXTRA. A stock client
+     never receives H9Vgui, because it never sets _h9vgui.
    * FWGS paths not yet exercised by reTS: typing into a VGUI1 TextEntry
      (VGui_KeyEvent), the art bitmaps' texture memory (VGUI1 frees no
-     texture, so they are cached per size), textures that are not powers
-     of two (a 461 px panel; round up if a renderer needs it).
+     texture, so they are kept per size, 64 at most), textures that are
+     not powers of two (a 461 px panel; round up if a renderer needs it).
    * The web client: the browser draws the fonts (Arial, not Square 721),
      and it may have no filesystem_stdio interface for the downloads test
      (4e). Both are worth one run before the web client ships it.
-   * The two new menus (legend, nominations) are not covered by MENU
-     until Q3 is answered.
+   * The two new menus (legend, nominations) stay text (decision 3).
 
 
- 7. QUESTIONS FOR THE USER
- -------------------------
-   Q1  Menu size. Should every menu be the panel art's full square (the
-       image sizes the menu; a four-row side menu then has room to
-       spare), or should a short menu shorten to its rows through the
-       nine-slice? The design takes the full square unless you say.
-   Q2  The mouse. Menus are keys-only, like today's text menus. Should the
-       side and class menus take the mouse during warmup and the freeze
-       (players cannot move then), or only when the player sets
-       cl_h9_vgui_mouse 1?
-   Q3  Every other menu. Should H9's client also draw the AMX menus that
-       have no twin (AMX Mod X's admin menus, adminvote, the legend and
-       the nominations) on the panel art, reading their text, behind a
-       cl_h9_vgui_textmenus 1 setting? It needs no server change and
-       solves the two new menus; it does change how every AMX menu looks
-       for H9 players.
-   Q4  HUD text. Is the BANNER, FLASH, BAR and STAYS split in 1b right?
-       And the text players' round line at 0.03 sits on TS's notice row
-       today: should that move down for them too (a one-line plugin
-       change, outside this design)?
-   Q5  Placement. The banner centred under TS's notices (default), or in
-       the top-left corner, clear of every centred message? Is it fine
-       that the left-column menu can meet amx_tsay and "say @" text?
-   Q6  The plugin side. Include only (default), or also a hub plugin,
-       h9_vgui.amxx, with natives and one shared forward?
-   Q7  Look. Scale 0.8 for menus and 0.6 for banners; new "H9 Menu ..."
-       schemes in the textschemes, with a regular-weight detail font;
-       Square 721 as a web font for the web client. Yes to any?
-   Q8  The text entry: in the first client build, or later?
-   Q9  The server switch, h9_vgui, on (1) by default?
-   Q10 The Steam install's tsm_panel.spr and tsm_banner.spr are still
-       blue: build.bat has no sprites step, and only make-menu-panel.mjs
-       writes there. Run it (a deploy), or give build.bat a sprites sync?
-   Q11 The blue *.spr.backup copies in H9XASH, export, the git mirror and
-       the web stage are never loaded and no pipeline makes them: delete
-       them?
-   Q12 tsm_typing.spr, the chat bubble, comes from the same generator and
-       stays blue: purple too?
-   Q13 The "Specialist" and killing-spree announcements are TS's own
-       TSMessage notices, not a TSX plugin's; the TSX stats plugin is
-       installed but off. Is clearing TS's notice band, and the stats
-       plugin's lines if a host turns it on, the set you meant?
-   Q14 Nothing draws the two sprites in game today (2a), so the purple
-       shows when the VGUI client does. Should the text menus look H9
-       before then? The client's \y orange (menu.cpp:108-112) could become
-       H9's purple in the same client build.
+ 7. DECISIONS (2026-11-03)
+ ------------------------
+ The questions this section asked, as they were answered. Any can change.
+   1  Menus fill the art's full square; a row too wide widens it.
+   2  Keys only: no panel takes the mouse, for now.
+   3  Only H9's own menus get the art: other AMX menus stay text, so the
+      legend and the nominations stay text until they are sent as raw
+      menus with a twin.
+   4  The 1b split as designed; the text players' round line stays at
+      0.03 for now.
+   5  The banner centred at the top, TS's notices beneath it; a
+      left-column menu may meet amx_tsay text.
+   6  Include only, include\h9_vgui.inc; no hub plugin.
+   7  Scale 0.8 for menus and 0.6 for banners, the schemes as in 3d; no
+      web font yet, so the web client draws the browser's Arial.
+   8  The text entry comes later, not in this build.
+   9  h9_vgui defaults to 1, so H9 players see the panels; every other
+      game gets the text menus as before.
+   10 The Steam install's sprite copies are purple.
+   11 The *.spr.backup copies stay.
+   12 tsm_typing.spr, the chat bubble, is purple too (section 9).
+   13 Yes: TS's own notice band, and the stats plugin's lines when a host
+      turns it on.
+   14 The text menus keep their \y orange for now.
 
 
  8. FOR PLUGIN AUTHORS: A SHORT GUIDE
@@ -1093,12 +1142,13 @@
       chat line.
    4. Placement. Anchor your panel (H9V_TL ... H9V_BR); anchors are
       relative to the client's safe area, and the client moves anything
-      that leaves it back inside. The safe area starts 136 px from the top
-      (TS's kill notices stack down from 32 px there: "is The Specialist",
-      the sprees) and ends 196 px above the bottom (chat, TS's HUD). Leave
+      that leaves it back inside. The safe area starts at the top of the
+      screen (a 16 px margin at 1080; TS's kill notices, "is The
+      Specialist" and the sprees, are drawn beneath what the top of it
+      holds) and ends 196 px above the bottom (chat, TS's HUD). Leave
       the crosshair alone, and the centre column between 0.19 and 0.40 of
       the height to the HUD's centred messages; a banner anchored H9V_T
-      sits just under the top band. A menu goes in the left column, as
+      sits at the top margin. A menu goes in the left column, as
       AMX text menus do.
    5. A panel is passive unless you set the modal flag: no cursor, its
       number-key buttons and nothing else. Ask for the mouse only for
@@ -1156,7 +1206,7 @@
    	return PLUGIN_HANDLED;
    }
 
-   // 2. A PANEL: a banner under TS's notices, a question and two buttons
+   // 2. A PANEL: a banner at the top, a question and two buttons
    //    on the 1 and 2 keys. A player who cannot draw it gets the menu.
    public cmd_rc_panel(id)
    {
@@ -1189,8 +1239,8 @@
 
  What happens: say .rc shows the menu, as text for most players and on
  the purple panel for an H9 player, who presses 1 or 2 either way, and
- rc_key() gets the key. say .rcpanel shows an H9 player the banner just
- under the TS notices with two buttons (keys 1 and 2; clickable only if
+ rc_key() gets the key. say .rcpanel shows an H9 player the banner
+ at the top with two buttons (keys 1 and 2; clickable only if
  he allows the mouse); his choice comes back through h9vgui_event(). ESC
  closes either and sends "h9vgui rc.ask 0 close" for the panel.
 
@@ -1226,37 +1276,38 @@
      9    surround              9 12 26         16 10 24        0.16
    255    alpha-test key        0 0 255         0 0 255, unchanged
 
- The script: PANEL_INK (the purple) and TYPING_INK (the blue, as it was)
- with one inkPalette(); the exported palette is the panels', and
- writeSprFrames() takes its palette, so tsm_typing.spr stays blue. It was
- rebuilt through the script with its writes held to TSM\sprites and
- TSM\export-mdl (D:\temp\vgui-design\tools\run-panel-local.mjs hid
- export\ and the Steam install from it): nothing was deployed. Before the
- change the same run reproduced all three sprites and their PNGs byte for
- byte; after it, tsm_typing.spr and its PNG came out identical again.
+ The chat bubble, sprites\tsm_typing.spr (ts_floatchat's), is purple too
+ (2026-11-03): the same ink, the same method, its four frames, pixels
+ and colour key unchanged. The script has one INK for all three sprites.
+ It was rebuilt through the script with its writes held to TSM\sprites
+ and TSM\export-mdl (D:\temp\vgui-design\tools\run-panel-local.mjs hid
+ export\ and the Steam install from it). Before the first change the
+ same run reproduced all three sprites and their PNGs byte for byte.
 
- Where the purple is now
-   TSM\sprites and TSM\export-mdl (the source and its previews), and,
-   through an export another session ran at 16:32-16:34, export\ts\
-   sprites, H9XASH\ts\sprites, export\H9XASH, the git mirror's ts\ and
-   H9XASH\, and webclient-build\stage with the mirror's copy of it.
+ Where the purple is now: TSM\sprites and TSM\export-mdl (the source and
+ its previews), export\ts\sprites, export\H9XASH\ts\sprites,
+ H9XASH\ts\sprites, the git mirror's ts\sprites and H9XASH\ts\sprites,
+ the Steam install's ts\sprites, and both webclient-build\stage copies:
+ all three sprites byte-identical everywhere.
  What does not follow the source
-   D:\SteamLibrary\steamapps\common\Half-Life\ts\sprites\tsm_panel.spr and
-     tsm_banner.spr: still blue. Only make-menu-panel.mjs writes them (its
-     third output); build.bat has no sprites step. node make-menu-panel.mjs
-     in TSM\modelling updates them (a deploy: Q10).
+   The Steam install's copies are written only by make-menu-panel.mjs
+     itself (its third output); build.bat has no sprites step.
    tsm_panel.spr.backup and tsm_banner.spr.backup, blue, never loaded by
      the game and made by no pipeline, in H9XASH\ts\sprites,
      export\ts\sprites, export\H9XASH\ts\sprites, the git mirror's
      ts\sprites and H9XASH\ts\sprites, webclient-build\stage\game\ts\
-     sprites and the mirror's copy of that (Q11).
+     sprites and the mirror's copy of that; kept (decision 11).
    modelling\make-menu-viewmodel.mjs imports the panels' palette: its
      v_tsmpanel.mdl, built nowhere and shipped nowhere, would come out
      purple at its next build.
- In game nothing changes yet: nothing draws these two sprites (2a).
+ In game: the chat bubble shows purple at once; the panel and banner art
+ shows with the H9 VGUI client (2a).
 
  Previews and the originals, in D:\temp\vgui-design
    compare_before_after.png             both sprites, before and after, x3
+   compare_typing_before_after.png      the bubble's four frames, x3;
+                                        before-typing\ and after-typing\
+                                        hold its frames and the original
    before\tsm_panel_f0.png, _f0_x3.png   the blue frames, 1x and 3x
    before\tsm_banner_f0.png, _f0_x3.png
    after\tsm_panel_f0.png, _f0_x3.png    the purple frames, read back from

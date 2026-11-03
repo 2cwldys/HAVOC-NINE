@@ -81,6 +81,14 @@
  they run other servers and programs beside it. HAVOC 9.exe is a 32-bit program
  marked large-address-aware: on 64-bit Windows it can use 4 GB of memory, not 2.
 
+ Overflow log
+ ------------
+ When the game or a server here meets one of the engine's overflow or limit
+ messages, it also writes a line to ts\logs\h9_overflow.log: the date and time,
+ server, listen (Create Game) or client, the map and the message, whether or not
+ the console shows it. The same message goes in once in 10 seconds at most. Send
+ that file with a report of a dropped game or a crash.
+
  Your havoc9.org account
  -----------------------
  Link your Account in the main menu (a red, broken chain beside it) links this game

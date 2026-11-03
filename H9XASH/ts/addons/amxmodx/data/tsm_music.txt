@@ -1,16 +1,11 @@
 // The ambient music queue's place, kept across maps by ts_matchmode. Delete it to start a new pass.
 last equilibrium_final_countdown.mp3
-played itsadream.mp3
 played ihateher.mp3
 played fivefingers.mp3
-played deadinsects.mp3
 played twoplustwo.mp3
-played contaminated.wav
 played vangelis.wav
 played floatingmuseum.mp3
 played grammaton_cleric.mp3
-played burned.mp3
 played supression.mp3
-played alwaysknew.mp3
 played equilibrium_suite.mp3
 played equilibrium_final_countdown.mp3

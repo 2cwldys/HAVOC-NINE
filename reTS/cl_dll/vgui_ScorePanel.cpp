@@ -49,6 +49,8 @@ int g_IsSpectator[MAX_PLAYERS_HUD + 1];
 ScoreAvatar g_PlayerAvatars[MAX_PLAYERS_HUD + 1];
 bool g_bScoreAssists = false;
 bool g_bScoreLives = false; // H9 LIVES
+bool g_bScoreKills = false; // H9 KILLS
+static bool s_bCellsKills = false; // H9 KILLS: what the cells were last placed for (PlaceCells)
 
 // ---- H9 BOARD: the name of the one list on a map without teams. H9's ts_matchmode sends it in
 // H9Board (a string) to each player as he joins: "Roleplay" on a roleplay map, empty elsewhere.
@@ -125,8 +127,9 @@ int __MsgFunc_H9Link(const char* pszName, int iSize, void* pbuf)
 
 // ---- H9 LEVELS ----------------------------------------------------------------------------------
 // h9_presence's H9Level message (byte slot, byte level; 255 for none): a proven havoc9.org
-// account's level, Lv 0 to 99 from the H9 ladder (docs/H9_COMPETITIVE.txt), drawn as "Lv N"
-// before the player's name. Bots and players without an account get none, and show nothing.
+// account's level, Lv 0 to 99 from the H9 ladder (docs/H9_COMPETITIVE.txt), drawn as its badge
+// before the player's name (H9 LEVEL BADGES below), or as "Lv N" where that level's picture is
+// missing. Bots and players without an account get none, and show nothing.
 static unsigned char s_PlayerLevel[MAX_PLAYERS_HUD + 1]; // the level + 1; 0 for none
 
 int __MsgFunc_H9Level(const char* pszName, int iSize, void* pbuf)
@@ -355,6 +358,61 @@ static void RetireLinkBitmap(CAvatarBitmap* bitmap)
 }
 // ---- end H9 LINK ICONS --------------------------------------------------------------------------
 
+// ---- H9 LEVEL BADGES ----------------------------------------------------------------------------
+// The badge before a leveled player's name: gfx/vgui/h9_levels/lv-<N>.tga for Lv 0 to 99 (64 x 64
+// with alpha, drawn by modelling/make-level-badges.mjs, the art of havoc9.org's own badges), scaled
+// to the avatar's size. Each picture is read once, on first use, and a level without one is "Lv N"
+// text instead. The bitmaps are kept by level and size for the life of the client, as the
+// silhouettes are: the row height only ever takes a few values.
+#define SB_LEVELS 100
+static struct
+{
+	unsigned char* rgba; // wide * tall * 4, rows top first
+	int wide;
+	int tall;
+	bool tried;
+} s_LevelPictures[SB_LEVELS];
+
+#define SB_MAX_LEVEL_BITMAPS 512 // by level and size
+static struct
+{
+	int level;
+	int size;
+	CLevelBitmap* bitmap;
+} s_LevelBitmaps[SB_MAX_LEVEL_BITMAPS];
+static int s_iLevelBitmaps = 0;
+
+// The badge for a level at size x size; NULL when that level has no picture.
+static CLevelBitmap* GetLevelBitmap(int level, int size)
+{
+	if (level < 0 || level >= SB_LEVELS || size < 1)
+		return NULL;
+	for (int i = 0; i < s_iLevelBitmaps; i++)
+	{
+		if (s_LevelBitmaps[i].level == level && s_LevelBitmaps[i].size == size)
+			return s_LevelBitmaps[i].bitmap;
+	}
+	if (!s_LevelPictures[level].tried)
+	{
+		char path[64];
+		snprintf(path, sizeof(path), "gfx/vgui/h9_levels/lv-%d.tga", level);
+		s_LevelPictures[level].tried = true;
+		s_LevelPictures[level].rgba = LoadIconTGA(path, &s_LevelPictures[level].wide, &s_LevelPictures[level].tall);
+	}
+	if (!s_LevelPictures[level].rgba)
+		return NULL;
+	int i = s_iLevelBitmaps;
+	if (i < SB_MAX_LEVEL_BITMAPS)
+		s_iLevelBitmaps++;
+	else
+		i = SB_MAX_LEVEL_BITMAPS - 1; // full: the last entry is redrawn (its old bitmap stays alive)
+	s_LevelBitmaps[i].level = level;
+	s_LevelBitmaps[i].size = size;
+	s_LevelBitmaps[i].bitmap = new CLevelBitmap(size, s_LevelPictures[level].rgba, s_LevelPictures[level].wide, s_LevelPictures[level].tall);
+	return s_LevelBitmaps[i].bitmap;
+}
+// ---- end H9 LEVEL BADGES ------------------------------------------------------------------------
+
 //-----------------------------------------------------------------------------
 // Purpose: The engine hands a slot's havoc9.org picture here (engine-h9-avatars.patch, from the
 //          H9Avatar message): RGBA pixels, row-major, at most 64 x 64, and the picture's version;
@@ -513,6 +571,83 @@ CAvatarBitmap::CAvatarBitmap(int size, const unsigned char* rgba, int wide, int 
 	delete[] cell;
 }
 
+
+//-----------------------------------------------------------------------------
+// CLevelBitmap (H9 LEVEL BADGES)
+//-----------------------------------------------------------------------------
+
+// The picture area-filtered to size x size: each pixel the alpha-weighted mean of the source area
+// it covers, a source pixel partly inside counted by the part inside. Fully clear pixels take the
+// colour of the badge's soft edge, so a filtered draw never darkens the rim.
+CLevelBitmap::CLevelBitmap(int size, const unsigned char* rgba, int wide, int tall)
+{
+	if (size < 1)
+		size = 1;
+	setSize(size, size);
+	setColor(Color(255, 255, 255, 0));
+
+	unsigned char* cell = new unsigned char[size * size * 4];
+	memset(cell, 0, size * size * 4);
+	float edgeR = 0, edgeG = 0, edgeB = 0, edgeA = 0;
+	if (rgba && wide > 0 && tall > 0)
+	{
+		const float stepX = (float)wide / size;
+		const float stepY = (float)tall / size;
+		for (int y = 0; y < size; y++)
+		{
+			const float y0 = y * stepY, y1 = (y + 1) * stepY;
+			for (int x = 0; x < size; x++)
+			{
+				const float x0 = x * stepX, x1 = (x + 1) * stepX;
+				float r = 0, g = 0, b = 0, a = 0, area = 0;
+				for (int sy = (int)y0; sy < tall && sy < y1; sy++)
+				{
+					const float wy = V_min(y1, (float)(sy + 1)) - V_max(y0, (float)sy);
+					for (int sx = (int)x0; sx < wide && sx < x1; sx++)
+					{
+						const float w = (V_min(x1, (float)(sx + 1)) - V_max(x0, (float)sx)) * wy;
+						const unsigned char* p = rgba + (sy * wide + sx) * 4;
+						r += p[0] * p[3] * w;
+						g += p[1] * p[3] * w;
+						b += p[2] * p[3] * w;
+						a += p[3] * w;
+						area += w;
+					}
+				}
+				if (a <= 0 || area <= 0)
+					continue;
+				unsigned char* o = cell + (y * size + x) * 4;
+				o[0] = (unsigned char)V_min(255.0f, r / a + 0.5f);
+				o[1] = (unsigned char)V_min(255.0f, g / a + 0.5f);
+				o[2] = (unsigned char)V_min(255.0f, b / a + 0.5f);
+				o[3] = (unsigned char)V_min(255.0f, a / area + 0.5f);
+				if (o[3] < 255)
+				{
+					edgeR += o[0] * o[3];
+					edgeG += o[1] * o[3];
+					edgeB += o[2] * o[3];
+					edgeA += o[3];
+				}
+			}
+		}
+	}
+	const int fillR = edgeA > 0 ? (int)(edgeR / edgeA) : 255;
+	const int fillG = edgeA > 0 ? (int)(edgeG / edgeA) : 255;
+	const int fillB = edgeA > 0 ? (int)(edgeB / edgeA) : 255;
+	for (int y = 0; y < size; y++)
+	{
+		for (int x = 0; x < size; x++)
+		{
+			const unsigned char* p = cell + (y * size + x) * 4;
+			if (p[3])
+				setRGBA(x, y, p[0], p[1], p[2], p[3]);
+			else
+				setRGBA(x, y, fillR, fillG, fillB, 0);
+		}
+	}
+	delete[] cell;
+}
+
 // Silhouettes by size. Bitmaps upload their texture once, so each size is its own bitmap; the row
 // height only ever takes a few values, and they are kept for the life of the client.
 #define SB_MAX_SILHOUETTES 24 // H9 LINK ICONS: by size and by icon
@@ -655,7 +790,8 @@ ScorePanel::ScorePanel(int x, int y, int wide, int tall) : Panel(x, y, wide, tal
 	m_TitleInfo.setParent(this);
 
 	// The column titles, once per column.
-	static const char* s_szCellTitles[SB_NUM_CELLS] = {"", "", "NAME", "K", "D", "A", "LIVES", "PING", ""};
+	// The frags' and the real kills' titles follow H9 KILLS (PlaceCells sets them again).
+	static const char* s_szCellTitles[SB_NUM_CELLS] = {"", "", "NAME", "K", "", "D", "A", "LIVES", "PING", ""};
 	for (int c = 0; c < SB_NUM_COLUMNS; c++)
 	{
 		for (int k = 0; k < SB_NUM_CELLS; k++)
@@ -753,6 +889,7 @@ void ScorePanel::Initialize()
 	memset(g_TeamInfo, 0, sizeof g_TeamInfo);
 	g_bScoreAssists = false;
 	g_bScoreLives = false; // H9 LIVES
+	g_bScoreKills = false; // H9 KILLS: until this level's server says its frags are points
 	s_szBoardLabel[0] = 0; // H9 BOARD: until this level's server says
 	extern void TS_ClearSpectatorTable(); // ts_spectate.cpp; client.dll 0x1005d5a0 clears it here
 	TS_ClearSpectatorTable();
@@ -862,7 +999,7 @@ void ScorePanel::Update()
 		m_Lists[c] = s_Columns[c]; // H9 SCROLL: MapRows puts them on the row widgets
 
 	const int rowTall = V_min(nominal, m_iRowsTall / capacity);
-	if (rowTall != m_iRowTall)
+	if (rowTall != m_iRowTall || s_bCellsKills != g_bScoreKills) // H9 KILLS: the K column comes or goes
 	{
 		m_iRowTall = rowTall;
 		PlaceCells(rowTall);
@@ -1117,7 +1254,17 @@ void ScorePanel::PlaceCells(int rowTall)
 	const int gap = XRES(SB_CELL_GAP);
 	m_iCellWide[SB_CELL_AVATAR] = rowTall;
 	m_iCellWide[SB_CELL_STATUS] = XRES(SB_STATUS_WIDE);
-	m_iCellWide[SB_CELL_KILLS] = XRES(SB_NUMBER_WIDE);
+	// ---- H9 KILLS: while the frags are points, the frags column is SCORE (as wide as LIVES, for its
+	// title) and the real kills get a K column of their own; on any other server that has no width.
+	s_bCellsKills = g_bScoreKills;
+	m_iCellWide[SB_CELL_KILLS] = XRES(g_bScoreKills ? SB_LIVES_WIDE : SB_NUMBER_WIDE);
+	m_iCellWide[SB_CELL_KCOUNT] = g_bScoreKills ? XRES(SB_NUMBER_WIDE) : 0;
+	for (int c = 0; c < SB_NUM_COLUMNS; c++)
+	{
+		m_HeaderLabels[c][SB_CELL_KILLS].setText(g_bScoreKills ? "SCORE" : "K");
+		m_HeaderLabels[c][SB_CELL_KCOUNT].setText(g_bScoreKills ? "K" : "");
+	}
+	// ---- end H9 KILLS
 	m_iCellWide[SB_CELL_DEATHS] = XRES(SB_NUMBER_WIDE);
 	m_iCellWide[SB_CELL_ASSISTS] = XRES(SB_NUMBER_WIDE);
 	m_iCellWide[SB_CELL_LIVES] = XRES(SB_LIVES_WIDE); // H9 LIVES
@@ -1287,6 +1434,7 @@ void ScorePanel::FillRow(int r)
 		pLabel->setVisible(true);
 		pLabel->setText2("");
 		pLabel->setImage(NULL);
+		pLabel->setLeadImage(NULL, 0); // H9 LEVEL BADGES
 		pLabel->setFgColorAsImageColor(true);
 		pLabel->setFont(m_pRowFont);
 		pLabel->setTextOffset(0, 0);
@@ -1372,6 +1520,16 @@ void ScorePanel::FillRow(int r)
 
 		snprintf(sz, sizeof(sz), "%d", team->frags);
 		m_Cells[r][SB_CELL_KILLS].setText(sz);
+		// ---- H9 KILLS: the team's real kills, summed from H9Kills
+		if (g_bScoreKills && block)
+		{
+			int kills = 0;
+			for (int i = 0; i < block->count; i++)
+				kills += g_PlayerExtraInfo[block->players[i]].kills;
+			snprintf(sz, sizeof(sz), "%d", kills);
+			m_Cells[r][SB_CELL_KCOUNT].setText(sz);
+		}
+		// ---- end H9 KILLS
 		snprintf(sz, sizeof(sz), "%d", team->deaths);
 		m_Cells[r][SB_CELL_DEATHS].setText(sz);
 		if (g_bScoreAssists && block)
@@ -1498,17 +1656,31 @@ void ScorePanel::FillRow(int r)
 	default: pStatus->setText(TS_PlayerSpectating(slot) ? "WAIT" : ""); break;
 	}
 
-	// H9 LEVELS: "Lv N" before the name of a proven havoc9.org account
+	// H9 LEVELS: a proven havoc9.org account's level badge before the name, the avatar's size (H9
+	// LEVEL BADGES), or "Lv N" where that level's picture is missing
 	char szNamed[160];
-	if (slot > 0 && slot <= MAX_PLAYERS_HUD && s_PlayerLevel[slot])
-		snprintf(szNamed, sizeof(szNamed), "Lv %d  %s", s_PlayerLevel[slot] - 1, pl_info->name ? pl_info->name : "");
+	const int level = slot > 0 && slot <= MAX_PLAYERS_HUD && s_PlayerLevel[slot] ? s_PlayerLevel[slot] - 1 : -1;
+	CLevelBitmap* levelBadge = level >= 0 ? GetLevelBitmap(level, m_iAvatarSize) : NULL;
+	int lead = 0;
+	if (levelBadge)
+	{
+		pName->setLeadImage(levelBadge, XRES(SB_CELL_GAP));
+		lead = m_iAvatarSize + XRES(SB_CELL_GAP);
+	}
+	if (level >= 0 && !levelBadge)
+		snprintf(szNamed, sizeof(szNamed), "Lv %d  %s", level, pl_info->name ? pl_info->name : "");
 	else
 		snprintf(szNamed, sizeof(szNamed), "%s", pl_info->name ? pl_info->name : "");
-	FitText(m_pRowFont, szNamed, m_iCellWide[SB_CELL_NAME] - XRES(2), szFit, sizeof(szFit));
+	FitText(m_pRowFont, szNamed, m_iCellWide[SB_CELL_NAME] - XRES(2) - lead, szFit, sizeof(szFit));
 	pName->setText(szFit);
 
 	snprintf(sz, sizeof(sz), "%d", extra->frags);
 	m_Cells[r][SB_CELL_KILLS].setText(sz);
+	if (g_bScoreKills) // H9 KILLS: the real kills, beside the points
+	{
+		snprintf(sz, sizeof(sz), "%d", extra->kills);
+		m_Cells[r][SB_CELL_KCOUNT].setText(sz);
+	}
 	snprintf(sz, sizeof(sz), "%d", extra->deaths);
 	m_Cells[r][SB_CELL_DEATHS].setText(sz);
 	if (g_bScoreAssists)
@@ -1986,15 +2158,28 @@ void CLabelHeader::paint()
 		setFgColor(255, 255, 255, 0);
 	}
 
+	// H9 LEVEL BADGES: the lead picture at the left edge, centred on the cell's height, and the text
+	// after it
+	int lead = 0;
+	if (_leadImage)
+	{
+		int lwide, ltall, cwide, ctall;
+		_leadImage->getSize(lwide, ltall);
+		getSize(cwide, ctall);
+		_leadImage->setPos(_offset[0], (ctall - ltall) / 2);
+		_leadImage->doPaint(this);
+		lead = lwide + _leadGap;
+	}
+
 	// draw text
 	int x, y, iwide, itall;
 	getTextSize(iwide, itall);
 	calcAlignment(iwide, itall, x, y);
-	_dualImage->setPos(x, y);
+	_dualImage->setPos(x + lead, y);
 
 	int x1, y1;
 	_dualImage->GetImage(1)->getPos(x1, y1);
-	_dualImage->GetImage(1)->setPos(_gap, y1);
+	_dualImage->GetImage(1)->setPos(_gap + lead, y1);
 
 	_dualImage->doPaint(this);
 

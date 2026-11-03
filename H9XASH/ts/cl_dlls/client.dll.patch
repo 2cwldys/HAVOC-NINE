@@ -12,12 +12,15 @@ client it was applied to.
 Deployed file : client.dll
 Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 (CMake, Win32, Release; target client)
-Size          : 804352 bytes
-SHA256        : EDD188E2B50512FF292F86DCB4A1B8A6BB8AD27FD121767A888E369FF2E7B377
+Size          : 839168 bytes
+SHA256        : 1BB629692A1187454824040A7235BDDEBB7F8B06977526CB733E545D7F814645
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
                 plus the local mouse-release fix below, the 128-slot build (2026-11-01) and the
-                scoreboard's pictures, link icons, lives column, scrolling and Roleplay
-                heading, with hud_classautokill out of the userinfo (2026-11-02)
+                scoreboard's pictures, link icons, lives column, scrolling, Roleplay
+                heading, level and profile double-click, with hud_classautokill out of the
+                userinfo (2026-11-02), and the level badges, the server panels (H9
+                VGUI), the score and kills columns, the PPSh-41, and the VGUI stack at the
+                top of the screen with TS's notices beneath it (2026-11-03)
 
 What the source build contains, beyond the stock client
 -------------------------------------------------------
@@ -138,7 +141,107 @@ What the source build contains, beyond the stock client
    does, so it no longer takes room in the player's userinfo, and changing it no longer sends a
    userinfo update. It is still the player's own archived toggle, default 1.
 
-12. Everything else reTS already had
+12. The scoreboard's level badge (H9Level)
+
+   h9_presence 1.6 tells every client each proven havoc9.org account's level on the H9 ladder, Lv
+   0 to 99 (docs\H9_COMPETITIVE.txt section 8a), in the H9Level user message (byte slot, byte
+   level, 255 for none; a joining client gets the whole table, and a slot that empties is
+   cleared), hooked in hud.cpp. The scoreboard draws the level's badge before the player's name:
+   the picture gfx\vgui\h9_levels\lv-<N>.tga (64 x 64, 32-bit RLE TGA with alpha, the art of
+   havoc9.org's own badges, drawn by modelling\make-level-badges.mjs), read once on first use
+   with the link icons' TGA reader, area-filtered with its alpha to the avatar's size (the row
+   height less 2), and drawn at the left edge of the name cell, centred on the row, with the name
+   moved right past it and fitted to what is left. The row's own colour shows around the badge,
+   and fully clear pixels carry the badge's edge colour, so a filtered draw never darkens the
+   rim. The bitmaps are kept by level and size for the life of the client, as the silhouettes
+   are. Where a level's picture is missing the row shows the text "Lv N" before the name
+   instead. Bots, players without an account and games that did not prove their player id show
+   none, and so does every row on a server that sends no H9Level. vgui_ScorePanel.cpp's H9
+   LEVELS and H9 LEVEL BADGES blocks (GetLevelBitmap, CLevelBitmap, and CLabelHeader's lead
+   picture, setLeadImage, in vgui_ScorePanel.h). The pictures ship beside client.dll in
+   ts\gfx\vgui\h9_levels\ (export.bat; the Xash overlay and H9XASH carry them too).
+
+13. A double-click on a linked player's picture opens their havoc9.org profile (h9_profile)
+
+   On an engine that has the h9_profile command (H9XASH with engine-h9-avatars.patch; looked up
+   once in the engine's command list), a double-click on the picture of a row with a green chain
+   (H9Link 1, not a bot), your own row's too, runs h9_profile <slot>: the engine opens that
+   account's havoc9.org profile in the web browser, the address built from its own site and the
+   account the server named for the slot's picture. A single click on such a picture mutes nobody,
+   so a double-click never mutes the player; the rest of the row mutes as before. On an engine
+   without h9_profile (Steam's, the browser build) nothing changes. vgui_ScorePanel.cpp's H9
+   PROFILES blocks; mouseDoublePressed and ProfileSlotAt in vgui_ScorePanel.h. The level's name
+   cell and the picture's cell are apart, so the two work side by side.
+
+14. Server panels: H9 VGUI (H9Vgui, cl_h9_vgui, _h9vgui)
+
+   A server plugin can draw real VGUI panels on an H9 player's screen, in the textscheme fonts on
+   the art of sprites\tsm_panel.spr and sprites\tsm_banner.spr (docs\H9_VGUI.txt). One
+   plugin-registered user message, H9Vgui, carries the twin of an AMX text menu (MENU, ROWS,
+   TWIN), a notice in place of a hudmessage (NOTICE), and a plugin's own layout of labels,
+   built-in images, number-key buttons and progress bars (PANEL, CTRL, SET, SHOW, HIDE, CLOSE,
+   COMMIT). A menu's panel shows only while CHudMenu has the AMX menu it stands for -- a TWIN came
+   just before it with the same keys and the CRC-16 of the same text -- and CHudMenu then draws no
+   text; its number keys still send the same menuselect. Panels never take the mouse or the
+   keyboard, keep inside a safe area that starts 1.5% of the height down (16 px at 1080) and ends above
+   the chat and HUD (the bottom 196 px), keep off the crosshair, and ESC closes
+   the newest. The game says it draws them in the userinfo key _h9vgui: 2, or 0 with cl_h9_vgui
+   0, which also refuses them all; cl_h9_vgui_scale and cl_h9_vgui_top tune the size and where the
+   safe area starts. Every limit is the client's own: 8 panels, 48 controls, 16 rows a menu, 6 notices, 64
+   messages a second, 192 bytes a message, ids of a-z 0-9 . _ -, no image but "#panel" and
+   "#banner"; a panel's reply goes to the server with pfnServerCmd, "h9vgui <id> <control>
+   <value>". h9_vgui.cpp and vgui_H9Panel.cpp (new), hooked in hud.cpp (H9Vgui_Init), menu.cpp
+   (the pairing), ammo.cpp (a panel's number keys) and vgui_TeamFortressViewport.cpp (ESC);
+   cl_dll\CMakeLists.txt lists the new files.
+
+   Protocol 2 (_h9vgui "2") adds STATUS (op 21): a notice that stays in its slot until another
+   replaces it or an empty text clears it, stacks first from the top of the safe area, and has its {t}
+   (m:ss) and {s} (seconds) counted down by the client itself from the one message. ts_matchmode
+   sends its round line, freeze countdown, warmup readout and a round's or a match's result as
+   one status, the match bar: two lines on the tsm_banner art centred at the top, the state
+   and its clock over the score, sent again only when what it says changes. The first banner at
+   the top keeps above 0.25 of the height when that leaves it 40 px, and on a
+   phone's screen takes its art's own size. With every notice slot taken, a new notice takes the
+   oldest notice's, never a status's. A game of protocol 1 is sent no status and keeps the
+   hudmessages. A one-line banner is no taller than its text and the art's corners, and the top
+   stack goes on below the crosshair box when the next notice would reach into it. Menus and
+   panels on the tsm_panel art draw at 0.68 of the screen height over 480 (0.8 before), times
+   cl_h9_vgui_scale. h9_vgui.cpp (OpStatus, NoticeClock, FormatClock), h9_vgui.h and
+   vgui_H9Panel.cpp.
+
+   The stack takes the very top of the screen, and TS's own notices stand beneath it. The safe area
+   starts 1.5% of the height down (16 px at 1080, 8 at least; cl_h9_vgui_top sets it in pixels), and
+   TS's top-row notices ("<name> is The Specialist", the sprees: 32 px down and 16 px for each live
+   one) are drawn under the stack: H9Vgui_StackBottom() is the pixel row under the notices and the
+   top-anchored panels shown this frame, 0 while there are none, and CHudTSMessage::Draw moves its
+   top-row notices down to it. With no stack on screen, as on every server whose match mode draws
+   none, they keep their place. h9_vgui.cpp (Frame, H9Vgui_SafeArea, H9Vgui_StackBottom), h9_vgui.h,
+   ts_message.cpp. The client.dll this replaced is kept as client.dll.bak_vguitop in
+   reTS\binaries\ts\cl_dlls\.
+
+15. The scoreboard's SCORE and kills columns (H9Kills)
+
+   While a server's frags are points (H9's ts_matchmode with tsm_score 1: each player's match points
+   are his frags, and each side's are its TeamScore), the scoreboard heads the frags column SCORE
+   and adds a K column beside it with the real kills -- every enemy each player eliminated on the
+   map -- from the H9Kills user message (byte slot, short kills; slot 0 only says the frags are
+   points), hooked in hud.cpp and kept in extra_player_info_t's kills, with each team's header
+   summing its players'. The first H9Kills of a level turns it on and the level change turns it off;
+   on any other server the K column has no width and the frags column reads K as before.
+   vgui_ScorePanel.cpp's H9 KILLS blocks, SB_CELL_KCOUNT in vgui_ScorePanel.h.
+
+16. The PPSh-41, weapon 39, and a 14th ammo caliber
+
+   cl_dll\ev_ts.cpp (the fire sound table: h9\ppsh41\fire.wav, no silenced one), ts_buymenu.cpp (a
+   row in the SMG category, PPSh-41 at 2000 and slot 35; caliber 14's pool of 71 rounds a buy at 150
+   and 213 carried; the restriction bound is the weapon count), ts_weaponbar.cpp and ts_weaponbar.h (select-bar
+   column 3, row 7, icon sprites\weapons\ppsh41.spr; the bar's own count of 38 weapons, which hid weapon
+   38 and up, is the roster's). TS 3.0's weapons are 0 to 37 and 38 is empty, so every table has the
+   PPSh-41 at 39. The weapon's table row is the shared ts_weapon_info.cpp, the same as the server's
+   (mp.dll.patch, change 9). The client.dll this replaced is kept as client.dll.bak_preppsh41 in
+   reTS\binaries\ts\cl_dlls\.
+
+17. Everything else reTS already had
 
    The reTS client is a recompilation of the whole TS client, so it also carries the third-person
    self-transparency fade, the predicted viewmodel body, the HUD and the rest of the reTS client
@@ -167,9 +270,19 @@ the appendix describes that build.
 Rollback
 --------
 
-The client this build replaces, the 2026-11-02 build without the Roleplay heading (803840 bytes,
-SHA256 FE89C2888A53F5ECF8B16EB24E1B45BCCB37322C6C4B12B45E4442B0D8675EB9), is kept beside it as
-client.dll.bak_board. The builds before that one are kept beside it as well: the scrolling build
+The client this build replaces, the 2026-11-03 server panels build, without the match bar
+and the score and kills columns (835584 bytes, SHA256
+417D00113232E0DA0CD358A22A7683E87E51407CADFD14B9116D9A02D5F7D56C), is kept beside it as
+client.dll.bak_matchbar. The one before it, the 2026-11-03 level and profile build, without
+the level badges and the server panels (805376 bytes, SHA256
+CFFC19286AC42F1C894A70CD5230AD8E2948E36811E8009767B20C448B594878), is kept beside it as
+client.dll.bak_vgui. The one before it, the 2026-11-02 Roleplay heading build, without the
+level and the profile double-click (804352 bytes, SHA256
+EDD188E2B50512FF292F86DCB4A1B8A6BB8AD27FD121767A888E369FF2E7B377), is kept beside it as
+client.dll.bak_profile. The builds before that one are kept beside it as well: the build without
+the Roleplay heading (803840 bytes, SHA256
+FE89C2888A53F5ECF8B16EB24E1B45BCCB37322C6C4B12B45E4442B0D8675EB9) as client.dll.bak_board, the
+scrolling build
 of 2026-11-02 (803840 bytes, SHA256
 79B579F98488D608604636EAE5F687818ED9EC57D64E1BA97C53CA73EB3ADD10) as client.dll.bak_botstate,
 the lives column build (798720 bytes, SHA256

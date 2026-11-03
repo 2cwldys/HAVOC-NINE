@@ -40,6 +40,7 @@
 #include <amxmisc>
 #include <fakemeta>
 #include <tsm_api>
+#include <h9_vgui>      // an H9 game shows the carrier's status and the uplink's news on panels
 
 #define PLUGIN  "TS Uplink"
 #define VERSION "1.0"
@@ -139,6 +140,11 @@ new bool:g_ground_ok;          // tsm_obj_mark.spr precached
 new g_ground_mark[2];          // the ground markers: [0] the take-it reticle, [1] the get-it-back shield
 new g_last_side;               // the side of whoever carried it last, 0 while it has not left its post
 
+// The carrier's status on an H9 game (carrier_status): who has it, what it says, when its clock ends.
+new g_status_id;
+new g_status_text[64];
+new Float:g_status_end;
+
 // The capture in progress.
 new g_cap_zone;                // zone being taken; 0 when none
 new g_cap_side;
@@ -172,6 +178,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_precache()
 {
+	h9vgui_precache();
+
 	// The uplink's own model, or TS's briefcase, which ships with the game.
 	if (file_exists(UPL_MODEL, true))
 	{
@@ -220,6 +228,7 @@ public plugin_precache()
 public plugin_init()
 {
 	register_plugin(PLUGIN, VERSION, AUTHOR);
+	h9vgui_init("upl");
 
 	g_cv_mode    = register_cvar("tsm_uplink_mode",        "1");
 	g_cv_captime = register_cvar("tsm_cap_time",           "15");
@@ -585,6 +594,7 @@ put_uplink(const Float:org[3], bool:home)
 	set_pev(ent, pev_velocity, zero);
 
 	g_carrier = 0;
+	carrier_status(0, "", 0.0);
 	g_at_home = home;
 	if (home)
 	{
@@ -603,6 +613,7 @@ remove_uplink()
 	}
 	g_up_ent = 0;
 	g_carrier = 0;
+	carrier_status(0, "", 0.0);
 	g_at_home = false;
 	hide_mark();
 	clear_capture();
@@ -636,6 +647,7 @@ pick_up(id)
 	get_user_name(id, name, charsmax(name));
 	side_name(tsm_side_of(id), side, charsmax(side));
 	client_print(0, print_chat, "[MATCH] %s has the uplink for %s!", name, side);
+	uplink_news(tsm_side_of(id), "%s has the uplink for %s", name, side);
 	if (!is_user_bot(id))
 	{
 		client_print(id, print_center, "You have the uplink -- take a zone. Type dropuplink to let it go.");
@@ -687,6 +699,7 @@ drop_uplink(const reason[])
 		copy(name, charsmax(name), "The carrier");
 	}
 	client_print(0, print_chat, "[MATCH] %s %s the uplink.", name, reason);
+	uplink_news(g_last_side, "%s %s the uplink", name, reason);
 }
 
 /// Home again: untouched too long, or somewhere nobody can reach.
@@ -702,6 +715,7 @@ return_uplink()
 		emit_sound(g_up_ent, CHAN_AUTO, UPL_SND_RETURN, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 	}
 	client_print(0, print_chat, "[MATCH] The uplink is back at its post.");
+	uplink_news(0, "The uplink is back at its post");
 }
 
 hide_mark()
@@ -901,6 +915,12 @@ carried_tick()
 	pev(id, pev_origin, g_carrier_at);
 	show_mark(id);
 
+	// A second carried, toward the carry's points (ts_matchmode's tsm_score_carry).
+	if (g_ticks % 10 == 0)
+	{
+		tsm_points_award(id, TSM_POINTS_CARRY);
+	}
+
 	new side = tsm_side_of(id);
 	new z = zone_at(g_carrier_at);
 	if (!z || g_zone_owner[z] == side)
@@ -909,7 +929,11 @@ carried_tick()
 		{
 			clear_capture();
 		}
-		if (!z && !is_user_bot(id) && g_ticks % 10 == 0)
+		if (status_player(id))
+		{
+			carrier_status(id, "YOU HAVE THE UPLINK -- TAKE A ZONE", 0.0);
+		}
+		else if (!z && !is_user_bot(id) && g_ticks % 10 == 0)
 		{
 			set_hudmessage(255, 255, 255, -1.0, 0.47, 0, 0.0, 1.1, 0.0, 0.2, 3);
 			show_hudmessage(id, "YOU HAVE THE UPLINK^nTake a zone");
@@ -919,7 +943,17 @@ carried_tick()
 
 	if (zone_contested(z, side))
 	{
-		if (g_cap_zone)
+		if (status_player(id))
+		{
+			new text[64];
+			formatex(text, charsmax(text), "ZONE %d IS CONTESTED -- CLEAR IT FIRST", z);
+			carrier_status(id, text, 0.0);
+			if (g_cap_zone)
+			{
+				clear_capture();
+			}
+		}
+		else if (g_cap_zone)
 		{
 			if (!is_user_bot(id))
 			{
@@ -951,7 +985,78 @@ carried_tick()
 		capture_zone(z, side, id);
 		return;
 	}
+	if (status_player(id))
+	{
+		// The capture's seconds, counted down on his own screen from the one message.
+		new text[64];
+		formatex(text, charsmax(text), "TAKING ZONE %d -- {s}", z);
+		carrier_status(id, text, g_cap_started + need);
+		return;
+	}
 	capture_bar(id, side, held, need);
+}
+
+/// Whether this player's game draws a status: the carrier's then replaces his hudmessages.
+bool:status_player(id)
+{
+	return h9vgui_protocol(id) >= H9VGUI_STATUS_PROTOCOL;
+}
+
+/// The carrier's status under the match bar (h9_vgui.inc's h9vgui_status), sent only when it
+/// changes: its text and the game time its clock ({s}) runs out, 0.0 for none. Id 0, or an empty
+/// text, takes it down; a status shown to someone who no longer carries goes first.
+carrier_status(id, const text[], Float:end)
+{
+	if (g_status_id && (g_status_id != id || !text[0]))
+	{
+		if (is_user_connected(g_status_id))
+		{
+			h9vgui_status(g_status_id, "upl.carrier", "", 0, 0, 0);
+		}
+		g_status_id = 0;
+		g_status_text[0] = EOS;
+	}
+	if (!id || !text[0])
+	{
+		return;
+	}
+	if (g_status_id == id && equal(text, g_status_text) && floatabs(end - g_status_end) < 0.5)
+	{
+		return;
+	}
+	new clock = (end > 0.0) ? floatround(end - get_gametime(), floatround_ceil) : -1;
+	if (h9vgui_status(id, "upl.carrier", text, 255, 255, 255, clock))
+	{
+		g_status_id = id;
+		copy(g_status_text, charsmax(g_status_text), text);
+		g_status_end = end;
+	}
+}
+
+/// A line of the uplink's news for every H9 game, a few seconds under the match bar in the side's
+/// colour (0 for none). Chat carries the same news for every game, as before.
+uplink_news(side, const fmt[], any:...)
+{
+	new text[128];
+	vformat(text, charsmax(text), fmt, 3);
+	new r = 220, g = 220, b = 220;
+	if (side == 1)
+	{
+		r = 0; g = 170; b = 255;
+	}
+	else if (side == 2)
+	{
+		r = 255; g = 70; b = 60;
+	}
+	new players[MAX_PLAYERS], pnum;
+	get_players(players, pnum, "ch");
+	for (new i = 0; i < pnum; i++)
+	{
+		if (h9vgui_supported(players[i]))
+		{
+			h9vgui_notice(players[i], "upl.news", H9V_NOTICE_BANNER, text, 3.0, 0.5, r, g, b);
+		}
+	}
 }
 
 loose_tick()
@@ -1168,6 +1273,8 @@ capture_zone(z, side, id)
 	side_name(side, sname, charsmax(sname));
 	client_print(0, print_chat, "[MATCH] %s took zone %d for %s -- %s holds %d of %d.",
 		name, z, sname, sname, held[side], g_zone_count);
+	uplink_news(side, "%s took zone %d for %s -- %d of %d held", name, z, sname, held[side], g_zone_count);
+	tsm_points_award(id, TSM_POINTS_ZONE);
 
 	refresh_hud();
 

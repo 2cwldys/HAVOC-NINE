@@ -60,6 +60,7 @@ static const char* const s_fireSound[] = {
 	/*28*/ "weapons/ruger/fire.wav", /*29*/ nullptr, /*30*/ "weapons/fnh/fnh-fire.wav",
 	/*31*/ "weapons/bull/fire01.wav", /*32*/ "weapons/m60/m60-fire.wav", /*33*/ "weapons/sawedoff/fire.wav",
 	/*34*/ nullptr, /*35*/ nullptr, /*36*/ "weapons/contender/fire.wav", /*37*/ "weapons/tmp/fire.wav",
+	/*38*/ nullptr, /*39*/ "h9/ppsh41/fire.wav",
 };
 
 // Silenced fire sound, indexed by tsweapon_t — used when the weapon has a SILENCER attached
@@ -81,6 +82,7 @@ static const char* const s_fireSilSound[] = {
 	/*28*/ nullptr, /*29*/ nullptr, /*30*/ "weapons/fnh/fnh-fire-sil.wav",
 	/*31*/ nullptr, /*32*/ nullptr, /*33*/ nullptr,
 	/*34*/ nullptr, /*35*/ nullptr, /*36*/ nullptr, /*37*/ "weapons/tmp/fire-sil.wav",
+	/*38*/ nullptr, /*39*/ nullptr,
 };
 
 // Muzzle-flash grip for tsweapon_t `w`: true = one-handed (pistols + akimbo barrels) -> the small

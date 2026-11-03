@@ -14,14 +14,15 @@ Deployed file : mp.dll
 Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 (CMake, Win32, Release; targets hl and client); the builds of
                 2026-11-02 are target hl alone (changes 7 and 8; the client is built
-                apart, its own client.dll.patch)
-Size          : 989184 bytes
-SHA256        : D1C1CF7A18BD3F6739A112F0AC6491383F1DAB59D5981240D9F91894929B2538
-client.dll    : 798720 bytes (its own client.dll.patch)
-SHA256        : 95BD711CEC0E1DAF87813C9527E412B334B532DDFC88DBEE14A6E4DA32FA465D
+                apart, its own client.dll.patch); the build of 2026-11-03 is both
+                (change 9)
+Size          : 989696 bytes
+SHA256        : 6D9AA5B89B6802D02BE198C66EF1A5D204495F66C2AB31C5990B7884133F64A5
+client.dll    : 838656 bytes (its own client.dll.patch)
+SHA256        : B2349B36E0E3F86247CBB50D74F2127F3440FFFE5DEF3D65FA8BE7F8B42ED6B3
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
-                plus the 128-slot build below (2026-11-01) and changes 7 and 8
-                (2026-11-02)
+                plus the 128-slot build below (2026-11-01), changes 7 and 8
+                (2026-11-02) and change 9 (2026-11-03)
 
 Both DLLs are also in reTS\binaries\ts\ (the staging folder xash.bat's assemble step and
 export.bat's GoldSrc block copy from), in H9XASH\ts\, export\H9XASH\ts\, and the GoldSrc
@@ -135,6 +136,27 @@ What the source build contains, beyond the release DLL
    Every copy into these is cut to fit and ended, a client's "team" key included. The client keeps
    a team name in 32 bytes too (cl_dll\global_consts.h MAX_TEAM_NAME, TeamInfo's copy ended), in
    the client.dll built 2026-11-02. A name of 15 characters or fewer plays as before.
+
+9. The PPSh-41, weapon 39, and a 14th ammo caliber
+
+   dlls\ts_weapon_info.h, ts_weapon_info.cpp, ts_gun.cpp, TS_util.cpp, game.cpp: a weapon TS 3.0 does not
+   have, TSW_PPSH41 (39), and a 14th ammo caliber, 7.62 x 25mm. TS 3.0's weapons are 0 to 37; 38 is left empty
+   (TSW_UNUSED, an empty row) because TSX keeps its thrown knife's stats at 38, so no game weapon is 38.
+   The PPSh-41's table row is the AK47's whole (its models are TS's AK47 models with the gun's meshes
+   swapped, so every animation, hold stance and event is the AK47's) with its own name "PPSh-41", models
+   models\h9\{v,p,w}_ppsh41.mdl, fire sound h9\ppsh41\fire.wav, shell models\56_shell.mdl (setback 15), a
+   71-round drum, fire type 9 (an SMG, so the SMG weapon-restriction category), 900 rounds a minute (0.067 s),
+   auto and semi, slot cost 35, price 2000, no scope or attachments, and the combat feel 0.015 spread, 2.0 view
+   kick, 0.004 accuracy kick and 26.35 damage (85% of the UMP's 31). Caliber 14 is 71 rounds a buy at 150 with
+   213 carried (three drums; 142 and 71 under the lower ammocount modes). The weapon is precached with every
+   other (TS_util.cpp), is inside IsRestrictedWeapon's range, comes after the UMP in the auto-select order and
+   draws as the AK47 does. CustomWP (SendWeaponParams) still stops at weapon 37: the original client reads any
+   id past its table as slot 0, so id 39 is never broadcast, and customweapons lines for 39 act on the server
+   only. The server registers a read-only cvar h9_ppsh41 (1), so a plugin can tell a game library that has the
+   weapon from one that does not. The original client has no buy-menu or weapon-bar row for it, so a player on
+   one gets it only from a plugin or the ground. CTSGun::m_items has two more elements, so the members after it
+   move. Detail: reference\DEVIATIONS.md. The mp.dll this replaced is kept as mp.dll.bak_preppsh41 in
+   reTS\binaries\ts\dlls\.
 
 
 Building and deploying

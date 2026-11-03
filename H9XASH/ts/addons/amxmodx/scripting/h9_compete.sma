@@ -12,25 +12,35 @@
  *   start   when a match begins: the map, the ladder, and each player's h9_clientid and side
  *   kills   every 10 seconds while kills wait, numbered so h9web takes each batch once and in
  *           order: who is here, and each kill as [killer id, victim id, headshot, team kill]
- *   end     how the match ended, and each player's side, rounds, time and whether they left
- * and "rating" for say /rank. h9web rates only players whose game proved its havoc9.org id on
+ *   end     how the match ended, and each player's side, rounds, time, whether they left and
+ *           their assists in it
+ * and "rating" for the join line. h9web rates only players whose game proved its havoc9.org id on
  * this server (h9_presence's challenge, or the web client's relay). Everyone else plays as ever
- * and moves nothing.
+ * and moves nothing. A player's own rank, and anyone's, is h9_rank.amxx's .rank (and /rank).
  *
- * THE LADDERS. "match": a ts_matchmode match on its maps (Team Elimination, Siege, Uplink, Mech
- * Warrior), from its first round going live to its end (tsm_match_complete, tsm_match_forfeit),
- * or cancelled when the match stops any other way. "dm": TS's own deathmatch, team deathmatch and
- * briefcase maps (h9_dm_, h9_tdm_, h9_ctb_), one map one match, kills only. Wave Survival,
- * roleplay maps and stock maps are not rated. h9_compete_ladder picks one by hand.
+ * ASSISTS come from ts_matchmode's count, the scoreboard's A column (tsm_assists, counted for the
+ * map): a player's assists in a match are what it added between their joining the match and its
+ * end or their leaving, summed over each time they were in it. A ts_matchmode without tsm_assists
+ * leaves the native unbound, and the end report says null for everyone's assists.
+ *
+ * THE LADDERS. "match": a ts_matchmode match wherever its match mode plays (tsm_enabled 1: Team
+ * Elimination, Siege, Uplink, Mech Warrior and Wave Survival), from its first round going live to
+ * its end (tsm_match_complete, tsm_match_forfeit), or cancelled when the match stops any other
+ * way. "dm": every other map, TS's own game on its own rules (deathmatch or teamplay: the stock ts_
+ * maps, h9_dm_, h9_tdm_, h9_ctb_ and the rest), one map one match. Roleplay maps (rp_ or tsrp_ at
+ * the start, _rp_ or _tsrp_ inside) are never rated and nothing is sent from them.
+ * h9_compete_ladder picks one by hand.
  *
  * KILLS come from DeathMsg, which ts_matchmode relies on too. A headshot is marked when TSX's
  * client_death says so for the same kill; without it a kill counts as a body shot. Bots and HLTV
  * are left out, and so are suicides and kills by the world.
  *
  * Needs h9_presence.amxx (above this plugin in plugins.ini) with a live key, and the AmxxEasyHttp
- * module. Without ts_matchmode only the dm ladder runs. Idle until h9_compete is 1, which
- * configs/h9_compete.cfg sets: it is executed on every map, and the Siege and TeamElimination
- * presets turn it on.
+ * module. Without ts_matchmode only the dm ladder runs. On by default (h9_compete 1, which
+ * configs/h9_compete.cfg sets on every map). A server without a live key, one havoc9.org does not
+ * know, sends nothing and says nothing: no match starts and no join line is told. When havoc9.org
+ * does not answer, a match's start is asked again after 30 seconds, then 60, up to 5 minutes
+ * apart, and a refused match is logged once a map.
  *
  * Written to the same rules as ts_matchmode.sma, for a strict compiler: explicit tags, braces on
  * every block, and no backslash escapes in strings.
@@ -47,7 +57,7 @@
 #pragma dynamic 16384
 
 #define PLUGIN  "H9 Compete"
-#define VERSION "1.0"
+#define VERSION "1.2"
 #define AUTHOR  "2cwldys, after xjiro"
 
 #define MAX_BODY     12000   // h9_presence signs at most 12287 characters
@@ -69,6 +79,7 @@
 new g_cv_on, g_cv_ladder, g_cv_notice;
 new bool:g_have_presence = true;
 new bool:g_have_tsm = true;
+new bool:g_have_assists = true;          // ts_matchmode has tsm_assists (its match-bar build and later)
 new g_maxplayers;
 new g_gen[MAX_PLAYERS + 1];              // counts who held the slot, so a late answer finds the right player
 
@@ -77,6 +88,9 @@ new bool:g_open = false;
 new g_ladder = LADDER_OFF;
 new g_match = 0;
 new bool:g_starting = false;
+new g_start_next = 0;                    // no start asked for again before this (systime)
+new g_start_wait = 30;                   // and the wait after the next unanswered one, doubling to 300
+new bool:g_refusal_logged = false;       // a refused match is logged once a map
 new bool:g_ending = false;
 new g_end_how[12];
 new g_end_winner, g_end_s1, g_end_s2;
@@ -95,6 +109,8 @@ new g_rrounds[MAX_ROSTER];
 new g_rsecs[MAX_ROSTER];
 new g_rsince[MAX_ROSTER];
 new bool:g_rhere[MAX_ROSTER];
+new g_rassists[MAX_ROSTER];              // assists banked from the times the player left the match
+new g_rbase[MAX_ROSTER];                 // ts_matchmode's count for them when they last joined it
 new g_rcount = 0;
 new g_entry[MAX_PLAYERS + 1];            // the slot's roster entry, -1 for none
 
@@ -129,12 +145,6 @@ public plugin_init()
 	g_cv_on = register_cvar("h9_compete", "0", FCVAR_SERVER);
 	g_cv_ladder = register_cvar("h9_compete_ladder", "auto");
 	g_cv_notice = register_cvar("h9_compete_notice", "1");
-	register_clcmd("say /rank", "cmd_rank");
-	register_clcmd("say /elo", "cmd_rank");
-	register_clcmd("say !rank", "cmd_rank");
-	register_clcmd("say !elo", "cmd_rank");
-	register_clcmd("say_team /rank", "cmd_rank");
-	register_clcmd("say_team /elo", "cmd_rank");
 	register_srvcmd("h9_compete_status", "cmd_status");
 	register_event("DeathMsg", "ev_death", "a");
 	g_maxplayers = min(get_maxplayers(), MAX_PLAYERS);
@@ -153,6 +163,11 @@ public plugin_natives()
 // it gone and answers 0.
 public native_filter(const name[], index, trap)
 {
+	if (equal(name, "tsm_assists"))
+	{
+		g_have_assists = false;
+		return PLUGIN_HANDLED;
+	}
 	if (!trap)
 	{
 		return PLUGIN_HANDLED;
@@ -217,27 +232,16 @@ pick_ladder()
 	}
 	new map[64];
 	get_mapname(map, charsmax(map));
-	if (roleplay_map(map) || equali(map, "h9_ws_", 6))
+	if (roleplay_map(map))
 	{
 		return LADDER_OFF;
 	}
-	if (equali(map, "h9_dm_", 6) || equali(map, "h9_tdm_", 7) || equali(map, "h9_ctb_", 7))
-	{
-		return LADDER_DM;
-	}
-	if (equali(map, "h9_", 3) || equali(map, "tsm_", 4))
+	// ts_matchmode's match mode plays here (its plugin_cfg turns tsm_enabled off where it does not)
+	if (g_have_tsm && get_cvar_num("tsm_enabled") != 0)
 	{
 		return LADDER_MATCH;
 	}
-	return LADDER_OFF;
-}
-
-/** Wave Survival claims a map as "survival": its side 2 is bots, so it is never rated. */
-bool:survival_now()
-{
-	new mode[24];
-	get_cvar_string("tsm_pres_mode", mode, charsmax(mode));
-	return equali(mode, "survival") != 0;
+	return LADDER_DM;
 }
 
 bool:ready()
@@ -361,11 +365,13 @@ roster_join(id)
 		g_rrounds[k] = 0;
 		g_rsecs[k] = 0;
 		g_rhere[k] = false;
+		g_rassists[k] = 0;
 	}
 	if (!g_rhere[k])
 	{
 		g_rhere[k] = true;
 		g_rsince[k] = get_systime();
+		g_rbase[k] = assists_now(id);
 	}
 	new s = side_of(id);
 	if (s)
@@ -384,7 +390,42 @@ roster_leave(id)
 		return;
 	}
 	g_rsecs[k] += get_systime() - g_rsince[k];
+	g_rassists[k] += assists_since(g_rbase[k], assists_now(id));
 	g_rhere[k] = false;
+}
+
+/** ts_matchmode's assists for the player on this map; 0 without tsm_assists. */
+assists_now(id)
+{
+	if (!g_have_tsm || !g_have_assists)
+	{
+		return 0;
+	}
+	return max(0, tsm_assists(id));
+}
+
+/** What the count added since base; a count below base was started over (a new player in the slot). */
+assists_since(base, now)
+{
+	return now >= base ? now - base : now;
+}
+
+/** A roster entry's assists in the match so far: banked, and since they joined while they are here. */
+assists_of(k)
+{
+	new n = g_rassists[k];
+	if (g_rhere[k])
+	{
+		for (new i = 1; i <= g_maxplayers; i++)
+		{
+			if (g_entry[i] == k && is_human(i))
+			{
+				n += assists_since(g_rbase[k], assists_now(i));
+				break;
+			}
+		}
+	}
+	return n;
 }
 
 public tsm_round_live(round)
@@ -392,7 +433,7 @@ public tsm_round_live(round)
 	#pragma unused round
 	if (!g_open)
 	{
-		if (pick_ladder() != LADDER_MATCH || !g_have_tsm || !tsm_match_running() || survival_now() || !ready())
+		if (pick_ladder() != LADDER_MATCH || !g_have_tsm || !tsm_match_running() || !ready())
 		{
 			return;
 		}
@@ -557,13 +598,13 @@ public client_disconnected(id, bool:drop, message[], maxlen)
 public task_join(task)
 {
 	new id = task - TASK_JOIN;
-	if (!is_human(id) || pick_ladder() == LADDER_OFF)
+	if (!is_human(id) || pick_ladder() == LADDER_OFF || !ready())
 	{
 		return;
 	}
 	client_print(id, print_chat, "[H9] Rated server: matches here count on havoc9.org for players using their account's id.");
-	client_print(id, print_chat, "[H9] Your ACCOUNT page there decides who sees your rating. Say /rank for yours.");
-	send_rating(id, true);
+	client_print(id, print_chat, "[H9] Your ACCOUNT page there decides who sees your rating. Say .rank for yours.");
+	send_rating(id);
 }
 
 // ---- kills --------------------------------------------------------------------------------------
@@ -664,7 +705,7 @@ flush()
 			reset_match();
 			return;
 		}
-		if (!g_starting)
+		if (!g_starting && get_systime() >= g_start_next)
 		{
 			send_start();
 		}
@@ -845,6 +886,15 @@ send_end()
 		app_num(secs);
 		app_raw(",");
 		app_num(g_rhere[k] ? 0 : 1);
+		app_raw(",");
+		if (g_have_tsm && g_have_assists)
+		{
+			app_num(assists_of(k));
+		}
+		else
+		{
+			app_raw("null");
+		}
 		app_raw("]");
 	}
 	app_raw("],^"others^":{^"1^":");
@@ -886,6 +936,8 @@ public on_start(EzHttpRequest:request_id)
 	g_starting = false;
 	if (code == 200 && root != EzInvalid_JSON && ezjson_object_has_value(root, "match", EzJSONNumber))
 	{
+		g_start_wait = 30;
+		g_start_next = 0;
 		if (g_open)
 		{
 			g_match = ezjson_object_get_number(root, "match");
@@ -894,9 +946,19 @@ public on_start(EzHttpRequest:request_id)
 	}
 	else if (code >= 400 && code < 500 && code != 429)
 	{
-		// refused (the key, or the server counts nowhere): nothing of this match goes anywhere
-		log_amx("[H9] h9web refused this match: HTTP %d %s", code, g_last_error);
+		// refused (the key, a roleplay map, an UNRANKED server): nothing of this match goes anywhere
+		if (!g_refusal_logged)
+		{
+			g_refusal_logged = true;
+			log_amx("[H9] h9web does not rate matches here: HTTP %d %s", code, g_last_error);
+		}
 		reset_match();
+	}
+	else
+	{
+		// no answer, or a busy one: ask again later, each time a while longer
+		g_start_next = get_systime() + g_start_wait;
+		g_start_wait = min(g_start_wait * 2, 300);
 	}
 	if (root != EzInvalid_JSON)
 	{
@@ -1027,31 +1089,13 @@ signed_num(n, out[], len)
 	}
 }
 
-// ---- say /rank ----------------------------------------------------------------------------------
-
-public cmd_rank(id)
-{
-	if (!is_human(id))
-	{
-		return PLUGIN_CONTINUE;
-	}
-	if (!get_pcvar_num(g_cv_on) || !ready())
-	{
-		client_print(id, print_chat, "[H9] This server does not rate players.");
-		return PLUGIN_CONTINUE;
-	}
-	if (!send_rating(id, false))
-	{
-		client_print(id, print_chat, "[H9] Your game is not using a havoc9.org player id here.");
-	}
-	return PLUGIN_CONTINUE;
-}
+// ---- the join line ------------------------------------------------------------------------------
 
 /**
- * Asks h9web for one player's rating. The answer goes to that player; with announce, and only
- * when the player's ACCOUNT page shows their numbers ("public"), to everyone as compts did.
+ * Asks h9web for one player's rating, to tell everyone, as compts did, when the player's ACCOUNT
+ * page shows their numbers ("public"). A player's own rank is h9_rank.amxx's .rank (and /rank).
  */
-bool:send_rating(id, bool:announce)
+bool:send_rating(id)
 {
 	new cid[33];
 	if (!ready() || !client_id(id, cid))
@@ -1071,16 +1115,15 @@ bool:send_rating(id, bool:announce)
 	app_raw(",^"ids^":[");
 	app_str(cid);
 	app_raw("]}");
-	new ud[3];
+	new ud[2];
 	ud[0] = id;
 	ud[1] = g_gen[id];
-	ud[2] = announce ? 1 : 0;
 	return post_raw("/compete/rating", "on_rating", ud, sizeof(ud));
 }
 
 public on_rating(EzHttpRequest:request_id)
 {
-	new ud[3];
+	new ud[2];
 	ezhttp_get_user_data(request_id, ud);
 	new id = ud[0];
 	if (ezhttp_get_error_code(request_id) != EZH_OK || ezhttp_get_http_code(request_id) != 200)
@@ -1099,63 +1142,24 @@ public on_rating(EzHttpRequest:request_id)
 	new cid[33];
 	client_id(id, cid);
 	new EzJSON:players = ezjson_object_has_value(root, "players", EzJSONObject) ? ezjson_object_get_value(root, "players") : EzInvalid_JSON;
-	if (players == EzInvalid_JSON || !cid[0] || !ezjson_object_has_value(players, cid, EzJSONObject))
-	{
-		if (!ud[2])
-		{
-			client_print(id, print_chat, "[H9] You are not rated here yet: your game must prove your havoc9.org id on this server.");
-		}
-	}
-	else
+	if (players != EzInvalid_JSON && cid[0] && ezjson_object_has_value(players, cid, EzJSONObject))
 	{
 		new EzJSON:p = ezjson_object_get_value(players, cid);
 		new bool:public_ = ezjson_object_has_value(p, "public", EzJSONBoolean) && ezjson_object_get_bool(p, "public");
-		new elo = -1, rank = 0, nelo = -1, nrank = 0;
+		new elo = -1, rank = 0;
 		if (ezjson_object_has_value(p, "server", EzJSONObject))
 		{
-			new EzJSON:s = ezjson_object_get_value(p, "server");
-			elo = ezjson_object_get_number(s, "elo");
-			rank = ezjson_object_get_number(s, "rank");
-			ezjson_free(s);
-		}
-		if (ezjson_object_has_value(p, "network", EzJSONObject))
-		{
-			new EzJSON:n = ezjson_object_get_value(p, "network");
-			nelo = ezjson_object_get_number(n, "elo");
-			nrank = ezjson_object_get_number(n, "rank");
-			ezjson_free(n);
+			new EzJSON:sv = ezjson_object_get_value(p, "server");
+			elo = ezjson_object_get_number(sv, "elo");
+			rank = ezjson_object_get_number(sv, "rank");
+			ezjson_free(sv);
 		}
 		ezjson_free(p);
-		new name[64];
-		get_user_name(id, name, charsmax(name));
-		if (ud[2])
+		if (public_ && elo >= 0)
 		{
-			if (public_ && elo >= 0)
-			{
-				client_print(0, print_chat, "[H9] %s: #%d on this server (%d).", name, rank, elo);
-			}
-		}
-		else if (elo < 0 && nelo < 0)
-		{
-			client_print(id, print_chat, "[H9] No rated kills or matches yet: everyone starts at 1000.");
-		}
-		else
-		{
-			new line[160];
-			copy(line, charsmax(line), "[H9] Your rating:");
-			if (elo >= 0)
-			{
-				format(line, charsmax(line), "%s %d (#%d on this server)", line, elo, rank);
-			}
-			if (nelo >= 0)
-			{
-				if (elo >= 0)
-				{
-					add(line, charsmax(line), ",");
-				}
-				format(line, charsmax(line), "%s %d (#%d on the H9 ladder)", line, nelo, nrank);
-			}
-			client_print(id, print_chat, "%s.", line);
+			new name[64];
+			get_user_name(id, name, charsmax(name));
+			client_print(0, print_chat, "[H9] %s: #%d on this server (%d).", name, rank, elo);
 		}
 	}
 	if (players != EzInvalid_JSON)

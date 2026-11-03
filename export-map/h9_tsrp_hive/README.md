@@ -117,10 +117,26 @@ With 4.9 MB free on C: hlcsg ended in `Error: File write failure`; point `TEMP`/
   so hlcsg's bounds stay sane.
 - Per-city name prefixes `pc_` / `al_` / `xe_` on `targetname`, `target`, `master`, `killtarget`,
   `LaserTarget` and `multi_manager` keys, a name a `multi_manager` fires more than once (`oven_hurt#1`)
-  keeping its `#1`, and on a `path_corner`'s or `path_track`'s `message`, the name it fires as a train passes.
+  keeping its `#1`, on a `path_corner`'s or `path_track`'s `message`, the name it fires as a train passes, and
+  on a door's `netname`, the name it fires as it closes.
 - Alexandria's lab gate (`midgar.lab.gate.one`) opens from the console panel beside it, `labentbutton`: a
   `func_door` that does not move and fires the gate each time it toggles. The source left it with a name and
-  no Use flag, so nothing reached it; it gets the flag (256) beside its toggle (32).
+  no Use flag, so nothing reached it; it gets the flag (256) beside its toggle (32). So do the two doors of
+  the blue car east of the portal to Paradise (`clabshores`, `shoresclab`), which nothing opened either, and
+  which slid sideways into its walls (as in the original compile): they sink straight into the floor instead
+  (angles 90 0 0, lip -2), as a lift's doors do.
+- That blue car is made a lift to the meeting room 456 units over it, which had no way in. A shaft is cut
+  through the rock over the car's south part (five box brushes; any other shape stops the build) up into the
+  room's south wall. In it, `lift` (a `func_door`, toggled) carries the car's floor up 454 to the room's floor
+  and back. Three buttons send it: one in the car, over the strip of its floor that stays put, one at the top
+  of the shaft, one in the room beside it. A `func_wall_toggle` gate, `lift_gate`, closes the shaft's top
+  whenever the floor is not up there: each button shuts it, then sends the floor half a second later, and the
+  floor opens it as it arrives at the top. A light hangs in the shaft.
+- Alexandria's four jail cages (`cell1` to `cell4`) were cut from 320 to 192 tall by the decompiles, so their
+  lip of 192 left them no travel; a lip of 64 gives them their 128 again, up to the ceiling.
+- Alexandria's lab dial (the `momentary_rot_button` that slides `lab_radio_bed` into the scanner) is a NULL
+  volume the b4v3 decompile left without a brush. Its brush comes from the b5 decompile, with an ORIGIN brush
+  at its middle so it turns where it stands.
 - One sky (`blue`) and one sun (Alexandria's `light_environment`); the other two suns were dropped.
 - Alexandria's own map-authored `ts_groundweapon` pickups (5) dropped entirely: they sit 40-88 units above
   the nearest floor in the raw decompile itself, not something this merge introduces.
@@ -136,6 +152,11 @@ With 4.9 MB free on C: hlcsg ended in `Error: File write failure`; point `TEMP`/
   onto the original map's two whole-unit planes (27 faces across 24 brushes), and two tapering sliver brushes
   in front of a `cyberwall1` wall are dropped so the wall itself shows. Each repair first checks the brushes
   it expects and stops the build if they differ.
+- Alexandria: the hall's ramp under the Golgotha apartments runs on two slopes the original compile has as
+  whole-number planes (12y + 35z = 23488 and 24888, in the city's own coordinates); the decompile wrote them a
+  hair off (0.008 and 0.024). That left a hole in the standing player's hull under the apartment floor along
+  its south wall, inside the door (x 80..300, y 1008..1036, floor -1992 in the hive): a player fell 160 units
+  through drawn floor. The 25 faces on those slopes are put back on them through whole-number points.
 - hlrad runs with real bounce lighting (no `-fast`) while hlvis stays fast: large areas were pitch black
   under the original all-fast draft compile. hlvis's `-fast` and hlrad's `-fast` are independent flags on
   the same tools; passing `args.hlvis` only keeps the auto-added `-fast` off hlrad's own argv.

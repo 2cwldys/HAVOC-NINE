@@ -3047,6 +3047,295 @@ Lines of the previous diff that this build replaced, kept here:
 +	return site && H9L_LocalSite( site->string ) ? site->string : H9L_SITE;
 Diff sha256 a854f85969a028e19e506ef50b5fcd7e9cd2c9a78a5d050f42d2ac7ab16f8963, the diff below.
 
+Generated Tue 11/03/2026  1:22:22.61, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++account the server last named in H9Avatar for the player now in that slot,
++server gives a number and nothing else, as for the pictures. A player with the site's default
++picture comes as account 2147483647, which is everybody's: no profile opens for them. Servers
++cannot run it, and a burst of clicks opens one page.
++	int slot_account[MAX_CLIENTS + 1];       // the account the server last named for each slot, 0 for none
++	account = av.slot_userid[slot] == player->userid ? av.slot_account[slot] : 0;
++		Con_Printf( "H9 PROFILE: the server did not say which account %s is: it names one only with a picture of its own\n", player->name );
++menu is up, once for each id and site (again a minute after a try that got no answer): GET
++	// a try that got no answer
++		&& host.realtime - h9l.started_at > H9L_STATUS_DELAY && host.realtime >= h9l.adopt_next )
++		if( !h9l.adopt_done && ( !h9l.adopt_started || cls.key_dest == key_menu ))
+Diff sha256 4703e04b090448c3230907155bf0184911f434fdb6844a12f41366af01a7d5c7, the diff below.
+
+Generated Tue 11/03/2026  1:34:45.29, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++again). A client library without HUD_H9Avatar gets nothing, and neither does a slot whose picture
++could not be fetched or read; four fetches go at once, and a picture that failed is not asked
++again until the game restarts or cl_h9_site names another site; each one that failed says so
++once in the console. cl_h9_avatars 0 turns it all off.
++	int failed_account[H9AV_FAILED];         // not asked again this session
++	int failed_version[H9AV_FAILED];
++	memset( av.failed_account, 0, sizeof( av.failed_account ));
++	memset( av.failed_version, 0, sizeof( av.failed_version ));
++static qboolean H9Av_Failed( int account, int version )
++		if( av.failed_account[i] == account && av.failed_version[i] == version )
++	qboolean shown = false;
++		H9Av_SiteCheck();
++		av.failed_account[av.failed_next] = account;
++		av.failed_version[av.failed_next] = version;
++		Con_Printf( "H9 AVATARS: no picture for account %d (version %d): %s, %s\n", account, version, url,
++			success ? "not a PNG of at most 64 x 64, or a client library without HUD_H9Avatar" : "it could not be fetched" );
++		if( !account )
++	// the silhouette until this picture is here: never the slot's previous player's
++	if( H9Av_Failed( account, version ))
+Diff sha256 d740165a06f215adee6a7baf6da7d4aa323d71b0f15ed5eac3037b9a305c9893, the diff below.
+
+Generated Tue 11/03/2026  1:54:37.71, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++<the link's site>/api/link/status?token=<token> asks whether the link still stands; "unlinked"
++(REVOKE on the ACCOUNT page, or the account's player id reset) unlinks the game here as h9_unlink
++does. The texts the player sees name the site the code comes from (_h9link_site for the menu).
++	// the start's status check
++	qboolean status_done;
++	// once a start: does the link still stand? Asked of the link's own site, while it is the site
++	// cl_h9_site points to: a link made on the local test site is left alone on havoc9.org
++		if( H9L_Linked( &h9l.rec ) && Q_strcmp( h9l.rec.site, H9L_Site( )))
++		else if( H9L_Linked( &h9l.rec ))
++			char path[96];
++			Q_strncpy( h9l.status_token, h9l.rec.token, sizeof( h9l.status_token ));
++			Q_snprintf( path, sizeof( path ), "/api/link/status?token=%s", h9l.rec.token );
++			H9L_GetAt( h9l.rec.site, path, H9L_StatusAnswer, 0 );
+Diff sha256 4b62096305976151af8f70e2cebb4d82ba1d90aac328a276830935d5d6c3d3c0, the diff below.
+
+Generated Tue 11/03/2026 18:34:32.85, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++#define H9UI_MAX_PANELS 4
+Diff sha256 fbf5848a609a9d1ea2e356e5dec9cbf2eaefc30666dbe085155d056590196d4d, the diff below.
+
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
 --- a/common/port.h
@@ -3591,10 +3880,10 @@ index c62effb5..f5aca6f1 100644
  #define pavcodec_version               avcodec_version
 diff --git a/engine/client/cl_avatar.c b/engine/client/cl_avatar.c
 new file mode 100644
-index 00000000..7504bca2
+index 00000000..c4189d36
 --- /dev/null
 +++ b/engine/client/cl_avatar.c
-@@ -0,0 +1,450 @@
+@@ -0,0 +1,593 @@
 +/*
 +cl_avatar.c - H9: players' havoc9.org pictures on the scoreboard (docs/PLAYER_LIMIT_128.txt, 11.7)
 +Copyright (C) 2026 HAVOC 9
@@ -3627,24 +3916,31 @@ index 00000000..7504bca2
 +never pass for havoc9.org's.
 +imagelib decodes it, and the RGBA pixels go to the client library's HUD_H9Avatar( slot, version,
 +wide, tall, rgba ), which the scoreboard draws in the slot's avatar cell (rgba NULL: the silhouette
-+again). A client library without HUD_H9Avatar gets nothing, and neither does a slot whose picture
-+could not be fetched or read; four fetches go at once, and a picture that failed is not asked
-+again until the game restarts or cl_h9_site names another site; each one that failed says so
-+once in the console. cl_h9_avatars 0 turns it all off.
++again). A client library without HUD_H9Avatar gets nothing. Four fetches go at once. A picture that
++could not be fetched (no answer, a timeout, a refused connection, 429 or a 5xx: HTTP_MemoryStatus)
++is asked again while a slot still names it, 15 s, 60 s and 5 minutes after its first, second and
++third tries, then every 10 minutes; one that is not there or no use (another HTTP status, or a body
++that is no PNG of at most 64 x 64) waits 10 minutes. Each failure is one console line, with when it
++is tried again. A new H9Avatar for a slot asks again at once, the same picture or not (h9_presence
++names every slot's again at each map start), and another cl_h9_site starts the list over. The
++asking again runs in an H9UI panel's Frame (cl_motd.c), a panel that is never up.
++cl_h9_avatars 0 turns it all off.
 +
 +The browser build reads the message and keeps the silhouette.
 +
 +h9_profile <slot> opens the havoc9.org profile of the player in that slot in the web browser, the way
 +the main menu's OPEN PAGE opens the link page (Platform_ShellExecute). H9's client.dll runs it on a
 +double-click on a linked player's picture (the green chain). The address is this file's site and the
-+account the server last named in H9Avatar for the player now in that slot,
++account the server last named for the player now in that slot,
 +
 +  https://havoc9.org/api/link/profile/<account>
 +
 +which h9web answers by sending the browser on to the account's forum profile (lib/link.js), so a
-+server gives a number and nothing else, as for the pictures. A player with the site's default
-+picture comes as account 2147483647, which is everybody's: no profile opens for them. Servers
-+cannot run it, and a burst of clicks opens one page.
++server gives a number and nothing else, as for the pictures. The account is H9Account's (byte slot,
++long account; h9_presence 1.7 names every linked player's own), else H9Avatar's; but a server older
++than that names an account only through a picture, and a player with the site's default picture
++comes as account 2147483647, which is everybody's: no profile opens for them there. Servers cannot
++run it, and a burst of clicks opens one page.
 +*/
 +
 +#include "common.h"
@@ -3652,6 +3948,7 @@ index 00000000..7504bca2
 +#include "library.h"
 +#include "net_ws.h"
 +#include "platform/platform.h"
++#include "cl_motd.h"
 +
 +#define H9AV_SITE      "https://havoc9.org"
 +#define H9AV_MAX_BYTES ( 32 * 1024 )
@@ -3671,12 +3968,19 @@ index 00000000..7504bca2
 +	int want_version[MAX_CLIENTS + 1];
 +	int fetch_account[H9AV_FETCHES];         // in flight, 0 for a free entry
 +	int fetch_version[H9AV_FETCHES];
-+	int failed_account[H9AV_FAILED];         // not asked again this session
-+	int failed_version[H9AV_FAILED];
++	struct
++	{
++		int account, version;                // 0: a free entry
++		int tries;                           // fetches of it that failed
++		double retry_at;                     // host.realtime it may be asked for again
++	} failed[H9AV_FAILED];
 +	int failed_next;
 +	char failed_site[64];                    // the cl_h9_site the failed list is for
-+	int slot_account[MAX_CLIENTS + 1];       // the account the server last named for each slot, 0 for none
++	double pump_at;                          // the frame's next look for a picture to ask again
++	int slot_account[MAX_CLIENTS + 1];       // the account H9Avatar last named for each slot, 0 for none
 +	int slot_userid[MAX_CLIENTS + 1];        // the userid of the slot's player then: another player is not them
++	int named_account[MAX_CLIENTS + 1];      // the account H9Account last named for each slot, 0 for none
++	int named_userid[MAX_CLIENTS + 1];       // the same, for H9Account
 +	double profile_opened;                   // when h9_profile last opened a page
 +	pfnH9Avatar_t give;
 +	qboolean looked;
@@ -3684,6 +3988,22 @@ index 00000000..7504bca2
 +
 +#if !XASH_EMSCRIPTEN
 +static void H9Av_Profile_f( void );
++static void H9Av_Frame( void );
++static void H9Av_Reset( qboolean connection );
++static qboolean H9Av_NotUp( void ) { return false; }
++static qboolean H9Av_NoKey( int key, qboolean down ) { (void)key; (void)down; return false; }
++static void H9Av_NoDraw( void ) { }
++
++// never up: only its Frame (asking again for pictures) and its Reset (a new map or server) do work
++static const h9ui_panel_t h9av_panel =
++{
++	H9Av_NotUp,
++	H9Av_NoKey,
++	H9Av_NoKey,
++	H9Av_Frame,
++	H9Av_NoDraw,
++	H9Av_Reset,
++};
 +#endif
 +
 +/*
@@ -3697,6 +4017,7 @@ index 00000000..7504bca2
 +	Cvar_RegisterVariable( &cl_h9_site );
 +#if !XASH_EMSCRIPTEN
 +	Cmd_AddRestrictedCommand( "h9_profile", H9Av_Profile_f, "H9: open the havoc9.org profile of the player in a slot in the web browser (the scoreboard's double-click on a linked player's picture)" );
++	H9UI_AddPanel( &h9av_panel );
 +#endif
 +}
 +
@@ -3798,22 +4119,67 @@ index 00000000..7504bca2
 +	if( !Q_strcmp( av.failed_site, cl_h9_site.string ))
 +		return;
 +	Q_strncpy( av.failed_site, cl_h9_site.string, sizeof( av.failed_site ));
-+	memset( av.failed_account, 0, sizeof( av.failed_account ));
-+	memset( av.failed_version, 0, sizeof( av.failed_version ));
++	memset( av.failed, 0, sizeof( av.failed ));
 +	av.failed_next = 0;
 +}
 +
-+static qboolean H9Av_Failed( int account, int version )
++// the failed list's index for a picture, or -1
++static int H9Av_FailedEntry( int account, int version )
 +{
 +	int i;
 +
 +	H9Av_SiteCheck();
 +	for( i = 0; i < H9AV_FAILED; i++ )
 +	{
-+		if( av.failed_account[i] == account && av.failed_version[i] == version )
-+			return true;
++		if( av.failed[i].account == account && av.failed[i].version == version )
++			return i;
 +	}
-+	return false;
++	return -1;
++}
++
++// a picture that failed and may not be asked for yet
++static qboolean H9Av_Waiting( int account, int version )
++{
++	const int i = H9Av_FailedEntry( account, version );
++
++	return i >= 0 && host.realtime < av.failed[i].retry_at;
++}
++
++// a new word from the server on a picture: asked for again at once
++static void H9Av_Forget( int account, int version )
++{
++	const int i = H9Av_FailedEntry( account, version );
++
++	if( i >= 0 )
++		memset( &av.failed[i], 0, sizeof( av.failed[i] ));
++}
++
++// A fetch that brought no picture: when it may be asked for again. later: no answer, or a server that
++// will answer later (429, a 5xx); else the picture is not there or no use.
++static int H9Av_Failure( int account, int version, qboolean later )
++{
++	int i = H9Av_FailedEntry( account, version ), wait;
++
++	if( i < 0 )
++	{
++		i = av.failed_next;
++		av.failed_next = ( av.failed_next + 1 ) % H9AV_FAILED;
++		memset( &av.failed[i], 0, sizeof( av.failed[i] ));
++		av.failed[i].account = account;
++		av.failed[i].version = version;
++	}
++	av.failed[i].tries++;
++	if( !later )
++		wait = 600;
++	else if( av.failed[i].tries == 1 )
++		wait = 15;
++	else if( av.failed[i].tries == 2 )
++		wait = 60;
++	else if( av.failed[i].tries == 3 )
++		wait = 300;
++	else wait = 600;
++	av.failed[i].retry_at = host.realtime + wait;
++	return wait;
 +}
 +
 +// A PNG of at most 64 x 64 and 32 KB, by its own header, decoded and given to the slot.
@@ -3850,9 +4216,10 @@ index 00000000..7504bca2
 +// HTTP_GetToMemoryEx's answer for fetch entry (intptr_t)userdata
 +static void H9Av_Received( const char *url, qboolean success, const byte *data, size_t size, void *userdata )
 +{
++	const int status = HTTP_MemoryStatus();
 +	int k = (int)(intptr_t)userdata;
 +	int account, version, slot;
-+	qboolean shown = false;
++	qboolean shown = false, wanted = false;
 +	char path[64];
 +
 +	if( k < 0 || k >= H9AV_FETCHES || !av.fetch_account[k] )
@@ -3861,29 +4228,40 @@ index 00000000..7504bca2
 +	version = av.fetch_version[k];
 +	av.fetch_account[k] = av.fetch_version[k] = 0;
 +
++	// the slots that still name it: shown, or left wanting it for the next try
 +	for( slot = 1; slot <= MAX_CLIENTS; slot++ )
 +	{
 +		if( av.want_account[slot] != account || av.want_version[slot] != version )
 +			continue;
++		wanted = true;
 +		if( success && H9Av_Show( slot, version, data, size ))
++		{
 +			shown = true;
-+		av.want_account[slot] = av.want_version[slot] = 0;
++			av.want_account[slot] = av.want_version[slot] = 0;
++		}
 +	}
 +
 +	if( shown )
 +	{
 +		H9Av_CachePath( path, sizeof( path ), url, account, version );
 +		FS_WriteFile( path, data, size );
++		H9Av_Forget( account, version );
 +	}
-+	else
++	else if( wanted )
 +	{
-+		H9Av_SiteCheck();
-+		av.failed_account[av.failed_next] = account;
-+		av.failed_version[av.failed_next] = version;
-+		av.failed_next = ( av.failed_next + 1 ) % H9AV_FAILED;
-+		Con_Printf( "H9 AVATARS: no picture for account %d (version %d): %s, %s\n", account, version, url,
-+			success ? "not a PNG of at most 64 x 64, or a client library without HUD_H9Avatar" : "it could not be fetched" );
++		const qboolean later = !success && ( status == 0 || status == 429 || status >= 500 );
++		const int wait = H9Av_Failure( account, version, later );
++		char why[48];
++
++		if( success )
++			Q_strncpy( why, "not a PNG of at most 64 x 64", sizeof( why ));
++		else if( status )
++			Q_snprintf( why, sizeof( why ), "HTTP %d", status );
++		else Q_strncpy( why, "no answer", sizeof( why ));
++		Con_Printf( "H9 AVATARS: no picture for account %d (version %d): %s, %s; %s again in %d s\n", account, version, url, why,
++			later ? "trying" : "asked", wait );
 +	}
++	// else no slot names it any more: nothing to keep, nothing to try again
 +
 +	H9Av_Pump();
 +}
@@ -3901,7 +4279,7 @@ index 00000000..7504bca2
 +		const int account = av.want_account[slot], version = av.want_version[slot];
 +		qboolean going = false;
 +
-+		if( !account )
++		if( !account || H9Av_Waiting( account, version ))
 +			continue;
 +		spare = -1;
 +		for( k = 0; k < H9AV_FETCHES; k++ )
@@ -3924,6 +4302,39 @@ index 00000000..7504bca2
 +			av.fetch_account[spare] = av.fetch_version[spare] = 0;
 +			av.want_account[slot] = av.want_version[slot] = 0;
 +		}
++	}
++}
++
++// every second, while a slot waits for a picture: one that failed may be due again
++static void H9Av_Frame( void )
++{
++	int slot;
++
++	if( !cl_h9_avatars.value || host.realtime < av.pump_at )
++		return;
++	av.pump_at = host.realtime + 1.0;
++	for( slot = 1; slot <= MAX_CLIENTS; slot++ )
++	{
++		if( av.want_account[slot] )
++		{
++			H9Av_Pump();
++			return;
++		}
++	}
++}
++
++// a new map or another server: the slots wait for nothing until the server names their pictures again;
++// another server's accounts are not this one's
++static void H9Av_Reset( qboolean connection )
++{
++	memset( av.want_account, 0, sizeof( av.want_account ));
++	memset( av.want_version, 0, sizeof( av.want_version ));
++	if( connection )
++	{
++		memset( av.slot_account, 0, sizeof( av.slot_account ));
++		memset( av.slot_userid, 0, sizeof( av.slot_userid ));
++		memset( av.named_account, 0, sizeof( av.named_account ));
++		memset( av.named_userid, 0, sizeof( av.named_userid ));
 +	}
 +}
 +
@@ -3956,10 +4367,13 @@ index 00000000..7504bca2
 +		return;
 +	}
 +
-+	account = av.slot_userid[slot] == player->userid ? av.slot_account[slot] : 0;
++	// H9Account's account for the player now in the slot, else H9Avatar's
++	account = av.named_userid[slot] == player->userid ? av.named_account[slot] : 0;
++	if( account <= 0 )
++		account = av.slot_userid[slot] == player->userid ? av.slot_account[slot] : 0;
 +	if( account == H9AV_DEFAULT_ACCOUNT )
 +	{
-+		Con_Printf( "H9 PROFILE: the server did not say which account %s is: it names one only with a picture of its own\n", player->name );
++		Con_Printf( "H9 PROFILE: this server did not say which account %s is (its h9_presence is older than 1.7, which names every linked player's)\n", player->name );
 +		return;
 +	}
 +	if( account <= 0 )
@@ -4032,10 +4446,10 @@ index 00000000..7504bca2
 +		}
 +	}
 +
-+	// the silhouette until this picture is here: never the slot's previous player's
++	// the silhouette until this picture is here: never the slot's previous player's; a picture that
++	// failed is asked for again at once, as the server names it again
 +	give( slot, 0, 0, 0, NULL );
-+	if( H9Av_Failed( account, version ))
-+		return;
++	H9Av_Forget( account, version );
 +	av.want_account[slot] = account;
 +	av.want_version[slot] = version;
 +	H9Av_Pump();
@@ -4044,6 +4458,24 @@ index 00000000..7504bca2
 +	(void)account;
 +	(void)version;
 +#endif
++}
++
++/*
++==============
++CL_Avatar_Account
++
++H9Account: byte slot, long account (0: none), the account a linked player's slot is, for h9_profile
++==============
++*/
++void CL_Avatar_Account( sizebuf_t *msg )
++{
++	const int slot = MSG_ReadByte( msg );
++	const int account = MSG_ReadLong( msg );
++
++	if( slot < 1 || slot > MAX_CLIENTS )
++		return;
++	av.named_account[slot] = account > 0 ? account : 0;
++	av.named_userid[slot] = cl.players[slot - 1].userid;
 +}
 diff --git a/engine/client/cl_frame.c b/engine/client/cl_frame.c
 index aace8cff..be50a276 100644
@@ -4064,12 +4496,468 @@ index aace8cff..be50a276 100644
  		// shuffle states
  		ent->prevstate = ent->curstate;
  		ent->curstate = *state;
+diff --git a/engine/client/cl_h9join.c b/engine/client/cl_h9join.c
+new file mode 100644
+index 00000000..4563cc34
+--- /dev/null
++++ b/engine/client/cl_h9join.c
+@@ -0,0 +1,450 @@
++/*
++cl_h9join.c - H9: the join screen, the menu's connection progress while a server is joined
++Copyright (C) 2026 HAVOC 9
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++GoldSrc shows a loading bar while it joins a server, with each file it downloads; upstream Xash shows
++its console instead (CL_Connect_f's "TESTTEST" lines). With a menu that has the connection progress
++hooks (menu_int.h's UI_EXTENDED_FUNCTIONS: H9's mainui, menus/ConnectionProgress.cpp as
++mainui-h9-joinscreen.patch makes it), the menu stays up from the moment a join starts (connect, retry,
++the local server's own client) and at each map change (svc_changing, reconnect) until the player is in
++the game (ca_active): its background, or its video, full screen, and a panel with the stage, an overall
++bar (scr_loading) and, while a file downloads, its name, n of N and its own bar with KB of KB, over H9's
++HTTP fast download or the netchan. ESC on it cancels the join. A join or a game the server or the engine
++ends with a reason (refused, kicked, timed out, a file that could not come) shows it, with OK.
++
++What the menu reads, set by this file, read-only, and private (FCVAR_PRIVILEGED: no server reads or sets
++them):
++  _h9join           1 while the screen is up
++  _h9join_stage     what happens: Connecting, Server info, Downloading, Loading the map, Precaching
++                    resources, Spawning, Changing level
++  _h9join_server    the server it joins (its address; the local server says so)
++  _h9join_file      the file downloading, "<name>   n of N   a of b KB"; empty without a download
++  _h9join_fileprog  that file's bar, 0 to 100
++  _h9_drop          why the last join or game ended, when the server or the engine said; empty for a cancel
++                    or a plain disconnect
++scr_loading, the overall bar: connecting 5 and a little more for each try, server info 15, the downloads
++up to 50 by the bytes still to come, the map 55, the other resources up to 90 by their count, spawning 95.
++The precache runs inside one frame, so it draws a frame now and then (SCR_UpdateScreen, H9J_PUMP).
++
++None of it runs for a demo or a timedemo, on a background map, with cl_h9_joinscreen 0, or with a menu
++without the hooks: upstream's console comes up there, as before, and a game that ends says nothing more
++than upstream says. (Upstream called these hooks once and
++took them back, d2a8cfe6, "breaks demo playback": the menu stayed up over demos. A demo never begins a
++join here, and the server data keeps the menu up only for a join this file began.)
++*/
++
++#include "common.h"
++#include "client.h"
++#include "net_ws.h"
++#include "cl_motd.h"
++
++#define H9J_PUMP 0.15 // seconds between two frames the precache draws
++#define H9J_REASON_AGE 15.0 // seconds a reason waits for the disconnect it explains
++
++static CVAR_DEFINE_AUTO( cl_h9_joinscreen, "1", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "H9: the menu's join screen while a server is joined (0: the console, as upstream)" );
++static CVAR_DEFINE( h9join_up, "_h9join", "0", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: 1 while the join screen is up (set by the engine)" );
++static CVAR_DEFINE( h9join_stage, "_h9join_stage", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the join screen's stage (set by the engine)" );
++static CVAR_DEFINE( h9join_server, "_h9join_server", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the server the join screen joins (set by the engine)" );
++static CVAR_DEFINE( h9join_file, "_h9join_file", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the file the join screen downloads (set by the engine)" );
++static CVAR_DEFINE( h9join_fileprog, "_h9join_fileprog", "0", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: that file's progress, 0 to 100 (set by the engine)" );
++static CVAR_DEFINE( h9_drop, "_h9_drop", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: why the last join or game ended (set by the engine)" );
++
++static struct
++{
++	qboolean up;          // the screen is up, for a join or a map change this file began
++	int      files;       // the downloads this join counted when they began (n of N), 0 before
++	int      precached;   // resources precached so far, of
++	int      to_precache;
++	double   pumped;      // when the precache last drew a frame
++	char     reason[256]; // why the join or the game ends, "" for none
++	double   reason_at;   // host.realtime it was said: a reason older than H9J_REASON_AGE explains nothing
++} h9j;
++
++static void H9J_Set( convar_t *cv, const char *value )
++{
++	if( Q_strcmp( cv->string, value ))
++		Cvar_DirectFullSet( cv, value, 0 );
++}
++
++// the overall bar only grows during a join
++static void H9J_Stage( const char *stage, float loading )
++{
++	H9J_Set( &h9join_stage, stage );
++	if( loading > Cvar_VariableValue( "scr_loading" ))
++		Cvar_SetValue( "scr_loading", loading );
++}
++
++static qboolean H9J_MenuHasIt( void )
++{
++	return gameui.hInstance && gameui.dllFuncs2.pfnConnectionProgress_Connect && gameui.dllFuncs2.pfnConnectionProgress_Disconnect
++		&& gameui.dllFuncs2.pfnConnectionProgress_ChangeLevel;
++}
++
++static qboolean H9J_Usable( void )
++{
++	return cl_h9_joinscreen.value && H9J_MenuHasIt() && !cls.demoplayback && !cls.timedemo && host.type == HOST_NORMAL;
++}
++
++// the screen up for a join or a map change: the menu in front, the console out of the way
++static void H9J_Raise( const char *server, const char *stage, float loading )
++{
++	h9j.up = true;
++	h9j.files = 0;
++	h9j.precached = h9j.to_precache = 0;
++	h9j.reason[0] = '\0';
++	H9J_Set( &h9_drop, "" );
++	H9J_Set( &h9join_server, server );
++	H9J_Set( &h9join_file, "" );
++	H9J_Set( &h9join_fileprog, "0" );
++	Cvar_SetValue( "scr_loading", 0.0f );
++	H9J_Stage( stage, loading );
++	H9J_Set( &h9join_up, "1" );
++	if( cls.key_dest == key_console )
++		Con_FastClose();
++	// a join from the server browser keeps the browser under the screen, to come back to
++	if( UI_IsVisible( ))
++		Key_SetKeyDest( key_menu );
++	else UI_SetActiveMenu( true );
++}
++
++static void H9J_Lower( void )
++{
++	h9j.up = false;
++	H9J_Set( &h9join_up, "0" );
++	H9J_Set( &h9join_stage, "" );
++	H9J_Set( &h9join_file, "" );
++	H9J_Set( &h9join_fileprog, "0" );
++}
++
++/*
++==============
++CL_H9Join_Begin
++
++CL_Connect_f, CL_Retry_f, and the local server's own client (server NULL): true when the screen is up,
++false for upstream's console
++==============
++*/
++qboolean CL_H9Join_Begin( const char *server )
++{
++	if( !H9J_Usable( ))
++		return false;
++	if( !server )
++	{
++		// this game's own server: its background map has no join, and its map change has the screen up
++		if( sv_background.value )
++			return false;
++		if( h9j.up )
++			return true;
++	}
++	H9J_Raise( server ? server : "this game's own server", server ? "Connecting" : "Starting the server", 5.0f );
++	gameui.dllFuncs2.pfnConnectionProgress_Connect( server );
++	return true;
++}
++
++// another try at a server that has not answered yet
++void CL_H9Join_Try( int retry )
++{
++	char stage[64];
++
++	if( !h9j.up )
++		return;
++	Q_snprintf( stage, sizeof( stage ), retry > 1 ? "Connecting (try %d)" : "Connecting", retry );
++	H9J_Stage( stage, Q_min( 5.0f + retry, 12.0f ));
++}
++
++/*
++==============
++CL_H9Join_ChangeLevel
++
++svc_changing, or the server's reconnect (once its own disconnect is done, when it has one): the screen up
++until the next map's game is in; a background map's change keeps the menu as upstream has it
++==============
++*/
++void CL_H9Join_ChangeLevel( void )
++{
++	if( !H9J_Usable( ) || h9j.up || cls.state == ca_disconnected || cl.background || ( SV_Active( ) && sv_background.value ))
++		return;
++	H9J_Raise( cls.servername, "Changing level", 5.0f );
++	gameui.dllFuncs2.pfnConnectionProgress_ChangeLevel( );
++}
++
++/*
++==============
++CL_H9Join_ServerInfo
++
++svc_serverdata: true when the screen keeps the menu up (CL_ParseServerData leaves it be); a background
++map ends it, and the menu goes as upstream has it go
++==============
++*/
++qboolean CL_H9Join_ServerInfo( void )
++{
++	if( !h9j.up )
++		return false;
++	if( cl.background || cls.demoplayback )
++	{
++		H9J_Lower();
++		return false;
++	}
++	H9J_Stage( "Server info", 15.0f );
++	return true;
++}
++
++// a frame drawn now and then while the precache, inside one frame, runs
++static void H9J_Pump( qboolean now )
++{
++	const double t = Platform_DoubleTime();
++
++	if( !now && t - h9j.pumped < H9J_PUMP )
++		return;
++	h9j.pumped = t;
++	SCR_UpdateScreen();
++}
++
++/*
++==============
++CL_H9Join_PrecacheStart, _PrecacheWorld, _PrecacheStep
++
++CL_PrecacheResources: the resources it has still to load, the world (the map) first, then each other one
++==============
++*/
++void CL_H9Join_PrecacheStart( void )
++{
++	resource_t *p;
++
++	if( !h9j.up )
++		return;
++	h9j.precached = h9j.to_precache = 0;
++	for( p = cl.resourcesonhand.pNext; p && p != &cl.resourcesonhand; p = p->pNext )
++	{
++		if( !FBitSet( p->ucFlags, RES_PRECACHED ))
++			h9j.to_precache++;
++	}
++	H9J_Set( &h9join_file, "" );
++}
++
++void CL_H9Join_PrecacheWorld( void )
++{
++	if( !h9j.up )
++		return;
++	H9J_Stage( "Loading the map", 55.0f );
++	H9J_Pump( true );
++}
++
++void CL_H9Join_PrecacheStep( void )
++{
++	if( !h9j.up )
++		return;
++	h9j.precached++;
++	H9J_Stage( "Precaching resources", 55.0f + 35.0f * h9j.precached / Q_max( h9j.to_precache, 1 ));
++	H9J_Pump( false );
++}
++
++// CL_RegisterResources: everything is loaded, the server spawns the player
++void CL_H9Join_Spawning( void )
++{
++	if( !h9j.up )
++		return;
++	H9J_Stage( "Spawning", 95.0f );
++}
++
++/*
++==============
++CL_H9Join_End
++
++ca_active: the player is in the game; the menu goes, and the game's own screens (client.dll's team and
++class menus among them) come up over the game as they always do
++==============
++*/
++void CL_H9Join_End( void )
++{
++	if( !h9j.up )
++		return;
++	H9J_Lower();
++	Cvar_SetValue( "scr_loading", 0.0f );
++	UI_SetActiveMenu( false );
++}
++
++/*
++==============
++CL_H9Join_Drop
++
++why the join or the game ends, when it ends soon after: CL_Disconnect hands it to the menu. Color codes
++(^n) and the line ends of the server's text are cleaned out; a reason with nothing left keeps the one
++said before it.
++==============
++*/
++void CL_H9Join_Drop( const char *reason )
++{
++	char clean[sizeof( h9j.reason )];
++	size_t n = 0;
++	const char *p;
++
++	if( !reason )
++		return;
++	for( p = reason; *p && n + 1 < sizeof( clean ); p++ )
++	{
++		if( *p == '^' && p[1] >= '0' && p[1] <= '9' )
++		{
++			p++;
++			continue;
++		}
++		if( *p == '\n' || *p == '\r' )
++		{
++			if( n && clean[n - 1] != ' ' )
++				clean[n++] = ' ';
++			continue;
++		}
++		clean[n++] = *p;
++	}
++	while( n && clean[n - 1] == ' ' )
++		n--;
++	if( !n )
++		return;
++	clean[n] = '\0';
++	Q_strncpy( h9j.reason, clean, sizeof( h9j.reason ));
++	h9j.reason_at = host.realtime;
++}
++
++/*
++==============
++CL_H9Join_Disconnect
++
++CL_Disconnect: a join this file began ends before the game, or any game ends with a reason; the menu
++goes back to its own screens and says the reason, with OK
++==============
++*/
++void CL_H9Join_Disconnect( void )
++{
++	const qboolean was_up = h9j.up;
++
++	if( was_up )
++		H9J_Lower();
++	H9J_Set( &h9_drop, h9j.reason[0] && host.realtime - h9j.reason_at < H9J_REASON_AGE ? h9j.reason : "" );
++	h9j.reason[0] = '\0';
++	if( !H9J_MenuHasIt( ) || cls.demoplayback )
++		return;
++	// a game (no join screen up) that ends says why only with the join screen on, and only with a reason
++	if( !was_up && ( !h9_drop.string[0] || !cl_h9_joinscreen.value ))
++		return;
++	if( !UI_IsVisible( ))
++		UI_SetActiveMenu( true );
++	gameui.dllFuncs2.pfnConnectionProgress_Disconnect( );
++}
++
++// the frame's look at the downloads (the H9UI registry's Frame): the file, n of N, its KB and its bar
++static void H9J_Frame( void )
++{
++	char name[MAX_SYSPATH], line[MAX_SYSPATH + 64];
++	int got = 0, size = -1, remaining, n;
++	float file_pct = -1.0f;
++
++	if( !h9j.up )
++		return;
++
++	remaining = host.downloadcount;
++	if( remaining <= 0 && ( scr_download.value < 0.0f ))
++	{
++		if( h9join_file.string[0] )
++			H9J_Set( &h9join_file, "" );
++		return;
++	}
++
++	name[0] = '\0';
++#if !XASH_EMSCRIPTEN
++	if( HTTP_FileProgress( name, sizeof( name ), &got, &size ) && size > 0 )
++		file_pct = 100.0f * got / size;
++#endif
++	if( !name[0] )
++	{
++		// over the netchan: the file the fragments carry, its size from the resource list
++		resource_t *p;
++
++		Q_strncpy( name, host.downloadfile, sizeof( name ));
++		if( scr_download.value >= 0.0f )
++			file_pct = scr_download.value;
++		for( p = cl.resourcesneeded.pNext; name[0] && p && p != &cl.resourcesneeded; p = p->pNext )
++		{
++			if( Q_strstr( name, p->szFileName ) && p->nDownloadSize > 0 )
++			{
++				size = p->nDownloadSize;
++				got = file_pct >= 0.0f ? (int)( size * file_pct / 100.0f ) : 0;
++				break;
++			}
++		}
++	}
++
++	if( remaining > h9j.files )
++		h9j.files = remaining;
++	n = h9j.files - remaining + 1;
++	if( n < 1 )
++		n = 1;
++	if( n > h9j.files )
++		n = h9j.files;
++
++	if( size > 0 )
++		Q_snprintf( line, sizeof( line ), "%s   %d of %d   %d of %d KB", name[0] ? COM_FileWithoutPath( name ) : "...", n, Q_max( h9j.files, 1 ), got / 1024, size / 1024 );
++	else Q_snprintf( line, sizeof( line ), "%s   %d of %d", name[0] ? COM_FileWithoutPath( name ) : "...", n, Q_max( h9j.files, 1 ));
++	H9J_Set( &h9join_file, line );
++	Q_snprintf( name, sizeof( name ), "%d", file_pct >= 0.0f ? (int)file_pct : 0 );
++	H9J_Set( &h9join_fileprog, name );
++
++	// the overall bar: 15 to 50 by the bytes still to come
++	if( cls.dl.nTotalToTransfer > 0 )
++		H9J_Stage( "Downloading", 15.0f + 35.0f * ( cls.dl.nTotalToTransfer - Q_max( cls.dl.nRemainingToTransfer, 0 )) / cls.dl.nTotalToTransfer );
++	else H9J_Stage( "Downloading", 15.0f );
++}
++
++static qboolean H9J_NotUp( void ) { return false; }
++static qboolean H9J_NoKey( int key, qboolean down ) { (void)key; (void)down; return false; }
++static void H9J_NoDraw( void ) { }
++static void H9J_NoReset( qboolean connection ) { (void)connection; }
++
++// never up itself: its Frame follows the downloads while the menu shows the screen
++static const h9ui_panel_t h9j_panel =
++{
++	H9J_NotUp,
++	H9J_NoKey,
++	H9J_NoKey,
++	H9J_Frame,
++	H9J_NoDraw,
++	H9J_NoReset,
++};
++
++/*
++==============
++CL_H9Join_Up
++
++whether the join screen is up (CL_ErrorMsg leaves its message to it)
++==============
++*/
++qboolean CL_H9Join_Up( void )
++{
++	return h9j.up;
++}
++
++/*
++==============
++CL_H9Join_Init
++==============
++*/
++void CL_H9Join_Init( void )
++{
++	Cvar_RegisterVariable( &cl_h9_joinscreen );
++	Cvar_RegisterVariable( &h9join_up );
++	Cvar_RegisterVariable( &h9join_stage );
++	Cvar_RegisterVariable( &h9join_server );
++	Cvar_RegisterVariable( &h9join_file );
++	Cvar_RegisterVariable( &h9join_fileprog );
++	Cvar_RegisterVariable( &h9_drop );
++	H9UI_AddPanel( &h9j_panel );
++}
 diff --git a/engine/client/cl_h9link.c b/engine/client/cl_h9link.c
 new file mode 100644
-index 00000000..6c95e6f3
+index 00000000..2fefe58a
 --- /dev/null
 +++ b/engine/client/cl_h9link.c
-@@ -0,0 +1,1787 @@
+@@ -0,0 +1,1811 @@
 +/*
 +cl_h9link.c - H9: this game's id kept protected, and linking it to a havoc9.org account (docs/CUSTOM_XASH_USERID.txt)
 +Copyright (C) 2026 HAVOC 9
@@ -4137,9 +5025,10 @@ index 00000000..6c95e6f3
 +  h9_unlink        a new random id, the link gone; the link's site is told (GET /api/link/unlink)
 +The device hash is presence's form of the device id in device_id.ini: SHA-256("h9device1:" + its 16
 +bytes), the first 32 hex. Once a start of a linked game, H9L_STATUS_DELAY seconds in, GET
-+<the link's site>/api/link/status?token=<token> asks whether the link still stands; "unlinked"
-+(REVOKE on the ACCOUNT page, or the account's player id reset) unlinks the game here as h9_unlink
-+does. The texts the player sees name the site the code comes from (_h9link_site for the menu).
++<the link's site>/api/link/status?token=<token> asks whether the link still stands, and in a game
++again a moment after each map starts (H9L_STATUS_MAP) and every H9L_STATUS_EVERY seconds, one ask at
++a time; "unlinked" (REVOKE on the ACCOUNT page, or the account's player id reset) unlinks the game
++here as h9_unlink does, also while it plays. The texts the player sees name the site the code comes from (_h9link_site for the menu).
 +
 +THE SITE. cl_h9_site may name the local test site as http://127.0.0.1:<port>, http://localhost:<port>,
 +or without the scheme (127.0.0.1:<port>, which needs no quotes: unquoted, the console takes the //
@@ -4150,7 +5039,8 @@ index 00000000..6c95e6f3
 +
 +ADOPTING. A record with an id and no link (an id put in by enter_userid.cmd, or from before linking)
 +asks the site in use whether its id is an account's, ten seconds after start and while the main
-+menu is up, once for each id and site (again a minute after a try that got no answer): GET
++menu is up, once for each id and site (again a minute after a try that got no answer; another
++site, as when cl_h9_site changes, at once): GET
 +/api/link/adopt/nonce, then GET /api/link/adopt with key = HMAC-SHA256(the id, "h9adopt-key1"),
 +the first 32 hex, and the ID proof's devmask and proof for that nonce with S = "h9link-adopt"
 +(cl_idproof.c's H9_IdProof). The raw id never travels. When the id is an account's the answer
@@ -4195,6 +5085,8 @@ index 00000000..6c95e6f3
 +#define H9L_FILE_MAX       16384  // bytes of user_id.ini
 +#define H9L_FILE_CHECK     2.0    // seconds between looks at user_id.ini while the menu is up
 +#define H9L_STATUS_DELAY   10.0   // seconds after start before a linked game asks whether it still is
++#define H9L_STATUS_MAP     5.0    // seconds after a map's start before a game in it asks again
++#define H9L_STATUS_EVERY   300.0  // and then every so often while it plays
 +#define H9L_NOTICE         8.0    // seconds a result stays on screen in a game
 +#define H9L_SERVER_WINDOW  600.0  // a server's h9_link: at most H9L_SERVER_BURST in this many seconds
 +#define H9L_SERVER_BURST   3
@@ -4300,9 +5192,11 @@ index 00000000..6c95e6f3
 +	double   adopt_next;      // no try before then
 +	int      adopt_gen;
 +
-+	// the start's status check
-+	qboolean status_done;
++	// the status checks: the start's, then a game's
++	qboolean status_done;     // the start's has gone
++	qboolean status_asking;   // one in flight
 +	char     status_token[48];
++	double   status_next;     // a game's next one (0: as soon as it is in a game)
 +	double   started_at;
 +} h9l;
 +
@@ -5260,6 +6154,7 @@ index 00000000..6c95e6f3
 +{
 +	char body[512], status[32], account[32];
 +
++	h9l.status_asking = false;
 +	if( !H9L_Body( success, data, size, body, sizeof( body )) || !H9L_Json( body, "status", status, sizeof( status )))
 +		return; // no answer: the link stands
 +	if( !H9L_Linked( &h9l.rec ) || Q_strcmp( h9l.rec.token, h9l.status_token ))
@@ -5611,6 +6506,27 @@ index 00000000..6c95e6f3
 +	return true;
 +}
 +
++// Asks the link's own site whether the link still stands (GET /api/link/status), one ask at a time
++// and only while cl_h9_site points to that site: a link made on the local test site is left alone on
++// havoc9.org, said in the console when say.
++static void H9L_StatusCheck( qboolean say )
++{
++	char path[96];
++
++	if( !H9L_Linked( &h9l.rec ) || h9l.status_asking )
++		return;
++	if( Q_strcmp( h9l.rec.site, H9L_Site( )))
++	{
++		if( say )
++			Con_Printf( "H9 LINK: this game is linked on %s, and cl_h9_site points elsewhere: the link is kept, and not checked this time\n",
++				H9L_SiteName( h9l.rec.site ));
++		return;
++	}
++	Q_strncpy( h9l.status_token, h9l.rec.token, sizeof( h9l.status_token ));
++	Q_snprintf( path, sizeof( path ), "/api/link/status?token=%s", h9l.rec.token );
++	h9l.status_asking = H9L_GetAt( h9l.rec.site, path, H9L_StatusAnswer, 0 );
++}
++
 +static void H9L_Frame( void )
 +{
 +	if( !h9l.loaded )
@@ -5650,31 +6566,24 @@ index 00000000..6c95e6f3
 +			Cvar_DirectFullSet( &cl_h9link_site, name, 0 );
 +	}
 +
-+	// once a start: does the link still stand? Asked of the link's own site, while it is the site
-+	// cl_h9_site points to: a link made on the local test site is left alone on havoc9.org
++	// does the link still stand? Once a start, and in a game a moment after each map starts and every
++	// H9L_STATUS_EVERY seconds (H9L_StatusCheck)
 +	if( !h9l.status_done && host.realtime - h9l.started_at > H9L_STATUS_DELAY )
 +	{
 +		h9l.status_done = true;
-+		if( H9L_Linked( &h9l.rec ) && Q_strcmp( h9l.rec.site, H9L_Site( )))
-+		{
-+			Con_Printf( "H9 LINK: this game is linked on %s, and cl_h9_site points elsewhere: the link is kept, and not checked this time\n",
-+				H9L_SiteName( h9l.rec.site ));
-+		}
-+		else if( H9L_Linked( &h9l.rec ))
-+		{
-+			char path[96];
-+
-+			Q_strncpy( h9l.status_token, h9l.rec.token, sizeof( h9l.status_token ));
-+			Q_snprintf( path, sizeof( path ), "/api/link/status?token=%s", h9l.rec.token );
-+			H9L_GetAt( h9l.rec.site, path, H9L_StatusAnswer, 0 );
-+		}
++		H9L_StatusCheck( true );
++	}
++	else if( h9l.status_done && cls.state == ca_active && H9L_Linked( &h9l.rec ) && host.realtime >= h9l.status_next )
++	{
++		h9l.status_next = host.realtime + H9L_STATUS_EVERY;
++		H9L_StatusCheck( false );
 +	}
 +
 +	// a record with an id and no link asks whether its id is an account's: once a start, ten
 +	// seconds in, and while the main menu is up; once for each id and site, or again a minute after
-+	// a try that got no answer
++	// a try that got no answer. Another id or site (cl_h9_site changed) is asked at once.
 +	if( !H9L_Linked( &h9l.rec ) && h9l.flow != H9LF_ASKING && h9l.flow != H9LF_WAITING && !h9l.adopt_asking
-+		&& host.realtime - h9l.started_at > H9L_STATUS_DELAY && host.realtime >= h9l.adopt_next )
++		&& host.realtime - h9l.started_at > H9L_STATUS_DELAY )
 +	{
 +		char want[128];
 +
@@ -5683,8 +6592,9 @@ index 00000000..6c95e6f3
 +		{
 +			Q_strncpy( h9l.adopt_for, want, sizeof( h9l.adopt_for ));
 +			h9l.adopt_done = false;
++			h9l.adopt_next = 0.0;
 +		}
-+		if( !h9l.adopt_done && ( !h9l.adopt_started || cls.key_dest == key_menu ))
++		if( !h9l.adopt_done && host.realtime >= h9l.adopt_next && ( !h9l.adopt_started || cls.key_dest == key_menu ))
 +			H9L_AdoptStart();
 +	}
 +
@@ -5806,6 +6716,8 @@ index 00000000..6c95e6f3
 +	// a new map or a disconnect takes the panel down; the code goes on waiting
 +	h9l.panel_up = false;
 +	memset( h9l.eat, 0, sizeof( h9l.eat ));
++	// the link's status asked again a moment into the next map, or as soon as the next server's game is up
++	h9l.status_next = connection ? 0.0 : host.realtime + H9L_STATUS_MAP;
 +}
 +
 +static const h9ui_panel_t h9l_panel =
@@ -6444,7 +7356,7 @@ index 00000000..d88a23a2
 +#endif // XASH_EMSCRIPTEN
 +#endif // H9_IDPROOF_SELFTEST
 diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
-index 39e4f9c2..7b963c4e 100644
+index 39e4f9c2..d8073c87 100644
 --- a/engine/client/cl_main.c
 +++ b/engine/client/cl_main.c
 @@ -16,6 +16,7 @@ GNU General Public License for more details.
@@ -6603,7 +7515,15 @@ index 39e4f9c2..7b963c4e 100644
  /*
  ===============
  CL_CheckClientState
-@@ -1177,7 +1271,41 @@ static void CL_GetCDKey( char *protinfo, size_t protinfosize )
+@@ -352,6 +446,7 @@ static void CL_CheckClientState( void )
+ 		}
+ 
+ 		Con_DPrintf( "client connected at %.2f sec\n", Platform_DoubleTime() - cls.timestart );
++		CL_H9Join_End(); // H9: the join screen goes, the game is in (cl_h9join.c)
+ 
+ 		if( cl_autorecord.value && !cls.demoplayback )
+ 		{
+@@ -1177,7 +1272,41 @@ static void CL_GetCDKey( char *protinfo, size_t protinfosize )
  	Info_SetValueForKey( protinfo, "cdkey", key, protinfosize );
  }
  
@@ -6646,7 +7566,7 @@ index 39e4f9c2..7b963c4e 100644
  {
  	string key;
  	netadr_t adr = { .type = NA_LOOPBACK, }; // goldsrc servers don't get unique key as xashid isn't sent raw to them
-@@ -1191,6 +1319,9 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
+@@ -1191,6 +1320,9 @@ static void CL_WriteSteamTicket( sizebuf_t *send )
  		return;
  	}
  
@@ -6656,7 +7576,7 @@ index 39e4f9c2..7b963c4e 100644
  	ID_GetMD5ForAddress( key, adr, sizeof( key ));
  	CRC32_Init( &crc );
  	CRC32_ProcessBuffer( &crc, key, Q_strlen( key ));
-@@ -1225,7 +1356,7 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
+@@ -1225,7 +1357,7 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
  		PROTOCOL_GOLDSRC_VERSION, challenge, protinfo, cls.userinfo );
  	MSG_SeekToBit( &send, -8, SEEK_CUR ); // rewrite null terminator
  	if( ticket == NULL )
@@ -6665,7 +7585,7 @@ index 39e4f9c2..7b963c4e 100644
  	else
  		MSG_WriteBytes( &send, ticket, ticketlen );
  
-@@ -1298,7 +1429,7 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
+@@ -1298,7 +1430,7 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
  	else
  	{
  		const char *qport = Cvar_VariableString( "net_qport" );
@@ -6674,7 +7594,7 @@ index 39e4f9c2..7b963c4e 100644
  		string key;
  
  		ID_GetMD5ForAddress( key, adr, sizeof( key ));
-@@ -1310,6 +1441,20 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
+@@ -1310,6 +1442,20 @@ static void CL_SendConnectPacket( connprotocol_t proto, int challenge )
  			Cvar_DirectSetValue( &cl_dlmax, FRAGMENT_DEFAULT_SIZE );
  
  		Info_SetValueForKey( protinfo, "uuid", key, sizeof( protinfo ));
@@ -6695,7 +7615,62 @@ index 39e4f9c2..7b963c4e 100644
  		Info_SetValueForKey( protinfo, "qport", qport, sizeof( protinfo ));
  		Info_SetValueForKeyf( protinfo, "ext", sizeof( protinfo ), "%d", extensions );
  
-@@ -1648,6 +1793,7 @@ void CL_ClearState( void )
+@@ -1393,6 +1539,7 @@ static void CL_CheckForResend( void )
+ 	// if the local server is running and we aren't then connect
+ 	if( cls.state == ca_disconnected && SV_Active( ))
+ 	{
++		CL_H9Join_Begin( NULL ); // H9: the join screen for this game's own server (cl_h9join.c)
+ 		cls.signon = 0;
+ 		cls.state = ca_connecting;
+ 		Q_strncpy( cls.servername, "localhost", sizeof( cls.servername ));
+@@ -1426,6 +1573,7 @@ static void CL_CheckForResend( void )
+ 
+ 	if( res == NET_EAI_NONAME )
+ 	{
++		CL_H9Join_Drop( va( "No server is known by the name %s.", cls.servername ));
+ 		CL_Disconnect();
+ 		return;
+ 	}
+@@ -1443,6 +1591,7 @@ static void CL_CheckForResend( void )
+ 		if( cls.bandwidth_test.retry >= CL_TEST_RETRIES )
+ 		{
+ 			Con_DPrintf( S_ERROR "%s: couldn't connect\n", __func__ );
++			CL_H9Join_Drop( "The server did not answer." );
+ 			CL_Disconnect();
+ 			return;
+ 		}
+@@ -1455,11 +1604,13 @@ static void CL_CheckForResend( void )
+ 		if( cls.connect_retry >= CL_CONNECTION_RETRIES )
+ 		{
+ 			Con_DPrintf( S_ERROR "%s: couldn't connect\n", __func__ );
++			CL_H9Join_Drop( "The server did not answer." );
+ 			CL_Disconnect();
+ 			return;
+ 		}
+ 
+ 		cls.connect_retry++;
++		CL_H9Join_Try( cls.connect_retry ); // H9: the join screen's stage (cl_h9join.c)
+ 	}
+ 
+ 	cls.serveradr = adr;
+@@ -1530,9 +1681,13 @@ static void CL_Connect_f( void )
+ 	Con_Printf( "server %s\n", server );
+ 	CL_Disconnect();
+ 
+-	// TESTTEST: a see console during connection
+-	UI_SetActiveMenu( false );
+-	Key_SetKeyDest( key_console );
++	// H9: the menu's join screen when the menu has one (cl_h9join.c), else upstream's console
++	if( !CL_H9Join_Begin( server ))
++	{
++		// TESTTEST: a see console during connection
++		UI_SetActiveMenu( false );
++		Key_SetKeyDest( key_console );
++	}
+ 
+ 	cls.state = ca_connecting;
+ 	cls.net_protocol = proto;
+@@ -1648,6 +1803,7 @@ void CL_ClearState( void )
  	Cvar_SetValue( "scr_loading", 0.0f );
  	host.allow_console = host.allow_console_init;
  	HTTP_ClearCustomServers();
@@ -6703,7 +7678,14 @@ index 39e4f9c2..7b963c4e 100644
  }
  
  /*
-@@ -1804,6 +1950,7 @@ void CL_Disconnect( void )
+@@ -1798,12 +1954,14 @@ void CL_Disconnect( void )
+ 	IN_LockInputDevices( false ); // unlock input devices
+ 
+ 	cls.state = ca_disconnected;
++	CL_H9Join_Disconnect(); // H9: the join screen's end, and why (cl_h9join.c)
+ 	memset( &cls.serveradr, 0, sizeof( cls.serveradr ));
+ 	cls.set_lastdemo = false;
+ 	cls.connect_retry = 0;
  	memset( &cls.bandwidth_test, 0, sizeof( cls.bandwidth_test ));
  	cls.signon = 0;
  	cls.net_protocol = PROTO_CURRENT;
@@ -6711,7 +7693,38 @@ index 39e4f9c2..7b963c4e 100644
  
  	// back to menu in non-developer mode
  	if( host_developer.value || cls.key_dest == key_menu )
-@@ -2092,6 +2239,7 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
+@@ -1931,6 +2089,7 @@ static void CL_Reconnect_f( void )
+ 
+ 	if( cls.state == ca_connected )
+ 	{
++		CL_H9Join_ChangeLevel(); // H9: the join screen through the map change (cl_h9join.c)
+ 		CL_Reconnect( false );
+ 		return;
+ 	}
+@@ -1949,6 +2108,7 @@ static void CL_Reconnect_f( void )
+ 		cls.net_protocol = proto; // don't change protocol
+ 
+ 		Con_Printf( "reconnecting...\n" );
++		CL_H9Join_ChangeLevel(); // H9: the join screen through the map change, after the disconnect above (cl_h9join.c)
+ 	}
+ }
+ 
+@@ -1979,8 +2139,12 @@ static void CL_Retry_f( void )
+ 	Con_Printf( "Commencing connection retry to %s\n", cls.servername );
+ 	CL_Disconnect();
+ 
+-	UI_SetActiveMenu( false );
+-	Key_SetKeyDest( key_console );
++	// H9: the join screen, as for connect (cl_h9join.c)
++	if( !CL_H9Join_Begin( cls.servername ))
++	{
++		UI_SetActiveMenu( false );
++		Key_SetKeyDest( key_console );
++	}
+ 
+ 	cls.state = ca_connecting;
+ 	cls.connect_time = MAX_HEARTBEAT; // CL_CheckForResend() will fire immediately
+@@ -2092,6 +2256,7 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
  	if( maxcl > MAX_CLIENTS || numcl > MAX_CLIENTS || numcl > maxcl || i != PROTOCOL_VERSION )
  		return;
  
@@ -6719,7 +7732,7 @@ index 39e4f9c2..7b963c4e 100644
  	UI_AddServerToList( from, infostring );
  }
  
-@@ -2213,7 +2361,10 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+@@ -2213,7 +2378,10 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
  	Info_SetValueForKey( s, "dm", "0", sizeof( s )); // obsolete keys
  	Info_SetValueForKey( s, "team", "0", sizeof( s ));
  	Info_SetValueForKey( s, "coop", "0", sizeof( s ));
@@ -6731,7 +7744,99 @@ index 39e4f9c2..7b963c4e 100644
  	Info_SetValueForKeyf( s, "maxcl", sizeof( s ), "%i", maxcl );
  	Info_SetValueForKey( s, "gamedir", gamedir, sizeof( s ));
  	Info_SetValueForKey( s, "password", password ? "1" : "0", sizeof( s ));
-@@ -3675,9 +3826,11 @@ static void CL_InitLocal( void )
+@@ -2745,6 +2913,7 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
+ 	if( !CL_IsFromConnectingServer( from ))
+ 		return;
+ 
++	formatted_msg[0] = '\0'; // H9: nothing formatted yet (an Xash reject formats nothing, below)
+ 	if( msg != NULL && !Q_strcmp( c, S2C_ERRORMSG ))
+ 	{
+ 		const char *s = MSG_ReadString( msg );
+@@ -2762,8 +2931,17 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
+ 			Q_snprintf( formatted_msg, sizeof( formatted_msg ), "^3Server message^7\n%s", args + 1 );
+ 	}
+ 
++	// H9: an Xash server's reject ("disconnect") has no text of its own, the errormsg just before it
++	// said why: nothing to show, and no stack garbage shown in its place
++	if( !formatted_msg[0] )
++		return;
++
++	// H9: the join screen says it, with OK, as the join ends (cl_h9join.c)
++	CL_H9Join_Drop( formatted_msg + sizeof( "^3Server message^7\n" ) - 1 );
++	if( CL_H9Join_Up( ))
++		Msg( "%s\n", formatted_msg );
+ 	// in case we're in console or it's classic mainui which doesn't support messageboxes
+-	if( !UI_IsVisible() || !UI_ShowMessageBox( formatted_msg ))
++	else if( !UI_IsVisible() || !UI_ShowMessageBox( formatted_msg ))
+ 		Msg( "%s\n", formatted_msg );
+ 
+ 	// don't disconnect, errormsg is a FWGS extension and
+@@ -3142,6 +3320,7 @@ static void CL_ReadPackets( void )
+ 		if( host.realtime - cls.netchan.last_received > cl_timeout.value )
+ 		{
+ 			Con_Printf( "\nServer connection timed out.\n" );
++			CL_H9Join_Drop( "The server stopped answering (timed out)." );
+ 			CL_Disconnect();
+ 			return;
+ 		}
+@@ -3221,6 +3400,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
+ 	else if( !successfully_received )
+ 	{
+ 		Con_Printf( S_ERROR "server failed to transmit file '%s'\n", CL_CleanFileName( filename ));
++		CL_H9Join_Drop( va( "The server could not send %s.", CL_CleanFileName( filename )));
+ 	}
+ 
+ 	for( p = cl.resourcesneeded.pNext; p != &cl.resourcesneeded; p = p->pNext )
+@@ -3456,6 +3636,8 @@ qboolean CL_PrecacheResources( void )
+ {
+ 	resource_t	*pRes;
+ 
++	CL_H9Join_PrecacheStart(); // H9: the join screen's bar (cl_h9join.c)
++
+ 	// if we downloaded new WAD files or any other archives they must be added to searchpath
+ 	if( CL_ShouldRescanFilesystem( ))
+ 		FS_Rescan_f();
+@@ -3469,6 +3651,7 @@ qboolean CL_PrecacheResources( void )
+ 		if( pRes->type != t_model || pRes->nIndex != WORLD_INDEX )
+ 			continue;
+ 
++		CL_H9Join_PrecacheWorld(); // H9: the join screen's "Loading the map" (cl_h9join.c)
+ 		cl.models[pRes->nIndex] = Mod_LoadWorld( pRes->szFileName, true );
+ 		SetBits( pRes->ucFlags, RES_PRECACHED );
+ 		cl.nummodels = 1;
+@@ -3493,6 +3676,7 @@ qboolean CL_PrecacheResources( void )
+ 
+ 				if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
+ 				{
++					CL_H9Join_Drop( va( "The map's part %s is missing.", pRes->szFileName ));
+ 					CL_Disconnect_f();
+ 					return false;
+ 				}
+@@ -3509,6 +3693,7 @@ qboolean CL_PrecacheResources( void )
+ 		if( FBitSet( pRes->ucFlags, RES_PRECACHED ))
+ 			continue;
+ 
++		CL_H9Join_PrecacheStep(); // H9: the join screen's bar (cl_h9join.c)
+ 		switch( pRes->type )
+ 		{
+ 		case t_sound:
+@@ -3529,6 +3714,7 @@ qboolean CL_PrecacheResources( void )
+ 					{
+ 						if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
+ 						{
++							CL_H9Join_Drop( va( "The sound %s is missing.", pRes->szFileName ));
+ 							S_EndRegistration();
+ 							CL_Disconnect_f();
+ 							return false;
+@@ -3558,6 +3744,7 @@ qboolean CL_PrecacheResources( void )
+ 						{
+ 							if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
+ 							{
++								CL_H9Join_Drop( va( "The model %s is missing.", pRes->szFileName ));
+ 								S_EndRegistration();
+ 								CL_Disconnect_f();
+ 								return false;
+@@ -3675,9 +3862,11 @@ static void CL_InitLocal( void )
  	cl.resourcesonhand.pNext = cl.resourcesonhand.pPrev = &cl.resourcesonhand;
  
  	Cvar_RegisterVariable( &cl_ticket_generator );
@@ -6743,7 +7848,7 @@ index 39e4f9c2..7b963c4e 100644
  
  	Cvar_RegisterVariable( &showpause );
  	Cvar_RegisterVariable( &mp_decals );
-@@ -3688,9 +3841,11 @@ static void CL_InitLocal( void )
+@@ -3688,9 +3877,11 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &cl_download_ingame );
  	Cvar_RegisterVariable( &cl_logofile );
  	Cvar_RegisterVariable( &cl_logocolor );
@@ -6755,7 +7860,15 @@ index 39e4f9c2..7b963c4e 100644
  	Cvar_RegisterVariable( &cl_test_bandwidth );
  	Cvar_RegisterVariable( &cl_require_challenge_echo );
  
-@@ -3746,6 +3901,7 @@ static void CL_InitLocal( void )
+@@ -3708,6 +3899,7 @@ static void CL_InitLocal( void )
+ 	Cvar_RegisterVariable( &hud_utf8 );
+ 
+ 	Cvar_RegisterVariable( &rcon_address );
++	CL_H9Join_Init(); // H9: the menu's join screen while a server is joined (cl_h9join.c)
+ 
+ 	Cvar_RegisterVariable( &cl_trace_consistency );
+ 	Cvar_RegisterVariable( &cl_trace_stufftext );
+@@ -3746,6 +3938,7 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &cl_bmodelinterp );
  	Cvar_RegisterVariable( &cl_clockreset );
  	Cvar_RegisterVariable( &cl_fixtimerate );
@@ -6763,7 +7876,7 @@ index 39e4f9c2..7b963c4e 100644
  	Cvar_RegisterVariable( &hud_fontscale );
  	Cvar_RegisterVariable( &hud_fontrender );
  	Cvar_RegisterVariable( &hud_scale );
-@@ -3825,6 +3981,7 @@ static void CL_InitLocal( void )
+@@ -3825,6 +4018,7 @@ static void CL_InitLocal( void )
  	Cmd_AddCommand( "richpresence_update", Cmd_Null_f, "compatibility command, does nothing" );
  
  	Cmd_AddCommand( "cl_list_messages", CL_ListMessages_f, "list registered user messages" );
@@ -6771,7 +7884,7 @@ index 39e4f9c2..7b963c4e 100644
  }
  
  //============================================================================
-@@ -3941,6 +4098,9 @@ void Host_ClientFrame( void )
+@@ -3941,6 +4135,9 @@ void Host_ClientFrame( void )
  	// handle spectator movement
  	CL_MoveSpectatorCamera();
  
@@ -6781,7 +7894,7 @@ index 39e4f9c2..7b963c4e 100644
  	// catch changes video settings
  	VID_CheckChanges();
  
-@@ -3974,6 +4134,7 @@ void CL_Init( void )
+@@ -3974,6 +4171,7 @@ void CL_Init( void )
  	CL_InitLocal();
  
  	VID_Init();	// init video
@@ -6789,7 +7902,7 @@ index 39e4f9c2..7b963c4e 100644
  
  	// unreliable buffer. unsed for unreliable commands and voice stream
  	MSG_Init( &cls.datagram, "cls.datagram", cls.datagram_buf, sizeof( cls.datagram_buf ));
-@@ -3985,16 +4146,19 @@ void CL_Init( void )
+@@ -3985,16 +4183,19 @@ void CL_Init( void )
  
  	ID_Init();
  	SteamBroker_Init();
@@ -6809,7 +7922,7 @@ index 39e4f9c2..7b963c4e 100644
  }
  
  /*
-@@ -4005,6 +4169,7 @@ CL_Shutdown
+@@ -4005,6 +4206,7 @@ CL_Shutdown
  */
  void CL_Shutdown( void )
  {
@@ -6817,7 +7930,7 @@ index 39e4f9c2..7b963c4e 100644
  	Con_Printf( "%s()\n", __func__ );
  
  	if( host.status != HOST_CRASHED && cls.initialized )
-@@ -4014,6 +4179,7 @@ void CL_Shutdown( void )
+@@ -4014,6 +4216,7 @@ void CL_Shutdown( void )
  		Touch_WriteConfig();
  	}
  
@@ -6827,7 +7940,7 @@ index 39e4f9c2..7b963c4e 100644
  	IN_Shutdown ();
 diff --git a/engine/client/cl_motd.c b/engine/client/cl_motd.c
 new file mode 100644
-index 00000000..0f21897a
+index 00000000..70c6a06b
 --- /dev/null
 +++ b/engine/client/cl_motd.c
 @@ -0,0 +1,1896 @@
@@ -7015,7 +8128,7 @@ index 00000000..0f21897a
 +
 +// Other engine-drawn panels (cl_travel.c registers its prompt): each comes before the splash for
 +// the keys and the mouse, and is drawn above it.
-+#define H9UI_MAX_PANELS 4
++#define H9UI_MAX_PANELS 8
 +static const h9ui_panel_t *h9ui_panels[H9UI_MAX_PANELS];
 +static int h9ui_numpanels;
 +
@@ -10096,7 +11209,7 @@ index c1b3ef13..600317c0 100644
  
  	switch( cls.scrshot_action )
 diff --git a/engine/client/client.h b/engine/client/client.h
-index e5db2dac..0737cc10 100644
+index e5db2dac..c4fc70b3 100644
 --- a/engine/client/client.h
 +++ b/engine/client/client.h
 @@ -145,6 +145,11 @@ typedef struct
@@ -10186,7 +11299,7 @@ index e5db2dac..0737cc10 100644
  //
  // cl_render.c
  //
-@@ -1074,6 +1105,12 @@ const ref_overview_t *GL_GetOverviewParms( void );
+@@ -1074,12 +1105,36 @@ const ref_overview_t *GL_GetOverviewParms( void );
  //
  qboolean CL_ConvertImageToWAD3( const char *filename );
  
@@ -10195,11 +11308,35 @@ index e5db2dac..0737cc10 100644
 +//
 +void CL_Avatar_Init( void );
 +void CL_Avatar_Message( sizebuf_t *msg );
++void CL_Avatar_Account( sizebuf_t *msg );
 +
  //
  // cl_efrag.c
  //
-@@ -1184,6 +1221,12 @@ void UI_KeyEvent( int key, qboolean down );
+ void R_StoreEfrags( efrag_t **ppefrag, int framecount );
+ void R_AddEfrags( cl_entity_t *ent );
+ 
++//
++// cl_h9join.c (H9: the menu's join screen while a server is joined)
++//
++void CL_H9Join_Init( void );
++qboolean CL_H9Join_Begin( const char *server );
++void CL_H9Join_Try( int retry );
++void CL_H9Join_ChangeLevel( void );
++qboolean CL_H9Join_ServerInfo( void );
++void CL_H9Join_PrecacheStart( void );
++void CL_H9Join_PrecacheWorld( void );
++void CL_H9Join_PrecacheStep( void );
++void CL_H9Join_Spawning( void );
++void CL_H9Join_End( void );
++void CL_H9Join_Drop( const char *reason );
++void CL_H9Join_Disconnect( void );
++qboolean CL_H9Join_Up( void );
++
+ //
+ // cl_tent.c
+ //
+@@ -1184,6 +1239,12 @@ void UI_KeyEvent( int key, qboolean down );
  void UI_MouseMove( int x, int y );
  void UI_SetActiveMenu( qboolean fActive );
  void UI_AddServerToList( netadr_t adr, const char *info );
@@ -10212,7 +11349,7 @@ index e5db2dac..0737cc10 100644
  void UI_GetCursorPos( int *pos_x, int *pos_y );
  void UI_SetCursorPos( int pos_x, int pos_y );
  void UI_ShowCursor( qboolean show );
-@@ -1265,6 +1308,7 @@ qboolean Cmd_GetKeysList( const char *s, char *completedname, int length, qboole
+@@ -1265,6 +1326,7 @@ qboolean Cmd_GetKeysList( const char *s, char *completedname, int length, qboole
  //
  void ID_Init( void );
  void ID_GetMD5ForAddress( char *key, netadr_t adr, size_t size );
@@ -10849,7 +11986,7 @@ index 09dfa2a0..d260638c 100644
 +	Key_H9TypingFrame();
  }
 diff --git a/engine/client/parse/cl_parse.c b/engine/client/parse/cl_parse.c
-index 29acaf73..a15aa319 100644
+index 29acaf73..2bc4b091 100644
 --- a/engine/client/parse/cl_parse.c
 +++ b/engine/client/parse/cl_parse.c
 @@ -21,6 +21,7 @@ GNU General Public License for more details.
@@ -10860,7 +11997,20 @@ index 29acaf73..a15aa319 100644
  
  #if XASH_LOW_MEMORY != 2
  int CL_UPDATE_BACKUP = SINGLEPLAYER_BACKUP;
-@@ -1355,7 +1356,7 @@ CL_UpdateUserinfo
+@@ -930,7 +931,11 @@ static void CL_ParseServerData( sizebuf_t *msg, connprotocol_t proto )
+ 	}
+ 
+ 	if( !cls.changedemo )
+-		UI_SetActiveMenu( cl.background );
++	{
++		// H9: the join screen keeps the menu up (cl_h9join.c)
++		if( !CL_H9Join_ServerInfo( ))
++			UI_SetActiveMenu( cl.background );
++	}
+ 	else if( !cls.demoplayback )
+ 		Key_SetKeyDest( key_menu );
+ 
+@@ -1355,7 +1360,7 @@ CL_UpdateUserinfo
  collect userinfo from all players
  ================
  */
@@ -10869,7 +12019,7 @@ index 29acaf73..a15aa319 100644
  {
  	int slot, id;
  	qboolean active;
-@@ -1368,7 +1369,8 @@ static void CL_UpdateUserinfo( sizebuf_t *msg, connprotocol_t proto )
+@@ -1368,7 +1373,8 @@ static void CL_UpdateUserinfo( sizebuf_t *msg, connprotocol_t proto )
  	}
  	else
  	{
@@ -10879,7 +12029,7 @@ index 29acaf73..a15aa319 100644
  		id = MSG_ReadLong( msg );	// unique user ID
  		active = MSG_ReadOneBit( msg ) ? true : false;
  	}
-@@ -1471,7 +1473,16 @@ CL_UpdateUserPings
+@@ -1471,7 +1477,16 @@ CL_UpdateUserPings
  collect pings and packet lossage from clients
  ================
  */
@@ -10896,7 +12046,7 @@ index 29acaf73..a15aa319 100644
  {
  	// a1ba: there was a MAX_PLAYERS check but it doesn't make sense
  	// because pings message always ends by null bit
-@@ -1480,7 +1491,7 @@ void CL_UpdateUserPings( sizebuf_t *msg )
+@@ -1480,7 +1495,7 @@ void CL_UpdateUserPings( sizebuf_t *msg )
  		if( !MSG_ReadOneBit( msg ))
  			break; // end of message
  
@@ -10905,7 +12055,15 @@ index 29acaf73..a15aa319 100644
  
  		if( unlikely( slot >= MAX_CLIENTS ))
  		{
-@@ -2259,6 +2270,12 @@ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto )
+@@ -1729,6 +1744,7 @@ void CL_RegisterResources( sizebuf_t *msg, connprotocol_t proto )
+ 
+ 			// done with all resources, issue prespawn command.
+ 			// Include server count in case server disconnects and changes level during d/l
++			CL_H9Join_Spawning(); // H9: the join screen's last stage (cl_h9join.c)
+ 			MSG_BeginClientCmd( msg, clc_stringcmd );
+ 			if( proto == PROTO_GOLDSRC )
+ 			{
+@@ -2259,6 +2275,18 @@ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto )
  		CL_ParseScreenFade( msg );
  		return;
  	}
@@ -10915,10 +12073,16 @@ index 29acaf73..a15aa319 100644
 +		CL_Avatar_Message( msg );
 +		return;
 +	}
++	else if( !Q_strcmp( clgame.msg[i].name, "H9Account" ) && clgame.msg[i].size == 5 )
++	{
++		// H9: the havoc9.org account a linked player's slot is, for h9_profile (cl_avatar.c)
++		CL_Avatar_Account( msg );
++		return;
++	}
  
  	iSize = clgame.msg[i].size;
  
-@@ -2285,6 +2302,10 @@ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto )
+@@ -2285,6 +2313,10 @@ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto )
  			clgame.msg[i].name, iSize, clgame.msg[i].number );
  	}
  
@@ -10929,7 +12093,7 @@ index 29acaf73..a15aa319 100644
  	if( clgame.msg[i].func )
  	{
  		clgame.msg[i].func( clgame.msg[i].name, iSize, pbuf );
-@@ -2443,7 +2464,7 @@ qboolean CL_ParseCommonHLMessage( sizebuf_t *msg, connprotocol_t proto, int svc_
+@@ -2443,7 +2475,7 @@ qboolean CL_ParseCommonHLMessage( sizebuf_t *msg, connprotocol_t proto, int svc_
  		CL_ParseServerData( msg, proto );
  		break;
  	case svc_updateuserinfo:
@@ -10938,7 +12102,15 @@ index 29acaf73..a15aa319 100644
  		break;
  	case svc_particle:
  		CL_ParseParticles( msg, proto );
-@@ -2641,6 +2662,12 @@ void CL_ParseServerMessage( sizebuf_t *msg )
+@@ -2595,6 +2627,7 @@ void CL_ParseServerMessage( sizebuf_t *msg )
+ 				S_StopAllSounds( true );
+ 
+ 				Con_Printf( "Server changing, reconnecting\n" );
++				CL_H9Join_ChangeLevel(); // H9: the join screen through the map change (cl_h9join.c)
+ 
+ 				if( cls.demoplayback )
+ 				{
+@@ -2641,6 +2674,12 @@ void CL_ParseServerMessage( sizebuf_t *msg )
  		case svc_pings:
  			CL_UpdateUserPings( msg );
  			break;
@@ -10951,6 +12123,21 @@ index 29acaf73..a15aa319 100644
  		case svc_restoresound:
  			CL_ParseSoundPacket( msg, true );
  			cl.frames[cl.parsecountmod].graphdata.sound += MSG_GetNumBytesRead( msg ) - bufStart;
+diff --git a/engine/client/parse/cl_parse_gs.c b/engine/client/parse/cl_parse_gs.c
+index 7103b84a..44166205 100644
+--- a/engine/client/parse/cl_parse_gs.c
++++ b/engine/client/parse/cl_parse_gs.c
+@@ -584,7 +584,10 @@ void CL_ParseGoldSrcServerMessage( sizebuf_t *msg )
+ 		case svc_disconnect:
+ 			s = MSG_ReadString( msg );
+ 			if( !COM_StringEmpty( s ))
++			{
+ 				Con_Printf( "Server issued disconnect. Reason: %s\n", s );
++				CL_H9Join_Drop( s ); // H9: the join screen says it (cl_h9join.c)
++			}
+ 			CL_Drop ();
+ 			Host_AbortCurrentFrame ();
+ 			break;
 diff --git a/engine/client/sound/s_main.c b/engine/client/sound/s_main.c
 index 2cd7030b..ae72880d 100644
 --- a/engine/client/sound/s_main.c
@@ -11003,6 +12190,21 @@ index e74a4d26..9effee5a 100644
  
  	rawchan_t *ch = S_FindRawChannel( S_RAW_SOUND_BACKGROUNDTRACK, true );
  
+diff --git a/engine/client/vgui/vgui_draw.c b/engine/client/vgui/vgui_draw.c
+index e57f5612..07cf0061 100644
+--- a/engine/client/vgui/vgui_draw.c
++++ b/engine/client/vgui/vgui_draw.c
+@@ -259,7 +259,9 @@ static void GAME_EXPORT *VGUI_EngineMalloc( size_t size )
+ 
+ static qboolean GAME_EXPORT VGUI_IsInGame( void )
+ {
+-	return cls.state == ca_active && cls.key_dest == key_game;
++	// H9: the chat line (key_message) is part of the game, as on GoldSrc, so the VGUI panels stay up
++	// while the player types. The console and the menu still hide them.
++	return cls.state == ca_active && ( cls.key_dest == key_game || cls.key_dest == key_message );
+ }
+ 
+ static void GAME_EXPORT VGUI_GetMousePos( int *_x, int *_y )
 diff --git a/engine/common/cmd.c b/engine/common/cmd.c
 index d640a991..92a8c81e 100644
 --- a/engine/common/cmd.c
@@ -11116,6 +12318,236 @@ index 0084a31f..0d8945c5 100644
  
  	// fill it cls.userinfo, svs.serverinfo
  	if( !Cvar_UpdateInfo( var, fixed_string, true ))
+diff --git a/engine/common/h9_overflowlog.c b/engine/common/h9_overflowlog.c
+new file mode 100644
+index 00000000..56a49581
+--- /dev/null
++++ b/engine/common/h9_overflowlog.c
+@@ -0,0 +1,224 @@
++/*
++h9_overflowlog.c - H9: the engine's overflow and limit messages, also kept in <game>/logs/h9_overflow.log
++Copyright (C) 2026 HAVOC 9
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++Every console message, printed or held back by the developer level, passes through here
++(sys_con.c). One of the engine's overflow and limit messages (docs/PLAYER_LIMIT_128.txt, section
++27) is appended to logs/h9_overflow.log in the game folder, ts/logs/ for The Specialists, whatever
++-dev or -log say. A message counts when its format string matches the patterns below (the
++engine's messages are literal format strings), or when it is a Host_Error whose text matches; text
++a "%s" carries in, a player's chat among it, never counts by itself. A line holds the date and
++time, the side (server for a dedicated server, listen for a listen server, client for a game on
++another one), the map and the message. The same message (its first H9_OVERFLOW_KEY characters,
++so one overflow for many players is one message) is written at most once in H9_OVERFLOW_QUIET
++seconds, with the count of the ones held back since; a run writes at most H9_OVERFLOW_MAXLINES
++lines. The file is written with C stdio, opened and closed for each line, so a line is on disk
++before a crash.
++*/
++
++#include "common.h"
++#if XASH_WIN32
++#include <direct.h>
++#else
++#include <sys/stat.h>
++#include <sys/types.h>
++#endif
++#include <time.h>
++#if !XASH_DEDICATED
++#include "client.h"
++#endif
++
++// matched against the message's text in any case
++static const char *const h9_overflow_patterns[] =
++{
++	"overflow",                                 // a buffer's overflow, "overflowed", "would overflow"
++	"too long (more than",                      // a user message past MAX_USERMSG_LENGTH
++	"limit exceeded",                           // MAX_MODELS, MAX_SOUNDS, MAX_STATIC_ENTITIES, user messages
++	"no free edicts",                           // gameinfo.txt's max_edicts
++	"not enough free beams",                    // gameinfo.txt's max_beams
++	"bytes, it written",                        // a fixed-size user message written with another size
++	"delta is outdated",                        // the packet entity counter's wrap
++	"out of date entities",                     // a delta base rolled off the packet entity ring
++	"too many entities in visible packet list", // MAX_VISIBLE_PACKET
++	"illegible server message",
++	"svc_bad",
++};
++
++#define H9_OVERFLOW_KEY      24    // characters of a message that make it the same message
++#define H9_OVERFLOW_QUIET    10.0  // seconds between two lines of the same message
++#define H9_OVERFLOW_SLOTS    16    // messages kept apart at once
++#define H9_OVERFLOW_MAXLINES 2000  // lines a run writes
++
++typedef struct
++{
++	char   key[H9_OVERFLOW_KEY + 1];
++	double next;
++	int    held;
++} h9_overflow_slot_t;
++
++static h9_overflow_slot_t h9_overflow_slots[H9_OVERFLOW_SLOTS];
++static int h9_overflow_lines;
++
++/*
++=============
++H9_OverflowCandidate
++
++true when the text, or a format string, holds one of the patterns
++=============
++*/
++qboolean H9_OverflowCandidate( const char *text )
++{
++	if( !text )
++		return false;
++
++	for( size_t i = 0; i < ARRAYSIZE( h9_overflow_patterns ); i++ )
++	{
++		if( Q_stristr( text, h9_overflow_patterns[i] ))
++			return true;
++	}
++
++	return false;
++}
++
++/*
++=============
++H9_OverflowSlot
++
++the slot of this message: its own, or the one quiet longest
++=============
++*/
++static h9_overflow_slot_t *H9_OverflowSlot( const char *key )
++{
++	h9_overflow_slot_t *slot = &h9_overflow_slots[0];
++
++	for( int i = 0; i < H9_OVERFLOW_SLOTS; i++ )
++	{
++		if( !Q_strcmp( h9_overflow_slots[i].key, key ))
++			return &h9_overflow_slots[i];
++
++		if( h9_overflow_slots[i].next < slot->next )
++			slot = &h9_overflow_slots[i];
++	}
++
++	Q_strncpy( slot->key, key, sizeof( slot->key ));
++	slot->next = 0.0;
++	slot->held = 0;
++
++	return slot;
++}
++
++/*
++=============
++H9_OverflowHostError
++
++true for Host_Error's own line, "Host_Error: <the error>" after a colour code
++=============
++*/
++static qboolean H9_OverflowHostError( const char *text )
++{
++	if( text[0] == '^' && text[1] )
++		text += 2;
++
++	return !Q_strncmp( text, "Host_Error", 10 );
++}
++
++/*
++=============
++H9_OverflowLog
++
++appends the text to logs/h9_overflow.log when it is one of the engine's overflow or limit messages
++=============
++*/
++void H9_OverflowLog( const char *fmt, const char *text )
++{
++	char clean[MAX_PRINT_MSG], key[H9_OVERFLOW_KEY + 1], dir[MAX_SYSPATH], path[MAX_SYSPATH], stamp[32];
++	const char *side = Host_IsDedicated( ) ? "server" : "client";
++	const char *map = "-";
++	h9_overflow_slot_t *slot;
++	size_t len;
++	FILE *f;
++
++	if( h9_overflow_lines >= H9_OVERFLOW_MAXLINES || !text )
++		return;
++
++	if( !H9_OverflowCandidate( fmt ) && !( H9_OverflowHostError( text ) && H9_OverflowCandidate( text )))
++		return;
++
++	// the game folder is known once the filesystem has read gameinfo.txt
++	if( !FI || !GI || COM_StringEmpty( GI->gamefolder ))
++		return;
++
++	len = Q_strlen( text );
++	if( len >= sizeof( clean ))
++		return;
++
++	COM_StripColors( text, clean );
++	len = Q_strlen( clean );
++	while( len > 0 && ( clean[len - 1] == '\n' || clean[len - 1] == '\r' || clean[len - 1] == ' ' ))
++		clean[--len] = '\0';
++
++	if( len == 0 )
++		return;
++
++	Q_strncpy( key, clean, sizeof( key ));
++	slot = H9_OverflowSlot( key );
++
++	if( host.realtime < slot->next )
++	{
++		slot->held++;
++		return;
++	}
++
++	slot->next = host.realtime + H9_OVERFLOW_QUIET;
++
++	if( SV_Active( ))
++	{
++		side = Host_IsDedicated( ) ? "server" : "listen";
++		if( !COM_StringEmpty( GameState->levelName ))
++			map = GameState->levelName;
++	}
++#if !XASH_DEDICATED
++	else if( !COM_StringEmpty( clgame.mapname ))
++	{
++		map = clgame.mapname;
++	}
++#endif
++
++	Q_snprintf( dir, sizeof( dir ), "%s/logs", GI->gamefolder );
++#if XASH_WIN32
++	_mkdir( dir );
++#else
++	mkdir( dir, 0755 );
++#endif
++	Q_snprintf( path, sizeof( path ), "%s/h9_overflow.log", dir );
++
++	f = fopen( path, "a" );
++	if( !f )
++		return;
++
++	time_t now = time( NULL );
++	const struct tm *tm = localtime( &now );
++	if( !tm || !strftime( stamp, sizeof( stamp ), "%Y-%m-%d %H:%M:%S", tm ))
++		Q_strncpy( stamp, "-", sizeof( stamp ));
++
++	fprintf( f, "%s  %s %s  %s", stamp, side, map, clean );
++	if( slot->held > 0 )
++		fprintf( f, "  (and %d more like it since its last line)", slot->held );
++	fputc( '\n', f );
++	slot->held = 0;
++
++	if( ++h9_overflow_lines == H9_OVERFLOW_MAXLINES )
++		fprintf( f, "%s  %d lines written, no more this run\n", stamp, H9_OVERFLOW_MAXLINES );
++
++	fclose( f );
++}
 diff --git a/engine/common/host.c b/engine/common/host.c
 index 81ac9c38..74e18c65 100644
 --- a/engine/common/host.c
@@ -11213,18 +12645,41 @@ index 3b34ce1a..8e10aceb 100644
  static inline void HTTP_TlsFree( tlsctx_t *ctx ) { }
  static inline int HTTP_TlsHandshake( tlsctx_t *ctx ) { return HTTP_TLS_ERROR; }
 diff --git a/engine/common/http/net_http_xash.c b/engine/common/http/net_http_xash.c
-index 2f26bd93..76a50ed9 100644
+index 2f26bd93..f50d62e3 100644
 --- a/engine/common/http/net_http_xash.c
 +++ b/engine/common/http/net_http_xash.c
-@@ -159,6 +159,7 @@ typedef struct httpfile_s
+@@ -159,6 +159,8 @@ typedef struct httpfile_s
  	size_t   mem_size;
  	size_t   mem_cap;
  	http_memory_cb_t mem_cb;
 +	int      mem_flags; // H9: HTTP_MEM_* from HTTP_GetToMemoryEx
++	int      mem_status; // H9: the HTTP status the answer had, 0 while none was read (HTTP_MemoryStatus)
  	void    *mem_user;
  	char     url[1024];
  
-@@ -337,11 +338,86 @@ static int HTTP_FileQueue( httpfile_t *file )
+@@ -201,6 +203,9 @@ static int HTTP_FileDecompress( httpfile_t *file );
+ static httpserver_t *HTTP_ParseURL( const char *url_, qboolean full_path );
+ static qboolean HTTP_FileRedirect( httpfile_t *file, const char *location );
+ 
++// H9: the status of the memory request whose callback is running (HTTP_MemoryStatus)
++static int http_mem_status;
++
+ /*
+ ==============
+ HTTP_FreeFile
+@@ -243,7 +248,11 @@ static void HTTP_FreeFile( httpfile_t *file, qboolean error )
+ 	if( file->to_memory )
+ 	{
+ 		if( file->mem_cb )
++		{
++			http_mem_status = file->mem_status;
+ 			file->mem_cb( file->url, !error, error ? NULL : file->mem_data, error ? 0 : file->mem_size, file->mem_user );
++			http_mem_status = 0;
++		}
+ 
+ 		if( file->mem_data )
+ 		{
+@@ -337,11 +346,86 @@ static int HTTP_FileQueue( httpfile_t *file )
  	return 1;
  }
  
@@ -11311,7 +12766,7 @@ index 2f26bd93..76a50ed9 100644
  		file->pfn_process = HTTP_FileCreateSocket;
  		return 1;
  	}
-@@ -379,6 +455,10 @@ static int HTTP_FileResolveNS( httpfile_t *file )
+@@ -379,6 +463,10 @@ static int HTTP_FileResolveNS( httpfile_t *file )
  	file->server->addr = file->addr;
  	file->server->resolved = true;
  
@@ -11322,7 +12777,7 @@ index 2f26bd93..76a50ed9 100644
  	file->pfn_process = HTTP_FileCreateSocket;
  	return 1;
  }
-@@ -461,6 +541,14 @@ static int HTTP_FilePrepareRequest( httpfile_t *file )
+@@ -461,6 +549,14 @@ static int HTTP_FilePrepareRequest( httpfile_t *file )
  
  	if( file->server->secure )
  	{
@@ -11337,7 +12792,44 @@ index 2f26bd93..76a50ed9 100644
  		file->tls = HTTP_TlsNew( file->socket, file->server->host );
  		if( !file->tls )
  		{
-@@ -1333,6 +1421,18 @@ and handed to the callback when the request completes (success or failure).
+@@ -1029,6 +1125,7 @@ static int HTTP_FileProcessStream( httpfile_t *curfile )
+ 					if( Q_isdigit( tmp ))
+ 						num = Q_atoi( tmp );
+ 				}
++				curfile->mem_status = num > 0 ? num : 0; // H9: HTTP_MemoryStatus
+ 
+ 				if( num != 200 )
+ 				{
+@@ -1279,6 +1376,28 @@ void HTTP_Run( void )
+ 	HTTP_AutoClean();
+ }
+ 
++/*
++===================
++HTTP_FileProgress
++
++H9: the file being downloaded to disk now (the join screen, cl_h9join.c): its path, the bytes come and
++its size (-1 while not known); false when none is
++===================
++*/
++qboolean HTTP_FileProgress( char *name, size_t len, int *downloaded, int *size )
++{
++	for( httpfile_t *f = http.first_file; f; f = f->next )
++	{
++		if( f->to_memory || f->socket == -1 )
++			continue;
++		Q_strncpy( name, f->path, len );
++		*downloaded = f->downloaded;
++		*size = f->size;
++		return true;
++	}
++	return false;
++}
++
+ /*
+ ===================
+ HTTP_AddDownload
+@@ -1333,6 +1452,18 @@ and handed to the callback when the request completes (success or failure).
  ===================
  */
  qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata )
@@ -11356,7 +12848,7 @@ index 2f26bd93..76a50ed9 100644
  {
  	if( Q_strpbrk( url, "\r\n" ))
  	{
-@@ -1348,6 +1448,13 @@ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata
+@@ -1348,6 +1479,13 @@ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata
  		return false;
  	}
  
@@ -11370,7 +12862,7 @@ index 2f26bd93..76a50ed9 100644
  	httpfile_t *httpfile = Mem_Calloc( http_mempool, sizeof( *httpfile ));
  
  	httpfile->size = -1;
-@@ -1358,6 +1465,7 @@ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata
+@@ -1358,6 +1496,7 @@ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata
  	httpfile->to_memory = true;
  	httpfile->mem_cb = cb;
  	httpfile->mem_user = userdata;
@@ -11378,6 +12870,26 @@ index 2f26bd93..76a50ed9 100644
  	httpfile->pfn_process = HTTP_FileQueue;
  	Q_strncpy( httpfile->url, url, sizeof( httpfile->url ));
  	// file->path is empty; the full path lives in server->path
+@@ -1368,6 +1507,19 @@ qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata
+ 	return true;
+ }
+ 
++/*
++===================
++HTTP_MemoryStatus
++
++H9: called from an http_memory_cb_t, the HTTP status its request's answer had (200, 404, 503 ...), or
++0 when it had none: no answer, a timeout, a refused or broken connection
++===================
++*/
++int HTTP_MemoryStatus( void )
++{
++	return http_mem_status;
++}
++
+ /*
+ ===============
+ HTTP_Download_f
 diff --git a/engine/common/mod_bmodel.c b/engine/common/mod_bmodel.c
 index d1fe48e2..ad03eb3f 100644
 --- a/engine/common/mod_bmodel.c
@@ -11873,10 +13385,15 @@ index d139dff7..55a5360f 100644
  
  #define MAX_LOOPBACK		4
 diff --git a/engine/common/net_ws.h b/engine/common/net_ws.h
-index d7cbec47..b5ce94d0 100644
+index d7cbec47..6e10baa7 100644
 --- a/engine/common/net_ws.h
 +++ b/engine/common/net_ws.h
-@@ -103,4 +103,9 @@ void HTTP_Run( void );
+@@ -99,8 +99,15 @@ void HTTP_Shutdown( void );
+ void HTTP_ResetProcessState( void );
+ void HTTP_Init( void );
+ void HTTP_Run( void );
++qboolean HTTP_FileProgress( char *name, size_t len, int *downloaded, int *size ); // H9: the join screen's download (cl_h9join.c)
+ 
  typedef void ( *http_memory_cb_t )( const char *url, qboolean success, const byte *data, size_t size, void *userdata );
  qboolean HTTP_GetToMemory( const char *url, http_memory_cb_t cb, void *userdata );
  
@@ -11884,6 +13401,7 @@ index d7cbec47..b5ce94d0 100644
 +#define HTTP_MEM_PUBLIC_ONLY BIT( 0 ) // connect only to a public address: the one it resolved, checked, is the one it uses
 +#define HTTP_MEM_VERIFY_TLS  BIT( 1 ) // https only with the server's certificate checked against a loaded CA bundle
 +qboolean HTTP_GetToMemoryEx( const char *url, http_memory_cb_t cb, void *userdata, int flags );
++int HTTP_MemoryStatus( void ); // H9: inside an http_memory_cb_t, the HTTP status its answer had; 0 for none
 +
  #endif//NET_WS_H
 diff --git a/engine/common/protocol.h b/engine/common/protocol.h
@@ -11924,6 +13442,94 @@ index ac16815e..821e0a43 100644
  #define LAST_GOLDSRC_EDICT        ( BIT( MAX_ENTITY_BITS ) - 1 )
  
  // Master Server protocol
+diff --git a/engine/common/sys_con.c b/engine/common/sys_con.c
+index b4e5bb26..bacf1ef6 100644
+--- a/engine/common/sys_con.c
++++ b/engine/common/sys_con.c
+@@ -27,6 +27,10 @@ GNU General Public License for more details.
+ #include <io.h>
+ #endif
+ 
++// H9: h9_overflowlog.c, the engine's overflow and limit messages kept in logs/h9_overflow.log
++qboolean H9_OverflowCandidate( const char *text );
++void H9_OverflowLog( const char *fmt, const char *text );
++
+ // do not waste precious CPU cycles on mobiles or low memory devices
+ #if !XASH_WIN32 && !XASH_MOBILE_PLATFORM && !XASH_LOW_MEMORY && !XASH_EMSCRIPTEN
+ #define XASH_COLORIZE_CONSOLE 1
+@@ -369,11 +373,33 @@ static void Con_Printfv( qboolean debug, const char *szFmt, va_list args )
+ 	if( debug && !Q_strcmp( buffer, "0\n" ))
+ 		return; // hlrally spam
+ 
++	H9_OverflowLog( szFmt, buffer );
++
+ 	Sys_Print( buffer );
+ 	if( add_newline )
+ 		Sys_Print( "\n" );
+ }
+ 
++/*
++=============
++Con_H9Unprinted
++
++H9: a message the console does not print, for the developer level or for want of a console,
++still goes to logs/h9_overflow.log when it is an overflow or limit message (h9_overflowlog.c).
++A developer message is formatted only when its format string already matches.
++=============
++*/
++static void Con_H9Unprinted( qboolean format_any, const char *szFmt, va_list args )
++{
++	char buffer[MAX_PRINT_MSG];
++
++	if( !format_any && !H9_OverflowCandidate( szFmt ))
++		return;
++
++	Q_vsnprintf( buffer, sizeof( buffer ), szFmt, args );
++	H9_OverflowLog( szFmt, buffer );
++}
++
+ /*
+ =============
+ Con_Printf
+@@ -385,7 +411,12 @@ void GAME_EXPORT Con_Printf( const char *szFmt, ... )
+ 	va_list args;
+ 
+ 	if( !host.allow_console )
++	{
++		va_start( args, szFmt );
++		Con_H9Unprinted( true, szFmt, args );
++		va_end( args );
+ 		return;
++	}
+ 
+ 	va_start( args, szFmt );
+ 	Con_Printfv( false, szFmt, args );
+@@ -403,7 +434,12 @@ void GAME_EXPORT Con_DPrintf( const char *szFmt, ... )
+ 	va_list args;
+ 
+ 	if( host_developer.value < DEV_NORMAL )
++	{
++		va_start( args, szFmt );
++		Con_H9Unprinted( false, szFmt, args );
++		va_end( args );
+ 		return;
++	}
+ 
+ 	va_start( args, szFmt );
+ 	Con_Printfv( true, szFmt, args );
+@@ -421,7 +457,12 @@ void Con_Reportf( const char *szFmt, ... )
+ 	va_list args;
+ 
+ 	if( host_developer.value < DEV_EXTENDED )
++	{
++		va_start( args, szFmt );
++		Con_H9Unprinted( false, szFmt, args );
++		va_end( args );
+ 		return;
++	}
+ 
+ 	va_start( args, szFmt );
+ 	Con_Printfv( false, szFmt, args );
 diff --git a/engine/common/system.c b/engine/common/system.c
 index d36dcde3..58c9afe7 100644
 --- a/engine/common/system.c
@@ -12466,7 +14072,7 @@ index c95ce9a7..6aa13229 100644
  		}
  
 diff --git a/engine/server/sv_frame.c b/engine/server/sv_frame.c
-index 3ff8edbf..9f955e7c 100644
+index 3ff8edbf..7d6eeb09 100644
 --- a/engine/server/sv_frame.c
 +++ b/engine/server/sv_frame.c
 @@ -488,7 +488,12 @@ static void SV_EmitPings( sizebuf_t *msg )
@@ -12495,7 +14101,66 @@ index 3ff8edbf..9f955e7c 100644
  		MSG_WriteUBitLong( msg, ping, 12 );
  		MSG_WriteUBitLong( msg, packet_loss, 7 );
  	}
-@@ -725,11 +730,57 @@ SV_UpdateUserInfo
+@@ -596,6 +601,47 @@ static void SV_WriteClientdataToMessage( sv_client_t *cl, sizebuf_t *msg )
+ 	MSG_WriteOneBit( msg, 0 );
+ }
+ 
++// H9: where svs.next_client_entities is brought down (SV_H9RebaseClientEntities), a quarter of
++// the way to the wrap check in SV_WriteEntitiesToClient
++#define SV_H9_ENTITY_REBASE	0x40000000
++
++/*
++==================
++SV_H9RebaseClientEntities
++
++H9: svs.next_client_entities grows by every entity of every frame built for a real client, and
++on a full 64-slot server it would reach the wrap check in SV_WriteEntitiesToClient, which
++reconnects every client, within one to two hours. Long before that this brings it down by a
++multiple of the ring's size: every frame still in the ring keeps its place there and stays a
++valid delta base, and a frame already rolled off the ring stays rolled off.
++==================
++*/
++static void SV_H9RebaseClientEntities( void )
++{
++	const int ring = svs.num_client_entities;
++	int shift;
++
++	if( ring <= 0 || svs.next_client_entities < ring * 2 )
++		return;
++
++	// a multiple of the ring and at most next - ring, so every frame still in the ring starts above it
++	shift = (( svs.next_client_entities - ring ) / ring ) * ring;
++
++	for( int i = 0; i < svs.maxclients; i++ )
++	{
++		client_frame_t *frames = svs.clients[i].frames;
++
++		if( !frames )
++			continue;
++
++		for( int j = 0; j < SV_UPDATE_BACKUP; j++ )
++			frames[j].first_entity = frames[j].first_entity > shift ? frames[j].first_entity - shift : 0;
++	}
++
++	svs.next_client_entities -= shift;
++	Con_Reportf( "%s: the entity counter brought down by %d\n", __func__, shift );
++}
++
+ /*
+ ==================
+ SV_WriteEntitiesToClient
+@@ -634,6 +680,10 @@ static void SV_WriteEntitiesToClient( sv_client_t *cl, sizebuf_t *msg )
+ 	// of an entity being included twice.
+ 	qsort( frame_ents.entities, frame_ents.num_entities, sizeof( frame_ents.entities[0] ), SV_EntityNumbers );
+ 
++	// H9: brought down long before the wrap check below can be reached
++	if( svs.next_client_entities >= SV_H9_ENTITY_REBASE )
++		SV_H9RebaseClientEntities();
++
+ 	// it will break all connected clients, but it takes more than one week to overflow it
+ 	if(( (uint)svs.next_client_entities ) + frame_ents.num_entities >= 0x7FFFFFFE )
+ 	{
+@@ -725,11 +775,57 @@ SV_UpdateUserInfo
  */
  static void SV_UpdateUserInfo( sv_client_t *cl )
  {
@@ -12554,7 +14219,7 @@ index 3ff8edbf..9f955e7c 100644
  /*
  =======================
  SV_UpdateToReliableMessages
-@@ -748,9 +799,10 @@ static void SV_UpdateToReliableMessages( void )
+@@ -748,9 +844,10 @@ static void SV_UpdateToReliableMessages( void )
  		if( cl->state != cs_spawned )
  			continue;
  
@@ -12566,7 +14231,7 @@ index 3ff8edbf..9f955e7c 100644
  				SV_UpdateUserInfo( cl );
  		}
  
-@@ -775,6 +827,21 @@ static void SV_UpdateToReliableMessages( void )
+@@ -775,6 +872,21 @@ static void SV_UpdateToReliableMessages( void )
  		MSG_Clear( &sv.spec_datagram );
  	}
  

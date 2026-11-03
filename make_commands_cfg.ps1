@@ -3,7 +3,8 @@
 # Typing "exec commands" in the game console prints the command reference. The file holds
 # one echo per line of COMMANDS.txt, so the console shows the reference as the document
 # reads. The console cannot escape a double quote, so those become single quotes, and tabs
-# become spaces. Trailing blank lines are left out.
+# become spaces. Trailing blank lines are left out, and so is any line that starts with two
+# semicolons: that is a note for whoever edits COMMANDS.txt, not part of the reference.
 #
 # xash.bat runs this before it copies the overlay, so the copy follows every edit to
 # COMMANDS.txt. To write somewhere else, run it by hand with -Out <file>.
@@ -29,6 +30,11 @@ $cfg.Add('// Type exec commands in the game console to print the command referen
 $count = 0
 for ($i = 0; $i -le $last; $i++)
 {
+	if ($lines[$i] -like ';;*')
+	{
+		continue
+	}
+
 	$text = $lines[$i].Replace("`t", '    ').Replace('"', "'")
 
 	if ($text -match '[^\x20-\x7E]')

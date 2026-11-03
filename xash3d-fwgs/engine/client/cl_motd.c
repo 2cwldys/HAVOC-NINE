@@ -182,7 +182,7 @@ static struct
 
 // Other engine-drawn panels (cl_travel.c registers its prompt): each comes before the splash for
 // the keys and the mouse, and is drawn above it.
-#define H9UI_MAX_PANELS 4
+#define H9UI_MAX_PANELS 8
 static const h9ui_panel_t *h9ui_panels[H9UI_MAX_PANELS];
 static int h9ui_numpanels;
 

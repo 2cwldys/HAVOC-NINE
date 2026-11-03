@@ -7,6 +7,7 @@
 #include "parsemsg.h"
 #include "ts_hud.h"
 #include "ts_message.h"
+#include "h9_vgui.h"
 
 #include <string.h>
 
@@ -133,6 +134,10 @@ bool CHudTSMessage::Draw(float flTime)
 		return true;
 	int hr, hg, hb;
 	TSHud_Color(hr, hg, hb);
+	// H9: the notices on the top row (they start 32 px down) stand beneath the H9 VGUI stack while it
+	// shows something at the top, the match mode's bar and banners; with none they keep their place.
+	const int below = H9Vgui_StackBottom();
+	const int shift = below > 0x20 ? below - 0x20 : 0;
 	for (auto& m : m_msgs)
 	{
 		if (!(gHUD.m_flTime < m.die))
@@ -146,7 +151,7 @@ bool CHudTSMessage::Draw(float flTime)
 		const int r = (int)((hud ? hr : m.r) * k);
 		const int g = (int)((hud ? hg : m.g) * k);
 		const int b = (int)((hud ? hb : m.b) * k);
-		TSHud_DrawString(m.x, m.y, ScreenWidth, m.text, r, g, b);
+		TSHud_DrawString(m.x, (m.flags & 1) != 0 ? m.y + shift : m.y, ScreenWidth, m.text, r, g, b);
 	}
 	return true;
 }

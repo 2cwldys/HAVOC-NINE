@@ -253,6 +253,7 @@ struct extra_player_info_t
 	short teamnumber;
 	char teamname[MAX_TEAM_NAME];
 	short assists; // from H9Assists (ts_matchmode); 0 on servers that send none
+	short kills;   // H9 KILLS, from H9Kills (ts_matchmode): kills on this map while the frags are points
 	short lives_left; // H9 LIVES, from H9Lives (ts_matchmode): lives left, 255 on a side that never runs out
 	short lives_max;  // the class's lives; 0 when none are counted for the player
 };

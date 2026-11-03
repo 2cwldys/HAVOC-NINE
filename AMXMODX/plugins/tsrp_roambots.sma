@@ -1,9 +1,10 @@
 /*
  * tsrp_roambots.sma -- roaming citizens for H9's roleplay maps.
  *
- * RCBots that walk a roleplay city's public streets, halls and walkways at a walk, stop
- * now and then, and never fight anyone, so that the city looks lived in. They keep out of
- * homes, shops and MSR space because the map's waypoints do: a roleplay map gives RCBot
+ * RCBots that walk a roleplay city's public streets, halls and walkways at a walk, stop now
+ * and then, talk when they meet, and fight only whoever attacks them, so that the city looks
+ * lived in. They keep out of homes, shops and MSR space because the map's waypoints do: a
+ * roleplay map gives RCBot
  * roam waypoints laid only in its public spaces (for h9_tsrp_newbyzantium,
  * export-map\h9_tsrp_newbyzantium\roamwaypoints.mjs writes them with every build of the map).
  *
@@ -15,17 +16,20 @@
  *
  * HOW THE BOTS BEHAVE. The patched RCBot does that (rcbot-patch CHANGE 8, rcbot-ts-roam.patch):
  * while this plugin holds tsrp_roambots_active at 1, every bot is a roamer -- it walks between
- * random waypoints at the speed of a player's walk key, pauses now and then, never takes anything
- * for an enemy, buys nothing, and is armed only when tsrp_roambots_weapons says so. This plugin
- * owns the rest: how many there are, their names and models, where they appear, pickups, and the
- * slots real players need.
+ * random waypoints at the speed of a player's walk key, pauses now and then, never jumps or
+ * ducks, buys nothing, and is armed only when tsrp_roambots_weapons says so. It takes nobody for
+ * an enemy but whoever hurt it in this life, and, in an insurgency, the players the insurgents are
+ * set against. This plugin owns the rest: how many there are, their names and models, where they
+ * appear, pickups, talking, the insurgency, and the slots real players need.
  *
  * WHAT IT PROVES IT RELIES ON. A bot is a fake client: it sends no client commands and is sent no
  * messages, AMXX's connect forwards do not fire for RCBot's bots, and in TS neither Ham_Spawn nor
  * Ham_TakeDamage fires at all. So everything here runs from a one-second task (bots are found by
  * polling the slots), FM_PlayerPostThink (measured firing for bots and players alike), and
  * engclient_cmd. The one other hook, FM_Touch for pickups, is counted, and amx_roambots shows
- * every counter, so whether each path runs is read off the server rather than assumed.
+ * every counter, so whether each path runs is read off the server rather than assumed. The chat
+ * commands come from real players' say; RCBot asks for a stuck citizen to be moved with a server
+ * command, tsrp_roambots_unstick.
  *
  * SPAWNS. The map's generator also writes configs\tsrp_roamspots_<map>.cfg: places on the
  * public floor, each with its district. A citizen who has just (re)spawned is moved to one of them
@@ -33,9 +37,44 @@
  * real players where it can be. No file: TS's own spawn points.
  *
  * HURT AND KILLED. Players can hurt and kill citizens (tsrp_roambots_god 1 makes them unhurtable).
- * A dying citizen is left entirely to TS: its body stays where it fell, TS respawns it on its own
- * schedule, and the moment it is back on its feet it is moved far off to another district with a
- * new face from the model list, so nobody sees the same citizen stand up again.
+ * A citizen someone hurts fights that one back, with its hands, until he dies or leaves, or has
+ * not hurt it for tsrp_roambots_defend_time seconds (RCBot, with tsrp_roambots_defend 1). A dying
+ * citizen is left to TS: its body stays where it fell, TS respawns it on its own schedule, and the
+ * moment it is back on its feet it is moved far off to another district with a new face from the
+ * model list, so nobody sees the same citizen stand up again.
+ *
+ * GETTING STUCK. RCBot judges a citizen by how far it gets, not how fast it moves: after about 5
+ * seconds without getting anywhere it gives its goal up for another, and after about 12 it asks
+ * this plugin to move it (the server command tsrp_roambots_unstick). The plugin then does what it
+ * does after a death, without the death: a place in another district and a new face -- once no
+ * real player near the citizen can see it go; RCBot asks again every 2 seconds until then.
+ *
+ * TALKING. Two citizens who meet -- within tsrp_roambots_talk_range of each other, level, in sight
+ * of each other, both on the ground and unhurt in this life -- stop to talk with the chance
+ * tsrp_roambots_talk. The plugin holds them with FL_FROZEN (the patched RCBot then stands still and
+ * leaves its view alone), turns them to face each other, and has them murmur in turns for 3 to 6
+ * seconds (sound\h9\murmur\murmur1-6.wav, each one precached only when it is installed); then
+ * they walk on. A pair is asked once as they pass: after a talk, or a chance not taken, neither
+ * stops again for a while. A hurt talker, or an insurgency, ends the talk at once.
+ *
+ * A WORD TO A PLAYER. A real player who presses +use (E) on a citizen within RB_HEED_REACH gets a
+ * murmur from it, played from the citizen itself, and the citizen turns to face him and stays so
+ * for RB_HEED_TIME (the same hold as a talk). tsrp_roambots_use 0 turns it off; after one, that
+ * citizen and that player each wait tsrp_roambots_use_cooldown seconds before the next. A citizen
+ * that is talking, hurt in this life, or an insurgent has nothing to say.
+ *
+ * INSURGENCY. An admin (tsrp_roambots_admin_flag) types .insurgency in chat: every citizen takes
+ * the insurgent version of its face (tsrp_roambots_insurgent_models, "civilian:insurgent" pairs)
+ * and the weapons of tsrp_roambots_insurgent_weapons, and RCBot sets the citizens on the players
+ * (tsrp_roambots_insurgency): every player who is not a bot, or, with tsrp_roambots_insurgent_team
+ * set, only the players of that team -- the guards, once RP teamplay runs, never the civilians.
+ * They take up arms one at a time, RB_PACE_STEP apart, as ts_matchmode arms its players, and the
+ * first weapon listed is given last and held: RCBot fights with the weapon in hand. A citizen
+ * killed in the insurgency comes back an insurgent. TS throws a dying player's whole arsenal to
+ * the ground; of an insurgent's, the gun in its hands is left (tsrp_roambots_insurgent_drop 0:
+ * nothing). .civilians puts the insurgents down the same way, one at a time, leaving nothing on
+ * the ground, and they come back as citizens. A mapconfig can start its map in an insurgency
+ * (tsrp_roambots_insurgency 1) or switch both commands off (tsrp_roambots_commands 0).
  *
  * NAMES MATCH FACES. Each model in tsrp_roambots_models carries its gender, ":f" or ":m" after the
  * name ("prole_fem:f"); a model without one is neither. A citizen's name is drawn from the list for
@@ -63,9 +102,28 @@
  *   tsrp_roambots_pause    40    percent chance of a pause before each walk (read by RCBot)
  *   tsrp_roambots_god      0|1   1: citizens cannot be hurt
  *   tsrp_roambots_debug    0|1   1: log every placement, pickup refused and weapon dropped
+ *   tsrp_roambots_defend   0|1   1: a citizen someone hurts fights that one back (read by RCBot)
+ *   tsrp_roambots_defend_time 30  seconds it goes on without being hurt again before it lets him
+ *                                be (read by RCBot)
+ *   tsrp_roambots_talk     40    percent chance that two citizens who meet stop to talk
+ *   tsrp_roambots_talk_range 150 how close two citizens are when they stop to talk
+ *   tsrp_roambots_insurgency 0|1 1: the citizens are insurgents (.insurgency and .civilians set it;
+ *                                read by RCBot)
+ *   tsrp_roambots_insurgent_models  "proletarian_healthy:ins_prole_helm;proletarian:ins_proletarian;
+ *                                prole_fem:ins_prole_fem;prole_bfem:ins_prole_bfem" (one line)
+ *   tsrp_roambots_insurgent_weapons "13:3,22:2"   TS weapon id:spare magazines, as the class lines
+ *   tsrp_roambots_insurgent_team 0  0: insurgents are set on every player who is not a bot; a team
+ *                                number: only on that team's players (read by RCBot)
+ *   tsrp_roambots_insurgent_drop 1  1: a dying insurgent leaves the gun in its hands; 0: nothing
+ *   tsrp_roambots_admin_flag "h" the admin flags .insurgency and .civilians need; empty: anyone
+ *   tsrp_roambots_commands 0|1   0: .insurgency and .civilians do nothing on this map
+ *   tsrp_roambots_use      0|1   1: a player's +use on a citizen gets him a murmur
+ *   tsrp_roambots_use_cooldown 8  seconds before that citizen, or that player, does it again
  *   tsrp_roambots_active   (set by this plugin, read by RCBot: 1 while citizens run)
  *
  * amx_roambots (server console or an admin with ADMIN_CFG): what it is doing and every counter.
+ * .insurgency and .civilians (chat, an admin with tsrp_roambots_admin_flag): INSURGENCY, above.
+ * tsrp_roambots_unstick <entity index> (server command, sent by RCBot): GETTING STUCK, above.
  *
  * ASCII only, braces on every block, no backslash escapes in strings.
  */
@@ -79,7 +137,7 @@
 #pragma dynamic 16384
 
 #define PLUGIN  "TSRP Roaming Citizens"
-#define VERSION "1.0"
+#define VERSION "1.3"
 #define AUTHOR  "h9"
 
 // Player-slot arrays are indexed 1..MAX_PLAYERS (AMX Mod X's own limit); the server's real slot count,
@@ -87,6 +145,7 @@
 #define RB_SLOTS (MAX_PLAYERS + 1)
 
 #define RB_TASK_TICK 73100
+#define RB_TASK_PACE 73101
 
 // The first citizen joins this long after the map starts: ts_matchmode zeroes RCBot's quota and
 // sends every bot away on its first tick (a second in) on a map it does not play, so ours come after.
@@ -95,6 +154,31 @@
 #define RB_JOIN_GAP 2.0
 // A citizen is moved this long after it is back on its feet, so TS has finished spawning it.
 #define RB_PLACE_DELAY 0.2
+
+// Two citizens who stop to talk do so for RB_TALK_LEAST to RB_TALK_MOST seconds, each murmuring
+// every 2 x RB_TALK_TURN; then neither stops again for RB_TALK_AGAIN, nor, when the chance was not
+// taken, for RB_TALK_RETRY. They are no farther apart up or down than RB_TALK_RISE.
+#define RB_TALK_LEAST 3.0
+#define RB_TALK_MOST 6.0
+#define RB_TALK_TURN 2.4
+#define RB_TALK_AGAIN 40.0
+#define RB_TALK_RETRY 15.0
+#define RB_TALK_RISE 48.0
+#define RB_MURMURS 6
+#define RB_MURMUR_LEN 40
+
+// The insurgent face pairs, and the highest TS weapon id (tsconst.inc, TSW_TKNIFE).
+#define RB_INS_MAX 16
+#define RB_TSW_LAST TSW_TKNIFE
+// The most weapons of tsrp_roambots_insurgent_weapons an insurgent is given.
+#define RB_INS_WEAPONS 8
+// One citizen takes up arms, or is put down, every RB_PACE_STEP seconds -- ts_matchmode's arm
+// stagger (ARM_STAGGER) -- so a whole city's gives, faces and deaths never land in one frame.
+#define RB_PACE_STEP 0.25
+
+// A player's +use reaches a citizen this far from his eyes; the citizen faces him for RB_HEED_TIME.
+#define RB_HEED_REACH 96
+#define RB_HEED_TIME 2.5
 
 #define RB_SPOTS_MAX 4096
 #define RB_DISTRICTS_MAX 32
@@ -109,18 +193,22 @@
 #define RB_UNSEEN 768.0
 #define RB_PLACE_TRIES 24
 
-// A dropped weapon is swept from within this of where its citizen dropped it.
-#define RB_DROP_REACH 96.0
-
-#define RB_TSW_KUNG_FU 36
+// A model's path, "models/p_ak47.mdl".
+#define RB_MODEL_LEN 64
 
 #define RB_DAMAGE_NO 0.0
 #define RB_DAMAGE_AIM 2.0
 #define RB_FL_KILLME (1<<30)
 #define RB_HULL_HUMAN 1
 #define RB_DONT_IGNORE_MONSTERS 0
+#define RB_IGNORE_MONSTERS 1
+#define RB_FL_ONGROUND (1<<9)
+#define RB_FL_FROZEN (1<<12)
+#define RB_IN_USE (1<<5)
 
 new const RB_DEFAULT_MODELS[] = "proletarian_healthy:m;proletarian:m;prole_fem:f;prole_bfem:f";
+new const RB_DEFAULT_INS_MODELS[] = "proletarian_healthy:ins_prole_helm;proletarian:ins_proletarian;prole_fem:ins_prole_fem;prole_bfem:ins_prole_bfem";
+new const RB_DEFAULT_INS_WEAPONS[] = "13:3,22:2";
 
 // A model's gender, and the name list it draws from (NAMES MATCH FACES).
 #define RB_NEUTRAL 0
@@ -164,6 +252,9 @@ new g_cv_on, g_cv_count, g_cv_reserve, g_cv_weapons, g_cv_models, g_cv_names, g_
 	g_cv_pause, g_cv_god, g_cv_debug, g_cv_active;
 new g_cv_names_g[RB_GENDERS];   // the name list cvar of each gender (g_cv_names is the neutral one)
 new g_cv_tsm_enabled;
+new g_cv_defend, g_cv_talk, g_cv_talk_range, g_cv_insurgency, g_cv_ins_models, g_cv_ins_weapons,
+	g_cv_ins_team, g_cv_admin_flag, g_cv_commands, g_cv_use, g_cv_use_cooldown, g_cv_defend_time,
+	g_cv_ins_drop;
 
 new bool:g_active;
 new Float:g_next_join;
@@ -176,8 +267,40 @@ new Float:g_place_at[RB_SLOTS];
 new bool:g_godded[RB_SLOTS];
 new g_model_pick[RB_SLOTS][RB_NAME_LEN];
 new g_gender[RB_SLOTS];         // the gender of the citizen's face and name
-new Float:g_sweep_at[RB_SLOTS];
-new Float:g_sweep_from[RB_SLOTS][3];
+new Float:g_life_health[RB_SLOTS]; // its health when placed in this life: below it, it is hurt
+
+// Talking (TALKING, above): with whom (0: nobody), until when, when it next murmurs, its health
+// when the talk began, and when it may stop to talk again.
+new g_talk_with[RB_SLOTS];
+new Float:g_talk_until[RB_SLOTS];
+new Float:g_talk_next_say[RB_SLOTS];
+new Float:g_talk_health[RB_SLOTS];
+new Float:g_talk_ready[RB_SLOTS];
+
+// A word to a player (A WORD TO A PLAYER, above): the player a citizen faces (0: none), until when,
+// its health when it turned to him, and when that citizen, or that player, may have the next.
+new g_heed_with[RB_SLOTS];
+new Float:g_heed_until[RB_SLOTS];
+new Float:g_heed_health[RB_SLOTS];
+new Float:g_heed_ready[RB_SLOTS];
+new Float:g_heed_player_ready[RB_SLOTS];
+new bool:g_use_down[RB_SLOTS];   // +use held at the last frame, so only a press counts
+
+// The murmurs installed, precached on a roleplay map.
+new g_murmur[RB_MURMURS][RB_MURMUR_LEN];
+new g_murmur_count;
+
+// The insurgency: whether this life of a citizen is dressed and armed as an insurgent, whether
+// .civilians has put it down (its death not seen yet), the player model of the gun in its hands
+// at its last frame alive, and the insurgent faces, parsed from their cvar when it changes.
+new bool:g_insurgent[RB_SLOTS];
+new bool:g_dismissed[RB_SLOTS];
+new g_held[RB_SLOTS][RB_MODEL_LEN];
+new g_ins_from[RB_INS_MAX][RB_NAME_LEN];
+new g_ins_to[RB_INS_MAX][RB_NAME_LEN];
+new g_ins_count;
+new g_ins_models_from[RB_LIST_LEN];
+new bool:g_ins_parsed;
 
 // The models and names in use, parsed from their cvars when those change.
 new g_models[RB_MODELS_MAX][RB_NAME_LEN];
@@ -202,7 +325,9 @@ new g_district_spots[RB_DISTRICTS_MAX];
 
 // Counters, for amx_roambots: what has run and how often.
 new g_n_ticks, g_n_postthink, g_n_joins_asked, g_n_adopted, g_n_sent_away, g_n_spawns,
-	g_n_placed, g_n_place_failed, g_n_touch_refused, g_n_dropped, g_n_swept, g_n_model_writes;
+	g_n_placed, g_n_place_failed, g_n_touch_refused, g_n_dropped, g_n_swept, g_n_model_writes,
+	g_n_unstick_asked, g_n_unstick_seen, g_n_unstuck, g_n_talks, g_n_murmurs, g_n_armed, g_n_disarmed,
+	g_n_heeds, g_n_left_slowed;
 
 /*
  * A roleplay map by its name: rp_ or tsrp_ at the start, or _rp_ or _tsrp_ anywhere in it.
@@ -214,6 +339,34 @@ new g_n_ticks, g_n_postthink, g_n_joins_asked, g_n_adopted, g_n_sent_away, g_n_s
 bool:roleplay_map(const name[])
 {
 	return equali(name, "rp_", 3) || equali(name, "tsrp_", 5) || containi(name, "_rp_") != -1 || containi(name, "_tsrp_") != -1;
+}
+
+/*
+ * The murmurs two talking citizens make, on a roleplay map only. Each is precached only when it is
+ * installed (sound\h9\murmur\murmurN.wav), so a missing one is left out rather than sent to every
+ * client to fail on; with none, citizens still stop and face each other, silently.
+ */
+public plugin_precache()
+{
+	new map[64];
+	get_mapname(map, charsmax(map));
+	if (!roleplay_map(map))
+	{
+		return;
+	}
+	new path[64];
+	g_murmur_count = 0;
+	for (new i = 1; i <= RB_MURMURS; i++)
+	{
+		formatex(path, charsmax(path), "sound/h9/murmur/murmur%d.wav", i);
+		if (!file_exists(path))
+		{
+			continue;
+		}
+		formatex(g_murmur[g_murmur_count], charsmax(g_murmur[]), "h9/murmur/murmur%d.wav", i);
+		precache_sound(g_murmur[g_murmur_count]);
+		g_murmur_count++;
+	}
 }
 
 public plugin_init()
@@ -242,6 +395,19 @@ public plugin_init()
 	g_cv_pause   = register_cvar("tsrp_roambots_pause",   "40");
 	g_cv_god     = register_cvar("tsrp_roambots_god",     "0");
 	g_cv_debug   = register_cvar("tsrp_roambots_debug",   "0");
+	g_cv_defend      = register_cvar("tsrp_roambots_defend",      "1");
+	g_cv_defend_time = register_cvar("tsrp_roambots_defend_time", "30");
+	g_cv_talk        = register_cvar("tsrp_roambots_talk",        "40");
+	g_cv_talk_range  = register_cvar("tsrp_roambots_talk_range",  "150");
+	g_cv_insurgency  = register_cvar("tsrp_roambots_insurgency",  "0");
+	g_cv_ins_models  = register_cvar("tsrp_roambots_insurgent_models",  RB_DEFAULT_INS_MODELS);
+	g_cv_ins_weapons = register_cvar("tsrp_roambots_insurgent_weapons", RB_DEFAULT_INS_WEAPONS);
+	g_cv_ins_team    = register_cvar("tsrp_roambots_insurgent_team",    "0");
+	g_cv_ins_drop    = register_cvar("tsrp_roambots_insurgent_drop",    "1");
+	g_cv_admin_flag  = register_cvar("tsrp_roambots_admin_flag",  "h");
+	g_cv_commands    = register_cvar("tsrp_roambots_commands",    "1");
+	g_cv_use         = register_cvar("tsrp_roambots_use",         "1");
+	g_cv_use_cooldown = register_cvar("tsrp_roambots_use_cooldown", "8");
 	// Ours to set, RCBot's to read. FCVAR_SPONLY: no client changes it.
 	g_cv_active  = register_cvar("tsrp_roambots_active",  "0", FCVAR_SPONLY);
 
@@ -249,15 +415,20 @@ public plugin_init()
 	set_pcvar_num(g_cv_active, 0);
 
 	register_concmd("amx_roambots", "cmd_status", ADMIN_CFG, "- roaming citizens: what they are doing, and every counter");
+	// RCBot's, for a citizen that has got nowhere (rcbot-patch CHANGE 8): GETTING STUCK, above.
+	register_srvcmd("tsrp_roambots_unstick", "cmd_unstick");
 
 	if (!g_rp_map)
 	{
 		return;
 	}
 
-	// Only on a roleplay map: what a citizen needs, every frame and every second.
+	// Only on a roleplay map: what a citizen needs, every frame and every second, and the
+	// admins' .insurgency and .civilians.
 	register_forward(FM_PlayerPostThink, "fw_postthink_post", 1);
 	register_forward(FM_Touch, "fw_touch");
+	register_clcmd("say", "hook_say");
+	register_clcmd("say_team", "hook_say");
 	set_task(1.0, "task_tick", RB_TASK_TICK, "", 0, "b");
 }
 
@@ -281,6 +452,19 @@ public plugin_cfg()
 	set_pcvar_num(g_cv_speed, 120);
 	set_pcvar_num(g_cv_pause, 40);
 	set_pcvar_num(g_cv_god, 0);
+	set_pcvar_num(g_cv_defend, 1);
+	set_pcvar_num(g_cv_defend_time, 30);
+	set_pcvar_num(g_cv_talk, 40);
+	set_pcvar_num(g_cv_talk_range, 150);
+	set_pcvar_num(g_cv_insurgency, 0);
+	set_pcvar_string(g_cv_ins_models, RB_DEFAULT_INS_MODELS);
+	set_pcvar_string(g_cv_ins_weapons, RB_DEFAULT_INS_WEAPONS);
+	set_pcvar_num(g_cv_ins_team, 0);
+	set_pcvar_num(g_cv_ins_drop, 1);
+	set_pcvar_string(g_cv_admin_flag, "h");
+	set_pcvar_num(g_cv_commands, 1);
+	set_pcvar_num(g_cv_use, 1);
+	set_pcvar_num(g_cv_use_cooldown, 8);
 
 	// The server's own defaults, if it has any.
 	new cfgdir[64], path[128];
@@ -479,6 +663,7 @@ public task_tick()
 		refresh_lists();
 		keep_count();
 		look_after();
+		pair_talkers();
 	}
 	else
 	{
@@ -510,6 +695,19 @@ stop_citizens()
 {
 	g_active = false;
 	set_pcvar_num(g_cv_active, 0);
+	remove_task(RB_TASK_PACE);
+
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (g_talk_with[id])
+		{
+			end_talk(id);
+		}
+		if (g_heed_with[id])
+		{
+			end_heed(id);
+		}
+	}
 
 	// Back to the quota ts_matchmode gives a map it does not play.
 	server_cmd("rcbot config min_bots 0");
@@ -547,13 +745,24 @@ find_citizens()
 
 forget(id)
 {
+	if (g_talk_with[id])
+	{
+		end_talk(id);
+	}
+	if (g_heed_with[id])
+	{
+		end_heed(id);
+	}
+	g_insurgent[id] = false;
+	g_talk_ready[id] = 0.0;
 	g_citizen[id] = false;
 	g_was_alive[id] = false;
 	g_place_at[id] = 0.0;
 	g_godded[id] = false;
 	g_model_pick[id][0] = 0;
 	g_gender[id] = RB_NEUTRAL;
-	g_sweep_at[id] = 0.0;
+	g_dismissed[id] = false;
+	g_held[id][0] = 0;
 }
 
 adopt(id)
@@ -562,7 +771,8 @@ adopt(id)
 	g_was_alive[id] = false;
 	g_place_at[id] = 0.0;
 	g_godded[id] = false;
-	g_sweep_at[id] = 0.0;
+	g_dismissed[id] = false;
+	g_held[id][0] = 0;
 	g_n_adopted++;
 
 	refresh_lists();
@@ -888,12 +1098,15 @@ Float:nearest_person(id)
 /*
  * Each citizen, once a second: its face kept, and -- unarmed citizens -- anything it holds
  * dropped and taken away. Pickups are refused in fw_touch; this catches a weapon however it
- * arrived (an RCBot build without CHANGE 8 hands its bots weapons at spawn).
+ * arrived (an RCBot build without CHANGE 8 hands its bots weapons at spawn). The insurgency is
+ * kept as well, at its pace (task_pace): every citizen an insurgent while it is on, and none once
+ * it is off.
  */
 look_after()
 {
-	new bool:unarmed = get_pcvar_num(g_cv_weapons) <= 0;
-	new Float:now = get_gametime();
+	pace_insurgency();
+
+	new bool:unarmed = get_pcvar_num(g_cv_weapons) <= 0 && !insurgency();
 	for (new id = 1; id <= g_maxplayers; id++)
 	{
 		if (!g_citizen[id] || !is_user_connected(id))
@@ -902,23 +1115,18 @@ look_after()
 		}
 		write_model(id);
 
-		if (g_sweep_at[id] > 0.0 && now >= g_sweep_at[id])
-		{
-			g_sweep_at[id] = 0.0;
-			sweep_dropped(id);
-		}
-
-		if (!unarmed || !is_user_alive(id))
+		if (!unarmed || !is_user_alive(id) || g_insurgent[id])
 		{
 			continue;
 		}
 		new clip, ammo, mode, extra;
 		new weapon = ts_getuserwpn(id, clip, ammo, mode, extra);
-		if (weapon > 0 && weapon != RB_TSW_KUNG_FU)
+		// anything in hand but its fists (TSW_KUNG_FU, 0 in H9's TSX)
+		if (weapon != TSW_KUNG_FU && weapon > 0)
 		{
-			pev(id, pev_origin, g_sweep_from[id]);
+			// TS throws it there and then (DropWeapon), so it is taken in the same frame
 			engclient_cmd(id, "drop");
-			g_sweep_at[id] = now + 0.5;
+			take_thrown(id, "");
 			g_n_dropped++;
 			if (get_pcvar_num(g_cv_debug))
 			{
@@ -928,41 +1136,72 @@ look_after()
 	}
 }
 
-/// The weapon a citizen just dropped, taken off the ground where it fell.
-sweep_dropped(id)
+/*
+ * What a citizen has just thrown to the ground: the weapon an unarmed one dropped, or an
+ * insurgent's whole arsenal as it died. TS throws each as a "WorldGun" whose owner is the thrower
+ * until it lands, so they are taken in the frame they were thrown -- all but one gun whose world
+ * model is keep (empty: none is kept). A gun TS has slowed (pev fuser1 under 1, in someone's
+ * bullet time) is left on the ground: TS holds a pointer to it until that ends, and takes it
+ * away itself. Returns how many were taken.
+ */
+take_thrown(id, const keep[])
 {
-	new ent = -1, Float:at[3];
-	for (new guard = 0; guard < 256; guard++)
+	new ent = -1, n = 0, model[RB_MODEL_LEN];
+	new bool:kept = keep[0] == 0;
+	for (new guard = 0; guard < 512; guard++)
 	{
-		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "ts_groundweapon");
+		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "WorldGun");
 		if (ent <= 0)
 		{
 			break;
 		}
-		if (!pev_valid(ent))
+		if (!pev_valid(ent) || pev(ent, pev_owner) != id)
 		{
 			continue;
 		}
-		pev(ent, pev_origin, at);
-		if (get_distance_f(at, g_sweep_from[id]) > RB_DROP_REACH)
+		if (!kept)
 		{
+			model[0] = 0;
+			pev(ent, pev_model, model, charsmax(model));
+			if (equali(model, keep))
+			{
+				kept = true;
+				continue;
+			}
+		}
+		if (Float:pev(ent, pev_fuser1) < 1.0)
+		{
+			g_n_left_slowed++;
 			continue;
 		}
 		set_pev(ent, pev_flags, pev(ent, pev_flags) | RB_FL_KILLME);
-		g_n_swept++;
+		n++;
 	}
+	g_n_swept += n;
+	return n;
 }
 
 /*
  * Every frame, for every player: returns at once unless this is a citizen. Notes a citizen back
- * on its feet (from its first spawn or from TS's respawn) and moves it a moment later, and keeps
- * tsrp_roambots_god on it. A dying citizen is left entirely alone: TS makes its body and respawns
- * it on its own schedule.
+ * on its feet (from its first spawn or from TS's respawn) and moves it a moment later, keeps a
+ * talk going or ends it, and keeps tsrp_roambots_god on it (never on an insurgent). A dying
+ * citizen is left to TS: TS makes its body and respawns it on its own schedule; a talk it was in
+ * ends, and the other talker is let go; of what a dying insurgent throws to the ground, only the
+ * gun in its hands stays (insurgent_down).
  */
 public fw_postthink_post(id)
 {
-	if (id < 1 || id > g_maxplayers || !g_citizen[id])
+	if (id < 1 || id > g_maxplayers)
 	{
+		return FMRES_IGNORED;
+	}
+	if (!g_citizen[id])
+	{
+		// a real player: his +use on a citizen (A WORD TO A PLAYER)
+		if (g_active)
+		{
+			use_check(id);
+		}
 		return FMRES_IGNORED;
 	}
 	g_n_postthink++;
@@ -972,22 +1211,45 @@ public fw_postthink_post(id)
 	{
 		g_n_spawns++;
 		g_place_at[id] = get_gametime() + RB_PLACE_DELAY;
+		// a new life starts as a citizen; the insurgency, while it lasts, dresses it again
+		g_insurgent[id] = false;
+		g_dismissed[id] = false;
+	}
+	else if (!alive && g_was_alive[id] && g_insurgent[id])
+	{
+		insurgent_down(id);
 	}
 	g_was_alive[id] = alive;
+	if (g_talk_with[id])
+	{
+		talk_upkeep(id, alive);
+	}
+	if (g_heed_with[id])
+	{
+		heed_upkeep(id, alive);
+	}
 	if (!alive)
 	{
 		return FMRES_IGNORED;
 	}
 
+	if (g_insurgent[id])
+	{
+		// the gun in its hands, for the death that leaves only that (insurgent_down)
+		pev(id, pev_weaponmodel, g_held[id], charsmax(g_held[]));
+	}
+
 	if (g_place_at[id] > 0.0 && get_gametime() >= g_place_at[id])
 	{
 		g_place_at[id] = 0.0;
-		// a new face for whoever it is now, of the gender its name is; then somewhere else
-		pick_model(id, true);
+		g_life_health[id] = Float:pev(id, pev_health);
+		// a new face for whoever it is now, of the gender its name is (an insurgent's while the
+		// insurgency lasts); then somewhere else
+		dress(id);
 		place_citizen(id);
 	}
 
-	if (get_pcvar_num(g_cv_god) > 0)
+	if (get_pcvar_num(g_cv_god) > 0 && !g_insurgent[id])
 	{
 		if (Float:pev(id, pev_takedamage) != RB_DAMAGE_NO)
 		{
@@ -1005,8 +1267,9 @@ public fw_postthink_post(id)
 
 /*
  * A citizen picks nothing up: no powerup ever, and with tsrp_roambots_weapons 0 no weapon or
- * ammunition. Touch is called by the server itself, for bots as for players; fw_touch counts what
- * it refuses (amx_roambots), and look_after() catches a weapon however it arrived.
+ * ammunition -- but an insurgent may. Touch is called by the server itself, for bots as for
+ * players; fw_touch counts what it refuses (amx_roambots), and look_after() catches a weapon
+ * however it arrived.
  */
 public fw_touch(touched, toucher)
 {
@@ -1030,7 +1293,7 @@ public fw_touch(touched, toucher)
 	cls[0] = 0;
 	pev(thing, pev_classname, cls, charsmax(cls));
 	new bool:refuse = equal(cls, "ts_powerup")
-		|| (get_pcvar_num(g_cv_weapons) <= 0 && (equal(cls, "ts_groundweapon") || equal(cls, "ts_groundammo")));
+		|| (get_pcvar_num(g_cv_weapons) <= 0 && !g_insurgent[who] && (equal(cls, "ts_groundweapon") || equal(cls, "ts_groundammo")));
 	if (!refuse)
 	{
 		return FMRES_IGNORED;
@@ -1063,13 +1326,13 @@ district_at(const Float:at[3])
  * Moves a citizen who has just spawned to a spot in another district: the district with the
  * fewest citizens in it, not the one it stands in, so they spread through the whole city. A spot
  * is clear when nobody alive is within RB_SPOT_ROOM and a standing body fits there; the first
- * tries also keep it out of every real player's way (RB_UNSEEN).
+ * tries also keep it out of every real player's way (RB_UNSEEN). True when it was moved.
  */
-place_citizen(id)
+bool:place_citizen(id)
 {
 	if (g_spot_count < 1 || g_district_count < 1)
 	{
-		return;
+		return false;
 	}
 
 	new Float:at[3];
@@ -1109,7 +1372,7 @@ place_citizen(id)
 	}
 	if (target < 0)
 	{
-		return;
+		return false;
 	}
 
 	for (new pass = 0; pass < 2; pass++)
@@ -1129,10 +1392,47 @@ place_citizen(id)
 					floatround(g_spot[s][0]), floatround(g_spot[s][1]), floatround(g_spot[s][2]),
 					here >= 0 ? g_district[here] : "nowhere");
 			}
-			return;
+			return true;
 		}
 	}
 	g_n_place_failed++;
+	return false;
+}
+
+/// A clear TS spawn point for a citizen, out of every real player's way where one is: for a map
+/// with no spots file. True when it was moved.
+bool:place_at_spawn(id)
+{
+	new spawns[64], n = 0, ent = -1;
+	while (n < sizeof(spawns))
+	{
+		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "info_player_deathmatch");
+		if (ent <= 0)
+		{
+			break;
+		}
+		spawns[n++] = ent;
+	}
+	if (n < 1)
+	{
+		return false;
+	}
+	new Float:at[3];
+	for (new pass = 0; pass < 2; pass++)
+	{
+		for (new t = 0; t < RB_PLACE_TRIES; t++)
+		{
+			pev(spawns[random_num(0, n - 1)], pev_origin, at);
+			if (spot_clear(at, id, pass == 0))
+			{
+				move_to(id, at);
+				g_n_placed++;
+				return true;
+			}
+		}
+	}
+	g_n_place_failed++;
+	return false;
 }
 
 bool:spot_clear(const Float:spot[3], skip, bool:unseen)
@@ -1178,6 +1478,706 @@ move_to(id, const Float:spot[3])
 	set_pev(id, pev_fixangle, 1);
 }
 
+/// A face for this life: one of its gender from the model list -- the insurgent version, with
+/// the insurgent's weapons, while the insurgency lasts.
+dress(id)
+{
+	pick_model(id, true);
+	if (insurgency())
+	{
+		make_insurgent(id);
+	}
+}
+
+/*
+ * RCBot's ask (rcbot-patch CHANGE 8): citizen <entity index> has got nowhere for about 12 seconds.
+ * It is moved as after a death, without one: to another district, with a new face -- once no real
+ * player near it can see it go. Until then it stays, and RCBot asks again every 2 seconds.
+ */
+public cmd_unstick()
+{
+	if (!g_rp_map || !g_active)
+	{
+		return PLUGIN_HANDLED;
+	}
+	new arg[12];
+	read_argv(1, arg, charsmax(arg));
+	new id = str_to_num(arg);
+	if (id < 1 || id > g_maxplayers || !g_citizen[id] || !is_user_alive(id) || g_place_at[id] > 0.0 || g_talk_with[id] || g_heed_with[id])
+	{
+		return PLUGIN_HANDLED;
+	}
+	g_n_unstick_asked++;
+	if (seen_by_person(id))
+	{
+		g_n_unstick_seen++;
+		return PLUGIN_HANDLED;
+	}
+	if (place_citizen(id) || place_at_spawn(id))
+	{
+		dress(id);
+		g_n_unstuck++;
+		if (get_pcvar_num(g_cv_debug))
+		{
+			log_amx("[ROAMBOTS] citizen %d got nowhere: moved elsewhere.", id);
+		}
+	}
+	return PLUGIN_HANDLED;
+}
+
+/// Whether a real player within RB_UNSEEN has a clear line from his eyes to a citizen.
+bool:seen_by_person(id)
+{
+	new Float:at[3], Float:eye[3], Float:ofs[3], Float:frac;
+	pev(id, pev_origin, at);
+	for (new p = 1; p <= g_maxplayers; p++)
+	{
+		if (p == id || !is_user_alive(p) || is_user_bot(p))
+		{
+			continue;
+		}
+		pev(p, pev_origin, eye);
+		if (get_distance_f(at, eye) > RB_UNSEEN)
+		{
+			continue;
+		}
+		pev(p, pev_view_ofs, ofs);
+		eye[0] += ofs[0];
+		eye[1] += ofs[1];
+		eye[2] += ofs[2];
+		engfunc(EngFunc_TraceLine, eye, at, RB_IGNORE_MONSTERS, p, 0);
+		get_tr2(0, TR_flFraction, frac);
+		if (frac >= 1.0)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/// Whether a citizen may stop to talk now: alive and placed, not talking or just done, not hurt
+/// in this life, and on the ground.
+bool:may_talk(id, Float:now)
+{
+	if (!g_citizen[id] || !is_user_alive(id) || g_talk_with[id] || g_heed_with[id] || g_place_at[id] > 0.0 || now < g_talk_ready[id])
+	{
+		return false;
+	}
+	if (Float:pev(id, pev_health) < g_life_health[id])
+	{
+		return false;
+	}
+	return (pev(id, pev_flags) & RB_FL_ONGROUND) != 0;
+}
+
+/*
+ * Once a second: two citizens who meet may stop to talk (TALKING, above). Each pair close enough,
+ * level and in sight of each other is asked once; a citizen is in one talk at a time.
+ */
+pair_talkers()
+{
+	if (insurgency())
+	{
+		return;
+	}
+	new chance = get_pcvar_num(g_cv_talk);
+	if (chance <= 0)
+	{
+		return;
+	}
+	new Float:range = get_pcvar_float(g_cv_talk_range);
+	new Float:now = get_gametime();
+	new Float:a_at[3], Float:b_at[3], Float:frac;
+	for (new a = 1; a <= g_maxplayers; a++)
+	{
+		if (!may_talk(a, now))
+		{
+			continue;
+		}
+		pev(a, pev_origin, a_at);
+		for (new b = a + 1; b <= g_maxplayers; b++)
+		{
+			if (!may_talk(b, now))
+			{
+				continue;
+			}
+			pev(b, pev_origin, b_at);
+			if (floatabs(a_at[2] - b_at[2]) > RB_TALK_RISE || get_distance_f(a_at, b_at) > range)
+			{
+				continue;
+			}
+			engfunc(EngFunc_TraceLine, a_at, b_at, RB_IGNORE_MONSTERS, a, 0);
+			get_tr2(0, TR_flFraction, frac);
+			if (frac < 1.0)
+			{
+				continue;
+			}
+			if (random_num(1, 100) <= chance)
+			{
+				start_talk(a, b, now);
+			}
+			else
+			{
+				g_talk_ready[a] = now + RB_TALK_RETRY;
+				g_talk_ready[b] = now + RB_TALK_RETRY;
+			}
+			break;
+		}
+	}
+}
+
+/// Two citizens stop, face each other, and take turns murmuring for a few seconds.
+start_talk(a, b, Float:now)
+{
+	new Float:until = now + random_float(RB_TALK_LEAST, RB_TALK_MOST);
+	hold_talker(a, b, until);
+	hold_talker(b, a, until);
+	new first = random_num(0, 1) ? a : b;
+	g_talk_next_say[first] = now + 0.3;
+	g_talk_next_say[first == a ? b : a] = now + 0.3 + RB_TALK_TURN;
+	g_n_talks++;
+	if (get_pcvar_num(g_cv_debug))
+	{
+		log_amx("[ROAMBOTS] citizens %d and %d stop to talk.", a, b);
+	}
+}
+
+/// Holds a citizen in a talk with another.
+hold_talker(id, other, Float:until)
+{
+	g_talk_with[id] = other;
+	g_talk_until[id] = until;
+	g_talk_health[id] = Float:pev(id, pev_health);
+	hold_facing(id, other);
+}
+
+/// Holds a citizen where it stands (FL_FROZEN: the patched RCBot stands and leaves its view alone),
+/// turned to face another player.
+hold_facing(id, other)
+{
+	set_pev(id, pev_flags, pev(id, pev_flags) | RB_FL_FROZEN);
+
+	new Float:vel[3];
+	pev(id, pev_velocity, vel);
+	vel[0] = 0.0;
+	vel[1] = 0.0;
+	set_pev(id, pev_velocity, vel);
+	face_toward(id, other);
+}
+
+/// Turns a citizen, view and body, to face another player.
+face_toward(id, other)
+{
+	new Float:at[3], Float:to[3], Float:dir[3], Float:face[3];
+	pev(id, pev_origin, at);
+	pev(other, pev_origin, to);
+	dir[0] = to[0] - at[0];
+	dir[1] = to[1] - at[1];
+	dir[2] = 0.0;
+	engfunc(EngFunc_VecToAngles, dir, face);
+	face[0] = 0.0;
+	face[2] = 0.0;
+	set_pev(id, pev_angles, face);
+	set_pev(id, pev_v_angle, face);
+}
+
+/*
+ * Every frame, for a citizen who is talking: the talk ends when its time is up, when either talker
+ * is hurt or dies, when the other is gone, or when an insurgency starts. Until then the citizen is
+ * kept held and murmurs when its turn comes.
+ */
+talk_upkeep(id, bool:alive)
+{
+	new other = g_talk_with[id];
+	new Float:now = get_gametime();
+	if (!alive || !g_active || insurgency() || now >= g_talk_until[id]
+		|| other < 1 || other > g_maxplayers || g_talk_with[other] != id || !is_user_alive(other)
+		|| Float:pev(id, pev_health) < g_talk_health[id])
+	{
+		end_talk(id);
+		return;
+	}
+	// held again, and turned back to the other, whenever anything else has cleared its FL_FROZEN:
+	// RCBot may have moved or turned it in the frame it was free
+	if (!(pev(id, pev_flags) & RB_FL_FROZEN))
+	{
+		hold_facing(id, other);
+	}
+	if (now >= g_talk_next_say[id])
+	{
+		g_talk_next_say[id] = now + 2.0 * RB_TALK_TURN;
+		murmur(id);
+	}
+}
+
+/// Ends a talk for both talkers: both are let go, and neither stops to talk again for RB_TALK_AGAIN.
+end_talk(id)
+{
+	new other = g_talk_with[id];
+	release_talker(id);
+	if (other >= 1 && other <= g_maxplayers && g_talk_with[other] == id)
+	{
+		release_talker(other);
+	}
+}
+
+release_talker(id)
+{
+	g_talk_with[id] = 0;
+	g_talk_ready[id] = get_gametime() + RB_TALK_AGAIN;
+	if (is_user_connected(id))
+	{
+		set_pev(id, pev_flags, pev(id, pev_flags) & ~RB_FL_FROZEN);
+	}
+}
+
+/// One murmur from a talking citizen: one of those installed, at a pitch for its voice.
+murmur(id)
+{
+	if (g_murmur_count < 1)
+	{
+		return;
+	}
+	new pitch;
+	switch (g_gender[id])
+	{
+		case RB_FEMALE:
+		{
+			pitch = random_num(104, 114);
+		}
+		case RB_MALE:
+		{
+			pitch = random_num(88, 98);
+		}
+		default:
+		{
+			pitch = random_num(95, 105);
+		}
+	}
+	emit_sound(id, CHAN_VOICE, g_murmur[random_num(0, g_murmur_count - 1)], 0.8, ATTN_STATIC, 0, pitch);
+	g_n_murmurs++;
+}
+
+/*
+ * A real player's +use, every frame: pressed (not held), alive, looking at a citizen within
+ * RB_HEED_REACH that is alive, placed, unhurt in this life and not talking or facing anyone,
+ * neither of them in their cooldown, and no insurgency: the citizen murmurs to him and faces him.
+ */
+use_check(id)
+{
+	new bool:down = (pev(id, pev_button) & RB_IN_USE) != 0;
+	new bool:pressed = down && !g_use_down[id];
+	g_use_down[id] = down;
+	if (!pressed || get_pcvar_num(g_cv_use) <= 0 || insurgency() || !is_user_alive(id) || is_user_bot(id))
+	{
+		return;
+	}
+	new bot, body;
+	get_user_aiming(id, bot, body, RB_HEED_REACH);
+	if (bot < 1 || bot > g_maxplayers || !g_citizen[bot] || !is_user_alive(bot) || g_talk_with[bot] || g_heed_with[bot]
+		|| g_place_at[bot] > 0.0 || Float:pev(bot, pev_health) < g_life_health[bot])
+	{
+		return;
+	}
+	new Float:now = get_gametime();
+	if (now < g_heed_ready[bot] || now < g_heed_player_ready[id])
+	{
+		return;
+	}
+	new Float:cooldown = get_pcvar_float(g_cv_use_cooldown);
+	g_heed_ready[bot] = now + cooldown;
+	g_heed_player_ready[id] = now + cooldown;
+	g_heed_with[bot] = id;
+	g_heed_until[bot] = now + RB_HEED_TIME;
+	g_heed_health[bot] = Float:pev(bot, pev_health);
+	hold_facing(bot, id);
+	murmur(bot);
+	g_n_heeds++;
+	if (get_pcvar_num(g_cv_debug))
+	{
+		log_amx("[ROAMBOTS] citizen %d murmurs to player %d.", bot, id);
+	}
+}
+
+/*
+ * Every frame, for a citizen facing a player: it keeps facing him until RB_HEED_TIME is up, he is
+ * gone or dead, it is hurt or dies, or an insurgency starts; then it is let go.
+ */
+heed_upkeep(id, bool:alive)
+{
+	new player = g_heed_with[id];
+	if (!alive || !g_active || insurgency() || get_gametime() >= g_heed_until[id]
+		|| !is_user_alive(player) || Float:pev(id, pev_health) < g_heed_health[id])
+	{
+		end_heed(id);
+		return;
+	}
+	// held again whenever anything else has cleared its FL_FROZEN, and kept turned to him
+	if (!(pev(id, pev_flags) & RB_FL_FROZEN))
+	{
+		hold_facing(id, player);
+	}
+	else
+	{
+		face_toward(id, player);
+	}
+}
+
+/// Lets a citizen that faced a player go.
+end_heed(id)
+{
+	g_heed_with[id] = 0;
+	if (is_user_connected(id))
+	{
+		set_pev(id, pev_flags, pev(id, pev_flags) & ~RB_FL_FROZEN);
+	}
+}
+
+bool:insurgency()
+{
+	return get_pcvar_num(g_cv_insurgency) > 0;
+}
+
+/// A living, placed citizen that is not an insurgent yet: one to arm while the insurgency is on.
+bool:may_rise(id)
+{
+	return g_citizen[id] && !g_insurgent[id] && is_user_alive(id) && g_place_at[id] <= 0.0;
+}
+
+/// A living insurgent .civilians has not put down yet: one to put down once the insurgency is off.
+bool:may_stand_down(id)
+{
+	return g_citizen[id] && g_insurgent[id] && !g_dismissed[id] && is_user_alive(id);
+}
+
+/// How many citizens the insurgency still has to change: to arm while it is on, to put down once it is off.
+insurgency_due()
+{
+	new bool:rise = insurgency(), n = 0;
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (rise ? may_rise(id) : may_stand_down(id))
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/// The insurgency's pace (task_pace) set going when it has citizens to change and is not going yet.
+pace_insurgency()
+{
+	if (g_active && !task_exists(RB_TASK_PACE) && insurgency_due() > 0)
+	{
+		set_task(RB_PACE_STEP, "task_pace", RB_TASK_PACE, "", 0, "b");
+	}
+}
+
+/*
+ * The insurgency's pace, every RB_PACE_STEP seconds while it has work: the next citizen, in slot
+ * order, takes up arms (the insurgency on) or is put down (off). It stops once none is left; a
+ * citizen back on its feet later is dressed and armed as it is placed (dress).
+ */
+public task_pace()
+{
+	new bool:rise = insurgency();
+	for (new id = 1; g_active && id <= g_maxplayers; id++)
+	{
+		if (rise && may_rise(id))
+		{
+			rise_up(id);
+			return;
+		}
+		if (!rise && may_stand_down(id))
+		{
+			stand_down(id);
+			return;
+		}
+	}
+	remove_task(RB_TASK_PACE);
+}
+
+/// A citizen takes up arms: out of any talk, then dressed and armed as an insurgent.
+rise_up(id)
+{
+	if (g_talk_with[id])
+	{
+		end_talk(id);
+	}
+	if (g_heed_with[id])
+	{
+		end_heed(id);
+	}
+	make_insurgent(id);
+}
+
+/*
+ * An insurgent put down by .civilians: TS's own suicide, which TS carries out a second later, and
+ * a death that leaves nothing on the ground (insurgent_down). It comes back a citizen.
+ */
+stand_down(id)
+{
+	g_dismissed[id] = true;
+	user_kill(id, 1);
+	g_n_disarmed++;
+}
+
+/*
+ * An insurgent has just died, and TS has thrown its whole arsenal to the ground
+ * (TSDropWeaponsOnDeath). What is left of it is the gun in its hands -- whose world model is its
+ * player model's, "models/w_" for "models/p_" -- or, with tsrp_roambots_insurgent_drop 0 or after
+ * .civilians, nothing.
+ */
+insurgent_down(id)
+{
+	new keep[RB_MODEL_LEN];
+	keep[0] = 0;
+	if (!g_dismissed[id] && get_pcvar_num(g_cv_ins_drop) > 0)
+	{
+		copy(keep, charsmax(keep), g_held[id]);
+		new at = containi(keep, "/p_");
+		if (at == -1)
+		{
+			keep[0] = 0;
+		}
+		else
+		{
+			keep[at + 1] = 'w';
+		}
+	}
+	g_dismissed[id] = false;
+	new n = take_thrown(id, keep);
+	if (get_pcvar_num(g_cv_debug))
+	{
+		log_amx("[ROAMBOTS] insurgent %d died: %d of its weapons taken off the ground (the one to leave: %s).",
+			id, n, keep[0] ? keep : "none");
+	}
+}
+
+/// An insurgent: the insurgent version of its face, and -- once in each life -- the insurgents' weapons.
+make_insurgent(id)
+{
+	insurgent_face(id);
+	if (!g_insurgent[id])
+	{
+		g_insurgent[id] = true;
+		arm_insurgent(id);
+		g_n_armed++;
+	}
+}
+
+/// The insurgent version of a citizen's face, from the pairs; a face with none is kept.
+insurgent_face(id)
+{
+	refresh_insurgent_models();
+	for (new i = 0; i < g_ins_count; i++)
+	{
+		if (equali(g_model_pick[id], g_ins_from[i]))
+		{
+			copy(g_model_pick[id], RB_NAME_LEN - 1, g_ins_to[i]);
+			write_model(id);
+			return;
+		}
+	}
+}
+
+/// The insurgent face pairs ("civilian:insurgent", ";" between), parsed again only when their cvar changes.
+refresh_insurgent_models()
+{
+	new now[RB_LIST_LEN];
+	get_pcvar_string(g_cv_ins_models, now, charsmax(now));
+	if (g_ins_parsed && equal(now, g_ins_models_from))
+	{
+		return;
+	}
+	g_ins_parsed = true;
+	copy(g_ins_models_from, charsmax(g_ins_models_from), now);
+	g_ins_count = 0;
+	new piece[2 * RB_NAME_LEN], rest[RB_LIST_LEN], carry[RB_LIST_LEN], from[RB_NAME_LEN], to[RB_NAME_LEN], path[96];
+	copy(rest, charsmax(rest), now);
+	while (rest[0] && g_ins_count < RB_INS_MAX)
+	{
+		strtok(rest, piece, charsmax(piece), carry, charsmax(carry), ';', 1);
+		copy(rest, charsmax(rest), carry);
+		trim(piece);
+		if (!piece[0])
+		{
+			continue;
+		}
+		strtok(piece, from, charsmax(from), to, charsmax(to), ':', 1);
+		trim(from);
+		trim(to);
+		if (!from[0] || !to[0])
+		{
+			continue;
+		}
+		formatex(path, charsmax(path), "models/player/%s/%s.mdl", to, to);
+		if (!file_exists(path))
+		{
+			log_amx("[ROAMBOTS] insurgent model %s is not installed (%s): %s keeps its own face.", to, path, from);
+			continue;
+		}
+		copy(g_ins_from[g_ins_count], RB_NAME_LEN - 1, from);
+		copy(g_ins_to[g_ins_count++], RB_NAME_LEN - 1, to);
+	}
+}
+
+/*
+ * The insurgents' weapons: tsrp_roambots_insurgent_weapons, "id:magazines" pairs, "," between, as
+ * the match mode's class lines (TS weapon ids, tsconst.inc), given as ts_matchmode arms a player
+ * (give_class_weapons): back to front, so the first one listed -- the primary -- is given last and
+ * TS leaves it in hand, with room for each set before it is given, and the primary given once
+ * more if TS refused it. RCBot fights with the weapon in hand, so the primary is then selected
+ * ("weapon_<id>", TS's own select) if it is not held already. ts_giveweapon takes its figure as
+ * single rounds, so a gun's spare is set again in magazines once it is in hand; a grenade's or a
+ * knife's figure is how many it carries.
+ */
+arm_insurgent(id)
+{
+	new list[RB_LIST_LEN], rest[RB_LIST_LEN], carry[RB_LIST_LEN], piece[16], sid[8], sclips[8];
+	new wpns[RB_INS_WEAPONS], mags[RB_INS_WEAPONS], count = 0;
+	get_pcvar_string(g_cv_ins_weapons, list, charsmax(list));
+	copy(rest, charsmax(rest), list);
+	while (rest[0] && count < RB_INS_WEAPONS)
+	{
+		strtok(rest, piece, charsmax(piece), carry, charsmax(carry), ',', 1);
+		copy(rest, charsmax(rest), carry);
+		trim(piece);
+		if (!piece[0])
+		{
+			continue;
+		}
+		strtok(piece, sid, charsmax(sid), sclips, charsmax(sclips), ':', 1);
+		new wpn = str_to_num(sid), clips = str_to_num(sclips);
+		if (wpn < 1 || wpn > RB_TSW_LAST || clips < 0)
+		{
+			continue;
+		}
+		wpns[count] = wpn;
+		mags[count++] = clips;
+	}
+
+	new clip, ammo, mode, extra;
+	for (new i = count - 1; i >= 0; i--)
+	{
+		// TS refuses a weapon its carried-weight count has no room for; raised before each give,
+		// as the match mode does
+		ts_setuserslots(id, 999);
+		new gave = ts_giveweapon(id, wpns[i], mags[i], 0);
+		if (!gave && i == 0)
+		{
+			// the primary, given last and so the one TS is likeliest to refuse: once more
+			ts_setuserslots(id, 999);
+			gave = ts_giveweapon(id, wpns[i], mags[i], 0);
+		}
+		if (!gave)
+		{
+			continue;
+		}
+		if (mags[i] > 0 && is_gun(wpns[i]) && ts_getuserwpn(id, clip, ammo, mode, extra) == wpns[i] && clip > 0)
+		{
+			ts_setuserammo(id, wpns[i], mags[i] * clip);
+		}
+	}
+
+	if (count > 0 && ts_getuserwpn(id, clip, ammo, mode, extra) != wpns[0])
+	{
+		new cmd[16];
+		formatex(cmd, charsmax(cmd), "weapon_%d", wpns[0]);
+		engclient_cmd(id, cmd);
+	}
+}
+
+/// Whether a TS weapon id is a gun, whose spare comes in magazines (not a grenade, knife, katana or the briefcase).
+bool:is_gun(wpn)
+{
+	switch (wpn)
+	{
+		case TSW_M61GRENADE, TSW_CKNIFE, TSW_C4, TSW_KATANA, TSW_SKNIFE, TSW_TKNIFE:
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/*
+ * .insurgency and .civilians in chat (INSURGENCY, above), for a player with the admin flags of
+ * tsrp_roambots_admin_flag (empty: anyone), on a roleplay map whose citizens are out and whose
+ * mapconfig leaves tsrp_roambots_commands on.
+ */
+public hook_say(id)
+{
+	new args[32];
+	read_args(args, charsmax(args));
+	remove_quotes(args);
+	trim(args);
+
+	new bool:rise = equali(args, ".insurgency") != 0;
+	if (!rise && !equali(args, ".civilians"))
+	{
+		return PLUGIN_CONTINUE;
+	}
+	cmd_insurgency(id, rise);
+	return PLUGIN_HANDLED;
+}
+
+cmd_insurgency(id, bool:rise)
+{
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+	new flag[8];
+	get_pcvar_string(g_cv_admin_flag, flag, charsmax(flag));
+	trim(flag);
+	if (flag[0] && !(get_user_flags(id) & read_flags(flag)))
+	{
+		client_print(id, print_chat, "[CITY] Only an admin can %s.", rise ? "start an insurgency" : "end the insurgency");
+		return;
+	}
+	if (get_pcvar_num(g_cv_commands) <= 0)
+	{
+		client_print(id, print_chat, "[CITY] .insurgency and .civilians are switched off on this map.");
+		return;
+	}
+	if (!g_active)
+	{
+		client_print(id, print_chat, "[CITY] There are no citizens on this map.");
+		return;
+	}
+	new name[32];
+	get_user_name(id, name, charsmax(name));
+	if (rise)
+	{
+		if (insurgency())
+		{
+			client_print(id, print_chat, "[CITY] The citizens are insurgents already. .civilians ends it.");
+			return;
+		}
+		set_pcvar_num(g_cv_insurgency, 1);
+		new n = insurgency_due();
+		pace_insurgency();
+		log_amx("[ROAMBOTS] %s started an insurgency on %s: %d citizens take up arms, one every %.2f seconds.",
+			name, g_mapname, n, RB_PACE_STEP);
+		client_print(0, print_chat, "[CITY] Insurgency! The citizens are taking up arms.");
+	}
+	else
+	{
+		if (!insurgency())
+		{
+			client_print(id, print_chat, "[CITY] The citizens are civilians already.");
+			return;
+		}
+		set_pcvar_num(g_cv_insurgency, 0);
+		new n = insurgency_due();
+		pace_insurgency();
+		log_amx("[ROAMBOTS] %s ended the insurgency on %s: %d insurgents put down, one every %.2f seconds, to come back as citizens.",
+			name, g_mapname, n, RB_PACE_STEP);
+		client_print(0, print_chat, "[CITY] The insurgency is over: the citizens lay down their arms.");
+	}
+}
+
 /// amx_roambots: what the plugin is doing on this map, and how often each part has run.
 public cmd_status(id, level, cid)
 {
@@ -1205,6 +2205,18 @@ public cmd_status(id, level, cid)
 		g_n_ticks, g_n_postthink, g_n_joins_asked, g_n_adopted, g_n_sent_away);
 	console_print(id, "  spawns %d  placed %d  place failed %d  pickups refused %d  dropped %d  swept %d  model writes %d",
 		g_n_spawns, g_n_placed, g_n_place_failed, g_n_touch_refused, g_n_dropped, g_n_swept, g_n_model_writes);
+	new flag[8];
+	get_pcvar_string(g_cv_admin_flag, flag, charsmax(flag));
+	console_print(id, "  defend %d (%d s)  talk %d%% within %d  murmurs %d installed  insurgency %d (team %d, drop %d)  commands %d (flag %s)",
+		get_pcvar_num(g_cv_defend), get_pcvar_num(g_cv_defend_time), get_pcvar_num(g_cv_talk),
+		get_pcvar_num(g_cv_talk_range), g_murmur_count, get_pcvar_num(g_cv_insurgency), get_pcvar_num(g_cv_ins_team),
+		get_pcvar_num(g_cv_ins_drop), get_pcvar_num(g_cv_commands), flag[0] ? flag : "none");
+	console_print(id, "  unstick asked %d  seen, so waited %d  moved %d  talks %d  murmurs %d  armed %d  put down %d%s",
+		g_n_unstick_asked, g_n_unstick_seen, g_n_unstuck, g_n_talks, g_n_murmurs, g_n_armed, g_n_disarmed,
+		task_exists(RB_TASK_PACE) ? "  (the insurgency's pace is running)" : "");
+	console_print(id, "  thrown guns left on the ground because TS had slowed them %d", g_n_left_slowed);
+	console_print(id, "  +use: %s, cooldown %d s, murmured to players %d",
+		get_pcvar_num(g_cv_use) > 0 ? "on" : "off", get_pcvar_num(g_cv_use_cooldown), g_n_heeds);
 
 	new name[RB_NAME_LEN], Float:at[3], live[RB_NAME_LEN];
 	for (new c = 1; c <= g_maxplayers; c++)
@@ -1219,9 +2231,10 @@ public cmd_status(id, level, cid)
 		new buf = engfunc(EngFunc_GetInfoKeyBuffer, c);
 		live[0] = 0;
 		engfunc(EngFunc_InfoKeyValue, buf, "model", live, charsmax(live));
-		console_print(id, "  #%2d %-20s %-20s %-6s %-12s %5d %5d %5d  speed %d", c, name, live,
+		console_print(id, "  #%2d %-20s %-20s %-6s %-12s %5d %5d %5d  speed %d%s%s", c, name, live,
 			is_user_alive(c) ? "alive" : "dead", d >= 0 ? g_district[d] : "-",
-			floatround(at[0]), floatround(at[1]), floatround(at[2]), floatround(vector_speed(c)));
+			floatround(at[0]), floatround(at[1]), floatround(at[2]), floatround(vector_speed(c)),
+			g_insurgent[c] ? "  insurgent" : "", g_talk_with[c] ? "  talking" : (g_heed_with[c] ? "  facing a player" : ""));
 	}
 	return PLUGIN_HANDLED;
 }

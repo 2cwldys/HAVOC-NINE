@@ -50,11 +50,21 @@
  ---------------
  Every 60 seconds, and a few seconds after anyone joins, leaves or changes
  name, h9_presence.sma POSTs a report to h9web (the service behind
- havoc9.org) at /api/presence/report. A report holds:
+ havoc9.org) at /api/presence/report; a player's proof (section 8) is
+ reported at once, 0.3 seconds after its answer and one report every 2
+ seconds at most (h9_presence 1.8), so a proven player's chain, picture and
+ level reach every scoreboard a second or two after the player is in game,
+ at a map's start as well. A report holds:
    * the map, and the mode named the way the Discord card names it (Team
      Elimination, Siege, Capture the Uplink, Wave Survival, Mech Warrior,
      Roleplay, Match Mode, Deathmatch), with the mode's progress where there is
-     one ("Siege - Insurgents attacking: 2 of 5 objectives");
+     one ("Siege - Insurgents attacking: 2 of 5 objectives"). Its sides go by the
+     names the game itself shows (h9_presence 1.7): entries 1 and 2 of
+     mp_teamlist when it has them, "Middle Sea Republic" and "Insurrectionists"
+     on H9XASH ("Capture the Uplink - zones: Middle Sea Republic 1,
+     Insurrectionists 2 of 4", initials such as MSR where a line would run
+     long), else ts_matchmode's tsm_team1_name and tsm_team2_name ("msr",
+     "insurgents" on GoldSrc), else MSR and Insurgents;
    * for every human player with an h9_clientid: that id, the name, when they
      joined and how long they have been in game. Bots and HLTV are left out.
  Each report is signed with that server's own key (section 4a; HMAC-SHA256
@@ -306,7 +316,27 @@
           The plugin sends it to every client in the H9Avatar message; H9XASH
           (engine-h9-avatars.patch) fetches
           https://havoc9.org/api/presence/avatar/<a>/<v>.png, a 64 x 64 PNG, for
-          the scoreboard (docs\PLAYER_LIMIT_128.txt 11.7), and keeps it.
+          the scoreboard (docs\PLAYER_LIMIT_128.txt 11.7), and keeps it. A
+          picture it could not fetch (no answer, a timeout, 429 or a 5xx, as
+          while h9web restarts) is asked for again while the slot names it: 15 s,
+          60 s and 5 minutes after the first three tries, then every 10 minutes;
+          one that is not there or no use waits 10 minutes. Each map starts the
+          plugin's table afresh, so the map's first answer names every slot's
+          picture again, and a game asks again at once for one it could not
+          fetch.
+   accounts { "<slot>": account } for the same slots as "avatars" (the green
+          chain): each one's own account number, a player on the site's default
+          picture included. The plugin (1.7) sends it to every client in the
+          H9Account message (byte slot, long account; 0 none), a joining client
+          the whole table; H9XASH keeps it for h9_profile, the scoreboard's
+          double-click on a linked player's picture.
+   usernames { "<slot>": "<username>" } for the same slots: each account's
+          current username on havoc9.org (h9_presence 1.9, h9p_account_name)
+   roles  { "<slot>": "<words>" } for those of the same slots that have any,
+          comma-separated: "h9_admin" or "h9_moderator" (the account's role on
+          the site), then its words in this server's community: "owner",
+          "staff" (the owner and the admins the owner names) and "member"
+          (h9_presence 1.9, h9p_roles)
  The scoreboard's picture, slot by slot:
    * An account with a picture gets their picture: the middle square of their
      forum profile picture at 64 x 64. h9web makes it from a PNG or a GIF (its
@@ -342,12 +372,22 @@
  row's yours. H9XASH's h9_profile <slot> (engine-h9-avatars.patch) opens
  <site>/api/link/profile/<account>: the site is the game's own (havoc9.org, or
  cl_h9_site's test site), the account the number the server named for that
- picture, so a server gives a number and nothing else. h9web sends the browser on
- to the account's forum profile, whose card shows only what the account's
- switches let others see (section 6). A player with the site's default picture
- comes as account 2147483647, everybody's, so no profile opens for them. A single
- click on such a picture mutes nobody; the rest of the row mutes as before. On
- an engine without h9_profile (Steam's) the picture mutes like any other cell.
+ player in H9Account (h9_presence 1.7), or else for the picture in H9Avatar, so a
+ server gives a number and nothing else. h9web sends the browser on to the
+ account's forum profile, whose card shows only what the account's switches let
+ others see (section 6). On a server whose h9_presence is older than 1.7, a
+ player with the site's default picture comes as account 2147483647,
+ everybody's, so no profile opens for them there. A single click on such a
+ picture mutes nobody; the rest of the row mutes as before. On an engine without
+ h9_profile (Steam's) the picture mutes like any other cell.
+ A game whose link ends while it plays (h9_unlink in it, or REVOKE on the
+ ACCOUNT page, which the game hears within 5 minutes, as in a game it asks its
+ link's site again a few seconds into each map and every 5 minutes, and answers
+ with a new id) loses its chain at once on h9_presence 1.7: its h9_clientid, _h9idv or _h9lnk changes, the
+ plugin drops its proof and tells every client (H9Link 0, the silhouette, no
+ account, no level), challenges the game again and reports soon; h9web counts
+ no proof from that game's device made before the link ended, so its next
+ answer leaves the slot unlinked, and the new id is no account's.
  Steam (GoldSrc) players with H9's client.dll see the same icons: green for
  the proven H9XASH players, red for the rest. A GoldSrc game cannot prove its
  own id, so its own row is always red. cl_h9_linkicons 0 in a client leaves
@@ -360,6 +400,23 @@
  h9p_sign (the live key's signature of a body; the key never leaves the
  plugin), h9p_nonce, h9p_report_soon, h9p_muted and h9p_challenge, and the
  h9p_proof forward.
+ And from 1.9, the players' accounts (include\h9_presence.inc), for a plugin
+ that gives rights by account (an admin plugin, a members' area):
+   h9p_account(id)                  the slot's proven havoc9.org account, its
+                                    number on the site (accounts.id), 0 for none
+   h9p_account_name(id, out, len)   that account's current username
+   h9p_roles(id, out, len)          its roles as "roles" above, comma-separated
+   h9p_has_role(id, role)           a stock: whether h9p_roles holds the word
+   forward h9p_account_changed(id, account)
+                                    any of the three changed for the slot: the
+                                    answer that proves it, a rename or another
+                                    role on the site, an id that changes in
+                                    game (account 0), the player leaving
+                                    (account 0)
+ Only the players with the green chain have an account: a game that proved its
+ player id (section 8), a second or two after it is in game, and again after
+ each map change, which starts with nothing known. With neither
+ h9_presence_challenge 1 nor h9_require_account 1, nobody has one.
 
  4c. ACCOUNTS-ONLY SERVERS (H9_REQUIRE_ACCOUNT)
  ---------------------------------------------

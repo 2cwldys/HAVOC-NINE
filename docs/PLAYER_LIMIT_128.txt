@@ -52,8 +52,9 @@
      (mp.dll, Metamod and AMX Mod X all assume one thread). Order: measure,
      cut single-threaded costs, and thread only the engine's own per-client
      packet encoding, and only if still needed (section 18).
-   * Memory: the server is a 32-bit process without the large-address flag (2
-     GB). One table alone is 340 MiB at 64 slots. Options in section 13.
+   * Memory: the server is a 32-bit process, large-address-aware since
+     2026-11-02: 4 GB on 64-bit Windows, not 2. One table alone is 340 MiB at
+     64 slots. Options in section 13.
    * Rough effort to a 64-slot default: 4 to 6 weeks, including testing and a
      first round of single-threaded performance work. Threading, if needed, is
      2 to 3 weeks more.
@@ -170,7 +171,7 @@
    engine\common\protocol.h:313       MAX_GOLDSRC_EDICTS uses MAX_CLIENTS    CONST
    ref\gl\gl_studio.c:111, ref\soft\r_studio.c:103  player_models[32]       CONST
    engine\common\netchan.h:79 with sv_init.c:839  packet ring per slot     memory
-   H9XASH\HAVOC 9.exe                 32-bit, not large-address-aware        BIN flag
+   H9XASH\HAVOC 9.exe                 32-bit; large-address-aware (13 b)     BIN flag
    H9XASH\ts\delta.lst:70             clientdata_t iuser2, 6 bits            DATA
    H9XASH\ts\delta.lst:106, 163       owner, 5 bits (widened by a patch)     DATA
 
@@ -256,7 +257,7 @@
      Risk: low.
      Test: create a listen game with 64.
 
-  4. HAVOC 9.exe, the launcher: only if the large-address flag is chosen (13).
+  4. HAVOC 9.exe, the launcher: large-address-aware since 2026-11-02 (13 b).
      Risk: code that treats pointers as signed (13).
      Test: a top-down allocation run (13).
 
@@ -1037,7 +1038,15 @@
  and (c) both.
  Decided and built: (c), in engine-h9-slots128.patch: past 32 slots the
  ring holds NUM_PACKET_ENTITIES / 2 a frame, 170 MiB at 64, 340 at 128; at
- 32 or fewer it is as before.
+ 32 or fewer it is as before. And (b), on the user's word (2026-11-02):
+ engine-h9-largeaddress.patch links HAVOC 9.exe /LARGEADDRESSAWARE. A scan
+ of reTS, Metamod-R, AMX Mod X, RCBot and the plugins found no signed test
+ on a string_t or a pointer on a live path (the patch's PATCH_CHANGELOG.md
+ entry has the two near misses).
+ An in-process high-address stress (the free address space below 2 GB reserved,
+ then a map change) could not run on the build PC: Avast's behaviour shield
+ quarantines a test server a script starts (IDP.Generic). The top-down test on a
+ spare PC, above, stays the check.
 
 
  14. AROUND THE GAME
@@ -1445,8 +1454,8 @@
  ----------------------------------
  Built for 128, a server can be raised past 64 by maxplayers alone. What
  changes compared with 64:
-   * Memory: the ring is 680 MiB: the large-address flag or a smaller ring is
-     then required (13).
+   * Memory: the ring is 680 MiB at its stock size: the large-address flag or a
+     smaller ring is then required (13). Both are built.
    * CPU: the per-viewer work about quadruples again; lag compensation and
      sounds without a PHS quadruple.
    * Bandwidth: about double per server; A2S_PLAYERS 5.3 KB.
@@ -1487,7 +1496,7 @@
 
  Acceptance checklist
    1. Every component of section 4 built for 128 and deployed, as one set:
-        - xash.dll, ref_gl.dll, ref_soft.dll, menu.dll, HAVOC 9.exe (if LAA);
+        - xash.dll, ref_gl.dll, ref_soft.dll, menu.dll, HAVOC 9.exe (LAA);
         - client.dll (native and wasm), mp.dll;
         - delta.lst;
         - metamod.dll, amxmodx_mm.dll and every module, tsx_amxx.dll;
@@ -1565,7 +1574,8 @@
      depends on TSX natives.
    * A partial deploy: any server component left at 32 corrupts memory at slot
      33 (AMXX core worst). Hence the guard rail (9.1 g) and the checklist.
-   * Memory: 340 MiB at 64 is likely fine; LAA needs its own test.
+   * Memory: 340 MiB at 64 is likely fine; LAA is built, and 13 says how far it
+     has been tested.
    * The patch chain: the new engine patch must pass xash.bat's reverse check
      with the rest, or the next full build stops.
    * Deploying AMXX, Metamod or RCBot only into H9XASH: build.bat overwrites
@@ -1592,8 +1602,8 @@
       packet's "ext" field, which every FWGS client already sends: H9's
       client sets bit 24 (NET_EXT_H9_SLOTS128) in it.
    4. Memory: the oversized table, the packet entity ring, holds half as many
-      entities a frame past 32 slots (13 c): 170 MiB at 64, 340 at 128. No
-      large-address flag.
+      entities a frame past 32 slots (13 c): 170 MiB at 64, 340 at 128. And
+      the large-address flag, since 2026-11-02 on the user's word (13 b).
    5. Toolchain: Metamod-R built from source with MSVC (section 7). AMX Mod X
       and TSX: section 8.5 (the core waits for goldsrc-net's fork source;
       reTSX stays at 32 until an H9 TSX or its source).
@@ -1711,6 +1721,8 @@
      and shipped to the Steam install, H9XASH and the git copy, the release
      builds kept as <name>.amxx.bak_slots.
    * xash.dll, ref_gl.dll, menu.dll: built with the whole chain, in H9XASH.
+   * HAVOC 9.exe: large-address-aware (engine-h9-largeaddress.patch), built
+     with the whole chain on 2026-11-02, in H9XASH, export and the git copy.
    * The web client's engine and reTS client: rebuilt with the next web
      build.
  Past 32 slots with AMX Mod X loaded: safe once H9's TSX has shipped (the
@@ -1746,8 +1758,50 @@
      no crash, no errors, about 280 MB.
    * L1, 64 slots, 63 bots, 25 minutes (2026-11-02): all 63 in, no crash, no
      error-like log lines, 24% of one core, 285 MB peak private.
+   * L3 (loadtest64-plugins.ps1) on ts_bikini, stock rules, AMX Mod X with H9's
+     TSX and every plugin, 64 slots, 63 bots (2026-11-02 19:57, the launcher
+     before the large-address flag): the bots joined about one every 5 s and all
+     63 held the last 4 minutes, at 21.5 to 24.5% of one core a minute, about
+     2.3 ms of CPU a server frame at sys_ticrate 100; 409 MB private, 425 MB
+     working set; no errors. Without AMX Mod X (neuropolis, its bots parked) 285
+     MB; with it on neuropolis up to 541 MB.
  Still to run for L1: New Byzantium and the hive, the two-hour soak and the
  ten map changes. L2 and L3 (loadtest64-plugins.ps1) take 64 slots once
  H9's TSX has shipped; before that its 32-slot run checks H9's TSX in the
  test copy (-Tsx h9 -Check), and amx_tsm_debug's Ham_TakeDamage count
  shows whether the assists' hook fires.
+
+ Overflow and limit messages (2026-11-03)
+ The engine's messages a 64-slot server or its players can hit, with each one's
+ limit, where it lives and the safe way to raise it. From the engine build with
+ engine-h9-overflowlog.patch on, each of them, printed or not, also goes to
+ ts\logs\h9_overflow.log: the time, server, listen or client, the map and the
+ message, the same message at most once in 10 s. SZ_GetSpace and MAX_MSGLEN are
+ GoldSrc's names: they come from Steam HLDS or a GoldSrc client, never from Xash.
+   * "<name> overflowed", the client dropped: its reliable stream passed
+     MAX_INIT_MSG, 192 KB (net_ws.h:41, sv_frame.c). Find what floods it; do not
+     raise it (every client shares the size).
+   * "Datagram overflowed for <name>": a client's unreliable data or a whole
+     frame's packet passed MAX_DATAGRAM, 16 KB (net_ws.h:34, sv_frame.c). Raise
+     the rates first (section 16), then a server-only 32 KB.
+   * "sv.reliable_datagram overflowed, its messages dropped": the shared 16 KB,
+     dropped whole (engine-h9-reliableburst.patch). A server-only raise.
+   * "pfnMessageEnd: X has overflow multicast buffer" (8 KB) and "X too long
+     (more than 2048 bytes)" (MAX_USERMSG_LENGTH, client and server alike):
+     split the message.
+   * "Server will restart due delta is outdated": the packet entity counter
+     (sv_frame.c); engine-h9-deltacounter.patch brings it down long before.
+   * "delta request from out of date entities" (-dev 1): a client's delta base
+     left the packet entity ring, halved past 32 slots (13 c). With the large-
+     address flag's 4 GB the full ring fits again, should this show.
+   * "Too many entities in visible packet list. Ignored N entities":
+     MAX_VISIBLE_PACKET, 2048 a client a frame (protocol.h:98-99).
+   * "no free edicts (max is 4098)": max_edicts in ts\gameinfo.txt, up to 8192.
+   * "Overflow N temporary ents!", "Overflow N particles", "not enough free
+     beams!": the player's max_tempents 2048, max_particles 32768 and max_beams
+     512 in ts\gameinfo.txt (raised 2026-11-03 from 500, 4096 and 128).
+   * "Cbuf_...: overflow", "command buffer overflow": MAX_CMD_BUFFER, 32 KB
+     (cmd.c:21), engine-local.
+   * On a player's side, "CL_ParseServerMessage: overflow!", "illegible server
+     message" or "svc_bad": the server sent a message cut off; the server's own
+     line names the buffer.

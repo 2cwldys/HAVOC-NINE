@@ -6,30 +6,36 @@
  whoever runs havoc9.org, and any player who wants to know how the numbers on
  havoc9.org/ladder/ are made.
 
- Status: built (2026-11-02). h9_compete.amxx 1.0 on the game servers,
- compete.js in h9web's presence module, and the LADDER page on havoc9.org.
- Section 13 lists what is left for later.
+ Status: built (2026-11-02), ranked play on every server and the career level
+ since 2026-11-03. h9_compete.amxx 1.2 and h9_rank.amxx 1.0 on the game
+ servers, compete.js in h9web's presence module, the LADDER page and the
+ admin panel's LEVELS tab on havoc9.org. Section 13 lists what is left for
+ later.
 
  The short version
    * xjiro's Competitive TS (compts\) rated TS players per kill, by SteamID,
      on its own web service. H9 has no SteamIDs, so compts could never run
-     here. h9_compete.amxx keeps compts's rule and its face (say /rank, a
-     ranking from 1000) and puts the ratings on havoc9.org accounts instead.
+     here. h9_compete.amxx keeps compts's rule and its face (a ranking from
+     1000) and puts the ratings on havoc9.org accounts instead.
    * Ratings move per kill, as in compts, and a rated match adds +100 to
      each winner and -70 to each loser, as compts's README planned. Every
      kill and match is kept, so each player has a match history.
+   * Ranked play is always on: every mode but roleplay, on every server
+     enrolled with havoc9.org, counts for its own table, its community's
+     ladder where the staff count it, and the H9 ladder, unless H9's admins
+     mark the server UNRANKED.
    * Only proven players count: an account whose game proved its player id
      on that server in the last 10 minutes (h9_presence's challenge), or a
-     web client player on the relay. Anyone else plays as ever and moves
-     nothing.
-   * Three kinds of table. Every rated server keeps its own. A community's
-     ladder counts the servers its staff choose. The H9 ladder counts the
-     servers H9's site admins mark. All three are on havoc9.org/ladder/.
+     web client player on the relay. Anyone else, bots included, plays as
+     ever, moves nothing and holds up nothing.
    * A server signs its reports with its h9_presence key, so there is no API
-     key to set. Turning a server on is h9_compete 1.
-   * The six privacy switches on the ACCOUNT page decide what others see.
-   * Every account also has a level, Lv 0 to 99, from the H9 ladder: shown by
-     the name on the in-game scoreboard and on the ladder (section 8a).
+     key to set. A server havoc9.org does not know sends nothing.
+   * Every account has a level, Lv 0 to 99: its career, overall experience
+     from kills and matches in every mode, on top of the compts rating,
+     which stays the skill figure. The badge shows by the name on the
+     in-game scoreboard, the forum and the ladder, for everyone: no privacy
+     switch hides a level or a rating (section 8a).
+   * .rank in game, and a read-only API, give anyone's rank (section 8c).
 
  CONTENTS
     1. What compts did, and what carried over
@@ -41,6 +47,9 @@
     7. What h9web keeps
     8. The site: havoc9.org/ladder/
    8a. Account levels: Lv 0 to 99
+   8b. Seasons
+   8c. One account's rank: .rank in game, and the API
+   8d. An admin's rank adjustment
     9. Integrity: what a server could fake, and what h9web checks
    10. Privacy
    11. Commands, cvars, settings and files
@@ -69,8 +78,9 @@
    * its player loop stopped at slot 31. Here every slot counts, up to
      get_maxplayers().
 
- Carried over: the rule (section 4), say /rank, /elo, !rank and !elo, the
- rating told to everyone when a player joins, numbers from 1000, and decay.
+ Carried over: the rule (section 4), /rank, /elo, !rank and !elo (now
+ h9_rank's .rank), the rating told to everyone when a player joins, numbers
+ from 1000, and decay.
  Replaced: SteamIDs by proven havoc9.org accounts, the API key by the
  server's h9_presence key, the service by h9web, and one global number by
  a table per server, per community and for H9.
@@ -78,16 +88,20 @@
 
  2. TURNING IT ON: A SERVER, A COMMUNITY, THE H9 LADDER
  ------------------------------------------------------
- A server:
+ A server: nothing to turn on.
    1. h9_presence.amxx with a live key (docs\H9_PRESENCE.txt, section 4a),
       and h9_presence_challenge 1, so that H9XASH players can prove their
       ids. Web client players are proven by the relay either way.
    2. h9_compete.amxx in plugins.ini below h9_presence (build.bat builds and
-      registers it), and h9_compete 1. configs\h9_compete.cfg is executed
-      on every map. The shipped one has h9_compete 0, and the Siege and
-      TeamElimination presets (H9XASH\presets) set 1.
-   3. From then on its matches count for its own table. h9_compete is a
-      server rule (FCVAR_SERVER), so server browsers can see it.
+      registers it; the presets list it). configs\h9_compete.cfg, executed
+      on every map, has h9_compete 1. It is a server rule (FCVAR_SERVER),
+      so server browsers can see it.
+   3. Its matches count from then on: its own table, and the H9 ladder.
+ A server without a live key, one havoc9.org does not know, sends nothing and
+ says nothing: no match starts, no join line is told, and h9web refuses
+ anything it might send (403) before keeping any of it. When havoc9.org
+ does not answer, a match's start is asked again after 30 seconds, then 60,
+ up to 5 minutes apart, and a refused match is logged once a map.
 
  A community (its owner or admins, signed in on havoc9.org):
    1. Open the community's ladder: havoc9.org/ladder/?scope=c:<short name>.
@@ -97,12 +111,18 @@
  Turning either off stops new matches counting. What is already there
  stays, unless it is voided.
 
- The H9 ladder (an H9 site admin): open the server's table on the LADDER
- page and press COUNT IT FOR THE H9 LADDER. It is never automatic.
+ The H9 ladder counts every enrolled server. An H9 site admin marks one
+ UNRANKED (ADMIN, LEVELS, RANKED SERVERS, or the server's table on the
+ LADDER page): its match under way ends, cancelled, and from then on its
+ matches count nowhere, not even on its own table (h9web answers a start
+ 409 not_rated, and the plugin drops that match). The same switch, with a
+ first and a last day and VOID typed, voids its matches from those days,
+ one void each. RANK IT AGAIN counts it again from then on.
 
  The scopes are fixed when a match starts. Revoking or blocking a server's
  key stops it counting anywhere at once. The audit log records each switch
- as presence.server.compete, community.compete or community.server.compete.
+ as presence.compete.server.unranked, community.compete or
+ community.server.compete.
 
 
  3. WHO COUNTS: PROVEN PLAYERS ONLY
@@ -126,6 +146,21 @@
  id, a game that cannot answer the challenge, a Steam client. A kill by or
  of such a player, a bot, a team kill or a suicide moves nothing. Nothing
  kicks them either.
+
+ Bots never count. Only proven havoc9.org accounts are tracked: bots and
+ players who are not signed in get no rating and no level, and change
+ nobody's. A bot proves nothing, so a kill of a bot or a death to one is
+ dropped before anything is kept (applyKill in compete.js): no rating
+ moves, no experience is given, the kills and deaths that career
+ experience's kills-to-deaths factor reads do not see it, and no level
+ changes. The kills between proven players in the same match still count.
+ A match with bots on its sides, by the plugin's count at its start or at
+ its end, has no rated result (no +100 or -70, no win's experience), but
+ each proven player who plays it out still has the experience for playing
+ it (section 8a). Unproven humans hold up nothing either: they are left out
+ of a match's sides, and the proven players' match is rated as if they were
+ not there. This holds whatever a server reports, since only a proof makes
+ a player count.
 
 
  4. THE RULE
@@ -160,13 +195,16 @@
  5. MATCHES AND THE TWO LADDERS
  ------------------------------
  Each table has two ladders:
-   MATCH  a ts_matchmode match on its maps (Team Elimination, Siege,
-          Uplink, Mech Warrior): kills, and the result when the match is
-          rated
-   DM     TS's own deathmatch, team deathmatch and briefcase maps (h9_dm_,
-          h9_tdm_, h9_ctb_): kills only. Each map is one match, ranked by
-          frags minus deaths for the history
- Wave Survival, roleplay maps and stock ts_ maps are never rated.
+   MATCH  a ts_matchmode match, wherever its match mode plays (tsm_enabled
+          1): Team Elimination, Siege, Uplink, Mech Warrior and Wave
+          Survival. Kills, and the result when the match is rated
+   DM     every other map: TS's own game on its own rules, deathmatch or
+          teamplay (the stock ts_ maps, h9_dm_, h9_tdm_, h9_ctb_ and the
+          rest). Kills only; each map is one match, ranked by frags minus
+          deaths for the history
+ Roleplay maps (rp_ or tsrp_ at the start, _rp_ or _tsrp_ inside, as
+ ts_matchmode's roleplay_map has it) are never rated: the plugin sends
+ nothing from them, and h9web refuses a start on one (409 not_rated).
  h9_compete_ladder picks a ladder by hand.
 
  A MATCH-ladder match runs from its first round going live to its end:
@@ -175,22 +213,32 @@
               empty while the other still had players
    cancelled  anything else that stops it: an admin's restart or cancel,
               both sides empty, a side out of humans, a map change. Not
-              rated; its kills stay counted
+              rated, and no experience; its kills stay counted
  A DM map's match ends 20 seconds before the map's time runs out.
 
  A result is rated when:
    * the match finished or a side forfeited, and it has a winner;
    * no bot played on either side;
    * at least 3 rounds were played, and it lasted at least 5 minutes;
-   * on the H9 ladder: every human on both sides is proven, with at least 2
-     on each side. On a server's table or a community's ladder: at least
-     one proven player on each side;
+   * on the H9 ladder: at least 2 proven players on each side. On a
+     server's table or a community's ladder: at least one proven player on
+     each side. Unproven players are not counted either way;
    * a player counts if they played at least half its rounds, or left
      after a round or more.
  Each table decides for itself, so a match can be rated on its server's
  table and not on the H9 ladder. The answer says why not, and the match page
  shows it. A match that h9web hears nothing of for 6 hours is abandoned.
  Its kills stay counted.
+
+ Assists: ts_matchmode counts them for the scoreboard's A column (TSM_ASSIST_MIN
+ damage to a victim an enemy other than the killer finishes, within 10
+ seconds). h9_compete reads that count (tsm_assists) and sends each player's
+ assists in the match in its end report: what the count added between their
+ joining the match and its end or their leaving, summed over each time they
+ were in it. They are summed into each of the match's tables, as kills are,
+ and a void takes them back. A ts_matchmode without tsm_assists leaves the
+ native unbound, and the report says null: the site shows assists only where
+ a server counted them.
 
 
  6. WHAT THE PLUGIN SENDS: H9WEB'S API
@@ -205,7 +253,7 @@
            -> { ok, match, scopes: [ "server", "community", "network" ],
                 proven }
            Starting a match closes any match still open on that server as
-           cancelled.
+           cancelled. 409 not_rated on a roleplay map or an UNRANKED server.
    kills   { match, seq, players: [ [h9_clientid, side], ... ],
              kills: [ [killer id, victim id, headshot 0|1, team kill 0|1],
                       ... ] }
@@ -216,8 +264,8 @@
            most 150 kills a batch, and every 60 seconds with none.
    end     { match, seq, result: { how: "finished" | "forfeit" |
              "cancelled", winner, score1, score2, rounds },
-             players: [ [h9_clientid, side, rounds, seconds, left 0|1],
-                        ... ],
+             players: [ [h9_clientid, side, rounds, seconds, left 0|1,
+                          assists | null], ... ],
              others: { "1": n, "2": n }, bots }
            -> { ok, match, rated, why, changes: { "<h9_clientid>":
                 { server, network } } }
@@ -226,8 +274,16 @@
    rating  { ladder, ids: [ h9_clientid, ... ] }  at most 64
            -> { players: { "<h9_clientid>": null | { public,
                 server: { elo, rank }, network: { elo, rank } } } }
-           For say /rank and the join line. null: not proven here now.
-           public: the player's playtime switch.
+           For the join line. null: not proven here now. public: always
+           true, since no switch hides a rating.
+   rank    { asker: h9_clientid, id: h9_clientid } or { asker, name }
+           -> { ok, account: null | rankView, unknown }
+           For h9_rank's .rank (section 8c): a player here by their id, or
+           an account by its username (any case). account null: an id that
+           is no account proven here (not signed in), or, with unknown, a
+           name that is no account. rankView is GET /api/presence/compete/
+           rank/:username's, with this server's tables and the H9 ladder
+           only.
 
  Headshots: kills come from DeathMsg, which ts_matchmode relies on too. A
  kill is marked a headshot when TSX's client_death reports a head hit for
@@ -241,20 +297,27 @@
  -------------------
  The presence module's migration 5 (modules\presence\migrations.js says what
  each column means):
-   compete_servers      a server's flags: NETWORK LADDER, and the community
-                        it counts for
+   compete_servers      a server's flags: UNRANKED (migration 11; the old
+                        NETWORK LADDER column is no longer read), and the
+                        community it counts for
    compete_communities  a community's LADDER switch
    compete_matches      each match: server, community, scopes, ladder, map,
                         mode, times, how it ended, winner, score, rounds,
                         rated and why, kills that counted and that did not
    compete_players      a proven account's part in a match: side, kills,
-                        deaths, headshots, team kills, rounds, seconds,
-                        result or place. Nobody else gets a row
+                        deaths, headshots, assists (migration 10), team
+                        kills, rounds, seconds, result or place. Nobody else
+                        gets a row
    compete_ratings      per table, ladder and account: rating, kills,
-                        deaths, headshots, wins, losses, matches, last
-                        played
+                        deaths, headshots, assists, wins, losses, matches,
+                        last played
    compete_deltas       what each match gave and took, per table and
-                        account: what a void takes back
+                        account, assists too: what a void takes back
+   compete_xp           each match's career experience per account, its
+                        kills' and its end's (migration 8)
+   compete_adjustments  every rank change an admin made: a table's rating
+                        or the career experience, before and after, the
+                        note, who and when (migration 11)
    compete_pairs        kills per pair per day, for the pair cap (2 days)
    compete_disputes     players' disputes, until an H9 admin resolves them
  Never kept: an unproven player's id or name, in-game names (the site shows
@@ -280,8 +343,8 @@
  and each rated server's table. The SERVERS page links to it.
 
  Staff see their switches on the same page:
-   * H9's site admins: COUNT IT FOR THE H9 LADDER on a server's table, the
-     open disputes (RESOLVE) on the H9 ladder, and VOID on any match;
+   * H9's site admins: MARK IT UNRANKED on a server's table, the open
+     disputes (RESOLVE) on the H9 ladder, and VOID on any match;
    * a community's staff: TURN THE LADDER ON/OFF and COUNTS FOR THE LADDER
      per linked server on their ladder, and VOID on a match that counted
      there. Their void takes the match off their ladder only;
@@ -290,14 +353,17 @@
  voided, and the audit log records it (presence.compete.void,
  community.compete.void).
 
- The API behind the page (public reads follow each account's switches):
+ The API behind the page (ratings and levels show for every account; matches
+ follow SHOW WHICH SERVER AND MAP and SHOW "LAST SEEN"):
    GET  /api/presence/compete/board?scope=network|c:<slug>|s:<server id>
         &ladder=match|dm&page=N              50 to a page
    GET  /api/presence/compete/player/<username>
    GET  /api/presence/compete/me             signed in: all of one's own
    GET  /api/presence/compete/match/<id>
-   GET  /api/presence/compete/servers        rated servers and their flags
-   POST /api/presence/compete/servers/<server id>          { network }
+   GET  /api/presence/compete/servers        rated servers and their flags;
+        ?all=1, an H9 admin's: every enrolled server
+   POST /api/presence/compete/servers/<server id>   { unranked, void: { from,
+        to }, confirm: "VOID", note }  (admins)
    POST /api/presence/compete/communities/<slug>           { ladder }
    POST /api/presence/compete/communities/<slug>/servers/<server id>
                                                            { counts }
@@ -305,48 +371,204 @@
    POST /api/presence/compete/matches/<id>/dispute         { reason }
    GET  /api/presence/compete/disputes?status=open|resolved|all  (admins)
    POST /api/presence/compete/disputes/<id>/resolve        { note }
-   GET  /api/presence/compete/levels                       (admins) the rule
-   POST /api/presence/compete/levels  { rule, eloBase, eloPerLevel, matchXp,
-        winXp, kdaMin, kdaMax, eloMultMin, eloMultMax, xpPerLevel }  (admins)
+   GET  /api/presence/compete/seasons    the season under way and the past ones
+   GET  /api/presence/compete/board?...&season=N    a past season's standings
+   POST /api/presence/compete/season/reset    { confirm: "RESET" }  (admins)
+   POST /api/presence/compete/season/restart  { confirm: "SEASON 1" }  (admins)
+   GET  /api/presence/compete/levels   (admins) the settings and the estimate
+   POST /api/presence/compete/levels  { matchXp, winXp, killXp, kdaMin,
+        kdaMax, eloMultMin, eloMultMax, xpBase, xpPower, showZero }  (admins)
+   GET  /api/presence/compete/accounts/<name>   (moderators) a whole rank,
+        its experience and its adjustments
+   POST /api/presence/compete/accounts/<name>/adjust   (admins) { field:
+        "elo" | "xp", scope, ladder, set | by, note, password }
+   GET  /api/presence/compete/rank/<username>   anyone's rank (section 8c)
  A private community's ladder, its servers' tables and their matches are
  for its members (and H9's site admins) only.
 
 
  8a. ACCOUNT LEVELS: LV 0 TO 99
  ------------------------------
- Every havoc9.org account has one level, from the H9 ladder's MATCH table
- (scope "n"). An account with no rated match there is Lv 0. H9's site admins
- pick the rule, and its tuning, in the admin panel (ADMIN, LEVELS):
-   ELO bands  Lv = (rating - the rating at Lv 1) / rating points a level + 1,
-              rounded down, from 1 to 99. It moves up and down with the
-              rating, decay included. Defaults: 800 at Lv 1, 20 a level, so
-              a new player's first win (1100) is Lv 16
-   career     each match the H9 ladder rates gives each player who played
-              it out (100 + 50 for a win) x their kills-to-deaths factor
-              ((kills + 1) / (deaths + 1), kept between 0.5 and 2) x their
-              rating / 1000 (kept between 0.5 and 2) experience; Lv = the
-              square root of (experience / 50), rounded down, from 1 to 99.
-              It only rises. A leaver gets none, and a voided match's
-              experience is taken back
- Changing the rule or its tuning works every account's level out again at
- once (the audit log: presence.compete.levels).
+ Every havoc9.org account's level is its career: overall experience from
+ play, on top of the compts rating, which stays the skill figure. The badge
+ always shows the career level; the H9 ladder's MATCH rating shows beside it
+ as the ELO figure, in thousands ("1.2K ELO": one decimal under 10K, a ".0"
+ dropped, "5K ELO"), on the forum (a post's author and the profile), in the
+ RANK block, on the ladder and in .rank.
+
+ Experience, for proven players only, where the match counts for the H9
+ ladder (not on a roleplay map, not on an UNRANKED server):
+   a kill       killXp (1) to the killer, for each kill of a proven player
+                (not a team kill, not past the pair cap)
+   a match      each proven player who plays it out: half its rounds or
+                more, and not leaving; a match that finished (not
+                cancelled) and lasted minSeconds (5 minutes)
+   a DM map     each proven player there at its end who played minSeconds
+                of it
+ A match's or a map's experience is (matchXp 100, + winXp 50 for a result
+ rated on the H9 ladder and won) x the kills-to-deaths factor ((kills + 1) /
+ (deaths + 1), proven players only, kept between 0.5 and 2) x the rating
+ factor (the player's H9 ladder rating for that ladder / 1000, kept between
+ 0.5 and 2). So a match with bots, or Wave Survival, gives the experience for
+ playing it out and no win. A leaver gets none, a voided match's experience
+ (its kills' too) is taken back, and a season's reset keeps it: it is the
+ account's, over every season. Admins can adjust it (section 8d).
+
+ The level: Lv = 1 + (experience / xpBase) ^ (1 / xpPower), rounded down,
+ from 1 to 99, so Lv L needs xpBase x (L - 1) ^ xpPower experience; Lv 0
+ with none at all. It only rises from play. Defaults xpBase 20 and xpPower
+ 2.3, the road the user asked for: early levels in a few evenings, the
+ middle in months, Lv 99 in years of regular play. A typical active hour
+ (3 matches or DM maps, half of them with a rated result and half of those
+ won, and 40 kills of proven players, at a factor of 1 and a rating of 1000)
+ gives about 378 experience. At the defaults:
+   Lv 10   3 132 experience      about 8 hours of active play
+   Lv 25   29 890                about 79 hours (two months at 10 a week)
+   Lv 50   154 341               about 409 hours (nine to ten months)
+   Lv 75   398 349               about 1 055 hours (two years)
+   Lv 99   760 064               about 2 013 hours (four years)
+ The LEVELS tab works the same table out live from the settings in force
+ (compete.js levelEstimate; TYPICAL_HOUR holds the typical hour). Saving the
+ settings works every account's level out again at once (the audit log:
+ presence.compete.levels).
+
+ No privacy switch hides a level or a rating: SHOW MY PLAYTIME hides
+ playtime and presence only. Lv 0, an account with no experience yet, shows
+ its Lv 0 badge everywhere, the game included, unless the admins set AN
+ ACCOUNT WITH NO EXPERIENCE to "No badge or level at all" (showZero, on by
+ default).
 
  Where it shows:
-   * in game, by the name on the scoreboard, "Lv N": h9web's answer to each
-     presence report gives each proven player's level ("levels", per slot),
-     and h9_presence (1.6) tells every client in the H9Level user message
-     (byte slot, byte level, 255 for none; a joining client gets the whole
-     table, and a slot that empties is cleared). H9's client.dll draws it.
-     It shows on every server that reports, rated or not. Bots, players
-     without an account and games that did not prove their player id show
-     none;
-   * on havoc9.org: the LEVEL column of every ladder table, and the
-     player's page ("ANN . LV 16"), under the SHOW MY PLAYTIME switch.
+   * in game, as the level's badge before the name on the scoreboard:
+     h9web's answer to each presence report gives each proven player's
+     level ("levels", per slot), and h9_presence (1.6) tells every client in
+     the H9Level user message (byte slot, byte level, 255 for none; a
+     joining client gets the whole table, and a slot that empties is
+     cleared). H9's client.dll draws it (reTS cl_dll\vgui_ScorePanel.cpp,
+     H9 LEVELS and H9 LEVEL BADGES): the picture
+     gfx\vgui\h9_levels\lv-<N>.tga, scaled to the row as the player's
+     picture is, or the text "Lv N" where that picture is missing. It shows
+     on every server that reports, rated or not. Bots, players without an
+     account and games that did not prove their player id show none;
+   * on the forum, as a badge beside the name: each post's author (with
+     its ELO figure), the thread and category lists (author and last
+     poster), "Started by" on a thread, and a large badge with its ELO
+     figure on the member profile, the page the game's profile link opens;
+     the player's card and the ACCOUNT page too;
+   * on the ladder: the LEVEL column of every table, and the player's page;
+   * the RANK block, on the ACCOUNT page under the player's card and on the
+     member profile under theirs: the badge (72 px), "LV N" and the ELO
+     figure, "SEASON N, SINCE <date>", the H9 ladder's rating and place,
+     this season's matches won and lost, kills, deaths (and assists) and
+     K/D, and the career's experience. With no rated match it says "No
+     ranked matches yet this season." It comes in the presence views'
+     "rank" (compete.js, rankOf), the same for everyone; the batch read for
+     authors leaves it out. presence.js's renderRank draws it, and a
+     profile's data-h9-presence="rank" shares the card's one read.
+ One renderer draws every badge on the site: presence.js's levelBadge,
+ which fills any element marked data-h9-level="<username>" from the presence
+ views' "level", read in batches and cached. The pictures are
+ havoc9.org/assets/levels/lv-<N>-24.png, -48.png and -96.png, Lv 0 to 99 (a
+ picture that does not load leaves its alt and title, "Lv N"), and the
+ game's copies gfx\vgui\h9_levels\lv-<N>.tga (64 x 64 with alpha), in the
+ Xash overlay, H9XASH and reTS\binaries\ts; export.bat takes them into the
+ package, and from there they reach the repo and the web client.
+ modelling/make-level-badges.mjs draws them all. Its CONFIG, TIERS and
+ UNRANKED decide the look: a new shape and more ornament every ten levels,
+ in H9's purples, and for Lv 0 the first tier's disc, darker, with a dashed
+ rim and a lavender number. A rerun takes about fifteen seconds, and
+ D:/temp/level-badges-sheet.png shows them all, Lv 0 in its last cell.
 
  Kept: compete_levels (each account's level and experience, worked out again
- whenever its H9 ladder rating, its experience or the settings change),
- compete_xp (each rated H9 ladder match's experience per player) and
- compete_config (the settings), the presence module's migration 8.
+ whenever its experience or the settings change), compete_xp (each match's
+ experience per player, its kills' and its end's) and compete_config (the
+ settings), the presence module's migration 8; compete_adjustments (an
+ admin's changes to the experience add into it), migration 11.
+
+
+ 8b. SEASONS
+ -----------
+ The ladder plays in seasons, numbered from 1. Each table shows "SEASON N,
+ SINCE <date>", with links to every past season's final standings.
+
+ An H9 site admin ends one in the admin panel: ADMIN, LEVELS, COMPETITIVE
+ SEASON, RESET THE COMPETITIVE SEASON, confirmed by typing RESET. Then,
+ in order:
+   1. h9web copies its database into the data folder's backups
+      (pre-season-reset-<N>-<time>.db, the same kind of copy a migration
+      makes). If it cannot, nothing is reset;
+   2. every table's standings are archived as season N's
+      (compete_season_standings), readable on the ladder ever after;
+   3. season N ends and season N+1 begins, with everyone unrated: no
+      ratings. The career levels and their experience stay, since they are
+      each account's over every season;
+   4. the audit log records it (presence.compete.season.reset).
+ Each account's next rated kill or match starts it again from the normal
+ starting rating, 1000. The matches themselves stay, each marked with its
+ season; a void of an earlier season's match takes its experience back and
+ changes no rating in the current one.
+
+ BACK TO SEASON 1 (the same box, typed SEASON 1): h9web copies its database
+ first (pre-season-1-from-<N>-<time>.db), then every archived season goes,
+ with its final standings, and the season under way becomes Season 1 from
+ when it started. Its tables, the levels and the career experience stay as
+ they are, and every match and adjustment counts as season 1's. The audit
+ log records it (presence.compete.season.restart).
+
+
+ 8c. ONE ACCOUNT'S RANK: .RANK IN GAME, AND THE API
+ ---------------------------------------------------
+ In game, h9_rank.amxx (configs\h9_rank.cfg, COMMANDS.txt RANKS):
+   .rank          the asker's own rank
+   .rank <name>   the player on this server named <name> (an exact name
+                  first, else the one name with <name> in it; several
+                  such names are listed back), else the havoc9.org account
+                  named <name>
+ /rank, !rank, /elo and !elo do the same (they were h9_compete's say /rank).
+ The answer goes to the asker alone, a chat line and the whole readout in
+ their console, and what they typed is not shown in the chat: the career
+ level and its experience, the season, and for the H9 ladder and this
+ server's table the rating and place, the season's matches won and lost,
+ kills, deaths, headshots, assists where a server counted them, and K/D. A
+ bot, or a player not signed in to a havoc9.org account proven on this
+ server, is "not signed in: no rank". It asks h9web through the signed call
+ rank (section 6), with h9_presence's address and key, and h9_rank_cooldown
+ (5 s) between one player's asks.
+
+ On the site, GET /api/presence/compete/rank/<username>, read-only, any
+ case, rate-limited per address (presence's readPerIp):
+   { username, private: false, level, rule: "career", xp, elo, season:
+     { number, started, ended }, ladders: [ { scope, kind, name, ladder,
+     elo, place, matches, wins, losses, kills, deaths, headshots, assists,
+     kd } ] }
+ level the career level as publicLevel has it (null for Lv 0 with showZero
+ off); xp its experience; elo the H9 ladder's MATCH rating, null with no
+ rating yet; ladders every table the viewer may see (a private community's
+ only to its members), the H9 ladder first, then servers', then
+ communities', MATCH before DM; place among the players of that table; kd
+ kills per death to two places, a player with no deaths their kills;
+ assists a number where a server counted them, else null. The same answer
+ for everyone, whatever the account's switches; cacheable for a reader who
+ is not signed in. No such account: 404.
+
+
+ 8d. AN ADMIN'S RANK ADJUSTMENT
+ ------------------------------
+ On an account's page in the admin panel (ADMIN, ACCOUNTS, an account), the
+ RANK box shows its career level and experience, the next level's
+ experience, each table's rating, place and numbers, and every adjustment
+ made. Moderators look it up in ACCOUNTS, RANK, and see the same, read-only.
+ An H9 site admin ADJUSTS: a table's rating (the H9 ladder's, a server's or a
+ community's, MATCH or DM) or the career's experience, set to a value or
+ moved by an amount, with a note of 3 to 200 characters and their own
+ password; never on their own account or another admin's. The change is
+ kept (compete_adjustments: before, after, the note, who and when), the
+ level is worked out again at once, and the audit log records it against
+ the account (presence.compete.adjust), so it shows in the account's trail.
+ An experience adjustment adds into the career's sum from then on; a
+ rating adjustment sets that table's rating as it is now.
+
+
 
 
  9. INTEGRITY: WHAT A SERVER COULD FAKE, AND WHAT H9WEB CHECKS
@@ -369,17 +591,17 @@
  the pair cap. What it cannot check is what really happened in a match.
  Each table is only as honest as the servers it counts, and the LADDER
  page says so. The remedies are DISPUTE, VOID, unticking COUNTS FOR THE
- LADDER, taking a server off the H9 ladder, and revoking its key.
+ LADDER, marking a server UNRANKED (with its past matches voided if need
+ be), an admin's rank adjustment, and revoking its key.
 
 
  10. PRIVACY
  -----------
- The ACCOUNT page's switches (docs\H9_PRESENCE.txt, section 6) decide what
- others see. There is no switch of its own:
-   SHOW MY PLAYTIME           ratings, ranks and numbers, on the boards and
-                              the player's page; off: left off every board
-                              (the ranks close up), and the rating is not
-                              told to everyone in game
+ Rank data shows for every account, whatever its switches: the career level,
+ the ratings, places and numbers on the boards, the player's page, .rank and
+ the RANK block, and the level in game. The ACCOUNT page's switches
+ (docs\H9_PRESENCE.txt, section 6) hide where and when a player plays:
+   SHOW MY PLAYTIME           the playtime and presence only
    SHOW WHICH SERVER AND MAP  off: the player's matches are not listed, and
                               a match page shows them as "a hidden player"
    SHOW "LAST SEEN"           off: the player's matches are not listed
@@ -393,13 +615,21 @@
  11. COMMANDS, CVARS, SETTINGS AND FILES
  ---------------------------------------
  In game (COMMANDS.txt, RATED PLAY):
-   say /rank (/elo, !rank, !elo)   your rating here and on the H9 ladder
+   .rank [name]                    (h9_rank) one account's rank, to the asker
+                                   alone (section 8c); /rank, !rank, /elo and
+                                   !elo do the same
    h9_compete_status               (server console) the ladder, the key,
                                    the match under way, kills waiting
  Cvars (configs\h9_compete.cfg):
-   h9_compete          0     1: rated (needs h9_presence's live key)
+   h9_compete          1     1: rated (needs h9_presence's live key)
    h9_compete_ladder   auto  auto, match, dm or off
    h9_compete_notice   1     the join lines
+ Cvars (configs\h9_rank.cfg):
+   h9_rank_command     1     .rank answers (0: left alone)
+   h9_rank_cooldown    5     seconds between one player's asks (1 to 60)
+ The level's settings (the admin panel's LEVELS tab, compete_config):
+   matchXp 100, winXp 50, killXp 1, kdaMin 0.5, kdaMax 2, eloMultMin 0.5,
+   eloMultMax 2, xpBase 20, xpPower 2.3 (1 to 5), showZero on
  h9web settings, moduleSettings.presence.compete (each has a default):
    startElo 1000, killPoints 1, headshotPoints 1, bonusPer 100,
    winPoints 100, lossPoints 70, decayAfterDays 30, decayPerDay 10,
@@ -409,56 +639,69 @@
    disputePerAccount }
  ts_matchmode's API (include\tsm_api.inc), as h9_compete uses it:
    tsm_round_live, tsm_match_complete, tsm_match_forfeit (forwards);
-   tsm_match_running, tsm_side_of, tsm_score (natives). tsm_match_forfeit
-   and tsm_score were added for this.
+   tsm_match_running, tsm_side_of, tsm_score, tsm_assists (natives).
+   tsm_match_forfeit and tsm_score were added for this, and tsm_assists for
+   the assists, guarded by h9_compete's native filter.
  Files:
    h9_compete.sma, h9_compete.cfg           the plugin and its settings
-   H9XASH\presets\h9_compete.<preset>.cfg   on in Siege, TeamElimination
+   h9_rank.sma, h9_rank.cfg                 .rank and its settings
+   H9XASH\presets\h9_compete.<preset>.cfg   the Siege and TeamElimination copies
    h9web\modules\presence\compete.js        the rule, the routes, the views
-   h9web\modules\presence\migrations.js     versions 5 and 8: the tables
+   h9web\modules\presence\migrations.js     versions 5, 8, 9, 10, 11: the tables
+   h9web\modules\presence\modes.js          roleplayMap, the roleplay rule
+   havoc9.org\admin\admin.js                LEVELS (settings, the road to 99,
+                                            RANKED SERVERS, the seasons) and
+                                            an account's RANK box
    h9web\test\compete.test.js               the tests
    havoc9.org\ladder\index.html, havoc9.org\assets\ladder.js   the page
+   havoc9.org\assets\presence.js            renderRank, the RANK block
+   modelling\make-level-badges.mjs          the level badges, both kinds:
+   havoc9.org\assets\levels\lv-<N>-<24|48|96>.png   the site's
+   ts\gfx\vgui\h9_levels\lv-<N>.tga        the scoreboard's (client.dll:
+                                            reTS cl_dll\vgui_ScorePanel.cpp)
 
 
  12. TESTS AND BUILDS
  --------------------
    node --test --test-concurrency=1 test/compete.test.js
- 15 tests: a kill, a headshot and the bonus with the README's numbers;
- team kills, unproven players and suicides; batch order and duplicates; a
- forged call; a rated match with a leaver; too short, too few rounds, bots
- and a cancel; NETWORK LADDER and its rules; the boards, the player page and
- the match page under the privacy switches; a void and a dispute; a
- community's ladder and a staff void; say /rank; a deleted account; DM
- places; the pair cap; abandoning and decay; the settings; and the levels:
- Lv 0 with no rated match, the ELO rule up and down, the report answer's
- levels for proven players only, the career rule's experience (and a void
- taking it back), the admin settings and their checks. The whole suite:
- node --test --test-concurrency=1 "test/*.test.js" (272 on 2026-11-02).
- The plugin builds with build.bat (it is in TARGETS), with no warnings.
+ 41 tests: a kill, a headshot and the bonus with the README's numbers; team
+ kills, unproven players and suicides; batch order and duplicates; a forged
+ call; a rated match with a leaver; too short, too few rounds, bots and a
+ cancel; every server on the H9 ladder, unproven players stopping nothing,
+ UNRANKED with its void; roleplay maps refused; a server h9web does not know
+ refused before anything is kept; the boards and the player page under the
+ privacy switches; a void and a dispute; a community's ladder and a staff
+ void; the join line's rating; a deleted account; DM places; the pair cap;
+ abandoning and decay; the settings; the career level, its experience and
+ curve, a void taking it back, the estimate; the level beside a name and in
+ game for every account; bots and unproven players; seasons, and back to
+ season 1; the rank API, the RANK block and .rank; assists; an admin's rank
+ adjustment. The whole suite: node --test --test-concurrency=1
+ "test/*.test.js". The plugins build with build.bat (both are in TARGETS),
+ with no warnings.
 
 
  13. LEFT FOR LATER, AND DECISIONS
  ---------------------------------
  Not built yet:
-   * a LADDER tab on the community page, and a COMPETITIVE tab in the admin
-     panel. Both pages belong to other work, so the LADDER page carries
-     those switches for now;
+   * a LADDER tab on the community page. It belongs to other work, so the
+     LADDER page carries the community's switches for now;
    * h9web reading a server's rules (A2S_RULES) when a match starts, and
      flags for unusual numbers or opponents on one network;
    * an end report that survives a map change. An end lost that way leaves
      the match abandoned, with its kills counted and its result lost;
-   * Steam players, seasons, progression levels, and match results sent to
-     Discord.
+   * Steam players, and match results sent to Discord.
  Decisions taken: Elo as compts has it, per kill, with match results on top
- (the README's +100 and -70). There is one MATCH ladder and one DM ladder,
- and Wave Survival is not rated. The H9 ladder's rules are as in section 5.
- Steam players are left out, and only H9's site admins set NETWORK LADDER.
- The existing privacy switches decide what shows, and a deleted account
- shows as "a deleted player". Leavers and forfeits lose.
+ (the README's +100 and -70). There is one MATCH ladder and one DM ladder.
+ Ranked play is always on: every mode, Wave Survival and TS's own maps
+ included, on every enrolled server, roleplay maps excepted and UNRANKED
+ servers left out. Kill points between proven players always count; results
+ only without bots. Unproven players hold up nothing. The badge is the career
+ level, overall experience on top of the rating, and no privacy switch hides
+ a level or a rating. Steam players are left out, and a deleted account shows
+ as "a deleted player". Leavers and forfeits lose.
  Open:
-   * should match results move ratings (now +100 / -70), or only kills?
-     winPoints and lossPoints decide it;
    * should kills in a cancelled match keep counting, as compts's did?
-   * should the base h9_compete.cfg be on, and should the match presets be?
-     (now: base off, Siege and TeamElimination on);
    * is the pair cap of 30 kills a day right?
+   * the typical hour behind the estimate (3 matches, 40 kills) is a guess
+     until real play shows the numbers.

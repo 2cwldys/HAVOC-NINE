@@ -1,0 +1,63 @@
+diff --git a/engine/server/sv_frame.c b/engine/server/sv_frame.c
+index 9f955e7c..7d6eeb09 100644
+--- a/engine/server/sv_frame.c
++++ b/engine/server/sv_frame.c
+@@ -601,6 +601,47 @@ static void SV_WriteClientdataToMessage( sv_client_t *cl, sizebuf_t *msg )
+ 	MSG_WriteOneBit( msg, 0 );
+ }
+ 
++// H9: where svs.next_client_entities is brought down (SV_H9RebaseClientEntities), a quarter of
++// the way to the wrap check in SV_WriteEntitiesToClient
++#define SV_H9_ENTITY_REBASE	0x40000000
++
++/*
++==================
++SV_H9RebaseClientEntities
++
++H9: svs.next_client_entities grows by every entity of every frame built for a real client, and
++on a full 64-slot server it would reach the wrap check in SV_WriteEntitiesToClient, which
++reconnects every client, within one to two hours. Long before that this brings it down by a
++multiple of the ring's size: every frame still in the ring keeps its place there and stays a
++valid delta base, and a frame already rolled off the ring stays rolled off.
++==================
++*/
++static void SV_H9RebaseClientEntities( void )
++{
++	const int ring = svs.num_client_entities;
++	int shift;
++
++	if( ring <= 0 || svs.next_client_entities < ring * 2 )
++		return;
++
++	// a multiple of the ring and at most next - ring, so every frame still in the ring starts above it
++	shift = (( svs.next_client_entities - ring ) / ring ) * ring;
++
++	for( int i = 0; i < svs.maxclients; i++ )
++	{
++		client_frame_t *frames = svs.clients[i].frames;
++
++		if( !frames )
++			continue;
++
++		for( int j = 0; j < SV_UPDATE_BACKUP; j++ )
++			frames[j].first_entity = frames[j].first_entity > shift ? frames[j].first_entity - shift : 0;
++	}
++
++	svs.next_client_entities -= shift;
++	Con_Reportf( "%s: the entity counter brought down by %d\n", __func__, shift );
++}
++
+ /*
+ ==================
+ SV_WriteEntitiesToClient
+@@ -639,6 +680,10 @@ static void SV_WriteEntitiesToClient( sv_client_t *cl, sizebuf_t *msg )
+ 	// of an entity being included twice.
+ 	qsort( frame_ents.entities, frame_ents.num_entities, sizeof( frame_ents.entities[0] ), SV_EntityNumbers );
+ 
++	// H9: brought down long before the wrap check below can be reached
++	if( svs.next_client_entities >= SV_H9_ENTITY_REBASE )
++		SV_H9RebaseClientEntities();
++
+ 	// it will break all connected clients, but it takes more than one week to overflow it
+ 	if(( (uint)svs.next_client_entities ) + frame_ents.num_entities >= 0x7FFFFFFE )
+ 	{

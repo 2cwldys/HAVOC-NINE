@@ -65,6 +65,12 @@
 #define TSM_CORE
 #include <tsm_api>
 
+/*
+ * H9 VGUI: an H9 game draws the side and class menus as panels, the AMX menus kept underneath
+ * and answering as before (docs\H9_VGUI.txt). build.bat syncs the file into scripting\include.
+ */
+#include <h9_vgui>
+
 #define PLUGIN  "TS Match Mode"
 #define VERSION "0.7"
 #define AUTHOR  "tsm"
@@ -85,7 +91,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.54-gameplay7"
+#define TSM_BUILD "1.54-gameplay9"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -978,6 +984,7 @@ new g_gamedesc[64];
  * cleanup from fw_client_disconnect_xash. On GoldSrc none of them run.
  */
 new bool:g_xash;
+new bool:g_has_ppsh;    // the game library has the PPSh-41 (weapon 39): reTS registers h9_ppsh41
 
 // Facing for each team spawn. Only meaningful for config-placed spawns -- the
 // entity scan has no angles to copy, so it leaves players looking wherever they
@@ -1010,6 +1017,17 @@ new g_mode_name[16];          // the claimant's key, "uplink" or "survival"; emp
 new g_mode_desc[64];          // what the server browser shows while the mode runs
 new g_mode_flags;             // TSM_MODE_* bits the claim asked for
 new g_mode_hud[48];           // the mode's own text on the round line ("WAVE 12")
+new g_count_text[64];         // a mode's own countdown on the match bar (tsm_hud_count), {s} its seconds
+new Float:g_count_until;      // when that countdown runs out
+
+// THE MATCH BAR (bar_set): the round line, the freeze countdown and the warmup readout, for a game
+// that draws it, as two lines on the banner art under TS's notice band, sent again only on a change.
+new g_bar_text[160];          // the bar's two lines; {t} (m:ss) or {s} (seconds) for its clock
+new g_bar_rgb[3];
+new g_bar_clock = -1;         // the clock's seconds as it was set, -1 for none
+new Float:g_bar_end;          // the game time its clock runs out
+new g_bar_sig_sent[MAXPL];    // per player: what he was last sent, 0 nothing
+new Float:g_bar_end_sent[MAXPL];
 new Float:g_wave_secs[3];     // a side's wave interval while the mode runs; 0 = tsm_respawn_wave
 new g_wave_num[3];            // natural waves fired this round, per side
 new g_fw_round_start = -1, g_fw_round_live = -1, g_fw_round_end = -1, g_fw_timeout = -1;
@@ -1189,6 +1207,40 @@ new g_maxplayers;            // the slot count, read once at precache: players a
 #define TSM_ASSIST_MIN 30.0
 #define TSM_ASSIST_HITS 48
 new g_msg_assists;                         // H9Assists, registered at precache
+
+/*
+ * SCORE (tsm_score 1). A player's points for the match are his frags on TS's own scoreboard -- the
+ * number every scoreboard already draws in its kill column and sorts by, as TS itself counts a
+ * briefcase captured as frags -- and each side's points are its TeamScore, the total in its header.
+ * The points: tsm_score_kill for an enemy eliminated, tsm_score_teamkill for a teammate (a penalty),
+ * tsm_score_assist an assist, tsm_score_heal a medic's heal, tsm_score_resupply an engineer's resupply
+ * that gave rounds, tsm_score_plant the siege satchel set, tsm_score_objective a siege objective
+ * destroyed; and from the mode plugins through tsm_points_award, tsm_score_zone an uplink zone taken,
+ * tsm_score_carry for every tsm_score_carry_secs seconds carrying the uplink, and tsm_score_wave a
+ * survival wave cleared while still in play. Every one is a cvar, so a map's mapconfig sets its own.
+ * Cleared as each match begins and kept through the warmup after it. TS's own ScoreInfo and
+ * TeamScore are rewritten to the points (msg_scoreinfo, msg_teamscore), so its +1 for a kill never
+ * shows; a side's total keeps what its players earned even after they leave.
+ */
+new g_cv_score, g_cv_sc_kill, g_cv_sc_teamkill, g_cv_sc_assist, g_cv_sc_heal, g_cv_sc_resupply;
+new g_cv_sc_plant, g_cv_sc_objective, g_cv_sc_zone, g_cv_sc_carry, g_cv_sc_carrysecs, g_cv_sc_wave;
+new g_points[MAXPL];                       // this match's points
+new g_points_side[3];                      // each side's points this match
+new g_deaths_side[3];                      // each side's eliminations this match, its TeamScore deaths
+new g_carry_secs[MAXPL];                   // seconds carried toward the next tsm_score_carry
+new g_score_class[MAXPL];                  // the playerclass and team number TS last sent in his
+new g_score_teamnum[MAXPL];                // ScoreInfo, for the ones this plugin sends
+new g_msg_scoreinfo, g_msg_teamscore;      // TS's own ScoreInfo and TeamScore
+
+/*
+ * The real kills, for the H9 scoreboard's K column while the frags are points: H9Kills (byte slot,
+ * short kills), every enemy a player eliminated on this map, like the assists and TS's deaths
+ * beside them. Slot 0 says this server's frags are points, which a joining client is told first:
+ * the reTS scoreboard then heads its frags column SCORE and shows these as K. Sent only while
+ * tsm_score is 1; without it the frags are TS's own kills and nothing else is needed.
+ */
+new g_msg_kills;                           // H9Kills, registered at precache
+new g_kills[MAXPL];                        // enemies eliminated on this map
 
 /*
  * Lives, for the reTS scoreboard's LIVES column and its team totals (it sums a side's rows). Each
@@ -2526,7 +2578,7 @@ parse_weapon_list(idx, team, const field[])
 
 		strtok(pair, wpart, charsmax(wpart), cpart, charsmax(cpart), ':', 0);
 		new wid = str_to_num(wpart);
-		if (wid < 1 || wid > 36)
+		if (wid < 1 || (wid > 36 && wid != TSW_PPSH41))
 		{
 			tlog("[TSM] class %d team %d: ignoring out-of-range weapon id %d", idx + 1, team, wid);
 			continue;
@@ -3223,6 +3275,9 @@ build_team_menu()
 	 * Sent raw with show_menu() rather than built with menu_create(): AMXX strips every code out
 	 * of a menu_create() menu on a mod it does not know, and TS is one, which is why these menus
 	 * were plain white. No title line either, just the choices.
+	 *
+	 * An H9 game draws the menu on a panel instead, from the same text: show_team_menu sends it
+	 * with h9vgui_show_menu (h9_vgui.inc).
 	 */
 
 	// Displayed names fall back to the join names when no long label is configured,
@@ -3313,7 +3368,8 @@ show_team_menu(id)
 	match_chat(id, "[MATCH] Sides: %s %d -- %d %s",
 		sn1, count_on_team(1), count_on_team(2), sn2);
 
-	show_menu(id, g_team_menu_keys, g_team_menu_text, -1, TSM_SIDE_MENU);
+	// Every game gets the text menu; an H9 game draws it on a panel (h9_vgui.inc).
+	h9vgui_show_menu(id, g_team_menu_keys, g_team_menu_text, -1, TSM_SIDE_MENU, "tsm.side", "Pick a side");
 	dbg("showed side menu to %d", id);
 	match_chat(id, "[MATCH] Close any TS menu first, then press a number. Type .team to bring this back.");
 }
@@ -3603,7 +3659,9 @@ show_class_menu(id)
 	}
 
 	g_class_menu_at[id] = get_gametime();
-	show_menu(id, keys, text, -1, TSM_CLASS_MENU);
+	// Every game gets the text menu; an H9 game draws it on a panel, a full class dim as in the
+	// text, and sends only a 30-byte TWIN while the rows are the same (h9_vgui.inc).
+	h9vgui_show_menu(id, keys, text, -1, TSM_CLASS_MENU, "tsm.class", "Pick a class");
 	dbg("showed class menu to %d", id);
 }
 
@@ -4085,8 +4143,10 @@ public plugin_precache()
 	// Begun with fakemeta's EngFunc_MessageBegin: AMX Mod X's message_begin refuses a
 	// message a plugin registered, because Metamod-R records only the game DLL's own.
 	g_msg_assists = engfunc(EngFunc_RegUserMsg, "H9Assists", 3);
+	g_msg_kills = engfunc(EngFunc_RegUserMsg, "H9Kills", 3);
 	g_msg_lives = engfunc(EngFunc_RegUserMsg, "H9Lives", 3);
 	g_msg_board = engfunc(EngFunc_RegUserMsg, "H9Board", -1);
+	h9vgui_precache(); // H9Vgui, the panels' message (h9_vgui.inc)
 	arrayset(g_lives_sent, -1, sizeof g_lives_sent);
 
 	/*
@@ -4098,6 +4158,7 @@ public plugin_precache()
 	 * is made here: precache runs for every plugin before any plugin_init does.
 	 */
 	g_xash = cvar_exists("host_ver") != 0;
+	g_has_ppsh = cvar_exists("h9_ppsh41") != 0;
 	if (g_xash && !cvar_exists("sv_visiblemaxplayers"))
 	{
 		register_cvar("sv_visiblemaxplayers", "-1");
@@ -4630,10 +4691,16 @@ public plugin_natives()
 	register_native("tsm_wave_seconds",  "native_wave_seconds");
 	register_native("tsm_fire_wave",     "native_fire_wave");
 	register_native("tsm_hud_line",      "native_hud_line");
+	register_native("tsm_hud_count",     "native_hud_count");
+	register_native("tsm_bar_shown",     "native_bar_shown");
 	register_native("tsm_state",         "native_state");
 	register_native("tsm_side_of",       "native_side_of");
 	register_native("tsm_in_play",       "native_in_play");
 	register_native("tsm_shown",         "native_shown");
+	register_native("tsm_points",        "native_points");
+	register_native("tsm_points_side",   "native_points_side");
+	register_native("tsm_points_award",  "native_points_award");
+	register_native("tsm_assists",       "native_assists");
 	register_native("tsm_side_alive",    "native_side_alive");
 	register_native("tsm_give_powerup",  "native_give_powerup");
 	register_native("tsm_match_desc",    "native_match_desc");
@@ -4671,7 +4738,7 @@ public plugin_init()
 
 	g_cv_enabled   = register_cvar("tsm_enabled",     "1");
 	// 0: none of this plugin's "[MATCH]" chat lines (match_chat). The centre texts stay.
-	g_cv_verbosity = register_cvar("tsm_verbosity",   "1");
+	g_cv_verbosity = register_cvar("tsm_verbosity",   "0");
 	// Per-map, not a hardcoded map name: set in ts/mapconfigs/<mapname>.cfg (h9_autoconfig
 	// execs it after that map loads), so turning this on/off for any map is a .cfg edit,
 	// not a recompile. See clean_all_weapons() and mapconfigs/h9_tsrp_hive.cfg.
@@ -4940,6 +5007,20 @@ public plugin_init()
 	g_cv_scalelimits  = register_cvar("tsm_scale_limits",     "1");       // added to each class limit per tier
 	g_cv_scalelives   = register_cvar("tsm_scale_lives",      "0");       // added to each class's lives per tier
 	g_cv_scalelivestiers = register_cvar("tsm_scale_lives_tiers", "");    // the extra lives at each tier; empty: the tier
+
+	// SCORE: the points a match gives, on the scoreboard as frags and each side's total.
+	g_cv_score        = register_cvar("tsm_score",             "1");     // 0 leaves TS's own frags alone
+	g_cv_sc_kill      = register_cvar("tsm_score_kill",        "2");
+	g_cv_sc_teamkill  = register_cvar("tsm_score_teamkill",    "-3");
+	g_cv_sc_assist    = register_cvar("tsm_score_assist",      "1");
+	g_cv_sc_heal      = register_cvar("tsm_score_heal",        "1");
+	g_cv_sc_resupply  = register_cvar("tsm_score_resupply",    "1");
+	g_cv_sc_plant     = register_cvar("tsm_score_plant",       "2");
+	g_cv_sc_objective = register_cvar("tsm_score_objective",   "5");
+	g_cv_sc_zone      = register_cvar("tsm_score_zone",        "5");
+	g_cv_sc_carry     = register_cvar("tsm_score_carry",       "1");
+	g_cv_sc_carrysecs = register_cvar("tsm_score_carry_secs",  "15");
+	g_cv_sc_wave      = register_cvar("tsm_score_wave",        "3");
 	g_cv_scaletier    = register_cvar("tsm_scale_tier",       "0");       // set by the plugin: this round's tier
 
 	/*
@@ -5472,9 +5553,9 @@ public plugin_init()
 	// Class definitions. See ts_matchmode.cfg for the format.
 	// Name ; team1 weapons ; team2 weapons ; model ; hp ; armour ; perk
 	// Weapon ids are TS's own: 5 M4A1, 13 AK47, 22 Glock 20, 25 Combat Knife,
-	// 23 HK UMP, 18 Barrett M82, 32 M60.
+	// 23 HK UMP, 18 Barrett M82, 32 M60, 39 PPSh-41 (H9's reTS).
 	register_cvar("tsm_class1", "Assault;5:3,22:2;13:3,22:2;repuheavy|XCCPSoldier-wartorn,XCCPmutant;100;0;0");
-	register_cvar("tsm_class2", "Combat Engineer;23:3,22:2;23:3,22:2;scda_Spy02|XCCPsgts;100;0;1");
+	register_cvar("tsm_class2", "Combat Engineer;23:3,22:2;39:3,22:2;scda_Spy02|XCCPsgts;100;0;1");
 	register_cvar("tsm_class3", "Marksman;18:2,22:2;18:2,22:2;;85;0;0");
 	register_cvar("tsm_class4", "Heavy;32:2,22:2;32:2,22:2;repuheavyw|XCCPsgg;125;50;0;0.75");
 
@@ -5547,6 +5628,18 @@ public plugin_init()
 	if (msg_teaminfo)
 	{
 		register_message(msg_teaminfo, "msg_teaminfo");
+	}
+
+	// SCORE: TS's own scoreboard messages carry the points while tsm_score is 1.
+	g_msg_scoreinfo = get_user_msgid("ScoreInfo");
+	g_msg_teamscore = get_user_msgid("TeamScore");
+	if (g_msg_scoreinfo)
+	{
+		register_message(g_msg_scoreinfo, "msg_scoreinfo");
+	}
+	if (g_msg_teamscore)
+	{
+		register_message(g_msg_teamscore, "msg_teamscore");
 	}
 
 	register_forward(FM_CmdStart,       "fw_cmdstart");
@@ -5623,6 +5716,9 @@ public plugin_init()
 	g_class_menuid = register_menuid(TSM_CLASS_MENU);
 	register_menucmd(g_side_menuid,  1023, "team_menu_key");
 	register_menucmd(g_class_menuid, 1023, "class_menu_key");
+	// H9 VGUI: the panels standing for those two menus are tsm.side and tsm.class; this also
+	// registers h9_vgui, the server's switch for them (h9_vgui.inc).
+	h9vgui_init("tsm");
 
 	register_concmd("amx_match_start",   "cmd_start",   ADMIN_CFG, " - force the match live");
 	register_concmd("amx_match_cancel",  "cmd_cancel",  ADMIN_CFG, " - abort, send everyone to spectator, and return to warmup");
@@ -9295,7 +9391,7 @@ resolve_loadout(id)
 		}
 		strtok(pair, wpart, charsmax(wpart), cpart, charsmax(cpart), ':', 1);
 		new w = str_to_num(wpart);
-		if (w < 1 || w > 38)
+		if (w < 1 || w > TSW_PPSH41)
 		{
 			continue;
 		}
@@ -9313,10 +9409,19 @@ lo_count(id, ci, team)
 	return (g_lo_n[id] >= 0) ? g_lo_n[id] : g_class_wcount[ci][team];
 }
 
-/// The i-th weapon this arm gives, from the mode's answer or the class line.
+/// The i-th weapon this arm gives, from the mode's answer or the class line. A game library without the PPSh-41
+/// (TS 3.0's own, an older reTS) has no weapon 39: the UMP stands in for it.
 lo_wpn(id, ci, team, i)
 {
-	return (g_lo_n[id] >= 0) ? g_lo_wpn[id][i] : g_class_wpn[ci][team][i];
+	new w = (g_lo_n[id] >= 0) ? g_lo_wpn[id][i] : g_class_wpn[ci][team][i];
+	return (w == TSW_PPSH41 && !g_has_ppsh) ? TSW_UMP : w;
+}
+
+/// The highest weapon id a TSX native may be asked about on this game library: the PPSh-41's where there is one,
+/// else the thrown knife's (which is_gun_id passes over).
+top_weapon_id()
+{
+	return g_has_ppsh ? TSW_PPSH41 : TSW_TKNIFE;
 }
 
 /// The i-th weapon's spare figure, from the mode's answer or the class line.
@@ -10266,8 +10371,9 @@ top_up_reserve(target, rounds)
 
 	// Pass 1: the baseline, read BEFORE any write. That is what makes one
 	// caliber gain exactly `rounds` however many guns of it are carried.
-	new pre[39];
-	for (new w = 1; w <= 38; w++)
+	new pre[TSW_PPSH41 + 1];
+	new top = top_weapon_id();
+	for (new w = 1; w <= top; w++)
 	{
 		if (!is_gun_id(w))
 		{
@@ -10281,7 +10387,7 @@ top_up_reserve(target, rounds)
 	}
 
 	new total = 0;
-	for (new w = 1; w <= 38; w++)
+	for (new w = 1; w <= top; w++)
 	{
 		if (!is_gun_id(w))
 		{
@@ -10539,6 +10645,7 @@ medic_heal(id, target)
 	match_chat(target, "[MATCH] %s healed you to %d hp.", a, after);
 	center_tell(target, "%s healed you to %d hp.", a, after);
 	dbg("medic %d healed %d: %d -> %d", id, target, cur, after);
+	points_add(id, get_pcvar_num(g_cv_sc_heal), "a heal");
 }
 
 /*
@@ -11228,8 +11335,9 @@ public cmd_ammo(id)
 
 	// Pass 1: the baseline, read BEFORE any write. Shared calibers therefore
 	// share one baseline, which is what keeps the +25 per-caliber once.
-	new pre[39];
-	for (new w = 1; w <= 38; w++)
+	new pre[TSW_PPSH41 + 1];
+	new top = top_weapon_id();
+	for (new w = 1; w <= top; w++)
 	{
 		if (!is_gun_id(w))
 		{
@@ -11245,7 +11353,7 @@ public cmd_ammo(id)
 	// Pass 2: baseline +25, then read back. A full caliber returns exactly what
 	// it started with; an uncarried gun is refused and nothing moves.
 	new rounds = 0, guns = 0, full = 0;
-	for (new w = 1; w <= 38; w++)
+	for (new w = 1; w <= top; w++)
 	{
 		if (!is_gun_id(w))
 		{
@@ -12935,6 +13043,7 @@ siege_plant_now(id, ent, n)
 	g_plant_ent = ent;
 	g_plant_n = n;
 	g_plant_by = id;
+	points_add(id, get_pcvar_num(g_cv_sc_plant), "the satchel set");
 
 	// THE SUCCESS SOUND: the server's own plant.wav rings from the
 	// objective's spot, on the same channel the hold loop was using -- so
@@ -12951,6 +13060,7 @@ siege_plant_now(id, ent, n)
 siege_fall(id, ent, n)
 {
 	g_obj_taken = n;
+	points_add(id, get_pcvar_num(g_cv_sc_objective), "a siege objective");
 
 	// No one else's hold carries on past a fall: the chain has moved on.
 	for (new i = 1; i <= g_maxplayers; i++)
@@ -15629,6 +15739,10 @@ perk_use(id)
 			center_tell(hit, "%s resupplied you.", a);
 		}
 		dbg("engineer %d resupplied %d (+%d of %d rounds)", id, hit, gave, plan);
+		if (gave > 0)
+		{
+			points_add(id, get_pcvar_num(g_cv_sc_resupply), "a resupply");
+		}
 		return;
 	}
 
@@ -18255,6 +18369,8 @@ public fw_prethink(id)
 		assist_sync(id);
 		lives_sync(id);
 		board_sync(id);
+		points_send_sides(id);
+		kills_sync(id);
 	}
 
 	// The cloak's EF_NODRAW is for RCBot only: off for his own frame, so TS never sees it while
@@ -18817,6 +18933,7 @@ public fw_prethink(id)
 			lives_on_death(id);
 			// Same lookup as ev_death: a suicide genuinely has no killer, but a death
 			// that simply produced no DeathMsg usually does.
+			points_elimination(get_user_attacker(id), id);
 			report_elimination(get_user_attacker(id), id);
 			check_round_end();
 		}
@@ -19220,6 +19337,293 @@ bool:assist_enemies(a, b)
 
 /// One slot's count to one client, or to everyone (to = 0). Slot 0 only says this server
 /// counts assists.
+/* ---- SCORE: a match's points, on TS's own scoreboard ----------------------------------------- */
+
+/// The match mode keeps the score here: frags are points, and each side's header is its points.
+bool:points_on()
+{
+	return get_pcvar_num(g_cv_enabled) != 0 && get_pcvar_num(g_cv_score) != 0;
+}
+
+/// TS's ScoreInfo (byte slot, short frags, short deaths, short class, short team): its frags become
+/// his points, and its class and team number are kept for the ones this plugin sends.
+public msg_scoreinfo(msg_id, msg_dest, msg_entity)
+{
+	new id = get_msg_arg_int(1);
+	if (id < 1 || id > g_maxplayers)
+	{
+		return PLUGIN_CONTINUE;
+	}
+	g_score_class[id] = get_msg_arg_int(4);
+	g_score_teamnum[id] = get_msg_arg_int(5);
+	if (points_on())
+	{
+		set_msg_arg_int(2, ARG_SHORT, g_points[id]);
+	}
+	return PLUGIN_CONTINUE;
+}
+
+/// TS's TeamScore (string team, short score, short deaths): a side's become its points and its
+/// eliminations this match.
+public msg_teamscore(msg_id, msg_dest, msg_entity)
+{
+	if (!points_on())
+	{
+		return PLUGIN_CONTINUE;
+	}
+	new name[48];
+	get_msg_arg_string(1, name, charsmax(name));
+	new side = tsm_team_from_name(name);
+	if (side == 1 || side == 2)
+	{
+		set_msg_arg_int(2, ARG_SHORT, g_points_side[side]);
+		set_msg_arg_int(3, ARG_SHORT, g_deaths_side[side]);
+	}
+	return PLUGIN_CONTINUE;
+}
+
+/// His points on every scoreboard: his frags, and the ScoreInfo TS would send with them.
+points_send(id)
+{
+	if (!g_msg_scoreinfo || !is_user_connected(id))
+	{
+		return;
+	}
+	set_pev(id, pev_frags, float(g_points[id]));
+	message_begin(MSG_ALL, g_msg_scoreinfo);
+	write_byte(id);
+	write_short(g_points[id]);
+	write_short(get_user_deaths(id));
+	write_short(g_score_class[id]);
+	write_short(g_score_teamnum[id] ? g_score_teamnum[id] : get_user_team(id));
+	message_end();
+}
+
+/// Both sides' totals to every scoreboard (to 0), or to one joining player's.
+points_send_sides(to)
+{
+	if (!g_msg_teamscore || !points_on() || (to && (!is_user_connected(to) || g_is_bot[to])))
+	{
+		return;
+	}
+	new name[48];
+	for (new side = 1; side <= 2; side++)
+	{
+		team_rawname(side, name, charsmax(name));
+		if (!name[0])
+		{
+			continue;
+		}
+		if (to)
+		{
+			message_begin(MSG_ONE, g_msg_teamscore, {0, 0, 0}, to);
+		}
+		else
+		{
+			message_begin(MSG_ALL, g_msg_teamscore);
+		}
+		write_string(name);
+		write_short(g_points_side[side]);
+		write_short(g_deaths_side[side]);
+		message_end();
+	}
+}
+
+/// Points to a player and his side for one thing he did, in a round under way; why names it in
+/// the log. Returns the points given.
+points_add(id, pts, const why[])
+{
+	if (!pts || !points_on() || id < 1 || id > g_maxplayers || !is_user_connected(id))
+	{
+		return 0;
+	}
+	if (g_state != ST_LIVE && g_state != ST_ROUNDEND)
+	{
+		return 0;
+	}
+	g_points[id] += pts;
+	new side = g_match_team[id];
+	if (side == 1 || side == 2)
+	{
+		g_points_side[side] += pts;
+	}
+	points_send(id);
+	points_send_sides(0);
+	dbg("points: %d %s%d for %s, now %d (side %d: %d)", id, (pts > 0) ? "+" : "", pts, why,
+		g_points[id], side, (side == 1 || side == 2) ? g_points_side[side] : 0);
+	return pts;
+}
+
+/// An elimination's points: tsm_score_kill to the killer of an enemy, tsm_score_teamkill to the
+/// killer of a teammate; and one more elimination on the victim's side.
+points_elimination(killer, victim)
+{
+	if (!points_on())
+	{
+		return;
+	}
+	new vside = g_match_team[victim];
+	if (vside == 1 || vside == 2)
+	{
+		g_deaths_side[vside]++;
+	}
+	new given = 0;
+	if (killer >= 1 && killer <= g_maxplayers && killer != victim && is_user_connected(killer))
+	{
+		new kside = g_match_team[killer];
+		if (kside && kside == vside)
+		{
+			given = points_add(killer, get_pcvar_num(g_cv_sc_teamkill), "a teamkill");
+		}
+		else
+		{
+			given = points_add(killer, get_pcvar_num(g_cv_sc_kill), "an elimination");
+			g_kills[killer]++;
+			kills_send(0, killer);
+		}
+	}
+	if (!given)
+	{
+		points_send_sides(0);
+	}
+}
+
+/// One slot's kills to every client (to 0) or to one; slot 0 only says this server's frags are points.
+kills_send(to, slot)
+{
+	if (!g_msg_kills || !points_on())
+	{
+		return;
+	}
+	if (to)
+	{
+		if (!is_user_connected(to) || g_is_bot[to])
+		{
+			return;
+		}
+		engfunc(EngFunc_MessageBegin, MSG_ONE, g_msg_kills, Float:{0.0, 0.0, 0.0}, to);
+	}
+	else
+	{
+		engfunc(EngFunc_MessageBegin, MSG_ALL, g_msg_kills, Float:{0.0, 0.0, 0.0}, 0);
+	}
+	write_byte(slot);
+	write_short(slot ? g_kills[slot] : 0);
+	message_end();
+}
+
+/// A joining human: the word that frags are points here, then every slot's kills.
+kills_sync(id)
+{
+	kills_send(id, 0);
+	for (new p = 1; p <= g_maxplayers; p++)
+	{
+		if (g_kills[p] > 0)
+		{
+			kills_send(id, p);
+		}
+	}
+}
+
+/// A match begins: every player's points, both sides' and the carry clocks start again from 0.
+points_reset()
+{
+	arrayset(g_points, 0, sizeof g_points);
+	arrayset(g_carry_secs, 0, sizeof g_carry_secs);
+	g_points_side[1] = 0;
+	g_points_side[2] = 0;
+	g_deaths_side[1] = 0;
+	g_deaths_side[2] = 0;
+	if (!points_on())
+	{
+		return;
+	}
+	new pl[TSM_SLOTS], pn;
+	get_players(pl, pn, "");
+	for (new i = 0; i < pn; i++)
+	{
+		points_send(pl[i]);
+	}
+	points_send_sides(0);
+}
+
+/// Once a second: frags TS moved itself (a suicide, its own +1 for a kill) go back to the points,
+/// so the server's player list, which reads frags, shows the score too.
+points_hold_frags()
+{
+	if (!points_on())
+	{
+		return;
+	}
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (is_user_connected(id) && floatround(Float:pev(id, pev_frags)) != g_points[id])
+		{
+			set_pev(id, pev_frags, float(g_points[id]));
+		}
+	}
+}
+
+/// tsm_points(id): his points this match.
+public native_points(plugin, params)
+{
+	new id = get_param(1);
+	return (id >= 1 && id <= g_maxplayers) ? g_points[id] : 0;
+}
+
+/// tsm_points_side(side): side 1's or 2's points this match.
+public native_points_side(plugin, params)
+{
+	new side = get_param(1);
+	return (side == 1 || side == 2) ? g_points_side[side] : 0;
+}
+
+/// tsm_assists(id): his assists on this map, as the scoreboard's A column counts them.
+public native_assists(plugin, params)
+{
+	new id = get_param(1);
+	return (id >= 1 && id <= g_maxplayers) ? g_assists[id] : 0;
+}
+
+/// tsm_points_award(id, event): a mode's TSM_POINTS_* event, worth what its tsm_score_* cvar says.
+/// TSM_POINTS_CARRY is one second carrying the uplink, and every tsm_score_carry_secs of them pay
+/// tsm_score_carry. Returns the points given.
+public native_points_award(plugin, params)
+{
+	new id = get_param(1);
+	new event = get_param(2);
+	if (id < 1 || id > g_maxplayers)
+	{
+		return 0;
+	}
+	switch (event)
+	{
+		case TSM_POINTS_ZONE:
+		{
+			return points_add(id, get_pcvar_num(g_cv_sc_zone), "an uplink zone");
+		}
+		case TSM_POINTS_WAVE:
+		{
+			return points_add(id, get_pcvar_num(g_cv_sc_wave), "a wave survived");
+		}
+		case TSM_POINTS_CARRY:
+		{
+			new every = get_pcvar_num(g_cv_sc_carrysecs);
+			if (every < 1)
+			{
+				every = 1;
+			}
+			if (++g_carry_secs[id] < every)
+			{
+				return 0;
+			}
+			g_carry_secs[id] = 0;
+			return points_add(id, get_pcvar_num(g_cv_sc_carry), "carrying the uplink");
+		}
+	}
+	return 0;
+}
+
 assist_send(to, slot)
 {
 	if (!g_msg_assists)
@@ -19361,10 +19765,11 @@ assist_sync(id)
 	}
 }
 
-/// A slot changing hands: its count, its own ring and its hits on everyone else start over.
+/// A slot changing hands: its counts, its own ring and its hits on everyone else start over.
 assist_slot_reset(id, bool:joining)
 {
 	g_assists[id] = 0;
+	g_kills[id] = 0;
 	g_hit_next[id] = 0;
 	for (new p = 1; p <= g_maxplayers; p++)
 	{
@@ -19378,6 +19783,7 @@ assist_slot_reset(id, bool:joining)
 	}
 	g_assist_sync[id] = joining && !g_is_bot[id];
 	assist_send(0, id);
+	kills_send(0, id);
 }
 
 public ev_assist_death()
@@ -19411,6 +19817,7 @@ public ev_assist_death()
 			}
 			g_assists[a]++;
 			assist_send(0, a);
+			points_add(a, get_pcvar_num(g_cv_sc_assist), "an assist");
 		}
 	}
 
@@ -19493,6 +19900,7 @@ public ev_death()
 	death_voice(victim);
 	// The life is spent before the report, so the report's lives tally counts this death.
 	lives_on_death(victim);
+	points_elimination(killer, victim);
 	report_elimination(killer, victim);
 	check_round_end();
 }
@@ -19980,6 +20388,8 @@ end_round(winner)
 	}
 
 	show_score_hud();
+	g_count_text[0] = EOS;   // a mode's countdown ends with the round
+	bar_result(winner);
 
 	// A claimed mode closes the round its own way: the uplink takes its carrier's item back,
 	// survival says how many waves were held.
@@ -20014,6 +20424,7 @@ public task_match_end()
 	{
 		// The mode has already said how the run went; a 0 -- 1 scoreline would only confuse it.
 		all_print("[MATCH] RUN OVER -- back to warmup. Type .ready for another.");
+		bar_set(0, 220, 120, -1, 0.0, "RUN OVER^nTYPE .ready FOR ANOTHER");
 	}
 	else
 	{
@@ -20021,6 +20432,11 @@ public task_match_end()
 		new wname[32];
 		team_display(w, wname, charsmax(wname));
 		all_print("[MATCH] MATCH OVER -- %s wins, %d -- %d.", wname, g_score[1], g_score[2]);
+		new t1[32], t2[32], ws[32];
+		team_short(1, t1, charsmax(t1));
+		team_short(2, t2, charsmax(t2));
+		team_short(w, ws, charsmax(ws));
+		bar_set(0, 220, 120, -1, 0.0, "MATCH OVER -- %s WINS^n%s %d  --  %d %s", ws, t1, g_score[1], g_score[2], t2);
 	}
 	match_end_reset();
 	set_task(5.0, "task_to_warmup");
@@ -21090,8 +21506,10 @@ public task_freeze_tick()
 		new ft1[32], ft2[32];
 		team_short(1, ft1, charsmax(ft1));
 		team_short(2, ft2, charsmax(ft2));
-		show_hudmessage(0, "ROUND %d^nStarting in %d...^n^n%s %d  --  %d %s",
+		bar_hud("ROUND %d^nStarting in %d...^n^n%s %d  --  %d %s",
 			g_round, g_freeze_left, ft1, g_score[1], g_score[2], ft2);
+		bar_set(255, 180, 0, g_freeze_left, get_gametime() + float(g_freeze_left),
+			"ROUND %d -- STARTING IN {s}^n%s %d  --  %d %s", g_round, ft1, g_score[1], g_score[2], ft2);
 
 		g_freeze_left--;
 	}
@@ -21165,6 +21583,7 @@ show_round_timer()
 {
 	if (!get_pcvar_num(g_cv_showtimer) || g_round_left < 0)
 	{
+		bar_clear();
 		return;
 	}
 
@@ -21179,14 +21598,15 @@ show_round_timer()
 		set_hudmessage(186, 116, 255, -1.0, 0.03, 0, 0.0, 1.5, 0.0, 0.0, 1);
 		if (g_mode_hud[0])
 		{
-			show_hudmessage(0, "ROUND %d -- %s^n%s %d  --  %d %s",
+			bar_hud("ROUND %d -- %s^n%s %d  --  %d %s",
 				g_round, g_mode_hud, t1, g_score[1], g_score[2], t2);
 		}
 		else
 		{
-			show_hudmessage(0, "ROUND %d^n%s %d  --  %d %s",
+			bar_hud("ROUND %d^n%s %d  --  %d %s",
 				g_round, t1, g_score[1], g_score[2], t2);
 		}
+		bar_round(t1, t2, -1);
 		return;
 	}
 
@@ -21210,14 +21630,15 @@ show_round_timer()
 		// A mode's own text rides after the time ("ZONES 2 - 1").
 		if (g_mode_hud[0])
 		{
-			show_hudmessage(0, "ROUND %d -- %d:%02d -- %s^n%s %d  --  %d %s",
+			bar_hud("ROUND %d -- %d:%02d -- %s^n%s %d  --  %d %s",
 				g_round, mins, secs, g_mode_hud, t1, g_score[1], g_score[2], t2);
 		}
 		else
 		{
-			show_hudmessage(0, "ROUND %d -- %d:%02d^n%s %d  --  %d %s",
+			bar_hud("ROUND %d -- %d:%02d^n%s %d  --  %d %s",
 				g_round, mins, secs, t1, g_score[1], g_score[2], t2);
 		}
+		bar_round(t1, t2, g_round_left);
 
 		if (g_round_left <= 0)
 		{
@@ -21255,8 +21676,155 @@ show_round_timer()
 	}
 	else
 	{
-		show_hudmessage(0, "ROUND %d^n%s %d  --  %d %s",
+		bar_hud("ROUND %d^n%s %d  --  %d %s",
 			g_round, t1, g_score[1], g_score[2], t2);
+		bar_round(t1, t2, -1);
+	}
+}
+
+/*
+ * THE MATCH BAR. For a game that draws it (h9_vgui.inc's h9vgui_status, H9 VGUI protocol 2) the
+ * round line, the freeze countdown, the warmup readout and a round's result are one status on the
+ * banner art right under TS's notice band: the state and its clock over the score, two lines.
+ * Its clock counts down on the player's own screen, so bar_flush() sends it again only when what
+ * it says changes or its clock is set to another end. Every other game gets the hudmessages as
+ * before, through bar_hud().
+ */
+
+/// Whether this player's game draws the match bar.
+bool:bar_player(id)
+{
+	return h9vgui_protocol(id) >= H9VGUI_STATUS_PROTOCOL;
+}
+
+/// show_hudmessage() to every player the match bar does not stand in for. The set_hudmessage()
+/// before it applies to each.
+bar_hud(const fmt[], any:...)
+{
+	new text[400];
+	vformat(text, charsmax(text), fmt, 2);
+	new players[TSM_SLOTS], pnum;
+	get_players(players, pnum, "c");
+	for (new i = 0; i < pnum; i++)
+	{
+		if (!bar_player(players[i]))
+		{
+			show_hudmessage(players[i], "%s", text);
+		}
+	}
+}
+
+/// The bar in a live round: the round, its clock (left seconds, -1 for none), the mode's text and
+/// sudden death, over the score; a mode's own countdown in their place while one runs.
+bar_round(const t1[], const t2[], left)
+{
+	new Float:now = get_gametime();
+	if (g_count_text[0] && g_count_until > now)
+	{
+		bar_set(255, 200, 80, floatround(g_count_until - now, floatround_ceil), g_count_until,
+			"%s^n%s %d  --  %d %s", g_count_text, t1, g_score[1], g_score[2], t2);
+		return;
+	}
+	new line[96], len = 0;
+	if (left >= 0)
+	{
+		len = formatex(line, charsmax(line), "ROUND %d -- {t}", g_round);
+	}
+	else
+	{
+		len = formatex(line, charsmax(line), "ROUND %d", g_round);
+	}
+	if (g_mode_hud[0])
+	{
+		len += formatex(line[len], charsmax(line) - len, " -- %s", g_mode_hud);
+	}
+	if (g_sudden)
+	{
+		len += formatex(line[len], charsmax(line) - len, " -- SUDDEN DEATH");
+	}
+	// Red for the last fifteen seconds, as the round line is.
+	if (left >= 0 && left <= 15)
+	{
+		bar_set(255, 60, 60, left, now + float(left), "%s^n%s %d  --  %d %s", line, t1, g_score[1], g_score[2], t2);
+	}
+	else
+	{
+		bar_set(186, 116, 255, left, (left >= 0) ? now + float(left) : 0.0,
+			"%s^n%s %d  --  %d %s", line, t1, g_score[1], g_score[2], t2);
+	}
+}
+
+/// The bar a round's end shows until the next freeze: who won it, and the score.
+bar_result(winner)
+{
+	new t1[32], t2[32], w[32];
+	team_short(1, t1, charsmax(t1));
+	team_short(2, t2, charsmax(t2));
+	new need = max(1, (get_pcvar_num(g_cv_rounds) / 2) + 1);
+	if (winner == 1 || winner == 2)
+	{
+		team_short(winner, w, charsmax(w));
+		bar_set(0, 220, 120, -1, 0.0, "ROUND %d WON BY %s^n%s %d  --  %d %s -- FIRST TO %d",
+			g_round, w, t1, g_score[1], g_score[2], t2, need);
+	}
+	else
+	{
+		bar_set(0, 220, 120, -1, 0.0, "ROUND %d DRAWN^n%s %d  --  %d %s -- FIRST TO %d",
+			g_round, t1, g_score[1], g_score[2], t2, need);
+	}
+}
+
+/// The bar says this now: its colour, its clock's seconds (-1 for none) and the game time that
+/// clock runs out, and its two lines ({t} m:ss, {s} seconds).
+bar_set(r, g, b, clock, Float:end, const fmt[], any:...)
+{
+	vformat(g_bar_text, charsmax(g_bar_text), fmt, 7);
+	g_bar_rgb[0] = r;
+	g_bar_rgb[1] = g;
+	g_bar_rgb[2] = b;
+	g_bar_clock = clock;
+	g_bar_end = (clock >= 0) ? end : 0.0;
+	bar_flush();
+}
+
+/// The bar goes.
+bar_clear()
+{
+	g_bar_text[0] = EOS;
+	g_bar_clock = -1;
+	g_bar_end = 0.0;
+	bar_flush();
+}
+
+/// Each game that draws the bar is sent it, when it is not what that game was last sent.
+bar_flush()
+{
+	new sig = 0;
+	if (g_bar_text[0])
+	{
+		sig = ((h9vgui_crc16(g_bar_text) << 12) ^ (strlen(g_bar_text) << 4)
+			^ (g_bar_rgb[0] << 16) ^ (g_bar_rgb[1] << 8) ^ g_bar_rgb[2]) | 1;
+	}
+	new players[TSM_SLOTS], pnum;
+	get_players(players, pnum, "ch");
+	for (new i = 0; i < pnum; i++)
+	{
+		new id = players[i];
+		if (!bar_player(id))
+		{
+			g_bar_sig_sent[id] = 0;
+			continue;
+		}
+		if (sig == g_bar_sig_sent[id] && (g_bar_clock < 0 || floatabs(g_bar_end - g_bar_end_sent[id]) < 0.5))
+		{
+			continue;
+		}
+		if (sig || g_bar_sig_sent[id])
+		{
+			h9vgui_status(id, "tsm.bar", sig ? g_bar_text : "", g_bar_rgb[0], g_bar_rgb[1], g_bar_rgb[2], g_bar_clock);
+		}
+		g_bar_sig_sent[id] = sig;
+		g_bar_end_sent[id] = g_bar_end;
 	}
 }
 
@@ -21494,7 +22062,7 @@ public task_team_badum()
 show_score_hud()
 {
 	set_hudmessage(0, 220, 120, -1.0, 0.18, 0, 0.0, 4.0, 0.2, 0.3, 3);
-	show_hudmessage(0, "Round %d  --  %d : %d  (first to %d).",
+	bar_hud("Round %d  --  %d : %d  (first to %d).",
 		g_round, g_score[1], g_score[2], (get_pcvar_num(g_cv_rounds) / 2) + 1);
 }
 
@@ -22146,6 +22714,35 @@ public native_hud_line(plugin, params)
 	return 1;
 }
 
+/// tsm_hud_count(text[], seconds): a countdown of the mode's own on the match bar, in place of the
+/// round line while it runs; 0 seconds clears it. Given again every tick of the mode's countdown,
+/// it keeps its end unless that moved by a second or more, so the bar is not sent again for it.
+public native_hud_count(plugin, params)
+{
+	new text[64];
+	get_string(1, text, charsmax(text));
+	new secs = get_param(2);
+	if (secs <= 0 || !text[0])
+	{
+		g_count_text[0] = EOS;
+		g_count_until = 0.0;
+		return 1;
+	}
+	new Float:until = get_gametime() + float(secs);
+	if (!equal(text, g_count_text) || floatabs(until - g_count_until) >= 1.0)
+	{
+		copy(g_count_text, charsmax(g_count_text), text);
+		g_count_until = until;
+	}
+	return 1;
+}
+
+/// tsm_bar_shown(id): whether this player's game draws the match bar.
+public native_bar_shown(plugin, params)
+{
+	return bar_player(get_param(1)) ? 1 : 0;
+}
+
 /// tsm_state(): the match state, ST_* (the include's TSM_ST_*).
 public native_state(plugin, params)
 {
@@ -22479,6 +23076,7 @@ check_all_ready()
 begin_match()
 {
 	cache_teams();
+	points_reset();
 
 	/*
 	 * Economy ON, wallet empty.
@@ -23034,6 +23632,7 @@ public client_putinserver(id)
 	// to answer this for every line of sight every bot tests.
 	g_is_bot[id] = (is_user_bot(id) != 0);
 	assist_slot_reset(id, true);
+	g_bar_sig_sent[id] = 0;   // a new game in the slot has no match bar yet
 
 	g_elim[id] = false;
 	g_ready[id] = false;
@@ -23052,6 +23651,10 @@ public client_putinserver(id)
 	g_spectator[id] = false;
 	g_team_menu_at[id] = 0.0;
 	g_rtv_wait_said[id] = 0.0;
+	g_points[id] = 0;
+	g_carry_secs[id] = 0;
+	g_score_class[id] = 0;
+	g_score_teamnum[id] = 0;
 	g_connect_at[id] = get_gametime();
 	g_mech_hp_watch[id] = 0;
 	g_m60_skip[id] = -1;
@@ -24304,6 +24907,7 @@ public task_tick()
 	objmarks_update();
 	objglow_update();
 	lives_publish();
+	points_hold_frags();
 	refresh_player_flags();
 	clean_all_weapons();
 
@@ -24527,6 +25131,7 @@ public task_tick()
 	// side menu forever, because neither checked the switch.
 	if (!get_pcvar_num(g_cv_enabled))
 	{
+		bar_clear();
 		return;
 	}
 
@@ -24575,7 +25180,8 @@ public task_tick()
 		// Say exactly WHAT is missing. "Nothing happens" is the worst possible
 		// failure message, and it was the one this plugin gave.
 		set_hudmessage(255, 60, 60, -1.0, 0.22, 0, 0.0, 1.5, 0.0, 0.0, 2);
-		show_hudmessage(0, "MATCH MODE IDLE^n^nWaiting for two teams to be detected.^nPlayers are needed on two different teams.");
+		bar_hud("MATCH MODE IDLE^n^nWaiting for two teams to be detected.^nPlayers are needed on two different teams.");
+		bar_set(255, 60, 60, -1, 0.0, "MATCH MODE IDLE^nWaiting for players on two teams");
 		return;
 	}
 
@@ -24688,8 +25294,18 @@ public task_tick()
 	// never draw at the same time, so they can share without fighting.
 	// Purple-pink, same as the round clock, instead of the old blue.
 	set_hudmessage(186, 116, 255, -1.0, 0.20, 0, 0.0, 1.5, 0.0, 0.0, 2);
-	show_hudmessage(0, "WARMUP -- PLAYERS HELD^n%s^n^n%s: %d/%d ready^n%s: %d/%d ready",
+	bar_hud("WARMUP -- PLAYERS HELD^n%s^n^n%s: %d/%d ready^n%s: %d/%d ready",
 		reason, t1, r1, n1, t2, r2, n2);
+	// The bar has two lines: the ready counts take the reason's place while they are what is missing.
+	if (equal(reason, "WAITING FOR EVERYONE TO TYPE .ready"))
+	{
+		bar_set(186, 116, 255, -1, 0.0, "WARMUP -- PLAYERS HELD^nTYPE .ready -- %s %d/%d -- %s %d/%d",
+			t1, r1, n1, t2, r2, n2);
+	}
+	else
+	{
+		bar_set(186, 116, 255, -1, 0.0, "WARMUP -- PLAYERS HELD^n%s", reason);
+	}
 
 	/*
 	 * A HALTED match is re-tested every tick; a fresh one is not.

@@ -63,6 +63,13 @@ H9's changes
    API, and no SV_DropClient the gamedata could find: its own differs in arguments and in the
    client struct), so upstream never fired either forward there and logged "client_disconnected
    and client_remove forwards have been disabled"; the core now logs "No SV_DropClient hook".
+8. TSX knows the PPSh-41 of H9's reTS (weapon 39; 2026-11-03):
+     modules\ts\tsx\CMisc.h, Utils.cpp, NBase.cpp, moduleconfig.cpp
+                             weaponData has it at 39, the ammo tables caliber 14; the thrown knife stays 38
+                             (no game weapon), kung fu's own stats slot moves from 39 to 40, TSMAX_WEAPONS is
+                             41 + the custom weapons; on TS 3.0's own library the ammo natives refuse a
+                             weapon past 37.
+     plugins\include\tsconst.inc   TSW_PPSH41 = 39 (TSW_TKNIFE stays 38)
 
 TSX and reTS
 ------------

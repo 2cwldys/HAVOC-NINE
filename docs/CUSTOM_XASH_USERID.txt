@@ -111,7 +111,11 @@
  can never open your browser or unlink you.
 
  Unlink your Account (it asks first), or h9_unlink in the console, ends it: the
- game gets a new random id, and havoc9.org drops it from your account.
+ game gets a new random id, and havoc9.org drops it from your account. In a game
+ on a server with h9_presence 1.7, your chain on the scoreboard turns red at once
+ (docs\H9_PRESENCE.txt 4b). A REVOKE on the ACCOUNT page ends the link the same way
+ while the game plays: in a game it asks its link's site again a few seconds into
+ each map and every 5 minutes, and on "unlinked" it takes a new id as at a start.
 
  A link belongs to the site that made it. With cl_h9_site 127.0.0.1:8090 (the
  local test site; localhost:8090 too, "http://127.0.0.1:8090" in quotes, a slash

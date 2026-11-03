@@ -51,6 +51,12 @@
 #define TSM_PERK_RECON       6
 #define TSM_PERK_MECH        7
 
+/* ---- score events, for tsm_points_award ------------------------------------------------- */
+
+#define TSM_POINTS_ZONE      1    // an uplink zone taken: tsm_score_zone
+#define TSM_POINTS_CARRY     2    // one second carrying the uplink: tsm_score_carry every tsm_score_carry_secs
+#define TSM_POINTS_WAVE      3    // a survival wave cleared while still in play: tsm_score_wave
+
 #if !defined TSM_CORE
 
 /* ---- natives ---------------------------------------------------------------------------- */
@@ -93,6 +99,17 @@ native tsm_fire_wave(side);
 /** The mode's own text on the round line, e.g. "WAVE 12". Empty clears it. */
 native tsm_hud_line(const text[]);
 
+/**
+ * A countdown of the mode's own on the match bar, in place of the round line while it runs: text
+ * with {s} for the seconds left ("WAVE 3 CLEARED -- NEXT WAVE IN {s}"); 0 seconds clears it. It
+ * may be given again every tick. Only an H9 game's match bar shows it, so draw the hudmessage for
+ * every player tsm_bar_shown() says no for.
+ */
+native tsm_hud_count(const text[], seconds);
+
+/** Whether this player's game draws the match bar (h9_vgui.inc's h9vgui_status). */
+native bool:tsm_bar_shown(id);
+
 /** The match state: one of TSM_ST_*. */
 native tsm_state();
 
@@ -123,6 +140,22 @@ native tsm_in_play(id);
  * With the match mode off (tsm_enabled 0) it hides nobody: 1 for anyone alive.
  */
 native tsm_shown(id);
+
+/** A player's points this match: his score on the scoreboard (tsm_score). */
+native tsm_points(id);
+
+/** Side 1's or 2's points this match: its total in the scoreboard's header. */
+native tsm_points_side(side);
+
+/** A player's assists on this map, as the scoreboard's A column counts them. */
+native tsm_assists(id);
+
+/**
+ * Points for something a mode counts (TSM_POINTS_*), worth what that event's tsm_score_* cvar says,
+ * to the player and his side. Returns the points given: 0 outside a round, with tsm_score 0, and
+ * for TSM_POINTS_CARRY until enough seconds are carried.
+ */
+native tsm_points_award(id, event);
 
 /** Players a side still has in the round: alive, or eliminated and waiting for a wave. */
 native tsm_side_alive(side);

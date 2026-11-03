@@ -46,6 +46,7 @@
 #include "parsemsg.h"
 #include "pm_shared.h"
 #include "keydefs.h"
+#include "h9_vgui.h" // H9 VGUI: ESC closes a server's panel
 #include "demo.h"
 #include "demo_api.h"
 
@@ -1825,6 +1826,10 @@ bool TeamFortressViewport::SlotInput(int iSlot)
 // Direct Key Input
 bool TeamFortressViewport::KeyInput(bool down, int keynum, const char* pszCurrentBinding)
 {
+	// H9 VGUI: ESC closes the newest server panel first, and goes no further (h9_vgui.cpp).
+	if (H9Vgui_KeyInput(down, keynum))
+		return false;
+
 	// ---- H9 SCROLL: while the scoreboard is held open and a column of it scrolls, the wheel
 	// and PgUp/PgDn move it instead of reaching their bindings (the wheel changes no weapon).
 	if (down && m_pScoreBoard && m_pScoreBoard->isVisible() && 0 == gEngfuncs.Con_IsVisible())
@@ -2110,6 +2115,24 @@ bool TeamFortressViewport::MsgFunc_H9Assists(const char* pszName, int iSize, voi
 	g_bScoreAssists = true;
 	if (cl > 0 && cl <= MAX_PLAYERS_HUD)
 		g_PlayerExtraInfo[cl].assists = assists;
+
+	return true;
+}
+
+// Message handler for H9Kills (H9's ts_matchmode, while its frags are points: tsm_score 1)
+// accepts two values:
+//		byte: client number; 0 only says this server's frags are points
+//		short: the player's kills on this map
+// Once one arrives the scoreboard heads the frags column SCORE and shows these in its K column.
+bool TeamFortressViewport::MsgFunc_H9Kills(const char* pszName, int iSize, void* pbuf)
+{
+	BEGIN_READ(pbuf, iSize);
+	const int cl = READ_BYTE();
+	const int kills = READ_SHORT();
+
+	g_bScoreKills = true;
+	if (cl > 0 && cl <= MAX_PLAYERS_HUD)
+		g_PlayerExtraInfo[cl].kills = kills;
 
 	return true;
 }

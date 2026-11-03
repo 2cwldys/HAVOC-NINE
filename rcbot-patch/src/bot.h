@@ -3192,6 +3192,7 @@ public:
 	float m_fRoamHealth;        // its health last frame
 	edict_t* m_pRoamAttacker;   // who hurt it in this life
 	int m_iRoamAttackerId;      // his userid: a slot someone else takes later is not him
+	float m_fRoamHurtTime;      // when he last hurt it
 	float m_fRoamNextFists;     // when it next asks for its fists while fighting him back
 
 	void PlayerDead(edict_t* pPlayer)

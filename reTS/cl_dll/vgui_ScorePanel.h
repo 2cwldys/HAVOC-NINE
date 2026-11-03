@@ -26,13 +26,14 @@
 #define SB_CELL_AVATAR 0  // the player's picture, or the default silhouette
 #define SB_CELL_STATUS 1  // the TSPAward / spectating status, in short form
 #define SB_CELL_NAME 2
-#define SB_CELL_KILLS 3
-#define SB_CELL_DEATHS 4
-#define SB_CELL_ASSISTS 5
-#define SB_CELL_LIVES 6   // H9 LIVES: lives left / the class's lives, from H9Lives
-#define SB_CELL_PING 7
-#define SB_CELL_VOICE 8
-#define SB_NUM_CELLS 9
+#define SB_CELL_KILLS 3   // the frags: headed SCORE while the server's frags are points (H9 KILLS)
+#define SB_CELL_KCOUNT 4  // H9 KILLS: the real kills, from H9Kills; no width on other servers
+#define SB_CELL_DEATHS 5
+#define SB_CELL_ASSISTS 6
+#define SB_CELL_LIVES 7   // H9 LIVES: lives left / the class's lives, from H9Lives
+#define SB_CELL_PING 8
+#define SB_CELL_VOICE 9
+#define SB_NUM_CELLS 10
 
 // Two columns side by side: team 1 left, team 2 right (free-for-all: places 1-32 left, the rest
 // right). Each column has this many row widgets; 64 players with their team headers take at most
@@ -123,6 +124,8 @@ public:
 		_useFgColorAsImageColor = true;
 		_offset[0] = 0;
 		_offset[1] = 0;
+		_leadImage = NULL;
+		_leadGap = 0;
 	}
 
 	~CLabelHeader()
@@ -138,6 +141,14 @@ public:
 	void setFgColorAsImageColor(bool state)
 	{
 		_useFgColorAsImageColor = state;
+	}
+
+	// H9 LEVEL BADGES: a picture at the cell's left edge, centred on its height, drawn before the
+	// text, which moves right past it and gap more pixels; NULL for none
+	void setLeadImage(Image* image, int gap)
+	{
+		_leadImage = image;
+		_leadGap = gap;
 	}
 
 	void setText(int textBufferLen, const char* text) override
@@ -229,6 +240,8 @@ private:
 	int _gap;
 	int _offset[2];
 	bool _useFgColorAsImageColor;
+	Image* _leadImage; // H9 LEVEL BADGES
+	int _leadGap;
 };
 
 //-----------------------------------------------------------------------------
@@ -241,6 +254,17 @@ class CAvatarBitmap : public vgui::Bitmap
 public:
 	// icon: the link icon laid over a corner (H9 LINK ICONS in vgui_ScorePanel.cpp), 0 for none
 	CAvatarBitmap(int size, const unsigned char* rgba, int wide, int tall, int icon = 0);
+};
+
+//-----------------------------------------------------------------------------
+// Purpose: A level badge as the scoreboard draws it before a name (H9 LEVEL BADGES
+//          in vgui_ScorePanel.cpp): a square bitmap of size pixels, a picture's RGBA
+//          pixels scaled to it with their alpha, so the row shows around the badge.
+//-----------------------------------------------------------------------------
+class CLevelBitmap : public vgui::Bitmap
+{
+public:
+	CLevelBitmap(int size, const unsigned char* rgba, int wide, int tall);
 };
 
 // A player's picture for the avatar cell, by player slot. pixels is NULL until a picture for the
@@ -268,6 +292,12 @@ extern bool g_bScoreAssists;
 // ---- H9 LIVES: set while this map's server counts lives (H9's ts_matchmode, H9Lives); until then
 // the lives column and the team lives totals stay empty.
 extern bool g_bScoreLives;
+
+// ---- H9 KILLS: set once this map's server has sent an H9Kills message, which says its frags are
+// points (H9's ts_matchmode, tsm_score 1): the frags column is then headed SCORE, and a K column
+// beside it shows the real kills H9Kills carries, with each team's sum. Until then the K column has
+// no width and the frags column reads K, as on every other server.
+extern bool g_bScoreKills;
 #define SB_LIVES_ENDLESS 255 // lives left on a side that never runs out
 
 class ScoreTablePanel;

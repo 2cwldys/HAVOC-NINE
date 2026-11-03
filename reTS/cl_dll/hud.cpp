@@ -28,6 +28,7 @@
 #include "ts_particles.h"   // TSParticles_Reset — drop stale per-map sprite handles on VidInit
 #include "ts_bullets.h"     // TSBullets_Reset
 #include "ts_motionblur.h"  // TS_MotionBlur_Init — the TSMBlur ghost-trail hook
+#include "h9_vgui.h"        // H9 VGUI: H9Vgui_Init, the server panels
 #include "vgui_int.h"
 #include "vgui_TeamFortressViewport.h"
 
@@ -245,6 +246,13 @@ int __MsgFunc_H9Assists(const char* pszName, int iSize, void* pbuf)
 	return 0;
 }
 
+int __MsgFunc_H9Kills(const char* pszName, int iSize, void* pbuf)
+{
+	if (gViewPort)
+		return static_cast<int>(gViewPort->MsgFunc_H9Kills(pszName, iSize, pbuf));
+	return 0;
+}
+
 int __MsgFunc_H9Lives(const char* pszName, int iSize, void* pbuf)
 {
 	if (gViewPort)
@@ -311,10 +319,11 @@ void CHud::Init()
 	HOOK_MESSAGE(ServerName);
 	HOOK_MESSAGE(ScoreInfo);
 	HOOK_MESSAGE(H9Assists);
+	HOOK_MESSAGE(H9Kills); // H9 KILLS: the real kills while the frags are points, for the scoreboard's K column
 	HOOK_MESSAGE(H9Lives); // H9: lives left and the class's lives, for the scoreboard's LIVES column
 	HOOK_MESSAGE(H9Board); // H9: the scoreboard's name for a list without teams ("Roleplay")
 	HOOK_MESSAGE(H9Link); // H9: who is a proven havoc9.org account, for the scoreboard's link icons
-	HOOK_MESSAGE(H9Level); // H9: each proven account's havoc9.org level, "Lv N" by its name on the scoreboard
+	HOOK_MESSAGE(H9Level); // H9: each proven account's havoc9.org level, its badge by its name on the scoreboard
 	HOOK_MESSAGE(TeamScore);
 	HOOK_MESSAGE(TeamInfo);
 
@@ -405,6 +414,7 @@ void CHud::Init()
 	GetClientVoiceMgr()->Init(&g_VoiceStatusHelper, (vgui::Panel**)&gViewPort);
 
 	m_Menu.Init();
+	H9Vgui_Init(); // H9: server panels, the H9Vgui message and cl_h9_vgui (h9_vgui.cpp, H9 VGUI)
 
 	MsgFunc_ResetHUD(0, 0, NULL);
 
