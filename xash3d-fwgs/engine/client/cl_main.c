@@ -2257,6 +2257,7 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
 		return;
 
 	CL_Presence_ServerReply( from, infostring );
+	CL_H9_StampServerMode( infostring, sizeof( infostring ));
 	UI_AddServerToList( from, infostring );
 }
 
@@ -2300,7 +2301,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
 {
 	static char	s[512+8];
 	int p, numcl, maxcl, password, bots;
-	string host, map, gamedir, version;
+	string host, map, gamedir, version, desc;
 
 	// set to beginning but skip header
 	MSG_SeekToBit( msg, (sizeof( uint32_t ) + sizeof( uint8_t )) << 3, SEEK_SET );
@@ -2318,7 +2319,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
 		Q_strncpy( host, MSG_ReadString( msg ), sizeof( host ));
 		Q_strncpy( map, MSG_ReadString( msg ), sizeof( map ));
 		Q_strncpy( gamedir, MSG_ReadString( msg ), sizeof( gamedir ));
-		MSG_ReadString( msg ); // game description
+		Q_strncpy( desc, MSG_ReadString( msg ), sizeof( desc )); // game description
 		numcl = MSG_ReadByte( msg );
 		maxcl = MSG_ReadByte( msg );
 		MSG_ReadByte( msg ); // protocol version
@@ -2350,7 +2351,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
 		Q_strncpy( host, MSG_ReadString( msg ), sizeof( host ));
 		Q_strncpy( map, MSG_ReadString( msg ), sizeof( map ));
 		Q_strncpy( gamedir, MSG_ReadString( msg ), sizeof( gamedir ));
-		MSG_ReadString( msg ); // game description
+		Q_strncpy( desc, MSG_ReadString( msg ), sizeof( desc )); // game description
 		MSG_ReadShort( msg ); // app id
 		numcl = MSG_ReadByte( msg );
 		maxcl = MSG_ReadByte( msg );
@@ -2385,6 +2386,8 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
 	Info_SetValueForKeyf( s, "maxcl", sizeof( s ), "%i", maxcl );
 	Info_SetValueForKey( s, "gamedir", gamedir, sizeof( s ));
 	Info_SetValueForKey( s, "password", password ? "1" : "0", sizeof( s ));
+	// H9: the server browser's Mode column, named from the map and the game description
+	Info_SetValueForKey( s, "mode", CL_H9_ServerMode( map, desc, false ), sizeof( s ));
 
 	// write host last so we can try to cut off too long hostnames
 	// TODO: value size limit for infostrings
@@ -3478,7 +3481,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
 
 			MSG_Init( &msg, "Resource Registration", msg_buf, sizeof( msg_buf ));
 
-			if( CL_PrecacheResources( ))
+			if( CL_H9Warm_Ready( ) && CL_PrecacheResources( ))
 				CL_RegisterResources( &msg, cls.net_protocol );
 
 			if( MSG_GetNumBytesWritten( &msg ) > 0 )
@@ -4179,6 +4182,7 @@ void CL_Init( void )
 	COM_GetCommonLibraryPath( LIBRARY_CLIENT, libpath, sizeof( libpath ));
 
 	S_Init();	// init sound
+	CL_H9Srv_Init(); // H9: which servers havoc9.org names, for the server browser's chain (cl_h9auth.c)
 	Voice_Init( VOICE_DEFAULT_CODEC, 3, true ); // init voice (do not open the device)
 
 	ID_Init();

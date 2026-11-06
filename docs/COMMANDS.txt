@@ -1,7 +1,8 @@
 ===============================================================================
  TS MATCH MODE -- COMMAND REFERENCE
- Plugins: ts_matchmode.amxx 1.54-gameplay8   ts_uplink.amxx 1.0-modes2
+ Plugins: ts_matchmode.amxx 1.56-assault1   ts_uplink.amxx 1.0-modes2
           ts_survival.amxx 1.0-modes2   ts_mechwarrior.amxx 1.0-modes2
+          ts_assault.amxx 1.0-assault1
           h9_presence.amxx 1.9   h9_motd.amxx 1.0   tsrp_roambots.amxx 1.3
           h9_community.amxx 1.1   ts_rtv.amxx 1.0-h9.2   h9_compete.amxx 1.1
           ts_floatchat.amxx 1.0   h9_rank.amxx 1.0
@@ -87,9 +88,12 @@
                          player can never breach their own objective.
                          Carries the Benelli M3.
        Officer           Commands bots with .follow and .unfollow, and .scan
-                         exposes cloaked enemies nearby. Carries the Glock 18
-                         and a Katana. When an Officer is slain, both teams
-                         hear it (tsm_officerslain_sound).
+                         exposes cloaked enemies nearby. Carries the Laser
+                         Rifle (H9's reTS), the Glock 18 and a Katana (the M4A1
+                         in the Rifle's place on a game library without it, or
+                         with h9_customweapons 0).
+                         When an Officer is slain, both teams hear it
+                         (tsm_officerslain_sound).
        Medic             +USE on a teammate heals them 50hp on a 15s cooldown,
                          capped at that teammate's own class health. They glow
                          RED while it lands, also audible nearby. Sidearm only,
@@ -382,9 +386,8 @@
      server counted them) and K/D; one chat line, and the whole readout in
      your console. With a name: that player's here (part of the name will
      do), else the havoc9.org account of that name. A bot, or a player not
-     signed in to a havoc9.org account here, has no rank; an account whose
-     SHOW MY PLAYTIME switch is off keeps its rank private, except to
-     itself. docs\H9_COMPETITIVE.txt.
+     signed in to a havoc9.org account here, has no rank; no switch on an
+     account hides a rank. docs\H9_COMPETITIVE.txt.
 
  .relay <text>
      Says <text> to the whole community this server is in: every one of its
@@ -504,6 +507,9 @@
      the team's respawns then land only on its forward points, and the defaults
      are off until the round ends. Living players are never moved to a forward
      point. Nobody respawns on a tier whose objective has not fallen yet.
+     On an Assault map the tier (1 to 32) is the respawn set of the capture
+     point of that number: a side's waves land there while it holds the point
+     (docs/CUSTOM_SPAWNPOINTS.txt, part 5).
 
      It refuses while you stand on one of the map's own spawn points: that
      position would become a custom spawn, and done for both teams the two
@@ -658,9 +664,9 @@
      hold calls: the success plant.wav, the "[MATCH] ... planted" line,
      the planted state and tsm_obj_fuse's fuse. Without a number it takes
      the objective under your crosshair. It refuses outside a live round;
-     planting a non-next objective prints a warning -- the fuse will
-     reconcile and fall nothing until the chain walks there
-     (amx_tsm_obj <n>).
+     with tsm_linear_obj 1 (the default) planting a non-next objective
+     prints a warning -- the fuse will reconcile and fall nothing until the
+     chain walks there (amx_tsm_obj <n>); in any order none is "next".
 
  amx_tsm_siege_fuse
      Set the planted charge off this instant by calling the real fuse
@@ -682,13 +688,14 @@
      The map's siege objectives in one line: how many there are, how many
      have fallen, the attacking side, the planter class, the hold time and
      tsm_obj_slay. "reset" puts every objective back first, as a round start
-     does; a number sets how many count as fallen, so the chain can be walked
-     forward to a later objective.
+     does; a number sets how many count as fallen (objectives 1 up to that
+     number), so the chain can be walked forward to a later objective.
 
      RUN ORDER: amx_match_start to go live, then spawn or aim at an
-     objective, then plant. The fuse only detonates live and in order
-     (amx_tsm_obj <n> walks the chain forward), which is the real round's
-     own rule -- the suite tests the rules rather than suspending them.
+     objective, then plant. The fuse only detonates live and, with
+     tsm_linear_obj 1, in order (amx_tsm_obj <n> walks the chain forward),
+     which is the real round's own rule -- the suite tests the rules rather
+     than suspending them.
 
  tsm_opendoor
      Force open the door you are aiming at (func_door or func_door_rotating),
@@ -747,6 +754,13 @@
      his kung fu IS a powerup -- and any other class with a perk gets the
      perk's own action instead, silently.
 
+ drop / drop_<number>
+     The T key, and the weapon bar's right-click, drop a weapon. Refused in
+     match mode in warmup, ready-up, the freeze before a round and the seconds
+     of a match's end ("You cannot drop a weapon until the round is live."),
+     so nobody litters the map before a round; allowed again once the round is
+     live. With tsm_enabled 0 (the game's own rules) they go through always.
+
  say / say_team
      Parsed for the player commands at the top of this file.
 
@@ -781,7 +795,8 @@
      given to anyone who picked none
    - .ready, .unready, .forfeit (with the vote's count), joining or being
      benched mid-match, the team lock, a short side filled with you
-   - friendly fire on a teammate, a refused powerup, .music
+   - friendly fire on a teammate, a refused powerup, a refused weapon drop,
+     .music
    - the medic's heal and the engineer's resupply, to both players
    - the Officer's .follow, .unfollow, .scan (to him) and .reinforce
    - .stim, .rocket, .cloak, .uncloak and the cloak running out, .light's
@@ -989,8 +1004,7 @@
      The same as .rank (h9_rank.amxx, under PLAYER COMMANDS): your rank, to
      you alone. Only a player whose game proves their havoc9.org player id
      here is rated. On a rated server each player's rating is also told to
-     everyone 15 seconds after they join, when their ACCOUNT page shows their
-     numbers (SHOW MY PLAYTIME), as compts did (h9_compete.amxx).
+     everyone 15 seconds after they join, as compts did (h9_compete.amxx).
 
  h9_compete_status                 (server console)
      The ladder this map plays (match, dm or off), whether h9_presence has a
@@ -1046,6 +1060,11 @@
  player waits for their team's next wave, and the wave brings them back with
  the full loadout at one of their team's spawns. Running out of lives is the
  ordinary elimination.
+
+ A mode that keeps ONE pool of lives for a side (Assault, below, which calls
+ it REINFORCEMENTS) replaces all of this: a death draws its class's cost
+ (tsm_class_cost) from the side's reinforcements, and tsm_class_lives is not
+ used.
 
  A wave comes every tsm_respawn_wave seconds (60) and takes the players who
  have been dead at least tsm_respawn_seconds (5), so a death just before a wave
@@ -1116,10 +1135,12 @@
      tsm_score_carry 1        every tsm_score_carry_secs (15) seconds carrying
                               the uplink
      tsm_score_wave 3         a survival wave cleared while still in play
+     tsm_score_capture 10     a flag carried home and captured (Capture the Flag)
+     tsm_score_return 3       a dropped flag taken back to its pad
  Points are given in a round under way only. tsm_score 0 leaves TS's own
  frags, its kills, alone. Other plugins read them with tsm_points(id) and
  tsm_points_side(side), and a mode gives its own with tsm_points_award(id,
- TSM_POINTS_ZONE, _CARRY or _WAVE) (include\tsm_api.inc). With tsm_logging 1
+ TSM_POINTS_ZONE, _CARRY, _WAVE, _CAPTURE or _RETURN) (include\tsm_api.inc). With tsm_logging 1
  every award is a line in the debug log ("points: 3 +2 for an elimination").
 
  THE H9 SCOREBOARD with points on. The H9 client (reTS) heads the frags column
@@ -1129,7 +1150,8 @@
  short kills; slot 0 only says the frags are points). A teamkill is no kill
  there. Other clients show the points under their own kill heading. With
  tsm_score 0 no H9Kills is sent, and the board is the one it always was.
- Plugins read a player's assists with tsm_assists(id).
+ Plugins read a player's assists with tsm_assists(id), and with
+ tsm_assists_ranked(id) those on kills no bot had a part in (ranked play).
 
  SIEGE: A FALL GIVES THE ROUND BACK. Every objective but the last leaves the
  round going, and gives both sides back what a new round would, in the same
@@ -1150,6 +1172,33 @@
                                minute.
 
  The last objective ends the round as it always has and gives nothing back.
+
+ SIEGE: THE ORDER THE OBJECTIVES FALL IN. The attackers take tsm_obj_1, then
+ tsm_obj_2 and on, the next one only, unless the map says otherwise:
+
+     tsm_linear_obj 1          numbered order, the default: a charge or a
+                               gunshot counts on an objective only when every
+                               lower number has fallen ("Objective 2 has to
+                               fall first.")
+     tsm_linear_obj 0          any order: every objective still standing is a
+                               target, whatever its number, and the round is
+                               the attackers' when none is left standing
+
+ The cvar is read as the siege uses it, so a map's own
+ ts\mapconfigs\<map>.cfg sets it for that map alone, and the next map is back
+ on ts_matchmode.cfg's value:
+
+     // ts\mapconfigs\h9_siege_<map>.cfg
+     tsm_linear_obj 0
+
+ In any order a fall that leaves objectives standing gives the round back as
+ above, and the last objective to fall, whichever number that is, ends the
+ round: it is announced as "the last one standing". The markers and the glow
+ already show every objective standing, blue to the side that defends it, red
+ to the side that attacks it, white to anyone on no side. One satchel burns at
+ a time on either setting, and a forward spawn tier N (amx_tsm_spawn_add) is
+ used once N objectives have fallen, whichever they were: with objective 3
+ down first, tier 1 is in use, and tier 2 once a second one falls.
 
 
 ===============================================================================
@@ -1259,8 +1308,8 @@
  enemy. While the match mode is on, tsm_bot_powerups 0 stops both, whatever
  nopowerup says: RCBot reads it once a second, as a bot's own "usepowerup"
  never reaches a plugin, and ts_matchmode refuses a bot's touch of a powerup
- too. The plugin's default is 1; ts_matchmode.cfg and the TeamElimination and
- Siege presets set 0. nopowerup 1 (game.cfg) already keeps everyone off them;
+ too. The plugin's default is 1; ts_matchmode.cfg and the TeamElimination,
+ Siege and Assault presets set 0. nopowerup 1 (game.cfg) already keeps everyone off them;
  this is for a server that gives its players powerups but not its bots. The
  Officer's kung fu and a mode's grants are not pickups and stay as they are.
  Needs rcbot_mm.dll built from all eight patches.
@@ -1569,10 +1618,13 @@
 ===============================================================================
 
  The map's name decides, as it loads: h9_te_ Team Elimination, h9_siege_ Siege,
- h9_up_ Capture the Uplink, h9_ws_ Wave Survival, h9_mw_ Mech Warrior; any other
- h9_ or tsm_ name plays the match mode too. A stock ts_ map, a roleplay map and
- TS's own modes under H9 names (h9_dm_, h9_tdm_, h9_ctb_, h9_ctf_) play as the
- game ships: tsm_enabled 0, tsm_bots 0, TS's own cash and powerups, and the
+ h9_up_ Capture the Uplink, h9_ws_ Wave Survival, h9_mw_ Mech Warrior, h9_as_
+ Assault, h9_ctf_ Capture the Flag; any other h9_ or tsm_ name plays the match mode too. A stock ts_ map,
+ a roleplay map and
+ TS's own modes under H9 names (h9_dm_, h9_tdm_, h9_ctb_), and a map
+ named for TS's capture game (ctb_ or ctf_ at the start, _ctb_ or _ctf_ anywhere:
+ ctb_deadheat) play as the game ships: tsm_enabled 0, tsm_bots 0, TS's own cash, powerups and weapon
+ rules (weaponrestriction 0: the buy menu works), and the
  plugin picks deathmatch or teamplay rules for them before the world spawns. A
  tsm_enabled or mp_teamplay line in the map's own ts\mapconfigs\<map>.cfg
  decides in place of the name. The full list, and how to set up a map for each
@@ -1685,6 +1737,111 @@
 
 
 ===============================================================================
+ ASSAULT  (ts_assault.amxx)
+===============================================================================
+
+ amx_tsm_as_add [n] [radius]     (admin, ADMIN_CFG)
+     A capture point where you stand (at your feet): the next free number, or
+     point n, with a radius of tsm_as_radius (384) unless one is given. Two
+     points make the map an assault map. Nothing is kept until
+     amx_tsm_as_save. Its respawn set is tier n of the spawn file: stand where
+     the side should come back and amx_tsm_spawn_add <team> n.
+
+ amx_tsm_as_del <n>              (admin)
+     Remove point n.
+
+ amx_tsm_as_list                 (admin)
+     Every point: its number and letter, where it is, its radius, who holds it,
+     and whether the map or the config placed it.
+
+ amx_tsm_as_give <n> <0|1|2>     (admin)
+     Hand point n to a side (0 neutral) as though it had been taken: to test the
+     rings, the marks, the reinforcements, the spawn sets and the win.
+
+ amx_tsm_as_radius <n> <radius>  (admin)
+     How far point n reaches, 32 units or more.
+
+ amx_tsm_as_save                 (admin)
+     Write this map's points to configs\tsm_assault_<map>.cfg, which is read as
+     the map loads. Only the points the config or the editor placed are written:
+     a point that came with the map is the map's.
+
+ amx_tsm_assault                 (admin)
+     The mode's whole state: its build, whether it claimed the map, the points
+     and who holds them, both sides' reinforcements, the taking rules, which games
+     are shown the marks and which are given TS's own objective markers.
+
+ tsm_as_zone <n> <x> <y> <z> [radius]    (server command)
+     What configs\tsm_assault_<map>.cfg is made of. Hand edits are fine.
+
+ Any player of a side standing in a point with no living enemy in it takes it,
+ faster with each more of them. A taken point adds tsm_as_capture_reinforcements
+ to the taker's reinforcements, opens the respawn set of its number to the taker
+ (and closes it for the other side), and sends the taker's fallen back in a wave
+ at once. In the wave a side's dead come back at the point it holds nearest the
+ enemy's base. On an
+ assault map tsm_as_wave, not tsm_respawn_wave, sets both sides' respawn waves.
+ There are no rounds in Assault unless h9_assault_rounds is 1: the first round
+ that ends is the whole match, the match bar says MATCH, and the side that won
+ it is the match's winner.
+ Every point is drawn on every player's screen through the walls: H9 games show
+ badges (cl_h9_marks), any other game gets TS's own objective markers. The mode
+ is described in docs\GAME_MODES.txt.
+
+ Score: whoever stands in a point as it is taken gets tsm_score_zone
+ (ts_matchmode's SCORE).
+
+
+===============================================================================
+ CAPTURE THE FLAG  (ts_ctf.amxx)
+===============================================================================
+
+ dropflag                        (console command, bindable)
+     The carrier lets the flag go where he stands; .drop in chat does the
+     same. Anyone who carries nothing is told so.
+
+ amx_tsm_cf_pad <1|2>            (admin, ADMIN_CFG)
+     That side's flag pad where you stand (at your feet). Both pads make the
+     map a flag map. Nothing is kept until amx_tsm_cf_save.
+
+ amx_tsm_cf_list                 (admin)
+     The two pads, and where each flag is: at its pad, carried or dropped.
+
+ amx_tsm_cf_save                 (admin)
+     Write this map's pads to configs\tsm_ctf_<map>.cfg, which is read as the
+     map loads.
+
+ amx_tsm_ctf                     (admin)
+     The mode's whole state: its build, whether it claimed the map, the
+     captures, the rules in force, which flag model and rings it found, and
+     the pads.
+
+ amx_tsm_cf_give <flag side 1|2> <0|1|2>   (admin)
+     To test, in a live round: hand side <flag>'s flag to the first player of
+     the side given (a person before a bot), or put it back at its pad (0).
+
+ amx_tsm_cf_tp <side> <pad 1|2>  (admin)
+     To test: <side>'s carrier (else its first person in play) walks onto that
+     pad: the carrier at his own pad, to see a capture.
+
+ tsm_cf_pad <side> <x> <y> <z>   (server command)
+     What configs\tsm_ctf_<map>.cfg is made of. Hand edits are fine.
+
+ A side takes the enemy's flag by walking over it and scores by bringing it to
+ its own pad, while its own flag is at its pad (tsm_cf_needhome). A flag
+ changes colour with whoever has it: its own side's at its pad, the carrier's
+ while carried, grey where it lies. A dropped flag is taken back at once by its
+ own side, or flies home after tsm_cf_return seconds. Every flag and pad is
+ drawn on every player's screen through the walls: H9 games show badges
+ (cl_h9_marks), any other game gets TS's own objective markers. The first
+ round that ends is the whole match unless h9_ctf_rounds is 1. The mode is
+ described in docs\GAME_MODES.txt.
+
+ Score: a capture gives tsm_score_capture, a return tsm_score_return and a
+ second carried tsm_score_carry (ts_matchmode's SCORE).
+
+
+===============================================================================
  H9XASH CLIENT  (the H9XASH engine's own; typed in the game's console)
 ===============================================================================
 
@@ -1762,14 +1919,32 @@
                                  closes one. 0: text menus, and the game
                                  tells servers so. H9's client.dll
                                  (docs\H9_VGUI.txt)
- cl_h9_vgui_scale <0.5-2>        the panels' size (1)
+ cl_h9_vgui_scale <0.5-2>        the panels' size (1; the panels are a quarter
+                                 smaller than they were before 2026-11-05, and
+                                 1.33 is that size again)
+ cl_h9_marks 0|1                 the marks a server shows through the walls (1):
+                                 Assault's capture points, Capture the
+                                 Uplink's zones and uplink, Capture the
+                                 Flag's flags and pads, drawn on the screen
+                                 wherever they are, pinned to its edge while
+                                 out of view. 0 draws none
+ cl_h9_marks_strip 0|1           the row of those marks under the top notices
+                                 (1)
  cl_h9_vgui_top <pixels>         how far down panels may start, from the top
                                  of the screen: 0 for 1.5% of the height (16
                                  px at 1080); TS's own notices stand beneath
                                  the panels at the top (0)
- _h9vgui                         the panel protocol this game draws, 1, or 0
+ _h9vgui                         the panel protocol this game draws, 3, or 0
                                  with cl_h9_vgui 0: set by the game, sent to
                                  servers
+ cl_h9_servers 0|1               the server browser's chains (1): H9XASH asks
+                                 havoc9.org which servers are authenticated
+                                 (a green chain) and which are not (a red
+                                 broken one), when the browser opens and
+                                 every 20 seconds; 0 asks nothing and draws
+                                 none (docs\H9_PRESENCE.txt section 4d)
+ h9_servers                      the command behind it: asks now, once in 20
+                                 seconds at the most; the browser runs it
  cl_h9_site <address>            testing only: the local test site in place
                                  of https://havoc9.org, for the pictures and
                                  for linking: 127.0.0.1:<port> or
@@ -1859,13 +2034,26 @@
  CVAR REFERENCE
 ===============================================================================
 
- Every cvar the H9 plugins register, with its default. Where the shipped .cfg
+ Every cvar the H9 plugins register, with its default, and h9_customweapons, which
+ the game library does. Where the shipped .cfg
  sets something else, its value follows in brackets: [cfg 6]. The full account
  of each is beside it in its plugin's .cfg. A map's own ts\mapconfigs\<map>.cfg
  can change any of them for that map alone; the next map's configs set them
  back.
 
  Name                      Default    What it does
+
+ THE GAME LIBRARY  (reTS's mp.dll registers this one; server.cfg sets it)
+
+ h9_customweapons          1          1: the weapons H9 adds to TS (the PPSh-41
+                                      and the laser rifle, and any it adds
+                                      later) are in play. 0: TS 3.0's own
+                                      roster only: they cannot be bought or
+                                      picked up, the buy menu leaves them out,
+                                      and the match mode gives its classes the
+                                      UMP and the M4A1 in their place. The buy
+                                      menu follows a change at once; the
+                                      loadouts, at the next arming.
 
  TS MATCH MODE  (ts_matchmode.amxx, configs\ts_matchmode.cfg)
 
@@ -2050,6 +2238,15 @@
  tsm_reinforce_cooldown    120.0      seconds between an Officer's .reinforce
                                       calls [cfg 120]
 
+ -- reinforcements: one pool of lives for a side (a mode that keeps one: Assault)
+ tsm_class_cost            1,1,1,1,1,1,2,1,3   what a death of each class draws
+                                      from its side's reinforcements, in class
+                                      order
+ tsm_pool_base             16         a side's reinforcements as the round goes
+                                      live: this, and
+ tsm_pool_perplayer        4          this for every player on the side, bots
+                                      included
+
  -- the stim (everyone, once a round)
  tsm_stim                  1          the stimpack on
  tsm_stim_min              25         least health it gives
@@ -2122,6 +2319,8 @@
  tsm_squad_speed           240        how fast squad bots are steered
  tsm_squad_steer           1          steering on
  tsm_officerslain_sound    1          both sides hear it when an Officer falls
+                                      (not in Capture the Flag or Assault: a
+                                      death there is a wait for a wave)
 
  -- siege
  tsm_obj_team              2          the side that attacks the objectives
@@ -2133,6 +2332,9 @@
  tsm_obj_fuse              5.0        seconds a planted charge burns
  tsm_obj_slay              1          the last objective's fall kills everyone left
  tsm_obj_range             96         how far a planter can reach
+ tsm_linear_obj            1          1: the objectives fall in numbered order, the next
+                                      one only; 0: in any order, and the round is won when
+                                      none is left [a map's mapconfig sets it for that map]
  tsm_siege_rewardlives     1          a fall sets everyone's lives back to their
                                       class's count
  tsm_siege_extratime       1          a fall puts time back on the clock
@@ -2141,6 +2343,8 @@
  tsm_obj_msg_2             (empty)    side 2's
  tsm_alarm                 1          the siren from the first attack on
  tsm_alarm_vol             0.3        its volume, 0.0 to 1.0
+ tsm_alarm_every           20         an H9 game's warning line pops up under the round
+                                      timer and fades away; seconds between pops, 0 keeps it up
  tsm_alarm_msg             BREACH IN PROGRESS   the defenders' warning line
                                       [cfg BREACH|IN PROGRESS]
  tsm_alarm_msg_attack      YOUR TEAM IS CURRENTLY SIEGING THE MAP
@@ -2204,6 +2408,8 @@
                                       carrying the uplink
  tsm_score_carry_secs      15         seconds of carrying for tsm_score_carry
  tsm_score_wave            3          a survival wave cleared while in play
+ tsm_score_capture         10         a flag carried home and captured
+ tsm_score_return          3          a dropped flag taken back to its pad
 
  -- the server browser and the Discord card
  tsm_gamedesc              Match Mode   the browser's game name; a claimed mode's
@@ -2262,6 +2468,56 @@
  tsm_mw_mechs              0          Mechs a side; 0 no limit
  tsm_mw_mech_lives         3          each Mech's lives
 
+ ASSAULT  (ts_assault.amxx, configs\ts_assault.cfg)
+
+ tsm_assault_mode          1          the mode on, on every map with capture
+                                      points
+ tsm_gamedesc_assault      Assault    the browser's game name while it runs
+ h9_assault_rounds         0          0: Assault has no rounds, the first round
+                                      that ends is the whole match (its winner
+                                      wins and is rated, a draw is a drawn
+                                      match). 1: rounds, best of tsm_rounds
+ tsm_as_radius             384        a point's radius, unless given
+ tsm_as_time               20         seconds for one player to take a point from
+                                      neutral (and again to wear down the other
+                                      side's hold)
+ tsm_as_speedup            0.5        how much faster each further player of the
+                                      side taking it makes it
+ tsm_as_maxcap             6          players who count toward that, at most
+ tsm_as_capture_reinforcements
+                           5          reinforcements a taken point adds to its
+                                      taker's side
+ tsm_as_capture_wave       1          1: the taker's fallen come back in a wave at
+                                      once
+ tsm_as_spawn_under_attack 0          0: a point's respawn set is shut while an
+                                      enemy is taking it, open again when they are
+                                      gone or beaten; 1: it stays open
+ tsm_as_wave               30         seconds between both sides' respawn waves on
+                                      an assault map
+
+ CAPTURE THE FLAG  (ts_ctf.amxx, configs\ts_ctf.cfg)
+
+ tsm_ctf_mode              1          the mode on, on every map with both pads
+ tsm_gamedesc_ctf          Capture the Flag
+                                      the browser's game name while it runs
+ h9_ctf_rounds             0          0: Capture the Flag has no rounds, the
+                                      first round that ends is the whole match
+                                      (its winner wins and is rated). 1: rounds,
+                                      best of tsm_rounds
+ tsm_cf_caps               3          captures that win the round
+ tsm_cf_return             20         seconds before a dropped flag flies home
+                                      (0: it stays where it lies)
+ tsm_cf_needhome           1          1: a carrier scores only while his own flag
+                                      is at its pad; 0: whatever has become of it
+ tsm_cf_pad_radius         72         how near its pad a carrier must be, units
+ tsm_cf_capture_wave       1          1: the capturing side's fallen come back in
+                                      a wave at once
+ tsm_cf_bots               0          1: a bot that walks over a flag takes it;
+                                      0: the flags are the people's (bots fight,
+                                      they do not play the objective)
+ tsm_cf_wave               20         seconds between both sides' respawn waves on
+                                      a flag map
+
  DISCORD ADVERTS  (ts_advertise.amxx, configs\ts_advertise.cfg)
 
  tsm_ad_token              (empty)    the Discord bot's token; never shown
@@ -2317,6 +2573,26 @@
                                       (docs\H9_PRESENCE.txt section 4c)
  h9_require_account_grace  45         seconds a game has to prove its
                                       account (10 to 300)
+ h9_require_release        1          0: any game may join. 1: a game of H9's
+                                      on another release than this server's
+                                      is refused, with where to get its own;
+                                      stock clients are not asked. 2: every
+                                      joiner must have the release
+                                      (docs\H9_RELEASE.txt)
+ h9_plugin_release         (the release the plugins were built with)
+                                      what joiners are held to; empty: the game
+                                      folder's h9_release.txt. In the rules
+ h9_authenticated          1          0: this server asks not to be
+                                      authenticated or rated: havoc9.org
+                                      lists it as not authenticated (the
+                                      red chain in the server browser) and
+                                      rates none of its matches, whatever
+                                      it runs. 1 asks for nothing:
+                                      havoc9.org judges what the server
+                                      runs, and no setting makes a server
+                                      more authenticated than that. In the
+                                      server's rules (docs\H9_PRESENCE.txt
+                                      section 4d)
 
  LINKING  (h9_link.amxx)
  h9_link_command           1          .link starts linking a player's game to
@@ -2356,7 +2632,7 @@
                                       in the server's rules
  h9_compete_ladder         auto       auto: a ts_matchmode match on h9_ and
                                       tsm_ maps, deathmatch (kills only) on
-                                      h9_dm_, h9_tdm_ and h9_ctb_ maps, off
+                                      h9_dm_, h9_tdm_, h9_ctb_ and ctb_ maps, off
                                       on Wave Survival, roleplay and stock
                                       maps; or match, dm, off
  h9_compete_notice         1          the join lines: that the server is

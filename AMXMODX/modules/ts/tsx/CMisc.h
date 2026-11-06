@@ -23,15 +23,16 @@
 #define TSX_MAX_PLAYERS 128
 
 #define TSMAX_CUSTOMWPNS		5
-#define TSMAX_WEAPONS			41 + TSMAX_CUSTOMWPNS
+#define TSMAX_WEAPONS			42 + TSMAX_CUSTOMWPNS
 
 // The Specialists 3.0 weapon ids run 0 (kung fu) to 37; TSX adds the thrown knife, which is no game weapon, at 38.
-// H9's reTS has the PPSh-41 at 39, so no game weapon has the thrown knife's number. The stats keep every
-// weapon's totals in slot 0, so kung fu's own stats go in a slot of their own.
+// H9's reTS has the PPSh-41 at 39 and the laser rifle at 40, so no game weapon has the thrown knife's number. The
+// stats keep every weapon's totals in slot 0, so kung fu's own stats go in a slot of their own.
 #define TSWEAPON_KUNGFU			0
 #define TSWEAPON_TKNIFE			38
 #define TSWEAPON_PPSH41			39
-#define TSWEAPON_KUNGFU_STATS	40
+#define TSWEAPON_LASERRIFLE		40
+#define TSWEAPON_KUNGFU_STATS	41
 
 
 #if defined(_WIN32)

@@ -34,7 +34,10 @@ Windows only. Everywhere else the functions return at once.
 #define H9P_BUTTON2_LABEL	"havoc9.org"		// the second button under the card
 #define H9P_BUTTON2_URL		"https://havoc9.org"		// where that button goes
 
+const char *H9_Release( void );   // common/h9_release.c: the release of this game folder
+
 CVAR_DEFINE_AUTO( ts_richpresence, "1", FCVAR_ARCHIVE, "show your game on Discord (Rich Presence): 1 = on, 0 = off" );
+static CVAR_DEFINE( h9_rel, "_h9rel", "", FCVAR_USERINFO|FCVAR_READ_ONLY|FCVAR_PRIVILEGED, "H9: the release of this game, sent to every server (h9_release.txt)" );
 CVAR_DEFINE_AUTO( ts_richpresence_clientid, H9P_CLIENT_ID, 0, "Discord application ID for the card (set by the build)" );
 
 static struct
@@ -52,6 +55,169 @@ static struct
 	char		map[64];
 	char		sent[H9P_CARD_MAX];	// the card last sent, so an unchanged card is not resent
 } h9p;
+
+/*
+=================
+The modes' names
+
+h9p_keys is what an H9 server says it runs (its tsm_pres_mode), h9p_maps what a map's name says. The card's details line (H9P_Mode)
+and the server browser's Mode column (CL_H9_ServerMode, CL_H9_StampServerMode) both name a mode from these, so the two always agree.
+They are built into every build, the browser's among them: only the pipe to Discord is Windows only.
+=================
+*/
+static const struct { const char *key, *name; } h9p_keys[] =
+{
+	{ "siege",       "Siege" },
+	{ "uplink",      "Capture the Uplink" },
+	{ "survival",    "Wave Survival" },
+	{ "mechwarrior", "Mech Warrior" },
+	{ "assault",     "Assault" },
+	{ "ctf",         "Capture the Flag" },
+};
+
+static const struct { const char *prefix, *name; } h9p_maps[] =
+{
+	{ "h9_te_",    "Team Elimination" },
+	{ "h9_siege_", "Siege" },
+	{ "h9_up_",    "Capture the Uplink" },
+	{ "h9_mw_",    "Mech Warrior" },
+	{ "h9_ws_",    "Wave Survival" },
+	{ "h9_as_",    "Assault" },
+	{ "h9_dm_",    "Deathmatch" },
+	{ "h9_tdm_",   "Team Deathmatch" },
+	{ "h9_ctb_",   "Capture the Briefcase" },
+	{ "h9_ctf_",   "Capture the Flag" },
+};
+
+/*
+=================
+CL_H9_ModeName
+
+The name of the mode a server plays, in order:
+
+  1. what an H9 server says it runs, in tsm_pres_mode: "siege", "uplink", "survival",
+     "mechwarrior", "assault" or "ctf" (the siege progress in tsm_pres_siege says siege as
+     well, from a plugin older than tsm_pres_mode);
+  2. the map's name: an h9_<mode>_ map plays that mode, a name starting rp_ or tsrp_, or
+     holding _rp_ or _tsrp_ anywhere, is a roleplay map, and one starting ctb_ or ctf_, or
+     holding _ctb_ or _ctf_ anywhere, is TS's own capture game (its flag is the briefcase,
+     so the two play alike and the name only says which the card shows);
+  3. "match" from an H9 server on any other map is Match Mode;
+  4. anything else is not named here: NULL.
+
+"match" only says the match mode runs, so the map's name comes before it: an h9_te_ map is
+Team Elimination.
+=================
+*/
+const char *CL_H9_ModeName( const char *map, const char *key, const char *siege )
+{
+	char	name[64];
+	size_t	i;
+
+	if( siege[0] )
+		return "Siege";
+
+	for( i = 0; i < ARRAYSIZE( h9p_keys ); i++ )
+	{
+		if( !Q_stricmp( key, h9p_keys[i].key ))
+			return h9p_keys[i].name;
+	}
+
+	Q_strnlwr( map, name, sizeof( name ));
+	for( i = 0; i < ARRAYSIZE( h9p_maps ); i++ )
+	{
+		if( !Q_strncmp( name, h9p_maps[i].prefix, Q_strlen( h9p_maps[i].prefix )))
+			return h9p_maps[i].name;
+	}
+
+	if( !Q_strncmp( name, "rp_", 3 ) || !Q_strncmp( name, "tsrp_", 5 )
+		|| Q_strstr( name, "_rp_" ) || Q_strstr( name, "_tsrp_" ))
+		return "Roleplay";
+
+	if( !Q_strncmp( name, "ctb_", 4 ) || Q_strstr( name, "_ctb_" ))
+		return "Capture the Briefcase";
+
+	if( !Q_strncmp( name, "ctf_", 4 ) || Q_strstr( name, "_ctf_" ))
+		return "Capture the Flag";
+
+	if( !Q_stricmp( key, "match" ))
+		return "Match Mode";
+
+	return NULL;
+}
+
+/*
+=================
+CL_H9_KeyFromDescription
+
+The mode key behind a server's game description, as ts_matchmode and the mode plugins set it
+(tsm_gamedesc "Match Mode", tsm_gamedesc_siege "Siege" or "Siege 2/5", and the modes' own
+names); "" when the description is not one of H9's. The rule of keyFromDescription() in
+h9web's modules/presence/modes.js.
+=================
+*/
+static const char *CL_H9_KeyFromDescription( const char *desc )
+{
+	size_t	i;
+
+	if( !Q_stricmp( desc, "match mode" ))
+		return "match";
+
+	if( !Q_strnicmp( desc, "siege", 5 ) && ( desc[5] == '\0' || desc[5] == ' ' ))
+		return "siege";
+
+	for( i = 0; i < ARRAYSIZE( h9p_keys ); i++ )
+	{
+		if( !Q_stricmp( desc, h9p_keys[i].name ))
+			return h9p_keys[i].key;
+	}
+
+	return "";
+}
+
+/*
+=================
+CL_H9_ServerMode
+
+The server browser's word for a server's mode, from its map and its game description (the one
+in a GoldSrc A2S reply, or the "desc" an H9 server's own info reply carries): the names of
+CL_H9_ModeName, and Deathmatch, or Team Deathmatch on a teamplay server, for a server nothing
+else says more of.
+=================
+*/
+const char *CL_H9_ServerMode( const char *map, const char *desc, qboolean teamplay )
+{
+	const char	*name = CL_H9_ModeName( map, CL_H9_KeyFromDescription( desc ), "" );
+
+	if( name )
+		return name;
+
+	return teamplay ? "Team Deathmatch" : "Deathmatch";
+}
+
+/*
+=================
+CL_H9_StampServerMode
+
+Puts the "mode" key into an Xash server's info reply before the browser gets it, named from
+its "map", "desc" and "team". A reply that fills its buffer has no room for it, and the browser
+then shows no mode for that server.
+=================
+*/
+void CL_H9_StampServerMode( char *info, size_t size )
+{
+	char		map[64], desc[40];
+	const char	*name;
+
+	Q_strncpy( map, Info_ValueForKey( info, "map" ), sizeof( map ));
+	Q_strncpy( desc, Info_ValueForKey( info, "desc" ), sizeof( desc ));
+	name = CL_H9_ServerMode( map, desc, Q_atoi( Info_ValueForKey( info, "team" )) != 0 );
+
+	if( Q_strlen( info ) + Q_strlen( name ) + 8 >= size )
+		return;
+
+	Info_SetValueForKey( info, "mode", name, size );
+}
 
 #if XASH_WIN32
 /*
@@ -213,68 +379,15 @@ static qboolean H9P_Connect( void )
 =================
 H9P_Mode
 
-The name of the mode the server we are on plays, for the card's details line. In order:
-
-  1. what an H9 server says it runs, in tsm_pres_mode: "siege", "uplink", "survival" or
-     "mechwarrior" (the siege progress in tsm_pres_siege says siege as well, from a plugin
-     older than tsm_pres_mode);
-  2. the map's name: an h9_<mode>_ map plays that mode, and a name starting rp_ or tsrp_,
-     or holding _rp_ or _tsrp_ anywhere, is a roleplay map;
-  3. "match" from an H9 server on any other map is Match Mode;
-  4. anything else, a stock ts_ map among them, is Deathmatch.
-
-"match" only says the match mode runs, so the map's name comes before it: an h9_te_ map is
-Team Elimination.
+The card's word for the mode of the server we are on: CL_H9_ModeName's (the mode key it
+publishes, then its map's name), or Deathmatch when that names nothing.
 =================
 */
 static const char *H9P_Mode( const char *map, const char *key, const char *siege )
 {
-	static const struct { const char *key, *name; } keys[] =
-	{
-		{ "siege",       "Siege" },
-		{ "uplink",      "Capture the Uplink" },
-		{ "survival",    "Wave Survival" },
-		{ "mechwarrior", "Mech Warrior" },
-	};
-	static const struct { const char *prefix, *name; } maps[] =
-	{
-		{ "h9_te_",    "Team Elimination" },
-		{ "h9_siege_", "Siege" },
-		{ "h9_up_",    "Capture the Uplink" },
-		{ "h9_mw_",    "Mech Warrior" },
-		{ "h9_ws_",    "Wave Survival" },
-		{ "h9_dm_",    "Deathmatch" },
-		{ "h9_tdm_",   "Team Deathmatch" },
-		{ "h9_ctb_",   "Capture the Briefcase" },
-		{ "h9_ctf_",   "Capture the Flag" },
-	};
-	char	name[64];
-	size_t	i;
+	const char	*name = CL_H9_ModeName( map, key, siege );
 
-	if( siege[0] )
-		return "Siege";
-
-	for( i = 0; i < ARRAYSIZE( keys ); i++ )
-	{
-		if( !Q_stricmp( key, keys[i].key ))
-			return keys[i].name;
-	}
-
-	Q_strnlwr( map, name, sizeof( name ));
-	for( i = 0; i < ARRAYSIZE( maps ); i++ )
-	{
-		if( !Q_strncmp( name, maps[i].prefix, Q_strlen( maps[i].prefix )))
-			return maps[i].name;
-	}
-
-	if( !Q_strncmp( name, "rp_", 3 ) || !Q_strncmp( name, "tsrp_", 5 )
-		|| Q_strstr( name, "_rp_" ) || Q_strstr( name, "_tsrp_" ))
-		return "Roleplay";
-
-	if( !Q_stricmp( key, "match" ))
-		return "Match Mode";
-
-	return "Deathmatch";
+	return name ? name : "Deathmatch";
 }
 
 /*
@@ -285,7 +398,9 @@ Builds the activity object for the server we are on, as JSON. It holds no nonce,
 builds of an unchanged card compare equal. Details is the mode (H9P_Mode), with its progress
 where the server publishes one: the objectives and the side attacking them on a siege map,
 each side's zones in Capture the Uplink (tsm_pres_prog "1/2/4/0": side 1's, side 2's, all,
-the carrier's side), the wave in Wave Survival. State is the players alive on each side out
+the carrier's side), each side's points in Assault (tsm_pres_prog "1/2/5": side 1's, side 2's,
+all), each side's captures in Capture the Flag (tsm_pres_prog "1/2/3": side 1's, side 2's, the
+captures that win), the wave in Wave Survival. State is the players alive on each side out
 of the total, the bots, and the map, or the totals alone from a plugin that does not publish
 the alive counts. The large image is the map's snapshot, named after the map in the
 application's art assets. The two buttons link to the Discord invite and the site. The party
@@ -322,7 +437,7 @@ static void H9P_Activity( char *out, size_t size )
 	}
 	else if( siege[0] )
 		Q_snprintf( details, sizeof( details ), "%s %s", mode, siege );
-	else if( !Q_stricmp( key, "uplink" ) && prog[0] )
+	else if(( !Q_stricmp( key, "uplink" ) || !Q_stricmp( key, "assault" ) || !Q_stricmp( key, "ctf" )) && prog[0] )
 	{
 		const char	*p = prog;
 		int		held[3] = { 0, 0, 0 };
@@ -336,8 +451,13 @@ static void H9P_Activity( char *out, size_t size )
 				p++;
 		}
 
-		Q_snprintf( details, sizeof( details ), "%s - zones: %s %d, %s %d of %d", mode,
-			H9P_SIDE1_NAME, held[0], H9P_SIDE2_NAME, held[1], held[2] );
+		if( !Q_stricmp( key, "ctf" ))
+			Q_snprintf( details, sizeof( details ), "%s - captures: %s %d, %s %d (first to %d)", mode,
+				H9P_SIDE1_NAME, held[0], H9P_SIDE2_NAME, held[1], held[2] );
+		else
+			Q_snprintf( details, sizeof( details ), "%s - %s: %s %d, %s %d of %d", mode,
+				!Q_stricmp( key, "assault" ) ? "points" : "zones",
+				H9P_SIDE1_NAME, held[0], H9P_SIDE2_NAME, held[1], held[2] );
 	}
 	else if( !Q_stricmp( key, "survival" ) && prog[0] )
 		Q_snprintf( details, sizeof( details ), "%s - wave %d", mode, Q_atoi( prog ));
@@ -434,6 +554,15 @@ void CL_Presence_Init( void )
 {
 	Cvar_RegisterVariable( &ts_richpresence );
 	Cvar_RegisterVariable( &ts_richpresence_clientid );
+
+	// the release of this game, in the userinfo of every join: a server that holds its players to one release looks at it. The cvar shows
+	// it in the console; a cvar set this way never reaches the userinfo (that is the ordinary setters' own step), so the key is written
+	// there as the game's other keys are (cl_travel.c): the userinfo is what the connect packet carries
+	Cvar_RegisterVariable( &h9_rel );
+	Cvar_DirectFullSet( &h9_rel, H9_Release(), 0 );
+
+	if( H9_Release()[0] )
+		Info_SetValueForKey( CL_Userinfo(), "_h9rel", H9_Release(), MAX_INFO_STRING );
 }
 
 /*

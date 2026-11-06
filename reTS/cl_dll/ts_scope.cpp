@@ -9,6 +9,8 @@
 #include "hud.h"
 #include "cl_util.h"
 #include "triangleapi.h"
+#include "ts_hud.h"                 // g_iTSActiveWeapon
+#include "../dlls/ts_weapon_info.h" // TSW_LASERRIFLE
 
 extern "C" int CL_IsThirdPerson();
 extern int g_iUser1;
@@ -30,17 +32,25 @@ bool TS_ScopedIn()
 // quarterscope.spr, loaded again on every map: sprite handles index the per-map sprite list, so a
 // handle kept from the last map draws whatever sprite took its slot.
 static HSPRITE s_hQuarter = 0;
+// the laser rifle's: the same mask in blue (an index-alpha sprite paints every pixel in the colour of its last palette
+// entry); the side bars are drawn from it too, so that the whole frame is one colour
+static HSPRITE s_hQuarterBlue = 0;
 
 void TS_ScopeVidInit()
 {
 	s_hQuarter = SPR_Load("sprites/quarterscope.spr");
+	s_hQuarterBlue = SPR_Load("sprites/laserscope.spr");
 }
 
 void TS_DrawScopeOverlayHUD()
 {
-	if (!s_hQuarter)
+	// The laser rifle's optic has a blue lens: the view through the circle is tinted blue, and the frame round it (the
+	// side bars and the mask alike, both drawn from laserscope.spr, whose one colour is the blue) is a flat blue.
+	const bool lens = (g_iTSActiveWeapon == TSW_LASERRIFLE) && s_hQuarterBlue != 0;
+	const HSPRITE mask = lens ? s_hQuarterBlue : s_hQuarter;
+	if (!mask)
 		return;
-	struct model_s *pSpr = (struct model_s *)gEngfuncs.GetSpritePointer(s_hQuarter);
+	struct model_s *pSpr = (struct model_s *)gEngfuncs.GetSpritePointer(mask);
 	if (!pSpr)
 		return;
 
@@ -59,10 +69,18 @@ void TS_DrawScopeOverlayHUD()
 	// couple px past that edge or a thin line of the game shows through the seam. 2px clip of the
 	// circle's extreme left/right is imperceptible.
 	const int OVERLAP = 2;
-	if (lx > 0)
-		gEngfuncs.pfnFillRGBABlend(0, 0, lx + OVERLAP, ScreenHeight, 0, 0, 0, 255);
-	if (rx < ScreenWidth)
-		gEngfuncs.pfnFillRGBABlend(rx - OVERLAP, 0, ScreenWidth - (rx - OVERLAP), ScreenHeight, 0, 0, 0, 255);
+	if (lens)
+	{
+		// the lens tints the whole picture first, so that the frame laid over it afterwards is one flat blue
+		gEngfuncs.pfnFillRGBABlend(0, 0, ScreenWidth, ScreenHeight, 40, 120, 255, 46);
+	}
+	else
+	{
+		if (lx > 0)
+			gEngfuncs.pfnFillRGBABlend(0, 0, lx + OVERLAP, ScreenHeight, 0, 0, 0, 255);
+		if (rx < ScreenWidth)
+			gEngfuncs.pfnFillRGBABlend(rx - OVERLAP, 0, ScreenWidth - (rx - OVERLAP), ScreenHeight, 0, 0, 0, 255);
+	}
 
 	// The circle mask: quarterscope.spr painted 4x rotated via the TriAPI.
 	triangleapi_s *tri = gEngfuncs.pTriAPI;
@@ -71,6 +89,22 @@ void TS_DrawScopeOverlayHUD()
 	tri->SpriteTexture(pSpr, 0);
 	tri->Begin(TRI_QUADS);
 	tri->Color4f(1.0f, 1.0f, 1.0f, 1.0f);
+	if (lens)
+	{
+		// the side bars, as a patch of the mask sprite's solid corner: the same colour and the same alpha as the mask
+		const float bu = 0.1f, bv = 0.1f;
+		const float bx0[2] = { 0.0f, (float)(rx - OVERLAP) };
+		const float bx1[2] = { (float)(lx + OVERLAP), (float)ScreenWidth };
+		for (int bar = 0; bar < 2; bar++)
+		{
+			if (bar == 0 ? lx <= 0 : rx >= ScreenWidth)
+				continue;
+			tri->TexCoord2f(bu, bv); tri->Vertex3f(bx0[bar], 0.0f, 0.0f);
+			tri->TexCoord2f(bu, bv); tri->Vertex3f(bx0[bar], (float)ScreenHeight, 0.0f);
+			tri->TexCoord2f(bu, bv); tri->Vertex3f(bx1[bar], (float)ScreenHeight, 0.0f);
+			tri->TexCoord2f(bu, bv); tri->Vertex3f(bx1[bar], 0.0f, 0.0f);
+		}
+	}
 	// each quadrant: outer screen corner (ox,oy) = uv(0,0); centre (cx,cy) = uv(1,1);
 	// the two axis edges = uv(0,1)/(1,0). Shared-edge uvs match across quadrants → seamless circle.
 	const float qx[4] = { cx - r, cx + r, cx + r, cx - r }; // outer x: TL,TR,BR,BL

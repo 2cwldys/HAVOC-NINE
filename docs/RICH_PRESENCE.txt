@@ -21,8 +21,11 @@
                                 there is one. On a siege map, the side that attacks and how
                                 many of the objectives it has taken; in Capture the Uplink,
                                 each side's zones ("Capture the Uplink - zones: MSR 1,
-                                Insurgents 2 of 4"); in Wave Survival, the wave ("Wave
-                                Survival - wave 12").
+                                Insurgents 2 of 4"); in Assault, each side's capture
+                                points ("Assault - points: MSR 2, Insurgents 1 of 5"); in
+                                Capture the Flag, each side's captures ("Capture the Flag -
+                                captures: MSR 1, Insurgents 0 of 3"); in
+                                Wave Survival, the wave ("Wave Survival - wave 12").
    Alive: MSR 3/4, Insurgents 2/3, 2 bots, h9_te_neuropolis
                                 the state line: how many players each side has alive, out
                                 of its total, then the bots and the map. Alive is counted
@@ -45,19 +48,42 @@
  A server that does not publish the alive counts shows the totals instead. A server that
  does not publish the sides shows the map, the players and the bots.
 
+ A game built before 2026-11-05 does not know "assault" or the h9_as_ prefix, so its own card reads
+ Deathmatch on an Assault server, and it names a Capture the Flag server by its map (h9_ctf_) but
+ shows no captures, and its server browser has no Mode column; havoc9.org and the server list
+ name the mode from the server's own report and read it whatever the game's age.
+
  THE MODE on the details line is named, in this order, by:
 
    1. what an H9 server says it runs, in tsm_pres_mode: Siege, Capture the Uplink, Wave
-      Survival or Mech Warrior (a server still publishing only tsm_pres_siege reads Siege);
+      Survival, Mech Warrior, Assault or Capture the Flag (a server still publishing only tsm_pres_siege
+      reads Siege);
    2. the map's name: h9_te_ Team Elimination, h9_siege_ Siege, h9_up_ Capture the
-      Uplink, h9_mw_ Mech Warrior, h9_ws_ Wave Survival, h9_dm_ Deathmatch, h9_tdm_ Team
-      Deathmatch, h9_ctb_ Capture the Briefcase, h9_ctf_ Capture the Flag; and a name
-      starting rp_ or tsrp_, or holding _rp_ or _tsrp_ anywhere, Roleplay;
+      Uplink, h9_mw_ Mech Warrior, h9_ws_ Wave Survival, h9_as_ Assault, h9_dm_ Deathmatch, h9_tdm_ Team
+      Deathmatch, h9_ctb_ Capture the Briefcase, h9_ctf_ Capture the Flag; a name
+      starting rp_ or tsrp_, or holding _rp_ or _tsrp_ anywhere, Roleplay; then a name
+      starting ctb_ or holding _ctb_ anywhere Capture the Briefcase, and one starting
+      ctf_ or holding _ctf_ Capture the Flag (TS's flag is the briefcase: one game);
    3. an H9 server's "match" on any other map: Match Mode;
    4. anything else, a stock ts_ map among them: Deathmatch.
 
- The list is H9P_Mode in engine\client\cl_presence.c. docs\GAME_MODES.txt says what
- each kind of map plays.
+ The list is CL_H9_ModeName in engine\client\cl_presence.c (H9P_Mode is the card's use of it, with
+ Deathmatch for what it names nothing), the same list the in-game server browser's Mode column is
+ named from (below). docs\GAME_MODES.txt says what each kind of map plays.
+
+ THE SERVER BROWSER'S MODE COLUMN. The in-game server browser, in the game and in the web client,
+ has a Mode column between Name and Map (click its heading to sort by it). Each server is named by
+ the same list, from what its reply carries, since a server you are not on publishes no
+ tsm_pres_mode: an H9XASH server's info reply says its game description in "desc" (the description
+ ts_matchmode and the mode plugins set: "Match Mode", "Siege 2/5", "Capture the Uplink",
+ "Assault", "Capture the Flag", ...), and any GoldSrc server's reply carries the same. The engine
+ (CL_H9_ServerMode) turns the description into a mode key as keyFromDescription() in h9web's
+ modules/presence/modes.js does, names it as above, and hands the browser the result as the info's
+ "mode"; mainui draws it (menus\ServerBrowser.cpp, COLUMN_MODE). A server nothing says more of is
+ Deathmatch, or Team Deathmatch when its reply says teamplay. A server on an older engine sends no
+ "desc", and is named by its map's name alone. The pieces are engine-h9-presence.patch (the
+ names), engine-h9-serverinfo.patch (the "desc" a server sends, the description of a GoldSrc
+ reply) and mainui-h9-browser.patch (the column).
 
  In the main menu the card reads "In the main menu" and "Not in a server". Its large
  picture is the one uploaded under the key h9_menu (section 4). It has the same small
@@ -80,9 +106,13 @@
    tsm_pres_alive1    the players on side 1 that are alive.
    tsm_pres_alive2    the players on side 2 that are alive.
    tsm_pres_mode      the mode: "match", "siege", or the claimed mode's key ("uplink",
-                      "survival", "mechwarrior"); empty where the match mode is off.
+                      "survival", "mechwarrior", "assault", "ctf"); empty where the match mode
+                      is off.
    tsm_pres_prog      the claimed mode's progress: "1/2/4/0" for the uplink (side 1's
-                      zones, side 2's, all, the carrier's side), "12" for a survival wave.
+                      zones, side 2's, all, the carrier's side), "1/2/5" for an assault
+                      (side 1's points, side 2's, all), "1/0/3" for a flag game (side
+                      1's captures, side 2's, the captures that win), "12" for a
+                      survival wave.
 
  Where the match mode is off (tsm_enabled 0, as on every map that is not H9's) all of
  these are empty, and the card shows the map, the players and the bots.

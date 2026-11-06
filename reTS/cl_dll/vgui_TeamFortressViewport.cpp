@@ -2170,6 +2170,38 @@ bool TeamFortressViewport::MsgFunc_H9Lives(const char* pszName, int iSize, void*
 	return true;
 }
 
+// Message handler for H9Pool (H9's ts_matchmode, for a mode that keeps one pool of lives for a whole side)
+// accepts three values:
+//		byte: the side, 1 or 2; 0 says no pool is counted now, and the lives column goes back to the players' own
+//		short: the lives left in the side's pool
+//		short: the pool the side started the round with
+bool TeamFortressViewport::MsgFunc_H9Pool(const char* pszName, int iSize, void* pbuf)
+{
+	BEGIN_READ(pbuf, iSize);
+	const int side = READ_BYTE();
+	const int left = READ_SHORT();
+	const int start = READ_SHORT();
+
+	if (side == 0)
+	{
+		g_bScorePool = false;
+		for (int i = 0; i < 3; i++)
+		{
+			g_iScorePoolLeft[i] = 0;
+			g_iScorePoolStart[i] = 0;
+		}
+		return true;
+	}
+
+	if (side <= 2)
+	{
+		g_bScorePool = true;
+		g_iScorePoolLeft[side] = left;
+		g_iScorePoolStart[side] = start;
+	}
+	return true;
+}
+
 // Message handler for TeamScore message
 // accepts three values:
 //		string: team name

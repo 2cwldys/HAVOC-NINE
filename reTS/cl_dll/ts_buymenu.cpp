@@ -87,6 +87,7 @@ static const TSWeapon s_weapons[] = {
 	{36, "Contender G2", 1500, 15, 1, false, 0xA, -1, 2, "contender"},
 	{37, "Akimbo Skorpions", 1100, 15, 1, false, 0x0, -1, 5, "skorpion_akimbo"},
 	{39, "PPSh-41", 2000, 35, 1, false, 0x0, -1, 3, "ppsh41"},
+	{40, "Laser Rifle", 5200, 40, 1, false, 0x0, -1, 4, "laserrifle"},
 };
 static const TSWeapon* WeaponInfo(int id)
 {
@@ -98,15 +99,16 @@ static const TSWeapon* WeaponInfo(int id)
 
 // Per-weapon ammo caliber (weapon_info byte +0x08), read from the live weapon table. 0 = melee/no
 // ammo. reference/MENUS.md. Indexed by tsweapon_t id.
-static const signed char s_weaponCaliber[40] = {
+static const signed char s_weaponCaliber[41] = {
 	/*0*/ 0, 1, 1, 1, 3, 4, 1, 1, 1, 2, 2, 3, 5, 6, 7, 4, 1, 12, 8, 7,
-	/*20*/ 3, 2, 9, 2, 0, 0, 3, 4, 10, -1, 7, 11, 4, 3, 0, 0, 13, 12, 0, 14};
+	/*20*/ 3, 2, 9, 2, 0, 0, 3, 4, 10, -1, 7, 11, 4, 3, 0, 0, 13, 12, 0, 14, 15};
 static int WeaponCaliber(int id) { return (id >= 0 && id < TSW_COUNT) ? s_weaponCaliber[id] : 0; }
+static_assert(sizeof(s_weaponCaliber) / sizeof(s_weaponCaliber[0]) >= TSW_COUNT, "the buy menu's caliber table must hold every weapon id");
 
 // The per-caliber ammo table DAT_1009ffc0 (stride 0xe ints), RUNTIME-captured from the live game
 // (the max field [3] resisted static RE). {cost per unit [1], max rounds [3], rounds per unit [4]}.
 // FUN_10039380 fills a weapon's caliber pool 1 unit at a time up to max; FUN_100392b0 distributes the
-// post-weapon budget across calibers. Calibers 0/15 = melee (no ammo).
+// post-weapon budget across calibers. Caliber 0 = melee (no ammo).
 struct TSCaliber { int cost, maxRounds, unit; };
 static const TSCaliber s_caliber[16] = {
 	{0, 0, 0},      // 0 (melee)
@@ -124,7 +126,7 @@ static const TSCaliber s_caliber[16] = {
 	{30, 300, 20},  // 12 .32
 	{150, 35, 5},   // 13 .45-70
 	{150, 213, 71}, // 14 7.62x25 (the PPSh-41's): a drum a buy, three carried
-	{0, 0, 0}};
+	{120, 140, 35}};  // 15 plasma cell (the laser rifle's): a pack of 35 a buy, four carried
 
 // The REAL roster (obj+0x2d6c, FUN_10036200) — Beretta 92F (#5) + Contender G2 (#10) in Handguns.
 #define TS_CATS 5
@@ -132,7 +134,7 @@ static const TSCaliber s_caliber[16] = {
 static const int s_roster[TS_CATS][TS_ROWS] = {
 	{1, 9, 12, 14, 2, 21, 22, 28, 31, 36, -1, -1}, // 0 Handguns
 	{3, 6, 7, 17, 19, 23, 39, -1, -1, -1, -1, -1}, // 1 SMGs
-	{5, 13, 15, 27, 18, -1, -1, -1, -1, -1, -1, -1}, // 2 Rifles
+	{5, 13, 15, 27, 18, 40, -1, -1, -1, -1, -1, -1}, // 2 Rifles
 	{4, 11, 20, 26, 33, -1, -1, -1, -1, -1, -1, -1}, // 3 Shotguns
 	{24, 25, 32, 34, 35, -1, -1, -1, -1, -1, -1, -1}, // 4 Special Purpose
 };
@@ -215,7 +217,9 @@ bool CHudTSBuyMenu::VidInit()
 	// for the whole session. Close resets m_active + the cursor state.
 	Close();
 
-	// Load the bought-weapon preview icons (same sprites the weapon-select bar uses).
+	// Load the bought-weapon preview icons (same sprites the weapon-select bar uses). A weapon whose id the table does
+	// not reach loses its picture from the menu, so a new weapon id must grow it.
+	static_assert(sizeof(m_hIcon) / sizeof(m_hIcon[0]) >= TSW_COUNT, "the buy menu's icon table must hold every weapon id");
 	char path[64];
 	memset(m_hIcon, 0, sizeof(m_hIcon));
 	for (const auto& w : s_weapons)
@@ -340,8 +344,10 @@ static bool WeaponRestricted(int id, int mask)
 bool CHudTSBuyMenu::Restricted(int id, bool accessory) const
 {
 	extern int g_iTSWeaponRestriction; // ts_status.cpp
+	extern int g_iTSCustomWeapons;     // ts_status.cpp: SrvSett id 4, the server's h9_customweapons
 	if (!accessory)
-		return WeaponRestricted(id, g_iTSWeaponRestriction) || (gHUD.m_iTeamplay < 2 && id == 24);
+		return WeaponRestricted(id, g_iTSWeaponRestriction) || (gHUD.m_iTeamplay < 2 && id == 24) ||
+			(TS_IsCustomWeapon(id) && g_iTSCustomWeapons == 0);
 	return gHUD.m_iTeamplay < 2 && (id & 0x20) != 0;
 }
 
@@ -1291,6 +1297,14 @@ void CHudTSBuyMenu::DrawWeaponPreview(int id)
 	TSHud_Color(r, g, b);
 	int y = ScreenMidY() - 0x30;
 	FillRGBA(0x108, y, 0xff, 0x2f, r, g, b, 0x19);
+
+	// H9: the gun's picture in the left half of the box (the text is drawn from 0x80 in), the same
+	// sprites\weapons icon the bought-loadout preview uses.
+	if (id >= 0 && id < (int)(sizeof(m_hIcon) / sizeof(m_hIcon[0])) && m_hIcon[id] != 0)
+	{
+		SPR_Set(m_hIcon[id], r, g, b);
+		SPR_DrawAdditive(0, 0x108, y, &m_rcIcon[id]);
+	}
 
 	char buf[32];
 	sprintf(buf, CHudTextMessage::BufferedLocaliseTextString("#Buy_Credits"), LivePrice(w));

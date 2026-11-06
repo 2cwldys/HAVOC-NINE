@@ -13,6 +13,8 @@
 //   POST   /api/forum/media/:id/comments          members: { body }
 //   PATCH  /api/forum/media/comments/:id          its author (editWindowMinutes) or staff: { body }
 //   DELETE /api/forum/media/comments/:id          its author, or staff
+//   POST   /api/forum/media/preview               members: { comment, id? } or { description }: what
+//                                                 it shows as once saved; nothing is stored
 // Staff are moderators and admins, as for threads; each staff step on someone else's post or
 // comment goes into the audit log (forum.media.*). A hidden post is seen only by staff, marked so,
 // on the front page and in the archive alike; a removed post or comment by no one. Posting follows
@@ -65,6 +67,10 @@ export function createMedia(h) {
   const ROW = `SELECT m.*, a.username AS author_name, a.role AS author_role,
       EXISTS (SELECT 1 FROM forum_developers d WHERE d.account_id = m.account_id) AS author_dev
     FROM forum_media_posts m LEFT JOIN accounts a ON a.id = m.account_id`;
+  // a comment with its author, for a page of them and for one alone (a preview of its edit)
+  const COMMENT_ROW = `SELECT c.*, a.username AS author_name, a.role AS author_role,
+      EXISTS (SELECT 1 FROM forum_developers d WHERE d.account_id = c.account_id) AS author_dev
+    FROM forum_media_comments c LEFT JOIN accounts a ON a.id = c.account_id`;
   // ? = 1: staff, who see hidden posts
   const SEEN = "m.removed_at IS NULL AND (m.hidden_at IS NULL OR ? = 1)";
   const q = {
@@ -84,10 +90,8 @@ export function createMedia(h) {
     pin: db.prepare("UPDATE forum_media_posts SET pinned = ? WHERE id = ?"),
     hide: db.prepare("UPDATE forum_media_posts SET hidden_at = ?, hidden_by = ? WHERE id = ?"),
     remove: db.prepare("UPDATE forum_media_posts SET removed_at = ?, removed_by = ? WHERE id = ? AND removed_at IS NULL"),
-    comments: db.prepare(`SELECT c.*, a.username AS author_name, a.role AS author_role,
-        EXISTS (SELECT 1 FROM forum_developers d WHERE d.account_id = c.account_id) AS author_dev
-      FROM forum_media_comments c LEFT JOIN accounts a ON a.id = c.account_id
-      WHERE c.media_id = ? AND c.removed_at IS NULL ORDER BY c.id LIMIT ? OFFSET ?`),
+    comments: db.prepare(`${COMMENT_ROW} WHERE c.media_id = ? AND c.removed_at IS NULL ORDER BY c.id LIMIT ? OFFSET ?`),
+    commentRow: db.prepare(`${COMMENT_ROW} WHERE c.id = ?`),
     comment: db.prepare("SELECT * FROM forum_media_comments WHERE id = ?"),
     commentInsert: db.prepare("INSERT INTO forum_media_comments (media_id, account_id, body, created_at) VALUES (?, ?, ?, ?)"),
     commentEdit: db.prepare("UPDATE forum_media_comments SET body = ?, edited_at = ? WHERE id = ?"),
@@ -125,6 +129,15 @@ export function createMedia(h) {
       v.content = render(m.description);
     }
     return v;
+  }
+
+  // A comment as the page gets it; a preview is this same view of a comment not saved yet.
+  function commentView(c, a) {
+    const own = c.account_id !== null && c.account_id === a.id;
+    return {
+      id: c.id, by: by(c), created: h.iso(c.created_at), edited: h.iso(c.edited_at), body: c.body, content: render(c.body),
+      can: { edit: own && h.now() - c.created_at <= s.editWindowMinutes * 60 && !h.postingBlock(a), remove: own || h.isMod(a) },
+    };
   }
 
   // A post the account may see, or 404.
@@ -202,13 +215,7 @@ export function createMedia(h) {
     if (a) {
       const pages = Math.max(1, Math.ceil(m.comment_count / COMMENTS_PAGE));
       const page = Math.min(pages, Math.max(1, Number.parseInt(rc.query.get("page") || "1", 10) || 1));
-      out.comments = q.comments.all(m.id, COMMENTS_PAGE, (page - 1) * COMMENTS_PAGE).map((c) => {
-        const own = c.account_id !== null && c.account_id === a.id;
-        return {
-          id: c.id, by: by(c), created: h.iso(c.created_at), edited: h.iso(c.edited_at), body: c.body, content: render(c.body),
-          can: { edit: own && h.now() - c.created_at <= s.editWindowMinutes * 60 && !h.postingBlock(a), remove: own || h.isMod(a) },
-        };
-      });
+      out.comments = q.comments.all(m.id, COMMENTS_PAGE, (page - 1) * COMMENTS_PAGE).map((c) => commentView(c, a));
       out.commentPage = page;
       out.commentPages = pages;
     }
@@ -325,6 +332,24 @@ export function createMedia(h) {
     });
     if (!own) h.audit(a, "forum.media.comment.remove", { targetId: c.account_id, subject: "comment " + c.id + " on media " + c.media_id });
     rc.json(200, { ok: true });
+  }));
+
+  // PREVIEW, stored nowhere, with the checks of saving: { comment } is a new comment by the
+  // account (with { id }: that comment edited), answered as commentView gives it to the page,
+  // without actions; { description } a media post's description, as the tree the page draws.
+  r.post("/api/forum/media/preview", h.member(async (req, res, rc) => {
+    const input = await rc.body({ maxBytes: 64 * 1024 });
+    const a = rc.account;
+    h.take([["preview", "a:" + a.id, "You can preview again"]]);
+    if (input.description !== undefined) return rc.json(200, { content: render(checkText(input.description, "The description", 4000)) });
+    const body = checkComment(input.comment);
+    let row = { id: null, account_id: a.id, author_name: a.username, author_role: a.role, author_dev: store.isDeveloper(a.id) ? 1 : 0, created_at: h.now(), edited_at: null };
+    if (input.id !== undefined && input.id !== null) {
+      const c = commentFor(h.idOf(input.id, "No such comment."), a);
+      if (c.account_id !== a.id && !h.isMod(a)) throw new HttpError(403, "forbidden", "You can edit only your own comments.");
+      row = { ...q.commentRow.get(c.id), edited_at: h.now() };
+    }
+    rc.json(200, { comment: { ...commentView({ ...row, body }, a), can: {} } });
   }));
 
   return { youtubeId };

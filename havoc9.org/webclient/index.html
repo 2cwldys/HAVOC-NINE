@@ -94,6 +94,8 @@
     .motd-site { color: var(--orange); }
     .motd-url { color: var(--text-dim); word-break: break-all; font-size: 0.8rem; }
     html.webclient-playing, html.webclient-playing body { overflow: hidden; }
+    /* MINIMUM SPECS, under PLAY: the site's feature list */
+    .webclient-specs { margin-top: 3rem; }
   </style>
 </head>
 <body>
@@ -115,7 +117,7 @@
         <li><a href="../downloads/index.html">DOWNLOADS</a></li>
         <li><a href="../servers/index.html">SERVERS</a></li>
         <li><a href="../forum/index.html">FORUM</a></li>
-        <li><a href="../community/index.html">COMMUNITY</a></li>
+        <li><a href="../community/index.html">COMMUNITIES</a></li>
         <li><a href="../media/index.html">MEDIA</a></li>
         <li><a href="../join/index.html">JOIN</a></li>
         <li><a href="../museum/index.html">MUSEUM</a></li>
@@ -143,6 +145,36 @@
           <a href="../servers/index.html" class="btn btn-ghost">VIEW SERVERS</a>
         </div>
       </div>
+
+      <section class="webclient-specs" aria-labelledby="specsTitle">
+        <h2 class="sub-title" id="specsTitle">MINIMUM SPECS</h2>
+        <div class="feature-list">
+          <div class="feature-row">
+            <span class="feature-label">BROWSER</span>
+            <span class="feature-value">Chrome or Edge 85 or later, or Firefox 79 or later, on a desktop or laptop</span>
+          </div>
+          <div class="feature-row">
+            <span class="feature-label">FEATURES</span>
+            <span class="feature-value">WebAssembly, WebGL 2 with hardware acceleration on, Web Audio and WebSockets: nothing to install</span>
+          </div>
+          <div class="feature-row">
+            <span class="feature-label">MEMORY</span>
+            <span class="feature-value">512 MB for the game when it starts, up to 2 GB as it needs more; the game files it has read are kept in memory too</span>
+          </div>
+          <div class="feature-row">
+            <span class="feature-label">CPU / GPU</span>
+            <span class="feature-value">Modest, for a GoldSrc-era game: graphics that give the browser WebGL 2</span>
+          </div>
+          <div class="feature-row">
+            <span class="feature-label">FIRST START</span>
+            <span class="feature-value">About 37 MB before the main menu (the engine, 5 MB, and the game's start files, 32 MB), then the menu's music in the background. Each map is fetched the first time it is played: its map file alone is 2 to 44 MB. The browser keeps what it fetched for the next visit.</span>
+          </div>
+          <div class="feature-row">
+            <span class="feature-label">NETWORK</span>
+            <span class="feature-value">Broadband: the first start's 37 MB take about half a minute at 10 Mbit/s</span>
+          </div>
+        </div>
+      </section>
 
       <div class="install-steps" style="margin-top: 3rem;">
         <h2 class="sub-title">WHAT YOU WILL NEED</h2>

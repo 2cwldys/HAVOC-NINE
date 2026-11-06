@@ -40,7 +40,12 @@ names every slot's again at each map start), and another cl_h9_site starts the l
 asking again runs in an H9UI panel's Frame (cl_motd.c), a panel that is never up.
 cl_h9_avatars 0 turns it all off.
 
-The browser build reads the message and keeps the silhouette.
+The browser build has no sockets for this: its page (havoc9.org\webclient\client.js, Module.avatar) fetches the
+picture from its own site, at /api/presence/avatar/<account>/<version>.png, writes it as
+downloads/h9avatars/web_<account>_<version>.png and runs h9_avatar_page <slot> <account> <version>, which shows
+it in that slot when the slot still waits for that picture. The check is the same (a PNG of at most 64 x 64
+and 32 KB), so is the HUD_H9Avatar it goes to, and the file stays for the session. h9_profile is not in the
+browser build.
 
 h9_profile <slot> opens the havoc9.org profile of the player in that slot in the web browser, the way
 the main menu's OPEN PAGE opens the link page (Platform_ShellExecute). H9's client.dll runs it on a
@@ -63,6 +68,9 @@ run it, and a burst of clicks opens one page.
 #include "net_ws.h"
 #include "platform/platform.h"
 #include "cl_motd.h"
+#if XASH_EMSCRIPTEN
+#include <emscripten.h>
+#endif
 
 #define H9AV_SITE      "https://havoc9.org"
 #define H9AV_MAX_BYTES ( 32 * 1024 )
@@ -118,6 +126,8 @@ static const h9ui_panel_t h9av_panel =
 	H9Av_NoDraw,
 	H9Av_Reset,
 };
+#else
+static void H9Av_Page_f( void );
 #endif
 
 /*
@@ -132,6 +142,8 @@ void CL_Avatar_Init( void )
 #if !XASH_EMSCRIPTEN
 	Cmd_AddRestrictedCommand( "h9_profile", H9Av_Profile_f, "H9: open the havoc9.org profile of the player in a slot in the web browser (the scoreboard's double-click on a linked player's picture)" );
 	H9UI_AddPanel( &h9av_panel );
+#else
+	Cmd_AddRestrictedCommand( "h9_avatar_page", H9Av_Page_f, "H9: the page has written a player's havoc9.org picture; show it in its slot (client.js runs it)" );
 #endif
 }
 
@@ -145,6 +157,97 @@ static pfnH9Avatar_t H9Av_Give( void )
 	}
 	return av.give;
 }
+
+// A PNG of at most 64 x 64 and 32 KB, by its own header, decoded and given to the slot.
+static qboolean H9Av_Show( int slot, int version, const byte *data, size_t size )
+{
+	pfnH9Avatar_t give = H9Av_Give();
+	rgbdata_t *pic;
+	int w, h;
+
+	if( !give || !data || size < 33 || size > H9AV_MAX_BYTES )
+		return false;
+	if( memcmp( data, "\x89PNG\r\n\x1a\n", 8 ) || memcmp( data + 12, "IHDR", 4 ))
+		return false;
+	w = ( data[16] << 24 ) | ( data[17] << 16 ) | ( data[18] << 8 ) | data[19];
+	h = ( data[20] << 24 ) | ( data[21] << 16 ) | ( data[22] << 8 ) | data[23];
+	if( w < 1 || h < 1 || w > H9AV_MAX_SIDE || h > H9AV_MAX_SIDE )
+		return false;
+
+	pic = FS_LoadImage( "#h9avatar.png", data, size );
+	if( !pic )
+		return false;
+	if( !Image_Process( &pic, 0, 0, IMAGE_FORCE_RGBA, 0.0f ) || pic->width != w || pic->height != h || !pic->buffer )
+	{
+		FS_FreeImage( pic );
+		return false;
+	}
+	give( slot, version, pic->width, pic->height, pic->buffer );
+	FS_FreeImage( pic );
+	return true;
+}
+
+#if XASH_EMSCRIPTEN
+
+// The browser build has no sockets, so the page (havoc9.org\webclient\client.js, Module.avatar) fetches a
+// picture from its own site, writes it to H9Av_WebPath and runs h9_avatar_page for the slot that waits for it.
+EM_JS( void, H9Av_PageWant, ( int slot, int account, int version ), {
+	var avatar = Module.avatar;
+	if( !avatar || !avatar.want )
+		return;
+	try {
+		avatar.want( slot, account, version );
+	} catch( e ) {
+	}
+});
+
+static void H9Av_WebPath( char *out, size_t size, int account, int version )
+{
+	Q_snprintf( out, size, "downloads/h9avatars/web_%d_%d.png", account, version );
+}
+
+// the picture the page wrote for an account, if it has, shown in the slot
+static qboolean H9Av_WebShow( int slot, int account, int version )
+{
+	char path[64];
+	fs_offset_t size = 0;
+	byte *data;
+	qboolean shown;
+
+	H9Av_WebPath( path, sizeof( path ), account, version );
+	data = FS_LoadFile( path, &size, true );
+	if( !data )
+		return false;
+	shown = H9Av_Show( slot, version, data, (size_t)size );
+	Mem_Free( data );
+	return shown;
+}
+
+/*
+==============
+H9Av_Page_f
+
+h9_avatar_page <slot> <account> <version>: the page has written that picture; the slot shows it if it still waits for it
+==============
+*/
+static void H9Av_Page_f( void )
+{
+	int slot, account, version;
+
+	if( Cmd_Argc() != 4 )
+		return;
+	slot = Q_atoi( Cmd_Argv( 1 ));
+	account = Q_atoi( Cmd_Argv( 2 ));
+	version = Q_atoi( Cmd_Argv( 3 ));
+	if( slot < 1 || slot > MAX_CLIENTS || account <= 0 )
+		return;
+	if( av.want_account[slot] != account || av.want_version[slot] != version )
+		return;
+	if( H9Av_WebShow( slot, account, version ))
+		av.want_account[slot] = av.want_version[slot] = 0;
+}
+
+#endif // XASH_EMSCRIPTEN
 
 #if !XASH_EMSCRIPTEN
 
@@ -294,35 +397,6 @@ static int H9Av_Failure( int account, int version, qboolean later )
 	else wait = 600;
 	av.failed[i].retry_at = host.realtime + wait;
 	return wait;
-}
-
-// A PNG of at most 64 x 64 and 32 KB, by its own header, decoded and given to the slot.
-static qboolean H9Av_Show( int slot, int version, const byte *data, size_t size )
-{
-	pfnH9Avatar_t give = H9Av_Give();
-	rgbdata_t *pic;
-	int w, h;
-
-	if( !give || !data || size < 33 || size > H9AV_MAX_BYTES )
-		return false;
-	if( memcmp( data, "\x89PNG\r\n\x1a\n", 8 ) || memcmp( data + 12, "IHDR", 4 ))
-		return false;
-	w = ( data[16] << 24 ) | ( data[17] << 16 ) | ( data[18] << 8 ) | data[19];
-	h = ( data[20] << 24 ) | ( data[21] << 16 ) | ( data[22] << 8 ) | data[23];
-	if( w < 1 || h < 1 || w > H9AV_MAX_SIDE || h > H9AV_MAX_SIDE )
-		return false;
-
-	pic = FS_LoadImage( "#h9avatar.png", data, size );
-	if( !pic )
-		return false;
-	if( !Image_Process( &pic, 0, 0, IMAGE_FORCE_RGBA, 0.0f ) || pic->width != w || pic->height != h || !pic->buffer )
-	{
-		FS_FreeImage( pic );
-		return false;
-	}
-	give( slot, version, pic->width, pic->height, pic->buffer );
-	FS_FreeImage( pic );
-	return true;
 }
 
 static void H9Av_Pump( void );
@@ -568,9 +642,33 @@ void CL_Avatar_Message( sizebuf_t *msg )
 	av.want_version[slot] = version;
 	H9Av_Pump();
 #else
-	(void)slot;
-	(void)account;
-	(void)version;
+	pfnH9Avatar_t give;
+
+	if( slot < 1 || slot > MAX_CLIENTS || !cl_h9_avatars.value )
+		return;
+	give = H9Av_Give();
+	if( !give )
+		return;
+
+	if( account <= 0 )
+	{
+		av.want_account[slot] = av.want_version[slot] = 0;
+		give( slot, 0, 0, 0, NULL );
+		return;
+	}
+
+	// the page wrote this picture earlier: nothing to ask for
+	if( H9Av_WebShow( slot, account, version ))
+	{
+		av.want_account[slot] = av.want_version[slot] = 0;
+		return;
+	}
+
+	// the silhouette until the page has the picture: never the slot's previous player's
+	give( slot, 0, 0, 0, NULL );
+	av.want_account[slot] = account;
+	av.want_version[slot] = version;
+	H9Av_PageWant( slot, account, version );
 #endif
 }
 

@@ -447,6 +447,7 @@ void CTSGameRules::Init()
 	m_iSrvRealBullet = -1;
 	m_iSrvAmmoCount = -1;
 	m_iSrvUseCash = -1;
+	m_iSrvCustomWeapons = -1;
 	// @0x67ec8..0x67ef9: no deads check pending, no One, the One count at 0, IsCTB to look again
 	m_flCheckDeads = 0;
 	m_bTheOneActive = false;
@@ -1092,6 +1093,16 @@ void CTSGameRules::Think()
 			WRITE_SHORT(v);
 			MESSAGE_END();
 		}
+		// reTS addition: id 4, whether the weapons H9 adds to TS are in play (h9_customweapons), for the buy menu
+		const int customWeapons = H9_CustomWeaponsOn() ? 1 : 0;
+		if (customWeapons != m_iSrvCustomWeapons)
+		{
+			m_iSrvCustomWeapons = customWeapons;
+			MESSAGE_BEGIN(MSG_ALL, gmsgTSServerSetting);
+			WRITE_BYTE(4);
+			WRITE_SHORT(customWeapons);
+			MESSAGE_END();
+		}
 	}
 }
 
@@ -1362,8 +1373,8 @@ const char *CTSGameRules::GetIndexedTeamName(int teamIndex)
 // @ InitHUD — send the team roster to a connecting client (so a real HUD can colour the
 // scoreboard). The MP base does the rest of the HUD setup.
 // "SrvSett" (3) — BYTE setting id + SHORT value. Ids: 0 realbullet, 1 usecash (bool on the
-// wire), 2 ammocount, 3 weaponrestriction bitmask. InitHUD pushes ALL FOUR to a joiner
-// (MSG_ONE); Think broadcasts ids 0-2 on cvar change (MSG_ALL); cmd_weaponrestriction
+// wire), 2 ammocount, 3 weaponrestriction bitmask, and (reTS addition) 4 h9_customweapons. InitHUD pushes ALL FIVE to a
+// joiner (MSG_ONE); Think broadcasts ids 0-2 and 4 on cvar change (MSG_ALL); cmd_weaponrestriction
 // broadcasts id 3 on change. star_SrvSett.md (decompile-settled).
 int gmsgTSServerSetting = 0;
 
@@ -1392,7 +1403,7 @@ void CTSGameRules::InitHUD(CBasePlayer *pPlayer)
 	if (m_bWeaponParamsCustom)
 		InformClientsOnWeaponsParams(pPlayer);
 
-	// SrvSett catch-up: the joiner gets all four settings (no late-joiner hole).
+	// SrvSett catch-up: the joiner gets all five settings (no late-joiner hole).
 	// item 3: byte-0 sends the THINK-CACHED value (+0x578), not a fresh cvar read (Init
 	// seeds it -1; Think refreshes on change) — dossier §2.4.
 	MESSAGE_BEGIN(MSG_ONE, gmsgTSServerSetting, NULL, pPlayer->edict());
@@ -1410,6 +1421,11 @@ void CTSGameRules::InitHUD(CBasePlayer *pPlayer)
 	MESSAGE_BEGIN(MSG_ONE, gmsgTSServerSetting, NULL, pPlayer->edict());
 	WRITE_BYTE(3);
 	WRITE_SHORT(m_iWeaponRestriction);
+	MESSAGE_END();
+	// reTS addition (TS 3.0's client drops an id above 3): whether the weapons H9 adds are in play
+	MESSAGE_BEGIN(MSG_ONE, gmsgTSServerSetting, NULL, pPlayer->edict());
+	WRITE_BYTE(4);
+	WRITE_SHORT(H9_CustomWeaponsOn() ? 1 : 0);
 	MESSAGE_END();
 
 	// Sent once, as the original (@0x691fe..0x69316); nothing sends them again to a joiner.

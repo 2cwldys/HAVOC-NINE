@@ -607,6 +607,7 @@ public:
 	bool MsgFunc_H9Assists( const char *pszName, int iSize, void *pbuf );
 	bool MsgFunc_H9Kills( const char *pszName, int iSize, void *pbuf ); // H9 KILLS
 	bool MsgFunc_H9Lives( const char *pszName, int iSize, void *pbuf );
+	bool MsgFunc_H9Pool( const char *pszName, int iSize, void *pbuf );
 	bool MsgFunc_TeamScore( const char *pszName, int iSize, void *pbuf );
 	bool MsgFunc_TeamInfo( const char *pszName, int iSize, void *pbuf );
 	bool MsgFunc_Spectator( const char *pszName, int iSize, void *pbuf );

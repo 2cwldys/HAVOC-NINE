@@ -584,7 +584,7 @@
    The whole run is logged to build-webclient.log in the output folder.
 
    HOW IT REACHES THE SITE. The page itself -- index.html, client.js,
-   auth.js, settings.json in havoc9.org\webclient\ -- is part of the site, and
+   h9audio.js, auth.js, settings.json in havoc9.org\webclient\ -- is part of the site, and
    travels in the host package. The stage supplies the rest: engine\ and the
    two lists go into the site's webclient\ folder (served at /webclient/),
    and game\ into a folder outside the site (served at /webclient/game/).

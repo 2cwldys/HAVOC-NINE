@@ -20,7 +20,7 @@ CLASS = {
     9: "pistol", 10: "akimbo", 11: "shotgun", 12: "pistol", 13: "rifle", 14: "pistol", 15: "rifle", 16: "akimbo",
     17: "SMG", 18: "sniper", 19: "SMG", 20: "shotgun", 21: "akimbo", 22: "pistol", 23: "SMG", 24: "grenade",
     25: "melee", 26: "shotgun", 27: "rifle", 28: "pistol", 29: "objective", 30: "akimbo", 31: "pistol",
-    32: "machine gun", 33: "shotgun", 34: "melee", 35: "melee", 36: "pistol", 37: "akimbo", 39: "SMG",
+    32: "machine gun", 33: "shotgun", 34: "melee", 35: "melee", 36: "pistol", 37: "akimbo", 39: "SMG", 40: "rifle",
 }
 NOT_GUNS = {0, 24, 25, 29, 34, 35}
 MODES = {0: "auto", 1: "semi", 2: "burst", 3: "pump", 4: "akimbo-alt", 5: "akimbo-both"}
@@ -50,7 +50,7 @@ add("WEAPON DAMAGES -- the damage of every weapon, as the game builds it")
 add("=================================================================")
 add("")
 add("Every number here is read from the weapon table the game compiles (reTS dlls\\ts_weapon_info.cpp,")
-add("built into both mp.dll and client.dll): 39 weapons, TS 3.0's 38 (ids 0 to 37) and the PPSh-41 (id 39).")
+add("built into both mp.dll and client.dll): 40 weapons, TS 3.0's 38 (ids 0 to 37), the PPSh-41 (id 39) and the laser rifle (id 40).")
 add("Id 38 is no game weapon: AMX Mod X's TSX uses it for the throwing knife (section 4), so the game's own")
 add("table leaves it empty. The table's damage is the shipped 'Sparta' value for the 32 firearms, which")
 add("overrides the figure in each weapon's own row; the melee, grenade and briefcase rows keep their own. A")
@@ -90,6 +90,11 @@ add("  The PPSh-41 does 85% of the UMP's damage (26.35, which lands as 26), with
 add("  a minute, and a toggle between full auto and single fire (the fire-mode key switches, as on the AK47")
 add("  and the Uzi).")
 add("")
+add("  The laser rifle (id 40) is an energy weapon that fires plasma: 35 damage, a little over the M4A1's 33, 800")
+add("  rounds a minute, 35 cells a pack (caliber 15, \"Plasma Cell\"), full auto, single and burst, and a bolt")
+add("  stops at the first thing it hits (pierce decay 0). Right click zooms to 32 and then 8 under a blue overlay,")
+add("  and it gunbashes for 35 like the M4A1.")
+add("")
 add("")
 add("2. RANGE, AND WHAT A BULLET GOES THROUGH")
 add("---------------------------------------")
@@ -107,7 +112,7 @@ for cal in sorted(ammo):
 add("")
 add("A bullet that still has more than 5 damage after a hit goes on through up to 48 units of material")
 add("and hits once more, as one bullet with its damage times the pierce decay (half again if it went")
-add("through a player). A decay of 0 never goes through: every shotgun's shells, and the .32.")
+add("through a player). A decay of 0 never goes through: every shotgun's shells, the .32 and the laser rifle's plasma.")
 add("")
 add("")
 add("3. WHAT CHANGES A HIT")
@@ -165,7 +170,7 @@ add("")
 add("Weapon 38, the Throwing Knife, is how AMX Mod X's TSX names any thrown blade: a kill or a hit made with one")
 add("reaches plugins (client_death, client_damage) as weapon 38, whichever knife was thrown, and a kill with it")
 add("is worth 2 points, as a kung-fu kill is (every other weapon's is worth 1). It is not a game weapon: the")
-add("game's own ids are 0 to 37, and the PPSh-41's 39, so ts_giveweapon never takes 38.")
+add("game's own ids are 0 to 37, the PPSh-41's 39 and the laser rifle's 40, so ts_giveweapon never takes 38.")
 add("")
 add("")
 add("5. THE FIREARMS, BY DAMAGE")

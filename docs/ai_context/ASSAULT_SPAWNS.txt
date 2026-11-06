@@ -1,0 +1,226 @@
+===============================================================================
+ ASSAULT SPAWNS -- placing the respawn sets of an Assault map
+ A guide for an AI (or a person) working on any new map, in SMAK or out of it
+===============================================================================
+
+ Read this before you place, move or judge the respawn points of an Assault
+ map (h9_as_<name>). Everything here is done by a Node.js library that lives in
+ the repo:
+
+     tools/assault-spawns/       the library, a command line, and its tests
+       bsp.mjs                   reads a GoldSrc BSP: the map's own collision
+       cfg.mjs                   reads/writes the capture-point and spawn files
+       place.mjs                 the placement rules (section 3)
+       plan.mjs, png.mjs         draws a plan of the result as a PNG
+       index.mjs                 generateForMap(): the whole job in one call
+       levels.mjs                the floors of a map as a walkable graph, its levels, points over them
+       cli.mjs                   node tools/assault-spawns/cli.mjs <map> ...
+       assault-spawns.test.mjs   node --test tools/assault-spawns/assault-spawns.test.mjs
+
+ It needs only Node (18 or newer) and nothing from npm. The GAME rules the sets
+ serve are in docs\GAME_MODES.txt (ASSAULT) and docs\CUSTOM_SPAWNPOINTS.txt
+ (part 5); this file is about getting them right on a map.
+
+
+ 1. WHAT A SET IS
+ ----------------
+ An Assault map has capture points 1 to 24. Point N has a SPAWN SET: the
+ forward points of TIER N in the map's spawn file,
+     configs\tsm_spawns_<map>.cfg:  tsm_spawn <team> <x> <y> <z> <pitch> <yaw> <tier>
+ Tier 0 is a side's base (round start, a living player, and the fallback). A set
+ is open to the side that holds the point and closed when it loses it. When a
+ side holds several, a respawn wave lands at the ONE nearest the enemy's base, the
+ front, and nowhere else (ts_matchmode.sma, front_open_set). A set belongs to
+ the side whose lines it is written on: write each side's own places.
+ A wave hands its players out one to a point, so a set needs about as many
+ places as a wave has players: EIGHT is the default, 256 a side the most.
+
+ THE DESIGN INTENT (the user's words, which the rules in section 3 serve):
+ "The assault spawns need to be placed where they're not in each other's faces
+ immediately each respawn wave, but they're closer to their points that are taken
+ towards the enemy." So: reinforcements arrive at the FRONT (the held point
+ nearest the enemy), near that point, on the holder's own side of it, out of the
+ enemy's sight, spread out, all looking the same way.
+
+
+ 2. A NEW MAP, STEP BY STEP
+ --------------------------
+ 1. Build the map (SMAK: the generator scripts in export-map\<project>, e.g.
+    lift.mjs and drainage.mjs, drive it and write the .bsp and its files). Name it
+    h9_as_<name>. Give each side a base: spawn lines of tier 0 in
+    configs\tsm_spawns_<map>.cfg (amx_tsm_spawn_add, or the generator), or
+    info_player_team1 and info_player_team2 entities. The tool takes each side's
+    base as the middle of its tier 0 lines, else of those entities.
+ 2. Give it capture points, at least two, where both sides have to fight. A map with none yet can be
+    given a first guess: node tools/assault-spawns/cli.mjs <map> --suggest 7 --plan <folder> proposes
+    that many (open floor with room for the whole reach, one to a band along the line between the two
+    bases, only floors at the bases' height: no roofs), prints them as tsm_as_zone lines and draws them;
+    --write puts them in the zone file. It suits a big flat map; a map whose sides start one above
+    the other (the lift) has no line between them worth the name: place those by hand.
+    A map of SEVERAL FLOORS (Neuropolis: a street, the sewers under it, a pit under those) takes
+    --levels auto (or a number of levels, or <z>:<count>,... to choose them): the points are spread
+    over the levels, how many to each by how much floor it has (at least one), each on a floor that
+    BOTH bases can walk to (stairs and ramps taken, a drop never) and numbered along that walk from
+    side 1's base to side 2's. --overview <folder> draws one band for each level (section 4). Then:
+      - as entities in the map: info_target, targetname tsm_as_1 .. tsm_as_24,
+        origin 16 units above the floor (a brush entity's box is its footprint);
+      - or as lines in configs\tsm_assault_<map>.cfg:
+            tsm_as_zone <n> <x> <y> <z> [radius]
+        (amx_tsm_as_add stands you on a point and amx_tsm_as_save writes the file).
+    The radius is how far the point reaches over the floor: 384 by default
+    (tsm_as_radius), 256 to 300 in a tight map. Do not put a base inside one.
+    SPACING: keep every point over a thousand units from every other, and let no two
+    reaches meet (the gap between two points is their distance less both radii; make it
+    positive). A first pass of five points 592 to 987 apart with a reach of 384 on
+    h9_as_drainage was "way too close" to the person who played it: the map holds four
+    points a thousand units apart, with a reach that fits each room (192 for a closet,
+    256 along a hall), not five. On a small map take fewer points rather than closer ones.
+ 3. Compile; put the .bsp in the game folder's ts\maps (H9XASH\ts\maps).
+ 4. node tools/assault-spawns/cli.mjs <map> --check
+        "N tier 0 spawns: 0 inside the world, 0 with no floor" must be 0 and 0. If
+        not, the tool is reading this map wrongly (not a BSP version 30? an exotic
+        brush entity? see section 6) and nothing it places can be trusted.
+ 5. node tools/assault-spawns/cli.mjs <map> --plan <folder>
+        writes the sets into the map's spawn file between two marker comments
+        (rewritten on every run; lines you add outside them stay) and draws
+        <folder>\<map>-assault-spawns.png.
+ 6. LOOK at the picture (section 4), read the report (section 5), and fix the map
+    or the points rather than the sets where you can. Run again.
+ 7. Play it: the test server and the web client end to end are in
+    tools\webclient-test\assault.mjs (join, take a side, start, give points to a
+    side with amx_tsm_as_give, kill a bot, force a wave with amx_tsm_wave, and read
+    the placement from logs\tsm_debug.log with tsm_debug_log 1). amx_tsm_debug
+    names the tier each side's wave will land at ("waves land at tier N").
+ 8. Keep the spawn file, the zone file, the map's mapconfig
+    (ts\mapconfigs\<map>.cfg: tsm_respawns 1, tsm_roundtime, and tsm_uplink_mode 0
+    if the map is a copy of an Uplink map) and the map picture
+    (presence\maps\<map>.png) with the map. tools\make_assault_maps.py makes an
+    Assault copy of an Uplink map in one go and tells you the next step.
+
+
+ 3. THE RULES THE TOOL APPLIES (place.mjs)
+ -----------------------------------------
+ A PLACE is where a standing player's whole box fits (the BSP's own hull 1, for
+ the world and every solid brush entity) with floor 3 units under it, within the
+ point's radius, and reachable by a straight walk from the point (hull test every
+ 8 units). Candidates are tried on rings of 60 to 300 units, every 10 degrees. Then:
+   1. THE HOLDER'S OWN SIDE. For side T the "rear" is the way from the point to T's
+      base (xy). A place more than 90 degrees from it is passed over, then 120,
+      then anywhere, only as the set needs it. Never the enemy's way in.
+   2. HIDDEN FROM THE ENEMY'S WAY IN. A place that the enemy side of the point can
+      see is worse: line of sight (the exact surfaces, hull 0, sampled every 4
+      units, eye 17 above the origin) is tested to up to nine vantage points on the
+      arc facing the enemy base at 0.9 of the radius.
+   3. CLOSE TO THE POINT. The target is half the radius (110 to 190 units).
+   4. SPREAD, ALL FACING ONE WAY. Never nearer than 72 units to another place of
+      the set, then 52, then 40 where a room is small (the report says so). Every
+      place of a set has the SAME yaw: toward the enemy's base, so a wave looks the
+      same way and not at itself (no base known: toward the point).
+   5. NOT IN THE ENEMY SET'S FACE. A place within 180 units of, and in sight of, a
+      place of an enemy set of ANOTHER point is dropped while the set keeps six.
+   6. NOT INSIDE ANOTHER POINT. A place inside the reach of a DIFFERENT capture point (across the
+      floor, and within 168 units of its height) is the last choice: a wave there stands in a point
+      the side may not hold. It is taken only when the set cannot be filled without it, and the
+      report says so.
+ Bases that lie the same way from a point (decks one above the other: the lift)
+ give no rear to prefer; the report says "bases the same way". The score is
+ ring (0.8) + angle from the rear (1.4) + exposure (1.0), lower wins; every number
+ is in DEFAULTS in place.mjs and can be passed as options to generateForMap().
+
+
+ 4. READING THE PLAN
+ -------------------
+ One panel for each point, numbered at its top left. Light is floor a player can
+ stand on at the point's height, dark is not (walls, machines, void, other decks).
+ Yellow: the point's middle and its reach. A BLUE square is a place of side 1's set,
+ a RED one side 2's; the white line on each is the way it faces; the blue and red
+ lines from the middle point toward the sides' bases. What good looks like:
+   - blue and red on OPPOSITE sides of the point, each toward its own base;
+   - no square in a dark cell, none in a doorway the enemy walks through;
+   - the white lines all parallel in a set, pointing at the enemy's side;
+   - eight squares a set, not in one clump.
+ docs\ai_context\assault-spawns\ has the plans of the shipped maps, and Neuropolis's levels: one
+ band for each (--overview), the floor a player can stand on at that height light, the points of
+ that level in yellow with their numbers, each side's base where it is on the level, and the places
+ of the sets in the sides' colours.
+
+
+ 5. READING THE REPORT
+ ---------------------
+ point N side T: 8 of 103 places (rear -85 deg, 4 vantage points)
+        103 places were valid; eight were taken; the rear is that angle; the
+        enemy-side vantage points that exposure was measured from.
+ point N: no open floor near (x y z), no set
+        the point's marker is inside something and no floor is within 320 units
+        of it: move the point to open floor.
+ point N side T: only 5 places fit; a wave of more players stacks on them
+        the room is too small for eight: widen the radius, move the point, or
+        accept it and place by hand (amx_tsm_spawn_add <team> N).
+ point N side T: a small room, the nearest two places are 49 units apart
+        eight were kept by relaxing the spacing. Players of one wave will crowd.
+ point N side T: ... in sight of an enemy set of another point
+        rule 5 moved some places; "no clear set is left" means check by eye.
+
+
+ 6. WHAT THE TOOL ASSUMES, AND HOW IT CAN BE WRONG
+ -------------------------------------------------
+ - BSP version 30 (GoldSrc) only. A different version throws.
+ - Brush entities that block a player are those of func_wall, func_door(_rotating),
+   func_breakable, func_pushable, func_plat(rot), func_train, func_tracktrain,
+   func_rotating, func_conveyor, func_button, func_rot_button, func_healthcharger,
+   func_recharge, func_vehicle, func_guntarget, func_pendulum (SOLID_CLASSES in
+   bsp.mjs), tested where the map puts them at the start: a door is closed, a
+   train is at its first corner. func_illusionary and triggers never block. Add a
+   class if a map uses another solid one.
+ - A glass pane built as func_wall blocks line of sight in the test and does not in
+   the game: a place may be less hidden than it is scored.
+ - A wall thinner than 4 units can leak line of sight (the samples are 4 apart).
+ - A point's marker is 16 above the floor and a standing player's origin 36 above
+   it (the builders' own spawns sit at 37). A point whose middle is inside a
+   machine is walked to from the nearest open floor (the report's "hub").
+ - Floors are found within 24 units of the point's floor: a point in a stairwell
+   or on a ramp gets places on the stair's reach only.
+ - LEVELS (--levels) are found from the floor both bases can walk to. The walk follows a floor that
+   rises or falls up to 1.25 units for each unit along it (a flight of stairs, a ramp) and never
+   a drop, a jump or a ladder, so a level that can only be reached by one of those is not found:
+   name its height in --levels and place its points by hand. The three busiest levels are kept
+   by default; the interiors and roofs of a city are small ones and are left out.
+ - The BSP says nothing about a map's gameplay: a place may be a valid standing
+   spot inside a room only the enemy owns. Look at the plan.
+
+
+ 7. CALLING IT FROM A MAP GENERATOR
+ ----------------------------------
+     import { generateForMap } from '../../tools/assault-spawns/index.mjs'
+     const r = generateForMap({ game: GAME_DIR, map: 'h9_as_newmap', plan: OUT_DIR })
+     // r.result.report: lines to log; r.result.sets: [{ n, team, places }]
+     // r.zones, r.bases, r.lines, r.written (the spawn file), r.planFile
+ Run it AFTER the compile and after the game folder has the .bsp, the zone file
+ and the tier 0 spawns. Options: { per, rings, stepDeg, passes, weights, ... }
+ (place.mjs DEFAULTS). generateForMap({ ..., dry: true }) writes nothing.
+ The lower-level pieces (Bsp, placeAll, parseZoneCfg, mergeBlock, renderPlan) are
+ exported from the same index.mjs, and so are the pieces for a map of several floors: walkGraph
+ (the floor cells with each base's walk to them), detectLevels, suggestLevelPoints (the points,
+ spread over the levels) and renderLevels (the overview picture).
+
+
+ 8. FILES AND FORMATS
+ --------------------
+ configs\tsm_assault_<map>.cfg   tsm_as_zone <n> <x> <y> <z> [radius]   (// comments)
+ configs\tsm_spawns_<map>.cfg    tsm_spawn <team> <x> <y> <z> <pitch> <yaw> [tier]
+     the tool's block is the lines between
+       // ---- assault spawn sets: written by tools/assault-spawns from tsm_assault_<map>.cfg; ...
+       // ---- end assault spawn sets
+ ts\mapconfigs\<map>.cfg         per-map cvars (h9_autoconfig)
+ Limits: 24 points, tiers 1 to 32, 256 spawn points a side (TSM_MAXSPAWNS).
+ Master files live in H9XASH (the game folder this tool defaults to) and, for
+ the maps the generators build, also in export-map\<project>\out.
+
+
+ 9. RELATED
+ ----------
+ docs\GAME_MODES.txt           the Assault mode, setting up a map
+ docs\CUSTOM_SPAWNPOINTS.txt   spawn files, tiers, part 5 (Assault sets)
+ COMMANDS.txt                  ASSAULT: amx_tsm_as_*, tsm_as_zone, the cvars
+ tools\make_assault_maps.py    makes an Assault copy of an Uplink map
+ tools\webclient-test\assault.mjs   the end-to-end run in a real web client

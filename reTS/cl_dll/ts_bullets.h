@@ -17,7 +17,10 @@ struct s_weapon_info;
 bool TSBullets_RealBullet();
 
 // FUN_10035c20: queue a round fired by entity `owner` from `src` along `dir`. Full (256): dropped.
-void TSBullets_Fire(int owner, const float* src, const float* dir, float damage, int caliber, int mode);
+// A plasma round (caliber TS_CALIBER_PLASMA) is drawn from `visualStart` (the muzzle) when one is given, while it
+// is simulated from `src`.
+void TSBullets_Fire(int owner, const float* src, const float* dir, float damage, int caliber, int mode,
+	const float* visualStart = nullptr);
 
 // FUN_10034e60: step and draw every queued round. Called last in HUD_DrawTransparentTriangles.
 void TSBullets_Update();
@@ -27,4 +30,11 @@ void TSBullets_Reset();
 
 // ev_ts.cpp: the impact, sound and decal of a trace that hit (client.dll FUN_10044bf0 +
 // FUN_10001180). The caller has the PM states pushed.
-void EV_TSBulletHit(int idx, const float* src, const float* end, pmtrace_t& tr, int mode);
+// `caliber` is the caliber of the round that hit: a plasma bolt leaves a scorch and a green glow, not a bullet hole.
+void EV_TSBulletHit(int idx, const float* src, const float* end, pmtrace_t& tr, int mode, int caliber = 0);
+
+// The laser rifle's plasma (ts_bullets.cpp). A shot from `from` to where it lands, `to`: a green bolt that runs along it
+// and a trail that fades; a faint green light where it was fired from; a green flash and light where it landed.
+void TSPlasma_Bolt(const float* from, const float* to);
+void TSPlasma_MuzzleLight(int shooter, const float* pos);
+void TSPlasma_Impact(const float* pos);

@@ -70,6 +70,12 @@ H9's changes
                              41 + the custom weapons; on TS 3.0's own library the ammo natives refuse a
                              weapon past 37.
      plugins\include\tsconst.inc   TSW_PPSH41 = 39 (TSW_TKNIFE stays 38)
+9. TSX knows the laser rifle of H9's reTS (weapon 40; 2026-11-05), the same way:
+     modules\ts\tsx\CMisc.h, Utils.cpp, NBase.cpp, moduleconfig.cpp
+                             weaponData has it at 40, the ammo tables caliber 15 (plasma cells); kung fu's own stats
+                             slot moves from 40 to 41, TSMAX_WEAPONS is 42 + the custom weapons (the first custom
+                             weapon id is 42 now); on TS 3.0's own library the ammo natives refuse a weapon past 37.
+     plugins\include\tsconst.inc   TSW_LASERRIFLE = 40
 
 TSX and reTS
 ------------

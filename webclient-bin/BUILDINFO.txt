@@ -1,6 +1,6 @@
 H9 web client builds -- what each file in this folder is, and what it was built from
 
-Written by tools/make_webclient_bin.py, 2026-11-01 10:30 UTC.
+Written by tools/make_webclient_bin.py, 2026-11-06 01:49 UTC.
 tools/make_webclient_game.py takes these files from this folder (havoc9.org/webclient/DEPLOY.txt,
 section 3). Only the builds are here: the game's files come from the repository's H9XASH.
 
@@ -8,10 +8,10 @@ Toolchain
     emsdk 6.0.12 (releases-6e9f6885cb17a3d6c8fd488a5cff730f50aba61d-64bit)
 
 Engine: xash3d-fwgs (https://github.com/FWGS/xash3d-fwgs, GPL-3.0), branch h9 at 17c23c81 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch),
-with the working tree as xash3d-h9-patches\xash.bat leaves it: 33 paths changed or added
+with the working tree as xash3d-h9-patches\xash.bat leaves it: 65 paths changed or added
 (the patches below, and the uncommitted menu-video work), and its submodules:
     3rdparty/freevgui        c83f47f h9: purple VGUI1 scheme defaults (freevgui-h9-scheme.patch) (working tree: 1 changed)
-    3rdparty/mainui          e9fb24e h9: ask for media/gamestartup only when the game has one (working tree: 9 changed)
+    3rdparty/mainui          e9fb24e h9: ask for media/gamestartup only when the game has one (working tree: 12 changed)
     3rdparty/library_suffix  e6e92c2 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0) (working tree: 0 changed)
     python waf configure --emscripten -T release -o build-web
     python waf build
@@ -35,36 +35,64 @@ Patches applied, in xash.bat's order (SHA-1 of each patch file):
     17fc941d1ed2  mainui-h9-sprayui.patch in 3rdparty/mainui
     d70bc5c0b576  mainui-h9-hover.patch in 3rdparty/mainui
     6e2fdfe2a579  engine-h9-userid.patch
-    a5a863ad34d6  engine-h9-presence.patch
+    473ce0c6ca6b  engine-h9-presence.patch
     a17c628c394f  engine-h9-autoconfig.patch
     857a1508ad80  engine-h9-deltabits.patch
     1532886df4a8  engine-h9-concolor.patch
     6b1f32ad655d  engine-h9-consolemusic.patch
     986c9b43788d  engine-h9-chatinput.patch
     b613f1088f32  engine-h9-bigworld.patch
-    04752382ed46  engine-h9-websound.patch
+    63ea6fa8bb92  engine-h9-websound.patch
     30e25864ee1e  engine-h9-cvarresync.patch
     ad8eb235de98  engine-h9-webmenu.patch
-    730e67e7bcb4  engine-h9-phsbudget.patch
+    01a4c29c0435  engine-h9-phsbudget.patch
+    c3e8c77afdb3  engine-h9-motd.patch
+    15fda58e349b  engine-h9-travel.patch
+    e1387ab7e6e6  engine-h9-slots128.patch
+    23c337889843  mainui-h9-slots128.patch in 3rdparty/mainui
+    fc8b8e5c637b  engine-h9-idproof.patch
+    a7f807aa2ad5  engine-h9-avatars.patch
+    b02a5b5e75f7  engine-h9-shellwhite.patch
+    35966ebc77a4  engine-h9-consoleoverlay.patch
+    609b15c78b2f  engine-h9-webquit.patch
+    c2eecf2a3035  engine-h9-typing.patch
+    3670d42aa704  engine-h9-brushshell.patch
+    d89473171683  engine-h9-serverfog.patch
+    5eea0cd8707c  engine-h9-listen.patch
+    a8d24b7a4cd8  engine-h9-reliableburst.patch
+    0341e68c86cb  engine-h9-link.patch
+    484cd86b79de  engine-h9-userinfo.patch
+    354c3993f441  engine-h9-serverinfo.patch
+    32eb60b184f6  engine-h9-joinscreen.patch
+    9bcff5b6a079  mainui-h9-link.patch in 3rdparty/mainui
+    3f8ea2f43025  mainui-h9-default64.patch in 3rdparty/mainui
+    09747911dd77  mainui-h9-browser.patch in 3rdparty/mainui
+    286c3e4ae1ed  mainui-h9-joinscreen.patch in 3rdparty/mainui
+    6a96f8128cfd  engine-h9-largeaddress.patch
+    1990dbfb0632  engine-h9-deltacounter.patch
+    9c41f0d39b67  engine-h9-overflowlog.patch
+    ed46b46315ef  engine-h9-vguitype.patch
+    58a293445e97  engine-h9-serverauth.patch
+    aa58f345cedf  engine-h9-webwarm.patch
 
 Client library: reTS (the reconstruction of TS 3.0's client and server, CMake), as in TSM\reTS,
-its cl_dll/CMakeLists.txt with the block marked "H9 web client" (SHA-1 958bd639c88c), which compiles
+its cl_dll/CMakeLists.txt with the block marked "H9 web client" (SHA-1 7e5087b8c3c8), which compiles
 xash3d-fwgs/3rdparty/freevgui into the client (VGUI with H9's scheme, the browser font backend).
     emcmake cmake -S reTS -B reTS-wasm -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=<dir>/ts
     cmake --build reTS-wasm --target client
 
 Files (bytes, SHA-1):
-    engine/xash.js                             556119  aff61188f2c5fadac586aa9fcbc2af626fa86d0b
+    engine/xash.js                             558573  c67892b9837a6545cd5d4ef96bcc2cd9fcafbec3
         the engine's loader (Emscripten's JavaScript, MODULARIZE, Xash3D())
-    engine/xash.wasm                          4790494  2de48fd6c08b77ddb4e8ddf8cd713e5a41500ab5
+    engine/xash.wasm                          4825722  ad040398ee3436d304739de09f9de6ab5a280f88
         the engine (main module)
     filesystem/filesystem_stdio.wasm            56765  5e55bd49ed06ce74ab4402e9b0616a037e418d43
         the engine's file system (side module)
-    ref/gl/libref_webgl2.wasm                  221519  0faa013ba5a8f762404f5bf3d20d7906543e6ed9
+    ref/gl/libref_webgl2.wasm                  222186  9def3ed1bc2e7f2ceaded7297427470f988c8bc2
         the renderer, WebGL 2 through gl2_shim (side module)
-    3rdparty/mainui/libmenu.wasm               316259  3d43632bb1a1b4d861379d90abf6a4c64b2a0d1a
+    3rdparty/mainui/libmenu.wasm               316256  5a3c27a66cd676741b4583c2cb6953105aeaaad3
         the main menu, mainui with H9's patches (side module)
     3rdparty/extras/extras.pk3                1689094  881a344d5300ecfc3bb395a7fb583e8c7b373c0a
         FWGS's extras package (not a build: made by the engine build)
-    cl_dll/client_emscripten_wasm32.wasm       832418  3be92833341f3353aee657ca6fb4af121fcbd4d6
+    cl_dll/client_emscripten_wasm32.wasm       902264  1a9fa088819611cbdfc1cccde24d9e5291fed6d6
         the game's client library, reTS's cl_dll with freevgui inside (side module)

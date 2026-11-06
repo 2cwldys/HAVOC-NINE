@@ -7,8 +7,9 @@
 #      when ufw is on;
 #   2. makes sure there is a real certificate: with none yet, it runs https-setup.sh from this
 #      folder, a test certificate first and then the real one;
-#   3. makes the folders the site is served from: /var/www/<domain> (the site), /srv/h9web/game
-#      (the web client's game files) and /var/www/letsencrypt (Let's Encrypt's checks);
+#   3. makes the folders the site is served from: /var/www/<domain> (the site),
+#      /var/www/<domain>/downloads/files (the downloads' file index), /srv/h9web/game (the web
+#      client's game files) and /var/www/letsencrypt (Let's Encrypt's checks);
 #   4. writes /etc/nginx/snippets/<domain>-tls.conf (TLS: TLS 1.2 and 1.3, Mozilla's
 #      intermediate ciphers without the DHE ones), /etc/nginx/snippets/<domain>-headers.conf
 #      (the security headers every page gets) and /etc/nginx/sites-available/<domain> for the
@@ -80,10 +81,12 @@ for n in "$DOMAIN" "${aliases[@]}"; do
 done
 
 say "3. the folders it serves"
-mkdir -p "$SITE_ROOT" "$GAME_ROOT" "$WEBROOT/.well-known/acme-challenge"
+mkdir -p "$SITE_ROOT" "$SITE_ROOT/downloads/files" "$GAME_ROOT" "$WEBROOT/.well-known/acme-challenge"
 [ -e "$SITE_ROOT/index.html" ] || warn "$SITE_ROOT has no index.html yet: copy the site in (DEPLOY.txt section 5)"
 [ -n "$(ls -A "$GAME_ROOT" 2>/dev/null)" ] || warn "$GAME_ROOT is empty: the web client's game files go there (DEPLOY.txt section 5)"
-leftovers="$(find "$SITE_ROOT" \( -name '.*' -o -name '*.bak*' -o -name '*.orig' -o -name '*~' -o -name '*.zip' \) -not -path "$SITE_ROOT" 2>/dev/null | head -n 5 || true)"
+# the published downloads and the downloads' file index are for visitors
+leftovers="$(find "$SITE_ROOT" -path "$SITE_ROOT/downloads/files" -prune -o \( -name '.*' -o -name '*.bak*' -o -name '*.orig' -o -name '*~' -o -name '*.zip' \) \
+  -not -path "$SITE_ROOT" -not -path "$SITE_ROOT/downloads/H9XASH.zip" -not -path "$SITE_ROOT/downloads/H9XASH-linux.zip" -print 2>/dev/null | head -n 5 || true)"
 [ -z "$leftovers" ] || warn "the site folder holds files that are not for visitors (nginx answers 404 for them; better removed): $(tr '\n' ' ' <<<"$leftovers")"
 
 say "4. $AVAILABLE"
@@ -211,6 +214,19 @@ $ssl_main
     client_body_timeout 30s;
     keepalive_timeout 30s;
 
+    # the two published downloads, matched before the archive rule below
+    location ~ "^/downloads/H9XASH(-linux)?\.zip\$" { }
+    # the downloads' file index (vps/linux/README-VPS.txt step 13 lists what goes in it): a plain
+    # listing, and the packages, their reports and the checksums in it. ^~ keeps the rules below
+    # away from it, so the ones nested here stand in for them: a dot file, a subfolder or any
+    # other kind of file there is a 404
+    location ^~ /downloads/files/ {
+        autoindex on;
+        autoindex_exact_size off;
+        location ~ /\. { return 404; }
+        location ~* "^/downloads/files/[^/]+\.(?:zip|exe|txt)\$" { }
+        location ~ "^/downloads/files/." { return 404; }
+    }
     # never for visitors: dot files and folders (.git, .env, .gitattributes), backups, archives,
     # sources, scripts, keys and logs, these notes and the VPS scripts
     location ~ /\.(?!well-known/) { return 404; }
@@ -268,7 +284,8 @@ $ssl_main
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header Connection "";
-        client_max_body_size 64k;
+        # a game server's presence report with all 128 slots is up to about 82 KiB
+        client_max_body_size 128k;
         proxy_read_timeout 30s;
         limit_req zone=h9web_api burst=60 nodelay;
         limit_req zone=h9web_auth burst=10 nodelay;
@@ -354,6 +371,8 @@ printf '  %-52s %s  (404 wanted)\n' "https://$DOMAIN/index.html.bak" "$(code "ht
 printf '  %-52s %s  (404 wanted)\n' "https://$DOMAIN/files/manifest.json" "$(code "https://$DOMAIN/files/manifest.json")"
 codeu() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H 'X-H9-Updater: 1' -A 'H9XASH-Updater/check' "$1" || true; }
 printf '  %-52s %s  (200 once files/ is published)\n' "https://$DOMAIN/files/manifest.json, as the updater" "$(codeu "https://$DOMAIN/files/manifest.json")"
+printf '  %-52s %s  (200 wanted: the file index)\n' "https://$DOMAIN/downloads/files/" "$(code "https://$DOMAIN/downloads/files/")"
+printf '  %-52s %s  (404 wanted)\n' "https://$DOMAIN/downloads/files/.htaccess" "$(code "https://$DOMAIN/downloads/files/.htaccess")"
 for n in "${aliases[@]}"; do printf '  %-52s %s  (301 wanted)\n' "https://$n/" "$(code "https://$n/")"; done
 head_out="$(curl -sI --max-time 10 "https://$DOMAIN/" || true)"
 for h in "Strict-Transport-Security" "X-Content-Type-Options" "Referrer-Policy" "X-Frame-Options" "Content-Security-Policy" "Permissions-Policy"; do

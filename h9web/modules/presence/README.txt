@@ -42,13 +42,23 @@
                      the owner's open chat; the Discord bridge (the events
                      below, which the discord module answers)
    modes.js          the mode's name, as the Discord card names it
+   preset.js         the official preset (docs\H9_PRESENCE.txt section 4d): the plugin
+                     list a report carries, the admins' allowlist (presence_preset,
+                     migration 12), each server's verdict (ok, rp, mod, opt or off),
+                     the browser's list /api/presence/servers/auth and the board's
+                     auth field, and rated play's gate (compete.js asks it)
    compete.js        rated play: compts's Elo per kill and per match, the three
                      tables, the game server's calls (/api/presence/compete/
-                     start, kills, end, rating), the LADDER page's reads, the
-                     staff switches, voids, disputes and decay; its settings are
-                     moduleSettings.presence.compete (docs\H9_COMPETITIVE.txt,
-                     section 11), its tables migration 5
+                     start, kills, end, rating, rank), the LADDER page's reads,
+                     the career level and its experience (Lv 0 to 99), the
+                     UNRANKED servers, the seasons, voids, disputes and decay,
+                     and the admins' LEVELS settings and rank adjustments; its
+                     settings are moduleSettings.presence.compete
+                     (docs\H9_COMPETITIVE.txt, section 11), its tables
+                     migrations 5, 8, 9, 10 and 11
    bin/presence-key.js   add | rotate | remove | list a hand-made key
+   bin/preset-seed.js    the allowlist's entries from a build's H9XASH folder: to a file, or
+                     with --import --config straight into the database
  Data (never in git): <dataDir>/modules/presence/server-keys.json, net-key and
  enroll-key (the secret enrolled keys are worked out from), all mode 0600.
 
@@ -73,6 +83,9 @@
  ---------
  Public (each account's privacy switches applied; Cache-Control public,
  max-age cacheSeconds; readPerIp limit):
+   GET  /api/presence/servers/auth            text: "H9SRV 1", then "<address> <code>" (ok,
+        rp, mod, opt) for each reporting server that is not private; the game's
+        server browser reads it
    GET  /api/presence/now
         { generated, players, servers: [{ server: { name, address }, map,
           mode, detail, mapPicture, players: [{ username, since, minutes,
@@ -104,6 +117,11 @@
         unblock | flags/resolve
    GET  /api/presence/admin/sanctions   POST /api/presence/admin/sanctions
    POST /api/presence/admin/sanctions/<id>/revoke
+   GET  /api/presence/admin/preset            the allowlist, and each reporting server's
+        verdict with the files that are off it
+   POST /api/presence/admin/preset/import     { mode: add | replace, entries: [{ kind,
+        file, sha256, version?, optional?, note? }] }
+   POST /api/presence/admin/preset/remove     { kind, file, sha256 }
    POST /api/presence/admin/announce                          { text }
    Audit actions: presence.flag.resolve, presence.device.allow,
    presence.device.unbind, presence.id.move, presence.id.reset,
@@ -173,6 +191,9 @@
      "mode": "Team Elimination", "detail": "<the mode's progress>",
      "name": "<hostname>", "humans": 5, "max": 32,
      "names": true,                                       (optional)
+     "authenticated": false,                              (only while h9_authenticated is 0)
+     "plugins": [ { "k": "amxx", "f": "x.amxx", "v": "1.0", "h": "<sha256>" } ],
+                                                          (at a map's start, and every 20 minutes)
      "players": [
        { "id": "<h9_clientid>", "slot": 3, "name": "Neo", "joined": <unix>,
          "time": <seconds in game>,
@@ -191,8 +212,24 @@
  "<slot>": { kick: "<reason>" } | { mute: true } } } and, when the report
  said "names": true and core can check proofs, names: { "<slot>": { set:
  "<username>" } | { taken: true } } (docs\H9_PRESENCE.txt sections 4b, 10), and levels:
- { "<slot>": 0 to 99 } for each proven player, the account's level from the H9
- ladder (compete.js; docs\H9_COMPETITIVE.txt section 8a), which h9_presence sends as H9Level.
+ { "<slot>": 0 to 99 } for each proven player, the account's career level
+ (compete.js; docs\H9_COMPETITIVE.txt section 8a), which h9_presence sends as H9Level.
+ accounts: { "<slot>": account } for exactly the slots "avatars" names (the green
+ chain), each one's own account number, a player on the site's default picture
+ included; h9_presence 1.7 sends it as H9Account, for H9XASH's h9_profile (the
+ scoreboard's double-click on a linked player's picture opens the profile).
+ usernames: { "<slot>": "<username>" } for the same slots, each account's current
+ username, and roles: { "<slot>": "<words>" } for those of them with any, comma-
+ separated: "h9_admin" or "h9_moderator" (accounts.role), then community.js's
+ rolesHere for the server's community: "owner", "staff" (the owner and its named
+ admins), "member" (owner, admins and members). h9_presence 1.9 keeps both for
+ other plugins (include\h9_presence.inc: h9p_account_name, h9p_roles), which may
+ give a player admin rights by them.
+ A game's link that ends (core's account-unlink, revoked or unlinked: h9_unlink in
+ the game, REVOKE on the site) drops that account's proof from that device at
+ once (its online rows read unverified), and a proof from it answering a nonce
+ issued by then counts for nothing in later reports (unlinkedProofs, kept
+ proofMaxAgeSeconds), so the answer leaves the slot without the chain.
 
  5. SETTINGS
  -----------
@@ -315,9 +352,13 @@
  against Pillow's decoding, and the report answer's pictures and their address.
 
    node --test --test-timeout=30000 test/compete.test.js
- 15 tests: compts's rule per kill (the bonus, headshots, team kills, unproven
- players), batch order, a forged call, match results and their rules, the
- three tables and NETWORK LADDER, the boards and pages under the privacy
- switches, voids and disputes, a community's ladder, say /rank, a deleted
- account, deathmatch places, the pair cap, abandoning and decay
- (docs\H9_COMPETITIVE.txt, section 12).
+ 40 tests: compts's rule per kill (the bonus, headshots, team kills, unproven
+ players), batch order, a forged call, match results and their rules, every
+ enrolled server on the H9 ladder, UNRANKED servers (and their void) and
+ roleplay maps refused, the boards and pages whatever the privacy switches,
+ voids and disputes, a community's ladder, the join line's rating, a deleted
+ account, deathmatch places, the pair cap, abandoning and decay; the career
+ level, its experience and curve, the estimate, the level beside a name and in
+ game; bots and unproven players counting for nothing; seasons, and back to
+ season 1; the rank API, the RANK block and .rank; assists; an admin's rank
+ adjustment (docs\H9_COMPETITIVE.txt, section 12).

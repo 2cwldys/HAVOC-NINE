@@ -102,6 +102,7 @@ enum {
   TSW_ASKORPION,
   TSW_TKNIFE,    // 38: TSX's thrown knife stats, no game weapon
   TSW_PPSH41,    // 39: the PPSh-41 of H9's reTS (not in TS 3.0)
+  TSW_LASERRIFLE,// 40: the laser rifle of H9's reTS (not in TS 3.0)
 };
 
 /* The Specialists 3.0 names for ids the list above names after older weapons. */
@@ -145,6 +146,7 @@ valid tsweaponid in TS_GiveWeapon
 35: "Seal Knife"
 36: "Contender G2"
 39: "PPSh-41" (H9's reTS only)
+40: "Laser Rifle" (H9's reTS only)
 
 valid pwuptype in TS_GivePwUp
 

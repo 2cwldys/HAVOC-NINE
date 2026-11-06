@@ -138,6 +138,20 @@
    havoc9.org\webclient\DEPLOY.txt says how the stage is served.
    The stage on a host and on your own PC: docs\WEBSITE.txt, section 7.
 
+   Keeping it in step with the engine: webclient-sync.cmd (node
+   tools\webclient-sync.mjs) rebuilds the browser engine and client library
+   when the engine tree, the patch chain (xash3d-h9-patches and
+   webassembly-patch), the client library or the build scripts changed, and
+   does nothing heavy when they did not. It also lays out the stage, copies
+   webclient-bin, the stage, the web tools and the page into the git copy,
+   publishes the page to this PC's local site, runs a headless-browser
+   smoke test (tools\webclient-test) and writes webclient-bin\INPUTS.json.
+   --check builds nothing and says what is out of date, --watch keeps
+   syncing, --force builds anyway. It stops at engine code that is compiled
+   out of the browser build and has no answer in
+   xash3d-h9-patches\WEB_PARITY.json, and CLAUDE.md makes it the last step
+   of every engine change.
+
    What it fetches, the first time (about 820 MB), each checked against the
    SHA-256 written in build-webclient.ps1 before it is used:
 

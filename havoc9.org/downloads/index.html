@@ -10,6 +10,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css">
+  <style>
+    /* the ALL FILES card under the three downloads: as wide as the installation steps */
+    .download-all {
+      max-width: 600px;
+      margin: 0 auto 3rem;
+    }
+  </style>
 </head>
 <body>
   <div class="scanlines"></div>
@@ -30,7 +37,7 @@
         <li><a href="./index.html" class="active">DOWNLOADS</a></li>
         <li><a href="../servers/index.html">SERVERS</a></li>
         <li><a href="../forum/index.html">FORUM</a></li>
-        <li><a href="../community/index.html">COMMUNITY</a></li>
+        <li><a href="../community/index.html">COMMUNITIES</a></li>
         <li><a href="../media/index.html">MEDIA</a></li>
         <li><a href="../join/index.html">JOIN</a></li>
         <li><a href="../museum/index.html">MUSEUM</a></li>
@@ -48,6 +55,23 @@
       </div>
 
       <div class="download-grid">
+        <div class="download-card">
+          <div class="download-platform">
+            <svg class="os-logo" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M5.1 9.5a7.5 7.5 0 0 1 12.9-2.2"/>
+              <path fill="currentColor" d="M19.5 9.3l.2-3.9-4 3.1z"/>
+              <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M18.9 14.5a7.5 7.5 0 0 1-12.9 2.2"/>
+              <path fill="currentColor" d="M4.5 14.7l-.2 3.9 4-3.1z"/>
+            </svg>
+            UPDATER
+          </div>
+          <h3>H9XASH Updater</h3>
+          <p class="download-meta">x64 · Windows 8.1+</p>
+          <p class="download-desc">H9XASH-Updater.exe installs H9XASH and keeps it up to date, downloading only the files that change. Your settings, saves and id are never touched.</p>
+          <a href="H9XASH-Updater.exe" class="btn btn-primary download-btn">DOWNLOAD</a>
+          <p class="download-note">Run it again to update; close the game first.</p>
+        </div>
+
         <div class="download-card">
           <div class="download-platform">
             <svg class="os-logo" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -74,22 +98,19 @@
           <p class="download-desc">Linux build of the H9XASH client.</p>
           <a href="H9XASH-linux.zip" class="btn btn-primary download-btn">DOWNLOAD</a>
           <p class="download-note">Version 1.54-lift6</p>
-        </div>
+        </div>      </div>
 
-        <div class="download-card">
-          <div class="download-platform">
-            <svg class="os-logo" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6">
-              <circle cx="12" cy="12" r="9"/>
-              <path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/>
-            </svg>
-            BROWSER
-          </div>
-          <h3>H9XASH Web Client</h3>
-          <p class="download-meta">WebGL 2 &middot; Chrome, Edge, Firefox</p>
-          <p class="download-desc">The same client built for WebAssembly: it plays in a browser tab, with nothing to install.</p>
-          <a href="../webclient/index.html" class="btn btn-primary download-btn">OPEN</a>
-          <p class="download-note">In preparation</p>
+      <div class="download-card download-all">
+        <div class="download-platform">
+          <svg class="os-logo" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+            <path d="M3 6h6.5l2 2.5H21V19H3z"/>
+            <path d="M3 11h18"/>
+          </svg>
+          ALL FILES
         </div>
+        <h3>Individual packages</h3>
+        <p class="download-desc">Every package on its own, in a plain file index: the two client ZIPs, the updater and the server packages, with their build reports and a list of <span style="white-space: nowrap;">SHA-256</span> checksums.</p>
+        <a href="files/" class="btn btn-ghost download-btn">ALL FILES</a>
       </div>
 
       <div class="install-steps">
@@ -98,6 +119,7 @@
           <li>Download the H9XASH client for your platform.</li>
           <li>Extract the archive to a folder of your choice.</li>
           <li>Launch the client, then connect to a server from the <a href="../servers/index.html">Servers</a> page.</li>
+          <li>Or, on Windows, put <a href="H9XASH-Updater.exe">H9XASH-Updater.exe</a> where the game should go and run it; run it again to update.</li>
         </ol>
       </div>
 

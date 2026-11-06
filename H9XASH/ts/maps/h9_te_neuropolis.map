@@ -1,5 +1,6 @@
 {
 "classname" "worldspawn"
+"message" "Neuropolis -- Team Elimination"
 "mapversion" "220"
 "gamemode" "0"
 "defaultteam" "0"
@@ -8,7 +9,7 @@
 "startdark" "0"
 "MaxRange" "8192"
 "sounds" "1"
-"wad" "C:/Users/User/Documents/Visual Studio Projects/msr-web/build/neuropolis/neuropolis_shell.wad"
+"wad" "neuropolis_shell.wad"
 "_generator" "J.A.C.K. 1.1.3773 (vpHalfLife)"
 "skyname" "neuro"
 {

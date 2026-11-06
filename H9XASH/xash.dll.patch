@@ -3336,6 +3336,606 @@ Lines of the previous diff that this build replaced, kept here:
 +#define H9UI_MAX_PANELS 4
 Diff sha256 fbf5848a609a9d1ea2e356e5dec9cbf2eaefc30666dbe085155d056590196d4d, the diff below.
 
+Generated Wed 11/04/2026 15:03:15.64, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 5d8df53b959ed80a91bbc382dbbb3bbea3fb1c7bbb7a90e43310611d113cbfd4, the diff below.
+
+Generated Wed 11/04/2026 17:33:01.48, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++The browser build reads the message and keeps the silhouette.
++	(void)slot;
++	(void)account;
++	(void)version;
++cl_h9_servers 0 turns it off. The browser build has none of this.
+Diff sha256 fab76d0e89c0031788630dce3eba77c09f11f93fc643a2c65905ceeb64dc34ae, the diff below.
+
+Generated Wed 11/04/2026 19:37:57.56, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++HTTP fast download or the netchan. ESC on it cancels the join. A join or a game the server or the engine
++up to 50 by the bytes still to come, the map 55, the other resources up to 90 by their count, spawning 95.
++	char name[MAX_SYSPATH], line[MAX_SYSPATH + 64];
++	int got = 0, size = -1, remaining, n;
++			H9J_Set( &h9join_file, "" );
++	// the overall bar: 15 to 50 by the bytes still to come
++	if( cls.dl.nTotalToTransfer > 0 )
++		H9J_Stage( "Downloading", 15.0f + 35.0f * ( cls.dl.nTotalToTransfer - Q_max( cls.dl.nRemainingToTransfer, 0 )) / cls.dl.nTotalToTransfer );
+Diff sha256 bc0c4b7bc7c314dd9aead76b92362e729c72287d6127316f8386840dae947a72, the diff below.
+
+Generated Thu 11/05/2026 13:10:11.15, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++  1. what an H9 server says it runs, in tsm_pres_mode: "siege", "uplink", "survival" or
++     "mechwarrior" (the siege progress in tsm_pres_siege says siege as well, from a plugin
++     older than tsm_pres_mode);
++the carrier's side), the wave in Wave Survival. State is the players alive on each side out
++	else if( !Q_stricmp( key, "uplink" ) && prog[0] )
++		Q_snprintf( details, sizeof( details ), "%s - zones: %s %d, %s %d of %d", mode,
+Diff sha256 fb8da2a0ad8bf791c47e661daa277b1f9074a1ca41ac19e91888c778f700ac5f, the diff below.
+
+Generated Thu 11/05/2026 14:45:42.23, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++  2. the map's name: an h9_<mode>_ map plays that mode, and a name starting rp_ or tsrp_,
++     or holding _rp_ or _tsrp_ anywhere, is a roleplay map;
+Diff sha256 18e30c3aa097f1eab9c920804ec66df8ddd61615a57b474c61b57de87d42dbcb, the diff below.
+
+Generated Thu 11/05/2026 18:40:28.96, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++The name of the mode the server we are on plays, for the card's details line. In order:
++     "mechwarrior" or "assault" (the siege progress in tsm_pres_siege says siege as well, from
++     a plugin older than tsm_pres_mode);
++  4. anything else, a stock ts_ map among them, is Deathmatch.
++	static const struct { const char *key, *name; } keys[] =
++		{ "siege",       "Siege" },
++		{ "uplink",      "Capture the Uplink" },
++		{ "survival",    "Wave Survival" },
++		{ "mechwarrior", "Mech Warrior" },
++		{ "assault",     "Assault" },
++	static const struct { const char *prefix, *name; } maps[] =
++		{ "h9_te_",    "Team Elimination" },
++		{ "h9_siege_", "Siege" },
++		{ "h9_up_",    "Capture the Uplink" },
++		{ "h9_mw_",    "Mech Warrior" },
++		{ "h9_ws_",    "Wave Survival" },
++		{ "h9_as_",    "Assault" },
++		{ "h9_dm_",    "Deathmatch" },
++		{ "h9_tdm_",   "Team Deathmatch" },
++		{ "h9_ctb_",   "Capture the Briefcase" },
++		{ "h9_ctf_",   "Capture the Flag" },
++	for( i = 0; i < ARRAYSIZE( keys ); i++ )
++		if( !Q_stricmp( key, keys[i].key ))
++			return keys[i].name;
++	for( i = 0; i < ARRAYSIZE( maps ); i++ )
++		if( !Q_strncmp( name, maps[i].prefix, Q_strlen( maps[i].prefix )))
++			return maps[i].name;
++	return "Deathmatch";
++all), the wave in Wave Survival. State is the players alive on each side out
++	else if(( !Q_stricmp( key, "uplink" ) || !Q_stricmp( key, "assault" )) && prog[0] )
++		Q_snprintf( details, sizeof( details ), "%s - %s: %s %d, %s %d of %d", mode,
++			!Q_stricmp( key, "assault" ) ? "points" : "zones",
++			H9P_SIDE1_NAME, held[0], H9P_SIDE2_NAME, held[1], held[2] );
+Diff sha256 3ed21e4032fabfaadca090df3b178185de1792ab558a1a9440599e835638ed50, the diff below.
+
+Generated Thu 11/05/2026 19:49:38.06, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Diff sha256 50fc9f89369c64e082107b812fddcf8c2f857facf5823ffaf018b895f6b33b8f, the diff below.
+
+Generated Thu 11/05/2026 20:48:25.70, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M common/xash3d_types.h
+ M engine/client/avi/avi_ffmpeg.c
+ M engine/client/avi/avi_ffmpeg.h
+ M engine/client/cl_main.c
+ M engine/client/cl_view.c
+ M engine/client/client.h
+ M engine/client/console.c
+ M engine/client/dll_int/cl_game.c
+ M engine/client/dll_int/cl_gameui.c
+ M engine/client/identification.c
+ M engine/client/input/in_keys.c
+ M engine/client/input/input.c
+ M engine/client/parse/cl_parse.c
+ M engine/client/parse/cl_parse_gs.c
+ M engine/client/sound/s_main.c
+ M engine/client/sound/s_stream.c
+ M engine/client/vgui/vgui_draw.c
+ M engine/common/cmd.c
+ M engine/common/common.h
+ M engine/common/cvar.c
+ M engine/common/host.c
+ M engine/common/http/net_http_tls.c
+ M engine/common/http/net_http_tls.h
+ M engine/common/http/net_http_xash.c
+ M engine/common/mod_bmodel.c
+ M engine/common/net_buffer.c
+ M engine/common/net_encode.c
+ M engine/common/net_ws.h
+ M engine/common/protocol.h
+ M engine/common/sys_con.c
+ M engine/common/system.c
+ M engine/menu_int.h
+ M engine/platform/platform.h
+ M engine/platform/sdl2/s_sdl2.c
+ M engine/platform/sdl2/vid_sdl2.c
+ M engine/server/server.h
+ M engine/server/sv_client.c
+ M engine/server/sv_frame.c
+ M engine/server/sv_game.c
+ M engine/server/sv_init.c
+ M engine/server/sv_main.c
+ M engine/server/sv_phys.c
+?? engine/client/cl_avatar.c
+?? engine/client/cl_h9auth.c
+?? engine/client/cl_h9join.c
+?? engine/client/cl_h9link.c
+?? engine/client/cl_h9listen.c
+?? engine/client/cl_h9warm.c
+?? engine/client/cl_idproof.c
+?? engine/client/cl_motd.c
+?? engine/client/cl_motd.h
+?? engine/client/cl_presence.c
+?? engine/client/cl_travel.c
+?? engine/common/h9_overflowlog.c
+?? engine/common/h9_release.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+8ab93bdc 2026-10-20 h9: show a server-side cloak on the local player (engine-h9-cloak.patch)
+5eb7799c 2026-10-20 h9: a command buffer big enough to exec H9's configs (engine-h9-cmdbuf.patch)
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7129989e 2026-10-21 h9: mouse-look stays on while typing in chat, as on GoldSrc (engine-h9-chatmouse.patch)
+2ef324be 2026-10-23 h9: the client sprite query family answers 0 on a bad or unloaded HSPRITE instead of crashing (engine-h9-sprguard.patch)
+17c23c81 2026-10-23 h9: the spray comes straight out of the gamedir's tempdecal.wad, like the HL engine (engine-h9-spraywad.patch)
+In 3rdparty/library_suffix, since its upstream commit 0d4aec027312308d60de0f8eb087a68ce09623d6:
+e6e92c2 2026-10-20 h9: webassembly support (engine-library_suffix.patch, 3-way merged onto 0d4aec0)
+Lines of the previous diff that this build replaced, kept here:
++	// the release of this game, in the userinfo of every join: a server that holds its players to one release looks at it
+Diff sha256 0d5c2c72fa453408b6e50ddb5d5056ad7cd86983d0cdafa9a7c3bc2ef0ca8e34, the diff below.
+
 diff --git a/common/port.h b/common/port.h
 index 61c764d9..da646545 100644
 --- a/common/port.h
@@ -3880,10 +4480,10 @@ index c62effb5..f5aca6f1 100644
  #define pavcodec_version               avcodec_version
 diff --git a/engine/client/cl_avatar.c b/engine/client/cl_avatar.c
 new file mode 100644
-index 00000000..c4189d36
+index 00000000..25791653
 --- /dev/null
 +++ b/engine/client/cl_avatar.c
-@@ -0,0 +1,593 @@
+@@ -0,0 +1,691 @@
 +/*
 +cl_avatar.c - H9: players' havoc9.org pictures on the scoreboard (docs/PLAYER_LIMIT_128.txt, 11.7)
 +Copyright (C) 2026 HAVOC 9
@@ -3926,7 +4526,12 @@ index 00000000..c4189d36
 +asking again runs in an H9UI panel's Frame (cl_motd.c), a panel that is never up.
 +cl_h9_avatars 0 turns it all off.
 +
-+The browser build reads the message and keeps the silhouette.
++The browser build has no sockets for this: its page (havoc9.org\webclient\client.js, Module.avatar) fetches the
++picture from its own site, at /api/presence/avatar/<account>/<version>.png, writes it as
++downloads/h9avatars/web_<account>_<version>.png and runs h9_avatar_page <slot> <account> <version>, which shows
++it in that slot when the slot still waits for that picture. The check is the same (a PNG of at most 64 x 64
++and 32 KB), so is the HUD_H9Avatar it goes to, and the file stays for the session. h9_profile is not in the
++browser build.
 +
 +h9_profile <slot> opens the havoc9.org profile of the player in that slot in the web browser, the way
 +the main menu's OPEN PAGE opens the link page (Platform_ShellExecute). H9's client.dll runs it on a
@@ -3949,6 +4554,9 @@ index 00000000..c4189d36
 +#include "net_ws.h"
 +#include "platform/platform.h"
 +#include "cl_motd.h"
++#if XASH_EMSCRIPTEN
++#include <emscripten.h>
++#endif
 +
 +#define H9AV_SITE      "https://havoc9.org"
 +#define H9AV_MAX_BYTES ( 32 * 1024 )
@@ -4004,6 +4612,8 @@ index 00000000..c4189d36
 +	H9Av_NoDraw,
 +	H9Av_Reset,
 +};
++#else
++static void H9Av_Page_f( void );
 +#endif
 +
 +/*
@@ -4018,6 +4628,8 @@ index 00000000..c4189d36
 +#if !XASH_EMSCRIPTEN
 +	Cmd_AddRestrictedCommand( "h9_profile", H9Av_Profile_f, "H9: open the havoc9.org profile of the player in a slot in the web browser (the scoreboard's double-click on a linked player's picture)" );
 +	H9UI_AddPanel( &h9av_panel );
++#else
++	Cmd_AddRestrictedCommand( "h9_avatar_page", H9Av_Page_f, "H9: the page has written a player's havoc9.org picture; show it in its slot (client.js runs it)" );
 +#endif
 +}
 +
@@ -4031,6 +4643,97 @@ index 00000000..c4189d36
 +	}
 +	return av.give;
 +}
++
++// A PNG of at most 64 x 64 and 32 KB, by its own header, decoded and given to the slot.
++static qboolean H9Av_Show( int slot, int version, const byte *data, size_t size )
++{
++	pfnH9Avatar_t give = H9Av_Give();
++	rgbdata_t *pic;
++	int w, h;
++
++	if( !give || !data || size < 33 || size > H9AV_MAX_BYTES )
++		return false;
++	if( memcmp( data, "\x89PNG\r\n\x1a\n", 8 ) || memcmp( data + 12, "IHDR", 4 ))
++		return false;
++	w = ( data[16] << 24 ) | ( data[17] << 16 ) | ( data[18] << 8 ) | data[19];
++	h = ( data[20] << 24 ) | ( data[21] << 16 ) | ( data[22] << 8 ) | data[23];
++	if( w < 1 || h < 1 || w > H9AV_MAX_SIDE || h > H9AV_MAX_SIDE )
++		return false;
++
++	pic = FS_LoadImage( "#h9avatar.png", data, size );
++	if( !pic )
++		return false;
++	if( !Image_Process( &pic, 0, 0, IMAGE_FORCE_RGBA, 0.0f ) || pic->width != w || pic->height != h || !pic->buffer )
++	{
++		FS_FreeImage( pic );
++		return false;
++	}
++	give( slot, version, pic->width, pic->height, pic->buffer );
++	FS_FreeImage( pic );
++	return true;
++}
++
++#if XASH_EMSCRIPTEN
++
++// The browser build has no sockets, so the page (havoc9.org\webclient\client.js, Module.avatar) fetches a
++// picture from its own site, writes it to H9Av_WebPath and runs h9_avatar_page for the slot that waits for it.
++EM_JS( void, H9Av_PageWant, ( int slot, int account, int version ), {
++	var avatar = Module.avatar;
++	if( !avatar || !avatar.want )
++		return;
++	try {
++		avatar.want( slot, account, version );
++	} catch( e ) {
++	}
++});
++
++static void H9Av_WebPath( char *out, size_t size, int account, int version )
++{
++	Q_snprintf( out, size, "downloads/h9avatars/web_%d_%d.png", account, version );
++}
++
++// the picture the page wrote for an account, if it has, shown in the slot
++static qboolean H9Av_WebShow( int slot, int account, int version )
++{
++	char path[64];
++	fs_offset_t size = 0;
++	byte *data;
++	qboolean shown;
++
++	H9Av_WebPath( path, sizeof( path ), account, version );
++	data = FS_LoadFile( path, &size, true );
++	if( !data )
++		return false;
++	shown = H9Av_Show( slot, version, data, (size_t)size );
++	Mem_Free( data );
++	return shown;
++}
++
++/*
++==============
++H9Av_Page_f
++
++h9_avatar_page <slot> <account> <version>: the page has written that picture; the slot shows it if it still waits for it
++==============
++*/
++static void H9Av_Page_f( void )
++{
++	int slot, account, version;
++
++	if( Cmd_Argc() != 4 )
++		return;
++	slot = Q_atoi( Cmd_Argv( 1 ));
++	account = Q_atoi( Cmd_Argv( 2 ));
++	version = Q_atoi( Cmd_Argv( 3 ));
++	if( slot < 1 || slot > MAX_CLIENTS || account <= 0 )
++		return;
++	if( av.want_account[slot] != account || av.want_version[slot] != version )
++		return;
++	if( H9Av_WebShow( slot, account, version ))
++		av.want_account[slot] = av.want_version[slot] = 0;
++}
++
++#endif // XASH_EMSCRIPTEN
 +
 +#if !XASH_EMSCRIPTEN
 +
@@ -4180,35 +4883,6 @@ index 00000000..c4189d36
 +	else wait = 600;
 +	av.failed[i].retry_at = host.realtime + wait;
 +	return wait;
-+}
-+
-+// A PNG of at most 64 x 64 and 32 KB, by its own header, decoded and given to the slot.
-+static qboolean H9Av_Show( int slot, int version, const byte *data, size_t size )
-+{
-+	pfnH9Avatar_t give = H9Av_Give();
-+	rgbdata_t *pic;
-+	int w, h;
-+
-+	if( !give || !data || size < 33 || size > H9AV_MAX_BYTES )
-+		return false;
-+	if( memcmp( data, "\x89PNG\r\n\x1a\n", 8 ) || memcmp( data + 12, "IHDR", 4 ))
-+		return false;
-+	w = ( data[16] << 24 ) | ( data[17] << 16 ) | ( data[18] << 8 ) | data[19];
-+	h = ( data[20] << 24 ) | ( data[21] << 16 ) | ( data[22] << 8 ) | data[23];
-+	if( w < 1 || h < 1 || w > H9AV_MAX_SIDE || h > H9AV_MAX_SIDE )
-+		return false;
-+
-+	pic = FS_LoadImage( "#h9avatar.png", data, size );
-+	if( !pic )
-+		return false;
-+	if( !Image_Process( &pic, 0, 0, IMAGE_FORCE_RGBA, 0.0f ) || pic->width != w || pic->height != h || !pic->buffer )
-+	{
-+		FS_FreeImage( pic );
-+		return false;
-+	}
-+	give( slot, version, pic->width, pic->height, pic->buffer );
-+	FS_FreeImage( pic );
-+	return true;
 +}
 +
 +static void H9Av_Pump( void );
@@ -4454,9 +5128,33 @@ index 00000000..c4189d36
 +	av.want_version[slot] = version;
 +	H9Av_Pump();
 +#else
-+	(void)slot;
-+	(void)account;
-+	(void)version;
++	pfnH9Avatar_t give;
++
++	if( slot < 1 || slot > MAX_CLIENTS || !cl_h9_avatars.value )
++		return;
++	give = H9Av_Give();
++	if( !give )
++		return;
++
++	if( account <= 0 )
++	{
++		av.want_account[slot] = av.want_version[slot] = 0;
++		give( slot, 0, 0, 0, NULL );
++		return;
++	}
++
++	// the page wrote this picture earlier: nothing to ask for
++	if( H9Av_WebShow( slot, account, version ))
++	{
++		av.want_account[slot] = av.want_version[slot] = 0;
++		return;
++	}
++
++	// the silhouette until the page has the picture: never the slot's previous player's
++	give( slot, 0, 0, 0, NULL );
++	av.want_account[slot] = account;
++	av.want_version[slot] = version;
++	H9Av_PageWant( slot, account, version );
 +#endif
 +}
 +
@@ -4496,12 +5194,275 @@ index aace8cff..be50a276 100644
  		// shuffle states
  		ent->prevstate = ent->curstate;
  		ent->curstate = *state;
+diff --git a/engine/client/cl_h9auth.c b/engine/client/cl_h9auth.c
+new file mode 100644
+index 00000000..0b1c1435
+--- /dev/null
++++ b/engine/client/cl_h9auth.c
+@@ -0,0 +1,257 @@
++/*
++cl_h9auth.c - H9: which game servers havoc9.org vouches for, for the server browser's chain (docs/NETWORKING.txt)
++Copyright (C) 2026 HAVOC 9
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++h9web keeps a verdict for every game server that reports to it (modules/presence/preset.js,
++docs/H9_PRESENCE.txt section 4d): ok while the server runs H9's official preset, rp on a roleplay map
++(authenticated, and nothing there is ranked), mod when it runs anything beside the preset. The server
++browser draws a green chain for ok and rp and a red broken one for every other server. It asks the site
++and never the servers: a server cannot say that it is authenticated.
++
++  https://havoc9.org/api/presence/servers/auth
++
++answers "H9SRV 1", then a line "<address> <code>" for each server that reports. The command h9_servers
++fetches it (the menu runs it when the browser opens and on each refresh; once in 20 seconds at the
++most) and puts what it read in the two cvars the menu reads, as everything of H9's menu is:
++
++  _h9srv       " <address>=<c> <address>=<c> ", a space before and after each: c is o (ok), r (rp) or
++               m (mod); a server it does not name is not authenticated
++  _h9srv_gen   0 until an answer has been read, then one more for each answer that changed the list
++
++While _h9srv_gen is 0 the menu draws no chain at all: it says nothing it does not know. cl_h9_site names a
++local test site as it does for the pictures (cl_avatar.c): http://127.0.0.1:<port>. A site that does not
++answer leaves the list as it was, one console line says so, and the next h9_servers asks again.
++cl_h9_servers 0 turns it off. The browser build has no sockets for it: its page (havoc9.org\webclient\client.js)
++reads the list from its own site and sets _h9srv and _h9srv_gen, the two cvars the menu reads.
++*/
++
++#include "common.h"
++#include "client.h"
++#include "net_ws.h"
++
++#define H9SRV_SITE   "https://havoc9.org"
++#define H9SRV_LIST   6144        // the most characters of _h9srv; a longer answer is cut at a whole entry
++#define H9SRV_MAX    ( 24 * 1024 )   // the longest answer taken
++#define H9SRV_EVERY  20.0        // seconds between two fetches at the least
++
++#if !XASH_EMSCRIPTEN
++
++static CVAR_DEFINE_AUTO( cl_h9_servers, "1", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "H9: ask havoc9.org which servers are authenticated, for the server browser's chain (cl_h9auth.c)" );
++static CVAR_DEFINE( cl_h9srv, "_h9srv", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the servers havoc9.org names, each with its verdict (set by the engine, cl_h9auth.c)" );
++static CVAR_DEFINE( cl_h9srv_gen, "_h9srv_gen", "0", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: 0 until the list of servers was read, then counts its changes (set by the engine, cl_h9auth.c)" );
++
++static struct
++{
++	double next_at;       // host.realtime the next fetch may go at
++	qboolean busy;        // one is in flight
++	qboolean said;        // the last failure was told
++	int gen;
++	char list[H9SRV_LIST];
++} srv;
++
++// http://127.0.0.1:<port> or http://localhost:<port>, the port 1 to 65535 with no leading zero, and nothing else
++static qboolean H9Srv_LocalSite( const char *s )
++{
++	const char *p;
++	int digits = 0, port = 0;
++
++	if( !Q_strncmp( s, "http://127.0.0.1:", 17 ))
++		p = s + 17;
++	else if( !Q_strncmp( s, "http://localhost:", 17 ))
++		p = s + 17;
++	else return false;
++
++	if( *p == '0' )
++		return false;
++	for( ; *p; p++, digits++ )
++	{
++		if( *p < '0' || *p > '9' || digits >= 5 )
++			return false;
++		port = port * 10 + ( *p - '0' );
++	}
++	return digits >= 1 && port <= 65535;
++}
++
++// the site the list comes from: the local test site cl_h9_site names, in its canonical form (127.0.0.1:<port>
++// and localhost:<port> get http://, the host is lowered, slashes at the end are dropped), else https://havoc9.org
++static const char *H9Srv_Site( void )
++{
++	static char site[64];
++	char v[96];
++	convar_t *cv = Cvar_FindVar( "cl_h9_site" );
++	const char *p = cv ? cv->string : "", *hostport;
++	size_t n;
++
++	while( *p == ' ' || *p == '\t' )
++		p++;
++	Q_strncpy( v, p, sizeof( v ));
++	for( n = Q_strlen( v ); n > 0 && ( v[n - 1] == '/' || v[n - 1] == ' ' || v[n - 1] == '\t' ); n-- )
++		v[n - 1] = 0;
++	hostport = !Q_strnicmp( v, "http://", 7 ) ? v + 7 : v;
++	if( !v[0] || Q_strstr( hostport, "://" ) || Q_strlen( hostport ) + 8 > sizeof( site ))
++		return H9SRV_SITE;
++	Q_snprintf( site, sizeof( site ), "http://%s", hostport );
++	for( n = 7; site[n]; n++ )
++	{
++		if( site[n] >= 'A' && site[n] <= 'Z' )
++			site[n] = site[n] - 'A' + 'a';
++	}
++	return H9Srv_LocalSite( site ) ? site : H9SRV_SITE;
++}
++
++// "a.b.c.d:port" with every number in range, and nothing else
++static qboolean H9Srv_Address( const char *s )
++{
++	int group, digits, value;
++
++	for( group = 0; group < 4; group++ )
++	{
++		for( digits = 0, value = 0; *s >= '0' && *s <= '9' && digits < 3; s++, digits++ )
++			value = value * 10 + ( *s - '0' );
++		if( !digits || value > 255 || *s != ( group < 3 ? '.' : ':' ))
++			return false;
++		s++;
++	}
++	for( digits = 0, value = 0; *s >= '0' && *s <= '9' && digits < 5; s++, digits++ )
++		value = value * 10 + ( *s - '0' );
++	return digits && !*s && value >= 1 && value <= 65535;
++}
++
++// An answer into the cvar's text, and how many servers it names as ok, rp and mod. False when it is not
++// "H9SRV 1" first: another form of answer is no list, and is not read.
++static qboolean H9Srv_Parse( const byte *data, size_t size, char *out, size_t outsize, int counts[3] )
++{
++	size_t at = 0, used = 1;
++	qboolean first = true;
++
++	Q_strncpy( out, " ", outsize );
++	counts[0] = counts[1] = counts[2] = 0;
++	while( at < size )
++	{
++		char line[64], *space;
++		size_t n = 0;
++		int kind;
++
++		while( at < size && data[at] != '\n' )
++		{
++			if( data[at] != '\r' && n + 1 < sizeof( line ))
++				line[n++] = (char)data[at];
++			at++;
++		}
++		at++;
++		line[n] = 0;
++
++		if( first )
++		{
++			if( Q_strcmp( line, "H9SRV 1" ))
++				return false;
++			first = false;
++			continue;
++		}
++
++		space = Q_strchr( line, ' ' );
++		if( !space )
++			continue;
++		*space++ = 0;
++		if( !H9Srv_Address( line ))
++			continue;
++		if( !Q_strcmp( space, "ok" ))
++			kind = 0;
++		else if( !Q_strcmp( space, "rp" ))
++			kind = 1;
++		else if( !Q_strcmp( space, "mod" ))
++			kind = 2;
++		else continue;
++
++		n = Q_strlen( line );
++		if( used + n + 3 >= outsize )
++			break;
++		used += Q_snprintf( out + used, outsize - used, "%s=%c ", line, "orm"[kind] );
++		counts[kind]++;
++	}
++	return !first;
++}
++
++// HTTP_GetToMemoryEx's answer
++static void H9Srv_Received( const char *url, qboolean success, const byte *data, size_t size, void *userdata )
++{
++	const int status = HTTP_MemoryStatus();
++	char list[H9SRV_LIST];
++	int counts[3];
++
++	(void)userdata;
++	srv.busy = false;
++
++	if( !success || !data || size < 8 || size > H9SRV_MAX || !H9Srv_Parse( data, size, list, sizeof( list ), counts ))
++	{
++		if( !srv.said )
++		{
++			if( success )
++				Con_Printf( "H9 SERVERS: %s is not a list of servers; the browser's chains stay as they were\n", url );
++			else if( status )
++				Con_Printf( "H9 SERVERS: could not read %s (HTTP %d); the browser's chains stay as they were\n", url, status );
++			else Con_Printf( "H9 SERVERS: could not read %s (no answer); the browser's chains stay as they were\n", url );
++			srv.said = true;
++		}
++		return;
++	}
++
++	srv.said = false;
++	if( srv.gen > 0 && !Q_strcmp( list, srv.list ))
++		return;
++
++	Q_strncpy( srv.list, list, sizeof( srv.list ));
++	srv.gen++;
++	Cvar_DirectFullSet( &cl_h9srv, srv.list, 0 );
++	Cvar_DirectFullSet( &cl_h9srv_gen, va( "%d", srv.gen ), 0 );
++	Con_Printf( "H9 SERVERS: havoc9.org names %d authenticated, %d on a roleplay map (nothing ranked) and %d modified\n", counts[0], counts[1], counts[2] );
++}
++
++/*
++==============
++H9Srv_f
++
++h9_servers: asks the site for the list, unless one is in flight or one was asked for lately
++==============
++*/
++static void H9Srv_f( void )
++{
++	const char *site = H9Srv_Site();
++	const int flags = !Q_strcmp( site, H9SRV_SITE ) ? ( HTTP_MEM_PUBLIC_ONLY | HTTP_MEM_VERIFY_TLS ) : 0;
++	char url[128];
++
++	if( !cl_h9_servers.value || srv.busy || host.realtime < srv.next_at )
++		return;
++	srv.next_at = host.realtime + H9SRV_EVERY;
++	Q_snprintf( url, sizeof( url ), "%s/api/presence/servers/auth", site );
++	srv.busy = true;
++	if( !HTTP_GetToMemoryEx( url, H9Srv_Received, NULL, flags ))
++		srv.busy = false;
++}
++
++#endif // !XASH_EMSCRIPTEN
++
++/*
++==============
++CL_H9Srv_Init
++==============
++*/
++void CL_H9Srv_Init( void )
++{
++#if !XASH_EMSCRIPTEN
++	Cvar_RegisterVariable( &cl_h9_servers );
++	Cvar_RegisterVariable( &cl_h9srv );
++	Cvar_RegisterVariable( &cl_h9srv_gen );
++	Cmd_AddRestrictedCommand( "h9_servers", H9Srv_f, "H9: ask havoc9.org which servers are authenticated, for the server browser's chain (the menu runs it)" );
++#endif
++}
 diff --git a/engine/client/cl_h9join.c b/engine/client/cl_h9join.c
 new file mode 100644
-index 00000000..4563cc34
+index 00000000..a4a6f0dd
 --- /dev/null
 +++ b/engine/client/cl_h9join.c
-@@ -0,0 +1,450 @@
+@@ -0,0 +1,535 @@
 +/*
 +cl_h9join.c - H9: the join screen, the menu's connection progress while a server is joined
 +Copyright (C) 2026 HAVOC 9
@@ -4523,7 +5484,8 @@ index 00000000..4563cc34
 +the local server's own client) and at each map change (svc_changing, reconnect) until the player is in
 +the game (ca_active): its background, or its video, full screen, and a panel with the stage, an overall
 +bar (scr_loading) and, while a file downloads, its name, n of N and its own bar with KB of KB, over H9's
-+HTTP fast download or the netchan. ESC on it cancels the join. A join or a game the server or the engine
++HTTP fast download or the netchan, and the downloads together (the bytes done and to go, the time that takes)
++under the bar. ESC on it cancels the join. A join or a game the server or the engine
 +ends with a reason (refused, kicked, timed out, a file that could not come) shows it, with OK.
 +
 +What the menu reads, set by this file, read-only, and private (FCVAR_PRIVILEGED: no server reads or sets
@@ -4534,10 +5496,12 @@ index 00000000..4563cc34
 +  _h9join_server    the server it joins (its address; the local server says so)
 +  _h9join_file      the file downloading, "<name>   n of N   a of b KB"; empty without a download
 +  _h9join_fileprog  that file's bar, 0 to 100
++  _h9join_total     the downloads together: "<done> of <all>   <left> to go   about <time> left" ("<done> so far"
++                    while the engine does not know the total); empty without a download
 +  _h9_drop          why the last join or game ended, when the server or the engine said; empty for a cancel
 +                    or a plain disconnect
 +scr_loading, the overall bar: connecting 5 and a little more for each try, server info 15, the downloads
-+up to 50 by the bytes still to come, the map 55, the other resources up to 90 by their count, spawning 95.
++up to 50 by the bytes done (by the files while the total is not known), the map 55, the other resources up to 90 by their count, spawning 95.
 +The precache runs inside one frame, so it draws a frame now and then (SCR_UpdateScreen, H9J_PUMP).
 +
 +None of it runs for a demo or a timedemo, on a background map, with cl_h9_joinscreen 0, or with a menu
@@ -4561,12 +5525,20 @@ index 00000000..4563cc34
 +static CVAR_DEFINE( h9join_server, "_h9join_server", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the server the join screen joins (set by the engine)" );
 +static CVAR_DEFINE( h9join_file, "_h9join_file", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the file the join screen downloads (set by the engine)" );
 +static CVAR_DEFINE( h9join_fileprog, "_h9join_fileprog", "0", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: that file's progress, 0 to 100 (set by the engine)" );
++static CVAR_DEFINE( h9join_total, "_h9join_total", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the downloads together, for the join screen (set by the engine)" );
 +static CVAR_DEFINE( h9_drop, "_h9_drop", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: why the last join or game ended (set by the engine)" );
 +
 +static struct
 +{
 +	qboolean up;          // the screen is up, for a join or a map change this file began
 +	int      files;       // the downloads this join counted when they began (n of N), 0 before
++	int      dl_done;     // the bytes of the files this join's downloads have finished
++	int      dl_got;      // the bytes of the file coming now, so far
++	int      dl_size;     // its size, 0 while it is not known
++	char     dl_name[MAX_SYSPATH]; // its name: another name is the next file
++	double   rate_at;     // host.realtime of the last speed sample, 0 before the first
++	int      rate_from;   // the bytes done by then
++	float    rate;        // bytes a second over the last seconds, 0 before the first sample
 +	int      precached;   // resources precached so far, of
 +	int      to_precache;
 +	double   pumped;      // when the precache last drew a frame
@@ -4578,6 +5550,35 @@ index 00000000..4563cc34
 +{
 +	if( Q_strcmp( cv->string, value ))
 +		Cvar_DirectFullSet( cv, value, 0 );
++}
++
++// no download is coming: the file, its bar and the totals go, and the next ones are counted from nothing
++static void H9J_NoDownload( void )
++{
++	h9j.dl_done = h9j.dl_got = h9j.dl_size = 0;
++	h9j.dl_name[0] = '\0';
++	h9j.rate_at = 0.0;
++	h9j.rate_from = 0;
++	h9j.rate = 0.0f;
++	H9J_Set( &h9join_file, "" );
++	H9J_Set( &h9join_fileprog, "0" );
++	H9J_Set( &h9join_total, "" );
++}
++
++static void H9J_SizeText( char *out, size_t size, double bytes )
++{
++	if( bytes >= 10.0 * 1048576.0 )
++		Q_snprintf( out, size, "%d MB", (int)( bytes / 1048576.0 + 0.5 ));
++	else if( bytes >= 1048576.0 )
++		Q_snprintf( out, size, "%.1f MB", bytes / 1048576.0 );
++	else Q_snprintf( out, size, "%d KB", bytes > 0.0 ? Q_max( 1, (int)( bytes / 1024.0 + 0.5 )) : 0 );
++}
++
++static void H9J_TimeText( char *out, size_t size, double seconds )
++{
++	if( seconds < 90.0 )
++		Q_snprintf( out, size, "%d s", Q_max( 1, (int)( seconds + 0.5 )));
++	else Q_snprintf( out, size, "%d min", (int)( seconds / 60.0 + 0.5 ));
 +}
 +
 +// the overall bar only grows during a join
@@ -4608,8 +5609,7 @@ index 00000000..4563cc34
 +	h9j.reason[0] = '\0';
 +	H9J_Set( &h9_drop, "" );
 +	H9J_Set( &h9join_server, server );
-+	H9J_Set( &h9join_file, "" );
-+	H9J_Set( &h9join_fileprog, "0" );
++	H9J_NoDownload();
 +	Cvar_SetValue( "scr_loading", 0.0f );
 +	H9J_Stage( stage, loading );
 +	H9J_Set( &h9join_up, "1" );
@@ -4626,8 +5626,7 @@ index 00000000..4563cc34
 +	h9j.up = false;
 +	H9J_Set( &h9join_up, "0" );
 +	H9J_Set( &h9join_stage, "" );
-+	H9J_Set( &h9join_file, "" );
-+	H9J_Set( &h9join_fileprog, "0" );
++	H9J_NoDownload();
 +}
 +
 +/*
@@ -4733,7 +5732,7 @@ index 00000000..4563cc34
 +		if( !FBitSet( p->ucFlags, RES_PRECACHED ))
 +			h9j.to_precache++;
 +	}
-+	H9J_Set( &h9join_file, "" );
++	H9J_NoDownload();
 +}
 +
 +void CL_H9Join_PrecacheWorld( void )
@@ -4848,8 +5847,8 @@ index 00000000..4563cc34
 +// the frame's look at the downloads (the H9UI registry's Frame): the file, n of N, its KB and its bar
 +static void H9J_Frame( void )
 +{
-+	char name[MAX_SYSPATH], line[MAX_SYSPATH + 64];
-+	int got = 0, size = -1, remaining, n;
++	char name[MAX_SYSPATH], line[MAX_SYSPATH + 64], total_line[160], a[24], b[24], c[24], eta[24];
++	int got = 0, size = -1, remaining, n, done, total;
 +	float file_pct = -1.0f;
 +
 +	if( !h9j.up )
@@ -4859,7 +5858,7 @@ index 00000000..4563cc34
 +	if( remaining <= 0 && ( scr_download.value < 0.0f ))
 +	{
 +		if( h9join_file.string[0] )
-+			H9J_Set( &h9join_file, "" );
++			H9J_NoDownload();
 +		return;
 +	}
 +
@@ -4895,6 +5894,17 @@ index 00000000..4563cc34
 +	if( n > h9j.files )
 +		n = h9j.files;
 +
++	// the bytes of all this join's downloads: the files that have finished, and the one coming now
++	if( name[0] && Q_strcmp( name, h9j.dl_name ))
++	{
++		h9j.dl_done += Q_max( h9j.dl_size, h9j.dl_got );
++		Q_strncpy( h9j.dl_name, name, sizeof( h9j.dl_name ));
++		h9j.dl_size = 0;
++	}
++	h9j.dl_got = Q_max( got, 0 );
++	if( size > 0 )
++		h9j.dl_size = size;
++
 +	if( size > 0 )
 +		Q_snprintf( line, sizeof( line ), "%s   %d of %d   %d of %d KB", name[0] ? COM_FileWithoutPath( name ) : "...", n, Q_max( h9j.files, 1 ), got / 1024, size / 1024 );
 +	else Q_snprintf( line, sizeof( line ), "%s   %d of %d", name[0] ? COM_FileWithoutPath( name ) : "...", n, Q_max( h9j.files, 1 ));
@@ -4902,9 +5912,44 @@ index 00000000..4563cc34
 +	Q_snprintf( name, sizeof( name ), "%d", file_pct >= 0.0f ? (int)file_pct : 0 );
 +	H9J_Set( &h9join_fileprog, name );
 +
-+	// the overall bar: 15 to 50 by the bytes still to come
-+	if( cls.dl.nTotalToTransfer > 0 )
-+		H9J_Stage( "Downloading", 15.0f + 35.0f * ( cls.dl.nTotalToTransfer - Q_max( cls.dl.nRemainingToTransfer, 0 )) / cls.dl.nTotalToTransfer );
++	// the downloads together: the bytes done of all, what is left, and the time that takes at the speed of the last seconds
++	done = h9j.dl_done + h9j.dl_got;
++	total = cls.dl.nTotalToTransfer;
++	if( total > 0 && total < done )
++		total = done; // the estimate was short
++	if( h9j.rate_at <= 0.0 || done < h9j.rate_from )
++	{
++		h9j.rate_at = host.realtime;
++		h9j.rate_from = done;
++	}
++	else if( host.realtime - h9j.rate_at >= 1.0 )
++	{
++		float now_rate = ( done - h9j.rate_from ) / (float)( host.realtime - h9j.rate_at );
++
++		h9j.rate = h9j.rate > 0.0f ? h9j.rate * 0.7f + now_rate * 0.3f : now_rate;
++		h9j.rate_at = host.realtime;
++		h9j.rate_from = done;
++	}
++	H9J_SizeText( a, sizeof( a ), done );
++	if( total > 0 )
++	{
++		H9J_SizeText( b, sizeof( b ), total );
++		H9J_SizeText( c, sizeof( c ), total - done );
++		if( h9j.rate >= 20480.0f && total > done )
++		{
++			H9J_TimeText( eta, sizeof( eta ), ( total - done ) / h9j.rate );
++			Q_snprintf( total_line, sizeof( total_line ), "%s of %s   %s to go   about %s left", a, b, c, eta );
++		}
++		else Q_snprintf( total_line, sizeof( total_line ), "%s of %s   %s to go", a, b, c );
++	}
++	else Q_snprintf( total_line, sizeof( total_line ), "%s so far", a );
++	H9J_Set( &h9join_total, total_line );
++
++	// the overall bar: 15 to 50 by the bytes done, by the files while the total is not known
++	if( total > 0 )
++		H9J_Stage( "Downloading", 15.0f + 35.0f * done / total );
++	else if( h9j.files > 0 )
++		H9J_Stage( "Downloading", 15.0f + 35.0f * (( n - 1 ) + ( size > 0 ? Q_min( (float)h9j.dl_got / size, 1.0f ) : 0.0f )) / h9j.files );
 +	else H9J_Stage( "Downloading", 15.0f );
 +}
 +
@@ -4949,6 +5994,7 @@ index 00000000..4563cc34
 +	Cvar_RegisterVariable( &h9join_server );
 +	Cvar_RegisterVariable( &h9join_file );
 +	Cvar_RegisterVariable( &h9join_fileprog );
++	Cvar_RegisterVariable( &h9join_total );
 +	Cvar_RegisterVariable( &h9_drop );
 +	H9UI_AddPanel( &h9j_panel );
 +}
@@ -6975,6 +8021,274 @@ index 00000000..27324d17
 +}
 +
 +#endif // XASH_EMSCRIPTEN
+diff --git a/engine/client/cl_h9warm.c b/engine/client/cl_h9warm.c
+new file mode 100644
+index 00000000..5afeee30
+--- /dev/null
++++ b/engine/client/cl_h9warm.c
+@@ -0,0 +1,262 @@
++/*
++cl_h9warm.c - H9: the browser build fetches what a join reads before it reads it
++Copyright (C) 2026 HAVOC 9
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++A game file in the browser build comes over the network the first time the engine reads it, and the engine waits
++for it in the middle of whatever reads it (havoc9.org\webclient\client.js, lazyFile). A join reads hundreds of
++files in one call, CL_PrecacheResources ("inside one frame", cl_h9join.c): 499 files and 269 MB on 2026-11-04.
++Each of them held the page still, with no frame drawn, no sound mixed and no key read, for as long as all of
++them took together.
++
++Here the page is given those files as soon as the server's resource list is in. It fetches them in parallel
++without holding anything (Module.warm in client.js: want, state, done, total, kb, cancel), the join screen says
++how far it is, and the precache runs when they are all there and finds them in memory:
++
++  CL_H9Warm_Ready  asked before CL_PrecacheResources, by CL_ParseResourceList and by CL_ProcessFile: true when
++                   there is nothing to wait for (a page without Module.warm, or no file missing), false while the
++                   page fetches. The frame of the panel this file registers goes on with the join, the call the
++                   two places would have made, once the page says it is done, or after H9W_PATIENCE.
++
++The native build has no use for it: CL_H9Warm_Ready is true there.
++*/
++
++#include "common.h"
++#include "client.h"
++#include "net_ws.h"
++#include "cl_motd.h"
++#if XASH_EMSCRIPTEN
++#include <emscripten.h>
++#endif
++
++#if XASH_EMSCRIPTEN
++
++#define H9W_LIST     ( 96 * 1024 ) // the most characters of the list of files handed to the page
++#define H9W_PATIENCE 900.0         // seconds the page may take: then the join goes on and reads what is not here
++
++static struct
++{
++	qboolean waiting;    // the page is fetching for a precache that has not run
++	qboolean panel;      // the frame's panel is registered
++	double   began;      // host.realtime the page was handed the list
++	int      files;      // what it was handed
++} h9w;
++
++// the page, Module.warm: want( list ) starts the fetches, a file's name on each line of the list; state() is 0 while
++// it fetches and 1 when it is done; done(), total() and kb() count the files and the kilobytes fetched; cancel()
++// drops what has not started. A page without Module.warm answers state() -1.
++EM_JS( void, H9W_PageWant, ( const char *list ), {
++	var warm = Module.warm;
++	if( warm && warm.want )
++		warm.want( UTF8ToString( list ));
++});
++
++EM_JS( int, H9W_PageState, ( void ), {
++	var warm = Module.warm;
++	try {
++		return warm && warm.state ? warm.state() : -1;
++	} catch( e ) {
++		return -1;
++	}
++});
++
++EM_JS( int, H9W_PageCount, ( int which ), {
++	var warm = Module.warm;
++	try {
++		return which == 0 ? warm.done() : which == 1 ? warm.total() : warm.kb();
++	} catch( e ) {
++		return 0;
++	}
++});
++
++EM_JS( void, H9W_PageCancel, ( void ), {
++	var warm = Module.warm;
++	if( warm && warm.cancel )
++		warm.cancel();
++});
++
++// the files CL_PrecacheResources will read and nothing has loaded yet, a name on each line; how many
++static int H9W_List( char *out, size_t size )
++{
++	resource_t *p;
++	size_t used = 0;
++	int count = 0;
++
++	out[0] = '\0';
++	for( p = cl.resourcesonhand.pNext; p && p != &cl.resourcesonhand; p = p->pNext )
++	{
++		const char *prefix = "";
++		size_t need;
++
++		if( FBitSet( p->ucFlags, RES_PRECACHED ) || FBitSet( p->ucFlags, RES_WASMISSING ))
++			continue;
++
++		switch( p->type )
++		{
++		case t_model:
++			if( p->szFileName[0] == '*' )
++				continue; // a part of the world's own file
++			break;
++		case t_sound:
++			prefix = DEFAULT_SOUNDPATH;
++			break;
++		case t_generic:
++		case t_eventscript:
++			break;
++		default:
++			continue;
++		}
++
++		need = Q_strlen( prefix ) + Q_strlen( p->szFileName ) + 1;
++		if( used + need + 1 >= size )
++			break; // the rest is read as it always was
++		used += Q_snprintf( out + used, size - used, "%s%s\n", prefix, p->szFileName );
++		count++;
++	}
++	return count;
++}
++
++static void H9W_SetCvar( const char *name, const char *value )
++{
++	convar_t *cv = Cvar_FindVar( name );
++
++	if( cv && Q_strcmp( cv->string, value ))
++		Cvar_DirectFullSet( cv, value, 0 );
++}
++
++// the join screen's file line and bars, the ones a download uses (cl_h9join.c reads them)
++static void H9W_Screen( int done, int total, int kb )
++{
++	char line[96];
++	float bar = 15.0f + ( total > 0 ? 35.0f * done / total : 0.0f );
++
++	Q_snprintf( line, sizeof( line ), "game files   %d of %d   %d MB", done, Q_max( total, 1 ), kb / 1024 );
++	H9W_SetCvar( "_h9join_stage", "Downloading" );
++	H9W_SetCvar( "_h9join_file", line );
++	H9W_SetCvar( "_h9join_fileprog", va( "%d", total > 0 ? 100 * done / total : 0 ));
++	if( bar > Cvar_VariableValue( "scr_loading" ))
++		Cvar_SetValue( "scr_loading", bar );
++}
++
++// what CL_ParseResourceList and CL_ProcessFile do when the precache is ready to run, now that the files are here
++static void H9W_Resume( void )
++{
++	byte msg_buf[MAX_INIT_MSG];
++	sizebuf_t msg;
++
++	MSG_Init( &msg, "Resource Registration", msg_buf, sizeof( msg_buf ));
++
++	if( CL_PrecacheResources( ))
++		CL_RegisterResources( &msg, cls.net_protocol );
++
++	if( MSG_GetNumBytesWritten( &msg ) > 0 )
++	{
++		Netchan_CreateFragments( &cls.netchan, &msg );
++		Netchan_FragSend( &cls.netchan );
++	}
++}
++
++static void H9W_Frame( void )
++{
++	int state;
++
++	if( !h9w.waiting )
++		return;
++
++	if( cls.state == ca_disconnected )
++	{
++		h9w.waiting = false;
++		H9W_PageCancel();
++		return;
++	}
++
++	state = H9W_PageState();
++	if( state == 0 && host.realtime - h9w.began < H9W_PATIENCE )
++	{
++		H9W_Screen( H9W_PageCount( 0 ), H9W_PageCount( 1 ), H9W_PageCount( 2 ));
++		return;
++	}
++
++	if( state == 0 )
++	{
++		Con_Printf( S_ERROR "H9 WARM: the page did not finish in %d seconds; the join reads the rest itself\n", (int)H9W_PATIENCE );
++		H9W_PageCancel();
++	}
++	else Con_Printf( "H9 WARM: %d files, %d MB here after %.1f seconds\n", H9W_PageCount( 1 ), H9W_PageCount( 2 ) / 1024, host.realtime - h9w.began );
++
++	h9w.waiting = false;
++	H9W_Resume();
++}
++
++static qboolean H9W_NotUp( void ) { return false; }
++static qboolean H9W_NoKey( int key, qboolean down ) { (void)key; (void)down; return false; }
++static void H9W_NoDraw( void ) { }
++
++// a new map or server, or a disconnect: what the page still fetches is not wanted
++static void H9W_Reset( qboolean connection )
++{
++	(void)connection;
++	if( h9w.waiting )
++	{
++		h9w.waiting = false;
++		H9W_PageCancel();
++	}
++}
++
++// never up itself: its Frame follows the page's fetching
++static const h9ui_panel_t h9w_panel =
++{
++	H9W_NotUp,
++	H9W_NoKey,
++	H9W_NoKey,
++	H9W_Frame,
++	H9W_NoDraw,
++	H9W_Reset,
++};
++
++#endif // XASH_EMSCRIPTEN
++
++/*
++==============
++CL_H9Warm_Ready
++==============
++*/
++qboolean CL_H9Warm_Ready( void )
++{
++#if XASH_EMSCRIPTEN
++	static char list[H9W_LIST];
++
++	if( h9w.waiting )
++		return false;
++	if( H9W_PageState() < 0 )
++		return true;
++
++	h9w.files = H9W_List( list, sizeof( list ));
++	if( !h9w.files )
++		return true;
++
++	if( !h9w.panel )
++	{
++		H9UI_AddPanel( &h9w_panel );
++		h9w.panel = true;
++	}
++
++	h9w.waiting = true;
++	h9w.began = host.realtime;
++	Con_Printf( "H9 WARM: the page fetches %d files before the precache\n", h9w.files );
++	H9W_PageWant( list );
++	H9W_Screen( 0, h9w.files, 0 );
++	return false;
++#else
++	return true;
++#endif
++}
 diff --git a/engine/client/cl_idproof.c b/engine/client/cl_idproof.c
 new file mode 100644
 index 00000000..d88a23a2
@@ -7356,7 +8670,7 @@ index 00000000..d88a23a2
 +#endif // XASH_EMSCRIPTEN
 +#endif // H9_IDPROOF_SELFTEST
 diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
-index 39e4f9c2..d8073c87 100644
+index 39e4f9c2..ecdadcc6 100644
 --- a/engine/client/cl_main.c
 +++ b/engine/client/cl_main.c
 @@ -16,6 +16,7 @@ GNU General Public License for more details.
@@ -7724,15 +9038,43 @@ index 39e4f9c2..d8073c87 100644
  
  	cls.state = ca_connecting;
  	cls.connect_time = MAX_HEARTBEAT; // CL_CheckForResend() will fire immediately
-@@ -2092,6 +2256,7 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
+@@ -2092,6 +2256,8 @@ static void CL_ParseStatusMessage( netadr_t from, sizebuf_t *msg )
  	if( maxcl > MAX_CLIENTS || numcl > MAX_CLIENTS || numcl > maxcl || i != PROTOCOL_VERSION )
  		return;
  
 +	CL_Presence_ServerReply( from, infostring );
++	CL_H9_StampServerMode( infostring, sizeof( infostring ));
  	UI_AddServerToList( from, infostring );
  }
  
-@@ -2213,7 +2378,10 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+@@ -2135,7 +2301,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+ {
+ 	static char	s[512+8];
+ 	int p, numcl, maxcl, password, bots;
+-	string host, map, gamedir, version;
++	string host, map, gamedir, version, desc;
+ 
+ 	// set to beginning but skip header
+ 	MSG_SeekToBit( msg, (sizeof( uint32_t ) + sizeof( uint8_t )) << 3, SEEK_SET );
+@@ -2153,7 +2319,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+ 		Q_strncpy( host, MSG_ReadString( msg ), sizeof( host ));
+ 		Q_strncpy( map, MSG_ReadString( msg ), sizeof( map ));
+ 		Q_strncpy( gamedir, MSG_ReadString( msg ), sizeof( gamedir ));
+-		MSG_ReadString( msg ); // game description
++		Q_strncpy( desc, MSG_ReadString( msg ), sizeof( desc )); // game description
+ 		numcl = MSG_ReadByte( msg );
+ 		maxcl = MSG_ReadByte( msg );
+ 		MSG_ReadByte( msg ); // protocol version
+@@ -2185,7 +2351,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+ 		Q_strncpy( host, MSG_ReadString( msg ), sizeof( host ));
+ 		Q_strncpy( map, MSG_ReadString( msg ), sizeof( map ));
+ 		Q_strncpy( gamedir, MSG_ReadString( msg ), sizeof( gamedir ));
+-		MSG_ReadString( msg ); // game description
++		Q_strncpy( desc, MSG_ReadString( msg ), sizeof( desc )); // game description
+ 		MSG_ReadShort( msg ); // app id
+ 		numcl = MSG_ReadByte( msg );
+ 		maxcl = MSG_ReadByte( msg );
+@@ -2213,10 +2379,15 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
  	Info_SetValueForKey( s, "dm", "0", sizeof( s )); // obsolete keys
  	Info_SetValueForKey( s, "team", "0", sizeof( s ));
  	Info_SetValueForKey( s, "coop", "0", sizeof( s ));
@@ -7744,7 +9086,12 @@ index 39e4f9c2..d8073c87 100644
  	Info_SetValueForKeyf( s, "maxcl", sizeof( s ), "%i", maxcl );
  	Info_SetValueForKey( s, "gamedir", gamedir, sizeof( s ));
  	Info_SetValueForKey( s, "password", password ? "1" : "0", sizeof( s ));
-@@ -2745,6 +2913,7 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
++	// H9: the server browser's Mode column, named from the map and the game description
++	Info_SetValueForKey( s, "mode", CL_H9_ServerMode( map, desc, false ), sizeof( s ));
+ 
+ 	// write host last so we can try to cut off too long hostnames
+ 	// TODO: value size limit for infostrings
+@@ -2745,6 +2916,7 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
  	if( !CL_IsFromConnectingServer( from ))
  		return;
  
@@ -7752,7 +9099,7 @@ index 39e4f9c2..d8073c87 100644
  	if( msg != NULL && !Q_strcmp( c, S2C_ERRORMSG ))
  	{
  		const char *s = MSG_ReadString( msg );
-@@ -2762,8 +2931,17 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
+@@ -2762,8 +2934,17 @@ static void CL_ErrorMsg( const char *c, const char *args, netadr_t from, sizebuf
  			Q_snprintf( formatted_msg, sizeof( formatted_msg ), "^3Server message^7\n%s", args + 1 );
  	}
  
@@ -7771,7 +9118,7 @@ index 39e4f9c2..d8073c87 100644
  		Msg( "%s\n", formatted_msg );
  
  	// don't disconnect, errormsg is a FWGS extension and
-@@ -3142,6 +3320,7 @@ static void CL_ReadPackets( void )
+@@ -3142,6 +3323,7 @@ static void CL_ReadPackets( void )
  		if( host.realtime - cls.netchan.last_received > cl_timeout.value )
  		{
  			Con_Printf( "\nServer connection timed out.\n" );
@@ -7779,7 +9126,7 @@ index 39e4f9c2..d8073c87 100644
  			CL_Disconnect();
  			return;
  		}
-@@ -3221,6 +3400,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
+@@ -3221,6 +3403,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
  	else if( !successfully_received )
  	{
  		Con_Printf( S_ERROR "server failed to transmit file '%s'\n", CL_CleanFileName( filename ));
@@ -7787,7 +9134,16 @@ index 39e4f9c2..d8073c87 100644
  	}
  
  	for( p = cl.resourcesneeded.pNext; p != &cl.resourcesneeded; p = p->pNext )
-@@ -3456,6 +3636,8 @@ qboolean CL_PrecacheResources( void )
+@@ -3298,7 +3481,7 @@ void CL_ProcessFile( qboolean successfully_received, const char *filename )
+ 
+ 			MSG_Init( &msg, "Resource Registration", msg_buf, sizeof( msg_buf ));
+ 
+-			if( CL_PrecacheResources( ))
++			if( CL_H9Warm_Ready( ) && CL_PrecacheResources( ))
+ 				CL_RegisterResources( &msg, cls.net_protocol );
+ 
+ 			if( MSG_GetNumBytesWritten( &msg ) > 0 )
+@@ -3456,6 +3639,8 @@ qboolean CL_PrecacheResources( void )
  {
  	resource_t	*pRes;
  
@@ -7796,7 +9152,7 @@ index 39e4f9c2..d8073c87 100644
  	// if we downloaded new WAD files or any other archives they must be added to searchpath
  	if( CL_ShouldRescanFilesystem( ))
  		FS_Rescan_f();
-@@ -3469,6 +3651,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3469,6 +3654,7 @@ qboolean CL_PrecacheResources( void )
  		if( pRes->type != t_model || pRes->nIndex != WORLD_INDEX )
  			continue;
  
@@ -7804,7 +9160,7 @@ index 39e4f9c2..d8073c87 100644
  		cl.models[pRes->nIndex] = Mod_LoadWorld( pRes->szFileName, true );
  		SetBits( pRes->ucFlags, RES_PRECACHED );
  		cl.nummodels = 1;
-@@ -3493,6 +3676,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3493,6 +3679,7 @@ qboolean CL_PrecacheResources( void )
  
  				if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  				{
@@ -7812,7 +9168,7 @@ index 39e4f9c2..d8073c87 100644
  					CL_Disconnect_f();
  					return false;
  				}
-@@ -3509,6 +3693,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3509,6 +3696,7 @@ qboolean CL_PrecacheResources( void )
  		if( FBitSet( pRes->ucFlags, RES_PRECACHED ))
  			continue;
  
@@ -7820,7 +9176,7 @@ index 39e4f9c2..d8073c87 100644
  		switch( pRes->type )
  		{
  		case t_sound:
-@@ -3529,6 +3714,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3529,6 +3717,7 @@ qboolean CL_PrecacheResources( void )
  					{
  						if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  						{
@@ -7828,7 +9184,7 @@ index 39e4f9c2..d8073c87 100644
  							S_EndRegistration();
  							CL_Disconnect_f();
  							return false;
-@@ -3558,6 +3744,7 @@ qboolean CL_PrecacheResources( void )
+@@ -3558,6 +3747,7 @@ qboolean CL_PrecacheResources( void )
  						{
  							if( FBitSet( pRes->ucFlags, RES_FATALIFMISSING ))
  							{
@@ -7836,7 +9192,7 @@ index 39e4f9c2..d8073c87 100644
  								S_EndRegistration();
  								CL_Disconnect_f();
  								return false;
-@@ -3675,9 +3862,11 @@ static void CL_InitLocal( void )
+@@ -3675,9 +3865,11 @@ static void CL_InitLocal( void )
  	cl.resourcesonhand.pNext = cl.resourcesonhand.pPrev = &cl.resourcesonhand;
  
  	Cvar_RegisterVariable( &cl_ticket_generator );
@@ -7848,7 +9204,7 @@ index 39e4f9c2..d8073c87 100644
  
  	Cvar_RegisterVariable( &showpause );
  	Cvar_RegisterVariable( &mp_decals );
-@@ -3688,9 +3877,11 @@ static void CL_InitLocal( void )
+@@ -3688,9 +3880,11 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &cl_download_ingame );
  	Cvar_RegisterVariable( &cl_logofile );
  	Cvar_RegisterVariable( &cl_logocolor );
@@ -7860,7 +9216,7 @@ index 39e4f9c2..d8073c87 100644
  	Cvar_RegisterVariable( &cl_test_bandwidth );
  	Cvar_RegisterVariable( &cl_require_challenge_echo );
  
-@@ -3708,6 +3899,7 @@ static void CL_InitLocal( void )
+@@ -3708,6 +3902,7 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &hud_utf8 );
  
  	Cvar_RegisterVariable( &rcon_address );
@@ -7868,7 +9224,7 @@ index 39e4f9c2..d8073c87 100644
  
  	Cvar_RegisterVariable( &cl_trace_consistency );
  	Cvar_RegisterVariable( &cl_trace_stufftext );
-@@ -3746,6 +3938,7 @@ static void CL_InitLocal( void )
+@@ -3746,6 +3941,7 @@ static void CL_InitLocal( void )
  	Cvar_RegisterVariable( &cl_bmodelinterp );
  	Cvar_RegisterVariable( &cl_clockreset );
  	Cvar_RegisterVariable( &cl_fixtimerate );
@@ -7876,7 +9232,7 @@ index 39e4f9c2..d8073c87 100644
  	Cvar_RegisterVariable( &hud_fontscale );
  	Cvar_RegisterVariable( &hud_fontrender );
  	Cvar_RegisterVariable( &hud_scale );
-@@ -3825,6 +4018,7 @@ static void CL_InitLocal( void )
+@@ -3825,6 +4021,7 @@ static void CL_InitLocal( void )
  	Cmd_AddCommand( "richpresence_update", Cmd_Null_f, "compatibility command, does nothing" );
  
  	Cmd_AddCommand( "cl_list_messages", CL_ListMessages_f, "list registered user messages" );
@@ -7884,7 +9240,7 @@ index 39e4f9c2..d8073c87 100644
  }
  
  //============================================================================
-@@ -3941,6 +4135,9 @@ void Host_ClientFrame( void )
+@@ -3941,6 +4138,9 @@ void Host_ClientFrame( void )
  	// handle spectator movement
  	CL_MoveSpectatorCamera();
  
@@ -7894,7 +9250,7 @@ index 39e4f9c2..d8073c87 100644
  	// catch changes video settings
  	VID_CheckChanges();
  
-@@ -3974,6 +4171,7 @@ void CL_Init( void )
+@@ -3974,6 +4174,7 @@ void CL_Init( void )
  	CL_InitLocal();
  
  	VID_Init();	// init video
@@ -7902,7 +9258,12 @@ index 39e4f9c2..d8073c87 100644
  
  	// unreliable buffer. unsed for unreliable commands and voice stream
  	MSG_Init( &cls.datagram, "cls.datagram", cls.datagram_buf, sizeof( cls.datagram_buf ));
-@@ -3985,16 +4183,19 @@ void CL_Init( void )
+@@ -3981,20 +4182,24 @@ void CL_Init( void )
+ 	COM_GetCommonLibraryPath( LIBRARY_CLIENT, libpath, sizeof( libpath ));
+ 
+ 	S_Init();	// init sound
++	CL_H9Srv_Init(); // H9: which servers havoc9.org names, for the server browser's chain (cl_h9auth.c)
+ 	Voice_Init( VOICE_DEFAULT_CODEC, 3, true ); // init voice (do not open the device)
  
  	ID_Init();
  	SteamBroker_Init();
@@ -7922,7 +9283,7 @@ index 39e4f9c2..d8073c87 100644
  }
  
  /*
-@@ -4005,6 +4206,7 @@ CL_Shutdown
+@@ -4005,6 +4210,7 @@ CL_Shutdown
  */
  void CL_Shutdown( void )
  {
@@ -7930,7 +9291,7 @@ index 39e4f9c2..d8073c87 100644
  	Con_Printf( "%s()\n", __func__ );
  
  	if( host.status != HOST_CRASHED && cls.initialized )
-@@ -4014,6 +4216,7 @@ void CL_Shutdown( void )
+@@ -4014,6 +4220,7 @@ void CL_Shutdown( void )
  		Touch_WriteConfig();
  	}
  
@@ -9928,10 +11289,10 @@ index 00000000..c019dcaa
 +#endif // CL_MOTD_H
 diff --git a/engine/client/cl_presence.c b/engine/client/cl_presence.c
 new file mode 100644
-index 00000000..7930b06d
+index 00000000..c6f8a5ce
 --- /dev/null
 +++ b/engine/client/cl_presence.c
-@@ -0,0 +1,604 @@
+@@ -0,0 +1,733 @@
 +/*
 +cl_presence.c - Discord Rich Presence, sent by the engine itself
 +
@@ -9968,7 +11329,10 @@ index 00000000..7930b06d
 +#define H9P_BUTTON2_LABEL	"havoc9.org"		// the second button under the card
 +#define H9P_BUTTON2_URL		"https://havoc9.org"		// where that button goes
 +
++const char *H9_Release( void );   // common/h9_release.c: the release of this game folder
++
 +CVAR_DEFINE_AUTO( ts_richpresence, "1", FCVAR_ARCHIVE, "show your game on Discord (Rich Presence): 1 = on, 0 = off" );
++static CVAR_DEFINE( h9_rel, "_h9rel", "", FCVAR_USERINFO|FCVAR_READ_ONLY|FCVAR_PRIVILEGED, "H9: the release of this game, sent to every server (h9_release.txt)" );
 +CVAR_DEFINE_AUTO( ts_richpresence_clientid, H9P_CLIENT_ID, 0, "Discord application ID for the card (set by the build)" );
 +
 +static struct
@@ -9986,6 +11350,169 @@ index 00000000..7930b06d
 +	char		map[64];
 +	char		sent[H9P_CARD_MAX];	// the card last sent, so an unchanged card is not resent
 +} h9p;
++
++/*
++=================
++The modes' names
++
++h9p_keys is what an H9 server says it runs (its tsm_pres_mode), h9p_maps what a map's name says. The card's details line (H9P_Mode)
++and the server browser's Mode column (CL_H9_ServerMode, CL_H9_StampServerMode) both name a mode from these, so the two always agree.
++They are built into every build, the browser's among them: only the pipe to Discord is Windows only.
++=================
++*/
++static const struct { const char *key, *name; } h9p_keys[] =
++{
++	{ "siege",       "Siege" },
++	{ "uplink",      "Capture the Uplink" },
++	{ "survival",    "Wave Survival" },
++	{ "mechwarrior", "Mech Warrior" },
++	{ "assault",     "Assault" },
++	{ "ctf",         "Capture the Flag" },
++};
++
++static const struct { const char *prefix, *name; } h9p_maps[] =
++{
++	{ "h9_te_",    "Team Elimination" },
++	{ "h9_siege_", "Siege" },
++	{ "h9_up_",    "Capture the Uplink" },
++	{ "h9_mw_",    "Mech Warrior" },
++	{ "h9_ws_",    "Wave Survival" },
++	{ "h9_as_",    "Assault" },
++	{ "h9_dm_",    "Deathmatch" },
++	{ "h9_tdm_",   "Team Deathmatch" },
++	{ "h9_ctb_",   "Capture the Briefcase" },
++	{ "h9_ctf_",   "Capture the Flag" },
++};
++
++/*
++=================
++CL_H9_ModeName
++
++The name of the mode a server plays, in order:
++
++  1. what an H9 server says it runs, in tsm_pres_mode: "siege", "uplink", "survival",
++     "mechwarrior", "assault" or "ctf" (the siege progress in tsm_pres_siege says siege as
++     well, from a plugin older than tsm_pres_mode);
++  2. the map's name: an h9_<mode>_ map plays that mode, a name starting rp_ or tsrp_, or
++     holding _rp_ or _tsrp_ anywhere, is a roleplay map, and one starting ctb_ or ctf_, or
++     holding _ctb_ or _ctf_ anywhere, is TS's own capture game (its flag is the briefcase,
++     so the two play alike and the name only says which the card shows);
++  3. "match" from an H9 server on any other map is Match Mode;
++  4. anything else is not named here: NULL.
++
++"match" only says the match mode runs, so the map's name comes before it: an h9_te_ map is
++Team Elimination.
++=================
++*/
++const char *CL_H9_ModeName( const char *map, const char *key, const char *siege )
++{
++	char	name[64];
++	size_t	i;
++
++	if( siege[0] )
++		return "Siege";
++
++	for( i = 0; i < ARRAYSIZE( h9p_keys ); i++ )
++	{
++		if( !Q_stricmp( key, h9p_keys[i].key ))
++			return h9p_keys[i].name;
++	}
++
++	Q_strnlwr( map, name, sizeof( name ));
++	for( i = 0; i < ARRAYSIZE( h9p_maps ); i++ )
++	{
++		if( !Q_strncmp( name, h9p_maps[i].prefix, Q_strlen( h9p_maps[i].prefix )))
++			return h9p_maps[i].name;
++	}
++
++	if( !Q_strncmp( name, "rp_", 3 ) || !Q_strncmp( name, "tsrp_", 5 )
++		|| Q_strstr( name, "_rp_" ) || Q_strstr( name, "_tsrp_" ))
++		return "Roleplay";
++
++	if( !Q_strncmp( name, "ctb_", 4 ) || Q_strstr( name, "_ctb_" ))
++		return "Capture the Briefcase";
++
++	if( !Q_strncmp( name, "ctf_", 4 ) || Q_strstr( name, "_ctf_" ))
++		return "Capture the Flag";
++
++	if( !Q_stricmp( key, "match" ))
++		return "Match Mode";
++
++	return NULL;
++}
++
++/*
++=================
++CL_H9_KeyFromDescription
++
++The mode key behind a server's game description, as ts_matchmode and the mode plugins set it
++(tsm_gamedesc "Match Mode", tsm_gamedesc_siege "Siege" or "Siege 2/5", and the modes' own
++names); "" when the description is not one of H9's. The rule of keyFromDescription() in
++h9web's modules/presence/modes.js.
++=================
++*/
++static const char *CL_H9_KeyFromDescription( const char *desc )
++{
++	size_t	i;
++
++	if( !Q_stricmp( desc, "match mode" ))
++		return "match";
++
++	if( !Q_strnicmp( desc, "siege", 5 ) && ( desc[5] == '\0' || desc[5] == ' ' ))
++		return "siege";
++
++	for( i = 0; i < ARRAYSIZE( h9p_keys ); i++ )
++	{
++		if( !Q_stricmp( desc, h9p_keys[i].name ))
++			return h9p_keys[i].key;
++	}
++
++	return "";
++}
++
++/*
++=================
++CL_H9_ServerMode
++
++The server browser's word for a server's mode, from its map and its game description (the one
++in a GoldSrc A2S reply, or the "desc" an H9 server's own info reply carries): the names of
++CL_H9_ModeName, and Deathmatch, or Team Deathmatch on a teamplay server, for a server nothing
++else says more of.
++=================
++*/
++const char *CL_H9_ServerMode( const char *map, const char *desc, qboolean teamplay )
++{
++	const char	*name = CL_H9_ModeName( map, CL_H9_KeyFromDescription( desc ), "" );
++
++	if( name )
++		return name;
++
++	return teamplay ? "Team Deathmatch" : "Deathmatch";
++}
++
++/*
++=================
++CL_H9_StampServerMode
++
++Puts the "mode" key into an Xash server's info reply before the browser gets it, named from
++its "map", "desc" and "team". A reply that fills its buffer has no room for it, and the browser
++then shows no mode for that server.
++=================
++*/
++void CL_H9_StampServerMode( char *info, size_t size )
++{
++	char		map[64], desc[40];
++	const char	*name;
++
++	Q_strncpy( map, Info_ValueForKey( info, "map" ), sizeof( map ));
++	Q_strncpy( desc, Info_ValueForKey( info, "desc" ), sizeof( desc ));
++	name = CL_H9_ServerMode( map, desc, Q_atoi( Info_ValueForKey( info, "team" )) != 0 );
++
++	if( Q_strlen( info ) + Q_strlen( name ) + 8 >= size )
++		return;
++
++	Info_SetValueForKey( info, "mode", name, size );
++}
 +
 +#if XASH_WIN32
 +/*
@@ -10147,68 +11674,15 @@ index 00000000..7930b06d
 +=================
 +H9P_Mode
 +
-+The name of the mode the server we are on plays, for the card's details line. In order:
-+
-+  1. what an H9 server says it runs, in tsm_pres_mode: "siege", "uplink", "survival" or
-+     "mechwarrior" (the siege progress in tsm_pres_siege says siege as well, from a plugin
-+     older than tsm_pres_mode);
-+  2. the map's name: an h9_<mode>_ map plays that mode, and a name starting rp_ or tsrp_,
-+     or holding _rp_ or _tsrp_ anywhere, is a roleplay map;
-+  3. "match" from an H9 server on any other map is Match Mode;
-+  4. anything else, a stock ts_ map among them, is Deathmatch.
-+
-+"match" only says the match mode runs, so the map's name comes before it: an h9_te_ map is
-+Team Elimination.
++The card's word for the mode of the server we are on: CL_H9_ModeName's (the mode key it
++publishes, then its map's name), or Deathmatch when that names nothing.
 +=================
 +*/
 +static const char *H9P_Mode( const char *map, const char *key, const char *siege )
 +{
-+	static const struct { const char *key, *name; } keys[] =
-+	{
-+		{ "siege",       "Siege" },
-+		{ "uplink",      "Capture the Uplink" },
-+		{ "survival",    "Wave Survival" },
-+		{ "mechwarrior", "Mech Warrior" },
-+	};
-+	static const struct { const char *prefix, *name; } maps[] =
-+	{
-+		{ "h9_te_",    "Team Elimination" },
-+		{ "h9_siege_", "Siege" },
-+		{ "h9_up_",    "Capture the Uplink" },
-+		{ "h9_mw_",    "Mech Warrior" },
-+		{ "h9_ws_",    "Wave Survival" },
-+		{ "h9_dm_",    "Deathmatch" },
-+		{ "h9_tdm_",   "Team Deathmatch" },
-+		{ "h9_ctb_",   "Capture the Briefcase" },
-+		{ "h9_ctf_",   "Capture the Flag" },
-+	};
-+	char	name[64];
-+	size_t	i;
++	const char	*name = CL_H9_ModeName( map, key, siege );
 +
-+	if( siege[0] )
-+		return "Siege";
-+
-+	for( i = 0; i < ARRAYSIZE( keys ); i++ )
-+	{
-+		if( !Q_stricmp( key, keys[i].key ))
-+			return keys[i].name;
-+	}
-+
-+	Q_strnlwr( map, name, sizeof( name ));
-+	for( i = 0; i < ARRAYSIZE( maps ); i++ )
-+	{
-+		if( !Q_strncmp( name, maps[i].prefix, Q_strlen( maps[i].prefix )))
-+			return maps[i].name;
-+	}
-+
-+	if( !Q_strncmp( name, "rp_", 3 ) || !Q_strncmp( name, "tsrp_", 5 )
-+		|| Q_strstr( name, "_rp_" ) || Q_strstr( name, "_tsrp_" ))
-+		return "Roleplay";
-+
-+	if( !Q_stricmp( key, "match" ))
-+		return "Match Mode";
-+
-+	return "Deathmatch";
++	return name ? name : "Deathmatch";
 +}
 +
 +/*
@@ -10219,7 +11693,9 @@ index 00000000..7930b06d
 +builds of an unchanged card compare equal. Details is the mode (H9P_Mode), with its progress
 +where the server publishes one: the objectives and the side attacking them on a siege map,
 +each side's zones in Capture the Uplink (tsm_pres_prog "1/2/4/0": side 1's, side 2's, all,
-+the carrier's side), the wave in Wave Survival. State is the players alive on each side out
++the carrier's side), each side's points in Assault (tsm_pres_prog "1/2/5": side 1's, side 2's,
++all), each side's captures in Capture the Flag (tsm_pres_prog "1/2/3": side 1's, side 2's, the
++captures that win), the wave in Wave Survival. State is the players alive on each side out
 +of the total, the bots, and the map, or the totals alone from a plugin that does not publish
 +the alive counts. The large image is the map's snapshot, named after the map in the
 +application's art assets. The two buttons link to the Discord invite and the site. The party
@@ -10256,7 +11732,7 @@ index 00000000..7930b06d
 +	}
 +	else if( siege[0] )
 +		Q_snprintf( details, sizeof( details ), "%s %s", mode, siege );
-+	else if( !Q_stricmp( key, "uplink" ) && prog[0] )
++	else if(( !Q_stricmp( key, "uplink" ) || !Q_stricmp( key, "assault" ) || !Q_stricmp( key, "ctf" )) && prog[0] )
 +	{
 +		const char	*p = prog;
 +		int		held[3] = { 0, 0, 0 };
@@ -10270,8 +11746,13 @@ index 00000000..7930b06d
 +				p++;
 +		}
 +
-+		Q_snprintf( details, sizeof( details ), "%s - zones: %s %d, %s %d of %d", mode,
-+			H9P_SIDE1_NAME, held[0], H9P_SIDE2_NAME, held[1], held[2] );
++		if( !Q_stricmp( key, "ctf" ))
++			Q_snprintf( details, sizeof( details ), "%s - captures: %s %d, %s %d (first to %d)", mode,
++				H9P_SIDE1_NAME, held[0], H9P_SIDE2_NAME, held[1], held[2] );
++		else
++			Q_snprintf( details, sizeof( details ), "%s - %s: %s %d, %s %d of %d", mode,
++				!Q_stricmp( key, "assault" ) ? "points" : "zones",
++				H9P_SIDE1_NAME, held[0], H9P_SIDE2_NAME, held[1], held[2] );
 +	}
 +	else if( !Q_stricmp( key, "survival" ) && prog[0] )
 +		Q_snprintf( details, sizeof( details ), "%s - wave %d", mode, Q_atoi( prog ));
@@ -10368,6 +11849,15 @@ index 00000000..7930b06d
 +{
 +	Cvar_RegisterVariable( &ts_richpresence );
 +	Cvar_RegisterVariable( &ts_richpresence_clientid );
++
++	// the release of this game, in the userinfo of every join: a server that holds its players to one release looks at it. The cvar shows
++	// it in the console; a cvar set this way never reaches the userinfo (that is the ordinary setters' own step), so the key is written
++	// there as the game's other keys are (cl_travel.c): the userinfo is what the connect packet carries
++	Cvar_RegisterVariable( &h9_rel );
++	Cvar_DirectFullSet( &h9_rel, H9_Release(), 0 );
++
++	if( H9_Release()[0] )
++		Info_SetValueForKey( CL_Userinfo(), "_h9rel", H9_Release(), MAX_INFO_STRING );
 +}
 +
 +/*
@@ -11209,7 +12699,7 @@ index c1b3ef13..600317c0 100644
  
  	switch( cls.scrshot_action )
 diff --git a/engine/client/client.h b/engine/client/client.h
-index e5db2dac..c4fc70b3 100644
+index e5db2dac..585f6e7a 100644
 --- a/engine/client/client.h
 +++ b/engine/client/client.h
 @@ -145,6 +145,11 @@ typedef struct
@@ -11251,7 +12741,23 @@ index e5db2dac..c4fc70b3 100644
  extern convar_t	m_ignore;
  extern convar_t	r_showtree;
  extern convar_t	ui_renderworld;
-@@ -996,6 +1007,11 @@ int R_GetSpriteTexture( const model_t *m_pSpriteModel, int frame );
+@@ -803,6 +814,7 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
+ void CL_NotifyServerListResponse( void );
+ qboolean CL_NetRequestSend( net_request_t *nr );
+ void CL_Escape_f( void );
++void CL_H9Srv_Init( void ); // H9: the server browser's chain (cl_h9auth.c)
+ 
+ //
+ // cl_demo.c
+@@ -953,6 +965,7 @@ void CL_ParseTempEntity( sizebuf_t *msg, connprotocol_t proto );
+ qboolean CL_DispatchUserMessage( const char *pszName, int iSize, void *pbuf );
+ qboolean CL_RequestMissingResources( void );
+ void CL_RegisterResources( sizebuf_t *msg, connprotocol_t proto );
++qboolean CL_H9Warm_Ready( void ); // H9: false while the browser build's page fetches what the precache reads (cl_h9warm.c)
+ void CL_ParseServerTime( sizebuf_t *msg, connprotocol_t proto );
+ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto );
+ void CL_ParseTextMessage( sizebuf_t *msg );
+@@ -996,6 +1009,11 @@ int R_GetSpriteTexture( const model_t *m_pSpriteModel, int frame );
  void CL_InitNetgraph( void );
  void SCR_DrawNetGraph( void );
  
@@ -11263,7 +12769,7 @@ index e5db2dac..c4fc70b3 100644
  //
  // cl_view.c
  //
-@@ -1006,6 +1022,11 @@ qboolean V_PreRender( void );
+@@ -1006,6 +1024,11 @@ qboolean V_PreRender( void );
  void V_PostRender( void );
  void V_RenderView( void );
  
@@ -11275,7 +12781,7 @@ index e5db2dac..c4fc70b3 100644
  //
  // cl_pmove.c
  //
-@@ -1031,6 +1052,11 @@ void CL_SetIdealPitch( void );
+@@ -1031,6 +1054,11 @@ void CL_SetIdealPitch( void );
  //
  void CL_ParseQuakeMessage( sizebuf_t *msg );
  
@@ -11287,7 +12793,7 @@ index e5db2dac..c4fc70b3 100644
  //
  // cl_frame.c
  //
-@@ -1060,6 +1086,11 @@ remap_info_t *CL_GetRemapInfoForEntity( cl_entity_t *e );
+@@ -1060,6 +1088,11 @@ remap_info_t *CL_GetRemapInfoForEntity( cl_entity_t *e );
  qboolean CL_EntitySetRemapColors( cl_entity_t *e, model_t *mod, int top, int bottom );
  void CL_ClearAllRemaps( void );
  
@@ -11299,7 +12805,7 @@ index e5db2dac..c4fc70b3 100644
  //
  // cl_render.c
  //
-@@ -1074,12 +1105,36 @@ const ref_overview_t *GL_GetOverviewParms( void );
+@@ -1074,12 +1107,36 @@ const ref_overview_t *GL_GetOverviewParms( void );
  //
  qboolean CL_ConvertImageToWAD3( const char *filename );
  
@@ -11336,7 +12842,7 @@ index e5db2dac..c4fc70b3 100644
  //
  // cl_tent.c
  //
-@@ -1184,6 +1239,12 @@ void UI_KeyEvent( int key, qboolean down );
+@@ -1184,6 +1241,15 @@ void UI_KeyEvent( int key, qboolean down );
  void UI_MouseMove( int x, int y );
  void UI_SetActiveMenu( qboolean fActive );
  void UI_AddServerToList( netadr_t adr, const char *info );
@@ -11346,10 +12852,13 @@ index e5db2dac..c4fc70b3 100644
 +void CL_Presence_Frame( void );
 +void CL_Presence_Shutdown( void );
 +void CL_Presence_ServerReply( netadr_t from, const char *info );
++const char *CL_H9_ModeName( const char *map, const char *key, const char *siege );
++const char *CL_H9_ServerMode( const char *map, const char *desc, qboolean teamplay );
++void CL_H9_StampServerMode( char *info, size_t size );
  void UI_GetCursorPos( int *pos_x, int *pos_y );
  void UI_SetCursorPos( int pos_x, int pos_y );
  void UI_ShowCursor( qboolean show );
-@@ -1265,6 +1326,7 @@ qboolean Cmd_GetKeysList( const char *s, char *completedname, int length, qboole
+@@ -1265,6 +1331,7 @@ qboolean Cmd_GetKeysList( const char *s, char *completedname, int length, qboole
  //
  void ID_Init( void );
  void ID_GetMD5ForAddress( char *key, netadr_t adr, size_t size );
@@ -11986,7 +13495,7 @@ index 09dfa2a0..d260638c 100644
 +	Key_H9TypingFrame();
  }
 diff --git a/engine/client/parse/cl_parse.c b/engine/client/parse/cl_parse.c
-index 29acaf73..2bc4b091 100644
+index 29acaf73..321fdf37 100644
 --- a/engine/client/parse/cl_parse.c
 +++ b/engine/client/parse/cl_parse.c
 @@ -21,6 +21,7 @@ GNU General Public License for more details.
@@ -11997,6 +13506,15 @@ index 29acaf73..2bc4b091 100644
  
  #if XASH_LOW_MEMORY != 2
  int CL_UPDATE_BACKUP = SINGLEPLAYER_BACKUP;
+@@ -467,7 +468,7 @@ void CL_BatchResourceRequest( qboolean initialize )
+ 
+ 	if( cls.state != ca_disconnected )
+ 	{
+-		if( done_downloading && CL_PrecacheResources( ))
++		if( done_downloading && CL_H9Warm_Ready( ) && CL_PrecacheResources( ))
+ 		{
+ 			CL_RegisterResources( &msg, cls.net_protocol );
+ 		}
 @@ -930,7 +931,11 @@ static void CL_ParseServerData( sizebuf_t *msg, connprotocol_t proto )
  	}
  
@@ -12139,10 +13657,20 @@ index 7103b84a..44166205 100644
  			Host_AbortCurrentFrame ();
  			break;
 diff --git a/engine/client/sound/s_main.c b/engine/client/sound/s_main.c
-index 2cd7030b..ae72880d 100644
+index 2cd7030b..0be3c374 100644
 --- a/engine/client/sound/s_main.c
 +++ b/engine/client/sound/s_main.c
-@@ -1546,10 +1546,25 @@ static void S_UpdateChannels( void )
+@@ -1443,6 +1443,9 @@ static void S_ClearBuffer( void )
+ 		memset( snd.buffer, 0, snd.samples * 2 );
+ 
+ 	SNDDMA_Submit ();
++#if XASH_EMSCRIPTEN
++	SNDDMA_H9Flush(); // H9 web client: the audio thread's own queue is cleared as the ring is
++#endif
+ 
+ 	S_ClearBuffers( PAINTBUFFER_SIZE );
+ }
+@@ -1546,10 +1549,25 @@ static void S_UpdateChannels( void )
  	// updates DMA time
  	snd.soundtime = S_GetSoundtime();
  
@@ -12547,6 +14075,70 @@ index 00000000..56a49581
 +		fprintf( f, "%s  %d lines written, no more this run\n", stamp, H9_OVERFLOW_MAXLINES );
 +
 +	fclose( f );
++}
+diff --git a/engine/common/h9_release.c b/engine/common/h9_release.c
+new file mode 100644
+index 00000000..044abaa9
+--- /dev/null
++++ b/engine/common/h9_release.c
+@@ -0,0 +1,58 @@
++/*
++h9_release.c - H9: the release this game folder is
++Copyright (C) 2026 HAVOC 9
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++A release of HAVOC 9 is one name, the first word of h9_release.txt in the game folder (ts\h9_release.txt,
++laid there from xash3d-h9-patches\overlay\ts\ by xash.bat), a date such as 2026.11.05. The engine, the
++client library, the plugins and the files of a release are all one package, so the release is the one
++thing to compare: a client sends it to every server in the userinfo key _h9rel (cl_presence.c), and a
++server that holds its players to one release (h9_require_release) refuses a joiner whose release is
++another (sv_client.c, SV_H9ReleaseRefusal). docs\H9_RELEASE.txt has the whole of it.
++*/
++
++#include "common.h"
++
++/*
++=================
++H9_Release
++
++The release of this game folder, at most 31 characters; "" when the folder has no h9_release.txt.
++Read once.
++=================
++*/
++const char *H9_Release( void )
++{
++	static char	release[32];
++	static qboolean	read;
++
++	if( !read )
++	{
++		fs_offset_t	len = 0;
++		byte		*buf;
++		int		i;
++
++		read = true;
++		buf = FS_LoadFile( "h9_release.txt", &len, false );
++
++		if( buf )
++		{
++			for( i = 0; i < len && i < (int)sizeof( release ) - 1 && buf[i] > ' '; i++ )
++				release[i] = buf[i];
++
++			release[i] = '\0';
++			Mem_Free( buf );
++		}
++	}
++
++	return release;
 +}
 diff --git a/engine/common/host.c b/engine/common/host.c
 index 81ac9c38..74e18c65 100644
@@ -13790,6 +15382,20 @@ index 00000000..922c0dcf
 +    emscripten_net_getaddrinfo: (hostnamePtr, restrictPrt, hintsPtr, addrinfoPtr) =>
 +        Module.net?.getaddrinfo?.(hostnamePtr, restrictPrt, hintsPtr, addrinfoPtr) ?? -1,
 +});
+diff --git a/engine/platform/platform.h b/engine/platform/platform.h
+index b093ec90..68da7019 100644
+--- a/engine/platform/platform.h
++++ b/engine/platform/platform.h
+@@ -435,6 +435,9 @@ void SNDDMA_Shutdown( void );
+ void SNDDMA_BeginPainting( void );
+ void SNDDMA_Submit( void );
+ void SNDDMA_Activate( qboolean active ); // pause audio
++#if XASH_EMSCRIPTEN
++void SNDDMA_H9Flush( void ); // H9 web client: the page's audio thread drops what it was given and has not played (S_ClearBuffer)
++#endif
+ // void SNDDMA_PrintDeviceName( void ); // unused
+ // void SNDDMA_LockSound( void ); // unused
+ // void SNDDMA_UnlockSound( void ); // unused
 diff --git a/engine/platform/posix/lib_posix.c b/engine/platform/posix/lib_posix.c
 index 3698d2e4..bc3e49c2 100644
 --- a/engine/platform/posix/lib_posix.c
@@ -13831,6 +15437,249 @@ index 3698d2e4..bc3e49c2 100644
  #ifdef XASH_ALLOW_SAVERESTORE_OFFSETS
  	return COM_OffsetNameForFunction( function );
  #else
+diff --git a/engine/platform/sdl2/s_sdl2.c b/engine/platform/sdl2/s_sdl2.c
+index d216f6cd..dece0e47 100644
+--- a/engine/platform/sdl2/s_sdl2.c
++++ b/engine/platform/sdl2/s_sdl2.c
+@@ -24,6 +24,92 @@ GNU General Public License for more details.
+ #define SAMPLE_16BIT_SHIFT 1
+ #define SECONDARY_BUFFER_SIZE 0x10000
+ 
++#if XASH_EMSCRIPTEN
++#include <emscripten.h>
++
++/*
++H9 web client: the sound on the audio thread.
++
++SDL plays what SDL_SoundCallback gives it through a ScriptProcessorNode, and that runs on the page's main thread, the
++thread every game frame runs on. A frame in progress, or the browser's own work for a key held down, holds the callback,
++and a callback a buffer late leaves a hole in the sound: crackling, and a hang while the key stays down. Here the
++mixer's output goes to the page instead (Module.audio, client.js audioFeed), which plays it from an AudioWorklet, a thread
++of its own, and the position the mixer works from is that thread's clock. The mixer paints ahead of the play position as
++always (S_UpdateChannels, 0.2 s): each time it has painted, the new frames are sent. A page without Module.audio, or a
++browser without AudioWorklet, gets SDL's own device below, as before.
++*/
++static struct
++{
++	qboolean active;
++	int      frames; // the ring's length in frames, a power of two
++	int      pushed; // the first frame of the stream not yet sent
++} h9a;
++
++// The mixer counts samples in an int: before 2^30 frames (about 6.7 hours of sound) the clock starts over, as S_GetSoundtime's own 32 bit
++// guard does
++#define H9A_CLOCK_LIMIT 0x30000000
++
++EM_JS( int, H9A_PageInit, ( int rate, int channels ), {
++	var a = Module.audio;
++	if( !a || !a.init )
++		return 0;
++	try {
++		return a.init( rate, channels ) ? 1 : 0;
++	} catch( e ) {
++		return 0;
++	}
++});
++
++// the frames the audio thread has played since its stream began
++EM_JS( int, H9A_PagePosition, ( void ), {
++	var a = Module.audio;
++	return a ? a.position() : 0;
++});
++
++// frames [from, from + frames) of the stream, stereo 16 bit out of the ring that starts at ring, as floats
++EM_JS( void, H9A_PagePush, ( const short *ring, int ring_frames, int from, int frames ), {
++	var a = Module.audio;
++	if( !a )
++		return;
++	var pcm = new Float32Array( frames * 2 );
++	var at = from % ring_frames;
++	var base = ring >> 1;
++	for( var i = 0; i < frames; i++ ) {
++		var j = base + at * 2;
++		pcm[i * 2] = HEAP16[j] / 32768;
++		pcm[i * 2 + 1] = HEAP16[j + 1] / 32768;
++		if( ++at == ring_frames )
++			at = 0;
++	}
++	a.push( from, pcm );
++});
++
++EM_JS( void, H9A_PageFlush, ( void ), {
++	var a = Module.audio;
++	if( a )
++		a.flush();
++});
++
++// the page counts its played frames from 0 again (the clock is about to outgrow what the mixer counts in)
++EM_JS( void, H9A_PageRebase, ( void ), {
++	var a = Module.audio;
++	if( a )
++		a.rebase();
++});
++
++EM_JS( void, H9A_PageActivate, ( int active ), {
++	var a = Module.audio;
++	if( a )
++		a.activate( !!active );
++});
++
++EM_JS( void, H9A_PageClose, ( void ), {
++	var a = Module.audio;
++	if( a )
++		a.close();
++});
++#endif // XASH_EMSCRIPTEN
++
+ #define SDLash_IsAudioError( x ) (( x ) == 0)
+ 
+ /*
+@@ -117,11 +203,44 @@ qboolean SNDDMA_Init( void )
+ 		return false;
+ 	}
+ 
++#if XASH_EMSCRIPTEN
++	if( H9A_PageInit( SOUND_DMA_SPEED, 2 ))
++	{
++		samplecount = 0x10000; // 1.5 s of stereo frames: a stall of the page cannot wrap the position twice
++
++		snd.format.speed    = SOUND_DMA_SPEED;
++		snd.format.channels = 2;
++		snd.format.width    = 2;
++		snd.samples         = samplecount * 2;
++		snd.buffer          = Mem_Calloc( sndpool, snd.samples * 2 );
++		snd.samplepos       = 0;
++
++		h9a.active = true;
++		h9a.frames = samplecount;
++		h9a.pushed = 0;
++
++		Con_Printf( "Using the page's audio thread @ %d Hz\n", SOUND_DMA_SPEED );
++		snd.initialized = true;
++		snd.backend_name = "page audio thread";
++
++		SNDDMA_Activate( true );
++
++		return true;
++	}
++#endif
++
+ 	SDL_AudioSpec desired =
+ 	{
+ 		.freq = SOUND_DMA_SPEED,
+ 		.format = AUDIO_S16SYS,
++#if XASH_EMSCRIPTEN
++		// H9 web client: the browser plays this callback through a ScriptProcessorNode, which runs on the page's main
++		// thread, the one the game's frames run on. With 1024 samples (21 ms) a frame that held the thread longer left a
++		// hole in the sound: a held key, the scoreboard, a slower PC. 2048 samples are 43 ms
++		.samples = 2048,
++#else
+ 		.samples = 1024,
++#endif
+ 		.channels = 2,
+ 		.callback = SDL_SoundCallback,
+ 	};
+@@ -182,6 +301,27 @@ Makes sure snd.buffer is valid
+ */
+ void SNDDMA_BeginPainting( void )
+ {
++#if XASH_EMSCRIPTEN
++	if( h9a.active )
++	{
++		// Where the audio thread has played to: every frame it has played since it began, not reduced to the ring. S_GetSoundtime only
++		// unwraps a position that comes back round, and counts the wraps it sees: a clock that jumped by more than a ring between two
++		// readings (the worklet starts seconds after the engine, a frame stalls for longer than the 1.5 s ring) would leave the mixer's
++		// time a whole ring behind the audio thread's for good. Counted whole, the two are the same time.
++		int pos = H9A_PagePosition();
++
++		if( pos >= H9A_CLOCK_LIMIT )
++		{
++			H9A_PageRebase();
++			h9a.pushed = 0;
++			snd.paintedtime = 0x40000001; // S_GetSoundtime's 32 bit guard: it stops every sound and counts from the start
++			pos = 0;
++		}
++
++		snd.samplepos = pos * 2;
++		return;
++	}
++#endif
+ 	SDL_LockAudioDevice( sdl_dev );
+ }
+ 
+@@ -195,6 +335,22 @@ Also unlocks the dsound buffer
+ */
+ void SNDDMA_Submit( void )
+ {
++#if XASH_EMSCRIPTEN
++	if( h9a.active )
++	{
++		// what has been painted since the last time goes to the audio thread; what it has already played is of no use
++		int from = Q_max( h9a.pushed, snd.soundtime );
++		const int end = snd.paintedtime;
++
++		if( end - from > h9a.frames )
++			from = end - h9a.frames;
++		if( end > from )
++			H9A_PagePush( (const short *)snd.buffer, h9a.frames, from, end - from );
++		if( end > h9a.pushed )
++			h9a.pushed = end;
++		return;
++	}
++#endif
+ 	SDL_UnlockAudioDevice( sdl_dev );
+ }
+ 
+@@ -210,6 +366,14 @@ void SNDDMA_Shutdown( void )
+ 	Con_Printf( "Shutting down audio.\n" );
+ 	snd.initialized = false;
+ 
++#if XASH_EMSCRIPTEN
++	if( h9a.active )
++	{
++		h9a.active = false;
++		H9A_PageClose();
++	}
++#endif
++
+ 	if( sdl_dev )
+ 	{
+ 		SNDDMA_Activate( false );
+@@ -239,9 +403,34 @@ void SNDDMA_Activate( qboolean active )
+ 	if( !snd.initialized )
+ 		return;
+ 
++#if XASH_EMSCRIPTEN
++	if( h9a.active )
++	{
++		H9A_PageActivate( active );
++		return;
++	}
++#endif
+ 	SDL_PauseAudioDevice( sdl_dev, !active );
+ }
+ 
++#if XASH_EMSCRIPTEN
++/*
++===========
++SNDDMA_H9Flush
++
++S_ClearBuffer zeroed the ring: what the audio thread holds of it goes too
++===========
++*/
++void SNDDMA_H9Flush( void )
++{
++	if( !h9a.active )
++		return;
++
++	H9A_PageFlush();
++	h9a.pushed = Q_max( h9a.pushed, snd.paintedtime );
++}
++#endif
++
+ /*
+ ===========
+ SDL_SoundInputCallback
 diff --git a/engine/platform/sdl2/vid_sdl2.c b/engine/platform/sdl2/vid_sdl2.c
 index e85afd29..b16556b2 100644
 --- a/engine/platform/sdl2/vid_sdl2.c
@@ -13920,10 +15769,72 @@ index d61e51bd..bf1eaa6a 100644
  
  //
 diff --git a/engine/server/sv_client.c b/engine/server/sv_client.c
-index c95ce9a7..6aa13229 100644
+index c95ce9a7..003d4f0a 100644
 --- a/engine/server/sv_client.c
 +++ b/engine/server/sv_client.c
-@@ -402,6 +402,17 @@ static void SV_ConnectClient( netadr_t from )
+@@ -344,6 +344,61 @@ SV_ConnectClient
+ A connection request that did not come from the master
+ ==================
+ */
++const char *H9_Release( void );   // common/h9_release.c: the release of this game folder
++
++/*
++================
++SV_H9ReleaseRefusal
++
++H9: what a server that holds its players to one release (h9_require_release, a cvar of h9_presence's) tells a joiner whose game is
++another, in buf; NULL to let him in. The server's release is h9_plugin_release (its plugins', which h9_presence sets) or, without
++that, the game folder's (h9_release.txt); a joiner's is his userinfo key _h9rel. 1: a joiner who has H9's game (any userinfo key of
++H9's: h9_ or _h9) must match, a stock client has none and is not asked; 2: every joiner must. A server that knows no release asks for
++none, and the local client is this engine. docs\H9_RELEASE.txt.
++================
++*/
++static const char *SV_H9ReleaseRefusal( netadr_t from, const char *userinfo, char *buf, size_t size )
++{
++	int		mode = Cvar_VariableInteger( "h9_require_release" );
++	const char	*want, *have;
++	char		mine[32];
++
++	if( mode <= 0 || NET_IsLocalAddress( from ))
++		return NULL;
++
++	want = Cvar_VariableString( "h9_plugin_release" );
++
++	if( !want[0] )
++		want = H9_Release();
++
++	if( !want[0] )
++		return NULL;
++
++	// copied out at once: Info_ValueForKey hands back one of four buffers it reuses
++	Q_strncpy( mine, Info_ValueForKey( userinfo, "_h9rel" ), sizeof( mine ));
++	have = mine;
++
++	if( !Q_strcmp( have, want ))
++		return NULL;
++
++	if( !have[0] )
++	{
++		// no release: a game older than this check says none, a stock client has no H9 keys at all
++		if( mode < 2 && !Q_strstr( userinfo, "\\_h9" ) && !Q_strstr( userinfo, "\\h9_" ))
++			return NULL;
++
++		Q_snprintf( buf, size, "Your HAVOC 9 is out of date (this server runs release %s): update it from https://havoc9.org/downloads/\n", want );
++		return buf;
++	}
++
++	if( Q_strcmp( have, want ) < 0 )
++		Q_snprintf( buf, size, "Your HAVOC 9 is out of date (release %s, this server runs %s): update it from https://havoc9.org/downloads/\n", have, want );
++	else
++		Q_snprintf( buf, size, "This server runs an older HAVOC 9 (release %s, yours is %s): ask its admin to update, or play on a server that has\n", want, have );
++
++	return buf;
++}
++
+ static void SV_ConnectClient( netadr_t from )
+ {
+ 	char userinfo[MAX_INFO_STRING];
+@@ -402,6 +457,17 @@ static void SV_ConnectClient( netadr_t from )
  	qport = Q_atoi( Info_ValueForKey( protinfo, "qport" ));
  	extensions = Q_atoi( Info_ValueForKey( protinfo, "ext" ));
  
@@ -13941,7 +15852,26 @@ index c95ce9a7..6aa13229 100644
  	if( FBitSet( extensions, NET_EXT_NETCHAN_COOKIE ))
  	{
  		const char *cookie_str = Info_ValueForKey( protinfo, "cookie" );
-@@ -508,7 +519,7 @@ static void SV_ConnectClient( netadr_t from )
+@@ -433,6 +499,18 @@ static void SV_ConnectClient( netadr_t from )
+ 
+ 	Q_strncpy( userinfo, s, sizeof( userinfo ));
+ 
++	// H9: a server that holds its players to one release refuses another, and says where to get the right one
++	{
++		char		reason[192];
++		const char	*refusal = SV_H9ReleaseRefusal( from, userinfo, reason, sizeof( reason ));
++
++		if( refusal )
++		{
++			SV_RejectConnection( from, "%s", refusal );
++			return;
++		}
++	}
++
+ 	// check connection password (don't verify local client)
+ 	if( !NET_IsLocalAddress( from ) && SV_HavePassword( ))
+ 	{
+@@ -508,7 +586,7 @@ static void SV_ConnectClient( netadr_t from )
  
  	// HACKHACK: can hear all players by default to avoid issues
  	// with server.dll without voice game manager
@@ -13950,7 +15880,7 @@ index c95ce9a7..6aa13229 100644
  
  	// initailize netchan
  	if( !Host_IsLocalClient( ))
-@@ -711,8 +722,15 @@ void SV_DropClient( sv_client_t *cl, qboolean crash )
+@@ -711,8 +789,15 @@ void SV_DropClient( sv_client_t *cl, qboolean crash )
  	// don't send to other clients
  	cl->edict = NULL;
  
@@ -13968,7 +15898,7 @@ index c95ce9a7..6aa13229 100644
  
  	// if this was the last client on the server, send a heartbeat
  	// to the master so it is known the server is empty
-@@ -1048,10 +1066,16 @@ static void SV_Info( netadr_t from, int protocolVersion )
+@@ -1048,10 +1133,31 @@ static void SV_Info( netadr_t from, int protocolVersion )
  		Info_SetValueForKey( s, "team", svgame.globals->teamplay ? "1" : "0", sizeof( s ));
  		Info_SetValueForKey( s, "coop", svgame.globals->coop ? "1" : "0", sizeof( s ));
  		Info_SetValueForKeyf( s, "numcl", sizeof( s ), "%i", count );
@@ -13982,10 +15912,25 @@ index c95ce9a7..6aa13229 100644
 +		if( Cvar_VariableInteger( "h9_require_account" ) == 1 )
 +			Info_SetValueForKey( s, "auth", "1", sizeof( s ));
 +
++		// H9: the game's description, which an H9 server sets to its mode ("Capture the Uplink", "Siege 2/5"), for the server
++		// browser's Mode column; cut short, and before the hostname, which is cut to what is left
++		if( svgame.dllFuncs.pfnGetGameDescription )
++		{
++			const char *gamedesc = svgame.dllFuncs.pfnGetGameDescription();
++
++			if( gamedesc && gamedesc[0] )
++			{
++				char desc[32];
++
++				Q_strncpy( desc, gamedesc, sizeof( desc ));
++				Info_SetValueForKey( s, "desc", desc, sizeof( s ));
++			}
++		}
++
  		// write host last so we can try to cut off too long hostnames
  		// TODO: value size limit for infostrings
  		remaining = sizeof( s ) - Q_strlen( s ) - sizeof( "\\host\\" ) - 1;
-@@ -1280,6 +1304,34 @@ static float SV_CalcClientTime( sv_client_t *cl )
+@@ -1280,6 +1386,34 @@ static float SV_CalcClientTime( sv_client_t *cl )
  	return 0.0f;
  }
  
@@ -14020,7 +15965,7 @@ index c95ce9a7..6aa13229 100644
  /*
  ===================
  SV_FullClientUpdate
-@@ -1289,7 +1341,7 @@ Writes all update values to a bitbuf
+@@ -1289,7 +1423,7 @@ Writes all update values to a bitbuf
  */
  void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
  {
@@ -14029,7 +15974,7 @@ index c95ce9a7..6aa13229 100644
  	char		digest[16];
  	MD5Context_t	ctx;
  
-@@ -1298,8 +1350,18 @@ void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
+@@ -1298,8 +1432,18 @@ void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
  
  	int i = cl - svs.clients;
  
@@ -14050,7 +15995,7 @@ index c95ce9a7..6aa13229 100644
  	MSG_WriteLong( msg, cl->userid );
  
  	if( cl->name[0] )
-@@ -1310,6 +1372,11 @@ void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
+@@ -1310,6 +1454,11 @@ void SV_FullClientUpdate( sv_client_t *cl, sizebuf_t *msg )
  
  		// remove server passwords, etc.
  		Info_RemovePrefixedKeys( info, '_' );
@@ -14062,7 +16007,7 @@ index c95ce9a7..6aa13229 100644
  		MSG_WriteString( msg, info );
  
  		MD5Init( &ctx );
-@@ -3662,7 +3729,7 @@ static void SV_ParseVoiceData( sv_client_t *cl, sizebuf_t *msg )
+@@ -3662,7 +3811,7 @@ static void SV_ParseVoiceData( sv_client_t *cl, sizebuf_t *msg )
  			if( cur->state < cs_connected )
  				continue;
  

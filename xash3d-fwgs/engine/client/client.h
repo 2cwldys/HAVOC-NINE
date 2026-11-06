@@ -814,6 +814,7 @@ void CL_SendGoldSrcConnectPacket( netadr_t adr, int challenge, const void *ticke
 void CL_NotifyServerListResponse( void );
 qboolean CL_NetRequestSend( net_request_t *nr );
 void CL_Escape_f( void );
+void CL_H9Srv_Init( void ); // H9: the server browser's chain (cl_h9auth.c)
 
 //
 // cl_demo.c
@@ -964,6 +965,7 @@ void CL_ParseTempEntity( sizebuf_t *msg, connprotocol_t proto );
 qboolean CL_DispatchUserMessage( const char *pszName, int iSize, void *pbuf );
 qboolean CL_RequestMissingResources( void );
 void CL_RegisterResources( sizebuf_t *msg, connprotocol_t proto );
+qboolean CL_H9Warm_Ready( void ); // H9: false while the browser build's page fetches what the precache reads (cl_h9warm.c)
 void CL_ParseServerTime( sizebuf_t *msg, connprotocol_t proto );
 void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto );
 void CL_ParseTextMessage( sizebuf_t *msg );
@@ -1245,6 +1247,9 @@ void CL_Presence_Init( void );
 void CL_Presence_Frame( void );
 void CL_Presence_Shutdown( void );
 void CL_Presence_ServerReply( netadr_t from, const char *info );
+const char *CL_H9_ModeName( const char *map, const char *key, const char *siege );
+const char *CL_H9_ServerMode( const char *map, const char *desc, qboolean teamplay );
+void CL_H9_StampServerMode( char *info, size_t size );
 void UI_GetCursorPos( int *pos_x, int *pos_y );
 void UI_SetCursorPos( int pos_x, int pos_y );
 void UI_ShowCursor( qboolean show );

@@ -13,12 +13,14 @@
 // The site's pages are served from the checkout as they are, so an edit to one shows on a reload;
 // an edit to the web client's page files shows after a restart.
 //
-//   node bin/local-site.js [--port 8090] [--stage <folder>] [--open]
+//   node bin/local-site.js [--port 8090] [--stage <folder>] [--files <folder>] [--open]
 //
 // The web client package (make_webclient_game.py's output) is, in order: --stage, H9WEB_STAGE,
 // webclient-build\stage in the checkout, or in TSM_ROOT from the checkout's buildpaths.ini (the git
-// copy names TSM there). Without one, PLAY says the client is in preparation. --open opens the
-// site in the default browser. Ctrl+C stops it.
+// copy names TSM there). Without one, PLAY says the client is in preparation. The downloads' file
+// index, /downloads/files/, lists a packages folder read-only, as the VPS lists its own: --files,
+// H9WEB_FILES, or dist\ in the checkout (stage-h9xash.ps1's and make-vps-package.ps1's output);
+// without one it is an empty index. --open opens the site in the default browser. Ctrl+C stops it.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -75,7 +77,30 @@ for (const name of fs.readdirSync(pageDir)) {
   if (!fs.statSync(from).isFile() || /\.bak/i.test(name) || /\.zip$/i.test(name) || name === "DEPLOY.txt") continue;
   fs.copyFileSync(from, path.join(WC, name));
 }
-if (STAGE) for (const name of ["manifest.json", "preload.json"]) fs.copyFileSync(path.join(STAGE, name), path.join(WC, name));
+if (STAGE) {
+  const LISTS = ["manifest.json", "preload.json"];
+  const copyLists = () => {
+    for (const name of LISTS) {
+      try { fs.copyFileSync(path.join(STAGE, name), path.join(WC, name)); } catch (e) { /* the stage is being rewritten: its next change copies it */ }
+    }
+  };
+  copyLists();
+  // export.bat rewrites the stage while the site runs: the lists are copied again a few seconds
+  // after either changes, so the page never serves a manifest older than the game files
+  let again = null;
+  for (const name of LISTS) {
+    fs.watchFile(path.join(STAGE, name), { interval: 2000 }, () => { clearTimeout(again); again = setTimeout(copyLists, 3000); });
+  }
+}
+
+// the downloads' file index: the packages folder, or an empty folder of this PC's copy
+const isFolder = (p) => { try { return fs.statSync(p).isDirectory(); } catch (e) { return false; } };
+const FILES = [option("--files"), process.env.H9WEB_FILES, path.join(ROOT, "dist")]
+  .filter(Boolean)
+  .map((p) => path.resolve(p))
+  .find(isFolder);
+const NO_FILES = path.join(LOCAL, "downloads-files");
+if (!FILES) fs.mkdirSync(NO_FILES, { recursive: true });
 
 const SERVERS = path.join(LOCAL, "servers.json");
 if (!fs.existsSync(SERVERS)) fs.writeFileSync(SERVERS, JSON.stringify({ servers: [] }, null, 2) + "\n");
@@ -99,6 +124,7 @@ const config = {
     "/": SITE,
     "/webclient/": WC,
     ...(STAGE ? { "/webclient/engine/": path.join(STAGE, "engine"), "/webclient/game/": path.join(STAGE, "game") } : {}),
+    "/downloads/files/": { dir: FILES || NO_FILES, listing: true },
   },
 };
 const CONFIG = path.join(LOCAL, "config.json");
@@ -107,6 +133,7 @@ fs.writeFileSync(CONFIG, JSON.stringify(config, null, 2) + "\n");
 console.log("local-site: " + origin + "/   (Ctrl+C stops it)");
 console.log("  site      " + SITE);
 console.log("  package   " + (STAGE || "none: PLAY says the client is in preparation"));
+console.log("  downloads " + (FILES || "none: /downloads/files/ is an empty index (--files <folder> names one)"));
 console.log("  modules   " + (modules.join(", ") || "none"));
 console.log("  this PC's accounts and settings: " + LOCAL);
 

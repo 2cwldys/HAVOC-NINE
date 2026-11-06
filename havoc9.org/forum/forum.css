@@ -419,9 +419,10 @@ a.forum-author-name:hover {
   color: var(--orange);
 }
 
-/* the author's presence line (presence.js), and the player's card on a profile */
+/* the author's presence line (presence.js), and the player's card and RANK block on a profile */
 .forum-presence:empty,
-.forum-presence-card:empty {
+.forum-presence-card:empty,
+.forum-presence-rank:empty {
   display: none;
 }
 
@@ -429,7 +430,8 @@ a.forum-author-name:hover {
   max-width: 100%;
 }
 
-.forum-presence-card {
+.forum-presence-card,
+.forum-presence-rank {
   max-width: 520px;
   margin-bottom: 1.5rem;
 }
@@ -638,6 +640,49 @@ a.forum-author-name:hover {
 .forum-preview {
   border: 1px dashed var(--border);
   padding: 0.9rem 1rem;
+}
+
+/* WRITE / PREVIEW over a composer: the text, or the post as it will show once posted */
+.forum-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.forum-tab {
+  background: none;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+
+.forum-tab:hover,
+.forum-tab[aria-selected="true"] {
+  color: #0a0608;
+  background: var(--orange);
+  border-color: var(--orange);
+}
+
+.forum-compose-write {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.forum-preview .forum-post {
+  margin-bottom: 0.5rem;
+}
+
+@media (max-width: 760px) {
+  .forum-preview {
+    padding: 0.5rem;
+  }
 }
 
 .forum-help summary {
@@ -993,4 +1038,30 @@ a.is-developer:hover {
 
 .forum-figure .forum-act {
   margin-top: 0.35rem;
+}
+
+/* a member's WALL on their page (forum.js showWall): comments drawn as posts are, a pinned one
+   in the orange of a pin */
+.forum-wall {
+  margin-top: 0.5rem;
+}
+
+.forum-wall-state {
+  margin-bottom: 0.75rem;
+}
+
+.forum-wall-owner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.forum-wall-list {
+  margin-top: 1rem;
+}
+
+.forum-wall-comment.is-pinned {
+  border-color: var(--orange);
 }

@@ -21,7 +21,8 @@
 // The status poller asks every server for A2S_INFO every status.pollSeconds and keeps the
 // answers for /api/servers, in the JSON shape servers/index.html reads. A module may keep a server
 // off that board (ctx.servers.hideFromBoard, lib/modules.js): the presence module hides private
-// communities' servers.
+// communities' servers. A module may also add fields to a server's entry (ctx.servers.annotateBoard):
+// the presence module says whether the server is authenticated (auth: ok, rp, mod or off).
 
 import fs from "node:fs";
 import dgram from "node:dgram";
@@ -212,6 +213,7 @@ export class StatusPoller {
     // target key -> { sentAt, answer, answeredAt, ping, missedAt, rulesAt, rulesBusy, requireAccount }
     this.state = new Map();
     this.boardFilters = new Set(); // modules' fn(address) -> true: not on the board
+    this.boardNotes = new Set(); // modules' fn(address) -> an object of fields for the server's board entry, or null
     this.socket = null;
     this.timer = null;
   }
@@ -227,6 +229,21 @@ export class StatusPoller {
       }
     }
     return false;
+  }
+
+  // What the modules add to the entry of the server at this address: their objects merged, a module's
+  // that throws adding nothing. The poller's own fields always win.
+  notesFor(address) {
+    let out = {};
+    for (const fn of this.boardNotes) {
+      try {
+        const note = fn(address);
+        if (note && typeof note === "object") out = { ...out, ...note };
+      } catch (e) {
+        /* that module's own trouble */
+      }
+    }
+    return out;
   }
 
   start() {
@@ -334,12 +351,14 @@ export class StatusPoller {
       const a = st.answer;
       if (this.offline(st, t)) {
         servers.push({
+          ...this.notesFor(e.address.key),
           address: e.address.key, kind: a.kind, name: e.name || a.name || e.address.key, map: a.map, mode: a.mode,
           players: 0, max: a.max, bots: 0, ping_ms: null, online: false, requireAccount: !!st.requireAccount,
         });
         continue;
       }
       servers.push({
+        ...this.notesFor(e.address.key),
         address: e.address.key, kind: a.kind, name: a.name || e.name || e.address.key, map: a.map, mode: a.mode,
         players: a.players, max: a.max, bots: a.bots, ping_ms: st.ping, online: true, requireAccount: !!st.requireAccount,
       });

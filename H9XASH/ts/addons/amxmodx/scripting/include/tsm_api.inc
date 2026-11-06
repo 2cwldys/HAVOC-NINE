@@ -1,5 +1,6 @@
 // tsm_api.inc -- the mode API ts_matchmode offers to mode plugins (ts_uplink, ts_survival,
-// ts_mechwarrior), and the match's own state to any plugin that needs it (ts_rtv).
+// ts_mechwarrior, ts_assault, ts_ctf), and the match's own state to any plugin that needs it
+// (ts_rtv, h9_compete).
 //
 // ts_matchmode is the core: rounds, sides, lives, waves, classes and the HUD. A mode plugin
 // CLAIMS a map with tsm_mode_claim() and from then on the core asks it at the points below.
@@ -24,6 +25,17 @@
                                     // every bot goes to side 2, and nothing balances the sides
 #define TSM_MODE_SIDE2_ENDLESS 8    // side 2 never runs out of lives: every death waits for a wave
 #define TSM_MODE_ONE_RUN       16   // the first round that ends ends the match, back to warmup
+#define TSM_MODE_ENDLESS       128  // neither side ever runs out of lives: every death waits for the side's next wave, so no side is counted
+                                    // out (a mode that is won and lost some other way, Capture the Flag). Side 2 alone is SIDE2_ENDLESS
+#define TSM_MODE_ONE_ROUND     64   // the first round that ends is the whole match: its winner wins the match (a drawn round is a drawn
+                                    // match, rated for nobody), the bars and the chat say MATCH where they would say ROUND, and no tally
+                                    // of rounds is shown. A mode with a cvar for it sets or clears the bit with tsm_mode_flag()
+#define TSM_MODE_LIFE_POOL     32   // a side's lives are ONE pool, not a count each player carries, and its players know it as
+                                    // REINFORCEMENTS (the match bar, the scoreboard, chat and the class menu say so while the flag is
+                                    // set; every mode without it says lives): a death draws its class's cost
+                                    // (tsm_class_cost) from its side's pool and the player waits for a wave; a death with the pool
+                                    // empty is final. The pool is sized as a round goes live (tsm_pool_base + tsm_pool_perplayer
+                                    // a player), shown on the scoreboard, and tsm_pool_set / tsm_pool_add change it
 
 /* ---- match states, as tsm_state() returns them ---------------------------------------- */
 
@@ -56,6 +68,13 @@
 #define TSM_POINTS_ZONE      1    // an uplink zone taken: tsm_score_zone
 #define TSM_POINTS_CARRY     2    // one second carrying the uplink: tsm_score_carry every tsm_score_carry_secs
 #define TSM_POINTS_WAVE      3    // a survival wave cleared while still in play: tsm_score_wave
+#define TSM_POINTS_CAPTURE   4    // a flag carried home and captured: tsm_score_capture
+#define TSM_POINTS_RETURN    5    // a dropped flag taken back to its pad: tsm_score_return
+
+/* ---- spawn sets ------------------------------------------------------------------------------- */
+
+// The highest forward spawn tier (tsm_spawn ... <tier>), which a mode may open as a spawn set (tsm_spawn_open).
+#define TSM_SPAWN_TIER_MAX   32
 
 #if !defined TSM_CORE
 
@@ -72,6 +91,13 @@
  * @return        1 when the map is now this mode's, 0 when the claim was refused.
  */
 native tsm_mode_claim(const name[], const desc[], flags);
+
+/**
+ * The claimed mode turns one of its TSM_MODE_* flags on or off after the claim: a mode that lets a cvar decide (Assault's
+ * h9_assault_rounds picks TSM_MODE_ONE_ROUND) sets the bit as it claims and again as each round starts. Returns 1 when a mode is
+ * claimed and the bit was set as asked, 0 with no claim.
+ */
+native tsm_mode_flag(flag, bool:on);
 
 /** Ends the live round now: 1 or 2 wins it, 0 draws it. 1 when a round was ended. */
 native tsm_end_round(winner);
@@ -121,6 +147,12 @@ native tsm_state();
 native tsm_match_running();
 
 /**
+ * 1 while the claimed mode plays its match as ONE ROUND (TSM_MODE_ONE_ROUND): the first round that ends is the whole match. h9_compete
+ * tells h9web so, which then asks of such a match one round and the minimum time, not the several rounds of a match played in rounds.
+ */
+native tsm_one_round();
+
+/**
  * The rounds side 1 or 2 has won in this match. A finished match keeps its score until warmup
  * clears it, so it can still be read in tsm_match_complete and tsm_match_forfeit. 0 for any
  * other side.
@@ -149,6 +181,12 @@ native tsm_points_side(side);
 
 /** A player's assists on this map, as the scoreboard's A column counts them. */
 native tsm_assists(id);
+
+/**
+ * The same without the assists on a kill a bot had a part in, as victim or killer: what ranked play
+ * counts, as it counts no kill of a bot or by one.
+ */
+native tsm_assists_ranked(id);
 
 /**
  * Points for something a mode counts (TSM_POINTS_*), worth what that event's tsm_score_* cvar says,
@@ -207,6 +245,43 @@ native tsm_class_rule(cls, limit, lives);
 
 /** The class every bot plays while the mode runs, ahead of tsm_bot_class; 0 hands it back. */
 native tsm_mode_bot_class(cls);
+
+/** With TSM_MODE_LIFE_POOL: the reinforcements left in a side's pool (1 or 2). 0 for any other side, and without the flag. */
+native tsm_pool_get(side);
+
+/** With TSM_MODE_LIFE_POOL: the pool a side started the round with, the number the scoreboard shows the pool "left of". */
+native tsm_pool_start(side);
+
+/**
+ * With TSM_MODE_LIFE_POOL: sets a side's pool, and what it started with, to amount: the mode's own number in place of
+ * tsm_pool_base + tsm_pool_perplayer a player. The core sizes the pools as a round goes live, so call it from
+ * tsm_round_live or later. 1 when it was set.
+ */
+native tsm_pool_set(side, amount);
+
+/**
+ * With TSM_MODE_LIFE_POOL: adds reinforcements to a side's pool (a negative amount takes them away; the pool never goes below 0). What
+ * the scoreboard shows the pool left of grows to match when the pool passes it. Returns the pool now.
+ */
+native tsm_pool_add(side, amount);
+
+/**
+ * With TSM_MODE_LIFE_POOL: what a death of class cls draws from the pool while the mode runs (1 and up); 0 keeps the number
+ * tsm_class_cost gives. Call it again each map: a claim lasts one map, and so does this. 1 when cls was a real class.
+ */
+native tsm_class_cost(cls, cost);
+
+/**
+ * Opens or closes a spawn set for a side: the forward points of that tier (tsm_spawn ... <tier>, amx_tsm_spawn_add <team> <tier>),
+ * 1 to TSM_SPAWN_TIER_MAX. From the first call a side's respawn waves land on the points of ONE open set, the front one: of the sets
+ * that are open and have a point for the side, the one nearest the other side's base (the middle of its tier 0 points). When none
+ * is open (or none has a point) they land on the side's tier 0 points, and they no longer follow the siege objectives. Round start
+ * and a living player are never moved. 1 when it was taken.
+ */
+native tsm_spawn_open(side, set, bool:open);
+
+/** Closes every spawn set a mode opened for a side (0 both). The mode stays in charge of where that side respawns. */
+native tsm_spawn_open_clear(side);
 
 /* ---- forwards ---------------------------------------------------------------------------- */
 

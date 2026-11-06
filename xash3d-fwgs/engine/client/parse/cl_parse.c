@@ -468,7 +468,7 @@ void CL_BatchResourceRequest( qboolean initialize )
 
 	if( cls.state != ca_disconnected )
 	{
-		if( done_downloading && CL_PrecacheResources( ))
+		if( done_downloading && CL_H9Warm_Ready( ) && CL_PrecacheResources( ))
 		{
 			CL_RegisterResources( &msg, cls.net_protocol );
 		}

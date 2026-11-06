@@ -27,11 +27,15 @@
 // Events on the shared emitter, for modules (modules/presence):
 //   relay-open { accountId }                     a socket opened for the account
 //   relay-close { accountId }                    that socket closed
-//   relay-game-start { accountId, server }       the socket began sending a listed server the
-//                                                game's own traffic (not a connectionless query);
-//                                                server is its address as servers.json lists it
-//   relay-game-end { accountId, server }         no game traffic to that server for 15 seconds,
-//                                                or the socket closed
+//   relay-game-start { accountId, server }       the account's first socket to do so began sending a
+//                                                listed server the game's own traffic (not a
+//                                                connectionless query); server is its address as
+//                                                servers.json lists it
+//   relay-game-end { accountId, server }         the account's last socket playing that server sent it
+//                                                no game traffic for 15 seconds, or closed. A page
+//                                                reloaded or tried again leaves its old socket open for
+//                                                a moment: the account is one player, and that socket
+//                                                closing ends nothing while the new one plays
 
 import dgram from "node:dgram";
 import { checkUpgrade, refuseUpgrade, acceptUpgrade, WebSocketConnection } from "./websocket.js";
@@ -55,6 +59,25 @@ export function createRelay({ config, auth, servers, events, log }) {
   const tell = (name, data) => {
     try { events.emit(name, data); } catch (e) { log.error("relay.event_listener", { event: name, error: e.message }); }
   };
+
+  // The game events are the account's: how many of its sockets are sending each server game traffic decides when they fire.
+  const playing = new Map(); // "accountId server" -> sockets of that account sending the server game traffic
+  function gameStart(r, server) {
+    const k = r.accountId + " " + server;
+    const n = (playing.get(k) || 0) + 1;
+    playing.set(k, n);
+    if (n === 1) tell("relay-game-start", { accountId: r.accountId, server });
+  }
+  function gameEnd(r, server) {
+    const k = r.accountId + " " + server;
+    const n = (playing.get(k) || 0) - 1;
+    if (n > 0) {
+      playing.set(k, n);
+      return;
+    }
+    playing.delete(k);
+    tell("relay-game-end", { accountId: r.accountId, server });
+  }
 
   // The buckets of an account or IP outlive its last socket by a minute, so closing and opening
   // sockets does not refill them.
@@ -182,7 +205,7 @@ export function createRelay({ config, auth, servers, events, log }) {
       if (g) g.at = Date.now();
       else {
         r.games.set(entry.address.key, { at: Date.now() });
-        tell("relay-game-start", { accountId: r.accountId, server: entry.address.key });
+        gameStart(r, entry.address.key);
       }
     }
   }
@@ -224,7 +247,7 @@ export function createRelay({ config, auth, servers, events, log }) {
     try { r.udp.close(); } catch (e) { /* closed already */ }
     release("account", r.accountKey);
     release("ip", r.ipk);
-    for (const key of r.games.keys()) tell("relay-game-end", { accountId: r.accountId, server: key });
+    for (const key of r.games.keys()) gameEnd(r, key);
     r.games.clear();
     tell("relay-close", { accountId: r.accountId });
     log.info("relay.close", {
@@ -250,7 +273,7 @@ export function createRelay({ config, auth, servers, events, log }) {
       for (const [key, g] of r.games) {
         if (t - g.at > 15000) {
           r.games.delete(key);
-          tell("relay-game-end", { accountId: r.accountId, server: key });
+          gameEnd(r, key);
         }
       }
       r.floodSeconds = r.sec.dropped > r.sec.passed ? r.floodSeconds + 1 : 0;

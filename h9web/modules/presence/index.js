@@ -70,6 +70,7 @@ import { createEnrollment } from "./enroll.js";
 import { createCommunity } from "./community.js";
 import { gamePicture, gameVersion, decodePng, encodePng, AVATAR_SIDE, GAME_TYPES } from "./avatars.js";
 import { createCompete } from "./compete.js";
+import { createPreset } from "./preset.js";
 
 export { MIGRATIONS };
 
@@ -86,8 +87,9 @@ export const DEFAULTS = Object.freeze({
   // answer a report that asks for names (h9_presence_names on the game server): a verified account
   // plays under its username, and nobody else under a registered name
   inGameNames: true,
-  // the largest report body taken (nginx's location /api/ allows 16k)
-  maxBodyBytes: 16384,
+  // the largest report body taken: h9_presence's report is at most about 82 KiB, every one of
+  // 128 slots at its largest (nginx's location /api/ and Caddy's @api allow 128k)
+  maxBodyBytes: 131072,
   maxPlayers: 128,
   // a report's ts may be this far from h9web's clock, either way
   clockSkewSeconds: 120,
@@ -144,6 +146,15 @@ export const DEFAULTS = Object.freeze({
   dataLogRetentionDays: 30,
   communitiesPerAccount: 3,
   claimMinutes: 15,
+  // the official preset (preset.js): a server that reported this recently counts as reporting, and one whose
+  // last report said nobody was on it counts for the longer authQuietSeconds; past that a server the site's own
+  // status poll hears answering keeps the verdict its last report earned, until that report is authHoldSeconds old;
+  // the most files one report lists, and one import brings
+  authFreshSeconds: 600,
+  authQuietSeconds: 1500,
+  authHoldSeconds: 86400,
+  presetMaxComponents: 400,
+  presetMaxEntries: 2000,
   limits: Object.freeze({
     reportPerIp: Object.freeze({ max: 120, windowSeconds: 60, blockSeconds: 60, maxBlockSeconds: 600 }),
     reportPerServer: Object.freeze({ max: 40, windowSeconds: 60, blockSeconds: 60, maxBlockSeconds: 600 }),
@@ -180,6 +191,7 @@ const WHOLE = {
   pollHoldSeconds: [0, 25], chatMaxChars: [10, 160], chatRetentionDays: [1, 365], chatCooldownSeconds: [0, 600],
   dataValueMax: [16, 4096], dataKeysPerAccount: [1, 1024], dataRowsPerCommunity: [100, 10000000], dataLogRetentionDays: [1, 365],
   communitiesPerAccount: [1, 100], claimMinutes: [1, 1440], webClientSeconds: [60, 3600],
+  authFreshSeconds: [30, 86400], authQuietSeconds: [30, 86400], authHoldSeconds: [60, 31536000], presetMaxComponents: [10, 2000], presetMaxEntries: [10, 10000],
 };
 
 export function presenceSettings(raw = {}) {
@@ -367,10 +379,18 @@ export function createPresence(deps) {
   // community's members see its servers on the community's own page.
   const privateServer = (key) => !!community.privateCommunityOf(key) || enrollment.isListen(key);
 
+  // The official preset (preset.js): which servers are authenticated, for the game's server browser and
+  // for rated play.
+  const preset = createPreset({
+    db, s, now, HttpError, log, enrollment, isPrivate: privateServer, router, limit, ipKey, transaction: tx,
+    alive: (server) => !!(servers && typeof servers.status === "function" && servers.status(server)),
+  });
+
   // Rated play (compete.js, docs\H9_COMPETITIVE.txt): compts's Elo per kill and its scoreboard, on
   // this module's keys, proven players and communities.
   const compete = createCompete({
     db, router, auth, accounts, serverAuth, enrollment, community, limit, ipKey, audit, log, now, transaction: tx,
+    authentic: (server) => preset.rated(server),
     http: deps.http, limits: deps.limits, settings: s, privacyOf: (id) => privacyOf(id), serverName: (key) => serverView(key).name,
   });
 
@@ -437,6 +457,8 @@ export function createPresence(deps) {
       name: sv.name, map: g.map, mode: g.mode,
       humans: fresh && row.humans !== null ? row.humans : st ? st.players - (st.bots || 0) : null,
       max: fresh && row.max !== null ? row.max : st ? st.max : null,
+      // bots, from the server's own status answer (A2S_INFO counts them among its players)
+      bots: st && Number.isInteger(st.bots) ? st.bots : null,
     };
   }
 
@@ -493,6 +515,12 @@ export function createPresence(deps) {
   // The web client: the relay sockets open per account (relay-open / relay-close), and when the
   // last one closed. In memory, as the relay's sockets do not outlive the process either.
   const webSockets = new Map(); // account id -> sockets open
+  // A game's link that ended (core's account-unlink, revoked or unlinked: h9_unlink in the game, or
+  // REVOKE on the ACCOUNT page): account id + ":" + device hash -> unix seconds it ended. A proof from
+  // that device for that account answering a nonce issued by then counts for nothing: the game holds
+  // another id now, and its last proof, or one already on its way in a report, is not its own any
+  // more. Kept proofMaxAgeSeconds, as such a proof is stale by then anyway.
+  const unlinkedProofs = new Map();
   const webClosed = new Map(); // account id -> unix seconds the last one closed
   const webPage = new Map(); // account id -> unix seconds the web client's page last said it is open
   const pageOpen = (accountId, t) => t - (webPage.get(accountId) || 0) <= s.webClientSeconds;
@@ -557,6 +585,12 @@ export function createPresence(deps) {
     const card = {
       username: account.username,
       ...dev(account.id),
+      // the account's career level and its H9 ladder MATCH rating, shown whatever its switches:
+      // compete.js, publicLevel and eloOf
+      level: compete.publicLevel(account.id),
+      elo: compete.eloOf(account.id),
+      // this season's H9 ladder standing for a profile's RANK block: compete.js, rankOf
+      rank: compete.rankOf(account.id),
       state: st.state,
       online: st.state === "game",
       playing: st.state === "game" ? playingView(st.row, t, st.verified, priv.where && !privateServer(st.row.server)) : null,
@@ -575,7 +609,7 @@ export function createPresence(deps) {
   }
 
   function compactView(account) {
-    const { servers: ignored, ...rest } = cardView(account);
+    const { servers: ignored, rank: unused, ...rest } = cardView(account);
     return rest;
   }
 
@@ -599,6 +633,9 @@ export function createPresence(deps) {
     const st = stateFor(account, EVERYTHING, t);
     return {
       username: account.username,
+      level: compete.publicLevel(account.id),
+      elo: compete.eloOf(account.id),
+      rank: compete.rankOf(account.id),
       state: st.state,
       privacy: privacyOf(account.id),
       defaults: { ...s.privacy },
@@ -935,6 +972,13 @@ export function createPresence(deps) {
           refusals.push([accountId, "stale_proof", server, { server, detail: "the proof answers a nonce issued " + (t - issued.issued_at) + " seconds ago" }]);
           continue;
         }
+        // from a game whose link ended after this nonce was issued: proves nothing (unlinkedProofs)
+        const ended = unlinkedProofs.get(accountId + ":" + v.device);
+        if (ended !== undefined && issued.issued_at <= ended) {
+          if (proofOnly) continue;
+          sightings.set(accountId, { p, proven: false, device: null, net: null });
+          continue;
+        }
         sightings.set(accountId, { p, proven: true, device: v.device, net: p.net ? netHash(p.net) : null });
       } else {
         if (proofOnly) continue;
@@ -946,6 +990,7 @@ export function createPresence(deps) {
     tx(() => {
       store.putServer(server, { map, mode, detail, lastReport: t, lastTs: body.ts });
       store.serverInfo(server, cleanText(body.name, 64) || null, whole(body.humans) ? Math.min(body.humans, 255) : null, whole(body.max) ? Math.min(body.max, 255) : null);
+      preset.noteReport(server, body.plugins, body.authenticated, t);
       enrollment.markReport(server, t);
       for (const [accountId, kind, about, f] of refusals) raise(accountId, kind, about, f, t);
       // the first device that proves an account's id is bound to it; any other is refused
@@ -1013,13 +1058,17 @@ export function createPresence(deps) {
       const row = e.accountId ? store.online(e.accountId, server) : null;
       e.proven = !!(row && row.plugin_at !== null && (row.proven === 1 || row.relay === 1));
     }
-    const reply = { ok: true, players: players.length, serverId: enrollment.serverIdFor(server), actions: community.reportActions(server, slots), avatars: avatarsFor(slots) };
+    const avatars = avatarsFor(slots);
+    const linked = accountsFor(slots, avatars);
+    const reply = { ok: true, players: players.length, serverId: enrollment.serverIdFor(server), actions: community.reportActions(server, slots), avatars, accounts: linked, ...namesAndRolesFor(server, linked), levels: compete.levelsFor(slots) };
     // a listen server's own player (the report's "host" slot): how h9web knows that player, for the
     // plugin's log and h9_presence_status. Only that slot's: the server runs on that player's game.
     if (Number.isInteger(body.host) && body.host >= 1 && body.host <= 255) {
       const e = slots.find((x) => x.slot === body.host && x.accountId);
       reply.host = !e ? "unknown" : e.proven ? "proven" : "known";
     }
+    // the slots that proved an account, for an accounts-only server's check (h9_require_account)
+    reply.proven = slots.filter((e) => e.slot && e.proven).map((e) => e.slot);
     if (community.membersOnly(server)) reply.members = true;
     if (withNames && s.inGameNames && verifyIdProof) reply.names = nameDecisions(players, count, index, sightings, server);
     rc.json(200, reply);
@@ -1078,6 +1127,40 @@ export function createPresence(deps) {
       else if (dflt) out[e.slot] = { a: DEFAULT_ACCOUNT, v: dflt.version };
     }
     return out;
+  }
+
+  // The report answer's "accounts": { "<slot>": account } for exactly the slots "avatars" names (the
+  // green chain): each one's own account number, a player on the site's default picture included,
+  // which the plugin (1.7) tells every client in the H9Account message for H9XASH's h9_profile (the
+  // scoreboard's double-click opens that account's profile). A slot without the chain gets none.
+  function accountsFor(slots, avatars) {
+    const out = {};
+    for (const e of slots) {
+      if (e.slot && e.accountId && avatars[e.slot]) out[e.slot] = e.accountId;
+    }
+    return out;
+  }
+
+  // The report answer's "usernames" and "roles" for exactly the slots "accounts" names (proven
+  // players): each one's current username, and its roles as one comma-separated string, for the
+  // slots that have any: "h9_admin" or "h9_moderator" (its role on the site), then its words in this
+  // server's community (community.js's rolesHere: "owner", "staff", "member"). h9_presence 1.9 keeps
+  // them for other plugins (h9p_account_name and h9p_roles, h9_presence.inc), which may give a
+  // player admin rights by them; a slot without the chain gets neither.
+  function namesAndRolesFor(server, linked) {
+    const usernames = {};
+    const roles = {};
+    for (const [slot, accountId] of Object.entries(linked)) {
+      const account = accounts.getById(accountId);
+      if (!account) continue;
+      usernames[slot] = account.username;
+      const words = [];
+      if (account.role === "admin") words.push("h9_admin");
+      else if (account.role === "moderator") words.push("h9_moderator");
+      words.push(...community.rolesHere(server, accountId));
+      if (words.length) roles[slot] = words.join(",");
+    }
+    return { usernames, roles };
   }
 
   // The 64 x 64 PNG for an account and game version (the site's default for DEFAULT_ACCOUNT), made once
@@ -1247,6 +1330,7 @@ export function createPresence(deps) {
       serverAuth.prune(t);
       nq.prune.run(t - s.proofMaxAgeSeconds - 60);
     });
+    for (const [k, at] of unlinkedProofs) if (t - at > s.proofMaxAgeSeconds + 60) unlinkedProofs.delete(k);
     for (const [id, at] of webPage) {
       if (t - at > s.webClientSeconds) {
         webPage.delete(id);
@@ -1320,6 +1404,8 @@ export function createPresence(deps) {
     limit("adminPerAccount", "a:" + rc.account.id);
     return handler(req, res, rc);
   });
+
+  preset.registerAdmin(admin, record);
 
   router.get("/api/presence/admin/flags", admin(async (req, res, rc) => {
     const status = rc.query.get("status") || "open";
@@ -1575,13 +1661,52 @@ export function createPresence(deps) {
 
   let timer = null;
   let offBoard = null;
+  let offNotes = null;
   const listeners = {
     "relay-game-start": (e) => { try { relayStart(e); } catch (err) { log.error("presence.relay_event", { error: err.message }); } },
     "relay-game-end": (e) => { try { relayEnd(e); } catch (err) { log.error("presence.relay_event", { error: err.message }); } },
     "relay-open": (e) => relaySocket(e, 1),
     "relay-close": (e) => relaySocket(e, -1),
     "account-deleted": () => setImmediate(() => changed(null)),
+    "account-link": (e) => { try { linkedDevice(e, true); } catch (err) { log.error("presence.link_event", { error: err.message }); } },
+    "account-unlink": (e) => { try { linkedDevice(e, false); } catch (err) { log.error("presence.link_event", { error: err.message }); } },
   };
+
+  // A game linked to its account (core's lib/link.js; e.device is presence's device hash): it may
+  // prove the account's id at once, bound when the account has no device yet and allowed beside the
+  // bound one otherwise, so a newly linked install is no second device. A link revoked or unlinked
+  // takes an allowed device away again; the bound one stays, as only an admin unbinds it.
+  function linkedDevice(e, linked) {
+    const accountId = e && Number.isSafeInteger(e.id) ? e.id : null;
+    const device = e && typeof e.device === "string" && /^[0-9a-f]{32}$/.test(e.device) ? e.device : null;
+    if (!accountId || !device || !accounts.getById(accountId)) return;
+    if (!linked && (e.reason === "revoked" || e.reason === "unlinked")) dropProof(accountId, device);
+    const have = store.device(accountId, device);
+    if (linked) {
+      if (have) return;
+      store.putDevice(accountId, device, store.deviceCount(accountId) === 0 ? "bound" : "allowed", now());
+      log.info("presence.device_linked", { account: accountId, device: device.slice(0, 12) });
+    } else if (have && have.status === "allowed" && (e.reason === "revoked" || e.reason === "unlinked")) {
+      store.deleteDevice(accountId, device);
+      log.info("presence.device_unlinked", { account: accountId, device: device.slice(0, 12), reason: e.reason });
+    }
+  }
+
+  // The game on device ended its link: its proof stops counting now, here and in the next reports
+  // (unlinkedProofs), so its sightings read unverified and its slot loses the chain at the next answer.
+  function dropProof(accountId, device) {
+    const t = now();
+    unlinkedProofs.set(accountId + ":" + device, t);
+    let any = false;
+    for (const row of store.onlineOf(accountId)) {
+      if (row.proven !== 1 || row.device !== device) continue;
+      row.proven = 0;
+      store.updateOnline(row);
+      any = true;
+    }
+    if (any) changed([accountId]);
+    log.info("presence.proof_dropped", { account: accountId, device: device.slice(0, 12), online: any });
+  }
 
   function start() {
     for (const [name, present] of [["accounts.clientIdIndex", clientIdIndex], ["servers", servers]]) {
@@ -1594,6 +1719,13 @@ export function createPresence(deps) {
     netKey = loadNetKey(deps.dataDir, log);
     // the site's server board (/api/servers) leaves out what presence keeps private (lib/modules.js)
     if (servers && typeof servers.hideFromBoard === "function") offBoard = servers.hideFromBoard((address) => privateServer(address));
+    // and says on it whether each server is authenticated (preset.js): the site's chain beside the name
+    if (servers && typeof servers.annotateBoard === "function") {
+      offNotes = servers.annotateBoard((address) => {
+        const v = preset.verdict(address);
+        return { auth: v.code, authWhy: v.why };
+      });
+    }
     enrollment.start();
     compete.start();
     forgetRelay();
@@ -1609,12 +1741,14 @@ export function createPresence(deps) {
     timer = null;
     if (offBoard) offBoard();
     offBoard = null;
+    if (offNotes) offNotes();
+    offNotes = null;
     if (events) for (const [name, fn] of Object.entries(listeners)) events.off(name, fn);
     community.stop();
     compete.stop();
   }
 
-  return { settings: s, store, keys, enrollment, community, compete, start, stop, sweep, nowView, cardView, compactView, ownView };
+  return { settings: s, store, keys, enrollment, community, compete, preset, start, stop, sweep, nowView, cardView, compactView, ownView };
 }
 
 let instance = null;

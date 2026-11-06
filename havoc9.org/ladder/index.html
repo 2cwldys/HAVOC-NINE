@@ -32,7 +32,7 @@
         <li><a href="../downloads/index.html">DOWNLOADS</a></li>
         <li><a href="../servers/index.html">SERVERS</a></li>
         <li><a href="../forum/index.html">FORUM</a></li>
-        <li><a href="../community/index.html">COMMUNITY</a></li>
+        <li><a href="../community/index.html">COMMUNITIES</a></li>
         <li><a href="../join/index.html">JOIN</a></li>
         <li><a href="../museum/index.html">MUSEUM</a></li>
         <li><a href="../credits/index.html">CREDITS</a></li>
@@ -60,7 +60,9 @@
       <div class="account-section">
         <h2 class="sub-title">HOW THE RATING WORKS</h2>
         <p>The rule is xjiro's Competitive TS, the plugin TS players have known as compts. Everyone starts at 1000. A kill is +1 to the killer and -1 to the victim, and a headshot is +1 more. Killing a better player pays +1 more for each 100 points between you, and they lose half of that too. A rated match is +100 to each winner and -70 to each loser, and leaving a match, or forfeiting it, counts as a loss. After 30 days without a counted kill or match, a rating loses 10 a day.</p>
-        <p>Only players whose game proves their havoc9.org player id count: the web client does that by itself, and the downloaded game with your account's id in it (ACCOUNT, PLAYER ID). Bots, team kills and suicides count for nothing. Every server keeps its own table; a community's ladder counts the servers its staff choose, and the H9 ladder counts the servers H9's admins mark. A server reports its own matches, so each table is only as honest as the servers it counts. Your ACCOUNT page's privacy switches decide what others see: SHOW MY PLAYTIME for your numbers, SHOW WHICH SERVER AND MAP and SHOW "LAST SEEN" for your matches.</p>
+        <p>Only proven havoc9.org accounts are tracked: the web client proves yours by itself, and the downloaded game does once it is linked to your account. Bots, and players who are not signed in, get no rating and no level, and change nobody's: killing a bot, or being killed by one, counts for nothing, and a match with bots in it has no rated result (the kills between proven players in it still count). Team kills and suicides count for nothing either. Every game mode counts, Team Elimination, Siege, Uplink, Assault, Capture the Flag, Mech Warrior, Wave Survival, and TS's own deathmatch and teamplay maps (one map, one match), on every server enrolled with havoc9.org; only roleplay maps count for nothing, and so does a server H9's admins mark UNRANKED. Every server keeps its own table; a community's ladder counts the servers its staff choose, and the H9 ladder counts them all. A server reports its own matches, so each table is only as honest as the servers it counts. Each season starts with everyone unrated; when H9's admins start a new one, the last season's final standings stay here to read.</p>
+        <h2 class="sub-title">THE LEVEL BESIDE YOUR NAME</h2>
+        <p>Your badge is your career level, Lv 0 to 99: your overall experience on havoc9.org, on top of the rating above, which stays the skill figure (the ELO beside the badge on the forum). Each kill of a proven player gives experience, and so does each match or deathmatch map you play out: more for a rated win, and more again the better your kills-to-deaths and your rating. It only rises, it stays from one season to the next, and the road to Lv 99 is years of regular play. Leaving early gives none, and a voided match's is taken back. Everyone sees your level and your rating, whatever your privacy switches: SHOW MY PLAYTIME hides your playtime and where you are, and SHOW WHICH SERVER AND MAP with SHOW "LAST SEEN" hide your matches.</p>
       </div>
     </div>
   </main>
@@ -80,6 +82,7 @@
 
   <script src="../script.js"></script>
   <script src="../assets/account.js"></script>
+  <script src="../assets/presence.js"></script>
   <script src="../assets/ladder.js"></script>
 </body>
 </html>

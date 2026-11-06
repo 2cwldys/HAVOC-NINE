@@ -1,0 +1,220 @@
+CAPTURE THE FLAG -- H9's own flag mode: how it plays, every number you can change, how to make a map
+=====================================================================================================
+
+ts_ctf.amxx on the ts_matchmode core. Maps named h9_ctf_<name>. Its cvars are in configs\ts_ctf.cfg (and the
+three presets' copies in H9XASH\presets). This is the reference for the mode; docs\GAME_MODES.txt says what
+each kind of map plays and how a map is set up in general.
+
+Two things called capture the flag exist, and they are not the same game:
+
+  * h9_ctf_<name> (this file): H9's own. The match mode with its nine classes, teams, a flag on each side's
+    pad, respawn waves with no lives to run out, marks through the walls.
+  * ctf_<name>, ctb_<name>, h9_ctb_<name> and any name holding _ctf_ or _ctb_ (ctb_deadheat, ts_ctf_rooftops):
+    TS's OWN capture game, its flag the briefcase. It plays as the game ships (section 7): no match mode, the
+    buy menu, TS's own rules. This plugin takes none of those maps.
+
+
+1. WHAT IT IS
+-------------
+
+Each side has a flag standing on its own flag pad. A player takes the ENEMY's flag by walking over it and
+carries it to his own pad: standing on his pad with the enemy flag on his back (and, by default, his own flag
+at home) is a capture. The first side to tsm_cf_caps (3) captures wins; at the clock the side with more wins,
+equal is a draw. Nobody is ever counted out: every death waits for the side's next respawn wave (20 seconds
+apart), so the flags decide, not the fighting alone. By default the first round that ends is the whole match.
+
+
+2. HOW IT PLAYS
+---------------
+
+The flags. A flag is a banner on a pole (models\tsm_flag.mdl, made with SMAK by export-map\h9_drainage\flag.mjs)
+standing on its pad, and it CHANGES COLOUR WITH POSSESSION: at its pad it wears its own side's colour (side 1's
+blue, side 2's red); an enemy who carries it turns it to the carrier's colour; where it lies, dropped, it is
+grey. Carried, it is worn up the carrier's back. Flags exist only while a round is live; the pad rings and BASE
+marks stay up all map.
+
+Taking one. Every tenth of a second each flag that is not carried looks for the NEAREST living player in play
+within 48 units across the floor (and 64 up or down of the flag's middle). If he is on the enemy side of the
+flag he takes it, from its pad or from where it lies. The nearest player decides: a defender standing nearer a
+flag at its pad than an attacker keeps the grab from him. The player who just dropped a flag cannot take it
+again for 1.5 seconds.
+
+Carrying. The carrier keeps EVERY weapon, is marked to BOTH sides, and scores a point (tsm_score_carry) for
+every tsm_score_carry_secs (15) seconds he carries. He can still take back his own side's dropped flag by
+walking over it. He lets the flag go with "dropflag" in the console (bind a key to it) or .drop in chat, and it
+falls at his feet; if he dies, is eliminated, or leaves, it drops where he was, grey, with half his velocity
+and a toss.
+
+Returning. A player of a flag's own side who is nearest to it when it lies dropped takes it back at once to its
+pad, for tsm_score_return (3) points. A dropped flag nobody touches flies home tsm_cf_return (20) seconds after
+it was dropped (0: it stays where it lies). A flag that lands in a wall, the sky or out of the world goes home
+at once.
+
+Capturing. The carrier of the enemy's flag who comes within tsm_cf_pad_radius (72) units of his own pad (and
+within 72 up or down of its floor) captures at once, with no hold time, provided his own flag is at its pad
+(tsm_cf_needhome 1; 0 lets him score whatever has become of it). If it is not, nothing happens and a human is
+told "Your own flag is not at your pad -- get it back first." A capture gives the carrier tsm_score_capture
+(10) points, which are also his side's, counts one capture for his side, puts the captured flag back on its
+pad, and (tsm_cf_capture_wave 1) brings his side's waiting dead back at once, except when it wins the round.
+The side whose flag was taken gets nothing.
+
+Winning. The first side to tsm_cf_caps captures wins the round at once. At the clock (tsm_roundtime: 300 by
+default, 600 on h9_ctf_drainage) the side with more captures wins and equal is a draw; there is no overtime and
+no sudden death. With tsm_roundtime 0 only captures end a round. h9_ctf_rounds 0 (the default): the first round
+that ends is the whole match, its winner the match's, a draw a drawn match, the bar and the chat saying MATCH;
+1 plays rounds, best of tsm_rounds. The cvar is read every tenth of a second.
+
+Lives. None are counted. Both sides respawn in waves every tsm_cf_wave (20) seconds, and players waiting for a
+wave count as alive, so no side can be eliminated and the round never ends that way. A dead player waits at
+least tsm_respawn_seconds (5) for a timed wave, so the wait is between 5 and about 25 seconds, plus TS's own
+death timer. They come back at their side's base with the full class kit, the Officer with his kung fu. A death costs
+only the wait, and for a carrier the flag; an Officer's fall is not announced to both sides ("officer has
+perished", tsm_officerslain_sound) in this mode.
+
+The classes and the buying. As on every H9 match map: the nine classes with their loadouts, no buy menu (the
+match mode holds everyone's cash at zero and weaponrestriction is 1).
+
+Bots fight but do not play the objective. They do not take or return flags (tsm_cf_bots 1 lets a bot that walks
+over a flag take it, return it and carry it, like anyone), nothing tells them where the pads are, and a bot
+cannot use dropflag.
+
+
+3. THE NUMBERS YOU CAN CHANGE
+-----------------------------
+
+Where to set them: configs\ts_ctf.cfg, the presets in H9XASH\presets, the map's own ts\mapconfigs\<map>.cfg, or
+the server console. "Read" says when a change counts.
+
+     tsm_ctf_mode               1   the mode on: a map with both pads is claimed as a flag map (0: an h9_ctf_
+                                    map plays as plain team elimination); read when the map is claimed, 2 seconds
+                                    after it loads, and again when the second pad is placed
+     tsm_cf_caps                3   captures that win the round (live)
+     tsm_cf_return             20   seconds before a dropped flag flies home; 0: it stays (live)
+     tsm_cf_needhome            1   1: a carrier scores only while his own flag is at its pad (live)
+     tsm_cf_pad_radius         72   how near its pad a carrier must be, units across the floor (live; the ring
+                                    on the floor is sized once when it is made)
+     tsm_cf_capture_wave        1   1: the capturing side's waiting dead come back at once (live)
+     tsm_cf_wave               20   seconds between both sides' waves (from the next round start; the core's
+                                    tsm_respawn_wave is not used while this is above 0)
+     tsm_cf_bots                0   1: a bot that walks over a flag takes it (live)
+     h9_ctf_rounds              0   0: one round is the match; 1: rounds, best of tsm_rounds
+     tsm_gamedesc_ctf  Capture the Flag   the game's name in the server browser and on the Discord card
+     tsm_roundtime            300   the round clock (the shipped map's mapconfig sets 600); 0: none
+     tsm_rounds                 9   best-of, only with h9_ctf_rounds 1
+     tsm_respawn_seconds      5.0   a timed wave takes only those dead at least this long
+     tsm_score_capture         10   points for a capture (the carrier's and his side's)
+     tsm_score_return           3   points for taking a dropped flag home
+     tsm_score_carry            1   points for every tsm_score_carry_secs seconds carried
+     tsm_score_carry_secs      15   (the counter is the uplink's and carries over from one carry to the next)
+     tsm_freezetime             6   seconds frozen before the round goes live; there are no flags in the freeze
+     tsm_verbosity              0   0 silences every [MATCH] chat line (the mode's too); 1 shows them
+     tsm_bots                  10   bots the server keeps; any bot in a match means it is not rated
+
+Chat is silent as shipped: at tsm_verbosity 0 a flag taken, dropped or returned and a capture are told by the
+news banners, the carrier's status and the marks (H9 games) or the markers, the centre texts and the sounds
+(any other game).
+
+
+4. COMMANDS
+-----------
+
+Players:
+     dropflag (console, bind it) or .drop / say_team .drop (chat)   let the flag go where you stand. Anyone who
+                         carries nothing is told so. Only the carrier's .drop line is swallowed.
+
+Admins (ADMIN_CFG):
+     amx_tsm_ctf                      the mode's state: build, whether it claimed the map, the captures, the rules
+                                      in force, the flag model and rings found, the pads and where the flags are
+     amx_tsm_cf_pad <1|2>             that side's flag pad at your feet; both pads make the map a flag map on the spot
+     amx_tsm_cf_list                  the pads (from the config or the map) and each flag: at its pad, carried, dropped
+     amx_tsm_cf_save                  write configs\tsm_ctf_<map>.cfg (replaces the file; pads the map's entities define are written too)
+     tsm_cf_pad <side> <x> <y> <z>    the server command that file is made of (hand edits are fine)
+     amx_tsm_cf_give <flag side> <0|1|2>   to test, in a live round: give that side's flag to a person of the side given
+                                      (a human before a bot; nothing checks it is the enemy), or 0: put it home
+     amx_tsm_cf_tp <side> <pad 1|2>   to test: that side's carrier (else its first person in play) walks onto a pad:
+                                      amx_tsm_cf_give 2 1 then amx_tsm_cf_tp 1 1 is a capture
+
+
+5. WHAT PLAYERS SEE
+-------------------
+
+Through the walls: every flag and every pad, on every screen. An H9 game draws a badge in the colour of whoever
+holds it: FLAG at its pad, CARRIED over the carrier (following him), DROPPED where it lies with a bar draining to
+the moment it flies home, BASE on each pad (cl_h9_marks; docs\H9_VGUI.txt). Any other game gets TS's own
+objective marker: "THE MSR FLAG", "THE MSR FLAG - CARRIED", "THE MSR FLAG - DROPPED", "MSR BASE".
+
+The match bar reads "MATCH -- 8:12 -- CAPTURES 1 - 0 (FIRST TO 3)" over "MSR -- INS". The carrier of an H9 game
+gets a status under the bar, "YOU HAVE THE ENEMY FLAG -- TAKE IT TO YOUR PAD", or while his own flag is away
+"YOUR FLAG IS AWAY -- GET IT BACK, THEN SCORE"; any other game a centre text. Every H9 game gets a 3-second
+banner for each event (has the flag, dropped, took it back, captured), blue for side 1, red for side 2.
+Sounds: a pick-up, a drop, a return, and a bell for a capture heard map-wide. A dead player reads "RESPAWN WAVE
+IN 12s", with no count of lives, and the class menu says "respawns".
+
+A flag without its model (models\tsm_flag.mdl missing) falls back to the briefcase tinted by a coloured glow.
+
+
+6. MAKING A FLAG MAP
+--------------------
+
+1. Name it h9_ctf_<name>. A copy of an Uplink map keeps that map's zones: put tsm_uplink_mode 0 in its mapconfig
+   (h9_ctf_drainage has it). No tsm_obj_ siege objectives on it.
+2. The pads: info_target entities named tsm_flag_1 and tsm_flag_2 at the FLOOR where the flag should stand, or in
+   the game: stand on each, amx_tsm_cf_pad <1|2>, then amx_tsm_cf_save (configs\tsm_ctf_<map>.cfg). A pad from the
+   config beats the map's entity of the same side. Put each at the rear of its side's base on flat, open floor with
+   room for the carrier to be seen and to reach it. A first proposal: node tools\assault-spawns\cli.mjs <map> --pads
+   --overview <folder>.
+3. The spawns: configs\tsm_spawns_<map>.cfg, each side's base (tier 0). Flag maps open no spawn sets.
+4. A mapconfig, ts\mapconfigs\<map>.cfg: the round time (600 is a fair start). rcbot waypoints for the bots.
+5. models\tsm_flag.mdl and sprites\tsm_zone_ring_1.spr and _2.spr: without the rings there is no ring and no bell.
+6. tools\make_assault_maps.py makes h9_ctf_drainage from h9_up_drainage; its flag model is built by
+   export-map\h9_drainage\flag.mjs (node flag.mjs deploy): two bodies (standing, worn), three skins (grey, blue,
+   red), one idle sequence.
+
+For a bot author: a flag is the entity classname tsm_flag (pev_team: whose flag; pev_iuser1: 0 at its pad, 1 carried,
+2 dropped; pev_owner: the carrier while carried) and a pad's ring is classname tsm_flagpad (pev_team its side).
+
+
+7. TS'S OWN CAPTURE GAME
+------------------------
+
+TS's flag is the briefcase (the ts_briefcase entity, one a side), and the stock game has one such mode: a map named
+ctb_ or ctf_ at the start, or holding _ctb_ or _ctf_, or h9_ctb_ (ctb_deadheat is the worked example) plays it. The
+H9 match mode stays out entirely, as on any map the game ships with: team deathmatch rules, no warmup or ready-up,
+no side or class menus, no bots of its own (tsm_bots 0), TS's own cash, powerups AND weapon rules
+(weaponrestriction 0), so the buy menu works. The flag is TS's own, with its own rules. The Discord card, the site
+and the server browser call such a map Capture the Briefcase (ctb_) or Capture the Flag (ctf_). A mapconfig line
+(tsm_enabled 1) makes any map a match map whatever its name says.
+
+
+8. RANKING, THE CARD, THE SITE
+------------------------------
+
+The match is on the MATCH ladder (docs\H9_COMPETITIVE.txt) and is rated as the single round it is when
+h9_ctf_rounds is 0: the server says so (oneRound), and havoc9.org asks one round and the five minutes. A drawn
+match and a match with a bot in it rate nobody (turn tsm_bots off for a ranked server).
+
+The server publishes tsm_pres_mode "ctf" and tsm_pres_prog "1/0/3" (side 1's captures, side 2's, the captures that
+win). The Discord card reads "Capture the Flag - captures: MSR 1, Insurgents 0 (first to 3)" (a game older than
+2026-11-05 names the mode from the map but shows no captures); the in-game server browser's Mode column and
+havoc9.org read "Capture the Flag". The captures are not kept per player; the points are the scoreboard's.
+
+
+9. THE SHIPPED MAP
+------------------
+
+h9_ctf_drainage, a copy of h9_up_drainage: side 1 starts at the north end, side 2 at the south, 34 spawn points
+each, and the pads at the rear of each base: side 1 at (8, 1458.8, -11.8), side 2 at (8, -1442.8, -11.8), 2900
+units apart. A first pass, to be walked. Its mapconfig: tsm_uplink_mode 0, tsm_respawns 1, tsm_roundtime 600.
+
+
+10. THINGS TO KNOW
+------------------
+
+ * tsm_ctf_mode is read when the map is claimed; setting it to 0 later does not release the map.
+ * The captures are reset when the next round's freeze begins, so the card keeps the last result through warmup.
+ * Moving a pad during a round moves its ring, mark and capture test, but a flag already standing at the old
+   spot stays there until it next goes home or the next round starts.
+ * Both flags can be away at once; with tsm_cf_needhome 1 neither carrier can score until one is returned.
+ * A friendly player nearer to a dropped flag than an enemy returns it instead of letting the enemy take it.
+ * Handing a flag over with dropflag beside a teammate works as a pass: the dropper is locked out for 1.5 seconds
+   and the teammate takes it if he is the nearest.

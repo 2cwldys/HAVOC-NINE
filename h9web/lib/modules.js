@@ -34,6 +34,9 @@ const RESERVED = new Set(["api", "core", "account", "accounts", "assets", "webcl
 //                   (/api/servers) for as long as fn answers so; it stays in servers.json, the
 //                   relay and the master's list. Returns a function that takes the filter away.
 //                   The presence module hides private communities' servers with it.
+//   annotateBoard(fn)  fn(address) -> an object whose fields join that server's entry on the board
+//                   (/api/servers), or null; the poller's own fields win. Returns a function that takes
+//                   it away. The presence module adds auth (ok, rp, mod or off) with it.
 export function serversHook({ servers, status }) {
   const view = (e) => Object.freeze({ name: e.name, address: e.address.key, listed: e.listed, gamedir: e.gamedir });
   return Object.freeze({
@@ -53,6 +56,11 @@ export function serversHook({ servers, status }) {
       if (!status || !status.boardFilters || typeof fn !== "function") return () => {};
       status.boardFilters.add(fn);
       return () => status.boardFilters.delete(fn);
+    },
+    annotateBoard: (fn) => {
+      if (!status || !status.boardNotes || typeof fn !== "function") return () => {};
+      status.boardNotes.add(fn);
+      return () => status.boardNotes.delete(fn);
     },
   });
 }

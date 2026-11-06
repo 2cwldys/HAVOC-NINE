@@ -1,8 +1,35 @@
 diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
-index df24ed5f..7b963c4e 100644
+index 333f4b9..ecdadcc 100644
 --- a/engine/client/cl_main.c
 +++ b/engine/client/cl_main.c
-@@ -2361,7 +2361,10 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+@@ -2301,7 +2301,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+ {
+ 	static char	s[512+8];
+ 	int p, numcl, maxcl, password, bots;
+-	string host, map, gamedir, version;
++	string host, map, gamedir, version, desc;
+ 
+ 	// set to beginning but skip header
+ 	MSG_SeekToBit( msg, (sizeof( uint32_t ) + sizeof( uint8_t )) << 3, SEEK_SET );
+@@ -2319,7 +2319,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+ 		Q_strncpy( host, MSG_ReadString( msg ), sizeof( host ));
+ 		Q_strncpy( map, MSG_ReadString( msg ), sizeof( map ));
+ 		Q_strncpy( gamedir, MSG_ReadString( msg ), sizeof( gamedir ));
+-		MSG_ReadString( msg ); // game description
++		Q_strncpy( desc, MSG_ReadString( msg ), sizeof( desc )); // game description
+ 		numcl = MSG_ReadByte( msg );
+ 		maxcl = MSG_ReadByte( msg );
+ 		MSG_ReadByte( msg ); // protocol version
+@@ -2351,7 +2351,7 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
+ 		Q_strncpy( host, MSG_ReadString( msg ), sizeof( host ));
+ 		Q_strncpy( map, MSG_ReadString( msg ), sizeof( map ));
+ 		Q_strncpy( gamedir, MSG_ReadString( msg ), sizeof( gamedir ));
+-		MSG_ReadString( msg ); // game description
++		Q_strncpy( desc, MSG_ReadString( msg ), sizeof( desc )); // game description
+ 		MSG_ReadShort( msg ); // app id
+ 		numcl = MSG_ReadByte( msg );
+ 		maxcl = MSG_ReadByte( msg );
+@@ -2379,10 +2379,15 @@ static void CL_ParseGoldSrcStatusMessage( netadr_t from, sizebuf_t *msg, qboolea
  	Info_SetValueForKey( s, "dm", "0", sizeof( s )); // obsolete keys
  	Info_SetValueForKey( s, "team", "0", sizeof( s ));
  	Info_SetValueForKey( s, "coop", "0", sizeof( s ));
@@ -14,11 +41,97 @@ index df24ed5f..7b963c4e 100644
  	Info_SetValueForKeyf( s, "maxcl", sizeof( s ), "%i", maxcl );
  	Info_SetValueForKey( s, "gamedir", gamedir, sizeof( s ));
  	Info_SetValueForKey( s, "password", password ? "1" : "0", sizeof( s ));
++	// H9: the server browser's Mode column, named from the map and the game description
++	Info_SetValueForKey( s, "mode", CL_H9_ServerMode( map, desc, false ), sizeof( s ));
+ 
+ 	// write host last so we can try to cut off too long hostnames
+ 	// TODO: value size limit for infostrings
 diff --git a/engine/server/sv_client.c b/engine/server/sv_client.c
-index fd2180b3..6aa13229 100644
+index fd2180b..003d4f0 100644
 --- a/engine/server/sv_client.c
 +++ b/engine/server/sv_client.c
-@@ -1066,10 +1066,16 @@ static void SV_Info( netadr_t from, int protocolVersion )
+@@ -344,6 +344,61 @@ SV_ConnectClient
+ A connection request that did not come from the master
+ ==================
+ */
++const char *H9_Release( void );   // common/h9_release.c: the release of this game folder
++
++/*
++================
++SV_H9ReleaseRefusal
++
++H9: what a server that holds its players to one release (h9_require_release, a cvar of h9_presence's) tells a joiner whose game is
++another, in buf; NULL to let him in. The server's release is h9_plugin_release (its plugins', which h9_presence sets) or, without
++that, the game folder's (h9_release.txt); a joiner's is his userinfo key _h9rel. 1: a joiner who has H9's game (any userinfo key of
++H9's: h9_ or _h9) must match, a stock client has none and is not asked; 2: every joiner must. A server that knows no release asks for
++none, and the local client is this engine. docs\H9_RELEASE.txt.
++================
++*/
++static const char *SV_H9ReleaseRefusal( netadr_t from, const char *userinfo, char *buf, size_t size )
++{
++	int		mode = Cvar_VariableInteger( "h9_require_release" );
++	const char	*want, *have;
++	char		mine[32];
++
++	if( mode <= 0 || NET_IsLocalAddress( from ))
++		return NULL;
++
++	want = Cvar_VariableString( "h9_plugin_release" );
++
++	if( !want[0] )
++		want = H9_Release();
++
++	if( !want[0] )
++		return NULL;
++
++	// copied out at once: Info_ValueForKey hands back one of four buffers it reuses
++	Q_strncpy( mine, Info_ValueForKey( userinfo, "_h9rel" ), sizeof( mine ));
++	have = mine;
++
++	if( !Q_strcmp( have, want ))
++		return NULL;
++
++	if( !have[0] )
++	{
++		// no release: a game older than this check says none, a stock client has no H9 keys at all
++		if( mode < 2 && !Q_strstr( userinfo, "\\_h9" ) && !Q_strstr( userinfo, "\\h9_" ))
++			return NULL;
++
++		Q_snprintf( buf, size, "Your HAVOC 9 is out of date (this server runs release %s): update it from https://havoc9.org/downloads/\n", want );
++		return buf;
++	}
++
++	if( Q_strcmp( have, want ) < 0 )
++		Q_snprintf( buf, size, "Your HAVOC 9 is out of date (release %s, this server runs %s): update it from https://havoc9.org/downloads/\n", have, want );
++	else
++		Q_snprintf( buf, size, "This server runs an older HAVOC 9 (release %s, yours is %s): ask its admin to update, or play on a server that has\n", want, have );
++
++	return buf;
++}
++
+ static void SV_ConnectClient( netadr_t from )
+ {
+ 	char userinfo[MAX_INFO_STRING];
+@@ -444,6 +499,18 @@ static void SV_ConnectClient( netadr_t from )
+ 
+ 	Q_strncpy( userinfo, s, sizeof( userinfo ));
+ 
++	// H9: a server that holds its players to one release refuses another, and says where to get the right one
++	{
++		char		reason[192];
++		const char	*refusal = SV_H9ReleaseRefusal( from, userinfo, reason, sizeof( reason ));
++
++		if( refusal )
++		{
++			SV_RejectConnection( from, "%s", refusal );
++			return;
++		}
++	}
++
+ 	// check connection password (don't verify local client)
+ 	if( !NET_IsLocalAddress( from ) && SV_HavePassword( ))
+ 	{
+@@ -1066,10 +1133,31 @@ static void SV_Info( netadr_t from, int protocolVersion )
  		Info_SetValueForKey( s, "team", svgame.globals->teamplay ? "1" : "0", sizeof( s ));
  		Info_SetValueForKey( s, "coop", svgame.globals->coop ? "1" : "0", sizeof( s ));
  		Info_SetValueForKeyf( s, "numcl", sizeof( s ), "%i", count );
@@ -32,6 +145,85 @@ index fd2180b3..6aa13229 100644
 +		if( Cvar_VariableInteger( "h9_require_account" ) == 1 )
 +			Info_SetValueForKey( s, "auth", "1", sizeof( s ));
 +
++		// H9: the game's description, which an H9 server sets to its mode ("Capture the Uplink", "Siege 2/5"), for the server
++		// browser's Mode column; cut short, and before the hostname, which is cut to what is left
++		if( svgame.dllFuncs.pfnGetGameDescription )
++		{
++			const char *gamedesc = svgame.dllFuncs.pfnGetGameDescription();
++
++			if( gamedesc && gamedesc[0] )
++			{
++				char desc[32];
++
++				Q_strncpy( desc, gamedesc, sizeof( desc ));
++				Info_SetValueForKey( s, "desc", desc, sizeof( s ));
++			}
++		}
++
  		// write host last so we can try to cut off too long hostnames
  		// TODO: value size limit for infostrings
  		remaining = sizeof( s ) - Q_strlen( s ) - sizeof( "\\host\\" ) - 1;
+diff --git a/engine/common/h9_release.c b/engine/common/h9_release.c
+new file mode 100644
+index 00000000..044abaa9
+--- /dev/null
++++ b/engine/common/h9_release.c
+@@ -0,0 +1,58 @@
++/*
++h9_release.c - H9: the release this game folder is
++Copyright (C) 2026 HAVOC 9
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++A release of HAVOC 9 is one name, the first word of h9_release.txt in the game folder (ts\h9_release.txt,
++laid there from xash3d-h9-patches\overlay\ts\ by xash.bat), a date such as 2026.11.05. The engine, the
++client library, the plugins and the files of a release are all one package, so the release is the one
++thing to compare: a client sends it to every server in the userinfo key _h9rel (cl_presence.c), and a
++server that holds its players to one release (h9_require_release) refuses a joiner whose release is
++another (sv_client.c, SV_H9ReleaseRefusal). docs\H9_RELEASE.txt has the whole of it.
++*/
++
++#include "common.h"
++
++/*
++=================
++H9_Release
++
++The release of this game folder, at most 31 characters; "" when the folder has no h9_release.txt.
++Read once.
++=================
++*/
++const char *H9_Release( void )
++{
++	static char	release[32];
++	static qboolean	read;
++
++	if( !read )
++	{
++		fs_offset_t	len = 0;
++		byte		*buf;
++		int		i;
++
++		read = true;
++		buf = FS_LoadFile( "h9_release.txt", &len, false );
++
++		if( buf )
++		{
++			for( i = 0; i < len && i < (int)sizeof( release ) - 1 && buf[i] > ' '; i++ )
++				release[i] = buf[i];
++
++			release[i] = '\0';
++			Mem_Free( buf );
++		}
++	}
++
++	return release;
++}

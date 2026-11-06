@@ -2,17 +2,18 @@
 // account). Reads h9web's presence module (/api/presence/compete/...) and draws into the element
 // marked data-h9-ladder on havoc9.org/ladder/:
 //
-//   ladder/                         the H9 ladder: the servers H9's site admins mark
+//   ladder/                         the H9 ladder: every enrolled server but the UNRANKED ones
 //   ladder/?scope=c:<community>     a community's ladder: the servers its staff count for it
 //   ladder/?scope=s:<server id>     one rated server's own table
 //     with &ladder=dm               the deathmatch ladder (kills only) instead of the match one,
 //     and &page=N                   further down the board
 //   ladder/?p=<username>            a player: each rating and rank, and the latest matches
+//     with &season=N                a past season's final standings (the current one without)
 //   ladder/?m=<match>               a match: its sides, score, rounds, and each player's numbers
 //                                   and change
 //
-// Staff see their switches beside what they run: H9's site admins NETWORK LADDER on a server's
-// table and the open disputes on the H9 ladder; a community's staff its LADDER switch and each
+// Staff see their switches beside what they run: H9's site admins UNRANKED on a server's table and
+// the open disputes on the H9 ladder; a community's staff its LADDER switch and each
 // linked server's COUNTS FOR THE LADDER; VOID on a match for whoever may void it, and DISPUTE for
 // the match's own players. Everything the server sends goes in as text (textContent), never as
 // HTML. The server checks every change again and writes it to the audit log.
@@ -99,9 +100,20 @@
   const playerLink = (name) => el("a", { href: here({ p: name }), text: name });
   const matchLink = (id, text) => el("a", { href: here({ m: id }), text: text || "#" + id });
   const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
+  const day = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }).toUpperCase() : "");
   const signed = (n) => (n === null || n === undefined ? "" : n > 0 ? "+" + n : String(n));
   const change = (n) => el("span", { class: n > 0 ? "h9l-up" : n < 0 ? "h9l-down" : "", text: signed(n) });
   const LADDER_NAME = { match: "MATCH", dm: "DEATHMATCH" };
+  // a level as everywhere on the site: presence.js's badge, or the plain number without it
+  const levelCell = (level, size) => {
+    if (level === null || level === undefined) return "";
+    const P = window.H9Presence;
+    const badge = P && typeof P.levelBadge === "function" ? P.levelBadge(level, size) : null;
+    return badge || "Lv " + level;
+  };
+  // assists show where a server counted them: a column only when a row has a number
+  const counted = (list) => (list || []).some((x) => Number.isInteger(x.assists));
+  const assistText = (n) => (Number.isInteger(n) ? n : "");
   const NOT_HERE = "The ladder isn't available on this site yet.";
 
   // A read that failed, in plain words. probe is the list of rated servers, which answers whenever
@@ -134,9 +146,11 @@
     const scope = q.get("scope") || "network";
     const ladder = q.get("ladder") === "dm" ? "dm" : "match";
     const page = Math.max(1, Number.parseInt(q.get("page") || "1", 10) || 1);
-    const [board, list] = await Promise.all([
-      call("board?scope=" + encodeURIComponent(scope) + "&ladder=" + ladder + "&page=" + page),
+    const season = Number.parseInt(q.get("season") || "0", 10) || 0;
+    const [board, list, seasons] = await Promise.all([
+      call("board?scope=" + encodeURIComponent(scope) + "&ladder=" + ladder + "&page=" + page + (season ? "&season=" + season : "")),
       call("servers"),
+      call("seasons"),
     ]);
     if (!board.ok || !list.ok) {
       failed(box, list, board, "No such ladder.");
@@ -164,18 +178,21 @@
     box.append(tabs, ladders);
 
     const title = b.scope.kind === "network" ? "THE H9 LADDER" : b.scope.kind === "community" ? b.scope.name.toUpperCase() + "'S LADDER" : b.scope.name.toUpperCase();
-    const note = b.scope.kind === "network" ? "Matches on the servers H9's admins mark for it."
+    const note = b.scope.kind === "network" ? "Matches on every server enrolled with havoc9.org, except the ones H9's admins mark UNRANKED."
       : b.scope.kind === "community" ? (b.scope.ladder ? "Matches on the servers this community counts for its ladder." : "This community's ladder is off: what it holds stays, nothing new counts.")
-      : "This server's own table: its matches, as the server reports them." + (b.scope.network ? " It counts for the H9 ladder too." : "");
-    box.append(el("div", { class: "h9l-head" }, el("h2", { text: title + DOT + LADDER_NAME[ladder] }), el("p", { class: "h9l-quiet", text: note })));
+      : "This server's own table: its matches, as the server reports them." + (b.scope.unranked ? " It is UNRANKED: from when it was marked, none of its matches count." : " It counts for the H9 ladder too.");
+    box.append(el("div", { class: "h9l-head" }, el("h2", { text: title + DOT + LADDER_NAME[ladder] }), el("p", { class: "h9l-quiet", text: note }),
+      seasonLine(b, seasons.ok ? seasons.body : null, scope, ladder)));
 
     if (!b.players.length) {
       box.append(el("p", { class: "h9l-quiet", text: "Nobody is rated here yet." }));
     } else {
+      const withA = counted(b.players);
       const rows = b.players.map((p) => el("tr", {},
-        td(p.rank, true), td(playerLink(p.username)), td("Lv " + (p.level || 0), true), td(p.elo, true), td(p.kills, true), td(p.deaths, true), td(p.headshots, true),
-        ladder === "match" ? td(p.wins + " / " + p.losses, true) : null, td(when(p.lastPlayed))));
+        td(p.rank, true), td(p.deleted ? p.username : playerLink(p.username)), td(levelCell(p.level, 22), true), td(p.elo, true), td(p.kills, true), td(p.deaths, true), td(p.headshots, true),
+        withA ? td(assistText(p.assists), true) : null, ladder === "match" ? td(p.wins + " / " + p.losses, true) : null, td(when(p.lastPlayed))));
       const head = [["#", true], ["PLAYER"], ["LEVEL", true], ["RATING", true], ["KILLS", true], ["DEATHS", true], ["HEADSHOTS", true]];
+      if (withA) head.push(["ASSISTS", true]);
       if (ladder === "match") head.push(["WON / LOST", true]);
       head.push(["LAST PLAYED"]);
       box.append(table(head, rows));
@@ -190,6 +207,21 @@
 
     box.append(findForm());
     if (b.scope.manage) await drawManage(box, b.scope, servers, me);
+  }
+
+  // "SEASON 2, SINCE <date>", or a past season's dates, with links to every other season's table.
+  function seasonLine(b, seasons, scope, ladder) {
+    if (!b.season) return null;
+    const s = b.season;
+    const line = el("p", { class: "h9l-quiet" }, "SEASON " + s.number + (s.ended ? ", " + day(s.started) + " TO " + day(s.ended) + ": FINAL STANDINGS" : ", SINCE " + day(s.started)));
+    const others = [];
+    if (seasons && seasons.current && seasons.current.number !== s.number) others.push(seasons.current.number);
+    for (const p of (seasons && seasons.past) || []) if (p.number !== s.number) others.push(p.number);
+    for (const n of others) {
+      const current = seasons.current && n === seasons.current.number;
+      line.append(DOT, el("a", { href: here({ scope: scope === "network" ? null : scope, ladder: ladder === "dm" ? "dm" : null, season: current ? null : n }), text: current ? "THIS SEASON" : "SEASON " + n }));
+    }
+    return line;
   }
 
   function findForm() {
@@ -221,10 +253,11 @@
     const panel = el("div", { class: "h9l-panel" });
     const msg = el("p", { class: "h9l-error" });
     if (scope.kind === "server") {
-      panel.append(el("h3", { text: "H9 ADMIN: NETWORK LADDER" }),
-        el("p", { class: "h9l-quiet", text: scope.network ? "This server's matches count for the H9 ladder." : "This server's matches count only for its own table and its community's ladder." }),
-        el("div", { class: "h9l-row" }, button(scope.network ? "TAKE IT OFF THE H9 LADDER" : "COUNT IT FOR THE H9 LADDER", async () => {
-          if (await post("servers/" + encodeURIComponent(scope.serverId), { network: !scope.network }, msg)) location.reload();
+      panel.append(el("h3", { text: "H9 ADMIN: UNRANKED" }),
+        el("p", { class: "h9l-quiet", text: scope.unranked ? "UNRANKED: this server's matches count nowhere, from when it was marked." : "This server's matches count for its own table, its community's ladder and the H9 ladder, as every enrolled server's do. Mark it UNRANKED to count none of them from now on (the admin panel's LEVELS tab can also void its past matches)." }),
+        el("div", { class: "h9l-row" }, button(scope.unranked ? "RANK IT AGAIN" : "MARK IT UNRANKED", async () => {
+          if (!scope.unranked && !confirm("Mark this server UNRANKED? Its match under way ends, and no match of it counts from now on.")) return;
+          if (await post("servers/" + encodeURIComponent(scope.serverId), { unranked: !scope.unranked }, msg)) location.reload();
         })), msg);
     } else if (scope.kind === "community") {
       panel.append(el("h3", { text: "STAFF: THE COMMUNITY'S LADDER" }),
@@ -265,27 +298,27 @@
       return;
     }
     const p = r.body;
-    box.append(el("div", { class: "h9l-head" }, el("h2", { text: p.username + (p.level === null || p.level === undefined ? "" : DOT + "LV " + p.level) }),
+    box.append(el("div", { class: "h9l-head" }, el("h2", { text: p.username }), levelCell(p.level, 72) || null,
       el("a", { href: here({}), text: "< THE LADDER" })));
-    if (p.ratings === null) {
-      box.append(el("p", { class: "h9l-quiet", text: p.username + " keeps their numbers to themselves." }));
-    } else if (!p.ratings.length) {
+    if (!p.ratings.length) {
       box.append(el("p", { class: "h9l-quiet", text: "No rated kills or matches yet." }));
     } else {
-      box.append(table([["WHERE"], ["LADDER"], ["RATING", true], ["#", true], ["KILLS", true], ["DEATHS", true], ["HEADSHOTS", true], ["WON / LOST", true]],
+      const withA = counted(p.ratings);
+      box.append(table([["WHERE"], ["LADDER"], ["RATING", true], ["#", true], ["KILLS", true], ["DEATHS", true], ["HEADSHOTS", true], withA ? ["ASSISTS", true] : null, ["WON / LOST", true]].filter(Boolean),
         p.ratings.map((x) => el("tr", {},
           td(el("a", { href: here({ scope: x.scope === "network" ? null : x.scope, ladder: x.ladder === "dm" ? "dm" : null }), text: x.name })),
           td(LADDER_NAME[x.ladder]), td(x.elo, true), td(x.rank, true), td(x.kills, true), td(x.deaths, true), td(x.headshots, true),
-          td(x.ladder === "match" ? x.wins + " / " + x.losses : "", true)))));
+          withA ? td(assistText(x.assists), true) : null, td(x.ladder === "match" ? x.wins + " / " + x.losses : "", true)))));
     }
     if (p.matches === null) {
       box.append(el("p", { class: "h9l-quiet", text: "Their matches are hidden." }));
     } else if (p.matches.length) {
       box.append(el("div", { class: "h9l-head" }, el("h2", { text: "LATEST MATCHES" })));
-      box.append(table([["MATCH"], ["WHEN"], ["SERVER"], ["MAP"], ["RESULT"], ["K", true], ["D", true], ["HS", true], ["CHANGE", true]],
+      const withA = counted(p.matches);
+      box.append(table([["MATCH"], ["WHEN"], ["SERVER"], ["MAP"], ["RESULT"], ["K", true], ["D", true], ["HS", true], withA ? ["A", true] : null, ["CHANGE", true]].filter(Boolean),
         p.matches.map((m) => el("tr", {},
           td(matchLink(m.id)), td(when(m.started)), td(m.server), td(m.map), td(resultText(m)),
-          td(m.kills, true), td(m.deaths, true), td(m.headshots, true), td(change(m.change), true)))));
+          td(m.kills, true), td(m.deaths, true), td(m.headshots, true), withA ? td(assistText(m.assists), true) : null, td(change(m.change), true)))));
     }
   }
 
@@ -317,12 +350,16 @@
       const players = m.players.filter((p) => (m.ladder === "dm" ? true : p.side === s));
       if (!players.length) continue;
       if (m.ladder !== "dm") box.append(el("div", { class: "h9l-head" }, el("h2", { text: "SIDE " + s + (m.winner === s ? DOT + "WON" : "") })));
-      const head = [["PLAYER"], ["K", true], ["D", true], ["HS", true], ["TK", true]];
+      const withA = counted(players);
+      const head = [["PLAYER"], ["K", true], ["D", true], ["HS", true]];
+      if (withA) head.push(["A", true]);
+      head.push(["TK", true]);
       if (m.ladder !== "dm") head.push(["ROUNDS", true], ["RESULT"]);
       else head.push(["PLACE", true]);
       for (const k of m.scopes) head.push([k.toUpperCase(), true]);
       box.append(table(head, players.map((p) => el("tr", {},
-        td(p.linked ? playerLink(p.name) : p.name), td(p.kills, true), td(p.deaths, true), td(p.headshots, true), td(p.teamkills, true),
+        td(p.linked ? playerLink(p.name) : p.name), td(p.kills, true), td(p.deaths, true), td(p.headshots, true),
+        withA ? td(assistText(p.assists), true) : null, td(p.teamkills, true),
         m.ladder !== "dm" ? [td(p.rounds, true), td({ win: "won", loss: "lost", left: "left" }[p.result] || "")] : td(p.place, true),
         m.scopes.map((k) => td(change(p.change[k]), true))))));
     }

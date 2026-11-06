@@ -35,6 +35,7 @@
    4a. Enrollment: a server's key, by itself
    4b. What the answer to a report says
    4c. Accounts-only servers (h9_require_account)
+   4d. The official preset: authenticated servers, and the browser's chain
     5. What the site shows: the states
     6. The privacy switches
     7. Privacy: what is kept, for how long, and who sees it
@@ -48,17 +49,19 @@
 
  1. HOW IT WORKS
  ---------------
- Every 60 seconds, and a few seconds after anyone joins, leaves or changes
- name, h9_presence.sma POSTs a report to h9web (the service behind
- havoc9.org) at /api/presence/report; a player's proof (section 8) is
+ Every 60 seconds (a server nobody is on reports too: that is its heartbeat,
+ and its chain, section 4d, needs it), and a few seconds after anyone joins,
+ leaves or changes name, h9_presence.sma POSTs a report to h9web (the service
+ behind havoc9.org) at /api/presence/report; a player's proof (section 8) is
  reported at once, 0.3 seconds after its answer and one report every 2
  seconds at most (h9_presence 1.8), so a proven player's chain, picture and
  level reach every scoreboard a second or two after the player is in game,
  at a map's start as well. A report holds:
    * the map, and the mode named the way the Discord card names it (Team
      Elimination, Siege, Capture the Uplink, Wave Survival, Mech Warrior,
-     Roleplay, Match Mode, Deathmatch), with the mode's progress where there is
-     one ("Siege - Insurgents attacking: 2 of 5 objectives"). Its sides go by the
+     Assault, Capture the Flag, Roleplay, Match Mode, Deathmatch), with the mode's progress where
+     there is one ("Siege - Insurgents attacking: 2 of 5 objectives", "Assault
+     - points: Middle Sea Republic 2, Insurrectionists 1 of 5"). Its sides go by the
      names the game itself shows (h9_presence 1.7): entries 1 and 2 of
      mp_teamlist when it has them, "Middle Sea Republic" and "Insurrectionists"
      on H9XASH ("Capture the Uplink - zones: Middle Sea Republic 1,
@@ -443,6 +446,120 @@
  icon. A newly linked game (Link your Account) may prove its account at once:
  h9web allows its device beside the account's bound one when it is linked
  (core's account-link event), and takes it away when the link is revoked.
+
+ 4d. THE OFFICIAL PRESET: AUTHENTICATED SERVERS, AND THE BROWSER'S CHAIN
+ ----------------------------------------------------------------------
+ H9's server browser, in the game and on the site, draws a chain beside each
+ server, the same two the scoreboard draws for a player (section 4b):
+   a green chain         havoc9.org vouches for the server: it reports to h9web
+                         with a live key and what it runs is H9's official
+                         preset, or it is on a roleplay map, where that check
+                         does not apply
+   a red broken chain    it does not: the server runs something beside the
+                         preset, listed nothing, opted out, or does not report
+                         to havoc9.org at all
+ Nothing is blocked, kicked or hidden for it. Anyone may modify H9 or run
+ third-party plugins and edits; such a server simply is not authenticated
+ ("unauthenticated (modified)" on the site, never anything harsher), and its
+ matches are not ranked (h9web answers a match start 409 not_rated,
+ docs\H9_COMPETITIVE.txt section 6). H9 keeps offering third-party support and
+ tools: these docs, the include files and the build scripts.
+
+ WHAT A SERVER SAYS IT RUNS
+ From h9_presence 1.10 the report lists what the server runs, at each map
+ start and every 20 minutes:  "plugins": [ { "k", "f", "v", "h" }, ... ]
+   k "amxx"    every AMX Mod X plugin that loaded (not one that failed to):
+               f its file name, v its version, h the SHA-256 of the file
+   k "module"  every *_amxx.dll, *_amxx.so and *_amxx_i386.so in the modules
+               folder
+   k "meta"    every file that Metamod's plugins.ini names and that is there
+ h9web keeps the last list a server gave. A list is the server's own word: it
+ catches unofficial setups and mistakes, not a determined operator with a
+ modified h9_presence.
+
+ A NEW PLUGIN IN THE PRESET. A build that adds a plugin to presets\plugins.<tag>.ini
+ (ts_assault.amxx and ts_ctf.amxx, 2026-11-05, are the latest) makes a server that runs it read as
+ modified until the allowlist has that file's hash: re-seed it from the build (the
+ command below, mode "add"). Servers that have not updated run without the plugin and
+ stay authenticated. The same holds for a rebuilt ts_matchmode.amxx or h9_presence.amxx.
+
+ THE ALLOWLIST (an H9 site admin's)
+ presence_preset (migration 12): the kind, the file's name and the SHA-256 of
+ its bytes, one row per file an authenticated server may run. It is made from
+ a build's own files:
+   node modules/presence/bin/preset-seed.js --h9xash <the build's H9XASH folder>
+        --out preset.json                 (the plugins its presets\plugins.<tag>.ini
+                                           switch on, its modules, its Metamod plugins)
+ and imported with POST /api/presence/admin/preset/import, signed in as an
+ admin, the file as the body ({ "mode": "add" | "replace", "entries": [...] }),
+ or straight into the database, as the service's user with the service's config
+ (h9web-admin.js's way), the same tool with --import:
+   node modules/presence/bin/preset-seed.js --h9xash <the build's H9XASH folder>
+        --import --config /etc/h9web/config.json [--mode replace] [--live]
+ (--live adds the plugins.ini the build's server runs now; the audit log says
+ "(command line)"; the site reads the table again every cacheSeconds, 15, so
+ it needs no restart).
+ GET /api/presence/admin/preset lists the entries and, for each server that
+ reports, its verdict and the files that are off the list; POST .../remove
+ { kind, file, sha256 } takes one away. Both changes are in the audit log
+ (presence.preset.import, presence.preset.remove).
+   * "add", the default, keeps the hashes of older builds official, so a server
+     that has not updated yet stays authenticated until an admin removes them;
+     "replace" first drops every entry that is not optional;
+   * an entry with "optional": true (a community's own plugin, say) stays
+     through a replace;
+   * with no entry at all no preset is kept, and every server that reports
+     counts as authenticated until one is imported.
+
+ THE VERDICTS
+   ok    reports, and everything it lists is on the allowlist
+   rp    reports, on a roleplay map (rp_ or tsrp_ at the start of its name, _rp_
+         or _tsrp_ in it): authenticated, and nothing there is ranked; the
+         browser says "[UNRANKED: roleplay]" beside it
+   mod   reports, but a file it lists is not on the list (a file of its own, or
+         another build's: "not the official file (another hash)"), a file could
+         not be read, or it has listed nothing yet
+   opt   reports, and its operator set h9_authenticated 0 (below)
+   off   does not report: not enrolled, or silent and not answering (below), or a
+         private community's server or a listen server (never shown)
+ ok and rp are the green chain; mod, opt and off the red one.
+
+ A VERDICT IS HELD. A report earns the verdict, and the verdict stays while the server
+ is there: a server that has been judged ok or rp does not turn red because reports
+ are late. It stays what its last report made it
+   * for 10 minutes after that report (authFreshSeconds; 25 minutes when the report
+     said nobody was on the server, authQuietSeconds), and
+   * beyond that for as long as the site's own status poll hears the server answer,
+     for up to a day (authHoldSeconds, 86400): a map loading, a plugin that reports
+     an empty server rarely, a request that failed and the time h9web itself was
+     down (never counted against a server) change nothing.
+ It changes when the server says something else: a list with a file off the allowlist
+ makes it mod at that report, h9_authenticated 0 makes it opt, a revoked key or an
+ admin's block ends it, and a server that is neither answering nor reporting is off.
+ Rated play never looked at the clock: it asks only what the last list was.
+
+ h9_authenticated 0 | 1   (h9_presence.cfg; default 1; FCVAR_SERVER)
+ 0 opts the server out on purpose: its report says "authenticated": false, so
+ h9web lists it as not authenticated (the red chain, whatever it runs, a
+ roleplay map included) and rates none of its matches; the next report with
+ the cvar back at 1 undoes it. 1 asks for nothing: h9web judges what the server
+ runs. A server cannot make itself more authenticated than that, so no setting
+ here turns a red chain green. h9_presence_status says which it is.
+
+ WHAT THE BROWSER READS
+ GET /api/presence/servers/auth (public, cached like the other public reads):
+ the line "H9SRV 1", then "<address> <code>" for each server that reports and
+ is not private (code ok, rp, mod or opt; a server not named is off).
+ H9XASH's engine (cl_h9auth.c, engine-h9-serverauth.patch) fetches it with the
+ command h9_servers, which the browser runs when it opens and each time it
+ refreshes (every 20 seconds, once in 20 at the most), over https with the
+ certificate checked, and puts it in the cvars _h9srv and _h9srv_gen for the
+ menu (mainui-h9-browser.patch). It asks the site and never the servers, because
+ a server cannot say that it is authenticated. Before the first answer, on the
+ LAN list, and in the web client, no chain is drawn. cl_h9_servers 0 turns the
+ fetch off; cl_h9_site names a local test site (docs\CUSTOM_XASH_USERID.txt).
+ The site's own server page draws the same chains from the auth field of
+ /api/servers. A game that cannot reach the site simply shows none.
 
  5. WHAT THE SITE SHOWS: THE STATES
  ----------------------------------

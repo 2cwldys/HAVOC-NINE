@@ -1,9 +1,8 @@
 diff --git a/engine/client/cl_h9join.c b/engine/client/cl_h9join.c
 new file mode 100644
-index 0000000..4563cc3
 --- /dev/null
 +++ b/engine/client/cl_h9join.c
-@@ -0,0 +1,450 @@
+@@ -0,0 +1,535 @@
 +/*
 +cl_h9join.c - H9: the join screen, the menu's connection progress while a server is joined
 +Copyright (C) 2026 HAVOC 9
@@ -25,7 +24,8 @@ index 0000000..4563cc3
 +the local server's own client) and at each map change (svc_changing, reconnect) until the player is in
 +the game (ca_active): its background, or its video, full screen, and a panel with the stage, an overall
 +bar (scr_loading) and, while a file downloads, its name, n of N and its own bar with KB of KB, over H9's
-+HTTP fast download or the netchan. ESC on it cancels the join. A join or a game the server or the engine
++HTTP fast download or the netchan, and the downloads together (the bytes done and to go, the time that takes)
++under the bar. ESC on it cancels the join. A join or a game the server or the engine
 +ends with a reason (refused, kicked, timed out, a file that could not come) shows it, with OK.
 +
 +What the menu reads, set by this file, read-only, and private (FCVAR_PRIVILEGED: no server reads or sets
@@ -36,10 +36,12 @@ index 0000000..4563cc3
 +  _h9join_server    the server it joins (its address; the local server says so)
 +  _h9join_file      the file downloading, "<name>   n of N   a of b KB"; empty without a download
 +  _h9join_fileprog  that file's bar, 0 to 100
++  _h9join_total     the downloads together: "<done> of <all>   <left> to go   about <time> left" ("<done> so far"
++                    while the engine does not know the total); empty without a download
 +  _h9_drop          why the last join or game ended, when the server or the engine said; empty for a cancel
 +                    or a plain disconnect
 +scr_loading, the overall bar: connecting 5 and a little more for each try, server info 15, the downloads
-+up to 50 by the bytes still to come, the map 55, the other resources up to 90 by their count, spawning 95.
++up to 50 by the bytes done (by the files while the total is not known), the map 55, the other resources up to 90 by their count, spawning 95.
 +The precache runs inside one frame, so it draws a frame now and then (SCR_UpdateScreen, H9J_PUMP).
 +
 +None of it runs for a demo or a timedemo, on a background map, with cl_h9_joinscreen 0, or with a menu
@@ -63,12 +65,20 @@ index 0000000..4563cc3
 +static CVAR_DEFINE( h9join_server, "_h9join_server", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the server the join screen joins (set by the engine)" );
 +static CVAR_DEFINE( h9join_file, "_h9join_file", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the file the join screen downloads (set by the engine)" );
 +static CVAR_DEFINE( h9join_fileprog, "_h9join_fileprog", "0", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: that file's progress, 0 to 100 (set by the engine)" );
++static CVAR_DEFINE( h9join_total, "_h9join_total", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the downloads together, for the join screen (set by the engine)" );
 +static CVAR_DEFINE( h9_drop, "_h9_drop", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: why the last join or game ended (set by the engine)" );
 +
 +static struct
 +{
 +	qboolean up;          // the screen is up, for a join or a map change this file began
 +	int      files;       // the downloads this join counted when they began (n of N), 0 before
++	int      dl_done;     // the bytes of the files this join's downloads have finished
++	int      dl_got;      // the bytes of the file coming now, so far
++	int      dl_size;     // its size, 0 while it is not known
++	char     dl_name[MAX_SYSPATH]; // its name: another name is the next file
++	double   rate_at;     // host.realtime of the last speed sample, 0 before the first
++	int      rate_from;   // the bytes done by then
++	float    rate;        // bytes a second over the last seconds, 0 before the first sample
 +	int      precached;   // resources precached so far, of
 +	int      to_precache;
 +	double   pumped;      // when the precache last drew a frame
@@ -80,6 +90,35 @@ index 0000000..4563cc3
 +{
 +	if( Q_strcmp( cv->string, value ))
 +		Cvar_DirectFullSet( cv, value, 0 );
++}
++
++// no download is coming: the file, its bar and the totals go, and the next ones are counted from nothing
++static void H9J_NoDownload( void )
++{
++	h9j.dl_done = h9j.dl_got = h9j.dl_size = 0;
++	h9j.dl_name[0] = '\0';
++	h9j.rate_at = 0.0;
++	h9j.rate_from = 0;
++	h9j.rate = 0.0f;
++	H9J_Set( &h9join_file, "" );
++	H9J_Set( &h9join_fileprog, "0" );
++	H9J_Set( &h9join_total, "" );
++}
++
++static void H9J_SizeText( char *out, size_t size, double bytes )
++{
++	if( bytes >= 10.0 * 1048576.0 )
++		Q_snprintf( out, size, "%d MB", (int)( bytes / 1048576.0 + 0.5 ));
++	else if( bytes >= 1048576.0 )
++		Q_snprintf( out, size, "%.1f MB", bytes / 1048576.0 );
++	else Q_snprintf( out, size, "%d KB", bytes > 0.0 ? Q_max( 1, (int)( bytes / 1024.0 + 0.5 )) : 0 );
++}
++
++static void H9J_TimeText( char *out, size_t size, double seconds )
++{
++	if( seconds < 90.0 )
++		Q_snprintf( out, size, "%d s", Q_max( 1, (int)( seconds + 0.5 )));
++	else Q_snprintf( out, size, "%d min", (int)( seconds / 60.0 + 0.5 ));
 +}
 +
 +// the overall bar only grows during a join
@@ -110,8 +149,7 @@ index 0000000..4563cc3
 +	h9j.reason[0] = '\0';
 +	H9J_Set( &h9_drop, "" );
 +	H9J_Set( &h9join_server, server );
-+	H9J_Set( &h9join_file, "" );
-+	H9J_Set( &h9join_fileprog, "0" );
++	H9J_NoDownload();
 +	Cvar_SetValue( "scr_loading", 0.0f );
 +	H9J_Stage( stage, loading );
 +	H9J_Set( &h9join_up, "1" );
@@ -128,8 +166,7 @@ index 0000000..4563cc3
 +	h9j.up = false;
 +	H9J_Set( &h9join_up, "0" );
 +	H9J_Set( &h9join_stage, "" );
-+	H9J_Set( &h9join_file, "" );
-+	H9J_Set( &h9join_fileprog, "0" );
++	H9J_NoDownload();
 +}
 +
 +/*
@@ -235,7 +272,7 @@ index 0000000..4563cc3
 +		if( !FBitSet( p->ucFlags, RES_PRECACHED ))
 +			h9j.to_precache++;
 +	}
-+	H9J_Set( &h9join_file, "" );
++	H9J_NoDownload();
 +}
 +
 +void CL_H9Join_PrecacheWorld( void )
@@ -350,8 +387,8 @@ index 0000000..4563cc3
 +// the frame's look at the downloads (the H9UI registry's Frame): the file, n of N, its KB and its bar
 +static void H9J_Frame( void )
 +{
-+	char name[MAX_SYSPATH], line[MAX_SYSPATH + 64];
-+	int got = 0, size = -1, remaining, n;
++	char name[MAX_SYSPATH], line[MAX_SYSPATH + 64], total_line[160], a[24], b[24], c[24], eta[24];
++	int got = 0, size = -1, remaining, n, done, total;
 +	float file_pct = -1.0f;
 +
 +	if( !h9j.up )
@@ -361,7 +398,7 @@ index 0000000..4563cc3
 +	if( remaining <= 0 && ( scr_download.value < 0.0f ))
 +	{
 +		if( h9join_file.string[0] )
-+			H9J_Set( &h9join_file, "" );
++			H9J_NoDownload();
 +		return;
 +	}
 +
@@ -397,6 +434,17 @@ index 0000000..4563cc3
 +	if( n > h9j.files )
 +		n = h9j.files;
 +
++	// the bytes of all this join's downloads: the files that have finished, and the one coming now
++	if( name[0] && Q_strcmp( name, h9j.dl_name ))
++	{
++		h9j.dl_done += Q_max( h9j.dl_size, h9j.dl_got );
++		Q_strncpy( h9j.dl_name, name, sizeof( h9j.dl_name ));
++		h9j.dl_size = 0;
++	}
++	h9j.dl_got = Q_max( got, 0 );
++	if( size > 0 )
++		h9j.dl_size = size;
++
 +	if( size > 0 )
 +		Q_snprintf( line, sizeof( line ), "%s   %d of %d   %d of %d KB", name[0] ? COM_FileWithoutPath( name ) : "...", n, Q_max( h9j.files, 1 ), got / 1024, size / 1024 );
 +	else Q_snprintf( line, sizeof( line ), "%s   %d of %d", name[0] ? COM_FileWithoutPath( name ) : "...", n, Q_max( h9j.files, 1 ));
@@ -404,9 +452,44 @@ index 0000000..4563cc3
 +	Q_snprintf( name, sizeof( name ), "%d", file_pct >= 0.0f ? (int)file_pct : 0 );
 +	H9J_Set( &h9join_fileprog, name );
 +
-+	// the overall bar: 15 to 50 by the bytes still to come
-+	if( cls.dl.nTotalToTransfer > 0 )
-+		H9J_Stage( "Downloading", 15.0f + 35.0f * ( cls.dl.nTotalToTransfer - Q_max( cls.dl.nRemainingToTransfer, 0 )) / cls.dl.nTotalToTransfer );
++	// the downloads together: the bytes done of all, what is left, and the time that takes at the speed of the last seconds
++	done = h9j.dl_done + h9j.dl_got;
++	total = cls.dl.nTotalToTransfer;
++	if( total > 0 && total < done )
++		total = done; // the estimate was short
++	if( h9j.rate_at <= 0.0 || done < h9j.rate_from )
++	{
++		h9j.rate_at = host.realtime;
++		h9j.rate_from = done;
++	}
++	else if( host.realtime - h9j.rate_at >= 1.0 )
++	{
++		float now_rate = ( done - h9j.rate_from ) / (float)( host.realtime - h9j.rate_at );
++
++		h9j.rate = h9j.rate > 0.0f ? h9j.rate * 0.7f + now_rate * 0.3f : now_rate;
++		h9j.rate_at = host.realtime;
++		h9j.rate_from = done;
++	}
++	H9J_SizeText( a, sizeof( a ), done );
++	if( total > 0 )
++	{
++		H9J_SizeText( b, sizeof( b ), total );
++		H9J_SizeText( c, sizeof( c ), total - done );
++		if( h9j.rate >= 20480.0f && total > done )
++		{
++			H9J_TimeText( eta, sizeof( eta ), ( total - done ) / h9j.rate );
++			Q_snprintf( total_line, sizeof( total_line ), "%s of %s   %s to go   about %s left", a, b, c, eta );
++		}
++		else Q_snprintf( total_line, sizeof( total_line ), "%s of %s   %s to go", a, b, c );
++	}
++	else Q_snprintf( total_line, sizeof( total_line ), "%s so far", a );
++	H9J_Set( &h9join_total, total_line );
++
++	// the overall bar: 15 to 50 by the bytes done, by the files while the total is not known
++	if( total > 0 )
++		H9J_Stage( "Downloading", 15.0f + 35.0f * done / total );
++	else if( h9j.files > 0 )
++		H9J_Stage( "Downloading", 15.0f + 35.0f * (( n - 1 ) + ( size > 0 ? Q_min( (float)h9j.dl_got / size, 1.0f ) : 0.0f )) / h9j.files );
 +	else H9J_Stage( "Downloading", 15.0f );
 +}
 +
@@ -451,6 +534,7 @@ index 0000000..4563cc3
 +	Cvar_RegisterVariable( &h9join_server );
 +	Cvar_RegisterVariable( &h9join_file );
 +	Cvar_RegisterVariable( &h9join_fileprog );
++	Cvar_RegisterVariable( &h9join_total );
 +	Cvar_RegisterVariable( &h9_drop );
 +	H9UI_AddPanel( &h9j_panel );
 +}

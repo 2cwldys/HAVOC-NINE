@@ -261,6 +261,7 @@
       filled.textContent = name + " is filled in below.";
     };
     section.append(accountList(pick), filled, detail, suspendBox(preset));
+    if (!me.admin) section.append(linkedGamesLookup(preset), rankLookup(preset));
     if (forumOn) section.append(await postingBox(preset, section), pictureBox(preset));
     if (me.admin) {
       const discord = await discordBox();
@@ -440,12 +441,19 @@
     }
     const trail = el("table", { class: "panel-table" }, el("tr", null, ["WHEN", "WHO", "WHAT", "ON", "DETAILS"].map((h) => el("th", { text: h }))));
     for (const e of r.data.audit) trail.append(el("tr", null, [when(e.at), e.by || "-", e.action, e.target || "-", [e.subject, e.detail].filter(Boolean).join(DOT) || "-"].map((v) => el("td", { text: v }))));
-    panel.append(el("h3", { class: "forum-section", text: "ITS AUDIT TRAIL" }), el("div", { class: "panel-wrap" }, trail));
+    const trailHead = el("h3", { class: "forum-section", text: "ITS AUDIT TRAIL" });
+    panel.append(trailHead, el("div", { class: "panel-wrap" }, trail));
     detail.append(panel);
+    // Each box goes in above the audit trail, before this heading: the first ".forum-section" in the
+    // panel is the heading of the box that went in before it, which is not the panel's own child.
     const discord = await discordOf(a.username, again);
-    if (discord) panel.insertBefore(discord, panel.querySelector(".forum-section"));
+    if (discord) panel.insertBefore(discord, trailHead);
+    const games = await linkedGames(a.username, again);
+    if (games) panel.insertBefore(games, trailHead);
+    const rank = await rankBox(a.username, again);
+    if (rank) panel.insertBefore(rank, trailHead);
     const dev = me.admin ? await developerOf(a.username) : null;
-    if (dev) panel.insertBefore(dev, panel.querySelector(".forum-section"));
+    if (dev) panel.insertBefore(dev, trailHead);
   }
 
   // The account's DEVELOPER flag (the forum module), for admins: it goes with any role, shows the
@@ -470,6 +478,153 @@
 
   // The account's Discord link (the discord module), with FREE: the link goes, and the
   // registered role with it, so the player can link a new Discord account.
+  // An account's LINKED GAMES (lib/link.js): each game's label, system, when it was linked and last
+  // seen, and its site where the link holds one. An admin REVOKES one or ALL, with their own
+  // password and a note for the audit log: the same revoke as the owner's on their ACCOUNT page, so
+  // the game hears it at its next status check and the account's proof for that device is dropped.
+  // Moderators see the list and act on nothing. null when the site has no linking.
+  async function linkedGames(name, again) {
+    const r = await call("GET", "link/accounts/" + encodeURIComponent(name) + "/devices");
+    if (r.status === 404 && !(r.data && r.data.error === "not_found")) return null;
+    const box = el("div", null, el("h3", { class: "forum-section", text: "LINKED GAMES" }));
+    if (r.status !== 200) {
+      box.append(el("p", { class: "forum-error", text: problem(r) }));
+      return box;
+    }
+    const games = r.data.devices || [];
+    if (!games.length) {
+      box.append(el("p", { class: "forum-row-meta", text: "No game is linked to " + name + "." }));
+      return box;
+    }
+    const act = !!(r.data.can && r.data.can.act);
+    const msg = note();
+    const why = input({ maxlength: 200, placeholder: "why (the audit log keeps it)", "aria-label": "Note for the audit log" });
+    const revoke = async (ev, path, what) => {
+      if (why.value.trim().length < 3) {
+        msg.className = "forum-error";
+        msg.textContent = "Say why, in 3 characters or more: the audit log keeps it.";
+        return;
+      }
+      if (!confirm("Revoke " + what + "? The game is unlinked at its next check, and has to be linked again from its main menu.")) return;
+      const password = await askPassword(ev.target, "Revoking " + name + "'s linked games needs your own password.");
+      if (password === null) return;
+      const res = await call("POST", "link/accounts/" + encodeURIComponent(name) + "/devices/" + path, { password, note: why.value.trim() });
+      if (say(msg, res, "Revoked.")) again();
+    };
+    const head = ["GAME", "SYSTEM", "LINKED", "LAST SEEN", "SITE"];
+    if (act) head.push("");
+    const table = el("table", { class: "panel-table" }, el("tr", null, head.map((h) => el("th", { text: h }))));
+    for (const g of games) {
+      const cells = [g.label + (g.device ? DOT + g.device : ""), g.os || "-", when(g.linked), when(g.lastSeen), g.site || "-"].map((v) => el("td", { text: v }));
+      if (act) cells.push(el("td", null, button("REVOKE", (ev) => revoke(ev, g.id + "/revoke", "the " + g.label + " game"), "danger")));
+      table.append(el("tr", null, cells));
+    }
+    box.append(el("div", { class: "panel-wrap" }, table));
+    if (act) {
+      box.append(field("NOTE FOR THE AUDIT LOG", why),
+        el("div", { class: "panel-actions" }, button("REVOKE ALL", (ev) => revoke(ev, "revoke-all", "every game linked to " + name), "danger")), msg);
+    } else {
+      box.append(el("p", { class: "forum-row-meta", text: "Only an admin revokes a linked game, and never on an account of their own role or above." }));
+    }
+    return box;
+  }
+
+  // For moderators, who do not open an account's whole page: one account's linked games, to look at.
+  function linkedGamesLookup(preset) {
+    const name = input({ maxlength: 20, value: preset || "", "aria-label": "Username" });
+    const out = el("div");
+    const form = el("form", { class: "panel-actions" }, name, el("button", { type: "submit", class: "btn btn-primary btn-sm", text: "SHOW" }));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      out.textContent = "";
+      const n = name.value.trim();
+      if (!n) return;
+      const games = await linkedGames(n, () => {});
+      out.append(games || el("p", { class: "forum-row-meta", text: "Linking is not on this site." }));
+    });
+    return box("LINKED GAMES", el("p", { class: "forum-row-meta", text: "The games linked to an account, as its owner sees them on the ACCOUNT page." }), form, out);
+  }
+
+  // An account's RANK (compete.js): the career level and its experience, the next level's, each
+  // table's rating, place and numbers, and every adjustment made. An admin ADJUSTS a table's rating
+  // (set it, or move it by an amount) or the career's experience, with a note for the audit log and
+  // their own password; never on their own account or another admin's. Moderators look only. null
+  // when the site has no rated play.
+  async function rankBox(name, again) {
+    const r = await call("GET", "presence/compete/accounts/" + encodeURIComponent(name));
+    if (r.status === 404 && !(r.data && r.data.error === "not_found")) return null;
+    const box = el("div", null, el("h3", { class: "forum-section", text: "RANK" }));
+    if (r.status !== 200) {
+      box.append(el("p", { class: "forum-error", text: problem(r) }));
+      return box;
+    }
+    const d = r.data;
+    const rk = d.rank;
+    box.append(el("p", { text: "Lv " + (rk.level === null ? "0" : rk.level) + DOT + d.xp.total + " career XP" + (d.xp.adjusted ? " (" + (d.xp.adjusted > 0 ? "+" : "") + d.xp.adjusted + " of it adjusted)" : "") +
+      (d.next ? DOT + "Lv " + d.next.level + " at " + d.next.xp + " XP" : "") + (rk.elo !== null && rk.elo !== undefined ? DOT + "H9 ladder MATCH rating " + rk.elo : "") + DOT + "season " + rk.season.number }));
+    if (rk.ladders.length) {
+      const table = el("table", { class: "panel-table" }, el("tr", null, ["TABLE", "LADDER", "RATING", "#", "MATCHES", "WON / LOST", "KILLS / DEATHS", "K/D"].map((h) => el("th", { text: h }))));
+      for (const l of rk.ladders) {
+        table.append(el("tr", null, [l.name, l.ladder.toUpperCase(), l.elo, "#" + l.place, l.matches, l.wins + " / " + l.losses,
+          l.kills + " / " + l.deaths + (Number.isInteger(l.assists) ? " / " + l.assists + " A" : ""), Number(l.kd).toFixed(2)].map((v) => el("td", { text: String(v) }))));
+      }
+      box.append(el("div", { class: "panel-wrap" }, table));
+    } else {
+      box.append(el("p", { class: "forum-row-meta", text: "No table yet this season." }));
+    }
+    if (d.adjustments.length) {
+      const adj = el("table", { class: "panel-table" }, el("tr", null, ["WHEN", "WHO", "WHAT", "FROM", "TO", "NOTE"].map((h) => el("th", { text: h }))));
+      for (const x of d.adjustments) {
+        const what = x.field === "xp" ? "career XP" : (x.table || "a table") + " " + String(x.ladder || "").toUpperCase() + " rating";
+        adj.append(el("tr", null, [when(x.at), x.by || "-", what, x.before, x.after, x.note].map((v) => el("td", { text: String(v) }))));
+      }
+      box.append(el("h4", { text: "ADJUSTMENTS" }), el("div", { class: "panel-wrap" }, adj));
+    }
+    if (!d.can.adjust) {
+      box.append(el("p", { class: "forum-row-meta", text: "Only an admin adjusts a rank, and never their own account's or another admin's." }));
+      return box;
+    }
+    const msg = note();
+    const what = el("select", { class: "forum-select", "aria-label": "What to adjust" },
+      el("option", { value: "xp", text: "Career XP" }),
+      ...rk.ladders.map((l) => el("option", { value: "elo|" + l.scope + "|" + l.ladder, text: l.name + " " + l.ladder.toUpperCase() + " rating" })),
+      rk.ladders.some((l) => l.kind === "network" && l.ladder === "match") ? null : el("option", { value: "elo|network|match", text: "H9 ladder MATCH rating" }));
+    const how = el("select", { class: "forum-select", "aria-label": "Set or move" },
+      el("option", { value: "set", text: "set it to" }), el("option", { value: "by", text: "move it by (below 0 takes away)" }));
+    const amount = input({ inputmode: "numeric", placeholder: "a whole number", "aria-label": "Amount" });
+    const why = input({ maxlength: 200, placeholder: "why (the audit log keeps it)", "aria-label": "Note for the audit log" });
+    box.append(el("div", { class: "panel-grid" }, field("ADJUST", what), field("HOW", how), field("AMOUNT", amount), field("NOTE", why)),
+      el("div", { class: "panel-actions" }, button("ADJUST THE RANK", async (ev) => {
+        const n = Number(amount.value.trim());
+        if (!Number.isInteger(n)) return say(msg, { status: 400, data: { message: "The amount is a whole number." } });
+        if (why.value.trim().length < 3) return say(msg, { status: 400, data: { message: "Say why, in 3 characters or more: the audit log keeps it." } });
+        const password = await askPassword(ev.target, "Adjusting " + name + "'s rank needs your own password.");
+        if (password === null) return;
+        const [field_, scope, ladder] = what.value.split("|");
+        const body = { field: field_ === "xp" ? "xp" : "elo", note: why.value.trim(), password };
+        body[how.value] = n;
+        if (body.field === "elo") Object.assign(body, { scope, ladder });
+        if (say(msg, await call("POST", "presence/compete/accounts/" + encodeURIComponent(name) + "/adjust", body), "Adjusted: the level is worked out again.")) again();
+      }, "danger")), msg);
+    return box;
+  }
+
+  // For moderators: one account's RANK, to look at.
+  function rankLookup(preset) {
+    const name = input({ maxlength: 20, value: preset || "", "aria-label": "Username" });
+    const out = el("div");
+    const form = el("form", { class: "panel-actions" }, name, el("button", { type: "submit", class: "btn btn-primary btn-sm", text: "SHOW" }));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      out.textContent = "";
+      const n = name.value.trim();
+      if (!n) return;
+      const rank = await rankBox(n, () => {});
+      out.append(rank || el("p", { class: "forum-row-meta", text: "Rated play is not on this site." }));
+    });
+    return box("RANK", el("p", { class: "forum-row-meta", text: "An account's career level, its experience and its tables, and every adjustment an admin made." }), form, out);
+  }
+
   async function discordOf(name, again) {
     const r = await call("GET", "discord/links/" + encodeURIComponent(name));
     if (r.status !== 200 || !r.data.enabled) return null;
@@ -684,14 +839,14 @@
     keep.checked = true;
     const resetConfirm = input({ maxlength: 20, placeholder: "type " + a.username, "aria-label": "Type the username to reset its player id" });
     panel.append(
-      el("p", { class: "forum-row-meta", text: "RESET gives " + a.username + " a new player id. The old one, and every h9_clientid made from it, stops working at once, so a leaked id dies. Their open sessions end. They copy the new id from their ACCOUNT page into enter_userid.cmd; the web client uses it by itself." }),
+      el("p", { class: "forum-row-meta", text: "RESET gives " + a.username + " a new player id. The old one, and every h9_clientid made from it, stops working at once, so a leaked id dies. Their open sessions end, and every game linked to the account is unlinked. 'Link your Account' in the game's main menu links it again and fetches the new id by itself (or they copy it from their ACCOUNT page into enter_userid.cmd); the web client uses it by itself." }),
       el("div", { class: "panel-actions" }, resetConfirm, el("label", { class: "forum-row-meta" }, keep, " keep the bound device"),
         button("RESET THE PLAYER ID", async (ev) => {
           if (!confirm("Reset " + a.username + "'s player id? The old one stops working at once.")) return;
           const password = await askPassword(ev.target, "Resetting " + a.username + "'s player id needs your own password.");
           if (password === null) return;
           const res = await call("POST", presenceApi(a.username, "/reset-id"), { confirm: resetConfirm.value, keepDevices: keep.checked, password, note: why.value || undefined });
-          if (say(msg, res, "Reset.")) again("Player id reset. " + a.username + " copies the new one from the ACCOUNT page into enter_userid.cmd.");
+          if (say(msg, res, "Reset.")) again("Player id reset. " + a.username + " links the game again with Link your Account in its main menu, which fetches the new id by itself, or copies it from the ACCOUNT page into enter_userid.cmd.");
         }, "danger")));
 
     const to = input({ maxlength: 20, placeholder: "the account that gets the id", "aria-label": "Move the player id to" });
@@ -735,18 +890,18 @@
     window.H9ForumRender.needsEditor(editor, d, call);
   }
 
-  // ---- levels: Lv 0-99 from the H9 ladder (h9web's modules/presence/compete.js) -----------------------------
+  // ---- levels: the career's Lv 0-99, the ranked servers, the seasons (h9web's modules/presence/compete.js) ----
 
   const LEVEL_FIELDS = [
-    ["eloBase", "ELO RULE: THE RATING AT LV 1"],
-    ["eloPerLevel", "ELO RULE: RATING POINTS A LEVEL"],
-    ["matchXp", "CAREER: EXPERIENCE A RATED MATCH"],
-    ["winXp", "CAREER: MORE FOR A WIN"],
-    ["kdaMin", "CAREER: LOWEST KILLS-TO-DEATHS FACTOR"],
-    ["kdaMax", "CAREER: HIGHEST KILLS-TO-DEATHS FACTOR"],
-    ["eloMultMin", "CAREER: LOWEST RATING FACTOR"],
-    ["eloMultMax", "CAREER: HIGHEST RATING FACTOR"],
-    ["xpPerLevel", "CAREER: EXPERIENCE SCALE"],
+    ["matchXp", "XP A MATCH OR DEATHMATCH MAP PLAYED OUT"],
+    ["winXp", "MORE FOR A RATED WIN"],
+    ["killXp", "XP A KILL OF A PROVEN PLAYER"],
+    ["kdaMin", "LOWEST KILLS-TO-DEATHS FACTOR"],
+    ["kdaMax", "HIGHEST KILLS-TO-DEATHS FACTOR"],
+    ["eloMultMin", "LOWEST RATING FACTOR"],
+    ["eloMultMax", "HIGHEST RATING FACTOR"],
+    ["xpBase", "THE CURVE: XP FOR LV 2"],
+    ["xpPower", "THE CURVE: ITS STEEPNESS (1 TO 5)"],
   ];
 
   async function showLevels(section) {
@@ -755,27 +910,133 @@
     if (res.status === 404) return section.append(box("LEVELS", el("p", { class: "forum-row-meta", text: "Rated play is not on this site." })));
     if (res.status !== 200) return section.append(el("p", { class: "forum-error", text: problem(res) }));
     const { settings, defaults } = res.data;
-    const rule = el("select", { class: "forum-select", "aria-label": "The rule" },
-      el("option", { value: "elo", text: "ELO bands: up and down with the H9 ladder rating" }),
-      el("option", { value: "career", text: "Career: experience from rated matches, only rises" }));
-    rule.value = settings.rule;
+    const zero = el("select", { class: "forum-select", "aria-label": "Lv 0" },
+      el("option", { value: "no", text: "No badge or level at all" }),
+      el("option", { value: "yes", text: "Show Lv 0 (the default)" }));
+    zero.value = settings.showZero ? "yes" : "no";
     const inputs = {};
-    const grid = el("div", { class: "panel-grid" }, field("RULE", rule));
+    const grid = el("div", { class: "panel-grid" }, field("AN ACCOUNT WITH NO EXPERIENCE", zero));
     for (const [k, label] of LEVEL_FIELDS) {
       inputs[k] = input({ value: String(settings[k]), inputmode: "decimal", "aria-label": label });
       grid.append(field(label + " (" + defaults[k] + ")", inputs[k]));
     }
     const msg = el("p", { class: "forum-row-meta" });
+    const estimate = el("div");
+    const drawEstimate = (e) => {
+      estimate.textContent = "";
+      if (!e) return;
+      const table = el("table", { class: "panel-table" }, el("tr", null, ["LEVEL", "CAREER XP", "ROUGH HOURS OF ACTIVE PLAY"].map((h) => el("th", { text: h }))));
+      for (const x of e.levels) table.append(el("tr", null, ["Lv " + x.level, String(x.xp), x.hours === null ? "-" : String(x.hours)].map((v) => el("td", { text: v }))));
+      estimate.append(el("h3", { class: "forum-section", text: "THE ROAD TO 99, AT THESE SETTINGS" }),
+        el("p", { class: "forum-row-meta", text: "A typical active hour: " + e.typical.matches + " matches or deathmatch maps, " + Math.round(e.typical.ratedShare * 100) + "% of them with a result rated on the H9 ladder and " +
+          Math.round(e.typical.winShare * 100) + "% of those won, and " + e.typical.kills + " kills of proven players, at a kills-to-deaths factor of 1 and a rating of 1000: about " + e.typical.xpPerHour + " XP an hour." }),
+        el("div", { class: "panel-wrap" }, table));
+    };
+    drawEstimate(res.data.estimate);
     const save = button("SAVE, AND WORK OUT EVERY LEVEL AGAIN", async () => {
-      const body = { rule: rule.value };
+      const body = { showZero: zero.value === "yes" };
       for (const [k] of LEVEL_FIELDS) body[k] = inputs[k].value.trim();
       const r = await call("POST", "presence/compete/levels", body);
       msg.textContent = r.status === 200 ? "Saved: " + r.data.accounts + " accounts' levels worked out again." : problem(r);
+      if (r.status === 200) drawEstimate(r.data.estimate);
     }, "primary");
     section.append(box("LEVELS",
-      el("p", { class: "forum-row-meta", text: "Every account's level, Lv 0 to 99, shown in game by the name on the scoreboard and on the ladder, comes from the H9 ladder's match table. No rated match there is Lv 0." }),
-      el("p", { class: "forum-row-meta", text: "ELO bands: Lv = (rating - the rating at Lv 1) / points a level + 1, from 1 to 99, moving up and down with the rating. Career: each rated match gives (experience a match + more for a win) x the player's kills-to-deaths factor x their rating / 1000, each factor kept between its lowest and highest; Lv = the square root of (experience / the scale), from 1 to 99, and it only rises. A leaver gets no experience, and a voided match's is taken back." }),
-      grid, el("div", { class: "panel-actions" }, save), msg));
+      el("p", { class: "forum-row-meta", text: "Every account's badge is its career level, Lv 0 to 99: its overall experience, on top of the compts ELO rating, which stays the skill figure (ELO beside the badge on the forum, on the ladder and in .rank). It shows in game by the name on the scoreboard, on the forum, on profiles and on the ladder, for every account: no privacy switch hides it. An account with no experience is Lv 0, shown unless you say otherwise below." }),
+      el("p", { class: "forum-row-meta", text: "Experience: each kill of a proven player, and each match or deathmatch map a proven player plays out (half its rounds and not leaving; on a deathmatch map, there at its end after 5 minutes or more of it) gives (XP a match + more for a win, when the result is rated on the H9 ladder and won) x the player's kills-to-deaths factor x their rating / 1000, each factor kept between its lowest and highest. Bots, bot kills and players whose game proves nothing give nothing; roleplay maps and UNRANKED servers give nothing at all. Lv = 1 + (experience / the XP for Lv 2) ^ (1 / the steepness), from 1 to 99: it only rises, a voided match's experience is taken back, and a season's reset keeps it." }),
+      grid, el("div", { class: "panel-actions" }, save), msg, estimate));
+    section.append(await serversBox());
+    section.append(await seasonBox());
+  }
+
+  // RANKED SERVERS: every enrolled server counts, for its own table, its community's ladder and the
+  // H9 ladder, unless an admin marks it UNRANKED; then it counts for nothing from then on, and its
+  // past matches in a time given can be voided too (typed VOID). Audited.
+  async function serversBox() {
+    const r = await call("GET", "presence/compete/servers?all=1");
+    const msg = note();
+    const out = box("RANKED SERVERS", el("p", { class: "forum-row-meta", text: "Every enrolled server is ranked: its matches count for its own table, its community's ladder (where the community's staff count it) and the H9 ladder. UNRANKED: from now on, none of its matches count; with VOID PAST MATCHES its matches from the time given are taken back too, one void each." }));
+    if (r.status !== 200) {
+      out.append(el("p", { class: "forum-error", text: problem(r) }));
+      return out;
+    }
+    if (!r.data.servers.length) {
+      out.append(el("p", { class: "forum-row-meta", text: "No server is enrolled yet." }));
+      return out;
+    }
+    const table = el("table", { class: "panel-table" }, el("tr", null, ["SERVER", "STATE", "LAST MATCH", ""].map((h) => el("th", { text: h }))));
+    for (const sv of r.data.servers) {
+      const from = input({ type: "date", "aria-label": "Void from" });
+      const to = input({ type: "date", "aria-label": "Void to" });
+      const typed = input({ placeholder: "type VOID", "aria-label": "Type VOID to void its matches", autocomplete: "off" });
+      const set = async (unranked, withVoid) => {
+        const body = { unranked };
+        if (withVoid) {
+          if (!from.value || !to.value) return say(msg, { status: 400, data: { message: "Pick the first and the last day of the matches to void." } });
+          if (typed.value.trim() !== "VOID") return say(msg, { status: 400, data: { message: "Type VOID to confirm voiding its matches." } });
+          body.void = { from: from.value + "T00:00:00Z", to: to.value + "T23:59:59Z" };
+          body.confirm = "VOID";
+        } else if (unranked && !confirm("Mark " + sv.name + " UNRANKED? Its match under way ends, and none of its matches count from now on.")) {
+          return;
+        }
+        const res = await call("POST", "presence/compete/servers/" + encodeURIComponent(sv.serverId), body);
+        if (say(msg, res, unranked ? "UNRANKED" + (res.data && res.data.voided ? ": " + res.data.voided + " matches voided." : ".") : "Ranked again.")) out.replaceWith(await serversBox());
+      };
+      const actions = sv.unranked
+        ? el("td", null, button("RANK IT AGAIN", () => set(false, false)))
+        : el("td", null, button("MARK UNRANKED", () => set(true, false), "danger"),
+          el("details", null, el("summary", { text: "AND VOID PAST MATCHES" }), el("div", { class: "panel-actions" }, from, to, typed, button("UNRANKED + VOID", () => set(true, true), "danger"))));
+      table.append(el("tr", null, el("td", { text: sv.name }), el("td", { text: sv.unranked ? "UNRANKED since " + when(sv.unrankedAt) : "ranked" }), el("td", { text: when(sv.lastMatch) || "-" }), actions));
+    }
+    out.append(el("div", { class: "panel-wrap" }, table), msg);
+    return out;
+  }
+
+  // RESET THE COMPETITIVE SEASON: the season's final standings are archived (still readable on the
+  // ladder as that season's), and everyone starts the next one unrated. h9web copies the database
+  // first. Typed RESET, and written to the audit log.
+  async function seasonBox() {
+    const res = await call("GET", "presence/compete/seasons");
+    const cur = res.status === 200 ? res.data.current : null;
+    const typed = input({ placeholder: "type RESET", "aria-label": "Type RESET to confirm", autocomplete: "off" });
+    const msg = el("p", { class: "forum-row-meta" });
+    const go = button("RESET THE COMPETITIVE SEASON", async () => {
+      if (typed.value.trim() !== "RESET") {
+        msg.textContent = "Type RESET to confirm.";
+        return;
+      }
+      const r = await call("POST", "presence/compete/season/reset", { confirm: "RESET" });
+      msg.textContent = r.status === 200
+        ? "Season " + r.data.ended + " is archived, and season " + r.data.season.number + " has begun with everyone unrated. The database was copied first to " + r.data.backup + " (the data folder's backups)."
+        : problem(r);
+      typed.value = "";
+    }, "danger");
+    return box("COMPETITIVE SEASON",
+      el("p", { class: "forum-row-meta", text: cur ? "Season " + cur.number + ", since " + when(cur.started) + "." : "The season could not be read." }),
+      el("p", { class: "forum-row-meta", text: "A reset ends this season: its final standings stay on the ladder as Season " + (cur ? cur.number : "N") + ", and everyone starts the next one unrated, from the normal starting rating. The career levels and their experience stay: they are each account's over every season. h9web copies its database into the data folder's backups first. It cannot be undone from here." }),
+      el("div", { class: "panel-grid" }, field("CONFIRM", typed)), el("div", { class: "panel-actions" }, go), msg,
+      seasonOneBox(cur));
+  }
+
+  // SEASONS BACK TO SEASON 1: every archived season goes, with its final standings, and the season
+  // under way becomes Season 1 from when it started (its tables, the levels and the career
+  // experience as they are). The database is copied first; typed SEASON 1; audited.
+  function seasonOneBox(cur) {
+    const typed = input({ placeholder: "type SEASON 1", "aria-label": "Type SEASON 1 to confirm", autocomplete: "off" });
+    const msg = el("p", { class: "forum-row-meta" });
+    const go = button("SET THE SEASONS BACK TO SEASON 1", async () => {
+      if (typed.value.trim() !== "SEASON 1") {
+        msg.textContent = "Type SEASON 1 to confirm.";
+        return;
+      }
+      const r = await call("POST", "presence/compete/season/restart", { confirm: "SEASON 1" });
+      msg.textContent = r.status === 200
+        ? "Season " + r.data.was + " is Season 1 now, and the archived seasons are gone. The database was copied first to " + r.data.backup + " (the data folder's backups)."
+        : problem(r);
+      typed.value = "";
+    }, "danger");
+    return el("div", null, el("h3", { class: "forum-section", text: "BACK TO SEASON 1" }),
+      el("p", { class: "forum-row-meta", text: "Every archived season goes, with its final standings, and the season under way" + (cur ? " (Season " + cur.number + ")" : "") + " becomes Season 1 from when it started: its tables, the levels and the career experience stay as they are. h9web copies its database into the data folder's backups first. It cannot be undone from here." }),
+      el("div", { class: "panel-grid" }, field("CONFIRM", typed)), el("div", { class: "panel-actions" }, go), msg);
   }
 
   // ---- the audit log ----------------------------------------------------------------------------------------

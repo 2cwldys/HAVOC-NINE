@@ -1,0 +1,284 @@
+diff --git a/engine/client/cl_main.c b/engine/client/cl_main.c
+--- a/engine/client/cl_main.c
++++ b/engine/client/cl_main.c
+@@ -4179,6 +4179,7 @@
+ 	COM_GetCommonLibraryPath( LIBRARY_CLIENT, libpath, sizeof( libpath ));
+ 
+ 	S_Init();	// init sound
++	CL_H9Srv_Init(); // H9: which servers havoc9.org names, for the server browser's chain (cl_h9auth.c)
+ 	Voice_Init( VOICE_DEFAULT_CODEC, 3, true ); // init voice (do not open the device)
+ 
+ 	ID_Init();
+diff --git a/engine/client/client.h b/engine/client/client.h
+--- a/engine/client/client.h
++++ b/engine/client/client.h
+@@ -814,6 +814,7 @@
+ void CL_NotifyServerListResponse( void );
+ qboolean CL_NetRequestSend( net_request_t *nr );
+ void CL_Escape_f( void );
++void CL_H9Srv_Init( void ); // H9: the server browser's chain (cl_h9auth.c)
+ 
+ //
+ // cl_demo.c
+diff --git a/engine/client/cl_h9auth.c b/engine/client/cl_h9auth.c
+new file mode 100644
+--- /dev/null
++++ b/engine/client/cl_h9auth.c
+@@ -0,0 +1,257 @@
++/*
++cl_h9auth.c - H9: which game servers havoc9.org vouches for, for the server browser's chain (docs/NETWORKING.txt)
++Copyright (C) 2026 HAVOC 9
++
++This program is free software: you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation, either version 3 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++h9web keeps a verdict for every game server that reports to it (modules/presence/preset.js,
++docs/H9_PRESENCE.txt section 4d): ok while the server runs H9's official preset, rp on a roleplay map
++(authenticated, and nothing there is ranked), mod when it runs anything beside the preset. The server
++browser draws a green chain for ok and rp and a red broken one for every other server. It asks the site
++and never the servers: a server cannot say that it is authenticated.
++
++  https://havoc9.org/api/presence/servers/auth
++
++answers "H9SRV 1", then a line "<address> <code>" for each server that reports. The command h9_servers
++fetches it (the menu runs it when the browser opens and on each refresh; once in 20 seconds at the
++most) and puts what it read in the two cvars the menu reads, as everything of H9's menu is:
++
++  _h9srv       " <address>=<c> <address>=<c> ", a space before and after each: c is o (ok), r (rp) or
++               m (mod); a server it does not name is not authenticated
++  _h9srv_gen   0 until an answer has been read, then one more for each answer that changed the list
++
++While _h9srv_gen is 0 the menu draws no chain at all: it says nothing it does not know. cl_h9_site names a
++local test site as it does for the pictures (cl_avatar.c): http://127.0.0.1:<port>. A site that does not
++answer leaves the list as it was, one console line says so, and the next h9_servers asks again.
++cl_h9_servers 0 turns it off. The browser build has no sockets for it: its page (havoc9.org\webclient\client.js)
++reads the list from its own site and sets _h9srv and _h9srv_gen, the two cvars the menu reads.
++*/
++
++#include "common.h"
++#include "client.h"
++#include "net_ws.h"
++
++#define H9SRV_SITE   "https://havoc9.org"
++#define H9SRV_LIST   6144        // the most characters of _h9srv; a longer answer is cut at a whole entry
++#define H9SRV_MAX    ( 24 * 1024 )   // the longest answer taken
++#define H9SRV_EVERY  20.0        // seconds between two fetches at the least
++
++#if !XASH_EMSCRIPTEN
++
++static CVAR_DEFINE_AUTO( cl_h9_servers, "1", FCVAR_ARCHIVE|FCVAR_PRIVILEGED, "H9: ask havoc9.org which servers are authenticated, for the server browser's chain (cl_h9auth.c)" );
++static CVAR_DEFINE( cl_h9srv, "_h9srv", "", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: the servers havoc9.org names, each with its verdict (set by the engine, cl_h9auth.c)" );
++static CVAR_DEFINE( cl_h9srv_gen, "_h9srv_gen", "0", FCVAR_PRIVILEGED|FCVAR_READ_ONLY, "H9: 0 until the list of servers was read, then counts its changes (set by the engine, cl_h9auth.c)" );
++
++static struct
++{
++	double next_at;       // host.realtime the next fetch may go at
++	qboolean busy;        // one is in flight
++	qboolean said;        // the last failure was told
++	int gen;
++	char list[H9SRV_LIST];
++} srv;
++
++// http://127.0.0.1:<port> or http://localhost:<port>, the port 1 to 65535 with no leading zero, and nothing else
++static qboolean H9Srv_LocalSite( const char *s )
++{
++	const char *p;
++	int digits = 0, port = 0;
++
++	if( !Q_strncmp( s, "http://127.0.0.1:", 17 ))
++		p = s + 17;
++	else if( !Q_strncmp( s, "http://localhost:", 17 ))
++		p = s + 17;
++	else return false;
++
++	if( *p == '0' )
++		return false;
++	for( ; *p; p++, digits++ )
++	{
++		if( *p < '0' || *p > '9' || digits >= 5 )
++			return false;
++		port = port * 10 + ( *p - '0' );
++	}
++	return digits >= 1 && port <= 65535;
++}
++
++// the site the list comes from: the local test site cl_h9_site names, in its canonical form (127.0.0.1:<port>
++// and localhost:<port> get http://, the host is lowered, slashes at the end are dropped), else https://havoc9.org
++static const char *H9Srv_Site( void )
++{
++	static char site[64];
++	char v[96];
++	convar_t *cv = Cvar_FindVar( "cl_h9_site" );
++	const char *p = cv ? cv->string : "", *hostport;
++	size_t n;
++
++	while( *p == ' ' || *p == '\t' )
++		p++;
++	Q_strncpy( v, p, sizeof( v ));
++	for( n = Q_strlen( v ); n > 0 && ( v[n - 1] == '/' || v[n - 1] == ' ' || v[n - 1] == '\t' ); n-- )
++		v[n - 1] = 0;
++	hostport = !Q_strnicmp( v, "http://", 7 ) ? v + 7 : v;
++	if( !v[0] || Q_strstr( hostport, "://" ) || Q_strlen( hostport ) + 8 > sizeof( site ))
++		return H9SRV_SITE;
++	Q_snprintf( site, sizeof( site ), "http://%s", hostport );
++	for( n = 7; site[n]; n++ )
++	{
++		if( site[n] >= 'A' && site[n] <= 'Z' )
++			site[n] = site[n] - 'A' + 'a';
++	}
++	return H9Srv_LocalSite( site ) ? site : H9SRV_SITE;
++}
++
++// "a.b.c.d:port" with every number in range, and nothing else
++static qboolean H9Srv_Address( const char *s )
++{
++	int group, digits, value;
++
++	for( group = 0; group < 4; group++ )
++	{
++		for( digits = 0, value = 0; *s >= '0' && *s <= '9' && digits < 3; s++, digits++ )
++			value = value * 10 + ( *s - '0' );
++		if( !digits || value > 255 || *s != ( group < 3 ? '.' : ':' ))
++			return false;
++		s++;
++	}
++	for( digits = 0, value = 0; *s >= '0' && *s <= '9' && digits < 5; s++, digits++ )
++		value = value * 10 + ( *s - '0' );
++	return digits && !*s && value >= 1 && value <= 65535;
++}
++
++// An answer into the cvar's text, and how many servers it names as ok, rp and mod. False when it is not
++// "H9SRV 1" first: another form of answer is no list, and is not read.
++static qboolean H9Srv_Parse( const byte *data, size_t size, char *out, size_t outsize, int counts[3] )
++{
++	size_t at = 0, used = 1;
++	qboolean first = true;
++
++	Q_strncpy( out, " ", outsize );
++	counts[0] = counts[1] = counts[2] = 0;
++	while( at < size )
++	{
++		char line[64], *space;
++		size_t n = 0;
++		int kind;
++
++		while( at < size && data[at] != '\n' )
++		{
++			if( data[at] != '\r' && n + 1 < sizeof( line ))
++				line[n++] = (char)data[at];
++			at++;
++		}
++		at++;
++		line[n] = 0;
++
++		if( first )
++		{
++			if( Q_strcmp( line, "H9SRV 1" ))
++				return false;
++			first = false;
++			continue;
++		}
++
++		space = Q_strchr( line, ' ' );
++		if( !space )
++			continue;
++		*space++ = 0;
++		if( !H9Srv_Address( line ))
++			continue;
++		if( !Q_strcmp( space, "ok" ))
++			kind = 0;
++		else if( !Q_strcmp( space, "rp" ))
++			kind = 1;
++		else if( !Q_strcmp( space, "mod" ))
++			kind = 2;
++		else continue;
++
++		n = Q_strlen( line );
++		if( used + n + 3 >= outsize )
++			break;
++		used += Q_snprintf( out + used, outsize - used, "%s=%c ", line, "orm"[kind] );
++		counts[kind]++;
++	}
++	return !first;
++}
++
++// HTTP_GetToMemoryEx's answer
++static void H9Srv_Received( const char *url, qboolean success, const byte *data, size_t size, void *userdata )
++{
++	const int status = HTTP_MemoryStatus();
++	char list[H9SRV_LIST];
++	int counts[3];
++
++	(void)userdata;
++	srv.busy = false;
++
++	if( !success || !data || size < 8 || size > H9SRV_MAX || !H9Srv_Parse( data, size, list, sizeof( list ), counts ))
++	{
++		if( !srv.said )
++		{
++			if( success )
++				Con_Printf( "H9 SERVERS: %s is not a list of servers; the browser's chains stay as they were\n", url );
++			else if( status )
++				Con_Printf( "H9 SERVERS: could not read %s (HTTP %d); the browser's chains stay as they were\n", url, status );
++			else Con_Printf( "H9 SERVERS: could not read %s (no answer); the browser's chains stay as they were\n", url );
++			srv.said = true;
++		}
++		return;
++	}
++
++	srv.said = false;
++	if( srv.gen > 0 && !Q_strcmp( list, srv.list ))
++		return;
++
++	Q_strncpy( srv.list, list, sizeof( srv.list ));
++	srv.gen++;
++	Cvar_DirectFullSet( &cl_h9srv, srv.list, 0 );
++	Cvar_DirectFullSet( &cl_h9srv_gen, va( "%d", srv.gen ), 0 );
++	Con_Printf( "H9 SERVERS: havoc9.org names %d authenticated, %d on a roleplay map (nothing ranked) and %d modified\n", counts[0], counts[1], counts[2] );
++}
++
++/*
++==============
++H9Srv_f
++
++h9_servers: asks the site for the list, unless one is in flight or one was asked for lately
++==============
++*/
++static void H9Srv_f( void )
++{
++	const char *site = H9Srv_Site();
++	const int flags = !Q_strcmp( site, H9SRV_SITE ) ? ( HTTP_MEM_PUBLIC_ONLY | HTTP_MEM_VERIFY_TLS ) : 0;
++	char url[128];
++
++	if( !cl_h9_servers.value || srv.busy || host.realtime < srv.next_at )
++		return;
++	srv.next_at = host.realtime + H9SRV_EVERY;
++	Q_snprintf( url, sizeof( url ), "%s/api/presence/servers/auth", site );
++	srv.busy = true;
++	if( !HTTP_GetToMemoryEx( url, H9Srv_Received, NULL, flags ))
++		srv.busy = false;
++}
++
++#endif // !XASH_EMSCRIPTEN
++
++/*
++==============
++CL_H9Srv_Init
++==============
++*/
++void CL_H9Srv_Init( void )
++{
++#if !XASH_EMSCRIPTEN
++	Cvar_RegisterVariable( &cl_h9_servers );
++	Cvar_RegisterVariable( &cl_h9srv );
++	Cvar_RegisterVariable( &cl_h9srv_gen );
++	Cmd_AddRestrictedCommand( "h9_servers", H9Srv_f, "H9: ask havoc9.org which servers are authenticated, for the server browser's chain (the menu runs it)" );
++#endif
++}

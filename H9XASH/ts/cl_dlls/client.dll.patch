@@ -12,15 +12,19 @@ client it was applied to.
 Deployed file : client.dll
 Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 (CMake, Win32, Release; target client)
-Size          : 839168 bytes
-SHA256        : 1BB629692A1187454824040A7235BDDEBB7F8B06977526CB733E545D7F814645
+Size          : 861184 bytes
+SHA256        : D11DD1B9A18312F31D5973A70159F8524EE31D97CFAAA45082E302CF5551756D
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
                 plus the local mouse-release fix below, the 128-slot build (2026-11-01) and the
                 scoreboard's pictures, link icons, lives column, scrolling, Roleplay
                 heading, level and profile double-click, with hud_classautokill out of the
                 userinfo (2026-11-02), and the level badges, the server panels (H9
                 VGUI), the score and kills columns, the PPSh-41, and the VGUI stack at the
-                top of the screen with TS's notices beneath it (2026-11-03)
+                top of the screen with TS's notices beneath it (2026-11-03), and the buy menu's gun picture
+                (2026-11-04), and the level badge beside the name instead of before it (2026-11-04), and the
+                notices coming up (2026-11-04), and the laser rifle (2026-11-05), and the H9 panels a quarter
+                smaller with a side's reinforcements on the scoreboard (2026-11-05), and the capture points' marks through the walls (2026-11-05), and the row of marks kept in place by a panel
+                at the side (2026-11-05)
 
 What the source build contains, beyond the stock client
 -------------------------------------------------------
@@ -146,19 +150,20 @@ What the source build contains, beyond the stock client
    h9_presence 1.6 tells every client each proven havoc9.org account's level on the H9 ladder, Lv
    0 to 99 (docs\H9_COMPETITIVE.txt section 8a), in the H9Level user message (byte slot, byte
    level, 255 for none; a joining client gets the whole table, and a slot that empties is
-   cleared), hooked in hud.cpp. The scoreboard draws the level's badge before the player's name:
+   cleared), hooked in hud.cpp. The scoreboard draws the level's badge beside the player's name:
    the picture gfx\vgui\h9_levels\lv-<N>.tga (64 x 64, 32-bit RLE TGA with alpha, the art of
    havoc9.org's own badges, drawn by modelling\make-level-badges.mjs), read once on first use
    with the link icons' TGA reader, area-filtered with its alpha to the avatar's size (the row
-   height less 2), and drawn at the left edge of the name cell, centred on the row, with the name
-   moved right past it and fitted to what is left. The row's own colour shows around the badge,
+   height less 2), and drawn at the right end of the status column, centred on the row, just
+   before the name cell: no name moves for it, and a status too long for what the badge leaves
+   is cut with "..". The row's own colour shows around the badge,
    and fully clear pixels carry the badge's edge colour, so a filtered draw never darkens the
    rim. The bitmaps are kept by level and size for the life of the client, as the silhouettes
    are. Where a level's picture is missing the row shows the text "Lv N" before the name
    instead. Bots, players without an account and games that did not prove their player id show
    none, and so does every row on a server that sends no H9Level. vgui_ScorePanel.cpp's H9
-   LEVELS and H9 LEVEL BADGES blocks (GetLevelBitmap, CLevelBitmap, and CLabelHeader's lead
-   picture, setLeadImage, in vgui_ScorePanel.h). The pictures ship beside client.dll in
+   LEVELS and H9 LEVEL BADGES blocks (GetLevelBitmap, CLevelBitmap, and CLabelHeader's tail
+   picture, setTailImage, in vgui_ScorePanel.h). The pictures ship beside client.dll in
    ts\gfx\vgui\h9_levels\ (export.bat; the Xash overlay and H9XASH carry them too).
 
 13. A double-click on a linked player's picture opens their havoc9.org profile (h9_profile)
@@ -219,6 +224,12 @@ What the source build contains, beyond the stock client
    ts_message.cpp. The client.dll this replaced is kept as client.dll.bak_vguitop in
    reTS\binaries\ts\cl_dlls\.
 
+   A panel is part of the stack only when it is anchored along the top, lies in the top quarter of the height
+   and reaches into the middle half of the width, where the stack is centred. One pinned to a corner that
+   stops short of that (the Officer's waiting list at the top right, a server panel) is beside the stack and
+   does not push the row of marks or TS's notices down as it grows or shrinks. h9_vgui.cpp (Frame). The
+   client.dll this replaced is kept as client.dll.bak_prestackfix in reTS\binaries\ts\cl_dlls\.
+
 15. The scoreboard's SCORE and kills columns (H9Kills)
 
    While a server's frags are points (H9's ts_matchmode with tsm_score 1: each player's match points
@@ -241,7 +252,73 @@ What the source build contains, beyond the stock client
    (mp.dll.patch, change 9). The client.dll this replaced is kept as client.dll.bak_preppsh41 in
    reTS\binaries\ts\cl_dlls\.
 
-17. Everything else reTS already had
+17. The buy menu shows the selected weapon's picture
+
+   While the cursor is on a weapon in the buy menu's list, the box that shows its price (Credits) and
+   slots (Slots) now also draws the weapon's sprites\weapons icon in its left half, where the original
+   shows the gun image; the box drew the two numbers and no picture. It is the icon the bought-loadout
+   preview and the select bar use, so the PPSh-41's and every other gun's shows (ts_buymenu.cpp,
+   DrawWeaponPreview). The client.dll this replaced is kept as client.dll.bak_buyicon in
+   reTS\binaries\ts\cl_dlls\.
+
+18. H9 notices come up (H9Vgui)
+
+   A notice (not a status) now comes up over 0.35 s from when its slot began to show; before, it only
+   faded out (a hold, then a fade). A banner or flash that pops in rises, as the siege's alarm line does
+   every tsm_alarm_every seconds. A notice that replaces one still showing keeps that one's start, so a bar
+   sent every tick (the planter's) does not come up again each time; a status shows at once, as before.
+   NoticeAlpha still says when a notice is over, NoticeDrawAlpha is what its panel is drawn at, and
+   H9NoticeDef gained `shown` (h9_vgui.cpp, h9_vgui.h). The client.dll this replaced is kept as
+   client.dll.bak_noticerise in reTS\binaries\ts\cl_dlls\.
+
+19. The laser rifle, weapon 40, and a 15th ammo caliber, plasma cells
+
+   An energy weapon (dlls\ts_weapon_info.cpp, shared with mp.dll). The client has its buy-menu row (Rifles, 5200;
+   caliber 15, 35 cells a pack), its weapon-bar cell (column 4, row 12), its picture (sprites\weapons\laserrifle.spr,
+   which the buy menu and the select bar both draw) and its fire sound (h9\laserrifle\fire.wav). Only a shot of
+   caliber 15 gets the plasma presentation (cl_dll\ev_ts.cpp, ts_bullets.cpp): no brass, no gun smoke, no pellet
+   sprite or white streak, no bullet hole or ricochet. It draws a green muzzle flash (sprites\laserrifle_muzzle.spr,
+   a frame at random, turned at random) and a faint green dynamic light at the muzzle for every shooter; a green bolt
+   that runs from the muzzle to where the shot lands, its trail holding at full brightness a moment behind the head
+   and then fading, the head resting at the end (TSPlasma_*, the triangle API in the transparent pass; sprites
+   laserrifle_trail, laserrifle_bolt, laserrifle_hit), every ribbon, head and flash kept between a least and a most
+   number of pixels across at its own distance, also for a round the bullet simulation flies (stepped every frame,
+   with a piece of trail each frame and the last piece laid to the impact); where a shot lands, a scorch decal ({smscorch), a green flash and light and its own
+   sound (h9\laserrifle\hit1..3.wav), on a wall or a player; and over the reload an energy cell sound
+   (h9\laserrifle\reload.wav, EV_TSReload). Right click zooms as the Barrett (32, then 8) and the scope overlay tints the
+   view blue and frames it in one flat blue for this weapon (sprites\laserscope.spr, ts_scope.cpp). SrvSett id 4, the
+   server's h9_customweapons, takes the weapons H9 adds (the PPSh-41, the laser rifle) out of the buy menu when the
+   server plays TS 3.0's own roster (ts_status.cpp, ts_buymenu.cpp). Detail: reference\DEVIATIONS.md. The client.dll this replaced is kept as
+   client.dll.bak_prelaser in reTS\binaries\ts\cl_dlls\.
+
+20. The H9 panels a quarter smaller, and a side's reinforcements on the scoreboard
+
+   The H9 panels (cl_dll\vgui_H9Panel.cpp: the match mode's menus, banners, notices and the match bar) are built at
+   three quarters of the size they were: H9_MENU_SCALE 0.68 -> 0.51 and H9_BANNER_SCALE 0.60 -> 0.45, with
+   cl_h9_vgui_scale on top as before. Their text comes from three new four-step font ladders in the text scheme files
+   (textscheme\*_textscheme.txt: "H9 Text 1-4", "H9 Detail 1-4", "H9 Flash 1-4", three quarters of the stock scheme at
+   the same step, never under 10 px); a scheme file without them gets the stock schemes at the same steps. H9Pool (byte
+   side, short left, short start) is the new user message of a mode that keeps one pool of lives for a whole side (the assault mode,
+   which calls it REINFORCEMENTS): the scoreboard's team rows show the pool left out of the pool the round started with in
+   the lives column, which is then titled REINFORCEMENTS (REINFORCE or REINF where the names would lose more than 40% of
+   their width, PlaceCells in vgui_ScorePanel.cpp), and the players' rows show nothing there (ts_matchmode sends each player's H9Lives as 0 then). Detail: docs\H9_VGUI.txt.
+
+21. Marks: points of the world drawn through the walls (H9Vgui op MARK, protocol 3)
+
+   The H9Vgui message has a new op, MARK (22), and _h9vgui now says 3. A mark is a point of the world a mode wants every
+   player to know of (the assault mode's capture points): a slot 1-32, its owner (0, 1 or 2; 3 takes the slot down and
+   slot 0 takes every mark down), its state (quiet, being taken, contested), the side taking it, how far that has got, its
+   x, y, z and a label of up to 7 characters. cl_dll\h9_vgui.cpp draws each one every HUD frame where the point lands on
+   the screen (pTriAPI->WorldToScreen), so through any wall: a badge framed in the owner's colour (blue for side 1, red
+   for side 2, grey for nobody, yellow and the owner's by turns while contested) round a dark fill, the label in white
+   (the HUD font is drawn additively, so it only shows over a dark ground), with a bar under it while a side is taking the
+   point; a point out of view is pinned to the edge of the screen in its direction. With two marks or more the same
+   badges also stand in a row under the top stack of notices, and TS's own notices go on beneath the row
+   (H9Vgui_StackBottom). A mark that nothing refreshes goes after 30 s, a new map or server clears every one, and they
+   hide with the HUD and under the scoreboard. cl_h9_marks and cl_h9_marks_strip (both 1, saved) turn the marks and the
+   row off. A game of protocol 2 or less is sent TS's own Objective markers instead. Detail: docs\H9_VGUI.txt.
+
+22. Everything else reTS already had
 
    The reTS client is a recompilation of the whole TS client, so it also carries the third-person
    self-transparency fade, the predicted viewmodel body, the HUD and the rest of the reTS client
@@ -270,7 +347,9 @@ the appendix describes that build.
 Rollback
 --------
 
-The client this build replaces, the 2026-11-03 server panels build, without the match bar
+The client this build replaces, the 2026-11-04 build with the level badge before the name
+(839168 bytes, SHA256 48E9717E94C68DFC4AB9BDF49FEBE638821E54EA6AB15C2279960725B60A5252), is kept beside it as
+client.dll.bak_badge. The one before it, the 2026-11-03 server panels build, without the match bar
 and the score and kills columns (835584 bytes, SHA256
 417D00113232E0DA0CD358A22A7683E87E51407CADFD14B9116D9A02D5F7D56C), is kept beside it as
 client.dll.bak_matchbar. The one before it, the 2026-11-03 level and profile build, without

@@ -236,17 +236,16 @@
   border-color: var(--orange);
 }
 
+/* the preview is the forum's own signature box (forum/forum.css .forum-signature, drawn by
+   forum/forum.js); this only holds it, and the "No signature." line */
 .account-sig-preview {
-  padding-top: 0.6rem;
-  border-top: 1px solid rgba(255, 77, 0, 0.18);
   font-size: 0.9rem;
   color: var(--text-muted);
   overflow-wrap: anywhere;
 }
 
-.account-sig-preview img {
-  display: block;
-  max-width: 100%;
+.account-sig-preview .forum-signature {
+  margin-top: 0;
 }
 
 .account-check {

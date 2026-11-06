@@ -8,3 +8,10 @@
 # Upper-case .MDL files too (H9XASH/ts/models): on Linux, git matches these patterns
 # case-sensitively, and *.mdl alone leaves those files as LFS pointers in a checkout there.
 *.MDL filter=lfs diff=lfs merge=lfs -text
+# Patches (xash3d-h9-patches/patches, webassembly-patch, rcbot-patch, metamod-r, ...) are applied with git apply: they keep the exact
+# line endings they were made with, whatever core.autocrlf says. With the usual Windows setting a checkout made them CRLF and they
+# stopped applying. The DLL description files (<dll>.patch, which xash.bat writes with CRLF) and the vendored libraries' own patches
+# keep git's usual handling.
+*.patch -text
+*.dll.patch !text
+/xash3d-fwgs/3rdparty/**/*.patch !text

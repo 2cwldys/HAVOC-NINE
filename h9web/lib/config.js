@@ -93,7 +93,8 @@ export const DEFAULTS = {
   status: { pollSeconds: 30, timeoutMs: 1500, expireSeconds: 120 },
   modules: [],
   moduleSettings: {},
-  // local testing only: { "/": "../havoc9.org", ... } serves those folders as the site
+  // local testing only: { "/": "../havoc9.org", ... } serves those folders as the site; a folder
+  // given as { "dir": "...", "listing": true } is served as a plain file index (lib/static.js)
   devStatic: null,
   logLevel: "info",
 };
@@ -130,12 +131,17 @@ export function resolveConfig(raw = {}, base = HOME) {
   c.dataKeyFile = c.dataKeyFile ? path.resolve(base, String(c.dataKeyFile)) : path.join(c.dataDir, "data.key");
   if (c.devStatic) {
     const mounts = {};
-    for (const [prefix, dir] of Object.entries(c.devStatic)) {
+    for (const [prefix, spec] of Object.entries(c.devStatic)) {
       if (!prefix.startsWith("/") || !prefix.endsWith("/")) throw new Error("config: devStatic prefix " + prefix + " must start and end with /");
-      mounts[prefix] = path.resolve(base, String(dir));
+      const listing = isPlainObject(spec);
+      if (listing && (spec.listing !== true || typeof spec.dir !== "string")) {
+        throw new Error("config: devStatic " + prefix + " must be a folder, or { \"dir\": folder, \"listing\": true }");
+      }
+      const dir = path.resolve(base, String(listing ? spec.dir : spec));
+      mounts[prefix] = listing ? { dir, listing: true } : dir;
       for (const [name, place] of [["dataDir", c.dataDir], ["dataKeyFile", c.dataKeyFile]]) {
-        const rel = path.relative(mounts[prefix], place);
-        if (!rel.startsWith("..") && !path.isAbsolute(rel)) throw new Error("config: " + name + " is inside the served folder " + mounts[prefix]);
+        const rel = path.relative(dir, place);
+        if (!rel.startsWith("..") && !path.isAbsolute(rel)) throw new Error("config: " + name + " is inside the served folder " + dir);
       }
     }
     c.devStatic = mounts;

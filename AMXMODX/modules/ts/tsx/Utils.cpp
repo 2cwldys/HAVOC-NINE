@@ -58,6 +58,7 @@ weapon_t weaponData[] = {
 	{ 0,"Akimbo Skorpions","akimbo_skorpions",1 }, // 37 
 	{ 1,"Throwing Knife","throwing_knife",2 }, // 38, not a game id 
 	{ 0,"PPSh-41","ppsh-41",1 }, // 39, H9's reTS weapon: TSWEAPON_PPSH41
+	{ 0,"Laser Rifle","laser_rifle",1 }, // 40, H9's reTS weapon: TSWEAPON_LASERRIFLE
 	{ 1,"Kung Fu","kung_fu",2 }, // TSWEAPON_KUNGFU_STATS: kung fu's own stats, slot 0 holds every weapon's 
 };
 

@@ -18,14 +18,16 @@
  * this server (h9_presence's challenge, or the web client's relay). Everyone else plays as ever
  * and moves nothing. A player's own rank, and anyone's, is h9_rank.amxx's .rank (and /rank).
  *
- * ASSISTS come from ts_matchmode's count, the scoreboard's A column (tsm_assists, counted for the
- * map): a player's assists in a match are what it added between their joining the match and its
- * end or their leaving, summed over each time they were in it. A ts_matchmode without tsm_assists
- * leaves the native unbound, and the end report says null for everyone's assists.
+ * ASSISTS come from ts_matchmode's count for the map, without the assists on a kill a bot had a part
+ * in (tsm_assists_ranked; the scoreboard's A column, tsm_assists, counts those too): a player's
+ * assists in a match are what it added between their joining the match and its end or their leaving,
+ * summed over each time they were in it. A ts_matchmode without tsm_assists leaves the native
+ * unbound, and the end report says null for everyone's assists; one without tsm_assists_ranked is
+ * read through tsm_assists.
  *
  * THE LADDERS. "match": a ts_matchmode match wherever its match mode plays (tsm_enabled 1: Team
- * Elimination, Siege, Uplink, Mech Warrior and Wave Survival), from its first round going live to
- * its end (tsm_match_complete, tsm_match_forfeit), or cancelled when the match stops any other
+ * Elimination, Siege, Uplink, Assault, Mech Warrior and Wave Survival), from its first round going
+ * live to its end (tsm_match_complete, tsm_match_forfeit), or cancelled when the match stops any other
  * way. "dm": every other map, TS's own game on its own rules (deathmatch or teamplay: the stock ts_
  * maps, h9_dm_, h9_tdm_, h9_ctb_ and the rest), one map one match. Roleplay maps (rp_ or tsrp_ at
  * the start, _rp_ or _tsrp_ inside) are never rated and nothing is sent from them.
@@ -80,6 +82,7 @@ new g_cv_on, g_cv_ladder, g_cv_notice;
 new bool:g_have_presence = true;
 new bool:g_have_tsm = true;
 new bool:g_have_assists = true;          // ts_matchmode has tsm_assists (its match-bar build and later)
+new bool:g_have_assists_ranked = true;   // and tsm_assists_ranked, the count without a bot's kills
 new g_maxplayers;
 new g_gen[MAX_PLAYERS + 1];              // counts who held the slot, so a late answer finds the right player
 
@@ -91,12 +94,15 @@ new bool:g_starting = false;
 new g_start_next = 0;                    // no start asked for again before this (systime)
 new g_start_wait = 30;                   // and the wait after the next unanswered one, doubling to 300
 new bool:g_refusal_logged = false;       // a refused match is logged once a map
+new bool:g_unrated = false;              // h9web answered not_rated: this server gives no rating and no experience
+new bool:g_unrated_told = false;         // and the players were told, once a map
 new bool:g_ending = false;
 new g_end_how[12];
 new g_end_winner, g_end_s1, g_end_s2;
 new g_end_tries = 0;
 new g_seq = 0;                           // the last batch h9web took
 new g_rounds = 0;
+new g_oneround = 0;                      // 1 when the mode plays its match as one round (tsm_one_round), as the last round went live
 new g_bots = 0;                          // the most bots seen on the sides at once
 new g_others[3];                         // the most humans seen on each side without an h9_clientid
 new g_last_batch = 0;
@@ -166,6 +172,11 @@ public native_filter(const name[], index, trap)
 	if (equal(name, "tsm_assists"))
 	{
 		g_have_assists = false;
+		return PLUGIN_HANDLED;
+	}
+	if (equal(name, "tsm_assists_ranked"))
+	{
+		g_have_assists_ranked = false;
 		return PLUGIN_HANDLED;
 	}
 	if (!trap)
@@ -306,6 +317,7 @@ reset_match()
 	g_end_tries = 0;
 	g_seq = 0;
 	g_rounds = 0;
+	g_oneround = 0;
 	g_bots = 0;
 	g_others[1] = 0;
 	g_others[2] = 0;
@@ -394,12 +406,16 @@ roster_leave(id)
 	g_rhere[k] = false;
 }
 
-/** ts_matchmode's assists for the player on this map; 0 without tsm_assists. */
+/** ts_matchmode's assists for the player on this map, bots' kills left out; 0 without tsm_assists. */
 assists_now(id)
 {
 	if (!g_have_tsm || !g_have_assists)
 	{
 		return 0;
+	}
+	if (g_have_assists_ranked)
+	{
+		return max(0, tsm_assists_ranked(id));
 	}
 	return max(0, tsm_assists(id));
 }
@@ -444,6 +460,7 @@ public tsm_round_live(round)
 		return;
 	}
 	g_rounds++;
+	g_oneround = tsm_one_round() ? 1 : 0;
 	new bots = 0;
 	new others[3];
 	for (new i = 1; i <= g_maxplayers; i++)
@@ -600,6 +617,11 @@ public task_join(task)
 	new id = task - TASK_JOIN;
 	if (!is_human(id) || pick_ladder() == LADDER_OFF || !ready())
 	{
+		return;
+	}
+	if (g_unrated)
+	{
+		client_print(id, print_chat, "[H9] This server is not rated by havoc9.org: matches here give no rating and no experience.");
 		return;
 	}
 	client_print(id, print_chat, "[H9] Rated server: matches here count on havoc9.org for players using their account's id.");
@@ -868,6 +890,8 @@ send_end()
 	app_num(g_end_s2);
 	app_raw(",^"rounds^":");
 	app_num(g_rounds);
+	app_raw(",^"oneRound^":");
+	app_num(g_oneround);
 	app_raw("},^"players^":[");
 	for (new k = 0; k < g_rcount; k++)
 	{
@@ -929,6 +953,19 @@ answer(EzHttpRequest:request_id, &EzJSON:root)
 	return code;
 }
 
+/** h9web answered not_rated (the server is not authenticated, is UNRANKED or a listen server, or its match was voided): nothing here
+ * gives a rating or experience. Said to everyone once a map, when h9_compete_notice is on, and to each player who joins after. */
+tell_unrated()
+{
+	g_unrated = true;
+	if (g_unrated_told || !get_pcvar_num(g_cv_notice))
+	{
+		return;
+	}
+	g_unrated_told = true;
+	client_print(0, print_chat, "[H9] This server is not rated by havoc9.org: matches here give no rating and no experience.");
+}
+
 public on_start(EzHttpRequest:request_id)
 {
 	new EzJSON:root;
@@ -951,6 +988,10 @@ public on_start(EzHttpRequest:request_id)
 		{
 			g_refusal_logged = true;
 			log_amx("[H9] h9web does not rate matches here: HTTP %d %s", code, g_last_error);
+		}
+		if (code == 409 && equal(g_last_error, "not_rated"))
+		{
+			tell_unrated();
 		}
 		reset_match();
 	}
@@ -993,9 +1034,14 @@ public on_kills(EzHttpRequest:request_id)
 		}
 		return;
 	}
-	if (code == 404 || (code == 409 && equal(g_last_error, "match_over")))
+	if (code == 404 || (code == 409 && (equal(g_last_error, "match_over") || equal(g_last_error, "not_rated"))))
 	{
-		// h9web has closed this match (another started, or it was abandoned)
+		// h9web has closed this match (another started, or it was abandoned), or voided it: the server is no longer one
+		// that is rated (it stopped being authenticated, or an admin made it UNRANKED)
+		if (code == 409 && equal(g_last_error, "not_rated"))
+		{
+			tell_unrated();
+		}
 		reset_match();
 	}
 }
@@ -1012,8 +1058,12 @@ public on_end(EzHttpRequest:request_id)
 	{
 		ezjson_free(root);
 	}
-	if (code == 200 || code == 404 || (code >= 400 && code < 500 && code != 429 && code != 409))
+	if (code == 200 || code == 404 || (code == 409 && equal(g_last_error, "not_rated")) || (code >= 400 && code < 500 && code != 429 && code != 409))
 	{
+		if (code == 409)
+		{
+			tell_unrated();
+		}
 		reset_match();
 		return;
 	}
@@ -1092,8 +1142,8 @@ signed_num(n, out[], len)
 // ---- the join line ------------------------------------------------------------------------------
 
 /**
- * Asks h9web for one player's rating, to tell everyone, as compts did, when the player's ACCOUNT
- * page shows their numbers ("public"). A player's own rank is h9_rank.amxx's .rank (and /rank).
+ * Asks h9web for one player's rating, to tell everyone, as compts did. A player's own rank is
+ * h9_rank.amxx's .rank (and /rank).
  */
 bool:send_rating(id)
 {

@@ -18,6 +18,7 @@ The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.
 The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), mainui-h9-hover.patch (a sound, launch_move1.wav, when the pointer or the arrow keys move onto another item), mainui-h9-slots128.patch (Create Game takes up to 128 players, the engine's MAX_CLIENTS), mainui-h9-link.patch (Link your Account and Unlink account in the main menu, with the scoreboard's chain beside it, green and whole when linked, red and broken when not; not in the browser build), mainui-h9-default64.patch (Create Game's Max players starts at 64), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
 The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), mainui-h9-hover.patch (a sound, launch_move1.wav, when the pointer or the arrow keys move onto another item), mainui-h9-slots128.patch (Create Game takes up to 128 players, the engine's MAX_CLIENTS), mainui-h9-link.patch (Link your Account and Unlink your Account in the main menu, below Change Game, with the scoreboard's chain beside it, green and whole when linked, red and broken when not, its dialogs naming the site the engine talks to; not in the browser build), mainui-h9-default64.patch (Create Game's Max players starts at 64), mainui-h9-browser.patch (the server browser shows people and bots apart, 1/64 (+63 bots), counts a server with bots on it as not empty and its bots against its slots, and marks a server for havoc9.org accounts only with an account icon, gfx/shell/h9_account), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
 The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), mainui-h9-hover.patch (a sound, launch_move1.wav, when the pointer or the arrow keys move onto another item), mainui-h9-slots128.patch (Create Game takes up to 128 players, the engine's MAX_CLIENTS), mainui-h9-link.patch (Link your Account and Unlink your Account in the main menu, below Change Game, with the scoreboard's chain beside it, green and whole when linked, red and broken when not, its dialogs naming the site the engine talks to; not in the browser build), mainui-h9-default64.patch (Create Game's Max players starts at 64), mainui-h9-browser.patch (the server browser shows people and bots apart, 1/64 (+63 bots), counts a server with bots on it as not empty and its bots against its slots, and marks a server for havoc9.org accounts only with an account icon, gfx/shell/h9_account), mainui-h9-joinscreen.patch (the join screen: the connection progress over the menu's background, with the stage, the bars, CANCEL and why a join ended; no background map while a join is on its way), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
+The main menu, mainui. engine-mainui.patch (webassembly), mainui-h9-gamestartup.patch (a track a config started keeps playing), mainui-h9-sprayui.patch (the Customize screen's logo picker: resyncs with console-side `spray` changes instead of going stale after the first visit each session, saves a colored pick back to the shelf file itself instead of a now-unread `remapped.*`, and adds a `none` row for keeping a hand-dropped tempdecal.wad as-is), mainui-h9-hover.patch (a sound, launch_move1.wav, when the pointer or the arrow keys move onto another item), mainui-h9-slots128.patch (Create Game takes up to 128 players, the engine's MAX_CLIENTS), mainui-h9-link.patch (Link your Account and Unlink your Account in the main menu, below Change Game, with the scoreboard's chain beside it, green and whole when linked, red and broken when not, its dialogs naming the site the engine talks to; not in the browser build), mainui-h9-default64.patch (Create Game's Max players starts at 64), mainui-h9-browser.patch (the server browser shows people and bots apart, 1/64 (+63 bots), counts a server with bots on it as not empty and its bots against its slots, marks a server for havoc9.org accounts only with an account icon, gfx/shell/h9_account, and draws a chain column: green when havoc9.org vouches for the server, red when it does not, from the engine's _h9srv cvar), mainui-h9-joinscreen.patch (the join screen: the connection progress over the menu's background, with the stage, the bars, CANCEL and why a join ended; no background map while a join is on its way), and ui_background_video: a looping video background layered in ahead of the WON/Steam/color background, on by default, falling back to it cleanly if disabled, the asset is missing, or FFmpeg isn't available. ui_background_video_file names the file (h9xash.bat picks one at random from ts\menu_bg_videos.txt, same as it already does for menu music).
 == Patch history ==
 Generated Wed 10/21/2026 23:42:19.26, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -735,6 +736,133 @@ In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f0878
 e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
 Diff sha256 e36ccdb7a2cae64730e5fbbca2c9c39f3d423eb8e85a9094b3ae2bdc4d24c265, the diff below.
 
+Generated Wed 11/04/2026 15:03:21.18, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/ConnectionProgress.cpp
+ M menus/CreateGame.cpp
+ M menus/Main.cpp
+ M menus/PlayerSetup.cpp
+ M menus/ServerBrowser.cpp
+ M sdk_includes/common/xash3d_types.h
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Lines of the previous diff that this build replaced, kept here:
+ 		case COLUMN_NAME: return servers[line].name;
+Diff sha256 1f47591fe0c7f5bef342785843a7b4c8a4445249bb62644ce2ae0846798e44ec, the diff below.
+
+Generated Wed 11/04/2026 19:38:04.57, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/ConnectionProgress.cpp
+ M menus/CreateGame.cpp
+ M menus/Main.cpp
+ M menus/PlayerSetup.cpp
+ M menus/ServerBrowser.cpp
+ M sdk_includes/common/xash3d_types.h
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Lines of the previous diff that this build replaced, kept here:
++and while a file downloads its line (the name, n of N, KB of KB) with its own bar. The engine keeps all of
++it in read-only cvars (_h9join, _h9join_server, _h9join_stage, _h9join_file, _h9join_fileprog), read
++here each frame. CANCEL, or ESC, ends the join at once; the console key opens the console in its place.
++	sTitle[0] = sStage[0] = sFile[0] = '\0';
++	fileLine.SetRect( 0, 122, JOIN_W, 20 );
++	fileBar.SetRect( 20, 148, JOIN_W - 40, 12 );
+Diff sha256 46273e8beb10e893771aa88a6621e3a062f64a496a733b9792a580789d490df8, the diff below.
+
+Generated Thu 11/05/2026 18:40:36.39, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/ConnectionProgress.cpp
+ M menus/CreateGame.cpp
+ M menus/Main.cpp
+ M menus/PlayerSetup.cpp
+ M menus/ServerBrowser.cpp
+ M sdk_includes/common/xash3d_types.h
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Lines of the previous diff that this build replaced, kept here:
+ 	char  info[512];
+Diff sha256 54a60e9d661a461b91b8f823aee3d4abcbb484e339e2bd391f40ec8fbbadee8c, the diff below.
+
+Generated Thu 11/05/2026 19:25:04.56, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/ConnectionProgress.cpp
+ M menus/CreateGame.cpp
+ M menus/Main.cpp
+ M menus/PlayerSetup.cpp
+ M menus/ServerBrowser.cpp
+ M sdk_includes/common/xash3d_types.h
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Lines of the previous diff that this build replaced, kept here:
+ 	COLUMN_PASSWORD = 0,
+ 	COLUMN_FAVORITE,
++	COLUMN_CHAIN, // H9: whether havoc9.org vouches for the server (cl_h9auth.c)
+ 	gameList.SetupColumn( COLUMN_PASSWORD, NULL, 32.0f, true );
++	gameList.SetupColumn( COLUMN_ACCOUNT, NULL, 32.0f, true );
+ 	gameList.SetupColumn( COLUMN_FAVORITE, NULL, 32.0f, true );
++	gameList.SetupColumn( COLUMN_CHAIN, NULL, 32.0f, true );
+ 	gameList.SetupColumn( COLUMN_NAME, L( "Name" ), 0.40f );
+ 	gameList.SetupColumn( COLUMN_MAP, L( "GameUI_Map" ), 0.25f );
++	gameList.SetupColumn( COLUMN_PLAYERS, L( "Players" ), 180.0f, true );
+ 	gameList.SetupColumn( COLUMN_PING, L( "Ping" ), 120.0f, true );
+Diff sha256 118a7fe0e96ba3527743f81ab4d6816df4a8fcf91703092fbc5c389b47261f33, the diff below.
+
+Generated Thu 11/05/2026 19:49:45.75, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M BaseMenu.cpp
+ M BaseMenu.h
+ M controls/BackgroundBitmap.cpp
+ M controls/BackgroundBitmap.h
+ M enginecallback_menu.h
+ M menus/ConnectionProgress.cpp
+ M menus/CreateGame.cpp
+ M menus/Main.cpp
+ M menus/PlayerSetup.cpp
+ M menus/ServerBrowser.cpp
+ M sdk_includes/common/xash3d_types.h
+ M sdk_includes/engine/menu_int.h
+Commits on h9 since upstream that touch these paths, oldest first:
+In 3rdparty/mainui, since its upstream commit bb47191cec4f26093503be9f976d6f087886c403:
+4eef104 2026-10-20 h9: webassembly support (engine-mainui.patch)
+e9fb24e 2026-10-20 h9: ask for media/gamestartup only when the game has one
+Lines of the previous diff that this build replaced, kept here:
++		UI_ShowMessageBox( reason );
++	// H9: the icons' columns are as wide as a 16 unit icon, the players' and the ping's as their text, and the name takes the rest
++	gameList.SetupColumn( COLUMN_CHAIN, NULL, 20.0f, true );
+Diff sha256 2438d89960c5ef71bf7f5728696ff90b6dca151fe342b47647e472cc5d4dc24e, the diff below.
+
 diff --git a/3rdparty/mainui/BaseMenu.cpp b/3rdparty/mainui/BaseMenu.cpp
 index 7b727eb..3d4d569 100755
 --- a/3rdparty/mainui/BaseMenu.cpp
@@ -1083,7 +1211,7 @@ index 36326cf..748aaf1 100644
  	{
  		return textfuncs.pfnGetRenderers( num, sz1, s1, sz2, s2 ) != 0;
 diff --git a/3rdparty/mainui/menus/ConnectionProgress.cpp b/3rdparty/mainui/menus/ConnectionProgress.cpp
-index 3581908..76ed69b 100644
+index 3581908..495d684 100644
 --- a/3rdparty/mainui/menus/ConnectionProgress.cpp
 +++ b/3rdparty/mainui/menus/ConnectionProgress.cpp
 @@ -16,6 +16,16 @@ See the GNU General Public License for more details.
@@ -1095,9 +1223,9 @@ index 3581908..76ed69b 100644
 +starts (connect, retry, this game's own server) and at each map change, and takes down once the player
 +is in the game. Over the menu's own background, or its video, full screen: a panel in the menu's colours
 +(gfx/shell/colors.lst: H9's purple) with the server it joins, the stage, the overall bar (scr_loading),
-+and while a file downloads its line (the name, n of N, KB of KB) with its own bar. The engine keeps all of
-+it in read-only cvars (_h9join, _h9join_server, _h9join_stage, _h9join_file, _h9join_fileprog), read
-+here each frame. CANCEL, or ESC, ends the join at once; the console key opens the console in its place.
++and while a file downloads the downloads together (the bytes done and to go, the time left) and the file's
++line (the name, n of N, KB of KB) with its own bar. The engine keeps all of it in read-only cvars (_h9join,
++_h9join_server, _h9join_stage, _h9join_total, _h9join_file, _h9join_fileprog), read here each frame. CANCEL, or ESC, ends the join at once; the console key opens the console in its place.
 +A join, or a game, that ends with a reason (_h9_drop: refused, kicked, timed out, a file that could not
 +come) says it, with OK, over the menu's own screens.
  */
@@ -1128,7 +1256,7 @@ index 3581908..76ed69b 100644
  
  class CMenuConnectionProgress : public CMenuBaseWindow
  {
-@@ -52,94 +48,30 @@ public:
+@@ -52,94 +48,32 @@ public:
  	void Draw() override;
  	bool DrawAnimation() override;
  	bool KeyDown( int key ) override;
@@ -1221,12 +1349,14 @@ index 3581908..76ed69b 100644
 -	char sDownloadString[512];
 -	char sCommonString[512];
 +	CMenuAction stage;
++	CMenuAction totalLine;
 +	CMenuAction fileLine;
 +	CMenuProgressBar overall;
 +	CMenuProgressBar fileBar;
 +	CMenuPicButton cancelButton;
 +	char sTitle[256];
 +	char sStage[128];
++	char sTotal[160];
 +	char sFile[512];
  };
  
@@ -1235,11 +1365,11 @@ index 3581908..76ed69b 100644
 -	sDownloadString[0] = sCommonString[0] = sTitleString[0] = '\0';
 -	m_iSource = SOURCE_CONSOLE;
 -	m_iState = STATE_NONE;
-+	sTitle[0] = sStage[0] = sFile[0] = '\0';
++	sTitle[0] = sStage[0] = sTotal[0] = sFile[0] = '\0';
  	szName = "ConnectionProgress";
  }
  
-@@ -147,171 +79,114 @@ bool CMenuConnectionProgress::KeyDown( int key )
+@@ -147,171 +81,158 @@ bool CMenuConnectionProgress::KeyDown( int key )
  {
  	if( UI::Key::IsEscape( key ))
  	{
@@ -1274,15 +1404,48 @@ index 3581908..76ed69b 100644
  {
 -	if( m_iState == STATE_NONE )
 -		return;
--
++	EngFuncs::ClientCmd( true, "http_clear\n" );
++	EngFuncs::ClientCmd( false, "disconnect\n" );
++}
+ 
 -	if( m_iState == STATE_CONSOLE )
--	{
++// a join or a map change: the screen, on top of whatever the menu shows. With the menu down (a join from
++// the console, a map change in the game) the main menu goes under it first: the menu's last window never
++// closes, so the screen alone could never hide, and a join that ends before the game ends on the main menu
++void CMenuConnectionProgress::Begin()
++{
++	Refresh();
++	if( !UI_IsVisible( ))
++		UI_Main_Menu();
++	if( !IsVisible( ))
++		Show();
++}
++
++// the box a refusal for an out-of-date game gets: the server's own words, and a button that opens the page they name (a click only)
++static void OpenDownloadsPage( void )
++{
++	EngFuncs::ShellExecute( "https://havoc9.org/downloads/", NULL, false );
++}
++
++static void ShowUpdateBox( const char *reason )
++{
++	static char msg[512];
++	static CMenuYesNoMessageBox box( false );
++	static bool init;
++
++	Q_strncpy( msg, reason, sizeof( msg ));
++
++	if( !UI_IsVisible( ))
+ 	{
 -		m_iState = STATE_NONE;
 -		return;
--	}
--
++		UI_Main_Menu();
++		UI_SetActiveMenu( true );
+ 	}
+ 
 -	if( UI_IsVisible() && m_pStack->Current() == this )
--	{
++	if( !init )
+ 	{
 -		Hide();
 -		if( m_iSource != SOURCE_CONSOLE && m_iState != STATE_MENU )
 -		{
@@ -1299,25 +1462,18 @@ index 3581908..76ed69b 100644
 -			}
 -			m_iSource = SOURCE_CONSOLE;
 -		}
--	}
++		box.SetPositiveButton( L( "Open havoc9.org" ), PC_OK, 100 );
++		box.SetNegativeButton( L( "Close" ), PC_CANCEL, -20 );
++		box.onPositive = OpenDownloadsPage;
++		init = true;
+ 	}
 -	
 -	SetCommonText( L( "GameUI_Disconnected" ) );
-+	EngFuncs::ClientCmd( true, "http_clear\n" );
-+	EngFuncs::ClientCmd( false, "disconnect\n" );
-+}
  
 -	m_iState = STATE_NONE;
 -	VidInit();
-+// a join or a map change: the screen, on top of whatever the menu shows. With the menu down (a join from
-+// the console, a map change in the game) the main menu goes under it first: the menu's last window never
-+// closes, so the screen alone could never hide, and a join that ends before the game ends on the main menu
-+void CMenuConnectionProgress::Begin()
-+{
-+	Refresh();
-+	if( !UI_IsVisible( ))
-+		UI_Main_Menu();
-+	if( !IsVisible( ))
-+		Show();
++	box.SetMessage( msg );
++	box.Show();
  }
  
 -void CMenuConnectionProgress::Disconnect()
@@ -1325,18 +1481,21 @@ index 3581908..76ed69b 100644
 +void CMenuConnectionProgress::End()
  {
 -	if( m_iState == STATE_DOWNLOAD )
--	{
--		EngFuncs::ClientCmd( true, "http_clear\n" );
--		m_iState = STATE_CONNECTING;
--		HandleDisconnect();
--	}
 +	const char *reason = EngFuncs::GetCvarString( "_h9_drop" );
- 
--	EngFuncs::ClientCmd( false, "disconnect\n");
++
 +	if( IsVisible( ))
 +		Hide();
 +	if( reason && reason[0] )
-+		UI_ShowMessageBox( reason );
+ 	{
+-		EngFuncs::ClientCmd( true, "http_clear\n" );
+-		m_iState = STATE_CONNECTING;
+-		HandleDisconnect();
++		if( strstr( reason, "havoc9.org/downloads" ))
++			ShowUpdateBox( reason );
++		else UI_ShowMessageBox( reason );
+ 	}
+-
+-	EngFuncs::ClientCmd( false, "disconnect\n");
  }
  
  void CMenuConnectionProgress::_Init( void )
@@ -1380,6 +1539,10 @@ index 3581908..76ed69b 100644
 +	stage.iFlags = QMF_INACTIVE;
 +	stage.eTextAlignment = QM_CENTER;
 +	stage.szName = sStage;
++
++	totalLine.iFlags = QMF_INACTIVE;
++	totalLine.eTextAlignment = QM_CENTER;
++	totalLine.szName = sTotal;
  
 -	skipButton.szName = L( "Skip" );
 -	skipButton.onReleased.SetCommand( true, "http_skip\n" );
@@ -1412,6 +1575,7 @@ index 3581908..76ed69b 100644
 -	AddItem( commonText );
 +	AddItem( stage );
 +	AddItem( overall );
++	AddItem( totalLine );
 +	AddItem( fileLine );
 +	AddItem( fileBar );
 +	AddItem( cancelButton );
@@ -1446,13 +1610,14 @@ index 3581908..76ed69b 100644
  
 -	cursor -= 30;
 -	commonProgress.SetRect( 20, cursor, 600, 20 );
-+	fileLine.SetCharSize( QM_SMALLFONT );
-+	fileLine.SetRect( 0, 122, JOIN_W, 20 );
++	totalLine.SetCharSize( QM_SMALLFONT );
++	totalLine.SetRect( 0, 108, JOIN_W, 18 );
  
 -	cursor -= 50;
 -	commonText.SetCharSize( QM_SMALLFONT );
 -	commonText.SetRect( 20, cursor, 500, 40 );
-+	fileBar.SetRect( 20, 148, JOIN_W - 40, 12 );
++	fileLine.SetCharSize( QM_SMALLFONT );
++	fileLine.SetRect( 0, 128, JOIN_W, 20 );
  
 -	if( m_iState == STATE_DOWNLOAD )
 -	{
@@ -1473,11 +1638,13 @@ index 3581908..76ed69b 100644
 -		skipButton.Hide();
 -		downloadText.Hide();
 -	}
++	fileBar.SetRect( 20, 152, JOIN_W - 40, 12 );
++
 +	cancelButton.SetRect( ( JOIN_W - UI_BUTTONS_WIDTH / 2 ) / 2, JOIN_H - 50, UI_BUTTONS_WIDTH / 2, UI_BUTTONS_HEIGHT );
  
  	CalcPosition();
  	CalcSizes();
-@@ -323,121 +198,83 @@ bool CMenuConnectionProgress::DrawAnimation()
+@@ -323,121 +244,89 @@ bool CMenuConnectionProgress::DrawAnimation()
  	return true;
  }
  
@@ -1487,10 +1654,16 @@ index 3581908..76ed69b 100644
 +	const char *server = EngFuncs::GetCvarString( "_h9join_server" );
 +	const char *what = EngFuncs::GetCvarString( "_h9join_stage" );
 +	const char *file = EngFuncs::GetCvarString( "_h9join_file" );
++	const char *total = EngFuncs::GetCvarString( "_h9join_total" );
 +
 +	snprintf( sTitle, sizeof( sTitle ), "%s", server && server[0] ? server : L( "GameUI_EstablishingConnection" ));
 +	snprintf( sStage, sizeof( sStage ), "%s", what && what[0] ? what : L( "GameUI_EstablishingConnection" ));
 +	snprintf( sFile, sizeof( sFile ), "%s", file ? file : "" );
++	snprintf( sTotal, sizeof( sTotal ), "%s", total ? total : "" );
++
++	if( sTotal[0] )
++		totalLine.Show();
++	else totalLine.Hide();
 +
 +	if( sFile[0] )
 +	{
@@ -2110,28 +2283,83 @@ index edcbe50..16cfb70 100644
  	{
  		ParseLogoColorCvar();
 diff --git a/3rdparty/mainui/menus/ServerBrowser.cpp b/3rdparty/mainui/menus/ServerBrowser.cpp
-index 9656eb7..080d973 100644
+index 9656eb7..ad194c2 100644
 --- a/3rdparty/mainui/menus/ServerBrowser.cpp
 +++ b/3rdparty/mainui/menus/ServerBrowser.cpp
-@@ -34,6 +34,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+@@ -34,6 +34,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  #define ART_BANNER_LAN      "gfx/shell/head_lan"
  #define ART_BANNER_LOCK     "gfx/shell/lock"
  #define ART_BANNER_FAVORITE "gfx/shell/favorite"
 +#define ART_BANNER_ACCOUNT  "gfx/shell/h9_account" // H9: a server for havoc9.org accounts only
++#define ART_CHAIN_OK        "gfx/vgui/h9_link.tga"   // H9: havoc9.org vouches for the server: the scoreboard's green chain
++#define ART_CHAIN_BAD       "gfx/vgui/h9_unlink.tga" // H9: it does not: the red broken chain
  
  #define MAX_PING 9.999f
  #define FILTER_MAX_MAPS 16
-@@ -44,6 +45,7 @@ class CMenuServerBrowser;
+@@ -43,9 +46,12 @@ class CMenuServerBrowser;
+ 
  enum
  {
- 	COLUMN_PASSWORD = 0,
-+	COLUMN_ACCOUNT, // H9: the server takes havoc9.org accounts only (its info's "auth")
- 	COLUMN_FAVORITE,
+-	COLUMN_PASSWORD = 0,
+-	COLUMN_FAVORITE,
++	COLUMN_CHAIN = 0, // H9: whether havoc9.org vouches for the server (cl_h9auth.c); first, with the name beside it at the left edge
  	COLUMN_NAME,
++	COLUMN_PASSWORD,
++	COLUMN_ACCOUNT, // H9: the server takes havoc9.org accounts only (its info's "auth")
++	COLUMN_FAVORITE,
++	COLUMN_MODE, // H9: the game mode, named by the engine from the server's game description and map (the info's "mode")
  	COLUMN_MAP,
-@@ -58,7 +60,8 @@ struct server_t
+ 	COLUMN_PLAYERS,
+ 	COLUMN_PING,
+@@ -53,20 +59,65 @@ enum
+ 	COLUMN_LAST
+ };
+ 
++// H9: what havoc9.org says of the server at an address, from the engine's cvars (cl_h9auth.c): 0 nothing is
++// known (the list has not been read, or this engine has none), 1 authenticated, 2 authenticated on a roleplay
++// map (nothing there is ranked), 3 not authenticated
++static int H9ChainOf( const char *ip )
++{
++	const char *gen = EngFuncs::GetCvarString( "_h9srv_gen" );
++
++	if( !gen || !gen[0] || gen[0] == '0' )
++		return 0;
++
++	const char *list = EngFuncs::GetCvarString( "_h9srv" );
++	char key[80];
++
++	snprintf( key, sizeof( key ), " %s=", ip );
++
++	const char *hit = list ? strstr( list, key ) : NULL;
++
++	if( !hit )
++		return 3;
++	switch( hit[strlen( key )] )
++	{
++	case 'o': return 1;
++	case 'r': return 2;
++	}
++	return 3;
++}
++
++// H9: asks the engine to read havoc9.org's list of authenticated servers, which it does at most once in 20
++// seconds; an engine without it has no _h9srv_gen, and is not asked
++static void H9ChainsAsk( void )
++{
++	const char *gen = EngFuncs::GetCvarString( "_h9srv_gen" );
++
++	if( gen && gen[0] )
++		EngFuncs::ClientCmd( false, "h9_servers\n" );
++}
++
++// H9: the chains belong to the Internet lists: a LAN server is not one havoc9.org knows
++static bool s_h9Chains = true;
++
+ struct server_t
+ {
  	netadr_t adr;
- 	char  info[512];
+-	char  info[512];
++	char  info[576]; // H9: room for the engine's "mode" after a reply that filled its 512
  	float ping;
 -	int  numcl;
 +	int  numcl; // the people: Xash servers send bots apart, and GoldSrc's are taken out of it
@@ -2139,15 +2367,36 @@ index 9656eb7..080d973 100644
  	int  maxcl;
  	char name[64];
  	char mapname[64];
-@@ -67,6 +70,7 @@ struct server_t
++	char mode[64]; // H9: the engine's "mode" key
+ 	char clientsstr[64];
+ 	char pingstr[64];
  	char ipstr[64];
  	bool favorite;
  	bool havePassword;
 +	bool needAccount;
++	int  chain; // H9: H9ChainOf's answer, 0 for none
++	char title[96]; // H9: the name as the table shows it
  	bool isGoldSrc;
  	bool pending_info;
  
-@@ -105,6 +109,8 @@ struct server_t
+@@ -78,6 +129,7 @@ struct server_t
+ 
+ 	server_t( netadr_t adr, const char *info, bool is_favorite, bool pending_info = false );
+ 	void UpdateData();
++	void UpdateChain();
+ 	void SetPing( float ping );
+ 
+ 	const char *ToProtocol( void )
+@@ -101,10 +153,17 @@ struct server_t
+ 		return stricmp( mapname, other.mapname );
+ 	}
+ 
++	int ModeCmp( const server_t &other ) const
++	{
++		return stricmp( mode, other.mode );
++	}
++
+ 	int ClientCmp( const server_t &other ) const
  	{
  		if( numcl > other.numcl ) return 1;
  		else if( numcl < other.numcl ) return -1;
@@ -2156,7 +2405,7 @@ index 9656eb7..080d973 100644
  		return 0;
  	}
  
-@@ -115,14 +121,15 @@ struct server_t
+@@ -115,14 +174,15 @@ struct server_t
  		return 0;
  	}
  
@@ -2174,25 +2423,74 @@ index 9656eb7..080d973 100644
  	}
  
  #define GENERATE_COMPAR_FN( method ) \
-@@ -273,7 +280,7 @@ public:
+@@ -138,6 +198,7 @@ struct server_t
+ 	GENERATE_COMPAR_FN( NameCmp )
+ 	GENERATE_COMPAR_FN( AdrCmp )
+ 	GENERATE_COMPAR_FN( MapCmp )
++	GENERATE_COMPAR_FN( ModeCmp )
+ 	GENERATE_COMPAR_FN( ClientCmp )
+ 	GENERATE_COMPAR_FN( PingCmp )
+ #undef GENERATE_COMPAR_FN
+@@ -273,7 +334,9 @@ public:
  
  	ECellType GetCellType( int line, int column ) override
  	{
 -		if( column == COLUMN_PASSWORD || column == COLUMN_FAVORITE )
++		if( column == COLUMN_CHAIN )
++			return CELL_IMAGE_TRANS;
 +		if( column == COLUMN_PASSWORD || column == COLUMN_ACCOUNT || column == COLUMN_FAVORITE )
  			return CELL_IMAGE_ADDITIVE;
  		return CELL_TEXT;
  	}
-@@ -283,6 +290,7 @@ public:
+@@ -283,8 +346,11 @@ public:
  		switch( column )
  		{
  		case COLUMN_PASSWORD: return servers[line].havePassword ? ART_BANNER_LOCK : NULL;
 +		case COLUMN_ACCOUNT: return servers[line].needAccount ? ART_BANNER_ACCOUNT : NULL;
  		case COLUMN_FAVORITE: return servers[line].favorite ? ART_BANNER_FAVORITE : NULL;
- 		case COLUMN_NAME: return servers[line].name;
+-		case COLUMN_NAME: return servers[line].name;
++		case COLUMN_CHAIN: return servers[line].chain == 3 ? ART_CHAIN_BAD : servers[line].chain ? ART_CHAIN_OK : NULL;
++		case COLUMN_NAME: return servers[line].title;
++		case COLUMN_MODE: return servers[line].mode;
  		case COLUMN_MAP: return servers[line].mapname;
-@@ -509,9 +517,14 @@ void server_t::UpdateData( void )
+ 		case COLUMN_PLAYERS: return servers[line].clientsstr;
+ 		case COLUMN_PING: return servers[line].pingstr;
+@@ -342,6 +408,13 @@ public:
+ 		serversRefreshTime = gpGlobals->time;
+ 	}
+ 
++	// H9: havoc9.org's list was read or changed after the rows were made
++	void RefreshChains()
++	{
++		for( int i = 0; i < servers.Count(); i++ )
++			servers[i].UpdateChain();
++	}
++
+ 	bool IsHavePassword( int line )
+ 	{
+ 		return servers[line].havePassword;
+@@ -375,7 +448,7 @@ private:
+ class CMenuServerBrowser: public CMenuFramework
+ {
+ public:
+-	CMenuServerBrowser() : CMenuFramework( "CMenuServerBrowser" ), gameListModel( this ), m_iLastRefreshTab( -1 ) { }
++	CMenuServerBrowser() : CMenuFramework( "CMenuServerBrowser" ), gameListModel( this ), m_iLastRefreshTab( -1 ) { m_szChainGen[0] = 0; }
+ 	void Draw() override;
+ 	void Show() override;
+ 	void Hide() override;
+@@ -447,6 +520,7 @@ public:
+ 	CUtlVector<favlist_entry_t> favoritesList;
+ 	CUtlVector<favlist_entry_t> historyList;
+ 	int m_iLastRefreshTab;
++	char m_szChainGen[16]; // H9: _h9srv_gen as the rows' chains last saw it
+ 	CUtlVector<server_t> m_InternetServers[INTERNET_TAB_COUNT];
+ 	CUtlVector<server_t> m_LanServers;
+ private:
+@@ -507,12 +581,28 @@ void server_t::UpdateData( void )
+ {
+ 	Q_strncpy( name, Info_ValueForKey( info, "host" ), sizeof( name ));
  	Q_strncpy( mapname, Info_ValueForKey( info, "map" ), sizeof( mapname ));
++	Q_strncpy( mode, Info_ValueForKey( info, "mode" ), sizeof( mode ));
  	Q_strncpy( ipstr, EngFuncs::NET_AdrToString( adr ), sizeof( ipstr ));
  	numcl = atoi( Info_ValueForKey( info, "numcl" ));
 +	bots = atoi( Info_ValueForKey( info, "bots" ));
@@ -2205,29 +2503,97 @@ index 9656eb7..080d973 100644
  	havePassword = !strcmp( Info_ValueForKey( info, "password" ), "1" );
 +	needAccount = !strcmp( Info_ValueForKey( info, "auth" ), "1" );
  	isGoldSrc = !strcmp( Info_ValueForKey( info, "gs" ), "1" );
++	UpdateChain();
++}
++
++// H9: the chain's picture, and the name as the table shows it: a roleplay server says nothing there is ranked
++void server_t::UpdateChain( void )
++{
++	chain = s_h9Chains ? H9ChainOf( ipstr ) : 0;
++	if( chain == 2 )
++		snprintf( title, sizeof( title ), "%s  [UNRANKED: roleplay]", name );
++	else Q_strncpy( title, name, sizeof( title ));
  }
  
-@@ -533,6 +546,7 @@ bool CMenuGameListModel::Sort(int column, bool ascend)
+ void server_t::SetPing( float ping )
+@@ -533,11 +623,17 @@ bool CMenuGameListModel::Sort(int column, bool ascend)
  	switch( column )
  	{
  	case COLUMN_PASSWORD:
 +	case COLUMN_ACCOUNT:
++	case COLUMN_CHAIN:
  		return false;
  	case COLUMN_NAME:
  		qsort( servers.Base(), servers.Count(), sizeof( server_t ),
-@@ -1195,10 +1209,11 @@ void CMenuServerBrowser::_Init( void )
+ 			ascend ? server_t::NameCmpAscend : server_t::NameCmpDescend );
+ 		return true;
++	case COLUMN_MODE:
++		qsort( servers.Base(), servers.Count(), sizeof( server_t ),
++			ascend ? server_t::ModeCmpAscend : server_t::ModeCmpDescend );
++		return true;
+ 	case COLUMN_MAP:
+ 		qsort( servers.Base(), servers.Count(), sizeof( server_t ),
+ 			ascend ? server_t::MapCmpAscend : server_t::MapCmpDescend );
+@@ -945,6 +1041,10 @@ void CMenuServerBrowser::RefreshList()
+ {
+ 	gameListModel.serversRefreshTime = EngFuncs::DoubleTime();
+ 
++	// H9: havoc9.org's word on which servers are authenticated, for the chains
++	if( !m_bLanOnly )
++		H9ChainsAsk();
++
+ 	if( m_bLanOnly )
+ 	{
+ 		m_LanServers.RemoveAll();
+@@ -1133,6 +1233,15 @@ void CMenuServerBrowser::Draw( void )
+ {
+ 	CMenuFramework::Draw();
+ 
++	// H9: havoc9.org's list was read, or changed, after the rows were made (cl_h9auth.c)
++	const char *chainGen = EngFuncs::GetCvarString( "_h9srv_gen" );
++
++	if( chainGen && strcmp( chainGen, m_szChainGen ))
++	{
++		Q_strncpy( m_szChainGen, chainGen, sizeof( m_szChainGen ));
++		gameListModel.RefreshChains();
++	}
++
+ 	if( uiStatic.realTime > refreshTime )
+ 	{
+ 		RefreshList();
+@@ -1194,12 +1303,17 @@ void CMenuServerBrowser::_Init( void )
+ 	msgBox.Link( this );
  
  	gameList.SetCharSize( QM_SMALLFONT );
- 	gameList.SetupColumn( COLUMN_PASSWORD, NULL, 32.0f, true );
-+	gameList.SetupColumn( COLUMN_ACCOUNT, NULL, 32.0f, true );
- 	gameList.SetupColumn( COLUMN_FAVORITE, NULL, 32.0f, true );
- 	gameList.SetupColumn( COLUMN_NAME, L( "Name" ), 0.40f );
- 	gameList.SetupColumn( COLUMN_MAP, L( "GameUI_Map" ), 0.25f );
+-	gameList.SetupColumn( COLUMN_PASSWORD, NULL, 32.0f, true );
+-	gameList.SetupColumn( COLUMN_FAVORITE, NULL, 32.0f, true );
+-	gameList.SetupColumn( COLUMN_NAME, L( "Name" ), 0.40f );
+-	gameList.SetupColumn( COLUMN_MAP, L( "GameUI_Map" ), 0.25f );
 -	gameList.SetupColumn( COLUMN_PLAYERS, L( "Players" ), 100.0f, true );
-+	gameList.SetupColumn( COLUMN_PLAYERS, L( "Players" ), 180.0f, true );
- 	gameList.SetupColumn( COLUMN_PING, L( "Ping" ), 120.0f, true );
+-	gameList.SetupColumn( COLUMN_PING, L( "Ping" ), 120.0f, true );
++	// H9: the icons' columns are as wide as a 16 unit icon (the chain's a little wider, a gap before the name), the players' and the
++	// ping's as their text, and the name takes the rest
++	gameList.SetupColumn( COLUMN_CHAIN, NULL, 28.0f, true );
++	gameList.SetupColumn( COLUMN_NAME, L( "Name" ), 0.48f );
++	gameList.SetupColumn( COLUMN_PASSWORD, NULL, 20.0f, true );
++	gameList.SetupColumn( COLUMN_ACCOUNT, NULL, 20.0f, true );
++	gameList.SetupColumn( COLUMN_FAVORITE, NULL, 20.0f, true );
++	gameList.SetupColumn( COLUMN_MODE, L( "Mode" ), 0.22f );
++	gameList.SetupColumn( COLUMN_MAP, L( "GameUI_Map" ), 0.22f );
++	gameList.SetupColumn( COLUMN_PLAYERS, L( "Players" ), 160.0f, true );
++	gameList.SetupColumn( COLUMN_PING, L( "Ping" ), 90.0f, true );
  	gameList.SetupColumn( COLUMN_IP, L( "IP" ), 0, true );
  	gameList.SetModel( &gameListModel );
+ 	gameList.bFramedHintText = true;
+@@ -1441,6 +1555,8 @@ void CMenuServerBrowser::Show()
+ {
+ 	CMenuFramework::Show();
+ 
++	s_h9Chains = !m_bLanOnly;
++
+ 	if( m_bLanOnly )
+ 	{
+ 		banner.SetPicture( ART_BANNER_LAN );
 diff --git a/3rdparty/mainui/menus/VideoOptions.cpp b/3rdparty/mainui/menus/VideoOptions.cpp
 index 69dd50a..cc4b1e2 100644
 --- a/3rdparty/mainui/menus/VideoOptions.cpp

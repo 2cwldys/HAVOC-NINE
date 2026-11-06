@@ -82,8 +82,8 @@ private:
 
 	// preview sprites (the bought-weapon icons in the header, FUN_10036af0) — same files the
 	// weapon-select bar loads (sprites/weapons/<name>.spr).
-	HSPRITE m_hIcon[40];
-	Rect m_rcIcon[40];
+	HSPRITE m_hIcon[41]; // one for each weapon id, as the weapon bar's cells (TSW_COUNT; VidInit checks it)
+	Rect m_rcIcon[41];
 
 	// helpers
 	int  TeamCount() const;

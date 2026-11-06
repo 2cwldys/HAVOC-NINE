@@ -1,0 +1,36 @@
+{
+  "about": "What the web client does in place of each piece of the engine that a patch compiles out of the browser build (#if !XASH_EMSCRIPTEN). tools/webclient-sync.mjs refuses a patch that adds such code and has no entry here, so a native feature cannot quietly stay missing from the web client. status: bridged = the engine asks the page through a Module.* object; page-fed = the page sets what the engine would have set; native-only = nothing is needed in a browser, and why. markers are strings that must be in havoc9.org/webclient/client.js for a bridged or page-fed entry, so removing the page's half breaks the check too.",
+  "patches": {
+    "engine-h9-avatars.patch": {
+      "status": "bridged",
+      "how": "CL_Avatar_Message asks Module.avatar.want(slot, account, version); the page (avatarFeed) fetches /api/presence/avatar/<account>/<version>.png from its own site, writes downloads/h9avatars/web_<account>_<version>.png and runs h9_avatar_page, which shows it through HUD_H9Avatar. h9_profile is not in the browser build.",
+      "markers": ["avatarFeed", "h9_avatar_page"]
+    },
+    "engine-h9-serverauth.patch": {
+      "status": "page-fed",
+      "how": "The page (chainFeed) reads /api/presence/servers/auth and sets _h9srv and _h9srv_gen, the two cvars the server browser's chain column reads; h9_servers is an alias that waits a frame.",
+      "markers": ["chainFeed", "_h9srv_gen"]
+    },
+    "engine-h9-motd.patch": {
+      "status": "bridged",
+      "how": "Module.motd: the page (motdOverlay) shows the splash picture or page over the game and answers with h9_motd_result.",
+      "markers": ["motdOverlay", "h9_motd_result"]
+    },
+    "engine-h9-idproof.patch": {
+      "status": "native-only",
+      "why": "The device proof (device_id.ini, the operating system's random source, _h9idv) is a native client's. A web player's account comes from the page's sign-in, which the relay carries, so the site knows it without a device proof."
+    },
+    "engine-h9-joinscreen.patch": {
+      "status": "native-only",
+      "why": "The compiled-out lines read the engine's HTTP download progress for the join screen. The browser build has no engine downloads: the page fetches game files itself."
+    },
+    "engine-h9-link.patch": {
+      "status": "native-only",
+      "why": "The account link (the id kept DPAPI-protected, h9_link and h9_unlink) is the native client's. The browser's equivalent is the page's sign-in (auth.js), which hands the account's player id to the engine as cl_h9_userid."
+    },
+    "engine-h9-listen.patch": {
+      "status": "native-only",
+      "why": "A listen server's own player in presence: the browser build cannot host a server."
+    }
+  }
+}

@@ -1,0 +1,44 @@
+LASER RIFLE: ATTRIBUTION
+========================
+
+The Laser Rifle view model (v_laserrifle.mdl), player model (p_laserrifle.mdl)
+and world model (w_laserrifle.mdl) are adapted from a 3D model published on
+Sketchfab:
+
+  "Sci-Fi Marksman Rifle (Updated Textures)" (https://skfb.ly/ozONJ) by Jett
+  Spaulding is licensed under Creative Commons Attribution
+  (http://creativecommons.org/licenses/by/4.0/).
+
+  Model:   https://sketchfab.com/3d-models/sci-fi-marksman-rifle-updated-textures-909c08e41bb3491bac9110d9cf1d48e4
+  Author:  Jett Spaulding
+  Licence: Creative Commons Attribution 4.0 International (CC BY 4.0). It
+           allows use and adaptation, including commercial use, with credit
+           to the author, a link to the licence and a note of what was
+           changed (below).
+
+CHANGES MADE FOR THE SPECIALISTS / H9XASH
+
+  - The mesh (118,540 triangles in 21 parts) was brought down part by part to
+    about 9,400 triangles (view model) and 4,500 (player and world models), to
+    fit what a GoldSrc model holds. The flashlight parts and the optic's mount
+    were left out, the optic was lowered onto the receiver (and made lower in
+    the view model so that it does not stand up into the player's view), the
+    magazine, which the file shows out of the rifle, was seated in its well,
+    and the barrel's pieces were simplified on a grid.
+  - The optic's two lenses were remade as blue hexagonal glass plates (the
+    file's lens is red) and given a picture of their own.
+  - The 1024 x 1024 physically based textures were baked into one colour
+    picture of 512 x 512: the painted metal is white (the file's tan fill
+    became white), the underside, grip and magazine black, the normal maps
+    baked in as light and shade.
+  - The model was fitted onto The Specialists' own M4A1 models, so the hands
+    and every animation (reload, draw, the shots and the gunbash) are the
+    game's.
+  - None of the original file, nor its full-size textures, is included here.
+
+SOUNDS AND SPRITES
+
+  sound/h9/laserrifle/*.wav and sprites/laserrifle_*.spr,
+  sprites/weapons/laserrifle.spr were made for this project from arithmetic
+  (laserrifle\build\make_sounds.py and make_sprites.py): no third party's
+  recording or picture is in them.

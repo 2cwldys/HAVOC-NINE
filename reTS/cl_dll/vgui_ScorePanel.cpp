@@ -49,8 +49,12 @@ int g_IsSpectator[MAX_PLAYERS_HUD + 1];
 ScoreAvatar g_PlayerAvatars[MAX_PLAYERS_HUD + 1];
 bool g_bScoreAssists = false;
 bool g_bScoreLives = false; // H9 LIVES
+bool g_bScorePool = false; // H9 POOL
+int g_iScorePoolLeft[3] = {0, 0, 0};
+int g_iScorePoolStart[3] = {0, 0, 0};
 bool g_bScoreKills = false; // H9 KILLS
 static bool s_bCellsKills = false; // H9 KILLS: what the cells were last placed for (PlaceCells)
+static bool s_bCellsPool = false;  // H9 POOL: the same, for the lives column's title and width
 
 // ---- H9 BOARD: the name of the one list on a map without teams. H9's ts_matchmode sends it in
 // H9Board (a string) to each player as he joins: "Roleplay" on a roleplay map, empty elsewhere.
@@ -889,6 +893,9 @@ void ScorePanel::Initialize()
 	memset(g_TeamInfo, 0, sizeof g_TeamInfo);
 	g_bScoreAssists = false;
 	g_bScoreLives = false; // H9 LIVES
+	g_bScorePool = false;  // H9 POOL
+	memset(g_iScorePoolLeft, 0, sizeof g_iScorePoolLeft);
+	memset(g_iScorePoolStart, 0, sizeof g_iScorePoolStart);
 	g_bScoreKills = false; // H9 KILLS: until this level's server says its frags are points
 	s_szBoardLabel[0] = 0; // H9 BOARD: until this level's server says
 	extern void TS_ClearSpectatorTable(); // ts_spectate.cpp; client.dll 0x1005d5a0 clears it here
@@ -999,7 +1006,7 @@ void ScorePanel::Update()
 		m_Lists[c] = s_Columns[c]; // H9 SCROLL: MapRows puts them on the row widgets
 
 	const int rowTall = V_min(nominal, m_iRowsTall / capacity);
-	if (rowTall != m_iRowTall || s_bCellsKills != g_bScoreKills) // H9 KILLS: the K column comes or goes
+	if (rowTall != m_iRowTall || s_bCellsKills != g_bScoreKills || s_bCellsPool != g_bScorePool) // H9 KILLS: the K column comes or goes; H9 POOL: the lives column is retitled
 	{
 		m_iRowTall = rowTall;
 		PlaceCells(rowTall);
@@ -1271,6 +1278,41 @@ void ScorePanel::PlaceCells(int rowTall)
 	m_iCellWide[SB_CELL_PING] = XRES(SB_PING_WIDE);
 	m_iCellWide[SB_CELL_VOICE] = V_max(XRES(SB_VOICE_WIDE), 16); // the speaker icons are 16x16
 
+	// ---- H9 POOL: where a side's lives are one pool the column is titled REINFORCEMENTS: the longest of that, REINFORCE and
+	// REINF whose width costs the names no more than 55% of theirs, the column widened to hold it.
+	s_bCellsPool = g_bScorePool;
+	const char* livesTitle = "LIVES";
+	if (g_bScorePool)
+	{
+		static const char* const s_szPoolTitles[] = {"REINFORCEMENTS", "REINFORCE", "REINF"};
+		int others = gap * 2;
+		for (int k = 0; k < SB_NUM_CELLS; k++)
+		{
+			if (k != SB_CELL_NAME && k != SB_CELL_LIVES)
+				others += m_iCellWide[k];
+		}
+		const int livesWide = m_iCellWide[SB_CELL_LIVES];
+		const int nameWide = V_max(XRES(24), m_iColumnWide - others - livesWide);
+		Font* font = GetFontForTall(YRES(SB_HEADER_TALL) * 85 / 100, 0);
+		for (int i = 0; i < 3; i++)
+		{
+			int w = 0, h = 0;
+			font->getTextSize(s_szPoolTitles[i], w, h);
+			const int need = w + XRES(4);
+			livesTitle = s_szPoolTitles[i];
+			if (need <= livesWide)
+				break;
+			if (need - livesWide <= nameWide * 55 / 100)
+			{
+				m_iCellWide[SB_CELL_LIVES] = need;
+				break;
+			}
+		}
+	}
+	for (int c = 0; c < SB_NUM_COLUMNS; c++)
+		m_HeaderLabels[c][SB_CELL_LIVES].setText(livesTitle);
+	// ---- end H9 POOL
+
 	int fixed = gap * 2;
 	for (int k = 0; k < SB_NUM_CELLS; k++)
 	{
@@ -1434,7 +1476,7 @@ void ScorePanel::FillRow(int r)
 		pLabel->setVisible(true);
 		pLabel->setText2("");
 		pLabel->setImage(NULL);
-		pLabel->setLeadImage(NULL, 0); // H9 LEVEL BADGES
+		pLabel->setTailImage(NULL, 0); // H9 LEVEL BADGES
 		pLabel->setFgColorAsImageColor(true);
 		pLabel->setFont(m_pRowFont);
 		pLabel->setTextOffset(0, 0);
@@ -1540,8 +1582,14 @@ void ScorePanel::FillRow(int r)
 			snprintf(sz, sizeof(sz), "%d", assists);
 			m_Cells[r][SB_CELL_ASSISTS].setText(sz);
 		}
+		// ---- H9 POOL: a side whose lives are one pool shows the pool, what is left of what the round started with
+		if (g_bScorePool && row.index >= 1 && row.index <= 2 && g_iScorePoolStart[row.index] > 0)
+		{
+			snprintf(sz, sizeof(sz), "%d/%d", g_iScorePoolLeft[row.index], g_iScorePoolStart[row.index]);
+			m_Cells[r][SB_CELL_LIVES].setText(sz);
+		}
 		// ---- H9 LIVES: the team's lives left out of all its players' lives, summed from H9Lives
-		if (g_bScoreLives && block)
+		else if (g_bScoreLives && block)
 		{
 			int left = 0, lives = 0;
 			bool endless = false;
@@ -1643,35 +1691,37 @@ void ScorePanel::FillRow(int r)
 	// DEAD, 2 3 KILLS, 3 6 KILLS, 4 SPECIALIST, 5 UNSTOPPABLE, 10 THE ONE (each kill tier in its own
 	// green), 11 WAITING; any other value WAITING while the Spectator table marks him, else
 	// nothing. The narrow column takes them in short form.
-	CLabelHeader* pStatus = &m_Cells[r][SB_CELL_STATUS];
-	switch (award)
-	{
-	case 1: pStatus->setText("DEAD"); break;
-	case 2: pStatus->setText("3K"); pStatus->setFgColor(0x7d, 0xff, 0x7d, 5); break;
-	case 3: pStatus->setText("6K"); pStatus->setFgColor(0x87, 0xff, 0x87, 5); break;
-	case 4: pStatus->setText("SPEC"); pStatus->setFgColor(0x91, 0xff, 0x91, 5); break;
-	case 5: pStatus->setText("UNSTOP"); pStatus->setFgColor(0x9b, 0xff, 0x9b, 5); break;
-	case 10: pStatus->setText("ONE"); pStatus->setFgColor(0xaf, 0xff, 0xaf, 5); break;
-	case 11: pStatus->setText("WAIT"); break;
-	default: pStatus->setText(TS_PlayerSpectating(slot) ? "WAIT" : ""); break;
-	}
-
-	// H9 LEVELS: a proven havoc9.org account's level badge before the name, the avatar's size (H9
-	// LEVEL BADGES), or "Lv N" where that level's picture is missing
-	char szNamed[160];
+	//
+	// H9 LEVELS: a proven havoc9.org account's level badge, the avatar's size (H9 LEVEL BADGES), sits
+	// at the right end of this column, beside the name and not in it: no name moves for it, and a
+	// status too long for what the badge leaves is cut with ".."; "Lv N" before the name where that
+	// level's picture is missing
 	const int level = slot > 0 && slot <= MAX_PLAYERS_HUD && s_PlayerLevel[slot] ? s_PlayerLevel[slot] - 1 : -1;
 	CLevelBitmap* levelBadge = level >= 0 ? GetLevelBitmap(level, m_iAvatarSize) : NULL;
-	int lead = 0;
-	if (levelBadge)
+	CLabelHeader* pStatus = &m_Cells[r][SB_CELL_STATUS];
+	const char* status = "";
+	switch (award)
 	{
-		pName->setLeadImage(levelBadge, XRES(SB_CELL_GAP));
-		lead = m_iAvatarSize + XRES(SB_CELL_GAP);
+	case 1: status = "DEAD"; break;
+	case 2: status = "3K"; pStatus->setFgColor(0x7d, 0xff, 0x7d, 5); break;
+	case 3: status = "6K"; pStatus->setFgColor(0x87, 0xff, 0x87, 5); break;
+	case 4: status = "SPEC"; pStatus->setFgColor(0x91, 0xff, 0x91, 5); break;
+	case 5: status = "UNSTOP"; pStatus->setFgColor(0x9b, 0xff, 0x9b, 5); break;
+	case 10: status = "ONE"; pStatus->setFgColor(0xaf, 0xff, 0xaf, 5); break;
+	case 11: status = "WAIT"; break;
+	default: status = TS_PlayerSpectating(slot) ? "WAIT" : ""; break;
 	}
+	const int badgeRoom = levelBadge ? m_iAvatarSize + XRES(SB_CELL_GAP) * 2 : 0;
+	FitText(m_pRowFont, status, m_iCellWide[SB_CELL_STATUS] - badgeRoom, szFit, sizeof(szFit));
+	pStatus->setText(szFit);
+	pStatus->setTailImage(levelBadge, XRES(SB_CELL_GAP));
+
+	char szNamed[160];
 	if (level >= 0 && !levelBadge)
 		snprintf(szNamed, sizeof(szNamed), "Lv %d  %s", level, pl_info->name ? pl_info->name : "");
 	else
 		snprintf(szNamed, sizeof(szNamed), "%s", pl_info->name ? pl_info->name : "");
-	FitText(m_pRowFont, szNamed, m_iCellWide[SB_CELL_NAME] - XRES(2) - lead, szFit, sizeof(szFit));
+	FitText(m_pRowFont, szNamed, m_iCellWide[SB_CELL_NAME] - XRES(2), szFit, sizeof(szFit));
 	pName->setText(szFit);
 
 	snprintf(sz, sizeof(sz), "%d", extra->frags);
@@ -2158,28 +2208,15 @@ void CLabelHeader::paint()
 		setFgColor(255, 255, 255, 0);
 	}
 
-	// H9 LEVEL BADGES: the lead picture at the left edge, centred on the cell's height, and the text
-	// after it
-	int lead = 0;
-	if (_leadImage)
-	{
-		int lwide, ltall, cwide, ctall;
-		_leadImage->getSize(lwide, ltall);
-		getSize(cwide, ctall);
-		_leadImage->setPos(_offset[0], (ctall - ltall) / 2);
-		_leadImage->doPaint(this);
-		lead = lwide + _leadGap;
-	}
-
 	// draw text
 	int x, y, iwide, itall;
 	getTextSize(iwide, itall);
 	calcAlignment(iwide, itall, x, y);
-	_dualImage->setPos(x + lead, y);
+	_dualImage->setPos(x, y);
 
 	int x1, y1;
 	_dualImage->GetImage(1)->getPos(x1, y1);
-	_dualImage->GetImage(1)->setPos(_gap + lead, y1);
+	_dualImage->GetImage(1)->setPos(_gap, y1);
 
 	_dualImage->doPaint(this);
 
@@ -2197,6 +2234,16 @@ void CLabelHeader::paint()
 		calcAlignment(iwide, itall, x, y);
 		_image->setPos(x, y);
 		_image->doPaint(this);
+	}
+
+	// H9 LEVEL BADGES: the tail picture at the right edge, centred on the cell's height
+	if (_tailImage)
+	{
+		int twide, ttall, cwide, ctall;
+		_tailImage->getSize(twide, ttall);
+		getSize(cwide, ctall);
+		_tailImage->setPos(cwide - twide - _tailGap, (ctall - ttall) / 2);
+		_tailImage->doPaint(this);
 	}
 
 	setFgColor(oldFg[0], oldFg[1], oldFg[2], oldFg[3]);

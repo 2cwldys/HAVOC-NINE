@@ -11,7 +11,8 @@
  *      message_begin refuses them -- keep each under 188 bytes, and send nothing to a player
  *      whose game cannot draw it (h9vgui_supported).
  *   3. A menu through h9vgui_show_menu() and a notice through h9vgui_notice() fall back to text
- *      by themselves. For a panel, test h9vgui_supported(id) and give everyone else a menu.
+ *      by themselves, and so does h9vgui_alert() for what used to be a set_hudmessage and a
+ *      show_hudmessage. For a panel, test h9vgui_supported(id) and give everyone else a menu.
  *   4. Placement: anchors are relative to the client's safe area. It starts 136 px from the top,
  *      under TS's kill notices ("is The Specialist", the killing sprees), and ends above the chat
  *      and TS's HUD; the client moves anything that leaves it back inside, and keeps a panel off
@@ -29,6 +30,11 @@
  *      counts down on the player's own screen: send it again only when what it says changes.
  *      Only games of protocol 2 draw one; it says whether it was sent, so the caller can give
  *      every other player its hudmessage.
+ *  10. A mark (h9vgui_mark) is a point of the world drawn on the player's screen through the walls,
+ *      and in the row of marks under the top stack. Only games of protocol 3 draw one; it says whether
+ *      it was sent, so the caller can give every other player what it has (ts_assault falls back to
+ *      TS's own Objective markers). It stays until another takes its slot or it is taken down, so
+ *      send it again when it changes, and now and then for a game that joined late.
  *
  * h9_vgui 1 (a server cvar, registered by the first plugin that calls h9vgui_init) lets these
  * stocks send; 0 gives every player the text.
@@ -44,6 +50,7 @@
 
 #define H9VGUI_PROTOCOL  1       // the version this include speaks; _h9vgui must be at least it
 #define H9VGUI_STATUS_PROTOCOL 2 // the first _h9vgui whose game draws a STATUS
+#define H9VGUI_MARK_PROTOCOL 3   // the first _h9vgui whose game draws a MARK
 #define H9VGUI_MSG_MAX   188     // bytes a message may carry: GoldSrc's 192 less a margin
 
 // Ops: the first byte of an H9Vgui message.
@@ -59,6 +66,7 @@
 #define H9V_OP_COMMIT    16
 #define H9V_OP_NOTICE    20
 #define H9V_OP_STATUS    21      // protocol 2: a notice that stays, its clock counted by the client
+#define H9V_OP_MARK      22      // protocol 3: a point of the world, drawn on the screen through the walls
 
 // Anchors, relative to the safe area.
 #define H9V_TL  0
@@ -318,6 +326,35 @@ stock h9vgui_notice_bar(id, const slot[], const text[], permille, Float:hold, r,
 	__h9vgui_notice(id, slot, H9V_NOTICE_BAR, text, hold, 0.2, r, g, b, x, y, channel, clamp(permille, 0, 1000));
 }
 
+/// An alert a plugin showed as a hudmessage: the set_hudmessage that gave it its old look has been called, and this shows the text
+/// to the player (id 0 is everyone) the way their game draws it. An H9 game: a NOTICE in the slot, in the same colour, for the same
+/// hold and fade, at y when that is 0.38 or more (centred there) and under the top band when it is less. Any other game: that
+/// hudmessage, exactly as before.
+stock h9vgui_alert(id, const slot[], style, const text[], r, g, b, Float:y, Float:hold, Float:fade)
+{
+	new first = id, last = id;
+	if (id == 0)
+	{
+		first = 1;
+		last = min(get_maxplayers(), MAX_PLAYERS);
+	}
+	for (new i = first; i <= last; i++)
+	{
+		if (!is_user_connected(i) || is_user_bot(i))
+		{
+			continue;
+		}
+		if (h9vgui_supported(i))
+		{
+			__h9vgui_notice(i, slot, style, text, hold, fade, r, g, b, -1.0, y, -1, -1);
+		}
+		else
+		{
+			show_hudmessage(i, "%s", text);
+		}
+	}
+}
+
 /// A status: a notice that stays in its slot until another replaces it or an empty text clears it,
 /// and stacks first under the top band, before the notices. In its text {t} counts down as m:ss
 /// and {s} as seconds, from clock seconds, on the player's own screen (clock -1: no clock). For one
@@ -340,6 +377,39 @@ stock bool:h9vgui_status(id, const slot[], const text[], r, g, b, clock = -1, st
 	write_byte(b);
 	write_short(clamp(clock, -1, 32767));
 	write_string(cut);
+	message_end();
+	return true;
+}
+
+/* ---- marks ---------------------------------------------------------------------------------- */
+
+#define H9V_MARK_MAX    32      // the slots of marks: 1 to this
+#define H9V_MARK_GONE   3       // an owner that takes the mark down
+
+/**
+ * A MARK: a point of the world drawn on the player's screen through the walls, kept on the screen's edge while it is out of
+ * view, as a badge with its label in the owner's colour (owner 0 nobody's, 1 and 2 a side's) and, when state is 1 (being
+ * taken by side `side`) or 2 (contested), the progress pct (0-100) as a bar under it; and as one more badge in the row of
+ * marks under the top stack. slot 1 to H9V_MARK_MAX is the mark's place, and a newer mark in it replaces it; owner
+ * H9V_MARK_GONE takes it down, and slot 0 takes every mark down. The label is a few letters or digits, 7 at most.
+ * For one player of protocol 3 or later; false for any other, who is sent nothing.
+ */
+stock bool:h9vgui_mark(id, slot, owner, phase, side, pct, const Float:at[3], const label[])
+{
+	if (h9vgui_protocol(id) < H9VGUI_MARK_PROTOCOL)
+	{
+		return false;
+	}
+	h9vgui_begin(id, H9V_OP_MARK);
+	write_byte(clamp(slot, 0, H9V_MARK_MAX));
+	write_byte(clamp(owner, 0, H9V_MARK_GONE));
+	write_byte(clamp(phase, 0, 2));
+	write_byte(clamp(side, 0, 2));
+	write_byte(clamp(pct, 0, 100));
+	write_short(clamp(floatround(at[0]), -32767, 32767));
+	write_short(clamp(floatround(at[1]), -32767, 32767));
+	write_short(clamp(floatround(at[2]), -32767, 32767));
+	write_string(label);
 	message_end();
 	return true;
 }

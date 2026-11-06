@@ -9,7 +9,8 @@
 // puts youtube-nocookie.com's player in its place (the page's CSP allows those two hosts only).
 // Staff (moderators and admins) get PIN, HIDE and REMOVE on each post; a hidden post is marked
 // HIDDEN and only staff see it. Everything is built with createElement and textContent; the
-// description and comments are drawn by assets/forum-render.js.
+// description and comments are drawn by assets/forum-render.js. WRITE / PREVIEW over each of
+// them shows it as it will be saved, from the server's preview (POST media/preview).
 (() => {
   "use strict";
 
@@ -113,6 +114,57 @@
     return [p.pinned ? el("span", { class: "forum-tag is-hot", text: "PINNED" }) : null, p.hidden ? el("span", { class: "forum-tag is-off", text: "HIDDEN" }) : null];
   }
 
+  // WRITE / PREVIEW over a text (the forum's tabs): draw(text) answers what it shows as once
+  // saved, drawn by this page's own code from the server's preview (POST media/preview: the same
+  // view the page gets), or an error message. The latest preview asked for is the one shown.
+  function writeOrPreview(area, draw) {
+    const pane = el("div", { class: "forum-preview", hidden: true, "aria-live": "polite" });
+    const tab = (text) => el("button", { type: "button", class: "forum-tab", role: "tab", "aria-selected": "false", text });
+    const writeTab = tab("WRITE");
+    const previewTab = tab("PREVIEW");
+    writeTab.setAttribute("aria-selected", "true");
+    let asked = 0;
+    const show = async (previewing) => {
+      writeTab.setAttribute("aria-selected", String(!previewing));
+      previewTab.setAttribute("aria-selected", String(previewing));
+      area.hidden = previewing;
+      pane.hidden = !previewing;
+      const mine = ++asked;
+      if (!previewing) return;
+      if (!area.value.trim()) {
+        pane.replaceChildren(el("p", { class: "forum-removed", text: "Nothing to show yet." }));
+        return;
+      }
+      pane.replaceChildren(el("p", { class: "forum-row-meta", text: "PREVIEW..." }));
+      const got = await draw(area.value);
+      if (mine === asked) pane.replaceChildren(typeof got === "string" ? el("p", { class: "forum-error", role: "alert", text: got }) : got);
+    };
+    writeTab.addEventListener("click", () => {
+      show(false);
+      area.focus();
+    });
+    previewTab.addEventListener("click", () => show(true));
+    return { tabs: el("div", { class: "forum-tabs", role: "tablist", "aria-label": "Write or preview" }, writeTab, previewTab), pane };
+  }
+
+  // a media post's description, under its video
+  function descNode(content) {
+    const desc = el("div", { class: "forum-body media-desc" });
+    window.H9ForumRender.blocks(content, desc);
+    return desc;
+  }
+
+  const previewDescription = async (text) => {
+    const r = await call("POST", "media/preview", { description: text });
+    return r.status === 200 ? descNode(r.data.content) : problem(r);
+  };
+
+  // a comment as it will show: commentNode itself, from the server's comment view, without actions
+  const previewComment = (id) => async (text) => {
+    const r = await call("POST", "media/preview", { comment: text, ...(id ? { id } : {}) });
+    return r.status === 200 ? commentNode(r.data.comment, () => {}) : problem(r);
+  };
+
   function card(p, after) {
     return el("article", { class: "media-card" + (p.hidden ? " is-hidden" : "") }, video(p.video, p.title, false),
       el("div", { class: "media-card-body" },
@@ -127,8 +179,9 @@
     const url = el("input", { class: "forum-input", type: "url", maxlength: 500, placeholder: "https://www.youtube.com/watch?v=... or https://youtu.be/...", "aria-label": "YouTube link" });
     const desc = el("textarea", { class: "forum-textarea", rows: 3, maxlength: 4000, placeholder: "What happens in it (optional): **bold**, *italic*, links", "aria-label": "Description" });
     const error = el("p", { class: "forum-error", role: "alert" });
+    const descTabs = writeOrPreview(desc, previewDescription);
     const form = el("form", { class: "forum-compose media-compose", novalidate: true, hidden: true },
-      el("label", { class: "forum-label", text: "POST A VIDEO" }), title, url, desc,
+      el("label", { class: "forum-label", text: "POST A VIDEO" }), title, url, descTabs.tabs, desc, descTabs.pane,
       el("p", { class: "forum-row-meta", text: "A YouTube link: youtube.com/watch?v=, youtu.be/, /shorts/ or /embed/. The page shows its picture; the video loads from YouTube (youtube-nocookie.com) only when someone presses play." }),
       error, el("div", { class: "forum-compose-actions" },
         el("button", { type: "button", class: "btn btn-ghost btn-sm", text: "CANCEL", on: { click: () => { form.hidden = true; } } }),
@@ -227,6 +280,7 @@
           click: () => {
             const area = el("textarea", { class: "forum-textarea", rows: 3, maxlength: 2000, "aria-label": "Your comment" });
             area.value = c.body;
+            const editTabs = writeOrPreview(area, previewComment(c.id));
             const error = el("p", { class: "forum-error", role: "alert" });
             const save = el("button", {
               type: "button", class: "btn btn-primary btn-sm", text: "SAVE",
@@ -239,7 +293,7 @@
               },
             });
             body.textContent = "";
-            body.append(area, error, save);
+            body.append(editTabs.tabs, area, editTabs.pane, error, save);
           },
         },
       }));
@@ -271,8 +325,7 @@
     document.title = p.title + " -- MEDIA -- HAVOC9";
     const main = $("mediaMain");
     main.textContent = "";
-    const desc = el("div", { class: "forum-body media-desc" });
-    window.H9ForumRender.blocks(p.content, desc);
+    const desc = descNode(p.content);
     main.append(el("p", { class: "media-back" }, el("a", { href: link(), text: "< MEDIA" })), video(p.video, p.title, true),
       el("div", { class: "media-card-head" }, tags(p)),
       el("p", { class: "forum-row-meta" }, "by ", name(p.by), DOT + when(p.created) + (p.edited ? DOT + "EDITED" : "")),
@@ -289,7 +342,8 @@
       } else {
         const area = el("textarea", { class: "forum-textarea", rows: 3, maxlength: 2000, placeholder: "Your comment: **bold**, *italic*, links", "aria-label": "Your comment" });
         const error = el("p", { class: "forum-error", role: "alert" });
-        const form = el("form", { class: "forum-compose", novalidate: true }, area, error,
+        const newTabs = writeOrPreview(area, previewComment(null));
+        const form = el("form", { class: "forum-compose", novalidate: true }, newTabs.tabs, area, newTabs.pane, error,
           el("div", { class: "forum-compose-actions" }, el("button", { type: "submit", class: "btn btn-primary btn-sm", text: "COMMENT" })));
         form.addEventListener("submit", async (e) => {
           e.preventDefault();

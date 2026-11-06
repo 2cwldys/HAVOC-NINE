@@ -429,8 +429,9 @@
       "target": "127.0.0.1:27015", where the relay really sends;
       "listed": false hides a test server. docs\H9WEB_ADMIN.txt section 6
       lists every field. For web client players set, on that game server,
-      sv_connect_max_per_ip 0, sv_query_rate_limit 30 and sv_timeout 120,
-      and open its UDP port to the relay's address
+      sv_connect_max_per_ip 0, sv_query_rate_limit 30, sv_timeout 120,
+      sv_connect_timeout 600 and sv_connect_timeout_ban 0 (the last two are
+      in H9XASH's server.cfg), and open its UDP port to the relay's address
       (havoc9.org\webclient\DEPLOY.txt section 7).
 
    2. WHO IS PLAYING: the presence key. A dedicated server with the

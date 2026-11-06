@@ -18,6 +18,9 @@
    client.js       the loader: checks for a build, fetches the game files,
                    starts the engine, carries its network over the relay, keeps
                    the player's settings in the browser
+   h9audio.js      the game's sound on the audio thread: an AudioWorklet that
+                   plays what the engine mixes (section 11), so a held key or a
+                   long frame cannot leave a hole in the sound
    settings.json   where the build is, the relay, the master address and the
                    JOIN links (section 4)
    DEPLOY.txt      this file
@@ -193,9 +196,9 @@
    ts\cl_dlls, ts\mapconfigs, ts\.fontcache, the server's configs, the
    developer's own config.cfg, video.cfg, ids and *_resolved.cfg, backups, and
    the 30 files that are byte for byte Half-Life's own (section 9). A new
-   player starts with TS 3.0's own config.cfg (TSM\ts3.0\ts\config.cfg); after
-   that the browser keeps the player's. ts\delta.lst, with H9's widened origin
-   fields, goes in.
+   player starts with the game's own ts\config.stock.cfg, the file the Windows
+   game's first run copies to config.cfg; after that the browser keeps the
+   player's. ts\delta.lst, with H9's widened origin fields, goes in.
 
    The fonts: the manifest's "fonts" list is made from
    ts\resource\fonts\fonts.txt and the family names inside the font files, by
@@ -255,8 +258,14 @@
 
    The game's X, its Quit and quit or exit in the console end on the site's
    front page (../index.html), as LEAVE does; the config.cfg the engine writes
-   as it shuts down is kept first. An error that ends the game stays on the
-   screen instead. The menu's minimize button leaves full screen.
+   as it shuts down is kept first. From that quit on the page calls into the
+   engine no more (client.js quitHome): the engine has shut down and freed its
+   memory, though the module stays loaded, and a command sent then (the page's
+   disconnect as it leaves) freed memory twice ("Mem_FreeBlockSmall: not
+   allocated or double freed", cmd.c). engine-h9-webquit.patch makes the
+   engine refuse such a command too, from its next web build. An error that
+   ends the game stays on the screen instead. The menu's minimize button leaves
+   full screen.
 
 
  5. WHERE THE FILES GO ON THE VPS
@@ -264,9 +273,13 @@
    /var/www/havoc9.org/                 the site: this repository's havoc9.org
                                         folder, without *.bak* files, zips and
                                         deploy/
-   /var/www/havoc9.org/webclient/       index.html, client.js, settings.json,
+   /var/www/havoc9.org/webclient/       index.html, client.js, h9audio.js, settings.json,
                                         manifest.json, preload.json
    /var/www/havoc9.org/webclient/engine/  xash.js, xash.wasm
+   /var/www/havoc9.org/downloads/       H9XASH.zip, H9XASH-linux.zip and
+                                        H9XASH-Updater.exe, and files/, the
+                                        downloads' file index (what goes in
+                                        it: vps/linux/README-VPS.txt step 13)
    /srv/h9web/game/                     <stage>\game: 1.2 GB, kept out of the
                                         site folder and out of git; served at
                                         /webclient/game/
@@ -360,6 +373,17 @@
                                the relay's address, so with 1 most of them see
                                the server missing from the list. 0 turns the
                                limit off
+     sv_connect_timeout 600    default 60: a client that has not spawned that
+                               long after it connected is dropped, whatever
+                               it still sends. A first visit fetches the
+                               game's files for the map in the browser
+                               before it can spawn (300 MB on
+                               h9_te_neuropolis): over a slow link that is
+                               minutes
+     sv_connect_timeout_ban 0  default 1: the engine then also bans the
+                               dropped client's address for 2 minutes, which
+                               for a browser player is the relay's address:
+                               every browser player of the server at once
 
    The engine also allows about one challenge and one connect a second per
    address (a burst of 5; not a cvar), so players joining in the same few
@@ -439,6 +463,20 @@
          client_body_timeout 30s;
          keepalive_timeout 30s;
 
+         # the two published downloads, matched before the archive rule below
+         location ~ "^/downloads/H9XASH(-linux)?\.zip$" { }
+         # the downloads' file index (vps/linux/README-VPS.txt step 13 lists what goes in it): a plain
+         # listing, and the packages, their reports and the checksums in it. ^~ keeps the rules below
+         # away from it, so the ones nested here stand in for them: a dot file, a subfolder or any
+         # other kind of file there is a 404
+         location ^~ /downloads/files/ {
+             autoindex on;
+             autoindex_exact_size off;
+             location ~ /\. { return 404; }
+             location ~* "^/downloads/files/[^/]+\.(?:zip|exe|txt)$" { }
+             location ~ "^/downloads/files/." { return 404; }
+         }
+
          # never for visitors: dot files and folders (.git, .env, .gitattributes), backups, archives,
          # sources, scripts, keys and logs, these notes and the VPS scripts
          location ~ /\.(?!well-known/) { return 404; }
@@ -496,7 +534,8 @@
              proxy_set_header Host $host;
              proxy_set_header X-Real-IP $remote_addr;
              proxy_set_header Connection "";
-             client_max_body_size 64k;
+             # a game server's presence report with all 128 slots is up to about 82 KiB
+             client_max_body_size 128k;
              proxy_read_timeout 30s;
              limit_req zone=h9web_api burst=60 nodelay;
              limit_req zone=h9web_auth burst=10 nodelay;
@@ -591,9 +630,19 @@
      their own names (.cfg, .txt, .lst, .db ...), so the list leaves those
      alone. /api/ is ^~, so the list never touches h9web's addresses (a
      username may end in .sh).
+   * /downloads/H9XASH.zip and /downloads/H9XASH-linux.zip, the two client
+     packages the DOWNLOADS page links, are served: their location comes
+     before the archive rule, which answers 404 for every other .zip.
+   * /downloads/files/ is the downloads' file index (ALL FILES on the
+     DOWNLOADS page; vps/linux/README-VPS.txt step 13 lists what goes in
+     it): a listing (autoindex), and only the .zip, .exe and .txt files in
+     it are served; a dot file, a subfolder or any other file there is a
+     404. It is ^~, so the archive rule above never touches it, and its
+     nested locations stand in for the rest. The folder carries an
+     .htaccess with the same rules, for an Apache host.
    * Methods: GET, HEAD, POST, PUT, PATCH and DELETE (405 for any other). No
      OPTIONS: no other site may call the API (h9web sends no CORS headers).
-   * Request bodies: 16k unless a location allows more (64k for /api/, 11m for
+   * Request bodies: 16k unless a location allows more (128k for /api/, 11m for
      the picture upload, 1k for the relay, 4k for the server list); slow
      headers (15 s) and bodies (30 s, 60 s for a picture) are cut off.
    * /serverlist/ is the H9 server list (serverlist-bot\README.md), which
@@ -725,7 +774,10 @@
      (section 13).
    * Backups, dot files and scripts in the site folder: copy the site without
      *.bak* files, zips and deploy/ (section 5); nginx answers 404 for them
-     anyway (section 8), and nginx-setup.sh warns when it finds some.
+     anyway (section 8), and nginx-setup.sh warns when it finds some. It
+     leaves out downloads/files/ (the file index, with its .htaccess for an
+     Apache host) and the two published ZIPs. It does list the .htaccess in
+     the updater's files/: nginx ignores it, so it does no harm there.
    * Valve's files. H9XASH\valve is H9's own (valve\REPLACEMENTS.md). No
      Half-Life folder is served, and none of the msr-web kit's borrow.py, which
      copies Half-Life's files into the public web folder, is used.
@@ -752,8 +804,9 @@
    Steps 3 and 5 to 9 (all but the DNS and the web client's game files) and
    h9web's backups (section 13) come as one package:
    make-vps-package.ps1 in the repository's root writes
-   dist\havoc9-vps-linux-<build>.zip, and its setup.sh does them on the VPS, step by
-   step in vps/linux/README-VPS.txt (dist\havoc9-vps-windows-<build>.zip and
+   dist\havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip, and its setup.sh does
+   them on the VPS, step by step in vps/linux/README-VPS.txt
+   (dist\havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip and
    vps/windows/README-WINDOWS.txt for a Windows host). The order below is the
    same.
    1. Build the engine (3B) and reTS's client (3C), package (3D). Try it on
@@ -806,6 +859,16 @@
      browser can run long: a game file is fetched the first time it is read.
      Written for H9 from the msr-web kit's description; none of the kit's files
      was copied. The Windows build compiles as before.
+     The same patch gives the browser's sound a thread of its own. SDL plays
+     through a ScriptProcessorNode, which runs on the page's main thread, so a
+     frame in progress, or the browser's own work for a key held down, held the
+     sound back and left a hole in it. The engine now hands what it mixes to the
+     page (Module.audio, audioFeed in client.js) and an AudioWorklet
+     (h9audio.js) plays it; the mixer's clock is the audio thread's own. Where
+     the page has no Module.audio, or the browser no AudioWorklet or no secure
+     context (plain http on any host but localhost), SDL's device plays it, as
+     it always did. Module.audio.stats() in the console says which one is in
+     use and how many frames it played, was sent and had to play as silence.
    * engine-h9-webmenu.patch (the same, row 26 of PATCH_CHANGELOG.md), in the
      browser build only: the main menu's video is decoded by the page and drawn
      by the engine (avi_ffmpeg.c gets an XASH_EMSCRIPTEN branch beside the
@@ -852,10 +915,28 @@
                           the widened origin fields is in the package
    engine-h9-autoconfig   server side; nothing for a client to do
    engine-h9-presence     everything under #if XASH_WIN32: does nothing here
+   engine-h9-avatars      the scoreboard's pictures: the engine names a slot's
+                          account and picture (Module.avatar.want), the page
+                          (avatarFeed in client.js) fetches the PNG from its own
+                          site and writes it into the engine's memory disk, and
+                          h9_avatar_page shows it
+   engine-h9-serverauth   the server browser's chain: the page (chainFeed in
+                          client.js) reads /api/presence/servers/auth and sets
+                          _h9srv and _h9srv_gen, which the menu reads
+   engine-h9-webwarm      browser build only: a join reads hundreds of files in
+                          one call, so the engine hands the page the list as soon
+                          as the server's resource list is in (Module.warm,
+                          warmFeed in client.js), the page fetches them in
+                          parallel while the join screen shows the count, and the
+                          precache then finds them in memory instead of stopping
+                          the page for each one
    mainui-h9-gamestartup, sprayui, hover
                           in libmenu.wasm (the menu)
    engine-h9-websound, engine-h9-webmenu
                           the browser build only (section 11)
+   the others, and the reason for each one that stays native-only:
+                          xash3d-h9-patches\WEB_PARITY.json, which
+                          tools\webclient-sync.mjs holds every H9 patch to
    uncommitted menu-video work (CIN_MENUBG)
                           built in; the browser build has no FFmpeg (it still
                           logs "AVI: Not supported"), and the menu's video

@@ -15,14 +15,14 @@ Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 (CMake, Win32, Release; targets hl and client); the builds of
                 2026-11-02 are target hl alone (changes 7 and 8; the client is built
                 apart, its own client.dll.patch); the build of 2026-11-03 is both
-                (change 9)
-Size          : 989696 bytes
-SHA256        : 6D9AA5B89B6802D02BE198C66EF1A5D204495F66C2AB31C5990B7884133F64A5
-client.dll    : 838656 bytes (its own client.dll.patch)
-SHA256        : B2349B36E0E3F86247CBB50D74F2127F3440FFFE5DEF3D65FA8BE7F8B42ED6B3
+                (change 9); the build of 2026-11-04 is target hl alone (change 10); the build of 2026-11-05 is both (change 11)
+Size          : 991232 bytes
+SHA256        : FB1BCBFDC94F354A7F6F3D7D5873C55D34035603006D7C94AE449E07AB0C602B
+client.dll    : 861184 bytes (its own client.dll.patch)
+SHA256        : 290CAC41933EFB7EC8C8A82D1A178C0FBE9AECF3EE75017E829B4F88540C840E
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
                 plus the 128-slot build below (2026-11-01), changes 7 and 8
-                (2026-11-02) and change 9 (2026-11-03)
+                (2026-11-02), change 9 (2026-11-03), change 10 (2026-11-04) and change 11 (2026-11-05)
 
 Both DLLs are also in reTS\binaries\ts\ (the staging folder xash.bat's assemble step and
 export.bat's GoldSrc block copy from), in H9XASH\ts\, export\H9XASH\ts\, and the GoldSrc
@@ -158,6 +158,37 @@ What the source build contains, beyond the release DLL
    move. Detail: reference\DEVIATIONS.md. The mp.dll this replaced is kept as mp.dll.bak_preppsh41 in
    reTS\binaries\ts\dlls\.
 
+10. A fire, reload or draw pose that is still playing is held against the idle call
+
+   dlls\ts_animation.cpp, CTSAnimation::Animate, the run/idle case -- the per-frame idle (or run) call in
+   PostThink holds a fire (0, 8, 9), reload (0x33) or draw (0x34) pose while its sequence plays, as TS 3.0
+   does: its case 1/6 tests the LAST activity against those five with the sequence not finished, and then
+   keeps that activity as the last one (a1 = the last activity; Animate, ts_i386.so 0x5b470). Before, only
+   the aim timer held it, which the standing fire sets and the fire lying down (slide_<dir>_<grip>_shoot)
+   does not, so in the same server frame as a shot fired lying down the idle call put the standing
+   idle_<grip> pose over it; a client sees only a frame's end state, so steady fire flipped the body between
+   lying and upright at the fire rate, which looks like humping the ground. The aim timer still holds what it
+   covers besides (the grenade throw). Server-side only: the client does not compile ts_animation.cpp. The
+   mp.dll this replaced is kept as mp.dll.bak_proneidle in reTS\binaries\ts\dlls\.
+
+
+11. The laser rifle, weapon 40, and a 15th ammo caliber, plasma cells
+
+   dlls\ts_weapon_info.cpp: TSW_LASERRIFLE (40; TSW_COUNT is 41), a row that is the M4A1's whole (so the gunbash, with
+   coldcock damage 35, and every animation are the M4A1's) with its own name, models\h9\{v,p,w}_laserrifle.mdl,
+   h9\laserrifle\fire.wav, no shell, a 35-cell clip, 0.075 s between shots, fire modes 7 (full auto, single and burst),
+   caliber 15, slot cost 40, price 5200, a built-in scope (attachBuiltin 8, zoom 32 then 8) and 35 damage
+   (SetSpartaWeapon 0.004 spread, 2.25 view kick, 0.0025 accuracy kick). Caliber 15, "Plasma Cell": 35 a buy at 120,
+   140 carried (70 and 35 under the lower ammocount modes), range unit 150, pierce decay 0 (a bolt stops at the first
+   thing it meets) and speed unit 700. The weapon is precached with every other (TS_util.cpp, with its hit and reload
+   sounds) and so are its effect sprites (ts_weapons.cpp: its muzzle flash is a temporary sprite, which needs the model
+   index the server's precache gives, so without them no flash is drawn), comes after the M4A1 in the auto-select order and draws as the M4A1 does; CustomWP stops at weapon 37 as
+   before. The server registers a read-only cvar h9_laserrifle (1), so a plugin can tell a game library that has the
+   weapon from one that does not. It also registers h9_customweapons (1): at 0 the server plays TS 3.0's own roster,
+   CBasePlayer::PickUpWeapon refuses every weapon from id 39 on (TS_IsCustomWeapon: the PPSh-41, the laser rifle and any
+   added later), and SrvSett id 4 (to everyone when it changes, to a joiner with the other settings) tells the
+   client's buy menu. CTSGun::m_items has one more element. Detail: reference\DEVIATIONS.md. The mp.dll this
+   replaced is kept as mp.dll.bak_prelaser in reTS\binaries\ts\dlls\.
 
 Building and deploying
 ----------------------

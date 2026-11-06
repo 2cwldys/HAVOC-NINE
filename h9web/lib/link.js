@@ -32,7 +32,8 @@
 //       picture (the engine's h9_profile, engine-h9-avatars.patch), opened in the web browser:
 //       302 to the account's forum profile, /forum/user/?u=<username>, whose card shows only what
 //       the account's privacy switches let others see (its playtime under SHOW MY PLAYTIME); 404
-//       for no such account. The account is the number the game server named for the picture.
+//       for no such account. The account is the number the game server named for that player:
+//       h9_presence 1.7's H9Account (each linked player's own), or else the picture's H9Avatar.
 // The site's side (havoc9.org/link/ and the account page), signed in:
 //   GET  /api/link/code?code=WDJB-MJHT       what the code would link: { code, label, os,
 //                                            created, expiresIn, sameNetwork }
@@ -40,6 +41,15 @@
 //   POST /api/link/deny    { code }          200 { ok }
 //   GET  /api/link/devices                   { devices: [{ id, label, os, device, linked, lastSeen }] }
 //   POST /api/link/devices/:id/revoke        200 { ok }
+// The admin panel's LINKED GAMES (havoc9.org/admin/, an account's page), the same lists and the
+// same revoke, by and for staff:
+//   GET  /api/link/accounts/:name/devices    (moderator) { devices, can: { act } }; a moderator
+//                                            looks at players only, an admin at anyone
+//   POST /api/link/accounts/:name/devices/:id/revoke   (admin) { password, note }  200 { ok }
+//   POST /api/link/accounts/:name/devices/revoke-all   (admin) { password, note }  200 { ok, revoked }
+// An admin acts with their own password (the admin panel's confirmAdmin) and a note of 3 to 200
+// characters, never on their own account or one of their role or above; the audit log names the
+// admin as the one who revoked, with the note.
 //
 // What is kept. A code waiting for approval lives in memory only, for codeSeconds (10 minutes): the
 // SHA-256 of its device code, its user code, the game's device hash and system, and the requesting
@@ -63,6 +73,7 @@
 import crypto from "node:crypto";
 import { HttpError } from "./http.js";
 import { ipKey } from "./ratelimit.js";
+import { ROLES } from "./accounts.js";
 
 // RFC 8628's user code alphabet: no vowels, so no words; no digits, so no 0/O or 1/I mix-ups.
 const ALPHABET = "BCDFGHJKLMNPQRSTVWXZ";
@@ -294,12 +305,15 @@ export function createLinks({ db, accounts, audit, config, events, log, clientId
     return { status: "linked", account: account.username };
   }
 
-  function drop(row, reason, actor) {
+  // actor: who ended it (the account itself when left out), or null for no audit row; note: staff's
+  // reason, kept with it
+  function drop(row, reason, actor, note = null) {
     q.remove.run(row.id);
     const account = accounts.getById(row.account_id);
     if (account && actor !== null) {
       audit.record({ actor: actor || account, action: reason === "revoked" ? "account.link.revoke" : "account.link.unlink",
-        target: account, subject: "link " + row.id, detail: row.label + (row.device ? ", device " + row.device.slice(0, 8) : "") });
+        target: account, subject: "link " + row.id,
+        detail: row.label + (row.device ? ", device " + row.device.slice(0, 8) : "") + (note ? ", note: " + note : "") });
     }
     emit("account-unlink", { id: row.account_id, link: row.id, device: row.device, reason });
   }
@@ -361,11 +375,20 @@ export function createLinks({ db, accounts, audit, config, events, log, clientId
     }));
   }
 
-  function revoke(account, linkId) {
+  // REVOKE: the account's own (actor left out), or staff's with a note
+  function revoke(account, linkId, { actor = account, note = null } = {}) {
     const row = q.byId.get(linkId);
     if (!row || row.account_id !== account.id) throw new HttpError(404, "not_found", "No such linked game on this account.");
-    drop(row, "revoked", account);
-    if (log) log.info("link.revoked", { user: account.username, link: row.id });
+    drop(row, "revoked", actor, note);
+    if (log) log.info("link.revoked", { user: account.username, link: row.id, by: actor.username });
+  }
+
+  // REVOKE ALL: every game the account has linked; how many there were
+  function revokeAll(account, { actor = account, note = null } = {}) {
+    const rows = q.ofAccount.all(account.id);
+    for (const row of rows) drop(row, "revoked", actor, note);
+    if (log) log.info("link.revoked-all", { user: account.username, links: rows.length, by: actor.username });
+    return rows.length;
   }
 
   // a new player id: every linked game holds the old one
@@ -376,14 +399,14 @@ export function createLinks({ db, accounts, audit, config, events, log, clientId
   }
 
   return {
-    start, poll, status, unlinkByToken, codeView, lookup, approve, deny, devices, revoke, sweep,
+    start, poll, status, unlinkByToken, codeView, lookup, approve, deny, devices, revoke, revokeAll, sweep,
     adoptNonce, adopt, profilePath,
     pendingCount: () => byDevice.size,
     stop() { clearInterval(sweeper); },
   };
 }
 
-export function registerLinkRoutes(router, { auth, links, limits }) {
+export function registerLinkRoutes(router, { auth, links, limits, accounts = null, confirmAdmin = null }) {
   const hit = (limiter, key) => {
     const r = limiter.hit(key);
     if (!r.ok) throw limited(r);
@@ -482,6 +505,50 @@ export function registerLinkRoutes(router, { auth, links, limits }) {
     hit(limits.linkRevokePerAccount, "a:" + rc.account.id);
     const id = /^[1-9][0-9]{0,15}$/.test(rc.params.id) ? Number(rc.params.id) : 0;
     links.revoke(rc.account, id);
+    rc.json(200, { ok: true });
+  }));
+
+  // ---- the admin panel's LINKED GAMES ----
+  if (!accounts || typeof confirmAdmin !== "function") return;
+  const rank = (a) => ROLES.indexOf(a.role);
+  const below = (actor, a) => a.id !== actor.id && rank(actor) > rank(a);
+  const isAdmin = (a) => auth.roleAtLeast(a, "admin");
+  const named = (name) => {
+    const a = typeof name === "string" ? accounts.getByUsername(name) : null;
+    if (!a) throw new HttpError(404, "not_found", "No such account.");
+    return a;
+  };
+  function noteOf(value) {
+    const text = typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim() : "";
+    if (text.length < 3 || text.length > 200) throw new HttpError(400, "invalid_note", "Give a note of 3 to 200 characters: why the games are unlinked.");
+    return text;
+  }
+  // the account acted on, its note, and the admin, password checked last
+  async function staffAct(rc) {
+    hit(limits.linkRevokePerAccount, "a:" + rc.account.id);
+    const body = await rc.body();
+    const target = named(rc.params.name);
+    if (!below(rc.account, target)) throw new HttpError(403, "forbidden", "You cannot act on your own account or one of your role or above.");
+    const note = noteOf(body.note);
+    const actor = await confirmAdmin(rc, body.password);
+    return { target, note, actor };
+  }
+
+  router.get("/api/link/accounts/:name/devices", auth.requireRole("moderator", async (req, res, rc) => {
+    const target = named(rc.params.name);
+    if (!isAdmin(rc.account) && !below(rc.account, target)) throw new HttpError(403, "forbidden", "A moderator looks at players' linked games only.");
+    rc.json(200, { devices: links.devices(target.id), can: { act: isAdmin(rc.account) && below(rc.account, target) } });
+  }));
+
+  router.post("/api/link/accounts/:name/devices/revoke-all", auth.requireRole("admin", async (req, res, rc) => {
+    const { target, note, actor } = await staffAct(rc);
+    rc.json(200, { ok: true, revoked: links.revokeAll(target, { actor, note }) });
+  }));
+
+  router.post("/api/link/accounts/:name/devices/:id/revoke", auth.requireRole("admin", async (req, res, rc) => {
+    const id = /^[1-9][0-9]{0,15}$/.test(rc.params.id) ? Number(rc.params.id) : 0;
+    const { target, note, actor } = await staffAct(rc);
+    links.revoke(target, id, { actor, note });
     rc.json(200, { ok: true });
   }));
 }

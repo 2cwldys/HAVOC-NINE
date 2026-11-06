@@ -117,6 +117,11 @@ void TSPrecache(void)
 		"weapons/katana/hit1.wav"};
 	for (unsigned i = 0; i < sizeof(fixed2) / sizeof(fixed2[0]); i++)
 		PRECACHE_SOUND((char *)fixed2[i]);
+	// the laser rifle's plasma hit sounds, which the client plays where a bullet would ricochet (EV_TSBulletHit), and its
+	// energy cell reload sound (EV_TSReload)
+	static const char *const energy[] = {"h9/laserrifle/hit1.wav", "h9/laserrifle/hit2.wav", "h9/laserrifle/hit3.wav", "h9/laserrifle/reload.wav"};
+	for (unsigned i = 0; i < sizeof(energy) / sizeof(energy[0]); i++)
+		PRECACHE_SOUND((char *)energy[i]);
 	PRECACHE_MODEL("models/generic_clip.mdl");
 	PRECACHE_MODEL("models/ammopack.mdl");
 	PRECACHE_MODEL("models/bullet.mdl");

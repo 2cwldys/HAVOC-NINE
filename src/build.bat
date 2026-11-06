@@ -44,7 +44,7 @@ if not exist "%PLUGINS%" (
 if not exist "%OUT%" mkdir "%OUT%"
 
 if "%~1"=="" (
-set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link h9_rank"
+set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link h9_rank"
 ) else (
     if /i "%~1"=="all" (
         set "TARGETS="
@@ -71,8 +71,8 @@ if exist "%SRC%AMXMODX\plugins" (
     )
     echo   synced into AMXMODX\plugins
 )
-REM The mode API header (include\tsm_api.inc): ts_matchmode, ts_uplink, ts_survival and
-REM ts_mechwarrior all compile against it. Refreshed on EVERY build, unlike easy_http.inc further down, because
+REM The mode API header (include\tsm_api.inc): ts_matchmode, ts_uplink, ts_survival,
+REM ts_mechwarrior, ts_assault and ts_ctf all compile against it. Refreshed on EVERY build, unlike easy_http.inc further down, because
 REM it changes together with ts_matchmode.sma -- a stale copy would compile the mode plugins
 REM against natives the core no longer has.
 if exist "%SRC%include\tsm_api.inc" (
@@ -103,6 +103,23 @@ if exist "%SRC%include\h9_vgui.inc" (
     if errorlevel 1 (echo [FAIL] could not sync include\h9_vgui.inc) else (echo   synced include\h9_vgui.inc)
     if exist "%SRC%AMXMODX\plugins\include" copy /y "%SRC%include\h9_vgui.inc" "%SRC%AMXMODX\plugins\include\h9_vgui.inc" >nul
 )
+REM The marks include (include\h9_marks.inc): the objectives of Assault, Capture the Uplink and Capture the Flag drawn through
+REM the walls, shared by those plugins. Refreshed on every build like h9_vgui.inc, which it is built on.
+if exist "%SRC%include\h9_marks.inc" (
+    copy /y "%SRC%include\h9_marks.inc" "%SCRIPTING%\include\h9_marks.inc" >nul
+    if errorlevel 1 (echo [FAIL] could not sync include\h9_marks.inc) else (echo   synced include\h9_marks.inc)
+    if exist "%SRC%AMXMODX\plugins\include" copy /y "%SRC%include\h9_marks.inc" "%SRC%AMXMODX\plugins\include\h9_marks.inc" >nul
+)
+REM The release the plugins carry (include\h9_release.inc), written from the Xash overlay's ts\h9_release.txt, the one file a release is bumped in.
+REM h9_presence publishes it as h9_plugin_release, which the engine's join gate holds joiners to. Empty when there is no such file.
+set "H9REL="
+if exist "%SRC%xash3d-h9-patches\overlay\ts\h9_release.txt" (
+    for /f "usebackq tokens=1" %%R in ("%SRC%xash3d-h9-patches\overlay\ts\h9_release.txt") do if not defined H9REL set "H9REL=%%R"
+)
+> "%SRC%include\h9_release.inc" echo #define H9_RELEASE "!H9REL!"
+copy /y "%SRC%include\h9_release.inc" "%SCRIPTING%\include\h9_release.inc" >nul
+if errorlevel 1 (echo [FAIL] could not sync include\h9_release.inc) else (echo   synced include\h9_release.inc, release !H9REL!)
+if exist "%SRC%AMXMODX\plugins\include" copy /y "%SRC%include\h9_release.inc" "%SRC%AMXMODX\plugins\include\h9_release.inc" >nul
 REM The TS weapon ids (AMXMODX\plugins\include\tsconst.inc): H9 adds the PPSh-41 (TSW_PPSH41, 39), which
 REM ts_matchmode and the other plugins compile against. Refreshed on every build like tsm_api.inc.
 if exist "%SRC%AMXMODX\plugins\include\tsconst.inc" (
@@ -188,6 +205,10 @@ if exist "%SRC%sound\start" (
 REM The Combat Engineer's sentry turret: its two side models into ts\models and
 REM its sounds into ts\sound\turret. The plugin precaches them only when every
 REM file is there, so a missing one switches the turret off rather than crashing.
+if exist "%SRC%models\tsm_flag.mdl" (
+    copy /y "%SRC%models\tsm_flag.mdl" "%TSROOT%\..\..\models\" >nul
+    echo   synced models\tsm_flag.mdl
+)
 if exist "%SRC%models\tsm_turret_blue.mdl" (
     xcopy /y /q /i "%SRC%models\tsm_turret_*.mdl" "%TSROOT%\..\..\models\" >nul
     echo   synced models\tsm_turret_*.mdl

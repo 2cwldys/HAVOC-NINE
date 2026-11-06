@@ -24,6 +24,92 @@ GNU General Public License for more details.
 #define SAMPLE_16BIT_SHIFT 1
 #define SECONDARY_BUFFER_SIZE 0x10000
 
+#if XASH_EMSCRIPTEN
+#include <emscripten.h>
+
+/*
+H9 web client: the sound on the audio thread.
+
+SDL plays what SDL_SoundCallback gives it through a ScriptProcessorNode, and that runs on the page's main thread, the
+thread every game frame runs on. A frame in progress, or the browser's own work for a key held down, holds the callback,
+and a callback a buffer late leaves a hole in the sound: crackling, and a hang while the key stays down. Here the
+mixer's output goes to the page instead (Module.audio, client.js audioFeed), which plays it from an AudioWorklet, a thread
+of its own, and the position the mixer works from is that thread's clock. The mixer paints ahead of the play position as
+always (S_UpdateChannels, 0.2 s): each time it has painted, the new frames are sent. A page without Module.audio, or a
+browser without AudioWorklet, gets SDL's own device below, as before.
+*/
+static struct
+{
+	qboolean active;
+	int      frames; // the ring's length in frames, a power of two
+	int      pushed; // the first frame of the stream not yet sent
+} h9a;
+
+// The mixer counts samples in an int: before 2^30 frames (about 6.7 hours of sound) the clock starts over, as S_GetSoundtime's own 32 bit
+// guard does
+#define H9A_CLOCK_LIMIT 0x30000000
+
+EM_JS( int, H9A_PageInit, ( int rate, int channels ), {
+	var a = Module.audio;
+	if( !a || !a.init )
+		return 0;
+	try {
+		return a.init( rate, channels ) ? 1 : 0;
+	} catch( e ) {
+		return 0;
+	}
+});
+
+// the frames the audio thread has played since its stream began
+EM_JS( int, H9A_PagePosition, ( void ), {
+	var a = Module.audio;
+	return a ? a.position() : 0;
+});
+
+// frames [from, from + frames) of the stream, stereo 16 bit out of the ring that starts at ring, as floats
+EM_JS( void, H9A_PagePush, ( const short *ring, int ring_frames, int from, int frames ), {
+	var a = Module.audio;
+	if( !a )
+		return;
+	var pcm = new Float32Array( frames * 2 );
+	var at = from % ring_frames;
+	var base = ring >> 1;
+	for( var i = 0; i < frames; i++ ) {
+		var j = base + at * 2;
+		pcm[i * 2] = HEAP16[j] / 32768;
+		pcm[i * 2 + 1] = HEAP16[j + 1] / 32768;
+		if( ++at == ring_frames )
+			at = 0;
+	}
+	a.push( from, pcm );
+});
+
+EM_JS( void, H9A_PageFlush, ( void ), {
+	var a = Module.audio;
+	if( a )
+		a.flush();
+});
+
+// the page counts its played frames from 0 again (the clock is about to outgrow what the mixer counts in)
+EM_JS( void, H9A_PageRebase, ( void ), {
+	var a = Module.audio;
+	if( a )
+		a.rebase();
+});
+
+EM_JS( void, H9A_PageActivate, ( int active ), {
+	var a = Module.audio;
+	if( a )
+		a.activate( !!active );
+});
+
+EM_JS( void, H9A_PageClose, ( void ), {
+	var a = Module.audio;
+	if( a )
+		a.close();
+});
+#endif // XASH_EMSCRIPTEN
+
 #define SDLash_IsAudioError( x ) (( x ) == 0)
 
 /*
@@ -117,11 +203,44 @@ qboolean SNDDMA_Init( void )
 		return false;
 	}
 
+#if XASH_EMSCRIPTEN
+	if( H9A_PageInit( SOUND_DMA_SPEED, 2 ))
+	{
+		samplecount = 0x10000; // 1.5 s of stereo frames: a stall of the page cannot wrap the position twice
+
+		snd.format.speed    = SOUND_DMA_SPEED;
+		snd.format.channels = 2;
+		snd.format.width    = 2;
+		snd.samples         = samplecount * 2;
+		snd.buffer          = Mem_Calloc( sndpool, snd.samples * 2 );
+		snd.samplepos       = 0;
+
+		h9a.active = true;
+		h9a.frames = samplecount;
+		h9a.pushed = 0;
+
+		Con_Printf( "Using the page's audio thread @ %d Hz\n", SOUND_DMA_SPEED );
+		snd.initialized = true;
+		snd.backend_name = "page audio thread";
+
+		SNDDMA_Activate( true );
+
+		return true;
+	}
+#endif
+
 	SDL_AudioSpec desired =
 	{
 		.freq = SOUND_DMA_SPEED,
 		.format = AUDIO_S16SYS,
+#if XASH_EMSCRIPTEN
+		// H9 web client: the browser plays this callback through a ScriptProcessorNode, which runs on the page's main
+		// thread, the one the game's frames run on. With 1024 samples (21 ms) a frame that held the thread longer left a
+		// hole in the sound: a held key, the scoreboard, a slower PC. 2048 samples are 43 ms
+		.samples = 2048,
+#else
 		.samples = 1024,
+#endif
 		.channels = 2,
 		.callback = SDL_SoundCallback,
 	};
@@ -182,6 +301,27 @@ Makes sure snd.buffer is valid
 */
 void SNDDMA_BeginPainting( void )
 {
+#if XASH_EMSCRIPTEN
+	if( h9a.active )
+	{
+		// Where the audio thread has played to: every frame it has played since it began, not reduced to the ring. S_GetSoundtime only
+		// unwraps a position that comes back round, and counts the wraps it sees: a clock that jumped by more than a ring between two
+		// readings (the worklet starts seconds after the engine, a frame stalls for longer than the 1.5 s ring) would leave the mixer's
+		// time a whole ring behind the audio thread's for good. Counted whole, the two are the same time.
+		int pos = H9A_PagePosition();
+
+		if( pos >= H9A_CLOCK_LIMIT )
+		{
+			H9A_PageRebase();
+			h9a.pushed = 0;
+			snd.paintedtime = 0x40000001; // S_GetSoundtime's 32 bit guard: it stops every sound and counts from the start
+			pos = 0;
+		}
+
+		snd.samplepos = pos * 2;
+		return;
+	}
+#endif
 	SDL_LockAudioDevice( sdl_dev );
 }
 
@@ -195,6 +335,22 @@ Also unlocks the dsound buffer
 */
 void SNDDMA_Submit( void )
 {
+#if XASH_EMSCRIPTEN
+	if( h9a.active )
+	{
+		// what has been painted since the last time goes to the audio thread; what it has already played is of no use
+		int from = Q_max( h9a.pushed, snd.soundtime );
+		const int end = snd.paintedtime;
+
+		if( end - from > h9a.frames )
+			from = end - h9a.frames;
+		if( end > from )
+			H9A_PagePush( (const short *)snd.buffer, h9a.frames, from, end - from );
+		if( end > h9a.pushed )
+			h9a.pushed = end;
+		return;
+	}
+#endif
 	SDL_UnlockAudioDevice( sdl_dev );
 }
 
@@ -209,6 +365,14 @@ void SNDDMA_Shutdown( void )
 {
 	Con_Printf( "Shutting down audio.\n" );
 	snd.initialized = false;
+
+#if XASH_EMSCRIPTEN
+	if( h9a.active )
+	{
+		h9a.active = false;
+		H9A_PageClose();
+	}
+#endif
 
 	if( sdl_dev )
 	{
@@ -239,8 +403,33 @@ void SNDDMA_Activate( qboolean active )
 	if( !snd.initialized )
 		return;
 
+#if XASH_EMSCRIPTEN
+	if( h9a.active )
+	{
+		H9A_PageActivate( active );
+		return;
+	}
+#endif
 	SDL_PauseAudioDevice( sdl_dev, !active );
 }
+
+#if XASH_EMSCRIPTEN
+/*
+===========
+SNDDMA_H9Flush
+
+S_ClearBuffer zeroed the ring: what the audio thread holds of it goes too
+===========
+*/
+void SNDDMA_H9Flush( void )
+{
+	if( !h9a.active )
+		return;
+
+	H9A_PageFlush();
+	h9a.pushed = Q_max( h9a.pushed, snd.paintedtime );
+}
+#endif
 
 /*
 ===========

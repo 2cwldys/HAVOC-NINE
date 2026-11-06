@@ -37,7 +37,7 @@ Requested by a server operator running model plugins under teamplay, 2026-10-15.
 The roster has one weapon TS 3.0 does not: `TSW_PPSH41` (39), a submachine gun with a 71-round drum
 (`dlls/ts_weapon_info.cpp`, after the original's rows). TS 3.0's ids are 0 to 37. Id 38 is left empty
 (`TSW_UNUSED`: an empty row, no weapon) because AMX Mod X's TSX keeps its thrown knife's stats at 38 ("not a
-game id"), so no game weapon has that number; `TSW_COUNT` is 40. The PPSh-41's row is the AK47's taken whole, so
+game id"), so no game weapon has that number; `TSW_COUNT` is 41 since the laser rifle (below). The PPSh-41's row is the AK47's taken whole, so
 its animation blocks, hold stance and events are the AK47's (its `models/h9/{v,p,w}_ppsh41.mdl` are TS's AK47
 models with the gun's meshes swapped), then its own name, models, sound (`h9/ppsh41/fire.wav`), shell, clip,
 fire type 9 (SMG), rate, caliber, price and Sparta values (26.35 damage, 85% of the UMP's). The ammo table
@@ -61,6 +61,64 @@ What it breaks, against the original and plugins built for it:
 - The PPSh-41 is not in the random SMG pickup (`weapon_rpg` on a stock map), so none reaches an original
   client that way.
 
+### Laser rifle (weapon 40) and caliber 15 (plasma cells)
+
+A second weapon TS 3.0 does not have: `TSW_LASERRIFLE` (40), an energy weapon (`dlls/ts_weapon_info.cpp`, after the
+PPSh-41; `TSW_COUNT` is 41). Its row is the M4A1's taken whole, so its animation blocks, the gunbash (coldcock:
+35 damage, anim block entry 15) and its draw, shot and reload sequences are the M4A1's (`models/h9/{v,p,w}_laserrifle.mdl`
+are TS's M4A1 models with the gun's meshes swapped), then its own name, models, sound (`h9/laserrifle/fire.wav`),
+no shell, a 35-cell clip, 800 rounds a minute, fire modes 7 (full auto, single and burst), caliber 15, price 5200,
+weight 40, a built-in scope (right click zooms to 32, then 8, as the Barrett; the scope overlay is blue) and Sparta
+values (35 damage, a little over the M4A1's 33). The ammo table gains caliber 15, "Plasma Cell" (35 cells a buy, 140
+carried, a pierce decay of 0: a bolt stops at the first thing it meets, and flies at 700 x 40 units a second in
+slow motion). The server registers a read-only `h9_laserrifle` cvar (1): ts_matchmode gives the M4A1 in its
+place where it does not, and its Officer class carries the laser rifle (`tsm_class7`).
+
+It is an energy weapon, and the client draws none of a bullet's presentation for it (`cl_dll/ev_ts.cpp`,
+`cl_dll/ts_bullets.cpp`; only a shot of caliber 15 is affected, no other weapon's): no brass, no gun smoke, no pellet
+sprite or white streak in slow motion, no bullet hole or ricochet. A shot draws a green bolt that runs from the muzzle
+to where it lands with a trail that holds at full brightness for a moment behind the head and then fades, the head
+resting at the end for a moment, at every time scale (`TSPlasma_Bolt`; a round of the client bullet simulation is drawn
+the same way as it flies, stepped every frame, with a piece of trail each frame and the last piece laid to the impact),
+every ribbon, head and flash kept between a least and a most number of pixels across at its own distance from the eye
+(a bolt a few thousand units out is under a pixel wide in units, and a hand across next to the muzzle; the engine draws
+an additive triangle with GL fog off, so a map's fog does not thin it), a green flash at the muzzle with a faint green light (a dynamic light,
+for every shooter, so that it shows in the dark), a scorch decal (`{smscorch1..3`), a green flash and light and its own
+hit sound (`h9/laserrifle/hit1..3.wav`) where it lands, on a wall and on a player alike, and an energy cell sound
+over the reload (`h9/laserrifle/reload.wav`, `EV_TSReload`). Sprites: `sprites/laserrifle_{muzzle,trail,bolt,hit}.spr`
+and the weapon's picture `sprites/weapons/laserrifle.spr`, drawn by `laserrifle/build/make_sprites.py`. The scope overlay
+(`cl_dll/ts_scope.cpp`) tints the view blue and frames it in one flat blue: `sprites/laserscope.spr` is the stock
+`quarterscope.spr` with its last palette entry recoloured (`laserrifle/build/make_scope.py`), and the side bars are
+drawn from the same sprite's solid corner, so the bars and the mask match exactly.
+
+What it breaks, against the original and plugins built for it:
+
+- The original client has no id 40 (see the PPSh-41): no buy-menu or weapon-bar row, and `CustomWP` never broadcasts
+  it. Its caliber 15 is a row the original's ammo table has but leaves empty.
+- `CTSGun::m_items` has one more element. A plugin or module that sizes a table by the weapon count must know 40:
+  H9's TSX does (weapon 40 is the laser rifle, kung fu's own stats slot moved from 40 to 41; `modules/ts/tsx`,
+  `tsconst.inc`'s TSW_LASERRIFLE). The first custom weapon id in TSX is 42 now (it was 41).
+- The weapon models are adapted from a CC BY 4.0 Sketchfab model (`laserrifle_ATTRIBUTION.txt`).
+
+### h9_customweapons (the PPSh-41 and the laser rifle, on or off)
+
+A server cvar TS 3.0 does not have, `h9_customweapons` (`dlls/game.cpp`, FCVAR_SERVER, default 1). 1 plays the weapons H9
+adds to TS 3.0's roster (id 39 on: today the PPSh-41 and the laser rifle; `TS_IsCustomWeapon` is the id range, so a
+weapon added later is behind the cvar at once); 0 is TS 3.0's own roster. EVERY weapon H9 adds is gated by this cvar:
+a new one needs its stand-in gun in ts_matchmode's `custom_standin` and its presence test in `custom_present`, and
+nothing else of the gate. The gate:
+
+- the server refuses to pick either up, by the buy, a world gun or a give (`CBasePlayer::PickUpWeapon`);
+- the client's buy menu leaves them out (`CHudTSBuyMenu::Restricted`). The server tells it with `SrvSett` id 4 (0 or 1),
+  to everyone when the cvar changes and to a joiner with the other settings (`CTSGameRules::Think`, `InitHUD`). The
+  client takes 0 until the server says 1, so a server that never sends it (an original TS 3.0) shows neither;
+- ts_matchmode gives its classes the UMP and the M4A1 in their place, as it does where the game library has neither
+  (`lo_wpn`). It is read when a loadout is given, so a change reaches the loadouts at the next arming.
+
+What it breaks, against the original and plugins built for it: the original client reads `SrvSett` ids 0 to 3 only and
+drops an id above 3, which is harmless; a weapon already carried when the cvar is turned off stays carried until it is
+lost.
+
 ### TS's top notices beneath the H9 VGUI stack (client)
 
 TS 3.0 draws its top-row notices ("<name> is The Specialist", the killing sprees) from 32 px down, 16 px
@@ -71,7 +129,36 @@ is `CHudTSMessage::Draw` in `cl_dll/ts_message.cpp`). With no stack on screen, a
 none, they are where TS puts them. The stack itself starts 1.5% of the screen height down (16 px at 1080;
 `cl_h9_vgui_top` sets it in pixels), where the original left its top band to these notices.
 
-### ReTS_GetInterface (server export)
+### H9 notices come up (client)
+
+A server panel's notice (a banner, flash or bar in place of a hudmessage, `docs/H9_VGUI.txt`) comes up over
+0.35 s when it appears, and fades out when it ends. A notice that replaces one still showing keeps the first
+one's rise, so a bar sent every tick does not come up again each time; a status shows at once (`NoticeDrawAlpha` in
+`cl_dll/h9_vgui.cpp`). The original has no such panels: a hudmessage appears at full strength.
+
+### H9 panels a quarter smaller, a side's reinforcements, and marks through the walls (client)
+
+All three are H9 additions with no counterpart in TS 3.0, and all three act only for a server that sends the H9
+user messages (`docs/H9_VGUI.txt`):
+
+* The H9 panels (the match mode's menus, banners, notices and the match bar) are built three quarters of the
+  size they were: `H9_MENU_SCALE` 0.68 -> 0.51 and `H9_BANNER_SCALE` 0.60 -> 0.45 in `cl_dll/vgui_H9Panel.cpp`,
+  with `cl_h9_vgui_scale` on top as before, and their text is drawn from three ladders of four font schemes
+  ("H9 Text 1-4", "H9 Detail 1-4", "H9 Flash 1-4") added to the text scheme files (TS's own schemes are left
+  as they were; a scheme file without the ladders gives the stock schemes at the same steps).
+* `H9Pool` (user message, byte side, short left, short start): a mode that keeps ONE pool of lives for a side
+  (the assault mode, which calls its lives REINFORCEMENTS) sends each side's pool, and the scoreboard's team rows
+  show it in the lives column as `left/start`, the column titled REINFORCEMENTS (or REINFORCE, or REINF, the longest
+  that costs the names no more than 40% of their width, `PlaceCells` in `cl_dll/vgui_ScorePanel.cpp`); the players' own cells are blank because the server sends every player's `H9Lives` as 0 then.
+* The `H9Vgui` op MARK (22, protocol 3; `cl_dll/h9_vgui.cpp`): a point of the world a mode wants every player to
+  know of is drawn on the screen where it lands, through walls, as a badge in its owner's colour with a bar
+  while it is being taken, pinned to the screen's edge while out of view, and as a row of the same badges
+  under the top notices (`cl_h9_marks`, `cl_h9_marks_strip`, both 1, saved). The userinfo `_h9vgui` now says 3.
+  The original has nothing like it: a TS server shows objectives with the `Objective` message (a compass icon and a
+  label at a fixed colour, only on teamplay game modes above 1), which a plugin can still send to a game that
+  does not draw marks.
+
+### ReTS_GetInterface (server export)### ReTS_GetInterface (server export)
 
 A versioned struct of get/set functions for the player fields AMX Mod X's TS module touches (cash, slow
 motion, kevlar, free slots and the rest), so it does not depend on member offsets. reTSX, the TS module in

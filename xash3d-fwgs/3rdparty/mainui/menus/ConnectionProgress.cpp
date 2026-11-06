@@ -21,9 +21,9 @@ H9: the join screen (mainui-h9-joinscreen.patch), which the engine's cl_h9join.c
 starts (connect, retry, this game's own server) and at each map change, and takes down once the player
 is in the game. Over the menu's own background, or its video, full screen: a panel in the menu's colours
 (gfx/shell/colors.lst: H9's purple) with the server it joins, the stage, the overall bar (scr_loading),
-and while a file downloads its line (the name, n of N, KB of KB) with its own bar. The engine keeps all of
-it in read-only cvars (_h9join, _h9join_server, _h9join_stage, _h9join_file, _h9join_fileprog), read
-here each frame. CANCEL, or ESC, ends the join at once; the console key opens the console in its place.
+and while a file downloads the downloads together (the bytes done and to go, the time left) and the file's
+line (the name, n of N, KB of KB) with its own bar. The engine keeps all of it in read-only cvars (_h9join,
+_h9join_server, _h9join_stage, _h9join_total, _h9join_file, _h9join_fileprog), read here each frame. CANCEL, or ESC, ends the join at once; the console key opens the console in its place.
 A join, or a game, that ends with a reason (_h9_drop: refused, kicked, timed out, a file that could not
 come) says it, with OK, over the menu's own screens.
 */
@@ -60,18 +60,20 @@ private:
 	CMenuBackgroundBitmap panel;          // the panel, in the dialog colour
 	CMenuAction title;
 	CMenuAction stage;
+	CMenuAction totalLine;
 	CMenuAction fileLine;
 	CMenuProgressBar overall;
 	CMenuProgressBar fileBar;
 	CMenuPicButton cancelButton;
 	char sTitle[256];
 	char sStage[128];
+	char sTotal[160];
 	char sFile[512];
 };
 
 CMenuConnectionProgress::CMenuConnectionProgress() : CMenuBaseWindow( "ConnectionProgress" )
 {
-	sTitle[0] = sStage[0] = sFile[0] = '\0';
+	sTitle[0] = sStage[0] = sTotal[0] = sFile[0] = '\0';
 	szName = "ConnectionProgress";
 }
 
@@ -116,6 +118,38 @@ void CMenuConnectionProgress::Begin()
 		Show();
 }
 
+// the box a refusal for an out-of-date game gets: the server's own words, and a button that opens the page they name (a click only)
+static void OpenDownloadsPage( void )
+{
+	EngFuncs::ShellExecute( "https://havoc9.org/downloads/", NULL, false );
+}
+
+static void ShowUpdateBox( const char *reason )
+{
+	static char msg[512];
+	static CMenuYesNoMessageBox box( false );
+	static bool init;
+
+	Q_strncpy( msg, reason, sizeof( msg ));
+
+	if( !UI_IsVisible( ))
+	{
+		UI_Main_Menu();
+		UI_SetActiveMenu( true );
+	}
+
+	if( !init )
+	{
+		box.SetPositiveButton( L( "Open havoc9.org" ), PC_OK, 100 );
+		box.SetNegativeButton( L( "Close" ), PC_CANCEL, -20 );
+		box.onPositive = OpenDownloadsPage;
+		init = true;
+	}
+
+	box.SetMessage( msg );
+	box.Show();
+}
+
 // the join is over before the game: the menu's own screens again, and the reason when the engine has one
 void CMenuConnectionProgress::End()
 {
@@ -124,7 +158,11 @@ void CMenuConnectionProgress::End()
 	if( IsVisible( ))
 		Hide();
 	if( reason && reason[0] )
-		UI_ShowMessageBox( reason );
+	{
+		if( strstr( reason, "havoc9.org/downloads" ))
+			ShowUpdateBox( reason );
+		else UI_ShowMessageBox( reason );
+	}
 }
 
 void CMenuConnectionProgress::_Init( void )
@@ -144,6 +182,10 @@ void CMenuConnectionProgress::_Init( void )
 	stage.eTextAlignment = QM_CENTER;
 	stage.szName = sStage;
 
+	totalLine.iFlags = QMF_INACTIVE;
+	totalLine.eTextAlignment = QM_CENTER;
+	totalLine.szName = sTotal;
+
 	fileLine.iFlags = QMF_INACTIVE;
 	fileLine.eTextAlignment = QM_CENTER;
 	fileLine.szName = sFile;
@@ -160,6 +202,7 @@ void CMenuConnectionProgress::_Init( void )
 	AddItem( title );
 	AddItem( stage );
 	AddItem( overall );
+	AddItem( totalLine );
 	AddItem( fileLine );
 	AddItem( fileBar );
 	AddItem( cancelButton );
@@ -181,10 +224,13 @@ void CMenuConnectionProgress::_VidInit( void )
 
 	overall.SetRect( 20, 86, JOIN_W - 40, 20 );
 
-	fileLine.SetCharSize( QM_SMALLFONT );
-	fileLine.SetRect( 0, 122, JOIN_W, 20 );
+	totalLine.SetCharSize( QM_SMALLFONT );
+	totalLine.SetRect( 0, 108, JOIN_W, 18 );
 
-	fileBar.SetRect( 20, 148, JOIN_W - 40, 12 );
+	fileLine.SetCharSize( QM_SMALLFONT );
+	fileLine.SetRect( 0, 128, JOIN_W, 20 );
+
+	fileBar.SetRect( 20, 152, JOIN_W - 40, 12 );
 
 	cancelButton.SetRect( ( JOIN_W - UI_BUTTONS_WIDTH / 2 ) / 2, JOIN_H - 50, UI_BUTTONS_WIDTH / 2, UI_BUTTONS_HEIGHT );
 
@@ -204,10 +250,16 @@ void CMenuConnectionProgress::Refresh( void )
 	const char *server = EngFuncs::GetCvarString( "_h9join_server" );
 	const char *what = EngFuncs::GetCvarString( "_h9join_stage" );
 	const char *file = EngFuncs::GetCvarString( "_h9join_file" );
+	const char *total = EngFuncs::GetCvarString( "_h9join_total" );
 
 	snprintf( sTitle, sizeof( sTitle ), "%s", server && server[0] ? server : L( "GameUI_EstablishingConnection" ));
 	snprintf( sStage, sizeof( sStage ), "%s", what && what[0] ? what : L( "GameUI_EstablishingConnection" ));
 	snprintf( sFile, sizeof( sFile ), "%s", file ? file : "" );
+	snprintf( sTotal, sizeof( sTotal ), "%s", total ? total : "" );
+
+	if( sTotal[0] )
+		totalLine.Show();
+	else totalLine.Hide();
 
 	if( sFile[0] )
 	{

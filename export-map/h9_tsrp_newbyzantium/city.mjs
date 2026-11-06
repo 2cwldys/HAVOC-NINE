@@ -75,7 +75,7 @@ const carved = [
 const rock = wearFromSpaces(carved, bag.spaces);
 console.log(`  carved: ${rock.brushes.length} brushes of rock, ${rock.changed} floors and ceilings worn from their spaces, ${rock.split} cut where two spaces see one (${secs()})`);
 const map = {
-  worldspawn: { wad: Object.values(WADS), skyname: SKY_NAME, MaxRange: 24000, message: "New Byzantium", sounds: 1 },
+  worldspawn: { wad: Object.values(WADS), skyname: SKY_NAME, MaxRange: 24000, message: "New Byzantium -- Roleplay", sounds: 1 },
   brushes: [...rock.brushes, ...bag.world],
   entities: [...bag.entities, M.brushEntity("func_detail", bag.detail)],
 };

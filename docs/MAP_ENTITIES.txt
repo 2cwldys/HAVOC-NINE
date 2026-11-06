@@ -62,7 +62,9 @@
 
   WHAT IT IS FOR: the round's spine. The attacking side (tsm_obj_team, default
   team 2) breaks the chain IN ORDER up to nine deep; winning the round means
-  felling every objective on it.
+  felling every objective on it. A map that wants them in ANY order puts
+  tsm_linear_obj 0 in its ts\mapconfigs\<map>.cfg (tsm_linear_obj 1, the
+  default, is the numbered order); the objectives are named the same way.
 
   HOW TO PLACE:
 
@@ -77,7 +79,8 @@
   HOW A FALL HAPPENS, IN ORDER:
 
     1. A player of the attacking side walks up to the FIRST standing
-       objective (tsm_obj_range: 96 units).
+       objective (tsm_obj_range: 96 units) -- any standing one, with
+       tsm_linear_obj 0.
 
     2. If their class matches tsm_obj_class (default "Breacher"; blank = any
        class of that side), aiming at it and HOLDING +USE starts the plant.

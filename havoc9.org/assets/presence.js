@@ -3,14 +3,24 @@
 //
 //   data-h9-presence="now"                        who's playing: each server, its map picture,
 //                                                 "<map> (<mode>)", and the players on it
-//   data-h9-presence="online"                     online now: one line, how many in game, in the
-//                                                 web client and on the site, and who
+//   data-h9-presence="online"                     online now: a line each for in game, in the web
+//                                                 client and on the site, in that order: how many,
+//                                                 and who
 //   data-h9-presence="author" data-h9-user="Neo"  a forum post's author: a dot and the state
 //                                                 ("PLAYING ON <server> / <map> (<mode>) / <n>
 //                                                 MIN", "IN THE WEB CLIENT", "ON THE SITE", "LAST
 //                                                 SEEN ..."), the badge, playtime. Every author on
 //                                                 the page comes from one request
 //   data-h9-presence="card" data-h9-user="Neo"    one player's full card
+//   data-h9-presence="rank" data-h9-user="Neo"    one player's RANK block: the level's badge, this
+//                                                 season on the H9 ladder (rating, place,
+//                                                 matches, K/D), how levels are worked out.
+//                                                 Nothing when they keep their numbers hidden
+//   data-h9-level="Neo"                           that account's career level as a badge (Lv 0 to
+//                                                 99); with data-h9-level-size="large", the
+//                                                 profile's size, and with data-h9-level-elo, its
+//                                                 H9 ladder MATCH rating beside it ("1.2K ELO").
+//                                                 Nothing when it has none to show
 //   data-h9-presence="account"                    the signed-in player's own: state, playtime,
 //                                                 badge and sessions, whatever its switches say
 //   data-h9-presence-settings                     the privacy switches (ACCOUNT page): in game,
@@ -32,6 +42,9 @@
 //   fetchAccount(name) / fetchNow() / fetchMe()
 //   renderAuthor(view) -> element or null       renderCard(view) -> element
 //   renderNow(data) / renderOnline(data) / renderAccount(me) -> element
+//   renderRank(rank, { name }) -> element       a view's "rank" as the RANK block
+//   levelBadge(level, size) -> element or null  a career level's badge, size in CSS pixels
+//   compactElo(rating) -> "1.2K"                 a rating in thousands, as beside the badge
 //   fetchSettings() / renderSettings(data)      the privacy switches
 //   decorate(root) -> Promise                   fills every data-h9-presence element in root
 //   openCard(name) / closeCard()                the card dialog
@@ -92,9 +105,14 @@
     ".h9p-server-name{font-family:var(--font-display,sans-serif);font-size:.95rem;letter-spacing:.06em;color:#fff}",
     ".h9p-server-game{font-family:var(--font-mono,monospace);font-size:.85rem;color:var(--text-dim,#9a7f6e);overflow-wrap:anywhere}",
     ".h9p-names{list-style:none;display:flex;flex-wrap:wrap;gap:.35rem 1rem;margin-top:.35rem;padding:0;font-family:var(--font-mono,monospace);font-size:.88rem}",
+    ".h9p-names .h9p-more{color:var(--text-dim,#9a7f6e)}",
+    ".h9-level{display:inline-block;vertical-align:middle;margin:0 .3rem;flex-shrink:0}",
+    ".h9-elo{display:inline-block;vertical-align:middle;margin-right:.3rem;font-family:var(--font-mono,monospace);font-size:.72rem;letter-spacing:.08em;color:#be8cff;white-space:nowrap}",
     ".h9p-names li{display:flex;align-items:center}",
     ".h9p-names .h9p-for{color:var(--text-muted,#5c4538);margin-left:.4rem;font-size:.78rem}",
     ".h9p-online{font-family:var(--font-mono,monospace);font-size:.85rem;letter-spacing:.08em;color:var(--text-dim,#9a7f6e)}",
+    // online now: its lines (each an .h9p-online) one under the other, the middle of the spot
+    ".h9p-online-box{display:flex;flex-direction:column;align-items:center;gap:.4rem}",
     ".h9p-online .h9p-count{color:#be8cff}",
     ".h9p-online .h9p-count.is-site,.h9p-online .h9p-label.is-site{color:var(--orange,#ff4d00)}",
     // the players online, by name: on the online line and in the who's-playing block
@@ -102,6 +120,15 @@
     ".h9p-online .h9p-name:hover,.h9p-names .h9p-name:hover{color:var(--orange,#ff4d00)}",
     ".h9p-account{display:flex;flex-direction:column;gap:1rem;max-width:640px;margin:0 auto}",
     ".h9p-account .h9p-card .h9p-status{font-size:.9rem}",
+    // a player's RANK block: the ACCOUNT page and a forum profile
+    ".h9p-rank{background:var(--bg-card,#1a0f14);border:1px solid var(--border,rgba(255,77,0,.25));color:var(--text,#e8d5c4);",
+    "padding:1.1rem 1.25rem 1.25rem;display:flex;flex-direction:column;gap:.75rem}",
+    ".h9p-rank:empty{display:none}",
+    ".h9p-rank-head{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem 1rem}",
+    ".h9p-rank-head .h9-level{margin:0}",
+    ".h9p-rank-title{display:flex;flex-direction:column;gap:.2rem;min-width:0}",
+    ".h9p-rank-level{font-family:var(--font-display,sans-serif);font-size:1.5rem;letter-spacing:.08em;color:#be8cff}",
+    ".h9p-rank-season{font-family:var(--font-mono,monospace);font-size:.78rem;letter-spacing:.12em;color:var(--text-dim,#9a7f6e)}",
     ".h9p-list{list-style:none;margin:0;padding:0;font-family:var(--font-mono,monospace);font-size:.82rem;color:var(--text-dim,#9a7f6e)}",
     ".h9p-list li{padding:.35rem 0;border-bottom:1px solid rgba(255,77,0,.12)}",
     ".h9p-list li:last-child{border-bottom:none}",
@@ -202,6 +229,12 @@
     return u.href;
   }
 
+  function ladderHref(name) {
+    const u = new URL("ladder/", root);
+    u.searchParams.set("p", name);
+    return u.href;
+  }
+
   // A player's name: a link to their forum profile that opens their card; a developer's in purple.
   function nameLink(name, className, developer) {
     return el("a", { class: (className || "h9p-name") + (developer ? " is-developer" : ""), href: profileHref(name), "data-h9-card": name, text: name });
@@ -217,6 +250,32 @@
 
   function badge(view) {
     return view && view.badge ? el("span", { class: "h9p-badge", title: "Seen in game with this account", text: "PLAYS IN GAME" }) : null;
+  }
+
+  // An ELO rating in thousands, as the forum shows it beside the badge: one decimal under 10K, a
+  // ".0" dropped ("1.2K", "5K"), whole thousands from 10K ("12K"). "" for no rating.
+  function compactElo(n) {
+    if (typeof n !== "number" || !Number.isFinite(n)) return "";
+    const k = n / 1000;
+    if (k >= 9.95) return Math.round(k) + "K";
+    const t = Math.round(k * 10) / 10;
+    return (Number.isInteger(t) ? String(t) : t.toFixed(1)) + "K";
+  }
+
+  // A career level's badge (assets/levels/, drawn by modelling/make-level-badges.mjs): Lv 0 to 99,
+  // Lv 0 an account with no experience yet (shown unless the admins turn it off), size CSS pixels
+  // across, from the file that size needs (24, 48 or 96 pixels, twice that for a sharp screen where
+  // there is one). The picture's alt and title name the level, for a picture that does not load.
+  // null when there is no level.
+  const LEVELS = new URL("assets/levels/", root);
+  function levelBadge(level, size = 22) {
+    if (!Number.isInteger(level) || level < 0 || level > 99) return null;
+    const title = "Lv " + level + ": ranked level on havoc9.org";
+    const file = (px) => new URL("lv-" + level + "-" + px + ".png", LEVELS).href;
+    const base = size <= 24 ? 24 : size <= 48 ? 48 : 96;
+    const img = el("img", { class: "h9-level", alt: "Lv " + level, title, width: size, height: size, src: file(base), loading: "lazy", decoding: "async" });
+    if (base < 96) img.setAttribute("srcset", file(base) + " 1x, " + file(base * 2) + " 2x");
+    return img;
   }
 
   // ---- reading the API ----------------------------------------------------------------------------
@@ -344,7 +403,8 @@
     if (view && view.state === "game" && view.playing) card.append(picture(view.playing.mapPicture, "h9p-card-pic") || "");
     const body = el("div", { class: "h9p-card-body" });
     card.append(body);
-    body.append(el("div", { class: "h9p-card-head" }, el("span", { class: "h9p-card-name" + (view && view.developer ? " is-developer" : ""), text: username }), badge(view)));
+    body.append(el("div", { class: "h9p-card-head" }, el("span", { class: "h9p-card-name" + (view && view.developer ? " is-developer" : ""), text: username }),
+      levelBadge(view ? view.level : null, 40), badge(view)));
     if (!view) {
       body.append(el("p", { class: "h9p-quiet", text: "No such player, or the site could not be reached." }));
       return card;
@@ -363,6 +423,56 @@
     return card;
   }
 
+  // A player's RANK block (the ACCOUNT page, a forum profile), from a view's "rank" (compete.js,
+  // rankOf): the career level's badge and its experience, the H9 ladder's rating as the ELO figure
+  // ("1.2K ELO"), this season, its rating and place there, the season's matches, wins and losses,
+  // kills, deaths (and assists, where a server counted them) and K/D. An empty box, which the page
+  // hides, when rank is null.
+  function renderRank(rank, { name } = {}) {
+    style();
+    const box = el("div", { class: "h9p-rank" });
+    if (!rank) return box;
+    const level = Number.isInteger(rank.level) ? rank.level : null;
+    const season = rank.season ? "SEASON " + rank.season.number + (rank.season.started ? ", SINCE " + day(rank.season.started).toUpperCase() : "") : "";
+    box.append(el("span", { class: "h9p-sub", text: "RANK" }),
+      el("div", { class: "h9p-rank-head" }, levelBadge(level, 72),
+        el("div", { class: "h9p-rank-title" },
+          level !== null ? el("span", { class: "h9p-rank-level", text: "LV " + level }) : null,
+          rank.h9 ? el("span", { class: "h9-elo", title: "H9 ladder rating " + rank.h9.elo, text: compactElo(rank.h9.elo) + " ELO" }) : null,
+          season ? el("span", { class: "h9p-rank-season", text: season }) : null)));
+    const h9 = rank.h9 || null;
+    const played = !!h9 && h9.matches > 0;
+    box.append(rows([
+      h9 ? ["H9 LADDER", h9.elo + DOT + "#" + h9.place] : null,
+      ["MATCHES", played ? h9.matches + DOT + h9.wins + " WON" + DOT + h9.losses + " LOST" : "NONE YET"],
+      h9 && (h9.kills || h9.deaths || h9.assists) ? (Number.isInteger(h9.assists)
+        ? ["K / D / A", h9.kills + " / " + h9.deaths + " / " + h9.assists + DOT + "K/D " + Number(h9.kd).toFixed(2)]
+        : ["K / D", h9.kills + " / " + h9.deaths + DOT + Number(h9.kd).toFixed(2)]) : null,
+      ["CAREER XP", String(rank.xp || 0)],
+    ]));
+    if (!played) box.append(el("p", { class: "h9p-quiet", text: "No ranked matches yet this season." }));
+    if (name) box.append(el("div", { class: "h9p-links" }, el("a", { href: ladderHref(name), text: "ON THE LADDER" })));
+    return box;
+  }
+
+  // A list of names shows at most NAMES_SHOWN of them, then "and N others".
+  const NAMES_SHOWN = 12;
+
+  function capped(list, draw) {
+    const out = list.slice(0, NAMES_SHOWN).map(draw);
+    if (list.length > NAMES_SHOWN) out.push(el("li", { class: "h9p-more", text: "and " + (list.length - NAMES_SHOWN) + " others" }));
+    return out;
+  }
+
+  // names joined by commas into line, the first NAMES_SHOWN, then "and N others"
+  function namesInto(line, list) {
+    list.slice(0, NAMES_SHOWN).forEach((p, i) => {
+      if (i) line.append(", ");
+      line.append(nameLink(p.username, null, p.developer));
+    });
+    if (list.length > NAMES_SHOWN) line.append(" and " + (list.length - NAMES_SHOWN) + " others");
+  }
+
   // Who's playing: each server with its picture, "<map> (<mode>)" and its players; then the
   // players in game somewhere they keep to themselves, and who is in the web client or on the site.
   function renderNow(data) {
@@ -371,7 +481,7 @@
     const servers = data && Array.isArray(data.servers) ? data.servers : [];
     const elsewhere = (data && data.elsewhere) || [];
     if (!servers.length && !elsewhere.length) {
-      box.append(el("p", { class: "h9p-quiet", text: data ? "Nobody with a havoc9.org account is in game right now." : "Who's playing could not be read just now." }));
+      box.append(el("p", { class: "h9p-quiet", text: data ? "Nobody with a havoc9.org account is in game right now." : "Who's online could not be read just now." }));
     }
     const who = (p) => el("li", p.verified === false ? { class: "is-unverified", title: UNVERIFIED } : null,
       el("i", { class: p.verified === false ? "h9p-dot" : "h9p-dot is-online" }), nameLink(p.username, null, p.developer),
@@ -382,51 +492,43 @@
           el("span", { class: "h9p-server-name", text: s.server.name }),
           gameText(s) ? el("span", { class: "h9p-server-game", text: gameText(s) }) : null,
           progress(s) ? el("span", { class: "h9p-server-game", text: progress(s) }) : null,
-          el("ul", { class: "h9p-names" }, s.players.map(who)))));
+          el("ul", { class: "h9p-names" }, capped(s.players, who)))));
     }
     if (elsewhere.length) {
       box.append(el("div", { class: "h9p-server" }, el("div", { class: "h9p-server-text" },
         el("span", { class: "h9p-server-name", text: "In game" }),
         el("span", { class: "h9p-server-game", text: "on a server they keep to themselves" }),
-        el("ul", { class: "h9p-names" }, elsewhere.map(who)))));
+        el("ul", { class: "h9p-names" }, capped(elsewhere, who)))));
     }
     for (const [list, label, cls] of [[data && data.web, "IN THE WEB CLIENT", "is-web"], [data && data.site, "ON THE SITE", "is-site"]]) {
       if (!list || !list.length) continue;
       const line = el("div", { class: "h9p-online" }, el("i", { class: "h9p-dot " + cls }), el("span", { class: "h9p-label " + cls, text: label }), ": ");
-      list.forEach((p, i) => {
-        if (i) line.append(", ");
-        line.append(nameLink(p.username, null, p.developer));
-      });
+      namesInto(line, list);
       box.append(line);
     }
     return box;
   }
 
-  // Online now: one line, everyone in game, in the web client and on the site.
+  // Online now: a line each for everyone in game, in the web client and on the site, in that order,
+  // the count first and then that group's own names.
   function renderOnline(data) {
     style();
-    const line = el("div", { class: "h9p-online" });
-    if (!data) return line;
+    const box = el("div", { class: "h9p-online-box" });
+    if (!data) return box;
     const game = [];
     for (const s of data.servers || []) for (const p of s.players) game.push(p);
     for (const p of data.elsewhere || []) game.push(p);
-    const web = data.web || [];
-    const site = data.site || [];
-    if (!game.length && !web.length && !site.length) {
-      line.append(el("i", { class: "h9p-dot" }), "NOBODY ONLINE RIGHT NOW");
-      return line;
+    const groups = [[game, "IN GAME", "is-online"], [data.web || [], "IN THE WEB CLIENT", "is-web"], [data.site || [], "ON THE SITE", "is-site"]].filter(([l]) => l.length);
+    if (!groups.length) {
+      box.append(el("div", { class: "h9p-online" }, el("i", { class: "h9p-dot" }), "NOBODY ONLINE RIGHT NOW"));
+      return box;
     }
-    const counts = [[game, "IN GAME", "is-online"], [web, "IN THE WEB CLIENT", "is-web"], [site, "ON THE SITE", "is-site"]].filter(([l]) => l.length);
-    counts.forEach(([l, label, cls], i) => {
-      if (i) line.append(DOT);
-      line.append(el("i", { class: "h9p-dot " + cls }), el("span", { class: "h9p-count " + cls, text: l.length + " " + label }));
-    });
-    line.append(": ");
-    [...game, ...web, ...site].forEach((p, i) => {
-      if (i) line.append(", ");
-      line.append(nameLink(p.username, null, p.developer));
-    });
-    return line;
+    for (const [list, label, cls] of groups) {
+      const line = el("div", { class: "h9p-online" }, el("i", { class: "h9p-dot " + cls }), el("span", { class: "h9p-count " + cls, text: list.length + " " + label }), ": ");
+      namesInto(line, list);
+      box.append(line);
+    }
+    return box;
   }
 
   // The signed-in player's own presence: everything, whatever the privacy switches say.
@@ -438,7 +540,7 @@
     // the place that counts first, then held ones, then unverified ones
     const order = { counted: 0, held: 1, unverified: 2 };
     online.sort((a, b) => (order[a.state] ?? 3) - (order[b.state] ?? 3));
-    const view = { username: me.username, state: me.state, badge: me.badge, playing: online[0] || null,
+    const view = { username: me.username, level: me.level, state: me.state, badge: me.badge, playing: online[0] || null,
       playtimeSeconds: me.playtimeSeconds, lastSeen: me.lastSeen, firstSeen: me.firstSeen, servers: me.servers || [] };
     const card = renderCard(view);
     box.append(card);
@@ -464,6 +566,7 @@
         "A server knows you by your player id. In the browser that happens by itself. In the downloaded game, run ",
         el("code", { text: "enter_userid.cmd" }), " in the H9XASH folder and paste your player id (COPY on the PLAYER ID line at the top of this page); your next game is then counted here."));
     }
+    if (me.rank) box.append(renderRank(me.rank, { name: me.username }));
     return box;
   }
 
@@ -618,11 +721,28 @@
     if (base !== document && base.matches && base.matches("[data-h9-presence]")) found.unshift(base);
     const settings = [...base.querySelectorAll("[data-h9-presence-settings]")];
     if (base !== document && base.matches && base.matches("[data-h9-presence-settings]")) settings.unshift(base);
-    if (!found.length && !settings.length) return;
+    const levels = [...base.querySelectorAll("[data-h9-level]")];
+    if (base !== document && base.matches && base.matches("[data-h9-level]")) levels.unshift(base);
+    if (!found.length && !settings.length && !levels.length) return;
     const of = (kind) => found.filter((n) => n.getAttribute("data-h9-presence") === kind);
     const work = [];
 
     const user = (n) => String(n.getAttribute("data-h9-user") || "").trim();
+    // every [data-h9-level] at once, through the same batched, cached read the authors use
+    const levelName = (n) => String(n.getAttribute("data-h9-level") || "").trim();
+    const named = levels.filter(levelName);
+    if (named.length) {
+      style();
+      work.push(fetchAccounts(named.map(levelName)).then((views) => {
+        for (const n of named) {
+          const v = views.get(levelName(n).toLowerCase());
+          const node = v ? levelBadge(v.level, n.getAttribute("data-h9-level-size") === "large" ? 72 : 22) : null;
+          const elo = v && n.hasAttribute("data-h9-level-elo") && typeof v.elo === "number"
+            ? el("span", { class: "h9-elo", title: "H9 ladder rating " + v.elo, text: compactElo(v.elo) + " ELO" }) : null;
+          n.replaceChildren(...[node, elo].filter(Boolean));
+        }
+      }));
+    }
     const authors = of("author").filter(user);
     if (authors.length) {
       work.push(fetchAccounts(authors.map(user)).then((views) => {
@@ -632,8 +752,21 @@
         }
       }));
     }
+    // a profile's card and its RANK block: one read of the card for each name
+    const reads = new Map();
+    const read = (name) => {
+      const k = name.toLowerCase();
+      if (!reads.has(k)) reads.set(k, fetchAccount(name));
+      return reads.get(k);
+    };
     for (const n of of("card").filter(user)) {
-      work.push(fetchAccount(user(n)).then((v) => n.replaceChildren(renderCard(v, { name: user(n) }))));
+      work.push(read(user(n)).then((v) => n.replaceChildren(renderCard(v, { name: user(n) }))));
+    }
+    for (const n of of("rank").filter(user)) {
+      work.push(read(user(n)).then((v) => {
+        const box = v && v.rank ? renderRank(v.rank, { name: v.username }) : null;
+        n.replaceChildren(...(box ? [box] : []));
+      }));
     }
 
     const live = of("now").concat(of("online"));
@@ -663,7 +796,7 @@
   }
 
   // Elements drawn later by other scripts are filled once they are in the page.
-  const HOOKS = "[data-h9-presence],[data-h9-presence-settings]";
+  const HOOKS = "[data-h9-presence],[data-h9-presence-settings],[data-h9-level]";
   let queued = [];
   let pending = false;
   const observer = new MutationObserver((records) => {
@@ -691,7 +824,7 @@
   window.H9Presence = {
     fetchAccounts, fetchAccount, fetchNow, fetchMe,
     fetchSettings, renderSettings,
-    renderAuthor, renderCard, renderNow, renderOnline, renderAccount,
+    renderAuthor, renderCard, renderNow, renderOnline, renderAccount, renderRank, levelBadge, compactElo,
     decorate, openCard, closeCard, playingText, duration,
   };
 

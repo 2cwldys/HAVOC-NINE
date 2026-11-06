@@ -67,6 +67,7 @@ public:
 	byte m_bSrvSuperJump = 0;        // 0x5885 — map-global SUPERJUMP mode (ts_mapglobals SF & 0x40):
 	                                 // TSInit gives every spawn low-gravity + the "mj" physinfo key
 	int m_iSrvUseCash = 0;           // 0x558 — cached usecash.value, chopped (orig var dmcashbased)
+	int m_iSrvCustomWeapons = 0;     // reTS addition: cached h9_customweapons (SrvSett id 4), -1 until the first Think
 	int m_iSrvAmmoCount = 0;         // 0x55c — cached ammocount.value, chopped
 	int m_iWeaponRestriction;        // 0x5870 — ALLOWED-categories bitmask (knife 1/pistol 2/smg 4/rifle 8/shotgun 0x10)
 	int m_iAllowedCategories;        // 0x586c — the map's allowed mask (cmd args are AND-masked by it)

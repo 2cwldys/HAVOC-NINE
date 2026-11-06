@@ -87,6 +87,8 @@ copy /y "%~dp0ts_advertise.sma"  "%EX%\src\"                 >nul && echo   src\
 copy /y "%~dp0ts_uplink.sma"     "%EX%\src\"                 >nul && echo   src\ts_uplink.sma
 copy /y "%~dp0ts_survival.sma"   "%EX%\src\"                 >nul && echo   src\ts_survival.sma
 copy /y "%~dp0ts_mechwarrior.sma" "%EX%\src\"                 >nul && echo   src\ts_mechwarrior.sma
+copy /y "%~dp0ts_assault.sma"    "%EX%\src\"                 >nul && echo   src\ts_assault.sma
+copy /y "%~dp0ts_ctf.sma"        "%EX%\src\"                 >nul && echo   src\ts_ctf.sma
 copy /y "%~dp0h9_presence.sma"   "%EX%\src\"                 >nul && echo   src\h9_presence.sma
 copy /y "%~dp0h9_community.sma"  "%EX%\src\"                 >nul && echo   src\h9_community.sma
 copy /y "%~dp0h9_motd.sma"       "%EX%\src\"                 >nul && echo   src\h9_motd.sma
@@ -99,6 +101,8 @@ copy /y "%~dp0include\tsm_api.inc" "%EX%\src\include\"       >nul && echo   src\
 copy /y "%~dp0include\h9_community.inc" "%EX%\src\include\" >nul && echo   src\include\h9_community.inc
 copy /y "%~dp0include\h9_presence.inc" "%EX%\src\include\"  >nul && echo   src\include\h9_presence.inc
 copy /y "%~dp0include\h9_vgui.inc" "%EX%\src\include\"      >nul && echo   src\include\h9_vgui.inc
+copy /y "%~dp0include\h9_marks.inc" "%EX%\src\include\"      >nul && echo   src\include\h9_marks.inc
+copy /y "%~dp0include\h9_release.inc" "%EX%\src\include\"    >nul && echo   src\include\h9_release.inc
 copy /y "%~dp0build.bat"         "%EX%\src\"                 >nul && echo   src\build.bat
 copy /y "%~dp0export.bat"        "%EX%\src\"                 >nul && echo   src\export.bat
 copy /y "%~dp0COMMANDS.txt"      "%EX%\docs\"                >nul && echo   docs\COMMANDS.txt
@@ -213,9 +217,9 @@ if exist "%~dp0compiled\h9_rank.amxx" (
     echo   [WARN] no compiled\h9_rank.amxx -- package has no .rank plugin
 )
 
-REM The game modes, Capture the Uplink, Wave Survival and Mech Warrior: each its own
+REM The game modes, Capture the Uplink, Wave Survival, Mech Warrior, Assault and Capture the Flag: each its own
 REM plugin on ts_matchmode's mode API, inert on a map it does not claim.
-for %%m in (ts_uplink ts_survival ts_mechwarrior) do (
+for %%m in (ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf) do (
     if exist "%~dp0compiled\%%m.amxx" (
         copy /y "%~dp0compiled\%%m.amxx" "%EX%\ts\addons\amxmodx\plugins\" >nul
         echo   ts\addons\amxmodx\plugins\%%m.amxx
@@ -244,7 +248,7 @@ copy /y "%~dp0h9_compete.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   c
 copy /y "%~dp0h9_compete.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 copy /y "%~dp0h9_rank.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_rank.cfg
 copy /y "%~dp0h9_rank.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
-for %%m in (ts_uplink ts_survival ts_mechwarrior) do (
+for %%m in (ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf) do (
     copy /y "%~dp0%%m.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\%%m.cfg
     copy /y "%~dp0%%m.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 )
@@ -283,6 +287,16 @@ if exist "%~dp0include\h9_vgui.inc" (
     copy /y "%~dp0include\h9_vgui.inc" "%EX%\ts\addons\amxmodx\scripting\include\" >nul
     echo   scripting\include\h9_vgui.inc
 )
+REM The marks the mode plugins draw through the walls (built on h9_vgui.inc).
+if exist "%~dp0include\h9_marks.inc" (
+    copy /y "%~dp0include\h9_marks.inc" "%EX%\ts\addons\amxmodx\scripting\include\" >nul
+    echo   scripting\include\h9_marks.inc
+)
+REM The release the plugins carry (written by build.bat from the game's h9_release.txt).
+if exist "%~dp0include\h9_release.inc" (
+    copy /y "%~dp0include\h9_release.inc" "%EX%\ts\addons\amxmodx\scripting\include\" >nul
+    echo   scripting\include\h9_release.inc
+)
 
 REM Per-map spawn sets live only in the game folder -- they are written there by
 REM amx_tsm_spawn_save, so this is the only copy.
@@ -292,6 +306,34 @@ for %%f in ("%AMXX%\configs\tsm_spawns_*.cfg") do (
     set /a SPAWNS+=1
 )
 echo   configs\tsm_spawns_*.cfg  ^(!SPAWNS! map^(s^)^)
+
+REM The Assault and flag maps' own files, which only the game folder in this tree holds (tools\assault-spawns writes the spawn sets,
+REM amx_tsm_as_save the points, amx_tsm_cf_save the flag pads): the capture points and the spawn files of the Assault maps, the pads
+REM and the spawn files of the flag maps, the spawn files of the Neuropolis copies, their
+REM mapconfigs (without which an Assault map would be taken by the Uplink plugin: its mapconfig turns that off), and the two
+REM Neuropolis maps that the map pipeline above does not build.
+set "H9G=%~dp0H9XASH\ts"
+set "ASF=0"
+REM Each item carries its whole path: a wildcard in a loop's own list is matched against the current folder, not the one it names.
+set "H9C=%H9G%\addons\amxmodx\configs"
+for %%f in ("%H9C%\tsm_assault_*.cfg" "%H9C%\tsm_spawns_h9_as_*.cfg" "%H9C%\tsm_ctf_*.cfg" "%H9C%\tsm_spawns_h9_ctf_*.cfg" "%H9C%\tsm_spawns_h9_up_neuropolis.cfg" "%H9C%\tsm_uplink_h9_up_neuropolis.cfg") do (
+    if exist "%%f" (
+        copy /y "%%f" "%EX%\ts\addons\amxmodx\configs\" >nul
+        set /a ASF+=1
+    )
+)
+echo   configs\tsm_assault_*.cfg, tsm_spawns_h9_as_*.cfg and the Neuropolis Uplink and Assault files ^(!ASF! file^(s^)^)
+if not exist "%EX%\ts\mapconfigs" mkdir "%EX%\ts\mapconfigs"
+for %%f in ("%H9G%\mapconfigs\h9_as_*.cfg" "%H9G%\mapconfigs\h9_ctf_*.cfg" "%H9G%\mapconfigs\h9_up_neuropolis.cfg") do (
+    if exist "%%f" copy /y "%%f" "%EX%\ts\mapconfigs\" >nul
+)
+for %%m in (h9_up_neuropolis h9_as_neuropolis) do (
+    if exist "%H9G%\maps\%%m.bsp" (
+        if not exist "%EX%\ts\maps" mkdir "%EX%\ts\maps"
+        copy /y "%H9G%\maps\%%m.bsp" "%EX%\ts\maps\" >nul
+        echo   ts\maps\%%m.bsp
+    )
+)
 
 REM game.cfg is the one that decides gamerules, so it is not optional.
 if exist "%TS%\game.cfg" (
@@ -625,10 +667,11 @@ if exist "%SRC%export-map\out\gfx\env" (
 )
 REM The drainage works, built by export-map\h9_drainage\drainage.mjs: one place, three maps
 REM (h9_up_drainage for Capture the Uplink, h9_ws_drainage for Wave Survival, h9_mw_drainage
-REM for Mech Warrior). Each .bsp
+REM for Mech Warrior; h9_as_drainage, for Assault, is a copy of h9_up_drainage, made by
+REM tools\make_assault_maps.py). Each .bsp
 REM carries its textures; its .res names the sky's six sides, so a player who joins without
 REM them is sent them with the map. The script's own deploy puts them in the game folder.
-for %%m in (h9_up_drainage h9_ws_drainage h9_mw_drainage) do (
+for %%m in (h9_up_drainage h9_ws_drainage h9_mw_drainage h9_as_drainage h9_ctf_drainage) do (
     if exist "%SRC%export-map\h9_drainage\out\%%m.bsp" (
         if not exist "%EX%\ts\maps" mkdir "%EX%\ts\maps"
         copy /y "%SRC%export-map\h9_drainage\out\%%m.bsp" "%EX%\ts\maps\" >nul
@@ -637,11 +680,12 @@ for %%m in (h9_up_drainage h9_ws_drainage h9_mw_drainage) do (
     )
 )
 REM The skylift, built by export-map\h9_siege_lift\lift.mjs: one car, four maps (h9_siege_lift the
-REM siege; h9_up_lift, h9_ws_lift and h9_mw_lift for the modes, with no siege objectives), each
+REM siege; h9_up_lift, h9_ws_lift and h9_mw_lift for the modes, with no siege objectives; h9_as_lift, for
+REM Assault, is a copy of h9_up_lift, made by tools\make_assault_maps.py), each
 REM with its .res. Its sky is in export-map\out\gfx\env with the others, its haze sprite in
 REM sprites\, and its spawns and waypoints travel with every map's, from the game's configs and
 REM rcbot folders.
-for %%m in (h9_siege_lift h9_up_lift h9_ws_lift h9_mw_lift) do (
+for %%m in (h9_siege_lift h9_up_lift h9_ws_lift h9_mw_lift h9_as_lift) do (
     if exist "%SRC%export-map\h9_siege_lift\out\%%m.bsp" (
         if not exist "%EX%\ts\maps" mkdir "%EX%\ts\maps"
         copy /y "%SRC%export-map\h9_siege_lift\out\%%m.bsp" "%EX%\ts\maps\" >nul
@@ -662,6 +706,12 @@ if exist "%TS%\models\tsm_uplink.mdl" (
     if not exist "%EX%\ts\models" mkdir "%EX%\ts\models"
     copy /y "%TS%\models\tsm_uplink.mdl" "%EX%\ts\models\" >nul
     echo   ts\models\tsm_uplink.mdl
+)
+REM The flag Capture the Flag fights over (three skins, standing and worn), built by export-map\h9_drainage\flag.mjs.
+if exist "%SRC%models\tsm_flag.mdl" (
+    if not exist "%EX%\ts\models" mkdir "%EX%\ts\models"
+    copy /y "%SRC%models\tsm_flag.mdl" "%EX%\ts\models\" >nul
+    echo   ts\models\tsm_flag.mdl
 )
 REM The Combat Engineer's sentry turret: both side models and its sounds.
 if exist "%SRC%models\tsm_turret_blue.mdl" (
@@ -889,12 +939,28 @@ REM a quote delimiter instead needs an escape that cmd mis-parses inside for /f.
 set "BUILD=unknown"
 for /f "tokens=3" %%v in ('findstr /c:"#define TSM_BUILD" "%~dp0ts_matchmode.sma"') do set "BUILD=%%v"
 set "BUILD=!BUILD:"=!"
+REM The Source line names the git commit and branch of this folder, never its path. Only a
+REM .git of its own beside this script counts, so a copy of the tree inside some other
+REM repository is not described by the commit of that repository. rev-parse --verify prints
+REM nothing when there is no commit, and the line then says this is not a git checkout, as it
+REM does when git is missing. findstr /v /r with a negated character class lets through only a
+REM line made of the characters a commit or a branch name is written with, as make-vps-package.ps1
+REM checks them, so nothing odd reaches the delayed expansion below. A detached HEAD has no
+REM branch to name. The dot after the folder keeps its closing backslash from escaping the
+REM quote that follows.
+set "SRCTEXT=(not a git checkout)"
+set "SRCCOMMIT="
+set "SRCBRANCH="
+if exist "%~dp0.git" for /f "delims=" %%c in ('git -C "%~dp0." rev-parse --verify --short HEAD 2^>nul ^| findstr /v /r "[^0-9a-f]"') do set "SRCCOMMIT=%%c"
+if defined SRCCOMMIT for /f "delims=" %%b in ('git -C "%~dp0." rev-parse --abbrev-ref HEAD 2^>nul ^| findstr /v /r "[^-A-Za-z0-9._/]"') do set "SRCBRANCH=%%b"
+if defined SRCCOMMIT set "SRCTEXT=commit !SRCCOMMIT!"
+if defined SRCBRANCH if /i not "!SRCBRANCH!"=="HEAD" set "SRCTEXT=!SRCTEXT! on branch !SRCBRANCH!"
 > "%EX%\VERSION.txt" (
     echo TS Match Mode server package
     echo.
     echo Build:     !BUILD!
     echo Exported:  %DATE% %TIME%
-    echo Source:    %~dp0
+    echo Source:    !SRCTEXT!
     echo.
     echo Generated by export.bat. Do not edit anything in this folder by hand.
 )
@@ -956,6 +1022,9 @@ set "WCSRC=%REPO%\H9XASH"
 if not exist "%WCSRC%" set "WCSRC=%~dp0H9XASH"
 echo.
 echo --- the web client's files, from %WCSRC% ---
+REM export.bat repackages the browser builds that are in webclient-bin; it does not make them. Whether they are
+REM still the engine's and the client library's is tools\webclient-sync.mjs --check (without --check it builds them).
+where node >nul 2>&1 && (echo   the browser builds against the engine, tools\webclient-sync.mjs --check:& node "%~dp0tools\webclient-sync.mjs" --check)
 where py >nul 2>&1 || (echo   [skip] Python's py launcher is not on PATH& exit /b 0)
 if not exist "%~dp0webclient-bin\BUILDINFO.txt" (echo   [skip] no browser builds in %~dp0webclient-bin, see tools\make_webclient_bin.py& exit /b 0)
 REM The browser builds come from webclient-bin, the folder the repo tracks, as a clone takes them. With
@@ -977,8 +1046,12 @@ REM The repo gets the builds and the web client's tools, and the stage on disk b
 REM webclient-build\, and h9web\bin\local-site.js looks for <checkout>\webclient-build\stage first.
 robocopy "%~dp0webclient-bin" "%REPO%\webclient-bin" /MIR /NJH /NJS /NDL /NFL /NP /XF *.bak_* >nul
 if errorlevel 8 echo   [WARN] the copy of webclient-bin into the repo reported errors
-robocopy "%~dp0tools" "%REPO%\tools" make_webclient_game.py make_webclient_bin.py serve_webclient.py webclient_leave_out.txt /NJH /NJS /NDL /NFL /NP >nul
+robocopy "%~dp0tools" "%REPO%\tools" make_webclient_game.py make_webclient_bin.py serve_webclient.py webclient_leave_out.txt webclient-sync.mjs /NJH /NJS /NDL /NFL /NP >nul
 if errorlevel 8 echo   [WARN] the copy of the web client's tools into the repo reported errors
+robocopy "%~dp0tools\webclient-test" "%REPO%\tools\webclient-test" /E /NJH /NJS /NDL /NFL /NP >nul
+if errorlevel 8 echo   [WARN] the copy of the web client's tests into the repo reported errors
+robocopy "%~dp0." "%REPO%" webclient-sync.cmd build-webclient.cmd build-webclient.ps1 /NJH /NJS /NDL /NFL /NP >nul
+if errorlevel 8 echo   [WARN] the copy of the web client's build scripts into the repo reported errors
 robocopy "%WCB%\stage" "%REPO%\webclient-build\stage" /MIR /NJH /NJS /NDL /NFL /NP >nul
 if errorlevel 8 (
     echo   [WARN] the copy of the stage into the repo reported errors

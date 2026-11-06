@@ -36,6 +36,8 @@ extern cvar_t decalfrequency;
 extern cvar_t teamlist;
 extern cvar_t teammodels;
 extern cvar_t teammodels_force;
+extern cvar_t h9_customweapons;
+bool H9_CustomWeaponsOn(); // game.cpp: h9_customweapons is not 0 (the weapons H9 adds to TS are in play)
 extern cvar_t teamoverride;
 extern cvar_t defaultteam;
 extern cvar_t allowmonsters;

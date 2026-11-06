@@ -1,0 +1,20 @@
+# The downloads' file index, /downloads/files/, on an Apache host: a plain listing of this folder
+# only, and in it only the packages, their build reports and the SHA-256 list (.zip, .exe, .txt).
+# A dot file, a subfolder or any other name here is a 404. vps/linux/README-VPS.txt step 13 lists
+# what goes in this folder. nginx and Caddy read no .htaccess: havoc9.org/deploy/nginx-setup.sh
+# and vps/windows/Caddyfile.template give them the same rules. Needs AllowOverride Options and
+# Indexes (or All) for this folder.
+Options +Indexes
+<IfModule mod_autoindex.c>
+    IndexOptions FancyIndexing HTMLTable NameWidth=* SuppressDescription FoldersFirst
+    IndexIgnore .??* *~ *.bak*
+</IfModule>
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule !^([^/.~:][^/~:]*\.(zip|exe|txt))?$ - [R=404,L,NC]
+</IfModule>
+<IfModule !mod_rewrite.c>
+    <FilesMatch "^\.">
+        Require all denied
+    </FilesMatch>
+</IfModule>

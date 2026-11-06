@@ -1,10 +1,11 @@
 GAME MODES -- what each H9 map plays, and how to set a map up for each
 =====================================================================
 
-ts_matchmode is the core: rounds, sides, lives and respawn waves, classes, the HUD. Three
+ts_matchmode is the core: rounds, sides, lives and respawn waves, classes, the HUD. Five
 mode plugins sit on top of it, each on the maps that are its own: ts_uplink.amxx (Capture
-the Uplink), ts_survival.amxx (Wave Survival) and ts_mechwarrior.amxx (Mech Warrior). They
-talk to the core through a small API (include\tsm_api.inc) and do nothing without it.
+the Uplink), ts_survival.amxx (Wave Survival), ts_mechwarrior.amxx (Mech Warrior),
+ts_assault.amxx (Assault) and ts_ctf.amxx (Capture the Flag). They talk to the core through a
+small API (include\tsm_api.inc) and do nothing without it.
 
 Everything a mapper needs is here: what a map's NAME does, the entities and configs each
 mode reads, and the in-game commands that write those configs for you. Nothing is needed
@@ -23,23 +24,42 @@ place from the first second, on a Steam hlds server and on H9XASH alike.
   h9_up_<name>           Capture the Uplink                          teamplay
   h9_ws_<name>           Wave Survival                               teamplay
   h9_mw_<name>           Mech Warrior                                teamplay
+  h9_as_<name>           Assault                                     teamplay
+  h9_ctf_<name>          Capture the Flag (H9's own: two flags, two   teamplay
+                         pads)
   any other h9_ or       Team Elimination, or Siege when the map     teamplay
   tsm_ name              has objectives
   h9_dm_<name>           TS's own deathmatch, as the game ships      deathmatch
   h9_tdm_<name>          TS's own team deathmatch                    teamplay
   h9_ctb_<name>          TS's own Capture the Briefcase              teamplay
-  h9_ctf_<name>          TS's own Capture the Flag                   teamplay
+  ctb_<name>, or         the same: ctb_ or ctf_ at the start of the  teamplay
+  <x>_ctb_<y>,           name, or _ctb_ or _ctf_ anywhere in it
+  ctf_<name>, <x>_ctf_<y>  (the stock ctb_deadheat, ts_ctf_<name>)
   ts_<name>, and any     the game as it ships: TS's deathmatch       deathmatch
   other name
   roleplay names         the game as it ships, whatever else the     deathmatch
                          name says: rp_ or tsrp_ at the start, or
                          _rp_ or _tsrp_ anywhere (h9_tsrp_hive)
 
+CAPTURE THE BRIEFCASE AND CAPTURE THE FLAG are one game in TS. Its flag is the briefcase: a map carries
+two ts_briefcase entities, one a team (ownerteam 1 and 2), and whoever carries the enemy's to their own
+scores (reTS dlls\ts_briefcase.h: CTSBriefcase, "the CTF base + flag registry"). TS has no second flag
+mode, and the stock game decides nothing from a map's name (the one stock map, ctb_deadheat, is teamplay
+by its own worldspawn "gamemode 2"). So the name only decides what H9 does around it: a name of the
+capture kind above puts the map on teamplay rules (mp_teamplay 1) with the match mode out, and the Discord
+card, the website and the server list call it Capture the Briefcase (ctb_) or Capture the Flag (ctf_).
+
 "As the game ships" means the match mode stays out entirely: no warmup or ready-up, no
-side or class menus, no bots of its own (tsm_bots is 0 there), TS's own cash (usecash 0)
-and powerups, and the server browser shows TS's own game name. A map's own worldspawn
+side or class menus, no bots of its own (tsm_bots is 0 there), TS's own cash (usecash 0),
+powerups and weapon rules (weaponrestriction 0, which H9's server.cfg sets to 1 for the match
+mode: the buy menu works, as in TS's own team deathmatch), and the server browser shows TS's
+own game name. TS's capture game (ctb_, ctf_) is such a map: team deathmatch with the flags. A map's own worldspawn
 "gamemode" key (1 deathmatch, 2 teamplay, 3 last man standing, 4 The One) still wins over
 the rules column, as it does in the stock game.
+
+H9's OWN CAPTURE THE FLAG is another game: the h9_ctf_ maps, with the ts_ctf plugin's flags and pads
+(section 2). It does not touch TS's briefcase game, and the briefcase game does not touch it: a map
+named h9_ctf_ is H9's, and TS's capture game under an H9 name is h9_ctb_ (or a ctf_ name, which is TS's too).
 
 Name a map for what it plays: the part after h9_ is also what the Discord card and the
 server list call the mode.
@@ -69,9 +89,10 @@ TEAM ELIMINATION  (ts_matchmode.amxx, configs\ts_matchmode.cfg)
 
 SIEGE  (ts_matchmode.amxx)
   Team elimination with objectives: the attacking side (tsm_obj_team) plants charges on the
-  map's objectives in order, and the last one falling wins the round. Every fall but the
-  last gives lives and time back (tsm_siege_rewardlives, tsm_siege_extratime). A map is a
-  siege map because it has objectives, whatever its name; no mode may claim one.
+  map's objectives in order (tsm_linear_obj 0 in a map's mapconfig: in any order), and the
+  last one falling wins the round. Every fall but the last gives lives and time back
+  (tsm_siege_rewardlives, tsm_siege_extratime). A map is a siege map because it has
+  objectives, whatever its name; no mode may claim one.
 
 CAPTURE THE UPLINK  (ts_uplink.amxx, configs\ts_uplink.cfg)
   Both sides fight over one carried objective, the uplink.
@@ -92,6 +113,10 @@ CAPTURE THE UPLINK  (ts_uplink.amxx, configs\ts_uplink.cfg)
   Winning      holding every zone wins at once. A side wiped out (no lives, nobody waiting)
                loses at once, whatever it held. When the clock runs out the side holding
                more zones wins; equal is a draw. There is no sudden death.
+  Seen         through the walls: every zone (its number, in its holder's colour, with a bar
+               while the carrier is taking it) and the uplink (UPLINK at its post, CARRIER over
+               whoever has it in his side's colour, DROPPED where it lies) are drawn on every
+               screen, as in Assault (cl_h9_marks; docs\H9_VGUI.txt).
   Bots         fight, but do not yet carry the uplink or take zones.
   Switch       tsm_uplink_mode 1 (0 turns it off everywhere). Browser name:
                tsm_gamedesc_uplink "Capture the Uplink".
@@ -132,12 +157,132 @@ MECH WARRIOR  (ts_mechwarrior.amxx, configs\ts_mechwarrior.cfg)
                Warrior".
   Admin        amx_tsm_mw (the state).
 
+ASSAULT  (ts_assault.amxx, configs\ts_assault.cfg)
+  Both sides fight over the map's capture points, and a side's lives are ONE pool.
+  The points   up to 24, each a wide circle on the floor (tsm_as_radius, 384 units, where an
+               uplink zone is 128) with a ring in its holder's colour (grey, MSR blue,
+               Insurgent red; amber while being taken) and a flag over it. Nothing is
+               carried: any player of a side standing in a point with no living enemy in it
+               takes it, in tsm_as_time (20) seconds for one player and half again as fast
+               for each more (tsm_as_speedup), up to tsm_as_maxcap (6) players. A point the
+               other side holds is worn down to neutral first, then taken. Both sides in it
+               at once freezes it. A point changes hands as often as the fighting does.
+  Seen         through the walls: everyone sees every point, wherever it is. An H9 game
+               (H9 VGUI protocol 3) draws a badge with the point's letter in its holder's
+               colour and a bar while a side is taking it, pinned to the screen's edge when
+               the point is out of view, and the same badges in a row under the top notices
+               (cl_h9_marks, cl_h9_marks_strip; docs\H9_VGUI.txt). Any other game gets TS's own
+               objective marker at each point, its text the letter and the holder.
+  Reinforcements
+               what Assault calls the lives, one pool of them to a side: tsm_pool_base (16)
+               plus tsm_pool_perplayer (4) for every player on the side, bots included, as
+               the round goes live. A death draws its class's cost from the pool
+               (tsm_class_cost: the Officer 2, the Mech 3, the others 1) and the player waits
+               for the side's next respawn wave; a death with none left is final. The
+               per-class lives (tsm_class_lives) are not used, and the match bar, the
+               scoreboard (its column is titled REINFORCEMENTS and shows each side's, left
+               out of what it started with, on the team's row) and chat say reinforcements,
+               where every other mode says lives, and the class menu gives each class's cost
+               (cost 2). Taking a point adds
+               tsm_as_capture_reinforcements (5) to the taker's. Needs tsm_respawns 1.
+  Respawns     the waves run as ever, tsm_as_wave (30) seconds apart for both sides, and a
+               wave puts a side's dead back at the points that side holds. Spawn point set N,
+               the forward points of tier N in the map's spawn file, belongs to point N: it is
+               open to the side that holds the point, and closed again when the point is
+               lost, or while an enemy is taking it (tsm_as_spawn_under_attack 0: a wave
+               never puts the fallen into a point that is being lost). A wave lands at the held point nearest the enemy's base (the front),
+               not spread over every point held, and its places are on the holder's own side
+               of the point, out of the enemy's way in. A side holding nothing respawns at its
+               own base (tier 0). The side that takes a point gets a wave at once
+               (tsm_as_capture_wave 1). Round start and a living player are never moved.
+               docs\CUSTOM_SPAWNPOINTS.txt, part 5.
+  Winning      holding every point wins at once. A side with nobody alive and nobody waiting
+               loses once tsm_roundend_delay (4 seconds) has passed, which is how a drained pool ends the round. When the clock runs
+               out the side holding more points wins, then the one with more
+               reinforcements; equal is a draw. There is no sudden death and no pool bleed.
+  No rounds    Assault is one round: the first round that ends is the whole match. Its winner
+               is the match's winner and is rated for it, a draw is a drawn match (rated for
+               nobody), and the match bar and the chat say MATCH where the other modes say
+               ROUND. h9_assault_rounds 1 plays rounds instead, best of tsm_rounds, as the
+               other modes do; a change of the cvar takes effect within a second.
+  Bots         fight, but do not play the objective (a bot that stands in a point still counts
+               as a capturer, or as a contester).
+  Ranked       on an authenticated server a match counts on the match ladder as any other
+               does (docs\H9_COMPETITIVE.txt): Elo for kills and the win, career levelling
+               for everything. A match with bots in it rates nobody. The one round is rated as
+               the round it is (the match says so to havoc9.org: it asks one round, and the
+               five minutes).
+  Chat         the mode's chat lines (a point taken, lost, the death's cost) show only with
+               tsm_verbosity 1; at 0, the preset's value, the marks, the bars, the banners and
+               the match bar carry it all.
+  Reference    docs\ASSAULT.txt: every cvar, command and rule.
+  Switch       tsm_assault_mode 1 (0 turns it off everywhere), h9_assault_rounds 0 (1: rounds).
+               Browser name:
+               tsm_gamedesc_assault "Assault". The Discord card reads "Assault - points: MSR
+               2, Insurgents 1 of 5".
+  Admin        amx_tsm_assault (the state), amx_tsm_as_give <n> <0|1|2> (hand a point over,
+               to test); amx_tsm_debug prints the reinforcements and the spawn sets that are open.
+
+
+CAPTURE THE FLAG  (ts_ctf.amxx, configs\ts_ctf.cfg)
+  Each side has a flag standing on its own flag pad. Take the enemy's, carry it to your own pad,
+  and it scores.
+  The flags    models\tsm_flag.mdl (made with SMAK, export-map\h9_drainage\flag.mjs): a banner on a
+               pole, standing on the pad or worn up the carrier's back, and it CHANGES COLOUR WITH
+               POSSESSION. At its pad it wears its own side's colour (MSR blue, Insurgent red); the
+               enemy that carries it turns it to the carrier's colour; where it lies, dropped, it
+               is grey. Walk over the enemy's flag to take it. The carrier keeps every weapon, is
+               marked to BOTH sides, and lets it go with "dropflag" in the console (bind it) or
+               .drop in chat; it drops where he falls. A dropped flag is taken back at once by its
+               own side walking over it (tsm_score_return for him), and flies home on its own after
+               tsm_cf_return (20) seconds untouched.
+  Scoring      a carrier standing on his own pad (within tsm_cf_pad_radius, 72 units) turns the
+               enemy's flag in: a capture (tsm_score_capture, 10, for him), but only while his own
+               flag is at its pad too (tsm_cf_needhome 1; 0 scores whatever has become of it). The
+               flag goes home, and his side's fallen come back in a wave at once
+               (tsm_cf_capture_wave). The first side to tsm_cf_caps (3) captures wins; when the
+               clock runs out the side with more wins, equal is a draw. A second carried scores
+               1 point (tsm_score_carry) for every tsm_score_carry_secs (15) seconds carried, counted as in
+               the uplink.
+  Lives        none are counted: both sides respawn in waves (tsm_cf_wave, 20 seconds) and every
+               death waits for the next, so nobody is counted out (TSM_MODE_ENDLESS in the API).
+               The wait reads RESPAWN WAVE IN 12s, with no count of lives, and the class menu says
+               respawns.
+  No rounds    one round is the whole match, its winner the match's and rated for it, as in
+               Assault (h9_ctf_rounds 0; 1 plays rounds, best of tsm_rounds). A change of the
+               cvar takes effect within a second.
+  Seen         through the walls: every flag and every pad on every screen, a badge in the colour
+               of whoever holds it: FLAG at its pad, CARRIED over the carrier, DROPPED where it
+               lies (a bar draining to the moment it flies home), BASE on each pad (cl_h9_marks;
+               docs\H9_VGUI.txt). Any other game gets TS's own objective markers.
+  The pads     in the map: info_target entities named tsm_flag_1 and tsm_flag_2, at the floor
+               where the flag stands. Or in the game, then saved to configs\tsm_ctf_<map>.cfg:
+                   amx_tsm_cf_pad <1|2>   that side's pad where you stand
+                   amx_tsm_cf_list        the pads, and where each flag is
+                   amx_tsm_cf_save        write the file
+               A first proposal for a map: node tools/assault-spawns/cli.mjs <map> --pads
+               --overview <folder> (flat open floor to the rear of each base, drawn for a look).
+  Ranked       on an authenticated server a match counts on the match ladder as any other does
+               (docs\H9_COMPETITIVE.txt): Elo for kills and the win, career levelling for
+               everything. A match with bots in it rates nobody. The one round is rated as the
+               round it is (it asks one round, and the five minutes).
+  Bots         fight, but do not play the objective: they do not take the flags (tsm_cf_bots 1
+               lets a bot that walks over a flag take it, return it and carry it, like anyone).
+  Chat         the mode's chat lines (a flag taken, dropped, returned, a capture) show only with
+               tsm_verbosity 1; at 0 the news banners, the carrier's status and the marks carry it.
+  Reference    docs\CAPTURE_THE_FLAG.txt: every cvar, command and rule.
+  Switch       tsm_ctf_mode 1 (0 turns it off everywhere). Browser name: tsm_gamedesc_ctf
+               "Capture the Flag". The Discord card reads "Capture the Flag - captures: MSR 1,
+               Insurgents 0 of 3".
+  Admin        amx_tsm_ctf (the state). To test: amx_tsm_cf_give <flag side> <0|1|2> (hand a
+               flag to a side's first player, or put it home with 0) and amx_tsm_cf_tp <side>
+               <pad> (a person of that side walks onto a pad).
 
 3. SETTING UP A MAP
 -------------------
 Build and compile the map as for any TS map, then:
 
-  1. NAME IT for its mode (section 1): h9_te_, h9_siege_, h9_up_, h9_ws_ or h9_mw_.
+  1. NAME IT for its mode (section 1): h9_te_, h9_siege_, h9_up_, h9_ws_, h9_mw_, h9_as_ or h9_ctf_.
 
   2. SPAWNS. Place info_player_deathmatch points in the map as for any TS map, then give
      each side its own, at least as many as players it will have (16 a side is a
@@ -172,12 +317,50 @@ Build and compile the map as for any TS map, then:
                        Put the zones where both sides have to fight for them, and the
                        uplink's point between the two sides' starts, the same distance
                        from each.
+     Capture the       TS's own game, no plugin: two ts_briefcase brush entities, one a side
+     Briefcase or      (the brush is the base and the capture trigger; it is invisible),
+     Flag              ownerteam 1 and 2, contents "the red flag" (what its flag is called
+                       in the pickup line; the default is "a flag"), message "Red scores!"
+                       (shown when it is captured), and a target if a capture should fire
+                       something. worldspawn: gamemode 2 (teamplay) and mapteams "Blue;Red",
+                       info_player_team1 and info_player_team2 for the sides. A side's flag
+                       starts at the middle of its brush; an enemy takes it by touch (one flag
+                       at a time) and carries it to his own side's brush, where it scores 10
+                       for him and a point for his team, but only while his own flag is home.
+                       A dropped flag lies 20 seconds and goes home, and its own side returns
+                       it sooner by touching it (5 for the returner). The flag is a
+                       briefcase (models\briefcase.mdl, tinted with its side's colour): TS
+                       has one such game and no second flag mode. Name the map ctb_<name> or
+                       ctf_<name> (or h9_ctb_): the match mode then stays out.
+                       The stock ctb_deadheat is the worked example.
      Wave Survival     the name alone. Spawns: side 1 (the survivors) somewhere they can
                        hold; side 2 (the mutants) where waves should come from, far enough
                        away that a wave arrives rather than appears. How many mutants a wave
                        has is tsm_bots, so set it in the mapconfig.
      Mech Warrior      the name alone. Mechs are slow, so give the round time
                        (tsm_roundtime) in the mapconfig.
+     Assault           the points. In the map: any entity named tsm_as_1 .. tsm_as_24 (an
+                       info_target's origin is a point's middle, tsm_as_radius, 384, units
+                       round it; a brush entity's box is its footprint). Or in the game, then
+                       saved to configs\tsm_assault_<map>.cfg:
+                           amx_tsm_as_add [n] [radius]   a point where you stand
+                           amx_tsm_as_del <n>            remove one
+                           amx_tsm_as_radius <n> <r>     how far one reaches
+                           amx_tsm_as_list               the points and who holds them
+                           amx_tsm_as_save               write the file
+                       Then each point's respawn set: stand where a side should come back
+                       when it holds point N, and amx_tsm_spawn_add <team> N. At least two
+                       points make the map an assault map. Put the points where both sides
+                       have to fight for them, more of them than a round can hold at once,
+                       and a side's own base outside any of them. A map that is a copy of an
+                       Uplink map still carries that map's zones: tsm_uplink_mode 0 in its
+                       mapconfig (the shipped h9_as_ maps have it).
+     Capture the Flag  the two pads: info_target entities tsm_flag_1 and tsm_flag_2 in the map, or
+                       amx_tsm_cf_pad <1|2> where each flag should stand and amx_tsm_cf_save
+                       (configs\tsm_ctf_<map>.cfg). Put each at the rear of its side's base, on
+                       flat open floor with room round it for the carrier to be seen and
+                       to reach. A copy of an Uplink map keeps that map's zones: tsm_uplink_mode 0
+                       in its mapconfig (h9_ctf_drainage has it).
 
   4. A MAPCONFIG (section 4) for anything this map plays differently: respawns, round time,
      how many bots.
@@ -193,7 +376,7 @@ Build and compile the map as for any TS map, then:
 
   7. TEST IT: load the map, check the server log's line for which game it plays, and use
      amx_tsm_debug (the core), amx_tsm_obj (siege), amx_tsm_uplink (uplink), amx_tsm_ws
-     (survival) or amx_tsm_mw (Mech Warrior) to see the mode's state. tsm_test_solo 1 lets a
+     (survival), amx_tsm_mw (Mech Warrior), amx_tsm_assault (Assault) or amx_tsm_ctf (Capture the Flag) to see the mode's state. tsm_test_solo 1 lets a
      match run with only one side filled.
 
   8. THE DISCORD CARD shows a picture of the map when the HAVOC 9 Discord application has an
@@ -211,9 +394,12 @@ Build and compile the map as for any TS map, then:
   configs\tsm_spawns_<map>.cfg    the spawn points (amx_tsm_spawn_save writes it).
   configs\tsm_uplink_<map>.cfg    the uplink's zones and point (amx_tsm_uplink_save):
                                   tsm_cap <n> <x> <y> <z> [radius] and tsm_uplink_at <x> <y> <z>.
+  configs\tsm_assault_<map>.cfg   the capture points (amx_tsm_as_save): tsm_as_zone <n> <x> <y>
+                                  <z> [radius].
   H9XASH\presets            h9_presets.bat swaps whole profiles: the .Siege copies of
-                            ts_uplink.cfg, ts_survival.cfg and ts_mechwarrior.cfg have their mode
-                            on, the .TeamElimination copies have it off (AMX_PRESETS.txt).
+                            ts_uplink.cfg, ts_survival.cfg, ts_mechwarrior.cfg and ts_assault.cfg have their mode
+                            on, the .TeamElimination copies have it off, and the .Assault ones have only Assault
+                            on (with the siege chain stood down in ts_matchmode.Assault.cfg; AMX_PRESETS.txt).
 
   A mapconfig, for example, ts\mapconfigs\h9_up_drainage.cfg:
 
@@ -241,11 +427,23 @@ the ground shaking under everyone round the basin.
                    galleries' far ends. Mapconfig: tsm_respawns 1, tsm_bots 12.
   h9_mw_drainage   the sides start as on h9_up_drainage, with no zones. Mapconfig:
                    tsm_respawns 1, tsm_roundtime 420.
+  h9_as_drainage   Assault, a copy of h9_up_drainage (tools\make_assault_maps.py): the sides
+                   start as there, and four capture points, every one over a thousand units
+                   from every other: 1 the north culvert (reach 256), 2 the filter room (192),
+                   3 the south culvert (256), 4 the generator room (192)
+                   (configs\tsm_assault_h9_as_drainage.cfg). Mapconfig:
+                   tsm_uplink_mode 0, tsm_respawns 1, tsm_roundtime 720.
+  h9_ctf_drainage  Capture the Flag, a copy of h9_up_drainage (tools\make_assault_maps.py): the sides
+                   start as there, and each side's flag stands on a pad at the rear of its base,
+                   the north end and the south (configs\tsm_ctf_h9_ctf_drainage.cfg, proposed by
+                   node tools/assault-spawns/cli.mjs h9_up_drainage --pads). Mapconfig:
+                   tsm_uplink_mode 0, tsm_respawns 1, tsm_roundtime 600.
 
   Rebuilding them  in export-map\h9_drainage (node, SMAK beside TSM):
     node sky.mjs deploy          the sky (gfx\env\h9drain*.tga)
     node sprites.mjs deploy      the zone, flag, marker, rain and haze sprites
     node uplink.mjs deploy       models\tsm_uplink.mdl
+    node flag.mjs deploy         models\tsm_flag.mdl (Capture the Flag's flag: two bodies, three skins)
     node drainage.mjs --compile deploy   all three maps, their .res and spawn configs
     node waypoints.mjs deploy    the bots' waypoints, under all three names
     node preview.mjs             a reel of stills and a flythrough with its sound
@@ -253,7 +451,7 @@ the ground shaking under everyone round the basin.
 6. THE SKYLIFT  (export-map\h9_siege_lift)
 ------------------------------------------
 A skylift car climbing its tether to orbit over the burning city: one car, four maps, as
-the drainage works are three. The world outside streams down past the windows (conveyor
+the drainage works are five. The world outside streams down past the windows (conveyor
 cloud cards, the tether, drifting cloud banks) under a still, toxic red sky; red radiated
 haze clings to the gantry and the dock; the car groans, creaks and sways, everyone's view
 rolling with it.
@@ -270,6 +468,11 @@ rolling with it.
                  tsm_bots 12.
   h9_mw_lift     Mech Warrior: the sides start as on h9_up_lift, with no zones. Mapconfig:
                  tsm_respawns 1, tsm_roundtime 420.
+  h9_as_lift     Assault, a copy of h9_up_lift (tools\make_assault_maps.py): the sides start as
+                 there, and five capture points of 288 units: 1 the clamp bay, 2 the power
+                 room, 3 the drive room, 4 the mess, 5 the uplink room
+                 (configs\tsm_assault_h9_as_lift.cfg). Mapconfig: tsm_uplink_mode 0,
+                 tsm_respawns 1, tsm_roundtime 720.
   The three mode maps have no siege objectives: the machines stand as scenery.
 
   Objectives     (the siege) 1 the tether clamps (cargo deck), 2 the power core (passenger
@@ -296,3 +499,32 @@ rolling with it.
     node lift.mjs --views        pictures from inside, sky and all
     node waypoints.mjs deploy    the bots' waypoints, one walk under all four names
     node tactical.mjs            the tactical map: doors, shafts, hatches, ladders, spawns
+
+
+7. NEUROPOLIS  (the city; h9_te_neuropolis and its twins)
+---------------------------------------------------------
+The long east-west city map, MSR at the west end and the Insurgents at the east (36 spawn points
+a side), is the match mode's h9_te_neuropolis (and h9_siege_neuropolis, which has no objectives
+yet). Two copies of it, made by tools\make_assault_maps.py with the same bsp, spawns and waypoints,
+play the other modes:
+
+  h9_up_neuropolis  Capture the Uplink: four zones of 128 units, one near each end and two in the
+                    middle crossings, and the uplink's point in the middle
+                    (configs\tsm_uplink_h9_up_neuropolis.cfg). Mapconfig: tsm_respawns 1,
+                    tsm_roundtime 600.
+  h9_as_neuropolis  Assault: seven capture points of 384 units over the city's THREE FLOORS, each
+                    reachable on foot from both bases: three on the street (the south-west
+                    corner, the south-east corner and the east avenue), two in the undercity
+                    (floor -512, the hub under the middle) and two in the shanty (floor -1088,
+                    the big room under that), and a spawn set of eight places on each side of
+                    each (configs\tsm_assault_h9_as_neuropolis.cfg and
+                    tsm_spawns_h9_as_neuropolis.cfg). Mapconfig: tsm_respawns 1, tsm_roundtime 900.
+
+The points were PROPOSED from the map's own geometry (node tools/assault-spawns/cli.mjs
+h9_as_neuropolis --suggest 7 --levels auto --overview <folder>: a walk of the map through its doors,
+panes and stairs, and down any drop a player would take, finds its floors; open floor with room for
+the whole reach on each, spread along the walk, two points of a floor never nearer than a reach and a
+quarter) and the sets placed by the same tool (--plan <folder>). They are a start: walk the map,
+move a point with amx_tsm_as_add <n> and amx_tsm_as_save (or edit the cfg), and run the tool again
+(docs\ai_context\ASSAULT_SPAWNS.txt). The Uplink zones and the uplink's point have not been walked either:
+amx_tsm_cap_add, amx_tsm_uplink_set and amx_tsm_uplink_save adjust them.

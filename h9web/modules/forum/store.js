@@ -18,6 +18,17 @@ const THREAD_ROW = `SELECT t.id, t.category_id, t.title, t.pinned, t.locked, t.c
   LEFT JOIN accounts a ON a.id = t.account_id
   LEFT JOIN accounts l ON l.id = t.last_account_id`;
 
+// The author columns a post is shown with (a = the author's account, av = their picture): one list
+// for a page of posts, one post, and an account alone, so a preview shows its author exactly as a
+// posted post does. author_dev: the DEVELOPER flag.
+export const AUTHOR_COLUMNS = `a.username AS author_name, a.role AS author_role, a.created_at AS author_created,
+    EXISTS (SELECT 1 FROM forum_developers d WHERE d.account_id = a.id) AS author_dev,
+    av.version AS pic_version, av.bytes AS pic_bytes, av.frames AS pic_frames, av.type AS pic_type`;
+const POST_ROW = `SELECT p.*, ${AUTHOR_COLUMNS}
+  FROM forum_posts p
+  LEFT JOIN accounts a ON a.id = p.account_id
+  LEFT JOIN forum_avatars av ON av.account_id = p.account_id`;
+
 const REPORT_ROW = `SELECT r.id, r.post_id, r.reason, r.snapshot, r.created_at, r.closed_at, r.outcome,
     ra.username AS reporter, ca.username AS closer, p.thread_id, p.deleted_kind AS post_removed,
     pa.username AS post_author, t.title AS thread_title, t.deleted_kind AS thread_removed
@@ -76,13 +87,11 @@ export function createStore(db) {
     post: db.prepare("SELECT * FROM forum_posts WHERE id = ?"),
     postCount: db.prepare("SELECT count(*) AS n FROM forum_posts WHERE thread_id = ?"),
     postsBefore: db.prepare("SELECT count(*) AS n FROM forum_posts WHERE thread_id = ? AND id < ?"),
-    postPage: db.prepare(`SELECT p.*, a.username AS author_name, a.role AS author_role, a.created_at AS author_created,
-        EXISTS (SELECT 1 FROM forum_developers d WHERE d.account_id = p.account_id) AS author_dev,
-        av.version AS pic_version, av.bytes AS pic_bytes, av.frames AS pic_frames, av.type AS pic_type
-      FROM forum_posts p
-      LEFT JOIN accounts a ON a.id = p.account_id
-      LEFT JOIN forum_avatars av ON av.account_id = p.account_id
-      WHERE p.thread_id = ? ORDER BY p.id LIMIT ? OFFSET ?`),
+    postPage: db.prepare(`${POST_ROW} WHERE p.thread_id = ? ORDER BY p.id LIMIT ? OFFSET ?`),
+    postRow: db.prepare(`${POST_ROW} WHERE p.id = ?`),
+    // an account as the author of a post not written yet (a preview)
+    authorRow: db.prepare(`SELECT a.id AS account_id, ${AUTHOR_COLUMNS}
+      FROM accounts a LEFT JOIN forum_avatars av ON av.account_id = a.id WHERE a.id = ?`),
     postInsert: db.prepare("INSERT INTO forum_posts (thread_id, account_id, body, created_at) VALUES (?, ?, ?, ?)"),
     postEdit: db.prepare("UPDATE forum_posts SET body = ?, edited_at = ?, edited_by = ? WHERE id = ?"),
     postRemove: db.prepare("UPDATE forum_posts SET deleted_at = ?, deleted_by = ?, deleted_kind = ? WHERE id = ?"),
@@ -226,6 +235,8 @@ export function createStore(db) {
     postCount: (threadId) => q.postCount.get(threadId).n,
     postsBefore: (threadId, postId) => q.postsBefore.get(threadId, postId).n,
     postPage: (threadId, limit, offset) => q.postPage.all(threadId, limit, offset),
+    postRow: (id) => q.postRow.get(id) || null,
+    authorRow: (accountId) => q.authorRow.get(accountId) || null,
     addPost(threadId, accountId, body, now) {
       const postId = Number(q.postInsert.run(threadId, accountId, body, now).lastInsertRowid);
       refreshThread(threadId, accountId, now);

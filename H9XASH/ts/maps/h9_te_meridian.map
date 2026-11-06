@@ -1,7 +1,7 @@
 {
 "classname" "worldspawn"
 "mapversion" "220"
-"message" "Meridian"
+"message" "Meridian -- Team Elimination"
 "wad" "C:\Juegos\Steam\steamapps\common\Half-Life\ts\specialists.wad;C:\Juegos\Steam\steamapps\common\Half-Life\valve\halflife.wad;C:\Users\User\Documents\Visual Studio Projects\msr-web\build\meridian\meridian.wad"
 "skyname" "LMcity_1"
 "MaxRange" "4096"

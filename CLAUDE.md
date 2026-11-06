@@ -1,55 +1,122 @@
-# CLAUDE.md
+# TS Match Mode / H9XASH -- instructions for working in this repo
 
-Working rules for Claude in this repo. The build, export and engine details are in CONTEXT.md. A barebones copy of the build tools is in tools.zip.
+TSM (`D:\Downloads\TSM`) is the source of truth for the TS Match Mode /
+H9XASH project. `D:\GIT Storage\ts_h9_team_elimination` is a git mirror --
+never edit it directly. `D:\SteamLibrary\steamapps\common\Half-Life` is the
+live install.
 
-## Standing rules
+## Before touching the engine: check the patch chain first
 
-### Git
-- Do not commit, amend, rebase, rename or move a branch, tag, or push. This applies to this repo and to every other repo, including the local engine clone (D:\Downloads\TSM\xash3d-fwgs, branch h9). Show the change as a diff or patch file, then ask.
-- A plan approval is not permission to commit.
-- Creating and editing files in the working tree is fine. The user makes the commits.
+`xash3d-h9-patches\xash.bat` rebuilds the `xash3d-fwgs` engine by replaying
+every `.patch` file in `xash3d-h9-patches\patches\`, in order, against the
+real source. It re-verifies **every** patch on **every** build, not just the
+one you're adding -- a patch that silently went stale relative to someone
+else's change does not error until the *next* full rebuild, which then fails
+for whoever runs it with no indication which of 10+ patches is the problem.
+This happened for real on 2026-10-23 (`engine-h9-spraypicker.patch` had gone
+stale against an already-committed, unrelated change) -- see
+`xash3d-h9-patches\patches\PATCH_CHANGELOG.md` for the full account.
 
-### Editing
-- No backup copies of text files (sources, .patch files, ENGINE.txt, configs): git is the backup. Only a binary a build overwrites (a DLL, EXE or compiled plugin) may keep one beside it, as `<file>.bak_<tag>`.
-- One heavy job at a time on this machine: engine, AMX Mod X, RCBot and reTS builds, build.bat, export.bat, map compiles and test servers. Only one agent holds the build lock, `D:\temp\HEAVY-JOB.lock`, unless told otherwise. Create it atomically (fail if it exists) in the same step that starts the job, write who, what and when in it, and delete it when done. If it exists, wait and check again every few minutes; never start a heavy job while another holds it, and never take it over. Maps compile at `-threads 8`.
-- Every new agent working with this codebase asks where its temporary files (work folders, builds, caches, downloads, test copies) will be stored before it proceeds. Never assume %TEMP% or C:; drive space differs per machine and C: may be a small SSD.
-- Change only what was asked. Do not remove or tidy surrounding code, imports or variables as a side effect. Suggest cleanups, and wait for a yes.
-- If a bug traces back to a feature nobody asked for, offer to remove the feature rather than patching the mechanism.
-- Code comments describe what the code does now, in the present tense. No references to plans, to "Part N" labels, or to what the code used to do.
-- Edit the source of truth only. For TS work that is D:\Downloads\TSM. Never edit export\, H9XASH\ or the generated copies. The repo copy of H9XASH may be edited by hand, because export.bat keeps newer files.
-- Line endings: most TS files are CRLF. Never run `sed -i` on them, because it converts the whole file to LF. Check the byte count before editing. Use an exact-string replace: read the bytes, convert the search and replace text to the file's own line ending, require exactly one match, and write the file back.
-- BYOND (.dm) sources are ASCII only. Write "--" where an em dash would go.
+So, before hand-editing anything under `xash3d-fwgs`, or adding new engine
+work of your own:
 
-### Builds, exports and patches
-- Build TS plugins with build.bat only. It copies the sources into the game folder, compiles with the game's amxxpc.exe, deploys, registers the plugins, runs `xash.bat addons`, and exports. Never copy sources or binaries into the game folder by hand.
-- build.bat overwrites the game's copy of ts_matchmode.cfg on every run. Edit the copy in D:\Downloads\TSM.
-- COMMANDS.txt and ts_matchmode.cfg change in the same edit as any command or cvar.
-- A build deploys to the live install. Run it when the user wants the change live. After a plugin change the server needs a full restart, not an AMXX reload. H9XASH needs its own copy of a new xash.dll.
-- export\ is generated. Never edit it. export.bat mirrors it into D:\GIT Storage\ts_h9_team_elimination with `robocopy /E /XO` and no purge. A file removed from export\ has to be removed from the repo by hand.
-- Every DLL that ships carries a `<dll>.patch` beside it, everywhere it ships: live install, export, H9XASH and the repo. xash.bat writes these from git. Never hand-edit a .patch.
-- dllmerge.ps1 only adds to a .patch. History blocks are kept, lines the new diff drops move into the history, and an empty new diff over a non-empty one is refused. Keep that behaviour if you change the script.
-- Engine work (`xash.bat engine`) builds the h9 branch of the FWGS clone. Changing the engine source needs the commit OK above.
-- Keep secrets out of TSM. `tsm_ad_token` in ts_advertise.cfg is the Discord bot token. It lives only in the game folder's copy. Check it by length, never print its value.
-- Check .patch file chains for any code added by other agents, before building anything, to prevent overwrites.
+1. **Read `xash3d-h9-patches\patches\PATCH_CHANGELOG.md` first.** It lists
+   every tracked patch, what each one touches, and any apply-order
+   dependencies between them (several patches must apply in a specific
+   sequence because a later one's hunks are numbered against an earlier
+   one's result).
+2. Check whether the region you're about to touch is already covered by an
+   existing patch before hand-editing it directly -- a hand-edit that isn't
+   folded back into the matching `.patch` file breaks the *next* person's
+   build, not yours.
+3. If you add, edit, regenerate, split, merge, or remove a `.patch` file,
+   **add a dated entry to `PATCH_CHANGELOG.md` in the same turn.** Not
+   optional -- that file exists specifically so the next agent or session
+   doesn't have to rediscover this from scratch.
+4. Verify a patch both ways before trusting it: forward (`git apply
+   --check`) against a clean/prior state, and reverse (`git apply --reverse
+   --check`) against the state it's supposed to already be applied to. Don't
+   trust hand-derived line-number arithmetic across multiple hunks/patches --
+   it's easy to get wrong; reconstruct the real file state (a scratch copy,
+   or a real `git apply --check`) and read it instead.
+5. Two different kinds of "already applied" exist in this codebase: a
+   tracked `.patch` file in `xash3d-h9-patches\patches\` (re-verified every
+   build, covered by the changelog above), and an already-committed change
+   on the `h9` branch in `xash3d-fwgs` (`git log --oneline`, never
+   re-verified by `xash.bat`, permanent once committed). A tracked patch can
+   go stale against a committed one without anyone touching the tracked
+   patch file at all -- that's exactly what happened on 2026-10-23.
 
-### Shell
-- Run .bat and .cmd files by full path, through cmd, with path conversion off: `MSYS_NO_PATHCONV=1 cmd /c "C:\full\path\build.bat <nul"`. The agent shell sets NoDefaultCurrentDirectoryInExePath=1, so bare names fail.
-- Keep each bash heredoc under about 8 KB. For bigger files, use the Write tool, or write in several pieces.
-- Never rely on `\\` in a bash command: it arrives as a single backslash. Build Windows paths with the Write tool, with PowerShell, or with chr(92) in Python.
-- After editing a .bat or .cfg, scan the file for control bytes below 32, other than tab, CR and LF.
+## The web client moves with the engine
 
-### The live game
-- Never launch or kill a game or server while the user may be playing it.
-- Never run taskkill by image name, because it kills every instance. If a test instance is unavoidable, kill only the PID you started.
+The browser build (`webclient-bin`, `webclient-build\stage`, the page in `havoc9.org\webclient`) is made from the same
+patched `xash3d-fwgs` tree and the same patch chain as the native game, plus `webassembly-patch\` (the browser port).
+Both patch sets, the builds and the page are in git. A change that reaches the native game must reach the web client in the
+same piece of work, or the web client silently falls behind: the server browser's chain and the scoreboard's pictures were
+native-only for days before anyone saw it.
 
-### Diagnosis and verification
-- When the user reports a bug and has no more information, trace the code path and name the mechanism. Do not stall on log archaeology.
-- Do not suggest "did you recompile or restart" as the explanation for a bug that still reproduces. Find the remaining cause.
-- Verify in proportion. Run the check that answers the question, then stop. The user has stopped runs that were not needed.
-- In plan mode, edit only the plan file, until the user approves the plan.
+1. **Finish every engine, client-library or page change with `node tools\webclient-sync.mjs`.** It covers `xash3d-fwgs`,
+   `xash3d-h9-patches\patches`, `webassembly-patch`, `reTS`, `build-webclient.ps1`, `tools\make_webclient_*` and
+   `havoc9.org\webclient`. When the engine or the client library changed it builds them (about 4 minutes, below-normal priority);
+   otherwise it takes seconds. It lays out the stage, copies `webclient-bin`, the stage, the web tools and the page into the
+   git mirror, publishes the page files to this PC's local site, runs a headless-browser smoke test, and records what it built
+   from in `webclient-bin\INPUTS.json`. "The web client matches the engine" (exit 0) is the bar for done, not "the engine built".
+   `--check` builds nothing and says what is out of date; `--watch` keeps syncing while you work; `--force` builds anyway;
+   `--stage` lays the stage out again after game files changed.
+2. It is a heavy job and takes `D:\temp\HEAVY-JOB.lock` itself. When you already hold the lock for the engine build, pass
+   `--lock-held`; to wait for another holder instead of giving up, `--wait <minutes>`. Never take the lock over.
+3. **Native-only code needs its web counterpart in the same turn.** A patch that compiles code out of the browser build
+   (`#if !XASH_EMSCRIPTEN`) needs either a page half (an object handed over as `Module.<name>` in `engineConfig` in
+   `havoc9.org\webclient\client.js`, called from the engine through `EM_JS`; or a feed the page sets, as `chainFeed` does for the
+   server browser) or the reason none is needed, as an entry in `xash3d-h9-patches\WEB_PARITY.json` (`bridged`, `page-fed`, or
+   `native-only` with its reason; the markers it lists must be in `client.js`). The pipeline stops (exit 3) at a patch with such
+   code and no entry, at an engine call into a `Module.*` object the page does not hand over, and at an entry whose marker is gone.
+4. A page file changed under `havoc9.org\webclient` is not seen by a running local site until it is published (the local site
+   copies the page once at its start); the pipeline does that, so run it after a `client.js` edit as well.
+5. Report both builds when you report an engine change: the native `xash.dll` and the web `xash.wasm` (the pipeline prints
+   the second). If the smoke test fails, the work is not done; say so with its output.
+6. `webclient-bin\INPUTS.json` is the pipeline's record, never written by hand. The pipeline never commits.
 
-## Project rules
+## Assault maps: placing the respawn sets
 
-### TS Match Mode and H9XASH (D:\Downloads\TSM)
-- The rules above apply in full: build.bat for the plugin, xash.bat for the engine and the H9XASH layout, dllmerge for every .patch.
-- The stock TS 3.0 base and the Valve content come from the user's own installs. Never copy them into a repo.
+An Assault map (`h9_as_<name>`, `ts_assault.amxx`) has a spawn set for each
+capture point: the points of tier N in `configs\tsm_spawns_<map>.cfg` belong to
+capture point N. Do not place them by guesswork or by hand coordinates: read
+`docs\ai_context\ASSAULT_SPAWNS.txt`, then run `node
+tools/assault-spawns/cli.mjs <map> --plan <folder>` (it reads the BSP's own
+collision, applies the placement rules, writes the sets between two marker
+comments and draws a plan PNG to look at). `node --test
+tools/assault-spawns/assault-spawns.test.mjs` runs its tests. The library is
+called from a map generator with `generateForMap()` (same guide, section 7).
+
+## General project rules
+
+- Never `git commit` anywhere in this project (including the `xash3d-fwgs`
+  clone on branch `h9`) without the user's separate, explicit permission for
+  that specific commit. An approved plan is not that permission.
+- No backup copies of text files (source, scripts, docs, configs): git is the
+  backup. Only a binary being replaced (a DLL, EXE, AMXX or the like) may keep
+  one beside it: `<file>.bak_<short description>`.
+- One heavy job at a time on this machine: engine, AMX Mod X, RCBot and reTS
+  builds, build.bat, export.bat, map compiles and test servers. Only one agent
+  holds the build lock, `D:\temp\HEAVY-JOB.lock`, unless told otherwise. Create
+  it atomically (fail if it exists) in the same step that starts the job, write
+  who, what and when in it, and delete it when done. If it exists, wait and
+  check again every few minutes; never start a heavy job while another holds
+  it, and never take it over. Maps compile at `-threads 6` (the user's rule after a thermal
+  shutdown at an honoured `-threads 8` on 2026-11-02).
+- Every new agent working with this codebase asks where its temporary files
+  (work folders, builds, caches, downloads, test copies) will be stored
+  before it proceeds. Never assume %TEMP% or C:; drive space differs per
+  machine and C: may be a small SSD.
+- `ts_matchmode.sma` changes build+deploy via `build.bat`; confirm `Deployed:
+  N Failed: 0`. Engine changes build via `xash3d-h9-patches\xash.bat` (full
+  rebuild, applies/verifies the whole patch chain above), then `export.bat`
+  to propagate into `H9XASH\`, then `node tools\webclient-sync.mjs` so the web
+  client follows (the section above).
+- No Unicode / non-ASCII in `.dm`-adjacent... n/a for this project, but: no
+  em dashes or other non-ASCII punctuation in source files the toolchain is
+  touchy about -- use `--` instead, consistent with the style already in
+  this codebase's own comments.
+- A full server/client restart is generally required to pick up engine or
+  plugin rebuilds -- don't assume a running instance hot-reloads either one.

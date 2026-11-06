@@ -124,8 +124,8 @@ public:
 		_useFgColorAsImageColor = true;
 		_offset[0] = 0;
 		_offset[1] = 0;
-		_leadImage = NULL;
-		_leadGap = 0;
+		_tailImage = NULL;
+		_tailGap = 0;
 	}
 
 	~CLabelHeader()
@@ -143,12 +143,12 @@ public:
 		_useFgColorAsImageColor = state;
 	}
 
-	// H9 LEVEL BADGES: a picture at the cell's left edge, centred on its height, drawn before the
-	// text, which moves right past it and gap more pixels; NULL for none
-	void setLeadImage(Image* image, int gap)
+	// H9 LEVEL BADGES: a picture at the cell's right edge, gap pixels in from it and centred on its
+	// height, drawn over the cell without moving its text; NULL for none
+	void setTailImage(Image* image, int gap)
 	{
-		_leadImage = image;
-		_leadGap = gap;
+		_tailImage = image;
+		_tailGap = gap;
 	}
 
 	void setText(int textBufferLen, const char* text) override
@@ -240,8 +240,8 @@ private:
 	int _gap;
 	int _offset[2];
 	bool _useFgColorAsImageColor;
-	Image* _leadImage; // H9 LEVEL BADGES
-	int _leadGap;
+	Image* _tailImage; // H9 LEVEL BADGES
+	int _tailGap;
 };
 
 //-----------------------------------------------------------------------------
@@ -292,6 +292,13 @@ extern bool g_bScoreAssists;
 // ---- H9 LIVES: set while this map's server counts lives (H9's ts_matchmode, H9Lives); until then
 // the lives column and the team lives totals stay empty.
 extern bool g_bScoreLives;
+
+// ---- H9 POOL: set while this map's mode keeps ONE pool of lives for a whole side (H9Pool, sent by H9's
+// ts_matchmode for a mode that asked for it: Assault). A side's row then shows its pool in the lives column,
+// what is left out of what the round started with, and the players' own rows show nothing there.
+extern bool g_bScorePool;
+extern int g_iScorePoolLeft[3];   // by side, 1 and 2
+extern int g_iScorePoolStart[3];
 
 // ---- H9 KILLS: set once this map's server has sent an H9Kills message, which says its frags are
 // points (H9's ts_matchmode, tsm_score 1): the frags column is then headed SCORE, and a K column

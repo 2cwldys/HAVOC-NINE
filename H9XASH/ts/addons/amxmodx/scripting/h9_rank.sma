@@ -13,8 +13,7 @@
  * havoc9.org answers (POST /api/presence/compete/rank, docs\H9_COMPETITIVE.txt), signed with
  * h9_presence's key, so there is no key to set here: a player's rank by their h9_clientid, an
  * account's by its username. A bot, and a player whose game has no havoc9.org account proven on
- * this server, is "not signed in: no rank". An account whose SHOW MY PLAYTIME switch is off
- * "keeps their rank private", to everyone but itself.
+ * this server, is "not signed in: no rank". No switch on an account hides its rank.
  *
  *   h9_rank_command 1    .rank answers (0: .rank is left alone, as if the plugin were not here)
  *   h9_rank_cooldown 5   seconds between two .rank from one player (1 to 60)
@@ -396,14 +395,7 @@ public on_rank(EzHttpRequest:request_id)
 	new EzJSON:a = ezjson_object_get_value(root, "account");
 	new user[64];
 	ezjson_object_get_string(a, "username", user, charsmax(user));
-	if (ezjson_object_has_value(a, "private", EzJSONBoolean) && ezjson_object_get_bool(a, "private"))
-	{
-		client_print(id, print_chat, "[H9] %s keeps their rank private.", user);
-	}
-	else
-	{
-		readout(id, a, user);
-	}
+	readout(id, a, user);
 	ezjson_free(a);
 	ezjson_free(root);
 }

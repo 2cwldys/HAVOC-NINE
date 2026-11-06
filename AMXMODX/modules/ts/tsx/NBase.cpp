@@ -539,10 +539,11 @@ END_USER_FUNC()
 // functions set it up: guns reload from the reserve of their caliber (s_weapon_info+8), shared by every
 // gun of that caliber; the grenade and the two knives count in their own clip, each unit taking free
 // slots (s_weapon_info+0xdc, +0xd0). Kung fu, the flag and the katana have no ammo. H9's reTS adds the
-// PPSh-41 (39, caliber 14); 38 is TSX's thrown knife and no game weapon, so it has no ammo either. TS 3.0's
+// PPSh-41 (39, caliber 14) and laser rifle (40, caliber 15, plasma cells); 38 is TSX's thrown knife and no game
+// weapon, so it has no ammo either. TS 3.0's
 // own library has weapons 0-37 only (TSWEAPON_COUNT_TS30).
 #define TSWEAPON_COUNT_TS30		38
-#define TSWEAPON_COUNT			40
+#define TSWEAPON_COUNT			41
 #define TS_WEAPON_STATUS_SIZE	56 // sizeof(s_weapon_status)
 
 static const int weaponCaliber[TSWEAPON_COUNT] = {
@@ -550,7 +551,7 @@ static const int weaponCaliber[TSWEAPON_COUNT] = {
 	2, 3, 5, 6, 7, 4, 1, 12, 8, 7,
 	3, 2, 9, 2, 0, 0, 3, 4, 10, 0,
 	7, 11, 4, 3, 0, 0, 13, 12,
-	0, 14
+	0, 14, 15
 };
 
 static const int weaponUnitSlots[TSWEAPON_COUNT] = {
@@ -558,7 +559,7 @@ static const int weaponUnitSlots[TSWEAPON_COUNT] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 7, 1, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 1, 0, 0,
-	0, 0
+	0, 0, 0
 };
 
 // The game's own functions: the ammo table by caliber (whose iMaxCarry follows the ammocount cvar) and

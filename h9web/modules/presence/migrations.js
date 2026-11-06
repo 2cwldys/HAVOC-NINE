@@ -78,6 +78,19 @@
 //                       profile picture, for the scoreboard, and the picture version it was made
 //                       from (H9_PRESENCE.txt section 4b)
 
+// v12 (the official preset and the server browser's chain, preset.js, H9_PRESENCE.txt section 4c):
+//   presence_preset      the allowlist: one row per file an authenticated server may run (kind amxx, module or
+//                       meta; the file's name; the SHA-256 of its bytes); optional 1 for what an admin added beside
+//                       the official build's files (a "replace" import keeps it); who added it and when
+//   presence_servers.plugins, plugins_at   what the server's last plugin list said (JSON, or "!" for a list
+//                       that could not be read) and when it came
+//   presence_servers.opted_out   1 while the server's last report said authenticated: false (its operator set
+//                       h9_authenticated 0): it asked not to be authenticated or rated
+
+// v13 (the day's limits on experience and on H9 ladder points, compete.js, H9_COMPETITIVE.txt section 9a):
+//   compete_deltas_account, compete_matches_started   indexes, so what an account has been given since a UTC
+//                       day began is read from its own rows and the day's matches, not from every table's
+
 // v7 (Create Game servers, H9_PRESENCE.txt section 8a):
 //   presence_enrolled.listen, pend_listen, owner_id   a listen server enrolled by its own player's ID
 //                       proof (no A2S_RULES probe, no admin approval): its reports count proven
@@ -593,6 +606,126 @@ export const MIGRATIONS = [
           rule TEXT NOT NULL,
           updated_at INTEGER NOT NULL
         );
+      `);
+    },
+  },
+  {
+    version: 9,
+    description: "presence: competitive seasons (compete.js): the season under way and the ones archived",
+    up(db) {
+      // compete_seasons            one row a season, numbered from 1; ended_at and ended_by once a
+      //                            site admin reset it, backup: the database copy made right before
+      // compete_season_standings   a season's final standings, per scope and ladder, as the reset
+      //                            found them; account_id NULL once the account is deleted
+      // compete_matches.season     the season a match was played in
+      db.exec(`
+        CREATE TABLE compete_seasons (
+          id INTEGER PRIMARY KEY,
+          started_at INTEGER NOT NULL,
+          ended_at INTEGER,
+          ended_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          backup TEXT
+        );
+        INSERT INTO compete_seasons (id, started_at)
+          VALUES (1, COALESCE((SELECT MIN(started_at) FROM compete_matches), CAST(strftime('%s', 'now') AS INTEGER)));
+        CREATE TABLE compete_season_standings (
+          season_id INTEGER NOT NULL REFERENCES compete_seasons(id) ON DELETE CASCADE,
+          scope TEXT NOT NULL,
+          ladder TEXT NOT NULL,
+          rank INTEGER NOT NULL,
+          account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          elo INTEGER NOT NULL,
+          kills INTEGER NOT NULL DEFAULT 0,
+          deaths INTEGER NOT NULL DEFAULT 0,
+          headshots INTEGER NOT NULL DEFAULT 0,
+          wins INTEGER NOT NULL DEFAULT 0,
+          losses INTEGER NOT NULL DEFAULT 0,
+          matches INTEGER NOT NULL DEFAULT 0,
+          level INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (season_id, scope, ladder, rank)
+        );
+        ALTER TABLE compete_matches ADD COLUMN season INTEGER NOT NULL DEFAULT 1;
+      `);
+    },
+  },
+  {
+    version: 10,
+    description: "presence: assists in rated play (compete.js): each player's in a match, each table's sum, a match's share for a void",
+    up(db) {
+      // compete_players.assists           the player's assists in the match, as the server's end
+      //                                   report counts them (ts_matchmode's); NULL when it counts none
+      // compete_ratings.assists           the table's sum over its matches; NULL until a match brings one
+      // compete_deltas.assists            what a match added to the table, so a void takes it back
+      // compete_season_standings.assists  the archived sum
+      db.exec(`
+        ALTER TABLE compete_players ADD COLUMN assists INTEGER;
+        ALTER TABLE compete_ratings ADD COLUMN assists INTEGER;
+        ALTER TABLE compete_deltas ADD COLUMN assists INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE compete_season_standings ADD COLUMN assists INTEGER;
+      `);
+    },
+  },
+  {
+    version: 11,
+    description: "presence: ranked play on every server (compete.js): UNRANKED servers, and admins' rank adjustments",
+    up(db) {
+      // compete_servers.unranked   1: an H9 site admin marked the server UNRANKED, and it feeds no
+      //                            table from then on; every other enrolled server counts, for the
+      //                            H9 ladder too (network, the old NETWORK LADDER flag, is not read)
+      // compete_adjustments        an admin's change to an account's rank: a table's rating set or
+      //                            moved (field elo, with its scope and ladder), or the career
+      //                            experience (field xp, which adds after - before to the career's
+      //                            sum); the note, who and when
+      db.exec(`
+        ALTER TABLE compete_servers ADD COLUMN unranked INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE compete_servers ADD COLUMN unranked_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL;
+        ALTER TABLE compete_servers ADD COLUMN unranked_at INTEGER;
+        CREATE TABLE compete_adjustments (
+          id INTEGER PRIMARY KEY,
+          account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          field TEXT NOT NULL,
+          scope TEXT,
+          ladder TEXT,
+          before INTEGER NOT NULL,
+          after INTEGER NOT NULL,
+          note TEXT NOT NULL,
+          by_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          at INTEGER NOT NULL,
+          season INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE INDEX compete_adjustments_account ON compete_adjustments(account_id, at);
+      `);
+    },
+  },
+  {
+    version: 12,
+    description: "presence: the official preset (preset.js): the allowlist, and the plugin list each server reports",
+    up(db) {
+      db.exec(`
+        CREATE TABLE presence_preset (
+          kind TEXT NOT NULL CHECK (kind IN ('amxx', 'module', 'meta')),
+          file TEXT NOT NULL,
+          sha256 TEXT NOT NULL,
+          version TEXT,
+          optional INTEGER NOT NULL DEFAULT 0 CHECK (optional IN (0, 1)),
+          note TEXT,
+          added_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          added_at INTEGER NOT NULL,
+          PRIMARY KEY (kind, file, sha256)
+        );
+        ALTER TABLE presence_servers ADD COLUMN plugins TEXT;
+        ALTER TABLE presence_servers ADD COLUMN plugins_at INTEGER;
+        ALTER TABLE presence_servers ADD COLUMN opted_out INTEGER NOT NULL DEFAULT 0 CHECK (opted_out IN (0, 1));
+      `);
+    },
+  },
+  {
+    version: 13,
+    description: "compete: indexes for the day's limits on experience and on H9 ladder points (compete.js)",
+    up(db) {
+      db.exec(`
+        CREATE INDEX compete_deltas_account ON compete_deltas(account_id, scope);
+        CREATE INDEX compete_matches_started ON compete_matches(started_at);
       `);
     },
   },

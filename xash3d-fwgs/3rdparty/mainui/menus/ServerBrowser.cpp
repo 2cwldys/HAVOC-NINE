@@ -35,6 +35,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define ART_BANNER_LOCK     "gfx/shell/lock"
 #define ART_BANNER_FAVORITE "gfx/shell/favorite"
 #define ART_BANNER_ACCOUNT  "gfx/shell/h9_account" // H9: a server for havoc9.org accounts only
+#define ART_CHAIN_OK        "gfx/vgui/h9_link.tga"   // H9: havoc9.org vouches for the server: the scoreboard's green chain
+#define ART_CHAIN_BAD       "gfx/vgui/h9_unlink.tga" // H9: it does not: the red broken chain
 
 #define MAX_PING 9.999f
 #define FILTER_MAX_MAPS 16
@@ -44,10 +46,12 @@ class CMenuServerBrowser;
 
 enum
 {
-	COLUMN_PASSWORD = 0,
+	COLUMN_CHAIN = 0, // H9: whether havoc9.org vouches for the server (cl_h9auth.c); first, with the name beside it at the left edge
+	COLUMN_NAME,
+	COLUMN_PASSWORD,
 	COLUMN_ACCOUNT, // H9: the server takes havoc9.org accounts only (its info's "auth")
 	COLUMN_FAVORITE,
-	COLUMN_NAME,
+	COLUMN_MODE, // H9: the game mode, named by the engine from the server's game description and map (the info's "mode")
 	COLUMN_MAP,
 	COLUMN_PLAYERS,
 	COLUMN_PING,
@@ -55,22 +59,65 @@ enum
 	COLUMN_LAST
 };
 
+// H9: what havoc9.org says of the server at an address, from the engine's cvars (cl_h9auth.c): 0 nothing is
+// known (the list has not been read, or this engine has none), 1 authenticated, 2 authenticated on a roleplay
+// map (nothing there is ranked), 3 not authenticated
+static int H9ChainOf( const char *ip )
+{
+	const char *gen = EngFuncs::GetCvarString( "_h9srv_gen" );
+
+	if( !gen || !gen[0] || gen[0] == '0' )
+		return 0;
+
+	const char *list = EngFuncs::GetCvarString( "_h9srv" );
+	char key[80];
+
+	snprintf( key, sizeof( key ), " %s=", ip );
+
+	const char *hit = list ? strstr( list, key ) : NULL;
+
+	if( !hit )
+		return 3;
+	switch( hit[strlen( key )] )
+	{
+	case 'o': return 1;
+	case 'r': return 2;
+	}
+	return 3;
+}
+
+// H9: asks the engine to read havoc9.org's list of authenticated servers, which it does at most once in 20
+// seconds; an engine without it has no _h9srv_gen, and is not asked
+static void H9ChainsAsk( void )
+{
+	const char *gen = EngFuncs::GetCvarString( "_h9srv_gen" );
+
+	if( gen && gen[0] )
+		EngFuncs::ClientCmd( false, "h9_servers\n" );
+}
+
+// H9: the chains belong to the Internet lists: a LAN server is not one havoc9.org knows
+static bool s_h9Chains = true;
+
 struct server_t
 {
 	netadr_t adr;
-	char  info[512];
+	char  info[576]; // H9: room for the engine's "mode" after a reply that filled its 512
 	float ping;
 	int  numcl; // the people: Xash servers send bots apart, and GoldSrc's are taken out of it
 	int  bots;
 	int  maxcl;
 	char name[64];
 	char mapname[64];
+	char mode[64]; // H9: the engine's "mode" key
 	char clientsstr[64];
 	char pingstr[64];
 	char ipstr[64];
 	bool favorite;
 	bool havePassword;
 	bool needAccount;
+	int  chain; // H9: H9ChainOf's answer, 0 for none
+	char title[96]; // H9: the name as the table shows it
 	bool isGoldSrc;
 	bool pending_info;
 
@@ -82,6 +129,7 @@ struct server_t
 
 	server_t( netadr_t adr, const char *info, bool is_favorite, bool pending_info = false );
 	void UpdateData();
+	void UpdateChain();
 	void SetPing( float ping );
 
 	const char *ToProtocol( void )
@@ -103,6 +151,11 @@ struct server_t
 	int MapCmp( const server_t &other ) const
 	{
 		return stricmp( mapname, other.mapname );
+	}
+
+	int ModeCmp( const server_t &other ) const
+	{
+		return stricmp( mode, other.mode );
 	}
 
 	int ClientCmp( const server_t &other ) const
@@ -145,6 +198,7 @@ struct server_t
 	GENERATE_COMPAR_FN( NameCmp )
 	GENERATE_COMPAR_FN( AdrCmp )
 	GENERATE_COMPAR_FN( MapCmp )
+	GENERATE_COMPAR_FN( ModeCmp )
 	GENERATE_COMPAR_FN( ClientCmp )
 	GENERATE_COMPAR_FN( PingCmp )
 #undef GENERATE_COMPAR_FN
@@ -280,6 +334,8 @@ public:
 
 	ECellType GetCellType( int line, int column ) override
 	{
+		if( column == COLUMN_CHAIN )
+			return CELL_IMAGE_TRANS;
 		if( column == COLUMN_PASSWORD || column == COLUMN_ACCOUNT || column == COLUMN_FAVORITE )
 			return CELL_IMAGE_ADDITIVE;
 		return CELL_TEXT;
@@ -292,7 +348,9 @@ public:
 		case COLUMN_PASSWORD: return servers[line].havePassword ? ART_BANNER_LOCK : NULL;
 		case COLUMN_ACCOUNT: return servers[line].needAccount ? ART_BANNER_ACCOUNT : NULL;
 		case COLUMN_FAVORITE: return servers[line].favorite ? ART_BANNER_FAVORITE : NULL;
-		case COLUMN_NAME: return servers[line].name;
+		case COLUMN_CHAIN: return servers[line].chain == 3 ? ART_CHAIN_BAD : servers[line].chain ? ART_CHAIN_OK : NULL;
+		case COLUMN_NAME: return servers[line].title;
+		case COLUMN_MODE: return servers[line].mode;
 		case COLUMN_MAP: return servers[line].mapname;
 		case COLUMN_PLAYERS: return servers[line].clientsstr;
 		case COLUMN_PING: return servers[line].pingstr;
@@ -350,6 +408,13 @@ public:
 		serversRefreshTime = gpGlobals->time;
 	}
 
+	// H9: havoc9.org's list was read or changed after the rows were made
+	void RefreshChains()
+	{
+		for( int i = 0; i < servers.Count(); i++ )
+			servers[i].UpdateChain();
+	}
+
 	bool IsHavePassword( int line )
 	{
 		return servers[line].havePassword;
@@ -383,7 +448,7 @@ private:
 class CMenuServerBrowser: public CMenuFramework
 {
 public:
-	CMenuServerBrowser() : CMenuFramework( "CMenuServerBrowser" ), gameListModel( this ), m_iLastRefreshTab( -1 ) { }
+	CMenuServerBrowser() : CMenuFramework( "CMenuServerBrowser" ), gameListModel( this ), m_iLastRefreshTab( -1 ) { m_szChainGen[0] = 0; }
 	void Draw() override;
 	void Show() override;
 	void Hide() override;
@@ -455,6 +520,7 @@ public:
 	CUtlVector<favlist_entry_t> favoritesList;
 	CUtlVector<favlist_entry_t> historyList;
 	int m_iLastRefreshTab;
+	char m_szChainGen[16]; // H9: _h9srv_gen as the rows' chains last saw it
 	CUtlVector<server_t> m_InternetServers[INTERNET_TAB_COUNT];
 	CUtlVector<server_t> m_LanServers;
 private:
@@ -515,6 +581,7 @@ void server_t::UpdateData( void )
 {
 	Q_strncpy( name, Info_ValueForKey( info, "host" ), sizeof( name ));
 	Q_strncpy( mapname, Info_ValueForKey( info, "map" ), sizeof( mapname ));
+	Q_strncpy( mode, Info_ValueForKey( info, "mode" ), sizeof( mode ));
 	Q_strncpy( ipstr, EngFuncs::NET_AdrToString( adr ), sizeof( ipstr ));
 	numcl = atoi( Info_ValueForKey( info, "numcl" ));
 	bots = atoi( Info_ValueForKey( info, "bots" ));
@@ -526,6 +593,16 @@ void server_t::UpdateData( void )
 	havePassword = !strcmp( Info_ValueForKey( info, "password" ), "1" );
 	needAccount = !strcmp( Info_ValueForKey( info, "auth" ), "1" );
 	isGoldSrc = !strcmp( Info_ValueForKey( info, "gs" ), "1" );
+	UpdateChain();
+}
+
+// H9: the chain's picture, and the name as the table shows it: a roleplay server says nothing there is ranked
+void server_t::UpdateChain( void )
+{
+	chain = s_h9Chains ? H9ChainOf( ipstr ) : 0;
+	if( chain == 2 )
+		snprintf( title, sizeof( title ), "%s  [UNRANKED: roleplay]", name );
+	else Q_strncpy( title, name, sizeof( title ));
 }
 
 void server_t::SetPing( float ping )
@@ -547,10 +624,15 @@ bool CMenuGameListModel::Sort(int column, bool ascend)
 	{
 	case COLUMN_PASSWORD:
 	case COLUMN_ACCOUNT:
+	case COLUMN_CHAIN:
 		return false;
 	case COLUMN_NAME:
 		qsort( servers.Base(), servers.Count(), sizeof( server_t ),
 			ascend ? server_t::NameCmpAscend : server_t::NameCmpDescend );
+		return true;
+	case COLUMN_MODE:
+		qsort( servers.Base(), servers.Count(), sizeof( server_t ),
+			ascend ? server_t::ModeCmpAscend : server_t::ModeCmpDescend );
 		return true;
 	case COLUMN_MAP:
 		qsort( servers.Base(), servers.Count(), sizeof( server_t ),
@@ -959,6 +1041,10 @@ void CMenuServerBrowser::RefreshList()
 {
 	gameListModel.serversRefreshTime = EngFuncs::DoubleTime();
 
+	// H9: havoc9.org's word on which servers are authenticated, for the chains
+	if( !m_bLanOnly )
+		H9ChainsAsk();
+
 	if( m_bLanOnly )
 	{
 		m_LanServers.RemoveAll();
@@ -1147,6 +1233,15 @@ void CMenuServerBrowser::Draw( void )
 {
 	CMenuFramework::Draw();
 
+	// H9: havoc9.org's list was read, or changed, after the rows were made (cl_h9auth.c)
+	const char *chainGen = EngFuncs::GetCvarString( "_h9srv_gen" );
+
+	if( chainGen && strcmp( chainGen, m_szChainGen ))
+	{
+		Q_strncpy( m_szChainGen, chainGen, sizeof( m_szChainGen ));
+		gameListModel.RefreshChains();
+	}
+
 	if( uiStatic.realTime > refreshTime )
 	{
 		RefreshList();
@@ -1208,13 +1303,17 @@ void CMenuServerBrowser::_Init( void )
 	msgBox.Link( this );
 
 	gameList.SetCharSize( QM_SMALLFONT );
-	gameList.SetupColumn( COLUMN_PASSWORD, NULL, 32.0f, true );
-	gameList.SetupColumn( COLUMN_ACCOUNT, NULL, 32.0f, true );
-	gameList.SetupColumn( COLUMN_FAVORITE, NULL, 32.0f, true );
-	gameList.SetupColumn( COLUMN_NAME, L( "Name" ), 0.40f );
-	gameList.SetupColumn( COLUMN_MAP, L( "GameUI_Map" ), 0.25f );
-	gameList.SetupColumn( COLUMN_PLAYERS, L( "Players" ), 180.0f, true );
-	gameList.SetupColumn( COLUMN_PING, L( "Ping" ), 120.0f, true );
+	// H9: the icons' columns are as wide as a 16 unit icon (the chain's a little wider, a gap before the name), the players' and the
+	// ping's as their text, and the name takes the rest
+	gameList.SetupColumn( COLUMN_CHAIN, NULL, 28.0f, true );
+	gameList.SetupColumn( COLUMN_NAME, L( "Name" ), 0.48f );
+	gameList.SetupColumn( COLUMN_PASSWORD, NULL, 20.0f, true );
+	gameList.SetupColumn( COLUMN_ACCOUNT, NULL, 20.0f, true );
+	gameList.SetupColumn( COLUMN_FAVORITE, NULL, 20.0f, true );
+	gameList.SetupColumn( COLUMN_MODE, L( "Mode" ), 0.22f );
+	gameList.SetupColumn( COLUMN_MAP, L( "GameUI_Map" ), 0.22f );
+	gameList.SetupColumn( COLUMN_PLAYERS, L( "Players" ), 160.0f, true );
+	gameList.SetupColumn( COLUMN_PING, L( "Ping" ), 90.0f, true );
 	gameList.SetupColumn( COLUMN_IP, L( "IP" ), 0, true );
 	gameList.SetModel( &gameListModel );
 	gameList.bFramedHintText = true;
@@ -1455,6 +1554,8 @@ bool CMenuServerBrowser::IsAddressInTab( int tab, const netadr_t &adr ) const
 void CMenuServerBrowser::Show()
 {
 	CMenuFramework::Show();
+
+	s_h9Chains = !m_bLanOnly;
 
 	if( m_bLanOnly )
 	{

@@ -1,0 +1,87 @@
+THE RELEASE GATE -- one release of HAVOC 9 at a time on a server
+================================================================
+
+A server of HAVOC 9 refuses a player whose game is another release than the server's own, tells him where to get
+the right one, and the game offers to open the page. A release is the engine, the client library, the plugins and
+the files of a package, shipped together; the gate compares the one name they all carry.
+
+
+1. WHAT THE PLAYER SEES
+-----------------------
+
+  * A game that is OUT OF DATE (an older release than the server's, or one so old it sends none) is refused when it
+    joins, in the join screen's box:
+        Your HAVOC 9 is out of date (release 2026.10.30, this server runs 2026.11.05): update it from
+        https://havoc9.org/downloads/
+    The box has a button, OPEN HAVOC9.ORG, that opens https://havoc9.org/downloads/ in the player's own browser
+    (on a click only; nothing opens by itself) and one that closes it. An older game shows the same words, in its
+    box or its console, without the button.
+  * A game NEWER than the server's is refused too, with the other advice:
+        This server runs an older HAVOC 9 (release 2026.10.30, yours is 2026.11.05): ask its admin to update, or play
+        on a server that has
+  * The web client is always on the release its page was built with, which is the site's own, so it never meets the
+    first message.
+  * A player on the stock game (no H9 client at all) is not asked, at h9_require_release 1: such players still play
+    on H9's servers, unauthenticated and unranked, as before. Servers that want only H9's client set it to 2.
+
+
+2. THE RELEASE
+--------------
+
+The release is the first word of one file: xash3d-h9-patches\overlay\ts\h9_release.txt, which xash.bat's overlay
+lays into the game folder as ts\h9_release.txt (and the web client's stage with it). It is a date, 2026.11.05, and
+compares as text (older sorts first). To make a new release, edit that file and then build, in this order:
+
+    xash.bat engine            (nothing in the engine changes with the number: it reads the file)
+    build.bat <the plugins>    writes include\h9_release.inc from the file (H9_RELEASE) and builds the plugins with it
+    export.bat                 lays the file into H9XASH, the export and the git copy
+    node tools\webclient-sync.mjs
+
+Both sides read the same file: the client engine (cl_presence.c, CL_Presence_Init) sets its read-only cvar _h9rel
+to it and writes the same key into its userinfo (a cvar set that way never reaches the userinfo by itself), which every
+connect carries to the server; `setinfo` in the console lists the keys a client sends. The server engine (common/h9_release.c, H9_Release) reads it for
+a server that has no plugins' release to give. The plugins carry the release they were BUILT with.
+
+
+3. THE CVARS (h9_presence.amxx registers both; a cvar in h9_presence.cfg or server.cfg changes them)
+------------------------------------------------------------------------------------------------------
+
+     h9_require_release   1   0: everyone may join. 1: a joiner who has H9's game (any userinfo key of its own, h9_
+                              or _h9) must have this server's release. 2: every joiner must, a stock client having
+                              none. A server that knows no release (an empty h9_plugin_release and no h9_release.txt)
+                              asks for none, and the local client of a listen server is never asked.
+     h9_plugin_release   (the release the plugins were built with)
+                              what joiners are held to. Empty: the game folder's h9_release.txt. In the server's rules.
+
+The plugin writes one line to the AMX log at the start of every map: "[H9] release 2026.11.05 (h9_require_release 1)",
+or, when the game folder says another release than the plugins carry (a package half updated):
+"[H9] PACKAGE MISMATCH: the plugins are release X and the game folder's h9_release.txt says Y. h9_require_release holds
+joiners to X." The plugins' release is what decides: a server whose plugins are newer than the engine files refuses
+every client of the old release, and one whose plugins are old refuses a client that has the new.
+
+
+4. HOW IT IS BUILT
+------------------
+
+     common/h9_release.c         (engine-h9-serverinfo.patch, a new file) H9_Release(): the first word of h9_release.txt
+     cl_presence.c               (engine-h9-presence.patch) the client's _h9rel userinfo cvar
+     server/sv_client.c          (engine-h9-serverinfo.patch) SV_H9ReleaseRefusal, called from SV_ConnectClient right after
+                                 the userinfo is read, before the password; the same SV_RejectConnection every refusal uses
+     menus/ConnectionProgress.cpp (mainui-h9-joinscreen.patch) the box with the button, for any refusal that names
+                                 havoc9.org/downloads (the 128-slot server's "needs a newer H9XASH" among them)
+     h9_presence.sma, build.bat, export.bat   the cvars, the include, the log line
+
+No new patch was added to xash.bat's chain (its xash.dll line has no room for one); the three above carry the change.
+
+
+5. THINGS TO KNOW
+-----------------
+
+  * The gate is an update enforcement, not security: _h9rel is a plain string the game sends, and a player who edits
+    it gets in. Accounts, the ID proof and the authenticated-server chain (docs\H9_PRESENCE.txt) are separate.
+  * Changing the release in the middle of a map takes effect at once for new joiners (the engine reads the cvars at
+    each join); players already in stay.
+  * A server on an older engine than this ignores _h9rel and lets everyone in; a client on an older engine sends none
+    and is refused by a server that has the gate.
+  * The release is compared as plain text: keep the 2026.11.05 form (four digits, two, two; a second release on a day
+    is 2026.11.05.2).

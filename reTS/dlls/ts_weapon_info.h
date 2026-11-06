@@ -64,8 +64,18 @@ enum tsweapon_t
 	TSW_SKORPION_AKIMBO = 37,
 	TSW_UNUSED = 38,       // no weapon: TSX keeps its thrown knife's stats at 38 ("not a game id"), so no game weapon is 38
 	TSW_PPSH41 = 39,       // H9 addition, not in the original roster (0..37): the PPSh-41 submachine gun
-	TSW_COUNT = 40
+	TSW_LASERRIFLE = 40,   // H9 addition: the laser rifle, an energy weapon (plasma cells: no casings, no bullets)
+	TSW_COUNT = 41
 };
+
+// The laser rifle fires plasma, not bullets: no brass is ejected and the client draws a plasma bolt and trail in
+// place of a bullet's. The shot's caliber (TS_CALIBER_PLASMA, 15) is what tells the client's fire core and its
+// bullet simulation, which see a caliber and not a weapon.
+#define TS_CALIBER_PLASMA 15
+inline bool TS_IsEnergyWeapon(int t) { return t == TSW_LASERRIFLE; }
+// The weapons H9 adds to TS 3.0's roster (ids 0..38) are the ids from TSW_PPSH41 on, and every one of them is behind the
+// server's h9_customweapons cvar: a weapon added later takes the next id and is gated with no change here.
+inline bool TS_IsCustomWeapon(int t) { return t >= TSW_PPSH41 && t < TSW_COUNT; }
 
 // Weapon stats — a clean modern subset of the original 988-byte s_weapon_info,
 // holding the fields CTSGun actually uses. Values recovered from each
@@ -228,7 +238,8 @@ struct s_weapon_info
 
 // Per-caliber ammo: the 16 calibers, the mag/magazine size, and the max reserve (rounds),
 // from compile_ammo_info (@0x6f51c). Indices match the weapon iCaliber + the FGD ts_groundammo
-// magsN keyvalues (magN -> caliber N). Caliber 14 (7.62 x 25mm, the PPSh-41's) is H9's.
+// magsN keyvalues (magN -> caliber N). Caliber 14 (7.62 x 25mm, the PPSh-41's) and 15 (plasma cells, the
+// laser rifle's) are H9's.
 #define TS_NUM_CALIBERS 16
 // s_ammo_info — the per-caliber ammo table (original 0x38-byte struct; offsets are
 // provenance). Built by compile_ammo_info (chained from compile_weapons_info).

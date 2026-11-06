@@ -74,3 +74,12 @@ h9_presence_names "0"
 // H9XASH's server browser shows such a server with an account icon.
 h9_require_account "0"
 h9_require_account_grace "45"
+
+
+// Authenticated: h9web draws a green chain in the server browser beside a server that
+// reports to it and runs only H9's official preset, and a red broken one beside any other,
+// and rates only the first's matches (docs/H9_PRESENCE.txt section 4d). 0 opts this server
+// out on purpose: red, and nothing rated, whatever it runs. 1, the default, asks for
+// nothing: h9web judges what the server runs. No setting makes a server more authenticated
+// than that. The cvar is in the server's rules.
+h9_authenticated "1"

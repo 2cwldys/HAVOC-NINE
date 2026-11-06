@@ -260,6 +260,13 @@ int __MsgFunc_H9Lives(const char* pszName, int iSize, void* pbuf)
 	return 0;
 }
 
+int __MsgFunc_H9Pool(const char* pszName, int iSize, void* pbuf)
+{
+	if (gViewPort)
+		return static_cast<int>(gViewPort->MsgFunc_H9Pool(pszName, iSize, pbuf));
+	return 0;
+}
+
 int __MsgFunc_TeamScore(const char* pszName, int iSize, void* pbuf)
 {
 	if (gViewPort)
@@ -321,6 +328,7 @@ void CHud::Init()
 	HOOK_MESSAGE(H9Assists);
 	HOOK_MESSAGE(H9Kills); // H9 KILLS: the real kills while the frags are points, for the scoreboard's K column
 	HOOK_MESSAGE(H9Lives); // H9: lives left and the class's lives, for the scoreboard's LIVES column
+	HOOK_MESSAGE(H9Pool); // H9: a side's pool of lives (a mode that keeps one), for the scoreboard's LIVES column
 	HOOK_MESSAGE(H9Board); // H9: the scoreboard's name for a list without teams ("Roleplay")
 	HOOK_MESSAGE(H9Link); // H9: who is a proven havoc9.org account, for the scoreboard's link icons
 	HOOK_MESSAGE(H9Level); // H9: each proven account's havoc9.org level, its badge by its name on the scoreboard

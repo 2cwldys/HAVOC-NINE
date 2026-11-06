@@ -5,7 +5,7 @@
   "preload": "preload.json",
   "gamedir": "ts",
   "args": [],
-  "commands": ["voice_enable 0"],
+  "commands": ["voice_enable 0", "gl_vbo 1"],
   "fonts": [],
   "relay": "relay",
   "master": "192.0.2.1:27010",

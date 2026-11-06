@@ -565,6 +565,8 @@ bool CBasePlayer::PickUpWeapon(int type, TSItem *pStatus, int iAttach, bool bSel
 	CTSGun *pGun = GetPlayerTSGun(this); // orig: this->m_pActiveItem gated on m_iId == 0x10
 	if (!pGun || type < 0 || type >= TSW_COUNT)
 		return false;
+	if (TS_IsCustomWeapon(type) && !H9_CustomWeaponsOn())
+		return false; // h9_customweapons 0: TS 3.0's own roster, which has no weapon 39 or 40
 	const s_weapon_info *wi = get_weapon_info((tsweapon_t)type);
 	if (wi->iFireType == TSFT_AKIMBO && wi->iSingleType != -1)
 		return false; // @0x83197 — pick the single up; it merges into the akimbo

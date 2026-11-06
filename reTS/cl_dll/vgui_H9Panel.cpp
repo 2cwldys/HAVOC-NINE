@@ -126,8 +126,8 @@ float UserScale()
 
 // The art scales at cl_h9_vgui_scale 1, of the screen height / 480: a menu's and a panel's on the
 // tsm_panel art, and a notice's and a banner panel's on the tsm_banner art.
-const float H9_MENU_SCALE = 0.68f;
-const float H9_BANNER_SCALE = 0.6f;
+const float H9_MENU_SCALE = 0.51f;
+const float H9_BANNER_SCALE = 0.45f;
 
 // The scale of an art on this screen: base x (screen height / 480) x cl_h9_vgui_scale.
 float ArtScale(float base)
@@ -270,15 +270,25 @@ CH9ArtBitmap* H9ArtBitmap(const CH9Art* art, int wide, int tall, float scale)
 
 vgui::Font* H9Font(int which, int step)
 {
-	static const char* const kText[] = {"Primary Button Text", "CommandMenu Text", "Scoreboard Text", "Scoreboard Small Text"};
-	static const char* const kDetail[] = {"Briefing Text", "Scoreboard Text", "Scoreboard Small Text", "Scoreboard Small Text"};
-	static const char* const kFlash[] = {"Title Font", "Primary Button Text", "CommandMenu Text", "Scoreboard Text"};
+	// The H9 panels' own ladders, four steps each, in textscheme\*_textscheme.txt: three quarters of the size of the scheme
+	// the stock ladder (the second table of each pair) takes at the same step. A scheme file without them (a game folder
+	// that has not been updated) gets the stock schemes at the same steps.
+	static const char* const kText[] = {"H9 Text 1", "H9 Text 2", "H9 Text 3", "H9 Text 4"};
+	static const char* const kDetail[] = {"H9 Detail 1", "H9 Detail 2", "H9 Detail 3", "H9 Detail 4"};
+	static const char* const kFlash[] = {"H9 Flash 1", "H9 Flash 2", "H9 Flash 3", "H9 Flash 4"};
+	static const char* const kTextStock[] = {"Primary Button Text", "CommandMenu Text", "Scoreboard Text", "Scoreboard Small Text"};
+	static const char* const kDetailStock[] = {"Briefing Text", "Scoreboard Text", "Scoreboard Small Text", "Scoreboard Small Text"};
+	static const char* const kFlashStock[] = {"Title Font", "Primary Button Text", "CommandMenu Text", "Scoreboard Text"};
 	if (!gViewPort)
 		return nullptr;
 	step = H9Clamp(step, 0, 3);
 	const char* name = (which == H9V_FONT_DETAIL) ? kDetail[step] : (which == H9V_FONT_FLASH) ? kFlash[step] : kText[step];
+	const char* stock = (which == H9V_FONT_DETAIL) ? kDetailStock[step] : (which == H9V_FONT_FLASH) ? kFlashStock[step] : kTextStock[step];
 	CSchemeManager* sm = gViewPort->GetSchemeManager();
-	return sm->getFont(sm->getSchemeHandle(name));
+	SchemeHandle_t handle = sm->getSchemeHandle(name);
+	if (handle == 0) // not in this scheme file (the lookup answers the first scheme for a name it does not know)
+		handle = sm->getSchemeHandle(stock);
+	return sm->getFont(handle);
 }
 
 int H9FontTall(vgui::Font* font)

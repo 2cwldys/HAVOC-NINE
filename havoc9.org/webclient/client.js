@@ -18,7 +18,8 @@
 // PLAY starts the game to its main menu, as starting H9XASH does: the player finds a server in the
 // menu's server browser and joins it there, and can leave it and join another without reloading
 // the page. Until engine/xash.js and the manifest can both be fetched, the page keeps its own text,
-// which says the client is in preparation.
+// which says the client is in preparation; it looks again every 10 seconds for two minutes, so a
+// site restart or a new build being put in place does not leave it there.
 //
 // A page has no UDP. Each engine socket is one WebSocket to the relay, and each message on it is
 // one datagram: 4 bytes of IPv4 address and 2 of port, both in network order, then the payload.
@@ -34,6 +35,11 @@
 // A server's splash MOTD (docs\H9_MOTD.txt), a picture or a web page in place of TS's text MOTD,
 // is shown by this page over the game (motdOverlay), when the engine hands it over.
 //
+// The server browser's chain (green: havoc9.org vouches for the server, red: it does not) and the scoreboard's
+// pictures come from this page's own site, as the engine has no sockets of its own here: chainFeed puts havoc9.org's
+// list where the menu reads it, and avatarFeed fetches each player's picture for the engine. warmFeed fetches the
+// files a join is about to read, so the join does not hold the page still while each one comes.
+//
 // Kept in this browser (localStorage): the player's config.cfg without its id lines (withoutIds),
 // the engine's .xash_id and, when no account is signed in, a random H9 client id. A signed-in page
 // hands over the account's player id (window.h9webAccount.playerId) at every start, which becomes
@@ -46,7 +52,9 @@
     engine: "engine/", game: "game/", manifest: "manifest.json", preload: "preload.json",
     gamedir: "ts", args: [], commands: [], fonts: [], relay: "relay", master: "192.0.2.1:27010", servers: [],
   };
-  const KEY = { config: "h9web.config", xashId: "h9web.xash_id", userId: "h9web.userid" };
+  const KEY = { config: "h9web.config", xashId: "h9web.xash_id", userId: "h9web.userid", defaults: "h9web.defaults" };
+  // the stock name and model changed from Sprayer and gordon to Proletarian and proletarian (2026-11-05); see playerFiles
+  const DEFAULTS_NOW = "name-model-2026-11-05";
   const $ = (id) => document.getElementById(id);
   const folder = (path) => new URL(path.endsWith("/") ? path : path + "/", location.href);
   const mb = (n) => (n / 1048576).toFixed(0);
@@ -66,7 +74,11 @@
   let manifestLower = null, menuVideo = null;
   // the site's front page: where the game's X, Quit and LEAVE go, as closing H9XASH ends a session
   const HOME = new URL("../index.html", location.href).href;
-  let started = false, stopped = false, leaving = false, configKept = null;
+  let started = false, stopped = false, leaving = false, configKept = null, initTries = 0;
+  // the game has quit (quitHome): its engine has shut down, so nothing calls into it any more
+  let gone = false;
+  // the game files the engine has read: nothing is fetched ahead for them (warmFeed)
+  const loadedFiles = new Set();
   const log = [];
   window.h9web = { log, module: () => mod };
 
@@ -96,7 +108,12 @@
     engineBase = folder(settings.engine);
     gameBase = folder(settings.game);
     const built = await reachable(new URL("xash.js", engineBase)) && await reachable(new URL(settings.manifest, location.href));
-    if (!built) return;
+    if (!built) {
+      // the package can be out of reach for a moment (the site restarting, a new build being put in
+      // place): the page looks again every 10 seconds for two minutes before it keeps its own text
+      if (++initTries < 12) setTimeout(init, 10000);
+      return;
+    }
     if (!webgl2()) {
       say("WEBGL 2 NEEDED", "This browser cannot draw the game: it offers no WebGL 2.",
         "Use a current Chrome, Edge or Firefox with hardware acceleration turned on.");
@@ -307,15 +324,18 @@
       video: pageVideo(() => config.FS),
       motd: motdOverlay(),
       travel: travelReach(),
+      avatar: avatarFeed(),
+      warm: warmFeed(warm),
+      audio: audioFeed(),
       preRun: [(m) => mountDisk((m && m.FS) || config.FS, warm)],
       callbacks: {
         gameReady: () => onReady(config, server, warm),
         // the menu's X and Quit, and quit or exit in the console; an error ends here too and stays on screen
-        gameQuit: (error) => (error ? stop("The game stopped with an error.") : goHome()),
+        gameQuit: (error) => (error ? stop("The game stopped with an error.") : quitHome()),
         // the menu's minimize button: a page has no window to minimize
         gameMinimize: () => leaveFullscreen(),
       },
-      onExit: () => goHome(),
+      onExit: () => quitHome(),
       onAbort: (what) => stop("The game stopped: " + what + "."),
     };
     return config;
@@ -370,7 +390,14 @@
     own.set(gd + "/menu_bg_video_resolved.cfg", menuVideo ? "ui_background_video_file \"" + menuVideo.name + "\"\n" : "");
     // runs at every start, after config.cfg: H9's colours and the files above, whatever config.cfg holds
     own.set(gd + "/userconfig.d/h9web.cfg", "exec userconfig.cfg\n");
-    const cfg = store.get(KEY.config);
+    let cfg = store.get(KEY.config);
+    // A config saved while the stock name and model were Sprayer and gordon still says so, and Sprayer was never anyone's choice: it moves to
+    // the new stock ones, once. The marker says it was done; after that what is stored is the player's, whatever it holds.
+    if (cfg && store.get(KEY.defaults) !== DEFAULTS_NOW) {
+      cfg = cfg.replace(/^name "Sprayer"[ \t]*$/m, 'name "Proletarian"').replace(/^model "gordon"[ \t]*$/m, 'model "proletarian"');
+      store.set(KEY.config, cfg);
+    }
+    store.set(KEY.defaults, DEFAULTS_NOW);
     if (cfg) own.set(gd + "/config.cfg", withoutIds(cfg));
     const xid = store.get(KEY.xashId);
     if (/^[0-9A-Fa-f]{16}$/.test(xid || "")) own.set(gd + "/.xash_id", xid);
@@ -388,13 +415,14 @@
         get() {
           if (!loaded) {
             loaded = true;
+            loadedFiles.add(f.path);
             bytes = warm.get(f.path) || readNow(f);
             warm.delete(f.path);
             used = bytes.length;
           }
           return bytes;
         },
-        set(v) { loaded = true; bytes = v; },
+        set(v) { loaded = true; loadedFiles.add(f.path); bytes = v; },
         configurable: true,
       },
       usedBytes: {
@@ -443,6 +471,7 @@
       } catch (e) { /* the engine has not written one */ }
       setInterval(() => saveConfig(true), 15000);
       for (const c of settings.commands || []) command(c);
+      chainFeed();
       if (server) command("connect " + server.address);
       else startMenuMusic(warm);
     };
@@ -476,8 +505,9 @@
     return new Uint8Array(await r.arrayBuffer());
   }
 
-  // Queued: it runs in the engine's next frame, never inside another command.
+  // Queued: it runs in the engine's next frame, never inside another command; nothing once the game has quit.
   function command(text) {
+    if (gone) return;
     try { mod.ccall("Cbuf_AddText", null, ["string"], [text + "\n"]); } catch (e) { note("page: " + e.message); }
   }
 
@@ -501,6 +531,15 @@
     stopped = true;
     if (document.exitPointerLock) document.exitPointerLock();
     status(text + " Reload the page to play again, or LEAVE for the front page.");
+  }
+
+  // The game quit by itself (the menu's X or Quit, quit or exit in the console): the engine has shut down
+  // and freed its memory, though the module stays loaded for the page. From here the page calls into it no
+  // more (command, disconnectNow, LEAVE): a command it ran now would free the last one's arguments again.
+  // Then the front page, with the config.cfg the engine wrote as it shut down kept first.
+  function quitHome() {
+    gone = true;
+    goHome();
   }
 
   // Back to the site's front page, as closing H9XASH ends a session: the player's config.cfg, which the
@@ -640,6 +679,352 @@
       reachable(address) {
         if (!listed) return undefined;
         return listed.has(String(address));
+      },
+    };
+  }
+
+  // The server browser's chain, which the game on a PC draws from havoc9.org's list (engine cl_h9auth.c,
+  // docs\H9_PRESENCE.txt section 4d): green beside a server the site vouches for, red beside every other. The engine
+  // has no sockets here, so the page reads GET /api/presence/servers/auth when the game is up and every 30 seconds,
+  // and sets the two cvars the menu reads: _h9srv, " <address>=<o|r|m> ... ", and _h9srv_gen, which stays unset until
+  // an answer has been read and then counts the answers that changed the list. The menu runs h9_servers on each
+  // refresh; here the page keeps the list current, so that command waits a frame and does nothing. A site with no
+  // such list leaves both unset, and the menu draws no chain.
+  function chainFeed() {
+    const api = new URL("../api/presence/servers/auth", location.href).href;
+    let gen = 0, kept = null;
+    command('alias h9_servers "wait"');
+    const read = async () => {
+      if (gone) return;
+      try {
+        const r = await fetch(api, { cache: "no-cache" });
+        if (!r.ok) return;
+        const list = chainList(await r.text());
+        if (list === null || list === kept) return;
+        kept = list;
+        gen++;
+        command('set _h9srv "' + list + '"');
+        command("set _h9srv_gen " + gen);
+      } catch (e) { /* the list as it was stands */ }
+    };
+    read();
+    setInterval(read, 30000);
+  }
+
+  // " <address>=<c> <address>=<c> " from the site's answer: the line "H9SRV 1", then "<address> ok|rp|mod" for each server
+  // it names (c is o, r or m). Null when the answer is anything else. A line that is not a.b.c.d:port and a verdict is
+  // skipped, and the list ends at a whole entry before it would outgrow one command line (the engine drops a line of
+  // 2047 characters or more).
+  function chainList(text) {
+    const lines = String(text).split("\n").map((l) => l.replace(/\r$/, ""));
+    if (lines[0] !== "H9SRV 1") return null;
+    let list = " ";
+    for (const line of lines.slice(1)) {
+      const m = /^((\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):(\d{1,5})) (ok|rp|mod)$/.exec(line);
+      if (!m || [m[2], m[3], m[4], m[5]].some((n) => Number(n) > 255) || Number(m[6]) < 1 || Number(m[6]) > 65535) continue;
+      const entry = m[1] + "=" + m[7][0] + " ";
+      if (list.length + entry.length > 1800) break;
+      list += entry;
+    }
+    return list;
+  }
+
+  // The scoreboard's pictures (engine cl_avatar.c, docs\PLAYER_LIMIT_128.txt 11.7). The engine names a slot's account and
+  // the version of its picture (Module.avatar.want); the page fetches that 64 x 64 PNG from its own site, writes it where
+  // the engine reads it (downloads/h9avatars/web_<account>_<version>.png) and runs h9_avatar_page for each slot waiting for
+  // it. A picture written once stays for the session, so a map change asks for nothing. One that cannot be fetched is tried
+  // again 15 seconds, one minute and five minutes later; the engine's next word on the slot, which each map brings, starts it
+  // over.
+  function avatarFeed() {
+    const base = new URL("../api/presence/avatar/", location.href).href;
+    const waiting = new Map(); // "account_version" -> the slots that wait for it
+    const tries = new Map();
+    const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    const fetchOne = async (key, account, version) => {
+      let bytes = null;
+      try {
+        const r = await fetch(base + account + "/" + version + ".png", { cache: "force-cache" });
+        if (r.ok) {
+          const b = new Uint8Array(await r.arrayBuffer());
+          // a PNG the engine would take: 32 KB at most
+          if (b.length >= 33 && b.length <= 32768 && PNG.every((x, i) => b[i] === x)) bytes = b;
+        }
+      } catch (e) { /* tried again below */ }
+      const slots = waiting.get(key);
+      if (!slots) return;
+      if (bytes && mod && !gone) {
+        try {
+          const dir = "/" + settings.gamedir + "/downloads/h9avatars";
+          mod.FS.mkdirTree(dir);
+          mod.FS.writeFile(dir + "/web_" + key + ".png", bytes);
+          waiting.delete(key);
+          tries.delete(key);
+          for (const slot of slots) command("h9_avatar_page " + slot + " " + account + " " + version);
+          return;
+        } catch (e) { note("page: picture " + key + " could not be kept: " + e.message); }
+      }
+      const n = (tries.get(key) || 0) + 1;
+      tries.set(key, n);
+      if (n > 3 || gone) {
+        waiting.delete(key);
+        tries.delete(key);
+        return;
+      }
+      setTimeout(() => fetchOne(key, account, version), [15000, 60000, 300000][n - 1]);
+    };
+    return {
+      want(slot, account, version) {
+        if (![slot, account, version].every(Number.isSafeInteger) || account <= 0 || version < 0) return;
+        const key = account + "_" + version;
+        const slots = waiting.get(key);
+        if (slots) {
+          slots.add(slot);
+          return;
+        }
+        waiting.set(key, new Set([slot]));
+        fetchOne(key, account, version);
+      },
+    };
+  }
+
+  // The game's sound, on the audio thread. SDL plays the engine's sound through a ScriptProcessorNode, which runs on this page's main thread,
+  // the thread every game frame runs on: a frame in progress, or the browser's own work for a key held down, held the callback, and the sound
+  // crackled and hung until the key was let go. The engine (platform/sdl2/s_sdl2.c) hands its mixed sound to this instead. push(from, pcm) is
+  // the stream's frames from `from` on (the mixer paints about 0.2 s ahead of what is playing), position() is how many frames the audio
+  // thread has played, and h9audio.js, an AudioWorklet, plays them: a thread of its own. init() answers false where the browser has no
+  // AudioWorklet (or this is not a secure context), and the engine then uses SDL's device as it always did. stats() is for the tests.
+  const AUDIO_VERSION = "3"; // bumped when h9audio.js changes: the browser would keep the old file otherwise
+  function audioFeed() {
+    let ctx = null, node = null, f0 = null, down = false, pendingFrames = 0;
+    const pending = []; // [from, Float32Array] pushed before the worklet had begun
+    const stats = { played: 0, starved: 0, pushed: 0 };
+    let pushes = 0; // push() calls the engine has made
+    const supported = () => typeof AudioContext !== "undefined" && typeof AudioWorkletNode !== "undefined" && window.isSecureContext;
+    const wake = () => { if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {}); };
+    const send = (from, pcm) => node.port.postMessage({ pos: from, pcm }, [pcm.buffer]);
+    const position = () => (f0 === null || !ctx ? 0 : Math.max(0, Math.floor(ctx.currentTime * ctx.sampleRate) - f0));
+    return {
+      init(rate, channels) {
+        if (ctx || down || channels !== 2 || !supported()) return false;
+        try {
+          ctx = new AudioContext({ sampleRate: rate, latencyHint: "interactive" });
+        } catch (e) {
+          ctx = null;
+          return false;
+        }
+        ctx.audioWorklet.addModule(new URL("h9audio.js?v=" + AUDIO_VERSION, location.href).href).then(() => {
+          if (down) return;
+          node = new AudioWorkletNode(ctx, "h9-out", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { frames: 65536 } });
+          node.port.onmessage = (e) => {
+            const m = e.data;
+            if (m.started !== undefined) {
+              f0 = m.started;
+              for (const [from, pcm] of pending) send(from, pcm);
+              pending.length = 0;
+              pendingFrames = 0;
+            }
+            if (m.stats) Object.assign(stats, m.stats);
+          };
+          node.connect(ctx.destination);
+          wake();
+        }).catch((e) => note("page: the audio worklet did not start: " + (e && e.message ? e.message : e)));
+        // an AudioContext made before any input starts suspended: the first press or click starts it
+        for (const type of ["pointerdown", "keydown"]) window.addEventListener(type, wake, { capture: true, passive: true });
+        return true;
+      },
+      position,
+      // the count of played frames starts over at 0: the engine counts them in an int, and was about to run out of it
+      rebase() {
+        if (!node || f0 === null) return;
+        f0 += position();
+        pending.length = 0;
+        pendingFrames = 0;
+        node.port.postMessage({ base: f0 });
+      },
+      push(from, pcm) {
+        if (down) return;
+        pushes++;
+        if (node && f0 !== null) {
+          send(from, pcm);
+          return;
+        }
+        pending.push([from, pcm]);
+        pendingFrames += pcm.length >> 1;
+        while (pendingFrames > 88200 && pending.length) pendingFrames -= pending.shift()[1].length >> 1;
+      },
+      flush() {
+        pending.length = 0;
+        pendingFrames = 0;
+        if (node) node.port.postMessage({ flush: true });
+      },
+      activate(on) {
+        if (ctx && !down) (on ? ctx.resume() : ctx.suspend()).catch(() => {});
+      },
+      close() {
+        down = true;
+        pending.length = 0;
+        try {
+          if (node) node.disconnect();
+          if (ctx) ctx.close();
+        } catch (e) { /* closed already */ }
+        node = ctx = null;
+      },
+      stats: () => ({ mode: ctx ? "worklet" : "none", state: ctx ? ctx.state : "none", rate: ctx ? ctx.sampleRate : 0, queued: pendingFrames, position: position(), pushes, ...stats }),
+    };
+  }
+
+  // A join reads hundreds of game files in one engine call (CL_PrecacheResources), and a file here is a fetch the engine waits
+  // for, so the page stood still, with no frame, no sound and no key, for as long as all of them took: 499 files and 269 MB
+  // on 2026-11-04, one 46 second stop. The engine (cl_h9warm.c) hands over the files that call will read as soon as the server's
+  // resource list is in. The page fetches them in parallel, in the order given, into the memory the preload uses (warm), shows
+  // what it is fetching in a box over the game (downloadBox), and the precache then finds them here. want(list) starts it (a name
+  // on each line: the file as the server named it, sounds with their sound/); state() is 0 while it fetches and 1 when it is
+  // done; done(), total() and kb() count; cancel() drops what has not started. A file it cannot fetch is read when the engine
+  // asks, as before.
+  function warmFeed(warm) {
+    let queue = [], active = 0, live = 0, done = 0, total = 0, bytes = 0, run = 0;
+    const LANES = 5; // a browser keeps six connections to a host: one stays free for the reads the engine still makes itself
+    const box = downloadBox();
+    const now = new Map(); // the files being fetched: path -> { size, got }
+
+    // a file's bytes as they come, so the box shows each one's progress
+    async function grab(f, entry, onBytes) {
+      const r = await fetch(fileUrl(f));
+      if (!r.ok) throw new Error(f.path + " answered " + r.status);
+      if (!r.body || !r.body.getReader) {
+        const all = new Uint8Array(await r.arrayBuffer());
+        entry.got = all.length;
+        onBytes(all.length);
+        return all;
+      }
+      const reader = r.body.getReader(), chunks = [];
+      let n = 0;
+      for (;;) {
+        const { done: end, value } = await reader.read();
+        if (end) break;
+        chunks.push(value);
+        n += value.length;
+        entry.got = n;
+        onBytes(value.length);
+      }
+      const out = new Uint8Array(n);
+      let at = 0;
+      for (const c of chunks) { out.set(c, at); at += c.length; }
+      return out;
+    }
+
+    const pump = () => {
+      while (active < LANES && queue.length) {
+        const f = queue.shift(), mine = run;
+        const entry = { size: f.size, got: 0 };
+        now.set(f.path, entry);
+        active++;
+        live++;
+        grab(f, entry, (n) => { if (mine === run) { bytes += n; box.bytes(n); } }).then((got) => {
+          if (mine === run && !loadedFiles.has(f.path)) warm.set(f.path, got);
+        }).catch((e) => note("page: " + f.path + " not fetched ahead: " + e.message)).finally(() => {
+          active--;
+          now.delete(f.path);
+          if (mine === run) { live--; done++; }
+          if (mine === run && !live && !queue.length) box.end();
+          pump();
+        });
+      }
+    };
+    return {
+      want(text) {
+        run++;
+        queue = [];
+        live = done = total = bytes = 0;
+        now.clear();
+        const seen = new Set();
+        let size = 0;
+        for (const name of String(text).split("\n")) {
+          if (!name) continue;
+          const f = findFile(settings.gamedir + "/" + name) || findFile("valve/" + name);
+          if (!f || seen.has(f.path) || warm.has(f.path) || loadedFiles.has(f.path)) continue;
+          seen.add(f.path);
+          queue.push(f);
+          size += f.size;
+        }
+        total = queue.length;
+        if (!total) return;
+        box.begin(total, size, () => ({ done, total, active: [...now.entries()] }));
+        pump();
+      },
+      state: () => (live || queue.length ? 0 : 1),
+      done: () => done,
+      total: () => total,
+      kb: () => Math.round(bytes / 1024),
+      cancel() { run++; queue = []; live = 0; now.clear(); box.end(); },
+    };
+  }
+
+  // The box over the game while a join's files come: the same kind of box as the first download's text, with what it is
+  // fetching (each file's name, size and progress), the whole of it as a bar, megabytes done and left, and the time that
+  // takes at the speed of the last few seconds. It never takes a click or a key.
+  function downloadBox() {
+    let el = null, timer = 0, totalBytes = 0, gotBytes = 0, files = 0, view = null;
+    const marks = []; // [time, bytes] over the last seconds, for the speed
+    const size = (n) => (n >= 1048576 ? (n / 1048576).toFixed(n >= 10485760 ? 0 : 1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
+    const css = ".webclient-download{width:min(36rem,92vw);text-align:left;pointer-events:none;z-index:6}" +
+      ".webclient-download .dl-title{letter-spacing:.12em;font-size:.8rem;margin-bottom:.6rem}" +
+      ".webclient-download .dl-bar{height:.55rem;border:1px solid var(--border);background:rgba(255,255,255,.06);margin:.25rem 0}" +
+      ".webclient-download .dl-bar>i{display:block;height:100%;width:0;background:var(--purple,#8c3fc8)}" +
+      ".webclient-download .dl-line{font-size:.78rem;opacity:.85;margin:.15rem 0 .6rem}" +
+      ".webclient-download .dl-file{font-size:.72rem;display:grid;grid-template-columns:1fr auto;gap:0 .75rem;margin:.1rem 0;opacity:.9}" +
+      ".webclient-download .dl-file .dl-bar{grid-column:1/3;height:.3rem;margin:.05rem 0 .3rem}" +
+      ".webclient-download .dl-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}";
+    const build = () => {
+      const style = document.createElement("style");
+      style.textContent = css;
+      document.head.appendChild(style);
+      el = document.createElement("div");
+      el.className = "webclient-status webclient-download";
+      el.hidden = true;
+      $("stage").appendChild(el);
+    };
+    const speed = () => {
+      const t = performance.now();
+      marks.push([t, gotBytes]);
+      while (marks.length > 2 && t - marks[0][0] > 6000) marks.shift();
+      const a = marks[0], b = marks[marks.length - 1];
+      return b[0] > a[0] ? ((b[1] - a[1]) * 1000) / (b[0] - a[0]) : 0;
+    };
+    const time = (s) => (s < 90 ? Math.max(1, Math.round(s)) + " s" : Math.round(s / 60) + " min");
+    const render = () => {
+      if (!el || !view) return;
+      const v = view();
+      const pct = totalBytes ? Math.min(100, (100 * gotBytes) / totalBytes) : 0;
+      const bps = speed();
+      const left = bps > 50000 ? " &middot; about " + time((totalBytes - gotBytes) / bps) + " left" : "";
+      const rows = v.active.slice(0, 5).map(([path, e]) =>
+        '<div class="dl-file"><span class="dl-name"></span><span>' + size(e.got) + " of " + size(e.size) + '</span><div class="dl-bar"><i style="width:' + (e.size ? Math.min(100, (100 * e.got) / e.size) : 0).toFixed(0) + '%"></i></div></div>');
+      el.innerHTML = '<div class="dl-title">DOWNLOADING THE GAME FILES FOR THIS SERVER</div>' +
+        '<div class="dl-bar"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
+        '<div class="dl-line">' + v.done + " of " + v.total + " files &middot; " + size(gotBytes) + " of " + size(totalBytes) +
+        " &middot; " + size(Math.max(0, totalBytes - gotBytes)) + " to go" + left + "</div>" + rows.join("");
+      // names go in as text, never as markup
+      const names = el.querySelectorAll(".dl-name");
+      v.active.slice(0, 5).forEach(([path], i) => { if (names[i]) names[i].textContent = path.replace(/^(ts|valve)\//, ""); });
+    };
+    return {
+      begin(files_, bytes_, getView) {
+        if (!el) build();
+        totalBytes = bytes_;
+        gotBytes = 0;
+        files = files_;
+        view = getView;
+        marks.length = 0;
+        el.hidden = false;
+        if (!timer) timer = setInterval(render, 250);
+        render();
+      },
+      bytes(n) { gotBytes += n; },
+      end() {
+        if (timer) { clearInterval(timer); timer = 0; }
+        view = null;
+        if (el) el.hidden = true;
       },
     };
   }
@@ -1044,6 +1429,13 @@
     $("canvas").focus();
   });
 
+  // Tab is the scoreboard in game. SDL keeps the browser from using it when a press reaches SDL; this makes
+  // sure of it for every press while the game runs, a held one and the cursor's clicks on the board included:
+  // the browser's focus never walks off the game onto the page's buttons.
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Tab" && started && !stopped && !e.ctrlKey && !e.altKey && !e.metaKey) e.preventDefault();
+  }, true);
+
   // Esc opens the game's menu, and Ctrl+W is crouch and forward. In full screen, Chrome and Edge
   // hand such keys to the page when it asks; out of it the browser keeps them.
   document.addEventListener("fullscreenchange", () => {
@@ -1058,13 +1450,13 @@
   // A connection that is simply lost cannot say goodbye; the server times that player out.
   let saidGoodbye = false;
   function disconnectNow() {
-    if (!mod || stopped || saidGoodbye) return;
+    if (!mod || stopped || gone || saidGoodbye) return;
     saidGoodbye = true;
     try { mod.ccall("Cmd_ExecuteString", null, ["string"], ["disconnect"]); } catch (e) { /* the server times the player out instead */ }
   }
 
   $("stageLeave").addEventListener("click", () => {
-    if (mod && !stopped) {
+    if (mod && !stopped && !gone) {
       try { mod.ccall("Cmd_ExecuteString", null, ["string"], ["host_writeconfig"]); } catch (e) { /* the copy from the last save stands */ }
     }
     disconnectNow();

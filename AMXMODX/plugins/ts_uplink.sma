@@ -41,6 +41,7 @@
 #include <fakemeta>
 #include <tsm_api>
 #include <h9_vgui>      // an H9 game shows the carrier's status and the uplink's news on panels
+#include <h9_marks>     // and the zones and the uplink through the walls
 
 #define PLUGIN  "TS Uplink"
 #define VERSION "1.0"
@@ -53,6 +54,7 @@
 #define UPL_TICK       0.1
 #define UPL_TASK_TICK  71101
 #define UPL_TASK_CLAIM 71102
+#define UPL_SLOT_UPLINK 10   // the uplink's place among the marks (h9_marks.inc); the zones' are 1 to UPL_MAXZONES
 
 /*
  * The assets. Built by export-map/h9_drainage/sprites.mjs (the sprites) and the SMAK model
@@ -537,6 +539,102 @@ paint_zone(n)
 	{
 		set_pev(flag, pev_frame, float(g_zone_owner[n]));
 	}
+	zone_mark(n);
+}
+
+/* ---- the marks: where the zones and the uplink are, through the walls ---------------------- */
+
+/// A zone's mark: its number in its holder's colour, hung where its flag is, and a bar under it while a carrier is taking it.
+zone_mark(n)
+{
+	if (!g_active || n < 1 || n > UPL_MAXZONES || !g_zone_have[n])
+	{
+		return;
+	}
+	new Float:at[3], label[8], text[64], sname[24];
+	at[0] = g_zone_org[n][0];
+	at[1] = g_zone_org[n][1];
+	at[2] = g_zone_org[n][2] + UPL_FLAG_HIGH;
+	formatex(label, charsmax(label), "%d", n);
+	new owner = g_zone_owner[n];
+	new bool:taking = (g_cap_zone == n && (g_cap_side == 1 || g_cap_side == 2));
+	new pct = 0;
+	if (taking)
+	{
+		new Float:need = get_pcvar_float(g_cv_captime);
+		pct = (need > 0.0) ? floatround(100.0 * (get_gametime() - g_cap_started) / need) : 0;
+		pct = clamp(pct, 0, 100);
+		side_name(g_cap_side, sname, charsmax(sname));
+		formatex(text, charsmax(text), "ZONE %d - %s TAKING %d%%", n, sname, pct);
+	}
+	else if (owner == 1 || owner == 2)
+	{
+		side_name(owner, sname, charsmax(sname));
+		formatex(text, charsmax(text), "ZONE %d - %s", n, sname);
+	}
+	else
+	{
+		formatex(text, charsmax(text), "ZONE %d", n);
+	}
+	h9marks_set(n, owner, taking ? 1 : 0, taking ? g_cap_side : 0, pct, at, label, text);
+}
+
+/// The uplink's mark: UPLINK where it stands at its post, CARRIER over whoever has it (in his side's colour, following him), DROPPED
+/// where it lies, in the colour of the side that lost it. Down while there is no uplink in the world.
+uplink_mark()
+{
+	if (!g_active || !pev_valid(g_up_ent))
+	{
+		h9marks_remove(UPL_SLOT_UPLINK);
+		return;
+	}
+	new Float:at[3], text[64], sname[24];
+	new owner = 0;
+	if (g_carrier && is_user_connected(g_carrier))
+	{
+		pev(g_carrier, pev_origin, at);
+		at[2] += 56.0;
+		owner = tsm_side_of(g_carrier);
+		side_name(owner, sname, charsmax(sname));
+		formatex(text, charsmax(text), "THE UPLINK - %s CARRIER", sname);
+		h9marks_set(UPL_SLOT_UPLINK, owner, 0, 0, 0, at, "CARRIER", text);
+		return;
+	}
+	pev(g_up_ent, pev_origin, at);
+	at[2] += 40.0;
+	if (g_at_home)
+	{
+		copy(text, charsmax(text), "THE UPLINK");
+		h9marks_set(UPL_SLOT_UPLINK, 0, 0, 0, 0, at, "UPLINK", text);
+		return;
+	}
+	owner = g_last_side;
+	copy(text, charsmax(text), "THE UPLINK - DROPPED");
+	h9marks_set(UPL_SLOT_UPLINK, owner, 0, 0, 0, at, "DROPPED", text);
+}
+
+/// Each tick: every mark as things stand (only a changed one goes out), and the rolling refresh.
+marks_tick()
+{
+	for (new n = 1; n <= UPL_MAXZONES; n++)
+	{
+		if (g_zone_have[n])
+		{
+			zone_mark(n);
+		}
+	}
+	uplink_mark();
+	h9marks_tick(10);
+}
+
+public client_putinserver(id)
+{
+	h9marks_player_in(id);
+}
+
+public client_disconnected(id)
+{
+	h9marks_player_out(id);
 }
 
 /// Steps every ring's animation on, ten frames a second.
@@ -617,6 +715,7 @@ remove_uplink()
 	g_at_home = false;
 	hide_mark();
 	clear_capture();
+	h9marks_remove(UPL_SLOT_UPLINK);
 }
 
 /// A player takes the uplink: on his back, marked for everyone.
@@ -646,7 +745,7 @@ pick_up(id)
 	new name[32], side[24];
 	get_user_name(id, name, charsmax(name));
 	side_name(tsm_side_of(id), side, charsmax(side));
-	client_print(0, print_chat, "[MATCH] %s has the uplink for %s!", name, side);
+	mode_chat(0, "[MATCH] %s has the uplink for %s!", name, side);
 	uplink_news(tsm_side_of(id), "%s has the uplink for %s", name, side);
 	if (!is_user_bot(id))
 	{
@@ -698,7 +797,7 @@ drop_uplink(const reason[])
 	{
 		copy(name, charsmax(name), "The carrier");
 	}
-	client_print(0, print_chat, "[MATCH] %s %s the uplink.", name, reason);
+	mode_chat(0, "[MATCH] %s %s the uplink.", name, reason);
 	uplink_news(g_last_side, "%s %s the uplink", name, reason);
 }
 
@@ -714,7 +813,7 @@ return_uplink()
 	{
 		emit_sound(g_up_ent, CHAN_AUTO, UPL_SND_RETURN, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 	}
-	client_print(0, print_chat, "[MATCH] The uplink is back at its post.");
+	mode_chat(0, "[MATCH] The uplink is back at its post.");
 	uplink_news(0, "The uplink is back at its post");
 }
 
@@ -849,6 +948,7 @@ public task_tick()
 
 	g_ticks++;
 	animate_rings();
+	marks_tick();
 
 	// Outside a live round there is no uplink in play, whatever ended the round: a halt, a
 	// cancel and an abandoned match all pass through here, not only the round-end forward.
@@ -975,7 +1075,7 @@ carried_tick()
 
 		new sname[24];
 		side_name(side, sname, charsmax(sname));
-		client_print(0, print_chat, "[MATCH] %s is taking zone %d.", sname, z);
+		mode_chat(0, "[MATCH] %s is taking zone %d.", sname, z);
 	}
 
 	new Float:need = get_pcvar_float(g_cv_captime);
@@ -1243,12 +1343,12 @@ reward_capture(side, const sname[])
 	if (reward == 2)
 	{
 		new other = tsm_fire_wave(3 - side);
-		client_print(0, print_chat, "[MATCH] Lives are back to full on both sides -- %d of the fallen are back in the fight.",
+		mode_chat(0, "[MATCH] Lives are back to full on both sides -- %d of the fallen are back in the fight.",
 			back + other);
 		log_amx("[UPLINK] Zone reward, both sides: lives reset, %d and %d back at once.", back, other);
 		return;
 	}
-	client_print(0, print_chat, "[MATCH] Lives are back to full for %s -- %d of their fallen %s back in the fight.",
+	mode_chat(0, "[MATCH] Lives are back to full for %s -- %d of their fallen %s back in the fight.",
 		sname, back, (back == 1) ? "is" : "are");
 	log_amx("[UPLINK] Zone reward for side %d: lives reset, %d back at once.", side, back);
 }
@@ -1271,7 +1371,7 @@ capture_zone(z, side, id)
 	new name[32], sname[24];
 	get_user_name(id, name, charsmax(name));
 	side_name(side, sname, charsmax(sname));
-	client_print(0, print_chat, "[MATCH] %s took zone %d for %s -- %s holds %d of %d.",
+	mode_chat(0, "[MATCH] %s took zone %d for %s -- %s holds %d of %d.",
 		name, z, sname, sname, held[side], g_zone_count);
 	uplink_news(side, "%s took zone %d for %s -- %d of %d held", name, z, sname, held[side], g_zone_count);
 	tsm_points_award(id, TSM_POINTS_ZONE);
@@ -1281,7 +1381,7 @@ capture_zone(z, side, id)
 	// Every zone held ends the round on the spot: nothing is left to give lives back for.
 	if (held[side] >= g_zone_count)
 	{
-		client_print(0, print_chat, "[MATCH] %s holds every zone.", sname);
+		mode_chat(0, "[MATCH] %s holds every zone.", sname);
 		tsm_end_round(side);
 		return;
 	}
@@ -1391,7 +1491,7 @@ public tsm_round_live(round)
 		return;
 	}
 	put_uplink(g_home, true);
-	client_print(0, print_chat, "[MATCH] The uplink is up -- carry it into a zone to take it.");
+	mode_chat(0, "[MATCH] The uplink is up -- carry it into a zone to take it.");
 }
 
 public tsm_round_end(winner)
@@ -1418,7 +1518,7 @@ public tsm_round_timeout()
 	new s1[24], s2[24];
 	side_name(1, s1, charsmax(s1));
 	side_name(2, s2, charsmax(s2));
-	client_print(0, print_chat, "[MATCH] Time up -- %s holds %d zone(s), %s holds %d.", s1, held[1], s2, held[2]);
+	mode_chat(0, "[MATCH] Time up -- %s holds %d zone(s), %s holds %d.", s1, held[1], s2, held[2]);
 
 	if (held[1] > held[2])
 	{
@@ -1592,6 +1692,7 @@ public cmd_cap_del(id, level, cid)
 		console_print(id, "[UPLINK] There is no zone %d.", n);
 		return PLUGIN_HANDLED;
 	}
+	h9marks_remove(n);
 	g_zone_have[n] = false;
 	g_zone_cfg[n] = false;
 	g_zone_owner[n] = 0;
@@ -1739,4 +1840,19 @@ public cmd_uplink_dump(id, level, cid)
 		g_ringcap_ok ? 1 : 0, g_flag_ok ? 1 : 0, g_mark_ok ? 1 : 0);
 	cmd_cap_list(id, level, cid);
 	return PLUGIN_HANDLED;
+}
+
+/// A "[MATCH]" chat line, kept off the chat while ts_matchmode's tsm_verbosity is 0, as its own
+/// are: the mode is then told by what players see (the HUD, the scoreboard, the centre texts).
+/// With no ts_matchmode to ask, the line goes out.
+mode_chat(id, const fmt[], any:...)
+{
+	new verbosity = get_cvar_pointer("tsm_verbosity");
+	if (verbosity && !get_pcvar_num(verbosity))
+	{
+		return;
+	}
+	new msg[256];
+	vformat(msg, charsmax(msg), fmt, 3);
+	client_print(id, print_chat, "%s", msg);
 }

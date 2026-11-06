@@ -45,6 +45,16 @@ cvar_t teammodels_force = {"mp_teammodels_force", "1", FCVAR_SERVER};
 // reTS addition, not in TS 3.0 (reference/DEVIATIONS.md): present and 1 when this game library has the PPSh-41 (weapon
 // 39), so a plugin can give a library without it another gun.
 cvar_t h9_ppsh41 = {"h9_ppsh41", "1", FCVAR_SERVER};
+// Likewise for the laser rifle (weapon 40).
+cvar_t h9_laserrifle = {"h9_laserrifle", "1", FCVAR_SERVER};
+// reTS addition, not in TS 3.0 (reference/DEVIATIONS.md): 1 plays the weapons H9 adds to TS (the PPSh-41, the laser rifle
+// and any added later: TS_IsCustomWeapon); 0 is TS 3.0's own roster: they cannot be bought or picked up, the buy menu
+// leaves them out (SrvSett id 4), and the match mode gives its classes the stock guns in their place.
+cvar_t h9_customweapons = {"h9_customweapons", "1", FCVAR_SERVER};
+bool H9_CustomWeaponsOn()
+{
+	return h9_customweapons.value != 0.0f;
+}
 cvar_t teamoverride = {"mp_teamoverride", "1"};
 cvar_t defaultteam = {"mp_defaultteam", "0"};
 cvar_t allowmonsters = {"mp_allowmonsters", "0", FCVAR_SERVER};
@@ -254,6 +264,8 @@ void GameDLLInit()
 	CVAR_REGISTER(&teammodels);
 	CVAR_REGISTER(&teammodels_force);
 	CVAR_REGISTER(&h9_ppsh41);
+	CVAR_REGISTER(&h9_laserrifle);
+	CVAR_REGISTER(&h9_customweapons);
 	CVAR_REGISTER(&teamoverride);
 	CVAR_REGISTER(&defaultteam);
 	CVAR_REGISTER(&allowmonsters);

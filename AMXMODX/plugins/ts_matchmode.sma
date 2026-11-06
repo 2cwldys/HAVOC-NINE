@@ -86,12 +86,14 @@
 #pragma dynamic 8192
 #define MAXPL (TSM_SLOTS + 1)
 // Spawn points a list holds: the map's own (g_spawns) and each team's configured ones.
-#define TSM_MAXSPAWNS 128
+#define TSM_MAXSPAWNS 256
+// The spawn "tier" active_spawn_tier answers when a mode opens spawn sets (tsm_spawn_open): the points of those sets, together.
+#define TSM_SPAWN_SETS -1
 
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.54-gameplay9"
+#define TSM_BUILD "1.56-assault1"
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -377,6 +379,7 @@ stock icon_frame_for(ci, team)
 // The siege alarm siren's one server-wide loop beat; a round holds exactly one
 // of these running, never a second stacked onto it.
 #define TSM_TASK_ALARM       90212
+#define TSM_TASK_SHIPPED     90219   // the game as it ships: TS's own weapon rules once more, after the map's own configs have run
 #define TSM_TASK_BOTFILL     90213
 
 // The staggered bot kicks: one task per bot, at this plus the bot's index, so the
@@ -402,6 +405,8 @@ stock icon_frame_for(ci, team)
 #define TSM_REVIVE_HOLD      15.0    // longest a wave keeps asking TS to respawn someone before it refuses them
 #define TSM_TASK_REVIVE      16000   // one pending revive per player: 16000 + id
 #define TSM_TASK_REVIVE_ARM  17000   // a wave revive's gear, once the spawn has settled: 17000 + id
+#define TSM_TASK_REVIVE_CHECK 18000  // a wave revive's position check, a moment after the placement that ends it: 18000 + id
+#define TSM_REVIVE_DRIFT     400.0   // a revived person further than this from where the wave put him is logged (a run takes him 180 in the time)
 
 // Forward declarations for functions used before definition
 forward disband_squad(leader);
@@ -798,6 +803,7 @@ new g_cv_breachents, g_cv_breachrange, g_cv_breachdoor[8];
 new g_cv_engdoorclass;
 new g_cv_engdoorteam;
 new g_cv_objteam, g_cv_objclass, g_cv_objtime, g_cv_objfuse, g_cv_objslay, g_cv_objrange;
+new g_cv_linearobj;               // tsm_linear_obj: 1 the objectives fall in numbered order, 0 in any order
 new g_cv_siegelives, g_cv_siegetime, g_cv_addtime;   // what a fall short of the last gives back
 new g_cv_objmsg1, g_cv_objmsg2;   // the round-start team banners
 new g_cv_armorder;
@@ -970,6 +976,8 @@ new g_engdoor_use_hits;       // of those, the ones on a door named tsm_eng_door
 new g_player_dmg_hits;        // every Ham_TakeDamage on "player" this hook has seen, bots included
 new g_fall_refused;           // of those, the fall hits on held bodies fw_takedamage sent back
 new bool:g_forcing_door;      // tsm_opendoor is forcing a door: fw_door_use lets it through
+new g_door_touch_hits;        // every Touch on a door that fw_door_touch has seen
+new g_door_touch_refused;     // of those, the ones on a Use Only door it turned away
 new g_cv_forcedoor;           // amx_tsm_forcedoor: tsm_opendoor works only while this is 1
 new bool:g_locked_out[MAXPL];  // joined mid-match; sits out until the match ends
 new bool:g_forfeit[MAXPL];     // has typed .forfeit this match
@@ -985,6 +993,8 @@ new g_gamedesc[64];
  */
 new bool:g_xash;
 new bool:g_has_ppsh;    // the game library has the PPSh-41 (weapon 39): reTS registers h9_ppsh41
+new bool:g_has_laser;   // the game library has the laser rifle (weapon 40): reTS registers h9_laserrifle
+new g_pc_customweapons; // h9_customweapons, which reTS registers (1 plays the PPSh-41 and the laser rifle, 0 is TS 3.0's own roster); 0 where the library has none
 
 // Facing for each team spawn. Only meaningful for config-placed spawns -- the
 // entity scan has no angles to copy, so it leaves players looking wherever they
@@ -998,6 +1008,8 @@ new g_cfg_spawns = 0;        // how many spawns the per-map cfg supplied
 // who was dead when the round started and respawned during the countdown.
 new bool:g_placed[MAXPL];
 new g_place_n[MAXPL];          // placements this round, for place_at_spawn's log line
+new Float:g_place_at[MAXPL][3];   // where place_at_spawn last put each player: a wave revive's position check measures from it
+new g_place_tier[MAXPL];          // the tier that placement asked for: the arm's respawn puts a revived player on the same one
 
 new g_dbgfile[64];
 new g_mapname[32];
@@ -1016,9 +1028,32 @@ new Float:g_round_ends = 0.0;   // gametime the round clock runs out: what task 
 new g_mode_name[16];          // the claimant's key, "uplink" or "survival"; empty for none
 new g_mode_desc[64];          // what the server browser shows while the mode runs
 new g_mode_flags;             // TSM_MODE_* bits the claim asked for
+new g_round_tag[24];          // what the bars and the chat call the round being played: "ROUND 2", or "MATCH" when the first round is the match
 new g_mode_hud[48];           // the mode's own text on the round line ("WAVE 12")
 new g_count_text[64];         // a mode's own countdown on the match bar (tsm_hud_count), {s} its seconds
 new Float:g_count_until;      // when that countdown runs out
+
+/*
+ * THE POOL OF LIVES (TSM_MODE_LIFE_POOL, include\tsm_api.inc). A mode that asks for it turns each side's lives into one pool: a
+ * death draws its class's cost from it, a death with the pool empty is final, and the scoreboard shows the pool in the side's row
+ * (H9Pool, byte side, short left, short start). Without the flag none of this runs.
+ */
+new g_pool[3];                  // lives left in each side's pool, 1 and 2
+new g_pool_start[3];            // what each side started the round with
+new g_pool_sent[3];             // left * 4096 + start as last sent to everyone, -1 none yet
+new bool:g_pool_counting;       // the last H9Pool said pools are counted
+new g_msg_pool;                 // H9Pool, registered at precache
+new g_class_cost[TSM_MAXCLASS];       // lives a death draws from the pool, by class: tsm_class_cost, 1 unless listed
+new g_mode_class_cost[TSM_MAXCLASS];  // a claimed mode's own (tsm_class_cost native); 0 keeps tsm_class_cost
+new g_cv_classcost, g_cv_poolbase, g_cv_poolplayer;
+
+/*
+ * SPAWN SETS OF A MODE (tsm_spawn_open). A mode that opens sets for a side takes over where that side's respawn waves land: the
+ * points of the forward tiers it has open, else the side's tier 0 points. Siege's own rule (an objective's tier unlocks when that
+ * objective has fallen) is the default and is not touched.
+ */
+new bool:g_spawn_ctl[3];                    // a mode has taken charge of this side's respawn points
+new g_open_set[3][TSM_SPAWN_TIER_MAX + 1];  // which forward tiers it has open, by side
 
 // THE MATCH BAR (bar_set): the round line, the freeze countdown and the warmup readout, for a game
 // that draws it, as two lines on the banner art under TS's notice band, sent again only on a change.
@@ -1137,6 +1172,7 @@ new Float:g_died_at[MAXPL];            // when the pending death happened
 new Float:g_wave_left[3];              // seconds to each team's next wave, indexed 1 and 2
 new Float:g_reinforce_next[MAXPL];     // the Officer's .reinforce cooldown
 new g_revive_slot[MAXPL];             // where in the team's points this player is put on a wave
+new g_wait_sig[MAXPL];                // what the Officer's waiting-list panel on his screen says (a checksum), 0 when none is up
 new g_revive_waits[MAXPL];           // half-second waits a wave revive has made so far
 new bool:g_revive_washed[MAXPL];     // the wave's wash has been done for this player
 new g_revive_refused[MAXPL];         // waves that could not bring this player back: 0 or 1
@@ -1223,7 +1259,7 @@ new g_msg_assists;                         // H9Assists, registered at precache
  * shows; a side's total keeps what its players earned even after they leave.
  */
 new g_cv_score, g_cv_sc_kill, g_cv_sc_teamkill, g_cv_sc_assist, g_cv_sc_heal, g_cv_sc_resupply;
-new g_cv_sc_plant, g_cv_sc_objective, g_cv_sc_zone, g_cv_sc_carry, g_cv_sc_carrysecs, g_cv_sc_wave;
+new g_cv_sc_plant, g_cv_sc_objective, g_cv_sc_zone, g_cv_sc_carry, g_cv_sc_carrysecs, g_cv_sc_wave, g_cv_sc_capture, g_cv_sc_return;
 new g_points[MAXPL];                       // this match's points
 new g_points_side[3];                      // each side's points this match
 new g_deaths_side[3];                      // each side's eliminations this match, its TeamScore deaths
@@ -1261,6 +1297,7 @@ new g_msg_board;                           // H9Board, registered at precache
 new g_lives_sent[MAXPL];                   // left * 256 + lives as last sent to everyone, -1 none yet
 new bool:g_lives_counting;                 // the last H9Lives said lives are counted
 new g_assists[MAXPL];
+new g_assists_h[MAXPL];                        // of those, the ones on kills no bot had a part in (ranked play's count)
 new g_hit_by[MAXPL][TSM_ASSIST_HITS];       // the ring, by victim: who hit him
 new Float:g_hit_dmg[MAXPL][TSM_ASSIST_HITS];  // how much health it cost
 new Float:g_hit_at[MAXPL][TSM_ASSIST_HITS];   // and when
@@ -1363,6 +1400,30 @@ mode_flag(flag)
 	return (g_mode_flags & flag) ? 1 : 0;
 }
 
+/// g_round_tag, from the round now being played and what the claimed mode says a round is.
+refresh_round_tag()
+{
+	if (mode_flag(TSM_MODE_ONE_ROUND))
+	{
+		copy(g_round_tag, charsmax(g_round_tag), "MATCH");
+	}
+	else
+	{
+		formatex(g_round_tag, charsmax(g_round_tag), "ROUND %d", g_round);
+	}
+}
+
+/// The sides on a bar's second line: "MSR 2  --  1 INS" with the rounds each has won, or "MSR  --  INS" when the match is one round and
+/// there is no tally of rounds to show.
+score_line(const t1[], const t2[], out[], len)
+{
+	if (mode_flag(TSM_MODE_ONE_ROUND))
+	{
+		return formatex(out, len, "%s  --  %s", t1, t2);
+	}
+	return formatex(out, len, "%s %d  --  %d %s", t1, g_score[1], g_score[2], t2);
+}
+
 /// Seconds between this side's waves: the claimed mode's interval, or tsm_respawn_wave.
 Float:wave_interval(side)
 {
@@ -1373,10 +1434,16 @@ Float:wave_interval(side)
 	return get_pcvar_float(g_cv_respwave);
 }
 
-/// 1 when this side's deaths wait for a wave: tsm_respawns, or side 2 where a mode made it endless.
+/// A side whose lives never run out: a claimed mode made side 2 endless (survival's mutants), or both sides (capture the flag).
+bool:side_endless(side)
+{
+	return (mode_flag(TSM_MODE_ENDLESS) || (side == 2 && mode_flag(TSM_MODE_SIDE2_ENDLESS))) ? true : false;
+}
+
+/// 1 when this side's deaths wait for a wave: tsm_respawns, or a side a mode made endless.
 side_respawns(side)
 {
-	if (side == 2 && mode_flag(TSM_MODE_SIDE2_ENDLESS))
+	if (side_endless(side))
 	{
 		return 1;
 	}
@@ -1424,19 +1491,32 @@ mode_notify(fw, value)
  */
 #define TSM_ALARM_WAV "bloblarm.wav"
 #define TSM_ALARM_Y   0.40    // above the crosshair, below the round clock (0.03); the plant bar sits just under it
+#define TSM_ALARM_SHOW 5.0    // an H9 game's popup of the alarm line stays this long when it pops (tsm_alarm_every apart),
+#define TSM_ALARM_FADE 1.5    // and fades away over this
 #define TSM_PLANT_Y   0.47    // the planter's own progress bar shares that empty band
 #define TSM_PLANT_WAV   "get_satchel.wav"   // the engine's own satchel-reach clack, valve dir fallback
 #define TSM_PLANT_DONE  "plant.wav"         // the one the server ships in ts\sound -- rings once on success
 #define TSM_WAITLIST_X  0.74    // the Officer's waiting list: right side, clear of the centre HUD
 #define TSM_WAITLIST_Y  0.26    // top of the waiting list: under the wave clock (0.12)
+#define TSM_WAIT_PANEL  "tsm.wait"   // the same list as a panel, on an H9 game's screen
+#define TSM_WAIT_ROWS   6            // names on it; the rest are counted
 
-new g_cv_alarm, g_cv_alarmvol, g_cv_alarmmsg, g_cv_alarmmsgatk;
+new g_cv_alarm, g_cv_alarmvol, g_cv_alarmmsg, g_cv_alarmmsgatk, g_cv_alarmevery;
 // The siren's measured seconds; 0.0 means no wav behind the name, text only. One
 // flag, so a second trigger of the round finds the alarm busy and walks away.
 new Float:g_alarm_len;
 new bool:g_alarm_on;
 // The side that started the alarm; the defenders are everyone not on it.
 new g_alarm_side;
+
+// The siege's popups (siege_plant_warn, siege_fuse_show): when each planter's hold last warned the
+// other side, and whether the fuse's countdown stands on any screen.
+new Float:g_plant_warn_at[MAXPL];
+new bool:g_fuse_shown;
+
+// The alarm's popup in an H9 game: when it last popped, and whether this beat's draw is one that pops.
+new Float:g_alarm_pop_at;
+new bool:g_alarm_pop;
 
 // THE SATCHEL PLANT: one objective charges at a time across the whole chain,
 // so the planted state is these three plus one fuse task. The last row is
@@ -1449,6 +1529,101 @@ new Float:g_plant_len;        // the plant sound's own length; it is not replaye
 new Float:g_plant_done_len;   // the SUCCESS plant.wav, reported by the siege dump
 new Float:g_boom_len[3];
 new g_obj_boom_spr;   // the explosion sprite's precache index, for the TE burst
+
+/*
+ * THE SIEGE'S POPUPS. An H9 game draws the siege's alerts as notices that fade (h9_vgui.inc), the way
+ * the uplink draws its news; every other game keeps what it always had and is sent nothing new:
+ *
+ *   the alarm            tsm.alarm       alarm_draw, in each reader's own side colour
+ *   the planter's bar    tsm.plant       plant_bar, over a progress bar
+ *   the other side       tsm.plant.warn  siege_plant_warn, once as a hold begins on their objective
+ *   the fuse             tsm.fuse        siege_fuse_show, a status counting down on each screen
+ *   the siege's lines    tsm.siege       siege_say, what was centre text: refused, breached, not set
+ */
+
+/// A line of the siege's feedback to one player: the centre text it always was, and for an H9
+/// game a notice that fades.
+siege_say(id, const fmt[], any:...)
+{
+	new text[96];
+	vformat(text, charsmax(text), fmt, 3);
+	if (h9vgui_supported(id))
+	{
+		h9vgui_notice(id, "tsm.siege", H9V_NOTICE_BANNER, text, 2.0, 0.5, 255, 220, 120);
+		return;
+	}
+	client_print(id, print_center, "%s", text);
+}
+
+/// The side an objective is being planted on is warned, in each reader's own side colour: once as a
+/// hold begins, and not again for the same planter inside three seconds, so a release and a quick
+/// press cannot fill a screen. A game with no popups is told nothing here: the siren and the alarm's
+/// text are what it always had.
+siege_plant_warn(id, n)
+{
+	new team = g_match_team[id];
+	new Float:now = get_gametime();
+	if ((team != 1 && team != 2) || now - g_plant_warn_at[id] < 3.0)
+	{
+		return;
+	}
+	g_plant_warn_at[id] = now;
+
+	new text[64];
+	formatex(text, charsmax(text), "SATCHEL BEING PLANTED^nOBJECTIVE %d", n);
+	for (new i = 1; i <= g_maxplayers; i++)
+	{
+		if (g_match_team[i] != 3 - team || !h9vgui_supported(i))
+		{
+			continue;
+		}
+		if (g_match_team[i] == 1)
+		{
+			h9vgui_notice(i, "tsm.plant.warn", H9V_NOTICE_BANNER, text, 3.0, 0.5, 0, 170, 255);
+		}
+		else
+		{
+			h9vgui_notice(i, "tsm.plant.warn", H9V_NOTICE_BANNER, text, 3.0, 0.5, 255, 70, 60);
+		}
+	}
+}
+
+/// From the plant to the blast every H9 screen counts the fuse down on its own (a status): the
+/// planter's side is told to get clear, the other side that the charge is down.
+siege_fuse_show(planter, n)
+{
+	new clock = floatround(get_pcvar_float(g_cv_objfuse), floatround_ceil);
+	new team = g_match_team[planter];
+	new mine[64], theirs[64];
+	formatex(mine, charsmax(mine), "GET CLEAR -- OBJECTIVE %d BLOWS IN {s}", n);
+	formatex(theirs, charsmax(theirs), "SATCHEL SET ON OBJECTIVE %d -- BLOWS IN {s}", n);
+	for (new i = 1; i <= g_maxplayers; i++)
+	{
+		if (g_match_team[i] == team)
+		{
+			h9vgui_status(i, "tsm.fuse", mine, 255, 140, 0, clock);
+		}
+		else
+		{
+			h9vgui_status(i, "tsm.fuse", theirs, 255, 140, 0, clock);
+		}
+	}
+	g_fuse_shown = true;
+}
+
+/// The countdown comes off every screen: the charge went off, or was given up, or the round ended.
+siege_fuse_hide()
+{
+	if (!g_fuse_shown)
+	{
+		return;
+	}
+	g_fuse_shown = false;
+	for (new i = 1; i <= g_maxplayers; i++)
+	{
+		h9vgui_status(i, "tsm.fuse", "", 0, 0, 0);
+	}
+}
 
 /*
  * A moddir wav's own length in seconds, read from its header. The open IS the
@@ -1552,11 +1727,30 @@ alarm_emit()
 	}
 }
 
+/// One player's copy of an alarm line. An H9 game gets it as a popup under the round timer on the beats that pop (every
+/// tsm_alarm_every seconds, or every beat with 0): it stays a few seconds and fades away, so it is not on the screen the whole
+/// round. Every other game has the hudmessage set before the call, every beat.
+alarm_show(id, const text[], r, g, b, Float:hold)
+{
+	if (!h9vgui_supported(id))
+	{
+		show_hudmessage(id, "%s", text);
+		return;
+	}
+	if (g_alarm_pop)
+	{
+		new bool:always = get_pcvar_float(g_cv_alarmevery) <= 0.0;
+		h9vgui_notice(id, "tsm.alarm", H9V_NOTICE_BANNER, text, always ? hold : TSM_ALARM_SHOW, always ? 1.0 : TSM_ALARM_FADE, r, g, b);
+	}
+}
+
 /*
- * The alarm's centre-screen lines, each in the reader's own side colour: the
- * defenders read tsm_alarm_msg, the attackers tsm_alarm_msg_attack. Held for the
- * whole beat plus a little, so the next beat's redraw always lands before the
- * previous one expires and the line never blinks.
+ * The alarm's lines, each in the reader's own side colour: the defenders read
+ * tsm_alarm_msg, the attackers tsm_alarm_msg_attack. In every game but an H9 one they
+ * are hudmessages just under screen centre, held for the whole beat plus a little, so
+ * the next beat's redraw always lands before the previous one expires and the line
+ * never blinks. An H9 game has them as popups under the round timer on the beats that
+ * pop (alarm_show), now and then, not constantly.
  *
  * Channel 2. GoldSrc keeps four text slots and files a message in channel % 4, so
  * this is the slot the alarm has always had on Steam; Xash keeps eight, and a
@@ -1585,45 +1779,58 @@ alarm_draw()
 
 	new Float:hold = (g_alarm_len > 2.0 ? g_alarm_len : 2.0) + 0.4;
 
+	// This beat pops the line in an H9 game when tsm_alarm_every seconds have passed since it last did (the first beat always).
+	new Float:every = get_pcvar_float(g_cv_alarmevery);
+	new Float:at = get_gametime();
+	g_alarm_pop = (every <= 0.0 || at - g_alarm_pop_at >= every);
+	if (g_alarm_pop)
+	{
+		g_alarm_pop_at = at;
+	}
+
 	// Side 1 is MSR, blue; side 2 the Insurgents, red. Attacking side 1 puts side 2
 	// under the alarm, so the defenders read red and the attackers blue; attacking
 	// side 2 the other way round. Bots never read it, and neither does anyone whose
 	// side is unset.
 	if (dmsg[0])
 	{
+		new r, g, b;
 		if (g_alarm_side == 1)
 		{
-			set_hudmessage(255, 70, 60, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 2);
+			r = 255; g = 70; b = 60;
 		}
 		else
 		{
-			set_hudmessage(0, 170, 255, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 2);
+			r = 0; g = 170; b = 255;
 		}
+		set_hudmessage(r, g, b, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 2);
 		for (new id = 1; id <= g_maxplayers; id++)
 		{
 			if ((g_match_team[id] == 1 || g_match_team[id] == 2) && g_match_team[id] != g_alarm_side
 				&& is_user_connected(id) && !is_user_bot(id))
 			{
-				show_hudmessage(id, "%s", dmsg);
+				alarm_show(id, dmsg, r, g, b, hold);
 			}
 		}
 	}
 
 	if (amsg[0] && (g_alarm_side == 1 || g_alarm_side == 2))
 	{
+		new r, g, b;
 		if (g_alarm_side == 1)
 		{
-			set_hudmessage(0, 170, 255, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 2);
+			r = 0; g = 170; b = 255;
 		}
 		else
 		{
-			set_hudmessage(255, 70, 60, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 2);
+			r = 255; g = 70; b = 60;
 		}
+		set_hudmessage(r, g, b, -1.0, TSM_ALARM_Y, 0, 0.0, hold, 0.1, 1.0, 2);
 		for (new id = 1; id <= g_maxplayers; id++)
 		{
 			if (g_match_team[id] == g_alarm_side && is_user_connected(id) && !is_user_bot(id))
 			{
-				show_hudmessage(id, "%s", amsg);
+				alarm_show(id, amsg, r, g, b, hold);
 			}
 		}
 	}
@@ -1645,6 +1852,7 @@ alarm_start(id, bool:force = false)
 	}
 
 	g_alarm_on = true;
+	g_alarm_pop_at = 0.0;   // its first line pops at once
 
 	// The trigger's side defines who is under the alarm. A trigger without a
 	// side falls back to the objective cvar's own attackers, so the recipients
@@ -1691,6 +1899,7 @@ alarm_stop()
 	remove_task(TSM_TASK_ALARM);
 	g_alarm_on = false;
 	g_alarm_side = 0;
+	g_alarm_pop_at = 0.0;
 	client_cmd(0, "stopsound");
 	dbg("alarm: cut");
 }
@@ -2506,7 +2715,8 @@ bool:bot_player(id)
  */
 hold_cash(id)
 {
-	if (!get_pcvar_num(g_cv_nocash) || !is_user_connected(id))
+	// Only while the match mode plays: a map that plays as the game ships keeps TS's own cash.
+	if (!get_pcvar_num(g_cv_nocash) || !get_pcvar_num(g_cv_enabled) || !is_user_connected(id))
 	{
 		return;
 	}
@@ -2531,6 +2741,22 @@ hold_cash(id)
  * and defeatcash keyvalues on a ts_wingiver entity are baked into the .bsp. That is
  * why the per-frame hold is the actual guarantee and this only narrows the window.
  */
+/// TS's own weapon rules: server.cfg's weaponrestriction 1 (every weapon refused at the buy menu, which the match mode hands out by class
+/// instead) is H9's; the game as it ships has none, and its buy menu works.
+shipped_weapons()
+{
+	server_cmd("weaponrestriction 0");
+	server_exec();
+}
+
+public task_shipped_weapons()
+{
+	if (!g_map_h9)
+	{
+		shipped_weapons();
+	}
+}
+
 kill_ts_cash_cvars()
 {
 	if (!get_pcvar_num(g_cv_nocash) || !get_pcvar_num(g_cv_enabled))
@@ -2578,7 +2804,7 @@ parse_weapon_list(idx, team, const field[])
 
 		strtok(pair, wpart, charsmax(wpart), cpart, charsmax(cpart), ':', 0);
 		new wid = str_to_num(wpart);
-		if (wid < 1 || (wid > 36 && wid != TSW_PPSH41))
+		if (wid < 1 || (wid > 36 && wid != TSW_PPSH41 && wid != TSW_LASERRIFLE))
 		{
 			tlog("[TSM] class %d team %d: ignoring out-of-range weapon id %d", idx + 1, team, wid);
 			continue;
@@ -2741,6 +2967,7 @@ load_classes()
 
 	load_class_limits();
 	load_class_lives();
+	load_class_costs();
 }
 
 /*
@@ -2888,6 +3115,7 @@ scale_classes()
 {
 	load_class_limits();
 	load_class_lives();
+	load_class_costs();
 
 	new players = side_players();
 	new tier = scale_tier(players);
@@ -2901,7 +3129,7 @@ scale_classes()
 		get_pcvar_string(g_cv_scalelives, liv, charsmax(liv));
 		get_pcvar_string(g_cv_scalelivestiers, tiers, charsmax(tiers));
 		trim(tiers);
-		new bool:lives_on = get_pcvar_num(g_cv_respawns) != 0;
+		new bool:lives_on = get_pcvar_num(g_cv_respawns) != 0 && !mode_flag(TSM_MODE_LIFE_POOL);
 
 		// A class's extra lives: its tsm_scale_lives number times this tier's tsm_scale_lives_tiers
 		// number, or with that list empty times the tier itself.
@@ -2933,7 +3161,8 @@ scale_classes()
 		}
 		else if (g_scale_tier > 0)
 		{
-			all_print("[MATCH] %d players on the sides: class limits and lives are this map's own again.", players);
+			all_print("[MATCH] %d players on the sides: class limits%s are this map's own again.", players,
+				mode_flag(TSM_MODE_LIFE_POOL) ? "" : " and lives");
 		}
 		g_scale_tier = tier;
 	}
@@ -3618,13 +3847,14 @@ show_class_menu(id)
 			continue;
 		}
 		new key = (i == 9) ? 0 : i + 1;
-		new lv = get_pcvar_num(g_cv_respawns) ? class_lives_of(i + 1) : 1;
+		new info[24];
+		class_menu_info(i + 1, info, charsmax(info));
 		keys |= (1 << i);
 
 		if (!class_limit_of(i + 1))
 		{
-			len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp, %d %s]\y^n",
-				key, g_class_name[i], g_class_hp[i], lv, (lv == 1) ? "life" : "lives");
+			len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp, %s]\y^n",
+				key, g_class_name[i], g_class_hp[i], info);
 		}
 		else
 		{
@@ -3642,13 +3872,13 @@ show_class_menu(id)
 			{
 				// Still listed, and still pressable: pick_class() says no and says why. Hiding it
 				// would leave the numbers beside the other classes meaning nothing.
-				len += formatex(text[len], charsmax(text) - len, "\d%d. %s  [%d hp, %d %s]  (full)\y^n",
-					key, g_class_name[i], g_class_hp[i], lv, (lv == 1) ? "life" : "lives");
+				len += formatex(text[len], charsmax(text) - len, "\d%d. %s  [%d hp, %s]  (full)\y^n",
+					key, g_class_name[i], g_class_hp[i], info);
 			}
 			else
 			{
-				len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp, %d %s]  \y(%d left)^n",
-					key, g_class_name[i], g_class_hp[i], lv, (lv == 1) ? "life" : "lives", free);
+				len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp, %s]  \y(%d left)^n",
+					key, g_class_name[i], g_class_hp[i], info, free);
 			}
 		}
 	}
@@ -4093,6 +4323,22 @@ bool:roleplay_map(const name[])
 	return equali(name, "rp_", 3) || equali(name, "tsrp_", 5) || containi(name, "_rp_") != -1 || containi(name, "_tsrp_") != -1;
 }
 
+/// A map named for TS's own capture game: ctb_ or ctf_ at the start of the name, or _ctb_ or _ctf_ anywhere in it (ctb_deadheat,
+/// h9_ctb_flagday, ts_ctf_rooftops). TS has one such game: its flag is the briefcase (the ts_briefcase entity, one a team, a carrier of the
+/// enemy's to its own scores), so a ctf_ map plays what a ctb_ map does and only the name the card and the site give it differs. Not a
+/// roleplay map, and not one an H9 mode names first: h9_ctf_ is H9's own Capture the Flag (the ts_ctf plugin), so TS's capture game under an
+/// H9 name is h9_ctb_.
+bool:capture_map(const name[])
+{
+	if (roleplay_map(name) || equali(name, "h9_te_", 6) || equali(name, "h9_siege_", 9) || equali(name, "h9_up_", 6)
+		|| equali(name, "h9_ws_", 6) || equali(name, "h9_mw_", 6) || equali(name, "h9_as_", 6) || equali(name, "h9_ctf_", 7) || equali(name, "h9_dm_", 6)
+		|| equali(name, "h9_tdm_", 7))
+	{
+		return false;
+	}
+	return equali(name, "ctb_", 4) || equali(name, "ctf_", 4) || containi(name, "_ctb_") != -1 || containi(name, "_ctf_") != -1;
+}
+
 /// The value a map's own mapconfig (ts/mapconfigs/<map>.cfg, which h9_autoconfig runs once the map is up)
 /// gives a cvar, by the last line that sets it; -1 when there is no such file or it does not set the cvar.
 mapconfig_value(const map[], const cvar[])
@@ -4145,9 +4391,11 @@ public plugin_precache()
 	g_msg_assists = engfunc(EngFunc_RegUserMsg, "H9Assists", 3);
 	g_msg_kills = engfunc(EngFunc_RegUserMsg, "H9Kills", 3);
 	g_msg_lives = engfunc(EngFunc_RegUserMsg, "H9Lives", 3);
+	g_msg_pool = engfunc(EngFunc_RegUserMsg, "H9Pool", 5);
 	g_msg_board = engfunc(EngFunc_RegUserMsg, "H9Board", -1);
 	h9vgui_precache(); // H9Vgui, the panels' message (h9_vgui.inc)
 	arrayset(g_lives_sent, -1, sizeof g_lives_sent);
+	arrayset(g_pool_sent, -1, sizeof g_pool_sent);
 
 	/*
 	 * Xash3D first: what it changes has to be in place before any plugin's plugin_init.
@@ -4159,6 +4407,8 @@ public plugin_precache()
 	 */
 	g_xash = cvar_exists("host_ver") != 0;
 	g_has_ppsh = cvar_exists("h9_ppsh41") != 0;
+	g_has_laser = cvar_exists("h9_laserrifle") != 0;
+	g_pc_customweapons = get_cvar_pointer("h9_customweapons");
 	if (g_xash && !cvar_exists("sv_visiblemaxplayers"))
 	{
 		register_cvar("sv_visiblemaxplayers", "-1");
@@ -4178,8 +4428,9 @@ public plugin_precache()
 	 * from mp_teamplay during the world's spawn, straight after game.cfg, and this forward runs just
 	 * before that (AMXX loads its plugins as the world spawns). H9's own maps -- named h9_ or tsm_,
 	 * and not roleplay maps -- play the match mode, on teamplay rules. TS's own modes under H9's
-	 * names play as the game ships, on their own rules: deathmatch for h9_dm_, teamplay for h9_tdm_,
-	 * h9_ctb_ and h9_ctf_. Every other map, a stock ts_ map or a roleplay one, plays as the game
+	 * names play as the game ships, on their own rules: deathmatch for h9_dm_, teamplay for h9_tdm_ and
+	 * for TS's capture game, a map named ctb_ or ctf_ at the start or _ctb_ or _ctf_ anywhere (h9_ctb_,
+	 * ctb_deadheat). Every other map, a stock ts_ map or a roleplay one, plays as the game
 	 * ships on deathmatch rules. Wherever the match mode does not play, plugin_cfg turns it and its
 	 * bots off and puts TS's own cash and powerups back. The map's mapconfig has the last word: a
 	 * tsm_enabled or mp_teamplay line in it decides in place of the name. A map's own worldspawn
@@ -4191,7 +4442,7 @@ public plugin_precache()
 	{
 		own = 0;
 	}
-	else if (equali(g_mapname, "h9_tdm_", 7) || equali(g_mapname, "h9_ctb_", 7) || equali(g_mapname, "h9_ctf_", 7))
+	else if (equali(g_mapname, "h9_tdm_", 7) || capture_map(g_mapname))
 	{
 		own = 1;
 	}
@@ -4686,6 +4937,7 @@ public plugin_natives()
 
 	// The mode API, for ts_uplink and ts_survival: include\tsm_api.inc documents each one.
 	register_native("tsm_mode_claim",    "native_mode_claim");
+	register_native("tsm_mode_flag",     "native_mode_flag");
 	register_native("tsm_end_round",     "native_end_round");
 	register_native("tsm_reward_lives",  "native_reward_lives");
 	register_native("tsm_wave_seconds",  "native_wave_seconds");
@@ -4701,6 +4953,7 @@ public plugin_natives()
 	register_native("tsm_points_side",   "native_points_side");
 	register_native("tsm_points_award",  "native_points_award");
 	register_native("tsm_assists",       "native_assists");
+	register_native("tsm_assists_ranked", "native_assists_ranked");
 	register_native("tsm_side_alive",    "native_side_alive");
 	register_native("tsm_give_powerup",  "native_give_powerup");
 	register_native("tsm_match_desc",    "native_match_desc");
@@ -4712,9 +4965,17 @@ public plugin_natives()
 	register_native("tsm_class_of_perk", "native_class_of_perk");
 	register_native("tsm_class_rule",    "native_class_rule");
 	register_native("tsm_mode_bot_class", "native_mode_bot_class");
+	register_native("tsm_pool_get",      "native_pool_get");
+	register_native("tsm_pool_start",    "native_pool_start");
+	register_native("tsm_pool_set",      "native_pool_set");
+	register_native("tsm_pool_add",      "native_pool_add");
+	register_native("tsm_class_cost",    "native_class_cost");
+	register_native("tsm_spawn_open",    "native_spawn_open");
+	register_native("tsm_spawn_open_clear", "native_spawn_open_clear");
 
 	// For ts_rtv: whether a match is under way, which no single state says.
 	register_native("tsm_match_running", "native_match_running");
+	register_native("tsm_one_round", "native_one_round");
 	register_native("tsm_score", "native_score");
 
 	// ts_rtv's natives, which the side menu asks (rtv_holds_side_menu).
@@ -5003,6 +5264,11 @@ public plugin_init()
 	g_cv_respsudden = register_cvar("tsm_respawn_sudden",     "0");       // 1: waves still run in sudden death
 	g_cv_reinforce  = register_cvar("tsm_reinforce_cooldown", "120.0");   // the Officer's .reinforce cooldown
 	g_cv_classlives = register_cvar("tsm_class_lives",        "");        // lives per class, in class order
+	// A mode that keeps one pool of lives for a side (TSM_MODE_LIFE_POOL): what a death of each class draws from it, in class order
+	// (Officer 2, Mech 3), and how big it starts: tsm_pool_base plus tsm_pool_perplayer a player on the side, bots included.
+	g_cv_classcost  = register_cvar("tsm_class_cost",         "1,1,1,1,1,1,2,1,3");
+	g_cv_poolbase   = register_cvar("tsm_pool_base",          "16");
+	g_cv_poolplayer = register_cvar("tsm_pool_perplayer",     "4");
 	g_cv_scaleplayers = register_cvar("tsm_scale_players",    "");        // player counts that start each tier; empty: off
 	g_cv_scalelimits  = register_cvar("tsm_scale_limits",     "1");       // added to each class limit per tier
 	g_cv_scalelives   = register_cvar("tsm_scale_lives",      "0");       // added to each class's lives per tier
@@ -5021,6 +5287,8 @@ public plugin_init()
 	g_cv_sc_carry     = register_cvar("tsm_score_carry",       "1");
 	g_cv_sc_carrysecs = register_cvar("tsm_score_carry_secs",  "15");
 	g_cv_sc_wave      = register_cvar("tsm_score_wave",        "3");
+	g_cv_sc_capture   = register_cvar("tsm_score_capture",     "10");
+	g_cv_sc_return    = register_cvar("tsm_score_return",      "3");
 	g_cv_scaletier    = register_cvar("tsm_scale_tier",       "0");       // set by the plugin: this round's tier
 
 	/*
@@ -5372,6 +5640,14 @@ public plugin_init()
 	g_cv_objrange = register_cvar("tsm_obj_range", "96");
 
 	/*
+	 * The order the objectives fall in. 1: numbered order, the next one only (the siege as it
+	 * has always played). 0: any order -- every objective still standing can be attacked, and the
+	 * round is the attackers' when none is left. Read where the siege uses it and not here: a
+	 * map's mapconfig sets it after this plugin has started.
+	 */
+	g_cv_linearobj = register_cvar("tsm_linear_obj", "1");
+
+	/*
 	 * What a fallen objective gives back when it is not the last and the round goes on
 	 * (see siege_reward_* below). Lives: every player's count SET to their class's again,
 	 * never added to, and the eliminated return at their side's next wave. Time: the
@@ -5404,6 +5680,7 @@ public plugin_init()
 	g_cv_alarmvol = register_cvar("tsm_alarm_vol", "0.3");
 	g_cv_alarmmsg = register_cvar("tsm_alarm_msg", "BREACH IN PROGRESS");
 	g_cv_alarmmsgatk = register_cvar("tsm_alarm_msg_attack", "YOUR TEAM IS CURRENTLY SIEGING THE MAP");
+	g_cv_alarmevery = register_cvar("tsm_alarm_every", "20");
 
 	// The finale's ground shake goes out as the raw ScreenShake game message,
 	// so its id is looked up once here and reused at every last boom.
@@ -5553,7 +5830,7 @@ public plugin_init()
 	// Class definitions. See ts_matchmode.cfg for the format.
 	// Name ; team1 weapons ; team2 weapons ; model ; hp ; armour ; perk
 	// Weapon ids are TS's own: 5 M4A1, 13 AK47, 22 Glock 20, 25 Combat Knife,
-	// 23 HK UMP, 18 Barrett M82, 32 M60, 39 PPSh-41 (H9's reTS).
+	// 23 HK UMP, 18 Barrett M82, 32 M60, 39 PPSh-41 and 40 Laser Rifle (H9's reTS).
 	register_cvar("tsm_class1", "Assault;5:3,22:2;13:3,22:2;repuheavy|XCCPSoldier-wartorn,XCCPmutant;100;0;0");
 	register_cvar("tsm_class2", "Combat Engineer;23:3,22:2;39:3,22:2;scda_Spy02|XCCPsgts;100;0;1");
 	register_cvar("tsm_class3", "Marksman;18:2,22:2;18:2,22:2;;85;0;0");
@@ -5565,8 +5842,8 @@ public plugin_init()
 	// Sidearm only -- no primary. 22 = Glock 20. Perk 3 heals a teammate on +USE.
 	register_cvar("tsm_class6", "Medic;22:4;22:4;repuheavym|ins_medic_belt;100;0;3");
 
-	// 1 = Glock 18, 34 = Katana (melee, so no spare clips). Perk 4 commands bots.
-	register_cvar("tsm_class7", "Officer;1:4,34:0;1:4,34:0;reputengu|;100;0;4");
+	// 40 = Laser Rifle, 1 = Glock 18, 34 = Katana (melee, so no spare clips). Perk 4 commands bots.
+	register_cvar("tsm_class7", "Officer;40:3,1:4,34:0;40:3,1:4,34:0;reputengu|;100;0;4");
 	register_cvar("tsm_class8", "Recon;12:2,15:2,34:0;12:2,15:2,34:0;repuheavy_recon|;75;0;0;1.20");
 	register_cvar("tsm_class9", "Mech;32:2;32:2;repuheavy_recon|;300;0;0;0.60");
 
@@ -5600,6 +5877,11 @@ public plugin_init()
 	 * CBaseDoor::Use has moved anything.
 	 */
 	RegisterHam(Ham_Use, "func_door", "fw_door_use", 0);
+
+	// A Use Only door has no touch function in the original; fw_door_touch turns the touch of one a
+	// Breacher unlocked and the round then locked again away (breach_doors_reset).
+	RegisterHam(Ham_Touch, "func_door", "fw_door_touch", 0);
+	RegisterHam(Ham_Touch, "func_door_rotating", "fw_door_touch", 0);
 
 	// A map's env_shake, for everyone in its reach (fw_shake_use): TS sends the shake only to
 	// players standing on the ground. Post-hook, so TS's own pass has gone first.
@@ -5740,7 +6022,7 @@ public plugin_init()
 
 	// Spawn editing. Stand where you want a spawn and add it; save writes the
 	// per-map cfg that is re-read automatically on every map load.
-	register_concmd("amx_tsm_spawn_add",   "cmd_spawn_add",   ADMIN_CFG, " <1|2> - add a spawn for that team where you stand");
+	register_concmd("amx_tsm_spawn_add",   "cmd_spawn_add",   ADMIN_CFG, " <1|2> [tier] - add a spawn for that team where you stand; tier 0 is its base, 1 and up the spawn set of capture point N");
 	register_concmd("amx_tsm_spawn_clear", "cmd_spawn_clear", ADMIN_CFG, " <1|2|0> - clear that team's spawns (0 = both)");
 	register_concmd("amx_tsm_spawn_del",   "cmd_spawn_del",   ADMIN_CFG, " <1|2> <n> - remove one spawn");
 	register_concmd("amx_tsm_spawn_list",  "cmd_spawn_list",  ADMIN_CFG, " - list configured spawns");
@@ -5791,6 +6073,10 @@ public plugin_init()
 
 	register_clcmd("usepowerup", "cmd_blockpowerup");
 	register_clcmd("powerup",    "cmd_blockpowerup");
+
+	// The T key drops the weapon in hand: refused until the round is live (drop_refused). The weapon
+	// bar's right-click sends "drop_<number>", which client_command catches.
+	register_clcmd("drop", "cmd_blockdrop");
 
 	register_clcmd("say .class", "cmd_class");
 	register_clcmd("say .team",  "cmd_team");
@@ -5879,8 +6165,10 @@ public plugin_cfg()
 	}
 
 	// Not an H9 map (plugin_precache): the game as it ships. The match mode and its bots off, and TS's
-	// own cash and powerups back over what game.cfg and ts_matchmode.cfg set for H9's maps. The map's
-	// mapconfig runs after this and can set any of it back for its map.
+	// own cash, powerups and weapon rules back over what game.cfg, server.cfg and ts_matchmode.cfg set
+	// for H9's maps: a team map of TS's own (the capture game's ctf_ and ctb_ among them) plays as TS's
+	// team deathmatch does, with its buy menu. The map's mapconfig runs after this and can set any of it
+	// back for its map.
 	if (!g_map_h9)
 	{
 		set_pcvar_num(g_cv_enabled, 0);
@@ -5890,7 +6178,9 @@ public plugin_cfg()
 		set_cvar_num("cashforwin", 10000);
 		set_cvar_num("cashforlose", 1200);
 		set_cvar_num("nopowerup", 0);
-		log_amx("[TSM] %s is not an H9 map: tsm_enabled 0, tsm_bots 0, and TS's own cash and powerups.", g_mapname);
+		shipped_weapons();
+		set_task(3.0, "task_shipped_weapons", TSM_TASK_SHIPPED);
+		log_amx("[TSM] %s is not an H9 map: tsm_enabled 0, tsm_bots 0, and TS's own cash, powerups and weapon rules (weaponrestriction 0).", g_mapname);
 	}
 
 	get_mapname(g_mapname, charsmax(g_mapname));
@@ -7607,7 +7897,7 @@ public cmd_spawn_add(id, level, cid)
 	new team = str_to_num(a);
 	if (team < 1 || team > 2)
 	{
-		console_print(id, "[TSM] usage: amx_tsm_spawn_add <1|2>");
+		console_print(id, "[TSM] usage: amx_tsm_spawn_add <1|2> [tier]");
 		return PLUGIN_HANDLED;
 	}
 
@@ -7638,9 +7928,9 @@ public cmd_spawn_add(id, level, cid)
 		read_argv(2, ta, charsmax(ta));
 		tier = str_to_num(ta);
 	}
-	if (tier < 0 || tier > TSM_OBJ_MAX)
+	if (tier < 0 || tier > TSM_SPAWN_TIER_MAX)
 	{
-		console_print(id, "[TSM] A tier is 0 (the defaults) to %d.", TSM_OBJ_MAX);
+		console_print(id, "[TSM] A tier is 0 (the defaults) to %d.", TSM_SPAWN_TIER_MAX);
 		return PLUGIN_HANDLED;
 	}
 
@@ -8536,11 +8826,57 @@ public cmd_blockbuy(id)
 }
 
 /*
+ * Is a weapon drop refused right now? In warmup, ready-up, the freeze before a round and the seconds
+ * of a match's end, so nobody litters the map before a round; the round being live gives the drop
+ * back. A round's end is left alone: the next round's start sweeps whatever was dropped. With
+ * tsm_enabled 0 the game's own rules stand and every drop goes through.
+ */
+bool:drop_refused()
+{
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return false;
+	}
+	return (g_state == ST_WARMUP || g_state == ST_READYUP || g_state == ST_FREEZE || g_state == ST_MATCHEND);
+}
+
+/// Says why a drop was refused: a centre text whatever tsm_verbosity says, the chat line with it on.
+drop_told(id)
+{
+	dbg("drop refused for %d (state %d)", id, g_state);
+	match_chat(id, "[MATCH] You cannot drop a weapon until the round is live.");
+	center_tell(id, "You cannot drop a weapon until the round is live.");
+}
+
+/// The T key ("drop"): the weapon in hand stays in hand until the round is live.
+public cmd_blockdrop(id)
+{
+	if (!drop_refused())
+	{
+		return PLUGIN_CONTINUE;
+	}
+	drop_told(id);
+	return PLUGIN_HANDLED;
+}
+
+/*
  * The buy menu also submits a combined numeric form, "13_3", which cannot be
  * registered as a fixed command name -- so it is caught here instead.
  */
 public client_command(id)
 {
+	// The weapon bar's right-click drops one weapon as "drop_<number>": refused like the T key.
+	if (drop_refused())
+	{
+		new dcmd[16];
+		read_argv(0, dcmd, charsmax(dcmd));
+		if (equal(dcmd, "drop_", 5) && dcmd[5] >= '0' && dcmd[5] <= '9')
+		{
+			drop_told(id);
+			return PLUGIN_HANDLED;
+		}
+	}
+
 	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_blockbuy))
 	{
 		return PLUGIN_CONTINUE;
@@ -9391,7 +9727,7 @@ resolve_loadout(id)
 		}
 		strtok(pair, wpart, charsmax(wpart), cpart, charsmax(cpart), ':', 1);
 		new w = str_to_num(wpart);
-		if (w < 1 || w > TSW_PPSH41)
+		if (w < 1 || w > TSW_LASERRIFLE)
 		{
 			continue;
 		}
@@ -9409,18 +9745,79 @@ lo_count(id, ci, team)
 	return (g_lo_n[id] >= 0) ? g_lo_n[id] : g_class_wcount[ci][team];
 }
 
-/// The i-th weapon this arm gives, from the mode's answer or the class line. A game library without the PPSh-41
-/// (TS 3.0's own, an older reTS) has no weapon 39: the UMP stands in for it.
+/// 1 when the weapons H9 adds to TS (the PPSh-41, the laser rifle) are in play on this server: h9_customweapons, which the
+/// game library registers, is not 0. A library without that cvar plays them whenever it has them.
+custom_weapons_on()
+{
+	if (!g_pc_customweapons)
+	{
+		return 1;
+	}
+	return get_pcvar_num(g_pc_customweapons) != 0;
+}
+
+/// The stock gun that stands in for a weapon H9 adds to TS where that weapon is not in play, or 0 for any other weapon.
+/// EVERY weapon H9 adds is gated by h9_customweapons: a new one gets its line here and its test in custom_present.
+custom_standin(w)
+{
+	switch (w)
+	{
+		case TSW_PPSH41:
+		{
+			return TSW_UMP;
+		}
+		case TSW_LASERRIFLE:
+		{
+			return TSW_M4A1;
+		}
+	}
+	return 0;
+}
+
+/// 1 when a weapon H9 adds to TS is in play: the game library has it and h9_customweapons has not turned them all off.
+custom_present(w)
+{
+	if (!custom_weapons_on())
+	{
+		return 0;
+	}
+	switch (w)
+	{
+		case TSW_PPSH41:
+		{
+			return g_has_ppsh ? 1 : 0;
+		}
+		case TSW_LASERRIFLE:
+		{
+			return g_has_laser ? 1 : 0;
+		}
+	}
+	return 0;
+}
+
+/// The i-th weapon this arm gives, from the mode's answer or the class line. A weapon H9 adds to TS that is not in play
+/// is given as its stock stand-in: a game library without the PPSh-41 (TS 3.0's own, an older reTS) has no weapon 39,
+/// and the UMP stands in for it; one without the laser rifle has no weapon 40, and the M4A1 stands in for that. So do
+/// the same guns on a server that plays TS 3.0's own roster (h9_customweapons 0).
 lo_wpn(id, ci, team, i)
 {
 	new w = (g_lo_n[id] >= 0) ? g_lo_wpn[id][i] : g_class_wpn[ci][team][i];
-	return (w == TSW_PPSH41 && !g_has_ppsh) ? TSW_UMP : w;
+	new standin = custom_standin(w);
+	if (standin && !custom_present(w))
+	{
+		return standin;
+	}
+	return w;
 }
 
-/// The highest weapon id a TSX native may be asked about on this game library: the PPSh-41's where there is one,
-/// else the thrown knife's (which is_gun_id passes over).
+/// The highest weapon id a TSX native may be asked about on this game library: the laser rifle's or the PPSh-41's
+/// where there is one, else the thrown knife's (which is_gun_id passes over).
 top_weapon_id()
 {
+	if (g_has_laser)
+	{
+		return TSW_LASERRIFLE;
+	}
 	return g_has_ppsh ? TSW_PPSH41 : TSW_TKNIFE;
 }
 
@@ -10371,7 +10768,7 @@ top_up_reserve(target, rounds)
 
 	// Pass 1: the baseline, read BEFORE any write. That is what makes one
 	// caliber gain exactly `rounds` however many guns of it are carried.
-	new pre[TSW_PPSH41 + 1];
+	new pre[TSW_LASERRIFLE + 1];
 	new top = top_weapon_id();
 	for (new w = 1; w <= top; w++)
 	{
@@ -11335,7 +11732,7 @@ public cmd_ammo(id)
 
 	// Pass 1: the baseline, read BEFORE any write. Shared calibers therefore
 	// share one baseline, which is what keeps the +25 per-caliber once.
-	new pre[TSW_PPSH41 + 1];
+	new pre[TSW_LASERRIFLE + 1];
 	new top = top_weapon_id();
 	for (new w = 1; w <= top; w++)
 	{
@@ -12590,8 +12987,9 @@ bool:is_engineer(id)
 /* ---- siege objectives ------------------------------------------------------
  *
  * A map's objectives are brush entities named tsm_obj_1, tsm_obj_2 ... up to
- * tsm_obj_9, and they fall in that order, the next one only. Every round starts
- * the chain over at objective 1.
+ * tsm_obj_9. With tsm_linear_obj 1 they fall in that order, the next one only; with
+ * 0 they fall in any order, and the one that stands last is the last to fall. Every
+ * round starts the chain over, every objective standing again.
  *
  * Make them func_wall (or anything a player cannot use by himself: a func_button
  * would fire for whoever walks up and presses it, and the plugin would never see
@@ -12652,10 +13050,67 @@ bool:is_engineer(id)
 #define TSM_OBJMSG_Y    0.43
 #define TSM_OBJMSG_HOLD 5.0
 
-new g_obj_taken = 0;               // how many have fallen this match, counting from 1
+new g_obj_taken = 0;               // how many objectives have fallen this round
+new bool:g_obj_down[TSM_OBJ_MAX + 1];   // which: g_obj_down[n] is true once objective n has fallen
 new g_obj_holding[MAXPL];          // the objective a player is holding +USE on, 0 for none
 new Float:g_obj_started[MAXPL];    // when he began
 new Float:g_obj_told_at[MAXPL];    // rate limit on the refusals
+
+/// 1 when the objectives fall in numbered order (tsm_linear_obj 1), 0 when in any order. Asked each
+/// time it matters: a map's mapconfig sets the cvar after this plugin has started.
+bool:siege_linear()
+{
+	return get_pcvar_num(g_cv_linearobj) != 0;
+}
+
+/// Has objective n fallen this round?
+bool:siege_down(n)
+{
+	return (n >= 1 && n <= TSM_OBJ_MAX && g_obj_down[n]);
+}
+
+/// Is forward spawn tier t open? Tier t is used once t objectives have fallen: in numbered order that is objective t itself, in any
+/// order (tsm_linear_obj 0) whichever t of them they were.
+bool:siege_tier_open(t)
+{
+	if (t < 1)
+	{
+		return false;
+	}
+	return siege_linear() ? siege_down(t) : (g_obj_taken >= t);
+}
+
+/// The objective due next in numbered order: the lowest of the count that still stands, or count + 1
+/// when none does.
+siege_next(count)
+{
+	for (new i = 1; i <= count && i <= TSM_OBJ_MAX; i++)
+	{
+		if (!g_obj_down[i])
+		{
+			return i;
+		}
+	}
+	return count + 1;
+}
+
+/// Does the fall of objective n leave none standing, so that it is the last? In numbered order that is
+/// the highest number; in any order, the one that nothing else outlasts.
+bool:siege_closes(n, count)
+{
+	if (siege_linear())
+	{
+		return n >= count;
+	}
+	for (new i = 1; i <= count && i <= TSM_OBJ_MAX; i++)
+	{
+		if (i != n && !g_obj_down[i])
+		{
+			return false;
+		}
+	}
+	return true;
+}
 
 /// The objective's number, 1..9, or 0 when this entity is none.
 siege_number(ent)
@@ -12688,7 +13143,7 @@ siege_count()
 	new name[16], n = 0;
 	for (new i = 1; i <= TSM_OBJ_MAX; i++)
 	{
-		if (!g_obj_class[i][0] && i > g_obj_taken)
+		if (!g_obj_class[i][0] && !g_obj_down[i])
 		{
 			formatex(name, charsmax(name), "%s%d", TSM_OBJ_PREFIX, i);
 			if (engfunc(EngFunc_FindEntityByString, -1, "targetname", name) <= 0)
@@ -12855,13 +13310,20 @@ bool:siege_allowed(id, n, bool:tell)
 	{
 		formatex(why, charsmax(why), "Only a %s can set the charge.", want);
 	}
-	else if (n <= g_obj_taken)
+	else if (siege_down(n))
 	{
 		copy(why, charsmax(why), "That one is already destroyed.");
 	}
-	else if (n > g_obj_taken + 1)
+	else if (siege_linear())
 	{
-		formatex(why, charsmax(why), "Objective %d has to fall first.", g_obj_taken + 1);
+		if (n != siege_next(siege_count()))
+		{
+			formatex(why, charsmax(why), "Objective %d has to fall first.", siege_next(siege_count()));
+		}
+	}
+	else if (n > siege_count())
+	{
+		copy(why, charsmax(why), "That one is not part of the siege.");
 	}
 
 	if (!why[0])
@@ -12871,7 +13333,7 @@ bool:siege_allowed(id, n, bool:tell)
 	if (tell && !is_user_bot(id) && (get_gametime() - g_obj_told_at[id]) > 2.0)
 	{
 		g_obj_told_at[id] = get_gametime();
-		client_print(id, print_center, "%s", why);
+		siege_say(id, "%s", why);
 	}
 	return false;
 }
@@ -12900,12 +13362,12 @@ bool:siege_use(id)
 	 * ever take a breakable body, by gunfire). The allowed planter holds the
 	 * full plant here, the fuse runs on its own, and the CHARGE's explosion
 	 * is what destroys the body. While an objective is on its fuse, the
-	 * planted state is exactly these three globals: every later press on it
-	 * lands here and is told where things stand.
+	 * planted state is exactly these three globals: every later press on an
+	 * objective lands here and is told where things stand.
 	 */
-	if (g_plant_n == n)
+	if (g_plant_n)
 	{
-		client_print(id, print_center, "The satchel is already planted.");
+		siege_say(id, "The satchel is already planted.");
 		return true;
 	}
 
@@ -12918,6 +13380,7 @@ bool:siege_use(id)
 	// The hold is one of the alarm's two triggers: a round's first one turns
 	// the siren on, and every later one changes nothing at all.
 	alarm_start(id);
+	siege_plant_warn(id, n);
 	dbg("siege: %d began on objective %d (ent %d)", id, n, ent);
 	return true;
 }
@@ -12933,6 +13396,15 @@ plant_bar(id, Float:need, Float:held)
 {
 	if (is_user_bot(id))
 	{
+		return;
+	}
+
+	// An H9 game draws it as a bar over a notice; the text bar below is every other game's.
+	if (h9vgui_supported(id))
+	{
+		new side = get_pcvar_num(g_cv_objteam);
+		h9vgui_notice_bar(id, "tsm.plant", "PLANTING THE SATCHEL", floatround((held / need) * 1000.0), 0.25,
+			side == 1 ? 0 : 255, side == 1 ? 170 : 70, side == 1 ? 255 : 60, -1.0, TSM_PLANT_Y);
 		return;
 	}
 
@@ -12979,7 +13451,7 @@ public task_siege_hold(taskid)
 		g_plant_last[id] = 0.0;   // the sound clock was this hold's alone
 		if (is_user_connected(id) && g_state == ST_LIVE)
 		{
-			client_print(id, print_center, "Charge not set.");
+			siege_say(id, "Charge not set.");
 		}
 		return;
 	}
@@ -13032,7 +13504,11 @@ siege_plant_now(id, ent, n)
 {
 	if (g_plant_n)
 	{
-		return;   // one satchel at a time; belt for the natural path's braces
+		// One satchel at a time: a hold that finishes on another objective while a fuse burns is let go.
+		g_obj_holding[id] = 0;
+		g_plant_last[id] = 0.0;
+		siege_say(id, "The satchel is already planted.");
+		return;
 	}
 
 	new who[32];
@@ -13051,21 +13527,30 @@ siege_plant_now(id, ent, n)
 	emit_sound(ent, CHAN_BODY, TSM_PLANT_DONE, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
 
 	all_print("[MATCH] %s planted the satchel on objective %d.", who, n);
-	client_print(id, print_center, "The satchel is set -- get clear.");
+	if (!h9vgui_supported(id))
+	{
+		client_print(id, print_center, "The satchel is set -- get clear.");
+	}
 	dbg("siege: %d planted objective %d (ent %d), %0.1f s fuse", id, n, ent, get_pcvar_float(g_cv_objfuse));
 	set_task(get_pcvar_float(g_cv_objfuse), "task_charge_fuse", TSM_TASK_CHARGE);
+	siege_fuse_show(id, n);
 }
 
 /// Objective n falls, taken by this player.
 siege_fall(id, ent, n)
 {
-	g_obj_taken = n;
+	if (!g_obj_down[n])
+	{
+		g_obj_down[n] = true;
+		g_obj_taken++;
+	}
 	points_add(id, get_pcvar_num(g_cv_sc_objective), "a siege objective");
 
-	// No one else's hold carries on past a fall: the chain has moved on.
+	// No one else's hold carries on past a fall in numbered order: the chain has moved on. In any
+	// order only the holds on the objective that fell end with it.
 	for (new i = 1; i <= g_maxplayers; i++)
 	{
-		if (g_obj_holding[i])
+		if (g_obj_holding[i] && (siege_linear() || g_obj_holding[i] == ent))
 		{
 			remove_task(i + TSM_TASK_OBJ);
 			g_obj_holding[i] = 0;
@@ -13084,21 +13569,35 @@ siege_fall(id, ent, n)
 	new who[32];
 	get_user_name(id, who, charsmax(who));
 	new count = siege_count();
-	if (n >= count)
+	new bool:last = siege_closes(n, count);
+	if (siege_linear())
 	{
-		all_print("[MATCH] %s destroyed the last siege objective (%d of %d).", who, n, count);
+		if (last)
+		{
+			all_print("[MATCH] %s destroyed the last siege objective (%d of %d).", who, n, count);
+		}
+		else
+		{
+			all_print("[MATCH] %s destroyed objective %d of %d.", who, n, count);
+		}
+	}
+	else if (last)
+	{
+		all_print("[MATCH] %s destroyed objective %d, the last one standing.", who, n);
 	}
 	else
 	{
-		all_print("[MATCH] %s destroyed objective %d of %d.", who, n, count);
+		all_print("[MATCH] %s destroyed objective %d (%d of %d down).", who, n, g_obj_taken, count);
 	}
-	dbg("siege: objective %d fell to %d", n, id);
+	dbg("siege: objective %d fell to %d (%s order, %d of %d down, last %d)", n, id,
+		siege_linear() ? "numbered" : "any", g_obj_taken, count, last ? 1 : 0);
 
 	// Only the last objective ends the round. An earlier one has blown and the
-	// round goes on: the attackers move to the next in the chain, and the round
-	// gets its time and its lives back. The time goes first, so that a clock that
-	// lifts sudden death lets the lives return under the ordinary wave rules.
-	if (n >= count)
+	// round goes on: the attackers move to the next in the chain (to any other that
+	// stands, in any order), and the round gets its time and its lives back. The time
+	// goes first, so that a clock that lifts sudden death lets the lives return under
+	// the ordinary wave rules.
+	if (last)
 	{
 		end_round(get_pcvar_num(g_cv_objteam));
 	}
@@ -13157,7 +13656,7 @@ siege_fall(id, ent, n)
 	// After end_round: deaths outside a live round are not eliminations, so nobody
 	// is counted out of the next one for being caught in the blast. The last
 	// objective only, like the round end.
-	if (n >= count && get_pcvar_num(g_cv_objslay))
+	if (last && get_pcvar_num(g_cv_objslay))
 	{
 		set_task(0.5, "task_siege_slay", TSM_TASK_OBJ);
 	}
@@ -13249,6 +13748,19 @@ reward_lives(side)
 		return -1;
 	}
 
+	// Where the lives are one pool a side's reward is its pool back up to what it started with.
+	if (mode_flag(TSM_MODE_LIFE_POOL))
+	{
+		for (new s = 1; s <= 2; s++)
+		{
+			if ((!side || side == s) && g_pool[s] < g_pool_start[s])
+			{
+				g_pool[s] = g_pool_start[s];
+			}
+		}
+		pool_publish();
+	}
+
 	new back = 0;
 	new players[TSM_SLOTS], pnum, id, team;
 	get_players(players, pnum, g_pf);
@@ -13314,6 +13826,9 @@ public task_siege_slay()
  */
 public task_charge_fuse()
 {
+	// Whatever comes of it, the countdown is over: it comes off every screen it was on.
+	siege_fuse_hide();
+
 	/*
 	 * The fuse fires into whatever is actually standing by: the planted body
 	 * may have been destroyed by an attacking hand in the meantime (its fall
@@ -13321,7 +13836,8 @@ public task_charge_fuse()
 	 * be over, or the match itself may have been halted. Whatever the reason,
 	 * the planted state -- if there is one left -- releases here.
 	 */
-	if (!g_plant_ent || !pev_valid(g_plant_ent) || g_plant_n != g_obj_taken + 1
+	if (!g_plant_ent || !pev_valid(g_plant_ent) || siege_down(g_plant_n)
+		|| (siege_linear() && g_plant_n != siege_next(siege_count()))
 		|| g_state != ST_LIVE)
 	{
 		g_plant_ent = 0;
@@ -13333,7 +13849,7 @@ public task_charge_fuse()
 	new ent = g_plant_ent;
 	new n = g_plant_n;
 	new by = g_plant_by;
-	new last = (n >= siege_count());
+	new bool:last = siege_closes(n, siege_count());
 
 	// The planted state hands its burden over before any spectacle: nothing
 	// under this fires can re-enter these three, whatever the world does.
@@ -13405,9 +13921,10 @@ public task_charge_fuse()
  *     class plants; every OTHER route to destruction needs a body that can
  *     actually break. The Breacher's one press is reserved for doors.
  *
- * Destruction obeys the SAME "fall in order" rule as the held charge: only
+ * Destruction obeys the SAME order rule as the held charge: with tsm_linear_obj 1 only
  * the next objective ever falls, and a body destroyed ahead of its turn
- * earns nothing (siege_reset rebuilds it from cache next round).
+ * earns nothing (siege_reset rebuilds it from cache next round); with 0 any
+ * objective still standing falls to an attacking hand.
  * ==========================================================================
  */
 
@@ -13456,8 +13973,8 @@ public fw_obj_dmg(ent, inflictor, attacker, Float:damage, damagebits)
 
 /*
  * The body DIED: the objective is achieved, when the destroyer is an
- * attacking player. Every fall in the round still has to come in order --
- * the body of an objective blown ahead of its turn is refused, the shooter
+ * attacking player. With tsm_linear_obj 1 every fall in the round still has to come
+ * in order -- the body of an objective blown ahead of its turn is refused, the shooter
  * is told the same thing the hold mechanic tells them, and the fall stays
  * with whoever comes to it in turn. A fall nobody can be named for (the
  * world, a mapper hazard, a defender shelling their own gate) is refused:
@@ -13470,23 +13987,31 @@ public fw_obj_killed(victim, attacker, gib)
 		return HAM_IGNORED;
 	}
 	new n = siege_number(victim);
-	if (!n || n <= g_obj_taken)
+	if (!n || siege_down(n))
 	{
 		// No objective at all here, or one already accounted for -- the
 		// planted satchel's detonation books its fall first and calls this
 		// hook as the body breaks: nothing to do the second time.
 		return HAM_IGNORED;
 	}
-	if (n > g_obj_taken + 1)
+	if (siege_linear())
 	{
-		if (attacker >= 1 && attacker <= g_maxplayers && !is_user_bot(attacker)
-			&& g_match_team[attacker] == get_pcvar_num(g_cv_objteam)
-			&& (get_gametime() - g_obj_told_at[attacker]) > 2.0)
+		new nxt = siege_next(siege_count());
+		if (n != nxt)
 		{
-			g_obj_told_at[attacker] = get_gametime();
-			client_print(attacker, print_center, "Objective %d has to fall first.", g_obj_taken + 1);
+			if (attacker >= 1 && attacker <= g_maxplayers && !is_user_bot(attacker)
+				&& g_match_team[attacker] == get_pcvar_num(g_cv_objteam)
+				&& (get_gametime() - g_obj_told_at[attacker]) > 2.0)
+			{
+				g_obj_told_at[attacker] = get_gametime();
+				siege_say(attacker, "Objective %d has to fall first.", nxt);
+			}
+			return HAM_IGNORED;
 		}
-		return HAM_IGNORED;
+	}
+	else if (n > siege_count())
+	{
+		return HAM_IGNORED;   // a numbered body past a gap in the chain is none of the siege's
 	}
 	if (attacker < 1 || attacker > g_maxplayers
 		|| g_match_team[attacker] != get_pcvar_num(g_cv_objteam))
@@ -13565,16 +14090,23 @@ siege_fire(const name[], activator)
 siege_reset()
 {
 	new name[24];
-	for (new n = g_obj_taken; n >= 1; n--)
+	for (new n = TSM_OBJ_MAX; n >= 1; n--)
 	{
-		formatex(name, charsmax(name), "%s%d_reset", TSM_OBJ_PREFIX, n);
-		siege_fire(name, 0);
+		if (g_obj_down[n])
+		{
+			formatex(name, charsmax(name), "%s%d_reset", TSM_OBJ_PREFIX, n);
+			siege_fire(name, 0);
+		}
 	}
 	if (g_obj_taken)
 	{
 		dbg("siege: %d objective(s) put back", g_obj_taken);
 	}
 	g_obj_taken = 0;
+	for (new n = 1; n <= TSM_OBJ_MAX; n++)
+	{
+		g_obj_down[n] = false;
+	}
 	for (new i = 1; i <= g_maxplayers; i++)
 	{
 		remove_task(i + TSM_TASK_OBJ);
@@ -13607,8 +14139,8 @@ siege_reset()
  *                             every cached body rebuilt, the chain at zero
  *
  * The chronology rules stay honest in debug: the fuse only detonates in a
- * live round and only on the NEXT objective of the chain -- walk the chain
- * forward with amx_tsm_obj <n> (or take earlier objectives properly) and the
+ * live round and, with tsm_linear_obj 1, only on the NEXT objective of the chain --
+ * walk the chain forward with amx_tsm_obj <n> (or take earlier objectives properly) and the
  * suite fires the finale exactly as a full run of the map would.
  */
 siege_line(id, const fmt[], any:...)
@@ -13655,8 +14187,16 @@ public cmd_siege(id, level, cid)
 	}
 	siege_line(id, "siege dump ----------------------------------");
 	siege_line(id, "state: %d (%s)", g_state, stc);
-	siege_line(id, "chain: %d objective(s) live, %d fallen, next due %d",
-		siege_count(), g_obj_taken, g_obj_taken + 1);
+	if (siege_linear())
+	{
+		siege_line(id, "chain: %d objective(s) live, %d fallen, next due %d",
+			siege_count(), g_obj_taken, g_obj_taken + 1);
+	}
+	else
+	{
+		siege_line(id, "chain: %d objective(s) live, %d fallen, in any order (tsm_linear_obj 0)",
+			siege_count(), g_obj_taken);
+	}
 
 	if (g_plant_n && pev_valid(g_plant_ent))
 	{
@@ -13889,9 +14429,17 @@ public cmd_siege_spawn(id, level, cid)
 	formatex(name, charsmax(name), "%s%d", TSM_OBJ_PREFIX, n);
 	set_pev(ent, pev_targetname, engfunc(EngFunc_AllocString, name));
 
-	siege_line(id, "Synthetic objective tsm_obj_%d placed (ent %d) where you look. Next due is %d%s",
-		n, ent, g_obj_taken + 1,
-		(n == g_obj_taken + 1) ? " -- this one is in turn." : " -- take earlier ones first (amx_tsm_obj <n> walks the chain).");
+	if (siege_linear())
+	{
+		siege_line(id, "Synthetic objective tsm_obj_%d placed (ent %d) where you look. Next due is %d%s",
+			n, ent, g_obj_taken + 1,
+			(n == g_obj_taken + 1) ? " -- this one is in turn." : " -- take earlier ones first (amx_tsm_obj <n> walks the chain).");
+	}
+	else
+	{
+		siege_line(id, "Synthetic objective tsm_obj_%d placed (ent %d) where you look. Objectives fall in any order (tsm_linear_obj 0).",
+			n, ent);
+	}
 	dbg("siege: synthetic objective %d spawned as ent %d by %d", n, ent, id);
 	return PLUGIN_HANDLED;
 }
@@ -13938,12 +14486,12 @@ public cmd_siege_plant(id, level, cid)
 		siege_line(id, "No objective there -- aim at one, name its number, or make one with amx_tsm_siege_spawn.");
 		return PLUGIN_HANDLED;
 	}
-	if (n <= g_obj_taken)
+	if (siege_down(n))
 	{
 		siege_line(id, "Objective %d has already fallen -- amx_tsm_obj reset puts it back.", n);
 		return PLUGIN_HANDLED;
 	}
-	if (n != g_obj_taken + 1)
+	if (siege_linear() && n != g_obj_taken + 1)
 	{
 		siege_line(id, "NOTE: next in the chain is objective %d -- the fuse on %d will reconcile and fall nothing. amx_tsm_obj %d points the chain there first.",
 			g_obj_taken + 1, n, n - 1);
@@ -14029,6 +14577,7 @@ public cmd_siege_reset(id, level, cid)
 	g_plant_ent = 0;
 	g_plant_n = 0;
 	g_plant_by = 0;
+	siege_fuse_hide();
 	alarm_stop();
 	siege_reset();
 
@@ -14059,6 +14608,10 @@ public cmd_obj(id, level, cid)
 		new k = str_to_num(a);
 		new count = siege_count();
 		g_obj_taken = (k < 0) ? 0 : ((k > count) ? count : k);
+		for (new n = 1; n <= TSM_OBJ_MAX; n++)
+		{
+			g_obj_down[n] = (n <= g_obj_taken);
+		}
 	}
 
 	new cls[32];
@@ -14604,6 +15157,7 @@ breach_entity(id, ent)
 	}
 
 	new flags = pev(ent, pev_spawnflags);
+	breach_note(ent, flags);
 	if (flags & TSM_SF_DOOR_USE_ONLY)
 	{
 		set_pev(ent, pev_spawnflags, flags & ~TSM_SF_DOOR_USE_ONLY);
@@ -14631,6 +15185,7 @@ breach_entity(id, ent)
 			{
 				break;
 			}
+			breach_note(linked, pev(linked, pev_spawnflags));
 			dllfunc(DLLFunc_Use, linked, id, id, 2, 0.0);
 		}
 	}
@@ -14718,6 +15273,152 @@ public cmd_opendoor(id, level, cid)
 	console_print(id, "[TSM] Forced door %d (%s) open.", door, cls);
 	dbg("tsm_opendoor: %d forced door %d (%s), master %d", id, door, cls, master);
 	return PLUGIN_HANDLED;
+}
+
+/*
+ * THE DOORS A BREACHER FORCED GO BACK WITH THE ROUND.
+ *
+ * breach_entity() strips a door's lock (SF_DOOR_USE_ONLY) and fires it, and nothing undid either: a
+ * door that stays open (a toggle door, or wait -1) stayed open into every later round, and a locked
+ * one stayed unlocked for the rest of the map. breach_note() writes each forced door down with its
+ * spawnflags as they were, and start_round() calls breach_doors_reset(), which gives every one of
+ * them its flags back and closes it.
+ *
+ * It closes by the door's OWN code and moves nothing itself. At the top, a door with the toggle flag
+ * (SF_DOOR_NO_AUTO_RETURN) answers a Use by going down; any other has DoorGoDown still set as its
+ * think from the moment it arrived, so its next think is brought to now. Either way it ends in
+ * DoorHitBottom, which sets the door's touch function from its flags -- and the flags go back FIRST,
+ * so a Use Only door gets none. A door still on its way up or down is looked at again two seconds
+ * later, three more times.
+ *
+ * A door that had already come down by itself while it was unlocked keeps the touch function
+ * DoorHitBottom gave it then. fw_door_touch turns the touch of any Use Only door away, which is all
+ * the original does with one: it has no touch function at all.
+ */
+#define TSM_SF_DOOR_NO_AUTO_RETURN 32
+#define TSM_MAX_BREACHED 64
+#define TSM_TASK_DOORS 92200
+
+new g_breach_ent[TSM_MAX_BREACHED];    // the doors forced since the last round began
+new g_breach_flags[TSM_MAX_BREACHED];  // their spawnflags as they were, lock included
+new g_breach_n;
+new g_breach_pass;
+
+/// Writes a door about to be forced down, once, with the flags it has now.
+breach_note(ent, flags)
+{
+	if (ent < 1 || !pev_valid(ent) || g_breach_n >= TSM_MAX_BREACHED)
+	{
+		return;
+	}
+
+	new cls[24];
+	pev(ent, pev_classname, cls, charsmax(cls));
+	if (!equal(cls, "func_door") && !equal(cls, "func_door_rotating"))
+	{
+		return;
+	}
+
+	for (new i = 0; i < g_breach_n; i++)
+	{
+		if (g_breach_ent[i] == ent)
+		{
+			return;
+		}
+	}
+
+	g_breach_ent[g_breach_n] = ent;
+	g_breach_flags[g_breach_n] = flags;
+	g_breach_n++;
+}
+
+/// Closes a forced door by its own code. A door that is shut already, or still moving, is left alone.
+breach_door_close(ent)
+{
+	if (!pev_valid(ent) || get_pdata_int(ent, TSM_PD_DOOR_STATE) != 0)
+	{
+		return;
+	}
+
+	if (pev(ent, pev_spawnflags) & TSM_SF_DOOR_NO_AUTO_RETURN)
+	{
+		new master = get_pdata_int(ent, TSM_PD_DOOR_MASTER);
+		set_pdata_int(ent, TSM_PD_DOOR_MASTER, 0);
+		g_forcing_door = true;
+		dllfunc(DLLFunc_Use, ent, 0, 0, 2, 0.0);   // 2 = USE_TOGGLE: at the top, this one goes down
+		g_forcing_door = false;
+		set_pdata_int(ent, TSM_PD_DOOR_MASTER, master);
+		return;
+	}
+
+	new Float:lt;
+	pev(ent, pev_ltime, lt);
+	set_pev(ent, pev_nextthink, lt + 0.05);   // its think is DoorGoDown
+}
+
+/// From start_round(): every forced door gets its flags back and closes.
+breach_doors_reset()
+{
+	remove_task(TSM_TASK_DOORS);
+	if (g_breach_n < 1)
+	{
+		return;
+	}
+
+	for (new i = 0; i < g_breach_n; i++)
+	{
+		new ent = g_breach_ent[i];
+		if (!pev_valid(ent))
+		{
+			continue;
+		}
+		set_pev(ent, pev_spawnflags, g_breach_flags[i]);
+		breach_door_close(ent);
+	}
+
+	dbg("round start: %d forced door(s) given back their locks and closed", g_breach_n);
+	g_breach_pass = 0;
+	set_task(2.0, "task_breach_doors", TSM_TASK_DOORS);
+}
+
+public task_breach_doors()
+{
+	new waiting = 0;
+	for (new i = 0; i < g_breach_n; i++)
+	{
+		new ent = g_breach_ent[i];
+		if (!pev_valid(ent) || get_pdata_int(ent, TSM_PD_DOOR_STATE) == 1)
+		{
+			continue;
+		}
+		breach_door_close(ent);
+		waiting++;
+	}
+
+	g_breach_pass++;
+	if (waiting > 0 && g_breach_pass < 4)
+	{
+		set_task(2.0, "task_breach_doors", TSM_TASK_DOORS);
+		return;
+	}
+	g_breach_n = 0;
+}
+
+public fw_door_touch(ent, other)
+{
+	#pragma unused other
+	g_door_touch_hits++;
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return HAM_IGNORED;
+	}
+
+	if (pev(ent, pev_spawnflags) & TSM_SF_DOOR_USE_ONLY)
+	{
+		g_door_touch_refused++;
+		return HAM_SUPERCEDE;
+	}
+	return HAM_IGNORED;
 }
 
 /*
@@ -15800,7 +16501,7 @@ perk_use(id)
 		}
 
 		breach_entity(id, hit);
-		client_print(id, print_center, "Breached.");
+		siege_say(id, "Breached.");
 
 		// A forced door is the alarm's other trigger, same rule as the
 		// objectives: the round's first one starts the siren, and that is it.
@@ -16035,10 +16736,10 @@ cache_teams()
 // ordinary elimination.
 
 /// Lives a player starts each round with: the class's tsm_class_lives entry, or 1 when
-/// tsm_respawns is 0 or the class has no entry.
+/// tsm_respawns is 0 or the class has no entry. Always 1 where the mode keeps one pool of lives for a side.
 lives_for(id)
 {
-	if (!get_pcvar_num(g_cv_respawns))
+	if (!get_pcvar_num(g_cv_respawns) || mode_flag(TSM_MODE_LIFE_POOL))
 	{
 		return 1;
 	}
@@ -16050,7 +16751,225 @@ lives_for(id)
 	return class_lives_of(ci + 1);
 }
 
-/// One player's once-a-round abilities, ready again as a new round would have them: the stim, .ammo, the
+/// tsm_class_cost, read in class order like tsm_class_lives. Unlisted classes draw 1.
+load_class_costs()
+{
+	for (new i = 0; i < TSM_MAXCLASS; i++)
+	{
+		g_class_cost[i] = 1;
+	}
+
+	new spec[128];
+	get_pcvar_string(g_cv_classcost, spec, charsmax(spec));
+	if (!spec[0])
+	{
+		return;
+	}
+
+	new rest[128], field[16], carry[128], idx = 0;
+	copy(rest, charsmax(rest), spec);
+	while (rest[0] && idx < TSM_MAXCLASS)
+	{
+		strtok(rest, field, charsmax(field), carry, charsmax(carry), ',', 1);
+		trim(field);
+		new v = str_to_num(field);
+		g_class_cost[idx] = (v < 1) ? 1 : v;
+		idx++;
+		copy(rest, charsmax(rest), carry);
+	}
+}
+
+/// What a death of this class (1-based) draws from its side's pool: the mode's number when it gave one, else tsm_class_cost.
+class_cost_of(cls)
+{
+	if (cls < 1 || cls > TSM_MAXCLASS)
+	{
+		return 1;
+	}
+	if (g_mode_class_cost[cls - 1] > 0)
+	{
+		return g_mode_class_cost[cls - 1];
+	}
+	return g_class_cost[cls - 1];
+}
+
+/// What the class menu says a class carries: its lives, or where the lives are one pool what a death draws from it.
+class_menu_info(cls, out[], len)
+{
+	if (mode_flag(TSM_MODE_LIFE_POOL))
+	{
+		formatex(out, len, "cost %d", class_cost_of(cls));
+		return;
+	}
+	if (mode_flag(TSM_MODE_ENDLESS))
+	{
+		copy(out, len, "respawns");   // both sides come back in waves for ever: there is no count to show
+		return;
+	}
+	new lv = get_pcvar_num(g_cv_respawns) ? class_lives_of(cls) : 1;
+	formatex(out, len, "%d %s", lv, (lv == 1) ? "life" : "lives");
+}
+
+/// What a side's lives are called to the players: "life" and "lives", or where the lives are one pool for a side (Assault)
+/// "reinforcement" and "reinforcements". n is how many, for the singular.
+life_noun(n, out[], len)
+{
+	if (mode_flag(TSM_MODE_LIFE_POOL))
+	{
+		copy(out, len, (n == 1) ? "reinforcement" : "reinforcements");
+		return;
+	}
+	copy(out, len, (n == 1) ? "life" : "lives");
+}
+
+/// Both pools to nothing: the start and the end of a round.
+pool_clear()
+{
+	for (new s = 0; s < 3; s++)
+	{
+		g_pool[s] = 0;
+		g_pool_start[s] = 0;
+	}
+}
+
+/// The pools at a round going live: each side starts with tsm_pool_base plus tsm_pool_perplayer for every player it has,
+/// bots included. Nothing without TSM_MODE_LIFE_POOL.
+pool_start()
+{
+	pool_clear();
+	if (!mode_flag(TSM_MODE_LIFE_POOL))
+	{
+		return;
+	}
+
+	new count[3];
+	new players[TSM_SLOTS], pnum, id;
+	get_players(players, pnum, g_pf);
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if (g_match_team[id] == 1 || g_match_team[id] == 2)
+		{
+			count[g_match_team[id]]++;
+		}
+	}
+	for (new s = 1; s <= 2; s++)
+	{
+		g_pool_start[s] = clamp(get_pcvar_num(g_cv_poolbase) + get_pcvar_num(g_cv_poolplayer) * count[s], 0, 4095);
+		g_pool[s] = g_pool_start[s];
+	}
+	dbg("pool: team 1 starts with %d (%d players), team 2 with %d (%d players)",
+		g_pool_start[1], count[1], g_pool_start[2], count[2]);
+}
+
+/// A death where the lives are one pool: the class's cost comes out of the side's pool and the victim waits for the next wave. With
+/// the pool at 0 the death is final, the ordinary elimination; a pool smaller than the cost is emptied by it.
+pool_death(victim)
+{
+	new side = g_match_team[victim];
+	if (side != 1 && side != 2)
+	{
+		return;
+	}
+	if (g_pool[side] <= 0)
+	{
+		g_revive_pending[victim] = false;
+		if (!life_lost_said(victim, 0))
+		{
+			match_chat(victim, "[MATCH] Your side is out of reinforcements -- that death is final.");
+		}
+		dbg("pool: %d died with team %d's pool empty, out of the round", victim, side);
+		return;
+	}
+
+	new cls = resolved_class(victim);
+	new cost = class_cost_of(cls);
+	if (cost > g_pool[side])
+	{
+		cost = g_pool[side];
+	}
+	g_pool[side] -= cost;
+	g_revive_pending[victim] = true;
+	g_died_at[victim] = get_gametime();
+	if (!life_lost_said(victim, g_pool[side]))
+	{
+		new spent[16], rest[16];
+		life_noun(cost, spent, charsmax(spent));
+		life_noun(g_pool[side], rest, charsmax(rest));
+		match_chat(victim, "[MATCH] That cost %d %s -- your side has %d %s left. Back in the next wave.",
+			cost, spent, g_pool[side], rest);
+	}
+	dbg("pool: %d died as class %d, cost %d, team %d's pool is now %d", victim, cls, cost, side, g_pool[side]);
+	pool_publish();
+}
+
+/// One H9Pool message to everyone (to 0) or to one client: side 0 says no pool is counted now.
+pool_write(to, side, left, start)
+{
+	if (!g_msg_pool)
+	{
+		return;
+	}
+	if (to)
+	{
+		engfunc(EngFunc_MessageBegin, MSG_ONE, g_msg_pool, Float:{0.0, 0.0, 0.0}, to);
+	}
+	else
+	{
+		engfunc(EngFunc_MessageBegin, MSG_ALL, g_msg_pool, Float:{0.0, 0.0, 0.0}, 0);
+	}
+	write_byte(side);
+	write_short(left);
+	write_short(start);
+	message_end();
+}
+
+/// The pools as the scoreboard shows them: whatever changed, to everyone, and once the word that none is counted when the mode stops
+/// counting them (as lives_publish does for the players' own lives). Once a second from task_tick, and at once after a death.
+pool_publish()
+{
+	if (!g_msg_pool)
+	{
+		return;
+	}
+	new bool:counting = mode_flag(TSM_MODE_LIFE_POOL) && get_pcvar_num(g_cv_enabled)
+		&& (g_state == ST_FREEZE || g_state == ST_LIVE || g_state == ST_ROUNDEND || g_halted);
+	if (!counting)
+	{
+		if (g_pool_counting)
+		{
+			g_pool_counting = false;
+			arrayset(g_pool_sent, -1, sizeof g_pool_sent);
+			pool_write(0, 0, 0, 0);
+		}
+		return;
+	}
+	g_pool_counting = true;
+	for (new s = 1; s <= 2; s++)
+	{
+		new value = clamp(g_pool[s], 0, 4095) * 4096 + clamp(g_pool_start[s], 0, 4095);
+		if (value != g_pool_sent[s])
+		{
+			g_pool_sent[s] = value;
+			pool_write(0, s, g_pool[s], g_pool_start[s]);
+		}
+	}
+}
+
+/// A joining human gets both pools as last sent, while they are counted.
+pool_sync(id)
+{
+	if (!g_msg_pool || !g_pool_counting || !is_user_connected(id) || g_is_bot[id])
+	{
+		return;
+	}
+	for (new s = 1; s <= 2; s++)
+	{
+		pool_write(id, s, g_pool[s], g_pool_start[s]);
+	}
+}
+
+/// One player's once-a-round abilities, ready again as a new round would have them/// One player's once-a-round abilities, ready again as a new round would have them: the stim, .ammo, the
 /// Engineer's resupply and turret, the Medic's heal, the Officer's scan and reinforcements, the Mech's rockets.
 refresh_abilities(id)
 {
@@ -16135,6 +17054,10 @@ count_waiting(team)
 /// skips bots underreported a side's remaining stock whenever a bot held any.
 team_lives_left(team)
 {
+	if (mode_flag(TSM_MODE_LIFE_POOL))
+	{
+		return (team == 1 || team == 2) ? g_pool[team] : 0;
+	}
 	new total = 0;
 	new players[TSM_SLOTS], pnum, id;
 	get_players(players, pnum, g_pfall);
@@ -16166,6 +17089,9 @@ start_wave_clocks()
 		remove_task(TSM_TASK_REVIVE + id);
 	}
 
+	// A mode that keeps one pool of lives for a side: each side's pool, sized by its players now.
+	pool_start();
+
 	// Per side: a claimed mode can give a side its own interval (wave_interval), and side 2
 	// can wait for waves even with tsm_respawns 0 when the mode made it endless.
 	g_wave_left[1] = wave_interval(1);
@@ -16183,6 +17109,7 @@ start_wave_clocks()
 lives_reset_round()
 {
 	remove_task(TSM_TASK_WAVE);
+	wait_panels_close();
 
 	new players[TSM_SLOTS], pnum, id;
 	get_players(players, pnum, g_pf);
@@ -16198,6 +17125,7 @@ lives_reset_round()
 		remove_task(TSM_TASK_REVIVE + id);
 	}
 
+	pool_clear();
 	g_wave_left[1] = 0.0;
 	g_wave_left[2] = 0.0;
 }
@@ -16246,6 +17174,7 @@ respawn_sudden_cut()
 		remove_task(TSM_TASK_REVIVE + id);
 	}
 	remove_task(TSM_TASK_WAVE);
+	wait_panels_close();
 	check_round_end();
 }
 
@@ -16275,7 +17204,7 @@ lives_on_death(victim)
 	{
 		return;
 	}
-	if (g_side[victim] == 2 && mode_flag(TSM_MODE_SIDE2_ENDLESS))
+	if (side_endless(g_side[victim]))
 	{
 		g_revive_pending[victim] = true;
 		g_died_at[victim] = get_gametime();
@@ -16288,6 +17217,11 @@ lives_on_death(victim)
 	}
 	if (g_sudden && !get_pcvar_num(g_cv_respsudden))
 	{
+		return;
+	}
+	if (mode_flag(TSM_MODE_LIFE_POOL))
+	{
+		pool_death(victim);
 		return;
 	}
 	if (g_lives_left[victim] <= 0)
@@ -16416,8 +17350,89 @@ fire_wave(team, bool:forced)
 /// The Officer's list of teammates waiting for a wave, on the right of the screen. It takes HUD
 /// channel 0, the one no other message here uses, and the wave clock redraws it every second, so
 /// it goes away on its own once nobody is waiting.
+/// The Officer's waiting list on an H9 game's screen: a panel at the top right with the teammates waiting for a wave (the first six, and how
+/// many more). It is built whole when what it says changes and left alone otherwise, and taken down when nobody is waiting. Any other game
+/// gets the hudmessage list (show_waiting_list).
+wait_panel(id, team)
+{
+	new waiting = count_waiting(team);
+	if (!waiting)
+	{
+		wait_panel_close(id);
+		return;
+	}
+
+	new names[TSM_WAIT_ROWS][20], shown = 0;
+	new players[TSM_SLOTS], pnum, mate;
+	get_players(players, pnum, g_pfall);   // everyone, bots included
+	for (new i = 0; i < pnum && shown < TSM_WAIT_ROWS; i++)
+	{
+		mate = players[i];
+		if (!g_revive_pending[mate] || g_match_team[mate] != team)
+		{
+			continue;
+		}
+		get_user_name(mate, names[shown], charsmax(names[]));
+		shown++;
+	}
+
+	new title[32], more[16], said[200];
+	formatex(title, charsmax(title), "WAITING FOR A WAVE (%d)", waiting);
+	more[0] = EOS;
+	if (waiting > shown)
+	{
+		formatex(more, charsmax(more), "+%d more", waiting - shown);
+	}
+	formatex(said, charsmax(said), "%s|%s|%s|%s|%s|%s|%s|%s", title, names[0], names[1], names[2], names[3], names[4], names[5], more);
+	new sig = h9vgui_crc16(said) | 0x10000;   // never 0: 0 is no panel
+	if (sig == g_wait_sig[id])
+	{
+		return;
+	}
+
+	new h = 8 + 18 + 14 * shown + (more[0] ? 14 : 0) + 8;
+	h9vgui_panel(id, TSM_WAIT_PANEL, H9V_KEEP, H9V_TR, -6, 64, 170, h, "#panel");
+	h9vgui_label(id, TSM_WAIT_PANEL, 1, H9V_TL, 8, 8, 154, 16, title, H9V_FONT_DETAIL, H9V_LEFT);
+	for (new r = 0; r < shown; r++)
+	{
+		h9vgui_label(id, TSM_WAIT_PANEL, 2 + r, H9V_TL, 8, 26 + 14 * r, 154, 14, names[r], H9V_FONT_TEXT, H9V_LEFT);
+	}
+	if (more[0])
+	{
+		h9vgui_label(id, TSM_WAIT_PANEL, 2 + TSM_WAIT_ROWS, H9V_TL, 8, 26 + 14 * shown, 154, 14, more, H9V_FONT_DETAIL, H9V_LEFT);
+	}
+	h9vgui_commit(id, TSM_WAIT_PANEL);
+	g_wait_sig[id] = sig;
+}
+
+wait_panel_close(id)
+{
+	if (g_wait_sig[id])
+	{
+		h9vgui_close(id, TSM_WAIT_PANEL);
+		g_wait_sig[id] = 0;
+	}
+}
+
+/// Every Officer's waiting list down: the round is over, or the waves are.
+wait_panels_close()
+{
+	new players[TSM_SLOTS], pnum;
+	get_players(players, pnum, "ch");
+	for (new i = 0; i < pnum; i++)
+	{
+		wait_panel_close(players[i]);
+	}
+}
+
 show_waiting_list(id, team)
 {
+	if (h9vgui_supported(id))
+	{
+		wait_panel(id, team);
+		return;
+	}
+
 	new waiting = count_waiting(team);
 	if (!waiting)
 	{
@@ -16459,6 +17474,7 @@ public task_wave_tick()
 	if (g_state != ST_LIVE || (!side_respawns(1) && !side_respawns(2)))
 	{
 		remove_task(TSM_TASK_WAVE);
+		wait_panels_close();
 		if (g_state == ST_LIVE)
 		{
 			respawns_off_cut();
@@ -16518,28 +17534,48 @@ public task_wave_tick()
 
 		new bool:waiting = g_revive_pending[id];
 		new bool:officer = (class_is_officer(id) && is_user_alive(id) && !g_elim[id]);
+		if (!officer)
+		{
+			wait_panel_close(id);
+		}
 		if (!waiting && !officer)
 		{
 			continue;
 		}
 
 		set_hudmessage(255, 200, 80, -1.0, 0.12, 0, 0.0, 1.2, 0.0, 0.0, 4);
+		new text[96];
 		if (waiting)
 		{
-			show_hudmessage(id, "RESPAWN WAVE IN %ds -- %d %s left",
-				floatround(g_wave_left[team]), g_lives_left[id], (g_lives_left[id] == 1) ? "life" : "lives");
+			// The side's pool where the lives are one, else this player's own count; a side that never runs out has none to tell.
+			new left = mode_flag(TSM_MODE_LIFE_POOL) ? team_lives_left(team) : g_lives_left[id];
+			new noun[16];
+			life_noun(left, noun, charsmax(noun));
+			if (side_endless(team))
+			{
+				formatex(text, charsmax(text), "RESPAWN WAVE IN %ds", floatround(g_wave_left[team]));
+			}
+			else
+			{
+				formatex(text, charsmax(text), "RESPAWN WAVE IN %ds -- %d %s left", floatround(g_wave_left[team]), left, noun);
+			}
 		}
 		else
 		{
 			new Float:cool = g_reinforce_next[id] - now;
 			if (cool > 0.0)
 			{
-				show_hudmessage(id, "WAVE IN %ds -- REINFORCE IN %ds", floatround(g_wave_left[team]), floatround(cool));
+				formatex(text, charsmax(text), "WAVE IN %ds -- REINFORCE IN %ds", floatround(g_wave_left[team]), floatround(cool));
 			}
 			else
 			{
-				show_hudmessage(id, "WAVE IN %ds -- REINFORCE READY", floatround(g_wave_left[team]));
+				formatex(text, charsmax(text), "WAVE IN %ds -- REINFORCE READY", floatround(g_wave_left[team]));
 			}
+		}
+		// An H9 game draws it as a notice under the top band, every other game as the hudmessage set above.
+		h9vgui_alert(id, "tsm.wave", H9V_NOTICE_BANNER, text, 255, 200, 80, 0.12, 1.2, 0.2);
+		if (!waiting)
+		{
 			show_waiting_list(id, team);
 		}
 	}
@@ -16657,9 +17693,43 @@ revive_player(id)
 	g_was_alive[id] = true;
 	g_revive_tries[id] = 0;
 	set_task(0.3, "task_revive_arm", TSM_TASK_REVIVE_ARM + id);
-	match_chat(id, "[MATCH] RESPAWNED -- %d %s left.",
-		g_lives_left[id], (g_lives_left[id] == 1) ? "life" : "lives");
-	dbg("revive: %d back in play, %d %s left", id, g_lives_left[id], (g_lives_left[id] == 1) ? "life" : "lives");
+	// The side's pool where the lives are one, else this player's own count.
+	new left = mode_flag(TSM_MODE_LIFE_POOL) ? team_lives_left(g_match_team[id]) : g_lives_left[id];
+	new noun[16];
+	life_noun(left, noun, charsmax(noun));
+	if (side_endless(g_match_team[id]))
+	{
+		match_chat(id, "[MATCH] RESPAWNED.");
+	}
+	else
+	{
+		match_chat(id, "[MATCH] RESPAWNED -- %d %s left.", left, noun);
+	}
+	dbg("revive: %d back in play, %d %s left", id, left, noun);
+}
+
+/// A wave revive's position check, 0.6 s after the placement that ends it: where the player is, and how far that is from the point the
+/// wave put him on. Something else moving him on the spawn (TS's own respawn, the map) shows as a distance in the AMX log, not only
+/// in the debug log, so a report of "I spawned somewhere else" can be settled from it.
+public task_revive_check(taskid)
+{
+	new id = taskid - TSM_TASK_REVIVE_CHECK;
+	if (!is_user_connected(id) || !is_user_alive(id) || g_state != ST_LIVE)
+	{
+		return;
+	}
+	new Float:at[3];
+	pev(id, pev_origin, at);
+	new Float:off = get_distance_f(at, g_place_at[id]);
+	new name[32];
+	get_user_name(id, name, charsmax(name));
+	dbg("revive check: %s (%d) is %.0f units from the point the wave put him on, at %.0f %.0f %.0f (it put him at %.0f %.0f %.0f, tier %d)",
+		name, id, off, at[0], at[1], at[2], g_place_at[id][0], g_place_at[id][1], g_place_at[id][2], g_place_tier[id]);
+	if (off > TSM_REVIVE_DRIFT && !is_user_bot(id))
+	{
+		tlog("[TSM] Revive check: %s was put at %.0f %.0f %.0f by the wave and is %.0f units from it, at %.0f %.0f %.0f.",
+			name, g_place_at[id][0], g_place_at[id][1], g_place_at[id][2], off, at[0], at[1], at[2]);
+	}
 }
 
 /// The gear for a wave revive, handed over once the player is alive. The spawn clears the
@@ -16694,7 +17764,11 @@ public task_revive_arm(taskid)
 	 * arm_give_kit/apply_class_scale/set_user_health/set_user_armor below -- none of them
 	 * read or depend on the player's position.
 	 */
-	place_at_spawn(id, g_revive_slot[id], true, "wave revive, the arm's respawn");
+	// On the tier "back on his feet" used: the open sets can change in the 0.3 s between, and a player alive and moving must not be
+	// carried from one set to another by the second placement.
+	place_at_spawn(id, g_revive_slot[id], true, "wave revive, the arm's respawn", g_place_tier[id]);
+	remove_task(TSM_TASK_REVIVE_CHECK + id);
+	set_task(0.6, "task_revive_check", TSM_TASK_REVIVE_CHECK + id);
 
 	new wl[32], wn;
 	get_user_weapons(id, wl, wn);
@@ -16714,6 +17788,11 @@ public task_revive_arm(taskid)
 		set_user_armor(id, g_class_ap[ci]);
 	}
 	g_armed[id] = true;
+
+	// The Officer's kung fu, as at the round start: the spawn this revive made cleared the one he had, and only the round start gave it
+	// back, so an Officer who died and came back with a wave (every mode with waves, Capture the Flag and Assault where nobody is ever
+	// counted out) played the rest of the round without it.
+	officer_powerup(id);
 
 	if (is_user_bot(id))
 	{
@@ -18368,6 +19447,7 @@ public fw_prethink(id)
 		g_assist_sync[id] = false;
 		assist_sync(id);
 		lives_sync(id);
+		pool_sync(id);
 		board_sync(id);
 		points_send_sides(id);
 		kills_sync(id);
@@ -19585,8 +20665,16 @@ public native_assists(plugin, params)
 	return (id >= 1 && id <= g_maxplayers) ? g_assists[id] : 0;
 }
 
+/// tsm_assists_ranked(id): the same without the assists on a kill a bot had a part in, as victim or
+/// killer: what ranked play counts, as it counts no kill of a bot or by one.
+public native_assists_ranked(plugin, params)
+{
+	new id = get_param(1);
+	return (id >= 1 && id <= g_maxplayers) ? g_assists_h[id] : 0;
+}
+
 /// tsm_points_award(id, event): a mode's TSM_POINTS_* event, worth what its tsm_score_* cvar says.
-/// TSM_POINTS_CARRY is one second carrying the uplink, and every tsm_score_carry_secs of them pay
+/// TSM_POINTS_CARRY is one second carrying the uplink or a flag, and every tsm_score_carry_secs of them pay
 /// tsm_score_carry. Returns the points given.
 public native_points_award(plugin, params)
 {
@@ -19606,6 +20694,14 @@ public native_points_award(plugin, params)
 		{
 			return points_add(id, get_pcvar_num(g_cv_sc_wave), "a wave survived");
 		}
+		case TSM_POINTS_CAPTURE:
+		{
+			return points_add(id, get_pcvar_num(g_cv_sc_capture), "a flag captured");
+		}
+		case TSM_POINTS_RETURN:
+		{
+			return points_add(id, get_pcvar_num(g_cv_sc_return), "a flag returned");
+		}
 		case TSM_POINTS_CARRY:
 		{
 			new every = get_pcvar_num(g_cv_sc_carrysecs);
@@ -19618,7 +20714,7 @@ public native_points_award(plugin, params)
 				return 0;
 			}
 			g_carry_secs[id] = 0;
-			return points_add(id, get_pcvar_num(g_cv_sc_carry), "carrying the uplink");
+			return points_add(id, get_pcvar_num(g_cv_sc_carry), "carrying");
 		}
 	}
 	return 0;
@@ -19650,7 +20746,8 @@ assist_send(to, slot)
 /// One player's lives as the scoreboard shows them, left * 256 + lives: 0 when none are counted.
 lives_value(id)
 {
-	if (!g_lives_counting || !is_user_connected(id))
+	// Where the lives are one pool the players carry none: the scoreboard shows the pool (H9Pool).
+	if (!g_lives_counting || !is_user_connected(id) || mode_flag(TSM_MODE_LIFE_POOL))
 	{
 		return 0;
 	}
@@ -19659,7 +20756,7 @@ lives_value(id)
 	{
 		return 0;
 	}
-	if (side == 2 && mode_flag(TSM_MODE_SIDE2_ENDLESS))
+	if (side_endless(side))
 	{
 		return TSM_LIVES_ENDLESS * 256 + TSM_LIVES_ENDLESS;
 	}
@@ -19769,6 +20866,7 @@ assist_sync(id)
 assist_slot_reset(id, bool:joining)
 {
 	g_assists[id] = 0;
+	g_assists_h[id] = 0;
 	g_kills[id] = 0;
 	g_hit_next[id] = 0;
 	for (new p = 1; p <= g_maxplayers; p++)
@@ -19798,6 +20896,9 @@ public ev_assist_death()
 	// A round reset's deaths are not kills.
 	if (!g_resetting)
 	{
+		// The scoreboard's A column counts every assist; ranked play's count (g_assists_h) leaves out
+		// a kill a bot had a part in, as its kills do.
+		new bool:bot_kill = g_is_bot[victim] || (killer >= 1 && killer <= g_maxplayers && g_is_bot[killer]);
 		new Float:now = get_gametime();
 		new Float:sum[MAXPL];
 		for (new k = 0; k < TSM_ASSIST_HITS; k++)
@@ -19816,6 +20917,10 @@ public ev_assist_death()
 				continue;
 			}
 			g_assists[a]++;
+			if (!bot_kill)
+			{
+				g_assists_h[a]++;
+			}
 			assist_send(0, a);
 			points_add(a, get_pcvar_num(g_cv_sc_assist), "an assist");
 		}
@@ -19913,11 +21018,16 @@ public ev_death()
  * stand. An emit_sound reaches only the players in earshot of the body -- even at attenuation
  * 0 the engine sends it to that spot's audible set -- and that is not both teams.
  *
- * tsm_officerslain_sound 0 turns it off.
+ * tsm_officerslain_sound 0 turns it off. A mode where nobody is counted out (Capture the Flag: every death waits for a wave) or where the
+ * lives are a pool (Assault) is one where an Officer's death costs a wait, not the Officer, so it is not announced there.
  */
 officer_slain_sound(id)
 {
 	if (!g_death_officer_ok || !get_pcvar_num(g_cv_officerslain) || !g_class_count)
+	{
+		return;
+	}
+	if (mode_flag(TSM_MODE_ENDLESS) || mode_flag(TSM_MODE_LIFE_POOL))
 	{
 		return;
 	}
@@ -20188,10 +21298,11 @@ report_elimination(killer, victim)
 	{
 		new l1 = team_lives_left(1);
 		new l2 = team_lives_left(2);
-		team_print(1, "[MATCH] %d alive vs %d alive -- %d %s left vs %d %s left",
-			a1, a2, l1, (l1 == 1) ? "life" : "lives", l2, (l2 == 1) ? "life" : "lives");
-		team_print(2, "[MATCH] %d alive vs %d alive -- %d %s left vs %d %s left",
-			a2, a1, l2, (l2 == 1) ? "life" : "lives", l1, (l1 == 1) ? "life" : "lives");
+		new n1[16], n2[16];
+		life_noun(l1, n1, charsmax(n1));
+		life_noun(l2, n2, charsmax(n2));
+		team_print(1, "[MATCH] %d alive vs %d alive -- %d %s left vs %d %s left", a1, a2, l1, n1, l2, n2);
+		team_print(2, "[MATCH] %d alive vs %d alive -- %d %s left vs %d %s left", a2, a1, l2, n2, l1, n1);
 	}
 	else
 	{
@@ -20374,15 +21485,20 @@ end_round(winner)
 	g_end_pending_at = 0.0;
 	g_end_pending_winner = 0;
 
+	// A mode whose first round is the whole match announces the match's end, not the round's.
+	new bool:one_round = (mode_flag(TSM_MODE_ONE_ROUND) != 0);
 	if (winner)
 	{
 		g_score[winner]++;
 		new wonname[32];
 		team_display(winner, wonname, charsmax(wonname));
-		all_print("[MATCH] Round %d won by %s. Score: %d -- %d.",
-			g_round, wonname, g_score[1], g_score[2]);
+		if (!one_round)
+		{
+			all_print("[MATCH] Round %d won by %s. Score: %d -- %d.",
+				g_round, wonname, g_score[1], g_score[2]);
+		}
 	}
-	else
+	else if (!one_round)
 	{
 		all_print("[MATCH] Round %d drawn. Score: %d -- %d.", g_round, g_score[1], g_score[2]);
 	}
@@ -20400,8 +21516,9 @@ end_round(winner)
 	{
 		need = 1;   // a nonsense tsm_rounds must not mean "never end"
 	}
-	// A one-run mode (survival) has no best-of: the run that just ended was the match.
-	if (mode_flag(TSM_MODE_ONE_RUN) || g_score[1] >= need || g_score[2] >= need)
+	// A one-run mode (survival) has no best-of: the run that just ended was the match. A one-round mode (assault) likewise,
+	// with the round's winner for the match's.
+	if (mode_flag(TSM_MODE_ONE_RUN) || one_round || g_score[1] >= need || g_score[2] >= need)
 	{
 		set_task(3.0, "task_match_end", 4);
 	}
@@ -20425,6 +21542,35 @@ public task_match_end()
 		// The mode has already said how the run went; a 0 -- 1 scoreline would only confuse it.
 		all_print("[MATCH] RUN OVER -- back to warmup. Type .ready for another.");
 		bar_set(0, 220, 120, -1, 0.0, "RUN OVER^nTYPE .ready FOR ANOTHER");
+	}
+	else if (mode_flag(TSM_MODE_ONE_ROUND))
+	{
+		// The round was the match: its winner won it, and a drawn round is a drawn match, which nothing is rated on.
+		w = (g_score[1] > g_score[2]) ? 1 : ((g_score[2] > g_score[1]) ? 2 : 0);
+		new t1[32], t2[32], res[96];
+		team_short(1, t1, charsmax(t1));
+		team_short(2, t2, charsmax(t2));
+		if (g_mode_hud[0])
+		{
+			copy(res, charsmax(res), g_mode_hud);
+		}
+		else
+		{
+			formatex(res, charsmax(res), "%s  --  %s", t1, t2);
+		}
+		if (w)
+		{
+			new wname[32], ws[32];
+			team_display(w, wname, charsmax(wname));
+			team_short(w, ws, charsmax(ws));
+			all_print("[MATCH] MATCH OVER -- %s wins.", wname);
+			bar_set(0, 220, 120, -1, 0.0, "MATCH OVER -- %s WINS^n%s", ws, res);
+		}
+		else
+		{
+			all_print("[MATCH] MATCH OVER -- a draw.");
+			bar_set(0, 220, 120, -1, 0.0, "MATCH OVER -- A DRAW^n%s", res);
+		}
 	}
 	else
 	{
@@ -20521,6 +21667,7 @@ clear_match_state()
 	g_plant_ent = 0;
 	g_plant_n = 0;
 	g_plant_by = 0;
+	siege_fuse_hide();
 }
 
 /*
@@ -20799,7 +21946,7 @@ public cmd_commands(id, level, cid)
 	static const clcmds[][] = {
 		"say", "say_team", "tkw", "tka", "tki", "rst_cfg", "cashala", "tsm_model",
 		"stim", "turret", "pickup", "tsm_mechtest", "usepowerup", "powerup", "say .class",
-		"say .team", "say .menu", "say .roam", "tsm_music", "jointeam", "changeteam"
+		"say .team", "say .menu", "say .roam", "tsm_music", "jointeam", "changeteam", "drop"
 	};
 
 	console_print(id, "[TSM] Client commands (register_clcmd):");
@@ -20834,6 +21981,7 @@ public cmd_commands(id, level, cid)
 start_round()
 {
 	g_round++;
+	refresh_round_tag();
 	g_resetting = true;
 	scale_classes();
 	lives_reset_round();
@@ -20847,6 +21995,9 @@ start_round()
 	 */
 	siege_reset();
 
+	// The doors a Breacher forced last round get their locks back and close.
+	breach_doors_reset();
+
 	// The old round's alarm dies with the old round: a fresh one is silent
 	// until somebody attacks something of the other side again. And a satchel
 	// still on its fuse when the round ended dies with it: no planted state
@@ -20856,6 +22007,7 @@ start_round()
 	g_plant_ent = 0;
 	g_plant_n = 0;
 	g_plant_by = 0;
+	siege_fuse_hide();
 
 	// A new round is never in sudden death, whatever the last one ended as. The
 	// go-live reset keeps the headline honest; this one makes the freeze itself
@@ -21124,7 +22276,14 @@ finish_round_start()
 	g_gate_deadline = 0.0;
 	g_flow_deadline = 0.0;
 
-	all_print("[MATCH] Round %d starting -- %d second freeze.", g_round, get_pcvar_num(g_cv_freeze));
+	if (mode_flag(TSM_MODE_ONE_ROUND))
+	{
+		all_print("[MATCH] Match starting -- %d second freeze.", get_pcvar_num(g_cv_freeze));
+	}
+	else
+	{
+		all_print("[MATCH] Round %d starting -- %d second freeze.", g_round, get_pcvar_num(g_cv_freeze));
+	}
 
 	// A freeze with no visible timer reads as the server having hung, even when it
 	// is working perfectly. The countdown is the difference between "broken" and
@@ -21214,7 +22373,9 @@ spawn_tier_points(team, tier, idx[], size)
 	for (new i = 0; i < count; i++)
 	{
 		new t = (team == 1) ? g_spawn_t1_tier[i] : g_spawn_t2_tier[i];
-		if (t == tier && n < size)
+		// TSM_SPAWN_SETS asks for every point of the forward tiers a mode has opened for the team
+		new bool:take = (tier == TSM_SPAWN_SETS) ? (t >= 1 && t <= TSM_SPAWN_TIER_MAX && g_open_set[team][t] != 0) : (t == tier);
+		if (take && n < size)
 		{
 			idx[n++] = i;
 		}
@@ -21340,16 +22501,84 @@ bool:pick_spawn_point(id, team, tier, slot, Float:org[3], Float:ang[3])
 	return true;
 }
 
-/// The team's active tier: the highest forward tier whose objective has fallen and which has
+/// The middle of a team's spawn points at a tier (0 is its base) in `out`, and how many there are; 0 and zeros for none.
+spawn_middle(team, tier, Float:out[3])
+{
+	new count = (team == 1) ? g_spawn_t1_count : g_spawn_t2_count;
+	new n = 0;
+	out[0] = 0.0;
+	out[1] = 0.0;
+	out[2] = 0.0;
+	for (new i = 0; i < count; i++)
+	{
+		if (((team == 1) ? g_spawn_t1_tier[i] : g_spawn_t2_tier[i]) != tier)
+		{
+			continue;
+		}
+		out[0] += (team == 1) ? g_spawn_t1[i][0] : g_spawn_t2[i][0];
+		out[1] += (team == 1) ? g_spawn_t1[i][1] : g_spawn_t2[i][1];
+		out[2] += (team == 1) ? g_spawn_t1[i][2] : g_spawn_t2[i][2];
+		n++;
+	}
+	if (n > 0)
+	{
+		out[0] /= float(n);
+		out[1] /= float(n);
+		out[2] /= float(n);
+	}
+	return n;
+}
+
+/// Where a side that holds several capture points respawns: of the spawn sets a mode has opened for it (each with a point for it),
+/// the FRONT one, whose points lie nearest the enemy's base (the middle of the other side's tier 0 points), so a wave arrives where
+/// the fighting is and not at a point behind the line. With no enemy base known the lowest numbered open set wins. 0 when no open
+/// set has a point for the side: its own base.
+front_open_set(team)
+{
+	new foe = (team == 1) ? 2 : 1;
+	new Float:base[3];
+	new bool:known = (spawn_middle(foe, 0, base) > 0);
+	new best = 0;
+	new Float:best_d = 0.0;
+	for (new t = 1; t <= TSM_SPAWN_TIER_MAX; t++)
+	{
+		if (!g_open_set[team][t])
+		{
+			continue;
+		}
+		new Float:mid[3];
+		if (spawn_middle(team, t, mid) < 1)
+		{
+			continue;
+		}
+		new Float:d = known ? get_distance_f(mid, base) : float(t);
+		if (best == 0 || d < best_d)
+		{
+			best = t;
+			best_d = d;
+		}
+	}
+	return best;
+}
+
+/// The team's active tier: the highest forward tier that is open (siege_tier_open) and which has
 /// points for this team. 0 means the team's defaults. A reached tier replaces the defaults.
 active_spawn_tier(team)
 {
+	// A mode that opens spawn sets for this side (tsm_spawn_open) decides: the points of the sets it has open, or the side's
+	// own points (tier 0) while none of them has a point. Several open sets: the front one (front_open_set). Siege's objectives do
+	// not enter into it.
+	if ((team == 1 || team == 2) && g_spawn_ctl[team])
+	{
+		return front_open_set(team);
+	}
+
 	new best = 0;
 	new count = (team == 1) ? g_spawn_t1_count : g_spawn_t2_count;
 	for (new i = 0; i < count; i++)
 	{
 		new t = (team == 1) ? g_spawn_t1_tier[i] : g_spawn_t2_tier[i];
-		if (t > best && t <= g_obj_taken)
+		if (t > best && siege_tier_open(t))
 		{
 			best = t;
 		}
@@ -21366,16 +22595,20 @@ active_spawn_tier(team)
  * end, which counts his placements this round (g_place_n, reset at each round start): a second
  * one in a round is exactly what to look for when a player is seen moved twice.
  */
-place_at_spawn(id, slot = -1, bool:respawn = false, const why[] = "")
+place_at_spawn(id, slot = -1, bool:respawn = false, const why[] = "", tier = -1)
 {
 	new team = g_match_team[id];
 	new Float:org[3], Float:ang[3];
 	new bool:has_ang = false;
 	new bool:found = false;
+	// A tier given is the one to use (a revive's second placement repeats its first); else a wave respawn takes the side's active
+	// tier as it stands now, and anyone else the side's defaults.
+	new use_tier = (tier >= 0) ? tier : (respawn ? active_spawn_tier(team) : 0);
+	g_place_tier[id] = use_tier;
 
 	if (team == 1 || team == 2)
 	{
-		found = pick_spawn_point(id, team, respawn ? active_spawn_tier(team) : 0, slot, org, ang);
+		found = pick_spawn_point(id, team, use_tier, slot, org, ang);
 		if (found)
 		{
 			has_ang = g_spawns_have_angles;
@@ -21405,6 +22638,7 @@ place_at_spawn(id, slot = -1, bool:respawn = false, const why[] = "")
 	}
 
 	engfunc(EngFunc_SetOrigin, id, org);
+	copy_vec(g_place_at[id], org);
 	g_placed[id] = true;
 
 	if (has_ang)
@@ -21506,10 +22740,11 @@ public task_freeze_tick()
 		new ft1[32], ft2[32];
 		team_short(1, ft1, charsmax(ft1));
 		team_short(2, ft2, charsmax(ft2));
-		bar_hud("ROUND %d^nStarting in %d...^n^n%s %d  --  %d %s",
-			g_round, g_freeze_left, ft1, g_score[1], g_score[2], ft2);
+		new fsl[96];
+		score_line(ft1, ft2, fsl, charsmax(fsl));
+		bar_hud("%s^nStarting in %d...^n^n%s", g_round_tag, g_freeze_left, fsl);
 		bar_set(255, 180, 0, g_freeze_left, get_gametime() + float(g_freeze_left),
-			"ROUND %d -- STARTING IN {s}^n%s %d  --  %d %s", g_round, ft1, g_score[1], g_score[2], ft2);
+			"%s -- STARTING IN {s}^n%s", g_round_tag, fsl);
 
 		g_freeze_left--;
 	}
@@ -21587,9 +22822,10 @@ show_round_timer()
 		return;
 	}
 
-	new t1[32], t2[32];
+	new t1[32], t2[32], sl[96];
 	team_short(1, t1, charsmax(t1));
 	team_short(2, t2, charsmax(t2));
+	score_line(t1, t2, sl, charsmax(sl));
 
 	// A mode with no clock: the round runs until it is decided, so nothing counts down and
 	// the line carries the mode's own text ("WAVE 12") where the time would be.
@@ -21598,13 +22834,11 @@ show_round_timer()
 		set_hudmessage(186, 116, 255, -1.0, 0.03, 0, 0.0, 1.5, 0.0, 0.0, 1);
 		if (g_mode_hud[0])
 		{
-			bar_hud("ROUND %d -- %s^n%s %d  --  %d %s",
-				g_round, g_mode_hud, t1, g_score[1], g_score[2], t2);
+			bar_hud("%s -- %s^n%s", g_round_tag, g_mode_hud, sl);
 		}
 		else
 		{
-			bar_hud("ROUND %d^n%s %d  --  %d %s",
-				g_round, t1, g_score[1], g_score[2], t2);
+			bar_hud("%s^n%s", g_round_tag, sl);
 		}
 		bar_round(t1, t2, -1);
 		return;
@@ -21630,13 +22864,11 @@ show_round_timer()
 		// A mode's own text rides after the time ("ZONES 2 - 1").
 		if (g_mode_hud[0])
 		{
-			bar_hud("ROUND %d -- %d:%02d -- %s^n%s %d  --  %d %s",
-				g_round, mins, secs, g_mode_hud, t1, g_score[1], g_score[2], t2);
+			bar_hud("%s -- %d:%02d -- %s^n%s", g_round_tag, mins, secs, g_mode_hud, sl);
 		}
 		else
 		{
-			bar_hud("ROUND %d -- %d:%02d^n%s %d  --  %d %s",
-				g_round, mins, secs, t1, g_score[1], g_score[2], t2);
+			bar_hud("%s -- %d:%02d^n%s", g_round_tag, mins, secs, sl);
 		}
 		bar_round(t1, t2, g_round_left);
 
@@ -21664,7 +22896,7 @@ show_round_timer()
 			tlog("[TSM] Sudden death on at %d seconds left, %d waiting for a wave.", g_round_left, count_waiting(1) + count_waiting(2));
 			respawn_sudden_cut();
 			set_hudmessage(255, 80, 60, -1.0, 0.36, 0, 0.0, 3.0, 0.2, 0.4, 4);
-			show_hudmessage(0, "SUDDEN DEATH^nEveryone is marked");
+			h9vgui_alert(0, "tsm.sudden", H9V_NOTICE_FLASH, "SUDDEN DEATH^nEveryone is marked", 255, 80, 60, 0.36, 3.0, 0.4);
 			match_chat(0, "[MATCH] Sudden death -- every player is now marked to the other side.");
 			dbg("sudden death on at %d seconds left", g_round_left);
 			// Global sudden death sound
@@ -21676,8 +22908,7 @@ show_round_timer()
 	}
 	else
 	{
-		bar_hud("ROUND %d^n%s %d  --  %d %s",
-			g_round, t1, g_score[1], g_score[2], t2);
+		bar_hud("%s^n%s", g_round_tag, sl);
 		bar_round(t1, t2, -1);
 	}
 }
@@ -21719,20 +22950,22 @@ bar_hud(const fmt[], any:...)
 bar_round(const t1[], const t2[], left)
 {
 	new Float:now = get_gametime();
+	new sl[96];
+	score_line(t1, t2, sl, charsmax(sl));
 	if (g_count_text[0] && g_count_until > now)
 	{
 		bar_set(255, 200, 80, floatround(g_count_until - now, floatround_ceil), g_count_until,
-			"%s^n%s %d  --  %d %s", g_count_text, t1, g_score[1], g_score[2], t2);
+			"%s^n%s", g_count_text, sl);
 		return;
 	}
 	new line[96], len = 0;
 	if (left >= 0)
 	{
-		len = formatex(line, charsmax(line), "ROUND %d -- {t}", g_round);
+		len = formatex(line, charsmax(line), "%s -- {t}", g_round_tag);
 	}
 	else
 	{
-		len = formatex(line, charsmax(line), "ROUND %d", g_round);
+		len = formatex(line, charsmax(line), "%s", g_round_tag);
 	}
 	if (g_mode_hud[0])
 	{
@@ -21745,12 +22978,12 @@ bar_round(const t1[], const t2[], left)
 	// Red for the last fifteen seconds, as the round line is.
 	if (left >= 0 && left <= 15)
 	{
-		bar_set(255, 60, 60, left, now + float(left), "%s^n%s %d  --  %d %s", line, t1, g_score[1], g_score[2], t2);
+		bar_set(255, 60, 60, left, now + float(left), "%s^n%s", line, sl);
 	}
 	else
 	{
 		bar_set(186, 116, 255, left, (left >= 0) ? now + float(left) : 0.0,
-			"%s^n%s %d  --  %d %s", line, t1, g_score[1], g_score[2], t2);
+			"%s^n%s", line, sl);
 	}
 }
 
@@ -21761,6 +22994,29 @@ bar_result(winner)
 	team_short(1, t1, charsmax(t1));
 	team_short(2, t2, charsmax(t2));
 	new need = max(1, (get_pcvar_num(g_cv_rounds) / 2) + 1);
+	if (mode_flag(TSM_MODE_ONE_ROUND))
+	{
+		// The match is this round: who won it, over the mode's own line (or the sides), and nothing of a tally.
+		new res[96];
+		if (g_mode_hud[0])
+		{
+			copy(res, charsmax(res), g_mode_hud);
+		}
+		else
+		{
+			formatex(res, charsmax(res), "%s  --  %s", t1, t2);
+		}
+		if (winner == 1 || winner == 2)
+		{
+			team_short(winner, w, charsmax(w));
+			bar_set(0, 220, 120, -1, 0.0, "%s WINS^n%s", w, res);
+		}
+		else
+		{
+			bar_set(0, 220, 120, -1, 0.0, "A DRAW^n%s", res);
+		}
+		return;
+	}
 	if (winner == 1 || winner == 2)
 	{
 		team_short(winner, w, charsmax(w));
@@ -21879,7 +23135,8 @@ public task_team_objmsg(taskid)
 		{
 			continue;
 		}
-		show_hudmessage(id, "%s", msg);
+		h9vgui_alert(id, "tsm.objective", H9V_NOTICE_BANNER, msg, team == 1 ? 0 : 255, team == 1 ? 170 : 70, team == 1 ? 255 : 60,
+			TSM_OBJMSG_Y, TSM_OBJMSG_HOLD, 1.0);
 	}
 }
 
@@ -22061,6 +23318,10 @@ public task_team_badum()
 
 show_score_hud()
 {
+	if (mode_flag(TSM_MODE_ONE_ROUND))
+	{
+		return;   // no tally of rounds in a match that is one round
+	}
 	set_hudmessage(0, 220, 120, -1.0, 0.18, 0, 0.0, 4.0, 0.2, 0.3, 3);
 	bar_hud("Round %d  --  %d : %d  (first to %d).",
 		g_round, g_score[1], g_score[2], (get_pcvar_num(g_cv_rounds) / 2) + 1);
@@ -22268,7 +23529,14 @@ public task_go_live()
 	tlog("[TSM] Round %d LIVE: released %d player(s).", g_round, rnum);
 	dbg("round %d live: released %d, alive t1=%d t2=%d, placed-check follows",
 		g_round, rnum, count_alive(1), count_alive(2));
-	all_print("[MATCH] LIVE -- round %d.", g_round);
+	if (mode_flag(TSM_MODE_ONE_ROUND))
+	{
+		all_print("[MATCH] LIVE.");
+	}
+	else
+	{
+		all_print("[MATCH] LIVE -- round %d.", g_round);
+	}
 
 	/*
 	 * Models, once, a moment after the spawn.
@@ -22298,7 +23566,7 @@ public task_go_live()
 	show_hudmessage(0, " ");
 
 	set_hudmessage(0, 255, 0, -1.0, 0.32, 0, 0.0, 1.5, 0.0, 0.3, 4);
-	show_hudmessage(0, "LIVE");
+	h9vgui_alert(0, "tsm.live", H9V_NOTICE_FLASH, "LIVE", 0, 255, 0, 0.32, 1.5, 0.3);
 
 	// A fresh round is not sudden death, whatever the last one ended as.
 	g_sudden = false;
@@ -22649,8 +23917,29 @@ public native_mode_claim(plugin, params)
 		server_cmd("rcbot config balance_teams 0");
 	}
 
+	refresh_round_tag();
 	tlog("[TSM] %s is a %s map (flags %d).", g_mapname, g_mode_name, g_mode_flags);
 	dbg("mode claimed: %s, browser '%s', flags %d", g_mode_name, g_mode_desc, g_mode_flags);
+	return 1;
+}
+
+/// tsm_mode_flag(flag, on): the claimed mode turns one of its flags on or off.
+public native_mode_flag(plugin, params)
+{
+	if (!g_mode_name[0])
+	{
+		return 0;
+	}
+	new flag = get_param(1);
+	if (get_param(2))
+	{
+		g_mode_flags |= flag;
+	}
+	else
+	{
+		g_mode_flags &= ~flag;
+	}
+	refresh_round_tag();
 	return 1;
 }
 
@@ -22759,6 +24048,12 @@ public native_match_running(plugin, params)
 		return 0;
 	}
 	return (g_state == ST_FREEZE || g_state == ST_LIVE || g_state == ST_ROUNDEND || g_halted) ? 1 : 0;
+}
+
+/// tsm_one_round(): 1 while the claimed mode plays its match as one round (TSM_MODE_ONE_ROUND), else 0.
+public native_one_round(plugin, params)
+{
+	return mode_flag(TSM_MODE_ONE_ROUND) ? 1 : 0;
 }
 
 /// tsm_score(side): the rounds side 1 or 2 has won this match. A finished match keeps its score
@@ -22945,6 +24240,99 @@ public native_mode_bot_class(plugin, params)
 	return 1;
 }
 
+/// tsm_pool_get(side): the lives left in a side's pool.
+public native_pool_get(plugin, params)
+{
+	new side = get_param(1);
+	return (mode_flag(TSM_MODE_LIFE_POOL) && (side == 1 || side == 2)) ? g_pool[side] : 0;
+}
+
+/// tsm_pool_start(side): the pool a side started the round with.
+public native_pool_start(plugin, params)
+{
+	new side = get_param(1);
+	return (mode_flag(TSM_MODE_LIFE_POOL) && (side == 1 || side == 2)) ? g_pool_start[side] : 0;
+}
+
+/// tsm_pool_set(side, amount): a side's pool, and what it started with, to amount.
+public native_pool_set(plugin, params)
+{
+	new side = get_param(1);
+	if (!mode_flag(TSM_MODE_LIFE_POOL) || (side != 1 && side != 2))
+	{
+		return 0;
+	}
+	new amount = clamp(get_param(2), 0, 4095);
+	g_pool[side] = amount;
+	g_pool_start[side] = amount;
+	pool_publish();
+	return 1;
+}
+
+/// tsm_pool_add(side, amount): lives added to a side's pool, or taken from it with a negative amount; the pool never goes below 0.
+public native_pool_add(plugin, params)
+{
+	new side = get_param(1);
+	if (!mode_flag(TSM_MODE_LIFE_POOL) || (side != 1 && side != 2))
+	{
+		return 0;
+	}
+	g_pool[side] = clamp(g_pool[side] + get_param(2), 0, 4095);
+	if (g_pool[side] > g_pool_start[side])
+	{
+		g_pool_start[side] = g_pool[side];
+	}
+	pool_publish();
+	return g_pool[side];
+}
+
+/// tsm_class_cost(cls, cost): what a death of class cls (1-based) draws from the pool while the mode runs; 0 keeps tsm_class_cost.
+public native_class_cost(plugin, params)
+{
+	new cls = get_param(1);
+	if (cls < 1 || cls > g_class_count)
+	{
+		return 0;
+	}
+	new cost = get_param(2);
+	g_mode_class_cost[cls - 1] = (cost > 0) ? cost : 0;
+	return 1;
+}
+
+/// tsm_spawn_open(side, set, open): opens or closes forward spawn set `set` for a side, and puts the mode in charge of where that
+/// side's respawn waves land (active_spawn_tier).
+public native_spawn_open(plugin, params)
+{
+	new side = get_param(1);
+	new set = get_param(2);
+	if ((side != 1 && side != 2) || set < 1 || set > TSM_SPAWN_TIER_MAX)
+	{
+		return 0;
+	}
+	g_spawn_ctl[side] = true;
+	g_open_set[side][set] = get_param(3) ? 1 : 0;
+	return 1;
+}
+
+/// tsm_spawn_open_clear(side): every spawn set closed for a side (0 both); the mode stays in charge.
+public native_spawn_open_clear(plugin, params)
+{
+	new side = get_param(1);
+	for (new s = 1; s <= 2; s++)
+	{
+		if (side != 0 && side != s)
+		{
+			continue;
+		}
+		g_spawn_ctl[s] = true;
+		for (new t = 0; t <= TSM_SPAWN_TIER_MAX; t++)
+		{
+			g_open_set[s][t] = 0;
+		}
+	}
+	return 1;
+}
+
 /// Classes put right after a mode's rules change: every bot takes the mode's bot class when it has one,
 /// and anyone else holding a class the mode leaves out gives it up -- a person picks again at the next freeze.
 reseat_classes()
@@ -23116,7 +24504,14 @@ begin_match()
 	siege_reset();
 	g_score[1] = 0;
 	g_score[2] = 0;
-	all_print("[MATCH] All ready -- best of %d. Good luck.", get_pcvar_num(g_cv_rounds));
+	if (mode_flag(TSM_MODE_ONE_ROUND))
+	{
+		all_print("[MATCH] All ready -- one round decides the match. Good luck.");
+	}
+	else
+	{
+		all_print("[MATCH] All ready -- best of %d. Good luck.", get_pcvar_num(g_cv_rounds));
+	}
 	start_round();
 }
 
@@ -23303,6 +24698,22 @@ public cmd_debug(id, level, cid)
 	console_print(id, "[TSM] mode='%s' browser='%s' flags=%d hud='%s' wave secs %.0f/%.0f, waves fired %d/%d",
 		g_mode_name[0] ? g_mode_name : "none", g_gamedesc, g_mode_flags, g_mode_hud,
 		g_wave_secs[1], g_wave_secs[2], g_wave_num[1], g_wave_num[2]);
+	if (mode_flag(TSM_MODE_LIFE_POOL))
+	{
+		console_print(id, "[TSM] reinforcements: team 1 %d of %d, team 2 %d of %d (tsm_pool_base %d + %d a player)",
+			g_pool[1], g_pool_start[1], g_pool[2], g_pool_start[2], get_pcvar_num(g_cv_poolbase), get_pcvar_num(g_cv_poolplayer));
+	}
+	if (g_spawn_ctl[1] || g_spawn_ctl[2])
+	{
+		new open1 = 0, open2 = 0;
+		for (new t = 1; t <= TSM_SPAWN_TIER_MAX; t++)
+		{
+			open1 += g_open_set[1][t];
+			open2 += g_open_set[2][t];
+		}
+		console_print(id, "[TSM] spawn sets a mode opened: team 1 %d, team 2 %d (the mode is in charge of the respawn points); waves land at tier %d and tier %d",
+			open1, open2, active_spawn_tier(1), active_spawn_tier(2));
+	}
 	console_print(id, "[TSM] rounds cvar=%d -> need %d to win",
 		get_pcvar_num(g_cv_rounds), (get_pcvar_num(g_cv_rounds) / 2) + 1);
 	console_print(id, "[TSM] team_mode='%s' team1='%s' team2='%s'", mode, t1, t2);
@@ -23365,6 +24776,8 @@ public cmd_debug(id, level, cid)
 	get_pcvar_string(g_cv_engdoorclass, door_class, charsmax(door_class));
 	console_print(id, "[TSM] eng doors: in_map=%d class='%s'  ham_use=%d (on an eng door=%d)",
 		doors, door_class, g_door_use_hits, g_engdoor_use_hits);
+	console_print(id, "[TSM] door touch: hits=%d  turned away on Use Only doors=%d  forced doors waiting to be put back=%d",
+		g_door_touch_hits, g_door_touch_refused, g_breach_n);
 	console_print(id, "[TSM] Ham_TakeDamage on player: hits=%d  (0 = the hook is not delivered -- every damage gate in fw_takedamage, friendly fire included, is dead code)",
 		g_player_dmg_hits);
 	console_print(id, "[TSM] fall damage refused on held bodies: %d  (rising = the warmup fall fix is landing)",
@@ -24163,6 +25576,7 @@ player_left(id)
 	bot_unqueue(id);
 	remove_task(id + TSM_TASK_BOTJOIN);
 	assist_slot_reset(id, false);
+	g_wait_sig[id] = 0;
 	turrets_clear(id);
 	g_turret_used[id] = false;
 	g_turret_carry[id] = false;
@@ -24668,10 +26082,18 @@ bool:halt_for_imbalance()
 	// is what makes the resume gate literally the match-start gate. See check_all_ready().
 	reset_ready();
 
-	all_print("[MATCH] HALTED -- the sides went uneven at %d v %d. Round %d does not count.",
-		n1, n2, g_round);
-	all_print("[MATCH] Score is kept at %d -- %d. %s is short; type .ready to carry on.",
-		g_score[1], g_score[2], shortname);
+	if (mode_flag(TSM_MODE_ONE_ROUND))
+	{
+		all_print("[MATCH] HALTED -- the sides went uneven at %d v %d. The match is held where it is.", n1, n2);
+		all_print("[MATCH] %s is short; type .ready to carry on.", shortname);
+	}
+	else
+	{
+		all_print("[MATCH] HALTED -- the sides went uneven at %d v %d. Round %d does not count.",
+			n1, n2, g_round);
+		all_print("[MATCH] Score is kept at %d -- %d. %s is short; type .ready to carry on.",
+			g_score[1], g_score[2], shortname);
+	}
 	all_print("[MATCH] Admins: amx_match_continue plays the match out as it stands.");
 
 	tlog("[TSM] Match halted at round %d (%d v %d); score %d-%d kept.",
@@ -24701,8 +26123,15 @@ resume_match()
 		g_round--;
 	}
 
-	all_print("[MATCH] Resuming at round %d. Score: %d -- %d.",
-		g_round + 1, g_score[1], g_score[2]);
+	if (mode_flag(TSM_MODE_ONE_ROUND))
+	{
+		all_print("[MATCH] Resuming the match.");
+	}
+	else
+	{
+		all_print("[MATCH] Resuming at round %d. Score: %d -- %d.",
+			g_round + 1, g_score[1], g_score[2]);
+	}
 	tlog("[TSM] Halted match resumed at round %d with the score at %d-%d.",
 		g_round + 1, g_score[1], g_score[2]);
 	dbg("resuming a halted match at round %d, score kept at %d-%d",
@@ -24907,6 +26336,7 @@ public task_tick()
 	objmarks_update();
 	objglow_update();
 	lives_publish();
+	pool_publish();
 	points_hold_frags();
 	refresh_player_flags();
 	clean_all_weapons();
@@ -25217,7 +26647,13 @@ public task_tick()
 		{
 			// Teamless players are never held -- they still have to reach the side
 			// menu. The menu itself is offered above, before any early return.
-			release_player(id);
+			// Only one this plugin held or hid is released: anyone else (a bot parked until a
+			// side is picked, a citizen another plugin holds still) is left as he is, and the
+			// debug log does not fill once a second with a release that changes nothing.
+			if (g_frozen[id] || g_saved[id])
+			{
+				release_player(id);
+			}
 		}
 		// A bot cannot type .ready, so it is counted as ready or a side holding one
 		// could never satisfy the gate.

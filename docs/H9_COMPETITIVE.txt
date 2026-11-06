@@ -196,10 +196,11 @@
  ------------------------------
  Each table has two ladders:
    MATCH  a ts_matchmode match, wherever its match mode plays (tsm_enabled
-          1): Team Elimination, Siege, Uplink, Mech Warrior and Wave
-          Survival. Kills, and the result when the match is rated
+          1): Team Elimination, Siege, Uplink, Assault, Capture the Flag, Mech Warrior
+          and Wave Survival. Kills, and the result when the match is
+          rated
    DM     every other map: TS's own game on its own rules, deathmatch or
-          teamplay (the stock ts_ maps, h9_dm_, h9_tdm_, h9_ctb_ and the
+          teamplay (the stock ts_ and ctb_ maps, h9_dm_, h9_tdm_, h9_ctb_ and the
           rest). Kills only; each map is one match, ranked by frags minus
           deaths for the history
  Roleplay maps (rp_ or tsrp_ at the start, _rp_ or _tsrp_ inside, as
@@ -219,7 +220,10 @@
  A result is rated when:
    * the match finished or a side forfeited, and it has a winner;
    * no bot played on either side;
-   * at least 3 rounds were played, and it lasted at least 5 minutes;
+   * at least 3 rounds were played, and it lasted at least 5 minutes; a mode
+     that plays its match as ONE round (Assault and Capture the Flag by
+     default: h9_assault_rounds 0, h9_ctf_rounds 0) says so in its end
+     report (oneRound), and is asked one round and the 5 minutes;
    * on the H9 ladder: at least 2 proven players on each side. On a
      server's table or a community's ladder: at least one proven player on
      each side. Unproven players are not counted either way;
@@ -232,10 +236,13 @@
 
  Assists: ts_matchmode counts them for the scoreboard's A column (TSM_ASSIST_MIN
  damage to a victim an enemy other than the killer finishes, within 10
- seconds). h9_compete reads that count (tsm_assists) and sends each player's
- assists in the match in its end report: what the count added between their
- joining the match and its end or their leaving, summed over each time they
- were in it. They are summed into each of the match's tables, as kills are,
+ seconds). It keeps a second count for ranked play (tsm_assists_ranked) that
+ leaves out an assist on a kill a bot had a part in, as victim or killer, as
+ kills of bots and by them count for nothing; the scoreboard counts them all.
+ h9_compete reads the second count (the first from a ts_matchmode without it)
+ and sends each player's assists in the match in its end report: what the
+ count added between their joining the match and its end or their leaving,
+ summed over each time they were in it. They are summed into each of the match's tables, as kills are,
  and a void takes them back. A ts_matchmode without tsm_assists leaves the
  native unbound, and the report says null: the site shows assists only where
  a server counted them.
@@ -253,7 +260,10 @@
            -> { ok, match, scopes: [ "server", "community", "network" ],
                 proven }
            Starting a match closes any match still open on that server as
-           cancelled. 409 not_rated on a roleplay map or an UNRANKED server.
+           cancelled. 409 not_rated on a roleplay map or an UNRANKED server,
+           and on a server that is not authenticated: it runs something
+           beside H9's official preset, or its operator set
+           h9_authenticated 0 (docs\H9_PRESENCE.txt section 4d).
    kills   { match, seq, players: [ [h9_clientid, side], ... ],
              kills: [ [killer id, victim id, headshot 0|1, team kill 0|1],
                       ... ] }
@@ -594,6 +604,74 @@
  LADDER, marking a server UNRANKED (with its past matches voided if need
  be), an admin's rank adjustment, and revoking its key.
 
+ 9a. What h9web holds a server to, whatever its plugin says
+ ----------------------------------------------------------
+ A plugin is code on a machine its operator controls, so a modified one, or
+ a forged call made with a stolen key, says whatever its author likes. These
+ checks are the site's own: none of them rests on the plugin telling the
+ truth.
+   * Asked at every call. A match is rated only while its server is rated:
+     authenticated (the official preset, docs\H9_PRESENCE.txt section 4d),
+     not UNRANKED, not on a roleplay map, and not a listen server. That is
+     asked when the match starts and again by every kills and end call, not
+     only at the start. A server that stops being authenticated in the
+     middle of a match (its operator set h9_authenticated 0, or it lists a
+     plugin off the official list) has the whole match voided: its kills and
+     its result taken back with the experience they gave, the match marked
+     voided, an audit entry made. An unauthenticated server never starts a
+     match, so it gives no rating and no experience.
+   * Listen servers rate nothing. A Create Game server runs its plugin on a
+     player's own PC, where nothing can vouch for what it sends, and it
+     enrolls with no admin to look at it. It feeds no table and gives no
+     experience. listenRated 1 (a site setting) rates it like any other.
+   * Kills have a pace. A match makes at most killBurst plus
+     matchKillsPerMinute for each minute of the match's own time (the site's
+     clock, from the match's start), and one player at most killBurst plus
+     playerKillsPerMinute. The excess is dropped, counted as unrated, and
+     written to the audit log, once an hour for each server.
+   * Matches have a length. A match whose rounds ran faster than
+     minRoundSeconds each is recorded and not rated, and no player's time in
+     a match is more than the match's own.
+   * Accounts have a day. An account is given at most xpPerDayMax experience
+     and gains at most eloGainPerDayMax points on the H9 ladder in a UTC day.
+     The kills and results still count in the match's numbers and in the
+     server's own table; the limit is only on the two things that are worth
+     something on every server. A server that fakes a thousand matches
+     cannot lift any account past it.
+   * The audit log. Every void the site makes, every kill rate no hand
+     makes, and every account that reached its day (presence.compete.*), is
+     in the admin panel's audit log. An entry blocks nothing by itself.
+ Each limit is a setting (section 11) and 0 turns one off. The defaults sit
+ above what a busy honest day reaches (20 matches, 300 kills) and far below
+ what a script reaches in an hour.
+
+ What this does not stop: an authenticated server whose operator holds the
+ key, with real proven players, can still agree results among themselves
+ inside those limits. The site cannot see that alone, which is why the
+ remedies above stay, and why a community's server waits for an admin's
+ approval before it reports at all (docs\H9_PRESENCE.txt section 4a).
+
+ 9b. The players' own games vouching for a match (not built)
+ -----------------------------------------------------------
+ The one check no server can touch is the one the players' games make. A
+ sketch of it, using what the proof already shows works (docs\H9_PRESENCE.txt
+ section 8: a challenge h9web issues, an answer only the account's player id
+ can make, bound to the server and the time):
+   * when a match ends h9web's answer to the server carries a nonce for the
+     match; each H9 game (the engine's cl_ code, and the web client's page)
+     sends h9web its own score line for it, the kills, deaths and rounds it
+     saw, as HMAC-SHA256(player id, "h9match1:" + nonce + ":" + server + ":" +
+     the line), straight to the site over HTTPS, never through the server;
+   * h9web counts a player's experience and rating only where their game's
+     line agrees with the server's within a tolerance (a game that dropped
+     a packet misses a kill, a server that invents ten is 10 kills off), and
+     raises an audit entry for the server and the account where it does not;
+   * no server can make a line for a player who is not in the match, or
+     change one that is, and the plugin needs no change.
+ Cost: an engine patch and a page change for the line, one route and one
+ table on the site. Games that send none (the Steam client, an H9XASH from
+ before it) would keep counting as they do now until a date the site names.
+
 
  10. PRIVACY
  -----------
@@ -635,8 +713,10 @@
    winPoints 100, lossPoints 70, decayAfterDays 30, decayPerDay 10,
    pairKillsPerDay 30, minRounds 3, minSeconds 300, networkMinPerSide 2,
    abandonHours 6, disputeHours 48, maxKillsPerCall 150, maxPlayers 128,
-   pageSize 50, matchesShown 20, limits { callsPerServer, staffPerAccount,
-   disputePerAccount }
+   pageSize 50, matchesShown 20, listenRated 0, matchKillsPerMinute 120,
+   playerKillsPerMinute 12, killBurst 40, minRoundSeconds 20,
+   xpPerDayMax 6000, eloGainPerDayMax 1500 (0 turns a limit off, 9a),
+   limits { callsPerServer, staffPerAccount, disputePerAccount }
  ts_matchmode's API (include\tsm_api.inc), as h9_compete uses it:
    tsm_round_live, tsm_match_complete, tsm_match_forfeit (forwards);
    tsm_match_running, tsm_side_of, tsm_score, tsm_assists (natives).
@@ -645,16 +725,21 @@
  Files:
    h9_compete.sma, h9_compete.cfg           the plugin and its settings
    h9_rank.sma, h9_rank.cfg                 .rank and its settings
-   H9XASH\presets\h9_compete.<preset>.cfg   the Siege and TeamElimination copies
+   H9XASH\presets\h9_compete.<preset>.cfg   the Siege, TeamElimination and Assault copies
    h9web\modules\presence\compete.js        the rule, the routes, the views
-   h9web\modules\presence\migrations.js     versions 5, 8, 9, 10, 11: the tables
+   h9web\modules\presence\migrations.js     versions 5, 8, 9, 10, 11: the tables;
+                                            13: two indexes, for the day's limits
    h9web\modules\presence\modes.js          roleplayMap, the roleplay rule
    havoc9.org\admin\admin.js                LEVELS (settings, the road to 99,
                                             RANKED SERVERS, the seasons) and
                                             an account's RANK box
    h9web\test\compete.test.js               the tests
+   h9web\test\site-rank.test.js             presence.js's ELO figure and RANK
+                                            block, in a stand-in page; the
+                                            admin account page's box order
    havoc9.org\ladder\index.html, havoc9.org\assets\ladder.js   the page
-   havoc9.org\assets\presence.js            renderRank, the RANK block
+   havoc9.org\assets\presence.js            levelBadge, compactElo (the ELO
+                                            figure), renderRank (the RANK block)
    modelling\make-level-badges.mjs          the level badges, both kinds:
    havoc9.org\assets\levels\lv-<N>-<24|48|96>.png   the site's
    ts\gfx\vgui\h9_levels\lv-<N>.tga        the scoreboard's (client.dll:
@@ -664,21 +749,27 @@
  12. TESTS AND BUILDS
  --------------------
    node --test --test-concurrency=1 test/compete.test.js
- 41 tests: a kill, a headshot and the bonus with the README's numbers; team
+ 40 tests: a kill, a headshot and the bonus with the README's numbers; team
  kills, unproven players and suicides; batch order and duplicates; a forged
  call; a rated match with a leaver; too short, too few rounds, bots and a
  cancel; every server on the H9 ladder, unproven players stopping nothing,
  UNRANKED with its void; roleplay maps refused; a server h9web does not know
- refused before anything is kept; the boards and the player page under the
+ refused before anything is kept; the boards and the player page whatever the
  privacy switches; a void and a dispute; a community's ladder and a staff
  void; the join line's rating; a deleted account; DM places; the pair cap;
  abandoning and decay; the settings; the career level, its experience and
  curve, a void taking it back, the estimate; the level beside a name and in
  game for every account; bots and unproven players; seasons, and back to
  season 1; the rank API, the RANK block and .rank; assists; an admin's rank
- adjustment. The whole suite: node --test --test-concurrency=1
- "test/*.test.js". The plugins build with build.bat (both are in TARGETS),
- with no warnings.
+ adjustment.
+   node --test --test-concurrency=1 test/site-rank.test.js
+ 4 tests: havoc9.org's assets\presence.js run in a stand-in page: the ELO
+ figure in thousands (one decimal under 10K, a ".0" dropped), beside the badge
+ of a name that asks for it and in the RANK block, and the badge alone beside
+ any other; and the admin panel's account page, whose boxes (DISCORD, LINKED
+ GAMES, RANK, DEVELOPER) all go in before the audit trail's own heading.
+ The whole suite: node --test --test-concurrency=1 "test/*.test.js". The
+ plugins build with build.bat (both are in TARGETS), with no warnings.
 
 
  13. LEFT FOR LATER, AND DECISIONS
@@ -687,7 +778,9 @@
    * a LADDER tab on the community page. It belongs to other work, so the
      LADDER page carries the community's switches for now;
    * h9web reading a server's rules (A2S_RULES) when a match starts, and
-     flags for unusual numbers or opponents on one network;
+     flags for opponents on one network (an unusual kill rate is flagged
+     already, 9a);
+   * the players' own games vouching for a match (9b);
    * an end report that survives a map change. An end lost that way leaves
      the match abandoned, with its kills counted and its result lost;
    * Steam players, and match results sent to Discord.

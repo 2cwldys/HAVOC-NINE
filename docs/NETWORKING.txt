@@ -221,6 +221,13 @@
  to the internet. heartbeat=0 under [server] turns it off, for a LAN or private server. A
  heartbeat with the key from serverlist.cfg may name any address instead; open_heartbeats = 0
  in serverlist.ini makes the key necessary (serverlist-bot\README.md, "Heartbeats").
+ A heartbeat the list cannot answer (the server is loading a map) is tried again 15 seconds
+ later, up to twelve times, and a server the list already knows stays listed for minutes
+ (expire_seconds) whatever one heartbeat does. The window says two things on two lines,
+ which are not the same thing: the first line is the LIST (can players find the server),
+ the second is havoc9.org's word on the server (the chain: authenticated, or not and why),
+ read from the site h9_presence_url names. A server that has been judged authenticated stays
+ so while it is there (docs\H9_PRESENCE.txt, "A VERDICT IS HELD").
 
  The server browser (the Internet and LAN tabs) shows a server's people and its bots
  apart, "1/64 (+63 bots)": an Xash server sends its bots apart in its info reply, and a
@@ -228,6 +235,15 @@
  "empty", and its bots count against its slots for "full". A server with
  h9_require_account 1 (h9_presence) says "auth" 1 in its info reply, and the browser
  shows a small account icon beside the lock: it takes havoc9.org accounts only.
+ A chain stands beside each Internet server's name: green when havoc9.org says the
+ server is authenticated (it reports to havoc9.org and runs H9's official preset, or
+ it is on a roleplay map, where nothing is ranked: that name then says UNRANKED:
+ roleplay), red and broken when it does not. The game asks the site, never the
+ servers, when the browser opens and every 20 seconds (the command h9_servers;
+ cl_h9_servers 0 turns it off): docs\H9_PRESENCE.txt section 4d. To try it on this PC:
+ the site (node h9web/bin/local-site.js --port 8090), the list bot on 8081 with
+ networking.ini's list_bot and heartbeat_url set to http://127.0.0.1:8081, and
+ cl_h9_site "http://127.0.0.1:8090" in the game.
 
  The port a server here takes: port= under [server] in networking.ini, 27015 as it ships.
  h9xash_server.bat and h9xash_server_debug.bat start the dedicated server on it, and their

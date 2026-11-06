@@ -6,7 +6,7 @@ from H9XASH and the browser builds, and lists it for the page (havoc9.org\\webcl
 
     <out>\\game\\           the engine's disk: ts\\ and valve\\ from H9XASH, the engine's side
                             modules, the browser build of the client library, a gameinfo.txt for
-                            the browser and the stock TS 3.0 config.cfg
+                            the browser and the config.cfg a new player starts with
     <out>\\engine\\         xash.js and xash.wasm, when an engine build is given
     <out>\\manifest.json    every file under game\\: path, size, and the start of its SHA-1; and the
                             fonts the page registers for VGUI text, from the game's fonts.txt
@@ -45,8 +45,9 @@ Usage, on Windows or Linux, from TSM or from a clone of the repository:
 
     --h9xash <dir>         the game (default: <root>\\H9XASH)
     --out <dir>            where the package goes (default: <root>\\webclient-build\\stage)
-    --stock-config <cfg>   the config.cfg a new player starts with (default: TS 3.0's own, which
-                           <root>\\reTS\\game\\ts\\config.cfg is, else <root>\\ts3.0\\ts\\config.cfg)
+    --stock-config <cfg>   the config.cfg a new player starts with (default: the game's own,
+                           <h9xash>\\ts\\config.stock.cfg, which h9xash.bat gives a first run; else TS 3.0's,
+                           <root>\\reTS\\game\\ts\\config.cfg or <root>\\ts3.0\\ts\\config.cfg)
     --engine-build <dir>   an emscripten build of xash3d-fwgs, waf's out folder or the same layout
                            (default: <root>\\webclient-bin, the tracked builds, when it is there)
     --client <wasm>        client_emscripten_wasm32.wasm, reTS's client built for the browser
@@ -430,7 +431,9 @@ def main():
         sys.exit("--out must not be inside H9XASH")
     stock = a.stock_config
     if not stock:
-        candidates = [os.path.join(os.path.dirname(h9), "reTS", "game", GAMEDIR, "config.cfg"),
+        # the Windows game's first run copies ts\config.stock.cfg to config.cfg: the browser starts from the same file
+        candidates = [os.path.join(h9, GAMEDIR, "config.stock.cfg"),
+                      os.path.join(os.path.dirname(h9), "reTS", "game", GAMEDIR, "config.cfg"),
                       os.path.join(os.path.dirname(h9), "ts3.0", GAMEDIR, "config.cfg")]
         stock = next((c for c in candidates if os.path.isfile(c)), candidates[0])
     if not os.path.isfile(stock):
@@ -592,18 +595,45 @@ def main():
     there = [t for t in targets if os.path.exists(t)]
     if there and not a.replace:
         sys.exit("already in %s (run again with --replace):\n  %s" % (out, "\n  ".join(there)))
+    # what the last run left: a game file with the same size and hash stays where it is, so a run that changes a few files
+    # writes a few files (the stage is over a gigabyte), and its copies elsewhere see no change in the rest
+    old = {}
+    try:
+        with open(os.path.join(out, "manifest.json"), encoding="ascii") as f:
+            old = {e["path"]: e for e in json.load(f)["files"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        old = {}
+    fresh = {e["path"]: e for e in entries}
+    game_dir = os.path.join(out, "game")
     for t in there:
+        if t == game_dir:
+            continue
         shutil.rmtree(t) if os.path.isdir(t) else os.remove(t)
 
+    kept = written = 0
     for at, src in files:
         dst = os.path.join(out, at.replace("/", os.sep))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
+        e = fresh.get(at[len("game/"):]) if at.startswith("game/") else None
+        o = old.get(e["path"]) if e else None
+        if o and e["hash"] and o.get("hash") == e["hash"] and o.get("size") == e["size"] and os.path.isfile(dst) and os.path.getsize(dst) == e["size"]:
+            kept += 1
+            continue
         shutil.copyfile(src, dst)
+        written += 1
     for at, data in made.items():
         dst = os.path.join(out, at.replace("/", os.sep))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         with open(dst, "wb") as f:
             f.write(data)
+
+    # a file this package no longer has goes
+    if os.path.isdir(game_dir):
+        for root, _dirs, names in os.walk(game_dir):
+            for n in names:
+                rel = os.path.relpath(os.path.join(root, n), game_dir).replace(os.sep, "/")
+                if rel not in fresh:
+                    os.remove(os.path.join(root, n))
 
     manifest = {"version": 1, "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "gamedir": GAMEDIR, "fonts": fonts, "files": entries}
@@ -611,7 +641,7 @@ def main():
         json.dump(manifest, f, separators=(",", ":"))
     with open(os.path.join(out, "preload.json"), "w", encoding="ascii") as f:
         json.dump(preload, f, separators=(",", ":"))
-    print("written: %s" % out)
+    print("written: %s (%d game files written, %d left as they were)" % (out, written, kept))
 
 
 if __name__ == "__main__":

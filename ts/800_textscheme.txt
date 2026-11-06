@@ -56,5 +56,64 @@ FontName = "Arial"
 FontSize = 15
 FontWeight = 0
 
+// H9 VGUI TEXT, DETAIL AND FLASH: the ladders the H9 panels (the match mode's menus, banners and match bar) pick their
+// font from, step 1 the largest. Three quarters of the stock schemes at the same steps; reTS cl_dll\vgui_H9Panel.cpp H9Font.
+SchemeName = "H9 Text 1"
+FontName = "Arial"
+FontSize = 15
+FontWeight = 0
 
+SchemeName = "H9 Text 2"
+FontName = "Arial"
+FontSize = 13
+FontWeight = 0
 
+SchemeName = "H9 Text 3"
+FontName = "Arial"
+FontSize = 11
+FontWeight = 0
+
+SchemeName = "H9 Text 4"
+FontName = "Arial"
+FontSize = 10
+FontWeight = 0
+
+SchemeName = "H9 Detail 1"
+FontName = "Arial"
+FontSize = 11
+FontWeight = 0
+
+SchemeName = "H9 Detail 2"
+FontName = "Arial"
+FontSize = 11
+FontWeight = 0
+
+SchemeName = "H9 Detail 3"
+FontName = "Arial"
+FontSize = 10
+FontWeight = 0
+
+SchemeName = "H9 Detail 4"
+FontName = "Arial"
+FontSize = 10
+FontWeight = 0
+
+SchemeName = "H9 Flash 1"
+FontName = "Arial"
+FontSize = 20
+FontWeight = 0
+
+SchemeName = "H9 Flash 2"
+FontName = "Arial"
+FontSize = 15
+FontWeight = 0
+
+SchemeName = "H9 Flash 3"
+FontName = "Arial"
+FontSize = 13
+FontWeight = 0
+
+SchemeName = "H9 Flash 4"
+FontName = "Arial"
+FontSize = 11
+FontWeight = 0

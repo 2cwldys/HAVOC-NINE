@@ -10,15 +10,21 @@
 #include "vgui_TeamFortressViewport.h"
 #include "h9_vgui.h"
 #include "vgui_H9Panel.h"
+#include "triangleapi.h" // WorldToScreen: a mark's place on the screen
 
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
+
+extern Vector v_origin, v_angles; // view.cpp: the view of this frame
 
 namespace
 {
 cvar_t* s_cvEnabled; // cl_h9_vgui: 0 refuses every server panel
 cvar_t* s_cvInfo;    // _h9vgui: the userinfo key the server reads, the protocol version or 0
 cvar_t* s_cvTop;     // cl_h9_vgui_top: where the safe area starts, in pixels from the top, 0 for the default
+cvar_t* s_cvMarks;   // cl_h9_marks: 0 draws no mark, on the world or in the row
+cvar_t* s_cvStrip;   // cl_h9_marks_strip: 0 draws no row of marks under the top stack
 
 bool s_bInited = false;
 
@@ -42,6 +48,22 @@ H9NoticeDef s_Notices[H9V_MAX_NOTICES];
 bool s_bNoticeDirty[H9V_MAX_NOTICES];
 int s_iNoticeOrder[H9V_MAX_NOTICES]; // when its slot first came: the stack's order, kept across updates
 int s_iNoticeLeft[H9V_MAX_NOTICES];  // the clock its panel shows, -1 for none
+
+// MARK: the points of the world the server shows, by slot 1-32.
+struct H9Mark
+{
+	bool used;
+	int owner; // 0 nobody's, 1 and 2 a side's
+	int state; // 0 quiet, 1 being taken, 2 contested
+	int side;  // the side taking it while state is 1
+	int pct;   // how far the capture has got, 0-100
+	float x, y, z;
+	char label[H9V_MARK_TEXT];
+	float at; // when it last arrived: a mark nothing refreshes goes after H9V_MARK_LIFE
+};
+H9Mark s_Marks[H9V_MAX_MARKS + 1];
+bool s_bMarksShown = false;                 // Frame() decided this frame's marks are drawn
+int s_iStripY = 0, s_iStripTall = 0, s_iStripWide = 0; // the row of marks, Frame()'s place for it; 0 tall for none
 
 // PANEL, CTRL, SET, SHOW, HIDE, CLOSE, COMMIT.
 struct PanelSlot
@@ -155,6 +177,21 @@ int NoticeAlpha(const H9NoticeDef& n, float now)
 		return 0;
 	const float k = 1.0f - (t - n.hold) / n.fade;
 	return k <= 0.0f ? 0 : Clamp((int)(k * 255.0f), 0, 255);
+}
+
+// A notice comes up over this many seconds from when its slot began to show; a status shows at once.
+const float NOTICE_RISE = 0.35f;
+
+// What the panel is drawn at: NoticeAlpha, less the rise at the start. NoticeAlpha alone says when a notice is over.
+int NoticeDrawAlpha(const H9NoticeDef& n, float now)
+{
+	const int a = NoticeAlpha(n, now);
+	if (n.status || a <= 0)
+		return a;
+	const float up = now - n.shown;
+	if (up >= NOTICE_RISE)
+		return a;
+	return up <= 0.0f ? 0 : Clamp((int)(a * (up / NOTICE_RISE)), 0, 255);
 }
 
 // A status's clock now: its seconds at the start less the whole seconds since; -1 for none.
@@ -372,6 +409,9 @@ void StoreNotice(const char* slot, H9NoticeDef& n)
 			s_Notices[at].used = false;
 		return;
 	}
+	// A notice that replaces one still showing keeps that one's rise (a bar sent every tick must not come up again each time);
+	// any other comes up from now.
+	n.shown = (replaces && NoticeAlpha(s_Notices[at], n.start) > 0) ? s_Notices[at].shown : n.start;
 	for (int i = 0; i < H9V_MAX_NOTICES && at < 0; i++)
 	{
 		if (!s_Notices[i].used)
@@ -639,6 +679,47 @@ void OpCommit()
 	p->dirty = true;
 }
 
+// MARK: BYTE slot (0 takes every mark down), BYTE owner (3 takes this one down), BYTE state, BYTE side, BYTE pct,
+// SHORT x, y, z, STRING label.
+void OpMark()
+{
+	const int slot = READ_BYTE();
+	const int owner = READ_BYTE();
+	const int state = READ_BYTE();
+	const int side = READ_BYTE();
+	const int pct = READ_BYTE();
+	const int x = READ_SHORT();
+	const int y = READ_SHORT();
+	const int z = READ_SHORT();
+	char label[H9V_MARK_TEXT];
+	ReadText(label, sizeof(label), false, false);
+	if (!READ_OK() || slot < 0 || slot > H9V_MAX_MARKS || owner > 3)
+		return;
+	if (slot == 0)
+	{
+		for (H9Mark& m : s_Marks)
+			m.used = false;
+		return;
+	}
+	H9Mark& m = s_Marks[slot];
+	if (owner == 3)
+	{
+		m.used = false;
+		return;
+	}
+	m.used = true;
+	m.owner = owner;
+	m.state = Clamp(state, 0, 2);
+	m.side = Clamp(side, 0, 2);
+	m.pct = Clamp(pct, 0, 100);
+	m.x = (float)x;
+	m.y = (float)y;
+	m.z = (float)z;
+	memcpy(m.label, label, sizeof(m.label));
+	m.label[sizeof(m.label) - 1] = 0;
+	m.at = gHUD.m_flTime;
+}
+
 // ---- the message ------------------------------------------------------------------------------
 
 int __MsgFunc_H9Vgui(const char* pszName, int iSize, void* pbuf)
@@ -702,6 +783,9 @@ int __MsgFunc_H9Vgui(const char* pszName, int iSize, void* pbuf)
 	case H9V_OP_STATUS:
 		OpStatus();
 		break;
+	case H9V_OP_MARK:
+		OpMark();
+		break;
 	default:
 		break;
 	}
@@ -720,6 +804,72 @@ void CloseAll()
 		ClosePanel(p);
 	for (H9MenuDef& m : s_Menus)
 		m.used = false;
+	for (H9Mark& m : s_Marks)
+		m.used = false;
+	s_iStripTall = 0;
+}
+
+// ---- marks: where and how big ----------------------------------------------------------------
+
+// One screen unit of a mark: the screen height over 480, and the player's cl_h9_vgui_scale, half of it.
+float MarkUnit()
+{
+	float f = CVAR_GET_FLOAT("cl_h9_vgui_scale");
+	if (f < 0.5f)
+		f = 0.5f;
+	if (f > 2.0f)
+		f = 2.0f;
+	return ((float)ScreenHeight / 480.0f) * f * 0.5f;
+}
+
+// A mark's badge, in pixels across.
+int MarkSize()
+{
+	return Max(16, (int)(30.0f * MarkUnit()));
+}
+
+// The frame round a badge, in pixels.
+int MarkEdge(int size)
+{
+	return Max(2, size / 9);
+}
+
+bool MarksOn()
+{
+	return Enabled() && s_cvMarks && s_cvMarks->value != 0.0f;
+}
+
+// Where a point of the world lands on the screen, and whether it is in view. A point out of view (to a side, above, below
+// or behind) is pinned to the screen's edge, in its direction from the middle.
+void MarkScreen(const H9Mark& m, int& sx, int& sy, bool& inView)
+{
+	Vector pos(m.x, m.y, m.z);
+	float screen[3] = {0, 0, 0};
+	const bool behind = 0 != gEngfuncs.pTriAPI->WorldToScreen((float*)&pos, screen);
+	if (!behind && fabsf(screen[0]) <= 1.0f && fabsf(screen[1]) <= 1.0f)
+	{
+		sx = (int)((1.0f + screen[0]) * 0.5f * (float)ScreenWidth);
+		sy = (int)((1.0f - screen[1]) * 0.5f * (float)ScreenHeight);
+		inView = true;
+		return;
+	}
+	inView = false;
+	Vector fwd, right, up;
+	AngleVectors(v_angles, fwd, right, up);
+	const Vector rel = pos - v_origin;
+	float dx = DotProduct(rel, right);
+	float dy = DotProduct(rel, up);
+	if (fabsf(dx) < 1.0f && fabsf(dy) < 1.0f)
+	{
+		dx = 0.0f; // straight behind the player: the bottom edge
+		dy = -1.0f;
+	}
+	const float margin = (float)MarkSize();
+	const float mx = (float)ScreenWidth * 0.5f - margin;
+	const float my = (float)ScreenHeight * 0.5f - margin;
+	const float k = (fabsf(dx) * my > fabsf(dy) * mx) ? mx / fabsf(dx) : my / fabsf(dy);
+	sx = ScreenWidth / 2 + (int)(dx * k);
+	sy = ScreenHeight / 2 - (int)(dy * k);
 }
 
 // The panels, made under the viewport the first time it exists (and again if it was replaced).
@@ -865,7 +1015,7 @@ void Frame()
 			first = false;
 		}
 		p->setPos(x, y);
-		p->SetAlpha(NoticeAlpha(n, now));
+		p->SetAlpha(NoticeDrawAlpha(n, now));
 		p->setVisible(shown && !noHud);
 		if (shown && !noHud && n.anchor != H9V_C)
 			stackEnd = Max(stackEnd, y + tall);
@@ -889,17 +1039,136 @@ void Frame()
 			s.dirty = false;
 		}
 		p->setVisible(shown && !noHud && s.shown);
-		// A panel anchored along the top, and still in the top quarter, belongs to the top stack.
+		// A panel anchored along the top, still in the top quarter and reaching into the middle half of the screen, where the stack is
+		// centred, belongs to the top stack. One in a corner that stops short of the middle half (the Officer's waiting list at the top
+		// right) is beside the stack and pushes nothing down: the row of marks keeps its place as the list grows and shrinks.
 		if (shown && !noHud && s.shown && s.live.anchor >= H9V_TL && s.live.anchor <= H9V_TR)
 		{
 			int px, py, pw, ph;
 			p->getPos(px, py);
 			p->getSize(pw, ph);
-			if (py < ScreenHeight / 4)
+			if (py < ScreenHeight / 4 && px < ScreenWidth * 3 / 4 && px + pw > ScreenWidth / 4)
 				stackEnd = Max(stackEnd, py + ph);
 		}
 	}
+
+	// The marks: the ones nothing has refreshed go; the row of them goes under the notices, and TS's own notices beneath it.
+	int marks = 0;
+	for (int i = 1; i <= H9V_MAX_MARKS; i++)
+	{
+		if (s_Marks[i].used && now - s_Marks[i].at > H9V_MARK_LIFE)
+			s_Marks[i].used = false;
+		if (s_Marks[i].used)
+			marks++;
+	}
+	s_bMarksShown = shown && !noHud && MarksOn() && marks > 0;
+	s_iStripTall = 0;
+	if (s_bMarksShown && marks >= 2 && s_cvStrip && s_cvStrip->value != 0.0f)
+	{
+		const int size = Max(12, MarkSize() * 3 / 4);
+		const int gap = Max(2, size / 6);
+		s_iStripWide = marks * size + (marks - 1) * gap;
+		s_iStripTall = size + 2 * MarkEdge(size) + 2 + Max(3, size / 8) + 2; // the badge, its frame and the bar under it
+		s_iStripY = stackEnd > 0 ? stackEnd + 2 : sy0;
+		stackEnd = s_iStripY + s_iStripTall;
+	}
 	s_iStackBottom = stackEnd > 0 ? stackEnd + 4 : 0;
+}
+
+// ---- marks: drawing --------------------------------------------------------------------------
+
+void SideColour(int side, int& r, int& g, int& b)
+{
+	if (side == 1)
+	{
+		r = 0;
+		g = 170;
+		b = 255;
+	}
+	else if (side == 2)
+	{
+		r = 255;
+		g = 70;
+		b = 60;
+	}
+	else
+	{
+		r = 225;
+		g = 225;
+		b = 225;
+	}
+}
+
+// One badge centred on cx, cy: the label on the owner's colour (yellow and white by turns while it is contested), and under
+// it, while a side is taking it, the bar of how far it has got in that side's colour.
+void DrawBadge(int cx, int cy, int size, const H9Mark& m, bool blink, int alpha)
+{
+	int r, g, b;
+	SideColour(m.owner, r, g, b);
+	if (m.state == 2 && blink)
+	{
+		r = 255;
+		g = 220;
+		b = 80;
+	}
+	const int half = size / 2;
+	const int edge = MarkEdge(size);
+	// The owner's colour as a frame round a dark fill of it: the label is drawn additively, so it shows only over a dark ground.
+	gEngfuncs.pfnFillRGBABlend(cx - half - edge, cy - half - edge, size + 2 * edge, size + 2 * edge, r, g, b, alpha);
+	gEngfuncs.pfnFillRGBABlend(cx - half, cy - half, size, size, r * 25 / 100, g * 25 / 100, b * 25 / 100, alpha);
+
+	int wide = 0;
+	for (const char* p = m.label; *p; p++)
+		wide += gHUD.m_scrinfo.charWidths[(unsigned char)*p];
+	// twice, a pixel apart, for a heavier letter
+	const int tx = cx - wide / 2, ty = cy - gHUD.m_scrinfo.iCharHeight / 2;
+	TSHud_DrawString(tx, ty, ScreenWidth, m.label, 255, 255, 255);
+	TSHud_DrawString(tx + 1, ty, ScreenWidth, m.label, 255, 255, 255);
+
+	if (m.state != 0 && m.pct > 0)
+	{
+		const int bar = Max(3, size / 8);
+		int tr, tg, tb;
+		SideColour(m.side, tr, tg, tb);
+		const int by = cy + half + edge + 2;
+		gEngfuncs.pfnFillRGBABlend(cx - half, by, size, bar, 0, 0, 0, alpha * 190 / 255);
+		gEngfuncs.pfnFillRGBABlend(cx - half, by, size * m.pct / 100, bar, tr, tg, tb, alpha);
+	}
+}
+
+// The marks, every HUD frame: each on its point of the world (or the edge of the screen), and the row under the stack.
+void DrawMarks(float now)
+{
+	if (!s_bMarksShown)
+		return;
+	const bool blink = ((int)(now * 4.0f) & 1) != 0;
+	const int size = MarkSize();
+	for (int i = 1; i <= H9V_MAX_MARKS; i++)
+	{
+		const H9Mark& m = s_Marks[i];
+		if (!m.used)
+			continue;
+		int sx, sy;
+		bool inView;
+		MarkScreen(m, sx, sy, inView);
+		DrawBadge(sx, sy, inView ? size : size * 3 / 4, m, blink, inView ? 235 : 180);
+	}
+
+	if (s_iStripTall > 0)
+	{
+		const int small = Max(12, size * 3 / 4);
+		const int gap = Max(2, small / 6);
+		int x = (ScreenWidth - s_iStripWide) / 2 + small / 2;
+		const int y = s_iStripY + MarkEdge(small) + small / 2;
+		for (int i = 1; i <= H9V_MAX_MARKS; i++)
+		{
+			const H9Mark& m = s_Marks[i];
+			if (!m.used)
+				continue;
+			DrawBadge(x, y, small, m, blink, 235);
+			x += small + gap;
+		}
+	}
 }
 
 class CHudH9Vgui : public CHudBase
@@ -917,6 +1186,7 @@ public:
 	bool Draw(float flTime) override
 	{
 		s_flLastHudDraw = flTime;
+		DrawMarks(flTime);
 		return true;
 	}
 	void Think() override
@@ -950,6 +1220,8 @@ void H9Vgui_Init()
 	s_cvEnabled = CVAR_CREATE("cl_h9_vgui", "1", FCVAR_ARCHIVE);
 	CVAR_CREATE("cl_h9_vgui_scale", "1", FCVAR_ARCHIVE);
 	s_cvTop = CVAR_CREATE("cl_h9_vgui_top", "0", FCVAR_ARCHIVE);
+	s_cvMarks = CVAR_CREATE("cl_h9_marks", "1", FCVAR_ARCHIVE);
+	s_cvStrip = CVAR_CREATE("cl_h9_marks_strip", "1", FCVAR_ARCHIVE);
 	s_cvInfo = CVAR_CREATE("_h9vgui", Enabled() ? "1" : "0", FCVAR_USERINFO);
 	gEngfuncs.pfnHookUserMsg("H9Vgui", __MsgFunc_H9Vgui);
 	s_Hud.Init();

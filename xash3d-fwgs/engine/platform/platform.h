@@ -435,6 +435,9 @@ void SNDDMA_Shutdown( void );
 void SNDDMA_BeginPainting( void );
 void SNDDMA_Submit( void );
 void SNDDMA_Activate( qboolean active ); // pause audio
+#if XASH_EMSCRIPTEN
+void SNDDMA_H9Flush( void ); // H9 web client: the page's audio thread drops what it was given and has not played (S_ClearBuffer)
+#endif
 // void SNDDMA_PrintDeviceName( void ); // unused
 // void SNDDMA_LockSound( void ); // unused
 // void SNDDMA_UnlockSound( void ); // unused

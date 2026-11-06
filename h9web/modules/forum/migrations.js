@@ -33,9 +33,14 @@
 //   v10: forum_threads.hidden_at and hidden_by: a thread a moderator hid, seen only by staff;
 //                     forum_media_posts (a YouTube video id, title, description, pinned, hidden,
 //                     removed, comment count) and forum_media_comments, the MEDIA page (media.js)
+//   v11: forum_wall_comments: comments on a member's profile wall (wall.js), each with the wall's
+//                     owner, its author, pinned_at (the owner's pin) and removed_* (a moderator's
+//                     removal, with its note); forum_walls: a wall its owner turned off (open 0).
+//                     Both go with the account: deleting it deletes its comments and its wall
 // What moderators do goes into h9web's audit log (lib/audit.js), not into a table of the forum's.
 // Every other reference to an account is ON DELETE SET NULL: deleting an account keeps its
-// posts, shown as from a deleted account, and deletes its picture and the votes it cast.
+// posts, shown as from a deleted account, and deletes its picture, the votes it cast, and (v11)
+// its wall and its comments on walls.
 
 const SEED = [
   ["announcements", "Announcements", "News from the HAVOC 9 team. Only moderators and admins start threads here.", "moderator"],
@@ -266,6 +271,33 @@ export const MIGRATIONS = [
           removed_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL
         );
         CREATE INDEX forum_media_comments_post ON forum_media_comments(media_id, id);
+      `);
+    },
+  },
+  {
+    version: 11,
+    description: "profile walls",
+    up(db) {
+      db.exec(`
+        CREATE TABLE forum_walls (
+          account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+          open INTEGER NOT NULL DEFAULT 1 CHECK (open IN (0, 1)),
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE forum_wall_comments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          wall_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          body TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          edited_at INTEGER,
+          pinned_at INTEGER,
+          removed_at INTEGER,
+          removed_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+          removed_note TEXT
+        );
+        CREATE INDEX forum_wall_order ON forum_wall_comments(wall_id, pinned_at, id);
+        CREATE INDEX forum_wall_by ON forum_wall_comments(account_id);
       `);
     },
   },

@@ -1,0 +1,4 @@
+The model this weapon is made from is a download, not part of this repository (its licence asks for credit, which
+laserrifle_ATTRIBUTION.txt gives, and its files are large): "Sci-Fi Marksman Rifle (Updated Textures)" by Jett Spaulding,
+https://skfb.ly/ozONJ, CC BY 4.0. README.txt says where its FBX and textures go to make the weapon's files again.
+The finished files are in xash3d-h9-patches\overlay\ts and H9XASH\ts (models\h9, sound\h9\laserrifle, sprites).

@@ -94,7 +94,8 @@
  * QUICK JOINS (1.8). A proof's answer is reported at once (PROOF_REPORT), never later than the next
  * report already due, and one report goes every FAST_GAP seconds at most, so a proven player's
  * chain, picture and level reach every scoreboard a second or two after the player is in game, at a
- * map's start too (where the first report waits FIRST_DELAY only while nobody has proved anything);
+ * map's start too (where the first report waits FIRST_DELAY, FIRST_EMPTY on a server nobody is on, only while nobody has
+ * proved anything: a server that has just started is authenticated a few seconds after its plugins are up);
  * a joining client gets the others' table after a second; and a slot is challenged at most once in
  * CHAL_GAP seconds, so reconnecting quickly asks h9web for no more nonces.
  *
@@ -127,6 +128,16 @@
  * one per cell; it checks itself against the FIPS and RFC 4231 test vectors and against
  * hash_string when the plugin loads, and a plugin that fails the check never reports.
  *
+ * WHAT THIS SERVER RUNS. At each map start, and again every 20 minutes, the report lists every AMX Mod
+ * X plugin that loaded, every AMX Mod X module in the modules folder and every Metamod plugin that
+ * metamod's plugins.ini names and that is there: the file's name, a plugin's version and the SHA-256 of
+ * the file. h9web checks the list against H9's official preset (docs/H9_PRESENCE.txt, section 4d): a
+ * server that runs only that is authenticated (the server browser's green chain, and its matches are
+ * rated); one that runs anything else is not (the red chain), and nothing is blocked or kicked.
+ * h9_authenticated 0 opts out on purpose: the report says authenticated: false, h9web lists the server
+ * as not authenticated and rates nothing. 1, the default, asks for nothing: h9web still judges what the
+ * server runs, and no setting makes a server more authenticated than that.
+ *
  * Needs the AmxxEasyHttp module and its CA bundle, as ts_advertise does:
  *     addons/amxmodx/modules/easy_http_amxx.dll
  *     addons/amxmodx/data/amxx_easy_http_cacert.pem
@@ -139,23 +150,27 @@
 #include <amxmisc>
 #include <fakemeta>
 #include <easy_http>
+#include <h9_release>     // H9_RELEASE: the release these plugins are, written by build.bat from the game's h9_release.txt
 
 #pragma dynamic 8192
 
 #define PLUGIN  "H9 Presence"
-#define VERSION "1.9"
+#define VERSION "1.11"
 #define AUTHOR  "2cwldys"
 
 #define MAX_BODY        (MAX_PLAYERS * ROOM_PER_PLAYER + 2048)   // the largest report, in bytes: every
                                 // slot's entry at its largest, plus the rest (h9web takes up to 131072)
 #define ROOM_PER_PLAYER 640     // the most one player's entry can take, escaped
 #define REPORT_DELAY    3.0     // seconds after a join, a leave or a new name before the report
-#define FIRST_DELAY     15.0    // seconds after the map starts before the first report
+#define FIRST_DELAY     15.0    // seconds after the map starts before the first report, with players in the game to prove themselves
+#define FIRST_EMPTY     3.0     // the same with nobody in the game: a server that has just started is authenticated after this
 #define PROOF_REPORT    0.3     // seconds after a proof's answer before the report that carries it
 #define FAST_GAP        2.0     // seconds between two reports at the least (h9web takes 40 a minute)
 #define CHAL_GAP        2       // seconds between two challenges of one slot at the least
 #define PROOF_WAIT      8       // seconds a challenged player is left out while its answer comes
 #define RECHALLENGE     300     // seconds before a player is challenged again (h9web takes 10 minutes)
+#define COMP_MAX        160     // the most files the report lists (h9web takes 400)
+#define COMP_EVERY      1200    // seconds between one accepted list of what the server runs and the next
 
 // task ids: the single ones, then each per-slot range (+ slot, 1 to MAX_PLAYERS, 128 at most) 200
 // apart, so no two ever meet
@@ -166,6 +181,8 @@
 
 new g_cv_url, g_cv_server, g_cv_key, g_cv_interval, g_cv_challenge, g_cv_names, g_cv_enroll, g_cv_autoenroll;
 new g_cv_require, g_cv_require_grace;    // h9_require_account and its grace period
+new g_cv_auth;                           // h9_authenticated: 0 asks h9web not to authenticate or rate this server
+new bool:g_auth_flight = true;           // whether the report just built says the server is authenticated (the cvar not 0)
 new const REQUIRE_REASON[] = "This server requires a havoc9.org account: link your game from the main menu";
 // ts_matchmode's tsm_pres_* cvars, the Discord card's source (0 when ts_matchmode is not loaded)
 new g_cv_mode, g_cv_siege, g_cv_attack, g_cv_prog;
@@ -201,6 +218,17 @@ new g_backoff_until = 0;
 new g_sent_count = 0;
 new g_accepted = 0;                      // reports accepted since the map started
 new g_left_out = 0;                      // players left out of the last report for room
+
+// What the server runs (collect_components, once a map): 0 an AMX Mod X plugin, 1 a module, 2 a Metamod plugin
+new const COMP_KIND[][] = { "amxx", "module", "meta" };
+new g_comp_n = 0;
+new g_comp_kind[COMP_MAX];
+new g_comp_file[COMP_MAX][48];
+new g_comp_ver[COMP_MAX][24];
+new g_comp_hash[COMP_MAX][65];           // SHA-256 as 64 hex, or empty when the file could not be read
+new bool:g_comp_due = true;              // the next report carries the list
+new bool:g_comp_sent = false;            // the report in flight carries it
+new g_comp_at = 0;                       // when h9web last took it
 
 new g_body[MAX_BODY];                    // the report, one byte per cell
 new g_len;
@@ -295,6 +323,15 @@ public plugin_init()
 	// says auth 1 while it is 1 (engine-h9-serverinfo.patch).
 	g_cv_require       = register_cvar("h9_require_account", "0", FCVAR_SERVER);
 	g_cv_require_grace = register_cvar("h9_require_account_grace", "45");
+	// The release gate, which the engine's join (engine-h9-serverinfo.patch, SV_H9ReleaseRefusal) reads: h9_require_release 1 refuses a
+	// joiner whose H9 game is another release than this server's, with where to get his; 2 asks every joiner for the release (a stock
+	// client has none); 0 lets everyone in. h9_plugin_release is the release these plugins are, which is what joiners are held to
+	// (the game folder's h9_release.txt when it is empty). FCVAR_SERVER: in the rules, and the browser can see them.
+	register_cvar("h9_require_release", "1", FCVAR_SERVER);
+	register_cvar("h9_plugin_release", H9_RELEASE, FCVAR_SERVER);
+	// h9_authenticated 0 opts this server out of being authenticated and rated (the report says
+	// authenticated: false). 1 asks for nothing: h9web judges what the server runs. FCVAR_SERVER: in the rules.
+	g_cv_auth = register_cvar("h9_authenticated", "1", FCVAR_SERVER);
 
 	register_clcmd("h9_idproof", "cmd_idproof");
 	g_fwd_proof = CreateMultiForward("h9p_proof", ET_IGNORE, FP_CELL, FP_STRING, FP_STRING, FP_STRING);
@@ -316,6 +353,34 @@ public plugin_init()
 	}
 }
 
+/// The release the plugins carry against the game folder's own h9_release.txt: the engine holds joiners to the plugins', so a folder that
+/// says another is a package half updated, and is told in the log.
+check_release()
+{
+	new have[32], want[32];
+	new f = fopen("h9_release.txt", "rt", true);
+	if (f)
+	{
+		new line[64];
+		fgets(f, line, charsmax(line));
+		fclose(f);
+		parse(line, have, charsmax(have));
+	}
+	get_cvar_string("h9_plugin_release", want, charsmax(want));
+	if (!want[0])
+	{
+		log_amx("[H9] these plugins carry no release (h9_plugin_release is empty): the game folder's h9_release.txt (%s) is what joiners are held to.", have[0] ? have : "none");
+	}
+	else if (have[0] && !equal(have, want))
+	{
+		log_amx("[H9] PACKAGE MISMATCH: the plugins are release %s and the game folder's h9_release.txt says %s. h9_require_release holds joiners to %s.", want, have, want);
+	}
+	else
+	{
+		log_amx("[H9] release %s (h9_require_release %d).", want, get_cvar_num("h9_require_release"));
+	}
+}
+
 public plugin_cfg()
 {
 	// AMXX only execs amxx.cfg by itself; server_exec() runs the queued commands now, so the
@@ -329,6 +394,7 @@ public plugin_cfg()
 		server_cmd("exec %s", file);
 		server_exec();
 	}
+	check_release();
 
 	g_cv_mode   = get_cvar_pointer("tsm_pres_mode");
 	g_cv_siege  = get_cvar_pointer("tsm_pres_siege");
@@ -395,6 +461,7 @@ public plugin_cfg()
 go_live()
 {
 	g_ready = true;
+	collect_components();
 
 	// members-only, as the last answer before this map said
 	new members[4];
@@ -426,7 +493,8 @@ go_live()
 	}
 	remove_task(TASK_TICK);
 	set_task(every, "task_tick", TASK_TICK, "", 0, "b");
-	soon_within(FIRST_DELAY);
+	// players already in game (a map change) get FIRST_DELAY to prove who they are first; a server nobody is on has nothing to wait for
+	soon_within(count_players() > 0 ? FIRST_DELAY : FIRST_EMPTY);
 
 	// players already in game (a listen server that went live once its own player proved it): that
 	// player's address first, then everyone's challenge
@@ -925,11 +993,14 @@ public task_tick()
 			set_task(float(require_grace()), "task_require", TASK_REQUIRE + id);
 		}
 	}
-	// an empty server that h9web already knows is empty is not reported again
-	if (count_players() > 0 || g_last_count != 0)
+	// what the server runs goes again every COMP_EVERY seconds, so a list h9web lost is not lost for long
+	if (!g_comp_due && now - g_comp_at > COMP_EVERY)
 	{
-		send_report("tick");
+		g_comp_due = true;
 	}
+	// every tick reports, a server with nobody on it too: h9web calls a server that has not reported for
+	// authFreshSeconds one that does not report, and the chain beside it goes red
+	send_report("tick");
 }
 
 count_players()
@@ -990,6 +1061,8 @@ send_report(const reason[])
 
 public on_report_done(EzHttpRequest:request_id)
 {
+	new bool:carried = g_comp_sent;
+	g_comp_sent = false;
 	g_sending = false;
 	if (ezhttp_get_error_code(request_id) != EZH_OK)
 	{
@@ -1002,6 +1075,11 @@ public on_report_done(EzHttpRequest:request_id)
 		new status = ezhttp_get_http_code(request_id);
 		if (status == 200)
 		{
+			if (carried)
+			{
+				g_comp_due = false;
+				g_comp_at = get_systime();
+			}
 			g_last_count = g_sent_count;
 			g_accepted++;
 			g_bad = 0;
@@ -1144,6 +1222,16 @@ build_report(const reason[], const server[])
 	{
 		app_raw(",^"names^":true");
 	}
+	g_auth_flight = get_pcvar_num(g_cv_auth) != 0;
+	if (!g_auth_flight)
+	{
+		app_raw(",^"authenticated^":false");
+	}
+	if (g_comp_due && g_comp_n > 0)
+	{
+		app_components();
+		g_comp_sent = true;
+	}
 	app_raw(",^"players^":[");
 
 	new n = 0, now = get_systime();
@@ -1204,6 +1292,144 @@ build_report(const reason[], const server[])
 		log_amx("[PRESENCE] The report was full: %d player(s) left out of it.", g_left_out);
 	}
 	return sent;
+}
+
+/**
+ * Lists what this server runs, once a map (go_live): the AMX Mod X plugins that loaded (not one that
+ * failed to), the modules in the modules folder, and the Metamod plugins plugins.ini names that exist,
+ * each with the SHA-256 of its file. hash_file raises an error for a file it cannot open, so a file is
+ * looked for first and a missing one is not listed.
+ */
+collect_components()
+{
+	g_comp_n = 0;
+	g_comp_due = true;
+	new dir[96], path[200], file[96], name[2], version[32], author[2], status[24];
+
+	get_localinfo("amxx_pluginsdir", dir, charsmax(dir));
+	if (!dir[0])
+	{
+		copy(dir, charsmax(dir), "addons/amxmodx/plugins");
+	}
+	new total = get_pluginsnum();
+	for (new i = 0; i < total; i++)
+	{
+		if (get_plugin(i, file, charsmax(file), name, charsmax(name), version, charsmax(version), author, charsmax(author), status, charsmax(status)) < 0)
+		{
+			continue;
+		}
+		if (equali(status, "bad load"))
+		{
+			continue;
+		}
+		formatex(path, charsmax(path), "%s/%s", dir, file);
+		add_component(0, file, version, path);
+	}
+
+	get_localinfo("amxx_modulesdir", dir, charsmax(dir));
+	if (!dir[0])
+	{
+		copy(dir, charsmax(dir), "addons/amxmodx/modules");
+	}
+	new FileType:type;
+	new handle = open_dir(dir, file, charsmax(file), type);
+	if (handle)
+	{
+		do
+		{
+			if (type == FileType_File && (ends_with(file, "_amxx.dll") || ends_with(file, "_amxx.so") || ends_with(file, "_amxx_i386.so")))
+			{
+				formatex(path, charsmax(path), "%s/%s", dir, file);
+				add_component(1, file, "", path);
+			}
+		}
+		while (next_file(handle, file, charsmax(file), type));
+		close_dir(handle);
+	}
+
+	// Metamod: "win32 addons/amxmodx/dlls/amxmodx_mm.dll", a path from the game's folder; the file is listed by its name
+	new f = fopen("addons/metamod/plugins.ini", "rt");
+	if (f)
+	{
+		new line[200], os[16], rest[180];
+		while (!feof(f))
+		{
+			fgets(f, line, charsmax(line));
+			new cut = contain(line, ";");
+			if (cut >= 0)
+			{
+				line[cut] = 0;
+			}
+			trim(line);
+			if (!line[0])
+			{
+				continue;
+			}
+			parse(line, os, charsmax(os), rest, charsmax(rest));
+			if (!rest[0] || !(equali(os, "win32") || equali(os, "linux")))
+			{
+				continue;
+			}
+			new last = -1;
+			for (new c = 0; rest[c]; c++)
+			{
+				if (rest[c] == 47 || rest[c] == 92)
+				{
+					last = c;
+				}
+			}
+			add_component(2, rest[last + 1], "", rest);
+		}
+		fclose(f);
+	}
+}
+
+/** One file of the list: its kind, name, version and SHA-256; a file that is not there is left out. */
+add_component(kind, const file[], const version[], const path[])
+{
+	if (g_comp_n >= COMP_MAX || !file[0] || file_size(path) < 0)
+	{
+		return;
+	}
+	new n = g_comp_n;
+	g_comp_kind[n] = kind;
+	copy(g_comp_file[n], charsmax(g_comp_file[]), file);
+	copy(g_comp_ver[n], charsmax(g_comp_ver[]), version);
+	g_comp_hash[n][0] = 0;
+	hash_file(path, Hash_Sha256, g_comp_hash[n], charsmax(g_comp_hash[]));
+	g_comp_n++;
+}
+
+bool:ends_with(const text[], const tail[])
+{
+	new lt = strlen(text), ltail = strlen(tail);
+	return lt >= ltail && equali(text[lt - ltail], tail);
+}
+
+/** The list, as the report's plugins array: h9web's preset.js reads k (kind), f (file), v (version) and h (SHA-256). */
+app_components()
+{
+	app_raw(",^"plugins^":[");
+	for (new i = 0; i < g_comp_n; i++)
+	{
+		if (i)
+		{
+			app_byte(',');
+		}
+		app_raw("{^"k^":");
+		app_str(COMP_KIND[g_comp_kind[i]]);
+		app_raw(",^"f^":");
+		app_str(g_comp_file[i]);
+		if (g_comp_ver[i][0])
+		{
+			app_raw(",^"v^":");
+			app_str(g_comp_ver[i]);
+		}
+		app_raw(",^"h^":");
+		app_str(g_comp_hash[i]);
+		app_byte('}');
+	}
+	app_byte(']');
 }
 
 bool:listed_twice(i, n)
@@ -2441,6 +2667,16 @@ mode_name(const map[], const key[], const siege[], out[], len)
 		copy(out, len, "Mech Warrior");
 		return;
 	}
+	if (equali(key, "assault"))
+	{
+		copy(out, len, "Assault");
+		return;
+	}
+	if (equali(key, "ctf"))
+	{
+		copy(out, len, "Capture the Flag");
+		return;
+	}
 	new name[64];
 	copy(name, charsmax(name), map);
 	strtolower(name);
@@ -2464,6 +2700,10 @@ mode_name(const map[], const key[], const siege[], out[], len)
 	{
 		copy(out, len, "Wave Survival");
 	}
+	else if (equal(name, "h9_as_", 6))
+	{
+		copy(out, len, "Assault");
+	}
 	else if (equal(name, "h9_dm_", 6))
 	{
 		copy(out, len, "Deathmatch");
@@ -2484,6 +2724,14 @@ mode_name(const map[], const key[], const siege[], out[], len)
 	{
 		copy(out, len, "Roleplay");
 	}
+	else if (equal(name, "ctb_", 4) || contain(name, "_ctb_") >= 0)
+	{
+		copy(out, len, "Capture the Briefcase");
+	}
+	else if (equal(name, "ctf_", 4) || contain(name, "_ctf_") >= 0)
+	{
+		copy(out, len, "Capture the Flag");
+	}
 	else if (equali(key, "match"))
 	{
 		copy(out, len, "Match Mode");
@@ -2496,7 +2744,7 @@ mode_name(const map[], const key[], const siege[], out[], len)
 
 /**
  * The card's details line (H9P_Activity): the siege's attacking side and objectives, the
- * uplink's zones, the survival wave, or the mode alone.
+ * uplink's zones, the assault's points, the survival wave, or the mode alone.
  */
 detail_line(const mode[], const key[], const siege[], const attack[], const prog[], out[], len)
 {
@@ -2516,8 +2764,10 @@ detail_line(const mode[], const key[], const siege[], const attack[], const prog
 	{
 		formatex(out, len, "%s %s", mode, siege);
 	}
-	else if (equali(key, "uplink") && prog[0])
+	else if ((equali(key, "uplink") || equali(key, "assault") || equali(key, "ctf")) && prog[0])
 	{
+		new what[12];
+		copy(what, charsmax(what), equali(key, "assault") ? "points" : (equali(key, "ctf") ? "captures" : "zones"));
 		new held[3], at = 0, cut;
 		for (new i = 0; i < 3; i++)
 		{
@@ -2532,13 +2782,13 @@ detail_line(const mode[], const key[], const siege[], const attack[], const prog
 		new t1[40], t2[40];
 		team_label(1, false, t1, charsmax(t1));
 		team_label(2, false, t2, charsmax(t2));
-		formatex(out, len, "%s - zones: %s %d, %s %d of %d", mode, t1, held[0], t2, held[1], held[2]);
+		formatex(out, len, "%s - %s: %s %d, %s %d of %d", mode, what, t1, held[0], t2, held[1], held[2]);
 		// h9web keeps 96 characters of it: long names go short
 		if (strlen(out) > 90)
 		{
 			team_label(1, true, t1, charsmax(t1));
 			team_label(2, true, t2, charsmax(t2));
-			formatex(out, len, "%s - zones: %s %d, %s %d of %d", mode, t1, held[0], t2, held[1], held[2]);
+			formatex(out, len, "%s - %s: %s %d, %s %d of %d", mode, what, t1, held[0], t2, held[1], held[2]);
 		}
 	}
 	else if (equali(key, "survival") && prog[0])
@@ -2946,5 +3196,7 @@ public cmd_status()
 	}
 	server_print("  players in game: %d (with a proof: %d); in the last accepted report: %d", ids, proven, g_last_count < 0 ? 0 : g_last_count);
 	server_print("  reports accepted this map: %d; last outcome: %d", g_accepted, g_last_status);
+	server_print("  what this server runs: %d file(s) listed for h9web; %s", g_comp_n, g_comp_due ? "goes in the next report" : "h9web has it");
+	server_print("  h9_authenticated: %s", get_pcvar_num(g_cv_auth) ? "1 (h9web judges what this server runs)" : "0 (this server asks not to be authenticated or rated)");
 	return PLUGIN_HANDLED;
 }

@@ -37,6 +37,7 @@
 #include <fakemeta>
 #include <fun>
 #include <tsm_api>
+#include <h9_vgui>    // an H9 game shows the wave's flash as a notice
 
 #define PLUGIN  "TS Wave Survival"
 #define VERSION "1.0"
@@ -90,6 +91,8 @@ public native_filter(const name[], index, trap)
 
 public plugin_precache()
 {
+	h9vgui_precache(); // H9Vgui, the notices' message (h9_vgui.inc)
+
 	// Precached only when the file is really there: a precached name with no file behind it is
 	// a fatal Host_Error. It is the sudden-death sting, so a server running the match mode has it.
 	g_sting_ok = (file_exists(WS_STING_FILE, true) != 0);
@@ -102,6 +105,7 @@ public plugin_precache()
 public plugin_init()
 {
 	register_plugin(PLUGIN, VERSION, AUTHOR);
+	h9vgui_init("sur");
 
 	g_cv_mode     = register_cvar("tsm_mutants_mode",      "1");
 	g_cv_breather = register_cvar("tsm_ws_wave",           "30");
@@ -264,7 +268,7 @@ public task_tick()
 		if (stall > 0.0 && count <= 3 && now - g_last_change >= stall)
 		{
 			slay_stragglers();
-			client_print(0, print_chat, "[MATCH] The last mutants were lost in the drains -- wave %d is cleared.", g_wave);
+			mode_chat(0, "[MATCH] The last mutants were lost in the drains -- wave %d is cleared.", g_wave);
 		}
 		return;
 	}
@@ -280,7 +284,7 @@ public task_tick()
 		g_breather_until = now + wait;
 		if (wait > 0.0)
 		{
-			client_print(0, print_chat, "[MATCH] Wave %d cleared! The next wave comes in %d seconds.", g_wave, floatround(wait));
+			mode_chat(0, "[MATCH] Wave %d cleared! The next wave comes in %d seconds.", g_wave, floatround(wait));
 		}
 
 		// Everyone still in play on the survivors' side has survived the wave (ts_matchmode's
@@ -379,30 +383,32 @@ next_wave()
 	refresh_hud();
 
 	set_hudmessage(255, 80, 60, -1.0, 0.32, 0, 0.0, 2.5, 0.1, 0.5, 4);
-	show_hudmessage(0, "WAVE %d", g_wave);
+	new text[16];
+	formatex(text, charsmax(text), "WAVE %d", g_wave);
+	h9vgui_alert(0, "sur.wave", H9V_NOTICE_FLASH, text, 255, 80, 60, 0.32, 2.5, 0.5);
 	if (restored < 0)
 	{
 		// tsm_respawns 0: nobody comes back, so nothing is said about lives
-		client_print(0, print_chat, "[MATCH] WAVE %d. Your .stim, .ammo and class abilities are ready again. Hold them off.", g_wave);
+		mode_chat(0, "[MATCH] WAVE %d. Your .stim, .ammo and class abilities are ready again. Hold them off.", g_wave);
 	}
 	else
 	{
-		client_print(0, print_chat, "[MATCH] WAVE %d. Everyone who fell is back, every survivor has full lives again, and .stim, .ammo and class abilities are ready. Hold them off.", g_wave);
+		mode_chat(0, "[MATCH] WAVE %d. Everyone who fell is back, every survivor has full lives again, and .stim, .ammo and class abilities are ready. Hold them off.", g_wave);
 	}
 
 	// The milestones, said once each as they arrive.
 	if (g_wave == 16)
 	{
-		client_print(0, print_chat, "[MATCH] More of them carry guns now.");
+		mode_chat(0, "[MATCH] More of them carry guns now.");
 	}
 	else if (g_wave == 25)
 	{
-		client_print(0, print_chat, "[MATCH] Every one of them is armed now.");
+		mode_chat(0, "[MATCH] Every one of them is armed now.");
 	}
 	new kfa = get_pcvar_num(g_cv_kungfu);
 	if (kfa > 0 && g_wave == kfa + 1)
 	{
-		client_print(0, print_chat, "[MATCH] They have learned kung fu.");
+		mode_chat(0, "[MATCH] They have learned kung fu.");
 	}
 }
 
@@ -600,11 +606,11 @@ public tsm_round_live(round)
 	sting();
 	if (get_cvar_num("tsm_respawns"))
 	{
-		client_print(0, print_chat, "[MATCH] WAVE 1. Hold them off. Clear a wave and everyone who fell comes back for the next one, with full lives.");
+		mode_chat(0, "[MATCH] WAVE 1. Hold them off. Clear a wave and everyone who fell comes back for the next one, with full lives.");
 	}
 	else
 	{
-		client_print(0, print_chat, "[MATCH] WAVE 1. Hold them off. One life each: whoever falls is out for the rest of the run.");
+		mode_chat(0, "[MATCH] WAVE 1. Hold them off. One life each: whoever falls is out for the rest of the run.");
 	}
 }
 
@@ -621,12 +627,12 @@ public tsm_life_lost(id, left)
 	}
 	if (left > 0)
 	{
-		client_print(id, print_chat, "[MATCH] You are down, with %d %s left. You come back at your side's next respawn (the countdown on your screen), or when this wave of mutants is cleared.",
+		mode_chat(id, "[MATCH] You are down, with %d %s left. You come back at your side's next respawn (the countdown on your screen), or when this wave of mutants is cleared.",
 			left, left == 1 ? "life" : "lives");
 	}
 	else
 	{
-		client_print(id, print_chat, "[MATCH] You are down, with no lives left. If your side clears this wave of mutants, you come back for the next one.");
+		mode_chat(id, "[MATCH] You are down, with no lives left. If your side clears this wave of mutants, you come back for the next one.");
 	}
 	return PLUGIN_HANDLED;
 }
@@ -642,24 +648,24 @@ public tsm_round_end(winner)
 
 	if (winner == 2)
 	{
-		client_print(0, print_chat, "[MATCH] The survivors held out to wave %d -- %d wave(s) cleared.", g_wave, g_wave - 1);
+		mode_chat(0, "[MATCH] The survivors held out to wave %d -- %d wave(s) cleared.", g_wave, g_wave - 1);
 	}
 	else
 	{
-		client_print(0, print_chat, "[MATCH] The run ended on wave %d.", g_wave);
+		mode_chat(0, "[MATCH] The run ended on wave %d.", g_wave);
 	}
 
 	if (g_wave > g_best)
 	{
 		if (g_best > 0)
 		{
-			client_print(0, print_chat, "[MATCH] A new best on this map -- the last was wave %d.", g_best);
+			mode_chat(0, "[MATCH] A new best on this map -- the last was wave %d.", g_best);
 		}
 		g_best = g_wave;
 	}
 	else
 	{
-		client_print(0, print_chat, "[MATCH] The best on this map is wave %d.", g_best);
+		mode_chat(0, "[MATCH] The best on this map is wave %d.", g_best);
 	}
 }
 
@@ -699,4 +705,19 @@ public cmd_ws_wave(id, level, cid)
 	console_print(id, "[SURVIVAL] Wave count set to %d: gun odds %d%%, mutants at +%d%% health from their next arming.",
 		g_wave, gun_odds(g_wave), get_pcvar_num(g_cv_hp) * (g_wave - 1));
 	return PLUGIN_HANDLED;
+}
+
+/// A "[MATCH]" chat line, kept off the chat while ts_matchmode's tsm_verbosity is 0, as its own
+/// are: the mode is then told by what players see (the HUD, the scoreboard, the centre texts).
+/// With no ts_matchmode to ask, the line goes out.
+mode_chat(id, const fmt[], any:...)
+{
+	new verbosity = get_cvar_pointer("tsm_verbosity");
+	if (verbosity && !get_pcvar_num(verbosity))
+	{
+		return;
+	}
+	new msg[256];
+	vformat(msg, charsmax(msg), fmt, 3);
+	client_print(id, print_chat, "%s", msg);
 }

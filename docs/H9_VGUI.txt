@@ -7,6 +7,13 @@
  plugins, and any plugin author who wants a real panel on an H9XASH
  player's screen instead of AMX Mod X's text.
 
+ Update (2026-11-05): the panels are drawn a quarter smaller (section 2c: menus 0.51, banners
+ 0.45, on text ladders of their own in the textschemes, 3d); a mode that keeps one pool of
+ lives sends the scoreboard H9Pool (reTS cl_dll vgui_ScorePanel.cpp); and the MARK op
+ (protocol 3, section 4i) draws a point of the world on the screen through the walls: the
+ objectives of the mode plugins: the capture points of ts_assault, the zones and the uplink of
+ ts_uplink and the flags and the pads of ts_ctf, all through include\h9_marks.inc.
+
  Status (2026-11-03): steps 1 and 2 of section 5 are built. The client
  side is in reTS\cl_dll (h9_vgui.cpp, vgui_H9Panel.cpp, hooked in hud.cpp,
  menu.cpp, ammo.cpp and the viewport's KeyInput), in the client.dll of
@@ -374,7 +381,8 @@
 
  The size of a panel comes from its art (the numbers are in 4c):
    1. a scale, s = (screen height / 480) x the client's cl_h9_vgui_scale
-      (0.8 for menus, 0.6 for banners by default);
+      (0.51 for menus, 0.45 for banners by default; 0.68 and 0.60 until
+      2026-11-05, and 0.8 and 0.6 in the first design);
    2. the panel starts at the art's own size x s (a menu 256 x 256 x s,
       a banner 256 x 96 x s), and its text goes in the content box x s;
    3. a menu's rows share the content box's height: title, rows, footer;
@@ -387,8 +395,8 @@
       never squeezed or cut;
    6. a menu with few rows (the side menu has four) keeps the art's full
       square (decision 1, section 7).
- At 1920x1080 a menu is then 461 px square (content 335 x 403 px: twelve
- rows of 33 px, the class menu's maximum), a banner 346 x 130 px.
+ At 1920x1080 a menu is then 294 px square (content 213 x 257 px: twelve
+ rows of 21 px, the class menu's maximum), a banner 259 x 97 px.
 
 
  3. WHAT THE reTS CLIENT ALREADY HAS
@@ -507,6 +515,21 @@
    Optional, in the textschemes: "H9 Menu Title", "H9 Menu Text", "H9 Menu
    Detail" and "H9 Banner Text", each falling back to the scheme above in
    code (getSchemeHandle's 0 is the file's first scheme, not a match).
+   Since 2026-11-05 the panels' own text comes from three ladders of four schemes in every
+   textscheme file, each step three quarters of the stock scheme it stands for at the same
+   step and never under 10 px: "H9 Text 1-4" (menu rows, notices), "H9 Detail 1-4" (numbers,
+   hp, small print) and "H9 Flash 1-4" (the flashes). H9Font in vgui_H9Panel.cpp takes the
+   first of a ladder that fits and steps down. A textscheme file without them gives the
+   stock schemes at the same steps (the stock schemes are untouched: TS's own buy menu and
+   scoreboard use them).
+                              640   800  1024  1152  1280  1600+
+     H9 Text 1-4              12/11/10/10  15/13/11/10  17/16/14/10  19/17/16/12
+                              20/19/17/13  20/18/17/13
+     H9 Detail 1-4            11/10/10/10  11/11/10/10  14/14/10/10  16/16/12/12
+                              17/17/13/13  17/17/13/13
+     H9 Flash 1-4             17/12/11/10  20/15/13/11  26/17/16/14  27/19/17/16
+                              31/20/19/17  32/20/18/17
+   (in the order of the columns above: 640, 800, 1024, 1152, 1280, 1600+)
    fonts.txt forces weight 700 on every "Arial"; a lighter detail font
    would name "Square721 BT" itself with FontWeight 400, which fonts.txt
    does not remap.
@@ -529,11 +552,16 @@
    NOTICE  What a hudmessage says: a slot (which, like a channel, a newer
            notice replaces), text, a colour, hold and fade times and a
            style. The client draws it on the tsm_banner art or as plain
-           scheme text, where 4c puts it.
+           scheme text, where 4c puts it. It comes up over 0.35 s when
+           it appears, holds, and fades out over its fade; a notice that
+           replaces one still showing keeps the first one's rise, so a
+           bar sent every tick does not come up again each time.
    STATUS  A notice that stays until its slot is replaced or cleared,
            stacks first from the top of the safe area, and counts its own clock
            down: {t} (m:ss) and {s} (seconds) in its text, from the one
            message (protocol 2).
+   MARK    A point of the world drawn on the screen through the walls, and in
+           a row under the top notices (protocol 3, section 4i).
    PANEL   Any layout: a panel and its controls, each by id. Labels,
            images, buttons, a progress bar, a text entry. The reply is a
            client command, "h9vgui <panel> <control> <value>", that the
@@ -616,6 +644,11 @@
   21  STATUS  string slot, byte style (as NOTICE), byte r, g, b, short
               clock (seconds, -1 none), string text, its {t} and {s}
               the clock. Protocol 2. An empty text clears the slot.
+  22  MARK    byte slot (1-32; 0 takes every mark down), byte owner (0
+              nobody, 1 and 2 a side, 3 takes the slot's mark down), byte
+              state (0 quiet, 1 being taken, 2 contested), byte side taking
+              it, byte pct (0-100), short x, y, z (the world's, in units),
+              string label (7 characters). Protocol 3.
 
  The client answers with exactly two commands, and nothing else:
    menuselect N      from a MENU: its number keys and, when it has the
@@ -635,9 +668,10 @@
 
  How a client says it can draw them: userinfo _h9vgui, the protocol
  version: "1" for all but STATUS, "2" with it (the client of
- 2026-11-03's match bar build). A plugin sends a STATUS only to a game
- of protocol 2 (h9vgui_status says whether it did), and the rest keep
- the hudmessage. The client registers it as a FCVAR_USERINFO cvar; FWGS puts
+ 2026-11-03's match bar build), "3" with MARK too (2026-11-05). A plugin
+ sends a STATUS only to a game of protocol 2 or more (h9vgui_status says
+ whether it did) and a MARK only to a game of protocol 3 (h9vgui_mark), and
+ the rest keep the hudmessage or what the plugin gives them instead. The client registers it as a FCVAR_USERINFO cvar; FWGS puts
  such a cvar into the userinfo as soon as it exists (engine\common\
  cvar.c:463, from pfnCvar_RegisterClientVariable at engine\client\
  dll_int\cl_game.c:1753), and sends the change when it is set. It reads
@@ -692,7 +726,13 @@
                 beneath it (H9Vgui_StackBottom, CHudTSMessage::Draw), else
                 they keep their place. The round time (top right) and the
                 powerup label (top left) are corner text the centred stack
-                does not meet. cl_h9_vgui_top changes the margin.
+                does not meet. cl_h9_vgui_top changes the margin. A panel
+                anchored along the top counts as part of the stack only
+                when it is in the top quarter of the height and reaches into
+                the middle half of the width; one pinned to a corner that
+                stops short of that (the Officer's waiting list, at the top
+                right) sits beside the stack and pushes nothing down, so the
+                row of marks and TS's notices keep their place as it grows.
    bottom band  the full width, from 10 px above the chat's top, which is
                 H - 60 - 7 x the HUD font's height (saytext.cpp:248): 196 px
                 with the stock 18 px font. It also holds TS's bottom
@@ -831,6 +871,13 @@
        show_hudmessage it replaces, with the same text, colour, place and
        channel. id 0 goes to every player, each the right way.
    h9vgui_notice_bar(id, const slot[], const text[], permille, r, g, b, ...)
+   h9vgui_alert(id, const slot[], style, const text[], r, g, b,
+                Float:y, Float:hold, Float:fade)
+       For what was a set_hudmessage and a show_hudmessage pair: call
+       set_hudmessage for the old look as before, then this. An H9
+       client gets a NOTICE with that colour, y, hold and fade; any
+       other the show_hudmessage, so its old look is exactly what it
+       was. id 0 goes to every player.
    PANELs
    h9vgui_panel(id, const panel[], flags, anchor, x, y, w, h,
                 const art[], timeout = 0)
@@ -900,8 +947,8 @@
        4d; the registry of server panels by id; the TWIN store and the
        pairing call CHudMenu makes; the safe area and the anchors (4c);
        the image path test; cl_h9_vgui, cl_h9_vgui_mouse, cl_h9_vgui_scale,
-       cl_h9_vgui_top and the _h9vgui userinfo cvar kept in step with
-       cl_h9_vgui; the "h9vgui" reply through pfnServerCmd.
+       cl_h9_vgui_top, cl_h9_marks, cl_h9_marks_strip and the _h9vgui
+       userinfo cvar kept in step with cl_h9_vgui; the "h9vgui" reply through pfnServerCmd.
    vgui_H9Panel.h, vgui_H9Panel.cpp
        CH9ArtBitmap      a .spr frame as an RGBA vgui::Bitmap through the
                          nine-slice, per art and size (2c)
@@ -961,7 +1008,98 @@
  ts_survival draws its breather's hudmessage only for those
  (tsm_bar_shown). Mech Warrior has no text of its own: its bar is the
  live one. With tsm_show_timer 0 the bar goes, as the round line does.
- The LIVE and SUDDEN DEATH flashes stay hudmessages.
+ The LIVE and SUDDEN DEATH flashes are FLASH notices for an H9 game
+ (4h); every other game has them as hudmessages.
+
+ 4h. The siege's popups, and the other alerts
+
+ Step 4 of section 5, done for the match mode and the survival mode. A game
+ that draws H9 VGUI shows each of these as a NOTICE (the fuse's countdown
+ as a STATUS, the planter's bar as a BAR notice); every other game gets the
+ hudmessage or the centre text it always had, and a game that draws none
+ of them is sent nothing new. h9vgui_alert() (include\h9_vgui.inc) is the
+ call for what was a set_hudmessage and a show_hudmessage pair.
+
+   slot            what                           who, where, how long
+   tsm.alarm       the siege alarm's two lines    the other side reads
+                   (tsm_alarm_msg to the other    tsm_alarm_msg, the
+                   side, tsm_alarm_msg_attack to  trigger's side
+                   the trigger's own)             tsm_alarm_msg_attack, each
+                                                  in its own side colour,
+                                                  under the round timer; it
+                                                  pops every tsm_alarm_every
+                                                  seconds (20), stays 5 s and
+                                                  fades; 0 keeps it up
+   tsm.plant       PLANTING THE SATCHEL over a    the planter only; y 0.47,
+                   bar that fills across          the attacking side's
+                   tsm_obj_time                   colour, sent each tenth
+   tsm.plant.warn  SATCHEL BEING PLANTED /        the OTHER side, once as a
+                   OBJECTIVE n                    hold begins and not again
+                                                  for 3 s of the same
+                                                  planter; 3 s and a fade
+   tsm.fuse        GET CLEAR -- OBJECTIVE n       everyone, a STATUS in
+                   BLOWS IN {s} (the planter's    orange: the client counts
+                   side) or SATCHEL SET ON        it down; it goes at the
+                   OBJECTIVE n -- BLOWS IN {s}    blast, at the round's end
+                                                  and on amx_tsm_siege_reset
+   tsm.siege       the siege's centre text:       the one player; 2 s
+                   an objective not yet takeable,
+                   Charge not set, The satchel is
+                   already planted, Breached.
+   tsm.objective   tsm_obj_msg_1 and _2, one      each side in its own
+                   second into a round            colour; y 0.43, 5 s
+   tsm.live        LIVE                           everyone; 1.5 s
+   tsm.sudden      SUDDEN DEATH / Everyone is     everyone; 3 s
+                   marked
+   tsm.wave        RESPAWN WAVE IN n -- n lives   a player waiting for a
+                   left, or WAVE IN n --          respawn wave, or an
+                   REINFORCE ...                  officer; sent each second,
+                                                  1.2 s each
+   sur.wave        WAVE n (ts_survival)           everyone; 2.5 s
+ A notice at y 0.38 or more sits at its y, centred; below that it stacks
+ under the top band, so LIVE, SUDDEN DEATH, the wave timer and the wave
+ flash stack with the rest. ts_uplink's news (upl.news) and carrier
+ (upl.carrier) were the first notices of this kind. Mech Warrior has no
+ alert of its own: what a game of it shows is the match bar's live line and
+ the match mode's alerts above. What still shows as text for everyone: the
+ classes' cooldown lines (medkit, scanner, turret repair, resupply,
+ reinforcements), the scanner's name and HP, the officers' waiting list,
+ the spectator's line and the floating chat.
+
+ 4i. The capture points' marks (MARK, protocol 3)
+
+ A MARK is a point of the world a mode wants every player to know of, wherever it is and
+ whatever stands between: ts_assault sends one for each of its capture points, ts_uplink one
+ for each zone and one for the uplink (UPLINK, CARRIER over whoever has it, DROPPED where it
+ lies), ts_ctf one for each flag (FLAG, CARRIED, DROPPED with a bar draining to the moment it
+ flies home) and each pad (BASE). The three share include\h9_marks.inc, which keeps the table of
+ marks, sends a mark when what it shows changes, refreshes two a second and gives a game with
+ no marks TS's own objective markers. The client
+ draws it where the point lands on the screen (pTriAPI->WorldToScreen), so through any wall
+ or floor, and keeps it on the screen's edge, in its direction, while it is out of view or
+ behind the player. A player sees every mark whatever they are doing: living, dead or
+ spectating.
+   the badge       a square of 30 x (screen height / 480) x cl_h9_vgui_scale x 0.5 px
+                   (22 px on a 708 px screen, 33 at 1080), framed in the owner's colour,
+                   dark inside, the label in white: blue (0 170 255) for side 1, red (255 70
+                   60) for side 2, grey (225) for nobody; the frame blinks yellow (255 220
+                   80) while the point is contested. A bar under it, in the colour of the
+                   side taking the point, fills as pct. Out of view the badge is three
+                   quarters the size and fainter, pinned to the edge.
+   the row         from two marks, the same badges in a row at the top of the screen under
+                   the notices, centred, so the whole map's points are always in one place.
+                   TS's own notices go on beneath the row (H9Vgui_StackBottom).
+   when it shows   not with cl_h9_marks 0, not with the HUD hidden (nohud), not under the
+                   scoreboard, not in an intermission. cl_h9_marks_strip 0 takes the row
+                   away and leaves the badges in the world.
+   how long        a mark lives 30 seconds without a message for its slot, and every new map
+                   or server clears them all: a plugin sends again, as h9_marks.inc does at
+                   once when a mark changes and two marks a second in turn the rest of the
+                   time, so a game that joined late has them all within seconds.
+ Plugin side: h9vgui_mark(id, slot, owner, phase, side, pct, const Float:at[3], label)
+ in include\h9_vgui.inc; it sends nothing to a game of protocol 2 or less and says so, and
+ h9_marks.inc gives that game TS's own Objective marker instead (a compass icon and the label
+ text at the point, drawn where TS draws objectives). No game gets both.
 
  5. ORDER OF WORK
  ----------------
@@ -1047,6 +1185,7 @@
    h9vgui_notice() with the same text, colour, place and channel, which
    it still uses for every other client. What STAYS in 1b stays text.
    Build: build.bat for the three plugins.
+   Done for ts_matchmode and ts_survival on 2026-11-04: section 4h.
 
  Step 5. PANELs for everyone: the CTRL types, h9vgui_event, section 8 as
    the head of include\h9_vgui.inc. The text entry last, after a test of

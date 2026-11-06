@@ -974,6 +974,23 @@ h1, h2, h3, h4 {
   color: #fff;
 }
 
+.server-chain {
+  width: 1.3em;
+  height: 1.3em;
+  vertical-align: -0.28em;
+  margin-right: 0.4rem;
+}
+
+.server-chain-ok { color: #2ecc71; }
+.server-chain-bad { color: #e0603f; }
+
+.server-unranked {
+  margin-left: 0.6rem;
+  color: var(--orange);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+}
+
 .server-map,
 .server-addr {
   font-size: 0.85rem;

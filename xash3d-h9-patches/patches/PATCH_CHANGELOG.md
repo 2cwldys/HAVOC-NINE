@@ -57,7 +57,7 @@ about the first kind:
 | 13 | `engine-h9-spraycmd.patch` | `cl_main.c` (new `CL_Spray_f`, registered in `CL_InitLocal`) | the `spray` console command: list/equip/unequip from the `ts\logos` shelf. **Applies after #12** -- its hunks assume spraypicker's `CL_CreateResourceList` rewrite already shifted the file |
 | 14 | `mainui-h9-gamestartup.patch` | `3rdparty/mainui/BaseMenu.cpp` | menu startup behavior |
 | 15 | `engine-h9-userid.patch` | `cl_main.c`, `client.h`, `identification.c` | `cl_h9_userid`: a plain, regenerable client id, salted per destination server via `ID_GetMD5ForAddressEx`, sent as userinfo key `h9_clientid`. **Applies after #12/#13** -- its `CL_InitLocal` registration hunk and connect-packet hunk are numbered against the file state *after* spraypicker+spraycmd. See `docs\CUSTOM_XASH_USERID.txt` |
-| 16 | `engine-h9-presence.patch` | `cl_main.c`, `client.h`, `host.c`, `game_launch\game.rc`, `cl_presence.c` (new), `game_launch\havoc9.ico` (new, binary) | Discord Rich Presence: `CL_Presence_Init/Frame/Shutdown/ServerReply`, the exe icon swap to `havoc9.ico`. **Applies after #15** -- its `CL_InitLocal` registration hunk is numbered against the file state *after* userid's own registration line exists. See `docs\RICH_PRESENCE.txt` |
+| 16 | `engine-h9-presence.patch` | `cl_main.c`, `client.h`, `host.c`, `game_launch\game.rc`, `cl_presence.c` (new), `game_launch\havoc9.ico` (new, binary) | Discord Rich Presence: `CL_Presence_Init/Frame/Shutdown/ServerReply`, the exe icon swap to `havoc9.ico`. **Applies after #15** -- its `CL_InitLocal` registration hunk is numbered against the file state *after* userid's own registration line exists. See `docs\RICH_PRESENCE.txt`. Since 2026-11-05 also the modes' names for every build (`CL_H9_ModeName`, `CL_H9_ServerMode`, `CL_H9_StampServerMode`, built into the browser build too) and the stamp of an Xash server's reply with its `mode` for the server browser (`CL_ParseStatusMessage`) |
 | 17 | `mainui-h9-sprayui.patch` | `3rdparty\mainui\menus\PlayerSetup.cpp` | Customize screen's logo picker: `Reload()` now chains up so it resyncs with console-side `spray`/`spray off`; `WriteNewLogo()` saves a colored pick back to the shelf file itself (`logos\<name>.<ext>`) instead of a now-unread `remapped.*`; a synthetic `none` row lets a player keep a hand-dropped `tempdecal.wad` as-is, visible and selectable instead of only an incidental, non-durable display fallback. Independent of `mainui-h9-gamestartup.patch` -- different function, no ordering dependency between the two |
 | 17a | `mainui-h9-hover.patch` | `3rdparty/mainui/BaseMenu.cpp` | a hover sound: `uiSounds[SND_MOVE]` names `media/launch_move1.wav` |
 | 18 | `engine-h9-autoconfig.patch` | `sv_main.c` (`SV_Init`), `sv_init.c` (`SV_ActivateServer`) | `h9_autoconfig` (default on): a second, independent per-map cfg lookup in its own `mapconfigs/<mapname>.cfg` folder, separate from the existing mapper-facing `maps/<mapname>_load.cfg` convention. The exec is queued right after `pfnServerActivate`, so the cfg runs after Metamod/AMXX plugins register their cvars and run their own configs, and overrides them. Server-host-facing, same audience as `engine-h9-userid.patch`. Independent of every other patch in this list -- no ordering dependency |
@@ -66,7 +66,7 @@ about the first kind:
 | 21 | `engine-h9-consolemusic.patch` | `sound/s_stream.c` | the main menu's music plays on while the console is open over the menu |
 | 22 | `engine-h9-chatinput.patch` | `dll_int/cl_game.c`, `console.c` | the say: line under the chat lines, not at the top left |
 | 23 | `engine-h9-bigworld.patch` | `server/sv_init.c` | big-world coordinates on for a map past +/-4096 |
-| 24 | `engine-h9-websound.patch` | `sound/s_main.c` (`S_UpdateChannels`) | the browser build only (`#if XASH_EMSCRIPTEN`): the mixer skips the time a long frame already played instead of painting into it, and mixes at least 0.2 s ahead whatever `_snd_mixahead` says. The Windows build compiles as before |
+| 24 | `engine-h9-websound.patch` | `sound/s_main.c` (`S_UpdateChannels`, `S_ClearBuffer`), `platform/platform.h`, `platform/sdl2/s_sdl2.c` | the browser build only (`#if XASH_EMSCRIPTEN`): the mixer skips the time a long frame already played instead of painting into it, and mixes at least 0.2 s ahead whatever `_snd_mixahead` says; its output is played by the page's AudioWorklet on a thread of its own (`Module.audio`), SDL's device the fallback. The Windows build compiles as before |
 | 25 | `engine-h9-cvarresync.patch` | `common/cvar.c` (`Cvar_SanitizeAndSet`) | setting a cvar to the string it already holds reads its value from that string again, as GoldSrc does, so a value the client DLL wrote directly (the HL SDK camera's `cam_idealpitch`/`cam_idealyaw`/`cam_idealdist`, `cam_snapto`) can be set back. Independent of every other patch -- no other patch touches `cvar.c` |
 | 26 | `engine-h9-webmenu.patch` | `client/avi/avi_ffmpeg.c` (a new `#elif XASH_EMSCRIPTEN` branch), `common/system.c` (`Sys_Quit`), `platform/sdl2/vid_sdl2.c` (`Platform_Minimize_f`) | the browser build only: the main menu's background video (the CIN_MENUBG work) decoded by the page (`Module.video`, client.js) and drawn through the same `GL_UpdateTexture`/`R_DrawStretchPic` calls as the FFmpeg branch; `Sys_Quit` stops the frames and tells the page (`Module.callbacks.gameQuit`, with whether an error ended it) instead of longjmp-ing to a jump buffer the browser build never set; `minimize` asks the page (`Module.callbacks.gameMinimize`). The FFmpeg branch and the Windows build are untouched. Independent of every other patch -- no other patch touches these files |
 | 27 | `engine-h9-phsbudget.patch` | `common/mod_bmodel.c` (`Mod_CalcPHS`) | no PHS for a world whose PHS would take more than 192 MB (New Byzantium's 46,744 leaves: 521 MB, which froze a 32-bit listen server or ran it out of memory while the map loaded), or whose rows would take more than 8 GB of merging (a later New Byzantium build, draft vis, 60% of its leaves seen from the average leaf: about 1,300 GB, hours of a frozen load); sounds and PAS messages then reach every player, by `Mod_FatPVS`'s own fallback. Below the budget the compressed PHS is sized in a first pass and allocated once instead of reallocated for every row. Independent of every other patch -- no other patch touches `mod_bmodel.c` |
@@ -87,14 +87,15 @@ about the first kind:
 | 42 | `engine-h9-link.patch` | `client/cl_h9link.c` (new), `client.h` (a `CL_H9Link_Init` section after `cl_remap.c`'s), `cl_main.c` (the end of `CL_InitLocal`, after `cl_list_messages`) | this game's id in `user_id.ini` sealed for the Windows user with DPAPI (`CryptProtectData`, crypt32 loaded at run time, an entropy of its own), read by the engine itself; `cl_h9_userid` loses `FCVAR_ARCHIVE` and gains `FCVAR_READ_ONLY` at run time (#15's definition line is untouched), so config.cfg no longer keeps it and no config sets it; a plain `id=` line (older builds, `enter_userid.cmd`) is sealed on load and `user_id.ini.bak` deleted. `h9_link [open|cancel]`: a device code from h9web (`GET /api/link/start`, `/poll`), the account's player id and a link token sealed on approval, `h9_clientid` salted again while connected; `h9_unlink` (privileged); a linked game asks `GET /api/link/status` once a start, and in a game again a few seconds into each map and every 5 minutes, and unlinks when h9web says so. The link belongs to the site that made it (`site=` in the record, always canonical): the status check asks that site only, while `cl_h9_site` points to it, only its answer unlinks, and `h9_unlink` tells it. `cl_h9_site` is read leniently (no scheme, a trailing slash) and said in the console. A record with an id and no link asks the site to adopt it (`/api/link/adopt`, the ID proof with S = `h9link-adopt`). Cvars `_h9lnk` (userinfo), `_h9link_account`, `_h9link_flow`, `_h9link_code`, `_h9link_text`, `_h9link_site` for the menu; an in-game panel in #28's registry. Windows only, never the browser build. **Applies after the whole chain**; its hunks are clear of every other patch's |
 | 43 | `mainui-h9-link.patch` | `3rdparty/mainui/menus/Main.cpp` (new `CMenuH9LinkDialog` and `CMenuH9LinkButton` above `CMenuMain`, `H9LinkCb`, two members, the end of `_Init`) | Link your Account / Unlink your Account in the main menu's column directly below Change Game, above Quit (`H9LinkPlace`, after `VidInit`), with the scoreboard's chain beside it (`gfx/vgui/h9_link.tga` green, `h9_unlink.tga` red), all read from #42's cvars: no network call. Hidden in an engine without `_h9lnk`; compiled out of the browser build (`__EMSCRIPTEN__`). Clear of `engine-mainui.patch`'s `VidInit` hunks |
 | 44 | `mainui-h9-default64.patch` | `3rdparty/mainui/menus/CreateGame.cpp` (`maxClients.onCvarGet`) | Create Game's Max players starts at 64 (for a `maxplayers` of 1 or less). Made against HEAD's `"16"`, so it carries the untracked `"16"` -> `"32"` hand-edit that sat in the working tree before it. Independent of every other patch |
-| 45 | `engine-h9-serverinfo.patch` | `server/sv_client.c` (`SV_Info`), `client/cl_main.c` (`CL_ParseGoldSrcStatusMessage`) | the server's info reply names its bots (`bots`, a line that sat in the working tree in no patch) and says `auth` 1 while the cvar `h9_require_account` (h9_presence's) is 1; a GoldSrc server's A2S_INFO, whose player count holds the bots, reaches mainui with `numcl` the people alone and `bots` apart. **Applies after the whole chain**; clear of #30's and #41's `sv_client.c` hunks |
-| 46 | `mainui-h9-browser.patch` | `3rdparty/mainui/menus/ServerBrowser.cpp` | the server browser shows "humans/max (+N bots)", counts a server with bots on it as not empty and its bots against its slots, sorts people then bots, and draws `gfx/shell/h9_account` (the overlay's, an H9 original) in a new image column beside the lock for a server whose info says `auth` 1. Independent of every other patch |
+| 45 | `engine-h9-serverinfo.patch` | `server/sv_client.c` (`SV_Info`), `client/cl_main.c` (`CL_ParseGoldSrcStatusMessage`) | the server's info reply names its bots (`bots`, a line that sat in the working tree in no patch) and says `auth` 1 while the cvar `h9_require_account` (h9_presence's) is 1; a GoldSrc server's A2S_INFO, whose player count holds the bots, reaches mainui with `numcl` the people alone and `bots` apart. Since 2026-11-05 the info reply also carries `desc`, the game description (cut to 31), and a GoldSrc reply's description names the `mode` key mainui is given (`CL_H9_ServerMode`, #16's). **Applies after the whole chain**; clear of #30's and #41's `sv_client.c` hunks. Needs #16 for `CL_H9_ServerMode` |
+| 46 | `mainui-h9-browser.patch` | `3rdparty/mainui/menus/ServerBrowser.cpp` | the server browser shows "humans/max (+N bots)", counts a server with bots on it as not empty and its bots against its slots, sorts people then bots, and draws `gfx/shell/h9_account` (the overlay's, an H9 original) in a new image column beside the lock for a server whose info says `auth` 1. Regenerated 2026-11-04 with the server browser's chain column (`COLUMN_CHAIN`, after the favourite column): `gfx/vgui/h9_link.tga`, green, for a server havoc9.org names ok or rp, and `gfx/vgui/h9_unlink.tga`, red and broken, for any other once the list was read; no chain before that, on a LAN list, or on an engine without `_h9srv_gen` (`engine-h9-serverauth.patch` supplies it). A roleplay server's name carries `[UNRANKED: roleplay]`. `RefreshList` asks the engine (`h9_servers`) and `Draw` makes the rows' chains again when `_h9srv_gen` changes. Regenerated 2026-11-05 with the Mode column (`COLUMN_MODE`, between the name and the map; `mode` is the info's key, `ModeCmp` sorts it; the info buffer is 576, room for the key after a full reply). Independent of every other patch (the key is the engine's: #16 and #45) |
 | 47 | `engine-h9-largeaddress.patch` | `game_launch/wscript` (`build`) | the launcher (`xash3d.exe`, H9XASH's `HAVOC 9.exe`) linked `/LARGEADDRESSAWARE` when the build is 32-bit Windows with MSVC: on 64-bit Windows the process, the game or a `-dedicated` server, has 4 GB of address space instead of 2. Only the executable carries the flag; no DLL is relinked. A 64-bit or non-MSVC build links as before. A changed wscript makes waf reconfigure once by itself on the next build. Independent of every other patch: none touches `game_launch/wscript` (#16 changes `game.rc` beside it) |
 | 48 | `engine-h9-joinscreen.patch` | `client/cl_h9join.c` (new), `client.h` (a `CL_H9Join_Init` section before `cl_tent.c`'s), `cl_main.c` (`CL_CheckClientState`, `CL_CheckForResend`, `CL_Connect_f`, `CL_Disconnect`, `CL_Reconnect_f`, `CL_Retry_f`, `CL_ErrorMsg`, `CL_ReadNetMessage`'s timeout, `CL_ProcessFile`, `CL_PrecacheResources`, `CL_InitLocal`), `parse/cl_parse.c` (`CL_ParseServerData`, `CL_RegisterResources`, `svc_changing`), `parse/cl_parse_gs.c` (`svc_disconnect`), `common/http/net_http_xash.c` (new `HTTP_FileProgress` after `HTTP_Run`), `common/net_ws.h` (its prototype) | the join screen: with a menu that exports the connection progress hooks (`UI_EXTENDED_FUNCTIONS`, mainui-h9-joinscreen.patch), a join (connect, retry, this game's own server) and a map change (`svc_changing`, the server's reconnect) keep the menu up over its own background until the game is in (`ca_active`), in place of upstream's console (`CL_Connect_f`'s TESTTEST lines); the stage, the overall bar (`scr_loading`: 5 connecting, 15 server info, up to 50 by the bytes downloaded, 55 the map, up to 90 by the resources precached, 95 spawning) and the file downloading with n of N, KB of KB and its own bar, over HTTP fast download (`HTTP_FileProgress`) or the netchan, in the read-only private cvars `_h9join`, `_h9join_stage`, `_h9join_server`, `_h9join_file` and `_h9join_fileprog`; the precache draws a frame every 0.15 s. A join or a game the server or the engine ends with a reason (refused, kicked, timed out, a file that could not come or is missing) puts it in `_h9_drop` for the menu, with OK. `CL_ErrorMsg` returns before showing anything for an Xash reject (`disconnect`), which formats no text of its own (upstream showed its uninitialized buffer). `cl_h9_joinscreen 0`, a demo, a timedemo, a background map or a menu without the hooks: upstream's behaviour. Upstream called the hooks once and took them back (d2a8cfe6, the menu stayed up over demos) |
 | 49 | `mainui-h9-joinscreen.patch` | `3rdparty/mainui/menus/ConnectionProgress.cpp` (rewritten), `3rdparty/mainui/BaseMenu.cpp` (`UI_StartBackGroundMap`) | the join screen: `CMenuConnectionProgress` as a 640 x 240 panel in the menu's colours (`uiPromptBgColor`, stroke `uiInputFgColor`) over the menu's own background or video, full screen, with the server, the stage, the overall bar, the file line and its bar, and CANCEL (ESC too: `http_clear` and `disconnect`); the console key opens the console in its place. The engine's hooks bring it up (`Connect`, `ChangeLevel`) and take it down (`Disconnect`, or `_h9join` 0 as the game comes in); with the menu down it opens the main menu under itself first (the menu's last window never closes), and a join that ends with `_h9_drop` shows it in a message box. No background map starts while `_h9join` is 1 (the menu's first draw comes during a join when the game starts with +connect). Needs engine-h9-joinscreen.patch for the cvars; without them it shows only its first stage |
 | 50 | `engine-h9-deltacounter.patch` | `server/sv_frame.c` (new `SV_H9RebaseClientEntities` above `SV_WriteEntitiesToClient`, its call after the frame's `qsort`) | `svs.next_client_entities`, the packet entity ring's counter, grows by every entity of every frame built for a real client, and at 0x7FFFFFFE `SV_WriteEntitiesToClient` reconnects every client ("Server will restart due delta is outdated"): within one to two hours on a full 64-slot server. At 0x40000000 it is brought down by a multiple of the ring's size, and every client's stored frames with it: a frame still in the ring keeps its slot and stays a delta base, a frame already rolled off stays rolled off (at 0). No type, protocol or other file changes; the wrap check stays as a backstop. Independent of every other patch: its hunks are clear of #30's (`SV_EmitPings`) and #41's (`SV_UpdateUserInfo` and after) |
 | 51 | `engine-h9-overflowlog.patch` | `common/h9_overflowlog.c` (new), `common/sys_con.c` (two prototypes after the includes, `Con_Printfv`, new `Con_H9Unprinted`, the early returns of `Con_Printf`, `Con_DPrintf` and `Con_Reportf`) | every console message, printed or held back (developer level, no console), is matched against the engine's overflow and limit messages; a match is appended to `<game>/logs/h9_overflow.log` (`ts\logs`) with the date and time, the side (server, listen or client) and the map, whatever `-dev` or `-log` say. The same message (its first 24 characters) at most once in 10 s, with the count held back; at most 2000 lines a run; C stdio, opened and closed for each line. A held-back developer message is formatted only when its format string matches. Independent of every other patch: no other patch touches `sys_con.c` |
 | 52 | `engine-h9-vguitype.patch` | `client/vgui/vgui_draw.c` (`VGUI_IsInGame`) | the VGUI panels stay painted while the chat line is open. The VGUI support library paints only when the engine says the player is in the game, which was `cls.key_dest == key_game`, so every VGUI panel (TS's scoreboard and menus, H9's match bar, banners and menus) vanished while a say key's chat line was open and came back when it closed; `key_message` now counts as in the game too, as on GoldSrc. The console and the menu still hide them. Independent of every other patch |
+| 53 | `engine-h9-serverauth.patch` | `client/cl_h9auth.c` (new), `client.h` (`CL_H9Srv_Init` after `CL_Escape_f`), `cl_main.c` (`CL_Init`, after `S_Init`) | the server browser's chain asks havoc9.org and never the servers. `h9_servers` (a restricted command, once in 20 seconds at the most; `cl_h9_servers 0` turns it off) fetches `/api/presence/servers/auth` with `HTTP_GetToMemoryEx` (https with the certificate checked for havoc9.org; `cl_h9_site` names a local test site, as for the pictures) and puts the answer in two cvars the menu reads: `_h9srv` (" address=c address=c ", c o for ok, r for a roleplay map, m for modified) and `_h9srv_gen` (0 until an answer was read). The browser build compiles none of it. The menu's half is in `mainui-h9-browser.patch`. Independent of every other patch |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -1511,3 +1512,296 @@ the HEAD blob gives the live file (git apply outside the repo wrote CRLF into th
 ignored the files are the same) and reverse gives the blob back; all 55 patches in xash.bat's list
 reverse-check clean. xash.bat's xash.dll description line holds only the patch's name, and is now 8,184 of
 cmd's 8,191 characters. The browser build takes the change with its next rebuild (same file).
+
+### 2026-11-04 -- engine-h9-serverauth.patch (new), mainui-h9-browser.patch (regenerated)
+
+The user: the server browser shows no green or red chain for whether a server is authenticated (the chain the
+scoreboard draws for a linked player, and the main menu's link button).
+
+Design (docs\H9_PRESENCE.txt section 4d). h9web judges each game server that reports to it (modules/presence/preset.js):
+ok while it runs H9's official preset, rp on a roleplay map (authenticated, nothing ranked), mod when it runs anything
+beside the preset, opt when its operator set h9_authenticated 0. It publishes the verdicts at
+/api/presence/servers/auth, and the engine reads that: the browser asks the site and never the servers, because a
+server cannot say that it is authenticated.
+
+Engine (engine-h9-serverauth.patch). The new `client/cl_h9auth.c`: the restricted command `h9_servers` fetches the list
+(`HTTP_GetToMemoryEx`, as cl_avatar.c fetches pictures: havoc9.org over https with its certificate checked and to a public
+address only; `cl_h9_site` names a local test site) at most once in 20 seconds, and puts what it read in `_h9srv` and
+`_h9srv_gen`. An answer that is not "H9SRV 1" first is not read, and a site that does not answer leaves the list as it was
+(one console line). `CL_H9Srv_Init` is called from `CL_Init`, between `S_Init` and `Voice_Init`, and declared in client.h
+after `CL_Escape_f`: both places are away from every other patch's hunks. The browser build compiles none of it
+(`XASH_EMSCRIPTEN`), so its menu has no `_h9srv_gen` and draws no chain.
+
+Menu (mainui-h9-browser.patch, regenerated). `ServerBrowser.cpp`: a `COLUMN_CHAIN` after the favourite column, drawn with
+`CELL_IMAGE_TRANS` (the pictures have an alpha channel), `gfx/vgui/h9_link.tga` for ok and rp, `gfx/vgui/h9_unlink.tga`
+for the rest; `H9ChainOf` reads the two cvars (0 for nothing known: before the list was read, on an engine without it, on
+the LAN list). A roleplay server's name is shown with `[UNRANKED: roleplay]` after it (`server_t::title`; sorting still
+uses `name`). `RefreshList` runs `h9_servers` (the browser refreshes every 20 seconds and on the Refresh button), and
+`Draw` makes the rows' chains again when `_h9srv_gen` changes. The change is folded into the browser patch because it
+edits the same enum, cell functions and column setup: a separate patch made the browser patch fail its reverse check
+(its context lines had changed), which `xash.bat` would have stopped on at the next engine build. The same trap
+moved the engine edits away from the avatars patch's lines in cl_main.c and client.h (first tried right after
+`CL_Avatar_Init` and `CL_Avatar_Account`).
+
+Made: the browser patch is `git diff` of the working ServerBrowser.cpp against the mainui commit origin/master records
+(bb47191c), as xash.bat's workdiffsub makes it (the file with the old patch reversed was the upstream blob, CRs ignored);
+engine-h9-serverauth.patch is a diff of snapshots of cl_main.c and client.h taken before the edit, plus cl_h9auth.c as a
+new file. Verified: both new or changed patches reverse-check on the live trees and apply forward onto scratch copies of
+the pre-edit files (the browser patch onto the upstream blob, giving the working file); all 56 patches in xash.bat's list
+reverse-check clean; `cl /Zs` with the build's flags is clean on cl_h9auth.c, cl_main.c and ServerBrowser.cpp. xash.bat:
+the call after vguitype, the printed list, the xash.dll description (the new name only, and three phrases elsewhere in
+it are a few words shorter to make room: 8,188 of cmd's 8,191 characters) and menu.dll's.
+
+Built 2026-11-04 (`xash.bat engine`, then `build.bat h9_presence`, whose export carried it to the git copy): every patch
+"in place", no error; the one compiler warning (cl_sprite.c C5287) is not from this change. xash.dll 1A9ED0D91860 and
+menu.dll 9FE1D638009B hold `h9_servers`, `H9 SERVERS`, `_h9srv_gen` and the chain's picture names. xash.dll.patch and
+menu.dll.patch keep their notes as earlier builds wrote them (dllmerge) and carry the new diff, which is where the change is.
+
+### 2026-11-04 -- engine-h9-avatars.patch and engine-h9-serverauth.patch (regenerated): the web client gets the scoreboard's pictures and the server browser's chain; WEB_PARITY.json and tools\webclient-sync.mjs (new)
+
+Why. The browser build compiles out the engine's HTTP, so cl_avatar.c (pictures) and cl_h9auth.c (the chain's list) did
+nothing there: the web scoreboard kept its silhouette and the web server browser drew no chain, though the web client's
+menu has the same chain column and the same `client.dll`. Nothing made a native-only feature need a web half, and nothing
+rebuilt the browser engine when the patches changed (export.bat only repackages what is already in webclient-bin).
+
+Pictures (engine-h9-avatars.patch, `client/cl_avatar.c`, a new file, so only its chunk of the patch changed; the three other
+chunks, cl_main.c, client.h and cl_parse.c, are byte for byte as they were). `H9Av_Show` moved out of the native-only block so
+both builds share it. The browser branch: `H9Av_PageWant` (an `EM_JS` into `Module.avatar.want( slot, account, version )`),
+`H9Av_WebPath` (`downloads/h9avatars/web_<account>_<version>.png`), `H9Av_WebShow` (`FS_LoadFile`, then `H9Av_Show`: the same
+PNG check, 64 x 64 at most and 32 KB, and the same `HUD_H9Avatar`), and the restricted command
+`h9_avatar_page <slot> <account> <version>`, which shows the picture in a slot that still waits for exactly that account and
+version. `CL_Avatar_Message` in the browser build: the silhouette for account 0, a picture the page wrote earlier at once,
+else the silhouette and a request to the page. The page (`havoc9.org\webclient\client.js`, `avatarFeed`) fetches
+`/api/presence/avatar/<account>/<version>.png` from its own site, writes the file into the engine's memory disk and runs
+`h9_avatar_page` for each slot waiting for it; a picture that cannot be fetched is tried again after 15 s, 60 s and 5 minutes.
+`h9_profile` stays native-only.
+
+Chain (engine-h9-serverauth.patch). The engine side is unchanged in code: one comment in `client/cl_h9auth.c` now says the
+browser build's list comes from the page. The page (`chainFeed`) reads `/api/presence/servers/auth` when the engine is up and
+every 30 seconds, sets `_h9srv` and `_h9srv_gen` with `set` (cvars the browser build does not register, so they are plain
+user cvars), and defines `h9_servers` as an alias for `wait`, which the menu runs on every refresh. The list is cut at a whole
+entry before a command line could reach 2047 characters, which the engine drops.
+
+Parity (new). `xash3d-h9-patches\WEB_PARITY.json` says, for each H9 patch that compiles code out of the browser build
+(`#if !XASH_EMSCRIPTEN`), what the web client does in its place: avatars (bridged), serverauth (page-fed), motd (bridged) and
+four native-only with their reasons (idproof, joinscreen, link, listen). `tools\webclient-sync.mjs` stops at a patch with such
+code and no entry, at an engine call into a `Module.*` object that neither the page's engine config nor a patch provides, and at
+an entry whose marker is not in client.js. The same program rebuilds the browser engine and client library when the engine
+tree, the patch chain (xash.bat's `call :patch` list and each patch's text), the client library's sources or the build scripts
+changed, lays out the stage, copies webclient-bin, the stage, the web tools and the page into the git mirror, publishes the
+page to this PC's local site, runs `tools\webclient-test\smoke.mjs` in a headless browser, and records the inputs in
+`webclient-bin\INPUTS.json`. CLAUDE.md says to finish every engine, client-library or page change with it.
+
+Made: the new `cl_avatar.c` chunk and the `cl_h9auth.c` chunk were cut into their patches from the working files
+(`regen_new_file`: nothing else in either patch moved). Verified: all 56 patches in xash.bat's list reverse-check clean.
+
+### 2026-11-04 -- engine-h9-webwarm.patch (new): the browser build fetches what a join reads before it reads it
+
+Why. In the browser build a game file comes over the network the first time the engine reads it, and the engine waits for
+it where it stands. `CL_PrecacheResources` reads everything the server listed in one call ("inside one frame",
+cl_h9join.c), so a join held the page still for as long as every file took together: measured in a real join through the
+local site's relay (tools\webclient-test\perf.mjs with join.mjs), 499 files and 269 MB (three music tracks of 52, 26 and
+20 MB, about thirty 2 to 3 MB player models, the map, hundreds of sounds), one task of 46 seconds with no frame, no sound
+mixed (a 46 second hole in the audio callback) and no key read. That is the freeze and "crash" a player saw on joining.
+
+Engine. The new `client/cl_h9warm.c` (browser build only; the native build has `CL_H9Warm_Ready` return true). The two callers
+of `CL_PrecacheResources`, `CL_ParseResourceList` (cl_parse.c) and `CL_ProcessFile` (cl_main.c), ask `CL_H9Warm_Ready()`
+first. In the browser build it builds the list of resources the precache will read and nothing has loaded (models, sounds
+with their sound/, generic files and event scripts; not a model's `*N` parts of the world), hands it to the page
+(`Module.warm.want`, an `EM_JS`) and returns false: the callers go on without precaching, as they do for a download still
+to come. The panel this file registers (the H9UI registry, first use, so no CL_Init hunk) runs each frame: it puts the page's
+counts on the join screen's own cvars (`_h9join_stage` Downloading, `_h9join_file` "game files n of N MB", `_h9join_fileprog`,
+`scr_loading` between 15 and 50), and when the page says it is done it makes the call the callers would have made
+(`CL_PrecacheResources`, `CL_RegisterResources`, the fragments). A page without Module.warm answers -1 and nothing waits; a
+page that takes more than 900 seconds is cancelled and the join reads the rest itself; a disconnect or a new server
+(the panel's Reset) cancels it. The call sites are single lines away from every other patch's hunks: nothing in the chain
+needed regenerating.
+
+Page. `havoc9.org\webclient\client.js` `warmFeed`: want(list) looks each name up in the manifest (the game's folder, then
+valve), skips files already read or already fetched, and fetches the rest six at a time into the preload's memory
+(`warm`), which `lazyFile` reads before it asks the network; state, done, total, kb and cancel are what the engine polls.
+
+Also (not a patch). `havoc9.org\webclient\settings.json` runs `gl_vbo 1` at start: the renderer's batched world drawing, off
+by default and marked "known to be glitchy". Measured in the same join, ingame, 1280 x 800: 602 draw calls and 11,868 GL calls
+a frame against 2,108 and 31,824; the page's main thread 58% busy against 96%, the browser's GPU process 52% against 88%;
+frame time p95 16.8 ms against 33.3 ms; audio gaps over two buffers 1 against 10 in 30 seconds. `gl_vbo 0` in the console
+turns it off.
+
+Made: `make_webwarm_patch.py` from snapshots of cl_main.c, client.h and cl_parse.c taken before the three one-line edits, and
+the new file. xash.bat: the call after serverauth, the printed list and the xash.dll description (the name in, two asides
+out: 8,141 of cmd's 8,191 characters). Verified: all 57 patches reverse-check clean.
+
+### 2026-11-04 -- engine-h9-webwarm.patch (no change): the server's 60 second limit on a join, found with a throttled first visit
+
+A first visit has nothing cached, so the whole 300 MB of a join comes over the page's connection, and the Xash server has a
+limit of its own for that: `sv_connect_timeout` (60 seconds; `SV_CheckTimeouts` in server/sv_main.c). A client that has not
+spawned that long after it connected is dropped as timed out, however many packets it still sends: the rule looks at when the
+connection began, which only the connect itself and a map change move, not at what arrives. With `sv_connect_timeout_ban` 1
+(the default) its address is then banned with `addip` for `sv_connect_timeout_ban_time` (2) minutes, and a browser player's
+address is the relay's: that bans every browser player of the server at once.
+
+Seen with the page's fetch held to 3 MB/s (CDP network emulation: tools/webclient-test/perf.mjs --fresh --script prefetch.mjs with
+H9_THROTTLE_MBPS=3, an empty cache): the join
+was cancelled about 60 seconds in, the page's warm state flipping to done with 48 of 429 files fetched (the engine cancels the
+fetch when the client is dropped), with no line in the engine log. An earlier run on a busy machine ended the same way: no spawn,
+and the relay closed the idle socket 180 seconds later. The old synchronous join had the same limit (46 seconds measured on a
+fast local link; a slower link failed), so this is not new; the pre-fetch only made it visible.
+
+Not an engine change. H9's overlay ts/server.cfg (H9XASH's and the git copy's too) now sets `sv_connect_timeout 600` and
+`sv_connect_timeout_ban 0`, and havoc9.org/webclient/DEPLOY.txt section 7, docs/H9WEB_ADMIN.txt and docs/HAVOC9_SETUP.txt list them
+with the other settings a server for browser players needs (sv_connect_max_per_ip 0, sv_query_rate_limit 30, sv_timeout 120). With
+them the same throttled join ran past 230 seconds without being cancelled. A server without them (the VPS until its config is
+deployed) still drops a browser join at 60 seconds. Open: the music tracks are about a third of the 300 MB; a browser build that
+did not precache sound/music would join in a fraction of the time (an engine change, not made).
+
+### 2026-11-04 -- engine-h9-joinscreen.patch and mainui-h9-joinscreen.patch (regenerated): the join screen's downloads together
+
+Native client. The join screen showed the file coming (its name, n of N, KB of KB, its own bar) and an overall bar, and the overall
+bar stood at 15 for the whole of the downloads: it went by `cls.dl.nTotalToTransfer - cls.dl.nRemainingToTransfer`, and
+`nRemainingToTransfer` is set once, to the total, in `CL_StartResourceDownloading` (cl_parse.c) and nothing lowers it (the fields are
+GoldSrc's download statistics, which this port keeps and never fills). Now `client/cl_h9join.c` counts the bytes itself: the files that
+have finished (each one's size, when the next name appears) and the one coming, against `cls.dl.nTotalToTransfer` (the resource list's
+estimate), and the speed over the last seconds. The overall bar goes from 15 to 50 by those bytes (by the files, with the one coming,
+while the total is not known). A new read-only cvar `_h9join_total` carries the line the web client's download box has:
+"4.0 MB of 27 MB   23 MB to go   about 12 s left", with "so far" alone when the total is not known, empty without a download.
+`menus/ConnectionProgress.cpp` shows it in a line of its own under the overall bar; the file line and its bar moved down by 6 and 4
+pixels of the menu's 1024 x 768.
+
+Checked: the totals code, as it stands in cl_h9join.c, built with stand-ins for the engine's types and run through simulated joins (three
+files at 2 MB/s with a known total, with an unknown one, and with one file of unknown size): the line, the time left and the bar come
+out as intended. Not checked in a live download: the servers here have no file this client lacks, so the screen itself has not been
+seen with a download on it. The browser build compiles the same code and has nothing to show it on (its own box is client.js's
+downloadBox; WEB_PARITY.json keeps the patch native-only). Made: regen_new_file.py for cl_h9join.c, and git's own diff of
+ConnectionProgress.cpp for the menu patch (no other patch changes that file). Verified: all 57 patches reverse-check clean.
+
+### 2026-11-04 -- engine-h9-websound.patch (regenerated, a second file): the browser's audio device buffer
+
+The browser build opened its audio device with the 1024 samples (21 ms) the Windows build uses. The page plays that callback through
+SDL's ScriptProcessorNode, which runs on the page's main thread, the thread every game frame runs on: a callback waits for the frame in
+progress, and one that comes more than a buffer late leaves nothing to play (a click or a hole, and on the player's PC a repeating
+chunk). A held key made it loud: the scoreboard open (TAB) or walking (W) makes frames longer, and on a slower PC they no longer fit.
+Measured with tools/webclient-test/perf.mjs --script holdkey.mjs, the same 8 seconds each, the page's CPU slowed three times (CDP): an
+underrun is a buffer that plays later than the one before it ended. With 1024 samples (21 ms): the first window, idle, 56 underruns
+and 0.85 s of silence; TAB held 114 and 4.6 s; W held 77 and 1.7 s; TAB held again 112 and 2.3 s. With 2048 samples (43 ms): 6 and
+0.16 s; TAB 29 and 1.5 s (the first draw of the scoreboard still costs a hole of about 180 ms); W 11 and 0.35 s; TAB again 6 and
+0.17 s. At full speed on the author's PC the old buffer had 0 to 7 buffers late by more than one buffer with a key held, so the
+trouble is a PC whose frames leave little room: the audio callback is delivered by the same thread, and a frame in progress holds it.
+The remaining fix, not made, is the audio on a thread of its own (an AudioWorklet fed from the mixer), which needs a new audio
+backend for the browser build.
+
+`engine/platform/sdl2/s_sdl2.c`: `.samples = 2048` under `XASH_EMSCRIPTEN`, 1024 elsewhere; a second chunk of this patch (no other patch
+changes the file). Verified: all 57 patches reverse-check clean.
+
+### 2026-11-04 -- engine-h9-websound.patch (regenerated, three files): the browser's sound on a thread of its own
+
+The 2048-sample buffer above helped a slower PC and did not cure it: SDL plays the mixer through a ScriptProcessorNode, a callback on the
+page's main thread, so a frame in progress, or the browser's own work for a held key, still held the callback and left a hole in the
+sound. The browser build now gives the mixer's output to the page, which plays it from an AudioWorklet (havoc9.org/webclient/h9audio.js),
+a thread of its own. SDL's device stays the fallback where the page has no `Module.audio`, or the browser no AudioWorklet or secure context.
+
+`engine/platform/sdl2/s_sdl2.c`, under `XASH_EMSCRIPTEN`:
+  * `SNDDMA_Init` asks the page (`H9A_PageInit` -> `Module.audio.init`). When it answers, the backend is "page audio thread": a ring of
+    65536 stereo frames for the mixer, and nothing opened in SDL.
+  * `SNDDMA_BeginPainting` gives the mixer the audio clock as it stands: every frame the audio thread has played, not reduced to the ring.
+    `S_GetSoundtime` only unwraps a position that comes back round and counts the wraps it sees, so a clock that jumped by more than a ring
+    between two readings (the worklet begins seconds after the engine; a frame stalls for longer than the 1.5 s ring) would leave the mixer's
+    time a whole ring behind the worklet's for good, and every push would be late. The first build had the clock reduced to the ring: the
+    worklet played silence and its own counters said so (pushed 0.00 s), which is how it was found.
+  * `SNDDMA_Submit` sends the frames painted since the last time, with their place in the stream, as floats (`H9A_PagePush` ->
+    `Module.audio.push(from, pcm)`); `SNDDMA_H9Flush` (called by `S_ClearBuffer`) drops what the worklet holds.
+  * Past 2^30 frames (about 6.7 hours of sound) the clock starts over (`H9A_PageRebase`), as `S_GetSoundtime`'s own 32 bit guard does.
+`engine/client/sound/s_main.c`: `S_ClearBuffer` calls `SNDDMA_H9Flush`. `engine/platform/platform.h`: its declaration. The page:
+`audioFeed` in havoc9.org/webclient/client.js builds `Module.audio` (init, position, push, flush, activate, close, rebase, stats), and
+h9audio.js is the worklet, which keeps no clock of its own: its place in the stream is the audio clock (`currentFrame`) less a base.
+
+Measured with tools/webclient-test/perf.mjs --script holdkey.mjs (the page's CPU slowed three times, a music track playing, 5 seconds
+each): idle, TAB held and W held each had 0 frames starved and 5.0 seconds sent; the scoreboard held showed 10 long tasks (615 ms) and a
+frame of 117 ms, and the sound did not notice. Verified: all 57 patches reverse-check clean.
+
+
+### 2026-11-05 -- engine-h9-presence.patch (regenerated): the card names Assault
+
+The Discord card's details line knows the Assault mode (ts_assault.amxx, docs/GAME_MODES.txt). In `H9P_Mode` in `cl_presence.c` the server's
+`tsm_pres_mode` key "assault" and the map prefix `h9_as_` both name it "Assault" (a row in each table), and `H9P_Activity` runs the Uplink's
+progress branch for it too: `tsm_pres_prog` for Assault is "1/2/5" (side 1's points, side 2's, all of them), and the line reads
+"Assault - points: MSR 2, Insurgents 1 of 5" where Capture the Uplink's reads "zones". A client without this engine shows an Assault server as
+"Deathmatch" on its card (an unknown key with no known prefix falls through to it); the website and the in-game browser name it from the
+server's own report and need no new engine (h9_presence.sma mode_name and detail_line, h9web modules/presence/modes.js).
+
+The same entry also names TS's own capture game by the map's name, after the roleplay check: `ctb_` at the start of a name or `_ctb_` anywhere in it
+reads "Capture the Briefcase", `ctf_` or `_ctf_` "Capture the Flag" (the `h9_ctb_` and `h9_ctf_` rows of the prefix table stay). TS has one such
+game, its flag is the briefcase (reTS `dlls/ts_briefcase.h`: CTSBriefcase, "the CTF base + flag registry"; the stock `ctb_deadheat` is two
+`ts_briefcase` entities and a worldspawn `gamemode 2`), so the two names play alike and only the card's word differs; ts_matchmode's name rule
+(`capture_map`), h9_presence.sma's mirror and h9web's modes.js say the same.
+
+Only the `cl_presence.c` new-file section changed (604 -> 616 lines, blob `b2879013`), rebuilt from the live file; the `cl_main.c`, `client.h`,
+`host.c`, `game.rc` and `havoc9.ico` sections are untouched. No other patch touches `cl_presence.c`. Nothing was added to the chain, so the
+`xash.dll` description line in `xash.bat` is as long as it was. Verified: `git apply --reverse --check` of the whole patch in place against the
+live tree.
+
+### 2026-11-05 -- engine-h9-presence.patch, engine-h9-serverinfo.patch and mainui-h9-browser.patch (regenerated): the server browser's Mode column, and the card names Capture the Flag
+
+The in-game server browser (the game's and the web client's, which share mainui) has a **Mode** column between Name and Map: Team Elimination, Siege,
+Capture the Uplink, Wave Survival, Mech Warrior, Assault, Capture the Flag, Capture the Briefcase, Roleplay, Match Mode, Deathmatch, Team Deathmatch.
+It is named by the list the Discord card already used, now one function for both.
+
+**engine-h9-presence.patch** (`cl_presence.c`, `client.h`, `cl_main.c`). The two tables and the naming rule left `H9P_Mode`, which is inside the
+Windows-only block, for `CL_H9_ModeName( map, key, siege )` outside it, so the browser build has them too: NULL when nothing names the mode, which
+`H9P_Mode` turns into "Deathmatch" as before. New beside it: `h9p_keys` has the key `ctf` ("Capture the Flag"; ts_ctf.amxx publishes
+`tsm_pres_mode` "ctf"), `CL_H9_KeyFromDescription` (a game description to a mode key, the rule of `keyFromDescription()` in h9web's modes.js),
+`CL_H9_ServerMode( map, desc, teamplay )` (the browser's word: the card's names, else Team Deathmatch for a teamplay server, else Deathmatch) and
+`CL_H9_StampServerMode( info, size )`, which sets the `mode` key of an Xash server's info reply from its `map`, `desc` and `team` keys when the
+string has room (no warning when it has not: the browser then shows no mode for that server). `CL_ParseStatusMessage` calls it right after
+`CL_Presence_ServerReply`, one more `+` line in that hunk; `client.h` gets the three prototypes in its presence section. `H9P_Activity` runs the Uplink/Assault progress branch
+for `ctf` as well: `tsm_pres_prog` is "1/2/3" (side 1's captures, side 2's, the captures that win) and the line reads "Capture the Flag - captures:
+MSR 2, Insurgents 1 (first to 3)". The `cl_presence.c` new-file section was rebuilt from the live file (616 -> 721 lines, blob `904e97b7`); the other sections
+changed only by the lines named here (`cl_main.c` hunk numbers +1 after it, `client.h` +3 lines).
+
+**engine-h9-serverinfo.patch** (`sv_client.c`, `cl_main.c`). `SV_Info` adds `desc`, the game DLL's `pfnGetGameDescription()` cut to 31 characters, before the
+hostname (which is cut to what is left, as before); an H9 server's description is its mode ("Capture the Uplink", "Siege 2/5"). In
+`CL_ParseGoldSrcStatusMessage` the game description that was read and dropped is kept in `desc` in both reply formats, and `mode` is set from it and the map
+(`CL_H9_ServerMode`) before the hostname. The patch was rebuilt from scratch copies of the two files in the state the chain has them at #45 (presence's new
+line in), old patch reversed, new edits in. **Needs #16 now** for `CL_H9_ServerMode`; it applies after it in `xash.bat`'s list, as before.
+
+**mainui-h9-browser.patch** (`menus/ServerBrowser.cpp`). `COLUMN_MODE` between the name and the map, `server_t::mode` read from the info's `mode`, `ModeCmp` and the sort case, `GetCellText`, and `info[576]` in
+place of 512 so the key survives a reply that filled its 512. The columns were re-laid so the hostname is cut off less: the chain icon first and the
+name beside it at the left edge, the lock, account and favourite icons after the name; the icon columns 20 units wide (a 16 unit icon), the chain's 28
+(a gap before the name), in place of 32 each, the players column 160 and the ping 90 in place of 180 and 120, and the rest shared 0.48 name, 0.22 mode, 0.22 map. Regenerated with `git diff HEAD`
+in the mainui repo as before.
+
+Nothing was added to the chain, so the `xash.dll` description line in `xash.bat` is as long as it was (8,141 characters on the line, 8,188 as cmd counts
+them) and no description text there was changed (it still names #45's bots and auth flag; the changes of this entry are described here and in
+`docs\RICH_PRESENCE.txt`). Verified: all 57 patches of `xash.bat`'s list reverse-check in place against the live tree (`git apply --reverse --check`);
+`xash.bat engine` built clean (the one warning, `cl_sprite.c`, is upstream's); the browser build follows with `node tools\webclient-sync.mjs`.
+A web client player needs nothing: the page loads the engine it was built with, which carries all of it. An older client has no Mode column and shows
+nothing wrong; an older server sends no `desc` and its row is named by its map alone.
+
+### 2026-11-05 -- engine-h9-presence.patch, engine-h9-serverinfo.patch, mainui-h9-joinscreen.patch (regenerated) and mainui-h9-browser.patch: the release gate
+
+A server of H9 refuses a player whose game is another release than its own, and says where to get the right one; the game's box then offers to open the
+page. docs\H9_RELEASE.txt has the whole of it. A release is the first word of `ts\h9_release.txt` (laid from `xash3d-h9-patches\overlay\ts\`).
+
+**engine-h9-serverinfo.patch.** A new file, `engine/common/h9_release.c` (`H9_Release()`: the first word of `h9_release.txt` in the game folder, read once, 31
+characters at most), and in `sv_client.c` the function `SV_H9ReleaseRefusal` above `SV_ConnectClient` and a block in it right after the userinfo is copied
+(before the password): with `h9_require_release` (a cvar of h9_presence's, as `h9_require_account` is) above 0 and the joiner not the local client, the
+server's release (`h9_plugin_release`, the plugins', else the folder's) is compared with the userinfo key `_h9rel`; a joiner of H9's game (any key of the
+form `_h9...` or `h9_...`) with another release, or none, is refused through `SV_RejectConnection` with "Your HAVOC 9 is out of date (...): update it from
+https://havoc9.org/downloads/" (his release older, or none) or "This server runs an older HAVOC 9 (...)" (his newer); at 2 every joiner must match. A
+server that knows no release asks for none. The patch was rebuilt from scratch copies of the files in the state the chain has them at #45, as before.
+
+**engine-h9-presence.patch.** `CL_Presence_Init` registers the read-only cvar `_h9rel` (userinfo, privileged) and sets it from `H9_Release()`, so every join
+carries the release. The browser build gets the same lines (the web client reads the file from its stage). The key is also written into the userinfo with
+`Info_SetValueForKey( CL_Userinfo(), ... )`, as `_h9travel` and `h9_clientid` are: `Cvar_DirectFullSet` changes the cvar and never the userinfo (only the ordinary
+setters, through `Cvar_UpdateInfo`, do), so without that line the cvar read "2026.11.05" in the console while the connect packet carried no `_h9rel`, and a server
+holding its players to one release refused every H9 client as out of date, the right release included. Found by tools\webclient-test\gate.mjs, which joins a
+server whose release it sets over rcon; `setinfo` in the console lists the keys a client sends.
+
+**mainui-h9-joinscreen.patch.** `CMenuConnectionProgress::End()`: a refusal whose text names `havoc9.org/downloads` (this gate's, and the 128-slot server's
+"needs a newer H9XASH") is shown in a two-button box, OPEN HAVOC9.ORG (`EngFuncs::ShellExecute`, on a click) and Close, in place of `UI_ShowMessageBox`'s OK.
+Only the `menus/ConnectionProgress.cpp` section of the patch was replaced (`git diff HEAD`); the `BaseMenu.cpp` section is as it was.
+
+**mainui-h9-browser.patch.** The chain column is 28 units wide (a gap before the name), the other icon columns 20.
+
+Nothing was added to the chain (the `xash.dll` description line in `xash.bat` is as long as it was); the descriptions there still name #45's bots and auth flag,
+and this entry is the record. h9_presence.sma registers `h9_require_release` (1) and `h9_plugin_release` (the release build.bat writes into
+`include\h9_release.inc` from the overlay's h9_release.txt) and logs a package mismatch.

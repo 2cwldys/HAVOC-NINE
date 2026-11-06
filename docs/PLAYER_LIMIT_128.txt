@@ -1544,8 +1544,9 @@
    * ts_matchmode.cfg:1633-1636: tsm_corpse_max 24 and its "32 slot server"
      comment. Copies: H9XASH\ts\addons\amxmodx\configs\ts_matchmode.cfg:1633,
      H9XASH\presets\ts_matchmode.Siege.cfg:1633,
-     H9XASH\presets\ts_matchmode.TeamElimination.cfg:1673. Keep the presets in
-     step.
+     H9XASH\presets\ts_matchmode.TeamElimination.cfg:1673 and
+     ts_matchmode.Assault.cfg (the line numbers move with each copy's header).
+     Keep the presets in step.
    * The 64-slot server's network settings, with it:
        - rate 50000 to 100000 and cl_updaterate 30 for clients (H9XASH\ts\
          config.cfg:260, 130);

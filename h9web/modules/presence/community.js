@@ -244,6 +244,19 @@ export function createCommunity(deps) {
     return c && c.visibility === "private" ? c : null;
   }
 
+  // An account's words in the server's community, for the report answer's "roles": "owner" (the
+  // community's owner), "staff" (its owner and the admins the owner names) and "member" (its owner,
+  // its admins and its members). None for a server in no community.
+  function rolesHere(server, accountId) {
+    const c = communityOfServer(server);
+    if (!c || !accountId) return [];
+    const words = [];
+    if (c.owner_id === accountId) words.push("owner");
+    if (c.owner_id === accountId || q.isStaff.get(c.id, accountId)) words.push("staff");
+    if (belongs(accountId, c)) words.push("member");
+    return words;
+  }
+
   // Whether the server is members-only: the answer to its reports says so ("members": true), and
   // the plugin then lists its players with no usable h9_clientid too, by slot.
   function membersOnly(server) {
@@ -1163,5 +1176,5 @@ export function createCommunity(deps) {
     if (events) for (const [name, fn] of Object.entries(relayListeners)) events.off(name, fn);
   }
 
-  return { reportActions, sanctioned, communityOfServer, privateCommunityOf, membersOnly, sweep, stop };
+  return { reportActions, sanctioned, communityOfServer, privateCommunityOf, membersOnly, rolesHere, sweep, stop };
 }

@@ -59,6 +59,13 @@ void PrecacheAllTSWeapons()
 	// the SAME for all weapons: gun_muzzle.spr when silenced (dimmer), gun_muzzle2.spr otherwise.
 	PRECACHE_MODEL("sprites/gun_muzzle.spr");
 	PRECACHE_MODEL("sprites/gun_muzzle2.spr");
+	// The laser rifle's effect sprites (client EV_TSFire, TSPlasma_*). Its muzzle flash is a temporary sprite found by
+	// EV_FindModelIndex, which only knows what the server precached: without this line no flash is drawn. The others
+	// are loaded by the client itself; they are listed so that they ship with the rest.
+	PRECACHE_MODEL("sprites/laserrifle_muzzle.spr");
+	PRECACHE_MODEL("sprites/laserrifle_trail.spr");
+	PRECACHE_MODEL("sprites/laserrifle_bolt.spr");
+	PRECACHE_MODEL("sprites/laserrifle_hit.spr");
 
 	// Bullet-impact smoke puffs (client EV_TSBulletImpact): gun_smoke for metal/concrete/glass,
 	// wood_smoke for wood/dirt. The texture/flesh impact SOUND + decal + blood are server-side.

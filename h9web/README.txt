@@ -234,7 +234,8 @@
                        403 bad_credentials     400 invalid_password
    GET  /api/player    signed in: { playerId } (the web client only)
    GET  /api/servers   { gamedir, generated, servers: [{ address, kind, name,
-                       map, mode, players, max, bots, ping_ms, online }] }: the
+                       map, mode, players, max, bots, ping_ms, online,
+                       requireAccount }] }: the
                        listed servers that answered lately, the shape
                        servers/index.html reads (data-master="/api/servers").
                        name is the server's own hostname (servers.json's name
@@ -242,7 +243,9 @@
                        unanswered make it online: false (players 0, ping
                        null) until status.expireSeconds after its last answer;
                        then it leaves the list, and its next answer brings it
-                       back;
+                       back. requireAccount: the server's rules (A2S_RULES,
+                       read every status.rulesSeconds, 60) say h9_require_account
+                       1; rules that go unanswered count as not required;
                        a module may leave some out (ctx.servers.hideFromBoard:
                        the presence module, a private community's servers)
 
@@ -491,7 +494,7 @@
          proxy_set_header Host $host;
          proxy_set_header X-Real-IP $remote_addr;
          proxy_set_header Connection "";
-         client_max_body_size 16k;
+         client_max_body_size 128k;
          proxy_read_timeout 30s;
          add_header Strict-Transport-Security "max-age=31536000" always;
      }
@@ -710,8 +713,29 @@
  --------------------------
  The pages, the API and the relay must share one origin (the cookie is
  SameSite=Strict and the relay checks the Origin). devStatic makes h9web
- serve folders as the site, on this PC only. A config.json beside server.js
- (git-ignored):
+ serve folders as the site, on this PC only.
+
+ The launcher is bin/local-site.js. From the root of a checkout that has
+ havoc9.org beside h9web it sets all of this up at every start and runs the
+ service (docs\WEBSITE.txt, section 2, is its guide):
+
+   node h9web/bin/local-site.js --port 8090
+   h9web\local-site.cmd                    the same, and it opens the browser
+
+   --port N       the port (default 8090; H9WEB_PORT sets another default)
+   --stage DIR    the web client package; else H9WEB_STAGE, else
+                  webclient-build\stage in the checkout
+   --files DIR    the packages folder behind /downloads/files/ (below)
+   --open         open the site in the default browser
+
+ It serves havoc9.org as it is, every module in modules/ that has an
+ index.js, and the web client at /webclient/. This PC's accounts, secrets and
+ settings stay outside the checkout, in %LOCALAPPDATA%\h9web-local
+ (~/.h9web-local elsewhere; H9WEB_LOCAL names another folder). Take a free
+ port (Steam's web helper can hold 127.0.0.1:8080) and give the game the same
+ one: cl_h9_site 127.0.0.1:8090 in its console.
+
+ By hand, the same thing: a config.json beside server.js (git-ignored):
 
    {
      "listen": { "host": "127.0.0.1", "port": 8090 },
@@ -722,7 +746,8 @@
      "devStatic": {
        "/": "../havoc9.org",
        "/webclient/engine/": "../webclient-build/stage/engine",
-       "/webclient/game/": "../webclient-build/stage/game"
+       "/webclient/game/": "../webclient-build/stage/game",
+       "/downloads/files/": { "dir": "../dist", "listing": true }
      }
    }
 
@@ -730,6 +755,12 @@
  http://127.0.0.1:8090/. Browsers keep Secure cookies on http://127.0.0.1
  and localhost. On another machine without HTTPS add
  "insecureCookies": true (never on the VPS). Ctrl+C stops it.
+ No folder is listed but one given as { "dir", "listing": true }: the
+ downloads' file index, as the VPS serves /downloads/files/ (the .zip, .exe
+ and .txt files in it, read-only; no dot files, subfolders or links).
+ bin/local-site.js (local-site.cmd) does all of this by itself; its
+ --files <folder> names the packages folder (dist\ in the checkout when
+ there is one).
 
 
  13. EXTENSION POINTS: MODULES (THE FORUM)
@@ -875,8 +906,8 @@
    cd h9web
    node --test --test-timeout=30000 "test/*.test.js"      (or: npm test)
 
- 294 tests in the files below, about 10 seconds, light on the CPU (scrypt at a
- test cost). They
+ Run it to see how many tests there are and how long they take. They are
+ light on the CPU (scrypt at a test cost), and the tests in the files below
  start the service on a free port in a temporary folder:
    units.test.js       username rules, passwords (scrypt, pepper, rehash),
                        player id and the engine's h9_clientid, rate limits,
@@ -1002,10 +1033,10 @@
          proxy_read_timeout 60s;
          add_header Strict-Transport-Security "max-age=31536000" always;
      }
-   Without it nginx refuses a picture over 16 KiB with its own 413 page.
-   location /api/'s client_max_body_size 16k holds a 10,000-character post in a Latin
-   script (about 10 KiB of JSON); other scripts take 2 or 3 bytes a character, so for
-   long posts in those, raise it to 64k.
+   Without it nginx refuses a picture over 128 KiB with its own 413 page.
+   location /api/'s client_max_body_size 128k is sized for a game server's presence
+   report with all 128 slots filled (about 82 KiB at most); it also holds a
+   10,000-character post in any script.
 
  Settings: config.json "moduleSettings": { "forum": { ... } }, all optional:
    guestRead           true        guests read the forum (false: members only, 401)
@@ -1070,6 +1101,15 @@
    isolate characters, zero-width spaces and other invisible fillers are dropped, NFC,
    at most 4 combining marks on a character, and a lone surrogate becomes U+FFFD.
    A post is rendered when read, the latest 400 texts kept in memory.
+   PREVIEW: every composer (a new thread, a reply, an edit, a wall comment, a MEDIA
+   description or comment) switches between WRITE and PREVIEW. The preview is the
+   server's own view of the text as it would be saved, drawn by the page's own code
+   for saved ones: POST preview answers the post view a thread page gets (postView:
+   the author block, the signature, the number it would get; for an edit, the post's
+   author, votes and EDITED), POST wall/preview a wall comment's view, POST
+   media/preview a MEDIA comment's view or a description's tree. Nothing is stored;
+   sign-in, the posting size limits and the preview rate limit hold. The ACCOUNT
+   page's signature preview is drawn by forum/forum.js too (window.H9Forum).
 
  Pictures in posts: links to pictures on other sites, shown from there
    * ![words](https://...) shows a picture, and so does a picture link alone on its
@@ -1140,8 +1180,31 @@
      .unpin, .hide, .unhide, .remove, .edit, and forum.media.comment.edit and .remove
      for staff acting on someone else's.
    * API (under /api/forum/): GET media, media/archive/<year>/<month>, media/search,
-     media/<id>; POST media, media/<id>/comments; PATCH and DELETE media/<id> and
-     media/comments/<id>.
+     media/<id>; POST media, media/<id>/comments, media/preview; PATCH and DELETE
+     media/<id> and media/comments/<id>.
+
+ Profile walls (modules/forum/wall.js; migration 11, forum_wall_comments and
+ forum_walls)
+   * A member's page (forum/user/?u=<name>, also what a double-click on a player opens
+     in game) has a WALL: comments from any member in good standing, on another's wall
+     or their own, in the forum's markup with pictures, drawn as posts are (the post
+     author block: picture, name, level badge, tags). The owner's pins first (the
+     latest pin first), then the newest; postsPerPage a page (?wall=N).
+   * Writing follows posting: signed in, not suspended, posting on, the post size
+     limit, the post rate limits per account and per address (a comment counts as a
+     post, slower for new accounts) and wallFlood, a limit per wall from everyone
+     together. PREVIEW in the composer (POST wall/preview).
+   * The author edits within editWindowMinutes (EDITED shows) and deletes; the owner
+     PINs at most 5 (a 6th is refused: unpin one first), deletes any comment on their
+     wall, and turns the wall off (nobody writes or edits there; the page says so) or
+     on. Deletes by the author or the owner are for good.
+   * Moderators and admins, on accounts below their own role: REMOVE with a note (the
+     comment stays as "Removed by a moderator", its text for staff only, its pin
+     gone; forum.wall.remove in the audit log, in the author's trail) and TURN OFF
+     POSTING beside each comment (the forum's own sanction, forum.posting.off).
+   * Deleting an account deletes its wall and its comments on walls.
+   * API (under /api/forum/): GET, POST and PUT users/<name>/wall; POST wall/preview;
+     PATCH and DELETE wall/<id>; PUT wall/<id>/pin; POST wall/<id>/remove.
 
  The DEVELOPER flag (migration 9, forum_developers)
    * A flag, not a role: it goes with player, moderator or admin alike (a developer may
@@ -1274,15 +1337,16 @@
      forum.moderation for each moderator step, with the account and the thread or post
      number; never a title, a post's text, a password, a token or a cookie.
    * A deleted account's posts stay, shown as from a deleted account (every reference
-     is ON DELETE SET NULL); its picture and posting switch go with it.
+     is ON DELETE SET NULL); its picture and posting switch go with it, and so do its
+     wall and its comments on walls.
 
  The API (modules/forum/index.js's header lists every route): GET categories,
  categories/<slug>, threads/<id>, users/<name>, search, avatars/<id> (readers);
  POST categories/<slug>/threads, threads/<id>/posts, posts/<id>/report, preview;
  PATCH and DELETE posts/<id>; PUT posts/<id>/vote; POST posts/<id>/pictures/remove; GET and PUT signature, POST signature/preview,
  POST signatures/<name>/clear, POST and DELETE signatures/<name>/block; PATCH threads/<id>; GET, PUT
- and DELETE avatar (members); and the moderators' and admins' routes, all under
- /api/forum/.
+ and DELETE avatar (members); the walls' (above); and the moderators' and admins' routes, all
+ under /api/forum/.
 
 
  16. THE ADMIN PANEL AND THE AUDIT LOG
@@ -1542,6 +1606,33 @@
    GET /api/link/status?token=<token>   once a start of a linked game
        { status: "linked", account } or { status: "unlinked" }
    GET /api/link/unlink?token=<token>   the game's h9_unlink: { status: "unlinked" }
+   GET /api/link/adopt/nonce?v=1        { status: "ok", nonce } (32 hex, one use,
+                                        adoptNonceSeconds)
+   GET /api/link/adopt?v=1&key=<32 hex>&nonce=<32 hex>&devmask=<32 hex>&proof=<64 hex>&os=
+       a game that holds an account's player id already (enter_userid.cmd, or an
+       id from before linking) proves it and is linked, with no code to approve:
+       key = HMAC-SHA256(the player id, "h9adopt-key1"), first 32 hex (core's
+       adoptIndex, lib/clientids.js, finds the account by it); devmask and proof are
+       the presence ID proof's (docs\H9_PRESENCE.txt section 8) for that nonce with
+       S = "h9link-adopt", checked with accounts.verifyIdProof. The raw id never
+       travels.
+       { status: "linked", account, token }   bound to the device the proof unmasks
+       { status: "unknown" }                  the id is no account's
+       { status: "refused", reason }          stale (no such nonce, or used),
+                                              bad_proof, suspended, second_device
+                                              (with the presence module: the account's
+                                              id is bound to another device there, and
+                                              an admin has not allowed this one),
+                                              bad_request
+   GET /api/link/profile/<account>      the scoreboard's double-click on a linked
+       player's picture (the engine's h9_profile, engine-h9-avatars.patch), opened
+       in the web browser: 302 to the account's forum profile,
+       /forum/user/?u=<username> (Cache-Control no-store: a rename moves it), whose
+       card shows only what the account's privacy switches let others see; 404
+       not_found for no such account, 2147483647 (the default picture's) included.
+       The account is the number the game server named for that player:
+       h9_presence 1.7's H9Account (each linked player's own, from the presence
+       answer's "accounts"), or else the picture's H9Avatar.
  device is the game's device hash in the presence module's form
  (SHA-256("h9device1:" + the device id), first 32 hex); a game without one sends
  none. A game that polls faster than told is told a longer interval.
@@ -1556,9 +1647,24 @@
                                          first 8 hex), linked, lastSeen }] }
    POST /api/link/devices/<id>/revoke    200 { ok }      404 not_found (no such
                                          game on this account)
+ The admin panel's LINKED GAMES, on an account's page, for staff:
+   GET  /api/link/accounts/<name>/devices  (moderator) { devices, can: { act } }
+                                         a moderator looks at players only (403
+                                         otherwise), an admin at anyone
+   POST /api/link/accounts/<name>/devices/<id>/revoke   (admin) { password,
+                                         note }  200 { ok }
+   POST /api/link/accounts/<name>/devices/revoke-all    (admin) { password,
+                                         note }  200 { ok, revoked }
+ The admin's own password (the admin panel's check, 403 bad_password) and a note
+ of 3 to 200 characters (400 invalid_note), never on their own account or one of
+ their role or above (403); the audit log's account.link.revoke names the admin,
+ with the note. It is the owner's REVOKE otherwise.
  The account page lists the account's games under LINKED GAMES, each with
  REVOKE. A revoked game hears "unlinked" at its next status check and gets an id
- of its own again.
+ of its own again. A link that ends (REVOKE, h9_unlink) also ends, with the
+ presence module, the proof that game's device gave for the account: an older
+ proof still in a server's report counts for nothing, and the slot loses its
+ green chain at the next report answer (modules\presence\README.txt).
 
  Kept: a waiting code lives in memory only, for codeSeconds: the SHA-256 of its
  device code, the user code, the game's device hash and system, and the asking
@@ -1568,7 +1674,11 @@
  token (the token itself is sent once and kept nowhere here), the device hash,
  the system and label, when it was made and when the game last checked in.
  Every link, NOT ME, REVOKE and h9_unlink goes into the audit log (account.link,
- account.link.deny, account.link.revoke, account.link.unlink; section 16).
+ account.link.deny, account.link.revoke, account.link.unlink; section 16), and so
+ does every adopted id (account.link.adopt) and every adopt refused for another
+ device (account.link.adopt.refused). Whoever holds an account's player id is that
+ account to H9's servers already, so adopting grants nothing new; it is limited,
+ refused to a suspended account, and keeps presence's rule for a second device.
 
  A new player id (reset-id, move-id: the presence module's admin routes) ends
  every link of the account: each game holds the old id and unlinks itself at
@@ -1584,7 +1694,13 @@
                          approved or denied on the site, wrong ones included,
                          so a code cannot be guessed
    linkRevokePerAccount  30 in 10 minutes
- Over a limit the game's routes answer 200 busy or slow_down; the site's, 429.
+   linkAdoptPerIp        20 in 10 minutes: adopt nonces and tries
+   linkAdoptPerAccount   5 in 10 minutes: adopt proofs that did not check out; past
+                         it, every try of that account waits
+   linkProfilePerIp      60 in 10 minutes: profiles opened from the scoreboard
+   adoptNonceSeconds     300
+ Over a limit the game's routes answer 200 busy or slow_down; the site's, and the
+ profile route, 429.
 
  nginx: nothing new (/api/ already passes). The game's routes carry the device
  code and the link token in the query string, so the access log has them: a

@@ -264,7 +264,7 @@ describe("presence: reports and their authentication", () => {
     assert.equal(r.json.error, "server_mismatch");
     r = await send(t, { players, contentType: "text/plain" });
     assert.equal(r.status, 415);
-    r = await send(t, { body: JSON.stringify({ v: 1, server: A, ts: t.sec(), players: [], pad: "x".repeat(20000) }) });
+    r = await send(t, { body: JSON.stringify({ v: 1, server: A, ts: t.sec(), players: [], pad: "x".repeat(140000) }) });
     assert.equal(r.status, 413);
     r = await send(t, { players: [{ id: "not-an-id", name: "x" }] });
     assert.equal(r.status, 400, "a malformed player refuses the report");
@@ -1089,6 +1089,18 @@ describe("presence: map pictures and mode names", () => {
     assert.equal(modeFor("h9_ws_lift", ""), "Wave Survival");
     assert.equal(modeFor("h9_mw_drainage", ""), "Mech Warrior");
     assert.equal(modeFor("anything", "mechwarrior"), "Mech Warrior");
+    assert.equal(modeFor("h9_as_lift", ""), "Assault");
+    assert.equal(modeFor("H9_AS_Drainage", "match"), "Assault", "the map's name before match");
+    assert.equal(modeFor("anything", "assault"), "Assault");
+    assert.equal(modeFor("h9_ctf_drainage", ""), "Capture the Flag", "H9's own flag mode, by its map name");
+    assert.equal(modeFor("H9_CTF_Drainage", "match"), "Capture the Flag", "the map's name before match");
+    assert.equal(modeFor("anything", "ctf"), "Capture the Flag");
+    assert.equal(modeFor("ctb_deadheat", ""), "Capture the Briefcase", "TS's own capture map, as the stock game names it");
+    assert.equal(modeFor("CTB_Deadheat", "match"), "Capture the Briefcase", "the name before match");
+    assert.equal(modeFor("ts_ctf_rooftops", ""), "Capture the Flag", "_ctf_ anywhere");
+    assert.equal(modeFor("ctf_dock", ""), "Capture the Flag");
+    assert.equal(modeFor("tsrp_ctf_hive", ""), "Roleplay", "a roleplay name wins");
+    assert.equal(modeFor("h9_ctb_flagday", ""), "Capture the Briefcase");
     assert.equal(modeFor("h9_tsrp_newbyzantium", ""), "Roleplay");
     assert.equal(modeFor("rp_city", ""), "Roleplay");
     assert.equal(modeFor("tsrp_hive", ""), "Roleplay");
@@ -1099,6 +1111,8 @@ describe("presence: map pictures and mode names", () => {
     assert.equal(keyFromDescription("Match Mode"), "match");
     assert.equal(keyFromDescription("Siege 2/5"), "siege");
     assert.equal(keyFromDescription("Capture the Uplink"), "uplink");
+    assert.equal(keyFromDescription("Assault"), "assault");
+    assert.equal(keyFromDescription("Capture the Flag"), "ctf");
     assert.equal(keyFromDescription("The Specialists"), "");
     assert.equal(cleanMap("../etc/passwd"), null);
     assert.equal(cleanMap("H9_TE_Neuropolis"), "h9_te_neuropolis");
@@ -1387,6 +1401,101 @@ describe("presence: core's hooks", () => {
       assert.equal(accounts.nameInUse("NEO"), true);
       assert.equal(accounts.nameInUse("Player 1234"), false);
       assert.equal(accounts.nameInUse(""), false);
+    } finally {
+      await t.close();
+    }
+  });
+});
+
+describe("a game whose link ends: its proof stops counting at once", () => {
+  test("h9_unlink in the game, then REVOKE on the site: the old proof proves nothing, a new one does", async () => {
+    const t = await presenceApp();
+    try {
+      const neo = await signup(t.base, "Neo");
+      // the game links with the device it proves from (the link carries presence's device hash)
+      const link = async () => {
+        const s = await get(t, "/api/link/start?v=1&device=" + deviceHash(DEV1) + "&os=windows", { origin: null });
+        assert.equal(s.json.status, "ok", s.text);
+        const a = await request(t.base, "POST", "/api/link/approve", { body: { code: s.json.userCode }, cookie: neo });
+        assert.equal(a.status, 200, a.text);
+        const p = await get(t, "/api/link/poll?code=" + encodeURIComponent(s.json.deviceCode), { origin: null });
+        assert.equal(p.json.status, "approved");
+        return p.json.token;
+      };
+      // a report with the player in slot 3: the slots proven, the slots with a chain, Neo's row
+      const report = async (e) => {
+        t.advance(1);
+        const r = await ok(t, { players: [e] });
+        return { proven: r.json.proven, chain: Object.keys(r.json.avatars || {}), accounts: r.json.accounts || {}, row: onlineOf(t, "Neo")[0] };
+      };
+
+      const token = await link();
+      const first = { ...as(t, "Neo", A, { device: DEV1 }), slot: 3 };
+      let r = await report(first);
+      assert.deepEqual(r.proven, [3]);
+      assert.deepEqual(r.chain, ["3"], "linked: the green chain");
+      assert.equal(r.accounts[3], idOf(t, "Neo"));
+      assert.equal(r.row.proven, 1);
+
+      // h9_unlink in the game: the proof is dropped at once, and the same proof, still in the
+      // plugin's next report, proves nothing
+      t.advance(1);
+      assert.deepEqual((await get(t, "/api/link/unlink?token=" + encodeURIComponent(token), { origin: null })).json, { status: "unlinked" });
+      assert.equal(onlineOf(t, "Neo")[0].proven, 0, "unverified at once");
+      r = await report(first);
+      assert.deepEqual(r.proven, [], "the old proof proves nothing");
+      assert.deepEqual(r.chain, [], "the slot loses its chain");
+      assert.deepEqual(r.accounts, {}, "and its account number");
+      assert.equal(r.row.proven, 0);
+
+      // linked again: a proof made after the unlink counts
+      t.advance(1);
+      await link();
+      const second = { ...as(t, "Neo", A, { device: DEV1 }), slot: 3 };
+      r = await report(second);
+      assert.deepEqual(r.proven, [3], "a new proof counts");
+      assert.deepEqual(r.chain, ["3"]);
+
+      // REVOKE on the ACCOUNT page: the same
+      const devices = (await get(t, "/api/link/devices", { cookie: neo })).json.devices;
+      assert.equal(devices.length, 1);
+      t.advance(1);
+      const rv = await request(t.base, "POST", "/api/link/devices/" + devices[0].id + "/revoke", { body: {}, cookie: neo });
+      assert.equal(rv.status, 200, rv.text);
+      assert.equal(onlineOf(t, "Neo")[0].proven, 0, "unverified at once");
+      r = await report(second);
+      assert.deepEqual(r.proven, []);
+      assert.deepEqual(r.chain, []);
+      assert.equal(r.row.proven, 0);
+    } finally {
+      await t.close();
+    }
+  });
+
+  test("an admin's REVOKE in the admin panel's LINKED GAMES: the proof stops counting at once too", async () => {
+    const t = await presenceApp();
+    try {
+      const neo = await signup(t.base, "Neo");
+      const boss = await signup(t.base, "Boss");
+      t.app.accounts.setRole(idOf(t, "Boss"), "admin");
+      const s = await get(t, "/api/link/start?v=1&device=" + deviceHash(DEV1) + "&os=windows", { origin: null });
+      assert.equal(s.json.status, "ok", s.text);
+      assert.equal((await request(t.base, "POST", "/api/link/approve", { body: { code: s.json.userCode }, cookie: neo })).status, 200);
+      assert.equal((await get(t, "/api/link/poll?code=" + encodeURIComponent(s.json.deviceCode), { origin: null })).json.status, "approved");
+      const e = { ...as(t, "Neo", A, { device: DEV1 }), slot: 3 };
+      t.advance(1);
+      let r = await ok(t, { players: [e] });
+      assert.deepEqual(r.json.proven, [3]);
+      const games = await request(t.base, "GET", "/api/link/accounts/Neo/devices", { cookie: boss });
+      assert.equal(games.status, 200, games.text);
+      t.advance(1);
+      const rv = await request(t.base, "POST", "/api/link/accounts/Neo/devices/" + games.json.devices[0].id + "/revoke", { body: { password: PASSWORD, note: "stolen laptop" }, cookie: boss });
+      assert.equal(rv.status, 200, rv.text);
+      assert.equal(onlineOf(t, "Neo")[0].proven, 0, "unverified at once");
+      t.advance(1);
+      r = await ok(t, { players: [e] });
+      assert.deepEqual(r.json.proven, [], "the old proof proves nothing");
+      assert.deepEqual(Object.keys(r.json.avatars || {}), [], "and the slot loses its chain");
     } finally {
       await t.close();
     }

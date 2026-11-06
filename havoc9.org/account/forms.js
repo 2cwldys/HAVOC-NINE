@@ -411,49 +411,15 @@
     });
 
     // ---- the forum signature (the section stays hidden without the forum module) ----
-    // Its preview is the server's own reading of it (POST forum/signature/preview), drawn here
-    // with createElement and textContent: pictures from the hosts the server allows only, with no
-    // Referer, no taller than the forum's signatureImageHeight.
+    // Its preview is the server's own reading of it (POST forum/signature/preview), drawn by the
+    // forum's own code (forum/forum.js, window.H9Forum.signature), so it shows exactly as under
+    // each post: pictures from the hosts the server allows only, with no Referer, no taller than
+    // the forum's signatureImageHeight.
     let signatureLimits = null;
     function drawSignature(tree, box) {
       box.textContent = "";
-      const add = (nodes, parent) => {
-        for (const n of Array.isArray(nodes) ? nodes : []) {
-          if (typeof n === "string") {
-            n.split("\n").forEach((part, i) => {
-              if (i) parent.append(document.createElement("br"));
-              if (part) parent.append(part);
-            });
-          } else if (n && (n.t === "b" || n.t === "i")) {
-            const e = document.createElement(n.t === "b" ? "strong" : "em");
-            add(n.c, e);
-            parent.append(e);
-          } else if (n && n.t === "code") {
-            const e = document.createElement("code");
-            e.textContent = String(n.text || "");
-            parent.append(e);
-          } else if (n && n.t === "a" && /^https?:\/\//i.test(String(n.href))) {
-            const e = document.createElement("a");
-            e.href = n.href;
-            e.rel = "nofollow ugc noopener noreferrer";
-            e.target = "_blank";
-            e.textContent = String(n.text || n.href);
-            parent.append(e);
-          } else if (n && n.t === "img" && /^https:\/\//i.test(String(n.src))) {
-            const img = document.createElement("img");
-            img.src = n.src;
-            img.alt = n.alt || "Picture";
-            img.setAttribute("referrerpolicy", "no-referrer");
-            img.loading = "lazy";
-            if (signatureLimits) img.style.maxHeight = signatureLimits.imageHeight + "px";
-            parent.append(img);
-          }
-        }
-      };
-      for (const b of Array.isArray(tree) ? tree : []) {
-        const p = document.createElement("p");
-        add(b.c, p);
-        box.append(p);
+      if (Array.isArray(tree) && tree.length && window.H9Forum) {
+        box.append(window.H9Forum.signature(tree, signatureLimits ? signatureLimits.imageHeight : 0));
       }
       if (!box.childNodes.length) box.textContent = "No signature.";
     }

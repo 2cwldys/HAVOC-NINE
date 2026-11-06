@@ -224,8 +224,10 @@
      sv_connect_max_per_ip 0
      sv_query_rate_limit 30
      sv_timeout 120
-   and open its UDP port to the relay's address
-   (havoc9.org\webclient\DEPLOY.txt, section 7).
+     sv_connect_timeout 600
+     sv_connect_timeout_ban 0
+   (H9XASH's server.cfg has the last two) and open its UDP port to the
+   relay's address (havoc9.org\webclient\DEPLOY.txt, section 7).
 
 
  6. THE SERVER LIST (servers.json)
@@ -411,7 +413,8 @@
    * Choose what others see of their presence under ACCOUNT, WHAT OTHERS SEE:
      in game, which server and map, the web client, the site, playtime and
      "last seen", each on or off (section 16). They always see all of their
-     own under IN GAME AND ONLINE.
+     own under IN GAME AND ONLINE. Their career level and ELO rating are not
+     behind a switch: everyone sees them (section 19).
    * Make a community, join one, ask to join, accept an invitation, leave,
      and chat in the communities they belong to (section 17).
    They cannot get a forgotten password back or delete their account: an
@@ -545,6 +548,8 @@
                   modSuspendMaxDays), with a reason the player sees when signing in
                   POSTING ON THE FORUM: section 11
                   REMOVE A PROFILE PICTURE (section 13)
+                  RANK: an account's career level, experience and tables, and the
+                  adjustments made to them, to look at (section 19)
    Admins, also
      FORUM        the categories: name, description, who starts threads, who
                   replies, visible or hidden (a hidden one is for staff only), order
@@ -562,10 +567,16 @@
                       send it privately, as in section 5
                     SET ROLE: player or moderator
                     DELETE THE ACCOUNT: type its username exactly
+                    RANK: its career level and experience, each table's rating and
+                      place, and every adjustment made; ADJUST THE RANK sets or moves
+                      a table's rating or the career's experience (section 19)
      NAME CHANGES WAITING FOR A DECISION: APPROVE or DENY (section 14);
                   SHOW DECIDED lists those approved, denied or cancelled
      PRESENCE     the presence flags, and one account's presence: its devices,
                   RESET THE PLAYER ID and MOVE THE PLAYER ID (section 16)
+     LEVELS       the career level's settings with the road to Lv 99 they give,
+                  RANKED SERVERS (UNRANKED, with a void) and the COMPETITIVE SEASON
+                  (reset, back to season 1) (section 19)
      WHAT WE NEED the "What we need" page (havoc9.org/join/needs/): its title,
                   intro and items (category, status, title, description; pictures
                   from the forum's picture hosts, as in posts), ADD ITEM, UP, DOWN,
@@ -578,9 +589,9 @@
                   name; kept 90 days (config admin.auditRetentionDays)
 
    Your own password: a suspension with no end, RESET PASSWORD, SET ROLE, DELETE,
-   APPROVE, RESET THE PLAYER ID and MOVE THE PLAYER ID ask for it when pressed: a
-   small prompt opens under the button, says why, and the password goes with that
-   one action only; it is never kept.
+   APPROVE, RESET THE PLAYER ID, MOVE THE PLAYER ID and ADJUST THE RANK ask for it
+   when pressed: a small prompt opens under the button, says why, and the password
+   goes with that one action only; it is never kept.
    Five wrong ones in 15 minutes block those buttons for 15 minutes.
 
    Admins are made and unmade only with the admin command on the VPS
@@ -926,16 +937,52 @@
  --------------------------
    havoc9.org/ladder/ shows the ratings of rated play: xjiro's compts Elo, per kill and
    per match, on havoc9.org accounts. docs\H9_COMPETITIVE.txt is the whole story.
-   What is an H9 admin's (role admin), on the LADDER page:
-     NETWORK LADDER    open a server's own table and press COUNT IT FOR THE H9 LADDER
-                       (or TAKE IT OFF): only the servers marked so count for the H9
-                       ladder. Mark only servers whose operators you trust: a server
-                       reports its own kills and results
+   Ranked play is always on. Every mode but roleplay, on every server enrolled with
+   havoc9.org, counts for the server's own table, its community's ladder (where the
+   community's staff count the server) and the H9 ladder, and feeds each player's
+   career level. Only proven players count: bots, and games that do not prove the
+   player id, change nothing.
+   What is an H9 admin's (role admin):
+     UNRANKED          a server's table on the LADDER page (MARK IT UNRANKED), or ADMIN,
+                       LEVELS, RANKED SERVERS, which lists every enrolled server: the
+                       match under way ends, and none of the server's matches count,
+                       anywhere, from then on. RANK IT AGAIN counts them again. AND
+                       VOID PAST MATCHES (a first and a last day, and VOID typed) takes
+                       back its matches from those days too, one void each. A server
+                       reports its own kills and results: mark one whose operator you
+                       do not trust
      VOID              on any match page: takes back exactly what the match gave and
-                       took, in every table
+                       took, in every table, and the career experience it gave
      DISPUTES          on the H9 ladder: the open disputes players filed (48 hours
                        after a match), with RESOLVE
+     LEVELS            ADMIN, LEVELS: what a match, a rated win and a kill give in career
+                       experience, the bounds of the factors it is multiplied by, the
+                       level curve (the experience for Lv 2 and its steepness), and
+                       whether Lv 0 shows. The table beneath works out about how many
+                       hours of play reach Lv 10, 25, 50, 75 and 99 at those settings.
+                       SAVE works every account's level out again at once
+     SEASONS           ADMIN, LEVELS, COMPETITIVE SEASON. RESET THE COMPETITIVE SEASON
+                       (type RESET) archives the standings and starts the next season
+                       with everyone unrated; the levels and the experience stay. SET
+                       THE SEASONS BACK TO SEASON 1 (type SEASON 1) drops every archived
+                       season with its standings, and the season under way becomes
+                       season 1. Each copies the database into the data folder's
+                       backups first, and says which file
+     RANK              ADMIN, ACCOUNTS, open an account, RANK (a moderator: ACCOUNTS,
+                       RANK, a name, SHOW): the career level and experience, the next
+                       level's, each table's rating, place and numbers, and every
+                       adjustment. ADJUST THE RANK sets a table's rating, or the
+                       career's experience, or moves it by an amount (below 0 takes
+                       away), with a note of 3 to 200 characters and your own password;
+                       never on your own account or another admin's. The level is worked
+                       out again at once
+   Everyone sees every account's career level (the badge) and ELO rating (the forum, the
+   ladder, .rank): no privacy switch hides them. SHOW MY PLAYTIME hides the playtime and
+   presence only.
    A community's staff turn their own ladder on, tick the servers that count for it
-   and void a match on it, from their ladder's page. Audit log actions:
-   presence.server.compete, presence.compete.void, presence.compete.dispute.resolve,
-   community.compete, community.server.compete, community.compete.void.
+   and void a match on it, from their ladder's page.
+   Audit log actions: presence.compete.server.unranked, presence.compete.void,
+   presence.compete.dispute.resolve, presence.compete.levels,
+   presence.compete.season.reset, presence.compete.season.restart,
+   presence.compete.adjust (in the account's own trail), community.compete,
+   community.server.compete, community.compete.void.

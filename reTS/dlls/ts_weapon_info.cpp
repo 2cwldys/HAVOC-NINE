@@ -142,7 +142,7 @@ static void Sparta()
 // provenance comments). Recovered column-complete from compile_ammo_info @0x6f51c
 // (analysis_ff_gun.md; the old kAmmoMax table was the +0x20 RANGE column mislabeled as
 // the reserve cap, and kBulletSpeedUnit was in compile-WRITE order — both fixed here).
-// Caliber 14 (7.62 x 25mm, the PPSh-41's) is H9's; the original has 13.
+// Caliber 14 (7.62 x 25mm, the PPSh-41's) and 15 (plasma cells, the laser rifle's) are H9's; the original has 13.
 // Calibers: 1 9x19, 2 .45Acp, 3 SHELLS, 4 5.56, 5 .50AE, 6 7.62x39, 7 5.7x28, 8 50BMG,
 // 9 10mm, 10 .22LR, 11 .454, 12 .32Acp, 13 7.62x51 (M60 belt — NOT .45LC).
 //============================================================================
@@ -173,10 +173,10 @@ static void set_ammo(int cal, float f0, int price, int kind, int mag,
 // client (the SrvSett id-2 handler calls it so purchase/ammo bookkeeping matches).
 void Set_ammo_count(int mode)
 {
-	static const int mode0[14] = {210, 175, 60, 120, 70, 90, 160, 30, 90, 150, 50, 300, 35, 213};
-	static const int mode1[14] = {90, 50, 32, 60, 21, 60, 40, 10, 30, 34, 15, 100, 15, 142};
-	static const int mode2[14] = {30, 25, 16, 30, 7, 30, 20, 5, 15, 17, 5, 40, 5, 71};
-	for (int cal = 1; cal <= 14; cal++)
+	static const int mode0[15] = {210, 175, 60, 120, 70, 90, 160, 30, 90, 150, 50, 300, 35, 213, 140};
+	static const int mode1[15] = {90, 50, 32, 60, 21, 60, 40, 10, 30, 34, 15, 100, 15, 142, 70};
+	static const int mode2[15] = {30, 25, 16, 30, 7, 30, 20, 5, 15, 17, 5, 40, 5, 71, 35};
+	for (int cal = 1; cal <= 15; cal++)
 	{
 		int v;
 		switch (mode)
@@ -190,7 +190,7 @@ void Set_ammo_count(int mode)
 	}
 }
 
-// @0x6f51c compile_ammo_info — fill the 14 caliber rows (entries 0/15 stay zero except
+// @0x6f51c compile_ammo_info — fill the 15 caliber rows (entry 0 stays zero except
 // the 1.0 multiplier), then default the max-carry column. Assignments kept in the
 // original's source order (1,5,7,2,9,4,6,8,3,10,11,12,13 — the write-order trap the old
 // kBulletSpeedUnit fell into).
@@ -213,6 +213,9 @@ void compile_ammo_info(void)
 	set_ammo(12, 0.5f, 30, 1, 20, 0.0f, 40, 300, ".32Acp");
 	set_ammo(13, 0.2f, 150, 2, 5, 0.7f, 170, 850, "7.62 x 51mm");
 	set_ammo(14, 0.4f, 150, 1, 71, 0.5f, 90, 500, "7.62 x 25mm"); // the PPSh-41's: a buy is one 71-round drum
+	// the laser rifle's: a buy is one 35-cell pack; a bolt is stopped by the first surface it meets (pierce decay
+	// 0) and flies at 700 x 40 units a second, slower than a rifle's round so that a bolt can be seen
+	set_ammo(15, 0.4f, 120, 2, 35, 0.0f, 150, 700, "Plasma Cell");
 	Set_ammo_count(0);
 	g_ammoInfoCompiled = true;
 }
@@ -923,6 +926,46 @@ void compile_weapons_info()
     p.iAkimboType = -1;
     p.iSingleType = TSW_PPSH41;
     SetSpartaWeapon(TSW_PPSH41, 0.015f, 2.0f, 0.004f, 26.35f); // damage: 85% of the UMP's 31, for the 71-round drum
+  }
+
+  // Laser rifle (H9 addition, table index TSW_LASERRIFLE). An energy weapon: it fires plasma, so nothing is ejected
+  // (no shell) and the client draws a bolt and its trail where a rifle's round would be. The row starts as the
+  // M4A1's, whole: its v_/p_/w_ models are TS's M4A1 models with the gun's meshes swapped, so every animation block,
+  // the gunbash (coldcock: damage 35, block entry 15) and the draw/fire/reload sequences are the M4A1's. What is
+  // the laser rifle's own is set below: name, models, sound, no shell, the 35-cell clip, rate (800 a minute), fire
+  // modes (auto, single and burst), caliber (plasma cells, 15), weight, price, its optic (a built-in scope: right
+  // click zooms to 32, then 8, under a blue overlay; no other attachment) and the combat feel (Sparta: a bolt
+  // hits a little harder than an M4A1's round, 35 against 33, but kicks little, and it does not go through a wall).
+  {
+    s_weapon_info &l = g_weaponInfo[TSW_LASERRIFLE];
+    l = g_weaponInfo[TSW_M4];
+    l.pszName = "Laser Rifle";
+    l.pszViewModel = "models/h9/v_laserrifle.mdl";
+    l.pszPlayerModel = "models/h9/p_laserrifle.mdl";
+    l.pszPlayerModelSil = nullptr;
+    l.pszWorldModel = "models/h9/w_laserrifle.mdl";
+    l.pszFireSound = "h9/laserrifle/fire.wav";
+    l.pszAltSound = nullptr;
+    l.pszShellModel = nullptr;
+    l.iShellSetback = 0;
+    l.iClip = 35;
+    l.flFireRate = 0.075f;
+    l.iFireModes = 7;
+    l.iCaliber = TS_CALIBER_PLASMA;
+    l.slotCost = 40;
+    l.iPrice = 5200;
+    l.zoomFov1 = 32;
+    l.zoomFov2 = 8;
+    l.attachSupported = 8;
+    l.attachBuiltin = 8;
+    l.iBodySilencer = 0;
+    l.iBodyLaser = 0;
+    l.iBodyFlash = 0;
+    l.iBodyScope = 0;
+    l.iBodyLaserFlash = -1;
+    l.iAkimboType = -1;
+    l.iSingleType = TSW_LASERRIFLE;
+    SetSpartaWeapon(TSW_LASERRIFLE, 0.004f, 2.25f, 0.0025f, 35.0f); // damage: a little over the M4A1's 33
   }
 
   // the original chains the ammo table + the falloff LUT off the weapon-table build:

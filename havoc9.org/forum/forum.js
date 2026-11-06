@@ -224,11 +224,16 @@
     return box;
   }
 
-  const roleTag = (role) => (ROLE[role] ? el("span", { class: "forum-tag " + (role === "admin" ? "is-admin" : "is-hot"), text: ROLE[role] }) : null);
+  // a tag, or "" when there is none: they go into append(), which would write a null as "null"
+  const roleTag = (role) => (ROLE[role] ? el("span", { class: "forum-tag " + (role === "admin" ? "is-admin" : "is-hot"), text: ROLE[role] }) : "");
   // the DEVELOPER flag (an admin gives it; it goes with any role): a purple tag, and the name in purple
-  const devTag = (who) => (who && who.developer ? el("span", { class: "forum-tag is-dev", text: "DEVELOPER" }) : null);
+  const devTag = (who) => (who && who.developer ? el("span", { class: "forum-tag is-dev", text: "DEVELOPER" }) : "");
   const nameClass = (base, developer) => (base || "") + (developer ? (base ? " " : "") + "is-developer" : "") || null;
   const nameSpan = (name, developer) => (developer ? el("span", { class: "is-developer", text: name }) : name);
+  // a member's career level badge beside their name, filled in by presence.js (data-h9-level; one
+  // renderer for every place), with elo their H9 ladder rating beside it ("1.2K ELO", on a post's
+  // author and the profile): nothing for an account that has none to show
+  const levelMark = (name, large, elo) => (name ? el("span", { class: "forum-level", "data-h9-level": name, "data-h9-level-size": large ? "large" : null, "data-h9-level-elo": elo ? "1" : null }) : null);
 
   function status(content, error) {
     const s = $("forumStatus");
@@ -300,11 +305,13 @@
       el("a", { href: href.signIn(true), text: "CREATE AN ACCOUNT" }), " to " + what + ".");
   }
 
-  // A form for writing: a title (for a new thread), the text, PREVIEW, and its own errors.
+  // A form for writing: a title (for a new thread), the text, and its own errors. WRITE and
+  // PREVIEW switch between the text and what it shows as once posted: preview(text) answers
+  // { node, notes } (postPreview: the server's own post view, drawn by postNode) or { error }.
   // onSubmit({ title, body }) answers an error message, or nothing when it went through.
   // pics: { imagesPerPost, imageHosts } from the viewer: how many pictures a post shows and the
-  // sites they are shown from, for the help.
-  function composer({ title, titleValue = "", body = "", submit, cancel, onSubmit, max = 10000, pics = null }) {
+  // sites they are shown from, for the help. label names the text for screen readers.
+  function composer({ title, titleValue = "", body = "", submit, cancel, onSubmit, max = 10000, pics = null, preview = null, label = "Your post" }) {
     const form = el("form", { class: "forum-compose", novalidate: true });
     let titleInput = null;
     if (title) {
@@ -312,7 +319,7 @@
       titleInput.value = titleValue;
       form.append(el("label", { class: "forum-label", text: "TITLE" }), titleInput);
     }
-    const area = el("textarea", { class: "forum-textarea", maxlength: max, rows: 8, "aria-label": "Your post" });
+    const area = el("textarea", { class: "forum-textarea", maxlength: max, rows: 8, "aria-label": label });
     area.value = body;
     const counter = el("span");
     const count = () => {
@@ -330,29 +337,54 @@
         pics && pics.imagesPerPost !== undefined ? "; up to " + pics.imagesPerPost + " a post, the rest stay links" : "",
         ". Nothing is uploaded here, and that site sees readers' addresses as any website does"),
       el("li", null, "a blank line starts a new paragraph; no HTML")));
-    const preview = el("div", { class: "forum-preview forum-body", hidden: true, "aria-live": "polite" });
+    const write = el("div", { class: "forum-compose-write" }, area, el("div", { class: "forum-compose-meta" }, help, counter));
+    const pane = el("div", { class: "forum-preview", hidden: true, "aria-live": "polite" });
     const error = el("p", { class: "forum-error", role: "alert" });
     const send = el("button", { type: "submit", class: "btn btn-primary btn-sm", text: submit });
-    const show = el("button", { type: "button", class: "btn btn-ghost btn-sm", text: "PREVIEW" });
-    const actions = el("div", { class: "forum-compose-actions" }, show);
+    const actions = el("div", { class: "forum-compose-actions" });
     if (cancel) actions.append(el("button", { type: "button", class: "btn btn-ghost btn-sm", text: "CANCEL", on: { click: cancel } }));
     actions.append(send);
-    form.append(area, el("div", { class: "forum-compose-meta" }, help, counter), preview, error, actions);
-    show.addEventListener("click", async () => {
-      error.textContent = "";
-      show.disabled = true;
-      const res = await call("POST", "preview", { body: area.value });
-      show.disabled = false;
-      if (res.status !== 200) {
-        error.textContent = problem(res);
-        return;
-      }
-      preview.textContent = "";
-      blocks(res.data.content, preview);
-      if (!preview.childNodes.length) preview.append(el("p", { class: "forum-removed", text: "Nothing to show yet." }));
-      for (const n of res.data.notes || []) preview.append(el("p", { class: "forum-row-meta", text: String(n) }));
-      preview.hidden = false;
-    });
+    // WRITE / PREVIEW: the latest preview asked for is the one shown
+    let toWrite = () => {};
+    let tabs = null;
+    if (preview) {
+      let asked = 0;
+      const tab = (text) => el("button", { type: "button", class: "forum-tab", role: "tab", "aria-selected": "false", text });
+      const writeTab = tab("WRITE");
+      const previewTab = tab("PREVIEW");
+      tabs = el("div", { class: "forum-tabs", role: "tablist", "aria-label": "Write or preview" }, writeTab, previewTab);
+      const showing = async (previewing) => {
+        writeTab.setAttribute("aria-selected", String(!previewing));
+        previewTab.setAttribute("aria-selected", String(previewing));
+        write.hidden = previewing;
+        pane.hidden = !previewing;
+        error.textContent = "";
+        const mine = ++asked;
+        if (!previewing) return;
+        if (!area.value.trim()) {
+          pane.replaceChildren(el("p", { class: "forum-removed", text: "Nothing to show yet." }));
+          return;
+        }
+        pane.replaceChildren(el("p", { class: "forum-row-meta", text: "PREVIEW..." }));
+        const got = await preview(area.value);
+        if (mine !== asked) return;
+        if (got.error) {
+          pane.replaceChildren(el("p", { class: "forum-error", role: "alert", text: got.error }));
+          return;
+        }
+        pane.replaceChildren(got.node, ...(got.notes || []).map((n) => el("p", { class: "forum-row-meta", text: String(n) })));
+      };
+      writeTab.addEventListener("click", () => {
+        showing(false);
+        area.focus();
+      });
+      previewTab.addEventListener("click", () => showing(true));
+      writeTab.setAttribute("aria-selected", "true");
+      toWrite = () => {
+        if (write.hidden) showing(false);
+      };
+    }
+    form.append(...(tabs ? [tabs] : []), write, pane, error, actions);
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       error.textContent = "";
@@ -375,8 +407,9 @@
     return {
       form,
       focus: () => (titleInput || area).focus(),
-      // a quote goes in at the end, on its own lines
+      // a quote goes in at the end, on its own lines (back on WRITE)
       insert(text) {
+        toWrite();
         const before = area.value && !area.value.endsWith("\n\n") ? (area.value.endsWith("\n") ? "\n" : "\n\n") : "";
         area.value += before + text;
         count();
@@ -441,13 +474,13 @@
       t.hidden ? el("span", { class: "forum-tag is-off", text: "HIDDEN" }) : null,
       t.removed ? el("span", { class: "forum-tag is-off", text: "REMOVED" }) : null,
     ];
-    const meta = ["by ", t.by ? nameSpan(t.by.username, t.by.developer) : "a deleted account", DOT + when(t.created)];
+    const meta = ["by ", t.by ? [nameSpan(t.by.username, t.by.developer), levelMark(t.by.username)] : "a deleted account", DOT + when(t.created)];
     if (category) meta.unshift(category.name + DOT);
     return el("div", { class: "forum-row" + (t.removed ? " is-removed" : "") },
       el("div", { class: "forum-row-main" }, el("a", { class: "forum-row-title", href: href.thread(t.id), text: t.title }), tags, el("p", { class: "forum-row-meta" }, meta)),
       el("div", { class: "forum-row-stats" }, plural(t.posts, "POST")),
       el("div", { class: "forum-row-last" },
-        t.lastPost ? el("a", { href: href.thread(t.id, { post: t.lastPost }) }, "last by ", t.lastBy ? nameSpan(t.lastBy, t.lastByDeveloper) : "a deleted account") : null,
+        t.lastPost ? el("a", { href: href.thread(t.id, { post: t.lastPost }) }, "last by ", t.lastBy ? [nameSpan(t.lastBy, t.lastByDeveloper), levelMark(t.lastBy)] : "a deleted account") : null,
         when(t.lastAt)));
   }
 
@@ -469,7 +502,7 @@
           c.description ? el("p", { class: "forum-row-desc", text: c.description }) : null),
         el("div", { class: "forum-row-stats" }, plural(c.threads, "THREAD"), el("br"), plural(c.posts, "POST")),
         el("div", { class: "forum-row-last" },
-          c.last ? [el("a", { href: href.thread(c.last.thread, { post: c.last.post }), text: c.last.title }), "by ", c.last.by ? nameSpan(c.last.by, c.last.byDeveloper) : "a deleted account", DOT + when(c.last.at)] : "No threads yet.")));
+          c.last ? [el("a", { href: href.thread(c.last.thread, { post: c.last.post }), text: c.last.title }), "by ", c.last.by ? [nameSpan(c.last.by, c.last.byDeveloper), levelMark(c.last.by)] : "a deleted account", DOT + when(c.last.at)] : "No threads yet.")));
     }
     if (!res.data.categories.length) list.append(el("p", { class: "forum-empty", text: "No categories yet." }));
     main.append(list);
@@ -501,7 +534,7 @@
       main.append(blockedNote(d.viewer.postingBlocked));
     } else if (c.canStart) {
       compose = composer({
-        title: true, submit: "START THREAD", pics: d.viewer,
+        title: true, submit: "START THREAD", pics: d.viewer, preview: postPreview({}),
         cancel: () => {
           compose.form.hidden = true;
         },
@@ -598,7 +631,7 @@
     const crumbs = $("forumCrumbs");
     crumbs.append(el("li", null, el("span", { text: t.title })));
     main.append(el("p", { class: "forum-row-meta" },
-      "Started by ", t.by ? el("a", { class: nameClass("", t.by.developer), href: href.user(t.by.username), "data-h9-card": t.by.username, text: t.by.username }) : "a deleted account", DOT + when(t.created),
+      "Started by ", t.by ? [el("a", { class: nameClass("", t.by.developer), href: href.user(t.by.username), "data-h9-card": t.by.username, text: t.by.username }), levelMark(t.by.username)] : "a deleted account", DOT + when(t.created),
       t.pinned ? el("span", { class: "forum-tag is-hot", text: "PINNED" }) : null,
       t.locked ? el("span", { class: "forum-tag", text: "LOCKED" }) : null,
       t.hidden ? el("span", { class: "forum-tag is-off", text: "HIDDEN" }) : null));
@@ -609,7 +642,7 @@
     let reply = null;
     if (t.can.reply) {
       reply = composer({
-        submit: "POST REPLY", pics: d.viewer,
+        submit: "POST REPLY", pics: d.viewer, preview: postPreview({ thread: t.id }),
         async onSubmit({ body }) {
           const r = await call("POST", "threads/" + t.id + "/posts", { body });
           if (r.status !== 201) return problem(r);
@@ -642,17 +675,29 @@
     }
   }
 
+  // The block beside what a member wrote, a post or a wall comment alike: their picture, name,
+  // level badge, role and DEVELOPER tags, when they joined, their posts and likes, and presence.js's
+  // line; for a deleted account, the default picture and "deleted account".
+  function authorBlock(by, inlineBytes) {
+    const aside = el("aside", { class: "forum-author" });
+    if (!by) {
+      aside.append(picture(null), el("span", { class: "forum-author-name", text: "deleted account" }));
+      return aside;
+    }
+    aside.append(picture(by, false, inlineBytes),
+      el("a", { class: nameClass("forum-author-name", by.developer), href: href.user(by.username), "data-h9-card": by.username, text: by.username }),
+      levelMark(by.username, false, true), roleTag(by.role), devTag(by), el("span", { text: "JOINED " + month(by.joined).toUpperCase() }), el("span", { text: plural(by.posts, "POST") }),
+      el("span", { text: plural(by.likes || 0, "LIKE") }),
+      // in game, in the web client, on the site or last seen, the badge and playtime (presence.js)
+      el("span", { class: "forum-presence", "data-h9-presence": "author", "data-h9-user": by.username }));
+    return aside;
+  }
+
   function postNode(p, d, reply) {
     const t = d.thread;
     const art = el("article", { class: "forum-post" + (p.removed ? " is-removed" : ""), id: "p" + p.id });
-    const aside = el("aside", { class: "forum-author" });
+    const aside = authorBlock(p.by, d.pictureInlineBytes);
     if (p.by) {
-      aside.append(picture(p.by, false, d.pictureInlineBytes),
-        el("a", { class: nameClass("forum-author-name", p.by.developer), href: href.user(p.by.username), "data-h9-card": p.by.username, text: p.by.username }),
-        roleTag(p.by.role), devTag(p.by), el("span", { text: "JOINED " + month(p.by.joined).toUpperCase() }), el("span", { text: plural(p.by.posts, "POST") }),
-        el("span", { text: plural(p.by.likes || 0, "LIKE") }),
-        // in game, in the web client, on the site or last seen, the badge and playtime (presence.js)
-        el("span", { class: "forum-presence", "data-h9-presence": "author", "data-h9-user": p.by.username }));
       if (p.can.clearSignature) {
         aside.append(el("button", {
           type: "button", class: "forum-act is-danger", text: "CLEAR SIGNATURE",
@@ -667,8 +712,6 @@
           },
         }));
       }
-    } else {
-      aside.append(picture(null), el("span", { class: "forum-author-name", text: "deleted account" }));
     }
     const main = el("div", { class: "forum-post-main" });
     const stamp = [el("time", { datetime: p.created, text: when(p.created) })];
@@ -689,11 +732,7 @@
     main.append(body);
     // the author's signature, under a thin rule (the server leaves it out of removed posts, and
     // out of everything for a reader whose SHOW SIGNATURES is off)
-    if (Array.isArray(p.signature) && p.signature.length) {
-      const sig = el("div", { class: "forum-signature" });
-      blocks(p.signature, sig, 0, { maxHeight: d.signatureImageHeight });
-      main.append(sig);
-    }
+    if (Array.isArray(p.signature) && p.signature.length) main.append(signatureNode(p.signature, d.signatureImageHeight));
     const actions = el("div", { class: "forum-post-actions" });
     const act = (label, fn, danger) => actions.append(el("button", { type: "button", class: "forum-act" + (danger ? " is-danger" : ""), text: label, on: { click: fn } }));
     if (reply && !p.removed && typeof p.body === "string") {
@@ -741,9 +780,189 @@
     return art;
   }
 
+  // A signature as it shows under each post and on the member page; the ACCOUNT page's preview
+  // draws it with this too (window.H9Forum).
+  function signatureNode(tree, maxHeight) {
+    const sig = el("div", { class: "forum-signature" });
+    blocks(tree, sig, 0, { maxHeight });
+    return sig;
+  }
+
+  // PREVIEW in a composer: the server's preview (POST /api/forum/preview with the text and the
+  // thread it replies to or the post it edits) is the post view a thread page gets, so postNode
+  // draws it as the posted post: the same author block, body and signature, without actions.
+  const postPreview = (context) => async (text) => {
+    const res = await call("POST", "preview", { body: text, ...context });
+    if (res.status !== 200) return { error: problem(res) };
+    return { node: previewNode(res.data), notes: res.data.notes || [] };
+  };
+
+  // A post drawn from a preview: marked as one, and every link on it opens a new tab, so the
+  // text being written stays.
+  function previewNode(data) {
+    const d = { thread: { id: data.thread || 0, can: {} }, viewer: {}, pictureInlineBytes: data.pictureInlineBytes, signatureImageHeight: data.signatureImageHeight };
+    const art = postNode(data.post, d, null);
+    // a post not written yet has no address of its own: its number stays as it shows, unlinked
+    const number = art.querySelector(".forum-post-head a");
+    if (number && !data.post.id) number.removeAttribute("href");
+    return asPreview(art);
+  }
+
+  function asPreview(art) {
+    art.removeAttribute("id");
+    art.classList.add("is-preview");
+    for (const a of art.querySelectorAll("a[href]")) {
+      if (a.target === "_blank") continue;
+      a.target = "_blank";
+      a.rel = "noopener";
+    }
+    return art;
+  }
+
+  // ---- a member's wall ---------------------------------------------------------------------------
+
+  // The member page's WALL (GET users/:name/wall, page ?wall=N): comments drawn as posts are, the
+  // owner's pins first, then the newest. Whoever may write gets the composer with WRITE / PREVIEW;
+  // the owner the switch (everyone may write, or nobody), PIN and DELETE; an author EDIT and
+  // DELETE; staff REMOVE (with a note for the audit log) and TURN OFF POSTING (the forum's own
+  // sanction), on accounts below their own role.
+  async function showWall(u, viewer, box) {
+    const page = Number(params.get("wall")) || 1;
+    const name = encodeURIComponent(u.username);
+    const res = await call("GET", "users/" + name + "/wall" + (page > 1 ? "?page=" + page : ""));
+    box.textContent = "";
+    box.append(el("h2", { class: "sub-title forum-section", text: "WALL" + (res.data && res.data.wall && res.data.wall.total ? " (" + res.data.wall.total + ")" : "") }));
+    if (res.status !== 200) {
+      box.append(el("p", { class: "forum-error", text: problem(res) }));
+      return;
+    }
+    const w = res.data;
+    const again = () => showWall(u, viewer, box);
+    box.append(el("p", { class: "forum-row-meta forum-wall-state", text: w.wall.open ? "Everyone signed in may write on this wall." : u.username + " has turned this wall off: nobody writes on it for now." }));
+    if (w.can.manage) {
+      box.append(el("div", { class: "forum-wall-owner" },
+        el("button", {
+          type: "button", class: "forum-act", text: w.wall.open ? "TURN THE WALL OFF" : "OPEN THE WALL TO EVERYONE",
+          on: {
+            click: async () => {
+              const r = await call("PUT", "users/" + name + "/wall", { open: !w.wall.open });
+              if (r.status !== 200) return alert(problem(r));
+              await again();
+            },
+          },
+        }),
+        el("span", { class: "forum-row-meta", text: "PINNED " + w.wall.pins + " OF " + w.wall.maxPins })));
+    }
+    if (w.can.comment) {
+      const compose = composer({
+        submit: "WRITE ON THE WALL", label: "Your comment", pics: viewer, preview: wallPreview({ wall: u.username }),
+        async onSubmit({ body }) {
+          const r = await call("POST", "users/" + name + "/wall", { body });
+          if (r.status !== 201) return problem(r);
+          await again();
+          return null;
+        },
+      });
+      box.append(compose.form);
+    } else if (w.can.why === "signin") {
+      box.append(signInNote("write on " + u.username + "'s wall"));
+    } else if (w.can.why === "posting_disabled" && w.postingBlocked) {
+      box.append(blockedNote(w.postingBlocked));
+    }
+    const link = (n) => {
+      const x = new URL(location.href);
+      x.searchParams.set("wall", n);
+      x.hash = "wall";
+      return x.href;
+    };
+    const list = el("div", { class: "forum-wall-list" });
+    for (const c of w.comments) list.append(wallComment(c, w.pictureInlineBytes, again));
+    if (!w.comments.length) list.append(el("p", { class: "forum-empty", text: "Nothing on this wall yet." }));
+    box.append(pager(w.page, w.pages, link) || "", list, pager(w.page, w.pages, link) || "");
+  }
+
+  // One comment on a wall: the author block a post has, then its time (and EDITED), its text, and
+  // what the reader may do. again() draws the wall again after a change; a preview has none.
+  function wallComment(c, inlineBytes, again) {
+    const art = el("article", { class: "forum-post forum-wall-comment" + (c.removed ? " is-removed" : "") + (c.pinned ? " is-pinned" : ""), id: c.id ? "w" + c.id : null });
+    const main = el("div", { class: "forum-post-main" });
+    const stamp = [el("time", { datetime: c.created, text: when(c.created) })];
+    if (c.edited) stamp.push(el("span", { title: when(c.edited.at), text: DOT + "EDITED" }));
+    main.append(el("header", { class: "forum-post-head" }, c.pinned ? el("span", { class: "forum-tag is-hot", text: "PINNED" }) : el("span"), el("span", null, stamp)));
+    const body = el("div", { class: "forum-body" });
+    if (c.removed) {
+      body.append(el("p", { class: "forum-removed", text: "Removed by a moderator." + (c.content ? " Only moderators and admins see what it said" + (c.removedNote ? " (" + c.removedNote + ")" : "") + ":" : "") }));
+    }
+    if (c.content) blocks(c.content, body);
+    main.append(body);
+    const actions = el("div", { class: "forum-post-actions" });
+    const act = (label, fn, danger) => actions.append(el("button", { type: "button", class: "forum-act" + (danger ? " is-danger" : ""), text: label, on: { click: fn } }));
+    const done = (r) => (r.status === 200 ? again() : alert(problem(r)));
+    if (c.can.edit) act("EDIT", () => editWallComment(c, body, actions, again));
+    if (c.can.pin) act(c.pinned ? "UNPIN" : "PIN", async () => done(await call("PUT", "wall/" + c.id + "/pin", { pinned: !c.pinned })));
+    if (c.can.delete) {
+      act("DELETE", async () => {
+        if (!confirm(c.own ? "Delete your comment? It goes for good." : "Delete this comment from your wall? It goes for good.")) return;
+        done(await call("DELETE", "wall/" + c.id));
+      }, true);
+    }
+    if (c.can.remove) {
+      act("REMOVE", async () => {
+        const note = prompt("Why is the comment removed? (kept in the audit log; it stays as Removed by a moderator)", "");
+        if (note === null) return;
+        done(await call("POST", "wall/" + c.id + "/remove", { note }));
+      }, true);
+    }
+    if (c.can.postingOff && c.by) {
+      act("TURN OFF POSTING", async () => {
+        const reason = prompt("Why is " + c.by.username + "'s posting turned off? It stops their posts and wall comments; they see the reason.", "");
+        if (reason === null) return;
+        const days = prompt("For how many days? (empty: until a moderator turns it back on)", "");
+        if (days === null) return;
+        const input = { reason };
+        if (days.trim()) input.days = Number(days);
+        const r = await call("POST", "restrictions/" + encodeURIComponent(c.by.username), input);
+        if (r.status !== 200) return alert(problem(r));
+        alert("Posting is off for " + c.by.username + ".");
+      }, true);
+    }
+    if (actions.childNodes.length) main.append(actions);
+    art.append(authorBlock(c.by, inlineBytes), main);
+    return art;
+  }
+
+  function editWallComment(c, body, actions, again) {
+    const box = composer({
+      body: c.body, submit: "SAVE", label: "Your comment", preview: wallPreview({ comment: c.id }),
+      cancel: () => {
+        box.form.remove();
+        body.hidden = false;
+        actions.hidden = false;
+      },
+      async onSubmit({ body: text }) {
+        const r = await call("PATCH", "wall/" + c.id, { body: text });
+        if (r.status !== 200) return problem(r);
+        await again();
+        return null;
+      },
+    });
+    body.hidden = true;
+    actions.hidden = true;
+    body.after(box.form);
+    box.focus();
+  }
+
+  // PREVIEW in a wall's composer: the server's preview (POST wall/preview) is the comment view the
+  // wall gets, drawn by wallComment itself, without actions.
+  const wallPreview = (context) => async (text) => {
+    const res = await call("POST", "wall/preview", { body: text, ...context });
+    if (res.status !== 200) return { error: problem(res) };
+    return { node: asPreview(wallComment(res.data.comment, res.data.pictureInlineBytes, null)) };
+  };
+
   function editPost(p, body, actions, pics) {
     const box = composer({
-      body: p.body, submit: "SAVE", pics,
+      body: p.body, submit: "SAVE", pics, preview: postPreview({ post: p.id }),
       cancel: () => {
         box.form.remove();
         body.hidden = false;
@@ -860,14 +1079,14 @@
     const main = $("forumMain");
     main.textContent = "";
     const rows = [["ROLE", ({ user: "Player", moderator: "Moderator", admin: "Admin" }[u.role] || u.role) + (u.developer ? ", Developer" : "")], ["JOINED", month(u.joined)], ["POSTS", String(u.posts)], ["LIKES", String(u.likes || 0)], ["THREADS", String(u.threads)]];
-    main.append(el("div", { class: "forum-profile" }, picture(u, true, d.pictureInlineBytes),
+    main.append(el("div", { class: "forum-profile" }, picture(u, true, d.pictureInlineBytes), levelMark(u.username, true, true),
       el("div", { class: "feature-list" }, rows.map(([k, v]) => el("div", { class: "feature-row" }, el("span", { class: "feature-label", text: k }), el("span", { class: "feature-value", text: v }))))));
     // the player's card: in game or not, the badge, playtime (presence.js)
     main.append(el("div", { class: "forum-presence-card", "data-h9-presence": "card", "data-h9-user": u.username }));
+    // their RANK block: the level, this season on the H9 ladder (presence.js); nothing when hidden
+    main.append(el("div", { class: "forum-presence-rank", "data-h9-presence": "rank", "data-h9-user": u.username }));
     if (Array.isArray(u.signature) && u.signature.length) {
-      const sig = el("div", { class: "forum-signature" });
-      blocks(u.signature, sig, 0, { maxHeight: d.signatureImageHeight });
-      main.append(el("h2", { class: "sub-title forum-section", text: "SIGNATURE" }), sig);
+      main.append(el("h2", { class: "sub-title forum-section", text: "SIGNATURE" }), signatureNode(u.signature, d.signatureImageHeight));
     }
     if (d.can.removePicture || d.can.suspend || d.can.blockSignature) {
       const error = el("span", { class: "forum-error", role: "alert" });
@@ -929,6 +1148,10 @@
     }
     if (!d.recent.length) list.append(el("p", { class: "forum-empty", text: "No posts yet." }));
     main.append(list);
+    // the WALL, drawn when its own answer comes
+    const wall = el("section", { class: "forum-wall", id: "wall", "aria-label": "Wall" });
+    main.append(wall);
+    showWall(u, d.viewer, wall).catch(() => wall.replaceChildren(el("p", { class: "forum-error", text: OFFLINE })));
   }
 
   // ---- search ------------------------------------------------------------------------------------
@@ -956,6 +1179,10 @@
     if (!d.threads.length) list.append(el("p", { class: "forum-empty", text: "Nothing found. Try fewer or shorter words." }));
     main.append(list, pager(d.page, d.pages, (n) => href.search(q, n)) || "");
   }
+
+  // for pages outside the forum that show what the forum shows (the ACCOUNT page's signature
+  // preview): the forum's own drawing, so it can never differ
+  window.H9Forum = Object.freeze({ signature: signatureNode });
 
   const pages = { index: indexPage, category: categoryPage, thread: threadPage, user: userPage, search: searchPage };
   if (pages[PAGE]) {

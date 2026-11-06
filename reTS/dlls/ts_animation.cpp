@@ -763,13 +763,27 @@ void CTSAnimation::Animate(CBasePlayer *pPlayer, int activity)
 	case TSA_RUN:
 	case TSA_IDLE:
 	default:
+	{
+		// (2) A fire, reload or draw pose still playing is held. The original tests the LAST activity (fire
+		// 0/8/9, reload 0x33, draw 0x34) with its sequence not finished and then keeps that activity as the
+		// last one (@orig: a1 = the last activity), so the hold lasts until the sequence ends. The aim timer
+		// holds what it covers besides (the grenade throw, the standing fire's aim window). Lying down the
+		// fire sets no aim timer, so the timer alone let each frame's idle call put the standing idle_ pose
+		// over every shot's slide_*_shoot.
+		const bool lastPose = m_iLastActivity == TSA_FIRE || m_iLastActivity == TSA_FIRE_SLIDEL ||
+			m_iLastActivity == TSA_FIRE_SLIDER || m_iLastActivity == TSA_RELOAD || m_iLastActivity == TSA_DRAW;
+		const bool holdPose = pPlayer->m_fSequenceFinished == 0 && (lastPose || m_flAimTimer >= 0.01f);
 		if (onground && pPlayer->m_szAnimOverride[0] != 0)
 		{
 			// (1) a dedicated melee idle (knife_idle/katana_idle) the weapon set on deploy.
 			SetAnim(pPlayer, pPlayer->m_szAnimOverride, 0x12, 0);
 		}
-		else if (onground && !kungfu &&
-			!(m_flAimTimer >= 0.01f && pPlayer->m_fSequenceFinished == 0)) // (2) not holding a fresh shoot pose
+		else if (onground && !kungfu && holdPose)
+		{
+			if (lastPose)
+				activity = m_iLastActivity; // the post-switch record keeps the fire/reload/draw activity
+		}
+		else if (onground && !kungfu)
 		{
 			// (4) aim_ vs idle_ by (m_flAimTimer recently-raised OR fov zoomed) — state, not the button.
 			const bool aiming = (m_flAimTimer >= 0.01f || pev->fov != 0);
@@ -781,6 +795,7 @@ void CTSAnimation::Animate(CBasePlayer *pPlayer, int activity)
 			SetAnim(pPlayer, name, 0x12, 0);
 		}
 		break;
+	}
 	}
 
 	// ---- Phase D: the shared LEG (gait) block + the kungfu body-sync (RE Animate bottom, lines 977+).

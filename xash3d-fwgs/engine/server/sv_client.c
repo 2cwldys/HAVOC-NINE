@@ -344,6 +344,61 @@ SV_ConnectClient
 A connection request that did not come from the master
 ==================
 */
+const char *H9_Release( void );   // common/h9_release.c: the release of this game folder
+
+/*
+================
+SV_H9ReleaseRefusal
+
+H9: what a server that holds its players to one release (h9_require_release, a cvar of h9_presence's) tells a joiner whose game is
+another, in buf; NULL to let him in. The server's release is h9_plugin_release (its plugins', which h9_presence sets) or, without
+that, the game folder's (h9_release.txt); a joiner's is his userinfo key _h9rel. 1: a joiner who has H9's game (any userinfo key of
+H9's: h9_ or _h9) must match, a stock client has none and is not asked; 2: every joiner must. A server that knows no release asks for
+none, and the local client is this engine. docs\H9_RELEASE.txt.
+================
+*/
+static const char *SV_H9ReleaseRefusal( netadr_t from, const char *userinfo, char *buf, size_t size )
+{
+	int		mode = Cvar_VariableInteger( "h9_require_release" );
+	const char	*want, *have;
+	char		mine[32];
+
+	if( mode <= 0 || NET_IsLocalAddress( from ))
+		return NULL;
+
+	want = Cvar_VariableString( "h9_plugin_release" );
+
+	if( !want[0] )
+		want = H9_Release();
+
+	if( !want[0] )
+		return NULL;
+
+	// copied out at once: Info_ValueForKey hands back one of four buffers it reuses
+	Q_strncpy( mine, Info_ValueForKey( userinfo, "_h9rel" ), sizeof( mine ));
+	have = mine;
+
+	if( !Q_strcmp( have, want ))
+		return NULL;
+
+	if( !have[0] )
+	{
+		// no release: a game older than this check says none, a stock client has no H9 keys at all
+		if( mode < 2 && !Q_strstr( userinfo, "\\_h9" ) && !Q_strstr( userinfo, "\\h9_" ))
+			return NULL;
+
+		Q_snprintf( buf, size, "Your HAVOC 9 is out of date (this server runs release %s): update it from https://havoc9.org/downloads/\n", want );
+		return buf;
+	}
+
+	if( Q_strcmp( have, want ) < 0 )
+		Q_snprintf( buf, size, "Your HAVOC 9 is out of date (release %s, this server runs %s): update it from https://havoc9.org/downloads/\n", have, want );
+	else
+		Q_snprintf( buf, size, "This server runs an older HAVOC 9 (release %s, yours is %s): ask its admin to update, or play on a server that has\n", want, have );
+
+	return buf;
+}
+
 static void SV_ConnectClient( netadr_t from )
 {
 	char userinfo[MAX_INFO_STRING];
@@ -443,6 +498,18 @@ static void SV_ConnectClient( netadr_t from )
 	}
 
 	Q_strncpy( userinfo, s, sizeof( userinfo ));
+
+	// H9: a server that holds its players to one release refuses another, and says where to get the right one
+	{
+		char		reason[192];
+		const char	*refusal = SV_H9ReleaseRefusal( from, userinfo, reason, sizeof( reason ));
+
+		if( refusal )
+		{
+			SV_RejectConnection( from, "%s", refusal );
+			return;
+		}
+	}
 
 	// check connection password (don't verify local client)
 	if( !NET_IsLocalAddress( from ) && SV_HavePassword( ))
@@ -1075,6 +1142,21 @@ static void SV_Info( netadr_t from, int protocolVersion )
 		// (h9_presence's h9_require_account), for the server browser's account icon
 		if( Cvar_VariableInteger( "h9_require_account" ) == 1 )
 			Info_SetValueForKey( s, "auth", "1", sizeof( s ));
+
+		// H9: the game's description, which an H9 server sets to its mode ("Capture the Uplink", "Siege 2/5"), for the server
+		// browser's Mode column; cut short, and before the hostname, which is cut to what is left
+		if( svgame.dllFuncs.pfnGetGameDescription )
+		{
+			const char *gamedesc = svgame.dllFuncs.pfnGetGameDescription();
+
+			if( gamedesc && gamedesc[0] )
+			{
+				char desc[32];
+
+				Q_strncpy( desc, gamedesc, sizeof( desc ));
+				Info_SetValueForKey( s, "desc", desc, sizeof( s ));
+			}
+		}
 
 		// write host last so we can try to cut off too long hostnames
 		// TODO: value size limit for infostrings

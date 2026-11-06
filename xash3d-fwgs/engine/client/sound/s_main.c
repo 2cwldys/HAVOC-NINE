@@ -1443,6 +1443,9 @@ static void S_ClearBuffer( void )
 		memset( snd.buffer, 0, snd.samples * 2 );
 
 	SNDDMA_Submit ();
+#if XASH_EMSCRIPTEN
+	SNDDMA_H9Flush(); // H9 web client: the audio thread's own queue is cleared as the ring is
+#endif
 
 	S_ClearBuffers( PAINTBUFFER_SIZE );
 }

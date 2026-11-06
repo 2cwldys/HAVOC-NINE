@@ -38,11 +38,15 @@ H9's changes in it
           kung fu's own stats slot moves from 39 to 40 and TSMAX_WEAPONS grows by one, so the custom
           weapons start at 41. On TS 3.0's own library the ammo natives refuse a weapon past 37
           ("Weapon %d is not in TS 3.0"), as it has none.
+  modules	s	sx\CMisc.h, Utils.cpp, NBase.cpp, moduleconfig.cpp
+          The laser rifle of H9's reTS, weapon 40, the same way: its name and stats slot (weaponData), the
+          ammo tables (caliber 15) and a shot's weapon. Kung fu's own stats slot moves again, from 40 to 41,
+          and TSMAX_WEAPONS grows by one, so the custom weapons start at 42 now.
 
 Deployed file : tsx_amxx.dll
 Size          : 496128 bytes
-SHA256        : 5D60C59F297B21A891D917DFCB0048E8C89C08607F88943AC3D672E26AA10121
-Built         : 2026-11-03, MSBuild modules\ts\tsx\msvc12\tsx.vcxproj, Release|Win32, toolset
+SHA256        : 9DFC15BBC6CBCFCC95586F4E0ED139D02FFFED58911788FF9581F18662160701
+Built         : 2026-11-05 (the laser rifle; 2026-11-03 before it), MSBuild modules\ts\tsx\msvc12\tsx.vcxproj, Release|Win32, toolset
                 v145 (Visual Studio 2026), from a copy of TSM\AMXMODX, against the SDKs the
                 fork's CI uses: goldsrc-net/hlsdk branch 64bit (dd2c6d61) and
                 alliedmodders/metamod-hl1 (18a10db6), with the project fixes H9-SOURCE.txt lists.

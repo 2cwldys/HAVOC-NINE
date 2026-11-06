@@ -233,6 +233,34 @@ describe("relay", () => {
     }
   });
 
+  test("events for modules: an account on two sockets plays a server until the last of them stops", async () => {
+    const c = await signup(t.base, "Trinity");
+    const id = t.app.accounts.getByUsername("Trinity").id;
+    const seen = [];
+    const fns = ["relay-game-start", "relay-game-end"].map((n) => [n, (e) => { if (e.accountId === id) seen.push([n, e.server]); }]);
+    for (const [n, fn] of fns) t.app.events.on(n, fn);
+    try {
+      const to = "127.0.0.1:" + echo.address().port;
+      const a = await relay(c);
+      const b = await relay(c);
+      for (const ws of [a, b]) {
+        ws.send(frame(to, Buffer.from([1, 0, 0, 0, 9, 9])));
+        await ws.next();
+      }
+      assert.deepEqual(seen, [["relay-game-start", to]], "one start for the account, not one for each socket");
+      a.close();
+      await a.closed;
+      await sleep(300);
+      assert.deepEqual(seen, [["relay-game-start", to]], "the first socket closing ends nothing: the account still plays on the other");
+      b.close();
+      await b.closed;
+      await until(() => seen.length === 2);
+      assert.deepEqual(seen[1], ["relay-game-end", to], "the last socket closing ends it");
+    } finally {
+      for (const [n, fn] of fns) t.app.events.off(n, fn);
+    }
+  });
+
   test("/api/servers: the live list, in the shape servers/index.html reads", async () => {
     // the hidden server answers queries but is not listed; list a visible copy of it
     const list = JSON.parse(fs.readFileSync(t.serversFile, "utf8"));

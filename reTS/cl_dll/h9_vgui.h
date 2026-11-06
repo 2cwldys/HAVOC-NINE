@@ -11,7 +11,7 @@
 // and ESC closes the newest one.
 #pragma once
 
-#define H9V_PROTOCOL 2 // 2: STATUS
+#define H9V_PROTOCOL 3 // 3: MARK (2: STATUS)
 
 // Limits (docs\H9_VGUI.txt, 4d).
 #define H9V_ID_LEN 24       // an id: 1-23 characters of a-z 0-9 . _ -
@@ -26,6 +26,9 @@
 #define H9V_CTRL_TEXT 128   // a control's text, 127 characters
 #define H9V_MAX_MSG 192     // bytes an H9Vgui message may have
 #define H9V_MAX_RATE 64     // H9Vgui messages read a second
+#define H9V_MAX_MARKS 32    // marks at once: slots 1-32
+#define H9V_MARK_TEXT 8     // a mark's label, 7 characters
+#define H9V_MARK_LIFE 30.0f // seconds a mark stays when nothing refreshes it
 
 // Ops: the first byte of every H9Vgui message.
 enum
@@ -41,7 +44,8 @@ enum
 	H9V_OP_CLOSE = 15,
 	H9V_OP_COMMIT = 16,
 	H9V_OP_NOTICE = 20,
-	H9V_OP_STATUS = 21
+	H9V_OP_STATUS = 21,
+	H9V_OP_MARK = 22
 };
 
 // Anchors, relative to the safe area (docs\H9_VGUI.txt, 4c).
@@ -133,6 +137,7 @@ struct H9NoticeDef
 	int value; // 0-1000 for a bar, -1 for none
 	char text[H9V_NOTICE_LEN]; // a status's {t} (m:ss) and {s} (seconds) are its clock
 	float start;
+	float shown; // when this slot began to show: the notice comes up from then; one that replaces a showing notice keeps it
 	bool status; // a STATUS: stays until its slot is replaced or cleared, stacks first
 	int clock;   // a status's clock in seconds at start, -1 for none
 };
@@ -190,6 +195,10 @@ bool H9Vgui_TakesSlot(int slot);
 // The safe area (docs\H9_VGUI.txt, 4c), in screen pixels: what is left of the screen once a thin
 // top margin and the bottom band (the chat and TS's HUD) are taken out.
 void H9Vgui_SafeArea(int& x0, int& y0, int& x1, int& y1);
+
+// MARK (protocol 3): a point of the world the server wants the player to know of, drawn on the screen in screen space,
+// so through walls, pinned to the screen's edge while it is out of view, as a badge with its label in the owner's colour
+// and a bar of how far a capture has got; and the same badges in a row under the top stack (cl_h9_marks, cl_h9_marks_strip).
 
 // The pixel row just under what the H9 VGUI shows in the top stack (the notices and the panels
 // anchored along the top) this frame, 0 while it shows nothing there: on a server whose match mode

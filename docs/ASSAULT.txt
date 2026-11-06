@@ -1,0 +1,265 @@
+ASSAULT -- the capture-point mode: how it plays, every number you can change, how to make a map
+================================================================================================
+
+ts_assault.amxx on the ts_matchmode core. Maps named h9_as_<name>. Its cvars are in configs\ts_assault.cfg
+(and the three presets' copies in H9XASH\presets), plus the core's pool cvars in ts_matchmode.cfg. This is
+the reference for the mode; docs\GAME_MODES.txt says what each kind of map plays and how a map is set up in
+general, and docs\CUSTOM_SPAWNPOINTS.txt part 5 is the spawn sets.
+
+Not to be mixed up with the Assault CLASS, the first of the nine (the one with the M4A1): it has nothing to
+do with the mode but the name. "Assault" below is the mode.
+
+
+1. WHAT IT IS
+-------------
+
+Both sides fight over the capture points of the map (2 to 24 of them). A point is taken by standing in it,
+nothing is carried, and nothing needs an uplink. A side's lives are ONE pool, called REINFORCEMENTS: a death
+draws from it by class, the dead come back in respawn waves at the spawn points of a point their side holds,
+and a side with nobody alive and nobody waiting loses. Holding every point wins at once. At the clock more
+points win, then more reinforcements. By default the first round that ends is the whole match.
+
+
+2. HOW IT PLAYS
+---------------
+
+The points. A point is a circle across the floor, tsm_as_radius wide (384 units unless the map says
+otherwise; an uplink zone is 128), with a height window of 128 units up or down from the point's floor. It
+has a letter (A is point 1, B point 2, up to X for 24), a ring on the floor in its holder's colour (grey
+nobody, blue MSR, red Insurgents, amber while it is being taken) and a flag over it. Where circles overlap
+the nearest centre wins.
+
+Taking a point. Every living player in play on a side counts while he stands in it, bots included. With one
+side in it and no living enemy there, that side takes it: one player takes a neutral point in tsm_as_time
+(20) seconds, and each further player adds half again as fast (tsm_as_speedup 0.5) up to tsm_as_maxcap (6)
+players:
+
+     capturers    1     2     3     4     5     6 or more
+     seconds     20.0  13.3  10.0   8.0   6.7   5.7
+
+A point the other side holds is worn down to neutral first and then built up for the taker, so it takes twice
+that. Both sides in it at once is CONTESTED: nothing moves. Nobody in it: it keeps what it had, with no decay.
+Half a capture stays when the taker leaves.
+
+What a capture gives. tsm_score_zone (5) scoreboard points to every in-play player of the capturing side who
+is standing in the circle at that moment; tsm_as_capture_reinforcements (5) added to the side's pool; the
+point's spawn set opens for that side; and with tsm_as_capture_wave 1 (the default) every dead player of the
+side waiting for a wave comes back at once. Losing a point costs a side nothing; it only closes the point's
+spawn set. Holding EVERY point wins the round on the spot.
+
+Reinforcements. Each side starts a round with tsm_pool_base (16) plus tsm_pool_perplayer (4) for every player
+on the side, bots included while tsm_bots is above 0, as the round goes live: 5 a side 36, 8 a side 48, 16 a
+side 80, 32 a side 144. A death in a live round draws its class's cost from the pool (tsm_class_cost): the
+Officer 2, the Mech 3, every other class 1, and the dead player waits for the next wave. A death when the pool
+is at 0 is FINAL: he is out for the rest of the round; reinforcements won later do not bring him back, they
+only pay for later deaths. A pool smaller than the cost is emptied by it and that player still waits for a
+wave. The per-class lives (tsm_class_lives) are not used. Needs tsm_respawns 1: at 0 every death is final.
+
+Waves. Each side has its own clock of tsm_as_wave (30) seconds, started as the round goes live. A timed wave
+returns the players who have been dead at least tsm_respawn_seconds (5); a capture wave, the Officer's
+.reinforce and amx_tsm_wave return everyone waiting. TS's own death timer still applies, and a revived player
+gets the full class kit and health, the Officer his kung fu again; an Officer's fall is not announced to both
+sides ("officer has perished", tsm_officerslain_sound) in this mode: his death costs reinforcements, not the Officer.
+
+Where a wave lands. Point N's SPAWN SET is the spawn points of tier N in the map's spawn file. A set is open
+to the side that holds point N, and shut when the point is lost, and (tsm_as_spawn_under_attack 0) while an
+enemy is taking it; a contested point keeps its set as it was. A wave lands on ONE set: of the sets that are
+open to the side and have a point for it, the FRONT one, whose points lie nearest the middle of the enemy's
+base (the lowest number on a tie). A side that holds nothing lands at its own base (tier 0). Round start and a
+player who is alive are never moved. A player placed more than once during a revive stays on the same set.
+
+Winning. In order: a side holds every point (at once, after a capture); a side has nobody alive and nobody
+waiting (after tsm_roundend_delay, 4 seconds; both at once is a draw); at the clock (tsm_roundtime: the
+preset's 300, the shipped maps' 720, 720 and 900) the side with more points wins, then the one with more
+reinforcements LEFT, and equal is a draw. Partial captures count for nothing. There is no sudden death and no
+bleed: only deaths and captures change a pool.
+
+One round, one match. h9_assault_rounds 0 (the default): the first round that ends is the whole match, its
+winner the match's, a draw a drawn match; the match bar and the chat say MATCH; at the end the bar says
+"<SIDE> WINS", then "MATCH OVER" 3 seconds later, and the server is back in warmup 5 seconds after that.
+h9_assault_rounds 1 plays rounds like the other modes: best of tsm_rounds (first to rounds/2 + 1; 9 is first
+to 5); every round starts with every point neutral and every set shut. The cvar is read within a second, so it
+can be changed during a match (a match whose rounds were already counted is then decided by that tally).
+
+Bots fight but do not play the objective: nothing tells them where the points are yet. A bot that happens to
+stand in a circle still counts as a capturer or a contester.
+
+
+3. THE NUMBERS YOU CAN CHANGE
+-----------------------------
+
+Where to set them: configs\ts_assault.cfg and ts_matchmode.cfg for the server, the preset files in
+H9XASH\presets for a preset, or the map's own ts\mapconfigs\<map>.cfg for one map. A cvar typed at the server
+console works too. "Read" says when a change counts.
+
+3a. REINFORCEMENTS -- how many a side has
+
+     tsm_pool_base             16   the flat part of a side's starting pool
+     tsm_pool_perplayer         4   added for every player on the side when the round goes live
+     tsm_class_cost       1,1,1,1,1,1,2,1,3
+                                    what a death of each class draws, in the order of the tsm_classN
+                                    lines (7th, the Officer, 2; 9th, the Mech, 3); below 1 is read as 1
+     tsm_as_capture_reinforcements 5  added to a side's pool when it takes a point (0: none)
+     tsm_respawns               1   must be 1: at 0 there are no waves and every death is final
+
+The pool is base + perplayer x players, at most 4095, set once as the round goes live: a change counts from
+the NEXT round going live, never in the middle of one. tsm_class_cost is read when classes are set up at
+each round start. To give a side more to fight with, raise tsm_pool_base (a flat amount) or tsm_pool_perplayer
+(a lot more on a full server); to make the big classes cheaper or dearer, change tsm_class_cost; to make
+points worth fighting for, raise tsm_as_capture_reinforcements. No console command edits a pool during a
+round (the natives tsm_pool_set and tsm_pool_add exist for plugins).
+
+3b. THE POINTS AND THEIR CAPTURE
+
+     tsm_assault_mode           1   the mode on (0: an h9_as_ map plays as plain team elimination); read when
+                                    the map is claimed, 2 seconds after it loads
+     tsm_as_radius            384   reach of a point that brings none of its own (minimum 32); a brush point
+                                    is as wide as its box. Used when the point is made
+     tsm_as_time               20   seconds for one player to take a neutral point (live)
+     tsm_as_speedup           0.5   extra speed for each further capturer (live)
+     tsm_as_maxcap              6   most capturers of a side that count (live)
+     tsm_as_capture_wave        1   1: the taker's waiting dead return at once (live)
+     tsm_as_spawn_under_attack  0   0: a point's spawn set is shut while an enemy is taking it; 1: it stays
+                                    open (live)
+
+3c. ROUNDS, WAVES AND THE CLOCK
+
+     h9_assault_rounds          0   0: one round is the match; 1: rounds, best of tsm_rounds
+     tsm_as_wave               30   seconds between both sides' waves (the next round start; the core's
+                                    tsm_respawn_wave is not used while this is above 0)
+     tsm_respawn_seconds      5.0   a timed wave takes only those dead at least this long
+     tsm_reinforce_cooldown   120   seconds before an Officer may call .reinforce again
+     tsm_roundtime            300   the round clock (the shipped maps' mapconfigs set 720, 720, 900); 0: none
+     tsm_rounds                 9   best-of, only with h9_assault_rounds 1
+     tsm_roundend_delay       4.0   seconds a side with nobody left is held before the round ends
+     tsm_freezetime             6   seconds frozen before the round goes live (the preset's; 10 is the default)
+     tsm_score_zone             5   scoreboard points to each capturer in the circle at a capture
+     tsm_gamedesc_assault  Assault  the game's name in the server browser and on the Discord card
+     tsm_class_limits   0,4,2,2,4,2,1,4,1
+                                    most of each class a side may have (the Officer 1, the Mech 1), a
+                                    little more on a bigger server (tsm_scale_players)
+     tsm_bots                  10   bots the server keeps (the preset's); any bot in a match means it is
+                                    not rated
+     tsm_verbosity              0   0 silences every [MATCH] chat line (the mode's too); 1 shows them
+
+Chat is silent as shipped. At tsm_verbosity 0 the points, the bars, the news banners and the match bar still
+tell everything an H9 game needs; a game that draws no H9 marks learns of a point changing hands from the
+point's own marker and two sounds only.
+
+
+4. COMMANDS
+-----------
+
+Players (chat):
+     .reinforce          the Officer's call: returns EVERY waiting teammate at once, bots included, resets
+                         his side's wave clock, once per tsm_reinforce_cooldown. It costs no reinforcements
+                         (they were paid at death) and brings back nobody whose death was final. Nothing is
+                         spent when nobody is waiting.
+     .class .ready .unready .forfeit .status    the ordinary match commands. The class menu shows each
+                         class's cost where other modes show its lives; a class is picked once, in the freeze.
+
+Admins (ADMIN_CFG), the capture points:
+     amx_tsm_assault                  the mode's state: build, whether it is active, each side's pool, the
+                                      points and who holds them
+     amx_tsm_as_list                  every point: number, letter, x y z, radius, holder, where it came from
+     amx_tsm_as_add [n] [radius]      a point at your feet (the lowest free number, tsm_as_radius); two
+                                      points make a map an Assault map on the spot
+     amx_tsm_as_del <n>               remove a point (one the map itself defines returns on the next load)
+     amx_tsm_as_radius <n> <radius>   a point's reach, 32 or more
+     amx_tsm_as_give <n> <0|1|2>      hand a point to a side, or to nobody, to test: opens or shuts its
+                                      spawn set and updates the marks, pays nothing and never ends the round
+     amx_tsm_as_save                  write configs\tsm_assault_<map>.cfg (replaces the file: hand comments
+                                      such as the points' names are lost; points the map defines are not written)
+     tsm_as_zone <n> <x> <y> <z> [radius]   the server command the file is made of
+
+Admins, the spawn sets and testing (ts_matchmode):
+     amx_tsm_spawn_add <1|2> [tier]   a spawn point where you stand; tier 0 is a base, tier N the spawn set of
+                                      point N (up to 32); then amx_tsm_spawn_save. amx_tsm_spawn_list, _del,
+                                      _clear, _tp
+     amx_tsm_debug                    each side's pool, the cvars, and the spawn sets open and the tier waves land at
+     amx_tsm_wave [1|2]               force a wave now
+     amx_tsm_simelim [player]         eliminate a player as if killed (draws the pool)
+     amx_tsm_simwin <1|2>             award the round
+
+A tool walks a BSP and proposes the points and the spawn sets: node tools\assault-spawns\cli.mjs <map>
+--suggest <n> --plan <folder> (docs\ai_context\ASSAULT_SPAWNS.txt).
+
+
+5. WHAT PLAYERS SEE
+-------------------
+
+Through the walls: every point on every screen, living, dead or spectating. An H9 game draws a badge with the
+point's letter in its holder's colour (blue MSR, red Insurgents, grey nobody; the frame blinks yellow while
+contested), a bar while a side is taking it, the badge pinned to the screen's edge when the point is out of
+view, and the same badges in a row under the top notices (client cvars cl_h9_marks, cl_h9_marks_strip;
+docs\H9_VGUI.txt). Any other game gets TS's own objective marker: the letter, the holder, and TAKING 45% or
+CONTESTED.
+
+On the floor: the ring and the flag (the Uplink's sprites). Standing in a point: "POINT A -- MSR TAKING IT" in
+the taker's colour with a bar (or a hud line without H9 VGUI), or "POINT A IS CONTESTED". A capture rings a
+bell map-wide and a loss a click. H9 games get a 3-second banner for each change ("MSR took point A -- 2 of 5
+held"); the chat carries the same at tsm_verbosity 1.
+
+The match bar: "MATCH -- 11:49 -- POINTS 2 - 1  REINFORCEMENTS 31 - 28" over "MSR -- INS" (ROUND n and the
+tally with h9_assault_rounds 1). The scoreboard's lives column becomes REINFORCEMENTS on each team's row, with
+what is left out of what it started with. A dead player reads "RESPAWN WAVE IN 12s -- 30 reinforcements left";
+a living Officer reads "WAVE IN 12s -- REINFORCE READY" and, while teammates wait, a list at the right of the
+screen (a panel on an H9 game, a hud list on any other): WAITING FOR A WAVE (3), their names, and how many more.
+
+
+6. MAKING AN ASSAULT MAP
+------------------------
+
+1. Name it h9_as_<name>. A copy of an Uplink map keeps that map's zones: put tsm_uplink_mode 0 in its mapconfig.
+   No tsm_obj_ siege objectives on it.
+2. The points: entities (info_target, or a brush for its footprint) with the targetname tsm_as_1 to tsm_as_24, or
+   lines in configs\tsm_assault_<map>.cfg, "tsm_as_zone <n> <x> <y> <z> [radius]" (the file wins over an
+   entity of the same number). Stand where a point should be and amx_tsm_as_add, then amx_tsm_as_save.
+3. The spawns: configs\tsm_spawns_<map>.cfg, with for EACH side its base (tier 0, enough for the whole team)
+   and, for every point N that side may hold, a set of tier N: near the point but behind it from the enemy's
+   way in and outside the circle, about 8 points 64 units apart (docs\CUSTOM_SPAWNPOINTS.txt part 5).
+4. A mapconfig, ts\mapconfigs\<map>.cfg: tsm_respawns 1 and tsm_roundtime (720 is a fair start).
+5. The sprites (tsm_zone_ring_*.spr, tsm_zone_flag.spr) are optional: without them there is no ring, flag or
+   sound, and the mode still runs. rcbot waypoints for the bots. Mapconfigs run on H9XASH only, not on a
+   Steam hlds server.
+6. tools\make_assault_maps.py makes the shipped maps from maps that already play (copies of the bsp, the
+   waypoints and the picture; writes the config files only when they are missing).
+
+Limits: 24 points, 32 marks, spawn tiers 1 to 32, 256 spawn points a side, pools 0 to 4095, radius 32 up.
+
+
+7. RANKING, THE CARD, THE SITE
+------------------------------
+
+The match is on the MATCH ladder (docs\H9_COMPETITIVE.txt). The one round is rated as the round it is: h9_compete
+says the match was a single round (oneRound) and havoc9.org then asks one round and the five minutes, not
+three rounds. A drawn match and a match with a bot in it rate nobody (the Assault preset keeps 10 bots; turn
+tsm_bots off for a ranked server). The server must run the official plugins, or it reads "modified".
+
+The server publishes tsm_pres_mode "assault" and tsm_pres_prog "2/1/5" (side 1's points, side 2's, all of
+them). The Discord card reads "Assault - points: MSR 2, Insurgents 1 of 5" (a game older than 2026-11-05 shows
+Deathmatch); the in-game server browser's Mode column and havoc9.org read "Assault".
+
+
+8. THE SHIPPED MAPS
+-------------------
+
+     h9_as_lift         5 points of 288 units on three levels (z 16, 368 and 656)                720 s
+     h9_as_drainage     4 points, each over a thousand units from the others                     720 s
+                        (the two culverts and the two side rooms; reaches of 256 and 192)
+     h9_as_neuropolis   7 points of 384 on the city's three floors: 3 on the street, 2 in the     900 s
+                        undercity (floor -512), 2 in the shanty (floor -1088)
+
+All are first passes: points proposed from the geometry, to be judged on a plan picture and walked. Spawn
+sets: 8 points a side for each point.
+
+
+9. THINGS TO KNOW
+-----------------
+
+ * The preset's tsm_roundtime is 300 and the maps' mapconfigs say 720 and 900: the map's wins.
+ * tsm_sudden_death does nothing here: the mode has no sudden death.
+ * tsm_assault_mode 0 after the map was claimed does not release it.
+ * A point that came from a map entity and was deleted or resized in the editor returns on the next load.
+ * The pool is 0 from the start of a round's freeze until it goes live; a bar drawn then shows 0.
+ * The points keep their holders through the end-of-match warmup until the next round starts.

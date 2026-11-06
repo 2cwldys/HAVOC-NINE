@@ -832,6 +832,58 @@ const PICTURES = [
     "R0lGODdhEAAQAIYAAOP1yPf3g+fev9PdRdztDdnjOc3iKuDcGaz07rPkx5rhprDQnqXUQ9LKwcSxs+Osa9atHqm/1ZnCSpOpds+X2OSFm5SW1pWLYWv50En6nmH5HnroYjf5mwv0sR3kVlzO5U3Tnl7EhjvMfGTLMy3COXChqEikVmarE06tMWuGq0eWdjOmwjmzfAek5wOtqw6TtByPGtx1wOV+eNpfxc+CP852W+ZiQJVyvpx4hJdew4lhhqN7SJhmMeE+ofEus+dAOuMrKrs+rqwyDINHPdoWjfELHKocurgoR7sNJ1t4pFZ0NXxlCjFy3DpieiV4WGpSn3VDwGpGTUNUgQhXpmowgUQ9tGI2Mjw8DGARSD4Sbx8woBczUhY0FxciXREfBgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACwAAAAAEAAQAEAI/wB1NMiyIQOICFouMMnhowiAIAhWRGjRhYYAHQFsYNlhIYoUABJqqKhgAUkSLjt60Bixo0CHDDISBIERgEMQCwx6LGFiAYWFCiaoHJgyA4cUICk0eLDioccHEiJ6RLmBZMCLKhiGCJHyZMKOGhEMSHACoAUDEiFOKEFggMgJAQ+0EBiggwIGLBoMyBBhg0gTGVwOlJjwoYYSKFpm/HDiBEcBEy8QxLACQkYRIFWMPOAyggUTkFRIZKCxYQuLGU50RPEiZUeED1wcOEBhowkFJktmdHgipAQQCxIwQAlRhImPIRdiDKBigIIVLQmAQBFyJIALLV5qUCQAIwUPCiI0QCAAgULJlQ85VFiB0GTEkS0RFixIgoOnCyxGmLDQokJBQAA7"],
 ];
 
+describe("the account API (h9_presence 1.9): the answer's usernames and roles", () => {
+  let t;
+  const cookies = {};
+  const DEV3 = "33".repeat(16);
+  const DEV4 = "44".repeat(16);
+  before(async () => {
+    t = await app();
+    for (const n of ["Morpheus", "Trinity", "Neo", "Smith", "Tank"]) cookies[n] = await signup(t.base, n);
+  });
+  after(async () => {
+    await t.close();
+  });
+
+  test("proven players' usernames and roles, for the slots with the chain only", async () => {
+    // a server in no community: the site's roles alone
+    t.app.accounts.setRole(idOf(t, "Neo"), "moderator");
+    t.app.accounts.setRole(idOf(t, "Tank"), "admin");
+    let r = await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 3, DEV1), player(t, "Smith", LISTED, 4)]);
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.json.accounts, { 3: idOf(t, "Neo") });
+    assert.deepEqual(r.json.usernames, { 3: "Neo" }, "the proven player only; the unproven one gets no name");
+    assert.deepEqual(r.json.roles, { 3: "h9_moderator" });
+
+    // the server joins Morpheus's community, Trinity is one of its admins, Smith a member
+    const site = (method, sub, cookie, body) => request(t.base, method, "/api/presence/communities" + sub, { cookie, body });
+    const cookie = cookies.Morpheus;
+    assert.equal((await site("POST", "", cookie, { slug: "zion", name: "Zion" })).status, 201);
+    const claim = await call(t, "server/claim", LISTED, LISTED_KEY);
+    assert.equal((await site("POST", "/zion/claim", cookie, { code: claim.json.code, tag: "Zion" })).status, 200);
+    assert.equal((await site("POST", "/zion/staff", cookie, { username: "Trinity" })).status, 200);
+    t.app.db.prepare("INSERT INTO presence_community_members (community_id, account_id, joined_at) SELECT id, ?, ? FROM presence_communities WHERE slug = 'zion'")
+      .run(idOf(t, "Smith"), t.sec());
+
+    r = await report(t, LISTED, LISTED_KEY, [
+      player(t, "Morpheus", LISTED, 1, DEV2), player(t, "Trinity", LISTED, 2, DEV3), player(t, "Neo", LISTED, 3, DEV1),
+      player(t, "Smith", LISTED, 4, DEV4), player(t, "Tank", LISTED, 5)
+    ]);
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(Object.keys(r.json.accounts).sort(), ["1", "2", "3", "4"], "Tank proves nothing here");
+    assert.deepEqual(r.json.usernames, { 1: "Morpheus", 2: "Trinity", 3: "Neo", 4: "Smith" });
+    assert.deepEqual(r.json.roles, { 1: "owner,staff,member", 2: "staff,member", 3: "h9_moderator", 4: "member" },
+      "the site's role first, then the community's words; a site admin who proves nothing gets none");
+
+    // a rename on the site is the next answer's name
+    const entries = [player(t, "Morpheus", LISTED, 1, DEV2), player(t, "Neo", LISTED, 3, DEV1)];
+    t.app.db.prepare("UPDATE accounts SET username = 'TheOne' WHERE id = ?").run(idOf(t, "Neo"));
+    r = await report(t, LISTED, LISTED_KEY, entries);
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.json.usernames, { 1: "Morpheus", 3: "TheOne" });
+  });
+});
+
 describe("the ID proof's nonces, and pictures on the scoreboard", () => {
   let t;
   before(async () => {
@@ -908,6 +960,7 @@ describe("the ID proof's nonces, and pictures on the scoreboard", () => {
     const r = await report(t, LISTED, LISTED_KEY, [neo, trin]);
     assert.equal(r.status, 200, r.text);
     assert.deepEqual(r.json.avatars, { 2: { a: idOf(t, "Neo"), v: gameVersion(version) } }, "only the proven player's");
+    assert.deepEqual(r.json.accounts, { 2: idOf(t, "Neo") }, "the same slots as the pictures: the proven player's own account");
 
     const got = await fetch(t.base + "/api/presence/avatar/" + idOf(t, "Neo") + "/" + gameVersion(version) + ".png");
     assert.equal(got.status, 200);
@@ -1028,6 +1081,7 @@ describe("Create Game servers, the default picture, browser-made copies, the boa
     const a = r.json.avatars;
     assert.deepEqual(Object.keys(a), ["5"], "the unproven player keeps the silhouette");
     assert.equal(a[5].a, DEFAULT_ACCOUNT);
+    assert.deepEqual(r.json.accounts, { 5: idOf(t, "Neo") }, "the default picture's player by its own account number; the unproven one by none");
     assert.ok(Number.isInteger(a[5].v) && a[5].v > 0 && a[5].v < 2147483647);
     const got = await fetch(t.base + "/api/presence/avatar/" + DEFAULT_ACCOUNT + "/" + a[5].v + ".png");
     assert.equal(got.status, 200);
@@ -1082,6 +1136,7 @@ describe("Create Game servers, the default picture, browser-made copies, the boa
     const tankE = { ...answerFor("Tank", LISTED, nonce), slot: 7, name: "Tank", joined: t.sec() - 5, time: 5 };
     const rep = await report(t, LISTED, LISTED_KEY, [tankE]);
     assert.deepEqual(rep.json.avatars[7], { a: id, v: gameVersion(version) });
+    assert.equal(rep.json.accounts[7], id);
 
     // a PNG picture is the site's to make
     t.app.db.prepare("INSERT OR REPLACE INTO forum_avatars VALUES (?, ?, 'image/png', 2000, 9, 10, 1, 0)").run(idOf(t, "Neo"), version);

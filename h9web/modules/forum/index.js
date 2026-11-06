@@ -19,7 +19,8 @@
 //   POST   /api/forum/posts/:id/report          { reason }
 //   PUT    /api/forum/posts/:id/vote            { value: 1 | -1 | 0 }   like, dislike, or take it back
 //   PATCH  /api/forum/threads/:id               { title }    the author, for editWindowMinutes
-//   POST   /api/forum/preview                   { body }     the rendered tree; nothing is stored
+//   POST   /api/forum/preview                   { body, thread?, post? }   the post as it would show:
+//                                               nothing is stored
 //   GET, PUT /api/forum/signature, POST /api/forum/signature/preview   your signature (signatures.js)
 //   GET    /api/forum/needs; PUT and POST /api/forum/needs/preview for its editors
 //                                               the "What we need" page (needs.js)
@@ -42,7 +43,8 @@
 //   PATCH  /api/forum/categories/:slug          { name, description, startRole, replyRole } or { move: "up"|"down" }
 //   DELETE /api/forum/categories/:slug          only a category that holds no thread at all
 //   GET, POST and DELETE /api/forum/developers/:name   the DEVELOPER flag (purple; edits "What we need")
-// The MEDIA page's routes, /api/forum/media...: media.js.
+// The MEDIA page's routes, /api/forum/media...: media.js. A member's profile wall,
+// /api/forum/users/:name/wall and /api/forum/wall/...: wall.js.
 //
 // No IP address is stored with anything here; the rate limits key on accounts (and on addresses
 // in memory only), and the log lines name the account and the thread or post, never the text.
@@ -55,6 +57,7 @@ import { createStore } from "./store.js";
 import { createSignatures } from "./signatures.js";
 import { createNeeds } from "./needs.js";
 import { createMedia } from "./media.js";
+import { createWall } from "./wall.js";
 import { parse, cleanText, cleanLine, imageCount, imageSource, withoutImage, MAX_IMAGES, IMAGE_HOSTS } from "./markup.js";
 import { inspectPicture, PICTURE_TYPES } from "./images.js";
 
@@ -105,6 +108,9 @@ export const DEFAULTS = Object.freeze({
     signaturePreview: { max: 120, windowSeconds: 300, blockSeconds: 60, maxBlockSeconds: 600 },
     needs: { max: 30, windowSeconds: 3600, blockSeconds: 600, maxBlockSeconds: 3600 },
     needsPreview: { max: 120, windowSeconds: 300, blockSeconds: 60, maxBlockSeconds: 600 },
+    // comments on one member's wall, from everyone together (wall.js): a flood stops here, on
+    // top of the post limits each writer has
+    wallFlood: { max: 30, windowSeconds: 600, blockSeconds: 300, maxBlockSeconds: 1800 },
     // title searches, per address (guests search too): each one reads every title
     search: { max: 30, windowSeconds: 60, blockSeconds: 30, maxBlockSeconds: 300 },
   }),
@@ -431,6 +437,10 @@ export default {
     createMedia({
       ctx, s, store, now, iso, isMod, postingBlock, requirePosting, take, ipKey, idOf, audit, limitThread, limitPost, reader, member,
     });
+    createWall({
+      ctx, s, store, now, iso, isMod, outranks, postingBlock, requirePosting, take, idOf, audit, limitPost, reader, member, moderator,
+      contentOf, checkBody, bodyBytes, paging, pictureRef,
+    });
 
     // ---- the DEVELOPER flag (admins give and take it; every change into the audit log) ---------
 
@@ -684,13 +694,51 @@ export default {
       rc.json(200, { ok: true, ...(store.voteCounts([p.id]).get(p.id) || { likes: 0, dislikes: 0 }), mine: value });
     }));
 
+    // A post as it would show once posted, stored nowhere: the post view a thread page gets
+    // (postView: the same cleaning, renderer, author block and signature), for the text in
+    // { body }. { thread } is a reply there (the number it would get), { post } an edit of that
+    // post (its author, number and votes, marked edited), neither a new thread's first post. The
+    // post count in the author block counts the new post. No actions on it: can is empty.
     r.post("/api/forum/preview", member(async (req, res, rc) => {
       const input = await rc.body({ maxBytes: bodyBytes });
+      const a = rc.account;
       if (typeof input.body !== "string") throw invalid("invalid_body", "Write something first.");
       const text = cleanText(input.body);
       if (text.length > s.postMax) throw invalid("invalid_body", "Keep a post to " + s.postMax + " characters; this one has " + text.length + ".");
-      take([["preview", "a:" + rc.account.id, "You can preview again"]]);
-      rc.json(200, { content: parse(text, { maxImages: s.maxImagesPerPost }), notes: imageNotes(text) });
+      take([["preview", "a:" + a.id, "You can preview again"]]);
+      const ts = now();
+      let row;
+      let t;
+      let number;
+      if (input.post !== undefined && input.post !== null) {
+        const found = postFor(idOf(input.post, "No such post."), a);
+        if (found.p.deleted_at || found.t.deleted_at) throw refuse("removed", "This post was removed.");
+        if (found.p.account_id !== a.id && !isMod(a)) throw refuse("forbidden", "You can edit only your own posts.");
+        t = found.t;
+        row = { ...store.postRow(found.p.id), body: text, edited_at: ts, edited_by: a.id };
+        number = store.postsBefore(t.id, row.id) + 1;
+      } else {
+        t = input.thread !== undefined && input.thread !== null
+          ? threadFor(idOf(input.thread, "No such thread."), a)
+          : { id: null, locked: 0, deleted_at: null, created_at: ts };
+        row = {
+          ...store.authorRow(a.id), id: null, thread_id: t.id, body: text, created_at: ts,
+          edited_at: null, edited_by: null, deleted_at: null, deleted_kind: null,
+        };
+        number = t.id ? store.postCount(t.id) + 1 : 1;
+      }
+      const ids = row.id ? [row.id] : [];
+      const counts = store.authorCounts([row.account_id]);
+      if (!row.id) counts.set(a.id, (counts.get(a.id) || 0) + 1);
+      const page = {
+        counts, likes: store.likesReceived([row.account_id]), votes: store.voteCounts(ids), mine: store.votesBy(a.id, ids),
+        blocked: !!postingBlock(a), signatures: sigs.forPosts([row], a),
+      };
+      const post = { ...postView(row, t, a, page, number), can: {}, preview: true };
+      rc.json(200, {
+        post, thread: t.id, content: post.content, notes: imageNotes(text),
+        pictureInlineBytes: s.pictureInlineBytes, signatureImageHeight: s.signatureImageHeight,
+      });
     }));
 
     // ---- threads: the author's title, and the moderators' tools ---------------------------------

@@ -30,6 +30,7 @@
 #include "entity_state.h"
 #include "cl_entity.h"
 #include "event_api.h"
+#include "r_efx.h"       // TEMPENTITY (the muzzle flare sprite is turned a random way)
 #include "pm_defs.h"
 #include "pm_materials.h" // CHAR_TEX_* material classes
 #include "pm_shared.h"    // PM_FindTextureType
@@ -61,6 +62,7 @@ static const char* const s_fireSound[] = {
 	/*31*/ "weapons/bull/fire01.wav", /*32*/ "weapons/m60/m60-fire.wav", /*33*/ "weapons/sawedoff/fire.wav",
 	/*34*/ nullptr, /*35*/ nullptr, /*36*/ "weapons/contender/fire.wav", /*37*/ "weapons/tmp/fire.wav",
 	/*38*/ nullptr, /*39*/ "h9/ppsh41/fire.wav",
+	/*40*/ "h9/laserrifle/fire.wav",
 };
 
 // Silenced fire sound, indexed by tsweapon_t — used when the weapon has a SILENCER attached
@@ -83,6 +85,7 @@ static const char* const s_fireSilSound[] = {
 	/*31*/ nullptr, /*32*/ nullptr, /*33*/ nullptr,
 	/*34*/ nullptr, /*35*/ nullptr, /*36*/ nullptr, /*37*/ "weapons/tmp/fire-sil.wav",
 	/*38*/ nullptr, /*39*/ nullptr,
+	/*40*/ nullptr,
 };
 
 // Muzzle-flash grip for tsweapon_t `w`: true = one-handed (pistols + akimbo barrels) -> the small
@@ -118,8 +121,10 @@ static void EV_TSMuzzleFlare(int idx, int weaponType, int side, bool silenced)
 	// SILENCED (a dimmer flash) and gun_muzzle2.spr when not (brighter). (Replaces the old per-grip
 	// ts_muzzleflash1h/6 selection.) Resolve the model index each shot — a cached index goes stale after
 	// a map change (model indices are reassigned per map). EV_FindModelIndex is a cheap by-name lookup.
-	const int spr = gEngfuncs.pEventAPI->EV_FindModelIndex(
-		silenced ? "sprites/gun_muzzle.spr" : "sprites/gun_muzzle2.spr");
+	// The laser rifle's flash is its own: a green energy flash, not a powder flash.
+	const bool energy = TS_IsEnergyWeapon(weaponType);
+	const int spr = gEngfuncs.pEventAPI->EV_FindModelIndex(energy ? "sprites/laserrifle_muzzle.spr"
+		: silenced ? "sprites/gun_muzzle.spr" : "sprites/gun_muzzle2.spr");
 
 	// Local player in FIRST person -> the viewmodel's attachments. In THIRD person the viewmodel
 	// isn't drawn and its attachments FREEZE at the last first-person position (playtest round 7:
@@ -152,11 +157,42 @@ static void EV_TSMuzzleFlare(int idx, int weaponType, int side, bool silenced)
 		const float* att0 = TS_PlayerGunAtt(idx, att); // the renderer-fed anchor cache, never cl_entity.attachment
 		pos[0] = att0[0]; pos[1] = att0[1]; pos[2] = att0[2];
 	}
-	const float scale = 0.5f;
+	const float scale = energy ? 0.75f : 0.5f;
 	// A muzzle flash is a single brief pop — a very short life and NO frame-cycle (FTENT_SPRCYCLE
 	// kept it animating/visible far too long, "slow enough to walk around"). One frame, gone fast.
-	gEngfuncs.pEfxAPI->R_TempSprite(pos, vec3_origin, scale, spr,
-		kRenderTransAdd, kRenderFxNoDissipation, 1.0f, 0.01f, 0);
+	struct tempent_s* flare = gEngfuncs.pEfxAPI->R_TempSprite(pos, vec3_origin, scale, spr,
+		kRenderTransAdd, kRenderFxNoDissipation, 1.0f, energy ? 0.035f : 0.01f, 0);
+	if (energy && flare != nullptr)
+	{
+		// one of the sprite's four frames, turned a random way, so that no two shots flash alike
+		flare->entity.curstate.frame = (float)gEngfuncs.pfnRandomLong(0, 3);
+		flare->entity.angles[2] = gEngfuncs.pfnRandomFloat(0.0f, 360.0f);
+	}
+}
+
+// Where the firing gun's muzzle is: the viewmodel's attachment for the local player in first person, else the
+// player's own gun anchor (as the flare above is placed). false when there is none to be had.
+static bool TS_MuzzlePos(int idx, int weaponType, int side, float* pos)
+{
+	const bool vmView = (EV_IsLocal(idx) && 0 == CL_IsThirdPerson());
+	cl_entity_t* ent = vmView ? gEngfuncs.GetViewModel() : NULL;
+	if (vmView && !ent)
+		return false;
+	const s_weapon_info* fwi = get_weapon_info((tsweapon_t)weaponType);
+	const bool akimbo = (fwi->iFireType == TSFT_AKIMBO || fwi->iFireType == TSFT_AKIMBO_ONLY);
+	const int att = (akimbo && side) ? 2 : 0;
+	if (vmView)
+	{
+		VectorCopy(ent->attachment[att], pos);
+	}
+	else
+	{
+		const float* a = TS_PlayerGunAtt(idx, att);
+		pos[0] = a[0];
+		pos[1] = a[1];
+		pos[2] = a[2];
+	}
+	return true;
 }
 
 // TS bullet impact: the byte-ported per-surface client particle dispatcher (FUN_10048f60),
@@ -170,8 +206,9 @@ static void EV_TSMuzzleFlare(int idx, int weaponType, int side, bool silenced)
 // dispatcher) and FUN_10001180 (the decal) do with a trace that hit. The fire core (TS_FireCore) and
 // the client bullet simulation (ts_bullets.cpp) call it for each surface a round reaches; src/end are
 // the points EV_TraceTexture probes between.
-void EV_TSBulletHit(int idx, const float* src, const float* end, pmtrace_t& tr, int mode)
+void EV_TSBulletHit(int idx, const float* src, const float* end, pmtrace_t& tr, int mode, int caliber)
 {
+	const bool energy = (caliber == TS_CALIBER_PLASMA); // a bolt of the laser rifle
 	{
 		// Classify the hit surface. Brush (world/breakable) -> texture material char; anything else
 		// (player/monster bbox) -> flesh.
@@ -220,7 +257,10 @@ void EV_TSBulletHit(int idx, const float* src, const float* end, pmtrace_t& tr, 
 			else if (pe->classnumber == 1)
 				sprintf(decalName, "{break%d", gEngfuncs.pfnRandomLong(0, 2) + 1); // pe+0x8c == 1
 			else if (pe->rendermode == kRenderNormal)
-				sprintf(decalName, "{shot%d", gEngfuncs.pfnRandomLong(0, 4) + 1); // pe+0x68 == 0
+				if (energy)
+					sprintf(decalName, "{smscorch%d", gEngfuncs.pfnRandomLong(0, 2) + 1); // decals.wad {smscorch1..3
+				else
+					sprintf(decalName, "{shot%d", gEngfuncs.pfnRandomLong(0, 4) + 1); // pe+0x68 == 0
 			else
 				strcpy(decalName, "{bproof1"); // rendermode not 0
 			if (gEngfuncs.pfnGetCvarFloat("r_decals") != 0.0f)
@@ -238,6 +278,8 @@ void EV_TSBulletHit(int idx, const float* src, const float* end, pmtrace_t& tr, 
 			pos[i] = tr.endpos[i] + tr.plane.normal[i] * 2.0f;
 
 		TS_ImpactEffect(pos, tr.plane.normal, mode, chType);
+		if (energy)
+			TSPlasma_Impact(pos); // the green glow, on a wall and on a player alike
 
 		// Bullet ric impact sound — played CLIENT-side here (positional, predicted), NOT server-side:
 		// the old server path used EMIT_AMBIENT_SOUND on the WORLD entity, which the engine spawns as a
@@ -250,8 +292,11 @@ void EV_TSBulletHit(int idx, const float* src, const float* end, pmtrace_t& tr, 
 			extern float g_flClientSlow; // cl_dll/ts_powerup_hud.cpp — smoothed slow factor
 			// unclamped, as client.dll 0x10044db7 passes it
 			const int pitch = 100 + (int)(300.0f * g_flClientSlow);
-			char ric[24];
-			sprintf(ric, "debris/ric%d.wav", gEngfuncs.pfnRandomLong(1, 5));
+			char ric[32];
+			if (energy)
+				sprintf(ric, "h9/laserrifle/hit%d.wav", gEngfuncs.pfnRandomLong(1, 3)); // the plasma's own, no ricochet
+			else
+				sprintf(ric, "debris/ric%d.wav", gEngfuncs.pfnRandomLong(1, 5));
 			// Entity 0 (the WORLD), so the sound is spatialised AT the impact `pos` and attenuates with
 			// distance (ATTN_NORM) — NOT on the shooter's entity (idx), which would glue it to your ear.
 			// It's a client-side one-shot (no server static-sound spawn), so no "hear it as you approach".
@@ -278,6 +323,8 @@ static float TS_SharedRandomFloat(unsigned int seed, float low, float high)
 
 extern Vector v_origin; // cl_dll/view.cpp: the refdef view origin (client.dll 0x10190b28)
 
+static float s_plasmaMuzzle[3];   // the laser rifle's muzzle for this shot (a bolt is drawn from it)
+static bool s_havePlasmaMuzzle;
 static float s_flCoreDamage;  // 0x1018a164: what is left of the last pellet that hit, for the pierce
 static Vector s_vecCoreDir;   // 0x1018a1a8: the last pellet's direction
 static int s_iWhizzCount;     // 0x1018a1c4: flips the whizz channel between 503 and 504
@@ -322,7 +369,7 @@ static void TS_FireCore(int idx, const Vector& fwd, const Vector& right, const V
 		ev->EV_SetTraceHull(2);
 		ev->EV_PlayerTrace((float*)&src, end, PM_STUDIO_BOX, -1, &tr);
 		if (tr.fraction != 1.0f)
-			EV_TSBulletHit(idx, src, end, tr, 2);
+			EV_TSBulletHit(idx, src, end, tr, 2, caliber);
 		ev->EV_PopPMStates();
 		return;
 	}
@@ -377,7 +424,8 @@ static void TS_FireCore(int idx, const Vector& fwd, const Vector& right, const V
 		end = src + s_vecCoreDir * (float)ai->iMaxTravel;
 		if (real)
 		{
-			TSBullets_Fire(idx, src, s_vecCoreDir, damage, caliber, mode);
+			TSBullets_Fire(idx, src, s_vecCoreDir, damage, caliber, mode,
+				(caliber == TS_CALIBER_PLASMA && s_havePlasmaMuzzle) ? s_plasmaMuzzle : nullptr);
 			continue;
 		}
 		ev->EV_SetUpPlayerPrediction(0, 1);
@@ -385,11 +433,18 @@ static void TS_FireCore(int idx, const Vector& fwd, const Vector& right, const V
 		ev->EV_SetSolidPlayers(idx - 1);
 		ev->EV_SetTraceHull(2);
 		ev->EV_PlayerTrace((float*)&src, end, PM_STUDIO_BOX, -1, &tr);
+		if (caliber == TS_CALIBER_PLASMA)
+		{
+			// the laser rifle's shot at normal speed: the bolt runs from the muzzle to where it lands (4096 out when
+			// it lands nowhere), and its trail fades behind it
+			const Vector bolt = (tr.fraction != 1.0f) ? Vector(tr.endpos) : src + s_vecCoreDir * 4096.0f;
+			TSPlasma_Bolt(s_havePlasmaMuzzle ? s_plasmaMuzzle : (const float*)&src, (const float*)&bolt);
+		}
 		if (tr.fraction != 1.0f)
 		{
 			const float range = (src - Vector(tr.endpos)).Length() / ((float)ai->iRangeUnit * 10.0f);
 			s_flCoreDamage = get_range_multipler((int)(range * 10.0f)) * damage;
-			EV_TSBulletHit(idx, src, end, tr, mode);
+			EV_TSBulletHit(idx, src, end, tr, mode, caliber);
 			s_flCoreDamage = s_flCoreDamage * ai->flFactor2;
 		}
 		ev->EV_PopPMStates();
@@ -405,7 +460,7 @@ static void TS_FireCore(int idx, const Vector& fwd, const Vector& right, const V
 	ev->EV_SetTraceHull(2);
 	ev->EV_PlayerTrace(exitPos, face, PM_NORMAL, -1, &tr);
 	if (tr.fraction != 1.0f)
-		EV_TSBulletHit(idx, exitPos, face, tr, 2);
+		EV_TSBulletHit(idx, exitPos, face, tr, 2, caliber);
 	const Vector legDir = s_vecCoreDir;
 	TS_FireCore(idx, fwd, right, up, 1, exitPos, legDir, 0.0f, 0.0f, s_flCoreDamage, 2, caliber, seed);
 }
@@ -876,6 +931,13 @@ void EV_TSReload(event_args_t* args)
 	if (phase != 0)
 		return;
 
+	// The laser rifle's energy cell going out and in: its own sound over the reload sounds the model's animation
+	// (the M4A1's) and the world's reload already make, heard by the shooter too. It runs 2.7 s, its release at
+	// 0.47 s, its latch at 1.36 s as the animation's clip out and clip in.
+	if (TS_IsEnergyWeapon(weaponType))
+		gEngfuncs.pEventAPI->EV_PlaySound(idx, args->origin, 0 /*CHAN_AUTO*/, "h9/laserrifle/reload.wav", 0.9f, 0.8f, 0,
+			TS_MeleeSoundPitch());
+
 	// phase 0 — the whole-clip reload, NON-local presentation only
 	if (!CL_IsThirdPerson() && localish)
 		return;
@@ -1037,6 +1099,20 @@ void EV_TSFire(event_args_t* args)
 	// engine-side R_MuzzleFlash doubles from the models' embedded 5001-family events are
 	// suppressed in HUD_StudioEvent instead; see entity.cpp).
 	EV_TSMuzzleFlare(idx, weaponType, barrelSide, silenced);
+	// The laser rifle fires plasma: a faint green light where it was fired from (everyone sees it, and it lights a
+	// dark room), no brass and no gun smoke, and the bolt of the fire core below is drawn from its muzzle.
+	const bool energy = TS_IsEnergyWeapon(weaponType);
+	s_havePlasmaMuzzle = false;
+	if (energy)
+	{
+		float muzzle[3];
+		if (TS_MuzzlePos(idx, weaponType, barrelSide, muzzle))
+		{
+			VectorCopy(muzzle, s_plasmaMuzzle);
+			s_havePlasmaMuzzle = true;
+			TSPlasma_MuzzleLight(idx, muzzle);
+		}
+	}
 	// (the both-barrels shot is a SEPARATE event — events/firelinked.sc → EV_TSFireLinked)
 
 	// The AKIMBO single-barrel viewmodel anim comes from the EVENT (the fire core). The MODELS
@@ -1062,7 +1138,7 @@ void EV_TSFire(event_args_t* args)
 
 	if (EV_IsLocal(idx))
 	{
-		if (!silenced)
+		if (!silenced && !energy)
 			EV_MuzzleFlash(); // the dynamic light / model flash on top of the sprite
 		// The aim kick is the prediction's (TS_AddViewRecoil from CTSGun's fire, as client.dll's fire
 		// calls 0x10008230).
@@ -1073,16 +1149,23 @@ void EV_TSFire(event_args_t* args)
 	VectorCopy(args->angles, angles);
 	VectorCopy(args->velocity, velocity);
 	AngleVectors(angles, fwd, right, up);
-	const int shell = gEngfuncs.pEventAPI->EV_FindModelIndex("models/shell.mdl");
-	EV_GetDefaultShellInfo(args, origin, velocity, shellVel, shellOrigin, fwd, right, up, 20, -12, 4);
-	EV_EjectBrass(shellOrigin, shellVel, angles[1], shell, TE_BOUNCE_SHELL);
+	if (!energy) // plasma leaves no casing
+	{
+		const int shell = gEngfuncs.pEventAPI->EV_FindModelIndex("models/shell.mdl");
+		EV_GetDefaultShellInfo(args, origin, velocity, shellVel, shellOrigin, fwd, right, up, 20, -12, 4);
+		EV_EjectBrass(shellOrigin, shellVel, angles[1], shell, TE_BOUNCE_SHELL);
+	}
 
 	// The gun smoke at the fired barrel: client.dll's fire.sc handler sends an akimbo class to
 	// 0x1003f090 (the barrel's attachment, viewmodel and player alike), a pump shotgun to 0x10040c20
 	// (viewmodel 0, player 3) and the rest to 0x1003dfa0 (viewmodel 0, player 3 for fire types 6 and 7,
 	// else 0).
 	const s_weapon_info* wi = get_weapon_info((tsweapon_t)weaponType);
-	if (akimboClass)
+	if (energy)
+	{
+		// plasma leaves no smoke
+	}
+	else if (akimboClass)
 		TS_FireSmoke(args, wi, weaponType, barrelSide ? 2 : 0, barrelSide ? 2 : 0, silenced);
 	else if (wi->iFireType == TSFT_PUMP)
 		TS_FireSmoke(args, wi, weaponType, 0, 3, silenced);

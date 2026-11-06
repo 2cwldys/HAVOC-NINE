@@ -61,7 +61,7 @@ export async function createApp(config, { logSink, logLevel } = {}) {
   registerRenameRoutes(router, { auth, renames, limits, config, log: log.child("account") });
   const adminRoutes = registerAdminRoutes(router, { db, auth, accounts, renames, audit, limits, config, log: log.child("admin") });
   const links = createLinks({ db, accounts, audit, config, events, clientIds, log: log.child("link") });
-  registerLinkRoutes(router, { auth, links, limits });
+  registerLinkRoutes(router, { auth, links, limits, accounts, confirmAdmin: adminRoutes.confirmAdmin });
   const relay = createRelay({ config, auth, servers, events, log: log.child("relay") });
   const modules = await loadModules({
     names: config.modules, dir: config.modulesDir, router, db, auth, accounts, audit, events, config, log, backupDir,

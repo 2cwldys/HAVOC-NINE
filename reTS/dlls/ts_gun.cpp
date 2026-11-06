@@ -206,7 +206,7 @@ void GetCloseCombatVectors(int a0, Vector &vecSrc, Vector &vecOut, Vector &vecFo
 // GetBetterWeapon walks after a drop (highest priority first). Last entry (kung-fu, 0)
 // is the always-owned fallback. Recovered verbatim from the .so.
 static const int g_iWeaponPriority[TSW_COUNT] = {
-	18, 32, 13, 5, 15, 27, 11, 20, 4, 26, 33, 16, 37, 6, 23, 39, 7, 3, 17, 19,
+	18, 32, 13, 5, 40, 15, 27, 11, 20, 4, 26, 33, 16, 37, 6, 23, 39, 7, 3, 17, 19,
 	10, 8, 21, 30, 31, 12, 36, 22, 9, 2, 14, 28, 1, 34, 25, 35, 24, 29, 38, 0,
 };
 
@@ -588,7 +588,7 @@ bool CTSGun::MultiplyClips()
 // sequence names — the original looks it up at init into the weapon anim set, item+0x28 +4).
 static const int s_drawSeq[TSW_COUNT] = {
 	1, 2, 4, 2, 5, 2, 4, 2, 2, 4, 5, 2, 2, 2, 2, 1, 4, 1, 2, 2,
-	5, 2, 2, 1, 1, 2, 7, 2, 3, 2, 1, 3, 1, 1, 1, 1, 1, 1, 1, 2};
+	5, 2, 2, 1, 1, 2, 7, 2, 3, 2, 1, 3, 1, 1, 1, 1, 1, 1, 1, 2, 2};
 // [16] uzi_akimbo draw = v_uzi_akimbo.mdl seq 4 "akimbo_draw" (was 2 = "left_idle", a one-uzi looping
 // idle → the akimbo deployed showing ONE left-hand uzi for ~1s until the idle corrected). cont.89.
 

@@ -41,7 +41,7 @@ REM it gets is ..\rcbot\dlls\rcbot_mm.dll .
 echo  Where is Half-Life installed?
 echo.
 echo  This is the folder that CONTAINS ts\ -- not ts\ itself.
-echo  For example:  D:\SteamLibrary\steamapps\common\Half-Life
+echo  For example:  C:\Program Files ^(x86^)\Steam\steamapps\common\Half-Life
 echo.
 set "HL="
 set /p "HL=Half-Life folder: "

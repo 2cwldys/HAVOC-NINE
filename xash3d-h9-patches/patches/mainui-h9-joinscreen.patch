@@ -16,7 +16,7 @@ index a070408..3d4d569 100644
  
  	char cmd[128];
 diff --git a/menus/ConnectionProgress.cpp b/menus/ConnectionProgress.cpp
-index 3581908..76ed69b 100644
+index 3581908..495d684 100644
 --- a/menus/ConnectionProgress.cpp
 +++ b/menus/ConnectionProgress.cpp
 @@ -16,6 +16,16 @@ See the GNU General Public License for more details.
@@ -28,9 +28,9 @@ index 3581908..76ed69b 100644
 +starts (connect, retry, this game's own server) and at each map change, and takes down once the player
 +is in the game. Over the menu's own background, or its video, full screen: a panel in the menu's colours
 +(gfx/shell/colors.lst: H9's purple) with the server it joins, the stage, the overall bar (scr_loading),
-+and while a file downloads its line (the name, n of N, KB of KB) with its own bar. The engine keeps all of
-+it in read-only cvars (_h9join, _h9join_server, _h9join_stage, _h9join_file, _h9join_fileprog), read
-+here each frame. CANCEL, or ESC, ends the join at once; the console key opens the console in its place.
++and while a file downloads the downloads together (the bytes done and to go, the time left) and the file's
++line (the name, n of N, KB of KB) with its own bar. The engine keeps all of it in read-only cvars (_h9join,
++_h9join_server, _h9join_stage, _h9join_total, _h9join_file, _h9join_fileprog), read here each frame. CANCEL, or ESC, ends the join at once; the console key opens the console in its place.
 +A join, or a game, that ends with a reason (_h9_drop: refused, kicked, timed out, a file that could not
 +come) says it, with OK, over the menu's own screens.
  */
@@ -61,7 +61,7 @@ index 3581908..76ed69b 100644
  
  class CMenuConnectionProgress : public CMenuBaseWindow
  {
-@@ -52,94 +48,30 @@ public:
+@@ -52,94 +48,32 @@ public:
  	void Draw() override;
  	bool DrawAnimation() override;
  	bool KeyDown( int key ) override;
@@ -154,12 +154,14 @@ index 3581908..76ed69b 100644
 -	char sDownloadString[512];
 -	char sCommonString[512];
 +	CMenuAction stage;
++	CMenuAction totalLine;
 +	CMenuAction fileLine;
 +	CMenuProgressBar overall;
 +	CMenuProgressBar fileBar;
 +	CMenuPicButton cancelButton;
 +	char sTitle[256];
 +	char sStage[128];
++	char sTotal[160];
 +	char sFile[512];
  };
  
@@ -168,11 +170,11 @@ index 3581908..76ed69b 100644
 -	sDownloadString[0] = sCommonString[0] = sTitleString[0] = '\0';
 -	m_iSource = SOURCE_CONSOLE;
 -	m_iState = STATE_NONE;
-+	sTitle[0] = sStage[0] = sFile[0] = '\0';
++	sTitle[0] = sStage[0] = sTotal[0] = sFile[0] = '\0';
  	szName = "ConnectionProgress";
  }
  
-@@ -147,171 +79,114 @@ bool CMenuConnectionProgress::KeyDown( int key )
+@@ -147,171 +81,158 @@ bool CMenuConnectionProgress::KeyDown( int key )
  {
  	if( UI::Key::IsEscape( key ))
  	{
@@ -207,15 +209,48 @@ index 3581908..76ed69b 100644
  {
 -	if( m_iState == STATE_NONE )
 -		return;
--
++	EngFuncs::ClientCmd( true, "http_clear\n" );
++	EngFuncs::ClientCmd( false, "disconnect\n" );
++}
+ 
 -	if( m_iState == STATE_CONSOLE )
--	{
++// a join or a map change: the screen, on top of whatever the menu shows. With the menu down (a join from
++// the console, a map change in the game) the main menu goes under it first: the menu's last window never
++// closes, so the screen alone could never hide, and a join that ends before the game ends on the main menu
++void CMenuConnectionProgress::Begin()
++{
++	Refresh();
++	if( !UI_IsVisible( ))
++		UI_Main_Menu();
++	if( !IsVisible( ))
++		Show();
++}
++
++// the box a refusal for an out-of-date game gets: the server's own words, and a button that opens the page they name (a click only)
++static void OpenDownloadsPage( void )
++{
++	EngFuncs::ShellExecute( "https://havoc9.org/downloads/", NULL, false );
++}
++
++static void ShowUpdateBox( const char *reason )
++{
++	static char msg[512];
++	static CMenuYesNoMessageBox box( false );
++	static bool init;
++
++	Q_strncpy( msg, reason, sizeof( msg ));
++
++	if( !UI_IsVisible( ))
+ 	{
 -		m_iState = STATE_NONE;
 -		return;
--	}
--
++		UI_Main_Menu();
++		UI_SetActiveMenu( true );
+ 	}
+ 
 -	if( UI_IsVisible() && m_pStack->Current() == this )
--	{
++	if( !init )
+ 	{
 -		Hide();
 -		if( m_iSource != SOURCE_CONSOLE && m_iState != STATE_MENU )
 -		{
@@ -232,25 +267,18 @@ index 3581908..76ed69b 100644
 -			}
 -			m_iSource = SOURCE_CONSOLE;
 -		}
--	}
++		box.SetPositiveButton( L( "Open havoc9.org" ), PC_OK, 100 );
++		box.SetNegativeButton( L( "Close" ), PC_CANCEL, -20 );
++		box.onPositive = OpenDownloadsPage;
++		init = true;
+ 	}
 -	
 -	SetCommonText( L( "GameUI_Disconnected" ) );
-+	EngFuncs::ClientCmd( true, "http_clear\n" );
-+	EngFuncs::ClientCmd( false, "disconnect\n" );
-+}
  
 -	m_iState = STATE_NONE;
 -	VidInit();
-+// a join or a map change: the screen, on top of whatever the menu shows. With the menu down (a join from
-+// the console, a map change in the game) the main menu goes under it first: the menu's last window never
-+// closes, so the screen alone could never hide, and a join that ends before the game ends on the main menu
-+void CMenuConnectionProgress::Begin()
-+{
-+	Refresh();
-+	if( !UI_IsVisible( ))
-+		UI_Main_Menu();
-+	if( !IsVisible( ))
-+		Show();
++	box.SetMessage( msg );
++	box.Show();
  }
  
 -void CMenuConnectionProgress::Disconnect()
@@ -258,18 +286,21 @@ index 3581908..76ed69b 100644
 +void CMenuConnectionProgress::End()
  {
 -	if( m_iState == STATE_DOWNLOAD )
--	{
--		EngFuncs::ClientCmd( true, "http_clear\n" );
--		m_iState = STATE_CONNECTING;
--		HandleDisconnect();
--	}
 +	const char *reason = EngFuncs::GetCvarString( "_h9_drop" );
- 
--	EngFuncs::ClientCmd( false, "disconnect\n");
++
 +	if( IsVisible( ))
 +		Hide();
 +	if( reason && reason[0] )
-+		UI_ShowMessageBox( reason );
+ 	{
+-		EngFuncs::ClientCmd( true, "http_clear\n" );
+-		m_iState = STATE_CONNECTING;
+-		HandleDisconnect();
++		if( strstr( reason, "havoc9.org/downloads" ))
++			ShowUpdateBox( reason );
++		else UI_ShowMessageBox( reason );
+ 	}
+-
+-	EngFuncs::ClientCmd( false, "disconnect\n");
  }
  
  void CMenuConnectionProgress::_Init( void )
@@ -313,6 +344,10 @@ index 3581908..76ed69b 100644
 +	stage.iFlags = QMF_INACTIVE;
 +	stage.eTextAlignment = QM_CENTER;
 +	stage.szName = sStage;
++
++	totalLine.iFlags = QMF_INACTIVE;
++	totalLine.eTextAlignment = QM_CENTER;
++	totalLine.szName = sTotal;
  
 -	skipButton.szName = L( "Skip" );
 -	skipButton.onReleased.SetCommand( true, "http_skip\n" );
@@ -345,6 +380,7 @@ index 3581908..76ed69b 100644
 -	AddItem( commonText );
 +	AddItem( stage );
 +	AddItem( overall );
++	AddItem( totalLine );
 +	AddItem( fileLine );
 +	AddItem( fileBar );
 +	AddItem( cancelButton );
@@ -379,13 +415,14 @@ index 3581908..76ed69b 100644
  
 -	cursor -= 30;
 -	commonProgress.SetRect( 20, cursor, 600, 20 );
-+	fileLine.SetCharSize( QM_SMALLFONT );
-+	fileLine.SetRect( 0, 122, JOIN_W, 20 );
++	totalLine.SetCharSize( QM_SMALLFONT );
++	totalLine.SetRect( 0, 108, JOIN_W, 18 );
  
 -	cursor -= 50;
 -	commonText.SetCharSize( QM_SMALLFONT );
 -	commonText.SetRect( 20, cursor, 500, 40 );
-+	fileBar.SetRect( 20, 148, JOIN_W - 40, 12 );
++	fileLine.SetCharSize( QM_SMALLFONT );
++	fileLine.SetRect( 0, 128, JOIN_W, 20 );
  
 -	if( m_iState == STATE_DOWNLOAD )
 -	{
@@ -406,11 +443,13 @@ index 3581908..76ed69b 100644
 -		skipButton.Hide();
 -		downloadText.Hide();
 -	}
++	fileBar.SetRect( 20, 152, JOIN_W - 40, 12 );
++
 +	cancelButton.SetRect( ( JOIN_W - UI_BUTTONS_WIDTH / 2 ) / 2, JOIN_H - 50, UI_BUTTONS_WIDTH / 2, UI_BUTTONS_HEIGHT );
  
  	CalcPosition();
  	CalcSizes();
-@@ -323,121 +198,83 @@ bool CMenuConnectionProgress::DrawAnimation()
+@@ -323,121 +244,89 @@ bool CMenuConnectionProgress::DrawAnimation()
  	return true;
  }
  
@@ -420,10 +459,16 @@ index 3581908..76ed69b 100644
 +	const char *server = EngFuncs::GetCvarString( "_h9join_server" );
 +	const char *what = EngFuncs::GetCvarString( "_h9join_stage" );
 +	const char *file = EngFuncs::GetCvarString( "_h9join_file" );
++	const char *total = EngFuncs::GetCvarString( "_h9join_total" );
 +
 +	snprintf( sTitle, sizeof( sTitle ), "%s", server && server[0] ? server : L( "GameUI_EstablishingConnection" ));
 +	snprintf( sStage, sizeof( sStage ), "%s", what && what[0] ? what : L( "GameUI_EstablishingConnection" ));
 +	snprintf( sFile, sizeof( sFile ), "%s", file ? file : "" );
++	snprintf( sTotal, sizeof( sTotal ), "%s", total ? total : "" );
++
++	if( sTotal[0] )
++		totalLine.Show();
++	else totalLine.Hide();
 +
 +	if( sFile[0] )
 +	{

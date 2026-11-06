@@ -66,6 +66,8 @@ Attachment availability = `FUN_10038d70(menu, 1<<bit)` (reads the weapon's suppo
 fields from the attachment RE above). Per-weapon price/slots: `weaponinfo[0x36]` (price), `weaponinfo+0x34`
 (slot cost). `obj+0x414` = current spent, `obj+0x418` = free-slots used, `obj+0x10` = selected weapon,
 `obj+0xc`/`obj+8` = selected attachment mask / category.
+reTS draws the header preview box with the two numbers and, since 2026-11-04, the weapon's `sprites/weapons` icon in
+its left half (`DrawWeaponPreview`): the gun image of Image #3.
 
 **Rebuild plan:** replace the vgui `CTSBuyMenuPanel` with a **`CHudBase` HUD element** that, when the buy menu
 is active, draws the header + cascade columns with `TSHud_DrawString` + the TS font, using the roster above +
