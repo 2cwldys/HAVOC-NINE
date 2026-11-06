@@ -2,7 +2,7 @@
 "classname" "worldspawn"
 "mapversion" "220"
 "message" "Meridian -- Team Elimination"
-"wad" "C:\Juegos\Steam\steamapps\common\Half-Life\ts\specialists.wad;C:\Juegos\Steam\steamapps\common\Half-Life\valve\halflife.wad;C:\Users\User\Documents\Visual Studio Projects\msr-web\build\meridian\meridian.wad"
+"wad" "specialists.wad;halflife.wad;h9_meridian.wad;"
 "skyname" "LMcity_1"
 "MaxRange" "4096"
 {
@@ -10979,11 +10979,13 @@
 }
 }
 {
-"classname" "func_wall"
-"targetname" "tsm_obj_1"
+"classname" "func_breakable"
 "target" "obj1_fall"
 "rendermode" "4"
 "renderamt" "255"
+"health" "150"
+"material" "1"
+"respawntime" "45"
 {
 ( 1184 1114 200 ) ( 1120 1114 200 ) ( 1120 1178 200 ) {mr_bars [ 1 0 0 -1120 ] [ 0 -1 0 17952 ] 0 1 0.0625
 ( 1120 1178 32 ) ( 1120 1114 32 ) ( 1184 1114 32 ) {mr_bars [ 1 0 0 -1120 ] [ 0 -1 0 17952 ] 0 1 0.0625
@@ -11259,9 +11261,11 @@
 }
 }
 {
-"classname" "func_wall"
-"targetname" "tsm_obj_2"
+"classname" "func_breakable"
 "target" "obj2_fall"
+"health" "150"
+"material" "1"
+"respawntime" "45"
 {
 ( 1808 1216 -48 ) ( 1744 1216 -48 ) ( 1744 1280 -48 ) mr_vaultdoor [ 1 0 0 -13952 ] [ 0 -1 0 1517.7142857143 ] 0 0.125 0.875
 ( 1744 1280 -160 ) ( 1744 1216 -160 ) ( 1808 1216 -160 ) mr_vaultdoor [ 1 0 0 -13952 ] [ 0 -1 0 1517.7142857143 ] 0 0.125 0.875
@@ -11326,9 +11330,11 @@
 }
 }
 {
-"classname" "func_wall"
-"targetname" "tsm_obj_3"
+"classname" "func_breakable"
 "target" "obj3_fall"
+"health" "150"
+"material" "1"
+"respawntime" "45"
 {
 ( 1984 1296 -72 ) ( 1920 1296 -72 ) ( 1920 1360 -72 ) mr_steel [ 1 0 0 0 ] [ 0 -1 0 0 ] 0 1 1
 ( 1920 1360 -156 ) ( 1920 1296 -156 ) ( 1984 1296 -156 ) mr_steel [ 1 0 0 0 ] [ 0 -1 0 0 ] 0 1 1
@@ -11555,6 +11561,7 @@
 "targetname" "obj2_fall"
 "vault_show" "0"
 "obj2_spark" "0"
+"vault_hide" "45"
 }
 {
 "classname" "env_render"
@@ -11574,7 +11581,7 @@
 {
 "classname" "multi_manager"
 "origin" "1700 1264 -40"
-"targetname" "tsm_obj_2_reset"
+"targetname" "meridian_vault_reset"
 "vault_hide" "0"
 }
 {
@@ -11591,6 +11598,7 @@
 "targetname" "obj3_fall"
 "safe_show" "0"
 "obj3_spark" "0"
+"safe_hide" "45"
 }
 {
 "classname" "env_render"
@@ -11610,7 +11618,7 @@
 {
 "classname" "multi_manager"
 "origin" "1900 1264 -40"
-"targetname" "tsm_obj_3_reset"
+"targetname" "meridian_safe_reset"
 "safe_hide" "0"
 }
 {
