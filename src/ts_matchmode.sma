@@ -678,6 +678,7 @@ new g_cv_warmhide;
 new g_cv_reloadout;
 new g_cv_loadout;
 new g_cv_spawnmode;
+new g_cv_officerspawn;             // tsm_officerspawn: waves spawn beside the side's Officer
 new g_cv_solo;
 new g_cv_dbglog, g_cv_logging;
 new g_cv_verbosity;             // tsm_verbosity: 0 keeps every "[MATCH]" chat line off (match_chat)
@@ -5415,6 +5416,10 @@ public plugin_init()
 	// config - ONLY per-map cfg spawns; refuses to guess
 	// entity - ignore the cfg and always scan entities
 	g_cv_spawnmode = register_cvar("tsm_spawn_mode", "auto");
+
+	// 1 - a respawn wave brings the side's waiting players back beside their living
+	// Officer instead of at the forward or default spawn points. 0 uses the points.
+	g_cv_officerspawn = register_cvar("tsm_officerspawn", "0");
 
 	// Solo testing: lets a match run with only one team occupied.
 	g_cv_solo      = register_cvar("tsm_test_solo",  "0");
@@ -22586,6 +22591,127 @@ active_spawn_tier(team)
 	return best;
 }
 
+/// Finds a clear spot beside the team's living Officer for a wave respawn. `slot` is the
+/// wave's slot for this player: it picks the first direction tried, so a whole wave
+/// spreads around the Officer instead of testing the same spot for everyone. The spot is
+/// a ring at 48, 64 or 80 units, traced down to a floor and then hull-checked as a
+/// standing body, with a clear line back to the Officer and no one already standing in
+/// it. False when the side has no living Officer or every candidate is blocked; the
+/// caller then uses the ordinary spawn points.
+bool:pick_officer_spawn(id, team, slot, Float:org[3], Float:ang[3])
+{
+	new leader = 0;
+	for (new i = 1; i <= g_maxplayers; i++)
+	{
+		if (i == id || g_match_team[i] != team || !is_officer(i))
+		{
+			continue;
+		}
+		leader = i;
+		break;
+	}
+	if (!leader)
+	{
+		return false;
+	}
+
+	new Float:lo[3], Float:la[3];
+	pev(leader, pev_origin, lo);
+	pev(leader, pev_v_angle, la);
+
+	// The living, once: the Officer and everyone else already on his feet.
+	new occ[TSM_SLOTS], occn;
+	get_players(occ, occn, g_pfa);
+
+	new const Float:radii[3] = { 48.0, 64.0, 80.0 };
+	new start = (slot >= 0) ? (slot % 24) : random_num(0, 23);
+	for (new k = 0; k < 24; k++)
+	{
+		new cand = (start + k) % 24;
+		new Float:yaw = la[1] + float(cand % 8) * 45.0;
+		new Float:spot[3];
+		spot[0] = lo[0] + floatcos(yaw, degrees) * radii[cand / 8];
+		spot[1] = lo[1] + floatsin(yaw, degrees) * radii[cand / 8];
+		spot[2] = lo[2];
+
+		// Down to the floor. No floor in reach (a hole, or a roof too far above) refuses it.
+		new Float:down[3];
+		down[0] = spot[0];
+		down[1] = spot[1];
+		down[2] = spot[2] - 160.0;
+		engfunc(EngFunc_TraceLine, spot, down, IGNORE_MONSTERS, id, 0);
+		new Float:frac;
+		get_tr2(0, TR_flFraction, frac);
+		if (frac >= 1.0)
+		{
+			continue;
+		}
+		get_tr2(0, TR_vecEndPos, spot);
+
+		// Same level as the Officer: a step is fine, a roof or a hole is not.
+		if (floatabs(spot[2] - (lo[2] - 36.0)) > 48.0)
+		{
+			continue;
+		}
+
+		// The standing hull at the landing spot: walls and ceilings refuse it. +37 keeps
+		// the hull just clear of the floor, the same check the turret placement uses.
+		new Float:hull[3];
+		hull[0] = spot[0];
+		hull[1] = spot[1];
+		hull[2] = spot[2] + 37.0;
+		engfunc(EngFunc_TraceHull, hull, hull, IGNORE_MONSTERS, TSM_HULL_HUMAN, id, 0);
+		if (get_tr2(0, TR_StartSolid) || get_tr2(0, TR_AllSolid))
+		{
+			continue;
+		}
+
+		// A clear line back to the Officer, so a spot through the wall next to him is
+		// never chosen. Players are ignored: the Officer's own body is not a wall.
+		new Float:see[3];
+		see[0] = spot[0];
+		see[1] = spot[1];
+		see[2] = spot[2] + 36.0;
+		engfunc(EngFunc_TraceLine, lo, see, IGNORE_MONSTERS, id, 0);
+		get_tr2(0, TR_flFraction, frac);
+		if (frac < 1.0)
+		{
+			continue;
+		}
+
+		// Occupancy: nobody already standing in the spot, the Officer included. Only the
+		// living are checked; the waiting dead are ghosts and may be parked on his camera.
+		new bool:occupied = false;
+		for (new o = 0; o < occn; o++)
+		{
+			if (occ[o] == id)
+			{
+				continue;
+			}
+			new Float:oo[3];
+			pev(occ[o], pev_origin, oo);
+			new Float:dx = oo[0] - spot[0];
+			new Float:dy = oo[1] - spot[1];
+			if (dx * dx + dy * dy < 1296.0)   // 36 units, squared
+			{
+				occupied = true;
+				break;
+			}
+		}
+		if (occupied)
+		{
+			continue;
+		}
+
+		copy_vec(org, spot);
+		ang[0] = 0.0;
+		ang[1] = la[1];
+		ang[2] = 0.0;
+		return true;
+	}
+	return false;
+}
+
 /// Puts the player at one of their team's points. A wave respawn (respawn = true) takes the
 /// team's active forward tier. Anyone else gets the team's defaults, so a living player is
 /// never moved to a forward point. Then the other side's defaults if the team has nothing at
@@ -22606,7 +22732,17 @@ place_at_spawn(id, slot = -1, bool:respawn = false, const why[] = "", tier = -1)
 	new use_tier = (tier >= 0) ? tier : (respawn ? active_spawn_tier(team) : 0);
 	g_place_tier[id] = use_tier;
 
-	if (team == 1 || team == 2)
+	if (respawn && (team == 1 || team == 2) && get_pcvar_num(g_cv_officerspawn))
+	{
+		found = pick_officer_spawn(id, team, slot, org, ang);
+		if (found)
+		{
+			has_ang = true;
+			dbg("place: %d beside team %d's Officer", id, team);
+		}
+	}
+
+	if (!found && (team == 1 || team == 2))
 	{
 		found = pick_spawn_point(id, team, use_tier, slot, org, ang);
 		if (found)

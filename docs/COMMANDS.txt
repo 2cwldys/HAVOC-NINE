@@ -2153,6 +2153,9 @@
  -- spawns
  tsm_spawn_mode            auto       auto (the map's spawn cfg, else its
                                       entities), config, or entity
+ tsm_officerspawn          0          1 brings a respawn wave back beside the
+                                      side's living Officer instead of its spawn
+                                      points
  tsm_spawn_prune           1          keep the map's own spawn points out of the
                                       custom set
  tsm_spawn_prune_dist      64         how near a map spawn must be to count as one
