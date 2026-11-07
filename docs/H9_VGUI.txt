@@ -161,11 +161,11 @@
                "ROUND n -- m:ss[ -- mode]" over "T1 a -- b T2", purple
                186 116 255, red 255 60 60 in the last 15 s .......... BANNER
    21204-21205 show_round_timer()  -1/0.36 ch 4, all, 3 s, once:
-               "SUDDEN DEATH / Everyone is marked" ...................... FLASH
+               "SUDDEN DEATH / Everyone is marked" ..................... BANNER
    21048-21061 task_freeze_tick()  -1/0.28 ch 2, all, each freeze second:
                "ROUND n / Starting in N... / score"; 21060 blanks it ... BANNER
    21688-21692 task_go_live()      blank on ch 2, then -1/0.32 ch 4, all,
-               1.5 s, green: "LIVE" ..................................... FLASH
+               1.5 s, green: "LIVE" .................................... BANNER
    21455-21456 show_score_hud()    -1/0.18 ch 3, all, 4 s, a round's end:
                "Round n -- a : b  (first to N)." ....................... FLASH
    21260-21273 task_team_objmsg()  -1/0.43 ch 3, each side's players, 5 s,
@@ -769,11 +769,11 @@
               (270 px here), where the centre print and the stats lines
               start: on a smaller screen the banner's scale comes down to
               keep it there, to half the art's size at least.
-   notices    under the banner, one below another, newest last; a FLASH
-              (LIVE, SUDDEN DEATH, WAVE n) in the same column; a BAR (the
-              satchel and zone) at its hudmessage's place, 0.47, just
-              above the crosshair box, because it answers the player's
-              own +USE.
+   notices    under the banner, one below another, newest last (LIVE
+              and SUDDEN DEATH are banner notices); a FLASH (WAVE n) in the
+              same column; a BAR (the satchel and zone) at its hudmessage's
+              place, 0.47, just above the crosshair box, because it
+              answers the player's own +USE.
    TS's       beneath the stack: the top row of TS's own notices, which
    notices    start 32 px down, is drawn from the stack's bottom edge
               (+4 px) while the stack shows something, else where TS
@@ -1008,7 +1008,7 @@
  ts_survival draws its breather's hudmessage only for those
  (tsm_bar_shown). Mech Warrior has no text of its own: its bar is the
  live one. With tsm_show_timer 0 the bar goes, as the round line does.
- The LIVE and SUDDEN DEATH flashes are FLASH notices for an H9 game
+ The LIVE and SUDDEN DEATH announcements are BANNER notices for an H9 game
  (4h); every other game has them as hudmessages.
 
  4h. The siege's popups, and the other alerts

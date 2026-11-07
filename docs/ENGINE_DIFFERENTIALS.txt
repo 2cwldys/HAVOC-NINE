@@ -132,7 +132,8 @@ Chat and the mouse
          only the menu and the console free it.
 
 Sudden death
-  Steam  The other side's class icons turn red (ts_matchmode). Nothing more.
+  Steam  The other side's class icons show, each in its own side's colour (ts_matchmode).
+         Nothing more.
   Xash   The x-ray and the fog as well. ts_matchmode sends every living enemy to
          each player with renderfx 64, from anywhere on the map, and
          engine-h9-xray.patch draws a model carrying it with a glow shell in its

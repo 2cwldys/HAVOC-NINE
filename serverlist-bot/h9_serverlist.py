@@ -22,8 +22,9 @@ WHAT THIS DOES NOT DO
     the list returns for itself.
 
 ONE PROCESS, TWO JOBS
-    The HTTP list and the Discord bot share one event loop. With no discord_token in
-    serverlist.cfg the bot is not started, and the list runs alone.
+    The HTTP list and the Discord bot share one event loop. With no discord_token (in
+    serverlist.cfg, in the H9_DISCORD_TOKEN environment variable or in a systemd credential
+    named discord_token) the bot is not started, and the list runs alone.
 """
 
 import asyncio
@@ -150,7 +151,7 @@ def status_for(served, answering, silent, list_ok):
     if not list_ok:
         return "dnd", "server list unreachable"
     if answering:
-        return "online", plural(max(served, answering), "server") + " tracked across relay"
+        return "online", "Tracking " + plural(max(served, answering), "server")
     if silent:
         return "dnd", plural(silent, "server") + " unreachable"
     return "idle", "no servers to track"
@@ -188,8 +189,26 @@ def new_entry(host, port, source):
     }
 
 
+def secret_from_service(variable, credential):
+    """
+    A secret the service manager hands in instead of serverlist.cfg: the environment variable
+    when it holds something, else the systemd credential of that name (LoadCredential= puts it
+    in $CREDENTIALS_DIRECTORY). Empty when neither does.
+    """
+    value = os.environ.get(variable, "").strip()
+    if value:
+        return value
+    folder = os.environ.get("CREDENTIALS_DIRECTORY", "")
+    if folder and re.fullmatch(r"[A-Za-z0-9_.-]+", credential):
+        try:
+            return (Path(folder) / credential).read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+    return ""
+
+
 class Settings:
-    """serverlist.ini for the settings, serverlist.cfg for the two secrets."""
+    """serverlist.ini for the settings, serverlist.cfg for the two secrets (the Discord token may also come from the service)."""
 
     def __init__(self):
         ini = configparser.ConfigParser(interpolation=None)
@@ -207,7 +226,8 @@ class Settings:
         self.guild_id = ini.get("discord", "guild_id", fallback="").strip()
         self.role_id = ini.get("discord", "role_id", fallback="").strip()
         self.heartbeat_key = secrets.get("secrets", "heartbeat_key", fallback="").strip()
-        self.discord_token = secrets.get("secrets", "discord_token", fallback="").strip()
+        self.discord_token = (secret_from_service("H9_DISCORD_TOKEN", "discord_token")
+                              or secrets.get("secrets", "discord_token", fallback="").strip())
         if not GAMEDIR_RE.match(self.gamedir):
             sys.exit(f"gamedir {self.gamedir!r} in serverlist.ini is not a game folder name")
         if self.guild_id and not self.guild_id.isdigit():
@@ -646,7 +666,7 @@ async def main():
         bot = make_bot(state, settings)
         tasks.append(asyncio.create_task(bot.start(settings.discord_token)))
     else:
-        log("Discord is off: no discord_token in serverlist.cfg")
+        log("Discord is off: no discord_token in serverlist.cfg, H9_DISCORD_TOKEN or a service credential")
     try:
         await asyncio.gather(*tasks)
     finally:

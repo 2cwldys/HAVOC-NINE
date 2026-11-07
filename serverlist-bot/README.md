@@ -4,8 +4,9 @@ The list the H9 Internet tab reads. The game asks it for `http://<host>:<port>/v
 and gets back one `ip <address>` line for each server that is up. The line format is the
 engine's own, described in `xash3d-fwgs/Documentation/protocol/http-server-list.md`.
 
-It is one Python process: an HTTP service, and, when `serverlist.cfg` has a Discord token, a
-Discord bot with three slash commands.
+It is one Python process: an HTTP service, and, when it has a Discord token (`serverlist.cfg`, or
+the `H9_DISCORD_TOKEN` environment variable, or a systemd credential named `discord_token`), a Discord
+bot with three slash commands whose status shows how many servers the list is tracking.
 
 ## What goes on the list
 
@@ -53,16 +54,23 @@ one.
 
 ## Discord
 
-Create an application in the Discord developer portal, add a bot to it, and put the bot's
-token in `serverlist.cfg`. Invite the bot to your server with the `applications.commands`
-scope. Set `guild_id` in `serverlist.ini` to the server's id, so the commands appear at once.
+Create an application in the Discord developer portal and name it what the bot should be
+called in your server (for example "Master Server"), add a bot to it, and put the bot's token in
+`serverlist.cfg`. The `H9_DISCORD_TOKEN` environment variable, or a systemd credential named
+`discord_token` (`LoadCredential=` in the service), is read first when it holds something, so a
+service can run without a secrets file in its folder.
+
+Invite the bot to your server with the `bot` **and** `applications.commands` scopes. `bot` is what
+puts it in the member list, where its coloured status shows; `applications.commands` is what makes
+the slash commands appear. Set `guild_id` in `serverlist.ini` to the server's id, so the commands
+appear at once.
 
 * `/servers` lists the servers that answer now.
 * `/addserver address` adds one. `/removeserver address` takes one off.
 
 The bot's status follows the list, checked every 15 seconds:
 
-* green, "3 servers tracked across relay": at least one server on the list answers;
+* green, "Tracking 3 servers": at least one server on the list answers;
 * yellow, "no servers to track": the list is empty;
 * red, "2 servers unreachable": servers are on the list, but none has answered in the last
   two polls. A server that stays silent is taken off after `expire_seconds`, and the status

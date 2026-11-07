@@ -119,11 +119,11 @@
  * class's red copy, and -1 says that class has only the one icon.
  *
  * EVERY class is doubled, the Medic and the Officer included. They were bone and amber and
- * single, on the reasoning that a role-colour beats a side-colour. Sudden death broke that: the
- * marker shown to the other side is always the red copy, so a class without one fell back to its
- * ordinary icon and an ENEMY medic was drawn exactly like a friendly one, in the one minute of
- * the round when telling them apart matters most. The SHAPE carries the role -- a cross is a
- * cross -- so the colour is free to carry the side.
+ * single, on the reasoning that a role-colour beats a side-colour. Sudden death broke that: an
+ * enemy is shown in his own side's colour, so a class without a red copy would show an
+ * Insurgent in the MSR's colour and an ENEMY medic would be drawn exactly like a friendly one, in
+ * the one minute of the round when telling them apart matters most. The SHAPE carries the role --
+ * a cross is a cross -- so the colour is free to carry the side.
  *
  * IT IS A TABLE AND NOT AN OFFSET, and that is the whole point. It used to be
  * `TSM_ICON_RED + ci`, which only holds while every two-colour class comes before every
@@ -619,7 +619,8 @@ new const CLOAK_RGB[3] = { 40, 120, 255 };
  * The scan's glow and the sudden-death x-ray's two side colours. The scan's blue sits a
  * step away from the cloak tint above so the two never read as one effect. The x-ray
  * colours the body by its own side: MSR (side 1) blue, the Insurgents (side 2) the same
- * red the class icons flip to during sudden death (icon_view's second frame).
+ * red as their class icons, which the other side sees in that same colour during sudden
+ * death (icon_view's second case).
  * Whole numbers, for the same reason CLOAK_RGB is: set_es() stores render fields as
  * integers, and a Float here would arrive as its bit pattern.
  */
@@ -6648,8 +6649,9 @@ drop_class_icon(id)
 
 /*
  * What one viewer is shown of one player's icon: 0 nothing, 1 the icon in its own colour, 2 the
- * red copy that marks an enemy in sudden death. Both AddToFullPack hooks ask this, so the icon the
- * pre hook refuses and the frame the post hook writes cannot disagree.
+ * enemy's icon, in the colour of ITS side, that marks him in sudden death. Both AddToFullPack
+ * hooks ask this, so the icon the pre hook refuses and the frame the post hook writes cannot
+ * disagree.
  */
 icon_view(owner, host)
 {
@@ -6915,8 +6917,8 @@ public fw_addtofullpack(es, e, ent, host, hostflags, player, pSet)
 	}
 
 	/*
-	 * SUDDEN DEATH SHOWS THE SAME SPRITE TO THE OTHER SIDE, IN RED, rather than giving every
-	 * player a second entity to carry it.
+	 * SUDDEN DEATH SHOWS THE SAME SPRITE TO THE OTHER SIDE, IN THE OWNER'S OWN COLOUR, rather than
+	 * giving every player a second entity to carry it.
 	 *
 	 * It was a second entity, and that was a mistake worth not repeating. One sprite per player
 	 * became two, which is 32 more edicts on a full server -- enough that the mod could no longer
@@ -6924,13 +6926,13 @@ public fw_addtofullpack(es, e, ent, host, hostflags, player, pSet)
 	 * what pushed clients into svc_bad.
 	 *
 	 * AddToFullPack is asked once per (viewer, entity) pair and what it writes is the state sent
-	 * to THAT viewer, so one entity can be a different frame for each of them. Always the red
-	 * copy here, whatever side the owner is on: in sudden death this is the marker the OTHER
-	 * side sees, and red is what says "enemy".
+	 * to THAT viewer, so one entity can be a different frame for each of them. The frame written
+	 * here is the owner's own side's, MSR blue or Insurgent red: in sudden death this is the
+	 * marker the OTHER side sees, in the colour the x-ray draws the same body in.
 	 */
 	if (icon_view(owner, host) == 2)
 	{
-		set_es(es, ES_Frame, float(icon_frame_for(resolved_class(owner) - 1, 2)));
+		set_es(es, ES_Frame, float(icon_frame_for(resolved_class(owner) - 1, g_match_team[owner])));
 	}
 	return FMRES_IGNORED;
 }
@@ -23269,7 +23271,7 @@ show_round_timer()
 			tlog("[TSM] Sudden death on at %d seconds left, %d waiting for a wave.", g_round_left, count_waiting(1) + count_waiting(2));
 			respawn_sudden_cut();
 			set_hudmessage(255, 80, 60, -1.0, 0.36, 0, 0.0, 3.0, 0.2, 0.4, 4);
-			h9vgui_alert(0, "tsm.sudden", H9V_NOTICE_FLASH, "SUDDEN DEATH^nEveryone is marked", 255, 80, 60, 0.36, 3.0, 0.4);
+			h9vgui_alert(0, "tsm.sudden", H9V_NOTICE_BANNER, "SUDDEN DEATH^nEveryone is marked", 255, 80, 60, 0.36, 3.0, 0.4);
 			match_chat(0, "[MATCH] Sudden death -- every player is now marked to the other side.");
 			dbg("sudden death on at %d seconds left", g_round_left);
 			// Global sudden death sound
@@ -23939,7 +23941,7 @@ public task_go_live()
 	show_hudmessage(0, " ");
 
 	set_hudmessage(0, 255, 0, -1.0, 0.32, 0, 0.0, 1.5, 0.0, 0.3, 4);
-	h9vgui_alert(0, "tsm.live", H9V_NOTICE_FLASH, "LIVE", 0, 255, 0, 0.32, 1.5, 0.3);
+	h9vgui_alert(0, "tsm.live", H9V_NOTICE_BANNER, "LIVE", 0, 255, 0, 0.32, 1.5, 0.3);
 
 	// A fresh round is not sudden death, whatever the last one ended as.
 	g_sudden = false;

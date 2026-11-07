@@ -852,11 +852,11 @@
  Three things turn on at once, together, and go off at the round boundary --
  whichever way that round ends:
 
-     1. THE RED MARKERS. Every player's class icon is shown to the OTHER side,
-        in red: the same sprite through the same AddToFullPack hook,
-        re-coloured. Cloaked Recons are deliberately missed by this, because
-        the marker is exactly the thing that would point at the man the cloak
-        is hiding.
+     1. THE MARKERS. Every player's class icon is shown to the OTHER side,
+        in his own side's colour (MSR blue, Insurgents red, as in the X-ray's
+        silhouette): the same sprite through the same AddToFullPack hook.
+        Cloaked Recons are deliberately missed by this, because the marker is
+        exactly the thing that would point at the man the cloak is hiding.
 
      2. THE X-RAY (H9XASH only). Every living enemy, cloaked or not, is sent
         to the other side carrying renderfx 64 -- a value GoldSrc ignores and

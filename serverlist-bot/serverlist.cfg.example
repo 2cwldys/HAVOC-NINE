@@ -5,5 +5,6 @@
 ; Servers send heartbeats with this key. Any long random string will do, and every server
 ; that sends heartbeats needs the same one. Empty means heartbeats are refused.
 heartbeat_key =
-; The Discord bot token, for the slash commands. Empty means no Discord: the list runs alone.
+; The Discord bot token, for the slash commands and the status. Empty means no Discord: the list runs alone.
+; The H9_DISCORD_TOKEN environment variable or a systemd credential named discord_token is read first.
 discord_token =
