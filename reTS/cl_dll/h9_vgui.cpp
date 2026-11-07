@@ -25,6 +25,7 @@ cvar_t* s_cvInfo;    // _h9vgui: the userinfo key the server reads, the protocol
 cvar_t* s_cvTop;     // cl_h9_vgui_top: where the safe area starts, in pixels from the top, 0 for the default
 cvar_t* s_cvMarks;   // cl_h9_marks: 0 draws no mark, on the world or in the row
 cvar_t* s_cvStrip;   // cl_h9_marks_strip: 0 draws no row of marks under the top stack
+cvar_t* s_cvZones;   // tsm_show_zones: 0 draws no mark on the world, through the walls; the row under the top stack stays
 
 bool s_bInited = false;
 
@@ -839,6 +840,31 @@ bool MarksOn()
 	return Enabled() && s_cvMarks && s_cvMarks->value != 0.0f;
 }
 
+// Whether the marks are drawn on the world, through the walls (tsm_show_zones, on until it is set to 0). The row of them under
+// the top stack is cl_h9_marks_strip's.
+bool ZonesOn()
+{
+	return !s_cvZones || s_cvZones->value != 0.0f;
+}
+
+// A badge's width in pixels: the square its size gives, or wider where its label (a word such as UPLINK) needs it, with room
+// either side of the letters, so a long label sits inside its own frame and never runs into the next badge.
+int BadgeWide(const H9Mark& m, int size)
+{
+	int text = 0;
+	for (const char* p = m.label; *p; p++)
+		text += gHUD.m_scrinfo.charWidths[(unsigned char)*p];
+	if (text > 0)
+		text++; // the label is drawn twice, a pixel apart
+	return Max(size, text + 2 * Max(3, size / 5));
+}
+
+// The space between two badges of the row, frame to frame: a few pixels, so the frames of neighbours never touch.
+int StripGap(int size)
+{
+	return 2 * MarkEdge(size) + Max(3, size / 5);
+}
+
 // Where a point of the world lands on the screen, and whether it is in view. A point out of view (to a side, above, below
 // or behind) is pinned to the screen's edge, in its direction from the middle.
 void MarkScreen(const H9Mark& m, int& sx, int& sy, bool& inView)
@@ -1066,8 +1092,12 @@ void Frame()
 	if (s_bMarksShown && marks >= 2 && s_cvStrip && s_cvStrip->value != 0.0f)
 	{
 		const int size = Max(12, MarkSize() * 3 / 4);
-		const int gap = Max(2, size / 6);
-		s_iStripWide = marks * size + (marks - 1) * gap;
+		const int gap = StripGap(size);
+		int across = 0;
+		for (int i = 1; i <= H9V_MAX_MARKS; i++)
+			if (s_Marks[i].used)
+				across += BadgeWide(s_Marks[i], size);
+		s_iStripWide = across + (marks - 1) * gap;
 		s_iStripTall = size + 2 * MarkEdge(size) + 2 + Max(3, size / 8) + 2; // the badge, its frame and the bar under it
 		s_iStripY = stackEnd > 0 ? stackEnd + 2 : sy0;
 		stackEnd = s_iStripY + s_iStripTall;
@@ -1113,9 +1143,11 @@ void DrawBadge(int cx, int cy, int size, const H9Mark& m, bool blink, int alpha)
 	}
 	const int half = size / 2;
 	const int edge = MarkEdge(size);
+	const int across = BadgeWide(m, size);
+	const int left = cx - across / 2;
 	// The owner's colour as a frame round a dark fill of it: the label is drawn additively, so it shows only over a dark ground.
-	gEngfuncs.pfnFillRGBABlend(cx - half - edge, cy - half - edge, size + 2 * edge, size + 2 * edge, r, g, b, alpha);
-	gEngfuncs.pfnFillRGBABlend(cx - half, cy - half, size, size, r * 25 / 100, g * 25 / 100, b * 25 / 100, alpha);
+	gEngfuncs.pfnFillRGBABlend(left - edge, cy - half - edge, across + 2 * edge, size + 2 * edge, r, g, b, alpha);
+	gEngfuncs.pfnFillRGBABlend(left, cy - half, across, size, r * 25 / 100, g * 25 / 100, b * 25 / 100, alpha);
 
 	int wide = 0;
 	for (const char* p = m.label; *p; p++)
@@ -1131,8 +1163,8 @@ void DrawBadge(int cx, int cy, int size, const H9Mark& m, bool blink, int alpha)
 		int tr, tg, tb;
 		SideColour(m.side, tr, tg, tb);
 		const int by = cy + half + edge + 2;
-		gEngfuncs.pfnFillRGBABlend(cx - half, by, size, bar, 0, 0, 0, alpha * 190 / 255);
-		gEngfuncs.pfnFillRGBABlend(cx - half, by, size * m.pct / 100, bar, tr, tg, tb, alpha);
+		gEngfuncs.pfnFillRGBABlend(left, by, across, bar, 0, 0, 0, alpha * 190 / 255);
+		gEngfuncs.pfnFillRGBABlend(left, by, across * m.pct / 100, bar, tr, tg, tb, alpha);
 	}
 }
 
@@ -1143,7 +1175,7 @@ void DrawMarks(float now)
 		return;
 	const bool blink = ((int)(now * 4.0f) & 1) != 0;
 	const int size = MarkSize();
-	for (int i = 1; i <= H9V_MAX_MARKS; i++)
+	for (int i = 1; i <= H9V_MAX_MARKS && ZonesOn(); i++)
 	{
 		const H9Mark& m = s_Marks[i];
 		if (!m.used)
@@ -1151,22 +1183,27 @@ void DrawMarks(float now)
 		int sx, sy;
 		bool inView;
 		MarkScreen(m, sx, sy, inView);
-		DrawBadge(sx, sy, inView ? size : size * 3 / 4, m, blink, inView ? 235 : 180);
+		const int badge = inView ? size : size * 3 / 4;
+		// a wide label keeps its whole frame on the screen
+		const int room = BadgeWide(m, badge) / 2 + MarkEdge(badge);
+		sx = Clamp(sx, room, ScreenWidth - room);
+		DrawBadge(sx, sy, badge, m, blink, inView ? 235 : 180);
 	}
 
 	if (s_iStripTall > 0)
 	{
 		const int small = Max(12, size * 3 / 4);
-		const int gap = Max(2, small / 6);
-		int x = (ScreenWidth - s_iStripWide) / 2 + small / 2;
+		const int gap = StripGap(small);
+		int left = (ScreenWidth - s_iStripWide) / 2;
 		const int y = s_iStripY + MarkEdge(small) + small / 2;
 		for (int i = 1; i <= H9V_MAX_MARKS; i++)
 		{
 			const H9Mark& m = s_Marks[i];
 			if (!m.used)
 				continue;
-			DrawBadge(x, y, small, m, blink, 235);
-			x += small + gap;
+			const int across = BadgeWide(m, small);
+			DrawBadge(left + across / 2, y, small, m, blink, 235);
+			left += across + gap;
 		}
 	}
 }
@@ -1222,6 +1259,7 @@ void H9Vgui_Init()
 	s_cvTop = CVAR_CREATE("cl_h9_vgui_top", "0", FCVAR_ARCHIVE);
 	s_cvMarks = CVAR_CREATE("cl_h9_marks", "1", FCVAR_ARCHIVE);
 	s_cvStrip = CVAR_CREATE("cl_h9_marks_strip", "1", FCVAR_ARCHIVE);
+	s_cvZones = CVAR_CREATE("tsm_show_zones", "1", FCVAR_ARCHIVE);
 	s_cvInfo = CVAR_CREATE("_h9vgui", Enabled() ? "1" : "0", FCVAR_USERINFO);
 	gEngfuncs.pfnHookUserMsg("H9Vgui", __MsgFunc_H9Vgui);
 	s_Hud.Init();

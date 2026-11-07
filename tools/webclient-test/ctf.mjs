@@ -1,5 +1,5 @@
 // A perf.mjs scenario: CAPTURE THE FLAG (ts_ctf) seen from a player's screen and checked against the server's own account. Joins the flag test
-// server (D:\temp\h9-ctf-server.bat: h9_ctf_drainage, port 27015, rcon password h9test, tsm_bots 6), takes a side and a class from the menus,
+// server (D:\temp\h9-ctf-server.bat: h9_ctf_drainage, port 27015, rcon password in H9_RCON, tsm_bots 6), takes a side and a class from the menus,
 // starts the match, and then walks the flag through its life with the mode's test commands: taken (the carrier in his side's colour), the
 // carrier at his own pad with his own flag away (no capture) and then home (a capture), dropped, flown home, dropped by a death, captured by
 // each side, and the third capture ending the match. Pictures at each step; the verdicts print PASS or FAIL.
@@ -7,7 +7,7 @@
 //   node perf.mjs --url http://127.0.0.1:8090/webclient/index.html --signup --phases none --script ctf.mjs --name ctf
 //
 //   H9_JOIN=127.0.0.1:27015   the server (it must be in the site's servers.json)
-//   H9_RCON=h9test            its rcon password
+//   H9_RCON=<password>        its rcon password (required)
 import dgram from "node:dgram";
 import fs from "node:fs";
 
@@ -26,7 +26,8 @@ const KEY = { "1": 49, "2": 50, "3": 51, "4": 52, "5": 53 };
 
 export default async function ctf({ tab, cmd, sleep, shot, results, stamp }) {
   const server = process.env.H9_JOIN || "127.0.0.1:27015";
-  const rcon = process.env.H9_RCON || "h9test";
+  const rcon = process.env.H9_RCON;
+  if (!rcon) throw new Error("set H9_RCON to the test server's rcon password");
   const port = Number(server.split(":")[1]);
   const press = async (k) => {
     const base = { windowsVirtualKeyCode: KEY[k], nativeVirtualKeyCode: KEY[k], key: k, code: "Digit" + k };

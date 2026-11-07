@@ -198,7 +198,7 @@ void H9Vgui_SafeArea(int& x0, int& y0, int& x1, int& y1);
 
 // MARK (protocol 3): a point of the world the server wants the player to know of, drawn on the screen in screen space,
 // so through walls, pinned to the screen's edge while it is out of view, as a badge with its label in the owner's colour
-// and a bar of how far a capture has got; and the same badges in a row under the top stack (cl_h9_marks, cl_h9_marks_strip).
+// and a bar of how far a capture has got; and the same badges in a row under the top stack (cl_h9_marks, cl_h9_marks_strip; tsm_show_zones for the ones on the world).
 
 // The pixel row just under what the H9 VGUI shows in the top stack (the notices and the panels
 // anchored along the top) this frame, 0 while it shows nothing there: on a server whose match mode

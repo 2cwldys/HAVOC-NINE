@@ -172,3 +172,18 @@ h9web-local/
 .env
 /H9XASH/ts/downloads
 H9XASH/ts/addons/amxmodx/data/tsm_music.txt
+
+# Never source: a CMake build tree (the SDHLT tools' build-win64 held object files and local paths), a process's pid file,
+# any log, and the .bak copy Xash or a tool leaves beside a config. Files tracked before this rule stay tracked until
+# they are removed with `git rm --cached`.
+export-map/**/build-win64/
+*.pid
+*.log
+*.bak
+
+# Code-signing certificates and their keys: whoever has one can sign as this project.
+*.pfx
+*.p12
+
+# Operator notes kept on the maintainer's PC only (hosting layout, runbooks, local paths): never published.
+ops-private/

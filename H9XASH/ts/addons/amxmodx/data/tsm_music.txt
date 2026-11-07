@@ -1,5 +1,10 @@
 // The ambient music queue's place, kept across maps by ts_matchmode. Delete it to start a new pass.
-last ihateher.mp3
+last floatingmuseum.mp3
 played ihateher.mp3
+played fivefingers.mp3
+played deadinsects.mp3
 played twoplustwo.mp3
-played alwaysknew.mp3
+played vangelis.wav
+played floatingmuseum.mp3
+played supression.mp3
+played equilibrium_suite.mp3

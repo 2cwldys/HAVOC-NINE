@@ -1930,6 +1930,12 @@
                                  out of view. 0 draws none
  cl_h9_marks_strip 0|1           the row of those marks under the top notices
                                  (1)
+ tsm_show_zones 0|1              the marks drawn on the world, through the
+                                 walls, where the point is (1); 0 draws none
+                                 there, and the row of marks under the top
+                                 notices stays (cl_h9_marks_strip). A badge is
+                                 as wide as its label, so UPLINK has its own
+                                 frame. H9's client.dll
  cl_h9_vgui_top <pixels>         how far down panels may start, from the top
                                  of the screen: 0 for 1.5% of the height (16
                                  px at 1080); TS's own notices stand beneath

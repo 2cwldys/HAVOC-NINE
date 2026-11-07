@@ -1,12 +1,12 @@
 // A perf.mjs scenario: the RELEASE GATE (docs\H9_RELEASE.txt) seen from the player's side. The test server (D:\temp\h9-assault-server.bat, port 27015,
-// rcon password h9test) holds its joiners to h9_plugin_release; the web client carries the release its stage has (ts\h9_release.txt). The
+// rcon password in H9_RCON) holds its joiners to h9_plugin_release; the web client carries the release its stage has (ts\h9_release.txt). The
 // scenario asks the server to be on a NEWER release (the game is out of date: the update box with its button), on an OLDER one (the other
 // advice), and then on the game's own (the join goes through), and takes a picture of each.
 //
-//   node perf.mjs --url http://127.0.0.1:8090/webclient/index.html --login perf51n99t --phases none --script gate.mjs --name gate
+//   node perf.mjs --url http://127.0.0.1:8090/webclient/index.html --login <test-account> --phases none --script gate.mjs --name gate
 //
 //   H9_JOIN=127.0.0.1:27015   the server (it must be in the site's servers.json)
-//   H9_RCON=h9test            its rcon password
+//   H9_RCON=<password>        its rcon password (required)
 import dgram from "node:dgram";
 
 function rconCall(command, port, password) {
@@ -21,7 +21,8 @@ function rconCall(command, port, password) {
 
 export default async function gate({ tab, cmd, sleep, shot, results, stamp }) {
   const server = process.env.H9_JOIN || "127.0.0.1:27015";
-  const rcon = process.env.H9_RCON || "h9test";
+  const rcon = process.env.H9_RCON;
+  if (!rcon) throw new Error("set H9_RCON to the test server's rcon password");
   const port = Number(server.split(":")[1]);
   const checks = [];
   const verdict = (name, ok, detail) => { console.log(stamp() + (ok ? " PASS " : " FAIL ") + name + (detail ? " -- " + detail : "")); checks.push({ name, ok }); };

@@ -6,12 +6,13 @@
 //   node perf.mjs --url http://127.0.0.1:8090/webclient/index.html --login <account> --phases none --script noticerise.mjs --name rise
 //
 //   H9_JOIN=127.0.0.1:27015   the server (it must be in the site's servers.json)
-//   H9_RCON=h9test            its rcon password
+//   H9_RCON=<password>        its rcon password (required)
 const KEY = { "1": 49 };
 
 export default async function noticerise({ tab, cmd, sleep, shot, results, stamp }) {
   const server = process.env.H9_JOIN || "127.0.0.1:27015";
-  const rcon = process.env.H9_RCON || "h9test";
+  const rcon = process.env.H9_RCON;
+  if (!rcon) throw new Error("set H9_RCON to the test server's rcon password");
   const press = async (k) => {
     const base = { windowsVirtualKeyCode: KEY[k], nativeVirtualKeyCode: KEY[k], key: k, code: "Digit" + k };
     await tab.send("Input.dispatchKeyEvent", { type: "keyDown", text: k, unmodifiedText: k, ...base });

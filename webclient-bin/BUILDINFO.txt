@@ -1,6 +1,6 @@
 H9 web client builds -- what each file in this folder is, and what it was built from
 
-Written by tools/make_webclient_bin.py, 2026-11-06 01:49 UTC.
+Written by tools/make_webclient_bin.py, 2026-11-07 06:54 UTC.
 tools/make_webclient_game.py takes these files from this folder (havoc9.org/webclient/DEPLOY.txt,
 section 3). Only the builds are here: the game's files come from the repository's H9XASH.
 
@@ -94,5 +94,5 @@ Files (bytes, SHA-1):
         the main menu, mainui with H9's patches (side module)
     3rdparty/extras/extras.pk3                1689094  881a344d5300ecfc3bb395a7fb583e8c7b373c0a
         FWGS's extras package (not a build: made by the engine build)
-    cl_dll/client_emscripten_wasm32.wasm       902264  1a9fa088819611cbdfc1cccde24d9e5291fed6d6
+    cl_dll/client_emscripten_wasm32.wasm       902899  bf550392eb01ce3668804c96473c82e9abd15a0b
         the game's client library, reTS's cl_dll with freevgui inside (side module)

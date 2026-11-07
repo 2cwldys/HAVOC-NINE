@@ -1,12 +1,12 @@
 // A perf.mjs scenario: the OFFICER'S WAITING LIST seen from his screen. Joins the assault test server (D:\temp\h9-assault-server.bat:
-// h9_as_lift, port 27015, rcon password h9test, tsm_bots 6), takes side 1 and the Officer class (the seventh) from the menus, starts the
+// h9_as_lift, port 27015, rcon password in H9_RCON, tsm_bots 6), takes side 1 and the Officer class (the seventh) from the menus, starts the
 // match, has three of his side's bots eliminated and takes a picture: the panel on the right (ts_matchmode's wait_panel) naming the
 // teammates who wait for a wave. Then a wave brings them back and a second picture shows the panel gone.
 //
 //   node perf.mjs --url http://127.0.0.1:8090/webclient/index.html --signup --phases none --script waitlist.mjs --name waitlist
 //
 //   H9_JOIN=127.0.0.1:27015   the server (it must be in the site's servers.json)
-//   H9_RCON=h9test            its rcon password
+//   H9_RCON=<password>        its rcon password (required)
 import dgram from "node:dgram";
 
 function rconCall(command, port, password) {
@@ -23,7 +23,8 @@ const KEY = { "0": 48, "1": 49, "2": 50, "3": 51, "4": 52, "5": 53, "6": 54, "7"
 
 export default async function waitlist({ tab, cmd, sleep, shot, results, stamp }) {
   const server = process.env.H9_JOIN || "127.0.0.1:27015";
-  const rcon = process.env.H9_RCON || "h9test";
+  const rcon = process.env.H9_RCON;
+  if (!rcon) throw new Error("set H9_RCON to the test server's rcon password");
   const port = Number(server.split(":")[1]);
   const press = async (k) => {
     const base = { windowsVirtualKeyCode: KEY[k], nativeVirtualKeyCode: KEY[k], key: k, code: "Digit" + k };

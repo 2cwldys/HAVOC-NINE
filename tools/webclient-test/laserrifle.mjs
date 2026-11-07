@@ -1,17 +1,18 @@
 // A perf.mjs scenario: the laser rifle (weapon 40) in a live round, on the siege test server (D:\temp\h9-siege-server.bat,
-// rcon password h9test). Joins, takes side 1 and the Officer class (7), starts the match, and when the round is live fires
+// rcon password in H9_RCON). Joins, takes side 1 and the Officer class (7), starts the match, and when the round is live fires
 // the rifle in bursts and takes pictures: the viewmodel, the muzzle flash and light, the bolt and its trail, the glow where it
 // lands, the right click zoom (a blue overlay) and the reload.
 //
-//   node perf.mjs --url http://127.0.0.1:8090/webclient/index.html --login perfcur1 --phases none --script laserrifle.mjs --name laserrifle
+//   node perf.mjs --url http://127.0.0.1:8090/webclient/index.html --login <test-account> --phases none --script laserrifle.mjs --name laserrifle
 //
 //   H9_JOIN=127.0.0.1:27015   the server (it must be in the site's servers.json)
-//   H9_RCON=h9test            its rcon password
+//   H9_RCON=<password>        its rcon password (required)
 const KEY = { "1": 49, "2": 50, "3": 51, "4": 52, "5": 53, "6": 54, "7": 55 };
 
 export default async function laserrifle({ tab, cmd, sleep, shot, results, stamp }) {
   const server = process.env.H9_JOIN || "127.0.0.1:27015";
-  const rcon = process.env.H9_RCON || "h9test";
+  const rcon = process.env.H9_RCON;
+  if (!rcon) throw new Error("set H9_RCON to the test server's rcon password");
   const press = async (k) => {
     const base = { windowsVirtualKeyCode: KEY[k], nativeVirtualKeyCode: KEY[k], key: k, code: "Digit" + k };
     await tab.send("Input.dispatchKeyEvent", { type: "keyDown", text: k, unmodifiedText: k, ...base });

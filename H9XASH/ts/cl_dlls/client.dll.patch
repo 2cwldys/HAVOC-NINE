@@ -12,8 +12,8 @@ client it was applied to.
 Deployed file : client.dll
 Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 (CMake, Win32, Release; target client)
-Size          : 861184 bytes
-SHA256        : D11DD1B9A18312F31D5973A70159F8524EE31D97CFAAA45082E302CF5551756D
+Size          : 861696 bytes
+SHA256        : 5CB48C3BB63B37A360BAFAC021134A32A32C9D6F98BE71787CFC8F4700EC1F78
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
                 plus the local mouse-release fix below, the 128-slot build (2026-11-01) and the
                 scoreboard's pictures, link icons, lives column, scrolling, Roleplay
@@ -24,7 +24,7 @@ Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-2
                 (2026-11-04), and the level badge beside the name instead of before it (2026-11-04), and the
                 notices coming up (2026-11-04), and the laser rifle (2026-11-05), and the H9 panels a quarter
                 smaller with a side's reinforcements on the scoreboard (2026-11-05), and the capture points' marks through the walls (2026-11-05), and the row of marks kept in place by a panel
-                at the side (2026-11-05)
+                at the side (2026-11-05), and the marks' badges as wide as their labels with tsm_show_zones (2026-11-07)
 
 What the source build contains, beyond the stock client
 -------------------------------------------------------
@@ -318,7 +318,18 @@ What the source build contains, beyond the stock client
    hide with the HUD and under the scoreboard. cl_h9_marks and cl_h9_marks_strip (both 1, saved) turn the marks and the
    row off. A game of protocol 2 or less is sent TS's own Objective markers instead. Detail: docs\H9_VGUI.txt.
 
-22. Everything else reTS already had
+22. Marks: a badge as wide as its label, room between the badges, and tsm_show_zones
+
+   A mark's badge was always a square, so a word such as UPLINK was wider than its frame and ran into the badge beside it
+   in the row under the top stack ("4UPLINK"). cl_dll\h9_vgui.cpp now gives each badge the width its label needs
+   (BadgeWide: the square, or the text plus room either side), on the world and in the row, and the row's badges stand
+   a few pixels apart frame to frame (StripGap) where they used to touch; a wide badge pinned to the edge of the screen
+   keeps its whole frame on the screen. tsm_show_zones (1, saved) is the new client cvar for the marks drawn on the world,
+   through the walls: 0 draws none there (the assault mode's capture points, the uplink mode's zones and uplink, the flags
+   and pads of Capture the Flag) while the row under the top stack stays (cl_h9_marks_strip), and cl_h9_marks still turns
+   every mark off. The client.dll this replaced is kept as client.dll.bak_prezones in reTS\binaries\ts\cl_dlls\.
+
+23. Everything else reTS already had
 
    The reTS client is a recompilation of the whole TS client, so it also carries the third-person
    self-transparency fade, the predicted viewmodel body, the HUD and the rest of the reTS client

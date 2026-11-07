@@ -22835,8 +22835,9 @@ active_spawn_tier(team)
 /// spreads around the Officer instead of testing the same spot for everyone. The spot is
 /// a ring at 48, 64 or 80 units, traced down to a floor and then hull-checked as a
 /// standing body, with a clear line back to the Officer and no one already standing in
-/// it. False when the side has no living Officer or every candidate is blocked; the
-/// caller then uses the ordinary spawn points.
+/// it. `org` is the player's ORIGIN there (the hull's middle, 37 above the floor), not the
+/// floor point. False when the side has no living Officer or every candidate is blocked;
+/// the caller then uses the ordinary spawn points.
 bool:pick_officer_spawn(id, team, slot, Float:org[3], Float:ang[3])
 {
 	new leader = 0;
@@ -22942,7 +22943,9 @@ bool:pick_officer_spawn(id, team, slot, Float:org[3], Float:ang[3])
 			continue;
 		}
 
-		copy_vec(org, spot);
+		// A player's origin is the middle of his standing hull, 36 above his feet: he goes where the hull
+		// was checked (the floor + 37), not at the floor point, which would bury him to the waist.
+		copy_vec(org, hull);
 		ang[0] = 0.0;
 		ang[1] = la[1];
 		ang[2] = 0.0;

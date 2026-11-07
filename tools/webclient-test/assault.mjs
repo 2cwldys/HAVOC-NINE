@@ -1,13 +1,13 @@
 // A perf.mjs scenario: ASSAULT (ts_assault) seen from a player's screen. Joins the assault test server (D:\temp\h9-assault-server.bat:
-// h9_as_lift, port 27015, rcon password h9test, tsm_bots 6), takes a side and a class from the menus, starts the match, and takes a
+// h9_as_lift, port 27015, rcon password in H9_RCON, tsm_bots 6), takes a side and a class from the menus, starts the match, and takes a
 // picture at each step: the capture points' marks through the walls and the row of them under the top notices, the scoreboard with the
 // side's pool of lives, a point changing hands, a death drawing from the pool, a respawn wave. The server's own account of each step
 // (amx_tsm_assault, amx_tsm_debug, tsm_pres_prog) is printed from here over rcon.
 //
-//   node perf.mjs --url http://127.0.0.1:8090/webclient/index.html --login perfcur1 --phases none --script assault.mjs --name assault
+//   node perf.mjs --url http://127.0.0.1:8090/webclient/index.html --login <test-account> --phases none --script assault.mjs --name assault
 //
 //   H9_JOIN=127.0.0.1:27015   the server (it must be in the site's servers.json)
-//   H9_RCON=h9test            its rcon password
+//   H9_RCON=<password>        its rcon password (required)
 import dgram from "node:dgram";
 import fs from "node:fs";
 
@@ -26,7 +26,8 @@ const KEY = { "1": 49, "2": 50, "3": 51, "4": 52, "5": 53 };
 
 export default async function assault({ tab, cmd, sleep, shot, results, stamp }) {
   const server = process.env.H9_JOIN || "127.0.0.1:27015";
-  const rcon = process.env.H9_RCON || "h9test";
+  const rcon = process.env.H9_RCON;
+  if (!rcon) throw new Error("set H9_RCON to the test server's rcon password");
   const port = Number(server.split(":")[1]);
   const press = async (k) => {
     const base = { windowsVirtualKeyCode: KEY[k], nativeVirtualKeyCode: KEY[k], key: k, code: "Digit" + k };

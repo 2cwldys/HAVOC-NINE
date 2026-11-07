@@ -10,7 +10,8 @@
 //   menu   20 seconds of the main menu
 //   map    loads --map in the page's own engine (a listen server in the tab), then --secs seconds in it
 // --signup makes a throwaway account on the site --url names (POST /api/signup) and signs the tab in with it, in place of the
-// stubbed sign-in: what a join through the relay needs. A --script <file.mjs> exports default async
+// stubbed sign-in: what a join through the relay needs. Both --signup and --login read the account's password from
+// H9_PASSWORD (required: the tool carries no default). A --script <file.mjs> exports default async
 // ({ tab, cmd, sleep, out, window_, shot, results, nowMs, stamp }) to run its own phase (join.mjs joins a server).
 // Results go to <ROOT>\webclient-build\perf\<name>\: summary.json, <phase>.cpuprofile, shot-<phase>.png, console.txt,
 // engine-log.txt; `node perf.mjs --top <file.cpuprofile> [n]` prints where the main thread's time went.
@@ -110,8 +111,10 @@ try {
     // (h9web-admin create <name> prints a password: H9_PASSWORD names it)
     const origin = new URL(url).origin;
     const user = arg("login") || "perf" + Math.random().toString(36).slice(2, 8);
+    const password = process.env.H9_PASSWORD;
+    if (!password) throw new Error("set H9_PASSWORD to the account's password (--login) or to the one the new account gets (--signup)");
     const route = arg("login") ? "/api/login" : "/api/signup";
-    const r = await fetch(origin + route, { method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ username: user, password: process.env.H9_PASSWORD || "correct horse battery staple" }) });
+    const r = await fetch(origin + route, { method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ username: user, password }) });
     if (r.status !== (arg("login") ? 200 : 201)) throw new Error(route + " on " + origin + " answered " + r.status + ": " + (await r.text()).slice(0, 120));
     const [cname, ...cvalue] = r.headers.getSetCookie()[0].split(";")[0].split("=");
     await tab.send("Network.enable");
