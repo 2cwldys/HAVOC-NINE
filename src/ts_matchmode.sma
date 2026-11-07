@@ -366,6 +366,25 @@ stock icon_frame_for(ci, team)
 #define TSM_MODELLIST       224
 #define TSM_MODELFIELD      344
 #define TSM_MAXWPN           6
+
+/*
+ * The custom hands. The game's own models/v_*.mdl are left exactly as they ship, so
+ * h9_customhands 0 is TS's own hands; the custom ones are separate copies under
+ * models/matchmode/<set>/ that ts_matchmode points the client's viewmodel at while
+ * h9_customhands is on. There are three sets, made by modelling/team-hands.mjs: msr for
+ * side 1 (the Middle Sea Republic, a blue cuff), insurgent for side 2 (a green cuff), and
+ * default, with no stripe at all, for normal TS play (the match mode off) and for a player
+ * on neither side. TSM_HANDS is the number of stock viewmodels those sets cover.
+ *
+ * TSM_HAND_INDEX is Xash3D's protocol MAX_MODELS (12 model bits): a model index past
+ * it cannot be mapped, and the stock hand is left in place instead.
+ */
+#define TSM_HANDS           40
+#define TSM_HAND_INDEX      4096
+#define TSM_HAND_SETS       3
+#define TSM_HAND_MSR        0
+#define TSM_HAND_INSURGENT  1
+#define TSM_HAND_DEFAULT    2
 // The class perks (TSM_PERK_*) are in include\tsm_api.inc, which mode plugins share.
 
 // The regeneration tick's task id. A server-wide task, so it needs an id that cannot
@@ -679,6 +698,7 @@ new g_cv_reloadout;
 new g_cv_loadout;
 new g_cv_spawnmode;
 new g_cv_officerspawn;             // tsm_officerspawn: waves spawn beside the side's Officer
+new g_cv_customhands;              // h9_customhands: custom first-person hands (1 on: by side in a match, the default set elsewhere; 0 the game's own)
 new g_cv_solo;
 new g_cv_dbglog, g_cv_logging;
 new g_cv_verbosity;             // tsm_verbosity: 0 keeps every "[MATCH]" chat line off (match_chat)
@@ -876,6 +896,14 @@ new g_model_writes = 0;       // diagnostic: real model writes since map load
 new g_model_want_idx[MAXPL];  // model index the engine must draw for this player
 new g_model_chosen[MAXPL][32];// the name the class table picked, before it was checked
 new g_model_ok[MAXPL];        // whether that name resolved to a file on disk
+
+/*
+ * The matchmode hand swap, by stock viewmodel index: g_hand_swap[set][stock] is the
+ * model index the client is told to draw instead, or 0 for "leave it alone"; set is
+ * TSM_HAND_MSR, TSM_HAND_INSURGENT or TSM_HAND_DEFAULT.
+ * Built once in precache_hands(); read every frame in fw_updateclientdata_post.
+ */
+new g_hand_swap[TSM_HAND_SETS][TSM_HAND_INDEX];
 new g_spec_model_idx = 0;     // index of tsm_spectator_model, resolved once (see spec_model_index)
 new bool:g_spec_model_tried;  // resolved it (or found it missing) at least once
 new bool:g_roaming[MAXPL];    // .roam -- out of the match, free to walk the map
@@ -3999,6 +4027,150 @@ precache_models_in_spec(const spec[])
 }
 
 /*
+ * The stock first-person viewmodels the matchmode hand sets cover, as paths under
+ * models/, in the order they were built. The plugin precaches the stock path to learn
+ * its model index, then the three matchmode copies (models/matchmode/<set>/<the same
+ * path>) and records their indexes against it.
+ *
+ * A weapon added to the game needs its model added here too, or it keeps the stock
+ * hands while every other weapon shows the matchmode set: add its path to this table,
+ * raise TSM_HANDS, and run modelling/team-hands.mjs, which makes the three copies of
+ * every v_*.mdl it finds in models/ and models/h9/. The two H9 weapons are precached
+ * only on a game library that has them (g_has_ppsh, g_has_laser).
+ */
+new const g_hand_files[TSM_HANDS][] =
+{
+	"v_ak47.mdl",
+	"v_aug.mdl",
+	"v_beretta.mdl",
+	"v_berettas.mdl",
+	"v_bull.mdl",
+	"v_contender.mdl",
+	"v_desert.mdl",
+	"v_fnh.mdl",
+	"v_fnh_akimbo.mdl",
+	"v_glock18.mdl",
+	"v_glock22.mdl",
+	"v_gold.mdl",
+	"v_katana.mdl",
+	"v_knife.mdl",
+	"v_m16.mdl",
+	"v_m3.mdl",
+	"v_m4.mdl",
+	"v_m60.mdl",
+	"v_m61.mdl",
+	"v_m82.mdl",
+	"v_melee.mdl",
+	"v_mk23.mdl",
+	"v_mk23_akimbo.mdl",
+	"v_mossberg.mdl",
+	"v_mp5k.mdl",
+	"v_mp5sd.mdl",
+	"v_pdw.mdl",
+	"v_ruger.mdl",
+	"v_sawedoff.mdl",
+	"v_sealknife.mdl",
+	"v_skorpion.mdl",
+	"v_skorpion_ak.mdl",
+	"v_spas12.mdl",
+	"v_tmp.mdl",
+	"v_ump.mdl",
+	"v_usas.mdl",
+	"v_uzi.mdl",
+	"v_uzi_akimbo.mdl",
+	"h9/v_ppsh41.mdl",
+	"h9/v_laserrifle.mdl"
+};
+
+// The three sets: their folders under models/matchmode/, in the order of TSM_HAND_MSR, TSM_HAND_INSURGENT, TSM_HAND_DEFAULT.
+new const g_hand_sets[TSM_HAND_SETS][] =
+{
+	"msr",
+	"insurgent",
+	"default"
+};
+
+/*
+ * Precaches the custom hand sets and fills g_hand_swap: all three on a map that plays the
+ * match mode (g_map_h9), only the default on any other; none when h9_customhands is 0.
+ *
+ * WHY A MODEL-INDEX TABLE, rather than rewriting pev_viewmodel2. The game DLL fills
+ * clientdata_t.viewmodel itself, every frame, so a string written to the entity can be
+ * overwritten before it is sent. FM_UpdateClientData runs after the DLL and hands over
+ * the struct that is about to go on the wire; writing CD_ViewModel there is the one
+ * place nothing else argues with.
+ *
+ * WHY THE STOCK PATH IS PRECACHED TOO. The DLL's index is the stock model's index;
+ * mapping it is what tells us which matchmode copy belongs in its place. precache_model
+ * returns the existing index when TS has already loaded that model, so this does not
+ * duplicate it.
+ *
+ * Everything is existence-gated: a missing file is a fatal Host_Error at map load, and
+ * a missing matchmode copy only means that one weapon keeps its stock hands.
+ */
+precache_hands()
+{
+	if (!get_pcvar_num(g_cv_customhands))
+	{
+		return;
+	}
+
+	new missing[TSM_HAND_SETS], found[TSM_HAND_SETS];
+	new stockpath[64], path[96], base, idx;
+
+	for (new i = 0; i < TSM_HANDS; i++)
+	{
+		if ((equal(g_hand_files[i], "h9/v_ppsh41.mdl") && !g_has_ppsh) || (equal(g_hand_files[i], "h9/v_laserrifle.mdl") && !g_has_laser))
+		{
+			continue;
+		}
+
+		formatex(stockpath, charsmax(stockpath), "models/%s", g_hand_files[i]);
+		if (!file_exists(stockpath))
+		{
+			continue;
+		}
+
+		base = precache_model(stockpath);
+		if (base <= 0 || base >= TSM_HAND_INDEX)
+		{
+			continue;
+		}
+
+		for (new set = 0; set < TSM_HAND_SETS; set++)
+		{
+			// a map that does not play the match has no sides: only the default set is worn there
+			if (set != TSM_HAND_DEFAULT && !g_map_h9)
+			{
+				continue;
+			}
+
+			formatex(path, charsmax(path), "models/matchmode/%s/%s", g_hand_sets[set], g_hand_files[i]);
+			if (!file_exists(path, true))
+			{
+				missing[set]++;
+				continue;
+			}
+
+			idx = precache_model(path);
+			if (idx > 0 && idx < TSM_HAND_INDEX)
+			{
+				g_hand_swap[set][base] = idx;
+				found[set]++;
+			}
+		}
+	}
+
+	if (missing[TSM_HAND_MSR] || missing[TSM_HAND_INSURGENT] || missing[TSM_HAND_DEFAULT])
+	{
+		log_amx("[TSM] matchmode hands: %d msr, %d insurgent and %d default models missing; those weapons keep the game's hands.",
+			missing[TSM_HAND_MSR], missing[TSM_HAND_INSURGENT], missing[TSM_HAND_DEFAULT]);
+	}
+	tlog("[TSM] matchmode hands: %d msr + %d insurgent + %d default models precached.",
+		found[TSM_HAND_MSR], found[TSM_HAND_INSURGENT], found[TSM_HAND_DEFAULT]);
+}
+
+/*
  * Precaches every model the class table can hand out.
  *
  * WHY THIS EXISTS
@@ -4423,6 +4595,15 @@ public plugin_precache()
 	 * get_pcvar_num before that.
 	 */
 	g_cv_logging = register_cvar("tsm_logging", "0");
+
+	/*
+	 * The custom hands are ON by default. The cvar is registered here, not in
+	 * plugin_init, because precache_hands() reads it: a server that sets
+	 * "h9_customhands 0" in its server.cfg precaches no hand models at all, and one that
+	 * switches it off later gets the game's own hands at once; switching it on later
+	 * needs a map change for the models.
+	 */
+	g_cv_customhands = register_cvar("h9_customhands", "1");
 
 	/*
 	 * WHICH GAME THIS MAP PLAYS, decided here because nothing later can: TS chooses its gamerules
@@ -4852,6 +5033,8 @@ public plugin_precache()
 	 */
 	precache_class_models();
 	precache_weapon_models();
+	// The matchmode sets live under models/matchmode/; the stock v_*.mdl stay untouched.
+	precache_hands();
 
 	/*
 	 * The spectator model, for the same reason as the class models above.
@@ -5941,6 +6124,10 @@ public plugin_init()
 	// during the move itself rather than in PreThink, the post-PreThink hook is still
 	// too early and only this one lands.
 	register_forward(FM_PlayerPostThink, "fw_postthink_post", 1);
+
+	// The matchmode hands. POST, so the game DLL has already filled CD_ViewModel;
+	// h9_customhands 0 simply stops overriding it and TS's own hands return next frame.
+	register_forward(FM_UpdateClientData, "fw_updateclientdata_post", 1);
 
 	register_forward(FM_GetGameDescription, "fw_gamedesc");
 	register_forward(FM_AddToFullPack, "fw_addtofullpack_pre");
@@ -18679,6 +18866,56 @@ public fw_prethink_post(id)
 	{
 		set_pev(id, pev_maxspeed, target);
 		g_speed_fixes++;
+	}
+
+	return FMRES_IGNORED;
+}
+
+/*
+ * The custom hands, written into the clientdata the server is about to send.
+ *
+ * CD_ViewModel is the model index the client draws in first person. The game DLL
+ * fills it from the weapon's stock viewmodel; while h9_customhands is on this swaps in
+ * a custom copy. In a live match each side has its own: the MSR's hands (a blue cuff)
+ * for side 1, the Insurgents' (a green cuff) for side 2. Anywhere else -- normal TS
+ * play, where the match mode is off, and a player on neither side -- the default hands,
+ * which have no stripe at all. The table was built in precache_hands(): stock index in,
+ * per-set custom index out, so this is one array lookup, no string work and no
+ * pev_viewmodel2 fight with TS.
+ *
+ * h9_customhands 0 leaves the DLL's value untouched: TS's own hands.
+ */
+public fw_updateclientdata_post(id, sendweapons, cd_handle)
+{
+	if (!get_pcvar_num(g_cv_customhands))
+	{
+		return FMRES_IGNORED;
+	}
+
+	new idx = get_cd(cd_handle, CD_ViewModel);
+	if (idx <= 0 || idx >= TSM_HAND_INDEX)
+	{
+		return FMRES_IGNORED;
+	}
+
+	new set = TSM_HAND_DEFAULT;
+	if (get_pcvar_num(g_cv_enabled))
+	{
+		new team = g_match_team[id];
+		if (team == 1)
+		{
+			set = TSM_HAND_MSR;
+		}
+		else if (team == 2)
+		{
+			set = TSM_HAND_INSURGENT;
+		}
+	}
+
+	new want = g_hand_swap[set][idx];
+	if (want > 0 && want != idx)
+	{
+		set_cd(cd_handle, CD_ViewModel, want);
 	}
 
 	return FMRES_IGNORED;

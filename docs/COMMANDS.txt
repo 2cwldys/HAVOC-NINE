@@ -2195,6 +2195,11 @@
  tsm_model_verify          0          seconds between re-checking a player's
                                       model; 0 never
  tsm_model_fallback_class  1          the class a blank model field borrows from
+ h9_customhands            1          custom first-person hands: 1 a black glove
+                                      and sleeve, by side in a match (MSR a blue
+                                      cuff, the Insurgents green) and with no
+                                      stripe in normal TS and for a player on
+                                      neither side; 0 the game's own TS hands
  tsm_class_icons           1          a class sprite over each head, shown to its
                                       own side
  tsm_icon_height           52.0       units above the player's origin

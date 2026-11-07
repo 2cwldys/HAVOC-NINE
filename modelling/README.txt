@@ -53,6 +53,16 @@
 
  NOTHING is ever written there. Output goes to out\ and is installed by hand.
 
+ team-hands.mjs   the first-person hands, three sets by side (msr, insurgent, default
+                  with no stripe at all) for every viewmodel in the game: models/v_*.mdl
+                  and models/h9/v_*.mdl (the PPSh-41, the laser rifle). Its pictures are
+                  hands\*.bmp (the default is the msr picture with the cuff taken out,
+                  the blue stripe and the black line beside it);
+                  it writes models/matchmode/<set>/ in the game folder and never the
+                  game's own models. ts_matchmode.sma (h9_customhands) points the client
+                  at the copy for the player's side. A weapon added to the game: run it
+                  again and add the model's path to g_hand_files in ts_matchmode.sma.
+
  ..\test\ts-trial\originals\ holds thirteen of them copied out, with twenty
  variants made from them and the scripts that did it. That folder is an EXAMPLE
  and is left alone; read its scripts, do not work in it.

@@ -1,6 +1,6 @@
 {
  "format": 1,
- "builtAt": "2026-11-06T01:50:13.780Z",
+ "builtAt": "2026-11-07T03:06:19.883Z",
  "inputs": {
   "engine": "fda17e383b9b53902a28c106d849065fdb3f8489eff83a25ae29079847e71a7e",
   "client": "7ab84091d1f0e929c8acee99ea50322574c8a64c940a6bf43fec7952fdc85a06",
@@ -23,14 +23,14 @@
  "smoke": {
   "ok": true,
   "checks": 6,
-  "at": "2026-11-06T01:50:13.791Z",
+  "at": "2026-11-07T03:06:19.894Z",
   "perf": {
-   "fps": 60,
+   "fps": 60.2,
    "frameMs": {
     "p50": 16.7,
     "p95": 16.8,
     "p99": 16.8,
-    "max": 17
+    "max": 16.8
    },
    "longTasks": {
     "count": 0,

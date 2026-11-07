@@ -1,6 +1,6 @@
 @echo off
 REM ---------------------------------------------------------------------------
-REM  enter_userid.cmd -- use your havoc9.org account's player id in this install
+REM  h9_enter_userid.cmd -- use your havoc9.org account's player id in this install
 REM
 REM  The easy way needs no id at all: Link your Account in the game's main menu
 REM  (or .link in chat on an H9 server) shows a code to approve on havoc9.org.
