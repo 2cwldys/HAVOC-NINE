@@ -23361,6 +23361,11 @@ finish_round_start()
 	set_task(1.0, "task_freeze_tick", 3, "", 0, "b");
 
 	set_task(float(get_pcvar_num(g_cv_freeze)), "task_go_live");
+	// the first number is on the screen from the start of the freeze, not a second into it
+	if (get_pcvar_num(g_cv_freeze) > 1)
+	{
+		freeze_countdown_show(get_pcvar_num(g_cv_freeze));
+	}
 
 	tlog("[TSM] finish_round_start: scheduling sound tasks (freeze=%d)", get_pcvar_num(g_cv_freeze));
 
@@ -23917,18 +23922,13 @@ public task_freeze_tick()
 
 	if (g_freeze_left > 0)
 	{
-		// Channel 2: the freeze countdown. Hold exceeds the 1.0s refresh so there is
-		// no gap between redraws, which is half of what the blinking was.
-		set_hudmessage(255, 180, 0, -1.0, 0.28, 0, 0.0, 1.5, 0.0, 0.0, 2);
-		new ft1[32], ft2[32];
-		team_short(1, ft1, charsmax(ft1));
-		team_short(2, ft2, charsmax(ft2));
-		new fsl[96];
-		score_line(ft1, ft2, fsl, charsmax(fsl));
-		bar_hud("%s^nStarting in %d...^n^n%s", g_round_tag, g_freeze_left, fsl);
-		bar_set(255, 180, 0, g_freeze_left, get_gametime() + float(g_freeze_left),
-			"%s -- STARTING IN {s}^n%s", g_round_tag, fsl);
-
+		// The first tick comes a second after the freeze began and go-live comes when the last one is due, so the tick that has g_freeze_left
+		// seconds left on it is the one at which g_freeze_left - 1 really are: the number shown is that, and the one before the last tick
+		// shows 1, with the round starting one second after it. (freeze_countdown_show draws the first number when the freeze begins.)
+		if (g_freeze_left > 1)
+		{
+			freeze_countdown_show(g_freeze_left - 1);
+		}
 		g_freeze_left--;
 	}
 	else
@@ -23939,6 +23939,22 @@ public task_freeze_tick()
 
 		remove_task(3);
 	}
+}
+
+/// The freeze countdown, `left` seconds from now to the round's start: the hudmessage and the notice bar.
+freeze_countdown_show(left)
+{
+	// Channel 2: the freeze countdown. Hold exceeds the 1.0s refresh so there is
+	// no gap between redraws, which is half of what the blinking was.
+	set_hudmessage(255, 180, 0, -1.0, 0.28, 0, 0.0, 1.5, 0.0, 0.0, 2);
+	new ft1[32], ft2[32];
+	team_short(1, ft1, charsmax(ft1));
+	team_short(2, ft2, charsmax(ft2));
+	new fsl[96];
+	score_line(ft1, ft2, fsl, charsmax(fsl));
+	bar_hud("%s^nStarting in %d...^n^n%s", g_round_tag, left, fsl);
+	bar_set(255, 180, 0, left, get_gametime() + float(left),
+		"%s -- STARTING IN {s}^n%s", g_round_tag, fsl);
 }
 
 /// Score and round shown on its own HUD channel so it cannot stomp the countdown.
