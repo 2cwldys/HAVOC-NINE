@@ -295,10 +295,17 @@ player_left(id)
 bool:player_key(id, key[], len)
 {
 	get_user_info(id, "h9_clientid", key, len);
-	if (key[0])
+	// the id is 32 lowercase hex characters or nothing: a client chooses the text, and it goes into a data file
+	new bool:hex = (strlen(key) == 32);
+	for (new i = 0; hex && key[i]; i++)
+	{
+		hex = ('0' <= key[i] <= '9') || ('a' <= key[i] <= 'f');
+	}
+	if (hex)
 	{
 		return true;
 	}
+	key[0] = 0;
 	get_user_authid(id, key, len);
 	return key[0] && !equali(key, "STEAM_ID_LAN") && !equali(key, "STEAM_ID_PENDING")
 		&& !equali(key, "VALVE_ID_LAN") && !equali(key, "VALVE_ID_PENDING") && !equali(key, "BOT")

@@ -133,12 +133,25 @@ function isLoopback(address) {
   return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
 }
 
-// The client's address: nginx's X-Real-IP when the connection comes from this machine and
-// trustProxy is on, the connection's own address otherwise.
+// The header a trusted front hop sets to the visitor's address. trustProxy true is nginx's X-Real-IP (nginx overwrites it in
+// every location); a string names the one header an edge sets (a Cloudflare Tunnel's cloudflared reaches h9web from loopback and
+// forwards the visitor's own X-Real-IP untouched, so for that topology only cf-connecting-ip is believed).
+export const PROXY_HEADERS = new Set(["x-real-ip", "cf-connecting-ip"]);
+
+export function proxyHeaderFor(trustProxy) {
+  if (!trustProxy) return null;
+  const name = trustProxy === true ? "x-real-ip" : String(trustProxy).toLowerCase();
+  if (!PROXY_HEADERS.has(name)) throw new Error("trustProxy must be true, false or one of: " + [...PROXY_HEADERS].join(", "));
+  return name;
+}
+
+// The client's address: the trusted header's single valid address when the connection comes from this machine and trustProxy
+// is on, the connection's own address otherwise.
 export function clientIp(req, trustProxy) {
+  const header = proxyHeaderFor(trustProxy);
   let address = req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : "";
-  if (trustProxy && isLoopback(address)) {
-    const real = String(req.headers["x-real-ip"] || "").trim();
+  if (header && isLoopback(address)) {
+    const real = String(req.headers[header] || "").trim();
     if (net.isIP(real)) address = real;
   }
   if (address.startsWith("::ffff:") && net.isIPv4(address.slice(7))) address = address.slice(7);

@@ -30,6 +30,7 @@ ONE PROCESS, TWO JOBS
 import asyncio
 import configparser
 import hmac
+import ipaddress
 import os
 import re
 import socket
@@ -219,6 +220,9 @@ class Settings:
         self.port = ini.getint("http", "port", fallback=8081)
         self.public_url = ini.get("http", "public_url", fallback="https://havoc9.org/serverlist").strip()
         self.open_heartbeats = ini.getboolean("http", "open_heartbeats", fallback=True)
+        # Which header names the visitor when a request reaches the list from this machine: x-real-ip (nginx sets it in every
+        # location), cf-connecting-ip (a Cloudflare Tunnel's cloudflared), or none (the connection's own address).
+        self.proxy_header = ini.get("http", "proxy_header", fallback="x-real-ip").strip().lower()
         self.gamedir = ini.get("list", "gamedir", fallback="ts").strip()
         self.poll_seconds = ini.getfloat("list", "poll_seconds", fallback=30.0)
         self.expire_seconds = ini.getfloat("list", "expire_seconds", fallback=300.0)
@@ -230,6 +234,8 @@ class Settings:
                               or secrets.get("secrets", "discord_token", fallback="").strip())
         if not GAMEDIR_RE.match(self.gamedir):
             sys.exit(f"gamedir {self.gamedir!r} in serverlist.ini is not a game folder name")
+        if self.proxy_header not in ("x-real-ip", "cf-connecting-ip", "none"):
+            sys.exit(f"proxy_header {self.proxy_header!r} in serverlist.ini must be x-real-ip, cf-connecting-ip or none")
         if self.guild_id and not self.guild_id.isdigit():
             sys.exit(f"guild_id {self.guild_id!r} in serverlist.ini is not a number")
         if self.public_url and not self.public_url.startswith(("http://", "https://")):
@@ -455,17 +461,21 @@ def heartbeat_failed(fails, address, now):
     return entry[0]
 
 
-def client_address(request):
+def client_address(request, header="x-real-ip"):
     """
     The address a request came from. Behind nginx (havoc9.org/deploy/nginx-setup.sh) every
-    request reaches the list from this machine, and nginx names the real one in X-Real-IP; the
-    header is believed only from this machine.
+    request reaches the list from this machine, and nginx names the real one in X-Real-IP; behind
+    a Cloudflare Tunnel cloudflared does, and the one header to believe is CF-Connecting-IP (it
+    forwards a visitor's own X-Real-IP untouched). The named header is believed only from this
+    machine, and only when it holds exactly one valid address; header "none" believes none.
     """
     remote = request.remote or ""
-    if remote in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
-        real = request.headers.get("X-Real-IP", "").strip()
-        if real:
-            return real
+    if header != "none" and remote in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+        real = request.headers.get(header, "").strip()
+        try:
+            return str(ipaddress.ip_address(real)) if real else remote
+        except ValueError:
+            return remote
     return remote
 
 
@@ -479,7 +489,7 @@ async def handle_heartbeat(request):
     settings = request.app["settings"]
     fails = request.app["fails"]
     now = time.monotonic()
-    sender = client_address(request)
+    sender = client_address(request, settings.proxy_header)
     if heartbeat_blocked(fails, sender, now):
         return web.json_response({"ok": False, "error": "too many wrong keys from this address; wait"},
                                  status=429, headers={"Retry-After": str(HEARTBEAT_WINDOW)})

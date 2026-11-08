@@ -19,7 +19,8 @@ export const DEFAULTS = {
   listen: { host: "127.0.0.1", port: 8090 },
   // the site's own origins: state-changing requests and the relay's WebSocket must come from one
   allowedOrigins: ["https://havoc9.org"],
-  // take the client address from nginx's X-Real-IP, when the request comes from this machine
+  // where the client address comes from, for a request that reaches h9web from this machine: true = nginx's X-Real-IP,
+  // "cf-connecting-ip" = a Cloudflare Tunnel's cloudflared, false = the connection's own address (lib/http.js clientIp)
   trustProxy: true,
   dataDir: "./data",
   // the data key (lib/datakey.js): encryption at rest; null = <dataDir>/data.key
@@ -29,7 +30,8 @@ export const DEFAULTS = {
   gamedir: "ts",
   // only for a test without HTTPS on another machine: drops Secure and the __Host- cookie prefix
   insecureCookies: false,
-  session: { days: 30, idleDays: 14 },
+  // maxPerAccount: the newest this many sessions of one account stay; a sign-in beyond that ends the oldest
+  session: { days: 30, idleDays: 14, maxPerAccount: 10 },
   password: { minLength: 10, maxLength: 256 },
   // scrypt cost: N = 2^ln, 32 MiB per hash at ln 15 / r 8; p 3 (OWASP's equal-strength row)
   scrypt: { ln: 15, r: 8, p: 3, maxConcurrent: 2, maxQueue: 64 },
@@ -116,16 +118,19 @@ function positive(value, name) {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Error("config: " + name + " must be a number above 0");
 }
 
-function checkOrigin(text) {
+// An origin is https, or http only for a loopback address (a test site on this machine) or with insecureCookies on.
+function checkOrigin(text, insecure = false) {
   const u = new URL(text);
   if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("config: origin " + text + " is not http(s)");
+  const loopback = u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "[::1]";
+  if (u.protocol === "http:" && !loopback && !insecure) throw new Error("config: origin " + text + " is http; use https (http is for a loopback test site)");
   return u.origin.toLowerCase();
 }
 
 // Validates and completes a settings object. base is the folder relative paths start from.
 export function resolveConfig(raw = {}, base = HOME) {
   const c = merge(DEFAULTS, raw);
-  c.allowedOrigins = (Array.isArray(c.allowedOrigins) ? c.allowedOrigins : []).map(checkOrigin);
+  c.allowedOrigins = (Array.isArray(c.allowedOrigins) ? c.allowedOrigins : []).map((o) => checkOrigin(o, c.insecureCookies === true));
   if (!c.allowedOrigins.length) throw new Error("config: allowedOrigins is empty");
   for (const key of ["dataDir", "serversFile", "modulesDir"]) c[key] = path.resolve(base, String(c[key]));
   c.dataKeyFile = c.dataKeyFile ? path.resolve(base, String(c.dataKeyFile)) : path.join(c.dataDir, "data.key");
@@ -146,9 +151,13 @@ export function resolveConfig(raw = {}, base = HOME) {
     }
     c.devStatic = mounts;
   }
+  if (c.trustProxy !== true && c.trustProxy !== false && !(typeof c.trustProxy === "string" && ["x-real-ip", "cf-connecting-ip"].includes(c.trustProxy.toLowerCase()))) {
+    throw new Error("config: trustProxy must be true, false, \"x-real-ip\" or \"cf-connecting-ip\"");
+  }
   positive(c.listen.port, "listen.port");
   positive(c.session.days, "session.days");
   positive(c.session.idleDays, "session.idleDays");
+  positive(c.session.maxPerAccount, "session.maxPerAccount");
   if (c.password.minLength < 10) throw new Error("config: password.minLength below 10");
   positive(c.password.maxLength, "password.maxLength");
   for (const [name, l] of Object.entries(c.limits)) {

@@ -191,6 +191,31 @@ stock icon_frame_for(ci, team)
 #define TSM_TURRET_DEPLOY  "turret/turret_deploy.wav"
 #define TSM_TURRET_BOOM    "sprites/zerogxplode.spr"
 #define TSM_TASK_TURRET    90510
+
+// The Combat Engineer's transporter pads (.transporter): two a round for each engineer, a pair of them carries his side's
+// players from one to the other.
+#define TSM_TPAD_NAME      "tsm_tpad"
+#define TSM_TPAD_MDL_1     "models/tsm_tpad_1.mdl"
+#define TSM_TPAD_MDL_2     "models/tsm_tpad_2.mdl"
+#define TSM_TPAD_MAX       16
+#define TSM_TASK_TPAD      90511
+#define TSM_TPAD_PLACE_SND "buttons/blip1.wav"
+#define TSM_TPAD_JUMP_SND  "debris/beamstart7.wav"
+new g_tpad[TSM_TPAD_MAX];            // the pad entities, 0 = free
+new g_tpad_owner[TSM_TPAD_MAX];
+new g_tpad_ring[TSM_TPAD_MAX];       // its effect sprites (env_sprite): a flat ring, a column of light, and an arrow once it has a partner
+new g_tpad_col[TSM_TPAD_MAX];
+new g_tpad_arrow[TSM_TPAD_MAX];
+new g_tpad_arrow_to[TSM_TPAD_MAX];   // the pad slot the arrow points at
+new Float:g_tpad_hp[TSM_TPAD_MAX];   // its health
+new bool:g_tpad_fx;                  // the effect sprites are there and precached
+new bool:g_tpad_arrow_ok;            // the arrow models are there and precached
+new g_tpad_side[TSM_TPAD_MAX];
+new g_tpad_placed[MAXPL];            // pads an engineer has set up this round, picked-up ones not counted
+new Float:g_tpad_cd[MAXPL];          // when a player may ride a pad again
+new bool:g_tpad_ok;                  // its models are there and precached
+new bool:g_tpad_place_snd, bool:g_tpad_jump_snd;
+new g_cv_tpad, g_cv_tpad_per, g_cv_tpad_cd, g_cv_tpad_hp, g_cv_tpad_resist;
 // Its sequences, by number as the model keeps them.
 #define TURRET_SEQ_IDLE    0
 #define TURRET_SEQ_FIRE    1
@@ -1143,6 +1168,9 @@ new g_cv_suddenfog_r, g_cv_suddenfog_g, g_cv_suddenfog_b, g_cv_suddenfog_d; // t
 new g_cv_scanradius, g_cv_scancool, g_cv_scantime;                         // the Officer's .scan
 new g_cv_botreturn;
 new g_cv_bots, g_cv_botteams, g_cv_botclass, g_cv_botready;
+// tsm_live_gate / tsm_live_minplayers / tsm_live_wait, and when the clock of a gate-off warmup began (0.0 = not running)
+new g_cv_livegate, g_cv_liveminp, g_cv_livewait;
+new Float:g_gate_since;
 
 /*
  * The flag string every get_players() call uses.
@@ -1208,6 +1236,7 @@ new bool:g_revive_washed[MAXPL];     // the wave's wash has been done for this p
 new g_revive_refused[MAXPL];         // waves that could not bring this player back: 0 or 1
 new g_revive_tries[MAXPL];           // retries left while a wave revive's gear waits for the spawn
 new g_cv_respawns, g_cv_respwave, g_cv_respsecs, g_cv_respsudden, g_cv_reinforce, g_cv_classlives;
+new g_cv_showreinf;                   // tsm_show_reinforce
 
 /*
  * BIGGER MATCHES, MORE OF EACH CLASS. tsm_scale_players lists player counts, each the start of a
@@ -1317,6 +1346,11 @@ new g_kills[MAXPL];                        // enemies eliminated on this map
  */
 #define TSM_LIVES_ENDLESS 255
 new g_msg_lives;                           // H9Lives, registered at precache
+new g_msg_h9class;                         // H9Class, registered at precache: the scoreboard's class column
+new g_cv_competitive;                      // tsm_competitive
+// What each human viewer was last told about each slot's class icon (frame + 1, 0 none, -1 not yet); [viewer][0] is 1 while the
+// column is on for him, 0 once he was told it is off
+new g_class_seen[MAXPL][MAXPL];
 
 /*
  * The scoreboard's name for its one list on a map without teams, sent to each joining client in
@@ -4565,6 +4599,12 @@ public plugin_precache()
 	g_msg_assists = engfunc(EngFunc_RegUserMsg, "H9Assists", 3);
 	g_msg_kills = engfunc(EngFunc_RegUserMsg, "H9Kills", 3);
 	g_msg_lives = engfunc(EngFunc_RegUserMsg, "H9Lives", 3);
+	g_msg_h9class = engfunc(EngFunc_RegUserMsg, "H9Class", 2);
+	for (new v = 0; v < MAXPL; v++)
+	{
+		arrayset(g_class_seen[v], -1, MAXPL);
+		g_class_seen[v][0] = 0;
+	}
 	g_msg_pool = engfunc(EngFunc_RegUserMsg, "H9Pool", 5);
 	g_msg_board = engfunc(EngFunc_RegUserMsg, "H9Board", -1);
 	h9vgui_precache(); // H9Vgui, the panels' message (h9_vgui.inc)
@@ -4842,6 +4882,56 @@ public plugin_precache()
 
 	// The sentry turret's models and sounds, precached only when every one of them is there: a precached
 	// name with no file behind it is a fatal Host_Error, so a missing file switches the turret off instead.
+	// The transporter pads' models, precached only when both are there (a missing file behind a precached name is a fatal Host_Error).
+	g_tpad_ok = file_exists(TSM_TPAD_MDL_1, true) && file_exists(TSM_TPAD_MDL_2, true);
+	if (g_tpad_ok)
+	{
+		precache_model(TSM_TPAD_MDL_1);
+		precache_model(TSM_TPAD_MDL_2);
+	}
+	g_tpad_fx = true;
+	for (new n = 1; n <= 2; n++)
+	{
+		new fx[48];
+		formatex(fx, charsmax(fx), "sprites/tsm_tpad_ring_%d.spr", n);
+		g_tpad_fx = g_tpad_fx && file_exists(fx, true);
+		formatex(fx, charsmax(fx), "sprites/tsm_tpad_col_%d.spr", n);
+		g_tpad_fx = g_tpad_fx && file_exists(fx, true);
+	}
+	g_tpad_arrow_ok = true;
+	for (new n = 1; n <= 2; n++)
+	{
+		new fx[48];
+		formatex(fx, charsmax(fx), "models/tsm_tpad_arrow_%d.mdl", n);
+		g_tpad_arrow_ok = g_tpad_arrow_ok && file_exists(fx, true);
+	}
+	for (new n = 1; g_tpad_arrow_ok && n <= 2; n++)
+	{
+		new fx[48];
+		formatex(fx, charsmax(fx), "models/tsm_tpad_arrow_%d.mdl", n);
+		precache_model(fx);
+	}
+	for (new n = 1; g_tpad_fx && n <= 2; n++)
+	{
+		new fx[48];
+		formatex(fx, charsmax(fx), "sprites/tsm_tpad_ring_%d.spr", n);
+		precache_model(fx);
+		formatex(fx, charsmax(fx), "sprites/tsm_tpad_col_%d.spr", n);
+		precache_model(fx);
+	}
+	new spath[64];
+	formatex(spath, charsmax(spath), "sound/%s", TSM_TPAD_PLACE_SND);
+	g_tpad_place_snd = (file_exists(spath, true) != 0);
+	if (g_tpad_place_snd)
+	{
+		precache_sound(TSM_TPAD_PLACE_SND);
+	}
+	formatex(spath, charsmax(spath), "sound/%s", TSM_TPAD_JUMP_SND);
+	g_tpad_jump_snd = (file_exists(spath, true) != 0);
+	if (g_tpad_jump_snd)
+	{
+		precache_sound(TSM_TPAD_JUMP_SND);
+	}
 	new tpath[64];
 	g_turret_ok = file_exists(TSM_TURRET_MDL_1, true) && file_exists(TSM_TURRET_MDL_2, true);
 	formatex(tpath, charsmax(tpath), "sound/%s", TSM_TURRET_PING);
@@ -5448,6 +5538,8 @@ public plugin_init()
 	g_cv_respsecs   = register_cvar("tsm_respawn_seconds",    "5.0");     // dead this long before a wave takes you
 	g_cv_respsudden = register_cvar("tsm_respawn_sudden",     "0");       // 1: waves still run in sudden death
 	g_cv_reinforce  = register_cvar("tsm_reinforce_cooldown", "120.0");   // the Officer's .reinforce cooldown
+	// 1: every living player sees his side's next respawn wave and what is left, as the Officer always does; 0: the Officer alone
+	g_cv_showreinf  = register_cvar("tsm_show_reinforce",      "1");
 	g_cv_classlives = register_cvar("tsm_class_lives",        "");        // lives per class, in class order
 	// A mode that keeps one pool of lives for a side (TSM_MODE_LIFE_POOL): what a death of each class draws from it, in class order
 	// (Officer 2, Mech 3), and how big it starts: tsm_pool_base plus tsm_pool_perplayer a player on the side, bots included.
@@ -5563,6 +5655,12 @@ public plugin_init()
 	// A bot cannot type .ready, so without this a side holding one never becomes ready.
 	g_cv_botready   = register_cvar("tsm_bot_ready",     "1");
 	g_cv_minteam   = register_cvar("tsm_min_per_team","1");
+	// 1 = a player sees only his own side's classes on the scoreboard; 0 = both sides'
+	g_cv_competitive = register_cvar("tsm_competitive","1");
+	// 1 = everyone types .ready; 0 = the match starts by itself (tsm_live_minplayers and/or tsm_live_wait)
+	g_cv_livegate  = register_cvar("tsm_live_gate","1");
+	g_cv_liveminp  = register_cvar("tsm_live_minplayers","");
+	g_cv_livewait  = register_cvar("tsm_live_wait","");
 	g_cv_disarm    = register_cvar("tsm_disarm",      "2");    // DISARM_SPEED
 	g_cv_report    = register_cvar("tsm_report_kills","1");
 	g_cv_reporthp  = register_cvar("tsm_report_hp",   "1");
@@ -5744,6 +5842,14 @@ public plugin_init()
 	// The Combat Engineer's sentry turret (.turret): how many, how tough, how far and how hard it shoots,
 	// and its repair.
 	g_cv_turret          = register_cvar("tsm_turret",                 "1");
+	// The Combat Engineer's transporter pads (.transporter): on or off, how many an engineer sets up a round, and how long a player
+	// waits before riding one again.
+	g_cv_tpad            = register_cvar("tsm_transporter",            "1");
+	g_cv_tpad_per        = register_cvar("tsm_transporter_per_engineer", "2");
+	g_cv_tpad_cd         = register_cvar("tsm_transporter_cooldown",   "3.0");
+	// Health of a pad, and the share of every hit its armour turns aside: the other side's fire destroys it.
+	g_cv_tpad_hp         = register_cvar("tsm_transporter_hp",         "200");
+	g_cv_tpad_resist     = register_cvar("tsm_transporter_resist",     "0.5");
 	g_cv_turret_per_team = register_cvar("tsm_turret_per_team",        "2");
 	g_cv_turret_hp       = register_cvar("tsm_turret_hp",              "400");
 	g_cv_turret_resist   = register_cvar("tsm_turret_resist",          "0.5");
@@ -6259,6 +6365,7 @@ public plugin_init()
 	register_clcmd("stim", "cmd_stim_console");
 	register_clcmd("turret", "cmd_turret_console");
 	register_clcmd("pickup", "cmd_pickup_console");
+	register_clcmd("transporter", "cmd_transporter_console");
 
 	// The mech sound bench. Console for a keybind, say .mechtest in hook_say for
 	// use from chat -- it only ever plays sounds, so no dedicated say wrapper needed.
@@ -14142,11 +14249,17 @@ public task_charge_fuse()
  */
 public fw_obj_dmg(ent, inflictor, attacker, Float:damage, damagebits)
 {
-	// A sentry turret keeps its own health (turret_damage): CBreakable never sees the wound.
+	// A sentry turret keeps its own health (turret_damage): CBreakable never sees the wound. So does a transporter pad.
 	new t = turret_slot(ent);
 	if (t >= 0)
 	{
 		turret_damage(t, attacker, damage);
+		return HAM_SUPERCEDE;
+	}
+	new tp = tpad_slot(ent);
+	if (tp >= 0)
+	{
+		tpad_damage(tp, attacker, damage);
 		return HAM_SUPERCEDE;
 	}
 	if (!siege_number(ent))
@@ -15670,6 +15783,7 @@ turret_remove(t)
 /// Removes every turret, or only an owner's (owner > 0).
 turrets_clear(owner = 0)
 {
+	tpads_clear(owner);
 	for (new t = 0; t < TSM_TURRET_MAX; t++)
 	{
 		if (g_turret[t] && (!owner || g_turret_owner[t] == owner))
@@ -16396,8 +16510,12 @@ cmd_pickup(id)
 	new t = turret_slot(get_tr2(0, TR_pHit));
 	if (t < 0 || g_turret_owner[t] != id)
 	{
-		client_print(id, print_chat, "[TSM] Look at your own turret, up close, to pick it up.");
-		center_tell(id, "Look at your own turret, up close.");
+		if (tpad_pickup(id))
+		{
+			return;
+		}
+		client_print(id, print_chat, "[TSM] Look at your own turret, or stand by your own pad, to pick it up.");
+		center_tell(id, "Look at your own turret, or stand by your pad.");
 		return;
 	}
 	new Float:org[3];
@@ -16411,6 +16529,499 @@ cmd_pickup(id)
 	client_print(id, print_chat, "[TSM] Turret packed up (%.0f / %.0f). .turret sets it down again.",
 		g_turret_carry_hp[id], get_pcvar_float(g_cv_turret_hp));
 	center_tell(id, "Turret packed up: %.0f / %.0f.", g_turret_carry_hp[id], get_pcvar_float(g_cv_turret_hp));
+}
+
+/// transporter in the console: the same as .transporter.
+public cmd_transporter_console(id)
+{
+	cmd_transporter(id);
+	return PLUGIN_HANDLED;
+}
+
+/// The pad slot of an entity, or -1.
+tpad_slot(ent)
+{
+	if (ent <= 0)
+	{
+		return -1;
+	}
+	for (new k = 0; k < TSM_TPAD_MAX; k++)
+	{
+		if (g_tpad[k] == ent)
+		{
+			return k;
+		}
+	}
+	return -1;
+}
+
+/// A hit on a pad: only the other side's fire wounds it, its armour turns tsm_transporter_resist of each hit aside, and enough destroys it.
+tpad_damage(k, attacker, Float:damage)
+{
+	if (attacker < 1 || attacker > g_maxplayers || g_match_team[attacker] == g_tpad_side[k] || damage <= 0.0)
+	{
+		return;
+	}
+	g_tpad_hp[k] -= damage * (1.0 - floatclamp(get_pcvar_float(g_cv_tpad_resist), 0.0, 0.95));
+	new ent = g_tpad[k];
+	set_pev(ent, pev_health, g_tpad_hp[k] > 1.0 ? g_tpad_hp[k] : 1.0);
+	emit_sound(ent, CHAN_BODY, g_mech_hit_snd[random(sizeof g_mech_hit_snd)], 1.0, ATTN_NORM, 0, PITCH_NORM);
+	if (g_tpad_hp[k] > 0.0)
+	{
+		return;
+	}
+	new owner = g_tpad_owner[k];
+	if (is_user_connected(owner) && !is_user_bot(owner))
+	{
+		client_print(owner, print_chat, "[TSM] Your transporter was destroyed.");
+	}
+	tpad_destroy(k);
+}
+
+/// An animated sprite entity (env_sprite) of the pad's colour at a spot, turned by `ang`; 0 when it could not be made.
+tpad_sprite(const name[], side, Float:org[3], Float:ang[3], Float:fps, Float:scale)
+{
+	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "env_sprite"));
+	if (!pev_valid(ent))
+	{
+		return 0;
+	}
+	new path[48];
+	formatex(path, charsmax(path), "sprites/tsm_tpad_%s_%d.spr", name, side);
+	engfunc(EngFunc_SetModel, ent, path);
+	set_pev(ent, pev_spawnflags, 1);     // starts on
+	set_pev(ent, pev_framerate, fps);
+	set_pev(ent, pev_scale, scale);
+	set_pev(ent, pev_rendermode, 5);     // additive: the sprite's black is clear
+	set_pev(ent, pev_renderamt, 255.0);
+	set_pev(ent, pev_angles, ang);
+	engfunc(EngFunc_SetOrigin, ent, org);
+	dllfunc(DLLFunc_Spawn, ent);
+	set_pev(ent, pev_movetype, MOVETYPE_NONE);
+	return ent;
+}
+
+/// The arrow model (chevrons running toward +X) at a pad, turned by `ang`'s yaw to point at the partner; 0 when it could not be made.
+tpad_arrow(side, Float:org[3], Float:ang[3])
+{
+	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"));
+	if (!pev_valid(ent))
+	{
+		return 0;
+	}
+	new path[48];
+	formatex(path, charsmax(path), "models/tsm_tpad_arrow_%d.mdl", side);
+	engfunc(EngFunc_SetModel, ent, path);
+	set_pev(ent, pev_solid, SOLID_NOT);
+	set_pev(ent, pev_movetype, MOVETYPE_NONE);
+	set_pev(ent, pev_rendermode, 5);     // additive: the model's black is clear
+	set_pev(ent, pev_renderamt, 255.0);
+	set_pev(ent, pev_angles, ang);
+	engfunc(EngFunc_SetOrigin, ent, org);
+	set_pev(ent, pev_sequence, 0);
+	set_pev(ent, pev_frame, 0.0);
+	set_pev(ent, pev_framerate, 1.0);
+	set_pev(ent, pev_animtime, get_gametime());
+	return ent;
+}
+
+tpad_fx_remove(k)
+{
+	if (g_tpad_ring[k] && pev_valid(g_tpad_ring[k]))
+	{
+		engfunc(EngFunc_RemoveEntity, g_tpad_ring[k]);
+	}
+	if (g_tpad_col[k] && pev_valid(g_tpad_col[k]))
+	{
+		engfunc(EngFunc_RemoveEntity, g_tpad_col[k]);
+	}
+	if (g_tpad_arrow[k] && pev_valid(g_tpad_arrow[k]))
+	{
+		engfunc(EngFunc_RemoveEntity, g_tpad_arrow[k]);
+	}
+	g_tpad_ring[k] = 0;
+	g_tpad_col[k] = 0;
+	g_tpad_arrow[k] = 0;
+	g_tpad_arrow_to[k] = -1;
+}
+
+tpad_remove(k)
+{
+	tpad_fx_remove(k);
+	if (g_tpad[k] && pev_valid(g_tpad[k]))
+	{
+		engfunc(EngFunc_RemoveEntity, g_tpad[k]);
+	}
+	g_tpad[k] = 0;
+	g_tpad_owner[k] = 0;
+	g_tpad_side[k] = 0;
+}
+
+/// A pad goes down with its engineer, like a turret: the explosion, and it is gone.
+tpad_destroy(k)
+{
+	new Float:org[3];
+	if (g_tpad[k] && pev_valid(g_tpad[k]))
+	{
+		pev(g_tpad[k], pev_origin, org);
+		org[2] += 12.0;
+		message_begin_f(MSG_PVS, SVC_TEMPENTITY, org);
+		write_byte(TE_EXPLOSION);
+		write_coord(floatround(org[0]));
+		write_coord(floatround(org[1]));
+		write_coord(floatround(org[2]));
+		write_short(g_turret_boom);
+		write_byte(25);
+		write_byte(20);
+		write_byte(TE_EXPLFLAG_NONE);
+		message_end();
+		emit_sound(g_tpad[k], CHAN_WEAPON, TSM_OBJ_BOOM_A, VOL_NORM, ATTN_NORM, 0, PITCH_NORM);
+		emit_sound(g_tpad[k], CHAN_BODY, "debris/metal2.wav", 1.0, ATTN_NORM, 0, PITCH_NORM);
+	}
+	tpad_remove(k);
+}
+
+/// Removes every pad, or only an owner's (owner > 0); the clock stops with the last one.
+tpads_clear(owner = 0)
+{
+	new left = 0;
+	for (new k = 0; k < TSM_TPAD_MAX; k++)
+	{
+		if (g_tpad[k] && (!owner || g_tpad_owner[k] == owner))
+		{
+			tpad_remove(k);
+		}
+		if (g_tpad[k])
+		{
+			left++;
+		}
+	}
+	if (!left)
+	{
+		remove_task(TSM_TASK_TPAD);
+	}
+}
+
+/// How many pads an engineer has standing.
+tpad_count(owner)
+{
+	new n = 0;
+	for (new k = 0; k < TSM_TPAD_MAX; k++)
+	{
+		if (g_tpad[k] && g_tpad_owner[k] == owner)
+		{
+			n++;
+		}
+	}
+	return n;
+}
+
+/// The other pad of the engineer who owns pad k, or -1 while he has only one.
+tpad_partner(k)
+{
+	for (new j = 0; j < TSM_TPAD_MAX; j++)
+	{
+		if (j != k && g_tpad[j] && g_tpad_owner[j] == g_tpad_owner[k])
+		{
+			return j;
+		}
+	}
+	return -1;
+}
+
+/*
+ * .transporter -- a Combat Engineer sets a transporter pad on the floor where he stands, in a live round: tsm_transporter_per_engineer
+ * of them a round (two). Two pads of one engineer are a pair, and any player of his side who steps on one is carried to the
+ * other, then waits tsm_transporter_cooldown seconds before he can ride again. A lone pad does nothing. .pickup packs a pad
+ * up (the one he stands by) and gives its place back. The pads go with the round.
+ */
+cmd_transporter(id)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_tpad) || !g_tpad_ok)
+	{
+		client_print(id, print_chat, "[TSM] Transporters are off on this server.");
+		center_tell(id, "Transporters are off on this server.");
+		return;
+	}
+	if (!is_engineer(id) || g_state != ST_LIVE || !is_user_alive(id))
+	{
+		client_print(id, print_chat, "[TSM] Only a Combat Engineer can set a transporter, in a live round.");
+		center_tell(id, "Only a Combat Engineer sets a transporter, in a live round.");
+		return;
+	}
+	new side = g_match_team[id];
+	if (side != 1 && side != 2)
+	{
+		return;
+	}
+	new per = get_pcvar_num(g_cv_tpad_per);
+	if (g_tpad_placed[id] >= per || tpad_count(id) >= per)
+	{
+		client_print(id, print_chat, "[TSM] You have set %d transporters this round. .pickup packs one up.", per);
+		center_tell(id, "Your %d transporters are set.", per);
+		return;
+	}
+	new k = -1;
+	for (new j = 0; j < TSM_TPAD_MAX; j++)
+	{
+		if (!g_tpad[j])
+		{
+			k = j;
+			break;
+		}
+	}
+	if (k < 0)
+	{
+		client_print(id, print_chat, "[TSM] No more transporters can stand on this map.");
+		center_tell(id, "No more transporters on this map.");
+		return;
+	}
+	// Under his feet: down from his origin to the floor, on his own level ground.
+	new Float:org[3], Float:down[3], Float:spot[3], Float:frac;
+	pev(id, pev_origin, org);
+	down[0] = org[0];
+	down[1] = org[1];
+	down[2] = org[2] - 64.0;
+	engfunc(EngFunc_TraceLine, org, down, 0, id, 0);
+	get_tr2(0, TR_flFraction, frac);
+	if (frac >= 1.0)
+	{
+		client_print(id, print_chat, "[TSM] A transporter needs floor under it.");
+		center_tell(id, "A transporter needs floor under it.");
+		return;
+	}
+	get_tr2(0, TR_vecEndPos, spot);
+	// No two on one spot.
+	for (new j = 0; j < TSM_TPAD_MAX; j++)
+	{
+		if (g_tpad[j] && pev_valid(g_tpad[j]))
+		{
+			new Float:other[3];
+			pev(g_tpad[j], pev_origin, other);
+			if (floatabs(other[0] - spot[0]) < 56.0 && floatabs(other[1] - spot[1]) < 56.0 && floatabs(other[2] - spot[2]) < 24.0)
+			{
+				client_print(id, print_chat, "[TSM] A transporter already stands there.");
+				center_tell(id, "A transporter already stands there.");
+				return;
+			}
+		}
+	}
+	// Nobody of either side may be standing where the pad goes (it is solid: it would trap him), the engineer aside, who is lifted onto it.
+	for (new p = 1; p <= g_maxplayers; p++)
+	{
+		if (p == id || !is_user_alive(p))
+		{
+			continue;
+		}
+		new Float:at[3];
+		pev(p, pev_origin, at);
+		if (floatabs(at[0] - spot[0]) < 52.0 && floatabs(at[1] - spot[1]) < 52.0 && at[2] - spot[2] > -40.0 && at[2] - spot[2] < 60.0)
+		{
+			client_print(id, print_chat, "[TSM] Someone is standing there.");
+			center_tell(id, "Someone is standing there.");
+			return;
+		}
+	}
+	// A func_breakable made without spawning, like the turret: fw_obj_dmg hands its wounds to tpad_damage.
+	new ent = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "func_breakable"));
+	if (!pev_valid(ent))
+	{
+		return;
+	}
+	set_pev(ent, pev_targetname, TSM_TPAD_NAME);
+	set_pev(ent, pev_classname, "transporter");
+	set_pev(ent, pev_team, side);
+	engfunc(EngFunc_SetModel, ent, side == 1 ? TSM_TPAD_MDL_1 : TSM_TPAD_MDL_2);
+	set_pev(ent, pev_solid, SOLID_BBOX);
+	set_pev(ent, pev_movetype, MOVETYPE_NONE);
+	engfunc(EngFunc_SetSize, ent, Float:{-32.0, -32.0, 0.0}, Float:{32.0, 32.0, 6.0});
+	engfunc(EngFunc_SetOrigin, ent, spot);
+	set_pev(ent, pev_takedamage, 1.0);
+	new Float:full = get_pcvar_float(g_cv_tpad_hp);
+	set_pev(ent, pev_health, full);
+	g_tpad_hp[k] = full;
+	// the engineer's feet are on the floor the pad now covers: up onto it
+	new Float:lift[3];
+	pev(id, pev_origin, lift);
+	lift[2] = spot[2] + 43.0;   // feet on the pad's top (6 up), his origin 36 above them
+	engfunc(EngFunc_SetOrigin, id, lift);
+	g_tpad[k] = ent;
+	g_tpad_owner[k] = id;
+	g_tpad_side[k] = side;
+	g_tpad_arrow_to[k] = -1;
+	g_tpad_placed[id]++;
+	if (g_tpad_fx)
+	{
+		new Float:fxat[3], Float:flat[3], Float:upright[3];
+		fxat[0] = spot[0];
+		fxat[1] = spot[1];
+		fxat[2] = spot[2] + 7.0;
+		flat[0] = 90.0;     // lying on the pad, its picture's top toward the yaw
+		g_tpad_ring[k] = tpad_sprite("ring", side, fxat, flat, 10.0, 1.0);
+		g_tpad_col[k] = tpad_sprite("col", side, fxat, upright, 10.0, 1.0);
+	}
+	if (g_tpad_place_snd)
+	{
+		engfunc(EngFunc_EmitAmbientSound, ent, spot, TSM_TPAD_PLACE_SND, 1.0, ATTN_NORM, 0, PITCH_NORM);
+	}
+	if (!task_exists(TSM_TASK_TPAD))
+	{
+		set_task(0.2, "task_tpad_tick", TSM_TASK_TPAD, "", 0, "b");
+	}
+	if (tpad_count(id) >= 2)
+	{
+		client_print(id, print_chat, "[TSM] Transporter set (%d of %d). The pair is live: your side can step on either to reach the other.", g_tpad_placed[id], per);
+		center_tell(id, "Transporter set: the pair is live.");
+	}
+	else
+	{
+		client_print(id, print_chat, "[TSM] Transporter set (%d of %d). Set a second one to link them; .pickup packs one up.", g_tpad_placed[id], per);
+		center_tell(id, "Transporter set (%d of %d).", g_tpad_placed[id], per);
+	}
+}
+
+/// .pickup for a pad: the engineer's own pad nearest to him, within his +USE's reach. True when one was packed up.
+tpad_pickup(id)
+{
+	new Float:org[3], Float:pos[3], Float:best = 1.0e9, Float:d;
+	pev(id, pev_origin, org);
+	new Float:range = float(get_pcvar_num(g_cv_engrange)) + 40.0;
+	new k = -1;
+	for (new j = 0; j < TSM_TPAD_MAX; j++)
+	{
+		if (g_tpad[j] && g_tpad_owner[j] == id && pev_valid(g_tpad[j]))
+		{
+			pev(g_tpad[j], pev_origin, pos);
+			d = get_distance_f(org, pos);
+			if (d < range && d < best)
+			{
+				best = d;
+				k = j;
+			}
+		}
+	}
+	if (k < 0)
+	{
+		return false;
+	}
+	tpad_remove(k);
+	if (g_tpad_placed[id] > 0)
+	{
+		g_tpad_placed[id]--;
+	}
+	tpads_clear(-1);   // stops the clock when it was the last pad anywhere
+	client_print(id, print_chat, "[TSM] Transporter packed up. .transporter sets it down again.");
+	center_tell(id, "Transporter packed up.");
+	return true;
+}
+
+/// Four times a second: whoever of a pair's side stands on a pad goes to its partner.
+public task_tpad_tick()
+{
+	new Float:now = get_gametime();
+	new left = 0;
+	for (new k = 0; k < TSM_TPAD_MAX; k++)
+	{
+		if (!g_tpad[k])
+		{
+			continue;
+		}
+		if (!pev_valid(g_tpad[k]))
+		{
+			g_tpad[k] = 0;
+			continue;
+		}
+		new owner = g_tpad_owner[k];
+		if (owner && is_user_connected(owner) && !is_user_alive(owner))
+		{
+			if (!is_user_bot(owner))
+			{
+				client_print(owner, print_chat, "[TSM] Your transporter went down with you.");
+			}
+			tpad_destroy(k);
+			continue;
+		}
+		left++;
+		new q = tpad_partner(k);
+		if (q < 0 || !pev_valid(g_tpad[q]))
+		{
+			if (g_tpad_arrow[k])
+			{
+				if (pev_valid(g_tpad_arrow[k]))
+				{
+					engfunc(EngFunc_RemoveEntity, g_tpad_arrow[k]);
+				}
+				g_tpad_arrow[k] = 0;
+				g_tpad_arrow_to[k] = -1;
+			}
+			continue;
+		}
+		// Linked: an arrow on the pad points at its partner.
+		if (g_tpad_arrow_ok && (!g_tpad_arrow[k] || g_tpad_arrow_to[k] != q))
+		{
+			if (g_tpad_arrow[k] && pev_valid(g_tpad_arrow[k]))
+			{
+				engfunc(EngFunc_RemoveEntity, g_tpad_arrow[k]);
+			}
+			new Float:from[3], Float:to[3], Float:ang[3];
+			pev(g_tpad[k], pev_origin, from);
+			pev(g_tpad[q], pev_origin, to);
+			ang[1] = floatatan2(to[1] - from[1], to[0] - from[0], degrees);
+			g_tpad_arrow[k] = tpad_arrow(g_tpad_side[k], from, ang);
+			g_tpad_arrow_to[k] = q;
+		}
+		new Float:pad[3], Float:dest[3];
+		pev(g_tpad[k], pev_origin, pad);
+		pev(g_tpad[q], pev_origin, dest);
+		for (new p = 1; p <= g_maxplayers; p++)
+		{
+			if (!is_user_alive(p) || g_match_team[p] != g_tpad_side[k] || now < g_tpad_cd[p])
+			{
+				continue;
+			}
+			new Float:at[3];
+			pev(p, pev_origin, at);
+			// feet on the pad: its square, and up to a body's height above it
+			if (floatabs(at[0] - pad[0]) > 30.0 || floatabs(at[1] - pad[1]) > 30.0 || at[2] - pad[2] < 36.0 || at[2] - pad[2] > 70.0)
+			{
+				continue;
+			}
+			// the player's hull must fit over the other pad
+			new Float:hull[3];
+			hull[0] = dest[0];
+			hull[1] = dest[1];
+			hull[2] = dest[2] + 43.0;   // feet on the other pad's top, as a player stands on it
+			engfunc(EngFunc_TraceHull, hull, hull, 0, TSM_HULL_HUMAN, p, 0);
+			if (get_tr2(0, TR_StartSolid) || get_tr2(0, TR_AllSolid))
+			{
+				continue;
+			}
+			tpad_flash(at);
+			engfunc(EngFunc_SetOrigin, p, hull);
+			set_pev(p, pev_velocity, Float:{0.0, 0.0, 0.0});
+			tpad_flash(hull);
+			if (g_tpad_jump_snd)
+			{
+				engfunc(EngFunc_EmitAmbientSound, 0, hull, TSM_TPAD_JUMP_SND, 0.8, ATTN_NORM, 0, PITCH_NORM);
+			}
+			g_tpad_cd[p] = now + get_pcvar_float(g_cv_tpad_cd);
+		}
+	}
+	if (!left)
+	{
+		remove_task(TSM_TASK_TPAD);
+	}
+}
+
+/// The engine's teleport splash at a spot.
+tpad_flash(Float:org[3])
+{
+	message_begin_f(MSG_PVS, SVC_TEMPENTITY, org);
+	write_byte(TE_TELEPORT);
+	write_coord(floatround(org[0]));
+	write_coord(floatround(org[1]));
+	write_coord(floatround(org[2]));
+	message_end();
 }
 
 /// What the crosshair is on within range: an entity, or 0.
@@ -17177,6 +17788,7 @@ refresh_abilities(id)
 	g_mech_rocket_next[id] = 0.0;
 	g_turret_used[id] = false;
 	g_turret_carry[id] = false;
+	g_tpad_placed[id] = 0;
 }
 
 /// tsm_class_lives, read in class order like tsm_class_limits. Unlisted classes keep 1.
@@ -17316,6 +17928,7 @@ lives_reset_round()
 		g_ammo_used[id] = false;
 		g_turret_used[id] = false;
 		g_turret_carry[id] = false;
+		g_tpad_placed[id] = 0;
 		remove_task(TSM_TASK_REVIVE + id);
 	}
 
@@ -17732,26 +18345,31 @@ public task_wave_tick()
 		{
 			wait_panel_close(id);
 		}
-		if (!waiting && !officer)
+		// tsm_show_reinforce: a living player of a side that has a wave clock sees it too, as the Officer does.
+		new bool:everyone = (!waiting && !officer && is_user_alive(id) && !g_elim[id] && get_pcvar_num(g_cv_showreinf) != 0
+			&& side_respawns(team) && g_wave_secs[team] >= 0.0);
+		if (!waiting && !officer && !everyone)
 		{
 			continue;
 		}
 
 		set_hudmessage(255, 200, 80, -1.0, 0.12, 0, 0.0, 1.2, 0.0, 0.0, 4);
 		new text[96];
-		if (waiting)
+		if (waiting || everyone)
 		{
 			// The side's pool where the lives are one, else this player's own count; a side that never runs out has none to tell.
 			new left = mode_flag(TSM_MODE_LIFE_POOL) ? team_lives_left(team) : g_lives_left[id];
 			new noun[16];
 			life_noun(left, noun, charsmax(noun));
+			new lead[16];
+			copy(lead, charsmax(lead), waiting ? "RESPAWN WAVE" : "NEXT WAVE");
 			if (side_endless(team))
 			{
-				formatex(text, charsmax(text), "RESPAWN WAVE IN %ds", floatround(g_wave_left[team]));
+				formatex(text, charsmax(text), "%s IN %ds", lead, floatround(g_wave_left[team]));
 			}
 			else
 			{
-				formatex(text, charsmax(text), "RESPAWN WAVE IN %ds -- %d %s left", floatround(g_wave_left[team]), left, noun);
+				formatex(text, charsmax(text), "%s IN %ds -- %d %s left", lead, floatround(g_wave_left[team]), left, noun);
 			}
 		}
 		else
@@ -17768,7 +18386,7 @@ public task_wave_tick()
 		}
 		// An H9 game draws it as a notice under the top band, every other game as the hudmessage set above.
 		h9vgui_alert(id, "tsm.wave", H9V_NOTICE_BANNER, text, 255, 200, 80, 0.12, 1.2, 0.2);
-		if (!waiting)
+		if (officer && !waiting)
 		{
 			show_waiting_list(id, team);
 		}
@@ -21059,6 +21677,75 @@ lives_publish()
 	}
 }
 
+/// One H9Class message: slot p's class icon (frame + 1, 0 none) to one viewer; slot 0 says the column is off.
+class_write(viewer, p, value)
+{
+	engfunc(EngFunc_MessageBegin, MSG_ONE, g_msg_h9class, Float:{0.0, 0.0, 0.0}, viewer);
+	write_byte(p);
+	write_byte(value);
+	message_end();
+}
+
+/*
+ * Once a second: the scoreboard's class column. While the match mode is on, each human is told the class icon of every
+ * player he may see: his own, and his side's; with tsm_competitive 0 the other side's too. Only what changed is sent,
+ * except for a client that joined in the last 20 seconds, which gets everything again each second because Xash sends
+ * user messages only to a client that has spawned. When the mode is off the column is told once to go away.
+ */
+classicons_publish()
+{
+	if (!g_msg_h9class)
+	{
+		return;
+	}
+	new bool:on = (get_pcvar_num(g_cv_enabled) != 0);
+	new bool:competitive = (get_pcvar_num(g_cv_competitive) != 0);
+	new Float:now = get_gametime();
+	for (new v = 1; v <= g_maxplayers; v++)
+	{
+		if (!is_user_connected(v) || g_is_bot[v])
+		{
+			g_class_seen[v][0] = 0;
+			continue;
+		}
+		if (!on)
+		{
+			if (g_class_seen[v][0] != 0)
+			{
+				g_class_seen[v][0] = 0;
+				arrayset(g_class_seen[v], -1, MAXPL);
+				g_class_seen[v][0] = 0;
+				class_write(v, 0, 0);
+			}
+			continue;
+		}
+		if (g_class_seen[v][0] == 0)
+		{
+			arrayset(g_class_seen[v], -1, MAXPL);
+			g_class_seen[v][0] = 1;
+		}
+		new vt = tsm_live_team_of(v);
+		new bool:fresh = ((now - g_connect_at[v]) < 20.0);
+		for (new p = 1; p <= g_maxplayers; p++)
+		{
+			new value = 0;
+			if (is_user_connected(p) && g_class_count > 0)
+			{
+				new pt = tsm_live_team_of(p);
+				if (pt && (p == v || !competitive || vt == pt))
+				{
+					value = icon_frame_for(resolved_class(p) - 1, pt) + 1;
+				}
+			}
+			if (fresh || value != g_class_seen[v][p])
+			{
+				g_class_seen[v][p] = value;
+				class_write(v, p, value);
+			}
+		}
+	}
+}
+
 /// A joining human gets the scoreboard's name for a list without teams (H9Board).
 board_sync(id)
 {
@@ -21784,8 +22471,16 @@ public task_match_end()
 	if (mode_flag(TSM_MODE_ONE_RUN))
 	{
 		// The mode has already said how the run went; a 0 -- 1 scoreline would only confuse it.
-		all_print("[MATCH] RUN OVER -- back to warmup. Type .ready for another.");
-		bar_set(0, 220, 120, -1, 0.0, "RUN OVER^nTYPE .ready FOR ANOTHER");
+		if (gate_on())
+		{
+			all_print("[MATCH] RUN OVER -- back to warmup. Type .ready for another.");
+			bar_set(0, 220, 120, -1, 0.0, "RUN OVER^nTYPE .ready FOR ANOTHER");
+		}
+		else
+		{
+			all_print("[MATCH] RUN OVER -- back to warmup. Another starts by itself.");
+			bar_set(0, 220, 120, -1, 0.0, "RUN OVER^nANOTHER STARTS BY ITSELF");
+		}
 	}
 	else if (mode_flag(TSM_MODE_ONE_ROUND))
 	{
@@ -22044,7 +22739,14 @@ public task_to_warmup()
 	g_score[1] = 0;
 	g_score[2] = 0;
 	reset_ready();
-	all_print("[MATCH] Back in warmup. Type .ready when you are.");
+	if (gate_on())
+	{
+		all_print("[MATCH] Back in warmup. Type .ready when you are.");
+	}
+	else
+	{
+		all_print("[MATCH] Back in warmup. The next match starts by itself.");
+	}
 }
 
 /*
@@ -24086,6 +24788,12 @@ public hook_say(id)
 			center_tell(id, "A match is already in progress.");
 			return PLUGIN_HANDLED;
 		}
+		if (!gate_on())
+		{
+			match_chat(id, "[MATCH] No ready-up on this server: the match starts by itself.");
+			center_tell(id, "No ready-up here: the match starts by itself.");
+			return PLUGIN_HANDLED;
+		}
 
 		/*
 		 * Readying up before being spawned in left the match waiting on a player the
@@ -24184,6 +24892,12 @@ public hook_say(id)
 	if (equali(args, ".turret"))
 	{
 		cmd_turret(id);
+		return PLUGIN_HANDLED;
+	}
+
+	if (equali(args, ".transporter"))
+	{
+		cmd_transporter(id);
 		return PLUGIN_HANDLED;
 	}
 
@@ -24766,6 +25480,51 @@ print_status(id)
 	}
 }
 
+// Whether starting a match needs every player to type .ready (tsm_live_gate 1, the default).
+bool:gate_on()
+{
+	return (get_pcvar_num(g_cv_livegate) != 0);
+}
+
+// Gate off: the warmup's own start. Called once a second while both sides have players and are within the balance gap.
+// The match starts when each side has tsm_live_minplayers, or when tsm_live_wait seconds have run since both sides first
+// had players, whichever comes first. With neither cvar set it waits a minute. Fills `reason` with what the warmup bar says.
+live_gate_step(n1, n2, reason[], len)
+{
+	new minp = get_pcvar_num(g_cv_liveminp);
+	new wait = get_pcvar_num(g_cv_livewait);
+	if (wait <= 0 && minp <= 0)
+	{
+		wait = 60;
+	}
+	new Float:now = get_gametime();
+	if (g_gate_since <= 0.0)
+	{
+		g_gate_since = now;
+	}
+	new elapsed = floatround(now - g_gate_since, floatround_floor);
+
+	if ((minp > 0 && n1 >= minp && n2 >= minp) || (wait > 0 && elapsed >= wait))
+	{
+		copy(reason, len, "STARTING...");
+		check_all_ready();
+		return;
+	}
+
+	if (wait > 0 && minp > 0)
+	{
+		formatex(reason, len, "STARTS IN %d s, OR AT %d PLAYERS PER TEAM", wait - elapsed, minp);
+	}
+	else if (wait > 0)
+	{
+		formatex(reason, len, "STARTS IN %d s", wait - elapsed);
+	}
+	else
+	{
+		formatex(reason, len, "STARTS AT %d PLAYERS PER TEAM", minp);
+	}
+}
+
 check_all_ready()
 {
 	new players[TSM_SLOTS], pnum, id;
@@ -24778,7 +25537,7 @@ check_all_ready()
 		new t = tsm_live_team_of(id);
 		// A bot cannot type .ready, so it is counted as ready or a side holding one
 		// could never satisfy the gate.
-		new bool:rdy = (g_ready[id] || (bot_player(id) && get_pcvar_num(g_cv_botready) != 0));
+		new bool:rdy = (!gate_on() || g_ready[id] || (bot_player(id) && get_pcvar_num(g_cv_botready) != 0));
 
 		if (t == 1)
 		{
@@ -24841,6 +25600,7 @@ check_all_ready()
 
 begin_match()
 {
+	g_gate_since = 0.0;
 	cache_teams();
 	points_reset();
 
@@ -24941,7 +25701,14 @@ public cmd_cancel(id, level, cid)
 	restore_all();
 	clear_match_state();
 
-	all_print("[MATCH] Match cancelled -- back to warmup. Pick a side and type .ready.");
+	if (gate_on())
+	{
+		all_print("[MATCH] Match cancelled -- back to warmup. Pick a side and type .ready.");
+	}
+	else
+	{
+		all_print("[MATCH] Match cancelled -- back to warmup. Pick a side; a new match starts by itself.");
+	}
 
 	// Sides are picked again, exactly as after a match that ran to its end.
 	if (was_on)
@@ -25417,6 +26184,26 @@ match_end_reset()
 	}
 }
 
+/*
+ * A player's authid reaches other plugins' SQL queries, file lines and file names (Apollo RP puts it into its queries), and the engine takes
+ * its H9 form from what the connecting client sends, a 32-character string it does not check. Anything but letters, digits, underscore and
+ * colon (every real form: STEAM_0:1:23, VALVE_ID_LAN, ID_<hex>, BOT) is refused here, at connect, before any plugin has used it.
+ */
+public client_connect(id)
+{
+	new authid[64];
+	get_user_authid(id, authid, charsmax(authid));
+	for (new i = 0; authid[i]; i++)
+	{
+		new c = authid[i];
+		if (!(isalnum(c) || c == '_' || c == ':'))
+		{
+			server_cmd("kick #%d ^"Invalid player id^"", get_user_userid(id));
+			return;
+		}
+	}
+}
+
 public client_putinserver(id)
 {
 	// Cached once here. fw_traceline runs on a hot path and must not call a native
@@ -25424,6 +26211,7 @@ public client_putinserver(id)
 	g_is_bot[id] = (is_user_bot(id) != 0);
 	assist_slot_reset(id, true);
 	g_bar_sig_sent[id] = 0;   // a new game in the slot has no match bar yet
+	g_class_seen[id][0] = 0;  // and has been told nothing about anyone's class
 
 	g_elim[id] = false;
 	g_ready[id] = false;
@@ -25958,6 +26746,7 @@ player_left(id)
 	turrets_clear(id);
 	g_turret_used[id] = false;
 	g_turret_carry[id] = false;
+	g_tpad_placed[id] = 0;
 	// Captured BEFORE it is cleared further down: whether this departure emptied a
 	// side of its last human decides below whether the match ends without a winner.
 	new was_team = g_match_team[id];
@@ -26463,13 +27252,13 @@ bool:halt_for_imbalance()
 	if (mode_flag(TSM_MODE_ONE_ROUND))
 	{
 		all_print("[MATCH] HALTED -- the sides went uneven at %d v %d. The match is held where it is.", n1, n2);
-		all_print("[MATCH] %s is short; type .ready to carry on.", shortname);
+		all_print(gate_on() ? "[MATCH] %s is short; type .ready to carry on." : "[MATCH] %s is short; the match carries on once the sides are even.", shortname);
 	}
 	else
 	{
 		all_print("[MATCH] HALTED -- the sides went uneven at %d v %d. Round %d does not count.",
 			n1, n2, g_round);
-		all_print("[MATCH] Score is kept at %d -- %d. %s is short; type .ready to carry on.",
+		all_print(gate_on() ? "[MATCH] Score is kept at %d -- %d. %s is short; type .ready to carry on." : "[MATCH] Score is kept at %d -- %d. %s is short; the match carries on once the sides are even.",
 			g_score[1], g_score[2], shortname);
 	}
 	all_print("[MATCH] Admins: amx_match_continue plays the match out as it stands.");
@@ -26714,6 +27503,7 @@ public task_tick()
 	objmarks_update();
 	objglow_update();
 	lives_publish();
+	classicons_publish();
 	pool_publish();
 	points_hold_frags();
 	refresh_player_flags();
@@ -27035,7 +27825,7 @@ public task_tick()
 		}
 		// A bot cannot type .ready, so it is counted as ready or a side holding one
 		// could never satisfy the gate.
-		new bool:rdy = (g_ready[id] || (bot_player(id) && get_pcvar_num(g_cv_botready) != 0));
+		new bool:rdy = (!gate_on() || g_ready[id] || (bot_player(id) && get_pcvar_num(g_cv_botready) != 0));
 
 		if (t == 1)
 		{
@@ -27057,7 +27847,11 @@ public task_tick()
 	new bool:solo = (get_pcvar_num(g_cv_solo) != 0);
 
 	new reason[96];
-	if (solo && (n1 + n2) > 0 && (r1 + r2) >= (n1 + n2))
+	if (solo && !gate_on() && (n1 + n2) > 0)
+	{
+		live_gate_step(n1, n2, reason, charsmax(reason));
+	}
+	else if (solo && (n1 + n2) > 0 && (r1 + r2) >= (n1 + n2))
 	{
 		copy(reason, charsmax(reason), "SOLO TEST MODE. STARTING...");
 	}
@@ -27065,12 +27859,13 @@ public task_tick()
 	{
 		copy(reason, charsmax(reason), "SOLO TEST MODE. TYPE .ready WHEN YOU ARE.");
 	}
-	else if (id_of_first_teamless())
+	else if (gate_on() && id_of_first_teamless())
 	{
 		copy(reason, charsmax(reason), "SOMEONE HAS NOT PICKED A TEAM YET.");
 	}
 	else if (n1 < need || n2 < need)
 	{
+		g_gate_since = 0.0;
 		if (need == 1)
 		{
 			copy(reason, charsmax(reason), "NEED A PLAYER ON EACH TEAM.");
@@ -27094,6 +27889,10 @@ public task_tick()
 		}
 		formatex(reason, charsmax(reason), "TEAMS UNEVEN BY MORE THAN %d. SOMEONE SWITCH TO %s.",
 			get_pcvar_num(g_cv_balgap), shortname);
+	}
+	else if (!gate_on())
+	{
+		live_gate_step(n1, n2, reason, charsmax(reason));
 	}
 	else if (r1 < n1 || r2 < n2)
 	{

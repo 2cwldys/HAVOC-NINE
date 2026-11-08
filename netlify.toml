@@ -1,0 +1,15 @@
+# Netlify settings for the static site. The site is ASSEMBLED by tools/build-site.mjs from an allowlist (pages, styles, scripts,
+# pictures, the web client's shell); nothing else in this repository is published. The accounts, forum, relay, /serverlist and
+# /downloads stay on the origin server: this file does not proxy them (a Netlify proxy has a 26 s limit, no WebSocket relay and
+# does not hand the visitor's address on).
+[build]
+  command = "node tools/build-site.mjs --out site && node tools/build-site.mjs --check"
+  publish = "site"
+
+[build.environment]
+  NODE_VERSION = "24"
+
+[[redirects]]
+  from = "/*"
+  to = "/404.html"
+  status = 404

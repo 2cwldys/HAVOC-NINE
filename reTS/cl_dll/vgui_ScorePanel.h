@@ -26,14 +26,15 @@
 #define SB_CELL_AVATAR 0  // the player's picture, or the default silhouette
 #define SB_CELL_STATUS 1  // the TSPAward / spectating status, in short form
 #define SB_CELL_NAME 2
-#define SB_CELL_KILLS 3   // the frags: headed SCORE while the server's frags are points (H9 KILLS)
-#define SB_CELL_KCOUNT 4  // H9 KILLS: the real kills, from H9Kills; no width on other servers
-#define SB_CELL_DEATHS 5
-#define SB_CELL_ASSISTS 6
-#define SB_CELL_LIVES 7   // H9 LIVES: lives left / the class's lives, from H9Lives
-#define SB_CELL_PING 8
-#define SB_CELL_VOICE 9
-#define SB_NUM_CELLS 10
+#define SB_CELL_CLASS 3   // H9 CLASS ICONS: the player's class icon, from H9Class; no width on other servers
+#define SB_CELL_KILLS 4   // the frags: headed SCORE while the server's frags are points (H9 KILLS)
+#define SB_CELL_KCOUNT 5  // H9 KILLS: the real kills, from H9Kills; no width on other servers
+#define SB_CELL_DEATHS 6
+#define SB_CELL_ASSISTS 7
+#define SB_CELL_LIVES 8   // H9 LIVES: lives left / the class's lives, from H9Lives
+#define SB_CELL_PING 9
+#define SB_CELL_VOICE 10
+#define SB_NUM_CELLS 11
 
 // Two columns side by side: team 1 left, team 2 right (free-for-all: places 1-32 left, the rest
 // right). Each column has this many row widgets; 64 players with their team headers take at most
@@ -288,6 +289,9 @@ extern ScoreAvatar g_PlayerAvatars[MAX_PLAYERS_HUD + 1];
 // Set when this map's server has sent an H9Assists message; until then the assists column and
 // the team assist totals stay empty (stock servers count no assists).
 extern bool g_bScoreAssists;
+
+// ---- H9 CLASS ICONS: set once this map's server has sent an H9Class message; until then the class column has no width.
+extern bool g_bScoreClass;
 
 // ---- H9 LIVES: set while this map's server counts lives (H9's ts_matchmode, H9Lives); until then
 // the lives column and the team lives totals stay empty.

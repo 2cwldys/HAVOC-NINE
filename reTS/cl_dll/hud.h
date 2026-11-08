@@ -256,6 +256,7 @@ struct extra_player_info_t
 	short kills;   // H9 KILLS, from H9Kills (ts_matchmode): kills on this map while the frags are points
 	short lives_left; // H9 LIVES, from H9Lives (ts_matchmode): lives left, 255 on a side that never runs out
 	short lives_max;  // the class's lives; 0 when none are counted for the player
+	short h9class;    // H9 CLASS ICONS, from H9Class (ts_matchmode): the class icon's frame in sprites/tsm_class.spr plus 1; 0 shows none
 };
 
 struct team_info_t

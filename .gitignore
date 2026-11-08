@@ -187,3 +187,6 @@ export-map/**/build-win64/
 
 # Operator notes kept on the maintainer's PC only (hosting layout, runbooks, local paths): never published.
 ops-private/
+
+# The static site assembled by tools/build-site.mjs (generated, never committed)
+/site/

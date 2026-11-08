@@ -1,0 +1,96 @@
+HAVOC 9 -- putting the site behind Cloudflare (and, later, the static pages on Netlify)
+========================================================================================
+
+Written for the maintainer who runs havoc9.org. Placeholders only: <ORIGIN-IP> is your VPS address, <TOKEN> a secret you make. Nothing
+in this file is a secret, and nothing in it may become one. The security design it relies on is in h9web/README.txt.
+
+1. THE SHAPE
+------------
+  browser --https--> Cloudflare (proxy, orange cloud) --https--> nginx on the VPS --> h9web (127.0.0.1:8090), the server list, the pages
+  game client / game server ----------------------------------> the VPS directly (UDP 27015 etc.; Cloudflare cannot carry UDP)
+
+  * One origin serves everything (pages, /api/, the relay, /serverlist, /downloads). That is what the shipped game expects: it talks to
+    https://havoc9.org for the server list, presence, link and downloads, and the browser game needs the page, the API and the relay on
+    ONE host (cookie, CSRF check, relay Origin).
+  * The pages alone can be moved to Netlify later (section 7); the API cannot move without an engine and plugin release.
+
+2. WHAT CHANGES ON THE VPS (once)
+---------------------------------
+  a. sudo bash havoc9.org/deploy/cloudflare-realip.sh --ufw
+       nginx believes CF-Connecting-IP only from Cloudflare's published ranges, so h9web's rule "nginx sets X-Real-IP to the visitor"
+       stays true; ports 80/443 accept only those ranges. Run it again weekly (cron). Undo: --undo --ufw.
+  b. h9web config.json:   "trustProxy": true        (nginx topology; its X-Real-IP is the visitor after step a)
+     Behind a Cloudflare TUNNEL instead (no open web port at all): "trustProxy": "cf-connecting-ip", and in serverlist.ini
+     [http] proxy_header = cf-connecting-ip. Never leave "true" behind a tunnel: cloudflared forwards a visitor's own X-Real-IP.
+  c. allowedOrigins stays ["https://havoc9.org"]. www.havoc9.org must redirect to the apex at nginx (a login from www is refused by design).
+  d. SSH key-only (vps/linux/hardening), unattended upgrades, ufw: only 22 (your address if you can), 80/443 from Cloudflare, the game's UDP ports.
+
+3. CLOUDFLARE DASHBOARD
+-----------------------
+  DNS:   havoc9.org and www            proxied (orange cloud)   -> <ORIGIN-IP>
+         game.havoc9.org (any name)    DNS only (grey cloud)    -> <ORIGIN-IP>   (UDP game traffic; put game.havoc9.org:27015 in servers.txt,
+                                                                                  or the address itself, if you do not want the apex to be a UDP name)
+         Note: the shipped game also uses havoc9.org:27015 as a seed name; with the apex proxied that name does not carry UDP. Keep a
+         DNS-only name for it and list it, or list the IP.
+  SSL/TLS:   mode Full (strict) with a Cloudflare Origin CA certificate (or Let's Encrypt) on nginx; Always Use HTTPS on;
+             minimum TLS 1.2; HSTS stays in nginx's headers (do not also set it in Cloudflare with different values).
+  Network:   WebSockets ON (the browser game's relay is /webclient/relay).
+  Caching:   a Cache Rule "bypass cache" for /api/* , /webclient/relay , /serverlist/* , /downloads/files/* (these are live or large);
+             the pages and /webclient/ files can use the default (their nginx Cache-Control is already right).
+  Speed:     turn OFF Rocket Loader, Auto Minify, Email Address Obfuscation, Mirage, Polish for this zone: they rewrite pages or bodies and
+             break the strict CSP (script-src 'self') and the signed API bodies.
+  Security:  WAF managed rules ON. Then a Skip rule (WAF custom rule, action Skip: all managed rules, rate limiting, bot fight/super bot
+             fight) for:
+               URI path starts with /api/presence/   (the plugin's reports are HMAC-signed over the RAW body: nothing may rewrite it)
+               URI path starts with /api/link/ , /api/community/ , /api/rank/ , /serverlist/v1/heartbeat
+             and a user-agent allow for the game plugins: h9_presence/*, h9_compete/*, h9_rank/*, h9_community/* (they are not browsers).
+             Bot Fight Mode on for the rest. Security level Medium. Rate limits: Cloudflare in front of nginx's own limits, not instead.
+  Origin:    Authenticated Origin Pulls (mTLS) ON, if you want nginx to refuse any connection that is not Cloudflare's, on top of ufw.
+  Access:    protect /admin/ (the admin page and /api/admin/*) with Cloudflare Access (your e-mail or a one-time PIN): a second lock in
+             front of h9web's own role check. The API routes keep working for normal players.
+  Limits:    Cloudflare's request body limit is 100 MB (plans below Enterprise): the downloads' big zips go to a DNS-only name or a
+             release host, not through the proxy; the web client's largest file is under 55 MB.
+
+4. SECRETS TO MAKE OR ROTATE BEFORE THE FIRST REAL VISITOR
+----------------------------------------------------------
+  * A fresh h9web data dir on the VPS (secrets.json pepper and player-id key, data.key). Never copy the local test PC's data dir,
+    accounts or keys to production: the local test accounts and the two player ids that sat in public history stay behind.
+  * serverlist.cfg: a new heartbeat_key and the Discord bot token (Reset Token in the Discord developer portal if the token was ever pasted
+    anywhere). Only the .example templates are in git.
+  * A new admin: h9web-admin create <name>, then set-role admin; sign in, add a second factor on the Cloudflare Access side.
+  * GitHub: see section 8.
+
+5. DEPLOY ORDER (and the way back)
+----------------------------------
+  1. Build the VPS package (make-vps-package.cmd), copy it, run vps/linux/setup.sh on a fresh VPS with the DNS still pointing at the old host
+     (or --no-tls first). Check https://<ORIGIN-IP>/ with a hosts-file entry on your PC.
+  2. Lower the DNS TTL to 300 s a day ahead. Back up the old host's data (h9web-backup) and keep it running.
+  3. Point DNS at the new VPS with the orange cloud ON; run cloudflare-realip.sh --ufw; test: sign up, sign in, forum post, server list,
+     PLAY, a game server's presence report, a heartbeat, the link flow.
+  4. Watch the nginx and h9web logs for a day: the counts per address must differ per visitor (not one shared address).
+  ROLLBACK: DNS back to the old host (TTL 300 s); on the new box cloudflare-realip.sh --undo --ufw if you leave Cloudflare. The new
+  accounts database is the source of truth after cutover: export it (h9web-backup) before any rollback.
+
+6. WHAT IS STILL YOUR CALL (residual risks)
+-------------------------------------------
+  * The game engine and client code have not had their own security review yet (planned); the plugin-side fixes below do not replace it.
+  * Server rating ("green chain") is operator-attested: h9web's server-approval path is the real gate, so approve servers by hand.
+  * ARP (Apollo RP) is third-party code with no licence file: keep it out of the public presets unless you settle that.
+  * No MFA inside h9web yet (admin pages sit behind Cloudflare Access as a second lock until it exists).
+
+7. NETLIFY (optional, pages only)
+---------------------------------
+  The repository carries netlify.toml, netlify/_headers and tools/build-site.mjs: `node tools/build-site.mjs --out site` assembles only the
+  allowlisted pages and the web client's shell; `--check` fails the build if anything forbidden (deploy scripts, setup notes, archives,
+  LFS pointers) would be published. To use it: Cloudflare Worker or Origin Rules send /api/*, /webclient/relay, /serverlist/*, /downloads/*
+  to the VPS and everything else to Netlify, so the apex still answers every path the game uses. The game's files (the 1.3 GB web client
+  package) stay on the VPS. Do NOT point the apex at Netlify directly: it cannot carry the WebSocket relay and does not tell the origin who
+  the visitor is.
+
+8. GITHUB SETTINGS (yours to click; the repository is public)
+-------------------------------------------------------------
+  Settings > Code security: enable Private vulnerability reporting, Dependency graph, Dependabot alerts and security updates, Secret
+  scanning and Push protection.  Settings > Branches: protect main (require a pull request and the CI checks: h9web tests, secret scan,
+  public documents, CodeQL; block force pushes).  Settings > Emails (account): Keep my email addresses private, and Block command line
+  pushes that expose my email; set the repository's author e-mail to the noreply address for new commits.
+  After the workflows have run once on a branch, pin each `uses:` in .github/workflows to a commit SHA (Dependabot keeps them current).

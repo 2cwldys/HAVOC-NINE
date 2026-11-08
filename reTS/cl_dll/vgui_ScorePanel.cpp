@@ -49,6 +49,7 @@ int g_IsSpectator[MAX_PLAYERS_HUD + 1];
 ScoreAvatar g_PlayerAvatars[MAX_PLAYERS_HUD + 1];
 bool g_bScoreAssists = false;
 bool g_bScoreLives = false; // H9 LIVES
+bool g_bScoreClass = false; // H9 CLASS ICONS
 bool g_bScorePool = false; // H9 POOL
 int g_iScorePoolLeft[3] = {0, 0, 0};
 int g_iScorePoolStart[3] = {0, 0, 0};
@@ -416,6 +417,104 @@ static CLevelBitmap* GetLevelBitmap(int level, int size)
 	return s_LevelBitmaps[i].bitmap;
 }
 // ---- end H9 LEVEL BADGES ------------------------------------------------------------------------
+
+// ---- H9 CLASS ICONS -------------------------------------------------------------------------------------------
+// H9Class (H9's ts_matchmode) names a player's class icon as a frame of sprites/tsm_class.spr, the sheet the world
+// icons over players' heads use. The column draws that frame scaled to one cell. The sheet is read once, on the first
+// icon asked for: an IDSP version 2 sprite, 8-bit palette, frames stored single and top row first, palette index 255
+// clear when the sprite is alpha-tested (texture format 3).
+#define SB_CLASS_FRAMES 18
+#define SB_CLASS_ICON 16 // pixels, square
+static struct
+{
+	unsigned char* rgba;
+	int wide;
+	int tall;
+} s_ClassFrames[SB_CLASS_FRAMES];
+static bool s_bClassSheetTried = false;
+static struct
+{
+	int frame;
+	int size;
+	CLevelBitmap* bitmap;
+} s_ClassBitmaps[SB_CLASS_FRAMES * 4];
+static int s_iClassBitmaps = 0;
+
+static void LoadClassSheet()
+{
+	s_bClassSheetTried = true;
+	int length = 0;
+	byte* file = gEngfuncs.COM_LoadFile("sprites/tsm_class.spr", 5, &length);
+	if (!file)
+		return;
+	if (length > 42 && memcmp(file, "IDSP", 4) == 0)
+	{
+		int version = 0, texFormat = 0, frames = 0;
+		memcpy(&version, file + 4, 4);
+		memcpy(&texFormat, file + 12, 4);
+		memcpy(&frames, file + 28, 4);
+		short colors = 0;
+		memcpy(&colors, file + 40, 2);
+		int off = 42;
+		const byte* palette = file + off;
+		off += colors * 3;
+		if (version == 2 && colors > 0 && colors <= 256 && off < length)
+		{
+			for (int f = 0; f < frames && f < SB_CLASS_FRAMES; f++)
+			{
+				if (off + 20 > length)
+					break;
+				int group = 0, w = 0, h = 0;
+				memcpy(&group, file + off, 4);
+				memcpy(&w, file + off + 12, 4);
+				memcpy(&h, file + off + 16, 4);
+				off += 20;
+				if (group != 0 || w < 1 || h < 1 || w > 256 || h > 256 || off + w * h > length)
+					break;
+				unsigned char* rgba = new unsigned char[w * h * 4];
+				for (int i = 0; i < w * h; i++)
+				{
+					const int idx = file[off + i];
+					rgba[i * 4 + 0] = idx < colors ? palette[idx * 3 + 0] : 0;
+					rgba[i * 4 + 1] = idx < colors ? palette[idx * 3 + 1] : 0;
+					rgba[i * 4 + 2] = idx < colors ? palette[idx * 3 + 2] : 0;
+					rgba[i * 4 + 3] = (texFormat == 3 && idx == 255) ? 0 : 255;
+				}
+				off += w * h;
+				s_ClassFrames[f].rgba = rgba;
+				s_ClassFrames[f].wide = w;
+				s_ClassFrames[f].tall = h;
+			}
+		}
+	}
+	gEngfuncs.COM_FreeFile(file);
+}
+
+// The icon for a sheet frame at size x size; NULL when the sheet has no such frame.
+static CLevelBitmap* GetClassBitmap(int frame, int size)
+{
+	if (frame < 0 || frame >= SB_CLASS_FRAMES || size < 1)
+		return NULL;
+	for (int i = 0; i < s_iClassBitmaps; i++)
+	{
+		if (s_ClassBitmaps[i].frame == frame && s_ClassBitmaps[i].size == size)
+			return s_ClassBitmaps[i].bitmap;
+	}
+	if (!s_bClassSheetTried)
+		LoadClassSheet();
+	if (!s_ClassFrames[frame].rgba)
+		return NULL;
+	int i = s_iClassBitmaps;
+	if (i < SB_CLASS_FRAMES * 4)
+		s_iClassBitmaps++;
+	else
+		i = SB_CLASS_FRAMES * 4 - 1; // full: the last entry is redrawn (its old bitmap stays alive)
+	s_ClassBitmaps[i].frame = frame;
+	s_ClassBitmaps[i].size = size;
+	s_ClassBitmaps[i].bitmap = new CLevelBitmap(size, s_ClassFrames[frame].rgba, s_ClassFrames[frame].wide, s_ClassFrames[frame].tall);
+	return s_ClassBitmaps[i].bitmap;
+}
+// ---- end H9 CLASS ICONS -------------------------------------------------------------------------------------
 
 //-----------------------------------------------------------------------------
 // Purpose: The engine hands a slot's havoc9.org picture here (engine-h9-avatars.patch, from the
@@ -795,7 +894,7 @@ ScorePanel::ScorePanel(int x, int y, int wide, int tall) : Panel(x, y, wide, tal
 
 	// The column titles, once per column.
 	// The frags' and the real kills' titles follow H9 KILLS (PlaceCells sets them again).
-	static const char* s_szCellTitles[SB_NUM_CELLS] = {"", "", "NAME", "K", "", "D", "A", "LIVES", "PING", ""};
+	static const char* s_szCellTitles[SB_NUM_CELLS] = {"", "", "NAME", "", "K", "", "D", "A", "LIVES", "PING", ""};
 	for (int c = 0; c < SB_NUM_COLUMNS; c++)
 	{
 		for (int k = 0; k < SB_NUM_CELLS; k++)
@@ -893,6 +992,7 @@ void ScorePanel::Initialize()
 	memset(g_TeamInfo, 0, sizeof g_TeamInfo);
 	g_bScoreAssists = false;
 	g_bScoreLives = false; // H9 LIVES
+	g_bScoreClass = false; // H9 CLASS ICONS
 	g_bScorePool = false;  // H9 POOL
 	memset(g_iScorePoolLeft, 0, sizeof g_iScorePoolLeft);
 	memset(g_iScorePoolStart, 0, sizeof g_iScorePoolStart);
@@ -1261,6 +1361,7 @@ void ScorePanel::PlaceCells(int rowTall)
 	const int gap = XRES(SB_CELL_GAP);
 	m_iCellWide[SB_CELL_AVATAR] = rowTall;
 	m_iCellWide[SB_CELL_STATUS] = XRES(SB_STATUS_WIDE);
+	m_iCellWide[SB_CELL_CLASS] = g_bScoreClass ? SB_CLASS_ICON + 2 : 0; // H9 CLASS ICONS
 	// ---- H9 KILLS: while the frags are points, the frags column is SCORE (as wide as LIVES, for its
 	// title) and the real kills get a K column of their own; on any other server that has no width.
 	s_bCellsKills = g_bScoreKills;
@@ -1485,7 +1586,7 @@ void ScorePanel::FillRow(int r)
 		pLabel->setFgColor(Scheme::sc_primary1);
 		if (k == SB_CELL_NAME || k == SB_CELL_STATUS)
 			pLabel->setContentAlignment(vgui::Label::a_west);
-		else if (k == SB_CELL_AVATAR || k == SB_CELL_VOICE)
+		else if (k == SB_CELL_AVATAR || k == SB_CELL_VOICE || k == SB_CELL_CLASS)
 			pLabel->setContentAlignment(vgui::Label::a_center);
 		else
 			pLabel->setContentAlignment(vgui::Label::a_east);
@@ -1505,6 +1606,7 @@ void ScorePanel::FillRow(int r)
 		m_Cells[r][SB_CELL_AVATAR].setVisible(false);
 		m_Cells[r][SB_CELL_STATUS].setVisible(false);
 		m_Cells[r][SB_CELL_VOICE].setVisible(false);
+		m_Cells[r][SB_CELL_CLASS].setVisible(false);
 
 		if (row.kind == ROW_MORE)
 		{
@@ -1748,6 +1850,19 @@ void ScorePanel::FillRow(int r)
 		m_Cells[r][SB_CELL_LIVES].setText(sz);
 	}
 	// ---- end H9 LIVES
+
+	// ---- H9 CLASS ICONS: the class icon the server named for this player, none for one it did not
+	if (g_bScoreClass && extra->h9class > 0)
+	{
+		const int size = m_iRowTall < SB_CLASS_ICON ? m_iRowTall : SB_CLASS_ICON;
+		CLevelBitmap* icon = GetClassBitmap(extra->h9class - 1, size);
+		if (icon)
+		{
+			m_Cells[r][SB_CELL_CLASS].setFgColorAsImageColor(false);
+			m_Cells[r][SB_CELL_CLASS].setImage(icon);
+		}
+	}
+	// ---- end H9 CLASS ICONS
 
 	const char* bot = gEngfuncs.PlayerInfo_ValueForKey(slot, "*bot");
 	if (bot && bot[0] == '1')

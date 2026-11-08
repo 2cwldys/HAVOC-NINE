@@ -556,7 +556,7 @@ bool:post_signed(const path[], const callback[], const ud[], udlen)
 		return false;
 	}
 	h9p_api(url, charsmax(url));
-	if (!equal(url, "https://", 8) && !equal(url, "http://", 7))
+	if (!(equal(url, "https://", 8) || equal(url, "http://127.0.0.1", 16) || equal(url, "http://localhost", 16)))
 	{
 		return false;
 	}

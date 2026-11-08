@@ -45,6 +45,7 @@ export function createAuth({ db, config, accounts, events }) {
   const secure = !config.insecureCookies;
   const cookieName = secure ? "__Host-h9_session" : "h9_session";
   const ttl = Math.round(config.session.days * 86400);
+  const maxSessions = config.session.maxPerAccount;
   const idle = Math.round(config.session.idleDays * 86400);
   const allowed = new Set(config.allowedOrigins);
   const nowSeconds = () => Math.floor(Date.now() / 1000);
@@ -58,6 +59,7 @@ export function createAuth({ db, config, accounts, events }) {
     removeAccount: db.prepare("DELETE FROM sessions WHERE account_id = ?"),
     removeAccountExcept: db.prepare("DELETE FROM sessions WHERE account_id = ? AND token_hash <> ?"),
     sweep: db.prepare("DELETE FROM sessions WHERE expires_at <= ? OR last_seen_at <= ?"),
+    trim: db.prepare("DELETE FROM sessions WHERE account_id = ? AND token_hash NOT IN (SELECT token_hash FROM sessions WHERE account_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?)"),
     countAccount: db.prepare("SELECT count(*) AS n FROM sessions WHERE account_id = ? AND expires_at > ? AND last_seen_at > ?"),
     lastSeen: db.prepare("SELECT max(last_seen_at) AS t FROM sessions WHERE account_id = ?"),
   };
@@ -73,6 +75,8 @@ export function createAuth({ db, config, accounts, events }) {
     const token = crypto.randomBytes(32).toString("base64url");
     const t = nowSeconds();
     q.insert.run(tokenHash(token), accountId, t, t, t + ttl);
+    // a stolen or forgotten sign-in cannot pile up without end: only the newest sessions of the account stay
+    q.trim.run(accountId, accountId, maxSessions);
     return token;
   }
 

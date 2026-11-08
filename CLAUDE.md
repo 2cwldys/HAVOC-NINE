@@ -1,8 +1,8 @@
 # TS Match Mode / H9XASH -- instructions for working in this repo
 
-TSM (`D:\Downloads\TSM`) is the source of truth for the TS Match Mode /
-H9XASH project. `D:\GIT Storage\ts_h9_team_elimination` is a git mirror --
-never edit it directly. `D:\SteamLibrary\steamapps\common\Half-Life` is the
+TSM (`<TSM>`; `<TSM>`, `<repo>`, `<Half-Life>` and `<temp>` stand for the maintainer's local folders) is the source of truth for the TS Match Mode /
+H9XASH project. `<repo>` is a git mirror --
+never edit it directly. `<Half-Life>` is the
 live install.
 
 ## Before touching the engine: check the patch chain first
@@ -63,7 +63,7 @@ native-only for days before anyone saw it.
    from in `webclient-bin\INPUTS.json`. "The web client matches the engine" (exit 0) is the bar for done, not "the engine built".
    `--check` builds nothing and says what is out of date; `--watch` keeps syncing while you work; `--force` builds anyway;
    `--stage` lays the stage out again after game files changed.
-2. It is a heavy job and takes `D:\temp\HEAVY-JOB.lock` itself. When you already hold the lock for the engine build, pass
+2. It is a heavy job and takes `<temp>\HEAVY-JOB.lock` itself. When you already hold the lock for the engine build, pass
    `--lock-held`; to wait for another holder instead of giving up, `--wait <minutes>`. Never take the lock over.
 3. **Native-only code needs its web counterpart in the same turn.** A patch that compiles code out of the browser build
    (`#if !XASH_EMSCRIPTEN`) needs either a page half (an object handed over as `Module.<name>` in `engineConfig` in
@@ -99,7 +99,7 @@ called from a map generator with `generateForMap()` (same guide, section 7).
   one beside it: `<file>.bak_<short description>`.
 - One heavy job at a time on this machine: engine, AMX Mod X, RCBot and reTS
   builds, build.bat, export.bat, map compiles and test servers. Only one agent
-  holds the build lock, `D:\temp\HEAVY-JOB.lock`, unless told otherwise. Create
+  holds the build lock, `<temp>\HEAVY-JOB.lock`, unless told otherwise. Create
   it atomically (fail if it exists) in the same step that starts the job, write
   who, what and when in it, and delete it when done. If it exists, wait and
   check again every few minutes; never start a heavy job while another holds

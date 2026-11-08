@@ -313,7 +313,7 @@ public plugin_init()
 	// listings and amx_cvar; the plugin never logs or prints it.
 	g_cv_key       = register_cvar("h9_presence_key", "", FCVAR_PROTECTED);
 	g_cv_interval  = register_cvar("h9_presence_interval", "60");
-	g_cv_challenge = register_cvar("h9_presence_challenge", "0");
+	g_cv_challenge = register_cvar("h9_presence_challenge", "1");
 	g_cv_names     = register_cvar("h9_presence_names", "0");
 	// The enrollment code: in the server's rules (FCVAR_SERVER) while h9web looks for it there.
 	// FCVAR_UNLOGGED keeps each change out of the log and off every player's screen.
@@ -538,7 +538,8 @@ bool:url_ok()
 	new url[192];
 	get_pcvar_string(g_cv_url, url, charsmax(url));
 	trim(url);
-	return equal(url, "https://", 8) || equal(url, "http://", 7);
+	// http:// only to this machine (a test site): the /enroll reply carries the server's key, and a report is signed, not secret
+	return equal(url, "https://", 8) || equal(url, "http://127.0.0.1", 16) || equal(url, "http://localhost", 16);
 }
 
 /** a.b.c.d:port, digits only. */

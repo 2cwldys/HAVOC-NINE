@@ -2170,6 +2170,32 @@ bool TeamFortressViewport::MsgFunc_H9Lives(const char* pszName, int iSize, void*
 	return true;
 }
 
+// Message handler for H9Class (H9's ts_matchmode)
+// accepts two values:
+//		byte: client number; 0 says no class icons are sent now, and the column empties
+//		byte: the class icon's frame in sprites/tsm_class.spr plus 1; 0 shows no icon for that player
+// The scoreboard shows the class column while the server sends them. The server decides who may see whose class
+// (tsm_competitive), so a player not sent is simply shown none.
+bool TeamFortressViewport::MsgFunc_H9Class(const char* pszName, int iSize, void* pbuf)
+{
+	BEGIN_READ(pbuf, iSize);
+	const int cl = READ_BYTE();
+	const int frame = READ_BYTE();
+
+	if (cl == 0)
+	{
+		g_bScoreClass = false;
+		for (int i = 1; i <= MAX_PLAYERS_HUD; i++)
+			g_PlayerExtraInfo[i].h9class = 0;
+		return true;
+	}
+
+	g_bScoreClass = true;
+	if (cl <= MAX_PLAYERS_HUD)
+		g_PlayerExtraInfo[cl].h9class = frame;
+	return true;
+}
+
 // Message handler for H9Pool (H9's ts_matchmode, for a mode that keeps one pool of lives for a whole side)
 // accepts three values:
 //		byte: the side, 1 or 2; 0 says no pool is counted now, and the lives column goes back to the players' own

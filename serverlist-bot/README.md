@@ -96,6 +96,11 @@ The body is JSON, in one of two kinds:
       curl -X POST https://havoc9.org/serverlist/v1/heartbeat -H "Content-Type: application/json" -d "{\"port\":27015}"
 
   `open_heartbeats = 0` in `serverlist.ini` refuses these.
+
+  Who a request "comes from" is decided by `proxy_header` in the `[http]` section of `serverlist.ini`: `x-real-ip` (the default:
+  nginx sets it in every location and the list believes it only from this machine), `cf-connecting-ip` (behind a Cloudflare
+  Tunnel, where cloudflared forwards a visitor's own X-Real-IP untouched and only CF-Connecting-IP can be believed), or `none` (the
+  connection's own address). Anything that is not exactly one valid address is ignored.
 * With `heartbeat_key` from `serverlist.cfg`, any address:
 
       curl -X POST https://havoc9.org/serverlist/v1/heartbeat -H "Content-Type: application/json" -d "{\"key\":\"<heartbeat_key>\",\"address\":\"<server public address>:27015\"}"

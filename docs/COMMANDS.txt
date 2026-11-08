@@ -317,6 +317,19 @@
      with the health it had and its repair wait still running, even though
      the round's one turret is already used. A carried turret is lost at the
      next round (wave in Wave Survival). Also the console command pickup.
+     With no turret in view it packs up the transporter pad of yours that
+     stands nearest, within reach, and gives its place back.
+
+ .transporter                  (Combat Engineer only, live round, alive)
+     Set a transporter pad on the floor where you stand, in your side's
+     light: tsm_transporter_per_engineer of them a round (two). Two pads of
+     one engineer are a pair; once they are, an arrow on each pad points at
+     the other, and anyone of your side who steps on one is carried to the
+     other (then waits tsm_transporter_cooldown seconds). A lone pad does
+     nothing. The pads, their effects and arrows go with the round. A pad
+     can be shot to pieces by the other side (tsm_transporter_hp), and blows
+     up when its engineer dies, as a turret does. .pickup packs one up. Also
+     the console command transporter.
 
  .rocket                       (Mech class only, while alive)
      Fire a rocket at whatever your crosshair is on, up to 2000 units away: a
@@ -1930,6 +1943,9 @@
                                  out of view. 0 draws none
  cl_h9_marks_strip 0|1           the row of those marks under the top notices
                                  (1)
+ cl_h9_show_reinforce 0|1        the line that counts down this side's next
+                                 respawn wave (1); 0 hides it, whatever the
+                                 server's tsm_show_reinforce says
  tsm_show_zones 0|1              the marks drawn on the world, through the
                                  walls, where the point is (1); 0 draws none
                                  there, and the row of marks under the top
@@ -2078,6 +2094,32 @@
                                       round ending
  tsm_min_per_team          1          players each side needs before ready-up can
                                       start the match
+ tsm_live_gate             1          1 the match starts when everyone types .ready;
+                                      0 no ready-up: it starts by itself when each
+                                      side has tsm_live_minplayers players or
+                                      tsm_live_wait seconds have run since both
+                                      sides first had players, whichever comes
+                                      first (a mapconfig can set all three)
+ tsm_live_minplayers       (empty)    gate off: players needed on EACH side to
+                                      start at once; empty or 0 = not used
+ tsm_live_wait             (empty)    gate off: seconds to wait; with this and
+                                      tsm_live_minplayers both empty it waits 60
+ tsm_spawnprotect          1          a player who goes live (a round's start, a
+                                      respawn wave) is unhurt, a little
+                                      translucent and lit with a white glow for
+                                      tsm_spawnprotect_dur seconds
+ tsm_spawnprotect_dur      3          the seconds of that protection
+ tsm_show_reinforce        1          every living player, and every teammate
+                                      waiting for the wave, sees his side's next
+                                      respawn wave, what is left and the list of
+                                      who is waiting, as the Officer always does;
+                                      0 the Officer alone.
+                                      A player hides it on his own screen with
+                                      cl_h9_show_reinforce 0 (H9's client.dll)
+ tsm_competitive           1          the scoreboard's class column (the class icon
+                                      beside each name, H9's client.dll): 1 a
+                                      player sees only his own side's classes, 0
+                                      both sides'
  tsm_test_solo             0          1 lets a match run with one side filled, to
                                       test alone
  tsm_lock_teams            1          refuse side changes once a match is under way
@@ -2288,6 +2330,13 @@
  tsm_turret_spread         1.5        spread, degrees
  tsm_turret_repair         100        health one +USE repair puts back
  tsm_turret_repair_cooldown 30        seconds between repairs of one turret
+ tsm_transporter           1          the Combat Engineer's transporter pads
+                                      (.transporter)
+ tsm_transporter_per_engineer 2       pads an engineer may set up a round
+ tsm_transporter_cooldown  3.0        seconds before a player rides a pad again
+ tsm_transporter_hp        200        a pad's health: the other side's fire
+                                      destroys it
+ tsm_transporter_resist    0.5        the share of each hit its armour turns aside
  tsm_eng_door_class        Combat Engineer      the class tsm_eng_door doors
                                       answer to
  tsm_eng_door_team         0          which side's: 0 either, 1 or 2 that side's
@@ -2566,8 +2615,9 @@
                                       IPv4:port, as havoc9.org lists it
  h9_presence_key           (empty)    a hand-made key; never shown
  h9_presence_interval      60         seconds between reports, 30 to 600
- h9_presence_challenge     0          1: each H9XASH client proves its player
-                                      id; leave 0 until that build is out
+ h9_presence_challenge     1          1: each H9XASH client proves its player
+                                      id (the default); 0 proves no one, and an
+                                      announced id can then be copied
  h9_presence_names         0          1: havoc9.org names on H9 maps (needs
                                       h9_presence_challenge 1)
  h9_presence_autoenroll    1          a dedicated server with no hand-made key

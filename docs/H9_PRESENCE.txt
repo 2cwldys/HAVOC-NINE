@@ -232,8 +232,8 @@
  The other cvars (h9_presence.cfg):
    h9_presence_url        default https://havoc9.org/api/presence/report
    h9_presence_interval   seconds between reports, 30 to 600 (default 60)
-   h9_presence_challenge  1: the id proof (section 8). Leave 0 until H9XASH
-                          answers it
+   h9_presence_challenge  1: the id proof (section 8); the default. With 0 no
+                          one is proven and an announced id can be copied
    h9_presence_names      1: names in game (section 10). Needs the challenge
    h9_presence_autoenroll 1: a dedicated server enrolls by itself (default);
                           0: a hand-made key only

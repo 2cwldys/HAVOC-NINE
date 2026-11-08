@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  h9web-tests:
+    name: h9web tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: node --test (h9web has no dependencies)
+        working-directory: h9web
+        run: node --test
+
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: the project's own rules (tools/secret-scan.mjs)
+        run: node tools/secret-scan.mjs
+      - name: gitleaks (default rules plus .gitleaks.toml)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  public-docs:
+    name: public documents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: no machine paths, real addresses or secrets in the AI-context files
+        run: node tools/lint-public-docs.mjs
+
+  dependencies:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: SMAK (the only package with dependencies)
+        working-directory: SMAK
+        run: |
+          if [ -f package-lock.json ]; then npm audit --omit=dev --audit-level=high; else echo "no lockfile: nothing to audit"; fi

@@ -718,6 +718,11 @@ if exist "%SRC%models\tsm_turret_blue.mdl" (
     xcopy /y /i /q "%SRC%models\tsm_turret_*.mdl" "%EX%\ts\models\" >nul
     echo   ts\models\tsm_turret_*.mdl
 )
+REM The Combat Engineer's transporter pads: both side models (their sprites travel with sprites\ above).
+if exist "%SRC%models\tsm_tpad_1.mdl" (
+    xcopy /y /i /q "%SRC%models\tsm_tpad_*.mdl" "%EX%\ts\models\" >nul
+    echo   ts\models\tsm_tpad_*.mdl
+)
 if exist "%SRC%sound\turret" (
     xcopy /y /i /q "%SRC%sound\turret\*.wav" "%EX%\ts\sound\turret\" >nul
     echo   ts\sound\turret\ ^(sentry turret^)

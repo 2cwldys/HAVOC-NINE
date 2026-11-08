@@ -54,9 +54,10 @@ h9_presence_interval "60"
 
 // The id proof: 1 sends each joining H9XASH client a one-time challenge, and
 // h9web counts presence only from clients that prove they hold the player id.
-// Leave it 0 until the H9XASH build that answers it is out (_h9idv in the
-// client's userinfo); old clients just stay unverified either way.
-h9_presence_challenge "0"
+// 1 is the default since the H9XASH build that answers it is out (_h9idv in the
+// client's userinfo); a client from before it stays unverified. With 0 nobody is
+// proven: the id a client announces is a public string any modified client can copy.
+h9_presence_challenge "1"
 
 
 // Names: 1 makes a proven account play under its havoc9.org username, and gives

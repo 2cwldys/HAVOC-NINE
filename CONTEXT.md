@@ -1,8 +1,8 @@
 # Project context
 
-TS Match Mode / H9XASH. Source of truth: this directory (`D:\Downloads\TSM`).
-Git mirror at `D:\GIT Storage\ts_h9_team_elimination` (never edit directly).
-Live install at `D:\SteamLibrary\steamapps\common\Half-Life`.
+TS Match Mode / H9XASH. Source of truth: this directory (`<TSM>`).
+Git mirror at `<repo>` (never edit directly).
+Live install at `<Half-Life>`.
 
 See `CLAUDE.md` in this same directory for the full working rules. The one
 most worth repeating here: **check the patch chain before adding engine work

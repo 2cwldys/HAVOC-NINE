@@ -46,6 +46,8 @@ const DB_ENTRY = "db/" + DB_NAME;
 const MAGIC = Buffer.from("H9BKENC1", "ascii");
 const HEADER = MAGIC.length + 3 + 16 + 12;
 const TAG = 16;
+// The most a backup may inflate to when it is read back (a restore, a check): far above any real database, far below the memory of the host.
+const MAX_RESTORE_BYTES = 1024 * 1024 * 1024;
 // scrypt for the passphrase: N = 2^17, r 8, p 1 (128 MiB, a fraction of a second, once per file)
 const SCRYPT = { ln: 17, r: 8, p: 1 };
 export const PASSPHRASE_MIN = 12;
@@ -575,7 +577,8 @@ export function readArchive(file, { passphrase = null } = {}) {
   }
   let tar;
   try {
-    tar = zlib.gunzipSync(gz);
+    // a backup's tar is bounded: a small archive that inflates without end must not take the process's memory
+    tar = zlib.gunzipSync(gz, { maxOutputLength: MAX_RESTORE_BYTES });
   } catch (e) {
     throw new BackupError(label + " is damaged (" + e.message + ")", "damaged");
   }

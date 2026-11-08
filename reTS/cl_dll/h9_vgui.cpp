@@ -25,6 +25,7 @@ cvar_t* s_cvInfo;    // _h9vgui: the userinfo key the server reads, the protocol
 cvar_t* s_cvTop;     // cl_h9_vgui_top: where the safe area starts, in pixels from the top, 0 for the default
 cvar_t* s_cvMarks;   // cl_h9_marks: 0 draws no mark, on the world or in the row
 cvar_t* s_cvStrip;   // cl_h9_marks_strip: 0 draws no row of marks under the top stack
+cvar_t* s_cvReinforce; // cl_h9_show_reinforce: 0 hides the line that counts down this side's next respawn wave
 cvar_t* s_cvZones;   // tsm_show_zones: 0 draws no mark on the world, through the walls; the row under the top stack stays
 
 bool s_bInited = false;
@@ -390,6 +391,9 @@ void OpStatus()
 // A notice or a status into its slot.
 void StoreNotice(const char* slot, H9NoticeDef& n)
 {
+	// cl_h9_show_reinforce 0: the wave countdown (the server's "tsm.wave" notice) is never shown; its slot is cleared as an empty notice does
+	if (s_cvReinforce && s_cvReinforce->value == 0.0f && 0 == strcmp(slot, "tsm.wave"))
+		n.text[0] = 0;
 	n.used = true;
 	strncpy(n.slot, slot, H9V_ID_LEN - 1);
 	n.slot[H9V_ID_LEN - 1] = 0;
@@ -1260,6 +1264,7 @@ void H9Vgui_Init()
 	s_cvMarks = CVAR_CREATE("cl_h9_marks", "1", FCVAR_ARCHIVE);
 	s_cvStrip = CVAR_CREATE("cl_h9_marks_strip", "1", FCVAR_ARCHIVE);
 	s_cvZones = CVAR_CREATE("tsm_show_zones", "1", FCVAR_ARCHIVE);
+	s_cvReinforce = CVAR_CREATE("cl_h9_show_reinforce", "1", FCVAR_ARCHIVE);
 	s_cvInfo = CVAR_CREATE("_h9vgui", Enabled() ? "1" : "0", FCVAR_USERINFO);
 	gEngfuncs.pfnHookUserMsg("H9Vgui", __MsgFunc_H9Vgui);
 	s_Hud.Init();

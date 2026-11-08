@@ -12,8 +12,8 @@ client it was applied to.
 Deployed file : client.dll
 Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 (CMake, Win32, Release; target client)
-Size          : 861696 bytes
-SHA256        : 5CB48C3BB63B37A360BAFAC021134A32A32C9D6F98BE71787CFC8F4700EC1F78
+Size          : 863232 bytes
+SHA256        : 62DCA0BF7CCA465D54BD06E73C13DBC79CD377D2F709BECCD5DE0F5E11C1C45F
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
                 plus the local mouse-release fix below, the 128-slot build (2026-11-01) and the
                 scoreboard's pictures, link icons, lives column, scrolling, Roleplay
@@ -329,7 +329,23 @@ What the source build contains, beyond the stock client
    and pads of Capture the Flag) while the row under the top stack stays (cl_h9_marks_strip), and cl_h9_marks still turns
    every mark off. The client.dll this replaced is kept as client.dll.bak_prezones in reTS\binaries\ts\cl_dlls\.
 
-23. Everything else reTS already had
+23. Scoreboard: a class column
+
+   H9Class (ts_matchmode: byte slot, byte class-icon frame + 1; slot 0 says the column is off) names each player's class icon
+   as a frame of sprites/tsm_class.spr, the sheet of the icons over players' heads. cl_dll\vgui_ScorePanel.cpp reads that sheet
+   once (an IDSP version 2 sprite, 8-bit palette, index 255 clear when alpha-tested) and draws the frame at 16 x 16 in a new
+   cell, SB_CELL_CLASS, between the name and the kills; the cell has no width on a server that sends no H9Class. The server
+   decides who may see whose class (tsm_competitive), so a player it did not name shows none. The client.dll this replaced is
+   kept as client.dll.bak_preclass in reTS\binaries\ts\cl_dlls\.
+
+24. cl_h9_show_reinforce: hide the respawn wave countdown
+
+   cl_h9_show_reinforce (1, saved) is the client cvar for the line that counts down the side's next respawn wave, the notice the
+   server sends under the slot name tsm.wave (the Officer's always, and with the server's tsm_show_reinforce every living player's).
+   cl_dll\h9_vgui.cpp's StoreNotice clears that slot instead of storing the notice while the cvar is 0. The client.dll this
+   replaced is kept as client.dll.bak_prereinf in reTS\binaries\ts\cl_dlls\.
+
+25. Everything else reTS already had
 
    The reTS client is a recompilation of the whole TS client, so it also carries the third-person
    self-transparency fade, the predicted viewmodel body, the HUD and the rest of the reTS client

@@ -144,7 +144,7 @@ export function registerAdminRoutes(router, { db, auth, accounts, renames, audit
     const lim = limits.adminListPerAccount.hit("a:" + actor.id);
     if (!lim.ok) throw new HttpError(429, "rate_limited", "Too many lookups. Wait a moment.", { headers: { "Retry-After": String(lim.retryAfter) }, body: { retryAfter: lim.retryAfter } });
     const text = String(rc.query.get("q") || "").trim().slice(0, 20);
-    const sort = SORTS[rc.query.get("sort")] ? rc.query.get("sort") : "newest";
+    const sort = Object.hasOwn(SORTS, rc.query.get("sort")) ? rc.query.get("sort") : "newest";
     let role = ROLES.includes(rc.query.get("role")) ? rc.query.get("role") : null;
     const filter = ["suspended", "postingoff"].includes(rc.query.get("filter")) ? rc.query.get("filter") : null;
     const per = Math.min(100, Math.max(1, Number.parseInt(rc.query.get("per"), 10) || 50));

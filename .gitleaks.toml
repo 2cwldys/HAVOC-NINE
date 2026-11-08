@@ -1,0 +1,27 @@
+# gitleaks configuration: the project's own rules (the same list as tools/secret-scan.mjs) on top of the default rules.
+title = "HAVOC 9 secret rules"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "h9-heartbeat-or-discord-token-cfg"
+description = "A filled-in heartbeat_key or discord_token"
+regex = '''(?m)^[ \t]*(heartbeat_key|discord_token)[ \t]*=[ \t]*[^\s;#<]'''
+
+[[rules]]
+id = "h9-web-keys"
+description = "h9web password pepper or player id key"
+regex = '''"(passwordPepper|playerIdKey)"\s*:\s*"[A-Za-z0-9+/=]{16,}"'''
+
+[[rules]]
+id = "h9-client-secret"
+description = "A filled-in client secret or bot token"
+regex = '''"(clientSecret|botToken|client_secret|bot_token)"\s*:\s*"[^"<][^"]{7,}"'''
+
+[allowlist]
+description = "Public certificate bundles and upstream test data"
+paths = [
+  '''xash3d-fwgs/3rdparty/''',
+  '''cacert\.pem$''',
+]

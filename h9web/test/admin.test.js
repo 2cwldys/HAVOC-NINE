@@ -61,6 +61,15 @@ describe("the admin panel's API", () => {
     }
   });
 
+  test("the account list's sort key is a whitelist: inherited names fall back to the default, never an error", async () => {
+    for (const sort of ["constructor", "__proto__", "toString", "hasOwnProperty", "name; DROP TABLE accounts"]) {
+      const r = await get(people.Oracle, "/api/admin/accounts?sort=" + encodeURIComponent(sort));
+      assert.equal(r.status, 200, "sort=" + sort);
+      assert.equal(r.json.sort, "newest", "sort=" + sort);
+    }
+    assert.equal((await get(people.Oracle, "/api/admin/accounts?sort=name")).json.sort, "name");
+  });
+
   test("moderators suspend users only, for 1 to 7 days, with a reason; lifting is for admins", async () => {
     const s = (who, name, body) => post(who, "/api/admin/accounts/" + name + "/suspend", body);
     assert.equal((await s(people.Morpheus, "Switch", { days: 3 })).status, 400, "a reason");
