@@ -723,6 +723,10 @@ if exist "%SRC%models\tsm_tpad_1.mdl" (
     xcopy /y /i /q "%SRC%models\tsm_tpad_*.mdl" "%EX%\ts\models\" >nul
     echo   ts\models\tsm_tpad_*.mdl
 )
+if exist "%SRC%sound\tsm_tpad\hum.wav" (
+    xcopy /y /i /q "%SRC%sound\tsm_tpad\*.wav" "%EX%\ts\sound\tsm_tpad\" >nul
+    echo   ts\sound\tsm_tpad\ ^(transporter hum^)
+)
 if exist "%SRC%sound\turret" (
     xcopy /y /i /q "%SRC%sound\turret\*.wav" "%EX%\ts\sound\turret\" >nul
     echo   ts\sound\turret\ ^(sentry turret^)
