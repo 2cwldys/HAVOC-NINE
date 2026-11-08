@@ -76,8 +76,21 @@ jobs:
               after = event.get("after") or "HEAD"
               rev = [after] if before == zeros else [f"{before}..{after}"]
           fmt = "%H%x1f%an%x1f%s%x1f%aI"
-          out = subprocess.run(["git", "log", "--reverse", f"--pretty=format:{fmt}", *rev],
-                               capture_output=True, text=True, check=True).stdout.strip()
+
+          def have(sha):
+              return subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode == 0
+
+          # A force push (or a rewritten history) can leave "before" a commit this clone does not have: then the push's own commit list
+          # (at most the newest 20 that GitHub puts in the event) says how many to take from the tip.
+          if rev != ["HEAD"] and len(rev) == 1 and ".." in rev[0] and not have(rev[0].split("..")[0]):
+              pushed = event.get("commits") or []
+              rev = ["-n", str(max(1, len(pushed))), after]
+              print(f"The push's previous tip is not in this history (a force push): taking the {max(1, len(pushed))} newest commit(s).")
+          proc = subprocess.run(["git", "log", "--reverse", f"--pretty=format:{fmt}", *rev], capture_output=True, text=True)
+          if proc.returncode != 0:
+              print("git log failed:", proc.stderr.strip())
+              sys.exit(1)
+          out = proc.stdout.strip()
           commits = [line.split("\x1f") for line in out.split("\n") if line.strip()]
           if not commits:
               print("No new commits.")
