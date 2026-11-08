@@ -14,3 +14,4 @@ ppsh-41 weapon models (view, player and world) - based on "ppsh-41" by zillious,
 ppsh-41 firing sound - darkest hour: europe '44-'45 team (the free red orchestra mod)
 laser rifle weapon models (view, player and world) - based on "sci-fi marksman rifle (updated textures)" by jett spaulding, skfb.ly/ozONJ, sketchfab.com/3d-models/sci-fi-marksman-rifle-updated-textures-909c08e41bb3491bac9110d9cf1d48e4 (licence: cc by 4.0, creativecommons.org/licenses/by/4.0, see laserrifle_ATTRIBUTION.txt)
 laser rifle sounds and sprites - made for havoc 9 team elimination mode
+transporter logic - FWGS/tf15-client reverse engineering of Team Fortress Classic
