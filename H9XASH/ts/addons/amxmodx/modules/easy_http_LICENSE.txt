@@ -1,0 +1,37 @@
+AmxxEasyHttp -- license of the AmxxEasyHttp files in this folder
+==============================================================
+
+AmxxEasyHttp is an HTTP client module for AMX Mod X by Igor Minin and the Next21 Team:
+https://github.com/Next21Team/AmxxEasyHttp (MIT). ts_advertise, h9_presence, h9_community, h9_compete and
+h9_rank need it (their #include <easy_http>).
+
+In this folder
+  easy_http_amxx.dll   AmxxEasyHttp 1.4.0, the project's own Windows release, unchanged:
+                         release_windows_v1.4.0.zip  SHA-256 dba6e882ab59b2d2dad3869b7d154fb9312b41057aa8d3027c50176f883aeb90
+                         easy_http_amxx.dll          SHA-256 cdca7362829338564fa6a3680df39a8cacf6051dc5e4dc5ea12cbcdc5b69a177
+                       It statically contains libcurl 8.5.0 (the curl license), with TLS through Windows Schannel.
+                       The Linux module of the same version is easy_http_amxx_i386.so (linux/LICENSE-AMXXEASYHTTP.txt).
+                       H9 has made no change to it, so it has no .patch note.
+
+---------------------------------------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2021 Igor Minin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
