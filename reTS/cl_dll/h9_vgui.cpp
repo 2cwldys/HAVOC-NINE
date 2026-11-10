@@ -25,7 +25,7 @@ cvar_t* s_cvInfo;    // _h9vgui: the userinfo key the server reads, the protocol
 cvar_t* s_cvTop;     // cl_h9_vgui_top: where the safe area starts, in pixels from the top, 0 for the default
 cvar_t* s_cvMarks;   // cl_h9_marks: 0 draws no mark, on the world or in the row
 cvar_t* s_cvStrip;   // cl_h9_marks_strip: 0 draws no row of marks under the top stack
-cvar_t* s_cvReinforce; // cl_h9_show_reinforce: 0 hides the line that counts down this side's next respawn wave
+cvar_t* s_cvReinforce; // cl_h9_show_reinforce: 0 hides the line that counts down this side's next respawn wave and the list of who waits for it
 cvar_t* s_cvZones;   // tsm_show_zones: 0 draws no mark on the world, through the walls; the row under the top stack stays
 
 bool s_bInited = false;
@@ -1068,11 +1068,13 @@ void Frame()
 			p->SetDef(s.live);
 			s.dirty = false;
 		}
-		p->setVisible(shown && !noHud && s.shown);
+		// cl_h9_show_reinforce 0: the list of teammates waiting for the wave (the server's "tsm.wait" panel) stays hidden
+		const bool hidden = s_cvReinforce && s_cvReinforce->value == 0.0f && 0 == strcmp(s.live.id, "tsm.wait");
+		p->setVisible(shown && !noHud && s.shown && !hidden);
 		// A panel anchored along the top, still in the top quarter and reaching into the middle half of the screen, where the stack is
 		// centred, belongs to the top stack. One in a corner that stops short of the middle half (the Officer's waiting list at the top
 		// right) is beside the stack and pushes nothing down: the row of marks keeps its place as the list grows and shrinks.
-		if (shown && !noHud && s.shown && s.live.anchor >= H9V_TL && s.live.anchor <= H9V_TR)
+		if (shown && !noHud && s.shown && !hidden && s.live.anchor >= H9V_TL && s.live.anchor <= H9V_TR)
 		{
 			int px, py, pw, ph;
 			p->getPos(px, py);
