@@ -1,0 +1,401 @@
+{
+  "mode": "add",
+  "entries": [
+    {
+      "kind": "amxx",
+      "file": "admin.amxx",
+      "sha256": "61974eddfc2f5dbd076b6ebd0885cbf36a127ea4f0704dd00a609e0ce220d267",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "adminchat.amxx",
+      "sha256": "898e9a036ead6ef6c89d5e9dfb823a1e0946a5bf216c96398a76b770cfb539ab",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "admincmd.amxx",
+      "sha256": "6896e8eea1b509506d33692f168789cf6b16758ef135998ae525df5f5bb0fa58",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "adminhelp.amxx",
+      "sha256": "9d37e64871103c4e32b9ab6b2f6e00edf6751227efdce9c6667a994707cf0b00",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "adminslots.amxx",
+      "sha256": "972526500bf2ae92ffd2fd6364b62671661949146e712b9905a80dd365a40127",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "adminvote.amxx",
+      "sha256": "d56cda75e38ed2e4589cdace6d472eaf60bff7b83966000eb8bdca0a6eec6e5c",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "antiflood.amxx",
+      "sha256": "bb794aa36ea07e13ca3b77e3979637f03b64a488e0c3925fce7ae5a463c4bc62",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_Commands.amxx",
+      "sha256": "3127abd7e3b46fa3ee76c2058b228b59a4e467564100ae69e57fa98630fbfe26",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_Config.amxx",
+      "sha256": "88ce30cb06b29c4cace2dcb948f4fe849a99874f8a29db5b5111befa25ba79f0",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_Core.amxx",
+      "sha256": "9c275f9fe139afbb2073252d748c0ef1a3feb3785214eb1497c7e05a64da1f41",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_H9Menu.amxx",
+      "sha256": "ae30f4f148e1853c46eef87cd0d8663fb838e68bd8c1631481a2b318b4d36263",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_HUD.amxx",
+      "sha256": "8fc7e1e3467bb98095405b5964ba8f856ae2926fd468fb07925cbd818c244c58",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_HungerMod.amxx",
+      "sha256": "189def48b20ba74d6e6afb691f10cf352c6f0be32b65eb7434f11b7f4c2a6260",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_Items.amxx",
+      "sha256": "d36d4702b0153ac389192e1c55a727e23d2f238641c1e4160ba77e5aa5b36b77",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_JailMod.amxx",
+      "sha256": "6e39ed775b0210aff3786a4450342dee77bd566cd84725913722fef5293f941d",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_NPCs.amxx",
+      "sha256": "6c91970ada5d4c88e0ad07b1ec5b85180326ed8180f5558e74030cc3cfa1b9c8",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_RobMod.amxx",
+      "sha256": "2de706b43442cb44dc6e729631c4b4429a8179895db83f74e24aaca9568acbd5",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_TalkArea.amxx",
+      "sha256": "c35aab896c8ed54d5ccac08bbe70c16eed19a811cd554ffb8562e180c4d1dc3b",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_TS.amxx",
+      "sha256": "bf488b658ce878fdbbf3f27481ea431a59d64f9a4c8d78a6f3c711a83daee592",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ARP_Zones.amxx",
+      "sha256": "923920828d874b98384d5e4c16e1ba40fedfdf9b1b6e418668fef1f886fe598e",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "cmdmenu.amxx",
+      "sha256": "dc50543f5cc9949e134b549922cd1977f7469b0de587806a4c1710d7b95496b3",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "h9_community.amxx",
+      "sha256": "ff9fd3d6caba8c10d52f260a2bc0e09359293135df2243058fd561d9d968f88a",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "h9_compete.amxx",
+      "sha256": "56eb2b8f1b0c6e66ee134067b13c169d521e922bbe4e84b66b1d23a9dab74592",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "h9_link.amxx",
+      "sha256": "31e5486925370fc2a9b752524c3c7e0ad9063e3c9cd875ae9131ceb270c91776",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "h9_motd.amxx",
+      "sha256": "6499b71c7f2eee31eb43ebef7bdc7d9deee6cd9d3451bfc601e24c9e0e7ae112",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "h9_presence.amxx",
+      "sha256": "c0599a38f1cc7ae61936d6dc6cdaa2bfb02eb29a05e73f5ea29a002bff1f5a26",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "h9_rank.amxx",
+      "sha256": "d573560babdc1b62d26190ca4661c6b3230a02ce6c1802bca75095b78fe767c4",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "h9_tts.amxx",
+      "sha256": "c1db42ab16f87d15c34a874da0e87809657949a7c942f58bae6871599913443e",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "imessage.amxx",
+      "sha256": "d64efa78131ead9b818cac395c526e270494edbd743aec1dd97b666cdfe703b6",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "mapchooser.amxx",
+      "sha256": "346922bc7bee379f21cfd5f864b19f096f172ec8c1403e7777a7910f2399ff64",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "mapsmenu.amxx",
+      "sha256": "b5293272b864be26cdcd9a137afe605f1b2ba00762f7a36e8e80c784b0c39850",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "menufront.amxx",
+      "sha256": "1b7670fc665517f2b7f1210284dd4d23cc72e8835ee534c648fd501d2f623ddc",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "multilingual.amxx",
+      "sha256": "4578fbcdc9f0c74ecf35ab9117fc9ae5382d9fcb6a88aea90c78766ef9b1248e",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "nextmap.amxx",
+      "sha256": "99bbc548aa722b94a98e40cdf717ee383fa4633b52892cc75c4b872e3016434b",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "pausecfg.amxx",
+      "sha256": "18cce4378a58dc0e2967e3f61a5e1214496475013ad3f3035248f2305e859876",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "plmenu.amxx",
+      "sha256": "2a7977867a40d48abe1bd2bc4c93f69dfdd503af66d1a88abed1bf403d1f403e",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "pluginmenu.amxx",
+      "sha256": "1ff467c86cb39cf296fe17297ce8bd437675e5e239bc5af030c5a3c197b03656",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "scrollmsg.amxx",
+      "sha256": "82001faf966689a3ba14adaa812a0ae1bd413e5fa93a5f22b37aa9a1cd36e9d0",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "statscfg.amxx",
+      "sha256": "3b5be3e82a55436a28486774721ff050fe10f75325bdf67d4ff7d821c35d67a0",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "timeleft.amxx",
+      "sha256": "91143a66a02ed8299f17840fd6ccf5cca3e1cf9849289e4f34132adaa7746a2c",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ts_advertise.amxx",
+      "sha256": "098cff0aefed59a88c155bde3d8d8c687ea5f65ea09f65deb7219dfb9948ac6b",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ts_assault.amxx",
+      "sha256": "41771748b61d87ac39b9e1d992624f8bfb8cd68ba1fe6fc9741592f13d6c35b7",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ts_ctf.amxx",
+      "sha256": "88f902451e8fd9ace14950668d9b95cdd399832c071e780a455ee3bf47c932cb",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ts_floatchat.amxx",
+      "sha256": "05e6bd98de71c33db699c53a5327fd0934f2c7a6b56f6166b968e5239b2c3c5a",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ts_matchmode.amxx",
+      "sha256": "5e9249d072fbcd733fda460a9df811d66bc407fc23d693bfca6e157e1237f93c",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ts_mechwarrior.amxx",
+      "sha256": "663c00491aee3f0be9836a1394e1643683986c7a4e7ab261b5a51ee260e30915",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ts_rtv.amxx",
+      "sha256": "26fae30d00099381c8f69e45ec025cf5068395b834b285f4332d61926bc5f975",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ts_survival.amxx",
+      "sha256": "7da0d164a9e55240df79b1266a5af838da71717b3224573bedcfd3488b7599fc",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "ts_uplink.amxx",
+      "sha256": "a7540b161834c1ed3cd7a720b91ac38997aeca9cc86d1b37656dc52960cc705e",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "amxx",
+      "file": "tsrp_roambots.amxx",
+      "sha256": "fe3d0c7ebc380ed4af8c9f9d296a799cc1672d40b4436e85fef3fed40dfd9d81",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "meta",
+      "file": "amxmodx_mm.dll",
+      "sha256": "abb10442c7bde2d0165c4c149568782fbed1afcd39ee8ddf7a6f59415fe00043",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "meta",
+      "file": "rcbot_mm.dll",
+      "sha256": "d08602698df1b260ff4fab16f9e35083adaa03394c1a90f2c0272c51302b439f",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "easy_http_amxx.dll",
+      "sha256": "cdca7362829338564fa6a3680df39a8cacf6051dc5e4dc5ea12cbcdc5b69a177",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "engine_amxx.dll",
+      "sha256": "1b42b3afdcc558d90fcc31d42bef0228b965484e5581a07a8990dda3167e3c46",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "fakemeta_amxx.dll",
+      "sha256": "317672a282625c8abd8de4f9eab631eb2b1070e903bcc15e1466ab83839fc293",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "fun_amxx.dll",
+      "sha256": "dc69774cfacda8f489deb0d910840af09d30071532282b874cc4e376767f471f",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "geoip_amxx.dll",
+      "sha256": "23a3ba2fc094bb84b3bedb55b3f329bbe66b513a74a91a3d3e89abfce8cabdac",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "hamsandwich_amxx.dll",
+      "sha256": "287f924da5009c030bdf20f13e08d67e5301df29254637ed90fa36422cbaf522",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "json_amxx.dll",
+      "sha256": "3d33e573b7a26cee44d7e9a11c7df908918025c4da7213f4b80eb8b1f59720e5",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "mysql_amxx.dll",
+      "sha256": "f70168401c125e5b81db41b4f2c45ef836db4bb76892433a5e6356a22c2fb422",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "nvault_amxx.dll",
+      "sha256": "a40e17fc6090cb9de871699bbc48c0579d6e93d7a115d319419d283a33e820ab",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "regex_amxx.dll",
+      "sha256": "d7088a499d80a7a27de0a6721b2960e3199f370fa64f0cb346861b3e71f81540",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "sockets_amxx.dll",
+      "sha256": "870a98a5076cbf367659646f59933fee2462b72019805d056b18411729256938",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "sqlite_amxx.dll",
+      "sha256": "e74538771118fc211b75ddaf0e0aa0f483df567b0ad130a8ceef798ce13add98",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "tsfun_amxx.dll",
+      "sha256": "95bc9a8f7dddae9e2885f4301924a398a15aa06d595a63df6cbd63cc3408bb74",
+      "note": "build 1.59"
+    },
+    {
+      "kind": "module",
+      "file": "tsx_amxx.dll",
+      "sha256": "9dfc15bbc6cbcfcc95586f4e0ed139d02fffed58911788ff9581f18662160701",
+      "note": "build 1.59"
+    }
+  ]
+}
