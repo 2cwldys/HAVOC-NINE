@@ -14,6 +14,11 @@
   One heavy job at a time: with the lock file D:\temp\HEAVY-JOB.lock present (another build is
   running on this PC) nothing starts. The build runs at nice 10 with 4 jobs.
 
+  After a successful build it records what each step was built from in H9XASH-linux\INPUTS.json
+  (node tools\linux-sync.mjs --record), so that node tools\linux-sync.mjs can say later which step
+  has fallen behind its sources and whether H9XASH-linux is still in step with H9XASH
+  (docs\LINUX_BUILD_LAYOUT.txt).
+
 .PARAMETER Steps
   The steps to run: rets metamod engine amxx rcbot assemble. Default: all of them, less -Skip.
 
@@ -107,6 +112,15 @@ try {
     $buildArgs = @('-d', $Distro, '-u', 'root', '--', 'bash', "$src/linux/build-linux.sh") + $Steps
     $rc = Invoke-Wsl $buildArgs
     if ($rc -ne 0) { throw "build-linux.sh failed (exit $rc); the step is named in its last lines." }
+
+    # what each step was built from, for tools\linux-sync.mjs (a missing node only means no record)
+    if (Get-Command node -ErrorAction SilentlyContinue) {
+        $recorded = if ($Steps.Count) { @($Steps) } else { @('rets', 'metamod', 'engine', 'amxx', 'rcbot', 'assemble') | Where-Object { $Skip -notcontains $_ }
+        }
+        & node (Join-Path $Here 'tools\linux-sync.mjs') --record @recorded
+    } else {
+        Write-Host '(no node on this PC: node tools\linux-sync.mjs --baseline records the inputs later)'
+    }
 
     # -Stage packs while the lock is held: the ZIPs are a heavy job too.
     $packRc = 0

@@ -169,6 +169,13 @@
    values pinned in build-linux.sh, and installs easy_http_amxx_i386.so, the CA
    bundle and its MIT license (linux\LICENSE-AMXXEASYHTTP.txt). It carries no
    .patch note: it is the release as published.
+   H9XASH-linux\ is the build's output, not a second copy of the game: the game's
+   content stays in H9XASH, and the three files the build derives from H9XASH's own
+   (ts\gameinfo.txt, ts\liblist.gam, ts\addons\metamod\plugins.ini) are made again
+   by every assemble. A build records what each step was built from in
+   H9XASH-linux\INPUTS.json, and node tools\linux-sync.mjs says whether the folder,
+   its libraries, those derived files and the ZIPs are in step with H9XASH and the
+   sources (docs\LINUX_BUILD_LAYOUT.txt describes the folder, the ZIPs and the rules).
 
  8. THE HOST PACKAGE (havoc9.org on a server)         make-vps-package.cmd
  ---------------------------------------------------------------------------

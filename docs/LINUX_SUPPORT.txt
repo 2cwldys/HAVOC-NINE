@@ -40,8 +40,14 @@
    and an HTTP and an HTTPS request through it both succeed. No client has joined it
    yet and no match has been played on it.
    Packaged: stage-h9xash writes dist\H9XASH-linux-server.zip from this folder
-   (section 8). The last staging is older than AMX Mod X, easy_http and the
-   tenth RCBot patch: stage again before publishing.
+   (section 8); the last staging was 2026-11-09 21:57, after the tenth RCBot patch,
+   AMX Mod X and easy_http. docs\LINUX_BUILD_LAYOUT.txt is the map of H9XASH-linux,
+   the three ZIPs and the rules that keep them in step with H9XASH; node
+   tools\linux-sync.mjs checks it (the libraries against BUILDINFO.txt, the three
+   files derived from H9XASH's own, the Linux counterpart of every module the
+   configuration loads, the sources each step was built from, the ZIPs).
+   dist\H9XASH-linux.zip is the Wine/Proton package (the Windows game with the
+   launcher h9xash.sh) until a native client exists; it holds no native client.
    Not done: a native Linux client (the blockers of section 1 stand); text to
    speech (speech is compiled in for Windows SAPI and the browser only, so a native
    client, and a Wine client with no SAPI voice, are silent and are sent nothing, while the

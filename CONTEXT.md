@@ -29,7 +29,9 @@ class of problem.
   known gaps in `docs\LINUX_SUPPORT.txt`. The third-party easy_http module it installs
   carries its license (`linux\LICENSE-AMXXEASYHTTP.txt`). It is synced in tandem with the
   web client: `build-linux.cmd -Stage` follows every `node tools\webclient-sync.mjs`
-  (`CLAUDE.md`, "The Linux build moves with the web client").
+  (`CLAUDE.md`, "The Linux build moves with the web client"). `node tools\linux-sync.mjs`
+  checks that `H9XASH-linux\` is in step with `H9XASH` and the sources
+  (`docs\LINUX_BUILD_LAYOUT.txt` is the map of the folder and its ZIPs).
 - `serverlist-bot` -- standalone server-list/heartbeat service; see
   `docs\NETWORKING.txt`.
 - `tools\assault-spawns` -- Node.js library and command line that places an

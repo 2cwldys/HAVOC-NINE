@@ -102,6 +102,12 @@ Linux sync as well, or `H9XASH-linux\` and the Linux ZIPs silently fall behind t
    not run.
 5. Report the Linux build next to the two web builds when you report an engine change: the libraries built and their glibc
    floor (`BUILDINFO.txt`), or "Linux: assemble only". The build never commits.
+6. `node tools\linux-sync.mjs` says whether `H9XASH-linux\` is in step with `H9XASH` and with the sources its libraries were built
+   from (it also checks the derived `gameinfo.txt`, `liblist.gam` and Metamod `plugins.ini`, the Linux counterpart of every module the
+   configuration loads, and the staged ZIPs); `docs\LINUX_BUILD_LAYOUT.txt` is the map of the folder and the ZIPs. Run it before
+   calling the Linux build current. `H9XASH-linux\` is the build's output, never edited by hand, and not a second copy of the
+   game's content. State what each ZIP holds when you report staging: `H9XASH-linux.zip` is the Wine/Proton package until a native
+   client build puts `xash3d` in `H9XASH-linux\`.
 
 ## Assault maps: placing the respawn sets
 

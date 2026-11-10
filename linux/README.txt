@@ -18,3 +18,11 @@ linux/ -- H9's Linux build
 
 H9XASH-linux/ is what the build writes and is not tracked by git (.gitignore): everyone who builds makes
 their own. The plan and the status are in ../docs/LINUX_SUPPORT.txt.
+
+H9XASH-linux/ is not a second copy of the game: the content (maps, models, sounds, plugins, configs) stays in
+H9XASH and is laid under it when the ZIPs are staged. What is in the folder, how the three ZIPs are made and how
+the folder is kept in step with H9XASH is in ../docs/LINUX_BUILD_LAYOUT.txt. After a build, and before calling the
+Linux build current, run:   node tools/linux-sync.mjs
+It checks the libraries against BUILDINFO.txt, the files derived from H9XASH's own, the Linux counterpart of every
+module the configuration loads, the sources each step was built from (INPUTS.json, written by build-linux.cmd)
+and the staged ZIPs, and says which build-linux.cmd steps to run when something is stale.
