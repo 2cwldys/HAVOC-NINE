@@ -7,12 +7,25 @@
  plugins, and any plugin author who wants a real panel on an H9XASH
  player's screen instead of AMX Mod X's text.
 
+ Update (2026-11-09): what players say in chat (ts_floatchat's words over heads) is drawn by an H9 client
+ itself, in a box of the panels' style (the banner art, the H9 Text fonts, the purple) over the head of the
+ speaker its crosshair is on: reTS cl_dll\h9_chatbubble.cpp, the H9Say message, docs\CHAT_BUBBLES.txt. It is
+ not an H9Vgui message and has switches of its own (cl_h9_chatbubble_*).
+
+ Update (2026-11-08): the line an eliminated or spectating player reads (his side, the teammate he
+ is watching, the key that changes who) is a banner NOTICE for an H9 game too, slot tsm.spec, at
+ the height the hudmessage had, 0.72 (section 4h). Every other game keeps the hudmessage.
+
  Update (2026-11-05): the panels are drawn a quarter smaller (section 2c: menus 0.51, banners
  0.45, on text ladders of their own in the textschemes, 3d); a mode that keeps one pool of
  lives sends the scoreboard H9Pool (reTS cl_dll vgui_ScorePanel.cpp); and the MARK op
  (protocol 3, section 4i) draws a point of the world on the screen through the walls: the
  objectives of the mode plugins: the capture points of ts_assault, the zones and the uplink of
  ts_uplink and the flags and the pads of ts_ctf, all through include\h9_marks.inc.
+
+ Update (2026-11-08): Apollo RP's menus are H9 VGUI menus too, on a roleplay map as on any other
+ (section 1e, include\ApolloRP_VGui.inc): its text menus through arpvgui_show_menu() and its paged
+ ones (the inventory, the shops, the phonebook, the client menu) through arpvgui_menu_display().
 
  Status (2026-11-03): steps 1 and 2 of section 5 are built. The client
  side is in reTS\cl_dll (h9_vgui.cpp, vgui_H9Panel.cpp, hooked in hud.cpp,
@@ -189,7 +202,7 @@
    12819-12825 plant_bar()         -1/0.47 ch 3, the planter, 0.25 s:
                "PLANTING THE SATCHEL / [====      ]" ...................... BAR
    21117-21118 show_spectator_hud() -1/0.72 ch 3, each watcher, every
-               second: "Your side / Watching / Attack to switch" ....... STAYS
+               second: "Your side / Watching / Attack to switch" .. BANNER (4h)
    Centre prints (client_print print_center; the engine draws them centred
    at 0.25 of the height, FWGS engine\client\dll_int\cl_game.c:2055):
    10462 10476 10485 (medic), 12030 (scanner), 12735 12769 12843 12914
@@ -212,6 +225,8 @@
  ts_floatchat.sma
    837-839     a talker's words over his head, re-projected every tick,
                channels 0, 6 and 7 (ts_floatchat.sma:63-74) ............ STAYS
+               (an H9 client with cl_h9_chatbubble 1 is sent the H9Say message
+               instead and draws the words itself: docs\CHAT_BUBBLES.txt)
  ts_rtv, ts_mechwarrior, h9_compete, h9_link, h9_motd, h9_presence,
  ts_advertise, tsrp_roambots and ts_probe show no menu and no HUD text.
  (h9_motd's splash is drawn by the engine, engine-h9-motd.patch.)
@@ -295,6 +310,148 @@
           | chat, five lines    TS notices at H-64     status and ammo    |
           | health and team box powerup icons H-56                        |
           +---------------------------------------------------------------+
+
+ 1e. Apollo RP's menus (include\ApolloRP_VGui.inc, apollo-rp\)
+
+ The client menu (arp_menu, say /menu) is filled by plugins calling ARP_AddMenuItem while it is displayed; ARP_H9Menu adds
+ Inventory, My money and job, Jobs on this map and Commands. The player's HUD at the left of the screen (title, wallet, bank, payday, salary, job, and the lines other plugins add) is an
+ H9 panel for an H9 player (the end of this section) and an AMX Mod X HUD message for every other.
+
+ Apollo RP (ARP) is the roleplay mod H9 ships for the roleplay maps (rp_ and tsrp_ names, h9_tsrp_hive,
+ h9_tsrp_newbyzantium). Its menus are AMX Mod X menus, the TS text menu, in two kinds:
+
+   RAW      built with format() and shown with show_menu(), answered by a register_menucmd() handler
+            (id, key). Sixteen of them.
+   PAGED    built with menu_create() and menu_additem(), shown with menu_display(), answered by a
+            handler (id, menu, item) that reads the item with menu_item_getinfo() and destroys the
+            menu. AMX Mod X writes the pages: seven items, 8 Back, 9 More, 0 Exit. Six of them.
+
+ Why no panel showed on a roleplay map: none of ARP's plugins used the H9 VGUI include, so every one of
+ its menus was the text menu (the side and class menus of the match mode are not offered on a roleplay map
+ either: it is not an H9 map, tsm_enabled is 0 there). Nothing else stood in the way. ARP_*.amxx are in
+ plugins.ini and in the three presets' plugins.*.ini, ts_matchmode registers H9Vgui in its plugin_precache
+ on every map (before it decides what the map is), the client's panels have no test of the map, and
+ h9_vgui is 1 (ts_matchmode.cfg; the plugin registers it with 1 when it is not set). A player on a
+ client.dll older than 2026-11-03, or with cl_h9_vgui 0, still gets the text.
+
+ The design. One include, ApolloRP_VGui.inc, that ARP's plugins call in place of show_menu() and
+ menu_display(); a wrapper (the choice a) rather than a hook on AMX Mod X's ShowMenu message (the choice
+ b), because the panel must be the TWIN of the text menu (4b, the pairing rule): the client shows it only
+ when the text that arrives has the CRC the TWIN carried, so the plugin that writes the text has to be the
+ one that sends the twin. A hook on the message sees AMX Mod X's text of a menu_create() menu after the
+ fact, cannot tell ARP's menus from another plugin's without guessing from their titles, and could not
+ name a panel or split a row into its label and its price. The wrapper is the same pattern ts_matchmode
+ and ts_rtv use (3 and 8), one line at each of the 22 calls.
+
+   arpvgui_precache()                   plugin_precache: h9vgui_precache()
+   arpvgui_init("<ns>")                 plugin_init: h9vgui_init(ns), and for a plugin with paged menus
+                                        the key handler of their text menu ("ARP_Paged_<ns>")
+   arpvgui_show_menu(id, keys, text, time, amx, panel, title = "")
+                                        in place of show_menu(); it is h9vgui_show_menu(): the rows are
+                                        read out of the same text, and every player gets show_menu()
+   arpvgui_menu_display(id, menu, panel, title, handler, page = 0)
+                                        in place of menu_display(id, menu, page), after
+                                        #define ARPVGUI_PAGED and before #include <ApolloRP_VGui>
+   arpvgui_wanted(id)                   whether the player wants ARP's menus as panels (cl_h9_arpvgui, below)
+
+ The player's switch. cl_h9_arpvgui 0|1 (1), a client cvar of H9's client.dll, turns Apollo RP's panels off for
+ that player alone: his game keeps it in the private userinfo key _h9arpvgui ("1" or "0"; an older client has no
+ such key, and a player with none wants the panels). arpvgui_wanted(id) reads it (empty means wanted), and
+ arpvgui_show_menu() and arpvgui_menu_display() give a player who does not want them what a game without H9
+ VGUI gets, show_menu() and menu_display(): the text menus, unchanged. Every other panel stays as it was
+ (cl_h9_vgui turns all of them off for a player, h9_vgui for the server).
+
+ A PAGED menu for a player whose game cannot draw H9 VGUI (no _h9vgui, cl_h9_vgui 0, h9_vgui 0, a bot) or who does
+ not want ARP's panels (cl_h9_arpvgui 0)
+ is menu_display(id, menu, page): the same AMX Mod X menu, page and handler as before. For an H9 player
+ the include pages the menu's items itself, the way AMX Mod X does: the items of page N are numbered 1
+ to 7, "8. Back" is there from the second page, "9. More" until the last, "0. Exit" always, the title
+ gets " N/M" when there are several pages, and it is sent as a MENU/ROWS pair, a TWIN and a text menu
+ (menu name "ARP_Paged_<ns>"). A key calls the menu's own handler by name with (id, menu, item): item is
+ the item's number in the whole menu, as AMX Mod X gives it, and key 0 gives MENU_EXIT. The handler reads
+ the item and destroys the menu as it always did; AMX Mod X never displayed it. Back and More only turn
+ the page and send it again. An item named "<name> - $<price>" or "<name> x <count>" is drawn as the name
+ with "$<price>" or "x <count>" after it in the detail font, so a shop reads as two columns.
+ The menu leaves one thing the text menu has: the blank line menu_addblank(menu, 0) puts under the first
+ item of the shops (a spacing line, never a slot).
+
+ Limits that show. A row's label and detail are cut to 31 characters on the panel (4d), so an
+ item named with 40 characters loses its end; the text a keyless line carries ("<name> has offered you")
+ is cut the same way. At most 16 rows a menu: ARP's longest has twelve. A plugin has one paged menu up
+ for a player at a time, and a menu a player leaves with ESC is never destroyed (as with AMX Mod X); the
+ next paged menu of the plugin for that player replaces it.
+
+ Every menu of ARP, by plugin (panel ids are "<ns>.<name>"):
+
+ ARP_Core (ns arpcore)
+   ARP Client Menu     PAGED  say /menu, arp_menu: the items other plugins add with ARP_AddMenuItem
+                              arpcore.client   ClientMenuHandle
+   ARP Items           PAGED  say /items, /inventory: one item per held item, "<item> x <count>"
+                              arpcore.items    ItemsHandle
+   ARP Item Options    RAW    1 Use 2 Give 3 Examine 4 Show 5 Drop, after an item of the list
+                              arpcore.itemopt  ItemsOptions
+   ARP Give Items      RAW    give 1, 5, 20, 50, 100 or all       arpcore.itemgive   ItemsGive
+   ARP Drop Items      RAW    drop 1, 5, 20, 50, 100 or all       arpcore.itemdrop   ItemsDrop
+ ARP_Commands (ns arpcmd)
+   ARP Fine Menu       RAW    1 Pay 2 Refuse, to the fined player            arpcmd.fine    FineHandle
+   ARP Employment Offer RAW   1 Accept 2 Decline, to the player offered a job arpcmd.employ  EmployHandle
+ ARP_Config (ns arpcfg)
+   ARP Config Menu     RAW    arp_config (admins)                            arpcfg.main    HandleCmdConfig
+   ARP Database Modification Menu RAW  its second entry                      arpcfg.db      HandleDbMenu
+ ARP_Items (ns arpitems)
+   ARP Lock Pick       RAW    the lockpick item: up, down, left, right       arpitems.lock  LockMenuHandle
+ ARP_JailMod (ns arpjail)
+   Jail Mod            RAW    jailmodmenu (police): the jails, free, last/next page
+                              arpjail.menu     MenuHandle
+ ARP_NPCs (ns arpnpc)
+   ARP Shop            PAGED  a shop NPC ("Edeka"): "* Rob" and the goods, "<item> - $<price>"
+                              arpnpc.shop      EdekaMenuHandle
+   ARP Doctor          PAGED  a doctor NPC: "* Heal Me ($n)" and the goods
+                              arpnpc.doctor    DoctorMenuHandle
+   ARP Gunshop         RAW    a gunshop NPC: Permitted, Restricted, Licenses, Fill Ammo
+                              arpnpc.gunshop   GunshopMenuHandle
+   ARP Gunshop (goods) PAGED  the category's goods, "<item> - $<price>"
+                              arpnpc.gunbuy    GunshopUseMenuHandle
+   ARP Bank            RAW    a banker NPC                                   arpnpc.bank    BankMenuHandle
+   ARP ATM             RAW    an ATM: withdraw or deposit                    arpnpc.atm     AtmMenuHandle
+   ARP ATM Withdraw / Deposit RAW  the amounts, $10 to $1000                 arpnpc.atmuse  AtmUseMenuHandle
+ ARP_TalkArea (ns arptalk)
+   ARP Phonebook       PAGED  the phone item's call entry: the players with a phone
+                              arptalk.book     CallHandle
+   ARP Call Menu       RAW    1 Answer 2 Ignore, to the player called        arptalk.answer AnswerHandle
+   ARP Phone Menu      RAW    the phone item: status, ring, 0 Exit           arptalk.status StatusHandle
+ ARP_TS (ns arpts)
+   ARP <gun> Attachments RAW  a gun item with attachments: flashlight, lasersight, scope, suppressor
+                              arpts.attach     AttachMenuHandle
+ ARP_HUD, ARP_HungerMod, ARP_RobMod and ARP_Zones show no menu. ARP_CS and ARP_TFC are not built, and
+ the author's extra\ plugins are not shipped. ARP is paused on a map that is not a roleplay map
+ (apollo-rp\ORIGIN.txt 1), so none of this runs there.
+
+ The HUD as panels (H9ArpHud, reTS cl_dll\h9_arphud.cpp, ARP_Core.sma RenderHud). Not part of the H9Vgui message: a message of
+ its own, because what the client does with it is Apollo RP's, and its switches are the player's. A player whose game keeps the
+ userinfo key _h9arphud at 1 (cl_h9_arphud 1 and cl_h9_vgui 1; the server also needs arp_hud_panel 1, h9_vgui 1 and a game with
+ _h9vgui) is sent each of ARP's four HUDs (HUD_PRIM to HUD_QUAT) as lines with their kinds (HUDK_TITLE, _WALLET, _BANK,
+ _PAYDAY, _SALARY, _JOB, _STATUS, _EXTRA; ARP_AddHudItemKind) instead of the one hudmessage text, reliably, when the lines
+ change and every arp_hud_refresh seconds (10); every other player is sent the text as ever. A HUD longer than a message
+ (188 bytes) is sent in parts of one content, and the client changes what it holds only when the last part has come. The client
+ draws HUDs 1 to 3 on the tsm_panel art (the "#panel" art, a quarter under the menus' scale: 0.40 x the screen height over 480 x
+ cl_h9_vgui_scale) and HUD 4 on the tsm_banner art ("#banner", 0.45, as a notice), nine-sliced and cached as the other H9 panels'
+ art is. The text is in the "H9 Text 1-4" ladder (the stock Primary Button Text and the schemes under it where a textscheme
+ file lacks it), stepped down while the rows do not fit, in the scheme's Primary Button Text colour 223 213 245; the first line
+ is a heading in the rail's lit purple 182 145 234 with a line of the rail's purple 133 98 178 under it, as a menu's title is; a
+ "label: value" line has its label in 166 154 192. The server's own colours (arp_hudN_r, _g, _b) are not used. Where: the safe
+ area (4c), by the place arp_hudN_x and _y give, to the nearest of three columns and three rows: the left column 16 px in, its top
+ row from 32 px (under the powerup label), the right column's top row from 104 px (under the kill feed and the round time), the
+ middle column's top row beneath the top stack (H9Vgui_StackBottom), the bottom row on the bottom band, the middle row at the
+ height asked, panels of one column stacking one under another, the middle column off the crosshair box. A panel is at most 24%
+ of the width (the notice 40%) and 55% of the height; its width never narrows (a few sizes of art are made, not one for each
+ digit). It is hidden with the scoreboard, during the intermission, with the HUD hidden or nohud 1, over the buy menu, and, for
+ a panel at the left whose bottom is below a quarter of the height, while a menu is open there. Every HUD but the notice is
+ dropped after 150 seconds with no message; a notice after 3; a map change clears them.
+ The switches: cl_h9_arphud (the master), cl_h9_arphud_left, _top, _side and _notice (HUD 1 to 4), and for the lines of the first
+ HUD _title, _wallet, _bank, _payday, _salary, _job, _status and _extra, each 1 or 0 and saved; cl_h9_arphud_list prints them,
+ what the game has had of the server (messages, when) and for each HUD what it holds and why it is or is not shown. On the
+ server, arp_hudstate says who is sent what.
 
  2. THE PANEL SPRITES
  --------------------
@@ -1055,6 +1212,13 @@
                    left, or WAVE IN n --          respawn wave, or an
                    REINFORCE ...                  officer; sent each second,
                                                   1.2 s each
+   tsm.spec        Your side: x / Watching: y /   a player out of the round or
+                   Attack to switch player        spectating, while he follows
+                                                  a teammate; centred at y 0.72,
+                                                  in his side's colour (the
+                                                  bar's purple with none); sent
+                                                  when it changes and each 15 s,
+                                                  a 20 s hold; down at once
    sur.wave        WAVE n (ts_survival)           everyone; 2.5 s
  A notice at y 0.38 or more sits at its y, centred; below that it stacks
  under the top band, so LIVE, SUDDEN DEATH, the wave timer and the wave
@@ -1063,8 +1227,20 @@
  alert of its own: what a game of it shows is the match bar's live line and
  the match mode's alerts above. What still shows as text for everyone: the
  classes' cooldown lines (medkit, scanner, turret repair, resupply,
- reinforcements), the scanner's name and HP, the officers' waiting list,
- the spectator's line and the floating chat.
+ reinforcements), the scanner's name and HP, the officers' waiting list
+ and the floating chat for a game that cannot draw it itself (an H9 client
+ draws it, docs\CHAT_BUBBLES.txt).
+
+ The spectator's line (tsm.spec) is a NOTICE and not a STATUS on purpose. A status is always
+ drawn in the top stack, first, right under the match bar (which carries the freeze countdown),
+ so it would push the wave timer down the screen; a notice at y 0.72 is drawn on its own at that
+ height, below the stack and the crosshair box, whatever the stack holds. It is sent when its
+ text or colour changes (the watched player, the side) and again once it is 15 seconds old,
+ inside its 20 second hold, so it neither flickers nor runs out; show_spectator_hud() looks
+ each second of a live round. It comes down with an empty notice in its slot the moment the
+ player is back (a wave), at a round's start and end, at a match's end, and when he follows
+ no teammate (nobody is left to watch, or he is on .roam), and within a second in any state
+ but a live round. A game that draws no H9 VGUI gets the hudmessage every second, as before.
 
  4i. The capture points' marks (MARK, protocol 3)
 
@@ -1302,6 +1478,9 @@
    8. Build once, update small: send a panel once, then h9vgui_set_*();
       a re-offered menu costs a 30-byte TWIN while its rows stay the same.
    9. Test with cl_h9_vgui 0 and with a game that is not H9XASH.
+  10. A plugin whose menus are made with menu_create() (AMX Mod X writes their text, so a twin cannot
+      be paired with it) pages them itself for an H9 player: apollo-rp's ApolloRP_VGui.inc, section 1e,
+      is a drop-in for the menu_display() call, and gives every other player menu_display().
 
  A worked example: a ready check
  -------------------------------

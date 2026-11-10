@@ -50,7 +50,8 @@ capture kind above puts the map on teamplay rules (mp_teamplay 1) with the match
 card, the website and the server list call it Capture the Briefcase (ctb_) or Capture the Flag (ctf_).
 
 "As the game ships" means the match mode stays out entirely: no warmup or ready-up, no
-side or class menus, no bots of its own (tsm_bots is 0 there), TS's own cash (usecash 0),
+side or class menus, no bots of its own (tsm_bots is 0 there, or tsm_briefcase_bots on a ctb_ or ctf_ map),
+TS's own cash (usecash 0),
 powerups and weapon rules (weaponrestriction 0, which H9's server.cfg sets to 1 for the match
 mode: the buy menu works, as in TS's own team deathmatch), and the server browser shows TS's
 own game name. TS's capture game (ctb_, ctf_) is such a map: team deathmatch with the flags. A map's own worldspawn
@@ -117,7 +118,9 @@ CAPTURE THE UPLINK  (ts_uplink.amxx, configs\ts_uplink.cfg)
                while the carrier is taking it) and the uplink (UPLINK at its post, CARRIER over
                whoever has it in his side's colour, DROPPED where it lies) are drawn on every
                screen, as in Assault (cl_h9_marks; docs\H9_VGUI.txt).
-  Bots         fight, but do not yet carry the uplink or take zones.
+  Bots         play it with tsm_bot_objectives 1 (the default): a bot fetches the uplink, its carrier
+               takes a zone, the others escort him and clear the zone he is heading for, and the other
+               side hunts him. With 0 they fight and leave the uplink alone.
   Switch       tsm_uplink_mode 1 (0 turns it off everywhere). Browser name:
                tsm_gamedesc_uplink "Capture the Uplink".
   Admin        amx_tsm_uplink (the state), amx_tsm_cap_give <n> <0|1|2> (hand a zone over,
@@ -125,34 +128,61 @@ CAPTURE THE UPLINK  (ts_uplink.amxx, configs\ts_uplink.cfg)
 
 WAVE SURVIVAL  (ts_survival.amxx, configs\ts_survival.cfg)
   Side 1 are the survivors; side 2 is a wave of bots that never runs out. A person picking
-  side 2 is made a spectator.
+  side 2 is made a spectator. tsm_ws_human_side 2 swaps them: the people play side 2 (the
+  Insurgents) and the mutants are side 1's bots, in the MSR models. The map's spawn areas
+  follow the roles: the people still start in the survivors' area.
   Waves        a wave is over only when its last mutant is dead. Then a breather of
                tsm_ws_wave (30) seconds, counted down on screen, and the next wave comes all
                at once: the count goes up, xom_laugh plays for everyone, every fallen
                survivor comes back, every survivor's lives are set to their class's count,
                and each wave is a new round for the once-a-round abilities: the stim, .ammo,
                the class abilities and the Mech's rockets are all ready again. No round
-               clock, no sudden death; the HUD shows WAVE n.
-  The run      ends when side 1 is wiped out: chat says how far they got (and the best on
+               clock, no sudden death; the match bar and the HUD show WAVE n, never a round
+               number or a tally of rounds. A fallen survivor who still has a life sees the
+               respawn-wave countdown; nobody else is shown one.
+  The run      ends when the survivors' side is wiped out: chat says how far they got (and the best on
                this map), the match is over, and it is back to warmup.
   It grows     health +tsm_ws_hp_per_wave (5) percent per wave; guns by tsm_ws_gun_odds
                (40% at first, 60% from wave 16, all from wave 25); the kung fu powerup after
                wave tsm_ws_kungfu_after (30).
+  Mechs        from wave tsm_ws_mech_after (25) each mutant has a chance of
+               (wave - after + 1) * tsm_ws_mech_per_wave (1) percent, 100 at most, to play the
+               Mech class instead of tsm_ws_class. It is rolled once as the mutant is put into
+               the wave. A Mech keeps its class's health and M60: no wave health, no blade or
+               gun, no kung fu.
+  Overtime     a wave that runs past tsm_ws_overtime (225) seconds shows OVERTIME once, and
+               every living mutant then loses tsm_ws_overtime_hp (2) health a second, with the
+               sudden-death fog if tsm_ws_overtime_fog (1), until the wave is cleared.
   A stall      after tsm_ws_stall (120) seconds with three or fewer mutants left and none
                falling, they are taken off the board and the wave counts as cleared.
   Switch       tsm_mutants_mode 1. Browser name: tsm_gamedesc_survival "Wave Survival".
-  Admin        amx_tsm_ws (the state), amx_tsm_ws_wave <n> (jump the count, to test).
+  Admin        amx_tsm_ws (the state), amx_tsm_ws_wave <n> (jump the count, to test),
+               amx_tsm_ws_mechs (how many mutants play the Mech class).
 
 MECH WARRIOR  (ts_mechwarrior.amxx, configs\ts_mechwarrior.cfg)
   The match as in team elimination -- rounds, respawn waves, sudden death -- with the
-  classes cut down to two: one Officer a side on two lives, and as many Mechs as a side
-  likes on three lives each. Every other class is gone from the class menu, and every bot
-  plays a Mech.
+  classes cut down: one Officer a side on two lives, as many Mechs as a side likes on
+  three lives each, and the Combat Engineer. Every other class is gone from the class
+  menu, and every bot plays a Mech.
   Classes      found by their perks in ts_matchmode.cfg's tsm_classN lines (the Officer's,
-               perk 4, and the Mech's, perk 7), so reordering the classes does not break it.
+               perk 4, the Mech's, perk 7, and the Combat Engineer's, perk 1), so
+               reordering the classes does not break it.
                tsm_mw_officers (1, 0 for no Officer), tsm_mw_officer_lives (2), tsm_mw_mechs
                (0, no limit) and tsm_mw_mech_lives (3); a change counts from the next round.
                The lives need tsm_respawns 1.
+  Engineer     tsm_mw_engineer (1; 0 leaves him out): the Combat Engineer is played at his
+               class's own limit a side (tsm_class_limits) and lives (tsm_class_lives). His
+               sentry turret (.turret), transporter pads (.transporter) and ammunition
+               resupply (+USE on a teammate) work as in any match, and the resupply is what
+               fills a Mech's ammo bay again. Every bot stays a Mech: only people play him.
+  Mech ammo    a Mech's spare rounds are tsm_mech_ammo_mult (2.0) times what it is armed
+               with. TS lets a gun of the M60's caliber hold only 120 spare rounds, so a Mech
+               is armed with those and the rest waits in its ammo bay, loaded into the
+               reserve as it uses the reserve up ("Ammo bay: +100 rounds" on its screen);
+               .ammo and a resupply fill the bay once the reserve is full. 1.0 turns the bay
+               off. In every mode that has a Mech, not only this one.
+  Laser rifle  does tsm_mech_laser_mult (1.15) times its damage to a Mech, before the Mech's
+               armour takes its share: a marginal bonus, 1.0 turns it off. In every mode.
   Switch       tsm_mechwarrior_mode 1. Browser name: tsm_gamedesc_mechwarrior "Mech
                Warrior".
   Admin        amx_tsm_mw (the state).
@@ -205,8 +235,10 @@ ASSAULT  (ts_assault.amxx, configs\ts_assault.cfg)
                nobody), and the match bar and the chat say MATCH where the other modes say
                ROUND. h9_assault_rounds 1 plays rounds instead, best of tsm_rounds, as the
                other modes do; a change of the cvar takes effect within a second.
-  Bots         fight, but do not play the objective (a bot that stands in a point still counts
-               as a capturer, or as a contester).
+  Bots         play the points with tsm_bot_objectives 1 (the default): they go to the points their side
+               does not hold, to the ones being lost and into contested ones, and leave a point that is
+               nearly taken. With 0 they fight (a bot that stands in a point still counts as a capturer,
+               or as a contester).
   Ranked       on an authenticated server a match counts on the match ladder as any other
                does (docs\H9_COMPETITIVE.txt): Elo for kills and the win, career levelling
                for everything. A match with bots in it rates nobody. The one round is rated as
@@ -266,8 +298,10 @@ CAPTURE THE FLAG  (ts_ctf.amxx, configs\ts_ctf.cfg)
                (docs\H9_COMPETITIVE.txt): Elo for kills and the win, career levelling for
                everything. A match with bots in it rates nobody. The one round is rated as the
                round it is (it asks one round, and the five minutes).
-  Bots         fight, but do not play the objective: they do not take the flags (tsm_cf_bots 1
-               lets a bot that walks over a flag take it, return it and carry it, like anyone).
+  Bots         play the flags with tsm_bot_objectives 1 (the default): they take the enemy's flag, carry
+               it to their pad, bring their own dropped flag back, escort the carrier and guard their
+               flag. With 0 they fight; tsm_cf_bots 1 still lets a bot that walks over a flag take it,
+               return it and carry it, like anyone.
   Chat         the mode's chat lines (a flag taken, dropped, returned, a capture) show only with
                tsm_verbosity 1; at 0 the news banners, the carrier's status and the marks carry it.
   Reference    docs\CAPTURE_THE_FLAG.txt: every cvar, command and rule.
@@ -333,6 +367,8 @@ Build and compile the map as for any TS map, then:
                        has one such game and no second flag mode. Name the map ctb_<name> or
                        ctf_<name> (or h9_ctb_): the match mode then stays out.
                        The stock ctb_deadheat is the worked example.
+                       Bots: tsm_briefcase_bots N puts N on the map and they play the briefcase
+                       game (docs\BOT_OBJECTIVES.txt, section 5); give the map rcbot waypoints.
      Wave Survival     the name alone. Spawns: side 1 (the survivors) somewhere they can
                        hold; side 2 (the mutants) where waves should come from, far enough
                        away that a wave arrives rather than appears. How many mutants a wave

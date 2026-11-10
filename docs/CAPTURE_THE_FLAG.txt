@@ -74,9 +74,11 @@ perished", tsm_officerslain_sound) in this mode.
 The classes and the buying. As on every H9 match map: the nine classes with their loadouts, no buy menu (the
 match mode holds everyone's cash at zero and weaponrestriction is 1).
 
-Bots fight but do not play the objective. They do not take or return flags (tsm_cf_bots 1 lets a bot that walks
-over a flag take it, return it and carry it, like anyone), nothing tells them where the pads are, and a bot
-cannot use dropflag.
+Bots play the flags while tsm_bot_objectives is 1 (the default): they take the enemy's flag, carry it to their own
+pad, bring their own dropped flag back, escort the carrier and guard their flag. A bot cannot use dropflag (a fake
+client sends no client commands), so it lets a flag go only by dying. With tsm_bot_objectives 0 they fight and neither
+take nor return flags, unless tsm_cf_bots is 1 (then a bot that walks over a flag takes it, returns it and carries it,
+like anyone). The fields rcbot reads are in docs\BOT_OBJECTIVES.txt.
 
 
 3. THE NUMBERS YOU CAN CHANGE
@@ -172,6 +174,7 @@ A flag without its model (models\tsm_flag.mdl missing) falls back to the briefca
 
 For a bot author: a flag is the entity classname tsm_flag (pev_team: whose flag; pev_iuser1: 0 at its pad, 1 carried,
 2 dropped; pev_owner: the carrier while carried) and a pad's ring is classname tsm_flagpad (pev_team its side).
+The flag fields iuser2, fuser2 and vuser1 are in docs\BOT_OBJECTIVES.txt.
 
 
 7. TS'S OWN CAPTURE GAME
@@ -180,10 +183,17 @@ For a bot author: a flag is the entity classname tsm_flag (pev_team: whose flag;
 TS's flag is the briefcase (the ts_briefcase entity, one a side), and the stock game has one such mode: a map named
 ctb_ or ctf_ at the start, or holding _ctb_ or _ctf_, or h9_ctb_ (ctb_deadheat is the worked example) plays it. The
 H9 match mode stays out entirely, as on any map the game ships with: team deathmatch rules, no warmup or ready-up,
-no side or class menus, no bots of its own (tsm_bots 0), TS's own cash, powerups AND weapon rules
+no side or class menus, no bots of its own unless tsm_briefcase_bots asks for some (tsm_bots 0
+otherwise), TS's own cash, powerups AND weapon rules
 (weaponrestriction 0), so the buy menu works. The flag is TS's own, with its own rules. The Discord card, the site
 and the server browser call such a map Capture the Briefcase (ctb_) or Capture the Flag (ctf_). A mapconfig line
 (tsm_enabled 1) makes any map a match map whatever its name says.
+
+Bots play it. With tsm_briefcase_bots N in ts_matchmode.cfg (or a tsm_bots line in the map's mapconfig) the map gets N
+bots, and rcbot_mm.dll plays TS's briefcase game with them while tsm_bot_stockobjectives is not 0: they fetch the
+other side's briefcase, carry it to their own base, bring their own back, escort the carrier, guard their base and
+hunt the other side's carrier (docs\BOT_OBJECTIVES.txt, section 5). It needs two bases (ownerteam 1 and 2) and rcbot's
+waypoints for the map.
 
 
 8. RANKING, THE CARD, THE SITE

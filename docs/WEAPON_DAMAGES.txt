@@ -2,7 +2,7 @@ WEAPON DAMAGES -- the damage of every weapon, as the game builds it
 =================================================================
 
 Every number here is read from the weapon table the game compiles (reTS dlls\ts_weapon_info.cpp,
-built into both mp.dll and client.dll): 40 weapons, TS 3.0's 38 (ids 0 to 37), the PPSh-41 (id 39) and the laser rifle (id 40).
+built into both mp.dll and client.dll): 40 weapons, TS 3.0's 38 (ids 0 to 37), the PPSh-41 (id 39), the laser rifle (id 40) and the Mech's rocket launcher (id 41, not in the table below: see its paragraph).
 Id 38 is no game weapon: AMX Mod X's TSX uses it for the throwing knife (section 4), so the game's own
 table leaves it empty. The table's damage is the shipped 'Sparta' value for the 32 firearms, which
 overrides the figure in each weapon's own row; the melee, grenade and briefcase rows keep their own. A
@@ -70,6 +70,19 @@ this is the stock table.
   rounds a minute, 35 cells a pack (caliber 15, "Plasma Cell"), full auto, single and burst, and a bolt
   stops at the first thing it hits (pierce decay 0). Right click zooms to 32 and then 8 under a blue overlay,
   and it gunbashes for 35 like the M4A1.
+
+  The Mech's rocket launcher (id 41) is no gun of the table: a shoulder-fired rocket launcher that only the Mech
+  class carries (tsm_class9), in no buy menu and never dropped (the Mech's M60 neither: tsm_mech_nodrop; what he
+  throws as he dies is taken out of the world). It fires a rocket that explodes on impact with radius damage. Its
+  numbers are cvars of the game library, to be balanced by playing: h9_mechrocket_damage (150), h9_mechrocket_radius
+  (200), h9_mechrocket_speed (900), h9_mechrocket_rate (1.5 seconds between shots), h9_mechrocket_clip (1). The
+  blast also pushes the players it leaves alive, away from its middle and up, as hard as h9_mechrocket_push (400
+  units a second) and h9_mechrocket_lift (250) with the damage's falloff (TS itself gives a living player no
+  knockback from a hit); it spares a teammate when friendly fire is off and the thrower unless
+  h9_mechrocket_selfdamage is 1, and a player it kills gets TS's own death launch. The
+  old .rocket ability does 65 at the centre of a 150 unit blast, four a life; where the launcher exists .rocket
+  only tells the player so. Its muzzle flash, smoke trail and explosion are sprites (sprites/h9_rocket_flash.spr,
+  h9_rocket_smoke.spr, h9_rocket_boom.spr) that the plugin sends, each behind tsm_mech_rocket_flash, _smoke, _boom.
 
 
 2. RANGE, AND WHAT A BULLET GOES THROUGH
@@ -158,7 +171,7 @@ never a player), taking 0.1 x its speed as the damage.
 Weapon 38, the Throwing Knife, is how AMX Mod X's TSX names any thrown blade: a kill or a hit made with one
 reaches plugins (client_death, client_damage) as weapon 38, whichever knife was thrown, and a kill with it
 is worth 2 points, as a kung-fu kill is (every other weapon's is worth 1). It is not a game weapon: the
-game's own ids are 0 to 37, the PPSh-41's 39 and the laser rifle's 40, so ts_giveweapon never takes 38.
+game's own ids are 0 to 37, the PPSh-41's 39, the laser rifle's 40 and the Mech launcher's 41, so ts_giveweapon never takes 38.
 
 
 5. THE FIREARMS, BY DAMAGE

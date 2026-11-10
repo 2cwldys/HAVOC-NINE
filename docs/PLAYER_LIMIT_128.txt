@@ -1783,8 +1783,14 @@
      MAX_INIT_MSG, 192 KB (net_ws.h:41, sv_frame.c). Find what floods it; do not
      raise it (every client shares the size).
    * "Datagram overflowed for <name>": a client's unreliable data or a whole
-     frame's packet passed MAX_DATAGRAM, 16 KB (net_ws.h:34, sv_frame.c). Raise
-     the rates first (section 16), then a server-only 32 KB.
+     frame's packet passed MAX_DATAGRAM, 16 KB (net_ws.h:34, sv_frame.c). The
+     rates do not change that size. The whole frame is dropped, so the client
+     gets no delta base and its next update is a full one again. On a big
+     open map the entities in view fill it: about 10 bytes each when new to a
+     client, 600 to 1,500 in view on New Byzantium. h9_msgstats shows which it
+     is (COMMANDS.txt, DATAGRAM OVERFLOW); h9_staticprops takes the map's
+     props out of the update; engine-h9-entbudget.patch (a proposal) holds the
+     entities new to a client to a budget, so no update can pass 16 KB.
    * "sv.reliable_datagram overflowed, its messages dropped": the shared 16 KB,
      dropped whole (engine-h9-reliableburst.patch). A server-only raise.
    * "pfnMessageEnd: X has overflow multicast buffer" (8 KB) and "X too long
