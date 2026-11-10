@@ -56,6 +56,7 @@ int g_iScorePoolStart[3] = {0, 0, 0};
 bool g_bScoreKills = false; // H9 KILLS
 static bool s_bCellsKills = false; // H9 KILLS: what the cells were last placed for (PlaceCells)
 static bool s_bCellsPool = false;  // H9 POOL: the same, for the lives column's title and width
+static bool s_bCellsClass = false; // H9 CLASS ICONS: the same, for the class column's width
 
 // ---- H9 BOARD: the name of the one list on a map without teams. H9's ts_matchmode sends it in
 // H9Board (a string) to each player as he joins: "Roleplay" on a roleplay map, empty elsewhere.
@@ -1106,7 +1107,7 @@ void ScorePanel::Update()
 		m_Lists[c] = s_Columns[c]; // H9 SCROLL: MapRows puts them on the row widgets
 
 	const int rowTall = V_min(nominal, m_iRowsTall / capacity);
-	if (rowTall != m_iRowTall || s_bCellsKills != g_bScoreKills || s_bCellsPool != g_bScorePool) // H9 KILLS: the K column comes or goes; H9 POOL: the lives column is retitled
+	if (rowTall != m_iRowTall || s_bCellsKills != g_bScoreKills || s_bCellsPool != g_bScorePool || s_bCellsClass != g_bScoreClass) // H9 KILLS: the K column comes or goes; H9 POOL: the lives column is retitled
 	{
 		m_iRowTall = rowTall;
 		PlaceCells(rowTall);
@@ -1361,6 +1362,7 @@ void ScorePanel::PlaceCells(int rowTall)
 	const int gap = XRES(SB_CELL_GAP);
 	m_iCellWide[SB_CELL_AVATAR] = rowTall;
 	m_iCellWide[SB_CELL_STATUS] = XRES(SB_STATUS_WIDE);
+	s_bCellsClass = g_bScoreClass;
 	m_iCellWide[SB_CELL_CLASS] = g_bScoreClass ? SB_CLASS_ICON + 2 : 0; // H9 CLASS ICONS
 	// ---- H9 KILLS: while the frags are points, the frags column is SCORE (as wide as LIVES, for its
 	// title) and the real kills get a K column of their own; on any other server that has no width.
@@ -1427,7 +1429,8 @@ void ScorePanel::PlaceCells(int rowTall)
 	{
 		m_iCellX[k] = x;
 		x += m_iCellWide[k];
-		if (k == SB_CELL_AVATAR || k == SB_CELL_NAME)
+		// the gap that splits a row in two comes after the class icon: the icon belongs to the name's side (it has no width where no class is sent)
+		if (k == SB_CELL_AVATAR || k == SB_CELL_CLASS)
 			x += gap;
 	}
 
@@ -1601,7 +1604,7 @@ void ScorePanel::FillRow(int r)
 	{
 		// One wide label from the avatar cell to the end of the name cell.
 		const int left = m_iCellX[SB_CELL_AVATAR];
-		const int wide = m_iCellX[SB_CELL_NAME] + m_iCellWide[SB_CELL_NAME] - left;
+		const int wide = m_iCellX[SB_CELL_CLASS] + m_iCellWide[SB_CELL_CLASS] - left;
 		pName->setBounds(x0 + left, y, wide, m_iRowTall);
 		m_Cells[r][SB_CELL_AVATAR].setVisible(false);
 		m_Cells[r][SB_CELL_STATUS].setVisible(false);

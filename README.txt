@@ -1,6 +1,6 @@
 ==========================================
 
-ㅤㅤㅤㅤㅤHAVOC 9 TEAM ELIMINATION
+     HAVOC 9 TEAM ELIMINATION
 
 ==========================================
 
@@ -36,7 +36,7 @@ VERSIONS, CHECKSUMS AND STEPS: docs/BUILDING.txt SECTION 9.
 
 ==========================================
 
-ㅤㅤㅤㅤㅤIMPORTANT NOTICE:
+     IMPORTANT NOTICE:
 
 ==========================================
 
