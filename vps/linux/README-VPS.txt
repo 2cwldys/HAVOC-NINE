@@ -31,16 +31,17 @@
    10. Moving to another VPS, in order
    11. Updating to a new package
    12. The web client (optional)
-   13. When something is wrong
-   14. Checklist
+   13. The downloads
+   14. When something is wrong
+   15. Checklist
 
 
  0. WHAT IS IN THE PACKAGE
  -------------------------
    README-VPS.txt       this file
    setup.sh             installs or updates everything (step 4)
-   (for a Windows host: havoc9-vps-windows-<build>.zip and its
-   README-WINDOWS.txt instead of this package)
+   (for a Windows host: havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip and
+   its README-WINDOWS.txt instead of this package)
    BUILD.txt            the build this package was made from
    systemd/             the services: h9web.service, h9-serverlist.service,
                         h9web-backup.service/.timer (daily),
@@ -64,6 +65,8 @@
                               Discord token and heartbeat key), servers.txt,
                               serverlist.log (the h9list user's only)
    /var/www/havoc9.org        the site
+   /var/www/havoc9.org/downloads   the downloads and their file index
+                              (step 13)
    /srv/h9web/game            the web client's game files (step 12)
 
 
@@ -77,9 +80,9 @@
    * An SSH key on your own PC (Windows: ssh-keygen in PowerShell makes
      C:\Users\<you>\.ssh\id_ed25519 and id_ed25519.pub). Give the .pub file
      to the provider when you create the VPS, so you sign in with the key.
-   * This package, havoc9-vps-linux-<build>.zip, and on your PC the offline copies
-     of secrets.json, data.key and the backup passphrase if this is a move
-     or a restore.
+   * This package, havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip, and on your
+     PC the offline copies of secrets.json, data.key and the backup
+     passphrase if this is a move or a restore.
 
 
  2. DNS
@@ -105,11 +108,11 @@
  password instead of using your key, put your key on first:
    type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@<address> "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
  Then copy the package over and unpack it:
-   scp havoc9-vps-linux-<build>.zip root@<address>:/root/
+   scp havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip root@<address>:/root/
    ssh root@<address>
    apt-get update && apt-get install -y unzip
-   cd /root && unzip havoc9-vps-linux-<build>.zip
-   cd havoc9-vps-linux-<build>
+   cd /root && unzip havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip
+   cd havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>
 
 
  4. SETUP.SH
@@ -117,6 +120,7 @@
    sudo bash setup.sh                 a new site (no backup to restore)
    sudo bash setup.sh --no-tls        the same, but no nginx or certificate yet
                                       (DNS not there); run it again later
+   sudo bash setup.sh --file-index    only the downloads' file index (step 13)
  For a restore or a move, use step 9 instead: h9web must not start before
  the old keys are in place.
 
@@ -130,8 +134,9 @@
       h9web it takes a backup;
    5. copies the server list to /opt/h9-serverlist with its Python packages,
       and makes its settings in /var/lib/h9-serverlist when there are none;
-   6. copies the site to /var/www/havoc9.org (the downloads' ZIPs and
-      H9XASH-Updater's files/ there are kept);
+   6. copies the site to /var/www/havoc9.org (the downloads, their file
+      index and H9XASH-Updater's files/ there are kept), then links the
+      downloads into the file index and writes its SHA256SUMS.txt (step 13);
    7. (only with --restore or --keys, step 9) puts the keys in place and
       restores the backup;
    8. installs the services and starts h9web, the list and the backup timer;
@@ -289,9 +294,10 @@
 
  11. UPDATING TO A NEW PACKAGE
  -----------------------------
- Copy the new havoc9-vps-linux-<build>.zip over, unpack it beside the old one and
- run its setup.sh:
-   cd /root && unzip havoc9-vps-linux-<new build>.zip && cd havoc9-vps-linux-<new build>
+ Copy the new havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip over, unpack it
+ beside the old one and run its setup.sh:
+   cd /root && unzip havoc9-vps-linux-<new build>-<yyyyMMdd-HHmm>.zip
+   cd havoc9-vps-linux-<new build>-<yyyyMMdd-HHmm>
    sudo bash setup.sh
  It backs up the data first, puts in the new code, site and services, keeps
  every setting, key and all data, and restarts h9web and the list. A change
@@ -312,14 +318,66 @@
        cd /root/h9/havoc9.org/deploy
        sudo REPACK=1 bash webclient-setup.sh
    * From your PC: make-vps-package.ps1 -WebClient also writes
-     havoc9-vps-webclient-<build>.zip; unzip it inside the unpacked package
-     folder, then
+     havoc9-vps-webclient-<build>-<yyyyMMdd-HHmm>.zip, with one folder of
+     its own around tools/ and webclient-build/. Copy it over like the
+     package. webclient-setup.sh looks for those two folders beside
+     havoc9.org/ in the unpacked package folder, so put them there:
+       cd /root/havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>
+       W=/root/havoc9-vps-webclient-<build>-<yyyyMMdd-HHmm>
+       unzip $W.zip -d /root
+       cp -r $W/tools $W/webclient-build .
        cd havoc9.org/deploy && sudo bash webclient-setup.sh
  Without them PLAY says the client is in preparation; everything else works.
  havoc9.org/webclient/DEPLOY.txt sections 3 to 5 explain the build.
 
 
- 13. WHEN SOMETHING IS WRONG
+ 13. THE DOWNLOADS
+ -----------------
+ The DOWNLOADS page's buttons and its file index (ALL FILES,
+ https://havoc9.org/downloads/files/) show files you put in the site folder
+ yourself; setup.sh keeps them when it puts a new copy of the site in.
+   /var/www/havoc9.org/downloads/         you copy in the buttons' files:
+                                          H9XASH.zip, H9XASH-linux.zip,
+                                          H9XASH-Updater.exe
+   /var/www/havoc9.org/downloads/files/   you copy in the two host packages
+                                          (havoc9-vps-linux- and
+                                          havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip);
+                                          setup.sh adds the buttons' three
+                                          files and SHA256SUMS.txt (below)
+ They come from dist\ in the repository on the PC that builds them:
+ stage-h9xash.ps1 makes the two client ZIPs, tools\updater\build.cmd makes
+ H9XASH-Updater.exe and make-vps-package.ps1 the two host packages. The
+ .report.txt files made beside them stay off the index unless the owner
+ chooses otherwise: they are the build PC's own records, and
+ H9XASH.report.txt names its folders. Nothing else goes in the index:
+ not dist\files (the updater's own files, served at /files/), not the web
+ client's files, and never a config, key or token (ts_advertise.cfg,
+ secrets.json, data.key, serverlist.cfg, config.json), a backup or anyone's
+ data. Only .zip, .exe and .txt files are served there; any other file, a
+ subfolder and every dot file is a 404.
+ From your PC, in the repository's folder (each file goes up once):
+   scp dist\H9XASH.zip dist\H9XASH-linux.zip dist\H9XASH-Updater.exe root@havoc9.org:/var/www/havoc9.org/downloads/
+   scp dist\havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip root@havoc9.org:/var/www/havoc9.org/downloads/files/
+   scp dist\havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip root@havoc9.org:/var/www/havoc9.org/downloads/files/
+ then on the VPS, in the unpacked package folder:
+   sudo bash setup.sh --file-index
+ Every full run of setup.sh does the same. It links the buttons' three
+ files into downloads/files (../<name>), so the disk holds one copy and the
+ index serves exactly the file the button does, whatever replaced it since;
+ checks each link (its SHA-256 must be that of the file in downloads/: a
+ difference is a [WARN] that says IS NOT THE SAME FILE); skips, saying so, a
+ button file that is not there yet; and writes SHA256SUMS.txt for every
+ file the index lists. To check by hand:
+   ls -l /var/www/havoc9.org/downloads/files
+   sha256sum /var/www/havoc9.org/downloads/H9XASH.zip /var/www/havoc9.org/downloads/files/H9XASH.zip
+ (the same hash twice), and every line of SHA256SUMS.txt against its file:
+   cd /var/www/havoc9.org/downloads/files && sha256sum -c SHA256SUMS.txt
+ Remove a host package's older build when its new one goes in. A player
+ checks a download with sha256sum -c SHA256SUMS.txt --ignore-missing
+ (Linux) or Get-FileHash <file> (Windows).
+
+
+ 14. WHEN SOMETHING IS WRONG
  ---------------------------
    sudo bash setup.sh --check                   what runs, what answers
    sudo systemctl status h9web h9-serverlist nginx
@@ -335,7 +393,7 @@
      then rm /etc/ssh/sshd_config.d/05-havoc9.conf and systemctl reload ssh.
 
 
- 14. CHECKLIST
+ 15. CHECKLIST
  -------------
    [ ] DNS: havoc9.org and www.havoc9.org answer the VPS's address
    [ ] sudo bash setup.sh finished without a [FAIL]; its warnings read
@@ -350,4 +408,6 @@
    [ ] the backup passphrase set and kept offline; offsite/ copied once
        (step 8)
    [ ] a game server here: its UDP port open (step 7)
+   [ ] the downloads and their file index in place, SHA256SUMS.txt made
+       (step 13)
    [ ] sudo bash setup.sh --check: every service running

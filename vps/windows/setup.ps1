@@ -17,6 +17,9 @@
                                            starts; <folder> holds secrets.json and data.key
                                            unless the backup holds them
     .\setup.ps1 -WebClientStage <folder>   also lay out the web client from webclient-build\stage
+    .\setup.ps1 -FileIndex                 only the downloads' file index: after new files go into
+                                           site\downloads, its links, their check and its
+                                           SHA256SUMS.txt (README-WINDOWS.txt step 13)
 
   The stack, and why: Node.js 24 runs h9web as it does on Linux; Caddy is the web server
   because it makes and renews the Let's Encrypt certificate by itself (one program, no
@@ -46,7 +49,8 @@ param(
     [string]$PassphraseFile = '',
     [string]$WebClientStage = '',
     [switch]$NoFirewall,
-    [switch]$Check
+    [switch]$Check,
+    [switch]$FileIndex
 )
 
 $ErrorActionPreference = 'Stop'
@@ -133,6 +137,68 @@ function Test-Http([string]$Url)
     try { return [string](Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 5).StatusCode } catch { return 'no answer' }
 }
 
+# The downloads' file index, site\downloads\files (README-WINDOWS.txt step 13). The three files
+# the DOWNLOADS page's buttons fetch from site\downloads are symbolic links there, so the disk
+# holds one copy and a link always opens the file downloads\ holds now, whatever replaced it.
+# Each link is made again when it is missing or points elsewhere, then checked: its SHA-256 must
+# be that of the file in downloads\. A button file not there yet is skipped (an old link to it
+# goes). Last, SHA256SUMS.txt lists the SHA-256 of every file the index serves.
+$ButtonFiles = @('H9XASH.zip', 'H9XASH-linux.zip', 'H9XASH-Updater.exe')
+function Sync-Downloads
+{
+    $dl = Join-Path $Site 'downloads'
+    $idx = Join-Path $dl 'files'
+    if (-not (Test-Path -LiteralPath $idx)) { Step "make $idx" { New-Item -ItemType Directory -Force -Path $idx | Out-Null } }
+    $sums = @{}
+    foreach ($f in $ButtonFiles) {
+        $src = Join-Path $dl $f
+        $link = Join-Path $idx $f
+        $have = Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $src -PathType Leaf)) {
+            if ($have -and $have.LinkType -eq 'SymbolicLink') { Step "remove $link (no $src)" { Remove-Item -LiteralPath $link -Force } }
+            Note "downloads\files\${f}: skipped, there is no $src yet"
+            continue
+        }
+        if (-not ($have -and $have.LinkType -eq 'SymbolicLink' -and [string]@($have.Target)[0] -eq $src)) {
+            # made under a dot name (never listed or served) and put in place only once it exists
+            $made = @{ ok = $true }
+            Step "link $link to $src" {
+                $tmp = Join-Path $idx ".$f.new"
+                try {
+                    $old = Get-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+                    if ($old) { $old.Delete() }
+                    New-Item -ItemType SymbolicLink -Path $tmp -Target $src -ErrorAction Stop | Out-Null
+                    if ($have) { Remove-Item -LiteralPath $link -Force -ErrorAction Stop }
+                    Rename-Item -LiteralPath $tmp -NewName $f -ErrorAction Stop
+                } catch {
+                    $made.ok = $false
+                    Warn "could not link downloads\files\$f to ${src}: $($_.Exception.Message)"
+                }
+            }
+        }
+        if ($DryRun -or -not (Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue)) { continue }
+        $a = (Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash.ToLowerInvariant()
+        $b = (Get-FileHash -LiteralPath $link -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($a -eq $b) {
+            Note "downloads\files\$f is downloads\$f (SHA-256 $a)"
+            $sums[$f] = $a
+        } else {
+            Warn "downloads\files\$f IS NOT THE SAME FILE as downloads\$f (SHA-256 $b, not $a): look at $idx"
+        }
+    }
+    if ($DryRun) { return }
+    $names = [string[]]@(Get-ChildItem -LiteralPath $idx -File -Force | Where-Object { $_.Name -match '\.(zip|exe|txt)$' -and $_.Name -ne 'SHA256SUMS.txt' -and -not $_.Name.StartsWith('.') } | ForEach-Object { $_.Name })
+    [Array]::Sort($names, [StringComparer]::Ordinal)
+    $lines = @(foreach ($n in $names) {
+        $h = $sums[$n]
+        if (-not $h) { $h = (Get-FileHash -LiteralPath (Join-Path $idx $n) -Algorithm SHA256).Hash.ToLowerInvariant() }
+        "$h  $n"
+    })
+    $text = if ($lines.Count) { ($lines -join "`n") + "`n" } else { '' }
+    Step "write $idx\SHA256SUMS.txt" { [IO.File]::WriteAllText((Join-Path $idx 'SHA256SUMS.txt'), $text, (New-Object Text.UTF8Encoding $false)) }
+    Note "downloads\files\SHA256SUMS.txt: $($lines.Count) files"
+}
+
 $ServiceNames = @('havoc9-h9web', 'havoc9-serverlist', 'havoc9-caddy')
 
 if ($Check)
@@ -153,6 +219,17 @@ if ($Check)
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -and -not $DryRun) { Fail 'run it in a PowerShell started as administrator' }
+
+# -FileIndex: after new files went into site\downloads, only their links, the check and SHA256SUMS.txt
+if ($FileIndex)
+{
+    Say "the downloads' file index ($Site\downloads\files)"
+    if (-not (Test-Path -LiteralPath (Join-Path $Site 'downloads'))) { Fail "no $Site\downloads yet: run .\setup.ps1 first" }
+    Sync-Downloads
+    foreach ($w in $Warnings) { Write-Host "  [WARN] $w" -ForegroundColor Yellow }
+    exit 0
+}
+
 foreach ($need in @('h9web\server.js', 'h9web\bin\h9web-backup.js', 'h9web\config.example.json', 'havoc9.org\index.html', 'serverlist-bot\h9_serverlist.py')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Src $need))) { Fail "$Src\$need is missing: run this from the unpacked package" }
 }
@@ -278,9 +355,12 @@ $listCfg = Join-Path $ListData 'serverlist.cfg'
 if (-not (Test-Path -LiteralPath $listCfg)) { Step "make $listCfg (no heartbeat key, no Discord token yet)" { Copy-Item -LiteralPath (Join-Path $Src 'serverlist-bot\serverlist.cfg.example') -Destination $listCfg } }
 
 Say '5. the site'
+# What robocopy leaves out it also leaves alone: the downloads (the ZIPs, H9XASH-Updater.exe), the
+# downloads' file index (downloads\files) and H9XASH-Updater's files\ are kept.
 Step "the site into $Site" {
-    Copy-Mirror (Join-Path $Src 'havoc9.org') $Site @('deploy', 'engine', '.git', 'files') @('DEPLOY.txt', 'manifest.json', 'preload.json', '*.bak*', '*.zip', '*.orig', 'README.md', 'HAVOC_NINE_MASTER_SERVER.txt', '.*')
+    Copy-Mirror (Join-Path $Src 'havoc9.org') $Site @('deploy', 'engine', '.git', 'files') @('DEPLOY.txt', 'manifest.json', 'preload.json', '*.bak*', '*.zip', '*.orig', 'README.md', 'HAVOC_NINE_MASTER_SERVER.txt', '.*', 'H9XASH-Updater.exe')
 }
+Sync-Downloads
 if ($WebClientStage) {
     foreach ($f in @('manifest.json', 'preload.json', 'engine\xash.js', 'engine\xash.wasm')) { if (-not (Test-Path -LiteralPath (Join-Path $WebClientStage $f))) { Fail "-WebClientStage: no $f in $WebClientStage" } }
     Step "the web client from $WebClientStage" {

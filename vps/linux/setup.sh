@@ -16,6 +16,9 @@
 #                                         h9web starts; DIR holds secrets.json and data.key
 #                                         unless the backup was made --with-keys
 #   sudo bash setup.sh --check            only show what is installed and running
+#   sudo bash setup.sh --file-index       only the downloads' file index: after new files go
+#                                         into downloads/, its links, their check and its
+#                                         SHA256SUMS.txt (README-VPS.txt step 13)
 #
 # DOMAIN (havoc9.org), ALIASES ("www.havoc9.org") and EMAIL go to the certificate and nginx
 # scripts in havoc9.org/deploy/. GAME_PORTS ("27015/udp", space separated ufw rules) are the game
@@ -60,9 +63,9 @@ warn() { printf '  [WARN] %s\n' "$*"; WARNINGS+=("$*"); }
 die()  { printf '\n[FAIL] %s\n' "$*" >&2; exit 1; }
 WARNINGS=()
 
-usage() { sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
-RESTORE=""; KEYS=""; PASSFILE=""; NO_TLS=0; CHECK=0
+RESTORE=""; KEYS=""; PASSFILE=""; NO_TLS=0; CHECK=0; FILE_INDEX=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --restore) RESTORE="${2:-}"; shift 2 || die "--restore needs a file";;
@@ -70,6 +73,7 @@ while [ $# -gt 0 ]; do
     --passphrase-file) PASSFILE="${2:-}"; shift 2 || die "--passphrase-file needs a file";;
     --no-tls) NO_TLS=1; shift;;
     --check) CHECK=1; shift;;
+    --file-index) FILE_INDEX=1; shift;;
     -h|--help) usage; exit 0;;
     *) usage; die "unknown option $1";;
   esac
@@ -91,6 +95,49 @@ backup_cli() { as_h9web "$NODE" "$H9WEB_HOME/bin/h9web-backup.js" --config "$H9W
 active() { systemctl is-active --quiet "$1" && echo "running" || echo "NOT running"; }
 code() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" || true; }
 
+# The downloads' file index, downloads/files/ (README-VPS.txt step 13). The three files the
+# DOWNLOADS page's buttons fetch from downloads/ are symbolic links there (../<name>), so the disk
+# holds one copy and a link always opens the file downloads/ holds now, whatever replaced it.
+# Each link is made again at every run (under a dot name, then moved into place), then checked:
+# its SHA-256 must be that of the file in downloads/. A button file not there yet is skipped (an
+# old link to it goes). Last, SHA256SUMS.txt lists the SHA-256 of every file the index serves.
+file_index() {
+  local dl="$SITE_ROOT/downloads" idx="$SITE_ROOT/downloads/files" f a b n=0
+  local -A sums=()
+  mkdir -p "$idx"
+  for f in H9XASH.zip H9XASH-linux.zip H9XASH-Updater.exe; do
+    if [ ! -f "$dl/$f" ]; then
+      if [ -L "$idx/$f" ]; then rm -f "$idx/$f"; fi
+      note "downloads/files/$f: skipped, there is no $dl/$f yet"
+      continue
+    fi
+    if ! { ln -sfn "../$f" "$idx/.$f.new" && mv -Tf "$idx/.$f.new" "$idx/$f"; }; then
+      warn "could not link downloads/files/$f to ../$f"
+    fi
+    [ -e "$idx/$f" ] || continue
+    a="$(sha256sum < "$dl/$f" | cut -d' ' -f1)"
+    b="$(sha256sum < "$idx/$f" | cut -d' ' -f1)"
+    if [ "$a" = "$b" ]; then
+      note "downloads/files/$f is downloads/$f (SHA-256 $a)"
+      sums[$f]="$a"
+    else
+      warn "downloads/files/$f IS NOT THE SAME FILE as downloads/$f (SHA-256 $b, not $a): look at $idx"
+    fi
+  done
+  : > "$idx/.SHA256SUMS.txt.new"
+  local LC_ALL=C p
+  for p in "$idx"/*; do
+    f="${p##*/}"
+    case "$f" in SHA256SUMS.txt) continue;; *.zip|*.exe|*.txt) ;; *) continue;; esac
+    [ -f "$idx/$f" ] || continue
+    printf '%s  %s\n' "${sums[$f]:-$(sha256sum < "$idx/$f" | cut -d' ' -f1)}" "$f" >> "$idx/.SHA256SUMS.txt.new"
+    n=$((n + 1))
+  done
+  chmod 644 "$idx/.SHA256SUMS.txt.new"
+  mv -f "$idx/.SHA256SUMS.txt.new" "$idx/SHA256SUMS.txt"
+  note "downloads/files/SHA256SUMS.txt: $n files"
+}
+
 if [ "$CHECK" = 1 ]; then
   say "what is here"
   note "node        $(command -v node >/dev/null && node --version || echo none)"
@@ -102,6 +149,15 @@ if [ "$CHECK" = 1 ]; then
   if [ -f "$H9WEB_HOME/bin/h9web-backup.js" ] && [ -d "$H9WEB_DATA/backups" ]; then
     backup_cli list --out "$H9WEB_DATA/backups" | tail -n 3 || true
   fi
+  exit 0
+fi
+
+# --file-index: after new files went into downloads/, only their links, the check and SHA256SUMS.txt
+if [ "$FILE_INDEX" = 1 ]; then
+  say "the downloads' file index ($SITE_ROOT/downloads/files)"
+  [ -d "$SITE_ROOT/downloads" ] || die "no $SITE_ROOT/downloads yet: run sudo bash $0 first"
+  file_index
+  for w in "${WARNINGS[@]}"; do printf '  [WARN] %s\n' "$w"; done
   exit 0
 fi
 
@@ -183,10 +239,14 @@ say "6. the site"
 rsync -a --delete --exclude='/deploy/' --exclude='/files/' --exclude='/webclient/engine/' --exclude='/webclient/manifest.json' \
   --exclude='/webclient/preload.json' --exclude='/webclient/DEPLOY.txt' --exclude='*.bak*' --exclude='.*' \
   --exclude='*.zip' --exclude='*.orig' --exclude='*~' --exclude='README.md' --exclude='HAVOC_NINE_MASTER_SERVER.txt' \
+  --exclude='/downloads/H9XASH-Updater.exe' --exclude='/downloads/files/' \
   "$SRC/havoc9.org/" "$SITE_ROOT/"
+# the downloads' file index (README-VPS.txt step 13): its folder is kept; its links and
+# SHA256SUMS.txt are made again
+file_index
 chown -R root:root "$SITE_ROOT"
 find "$SITE_ROOT" -type d -exec chmod 755 {} + ; find "$SITE_ROOT" -type f -exec chmod 644 {} +
-note "$SITE_ROOT (the downloads' ZIPs, H9XASH-Updater's files/ and the web client's files there are kept)"
+note "$SITE_ROOT (the downloads there, the downloads' file index, H9XASH-Updater's files/ and the web client's files are kept)"
 
 if [ -n "$KEYS" ] || [ -n "$RESTORE" ]; then
   say "7. the keys and the restore"

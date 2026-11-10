@@ -8,8 +8,9 @@
  the game's Internet tab reads, HTTPS for the domain, the firewall and the
  daily backups. Every step can be done by hand from this file alone; setup.ps1
  does steps 4 and 5 in one go and is safe to run again at any time. The Linux
- package (havoc9-vps-linux-<build>.zip, README-VPS.txt) is the same site on a
- Linux VPS; the two use the same backups, so a site moves between them.
+ package (havoc9-vps-linux-<build>-<yyyyMMdd-HHmm>.zip, README-VPS.txt) is the
+ same site on a Linux VPS; the two use the same backups, so a site moves
+ between them.
 
  Everything goes through the domain: players, game clients and the site use
  https://havoc9.org/ whatever the machine's address is, so moving to another
@@ -33,8 +34,9 @@
    10. Moving to another host, in order
    11. Updating to a new package
    12. The web client (optional)
-   13. When something is wrong
-   14. Checklist
+   13. The downloads
+   14. When something is wrong
+   15. Checklist
 
 
  0. WHAT IS IN THE PACKAGE, AND THE STACK
@@ -67,7 +69,8 @@
    tools\            node, python, caddy, winsw
    h9web\            h9web's code
    serverlist\       the list's code and its Python packages
-   site\             the site
+   site\             the site; site\downloads\ the downloads and their file
+                     index (step 13)
    game\             the web client's game files (step 12)
    etc\              config.json, servers.json, Caddyfile, Caddyfile.extra,
                      backup-passphrase (SYSTEM, Administrators; LocalService
@@ -90,9 +93,9 @@
    * Ports 80 and 443 (TCP) reachable from the internet, and 27015 (UDP)
      for a game server. Nothing else may use 80 or 443 on the machine (IIS,
      another web server, Skype's old setting): Caddy needs them.
-   * This package, havoc9-vps-windows-<build>.zip, and for a move or a
-     restore the offline copies of secrets.json, data.key and the backup
-     passphrase.
+   * This package, havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip, and for a
+     move or a restore the offline copies of secrets.json, data.key and the
+     backup passphrase.
 
 
  2. DNS, AND THE ROUTER FOR A HOME CONNECTION
@@ -111,9 +114,9 @@
 
  3. COPYING THE PACKAGE OVER
  ---------------------------
- Copy havoc9-vps-windows-<build>.zip to the machine (Remote Desktop copy and
- paste works), then right-click it, Properties, tick Unblock if it is there,
- OK, and Extract All, for example into C:\setup.
+ Copy havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip to the machine (Remote
+ Desktop copy and paste works), then right-click it, Properties, tick Unblock
+ if it is there, OK, and Extract All, for example into C:\setup.
 
 
  4. SETUP.PS1
@@ -125,6 +128,7 @@
  the old keys are in place.
    -WhatIf             show every step, change nothing (a dry run)
    -Check              only show what is installed and running
+   -FileIndex          only the downloads' file index (step 13)
    -Root D:\havoc9     another folder than C:\havoc9
    -Email you@...      the address Let's Encrypt may write to (optional)
    -GamePorts 27015/udp,27016/udp    the game servers' ports to open
@@ -142,8 +146,9 @@
       is never touched;
    4. puts the list's code in with its Python packages, and makes its
       settings in data\serverlist when there are none;
-   5. puts the site in (the downloads' ZIPs, H9XASH-Updater's files\ and the
-      web client's files there are kept);
+   5. puts the site in (the downloads, their file index, H9XASH-Updater's
+      files\ and the web client's files there are kept), then links the
+      downloads into the file index and writes its SHA256SUMS.txt (step 13);
    6. writes etc\Caddyfile from Caddyfile.template and checks it; your own
       additions go in etc\Caddyfile.extra, which it never writes;
    7. (only with -Restore or -Keys, step 9) puts the keys in place and
@@ -268,11 +273,11 @@
 
  11. UPDATING TO A NEW PACKAGE
  -----------------------------
- Unpack the new havoc9-vps-windows-<build>.zip beside the old one and run its
- setup.cmd as administrator (or .\setup.ps1). It backs up the data first,
- stops the services, puts in the new code, site and tools, keeps every
- setting, key and all data, and starts the services again. A change to the
- database's layout runs at h9web's start, after one more copy into
+ Unpack the new havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip beside the old
+ one and run its setup.cmd as administrator (or .\setup.ps1). It backs up the
+ data first, stops the services, puts in the new code, site and tools, keeps
+ every setting, key and all data, and starts the services again. A change to
+ the database's layout runs at h9web's start, after one more copy into
  data\h9web\backups. Check with .\setup.ps1 -Check and the site. To go
  back: run the older package's setup.ps1, then restore the backup the newer
  one took first.
@@ -284,12 +289,56 @@
  not in this package. Copy webclient-build\stage from the PC that builds it
  (export.bat makes it) to the host, then:
    .\setup.ps1 -WebClientStage C:\setup\stage
- or unzip havoc9-vps-webclient-<build>.zip (make-vps-package.ps1 -WebClient)
- and give its webclient-build\stage folder. Without it PLAY says the client
- is in preparation; everything else works.
+ or unzip havoc9-vps-webclient-<build>-<yyyyMMdd-HHmm>.zip
+ (make-vps-package.ps1 -WebClient) and give its webclient-build\stage folder.
+ Without it PLAY says the client is in preparation; everything else works.
 
 
- 13. WHEN SOMETHING IS WRONG
+ 13. THE DOWNLOADS
+ -----------------
+ The DOWNLOADS page's buttons and its file index (ALL FILES,
+ https://havoc9.org/downloads/files/) show files you put in the site folder
+ yourself; setup.ps1 keeps them when it puts a new copy of the site in.
+   C:\havoc9\site\downloads\         you copy in the buttons' files:
+                                     H9XASH.zip, H9XASH-linux.zip,
+                                     H9XASH-Updater.exe
+   C:\havoc9\site\downloads\files\   you copy in the two host packages
+                                     (havoc9-vps-linux- and
+                                     havoc9-vps-windows-<build>-<yyyyMMdd-HHmm>.zip);
+                                     setup.ps1 adds the buttons' three files
+                                     and SHA256SUMS.txt (below)
+ They come from dist\ in the repository on the PC that builds them:
+ stage-h9xash.ps1 makes the two client ZIPs, tools\updater\build.cmd makes
+ H9XASH-Updater.exe and make-vps-package.ps1 the two host packages. The
+ .report.txt files made beside them stay off the index unless the owner
+ chooses otherwise: they are the build PC's own records, and
+ H9XASH.report.txt names its folders. Nothing else goes in the index:
+ not dist\files (the updater's own files, served at /files/), not the web
+ client's files, and never a config, key or token (ts_advertise.cfg,
+ secrets.json, data.key, serverlist.cfg, config.json), a backup or anyone's
+ data. Only .zip, .exe and .txt files are served there; any other file, a
+ subfolder and every dot file is a 404.
+ After new files go in (Remote Desktop copy and paste works), run in an
+ administrator PowerShell in the unpacked package folder:
+   .\setup.ps1 -FileIndex
+ Every full run of setup.ps1 does the same. It makes the buttons' three
+ files symbolic links in downloads\files, so the disk holds one copy and the
+ index serves exactly the file the button does, whatever replaced it since;
+ checks each link (its SHA-256 must be that of the file in downloads\: a
+ difference is a [WARN] that says IS NOT THE SAME FILE); skips, saying so, a
+ button file that is not there yet; and writes SHA256SUMS.txt for every
+ file the index lists. To check by hand, in PowerShell:
+   Get-ChildItem C:\havoc9\site\downloads\files | Format-Table Name, LinkType, Target
+   Get-FileHash C:\havoc9\site\downloads\H9XASH.zip, C:\havoc9\site\downloads\files\H9XASH.zip
+ (the same hash twice), and every line of SHA256SUMS.txt against its file:
+   cd C:\havoc9\site\downloads\files
+   Get-Content SHA256SUMS.txt | ForEach-Object { $h, $n = $_ -split '  ', 2; '{0}  {1}' -f $(if ((Get-FileHash $n).Hash -eq $h) { 'OK' } else { 'DIFFERENT' }), $n }
+ Remove a host package's older build when its new one goes in. A player
+ checks a download with sha256sum -c SHA256SUMS.txt --ignore-missing
+ (Linux) or Get-FileHash <file> (Windows).
+
+
+ 14. WHEN SOMETHING IS WRONG
  ---------------------------
    .\setup.ps1 -Check                       what runs, what answers
    Get-Service havoc9-*                     the three services
@@ -303,7 +352,7 @@
      System, and the service's .wrapper.log in C:\havoc9\logs.
 
 
- 14. CHECKLIST
+ 15. CHECKLIST
  -------------
    [ ] DNS: havoc9.org and www.havoc9.org answer this host's public address
    [ ] TCP 80 and 443 (and UDP 27015) reach the machine (router, provider)
@@ -316,4 +365,6 @@
    [ ] servers.json and the list's servers.txt name the servers (step 7)
    [ ] the backup passphrase set and kept offline; offsite\ copied once
        (step 8)
+   [ ] the downloads and their file index in place, SHA256SUMS.txt made
+       (step 13)
    [ ] .\setup.ps1 -Check: the three services running
