@@ -15,7 +15,9 @@
 //     the raw player id (an HMAC of the plugin's nonce and the server's address) and its device,
 //     masked; core's verifyIdProof checks it. Only a proven sighting is verified and counted. An
 //     unproven one (an old client, or a copied h9_clientid) shows as unverified and counts for
-//     nothing; with requireProof it is dropped.
+//     nothing; with requireProof it is dropped. An id the report lists twice is dropped both times,
+//     unless exactly one of its entries carries a proof that checks out: that one is the account's,
+//     and the others are copies, listed by slot alone.
 //   * the web client's relay, which knows the signed-in account behind every relay socket: the
 //     events relay-game-start and relay-game-end { accountId, server }. Verified by the session.
 //
@@ -464,12 +466,13 @@ export function createPresence(deps) {
 
   // Where an account is, as anyone may see it (its switches): { state: "game", server, name } on a
   // listed server it shows; { state: "game", server: null } in game where it hides which server;
-  // { state } otherwise. For /find in game.
+  // { state } otherwise. For /find in game: an account is in game for it only while a game that
+  // proved its player id is, so a copy of its id never puts it on a server.
   function publicPlace(accountId) {
     const account = accounts.getById(accountId);
     if (!account) return null;
     const priv = privacyOf(accountId);
-    const st = stateFor(account, priv, now());
+    const st = stateFor(account, priv, now(), true);
     if (st.state !== "game") return { state: st.state };
     if (!priv.where) return { state: "game", server: null };
     return { state: "game", server: st.row.server, name: serverView(st.row.server).name };
@@ -490,13 +493,14 @@ export function createPresence(deps) {
 
   // Which of an account's open rows anyone may see: the counted one on a listed server; failing
   // that, an unverified one on a listed server, but only when the account is verified nowhere
-  // (an unverified sighting beside a verified one is most likely a copied id).
-  function pick(rows) {
+  // (an unverified sighting beside a verified one is most likely a copied id). With provenOnly,
+  // the counted one alone: /find places an account only where its game proved the player id.
+  function pick(rows, provenOnly = false) {
     const live = rows.filter(active);
     const listed = (r) => serverView(r.server).listed;
     const counted = live.find((r) => counts(r) && listed(r));
     if (counted) return { row: counted, verified: true };
-    if (live.some(verified)) return null;
+    if (provenOnly || live.some(verified)) return null;
     const unverified = live.find(listed);
     return unverified ? { row: unverified, verified: false } : null;
   }
@@ -545,10 +549,10 @@ export function createPresence(deps) {
   // The downloaded game in its own main menu reports to nobody, so it reads as offline.
   // A hidden kind never shows through "last seen": a session still open counts from the one
   // before it, the site only when "site" is shown.
-  function stateFor(account, priv, t) {
+  function stateFor(account, priv, t, provenOnly = false) {
     const rows = store.onlineOf(account.id);
     if (priv.game) {
-      const p = pick(rows);
+      const p = pick(rows, provenOnly);
       if (p) return { state: "game", row: p.row, verified: p.verified };
     }
     const webInGame = rows.some((r) => r.relay === 1 && serverView(r.server).listed);
@@ -893,6 +897,26 @@ export function createPresence(deps) {
     return out;
   }
 
+  // For each id the report lists more than once: the one entry whose proof checks out for the id's
+  // account, when exactly one does (id -> entry). verifyIdProof only does the arithmetic; the
+  // nonce's age and issue are judged afterwards, as for any other sighting.
+  function idHolders(players, count, index, server) {
+    const holder = new Map();
+    if (!verifyIdProof) return holder;
+    const proved = new Map(); // id -> the entries that prove it
+    for (const p of players) {
+      if (!p.id || !p.proof || count.get(p.id) < 2) continue;
+      const accountId = index.get(p.id);
+      if (accountId === undefined || accountId === null) continue;
+      const v = verifyIdProof(accountId, { ...p.proof, server });
+      if (!v || !v.valid) continue;
+      if (!proved.has(p.id)) proved.set(p.id, []);
+      proved.get(p.id).push(p);
+    }
+    for (const [id, list] of proved) if (list.length === 1) holder.set(id, list[0]);
+    return holder;
+  }
+
   async function report(req, res, rc) {
     limit("reportPerIp", ipKey(rc.ip));
     if (!clientIdIndex || !servers) throw new HttpError(503, "not_ready", "This h9web has no presence support in its core yet.");
@@ -936,17 +960,23 @@ export function createPresence(deps) {
     const mode = cleanText(body.mode, 48) || null;
     const detail = cleanText(body.detail, 96) || null;
 
-    // An id listed twice is dropped both times: the server cannot say which is real.
+    // An id listed twice is dropped both times: the server cannot say which is real. The one
+    // exception is an entry whose proof checks out for the id's account: only a game that holds the
+    // account's player id can make that proof, so that entry holds the id and the others are copies
+    // (listed by slot alone below, flagged nowhere, counted for nothing). Two entries that both
+    // prove it are one game twice, and are dropped like the rest.
     const count = new Map();
     for (const p of players) if (p.id) count.set(p.id, (count.get(p.id) || 0) + 1);
     const index = clientIdIndex(server);
+    const holder = idHolders(players, count, index, server);
+    const owns = (p) => !!p.id && (count.get(p.id) === 1 || holder.get(p.id) === p);
     // a listen server's report counts proven players only (enroll.js), as requireProof does everywhere
     const proofOnly = s.requireProof || enrollment.isListen(server);
     const sightings = new Map(); // account id -> { p, proven, device, net }
     const refusals = []; // [account id, kind, about, fields]
     const slots = []; // [{ slot, accountId, device }]: every account here, for its bans, kicks and mutes
     for (const p of players) {
-      if (!p.id || count.get(p.id) !== 1) continue;
+      if (!owns(p)) continue;
       const accountId = index.get(p.id);
       // an id no account gives on this server: dropped here, never stored or logged
       if (accountId === undefined || accountId === null) continue;
@@ -990,7 +1020,7 @@ export function createPresence(deps) {
     tx(() => {
       store.putServer(server, { map, mode, detail, lastReport: t, lastTs: body.ts });
       store.serverInfo(server, cleanText(body.name, 64) || null, whole(body.humans) ? Math.min(body.humans, 255) : null, whole(body.max) ? Math.min(body.max, 255) : null);
-      preset.noteReport(server, body.plugins, body.authenticated, t);
+      preset.noteReport(server, body.plugins, body.authenticated, t, body.preset);
       enrollment.markReport(server, t);
       for (const [accountId, kind, about, f] of refusals) raise(accountId, kind, about, f, t);
       // the first device that proves an account's id is bound to it; any other is refused
@@ -1070,7 +1100,7 @@ export function createPresence(deps) {
     // the slots that proved an account, for an accounts-only server's check (h9_require_account)
     reply.proven = slots.filter((e) => e.slot && e.proven).map((e) => e.slot);
     if (community.membersOnly(server)) reply.members = true;
-    if (withNames && s.inGameNames && verifyIdProof) reply.names = nameDecisions(players, count, index, sightings, server);
+    if (withNames && s.inGameNames && verifyIdProof) reply.names = nameDecisions(players, owns, index, sightings, server);
     rc.json(200, reply);
   }
 
@@ -1209,11 +1239,11 @@ export function createPresence(deps) {
   //   { taken: true }        anyone else whose name is an account's username, or a name held after
   //                          a rename, without regard to case and look-alikes (core's nameInUse)
   // A slot with neither may keep its name.
-  function nameDecisions(players, count, index, sightings, server) {
+  function nameDecisions(players, owns, index, sightings, server) {
     const out = {};
     for (const p of players) {
       if (!p.slot) continue;
-      const accountId = p.id && count.get(p.id) === 1 ? index.get(p.id) : undefined;
+      const accountId = owns(p) ? index.get(p.id) : undefined;
       const sg = accountId !== undefined && accountId !== null ? sightings.get(accountId) : null;
       let vouched = !!(sg && sg.p === p && sg.proven);
       if (sg && sg.p === p && !vouched) {

@@ -141,6 +141,13 @@
  and for every player at the start and the end of a match. A copied
  h9_clientid proves nothing, so it rates nothing. A server that keeps
  reporting a player who has left can do so for 10 minutes at most.
+ The plugin keeps the same rule on its side (h9_compete 1.3): it names a
+ player to h9web, on the roster, as a killer or as a victim, only while
+ h9_presence says that player's own game is proven (h9p_account), because
+ h9web cannot tell two slots that announce one id apart and the plugin can.
+ A player who takes another's id for the moment of a kill is unproven, so the
+ kill is nobody's: the player whose id it was is not credited, and not blamed
+ for a death. A player proven in the middle of a match joins its roster then.
 
  Anyone else plays as ever and is never stored: an H9XASH on its own random
  id, a game that cannot answer the challenge, a Steam client. A kill by or
@@ -279,7 +286,7 @@
              others: { "1": n, "2": n }, bots }
            -> { ok, match, rated, why, changes: { "<h9_clientid>":
                 { server, network } } }
-           others counts the humans on each side without an h9_clientid.
+           others counts the humans on each side without a proven h9_clientid.
            The plugin tells each player their own change.
    rating  { ladder, ids: [ h9_clientid, ... ] }  at most 64
            -> { players: { "<h9_clientid>": null | { public,
@@ -543,7 +550,8 @@
  bot, or a player not signed in to a havoc9.org account proven on this
  server, is "not signed in: no rank". It asks h9web through the signed call
  rank (section 6), with h9_presence's address and key, and h9_rank_cooldown
- (5 s) between one player's asks.
+ (5 s) between one player's asks. Only a proven game is named to h9web, as
+ the player asking and as the player asked about (h9_rank 1.1).
 
  On the site, GET /api/presence/compete/rank/<username>, read-only, any
  case, rate-limited per address (presence's readPerIp):
@@ -590,7 +598,8 @@
  as an account, or replay or alter a call: the signature, the time and the
  one-time nonce stop that.
 
- A player can copy someone's h9_clientid, but the copy proves nothing. A
+ A player can copy someone's h9_clientid, but the copy proves nothing, and
+ neither rates nor takes the kills of the player whose id it is (section 3). A
  leaked raw player id is refused on any other device and flagged
  (docs\H9_PRESENCE.txt, section 9). Two accounts farming each other hit the
  pair cap. Client cheats are out of h9web's sight: H9XASH has no

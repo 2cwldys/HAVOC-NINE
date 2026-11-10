@@ -221,6 +221,12 @@
  to the internet. heartbeat=0 under [server] turns it off, for a LAN or private server. A
  heartbeat with the key from serverlist.cfg may name any address instead; open_heartbeats = 0
  in serverlist.ini makes the key necessary (serverlist-bot\README.md, "Heartbeats").
+ A heartbeat without the key is held to limits, so that one machine cannot fill the list
+ with servers it makes up: max_per_address servers from one address (8), max_open_servers
+ in all (100) and heartbeats_per_minute for one address (60, then 429 with a Retry-After),
+ all in serverlist.ini; a server already on the list is always refreshed, and at most four
+ such heartbeats are queried at once. The key, servers.txt and /addserver are not held to
+ them: a machine with more than eight servers heartbeats with the key.
  A heartbeat the list cannot answer (the server is loading a map) is tried again 15 seconds
  later, up to twelve times, and a server the list already knows stays listed for minutes
  (expire_seconds) whatever one heartbeat does. The window says two things on two lines,
@@ -360,7 +366,8 @@
                                      binaries out of the package and the repo
 
  serverlist-bot\serverlist.ini       the list bot's own settings: host, port,
-                                     gamedir, poll/expire timing (section 7)
+                                     gamedir, poll/expire timing, the limits on
+                                     heartbeats without the key (section 7)
  serverlist-bot\serverlist.cfg       the heartbeat key and Discord token. Git-ignored;
                                      copied from serverlist.cfg.example on first setup
  serverlist-bot\servers.txt          servers the list bot seeds itself with on start

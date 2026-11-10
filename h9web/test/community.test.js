@@ -372,7 +372,7 @@ describe("communities: linking servers, staff, chat and the long-poll", () => {
   test("chat from the game: an account in game here, cleaned, with its server's tag", async () => {
     let r = await call(t, "server/chat", LISTED, LISTED_KEY, { id: clientIdFor(pidOf(t, "Neo"), LISTED), text: "hi" });
     assert.equal(r.json.error, "not_here", "not in game yet");
-    assert.equal((await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 3)])).status, 200);
+    assert.equal((await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 3, DEV1)])).status, 200);
     r = await call(t, "server/chat", LISTED, LISTED_KEY, { id: clientIdFor(pidOf(t, "Neo"), LISTED), text: "#^1hello\u0007 100% %s there" });
     assert.equal(r.status, 200, r.text);
     assert.equal(r.json.line, "[Zion] Neo: hello 100 s there");
@@ -418,10 +418,10 @@ describe("communities: linking servers, staff, chat and the long-poll", () => {
     assert.equal((await call(t, "server/chat", LISTED, LISTED_KEY, { id: clientIdFor(pidOf(t, "Neo"), LISTED), text: "x" })).json.error, "muted");
     const poll = await call(t, "server/poll", LISTED, LISTED_KEY, { hold: 0 });
     assert.equal(poll.json.report, true, "a sanction makes the community's servers report");
-    const rep = await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 3)]);
+    const rep = await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 3, DEV1)]);
     assert.deepEqual(rep.json.actions, { 3: { mute: true } });
     await site("POST", "/zion/sanctions/" + r.json.id + "/revoke", owner, {});
-    assert.deepEqual((await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 3)])).json.actions, {});
+    assert.deepEqual((await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 3, DEV1)])).json.actions, {});
     r = await site("POST", "/zion/announce", owner, { text: "server restart in 5" });
     assert.equal(r.status, 201);
     const p2 = await call(t, "server/poll", LISTED, LISTED_KEY, { since: r.json.id - 1, hold: 0 });
@@ -501,7 +501,7 @@ describe("find, and the shared data of h9_community.inc", () => {
     const c2 = await call(t, "server/claim", other.server, other.key);
     await request(t.base, "POST", "/api/presence/communities", { cookie: admin, body: { slug: "machine", name: "Machine" } });
     await request(t.base, "POST", "/api/presence/communities/machine/claim", { cookie: admin, body: { code: c2.json.code, tag: "Mx" } });
-    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1), player(t, "Trinity", LISTED, 2)]);
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1, DEV1), player(t, "Trinity", LISTED, 2, DEV1)]);
   });
   after(async () => {
     await t.close();
@@ -545,7 +545,7 @@ describe("find, and the shared data of h9_community.inc", () => {
     assert.equal(r.json.values["rp.money"].version, 0, "another community sees nothing of Zion's");
   });
 
-  test("limits: key names, sizes, read-only servers, proof when the community asks for it", async () => {
+  test("limits: key names, sizes, read-only servers, proof unless the owner switches it off", async () => {
     assert.equal((await data("set", LISTED, LISTED_KEY, { id: neoId(), key: "Bad Key", value: "1" })).status, 400);
     assert.equal((await data("set", LISTED, LISTED_KEY, { id: neoId(), key: "big", value: "x".repeat(600) })).status, 413);
     assert.equal((await data("set", LISTED, LISTED_KEY, { id: neoId(), key: "n", value: 5 })).status, 413, "strings only");
@@ -554,9 +554,17 @@ describe("find, and the shared data of h9_community.inc", () => {
     assert.equal((await data("set", LISTED, LISTED_KEY, { id: neoId(), key: "rp.money", value: "9" })).json.error, "read_only");
     assert.equal((await data("get", LISTED, LISTED_KEY, { id: neoId(), keys: ["rp.money"] })).status, 200, "it still reads");
     await request(t.base, "POST", "/api/presence/communities/zion/servers/" + serverId, { cookie: owner, body: { readOnly: false } });
-    await request(t.base, "PATCH", "/api/presence/communities/zion", { cookie: owner, body: { dataProof: true } });
-    assert.equal((await data("set", LISTED, LISTED_KEY, { id: neoId(), key: "rp.money", value: "9" })).json.error, "unverified");
+    // proof is on from the start: Trinity's game sent no proof, so her announced id reads and writes nothing
+    const tri = clientIdFor(pidOf(t, "Trinity"), LISTED);
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1, DEV1), player(t, "Trinity", LISTED, 2)]);
+    assert.equal((await data("set", LISTED, LISTED_KEY, { id: tri, key: "rp.money", value: "9" })).json.error, "unverified");
+    assert.equal((await data("get", LISTED, LISTED_KEY, { id: tri, keys: ["rp.money"] })).json.error, "unverified");
+    assert.equal((await data("get", LISTED, LISTED_KEY, { id: neoId(), keys: ["rp.money"] })).status, 200, "a proven game reads");
     await request(t.base, "PATCH", "/api/presence/communities/zion", { cookie: owner, body: { dataProof: false } });
+    assert.equal((await data("set", LISTED, LISTED_KEY, { id: tri, key: "rp.money", value: "9" })).status, 200, "switched off by the owner: the announced id is taken");
+    await data("set", LISTED, LISTED_KEY, { id: tri, key: "rp.money", value: null });
+    await request(t.base, "PATCH", "/api/presence/communities/zion", { cookie: owner, body: { dataProof: true } });
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1, DEV1), player(t, "Trinity", LISTED, 2, DEV1)]);
   });
 
   test("every change is logged; the owner rolls a community back to a time", async () => {
@@ -608,7 +616,7 @@ describe("find, and the shared data of h9_community.inc", () => {
       const body = '{"v":1,"server":' + pstr(LISTED) + ',"ts":' + t.sec() + ',"nonce":' + pstr(randomHex(8)) + tail + "}";
       return request(t.base, "POST", "/api/presence/" + route, { body, origin: null, headers: { "x-h9-server": LISTED, "x-h9-signature": hmacHex(LISTED_KEY, body) } });
     };
-    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1), player(t, "Trinity", LISTED, 2)]);
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1, DEV1), player(t, "Trinity", LISTED, 2, DEV1)]);
     const neo = pstr(neoId());
 
     assert.equal((await request(t.base, "POST", "/api/presence/communities/zion/chat", { cookie: owner, body: { text: "from the site" } })).status, 201);
@@ -730,8 +738,8 @@ describe("membership: joining, visibility and members-only servers", () => {
     assert.equal((await site("POST", "/zion/chat", as("Neo"), { text: "hi" })).json.error, "members_only");
     assert.equal((await site("POST", "/zion/join", as("Neo"), {})).json.status, "member");
     assert.equal((await site("POST", "/zion/chat", as("Neo"), { text: "hello members" })).status, 201);
-    assert.equal((await report(t, LISTED, LISTED_KEY, [player(t, "Smith", LISTED, 2)])).status, 200);
-    assert.equal((await call(t, "server/chat", LISTED, LISTED_KEY, { id: idOn("Smith"), text: "from the game" })).status, 200, "anyone on its servers relays");
+    assert.equal((await report(t, LISTED, LISTED_KEY, [player(t, "Smith", LISTED, 2, DEV1)])).status, 200);
+    assert.equal((await call(t, "server/chat", LISTED, LISTED_KEY, { id: idOn("Smith"), text: "from the game" })).status, 200, "anyone on its servers relays, member or not, with a proven game");
     const read = await site("GET", "/zion/chat?since=0", as("Neo"));
     assert.deepEqual(read.json.messages.map((m) => m.text), ["hello members", "from the game"]);
     assert.equal((await site("GET", "/zion/chat?since=0", as("Smith"))).json.error, "members_only");
@@ -754,7 +762,7 @@ describe("membership: joining, visibility and members-only servers", () => {
     r = await site("GET", "/zion", admin);
     assert.ok(Array.isArray(r.json.servers), "a site admin sees it");
 
-    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1), player(t, "Trinity", LISTED, 3), player(t, "Smith", LISTED, 2)]);
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1, DEV1), player(t, "Trinity", LISTED, 3, DEV1), player(t, "Smith", LISTED, 2, DEV1)]);
     r = await site("GET", "/zion", as("Neo"));
     assert.deepEqual(r.json.servers[0].players.sort(), ["Neo", "Smith", "Trinity"], "members see who is on its servers");
     const now = await request(t.base, "GET", "/api/presence/now", {});
@@ -794,6 +802,24 @@ describe("membership: joining, visibility and members-only servers", () => {
     r = await report(t, LISTED, LISTED_KEY, all());
     assert.equal(r.json.members, undefined);
     assert.deepEqual(r.json.actions, {});
+  });
+
+  test("members-only servers: a copy of a member's id is turned away, the member whose game proved it is not", async () => {
+    await settings({ whitelist: true });
+    const away = "This server is for members of Zion. Join at havoc9.org/community/?c=zion";
+    const copyOf = (name, slot) => ({ id: clientIdFor(pidOf(t, name), LISTED), slot, name: "Mallory", joined: t.sec() - 5, time: 5 });
+    let r = await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1, DEV1), copyOf("Neo", 2)]);
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.json.actions, { 2: { kick: away } }, "only the copy goes; the member's game proved the id");
+    assert.deepEqual(r.json.proven, [1]);
+
+    await settings({ whitelistProof: true });
+    r = await report(t, LISTED, LISTED_KEY, [copyOf("Neo", 2), player(t, "Neo", LISTED, 1, DEV1)]);
+    assert.deepEqual(r.json.actions, { 2: { kick: away } }, "with the proof switch too, whichever entry comes first");
+
+    r = await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1), copyOf("Neo", 2)]);
+    assert.deepEqual(r.json.actions, { 1: { kick: away }, 2: { kick: away } }, "no proof on either: the server cannot say which is real, so neither is let in");
+    await settings({ whitelist: false, whitelistProof: false });
   });
 
   test("joins, requests and invitations are rate-limited", async () => {
@@ -1260,7 +1286,7 @@ describe("the community chat: the owner's open switch, and the Discord bridge", 
 
     // out: a game line (.relay) and a web line, as text; announcements too
     sent.length = 0;
-    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 3)]);
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 3, DEV1)]);
     assert.equal((await call(t, "server/chat", LISTED, LISTED_KEY, { id: clientIdFor(pidOf(t, "Neo"), LISTED), text: "@everyone **look** <@1>" })).status, 200);
     assert.equal((await site("POST", "/zion/chat", owner, { text: "from the web" })).status, 201);
     assert.equal((await site("POST", "/zion/announce", owner, { text: "server restart" })).status, 201);
@@ -1354,5 +1380,154 @@ describe("accounts-only servers: the answer's proven slots, and a linked game's 
     assert.deepEqual(devices("Neo"), [{ device: deviceHash(DEV2), status: "bound" }]);
     t.app.events.emit("account-link", { id: idOf(t, "Neo"), link: 9, device: "not a hash" });
     assert.equal(devices("Neo").length, 1);
+  });
+});
+
+describe("a game that cannot prove its player id: chat, shared data and /find leave it out", () => {
+  let t;
+  let owner;
+  let trinity;
+  const site = (method, p, cookie, body) => request(t.base, method, "/api/presence/communities" + p, { cookie, body });
+  const idOn = (name) => clientIdFor(pidOf(t, name), LISTED);
+  const said = (text) => call(t, "server/chat", LISTED, LISTED_KEY, { id: idOn("Neo"), text });
+  const lines = () => t.app.db.prepare("SELECT count(*) AS n FROM presence_messages WHERE kind = 'chat'").get().n;
+  const set = (id, value) => call(t, "server/data/set", LISTED, LISTED_KEY, { id, key: "rp.money", value });
+  const get = (fields) => call(t, "server/data/get", LISTED, LISTED_KEY, { keys: ["rp.money"], ...fields });
+  const settings = (body) => site("PATCH", "/zion", owner, body);
+  before(async () => {
+    t = await app();
+    owner = await signup(t.base, "Morpheus");
+    trinity = await signup(t.base, "Trinity");
+    for (const n of ["Neo", "Tank"]) await signup(t.base, n);
+    await site("POST", "", owner, { slug: "zion", name: "Zion" });
+    const claim = await call(t, "server/claim", LISTED, LISTED_KEY);
+    await site("POST", "/zion/claim", owner, { code: claim.json.code, tag: "Zion" });
+    assert.equal((await site("POST", "/zion/join", trinity, {})).status, 200);
+  });
+  after(async () => {
+    await t.close();
+  });
+
+  test("a community is made with both proof switches on, and the poll tells the plugin", async () => {
+    let view = (await site("GET", "/zion", owner)).json;
+    assert.deepEqual([view.chatProof, view.dataProof], [true, true]);
+    assert.deepEqual({ ...t.app.db.prepare("SELECT chat_proof, data_proof FROM presence_communities WHERE slug = 'zion'").get() }, { chat_proof: 1, data_proof: 1 });
+    let c = (await call(t, "server/poll", LISTED, LISTED_KEY, { hold: 0 })).json.community;
+    assert.deepEqual([c.chatProof, c.dataProof], [true, true]);
+    await settings({ chatProof: false });
+    c = (await call(t, "server/poll", LISTED, LISTED_KEY, { hold: 0 })).json.community;
+    assert.deepEqual([c.chatProof, c.dataProof], [false, true], "an explicit opt-out is kept, and the plugin hears of it");
+    await settings({ chatProof: true });
+  });
+
+  test("a copy of the id of a player who is not in game does not speak as that player", async () => {
+    // Neo is not in game; a game with no proof announces his id (its owner copied it)
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1)]);
+    const before = lines();
+    const r = await said("Admin says: join my server");
+    assert.equal(r.status, 403, r.text);
+    assert.equal(r.json.error, "unverified");
+    assert.equal(lines(), before, "nothing was posted to the community's servers or its page");
+  });
+
+  test("the owner may switch the proof off for chat: the announced id is taken, as the plugin's own gate says", async () => {
+    assert.equal((await settings({ chatProof: false })).status, 200);
+    const r = await said("hello");
+    assert.equal(r.status, 200, r.text);
+    assert.equal(r.json.line, "[Zion] Neo: hello");
+    assert.equal((await settings({ chatProof: true })).status, 200);
+    assert.equal((await said("hello again")).json.error, "unverified");
+  });
+
+  test("only the owner switches a proof requirement off; an admin may switch it on", async () => {
+    assert.equal((await site("POST", "/zion/staff", owner, { username: "Trinity" })).status, 200);
+    const stay = await site("PATCH", "/zion", trinity, { chatProof: true, dataProof: true });
+    assert.equal(stay.status, 200, "an admin saves the page with the switches as they are");
+    for (const body of [{ chatProof: false }, { dataProof: false }]) {
+      const r = await site("PATCH", "/zion", trinity, body);
+      assert.equal(r.status, 403, JSON.stringify(body));
+      assert.match(r.json.message, /owner may switch off the proof/);
+    }
+    assert.deepEqual(t.app.db.prepare("SELECT chat_proof, data_proof FROM presence_communities WHERE slug = 'zion'").all().map((r) => [r.chat_proof, r.data_proof]), [[1, 1]]);
+    assert.equal((await settings({ chatProof: false })).status, 200, "the owner");
+    assert.equal((await site("PATCH", "/zion", trinity, { chatProof: true })).status, 200, "an admin may put it back on");
+    assert.equal(t.app.db.prepare("SELECT chat_proof FROM presence_communities WHERE slug = 'zion'").get().chat_proof, 1);
+  });
+
+  test("a proven game speaks, writes and reads", async () => {
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1, DEV1)]);
+    assert.equal((await said("proven")).status, 200);
+    assert.equal((await set(idOn("Neo"), "5")).status, 200);
+    assert.equal((await get({ id: idOn("Neo") })).json.values["rp.money"].value, "5");
+  });
+
+  test("shared data by an announced id alone: refused to write and to read, until the owner switches it off; by name it is read as ever", async () => {
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1)]);
+    assert.equal((await set(idOn("Neo"), "6")).json.error, "unverified");
+    assert.equal((await get({ id: idOn("Neo") })).json.error, "unverified", "a plugin that gives perks from the read is not fooled");
+    assert.equal((await get({ account: "Neo" })).json.values["rp.money"].value, "5", "the server may read any account's value by name");
+    await settings({ dataProof: false });
+    assert.equal((await set(idOn("Neo"), "7")).status, 200);
+    assert.equal((await get({ id: idOn("Neo") })).json.values["rp.money"].value, "7");
+    await settings({ dataProof: true });
+    assert.equal((await get({ id: idOn("Neo") })).json.error, "unverified");
+  });
+
+  test("/find: an unproven asker is nobody, and an unproven game does not place the player it names", async () => {
+    await settings({ visibility: "private" });
+    const find = (q, fields) => call(t, "server/find", LISTED, LISTED_KEY, { q, ...fields });
+    // Neo and Trinity, both proven: a member who asks sees the private server
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1, DEV1), player(t, "Trinity", LISTED, 2, DEV1)]);
+    assert.equal((await find("Neo", { id: idOn("Trinity") })).json.results[0].address, LISTED, "a proven member");
+    // a game that announces Trinity's id with no proof asks: the server stays hidden
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1, DEV1), player(t, "Trinity", LISTED, 2)]);
+    assert.equal((await find("Neo", { id: idOn("Trinity") })).json.results[0].address, null, "an unproven asker");
+    assert.equal((await find("Neo", {})).json.results[0].address, null, "nobody asking");
+    await settings({ visibility: "listed" });
+    // Trinity is on that server only by an unproven sighting: the site does not say where she is
+    const place = (await find("Trinity", {})).json.results[0];
+    assert.notEqual(place.state, "game");
+    assert.equal(place.address, null);
+    await report(t, LISTED, LISTED_KEY, [player(t, "Neo", LISTED, 1, DEV1), player(t, "Trinity", LISTED, 2, DEV1)]);
+    assert.equal((await find("Trinity", {})).json.results[0].address, LISTED, "proven: findable");
+  });
+});
+
+describe("migration 14: every community that exists gets the proof switches on", () => {
+  test("rows made with the old default, or with one switch on, come out with both on; a community made after is made with both on", async () => {
+    const t = await startApp({ limits: CORE_ROOMY }, { servers: [] });
+    try {
+      migrate(t.app.db, "presence", MIGRATIONS.slice(0, 13), {});
+      await signup(t.base, "Morpheus");
+      const owner = t.app.accounts.getByUsername("Morpheus").id;
+      const ins = t.app.db.prepare("INSERT INTO presence_communities (slug, name, owner_id, created_at, chat_proof, data_proof) VALUES (?, ?, ?, 1, ?, ?)");
+      ins.run("never-chose", "Never chose", owner, 0, 0);
+      ins.run("chat-only", "Chat only", owner, 1, 0);
+      ins.run("data-only", "Data only", owner, 0, 1);
+      assert.deepEqual(migrate(t.app.db, "presence", MIGRATIONS, {}), [14, 15], "the next migrations run");
+      const rows = t.app.db.prepare("SELECT slug, chat_proof, data_proof FROM presence_communities ORDER BY slug").all().map((r) => ({ ...r }));
+      assert.deepEqual(rows, [
+        { slug: "chat-only", chat_proof: 1, data_proof: 1 },
+        { slug: "data-only", chat_proof: 1, data_proof: 1 },
+        { slug: "never-chose", chat_proof: 1, data_proof: 1 },
+      ]);
+    } finally {
+      await t.close();
+    }
+  });
+
+  test("a community made through the site has both on, and an owner's explicit off after the migration stays off", async () => {
+    const t = await app();
+    try {
+      const cookie = await signup(t.base, "Morpheus");
+      const made = await request(t.base, "POST", "/api/presence/communities", { cookie, body: { slug: "zion", name: "Zion" } });
+      assert.equal(made.status, 201, made.text);
+      assert.deepEqual([made.json.chatProof, made.json.dataProof], [true, true]);
+      const off = await request(t.base, "PATCH", "/api/presence/communities/zion", { cookie, body: { chatProof: false, dataProof: false } });
+      assert.deepEqual([off.json.chatProof, off.json.dataProof], [false, false]);
+      assert.deepEqual({ ...t.app.db.prepare("SELECT chat_proof, data_proof FROM presence_communities WHERE slug = 'zion'").get() }, { chat_proof: 0, data_proof: 0 });
+    } finally {
+      await t.close();
+    }
   });
 });

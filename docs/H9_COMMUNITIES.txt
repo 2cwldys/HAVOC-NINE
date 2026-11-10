@@ -113,16 +113,29 @@
  The community's settings (staff): its name; JOIN (open, request or invite)
  and VISIBILITY (listed, unlisted or private), section 2a; CHAT ON (the
  community's chat, on by default); CHAT NEEDS PROVEN PLAYERS and DATA NEEDS
- PROVEN PLAYERS (off by default): only players whose game proved its player
+ PROVEN PLAYERS (on by default): only players whose game proved its player
  id (h9_presence's challenge, docs\H9_PRESENCE.txt section 8) may relay a
- line, or have data written for them; MEMBERS-ONLY SERVERS and WHITELIST
- NEEDS PROVEN PLAYERS (off by default), section 2a. Until H9XASH answers the
- challenge nobody is proven, so turning any of the proof switches on stops
- that for everyone.
+ line, or have data read or written for them. An announced h9_clientid alone
+ is anyone's: every player on a server can read it and copy it. A game that
+ cannot prove (an older H9XASH, a Steam client, a server with
+ h9_presence_challenge 0) keeps the server's own chat and everything else, and
+ is told why when it tries .relay. Switching one of the two off takes the
+ announced id for that feature, from any game: do it only for a community
+ whose players cannot be proven, and know that anyone on its servers can then
+ speak, or write data, as an account whose id they can read. MEMBERS-ONLY
+ SERVERS and WHITELIST NEEDS PROVEN PLAYERS (off by default), section 2a.
+ Migration 14 of h9web's presence module switched both on for every community
+ that existed when it ran (the setting holds on or off and nothing else, so a
+ choice cannot be told from the default; the copy of the database taken before
+ the migration, <dataDir>/backups/pre-migrate-presence-v*.db, still has each
+ community's old values in presence_communities); an owner who wants one off
+ sets it off again on the community's page.
 
  Admins: the owner names them by username (ADMINS) and removes them. They do
- everything on the page except naming admins, putting data back and deleting
- the community, which only the owner (and H9's site admins) can do.
+ everything on the page except naming admins, putting data back, deleting the
+ community, opening its chat to everyone and switching a proof requirement off
+ (CHAT NEEDS PROVEN PLAYERS, DATA NEEDS PROVEN PLAYERS), which only the owner
+ (and H9's site admins) can do. An admin may switch one back on.
 
  Deleting: the owner types the short name. The community, its servers'
  links, its members, requests and invitations, its chat, its bans and mutes
@@ -219,15 +232,22 @@
  whatever the switch says. Off by default. A line shows in game as
      [Web] Username: text
  ".relay" in game does not need membership: anyone a server of the community
- lets in may relay, and those lines reach the site for its members to read.
+ lets in may relay (with a proven game, below), and those lines reach the site
+ for its members to read.
  Announcements show as [Community name] text, and H9's as [H9] text.
 
  Who can relay from a game: a player whose h9_clientid is a havoc9.org
- account's (docs\H9_PRESENCE.txt, section 2), while h9web has that account in
- game on that server by the server's own report (so not in the first few
- seconds after joining), not muted or banned in the community or H9-wide, and
- with CHAT NEEDS PROVEN PLAYERS on, only with a proven game. The line carries
- the account's username, not the name in game.
+ account's (docs\H9_PRESENCE.txt, section 2) and whose game h9web has proven
+ holds that account's player id (the green chain, a second or two after
+ joining, so not in the first few seconds), while h9web has that account in
+ game on that server by the server's own report, not muted or banned in the
+ community or H9-wide. The line carries the account's username, not the name
+ in game. A game that cannot prove is told why in chat and sends nothing: it
+ keeps the server's own chat. With CHAT NEEDS PROVEN PLAYERS switched off by
+ the community's owner, any game whose h9_clientid is an account's relays,
+ except one whose h9_clientid another player on the server announces too (one
+ of them is a copy), which relays only with a game h9web has proven: the
+ plugin says so in chat and sends nothing, until only one game announces the id.
 
  What a line may hold: h9web cleans every line, and the plugin cleans what it
  shows again: no control characters, no Xash colour codes (^0 to ^9), % made
@@ -309,8 +329,11 @@
  Each account's own switches on its ACCOUNT page decide what shows
  (docs\H9_PRESENCE.txt, section 6), exactly as on the site. A private
  community's server shows only when the player asking is that community's
- member (h9_community 1.1 sends who asks); to anyone else that player is "in
- game". A server cannot
+ member (h9_community 1.1 sends who asks, 1.2 only for a proven game: an
+ announced id is not proof of being a member); to anyone else that player is
+ "in game". A player is placed only by a proven game: an account whose only
+ sighting on a server is a game that did not prove its player id (a copy of
+ the id, say) reads as not in game, not on that server. A server cannot
  move a player to another server (section 9), so the address is given to
  type. One search every 5 seconds per player; 60 a minute per server.
 
@@ -371,8 +394,13 @@
  Each call returns at once: true when it went out (its callback will run),
  false when it could not (no live key, id not a player here with an
  h9_clientid, a bad key name, no callback for a read, a value over 1023
- bytes, or 24 calls already in flight). In the callback, id is 0 when the
- player left before the answer came.
+ bytes, or 24 calls already in flight, or, in a community that wants proven
+ players, a player whose game has not proven the player id: h9p_account(id) is 0,
+ as it is for the first second or two after a join). In the callback, id is 0
+ when the player left before the answer came. A value is the account's, kept by
+ the id the game announces; h9web ties the id to the account only for a proven
+ game, and with DATA NEEDS PROVEN PLAYERS switched off it does not: do not give
+ rights from such a value.
 
  status in a callback:
    H9C_OK          done
@@ -380,7 +408,8 @@
    H9C_CONFLICT    the version given is not the one there: value and version
                    are what is there now
    H9C_DENIED      no community, a read-only server, a banned account, or a
-                   community that wants proven players
+                   community that wants proven players and a game that has not
+                   proven the player id
    H9C_LIMIT       a limit below, or too many calls a minute
    H9C_ERROR       havoc9.org did not answer, or not as expected
    H9C_NO_ACCOUNT  the player's h9_clientid is no account's
@@ -494,8 +523,9 @@
          members-only servers among them); approve and refuse requests,
          invite, remove members; ban, mute and kick in the community;
          announce; delete chat lines; read the shared data's history.
-   can't name admins, remove an admin, put data back, delete the community;
-         sanction the owner or an H9 site admin; touch another community;
+   can't name admins, remove an admin, put data back, delete the community,
+         switch a proof requirement off; sanction the owner or an H9 site
+         admin; touch another community;
          see keys, player ids, devices or players' addresses.
 
  A community's owner
@@ -516,7 +546,8 @@
 
  A members-only server trusts the h9_clientid a player's game sends unless
  WHITELIST NEEDS PROVEN PLAYERS is on (section 2a): without it, membership
- keeps out the honest, not a copied id.
+ keeps out the honest, not a copied id. The same holds for chat and shared data
+ once their proof switches are off (section 2).
 
  8. HOW THE SHARED DATA IS PROTECTED
  -----------------------------------
@@ -528,8 +559,9 @@
      server the key belongs to, so a server reaches only its own.
    * A write is only for a player in game on that server now: h9web maps the
      player's h9_clientid to the account with core's own index and checks the
-     server's latest report has that account in game. A banned account's data
-     is not written; DATA NEEDS PROVEN PLAYERS asks for a proven game.
+     server's latest report has that account in game, with a game that proved
+     the player id unless DATA NEEDS PROVEN PLAYERS is off. A read by the
+     player's id asks the same. A banned account's data is not written.
    * Quotas and rate limits, per server and per account (section 6), sizes
      and types (a value is text or nothing), key names checked.
    * The owner (or an admin) makes a server READ-ONLY: it reads and cannot
@@ -714,6 +746,11 @@
  Each body is { "v": 1, "server": "<ip:port>", "ts": <unix seconds>,
  "nonce": "<16 to 64 hex>", ... }, with X-H9-Server: <ip:port> and
  X-H9-Signature: <hex HMAC-SHA256 of the body with the server's key>.
+ A call about a player by h9_clientid is refused 403 unverified when the
+ community wants proven players (chat, and data by id) and the game did not
+ prove the id; the poll's answer names the community with chatProof and
+ dataProof, so the plugin can say why before it asks. /find's id is the
+ asker's, and counts only for a proven game.
  The site (signed in; staff = the owner, its admins and H9's site admins):
    GET    /api/presence/communities
    POST   /api/presence/communities                 { slug, name }
@@ -793,6 +830,14 @@
  ".relay" says "havoc9.org has not seen you on this server yet"
    - Wait a few seconds after joining; and the player's game must send the
      account's player id (docs\H9_PRESENCE.txt, section 2).
+ ".relay" says "Community chat needs a game havoc9.org has proven is yours"
+   - The game has not proven its player id: link it (.link, or Link your
+     Account in the main menu), and wait a few seconds after joining. A
+     Steam client and an H9XASH from before the proof cannot; the server's
+     own chat still works for them. "...asks no game to prove its account"
+     means the server has h9_presence_challenge 0: nobody is proven there,
+     so .relay is off until it is 1 (or the community's owner switches
+     CHAT NEEDS PROVEN PLAYERS off).
  A portal does not show
    - Its tag or server id must be one of the community's other servers
      (h9_community_status counts the portals "leading somewhere"); the
@@ -808,7 +853,8 @@
      destination is not one of H9's listed servers (the SERVERS page).
  A plugin's h9c_ call returns false
    - No live key, the player has no h9_clientid, a key name with capitals or
-     spaces, or 24 calls in flight.
+     spaces, 24 calls in flight, or a player whose game has not proven the
+     player id (h9_community_status says whether the community asks for it).
 
  15. FILES
  ---------

@@ -547,8 +547,10 @@
     {
       const name = el("input", { type: "text", maxlength: 40, value: c.name });
       const chat = el("input", { type: "checkbox", checked: c.chat });
-      const chatProof = el("input", { type: "checkbox", checked: c.chatProof });
-      const dataProof = el("input", { type: "checkbox", checked: c.dataProof });
+      // switching a proof requirement off is the owner's alone (and H9's site admins'); an admin may switch it on
+      const notOwner = !(c.me && c.me.owner);
+      const chatProof = el("input", { type: "checkbox", checked: c.chatProof, disabled: notOwner && c.chatProof });
+      const dataProof = el("input", { type: "checkbox", checked: c.dataProof, disabled: notOwner && c.dataProof });
       const choose = (values, current) => el("select", {}, values.map((v) => el("option", { value: v, text: v, selected: v === current })));
       const joinMode = choose(["open", "request", "invite"], c.joinMode);
       const visibility = choose(["listed", "unlisted", "private"], c.visibility);
@@ -570,7 +572,7 @@
         reload();
       });
       section.append(el("div", { class: "h9c-panel" }, el("h3", { text: "SETTINGS" }),
-        el("p", { class: "h9c-quiet", text: "Proven players: only games that prove the player's H9 id (h9_presence_challenge 1 on the server) may chat or write data." }),
+        el("p", { class: "h9c-quiet", text: "Proven players (on from the start): only games that prove the player's H9 id (h9_presence_challenge 1 on the server) may chat, or have data read or written. Switched off, any game that announces an account's id may, and every player on a server can read that id and copy it." }),
         el("p", { class: "h9c-quiet", text: "Chat open to everyone (the owner's switch): every signed-in player may read and write the chat on this page, not only members. A private community's chat stays its members'. Off by default." }),
         el("p", { class: "h9c-quiet", text: "Join: open, anyone signed in joins; request, an admin approves each; invite, only those invited. Visibility: listed on the communities page; unlisted, only by its link; private, only members (and H9's site admins) see its page, servers, members and chat, and its servers are left out of the site's public lists and of /find." }),
         el("p", { class: "h9c-warn", text: "Members-only servers kick whoever is not a member from the community's servers, with a link to join, and every player with no H9 id (Steam clients). The owner, the admins and H9's site admins always get in. Without WHITELIST NEEDS PROVEN PLAYERS it can be fooled: a copied h9_clientid passes as the member it was copied from. With it, only games that proved the player id get in, admins included: H9XASH with the ID proof on a server with h9_presence_challenge 1, and the web client. An older H9XASH is turned away while it is on." }),

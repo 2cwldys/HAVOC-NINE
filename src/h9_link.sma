@@ -158,7 +158,12 @@ public task_hint(taskid)
 
 	new key[40];
 	get_user_info(id, "h9_clientid", key, charsmax(key));
-	if (strlen(key) != 32)
+	new bool:hex = (strlen(key) == 32);
+	for (new i = 0; hex && key[i]; i++)
+	{
+		hex = ('0' <= key[i] <= '9') || ('a' <= key[i] <= 'f');
+	}
+	if (!hex)
 	{
 		return;
 	}

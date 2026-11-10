@@ -696,7 +696,10 @@
 
    Turning it on (the VPS): "presence" in "modules" in /etc/h9web/config.json, then
      sudo systemctl restart h9web
-   Its tables are made on that start.
+   Its tables are made on that start. An update that brings presence migrations
+   (14: community chat and shared data need proven players, 15: the official
+   preset per game mode) applies them at the next restart, after a copy of the
+   database in <dataDir>/backups; nothing else is needed.
 
    A key for each game server. A server reports who is on it, signed with a key of
    its own; h9web refuses a report without the right signature. A dedicated server
@@ -759,7 +762,27 @@
                                   username, the account that gets the id, then
                                   your own password.
    Audit log actions: presence.flag.resolve, presence.device.allow,
-   presence.device.unbind, presence.id.reset, presence.id.move.
+   presence.device.unbind, presence.id.reset, presence.id.move,
+   presence.preset.import, presence.preset.remove.
+
+   The official preset (admins only; docs\H9_PRESENCE.txt section 4d is the
+   whole story): the files an authenticated server may run are kept as one list
+   per game mode (Assault, Siege, TeamElimination, from H9XASH\presets\
+   plugins.<Mode>.ini) and one list shared by every mode. After each release,
+   import each mode's file, H9XASH\presets\official-preset-<Mode>.json, which
+   names its "gameMode", with POST /api/presence/admin/preset/import (signed in
+   as an admin; "mode": "add" keeps the older builds' hashes official, "replace"
+   drops them from that list), or on the VPS as the service's user:
+     node /opt/h9web/modules/presence/bin/preset-seed.js --h9xash <the release's
+       H9XASH folder> --import --config /etc/h9web/config.json [--mode replace]
+   which fills each mode's list at once. A server whose report names a preset
+   (h9_preset, set by presets\h9_preset.<Mode>.cfg through h9_presets.bat) is
+   judged against that mode's list and the shared one; a server that names none
+   is judged against every list together. The shared entries every earlier import
+   made keep every mode's verdict what it was until they are replaced (--mode
+   replace, or POST .../preset/remove with "gameMode": "*"). GET
+   /api/presence/admin/preset shows each entry's game mode, and for each reporting
+   server the preset it names and the list it was judged by.
 
    What admins see, and do not: the in-game names and finished sessions of an
    account, its devices as hashes, and whether a flagged network was one it has
@@ -813,7 +836,11 @@
    only) or private (members only; its servers are left out of the site's public
    lists, the SERVERS page and /find for anyone else); CHAT OPEN TO EVERYONE (the
    owner's switch: every signed-in player may use the page's chat; never in a
-   private community); MEMBERS-ONLY SERVERS (whoever is not a
+   private community); CHAT NEEDS PROVEN PLAYERS and DATA NEEDS PROVEN PLAYERS (on
+   from the start: only a game that proved the player id may relay a line, or have
+   shared data read or written; off, an announced h9_clientid, which any player
+   on the server can copy, is taken for that feature; only the owner switches
+   them off); MEMBERS-ONLY SERVERS (whoever is not a
    member is kicked, Steam clients always), which a copied h9_clientid can fool
    unless WHITELIST NEEDS PROVEN PLAYERS is on: then only games that proved the
    player id get in (H9XASH with the ID proof, on a server with
