@@ -207,6 +207,10 @@ Renderer extras
   compiles out. What remains is MSR's bloom (r_bloom 1) and scene MSAA
   (r_scene_msaa 4), both on by default, with checkboxes in the video menu. The
   browser build itself has not been made yet.
+  A glowing model (an additive texture: the meridian maps' streetlamps, the RepuTengu glasses, ceiling
+  lights) feeds the bloom. engine-h9-glowfix.patch makes R_Set2DMode bind GL_MODULATE before the bloom is
+  composed: the studio renderer leaves GL_REPLACE bound after the viewmodel, and without it every blur tap
+  was added at full strength and the glow came out as a white rounded square. r_bloom 0 turns the bloom off.
 
 Valve's content
   Steam  The install's own valve\.

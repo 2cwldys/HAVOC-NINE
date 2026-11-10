@@ -14,6 +14,7 @@ of each build, read from git when that build was made. The newest block describe
 The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game) and engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls). Its player model table follows MAX_CLIENTS, 128 since engine-h9-slots128.patch (common\xash3d_types.h): ship it with the xash.dll of the same build.
 The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game), engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls) and engine-h9-shellwhite.patch (a glow shell drawn in white, so in its rendercolor alone, when sprites/shellchrome.spr is not loaded, instead of in the model's last skin). Its player model table follows MAX_CLIENTS, 128 since engine-h9-slots128.patch (common\xash3d_types.h): ship it with the xash.dll of the same build.
 The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game), engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls) and engine-h9-shellwhite.patch (a glow shell drawn in white, so in its rendercolor alone, when sprites/shellchrome.spr is not loaded, instead of in the model's last skin), engine-h9-brushshell.patch (kRenderFxGlowShell drawn on a brush entity too, its faces again pushed out, additive, in its rendercolor: ts_matchmode's siege objectives) and engine-h9-serverfog.patch (the server's movevars fog, sudden death's bog, drawn whatever gl_fog says: The Specialists' client.dll registers its own gl_fog with a default of 0, which the engine gives the existing cvar). Its player model table follows MAX_CLIENTS, 128 since engine-h9-slots128.patch (common\xash3d_types.h): ship it with the xash.dll of the same build.
+The OpenGL renderer. The webassembly patch's renderer part: MSR's bloom and scene MSAA (r_bloom, r_scene_msaa) and gl2_shim fixes, plus engine-h9-suddendeath.patch (movevars fog on a plain game), engine-h9-xray.patch (renderfx 64: sudden death's glow shells, drawn through walls) and engine-h9-shellwhite.patch (a glow shell drawn in white, so in its rendercolor alone, when sprites/shellchrome.spr is not loaded, instead of in the model's last skin), engine-h9-brushshell.patch (kRenderFxGlowShell drawn on a brush entity too, its faces again pushed out, additive, in its rendercolor: ts_matchmode's siege objectives) and engine-h9-serverfog.patch (the server's movevars fog, sudden death's bog, drawn whatever gl_fog says: The Specialists' client.dll registers its own gl_fog with a default of 0, which the engine gives the existing cvar) and engine-h9-glowfix.patch (R_Set2DMode binds GL_MODULATE before the bloom compose: a studio draw leaves GL_REPLACE bound, which dropped the blur taps' weights and blew a glowing mesh out to a white square). Its player model table follows MAX_CLIENTS, 128 since engine-h9-slots128.patch (common\xash3d_types.h): ship it with the xash.dll of the same build.
 == Patch history ==
 Generated Wed 10/21/2026 23:42:17.30, from branch h9 at 7129989e, upstream FWGS master e8d773ea:
 Working tree status for these paths (anything listed is not committed, and is in the diff):
@@ -811,6 +812,19 @@ Commits on h9 since upstream that touch these paths, oldest first:
 7e004b6e 2026-10-21 h9: the sudden-death x-ray -- a depth-test-off glow shell for renderfx 64, drawn where every model draw ends (engine-h9-xray.patch)
 Diff sha256 9642193028b7fcb64e2aaf88d2271d806841107afb29c7da0dd4466070e7eac3, the diff below.
 
+Generated Mon 11/09/2026  9:17:59.18, from branch h9 at 17c23c81, upstream FWGS master e8d773ea:
+Working tree status for these paths (anything listed is not committed, and is in the diff):
+ M ref/gl/gl_draw.c
+ M ref/gl/gl_local.h
+ M ref/gl/gl_rmain.c
+ M ref/gl/gl_rsurf.c
+ M ref/gl/gl_studio.c
+Commits on h9 since upstream that touch these paths, oldest first:
+1cad9184 2026-10-20 h9: webassembly support (engine.patch) and patched submodules
+3d91b622 2026-10-20 h9: sudden death -- the movevars fog (engine-h9-suddendeath.patch)
+7e004b6e 2026-10-21 h9: the sudden-death x-ray -- a depth-test-off glow shell for renderfx 64, drawn where every model draw ends (engine-h9-xray.patch)
+Diff sha256 8f85bdc5708ef2f71a491eac402362ea177018eb367c65efc4d0ffbd08a917c9, the diff below.
+
 diff --git a/ref/gl/gl2_shim/fragment.glsl.inc b/ref/gl/gl2_shim/fragment.glsl.inc
 index 803bc2bf..8ecdcad1 100644
 --- a/ref/gl/gl2_shim/fragment.glsl.inc
@@ -932,10 +946,21 @@ index 91541c9b..1de458af 100644
  	GL2_OVERRIDE_PTR_B( DrawRangeElements )
  	GL2_OVERRIDE_PTR_B( DrawElements )
 diff --git a/ref/gl/gl_draw.c b/ref/gl/gl_draw.c
-index f831be03..3ecdbb52 100644
+index f831be03..0f7ec677 100644
 --- a/ref/gl/gl_draw.c
 +++ b/ref/gl/gl_draw.c
-@@ -188,7 +188,7 @@ void R_Set2DMode( qboolean enable )
+@@ -131,6 +131,10 @@ void R_Set2DMode( qboolean enable )
+ 		if( glState.in2DMode )
+ 			return;
+ 
++		// the bloom compose in GL_BindScreenTarget weights each blur tap by its vertex colour, which only a modulated texture
++		// honours; the studio renderer leaves GL_REPLACE bound after the viewmodel, and every tap would be added whole
++		pglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
++
+ 		GL_BindScreenTarget();
+ 
+ 		matrix4x4 projection_matrix;
+@@ -188,7 +192,7 @@ void R_Set2DMode( qboolean enable )
  		pglDepthMask( GL_TRUE );
  		pglEnable( GL_DEPTH_TEST );
  		// restore the scene fog that was disabled in 2D mode
