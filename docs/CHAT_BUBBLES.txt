@@ -1,0 +1,462 @@
+===============================================================================
+ CHAT BUBBLES: WHAT A PLAYER SAID, DRAWN OVER HIS HEAD BY THE CLIENT
+ (ts_floatchat.amxx's words for an H9 client; reTS cl_dll\h9_chatbubble.cpp)
+===============================================================================
+
+ Who this is for: whoever runs an H9 server (the switches), whoever builds H9's
+ reTS client (the code), and any player who wants to change how it looks.
+
+ The short version
+   * ts_floatchat shows what a player said, to a client that cannot draw it
+     itself, as a HUDMESSAGE whose place the server works out for every viewer
+     ten times a second. That lags a fast turn, takes HUD channels (three
+     people's words at most), and the words of several speakers run into each
+     other on the screen.
+   * An H9 client draws them itself. The server sends each line ONCE, as
+     the H9Say user message; the client keeps each speaker's latest line, and
+     every frame puts it in a box in H9's panel style over the head of the
+     speaker its CROSSHAIR is on. The box is placed on the client's own screen
+     with the client's own camera, so it never lags a turn, and since only the
+     speaker aimed at has a box, lines cannot run into each other.
+   * Every other client is sent the hudmessage. The typing-bubble SPRITE
+     ("..." over a player writing) is the same for everyone.
+   * A box never overlaps the typing sprite: while a speaker's sprite shows, his
+     box rests over it (section 3). A player's own line is his own choice: it
+     is sent to him when his client asks (cl_h9_chatbubble_own 1) or the server
+     makes it everyone's (fc_self 1); by default nobody sees his own line.
+   * Each part has its own switch: the server's h9_floatchat_* cvars and the
+     player's cl_h9_chatbubble_* cvars (section 6). cl_h9_chatbubble_list
+     prints every client switch and its value.
+
+ CONTENTS
+    1. Who gets what
+    2. The message: H9Say
+    3. What the client does with a line
+    4. What it looks like
+    5. The cases
+    6. The switches
+    7. Limits and safety
+    8. The web client
+    9. What was not checked in a game
+   10. A check in a game
+   11. Files
+
+
+ 1. WHO GETS WHAT
+ ----------------
+ A client says what it does with the userinfo key _h9chatbubble (the client
+ sets it, as it sets _h9tts and _h9vgui). ts_floatchat reads it when a player
+ joins and whenever his userinfo changes. The key's value carries two answers:
+ its first character says whether the game draws the words itself, its second
+ whether the player also wants his own line.
+
+   value    who says it                                  the server sends
+   0        cl_h9_chatbubble 0                           the hudmessage
+   1        cl_h9_chatbubble 1, cl_h9_chatbubble_own 0   H9Say, once, when the
+                                                         line is said
+   1s       cl_h9_chatbubble 1, cl_h9_chatbubble_own 1   H9Say, and his own line
+                                                         too (below)
+   (none)   a Steam client, a game older than the key    the hudmessage
+   other    2, 9, s, 01s, an empty value: no 1 first     the hudmessage
+
+ H9Say needs h9_floatchat_bubble 1 as well; with it 0 every game is sent the
+ hudmessage. Only a 1 in the first place counts; the s counts only straight
+ after it, and only a small s (1S, 10 and 1x are "1"). A value is read to 3
+ characters, so a longer one is cut. An older ts_floatchat tests the first
+ character and nothing else, so it reads 1s as 1: a game that asks for its own
+ line is still drawn for as before, it just is not sent the line; and an older
+ client's 1 means what it always did. The own line is a letter after the 1 and
+ not a key of its own because a game's userinfo is 256 bytes and full
+ (h9_clientid was dropped by it once): the s is one byte more, sent only by a
+ player who turned the own line on.
+
+ A player who typed .bubbles (float chat off) is sent neither. A viewer is sent
+ H9Say only while he is alive. A say_team line goes only to the speaker's own
+ team (h9_floatchat_bubble_team 1, the default): the client keeps a line for as
+ long as it stays, and a team line must not reach the other side's game to be
+ held there. The hudmessage path has no team test: it shows a team line to
+ everyone in sight.
+
+ THE OWN LINE. A player cannot see his own head in first person, so his own
+ line is the one box that is not over a head: it sits near the top of his
+ screen (section 3). It is sent to him
+   when fc_self is 1   whatever his game asks, to every player: as H9Say to a
+                       game that draws the words, as the hudmessage to one that
+                       cannot (it has no way to ask)
+   when fc_self is 0   (the default) only if his game asked, with 1s: the
+                       player's cvar decides. A game that asked while
+                       h9_floatchat_bubble is 0 is sent it as the hudmessage
+ The cvar is 0 by default, so by default nobody sees his own line. The client
+ shows the own line it is sent, whatever its cvar says: the cvar is the request,
+ fc_self 1 is the server's order.
+
+ The server does not test distance or sight when it sends: the client does,
+ every frame, with the range the message carries.
+
+
+ 2. THE MESSAGE: H9Say
+ ---------------------
+ Registered by ts_floatchat in plugin_precache, variable length, whatever the
+ cvars say (so every game learns it at connect). Sent with fakemeta's
+ EngFunc_MessageBegin, MSG_ONE_UNRELIABLE: a line lost to a bad packet is a
+ line not shown, and a burst of chat never fills a reliable channel.
+
+   byte    the speaker's slot, 1 to 128; 0 with a ttl of 0 takes every line down
+   byte    flags: bit 0, the line was said in team chat
+   short   how long the line stays, in tenths of a second; 0 takes the
+           speaker's line down
+   short   how far away it shows, in units (fc_range)
+   byte    the top of the speaker's head above his origin standing, in units
+   byte    the same ducking
+   string  the words, at most h9_floatchat_bubble_maxchars (12 to 150), never
+           broken into lines (the client breaks them to fit its box)
+
+ The head heights are what ts_floatchat reads from the speaker's model (the
+ idle sequences' bounding box in models\player\<name>\<name>.mdl: 35 to 39 for
+ a human, 48 for the Mech and the ED-209, standing; 23 to 26 ducking), rounded.
+ The client takes the standing or the ducking one by the speaker's hull and
+ stretches it by his scale.
+
+ The words are what the player said and nothing added: control characters and
+ doubled spaces gone, a line typed all in capitals set in sentence case, cut to
+ the limit with "..." at a space when one is near. At most 188 bytes a message.
+
+ A line comes down for every viewer before its time when its speaker dies,
+ leaves the match, changes to a state the match mode does not show (cloaked,
+ eliminated, spectating) or leaves the server: the plugin sends the slot's
+ ttl 0. A viewer who types .bubbles is sent ttl 0 for slot 0.
+
+ The client reads the message with its own limits whatever it says: at most 24
+ messages a second, the words cleaned and cut to 160 bytes, a ttl of 30 seconds
+ at most, a range of 64 to 16384 units, a slot in the player range.
+
+
+ 3. WHAT THE CLIENT DOES WITH A LINE
+ -----------------------------------
+ It keeps the latest line of each speaker (slot), with when it came and for how
+ long. Each frame, in the HUD's draw (so the boxes are placed in the frame they
+ are painted in; VGUI paints after the HUD), it:
+
+   1. Drops lines whose time is up, and the lines the player does not want
+      (cl_h9_chatbubble_team 0 drops team lines).
+   2. For each speaker: needs his entity in this frame's packet (not out of the
+      PVS), drawn (no EF_NODRAW), not cloaked (render mode set and amount 16 or
+      less), not spectating, in front of the view, within the line's range.
+   3. Aimed mode (cl_h9_chatbubble_aimed 1, the default): the speaker whose
+      BODY the crosshair is on. The body is the rectangle from the point over
+      his head to his feet, as wide as a quarter of its height on each side of
+      his middle, widened all round by cl_h9_chatbubble_aim percent of the
+      screen height (4 by default, 43 px at 1080p; 0 is the body alone). The
+      speaker already shown keeps his box 1.6 times that and 2 px more, so it
+      does not flicker at the edge. Where two bodies are both under the
+      crosshair, the one whose middle is nearer wins. The crosshair is the
+      middle of the screen, also in third person.
+      Every-speaker mode (aimed 0): every speaker whose head point is on the
+      screen, nearest first, at most 4 boxes.
+   4. Line of sight: a trace from the eye (the one the aim names use) to the
+      point over the head, glass ignored and players ignored (the trace goes on
+      past a player), clear to 95 percent of the way. A speaker behind a wall,
+      a door or the world gets no box, however near the crosshair. At most 8
+      traces a frame.
+   5. Draws a box for the first speakers that pass (see the placing below).
+
+ PLACING. The box rests on the point 6 units over the top of the speaker's
+ head (over the top of his typing sprite while that shows, below), centred on
+ it, with a pointer from its bottom edge to that point. It is
+ kept inside the screen (4 px from the sides), above the bottom band the H9
+ panels keep clear (the chat and the HUD's boxes), beneath the top stack of the
+ H9 panels (the notices, the match bar, the row of marks: H9Vgui_StackBottom,
+ docs\H9_VGUI.txt 4c) and off the crosshair's box (6 percent of the width by
+ 4 percent of the height round the middle): when it would not fit where the head
+ puts it, it moves, and the pointer goes (it points only from a box that sits
+ on the point). Boxes of two speakers never overlap: the later one goes above.
+ The player's own line (section 1) sits at the middle of the screen's width,
+ 0.30 of its height, the place the hudmessage gives it.
+
+ THE TYPING SPRITE. While a player's chat line is open the server shows
+ sprites\tsm_typing.spr over his head (a speech bubble with three dots): an
+ entity ts_floatchat makes for him once and keeps, owned by him, hidden with
+ EF_NODRAW when he is not writing (which keeps it out of the packet). Its frames
+ are 128 x 96 pixels, centred on its origin, and it is drawn at fc_scale (0.20,
+ so 19.2 units tall) with its origin fc_rise (24) units over his eyes. For a
+ standing player (eyes 28 over his origin) its top is 28 + 24 + 9.6 = 61.6
+ units over his origin, where a box resting on his head (36 + 6) would sit
+ across it. So the box is lifted:
+   * entity.cpp's HUD_AddEntity tells h9_chatbubble.cpp about each typing sprite
+     it lets through (H9ChatBubble_NoteEntity), by the owner field of its
+     entity state: the player it is over.
+   * For each speaker with a line, Locate asks (TypingSpriteTop) whether his
+     sprite still shows: the entity is still his and still that model (an
+     entity number can be reused), it is in this frame's packet, it is not
+     EF_NODRAW, and the player has cl_h9_chatbubble_typing 1.
+   * If so the box rests 6 units over the sprite's top (its origin's height plus
+     48 times its scale, a scale of 0 being 1 and one over 4 being 4) when that is higher
+     than the point over the head, and never more than 64 units over that point
+     whatever the server's sprite says.
+ The line of sight and the aim are still measured to the point over the head,
+ not to the lift. With no sprite showing the box rests exactly where it always
+ did and stands still; it rises when the sprite comes and falls when it goes.
+ The server takes the sprite down the moment a line is sent, so new words
+ appear with no sprite under them. The lift is measured straight up in the
+ world and the sprite faces the camera, so a steep look down at a speaker
+ leaves a smaller gap between the box and the sprite than a level one.
+ The server's own words for a game that cannot draw them (the hudmessage) rest
+ the same way: 6 units over the sprite's top, 48 x fc_scale over its centre,
+ while the sprite is drawn (words_anchor).
+
+ FADE. A box comes up over 0.12 s when it begins to show, and with
+ cl_h9_chatbubble_fade 1 fades out over the last 0.8 s of the line.
+
+ A line is kept until its time is up, whoever is aimed at: a line that arrives
+ while another speaker is aimed at shows when its speaker is, if that is before
+ its time is up.
+
+
+ 4. WHAT IT LOOKS LIKE
+ ---------------------
+ Everything is the H9 panels' own, so a box looks like a notice of the match
+ bar (docs\H9_VGUI.txt, sections 2 and 9):
+   art        sprites\tsm_banner.spr ("#banner"), the purple brushed-metal
+              slab with the chamfered corners, the dark rim and the corner
+              brackets, drawn through the panels' nine-slice (CH9Surface's
+              art, 32 px corner slices, content box insets 22 18 22 10) at the
+              notices' scale, (screen height / 480) x 0.45 x cl_h9_vgui_scale.
+              It comes in three widths (the art's own, the middle, 30 percent
+              of the screen) and a height by its rows, so for one screen size,
+              scale and text size it makes at most 15 of the panels' art
+              bitmaps (MAX_BITMAPS, 64, in vgui_H9Panel.cpp, is shared with the
+              menus and the notices; the client keeps every size it makes). A
+              single row is a slim banner, as a notice is.
+   font       the textscheme's "H9 Text 1" to "H9 Text 4" (Square 721 Bold
+              through ts\resource\fonts\fonts.txt), by cl_h9_chatbubble_scale;
+              "H9 Flash 1" for the largest size. A scheme file without them
+              gives the stock schemes at the same steps, as the panels do.
+   colours    the words in the scheme's "Primary Button Text" colour (223 213
+              245, the lavender); the heading and the pointer in the lit purple
+              (182 145 234, the art's bracket and rail-lit colour, the panels'
+              titles) or the speaker's team colour; the rule under a heading in
+              the rail's purple (133 98 178), as a menu's title has it.
+   heading    cl_h9_chatbubble_name 1: the speaker's name above the words in the
+              panels' title style: the lit colour, centred, a one-pixel rule in
+              the rail's purple under it.
+   team       cl_h9_chatbubble_teamcolor 1: with a team game on (the GameMode
+              byte not 0), the name and the pointer take the speaker's team
+              colour from the table the scoreboard, the team box and the flag
+              icons use (iTeamColors): team 1 (MSR) blue 125 165 210, team 2
+              (Insurgent) red 200 90 70, 3 yellow, 4 green; no team or another
+              mode: the lit purple. The frame itself is the art and stays
+              purple. There is no role colour: no existing panel has one.
+   words only cl_h9_chatbubble_box 0: no art and no box; the words in the same
+              colours with a one-pixel black shadow, as a notice without art.
+   art missing  the panels' plain dark box (16 10 24) with a rim in the rail's
+              purple, as every H9 panel falls back.
+ Text is drawn as the engine's VGUI font draws it, byte by byte: a multi-byte
+ UTF-8 character shows as its bytes, as it does in the scoreboard and the
+ menus. The wrap and the cut never split one.
+
+
+ 5. THE CASES
+ ------------
+   Speaker behind a wall or a door    no box (the line of sight), whoever is
+                                      aimed at; his line is kept and shows if
+                                      he comes into sight before its time
+   Viewer dead, eliminated, spectating  no box; the server sends H9Say only to a
+                                      living viewer, and the client draws only
+                                      while the HUD's own status does (not dead
+                                      for the HUD, not spectating)
+   Speaker dead, gone, cloaked, out of the match
+                                      the plugin takes his line down; the client
+                                      shows nobody who is not drawn
+   A line while someone else is aimed at  kept; shows when its speaker is aimed
+                                      at, until its time is up
+   Two speakers on the crosshair      the nearer to the middle of the body
+   Text at the screen's edge          the box is kept 4 px inside it; the
+                                      pointer stays on the head
+   A long line or name                wrapped to the box's width (30 percent of
+                                      the screen, 40 for the largest text) and
+                                      cut to cl_h9_chatbubble_lines lines with
+                                      "..."; a name wider than the box is cut
+                                      with "..."; a word wider than the box is
+                                      broken between characters
+   UTF-8                              never split; drawn byte by byte (above)
+   A speaker who leaves               the plugin sends ttl 0 for his slot; a new
+                                      player of that slot never inherits a line
+   Map change, new server             every line is dropped (InitHUDData)
+   The top of the screen              the box stays beneath the stack of notices,
+                                      the match bar and the row of marks, and
+                                      inside the safe area of the panels
+   HUD hidden, scoreboard, intermission  no box (nohud, the scoreboard,
+                                      the intermission); the boxes hide within
+                                      0.3 s of the HUD stopping its draw
+   Scoped or zoomed                   the tolerance is in pixels, so a zoomed
+                                      view aims as finely as it looks
+   The typing sprite up and words over it
+                                      the box rests over the top of the sprite,
+                                      not over the head; the hudmessage's words
+                                      the same
+   A line sent as the chat line closes  the plugin takes the sprite down as the
+                                      line is said: the words come under none
+   The sprite hidden or not wanted    no lift (cl_h9_chatbubble_typing 0, float
+                                      chat off, the speaker gone): the box rests
+                                      over the head
+   A speaker who left, his sprite with him
+                                      the plugin removes the sprite; the entity
+                                      is out of the packet (and may be another
+                                      thing by now): no lift
+   His own sprite, in third person    over his head; his own line is at the top
+   An own line nobody asked for       not sent; a line that is sent is shown
+
+
+ 6. THE SWITCHES
+ ---------------
+ Each does one thing. The client's are saved cvars (FCVAR_ARCHIVE); a changed
+ default reaches new players only. cl_h9_chatbubble_list prints them all.
+
+ SERVER (ts_floatchat; fc_enabled 0 turns everything off, and the existing fc_*
+ and h9_floatchat_maxchars are in COMMANDS.txt):
+   h9_floatchat_words 1        0: no words over heads for any client
+   h9_floatchat_hud 1          0: a client that cannot draw the words itself is
+                               sent none
+   h9_floatchat_typing 1       0: the typing bubble sprite is never shown
+   h9_floatchat_bubble 1       0: no client is sent H9Say; all get the hudmessage
+   h9_floatchat_bubble_hold 0  seconds a line stays for the clients that draw it
+                               (1 to 30); 0: fc_hold + 0.04 a character
+   h9_floatchat_bubble_maxchars 96   most characters of a line sent (12 to 150)
+   h9_floatchat_bubble_team 1  1: a say_team line goes to the speaker's team
+                               only; 0: to everyone, as say goes
+   fc_range, fc_hold           as for the hudmessage; the range and the hold (when
+                               h9_floatchat_bubble_hold is 0) apply to H9Say too
+   fc_self 0                   1: every player is sent his own line, whatever his
+                               game asks (H9Say, or the hudmessage to a game that
+                               cannot draw the words); 0: only a player whose
+                               game asks, with cl_h9_chatbubble_own 1, is
+   fc_red/green/blue, fc_y_tweak, h9_floatchat_maxchars, fc_scale, fc_rise
+                               the hudmessage's colour, height and limit (not
+                               the box's), and the sprite's size and height: the
+                               box and the hudmessage's words rest over the
+                               sprite wherever these put it
+
+ CLIENT:
+   cl_h9_chatbubble 1          master: 0 leaves the words to the hudmessage
+   cl_h9_chatbubble_aimed 1    1 only the speaker aimed at, 0 every one in view
+   cl_h9_chatbubble_aim 4      aim tolerance, percent of the screen height (0-25)
+   cl_h9_chatbubble_range 0    farthest a line shows, units; 0: the server's
+   cl_h9_chatbubble_box 1      1 the panel art, 0 the words alone
+   cl_h9_chatbubble_name 0     1 the name as a heading
+   cl_h9_chatbubble_teamcolor 1  1 the team's colour on the name and the pointer
+   cl_h9_chatbubble_pointer 1  1 the pointer to the head
+   cl_h9_chatbubble_fade 1     1 fade out over the last 0.8 s
+   cl_h9_chatbubble_lines 3    most lines of words in a box (1 to 5)
+   cl_h9_chatbubble_hold 0     seconds a line stays (1 to 30); 0: the server's
+   cl_h9_chatbubble_scale 1    text size, 0.5 to 2: 0.55, 0.7, 0.9 (normal), 1.4
+   cl_h9_chatbubble_team 1     1 shows lines said in team chat
+   cl_h9_chatbubble_own 0      1 asks the server for your own line, shown near the
+                               top of the screen; the server's fc_self 1 sends it
+                               to everyone. Needs cl_h9_chatbubble 1.
+   cl_h9_chatbubble_typing 1   0 hides the server's typing bubble sprite (the
+                               client leaves it out of the frame by its model)
+   cl_h9_chatbubble_list       prints these and their values
+   cl_h9_chatbubble_test <words>  the words over the player the crosshair is on
+                               (a player in view within the aim tolerance, at
+                               least 4 percent), else over you, for 10 seconds:
+                               tries the look with no server plugin
+   _h9chatbubble               userinfo: 0, 1 or 1s (section 1); written at most
+                               once in 2 seconds (the engine ignores a userinfo
+                               update that follows another within 0.6 s and
+                               reads the key at its next resend, about a second
+                               later), with the latest values of the switches
+
+
+ 7. LIMITS AND SAFETY
+ --------------------
+ A server is untrusted: the client's limits are its own. At most 24 H9Say
+ messages a second are read; a line is cleaned (controls to spaces, runs of
+ spaces to one, never inside a multi-byte character), cut to 160 bytes and held
+ at most 30 seconds; a speaker has one line (a newer one replaces it); at most
+ 4 boxes show; a box is wrapped to at most 5 lines; a text with no word in it is
+ dropped. Nothing a message says can run a command, move the cursor or take a
+ key: the boxes are VGUI panels that never take the mouse or the keyboard
+ (CH9Surface). The line of sight is tested by the client, so H9Say shows no
+ one through a wall; but the text of a line reaches a game within range, whatever
+ stands between (a modified client could read it), which is why a team line goes
+ to the team only.
+
+
+ 8. THE WEB CLIENT
+ -----------------
+ The same cl_dll sources are compiled for the browser: h9_chatbubble.cpp uses
+ only the engine's API (GetEntityByIndex, pTriAPI->WorldToScreen, the event
+ API's trace, the cvars, the VGUI panels of vgui_H9Panel.cpp), with no
+ Windows-only call, so the web client's client.dll draws the boxes as the
+ native one does (its VGUI fonts are the browser's canvas, Arial: the text is
+ not Square 721 there, as docs\H9_VGUI.txt 3d says of every panel). No engine
+ patch changes, so xash3d-h9-patches\WEB_PARITY.json has nothing to add. The
+ web client gets it with the client.dll of its next build-webclient.cmd.
+
+
+ 9. WHAT WAS NOT CHECKED IN A GAME
+ ---------------------------------
+ The plugin compiles (amxxpc, no warnings) and the client sources pass a
+ syntax-only compile (cl /Zs, the build's flags and include paths); nothing was
+ run in a game. Not seen: that the trace flags behave as read (PM_STUDIO_IGNORE
+ and PM_GLASS_IGNORE with the event API's EV_PlayerTrace), that WorldToScreen is
+ right inside the HUD's draw (the marks and the team dots use it there), that
+ the body rectangle fits every model, the look of the box at every resolution
+ and size, the placing near the screen's edges and the stack, and the number of
+ art bitmaps made. Also not seen: that the typing sprite reaches HUD_AddEntity
+ with its owner and its height where the lift reads them, that the box clears
+ it at every distance and look (it is lifted straight up, so a steep look down
+ leaves less gap), the rise and fall as the sprite comes and goes, that the
+ server sees 1s and keeps it through the engine's userinfo flood penalty, and
+ that the own line shows and the hudmessage words clear the sprite. Section 10
+ is a check to make in a game.
+
+
+10. A CHECK IN A GAME
+---------------------
+   1. Join a server running the new ts_floatchat with the new client.dll. In
+      the console, cl_h9_chatbubble_list: every switch, _h9chatbubble 1.
+   2. With a second player (or a bot's say through the console), say a line.
+      Aim at the speaker: a purple banner box with the words rests over his
+      head, a pointer under it. Turn fast: the box stays on his head. Aim
+      away: it goes. Aim back within the line's time: it returns.
+   3. A long line wraps to three lines and ends in "...". Say one more line
+      from a third player while the second is aimed at: nothing runs into it;
+      aim at the third and his line is there.
+   4. Stand a wall between you: no box. Open a door or step out: the box.
+   5. Die, or be eliminated: no box. The speaker dies: his line goes.
+   6. cl_h9_chatbubble_name 1: the name over the words in the team's colour.
+      _box 0: words alone with a shadow. _aimed 0: every speaker in view.
+      _scale 0.7 and 1.4: smaller and larger text. _typing 0: the "..." sprite
+      over a player writing is gone. _team 0: say_team lines are not shown.
+   7. cl_h9_chatbubble 0: the hudmessage words return at once (the userinfo
+      key changes), and cl_h9_chatbubble 1 puts the box back.
+   8. On a server with h9_floatchat_bubble 0, or in a client of another kind,
+      the words show as a hudmessage.
+   9. cl_h9_chatbubble_test hello there: the words over the player under the
+      crosshair, else over you, with no server plugin.
+  10. Resize the window (or change cl_h9_vgui_scale) and look at the box again;
+      look at the console for "panel sizes drawn" if boxes lose their art.
+  11. The sprite: a second player says a line, then opens his chat line again
+      while it shows: his box rises over the "..." sprite, never through it, and
+      falls when he sends or cancels. Sending a line takes the sprite down as the
+      words appear. cl_h9_chatbubble_typing 0: no sprite, no lift.
+  12. The own line: cl_h9_chatbubble_list shows cl_h9_chatbubble_own 0 and
+      _h9chatbubble 1. Say something: no box near the top of your screen.
+      cl_h9_chatbubble_own 1: the list shows _h9chatbubble 1s within 2 seconds;
+      say something: a box near the top. Flick the cvar 0 1 0 1 quickly: the
+      list ends on 1s. A server with fc_self 1 sends you your line whatever you
+      set; with a game of cl_h9_chatbubble 0 and fc_self 1 you get the hudmessage.
+
+
+11. FILES
+---------
+   reTS\cl_dll\h9_chatbubble.cpp, h9_chatbubble.h    the client's half (new)
+   reTS\cl_dll\hud.cpp                               H9ChatBubble_Init
+   reTS\cl_dll\entity.cpp                            HUD_AddEntity: the typing sprite
+                                                     (hidden by _typing 0, noted
+                                                     for the box's lift)
+   reTS\cl_dll\CMakeLists.txt                        the two new files
+   ts_floatchat.sma                                  the server's half
+   COMMANDS.txt                                      the cvars
+   reTS\binaries\ts\cl_dlls\client.dll.patch         item 29
