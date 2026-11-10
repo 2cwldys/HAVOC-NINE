@@ -15,23 +15,13 @@ native Handle:ARP_SqlHandle()
 // Gets the name of a table
 native ARP_GetTable(TABLES:table,value[],len)
 
+// Quotes a value for a query, in place, the way the active driver does it (SQL_QuoteString); len is the most
+// characters the buffer holds, as for charsmax. The buffer has to be room for the quotes it doubles.
 stock ARP_SqlEscape(string[],len)
 {
-	switch(ARP_SqlMode())
-	{
-		case MYSQL :
-		{
-			replace_all(string,len,"\\","\\\\")
-			replace_all(string,len,"\0","\\0")
-			replace_all(string,len,"\n","\\n")
-			replace_all(string,len,"\r","\\r")
-			replace_all(string,len,"\x1a","\Z")
-			replace_all(string,len,"'","\'")
-			replace_all(string,len,"^"","\^"")
-		}
-		case SQLITE :
-			replace_all(string,len,"'","''")
-	}
+	static Value[4096]
+	copy(Value,charsmax(Value),string)
+	SQL_QuoteString(Empty_Handle,string,len,Value)
 }
 
 /*

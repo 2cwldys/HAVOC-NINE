@@ -19,8 +19,11 @@ plugins and website\ the old apollorp.org site. The .amxx files under base\addon
 upstream's own builds: H9 never ships them, build.bat builds its own into TSM\compiled. Upstream's
 plugins-arp.ini and modules.ini are not installed either: build.bat lists the plugins in plugins.ini.
 
-H9's changes (H9.patch, beside this file, is the whole diff against the commit above)
--------------------------------------------------------------------------------------
+H9's changes (H9.patch, H9-menus.patch and H9-arpfix.patch, beside this file, are the whole diff against the commit above)
+--------------------------------------------------------------------------------------------------------------------------
+H9.patch is the diff against the commit above as of 2026-11-03 (items 1 to 13); H9-menus.patch (item 14, 2026-11-08) and
+H9-arpfix.patch (items 15 to 17, 2026-11-09) hold the later changes, each a diff against the files as they stood before it;
+H9-arpcontent.patch (the two plugin changes of item 19, 2026-11-09) and H9-arphud.patch (item 21) come after (item 20 is a default in arp.cfg and ARP_Core.sma, in no patch).
 In base\addons\amxmodx\scripting, only in the set H9 builds for The Specialists: ARP_Core,
 ARP_Commands, ARP_Config, ARP_HUD, ARP_HungerMod, ARP_Items, ARP_JailMod, ARP_NPCs, ARP_RobMod,
 ARP_TalkArea, ARP_Zones and ARP_TS. ARP_CS, ARP_TFC, ARP_BCompat and extra\ are not built. And two
@@ -78,7 +81,49 @@ folders of H9's own maps under base\addons\amxmodx\configs\arp\maps (item 13).
 13. H9's maps (configs\arp\maps). h9_tsrp_hive: its jailmod.ini, the four cells of the Alexandria
    jail wired to the map's cages (al_cell1-4), managers (al_cell1mm-4mm) and panels
    (al_jail1act-4act), and an empty zones.ini. h9_tsrp_newbyzantium: an empty jailmod.ini and
-   zones.ini. Neither has NPCs, a rob.ini or an SQL file yet.
+   zones.ini. Neither has a rob.ini. Their NPCs and jobs are item 19.
+
+14. H9 VGUI menus (every plugin that shows a menu: ARP_Core, ARP_Commands, ARP_Config, ARP_Items,
+   ARP_JailMod, ARP_NPCs, ARP_TalkArea, ARP_TS). Each menu is also an H9 VGUI panel for a player whose
+   game draws them. include\ApolloRP_VGui.inc, new, wraps include\h9_vgui.inc: a plugin calls
+   arpvgui_precache() in plugin_precache and arpvgui_init("<ns>") in plugin_init; show_menu() became
+   arpvgui_show_menu(..., "<ns>.<name>") (16 menus), and menu_display() on a menu_create() menu became
+   arpvgui_menu_display(id, menu, panel, title, handler) (6 menus; the plugin defines ARPVGUI_PAGED
+   before the include). Any other player, and a player whose cl_h9_arpvgui is 0 (arpvgui_wanted reads the
+   _h9arpvgui key of his userinfo), gets the call it replaces, unchanged. docs\H9_VGUI.txt 1e lists every menu.
+
+15. Characters across a server address change (ARP_Core, include\ApolloRP_Player.inc, ApolloRP_Properties.inc).
+   H9XASH makes a player's authid per server (ID_ and an MD5 of his id and the server's IPv4), and ARP keys
+   everything on it. ARP_Core now keeps a character's key (ARP_GetUserKey, the authid its rows are under) and
+   makes a table, arp_ids (authid, account), beside the others: when h9_presence proves a player's havoc9.org
+   account (h9p_account, a second or two after he is in game), his authid is recorded with it; the first authid
+   recorded for an account is its character's key, and a join under any authid of the account reads the
+   character under that key. A player no row knows waits for the proof, up to arp_account_wait seconds (30; 0
+   leaves it all out), then gets a character of his own. Nothing is rewritten: rows of the other tables stay
+   under the authid they were made with. ARP_IDS.txt has the migration and the way back.
+
+16. SQL values (include\ApolloRP_SQL.inc, ARP_Core). ARP_SqlEscape quotes with the SQL module's SQL_QuoteString
+   (it did its own replace_all, wrong for MySQL), and every authid, key and name that reaches a query is quoted:
+   UTIL_ARP_AddJob used the job name it had not quoted. A property owner's authid is read 35 characters long (32
+   cut an H9XASH authid), and a key row is read 95 (64 cut a long property name after one).
+
+17. Bots (ARP_Core). No HUD is sent to a bot, nor its hover line: nothing reads a bot's datagram, and the
+   engine logged "Datagram overflowed" for them every second (ts\logs\h9_overflow.log).
+
+18. Jobs by map (ARP_Core). A map's folder may hold an arp.ini of its own, which the core reads after the server's, so it can
+   name tables of its own (arp_table_jobs, arp_table_users, arp_table_items; upstream's own override). H9's two maps use it for
+   their jobs (arp_table_jobs "arp_jobs_<map>"), so a server's other maps do not get H9's jobs. A character whose saved job is
+   not in the map's jobs table is Unemployed there, as before, and his saved job is kept (g_KeptJob): the save writes it back as it
+   was, unless he takes another job on that map (the SetUserJob native or a deleted job clears it), and the notice says the job is
+   not offered on this map. A visit to another map does not cost a character his rank.
+
+19. H9's content (configs\arp\maps\<map>\npcs.ini and <map>.sql, docs\ARP_CONTENT.txt). Each of the two roleplay maps has NPCs that
+   open its menus (shops, bank tellers, ATM droids, doctors, a gun shop, ammunition and licence counters, the Ministry quartermaster),
+   standing on open ground of the map, and an SQL file with the Ministry of Defense ranks and a civilian layer as jobs (INSERT OR
+   IGNORE, loaded by an admin with arp_config > Load Map SQL Data into the map's own jobs table). Two plugin changes, in
+   H9-arpcontent.patch: ARP_Core's ARP_FindJobId copies at most the caller's MaxResults ids into its array (a short name that matched
+   more jobs wrote past the array of arp_setjob and arp_employ), and arp_setjob and arp_employ take the job whose name is exactly the
+   argument although a longer name holds it too (Cadet and M-Cadet).
 
 Building and running it
 -----------------------
@@ -88,3 +133,30 @@ carries them, and this folder, on. ARP uses the AMX Mod X modules engine, fakeme
 fun, tsx, tsfun and sqlite, all in H9's build (TSM\AMXMODX). On a roleplay map without a folder of
 its own under configs\arp\maps the core logs "Configuration directory missing" and runs with no
 doors, properties, NPCs or zones until one is made; H9's two have theirs (item 13).
+
+20. arp_godwindows (configs\arp\arp.cfg, and the default register_cvar gives it in ARP_Core.sma) is 0, not 1: only func_door and
+   func_door_rotating are unbreakable (arp_goddoors 1), and func_breakable (manhole covers, vents, glass, crates) can be broken. Set it to 1 to protect them too.
+
+21. The HUD as panels (ARP_Core, ARP_HUD, include\ApolloRP_HUD.inc; H9-arphud.patch). A player whose game says it can
+   (the userinfo key _h9arphud, which H9's client keeps at 1 while cl_h9_arphud and cl_h9_vgui are not 0) is sent each of ARP's
+   four HUDs as lines in the user message H9ArpHud, reliably (MSG_ONE; an unreliable message rides in the datagram the entities
+   fill on a big map, and the engine drops a datagram that does not fit whole, the way ts\logs\h9_overflow.log reports
+   "Datagram overflowed"), in place of the hudmessage; every other player, and every bot, keeps the hudmessage exactly as before.
+   RenderHud gathers the lines of a HUD as it always did and, for a panel player, sends them (ArpHudSend): a message is op 1, hud,
+   the content's number, the part (bit 7 on the last), the line count, then in part 0 the HUD's x and y (arp_hudN_x and _y in
+   thousandths) and for each line a kind byte and the text, at most 184 bytes; a longer HUD is sent in parts, and the client keeps
+   what it had until the last part has come. A HUD is sent when its lines, kinds or place change and again after arp_hud_refresh
+   seconds (10, 5 to 60); the notice (HUD 4) after a second and a half when unchanged. A HUD that empties is taken down once (op 2);
+   a player moved between the two forms has the other form taken down (an empty hudmessage on each channel, or op 3).
+   arp_hud_panel (1) is the server's switch: 0 sends everyone the text HUD. ShowHud decides each player's form once a pass
+   (ArpHudUpdate): the panel needs arp_hud_panel 1, the message registered (plugin_precache, after arpvgui_precache), h9vgui_supported
+   (h9_vgui 1, _h9vgui, not a bot) and _h9arphud at 1; the log has a line when his form changes, with the reason, and one when
+   the first panel update goes to him. arp_hudstate (a console command, so the server console can ask; ARP_CmdAccess) lists every
+   player, his form and the reason, the userinfo key as the server reads it, the messages sent and the last lines of each HUD.
+   Each line of a HUD now has a kind: the value the HUD's trie holds for its line is HUDK_* (it was the channel, which nothing
+   read). The new native ARP_AddHudItemKind(id, channel, refresh, kind, text, ...) adds a line of a kind (a channel outside 0 to
+   HUD_NUM - 1 is refused; ARP_AddHudItem's own test, "> HUD_NUM", is left as it was); ARP_AddHudItem adds HUDK_EXTRA. ARP_HUD
+   gives its lines HUDK_TITLE (the title and the blank line after it), _WALLET, _BANK, _PAYDAY, _SALARY, _JOB and _STATUS (the
+   dead, account loading and malfunction lines); the lines the other plugins add (hunger, jail, zone, alcohol, the third HUD's
+   chat) stay HUDK_EXTRA. ARP_HUD needs this ARP_Core: against an older one it fails to load (native ARP_AddHudItemKind not found);
+   build.bat builds both. UTIL_ARP_AddHudItem and AddItem take the kind. docs\APOLLO_RP.txt 2 says what a player sees.

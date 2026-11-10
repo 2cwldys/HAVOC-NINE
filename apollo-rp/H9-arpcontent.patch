@@ -1,0 +1,51 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Commands.sma b/base/addons/amxmodx/scripting/ARP_Commands.sma
+--- a/base/addons/amxmodx/scripting/ARP_Commands.sma
++++ b/base/addons/amxmodx/scripting/ARP_Commands.sma
+@@ -64,6 +64,16 @@
+ public ARP_Error(const Reason[])
+ 	pause("d")
+ 
++// H9: whether job JobId is named Name exactly. ARP_FindJobId lists the shortest names first, so the job called Name leads its own
++// search: "Cadet" is the job Cadet, although the name of M-Cadet holds it too
++H9_JobNamed(JobId,const Name[])
++{
++	new JobName[33]
++	ARP_GetJobName(JobId,JobName,32)
++	
++	return equali(JobName,Name)
++}
++
+ public CmdFire(id,level,cid)
+ {
+ 	if(read_argc() != 2)
+@@ -1295,7 +1305,7 @@
+ 	if(!JobID)
+ 	{
+ 		new Num = ARP_FindJobId(Arg,Results,2)
+-		if(Num > 1)
++		if(Num > 1 && !H9_JobNamed(Results[0],Arg))
+ 		{
+ 			client_print(id,print_console,"Found more than one result for your input (%s).",Arg)
+ 			return PLUGIN_HANDLED
+@@ -1347,7 +1357,7 @@
+ 	
+ 	new Results[2],Result
+ 	
+-	if((Result = ARP_FindJobId(Arg,Results,2)) > 1)
++	if((Result = ARP_FindJobId(Arg,Results,2)) > 1 && !H9_JobNamed(Results[0],Arg))
+ 	{
+ 		client_print(id,print_console,"There is more than one job matching your input.")
+ 		return PLUGIN_HANDLED
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -4909,7 +4909,8 @@
+ 		Results[Count] = Temp[Cell]
+ 	}
+ 	
+-	set_array(2,Results,Num)
++	// H9: the caller's array holds MaxResults cells; Num counts every job that matched
++	if(Num) set_array(2,Results,min(MaxResults,Num))
+ 	
+ 	return Num
+ }	

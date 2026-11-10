@@ -1,0 +1,609 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+index 864e105..f15b631 100644
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -166,6 +166,51 @@ new TravTrie:g_HudArray[MAX_PLAYERS + 1][HUD_NUM]
+ new g_HudCleared[MAX_PLAYERS + 1][HUD_NUM]
+ new g_HudPending
+ 
++// H9: the HUD as a panel. A player whose game says so (the userinfo key _h9arphud, which its cl_h9_arphud keeps) is sent each HUD's
++// lines in the user message H9ArpHud in place of the hudmessage; every other player keeps the hudmessage. A message holds a few
++// lines of one HUD, each with its kind (HUDK_*), and a HUD that needs more is sent as parts, the last one marked; the game keeps
++// what it was last given until it is given something else. docs\APOLLO_RP.txt, section 2.
++#define HUDP_MAX_LINES 24      // lines of one HUD that are sent
++#define HUDP_LINE_LEN 173      // room for a line: 172 characters of it are sent
++#define HUDP_MSG_MAX 184       // bytes of one message: the engine's 192 less a margin
++#define HUDP_NOTICE_GAP 1.5    // seconds before the notice's unchanged lines are sent again
++#define HUDP_OP_CONTENT 1      // the lines of one HUD
++#define HUDP_OP_CLEAR 2        // one HUD taken down
++#define HUDP_OP_CLEAR_ALL 3    // every HUD taken down
++
++// why a player is, or is not, sent the panel (g_HudWhy)
++#define HUDWHY_PANEL 0
++#define HUDWHY_SERVER 1
++#define HUDWHY_NOMSG 2
++#define HUDWHY_NOVGUI 3
++#define HUDWHY_NOKEY 4
++#define HUDWHY_OFF 5
++
++new const g_HudWhyText[][] =
++{
++	"_h9arphud is 1",
++	"arp_hud_panel is 0 on this server",
++	"the H9ArpHud message was not registered",
++	"his game draws no H9 panels (no _h9vgui, cl_h9_vgui 0 or h9_vgui 0)",
++	"his game sends no _h9arphud (an older game, or its userinfo is full)",
++	"_h9arphud is 0 (cl_h9_arphud 0)"
++}
++
++new g_HudMsg
++new p_HudPanel
++new p_HudRefresh
++new g_HudPanel[MAX_PLAYERS + 1]
++new g_HudWhy[MAX_PLAYERS + 1] = {-1,...}
++new g_HudGen[MAX_PLAYERS + 1][HUD_NUM]
++new g_HudSig[MAX_PLAYERS + 1][HUD_NUM]
++new Float:g_HudSentAt[MAX_PLAYERS + 1][HUD_NUM]
++new g_HudSentMsgs[MAX_PLAYERS + 1]
++new g_HudFirstLogged[MAX_PLAYERS + 1]
++new g_HudLast[MAX_PLAYERS + 1][HUD_NUM][96]
++new g_PanelText[HUDP_MAX_LINES][HUDP_LINE_LEN]
++new g_PanelKind[HUDP_MAX_LINES]
++new g_PanelNum
++
+ new g_Time
+ 
+ new g_ItemsArray
+@@ -286,6 +331,10 @@ public plugin_init()
+ 	ARP_RegisterCmd("say /menu","CmdMenu","Shows client menu")
+ 	ARP_RegisterCmd("arp_plugins","CmdPlugins","Shows current plugins running")
+ 	ARP_RegisterCmd("arp_query","CmdQuery","(ADMIN) Executes an SQL query")
++
++	// H9: who is sent the HUD as a panel and who the text HUD (a console command too, so the server console can ask)
++	ARP_AddCommand("arp_hudstate","(ADMIN) Shows who is sent the HUD panel and who the text HUD, and what was last sent")
++	register_concmd("arp_hudstate","CmdHudState",_,"- who is sent the HUD panel and who the text HUD")
+ 	
+ 	register_touch("player","func_door","PlayerTouch")
+ 	register_touch("func_door","player","PlayerTouch")
+@@ -919,6 +968,10 @@ public plugin_precache()
+ 	p_Log = register_cvar("arp_log","1")
+ 	p_GameName = register_cvar("arp_gamename","")
+ 	p_HoverMessage = register_cvar("arp_hover_message","1")
++	// H9: 1 sends the HUD as a panel to the games that draw it, 0 sends everyone the text HUD; the seconds before a HUD that
++	// has not changed is sent again (5 to 60)
++	p_HudPanel = register_cvar("arp_hud_panel","1")
++	p_HudRefresh = register_cvar("arp_hud_refresh","10")
+ 	// H9: seconds a join may wait for a havoc9.org account (arp_ids); 0: no account is waited for, used or recorded
+ 	p_AcctWait = register_cvar("arp_account_wait","30")
+ 	//p_CharacterSheet = register_cvar("arp_character_sheet","1")
+@@ -973,6 +1026,9 @@ public plugin_precache()
+ 	
+ 	arpvgui_precache()
+ 	
++	// H9: variable length (-1), registered here so every game learns it as it joins
++	g_HudMsg = engfunc(EngFunc_RegUserMsg,"H9ArpHud",-1)
++	
+ 	new MapName[33],ConfigFile[128]
+ 	
+ 	get_configsdir(ConfigFile,127)
+@@ -1573,6 +1629,8 @@ public client_disconnect(id)
+ {
+ 	remove_task(id + MAX_PLAYERS * 2)
+ 	
++	ArpHudForget(id)
++	
+ 	if(g_GotInfo[id] >= STD_USER_QUERIES && !g_PluginEnd)
+ 	{
+ 		SaveUserData(id,1)
+@@ -2454,6 +2512,7 @@ public plugin_natives()
+ 	register_native("ARP_AddCommand","_ARP_AddCommand")
+ 	
+ 	register_native("ARP_AddHudItem","_ARP_AddHudItem")
++	register_native("ARP_AddHudItemKind","_ARP_AddHudItemKind")
+ 	
+ 	register_native("ARP_GetPayday","_ARP_GetPayday")
+ 	
+@@ -4534,11 +4593,46 @@ public _ARP_AddHudItem(Plugin,Params)
+ 	if(g_HudPending)
+ 		Refresh = 0
+ 	
+-	UTIL_ARP_AddHudItem(id,Channel,g_Query,Refresh)
++	UTIL_ARP_AddHudItem(id,Channel,g_Query,Refresh,HUDK_EXTRA)
+ 	
+ 	return SUCCEEDED
+ }
+ 
++// H9: ARP_AddHudItem for a line of a given kind
++public _ARP_AddHudItemKind(Plugin,Params)
++{
++	if(Params < 5)
++	{
++		format(g_Query,4095,"Parameters do not match. Expected: 5, Found: %d",Params)
++		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
++	}
++
++	new id = get_param(1),Channel = get_param(2),Refresh = get_param(3),Kind = get_param(4)
++	if(!is_user_connected(id) && id != -1)
++	{
++		format(g_Query,4095,"User not connected: %d",id)
++		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
++	}
++
++	if(Channel < 0 || Channel >= HUD_NUM)
++	{
++		format(g_Query,4095,"Invalid channel: %d",Channel)
++		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
++	}
++
++	if(Kind < HUDK_EXTRA || Kind > HUDK_STATUS)
++		Kind = HUDK_EXTRA
++
++	vdformat(g_Query,4095,5,6)
++
++	if(g_HudPending)
++		Refresh = 0
++
++	UTIL_ARP_AddHudItem(id,Channel,g_Query,Refresh,Kind)
++
++	return SUCCEEDED
++}
++
+ public _ARP_SqlHandle(Plugin,Params)
+ 	return _:g_SqlHandle
+ 
+@@ -5344,6 +5438,7 @@ public client_putinserver(id)
+ 	g_GotInfo[id] = 0
+ 	for(new Hud;Hud < HUD_NUM;Hud++)
+ 		g_HudCleared[id][Hud] = 0
++	ArpHudForget(id)
+ 	
+ 	//g_Money[id] = 0
+ 	//g_BankMoney[id] = 0
+@@ -5719,6 +5814,9 @@ public ShowHud()
+ 			DestroyForward(Fwd)
+ 		}
+ 		
++		// H9: whether he is sent the HUD as a panel or as the text HUD
++		ArpHudUpdate(Player)
++		
+ 		for(Count2 = 0;Count2 < HUD_NUM;Count2++)
+ 			RenderHud(Player,Count2)
+ 	}
+@@ -5750,13 +5848,21 @@ RenderHud(id,Hud)
+ 	
+ 	g_Query[0] = 0
+ 	
+-	new travTrieIter:Iter = GetTravTrieIterator(g_HudArray[id][Hud]),Priority,Ticker
++	g_PanelNum = 0
++	
++	new travTrieIter:Iter = GetTravTrieIterator(g_HudArray[id][Hud]),Kind,Ticker
+ 	while(MoreTravTrie(Iter))
+ 	{
+ 		ReadTravTrieKey(Iter,Temp,255)
+-		ReadTravTrieCell(Iter,Priority)
++		ReadTravTrieCell(Iter,Kind)
+ 		
+-		float(Priority)
++		// H9: a line's value in the trie is its kind (HUDK_*); the panel is sent the lines apart, the text HUD the one text
++		if(g_HudPanel[id] && g_PanelNum < HUDP_MAX_LINES)
++		{
++			g_PanelKind[g_PanelNum] = Kind
++			copy(g_PanelText[g_PanelNum],HUDP_LINE_LEN - 1,Temp)
++			g_PanelNum++
++		}
+ 		
+ 		Ticker += format(g_Query[Ticker],4095 - Ticker,"%s^n",Temp)
+ 	}
+@@ -5767,6 +5873,13 @@ RenderHud(id,Hud)
+ 			
+ 	g_HudPending = false
+ 	
++	// H9: a player whose game draws the panel is sent it, and no hudmessage
++	if(g_HudPanel[id])
++	{
++		ArpHudSend(id,Hud)
++		return
++	}
++	
+ 	/*for(new Count,CurArray,Ticker;Count < g_HudNum[id][Hud];Count++)
+ 	{
+ 		CurArray = array_get_int(g_HudArray[id][Hud],Count)
+@@ -5807,6 +5920,284 @@ RenderHud(id,Hud)
+ 	ShowSyncHudMsg(id,g_HudObjects[Hud],"%s",g_Query)
+ }
+ 
++// H9: why a player is, or is not, sent the HUD as a panel: HUDWHY_PANEL when he is, else the first thing that says no
++ArpHudWhy(id)
++{
++	if(!get_pcvar_num(p_HudPanel))
++		return HUDWHY_SERVER
++	
++	if(g_HudMsg <= 0)
++		return HUDWHY_NOMSG
++	
++	if(!h9vgui_supported(id))
++		return HUDWHY_NOVGUI
++	
++	new Value[8]
++	get_user_info(id,"_h9arphud",Value,7)
++	if(!Value[0])
++		return HUDWHY_NOKEY
++	
++	return str_to_num(Value) >= 1 ? HUDWHY_PANEL : HUDWHY_OFF
++}
++	
++// H9: once a pass of ShowHud, for each human player: decides which HUD he is sent, and moves him from one to the other
++ArpHudUpdate(id)
++{
++	new Why = ArpHudWhy(id)
++	if(Why != g_HudWhy[id])
++	{
++		new Name[32]
++		get_user_name(id,Name,31)
++		log_amx("[ARP] HUD: %s is sent %s: %s",Name,Why == HUDWHY_PANEL ? "the HUD panel" : "the text HUD",g_HudWhyText[Why])
++		g_HudWhy[id] = Why
++	}
++	
++	new Panel = Why == HUDWHY_PANEL ? 1 : 0
++	if(Panel == g_HudPanel[id])
++		return
++	
++	g_HudPanel[id] = Panel
++	ArpHudReset(id)
++	
++	if(Panel)
++		ArpHudClearText(id)
++	else
++		ArpHudPanelDown(id)
++}
++	
++// H9: what was sent to a player is forgotten, so the next pass sends every HUD whole
++ArpHudReset(id)
++{
++	for(new Hud;Hud < HUD_NUM;Hud++)
++	{
++		g_HudSig[id][Hud] = 0
++		g_HudSentAt[id][Hud] = 0.0
++		g_HudLast[id][Hud][0] = 0
++	}
++}
++	
++// H9: a player joins or leaves: he is sent the text HUD until his game says otherwise
++ArpHudForget(id)
++{
++	g_HudPanel[id] = 0
++	g_HudWhy[id] = -1
++	g_HudSentMsgs[id] = 0
++	g_HudFirstLogged[id] = 0
++	ArpHudReset(id)
++}
++	
++// H9: the hudmessages of a player who is now sent the panel are taken down, each HUD's channel with an empty text
++ArpHudClearText(id)
++{
++	for(new Hud;Hud < HUD_NUM;Hud++)
++	{
++		set_hudmessage(get_pcvar_num(p_Hud[Hud][R]),get_pcvar_num(p_Hud[Hud][G]),get_pcvar_num(p_Hud[Hud][B]),get_pcvar_float(p_Hud[Hud][X]),get_pcvar_float(p_Hud[Hud][Y]),0,0.0,999999.9,0.0,0.0,-1)
++		ShowSyncHudMsg(id,g_HudObjects[Hud],"%s","")
++		g_HudCleared[id][Hud] = 1
++	}
++}
++	
++// H9: the panels of a player who is now sent the text HUD are taken down
++ArpHudPanelDown(id)
++{
++	if(g_HudMsg <= 0 || !is_user_connected(id) || is_user_bot(id))
++		return
++	
++	ArpHudBegin(id,HUDP_OP_CLEAR_ALL)
++	message_end()
++	
++	for(new Hud;Hud < HUD_NUM;Hud++)
++		g_HudCleared[id][Hud] = 0
++}
++	
++// H9: opens an H9ArpHud message to one player. It is reliable: an unreliable message travels in the same datagram as the
++// entities, which a big map fills, and a datagram that does not fit is dropped whole.
++ArpHudBegin(id,Op)
++{
++	engfunc(EngFunc_MessageBegin,MSG_ONE,g_HudMsg,Float:{0.0,0.0,0.0},id)
++	write_byte(Op)
++	g_HudSentMsgs[id]++
++}
++	
++// H9: a HUD's place on the screen as the arp_hudN_x and _y say, in thousandths; -1 is centred
++ArpHudCoord(Pcvar)
++{
++	new Float:Value = get_pcvar_float(Pcvar)
++	return Value < 0.0 ? -1 : clamp(floatround(Value * 1000.0),0,1000)
++}
++	
++ArpHudHash(Hash,Kind,Text[])
++{
++	Hash = Hash * 31 + Kind + 1
++	for(new Count;Text[Count];Count++)
++		Hash = Hash * 31 + Text[Count]
++	
++	return Hash
++}
++	
++// H9: sends the lines RenderHud has gathered in g_PanelText and g_PanelKind (g_PanelNum of them) as the panel of one HUD, when they
++// are not what he already has, or when it is time to say them again (arp_hud_refresh; the notice's gap).
++//   op 1   byte op, byte hud, byte number of the content, byte part (bits 0 to 3) with bit 7 on the last one, byte lines,
++//          then in part 0 only: short x and y in thousandths; then each line: byte kind, string text.
++//   op 2   byte op, byte hud: the HUD is taken down.
++//   op 3   byte op: every HUD is taken down.
++// A HUD that does not fit in one message is sent as parts of one content. Nothing the game holds changes until the last one has
++// come, so a part that was lost leaves it what it had.
++ArpHudSend(id,Hud)
++{
++	new Float:Now = get_gametime()
++	new Num = g_PanelNum
++	
++	if(!Num)
++	{
++		// the notice takes itself down on his screen; any other HUD that was up is taken down once
++		if(Hud != HUD_QUAT && g_HudSig[id][Hud])
++		{
++			ArpHudBegin(id,HUDP_OP_CLEAR)
++			write_byte(Hud)
++			message_end()
++	
++			g_HudSig[id][Hud] = 0
++			g_HudSentAt[id][Hud] = Now
++			g_HudLast[id][Hud][0] = 0
++		}
++		return
++	}
++	
++	new Px = ArpHudCoord(p_Hud[Hud][X]),Py = ArpHudCoord(p_Hud[Hud][Y])
++	
++	new Sig = Px * 1009 + Py + 7919
++	for(new Count;Count < Num;Count++)
++		Sig = ArpHudHash(Sig,g_PanelKind[Count],g_PanelText[Count])
++	if(!Sig)
++		Sig = 1
++	
++	new Float:Gap = Hud == HUD_QUAT ? HUDP_NOTICE_GAP : float(clamp(get_pcvar_num(p_HudRefresh),5,60))
++	new Float:Age = Now - g_HudSentAt[id][Hud]
++	if(Sig == g_HudSig[id][Hud] && Age >= 0.0 && Age < Gap)
++		return
++	
++	new Gen = (g_HudGen[id][Hud] + 1) & 255
++	g_HudGen[id][Hud] = Gen
++	
++	new Line,Part,Bytes
++	while(Line < Num)
++	{
++		// as many lines as the message has room for, and at least one
++		new Start = Line,Size = Part ? 5 : 9
++		while(Line < Num)
++		{
++			new Cost = 2 + strlen(g_PanelText[Line])
++			if(Line > Start && Size + Cost > HUDP_MSG_MAX)
++				break
++	
++			Size += Cost
++			Bytes += Cost - 2
++			Line++
++		}
++	
++		// a content has at most 16 parts: what does not fit in them is left out
++		new bool:Last = Line >= Num || Part >= 15
++		if(Last)
++			Num = Line
++	
++		ArpHudBegin(id,HUDP_OP_CONTENT)
++		write_byte(Hud)
++		write_byte(Gen)
++		write_byte(Part | (Last ? 128 : 0))
++		write_byte(Line - Start)
++		if(!Part)
++		{
++			write_short(Px)
++			write_short(Py)
++		}
++		for(new Count = Start;Count < Line;Count++)
++		{
++			write_byte(g_PanelKind[Count])
++			write_string(g_PanelText[Count])
++		}
++		message_end()
++	
++		Part++
++	}
++	
++	g_HudSig[id][Hud] = Sig
++	g_HudSentAt[id][Hud] = Now
++	
++	// what he was last sent, for arp_hudstate: the lines with a bar between them
++	new Len
++	g_HudLast[id][Hud][0] = 0
++	for(new Count;Count < Num && Len < 94;Count++)
++		Len += formatex(g_HudLast[id][Hud][Len],95 - Len,"%s%s",Count ? "|" : "",g_PanelText[Count])
++	
++	if(!g_HudFirstLogged[id])
++	{
++		g_HudFirstLogged[id] = 1
++	
++		new Name[32]
++		get_user_name(id,Name,31)
++		log_amx("[ARP] HUD panel: first update sent to %s (HUD %d: %d line(s), %d byte(s) of text, %d message(s))",Name,Hud + 1,Num,Bytes,Part)
++	}
++}
++	
++// H9: arp_hudstate, from a console or the server's: who is sent the HUD panel and who the text HUD, why, and what was last sent
++public CmdHudState(id,cid)
++{
++	if(!ARP_CmdAccess(id,cid,1))
++		return PLUGIN_HANDLED
++	
++	console_print(id,"[ARP] HUD: arp_hud_panel %d (0 sends everyone the text HUD), arp_hud_refresh %d s, the H9ArpHud message is %s.",get_pcvar_num(p_HudPanel),clamp(get_pcvar_num(p_HudRefresh),5,60),g_HudMsg > 0 ? "registered" : "NOT registered")
++	
++	new Players[MAX_PLAYERS],Playersnum,Player,Name[32],Key[8],Why[96],Panels,Texts
++	new Float:Now = get_gametime()
++	get_players(Players,Playersnum)
++	for(new Count;Count < Playersnum;Count++)
++	{
++		Player = Players[Count]
++		get_user_name(Player,Name,31)
++	
++		if(is_user_bot(Player))
++		{
++			console_print(id,"#%d %s: a bot, sent no HUD.",Player,Name)
++			continue
++		}
++	
++		get_user_info(Player,"_h9arphud",Key,7)
++		if(!Key[0])
++			copy(Key,7,"missing")
++	
++		if(g_HudWhy[Player] < 0)
++			copy(Why,95,"not decided yet")
++		else
++			copy(Why,95,g_HudWhyText[g_HudWhy[Player]])
++	
++		if(g_HudPanel[Player])
++			Panels++
++		else
++			Texts++
++	
++		console_print(id,"#%d %s: %s (%s); userinfo _h9arphud is %s; %d panel message(s) sent.",Player,Name,g_HudPanel[Player] ? "PANEL" : "TEXT HUD",Why,Key,g_HudSentMsgs[Player])
++	
++		if(!g_HudPanel[Player])
++			continue
++	
++		for(new Hud;Hud < HUD_NUM;Hud++)
++		{
++			if(g_HudSentAt[Player][Hud] <= 0.0)
++				console_print(id,"      HUD %d: nothing sent.",Hud + 1)
++			else if(!g_HudSig[Player][Hud])
++				console_print(id,"      HUD %d: taken down %.1f s ago.",Hud + 1,Now - g_HudSentAt[Player][Hud])
++			else
++				console_print(id,"      HUD %d: sent %.1f s ago: %s",Hud + 1,Now - g_HudSentAt[Player][Hud],g_HudLast[Player][Hud])
++		}
++	}
++	
++	console_print(id,"[ARP] HUD: %d player(s) sent the panel, %d the text HUD.",Panels,Texts)
++	
++	return PLUGIN_HANDLED
++}
++	
++
+ /*ClearHud(id,Hud)
+ {
+ 	for(new Count,CurArray;Count < g_HudNum[id][Hud];Count++)
+@@ -6208,12 +6599,12 @@ UTIL_ARP_ClientPrint(id,Message[],{Float,Sql,Result,_}:...)
+ 		{
+ 			//ClearHud(id,HUD_QUAT)
+ 			TravTrieClear(TravTrie:g_HudArray[id][HUD_QUAT])
+-			UTIL_ARP_AddHudItem(id,HUD_QUAT,g_Query,!g_HudPending)
++			UTIL_ARP_AddHudItem(id,HUD_QUAT,g_Query,!g_HudPending,HUDK_EXTRA)
+ 		}
+ 	}
+ }
+ 
+-UTIL_ARP_AddHudItem(id,Channel,Message[],Refresh)
++UTIL_ARP_AddHudItem(id,Channel,Message[],Refresh,Kind)
+ {
+ 	new Copy[128]
+ 	copy(Copy[2],125,Message)
+@@ -6227,20 +6618,20 @@ UTIL_ARP_AddHudItem(id,Channel,Message[],Refresh)
+ 		new Players[MAX_PLAYERS],Playersnum
+ 		get_players(Players,Playersnum)
+ 		for(new Count;Count < Playersnum;Count++)
+-			AddItem(Players[Count],Channel,Message,Refresh)
++			AddItem(Players[Count],Channel,Message,Refresh,Kind)
+ 	}
+ 	else
+-		AddItem(id,Channel,Message,Refresh)	
++		AddItem(id,Channel,Message,Refresh,Kind)	
+ }
+ 
+-AddItem(id,Channel,Message[],Refresh)
++AddItem(id,Channel,Message[],Refresh,Kind)
+ {
+ 	//new CurArray = array_create()
+ 	//array_set_int(g_HudArray[id][Channel],g_HudNum[id][Channel]++,CurArray)
+ 	
+ 	//array_set_string(CurArray,0,Message)
+ 	
+-	TravTrieSetCell(g_HudArray[id][Channel],Message,Channel)
++	TravTrieSetCell(g_HudArray[id][Channel],Message,Kind)
+ 	
+ 	if(Refresh)
+ 		RenderHud(id,Channel)
+diff --git a/base/addons/amxmodx/scripting/ARP_HUD.sma b/base/addons/amxmodx/scripting/ARP_HUD.sma
+index 6891dd0..824c4b6 100644
+--- a/base/addons/amxmodx/scripting/ARP_HUD.sma
++++ b/base/addons/amxmodx/scripting/ARP_HUD.sma
+@@ -33,31 +33,31 @@ public EventHudRender(Name[],Data[],Len)
+ 	replace_all(Title,255,"#hostname#",Hostname)
+ 	replace_all(Title,255,"\n","^n")
+ 	
+-	ARP_AddHudItem(id,HUD_PRIM,0,Title)
+-	ARP_AddHudItem(id,HUD_PRIM,0," ")
++	ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_TITLE,Title)
++	ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_TITLE," ")
+ 	
+ 	if(ARP_SqlHandle() == Empty_Handle)
+ 	{
+-		ARP_AddHudItem(id,HUD_PRIM,0,"SERVER MALFUNCTIONING:")
+-		ARP_AddHudItem(id,HUD_PRIM,0,"Your account will not be saved.")
++		ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_STATUS,"SERVER MALFUNCTIONING:")
++		ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_STATUS,"Your account will not be saved.")
+ 	}
+-	else if(!is_user_alive(id)) ARP_AddHudItem(id,HUD_PRIM,0,"You are currently dead/spectating...")
+-	else if(!ARP_PlayerReady(id)) ARP_AddHudItem(id,HUD_PRIM,0,"Please wait while your account is loaded...")
++	else if(!is_user_alive(id)) ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_STATUS,"You are currently dead/spectating...")
++	else if(!ARP_PlayerReady(id)) ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_STATUS,"Please wait while your account is loaded...")
+ 	else
+ 	{
+ 		new JobID = ARP_GetUserJobId(id)
+ 		
+-		ARP_AddHudItem(id,HUD_PRIM,0,"Wallet: $%d",ARP_GetUserWallet(id))
+-		ARP_AddHudItem(id,HUD_PRIM,0,"Bank: $%d",ARP_GetUserBank(id))
++		ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_WALLET,"Wallet: $%d",ARP_GetUserWallet(id))
++		ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_BANK,"Bank: $%d",ARP_GetUserBank(id))
+ 		
+ 		if(ARP_ValidJobId(JobID))
+ 		{
+-			ARP_AddHudItem(id,HUD_PRIM,0,"Payday: %dm",ARP_GetPayday())
+-			ARP_AddHudItem(id,HUD_PRIM,0,"Salary: $%d/hr",ARP_GetJobSalary(JobID))
++			ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_PAYDAY,"Payday: %dm",ARP_GetPayday())
++			ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_SALARY,"Salary: $%d/hr",ARP_GetJobSalary(JobID))
+ 			ARP_GetJobName(JobID,Temp,63)
+-			ARP_AddHudItem(id,HUD_PRIM,0,"Job: %s",Temp)
++			ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_JOB,"Job: %s",Temp)
+ 		}
+ 		else
+-			ARP_AddHudItem(id,HUD_PRIM,0,"Job: INVALID (contact admin)")
++			ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_JOB,"Job: INVALID (contact admin)")
+ 	}
+ }
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc b/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
+index 9c88a5e..129554b 100644
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
+@@ -12,6 +12,21 @@
+ // Channel is a channel from the "HUD_NUM" enum
+ native ARP_AddHudItem(id,channel,refresh,const item[],{Float,Sql,Result,_}:...)
+ 
++// What a line is. An H9 player's HUD panel (include\h9_vgui.inc, docs\APOLLO_RP.txt section 2) switches each kind on and off
++// with its own client cvar (cl_h9_arphud_title, _wallet, _bank, _payday, _salary, _job, _status and _extra); a line added with
++// ARP_AddHudItem is HUDK_EXTRA. The text HUD every other player gets does not care.
++#define HUDK_EXTRA   0   // anything a plugin adds: hunger, jail status, the zone, ...
++#define HUDK_TITLE   1   // the title (the city) and the blank line after it
++#define HUDK_WALLET  2
++#define HUDK_BANK    3
++#define HUDK_PAYDAY  4
++#define HUDK_SALARY  5
++#define HUDK_JOB     6
++#define HUDK_STATUS  7   // the dead, loading and malfunction lines
++
++// ARP_AddHudItem for a line of a given kind (a HUDK_ value; any other is HUDK_EXTRA)
++native ARP_AddHudItemKind(id,channel,refresh,kind,const item[],{Float,Sql,Result,_}:...)
++
+ // Refreshes the HUD specified
+ stock ARP_RefreshHud(id,channel)
+ 	ARP_AddHudItem(id,channel,1," ")

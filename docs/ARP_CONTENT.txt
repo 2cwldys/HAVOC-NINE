@@ -1,0 +1,333 @@
+ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9_tsrp_newbyzantium
+====================================================================================================
+
+  Apollo RP builds every menu from content (docs\APOLLO_RP.txt, section 2). This is the content of H9's two roleplay
+  maps: the Ministry of Defense ranks as jobs, a civilian layer, and the NPCs that open the shops, the banks, the
+  ATMs, the doctors and the gun shops, standing on open ground of each map. Nothing here has been run in a game yet
+  (section 8).
+
+
+1. WHAT IS IN IT
+----------------
+
+  Per map, in apollo-rp\base\addons\amxmodx\configs\arp\maps\<map>\:
+    <map>.sql   the jobs: 26 rows of INSERT OR IGNORE INTO arp_jobs. An admin loads it on the map (section 2); ARP does not run it by itself.
+    npcs.ini    the NPCs: ARP_NPCs reads it when the map loads (hive: 22 NPCs, New Byzantium: 32).
+    arp.ini     (already there) arp_table_jobs "arp_jobs_<map>": the jobs are the map's own, in their own table.
+
+  The items themselves are not content: ARP's plugins register all 93 of them in code (section 5). What the content
+  decides is which NPC sells which item for how much, and which jobs there are.
+
+
+2. HOW AN ADMIN LOADS IT
+------------------------
+
+  1. Back up data\sqlite3\arp.sq3 with the server stopped (docs\APOLLO_RP.txt, section 4). Start the map once with the files in
+     place: that makes the map's jobs table (arp_jobs_h9_tsrp_hive or arp_jobs_h9_tsrp_newbyzantium) with the one job Unemployed.
+  2. Join as an ARP admin (access letter z) and, on THAT map, open the console and type  arp_config  ->  3. Load Map SQL Data. The menu
+     opens for an ARP admin and for an AMX Mod X admin with the ban flag; the latter makes himself an ARP admin first with 1. Add First
+     ARP Admin. The screen shows "N/26 Completed - 0 Errors" and then "Map SQL loading is complete". The file loaded is the one
+     named for the map you are on (<map>.sql in its folder).
+  3. Restart the map: the jobs are read when the map loads. arp_joblist in the console lists them, JOBID in the order of section 3.
+  Loading again is harmless: every row is INSERT OR IGNORE, so a second load adds nothing and changes nothing, and a row an admin
+  has edited keeps the edit. (Checked on a copy of the live database: two loads give 26 rows with 0 errors each time.)
+  The loader runs one statement to a line, skips a line that starts with - ; or # (or is under 3 characters), and swaps ARP's default
+  table names for the map's own: the file says arp_jobs and the statement runs on arp_jobs_<map>. The NPCs need no loading: npcs.ini is
+  read at every map start, so a change to it shows after the map restarts.
+  A MySQL server (arp_sql_type "mysql") needs  INSERT IGNORE  where the file says  INSERT OR IGNORE ; H9 runs SQLite.
+
+
+3. THE JOBS
+-----------
+
+  Salary is paid every 60 seconds into the BANK (ARP_Core's ShowHud counts the payday down once a second; the employ offer's "$/h"
+  is upstream's wording). New characters start with $500 (arp_startmoney) and Unemployed pays 5. JOBID is the row order, which
+  is the order the file inserts: lowest rank first.
+
+  JOBID  name              salary  access  tier                  hired by a job right of
+  -----  ----------------  ------  ------  --------------------  -----------------------
+  1      Unemployed             5  -       Civilian              (an admin only)
+  2      Citizen               10  -       Civilian              (an admin only)
+  3      Laborer               12  -       Civilian              (an admin only)
+  4      Courier               15  -       Civilian              (an admin only)
+  5      Technician            18  -       Civilian              (an admin only)
+  6      Merchant              20  -       Civilian              (an admin only)
+  7      Cadet                 20  ac      Junior                c
+  8      M-Cadet               20  bc      Junior                c
+  9      Enforcer 1            25  ac      Junior                c
+  10     M-Enforcer 1          25  bc      Junior                c
+  11     Enforcer 2            30  ac      Junior                c
+  12     M-Enforcer 2          30  bc      Junior                c
+  13     Enforcer 3            35  ac      Junior                c
+  14     M-Enforcer 3          35  bc      Junior                c
+  15     Ensign                40  ac      Junior                c
+  16     M-Ensign              40  bc      Junior                c
+  17     Sergeant 1            45  ad      NCO                   d
+  18     Sergeant 2            50  ad      NCO                   d
+  19     Lieutenant            60  ad      NCO                   d
+  20     Captain               70  abe     Officer               e
+  21     Major                 80  abe     Officer               e
+  22     Guardian              90  abf     High command          f
+  23     Legate               100  abf     High command          f
+  24     Lord Commander       120  abf     High command          f
+  25     Lord Minister        150  abg     Head of the Ministry  (an admin only)
+  26     Administrator          0  z       ARP administration    (an admin only)
+
+  Access letters (configs\arp\arp.cfg names the first three; the others are this content's own):
+    a  police     arp_police_access. Cuffs, the jail menu and panels, the door breakers (Steel Axe, Door C2), /com; a cop cannot be tazered or cuffed.
+    b  medical    arp_medical_access. Counted as medical by ARP_IsMed (the /911 call reaches it).
+    z  ARP admin  arp_admin_access. Every (ADMIN) command and arp_config. Only the Administrator job has it; no rank does.
+    g  Lord Minister's own: no job right holds it, so only an admin can offer the job (section 4).
+    c d e f       hiring tiers. They open no door and give no power; they say who may offer or take away the job (section 4).
+  The M- ranks are the Medical Division: b and no a, the same salary as the rank beside them. From Captain up the division is not
+  named (the museum: medical designations are dropped around Captain), so Captain to Lord Minister hold both a and b.
+  No rank holds z. A rank is a role in the roleplay and never an ARP admin; administration is the Administrator job (26), which an
+  admin gives with arp_setjob and which nobody else can offer, since no job right holds z. Lord Minister is the same kind of job in
+  that only an admin can give it (its letter g is held by no job right).
+  The civilian layer has no letters. The jobs are a starting set: add more with arp_addjob (section 7).
+
+
+4. HIRING, FIRING AND JOB RIGHTS
+--------------------------------
+
+  arp_setjob <player> <job>      ARP admins only (z). Sets the job at once. <job> is a name in quotes ("Enforcer 1") or the JOBID.
+  arp_employ <player> <job>      Offers the job; the player accepts or declines. Allowed to an admin, or to anyone whose JOB RIGHT shares
+                                 a letter with the job's access letters.
+  arp_fire <player>              Sets the player Unemployed. Same rule: a job right that shares a letter with the player's job.
+  arp_setjobright <player> <l>   ARP admins only. A player's job right is a set of letters kept on his character (arp_users.jobright),
+                                 NOT taken from his job: set it when he is promoted and take it away when he is not (<l> = -  for none).
+  The tiers make the Ministry hire from below. Give these job rights, and never a, b, g or z (a job right of a would let its holder offer
+  every police job, and a job right of z or g would let its holder offer the Administrator or the Lord Minister):
+    Sergeant 1, Sergeant 2, Lieutenant      c       can offer and take Cadet to Ensign and M-Cadet to M-Ensign
+    Captain, Major                          cd      and Sergeant 1 to Lieutenant
+    Guardian, Legate                        cde     and Captain, Major
+    Lord Commander                          cdef    and Guardian, Legate, Lord Commander
+    Lord Minister                           cdef    the same as a Lord Commander; the Lord Minister and the Administrator are an admin's to give
+  A job whose name is inside another's (Cadet inside M-Cadet) is still the job you name: arp_employ <player> "Cadet" offers Cadet.
+  That needs H9-arpcontent.patch (ARP_Commands: an exact name wins). Without it ARP answers "more than one job matching your input"
+  for Cadet, Enforcer 1 to 3 and Ensign, and the JOBID works instead. The same patch (ARP_Core) stops a short name that matches
+  three or more jobs ("Enforcer") from writing past the command's array.
+  A character keeps the job he has on a map that does not offer it (docs\APOLLO_RP.txt, section 8): the Ministry ranks belong to
+  these two maps only, and a visit elsewhere does not cost a rank.
+
+
+5. ITEMS AND THE SHOPS
+----------------------
+
+  An item is a kind of thing a character can carry: /items lists them with a count, and a handler in the plugin that registered it says
+  what using it does. There are 93, all registered in code, none by this content:
+    33    ARP_Items (licences, smokes, lighters, tools, drinks, drugs, door breakers, cards, restraints)
+    8     ARP_HungerMod (food)
+    1     ARP_JailMod (Cuffs)
+    7     ARP_TalkArea (phones, subscriptions, bugs)
+    44    ARP_TS (31 TS guns and 13 ammunition kinds)
+  A gun is an item: buying one puts it in /items, using it opens the attachment menu and gives the gun. An ammunition item, used with
+  the matching gun in hand, refills it. TS's licence classes are in the gun's description: Non-Restricted needs a Permitted License,
+  Restricted a Restricted License, Prohibited cannot be bought at a gun shop (AK-47, Barrett M82A1, M61 Grenade, M60E3, sawed-off, Contender).
+
+  What each shop role sells (price in $). The same role sells the same list on both maps.
+
+  General Store (shop)
+    Soda 10, Fries 20, Milk 30, Hotdog 40, Pizza 50, Hamburger 70, Pasta 80, Steak 90, Cigarette 10, Lighter
+    10, Zippo Lighter 50, Flashlight 40, Spray Can 50
+
+  Cantina (shop)
+    Beer 20, Gin 30, Whiskey 40, Vodka 60, Hawk Miller Light 80, Soda 10, Fries 20, Hotdog 40, Pizza 50,
+    Hamburger 70, Steak 90
+
+  Tech Counter (shop)
+    Motorola RAZR 400, Sony Ericsson 500, Nokia 6820 200, Phone Prepaid Card 60, Phone Subscription 150,
+    Flashlight 40, Bug Scanner 700
+
+  Black Market (shop)
+    Flashbang 200, Tazer 500, Lockpick 1000, Electric Lockpick 2500, Chlorofoam 400, Tape 50, Rope 100, Bug
+    800, Spray Can 50, Permitted License 2000, Restricted License 10000
+
+  Ministry Quartermaster (shop)
+    Cuffs 150, Tazer 400, Flashlight 30, Flashbang 150, Rope 80, Steel Axe 300, Door C2 800, First Aid Kit
+    120
+
+  Ministry Licensing Clerk (shop)
+    Permitted License 1000, Restricted License 5000
+
+  Pharmacy (shop)
+    First Aid Kit 120, Milk 30, Soda 10
+
+  Hardware Counter (shop)
+    Flashlight 40, Rope 100, Tape 50, Spray Can 50, Lighter 10
+
+  Luxury Goods (shop)
+    Cuban Cigar 40, Tobacco Pipe 60, Zippo Lighter 80, Whiskey 60, Vodka 80, Steak 120
+
+  Ammunition Counter (shop)
+    9mm Parabellum Ammo 40, 12 Gauge Shells Ammo 60, 5.56mm NATO Ammo 80, .45 ACP Ammo 60, .50 AE Ammo 100,
+    5.7mm FN Ammo 90, 10mm Auto Ammo 70, .22 Hornet Ammo 30, .454 Casull Ammo 110, .32 ACP Ammo 40
+
+  Medical Officer (doctor): Heal Me $100 (1 health a second until 100, the player cannot move), then
+    First Aid Kit 150
+
+  Licensed Arms Dealer (gunshop: three menus; Permitted and Restricted need that licence in /items, and the Licenses menu sells it)
+    Permitted:
+      GLOCK-18 1000, Mini-Uzi 1500, H&K MP5K 1800, Akimbo Beretta 92Fs 1000, H&K SOCOM MK23 600, IMI Desert
+      Eagle 750, FN Five-seveN Tactical 400, Skorpion 1200, H&K MP7 1600, Golden Colt 1911A1s 1200,
+      GLOCK-20C 800, H&K UMP 1500, Combat Knife 100, Mossberg 500 1000, Ruger MK1 250, Katana 200, Seal
+      Knife 150
+    Restricted:
+      Benelli M3 2000, Colt M4A1 3000, H&K MP5SDA5 2500, Daewoo USAS-12 3000, Steyr AUG 3300, SPAS-12 1800,
+      Colt M16A4 2500, Taurus Raging Bull 1600
+    Licenses:
+      Permitted License 1000, Restricted License 5000
+
+  Bank Teller (bank): Withdraw/Deposit (say /withdraw <amount> or /deposit <amount> facing him, or /withdraw with a Debit Card anywhere),
+  Buy ATM Card $10, Buy Debit Card $100. ATM Droid (atm): needs an ATM Card in /items; withdraws or deposits $10 to $1000.
+
+  Not sold by any NPC: Crack, Heroin, PCP, Mushroom, Cocaine, Acid, Assassin Knife, 7.62mm Soviet Ammo, .50 BMG Ammo, 7.62mm NATO Ammo.
+  A sell or addgun line names an item by any part of its name; ARP takes the shortest name that holds the text, which
+  is the item itself. So Gin (also inside Taurus Raging Bull), Lighter, Lockpick and Bug (inside longer names) resolve
+  to themselves, and the gun shop says Skorpion for vz. 61 "Skorpion", whose name has quotation marks that a line
+  cannot carry.
+
+
+6. THE NPCs
+-----------
+
+  An NPC is a player model standing still: the player looks at it and presses use (e). A shop, a doctor and a gun shop open a menu; a
+  bank offers withdraw/deposit and the cards; an ATM works with an ATM Card. Models are H9XASH player models (standard_idle is
+  sequence 1, the one ARP plays): the clerks wear the proletarian models, the tellers the agent model, the ATMs are the MSR droid,
+  the medics are the ins_medic pair, the quartermaster is an XCCP soldier. A model is only a name in npcs.ini: change it freely.
+  Every spot was proved against the map (section 8). Origin is a standing player's origin (36 over the floor); "facing" is the way the
+  NPC looks, which npcs.ini writes as the facing plus 180.
+
+  h9_tsrp_hive: three cities, one hub in each, beside where players arrive  (22 NPCs)
+    name                       type     model                        origin            facing
+
+    Paradise Plaza -- Paradise City's plaza where the spawn points are (-468 1895); the full set of services
+    General Store              shop     proletarian_healthy          -240 2003 -270    193
+    Cantina                    shop     prole_fem                    -336 2067 -270    225
+    Tech Counter               shop     prole_bfem                   -448 2067 -270    270
+    Bank Teller                bank     agent                        -576 2083 -270    315
+    ATM Droid                  atm      msrdroid_bot                 -560 1939 -270    8
+    Medical Officer            doctor   ins_medic                    -400 1939 -270    162
+    Licensed Arms Dealer       gunshop  merc                         -352 1843 -270    131
+    Ammunition Counter         shop     seal                         -240 1827 -270    148
+    Black Market               shop     proletarian_dirty            -128 1667 -270    138
+    Ministry Quartermaster     shop     XCCPsgts_helmet_off          -96 1843 -270     162
+
+    Xenon Concourse -- the open floor in Xenon City's middle (-39 152), where its team spawns are
+    General Store              shop     proletarian_healthy          169 168 1015      184
+    Cantina                    shop     prole_fem                    57 312 1015       239
+    Bank Teller                bank     agent                        -135 312 1015     301
+    ATM Droid                  atm      msrdroid_bot                 -199 136 1015     6
+    Medical Officer            doctor   ins_medic_fem                -151 -8 1015      55
+    Black Market               shop     proletarian_dirty            41 168 1015       191
+
+    Ministry Concourse -- Alexandria, the hall at (400 -2600) on the floor of the arrival from Paradise (the portal at -922 -3187)
+    Ministry Quartermaster     shop     XCCPsgts_helmet_off          550 -2594 -2324   182
+    Ministry Licensing Clerk   shop     agent                        470 -2466 -2324   242
+    Ministry Bank Teller       bank     agent                        454 -2354 -2324   258
+    ATM Droid                  atm      msrdroid_bot                 454 -2658 -2324   133
+    Medical Division Officer   doctor   ins_medic                    294 -2834 -2324   66
+    General Store              shop     proletarian_healthy          470 -2770 -2324   112
+
+  h9_tsrp_newbyzantium: nine hubs, in the district halls and plazas  (32 NPCs)
+    name                       type     model                        origin            facing
+
+    Well Plaza -- the north plaza of the Well, street level (the city's centre)
+    General Store              shop     proletarian_healthy          -1044 1490 36     331
+    Tech Counter               shop     prole_bfem                   -692 1490 36      320
+    Bank Teller                bank     agent                        -356 1490 36      301
+    ATM Droid                  atm      msrdroid_bot                 -4 1586 36        270
+    Medical Officer            doctor   ins_medic                    348 1490 36       239
+    Licensed Arms Dealer       gunshop  merc                         700 1490 36       220
+    Ammunition Counter         shop     seal                         1052 1490 36      209
+
+    Bazaar Hall -- the market hall of the Bazaar district
+    General Store              shop     proletarian_healthy          4220 -648 36      180
+    Cantina                    shop     prole_fem                    4124 -504 36      247
+    Black Market               shop     proletarian_dirty            3932 -536 36      320
+    ATM Droid                  atm      msrdroid_bot                 3948 -744 36      40
+    Tech Counter               shop     prole_bfem                   4124 -776 36      115
+
+    Exchange Hall -- the Mese's hall of the Exchange (bank), upper level z 1056
+    Exchange Bank Teller       bank     agent                        -1896 3432 1092   273
+    Exchange Bank Teller       bank     agent                        -1928 3240 1092   39
+    ATM Droid                  atm      msrdroid_bot                 -1800 3224 1092   151
+
+    Infirmary Avenue -- the avenue through the Infirmary district, south east
+    Infirmary Medical Officer  doctor   ins_medic_fem                3462 -4180 36     36
+    Infirmary Medical Officer  doctor   ins_medic                    3718 -4180 36     65
+    Pharmacy                   shop     ins_medic_fem                4022 -4164 36     123
+    ATM Droid                  atm      msrdroid_bot                 4294 -4212 36     145
+
+    North Precinct -- the lobby of the MSR's north precinct, street level (the Ministry's counter)
+    Ministry Quartermaster     shop     XCCPsgts_helmet_off          -620 2648 36      8
+    Ministry Licensing Clerk   shop     agent                        -620 2760 36      352
+
+    Stacks Atrium -- the atrium of the Stacks, north
+    General Store              shop     proletarian_healthy          -568 3928 36      176
+    ATM Droid                  atm      msrdroid_bot                 -776 3928 36      4
+
+    Rookery Hall -- the hall of the Rookery slums, north west
+    Black Market               shop     proletarian_dirty            -3716 4120 36     179
+    Cantina                    shop     prole_fem                    -4132 4328 36     289
+    Street Medic               doctor   ins_medic_fem                -4116 3976 36     71
+
+    Foundry Hall -- the hall of the Foundry, south west
+    Cantina                    shop     prole_fem                    -4064 -4224 36    0
+    Hardware Counter           shop     proletarian                  -4160 -3936 36    294
+    ATM Droid                  atm      msrdroid_bot                 -4064 -4336 36    74
+
+    Heights Garden -- the garden court of Spire Heights, north east
+    Luxury Goods               shop     laurence                     4200 4286 36      179
+    ATM Droid                  atm      msrdroid_bot                 3928 4430 36      306
+    Heights Medical Officer    doctor   ins_medic                    3976 4126 36      71
+
+  How a map's NPCs behave, from ARP_NPCs: a bank NPC's NAME must hold the word bank (the chat commands find a banker by it); an NPC whose
+  model file is missing is dropped silently and its sell lines go to the next NPC; the limit is 50 NPCs, 49 items each; a line over 126
+  characters is cut in two. None of the NPCs here is a robbery target (no rob line, no rob.ini).
+
+
+7. CHANGING IT
+--------------
+
+  A salary or an access string (live, as an ARP admin in the console, on one line, with the map's real table name; it applies after the
+  map restarts, and to a player after he reconnects):
+      arp_query UPDATE arp_jobs_h9_tsrp_hive SET salary=90 WHERE name='Captain'
+  Then make the file say the same, or a fresh database loads the old row: edit the number in <map>.sql. Editing the file alone changes
+  nothing on a map that already has the row: arp_config runs INSERT OR IGNORE, which never overwrites a row.
+  A new rank: arp_addjob "Warden" 55 ad   (name in quotes, salary, letters), or one more INSERT OR IGNORE line in the file. Put it in
+  the file at the position you want (rows load in file order). arp_addjob refuses a name that lies inside an existing job's name.
+  A rank taken away: arp_deletejob "Name". Players in the job become Unemployed at once; a character saved with its name is
+  Unemployed on the map (with the notice that his job is not offered here) and keeps the saved name until he takes another job.
+  The optional M-Sergeant 1, M-Sergeant 2 and M-Lieutenant are in each file as comments: remove the leading "-- " and load again.
+  To change a rank on one map only, change that map's file/table; the two maps do not share a jobs table. To share ranks, give both
+  maps' arp.ini the same arp_table_jobs (docs\APOLLO_RP.txt, section 8).
+
+  Move or add an NPC: stand where it should be and type arp_getinfo (ARP admin): it prints Origin and the view angles. Put the origin in
+  npcs.ini (the player origin is 36 over the floor; ARP drops the NPC to the floor), and the angle you want it to face PLUS 180. Keep it
+  off doors, 56 units of open floor round it, and off a spawn point. Copy a block of the same type, change what is different, end it
+  with [END]. Restart the map. A sell line is  sell "Item_Name price"  (underscores for spaces; the name need only be unique in the
+  item list); heal "price" is a doctor's; addgun "Gun_Name price 0|1|2" is a gun shop's.
+  A new KIND of item (a Ministry ID, a ration pack) needs a plugin: ARP_RegisterItem in ARP_Items.sma or one of its siblings, with a
+  handler. A shop can only stock what is registered.
+  The H9 content files are written by the tools that placed the NPCs; edit the files by hand from here on.
+
+
+8. WHAT WAS CHECKED, AND WHAT WAS NOT
+-------------------------------------
+
+  Checked on files and a copy of the live database (nothing was run in a game):
+    * Both .sql files, loaded the way arp_config loads them into a copy of the live arp.sq3 after the core's own table creation: 25
+      statements, 0 errors; a second load changes no row; every other table of the copy is unchanged; every job is found by its own name.
+    * Both npcs.ini files, read by a port of ARP_NPCs' own reader (its keyword order and parse() included): every block gives the
+      intended type, name, model, origin, facing and stock, and every sell/addgun name resolves to its own item.
+    * Every NPC spot, with the map's own space model (SMAK): floor under it, a standing body fits, level under all four corners,
+      52 units from every door, breakable, button, ladder, water, hurt and travel-zone brush, 80 from every spawn and arrival, 40 from a
+      bot waypoint, 56 units of open floor round it, and all spots of a hub on one connected stretch of floor. The only ts_model within
+      70 units of an NPC is models/h9/re_dirt.mdl, at floor level, 68 units from the Paradise clinic.
+    * The two plugin changes compile (ARP_Core with its 14 baseline warnings, ARP_Commands with none).
+  NOT checked: any of it in a game. Specifically: that the NPCs show and face the way the table says (the facing plus 180 is read from
+  ARP_RegisterNpc, not seen); that the player models are in the web client's package; that a bot does not snag on an NPC; that the
+  arp_config load runs in a game; that the 25 rows arrive in file order (arp_config sends them as threaded queries; if the SQL
+  module did not run them in order, arp_joblist would list the ranks in another order and nothing else would change).
+

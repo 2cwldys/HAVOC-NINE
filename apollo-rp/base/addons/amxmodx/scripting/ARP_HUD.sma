@@ -33,31 +33,31 @@ public EventHudRender(Name[],Data[],Len)
 	replace_all(Title,255,"#hostname#",Hostname)
 	replace_all(Title,255,"\n","^n")
 	
-	ARP_AddHudItem(id,HUD_PRIM,0,Title)
-	ARP_AddHudItem(id,HUD_PRIM,0," ")
+	ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_TITLE,Title)
+	ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_TITLE," ")
 	
 	if(ARP_SqlHandle() == Empty_Handle)
 	{
-		ARP_AddHudItem(id,HUD_PRIM,0,"SERVER MALFUNCTIONING:")
-		ARP_AddHudItem(id,HUD_PRIM,0,"Your account will not be saved.")
+		ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_STATUS,"SERVER MALFUNCTIONING:")
+		ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_STATUS,"Your account will not be saved.")
 	}
-	else if(!is_user_alive(id)) ARP_AddHudItem(id,HUD_PRIM,0,"You are currently dead/spectating...")
-	else if(!ARP_PlayerReady(id)) ARP_AddHudItem(id,HUD_PRIM,0,"Please wait while your account is loaded...")
+	else if(!is_user_alive(id)) ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_STATUS,"You are currently dead/spectating...")
+	else if(!ARP_PlayerReady(id)) ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_STATUS,"Please wait while your account is loaded...")
 	else
 	{
 		new JobID = ARP_GetUserJobId(id)
 		
-		ARP_AddHudItem(id,HUD_PRIM,0,"Wallet: $%d",ARP_GetUserWallet(id))
-		ARP_AddHudItem(id,HUD_PRIM,0,"Bank: $%d",ARP_GetUserBank(id))
+		ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_WALLET,"Wallet: $%d",ARP_GetUserWallet(id))
+		ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_BANK,"Bank: $%d",ARP_GetUserBank(id))
 		
 		if(ARP_ValidJobId(JobID))
 		{
-			ARP_AddHudItem(id,HUD_PRIM,0,"Payday: %dm",ARP_GetPayday())
-			ARP_AddHudItem(id,HUD_PRIM,0,"Salary: $%d/hr",ARP_GetJobSalary(JobID))
+			ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_PAYDAY,"Payday: %dm",ARP_GetPayday())
+			ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_SALARY,"Salary: $%d/hr",ARP_GetJobSalary(JobID))
 			ARP_GetJobName(JobID,Temp,63)
-			ARP_AddHudItem(id,HUD_PRIM,0,"Job: %s",Temp)
+			ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_JOB,"Job: %s",Temp)
 		}
 		else
-			ARP_AddHudItem(id,HUD_PRIM,0,"Job: INVALID (contact admin)")
+			ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_JOB,"Job: INVALID (contact admin)")
 	}
 }

@@ -91,7 +91,7 @@ forward ARP_BuyProperty(id,doorid,const targetname[])
 stock ARP_GiveKey(property,id)
 {
 	new Authid[36]
-	get_user_authid(id,Authid,35)
+	ARP_GetUserKey(id,Authid,35)
 	
 	ARP_PropertyAddAccess(property,Authid)
 }
@@ -99,7 +99,7 @@ stock ARP_GiveKey(property,id)
 stock ARP_TakeKey(property,id)
 {
 	new Authid[36]
-	get_user_authid(id,Authid,35)
+	ARP_GetUserKey(id,Authid,35)
 	
 	ARP_PropertyRemoveAccess(property,Authid)
 }
@@ -115,7 +115,7 @@ stock ARP_PropertyGetOwner(property)
 	for(new Count;Count < Playersnum;Count++)
 	{
 		Player = Players[Count]
-		get_user_authid(Player,PlayerAuthid,35)
+		ARP_GetUserKey(Player,PlayerAuthid,35)
 		
 		if(equali(Authid,PlayerAuthid))
 			return Player
@@ -127,7 +127,7 @@ stock ARP_PropertyGetOwner(property)
 stock ARP_PropertySetOwner(property,id)
 {	
 	new Authid[36]
-	get_user_authid(id,Authid,35)
+	ARP_GetUserKey(id,Authid,35)
 	
 	ARP_PropertySetOwnerAuth(property,Authid)
 	

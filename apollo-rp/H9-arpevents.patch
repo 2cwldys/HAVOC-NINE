@@ -1,0 +1,88 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_RobMod.sma b/base/addons/amxmodx/scripting/ARP_RobMod.sma
+--- a/base/addons/amxmodx/scripting/ARP_RobMod.sma
++++ b/base/addons/amxmodx/scripting/ARP_RobMod.sma
+@@ -369,7 +369,7 @@
+ 		Data[2] = CUFFED
+ 		
+ 		if(ARP_CallEvent("Rob_End",Data,2))
+-			return
++			return PLUGIN_CONTINUE
+ 		
+ 		new Name[33],Authid[36]
+ 		get_user_name(id,Name,32)
+@@ -388,11 +388,11 @@
+ 		
+ 		g_RobCurProfile = 0
+ 		
+-		return
++		return PLUGIN_CONTINUE
+ 	}
+ 	
+ 	if(!equali(Name,"Rob_Begin"))
+-		return
++		return PLUGIN_CONTINUE
+ 	
+ 	new id = Data[0]
+ 	
+@@ -402,7 +402,7 @@
+ 		get_user_name(g_RobCurPlayer,Name,32)
+ 		client_print(id,print_chat,"[ARP] %s is already robbing.",Name)
+ 		
+-		return
++		return PLUGIN_CONTINUE
+ 	}
+ 	
+ 	for(new Count;Count <= g_RobProfiles;Count++)
+@@ -410,14 +410,14 @@
+ 		g_RobCurProfile = Count
+ 	
+ 	if(!g_RobCurProfile)
+-		return
++		return PLUGIN_CONTINUE
+ 	
+ 	if(floatround(get_gametime()) - g_RobLastTime < g_RobProfile[g_RobCurProfile][COOLDOWN][0] && g_RobLastTime)
+ 	{
+ 		g_RobCurProfile = 0
+ 		client_print(id,print_chat,"[ARP] This place has been robbed recently; please wait.")
+ 		
+-		return
++		return PLUGIN_CONTINUE
+ 	}
+ 	
+ 	if(g_RobProfile[g_RobCurProfile][FLAGS][0] & ARP_GetUserAccess(Data[0]))
+@@ -425,7 +425,7 @@
+ 		g_RobCurProfile = 0
+ 		client_print(Data[0],print_chat,"[ARP] You are not allowed to rob this place.")
+ 		
+-		return
++		return PLUGIN_CONTINUE
+ 	}
+ 	
+ 	if(get_playersnum() < g_RobProfile[g_RobCurProfile][MINPLAYERS][0])
+@@ -433,7 +433,7 @@
+ 		g_RobCurProfile = 0
+ 		client_print(Data[0],print_chat,"[ARP] There are not enough players in the server to rob this place.")
+ 		
+-		return
++		return PLUGIN_CONTINUE
+ 	}
+ 	
+ 	if(ARP_CopNum() < g_RobProfile[g_RobCurProfile][MINCOPS][0])
+@@ -441,7 +441,7 @@
+ 		g_RobCurProfile = 0
+ 		client_print(Data[0],print_chat,"[ARP] There are not enough cops in the server to rob this place.")
+ 		
+-		return
++		return PLUGIN_CONTINUE
+ 	}
+ 	
+ 	new Name[33],Authid[36]
+@@ -466,6 +466,8 @@
+ 	set_task(1.0,"GiveMoney",Data[0])
+ 	
+ 	ExecuteStep()
++	
++	return PLUGIN_CONTINUE
+ }
+ 
+ public GiveMoney(id)

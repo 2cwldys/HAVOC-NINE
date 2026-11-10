@@ -17,3 +17,11 @@ still supported and being maintained.
 
 Website: http://apollorp.org
 Wiki: http://wiki.apollorp.org
+
+H9: the menus of the plugins H9 builds for The Specialists (/menu, /items, the shops, the bank and the
+ATM, the phone, the jail, the lock pick, the job and fine offers, arp_config) are also H9 VGUI panels for a
+player running H9's client (cl_h9_arpvgui 0 turns them off for him); every other player gets the classic text
+menu. The include is
+base/addons/amxmodx/scripting/include/ApolloRP_VGui.inc; ORIGIN.txt item 14 and docs\H9_VGUI.txt 1e say how.
+A character follows its player across a server address change when his havoc9.org account is proved: ORIGIN.txt
+item 15 and ARP_IDS.txt.

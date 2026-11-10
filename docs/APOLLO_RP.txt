@@ -1,0 +1,174 @@
+APOLLO RP ON HAVOC 9 -- what it is, what a player sees, what it needs
+======================================================================
+
+Apollo RP (ARP) is a roleplay plugin set for AMX Mod X: a wallet, a bank, jobs with salaries, items, shops, jails and
+a HUD. H9 carries it whole in apollo-rp\ (apollo-rp\ORIGIN.txt says where it came from and lists every change H9 made
+to it, items 1 to 21), builds twelve of its plugins for The Specialists and lists them in plugins.ini, ARP_Core first.
+
+
+1. WHERE IT RUNS
+----------------
+
+  * Only on a roleplay map: a name that starts with rp_ or tsrp_, or holds _rp_ or _tsrp_, in any case. H9's are
+    h9_tsrp_hive and h9_tsrp_newbyzantium. On any other map ARP_Core logs one stand-down line and nothing else of
+    ARP runs: no HUD, no commands, no menus. ts_matchmode stands down on the same maps (tsm_enabled 0).
+  * build.bat builds and deploys it with the other plugins (also on its own: build.bat apollo), syncs the plugins'
+    includes, and copies apollo-rp\base\addons\amxmodx\configs\arp into the game's configs\arp.
+
+
+2. WHAT A PLAYER SEES
+---------------------
+
+  * THE HUD, at the left of the screen, refreshed every second or two: the title (arp_hud_title in
+    configs\arp\arp.cfg, where #hostname# puts in the server's name, so name the server for its city), the wallet,
+    the bank, the payday countdown, the salary and the job, and the lines other plugins add: hunger, jail status, the
+    zone, the blood alcohol level. There are four HUDs: the first is this, the second is empty unless a plugin uses it,
+    the third is the out-of-character chat (arp_ooc 2) and the fourth the short notices (what you look at, ammo loaded
+    up). Their places and colours are arp_hud1_x, _y, _r, _g and _b in configs\arp\arp.cfg (the second to fourth HUDs
+    likewise). No bot is sent one. It comes in two forms.
+    - As PANELS, to a player whose game draws H9 VGUI and whose cl_h9_arphud is 1 (the default): each HUD is a panel on
+      H9's purple art, the first with the title as its heading and the lines under it, label and value, the third and
+      second the same with their first line as the heading, the fourth a banner that stays three seconds. A panel is
+      shown only while it has lines, takes the size its lines need (a long line is wrapped), starts under the notices'
+      stack and the HUD's own corner text, and is hidden with the scoreboard, a menu opened over it, the buy menu, nohud
+      and the intermission; cl_h9_vgui_scale sizes it as it does every H9 panel. The server sends it in the user
+      message H9ArpHud, reliably, when a HUD changes and every arp_hud_refresh seconds (10) otherwise; the game keeps
+      what it has until something else comes. The text HUD's colours (arp_hudN_r, _g, _b) are not used: the panels are
+      H9's purple. The dead or spectating player's panel says so (the same "You are currently dead/spectating" line).
+    - As the AMX Mod X TEXT HUD (a hudmessage, as before), to every other player: an older game, a game with
+      cl_h9_arphud 0 or cl_h9_vgui 0, a server with arp_hud_panel 0 or h9_vgui 0.
+    Each player chooses with cl_h9_arphud and can switch every panel (cl_h9_arphud_left, _top, _side, _notice) and every
+    kind of line of the first (_title, _wallet, _bank, _payday, _salary, _job, _status, _extra) off alone;
+    cl_h9_arphud_list prints them. The server's arp_hud_panel 0 gives everyone the text HUD. arp_hudstate, from the
+    server's console or an ARP admin's, says who is sent which and why, and the last lines each was sent (COMMANDS.txt).
+  * Welcome lines in chat when a player is in game, and the chat commands (/menu, /items, /911 and the rest).
+  * MENUS, once there is something to show. A menu is built from content: /items lists what a character carries,
+    /menu lists the entries plugins add to it (ARP_H9Menu adds Inventory, My money and job, Jobs on this map and Commands), a shop, the bank, an ATM, the doctor, the gun shop and the phone are
+    NPCs, a job or a fine is an offer from another player, the jail menu needs a job that may jail. A map with no
+    NPCs, no items and no jobs but Unemployed therefore opens none: /items says there is nothing, /menu says it is
+    empty, and the HUD, the welcome lines and the chat commands are all a player gets. The content of H9's two maps
+    is described in ARP_CONTENT.txt (the Ministry of Defense ranks as jobs, the items, the shops and where the NPCs
+    stand).
+  * AS PANELS. A player running H9's client sees ARP's menus as H9 VGUI panels (docs\H9_VGUI.txt, 1e); cl_h9_arpvgui 0
+    gives him ARP's text menus instead, for ARP only, and the server's h9_vgui 0 gives every player the text menus. A
+    client that does not send the setting gets the panels. Every other player gets the classic text menus.
+  * DOORS AND BREAKABLES. arp_goddoors 1 (the default) makes every func_door and func_door_rotating unbreakable. arp_godwindows
+    (0 by default) would do the same for every func_breakable (manhole covers, vents, glass, crates), so those can be broken
+    unless a server sets it to 1. Both are in configs\arp\arp.cfg.
+
+
+3. A CHARACTER, ITS KEY AND THE HAVOC9.ORG ACCOUNT
+--------------------------------------------------
+
+  A character (wallet, bank, job, items, keys, the property it owns) is kept in the server's own ARP database under a
+  key, the authid its rows were made with. H9XASH makes an authid per server (ID_ and an MD5 of the player's id and
+  the server's IPv4 address), so a server that changes address would have made every player a new character. A player
+  whose game is linked to a havoc9.org account and proves it (h9_presence, h9_presence_challenge 1) keeps his: the
+  table arp_ids ties each authid to its account, and a join under another authid finds the character through it.
+  Details, limits and going back: apollo-rp\ARP_IDS.txt. arp_account_wait (30 seconds in configs\arp\arp.cfg; 0 turns
+  the account out) is how long a player no row knows waits for the proof, the HUD saying his account is loading.
+  The database is the server's: another server has its own and starts the player fresh, unless the two share one.
+
+
+4. THE DATABASE
+---------------
+
+  data\sqlite3\arp.sq3 in the game folder, made and filled by the plugins; it is a live file (never in git). Tables are
+  made with CREATE TABLE IF NOT EXISTS at every start (arp_ids too: nothing existing is altered or dropped). Values
+  that reach SQL are quoted (ARP_SqlEscape, with the SQL module's own quoting) and an authid has 35 characters of room.
+  Back it up with the server stopped: copy the file. A map's own .sql file in configs\arp\maps\<map>\ runs when the
+  map loads.
+
+
+5. ON XASH3D
+------------
+
+  * AMX Mod X's client_disconnect fires on H9XASH (the amxmodx_mm.dll change 7, amxmodx_mm.dll.patch), so ARP saves and
+    clears a player when he leaves.
+  * The SQLite module loads through the plugins' own #pragma loadlib.
+  * ARP makes no assumption about a Steam id: ID_ authids pass every test it has.
+
+
+6. TO CHECK ON A ROLEPLAY MAP (nothing here has been run in a game yet)
+------------------------------------------------------------------------
+
+  1. Start on h9_tsrp_hive with the live database backed up. The AMX Mod X log has no ARP error and no "stand-down" line
+     for the map; amx_plugins lists the twelve ARP plugins running.
+  2. Join: within a few seconds the HUD is at the top left (title, wallet, bank, payday, salary, job) and two ARP
+     welcome lines are in chat. h9_overflow.log gets no new "Datagram overflowed" line for a bot.
+  2a. With H9's client: the log has "[ARP] HUD: <name> is sent the HUD panel: _h9arphud is 1" within a few seconds of the
+     join and then "[ARP] HUD panel: first update sent to <name> (HUD 1: ...)"; arp_hudstate lists him as PANEL with the
+     last lines sent. The HUD is a panel at the top left. cl_h9_arphud 0 gives him the text HUD (arp_hudstate says TEXT HUD
+     within two seconds), arp_hud_panel 0 on the server gives everyone it, and each cl_h9_arphud_* set to 0 takes that part
+     off. cl_h9_arphud_list says what the game holds and why. A player on any other client is a TEXT HUD in arp_hudstate.
+  3. With content: /items and /menu show their entries, each NPC opens its menu, as H9 panels with cl_h9_arpvgui 1 and as
+     text menus with 0 (the other H9 panels unchanged), and h9_vgui 0 on the server gives text menus to everyone.
+  4. Earn money, leave and join again: it is there. Change the map: it is still there.
+  5. Identity, on a COPY of the database: after the proof arp_ids holds the authid with the account; set one arp_users
+     authid to ID_OLD and add (ID_OLD, the account) to arp_ids: joining with that account loads the old character
+     once the proof is in. arp_account_wait 0: no wait and no arp_ids writes.
+  6. On a map that is not a roleplay one: the stand-down line, and no ARP traffic.
+
+
+7. WHERE THINGS ARE
+-------------------
+
+  apollo-rp\ORIGIN.txt        what H9 changed, items 1 to 21
+  reTS\cl_dll\h9_arphud.cpp   the client's panels for the HUD (client.dll.patch, 30)
+  apollo-rp\ARP_IDS.txt       the account key: design, migration, limits, going back
+  apollo-rp\H9.patch, H9-menus.patch, H9-arpfix.patch, H9-arpcontent.patch, H9-arphud.patch
+                              the changes as diffs against the files before each (the first against upstream)
+  docs\ARP_CONTENT.txt        the setting, the jobs, the items and the NPCs of H9's maps (section 8: jobs by map)
+  docs\H9_VGUI.txt, 1e        the panels
+  COMMANDS.txt                cl_h9_arpvgui, arp_account_wait and ARP's console commands
+  configs\arp\                arp.cfg, arp.ini and maps\<map>\ (the map's own files)
+
+8. JOBS AND SETUP BY MAP
+------------------------
+
+  WHAT IS SHARED AND WHAT IS A MAP'S OWN
+    * Shared by every roleplay map of a server (one ARP database): the characters (wallet, bank, items) and the account table
+      arp_ids.
+    * A map's own, always: its NPCs (configs\arp\maps\<map>\npcs.ini), jail cells (jailmod.ini), zones (zones.ini),
+      robberies (rob.ini), and its properties, doors and keys (the tables carry the map's name).
+    * A map's own when you configure it: its JOBS (below). Without that, jobs are shared: one table, arp_jobs.
+    H9's two roleplay maps (h9_tsrp_hive, h9_tsrp_newbyzantium) have jobs of their own, so the Ministry of Defense ranks are
+    theirs alone: a server that runs its own maps next to them is not made to use them.
+
+  HOW A MAP GETS ITS OWN JOBS
+    1. Put a file arp.ini in the map's folder, configs\arp\maps\<map>\arp.ini (the same folder as npcs.ini). ARP reads it
+       after the server's configs\arp\arp.ini, so anything in it wins on that map. One line is enough:
+
+           arp_table_jobs "arp_jobs_my_city"
+
+       The name is the jobs table of that map: letters, digits and underscores only, made at the first start (ARP adds the
+       job Unemployed to a jobs table that has none). A good name is arp_jobs_<mapname>; H9's maps use exactly that
+       (apollo-rp\base\addons\amxmodx\configs\arp\maps\h9_tsrp_hive\arp.ini). A line that starts with ; is a comment.
+    2. Put the map's jobs into that table, either way:
+         * a console command, as an admin, on that map:   arp_addjob <name> <salary> <access letters>
+           (arp_joblist lists the jobs of the map, arp_setjob <player> <job> gives one);
+         * or an SQL file configs\arp\maps\<map>\<map>.sql, written against the DEFAULT table names (arp_jobs, arp_users,
+           arp_items ...): the loader swaps in the map's own table names, so the file needs no change when the map has its own
+           jobs table. Write the rows so that loading twice does no harm, for SQLite:
+               INSERT OR IGNORE INTO arp_jobs VALUES ('Cadet',25,'<access letters>');
+           (MySQL: INSERT IGNORE). An admin loads it on the map with the console command arp_config, menu entry "Load Map SQL
+           Data"; ARP does not run it by itself.
+    3. Restart the map (the table name is read when the map loads). The jobs show in arp_joblist and in the job HUD.
+
+  OTHER WAYS TO SET IT UP
+    * Several maps with the same jobs: give them the same table name in their arp.ini (arp_table_jobs "arp_jobs_msr" in each).
+    * Every map the same, the default: no arp.ini in the folder, or none that names a jobs table: the shared arp_jobs.
+    * A different default for the whole server: change arp_table_jobs in configs\arp\arp.ini (it is the shared table's name).
+    * More of a map's own: arp_table_users and arp_table_items are read from a map's arp.ini the same way (separate
+      characters and items for that map). H9's maps do not use them, and nothing here has been run in a game.
+
+  WHAT A PLAYER GETS, AND A RANK ON ANOTHER MAP
+    A character carries one job name. On a map whose jobs table has it, he has the job (salary, powers, the HUD line). On a
+    map whose table has no job of that name he is Unemployed there, with a chat line saying his job is not offered on this
+    map, and the job he came with is kept: it is written back as it was when he leaves, unless he takes another job on that
+    map. So a visit to another map does not cost him his rank, and he has it again where it is offered.
+
+  LOOK AT IT
+    The jobs tables are in the database (data\sqlite3\arp.sq3): arp_jobs, arp_jobs_<map> ... (name, salary, access). The
+    jobs of the characters are in arp_users (jobname). Open a COPY of the file with any SQLite tool to read them; back the
+    file up with the server stopped before any edit by hand.

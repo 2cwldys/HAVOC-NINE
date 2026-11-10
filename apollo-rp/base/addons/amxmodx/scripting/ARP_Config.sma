@@ -3,6 +3,7 @@
 #include <engine>
 #include <ApolloRP>
 #include <sqlx>
+#include <ApolloRP_VGui>
 
 #define MENU_OPTIONS 3
 #define DB_MENU_OPTIONS 4
@@ -82,8 +83,14 @@ new g_BackupName[MAX_PLAYERS + 1]
 new g_BackupQueries
 new g_TotalBackupQueries
 
+public plugin_precache()
+{
+	arpvgui_precache()
+}
+
 public plugin_init()
 {	
+	arpvgui_init("arpcfg")
 	register_clcmd("arp_config","CmdConfig")
 	register_srvcmd("arp_delete","CmdDelete")
 	register_srvcmd("arp_query","CmdQuery")
@@ -529,7 +536,7 @@ public CmdConfig(id)
 		Pos += format(Menu[Pos],MENU_OPTIONS * 64 - Pos - 1,"%i. %s^n",Count + 1,g_MenuOptions[Count])
 	Pos += format(Menu[Pos],MENU_OPTIONS * 64 - Pos - 1,"^n0. Exit")
 	
-	show_menu(id,g_Keys,Menu,-1,g_MainMenu)
+	arpvgui_show_menu(id,g_Keys,Menu,-1,g_MainMenu,"arpcfg.main")
 	
 	return PLUGIN_HANDLED
 }
@@ -616,7 +623,7 @@ ChangeDatabase(id)
 	}
 	Pos += format(Menu[Pos],MENU_OPTIONS * 64 - Pos - 1,"^n0. Exit")
 	
-	show_menu(id,g_Keys,Menu,-1,g_DbMenu)
+	arpvgui_show_menu(id,g_Keys,Menu,-1,g_DbMenu,"arpcfg.db")
 	
 	return PLUGIN_CONTINUE
 }
