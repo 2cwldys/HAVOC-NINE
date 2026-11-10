@@ -1,0 +1,434 @@
+===============================================================================
+ LOADOUT REWORK  (GitHub issue 5: buying with TS's default equipment menu)
+===============================================================================
+
+ Status: implemented in ts_matchmode.sma behind the server cvar
+ tsm_loadoutrework (default 0). It compiles clean (no warnings, same as the
+ unmodified source); it has NOT been run in a game. Section 9 is the live test
+ plan, section 10 lists what is unverified, section 11 the risks.
+
+ The user-facing reference is COMMANDS.txt (LOADOUT REWORK, the cvar table,
+ amx_tsm_loadout). This file is the design: why it is built the way it is.
+
+
+1. THE ISSUE AND THE DECISIONS
+-------------------------------------------------------------------------------
+
+ Issue 5 asks that every class except the Mech use TS's default buy menu,
+ funded by cash, with the loadout kept consistent for the match and re-applied
+ at respawn waves; the Mech to be un-disarmable and unable to pick up other
+ players' weapons; the Heavy exempt (its slot cap is higher and could be
+ abused). The Mech's rocket weapon being undroppable is "covered through
+ issue 5" (it is: the Mech cannot drop at all, section 7).
+
+ Owner decisions this was built to:
+  1. Plugin only. reTS is touched only where the plugin cannot do the job, and
+     then as a proposal under reTS-proposals\, never edited (section 8).
+  2. Everything sits behind tsm_loadoutrework 0|1, default 0. With 0 the
+     plugin behaves exactly as before (section 3 says why that holds).
+  3. Reworked classes: all but the Mech and the Heavy.
+
+
+2. WHAT THE CODE DID BEFORE, AND WHAT THAT MEANS FOR THE DESIGN
+-------------------------------------------------------------------------------
+
+ Read from the sources (ts_matchmode.sma, reTS dlls\ts_buy.cpp, dlls\client.cpp,
+ cl_dll\ts_buymenu.cpp):
+
+ - The kit is never bought. arm_give_kit() -> give_class_weapons() hand the
+   class line's weapons over with ts_giveweapon, in the arm (task_arm_respawn,
+   in the freeze), in the late arm, in the go-live force-arm and in a wave
+   revive (task_revive_arm). resolve_loadout() already lets a claimed mode
+   swap in its own weapon list for one arm (g_lo_n / g_lo_wpn / g_lo_clips);
+   lo_count / lo_wpn / lo_clips read it. The rework plugs into exactly that.
+
+ - The buy menu is the client's. Its Apply sends, back to back: rst_cfg, one
+   batched "tkw <id>_<attach|count> ..." (a second bare "<id>_0" token makes an
+   akimbo pair), "tki 16" for kevlar, "tka <caliber>_<units> ...". The DLL only
+   QUEUES them (AddItemToArmament); the queue is applied by BuyArmament at a
+   SPAWN. There is no buy-now command.
+
+ - CashBased() is hard-wired to false in reTS (and in the shipped TS): nothing
+   is ever charged, a weapon is free, and cash is only a number that is shown
+   when usecash is on. The menu's own money bar is the constant 30000, not the
+   wallet. So "funded by the cash and credits system" cannot be enforced by
+   TS: the existing comment that an empty wallet makes TS refuse a purchase is
+   not what the source does (weaponrestriction 1 is what refuses). The rework
+   therefore keeps the account itself (section 4). reTS-proposals\
+   loadout-cash-economy.diff is the change that would make TS do it.
+
+ - tsm_block_buy 1 swallows tkw/tka/tki/rst_cfg/cashala in every state
+   (cmd_blockbuy) and "13_3"-style names (client_command). Warmup buying was
+   the exploit: buy a loadout, drop it, collect it live. drop_refused() keeps
+   drops shut in warmup, ready-up, freeze and match end.
+
+ - hold_cash() sets the TS wallet to 0 every frame (TSM_ARM_CASH while the old
+   cash-lending flag g_cash_lend is set). It is the existing place that decides
+   what a player's wallet reads.
+
+ - A disarm is the game DLL's: a melee hit past a pressure threshold calls
+   CBasePlayer::DropWeapon(-2, damage) (ts_player.cpp, ts_stunt.cpp), which
+   holsters and throws the weapon in hand, unless the victim is spawn
+   protected. tsm_disarm in the plugin is about ELIMINATED players and is
+   unrelated. Weapons on the floor are picked up with the USE key (a throwable
+   on touch); dropped ones are the "WorldGun" entity (owner = the dropper),
+   map ones "ts_groundweapon".
+
+
+3. THE SWITCH
+-------------------------------------------------------------------------------
+
+ tsm_loadoutrework is read live (get_pcvar_num) at every use, nothing is cached.
+ Every hook the rework adds starts with that test and returns the old
+ behaviour when it is 0:
+
+   hold_cash      want = lr_wallet(id) -> 0 when off  (was 0)
+   cmd_blockbuy   lr_cmd(id) returns at once, then the old silent refusal
+   drops          lr_drop_blocked() false when off
+   resolve_loadout lr_resolve() changes nothing when off
+   give paths     lr_extra() = get_pcvar_num(tsm_wpn_extra) when no set
+   fw_touch / fw_prethink Mech guards return at once when off
+   round start, wave revive, go-live, tick, match/leave clear: no-ops
+
+ The only code that always runs is bookkeeping (a timestamp in lr_arm_begin, an
+ array reset in lr_forget). The cvar is documented in COMMANDS.txt; its value
+ line in ts_matchmode.cfg and the presets is commented out like tsm_live_gate,
+ because the cfg is exec'd on every map load and must not reset a value that
+ server.cfg, a mapconfig or the console set.
+
+ It also needs tsm_block_buy 1, tsm_classes on and tsm_weapon_mode 2 (the class
+ kit path): lr_on() says so. tsm_nocash 1 is only needed for the wallet display.
+
+
+4. THE ECONOMY
+-------------------------------------------------------------------------------
+
+ (a) Cash. A class's allowance is tsm_lr_cash (8500: a rifle, a pistol, a
+     knife and kevlar), or tsm_lr_cash_<n> for
+     class n when that cvar is non-empty (n = the tsm_classN number). The
+     figure the player's TS wallet shows (set by hold_cash through lr_wallet)
+     is the allowance minus the cost of the loadout he holds, while his buy
+     window is open, and 0 otherwise. So the allowance is granted by the
+     windows opening: at every round's freeze and at every respawn wave.
+
+     The "existing cash-lending mechanism" (g_cash_lend, TSM_ARM_CASH) is left
+     alone: it still wins when set. Nothing in the rework lends cash.
+
+ (b) Pricing. TSM_LR_PRICE / TSM_LR_SLOTS / TSM_LR_SUPPORT are the equipment
+     menu's own table (cl_dll\ts_buymenu.cpp s_weapons: price, slot cost,
+     attachments it mounts), attachments 900 / 800 / 500 / 1800 (silencer,
+     laser, light, scope), kevlar 1900 and 10 slots. A weapon not in the
+     table (the akimbo singles, 29, 38 ...) is not sold. A stack (frag
+     grenade 2, combat knife 5, seal knife 10) is price x count. A second token
+     of the same single is the akimbo pair, allowed for 2, 3, 9, 14, 17 only.
+     tka is ignored: the menu's auto-ammo spends the unused part of its own
+     30000, so the units it asks for mean nothing here. A weapon comes with
+     tsm_lr_clips spare magazines (3), the same unit as a class line, with
+     tsm_clip_bonus and tsm_clip_max applied by give_class_weapons as for a
+     kit; a stack of N carries N-1 beyond the first, as "24:0" does.
+
+ (c) Refusals. An apply is judged as a whole. Refused, with a chat and centre
+     line saying why, and the player keeps what he held: an id the menu does
+     not sell, an id on tsm_lr_deny (default 32,18,40,34: the M60E3, the
+     Barrett, the laser rifle, the katana -- the class weapons; the word
+     kevlar refuses the vest), the stealth shoes, a second copy of a gun with
+     no akimbo, more than 8 entries (TSM_LOADOUT_MAX), a total over the
+     allowance. The weight over the 81 slots a player carries is checked only
+     for a class the rework leaves out (the Heavy and the Mech, whose limits
+     are raised, so no apply of theirs reaches it): a class it covers is
+     limited by its cash.
+
+ (d) Windows (lr_window_open):
+       freeze   open for the whole of it, every round, for a player on a side
+                (the freeze that opens a match lasts at least tsm_lr_freeze, 30)
+       live     open for tsm_lr_buy_seconds (20) after a wave revive put him
+                on his feet (task_revive_arm calls lr_revive_window), and then
+                ONE change: a second would be a fresh magazine supply mid-fight
+       warmup, ready-up, round end, match end: closed
+     Warmup is refused on purpose. Nothing is held there to buy against, a
+     class can still change, the record is cleared when the match starts so a
+     warmup purchase would be thrown away, and warmup was where the original
+     exploit lived. The buy menu says "Buying opens in the freeze before a
+     round." instead.
+
+     The freeze of a round is short (tsm_freezetime 6 in the shipped cfg), and
+     six seconds was too short for the freeze that opens a match: that is where
+     the class is picked and the first loadout bought. So that freeze, the one
+     the live gate starts (everyone typed .ready, or the gate-off start), lasts
+     at least tsm_lr_freeze seconds (30) while the rework is on: freeze_seconds
+     in the plugin, which finish_round_start uses for the countdown, the chat
+     line and the go-live task. Every later round keeps tsm_freezetime, because
+     a bought loadout is kept for the rest of the match and is paid for once;
+     raise tsm_freezetime to lengthen every round's freeze as well, rather than
+     adding a live window at the round start (that would give every player a
+     mid-fight resupply).
+
+ (e) The buy-then-drop exploit stays shut. Drops are refused in warmup,
+     ready-up, freeze and match end as before, and now also while a live buy
+     window is open (lr_drop_blocked) -- the drop key and the weapon bar's
+     drop_<n>. The window is also over before a bought weapon could be walked
+     anywhere: it is the player's own weapon, not a second one (an apply
+     replaces the loadout, strip then give, never adds). The round-start
+     sweep of dropped items is unchanged (sweep_dropped_items; note it only
+     looks for ts_groundweapon / ts_groundammo, not the "WorldGun" entity a
+     player's drop makes -- an existing gap, not touched here).
+
+
+5. KEEPING THE LOADOUT (the issue's "main challenge")
+-------------------------------------------------------------------------------
+
+ State per player (ts_matchmode.sma, "the loadout rework: state"):
+   g_lr_set_*   the bought set: weapon ids, spare figure, attachments each,
+                kevlar, cost, and the class and side it was bought for
+   g_lr_cart_*  the apply being collected (rst_cfg opens it, tkw/tki fill it,
+                a debounce task of 0.3 s after the last command commits it)
+
+ - Commit (lr_commit): checks the cart, stores it as the set, and hands it
+   over now with lr_regive (strip_user_weapons, armour back to the class
+   figure, arm_give_kit). In the freeze before the player's own arm has run
+   (g_armed false) nothing is handed over: the arm that is coming does it.
+   An apply that buys nothing clears the set (the class kit).
+
+ - Re-application: resolve_loadout() ends with lr_resolve() when no claimed
+   mode answered; it copies the set into g_lo_*, so give_class_weapons, the
+   M60-first branch, task_give_rest, the late arm, the force-arm and the wave
+   revive all hand the set over with no further change -- every place the kit
+   goes out goes through arm_give_kit. A claimed mode's own loadout (survival's
+   mutants) still wins over the set. The attachments the player chose ride in
+   g_lo_att and reach ts_giveweapon through lr_extra (three call sites changed
+   from tsm_wpn_extra); without a set it is tsm_wpn_extra as before.
+
+ - Closing (lr_record): when the freeze ends (task_go_live, before the state
+   changes; an apply still in the air is committed first) and when a live
+   window runs out (lr_tick), the weapons he really holds (user_carries) are
+   what is kept; one the game would not give is left out of the set. Skipped
+   when the kit was handed over under three seconds ago (the M60-first arm
+   gives the rest a second later).
+
+ - Cleared: when a match starts (begin_match), ends or is cancelled
+   (clear_match_state), when a player connects into a slot or leaves, and it
+   is void for any other class or side than it was bought for
+   (lr_active_set compares g_lr_set_cls / g_lr_set_team with the class and
+   side he has now), so a class change needs no hook of its own.
+
+ - The arm gate (g_armed, g_arm_pending, task_go_live) is not touched. The
+   apply never sets g_armed, and the arm schedule is the old one.
+
+
+6. WHO IS COVERED
+-------------------------------------------------------------------------------
+
+ lr_class_ok(): not a class with the Mech perk (7), not the regeneration perk
+ (5, the Heavy), not a class with the M60 in its kit. Today that is Assault,
+ Combat Engineer, Marksman, Breacher, Medic, Officer and Recon. Bots (is_user_bot)
+ are never covered: rcbot arms them and tsm_bot_class gives them the kit. The
+ class pick menu is untouched; the plugin has no weapon menu of its own, so
+ there was no loadout-menu path to retire -- the kit hand-over simply gives way
+ to the set, and is the fallback when there is none.
+
+
+7. THE MECH
+-------------------------------------------------------------------------------
+
+ Behind the same cvar, for any player whose class carries the Mech perk:
+  - the drop key and the weapon bar's drop_<n> are refused in every state
+    (lr_drop_blocked) -- which is what makes the Mech's weapons undroppable;
+  - the use key does nothing while a weapon (WorldGun, ts_groundweapon,
+    weaponbox, weapon_*) is within 96 units: fw_prethink clears IN_USE for him
+    (the game reads the use key from pev->button after the plugin's pre-think,
+    the same way the plugin already clears the attack bits for a held player);
+    a door or button next to a weapon on the floor does not answer him either;
+  - touching a weapon is refused (fw_touch SUPERCEDE), for the throwable that
+    is taken on touch;
+  - a disarm is undone (lr_mech_guard, four times a second): a class weapon
+    seen in his hands that is gone at the next look is given again with the
+    spare rounds he had, and the WorldGun the disarm threw (owner = the Mech)
+    is removed. The DLL performs the disarm and nothing in a plugin can refuse
+    it, so he is bare-handed for up to a quarter second. Any strip of a living
+    Mech in a live round is undone the same way (the plugin's own strips are of
+    eliminated players, who are skipped).
+ The proper fix is in the DLL: reTS-proposals\loadout-mech-nodisarm-nopickup
+ .diff.
+
+
+8. RETS PROPOSALS (nothing in reTS was edited or built)
+-------------------------------------------------------------------------------
+
+ reTS-proposals\loadout-mech-nodisarm-nopickup.diff
+     DropWeapon and PickUpWeapon refuse for a player the plugin marks in
+     pev->fuser4, while tsm_loadoutrework is on. Needs one plugin line
+     (given in the file). Makes the Mech truly un-disarmable.
+
+ reTS-proposals\loadout-cash-economy.diff
+     CashBased() follows usecash, BuyWeapon charges, the client menu's budget is
+     the wallet. Would let TS enforce the money. Not needed for the rework as
+     built; it is a bigger change to every server's economy and to the arm path.
+
+
+9. LIVE TEST PLAN
+-------------------------------------------------------------------------------
+
+ Setup. A listen or dedicated H9 server, one human client with the reTS
+ client.dll, bots optional, map h9_*, tsm_logging 1, tsm_debug_log 2 (debug
+ lines in the server console). Rcon:
+     tsm_loadoutrework 1
+     tsm_lr_freeze 30          (the shipped value: the first freeze of the match, for the class pick and the buy)
+ Start a match (.ready), pick Assault, MSR or insurgent.
+
+ T1  Off means off.  tsm_loadoutrework 0, play a round.
+     Expect: kit as ever; the equipment menu does nothing and prints nothing;
+     amx_tsm_loadout <you> says "tsm_loadoutrework 0, switched on and usable no".
+
+ T2  Freeze buy.  Rcon tsm_loadoutrework 1, next round's freeze.
+     Expect chat: "[MATCH] Open the equipment menu to buy your loadout: $3000 to
+     spend, until the round starts. Buy nothing and you get the Assault kit."
+     Open the menu (the key bound to the equipment menu / "Buy"), buy a
+     MP5K (1500) and a Glock-18 (850), Apply.
+     Expect within a second: "[MATCH] Loadout bought: 2 weapon(s), $2350 of your
+     $3000." and in the AMX log "[TSM] loadout rework: N bought 2 weapon(s) for
+     $2350 of $3000 (class 1)." Hand over: you hold the MP5K and Glock-18 and
+     NOT the M4A1/AK47, with the spare magazines (tsm_lr_clips 3 + tsm_clip_bonus).
+     amx_tsm_loadout <you>: wallet shown $650, recorded set 2 weapon(s) cost $2350,
+     window OPEN.
+
+ T3  Over budget.  rcon tsm_lr_cash 3000, then in the next freeze buy an M4A1 (4500).
+     Expect: "[MATCH] Loadout not changed: $4500 is more than the $3000 you have."
+     The MP5K/Glock stay in your hands; the log has no "bought" line.
+
+ T4  Denied.  Buy a Barrett: "Loadout not changed: the Barrett M82A1
+     is not for your class." The 81-slot weight is not checked for this class: a
+     Benelli M3 + Mossberg + SPAS-12 with rcon tsm_lr_cash 12000 goes through.
+     Kevlar with rcon tsm_lr_deny "32,18,40,34,kevlar": refused.
+
+ T5  Keep across rounds.  Let the round go live (go-live line in the log, and
+     "[TSM] loadout rework" no WARNING), finish the round, next freeze.
+     Expect: "[MATCH] Your loadout is kept. Open the equipment menu to buy a
+     different one: $3000 to spend ..." and you spawn holding the MP5K and the
+     Glock-18 again without touching the menu. amx_tsm_loadout: recorded set
+     unchanged.
+
+ T6  Wave.  Die in the live round (class limits permitting), wait for the wave.
+     Expect on revive: "[MATCH] You can change your loadout once, for 20 seconds:
+     $3000 to spend" and the same MP5K + Glock-18 in hand. Buy something else
+     within 20 s: it is applied at once. A second apply: "Loadout not changed:
+     you can change your loadout once after a respawn." After 20 s: "[MATCH]
+     Your loadout is locked in." and an apply says "Buying is closed. It is open
+     in the freeze before a round and for 20 seconds after you respawn."
+
+ T7  Drop exploit.  Inside a buy window press the drop key (T) and right-click a
+     weapon on the weapon bar: "You cannot drop a weapon while you can still buy."
+     In warmup: "You cannot drop a weapon until the round is live." as before.
+     Once the window is shut dropping works as in any live round.
+
+ T8  Warmup.  In warmup press Apply: "Buying opens in the freeze before a round."
+
+ T9  Class change.  Pick Marksman (match restart or new match): amx_tsm_loadout
+     shows the old set "in force: no"; the Marksman gets his kit or a fresh buy.
+
+ T10 Mech.  Pick Mech (class 9). Equipment menu: nothing happens, no message.
+     T key: "The Mech cannot drop its weapon." Drop a gun next to him and hold
+     use: nothing is picked up; amx_tsm_loadout <mech> shows "Mech guard". Have a
+     second player melee the Mech (katana or kung fu past the disarm threshold;
+     without the spawn protection) until the M60 is thrown: within a quarter of a
+     second the M60 is in his hands again, the thrown gun is gone, and the AMX
+     log has "[TSM] loadout rework: the Mech N was disarmed of weapon 32 -- handed
+     back."
+
+ T11 Heavy.  Pick Heavy: same as the Mech for the menu (silent refusal), but he
+     can drop and be disarmed exactly as before the rework.
+
+ T12 Bots.  With tsm_bots on: bots hold the class kit every round and wave; no
+     "[TSM] loadout rework" lines for them.
+
+ T13 Mode.  In survival, as a survivor: the mutants keep their rolled loadout
+     (the mode's answer wins); the survivors can buy as above.
+
+ T14 Switch off mid-match.  tsm_loadoutrework 0 during a freeze: the next arm
+     hands the class kit; the menu is silent again; the Mech can drop.
+
+ Console commands for all of it: amx_tsm_loadout <name> (admin flag cfg),
+ tsm_loadoutrework / tsm_lr_cash / tsm_lr_cash_<n> / tsm_lr_buy_seconds /
+ tsm_lr_deny / tsm_lr_clips by rcon.
+
+
+10. NOT VERIFIED
+-------------------------------------------------------------------------------
+
+  - Nothing was run. The plugin compiles with no warnings; every behaviour above
+    is from reading the code and the reTS source.
+  - That register_clcmd sees the equipment menu's rst_cfg / tkw / tki on the
+    H9 build the way the old block did (it did for the refusal; the new code
+    reads their arguments with read_argc / read_argv).
+  - That strip_user_weapons followed by ts_giveweapon in the same frame, with no
+    respawn between, leaves a clean inventory and the right speed. It is the
+    hand-over pattern the revive arm uses minus the spawn() in between.
+  - That ts_giveweapon's extra argument takes the attachment bits the menu
+    uses (1 silencer, 2 laser, 4 light, 8 scope), and that a stack of N is
+    "N-1" in its third argument. The first is what tsm_wpn_extra's own
+    documentation says; the second is read from "24:0 is one M61 with no spare".
+  - Kevlar. There is no native for the vest; set_user_armor(100) is used, as the
+    Heavy's class armour is. reTS says armour is a marker and the vest is a
+    flag (m_bHasKevlar) that TakeDamage reads; if so the bought vest does
+    nothing for damage. Put "kevlar" in tsm_lr_deny until that is checked.
+  - That the game reads the use key from pev->button after the plugin's
+    pre-think (clearing IN_USE keeps the Mech from picking a weapon up).
+  - That pev_owner of a dropped "WorldGun" is the dropper in this build (from
+    reTS CTSWorldGun::CreateWeapon), which the disarm clean-up relies on.
+  - The prices are the client source's static table; a server using CustomWP to
+    re-price weapons (cl_dll MsgFunc_CustomWP) would price differently in the
+    menu than here.
+  - Web client: the equipment menu lives in the client; the web client shares
+    the reTS client source, but nothing was run there. The plugin half is
+    client-agnostic (it reads commands).
+
+
+11. RISKS
+-------------------------------------------------------------------------------
+
+  Economy balance. The default 3000 is well under what the class kits are worth
+  at the menu's prices: Assault 5800 (MSR, M4A1+Glock-20C) / 4300 (insurgent),
+  Combat Engineer 3600 / 3300, Marksman 10300, Breacher 4300, Officer 8950,
+  Recon 8950, Medic 1300. A player who buys therefore gives firepower up for
+  variety (the Marksman and Officer more than anyone), a Medic can buy more than
+  his kit, and nobody buys what the kit already gives. If that is not wanted, set
+  tsm_lr_cash_<n> per class near its kit value (the cfg block shows how); the
+  deny list keeps the class-defining weapons (M60, Barrett, laser rifle,
+  katana) out of everyone else's hands and out of a Medic's budget.
+
+  Ammunition. It is free with the weapon (3 + tsm_clip_bonus magazines). A
+  gun that eats ammunition buys the same as one that does not.
+
+  Revive timing / the arm gate. A wave revive's window opens after task_revive_arm
+  has given the kit and closes 20 s later; a change in it is strip + give inside
+  one frame while the player may already be in a fight (spawn protection covers
+  the first seconds, tsm_spawnprotect_dur). The freeze apply is free of it: the
+  arm gate and the arm schedule are not changed, g_armed is never set by the
+  rework. An apply landing in the last half second of the freeze is committed
+  by lr_close_all before the state changes; one in the last 0.3 s of a live
+  window is dropped.
+
+  TS's own cash rules. TS charges nothing and refuses nothing by cash. The wallet
+  the player sees is a display the plugin sets each frame; a map's victorycash /
+  defeatcash handouts are still taken back by hold_cash as before.
+
+  Short freeze. Six seconds to open the menu, choose and Apply. See 4(d).
+
+  The menu cannot be told about the budget. The player can compose a loadout the
+  menu accepts and the plugin refuses (money bar 30000, not the allowance); he
+  is told why in chat and keeps the loadout he had. The proposal
+  loadout-cash-economy.diff removes that.
+
+  Mech disarm. Undone after the fact: a quarter second bare-handed, and any
+  other strip of a living Mech in a live round is undone too. The floor guard is
+  a 96-unit sphere test only while the use key is down.
+
+  Bots. Never covered, so a bot's class kit is as before; a bot Mech is covered
+  by the Mech rules (floor weapons, disarm) but sends no commands.
+
+  Web client / H9 clients. The equipment menu is the reTS client's HUD menu; a
+  client without it (a stock TS 3.0 client) sends the same commands through its
+  own menu, which the plugin reads the same way.
+
+  Merge. The edits to ts_matchmode.sma are small and local (about twenty anchors, three
+  one-line replacements of get_pcvar_num(g_cv_wpnextra)), the new code is one
+  block ahead of task_tick and one state block after g_lo_clips.
