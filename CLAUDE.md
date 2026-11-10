@@ -77,6 +77,32 @@ native-only for days before anyone saw it.
    the second). If the smoke test fails, the work is not done; say so with its output.
 6. `webclient-bin\INPUTS.json` is the pipeline's record, never written by hand. The pipeline never commits.
 
+## The Linux build moves with the web client
+
+The native Linux i386 server (`linux\`, `build-linux.cmd`, the WSL2 distro `h9build`; `docs\LINUX_SUPPORT.txt`) is built from the
+same patched `xash3d-fwgs` tree and patch chain, the same `reTS` and `rcbot-patch` sources, the AMX Mod X modules and the
+`H9XASH` folder as the Windows game and the web client, and its ZIPs pack whatever `H9XASH` holds at that moment. So the Linux
+build is synced in tandem with the web client: every piece of work that ends with `node tools\webclient-sync.mjs` ends with the
+Linux sync as well, or `H9XASH-linux\` and the Linux ZIPs silently fall behind the way the web client once did.
+
+1. **After the web sync, run `build-linux.cmd -Stage`.** Its steps are `rets metamod engine amxx rcbot assemble`
+   (`-Steps` picks some, `-Skip` leaves some out). A change to `xash3d-fwgs`, `xash3d-h9-patches\patches`, `reTS`'s game library,
+   `rcbot-patch`, an AMX Mod X module or `linux\` needs the step that builds it plus `assemble` (`-Steps engine,assemble`). A change
+   to `H9XASH` content only (a plugin, config, preset, model, sound, map, or the Windows client library) needs
+   `-Steps assemble -Stage`, which lays `H9XASH-linux\` out again and packs the ZIPs. When unsure, run every step.
+2. It is a heavy job like the web sync: it takes `<temp>\HEAVY-JOB.lock` itself and refuses while the lock exists. Run the two
+   one after the other, never together, and never take the lock over.
+3. Client-only code (`cl_dll`, the in-game panels, the Windows SAPI voices, WebView2, Discord presence) is not built for Linux,
+   because there is no native Linux client: the Wine package carries the Windows client and the web client runs the page.
+   When a feature is client-only, say in `docs\LINUX_SUPPORT.txt` what a Linux player gets.
+4. "Done" is `build-linux.cmd` exiting 0, `H9XASH-linux\BUILDINFO.txt` listing the hashes of what was built, and the three
+   ZIPs in `dist\` staged again (`H9XASH.zip`, `H9XASH-linux.zip`, `H9XASH-linux-server.zip`). A server-side change is also
+   started once in the distro (the unpacked server ZIP with `H9XASH-linux` laid over it, `h9xash_server.sh -port 27099`, rcon
+   over UDP: the engine, Metamod, AMX Mod X, RCBot and the plugins must load) before it is called working. Say what was and was
+   not run.
+5. Report the Linux build next to the two web builds when you report an engine change: the libraries built and their glibc
+   floor (`BUILDINFO.txt`), or "Linux: assemble only". The build never commits.
+
 ## Assault maps: placing the respawn sets
 
 An Assault map (`h9_as_<name>`, `ts_assault.amxx`) has a spawn set for each
@@ -109,11 +135,27 @@ called from a map generator with `generateForMap()` (same guide, section 7).
   (work folders, builds, caches, downloads, test copies) will be stored
   before it proceeds. Never assume %TEMP% or C:; drive space differs per
   machine and C: may be a small SSD.
+- A third-party file (a binary, an include, a data file) ships with its license beside it,
+  in every folder that holds a copy: `easy_http_LICENSE.txt` next to AmxxEasyHttp's module,
+  CA bundle and include (compts, H9XASH, the Steam install, the git copy), and
+  `linux\LICENSE-AMXXEASYHTTP.txt` and `linux\LICENSE-AMBUILD.txt` for the Linux build's own.
+  A new third-party file brings its license text with it. A third-party binary carries no
+  `.patch` note (`tools\patch-notes-map.json`, binariesWithoutNotes); a rebuilt or changed one does.
+- The Linux server build is `build-linux.cmd` (the WSL2 distro `h9build`; it is a heavy job and
+  takes the lock); `H9XASH-linux\` is its git-ignored output and `stage-h9xash` packs it. It runs in
+  tandem with the web sync (the section above says when and how).
+  Pinned downloads (easy_http) are checked against the SHA-256 in `linux\build-linux.sh`.
+- A plugin, module or preset-list change ships with its hash: `build.bat` rewrites
+  `H9XASH\presets\official-preset.json` (`tools\preset-check.mjs --write`); commit it with
+  the `.amxx` files (the workflow `preset-hash.yml` fails otherwise) and have an admin import
+  it into the site (`docs\H9_PRESENCE.txt` 4d). The build's version is `VERSION` in
+  `ts_matchmode.sma` (what the plugin registers, so what the site lists): bump it with the update.
 - `ts_matchmode.sma` changes build+deploy via `build.bat`; confirm `Deployed:
   N Failed: 0`. Engine changes build via `xash3d-h9-patches\xash.bat` (full
   rebuild, applies/verifies the whole patch chain above), then `export.bat`
   to propagate into `H9XASH\`, then `node tools\webclient-sync.mjs` so the web
-  client follows (the section above).
+  client follows, then `build-linux.cmd -Stage` so the Linux build follows (the
+  two sections above).
 - No Unicode / non-ASCII in `.dm`-adjacent... n/a for this project, but: no
   em dashes or other non-ASCII punctuation in source files the toolchain is
   touchy about -- use `--` instead, consistent with the style already in

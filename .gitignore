@@ -64,6 +64,8 @@ H9XASH/ts/addons/amxmodx/logs/
 H9XASH/ts/addons/amxmodx/data/vault/
 H9XASH/ts/addons/amxmodx/data/vault.ini
 H9XASH/ts/addons/amxmodx/data/tsstats.dat
+# The Apollo RP database and any other SQLite file the server writes: live player data, not source.
+**/addons/amxmodx/data/sqlite3/
 H9XASH/rcbot/bot_playerids.ini
 # A player's own settings: config.cfg holds their player id (cl_h9_userid). New players start
 # from the tracked ts/config.stock.cfg, which h9xash.bat copies to ts/config.cfg when there is none.
@@ -190,3 +192,39 @@ ops-private/
 
 # The static site assembled by tools/build-site.mjs (generated, never committed)
 /site/
+
+# ---- builds, packages and credentials that never belong in git ---------------------------------
+# The Linux build (build-linux.cmd, linux/build-linux.sh): H9XASH-linux/ is what it builds, made again by
+# anyone who builds; the scripts in linux/ are tracked, their output and the WSL distro are not.
+/H9XASH-linux/
+/linux/work/
+/wsl/
+*.vhdx
+*.vhd
+h9build*.tar
+h9build*.tar.gz
+build-i386/
+build-amd64/
+build-aarch64/
+obj-*/
+# The packages stage-h9xash writes (dist/ above), a half-written one, and its scratch folder.
+*.zip.part
+/.stage/
+# Keys, certificates and credentials of any kind, wherever they are put.
+*.env
+mail.env
+accounts.json
+secrets.json
+*.pem
+*.ppk
+*.jks
+*.keystore
+*.kdbx
+id_rsa*
+id_ed25519*
+id_ecdsa*
+# Crash dumps: they hold the memory of the process, a password included.
+/core
+core.[0-9]*
+*.dmp
+*.mdmp

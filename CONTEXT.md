@@ -24,6 +24,12 @@ class of problem.
 - `xash3d-fwgs` -- the engine fork, branch `h9`. Rebuilt via
   `xash3d-h9-patches\xash.bat`, which replays the patch chain above.
 - `H9XASH` -- the built client, propagated via `export.bat`.
+- `linux\`, `build-linux.cmd` -- the native Linux i386 server build (WSL2 distro
+  `h9build`), laid out as `H9XASH-linux\` and packed by `stage-h9xash`; status and
+  known gaps in `docs\LINUX_SUPPORT.txt`. The third-party easy_http module it installs
+  carries its license (`linux\LICENSE-AMXXEASYHTTP.txt`). It is synced in tandem with the
+  web client: `build-linux.cmd -Stage` follows every `node tools\webclient-sync.mjs`
+  (`CLAUDE.md`, "The Linux build moves with the web client").
 - `serverlist-bot` -- standalone server-list/heartbeat service; see
   `docs\NETWORKING.txt`.
 - `tools\assault-spawns` -- Node.js library and command line that places an
@@ -45,5 +51,9 @@ class of problem.
 
 - No `git commit` anywhere in this project without the user's explicit,
   separate permission for that specific commit.
-- Back up before nontrivial edits (`<file>.bak_<description>`).
+- No backup copies of text files (git is the backup); only a binary being replaced
+  (a DLL, EXE, AMXX or the like) may keep one: `<file>.bak_<description>`.
+- Engine, client-library, server-library and `H9XASH` content changes finish with
+  `node tools\webclient-sync.mjs` and then `build-linux.cmd -Stage`: the web client
+  and the Linux build move together. Both are heavy jobs; one at a time, never together.
 - Full server/client restart needed to pick up engine or plugin rebuilds.
