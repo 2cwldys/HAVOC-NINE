@@ -22,6 +22,7 @@
 #include "filesystem_utils.h"
 #include "ts_hud.h"
 #include "ts_weapon_info.h"
+#include "h9_tts.h" // H9 text to speech: H9Tts_Shutdown
 
 
 extern bool g_iAlive;
@@ -1093,6 +1094,7 @@ void DLLEXPORT HUD_Shutdown()
 
 	ShutdownInput();
 
+	H9Tts_Shutdown(); // H9: the speech thread of h9_tts.cpp, before the library goes
 
 	FileSystem_FreeFileSystem();
 	CL_UnloadParticleMan();

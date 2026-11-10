@@ -133,7 +133,11 @@ if(HALFLIFE_EMSCRIPTEN)
 else()
 	target_link_libraries(client PRIVATE
 		$<$<PLATFORM_ID:Windows>:delayimp>
-		$<$<PLATFORM_ID:Windows>:wsock32>)
+		$<$<PLATFORM_ID:Windows>:wsock32>
+		# H9 text to speech (h9_tts_win.cpp): COM for SAPI, waveOut for the sound. SAPI itself is loaded by COM at run
+		# time, so client.dll links no sapi.lib and has no load-time dependency on sapi.dll.
+		$<$<PLATFORM_ID:Windows>:ole32>
+		$<$<PLATFORM_ID:Windows>:winmm>)
 
 	if(NOT HALFLIFE_VGUI_STATIC)
 		# 32-bit: dynamic vgui, load-time linked (the .so lives next to the client).
@@ -176,6 +180,11 @@ target_sources(client PRIVATE
 	flashlight.cpp
 	GameStudioModelRenderer.cpp
 	geiger.cpp
+	h9_arphud.cpp
+	h9_chatbubble.cpp
+	h9_tts.cpp
+	h9_tts_web.cpp
+	h9_tts_win.cpp
 	h9_vgui.cpp
 	health.cpp
 	hud.cpp
@@ -277,6 +286,10 @@ target_sources(client PRIVATE
 	demo.h
 	eventscripts.h
 	GameStudioModelRenderer.h
+	h9_arphud.h
+	h9_chatbubble.h
+	h9_tts.h
+	h9_tts_platform.h
 	h9_vgui.h
 	health.h
 	hud.h

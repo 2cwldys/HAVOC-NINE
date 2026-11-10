@@ -22,6 +22,8 @@ namespace
 {
 cvar_t* s_cvEnabled; // cl_h9_vgui: 0 refuses every server panel
 cvar_t* s_cvInfo;    // _h9vgui: the userinfo key the server reads, the protocol version or 0
+cvar_t* s_cvArp;     // cl_h9_arpvgui: 0 keeps Apollo RP's menus as the text menu, 1 draws them as panels
+cvar_t* s_cvArpInfo; // _h9arpvgui: the userinfo key the server reads for it, 1 or 0
 cvar_t* s_cvTop;     // cl_h9_vgui_top: where the safe area starts, in pixels from the top, 0 for the default
 cvar_t* s_cvMarks;   // cl_h9_marks: 0 draws no mark, on the world or in the row
 cvar_t* s_cvStrip;   // cl_h9_marks_strip: 0 draws no row of marks under the top stack
@@ -933,6 +935,13 @@ void SyncUserinfo()
 	snprintf(want, sizeof(want), "%d", Enabled() ? H9V_PROTOCOL : 0);
 	if (!s_cvInfo->string || 0 != strcmp(s_cvInfo->string, want))
 		gEngfuncs.Cvar_Set("_h9vgui", want);
+	if (s_cvArp && s_cvArpInfo)
+	{
+		char arp[4];
+		snprintf(arp, sizeof(arp), "%d", s_cvArp->value != 0.0f ? 1 : 0);
+		if (!s_cvArpInfo->string || 0 != strcmp(s_cvArpInfo->string, arp))
+			gEngfuncs.Cvar_Set("_h9arpvgui", arp);
+	}
 }
 
 void Frame()
@@ -1268,6 +1277,8 @@ void H9Vgui_Init()
 	s_cvZones = CVAR_CREATE("tsm_show_zones", "1", FCVAR_ARCHIVE);
 	s_cvReinforce = CVAR_CREATE("cl_h9_show_reinforce", "1", FCVAR_ARCHIVE);
 	s_cvInfo = CVAR_CREATE("_h9vgui", Enabled() ? "1" : "0", FCVAR_USERINFO);
+	s_cvArp = CVAR_CREATE("cl_h9_arpvgui", "1", FCVAR_ARCHIVE);
+	s_cvArpInfo = CVAR_CREATE("_h9arpvgui", "1", FCVAR_USERINFO);
 	gEngfuncs.pfnHookUserMsg("H9Vgui", __MsgFunc_H9Vgui);
 	s_Hud.Init();
 	gHUD.AddHudElem(&s_Hud);

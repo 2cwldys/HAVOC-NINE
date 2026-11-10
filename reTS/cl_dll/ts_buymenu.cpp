@@ -99,9 +99,9 @@ static const TSWeapon* WeaponInfo(int id)
 
 // Per-weapon ammo caliber (weapon_info byte +0x08), read from the live weapon table. 0 = melee/no
 // ammo. reference/MENUS.md. Indexed by tsweapon_t id.
-static const signed char s_weaponCaliber[41] = {
+static const signed char s_weaponCaliber[42] = {
 	/*0*/ 0, 1, 1, 1, 3, 4, 1, 1, 1, 2, 2, 3, 5, 6, 7, 4, 1, 12, 8, 7,
-	/*20*/ 3, 2, 9, 2, 0, 0, 3, 4, 10, -1, 7, 11, 4, 3, 0, 0, 13, 12, 0, 14, 15};
+	/*20*/ 3, 2, 9, 2, 0, 0, 3, 4, 10, -1, 7, 11, 4, 3, 0, 0, 13, 12, 0, 14, 15, 13};
 static int WeaponCaliber(int id) { return (id >= 0 && id < TSW_COUNT) ? s_weaponCaliber[id] : 0; }
 static_assert(sizeof(s_weaponCaliber) / sizeof(s_weaponCaliber[0]) >= TSW_COUNT, "the buy menu's caliber table must hold every weapon id");
 

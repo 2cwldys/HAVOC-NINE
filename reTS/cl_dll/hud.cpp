@@ -29,6 +29,9 @@
 #include "ts_bullets.h"     // TSBullets_Reset
 #include "ts_motionblur.h"  // TS_MotionBlur_Init — the TSMBlur ghost-trail hook
 #include "h9_vgui.h"        // H9 VGUI: H9Vgui_Init, the server panels
+#include "h9_tts.h"         // H9 text to speech: H9Tts_Init
+#include "h9_chatbubble.h"  // H9 chat bubbles: H9ChatBubble_Init
+#include "h9_arphud.h"      // H9 ARP HUD: H9ArpHud_Init, Apollo RP's HUD as panels
 #include "vgui_int.h"
 #include "vgui_TeamFortressViewport.h"
 
@@ -431,6 +434,9 @@ void CHud::Init()
 
 	m_Menu.Init();
 	H9Vgui_Init(); // H9: server panels, the H9Vgui message and cl_h9_vgui (h9_vgui.cpp, H9 VGUI)
+	H9Tts_Init();  // H9: spoken chat, the H9Tts message, cl_h9_tts and cl_h9_tts_volume (h9_tts.cpp)
+	H9ArpHud_Init(); // H9: Apollo RP's HUD as panels, the H9ArpHud message and cl_h9_arphud* (h9_arphud.cpp)
+	H9ChatBubble_Init(); // H9: chat over the head of the player aimed at, the H9Say message and cl_h9_chatbubble_* (h9_chatbubble.cpp)
 
 	MsgFunc_ResetHUD(0, 0, NULL);
 

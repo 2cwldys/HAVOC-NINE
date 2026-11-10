@@ -64,6 +64,9 @@ bool CHudTSAmmo::Init()
 bool CHudTSAmmo::VidInit()
 {
 	m_flMeleeBar = 100.0f; // @0x1004cd2d: a new map starts the melee bar full
+	// @0x1004cc55: a new map starts on kung fu, and a gun the server has out says otherwise.
+	m_iWeaponType = 0;
+	g_iTSActiveWeapon = 0;
 	// The attachment rows' dot (weapon bar +0x144, loaded with the weapon sprites at 0x1004cbb5);
 	// handles go stale across a map change, so it is reloaded here.
 	m_hInstalled = SPR_Load("sprites/weapons/item_installed.spr");
@@ -72,7 +75,10 @@ bool CHudTSAmmo::VidInit()
 
 void CHudTSAmmo::Reset()
 {
-	// Keep drawing across respawns; the server resends WeaponInfo on weapon deploy.
+	// Keep drawing across respawns. A new life starts on kung fu (@0x1004cd7e); the server sends
+	// WeaponInfo when it holds a gun.
+	m_iWeaponType = 0;
+	g_iTSActiveWeapon = 0;
 	m_iFlags |= HUD_ACTIVE;
 }
 
