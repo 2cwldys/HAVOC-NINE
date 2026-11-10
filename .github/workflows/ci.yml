@@ -37,7 +37,7 @@ jobs:
       - name: the project's own rules (tools/secret-scan.mjs)
         run: node tools/secret-scan.mjs
       - name: gitleaks (default rules plus .gitleaks.toml)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
