@@ -1,0 +1,43 @@
+THE PATCH-NOTES CHECK
+=====================
+
+Every binary H9 ships that is built from source we changed carries a note beside it, <binary>.patch (mp.dll.patch, client.dll.patch,
+xash.dll.patch, rcbot_mm.dll.patch, amxmodx_mm.dll.patch ...): what it was built from, what was changed in it and the hash of the
+file. The note is what lets anyone check a binary against its source, so a change to the source (or a rebuilt binary) that does not
+change the note leaves the binary unexplained.
+
+.github/workflows/patch-notes.yml runs tools/patch-notes-check.mjs on every push to main and every pull request. It fails when:
+
+  1. a source changed and none of the notes that belong to it did. Which notes belong to which source is tools/patch-notes-map.json:
+       reTS\cl_dll                  -> ts\cl_dlls\client.dll.patch
+       reTS\dlls                    -> ts\dlls\mp.dll.patch
+       reTS common, game_shared, pm_shared, public, engine -> either of the two
+       rcbot-patch\src, rcbot-*.patch -> rcbot_mm.dll.patch
+       AMXMODX\amxmodx              -> amxmodx_mm.dll.patch;  AMXMODX\modules\<m> -> that module's <m>_amxx.dll.patch
+       metamod-r                    -> metamod.dll.patch
+       xash3d-h9-patches\webview    -> h9webview.dll.patch
+       apollo-rp ...\scripting      -> apollo-rp\H9-arpfix.patch, H9-menus.patch or ORIGIN.txt
+  2. an engine patch changed (xash3d-h9-patches\patches\*.patch). The paths its diff touches say which binary it lands in, the same
+     lists xash.bat's :dllpatch calls hold: ref\gl is ref_gl.dll, filesystem is filesystem_stdio.dll, 3rdparty\mainui is menu.dll,
+     3rdparty\freevgui is vgui.dll, game_launch is HAVOC 9.exe, the rest is xash.dll. Each of those binaries' notes must change too.
+  3. a binary that has a note changed and its note did not.
+
+Any change to the note passes (it asks that the note was touched, not what it says: xash.bat and the reTS build write the notes, and a
+build that changed a binary leaves the note changed). Two warnings, which fail only with --strict: a note that records a SHA256 that is
+not its binary's, and a binary or a note changed without the other.
+
+A commit in the range that says, on a line of its own,
+
+    Patch-Notes: skip <the reason>
+
+waives the check for the range (a refactor, a comment, a rename; the reason shows in the log). Binaries with no note on purpose (the
+FFmpeg and runtime libraries, SDL2, the Steam files, the AMX Mod X compiler, the mysql and easy_http modules) are listed in the map.
+
+LOCALLY
+  node tools\patch-notes-check.mjs --worktree           the working tree against HEAD, before a commit
+  node tools\patch-notes-check.mjs --base <rev> --head <rev>
+  node tools\patch-notes-check.mjs --list               the rules
+
+A NEW BINARY, MODULE OR SOURCE FOLDER: add a rule to tools/patch-notes-map.json (name, sources, notes, and the binary when it is
+shipped); the file is plain JSON and * stays inside a folder, ** crosses folders. The plugins' .sma files have no note (they are H9's
+own source, not a patch of another's) and are not checked here; their hashes are the official preset's (docs\H9_PRESENCE.txt, 4d).

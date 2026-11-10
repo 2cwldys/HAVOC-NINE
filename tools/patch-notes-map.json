@@ -1,0 +1,144 @@
+{
+  "about": "Which source belongs to which .patch note (tools/patch-notes-check.mjs, docs/PATCH_NOTES_CHECK.txt). A rule fires when a changed file matches one of its sources (and none of its ignore globs); it passes when at least one of its notes is changed in the same set of changes. A binary that changed needs its notes changed whatever the sources did. Paths are the repository's, forward slashes; * stays inside a folder, ** crosses folders.",
+  "rules": [
+    {
+      "name": "reTS server library (mp.dll)",
+      "sources": ["reTS/dlls/**", "reTS/CMakeLists.txt", "reTS/cmake/**"],
+      "ignore": ["**/*.md", "**/*.txt"],
+      "binaries": ["H9XASH/ts/dlls/mp.dll"],
+      "notes": ["H9XASH/ts/dlls/mp.dll.patch"]
+    },
+    {
+      "name": "reTS client library (client.dll)",
+      "sources": ["reTS/cl_dll/**"],
+      "ignore": ["**/*.md", "**/*.txt"],
+      "binaries": ["H9XASH/ts/cl_dlls/client.dll"],
+      "notes": ["H9XASH/ts/cl_dlls/client.dll.patch"]
+    },
+    {
+      "name": "reTS code both libraries are built from",
+      "sources": ["reTS/common/**", "reTS/game_shared/**", "reTS/pm_shared/**", "reTS/public/**", "reTS/engine/**"],
+      "ignore": ["**/*.md", "**/*.txt"],
+      "notes": ["H9XASH/ts/dlls/mp.dll.patch", "H9XASH/ts/cl_dlls/client.dll.patch"]
+    },
+    {
+      "name": "RCBot (rcbot_mm.dll)",
+      "sources": ["rcbot-patch/src/**", "rcbot-patch/rcbot-*.patch", "rcbot-patch/BASE-COMMIT.txt"],
+      "binaries": ["H9XASH/ts/addons/rcbot/dlls/rcbot_mm.dll", "H9XASH/rcbot/dlls/rcbot_mm.dll"],
+      "notes": ["rcbot-patch/rcbot_mm.dll.patch", "H9XASH/ts/addons/rcbot/dlls/rcbot_mm.dll.patch", "H9XASH/rcbot/dlls/rcbot_mm.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X core (amxmodx_mm.dll)",
+      "sources": ["AMXMODX/amxmodx/**", "AMXMODX/public/**", "AMXMODX/product.version"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/dlls/amxmodx_mm.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/dlls/amxmodx_mm.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X module: engine",
+      "sources": ["AMXMODX/modules/engine/**"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/modules/engine_amxx.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/modules/engine_amxx.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X module: fakemeta",
+      "sources": ["AMXMODX/modules/fakemeta/**"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/modules/fakemeta_amxx.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/modules/fakemeta_amxx.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X module: fun",
+      "sources": ["AMXMODX/modules/fun/**"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/modules/fun_amxx.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/modules/fun_amxx.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X module: geoip",
+      "sources": ["AMXMODX/modules/geoip/**"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/modules/geoip_amxx.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/modules/geoip_amxx.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X module: hamsandwich",
+      "sources": ["AMXMODX/modules/hamsandwich/**"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/modules/hamsandwich_amxx.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/modules/hamsandwich_amxx.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X module: json",
+      "sources": ["AMXMODX/modules/json/**"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/modules/json_amxx.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/modules/json_amxx.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X module: nvault",
+      "sources": ["AMXMODX/modules/nvault/**"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/modules/nvault_amxx.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/modules/nvault_amxx.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X module: regex",
+      "sources": ["AMXMODX/modules/regex/**"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/modules/regex_amxx.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/modules/regex_amxx.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X module: sockets",
+      "sources": ["AMXMODX/modules/sockets/**"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/modules/sockets_amxx.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/modules/sockets_amxx.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X module: sqlite",
+      "sources": ["AMXMODX/modules/sqlite/**"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/modules/sqlite_amxx.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/modules/sqlite_amxx.dll.patch"]
+    },
+    {
+      "name": "AMX Mod X module: ts (tsfun and tsx)",
+      "sources": ["AMXMODX/modules/ts/**"],
+      "binaries": ["H9XASH/ts/addons/amxmodx/modules/tsfun_amxx.dll", "H9XASH/ts/addons/amxmodx/modules/tsx_amxx.dll"],
+      "notes": ["H9XASH/ts/addons/amxmodx/modules/tsfun_amxx.dll.patch", "H9XASH/ts/addons/amxmodx/modules/tsx_amxx.dll.patch"]
+    },
+    {
+      "name": "Metamod (metamod.dll)",
+      "sources": ["metamod-r/**"],
+      "ignore": ["**/*.md", "**/.gitignore"],
+      "binaries": ["H9XASH/ts/addons/metamod/dlls/metamod.dll"],
+      "notes": ["H9XASH/ts/addons/metamod/dlls/metamod.dll.patch", "metamod-r/h9-slots128.patch"]
+    },
+    {
+      "name": "The web page of the engine (h9webview.dll)",
+      "sources": ["xash3d-h9-patches/webview/**"],
+      "binaries": ["H9XASH/h9webview.dll"],
+      "notes": ["H9XASH/h9webview.dll.patch"]
+    },
+    {
+      "name": "The WebAssembly patch (the engine's browser build)",
+      "sources": ["webassembly-patch/**"],
+      "ignore": ["**/*.md"],
+      "notes": ["H9XASH/xash.dll.patch", "H9XASH/ref_gl.dll.patch", "H9XASH/filesystem_stdio.dll.patch", "H9XASH/menu.dll.patch", "H9XASH/vgui.dll.patch"]
+    },
+    {
+      "name": "Apollo RP (the plugins and their include files)",
+      "sources": ["apollo-rp/base/addons/amxmodx/scripting/**"],
+      "notes": ["apollo-rp/H9-arpfix.patch", "apollo-rp/H9-menus.patch", "apollo-rp/H9-arpcontent.patch", "apollo-rp/ORIGIN.txt"]
+    }
+  ],
+  "engine": {
+    "about": "Each file of xash3d-h9-patches/patches/*.patch changes the engine tree; the paths its diff touches say which binary it ends up in (the same lists as the :dllpatch calls of xash3d-h9-patches/xash.bat), and each such binary's note must change too.",
+    "patches": ["xash3d-h9-patches/patches/*.patch"],
+    "ignore": ["xash3d-h9-patches/patches/retired/**"],
+    "binaries": [
+      { "paths": ["ref/gl/", "ref/"], "note": "H9XASH/ref_gl.dll.patch", "binary": "H9XASH/ref_gl.dll" },
+      { "paths": ["filesystem/"], "note": "H9XASH/filesystem_stdio.dll.patch", "binary": "H9XASH/filesystem_stdio.dll" },
+      { "paths": ["3rdparty/mainui"], "note": "H9XASH/menu.dll.patch", "binary": "H9XASH/menu.dll" },
+      { "paths": ["3rdparty/freevgui"], "note": "H9XASH/vgui.dll.patch", "binary": "H9XASH/vgui.dll" },
+      { "paths": ["game_launch/"], "note": "H9XASH/HAVOC 9.exe.patch", "binary": "H9XASH/HAVOC 9.exe" }
+    ],
+    "default": { "note": "H9XASH/xash.dll.patch", "binary": "H9XASH/xash.dll" }
+  },
+  "binariesWithoutNotes": {
+    "about": "Shipped binaries that are third-party builds or stock files and carry no note on purpose: the FFmpeg and runtime libraries, SDL2, the Steam files, the AMX Mod X compiler and the mysql and easy_http modules.",
+    "paths": ["H9XASH/avcodec-*.dll", "H9XASH/avformat-*.dll", "H9XASH/avutil-*.dll", "H9XASH/swresample-*.dll", "H9XASH/swscale-*.dll", "H9XASH/lib*.dll", "H9XASH/SDL2.dll", "H9XASH/zlib1.dll", "H9XASH/steam/**", "H9XASH/ts/addons/amxmodx/scripting/*.exe", "H9XASH/ts/addons/amxmodx/scripting/*.dll", "H9XASH/ts/addons/amxmodx/modules/mysql_amxx.dll", "H9XASH/ts/addons/amxmodx/modules/easy_http_amxx.dll"]
+  }
+}
