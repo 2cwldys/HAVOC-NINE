@@ -57,6 +57,23 @@ Either way, whatever file is about to be overwritten is backed up first,
 into presets\backup\<timestamp>\, the first time that file is touched in a
 given run of the tool.
 
+THE OFFICIAL PRESET FILES
+-------------------------
+official-preset.json and official-preset-<Mode>.json (one for each plugins.<Mode>.ini) are not presets: they hold the
+SHA-256 of the plugins, modules and Metamod plugins an authenticated server may run (tools\preset-check.mjs writes them,
+build.bat at every build; docs\H9_PRESENCE.txt 4d). They are named with a hyphen on purpose, so this tool never takes
+them for a preset. Do not edit them by hand. Each official-preset-<Mode>.json says "gameMode": "<Mode>", the list of
+havoc9.org's allowlist its import fills.
+
+WHICH PRESET A SERVER RUNS
+--------------------------
+h9_preset.<Tag>.cfg (Assault, Siege, TeamElimination) is a real preset: applying a profile puts it in configs\ as
+h9_preset.cfg, with one line, h9_preset "<Tag>". h9_presence.amxx runs it after h9_presence.cfg and names the preset in
+every report to havoc9.org, which then judges the server's plugins against that game mode's list of official files and
+the ones every mode shares. Without the file, the server is judged against every mode's list together. Keep the tags
+in step with plugins.<Tag>.ini (the list of files for a tag is made from it), and add an h9_preset.<Tag>.cfg for each
+new tag.
+
 TOGGLING INDIVIDUAL PLUGINS
 ----------------------------
 Separate from presets entirely. The tool's own menu can list every plugin
