@@ -1,0 +1,129 @@
+PROPOSAL -- optional, not compiled. Generated with git diff from the source tree the patch chain
+produces (rcbot-patch\src for bot.cpp / bot.h / bot_commands.cpp, and rcbot-upstream\dlls\bot_commands.h,
+which the chain leaves as upstream has it); checked with git apply --check against LF copies of those.
+Apply it after the eight patches of the README's REBUILDING list.
+
+The rcbot_mm.dll that ships was built before the forget-on-death and defend_time rules of the
+current rcbot-ts-roam.patch / src\bot.cpp. REBUILDING FROM THE CURRENT SOURCE IS THE FIX for citizens
+that go for a player again after his respawn. This patch is an extra, for tsrp_rb_forget_cmd 1.
+
+What it adds (CHANGE 8, roaming citizens)
+  - "rcbot roamforget <player entity index>": every roaming citizen that holds that player for its
+    attacker drops him at once, and with him its current enemy and last enemy. tsrp_roambots.sma sends
+    it when tsrp_rb_forget_cmd is 1.
+
+diff --git a/dlls/bot.cpp b/dlls/bot.cpp
+index 5297c5c..5a14eae 100644
+--- a/dlls/bot.cpp
++++ b/dlls/bot.cpp
+@@ -4074,6 +4074,26 @@ edict_t* CBot::RoamAttacker() const
+ 	return m_pRoamAttacker;
+ }
+ 
++// The plugin's word that a player is to be let off (the server command "rcbot roamforget <index>"): a
++// roamer that holds him for its attacker no longer does, and neither fights nor remembers him. What
++// it was doing about him (turning to face him, a search for where he went) ends by itself: the tasks
++// ask IsEnemy, which is false for him now.
++void CBot::RoamForgetAttacker(const edict_t* pPlayer)
++{
++	if (pPlayer == nullptr || m_pRoamAttacker != pPlayer)
++		return;
++
++	m_pRoamAttacker = nullptr;
++	m_iRoamAttackerId = 0;
++	m_fRoamHurtTime = 0.0f;
++
++	if (m_pEnemy == pPlayer)
++		m_pEnemy = nullptr;
++
++	if (m_pLastEnemy == pPlayer)
++		m_pLastEnemy = nullptr;
++}
++
+ // Whom a roamer fights: its attacker, and, while the citizens are insurgents, every player who is
+ // not a bot -- or only the players of tsrp_roambots_insurgent_team. Never anything else, not even
+ // a door in its way.
+diff --git a/dlls/bot.h b/dlls/bot.h
+index 2e1caba..b9a57bf 100644
+--- a/dlls/bot.h
++++ b/dlls/bot.h
+@@ -3178,6 +3178,7 @@ public:
+ 	void RoamForgetWay();
+ 	void RoamNoteAttacker(edict_t* pInflictor);
+ 	edict_t* RoamAttacker() const;
++	void RoamForgetAttacker(const edict_t* pPlayer);
+ 	bool RoamIsEnemy(edict_t* pEntity) const;
+ 	bool RoamWantsFight() const;
+ 	bool RoamHoldsMelee() const;
+diff --git a/dlls/bot_commands.cpp b/dlls/bot_commands.cpp
+index 7b9cb89..c7cec5d 100644
+--- a/dlls/bot_commands.cpp
++++ b/dlls/bot_commands.cpp
+@@ -756,6 +756,30 @@ eBotCvarState CRemoveBotCommand::action(CClient* pClient, const char* arg1, cons
+ 	return BOT_CVAR_ACCESSED;
+ }
+ 
++eBotCvarState CRoamForgetCommand::action(CClient* pClient, const char* arg1, const char* arg2, const char* arg3, const char* arg4)
++{
++	if (arg1 == nullptr || *arg1 == '\0')
++		return BOT_CVAR_ERROR;
++
++	const int iIndex = std::atoi(arg1);
++
++	if (iIndex < 1 || iIndex > gpGlobals->maxClients)
++		return BOT_CVAR_ERROR;
++
++	const edict_t* pPlayer = INDEXENT(iIndex);
++
++	if (pPlayer == nullptr || pPlayer->free)
++		return BOT_CVAR_ERROR;
++
++	for (CBot& bot : gBotGlobals.m_Bots)
++	{
++		if (bot.IsUsed())
++			bot.RoamForgetAttacker(pPlayer);
++	}
++
++	return BOT_CVAR_ACCESSED;
++}
++
+ eBotCvarState CDebugBotCommand::action(CClient* pClient, const char* arg1, const char* arg2, const char* arg3, const char* arg4)
+ {
+ 	if (FStrEq(arg1, "bot"))
+@@ -2126,6 +2150,7 @@ void SetupCommands()
+ 	gBotGlobals.m_BotCvars.AddCvar(new CDebugBotCommand());
+ 	gBotGlobals.m_BotCvars.AddCvar(new CDebugEntCommand());
+ 	gBotGlobals.m_BotCvars.AddCvar(new CRemoveBotCommand());
++	gBotGlobals.m_BotCvars.AddCvar(new CRoamForgetCommand());
+ }
+ 
+ void RCBot_ServerCommand()
+diff --git a/dlls/bot_commands.h b/dlls/bot_commands.h
+index 2fd4142..c45ab9d 100644
+--- a/dlls/bot_commands.h
++++ b/dlls/bot_commands.h
+@@ -78,6 +78,24 @@ public:
+ 	eBotCvarState action(CClient* pClient, const char* arg1, const char* arg2, const char* arg3, const char* arg4) override;
+ };
+ 
++// "rcbot roamforget <player entity index>" (CHANGE 8): roaming citizens drop that player as their
++// attacker. Sent by tsrp_roambots.sma.
++class CRoamForgetCommand : public CBotCvar
++{
++public:
++	CRoamForgetCommand()
++	{
++		setupCommand("roamforget", BOT_COMMAND_ACCESS_ADD_REMOVE_BOTS);
++	}
++
++	void showHelp(edict_t* pEntity) override
++	{
++		BotMessage(pEntity, 0, "roamforget <player entity index> : roaming citizens let that player off");
++	}
++
++	eBotCvarState action(CClient* pClient, const char* arg1, const char* arg2, const char* arg3, const char* arg4) override;
++};
++
+ class CDebugBotCommand : public CBotCvar
+ {
+ public:
