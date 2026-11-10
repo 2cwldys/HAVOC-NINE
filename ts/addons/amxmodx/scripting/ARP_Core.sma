@@ -19,6 +19,9 @@
 #include <ApolloRP>
 #include <xs>
 #include <tsfun>
+#include <h9_presence>
+#define ARPVGUI_PAGED
+#include <ApolloRP_VGui>
 #if defined ARRAYX
 #include <arrayx_array>
 #else
@@ -69,6 +72,17 @@ new g_Type[64] = "sqlite"
 
 new g_Authid[MAX_PLAYERS + 1][36]
 
+// H9: the key of each player's character: the authid his rows are kept under (ARP_GetUserKey)
+new g_CharKey[MAX_PLAYERS + 1][36]
+// H9: each player's havoc9.org account once h9_presence has proved it (0: none yet), and the seconds his load has
+// waited for it (-1: it does not wait)
+new g_Acct[MAX_PLAYERS + 1]
+new g_AcctWait[MAX_PLAYERS + 1]
+new g_Presence
+new p_AcctWait
+// the table that ties an authid to the account it was seen with
+new g_IdsTable[64] = "arp_ids"
+
 new g_PluginEnd
 
 // amount of jobs currently loaded
@@ -106,6 +120,7 @@ new g_Access[MAX_PLAYERS + 1]
 new g_AccessCache[MAX_PLAYERS + 1]
 new g_JobRight[MAX_PLAYERS + 1]
 new g_BadJob[MAX_PLAYERS + 1]
+new g_KeptJob[MAX_PLAYERS + 1][33]   // H9: the job a character was saved with when this map has no job of that name; it goes back at the save unless he takes another job here
 new g_Falling[MAX_PLAYERS + 1]
 
 #if defined DEBUG
@@ -150,6 +165,51 @@ new TravTrie:g_HudArray[MAX_PLAYERS + 1][HUD_NUM]
 // H9: whether each of a player's HUDs was last sent empty (RenderHud)
 new g_HudCleared[MAX_PLAYERS + 1][HUD_NUM]
 new g_HudPending
+
+// H9: the HUD as a panel. A player whose game says so (the userinfo key _h9arphud, which its cl_h9_arphud keeps) is sent each HUD's
+// lines in the user message H9ArpHud in place of the hudmessage; every other player keeps the hudmessage. A message holds a few
+// lines of one HUD, each with its kind (HUDK_*), and a HUD that needs more is sent as parts, the last one marked; the game keeps
+// what it was last given until it is given something else. docs\APOLLO_RP.txt, section 2.
+#define HUDP_MAX_LINES 24      // lines of one HUD that are sent
+#define HUDP_LINE_LEN 173      // room for a line: 172 characters of it are sent
+#define HUDP_MSG_MAX 184       // bytes of one message: the engine's 192 less a margin
+#define HUDP_NOTICE_GAP 1.5    // seconds before the notice's unchanged lines are sent again
+#define HUDP_OP_CONTENT 1      // the lines of one HUD
+#define HUDP_OP_CLEAR 2        // one HUD taken down
+#define HUDP_OP_CLEAR_ALL 3    // every HUD taken down
+
+// why a player is, or is not, sent the panel (g_HudWhy)
+#define HUDWHY_PANEL 0
+#define HUDWHY_SERVER 1
+#define HUDWHY_NOMSG 2
+#define HUDWHY_NOVGUI 3
+#define HUDWHY_NOKEY 4
+#define HUDWHY_OFF 5
+
+new const g_HudWhyText[][] =
+{
+	"_h9arphud is 1",
+	"arp_hud_panel is 0 on this server",
+	"the H9ArpHud message was not registered",
+	"his game draws no H9 panels (no _h9vgui, cl_h9_vgui 0 or h9_vgui 0)",
+	"his game sends no _h9arphud (an older game, or its userinfo is full)",
+	"_h9arphud is 0 (cl_h9_arphud 0)"
+}
+
+new g_HudMsg
+new p_HudPanel
+new p_HudRefresh
+new g_HudPanel[MAX_PLAYERS + 1]
+new g_HudWhy[MAX_PLAYERS + 1] = {-1,...}
+new g_HudGen[MAX_PLAYERS + 1][HUD_NUM]
+new g_HudSig[MAX_PLAYERS + 1][HUD_NUM]
+new Float:g_HudSentAt[MAX_PLAYERS + 1][HUD_NUM]
+new g_HudSentMsgs[MAX_PLAYERS + 1]
+new g_HudFirstLogged[MAX_PLAYERS + 1]
+new g_HudLast[MAX_PLAYERS + 1][HUD_NUM][96]
+new g_PanelText[HUDP_MAX_LINES][HUDP_LINE_LEN]
+new g_PanelKind[HUDP_MAX_LINES]
+new g_PanelNum
 
 new g_Time
 
@@ -233,6 +293,11 @@ public plugin_init()
 {			
 	register_cvar("arp_version",g_Version,FCVAR_SERVER)
 	
+	// H9: whether h9_presence is loaded, which proves a player's havoc9.org account
+	g_Presence = LibraryExists("h9_presence",LibType_Library)
+	
+	arpvgui_init("arpcore")
+	
 	register_menucmd(register_menuid(g_ItemsMenu),g_Keys,"ItemsHandle")
 	register_menucmd(register_menuid(g_ItemsOptions),g_Keys,"ItemsOptions")
 	register_menucmd(register_menuid(g_ItemsDrop),g_Keys,"ItemsDrop")
@@ -266,6 +331,10 @@ public plugin_init()
 	ARP_RegisterCmd("say /menu","CmdMenu","Shows client menu")
 	ARP_RegisterCmd("arp_plugins","CmdPlugins","Shows current plugins running")
 	ARP_RegisterCmd("arp_query","CmdQuery","(ADMIN) Executes an SQL query")
+
+	// H9: who is sent the HUD as a panel and who the text HUD (a console command too, so the server console can ask)
+	ARP_AddCommand("arp_hudstate","(ADMIN) Shows who is sent the HUD panel and who the text HUD, and what was last sent")
+	register_concmd("arp_hudstate","CmdHudState",_,"- who is sent the HUD panel and who the text HUD")
 	
 	register_touch("player","func_door","PlayerTouch")
 	register_touch("func_door","player","PlayerTouch")
@@ -321,6 +390,160 @@ public CmdGetClasses(id)
 	DestroyTravTrieIterator(Iter)
 }
 #endif
+
+// H9: a player's character is kept under a key, the authid its rows are under. It is the engine's authid, except for a
+// player whose havoc9.org account h9_presence proves and who made his character under an earlier authid (the address of
+// the server changed, and the engine's authid with it): arp_ids lists the authids each account was seen with, the first
+// of them is its character's key. No row of another table is ever changed to follow an account.
+ArpKey(id,Key[],Len)
+{
+	if(g_CharKey[id][0])
+		copy(Key,Len,g_CharKey[id])
+	else
+		get_user_authid(id,Key,Len)
+}
+
+// H9: the havoc9.org account h9_presence has proved for the player: 0 for none, not yet, or no h9_presence
+ArpAccount(id)
+{
+	if(!g_Presence || get_pcvar_num(p_AcctWait) < 1 || !is_user_connected(id))
+		return 0
+	
+	return h9p_account(id)
+}
+
+// H9: whether the player's game can prove an account here: h9_presence challenges, and the game is H9XASH linked to one
+// (_h9idv 1: it answers the challenge; _h9lnk 1: its player id is an account's)
+bool:ArpCandidate(id)
+{
+	if(!g_Presence || is_user_bot(id) || get_pcvar_num(p_AcctWait) < 1 || (!get_cvar_num("h9_presence_challenge") && !get_cvar_num("h9_require_account")))
+		return false
+	
+	new Value[4]
+	get_user_info(id,"_h9idv",Value,charsmax(Value))
+	if(Value[0] != '1')
+		return false
+	
+	get_user_info(id,"_h9lnk",Value,charsmax(Value))
+	
+	return Value[0] == '1'
+}
+
+// H9: the player's character, read under his key; its items and keys are read once the row is (ArpLoadExtras)
+LoadPlayer(id)
+{
+	new Data[1],Quoted[72]
+	Data[0] = id
+	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),g_CharKey[id])
+	
+	format(g_Query,4095,"SELECT * FROM %s WHERE authid='%s'",g_UserTable,Quoted)
+	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientData",g_Query,Data,1)
+}
+
+ArpLoadExtras(id)
+{
+	new Data[1],Quoted[72]
+	Data[0] = id
+	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),g_CharKey[id])
+	
+	format(g_Query,4095,"SELECT * FROM %s WHERE authidname LIKE '%s|%%'",g_ItemsTable,Quoted)
+	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientItems",g_Query,Data,1)
+	
+	format(g_Query,4095,"SELECT * FROM %s WHERE authidkey LIKE '%s|%%'",g_KeysTable,Quoted)
+	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientKeys",g_Query,Data,1)
+}
+
+// H9: the key the join found: the first authid recorded for the account, when the player's authid is recorded (or the
+// account is known), else his authid
+public FetchClientKey(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
+{
+	new id = Data[0]
+	if(!is_user_connected(id))
+		return PLUGIN_CONTINUE
+	
+	get_user_authid(id,g_CharKey[id],35)
+	
+	if(FailState != TQUERY_SUCCESS || Errcode)
+	{
+		format(g_Query,4095,"Could not read the account table: %s",Error)
+		UTIL_ARP_ThrowError(0,0,g_Query,0)
+	}
+	else if(SQL_NumResults(Query) > 0)
+	{
+		SQL_ReadResult(Query,0,g_CharKey[id],35)
+		g_AcctWait[id] = -1
+	}
+	
+	LoadPlayer(id)
+	
+	return PLUGIN_CONTINUE
+}
+
+// H9: a join that waits for the account of a player no row knows, a second at a time (the task is id + 2 * MAX_PLAYERS);
+// with it, his character is the account's first authid, else, when it never comes, one under his authid
+public ArpRetry(Task)
+{
+	new id = Task - MAX_PLAYERS * 2
+	if(id < 1 || id > MAX_PLAYERS || !is_user_connected(id) || g_AcctWait[id] < 0)
+		return
+	
+	new Acct = ArpAccount(id),Data[1]
+	if(!Acct && ++g_AcctWait[id] <= get_pcvar_num(p_AcctWait))
+	{
+		set_task(1.0,"ArpRetry",Task)
+		return
+	}
+	
+	g_AcctWait[id] = -1
+	
+	if(!Acct)
+	{
+		LoadPlayer(id)
+		return
+	}
+	
+	Data[0] = id
+	format(g_Query,4095,"SELECT authid FROM %s WHERE acct=%d ORDER BY id LIMIT 1",g_IdsTable,Acct)
+	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientKey",g_Query,Data,1)
+}
+
+// H9: ties the player's authid to his account, once: the next time his authid is another, the account finds his character
+ArpRecordId(id)
+{
+	new Authid[36],Quoted[72]
+	get_user_authid(id,Authid,35)
+	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),Authid)
+	
+	switch(g_SqlMode)
+	{
+		case MYSQL:
+			format(g_Query,4095,"INSERT IGNORE INTO %s (authid,acct) VALUES ('%s','%d')",g_IdsTable,Quoted,g_Acct[id])
+		case SQLITE:
+			format(g_Query,4095,"INSERT OR IGNORE INTO %s (authid,acct) VALUES ('%s','%d')",g_IdsTable,Quoted,g_Acct[id])
+	}
+	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+}
+
+public _ARP_GetUserKey(Plugin,Params)
+{
+	if(Params != 3)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 3, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+	
+	new id = get_param(1),Key[36]
+	if(id < 1 || id > MAX_PLAYERS || !is_user_connected(id))
+	{
+		format(g_Query,4095,"User not connected: %d",id)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+	
+	ArpKey(id,Key,35)
+	set_string(2,Key,get_param(3))
+	
+	return SUCCEEDED
+}
 
 public ModuleFilter(const Module[])
 {
@@ -471,7 +694,7 @@ public CmdMenu(id)
 	}
 	DestroyTravTrieIterator(Iter)
 	
-	menu_display(id,Menu,0)
+	arpvgui_menu_display(id,Menu,"arpcore.client","ARP Client Menu","ClientMenuHandle",0)
 	
 	return PLUGIN_HANDLED
 }
@@ -542,7 +765,7 @@ public SaveData()
 		array_get_string(CurArray,0,InternalName,63)
 		array_get_string(CurArray,1,ExternalName,63)
 		array_get_string(CurArray,2,OwnerName,32)
-		array_get_string(CurArray,3,OwnerAuthid,32)
+		array_get_string(CurArray,3,OwnerAuthid,35)
 		Price = array_get_int(CurArray,4)
 		Locked = array_get_int(CurArray,5)
 		Access = array_get_int(CurArray,6)
@@ -551,6 +774,7 @@ public SaveData()
 		ARP_SqlEscape(InternalName,63)
 		ARP_SqlEscape(ExternalName,63)
 		ARP_SqlEscape(OwnerName,32)
+		ARP_SqlEscape(OwnerAuthid,35)
 		//replace_all(ExternalName,32,"'","\'")
 		//replace_all(OwnerName,32,"'","\'")
 		
@@ -589,6 +813,7 @@ public SaveData()
 		#endif
 		
 		ARP_SqlEscape(InternalName,charsmax(InternalName))
+		ARP_SqlEscape(Targetname,32)
 		
 		switch(g_SqlMode)
 		{
@@ -609,12 +834,12 @@ public SaveData()
 
 SaveUserItems(id)
 {
-	new Authid[36],ItemId,ItemName[33],Size = array_size(g_UserItemArray[id]) + 1
+	new Authid[72],ItemId,ItemName[33],Size = array_size(g_UserItemArray[id]) + 1
 	
 	if(Size < 2)
 		return
 	
-	get_user_authid(id,Authid,35)
+	SQL_QuoteString(Empty_Handle,Authid,charsmax(Authid),g_CharKey[id])
 	
 	for(new Count = 1,Success = 1;Count < Size && Success;Count++)
 	{
@@ -736,13 +961,19 @@ public plugin_precache()
 	p_SaveTime = register_cvar("arp_save_interval","30")
 	p_Lights = register_cvar("arp_lights","q")
 	p_GodDoors = register_cvar("arp_goddoors","1")
-	p_GodWindows = register_cvar("arp_godwindows","1")
+	p_GodWindows = register_cvar("arp_godwindows","0")
 	p_FallDamage = register_cvar("arp_falldamage","1")
 	p_AuxType = register_cvar("arp_hud4_type","1")
 	p_Performance = register_cvar("arp_performance","100")
 	p_Log = register_cvar("arp_log","1")
 	p_GameName = register_cvar("arp_gamename","")
 	p_HoverMessage = register_cvar("arp_hover_message","1")
+	// H9: 1 sends the HUD as a panel to the games that draw it, 0 sends everyone the text HUD; the seconds before a HUD that
+	// has not changed is sent again (5 to 60)
+	p_HudPanel = register_cvar("arp_hud_panel","1")
+	p_HudRefresh = register_cvar("arp_hud_refresh","10")
+	// H9: seconds a join may wait for a havoc9.org account (arp_ids); 0: no account is waited for, used or recorded
+	p_AcctWait = register_cvar("arp_account_wait","30")
 	//p_CharacterSheet = register_cvar("arp_character_sheet","1")
 	
 	p_Welcome[0] = register_cvar("arp_welcome_msg1","This server is running Apollo RP (http://ApolloRP.org).")
@@ -792,6 +1023,11 @@ public plugin_precache()
 		H9_StandDown()
 		return
 	}
+	
+	arpvgui_precache()
+	
+	// H9: variable length (-1), registered here so every game learns it as it joins
+	g_HudMsg = engfunc(EngFunc_RegUserMsg,"H9ArpHud",-1)
 	
 	new MapName[33],ConfigFile[128]
 	
@@ -1078,6 +1314,16 @@ public SqlInit()
 			format(g_Query,4095,"CREATE TABLE IF NOT EXISTS %s (authid VARCHAR(36),bankmoney INT(11),wallet INT(11),jobname VARCHAR(36),hunger INT(11),access VARCHAR(27),jobright VARCHAR(27),UNIQUE KEY (authid))",g_UserTable)
 		case SQLITE:
 			format(g_Query,4095,"CREATE TABLE IF NOT EXISTS %s (authid VARCHAR(36),bankmoney INT(11),wallet INT(11),jobname VARCHAR(36),hunger INT(11),access VARCHAR(27),jobright VARCHAR(27),UNIQUE (authid))",g_UserTable)
+	}
+	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
+	
+	// H9: which authids belong to which havoc9.org account (ArpKey); a table of its own, no row of the others is changed
+	switch(g_SqlMode)
+	{
+		case MYSQL:
+			format(g_Query,4095,"CREATE TABLE IF NOT EXISTS %s (id INT(11) AUTO_INCREMENT,authid VARCHAR(36),acct INT(11),PRIMARY KEY (id),UNIQUE KEY (authid))",g_IdsTable)
+		case SQLITE:
+			format(g_Query,4095,"CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY AUTOINCREMENT,authid VARCHAR(36),acct INT(11),UNIQUE (authid))",g_IdsTable)
 	}
 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
 	
@@ -1381,6 +1627,10 @@ public plugin_end()
 		
 public client_disconnect(id)	
 {
+	remove_task(id + MAX_PLAYERS * 2)
+	
+	ArpHudForget(id)
+	
 	if(g_GotInfo[id] >= STD_USER_QUERIES && !g_PluginEnd)
 	{
 		SaveUserData(id,1)
@@ -1397,8 +1647,8 @@ public client_disconnect(id)
 
 public SaveUserData(id,Disconnected)
 {
-	// H9: bots are never saved (client_putinserver)
-	if(is_user_bot(id))
+	// H9: bots are never saved (client_putinserver), nor is a character that is not loaded: it has no key to save under
+	if(is_user_bot(id) || !g_CharKey[id][0])
 		return
 	
 	new Data[2]
@@ -1414,13 +1664,21 @@ public SaveUserData(id,Disconnected)
 	if(UTIL_ARP_ValidJobId(g_JobId[id]))   // H9: never the job array of a job that is not there
 		array_get_string(array_get_int(g_JobsArray,g_JobId[id]),1,JobName,32)
 	
+	// H9: a job this map does not have is the one he came with (a map can have jobs of its own, item 18): it goes back
+	// as it was, so a visit to another map does not cost him his rank
+	if(g_KeptJob[id][0])
+		copy(JobName,32,g_KeptJob[id])
+	
 	get_user_authid(id,g_Authid[id],35)
 	if(containi(g_Authid[id],"PENDING") != -1 || containi(g_Authid[id],"LAN") != -1 || equali(g_Authid[id],"STEAM_0:0") || containi(g_Authid[id],"UNKNOWN") != -1)
 		return
 	
 	ARP_SqlEscape(JobName,32)
 	
-	format(g_Query,4095,"UPDATE %s SET bankmoney='%d',wallet='%d',jobname='%s',hunger='%d',access='%s',jobright='%s' WHERE authid='%s'",g_UserTable,g_BankMoney[id],g_Money[id],JobName,g_Hunger[id],Access,JobRight,g_Authid[id])
+	new Quoted[72]
+	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),g_CharKey[id])
+	
+	format(g_Query,4095,"UPDATE %s SET bankmoney='%d',wallet='%d',jobname='%s',hunger='%d',access='%s',jobright='%s' WHERE authid='%s'",g_UserTable,g_BankMoney[id],g_Money[id],JobName,g_Hunger[id],Access,JobRight,Quoted)
 	
 	g_Saving[id] = 1
 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"SaveUserDataHandle",g_Query,Data,2)
@@ -1476,8 +1734,11 @@ ClearSettings(id)
 	g_AccessCache[id] = 0
 	
 	g_Authid[id][0] = 0
+	g_CharKey[id][0] = 0
+	g_Acct[id] = 0
 	
 	g_BadJob[id] = 0
+	g_KeptJob[id][0] = 0
 	
 	g_Display[id] = 1
 	
@@ -1553,7 +1814,7 @@ public CmdBuy(id)
 		
 		new CurArray = array_get_int(g_PropertyArray,Property),Price = array_get_int(CurArray,4),Authid[36],EntAuthid[36]
 		
-		get_user_authid(id,Authid,35)
+		ArpKey(id,Authid,35)
 		array_get_string(CurArray,3,EntAuthid,35)
 		
 		if(equali(Authid,EntAuthid))
@@ -1579,7 +1840,7 @@ public CmdBuy(id)
 				{
 					Player = Players[Count]
 					
-					get_user_authid(Player,PlayerAuthid,35)
+					ArpKey(Player,PlayerAuthid,35)
 					
 					if(equali(PlayerAuthid,EntAuthid))
 					{
@@ -1599,7 +1860,10 @@ public CmdBuy(id)
 				
 				if(!Flag)
 				{
-					format(g_Query,4095,"UPDATE %s SET bankmoney = bankmoney + %d WHERE authid='%s'",g_UserTable,Price,EntAuthid)
+					new Quoted[72]
+					SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),EntAuthid)
+					
+					format(g_Query,4095,"UPDATE %s SET bankmoney = bankmoney + %d WHERE authid='%s'",g_UserTable,Price,Quoted)
 					UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
 				}
 				
@@ -1620,6 +1884,8 @@ public CmdBuy(id)
 				#if defined DEBUG
 				g_TotalQueries++
 				#endif
+				
+				ARP_SqlEscape(InternalName,63)
 				
 				format(g_Query,4095,"DELETE FROM %s WHERE authidkey LIKE '%%|%s'",g_KeysTable,InternalName)
 				UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
@@ -1676,7 +1942,7 @@ ShowItems(id)
 		//	break
 	}
 	
-	menu_display(id,Menu)
+	arpvgui_menu_display(id,Menu,"arpcore.items","ARP Items","ItemsHandle")
 	
 	return PLUGIN_HANDLED
 }	
@@ -1709,7 +1975,7 @@ public ItemsHandle(id,Menu,Item)
 	else if(UTIL_ARP_ValidItemId(ItemId))
 	{
 		format(g_Query,4095,"ARP Item Options^n^n1. Use^n2. Give^n3. Examine^n4. Show^n5. Drop^n^n0. Exit")
-		show_menu(id,g_Keys,g_Query,-1,g_ItemsOptions)
+		arpvgui_show_menu(id,g_Keys,g_Query,-1,g_ItemsOptions,"arpcore.itemopt")
 	}
 	else
 		client_print(id,print_chat,"[ARP] This item is invalid. Please contact the administrator.")
@@ -1744,7 +2010,7 @@ public ItemsOptions(id,Key)
 		case 1 :
 		{
 			format(g_Query,4095,"ARP Give Items^n^n1. Give 1^n2. Give 5^n3. Give 20^n4. Give 50^n5. Give 100^n6. Give All^n^n0. Exit")
-			show_menu(id,g_Keys,g_Query,-1,g_ItemsGive)
+			arpvgui_show_menu(id,g_Keys,g_Query,-1,g_ItemsGive,"arpcore.itemgive")
 		}
 		
 		case 2 :
@@ -1796,7 +2062,7 @@ public ItemsOptions(id,Key)
 		case 4 :
 		{
 			format(g_Query,4095,"ARP Drop Items^n^n1. Drop 1^n2. Drop 5^n3. Drop 20^n4. Drop 50^n5. Drop 100^n6. Drop All^n^n0. Exit")
-			show_menu(id,g_Keys,g_Query,-1,g_ItemsDrop)
+			arpvgui_show_menu(id,g_Keys,g_Query,-1,g_ItemsDrop,"arpcore.itemdrop")
 		}
 	}
 
@@ -1976,7 +2242,7 @@ public client_PreThink(id)
 				new CurArray = array_get_int(g_PropertyArray,Property)
 				
 				static Authid[36],EntAuthid[36]
-				get_user_authid(id,Authid,35)
+				ArpKey(id,Authid,35)
 				array_get_string(CurArray,3,EntAuthid,35)
 				
 				if(!array_get_int(CurArray,5) || H9_HasKey(CurArray,id) || equali(Authid,EntAuthid) || array_get_int(CurArray,6) & g_Access[id])
@@ -2062,7 +2328,7 @@ public client_PreThink(id)
 		}
 	}	
 	
-	if(g_Display[id])
+	if(g_Display[id] && !is_user_bot(id))
 		GetMsg(id,Index)
 }
 
@@ -2207,6 +2473,7 @@ public plugin_natives()
 	register_native("ARP_IsNpc","_ARP_IsNpc")
 	
 	register_native("ARP_PlayerReady","_ARP_PlayerReady")
+	register_native("ARP_GetUserKey","_ARP_GetUserKey")
 	
 	register_native("ARP_GetUserWallet","_ARP_GetUserWallet")
 	register_native("ARP_SetUserWallet","_ARP_SetUserWallet")
@@ -2245,6 +2512,7 @@ public plugin_natives()
 	register_native("ARP_AddCommand","_ARP_AddCommand")
 	
 	register_native("ARP_AddHudItem","_ARP_AddHudItem")
+	register_native("ARP_AddHudItemKind","_ARP_AddHudItemKind")
 	
 	register_native("ARP_GetPayday","_ARP_GetPayday")
 	
@@ -3109,7 +3377,10 @@ public _ARP_ClassDestroy(Plugin,Params)
 	
 	TravTrieGetString(CurTrie,"/table",Table,63)
 	
-	format(g_Query,4095,"DELETE FROM %s WHERE classkey LIKE '%s|%%'",Table,Name)
+	new Quoted[130]
+	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),Name)
+	
+	format(g_Query,4095,"DELETE FROM %s WHERE classkey LIKE '%s|%%'",Table,Quoted)
 	
 	new TravTrie:PluginTrie,TravTrie:ChangedTrie,TravTrie:SaveTrie
 	TravTrieGetHCell(CurTrie,"/plugins",PluginTrie)
@@ -3487,7 +3758,7 @@ UTIL_ARP_AddJob(Name[],Salary,IntAccess)
 	copy(FmtName,63,Name)
 	ARP_SqlEscape(FmtName,63)
 	
-	format(g_Query,4095,"INSERT INTO %s VALUES ('%s','%d','%s')",g_JobsTable,Name,Salary,Access)
+	format(g_Query,4095,"INSERT INTO %s VALUES ('%s','%d','%s')",g_JobsTable,FmtName,Salary,Access)
 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
 	
 	new CurArray = array_create()
@@ -3536,12 +3807,16 @@ UTIL_ARP_DeleteJob(JobId)
 	{
 		Player = Players[Count]
 		if(g_JobId[Player] == JobId)
+		{
 			g_JobId[Player] = Unemployed
+			g_KeptJob[Player][0] = 0
+		}
 	}
 	
 	new Name[33]
 	array_get_string(array_get_int(g_JobsArray,JobId),1,Name,32)
 	
+	ARP_SqlEscape(Name,32)
 	format(g_Query,4095,"DELETE FROM %s WHERE name='%s'",g_JobsTable,Name)
 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
 	
@@ -3637,7 +3912,10 @@ public _ARP_DeleteProperty(Plugin,Params)
 	array_destroy(PropArray)
 	array_delete(g_PropertyArray,--g_PropertyNum)
 	
-	format(g_Query,4095,"DELETE FROM %s WHERE internalname='%s'",g_PropertyTable,InternalName)
+	new Quoted[72]
+	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),InternalName)
+	
+	format(g_Query,4095,"DELETE FROM %s WHERE internalname='%s'",g_PropertyTable,Quoted)
 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
 	
 	for(new Count;Count < g_DoorNum;Count++)
@@ -3723,7 +4001,10 @@ UTIL_ARP_DeleteDoor(Door)
 	array_destroy(DoorArray)
 	array_delete(g_DoorArray,--g_DoorNum)
 	
-	format(g_Query,4095,"DELETE FROM %s WHERE internalname='%s'",g_DoorsTable,InternalName)
+	new Quoted[130]
+	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),InternalName)
+	
+	format(g_Query,4095,"DELETE FROM %s WHERE internalname='%s'",g_DoorsTable,Quoted)
 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
 	
 	return SUCCEEDED
@@ -4165,7 +4446,10 @@ public _ARP_PropertyAddAccess(Plugin,Params)
 	
 	ARP_SqlEscape(InternalName,63)
 	
-	format(g_Query,4095,"INSERT INTO %s VALUES('%s|%s')",g_KeysTable,Authid,InternalName)
+	new Quoted[72]
+	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),Authid)
+	
+	format(g_Query,4095,"INSERT INTO %s VALUES('%s|%s')",g_KeysTable,Quoted,InternalName)
 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
 	
 	new PlayerAuthid[36],Players[MAX_PLAYERS],Playersnum,Player
@@ -4174,7 +4458,7 @@ public _ARP_PropertyAddAccess(Plugin,Params)
 	for(new Count;Count < Playersnum;Count++)
 	{
 		Player = Players[Count]
-		get_user_authid(Player,PlayerAuthid,35)
+		ArpKey(Player,PlayerAuthid,35)
 		
 		if(equali(Authid,PlayerAuthid))
 		{
@@ -4214,7 +4498,10 @@ public _ARP_PropertyRemoveAccess(Plugin,Params)
 	
 	ARP_SqlEscape(InternalName,63)
 	
-	format(g_Query,4095,"DELETE FROM %s WHERE authidkey='%s|%s'",g_KeysTable,Authid,InternalName)
+	new Quoted[72]
+	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),Authid)
+	
+	format(g_Query,4095,"DELETE FROM %s WHERE authidkey='%s|%s'",g_KeysTable,Quoted,InternalName)
 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
 	
 	new PlayerAuthid[36],Players[MAX_PLAYERS],Playersnum,Player
@@ -4223,7 +4510,7 @@ public _ARP_PropertyRemoveAccess(Plugin,Params)
 	for(new Count;Count < Playersnum;Count++)
 	{
 		Player = Players[Count]
-		get_user_authid(Player,PlayerAuthid,35)
+		ArpKey(Player,PlayerAuthid,35)
 		
 		if(equali(Authid,PlayerAuthid))
 		{
@@ -4306,8 +4593,43 @@ public _ARP_AddHudItem(Plugin,Params)
 	if(g_HudPending)
 		Refresh = 0
 	
-	UTIL_ARP_AddHudItem(id,Channel,g_Query,Refresh)
+	UTIL_ARP_AddHudItem(id,Channel,g_Query,Refresh,HUDK_EXTRA)
 	
+	return SUCCEEDED
+}
+
+// H9: ARP_AddHudItem for a line of a given kind
+public _ARP_AddHudItemKind(Plugin,Params)
+{
+	if(Params < 5)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 5, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	new id = get_param(1),Channel = get_param(2),Refresh = get_param(3),Kind = get_param(4)
+	if(!is_user_connected(id) && id != -1)
+	{
+		format(g_Query,4095,"User not connected: %d",id)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	if(Channel < 0 || Channel >= HUD_NUM)
+	{
+		format(g_Query,4095,"Invalid channel: %d",Channel)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	if(Kind < HUDK_EXTRA || Kind > HUDK_STATUS)
+		Kind = HUDK_EXTRA
+
+	vdformat(g_Query,4095,5,6)
+
+	if(g_HudPending)
+		Refresh = 0
+
+	UTIL_ARP_AddHudItem(id,Channel,g_Query,Refresh,Kind)
+
 	return SUCCEEDED
 }
 
@@ -4615,6 +4937,7 @@ public _ARP_SetUserJobId(Plugin,Params)
 	}
 
 	g_JobId[id] = JobId
+	g_KeptJob[id][0] = 0
 	g_Access[id] = g_AccessCache[id]
 	
 	g_Salary[id] = array_get_int(array_get_int(g_JobsArray,JobId),2)
@@ -4680,7 +5003,8 @@ public _ARP_FindJobId(Plugin,Params)
 		Results[Count] = Temp[Cell]
 	}
 	
-	set_array(2,Results,Num)
+	// H9: the caller's array holds MaxResults cells; Num counts every job that matched
+	if(Num) set_array(2,Results,min(MaxResults,Num))
 	
 	return Num
 }	
@@ -5114,6 +5438,7 @@ public client_putinserver(id)
 	g_GotInfo[id] = 0
 	for(new Hud;Hud < HUD_NUM;Hud++)
 		g_HudCleared[id][Hud] = 0
+	ArpHudForget(id)
 	
 	//g_Money[id] = 0
 	//g_BankMoney[id] = 0
@@ -5141,17 +5466,27 @@ public client_putinserver(id)
 		return
 	}
 	
+	g_CharKey[id][0] = 0
+	g_Acct[id] = 0
+	g_AcctWait[id] = ArpCandidate(id) ? 0 : -1
+	
 	get_user_authid(id,Authid,35)
 	Data[0] = id
 	
-	format(g_Query,4095,"SELECT * FROM %s WHERE authid='%s'",g_UserTable,Authid)
-	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientData",g_Query,Data,1)
+	// H9: with arp_account_wait 0 his character is under his authid, as it was
+	if(!get_pcvar_num(p_AcctWait))
+	{
+		copy(g_CharKey[id],35,Authid)
+		LoadPlayer(id)
+		return
+	}
 	
-	format(g_Query,4095,"SELECT * FROM %s WHERE authidname LIKE '%s|%%'",g_ItemsTable,Authid)
-	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientItems",g_Query,Data,1)
+	// H9: his character's key first: the first authid recorded for his havoc9.org account, if his authid is one of its
+	new Quoted[72]
+	SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),Authid)
 	
-	format(g_Query,4095,"SELECT * FROM %s WHERE authidkey LIKE '%s|%%'",g_KeysTable,Authid)
-	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientKeys",g_Query,Data,1)
+	format(g_Query,4095,"SELECT m2.authid FROM %s m1,%s m2 WHERE m1.authid='%s' AND m2.acct=m1.acct ORDER BY m2.id LIMIT 1",g_IdsTable,g_IdsTable,Quoted)
+	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchClientKey",g_Query,Data,1)
 }
 
 public FetchClientData(FailState,Handle:Query,Error[],Errcode,Data[],DataSize) 
@@ -5175,20 +5510,31 @@ public FetchClientData(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
 		
 	new id = Data[0]
 	
+	// H9: a player whose game can prove a havoc9.org account and whom no row knows waits for it: the character he made
+	// under an earlier authid may be his
+	if(SQL_NumResults(Query) < 1 && g_AcctWait[id] >= 0)
+	{
+		set_task(1.0,"ArpRetry",id + MAX_PLAYERS * 2)
+		return PLUGIN_CONTINUE
+	}
+	
 	g_GotInfo[id]++
+	
+	// H9: his items and keys are read under the key of the character found
+	ArpLoadExtras(id)
 	
 	if(SQL_NumResults(Query) < 1)
 	{
 		//g_FirstJoin[id] = 1
 
-		new Authid[36],StartMoney = get_pcvar_num(p_StartMoney)
-		get_user_authid(id,Authid,35)
+		new Quoted[72],StartMoney = get_pcvar_num(p_StartMoney)
+		SQL_QuoteString(Empty_Handle,Quoted,charsmax(Quoted),g_CharKey[id])
 		
 		#if defined DEBUG
 		g_TotalQueries++
 		#endif
 		
-		format(g_Query,4095,"INSERT INTO %s VALUES('%s','%d','0','Unemployed','0','','')",g_UserTable,Authid,StartMoney)
+		format(g_Query,4095,"INSERT INTO %s VALUES('%s','%d','0','Unemployed','0','','')",g_UserTable,Quoted,StartMoney)
 		UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
 		
 		new Results[1]
@@ -5235,6 +5581,7 @@ public FetchClientData(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
 	
 	new Results[2]
 	SQL_ReadResult(Query,3,Temp,4095)
+	g_KeptJob[id][0] = 0
 	ARP_FindJobId(Temp,Results,2)
 	
 	g_JobId[id] = Results[0] - 1
@@ -5242,6 +5589,7 @@ public FetchClientData(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
 	if(!Results[0])
 	{
 		g_BadJob[id] = 1
+		copy(g_KeptJob[id],32,Temp)
 		
 		ARP_FindJobId("Unemployed",Results,1)
 		if(!UTIL_ARP_ValidJobId(Results[0] - 1))
@@ -5255,6 +5603,7 @@ public FetchClientData(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
 	else
 	{
 		g_BadJob[id] = 1
+		copy(g_KeptJob[id],32,Temp)
 		
 		ARP_FindJobId("Unemployed",Results,1)
 		if(!UTIL_ARP_ValidJobId(Results[0] - 1))
@@ -5347,12 +5696,12 @@ public FetchClientKeys(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
 		return UTIL_ARP_ThrowError(0,0,g_Query,0)
 	}
 		
-	new id = Data[0],InternalName[33],Property,AuthidKey[64],Garbage[1]
+	new id = Data[0],InternalName[33],Property,AuthidKey[96],Garbage[1]
 	
 	g_GotInfo[id]++
 	while(SQL_MoreResults(Query))
 	{
-		SQL_ReadResult(Query,0,AuthidKey,63)
+		SQL_ReadResult(Query,0,AuthidKey,95)
 		strtok(AuthidKey,Garbage,0,InternalName,32,'|')
 		
 		Property = UTIL_ARP_MatchProperty(InternalName)
@@ -5431,7 +5780,8 @@ public ShowHud()
 	
 	new Players[MAX_PLAYERS],Playersnum,Player/*,Pos*/,Retn,Fwd
 		
-	get_players(Players,Playersnum)
+	// H9: no bot is sent a HUD (nothing reads a bot's datagram)
+	get_players(Players,Playersnum,"c")
 	
 	for(new Count,Count2;Count < Playersnum;Count++)
 	{
@@ -5444,6 +5794,14 @@ public ShowHud()
 		if(!is_user_connected(Player))
 			continue
 		
+		// H9: once his havoc9.org account is proved, his authid is recorded with it
+		if(!g_Acct[Player] && g_GotInfo[Player] >= STD_USER_QUERIES)
+		{
+			g_Acct[Player] = ArpAccount(Player)
+			if(g_Acct[Player])
+				ArpRecordId(Player)
+		}
+		
 		if(g_Time == StartTime)
 		{
 			Fwd = CreateMultiForward("ARP_Salary",ET_STOP2,FP_CELL)
@@ -5455,6 +5813,9 @@ public ShowHud()
 			
 			DestroyForward(Fwd)
 		}
+		
+		// H9: whether he is sent the HUD as a panel or as the text HUD
+		ArpHudUpdate(Player)
 		
 		for(Count2 = 0;Count2 < HUD_NUM;Count2++)
 			RenderHud(Player,Count2)
@@ -5487,13 +5848,21 @@ RenderHud(id,Hud)
 	
 	g_Query[0] = 0
 	
-	new travTrieIter:Iter = GetTravTrieIterator(g_HudArray[id][Hud]),Priority,Ticker
+	g_PanelNum = 0
+	
+	new travTrieIter:Iter = GetTravTrieIterator(g_HudArray[id][Hud]),Kind,Ticker
 	while(MoreTravTrie(Iter))
 	{
 		ReadTravTrieKey(Iter,Temp,255)
-		ReadTravTrieCell(Iter,Priority)
+		ReadTravTrieCell(Iter,Kind)
 		
-		float(Priority)
+		// H9: a line's value in the trie is its kind (HUDK_*); the panel is sent the lines apart, the text HUD the one text
+		if(g_HudPanel[id] && g_PanelNum < HUDP_MAX_LINES)
+		{
+			g_PanelKind[g_PanelNum] = Kind
+			copy(g_PanelText[g_PanelNum],HUDP_LINE_LEN - 1,Temp)
+			g_PanelNum++
+		}
 		
 		Ticker += format(g_Query[Ticker],4095 - Ticker,"%s^n",Temp)
 	}
@@ -5503,6 +5872,13 @@ RenderHud(id,Hud)
 		TravTrieClear(g_HudArray[id][Hud])
 			
 	g_HudPending = false
+	
+	// H9: a player whose game draws the panel is sent it, and no hudmessage
+	if(g_HudPanel[id])
+	{
+		ArpHudSend(id,Hud)
+		return
+	}
 	
 	/*for(new Count,CurArray,Ticker;Count < g_HudNum[id][Hud];Count++)
 	{
@@ -5543,6 +5919,284 @@ RenderHud(id,Hud)
 	set_hudmessage(get_pcvar_num(p_Hud[Hud][R]),get_pcvar_num(p_Hud[Hud][G]),get_pcvar_num(p_Hud[Hud][B]),get_pcvar_float(p_Hud[Hud][X]),get_pcvar_float(p_Hud[Hud][Y]),0,0.0,999999.9,0.0,0.0,-1)
 	ShowSyncHudMsg(id,g_HudObjects[Hud],"%s",g_Query)
 }
+
+// H9: why a player is, or is not, sent the HUD as a panel: HUDWHY_PANEL when he is, else the first thing that says no
+ArpHudWhy(id)
+{
+	if(!get_pcvar_num(p_HudPanel))
+		return HUDWHY_SERVER
+	
+	if(g_HudMsg <= 0)
+		return HUDWHY_NOMSG
+	
+	if(!h9vgui_supported(id))
+		return HUDWHY_NOVGUI
+	
+	new Value[8]
+	get_user_info(id,"_h9arphud",Value,7)
+	if(!Value[0])
+		return HUDWHY_NOKEY
+	
+	return str_to_num(Value) >= 1 ? HUDWHY_PANEL : HUDWHY_OFF
+}
+	
+// H9: once a pass of ShowHud, for each human player: decides which HUD he is sent, and moves him from one to the other
+ArpHudUpdate(id)
+{
+	new Why = ArpHudWhy(id)
+	if(Why != g_HudWhy[id])
+	{
+		new Name[32]
+		get_user_name(id,Name,31)
+		log_amx("[ARP] HUD: %s is sent %s: %s",Name,Why == HUDWHY_PANEL ? "the HUD panel" : "the text HUD",g_HudWhyText[Why])
+		g_HudWhy[id] = Why
+	}
+	
+	new Panel = Why == HUDWHY_PANEL ? 1 : 0
+	if(Panel == g_HudPanel[id])
+		return
+	
+	g_HudPanel[id] = Panel
+	ArpHudReset(id)
+	
+	if(Panel)
+		ArpHudClearText(id)
+	else
+		ArpHudPanelDown(id)
+}
+	
+// H9: what was sent to a player is forgotten, so the next pass sends every HUD whole
+ArpHudReset(id)
+{
+	for(new Hud;Hud < HUD_NUM;Hud++)
+	{
+		g_HudSig[id][Hud] = 0
+		g_HudSentAt[id][Hud] = 0.0
+		g_HudLast[id][Hud][0] = 0
+	}
+}
+	
+// H9: a player joins or leaves: he is sent the text HUD until his game says otherwise
+ArpHudForget(id)
+{
+	g_HudPanel[id] = 0
+	g_HudWhy[id] = -1
+	g_HudSentMsgs[id] = 0
+	g_HudFirstLogged[id] = 0
+	ArpHudReset(id)
+}
+	
+// H9: the hudmessages of a player who is now sent the panel are taken down, each HUD's channel with an empty text
+ArpHudClearText(id)
+{
+	for(new Hud;Hud < HUD_NUM;Hud++)
+	{
+		set_hudmessage(get_pcvar_num(p_Hud[Hud][R]),get_pcvar_num(p_Hud[Hud][G]),get_pcvar_num(p_Hud[Hud][B]),get_pcvar_float(p_Hud[Hud][X]),get_pcvar_float(p_Hud[Hud][Y]),0,0.0,999999.9,0.0,0.0,-1)
+		ShowSyncHudMsg(id,g_HudObjects[Hud],"%s","")
+		g_HudCleared[id][Hud] = 1
+	}
+}
+	
+// H9: the panels of a player who is now sent the text HUD are taken down
+ArpHudPanelDown(id)
+{
+	if(g_HudMsg <= 0 || !is_user_connected(id) || is_user_bot(id))
+		return
+	
+	ArpHudBegin(id,HUDP_OP_CLEAR_ALL)
+	message_end()
+	
+	for(new Hud;Hud < HUD_NUM;Hud++)
+		g_HudCleared[id][Hud] = 0
+}
+	
+// H9: opens an H9ArpHud message to one player. It is reliable: an unreliable message travels in the same datagram as the
+// entities, which a big map fills, and a datagram that does not fit is dropped whole.
+ArpHudBegin(id,Op)
+{
+	engfunc(EngFunc_MessageBegin,MSG_ONE,g_HudMsg,Float:{0.0,0.0,0.0},id)
+	write_byte(Op)
+	g_HudSentMsgs[id]++
+}
+	
+// H9: a HUD's place on the screen as the arp_hudN_x and _y say, in thousandths; -1 is centred
+ArpHudCoord(Pcvar)
+{
+	new Float:Value = get_pcvar_float(Pcvar)
+	return Value < 0.0 ? -1 : clamp(floatround(Value * 1000.0),0,1000)
+}
+	
+ArpHudHash(Hash,Kind,Text[])
+{
+	Hash = Hash * 31 + Kind + 1
+	for(new Count;Text[Count];Count++)
+		Hash = Hash * 31 + Text[Count]
+	
+	return Hash
+}
+	
+// H9: sends the lines RenderHud has gathered in g_PanelText and g_PanelKind (g_PanelNum of them) as the panel of one HUD, when they
+// are not what he already has, or when it is time to say them again (arp_hud_refresh; the notice's gap).
+//   op 1   byte op, byte hud, byte number of the content, byte part (bits 0 to 3) with bit 7 on the last one, byte lines,
+//          then in part 0 only: short x and y in thousandths; then each line: byte kind, string text.
+//   op 2   byte op, byte hud: the HUD is taken down.
+//   op 3   byte op: every HUD is taken down.
+// A HUD that does not fit in one message is sent as parts of one content. Nothing the game holds changes until the last one has
+// come, so a part that was lost leaves it what it had.
+ArpHudSend(id,Hud)
+{
+	new Float:Now = get_gametime()
+	new Num = g_PanelNum
+	
+	if(!Num)
+	{
+		// the notice takes itself down on his screen; any other HUD that was up is taken down once
+		if(Hud != HUD_QUAT && g_HudSig[id][Hud])
+		{
+			ArpHudBegin(id,HUDP_OP_CLEAR)
+			write_byte(Hud)
+			message_end()
+	
+			g_HudSig[id][Hud] = 0
+			g_HudSentAt[id][Hud] = Now
+			g_HudLast[id][Hud][0] = 0
+		}
+		return
+	}
+	
+	new Px = ArpHudCoord(p_Hud[Hud][X]),Py = ArpHudCoord(p_Hud[Hud][Y])
+	
+	new Sig = Px * 1009 + Py + 7919
+	for(new Count;Count < Num;Count++)
+		Sig = ArpHudHash(Sig,g_PanelKind[Count],g_PanelText[Count])
+	if(!Sig)
+		Sig = 1
+	
+	new Float:Gap = Hud == HUD_QUAT ? HUDP_NOTICE_GAP : float(clamp(get_pcvar_num(p_HudRefresh),5,60))
+	new Float:Age = Now - g_HudSentAt[id][Hud]
+	if(Sig == g_HudSig[id][Hud] && Age >= 0.0 && Age < Gap)
+		return
+	
+	new Gen = (g_HudGen[id][Hud] + 1) & 255
+	g_HudGen[id][Hud] = Gen
+	
+	new Line,Part,Bytes
+	while(Line < Num)
+	{
+		// as many lines as the message has room for, and at least one
+		new Start = Line,Size = Part ? 5 : 9
+		while(Line < Num)
+		{
+			new Cost = 2 + strlen(g_PanelText[Line])
+			if(Line > Start && Size + Cost > HUDP_MSG_MAX)
+				break
+	
+			Size += Cost
+			Bytes += Cost - 2
+			Line++
+		}
+	
+		// a content has at most 16 parts: what does not fit in them is left out
+		new bool:Last = Line >= Num || Part >= 15
+		if(Last)
+			Num = Line
+	
+		ArpHudBegin(id,HUDP_OP_CONTENT)
+		write_byte(Hud)
+		write_byte(Gen)
+		write_byte(Part | (Last ? 128 : 0))
+		write_byte(Line - Start)
+		if(!Part)
+		{
+			write_short(Px)
+			write_short(Py)
+		}
+		for(new Count = Start;Count < Line;Count++)
+		{
+			write_byte(g_PanelKind[Count])
+			write_string(g_PanelText[Count])
+		}
+		message_end()
+	
+		Part++
+	}
+	
+	g_HudSig[id][Hud] = Sig
+	g_HudSentAt[id][Hud] = Now
+	
+	// what he was last sent, for arp_hudstate: the lines with a bar between them
+	new Len
+	g_HudLast[id][Hud][0] = 0
+	for(new Count;Count < Num && Len < 94;Count++)
+		Len += formatex(g_HudLast[id][Hud][Len],95 - Len,"%s%s",Count ? "|" : "",g_PanelText[Count])
+	
+	if(!g_HudFirstLogged[id])
+	{
+		g_HudFirstLogged[id] = 1
+	
+		new Name[32]
+		get_user_name(id,Name,31)
+		log_amx("[ARP] HUD panel: first update sent to %s (HUD %d: %d line(s), %d byte(s) of text, %d message(s))",Name,Hud + 1,Num,Bytes,Part)
+	}
+}
+	
+// H9: arp_hudstate, from a console or the server's: who is sent the HUD panel and who the text HUD, why, and what was last sent
+public CmdHudState(id,cid)
+{
+	if(!ARP_CmdAccess(id,cid,1))
+		return PLUGIN_HANDLED
+	
+	console_print(id,"[ARP] HUD: arp_hud_panel %d (0 sends everyone the text HUD), arp_hud_refresh %d s, the H9ArpHud message is %s.",get_pcvar_num(p_HudPanel),clamp(get_pcvar_num(p_HudRefresh),5,60),g_HudMsg > 0 ? "registered" : "NOT registered")
+	
+	new Players[MAX_PLAYERS],Playersnum,Player,Name[32],Key[8],Why[96],Panels,Texts
+	new Float:Now = get_gametime()
+	get_players(Players,Playersnum)
+	for(new Count;Count < Playersnum;Count++)
+	{
+		Player = Players[Count]
+		get_user_name(Player,Name,31)
+	
+		if(is_user_bot(Player))
+		{
+			console_print(id,"#%d %s: a bot, sent no HUD.",Player,Name)
+			continue
+		}
+	
+		get_user_info(Player,"_h9arphud",Key,7)
+		if(!Key[0])
+			copy(Key,7,"missing")
+	
+		if(g_HudWhy[Player] < 0)
+			copy(Why,95,"not decided yet")
+		else
+			copy(Why,95,g_HudWhyText[g_HudWhy[Player]])
+	
+		if(g_HudPanel[Player])
+			Panels++
+		else
+			Texts++
+	
+		console_print(id,"#%d %s: %s (%s); userinfo _h9arphud is %s; %d panel message(s) sent.",Player,Name,g_HudPanel[Player] ? "PANEL" : "TEXT HUD",Why,Key,g_HudSentMsgs[Player])
+	
+		if(!g_HudPanel[Player])
+			continue
+	
+		for(new Hud;Hud < HUD_NUM;Hud++)
+		{
+			if(g_HudSentAt[Player][Hud] <= 0.0)
+				console_print(id,"      HUD %d: nothing sent.",Hud + 1)
+			else if(!g_HudSig[Player][Hud])
+				console_print(id,"      HUD %d: taken down %.1f s ago.",Hud + 1,Now - g_HudSentAt[Player][Hud])
+			else
+				console_print(id,"      HUD %d: sent %.1f s ago: %s",Hud + 1,Now - g_HudSentAt[Player][Hud],g_HudLast[Player][Hud])
+		}
+	}
+	
+	console_print(id,"[ARP] HUD: %d player(s) sent the panel, %d the text HUD.",Panels,Texts)
+	
+	return PLUGIN_HANDLED
+}
+	
 
 /*ClearHud(id,Hud)
 {
@@ -5610,8 +6264,15 @@ public Welcome(id)
 		
 		if(g_BadJob[id])
 		{
-			client_print(id,print_chat,"[ARP] Notice: Your job no longer exists. Please contact an administrator.")
-			client_print(id,print_chat,"[ARP] You have been temporarily set back to Unemployed.")
+			if(g_KeptJob[id][0])
+			{
+				client_print(id,print_chat,"[ARP] Your job (%s) is not offered on this map. You are Unemployed here; it is kept for where it is offered.",g_KeptJob[id])
+			}
+			else
+			{
+				client_print(id,print_chat,"[ARP] Notice: Your job no longer exists. Please contact an administrator.")
+				client_print(id,print_chat,"[ARP] You have been temporarily set back to Unemployed.")
+			}
 			
 			g_BadJob[id] = 0
 		}
@@ -5820,10 +6481,12 @@ UTIL_ARP_SetUserItemNum(id,ItemId,Num)
 	
 	if(!Num)
 	{		
-		new Name[33],Authid[36]
+		new Name[33],Key[36],Authid[72]
 		UTIL_ARP_GetItemName(ItemId,Name,32)
+		ARP_SqlEscape(Name,32)
 		
-		get_user_authid(id,Authid,35)
+		ArpKey(id,Key,35)
+		SQL_QuoteString(Empty_Handle,Authid,charsmax(Authid),Key)
 		
 		#if defined DEBUG
 		g_TotalQueries++
@@ -5936,12 +6599,12 @@ UTIL_ARP_ClientPrint(id,Message[],{Float,Sql,Result,_}:...)
 		{
 			//ClearHud(id,HUD_QUAT)
 			TravTrieClear(TravTrie:g_HudArray[id][HUD_QUAT])
-			UTIL_ARP_AddHudItem(id,HUD_QUAT,g_Query,!g_HudPending)
+			UTIL_ARP_AddHudItem(id,HUD_QUAT,g_Query,!g_HudPending,HUDK_EXTRA)
 		}
 	}
 }
 
-UTIL_ARP_AddHudItem(id,Channel,Message[],Refresh)
+UTIL_ARP_AddHudItem(id,Channel,Message[],Refresh,Kind)
 {
 	new Copy[128]
 	copy(Copy[2],125,Message)
@@ -5955,20 +6618,20 @@ UTIL_ARP_AddHudItem(id,Channel,Message[],Refresh)
 		new Players[MAX_PLAYERS],Playersnum
 		get_players(Players,Playersnum)
 		for(new Count;Count < Playersnum;Count++)
-			AddItem(Players[Count],Channel,Message,Refresh)
+			AddItem(Players[Count],Channel,Message,Refresh,Kind)
 	}
 	else
-		AddItem(id,Channel,Message,Refresh)	
+		AddItem(id,Channel,Message,Refresh,Kind)	
 }
 
-AddItem(id,Channel,Message[],Refresh)
+AddItem(id,Channel,Message[],Refresh,Kind)
 {
 	//new CurArray = array_create()
 	//array_set_int(g_HudArray[id][Channel],g_HudNum[id][Channel]++,CurArray)
 	
 	//array_set_string(CurArray,0,Message)
 	
-	TravTrieSetCell(g_HudArray[id][Channel],Message,Channel)
+	TravTrieSetCell(g_HudArray[id][Channel],Message,Kind)
 	
 	if(Refresh)
 		RenderHud(id,Channel)

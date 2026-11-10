@@ -6,6 +6,8 @@
 #include <engine>
 #include <tsx>
 #include <tsfun>
+#define ARPVGUI_PAGED
+#include <ApolloRP_VGui>
 
 #define NPC_TYPES 5
 #define GUNSHOP_MODES 3
@@ -143,8 +145,15 @@ enum MODS
 
 new MODS:g_Mod
 
+public plugin_precache()
+{
+	arpvgui_precache()
+}
+
 public plugin_init()
 {
+	arpvgui_init("arpnpc")
+	
 	register_menucmd(register_menuid(g_EdekaMenu),g_Keys,"EdekaMenuHandle")
 	register_menucmd(register_menuid(g_BankMenu),g_Keys,"BankMenuHandle")
 	register_menucmd(register_menuid(g_DoctorMenu),g_Keys,"DoctorMenuHandle")
@@ -394,7 +403,7 @@ Edeka(id,Ent)
 		menu_additem(Menu,Command,ItemNum)
 	}
 	
-	menu_display(id,Menu)
+	arpvgui_menu_display(id,Menu,"arpnpc.shop","ARP Shop","EdekaMenuHandle")
 	
 	/*
 	Pos += format(Menu[Pos],Len - Pos,"ARP Shop^n^n")
@@ -485,7 +494,7 @@ public BankHandle(id,Ent)
 	g_CurNpcId[id] = Ent
 	
 	copy(Menu,Len,"ARP Bank^n^n1. Withdraw/Deposit^n2. Buy ATM Card ($10)^n3. Buy Debit Card ($100)^n4. Rob^n^n0. Exit")
-	show_menu(id,g_Keys,Menu,-1,g_BankMenu)	
+	arpvgui_show_menu(id,g_Keys,Menu,-1,g_BankMenu,"arpnpc.bank")	
 }
 
 public BankMenuHandle(id,Key)
@@ -714,7 +723,7 @@ Doctor(id,Ent)
 		menu_additem(Menu,Command,ItemNum)
 	}
 	
-	menu_display(id,Menu)
+	arpvgui_menu_display(id,Menu,"arpnpc.doctor","ARP Doctor","DoctorMenuHandle")
 }
 
 public DoctorMenuHandle(id,Menu,Item)	
@@ -854,7 +863,7 @@ public AtmHandle(id,Ent)
 	g_CurNpcId[id] = Ent
 	
 	copy(Menu,Len,"ARP ATM^n^n1. Withdraw^n2. Deposit^n^n0. Exit")
-	show_menu(id,g_Keys,Menu,-1,g_AtmMenu)	
+	arpvgui_show_menu(id,g_Keys,Menu,-1,g_AtmMenu,"arpnpc.atm")	
 }
 
 public AtmMenuHandle(id,Key)
@@ -877,7 +886,7 @@ public AtmMenuHandle(id,Key)
 	
 	format(Menu,511,"ARP ATM %s^n^n1. %s $10^n2. %s $20^n3. %s $50^n4. %s $100^n5. %s $250^n6. %s $500^n7. %s $1000^n^n0. Exit",String,String,String,String,String,String,String,String)
 	
-	show_menu(id,g_Keys,Menu,-1,g_AtmUse)
+	arpvgui_show_menu(id,g_Keys,Menu,-1,g_AtmUse,"arpnpc.atmuse")
 }
 
 public AtmUseMenuHandle(id,Key)
@@ -949,7 +958,7 @@ Gunshop(id,Ent)
 	}
 	Pos += format(Menu[Pos],Len - Pos,"^n0. Exit")
 	
-	show_menu(id,Keys,Menu,-1,g_GunshopMenu)
+	arpvgui_show_menu(id,Keys,Menu,-1,g_GunshopMenu,"arpnpc.gunshop")
 }
 
 public GunshopMenuHandle(id,Key)
@@ -1089,7 +1098,7 @@ GunshopMenuHandle2(id,Key)
 		menu_additem(Menu,Command,"")
 	}
 	
-	g_WeaponNum[g_CurNpc[id]][g_Mode[id]] ? menu_display(id,Menu) : client_print(id,print_chat,"[ARP] There are no items in this category.")
+	g_WeaponNum[g_CurNpc[id]][g_Mode[id]] ? arpvgui_menu_display(id,Menu,"arpnpc.gunbuy","ARP Gunshop","GunshopUseMenuHandle") : client_print(id,print_chat,"[ARP] There are no items in this category.")
 }
 
 // getting a bit long

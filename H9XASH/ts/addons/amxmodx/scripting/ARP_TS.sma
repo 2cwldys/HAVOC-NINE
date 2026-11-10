@@ -6,6 +6,7 @@
 #include <tsx>
 #include <tsfun>
 #include <sqlx>
+#include <ApolloRP_VGui>
 
 new g_9Parabellum
 new g_12Gauge
@@ -175,6 +176,11 @@ new Handle:g_SqlHandle
 
 new g_WeaponTable[] = "arp_weapons"
 
+public plugin_precache()
+{
+	arpvgui_precache()
+}
+
 public plugin_init()
 {
 	ARP_RegisterPlugin("TS Compatibility",ARP_VERSION,"The ApolloRP Team","Provides TS support for ARP")
@@ -189,6 +195,7 @@ public plugin_init()
 	
 	ARP_RegisterCmd("arp_addgun","CmdAddGun","(ADMIN) <weaponid> <ammo> <extra> <save (0/1)> - adds gun to wall")
 	
+	arpvgui_init("arpts")
 	register_menucmd(register_menuid(g_AttachMenu),g_Keys,"AttachMenuHandle")
 }
 
@@ -473,7 +480,7 @@ public _Weapon(id,ItemId)
 	for(new Count;Count < Num;Count++)	
 		Keys |= (1<<Count)
 	
-	show_menu(id,Keys,Menu,-1,g_AttachMenu)
+	arpvgui_show_menu(id,Keys,Menu,-1,g_AttachMenu,"arpts.attach")
 }
 
 public AttachMenuHandle(id,Key)

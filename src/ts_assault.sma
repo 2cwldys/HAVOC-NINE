@@ -44,9 +44,12 @@
  * THE MODE API. Everything this plugin needs from the match comes through include\tsm_api.inc. With
  * ts_matchmode missing the native filter below lets this plugin load, and it does nothing.
  *
- * BOTS fight on an assault map but do not play the objective: no rcbot change reads it yet. For one that
- * would, a point's ring is the entity with the classname tsm_cap, whose team field is the owner (0, 1 or 2),
- * fuser1 the radius and iuser1 the point's number. Keep those fields as they are.
+ * BOTS count in a point like anyone: a bot standing in one is a capturer or a contester. While tsm_bot_objectives is 1
+ * (include\tsm_botobj.inc) rcbot_mm.dll also sends them to the points. It reads a point from its ring, the entity with the
+ * classname tsm_cap: team is the owner (0, 1 or 2), fuser1 the radius, iuser1 the point's number, iuser2 the state (TSB_QUIET,
+ * TSB_TAKING, TSB_CONTESTED, or TSB_OFF outside a live round), iuser3 the side taking it, fuser2 the progress (-1 to 1, side 1
+ * holding it in full at 1), fuser3 how far above or below the ring still counts, and vuser1 how many of each side stand in it
+ * (x side 1, y side 2). Keep those fields as they are; docs\BOT_OBJECTIVES.txt has the whole contract.
  *
  * Written to the same rules as ts_matchmode.sma, for a strict compiler and a strict log: ASCII only,
  * explicit braces, no warnings.
@@ -58,13 +61,14 @@
 #include <tsm_api>
 #include <h9_vgui>      // an H9 game shows the capture bar and the news on panels
 #include <h9_marks>     // and the points through the walls
+#include <tsm_botobj>   // and the points' state for the bots
 
 #define PLUGIN  "TS Assault"
 #define VERSION "1.0"
 #define AUTHOR  "tsm"
 
 // Printed by amx_tsm_assault, so there is never any doubt which build is loaded.
-#define AS_BUILD "1.0-assault1"
+#define AS_BUILD "1.0-assault2"
 
 #define AS_MAXZONES    24
 #define AS_TICK        0.25
@@ -122,6 +126,7 @@ new g_ring_frame;              // the shared animation frame of every ring
 new Float:g_waves_set;         // the wave interval last handed to ts_matchmode, for the log
 new g_ticks;                   // tick counter, for the once-a-second work
 new g_zone_taker[AS_MAXZONES + 1];   // the side taking a point, while g_zone_state is 1
+new g_zone_cnt[AS_MAXZONES + 1][3];  // how many players of each side stood in a point at the last tick, for the bots
 
 /*
  * Lets every tsm_* native be missing instead of refusing to load (the pattern ts_uplink uses). Set here
@@ -189,6 +194,7 @@ public plugin_init()
 	g_cv_desc     = register_cvar("tsm_gamedesc_assault", "Assault");
 	g_cv_rounds   = register_cvar("h9_assault_rounds",    "0");     // 0: the first round is the whole match; 1: rounds, best of tsm_rounds
 	g_cv_atk      = register_cvar("tsm_as_spawn_under_attack", "0"); // 0: a point's respawn set is shut while an enemy is taking it
+	tsb_register();   // tsm_bot_objectives: 1 lets rcbot send the bots to the points
 
 	// The point editor, the same shape as the uplink's zone editor.
 	register_concmd("amx_tsm_as_add",    "cmd_as_add",    ADMIN_CFG, " [n] [radius] - a capture point where you stand");
@@ -309,6 +315,8 @@ set_zone(n, const Float:org[3], Float:rad, bool:from_cfg)
 	g_zone_prog[n] = 0.0;
 	g_zone_state[n] = 0;
 	g_zone_taker[n] = 0;
+	g_zone_cnt[n][1] = 0;
+	g_zone_cnt[n][2] = 0;
 }
 
 /*
@@ -458,10 +466,11 @@ paint_zone(n)
 	new ring = g_zone_ring[n];
 	if (ring > 0 && pev_valid(ring))
 	{
-		// The bots read these three: the holder, the reach and the number.
+		// The bots read these three: the holder, the reach and the number, and publish_zone writes the rest.
 		set_pev(ring, pev_team, g_zone_owner[n]);
 		set_pev(ring, pev_fuser1, g_zone_rad[n]);
 		set_pev(ring, pev_iuser1, n);
+		publish_zone(n);
 
 		if (g_zone_state[n] != 0 && g_ringcap_ok)
 		{
@@ -487,6 +496,25 @@ paint_zone(n)
 	{
 		set_pev(flag, pev_frame, float(g_zone_owner[n]));
 	}
+}
+
+/// The fields on a point's ring that the bots read besides its holder, reach and number: its state (TSB_OFF outside a live round), the
+/// side taking it, its progress, how far above or below it still counts and who stands in it. Written whenever the ring is painted and
+/// each tick for the counts.
+publish_zone(n)
+{
+	new ring = g_zone_ring[n];
+	if (ring <= 0 || !pev_valid(ring))
+	{
+		return;
+	}
+	if (tsm_state() != TSM_ST_LIVE)
+	{
+		tsb_ring(ring, TSB_OFF, 0, 0.0, AS_ZONE_DZ, 0, 0);
+		return;
+	}
+	tsb_ring(ring, g_zone_state[n], (g_zone_state[n] == 1) ? g_zone_taker[n] : 0, g_zone_prog[n], AS_ZONE_DZ,
+		g_zone_cnt[n][1], g_zone_cnt[n][2]);
 }
 
 /// Steps every ring's animation on, a frame for each tick.
@@ -572,6 +600,9 @@ public task_tick()
 			if (g_zone_have[n])
 			{
 				set_zone_state(n, 0);
+				g_zone_cnt[n][1] = 0;
+				g_zone_cnt[n][2] = 0;
+				publish_zone(n);
 			}
 		}
 		if (g_ticks % 4 == 0)
@@ -616,7 +647,10 @@ public task_tick()
 	{
 		if (g_zone_have[n])
 		{
+			g_zone_cnt[n][1] = cnt[n][1];
+			g_zone_cnt[n][2] = cnt[n][2];
 			step_zone(n, cnt[n][1], cnt[n][2], players, pnum, show);
+			publish_zone(n);
 		}
 	}
 
@@ -1132,6 +1166,8 @@ public tsm_round_start(round)
 			g_zone_prog[n] = 0.0;
 			g_zone_state[n] = 0;
 			g_zone_taker[n] = 0;
+			g_zone_cnt[n][1] = 0;
+			g_zone_cnt[n][2] = 0;
 			paint_zone(n);
 		}
 	}
@@ -1162,6 +1198,7 @@ public tsm_round_end(winner)
 		if (g_zone_have[n])
 		{
 			set_zone_state(n, 0);
+			publish_zone(n);
 		}
 	}
 	refresh_hud();
@@ -1477,7 +1514,17 @@ public cmd_as_dump(id, level, cid)
 		}
 	}
 	console_print(id, "[ASSAULT] marks: %d H9 game(s) draw them, %d other(s) get TS's own objective markers", h9games, others);
+	console_print(id, "[ASSAULT] tsm_bot_objectives %d: %s", tsb_bots_play() ? 1 : 0,
+		tsb_bots_play() ? "rcbot sends the bots to the points" : "the bots only fight (one in a point still counts)");
 	cmd_as_list(id, level, cid);
+	for (new n = 1; n <= AS_MAXZONES; n++)
+	{
+		if (g_zone_have[n])
+		{
+			console_print(id, "[ASSAULT] point %d for the bots: state %d taker %d progress %.2f inside %d - %d", n,
+				g_zone_state[n], (g_zone_state[n] == 1) ? g_zone_taker[n] : 0, g_zone_prog[n], g_zone_cnt[n][1], g_zone_cnt[n][2]);
+		}
+	}
 	return PLUGIN_HANDLED;
 }
 

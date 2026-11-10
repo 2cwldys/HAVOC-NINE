@@ -13,7 +13,9 @@
  * havoc9.org answers (POST /api/presence/compete/rank, docs\H9_COMPETITIVE.txt), signed with
  * h9_presence's key, so there is no key to set here: a player's rank by their h9_clientid, an
  * account's by its username. A bot, and a player whose game has no havoc9.org account proven on
- * this server, is "not signed in: no rank". No switch on an account hides its rank.
+ * this server, is "not signed in: no rank". No switch on an account hides its rank. Only a game
+ * h9_presence has proven (h9p_account) is named to havoc9.org, as the player asking or as the
+ * player asked about: an h9_clientid a game merely announces is anyone's.
  *
  *   h9_rank_command 1    .rank answers (0: .rank is left alone, as if the plugin were not here)
  *   h9_rank_cooldown 5   seconds between two .rank from one player (1 to 60)
@@ -31,9 +33,10 @@
 
 #define H9C_CORE
 #include <h9_community>
+#include <h9_presence>  // h9p_account: the slot's proven account
 
 #define PLUGIN  "H9 Rank"
-#define VERSION "1.0"
+#define VERSION "1.1"
 #define AUTHOR  "H9"
 
 #define MAX_BODY     1024
@@ -122,10 +125,17 @@ bool:ready()
 	return g_have_presence && h9p_ready() != 0;
 }
 
-/** The player's h9_clientid, when it is one: 32 lowercase hex characters. */
+/**
+ * The player's h9_clientid, when it is one and h9_presence has proven the game holds the account's player id
+ * (h9p_account): 32 lowercase hex characters. An id a game only announces is anyone's.
+ */
 bool:client_id(id, out[33])
 {
 	out[0] = 0;
+	if (!g_have_presence || h9p_account(id) <= 0)
+	{
+		return false;
+	}
 	get_user_info(id, "h9_clientid", out, 32);
 	if (strlen(out) != 32)
 	{

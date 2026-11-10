@@ -72,6 +72,11 @@
  * Every answer also goes to other plugins (the h9p_proof forward), and h9p_challenge sends a
  * plugin's own nonce. Off by default.
  *
+ * A COPIED ID. Every player on a server can read the others' h9_clientid, so an id that two slots
+ * announce is a copy on one of them. The slots of such an id whose game holds a proof are listed
+ * with it, and h9web keeps the one whose proof checks out (a copy cannot make it); the others are
+ * listed by slot alone. With no proof on either, h9web keeps neither.
+ *
  * PICTURES. h9web's answer to each report names the havoc9.org picture of each proven player
  * ("avatars": slot, account and version: their own picture, or the site's default one), and the
  * plugin tells every client in the H9Avatar user message (byte slot, long account, long version;
@@ -138,6 +143,14 @@
  * as not authenticated and rates nothing. 1, the default, asks for nothing: h9web still judges what the
  * server runs, and no setting makes a server more authenticated than that.
  *
+ * WHICH PRESET. H9's presets are one per game mode (H9XASH\presets\plugins.<Tag>.ini: Assault, Siege,
+ * TeamElimination), each with its own list on h9web. h9_preset names the one this server runs, and the
+ * report carries it ("preset"): h9web then checks the list above against that mode's list and the lists
+ * every mode shares, not against every mode's together. H9XASH's h9_presets puts configs/h9_preset.cfg
+ * (h9_preset "<Tag>") in place with the preset's other files, and this plugin runs it after
+ * h9_presence.cfg. A server that names none, as every older h9_presence, is judged against every list. It
+ * is the server's own word, like the list: naming a mode never makes a server more authenticated.
+ *
  * Needs the AmxxEasyHttp module and its CA bundle, as ts_advertise does:
  *     addons/amxmodx/modules/easy_http_amxx.dll
  *     addons/amxmodx/data/amxx_easy_http_cacert.pem
@@ -155,7 +168,7 @@
 #pragma dynamic 8192
 
 #define PLUGIN  "H9 Presence"
-#define VERSION "1.11"
+#define VERSION "1.12"
 #define AUTHOR  "2cwldys"
 
 #define MAX_BODY        (MAX_PLAYERS * ROOM_PER_PLAYER + 2048)   // the largest report, in bytes: every
@@ -182,6 +195,7 @@
 new g_cv_url, g_cv_server, g_cv_key, g_cv_interval, g_cv_challenge, g_cv_names, g_cv_enroll, g_cv_autoenroll;
 new g_cv_require, g_cv_require_grace;    // h9_require_account and its grace period
 new g_cv_auth;                           // h9_authenticated: 0 asks h9web not to authenticate or rate this server
+new g_cv_preset;                         // h9_preset: the game-mode preset this server runs (WHICH PRESET, above)
 new bool:g_auth_flight = true;           // whether the report just built says the server is authenticated (the cvar not 0)
 new const REQUIRE_REASON[] = "This server requires a havoc9.org account: link your game from the main menu";
 // ts_matchmode's tsm_pres_* cvars, the Discord card's source (0 when ts_matchmode is not loaded)
@@ -332,6 +346,9 @@ public plugin_init()
 	// h9_authenticated 0 opts this server out of being authenticated and rated (the report says
 	// authenticated: false). 1 asks for nothing: h9web judges what the server runs. FCVAR_SERVER: in the rules.
 	g_cv_auth = register_cvar("h9_authenticated", "1", FCVAR_SERVER);
+	// h9_preset names the game-mode preset this server runs, for h9web to judge the list of files by; set by
+	// configs/h9_preset.cfg (plugin_cfg), empty when no preset is named.
+	g_cv_preset = register_cvar("h9_preset", "");
 
 	register_clcmd("h9_idproof", "cmd_idproof");
 	g_fwd_proof = CreateMultiForward("h9p_proof", ET_IGNORE, FP_CELL, FP_STRING, FP_STRING, FP_STRING);
@@ -389,6 +406,13 @@ public plugin_cfg()
 	new dir[64], file[160];
 	get_configsdir(dir, charsmax(dir));
 	formatex(file, charsmax(file), "%s/h9_presence.cfg", dir);
+	if (file_exists(file))
+	{
+		server_cmd("exec %s", file);
+		server_exec();
+	}
+	// the game-mode preset H9XASH's h9_presets put in place, if any
+	formatex(file, charsmax(file), "%s/h9_preset.cfg", dir);
 	if (file_exists(file))
 	{
 		server_cmd("exec %s", file);
@@ -562,6 +586,22 @@ bool:address_ok(const s[])
 		}
 	}
 	return dots == 3 && colon == 1 && i >= 9 && i <= 21;
+}
+
+/** A preset tag h9web reads: 1 to 24 letters, digits, _ and -, starting with a letter or digit. */
+bool:preset_ok(const s[])
+{
+	new i;
+	for (i = 0; s[i]; i++)
+	{
+		new c = s[i];
+		new bool:alnum = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+		if (!alnum && (i == 0 || (c != '_' && c != '-')))
+		{
+			return false;
+		}
+	}
+	return i >= 1 && i <= 24;
 }
 
 /** Lowercase hex only (lowercases A to F in place). */
@@ -1160,8 +1200,10 @@ note_result(status, const text[])
 }
 
 /**
- * Builds the report into g_body and returns how many players are in it. A player whose
- * h9_clientid appears twice is left out both times (h9web would drop both anyway), and a player
+ * Builds the report into g_body and returns how many players are in it. When an h9_clientid
+ * appears twice, every slot whose game answered the challenge is listed with it, for h9web to keep
+ * the one whose proof checks out (a copy of an id cannot make that proof); the others are listed by
+ * slot alone, or left out when neither names nor a members-only server ask for them. A player
  * challenged a moment ago is left out until the answer comes or PROOF_WAIT runs out.
  */
 build_report(const reason[], const server[])
@@ -1174,6 +1216,8 @@ build_report(const reason[], const server[])
 	pres(g_cv_prog, prog, charsmax(prog));
 	mode_name(map, key, siege, mode, charsmax(mode));
 	detail_line(mode, key, siege, attack, prog, detail, charsmax(detail));
+	new preset[32];
+	pres(g_cv_preset, preset, charsmax(preset));
 
 	// a report's ts must be later than the last one h9web took from this server
 	new ts = get_systime();
@@ -1228,6 +1272,11 @@ build_report(const reason[], const server[])
 	{
 		app_raw(",^"authenticated^":false");
 	}
+	if (preset_ok(preset))
+	{
+		app_raw(",^"preset^":");
+		app_str(preset);
+	}
 	if (g_comp_due && g_comp_n > 0)
 	{
 		app_components();
@@ -1263,7 +1312,7 @@ build_report(const reason[], const server[])
 	g_left_out = 0;
 	for (new i = 0; i < n; i++)
 	{
-		new bool:full = g_hasid[i] && !listed_twice(i, n);
+		new bool:full = g_hasid[i] && (!listed_twice(i, n) || g_proof[g_who[i]][0]);
 		if (!full && !g_names && !g_members)
 		{
 			continue;
@@ -3199,5 +3248,8 @@ public cmd_status()
 	server_print("  reports accepted this map: %d; last outcome: %d", g_accepted, g_last_status);
 	server_print("  what this server runs: %d file(s) listed for h9web; %s", g_comp_n, g_comp_due ? "goes in the next report" : "h9web has it");
 	server_print("  h9_authenticated: %s", get_pcvar_num(g_cv_auth) ? "1 (h9web judges what this server runs)" : "0 (this server asks not to be authenticated or rated)");
+	new preset[32];
+	pres(g_cv_preset, preset, charsmax(preset));
+	server_print("  h9_preset: %s", preset_ok(preset) ? preset : "none named (h9web judges the files against every game mode's list)");
 	return PLUGIN_HANDLED;
 }

@@ -19,8 +19,14 @@
  *
  * CHAT. "<prefix> <text>" in say or say_team (h9_community_prefix, ".relay") sends a line to the
  * community's channel. Only a player whose h9_clientid is a havoc9.org account's can relay, under
- * that account's name, and only while h9web has the account in game here; h9web cleans the
- * text, keeps the cooldown and the rate limits, and refuses a muted or banned account. The line
+ * that account's name, and only while h9web has the account in game here. The game must also be one
+ * h9web has proven holds the account's player id (h9p_account): an announced h9_clientid is readable
+ * by every player on the server, so a copy of it proves nothing. The community's owner may switch
+ * that off (CHAT NEEDS PROVEN PLAYERS; the poll's "chatProof" says which), and then a player whose
+ * h9_clientid another player here announces too (one of them is a copy) relays only when h9web has
+ * proven that player's game. A game that cannot prove (an older H9XASH, a Steam client, or a server
+ * with h9_presence_challenge 0) is told why in chat, and keeps the server's own chat. h9web cleans
+ * the text, keeps the cooldown and the rate limits, and refuses a muted or banned account. The line
  * shows here, on every other server of the community and in the website's chatbox as
  * "[Tag] Name: text"; lines from the website come as "[Web] Name: text". Every line from h9web
  * is cleaned again here (no control characters, colour codes, % or backslashes) and printed
@@ -28,7 +34,8 @@
  *
  * FIND. "/find <name>" or "/where <name>" (also .find and .where): where that account is, the
  * exact username and up to four that start with it, this community's players first, each
- * account's own privacy switches applied by h9web, with the address to connect to.
+ * account's own privacy switches applied by h9web, with the address to connect to. Who asks is
+ * named to h9web only for a proven game, as a private community's servers show to its members.
  *
  * PORTALS. "h9_portal <tag|server id> <x> <y> <z> [yaw] [radius] [walk]" lines in
  * ts\mapconfigs\<map>.cfg (run by h9_autoconfig once the map is up) place portals to the
@@ -44,7 +51,9 @@
  * LINKING. h9_community_claim (server console or rcon) or amx_h9_claim (in game, rcon admins)
  * asks h9web for a one-time code that links this server to a community on havoc9.org.
  *
- * FOR OTHER PLUGINS: include\h9_community.inc (h9c_get, h9c_set, h9c_delete, h9c_find, ...).
+ * FOR OTHER PLUGINS: include\h9_community.inc (h9c_get, h9c_set, h9c_delete, h9c_find, ...). A call
+ * about a player goes out only for a proven game (h9p_account), unless the community's owner switched
+ * DATA NEEDS PROVEN PLAYERS off (the poll's "dataProof").
  *
  * Written to the same rules as h9_presence.sma: explicit tags, braces on every block, and a
  * backslash in a string only where a menu's colour code needs one.
@@ -57,12 +66,13 @@
 
 #define H9C_CORE
 #include <h9_community>
+#include <h9_presence>  // h9p_account: the slot's proven account
 #include <h9_vgui>      // an H9 game draws the portal's confirm on a panel
 
 #pragma dynamic 16384
 
 #define PLUGIN  "H9 Community"
-#define VERSION "1.1"
+#define VERSION "1.2"
 #define AUTHOR  "2cwldys"
 
 #define MAX_BODY      4096     // the largest call, in bytes (h9web takes up to 4096)
@@ -116,6 +126,8 @@ new const WAITS[] = { 5, 10, 30, 60, 120, 300 };
 new g_cslug[40], g_cname[48], g_ctag[16];
 new bool:g_cchat = false;
 new bool:g_cro = false;
+new bool:g_cchatproof = true;     // CHAT NEEDS PROVEN PLAYERS: a poll that does not say counts as on
+new bool:g_cdataproof = true;     // DATA NEEDS PROVEN PLAYERS
 
 // its servers
 new g_scount = 0;
@@ -419,6 +431,8 @@ read_community(EzJSON:root)
 	g_ctag[0] = 0;
 	g_cchat = false;
 	g_cro = false;
+	g_cchatproof = true;
+	g_cdataproof = true;
 	new EzJSON:c = ezjson_object_get_value(root, "community");
 	if (c != EzInvalid_JSON)
 	{
@@ -429,6 +443,8 @@ read_community(EzJSON:root)
 			json_text(c, "tag", g_ctag, charsmax(g_ctag));
 			g_cchat = ezjson_object_has_value(c, "chat", EzJSONBoolean) && ezjson_object_get_bool(c, "chat");
 			g_cro = ezjson_object_has_value(c, "readOnly", EzJSONBoolean) && ezjson_object_get_bool(c, "readOnly");
+			g_cchatproof = !ezjson_object_has_value(c, "chatProof", EzJSONBoolean) || ezjson_object_get_bool(c, "chatProof");
+			g_cdataproof = !ezjson_object_has_value(c, "dataProof", EzJSONBoolean) || ezjson_object_get_bool(c, "dataProof");
 			clean_name(g_cslug);
 			clean_name(g_cname);
 			clean_name(g_ctag);
@@ -658,6 +674,19 @@ relay(id, const text[], const prefix[])
 		client_print(id, print_chat, "[H9] Community chat needs a havoc9.org account and a game that sends its H9 id.");
 		return;
 	}
+	// a line goes out for a game h9web has proven holds the account's player id; with the proof switched off by the
+	// community's owner, for any game that announces an account's id
+	if (g_cchatproof && h9p_account(id) <= 0)
+	{
+		tell_unproven(id);
+		return;
+	}
+	// an id two games announce is a copy on one of them: only the game h9web has proven speaks
+	if (cid_shared(id, cid) && h9p_account(id) <= 0)
+	{
+		client_print(id, print_chat, "[H9] Another player here announces the same H9 id as you; community chat waits until only one game does.");
+		return;
+	}
 	g_said_at[id] = now;
 	body_begin();
 	app_raw(",^"id^":");
@@ -673,6 +702,19 @@ relay(id, const text[], const prefix[])
 	if (!post_signed("/server/chat", "on_chat", ud, UD_SIZE, CALL_TIMEOUT))
 	{
 		client_print(id, print_chat, "[H9] Community chat is not on here.");
+	}
+}
+
+/** Why .relay is not for this game, and what to do: link it, and wait for the proof; or the server asks for none. */
+tell_unproven(id)
+{
+	if (get_cvar_num("h9_presence_challenge") == 0 && get_cvar_num("h9_require_account") != 1)
+	{
+		client_print(id, print_chat, "[H9] Community chat needs players havoc9.org has proven, and this server asks no game to prove its account (h9_presence_challenge 0).");
+	}
+	else
+	{
+		client_print(id, print_chat, "[H9] Community chat needs a game havoc9.org has proven is yours: link it to your account (.link) and wait a few seconds after joining.");
 	}
 }
 
@@ -783,12 +825,13 @@ bool:send_find(const q[], id, fwd, data)
 	body_begin();
 	app_raw(",^"q^":");
 	app_str(q);
-	// who asks: h9web shows a private community's servers only to its members
+	// who asks: h9web shows a private community's servers only to its members, so only a game
+	// h9web has proven is named; an announced id could be anyone's
 	if (id)
 	{
 		new cid[40];
 		get_user_info(id, "h9_clientid", cid, charsmax(cid));
-		if (cid_ok(cid))
+		if (cid_ok(cid) && h9p_account(id) > 0)
 		{
 			app_raw(",^"id^":");
 			app_str(cid);
@@ -1049,6 +1092,12 @@ data_call(plugin, kind, id, const key[], const value[], bool:remove, version, co
 	new cid[40];
 	get_user_info(id, "h9_clientid", cid, charsmax(cid));
 	if (!cid_ok(cid))
+	{
+		return 0;
+	}
+	// the player's game must be one h9web has proven holds the account's player id, unless the community's owner
+	// switched that off: the announced id alone is anyone's, and a plugin that gives perks by these values would be fooled
+	if (g_cslug[0] && g_cdataproof && h9p_account(id) <= 0)
 	{
 		return 0;
 	}
@@ -1435,6 +1484,7 @@ public srv_status()
 	{
 		server_print("[H9] community: %s (%s) as [%s]; chat %s here; %s", g_cname, g_cslug, g_ctag,
 			(g_cchat && get_pcvar_num(g_cv_chat)) ? "on" : "off", g_cro ? "read-only" : "may write data");
+		server_print("[H9] proven players needed for: chat %s, data %s", g_cchatproof ? "yes" : "no (the owner switched it off)", g_cdataproof ? "yes" : "no (the owner switched it off)");
 	}
 	else
 	{
@@ -1970,6 +2020,25 @@ bool:address_ok(const s[])
 		}
 	}
 	return dots == 3 && colon == 1 && i >= 9 && i <= 21;
+}
+
+/** Whether another human on the server announces the same h9_clientid as slot id (cid, already lowercased). */
+bool:cid_shared(id, const cid[])
+{
+	new other[40];
+	for (new i = 1; i <= g_max; i++)
+	{
+		if (i == id || !is_user_connected(i) || is_user_bot(i) || is_user_hltv(i))
+		{
+			continue;
+		}
+		get_user_info(i, "h9_clientid", other, charsmax(other));
+		if (equali(other, cid))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 /** An h9_clientid: 32 hex characters (A to F lowercased in place). */

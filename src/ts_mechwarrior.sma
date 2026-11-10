@@ -1,9 +1,10 @@
 /*
  * ts_mechwarrior.sma -- MECH WARRIOR, a mode for ts_matchmode.
  *
- * The match with the classes cut down to two: each side gets one Officer, on two lives, and
- * as many Mechs as it likes, on three lives each. Every other class is gone from the class
- * menu, and every bot plays a Mech. The rest is the match as ts_matchmode plays it:
+ * The match with the classes cut down: each side gets one Officer, on two lives, as many Mechs
+ * as it likes, on three lives each, and the Combat Engineer, who keeps the Mechs in ammunition
+ * and stands up turrets and transporter pads. Every other class is gone from the class menu,
+ * and every bot plays a Mech. The rest is the match as ts_matchmode plays it:
  * elimination rounds, the fallen back with their side's respawn wave while their lives last,
  * sudden death, the score and the match's end.
  *
@@ -11,11 +12,13 @@
  * siege objectives stays a siege map (ts_matchmode refuses the claim), and the first mode to
  * claim a map keeps it.
  *
- * THE CLASSES. Found by their perks in ts_matchmode.cfg -- the Officer's and the Mech's --
- * not by their numbers, so reordering the tsm_classN lines does not break the mode.
- * tsm_mw_officers, tsm_mw_officer_lives, tsm_mw_mechs and tsm_mw_mech_lives set the counts.
- * They are read at the claim and again as each round starts, so a mapconfig or a console
- * change takes effect from the next round. The lives need tsm_respawns 1.
+ * THE CLASSES. Found by their perks in ts_matchmode.cfg -- the Officer's, the Mech's and the
+ * Combat Engineer's -- not by their numbers, so reordering the tsm_classN lines does not break
+ * the mode. tsm_mw_officers, tsm_mw_officer_lives, tsm_mw_mechs and tsm_mw_mech_lives set the
+ * counts. tsm_mw_engineer lets the Combat Engineer in, at his class's own limit a side
+ * (tsm_class_limits) and on its own lives (tsm_class_lives). They are read at the claim and
+ * again as each round starts, so a mapconfig or a console change takes effect from the next
+ * round. The lives need tsm_respawns 1.
  *
  * THE MODE API. Everything comes through include\tsm_api.inc. With ts_matchmode missing, or
  * too old to take class rules, the native filter lets this plugin load, and it does nothing.
@@ -35,12 +38,15 @@
 #define MW_PREFIX      "h9_mw_"
 
 new g_cv_mode, g_cv_desc, g_cv_officers, g_cv_officer_lives, g_cv_mechs, g_cv_mech_lives;
+new g_cv_engineer;
 
 new bool:g_have_core = true;   // cleared by the native filter when ts_matchmode is not loaded
 new bool:g_active = false;     // this map is claimed for Mech Warrior
 new g_mapname[32];
 new g_officer;                 // the Officer's class, 1 and up; 0 when ts_matchmode.cfg has none
 new g_mech;                    // the Mech's class, 1 and up
+new g_engineer;                // the Combat Engineer's class, 1 and up; 0 when ts_matchmode.cfg has none
+new g_eng_on = -1;             // whether the Engineer was last played, for the log
 new g_rules[4] = { -1, ... };  // the counts last applied, for the log: officers, their lives, mechs, theirs
 
 public plugin_natives()
@@ -73,6 +79,7 @@ public plugin_init()
 	g_cv_officer_lives = register_cvar("tsm_mw_officer_lives",     "2");
 	g_cv_mechs         = register_cvar("tsm_mw_mechs",             "0");
 	g_cv_mech_lives    = register_cvar("tsm_mw_mech_lives",        "3");
+	g_cv_engineer      = register_cvar("tsm_mw_engineer",          "1");
 
 	register_concmd("amx_tsm_mw", "cmd_mw_dump", ADMIN_CFG, " - the Mech Warrior mode's whole state");
 }
@@ -109,6 +116,7 @@ public task_claim()
 	new classes = tsm_class_count();
 	g_officer = tsm_class_of_perk(TSM_PERK_OFFICER);
 	g_mech = tsm_class_of_perk(TSM_PERK_MECH);
+	g_engineer = tsm_class_of_perk(TSM_PERK_ENGINEER);
 	if (!g_have_core || !classes)
 	{
 		log_amx("[MECHWARRIOR] %s wanted Mech Warrior but ts_matchmode is missing or too old for class rules.", g_mapname);
@@ -139,10 +147,30 @@ public task_claim()
 		g_mapname, g_officer, g_mech);
 }
 
+/// The Combat Engineer's limit a side as ts_matchmode.cfg has it: his class's number in tsm_class_limits (the first is class 1),
+/// 0 for no limit when that list is blank or stops short of him.
+engineer_limit()
+{
+	new spec[128], field[16], rest[128], carry[128];
+	get_cvar_string("tsm_class_limits", spec, charsmax(spec));
+	copy(rest, charsmax(rest), spec);
+	for (new cls = 1; rest[0]; cls++)
+	{
+		strtok(rest, field, charsmax(field), carry, charsmax(carry), ',', 1);
+		if (cls == g_engineer)
+		{
+			return max(str_to_num(field), 0);
+		}
+		copy(rest, charsmax(rest), carry);
+	}
+	return 0;
+}
+
 /*
  * The class rules, from the cvars: the Officer limited to tsm_mw_officers a side on
  * tsm_mw_officer_lives lives (0 officers is no Officer at all), the Mech to tsm_mw_mechs a
- * side (0 no limit) on tsm_mw_mech_lives, every other class not played, and every bot a Mech.
+ * side (0 no limit) on tsm_mw_mech_lives, the Combat Engineer played with tsm_mw_engineer 1
+ * (his class's own limit and lives), every other class not played, and every bot a Mech.
  * Logged when the counts change.
  */
 apply_rules()
@@ -164,12 +192,31 @@ apply_rules()
 		{
 			tsm_class_rule(cls, rules[2], rules[3]);
 		}
+		else if (cls == g_engineer && get_pcvar_num(g_cv_engineer))
+		{
+			tsm_class_rule(cls, engineer_limit(), 0);
+		}
 		else
 		{
 			tsm_class_rule(cls, -1, 0);
 		}
 	}
 	tsm_mode_bot_class(g_mech);
+
+	new eng_on = (g_engineer && get_pcvar_num(g_cv_engineer)) ? 1 : 0;
+	if (eng_on != g_eng_on)
+	{
+		g_eng_on = eng_on;
+		if (eng_on)
+		{
+			log_amx("[MECHWARRIOR] The Combat Engineer (class %d) is played: %d a side (0 no limit), on the lives tsm_class_lives gives him.",
+				g_engineer, engineer_limit());
+		}
+		else
+		{
+			log_amx("[MECHWARRIOR] The Combat Engineer is not played.");
+		}
+	}
 
 	if (rules[0] == g_rules[0] && rules[1] == g_rules[1] && rules[2] == g_rules[2] && rules[3] == g_rules[3])
 	{
@@ -215,7 +262,9 @@ public cmd_mw_dump(id, level, cid)
 		g_active ? 1 : 0, g_have_core ? 1 : 0, get_pcvar_num(g_cv_mode), g_mapname);
 	console_print(id, "[MECHWARRIOR] Officer class %d: %d a side on %d lives.  Mech class %d: %d a side (0 no limit) on %d lives.",
 		g_officer, g_rules[0], g_rules[1], g_mech, g_rules[2], g_rules[3]);
-	console_print(id, "[MECHWARRIOR] Every other class is not played, and every bot plays the Mech.  Side 1 in the round %d, side 2 %d.",
+	console_print(id, "[MECHWARRIOR] Combat Engineer class %d: %s, %d a side (0 no limit), on the lives tsm_class_lives gives him.",
+		g_engineer, (g_engineer && get_pcvar_num(g_cv_engineer)) ? "played" : "not played", g_engineer ? engineer_limit() : 0);
+	console_print(id, "[MECHWARRIOR] Every class but those is not played, and every bot plays the Mech.  Side 1 in the round %d, side 2 %d.",
 		tsm_side_alive(1), tsm_side_alive(2));
 	return PLUGIN_HANDLED;
 }

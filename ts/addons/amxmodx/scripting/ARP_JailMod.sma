@@ -4,6 +4,7 @@
 #include <ApolloRP>
 #include <ApolloRP_Chat>
 #include <tsfun>
+#include <ApolloRP_VGui>
 
 #define MAX_JAILS 20
 #define ITEMS_PER_MENU 6
@@ -51,8 +52,15 @@ new g_PluginEnd
 new g_Cuffs
 #endif
 
+public plugin_precache()
+{
+	arpvgui_precache()
+}
+
 public plugin_init()
 {
+	arpvgui_init("arpjail")
+	
 	ARP_RegisterEvent("HUD_Render","EventHudRender")
 	ARP_RegisterEvent("Player_Cuffed","EventCuffed")
 	
@@ -536,7 +544,7 @@ public CmdJailMod(id)
 		
 	Pos += format(Menu[Pos],sizeof Menu - Pos - 1,"%s^n^n8. Last Page^n9. Next Page^n^n0. Exit",Mode == 2 ? "^n7. Free Target Player" : "")
 	
-	show_menu(id,Keys,Menu,-1,g_Menu)
+	arpvgui_show_menu(id,Keys,Menu,-1,g_Menu,"arpjail.menu")
 	
 	return PLUGIN_HANDLED
 }

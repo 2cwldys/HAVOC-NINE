@@ -3,6 +3,8 @@
 #include <ApolloRP>
 #include <ApolloRP_Chat>
 #include <fakemeta>
+#define ARPVGUI_PAGED
+#include <ApolloRP_VGui>
 
 #define BASE_DISTANCE 300.0
 
@@ -99,6 +101,8 @@ new TravTrie:g_SayTeamTrie
 
 public plugin_init()
 {	
+	arpvgui_init("arptalk")
+	
 	register_clcmd("say","CmdSay")
 	register_clcmd("say_team","CmdSay")
 	
@@ -230,6 +234,8 @@ public ARP_Error(const Reason[])
 
 public plugin_precache()
 {
+	arpvgui_precache()
+	
 	precache_sound(g_RingSound)
 	precache_sound(g_SmsSound)
 	precache_sound(g_ScanSound)
@@ -343,7 +349,7 @@ public StatusHandle(id,Key)
 				menu_additem(Menu,Name,Command)
 			}
 			
-			menu_display(id,Menu)
+			arpvgui_menu_display(id,Menu,"arptalk.book","ARP Phonebook","CallHandle")
 		}
 	}
 }
@@ -404,7 +410,7 @@ public CallHandle(id,Menu,Item)
 	if(g_Phone[Selection][RING] < 2)
 		set_task(2.0,"Ring",Selection + PHONE_RING_OFFSET,"a",_,_,6)
 	
-	show_menu(Selection,(1<<0|1<<1),Menu,-1,g_AnswerMenu)
+	arpvgui_show_menu(Selection,(1<<0|1<<1),Menu,-1,g_AnswerMenu,"arptalk.answer")
 	
 	return PLUGIN_CONTINUE
 }
@@ -454,7 +460,7 @@ public _Phone(id,ItemId)
 	formatex(Menu[Pos],255 - Pos,"^n0. Exit")
 	
 	g_ItemId[id] = ItemId
-	show_menu(id,Keys,Menu,-1,g_StatusMenu)
+	arpvgui_show_menu(id,Keys,Menu,-1,g_StatusMenu,"arptalk.status")
 }
 
 public _Subscription(id,ItemId)

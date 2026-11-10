@@ -7,6 +7,7 @@
 #include <fun>
 #include <hamsandwich>
 #include <xs>
+#include <ApolloRP_VGui>
 
 #define ALCOHOL_MULTIPLE 10
 
@@ -100,6 +101,7 @@ new MODS:g_Mod
 
 public plugin_init()
 {	
+	arpvgui_init("arpitems")
 	register_impulse(201,"SprayAttempt")
 	register_impulse(100,"FlashlightAttempt")
 	
@@ -163,6 +165,8 @@ public client_disconnect(id)
 	
 public plugin_precache()
 {
+	arpvgui_precache()
+	
 	g_Smoke = precache_model("sprites/steam1.spr")
 	g_Lightning = precache_model("sprites/lgtning.spr")	// Lightning effect from Tazer
 	precache_sound(g_HeartSound)
@@ -631,7 +635,7 @@ LockpickHandle(id,ItemId)
 	new Menu[512]
 	format(Menu,511,"ARP Lock Pick^n^n%s%s%s%s^n^n1. Up^n2. Down^n3. Left^n4. Right^n^n0. %s",g_Pick[id] & (1<<0) ? "-" : "|",g_Pick[id] & (1<<1) ? "-" : "|",g_Pick[id] & (1<<2) ? "-" : "|",g_Pick[id] & (1<<3) ? "-" : "|",g_Pick[id] & (1<<3) ? "Open Door" : "Exit")
 	
-	show_menu(id,g_Keys,Menu,-1,g_LockMenu)
+	arpvgui_show_menu(id,g_Keys,Menu,-1,g_LockMenu,"arpitems.lock")
 	
 	// used as cache - name is decieving
 	g_Attachments[id] = ItemId

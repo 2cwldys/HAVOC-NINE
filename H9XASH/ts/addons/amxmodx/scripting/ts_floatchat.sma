@@ -7,9 +7,18 @@
  *   THE BUBBLE is a SPRITE above the head. It marks a place in the world, which is what a
  *   sprite is for and what the class icons in ts_matchmode already do.
  *
- *   THE WORDS are a HUDMESSAGE. Text cannot be a sprite -- it is arbitrary words at
- *   runtime -- so it goes through the only screen-space tool that takes a position, and
- *   the head is projected into each viewer's screen to place it.
+ *   THE WORDS reach a player one of two ways, by what his game says it can draw.
+ *
+ *     A CLIENT THAT DRAWS THEM ITSELF (H9's reTS client; its userinfo key _h9chatbubble is 1) is sent
+ *     each line once, as the H9Say user message: the words, how long they stay and how far they show.
+ *     Its own client keeps each speaker's latest line and draws it in a box over the head of the
+ *     speaker its crosshair is on, placed on its own screen every frame -- so the words never lag a
+ *     turn, take no HUD channel and cannot run into another speaker's. reTS cl_dll\h9_chatbubble.cpp
+ *     is that half; docs\CHAT_BUBBLES.txt the protocol and the guide.
+ *
+ *     EVERY OTHER CLIENT is sent a HUDMESSAGE. Text cannot be a sprite -- it is arbitrary words at
+ *     runtime -- so it goes through the only screen-space tool that takes a position, and the head is
+ *     projected into each viewer's screen to place it.
  *
  * WHY NOT BOTH AS SPRITES, since a sprite follows the head for free: a sprite is a picture
  * chosen before the map loads. There is no way to put words into one at runtime.
@@ -69,7 +78,7 @@
  *
  * That leaves 0, 6 and 7. Three people's words on screen at once, per viewer; a fourth
  * talker takes the oldest slot rather than stealing a channel that is not ours. It is a
- * limit of the engine, not a decision.
+ * limit of the engine, not a decision. (A client that draws the words itself has no such limit.)
  */
 new const FC_CHANNELS[] = { 0, 6, 7 };
 #define FC_SLOTS 3
@@ -77,6 +86,10 @@ new const FC_CHANNELS[] = { 0, 6, 7 };
 new g_slot_owner[FC_SLOTS];        // which player is in each slot, 0 for free
 new Float:g_slot_until[FC_SLOTS];  // when their words come down
 new g_slot_text[FC_SLOTS][128];
+new g_slot_lines[FC_SLOTS];        // the words' lines, 1 or 2
+new g_slot_width[FC_SLOTS];        // the longer line's length, in characters
+new Float:g_slot_top[FC_SLOTS][2]; // the talker's head above his origin, standing and ducking (head_tops)
+new Trie:g_tops_cache;             // model name -> the two numbers read from the model file; 0 0 for one that cannot be read
 
 new bool:g_spr_ok;
 new g_bubble[MAXPL];               // the typing sprite, one per player, kept
@@ -109,19 +122,100 @@ new bool:g_is_bubble[2048];        // edict -> a typing bubble, for fw_addtofull
 new g_fw_afp = -1;                 // the AddToFullPack pre hook: only while someone has it off
 
 /*
- * WHERE IT SITS. The bubble is fc_rise units above the player's eyes (origin plus view_ofs), so it
- * follows him down when he ducks, goes prone or dives, as his eyes do; the words sit FC_WORDS_ABOVE
- * units above the bubble, their box centred on that point and resting on it.
+ * THE WORDS, FOR A CLIENT THAT DRAWS THEM (the H9Say message). Sent once, when the line is said, to every
+ * living human whose userinfo _h9chatbubble starts with 1 and who has float chat on -- for a say_team line, only to
+ * the speaker's own team unless h9_floatchat_bubble_team is 0; the speaker too only when wants_own says so (YOUR
+ * OWN LINE). Unreliable, as h9_tts's H9Tts is: a line lost to a bad packet is a line not shown, and a burst of
+ * chat never fills a reliable channel.
  *
- * YOUR OWN BUBBLE. A player's own words are never sent to him, and his own bubble, over his own
- * head, is out of his first-person view. fc_self 1 sends him his words too, centred near the top
- * of his screen (FC_SELF_Y), and in third person he sees his bubble over his head as anyone does.
+ *   byte    the speaker's slot
+ *   byte    flags: bit 0 (FC_MSG_F_TEAM) says it was a team line
+ *   short   how long the line stays, in tenths of a second; 0 takes the speaker's line down
+ *   short   how far away it shows, in units (fc_range)
+ *   byte    the top of the speaker's head above his origin standing, in units (head_tops)
+ *   byte    the same ducking
+ *   string  the words: h9_floatchat_bubble_maxchars at most, never broken into lines
+ *
+ * A slot of 0 with a ttl of 0 takes every line down, for the one viewer it is sent to. A line comes down
+ * for everyone before its time when its speaker dies, leaves the match or the server, or stops being shown
+ * (may_talk); task_float watches for it.
+ *
+ * THE USERINFO KEY _h9chatbubble is how a game says what it does, in the key's value:
+ *
+ *   0, nothing, or anything that does not start with 1   it cannot draw the words: it is sent the hudmessage
+ *   1                                                    it draws them (H9Say); no line of its own
+ *   1s                                                   it draws them and asks for its own line too
+ *
+ * The first character is all an older ts_floatchat tests (== '1'), so it reads "1s" as "1": a game that asks for
+ * its own line is still drawn for, and an older client's "1" means what it always did. A userinfo is 256 bytes
+ * and full, so the own line has no key of its own: the s is one byte more, sent only by a player who turned his
+ * own line on.
  */
-#define FC_WORDS_ABOVE 14.0
+#define FC_MSG_F_TEAM        1
+#define FC_BUBBLE_RAW        152    // the most bytes of words sent in one H9Say
+#define FC_BUBBLE_MAXCHARS_MAX 150
+#define FC_BUBBLE_HOLD_MAX   30.0
+#define FC_INFO_DRAWS        '1'    // _h9chatbubble's first character: the game draws the words itself
+#define FC_INFO_SELF         's'    // its second: and the player wants his own line
+new g_msg_say;                     // the H9Say user message
+new bool:g_bubble_cli[MAXPL];      // his game draws the words itself: _h9chatbubble starts with 1
+new bool:g_bubble_self[MAXPL];     // and he asked for his own line: _h9chatbubble is 1s
+new Float:g_say_until[MAXPL];      // when the line last sent to the clients that draw them runs out, for each speaker; 0 for none
+
+/*
+ * WHERE IT SITS. The bubble is fc_rise units above the player's eyes (origin plus view_ofs), so it
+ * follows him down when he ducks, goes prone or dives, as his eyes do. The words rest FC_HEAD_GAP units
+ * above the top of his head, their box centred on that point and resting on it; while his typing bubble
+ * is drawn they rest FC_HEAD_GAP units over the top of that instead (words_anchor), so a line still up when
+ * he opens the chat line again never sits on the bubble; and cmd_say takes the bubble down the moment a line
+ * is sent, so new words never arrive under one. The client that draws the words itself lifts its box over the
+ * bubble the same way (reTS cl_dll\h9_chatbubble.cpp).
+ *
+ * THE BUBBLE'S TOP is its centre plus half the sprite's height: the frames of FC_SPR are 128 x 96 pixels,
+ * centred on the entity's origin, a pixel is a unit at scale 1 and the entity is drawn at fc_scale (0.20), so
+ * it is 19.2 units tall and its top is 9.6 over its centre. FC_SPR_HALF_H is the 48 pixels; a sprite of
+ * another size needs it changed here and in the client (TYPING_HALF_H).
+ *
+ * THE TOP OF THE HEAD is read from the player's model, not guessed from the hull. A model is drawn in its
+ * own coordinates around the player's origin, and the bounding box of its idle sequences (in the model's
+ * own file, models/player/<name>/<name>.mdl) says how far up it reaches: 35 to 39 for a human model, 48 for
+ * the Mech and the ED-209, standing, and 23 to 26 for a human ducking. head_tops reads those two numbers once for
+ * each model name (the userinfo key "model") and keeps them; a model it cannot read is taken to be 36 and
+ * 22. The player's own scale (pev_scale, set by whatever draws him larger or smaller) stretches them, and
+ * the flag FL_DUCKING picks between the two.
+ *
+ * YOUR OWN LINE. His own bubble, over his own head, is out of his first-person view, and so are his own
+ * words, so they are sent to him only when he wants them: a player's own line goes to him when his game
+ * asked for it (_h9chatbubble is 1s, from cl_h9_chatbubble_own 1) or fc_self is 1 (wants_own). It is
+ * centred near the top of his screen (FC_SELF_Y), where the client's own box also puts it; in third person
+ * he sees his bubble over his head as anyone does. fc_self 1 is the server's say for everyone, whatever
+ * his game asks. A game that cannot draw the words has no way to ask, so for a player on one (a Steam
+ * client, or cl_h9_chatbubble 0) fc_self 1 is the only way to his own line, as a hudmessage.
+ */
+#define FC_HEAD_GAP    6.0
+#define FC_SPR_HALF_H  48.0
+// The head's top above the origin when the model cannot be read: a human model's, standing and ducking.
+#define FC_HEAD_STAND  36.0
+#define FC_HEAD_DUCK   22.0
 #define FC_SELF_Y      0.30
 // The words' box, as a share of the screen: a character's width and the line's height.
 #define FC_CHAR_W      0.0065
 #define FC_LINE_H      0.03
+
+/*
+ * THE WORDS THEMSELVES are what the player said and nothing added: fc_tidy takes out control characters
+ * and doubled spaces, sets a line typed in capitals in sentence case, cuts it to h9_floatchat_maxchars
+ * (FC_MAXCHARS_MIN to FC_MAXCHARS_MAX; "..." marks the cut, at a space when one is in the last
+ * FC_CUT_BACK characters) and breaks it into two lines at most, at a space, each line within
+ * FC_LINE_SLACK of half the limit. A line stays up fc_hold seconds and
+ * FC_HOLD_PER_CHAR more for each character, so a longer one is read before it goes.
+ */
+#define FC_RAW_LEN       192
+#define FC_MAXCHARS_MIN  12
+#define FC_MAXCHARS_MAX  100
+#define FC_CUT_BACK      12
+#define FC_LINE_SLACK    8
+#define FC_HOLD_PER_CHAR 0.04
 
 // The words as last sent to each viewer, so a line that has not moved on his screen is not sent
 // again until the one before is about to run out.
@@ -129,8 +223,10 @@ new Float:g_sent_x[MAXPL][FC_SLOTS];
 new Float:g_sent_y[MAXPL][FC_SLOTS];
 new Float:g_sent_at[MAXPL][FC_SLOTS];
 
-new g_cv_on, g_cv_range, g_cv_hold, g_cv_rise, g_cv_scale;
+new g_cv_on, g_cv_range, g_cv_hold, g_cv_rise, g_cv_scale, g_cv_maxchars;
 new g_cv_r, g_cv_g, g_cv_b, g_cv_ytweak, g_cv_self;
+new g_cv_words, g_cv_hud, g_cv_typing;
+new g_cv_bubble, g_cv_bubble_hold, g_cv_bubble_maxchars, g_cv_bubble_team;
 new g_cv_tsm;                     // ts_matchmode's tsm_enabled; 0 without it
 new bool:g_have_core = true;     // ts_matchmode's natives are bound (native_filter)
 
@@ -202,6 +298,10 @@ public plugin_init()
 	g_cv_rise   = register_cvar("fc_rise",     "24.0");   // above the eyes (WHERE IT SITS)
 	g_cv_scale  = register_cvar("fc_scale",    "0.20");
 
+	// The most characters of a line shown over a head; a longer one is cut with "..." (THE WORDS THEMSELVES)
+	g_cv_maxchars = register_cvar("h9_floatchat_maxchars", "48");
+	g_tops_cache = TrieCreate();
+
 	g_cv_r = register_cvar("fc_red",   "150");
 	g_cv_g = register_cvar("fc_green", "215");
 	g_cv_b = register_cvar("fc_blue",  "255");
@@ -213,8 +313,20 @@ public plugin_init()
 	 */
 	g_cv_ytweak = register_cvar("fc_y_tweak", "1.0");
 
-	// 1: a player is sent his own words as well (YOUR OWN BUBBLE, above). Off by default.
+	// 1: every player is sent his own words as well, whatever his game asks; 0: only a player whose game asks for them
+	// is (YOUR OWN LINE, above). 0 by default.
 	g_cv_self = register_cvar("fc_self", "0");
+
+	// What is shown, one switch each (fc_enabled is the master of all of it).
+	g_cv_words  = register_cvar("h9_floatchat_words",  "1");   // 0: no words over heads for any client
+	g_cv_hud    = register_cvar("h9_floatchat_hud",    "1");   // 0: a client that cannot draw the words itself is sent none
+	g_cv_typing = register_cvar("h9_floatchat_typing", "1");   // 0: the typing bubble sprite is never shown
+
+	// For a client that draws the words itself (THE WORDS, FOR A CLIENT THAT DRAWS THEM)
+	g_cv_bubble          = register_cvar("h9_floatchat_bubble",          "1");   // 0: every client is sent the hudmessage
+	g_cv_bubble_hold     = register_cvar("h9_floatchat_bubble_hold",     "0");   // seconds a line stays; 0: fc_hold and a little more for a longer line
+	g_cv_bubble_maxchars = register_cvar("h9_floatchat_bubble_maxchars", "96");  // the most characters of a line (12 to 150)
+	g_cv_bubble_team     = register_cvar("h9_floatchat_bubble_team",     "1");   // 1: a say_team line goes to the speaker's team only
 
 	// Ten times a second. Fast enough to follow someone running, far short of the cost of
 	// doing it every frame for every pair of players.
@@ -238,12 +350,19 @@ public plugin_precache()
 	// Never sent. Registered so the H9XASH engine knows this server takes h9_typing: it sends
 	// the command only to a server whose game has this message.
 	engfunc(EngFunc_RegUserMsg, "H9Typing", 0);
+
+	// The words for a client that draws them itself: variable length, registered whatever the cvars say,
+	// so that every game learns the message at connect (as h9_tts does for H9Tts).
+	g_msg_say = engfunc(EngFunc_RegUserMsg, "H9Say", -1);
 }
 
 public client_putinserver(id)
 {
 	g_typing[id] = false;
 	g_bubble[id] = 0;
+	g_say_until[id] = 0.0;
+	g_bubble_cli[id] = false;
+	g_bubble_self[id] = false;
 	for (new s = 0; s < FC_SLOTS; s++)
 	{
 		g_sent_at[id][s] = -1.0;
@@ -255,6 +374,7 @@ public client_putinserver(id)
 		g_off_stored[id] = stored_off(key);
 	}
 	refresh_off(id);
+	refresh_bubble_client(id);
 }
 
 public client_disconnected(id)
@@ -275,6 +395,13 @@ public fw_client_disconnect_xash(id)
 player_left(id)
 {
 	drop_bubble(id);
+	g_bubble_cli[id] = false;
+	g_bubble_self[id] = false;
+	if (g_say_until[id] > 0.0)
+	{
+		g_say_until[id] = 0.0;
+		send_bubble_clear(id);
+	}
 	for (new i = 0; i < FC_SLOTS; i++)
 	{
 		if (g_slot_owner[i] == id)
@@ -390,6 +517,24 @@ refresh_off(id)
 	}
 }
 
+/// What this player's game says it does (THE USERINFO KEY _h9chatbubble): whether it draws the words itself, his
+/// userinfo _h9chatbubble starting with 1 (H9's client says so while cl_h9_chatbubble is not 0), and whether he
+/// also wants his own line, the character after it being s (cl_h9_chatbubble_own 1). The value is read to 3
+/// characters and only its first two matter; anything else, an empty value too, is a game that draws nothing.
+refresh_bubble_client(id)
+{
+	new ui[4];
+	get_user_info(id, "_h9chatbubble", ui, charsmax(ui));
+	g_bubble_cli[id] = (ui[0] == FC_INFO_DRAWS);
+	g_bubble_self[id] = (g_bubble_cli[id] && ui[1] == FC_INFO_SELF);
+}
+
+/// Whether this player is sent his own line: fc_self 1 for everyone, else only one whose game asked for it.
+bool:wants_own(id)
+{
+	return get_pcvar_num(g_cv_self) != 0 || g_bubble_self[id];
+}
+
 /// The AddToFullPack hook runs for every entity and every player each frame, so it is there only
 /// while a player who has float chat off is on the server. `leaving` is a player on his way out.
 update_afp_hook(leaving)
@@ -425,6 +570,183 @@ bubble_anchor(id, Float:at[3])
 	at[2] += ofs[2] + get_pcvar_float(g_cv_rise);
 }
 
+/// The top of a player's head above his origin, standing and ducking, from his model (THE TOP OF THE
+/// HEAD); a model that cannot be read leaves the human numbers.
+head_tops(id, Float:tops[2])
+{
+	tops[0] = FC_HEAD_STAND;
+	tops[1] = FC_HEAD_DUCK;
+
+	new model[40];
+	get_user_info(id, "model", model, charsmax(model));
+	if (model[0])
+	{
+		model_tops(model, tops);
+	}
+}
+
+/// A model's two numbers into tops, from the cache or else from the model file; tops is left as it was
+/// for a name that is not a model's folder name or a file that cannot be read.
+model_tops(const model[], Float:tops[2])
+{
+	// the name goes into a file path: letters, digits, _ and - only
+	new key[40];
+	new n = 0;
+	for (new i = 0; model[i] && n < charsmax(key); i++)
+	{
+		new c = model[i];
+		if (c >= 'A' && c <= 'Z')
+		{
+			c += 32;
+		}
+		else if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
+		{
+			return;
+		}
+		key[n++] = c;
+	}
+	key[n] = 0;
+
+	new Float:got[2];
+	if (!TrieGetArray(g_tops_cache, key, got, 2))
+	{
+		got[0] = 0.0;
+		got[1] = 0.0;
+		read_model_tops(model, got);
+		TrieSetArray(g_tops_cache, key, got, 2);
+	}
+	if (got[0] > 0.0)
+	{
+		tops[0] = got[0];
+		tops[1] = got[1];
+	}
+}
+
+/*
+ * Reads a studio model's header and its sequences' bounding boxes: the top of the box of the first
+ * "standard_idle" sequence is the standing number and that of the first "duck_idle" one the ducking
+ * number. The file's own layout (studiohdr_t): "IDST" at 0, the sequence count and the offset of the
+ * sequences at 164 and 168; a sequence is 176 bytes, its name the first 32, its bounding box's top at
+ * 116. Numbers that are not a plausible height leave the pair at 0 0.
+ */
+read_model_tops(const model[], Float:tops[2])
+{
+	new path[96];
+	formatex(path, charsmax(path), "models/player/%s/%s.mdl", model, model);
+	if (!file_exists(path))
+	{
+		return;
+	}
+	new f = fopen(path, "rb");
+	if (!f)
+	{
+		return;
+	}
+
+	new magic, numseq, seqindex;
+	fread(f, magic, BLOCK_INT);
+	if (magic == 0x54534449)
+	{
+		fseek(f, 164, SEEK_SET);
+		fread(f, numseq, BLOCK_INT);
+		fread(f, seqindex, BLOCK_INT);
+		if (numseq > 0 && numseq <= 1024 && seqindex > 0)
+		{
+			new Float:stand = 0.0, Float:duck = 0.0;
+			for (new i = 0; i < numseq && i < 160 && (stand <= 0.0 || duck <= 0.0); i++)
+			{
+				new base = seqindex + i * 176;
+				new label[16];
+				fseek(f, base, SEEK_SET);
+				for (new k = 0; k < 13; k++)
+				{
+					new ch;
+					fread(f, ch, BLOCK_BYTE);
+					label[k] = ch;
+				}
+				label[13] = 0;
+
+				new bool:is_stand = (stand <= 0.0 && equal(label, "standard_idle", 13));
+				new bool:is_duck = (duck <= 0.0 && equal(label, "duck_idle", 9));
+				if (is_stand || is_duck)
+				{
+					new bits;
+					fseek(f, base + 116, SEEK_SET);
+					fread(f, bits, BLOCK_INT);
+					new Float:top = Float:bits;
+					if (top >= 8.0 && top <= 200.0)
+					{
+						if (is_stand)
+						{
+							stand = top;
+						}
+						else
+						{
+							duck = top;
+						}
+					}
+				}
+			}
+			if (stand > 0.0)
+			{
+				tops[0] = stand;
+				tops[1] = (duck > 0.0) ? duck : (stand - 14.0);
+			}
+		}
+	}
+	fclose(f);
+}
+
+/// How high a talker's head reaches above his origin now: his model's top for the way he stands, at his scale.
+Float:head_top_now(id, slot)
+{
+	new Float:scale;
+	pev(id, pev_scale, scale);
+	if (scale < 0.1)
+	{
+		scale = 1.0;   // 0 and 1 both draw him at his own size
+	}
+	return g_slot_top[slot][(pev(id, pev_flags) & FL_DUCKING) ? 1 : 0] * scale;
+}
+
+/// Whether this player's typing bubble is drawn now: its sprite is there and not hidden. place_bubble shows or
+/// hides it every tick, ahead of the words, and cmd_say hides it the moment the line is sent.
+bool:bubble_up(id)
+{
+	new ent = g_bubble[id];
+	return ent > 0 && pev_valid(ent) && !(pev(ent, pev_effects) & FC_EF_NODRAW);
+}
+
+/// The top of a player's typing bubble: its centre (bubble_anchor) plus half the sprite's height at the scale it
+/// is drawn at (THE BUBBLE'S TOP). A scale of 0 draws the sprite at its own size, as it does a model.
+Float:bubble_top(id)
+{
+	new Float:at[3];
+	bubble_anchor(id, at);
+	new Float:scale = get_pcvar_float(g_cv_scale);
+	if (scale <= 0.0)
+	{
+		scale = 1.0;
+	}
+	return at[2] + FC_SPR_HALF_H * scale;
+}
+
+/// Where a talker's words rest: just above the top of his head, or just above the top of his typing bubble while
+/// that is drawn, whichever is higher.
+words_anchor(id, slot, Float:at[3])
+{
+	pev(id, pev_origin, at);
+	at[2] += head_top_now(id, slot) + FC_HEAD_GAP;
+	if (bubble_up(id))
+	{
+		new Float:over = bubble_top(id) + FC_HEAD_GAP;
+		if (over > at[2])
+		{
+			at[2] = over;
+		}
+	}
+}
+
 /// A typing bubble is never sent to a player who has float chat off.
 public fw_addtofullpack_pre(es, e, ent, host, hostflags, player, pSet)
 {
@@ -457,6 +779,7 @@ cmd_bubbles(id)
 
 	if (off)
 	{
+		bubble_clear_msg(id, 0);
 		client_print(id, print_chat, "[FC] Float chat is OFF for you: no typing bubbles, no words over heads. Type .bubbles to turn it back on.");
 	}
 	else
@@ -514,6 +837,21 @@ bubble_entity(id)
 	return ent;
 }
 
+/// The bubble out of sight, kept for the next time (place_bubble hides it on the next tick anyway when the
+/// chat line closed some other way).
+hide_bubble(id)
+{
+	if (id < 1 || id >= MAXPL)
+	{
+		return;
+	}
+	new ent = g_bubble[id];
+	if (ent > 0 && pev_valid(ent))
+	{
+		set_pev(ent, pev_effects, pev(ent, pev_effects) | FC_EF_NODRAW);
+	}
+}
+
 drop_bubble(id)
 {
 	g_typing[id] = false;
@@ -542,8 +880,10 @@ public fw_userinfo_post(id, buffer)
 		return FMRES_IGNORED;
 	}
 
-	// _h9bubbles may have changed with it: float chat off for him, or back on.
+	// _h9bubbles may have changed with it: float chat off for him, or back on; and _h9chatbubble, whether his
+	// game draws the words itself.
 	refresh_off(id);
+	refresh_bubble_client(id);
 
 	// An earlier H9XASH engine's _h9typing, read only when the key is there at all: today's
 	// engine sends h9_typing instead and leaves the key out.
@@ -592,7 +932,7 @@ set_typing(id, bool:typing, const how[])
 		g_typing_logged = true;
 		log_amx("[FC] %s: player %d opened the chat line, as the H9XASH engine reports it.", how, id);
 	}
-	if (typing && get_pcvar_num(g_cv_on))
+	if (typing && get_pcvar_num(g_cv_on) && get_pcvar_num(g_cv_typing))
 	{
 		bubble_entity(id);
 	}
@@ -618,7 +958,10 @@ public cmd_say(id)
 	{
 		return PLUGIN_CONTINUE;
 	}
+	// The line is sent, so the chat line is closed: the bubble goes at once, not on the next tick, so that the
+	// words that follow never meet it.
 	g_typing[id] = false;
+	hide_bubble(id);
 
 	if (is_user_bot(id) || !may_talk(id))
 	{
@@ -637,8 +980,181 @@ public cmd_say(id)
 		return PLUGIN_CONTINUE;
 	}
 
-	take_slot(id, said);
+	if (!get_pcvar_num(g_cv_words))
+	{
+		return PLUGIN_CONTINUE;
+	}
+
+	// The hudmessage, for a client that cannot draw the words itself.
+	if (get_pcvar_num(g_cv_hud))
+	{
+		new clean[128], lines, width;
+		fc_tidy(said, clean, charsmax(clean), lines, width, clamp(get_pcvar_num(g_cv_maxchars), FC_MAXCHARS_MIN, FC_MAXCHARS_MAX), true);
+		if (clean[0])
+		{
+			take_slot(id, clean, lines, width);
+		}
+	}
+
+	// H9Say, for a client that draws it itself.
+	if (get_pcvar_num(g_cv_bubble))
+	{
+		new verb[12];
+		read_argv(0, verb, charsmax(verb));
+		new words[FC_BUBBLE_RAW + 4], blines, bwidth;
+		fc_tidy(said, words, charsmax(words), blines, bwidth, clamp(get_pcvar_num(g_cv_bubble_maxchars), FC_MAXCHARS_MIN, FC_BUBBLE_MAXCHARS_MAX), false);
+		if (words[0])
+		{
+			send_bubble_words(id, words, equal(verb, "say_team") != 0);
+		}
+	}
 	return PLUGIN_CONTINUE;
+}
+
+/// What the player said, made fit to float over a head, into out, cut to maxc characters; lines is 1 or 2 and
+/// width the longer line's length. With split false the words stay one line (the client that draws them breaks
+/// them to fit its box). See THE WORDS THEMSELVES.
+fc_tidy(const said[], out[], len, &lines, &width, maxc, bool:split)
+{
+	if (maxc > len - 2)
+	{
+		maxc = len - 2;
+	}
+
+	// Control characters are spaces, a run of spaces is one, and the ends are trimmed.
+	new tmp[FC_RAW_LEN + 4];
+	new n = 0, letters = 0, lowers = 0;
+	new bool:space = true;
+	for (new i = 0; said[i] && n < FC_RAW_LEN; i++)
+	{
+		new c = said[i];
+		if ((c >= 0 && c < 32) || c == 127)
+		{
+			c = ' ';
+		}
+		if (c == ' ')
+		{
+			if (!space)
+			{
+				tmp[n++] = ' ';
+				space = true;
+			}
+			continue;
+		}
+		space = false;
+		tmp[n++] = c;
+		if (c >= 'a' && c <= 'z')
+		{
+			letters++;
+			lowers++;
+		}
+		else if (c >= 'A' && c <= 'Z')
+		{
+			letters++;
+		}
+	}
+	while (n > 0 && tmp[n - 1] == ' ')
+	{
+		n--;
+	}
+	tmp[n] = 0;
+
+	// A line in capitals (four letters or more, none lower case) is set in sentence case.
+	if (letters >= 4 && lowers == 0)
+	{
+		new bool:first = true;
+		for (new i = 0; i < n; i++)
+		{
+			if (tmp[i] >= 'A' && tmp[i] <= 'Z')
+			{
+				if (!first)
+				{
+					tmp[i] += 32;
+				}
+				first = false;
+			}
+		}
+	}
+
+	// Too long: cut with "..." in the last three places, at a space if one is near, never inside a
+	// multi-byte character.
+	if (n > maxc)
+	{
+		new end = maxc - 3;
+		new at = end;
+		while (at > 0 && at > end - FC_CUT_BACK && tmp[at] != ' ')
+		{
+			at--;
+		}
+		if (at > 0 && tmp[at] == ' ')
+		{
+			end = at;
+		}
+		else
+		{
+			while (end > 0 && (tmp[end] & 0xC0) == 0x80)
+			{
+				end--;
+			}
+		}
+		while (end > 0 && tmp[end - 1] == ' ')
+		{
+			end--;
+		}
+		n = end;
+		tmp[n++] = '.';
+		tmp[n++] = '.';
+		tmp[n++] = '.';
+		tmp[n] = 0;
+	}
+
+	lines = 1;
+	width = n;
+	new half = (maxc + 1) / 2;
+	if (!split || n <= half)
+	{
+		copy(out, len, tmp);
+		return;
+	}
+
+	// Two lines: broken at the space that makes the longer line shortest, as long as that line is within
+	// FC_LINE_SLACK of half the limit; otherwise (a long word, no space) at half the limit itself.
+	new brk = -1, best = 1000;
+	for (new i = 1; i < n - 1; i++)
+	{
+		if (tmp[i] == ' ')
+		{
+			new longer = max(i, n - i - 1);
+			if (longer < best)
+			{
+				best = longer;
+				brk = i;
+			}
+		}
+	}
+	new skip = 1;
+	if (brk < 0 || best > half + FC_LINE_SLACK)
+	{
+		brk = half;
+		while (brk > 0 && (tmp[brk] & 0xC0) == 0x80)
+		{
+			brk--;
+		}
+		skip = 0;
+	}
+	new j = 0;
+	for (new i = 0; i < brk && j < len - 1; i++)
+	{
+		out[j++] = tmp[i];
+	}
+	out[j++] = '^n';
+	for (new i = brk + skip; i < n && j < len - 1; i++)
+	{
+		out[j++] = tmp[i];
+	}
+	out[j] = 0;
+	lines = 2;
+	width = max(brk, n - brk - skip);
 }
 
 /*
@@ -647,10 +1163,11 @@ public cmd_say(id)
  * Replacing their own first matters: without it somebody talking quickly holds two of the
  * three slots and crowds everyone else out of the only channels we have.
  */
-take_slot(id, const text[])
+take_slot(id, const text[], lines, width)
 {
 	new Float:now = get_gametime();
-	new Float:hold = get_pcvar_float(g_cv_hold);
+	// fc_hold, and a little longer for a longer line
+	new Float:hold = get_pcvar_float(g_cv_hold) + FC_HOLD_PER_CHAR * float(strlen(text));
 
 	new pick = -1;
 	for (new i = 0; i < FC_SLOTS; i++)
@@ -677,12 +1194,118 @@ take_slot(id, const text[])
 	g_slot_owner[pick] = id;
 	g_slot_until[pick] = now + hold;
 	copy(g_slot_text[pick], charsmax(g_slot_text[]), text);
+	g_slot_lines[pick] = lines;
+	g_slot_width[pick] = width;
+	head_tops(id, g_slot_top[pick]);
 
 	// New words go out to every viewer on the next tick, wherever they were drawn before.
 	for (new v = 1; v < MAXPL; v++)
 	{
 		g_sent_at[v][pick] = -1.0;
 	}
+}
+
+/* ---- the words for a client that draws them ------------------------------ */
+
+/// Whether this viewer is sent a talker's line as H9Say: his game draws the words itself, he has float chat on, he is
+/// alive, and the line is not a team line of the other side (h9_floatchat_bubble_team). His own line only when
+/// wants_own says so (fc_self, or his game asked).
+bool:bubble_viewer(viewer, talker, bool:team_line, team)
+{
+	if (viewer < 1 || viewer >= MAXPL || !g_bubble_cli[viewer] || g_off[viewer] || !is_user_alive(viewer))
+	{
+		return false;
+	}
+	if (viewer == talker)
+	{
+		return wants_own(viewer);
+	}
+	return !(team_line && get_pcvar_num(g_cv_bubble_team) && get_user_team(viewer) != team);
+}
+
+/// One H9Say to one viewer, begun with fakemeta's EngFunc_MessageBegin as every plugin message is (Metamod-R
+/// records only the game DLL's own). ttl 0 takes a line down: slot 0 every line, else that speaker's.
+bubble_msg(viewer, slot, flags, ttl, range, stand, duck, const words[])
+{
+	engfunc(EngFunc_MessageBegin, MSG_ONE_UNRELIABLE, g_msg_say, Float:{0.0, 0.0, 0.0}, viewer);
+	write_byte(slot);
+	write_byte(flags);
+	write_short(ttl);
+	write_short(range);
+	write_byte(stand);
+	write_byte(duck);
+	write_string(words);
+	message_end();
+}
+
+/// Takes every line down on one viewer's screen, for a game that draws them itself.
+bubble_clear_msg(viewer, slot)
+{
+	if (g_msg_say && viewer >= 1 && viewer < MAXPL && g_bubble_cli[viewer] && is_user_connected(viewer))
+	{
+		bubble_msg(viewer, slot, 0, 0, 0, 0, 0, "");
+	}
+}
+
+/// Takes a speaker's line down for every viewer whose game draws the words itself.
+send_bubble_clear(talker)
+{
+	if (!g_msg_say)
+	{
+		return;
+	}
+	new players[MAX_PLAYERS], pnum;
+	get_players(players, pnum, "ch");
+	for (new i = 0; i < pnum; i++)
+	{
+		bubble_clear_msg(players[i], talker);
+	}
+}
+
+/// A talker's words, sent once to every viewer whose game draws them itself (THE WORDS, FOR A CLIENT THAT DRAWS THEM).
+send_bubble_words(talker, const words[], bool:team_line)
+{
+	if (!g_msg_say || talker < 1 || talker >= MAXPL)
+	{
+		return;
+	}
+
+	// h9_floatchat_bubble_hold seconds when it is set, else fc_hold and a little longer for a longer line, as the
+	// hudmessage holds it
+	new Float:hold = get_pcvar_float(g_cv_bubble_hold);
+	if (hold > FC_BUBBLE_HOLD_MAX)
+	{
+		hold = FC_BUBBLE_HOLD_MAX;
+	}
+	else if (hold > 0.0 && hold < 1.0)
+	{
+		hold = 1.0;
+	}
+	if (hold <= 0.0)
+	{
+		hold = get_pcvar_float(g_cv_hold) + FC_HOLD_PER_CHAR * float(strlen(words));
+	}
+	new ttl = clamp(floatround(hold * 10.0), 1, 300);
+	new range = clamp(floatround(get_pcvar_float(g_cv_range)), 64, 8192);
+
+	new Float:tops[2];
+	head_tops(talker, tops);
+	new stand = clamp(floatround(tops[0]), 1, 255);
+	new duck = clamp(floatround(tops[1]), 1, 255);
+
+	new flags = team_line ? FC_MSG_F_TEAM : 0;
+	new team = get_user_team(talker);
+
+	new players[MAX_PLAYERS], pnum;
+	get_players(players, pnum, "ch");
+	for (new i = 0; i < pnum; i++)
+	{
+		if (bubble_viewer(players[i], talker, team_line, team))
+		{
+			bubble_msg(players[i], talker, flags, ttl, range, stand, duck, words);
+		}
+	}
+	g_say_until[talker] = get_gametime() + float(ttl) * 0.1;
 }
 
 /* ---- drawing, ten times a second ----------------------------------------- */
@@ -700,6 +1323,24 @@ public task_float()
 
 	// The AddToFullPack hooks follow who has float chat off, who is typing, and fc_self.
 	update_afp_hook(0);
+
+	// A line the clients that draw the words themselves hold comes down early when its speaker stops being shown.
+	for (new i = 1; i < MAXPL; i++)
+	{
+		if (g_say_until[i] <= 0.0)
+		{
+			continue;
+		}
+		if (g_say_until[i] <= now)
+		{
+			g_say_until[i] = 0.0;
+		}
+		else if (!is_user_connected(i) || !may_talk(i))
+		{
+			g_say_until[i] = 0.0;
+			send_bubble_clear(i);
+		}
+	}
 
 	// A BUBBLE NEVER HANGS: no word for a while, death, leaving the match, a new team.
 	for (new i = 0; i < pnum; i++)
@@ -723,10 +1364,11 @@ public task_float()
 	}
 
 	// Then the words, which have to be worked out for each viewer separately.
+	new bool:hud_words = get_pcvar_num(g_cv_words) && get_pcvar_num(g_cv_hud);
 	for (new s = 0; s < FC_SLOTS; s++)
 	{
 		new talker = g_slot_owner[s];
-		if (talker < 1 || g_slot_until[s] <= now)
+		if (talker < 1 || g_slot_until[s] <= now || !hud_words)
 		{
 			g_slot_owner[s] = 0;
 			continue;
@@ -752,7 +1394,7 @@ place_bubble(id, Float:now)
 		return;
 	}
 
-	if (!g_typing[id] || !may_talk(id))
+	if (!g_typing[id] || !may_talk(id) || !get_pcvar_num(g_cv_typing))
 	{
 		set_pev(ent, pev_effects, pev(ent, pev_effects) | FC_EF_NODRAW);
 		return;
@@ -793,27 +1435,34 @@ draw_for(viewer, talker, slot)
 		return;
 	}
 
+	// One whose game draws the words itself was sent them as H9Say when they were said.
+	if (g_bubble_cli[viewer] && get_pcvar_num(g_cv_bubble))
+	{
+		return;
+	}
+
 	new Float:hx, Float:hy;
 	if (viewer == talker)
 	{
-		// His own words, only with fc_self 1: centred near the top of his own screen.
-		if (!get_pcvar_num(g_cv_self))
+		// His own words, only when wants_own says so: fc_self 1, or his game asked while h9_floatchat_bubble is 0, which
+		// leaves even a game that draws the words the hudmessage. Centred near the top of his own screen.
+		if (!wants_own(viewer))
 		{
 			return;
 		}
 		hx = -1.0;   // a hudmessage at -1 is centred across the screen
 		hy = FC_SELF_Y;
 	}
-	else if (!head_on_screen(viewer, talker, hx, hy))
+	else if (!head_on_screen(viewer, talker, slot, hx, hy))
 	{
 		return;
 	}
 	else
 	{
-		// The box rests on the point above the bubble and is centred on it: a hudmessage's x and
-		// y are its left and its top.
-		hx -= float(strlen(g_slot_text[slot])) * FC_CHAR_W * 0.5;
-		hy -= FC_LINE_H;
+		// The box rests on the point above the head and is centred on it: a hudmessage's x and y are
+		// its left and its top.
+		hx -= float(g_slot_width[slot]) * FC_CHAR_W * 0.5;
+		hy -= float(g_slot_lines[slot]) * FC_LINE_H;
 		if (hx < 0.0)
 		{
 			hx = 0.0;
@@ -846,19 +1495,16 @@ draw_for(viewer, talker, slot)
 	show_hudmessage(viewer, "%s", g_slot_text[slot]);
 }
 
-/// Where the talker's head is on this viewer's screen, as fractions in hx and hy. False when it is
-/// out of fc_range, behind a wall, behind the viewer or off the edge of his screen.
-bool:head_on_screen(viewer, talker, &Float:hx, &Float:hy)
+/// Where the point above the talker's head is on this viewer's screen, as fractions in hx and hy.
+/// False when it is out of fc_range, behind a wall, behind the viewer or off the edge of his screen.
+bool:head_on_screen(viewer, talker, slot, &Float:hx, &Float:hy)
 {
-	new Float:eye[3], Float:ofs[3], Float:head[3], Float:torg[3];
+	new Float:eye[3], Float:ofs[3], Float:head[3];
 	pev(viewer, pev_origin, eye);
 	pev(viewer, pev_view_ofs, ofs);
 	eye[0] += ofs[0]; eye[1] += ofs[1]; eye[2] += ofs[2];
 
-	bubble_anchor(talker, torg);
-	head[0] = torg[0];
-	head[1] = torg[1];
-	head[2] = torg[2] + FC_WORDS_ABOVE;
+	words_anchor(talker, slot, head);
 
 	new Float:d[3];
 	for (new k = 0; k < 3; k++)
@@ -872,9 +1518,10 @@ bool:head_on_screen(viewer, talker, &Float:hx, &Float:hy)
 	}
 
 	// Nothing through walls. Cheap enough ten times a second for the few pairs that get
-	// this far, and without it the whole thing becomes a wallhack.
+	// this far, and without it the whole thing becomes a wallhack. Players do not count: the point is
+	// just over the talker's head, and a close viewer's line to it would clip his own hull.
 	new tr = 0;
-	engfunc(EngFunc_TraceLine, eye, head, 0, viewer, tr);
+	engfunc(EngFunc_TraceLine, eye, head, IGNORE_MONSTERS, viewer, tr);
 	if (get_tr2(tr, TR_flFraction) < 0.95)
 	{
 		return false;

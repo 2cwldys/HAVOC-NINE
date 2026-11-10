@@ -21,12 +21,17 @@
 
 #define TSM_MODE_NO_SUDDEN     1    // sudden death never starts
 #define TSM_MODE_NO_CLOCK      2    // no round time limit; the round line shows tsm_hud_line() instead
-#define TSM_MODE_SIDE2_BOTS    4    // side 2 is bots only: humans picking it are made spectators,
-                                    // every bot goes to side 2, and nothing balances the sides
-#define TSM_MODE_SIDE2_ENDLESS 8    // side 2 never runs out of lives: every death waits for a wave
+#define TSM_MODE_SIDE2_BOTS    4    // the bots' side is bots only (side 2 unless the mode moved it: tsm_set_bot_side): humans picking it are
+                                    // made spectators, every bot goes to it, and nothing balances the sides
+#define TSM_MODE_SIDE2_ENDLESS 8    // the bots' side never runs out of lives: every death waits for a wave
 #define TSM_MODE_ONE_RUN       16   // the first round that ends ends the match, back to warmup
+#define TSM_MODE_NO_REINFORCE  256  // the respawn-wave notices go to a waiting player with a life left and to nobody else: not the Officer's
+                                    // WAVE IN / REINFORCE line, not the countdown tsm_show_reinforce gives every living player. A mode that
+                                    // brings its own waves and announces them itself (Wave Survival) sets it; the wave itself still fires
+#define TSM_MODE_NO_ROUNDS     512  // the mode names no round and counts none: the bars say neither "ROUND 2" nor the tally of rounds won, the
+                                    // chat gives no round number, and the mode's own text (tsm_hud_line) is the bar's first line. Wave Survival sets it
 #define TSM_MODE_ENDLESS       128  // neither side ever runs out of lives: every death waits for the side's next wave, so no side is counted
-                                    // out (a mode that is won and lost some other way, Capture the Flag). Side 2 alone is SIDE2_ENDLESS
+                                    // out (a mode that is won and lost some other way, Capture the Flag). The bots' side alone is SIDE2_ENDLESS
 #define TSM_MODE_ONE_ROUND     64   // the first round that ends is the whole match: its winner wins the match (a drawn round is a drawn
                                     // match, rated for nobody), the bars and the chat say MATCH where they would say ROUND, and no tally
                                     // of rounds is shown. A mode with a cvar for it sets or clears the bit with tsm_mode_flag()
@@ -162,6 +167,24 @@ native tsm_score(side);
 /** The side a player belongs to this match, 1 or 2; 0 for nobody's. Eliminated players keep theirs. */
 native tsm_side_of(id);
 
+/**
+ * The side TSM_MODE_SIDE2_BOTS and TSM_MODE_SIDE2_ENDLESS mean: 2 unless the claiming mode moved it. The other side is the
+ * people's.
+ */
+native tsm_bot_side();
+
+/**
+ * Moves the bots' side to 1 or 2 (any other value is ignored; 2 is the default). A mode sets it BEFORE tsm_mode_claim, and puts
+ * it back to 2 when the claim is refused. 1 when it was set.
+ */
+native tsm_set_bot_side(side);
+
+/**
+ * The toxic-bog fog sudden death uses, on or off, for a claimed mode that wants it without sudden death. The core clears it at
+ * every round start. 1 when a mode is claimed and the fog was set, 0 otherwise.
+ */
+native tsm_fog(bool:on);
+
 /** 1 when a player is playing right now: alive, on a side, not eliminated and not sitting out. */
 native tsm_in_play(id);
 
@@ -172,6 +195,18 @@ native tsm_in_play(id);
  * With the match mode off (tsm_enabled 0) it hides nobody: 1 for anyone alive.
  */
 native tsm_shown(id);
+
+/**
+ * Whether a player carries the mode's objective now (the uplink, a flag). The mode says so as he takes it and again as he loses it --
+ * dropped, returned, captured, dead -- and saying the same thing twice changes nothing.
+ *
+ * A carrier cannot cloak: .cloak is refused him, and a Recon who is cloaked as he takes the objective is uncloaked on the spot, with the
+ * sound and flash of any other break. He is marked to both sides anyway, so a cloak would hide nothing. A carry the mode never ends is
+ * ended by the core when the player dies, leaves, or the round is no longer live.
+ *
+ * @return  1 when the core took it; 0 for a number that is no player, or (for carrying) one that is not connected.
+ */
+native tsm_set_carrying(id, bool:carrying);
 
 /** A player's points this match: his score on the scoreboard (tsm_score). */
 native tsm_points(id);
@@ -198,7 +233,11 @@ native tsm_points_award(id, event);
 /** Players a side still has in the round: alive, or eliminated and waiting for a wave. */
 native tsm_side_alive(side);
 
-/** Gives a TSPWUP_* powerup through TS's own pickup. 1 when TS took it. */
+/**
+ * Gives a TSPWUP_* powerup through TS's own pickup. 1 when TS took it. 0 when it refused, and always for a
+ * bot while the match mode is on and tsm_bot_powerups is 0 (its default): bots are held off powerups, the
+ * ones a mode hands out included.
+ */
 native tsm_give_powerup(id, type);
 
 /** The browser's current game description into out. */

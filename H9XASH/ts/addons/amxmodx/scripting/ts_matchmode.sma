@@ -72,7 +72,7 @@
 #include <h9_vgui>
 
 #define PLUGIN  "TS Match Mode"
-#define VERSION "0.7"
+#define VERSION "1.59"
 #define AUTHOR  "tsm"
 
 // Player slots this plugin is built for: AMX Mod X's MAX_PLAYERS (amxconst.inc), which
@@ -93,7 +93,7 @@
 // Bumped on every change. amx_tsm_debug prints it, so there is never any doubt about
 // which build is actually loaded -- which has already cost us two rounds of chasing
 // symptoms that were fixed in source but not on the server.
-#define TSM_BUILD "1.56-assault1"
+#define TSM_BUILD VERSION
 
 /*
  * The class icon sheet: one 64x64 frame per class, in class order.
@@ -206,7 +206,7 @@ new Float:g_spawnprot_until[MAXPL];       // when a player's protection ends (0.
 #define TSM_TPAD_MDL_1     "models/tsm_tpad_1.mdl"
 #define TSM_TPAD_MDL_2     "models/tsm_tpad_2.mdl"
 #define TSM_TPAD_MAX       16
-#define TSM_TASK_TPAD      90511
+#define TSM_TASK_TPAD      90600   // clear of the turret glow tasks, which run from TSM_TASK_TURRET + 1 up, one a turret slot
 #define TSM_TPAD_PLACE_SND "buttons/blip1.wav"
 #define TSM_TPAD_JUMP_SND  "tsm_tpad/hum.wav"   // a faint wavering hum (modelling/make-transporter-sound.py)
 new g_tpad[TSM_TPAD_MAX];            // the pad entities, 0 = free
@@ -296,6 +296,17 @@ new g_cv_tpad, g_cv_tpad_per, g_cv_tpad_cd, g_cv_tpad_hp, g_cv_tpad_resist;
 #define TSM_MECH_ROCKET_DAMAGE_MAX 65.0   // maximum AoE damage
 #define TSM_MECH_ROCKET_RADIUS     150.0  // explosion radius
 #define TSM_MECH_ROCKET_RANGE      2000.0 // max distance to target
+
+// The Mech's rocket launcher, weapon 41 of H9's reTS (which registers h9_mechrocket), and the files the plugin names
+#define TSM_WPN_ROCKET          41                              // the launcher's weapon id
+#define TSM_ROCKET_MODEL        "models/h9/mechrocket.mdl"      // the rocket in flight
+#define TSM_ROCKET_WMODEL       "models/h9/w_mechrocket.mdl"    // the launcher lying in the world
+#define TSM_M60_WMODEL          "models/w_m60.mdl"              // the M60 lying in the world
+#define TSM_ROCKET_FLASH_SPR    "sprites/h9_rocket_flash.spr"   // the muzzle flash
+#define TSM_ROCKET_SMOKE_SPR    "sprites/h9_rocket_smoke.spr"   // the smoke trail's ribbon
+#define TSM_ROCKET_BOOM_SPR     "sprites/h9_rocket_boom.spr"    // the explosion
+#define TSM_ROCKET_TRACK        8                               // rockets in flight that are followed at once
+#define TSM_TASK_MECHGEAR       97400                           // + player id: a Mech's thrown weapons, looked for again
 
 // Engine-level freeze (bit 12, the real FL_FROZEN). Confirmed from reTS pm_shared.cpp:
 // it suppresses footstep/jump sounds and zeroes the WASD-derived movement command in
@@ -404,20 +415,29 @@ new g_cv_tpad, g_cv_tpad_per, g_cv_tpad_cd, g_cv_tpad_hp, g_cv_tpad_resist;
  * The custom hands. The game's own models/v_*.mdl are left exactly as they ship, so
  * h9_customhands 0 is TS's own hands; the custom ones are separate copies under
  * models/matchmode/<set>/ that ts_matchmode points the client's viewmodel at while
- * h9_customhands is on. There are three sets, made by modelling/team-hands.mjs: msr for
+ * h9_customhands is on. There are five sets, made by modelling/team-hands.mjs: msr for
  * side 1 (the Middle Sea Republic, a blue cuff), insurgent for side 2 (a green cuff), and
  * default, with no stripe at all, for normal TS play (the match mode off) and for a player
- * on neither side. TSM_HANDS is the number of stock viewmodels those sets cover.
+ * on neither side; and msrdroid and insdroid, metal arms and (in the kicks) metal legs, worn
+ * in place of the set of his side by a player who wears that droid player model (see
+ * droid_hand_set). TSM_HANDS is the number of stock viewmodels those sets cover.
+ *
+ * The droid sets add as much to a client's download as the other three together (about 40 MB
+ * against about 60 raw), so they are precached only on a map that plays the match and only for
+ * a side whose class table lists a droid model (see precache_hands). Where one is missing, or
+ * not precached, the droid wears his side's set.
  *
  * TSM_HAND_INDEX is Xash3D's protocol MAX_MODELS (12 model bits): a model index past
  * it cannot be mapped, and the stock hand is left in place instead.
  */
-#define TSM_HANDS           40
+#define TSM_HANDS           42
 #define TSM_HAND_INDEX      4096
-#define TSM_HAND_SETS       3
+#define TSM_HAND_SETS       5
 #define TSM_HAND_MSR        0
 #define TSM_HAND_INSURGENT  1
 #define TSM_HAND_DEFAULT    2
+#define TSM_HAND_MSRDROID   3
+#define TSM_HAND_INSDROID   4
 // The class perks (TSM_PERK_*) are in include\tsm_api.inc, which mode plugins share.
 
 // The regeneration tick's task id. A server-wide task, so it needs an id that cannot
@@ -463,6 +483,8 @@ new g_cv_tpad, g_cv_tpad_per, g_cv_tpad_cd, g_cv_tpad_hp, g_cv_tpad_resist;
 // Forward declarations for functions used before definition
 forward disband_squad(leader);
 forward squad_size(leader);
+forward bool:lr_drop_blocked(id);
+forward bool:lr_touch_refused(touched, toucher);
 
 /*
  * SIEGE OBJECTIVE BASICS, this far up because the map recorder below snapshots
@@ -562,6 +584,8 @@ new bool:g_ready[MAXPL];
 new g_match_team[MAXPL];     // OUR authoritative team, never the mod's live value
 new g_depart_side[MAXPL];    // side of a human who just left, armed until the deferred check runs
 new g_spec_target[MAXPL];    // who an eliminated player is watching
+new g_spec_sig[MAXPL];       // what the notice on a watcher's H9 screen says (a checksum), 0 when none is up
+new Float:g_spec_sent_at[MAXPL];   // when that notice was last sent
 /*
  * The side a player BELONGS to for this match, which outlives being eliminated.
  *
@@ -593,6 +617,15 @@ new const g_mech_hit_snd[][] = {
 // Mech .rocket ability: cooldown and uses per life
 new Float:g_mech_rocket_next[MAXPL];   // gametime when next rocket is allowed
 new g_mech_rockets_used[MAXPL];        // rockets fired this life (max 4)
+
+// The Mech's rocket launcher (weapon 41): its cvars, the effect sprites' precache indexes (0 where the file is not on
+// disk), the clip last seen on a Mech holding it, and the rockets in flight that are being followed
+new g_cv_mech_nodrop, g_cv_rk_flash, g_cv_rk_smoke, g_cv_rk_boom;
+new g_rk_flash_spr, g_rk_smoke_spr, g_rk_boom_spr;
+new g_rk_clip[MAXPL];
+new g_rk_ent[TSM_ROCKET_TRACK];
+new g_rk_n;
+new Float:g_rk_org[TSM_ROCKET_TRACK][3];
 
 /*
  * Officer .scan: once per cooldown the Officer types .scan, and every cloaked ENEMY
@@ -675,6 +708,7 @@ new const OBJ_GLOW_NONE_RGB[3] = { 230, 230, 230 };
 new bool:g_cloaked[MAXPL];     // currently cloaked
 new Float:g_cloak_at[MAXPL];   // gametime of the last toggle, so chat spam cannot refire every frame
 new bool:g_cloak_nodraw[MAXPL]; // the EF_NODRAW on him is the cloak's, for RCBot -- see cloak_active()
+new bool:g_carrying[MAXPL];    // he carries a mode's objective (a CTF flag, the uplink), as tsm_set_carrying last told: .cloak is refused
 
 new bool:g_flashlight[MAXPL];  // .light toggle, forced regardless of held weapon
 new bool:g_ammo_used[MAXPL];   // .ammo used this round already -- once per round, reset in lives_reset_round()
@@ -739,6 +773,7 @@ new g_cv_verbosity;             // tsm_verbosity: 0 keeps every "[MATCH]" chat l
 new g_cv_nospec;
 new g_cv_balgap, g_cv_balmode;
 new g_cv_haltleave, g_cv_haltdelay, g_cv_haltbypass, g_cv_halthumans;
+new g_cv_endwatch, g_cv_rtvwait;   // tsm_end_watchdog, tsm_rtv_menu_wait
 new g_cv_specmodel;
 new g_cv_freezemethod;
 new g_cv_forcespeed;
@@ -805,8 +840,8 @@ new g_cv_musicvol, g_cv_startsound;   // tsm_startsound gates the round-start an
  * cut. music_is_wav() below has to know about index 6 as well as index 5, or this would put the
  * same problem straight back, worse.
  */
-new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav", "vangelis.wav", "floatingmuseum.mp3", "grammaton_cleric.mp3", "burned.mp3", "supression.mp3", "alwaysknew.mp3", "equilibrium_suite.mp3", "equilibrium_final_countdown.mp3" };
-new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0, 618.8, 305.6, 78.5, 129.9, 147.9, 306.9, 1105.2, 858.0 };
+new const g_music_mp3[][] = { "itsadream.mp3", "ihateher.mp3", "fivefingers.mp3", "deadinsects.mp3", "twoplustwo.mp3", "contaminated.wav", "vangelis.wav", "floatingmuseum.mp3", "grammaton_cleric.mp3", "burned.mp3", "supression.mp3", "alwaysknew.mp3", "equilibrium_suite.mp3", "equilibrium_final_countdown.mp3", "prophecy_theme.mp3", "rachels_song.mp3" };
+new const Float:g_music_len[] = { 70.1, 73.7, 42.2, 107.5, 42.2, 304.0, 618.8, 305.6, 78.5, 129.9, 147.9, 306.9, 1105.2, 858.0, 261.3, 288.0 };
 /*
  * The queue's order is a shuffled bag that outlives the map: every track plays once before any
  * track plays again, and a new pass never opens with the track that closed the last one. The
@@ -934,10 +969,24 @@ new g_model_ok[MAXPL];        // whether that name resolved to a file on disk
 /*
  * The matchmode hand swap, by stock viewmodel index: g_hand_swap[set][stock] is the
  * model index the client is told to draw instead, or 0 for "leave it alone"; set is
- * TSM_HAND_MSR, TSM_HAND_INSURGENT or TSM_HAND_DEFAULT.
+ * TSM_HAND_MSR, TSM_HAND_INSURGENT, TSM_HAND_DEFAULT, TSM_HAND_MSRDROID or TSM_HAND_INSDROID.
  * Built once in precache_hands(); read every frame in fw_updateclientdata_post.
  */
 new g_hand_swap[TSM_HAND_SETS][TSM_HAND_INDEX];
+
+/*
+ * Which player models are droids, so the hands follow the model a player wears without a string
+ * compare per frame. g_droid_kind[model index] is filled when the class models are precached:
+ * 0 not a droid, 1 an msrdroid, 2 an insdroid, 3 any other name with "droid" in it (it takes the
+ * droid set of the side its wearer is on). A player the plugin draws with a class model
+ * (g_model_want_idx > 0) is looked up by that index; one wearing the model TS picked for him by
+ * g_droid_ui, the same kind read from his userinfo model key whenever that key changes
+ * (fw_userinfo_post). g_droid_listed[0 the first team, 1 the second]: that side's class table
+ * lists a droid model, which is what lets precache_hands precache that side's droid set.
+ */
+new g_droid_kind[TSM_HAND_INDEX];
+new g_droid_ui[MAXPL];
+new bool:g_droid_listed[2];
 new g_spec_model_idx = 0;     // index of tsm_spectator_model, resolved once (see spec_model_index)
 new bool:g_spec_model_tried;  // resolved it (or found it missing) at least once
 new bool:g_roaming[MAXPL];    // .roam -- out of the match, free to walk the map
@@ -993,6 +1042,12 @@ new g_turret_boom;        // the explosion sprite's index
 new g_turret_blood, g_turret_bloodspray;   // the blood sprites a hit shows, 0 when the game has none
 new g_turret_flash;   // TS's own muzzle flash sprite, 0 when the game has none
 new g_turret_trail, bool:g_turret_bullet;   // TS's slow-motion bullet trail and its bullet model, 0/false when missing
+new g_m60_view_idx, g_mech_gun_view_idx;   // model indexes of the stock M60 viewmodel and the Mech's minigun one, 0 when not precached
+new g_mech_flash_spr, g_mech_trail_spr;    // the Mech's muzzle flash and tracer sprites, 0 when the game has none
+new g_cv_mech_flash, g_cv_mech_flash_scale, g_cv_mech_trails;
+new g_mech_clip[MAXPL];                    // the clip the Mech's weapon showed last frame, -1 when not read
+new g_mech_clip_wpn[MAXPL];                // the weapon that clip belonged to
+new Float:g_mech_fx_at[MAXPL];             // gametime of the last flash and tracer
 new g_cv_turret_resist;   // the share of every hit its armour turns aside
 new g_cv_turret, g_cv_turret_per_team, g_cv_turret_hp, g_cv_turret_range, g_cv_turret_dmg;
 new g_cv_turret_rate, g_cv_turret_spread, g_cv_turret_repair, g_cv_turret_repaircd;
@@ -1057,6 +1112,7 @@ new g_gamedesc[64];
 new bool:g_xash;
 new bool:g_has_ppsh;    // the game library has the PPSh-41 (weapon 39): reTS registers h9_ppsh41
 new bool:g_has_laser;   // the game library has the laser rifle (weapon 40): reTS registers h9_laserrifle
+new bool:g_has_mechrocket; // the game library has the Mech's rocket launcher (weapon 41): reTS registers h9_mechrocket
 new g_pc_customweapons; // h9_customweapons, which reTS registers (1 plays the PPSh-41 and the laser rifle, 0 is TS 3.0's own roster); 0 where the library has none
 
 // Facing for each team spawn. Only meaningful for config-placed spawns -- the
@@ -1091,7 +1147,9 @@ new Float:g_round_ends = 0.0;   // gametime the round clock runs out: what task 
 new g_mode_name[16];          // the claimant's key, "uplink" or "survival"; empty for none
 new g_mode_desc[64];          // what the server browser shows while the mode runs
 new g_mode_flags;             // TSM_MODE_* bits the claim asked for
-new g_round_tag[24];          // what the bars and the chat call the round being played: "ROUND 2", or "MATCH" when the first round is the match
+new bool:g_spawns_swapped;    // the two sides' spawn tables are exchanged: the bots' side 1 holds the hordes' area (sync_spawn_roles)
+new g_bot_side = 2;           // the side TSM_MODE_SIDE2_BOTS / TSM_MODE_SIDE2_ENDLESS mean (tsm_set_bot_side); the other side is the people's
+new g_round_tag[24];          // what the bars and the chat call the round being played: "ROUND 2", "MATCH" when the first round is the match, nothing in a mode that names no round
 new g_mode_hud[48];           // the mode's own text on the round line ("WAVE 12")
 new g_count_text[64];         // a mode's own countdown on the match bar (tsm_hud_count), {s} its seconds
 new Float:g_count_until;      // when that countdown runs out
@@ -1143,6 +1201,80 @@ new g_mode_prog[24];          // what tsm_set_progress last handed over
 new g_lo_n[MAXPL] = { -1, ... };
 new g_lo_wpn[MAXPL][TSM_LOADOUT_MAX];
 new g_lo_clips[MAXPL][TSM_LOADOUT_MAX];
+
+/* ---- the loadout rework (tsm_loadoutrework): state ------------------------------------------------------------------------ */
+
+// The default TS equipment menu's own figures for the weapons it sells, indexed by TS weapon id (0 = not sold): the price, the slots a weapon
+// takes of the 81 a player carries, and the attachments it mounts (1 silencer, 2 laser, 4 light, 8 scope).
+new const TSM_LR_PRICE[41] =
+{
+	0, 850, 900, 1300, 3000, 4500, 2500, 1500, 0, 700,
+	0, 5100, 1050, 3000, 1250, 5000, 0, 1100, 9000, 2800,
+	2100, 2600, 1300, 2300, 1000, 100, 2500, 2500, 1500, 0,
+	0, 2100, 8000, 1900, 2900, 100, 1500, 0, 0, 2000, 5200
+};
+new const TSM_LR_SLOTS[41] =
+{
+	0, 10, 10, 20, 40, 40, 25, 20, 0, 10,
+	0, 40, 15, 40, 10, 30, 0, 15, 70, 25,
+	30, 20, 10, 30, 7, 1, 40, 40, 5, 0,
+	0, 15, 70, 20, 10, 1, 15, 0, 0, 35, 40
+};
+new const TSM_LR_SUPPORT[41] =
+{
+	0, 7, 7, 1, 14, 15, 14, 15, 0, 7,
+	0, 6, 11, 8, 7, 3, 0, 0, 2, 11,
+	6, 0, 7, 15, 0, 0, 6, 14, 2, 0,
+	0, 10, 0, 2, 0, 0, 10, 0, 0, 0, 0
+};
+new const TSM_LR_NAME[41][] =
+{
+	"", "Glock-18", "Beretta 92F", "Mini-Uzi", "Benelli M3", "M4A1", "MP5SD", "MP5K", "", "SOCOM-MK23",
+	"", "USAS-12", "Desert Eagle", "AK47", "Five-seveN", "STEYR-AUG", "", "Skorpion", "Barrett M82A1", "MP7-PDW",
+	"SPAS-12", "Golden Colts", "Glock-20C", "UMP", "M61 Grenade", "Combat Knife", "Mossberg 500", "M16A4", "Ruger-MK1", "",
+	"", "Raging Bull", "M60E3", "Sawed-off", "Katana", "Seal Knife", "Contender G2", "", "", "PPSh-41", "Laser Rifle"
+};
+#define TSM_LR_SLOT_CAP     81      // the slots a player carries; the equipment menu refuses a loadout past it
+#define TSM_LR_KEVLAR_COST  1900
+#define TSM_LR_KEVLAR_SLOTS 10
+#define TSM_TASK_LR         94000   // + player id: a buy-menu apply is complete (task_lr_commit)
+
+new g_cv_lr, g_cv_lr_cash, g_cv_lr_secs, g_cv_lr_freeze, g_cv_lr_deny, g_cv_lr_clips;
+new g_cv_lr_cash_cls[TSM_MAXCLASS];
+
+// The loadout a player bought, kept for the match and handed over in place of the class kit at every arm: weapon ids, their spare figures
+// (the class line's meaning), the attachments each carries, kevlar, what it cost, and the class and side it was bought for.
+new g_lr_set_n[MAXPL];
+new g_lr_set_wpn[MAXPL][TSM_LOADOUT_MAX];
+new g_lr_set_clips[MAXPL][TSM_LOADOUT_MAX];
+new g_lr_set_att[MAXPL][TSM_LOADOUT_MAX];
+new bool:g_lr_set_kev[MAXPL];
+new g_lr_set_cost[MAXPL];
+new g_lr_set_cls[MAXPL];
+new g_lr_set_team[MAXPL];
+
+// The buy-menu apply being collected (rst_cfg, tkw, tki), the same fields, and the first reason it was refused.
+new bool:g_lr_cart_open[MAXPL];
+new g_lr_cart_n[MAXPL];
+new g_lr_cart_wpn[MAXPL][TSM_LOADOUT_MAX];
+new g_lr_cart_clips[MAXPL][TSM_LOADOUT_MAX];
+new g_lr_cart_att[MAXPL][TSM_LOADOUT_MAX];
+new bool:g_lr_cart_kev[MAXPL];
+new g_lr_cart_cost[MAXPL];
+new g_lr_cart_slots[MAXPL];
+new g_lr_cart_why[MAXPL][96];
+
+// resolve_loadout answered from the bought set this arm, and the attachments to give with each of its weapons.
+new bool:g_lo_lr[MAXPL];
+new g_lo_att[MAXPL][TSM_LOADOUT_MAX];
+
+new Float:g_lr_win_until[MAXPL];    // a live buy window ends at this game time (a respawn wave opens one); 0 = none
+new Float:g_lr_told_at[MAXPL];      // when "buying is closed" was last said
+new Float:g_lr_arm_at[MAXPL];       // when the kit was last handed over
+new Float:g_lr_mech_at[MAXPL];      // the Mech's weapon check runs a few times a second
+new g_lr_live_buys[MAXPL];          // changes bought in the live window a respawn wave opened (one is allowed)
+new g_lr_mech_have[MAXPL];          // which of the Mech's class weapons have been seen in his hands (bit per class line entry)
+new g_lr_mech_ammo[MAXPL][TSM_MAXWPN];
 new g_cv_showtimer;
 new g_cv_t1short, g_cv_t2short;
 new g_cv_forceteams, g_cv_forcemodels;
@@ -1153,6 +1285,23 @@ new g_cv_wpnmode;
 new g_cv_clipbonus, g_cv_clipcap;
 new g_cv_sparepct;   // reserve rewrite percentage: figure x mag x N% (tsm_clip_sparepct)
 new g_cv_giveammo;
+
+/*
+ * The Mech's ammo bay (tsm_mech_ammo_mult). TS lets a caliber's reserve hold only so many rounds (the M60's, 5.56 Nato, is 120
+ * at ammocount 0) and ts_setuserammo clamps to it, so spare magazines asked for past that cap never arrive. A Mech is armed
+ * with a full reserve and the rest of its multiple waits in the bay, which task_mech_bay loads into the reserve as the Mech
+ * uses it up.
+ */
+#define TSM_TASK_MECH_BAY  90530
+#define MECH_BAY_PERIOD    0.5      // seconds between the bay topping a reserve up
+new g_cv_mech_ammo;                 // tsm_mech_ammo_mult
+new g_cv_mech_laser;                // tsm_mech_laser_mult
+new g_mech_gun[MAXPL];              // the gun whose spare the bay feeds (the Mech's primary); 0 for a player with no bay
+new g_mech_full[MAXPL];             // that spare as the arm left it: the level the bay keeps the reserve at
+new g_mech_bank[MAXPL];             // rounds waiting in the bay
+new g_mech_bank_max[MAXPL];         // the bay's size: what .ammo and a resupply can fill it to
+new g_mech_laser_hits;              // laser rifle hits on a Mech that tsm_mech_laser_mult scaled (amx_tsm_debug)
+
 new g_cv_specteam;
 new g_cv_specteam_h9;   // H9XASH's spectator team (spec_team_cvar)
 new g_cv_armdelay;
@@ -1169,6 +1318,7 @@ new g_cv_cloakcooldown;
 new g_cv_cloakopacity;
 new g_cv_nopowerups;
 new g_cv_botpowerups;   // tsm_bot_powerups: 0 keeps every bot off TS's powerups (rcbot reads it as well)
+new g_cv_briefbots;     // tsm_briefcase_bots: how many bots a ctb_ or ctf_ map gets, where the match mode stays out (0 none)
 new g_cv_modelpost;
 new g_cv_icons, g_cv_iconhigh, g_cv_iconscale, g_cv_sudden;
 new g_cv_suddenxray;                                                       // sudden-death X-ray on/off
@@ -1205,6 +1355,16 @@ new bool:g_bots_parked = false;  // bots sit out until the next match begins
 #define TSM_TASK_BOTFLOW  90218
 #define TSM_TASK_BOTJOIN  91000          // + player id: a new bot's first place in the queue
 #define TSM_TASK_BREACHTELL 92000        // + player id: a breach door's second look (task_breach_tell)
+
+// The end-of-match path's tasks, each on an id of its own. They used to sit on 4 (a player slot, so every
+// per-slot remove_task(i) reached them) and on the default 0 (the one-second tick's id).
+#define TSM_TASK_MATCHEND  90700         // a round ended and decided the match: task_match_end
+#define TSM_TASK_NEXTROUND 90701         // a round ended and the match goes on: task_next_round
+#define TSM_TASK_TOWARMUP  90702         // five seconds after a match's end: task_to_warmup
+new Float:g_endphase_since;              // when the state last became ST_ROUNDEND or ST_MATCHEND; 0.0 while it is neither
+new Float:g_stranded_since;              // since when a no-clock run has had no person in play and cannot end by itself; 0.0 otherwise
+new Float:g_rtv_hold_since;              // when the side menu first had to wait for the map vote; 0.0 while no vote is up
+new bool:g_rtv_wait_over;                // that wait outlasted tsm_rtv_menu_wait and was said so
 #define TSM_FLOW_GATE_MAX 45.0           // the most LIVE waits for the queue, in seconds
 new g_botq[TSM_SLOTS];                   // bots waiting their turn, in order
 new g_botq_len;
@@ -1472,10 +1632,26 @@ mode_flag(flag)
 	return (g_mode_flags & flag) ? 1 : 0;
 }
 
+/// The side a claimed mode's bots-only and endless flags speak of: 2 unless the mode moved it (tsm_set_bot_side).
+bot_side()
+{
+	return (g_bot_side == 1) ? 1 : 2;
+}
+
+/// The side the people play where the bots have the other one.
+human_side()
+{
+	return 3 - bot_side();
+}
+
 /// g_round_tag, from the round now being played and what the claimed mode says a round is.
 refresh_round_tag()
 {
-	if (mode_flag(TSM_MODE_ONE_ROUND))
+	if (mode_flag(TSM_MODE_NO_ROUNDS))
+	{
+		g_round_tag[0] = EOS;
+	}
+	else if (mode_flag(TSM_MODE_ONE_ROUND))
 	{
 		copy(g_round_tag, charsmax(g_round_tag), "MATCH");
 	}
@@ -1485,11 +1661,21 @@ refresh_round_tag()
 	}
 }
 
-/// The sides on a bar's second line: "MSR 2  --  1 INS" with the rounds each has won, or "MSR  --  INS" when the match is one round and
-/// there is no tally of rounds to show.
+/// Adds one part to a bar's first line, behind " -- " unless it is the first thing on it.
+line_add(line[], len, const part[])
+{
+	if (line[0])
+	{
+		add(line, len, " -- ");
+	}
+	add(line, len, part);
+}
+
+/// The sides on a bar's second line: "MSR 2  --  1 INS" with the rounds each has won, or "MSR  --  INS" when the match is one round or the
+/// mode counts no rounds, and there is no tally of rounds to show.
 score_line(const t1[], const t2[], out[], len)
 {
-	if (mode_flag(TSM_MODE_ONE_ROUND))
+	if (mode_flag(TSM_MODE_ONE_ROUND) || mode_flag(TSM_MODE_NO_ROUNDS))
 	{
 		return formatex(out, len, "%s  --  %s", t1, t2);
 	}
@@ -1506,10 +1692,10 @@ Float:wave_interval(side)
 	return get_pcvar_float(g_cv_respwave);
 }
 
-/// A side whose lives never run out: a claimed mode made side 2 endless (survival's mutants), or both sides (capture the flag).
+/// A side whose lives never run out: a claimed mode made the bots' side endless (survival's mutants), or both sides (capture the flag).
 bool:side_endless(side)
 {
-	return (mode_flag(TSM_MODE_ENDLESS) || (side == 2 && mode_flag(TSM_MODE_SIDE2_ENDLESS))) ? true : false;
+	return (mode_flag(TSM_MODE_ENDLESS) || (side == bot_side() && mode_flag(TSM_MODE_SIDE2_ENDLESS))) ? true : false;
 }
 
 /// 1 when this side's deaths wait for a wave: tsm_respawns, or a side a mode made endless.
@@ -2285,10 +2471,10 @@ assign_bot(id)
 
 	new from_mod = tsm_team_from_name(tsname);
 
-	// Where side 2 is bots only (survival), TS putting a bot on side 1 -- it seats a new
-	// client on the emptier side, and the people are all on side 1 -- is not followed: the
+	// Where one side is bots only (survival), TS putting a bot on the people's side -- it seats a new
+	// client on the emptier side, and the people are all on that one -- is not followed: the
 	// bot is moved across with set_ts_team below, the one route rcbot and TS both see.
-	if (from_mod == 1 && mode_flag(TSM_MODE_SIDE2_BOTS))
+	if (from_mod == human_side() && mode_flag(TSM_MODE_SIDE2_BOTS))
 	{
 		from_mod = 0;
 	}
@@ -2348,7 +2534,7 @@ assign_bot(id)
 		new team;
 		if (mode_flag(TSM_MODE_SIDE2_BOTS))
 		{
-			team = 2;   // the enemy wave, whatever tsm_bot_teams says
+			team = bot_side();   // the enemy wave, whatever tsm_bot_teams says
 		}
 		else if (equali(mode, "1"))
 		{
@@ -2794,6 +2980,10 @@ hold_cash(id)
 	}
 
 	new want = g_cash_lend[id] ? TSM_ARM_CASH : 0;
+	if (!g_cash_lend[id])
+	{
+		want = lr_wallet(id);
+	}
 
 	if (ts_getusercash(id) != want)
 	{
@@ -2876,7 +3066,7 @@ parse_weapon_list(idx, team, const field[])
 
 		strtok(pair, wpart, charsmax(wpart), cpart, charsmax(cpart), ':', 0);
 		new wid = str_to_num(wpart);
-		if (wid < 1 || (wid > 36 && wid != TSW_PPSH41 && wid != TSW_LASERRIFLE))
+		if (wid < 1 || (wid > 36 && wid != TSW_PPSH41 && wid != TSW_LASERRIFLE && wid != TSM_WPN_ROCKET))
 		{
 			tlog("[TSM] class %d team %d: ignoring out-of-range weapon id %d", idx + 1, team, wid);
 			continue;
@@ -3424,6 +3614,10 @@ pick_side(id, item)
 		// Sides are fixed for the duration of a match. A late joiner waits it out.
 		if (g_state != ST_WARMUP && g_state != ST_READYUP)
 		{
+			if (stranded_recover(id, "side menu"))
+			{
+				return;   // back in warmup: the side menu is offered to everyone in a moment
+			}
 			match_chat(id, "[MATCH] A match is already in progress -- join when it finishes.");
 			center_tell(id, "A match is in progress: join the next one.");
 			return;
@@ -3434,21 +3628,17 @@ pick_side(id, item)
 		team_rawname(team, name, charsmax(name));
 
 		/*
-		 * Side 2 is the enemy wave in a mode that made it bots only (survival): a person
+		 * The bots' side is the enemy wave in a mode that made it bots only (survival): a person
 		 * picking it is made a spectator instead, and told where to go to play.
 		 */
-		if (team == 2 && mode_flag(TSM_MODE_SIDE2_BOTS) && !bot_player(id))
+		if (team == bot_side() && mode_flag(TSM_MODE_SIDE2_BOTS) && !bot_player(id))
 		{
 			new s1[48];
-			get_pcvar_string(g_cv_t1label, s1, charsmax(s1));
-			if (!s1[0])
-			{
-				team_rawname(1, s1, charsmax(s1));
-			}
+			team_display(human_side(), s1, charsmax(s1));
 			force_spectator(id);
 			match_chat(id, "[MATCH] That side is the enemy wave in this mode -- you are spectating. Join %s to play.", s1);
 			center_tell(id, "That side is the enemy wave. Join %s to play.", s1);
-			dbg("team menu: %d refused side 2 (bots only in this mode), spectating", id);
+			dbg("team menu: %d refused side %d (bots only in this mode), spectating", id, team);
 			return;
 		}
 
@@ -3457,8 +3647,8 @@ pick_side(id, item)
 		 *
 		 * Checked here rather than only at ready-up, because being told "the teams are
 		 * uneven" after everyone has already picked is no use -- this steers people to
-		 * the side that needs them while they are still choosing. Not where side 2 is
-		 * bots by design: that side is meant to outnumber the people.
+		 * the side that needs them while they are still choosing. Not where the bots' side is
+		 * bots only by design: that side is meant to outnumber the people.
 		 */
 		new bmode[16];
 		get_pcvar_string(g_cv_balmode, bmode, charsmax(bmode));
@@ -3613,7 +3803,31 @@ native rtv_player_voted(id);
 /// the seconds before tsm_rtv_auto's vote after a match.
 bool:rtv_holds_side_menu(id)
 {
-	return rtv_vote_running() != 0 && rtv_player_voted(id) == 0;
+	if (rtv_vote_running() == 0)
+	{
+		g_rtv_hold_since = 0.0;
+		return false;
+	}
+
+	// How long this wait has lasted. end_watchdog ends the count when the vote is over, so an old wait never counts against a later vote.
+	new Float:now = get_gametime();
+	if (g_rtv_hold_since <= 0.0)
+	{
+		g_rtv_hold_since = now;
+		g_rtv_wait_over = false;
+	}
+
+	new limit = get_pcvar_num(g_cv_rtvwait);
+	if (limit > 0 && now - g_rtv_hold_since > float(limit))
+	{
+		if (!g_rtv_wait_over)
+		{
+			g_rtv_wait_over = true;
+			endpath_log("side menu stopped waiting for the map vote (tsm_rtv_menu_wait)");
+		}
+		return false;
+	}
+	return rtv_player_voted(id) == 0;
 }
 
 show_team_menu(id)
@@ -3984,14 +4198,35 @@ public class_menu_key(id, key)
 	return PLUGIN_HANDLED;
 }
 
+/// Which droid a model name is: 0 none, 1 an msrdroid, 2 an insdroid, 3 any other name with droid in it.
+droid_kind(const name[])
+{
+	if (containi(name, "droid") < 0)
+	{
+		return 0;
+	}
+	if (containi(name, "msrdroid") >= 0)
+	{
+		return 1;
+	}
+	if (containi(name, "insdroid") >= 0)
+	{
+		return 2;
+	}
+	return 3;
+}
+
 /*
  * Precaches one player model if it is actually on disk.
  *
  * Precaching a path that does not exist takes the server down, so the check is not
  * optional. A name that is in the class table but not installed is skipped and logged
  * rather than being allowed to kill the map load.
+ *
+ * side is 0 for the first team's list in a class spec and 1 for the second's. A droid model's
+ * index and side are remembered here, for the droid hands (g_droid_kind, g_droid_listed).
  */
-precache_player_model(const name[])
+precache_player_model(const name[], side)
 {
 	if (!name[0])
 	{
@@ -4031,8 +4266,20 @@ precache_player_model(const name[])
 		return;
 	}
 
-	precache_model(path);
+	new idx = precache_model(path);
 	g_precached++;
+
+	// A droid model: its index is kept so the hands can tell it from the model a player wears, and
+	// the side whose class table names it is marked as able to hand one out.
+	new kind = droid_kind(name);
+	if (kind)
+	{
+		if (idx > 0 && idx < TSM_HAND_INDEX)
+		{
+			g_droid_kind[idx] = kind;
+		}
+		g_droid_listed[(kind == 3) ? side : (kind - 1)] = true;
+	}
 }
 
 /// Precaches every model named in one class spec's model field.
@@ -4064,7 +4311,7 @@ precache_models_in_spec(const spec[])
 		{
 			strtok(list, item, charsmax(item), tail, charsmax(tail), ',', 0);
 			copy(list, charsmax(list), tail);
-			precache_player_model(item);
+			precache_player_model(item, t);
 		}
 	}
 }
@@ -4072,14 +4319,16 @@ precache_models_in_spec(const spec[])
 /*
  * The stock first-person viewmodels the matchmode hand sets cover, as paths under
  * models/, in the order they were built. The plugin precaches the stock path to learn
- * its model index, then the three matchmode copies (models/matchmode/<set>/<the same
- * path>) and records their indexes against it.
+ * its model index, then the matchmode copies, one for each set that is being precached
+ * (models/matchmode/<set>/<the same path>), and records their indexes against it.
  *
  * A weapon added to the game needs its model added here too, or it keeps the stock
  * hands while every other weapon shows the matchmode set: add its path to this table,
- * raise TSM_HANDS, and run modelling/team-hands.mjs, which makes the three copies of
- * every v_*.mdl it finds in models/ and models/h9/. The two H9 weapons are precached
- * only on a game library that has them (g_has_ppsh, g_has_laser).
+ * raise TSM_HANDS, and run modelling/team-hands.mjs, which makes one copy for each set of
+ * every v_*.mdl it finds in models/ and models/h9/. The H9 weapons are precached
+ * only on a game library that has them (g_has_ppsh, g_has_laser, g_has_mechrocket). The Mech's minigun
+ * (models/h9/v_mechminigun.mdl) replaces the M60's viewmodel for the Mech only, see
+ * fw_updateclientdata_post; it is precached when the file is there.
  */
 new const g_hand_files[TSM_HANDS][] =
 {
@@ -4122,20 +4371,30 @@ new const g_hand_files[TSM_HANDS][] =
 	"v_uzi.mdl",
 	"v_uzi_akimbo.mdl",
 	"h9/v_ppsh41.mdl",
-	"h9/v_laserrifle.mdl"
+	"h9/v_laserrifle.mdl",
+	"h9/v_mechminigun.mdl",
+	"h9/v_mechrocket.mdl"
 };
 
-// The three sets: their folders under models/matchmode/, in the order of TSM_HAND_MSR, TSM_HAND_INSURGENT, TSM_HAND_DEFAULT.
+// The sets: their folders under models/matchmode/, in the order of TSM_HAND_MSR, TSM_HAND_INSURGENT, TSM_HAND_DEFAULT,
+// TSM_HAND_MSRDROID, TSM_HAND_INSDROID.
 new const g_hand_sets[TSM_HAND_SETS][] =
 {
 	"msr",
 	"insurgent",
-	"default"
+	"default",
+	"msrdroid",
+	"insdroid"
 };
 
 /*
- * Precaches the custom hand sets and fills g_hand_swap: all three on a map that plays the
- * match mode (g_map_h9), only the default on any other; none when h9_customhands is 0.
+ * Precaches the custom hand sets and fills g_hand_swap: msr, insurgent and default on a map that
+ * plays the match mode (g_map_h9), only the default on any other; none when h9_customhands is 0.
+ * A droid set (msrdroid, insdroid) only on a match map, and only for a side whose class table
+ * lists a droid model (g_droid_listed, filled by precache_class_models, which runs first): about
+ * 20 MB each, for players who can be handed one. The class table is read from the config FILE
+ * at precache time (see precache_class_models), so taking the droid names out of its model
+ * lines takes that side's droid set out of the download as well.
  *
  * WHY A MODEL-INDEX TABLE, rather than rewriting pev_viewmodel2. The game DLL fills
  * clientdata_t.viewmodel itself, every frame, so a string written to the entity can be
@@ -4168,6 +4427,11 @@ precache_hands()
 			continue;
 		}
 
+		if (equal(g_hand_files[i], "h9/v_mechrocket.mdl") && !g_has_mechrocket)
+		{
+			continue;
+		}
+
 		formatex(stockpath, charsmax(stockpath), "models/%s", g_hand_files[i]);
 		if (!file_exists(stockpath))
 		{
@@ -4180,10 +4444,26 @@ precache_hands()
 			continue;
 		}
 
+		if (equal(g_hand_files[i], "v_m60.mdl"))
+		{
+			g_m60_view_idx = base;
+		}
+		else if (equal(g_hand_files[i], "h9/v_mechminigun.mdl"))
+		{
+			g_mech_gun_view_idx = base;
+		}
+
 		for (new set = 0; set < TSM_HAND_SETS; set++)
 		{
 			// a map that does not play the match has no sides: only the default set is worn there
 			if (set != TSM_HAND_DEFAULT && !g_map_h9)
+			{
+				continue;
+			}
+
+			// a droid set only for a side that can be handed a droid; the Mech's view models have no droid copies
+			if ((set == TSM_HAND_MSRDROID || set == TSM_HAND_INSDROID)
+				&& (!g_droid_listed[set - TSM_HAND_MSRDROID] || equal(g_hand_files[i], "h9/v_mech", 9)))
 			{
 				continue;
 			}
@@ -4209,8 +4489,13 @@ precache_hands()
 		log_amx("[TSM] matchmode hands: %d msr, %d insurgent and %d default models missing; those weapons keep the game's hands.",
 			missing[TSM_HAND_MSR], missing[TSM_HAND_INSURGENT], missing[TSM_HAND_DEFAULT]);
 	}
-	tlog("[TSM] matchmode hands: %d msr + %d insurgent + %d default models precached.",
-		found[TSM_HAND_MSR], found[TSM_HAND_INSURGENT], found[TSM_HAND_DEFAULT]);
+	if (missing[TSM_HAND_MSRDROID] || missing[TSM_HAND_INSDROID])
+	{
+		log_amx("[TSM] matchmode hands: %d msr droid and %d insurgent droid models missing; those weapons give a droid his side's hands.",
+			missing[TSM_HAND_MSRDROID], missing[TSM_HAND_INSDROID]);
+	}
+	tlog("[TSM] matchmode hands: %d msr + %d insurgent + %d default + %d msr droid + %d insurgent droid models precached.",
+		found[TSM_HAND_MSR], found[TSM_HAND_INSURGENT], found[TSM_HAND_DEFAULT], found[TSM_HAND_MSRDROID], found[TSM_HAND_INSDROID]);
 }
 
 /*
@@ -4630,6 +4915,7 @@ public plugin_precache()
 	g_xash = cvar_exists("host_ver") != 0;
 	g_has_ppsh = cvar_exists("h9_ppsh41") != 0;
 	g_has_laser = cvar_exists("h9_laserrifle") != 0;
+	g_has_mechrocket = cvar_exists("h9_mechrocket") != 0;
 	g_pc_customweapons = get_cvar_pointer("h9_customweapons");
 	if (g_xash && !cvar_exists("sv_visiblemaxplayers"))
 	{
@@ -4979,6 +5265,20 @@ public plugin_precache()
 		}
 	}
 
+	// The Mech's muzzle flash (H9's own, else TS's) and its tracer's sprite.
+	if (file_exists("sprites/h9_minigun_flash.spr", true))
+	{
+		g_mech_flash_spr = precache_model("sprites/h9_minigun_flash.spr");
+	}
+	else if (file_exists("sprites/ts_muzzleflash1.spr", true))
+	{
+		g_mech_flash_spr = precache_model("sprites/ts_muzzleflash1.spr");
+	}
+	if (file_exists("sprites/bullet_trail.spr", true))
+	{
+		g_mech_trail_spr = precache_model("sprites/bullet_trail.spr");
+	}
+
 	/*
 	 * MECH STEP AND LOOP SOUNDS: mechwalk / mechwalk2 alternate on footsteps,
 	 * mechloop is the idle hum under every living mech. Moved here from the
@@ -5010,6 +5310,27 @@ public plugin_precache()
 	else
 	{
 		tlog("[TSM] weapons/rocketfire1.wav not on disk; Mech rocket will be silent");
+	}
+
+	/*
+	 * The Mech rocket launcher's effect sprites (rocket_burst and the hooks beside it). Precached only on a game library
+	 * that has the launcher, and each only when its file is on disk: a precached name with no file behind it is a fatal
+	 * Host_Error, so a missing sprite just leaves that effect out.
+	 */
+	if (g_has_mechrocket)
+	{
+		if (file_exists(TSM_ROCKET_FLASH_SPR, true))
+		{
+			g_rk_flash_spr = precache_model(TSM_ROCKET_FLASH_SPR);
+		}
+		if (file_exists(TSM_ROCKET_SMOKE_SPR, true))
+		{
+			g_rk_smoke_spr = precache_model(TSM_ROCKET_SMOKE_SPR);
+		}
+		if (file_exists(TSM_ROCKET_BOOM_SPR, true))
+		{
+			g_rk_boom_spr = precache_model(TSM_ROCKET_BOOM_SPR);
+		}
 	}
 
 	/*
@@ -5230,8 +5551,12 @@ public plugin_natives()
 	register_native("tsm_bar_shown",     "native_bar_shown");
 	register_native("tsm_state",         "native_state");
 	register_native("tsm_side_of",       "native_side_of");
+	register_native("tsm_bot_side",      "native_bot_side");
+	register_native("tsm_set_bot_side",  "native_set_bot_side");
+	register_native("tsm_fog",           "native_fog");
 	register_native("tsm_in_play",       "native_in_play");
 	register_native("tsm_shown",         "native_shown");
+	register_native("tsm_set_carrying",  "native_set_carrying");
 	register_native("tsm_points",        "native_points");
 	register_native("tsm_points_side",   "native_points_side");
 	register_native("tsm_points_award",  "native_points_award");
@@ -5426,6 +5751,11 @@ public plugin_init()
 	 */
 	g_cv_giveammo  = register_cvar("tsm_ammo_mags",      "2");
 
+	// The Mech's ammo bay, and the laser rifle against a Mech.
+	g_cv_mech_ammo = register_cvar("tsm_mech_ammo_mult", "2.0");
+	g_cv_mech_laser = register_cvar("tsm_mech_laser_mult", "1.15");
+	set_task(MECH_BAY_PERIOD, "task_mech_bay", TSM_TASK_MECH_BAY, "", 0, "b");
+
 	/*
 	 * Put anyone who arrives without a side onto the spectator team.
 	 *
@@ -5510,7 +5840,7 @@ public plugin_init()
 	g_cv_cloak = register_cvar("tsm_cloak_enabled", "1");
 	/*
 	 * How long a cloak lasts on its own before it expires, in seconds. 0 means it never
-	 * expires by itself -- only .uncloak or taking/dealing damage ends it.
+	 * expires by itself -- only .uncloak, taking/dealing damage or taking an objective (set_carrying) ends it.
 	 */
 	g_cv_cloakduration = register_cvar("tsm_cloak_duration", "30.0");
 	/*
@@ -5586,12 +5916,24 @@ public plugin_init()
 	g_cv_nopowerups = register_cvar("tsm_no_powerups",   "1");
 	/*
 	 * Bots and TS's powerups. rcbot reads this cvar itself (rcbot-patch, CHANGE 10): while the
-	 * match mode is on, 0 keeps every bot off powerups whatever nopowerup says -- a bot walks to
-	 * none and uses none, which nothing here could stop, as a fake client sends no client commands.
-	 * fw_touch refuses a bot's touch of one too. A powerup this plugin grants is not a pickup and
-	 * is not touched by it: the Officer's kung fu, and what a mode hands out.
+	 * match mode is on, 0 (the default) keeps every bot off powerups whatever nopowerup says -- a bot
+	 * walks to none and uses none, which nothing here could stop, as a fake client sends no client
+	 * commands. fw_touch refuses a bot's touch of one too, and bot_powerups_barred holds back what
+	 * this plugin would grant a bot: the Officer's kung fu, and what a mode hands out through
+	 * tsm_give_powerup. 1 leaves the bots to nopowerup and tsm_no_powerups like everyone else.
 	 */
-	g_cv_botpowerups = register_cvar("tsm_bot_powerups", "1");
+	g_cv_botpowerups = register_cvar("tsm_bot_powerups", "0");
+
+	/*
+	 * Bots and TS's own capture game (the briefcase, on a ctb_ or ctf_ map, where this plugin stands down). rcbot reads
+	 * tsm_bot_stockobjectives itself, once a second (rcbot-patch, CHANGE 12): 1 (the default) has the bots play that game --
+	 * fetch the other side's briefcase, carry it to their own base, bring their own back, escort the carrier, guard the base
+	 * and hunt the other side's carrier -- and 0 has them only fight. This plugin does no more than register it, so the cvar
+	 * and its default exist whichever loads first. tsm_briefcase_bots is the plugin's: how many bots such a map gets
+	 * (plugin_cfg). 0, the default, is none.
+	 */
+	register_cvar("tsm_bot_stockobjectives", "1");
+	g_cv_briefbots = register_cvar("tsm_briefcase_bots", "0");
 	g_cv_modelpost  = register_cvar("tsm_model_post",     "1");
 	g_cv_icons      = register_cvar("tsm_class_icons",    "1");
 	// Above the player's ORIGIN, which is already his hull centre (feet+36): 52 floats the
@@ -5761,6 +6103,13 @@ public plugin_init()
 	// 1 never halts at all. amx_match_continue is the one-match form of the same thing.
 	g_cv_haltbypass = register_cvar("tsm_halt_bypass", "0");
 
+	// Seconds a match end (round end, match end) may stand with nothing scheduled to leave it before the plugin
+	// puts everyone back in warmup itself. 0 switches the watchdog and the stranded-state recovery off.
+	g_cv_endwatch = register_cvar("tsm_end_watchdog", "20");
+
+	// Seconds the side menu waits for ts_rtv's map vote at most; after that it is offered anyway. 0 waits as long as the vote runs.
+	g_cv_rtvwait = register_cvar("tsm_rtv_menu_wait", "90");
+
 	// How a held player is stopped. 1 is the engine freeze flag and is what works;
 	// 2 clamps maxspeed; 3 is the old ts_set_speed call, kept only so the
 	// slow-motion behaviour can be reproduced on demand.
@@ -5836,6 +6185,20 @@ public plugin_init()
 	// produced chat spam -- starving the cash does the job properly.
 	g_cv_blockbuy  = register_cvar("tsm_block_buy",     "1");
 
+	// The loadout rework: every class but the Mech and the Heavy buys its loadout with TS's equipment menu. Off by default.
+	g_cv_lr        = register_cvar("tsm_loadoutrework", "0");
+	g_cv_lr_cash   = register_cvar("tsm_lr_cash",       "8500");
+	g_cv_lr_secs   = register_cvar("tsm_lr_buy_seconds", "20");
+	g_cv_lr_freeze = register_cvar("tsm_lr_freeze", "30");
+	g_cv_lr_deny   = register_cvar("tsm_lr_deny",       "32,18,40,34");
+	g_cv_lr_clips  = register_cvar("tsm_lr_clips",      "3");
+	for (new lc = 0; lc < TSM_MAXCLASS; lc++)
+	{
+		new lcname[24];
+		formatex(lcname, charsmax(lcname), "tsm_lr_cash_%d", lc + 1);
+		g_cv_lr_cash_cls[lc] = register_cvar(lcname, "");
+	}
+
 	// ---- combat engineer ----
 	g_cv_engrange  = register_cvar("tsm_eng_range",     "96");
 	g_cv_engclips  = register_cvar("tsm_eng_clips",     "3");
@@ -5870,6 +6233,11 @@ public plugin_init()
 	g_cv_turret_spread   = register_cvar("tsm_turret_spread",          "1.5");
 	g_cv_turret_repair   = register_cvar("tsm_turret_repair",          "100");
 	g_cv_turret_repaircd = register_cvar("tsm_turret_repair_cooldown", "30");
+
+	// The Mech's M60: a large muzzle flash and a bullet tracer on every shot.
+	g_cv_mech_flash       = register_cvar("tsm_mech_flash",            "1");
+	g_cv_mech_flash_scale = register_cvar("tsm_mech_flash_scale",      "0.3");
+	g_cv_mech_trails      = register_cvar("tsm_mech_trails",           "1");
 
 	/*
 	 * Slow health regeneration, for whatever class carries TSM_PERK_REGEN.
@@ -6300,6 +6668,25 @@ public plugin_init()
 	// of the stock player steps. Runs here with the other forwards.
 	register_forward(FM_EmitSound, "fw_emit_sound");
 
+	// The Mech's weapons that are not dropped (tsm_mech_nodrop) and the effects of his rocket launcher, weapon 41 of
+	// H9's reTS: its launch is told by the shooter's ClipInfo message, its rocket is found by its model, its end by the
+	// entity being gone. Each effect is its own cvar: 0 off, 1 the size the sprites were made for, more or less to scale it.
+	g_cv_mech_nodrop = register_cvar("tsm_mech_nodrop", "1");
+	g_cv_rk_flash    = register_cvar("tsm_mech_rocket_flash", "1");
+	g_cv_rk_smoke    = register_cvar("tsm_mech_rocket_smoke", "1");
+	g_cv_rk_boom     = register_cvar("tsm_mech_rocket_boom", "1");
+	register_event("DeathMsg", "ev_mech_gear_death", "a");
+	if (g_has_mechrocket)
+	{
+		new msg_clipinfo = get_user_msgid("ClipInfo");
+		if (msg_clipinfo)
+		{
+			register_message(msg_clipinfo, "msg_clipinfo");
+		}
+		register_forward(FM_SetModel, "fw_rocket_setmodel");
+		register_forward(FM_StartFrame, "fw_rocket_frame");
+	}
+
 	register_clcmd("say",      "hook_say");
 	register_clcmd("say_team", "hook_say");
 
@@ -6320,6 +6707,7 @@ public plugin_init()
 	register_concmd("amx_tsm_fix",       "cmd_fix",     ADMIN_CFG, " <target> - force-restore a stuck player");
 	register_concmd("amx_tsm_cloak",     "cmd_cloak_admin", ADMIN_CFG, " <target> - toggle a cloak on anyone, bots too, to see it from outside");
 	register_concmd("amx_tsm_debug",     "cmd_debug",   ADMIN_CFG, " - why is nothing happening: teams, spawns, ready state");
+	register_concmd("amx_tsm_loadout",   "cmd_loadout", ADMIN_CFG, " [target] - the loadout rework: class, cash, buy window, the loadout kept for the match");
 	register_concmd("amx_tsm_ents",      "cmd_ents",    ADMIN_CFG, " - every entity classname in the world right now");
 	/*
 	 * Both spellings on purpose. amx_tsm_loc matches every other command in this family, and
@@ -6344,7 +6732,7 @@ public plugin_init()
 	register_concmd("amx_tsm_wave",         "cmd_wave",        ADMIN_CFG, " [1|2] - force a respawn wave now (both teams without a number)");
 	register_concmd("amx_tsm_obj",         "cmd_obj",         ADMIN_CFG, " [reset|<n>] - the map's siege objectives: what has fallen; put them back, or say how many have fallen");
 	register_concmd("amx_tsm_simelim",     "cmd_simelim",     ADMIN_CFG, " [target] - eliminate a player as if they were killed");
-	register_concmd("tsm_opendoor",        "cmd_opendoor",    ADMIN_CFG, " - force open the door you are aiming at, locked or not");
+	register_concmd("tsm_opendoor",        "cmd_opendoor",    ADMIN_CFG, " - work the door you are aiming at: open if shut, shut if open, locked or not");
 
 	// THE SIEGE DEBUG SUITE: every stage of the satchel flow, on demand, with
 	// no second player and not a single tsm_obj entity in the map required.
@@ -6373,6 +6761,16 @@ public plugin_init()
 
 	// TS powerups: the command that activates one, and the cheat that grants one.
 	register_clcmd("tsm_model", "cmd_model");
+
+	// A game started with maxplayers 1 is TS as a single-player game: its "respawn" command (the fire click of
+	// "Press Fire To Play") issues the engine's "reload" there, which restarts the map instead of spawning anyone.
+	// cmd_listen_respawn refuses that click while tsm_listen_guard is 1.
+	register_cvar("tsm_listen_guard", "1");
+	register_clcmd("respawn", "cmd_listen_respawn");
+	if (!is_dedicated_server() && get_maxplayers() < 2)
+	{
+		log_amx("[TSM] This game has 1 player slot (maxplayers 1): TS plays it as single-player, where the fire click that spawns a player restarts the map. Start it with maxplayers 2 or more: Create Game, or maxplayers 32 then map <name> in the console.");
+	}
 	register_clcmd("stim", "cmd_stim_console");
 	register_clcmd("turret", "cmd_turret_console");
 	register_clcmd("pickup", "cmd_pickup_console");
@@ -6415,7 +6813,8 @@ public plugin_init()
 	register_concmd("amx_tsm_menu",     "cmd_menu",     ADMIN_CFG, " <side|class> - force a menu up for testing");
 	register_concmd("amx_tsm_whystuck", "cmd_whystuck", ADMIN_CFG, " [target] - dump everything that can stop a player moving");
 	register_concmd("amx_tsm_unstick",  "cmd_unstick",  ADMIN_CFG, " [target] - clear every hold and lift them clear of the floor");
-	register_concmd("tsm_commands",     "cmd_commands", ADMIN_CFG, " - every tsm_ cvar this plugin has, name and current value");
+	register_concmd("tsm_commands",     "cmd_commands", ADMIN_CFG, " - this plugin's console and client commands (the cvars are tsm_cvars)");
+	register_concmd("tsm_cvars",        "cmd_cvars",    ADMIN_CFG, " [prefix] - the cvars this server has loaded, name and value: tsm_cvars tsm_live");
 	register_concmd("tsm_fogtest",      "cmd_fogtest",  ADMIN_CFG, " - toggles the sudden-death fog on or off for testing; needs tsm_logging 1");
 
 	get_mapname(g_mapname, charsmax(g_mapname));
@@ -6456,6 +6855,16 @@ public plugin_init()
 
 public plugin_cfg()
 {
+	// An unnamed server gets a name; one named at launch (+hostname) or by the server's own config is never touched. server.cfg no
+	// longer sets it: it runs on every map load and used to overwrite the launch line's name.
+	new host[64];
+	get_cvar_string("hostname", host, charsmax(host));
+	trim(host);
+	if (!host[0])
+	{
+		set_cvar_string("hostname", "HAVOC 9 TEAM ELIMINATION");
+	}
+
 	// Load our own config rather than relying on someone remembering to exec it.
 	// AMXX only auto-execs amxx.cfg, so a plugin-specific cfg is inert unless the
 	// plugin asks for it. server_exec() forces the queued commands through now, so
@@ -6479,11 +6888,17 @@ public plugin_cfg()
 	// own cash, powerups and weapon rules back over what game.cfg, server.cfg and ts_matchmode.cfg set
 	// for H9's maps: a team map of TS's own (the capture game's ctf_ and ctb_ among them) plays as TS's
 	// team deathmatch does, with its buy menu. The map's mapconfig runs after this and can set any of it
-	// back for its map.
+	// back for its map. The bots are off but for the capture game's: rcbot plays that one itself, and
+	// tsm_briefcase_bots says how many a ctb_ or ctf_ map gets.
 	if (!g_map_h9)
 	{
+		new here_bots = capture_map(g_mapname) ? get_pcvar_num(g_cv_briefbots) : 0;
+		if (here_bots < 0)
+		{
+			here_bots = 0;
+		}
 		set_pcvar_num(g_cv_enabled, 0);
-		set_pcvar_num(g_cv_bots, 0);
+		set_pcvar_num(g_cv_bots, here_bots);
 		set_cvar_num("usecash", 0);
 		set_cvar_num("initial_cash", 1200);
 		set_cvar_num("cashforwin", 10000);
@@ -6491,7 +6906,7 @@ public plugin_cfg()
 		set_cvar_num("nopowerup", 0);
 		shipped_weapons();
 		set_task(3.0, "task_shipped_weapons", TSM_TASK_SHIPPED);
-		log_amx("[TSM] %s is not an H9 map: tsm_enabled 0, tsm_bots 0, and TS's own cash, powerups and weapon rules (weaponrestriction 0).", g_mapname);
+		log_amx("[TSM] %s is not an H9 map: tsm_enabled 0, tsm_bots %d, and TS's own cash, powerups and weapon rules (weaponrestriction 0).", g_mapname, here_bots);
 	}
 
 	get_mapname(g_mapname, charsmax(g_mapname));
@@ -6507,6 +6922,7 @@ public plugin_cfg()
 	force_team_list();
 	set_task(3.0, "task_force_teams", 6);
 	collect_spawns();
+	sync_spawn_roles();
 
 	// Dispatched by task name: record_map_items() is defined further down the file and
 	// this compiler rejects forward references. The short delay also lets any entity
@@ -7595,7 +8011,7 @@ bool:balance_ok()
 		return true;
 	}
 
-	// Side 2 bots only by design (survival): the sides are meant to be uneven.
+	// The bots' side is bots only by design (survival): the sides are meant to be uneven.
 	if (mode_flag(TSM_MODE_SIDE2_BOTS))
 	{
 		return true;
@@ -7831,7 +8247,7 @@ autofill_teams()
 		return;
 	}
 
-	// Where side 2 is bots by design (survival) there is no evening up to do, and a person
+	// Where the bots' side is bots only by design (survival) there is no evening up to do, and a person
 	// must never be filled onto the enemy wave. A late joiner waits for the next run.
 	if (mode_flag(TSM_MODE_SIDE2_BOTS))
 	{
@@ -7912,7 +8328,7 @@ public cmd_shuffle(id, level, cid)
 
 	if (mode_flag(TSM_MODE_SIDE2_BOTS))
 	{
-		console_print(id, "[TSM] This is a %s map: side 2 is bots only, so there is nothing to shuffle.", g_mode_name);
+		console_print(id, "[TSM] This is a %s map: side %d is bots only, so there is nothing to shuffle.", g_mode_name, bot_side());
 		return PLUGIN_HANDLED;
 	}
 
@@ -8441,6 +8857,12 @@ public cmd_spawn_save(id, level, cid)
 		return PLUGIN_HANDLED;
 	}
 
+	if (g_spawns_swapped)
+	{
+		console_print(id, "[TSM] The spawn tables are exchanged while the bots hold side 1: change the map and save from there.");
+		return PLUGIN_HANDLED;
+	}
+
 	new path[160];
 	spawn_cfg_path(path, charsmax(path));
 
@@ -8828,7 +9250,7 @@ cmd_forfeit(id)
 
 	remove_task(2);
 	remove_task(3);
-	remove_task(4);
+	cancel_round_end_tasks();
 	remove_task(5);
 	g_freeze_left = 0;
 	g_round_left = 0;
@@ -8841,8 +9263,8 @@ cmd_forfeit(id)
 	tlog("[TSM] Match forfeited by team %d: all %d human player(s) agreed.", team, want);
 
 	g_state = ST_MATCHEND;
+	schedule_to_warmup("match forfeited by .forfeit vote");
 	match_end_reset();
-	set_task(5.0, "task_to_warmup");
 	match_forfeited(w);
 	return PLUGIN_HANDLED;
 }
@@ -9034,6 +9456,8 @@ public cmd_model(id)
 	console_print(id, "[TSM] chosen     : %s", g_model_chosen[id]);
 	console_print(id, "[TSM] on disk    : %s", g_model_ok[id] ? "yes" : "NO -- you are wearing TS's default instead");
 	console_print(id, "[TSM] model index: %d", g_model_want_idx[id]);
+	new dset = droid_hand_set(id);
+	console_print(id, "[TSM] droid hands: %s", (dset >= 0) ? g_hand_sets[dset] : "none (not a droid model)");
 	console_print(id, "[TSM] last written: %s", g_model_last[id][0] ? g_model_last[id] : "(none)");
 
 	// The list it was drawn from, so a truncated list is visible from in game.
@@ -9097,6 +9521,34 @@ public cmd_blockpowerup(id)
 	return PLUGIN_HANDLED;
 }
 
+/*
+ * The "respawn" console command, which the client sends when a spectator presses fire to play. With one player slot the
+ * game library's respawn() runs the engine's "reload" command instead of spawning the player, the map restarts, the
+ * client reconnects as a spectator, and the next click restarts it again. This refuses the command in that one case
+ * (a game with fewer than 2 slots, tsm_listen_guard 1) and says why; with 2 or more slots it does nothing.
+ */
+public cmd_listen_respawn(id)
+{
+	static Float:s_next_note;
+	static bool:s_logged;
+
+	if (get_maxplayers() > 1 || !get_cvar_num("tsm_listen_guard"))
+	{
+		return PLUGIN_CONTINUE;
+	}
+	if (!s_logged)
+	{
+		s_logged = true;
+		log_amx("[TSM] Refused a fire-to-play click from player %d: with maxplayers 1 it would restart the map.", id);
+	}
+	if (get_gametime() >= s_next_note)
+	{
+		s_next_note = get_gametime() + 5.0;
+		client_print(id, print_chat, "[TSM] Single-player game (maxplayers 1): firing to spawn would restart the map. Type maxplayers 32 in the console, then map <name>.");
+	}
+	return PLUGIN_HANDLED;
+}
+
 public cmd_blockbuy(id)
 {
 	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_blockbuy))
@@ -9133,8 +9585,108 @@ public cmd_blockbuy(id)
 		return PLUGIN_CONTINUE;
 	}
 
+	// With the loadout rework on, the menu's commands from a player it covers are read here before they are dropped.
+	lr_cmd(id);
+
 	// Silent. This fires once per item the menu touches, so a message here is spam.
 	return PLUGIN_HANDLED;
+}
+
+/*
+ * A MECH DOES NOT DROP HIS WEAPONS (tsm_mech_nodrop).
+ *
+ * The Mech carries an M60 and the rocket launcher (weapon 41 of H9's reTS), and neither is dropped: the T key and the
+ * weapon bar's right click are refused for them, and what a Mech throws as he dies is taken out of the world in the
+ * frame it was thrown. TS throws every weapon as a "WorldGun" entity whose owner (pev owner) is the thrower until it
+ * lands, so that frame is the only one in which it can still be told as his; DeathMsg comes after the throws, in the same
+ * frame, which is why the death hook finds them. A gun TS has slowed (pev fuser1 under 1, in someone's bullet time) is
+ * left alone, for TS holds a pointer to it, and the sweep is run again a few times while it may still be in the air.
+ * A disarm (a Mech hit with a blade until his weapon is knocked from his hands) is not stopped: the weapon is his to
+ * pick up again, as in TS.
+ */
+
+/// 1 when this weapon of this player may not be dropped: tsm_mech_nodrop and the match mode are on, he is a Mech by
+/// class, and the weapon is his M60 or his rocket launcher.
+mech_nodrop(id, wpn)
+{
+	if (wpn != TSM_M60_WPN && wpn != TSM_WPN_ROCKET)
+	{
+		return 0;
+	}
+	if (!get_pcvar_num(g_cv_mech_nodrop) || !get_pcvar_num(g_cv_enabled))
+	{
+		return 0;
+	}
+	new ci = resolved_class(id) - 1;
+	return (ci >= 0 && ci < g_class_count && g_class_perk[ci] == TSM_PERK_MECH) ? 1 : 0;
+}
+
+/// 1 when the weapon in this player's hand is one a Mech does not drop (the T key drops the weapon in hand).
+mech_nodrop_held(id)
+{
+	new clip, ammo, mode, extra;
+	return mech_nodrop(id, ts_getuserwpn(id, clip, ammo, mode, extra));
+}
+
+/// Says why the drop was refused: a centre text whatever tsm_verbosity says, the chat line with it on.
+mech_drop_told(id)
+{
+	dbg("drop refused for the Mech %d: his weapons stay with him", id);
+	match_chat(id, "[MATCH] A Mech does not drop its weapons.");
+	center_tell(id, "A Mech does not drop its weapons.");
+}
+
+/// The M60 and the rocket launcher this Mech has thrown to the floor, taken out of the world. Returns how many.
+mech_gear_sweep(id)
+{
+	new ent = -1, taken = 0, model[64];
+	for (new guard = 0; guard < 512; guard++)
+	{
+		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "WorldGun");
+		if (ent <= 0)
+		{
+			break;
+		}
+		if (!pev_valid(ent) || pev(ent, pev_owner) != id)
+		{
+			continue;
+		}
+		model[0] = 0;
+		pev(ent, pev_model, model, charsmax(model));
+		if (!equali(model, TSM_M60_WMODEL) && !equali(model, TSM_ROCKET_WMODEL))
+		{
+			continue;
+		}
+		if (Float:pev(ent, pev_fuser1) < 1.0)
+		{
+			continue;
+		}
+		set_pev(ent, pev_flags, pev(ent, pev_flags) | TSM_FL_KILLME);
+		taken++;
+	}
+	return taken;
+}
+
+/// A Mech's death: what he threw is taken now, and looked for again while it may still be in the air.
+public ev_mech_gear_death()
+{
+	new victim = read_data(2);
+	if (victim < 1 || victim > g_maxplayers || !mech_nodrop(victim, TSM_M60_WPN))
+	{
+		return;
+	}
+	new taken = mech_gear_sweep(victim);
+	if (taken)
+	{
+		dbg("the Mech %d died: %d weapon(s) he threw were taken out of the world", victim, taken);
+	}
+	remove_task(victim + TSM_TASK_MECHGEAR);
+	set_task(0.1, "task_mech_gear", victim + TSM_TASK_MECHGEAR, _, _, "a", 4);
+}
+
+public task_mech_gear(taskid)
+{
+	mech_gear_sweep(taskid - TSM_TASK_MECHGEAR);
 }
 
 /*
@@ -9163,8 +9715,19 @@ drop_told(id)
 /// The T key ("drop"): the weapon in hand stays in hand until the round is live.
 public cmd_blockdrop(id)
 {
+	// A Mech's M60 and launcher are not dropped (tsm_mech_nodrop): the weapon in his hand stays there.
+	if (mech_nodrop_held(id))
+	{
+		mech_drop_told(id);
+		return PLUGIN_HANDLED;
+	}
+
 	if (!drop_refused())
 	{
+		if (lr_drop_blocked(id))
+		{
+			return PLUGIN_HANDLED;
+		}
 		return PLUGIN_CONTINUE;
 	}
 	drop_told(id);
@@ -9177,6 +9740,16 @@ public cmd_blockdrop(id)
  */
 public client_command(id)
 {
+	if (get_pcvar_num(g_cv_lr) && !drop_refused())
+	{
+		new lcmd[16];
+		read_argv(0, lcmd, charsmax(lcmd));
+		if (equal(lcmd, "drop_", 5) && lcmd[5] >= '0' && lcmd[5] <= '9' && lr_drop_blocked(id))
+		{
+			return PLUGIN_HANDLED;
+		}
+	}
+
 	// The weapon bar's right-click drops one weapon as "drop_<number>": refused like the T key.
 	if (drop_refused())
 	{
@@ -9185,6 +9758,18 @@ public client_command(id)
 		if (equal(dcmd, "drop_", 5) && dcmd[5] >= '0' && dcmd[5] <= '9')
 		{
 			drop_told(id);
+			return PLUGIN_HANDLED;
+		}
+	}
+
+	// ... and a Mech's M60 and launcher are not dropped from the weapon bar either
+	if (get_pcvar_num(g_cv_mech_nodrop))
+	{
+		new mcmd[16];
+		read_argv(0, mcmd, charsmax(mcmd));
+		if (equal(mcmd, "drop_", 5) && mcmd[5] >= '0' && mcmd[5] <= '9' && mech_nodrop(id, str_to_num(mcmd[5])))
+		{
+			mech_drop_told(id);
 			return PLUGIN_HANDLED;
 		}
 	}
@@ -9274,14 +9859,18 @@ public cmd_watch_join(id)
 	// the raw jointeam console command must too.
 	if (g_state != ST_WARMUP && g_state != ST_READYUP)
 	{
+		if (stranded_recover(id, "jointeam"))
+		{
+			return PLUGIN_HANDLED;
+		}
 		match_chat(id, "[MATCH] A match is already in progress -- join when it finishes.");
 		center_tell(id, "A match is in progress: join the next one.");
 		return PLUGIN_HANDLED;
 	}
 
-	// The raw console route onto side 2, where a mode made it bots only: refused the same
-	// way the side menu refuses it. jointeam takes the mp_teamlist index, 2 for side 2.
-	if (mode_flag(TSM_MODE_SIDE2_BOTS) && !bot_player(id) && str_to_num(arg) == 2)
+	// The raw console route onto the bots' side, where a mode made it bots only: refused the same
+	// way the side menu refuses it. jointeam takes the mp_teamlist index, the side's own number.
+	if (mode_flag(TSM_MODE_SIDE2_BOTS) && !bot_player(id) && str_to_num(arg) == bot_side())
 	{
 		force_spectator(id);
 		match_chat(id, "[MATCH] That side is the enemy wave in this mode -- you are spectating. Type .team to join the other side.");
@@ -9507,6 +10096,10 @@ public cmd_team(id)
 
 	if (g_state != ST_WARMUP && g_state != ST_READYUP)
 	{
+		if (stranded_recover(id, ".team"))
+		{
+			return PLUGIN_HANDLED;
+		}
 		match_chat(id, "[MATCH] A match is already in progress -- join when it finishes.");
 		center_tell(id, "A match is in progress: join the next one.");
 		return PLUGIN_HANDLED;
@@ -10012,8 +10605,10 @@ stock bool:user_carries(id, wpn)
 resolve_loadout(id)
 {
 	g_lo_n[id] = -1;
+	g_lo_lr[id] = false;
 	if (g_fw_loadout == -1 || !g_mode_name[0])
 	{
+		lr_resolve(id);
 		return;
 	}
 
@@ -10023,6 +10618,7 @@ resolve_loadout(id)
 	ExecuteForward(g_fw_loadout, ret, id, PrepareArray(spec, sizeof spec, 1), sizeof spec);
 	if (ret != PLUGIN_HANDLED)
 	{
+		lr_resolve(id);
 		return;
 	}
 
@@ -10039,7 +10635,7 @@ resolve_loadout(id)
 		}
 		strtok(pair, wpart, charsmax(wpart), cpart, charsmax(cpart), ':', 1);
 		new w = str_to_num(wpart);
-		if (w < 1 || w > TSW_LASERRIFLE)
+		if (w < 1 || w > TSM_WPN_ROCKET)
 		{
 			continue;
 		}
@@ -10070,6 +10666,7 @@ custom_weapons_on()
 
 /// The stock gun that stands in for a weapon H9 adds to TS where that weapon is not in play, or 0 for any other weapon.
 /// EVERY weapon H9 adds is gated by h9_customweapons: a new one gets its line here and its test in custom_present.
+/// The Mech's rocket launcher (41) has no stand-in: give_class_weapons leaves it out where it is not in play.
 custom_standin(w)
 {
 	switch (w)
@@ -10103,6 +10700,10 @@ custom_present(w)
 		{
 			return g_has_laser ? 1 : 0;
 		}
+		case TSM_WPN_ROCKET:
+		{
+			return g_has_mechrocket ? 1 : 0;
+		}
 	}
 	return 0;
 }
@@ -10123,7 +10724,8 @@ lo_wpn(id, ci, team, i)
 }
 
 /// The highest weapon id a TSX native may be asked about on this game library: the laser rifle's or the PPSh-41's
-/// where there is one, else the thrown knife's (which is_gun_id passes over).
+/// where there is one, else the thrown knife's (which is_gun_id passes over). The Mech's rocket launcher (41) is not
+/// counted: no ammo native is asked about it.
 top_weapon_id()
 {
 	if (g_has_laser)
@@ -10131,6 +10733,57 @@ top_weapon_id()
 		return TSW_LASERRIFLE;
 	}
 	return g_has_ppsh ? TSW_PPSH41 : TSW_TKNIFE;
+}
+
+/// 1 when this player holds the Mech's rocket launcher: the one weapon of a Mech whose pictures are drawn.
+mech_rocket_in_hand(id)
+{
+	if (!custom_present(TSM_WPN_ROCKET))
+	{
+		return 0;
+	}
+	new clip, ammo, mode, extra;
+	return (ts_getuserwpn(id, clip, ammo, mode, extra) == TSM_WPN_ROCKET) ? 1 : 0;
+}
+
+/// 1 when the M60 in this player's hand is drawn in first person as the arm built into his Mech model: the arm's view
+/// model is in the game and fw_updateclientdata_post puts it in place of the stock M60's, so that view model must stand.
+mech_arm_in_view(id)
+{
+	if (g_mech_gun_view_idx <= 0)
+	{
+		return 0;
+	}
+	new clip, ammo, mode, extra;
+	return (ts_getuserwpn(id, clip, ammo, mode, extra) == TSM_M60_WPN) ? 1 : 0;
+}
+
+/// 1 when this Mech's first-person weapon is drawn: the launcher in his hand as itself, his M60 as the arm built into his
+/// model. Whichever he holds, no weapon is drawn in his hands for anyone else: the guns are part of his model.
+mech_view_stands(id)
+{
+	return (mech_rocket_in_hand(id) || mech_arm_in_view(id)) ? 1 : 0;
+}
+
+/// A Mech whose kit holds the launcher is put back to his M60. TS wields what was handed over last, and the launcher
+/// follows the machine gun, which the arm always gives first. "weapon_<id>" is the game library's own select command.
+mech_hold_m60(id, ci, team)
+{
+	if (g_class_perk[ci] != TSM_PERK_MECH || !custom_present(TSM_WPN_ROCKET))
+	{
+		return;
+	}
+	new n = lo_count(id, ci, team);
+	for (new i = 0; i < n; i++)
+	{
+		if (lo_wpn(id, ci, team, i) == TSM_WPN_ROCKET)
+		{
+			new cmd[16];
+			formatex(cmd, charsmax(cmd), "weapon_%d", TSM_M60_WPN);
+			engclient_cmd(id, cmd);
+			return;
+		}
+	}
 }
 
 /// The i-th weapon's spare figure, from the mode's answer or the class line.
@@ -10243,6 +10896,12 @@ give_class_weapons(id)
 		new wpnid = lo_wpn(id, ci, team, i);
 		new base = lo_clips(id, ci, team, i);
 
+		// The Mech's rocket launcher has no stand-in: where it is not in play it is not given.
+		if (wpnid == TSM_WPN_ROCKET && !custom_present(TSM_WPN_ROCKET))
+		{
+			continue;
+		}
+
 		// tsm_clip_bonus tops GUNS up with spare MAGAZINES. For the frag grenade
 		// and the knives the class figure is a carried count -- the same native
 		// reads it as "how many he carries" -- so the bonus is withheld from
@@ -10270,7 +10929,7 @@ give_class_weapons(id)
 		// Use 999 from the start so primaries (M60, Barrett, etc.) always fit,
 		// especially with tsm_arm_order 0 giving them first.
 		ts_setuserslots(id, 999);
-		new gave = ts_giveweapon(id, wpnid, clips, get_pcvar_num(g_cv_wpnextra));
+		new gave = ts_giveweapon(id, wpnid, clips, lr_extra(id, wpnid));
 		given++;
 
 		/*
@@ -10330,7 +10989,8 @@ give_class_weapons(id)
 	if (wn > 0)
 	{
 		new tail_wpn = lo_wpn(id, ci, team, tail);
-		if (!user_carries(id, tail_wpn))
+		// (user_carries reads the item bits, which stop at 31: it cannot tell whether the launcher landed, so it is not retried)
+		if (!user_carries(id, tail_wpn) && tail_wpn != TSM_WPN_ROCKET)
 		{
 			new tail_clips = lo_clips(id, ci, team, tail);
 
@@ -10349,7 +11009,7 @@ give_class_weapons(id)
 			}
 
 			ts_setuserslots(id, 999);
-			ts_giveweapon(id, tail_wpn, tail_clips, get_pcvar_num(g_cv_wpnextra));
+			ts_giveweapon(id, tail_wpn, tail_clips, lr_extra(id, tail_wpn));
 
 			if (user_carries(id, tail_wpn))
 			{
@@ -10378,6 +11038,8 @@ give_class_weapons(id)
 			}
 		}
 	}
+
+	mech_hold_m60(id, ci, team);
 
 	dbg("gave %d weapon(s) to %d as '%s' (team %d)", given, id, g_class_name[ci], team);
 
@@ -10673,9 +11335,9 @@ public task_reissue_armament(taskid)
 }
 
 /*
- * One-time backup for the per-frame clear in fw_prethink: the same four cosmetic
- * pairs, re-asserted just after the class lands, so the very first frames of a
- * mech's life are clean even before its first prethink pass.
+ * One-time backup for the per-frame clear in fw_prethink: the same pictures,
+ * cleared just after the class lands, so the very first frames of a mech's life
+ * are clean even before its first prethink pass.
  *
  * The old version of this task hunted an entity called weapon_m249 and set
  * EF_NODRAW on it. That classname does not exist in TS -- nothing was ever found,
@@ -10697,9 +11359,13 @@ public task_hide_mech_weapon(taskid)
 
 	set_pev(id, pev_weaponmodel, 0);
 	set_pev(id, pev_weaponmodel2, "");
-	set_pev(id, pev_viewmodel, 0);
-	set_pev(id, pev_viewmodel2, "");
-	dbgv("mech %d weapon pictures cleared (weaponmodel + viewmodel)", id);
+	// the launcher he holds and his M60 (the arm built into his model) are drawn in first person
+	if (!mech_view_stands(id))
+	{
+		set_pev(id, pev_viewmodel, 0);
+		set_pev(id, pev_viewmodel2, "");
+	}
+	dbgv("mech %d weapon pictures cleared (weaponmodel%s)", id, mech_view_stands(id) ? "" : " + viewmodel");
 }
 
 /*
@@ -10724,9 +11390,11 @@ arm_give_kit(id)
 {
 	g_m60_skip[id] = -1;
 	remove_task(id + 8500);
+	mech_bay_reset(id);
 
 	// The weapons this arm gives, settled once: a claimed mode's loadout, or the class's own.
 	resolve_loadout(id);
+	lr_arm_begin(id);
 
 	new ciH = resolved_class(id) - 1;
 	if (ciH >= 0 && ciH < g_class_count)
@@ -10767,7 +11435,7 @@ arm_give_kit(id)
 			}
 
 			ts_setuserslots(id, 999);
-			new m60gave = ts_giveweapon(id, TSM_M60_WPN, m60clips, get_pcvar_num(g_cv_wpnextra));
+			new m60gave = ts_giveweapon(id, TSM_M60_WPN, m60clips, lr_extra(id, TSM_M60_WPN));
 
 			// The native's answer is not taken over the weapon list: a give that
 			// landed is a give that landed, whatever the return value said.
@@ -10818,6 +11486,7 @@ arm_give_kit(id)
 
 	give_class_weapons(id);
 	top_up_reserve(id, get_pcvar_num(g_cv_giveammo) * 25);
+	mech_bay_fill(id);
 }
 
 public task_arm_respawn(taskid)
@@ -11015,6 +11684,7 @@ public task_give_rest(taskid)
 
 	give_class_weapons(id);
 	top_up_reserve(id, get_pcvar_num(g_cv_giveammo) * 25);
+	mech_bay_fill(id);
 
 	dbgv("give-rest: %d finished the rest of the kit and their ammunition", id);
 }
@@ -11029,6 +11699,13 @@ public task_give_rest(taskid)
  */
 stock bool:is_gun_id(w)
 {
+	// The Mech's rocket launcher (41) is no caliber's reserve either: its rockets are the figure the class line gives it,
+	// and no bonus, spare-round rewrite or resupply reaches it (the TSX ammo natives know no weapon past the laser rifle).
+	if (w == TSM_WPN_ROCKET)
+	{
+		return false;
+	}
+
 	switch (w)
 	{
 		case TSW_KUNG_FU, TSW_M61GRENADE, TSW_CKNIFE, TSW_C4, TSW_KATANA,
@@ -11114,7 +11791,177 @@ top_up_reserve(target, rounds)
 		}
 	}
 
+	// A Mech's spare past TS's cap goes to his bay (tsm_mech_ammo_mult).
+	if (g_mech_gun[target] > 0)
+	{
+		new gun = g_mech_gun[target];
+		total += mech_bay_add(target, rounds, ts_getuserammo(target, gun) - pre[gun]);
+	}
+
 	return total;
+}
+
+/*
+ * THE MECH'S AMMO BAY. A Mech is armed with a full reserve; tsm_mech_ammo_mult times that is what he is owed, and what the
+ * reserve cannot hold waits here. task_mech_bay loads it into the reserve as he uses the reserve up, so every round of it is
+ * fired from a real magazine. .ammo and an Engineer's resupply fill the bay once his reserve is full. It goes when he dies and
+ * is made again when he is armed.
+ */
+
+/// No bay. Every arm starts from here, so a player armed as anything but a Mech has none.
+mech_bay_reset(id)
+{
+	g_mech_gun[id] = 0;
+	g_mech_full[id] = 0;
+	g_mech_bank[id] = 0;
+	g_mech_bank_max[id] = 0;
+}
+
+/// 1 while this player is a living Mech with a bay.
+mech_bay_live(id)
+{
+	if (g_mech_gun[id] < 1 || !is_user_connected(id) || !is_user_alive(id) || g_elim[id])
+	{
+		return 0;
+	}
+	new ci = resolved_class(id) - 1;
+	return (ci >= 0 && g_class_perk[ci] == TSM_PERK_MECH) ? 1 : 0;
+}
+
+/// A Mech's primary gun: the first gun of the loadout this arm gave him, 0 when it holds none.
+mech_primary_gun(id, ci, team)
+{
+	new n = lo_count(id, ci, team);
+	for (new i = 0; i < n; i++)
+	{
+		new w = lo_wpn(id, ci, team, i);
+		if (is_gun_id(w))
+		{
+			return w;
+		}
+	}
+	return 0;
+}
+
+/// Makes a Mech's bay once his reserve is final, at the end of an arm: his spare times tsm_mech_ammo_mult, less the spare he holds.
+mech_bay_fill(id)
+{
+	mech_bay_reset(id);
+	new Float:mult = get_pcvar_float(g_cv_mech_ammo);
+	if (mult <= 1.0 || !is_user_connected(id) || !is_user_alive(id))
+	{
+		return;
+	}
+	new ci = resolved_class(id) - 1;
+	if (ci < 0 || g_class_perk[ci] != TSM_PERK_MECH)
+	{
+		return;
+	}
+	new team = g_match_team[id];
+	if (team != 1 && team != 2)
+	{
+		team = 1;
+	}
+	new gun = mech_primary_gun(id, ci, team);
+	if (gun < 1)
+	{
+		return;
+	}
+	new full = ts_getuserammo(id, gun);
+	if (full < 1)
+	{
+		return;
+	}
+	g_mech_gun[id] = gun;
+	g_mech_full[id] = full;
+	g_mech_bank_max[id] = floatround(float(full) * (floatmin(mult, 100.0) - 1.0));
+	g_mech_bank[id] = g_mech_bank_max[id];
+	dbg("mech bay: %d is armed with %d spare rounds of weapon %d and %d more in the bay (x%.2f)", id, full, gun, g_mech_bank[id], mult);
+	center_tell(id, "Ammo bay: %d more rounds, loaded as your reserve runs down.", g_mech_bank[id]);
+}
+
+/// Rounds of a resupply that his reserve would not take (wanted, of which landed went in) go into a Mech's bay, up to its size. How many.
+mech_bay_add(id, wanted, landed)
+{
+	if (g_mech_bank_max[id] < 1 || landed >= wanted || !mech_bay_live(id))
+	{
+		return 0;
+	}
+	new add = min(wanted - max(landed, 0), g_mech_bank_max[id] - g_mech_bank[id]);
+	if (add < 1)
+	{
+		return 0;
+	}
+	g_mech_bank[id] += add;
+	return add;
+}
+
+/// Every MECH_BAY_PERIOD seconds of a live round: each Mech's reserve is loaded back up from his bay to what he was armed with.
+public task_mech_bay()
+{
+	if (g_state != ST_LIVE)
+	{
+		return;
+	}
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (g_mech_gun[id] < 1)
+		{
+			continue;
+		}
+		if (!mech_bay_live(id))
+		{
+			mech_bay_reset(id);
+			continue;
+		}
+		if (g_mech_bank[id] < 1)
+		{
+			continue;
+		}
+		new gun = g_mech_gun[id];
+		new spare = max(ts_getuserammo(id, gun), 0);
+		new room = g_mech_full[id] - spare;
+		if (room < 1)
+		{
+			continue;
+		}
+		ts_setuserammo(id, gun, spare + min(room, g_mech_bank[id]));
+		new moved = ts_getuserammo(id, gun) - spare;
+		if (moved < 1)
+		{
+			continue;
+		}
+		g_mech_bank[id] -= moved;
+		center_tell(id, "Ammo bay: +%d rounds, %d left in the bay.", moved, g_mech_bank[id]);
+		dbgv("mech bay: %d loaded %d rounds into weapon %d, %d left in the bay", id, moved, gun, g_mech_bank[id]);
+	}
+}
+
+/// What a hit on a Mech is multiplied by for the laser rifle (tsm_mech_laser_mult): that number for a shot the attacker fired himself with
+/// the laser rifle in his hands, 1.0 for anything else (a grenade, a blade, the gunbash, a turret's fire).
+Float:mech_laser_factor(inflictor, attacker, damagebits)
+{
+	new Float:mult = get_pcvar_float(g_cv_mech_laser);
+	if (mult == 1.0 || mult <= 0.0 || !custom_present(TSW_LASERRIFLE) || (damagebits & DMG_BULLET) == 0 || inflictor != attacker
+		|| attacker < 1 || attacker > g_maxplayers || !is_user_connected(attacker))
+	{
+		return 1.0;
+	}
+	// The weapon TSX tracks for him, else the model in his hands, which a bot's entvars carry whether or not TSX is told.
+	new clip, spare, mode, extra;
+	new bool:laser = (ts_getuserwpn(attacker, clip, spare, mode, extra) == TSW_LASERRIFLE);
+	if (!laser)
+	{
+		new model[48];
+		pev(attacker, pev_weaponmodel2, model, charsmax(model));
+		laser = (containi(model, "laserrifle") != -1);
+	}
+	if (!laser)
+	{
+		return 1.0;
+	}
+	g_mech_laser_hits++;
+	return mult;
 }
 
 /*
@@ -11573,7 +12420,7 @@ cmd_player_unstick(id)
 			continue;
 		}
 		
-		// Try to push bot outward: base direction + ±45/±90/±180
+		// Try to push bot outward: base direction + +/-45/+/-90/+/-180
 		new Float:base_yaw = floatatan2(dy, dx, degrees);
 		new const Float:yaw_offsets[8] = { 0.0, 45.0, -45.0, 90.0, -90.0, 135.0, -135.0, 180.0 };
 		
@@ -11649,6 +12496,14 @@ cmd_mech_rocket(id)
 	{
 		client_print(id, print_chat, "[TSM] Only the Mech class can fire rockets.");
 		center_tell(id, "Only the Mech fires rockets.");
+		return;
+	}
+
+	// With the launcher in play the Mech carries a weapon and no longer an ability: .rocket only says so.
+	if (custom_present(TSM_WPN_ROCKET))
+	{
+		client_print(id, print_chat, "[TSM] The Mech carries a rocket launcher now: select it and fire. .rocket is retired.");
+		center_tell(id, "Your rocket launcher is a weapon now: select it and fire.");
 		return;
 	}
 
@@ -11758,6 +12613,195 @@ cmd_mech_rocket(id)
 	client_print(id, print_chat, "[TSM] Rocket fired! %d/%d used this life.", g_mech_rockets_used[id], TSM_MECH_ROCKET_MAX_USES);
 	center_tell(id, "Rocket %d of %d.", g_mech_rockets_used[id], TSM_MECH_ROCKET_MAX_USES);
 	dbg("Mech %d fired rocket at (%.0f,%.0f,%.0f) -- dmg %.0f radius %.0f", id, endpos[0], endpos[1], endpos[2], float(random_num(floatround(TSM_MECH_ROCKET_DAMAGE_MIN), floatround(TSM_MECH_ROCKET_DAMAGE_MAX))), TSM_MECH_ROCKET_RADIUS);
+}
+
+/*
+ * THE MECH ROCKET LAUNCHER'S EFFECTS (weapon 41 of H9's reTS): a large muzzle flash at the launch, a smoke trail behind
+ * the rocket and an explosion sprite where it ends. The game library has the weapon, its rocket and its damage; these
+ * are temporary entities this plugin sends for what it sees, each behind a cvar of its own (tsm_mech_rocket_flash,
+ * _smoke and _boom: 0 off, 1 the size the sprites were made for, more or less to scale it), so that a game library
+ * that draws one of them itself is not drawn over.
+ *
+ *   the launch   the shooter's clip falls (TS tells him with ClipInfo) while the launcher is in his hand
+ *   the rocket   an entity given the model models/h9/mechrocket.mdl (FM_SetModel); the trail is a follow beam on it
+ *   the end      the rocket's entity is gone: it went off where it was last seen
+ *
+ * The sprites are sprites/h9_rocket_flash.spr (4 frames), h9_rocket_smoke.spr (the trail's ribbon) and
+ * h9_rocket_boom.spr (16 frames), precached in plugin_precache; an effect whose file is not on disk is left out.
+ */
+
+/// One of the launcher's sprites played once at `org` as TE_EXPLOSION plays a sprite: `scale` times its picture's size,
+/// `fps` frames a second, `flags` the engine's own (the sound, lights and particles of an explosion unless they say not).
+rocket_burst(spr, Float:org[3], Float:scale, fps, flags)
+{
+	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+	write_byte(TE_EXPLOSION);
+	write_coord(floatround(org[0]));
+	write_coord(floatround(org[1]));
+	write_coord(floatround(org[2]));
+	write_short(spr);
+	write_byte(clamp(floatround(scale * 10.0), 1, 255));
+	write_byte(fps);
+	write_byte(flags);
+	message_end();
+}
+
+/// The launch: a large flash at the muzzle, ahead of the shooter's eye and low to the right where the pod's tubes end, with a short orange light.
+rocket_flash(id)
+{
+	new Float:scale = get_pcvar_float(g_cv_rk_flash);
+	if (scale <= 0.0 || !g_rk_flash_spr)
+	{
+		return;
+	}
+
+	new Float:eye[3], Float:ofs[3], Float:ang[3], Float:fwd[3], Float:rgt[3], Float:up[3], Float:muzzle[3];
+	pev(id, pev_origin, eye);
+	pev(id, pev_view_ofs, ofs);
+	pev(id, pev_v_angle, ang);
+	angle_vector(ang, ANGLEVECTOR_FORWARD, fwd);
+	angle_vector(ang, ANGLEVECTOR_RIGHT, rgt);
+	angle_vector(ang, ANGLEVECTOR_UP, up);
+	for (new k = 0; k < 3; k++)
+	{
+		muzzle[k] = eye[k] + ofs[k] + fwd[k] * 72.0 + rgt[k] * 20.0 - up[k] * 19.0;
+	}
+
+	rocket_burst(g_rk_flash_spr, muzzle, 0.55 * scale, 30, TE_EXPLFLAG_NODLIGHTS | TE_EXPLFLAG_NOSOUND | TE_EXPLFLAG_NOPARTICLES);
+
+	message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+	write_byte(TE_DLIGHT);
+	write_coord(floatround(muzzle[0]));
+	write_coord(floatround(muzzle[1]));
+	write_coord(floatround(muzzle[2]));
+	write_byte(22);    // radius, in 10s of units
+	write_byte(255);   // r
+	write_byte(170);   // g
+	write_byte(70);    // b
+	write_byte(3);     // life, in 10ths of a second
+	write_byte(20);    // decay rate
+	message_end();
+}
+
+/// A shot of the launcher. TS tells the shooter his clip with ClipInfo; a clip that falls while the launcher is in his
+/// hand is a launch. The clip is remembered only while he holds it, so a clip of another weapon is never compared.
+public msg_clipinfo(msg_id, msg_dest, msg_entity)
+{
+	new id = msg_entity;
+	if (id < 1 || id > g_maxplayers)
+	{
+		return PLUGIN_CONTINUE;
+	}
+
+	new clip, ammo, mode, extra;
+	if (ts_getuserwpn(id, clip, ammo, mode, extra) != TSM_WPN_ROCKET)
+	{
+		g_rk_clip[id] = -1;
+		return PLUGIN_CONTINUE;
+	}
+
+	new now = get_msg_arg_int(1);
+	new was = g_rk_clip[id];
+	g_rk_clip[id] = now;
+	if (was >= 0 && now < was)
+	{
+		rocket_flash(id);
+	}
+	return PLUGIN_CONTINUE;
+}
+
+/// A rocket is in the air: its smoke trail starts, and it is followed until it is gone.
+rocket_track(ent)
+{
+	new free = -1;
+	for (new i = 0; i < TSM_ROCKET_TRACK; i++)
+	{
+		if (g_rk_ent[i] == ent)
+		{
+			return;
+		}
+		if (free < 0 && !g_rk_ent[i])
+		{
+			free = i;
+		}
+	}
+	if (free < 0)
+	{
+		return;
+	}
+	g_rk_ent[free] = ent;
+	g_rk_n++;
+	pev(ent, pev_origin, g_rk_org[free]);
+
+	new Float:scale = get_pcvar_float(g_cv_rk_smoke);
+	if (scale > 0.0 && g_rk_smoke_spr)
+	{
+		message_begin(MSG_BROADCAST, SVC_TEMPENTITY);
+		write_byte(TE_BEAMFOLLOW);
+		write_short(ent);
+		write_short(g_rk_smoke_spr);
+		write_byte(25);                                       // life, in 10ths of a second: the trail lasts 2.5 s
+		write_byte(clamp(floatround(7.0 * scale), 1, 255));   // half the ribbon's width, in units
+		write_byte(220);                                      // r
+		write_byte(220);                                      // g
+		write_byte(230);                                      // b
+		write_byte(200);                                      // brightness
+		message_end();
+	}
+}
+
+/// The rocket is told by the model the game library gives it, as other games' grenades are.
+public fw_rocket_setmodel(ent, const model[])
+{
+	if (model[0] == 'm' && equal(model, TSM_ROCKET_MODEL))
+	{
+		rocket_track(ent);
+	}
+	return FMRES_IGNORED;
+}
+
+/// Every frame a rocket is in the air: where it is, and once it is gone the explosion where it was last seen.
+public fw_rocket_frame()
+{
+	if (!g_rk_n)
+	{
+		return FMRES_IGNORED;
+	}
+
+	new model[32];
+	for (new i = 0; i < TSM_ROCKET_TRACK; i++)
+	{
+		new ent = g_rk_ent[i];
+		if (!ent)
+		{
+			continue;
+		}
+
+		new bool:flying = false;
+		if (pev_valid(ent))
+		{
+			model[0] = 0;
+			pev(ent, pev_model, model, charsmax(model));
+			if (equal(model, TSM_ROCKET_MODEL))
+			{
+				pev(ent, pev_origin, g_rk_org[i]);
+				flying = !(pev(ent, pev_flags) & TSM_FL_KILLME);
+			}
+		}
+		if (flying)
+		{
+			continue;
+		}
+
+		g_rk_ent[i] = 0;
+		g_rk_n--;
+		new Float:scale = get_pcvar_float(g_cv_rk_boom);
+		if (scale > 0.0 && g_rk_boom_spr)
+		{
+			rocket_burst(g_rk_boom_spr, g_rk_org[i], 2.4 * scale, 20, TE_EXPLFLAG_NONE);
+		}
+	}
+	return FMRES_IGNORED;
 }
 
 /*
@@ -11929,6 +12973,14 @@ public cmd_cloak(id)
 		return;
 	}
 
+	// A carrier of an objective cannot cloak (see set_carrying).
+	if (g_carrying[id])
+	{
+		client_print(id, print_chat, "[TSM] You cannot cloak while you carry the objective.");
+		center_tell(id, "No cloak while you carry the objective.");
+		return;
+	}
+
 	/*
 	 * g_cloak_at is set on every toggle, cloak or uncloak, so by the time we get here with
 	 * g_cloaked[id] already false it holds the moment the LAST cloak ended -- exactly what a
@@ -11971,6 +13023,28 @@ public cmd_uncloak(id)
 	set_cloak(id, false);
 	client_print(id, print_chat, "[TSM] Uncloaked.");
 	center_tell(id, "Uncloaked.");
+}
+
+/*
+ * A mode plugin says whether a player carries its objective (tsm_set_carrying): a CTF flag, the uplink. The carrier is marked to both
+ * sides, so a cloak on him would hide nothing. Taking the objective ends the cloak there and then, with the sound and flash a hit that
+ * breaks it has, and cmd_cloak refuses him until he lets go. What the plugin cannot say in time is cleared here: a disconnect
+ * (player_left), a death, an elimination or a round no longer live (fw_postthink_post).
+ */
+set_carrying(id, bool:carrying)
+{
+	if (g_carrying[id] != carrying)
+	{
+		dbgv("carry: %d %s the objective", id, carrying ? "took" : "let go of");
+	}
+	g_carrying[id] = carrying;
+	if (!carrying || !g_cloaked[id])
+	{
+		return;
+	}
+
+	set_cloak(id, false);
+	client_print(id, print_chat, "[TSM] Carrying the objective breaks your cloak.");
 }
 
 /*
@@ -12078,6 +13152,22 @@ public cmd_ammo(id)
 		else if (ok)
 		{
 			full++;   // carried, wanted nothing: the caliber was already at its cap
+		}
+	}
+
+	// A Mech's spare past TS's cap goes to his bay (tsm_mech_ammo_mult).
+	if (g_mech_gun[id] > 0)
+	{
+		new gun = g_mech_gun[id];
+		new landed = ts_getuserammo(id, gun) - pre[gun];
+		new bay = mech_bay_add(id, 25, landed);
+		if (bay > 0)
+		{
+			rounds += bay;
+			if (landed < 1)
+			{
+				guns++;
+			}
 		}
 	}
 
@@ -12487,6 +13577,8 @@ public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
 		new ci = resolved_class(victim) - 1;
 		if (ci >= 0 && g_class_perk[ci] == TSM_PERK_MECH)
 		{
+			// The laser rifle hurts him more (tsm_mech_laser_mult); his armour then takes its share of that.
+			damage *= mech_laser_factor(inflictor, attacker, damagebits);
 			SetHamParamFloat(4, damage * 0.25);  // reduce damage by 75%
 			damage *= 0.25;
 		}
@@ -13152,6 +14244,17 @@ public task_mech_loop()
 #define TSM_PWUP_GRANT_SF    1073741824
 
 /*
+ * Is this player a bot that tsm_bot_powerups keeps off TS's powerups? While the match mode is on, 0
+ * (or less) bars every bot, as it does in rcbot (BotPowerupsAllowed, rcbot-patch CHANGE 10), which
+ * reads the same two cvars. A powerup this plugin grants asks it too: a grant is no touch -- the
+ * dllfunc(DLLFunc_Touch) in tsm_grant_powerup goes straight to the game library, past fw_touch.
+ */
+bool:bot_powerups_barred(id)
+{
+	return get_pcvar_num(g_cv_enabled) != 0 && get_pcvar_num(g_cv_botpowerups) <= 0 && is_user_bot(id) != 0;
+}
+
+/*
  * Gives a player a TS powerup at once, through TS's own pickup: the grant a powerup on the floor
  * makes when it is walked over (mp.dll RVA 0x6fcc0), so every type does what TS makes it do --
  * kung fu sets the player's flag and the PwUp icon, armor and health top up, a slow-motion type
@@ -13166,12 +14269,19 @@ public task_mech_loop()
  *
  * The powerup is spawned and touched in one frame, and TS's Touch removes it. True when TS took
  * it; false when it refused (a dead player, or a carried slow-motion type only +use swaps) or the
- * DLL is not the patched one. Nothing is left behind either way.
+ * DLL is not the patched one -- and for a bot that tsm_bot_powerups keeps off powerups, which is
+ * never handed one. Nothing is left behind either way.
  */
 bool:tsm_grant_powerup(id, type, duration = 60)
 {
 	if (!get_pcvar_num(g_cv_enabled) || !is_user_alive(id))
 	{
+		return false;
+	}
+
+	if (bot_powerups_barred(id))
+	{
+		dbgv("powerup %d is not granted to bot %d: tsm_bot_powerups is 0", type, id);
 		return false;
 	}
 
@@ -13209,6 +14319,8 @@ bool:tsm_grant_powerup(id, type, duration = 60)
  * The kung-fu powerup is handed to him through TS's own pickup (tsm_grant_powerup) -- not
  * bought, so weaponrestriction has no say in it. Until now the Officer's whole perk was the two
  * chat orders, which are invisible unless you already know they are there.
+ *
+ * A bot Officer is given none while tsm_bot_powerups keeps bots off powerups.
  */
 officer_powerup(id)
 {
@@ -13220,6 +14332,14 @@ officer_powerup(id)
 	new ci = resolved_class(id) - 1;
 	if (ci < 0 || g_class_perk[ci] != TSM_PERK_OFFICER)
 	{
+		return;
+	}
+
+	// tsm_grant_powerup refuses a bot kept off powerups as well; stopping here keeps that refusal out of the
+	// "TS refused it" log line below, which reports TS's own.
+	if (bot_powerups_barred(id))
+	{
+		dbgv("officer %d is a bot: no kung fu while tsm_bot_powerups is 0", id);
 		return;
 	}
 
@@ -14990,7 +16110,7 @@ squad_size(leader)
 /// clear spot found among the 8 candidates (base yaw + 8 offsets).
 bool:step_bot_to_ring(bot, Float:center[3], Float:base_yaw, Float:radius)
 {
-	// 8 yaw offsets: 0, ±45, ±90, ±135, 180 degrees from base_yaw
+	// 8 yaw offsets: 0, +/-45, +/-90, +/-135, 180 degrees from base_yaw
 	new const Float:yaw_offsets[8] = { 0.0, 45.0, -45.0, 90.0, -90.0, 135.0, -135.0, 180.0 };
 	
 	for (new i = 0; i < 8; i++)
@@ -15407,9 +16527,14 @@ public fw_touch(touched, toucher)
 	{
 		return FMRES_IGNORED;
 	}
+	// The Mech takes no weapon from the floor.
+	if (toucher >= 1 && toucher <= g_maxplayers && lr_touch_refused(touched, toucher))
+	{
+		return FMRES_SUPERCEDE;
+	}
 	// tsm_no_powerups takes them from everyone; tsm_bot_powerups 0 from the bots alone.
 	new bool:all_off = get_pcvar_num(g_cv_nopowerups) != 0;
-	new bool:bots_off = get_pcvar_num(g_cv_botpowerups) == 0;
+	new bool:bots_off = get_pcvar_num(g_cv_botpowerups) <= 0;
 	if (!all_off && !bots_off)
 	{
 		return FMRES_IGNORED;
@@ -15510,7 +16635,7 @@ breach_entity(id, ent)
 }
 
 /*
- * tsm_opendoor: forces open the door the admin is aiming at, locked or not.
+ * tsm_opendoor: works the door the admin is aiming at, locked or not: a shut door is forced open, an open one is shut.
  *
  * A door's lock is its master (the "master" keyvalue, usually a multisource). reTS
  * keeps it in the door's private data at 0xec, and CBaseDoor::DoorActivate (mp.dll
@@ -15537,7 +16662,7 @@ public cmd_opendoor(id, level, cid)
 	}
 	if (id < 1 || !is_user_connected(id))
 	{
-		console_print(id, "[TSM] tsm_opendoor opens the door a player is aiming at -- run it from a player's console.");
+		console_print(id, "[TSM] tsm_opendoor works the door a player is aiming at -- run it from a player's console.");
 		return PLUGIN_HANDLED;
 	}
 
@@ -15570,14 +16695,22 @@ public cmd_opendoor(id, level, cid)
 	}
 
 	new dstate = get_pdata_int(door, TSM_PD_DOOR_STATE);
-	if (dstate == 0 || dstate == 2)
+	if (dstate == 0)
 	{
-		console_print(id, "[TSM] That door is already open.");
+		// open at the top: shut by the door's own code, as a forced breach door is put back
+		breach_door_close(door);
+		console_print(id, "[TSM] Door %d (%s) is closing.", door, cls);
+		dbg("tsm_opendoor: %d shut door %d (%s)", id, door, cls);
+		return PLUGIN_HANDLED;
+	}
+	if (dstate == 2)
+	{
+		console_print(id, "[TSM] That door is still opening -- run it again once it is open to shut it.");
 		return PLUGIN_HANDLED;
 	}
 	if (dstate == 3)
 	{
-		console_print(id, "[TSM] That door is closing -- run it again once it has shut.");
+		console_print(id, "[TSM] That door is closing -- run it again once it has shut to open it.");
 		return PLUGIN_HANDLED;
 	}
 
@@ -17911,7 +19044,7 @@ start_wave_clocks()
 	// A mode that keeps one pool of lives for a side: each side's pool, sized by its players now.
 	pool_start();
 
-	// Per side: a claimed mode can give a side its own interval (wave_interval), and side 2
+	// Per side: a claimed mode can give a side its own interval (wave_interval), and the bots' side
 	// can wait for waves even with tsm_respawns 0 when the mode made it endless.
 	g_wave_left[1] = wave_interval(1);
 	g_wave_left[2] = wave_interval(2);
@@ -17929,6 +19062,7 @@ lives_reset_round()
 {
 	remove_task(TSM_TASK_WAVE);
 	wait_panels_close();
+	spec_notices_close();
 
 	new players[TSM_SLOTS], pnum, id;
 	get_players(players, pnum, g_pf);
@@ -18305,7 +19439,7 @@ public task_wave_tick()
 	for (new t = 1; t <= 2; t++)
 	{
 		// One side can lose its waves while the other keeps them -- tsm_respawns 0 under a
-		// mode whose side 2 is endless. Nobody left waiting on it may hold the round open.
+		// mode whose bots' side is endless. Nobody left waiting on it may hold the round open.
 		if (!side_respawns(t))
 		{
 			if (count_waiting(t) > 0)
@@ -18350,6 +19484,18 @@ public task_wave_tick()
 		if (team != 1 && team != 2)
 		{
 			continue;
+		}
+
+		// A mode that announces its own waves (Wave Survival) shows no Officer line and no shared countdown: only a player who is waiting for
+		// the side's respawn wave, with a life to come back with, is shown its timer and the list of who is waiting.
+		if (mode_flag(TSM_MODE_NO_REINFORCE))
+		{
+			new lives_now = mode_flag(TSM_MODE_LIFE_POOL) ? team_lives_left(team) : g_lives_left[id];
+			if (!g_revive_pending[id] || (lives_now < 1 && !side_endless(team)))
+			{
+				wait_panel_close(id);
+				continue;
+			}
 		}
 
 		new bool:waiting = g_revive_pending[id];
@@ -18498,6 +19644,7 @@ revive_player(id)
 	g_elim_at[id] = 0.0;
 	g_elim[id] = false;
 	g_spec_target[id] = 0;
+	spec_notice_close(id);
 	g_last_buttons[id] = 0;
 	g_pending_elim[id] = 0.0;
 
@@ -18615,6 +19762,7 @@ public task_revive_arm(taskid)
 		set_user_armor(id, g_class_ap[ci]);
 	}
 	g_armed[id] = true;
+	lr_revive_window(id);
 
 	// The Officer's kung fu, as at the round start: the spawn this revive made cleared the one he had, and only the round start gave it
 	// back, so an Officer who died and came back with a wave (every mode with waves, Capture the Flag and Assault where nobody is ever
@@ -19595,6 +20743,52 @@ public fw_prethink_post(id)
 }
 
 /*
+ * The droid hand set this player's model calls for, or -1 for none.
+ *
+ * A player the plugin draws with a class model is looked up by that model's index in g_droid_kind;
+ * one wearing the model TS picked for him by the kind read from his userinfo key (g_droid_ui).
+ * Kind 1 (an msrdroid) and 2 (an insdroid) name their set whatever side the wearer is on; kind 3,
+ * a droid by any other name, takes the droid set of his side and none when he has none. Two array
+ * reads a frame and no strings: the strings are read when a model is precached and when a
+ * userinfo key changes. A droid whose set was not precached still gets its set number here; the
+ * caller finds g_hand_swap empty for it and the side's set answers instead.
+ */
+droid_hand_set(id)
+{
+	new kind = 0;
+	new drawn = g_model_want_idx[id];
+	if (drawn > 0 && drawn < TSM_HAND_INDEX)
+	{
+		kind = g_droid_kind[drawn];
+	}
+	else
+	{
+		kind = g_droid_ui[id];
+	}
+
+	if (kind == 1)
+	{
+		return TSM_HAND_MSRDROID;
+	}
+	if (kind == 2)
+	{
+		return TSM_HAND_INSDROID;
+	}
+	if (kind == 3)
+	{
+		if (g_match_team[id] == 1)
+		{
+			return TSM_HAND_MSRDROID;
+		}
+		if (g_match_team[id] == 2)
+		{
+			return TSM_HAND_INSDROID;
+		}
+	}
+	return -1;
+}
+
+/*
  * The custom hands, written into the clientdata the server is about to send.
  *
  * CD_ViewModel is the model index the client draws in first person. The game DLL
@@ -19602,8 +20796,10 @@ public fw_prethink_post(id)
  * a custom copy. In a live match each side has its own: the MSR's hands (a blue cuff)
  * for side 1, the Insurgents' (a green cuff) for side 2. Anywhere else -- normal TS
  * play, where the match mode is off, and a player on neither side -- the default hands,
- * which have no stripe at all. The table was built in precache_hands(): stock index in,
- * per-set custom index out, so this is one array lookup, no string work and no
+ * which have no stripe at all. A player who wears a droid model (droid_hand_set) gets his
+ * droid's set instead of his side's, where that set has this weapon; a droid set missing or
+ * not precached leaves the side's set to answer. The table was built in precache_hands():
+ * stock index in, per-set custom index out, so this is one array lookup, no string work and no
  * pev_viewmodel2 fight with TS.
  *
  * h9_customhands 0 leaves the DLL's value untouched: TS's own hands.
@@ -19635,13 +20831,131 @@ public fw_updateclientdata_post(id, sendweapons, cd_handle)
 		}
 	}
 
-	new want = g_hand_swap[set][idx];
+	// The Mech's M60 is the minigun built into his arm; its side set (the colour of the band on the arm) follows the side
+	// the way every other viewmodel's hands do.
+	if (idx == g_m60_view_idx && g_mech_gun_view_idx > 0 && wears_mech(id))
+	{
+		idx = g_mech_gun_view_idx;
+		set_cd(cd_handle, CD_ViewModel, idx);
+	}
+
+	new want = 0;
+	new droid = droid_hand_set(id);
+	if (droid >= 0)
+	{
+		want = g_hand_swap[droid][idx];
+	}
+	if (want <= 0)
+	{
+		want = g_hand_swap[set][idx];
+	}
 	if (want > 0 && want != idx)
 	{
 		set_cd(cd_handle, CD_ViewModel, want);
 	}
 
 	return FMRES_IGNORED;
+}
+
+/*
+ * The Mech's M60 shot: a large muzzle flash at the barrels' end and a tracer from there to where the
+ * bullet lands. A shot is the weapon's clip going down between two frames, which is the one thing a
+ * TS gun does that no reload, switch or pickup does. At most one flash a 0.06 s, the M60's fire rate
+ * being far above what a viewer can tell apart.
+ */
+mech_gun_fx(id)
+{
+	new flash = get_pcvar_num(g_cv_mech_flash) && g_mech_flash_spr;
+	new trails = get_pcvar_num(g_cv_mech_trails) && g_mech_trail_spr;
+	if ((!flash && !trails) || !wears_mech(id))
+	{
+		g_mech_clip[id] = -1;
+		return;
+	}
+
+	new clip, ammo, mode, extra;
+	new wpn = ts_getuserwpn(id, clip, ammo, mode, extra);
+	new last = g_mech_clip[id];
+	new lastwpn = g_mech_clip_wpn[id];
+	g_mech_clip[id] = clip;
+	g_mech_clip_wpn[id] = wpn;
+	if (wpn != TSM_M60_WPN || lastwpn != wpn || last < 0 || clip >= last)
+	{
+		return;
+	}
+
+	new Float:now = get_gametime();
+	if (now - g_mech_fx_at[id] < 0.06)
+	{
+		return;
+	}
+	g_mech_fx_at[id] = now;
+
+	new Float:eye[3], Float:ofs[3], Float:ang[3];
+	pev(id, pev_origin, eye);
+	pev(id, pev_view_ofs, ofs);
+	pev(id, pev_v_angle, ang);
+	for (new k = 0; k < 3; k++)
+	{
+		eye[k] += ofs[k];
+	}
+
+	new Float:dir[3];
+	dir[0] = floatcos(ang[1], degrees) * floatcos(ang[0], degrees);
+	dir[1] = floatsin(ang[1], degrees) * floatcos(ang[0], degrees);
+	dir[2] = -floatsin(ang[0], degrees);
+
+	// out past the barrels, right of and below the eye, where the muzzle of the cannon built into the Mech's arm is drawn
+	new Float:muzzle[3];
+	muzzle[0] = eye[0] + dir[0] * 60.0 + floatsin(ang[1], degrees) * 14.5;
+	muzzle[1] = eye[1] + dir[1] * 60.0 - floatcos(ang[1], degrees) * 14.5;
+	muzzle[2] = eye[2] + dir[2] * 60.0 - 14.0;
+
+	if (flash)
+	{
+		message_begin_f(MSG_PVS, SVC_TEMPENTITY, muzzle);
+		write_byte(TE_SPRITE);
+		write_coord(floatround(muzzle[0]));
+		write_coord(floatround(muzzle[1]));
+		write_coord(floatround(muzzle[2]));
+		write_short(g_mech_flash_spr);
+		write_byte(clamp(floatround(get_pcvar_float(g_cv_mech_flash_scale) * 10.0), 1, 255));   // scale, tenths
+		write_byte(230);                // brightness
+		message_end();
+	}
+
+	if (trails)
+	{
+		new Float:dest[3];
+		for (new k = 0; k < 3; k++)
+		{
+			dest[k] = eye[k] + dir[k] * 4096.0;
+		}
+		engfunc(EngFunc_TraceLine, eye, dest, DONT_IGNORE_MONSTERS, id, 0);
+		new Float:endpos[3];
+		get_tr2(0, TR_vecEndPos, endpos);
+
+		message_begin_f(MSG_PVS, SVC_TEMPENTITY, muzzle);
+		write_byte(TE_BEAMPOINTS);
+		write_coord(floatround(muzzle[0]));
+		write_coord(floatround(muzzle[1]));
+		write_coord(floatround(muzzle[2]));
+		write_coord(floatround(endpos[0]));
+		write_coord(floatround(endpos[1]));
+		write_coord(floatround(endpos[2]));
+		write_short(g_mech_trail_spr);
+		write_byte(0);     // first frame
+		write_byte(10);    // frame rate
+		write_byte(1);     // life, tenths of a second
+		write_byte(4);     // width
+		write_byte(0);     // no noise: a straight line
+		write_byte(255);
+		write_byte(225);
+		write_byte(150);
+		write_byte(200);   // brightness
+		write_byte(0);     // scroll
+		message_end();
+	}
 }
 
 public fw_postthink_post(id)
@@ -19670,12 +20984,21 @@ public fw_postthink_post(id)
 	// or is let go, if he died or was hidden some other way meanwhile. See cloak_active().
 	cloak_bots_restore(id);
 
+	// A carry ends with the life and the round it began in. The mode plugin says so too; this is the net under it, so a mode that never
+	// does cannot keep a player from cloaking for good.
+	if (g_carrying[id] && (g_state != ST_LIVE || !player_in_play(id)))
+	{
+		g_carrying[id] = false;
+	}
+
 	// Same reason as the prethink guard: while TS is killing them, the entity is its
 	// to write, including the model the corpse is about to be built from.
 	if (pev(id, pev_deadflag) != TSM_DEAD_NO)
 	{
 		return FMRES_IGNORED;
 	}
+
+	mech_gun_fx(id);
 
 	/*
 	 * Defense in depth for the warmup/freeze hold. apply_freeze() (fw_prethink, the PRE
@@ -20124,6 +21447,21 @@ public fw_userinfo(id, buffer)
 	return FMRES_IGNORED;
 }
 
+/// The droid kind (droid_kind) of the model key in a player's userinfo, kept for droid_hand_set. Every
+/// userinfo change reaches here, so it follows a model TS or the player changes; it never runs per frame.
+droid_note_userinfo(id, buffer)
+{
+	if (id < 1 || id > g_maxplayers)
+	{
+		return;
+	}
+
+	new mdl[48];
+	mdl[0] = 0;
+	engfunc(EngFunc_InfoKeyValue, buffer, "model", mdl, charsmax(mdl));
+	g_droid_ui[id] = droid_kind(mdl);
+}
+
 /*
  * Writes the class model AFTER TS has written its own.
  *
@@ -20137,6 +21475,8 @@ public fw_userinfo(id, buffer)
  */
 public fw_userinfo_post(id, buffer)
 {
+	droid_note_userinfo(id, buffer);
+
 	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_modelpost))
 	{
 		return FMRES_IGNORED;
@@ -20454,17 +21794,24 @@ public fw_prethink(id)
 	// on the walker's own client as well as in the world.
 	if (is_user_alive(id) && wears_mech(id))
 	{
-		// The M60 hanging off the mech model, out of sight for good. TS redraws
-		// the attachment whenever the carried weapon changes, so this is not a
-		// one-shot hide: prethink clears it every frame and wins by constant
-		// repetition rather than by catching it once. Both cosmetic pairs are
-		// zeroed -- the on-body mesh TS attaches (weaponmodel) and the first-person
-		// in-hand mesh (viewmodel). The weapon itself is untouched; only its
-		// pictures are gone.
+		// The weapon hanging off the mech model, out of sight for good: the guns are part
+		// of the model. TS redraws the attachment whenever the carried weapon changes, so
+		// this is not a one-shot hide: prethink clears it every frame and wins by constant
+		// repetition rather than by catching it once. The on-body mesh TS attaches
+		// (weaponmodel) is always zeroed. The first-person in-hand mesh (viewmodel) stands
+		// while he holds the launcher or his M60 (mech_view_stands: fw_updateclientdata_post
+		// puts the arm built into his model in place of the stock M60 view model) and is
+		// zeroed for any other weapon. The weapon itself is untouched; only its pictures
+		// are gone.
 		set_pev(id, pev_weaponmodel, 0);
 		set_pev(id, pev_weaponmodel2, "");
-		set_pev(id, pev_viewmodel, 0);
-		set_pev(id, pev_viewmodel2, "");
+		if (!mech_view_stands(id))
+		{
+			set_pev(id, pev_viewmodel, 0);
+			set_pev(id, pev_viewmodel2, "");
+		}
+
+		lr_mech_prethink(id);
 
 		new mechhp = get_user_health(id);
 
@@ -22511,7 +23858,7 @@ end_round(winner)
 
 	g_state = ST_ROUNDEND;
 	remove_task(2);
-	remove_task(4);
+	cancel_round_end_tasks();
 	lives_reset_round();
 
 	// Cleared here as well, so a round ended any OTHER way (time up, a forfeit, an
@@ -22526,13 +23873,13 @@ end_round(winner)
 		g_score[winner]++;
 		new wonname[32];
 		team_display(winner, wonname, charsmax(wonname));
-		if (!one_round)
+		if (!one_round && !mode_flag(TSM_MODE_NO_ROUNDS))
 		{
 			all_print("[MATCH] Round %d won by %s. Score: %d -- %d.",
 				g_round, wonname, g_score[1], g_score[2]);
 		}
 	}
-	else if (!one_round)
+	else if (!one_round && !mode_flag(TSM_MODE_NO_ROUNDS))
 	{
 		all_print("[MATCH] Round %d drawn. Score: %d -- %d.", g_round, g_score[1], g_score[2]);
 	}
@@ -22554,11 +23901,13 @@ end_round(winner)
 	// with the round's winner for the match's.
 	if (mode_flag(TSM_MODE_ONE_RUN) || one_round || g_score[1] >= need || g_score[2] >= need)
 	{
-		set_task(3.0, "task_match_end", 4);
+		set_task(3.0, "task_match_end", TSM_TASK_MATCHEND);
+		endpath_log("round ended, the match ends in 3s");
 	}
 	else
 	{
-		set_task(3.0, "task_next_round", 4);
+		set_task(3.0, "task_next_round", TSM_TASK_NEXTROUND);
+		endpath_log("round ended, the next round starts in 3s");
 	}
 }
 
@@ -22570,6 +23919,8 @@ public task_next_round()
 public task_match_end()
 {
 	g_state = ST_MATCHEND;
+	// Scheduled before anything else here: the warmup is the only way out of this state, so nothing below may be able to strand it.
+	schedule_to_warmup("match end reached, warmup in 5s");
 	new w = 0;
 	if (mode_flag(TSM_MODE_ONE_RUN))
 	{
@@ -22627,7 +23978,6 @@ public task_match_end()
 		bar_set(0, 220, 120, -1, 0.0, "MATCH OVER -- %s WINS^n%s %d  --  %d %s", ws, t1, g_score[1], g_score[2], t2);
 	}
 	match_end_reset();
-	set_task(5.0, "task_to_warmup");
 
 	// The one way a match ends played out to the finish. A forfeit and an emptied side send
 	// tsm_match_forfeit instead (match_forfeited); a cancel sends nothing.
@@ -22686,6 +24036,7 @@ clear_match_state()
 		g_arm_pending[i] = 0;
 		g_issuing[i] = false;
 		g_cash_lend[i] = false;
+		lr_forget(i);
 		g_elim[i] = false;
 		g_m60_skip[i] = -1;
 		g_mech_hp_watch[i] = 0;
@@ -22830,6 +24181,21 @@ public task_unpark_bots()
 
 public task_to_warmup()
 {
+	// Runs once, for a match that is still at its end. A late run (an admin started or cancelled a match in the five
+	// seconds) or a second one finds another state and leaves it alone.
+	if (g_state != ST_MATCHEND)
+	{
+		endpath_log("task_to_warmup skipped: the match is no longer at its end");
+		return;
+	}
+	enter_warmup("task_to_warmup");
+}
+
+/// A match that is over, put back to warmup: the one body of task_to_warmup and of the forced return.
+enter_warmup(const why[])
+{
+	remove_task(TSM_TASK_TOWARMUP);
+
 	// The match is over, so the lockout ends here -- everyone becomes eligible again.
 	clear_match_state();
 	turrets_clear();
@@ -22849,6 +24215,229 @@ public task_to_warmup()
 	else
 	{
 		all_print("[MATCH] Back in warmup. The next match starts by itself.");
+	}
+
+	new msg[128];
+	formatex(msg, charsmax(msg), "warmup entered by %s", why);
+	endpath_log(msg);
+}
+
+/*
+ * THE END-OF-MATCH PATH'S BOOKKEEPING.
+ *
+ * The states after a round (ST_ROUNDEND) and after a match (ST_MATCHEND) are left by a task each, and
+ * warmup is the only way on from either: a person's side pick is refused in every state but warmup and
+ * ready-up. So whatever strands one of those states strands the room, and these keep it from lasting.
+ */
+
+/// The name of a match state, for the log.
+state_name(st, out[], len)
+{
+	switch (st)
+	{
+		case ST_WARMUP:   copy(out, len, "warmup");
+		case ST_READYUP:  copy(out, len, "readyup");
+		case ST_FREEZE:   copy(out, len, "freeze");
+		case ST_LIVE:     copy(out, len, "live");
+		case ST_ROUNDEND: copy(out, len, "roundend");
+		case ST_MATCHEND: copy(out, len, "matchend");
+		default:          copy(out, len, "?");
+	}
+}
+
+/// One log line at a state transition of the end-of-match path: what happened, the state, the score, the pending
+/// follow-up tasks and who is there. tsm_logging 1 writes it to the AMXX log, tsm_debug_log 1 also to tsm_debug.log.
+endpath_log(const what[])
+{
+	if (g_cv_logging == 0 || !get_pcvar_num(g_cv_logging))
+	{
+		return;
+	}
+
+	new players[TSM_SLOTS], pnum, h1 = 0, h2 = 0, sname[12];
+	get_players(players, pnum, "c");   // people only
+	for (new i = 0; i < pnum; i++)
+	{
+		if (g_side[players[i]] == 1)
+		{
+			h1++;
+		}
+		else if (g_side[players[i]] == 2)
+		{
+			h2++;
+		}
+	}
+	state_name(g_state, sname, charsmax(sname));
+
+	new msg[250];
+	formatex(msg, charsmax(msg),
+		"[TSM] END-PATH %s | state=%s round=%d score=%d-%d tasks(matchend=%d nextround=%d towarmup=%d) humans(connected=%d side1=%d side2=%d) halted=%d rtv=%d",
+		what, sname, g_round, g_score[1], g_score[2],
+		task_exists(TSM_TASK_MATCHEND) ? 1 : 0, task_exists(TSM_TASK_NEXTROUND) ? 1 : 0, task_exists(TSM_TASK_TOWARMUP) ? 1 : 0,
+		pnum, h1, h2, g_halted ? 1 : 0, rtv_vote_running());
+	tlog("%s", msg);
+	dbg("%s", msg);
+}
+
+/// A match has just entered ST_MATCHEND: its warmup follows in five seconds, on a task id of its own, only once.
+schedule_to_warmup(const why[])
+{
+	remove_task(TSM_TASK_TOWARMUP);
+	set_task(5.0, "task_to_warmup", TSM_TASK_TOWARMUP);
+	endpath_log(why);
+}
+
+/// Cancels what a round's end has pending: the next round, or the match's end.
+cancel_round_end_tasks()
+{
+	remove_task(TSM_TASK_NEXTROUND);
+	remove_task(TSM_TASK_MATCHEND);
+}
+
+/// Is a task pending that will move a round's or a match's end on?
+bool:end_task_pending()
+{
+	return (task_exists(TSM_TASK_MATCHEND) || task_exists(TSM_TASK_NEXTROUND) || task_exists(TSM_TASK_TOWARMUP));
+}
+
+/// People holding a side, by the side they belong to for the match (g_side), eliminated or not.
+humans_on_sides()
+{
+	return count_humans_on_team(1) + count_humans_on_team(2);
+}
+
+/// Any state back to warmup, as amx_match_cancel does it: the timers stopped, everyone released, the match's
+/// state wiped, everyone benched with the side menu on its way.
+force_warmup(const why[])
+{
+	new msg[128];
+	formatex(msg, charsmax(msg), "FORCED WARMUP, %s", why);
+	endpath_log(msg);
+
+	remove_task(2);
+	remove_task(3);
+	remove_task(5);
+	remove_task(14);
+	cancel_round_end_tasks();
+	g_freeze_left = 0;
+	g_round_left = 0;
+	g_end_pending_at = 0.0;
+	g_end_pending_winner = 0;
+	lives_reset_round();
+
+	// Restore first, then wipe: restore_all() reads g_elim to decide who to put back.
+	restore_all();
+	enter_warmup(msg);
+}
+
+/// A person asks for a side where the plugin refuses one. True when it found the state one that nothing will leave
+/// and put everyone back in warmup (the caller then does nothing more): a round's or match's end with no task pending,
+/// or a round in progress that no person holds a side in. Off with tsm_end_watchdog 0.
+bool:stranded_recover(id, const where[])
+{
+	new ask[96];
+	formatex(ask, charsmax(ask), "player %d asked for a side (%s) outside warmup", id, where);
+	endpath_log(ask);
+
+	if (!get_pcvar_num(g_cv_endwatch))
+	{
+		return false;
+	}
+
+	if (g_state == ST_ROUNDEND || g_state == ST_MATCHEND)
+	{
+		if (end_task_pending())
+		{
+			return false;
+		}
+	}
+	else if (g_state == ST_FREEZE || g_state == ST_LIVE)
+	{
+		if (humans_on_sides() > 0)
+		{
+			return false;
+		}
+	}
+	else
+	{
+		return false;
+	}
+
+	force_warmup("a side was asked for in a state nothing will leave");
+	return true;
+}
+
+/// A no-clock mode's round (a survival run) that cannot end by itself: it went live with a side empty, so the
+/// round-end check is suspended, and no person is left in play to change that.
+bool:run_cannot_end()
+{
+	if (g_state != ST_LIVE || !mode_flag(TSM_MODE_NO_CLOCK) || (g_start_alive[1] && g_start_alive[2]))
+	{
+		return false;
+	}
+
+	new players[TSM_SLOTS], pnum, id;
+	get_players(players, pnum, "c");
+	for (new i = 0; i < pnum; i++)
+	{
+		id = players[i];
+		if ((g_match_team[id] == 1 || g_match_team[id] == 2) && ((!g_elim[id] && is_user_alive(id)) || g_revive_pending[id]))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/// Called every second by task_tick.
+///  - A round's or match's end that has stood tsm_end_watchdog seconds with nothing pending to leave it is
+///    forced back to warmup.
+///  - A no-clock run that cannot end by itself and has nobody left in play for as long is ended as a lost run.
+///  - The side menu's wait for the map vote is counted from its first ask; this ends the count when the vote is over.
+end_watchdog()
+{
+	if (g_rtv_hold_since > 0.0 && rtv_vote_running() == 0)
+	{
+		g_rtv_hold_since = 0.0;
+	}
+
+	new limit = get_pcvar_num(g_cv_endwatch);
+	new Float:now = get_gametime();
+
+	if (g_state == ST_ROUNDEND || g_state == ST_MATCHEND)
+	{
+		if (g_endphase_since <= 0.0)
+		{
+			g_endphase_since = now;
+		}
+		else if (limit > 0 && now - g_endphase_since > float(limit) && !end_task_pending())
+		{
+			g_endphase_since = 0.0;
+			force_warmup("the round or match end has stood too long with nothing pending to leave it");
+			return;
+		}
+	}
+	else
+	{
+		g_endphase_since = 0.0;
+	}
+
+	if (limit > 0 && run_cannot_end())
+	{
+		if (g_stranded_since <= 0.0)
+		{
+			g_stranded_since = now;
+		}
+		else if (now - g_stranded_since > float(limit))
+		{
+			g_stranded_since = 0.0;
+			endpath_log("no-clock run cannot end by itself and nobody is in play, ending it");
+			end_round(0);
+		}
+	}
+	else
+	{
+		g_stranded_since = 0.0;
 	}
 }
 
@@ -22964,6 +24553,42 @@ public cmd_fogtest(id, level, cid)
 /// never go stale. Client commands have no such lookup in AMXX -- get_clcmd has no plugin-id
 /// filter the way get_concmd does -- so that half is named by hand. Keep it matching every
 /// register_clcmd( call in plugin_init if one is ever added, removed or renamed.
+/// tsm_cvars [prefix]: every cvar a loaded plugin registered whose name starts with the prefix (tsm_ when none is given), with its value.
+public cmd_cvars(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+	new prefix[32];
+	if (read_argc() > 1)
+	{
+		read_argv(1, prefix, charsmax(prefix));
+	}
+	else
+	{
+		copy(prefix, charsmax(prefix), "tsm_");
+	}
+	new total = get_plugins_cvarsnum(), shown = 0;
+	new name[48], value[64], flags, plid, handle, info[8];
+	for (new i = 0; i < total; i++)
+	{
+		if (!get_plugins_cvar(i, name, charsmax(name), flags, plid, handle, info, charsmax(info)))
+		{
+			continue;
+		}
+		if (!equal(name, prefix, strlen(prefix)))
+		{
+			continue;
+		}
+		get_cvar_string(name, value, charsmax(value));
+		console_print(id, "  %-34s ^"%s^"", name, value);
+		shown++;
+	}
+	console_print(id, "[TSM] %d cvar(s) start with %s", shown, prefix);
+	return PLUGIN_HANDLED;
+}
+
 public cmd_commands(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 1))
@@ -23190,6 +24815,23 @@ public task_finish_round_start()
 	finish_round_start();
 }
 
+/// How many seconds the freeze that is starting lasts: tsm_freezetime, and at least tsm_lr_freeze for the freeze that opens a match
+/// (round 1, which the live gate starts) while the loadout rework is on. That is the freeze in which a player picks his class and
+/// buys his loadout, which every later round then keeps; the rounds after it are as long as tsm_freezetime says.
+freeze_seconds()
+{
+	new secs = get_pcvar_num(g_cv_freeze);
+	if (g_round == 1 && get_pcvar_num(g_cv_lr))
+	{
+		new first = get_pcvar_num(g_cv_lr_freeze);
+		if (first > secs)
+		{
+			secs = first;
+		}
+	}
+	return secs;
+}
+
 finish_round_start()
 {
 	/*
@@ -23197,7 +24839,9 @@ finish_round_start()
 	 * and it can only do that when the state is already FREEZE at the moment it is called.
 	 */
 	g_state = ST_FREEZE;
-	g_freeze_left = get_pcvar_num(g_cv_freeze);
+	new freeze_secs = freeze_seconds();
+	g_freeze_left = freeze_secs;
+	endpath_log("freeze entered");
 
 	new players[TSM_SLOTS], pnum, id, still_dead = 0;
 	get_players(players, pnum, g_pf);
@@ -23324,14 +24968,15 @@ finish_round_start()
 	}
 	g_gate_deadline = 0.0;
 	g_flow_deadline = 0.0;
+	lr_round_start();
 
-	if (mode_flag(TSM_MODE_ONE_ROUND))
+	if (mode_flag(TSM_MODE_ONE_ROUND) || mode_flag(TSM_MODE_NO_ROUNDS))
 	{
-		all_print("[MATCH] Match starting -- %d second freeze.", get_pcvar_num(g_cv_freeze));
+		all_print("[MATCH] Match starting -- %d second freeze.", freeze_secs);
 	}
 	else
 	{
-		all_print("[MATCH] Round %d starting -- %d second freeze.", g_round, get_pcvar_num(g_cv_freeze));
+		all_print("[MATCH] Round %d starting -- %d second freeze.", g_round, freeze_secs);
 	}
 
 	// A freeze with no visible timer reads as the server having hung, even when it
@@ -23360,14 +25005,14 @@ finish_round_start()
 	remove_task(3);
 	set_task(1.0, "task_freeze_tick", 3, "", 0, "b");
 
-	set_task(float(get_pcvar_num(g_cv_freeze)), "task_go_live");
+	set_task(float(freeze_secs), "task_go_live");
 	// the first number is on the screen from the start of the freeze, not a second into it
-	if (get_pcvar_num(g_cv_freeze) > 1)
+	if (freeze_secs > 1)
 	{
-		freeze_countdown_show(get_pcvar_num(g_cv_freeze));
+		freeze_countdown_show(freeze_secs);
 	}
 
-	tlog("[TSM] finish_round_start: scheduling sound tasks (freeze=%d)", get_pcvar_num(g_cv_freeze));
+	tlog("[TSM] finish_round_start: scheduling sound tasks (freeze=%d)", freeze_secs);
 
 	/*
 	 * THE TEAM OBJECTIVE BANNERS, ONE SECOND IN.
@@ -23952,9 +25597,93 @@ freeze_countdown_show(left)
 	team_short(2, ft2, charsmax(ft2));
 	new fsl[96];
 	score_line(ft1, ft2, fsl, charsmax(fsl));
-	bar_hud("%s^nStarting in %d...^n^n%s", g_round_tag, left, fsl);
-	bar_set(255, 180, 0, left, get_gametime() + float(left),
-		"%s -- STARTING IN {s}^n%s", g_round_tag, fsl);
+	if (g_round_tag[0])
+	{
+		bar_hud("%s^nStarting in %d...^n^n%s", g_round_tag, left, fsl);
+		bar_set(255, 180, 0, left, get_gametime() + float(left),
+			"%s -- STARTING IN {s}^n%s", g_round_tag, fsl);
+	}
+	else
+	{
+		bar_hud("Starting in %d...^n^n%s", left, fsl);
+		bar_set(255, 180, 0, left, get_gametime() + float(left),
+			"STARTING IN {s}^n%s", fsl);
+	}
+}
+
+/*
+ * THE SPECTATOR'S NOTICE. What a player out of the round reads on his screen -- his side, the teammate he is watching and the
+ * key that changes who -- is the hudmessage of show_spectator_hud() for every game but an H9 one. An H9 game has it as a framed
+ * notice in the slot tsm.spec, centred at the hudmessage's height, while he follows a teammate. It is a notice and not a
+ * status because a status is always drawn in the top stack, ahead of the notices and right under the match bar (which carries
+ * the freeze countdown), where it would push the wave countdown down; a notice at this height is drawn on its own, below the
+ * stack and the crosshair.
+ *
+ * A notice runs out after its hold, so it is sent when what it says changes and again once it is TSM_SPECNOTE_RENEW seconds
+ * old, and an empty one takes it down at the moment its player stops following a teammate.
+ */
+#define TSM_SPECNOTE_SLOT   "tsm.spec"
+#define TSM_SPECNOTE_Y      0.72    // the height of the hudmessage, and of the notice
+#define TSM_SPECNOTE_HOLD   20.0    // seconds the notice stays up if nothing renews it
+#define TSM_SPECNOTE_RENEW  15.0    // the age at which a notice still wanted is sent again, inside its hold
+
+/// The notice on one H9 player's screen: his side, the teammate he is watching and the key that changes who, in his side's
+/// colour (the match bar's purple for a spectator with no side). Sent when its text or colour changes and when the last copy
+/// is TSM_SPECNOTE_RENEW seconds old, so the one on his screen does not run out while he is still watching.
+spec_notice_show(id, const side[], const followed[])
+{
+	new text[144];
+	formatex(text, charsmax(text), "Your side: %s^nWatching: %s^nAttack to switch player", side, followed);
+
+	// Blue and red are the two sides' colours in every other notice.
+	new r = 186, g = 116, b = 255;
+	if (g_match_team[id] == 1)
+	{
+		r = 0;
+		g = 170;
+		b = 255;
+	}
+	else if (g_match_team[id] == 2)
+	{
+		r = 255;
+		g = 70;
+		b = 60;
+	}
+
+	new sig = ((h9vgui_crc16(text) << 12) ^ (strlen(text) << 4) ^ (r << 16) ^ (g << 8) ^ b) | 1;
+	new Float:now = get_gametime();
+	if (sig == g_spec_sig[id] && now >= g_spec_sent_at[id] && now - g_spec_sent_at[id] < TSM_SPECNOTE_RENEW)
+	{
+		return;
+	}
+	g_spec_sig[id] = sig;
+	g_spec_sent_at[id] = now;
+	dbgv("spec notice: sent to %d, watching %s", id, followed);
+	h9vgui_alert(id, TSM_SPECNOTE_SLOT, H9V_NOTICE_BANNER, text, r, g, b, TSM_SPECNOTE_Y, TSM_SPECNOTE_HOLD, 0.5);
+}
+
+/// His notice comes down, if one is up: an empty text clears its slot. A game that has none up is sent nothing.
+spec_notice_close(id)
+{
+	if (!g_spec_sig[id])
+	{
+		return;
+	}
+	g_spec_sig[id] = 0;
+	dbgv("spec notice: taken down for %d", id);
+	if (h9vgui_supported(id))
+	{
+		h9vgui_alert(id, TSM_SPECNOTE_SLOT, H9V_NOTICE_BANNER, "", 0, 0, 0, TSM_SPECNOTE_Y, 0.0, 0.0);
+	}
+}
+
+/// Every notice down: they belong to a live round.
+spec_notices_close()
+{
+	for (new i = 1; i <= g_maxplayers; i++)
+	{
+		spec_notice_close(i);
+	}
 }
 
 /// Score and round shown on its own HUD channel so it cannot stomp the countdown.
@@ -23981,6 +25710,7 @@ show_spectator_hud()
 		new bool:watching = (g_elim[id] || g_locked_out[id] || is_spectating(id));
 		if (!watching)
 		{
+			spec_notice_close(id);
 			continue;
 		}
 
@@ -24004,6 +25734,22 @@ show_spectator_hud()
 		{
 			copy(watching_name, charsmax(watching_name), "nobody");
 		}
+
+		// An H9 game has this as the notice of spec_notice_show(), while he is following a teammate (not roaming, and not left
+		// with nobody to watch); the hudmessage below is every other game's, redrawn every second.
+		if (h9vgui_supported(id))
+		{
+			if (!g_roaming[id] && target && is_user_connected(target))
+			{
+				spec_notice_show(id, side, watching_name);
+			}
+			else
+			{
+				spec_notice_close(id);
+			}
+			continue;
+		}
+		g_spec_sig[id] = 0;
 
 		// Channel 3, which the live round does not otherwise use -- the round timer is
 		// on 1 and transient banners on 4.
@@ -24031,14 +25777,13 @@ show_round_timer()
 	if (mode_flag(TSM_MODE_NO_CLOCK))
 	{
 		set_hudmessage(186, 116, 255, -1.0, 0.03, 0, 0.0, 1.5, 0.0, 0.0, 1);
+		new head[80];
+		copy(head, charsmax(head), g_round_tag);
 		if (g_mode_hud[0])
 		{
-			bar_hud("%s -- %s^n%s", g_round_tag, g_mode_hud, sl);
+			line_add(head, charsmax(head), g_mode_hud);
 		}
-		else
-		{
-			bar_hud("%s^n%s", g_round_tag, sl);
-		}
+		bar_hud("%s^n%s", head, sl);
 		bar_round(t1, t2, -1);
 		return;
 	}
@@ -24061,14 +25806,15 @@ show_round_timer()
 	if (get_pcvar_num(g_cv_roundtime) > 0)
 	{
 		// A mode's own text rides after the time ("ZONES 2 - 1").
+		new head[96], tm[8];
+		copy(head, charsmax(head), g_round_tag);
+		formatex(tm, charsmax(tm), "%d:%02d", mins, secs);
+		line_add(head, charsmax(head), tm);
 		if (g_mode_hud[0])
 		{
-			bar_hud("%s -- %d:%02d -- %s^n%s", g_round_tag, mins, secs, g_mode_hud, sl);
+			line_add(head, charsmax(head), g_mode_hud);
 		}
-		else
-		{
-			bar_hud("%s -- %d:%02d^n%s", g_round_tag, mins, secs, sl);
-		}
+		bar_hud("%s^n%s", head, sl);
 		bar_round(t1, t2, g_round_left);
 
 		if (g_round_left <= 0)
@@ -24157,22 +25903,19 @@ bar_round(const t1[], const t2[], left)
 			"%s^n%s", g_count_text, sl);
 		return;
 	}
-	new line[96], len = 0;
+	new line[96];
+	copy(line, charsmax(line), g_round_tag);
 	if (left >= 0)
 	{
-		len = formatex(line, charsmax(line), "%s -- {t}", g_round_tag);
-	}
-	else
-	{
-		len = formatex(line, charsmax(line), "%s", g_round_tag);
+		line_add(line, charsmax(line), "{t}");
 	}
 	if (g_mode_hud[0])
 	{
-		len += formatex(line[len], charsmax(line) - len, " -- %s", g_mode_hud);
+		line_add(line, charsmax(line), g_mode_hud);
 	}
 	if (g_sudden)
 	{
-		len += formatex(line[len], charsmax(line) - len, " -- SUDDEN DEATH");
+		line_add(line, charsmax(line), "SUDDEN DEATH");
 	}
 	// Red for the last fifteen seconds, as the round line is.
 	if (left >= 0 && left <= 15)
@@ -24193,9 +25936,9 @@ bar_result(winner)
 	team_short(1, t1, charsmax(t1));
 	team_short(2, t2, charsmax(t2));
 	new need = max(1, (get_pcvar_num(g_cv_rounds) / 2) + 1);
-	if (mode_flag(TSM_MODE_ONE_ROUND))
+	if (mode_flag(TSM_MODE_ONE_ROUND) || mode_flag(TSM_MODE_NO_ROUNDS))
 	{
-		// The match is this round: who won it, over the mode's own line (or the sides), and nothing of a tally.
+		// The match is this round, or the mode counts none: who won it, over the mode's own line (or the sides), and nothing of a tally.
 		new res[96];
 		if (g_mode_hud[0])
 		{
@@ -24517,9 +26260,9 @@ public task_team_badum()
 
 show_score_hud()
 {
-	if (mode_flag(TSM_MODE_ONE_ROUND))
+	if (mode_flag(TSM_MODE_ONE_ROUND) || mode_flag(TSM_MODE_NO_ROUNDS))
 	{
-		return;   // no tally of rounds in a match that is one round
+		return;   // no tally of rounds in a match that is one round, or in a mode that counts none
 	}
 	set_hudmessage(0, 220, 120, -1.0, 0.18, 0, 0.0, 4.0, 0.2, 0.3, 3);
 	bar_hud("Round %d  --  %d : %d  (first to %d).",
@@ -24649,8 +26392,11 @@ public task_go_live()
 		tlog("[TSM] go-live force-arm: %d was still unarmed.", id);
 	}
 
+	lr_close_all();
+
 	remove_task(3);
 	g_state = ST_LIVE;
+	endpath_log("live entered");
 
 	// Hand control back. Logged, because "are players actually being released"
 	// has been guesswork twice and the log can simply answer it.
@@ -25123,7 +26869,7 @@ public native_mode_claim(plugin, params)
 	refresh_gamedesc();
 
 	// rcbot evens its own bots across the two sides, which would keep pulling them back off
-	// side 2. The bots-on push in the tick reads the claim too, so it cannot undo this.
+	// the bots' side. The bots-on push in the tick reads the claim too, so it cannot undo this.
 	if (mode_flag(TSM_MODE_SIDE2_BOTS))
 	{
 		server_cmd("rcbot config balance_teams 0");
@@ -25295,6 +27041,62 @@ public native_side_of(plugin, params)
 	return (g_side[id] == 1 || g_side[id] == 2) ? g_side[id] : 0;
 }
 
+/// tsm_bot_side(): the side the bots-only and endless claim flags speak of, 2 unless a mode moved it.
+public native_bot_side(plugin, params)
+{
+	return bot_side();
+}
+
+/// tsm_set_bot_side(side): moves it to 1 or 2 (anything else is ignored). A mode sets it before it claims. 1 when it was set.
+public native_set_bot_side(plugin, params)
+{
+	new side = get_param(1);
+	if (side != 1 && side != 2)
+	{
+		return 0;
+	}
+	g_bot_side = side;
+	sync_spawn_roles();
+	return 1;
+}
+
+/// A map's spawn tables are by role (team 1 the people's area, team 2 the bots'), so with the bots on side 1 the tables change places.
+sync_spawn_roles()
+{
+	if ((g_bot_side == 1) == g_spawns_swapped)
+	{
+		return;
+	}
+	g_spawns_swapped = !g_spawns_swapped;
+	new Float:v[3], t, n;
+	for (new i = 0; i < TSM_MAXSPAWNS; i++)
+	{
+		copy_vec(v, g_spawn_t1[i]);
+		copy_vec(g_spawn_t1[i], g_spawn_t2[i]);
+		copy_vec(g_spawn_t2[i], v);
+		copy_vec(v, g_ang_t1[i]);
+		copy_vec(g_ang_t1[i], g_ang_t2[i]);
+		copy_vec(g_ang_t2[i], v);
+		t = g_spawn_t1_tier[i];
+		g_spawn_t1_tier[i] = g_spawn_t2_tier[i];
+		g_spawn_t2_tier[i] = t;
+	}
+	n = g_spawn_t1_count;
+	g_spawn_t1_count = g_spawn_t2_count;
+	g_spawn_t2_count = n;
+}
+
+/// tsm_fog(on): the sudden-death fog, on or off, for a claimed mode that brings the bog without sudden death.
+public native_fog(plugin, params)
+{
+	if (!g_mode_name[0])
+	{
+		return 0;
+	}
+	sudden_fog(get_param(1) ? true : false);
+	return 1;
+}
+
 /// Alive, on a side, not eliminated and not sitting the match out: what tsm_in_play answers.
 bool:player_in_play(id)
 {
@@ -25331,6 +27133,24 @@ public native_shown(plugin, params)
 		return 0;
 	}
 	return (g_state == ST_FREEZE || g_state == ST_LIVE || g_state == ST_ROUNDEND) ? 1 : 0;
+}
+
+/// tsm_set_carrying(id, carrying): whether a player carries the mode's objective (set_carrying). A carrier cannot cloak, and taking the
+/// objective uncloaks him. Saying the same thing twice changes nothing.
+public native_set_carrying(plugin, params)
+{
+	new id = get_param(1);
+	if (id < 1 || id > g_maxplayers)
+	{
+		return 0;
+	}
+	new bool:carrying = (get_param(2) != 0);
+	if (carrying && !is_user_connected(id))
+	{
+		return 0;
+	}
+	set_carrying(id, carrying);
+	return 1;
 }
 
 /// tsm_side_alive(side): what the round counts as still in it -- alive, or waiting for a wave.
@@ -25608,14 +27428,14 @@ bool:gate_on()
 
 // Gate off: the warmup's own start. Called once a second while both sides have players and are within the balance gap.
 // The match starts when each side has tsm_live_minplayers, or when tsm_live_wait seconds have run since both sides first
-// had players, whichever comes first. With neither cvar set it waits a minute. Fills `reason` with what the warmup bar says.
+// had players, whichever comes first. With neither cvar set it waits 45 seconds. Fills `reason` with what the warmup bar says.
 live_gate_step(n1, n2, reason[], len)
 {
 	new minp = get_pcvar_num(g_cv_liveminp);
 	new wait = get_pcvar_num(g_cv_livewait);
 	if (wait <= 0 && minp <= 0)
 	{
-		wait = 60;
+		wait = 45;
 	}
 	new Float:now = get_gametime();
 	if (g_gate_since <= 0.0)
@@ -25690,8 +27510,9 @@ check_all_ready()
 		{
 			return;
 		}
-		// Side 2 bots only by design (survival) never readies: the people on side 1 decide.
-		if (r1 < n1 || (r2 < n2 && !mode_flag(TSM_MODE_SIDE2_BOTS)))
+		// The bots' side where it is bots only by design (survival) never readies: the people decide.
+		if ((r1 < n1 && !(mode_flag(TSM_MODE_SIDE2_BOTS) && bot_side() == 1))
+			|| (r2 < n2 && !(mode_flag(TSM_MODE_SIDE2_BOTS) && bot_side() == 2)))
 		{
 			return;
 		}
@@ -25749,6 +27570,7 @@ begin_match()
 	{
 		g_player_class[i] = 0;
 		g_class_menu_at[i] = 0.0;
+		lr_forget(i);
 	}
 
 	// Bots come back in for this match, assigned fresh so the sides are balanced from
@@ -25765,6 +27587,10 @@ begin_match()
 	if (mode_flag(TSM_MODE_ONE_ROUND))
 	{
 		all_print("[MATCH] All ready -- one round decides the match. Good luck.");
+	}
+	else if (mode_flag(TSM_MODE_NO_ROUNDS))
+	{
+		all_print("[MATCH] All ready. Good luck.");
 	}
 	else
 	{
@@ -25805,7 +27631,7 @@ public cmd_cancel(id, level, cid)
 	new bool:was_on = (g_state != ST_WARMUP);
 	remove_task(2);
 	remove_task(3);
-	remove_task(4);
+	cancel_round_end_tasks();
 	remove_task(5);
 	g_state = ST_WARMUP;
 	g_round = 0;
@@ -25844,7 +27670,7 @@ public cmd_restart(id, level, cid)
 	if (!cmd_access(id, level, cid, 1)) { return PLUGIN_HANDLED; }
 	remove_task(2);
 	remove_task(3);
-	remove_task(4);
+	cancel_round_end_tasks();
 	remove_task(5);
 	restore_all();
 	clear_match_state();
@@ -25958,10 +27784,10 @@ public cmd_debug(id, level, cid)
 		g_state, g_round, g_score[1], g_score[2], g_start_alive[1], g_start_alive[2]);
 	console_print(id, "[TSM] respawns=%d  team1: next wave %.0fs, %d waiting  team2: next wave %.0fs, %d waiting",
 		get_pcvar_num(g_cv_respawns), g_wave_left[1], count_waiting(1), g_wave_left[2], count_waiting(2));
-	// The claimed mode, if any (include\tsm_api.inc): 1 no sudden death, 2 no clock, 4 side 2
-	// bots only, 8 side 2 endless, 16 one run per match. Wave seconds below 0: the mode's own waves.
-	console_print(id, "[TSM] mode='%s' browser='%s' flags=%d hud='%s' wave secs %.0f/%.0f, waves fired %d/%d",
-		g_mode_name[0] ? g_mode_name : "none", g_gamedesc, g_mode_flags, g_mode_hud,
+	// The claimed mode, if any (include\tsm_api.inc): 1 no sudden death, 2 no clock, 4 the bots' side
+	// bots only, 8 the bots' side endless, 16 one run per match. Wave seconds below 0: the mode's own waves.
+	console_print(id, "[TSM] mode='%s' browser='%s' flags=%d bot side=%d hud='%s' wave secs %.0f/%.0f, waves fired %d/%d",
+		g_mode_name[0] ? g_mode_name : "none", g_gamedesc, g_mode_flags, bot_side(), g_mode_hud,
 		g_wave_secs[1], g_wave_secs[2], g_wave_num[1], g_wave_num[2]);
 	if (mode_flag(TSM_MODE_LIFE_POOL))
 	{
@@ -26045,6 +27871,8 @@ public cmd_debug(id, level, cid)
 		g_door_touch_hits, g_door_touch_refused, g_breach_n);
 	console_print(id, "[TSM] Ham_TakeDamage on player: hits=%d  (0 = the hook is not delivered -- every damage gate in fw_takedamage, friendly fire included, is dead code)",
 		g_player_dmg_hits);
+	console_print(id, "[TSM] Mech: laser rifle hits scaled by tsm_mech_laser_mult (%.2f): %d  (0 after laser fire at a Mech with the mult above 1.0 = fw_takedamage is not delivered)",
+		get_pcvar_float(g_cv_mech_laser), g_mech_laser_hits);
 	console_print(id, "[TSM] fall damage refused on held bodies: %d  (rising = the warmup fall fix is landing)",
 		g_fall_refused);
 
@@ -26295,6 +28123,7 @@ match_end_reset()
 		id = players[i];
 		g_elim[id] = false;
 		g_spec_target[id] = 0;
+		spec_notice_close(id);
 		g_locked_out[id] = false;
 		g_elim_at[id] = 0.0;
 		g_pending_elim[id] = 0.0;
@@ -26358,6 +28187,7 @@ public client_putinserver(id)
 	g_mech_hp_watch[id] = 0;
 	g_m60_skip[id] = -1;
 	g_lo_n[id] = -1;
+	lr_forget(id);
 
 	// The slot may have belonged to somebody else a second ago: no half-forgotten
 	// scanner cooldown or scan mark may follow a new player in.
@@ -26863,6 +28693,7 @@ player_left(id)
 	remove_task(id + TSM_TASK_BOTJOIN);
 	assist_slot_reset(id, false);
 	g_wait_sig[id] = 0;
+	g_spec_sig[id] = 0;
 	turrets_clear(id);
 	spawn_protect_end(id);
 	g_turret_used[id] = false;
@@ -26885,12 +28716,14 @@ player_left(id)
 	g_placed[id] = false;
 	g_place_n[id] = 0;
 	g_in_userinfo[id] = false;
+	g_droid_ui[id] = 0;
 	g_locked_out[id] = false;
 	g_spectator[id] = false;
 	remove_task(id + 1000);
 	g_arm_pending[id] = 0;
 	g_issuing[id] = false;
 	g_cash_lend[id] = false;
+	lr_forget(id);
 	drop_class_icon(id);
 	g_class_menu_at[id] = 0.0;
 	g_team_menu_at[id] = 0.0;
@@ -26904,6 +28737,8 @@ player_left(id)
 	// set_cloak() is not what is clearing the flag here, so it never gets the chance to cancel
 	// its own timer the way it normally would.
 	g_cloaked[id] = false;
+	// Nor a stray carry, which would refuse .cloak to whoever is next.
+	g_carrying[id] = false;
 	g_lives_left[id] = 0;
 	g_revive_pending[id] = false;
 	remove_task(TSM_TASK_REVIVE + id);
@@ -27017,10 +28852,11 @@ public client_disconnected(id)
  *
  * AMXX fires client_disconnected from its own hook on the engine's SV_DropClient, found by
  * a byte signature in its gamedata -- which only knows GoldSrc's engines. On Xash it finds
- * nothing, says "client_disconnected and client_remove forwards have been disabled", and
- * a player leaving never reaches client_disconnected at all. Metamod's ClientDisconnect
- * arrives on any engine. There is no double run: on Xash AMXX sends client_disconnected
- * only at map end, when every plugin is reloaded anyway.
+ * nothing. H9's amxmodx_mm.dll (amxmodx_mm.dll.patch) then fires client_disconnected from
+ * this same ClientDisconnect, and an AMXX without that change never fires it for a leaving
+ * player at all, so this forward is the one path that reaches player_left on every build.
+ * Where both fire, player_left runs twice for the one leave: it only puts this plugin's own
+ * state back, and the second run finds nothing left to put back.
  */
 public fw_client_disconnect_xash(id)
 {
@@ -27069,7 +28905,7 @@ bool:check_match_viable()
 
 	remove_task(2);
 	remove_task(3);
-	remove_task(4);
+	cancel_round_end_tasks();
 	remove_task(5);
 
 	new w = 0;
@@ -27098,8 +28934,8 @@ bool:check_match_viable()
 	}
 
 	g_state = ST_MATCHEND;
+	schedule_to_warmup("match ended, a side has no players left");
 	match_end_reset();
-	set_task(5.0, "task_to_warmup");
 	if (w)
 	{
 		match_forfeited(w);
@@ -27147,7 +28983,7 @@ bool:end_match_last_human(side)
 {
 	remove_task(2);
 	remove_task(3);
-	remove_task(4);
+	cancel_round_end_tasks();
 	remove_task(5);
 	remove_task(14);   // a halt armed off another departure has no reason to fire now
 
@@ -27157,8 +28993,8 @@ bool:end_match_last_human(side)
 	tlog("[TSM] match ended without a winner: team %d (%s) ran out of humans.", side, tname);
 
 	g_state = ST_MATCHEND;
+	schedule_to_warmup("match ended, the last human of a side left");
 	match_end_reset();
-	set_task(5.0, "task_to_warmup");
 	return true;
 }
 
@@ -27271,13 +29107,13 @@ bool:halt_for_imbalance()
 	}
 
 	/*
-	 * Side 2 bots only by design (survival): nobody human is ever on it, and the sides are
+	 * The bots' side bots only by design (survival): nobody human is ever on it, and the sides are
 	 * meant to be uneven, so neither test above means anything. The one thing that still
-	 * stops the run is side 1 emptying of people -- the abandonment below.
+	 * stops the run is the people's side emptying of people -- the abandonment below.
 	 */
 	if (mode_flag(TSM_MODE_SIDE2_BOTS))
 	{
-		if (h1 > 0)
+		if ((human_side() == 1) ? (h1 > 0) : (h2 > 0))
 		{
 			return false;
 		}
@@ -27303,7 +29139,7 @@ bool:halt_for_imbalance()
 	{
 		remove_task(2);
 		remove_task(3);
-		remove_task(4);
+		cancel_round_end_tasks();
 		remove_task(5);
 		g_freeze_left = 0;
 		g_round_left = 0;
@@ -27315,8 +29151,17 @@ bool:halt_for_imbalance()
 		restore_all();
 		clear_match_state();
 
+		// Back to warmup in fact, as amx_match_cancel leaves it: the state is the one thing the wipe above does not touch.
+		g_state = ST_WARMUP;
+		g_round = 0;
+		siege_reset();
+		g_score[1] = 0;
+		g_score[2] = 0;
+		bench_everyone();
+
 		all_print("[MATCH] Everyone left -- match abandoned, back to warmup.");
 		tlog("[TSM] match abandoned: no human players remain on either side");
+		endpath_log("match abandoned, state set back to warmup");
 		return true;
 	}
 
@@ -27336,7 +29181,7 @@ bool:halt_for_imbalance()
 	// match that is no longer running one. The same four as cmd_cancel, for the same reason.
 	remove_task(2);
 	remove_task(3);
-	remove_task(4);
+	cancel_round_end_tasks();
 	remove_task(5);
 	g_freeze_left = 0;
 	g_round_left = 0;
@@ -27592,7 +29437,7 @@ refresh_player_flags()
 		 * using the old side's spawn points. rcbot moving its own bots keeps every view
 		 * in agreement.
 		 */
-		// Not where side 2 is bots only by design (survival): rcbot would even them back out.
+		// Not where one side is bots only by design (survival): rcbot would even them back out.
 		server_cmd("rcbot config balance_teams %d", mode_flag(TSM_MODE_SIDE2_BOTS) ? 0 : 1);
 		server_cmd("rcbot config min_bots 0");
 
@@ -27618,9 +29463,989 @@ refresh_player_flags()
 	}
 }
 
+/* ---- the loadout rework (tsm_loadoutrework): buying with TS's default equipment menu ------------------------------------------ */
+
+/*
+ * With tsm_loadoutrework 1 every class but the Mech and the Heavy buys its own loadout with TS's equipment menu (the menu that sends
+ * rst_cfg, tkw, tki and tka) instead of being handed the class kit. TS's own purchase path stays closed: the game DLL charges nothing
+ * and only applies a queued loadout at a spawn, so the plugin reads the menu's commands itself, prices them against the class's cash,
+ * refuses what does not fit, and hands the weapons over with ts_giveweapon like any other kit. What a player bought is kept for the
+ * match and handed over again at every arm and respawn wave; a player who bought nothing keeps getting the class kit.
+ *
+ * The cash is a figure the plugin keeps (a class's allowance against the cost of the loadout bought); hold_cash() shows it in the
+ * player's TS wallet while a buy window is open, and nowhere else.
+ */
+
+lr_price(w)
+{
+	return (w >= 1 && w <= 40) ? TSM_LR_PRICE[w] : 0;
+}
+
+lr_slots(w)
+{
+	return (w >= 1 && w <= 40) ? TSM_LR_SLOTS[w] : 0;
+}
+
+lr_support(w)
+{
+	return (w >= 1 && w <= 40) ? TSM_LR_SUPPORT[w] : 0;
+}
+
+/// How many of a weapon one purchase may carry: 2 frag grenades, 5 combat knives, 10 seal knives. 0 for everything that is not a stack.
+lr_stackmax(w)
+{
+	switch (w)
+	{
+		case 24:
+		{
+			return 2;
+		}
+		case 25:
+		{
+			return 5;
+		}
+		case 35:
+		{
+			return 10;
+		}
+	}
+	return 0;
+}
+
+/// The singles the menu sells a second copy of as an akimbo pair.
+bool:lr_akimbo_ok(w)
+{
+	switch (w)
+	{
+		case 2, 3, 9, 14, 17:
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+lr_attach_price(att)
+{
+	new p = 0;
+	if (att & 1)
+	{
+		p += 900;
+	}
+	if (att & 2)
+	{
+		p += 800;
+	}
+	if (att & 4)
+	{
+		p += 500;
+	}
+	if (att & 8)
+	{
+		p += 1800;
+	}
+	return p;
+}
+
+/// A weapon H9 adds to TS that is not in play is carried as its stock stand-in (lo_wpn); this is the id the player really holds.
+lr_real_weapon(w)
+{
+	new standin = custom_standin(w);
+	if (standin && !custom_present(w))
+	{
+		return standin;
+	}
+	return w;
+}
+
+/// 1 when the rework is switched on and the buy commands are the plugin's to read: it needs the class kit and tsm_block_buy.
+bool:lr_on()
+{
+	if (!get_pcvar_num(g_cv_lr) || !get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_blockbuy))
+	{
+		return false;
+	}
+	return (get_pcvar_num(g_cv_classes) != 0 && get_pcvar_num(g_cv_wpnmode) == 2);
+}
+
+/// The Mech and the Heavy are left out: a class with the Mech's or the regeneration perk, or with the M60 in its kit.
+bool:lr_class_ok(ci)
+{
+	if (ci < 0 || ci >= g_class_count)
+	{
+		return false;
+	}
+	if (g_class_perk[ci] == TSM_PERK_MECH || g_class_perk[ci] == TSM_PERK_REGEN)
+	{
+		return false;
+	}
+	for (new t = 1; t <= 2; t++)
+	{
+		for (new i = 0; i < g_class_wcount[ci][t]; i++)
+		{
+			if (g_class_wpn[ci][t][i] == TSM_M60_WPN)
+			{
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+/// A human whose class is one the rework covers.
+bool:lr_eligible(id)
+{
+	if (id < 1 || id > g_maxplayers || !is_user_connected(id) || is_user_bot(id))
+	{
+		return false;
+	}
+	if (!lr_on() || !g_class_count)
+	{
+		return false;
+	}
+	return lr_class_ok(resolved_class(id) - 1);
+}
+
+/// The side the kit is handed over for, as arm_give_kit reads it.
+lr_team(id)
+{
+	new t = g_match_team[id];
+	return (t == 1 || t == 2) ? t : 1;
+}
+
+/// The cash a class has to spend: tsm_lr_cash_<n> when that is set, else tsm_lr_cash.
+lr_budget(id)
+{
+	new ci = resolved_class(id) - 1;
+	new b = get_pcvar_num(g_cv_lr_cash);
+	if (ci >= 0 && ci < TSM_MAXCLASS && g_cv_lr_cash_cls[ci])
+	{
+		new s[16];
+		get_pcvar_string(g_cv_lr_cash_cls[ci], s, charsmax(s));
+		if (s[0])
+		{
+			b = str_to_num(s);
+		}
+	}
+	return clamp(b, 0, 30000);
+}
+
+/// Is this weapon (or with kevlar true, the kevlar vest) on tsm_lr_deny?
+bool:lr_denied(w, bool:kevlar = false)
+{
+	new rest[96], carry[96], tok[16];
+	get_pcvar_string(g_cv_lr_deny, rest, charsmax(rest));
+	for (new guard = 0; guard < 24 && rest[0]; guard++)
+	{
+		strtok(rest, tok, charsmax(tok), carry, charsmax(carry), ',', 1);
+		copy(rest, charsmax(rest), carry);
+		if (!tok[0])
+		{
+			continue;
+		}
+		if (kevlar)
+		{
+			if (equali(tok, "kevlar"))
+			{
+				return true;
+			}
+		}
+		else if (w > 0 && str_to_num(tok) == w)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/// May this player buy right now: the freeze before a round, or the seconds a respawn wave opened.
+bool:lr_window_open(id)
+{
+	if (!lr_eligible(id))
+	{
+		return false;
+	}
+	new t = tsm_live_team_of(id);
+	if (t != 1 && t != 2)
+	{
+		return false;
+	}
+	if (g_state == ST_FREEZE)
+	{
+		return true;
+	}
+	if (g_state == ST_LIVE)
+	{
+		return (is_user_alive(id) && !g_elim[id] && get_gametime() < g_lr_win_until[id]);
+	}
+	return false;
+}
+
+lr_set_clear(id)
+{
+	g_lr_set_n[id] = 0;
+	g_lr_set_kev[id] = false;
+	g_lr_set_cost[id] = 0;
+	g_lr_set_cls[id] = 0;
+	g_lr_set_team[id] = 0;
+}
+
+lr_cart_begin(id)
+{
+	g_lr_cart_open[id] = true;
+	g_lr_cart_n[id] = 0;
+	g_lr_cart_kev[id] = false;
+	g_lr_cart_cost[id] = 0;
+	g_lr_cart_slots[id] = 0;
+	g_lr_cart_why[id][0] = 0;
+}
+
+/// Everything a player holds for the rework, forgotten: a new match, a leaving player, a slot handed to someone else.
+lr_forget(id)
+{
+	lr_set_clear(id);
+	g_lr_cart_open[id] = false;
+	g_lr_cart_n[id] = 0;
+	g_lr_cart_why[id][0] = 0;
+	g_lr_win_until[id] = 0.0;
+	g_lr_told_at[id] = 0.0;
+	g_lr_arm_at[id] = 0.0;
+	g_lr_mech_at[id] = 0.0;
+	g_lr_mech_have[id] = 0;
+	g_lr_live_buys[id] = 0;
+	g_lo_lr[id] = false;
+	remove_task(TSM_TASK_LR + id);
+}
+
+/// The bought set is the one in force: the rework is on for him, the set was bought for the class and side he plays now.
+bool:lr_active_set(id)
+{
+	if (!lr_eligible(id))
+	{
+		return false;
+	}
+	if (g_lr_set_n[id] < 1 && !g_lr_set_kev[id])
+	{
+		return false;
+	}
+	return (g_lr_set_cls[id] == resolved_class(id) && g_lr_set_team[id] == lr_team(id));
+}
+
+/// The TS wallet hold_cash() shows: what is left of the class's cash while a buy window is open, else nothing.
+lr_wallet(id)
+{
+	if (!get_pcvar_num(g_cv_lr) || !lr_window_open(id))
+	{
+		return 0;
+	}
+	new left = lr_budget(id) - (lr_active_set(id) ? g_lr_set_cost[id] : 0);
+	return (left > 0) ? left : 0;
+}
+
+lr_cart_fail(id, const fmt[], any:...)
+{
+	if (g_lr_cart_why[id][0])
+	{
+		return;
+	}
+	vformat(g_lr_cart_why[id], charsmax(g_lr_cart_why[]), fmt, 3);
+}
+
+/// One weapon token of a tkw: "<id>_<attachments>" for a gun, "<id>_<count>" for a stack, a second bare "<id>_0" for the other half of an akimbo pair.
+lr_cart_add_weapon(id, w, v)
+{
+	new price = lr_price(w);
+	if (price < 1)
+	{
+		lr_cart_fail(id, "weapon %d is not sold here", w);
+		return;
+	}
+	if (lr_denied(w))
+	{
+		lr_cart_fail(id, "the %s is not for your class", TSM_LR_NAME[w]);
+		return;
+	}
+	new n = g_lr_cart_n[id];
+	if (n >= TSM_LOADOUT_MAX)
+	{
+		lr_cart_fail(id, "that is more than %d weapons", TSM_LOADOUT_MAX);
+		return;
+	}
+
+	new cost, slots, att = 0, clips;
+	new stack = lr_stackmax(w);
+	if (stack)
+	{
+		new cnt = clamp(v, 1, stack);
+		cost = price * cnt;
+		slots = lr_slots(w) * cnt;
+		clips = cnt - 1;
+	}
+	else
+	{
+		new copies = 0;
+		for (new k = 0; k < n; k++)
+		{
+			if (g_lr_cart_wpn[id][k] == w)
+			{
+				copies++;
+			}
+		}
+		if (copies > 0)
+		{
+			if (copies > 1 || !lr_akimbo_ok(w))
+			{
+				lr_cart_fail(id, "no second %s", TSM_LR_NAME[w]);
+				return;
+			}
+			cost = price;
+		}
+		else
+		{
+			att = v & lr_support(w);
+			cost = price + lr_attach_price(att);
+		}
+		slots = lr_slots(w);
+		clips = clamp(get_pcvar_num(g_cv_lr_clips), 0, 14);
+	}
+
+	g_lr_cart_wpn[id][n] = w;
+	g_lr_cart_clips[id][n] = clips;
+	g_lr_cart_att[id][n] = att;
+	g_lr_cart_n[id] = n + 1;
+	g_lr_cart_cost[id] += cost;
+	g_lr_cart_slots[id] += slots;
+}
+
+lr_cart_weapons(id)
+{
+	new argc = read_argc();
+	for (new a = 1; a < argc && !g_lr_cart_why[id][0]; a++)
+	{
+		new tok[16], wpart[8], vpart[8];
+		read_argv(a, tok, charsmax(tok));
+		strtok(tok, wpart, charsmax(wpart), vpart, charsmax(vpart), '_', 0);
+		lr_cart_add_weapon(id, str_to_num(wpart), str_to_num(vpart));
+	}
+}
+
+/// The tokens of a tki: 16 is the kevlar vest, 32 the stealth shoes (not sold: nothing here can give them); the rest are no purchase.
+lr_cart_items(id)
+{
+	new argc = read_argc();
+	for (new a = 1; a < argc && !g_lr_cart_why[id][0]; a++)
+	{
+		new tok[16];
+		read_argv(a, tok, charsmax(tok));
+		new item = str_to_num(tok);
+		if (item == 16)
+		{
+			if (lr_denied(0, true))
+			{
+				lr_cart_fail(id, "kevlar is not for your class");
+			}
+			else if (!g_lr_cart_kev[id])
+			{
+				g_lr_cart_kev[id] = true;
+				g_lr_cart_cost[id] += TSM_LR_KEVLAR_COST;
+				g_lr_cart_slots[id] += TSM_LR_KEVLAR_SLOTS;
+			}
+		}
+		else if (item == 32)
+		{
+			lr_cart_fail(id, "the stealth shoes are not sold");
+		}
+	}
+}
+
+/// Says why the buy menu did nothing: once every couple of seconds, whatever the menu sends.
+lr_closed_tell(id)
+{
+	new Float:now = get_gametime();
+	if (now - g_lr_told_at[id] < 2.0)
+	{
+		return;
+	}
+	g_lr_told_at[id] = now;
+	if (g_state == ST_WARMUP || g_state == ST_READYUP)
+	{
+		match_chat(id, "[MATCH] Buying opens in the freeze before a round.");
+		center_tell(id, "Buying opens in the freeze before a round.");
+		return;
+	}
+	new secs = get_pcvar_num(g_cv_lr_secs);
+	match_chat(id, "[MATCH] Buying is closed. It is open in the freeze before a round and for %d seconds after you respawn.", secs);
+	center_tell(id, "Buying is closed.");
+}
+
+/// The buy menu's commands from a player the rework covers, while the plugin is the one reading them. The caller swallows the command.
+lr_cmd(id)
+{
+	if (!lr_eligible(id))
+	{
+		return;
+	}
+	new cmd[16];
+	read_argv(0, cmd, charsmax(cmd));
+	if (equali(cmd, "cashala"))
+	{
+		return;
+	}
+	if (!lr_window_open(id))
+	{
+		lr_closed_tell(id);
+		return;
+	}
+
+	if (equali(cmd, "rst_cfg"))
+	{
+		lr_cart_begin(id);
+	}
+	else if (equali(cmd, "tkw") || equali(cmd, "tki"))
+	{
+		if (!g_lr_cart_open[id])
+		{
+			lr_cart_begin(id);
+		}
+		if (equali(cmd, "tkw"))
+		{
+			lr_cart_weapons(id);
+		}
+		else
+		{
+			lr_cart_items(id);
+		}
+	}
+	else if (!g_lr_cart_open[id])
+	{
+		return;   // ammunition for a config this plugin is not collecting
+	}
+
+	// The menu sends rst_cfg, tkw, tki and tka back to back: the apply is whole once they stop.
+	remove_task(TSM_TASK_LR + id);
+	set_task(0.3, "task_lr_commit", TSM_TASK_LR + id);
+}
+
+/// Hands the loadout over now: the bought set (or the class kit when there is none) in place of whatever he holds.
+lr_regive(id)
+{
+	if (!is_user_alive(id))
+	{
+		return;
+	}
+	// Before his arm in the freeze: the arm itself hands the set over.
+	if (g_state == ST_FREEZE && !g_armed[id])
+	{
+		return;
+	}
+	new ci = resolved_class(id) - 1;
+	strip_user_weapons(id);
+	set_user_armor(id, (ci >= 0) ? g_class_ap[ci] : 0);
+	arm_give_kit(id);
+}
+
+/// A complete apply: refused as a whole when anything in it was, else it becomes the player's loadout.
+lr_commit(id)
+{
+	if (!g_lr_cart_open[id])
+	{
+		return;
+	}
+	g_lr_cart_open[id] = false;
+	if (!lr_window_open(id))
+	{
+		return;
+	}
+
+	new budget = lr_budget(id);
+	if (!g_lr_cart_why[id][0])
+	{
+		if (g_lr_cart_cost[id] > budget)
+		{
+			lr_cart_fail(id, "$%d is more than the $%d you have", g_lr_cart_cost[id], budget);
+		}
+		// The weight in slots is a limit of the classes the rework leaves out (the Heavy and the Mech, whose limits are raised): a class
+		// it covers is limited by its cash.
+		else if (g_lr_cart_slots[id] > TSM_LR_SLOT_CAP && !lr_class_ok(resolved_class(id) - 1))
+		{
+			lr_cart_fail(id, "it weighs %d of the %d slots you carry", g_lr_cart_slots[id], TSM_LR_SLOT_CAP);
+		}
+	}
+	// A change in the live window is one per respawn: a second would be a fresh supply of ammunition in the middle of a fight.
+	if (!g_lr_cart_why[id][0] && g_state == ST_LIVE && g_lr_live_buys[id] >= 1)
+	{
+		lr_cart_fail(id, "you can change your loadout once after a respawn");
+	}
+	if (g_lr_cart_why[id][0])
+	{
+		match_chat(id, "[MATCH] Loadout not changed: %s.", g_lr_cart_why[id]);
+		center_tell(id, "Loadout not changed: %s.", g_lr_cart_why[id]);
+		dbg("loadout rework: %d's apply refused: %s", id, g_lr_cart_why[id]);
+		return;
+	}
+
+	new n = g_lr_cart_n[id];
+	for (new i = 0; i < n; i++)
+	{
+		g_lr_set_wpn[id][i] = g_lr_cart_wpn[id][i];
+		g_lr_set_clips[id][i] = g_lr_cart_clips[id][i];
+		g_lr_set_att[id][i] = g_lr_cart_att[id][i];
+	}
+	g_lr_set_n[id] = n;
+	g_lr_set_kev[id] = g_lr_cart_kev[id];
+	g_lr_set_cost[id] = g_lr_cart_cost[id];
+	g_lr_set_cls[id] = resolved_class(id);
+	g_lr_set_team[id] = lr_team(id);
+	if (g_state == ST_LIVE)
+	{
+		g_lr_live_buys[id]++;
+	}
+
+	if (n < 1 && !g_lr_set_kev[id])
+	{
+		lr_set_clear(id);
+		match_chat(id, "[MATCH] Nothing bought -- you keep the %s kit.", g_class_name[resolved_class(id) - 1]);
+		center_tell(id, "Nothing bought: the class kit.");
+	}
+	else
+	{
+		match_chat(id, "[MATCH] Loadout bought: %d weapon(s)%s, $%d of your $%d.", n, g_lr_set_kev[id] ? " and kevlar" : "", g_lr_set_cost[id], budget);
+		center_tell(id, "Loadout bought: $%d of $%d.", g_lr_set_cost[id], budget);
+	}
+	tlog("[TSM] loadout rework: %d bought %d weapon(s)%s for $%d of $%d (class %d).", id, n, g_lr_set_kev[id] ? " + kevlar" : "", g_lr_set_cost[id], budget, resolved_class(id));
+	lr_regive(id);
+}
+
+public task_lr_commit(taskid)
+{
+	new id = taskid - TSM_TASK_LR;
+	if (id >= 1 && id <= g_maxplayers && is_user_connected(id))
+	{
+		lr_commit(id);
+	}
+}
+
+/// resolve_loadout, with no claimed mode answering: the bought set stands in for the class kit.
+lr_resolve(id)
+{
+	if (!lr_active_set(id) || g_lr_set_n[id] < 1)
+	{
+		return;
+	}
+	new n = g_lr_set_n[id];
+	for (new i = 0; i < n; i++)
+	{
+		g_lo_wpn[id][i] = g_lr_set_wpn[id][i];
+		g_lo_clips[id][i] = g_lr_set_clips[id][i];
+		g_lo_att[id][i] = g_lr_set_att[id][i];
+	}
+	g_lo_n[id] = n;
+	g_lo_lr[id] = true;
+}
+
+/// The attachments to give a weapon in this arm: the ones its buyer chose, else tsm_wpn_extra.
+lr_extra(id, w)
+{
+	if (g_lo_lr[id])
+	{
+		for (new i = 0; i < g_lo_n[id]; i++)
+		{
+			if (g_lo_wpn[id][i] == w)
+			{
+				return g_lo_att[id][i];
+			}
+		}
+	}
+	return get_pcvar_num(g_cv_wpnextra);
+}
+
+/// The start of every kit hand-over: the arm is timestamped, the Mech's weapon watch starts clean, and a bought vest goes on.
+lr_arm_begin(id)
+{
+	g_lr_arm_at[id] = get_gametime();
+	g_lr_mech_have[id] = 0;
+	// the game library reads this mark: it deletes a Mech's rocket launcher where a drop would have left it on the floor, and
+	// while tsm_loadoutrework is on it also refuses a Mech's disarm and its pickup of a dropped weapon
+	set_pev(id, pev_fuser4, (get_pcvar_num(g_cv_enabled) && lr_is_mech(id)) ? 1.0 : 0.0);
+	if (lr_active_set(id) && g_lr_set_kev[id])
+	{
+		set_user_armor(id, 100);
+	}
+}
+
+/// What the player really holds of the set he bought is what is kept: a weapon the arm could not give is dropped from it.
+lr_record(id)
+{
+	if (!lr_active_set(id) || g_lr_set_n[id] < 1 || !is_user_alive(id) || !g_armed[id])
+	{
+		return;
+	}
+	// The M60-first arm and the rest of the kit follow each other by a second or more; a check this early would mistake a weapon on its way for a refusal.
+	if (get_gametime() - g_lr_arm_at[id] < 3.0)
+	{
+		return;
+	}
+
+	new kept = 0;
+	for (new i = 0; i < g_lr_set_n[id]; i++)
+	{
+		if (!user_carries(id, lr_real_weapon(g_lr_set_wpn[id][i])))
+		{
+			tlog("[TSM] loadout rework: %d does not hold weapon %d of the set he bought -- left out of it.", id, g_lr_set_wpn[id][i]);
+			continue;
+		}
+		g_lr_set_wpn[id][kept] = g_lr_set_wpn[id][i];
+		g_lr_set_clips[id][kept] = g_lr_set_clips[id][i];
+		g_lr_set_att[id][kept] = g_lr_set_att[id][i];
+		kept++;
+	}
+	g_lr_set_n[id] = kept;
+	if (kept < 1 && !g_lr_set_kev[id])
+	{
+		lr_set_clear(id);
+	}
+	dbg("loadout rework: %d's loadout is %d weapon(s)%s", id, kept, g_lr_set_kev[id] ? " and kevlar" : "");
+}
+
+/// The freeze is over: an apply still in the air is taken, and what everyone holds becomes the loadout kept for the match.
+lr_close_all()
+{
+	if (!get_pcvar_num(g_cv_lr))
+	{
+		return;
+	}
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (!is_user_connected(id))
+		{
+			continue;
+		}
+		remove_task(TSM_TASK_LR + id);
+		if (g_lr_cart_open[id])
+		{
+			lr_commit(id);
+		}
+		g_lr_win_until[id] = 0.0;
+		lr_record(id);
+	}
+}
+
+/// A round's freeze opens the buy window for everyone the rework covers.
+lr_round_start()
+{
+	if (!get_pcvar_num(g_cv_lr))
+	{
+		return;
+	}
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		g_lr_cart_open[id] = false;
+		g_lr_win_until[id] = 0.0;
+		remove_task(TSM_TASK_LR + id);
+		if (!lr_eligible(id) || (tsm_live_team_of(id) != 1 && tsm_live_team_of(id) != 2))
+		{
+			continue;
+		}
+		if (lr_active_set(id))
+		{
+			match_chat(id, "[MATCH] Your loadout is kept. Open the equipment menu to buy a different one: $%d to spend, until the round starts.", lr_budget(id));
+		}
+		else
+		{
+			match_chat(id, "[MATCH] Open the equipment menu to buy your loadout: $%d to spend, until the round starts. Buy nothing and you get the %s kit.", lr_budget(id), g_class_name[resolved_class(id) - 1]);
+		}
+	}
+}
+
+/// A wave has put a player back on his feet with his kit: his buy window opens for tsm_lr_buy_seconds.
+lr_revive_window(id)
+{
+	g_lr_cart_open[id] = false;
+	remove_task(TSM_TASK_LR + id);
+	g_lr_win_until[id] = 0.0;
+	if (!lr_eligible(id))
+	{
+		return;
+	}
+	new secs = get_pcvar_num(g_cv_lr_secs);
+	if (secs < 1)
+	{
+		return;
+	}
+	g_lr_win_until[id] = get_gametime() + float(secs);
+	g_lr_live_buys[id] = 0;
+	match_chat(id, "[MATCH] You can change your loadout once, for %d seconds: $%d to spend in the equipment menu.", secs, lr_budget(id));
+}
+
+/// Once a second: a respawn wave's buy window that has run out closes, and the loadout is kept.
+lr_tick()
+{
+	if (!get_pcvar_num(g_cv_lr) || g_state != ST_LIVE)
+	{
+		return;
+	}
+	new Float:now = get_gametime();
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (g_lr_win_until[id] <= 0.0 || now < g_lr_win_until[id])
+		{
+			continue;
+		}
+		g_lr_win_until[id] = 0.0;
+		g_lr_cart_open[id] = false;
+		remove_task(TSM_TASK_LR + id);
+		if (!is_user_connected(id))
+		{
+			continue;
+		}
+		lr_record(id);
+		if (lr_active_set(id))
+		{
+			match_chat(id, "[MATCH] Your loadout is locked in.");
+		}
+	}
+}
+
+/// A weapon dropped by a drop key, the weapon bar or a disarm, a weapon on the map, or a weapon box.
+bool:lr_weapon_ent(ent)
+{
+	new cls[32];
+	cls[0] = 0;
+	pev(ent, pev_classname, cls, charsmax(cls));
+	return (equal(cls, "WorldGun") || equal(cls, "ts_groundweapon") || equal(cls, "weaponbox") || equal(cls, "weapon_", 7));
+}
+
+/// Is a weapon on the floor within a Mech's reach?
+bool:lr_weapon_near(id)
+{
+	new Float:org[3];
+	pev(id, pev_origin, org);
+	new ent = -1;
+	for (new guard = 0; guard < 96; guard++)
+	{
+		ent = engfunc(EngFunc_FindEntityInSphere, ent, org, 96.0);
+		if (ent <= 0)
+		{
+			break;
+		}
+		if (ent != id && pev_valid(ent) && lr_weapon_ent(ent))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool:lr_is_mech(id)
+{
+	if (id < 1 || id > g_maxplayers || !g_class_count)
+	{
+		return false;
+	}
+	new ci = resolved_class(id) - 1;
+	return (ci >= 0 && g_class_perk[ci] == TSM_PERK_MECH);
+}
+
+/// Touch of a weapon lying on the floor: the Mech takes none.
+bool:lr_touch_refused(touched, toucher)
+{
+	if (!get_pcvar_num(g_cv_lr) || !is_user_alive(toucher) || !pev_valid(touched) || !lr_is_mech(toucher))
+	{
+		return false;
+	}
+	return lr_weapon_ent(touched);
+}
+
+/// Weapons a Mech's disarm threw: removed, so nobody else collects the Mech's gun.
+lr_drop_clean(id)
+{
+	new ent = -1;
+	for (new guard = 0; guard < 64; guard++)
+	{
+		ent = engfunc(EngFunc_FindEntityByString, ent, "classname", "WorldGun");
+		if (ent <= 0)
+		{
+			break;
+		}
+		if (pev_valid(ent) && pev(ent, pev_owner) == id)
+		{
+			set_pev(ent, pev_flags, pev(ent, pev_flags) | TSM_FL_KILLME);
+		}
+	}
+}
+
+/*
+ * The Mech cannot be disarmed. The game DLL performs a disarm (a melee hit past the pressure threshold throws the weapon in hand),
+ * and nothing in a plugin can stop that call, so the weapon is handed back: a class weapon seen in his hands that is gone at the
+ * next look is given again, with the spare rounds it had, and the one the disarm threw is removed from the floor.
+ */
+lr_mech_guard(id)
+{
+	if (g_state != ST_LIVE || g_elim[id])
+	{
+		return;
+	}
+	new Float:now = get_gametime();
+	if (now - g_lr_mech_at[id] < 0.25)
+	{
+		return;
+	}
+	g_lr_mech_at[id] = now;
+
+	new ci = resolved_class(id) - 1;
+	if (ci < 0 || g_class_perk[ci] != TSM_PERK_MECH)
+	{
+		return;
+	}
+	new team = lr_team(id);
+	new n = g_class_wcount[ci][team];
+	if (n > TSM_MAXWPN)
+	{
+		n = TSM_MAXWPN;
+	}
+	for (new k = 0; k < n; k++)
+	{
+		if (g_class_wpn[ci][team][k] < 1)
+		{
+			continue;
+		}
+		new w = lr_real_weapon(g_class_wpn[ci][team][k]);
+		if (user_carries(id, w))
+		{
+			g_lr_mech_have[id] |= (1 << k);
+			if (is_gun_id(w))
+			{
+				g_lr_mech_ammo[id][k] = ts_getuserammo(id, w);
+			}
+		}
+		else if (g_lr_mech_have[id] & (1 << k))
+		{
+			new clips = g_class_clips[ci][team][k];
+			if (clips > 0 && is_gun_id(w))
+			{
+				clips += get_pcvar_num(g_cv_clipbonus);
+			}
+			clips = clamp(clips, 0, max(get_pcvar_num(g_cv_clipcap), 1));
+			ts_setuserslots(id, 999);
+			ts_giveweapon(id, w, clips, get_pcvar_num(g_cv_wpnextra));
+			if (is_gun_id(w) && g_lr_mech_ammo[id][k] > 0 && user_carries(id, w))
+			{
+				ts_setuserammo(id, w, g_lr_mech_ammo[id][k]);
+			}
+			lr_drop_clean(id);
+			tlog("[TSM] loadout rework: the Mech %d was disarmed of weapon %d -- handed back.", id, w);
+		}
+	}
+}
+
+/// Run from fw_prethink for a living Mech: no weapon taken from the floor with the use key, and no disarm.
+lr_mech_prethink(id)
+{
+	if (!get_pcvar_num(g_cv_lr))
+	{
+		return;
+	}
+	new buttons = pev(id, pev_button);
+	if ((buttons & IN_USE) && lr_weapon_near(id))
+	{
+		set_pev(id, pev_button, buttons & ~IN_USE);
+	}
+	lr_mech_guard(id);
+}
+
+/// The drop key and the weapon bar's drop: refused for the Mech whatever the state, and for anyone whose buy window is open.
+bool:lr_drop_blocked(id)
+{
+	if (!get_pcvar_num(g_cv_lr) || !get_pcvar_num(g_cv_enabled))
+	{
+		return false;
+	}
+	if (lr_is_mech(id))
+	{
+		match_chat(id, "[MATCH] The Mech cannot drop its weapon.");
+		center_tell(id, "The Mech cannot drop its weapon.");
+		return true;
+	}
+	if (lr_window_open(id))
+	{
+		match_chat(id, "[MATCH] You cannot drop a weapon while you can still buy.");
+		center_tell(id, "You cannot drop a weapon while you can still buy.");
+		return true;
+	}
+	return false;
+}
+
+/// amx_tsm_loadout [target]: what the rework knows about a player.
+public cmd_loadout(id, level, cid)
+{
+	if (!cmd_access(id, level, cid, 1))
+	{
+		return PLUGIN_HANDLED;
+	}
+	new target = id;
+	if (read_argc() > 1)
+	{
+		new arg[32];
+		read_argv(1, arg, charsmax(arg));
+		target = cmd_target(id, arg, CMDTARGET_ALLOW_SELF);
+		if (!target)
+		{
+			console_print(id, "[TSM] No such player.");
+			return PLUGIN_HANDLED;
+		}
+	}
+	else if (id < 1)
+	{
+		console_print(id, "[TSM] Usage: amx_tsm_loadout <target>");
+		return PLUGIN_HANDLED;
+	}
+
+	if (!g_class_count)
+	{
+		console_print(id, "[TSM] No classes are defined.");
+		return PLUGIN_HANDLED;
+	}
+	new tname[32];
+	get_user_name(target, tname, charsmax(tname));
+	new c = resolved_class(target);
+	console_print(id, "[TSM] loadout rework for %s (%d): tsm_loadoutrework %d, switched on and usable %s.",
+		tname, target, get_pcvar_num(g_cv_lr), lr_on() ? "yes" : "no");
+	console_print(id, "  class %d '%s'%s; covered by the rework: %s; Mech: %s.",
+		c, g_class_name[c - 1], g_player_class[target] ? "" : " (default, not picked)",
+		lr_eligible(target) ? "yes" : "no", lr_is_mech(target) ? "yes" : "no");
+	if (lr_eligible(target))
+	{
+		new Float:left = g_lr_win_until[target] - get_gametime();
+		console_print(id, "  budget $%d, wallet shown $%d; buy window %s%s",
+			lr_budget(target), ts_getusercash(target), lr_window_open(target) ? "OPEN" : "closed",
+			(g_state == ST_LIVE && left > 0.0) ? " (respawn wave)" : "");
+		if (g_state == ST_LIVE && left > 0.0)
+		{
+			console_print(id, "  live window closes in %.0f s", left);
+		}
+		console_print(id, "  recorded set: %d weapon(s)%s, cost $%d, bought for class %d team %d (in force: %s)",
+			g_lr_set_n[target], g_lr_set_kev[target] ? " + kevlar" : "", g_lr_set_cost[target],
+			g_lr_set_cls[target], g_lr_set_team[target], lr_active_set(target) ? "yes" : "no");
+		for (new i = 0; i < g_lr_set_n[target]; i++)
+		{
+			new w = g_lr_set_wpn[target][i];
+			console_print(id, "    %d %s  spare %d  attach %d", w, TSM_LR_NAME[w], g_lr_set_clips[target][i], g_lr_set_att[target][i]);
+		}
+		console_print(id, "  apply being collected: %s, %d weapon(s)%s, $%d, %d slot(s); last refusal: %s",
+			g_lr_cart_open[target] ? "yes" : "no", g_lr_cart_n[target], g_lr_cart_kev[target] ? " + kevlar" : "",
+			g_lr_cart_cost[target], g_lr_cart_slots[target], g_lr_cart_why[target][0] ? g_lr_cart_why[target] : "none");
+	}
+	if (lr_is_mech(target))
+	{
+		console_print(id, "  Mech guard: weapons seen in hand mask %d; drops refused, floor weapons not picked up, disarm undone.", g_lr_mech_have[target]);
+	}
+	return PLUGIN_HANDLED;
+}
+
 public task_tick()
 {
 	watch_enabled();
+	end_watchdog();
 	objmarks_update();
 	objglow_update();
 	lives_publish();
@@ -27629,6 +30454,7 @@ public task_tick()
 	points_hold_frags();
 	refresh_player_flags();
 	clean_all_weapons();
+	lr_tick();
 
 	// Behind the per-frame hold in fw_prethink, which does not run for a player the
 	// engine has not started thinking -- which is exactly when initial_cash lands.
@@ -27789,6 +30615,12 @@ public task_tick()
 	// restart. Cheap, and it keeps the query path itself free of cvar reads.
 	refresh_gamedesc();
 	refresh_presence();
+
+	// The watchers' notice belongs to a live round: outside one, whatever is still up comes down.
+	if (g_state != ST_LIVE)
+	{
+		spec_notices_close();
+	}
 
 	if (g_state == ST_LIVE)
 	{
