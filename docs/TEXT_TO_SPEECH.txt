@@ -1,0 +1,447 @@
+===============================================================================
+ TEXT TO SPEECH: WHAT PLAYERS SAY IN CHAT, SPOKEN TO THE PLAYERS NEAR THEM
+===============================================================================
+
+ Who this is for: whoever runs an H9 game server, whoever plays on one, and
+ whoever builds the client or the web page.
+
+ The short version
+   * What it is: when a player types in chat (say or say_team), the players
+     near him HEAR it, at once, in a voice for his model: a man's, a woman's,
+     a Mech's or a bot's, quieter the farther away he is, and muffled when his
+     model wears a gas mask. It is not voice chat: no sound travels on the
+     network, only the text the chat already shows. Each listener's own
+     machine speaks it, with the voices installed on that machine.
+   * It is off. A server turns it on with h9_texttospeech 1 (default 0).
+   * It needs H9's client.dll or the H9 web client (Windows SAPI on a native
+     game, the browser's speech synthesis in the web client). A game without
+     it is sent nothing and notices nothing. A player turns it off for
+     himself with cl_h9_tts 0.
+   * The server is h9_tts.amxx; its settings are configs\h9_tts.cfg and the
+     list of gas-masked models configs\h9_tts_gasmask.cfg. COMMANDS.txt has the
+     cvars (TEXT TO SPEECH); this file is the rest.
+
+ 1. TURNING IT ON (a server)
+ ---------------------------
+
+   * h9_tts.amxx goes in plugins.ini AFTER every plugin that can stop a chat
+     line (a gag, a mute) and after h9_presence, and BEFORE ARP_Core: AMX
+     Mod X runs the say handlers in plugins.ini order, and a handler that
+     returns PLUGIN_HANDLED keeps the ones after it from running.
+     ARP_TalkArea (Apollo RP) answers every chat line itself and returns
+     PLUGIN_HANDLED, so on a roleplay map (h9_tsrp_*) a say handler listed
+     after it is never called and nothing is spoken. h9_tts also asks
+     h9_presence itself whether the speaker's account is muted (h9p_muted),
+     when h9_presence is loaded.
+   * build.bat: add h9_tts to TARGETS, and to the presets' plugins.*.ini
+     (H9XASH\presets) so the plugin is in every preset.
+   * h9_tts.cfg (the plugin executes it on every map) holds:
+
+       h9_texttospeech   0     1: chat is spoken. 0: nothing is sent
+       h9_tts_range      800   units from the speaker out to which a line is
+                               heard
+       h9_tts_maxchars   96    the most characters spoken of a line (8 to 150)
+       h9_tts_gap        1.5   seconds a speaker waits between two spoken
+                               lines
+       h9_tts_self       1     1: the speaker hears his own line too, so one
+                               player alone can tell it works. 0: only the
+                               others hear it
+
+     The first line is commented out in the shipped file; remove the // or put
+     the cvar in server.cfg. A change of h9_texttospeech takes effect with
+     the next line anyone says, no restart.
+
+     From a player's console, h9_texttospeech (or h9_tts) prints the state: the
+     server's switch, whether this game can speak (_h9tts) and whether he hears
+     his own lines. h9_texttospeech 1 or 0 (an admin with the cvar flag) switches
+     it. The cvar lives in the server, so a game that is not the server's own
+     does not see it; the plugin answers the same name as a command.
+
+ 2. WHO HEARS WHAT
+ -----------------
+
+   The speaker: a living player, not muted (h9_presence), drawn (not hidden
+   with EF_NODRAW and not fully transparent: an eliminated player, a
+   spectator and a player waiting out a freeze are not), whose line is not a
+   command (it does not start with . / ! or @) and has a letter, a digit or a
+   non-ASCII character in it. Bots speak too: a bot's chat is spoken like
+   anyone's. His line is cleaned (control characters become spaces, a run of
+   spaces one, the ends are trimmed) and cut to h9_tts_maxchars, at a space if
+   one is in the last twelve characters, never in the middle of a UTF-8
+   character. One line per h9_tts_gap seconds counts; the ones in between are
+   only written.
+
+   A listener: a living human whose game says it speaks (the userinfo key
+   _h9tts is 1), within h9_tts_range units of the speaker, who is himself one
+   while h9_tts_self is 1,
+   walls or no walls. For say_team, only a player of the speaker's team
+   (get_user_team). The volume sent is 100 within a quarter of the range
+   (200 units at 800) and falls in a straight line to 0 at the range; under
+   4 is not sent. A listener is sent one line every 0.3 s at the most, from
+   all speakers together (the reliable channel is spared; the client then
+   plays the nearest voices first, section 5).
+
+   Match mode, classes, perks and teams of the match play no part: the plugin
+   uses no tsm_ native. It behaves the same on a plain TS server.
+
+ 3. THE VOICE
+ ------------
+
+   The voice is decided by the speaker's MODEL NAME and nothing else (the
+   userinfo key "model", in any case):
+
+       the name has mech or ed209 in it     a Mech's voice
+       else droid, robo or _bot             a bot's voice
+       else fem, woman, women, girl, lady   a woman's voice
+       else                                 a man's voice
+
+   Of the 148 folders in models\player: the Mech's are mech_msr_bot,
+   mech_ins_bot and ed209_ts; the bot's msrdroid_bot and insdroid_bot; the
+   woman's the 32 with fem in the name (fem_nh_*, bfem_nh_*, prole_fem,
+   prole_bfem, ins_prole_fem, ins_medic_fem, ins_medic_bfem, repuheavy_fem*,
+   repuheavy_bfem_*, ...); the rest, 111, a man's. The tables are at the top
+   of h9_tts.sma.
+
+   What each platform does with it:
+
+     Windows (SAPI)   the best installed voice of the gender: a Natural or
+                      Neural voice ahead of a plain one, a voice without
+                      "Desktop" in its name ahead of one with, English of the
+                      US, then the UK, ahead of other languages (section 3d
+                      says how to get better ones). A speaker who asked for a
+                      voice variant (3c) gets the n-th of those instead, and a
+                      voice the listener picked himself (3b) beats both. A
+                      machine with no female voice speaks the woman as the
+                      man's, higher; with no voice at all the game says
+                      _h9tts 0 and is sent nothing. A Mech is the man's voice
+                      at 0.80 of its speed and pitch, a bot's at 1.22, and both
+                      through a robot filter (ring modulation,
+                      cl_h9_tts_robot 1).
+     web client       the browser's own voices, a man's or a woman's picked
+                      by name (the Web Speech API says nothing of gender),
+                      a Natural or Neural one ahead of the rest, and by
+                      language; without a match the default voice, a woman's
+                      raised. A Mech is the man's at pitch 0.5, rate 0.8, a
+                      bot's at pitch 1.7, rate 1.25.
+     elsewhere        nothing. A native Linux client has no speech backend
+                      yet (it would be speech-dispatcher or espeak-ng behind
+                      h9_tts_platform.h): it says _h9tts 0 and is sent
+                      nothing. A Windows client under Wine or Proton speaks
+                      only if Wine offers it a SAPI voice, which it usually
+                      does not (untested). A Linux player hears the speech in
+                      the web client, with the browser's voices.
+
+ 3a. THE GAS MASKS
+ -----------------
+
+   A model on the list in configs\h9_tts_gasmask.cfg sounds as if its wearer
+   spoke through a mask. It is a man's or a woman's voice that is muffled: a
+   Mech's and a bot's never is, whatever is listed.
+
+   HOW TO EDIT IT. One model name a line, as the model's folder is called, in
+   any case. A line that starts with // is a comment, a blank line is
+   skipped, anything after the name on its line is ignored. A name that ends
+   in * is every model whose name starts so (repuheavy* is the whole
+   repuheavy family), and a name with a ! before it takes a model out again,
+   whatever else lists it. Put a name in to
+   put a mask on that model, take it out to give the voice back. TSM keeps the
+   master copy (build.bat copies it over the server's on every build); the
+   plugin reads it as each map loads. Nothing else decides it: not a class, a
+   team or the match mode, and the plugin does not read ts_matchmode.cfg.
+
+   WHAT IS ON IT TO BEGIN WITH: every MSR-side model of ts_matchmode.cfg's
+   tsm_class1 to tsm_class9 (the names left of the | in each line's fourth
+   field; the master and the three presets agree) -- 46 names: repuheavy_pack,
+   repuheavy_fem_pack, repuheavy_soot_blood, repuheavy_blooded, RepuHeavyGld
+   and its 7 variants, repughillie and its 7, HeavyTengu, RepuHeavyW and its 7,
+   RepuHeavyM and its 7, RepuTengu and its 7, repuheavy_recon -- without the
+   droid msrdroid_bot and the Mech mech_msr_bot, plus repuheavy, the MSR team
+   model of server.cfg's mp_teammodels, which a plain server hands out. No
+   insurgent model and no stock TS model is on it. The other MSR-looking
+   folders that no class uses (repuheavy_dust, RepuTenguG, rh_agent_soot, ...)
+   are not by name; add the ones a server hands out. Of these, repuheavy_fem_pack is a
+   woman's voice, so it is muffled as a woman's; the other 46 as a man's.
+   Since 2026-11-09 the list ends with the wildcards repuheavy*, reputengu*,
+   repughillie*, rh_agent_* and rh_laur_* and heavytengu, so every skin and every
+   woman's model of those families is masked (repuheavy_fem and its variants had no
+   line before), and takes the two models without a helmet out again,
+   !repuheavy_fem_nhelm and !repuheavy_bfem_nhelm. Type h9_tts at the console to see
+   whether your own model is masked: it names your model and says yes or no.
+
+   How it sounds: Windows runs the rendered voice through two low-passes in a
+   row (a fourth-order roll-off at 1800 Hz / (1 + cl_h9_tts_muffle): 900 Hz by
+   default) and a resonance at 700 Hz, then brings the line back to 85 percent
+   of the loudness it had, so the mask is heard as a dull, boxy voice and not
+   as a quiet one. cl_h9_tts_muffle (0 to 2, saved, default 1) is the strength:
+   0 takes the mask off, 2 is heavy. The browser exposes no audio data and so
+   cannot filter: the web client approximates it with a voice at (1 - 0.3 s)
+   of the volume, (1 - 0.1 s) of the pitch and (1 - 0.05 s) of the rate, s being
+   cl_h9_tts_muffle.
+
+ 3b. CHOOSING THE VOICES
+ -----------------------
+
+   There are four kinds of speaker, from the model's name (section 3): a man, a woman, a Mech and a bot; and a mask on top of a man or a
+   woman (3a). The game picks a voice for each from the ones installed on the machine, and a player can pick his own:
+
+       exec ttsactors.cfg          lists the voices on this machine, numbered, and says how to pick and try them
+       cl_h9_tts_voices            the same list (Windows: SAPI's voices, e.g. David and Zira; the web client: the browser's)
+       cl_h9_tts_voice_man N       a voice's NUMBER for a man, a woman, a Mech and a bot; 0 (the default) leaves it to the game,
+       cl_h9_tts_voice_woman N     which is the best Male voice for a man and the best Female voice for a woman; a Mech and a
+       cl_h9_tts_voice_mech N      bot with no pick of their own use the man's
+       cl_h9_tts_voice_bot N
+       cl_h9_tts_test man Hello    speaks the words as man, woman, mech or bot, with the picks in force; add the word muffled
+                                   after the kind to hear the mask: cl_h9_tts_test woman muffled Over here
+       cl_h9_tts_robot 1           the robot sound of a Mech and a bot (0 turns it off)
+
+   The robot sound is a ring modulator over the rendered voice (a 38 Hz hum for a Mech, 62 Hz for a bot, 65 percent of the line), on
+   top of the lower slower Mech and higher faster bot of section 3. The web client cannot do it (the browser gives no audio to
+   filter): there a Mech and a bot differ only in pitch and speed. A pick is a number in the machine's own list, so it means a
+   different voice on another machine; the picks are saved with the player's config.
+
+   How what you hear is set (all saved, all on your own machine):
+
+       cl_h9_tts_volume 1          how loud (0 to 2)
+       cl_h9_tts_muffle 1          how strongly a gas mask muffles (0 off, 2 heavy; 3a)
+       cl_h9_tts_pan 1             1 puts each voice in the ear it comes from (Windows, stereo); 0 plays them in the middle
+       cl_h9_tts_maxvoices 2       how many voices at once (1 to 3). When that many are playing, a voice louder than the
+                                   quietest by a fifth (the nearer speaker) takes its place and a quieter one is not spoken
+       cl_h9_tts_individual 1      a speaker who asked for no voice of his own gets one from his slot: the n-th voice of his
+                                   kind and a small step off its pitch, so a room of players does not all sound alike (0: all alike)
+
+ 3c. HOW YOU SOUND TO OTHERS
+ ---------------------------
+
+       cl_h9_tts_myvoice N         0 (default) leaves your voice to each listener's game (and cl_h9_tts_individual); 1 to 99 asks
+                                   for the n-th voice of your kind (man or woman) on THEIR machine, wrapping round when it has fewer
+       cl_h9_tts_mydepth N         -10 deeper to 10 higher (each step is 2.5 percent of the speed and pitch)
+       cl_h9_tts_test man Hello    speaks as you sound to others: with your myvoice and mydepth, in the middle
+
+   The game sends the two to the server as the client command h9_ttsvoice <variant> <depth> (not through the userinfo,
+   which is full): when the server asks as you join (the plugin sends H9Tts with slot 0 and flag bit 1, so a server without
+   the plugin is never sent a command it does not have), and again whenever you change either cvar. The server puts them
+   in each line it sends about you. h9_ttsvoice with no argument prints what the server holds for you. A listener's own
+   pick (3b) still decides which voice his machine uses; your depth applies either way. The voices are the listener's
+   machine's, so "voice 3" is a different voice on each; it is the same relative voice, not the same sound.
+
+ 3d. BETTER, MORE REALISTIC VOICES
+ ---------------------------------
+
+   The game speaks with the voices the machine has; the quality is theirs, and it is the machine that decides. The default
+   already prefers a Natural or Neural voice over a plain one, so installing one is all it takes: cl_h9_tts_voices lists
+   them, and nothing needs picking.
+
+     Windows   the SAPI voices that come with it (Microsoft David and Zira "Desktop") are the robotic ones. The newer
+               Natural voices (Narrator's, Microsoft Edge's) are not SAPI voices, and a SAPI program does not see them. A
+               third-party open-source adapter, NaturalVoiceSAPIAdapter (github.com/gexgd0419/NaturalVoiceSAPIAdapter),
+               makes them appear as SAPI 5 voices; it is not H9's, not shipped and not reviewed here -- read its source and
+               license before installing it. Other SAPI 5 voices (commercial or free) work the same way.
+     browser   Edge offers "Microsoft ... Online (Natural)" voices to a page, Chrome the Google ones; the web client
+               prefers a Natural or Neural name, then a local voice, in the page's language.
+     later     a voice H9 ships itself (a small neural model such as Piper's, run by a helper process) would need its own
+               license check and a few tens of megabytes per voice; it is not done.
+
+ 4. THE PROTOCOL
+ ---------------
+
+   The plugin registers the user message H9Tts in plugin_precache, whatever
+   h9_texttospeech says, with engfunc(EngFunc_RegUserMsg, "H9Tts", -1), the
+   way h9vgui_precache registers H9Vgui (include\h9_vgui.inc): every game
+   learns it at connect. (The size is -1, variable.) A message goes to one
+   listener, begun with engfunc(EngFunc_MessageBegin, MSG_ONE, ...) because
+   Metamod-R records only the game library's messages, and RELIABLE since
+   2026-11-09: on a big map the engine drops an unreliable message together
+   with the datagram that cannot hold it ("Datagram overflowed" in
+   ts\logs\h9_overflow.log), and on the roleplay maps that was every line. The
+   reliable channel is spared by sending a listener one line every 0.3 s at
+   most, from all speakers together.
+
+       byte     the speaker's slot (1 to 128)
+       byte     the voice: 0 man, 1 woman, 2 Mech, 3 bot
+       byte     the volume, 0 to 100
+       byte     flags: bit 0 (1), a gas mask muffles the voice; the rest 0
+       string   the words, at most h9_tts_maxchars (150 at the most), NUL ended
+       byte     the variant the speaker asked others to hear him with (0 none, 1 to 99)    } the tail: a client reads
+       char     the depth he asked for, -10 to 10                                          } it only when the message
+       char     the pan: -100 his voice in the listener's left ear, 100 right, 0 the       } is long enough for it, so
+                middle; from the speaker's direction and the listener's yaw, fading to     } an older client takes the
+                0 within 160 units                                                         } message as it was
+
+   About 100 bytes at the default, 158 at the most; the client takes no more
+   than 192. A message with slot 0, voice 0, volume 0, flags 2 and no words is
+   the server asking this game for its h9_ttsvoice (3c); it is sent once, a few
+   seconds after a player joins.
+
+   A game says it can speak with the userinfo key _h9tts, as it says it draws
+   H9 VGUI with _h9vgui: "1" while cl_h9_tts is not 0 and the machine has a
+   voice (Windows: SAPI could make one; web: speechSynthesis exists), else
+   "0". A game without the key (a Steam client, an older H9 client) is sent
+   nothing. Were a message to reach a game that does not know it anyway, the
+   engine drops a user message nobody hooked, harmlessly.
+
+ 5. THE CLIENT (reTS cl_dll\h9_tts.cpp, h9_tts_win.cpp, h9_tts_web.cpp)
+ ----------------------------------------------------------------------
+
+   Client cvars, all archived: cl_h9_tts (1; 0 is silence for this player,
+   and the game tells servers by _h9tts 0) and cl_h9_tts_volume (1; 0 to 2;
+   the distance volume is multiplied by it); the voice picks, cl_h9_tts_voice_man,
+   _woman, _mech and _bot, cl_h9_tts_robot, _muffle, _pan, _maxvoices and
+   _individual (section 3b), cl_h9_tts_myvoice and _mydepth (3c); the commands
+   cl_h9_tts_voices and cl_h9_tts_test.
+
+   A server is untrusted. Whatever a message says, the client's own limits
+   hold: a line is cleaned the same way and cut to 160 bytes; at most 8 lines
+   a second from everyone together are read, and no speaker's lines come
+   closer than 0.3 s; whom a line is sent to is the server's say (the speaker
+   too while h9_tts_self is 1). A speaker has
+   ONE line at a time: his newer line replaces his older one, at once.
+
+   Windows. One worker thread of its own (its own COM apartment) does it all,
+   so the render thread only ever queues a line (8 waiting at most, the oldest
+   dropped): SAPI renders the line to memory (22050 Hz, 16 bit, mono), as
+   PLAIN TEXT (SPF_IS_NOT_XML); a Mech, a bot and the speaker's depth are
+   resampled; a gas mask runs the filter of 3a over it; the volume is
+   multiplied into the samples, with 4 dB of headroom at a volume of 1, and a
+   constant-power pan puts the voice in the ear it comes from; and waveOut
+   plays it (stereo). At most cl_h9_tts_maxvoices voices play together (1 to
+   3): when they are all busy a line louder than the quietest by a fifth takes
+   its place, a quieter one is not spoken. A line is cut to 30 seconds.
+   client.dll links ole32 and winmm and NOT sapi.lib: SAPI
+   is reached through COM at run time, so a machine without it (Wine) still loads
+   client.dll and says _h9tts 0.
+
+   Web client. The same source, compiled for the browser, calls the page's
+   speechSynthesis through the one script function installed with
+   emscripten_run_script (EM_JS is not resolved in a side module); lines wait in
+   a queue of three and are spoken one at a time, because speechSynthesis has
+   one voice; a speaker's newer line replaces his older one, cancelling it if
+   it is the one being spoken. No page file changes: the code runs in the
+   page that hosts the game, and a browser without speechSynthesis makes the
+   game say _h9tts 0.
+
+   Any other platform: the message is hooked and ignored, and _h9tts is 0.
+
+ 6. LIMITS, ALL TOGETHER
+ -----------------------
+
+     a line         96 characters by default, 150 at the most (server);
+                    160 bytes (client)
+     a speaker      one spoken line every 1.5 s (server, h9_tts_gap); 0.3 s
+                    (client)
+     a listener     one line every 0.3 s from all speakers together (server)
+     the client     8 lines a second in all; cl_h9_tts_maxvoices voices at
+                    once on Windows (2 by default, 3 at the most), one at a
+                    time in the browser; 8 lines waiting on Windows, 3 in the
+                    browser
+     a message      about 100 bytes, reliable, to listeners within range only
+
+ 7. PRIVACY AND ABUSE
+ --------------------
+
+   * What leaves a machine: the text the chat already shows. Nothing is
+     recorded, nothing is sent to H9: the Windows voices run on the player's
+     own machine. In a browser, a voice that is not local (some browsers'
+     "Google" voices) sends the text to its vendor's speech service, as any
+     page that uses speechSynthesis does; the web client prefers a local
+     voice among those of the same language. A player who minds types cl_h9_tts 0.
+   * Spam and shouting: one line per h9_tts_gap seconds and h9_tts_maxchars
+     characters, then the client's own limits. Commands are never spoken.
+   * Injection: the text is spoken as PLAIN text on Windows (SPF_IS_NOT_XML),
+     so nothing typed can be taken for SAPI markup -- no <audio src=...> that
+     fetches a file or an address, no <voice>, <pitch> or <rate>. A server
+     cannot make a client open a file or an address by this message; the
+     most it can do is make the client speak short lines of its choosing, in
+     the four voices, at the client's own rate limits.
+   * What a server can do about a player who abuses it: mute his account
+     (h9web; his chat is not spoken or written), gag or kick him with the
+     tools it has; take away what he can reach with h9_tts_range (smaller),
+     h9_tts_gap (longer) and h9_tts_maxchars (shorter); or turn the whole thing
+     off with h9_texttospeech 0, which takes effect with the next line. A
+     player can always turn it off for himself with cl_h9_tts 0 (and then no
+     message is sent to him), or lower cl_h9_tts_volume.
+   * Not done: no filter of words, no translation. Voices read what they are
+     given in their own language, and badly in another.
+
+ 8. TESTING IT LIVE (nothing in this list has been run)
+ ------------------------------------------------------
+
+   Set up: a server with h9_tts.amxx loaded and h9_texttospeech 1; two H9
+   clients with the new client.dll, A (the speaker) and B (the listener),
+   side by side; B types setinfo, with no argument, and sees _h9tts 1.
+   Native Windows with at least one SAPI voice (Windows has Microsoft David and
+   Microsoft Zira), then the web client in Chrome and in Firefox.
+
+   1. A man. A wears seal (or any model without a word of the tables), says
+      "hello there": B hears David within about a second, and the chat line
+      is written as ever. The very first line after the game starts is slower
+      (SAPI loads the voice).
+   2. A woman. A wears prole_fem: B hears Zira.
+   3. A Mech and a bot. A wears mech_msr_bot: slow and low. A wears
+      msrdroid_bot: fast and high. A real bot (an rcbot fake client) says
+      something wearing a human model: it is a man's or a woman's, by its
+      model, not a bot's.
+   4. Gas masks. A wears repuheavy_pack: a muffled man. repuheavy_fem_pack: a
+      muffled woman. XCCPsgts (insurgent), seal and msrdroid_bot and
+      mech_msr_bot: clear. Add msrdroid_bot and mech_msr_bot to the list file,
+      change the map: still clear. Take repuheavy_pack out, change the map:
+      clear. Do all of this once with the match mode off (tsm_enabled 0) on a
+      plain map: the same.
+   5. Distance. A speaks with B at 100 units (full volume), 500 (about half),
+      790 (a whisper), 900 (silence); then with a wall between them at 300
+      (still heard).
+   6. The rate limit. A types two lines within a second: only the first is
+      spoken, both are written. Set h9_tts_gap 0.2 and type two lines 0.5 s
+      apart: the second cuts the first off. Three speakers at once: three
+      voices, a fourth takes the oldest.
+   7. B's cl_h9_tts 0: silence, and _h9tts reads 0; back to 1 and _h9tts reads
+      1. cl_h9_tts_volume 0.3 and 2: quieter, louder.
+   8. h9_texttospeech 0 and 1: nothing at 0, speech at 1, from one line to
+      the next.
+   9. say_team: B on A's team hears; C beside A on the other team does not.
+  10. Not spoken: ".ready" and "/me waves"; a line of ":)"; A dead; A muted
+      (h9web); a player under the Recon's cloak.
+  11. A client without the new code (a Steam client, or the previous
+      client.dll): it joins and plays as ever, and nothing is sent to it. To
+      see the message reach such a client anyway, give it setinfo _h9tts 1:
+      it takes the message, ignores it, and prints nothing.
+  12. Wine, or a Windows with no voices, if one is to hand: the game loads and
+      says _h9tts 0.
+  13. The web client: the first speech may need a click on the page first
+      (browsers do not speak before the page has been used); a Mech and a bot
+      are lower and slower, higher and faster; a muffled voice is quieter and
+      slightly lower; one voice at a time; a new line from the same speaker
+      cuts his old one off.
+  14. A crowd: ten bots chatting. No frame hitch; at most cl_h9_tts_maxvoices
+      voices at once, the nearest speakers' first; the server log shows
+      nothing from [TTS] but its start lines.
+  15. The gas mask. A wears repuheavy_fem (it was not on the list before): A
+      types h9_tts at the console and reads that the model is masked; B
+      hears a dull boxy woman; cl_h9_tts_muffle 0, 1, 2 on B: clear, muffled,
+      heavier. Take repuheavy* out of the list, change the map: clear.
+  16. The ears. A and B stand 300 units apart, B facing A: A's voice is in
+      the middle; B turns 90 degrees left: A's voice is in B's right ear, and
+      the other way round. cl_h9_tts_pan 0: always in the middle. A speaker
+      round a corner (no line of sight) is in the right ear still.
+  17. The voice others hear. A sets cl_h9_tts_myvoice 2 and cl_h9_tts_mydepth
+      -6, B (with two male voices installed) hears A lower and, with the
+      second voice, another one than A's first. A types h9_ttsvoice at the
+      console and reads variant 2, depth -6. A changes the map: the picks are
+      sent again within a few seconds. B's own cl_h9_tts_voice_man N overrides
+      the voice but not the depth.
+  18. A server without the plugin: the client never sends h9_ttsvoice, and no
+      "Unknown command" line appears at the console.
+  19. A native Linux client or a Wine client with no SAPI voice: the game
+      loads, _h9tts is 0, nothing is sent.
+
+ 9. THE FILES
+ ------------
+
+   Server:  h9_tts.sma (-> h9_tts.amxx)   h9_tts.cfg   h9_tts_gasmask.cfg
+            (all in the TSM folder; build.bat copies the cfgs to configs\)
+   Client:  reTS\cl_dll\h9_tts.cpp, h9_tts.h, h9_tts_platform.h,
+            h9_tts_win.cpp, h9_tts_web.cpp; CMakeLists.txt lists them and
+            links ole32 and winmm on Windows; hud.cpp calls H9Tts_Init after
+            H9Vgui_Init; input.cpp's HUD_Shutdown calls H9Tts_Shutdown.
+   Docs:    this file; COMMANDS.txt (TEXT TO SPEECH, cl_h9_tts,
+            cl_h9_tts_volume, _h9tts); reTS\binaries\ts\cl_dlls\client.dll.patch
+            (the item for the new client.dll).
