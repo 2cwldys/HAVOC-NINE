@@ -2195,6 +2195,27 @@
                                  (docs\NETWORKING.txt)
  h9_autoconfig 0|1               on a server running H9XASH: run the map's
                                  ts\mapconfigs\<map>.cfg once it is up (1)
+ cl_h9_joinscreen 0|1            the menu's join screen while a server is being
+                                 joined (1, saved); 0: the console, as
+                                 upstream Xash3D does
+ _h9_drop                        why the last join or game ended: set by the
+                                 engine, read-only; the join screen shows it
+ _h9idv                          1 while this game can answer the presence ID
+                                 proof: set by the engine, sent to servers
+ _h9idl                          1 in a game that answers its own listen
+                                 server's h9_idlisten: set by the engine, sent
+                                 to servers
+ _h9rel                          the release of this game (h9_release.txt),
+                                 sent to every server: set by the engine,
+                                 read-only
+ _h9srv, _h9srv_gen              the servers havoc9.org names, each with its
+                                 verdict, and a count of that list's changes
+                                 (0 until it was read): set by the engine,
+                                 read-only; the server browser's chain
+ h9_avatar_page                  the web client's page runs it after it has
+                                 written a player's havoc9.org picture, to show
+                                 the picture in its slot; restricted, never
+                                 typed
  cl_h9_motd 0|1                  a server's splash MOTD in place of its
                                  text MOTD (1) (docs\H9_MOTD.txt)
  cl_h9_motd_wine 0|1|2           under Wine or Proton: show a server's web
@@ -2479,6 +2500,11 @@
                                       UMP and the M4A1 in their place. The buy
                                       menu follows a change at once; the
                                       loadouts, at the next arming.
+ h9_ppsh41                 1          present and 1 when the game library has the
+                                      PPSh-41 (weapon 39), so a plugin can give a
+                                      library without it another gun. Server,
+                                      set by the library
+ h9_laserrifle             1          the same for the laser rifle (weapon 40)
  h9_mechrocket             1          present and 1 when the game library has the
                                       Mech rocket launcher (weapon 41), so a
                                       plugin can give a library without it
