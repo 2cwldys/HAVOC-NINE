@@ -96,6 +96,8 @@ about the first kind:
 | 51 | `engine-h9-overflowlog.patch` | `common/h9_overflowlog.c` (new), `common/sys_con.c` (two prototypes after the includes, `Con_Printfv`, new `Con_H9Unprinted`, the early returns of `Con_Printf`, `Con_DPrintf` and `Con_Reportf`) | every console message, printed or held back (developer level, no console), is matched against the engine's overflow and limit messages; a match is appended to `<game>/logs/h9_overflow.log` (`ts\logs`) with the date and time, the side (server, listen or client) and the map, whatever `-dev` or `-log` say. The same message (its first 24 characters) at most once in 10 s, with the count held back; at most 2000 lines a run; C stdio, opened and closed for each line. A held-back developer message is formatted only when its format string matches. Independent of every other patch: no other patch touches `sys_con.c` |
 | 52 | `engine-h9-vguitype.patch` | `client/vgui/vgui_draw.c` (`VGUI_IsInGame`) | the VGUI panels stay painted while the chat line is open. The VGUI support library paints only when the engine says the player is in the game, which was `cls.key_dest == key_game`, so every VGUI panel (TS's scoreboard and menus, H9's match bar, banners and menus) vanished while a say key's chat line was open and came back when it closed; `key_message` now counts as in the game too, as on GoldSrc. The console and the menu still hide them. Independent of every other patch |
 | 53 | `engine-h9-serverauth.patch` | `client/cl_h9auth.c` (new), `client.h` (`CL_H9Srv_Init` after `CL_Escape_f`), `cl_main.c` (`CL_Init`, after `S_Init`) | the server browser's chain asks havoc9.org and never the servers. `h9_servers` (a restricted command, once in 20 seconds at the most; `cl_h9_servers 0` turns it off) fetches `/api/presence/servers/auth` with `HTTP_GetToMemoryEx` (https with the certificate checked for havoc9.org; `cl_h9_site` names a local test site, as for the pictures) and puts the answer in two cvars the menu reads: `_h9srv` (" address=c address=c ", c o for ok, r for a roleplay map, m for modified) and `_h9srv_gen` (0 until an answer was read). The browser build compiles none of it. The menu's half is in `mainui-h9-browser.patch`. Independent of every other patch |
+| 54 | `engine-h9-intro.patch` | `client/cl_video.c` (cvars `ts_intro` and `ts_intro_vol`, `SCR_SkipStartupVideo`, the intro skipped in `SCR_NextMovie` when it is 0), `client/client.h`, `client/input/in_keys.c` (`Key_Event`), `client/sound/s_stream.c` (`S_StartBackgroundTrack`) | the intro video before the main menu: `ts_intro` (archived, 1), `ts_intro_vol` (archived, 1: how loud it is), any key or mouse button skips a startup video |
+| 55 | `engine-h9-glowfix.patch` | `ref/gl/gl_draw.c` (`R_Set2DMode`) | MSR's bloom: `GL_MODULATE` is bound before the compose, so a glowing mesh (lamps, the RepuTengu glasses) is no longer drawn as a white square |
 
 Not tracked here (already committed on `h9`, see `git log` in `xash3d-fwgs`):
 `engine-h9-spraywad.patch` (the classic-HL "whatever's in tempdecal.wad IS
@@ -1805,3 +1807,34 @@ Only the `menus/ConnectionProgress.cpp` section of the patch was replaced (`git 
 Nothing was added to the chain (the `xash.dll` description line in `xash.bat` is as long as it was); the descriptions there still name #45's bots and auth flag,
 and this entry is the record. h9_presence.sma registers `h9_require_release` (1) and `h9_plugin_release` (the release build.bat writes into
 `include\h9_release.inc` from the overlay's h9_release.txt) and logs a package mismatch.
+
+### 2026-11-09 -- engine-h9-intro.patch (new): the intro video before the main menu, ts_intro, any key skips it
+
+`media/StartupVids.txt` names `media/ts_intro.avi` (the original Specialists intro, cut to 21 s, MJPEG with PCM sound); the engine plays the startup videos before
+the main menu shows, and stock FWGS skips one only with escape and has no switch. `cl_video.c`: the archived cvar `ts_intro` (1), registered in
+`SCR_InitCinematic` (before `config.cfg` runs, so a saved 0 holds), and `SCR_NextMovie` steps past an entry whose name holds `ts_intro.` while it is 0, so with 0
+the list ends at once and the menu shows; `SCR_SkipStartupVideo` (declared in `client.h`): while a startup video plays (a flag `SCR_NextMovie` sets when it starts one from the list, so not one the `movie`
+command plays; it prints "ts_intro: startup video skipped") it goes to the next one. `in_keys.c`, `Key_Event`: right after `Key_Rotate`, a key or mouse button going down (not the console key) calls it and
+returns. `SCR_PlayCinematic` sets the video's volume (`AVI_VOLUME`, 0 to 255) from the archived cvar `ts_intro_vol` (1) when the file is the intro: 1 is the video as recorded, 0 silent, 0.5 half, a number above 1 is 1. `s_stream.c`, `S_StartBackgroundTrack`: the track's source (the key destination it plays under) is the menu's while a cinematic plays. userconfig.cfg
+starts the menu music (`exec menu_music_resolved.cfg`) a few frames after the intro starts; the key destination then is the movie's (key_game), so the track
+was recorded as game music, stayed paused behind `snd.streaming` while the video played and, once the menu showed, was paused for good by the rule that a game
+track does not play in the menu: no menu music after the intro. Now it waits behind the movie's sound and plays when the menu shows. Made from before and
+after copies of the four files in the state the chain has them at #53; five hunks in cl_video.c, one each in client.h, in_keys.c (five lines clear of
+engine-h9-motd.patch's hunk there) and s_stream.c (clear of engine-h9-consolemusic.patch's). Added to the end of the chain in `xash.bat` and to the `xash.dll` description line as a bare
+name (that line is 8,174 of cmd's 8,191 characters now). The browser build compiles the same code; it has no FFmpeg, so a movie does not start there and the
+menu shows as before.
+
+### 2026-11-09 -- engine-h9-glowfix.patch (new): GL_MODULATE bound before the bloom compose
+
+MSR's bloom (`GL_GlowPass`, `ref/gl/gl_fbo.c`) weights each blur tap with its vertex colour and set no texture environment; `R_StudioRestoreRenderer` leaves
+`GL_REPLACE` bound (upstream) and the viewmodel is the last studio draw of a first-person frame, so the compose ran under `GL_REPLACE` on desktop GL: the vertex
+colour was dropped, the 9 taps of each of four passes were added at full strength, and every additive mesh (the streetlamps of the meridian maps, the glasses of
+the RepuTengu models, ceiling lights) was blown out to a flat white rounded square 125 to 150 px wide at 1080p with a soft halo. `gl2_shim` (the browser) ignores
+`glTexEnv`, so the browser build always modulated and looked right. `R_Set2DMode` (`gl_draw.c`), the only caller of `GL_BindScreenTarget` and so of the compose,
+now binds `GL_MODULATE` first. The line is not in `gl_fbo.c` itself, where `GL_GlowPass` would be the natural place: the bloom is added by `engine.patch`, whose
+reverse check fails once a later patch changes a line inside its hunk there. Made from before and after copies of `gl_draw.c`; one hunk, far from
+`engine-h9-serverfog.patch`'s. Added to the end of the chain in `xash.bat` and to the `ref_gl.dll` description.
+
+### 2026-11-09 -- engine-h9-presence.patch (changed): a CL_Presence_Frame stub for the dedicated build
+
+`Host_Frame` (`host.c`) calls `CL_Presence_Frame()`, which `cl_presence.c` defines in the client; the dedicated build (`waf configure -d`, `linux/build-linux.sh engine`) has no client code and stopped at the link with `undefined reference to CL_Presence_Frame`. `engine/common/dedicated.c`, where the dedicated build keeps its client stubs, now has an empty `CL_Presence_Frame` after the `CL_Disconnect` stub: one hunk added to this patch, and no other patch touches `dedicated.c`. The file is compiled only into the `-d` build, so `HAVOC 9.exe`, `xash.dll` and the browser engine are unchanged by it.

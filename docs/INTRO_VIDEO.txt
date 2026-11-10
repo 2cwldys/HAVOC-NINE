@@ -1,0 +1,33 @@
+THE INTRO VIDEO -- ts_intro
+===========================
+
+The game plays the original The Specialists intro before the main menu shows: 21 seconds (the original's last 7 seconds are cut off), 640 x 360 (16:9), with its sound. Any key or
+mouse button skips it (the escape key too), and the menu shows at once. ts_intro 0 in the console (it is saved with the config)
+turns it off for good, 1 brings it back; 1 is the default. ts_intro_vol sets how loud the intro is: 1 is the video as recorded (the most a
+video plays at), 0.5 is half, 0 is silent; any number from 0 to 1, whole or with decimals (saved with the config, 1 is the default). Nothing else changes: the menu, its music and its background video
+come up the way they always did.
+
+HOW IT WORKS
+  * The engine plays the videos that ts\media\StartupVids.txt lists, one after another, before the menu. H9's list names one:
+    media/ts_intro.avi. (Stock FWGS lists the Sierra and Valve videos, which the game does not have.)
+  * engine-h9-intro.patch (xash3d-h9-patches\patches) adds the cvar ts_intro, which skips that entry while it is 0, and makes
+    any key or mouse button going down skip a startup video. A video the movie command plays is left to the escape key.
+  * The video is an AVI, which is what the engine's FFmpeg plays: MJPEG, 640 x 360, 25 frames a second, with 22050 Hz mono PCM
+    sound (6.9 MB). It was made from the original intro, cut at 21.08 seconds (-t 21.08), specialistsmod.net's "original specialists intro.mp4" in the Specialists
+    archive (H.264 and AAC), with:
+        ffmpeg -i "original specialists intro.mp4" -t 21.08 -vf "crop=476:360:2:0,scale=640:360:flags=lanczos" -c:v mjpeg -q:v 6 -pix_fmt yuvj420p -c:a pcm_s16le -ar 22050 -ac 1 ts_intro.avi
+    The original is 4:3 (480 x 360), and a 4:3 picture on a wide screen is shown with black bars at its sides. The filter takes the
+    one-pixel light line at each side of the capture off and stretches the picture to 16:9, which fills a 16:9 screen with nothing of the
+    picture lost and everything a third wider than it was shot. The other way, cropping the picture to a 16:9 window
+    (-vf "crop=476:268:2:46,scale=640:360:flags=lanczos") keeps the proportions and loses the top and bottom of the picture. A screen wider
+    than 16:9 still shows a bar at each side, and a 4:3 screen one above and below.
+    The file must really be an AVI (the engine opens it as one). It lives in xash3d-h9-patches\overlay\ts\media, which
+    xash.bat lays into H9XASH\ts\media.
+  * The main menu's music (userconfig.cfg starts it a few frames after the intro begins) waits behind the intro's sound and starts
+    when the menu shows; engine-h9-intro.patch makes the engine treat a track started during a startup video as the menu's.
+  * To change the intro: replace ts_intro.avi (any length; keep the name), or name another AVI in StartupVids.txt (the cvar
+    skips entries whose name holds ts_intro.). To leave startup videos out altogether for one run: the launch option -nointro.
+
+THE BROWSER
+  The browser build has no FFmpeg, so no video starts there and the menu shows as before; ts_intro exists there and does nothing.
+  The intro is the native game's.
