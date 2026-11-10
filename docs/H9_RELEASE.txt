@@ -37,6 +37,11 @@ compares as text (older sorts first). To make a new release, edit that file and 
     export.bat                 lays the file into H9XASH, the export and the git copy
     node tools\webclient-sync.mjs
 
+tools\release-check.mjs says whether the build (VERSION in ts_matchmode.sma) and the release agree everywhere they
+are stated: the site's download page (--write puts the build there), the game folder's h9_release.txt and the plugins'
+include\h9_release.inc. build.bat and export.bat run it, and so does the GitHub workflow preset-hash.yml for every push
+and pull request that touches them (with tools\preset-check.mjs, docs\H9_PRESENCE.txt 4d).
+
 Both sides read the same file: the client engine (cl_presence.c, CL_Presence_Init) sets its read-only cvar _h9rel
 to it and writes the same key into its userinfo (a cvar set that way never reaches the userinfo by itself), which every
 connect carries to the server; `setinfo` in the console lists the keys a client sends. The server engine (common/h9_release.c, H9_Release) reads it for
