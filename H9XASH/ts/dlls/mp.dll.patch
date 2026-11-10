@@ -15,14 +15,16 @@ Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 (CMake, Win32, Release; targets hl and client); the builds of
                 2026-11-02 are target hl alone (changes 7 and 8; the client is built
                 apart, its own client.dll.patch); the build of 2026-11-03 is both
-                (change 9); the build of 2026-11-04 is target hl alone (change 10); the build of 2026-11-05 is both (change 11)
-Size          : 991232 bytes
-SHA256        : FB1BCBFDC94F354A7F6F3D7D5873C55D34035603006D7C94AE449E07AB0C602B
-client.dll    : 861184 bytes (its own client.dll.patch)
-SHA256        : 290CAC41933EFB7EC8C8A82D1A178C0FBE9AECF3EE75017E829B4F88540C840E
+                (change 9); the build of 2026-11-04 is target hl alone (change 10); the build of 2026-11-05 is both (change 11);
+                the build of 2026-11-09 04:45 is both (changes 12 to 14); the build of 2026-11-09 05:49 is target hl alone (change 15); the build of 2026-11-09 07:42 is target hl alone (change 16)
+Size          : 999936 bytes
+SHA256        : 782043F5CDBAF7F2134E9985EEDA3FF4F5419AEF4D898CAF1DE8B1B91BA5FDE9
+client.dll    : 864256 bytes (its own client.dll.patch)
+SHA256        : 1CF932AC4D79FD3B3E91B1C1A0DDF685BD8FF1DC529EE8E4F541DD6A102729F9
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
                 plus the 128-slot build below (2026-11-01), changes 7 and 8
-                (2026-11-02), change 9 (2026-11-03), change 10 (2026-11-04) and change 11 (2026-11-05)
+                (2026-11-02), change 9 (2026-11-03), change 10 (2026-11-04), change 11 (2026-11-05) and changes 12 to 16
+                (2026-11-09)
 
 Both DLLs are also in reTS\binaries\ts\ (the staging folder xash.bat's assemble step and
 export.bat's GoldSrc block copy from), in H9XASH\ts\, export\H9XASH\ts\, and the GoldSrc
@@ -189,6 +191,98 @@ What the source build contains, beyond the release DLL
    added later), and SrvSett id 4 (to everyone when it changes, to a joiner with the other settings) tells the
    client's buy menu. CTSGun::m_items has one more element. Detail: reference\DEVIATIONS.md. The mp.dll this
    replaced is kept as mp.dll.bak_prelaser in reTS\binaries\ts\dlls\.
+
+
+12. The Mech rocket launcher, weapon 41, and the rocket
+
+   dlls\ts_weapon_info.h, ts_weapon_info.cpp, ts_gun.h, ts_gun.cpp, ts_mechrocket.h, ts_mechrocket.cpp (new), game.cpp, game.h,
+   ts_weapons.cpp, TS_util.cpp, TS_gamerulesclass.cpp, multiplay_gamerules.cpp, CMakeLists.txt: a third weapon TS 3.0 does not
+   have, TSW_MECHROCKET (41; TSW_COUNT is 42), a shoulder-fired rocket launcher for the Mech class. It is weapon 41 of the one
+   weapon_tsgun (there is no weapon_h9_mechrocket entity). Its table row is the M4A1's whole (so its animation blocks and its
+   draw, fire and reload sequences are the M4A1's: idle 0, reload 1, draw 2, shots 3 and 4, the last-round shot 4) with its own
+   name "Mech Rocket", models\h9\{v,p,w}_mechrocket.mdl, no fire sound, no shell, a one-rocket clip, 1.5 s between shots, fire
+   modes 2 (single only), fire type 0 (in no weapon restriction category), caliber 13 (the Contender's, 7.62 x 51mm: all sixteen
+   calibers of the ammo table are taken, so the reserve is that pool), slot cost 10 (it fits beside the M60E3), price 0 and no
+   buy menu row, no scope, attachment, right-click stance or gunbash. It comes after the flag in the auto-select order and draws
+   as the M4A1 does. CustomWP stops at weapon 37 as before.
+
+   A shot (CTSGun::MechRocketFire, called from Fire in place of StandardFire) spends the round, plays the ordinary fire event
+   and launches CMechRocket (ts_mechrocket.cpp): a MOVETYPE_FLY entity from the eye along the aim at h9_mechrocket_speed with a
+   TE_BEAMFOLLOW smoke trail, which goes off on the first thing it touches or after 10 s. The blast is TSExplosion (the M61's):
+   h9_mechrocket_damage at the middle, full out to a quarter of h9_mechrocket_radius, nothing past the radius, with the
+   explosion sprite where it lands and TS's own explosion effect and sound. A rocket that reaches the sky is removed without a
+   blast. The player who fired it is not hurt by its blast unless h9_mechrocket_selfdamage is 1 (the plugin's .rocket spared
+   the shooter in its fallback damage loop too). The kill feed names the weapon "Mech Rocket". The launch sound is weapons\rocketfire1.wav, played by the server at the
+   shooter's pitch.
+
+   The art is not part of reTS and every file is looked up on disk before it is precached (a precache of a file that is not
+   there stops the map): the three models come together or the row wears the M4A1's models, the muzzle flash, smoke and
+   explosion sprites (sprites\h9_rocket_flash.spr, h9_rocket_smoke.spr, h9_rocket_boom.spr) are replaced by the ordinary muzzle
+   sprite, sprites\steam1.spr and sprites\zerogxplode.spr, the rocket (models\h9\mechrocket.mdl, optional) by
+   models\rpgrocket.mdl and then models\shrapnel.mdl, and a missing launch sound is silence. The lookup is made once for each
+   map (TSMechRocketResolveAssets, at the head of PrecacheAllTSWeapons and of TSPrecache).
+
+   The weapon is deleted, not dropped, when its owner is a Mech (the plugin marks one in pev->fuser4, change 14) and dies, drops it
+   or is disarmed (CBasePlayer::DropWeapon; h9_mechrocket_nodrop, 1); any other holder drops it like any gun. Refusing a Mech's
+   drop key is the plugin's. It is behind h9_customweapons like every weapon from id 39 on
+   (TS_IsCustomWeapon, CBasePlayer::PickUpWeapon).
+
+   Server cvars (game.cpp): h9_mechrocket (1; present when the library has the weapon, as h9_laserrifle), h9_mechrocket_damage
+   (150), h9_mechrocket_radius (200), h9_mechrocket_speed (900), h9_mechrocket_rate (1.5), h9_mechrocket_clip (1),
+   h9_mechrocket_nodrop (1) and h9_mechrocket_selfdamage (0). The clip and the rate are copied into the weapon table every
+   rules think (TSMechRocketSyncCvars); the rest are read when a rocket is made or goes off. COMMANDS.txt lists them.
+
+   CTSGun::m_items has one more element, so the members after it move. Detail: reference\DEVIATIONS.md. The mp.dll this
+   replaced is kept as mp.dll.bak_preweapon41 in reTS\binaries\ts\dlls\.
+
+
+13. The ammo box after a HUD reset
+
+   Where ResetHUD is sent (CBasePlayer::UpdateClientData, dlls\player.cpp), a gun the player still
+   holds now clears its WeaponInfo and WStatus caches (m_iClientWeaponType = -1, m_bWStatusInit =
+   false), so it tells the client again what it holds: the client's ammo box and weapon bar are
+   emptied by ResetHUD, and the original's server resends nothing until the weapon type changes.
+   The weapon_<N> command (TSSelectWeaponType, dlls\ts_gun.cpp) clears the WeaponInfo cache after a
+   pick, so choosing the weapon already held sends WeaponInfo again; that repairs a stale ammo box
+   with one key press. CTSGun::Reset is unchanged (it stores 0, ts_i386.so 0x70626).
+   Pairs with client.dll change 26. Described in reTS\reference\DEVIATIONS.md.
+
+
+14. A marked Mech is not disarmed and takes no dropped weapon
+
+   dlls\ts_gun.cpp (CBasePlayer::DropWeapon) and dlls\ts_player.cpp (CBasePlayer::PickUpWeapon): while the server cvar
+   tsm_loadoutrework is on, a player whose pev->fuser4 is set (ts_matchmode sets it to 1 for a Mech each time it hands the
+   kit over, with the match mode on) is neither disarmed by a melee hit (DropWeapon, type -2) nor lets go of a weapon on its own (the drop key,
+   drop_<n>), and takes no dropped weapon from the floor (PickUpWeapon with a dropped gun's status). A weapon the plugin
+   gives with ts_giveweapon, a map weapon (no status) and a death scatter are not touched. Both tests read the cvar only
+   for a marked player. The mp.dll this replaced is kept as mp.dll.bak_preweapon41 in reTS\binaries\ts\dlls\.
+
+
+15. The Mech rocket's blast pushes the players it leaves alive
+
+   dlls\ts_mechrocket.cpp (MechRocketPush, called by CMechRocket::Detonate after TSExplosion), dlls\game.cpp and game.h: TS
+   gives a living player no knockback from a hit (combat.cpp, CBaseMonster::TakeDamage), so the rocket pushes the players
+   its blast leaves alive itself. Every living player in the blast's radius that the game rules say the thrower may hurt
+   (FPlayerCanTakeDamage: friendly fire off spares a teammate), with a clear line from the blast to the player's centre, on
+   MOVETYPE_WALK, gets pev->velocity increased by h9_mechrocket_push (units a second, along the ground away from the middle
+   of the blast; a player right on it goes the way the rocket flew) plus h9_mechrocket_lift (units a second, up), both
+   scaled by the blast's falloff (full out to a quarter of h9_mechrocket_radius, nothing at the radius), the result held to
+   1000 units a second, and FL_ONGROUND cleared when there is a lift. The thrower is pushed only when
+   h9_mechrocket_selfdamage is 1; a player the blast kills gets TS's own death launch instead. Two new server cvars,
+   h9_mechrocket_push (400) and h9_mechrocket_lift (250); 0 for both is the old behaviour. No weapon-table or interface
+   change. The mp.dll this replaced is kept as mp.dll.bak_prepush in reTS\binaries\ts\dlls\. Described in
+   reTS\reference\DEVIATIONS.md.
+
+16. A bot ts_matchmode keeps off powerups wins no kill award and leaves no slow-motion bubble
+
+   dlls\ts_player.cpp and ts_player.h (TSBotKeptOffPowerups), dlls\multiplay_gamerules.cpp (CHalfLifeMultiplay::PlayerKilled) and
+   dlls\player.cpp (CBasePlayer::Killed): while the server cvar tsm_enabled is above 0 and tsm_bot_powerups is 0 or less (both read
+   by name when a kill is scored, 0 when the plugin is not loaded), a killer with FL_FAKECLIENT is not handed the slowmatch held slow
+   motion, the held slow motion for stopping a Specialist, or the Specialist's kung fu, super jump and held slow motion (the 150 health
+   stays); a kill of his leaves no spectacular slow-motion bubble (CTSSlowMotionPoint) and sends no killer blur (TSMotionBlur). A
+   human's kill, a grenade's bubble and every pickup are unchanged; The One mode is not covered. tsm_bot_powerups 1 gives the
+   old behaviour. The mp.dll this replaced is kept as mp.dll.bak_prebotawards in reTS\binaries\ts\dlls\.
+
 
 Building and deploying
 ----------------------

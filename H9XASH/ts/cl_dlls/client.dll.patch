@@ -11,9 +11,9 @@ client it was applied to.
 
 Deployed file : client.dll
 Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
-                (CMake, Win32, Release; target client)
-Size          : 863232 bytes
-SHA256        : 62DCA0BF7CCA465D54BD06E73C13DBC79CD377D2F709BECCD5DE0F5E11C1C45F
+                (CMake, Win32, Release; target client; the builds of 2026-11-09 09:03 and 13:45 are target client alone: the player's own lines spoken, and the voices to pick, item 28; the build of 2026-11-09 after that is target client alone too: the chat bubbles, item 29; and the next, the Apollo RP HUD as panels, item 30; and the build of 2026-11-09 in the evening, target client alone, the voices, the gas mask and the pan of the speech, item 28; and the build of 2026-11-09 at 21:32, target client alone, the float chat's own line and the lift of the box over the typing sprite, item 29)
+Size          : 922624 bytes
+SHA256        : C590E8C0402A6A909EA9567E93021590B298661DC495CA40754C104B91E6440C
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
                 plus the local mouse-release fix below, the 128-slot build (2026-11-01) and the
                 scoreboard's pictures, link icons, lives column, scrolling, Roleplay
@@ -24,7 +24,7 @@ Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-2
                 (2026-11-04), and the level badge beside the name instead of before it (2026-11-04), and the
                 notices coming up (2026-11-04), and the laser rifle (2026-11-05), and the H9 panels a quarter
                 smaller with a side's reinforcements on the scoreboard (2026-11-05), and the capture points' marks through the walls (2026-11-05), and the row of marks kept in place by a panel
-                at the side (2026-11-05), and the marks' badges as wide as their labels with tsm_show_zones (2026-11-07)
+                at the side (2026-11-05), and the marks' badges as wide as their labels with tsm_show_zones (2026-11-07), and the Mech rocket launcher, the ammo box on kung fu, cl_h9_arpvgui and the text to speech (2026-11-09)
 
 What the source build contains, beyond the stock client
 -------------------------------------------------------
@@ -345,7 +345,152 @@ What the source build contains, beyond the stock client
    cl_dll\h9_vgui.cpp's StoreNotice clears that slot instead of storing the notice while the cvar is 0. The client.dll this
    replaced is kept as client.dll.bak_prereinf in reTS\binaries\ts\cl_dlls\.
 
-25. Everything else reTS already had
+25. The Mech rocket launcher, weapon 41
+
+   cl_dll\ev_ts.cpp, ts_weaponbar.cpp, ts_buymenu.cpp, ts_buymenu.h and the shared dlls\ts_weapon_info.h, ts_weapon_info.cpp,
+   ts_gun.cpp: the client's half of the third weapon TS 3.0 does not have (TSW_MECHROCKET, 41; TSW_COUNT is 42; see mp.dll.patch,
+   change 12). The shared weapon table has its row, so the prediction runs CTSGun::MechRocketFire: it spends the round, plays
+   the fire event, kicks the view (vertical only, 6.0) and holds the fire timer at the table's 1.5 s; the rocket, its launch
+   sound and its blast are the server's. The server's clip, reserve and timers overwrite the prediction every frame, so a
+   server on another h9_mechrocket_rate or _clip only differs in the first frame of a shot.
+
+   EV_TSFire draws no brass and runs no fire core (no bullet trace, whizz, impact, decal or particle push) for this weapon and
+   plays no fire sound of its own (the table entry is empty: the server plays weapons\rocketfire1.wav at normal pitch, where
+   the gun fire sounds are recorded slow and played at 4x). The gun smoke and the dynamic light stay. The muzzle flash is the
+   large sprites\h9_rocket_flash.spr (scale 1.5, 0.06 s) found by name, so a server that does not precache it (the file is not
+   on its disk) has the ordinary muzzle sprite there, at the same scale.
+
+   Weapon bar: column 4, row 13, the Barrett's picture (sprites\weapons\m82.spr) until the launcher has its own. The buy
+   menu has no row for it (its caliber table and icon table grew to 42 so that they hold the id). The scope overlay, the hold
+   stance and the gunbash are not used by it.
+   The client.dll this replaced is kept as client.dll.bak_preweapon41 in reTS\binaries\ts\cl_dlls\.
+
+26. The ammo box starts on kung fu
+
+   CHudTSAmmo::VidInit and CHudTSAmmo::Reset (cl_dll\ts_ammo.cpp) set the weapon type and
+   g_iTSActiveWeapon to 0, as the original client does (client.dll 0x1004cc55 in VidInit, 0x1004cd7e
+   in the HUD Reset). Before, a round restart, a team change, a map change or a plugin strip + spawn
+   that left the player holding kung fu kept the last gun's text (for example M4A1 / 5.56 Nato /
+   Full Auto) in the ammo box, the cursor of the weapon bar, the dynamic crosshair and cl_attackswitch.
+   Pairs with mp.dll change 13.
+
+27. cl_h9_arpvgui: Apollo RP's menus as panels or as the text menu
+
+   cl_h9_arpvgui (1, saved) is the client cvar that chooses how Apollo RP's menus reach this screen: 1 as H9 panels, 0 as the
+   plain text menu. cl_dll\h9_vgui.cpp mirrors it into the private userinfo key _h9arpvgui ("1" or "0"), as it mirrors
+   cl_h9_vgui into _h9vgui, and the apollo-rp include ApolloRP_VGui.inc (arpvgui_wanted) reads that key on the server; a
+   client without the cvar sends no key and gets panels. The client.dll this replaced is kept as client.dll.bak_preweapon41
+   in reTS\binaries\ts\cl_dlls\.
+
+28. Text to speech: what players near you say in chat, spoken (H9Tts, cl_h9_tts, cl_h9_tts_volume, _h9tts)
+
+   A server with h9_texttospeech 1 (h9_tts.amxx; docs\TEXT_TO_SPEECH.txt) sends each player near a speaker the H9Tts user message:
+   byte slot, byte voice (0 man, 1 woman, 2 Mech, 3 bot), byte volume 0 to 100 (from the distance), byte flags (bit 0, a gas mask
+   muffles the voice), string words. cl_dll\h9_tts.cpp hooks it in CHud::Init (H9Tts_Init, after H9Vgui_Init in hud.cpp) and checks
+   it against its own limits whatever the message says: a line is cleaned and cut to 160 bytes, at most 8 lines a second are read,
+   no speaker's lines come closer than 0.3 s; whom a line is sent to is the server's say (the speaker too while h9_tts_self is 1).
+   cl_h9_tts (1, saved) is 0 for silence;
+   cl_h9_tts_volume (1, saved, 0 to 2) scales the voices. The game says it can speak with the userinfo key _h9tts, as it says it
+   draws H9 VGUI with _h9vgui: "1" while cl_h9_tts is not 0 and the machine has a voice, else "0"; a game that does not say "1" is
+   sent nothing. HUD_Shutdown (input.cpp) calls H9Tts_Shutdown, which stops the speech thread.
+   VOICES TO PICK (13:45): cl_h9_tts_voice_man, _woman, _mech and _bot (saved, 0) hold a place, from 1, in the list cl_h9_tts_voices prints of the
+   voices installed (SAPI's on Windows, listed once by the worker thread; the browser's in the web client); 0 leaves the choice to the game, and a Mech
+   or a bot with no pick of its own speaks in the man's. cl_h9_tts_test <man|woman|mech|bot> [muffled] <words> speaks a line in that voice with the
+   picks in force (speaker 255). cl_h9_tts_robot (saved, 1) puts a Mech's and a bot's voice through a ring modulator on Windows (a 38 Hz and a 62 Hz
+   hum, 65 percent of the line; the browser has no audio to filter, so there it keeps its pitch and rate). H9TtsPlat_Speak takes the pick and the robot
+   flag; H9TtsPlat_VoiceCount and H9TtsPlat_VoiceInfo list the voices. ts\ttsactors.cfg (exec ttsactors.cfg) lists them and explains the picks.
+
+   The speaking is the platform's, behind h9_tts_platform.h. Windows (h9_tts_win.cpp, which includes none of the client's headers):
+   one worker thread with its own COM apartment, so the render thread only queues a line. SAPI renders it to memory through an
+   ISpStream (22050 Hz, 16 bit, mono) with SPF_IS_NOT_XML, so nothing a player types is taken for markup; the voice is the first
+   installed one whose Gender is Male or Female (English US, then UK, then any); a Mech is resampled to 0.80 of the speed (slower and
+   lower), a bot to 1.22; a gas mask runs a low-pass biquad (1200 Hz, with 1.1 gain back) over the samples; the distance volume is
+   multiplied into the samples (a volume of 1 leaves 4 dB of headroom); waveOut plays them. At most 3 voices play together, a
+   speaker's newer line stops his older one, 8 lines wait at most. The build links ole32 and winmm (CMakeLists.txt) and not sapi.lib: the
+   wave-format GUID is defined in h9_tts_win.cpp and SAPI is reached through COM, so client.dll has no load-time dependency on
+   sapi.dll and a machine without SAPI says _h9tts 0. The web client (h9_tts_web.cpp, compiled when __EMSCRIPTEN__ is defined) calls
+   the page's speechSynthesis through one function installed with emscripten_run_script (EM_JS is not resolved in a side module,
+   as freevgui's font.cpp notes): a voice by name for a man or a woman, a queue of three spoken one at a time, a Mech at pitch 0.5
+   and rate 0.8, a bot at 1.7 and 1.25, a gas mask approximated by 0.7 of the volume, 0.9 of the pitch and 0.95 of the rate. Any
+   other platform compiles to a no-op. The client.dll this replaced is kept as client.dll.bak_pretts in reTS\binaries\ts\cl_dlls\.
+
+   VOICES, MASK AND EARS (2026-11-09, evening; replaces the voice choice, the 1200 Hz low-pass and the mono output described above). The
+   H9Tts message has a tail after the words: byte variant (0 none, 1 to 99), char depth (-10 to 10), char pan (-100 his voice in the left ear to 100); the
+   server (h9_tts.amxx) fills it from the speaker's h9_ttsvoice and from where he is in the listener's view, and the client reads it only when the message is
+   long enough for it. A message with slot 0 and flag bit 1 is the server asking this game for its picks: the game then sends the server command
+   "h9_ttsvoice <cl_h9_tts_myvoice> <cl_h9_tts_mydepth>" (not through the userinfo, which is full), and again whenever either cvar changes
+   (CHudH9Tts::Think; VidInit forgets that it has been asked, so each map starts over). New client cvars, all saved: cl_h9_tts_myvoice (0 to 99, 0: each
+   listener's game chooses), cl_h9_tts_mydepth (-10 to 10), cl_h9_tts_muffle (0 to 2, 1), cl_h9_tts_pan (1), cl_h9_tts_maxvoices (1 to 3, 2),
+   cl_h9_tts_individual (1: a speaker who asked for no voice gets one, and a small step off its pitch, from his slot). H9TtsPlat_Speak takes an
+   H9TtsLine now. Windows: the default voice is the best listed one of its gender (a Natural or Neural voice ahead of a plain one, a voice without
+   "Desktop" ahead of one with, English of the US, then the UK, ahead of other tongues) and variant n is the n-th of those, wrapping round (a listener's own
+   pick still wins); a speaker's depth resamples by 1.025 for each step on top of the kind's speed; the gas mask is two low-passes (a fourth-order
+   Butterworth at 1800 Hz / (1 + cl_h9_tts_muffle), 900 Hz by default) and a +4 dB resonance at 700 Hz, then scaled back to 85 percent of the RMS the
+   line had, so the mask is heard as dullness and not as distance; the output is stereo (waveOut, 2 channels) with a constant-power pan, 0.85 of the way
+   into one ear at most; when as many voices as cl_h9_tts_maxvoices are playing, a line louder than the quietest by a fifth takes its place and a quieter one
+   is not spoken. The browser: the n-th voice (a Natural or Neural one ahead), the pitch x (1 + 0.05 for each step of depth), the gas mask scaled by
+   cl_h9_tts_muffle; no pan, one voice at a time. The client.dll this replaced is kept as client.dll.bak_pretts2 in reTS\binaries\ts\cl_dlls\.
+
+29. Chat bubbles: what players say, drawn over the head of the player aimed at (H9Say, cl_h9_chatbubble_*, _h9chatbubble)
+
+   A server with ts_floatchat.amxx (docs\CHAT_BUBBLES.txt) sends a game that says it draws the words itself the H9Say user message, once
+   for each line: byte slot, byte flags (bit 0, a team line), short ttl in tenths of a second (0 takes the speaker's line down; slot 0
+   takes every line down), short range in units, byte head top standing, byte head top ducking, string words. cl_dll\h9_chatbubble.cpp
+   hooks it in CHud::Init (H9ChatBubble_Init, after H9Tts_Init in hud.cpp), checks it against its own limits whatever it says (24
+   messages a second, 160 bytes of words, 30 seconds, a slot in the player range) and keeps each speaker's latest line. A HUD element
+   (every frame, in Draw, so the boxes are placed in the frame they paint in) picks the speaker whose body the crosshair is on, or is
+   near to cl_h9_chatbubble_aim percent of the screen height (or every speaker in view, with cl_h9_chatbubble_aimed 0), needs him in
+   this frame's packet, drawn and not spectating, within the line's range and in sight (EV_PlayerTrace from TS_AimEye to the point 6
+   units over his head, glass and players ignored), projects that point with pTriAPI->WorldToScreen and puts a box there: the banner
+   art of the H9 panels (CH9Surface, in three widths so that few of the panels' 64 art bitmaps are made), the H9 Text fonts, the lit
+   purple heading and rule of the menus, a pointer in the lit purple or the speaker's team colour; kept beneath the top stack
+   (H9Vgui_StackBottom), above the bottom band, off the crosshair and off the other boxes, faded in and out. Nothing in it is Windows
+   only, so the web client compiles the same file.
+   The switches, all saved: cl_h9_chatbubble (1, the master), _aimed 1, _aim 4, _range 0, _box 1, _name 0, _teamcolor 1, _pointer 1,
+   _fade 1, _lines 3, _hold 0, _scale 1, _team 1, _own 0, _typing 1; cl_h9_chatbubble_list prints them and cl_h9_chatbubble_test
+   <words> tries the look. The game says what it does in the value of the userinfo key _h9chatbubble ("0" while cl_h9_chatbubble is 0,
+   "1" while it is not, "1s" when cl_h9_chatbubble_own also asks for the player's own line); a game whose value does not start with "1"
+   is sent the hudmessage. entity.cpp's HUD_AddEntity leaves the typing sprite
+   (sprites/tsm_typing.spr) out of the frame while cl_h9_chatbubble_typing is 0. Files: h9_chatbubble.cpp and .h (new), hud.cpp,
+   entity.cpp, CMakeLists.txt. The client.dll this replaced is kept as client.dll.bak_prechatbubble in reTS\binaries\ts\cl_dlls\.
+   The player's own line and the typing sprite: seeing one's own line is the player's choice. cl_h9_chatbubble_own (0 by default, saved)
+   puts an "s" after the 1 of _h9chatbubble, one byte more only for a player who asks, and ts_floatchat sends that player his own line as
+   H9Say; the server's fc_self 1 sends it to everyone, and the client shows the own line it is sent, in the box near the top of the
+   screen. An older ts_floatchat tests the first character only and reads "1s" as "1". The key is written at most once in 2 seconds,
+   with the switches' latest values, because the server ignores a userinfo update that follows another within 0.6 s and reads the key
+   again only at its next resend. The cvar starts at 0 for every player. While a speaker's typing sprite
+   shows, his box rests 6 units over the sprite's top instead of over his head (TypingSpriteTop: the sprite is the entity whose owner is the
+   speaker, in this frame's packet and not EF_NODRAW; HUD_AddEntity notes each one it lets through, H9ChatBubble_NoteEntity), by at most
+   64 units; the line of sight and the aim still go to the point over the head, and with no sprite showing the box does not move.
+
+30. Apollo RP's HUD as panels (H9ArpHud, cl_h9_arphud and its switches, _h9arphud)
+
+   A server with Apollo RP (apollo-rp\; arp_hud_panel 1) sends a player whose userinfo key _h9arphud is 1 each of ARP's four HUDs as
+   lines of the user message H9ArpHud instead of a hudmessage: byte op (1 lines of one HUD, 2 one HUD down, 3 all down); op 1: byte hud
+   (0 to 3), byte the content's number, byte part (bits 0 to 3, bit 7 on the last), byte lines, in part 0 short x and short y (arp_hudN_x
+   and _y in thousandths, -1 centred), then each line: byte kind (HUDK_EXTRA 0, TITLE 1, WALLET 2, BANK 3, PAYDAY 4, SALARY 5, JOB 6,
+   STATUS 7), string text. cl_dll\h9_arphud.cpp (new; h9_arphud.h) hooks it in CHud::Init (H9ArpHud_Init, after H9Tts_Init in hud.cpp)
+   and holds the limits whatever a message says: 192 bytes a message, 48 messages a second, 24 lines a HUD, 48 rows a panel, a notice
+   3 seconds, a HUD dropped after 150 seconds with no message, a content changed only when its last part has come (a lost part leaves
+   the HUD as it was), every character below 32 but the line break dropped, the bytes above 127 through as they are. It draws
+   CH9ArpHudPanel (a CH9Surface, so on the H9 panel art as the menus and notices are): HUDs 1 to 3 on the "#panel" art at 0.40 x the
+   screen height / 480 x cl_h9_vgui_scale, HUD 4 on the "#banner" art at 0.45, nine-sliced and cached by H9ArtBitmap, in the "H9 Text"
+   font ladder through H9Font, the text in the scheme's Primary Button Text colour, the first line of a HUD a heading in 182 145 234
+   with a 133 98 178 rail under it (a menu's title), a "label: value" line with its label in 166 154 192; sized to the rows (wrapped
+   at 24% of the width, the notice 40%, at most 55% of the height, the width kept from shrinking and quantised to 16 px so few sizes
+   of art are made); placed in H9Vgui_SafeArea by the server's place (nearest of three columns and rows; the top left from 32 px, the top
+   right from 104 px, the top middle under H9Vgui_StackBottom, panels of a column stacking, the crosshair box kept clear); drawn only
+   while the HUD is (the same test as h9_vgui.cpp's panels), not under the scoreboard, with nohud, over the buy menu, or, at the left
+   from a quarter of the height down, while a menu is open. Cvars (all 1, saved): cl_h9_arphud (the master: 0 is the text HUD),
+   cl_h9_arphud_left, _top, _side, _notice (the four panels), _title, _wallet, _bank, _payday, _salary, _job, _status, _extra (the kinds
+   of line in the first panel); command cl_h9_arphud_list prints them with the key the game sends, the messages read and, for each
+   HUD, what it holds and why it is shown or not. The game says it can with the userinfo key _h9arphud ("1" while cl_h9_arphud and
+   cl_h9_vgui are not 0, else "0"), kept in step every frame by the HUD element's Think as _h9vgui is. The key costs 12 bytes of
+   the 256 a client's userinfo has (docs\CUSTOM_XASH_USERID.txt); a game that cannot set it is sent the text HUD. The code is shared
+   with the web client (CMakeLists.txt's one source list; no platform file). Hooks: hud.cpp (the include and H9ArpHud_Init) and
+   cl_dll\CMakeLists.txt (h9_arphud.cpp, h9_arphud.h); input.cpp is not touched, nothing here needs shutting down.
+
+31. Everything else reTS already had
 
    The reTS client is a recompilation of the whole TS client, so it also carries the third-person
    self-transparency fade, the predicted viewmodel body, the HUD and the rest of the reTS client
