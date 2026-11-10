@@ -192,6 +192,14 @@ stock icon_frame_for(ci, team)
 #define TSM_TURRET_BOOM    "sprites/zerogxplode.spr"
 #define TSM_TASK_TURRET    90510
 
+// Spawn protection: a player who goes live is unhurt for tsm_spawnprotect_dur seconds, a little translucent, with a white glow about him.
+#define TSM_TASK_SPAWNPROT 93000          // + player id: the start (0.4 s after he goes live)
+#define TSM_TASK_SPAWNTICK 93200          // + player id: the glow and the end
+#define TSM_SPAWNPROT_MODE 2              // kRenderTransTexture: renderamt is the opacity
+#define TSM_SPAWNPROT_AMT  151            // a little translucent; the odd value marks the rendering as this plugin's own
+new g_cv_spawnprot, g_cv_spawnprot_dur;
+new Float:g_spawnprot_until[MAXPL];       // when a player's protection ends (0.0 = none)
+
 // The Combat Engineer's transporter pads (.transporter): two a round for each engineer, a pair of them carries his side's
 // players from one to the other.
 #define TSM_TPAD_NAME      "tsm_tpad"
@@ -200,7 +208,7 @@ stock icon_frame_for(ci, team)
 #define TSM_TPAD_MAX       16
 #define TSM_TASK_TPAD      90511
 #define TSM_TPAD_PLACE_SND "buttons/blip1.wav"
-#define TSM_TPAD_JUMP_SND  "debris/beamstart7.wav"
+#define TSM_TPAD_JUMP_SND  "tsm_tpad/hum.wav"   // a faint wavering hum (modelling/make-transporter-sound.py)
 new g_tpad[TSM_TPAD_MAX];            // the pad entities, 0 = free
 new g_tpad_owner[TSM_TPAD_MAX];
 new g_tpad_ring[TSM_TPAD_MAX];       // its effect sprites (env_sprite): a flat ring, a column of light, and an arrow once it has a partner
@@ -5844,6 +5852,9 @@ public plugin_init()
 	g_cv_turret          = register_cvar("tsm_turret",                 "1");
 	// The Combat Engineer's transporter pads (.transporter): on or off, how many an engineer sets up a round, and how long a player
 	// waits before riding one again.
+	// Spawn protection: 1 = a player who goes live (round start, respawn wave) is unhurt, translucent and glowing white for the seconds below
+	g_cv_spawnprot       = register_cvar("tsm_spawnprotect",           "1");
+	g_cv_spawnprot_dur   = register_cvar("tsm_spawnprotect_dur",       "3");
 	g_cv_tpad            = register_cvar("tsm_transporter",            "1");
 	g_cv_tpad_per        = register_cvar("tsm_transporter_per_engineer", "2");
 	g_cv_tpad_cd         = register_cvar("tsm_transporter_cooldown",   "3.0");
@@ -16857,7 +16868,7 @@ cmd_transporter(id)
 		fxat[1] = spot[1];
 		fxat[2] = spot[2] + 7.0;
 		flat[0] = 90.0;     // lying on the pad, its picture's top toward the yaw
-		g_tpad_ring[k] = tpad_sprite("ring", side, fxat, flat, 10.0, 1.0);
+		g_tpad_ring[k] = tpad_sprite("ring", side, fxat, flat, 10.0, 0.55);   // 96 pixels at 0.55 is 53 units: inside the 64-unit pad
 		g_tpad_col[k] = tpad_sprite("col", side, fxat, upright, 10.0, 1.0);
 	}
 	if (g_tpad_place_snd)
@@ -17000,9 +17011,11 @@ public task_tpad_tick()
 			engfunc(EngFunc_SetOrigin, p, hull);
 			set_pev(p, pev_velocity, Float:{0.0, 0.0, 0.0});
 			tpad_flash(hull);
+			// the hum at the pad he leaves and at the pad he arrives on, quiet
 			if (g_tpad_jump_snd)
 			{
-				engfunc(EngFunc_EmitAmbientSound, 0, hull, TSM_TPAD_JUMP_SND, 0.8, ATTN_NORM, 0, PITCH_NORM);
+				engfunc(EngFunc_EmitAmbientSound, 0, at, TSM_TPAD_JUMP_SND, 0.4, ATTN_NORM, 0, PITCH_NORM);
+				engfunc(EngFunc_EmitAmbientSound, 0, hull, TSM_TPAD_JUMP_SND, 0.4, ATTN_NORM, 0, PITCH_NORM);
 			}
 			g_tpad_cd[p] = now + get_pcvar_float(g_cv_tpad_cd);
 		}
@@ -18341,13 +18354,14 @@ public task_wave_tick()
 
 		new bool:waiting = g_revive_pending[id];
 		new bool:officer = (class_is_officer(id) && is_user_alive(id) && !g_elim[id]);
-		if (!officer)
+		// tsm_show_reinforce: a living player of a side that has a wave clock sees it too, as the Officer does, and so does a teammate
+		// waiting for the wave: the countdown and the list of who is waiting.
+		new bool:shared = (get_pcvar_num(g_cv_showreinf) != 0 && side_respawns(team) && g_wave_secs[team] >= 0.0);
+		new bool:everyone = (!waiting && !officer && is_user_alive(id) && !g_elim[id] && shared);
+		if (!officer && !everyone && !(waiting && shared))
 		{
 			wait_panel_close(id);
 		}
-		// tsm_show_reinforce: a living player of a side that has a wave clock sees it too, as the Officer does.
-		new bool:everyone = (!waiting && !officer && is_user_alive(id) && !g_elim[id] && get_pcvar_num(g_cv_showreinf) != 0
-			&& side_respawns(team) && g_wave_secs[team] >= 0.0);
 		if (!waiting && !officer && !everyone)
 		{
 			continue;
@@ -18386,7 +18400,7 @@ public task_wave_tick()
 		}
 		// An H9 game draws it as a notice under the top band, every other game as the hudmessage set above.
 		h9vgui_alert(id, "tsm.wave", H9V_NOTICE_BANNER, text, 255, 200, 80, 0.12, 1.2, 0.2);
-		if (officer && !waiting)
+		if (officer || everyone || (waiting && shared))
 		{
 			show_waiting_list(id, team);
 		}
@@ -18501,6 +18515,7 @@ revive_player(id)
 	 */
 	place_at_spawn(id, g_revive_slot[id], true, "wave revive, back on his feet");
 	restore_presentation(id);
+	spawn_protect_schedule(id);
 
 	g_was_alive[id] = true;
 	g_revive_tries[id] = 0;
@@ -18976,6 +18991,94 @@ apply_freeze(id)
 	if (g_elim[id] || is_spectating(id))
 	{
 		set_pev(id, pev_flags, pev(id, pev_flags) & ~TSM_FL_FROZEN);
+	}
+}
+
+/// A player has just gone live (the round's start, a respawn wave): his protection begins shortly, once the hold has let go of him.
+spawn_protect_schedule(id)
+{
+	if (!get_pcvar_num(g_cv_enabled) || !get_pcvar_num(g_cv_spawnprot) || get_pcvar_float(g_cv_spawnprot_dur) <= 0.0)
+	{
+		return;
+	}
+	remove_task(TSM_TASK_SPAWNPROT + id);
+	set_task(0.4, "task_spawnprot_begin", TSM_TASK_SPAWNPROT + id);
+}
+
+public task_spawnprot_begin(taskid)
+{
+	new id = taskid - TSM_TASK_SPAWNPROT;
+	if (!is_user_connected(id) || !is_user_alive(id) || g_elim[id] || g_state != ST_LIVE)
+	{
+		return;
+	}
+	new Float:dur = get_pcvar_float(g_cv_spawnprot_dur);
+	if (dur <= 0.0)
+	{
+		return;
+	}
+	g_spawnprot_until[id] = get_gametime() + dur;
+	// translucent, unless the cloak or the elimination hide already owns the rendering
+	if (pev(id, pev_rendermode) == TSM_RENDER_NORMAL && pev(id, pev_renderfx) == 0)
+	{
+		set_pev(id, pev_rendermode, TSM_SPAWNPROT_MODE);
+		set_pev(id, pev_renderamt, float(TSM_SPAWNPROT_AMT));
+	}
+	set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
+	remove_task(TSM_TASK_SPAWNTICK + id);
+	set_task(0.2, "task_spawnprot_tick", TSM_TASK_SPAWNTICK + id, "", 0, "b");
+	task_spawnprot_tick(TSM_TASK_SPAWNTICK + id);
+}
+
+/// Five times a second while protected: the white glow about him, the damage held off, and the end.
+public task_spawnprot_tick(taskid)
+{
+	new id = taskid - TSM_TASK_SPAWNTICK;
+	if (!is_user_connected(id) || !is_user_alive(id) || get_gametime() >= g_spawnprot_until[id])
+	{
+		spawn_protect_end(id);
+		return;
+	}
+	set_pev(id, pev_takedamage, TSM_DAMAGE_NO);
+	new Float:org[3];
+	pev(id, pev_origin, org);
+	message_begin_f(MSG_PVS, SVC_TEMPENTITY, org);
+	write_byte(TE_DLIGHT);
+	write_coord(floatround(org[0]));
+	write_coord(floatround(org[1]));
+	write_coord(floatround(org[2]));
+	write_byte(9);      // radius, in tens of units
+	write_byte(255);
+	write_byte(255);
+	write_byte(255);
+	write_byte(3);      // life, in tenths of a second
+	write_byte(2);
+	message_end();
+}
+
+spawn_protect_end(id)
+{
+	remove_task(TSM_TASK_SPAWNTICK + id);
+	remove_task(TSM_TASK_SPAWNPROT + id);
+	if (g_spawnprot_until[id] <= 0.0)
+	{
+		return;
+	}
+	g_spawnprot_until[id] = 0.0;
+	if (!is_user_connected(id))
+	{
+		return;
+	}
+	// his own rendering back, only where it is still ours
+	if (pev(id, pev_rendermode) == TSM_SPAWNPROT_MODE && floatround(Float:pev(id, pev_renderamt)) == TSM_SPAWNPROT_AMT)
+	{
+		set_pev(id, pev_rendermode, TSM_RENDER_NORMAL);
+		set_pev(id, pev_renderamt, 255.0);
+	}
+	// hurtable again, unless a hold has him (it puts the damage back itself)
+	if (is_user_alive(id) && !g_frozen[id] && !g_saved[id] && !g_elim[id])
+	{
+		set_pev(id, pev_takedamage, TSM_DAMAGE_AIM);
 	}
 }
 
@@ -23258,6 +23361,11 @@ finish_round_start()
 	set_task(1.0, "task_freeze_tick", 3, "", 0, "b");
 
 	set_task(float(get_pcvar_num(g_cv_freeze)), "task_go_live");
+	// the first number is on the screen from the start of the freeze, not a second into it
+	if (get_pcvar_num(g_cv_freeze) > 1)
+	{
+		freeze_countdown_show(get_pcvar_num(g_cv_freeze));
+	}
 
 	tlog("[TSM] finish_round_start: scheduling sound tasks (freeze=%d)", get_pcvar_num(g_cv_freeze));
 
@@ -23814,18 +23922,13 @@ public task_freeze_tick()
 
 	if (g_freeze_left > 0)
 	{
-		// Channel 2: the freeze countdown. Hold exceeds the 1.0s refresh so there is
-		// no gap between redraws, which is half of what the blinking was.
-		set_hudmessage(255, 180, 0, -1.0, 0.28, 0, 0.0, 1.5, 0.0, 0.0, 2);
-		new ft1[32], ft2[32];
-		team_short(1, ft1, charsmax(ft1));
-		team_short(2, ft2, charsmax(ft2));
-		new fsl[96];
-		score_line(ft1, ft2, fsl, charsmax(fsl));
-		bar_hud("%s^nStarting in %d...^n^n%s", g_round_tag, g_freeze_left, fsl);
-		bar_set(255, 180, 0, g_freeze_left, get_gametime() + float(g_freeze_left),
-			"%s -- STARTING IN {s}^n%s", g_round_tag, fsl);
-
+		// The first tick comes a second after the freeze began and go-live comes when the last one is due, so the tick that has g_freeze_left
+		// seconds left on it is the one at which g_freeze_left - 1 really are: the number shown is that, and the one before the last tick
+		// shows 1, with the round starting one second after it. (freeze_countdown_show draws the first number when the freeze begins.)
+		if (g_freeze_left > 1)
+		{
+			freeze_countdown_show(g_freeze_left - 1);
+		}
 		g_freeze_left--;
 	}
 	else
@@ -23836,6 +23939,22 @@ public task_freeze_tick()
 
 		remove_task(3);
 	}
+}
+
+/// The freeze countdown, `left` seconds from now to the round's start: the hudmessage and the notice bar.
+freeze_countdown_show(left)
+{
+	// Channel 2: the freeze countdown. Hold exceeds the 1.0s refresh so there is
+	// no gap between redraws, which is half of what the blinking was.
+	set_hudmessage(255, 180, 0, -1.0, 0.28, 0, 0.0, 1.5, 0.0, 0.0, 2);
+	new ft1[32], ft2[32];
+	team_short(1, ft1, charsmax(ft1));
+	team_short(2, ft2, charsmax(ft2));
+	new fsl[96];
+	score_line(ft1, ft2, fsl, charsmax(fsl));
+	bar_hud("%s^nStarting in %d...^n^n%s", g_round_tag, left, fsl);
+	bar_set(255, 180, 0, left, get_gametime() + float(left),
+		"%s -- STARTING IN {s}^n%s", g_round_tag, fsl);
 }
 
 /// Score and round shown on its own HUD channel so it cannot stomp the countdown.
@@ -24541,6 +24660,7 @@ public task_go_live()
 	{
 		// The pick window has closed: a class menu still up would only take keys that do nothing.
 		drop_class_menu(rp[i]);
+		spawn_protect_schedule(rp[i]);
 
 		/*
 		 * NOTHING IS STRIPPED OR GIVEN HERE.
@@ -26744,6 +26864,7 @@ player_left(id)
 	assist_slot_reset(id, false);
 	g_wait_sig[id] = 0;
 	turrets_clear(id);
+	spawn_protect_end(id);
 	g_turret_used[id] = false;
 	g_turret_carry[id] = false;
 	g_tpad_placed[id] = 0;
