@@ -1,0 +1,151 @@
+name: Post commits to Discord
+
+# Each new commit of a push is posted to Discord as its own embed, shaped like GitHub's own push embed from a webhook
+# ("[repo:branch] 1 new commit", the commit's link and message, the pusher's name and picture).
+# Run it by hand with "all history" to post every commit since the first, oldest first.
+#
+# Needs the repository secret DISCORD_WEBHOOK (a Discord channel webhook URL). Without it the job does nothing.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      all_history:
+        description: "Post every commit since the first one (oldest first)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-commits-to-discord
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+
+      - name: Post one embed per commit
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+          ALL_HISTORY: ${{ github.event.inputs.all_history }}
+        shell: python
+        run: |
+          import json
+          import os
+          import subprocess
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+          from datetime import datetime, timezone
+
+          webhook = os.environ.get("WEBHOOK_URL", "").strip()
+          if not webhook:
+              print("DISCORD_WEBHOOK is not set: nothing to post.")
+              sys.exit(0)
+
+          # Everything about the event comes from the event file, never pasted into this script.
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as f:
+              event = json.load(f)
+          repo = os.environ["GITHUB_REPOSITORY"]
+          server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+          branch = os.environ.get("GITHUB_REF_NAME", "main")
+          sender = event.get("sender") or {}
+          pusher = sender.get("login") or os.environ.get("GITHUB_ACTOR", "github")
+          author_block = {
+              "name": pusher,
+              "url": sender.get("html_url") or f"{server}/{pusher}",
+              "icon_url": sender.get("avatar_url") or f"{server}/{pusher}.png",
+          }
+
+          # Which commits: all of them (manual run), or those the push added (before..after), oldest first.
+          zeros = "0" * 40
+          if os.environ.get("ALL_HISTORY") == "true":
+              rev = ["HEAD"]
+          else:
+              before = event.get("before") or zeros
+              after = event.get("after") or "HEAD"
+              rev = [after] if before == zeros else [f"{before}..{after}"]
+          fmt = "%H%x1f%an%x1f%s%x1f%aI"
+
+          def have(sha):
+              return subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True).returncode == 0
+
+          # A force push (or a rewritten history) can leave "before" a commit this clone does not have: then the push's own commit list
+          # (at most the newest 20 that GitHub puts in the event) says how many to take from the tip.
+          if rev != ["HEAD"] and len(rev) == 1 and ".." in rev[0] and not have(rev[0].split("..")[0]):
+              pushed = event.get("commits") or []
+              rev = ["-n", str(max(1, len(pushed))), after]
+              print(f"The push's previous tip is not in this history (a force push): taking the {max(1, len(pushed))} newest commit(s).")
+          proc = subprocess.run(["git", "log", "--reverse", f"--pretty=format:{fmt}", *rev], capture_output=True, text=True)
+          if proc.returncode != 0:
+              print("git log failed:", proc.stderr.strip())
+              sys.exit(1)
+          out = proc.stdout.strip()
+          commits = [line.split("\x1f") for line in out.split("\n") if line.strip()]
+          if not commits:
+              print("No new commits.")
+              sys.exit(0)
+          print(f"{len(commits)} commit(s) to post.")
+
+          def post(payload):
+              data = json.dumps(payload).encode("utf-8")
+              for attempt in range(6):
+                  req = urllib.request.Request(webhook, data=data, method="POST",
+                                               headers={"Content-Type": "application/json", "User-Agent": "h9-commit-poster"})
+                  try:
+                      with urllib.request.urlopen(req, timeout=30):
+                          return True
+                  except urllib.error.HTTPError as e:
+                      if e.code == 429:
+                          try:
+                              wait = float(json.loads(e.read().decode("utf-8")).get("retry_after", 1.0))
+                          except Exception:
+                              wait = 2.0
+                          print(f"Rate limited: waiting {wait:.1f} s")
+                          time.sleep(wait + 0.2)
+                          continue
+                      print(f"Discord answered {e.code}")
+                      return False
+                  except urllib.error.URLError as e:
+                      print(f"Could not reach Discord: {e.reason}")
+                      time.sleep(2)
+              return False
+
+          sent = 0
+          for full, author, subject, when in commits:
+              short = full[:7]
+              url = f"{server}/{repo}/commit/{full}"
+              message = subject if len(subject) <= 200 else subject[:197] + "..."
+              try:
+                  stamp = datetime.fromisoformat(when).astimezone(timezone.utc).isoformat()
+              except ValueError:
+                  stamp = None
+              embed = {
+                  "title": f"[{repo.split('/')[-1]}:{branch}] 1 new commit",
+                  "url": url,
+                  "description": f"[`{short}`]({url}) {message} - {author}",
+                  "color": 7506394,
+                  "author": author_block,
+              }
+              if stamp:
+                  embed["timestamp"] = stamp
+              # allowed_mentions empty: a commit message can never ping anyone
+              if post({"embeds": [embed], "allowed_mentions": {"parse": []}}):
+                  sent += 1
+                  print(f"[{sent}/{len(commits)}] posted {short}")
+              else:
+                  print(f"FAILED {short}")
+              time.sleep(0.6)
+
+          print(f"Done: {sent} of {len(commits)} posted.")
+          sys.exit(0 if sent == len(commits) else 1)
