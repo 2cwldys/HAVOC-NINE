@@ -106,6 +106,11 @@ void CL_Disconnect( void )
 
 }
 
+void CL_Presence_Frame( void )
+{
+
+}
+
 void Host_Credits( void )
 {
 

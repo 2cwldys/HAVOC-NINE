@@ -1,0 +1,42 @@
+AmxxEasyHttp -- license and provenance of the easy_http module H9's Linux build installs
+=====================================================================================
+
+What it is   AmxxEasyHttp, an HTTP client module for AMX Mod X by Igor Minin and the Next21 Team.
+             https://github.com/Next21Team/AmxxEasyHttp (MIT)
+Version      1.4.0, the same version as the easy_http_amxx.dll H9 ships for Windows
+Files        easy_http_amxx_i386.so and amxx_easy_http_cacert.pem, out of the project's own release
+             https://github.com/Next21Team/AmxxEasyHttp/releases/download/1.4.0/release_linux_v1.4.0.zip
+             SHA-256 5d265398590f033900602c7e6e722d5232170f2ed2e48315f6af052e9de9082b (the zip)
+                     137140a4a33cc22371f283ba0907a0a8ddcd1c0bd6ce5202dc98f7472f8ff457 (the .so)
+H9's part    None: linux/build-linux.sh downloads that release, checks both hashes and copies the two
+             files into H9XASH-linux. They are not rebuilt and not changed, so they carry no .patch note.
+             Plugins that use it: ts_advertise, h9_presence, h9_community, h9_compete, h9_rank (their
+             "#include <easy_http>" makes AMX Mod X load the module).
+
+The module statically contains libcurl 8.5.0 (the curl license), OpenSSL 1.1.1w (the OpenSSL License and
+the original SSLeay License) and zlib 1.3 (the zlib license). Their license texts are those of the
+libraries and of the project's dependency bundle (github.com/Next21Team/AmxxEasyHttpDeps); this file
+carries the module's own, below.
+
+--------------------------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2021 Igor Minin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

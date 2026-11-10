@@ -3,11 +3,12 @@
  and a Linux dedicated server
 ===============================================================================
 
- For whoever takes H9XASH to Linux next. Section 2 is what ships now. The
- rest is a study and a plan, written 2026-11-01: nothing in sections 3 to 9
- has been built, installed or tested.
+ For whoever takes H9XASH to Linux next. Section 2 is what ships now, and the
+ STATUS block below is what has been built since. Sections 3 to 9 are the study
+ and plan written 2026-11-01; where the STATUS block disagrees with them, it wins.
 
  CONTENTS
+    0. Status, 2026-11-09: the native server is built and runs
     1. The short version
     2. Today: the Windows client under Wine or Proton
     3. The engine on Linux, and H9's patches one by one
@@ -17,6 +18,44 @@
     7. Toolchain: Docker images, not the user's own Ubuntu
     8. Packaging a native build in dist\linux
     9. The plan: order, effort, blockers, decisions
+
+
+ 0. STATUS, 2026-11-09: THE NATIVE LINUX SERVER IS BUILT AND RUNS
+ ---------------------------------------------------------------
+   Built (build-linux.cmd on Windows, which runs linux\build-linux.sh in the WSL2
+   distro h9build that wsl_install.bat makes; build-linux.sh alone on a Linux
+   machine; docs\BUILDING.txt 7b): reTS's ts_i386.so, Metamod-R (installed as
+   metamod.so, because FWGS strips _i386 from a game library's name), the dedicated
+   engine xashds with filesystem_stdio.so (the whole patch chain, a
+   CL_Presence_Frame stub for the dedicated build in engine-h9-presence.patch), AMX Mod X with
+   reTSX through AMBuild (12 modules from source), RCBot with its ten patches
+   (clang++ -m32, plus a Linux HasSubDirectories), and the third-party easy_http
+   module (section 5). The folder is H9XASH-linux\ (git-ignored, a .patch note beside
+   every library built here, BUILDINFO.txt with hashes and glibc floors).
+   Tested on a headless server in the distro (h9_te_neuropolis, unpacked server ZIP
+   with H9XASH-linux laid over it, ./h9xash_server.sh -port 27099, rcon over UDP
+   from a script): the engine, Metamod, AMX Mod X, RCBot and ts_i386.so load, 40 of
+   53 plugins run (the Apollo RP plugins pause on a map that is not a roleplay one),
+   ts_advertise, h9_presence, h9_community, h9_compete and h9_rank run with easy_http,
+   and an HTTP and an HTTPS request through it both succeed. No client has joined it
+   yet and no match has been played on it.
+   Packaged: stage-h9xash writes dist\H9XASH-linux-server.zip from this folder
+   (section 8). The last staging is older than AMX Mod X, easy_http and the
+   tenth RCBot patch: stage again before publishing.
+   Not done: a native Linux client (the blockers of section 1 stand); text to
+   speech (speech is compiled in for Windows SAPI and the browser only, so a native
+   client, and a Wine client with no SAPI voice, are silent and are sent nothing, while the
+   web client speaks: docs\TEXT_TO_SPEECH.txt, 3); the WebView2 MOTD page; Discord
+   presence.
+   Known oddity: at load AMX Mod X logs "Unable to load library engine (gameconf
+   common.games)" five times. It finds an engine function by opening the engine's file as
+   a library; xashds is a program (a PIE executable), which glibc will not dlopen and which
+   exports no symbols, so Cvar_DirectSet (cvar-change hooks) and SV_DropClient cannot be
+   resolved. Those two are unavailable on Windows with this engine as well (plugins poll
+   their cvars), nothing else is affected, and none of the Windows logs has the line.
+   Decisions made: i386 like H9XASH, the server first and the client later or never, the
+   WebView2 MOTD falls back to the picture view, AMBuild (BSD 3-Clause) installed with its
+   license kept in linux\, and a WSL2 distro in place of the Docker images of section 7.
 
 
  1. THE SHORT VERSION
@@ -50,9 +89,15 @@
                         bridges, the splash MOTD, troubleshooting
      .gitattributes     keeps *.sh LF in a Windows checkout
    stage-h9xash.ps1 (repository root) packs dist\H9XASH-linux.zip beside
-   the Windows dist\H9XASH.zip, the names the downloads page links: the
-   same staged tree, the .sh files LF and Unix mode 0755 (without Python
-   the .zip keeps no modes, played with bash h9xash.sh). -NoLinux skips it.
+   the Windows dist\H9XASH.zip in one run, the names the downloads page
+   links, each in its own ZIP: the Windows ZIP holds no Linux-only file
+   (h9xash.sh, h9_userid.sh, README_LINUX.txt, *.so); the Linux ZIP, while
+   there is no native build, is this Wine package (the Windows game and the
+   launcher, with a warning), the .sh files LF and Unix mode 0755 (without
+   Python the .zip keeps no modes, played with bash h9xash.sh). -NoLinux
+   skips it. Section 8 is the native package. On a Linux machine the same
+   packages come from stage-h9xash.sh (stage_h9xash.py, a port with the same
+   rules and a test that compares the two: docs\BUILDING.txt, section 7).
 
    What h9xash.sh writes is byte for byte what the Windows scripts write
    (comment lines naming the .ps1 scripts included), so one H9XASH folder
@@ -202,8 +247,15 @@
    ID_BOT rule (on Windows a binary patch) goes in as source: TSM\AMXMODX
    commit d6ca4c4b, modules\ts\tsx\CMisc.h. The reTS gamedata has linux
    entries next to the windows ones (offsets-rets.txt). H9's .amxx plugins
-   run on either system; h9_presence needs the sockets module, part of
-   AMX Mod X's Linux build.
+   run on either system. ts_advertise, h9_presence, h9_community, h9_compete
+   and h9_rank need the third-party easy_http module (AmxxEasyHttp, MIT, by
+   Igor Minin and the Next21 Team), which the Linux build does not build: it
+   installs the project's own i386 release, 1.4.0 like the Windows
+   easy_http_amxx.dll, after checking the SHA-256 of the zip and of the .so
+   against the values pinned in linux/build-linux.sh (needs glibc 2.17; no
+   .patch note, it is not changed; the license is linux\LICENSE-AMXXEASYHTTP.txt).
+   Checked on the native Linux server: the module loads, those five plugins
+   run, and an HTTP and an HTTPS request, with the CA bundle, both succeed.
 
    RCBot. rcbotold v1.51b13 (TSM\rcbot-upstream) has dlls\Makefile (clang++
    -m32 -> rcbot_mm.so) and an AMBuildScript with a linux target. The six
@@ -239,6 +291,9 @@
 
  7. TOOLCHAIN: DOCKER IMAGES, NOT THE USER'S OWN UBUNTU
  ------------------------------------------------------
+   (Superseded 2026-11-09: the build runs in the WSL2 distro h9build, made by
+   wsl_install.bat, and never touches the user's own Ubuntu or Docker; see the
+   STATUS block. The rest of this section is the original plan.)
    Docker Desktop (installed, stopped) with its WSL2 backend: reproducible
    images, and nothing installed into the user's Ubuntu. WSL2 Ubuntu would
    need apt installs in the user's own distribution: not preferred.
@@ -259,21 +314,32 @@
    One heavy build at a time, -j8, as everywhere on this PC.
 
 
- 8. PACKAGING A NATIVE BUILD IN DIST\LINUX
- -----------------------------------------
-   dist\linux\H9XASH-linux-native-<build>-<stamp>.tar.gz, one H9XASH/
-   folder: the engine (xash3d, libxash.so, libref_gl.so, libmenu.so,
-   filesystem_stdio.so, vgui.so), libSDL2-2.0.so.0 and the FFmpeg .so
-   files; ts\cl_dlls\client.so, ts\dlls\ts_i386.so, metamod_i386.so,
-   amxmodx_mm_i386.so and the *_amxx_i386.so modules, rcbot_mm.so; the same
-   game data as now. h9xash.sh runs ./xash3d natively when it is there,
-   Wine otherwise. And a server tarball, H9XASH-server-linux-i386-...: xash,
-   filesystem_stdio.so, the server files and addons only.
-   stage-h9xash.ps1 would take a -LinuxNative <folder> (the Docker build's
-   install tree), lay it over a copy of the stage for the Linux package,
-   leave the Windows files (*.exe, *.dll, *.bat, *.cmd, *.ps1) out of it,
-   and run the same final scan. Each rebuilt .so carries a .patch beside it
-   (H9's rule for rebuilt libraries).
+ 8. PACKAGING A NATIVE BUILD
+ ---------------------------
+   Built: stage-h9xash.ps1 takes the native build as a folder laid out like
+   H9XASH -- H9XASH-linux beside the script, or -LinuxNative <folder> -- and
+   writes, in the same run as the Windows ZIP, dist\H9XASH-linux.zip: one
+   H9XASH/ folder with the game's data from H9XASH, the build's files laid
+   over it, and none of H9XASH's Windows files (*.exe, *.dll, *.bat, *.cmd,
+   *.ps1, webview2\) or its stock Linux ones (the old ts.so, client.so,
+   rcbot_mm.so, the Wine launcher): the build brings its own. The writer is
+   Python's zipfile; .sh files and every ELF binary go in at mode 0755, .sh
+   files with LF; the read-back refuses a Windows file, a binary without 0755
+   and a CR in a script. The same final scan as the Windows ZIP runs first.
+   A folder with xash3d is a client build; one with only xashds also writes
+   dist\H9XASH-linux-server.zip, and the players' ZIP stays the Wine package.
+   The run warns when the build has no ts\dlls\*.so, no h9xash.sh, or no
+   ts\gameinfo.txt and liblist.gam (Xash reads gameinfo.txt; the build's own
+   say gamedll_linux "addons/metamod/dlls/metamod_i386.so", as the Windows
+   ones name metamod.dll, and Metamod then loads dlls/ts_i386.so).
+   What the folder holds: the engine (xash3d, xashds, libxash.so,
+   libref_gl.so, libmenu.so, filesystem_stdio.so, vgui.so), libSDL2-2.0.so.0
+   and the FFmpeg .so files; ts\cl_dlls\client.so, ts\dlls\ts_i386.so,
+   the Metamod .so, amxmodx_mm_i386.so and the *_amxx_i386.so modules,
+   rcbot_mm.so; h9xash.sh with a native mode (./xash3d), its README_LINUX.txt
+   and ts\liblist.gam. Each rebuilt .so carries a .patch beside it (H9's
+   rule for rebuilt libraries); easy_http_amxx_i386.so, the Next21 Team's
+   release as published, does not.
 
 
  9. THE PLAN: ORDER, EFFORT, BLOCKERS, DECISIONS
