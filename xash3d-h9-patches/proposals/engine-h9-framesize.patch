@@ -1,0 +1,18 @@
+--- a/engine/server/sv_frame.c
++++ b/engine/server/sv_frame.c
+@@ -723,9 +723,14 @@
+ SV_SendClientDatagram
+ =======================
+ */
++// H9: the message of one client's frame may be twice the size of the unreliable buffers the game and
++// the plugins write into (cl->datagram, MAX_DATAGRAM): Netchan_TransmitBits sends up to NET_MAX_MESSAGE
++// unreliable bytes, splitting them into packets as it does for any large message
++#define SV_H9_FRAME_MAX		( MAX_DATAGRAM * 2 )
++
+ static void SV_SendClientDatagram( sv_client_t *cl )
+ {
+-	byte	msg_buf[MAX_DATAGRAM];
++	byte	msg_buf[SV_H9_FRAME_MAX];
+ 	sizebuf_t	msg;
+ 
+ 	memset( msg_buf, 0, sizeof( msg_buf ));
