@@ -96,12 +96,18 @@ copy /y "%~dp0tsrp_roambots.sma" "%EX%\src\"                 >nul && echo   src\
 copy /y "%~dp0ts_rtv.sma"        "%EX%\src\"                 >nul && echo   src\ts_rtv.sma
 copy /y "%~dp0h9_compete.sma"    "%EX%\src\"                 >nul && echo   src\h9_compete.sma
 copy /y "%~dp0h9_rank.sma"       "%EX%\src\"                 >nul && echo   src\h9_rank.sma
+copy /y "%~dp0h9_link.sma"       "%EX%\src\"                 >nul && echo   src\h9_link.sma
+copy /y "%~dp0h9_msgstats.sma"  "%EX%\src\"                 >nul && echo   src\h9_msgstats.sma
+copy /y "%~dp0h9_staticprops.sma" "%EX%\src\"               >nul && echo   src\h9_staticprops.sma
+copy /y "%~dp0h9_tts.sma"        "%EX%\src\"                 >nul && echo   src\h9_tts.sma
+copy /y "%~dp0ts_floatchat.sma"  "%EX%\src\"                 >nul && echo   src\ts_floatchat.sma
 if not exist "%EX%\src\include" mkdir "%EX%\src\include" >nul 2>&1
 copy /y "%~dp0include\tsm_api.inc" "%EX%\src\include\"       >nul && echo   src\include\tsm_api.inc
 copy /y "%~dp0include\h9_community.inc" "%EX%\src\include\" >nul && echo   src\include\h9_community.inc
 copy /y "%~dp0include\h9_presence.inc" "%EX%\src\include\"  >nul && echo   src\include\h9_presence.inc
 copy /y "%~dp0include\h9_vgui.inc" "%EX%\src\include\"      >nul && echo   src\include\h9_vgui.inc
 copy /y "%~dp0include\h9_marks.inc" "%EX%\src\include\"      >nul && echo   src\include\h9_marks.inc
+copy /y "%~dp0include\tsm_botobj.inc" "%EX%\src\include\"    >nul && echo   src\include\tsm_botobj.inc
 copy /y "%~dp0include\h9_release.inc" "%EX%\src\include\"    >nul && echo   src\include\h9_release.inc
 copy /y "%~dp0build.bat"         "%EX%\src\"                 >nul && echo   src\build.bat
 copy /y "%~dp0export.bat"        "%EX%\src\"                 >nul && echo   src\export.bat
@@ -183,7 +189,7 @@ if exist "%~dp0compiled\tsrp_roambots.amxx" (
 
 REM Apollo RP (apollo-rp\ORIGIN.txt): its plugins for TS as build.bat built them. On a map that
 REM is not a roleplay map ARP_Core pauses every one of them.
-for %%n in (ARP_Core ARP_Commands ARP_Config ARP_HUD ARP_HungerMod ARP_Items ARP_JailMod ARP_NPCs ARP_RobMod ARP_TalkArea ARP_Zones ARP_TS) do (
+for %%n in (ARP_Core ARP_Commands ARP_Config ARP_HUD ARP_HungerMod ARP_Items ARP_JailMod ARP_NPCs ARP_RobMod ARP_TalkArea ARP_Zones ARP_TS ARP_H9Menu) do (
     if exist "%~dp0compiled\%%n.amxx" (
         copy /y "%~dp0compiled\%%n.amxx" "%EX%\ts\addons\amxmodx\plugins\" >nul
         echo   ts\addons\amxmodx\plugins\%%n.amxx
@@ -215,6 +221,16 @@ if exist "%~dp0compiled\h9_rank.amxx" (
     echo   ts\addons\amxmodx\plugins\h9_rank.amxx
 ) else (
     echo   [WARN] no compiled\h9_rank.amxx -- package has no .rank plugin
+)
+REM h9_msgstats counts the messages and entities sent to players; h9_staticprops hands a map's unaddressed props to the
+REM clients (COMMANDS.txt, DATAGRAM OVERFLOW). Both go below h9_presence in plugins.ini.
+for %%m in (h9_msgstats h9_staticprops) do (
+    if exist "%~dp0compiled\%%m.amxx" (
+        copy /y "%~dp0compiled\%%m.amxx" "%EX%\ts\addons\amxmodx\plugins\" >nul
+        echo   ts\addons\amxmodx\plugins\%%m.amxx
+    ) else (
+        echo   [WARN] no compiled\%%m.amxx -- package has no %%m
+    )
 )
 
 REM The game modes, Capture the Uplink, Wave Survival, Mech Warrior, Assault and Capture the Flag: each its own
@@ -248,6 +264,9 @@ copy /y "%~dp0h9_compete.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   c
 copy /y "%~dp0h9_compete.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 copy /y "%~dp0h9_rank.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_rank.cfg
 copy /y "%~dp0h9_rank.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
+copy /y "%~dp0h9_msgstats.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
+copy /y "%~dp0h9_staticprops.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\h9_staticprops.cfg
+copy /y "%~dp0h9_staticprops.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
 for %%m in (ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf) do (
     copy /y "%~dp0%%m.cfg" "%EX%\ts\addons\amxmodx\configs\" >nul && echo   configs\%%m.cfg
     copy /y "%~dp0%%m.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
@@ -257,7 +276,7 @@ REM Apollo RP: its configs (configs\arp\), and the sources and includes its plug
 if exist "%~dp0apollo-rp\base\addons\amxmodx" (
     xcopy /y /i /e /q "%~dp0apollo-rp\base\addons\amxmodx\configs\arp" "%EX%\ts\addons\amxmodx\configs\arp" >nul
     echo   configs\arp\ ^(Apollo RP^)
-    for %%n in (ARP_Core ARP_Commands ARP_Config ARP_HUD ARP_HungerMod ARP_Items ARP_JailMod ARP_NPCs ARP_RobMod ARP_TalkArea ARP_Zones ARP_TS) do (
+    for %%n in (ARP_Core ARP_Commands ARP_Config ARP_HUD ARP_HungerMod ARP_Items ARP_JailMod ARP_NPCs ARP_RobMod ARP_TalkArea ARP_Zones ARP_TS ARP_H9Menu) do (
         copy /y "%~dp0apollo-rp\base\addons\amxmodx\scripting\%%n.sma" "%EX%\ts\addons\amxmodx\scripting\" >nul
     )
     if not exist "%EX%\ts\addons\amxmodx\scripting\include" mkdir "%EX%\ts\addons\amxmodx\scripting\include" >nul 2>&1
@@ -291,6 +310,11 @@ REM The marks the mode plugins draw through the walls (built on h9_vgui.inc).
 if exist "%~dp0include\h9_marks.inc" (
     copy /y "%~dp0include\h9_marks.inc" "%EX%\ts\addons\amxmodx\scripting\include\" >nul
     echo   scripting\include\h9_marks.inc
+)
+REM The bots' objective contract the mode plugins include (and the cvar tsm_bot_objectives).
+if exist "%~dp0include\tsm_botobj.inc" (
+    copy /y "%~dp0include\tsm_botobj.inc" "%EX%\ts\addons\amxmodx\scripting\include\" >nul
+    echo   scripting\include\tsm_botobj.inc
 )
 REM The release the plugins carry (written by build.bat from the game's h9_release.txt).
 if exist "%~dp0include\h9_release.inc" (
@@ -393,8 +417,8 @@ if exist "%SRC%rcbot-patch" (
     echo   rcbot-patch\ ^(diff, patched sources, build instructions^)
 )
 
-REM No .so can be built here, so the linux binary stays stock. Flagged beside it:
-REM a linux server that uses it silently gets the bug back.
+REM This .so is the stock one. The rebuilt one, with the patches, is H9XASH-linux\rcbot\dlls\rcbot_mm.so
+REM (build-linux.cmd); a Linux server that uses this one silently gets the bug back. Flagged beside it:
 if exist "%EX%\rcbot\dlls\rcbot_mm.so" (
     echo This .so is STOCK rcbot and does NOT contain the TS team fix.> "%EX%\rcbot\dlls\READ-ME-rcbot_mm.so.txt"
     echo.>> "%EX%\rcbot\dlls\READ-ME-rcbot_mm.so.txt"
@@ -512,6 +536,36 @@ REM until it is reset, and there is nothing else to revoke.
 >> "%EX%\.gitignore" echo # The map pipeline's outputs; the maps that ship travel under ts\maps.
 >> "%EX%\.gitignore" echo export-map/**/out/
 >> "%EX%\.gitignore" echo export-map/**/tmp/
+>> "%EX%\.gitignore" echo # Builds, packages and credentials that never belong in git.
+>> "%EX%\.gitignore" echo /H9XASH-linux/
+>> "%EX%\.gitignore" echo /linux/work/
+>> "%EX%\.gitignore" echo /wsl/
+>> "%EX%\.gitignore" echo *.vhdx
+>> "%EX%\.gitignore" echo *.vhd
+>> "%EX%\.gitignore" echo h9build*.tar
+>> "%EX%\.gitignore" echo h9build*.tar.gz
+>> "%EX%\.gitignore" echo build-i386/
+>> "%EX%\.gitignore" echo build-amd64/
+>> "%EX%\.gitignore" echo build-aarch64/
+>> "%EX%\.gitignore" echo obj-*/
+>> "%EX%\.gitignore" echo *.zip.part
+>> "%EX%\.gitignore" echo /.stage/
+>> "%EX%\.gitignore" echo *.env
+>> "%EX%\.gitignore" echo mail.env
+>> "%EX%\.gitignore" echo accounts.json
+>> "%EX%\.gitignore" echo secrets.json
+>> "%EX%\.gitignore" echo *.pem
+>> "%EX%\.gitignore" echo *.ppk
+>> "%EX%\.gitignore" echo *.jks
+>> "%EX%\.gitignore" echo *.keystore
+>> "%EX%\.gitignore" echo *.kdbx
+>> "%EX%\.gitignore" echo id_rsa*
+>> "%EX%\.gitignore" echo id_ed25519*
+>> "%EX%\.gitignore" echo id_ecdsa*
+>> "%EX%\.gitignore" echo /core
+>> "%EX%\.gitignore" echo core.[0-9]*
+>> "%EX%\.gitignore" echo *.dmp
+>> "%EX%\.gitignore" echo *.mdmp
 echo   .gitignore
 
 REM ---- class-icon sprite ---------------------------------------------------
@@ -880,9 +934,22 @@ REM ---- root scripts ------------------------------------------------- repo-scr
 REM Scripts that sit at the root of the repository: build-webclient.ps1 and .cmd, the web
 REM client's one build step (docs\BUILDING.txt); make-vps-package.ps1 and .cmd, the host package;
 REM make_commands_cfg.ps1, which xash.bat runs to write commands.cfg from COMMANDS.txt;
-REM fix_liblist.ps1, which writes TS's liblist.gam; sync_map_pictures.ps1, the site's map pictures.
-for %%f in (build-webclient.ps1 build-webclient.cmd make-vps-package.ps1 make-vps-package.cmd make_commands_cfg.ps1 fix_liblist.ps1 sync_map_pictures.ps1) do (
+REM fix_liblist.ps1, which writes TS's liblist.gam; sync_map_pictures.ps1, the site's map pictures;
+REM build-linux.ps1, .cmd and .sh, the Linux server build, and wsl_install.ps1 and .bat, which make its WSL2 distro (docs\LINUX_SUPPORT.txt).
+for %%f in (build-webclient.ps1 build-webclient.cmd make-vps-package.ps1 make-vps-package.cmd make_commands_cfg.ps1 fix_liblist.ps1 sync_map_pictures.ps1 build-linux.ps1 build-linux.cmd build-linux.sh wsl_install.ps1 wsl_install.bat) do (
     if exist "%~dp0%%f" copy /y "%~dp0%%f" "%EX%\" >nul && echo   %%f
+)
+
+REM ---- the Linux build -------------------------------------------------- repo-linux-block
+REM linux\ holds the build scripts (build-linux.sh and the rest); H9XASH-linux\ is what they build, the native
+REM folder stage-h9xash.ps1 packs into dist\H9XASH-linux-server.zip. Both travel, so the repo can build and pack.
+if exist "%~dp0linux" (
+    robocopy "%~dp0linux" "%EX%\linux" /E /NJH /NJS /NDL /NFL /NP >nul
+    if errorlevel 8 (echo   [WARN] the linux\ copy reported errors) else (echo   linux\ ^(Linux build scripts^))
+)
+if exist "%~dp0H9XASH-linux\BUILDINFO.txt" (
+    robocopy "%~dp0H9XASH-linux" "%EX%\H9XASH-linux" /MIR /NJH /NJS /NDL /NFL /NP >nul
+    if errorlevel 8 (echo   [WARN] the H9XASH-linux\ copy reported errors) else (echo   H9XASH-linux\ ^(native Linux build^))
 )
 
 REM ---- docs -------------------------------------------------------------- repo-docs-block
@@ -946,7 +1013,7 @@ REM ---- stamp ---------------------------------------------------------------
 REM tokens=3 lands on the quoted value; the quotes are stripped after. Splitting on
 REM a quote delimiter instead needs an escape that cmd mis-parses inside for /f.
 set "BUILD=unknown"
-for /f "tokens=3" %%v in ('findstr /c:"#define TSM_BUILD" "%~dp0ts_matchmode.sma"') do set "BUILD=%%v"
+for /f "tokens=3" %%v in ('findstr /b /c:"#define VERSION " "%~dp0ts_matchmode.sma"') do set "BUILD=%%v"
 set "BUILD=!BUILD:"=!"
 REM The Source line names the git commit and branch of this folder, never its path. Only a
 REM .git of its own beside this script counts, so a copy of the tree inside some other
@@ -1013,6 +1080,13 @@ echo.
 echo   [skip] %REPO% is not there, so nothing was copied into the repo.
 
 :copied
+REM ---- the version on the website ---------------------------------------------
+REM The download page names the build. tools\release-check.mjs --write puts VERSION (ts_matchmode.sma) into it, here and in
+REM the repo's copy, and says when the release the game folder, the plugins and the overlay carry do not agree.
+where node >nul 2>&1 && (
+    node "%~dp0tools\release-check.mjs" --write
+    if exist "%REPO%\havoc9.org\downloads\index.html" node "%~dp0tools\release-check.mjs" --write --root "%REPO%"
+)
 call :webclient
 endlocal
 pause

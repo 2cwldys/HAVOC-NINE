@@ -11,6 +11,11 @@ REM  drifted apart, so a build thousands of bytes behind the fixes was being
 REM  tested for hours. Copy-then-compile makes that impossible.
 REM
 REM  Usage:  build.bat | build.bat ts_matchmode | build.bat all
+REM
+REM  A plugin whose source (and every include it pulls in) is the one its last build was made from is NOT compiled again: the AMX
+REM  Mod X compiler writes a different file every time, so a recompile changes the plugin's SHA-256 and the official preset has to be
+REM  approved again. tools\amxx-needs-build.ps1 keeps the fingerprint beside each compiled\<name>.amxx (<name>.amxx.src).
+REM  Set BUILD_FORCE=1 to compile everything regardless:   set BUILD_FORCE=1 & build.bat
 REM ===========================================================================
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
@@ -44,7 +49,7 @@ if not exist "%PLUGINS%" (
 if not exist "%OUT%" mkdir "%OUT%"
 
 if "%~1"=="" (
-set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link h9_rank"
+set "TARGETS=ts_matchmode ts_probe ts_advertise ts_floatchat ts_uplink ts_survival ts_mechwarrior ts_assault ts_ctf h9_presence h9_community h9_motd tsrp_roambots ts_rtv h9_compete h9_link h9_rank h9_msgstats h9_staticprops h9_tts"
 ) else (
     if /i "%~1"=="all" (
         set "TARGETS="
@@ -109,6 +114,13 @@ if exist "%SRC%include\h9_marks.inc" (
     copy /y "%SRC%include\h9_marks.inc" "%SCRIPTING%\include\h9_marks.inc" >nul
     if errorlevel 1 (echo [FAIL] could not sync include\h9_marks.inc) else (echo   synced include\h9_marks.inc)
     if exist "%SRC%AMXMODX\plugins\include" copy /y "%SRC%include\h9_marks.inc" "%SRC%AMXMODX\plugins\include\h9_marks.inc" >nul
+)
+REM The bots' objective contract (include\tsm_botobj.inc): what ts_assault, ts_uplink and ts_ctf publish on their entities for rcbot,
+REM and the cvar tsm_bot_objectives. Refreshed on every build like the other shared includes.
+if exist "%SRC%include\tsm_botobj.inc" (
+    copy /y "%SRC%include\tsm_botobj.inc" "%SCRIPTING%\include\tsm_botobj.inc" >nul
+    if errorlevel 1 (echo [FAIL] could not sync include\tsm_botobj.inc) else (echo   synced include\tsm_botobj.inc)
+    if exist "%SRC%AMXMODX\plugins\include" copy /y "%SRC%include\tsm_botobj.inc" "%SRC%AMXMODX\plugins\include\tsm_botobj.inc" >nul
 )
 REM The release the plugins carry (include\h9_release.inc), written from the Xash overlay's ts\h9_release.txt, the one file a release is bumped in.
 REM h9_presence publishes it as h9_plugin_release, which the engine's join gate holds joiners to. Empty when there is no such file.
@@ -261,12 +273,22 @@ for %%n in (!TARGETS!) do (
         echo [SKIP] %%n.sma not in this folder
     ) else (
         echo ===== %%n.sma =====
-        REM Delete old output first: otherwise a failed compile leaves the
-        REM previous binary behind and the deploy ships it as if it worked.
-        if exist "%OUT%\%%n.amxx" del /q "%OUT%\%%n.amxx"
-        pushd "%SCRIPTING%"
-        "%AMXXPC%" "%%n.sma" -o"%OUT%\%%n.amxx"
-        popd
+        set "NEEDS=1"
+        if not defined BUILD_FORCE if exist "%OUT%\%%n.amxx" (
+            powershell -NoProfile -ExecutionPolicy Bypass -File "%SRC%tools\amxx-needs-build.ps1" -Sma "%SRC%%%n.sma" -Amxx "%OUT%\%%n.amxx" -IncludeDirs "%SRC%include;%SCRIPTING%\include" -Mode check
+            if errorlevel 1 set "NEEDS="
+        )
+        if defined NEEDS (
+            REM Delete old output first: otherwise a failed compile leaves the
+            REM previous binary behind and the deploy ships it as if it worked.
+            if exist "%OUT%\%%n.amxx" del /q "%OUT%\%%n.amxx"
+            pushd "%SCRIPTING%"
+            "%AMXXPC%" "%%n.sma" -o"%OUT%\%%n.amxx"
+            popd
+            if exist "%OUT%\%%n.amxx" powershell -NoProfile -ExecutionPolicy Bypass -File "%SRC%tools\amxx-needs-build.ps1" -Sma "%SRC%%%n.sma" -Amxx "%OUT%\%%n.amxx" -IncludeDirs "%SRC%include;%SCRIPTING%\include" -Mode stamp
+        ) else (
+            echo [KEEP] %%n.amxx: source and includes unchanged since its last build, not recompiled
+        )
         if exist "%OUT%\%%n.amxx" (
             copy /y "%OUT%\%%n.amxx" "%PLUGINS%\%%n.amxx" >nul
             if errorlevel 1 (
@@ -295,7 +317,7 @@ REM they stay loaded and do nothing there. Its configs (configs\arp\), models\ar
 REM sound\arp come along. Upstream's own plugins-arp.ini and modules.ini are not
 REM installed. Built by a plain build.bat, by "build.bat all" and by "build.bat apollo".
 set "ARP_SRC=%SRC%apollo-rp\base"
-set "ARP_TARGETS=ARP_Core ARP_Commands ARP_Config ARP_HUD ARP_HungerMod ARP_Items ARP_JailMod ARP_NPCs ARP_RobMod ARP_TalkArea ARP_Zones ARP_TS"
+set "ARP_TARGETS=ARP_Core ARP_Commands ARP_Config ARP_HUD ARP_HungerMod ARP_Items ARP_JailMod ARP_NPCs ARP_RobMod ARP_TalkArea ARP_Zones ARP_TS ARP_H9Menu"
 set "BUILD_ARP="
 if "%~1"=="" set "BUILD_ARP=1"
 for %%a in (%*) do (
@@ -308,10 +330,20 @@ if defined BUILD_ARP if exist "%ARP_SRC%\addons\amxmodx\scripting\ARP_Core.sma" 
     echo   synced apollo-rp includes
     for %%n in (!ARP_TARGETS!) do (
         copy /y "%ARP_SRC%\addons\amxmodx\scripting\%%n.sma" "%SCRIPTING%\%%n.sma" >nul
-        if exist "%OUT%\%%n.amxx" del /q "%OUT%\%%n.amxx"
-        pushd "%SCRIPTING%"
-        "%AMXXPC%" "%%n.sma" -o"%OUT%\%%n.amxx"
-        popd
+        set "NEEDS=1"
+        if not defined BUILD_FORCE if exist "%OUT%\%%n.amxx" (
+            powershell -NoProfile -ExecutionPolicy Bypass -File "%SRC%tools\amxx-needs-build.ps1" -Sma "%ARP_SRC%\addons\amxmodx\scripting\%%n.sma" -Amxx "%OUT%\%%n.amxx" -IncludeDirs "%ARP_SRC%\addons\amxmodx\scripting\include;%SRC%include;%SCRIPTING%\include" -Mode check
+            if errorlevel 1 set "NEEDS="
+        )
+        if defined NEEDS (
+            if exist "%OUT%\%%n.amxx" del /q "%OUT%\%%n.amxx"
+            pushd "%SCRIPTING%"
+            "%AMXXPC%" "%%n.sma" -o"%OUT%\%%n.amxx"
+            popd
+            if exist "%OUT%\%%n.amxx" powershell -NoProfile -ExecutionPolicy Bypass -File "%SRC%tools\amxx-needs-build.ps1" -Sma "%ARP_SRC%\addons\amxmodx\scripting\%%n.sma" -Amxx "%OUT%\%%n.amxx" -IncludeDirs "%ARP_SRC%\addons\amxmodx\scripting\include;%SRC%include;%SCRIPTING%\include" -Mode stamp
+        ) else (
+            echo [KEEP] %%n.amxx: source and includes unchanged since its last build, not recompiled
+        )
         if exist "%OUT%\%%n.amxx" (
             copy /y "%OUT%\%%n.amxx" "%PLUGINS%\%%n.amxx" >nul
             if errorlevel 1 (
@@ -447,12 +479,34 @@ if !BAD! EQU 0 if exist "%SRC%H9XASH\HAVOC 9.exe" if exist "%SRC%xash3d-h9-patch
     echo.
 )
 
+REM ---- the official preset's hashes (docs\H9_PRESENCE.txt, 4d) -------------
+REM The SHA-256 of every plugin, module and Metamod plugin an authenticated server may run is the
+REM site's allowlist, and an update that changes one without the allowlist leaves every server that
+REM takes it reading as modified. So the files an admin imports, H9XASH\presets\official-preset.json and one
+REM official-preset-<Mode>.json for each game mode,
+REM is rewritten here from what this build just put into H9XASH, before export.bat carries it to the
+REM git copy. The GitHub workflow preset-hash.yml fails a change that does not carry it.
+if !BAD! EQU 0 (
+    where node >nul 2>&1
+    if errorlevel 1 (
+        echo --- official preset NOT updated: node is not on the PATH ---
+    ) else (
+        echo --- the official preset's hashes ---
+        node "%SRC%tools\preset-check.mjs" --write
+        echo.
+    )
+)
+
 REM ---- keep the server package in step -------------------------------------
 REM Only on a clean build. Exporting after a failure would ship the previous
 REM binary alongside the new source, which is the one combination that looks
 REM right and is not.
 if !BAD! EQU 0 (
     if exist "%SRC%export.bat" call "%SRC%export.bat"
+    if exist "%SRC%tools\mirror-check.ps1" (
+        echo --- is the git copy in step with the masters? ---
+        powershell -NoProfile -ExecutionPolicy Bypass -File "%SRC%tools\mirror-check.ps1"
+    )
 ) else (
     echo --- export skipped: fix the build first ---
 )
