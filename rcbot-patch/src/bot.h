@@ -1029,6 +1029,8 @@ public:
 			return "BOT_TASK_DROP_WEAPON";
 		case BOT_TASK_SENSE_ENEMY:
 			return "BOT_TASK_SENSE_ENEMY";
+		case BOT_TASK_TS_OBJECTIVE:
+			return "BOT_TASK_TS_OBJECTIVE";
 		}
 
 		return "Unknown";
@@ -3194,6 +3196,16 @@ public:
 	int m_iRoamAttackerId;      // his userid: a slot someone else takes later is not him
 	float m_fRoamHurtTime;      // when he last hurt it
 	float m_fRoamNextFists;     // when it next asks for its fists while fighting him back
+
+	// Objective play (rcbot-patch CHANGE 11, bot.cpp, BOT OBJECTIVES): while tsm_bot_objectives is 1 on a map that
+	// ts_assault, ts_uplink or ts_ctf runs, a bot goes to the capture points, fetches and carries the uplink and the
+	// flags, escorts its side's carrier and hunts the other side's.
+	bool ObjPlay() const;
+	int ObjSide() const;
+	bool ObjLookForNewTasks(int iSchedule);
+	void ObjUpkeep();
+	void ObjRunTask(bool& bDone);
+	bool ObjCarrierRuns() const;
 
 	void PlayerDead(edict_t* pPlayer)
 	{

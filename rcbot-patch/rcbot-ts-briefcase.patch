@@ -1,0 +1,1029 @@
+diff --git a/dlls/bot.cpp b/dlls/bot.cpp
+index 82356df..8e01bae 100644
+--- a/dlls/bot.cpp
++++ b/dlls/bot.cpp
+@@ -67,6 +67,7 @@
+ //#include "megahal.h"
+ #include "actionutility.h"
+ #include "bot_objective.h"
++#include "bot_briefcase.h"
+ 
+ #include "usercmd.h"
+ 
+@@ -220,6 +221,7 @@ namespace
+ 	struct ObjWorld
+ 	{
+ 		bool bOn = false;                  // the switch is on, a mode runs and its round is live
++		bool bStock = false;               // the mode is TS's own capture game, read from the game's own entities (CHANGE 12)
+ 		objplan::Mode mode = objplan::MODE_NONE;
+ 		float fNextRead = 0.0f;
+ 		float fPadRadius = 72.0f;          // tsm_cf_pad_radius
+@@ -524,7 +526,7 @@ namespace
+ 		if (pEnt == nullptr || pEnt->free)
+ 			return nullptr;
+ 
+-		const char* szWant = world.row[iRow].kind == objplan::K_UPLINK ? "tsm_uplink" : "tsm_flag";
++		const char* szWant = world.row[iRow].kind == objplan::K_UPLINK ? "tsm_uplink" : (world.bStock ? "ts_flag" : "tsm_flag");
+ 
+ 		return std::strcmp(STRING(pEnt->v.classname), szWant) == 0 ? pEnt : nullptr;
+ 	}
+@@ -561,6 +563,19 @@ namespace
+ 		bot.AddPriorityTask(CBotTask(BOT_TASK_FIND_PATH, iSchedule, nullptr, iWpt, -1));
+ 	}
+ 
++	// A player's side: what the plugin stamps in pev->team, or in TS's own capture game, where nothing does, the team number the
++	// ScoreInfo message gave him (CHANGE 12). 0 when he has none.
++	int ObjSideOf(edict_t* pEnt)
++	{
++		if (pEnt == nullptr)
++			return 0;
++
++		if (g_Obj.bStock)
++			return brief::g_Brief.sideOf(ENTINDEX(pEnt));
++
++		return pEnt->v.team;
++	}
++
+ 	// Every bot's post, from the objectives just read and what the bots are doing.
+ 	void ObjPlanAll()
+ 	{
+@@ -578,7 +593,7 @@ namespace
+ 			if (!bot.IsUsed() || bot.m_iRespawnState != RESPAWN_IDLE || bot.pev == nullptr || !bot.IsAlive())
+ 				continue;
+ 
+-			const int iSide = bot.pev->team;
++			const int iSide = ObjSideOf(bot.m_pEdict);
+ 
+ 			if (iSide != 1 && iSide != 2)
+ 				continue;
+@@ -595,6 +610,7 @@ namespace
+ 			b.z = bot.pev->origin.z;
+ 			b.planOk = !bot.IsRoamer() && bot.getSquad() == nullptr && !(bot.pev->flags & FL_FROZEN);
+ 			b.busy = bot.m_pEnemy != nullptr || bot.m_Tasks.HasTask(BOT_TASK_NORMAL_ATTACK);
++			b.canTake = !g_Obj.bStock || brief::canTakeFlag(bot.pev->maxspeed);
+ 
+ 			if (st.bRunning)
+ 			{
+@@ -635,6 +651,31 @@ namespace
+ 
+ 		for (int i = 0; i < nBots; i++)
+ 			g_Obj.assign[bots[i].slot] = out[i];
++
++		// TS's own capture game: when half of a side carries too much to take a flag, the log says so, once a map
++		if (g_Obj.bStock)
++		{
++			int nSide[3] = { 0, 0, 0 };
++			int nHeavy[3] = { 0, 0, 0 };
++
++			for (int i = 0; i < nBots; i++)
++			{
++				nSide[bots[i].side]++;
++
++				if (!bots[i].canTake)
++					nHeavy[bots[i].side]++;
++			}
++
++			for (int iSide = 1; iSide <= 2; iSide++)
++			{
++				if (!brief::g_Brief.heavyLogged[iSide] && nSide[iSide] >= 2 && nHeavy[iSide] * 2 >= nSide[iSide])
++				{
++					brief::g_Brief.heavyLogged[iSide] = true;
++					UTIL_LogPrintf("[RCBOT BRIEF] side %d: %d of %d bots carry too much to take a flag (TS asks for 20 free inventory slots) and are not sent for one\n",
++						iSide, nHeavy[iSide], nSide[iSide]);
++				}
++			}
++		}
+ 	}
+ 
+ 	// Objective play is off: said in the log once, when it was on.
+@@ -646,6 +687,208 @@ namespace
+ 		g_Obj.bWasOn = false;
+ 	}
+ 
++	// TS's own capture game, the briefcase (CHANGE 12): a flag of the stock game as a row of the plan, the rows of H9's flags. The
++	// bases are the two ts_briefcase entities (bot_briefcase.h); a flag lying loose is a ts_flag, its team told by its glow; one
++	// carried is where the TSFlag messages say, and no entity.
++	void ObjAddBriefFlag(const int iTeam, edict_t* pLoose, const float fNow)
++	{
++		const brief::Tracker& t = brief::g_Brief;
++		const brief::FlagRec& rec = t.flag[iTeam];
++		brief::FlagSeen seen;
++
++		seen.present = pLoose != nullptr;
++		seen.atBase = seen.present && brief::atBase(pLoose->v.origin.x, pLoose->v.origin.y, t.baseX[iTeam], t.baseY[iTeam],
++			t.baseHalfX[iTeam], t.baseHalfY[iTeam]);
++		seen.carrierOk = rec.state == objplan::ST_CARRIED && ObjPlayerEdict(rec.carrier) != nullptr;
++
++		const brief::FlagNow now = brief::flagNow(rec, seen, fNow, iTeam, t);
++
++		if (!now.valid || g_Obj.nRows >= OBJ_MAX_ROWS)
++			return;
++
++		const int iRow = g_Obj.nRows++;
++		objplan::Obj& o = g_Obj.row[iRow];
++
++		o = objplan::Obj();
++		o.kind = objplan::K_FLAG;
++		o.number = iTeam;
++		o.id = static_cast<int>(o.kind) * 256 + iTeam;
++		o.owner = iTeam;
++		o.radius = OBJ_GUARD_RADIUS;
++		o.reach = OBJ_WPT_Z_RANGE;
++		o.state = now.state;
++		o.left = now.left;
++
++		// its pad is its base, the middle of the brush: the other side's carrier of it scores there by touching the brush
++		o.padX = t.baseX[iTeam];
++		o.padY = t.baseY[iTeam];
++		o.padZ = t.baseZ[iTeam];
++		o.padReach = brief::padReach(t.baseHalfX[iTeam], t.baseHalfY[iTeam]);
++
++		// the carrier of the other side's flag scores while his own flag lies at its base
++		const brief::FlagRec& mine = t.flag[3 - iTeam];
++
++		o.scoreReady = now.state == objplan::ST_CARRIED && (!mine.seen || mine.state == objplan::ST_HOME);
++
++		edict_t* pCarrier = now.state == objplan::ST_CARRIED ? ObjPlayerEdict(now.carrier) : nullptr;
++
++		if (pCarrier != nullptr)
++		{
++			o.x = pCarrier->v.origin.x;
++			o.y = pCarrier->v.origin.y;
++			o.z = pCarrier->v.origin.z;
++			o.carrierSlot = now.carrier;
++			o.carrierSide = 3 - iTeam;
++		}
++		else if (now.onEntity)
++		{
++			o.x = pLoose->v.origin.x;
++			o.y = pLoose->v.origin.y;
++			o.z = pLoose->v.origin.z;
++		}
++		else
++		{
++			o.x = t.baseX[iTeam];
++			o.y = t.baseY[iTeam];
++			o.z = t.baseZ[iTeam];
++		}
++
++		g_Obj.iEdict[iRow] = now.onEntity ? ENTINDEX(pLoose) : 0;
++		ObjFillRingWaypoints(iRow, OBJ_GUARD_RADIUS * OBJ_RING_WPT_SHARE);
++		g_Obj.iNearWpt[iRow] = ObjNearestWaypoint(Vector(o.x, o.y, o.z + OBJ_WPT_HEIGHT));
++
++		// a flag between a capture, or a return, and its base seeding it again has nothing to walk onto
++		o.pathable = now.state == objplan::ST_CARRIED || (now.onEntity && g_Obj.iNearWpt[iRow] != -1);
++	}
++
++	// Finds the two bases of the map once, and says what is not played. The map's own key ownerteam names each base's team.
++	void ObjFindBases(const float fNow)
++	{
++		brief::Tracker& t = brief::g_Brief;
++
++		t.nextScan = fNow + 10.0f;
++
++		edict_t* pBase[3] = { nullptr, nullptr, nullptr };
++		int iOwner[3] = { -1, -1, -1 };
++		int nBases = 0;
++		edict_t* pEnt = nullptr;
++
++		while ((pEnt = UTIL_FindEntityByClassname(pEnt, "ts_briefcase")) != nullptr)
++		{
++			if (nBases < 3)
++			{
++				pBase[nBases] = pEnt;
++				iOwner[nBases] = t.ownerOf(ENTINDEX(pEnt));
++			}
++
++			nBases++;
++		}
++
++		if (nBases == 0)
++			return;
++
++		if (!brief::layoutSupported(iOwner, nBases))
++		{
++			if (!t.layoutLogged)
++			{
++				t.layoutLogged = true;
++				UTIL_LogPrintf("[RCBOT BRIEF] %d briefcase(s), owners %d %d %d: only one base for each of two teams is played\n",
++					nBases, iOwner[0], iOwner[1], iOwner[2]);
++			}
++
++			return;
++		}
++
++		for (int k = 0; k < 2; k++)
++		{
++			const int iTeam = iOwner[k];
++			const entvars_t& v = pBase[k]->v;
++			const Vector vMiddle = (v.absmin + v.absmax) * 0.5f;
++			TraceResult tr;
++
++			// the floor under the middle of the brush, which is where the base's flag falls to
++			UTIL_TraceLine(vMiddle, vMiddle - Vector(0.0f, 0.0f, 2048.0f), ignore_monsters, nullptr, &tr);
++
++			t.baseX[iTeam] = vMiddle.x;
++			t.baseY[iTeam] = vMiddle.y;
++			t.baseZ[iTeam] = tr.fStartSolid ? v.absmin.z : tr.vecEndPos.z;
++			t.baseHalfX[iTeam] = 0.5f * (v.absmax.x - v.absmin.x);
++			t.baseHalfY[iTeam] = 0.5f * (v.absmax.y - v.absmin.y);
++		}
++
++		t.layoutOk = true;
++		UTIL_LogPrintf("[RCBOT BRIEF] capture game: base of team 1 at %.0f %.0f %.0f, of team 2 at %.0f %.0f %.0f\n",
++			t.baseX[1], t.baseY[1], t.baseZ[1], t.baseX[2], t.baseY[2], t.baseZ[2]);
++	}
++
++	// TS's own capture game, a map of two bases (the ctb_ and ctf_ maps), read from what the game exposes of it. Returns whether
++	// it is played here, with the rows and the posts worked out; false leaves the plugins' objectives to ObjRefresh.
++	//   tsm_enabled              above 0: ts_matchmode's match mode runs the map, and its plugins' entities are read instead. A
++	//                            cvar that does not exist is 0
++	//   tsm_bot_stockobjectives  0: the bots fight as before. Default 1, registered by ts_matchmode; a server without the
++	//                            plugin plays it
++	//   tsrp_roambots_active     1: citizens walk, whatever else is on the map
++	bool BriefRefresh()
++	{
++		const cvar_t* pEnabled = CVAR_GET_POINTER("tsm_enabled");
++
++		if (pEnabled != nullptr && pEnabled->value > 0.0f)
++			return false;
++
++		const cvar_t* pSwitch = CVAR_GET_POINTER("tsm_bot_stockobjectives");
++
++		if (pSwitch != nullptr && pSwitch->value <= 0.0f)
++			return false;
++
++		if (CVAR_GET_FLOAT("tsrp_roambots_active") > 0.0f)
++			return false;
++
++		brief::Tracker& t = brief::g_Brief;
++		const float fNow = gpGlobals->time;
++
++		// the clock starts again at each map, so a scan due far ahead of it is due now
++		if (!t.layoutOk && (fNow >= t.nextScan || t.nextScan > fNow + 11.0f))
++			ObjFindBases(fNow);
++
++		if (!t.layoutOk)
++			return false;
++
++		g_Obj.mode = objplan::MODE_CTF;
++		g_Obj.bStock = true;
++
++		// the flags that lie loose, by team: a ts_flag glows in its team's colour
++		edict_t* pLoose[3] = { nullptr, nullptr, nullptr };
++		edict_t* pEnt = nullptr;
++
++		while ((pEnt = UTIL_FindEntityByClassname(pEnt, "ts_flag")) != nullptr)
++		{
++			if (pEnt->v.flags & FL_KILLME)
++				continue;
++
++			const int iTeam = brief::teamOfColor(pEnt->v.rendercolor.x, pEnt->v.rendercolor.y, pEnt->v.rendercolor.z);
++
++			if (iTeam != 0 && pLoose[iTeam] == nullptr)
++				pLoose[iTeam] = pEnt;
++		}
++
++		for (int iTeam = 1; iTeam <= 2; iTeam++)
++			ObjAddBriefFlag(iTeam, pLoose[iTeam], fNow);
++
++		g_Obj.bOn = true;
++
++		// the bots left free are chosen again for each map
++		if (!g_Obj.bWasOn)
++		{
++			g_Obj.uRound++;
++			UTIL_LogPrintf("[RCBOT OBJ] objective play is on: TS's capture game, %d flag(s) read\n", g_Obj.nRows);
++		}
++
++		ObjPlanAll();
++		g_Obj.bWasOn = true;
++
++		return true;
++	}
++
+ 	// Reads the settings and the objectives and plans the posts. The tsm_ settings belong to ts_matchmode and its mode plugins:
+ 	//   tsm_enabled          0: no match mode, no objectives
+ 	//   tsm_bot_objectives   1: the bots play the objectives of the mode. A cvar that does not exist, as with a plugin that
+@@ -655,6 +898,7 @@ namespace
+ 	void ObjRefresh()
+ 	{
+ 		g_Obj.bOn = false;
++		g_Obj.bStock = false;
+ 		g_Obj.mode = objplan::MODE_NONE;
+ 		g_Obj.nRows = 0;
+ 		g_Obj.iStarts = 0;
+@@ -665,6 +909,14 @@ namespace
+ 		if (!gBotGlobals.IsMod(MOD_TS))
+ 			return;
+ 
++		// TS's own capture game has no plugin to read
++		if (BriefRefresh())
++			return;
++
++		g_Obj.bStock = false;
++		g_Obj.mode = objplan::MODE_NONE;
++		g_Obj.nRows = 0;
++
+ 		const cvar_t* pEnabled = CVAR_GET_POINTER("tsm_enabled");
+ 		const cvar_t* pSwitch = CVAR_GET_POINTER("tsm_bot_objectives");
+ 
+@@ -752,6 +1004,23 @@ namespace
+ 
+ 		return g_Obj;
+ 	}
++
++	// Whether two players are on different sides of TS's own capture game: 1 yes, 0 no, -1 when the game is not played here or
++	// a side is not known, and the stock rule decides (CHANGE 12). A bot has no team number but the one the scoreboard gave it,
++	// and stock rcbot takes everyone for an enemy where the plugin stamps no pev->team.
++	int BriefEnemies(edict_t* pA, edict_t* pB)
++	{
++		if (!ObjNow().bStock)
++			return -1;
++
++		const int iA = brief::g_Brief.sideOf(ENTINDEX(pA));
++		const int iB = brief::g_Brief.sideOf(ENTINDEX(pB));
++
++		if (iA == 0 || iB == 0)
++			return -1;
++
++		return iA != iB ? 1 : 0;
++	}
+ }
+ 
+ // Science and Industry
+@@ -4721,6 +4990,29 @@ bool CBot::RoamHoldsMelee() const
+ // citizens of a roleplay map and a bot held by the plugin play none of it. A plugin that publishes nothing, or a server without
+ // tsm_bot_objectives, leaves every bot as it was.
+ 
++// STOCK CAPTURE GAME (CHANGE 12)
++//
++// TS plays a capture game of its own on a ctb_ or ctf_ map: a ts_briefcase base for each of two teams, and a flag (the briefcase)
++// to take from the other team's base and carry to one's own. The match mode stays out of those maps (tsm_enabled 0), so no plugin
++// publishes anything, and the game DLL keeps a flag's state in its own private members. What reaches a bot is read here and given to
++// the same planner as H9's flags (BriefRefresh makes the K_FLAG rows; bot_briefcase.h keeps the state and the rules):
++//   ts_briefcase  a base, a brush: its box and, from the map's key ownerteam, its team (CBotGlobals::KeyValue)
++//   ts_flag       a flag lying loose, its team told by its glow. A flag that is carried is no entity
++//   TSFlag        the user message: a flag was seeded at its base, taken or dropped, and who carries it
++//   ScoreInfo     each player's team number. Nothing stamps pev->team in this game, and stock rcbot takes everyone for an enemy
++//                 where it is 0, so a side is this number (ObjSideOf), and IsEnemy asks BriefEnemies
++// It is played on a map with one base for each of two teams, while tsm_enabled is 0 and tsm_bot_stockobjectives is not 0. The posts
++// are the flags' of CHANGE 11: FETCH the other team's flag at its base or dropped, CARRY it onto the middle of one's own base (the
++// brush scores by touch, and only while one's own flag lies at its base), ESCORT the carrier, GUARD the own flag at its base,
++// RETURN it when dropped, HUNT the carrier of it. A bot is sent to take a flag only with the 20 free inventory slots TS asks for
++// (canTakeFlag, read from the speed the game gave it). The restraint, the task and the walk are CHANGE 11's.
++
++// The side a bot plays for: pev->team where the plugin stamps it, TS's team number on its own capture game
++int CBot::ObjSide() const
++{
++	return ObjSideOf(m_pEdict);
++}
++
+ bool CBot::ObjPlay() const
+ {
+ 	return gBotGlobals.IsMod(MOD_TS) && m_pEdict != nullptr && pev != nullptr && !IsRoamer() && m_stSquad == nullptr &&
+@@ -4764,7 +5056,7 @@ bool CBot::ObjLookForNewTasks(const int iSchedule)
+ 
+ 	const int iRow = ObjRowOf(a.obj);
+ 
+-	if (iRow < 0 || ObjIsBlocked(st, a.obj, fNow) || !objplan::roleValid(&g_Obj.row[iRow], a.role, pev->team, iIndex))
++	if (iRow < 0 || ObjIsBlocked(st, a.obj, fNow) || !objplan::roleValid(&g_Obj.row[iRow], a.role, ObjSide(), iIndex))
+ 		return false;
+ 
+ 	// a wave of bots arriving together would ask for their paths at once
+@@ -4795,7 +5087,7 @@ bool CBot::ObjLookForNewTasks(const int iSchedule)
+ 	if (s_iLogged < 60)
+ 	{
+ 		s_iLogged++;
+-		UTIL_LogPrintf("[RCBOT OBJ] %s (side %d) takes post %d at objective %d\n", m_szBotName, pev->team, st.iRole, a.obj);
++		UTIL_LogPrintf("[RCBOT OBJ] %s (side %d) takes post %d at objective %d\n", m_szBotName, ObjSide(), st.iRole, a.obj);
+ 	}
+ 
+ 	return true;
+@@ -4870,7 +5162,7 @@ void CBot::ObjUpkeep()
+ 
+ 	const int iRow = ObjRowOf(a.obj);
+ 
+-	if (iRow < 0 || !objplan::roleValid(&g_Obj.row[iRow], a.role, pev->team, iIndex))
++	if (iRow < 0 || !objplan::roleValid(&g_Obj.row[iRow], a.role, ObjSide(), iIndex))
+ 		return;
+ 
+ 	static const eBotTask s_Keep[] = { BOT_TASK_NORMAL_ATTACK, BOT_TASK_PICKUP_ITEM, BOT_TASK_USE, BOT_TASK_WAIT_FOR_LIFT,
+@@ -4917,7 +5209,7 @@ void CBot::ObjRunTask(bool& bDone)
+ 
+ 	// the plan has no post for it now, or the post makes no sense any more: the task is done, and the next think asks again
+ 	if (a.role == objplan::R_NONE || iRow < 0 || ObjIsBlocked(st, a.obj, fNow) ||
+-		!objplan::roleValid(&world.row[iRow], a.role, pev->team, iIndex))
++		!objplan::roleValid(&world.row[iRow], a.role, ObjSide(), iIndex))
+ 	{
+ 		st.bRunning = false;
+ 		bDone = true;
+@@ -4985,16 +5277,19 @@ void CBot::ObjRunTask(bool& bDone)
+ 		}
+ 		else
+ 		{
+-			// a flag goes to its side's pad, which the plugin publishes; with no pad it stands where it is
+-			if (o.padX == 0.0f && o.padY == 0.0f && o.padZ == 0.0f)
++			// a flag goes to the pad of its carrier's side, which is the pad of the flag that side owns; with no pad it stands where
++			// it is
++			const objplan::Obj* pPad = objplan::padFor(world.row, world.nRows, o);
++
++			if (pPad == nullptr || (pPad->padX == 0.0f && pPad->padY == 0.0f && pPad->padZ == 0.0f))
+ 			{
+ 				vMark = vOrigin;
+ 				fHere = OBJ_HERE_SHARE;
+ 			}
+ 			else
+ 			{
+-				vMark = Vector(o.padX, o.padY, o.padZ + OBJ_WPT_HEIGHT);
+-				fHere = std::max(40.0f, world.fPadRadius * OBJ_HERE_SHARE);
++				vMark = Vector(pPad->padX, pPad->padY, pPad->padZ + OBJ_WPT_HEIGHT);
++				fHere = pPad->padReach > 0.0f ? pPad->padReach : std::max(40.0f, world.fPadRadius * OBJ_HERE_SHARE);
+ 			}
+ 		}
+ 
+@@ -10577,6 +10872,13 @@ bool CBot::IsEnemy(edict_t* pEntity)
+ 			if (pev->team > 0 && pEntity->v.team > 0)
+ 				return pev->team != pEntity->v.team;
+ 
++			// TS's own capture game: the sides are TS's teams, which no plugin stamps and the stock rule below cannot tell
++			// (CHANGE 12). Where the game is not played, or a side is not known, the rule below decides.
++			const int iEnemies = BriefEnemies(m_pEdict, pEntity);
++
++			if (iEnemies >= 0)
++				return iEnemies != 0;
++
+ 			if (gBotGlobals.isMapType(NON_TS_TEAMPLAY) || gBotGlobals.m_bTeamPlay)
+ 			{
+ 				char* infobuffer1 = (*g_engfuncs.pfnGetInfoKeyBuffer)(m_pEdict);
+diff --git a/dlls/bot.h b/dlls/bot.h
+index 7956cb7..0a5cc71 100644
+--- a/dlls/bot.h
++++ b/dlls/bot.h
+@@ -3201,6 +3201,7 @@ public:
+ 	// ts_assault, ts_uplink or ts_ctf runs, a bot goes to the capture points, fetches and carries the uplink and the
+ 	// flags, escorts its side's carrier and hunts the other side's.
+ 	bool ObjPlay() const;
++	int ObjSide() const;
+ 	bool ObjLookForNewTasks(int iSchedule);
+ 	void ObjUpkeep();
+ 	void ObjRunTask(bool& bDone);
+diff --git a/dlls/bot_briefcase.h b/dlls/bot_briefcase.h
+new file mode 100644
+index 0000000..e03b353
+--- /dev/null
++++ b/dlls/bot_briefcase.h
+@@ -0,0 +1,295 @@
++// bot_briefcase.h -- what rcbot knows of TS's own capture game, the briefcase (rcbot-patch CHANGE 12).
++//
++// No plugin publishes anything on a ctb_ or ctf_ map: the game DLL keeps a flag's state in its own private members. What
++// reaches a server-side bot is the user message TSFlag (a base flag spawned, a flag taken, a flag dropped, and who
++// carries it), the ScoreInfo message that gives each player's team number, the key ownerteam that a map names a base's
++// team with, and the entities: ts_briefcase (the base, a brush) and ts_flag (a flag while it lies loose). This file keeps
++// the part of it that needs no engine: the state those messages add up to, and the rules that turn it and the entities
++// into the rows objplan::plan (bot_objective.h) works on. It knows nothing of the engine, the HL SDK or CBot, so it can be
++// tested on its own (rcbot-patch\test\test_bot_briefcase.cpp). bot.cpp reads the entities and fills the rows
++// (STOCK CAPTURE GAME, over CBot::ObjSide).
++//
++// Teams are TS's team numbers: the index of a team in the map's team list, plus one, as the scoreboard, a base's
++// ownerteam key and the TSFlag message count them. A map of two teams has the numbers 1 and 2, which are the sides
++// objplan::plan takes.
++#ifndef BOT_BRIEFCASE_H
++#define BOT_BRIEFCASE_H
++
++#include <algorithm>
++#include <cmath>
++
++#include "bot_objective.h"
++
++namespace brief
++{
++	constexpr int MAX_SLOT = objplan::MAX_BOTS;       // an edict index of a player, 1 to MAX_SLOT
++	constexpr int MAX_OWNER_KEYS = 32;                // entities that named an ownerteam on this map
++	constexpr float FLAG_EXPIRY = 20.0f;              // a dropped flag goes home this long after it was dropped (CTSFlag::Spawn)
++	constexpr float SLOT_SPEED_FREE20 = 239.0f;       // the speed 20 free inventory slots give (GetSpeedBySlots)
++	constexpr float SLOT_SPEED_LEAST = 200.0f;        // below this a bot's speed is no inventory's: a freeze, a slow
++	constexpr float PAD_REACH_LEAST = 16.0f;          // a carrier stands this near the middle of a base, at least
++	constexpr float PAD_REACH_MOST = 72.0f;           // and at most
++	constexpr float AT_BASE_MARGIN = 48.0f;           // a flag this far outside a base's box still lies at the base
++
++	// The user message TSFlag: its first byte.
++	enum Action : int { A_BASE = 0, A_PICKUP = 1, A_DROP = 2 };
++
++	// One team's flag as the TSFlag messages have it.
++	struct FlagRec
++	{
++		bool seen = false;        // a TSFlag message has named it since the map began
++		int state = objplan::ST_HOME;
++		int flagId = 0;
++		int carrier = 0;          // ST_CARRIED: the carrier's edict index
++		float since = 0.0f;       // when it last changed hands
++	};
++
++	struct Tracker
++	{
++		int teamOf[MAX_SLOT + 1] = {};                  // a player's team number, 0 not known; by edict index
++		int keyEdict[MAX_OWNER_KEYS] = {};              // the ownerteam keys of the map: the entity, and its value
++		int keyTeam[MAX_OWNER_KEYS] = {};
++		int nKeys = 0;
++		FlagRec flag[3];                                // by team number
++
++		// the bases, found once a map
++		float nextScan = 0.0f;
++		bool layoutOk = false;
++		bool layoutLogged = false;
++		float baseX[3] = {}, baseY[3] = {}, baseZ[3] = {};  // the middle of the box, and the floor under it
++		float baseHalfX[3] = {}, baseHalfY[3] = {};
++
++		// the log lines of what the messages said, the first of them on a map that has briefcases: how the server owner sees that the
++		// messages arrive
++		int logLeft = 40;
++		bool heavyLogged[3] = {};   // a side's bots too heavy to take a flag, said once a map
++
++		void resetMap()
++		{
++			*this = Tracker();
++		}
++
++		// the key ownerteam of an entity as the map names it: 1 and 2 the teams, 0 neutral
++		void onOwnerKey(const int edict, const int team)
++		{
++			for (int i = 0; i < nKeys; i++)
++			{
++				if (keyEdict[i] == edict)
++				{
++					keyTeam[i] = team;
++					return;
++				}
++			}
++
++			if (nKeys < MAX_OWNER_KEYS)
++			{
++				keyEdict[nKeys] = edict;
++				keyTeam[nKeys] = team;
++				nKeys++;
++			}
++		}
++
++		// -1 when the map named none
++		int ownerOf(const int edict) const
++		{
++			for (int i = 0; i < nKeys; i++)
++			{
++				if (keyEdict[i] == edict)
++					return keyTeam[i];
++			}
++
++			return -1;
++		}
++
++		// ScoreInfo: the team number of a player
++		void onScore(const int slot, const int teamNumber)
++		{
++			if (slot >= 1 && slot <= MAX_SLOT)
++				teamOf[slot] = teamNumber;
++		}
++
++		void forgetSlot(const int slot)
++		{
++			if (slot >= 1 && slot <= MAX_SLOT)
++				teamOf[slot] = 0;
++		}
++
++		bool takeLog()
++		{
++			if (nKeys == 0 || logLeft <= 0)
++				return false;
++
++			logLeft--;
++			return true;
++		}
++
++		// 1 or 2, 0 when he is on neither (not known, a spectator, a third team)
++		int sideOf(const int slot) const
++		{
++			if (slot < 1 || slot > MAX_SLOT)
++				return 0;
++
++			return (teamOf[slot] == 1 || teamOf[slot] == 2) ? teamOf[slot] : 0;
++		}
++
++		// TSFlag: what happened to a team's flag. teamPlus1 is the flag's team number; the carrier's edict index comes
++		// with a pickup and a drop. A capture and a return send no message of their own: the base seeds the flag again
++		// and that says A_BASE.
++		void onFlag(const int action, const int flagId, const int teamPlus1, const int carrier, const float now)
++		{
++			if (teamPlus1 != 1 && teamPlus1 != 2)
++				return;
++
++			FlagRec& f = flag[teamPlus1];
++
++			f.seen = true;
++			f.flagId = flagId;
++			f.since = now;
++
++			switch (action)
++			{
++			case A_BASE:
++				f.state = objplan::ST_HOME;
++				f.carrier = 0;
++				break;
++			case A_PICKUP:
++				f.state = objplan::ST_CARRIED;
++				f.carrier = carrier;
++				break;
++			case A_DROP:
++				f.state = objplan::ST_DROPPED;
++				f.carrier = 0;
++				break;
++			default:
++				break;
++			}
++		}
++
++		// The seconds before a team's dropped flag goes home, -1 when it is not dropped
++		float left(const int team, const float now) const
++		{
++			if ((team != 1 && team != 2) || !flag[team].seen || flag[team].state != objplan::ST_DROPPED)
++				return -1.0f;
++
++			return std::max(0.0f, FLAG_EXPIRY - (now - flag[team].since));
++		}
++	};
++
++	inline Tracker g_Brief;
++
++	// A team's number by the glow colour of its loose flag (CTSFlag::Spawn: blue for the first team, red for the second).
++	// 0 for any other colour.
++	inline int teamOfColor(const float r, const float g, const float b)
++	{
++		auto same = [](const float a, const float c) { return std::fabs(a - c) < 2.0f; };
++
++		if (same(r, 125.0f) && same(g, 165.0f) && same(b, 210.0f))
++			return 1;
++		if (same(r, 200.0f) && same(g, 90.0f) && same(b, 70.0f))
++			return 2;
++
++		return 0;
++	}
++
++	// The map's bases: exactly two briefcases, one for team 1 and one for team 2. owners are the keys the map gave them (-1
++	// none, 0 neutral). A neutral base, two for one team or a third team is a game the bots do not play.
++	inline bool layoutSupported(const int* owners, const int n)
++	{
++		if (owners == nullptr || n != 2)
++			return false;
++
++		return (owners[0] == 1 && owners[1] == 2) || (owners[0] == 2 && owners[1] == 1);
++	}
++
++	// How near the middle of its base a carrier stands: inside the brush, which scores by touch.
++	inline float padReach(const float halfX, const float halfY)
++	{
++		return std::max(PAD_REACH_LEAST, std::min(PAD_REACH_MOST, 0.5f * std::min(halfX, halfY)));
++	}
++
++	// Whether a flag lies at a base: across the floor within the box and a margin of it.
++	inline bool atBase(const float fx, const float fy, const float bx, const float by, const float halfX, const float halfY)
++	{
++		return std::fabs(fx - bx) <= halfX + AT_BASE_MARGIN && std::fabs(fy - by) <= halfY + AT_BASE_MARGIN;
++	}
++
++	// A player takes a flag only with 20 free inventory slots (CBasePlayer::TakeFlag), and the game sets his speed by the
++	// slots he has left: 210 + 120 * free / 81, cut to a whole number. 239 is 20 free slots. A speed under 200 is not an
++	// inventory's (a freeze, a slow): nothing is known, and the bot may try.
++	inline bool canTakeFlag(const float maxspeed)
++	{
++		return maxspeed < SLOT_SPEED_LEAST || maxspeed >= SLOT_SPEED_FREE20;
++	}
++
++	// What the entities say of one team's flag this second.
++	struct FlagSeen
++	{
++		bool present = false;     // a ts_flag of its colour is in the world: the flag is loose
++		bool atBase = false;      // and lies at its base
++		bool carrierOk = false;   // the carrier the messages name is a living player
++	};
++
++	// A team's flag as a row of the plan: where it stands, who carries it, and whether anything can be walked onto.
++	struct FlagNow
++	{
++		bool valid = false;
++		int state = objplan::ST_HOME;
++		int carrier = 0;
++		float left = -1.0f;
++		bool onEntity = false;    // loose, with an entity to walk to
++	};
++
++	// Puts the messages and the entities together. The entities win where they disagree (a loose flag is not carried).
++	// A flag missing for a moment between a capture or a return and its base seeding it again is at its base but has nothing
++	// to walk onto; one of which nothing is known is not a row.
++	inline FlagNow flagNow(const FlagRec& r, const FlagSeen& e, const float now, const int team, const Tracker& t)
++	{
++		FlagNow n;
++
++		if (r.seen)
++		{
++			if (e.present)
++			{
++				n.valid = true;
++				n.onEntity = true;
++
++				if (r.state == objplan::ST_DROPPED)
++				{
++					n.state = objplan::ST_DROPPED;
++					n.left = t.left(team, now);
++				}
++				else if (r.state == objplan::ST_HOME)
++					n.state = objplan::ST_HOME;
++				else
++					n.state = e.atBase ? objplan::ST_HOME : objplan::ST_DROPPED;
++			}
++			else if (r.state == objplan::ST_CARRIED)
++			{
++				if (e.carrierOk)
++				{
++					n.valid = true;
++					n.state = objplan::ST_CARRIED;
++					n.carrier = r.carrier;
++				}
++			}
++			else
++			{
++				n.valid = true;
++				n.state = objplan::ST_HOME;
++			}
++
++			return n;
++		}
++
++		if (e.present)
++		{
++			n.valid = true;
++			n.onEntity = true;
++			n.state = e.atBase ? objplan::ST_HOME : objplan::ST_DROPPED;
++		}
++
++		return n;
++	}
++}
++
++#endif // BOT_BRIEFCASE_H
+diff --git a/dlls/bot_client.cpp b/dlls/bot_client.cpp
+index f0bac49..eaef73a 100644
+--- a/dlls/bot_client.cpp
++++ b/dlls/bot_client.cpp
+@@ -99,6 +99,7 @@
+ #include "bot.h"
+ #include "bot_client.h"
+ #include "bot_weapons.h"
++#include "bot_briefcase.h"
+ 
+ // types of damage to ignore...
+ #define IGNORE_DAMAGE (DMG_CRUSH | DMG_FREEZE | DMG_FALL | \
+@@ -122,6 +123,8 @@ void SetupNetMessages()
+ #endif
+ 
+ 	gBotGlobals.m_NetAllMessages.AddNetMessage(new BotClient_TS_DelObj());
++	gBotGlobals.m_NetAllMessages.AddNetMessage(new BotClient_TS_Flag());
++	gBotGlobals.m_NetAllMessages.AddNetMessage(new BotClient_TS_ScoreInfo());
+ 	gBotGlobals.m_NetEntityMessages.AddNetMessage(new BotClient_TS_Objective());
+ 	gBotGlobals.m_NetEntityMessages.AddNetMessage(new BotClient_TS_State());
+ 	gBotGlobals.m_NetEntityMessages.AddNetMessage(new BotClient_TS_ClipInfo());
+@@ -429,6 +432,76 @@ void BotClient_TS_DelObj::execute(void* p, int iIndex)
+ 	POINTER_INCREMENT_VALUE(state);
+ }
+ 
++void BotClient_TS_Flag::execute(void* p, int iIndex)
++{
++	static int iAction;
++	static int iFlagId;
++	static int iTeam;
++
++	short* state = &gBotGlobals.m_iCurrentMessageState;
++
++	if (p == nullptr)
++	{
++		return;
++	}
++
++	const int iValue = *static_cast<int*>(p);
++
++	switch (POINTER_VALUE(state))
++	{
++	case 0:
++		iAction = iValue;
++		break;
++	case 1:
++		iFlagId = iValue;
++		break;
++	case 2:
++		iTeam = iValue;
++		break;
++	case 3:
++		if (brief::g_Brief.takeLog())
++			UTIL_LogPrintf("[RCBOT BRIEF] TSFlag: action %d, flag %d, team %d, carrier %d\n", iAction, iFlagId, iTeam, iValue);
++
++		brief::g_Brief.onFlag(iAction, iFlagId, iTeam, iValue, gpGlobals->time);
++		break;
++	default:
++		break;
++	}
++
++	POINTER_INCREMENT_VALUE(state);
++}
++
++void BotClient_TS_ScoreInfo::execute(void* p, int iIndex)
++{
++	static int iPlayer;
++
++	short* state = &gBotGlobals.m_iCurrentMessageState;
++
++	if (p == nullptr)
++	{
++		return;
++	}
++
++	const int iValue = *static_cast<int*>(p);
++
++	switch (POINTER_VALUE(state))
++	{
++	case 0:
++		iPlayer = iValue;
++		break;
++	case 4:
++		if (iPlayer >= 1 && iPlayer <= brief::MAX_SLOT && brief::g_Brief.teamOf[iPlayer] != iValue && brief::g_Brief.takeLog())
++			UTIL_LogPrintf("[RCBOT BRIEF] ScoreInfo: player %d is on team %d\n", iPlayer, iValue);
++
++		brief::g_Brief.onScore(iPlayer, iValue);
++		break;
++	default:
++		break;
++	}
++
++	POINTER_INCREMENT_VALUE(state);
++}
++
+ void BotClient_TS_WeaponInfo::execute(void* p, const int iIndex)
+ {
+ 	static int clip;
+diff --git a/dlls/bot_client.h b/dlls/bot_client.h
+index 51755e8..c44e3c1 100644
+--- a/dlls/bot_client.h
++++ b/dlls/bot_client.h
+@@ -230,6 +230,34 @@ public:
+ 	void execute(void* p, int iIndex) override; // override base function
+ };
+ 
++// TS's capture game (rcbot-patch CHANGE 12): a flag was seeded at its base, taken or dropped. MSG_ALL, four bytes: what happened
++// (0 base, 1 taken, 2 dropped), the flag's id, its team number, and the carrier's edict index
++class BotClient_TS_Flag : public CBotNetMessage
++{
++public:
++	BotClient_TS_Flag()
++	{
++		setName("TSFlag");
++		setMod(MOD_TS);
++	}
++
++	void execute(void* p, int iIndex) override; // override base function
++};
++
++// A player's score and team. MSG_ALL, a byte (the player) and four shorts (frags, deaths, 0, team number); the bots read the
++// team number for TS's capture game, where nothing else says which side a player is on
++class BotClient_TS_ScoreInfo : public CBotNetMessage
++{
++public:
++	BotClient_TS_ScoreInfo()
++	{
++		setName("ScoreInfo");
++		setMod(MOD_TS);
++	}
++
++	void execute(void* p, int iIndex) override; // override base function
++};
++
+ class BotClient_TS_WStatus : public CBotNetMessage
+ {
+ public:
+diff --git a/dlls/bot_objective.h b/dlls/bot_objective.h
+index 8b4b7cb..e8586e6 100644
+--- a/dlls/bot_objective.h
++++ b/dlls/bot_objective.h
+@@ -4,7 +4,8 @@
+ // engine, the HL SDK or CBot, it allocates nothing, and the same input gives the same answer whatever the
+ // order of the arrays, so it can be tested on its own (rcbot-patch\test\test_bot_objective.cpp). bot.cpp
+ // fills the arrays from what ts_assault, ts_uplink and ts_ctf publish on their entities (BOT OBJECTIVES,
+-// over CBot::ObjPlay) and gives each bot the post that comes out.
++// over CBot::ObjPlay), and from the briefcase game that TS itself plays on a ctb_ or ctf_ map (bot_briefcase.h;
++// STOCK CAPTURE GAME, over CBot::ObjSide), and gives each bot the post that comes out.
+ //
+ // Sides are 1 and 2 (pev->team); 0 is nobody. A slot is the bot's edict index, which is also what the
+ // plugins publish for a carrier.
+@@ -73,6 +74,7 @@ namespace objplan
+ 		int carrierSide = 0;
+ 		float left = -1.0f;       // uplink or flag, ST_DROPPED: seconds before it flies home, -1 for none
+ 		float padX = 0.0f, padY = 0.0f, padZ = 0.0f;   // a flag: its pad
++		float padReach = 0.0f;    // a flag: how near its pad counts as at it, 0 for the setting's (tsm_cf_pad_radius)
+ 		bool scoreReady = false;  // a flag, ST_CARRIED: its carrier would score at his pad now
+ 		bool pathable = true;     // a waypoint leads to it
+ 	};
+@@ -84,6 +86,7 @@ namespace objplan
+ 		float x = 0.0f, y = 0.0f, z = 0.0f;
+ 		bool planOk = true;       // alive, started, no roamer, in no squad
+ 		bool busy = false;        // has an enemy: keeps what it has and is given nothing new
++		bool canTake = true;      // may be sent to take a flag: TS lets a player take one only with free inventory slots
+ 		int curObj = 0;           // the post it has: objective id, role, and the zone a carrier goes for
+ 		Role curRole = R_NONE;
+ 		int curTarget = 0;
+@@ -290,6 +293,16 @@ namespace objplan
+ 		return nullptr;
+ 	}
+ 
++	// Where the carrier of a flag turns it in: the pad of the flag that the carrier's side owns (the flag carried is the other
++	// side's). nullptr when the side has no flag among the objectives, or the objective is no flag.
++	inline const Obj* padFor(const Obj* objs, const int nObjs, const Obj& carried)
++	{
++		if (carried.kind != K_FLAG || (carried.carrierSide != 1 && carried.carrierSide != 2))
++			return nullptr;
++
++		return findKind(objs, nObjs, K_FLAG, carried.carrierSide);
++	}
++
+ 	inline int assaultDemands(Demand* d, const int side, const Obj* objs, const int nObjs, const Bot* bots, const int nBots)
+ 	{
+ 		int n = 0;
+@@ -648,6 +661,10 @@ namespace objplan
+ 					if (blocked)
+ 						continue;
+ 
++					// a bot too heavy to carry a flag can stand on it all day
++					if (demands[di].role == R_FETCH && demands[di].obj->kind == K_FLAG && !bots[i].canTake)
++						continue;
++
+ 					float cost = walkTo(bots[i], *demands[di].obj) - demands[di].prio * OBJ_PRIO_UNITS;
+ 
+ 					if (bots[i].curObj == demands[di].obj->id && bots[i].curRole == demands[di].role)
+diff --git a/dlls/dll.cpp b/dlls/dll.cpp
+index 9b801a1..2214786 100644
+--- a/dlls/dll.cpp
++++ b/dlls/dll.cpp
+@@ -74,6 +74,7 @@
+ #include "bot.h"
+ #include "waypoint.h"
+ #include "bot_commands.h"
++#include "bot_briefcase.h"
+ 
+ #ifndef RCBOT_META_BUILD
+ extern GETENTITYAPI other_GetEntityAPI;
+@@ -425,6 +426,7 @@ int ClientConnect(edict_t* pEntity, const char* pszName, const char* pszAddress,
+ 		CClient* pClient = gBotGlobals.m_Clients.GetClientByIndex(iIndex);
+ 
+ 		gBotGlobals.m_iJoiningClients[iIndex] = 0;
++		brief::g_Brief.forgetSlot(iIndex + 1);
+ 
+ 		if (pClient)
+ 		{
+@@ -546,6 +548,8 @@ void ClientDisconnect(edict_t* pEntity)
+ 	if (iIndex < MAX_PLAYERS)
+ 		gBotGlobals.m_iJoiningClients[iIndex] = 0;
+ 
++	brief::g_Brief.forgetSlot(iIndex + 1);
++
+ 	if (pBot)
+ 	{
+ 		//		FILE *fp;
+diff --git a/dlls/globals.cpp b/dlls/globals.cpp
+index 62643d4..345238f 100644
+--- a/dlls/globals.cpp
++++ b/dlls/globals.cpp
+@@ -62,6 +62,7 @@
+ #include "bot_commands.h"
+ #include "bot_client.h"
+ #include "bot_menu.h"
++#include "bot_briefcase.h"
+ #include "dir.h"
+ 
+ #ifdef _WIN32
+@@ -961,6 +962,13 @@ void CBotGlobals::KeyValue(edict_t* pentKeyvalue, const KeyValueData* pkvd)
+ 	{
+ 		m_Masters.AddMaster(pentKeyvalue, pkvd->szValue);
+ 	}
++
++	// TS's capture game (CHANGE 12): which team's base a briefcase is. Nothing of it reaches a bot afterwards, and the classname
++	// comes after the key in the map, so every entity that names an owner is kept and the briefcases are picked out later.
++	if (FStrEq(pkvd->szKeyName, "ownerteam"))
++	{
++		brief::g_Brief.onOwnerKey(ENTINDEX(pentKeyvalue), std::atoi(pkvd->szValue));
++	}
+ 	/*
+ 		if ( IsMod(MOD_TS) )
+ 		{
+@@ -1135,6 +1143,7 @@ void CBotGlobals::MapInit()
+ 
+ 	std::memset(&m_Squads, 0, sizeof(CBotSquads));
+ 	std::memset(m_iJoiningClients, 0, sizeof(int) * MAX_PLAYERS);
++	brief::g_Brief.resetMap();
+ 	std::memset(m_iTeamScores, 0, sizeof(int) * MAX_TEAMS);
+ 	m_pDebugMessage = nullptr;
+ 	//m_pTFCDetect = nullptr;

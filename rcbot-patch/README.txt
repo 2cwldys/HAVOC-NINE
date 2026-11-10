@@ -23,6 +23,13 @@ with this install -- with additive changes:
      32 players runs bots in every slot (see CHANGE 9)
   8. Powerups: while ts_matchmode's match mode is on, tsm_bot_powerups 0 keeps
      every bot off TS's powerups, whatever nopowerup says (see CHANGE 10)
+  9. Objective play: while ts_matchmode's tsm_bot_objectives is 1 on a map that ts_assault,
+     ts_uplink or ts_ctf runs, the bots go to the capture points, fetch and carry the uplink
+     and the flags, escort their side's carrier and hunt the other side's (see CHANGE 11)
+ 10. Stock capture game: on a ctb_ or ctf_ map (TS's own briefcase game) where no match mode runs, and
+     tsm_bot_stockobjectives is not 0, the bots fetch the other side's briefcase, carry it to their own
+     base, bring their own back, escort the carrier, guard their base and hunt the other side's carrier,
+     and know their own side from the other (see CHANGE 12)
 
 Win32, MetaMod Release, MSVC v145.
 
@@ -401,16 +408,181 @@ Both now ask BotPowerupsAllowed(), read once a second:
 
     nopowerup <= 0, and not (tsm_enabled > 0 and tsm_bot_powerups <= 0)
 
-tsm_bot_powerups belongs to ts_matchmode.sma (default 1; the TeamElimination and
-Siege configs set 0), and it counts only while the plugin's match mode is on, as
-its other tsm_ settings do: on a map TS plays as it ships (tsm_enabled 0) the bots
-take powerups as nopowerup lets them. A cvar that does not exist holds no bot back,
-so without the plugin this is CHANGE 2's nopowerup test alone.
+tsm_bot_powerups belongs to ts_matchmode.sma (default 0, so the bots are off
+powerups unless a server sets 1), and it counts only while the plugin's match
+mode is on, as its other tsm_ settings do: on a map TS plays as it ships
+(tsm_enabled 0) the bots take powerups as nopowerup lets them. A cvar that
+does not exist holds no bot back, so without the plugin this is CHANGE 2's
+nopowerup test alone.
 
 A powerup the plugin itself grants -- the Officer's kung fu, what a mode hands
-out -- is no pickup and needs no usepowerup, so this does not touch it. The
-plugin also refuses a bot's touch of a ts_powerup under tsm_bot_powerups 0, for a
+out -- is no pickup and needs no usepowerup, so nothing here touches it: the
+plugin holds those back itself, and grants a bot none under tsm_bot_powerups 0.
+It also refuses a bot's touch of a ts_powerup under tsm_bot_powerups 0, for a
 bot that walks over one on its way somewhere else.
+
+
+===============================================================================
+CHANGE 11: OBJECTIVE PLAY (rcbot-ts-objectives.patch)
+===============================================================================
+
+    BOT OBJECTIVES, bot.cpp (over CBot::ObjPlay); dlls\bot_objective.h; BOT_TASK_TS_OBJECTIVE, bot_const.h
+
+H9's mode plugins publish their objectives on their own entities (include\tsm_botobj.inc,
+docs\BOT_OBJECTIVES.txt): ts_assault the rings of its capture points, ts_uplink the rings of its
+zones and the uplink, ts_ctf its flags. rcbot reads them straight from the entities once a second
+and gives its bots something to do with them. All of it is MOD_TS, and a cvar or a plugin that does
+not exist leaves every bot as it was.
+
+    tsm_enabled          0: nothing here
+    tsm_bot_objectives   1: the bots play the objectives (plugin-owned, default 1). Absent, as with a
+                         plugin that does not publish: 0
+    tsm_pres_mode        "assault", "uplink" or "ctf": which mode the entities named tsm_cap belong to
+    tsm_cf_pad_radius    how near its pad a flag carrier must be (72)
+
+What is read (the plugins write it; nothing is written on a player):
+    tsm_cap      team (holder), fuser1 (radius), iuser1 (number), iuser2 (state: 0 quiet, 1 being
+                 taken, 2 contested, 3 not in play), iuser3 (the side taking it), fuser2 (progress),
+                 fuser3 (reach above and below), vuser1 (x, y: players of side 1 and 2 inside)
+    tsm_uplink   aiment (carrier), iuser2 (1 post, 2 carried, 3 dropped), fuser2 (seconds before it
+                 flies home, -1 none)
+    tsm_flag     team (whose), iuser1 (0 pad, 1 carried, 2 dropped), aiment (carrier), iuser2 (its
+                 carrier would score now), fuser2 (seconds before it flies home), vuser1 (its pad)
+
+The posts (dlls\bot_objective.h, namespace objplan, a pure function with its own tests in
+rcbot-patch\test\test_bot_objective.cpp): per side, a carrier carries; a bot with an enemy keeps what
+it has; a quarter of the side (25 percent, none for fewer than 4) is left to fight and roam as
+before; the rest are given the cheapest post that asks for someone, the walk less a priority, with a
+bonus for the post a bot has and at most 4 bots of a side changing post in a second (all of them
+in the first plan of a round).
+    Assault   TAKE a point not held (2 bots, 3 if the other side holds it, one more with an enemy
+              inside; the players already in it count; none more when it is a quarter from taken
+              with nobody against), RETAKE one of the side's own that the other side wears down
+              (priority up to 3 as it nears lost), HOLD the quiet one nearest the front
+    Uplink    FETCH the uplink at its post or dropped (2 bots a side, not when it flies home in
+              under 3 s); the carrier CARRYs it to the cheapest zone the side does not hold (the
+              walk, 1500 for each enemy inside, 400 while the plugin says it is denied there, kept
+              unless another is 400 better); 3 ESCORT it, a person's as well; 1 CLEARs the zone it
+              heads for; the other side's 3 HUNT the carrier
+    Flag      FETCH the enemy flag (2), CARRY it to the side's pad, 2 ESCORT the carrier, 2 GUARD
+              the side's own flag at its pad, RETURN it when dropped (1, the nearest), 3 HUNT the
+              other side's carrier of it
+
+The task. A bot with a post is given BOT_TASK_TS_OBJECTIVE (CBot::ObjLookForNewTasks, in
+LookForNewTasks's TS case after the weapon pickup, ahead of the stock objective code). ObjRunTask
+keeps no phase: every think it takes the plan's post for the bot and works out from where the bot
+stands. It asks for a FIND_PATH to a waypoint of the objective (the ring's waypoints within 0.6 of
+its radius, spread over the bots; the nearest one in sight otherwise, the last stretch walked
+straight), walks straight to its mark within 160 units or at its goal waypoint, stands at the mark
+(a ring, a pad: it looks around and walks to another waypoint of the ring every 8 to 14 s), follows
+a carrier (an escort stays within 250, a hunter closes to 64). A fight pre-empts it (the stock
+NORMAL_ATTACK goes in front) and it resumes. A bot walking one of the stock paths and given a post
+leaves the path for it (ObjUpkeep, once a second). A bot that gets nowhere in 5 s walking straight,
+or whose path fails, gives the objective up for 25 s. A carrier on its way looks for no fight and
+follows no enemy (WantToFindEnemy, WantToFollowEnemy) until it is hurt (1.5 s) or arrives.
+    Not touched: the stock TS objective code and m_TSObjectives (siege maps), CHANGE 3's squads (a
+    bot of a squad plays no objective), CHANGE 8's citizens, the fight, the path finder.
+    Log: "[RCBOT OBJ] objective play is on/off" and the first 60 posts.
+
+Not covered here: TS's own capture game (the ctf_ and ctb_ maps, the briefcase). No H9 plugin runs there
+(tsm_enabled 0) and nothing is published: see CHANGE 12.
+
+
+===============================================================================
+CHANGE 12: TS'S OWN CAPTURE GAME (rcbot-ts-briefcase.patch)
+===============================================================================
+
+    STOCK CAPTURE GAME, bot.cpp (over CBot::ObjSide); dlls\bot_briefcase.h; BotClient_TS_Flag and BotClient_TS_ScoreInfo,
+    bot_client.cpp; CBotGlobals::KeyValue and MapInit, globals.cpp; ClientConnect and ClientDisconnect, dll.cpp;
+    Bot::canTake and Obj::padReach, dlls\bot_objective.h
+
+TS plays a capture game of its own on a map named ctb_ or ctf_ (ctb_deadheat): two ts_briefcase bases, one for each of two
+teams, and a flag, the briefcase, that a team takes from the other's base and carries to its own. The match mode stays out of
+those maps (tsm_enabled 0), so no plugin publishes anything, and the game DLL keeps a flag's state in its own private members.
+What reaches a bot, and what rcbot reads:
+
+    ts_briefcase   a base, an invisible brush: its box, and its team from the map's key ownerteam, which rcbot takes from
+                   the map as it loads (CBotGlobals::KeyValue: nothing of it reaches an entity afterwards)
+    ts_flag        a flag that lies loose, at its base or dropped: rendercolor is its team's glow (125 165 210, the first
+                   team; 200 90 70, the second). A flag that is carried is no entity
+    TSFlag         the user message: 0 a base seeded its flag, 1 it was taken, 2 it was dropped; the flag's id; its team
+                   number; the carrier's edict index. A capture and a return send none of their own: the base seeds the
+                   flag again, and that says 0 (BotClient_TS_Flag, on the MSG_ALL list that DelObj is on)
+    ScoreInfo      the user message that gives each player's team number, to everyone (BotClient_TS_ScoreInfo): the
+                   index of his team in the map's team list, plus one, which is also what ownerteam and TSFlag count
+
+For a map of two teams the team numbers are 1 and 2, and they are the sides objplan::plan takes. Nothing stamps pev->team in this
+game (the game never writes it), so a bot's side is the number ScoreInfo gave it (ObjSideOf), forgotten when its slot is
+connected or disconnected (ClientConnect, ClientDisconnect) and when the map changes (MapInit).
+
+The game is played (BriefRefresh, once a second, in front of CHANGE 11's own reading) when all of these hold:
+
+    tsm_enabled              0, or the cvar does not exist: no match mode runs the map. Above 0 the plugins' entities are
+                             read as CHANGE 11 reads them, and a ts_briefcase is left alone
+    tsm_bot_stockobjectives  not 0. Default 1: ts_matchmode registers it with 1 (beside tsm_bot_powerups), rcbot reads it
+                             and nothing else does, and a server without the plugin has none, which plays. 0: the bots
+                             are stock rcbot again, in everything below
+    tsrp_roambots_active     0: roleplay citizens walk, whatever else is on the map
+    the map                  has exactly two ts_briefcase entities, one with ownerteam 1 and one with ownerteam 2. A neutral
+                             base, two for a team or a third team is not played, and the server log says why once
+                             ("[RCBOT BRIEF] 3 briefcase(s), owners 1 2 0: only one base for each of two teams is played")
+
+Then every bot of the two sides has the posts of H9's flags (CHANGE 11, "Flag"), with CHANGE 11's restraint: a quarter of a
+side (none of fewer than 4) is left to fight and roam, a bot with an enemy keeps what it has, a bot of a squad, a roamer or a
+frozen one has none, at most 4 bots of a side change post in a second (all of them in the first plan of a map), and a post
+that gets nowhere in 5 seconds is given up for 25. The posts:
+
+    FETCH   the two nearest bots of a side walk onto the other team's flag where it lies at its base or dropped (not when it
+            goes home in under 3 seconds: a dropped flag lies 20 seconds, counted from its TSFlag message)
+    CARRY   the bot that has taken it walks onto the middle of its own side's base and stands there. The brush scores by
+            touch, and only while the carrier's own flag lies at its base (CTSBriefcase::CaptureTouch); with it away the
+            carrier waits at the base, as a person does, and the RETURN and HUNT posts below get it back
+    ESCORT  two bots stay with their side's carrier, a person as well as a bot
+    GUARD   two bots stand near their own flag at its base
+    RETURN  the nearest bot walks onto its own flag when dropped; touching one's own dropped flag sends it home, and gives
+            the returner 5 frags
+    HUNT    three bots go after the carrier of their own flag
+
+A bot is sent to take a flag only if it can: TS lets a player take one only with 20 free inventory slots
+(CBasePlayer::TakeFlag), and sets his speed by the slots he has left, 210 + 120 * free / 81 cut to a whole number, so a bot
+whose maxspeed is between 200 and 238 is too heavy and is never given a FETCH (brief::canTakeFlag; Bot::canTake in the
+planner). It may still return its own flag, escort and guard. A bot cannot drop what it carries: a fake client sends no client
+command, so a flag is let go only by dying.
+
+A side to play for is also a side to shoot at: where the game stamps no pev->team, stock rcbot takes every player for an enemy
+(it tells teammates by their model, and only on a map it knows to be teamplay), so on a ctb_ map a bot hunted its own team. While
+the game is played, IsEnemy asks BriefEnemies first: two players are enemies when their team numbers differ, and the stock rule
+decides where either is not known.
+
+Files and functions:
+
+    dlls\bot_briefcase.h   (new, no engine) the state the messages add up to (brief::Tracker: flags by team, team numbers by
+                           slot, the ownerteam keys of the map), and the rules: layoutSupported, teamOfColor, padReach,
+                           atBase, canTakeFlag, flagNow. Tested by rcbot-patch\test\test_bot_briefcase.cpp
+    dlls\bot_objective.h   Obj::padReach (how near its pad counts as at it, 0 for tsm_cf_pad_radius's), Bot::canTake, the
+                           FETCH of a flag skips a bot that cannot take it, padFor (see below)
+    bot.cpp                ObjFindBases (the bases, once a map, again every 10 s while the map shows none), ObjAddBriefFlag
+                           (a team's flag as a row), BriefRefresh, BriefEnemies, ObjSideOf and CBot::ObjSide (the four
+                           places CHANGE 11 compared pev->team with a side), ObjItemEdict (ts_flag for a stock row)
+    bot_client.cpp/.h      the TSFlag and ScoreInfo handlers (MSG_ALL, MOD_TS)
+    globals.cpp, dll.cpp   the ownerteam key, the reset at MapInit, the slot forgotten at connect and disconnect
+
+Log: "[RCBOT BRIEF] capture game: base of team 1 at x y z, of team 2 at ..." (z is the floor under the middle of the brush),
+"[RCBOT OBJ] objective play is on: TS's capture game, 2 flag(s) read", and, on a map with briefcases, the first 40 messages
+("[RCBOT BRIEF] TSFlag: action 1, flag 3, team 2, carrier 5" and "[RCBOT BRIEF] ScoreInfo: player 5 is on team 1"), and once a map
+for a side of which half the bots are too heavy to take a flag ("[RCBOT BRIEF] side 1: 3 of 4 bots carry too much to take a flag ...").
+
+Fixed in CHANGE 11: the carrier of a flag walked to the pad of the flag it carried, which is the pad the flag came from, the
+other side's. A flag's published pad is its own (tsm_flag vuser1, ts_ctf.sma flag_publish), and the carrier of side f's flag is
+of side 3 - f and scores at pad 3 - f (carried_tick). objplan::padFor takes the pad of the flag that the carrier's side owns, and
+CARRY uses it for both games.
+
+Not touched: CHANGE 11's reading of tsm_cap, tsm_uplink and tsm_flag, its task and its walk, the stock TS objective code, the
+squads, the citizens, the fight. A map with no ts_briefcase, or with tsm_bot_stockobjectives 0, or running the match mode, is
+exactly CHANGE 11.
+
+Needs a waypoint file for the map: rcbot paths by waypoint (ctb_deadheat.rcw has flag-position waypoints at both bases), and
+ts_matchmode.amxx's tsm_briefcase_bots, or a tsm_bots line in the map's mapconfig, to put bots on the map at all.
 
 
 ===============================================================================
@@ -428,12 +600,14 @@ REBUILDING
     git apply rcbot-ts-roam.patch
     git apply rcbot-ts-slots.patch
     git apply rcbot-ts-powerups.patch
+    git apply rcbot-ts-objectives.patch
+    git apply rcbot-ts-briefcase.patch
     MSBuild dlls\HPB_bot.vcxproj /p:Configuration="MetaMod Release" /p:Platform=Win32
 
-In this order. The eight together give, file for file, the source in src\;
+In this order. The ten together give, file for file, the source in src\;
 without the third the tree does not compile. On a clone with core.autocrlf true, apply
 with --index. The shipped rcbot_mm.dll (and rcbot_mm.dll.patch) is the build of
-all eight.
+all ten.
 
 Output lands at
     dlls\HPB_bot___Win32_MetaMod_Release\HPB_bot.dll
