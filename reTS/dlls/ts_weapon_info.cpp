@@ -968,6 +968,57 @@ void compile_weapons_info()
     SetSpartaWeapon(TSW_LASERRIFLE, 0.004f, 2.25f, 0.0025f, 35.0f); // damage: a little over the M4A1's 33
   }
 
+  // Mech rocket launcher (H9 addition, table index TSW_MECHROCKET). It fires a rocket entity (CMechRocket, ts_mechrocket.cpp),
+  // not bullets. The row starts as the M4A1's, whole, so its animation blocks and its draw, fire and reload sequences are
+  // the M4A1's (models/h9/{v,p,w}_mechrocket.mdl keep that layout; a server without the files gives the row the M4A1's
+  // models). What is the launcher's own is set below: name, models, no fire sound (the launch sound is the server's), no
+  // shell, a one-rocket clip, 1.5 s between shots, single shots only, the Contender's caliber for the reserve, a light
+  // weight so that it fits beside the M60E3, no price (it is not in the buy menus), no scope or attachment, no right-click
+  // stance, no gunbash, and the combat feel (Sparta: a heavy view kick and no spread; the damage is the cvar
+  // h9_mechrocket_damage's, this is its default). Fire type 0 is in no weapon restriction category.
+  {
+    s_weapon_info &r = g_weaponInfo[TSW_MECHROCKET];
+    r = g_weaponInfo[TSW_M4];
+    r.pszName = "Mech Rocket";
+    r.pszViewModel = "models/h9/v_mechrocket.mdl";
+    r.pszPlayerModel = "models/h9/p_mechrocket.mdl";
+    r.pszPlayerModelSil = nullptr;
+    r.pszWorldModel = "models/h9/w_mechrocket.mdl";
+    r.pszFireSound = nullptr;
+    r.pszAltSound = nullptr;
+    r.pszShellModel = nullptr;
+    r.iShellSetback = 0;
+    r.iClip = 1;
+    r.iFireType = TSFT_SEMI;
+    r.flFireRate = 1.5f;
+    r.iFireModes = 2;
+    r.iCaliber = TS_CALIBER_MECHROCKET;
+    r.bUsesSpread = 0;
+    r.slotCost = 10;
+    r.iPrice = 0;
+    r.flReloadTime = 2.5f;
+    r.zoomFov1 = 0;
+    r.zoomFov2 = 0;
+    r.attachSupported = 0;
+    r.attachBuiltin = 0;
+    r.iBodySilencer = 0;
+    r.iBodyLaser = 0;
+    r.iBodyFlash = 0;
+    r.iBodyScope = 0;
+    r.iBodyLaserFlash = -1;
+    r.iColdCockDamage = 0;
+    r.iColdCockAnim = -1;
+    r.iColdCockAnimHold = -1;
+    r.iHoldChange = -1;
+    r.iHoldRechange = -1;
+    r.iHoldFireAnim = -1;
+    r.iHoldReloadAnim = -1;
+    r.iIdleAnimHold = -1;
+    r.iAkimboType = -1;
+    r.iSingleType = TSW_MECHROCKET;
+    SetSpartaWeapon(TSW_MECHROCKET, 0.0f, 6.0f, 0.0f, 150.0f);
+  }
+
   // the original chains the ammo table + the falloff LUT off the weapon-table build:
   // compile_weapons_info -> { Write_<weapon> x38, compile_ammo_info -> Set_ammo_count(0),
   // compile_range_damage }.

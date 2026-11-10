@@ -148,6 +148,20 @@ float TSThrowSlow(CBasePlayer *pPlayer)
 	return (pPlayer->m_flSlowMotionRamp != 0.0f) ? pPlayer->m_flSlowMotionRamp : pPlayer->GiveSlowMul();
 }
 
+// A bot (FL_FAKECLIENT) while ts_matchmode's match mode is on (tsm_enabled) and tsm_bot_powerups is 0 or less. Both cvars are
+// read by name, as nopowerup is, and read 0 when the plugin is not loaded: then nothing is kept from a bot. Read when a kill
+// is scored, never every frame.
+bool TSBotKeptOffPowerups(const entvars_t *pev)
+{
+	return pev != NULL && (pev->flags & FL_FAKECLIENT) != 0 && CVAR_GET_FLOAT("tsm_enabled") > 0.0f &&
+		CVAR_GET_FLOAT("tsm_bot_powerups") <= 0.0f;
+}
+
+bool TSBotKeptOffPowerups(const CBasePlayer *pPlayer)
+{
+	return pPlayer != NULL && TSBotKeptOffPowerups(pPlayer->pev);
+}
+
 // @ InSlow__11CBasePlayer — is this player currently slowed?
 int CBasePlayer::InSlow()
 {
@@ -564,6 +578,10 @@ bool CBasePlayer::PickUpWeapon(int type, TSItem *pStatus, int iAttach, bool bSel
 {
 	CTSGun *pGun = GetPlayerTSGun(this); // orig: this->m_pActiveItem gated on m_iId == 0x10
 	if (!pGun || type < 0 || type >= TSW_COUNT)
+		return false;
+	// tsm_loadoutrework: a Mech takes no dropped weapon from the floor (the plugin hands it its own kit with ts_giveweapon,
+	// which is not a pickup of a dropped gun: pStatus is set only for one).
+	if (pev->fuser4 != 0.0f && CVAR_GET_FLOAT("tsm_loadoutrework") != 0.0f && pStatus != NULL)
 		return false;
 	if (TS_IsCustomWeapon(type) && !H9_CustomWeaponsOn())
 		return false; // h9_customweapons 0: TS 3.0's own roster, which has no weapon 39 or 40

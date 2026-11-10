@@ -65,7 +65,8 @@ enum tsweapon_t
 	TSW_UNUSED = 38,       // no weapon: TSX keeps its thrown knife's stats at 38 ("not a game id"), so no game weapon is 38
 	TSW_PPSH41 = 39,       // H9 addition, not in the original roster (0..37): the PPSh-41 submachine gun
 	TSW_LASERRIFLE = 40,   // H9 addition: the laser rifle, an energy weapon (plasma cells: no casings, no bullets)
-	TSW_COUNT = 41
+	TSW_MECHROCKET = 41,   // H9 addition: the Mech's shoulder-fired rocket launcher (a rocket entity, not bullets; not in the buy menus)
+	TSW_COUNT = 42
 };
 
 // The laser rifle fires plasma, not bullets: no brass is ejected and the client draws a plasma bolt and trail in
@@ -73,6 +74,11 @@ enum tsweapon_t
 // bullet simulation, which see a caliber and not a weapon.
 #define TS_CALIBER_PLASMA 15
 inline bool TS_IsEnergyWeapon(int t) { return t == TSW_LASERRIFLE; }
+// The Mech rocket launcher fires a rocket entity, not bullets: the client draws no brass, bullet trace or impact for it,
+// and a large muzzle flash; the launch sound and the blast are the server's. Its reserve is the Contender's caliber
+// (13, 7.62 x 51mm): all sixteen calibers of the ammo table are taken.
+#define TS_CALIBER_MECHROCKET 13
+inline bool TS_IsRocketWeapon(int t) { return t == TSW_MECHROCKET; }
 // The weapons H9 adds to TS 3.0's roster (ids 0..38) are the ids from TSW_PPSH41 on, and every one of them is behind the
 // server's h9_customweapons cvar: a weapon added later takes the next id and is gated with no change here.
 inline bool TS_IsCustomWeapon(int t) { return t >= TSW_PPSH41 && t < TSW_COUNT; }

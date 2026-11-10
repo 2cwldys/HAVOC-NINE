@@ -100,6 +100,46 @@ What it breaks, against the original and plugins built for it:
   `tsconst.inc`'s TSW_LASERRIFLE). The first custom weapon id in TSX is 42 now (it was 41).
 - The weapon models are adapted from a CC BY 4.0 Sketchfab model (`laserrifle_ATTRIBUTION.txt`).
 
+### Mech rocket launcher (weapon 41)
+
+A third weapon TS 3.0 does not have: `TSW_MECHROCKET` (41; `TSW_COUNT` is 42), a shoulder-fired rocket launcher for the
+Mech class. It is weapon 41 of the one `weapon_tsgun`, as every TS weapon is (there is no `weapon_h9_mechrocket` entity).
+Its row (`dlls/ts_weapon_info.cpp`, after the laser rifle) is the M4A1's taken whole, so its animation blocks (idle 0,
+reload 1, draw 2, shots 3 and 4, the last-round shot 4) and its draw, shot and reload sequences are the M4A1's;
+`models/h9/{v,p,w}_mechrocket.mdl` keep that layout. A server that does not find all three files on disk gives the row
+the M4A1's models (`TSMechRocketResolveAssets`, run at the head of both weapon precache lists). The row's own values: the
+name "Mech Rocket", no fire sound, no shell, a one-rocket clip, 1.5 s between shots, fire modes 2 (single only), fire type 0
+(in no weapon restriction category), caliber 13 (the Contender's, 7.62 x 51mm: all sixteen calibers are taken, so the
+reserve is that pool), weight 10 (it fits beside the M60E3's 70), price 0 and no buy menu row, no scope, attachment,
+right-click stance or gunbash, and the combat feel 6.0 view kick, no spread.
+
+A shot (`CTSGun::MechRocketFire`) spends the round, plays the ordinary fire event (the viewmodel animation, a large muzzle
+flash `sprites/h9_rocket_flash.spr` and the gun smoke; `EV_TSFire` draws no brass and fires no bullet for this weapon) and,
+on the server, launches `CMechRocket` (`dlls/ts_mechrocket.cpp`) from the eye along the aim with the launch sound
+`weapons/rocketfire1.wav` at the player's pitch. The rocket flies straight (MOVETYPE_FLY) at `h9_mechrocket_speed` with a
+`TE_BEAMFOLLOW` smoke trail (`sprites/h9_rocket_smoke.spr`) and goes off on the first thing it touches or after 10 s: a
+`TSExplosion` of `h9_mechrocket_damage` at the middle, full out to a quarter of `h9_mechrocket_radius` and nothing past the
+radius, the explosion sprite (`sprites/h9_rocket_boom.spr`) and TS's own explosion effect and sound. A rocket that reaches
+the sky is removed without a blast. The player who fired it is not hurt by it, or pushed, unless `h9_mechrocket_selfdamage`
+is 1. TS gives a living player no knockback from a hit (`CBaseMonster::TakeDamage`), so after the blast `MechRocketPush` raises
+the velocity of every living player in the radius that the game rules say the thrower may hurt (`FPlayerCanTakeDamage`: friendly
+fire off spares a teammate), with a clear line to the blast and on `MOVETYPE_WALK`: `h9_mechrocket_push` units a second along
+the ground away from the middle (the way the rocket flew for a player right on it) and `h9_mechrocket_lift` up, both with the
+damage's falloff, held to 1000 units a second; a player the blast kills gets TS's own death launch instead. The
+kill feed names it "Mech Rocket". A file the art needs that is not on disk is replaced by a stock one (the smoke by
+`sprites/steam1.spr`, the explosion by `sprites/zerogxplode.spr`, the rocket by `models/rpgrocket.mdl` and then
+`models/shrapnel.mdl`, the flash by the ordinary muzzle sprite, the launch sound by silence); nothing that is not on disk is
+precached. The weapon is deleted, not dropped, when its owner dies, drops it or is disarmed (`h9_mechrocket_nodrop`, 1).
+
+The cvars (`dlls/game.cpp`): `h9_mechrocket` (1, read-only in effect: a plugin tells a library with the weapon from one
+without), `h9_mechrocket_damage` (150), `_radius` (200), `_speed` (900), `_rate` (1.5), `_clip` (1), `_nodrop` (1),
+`_selfdamage` (0), `_push` (400) and `_lift` (250). The clip and the rate are copied into the weapon table every rules think (`TSMechRocketSyncCvars`); the
+client's predicted table keeps the defaults, and the server's clip, timers and reserve overwrite the prediction every frame.
+
+What it breaks, against the original and plugins built for it: the original client has no id 41 (see the PPSh-41);
+`CTSGun::m_items` has one more element; a plugin or module that sizes a table by the weapon count must know 41 (H9's TSX
+keeps kung fu's own stats slot at 41 and must move it to 42).
+
 ### h9_customweapons (the PPSh-41 and the laser rifle, on or off)
 
 A server cvar TS 3.0 does not have, `h9_customweapons` (`dlls/game.cpp`, FCVAR_SERVER, default 1). 1 plays the weapons H9
@@ -157,6 +197,24 @@ user messages (`docs/H9_VGUI.txt`):
   The original has nothing like it: a TS server shows objectives with the `Objective` message (a compass icon and a
   label at a fixed colour, only on teamplay game modes above 1), which a plugin can still send to a game that
   does not draw marks.
+
+### The ammo box after a HUD reset (server)
+
+TS 3.0's `CTSGun::UpdateClientData` (ts_i386.so 0x758c8) sends `WeaponInfo` when the weapon type (gun+0x97a)
+or the caliber's reserve (gun+0x9b4) differs from the last one sent, and a gun that holds kung fu sends it on
+a type change alone. The original client puts its ammo box on kung fu at `ResetHUD` and at `VidInit`
+(client.dll 0x1004cd7e, 0x1004cc55), so a life that starts on kung fu needs no message. reTS's client kept the
+last gun's text through both, so the box stayed on the last gun's name, ammo type and fire mode. The client
+now resets as the original does (`cl_dll/ts_ammo.cpp`).
+
+Two things go beyond the original's server. `CBasePlayer::UpdateClientData` clears a held gun's `WeaponInfo`
+and `WStatus` caches where it sends `ResetHUD`, so a gun that is still out (a `fullupdate`, a plugin
+`spawn()` of a living player) tells the client again what it holds; the original leaves the box on kung fu
+until the type changes. And `TSSelectWeaponType` (the `weapon_<N>` command) clears the `WeaponInfo` cache
+after a pick, so choosing the weapon already held, kung fu included, sends `WeaponInfo` again. With
+`cl_thirdpersonswitch` 1 that resend turns third person on when the weapon is kung fu.
+
+Code: `dlls/player.cpp`, `dlls/ts_gun.cpp`, `cl_dll/ts_ammo.cpp`.
 
 ### ReTS_GetInterface (server export)### ReTS_GetInterface (server export)
 

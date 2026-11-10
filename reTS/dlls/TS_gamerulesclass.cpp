@@ -21,6 +21,7 @@
 #include "ts_powerup.h"       // CTSPowerUp::Fall (RespawnEntities)
 #include "teamplay_gamerules.h" // CHalfLifeTeamplay::RecountTeams (RestartRound)
 #include "ts_gun.h"             // CTSGun (RestartRound's loadout refund)
+#include "ts_mechrocket.h"      // TSMechRocketSyncCvars
 #include "game.h"          // g_flWeaponCheat (sv_cheats as the map started)
 
 
@@ -1050,6 +1051,8 @@ void CTSGameRules::Think()
 	}
 
 	CheckVotes(); // tally the players' map/ff/teamplay votes (self-throttled to ~10s)
+
+	TSMechRocketSyncCvars(); // the Mech rocket launcher's clip and fire rate follow their cvars
 
 	// --- SrvSett on-change broadcasts (the tail of the original Think; star_SrvSett.md) ---
 	// @0x675b3: realbullet and usecash are compared as floats, the cached int against the cvar's value,

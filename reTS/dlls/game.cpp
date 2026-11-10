@@ -51,6 +51,20 @@ cvar_t h9_laserrifle = {"h9_laserrifle", "1", FCVAR_SERVER};
 // and any added later: TS_IsCustomWeapon); 0 is TS 3.0's own roster: they cannot be bought or picked up, the buy menu
 // leaves them out (SrvSett id 4), and the match mode gives its classes the stock guns in their place.
 cvar_t h9_customweapons = {"h9_customweapons", "1", FCVAR_SERVER};
+// reTS addition, not in TS 3.0 (reference/DEVIATIONS.md): present and 1 when this game library has the Mech rocket
+// launcher (weapon 41), so a plugin can give a library without it another gun. The others tune it: the damage at the
+// middle of the blast, the radius of the blast, the rocket's speed in units a second, the seconds between shots, the
+// rounds in a clip, whether the launcher is deleted instead of dropped, and whether the thrower is hurt by its own blast.
+cvar_t h9_mechrocket = {"h9_mechrocket", "1", FCVAR_SERVER};
+cvar_t h9_mechrocket_damage = {"h9_mechrocket_damage", "150", FCVAR_SERVER};
+cvar_t h9_mechrocket_radius = {"h9_mechrocket_radius", "200", FCVAR_SERVER};
+cvar_t h9_mechrocket_speed = {"h9_mechrocket_speed", "900", FCVAR_SERVER};
+cvar_t h9_mechrocket_rate = {"h9_mechrocket_rate", "1.5", FCVAR_SERVER};
+cvar_t h9_mechrocket_clip = {"h9_mechrocket_clip", "1", FCVAR_SERVER};
+cvar_t h9_mechrocket_nodrop = {"h9_mechrocket_nodrop", "1", FCVAR_SERVER};
+cvar_t h9_mechrocket_selfdamage = {"h9_mechrocket_selfdamage", "0", FCVAR_SERVER};
+cvar_t h9_mechrocket_push = {"h9_mechrocket_push", "400", FCVAR_SERVER};
+cvar_t h9_mechrocket_lift = {"h9_mechrocket_lift", "250", FCVAR_SERVER};
 bool H9_CustomWeaponsOn()
 {
 	return h9_customweapons.value != 0.0f;
@@ -266,6 +280,16 @@ void GameDLLInit()
 	CVAR_REGISTER(&h9_ppsh41);
 	CVAR_REGISTER(&h9_laserrifle);
 	CVAR_REGISTER(&h9_customweapons);
+	CVAR_REGISTER(&h9_mechrocket);
+	CVAR_REGISTER(&h9_mechrocket_damage);
+	CVAR_REGISTER(&h9_mechrocket_radius);
+	CVAR_REGISTER(&h9_mechrocket_speed);
+	CVAR_REGISTER(&h9_mechrocket_rate);
+	CVAR_REGISTER(&h9_mechrocket_clip);
+	CVAR_REGISTER(&h9_mechrocket_nodrop);
+	CVAR_REGISTER(&h9_mechrocket_selfdamage);
+	CVAR_REGISTER(&h9_mechrocket_push);
+	CVAR_REGISTER(&h9_mechrocket_lift);
 	CVAR_REGISTER(&teamoverride);
 	CVAR_REGISTER(&defaultteam);
 	CVAR_REGISTER(&allowmonsters);
