@@ -2,7 +2,7 @@
 // The H9Say message and the boxes it draws. h9_chatbubble.h is the outline; docs\CHAT_BUBBLES.txt the protocol and the guide.
 //
 //   byte    the speaker's slot, 1 to MAX_PLAYERS; 0 (with a ttl of 0) takes every line down
-//   byte    flags: bit 0, the line was said in team chat
+//   byte    flags: bit 0, the line was said in team chat; bit 1, it is an action (/me): its words are drawn in red
 //   short   how long the line stays, in tenths of a second; 0 takes the speaker's line down
 //   short   how far away it shows, in units
 //   byte    the top of the speaker's head above his origin standing, in units
@@ -59,6 +59,9 @@ const int TIP_GAP = 2;          // pixels between the pointer's tip and the poin
 const float HEAD_GAP = 6.0f;    // units over the top of the head
 const float FADE_OUT = 0.8f;    // seconds a line fades out over, with cl_h9_chatbubble_fade
 const float FADE_IN = 0.12f;    // seconds a box comes up over when it begins to show
+const float LINGER_FADE = 0.30f;  // seconds a box fades out over once its linger time (cl_h9_chatbubble_linger) has passed
+const float LINGER_WORTH = 0.15f; // a box lingers only if it had shown this long: a crosshair sweeping across a speaker leaves nothing behind
+const float RANGE_HYST = 1.12f;   // a speaker whose box is showing stays shown until he is this much past the range, so one at the edge does not blink
 const float HOLD_MAX = 30.0f;   // seconds a line stays at most
 const float DEFAULT_STAND = 36.0f;
 const float DEFAULT_DUCK = 22.0f;
@@ -81,6 +84,7 @@ cvar_t* s_cvName;      // cl_h9_chatbubble_name: the speaker's name as a heading
 cvar_t* s_cvTeamColor; // cl_h9_chatbubble_teamcolor: his team's colour on the name and the pointer
 cvar_t* s_cvPointer;   // cl_h9_chatbubble_pointer: the pointer from the box to the head
 cvar_t* s_cvFade;      // cl_h9_chatbubble_fade: fade out at the end of a line
+cvar_t* s_cvLinger;    // cl_h9_chatbubble_linger: seconds a box stays where it was when its speaker is lost for a moment, then fades out
 cvar_t* s_cvLines;     // cl_h9_chatbubble_lines: most lines of words in a box
 cvar_t* s_cvHold;      // cl_h9_chatbubble_hold: seconds a line stays, 0 is the server's say
 cvar_t* s_cvScale;     // cl_h9_chatbubble_scale: the text's size
@@ -106,6 +110,7 @@ const Switch s_Switches[] = {
 	{&s_cvTeamColor, "cl_h9_chatbubble_teamcolor", "1", "1 the speaker's team colours his name and the pointer (the scoreboard's colours)"},
 	{&s_cvPointer, "cl_h9_chatbubble_pointer", "1", "1 a pointer from the box down to the head"},
 	{&s_cvFade, "cl_h9_chatbubble_fade", "1", "1 fade out over the last 0.8 s of a line, 0 vanish at its end"},
+	{&s_cvLinger, "cl_h9_chatbubble_linger", "0.35", "seconds a box stays where it was when its speaker is lost for a moment (a missed packet, a wall, a crosshair that drifts), then fades out over 0.3 s; 0 makes it vanish at once"},
 	{&s_cvLines, "cl_h9_chatbubble_lines", "3", "most lines of words in a box (1 to 5); what does not fit is cut with ..."},
 	{&s_cvHold, "cl_h9_chatbubble_hold", "0", "seconds a line stays (1 to 30); 0 is the server's"},
 	{&s_cvScale, "cl_h9_chatbubble_scale", "1", "text size, 0.5 to 2: steps at 0.55, 0.7, 0.9 (normal) and 1.4 (large)"},
@@ -124,6 +129,7 @@ struct SpokenLine
 {
 	bool used;
 	bool team;
+	bool action; // said with /me: drawn in red
 	char text[TEXT_MAX + 4];
 	float start; // client time it arrived
 	float ttl;   // seconds the server said
@@ -205,11 +211,12 @@ float HoldOf(const SpokenLine& line)
 	return line.ttl;
 }
 
-void StoreLine(int slot, const char* text, bool team, float ttl, float range, float stand, float duck)
+void StoreLine(int slot, const char* text, bool team, float ttl, float range, float stand, float duck, bool action = false)
 {
 	SpokenLine& line = s_Lines[slot];
 	line.used = true;
 	line.team = team;
+	line.action = action;
 	strncpy(line.text, text, sizeof(line.text) - 1);
 	line.text[sizeof(line.text) - 1] = 0;
 	line.start = gHUD.m_flTime;
@@ -274,7 +281,7 @@ int __MsgFunc_H9Say(const char* pszName, int iSize, void* pbuf)
 	float seconds = ttl / 10.0f;
 	if (seconds > HOLD_MAX)
 		seconds = HOLD_MAX;
-	StoreLine(slot, text, (flags & 1) != 0, seconds, (float)Clamp(range, 64, 16384), (float)stand, (float)duck);
+	StoreLine(slot, text, (flags & 1) != 0, seconds, (float)Clamp(range, 64, 16384), (float)stand, (float)duck, (flags & 2) != 0);
 	return 1;
 }
 
@@ -290,6 +297,17 @@ struct Probe
 	float fy;       // his feet on the screen (y), the bottom of his body
 	bool feetOk;    // the feet are in front of the view
 };
+
+// A speaker whose box was showing, kept for a moment after he stops qualifying (not in this frame's packet, a wall in the way, the
+// crosshair off him, a step past the range): the box stays where he was, then fades out, so one lost frame is no blink.
+struct Linger
+{
+	bool valid;
+	Probe probe;  // where he was, kept up to date while he can be located
+	float lastOk; // client time he last qualified
+	bool worthy;  // his box had shown for LINGER_WORTH by then
+};
+Linger s_Linger[MAX_PLAYERS + 1];
 
 // The typing sprite the server puts over a player writing is an entity owned by him, made once and kept; EF_NODRAW takes it out of the
 // packet when he is not writing. HUD_AddEntity notes the ones it lets through (H9ChatBubble_NoteEntity). This says whether the speaker's
@@ -328,21 +346,29 @@ float RestHeight(float headZ, bool hasSprite, float spriteTop)
 }
 
 // Whether the speaker is a player this frame's packet has, drawn and not spectating, and if so where his head is.
-bool Locate(int slot, float stand, float duck, cl_entity_t* lp, const Vector& eye, Probe& p)
+// hard, when given, says why it is false: true when the speaker is gone for good (not a player, hidden, cloaked, spectating), false
+// when he is only out of reach for now (not in this frame's packet, not on the screen).
+bool Locate(int slot, float stand, float duck, cl_entity_t* lp, const Vector& eye, Probe& p, bool* hard = nullptr)
 {
+	if (hard)
+		*hard = false;
 	cl_entity_t* ent = gEngfuncs.GetEntityByIndex(slot);
 	if (!ent || 0 == ent->player)
+	{
+		if (hard)
+			*hard = true;
 		return false;
+	}
 	// not in the packet of this frame (out of the PVS, or gone)
 	if (ent->curstate.messagenum < lp->curstate.messagenum)
 		return false;
-	if (0 != (ent->curstate.effects & EF_NODRAW))
+	if (0 != (ent->curstate.effects & EF_NODRAW) || (ent->curstate.rendermode != 0 && ent->curstate.renderamt <= 16) || TS_PlayerSpectating(slot))
+	{
+		// hidden, cloaked (drawn too faint to be seen) or spectating: his words do not stay where he was
+		if (hard)
+			*hard = true;
 		return false;
-	// cloaked: drawn too faint to be seen
-	if (ent->curstate.rendermode != 0 && ent->curstate.renderamt <= 16)
-		return false;
-	if (TS_PlayerSpectating(slot))
-		return false;
+	}
 
 	const bool ducking = ent->curstate.usehull == 1;
 	float top = ducking ? duck : stand;
@@ -624,7 +650,7 @@ int Wrap(vgui::Font* font, const char* text, int maxW, int maxLines, char (*out)
 class CH9BubblePanel : public CH9Surface
 {
 public:
-	CH9BubblePanel() : m_pFont(nullptr), m_iLineTall(14), m_iLines(0), m_bHeading(false), m_iNameR(LIT_R), m_iNameG(LIT_G), m_iNameB(LIT_B)
+	CH9BubblePanel() : m_pFont(nullptr), m_iLineTall(14), m_iLines(0), m_bHeading(false), m_iNameR(LIT_R), m_iNameG(LIT_G), m_iNameB(LIT_B), m_bAction(false)
 	{
 		memset(&m_Key, 0, sizeof(m_Key));
 		memset(m_szName, 0, sizeof(m_szName));
@@ -632,7 +658,7 @@ public:
 	}
 
 	// The words and the style, laid out: sets the box's size. Where it goes is the caller's.
-	void Set(const BubbleStyle& st, const char* name, const char* text, int nr, int ng, int nb);
+	void Set(const BubbleStyle& st, const char* name, const char* text, int nr, int ng, int nb, bool action = false);
 
 protected:
 	void paint() override;
@@ -653,12 +679,14 @@ private:
 	int m_iLines;
 	bool m_bHeading;
 	int m_iNameR, m_iNameG, m_iNameB;
+	bool m_bAction; // the words are an action: red
 	char m_szName[LINE_LEN];
 	char m_szLines[WRAP_LINES][LINE_LEN];
 };
 
-void CH9BubblePanel::Set(const BubbleStyle& st, const char* name, const char* text, int nr, int ng, int nb)
+void CH9BubblePanel::Set(const BubbleStyle& st, const char* name, const char* text, int nr, int ng, int nb, bool action)
 {
+	m_bAction = action;
 	m_iNameR = nr;
 	m_iNameG = ng;
 	m_iNameB = nb;
@@ -748,6 +776,12 @@ void CH9BubblePanel::paint()
 
 	int tr, tg, tb;
 	TextColour(tr, tg, tb);
+	if (m_bAction)
+	{
+		tr = 235;
+		tg = 72;
+		tb = 72;
+	}
 	const int fontTall = H9FontTall(m_pFont);
 	const bool shadow = !m_pArt && !m_bPlainBox; // words alone, over the world
 	const int headTall = m_bHeading ? m_iLineTall + m_iLineTall / 3 : 0;
@@ -861,7 +895,7 @@ bool Overlaps(int x, int y, int w, int h, const Rc& r)
 
 // Sets box k for a speaker and puts it where it goes: pr is the speaker's place on the screen, null for the player's own line
 // (near the top of the screen). False when it does not show (faded out, or no room that is clear of the other boxes).
-bool Show(int k, int slot, const Probe* pr, const BubbleStyle& st, float now, Rc* placed)
+bool Show(int k, int slot, const Probe* pr, const BubbleStyle& st, float now, Rc* placed, float presence = 1.0f)
 {
 	const SpokenLine& line = s_Lines[slot];
 	s_bShownNext[slot] = true;
@@ -876,6 +910,7 @@ bool Show(int k, int slot, const Probe* pr, const BubbleStyle& st, float now, Rc
 	const float up = now - s_flShownSince[slot];
 	if (up < FADE_IN)
 		a *= up / FADE_IN;
+	a *= presence; // below 1 while a lingering box fades out
 	const int alpha = Clamp((int)(a * 255.0f), 0, 255);
 	if (alpha <= 0)
 		return false;
@@ -886,7 +921,7 @@ bool Show(int k, int slot, const Probe* pr, const BubbleStyle& st, float now, Rc
 	if (st.name && g_PlayerInfoList[slot].name)
 		name = g_PlayerInfoList[slot].name;
 	CH9BubblePanel* box = s_pBox[k];
-	box->Set(st, name, line.text, nr, ng, nb);
+	box->Set(st, name, line.text, nr, ng, nb, line.action);
 	int bw, bh;
 	box->getSize(bw, bh);
 
@@ -999,15 +1034,22 @@ int Compose(float now)
 	{
 		SpokenLine& line = s_Lines[slot];
 		if (!line.used)
+		{
+			s_Linger[slot].valid = false;
 			continue;
+		}
 		const float age = now - line.start;
 		if (age < 0.0f || age >= HoldOf(line))
 		{
 			line.used = false;
+			s_Linger[slot].valid = false;
 			continue;
 		}
 		if (line.team && !On(s_cvTeam))
+		{
+			s_Linger[slot].valid = false;
 			continue;
+		}
 		// His own line is shown whenever the server sent it: it sends it to a player who asked (cl_h9_chatbubble_own) or to everyone
 		// (fc_self 1), and a line that was not sent never gets here.
 		if (slot == local)
@@ -1017,11 +1059,20 @@ int Compose(float now)
 		}
 
 		Probe p;
-		if (!Locate(slot, line.stand, line.duck, lp, eye, p))
+		bool gone = false;
+		if (!Locate(slot, line.stand, line.duck, lp, eye, p, &gone))
+		{
+			if (gone)
+				s_Linger[slot].valid = false;
 			continue;
+		}
+		if (s_Linger[slot].valid)
+			s_Linger[slot].probe = p; // where he is now, for the box that lingers if he stops qualifying
 		float range = line.range;
 		if (userRange > 0.0f && userRange < range)
 			range = userRange;
+		if (s_bShownLast[slot])
+			range *= RANGE_HYST;
 		if (p.dist > range)
 			continue;
 
@@ -1077,7 +1128,44 @@ int Compose(float now)
 			if (!firstShown)
 				firstShown = cand[i].slot;
 			shown++;
+			Linger& lg = s_Linger[cand[i].slot];
+			lg.valid = true;
+			lg.probe = cand[i].probe;
+			lg.lastOk = now;
+			lg.worthy = now - s_flShownSince[cand[i].slot] >= LINGER_WORTH;
 		}
+	}
+
+	// A speaker whose box showed and who does not qualify this frame keeps it where he was for cl_h9_chatbubble_linger seconds, then it
+	// fades out over LINGER_FADE: the box follows the world point it was over, and is dropped for good if that is off the screen.
+	const float linger = Val(s_cvLinger, 0.0f, 2.0f, 0.35f);
+	for (int slot = 1; slot <= MAX_PLAYERS && shown < MAX_SHOWN; slot++)
+	{
+		Linger& lg = s_Linger[slot];
+		if (!lg.valid || s_bShownNext[slot])
+			continue;
+		const float away = now - lg.lastOk;
+		if (!lg.worthy || linger <= 0.0f || away >= linger + LINGER_FADE || !s_Lines[slot].used)
+		{
+			lg.valid = false;
+			continue;
+		}
+		Probe p = lg.probe;
+		float scr[3];
+		if (0 != gEngfuncs.pTriAPI->WorldToScreen((float*)&p.head, scr))
+		{
+			lg.valid = false;
+			continue;
+		}
+		const float hx = (1.0f + scr[0]) * 0.5f * (float)ScreenWidth, hy = (1.0f - scr[1]) * 0.5f * (float)ScreenHeight;
+		p.bx += hx - p.hx;
+		p.by += hy - p.hy;
+		p.fy += hy - p.hy;
+		p.hx = hx;
+		p.hy = hy;
+		const float presence = away <= linger ? 1.0f : 1.0f - (away - linger) / LINGER_FADE;
+		if (Show(shown, slot, &p, st, now, placed, presence))
+			shown++;
 	}
 
 	s_iAimed = st.aimed ? firstShown : 0;
@@ -1099,7 +1187,10 @@ void Update(float now)
 	if (Enabled() && EnsurePanels() && ShowingNow())
 		shown = Compose(now);
 	else
+	{
 		memset(s_bShownLast, 0, sizeof(s_bShownLast));
+		memset(s_Linger, 0, sizeof(s_Linger));
+	}
 	for (int k = shown; k < MAX_SHOWN; k++)
 	{
 		if (s_pBox[k])

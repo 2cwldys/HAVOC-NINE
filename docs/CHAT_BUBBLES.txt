@@ -102,7 +102,8 @@
  line not shown, and a burst of chat never fills a reliable channel.
 
    byte    the speaker's slot, 1 to 128; 0 with a ttl of 0 takes every line down
-   byte    flags: bit 0, the line was said in team chat
+   byte    flags: bit 0, the line was said in team chat; bit 1, it is an action: Apollo RP's /me <action>
+           on a roleplay map (rp_ or tsrp_ in the map's name), sent as "*action*", which the client draws in red
    short   how long the line stays, in tenths of a second; 0 takes the
            speaker's line down
    short   how far away it shows, in units (fc_range)
@@ -206,6 +207,17 @@
 
  FADE. A box comes up over 0.12 s when it begins to show, and with
  cl_h9_chatbubble_fade 1 fades out over the last 0.8 s of the line.
+
+ LINGER. Whether a speaker's box shows is worked out afresh every frame: he must be in this
+ frame's packet, on the screen, in sight, within range and (aimed mode) under the crosshair. One
+ frame that fails any of these used to take the box down and bring it back fading in: a blink. A
+ box that had shown for at least 0.15 s now stays where its speaker was for cl_h9_chatbubble_linger
+ seconds (0.35) after he stops qualifying, following the world point it was over, and then fades
+ out over 0.3 s; if he qualifies again meanwhile it carries on as if nothing happened. 0 takes a
+ box down at once. A speaker who is hidden, cloaked, spectating or gone, a line whose time is up
+ and the boxes while the HUD is off leave nothing behind. The range has a margin of its own: a
+ box that is showing stays until the speaker is 12 percent past the range (fc_range, or
+ cl_h9_chatbubble_range), so one standing at the edge does not blink.
 
  A line is kept until its time is up, whoever is aimed at: a line that arrives
  while another speaker is aimed at shows when its speaker is, if that is before
@@ -346,6 +358,7 @@
    cl_h9_chatbubble_teamcolor 1  1 the team's colour on the name and the pointer
    cl_h9_chatbubble_pointer 1  1 the pointer to the head
    cl_h9_chatbubble_fade 1     1 fade out over the last 0.8 s
+   cl_h9_chatbubble_linger 0.35  seconds a box stays when its speaker is lost for a moment, then fades
    cl_h9_chatbubble_lines 3    most lines of words in a box (1 to 5)
    cl_h9_chatbubble_hold 0     seconds a line stays (1 to 30); 0: the server's
    cl_h9_chatbubble_scale 1    text size, 0.5 to 2: 0.55, 0.7, 0.9 (normal), 1.4
