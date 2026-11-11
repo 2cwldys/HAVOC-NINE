@@ -1,0 +1,82 @@
+// voices.txt -- the voice variants of H9's Kokoro text to speech.  ASCII only; // starts a comment.
+//
+// Read by the client library (reTS/cl_dll/h9_tts_catalogue.h) and by the helper process (tools/h9kokoro64), which must see the same file:
+// the helper tells the client the checksum of the catalogue it loaded and the client refuses a helper whose checksum differs.
+//
+// One line per variant, in the order the players' numbers point into it.  NEVER reorder or delete a line of a shipped catalogue:
+// cl_h9_tts_myvoice and the per-kind picks are numbers into these lists.  New variants are appended at the end of their kind.
+//
+//   default <kind> <index>
+//   variant <kind> <index> <name> <lang> <blend> <speed> <depth> <chain> <mask> [note ...]
+//
+//   kind    man woman mech bot droid  (the speech kinds; bot and droid are two kinds, a droid is a bot voice with the droid byte in the tail of the H9Tts message)
+//   index   1, 2, 3 ... without gaps inside a kind.  cl_h9_tts_myvoice N (1 .. 99) selects index ((N - 1) mod count of the kind);
+//           N = 0 means the kind's default.  Every machine renders the same sound for the same N: the voice files, the speed, the depth
+//           and the chains are all fixed here.
+//   name    ASCII word, for console listings and the samples
+//   lang    en-us or en-gb: the accent of the voices of the blend (a* American, b* British), for the listings; the helper speaks every variant from American phonemes.
+//   blend   voice[:weight][+voice[:weight]...] -- Kokoro style files (voices/<name>.bin).  The weights of one blend are normalised to
+//           sum 1 and the 510 x 256 style tables are averaged row by row (row r = sum_i w_i * row r of voice i); the row a line uses is
+//           the number of its phoneme ids minus one.  A weight may be negative as long as the sum stays positive (not tried).
+//   speed   Kokoro's own speed input (0.5 .. 2.0).  1.0 is the voice as trained.  Speeds above 1.15 cost intelligibility (word error
+//           rate 0.09 -> 0.22 at 1.30 in the speed sweep), so the catalogue stays inside 0.95 .. 1.10.
+//   depth   the variant's own depth steps; the speaker's cl_h9_tts_mydepth (-10 .. +10) and the slot step of cl_h9_tts_individual are
+//           added, the sum is limited to -12 .. +12.  One step is a resample by 1.025 (pitch AND tempo move together, as today); the
+//           kind's chain resample ratio and all steps are applied in ONE pass (chains.txt, step 3).
+//   chain   machine kinds: the chain id of chains.txt (mech, bot, droid);   man and woman: -
+//   mask    man and woman: the gas-mask chain id (mask_man, mask_woman), used when the speaker is on the mask list and
+//           cl_h9_tts_muffle > 0;   machine kinds: -
+//   note    free text.  "grade X" is the grade hexgrad gives the voice (VOICES.md), WEAK marks a voice graded D or worse.
+//
+// ORDER inside man and woman: best-graded and most intelligible first.  The kind's default is its first line.
+//
+// The lists were picked so that the variants of a kind sound as different as the voices allow: a farthest-point choice over every voice and blend
+// at depths -5 to +5 (two variants of one kind count as different when their pitch differs by 2 semitones or their timbre by 3 dB).
+
+// ---- man (12 variants) ----
+default man 1
+variant man 1 fenrir en-us am_fenrir 0.95 0 - mask_man grade C+
+variant man 2 michael_hi en-us am_michael 1.00 2 - mask_man grade C+
+variant man 3 michael_fenrir_lo en-us am_michael:0.30+am_fenrir:0.70 0.95 -3 - mask_man grade ~2.3
+variant man 4 george_hi en-gb bm_george 1.10 2 - mask_man grade C
+variant man 5 michael_lo en-us am_michael 1.00 -5 - mask_man grade C+
+variant man 6 puck_lo en-us am_puck 0.95 -5 - mask_man grade C+
+variant man 7 fenrir_hi en-us am_fenrir 0.95 5 - mask_man grade C+
+variant man 8 michael_george_lo en-us am_michael:0.50+bm_george:0.50 1.10 -4 - mask_man grade ~2.1
+variant man 9 george_lo en-gb bm_george 1.10 -5 - mask_man grade C
+variant man 10 lewis_hi en-gb bm_lewis 1.10 3 - mask_man grade D+
+variant man 11 echo en-us am_echo 1.10 1 - mask_man grade D WEAK
+variant man 12 lewis_lo en-gb bm_lewis 1.10 -4 - mask_man grade D+
+
+// ---- woman (12 variants) ----
+default woman 1
+variant woman 1 heart en-us af_heart 1.00 0 - mask_woman grade A
+variant woman 2 heart_nicole en-us af_heart:0.50+af_nicole:0.50 1.10 0 - mask_woman grade ~3.4
+variant woman 3 bella_lo en-us af_bella 1.00 -5 - mask_woman grade A-
+variant woman 4 bella_emma_hi en-us af_bella:0.50+bf_emma:0.50 1.00 4 - mask_woman grade ~3.2
+variant woman 5 nicole_heart_lo en-us af_heart:0.30+af_nicole:0.70 1.10 -4 - mask_woman grade ~3.1
+variant woman 6 emma en-gb bf_emma 1.00 -1 - mask_woman grade B-
+variant woman 7 nicole_lo en-us af_nicole 1.10 -5 - mask_woman grade B-
+variant woman 8 kore_hi en-us af_kore 0.95 2 - mask_woman grade C+
+variant woman 9 nova en-us af_nova 1.00 1 - mask_woman grade C
+variant woman 10 kore_lo en-us af_kore 0.95 -4 - mask_woman grade C+
+variant woman 11 sky en-us af_sky 1.00 0 - mask_woman grade C-
+variant woman 12 isabella_lo en-gb bf_isabella 1.00 -3 - mask_woman grade C
+
+// ---- mech (3 variants; the chain 'mech' of chains.txt gives the machine sound) ----
+default mech 1
+variant mech 1 mech_lewis en-gb bm_lewis 1.10 0 mech - deep british base
+variant mech 2 mech_lewis_onyx en-gb bm_lewis:0.5+am_onyx:0.5 1.10 -2 mech - lewis and onyx, a little lower
+variant mech 3 mech_onyx en-us am_onyx 1.10 2 mech - darkest base, weak voice (D), a little higher
+
+// ---- bot (3 variants; the chain 'bot' of chains.txt gives the machine sound) ----
+default bot 1
+variant bot 1 bot_george en-gb bm_george 1.00 0 bot - neutral male base
+variant bot 2 bot_nicole_puck en-us af_nicole:0.5+am_puck:0.5 1.00 0 bot - cross-gender blend, neutral
+variant bot 3 bot_nicole en-us af_nicole 1.10 0 bot - female base
+
+// ---- droid (3 variants; the chain 'droid' of chains.txt gives the machine sound) ----
+default droid 1
+variant droid 1 droid_bella en-us af_bella 1.00 0 droid - bright female base
+variant droid 2 droid_emma en-gb bf_emma 1.00 0 droid - british female base
+variant droid 3 droid_nova en-us af_nova 1.00 3 droid - darker female base, a little higher

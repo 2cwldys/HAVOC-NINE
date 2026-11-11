@@ -1,0 +1,32 @@
+NOTICE -- the third-party parts of H9's Kokoro text to speech (the folder ts\h9tts of the game)
+
+This folder holds what the client's Kokoro voices speak with. None of it is H9's own work except voices.txt, chains.txt, the program h9kokoro64.exe
+and the line pack; the rest, and what those are made from, is credited here. The licence text of each part is in the file named beside it.
+
+KOKORO-82M, the text to speech model and its voices
+  Made by hexgrad (https://github.com/hexgrad/kokoro, https://huggingface.co/hexgrad/Kokoro-82M), Apache License 2.0: LICENSE-kokoro-apache-2.0.txt.
+  The model file (model\model_quantized.onnx) is the 8-bit ONNX version of the model from the Hugging Face repository onnx-community/Kokoro-82M-v1.0-ONNX
+  (revision 1939ad2a8e416c0acfeecc08a694d14ef25f2231, file onnx/model_quantized.onnx, 92,361,116 bytes, unchanged). The voice files (voices\*.bin) are
+  the style files of that repository, unchanged; voices.txt blends some of them (a weighted mean of their style vectors).
+  The model card of Kokoro-82M lists the audio the model was trained on, among it recordings under CC BY licences (Koniwa tnc, CC BY 3.0; SIWIS, CC BY 4.0).
+  Credit: "kokoro-82m text to speech model and voices - hexgrad (Apache 2.0)".
+
+MISAKI, the pronunciation data and the algorithm of the G2P
+  g2p\en_us.h9lex is made from the files misaki/data/us_gold.json and us_silver.json of misaki 0.9.4 (https://github.com/hexgrad/misaki, hexgrad, Apache
+  License 2.0: LICENSE-misaki-apache-2.0.txt; sha256 dc414872... and de8f67be... of the two files). The files were CHANGED: converted to a binary lexicon (the
+  case variants folded, the symbols stored as vocabulary ids); no entry was changed. g2p\en_us.h9lt (letter-to-sound trees) was trained on those two files and
+  is derived from them. The part of the helper that turns text into phonemes (tools\h9kokoro64\src) follows the algorithm of misaki/en.py (Apache-2.0) and
+  was written anew in C++; its tests compare it with a Python reference line by line.
+  The upstream project does not document where the entries of its lexicons come from. A check against CMUdict (Carnegie Mellon University, BSD style
+  licence, "we request that you acknowledge its origin") found that the gold lexicon agrees with it where both have a word, so: pronunciations partly derived
+  from CMUdict (Carnegie Mellon University) is the credit that fits.
+  Credit: "the misaki phoneme dictionaries - hexgrad (Apache 2.0)".
+
+ONNX RUNTIME, the program that runs the model
+  Microsoft (https://github.com/microsoft/onnxruntime), MIT licence: bin\LICENSE-onnxruntime-mit.txt, with its list of third-party components in
+  bin\ThirdPartyNotices-onnxruntime.txt. bin\onnxruntime.dll and bin\onnxruntime_providers_shared.dll are the files of the release 1.31.1 for Windows x64,
+  unchanged. Credit: "run by onnx runtime - microsoft (MIT)".
+
+NOT PART OF IT
+  espeak-ng (GPL) is not used and not shipped: words the lexicon does not have are done by the letter-to-sound trees. spaCy and num2words are not used: the
+  tokenizer is rules and the number words are written out in the helper.

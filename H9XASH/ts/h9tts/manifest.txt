@@ -1,0 +1,4 @@
+# SHA-256 of the Kokoro helper's program files (written by tools/h9tts/make_manifest.py); client.dll refuses to start a helper that differs.
+sha256 f04fc3d897393dfb5960232b4bc182c59136f2b928c73afbcd23d9986f6d9986 bin/h9kokoro64.exe
+sha256 cb2fa518b18356617f6f9f460c012501da2819ec7e5c1d80bd8f5de20492db0c bin/onnxruntime.dll
+sha256 8cea20be64259950cda8643af0ed42c2a424400fc3bb9bb29f9a35cee6b3419f bin/onnxruntime_providers_shared.dll
