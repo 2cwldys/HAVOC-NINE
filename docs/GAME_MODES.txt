@@ -101,7 +101,9 @@ CAPTURE THE UPLINK  (ts_uplink.amxx, configs\ts_uplink.cfg)
                carrier wears it on their back, keeps every weapon, and is marked to BOTH
                sides. It drops where the carrier falls, and goes home after
                tsm_uplink_return (20) seconds untouched. "dropuplink" in the console (bind
-               it) or .drop in chat lets it go.
+               it) or .drop in chat lets it go. A bot cannot type either: a player who presses the use key
+               on a bot of his side that carries it makes it let go (tsm_handoff 1) and keeps that bot off it
+               for tsm_handoff_secs (8) seconds, so that the player can take it.
   The zones    up to nine. Only the carrier takes a zone: tsm_cap_time (15) seconds inside
                it with no living enemy in it. Leaving, dropping, dying or a contest starts it
                over. Each zone shows a ring on the floor in its holder's colour (grey, MSR

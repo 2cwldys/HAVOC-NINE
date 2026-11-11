@@ -166,7 +166,13 @@ maps (tsm_enabled 0) and no plugin publishes anything: the game keeps a flag's s
       A bot is sent to take a briefcase only if it can: TS lets a player take one only with 20 free inventory slots, and sets his
       speed by the slots he has left (210 + 120 * free / 81, cut to a whole number), so a bot with a maxspeed of 200 to 238 is too
       heavy and is never sent for one. It may still return, escort and guard. A bot cannot drop a briefcase (a fake client sends no
-      client command); it lets go by dying.
+      client command); it lets go by dying, or when a player of its side presses the use key on it (tsm_handoff 1): the game's drop_0 is
+      sent for the bot, which gives up a flag only when it carries one, and the bot's touch of a loose flag is refused for tsm_handoff_secs
+      (8) seconds, so that the player can take it.
+      Check (the hand-off). Capture the Uplink with bots: when a bot of your side carries the uplink, press E on it from within about 96
+      units: it drops where it stands (the chat says "handed over the uplink"), stays off it for 8 s, and you walk up and take it. The same
+      with a flag in Capture the Flag, and with the briefcase on a ctb_ or ctf_ map (no chat line there: TS's own "dropped_briefcase" is in
+      the server log). E on a bot that carries nothing, or on an enemy bot: nothing. tsm_handoff 0: nothing happens at all.
 
   5.4 Testing it
       server log   "[RCBOT BRIEF] capture game: base of team 1 at ... of team 2 at ..." and "[RCBOT OBJ] objective play is on: TS's

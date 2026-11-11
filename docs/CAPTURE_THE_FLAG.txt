@@ -76,7 +76,7 @@ match mode holds everyone's cash at zero and weaponrestriction is 1).
 
 Bots play the flags while tsm_bot_objectives is 1 (the default): they take the enemy's flag, carry it to their own
 pad, bring their own dropped flag back, escort the carrier and guard their flag. A bot cannot use dropflag (a fake
-client sends no client commands), so it lets a flag go only by dying. With tsm_bot_objectives 0 they fight and neither
+client sends no client commands), so it lets a flag go by dying, or when a player of its side presses the use key on it (tsm_handoff 1: the flag drops where the bot stands and the bot keeps off it for tsm_handoff_secs, 8, so that the player can take it). With tsm_bot_objectives 0 they fight and neither
 take nor return flags, unless tsm_cf_bots is 1 (then a bot that walks over a flag takes it, returns it and carries it,
 like anyone). The fields rcbot reads are in docs\BOT_OBJECTIVES.txt.
 
