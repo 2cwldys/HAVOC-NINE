@@ -192,6 +192,16 @@ A server panel's notice (a banner, flash or bar in place of a hudmessage, `docs/
 one's rise, so a bar sent every tick does not come up again each time; a status shows at once (`NoticeDrawAlpha` in
 `cl_dll/h9_vgui.cpp`). The original has no such panels: a hudmessage appears at full strength.
 
+### The colour of the H9 panels (client)
+
+An H9 addition with no counterpart in TS 3.0. The H9 panels (the menus, banners and notices, the match bar, Apollo RP's HUD, the chat
+bubbles and the inventory window) are purple, and `cl_h9_vgui_r`, `cl_h9_vgui_g` and `cl_h9_vgui_b` (0 to 255, saved; `cl_h9_vgui_color`
+sets the three) give them another colour: the colour of the highlight band, 138 66 196 as shipped, which changes nothing. Every colour of
+H9's drawing that is one of its purples (a hue of 248 to 284 degrees, not a grey) takes the hue of the player's colour and a saturation scaled
+to it, at its own lightness (`cl_dll/h9_theme_math.h`, tested by `cl_dll/tests/test_theme.cpp`); the panel art is made again in the colour
+(`H9ArtBitmap`, no more than twelve times a game, since VGUI1 frees no texture). A warning's red, a need's bar, a team's colour and the
+pictures of items are not moved, and neither are TS's own menus, whose colours are the text scheme files'.
+
 ### H9 panels a quarter smaller, a side's reinforcements, and marks through the walls (client)
 
 All three are H9 additions with no counterpart in TS 3.0, and all three act only for a server that sends the H9

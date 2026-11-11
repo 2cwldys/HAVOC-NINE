@@ -6,6 +6,7 @@
 #include "cl_util.h"
 #include "vgui_TeamFortressViewport.h"
 #include "vgui_H9Panel.h"
+#include "h9_theme.h" // the colour the player gives the panels in place of the purple
 
 #include <string.h>
 #include <stdio.h>
@@ -89,6 +90,8 @@ bool LoadSprite(const char* path, CH9Art& out)
 // The bitmaps already made, by art, size and scale, each kept for the life of the client: VGUI1
 // frees no texture, and the engine keeps every one it is given. The panels round their sizes
 // (Layout), so few are made; past MAX_BITMAPS a new size draws without its art.
+// The art is made in the colour the player has given the panels (h9_theme.h). A new colour makes every size again, and the old ones stay with the
+// engine, so no more than MAX_RECOLOURS colours do that in one game: past it the art keeps the colour it has until the game is restarted.
 struct BitmapSlot
 {
 	const CH9Art* art;
@@ -96,9 +99,13 @@ struct BitmapSlot
 	CH9ArtBitmap* bitmap;
 };
 const int MAX_BITMAPS = 64;
+const int MAX_RECOLOURS = 12;
 BitmapSlot s_bitmaps[MAX_BITMAPS];
 int s_numBitmaps = 0;
 bool s_bBitmapsFull = false;
+int s_bitmapColour = -1;      // h9theme::Generation() the bitmaps were made in, -1 before the first
+int s_numRecoloured = 0;      // times a new colour has made them again
+bool s_bRecolourFull = false;
 
 // Where a destination pixel samples the art, along one axis of the nine-slice.
 int SliceMap(int d, int dsize, int dc, int sc, int ssize)
@@ -174,6 +181,158 @@ const CH9Art* BuiltinArt(const char* name)
 		return nullptr;
 	return CH9Art::Find(name);
 }
+
+// ---- the pictures of items: the sheet (sprites/h9_arpicons.spr), its names (sprites/h9_arpicons.txt) and the bitmaps made of its frames
+
+const int PICTURE_PX = 32;          // the side of a frame of the sheet
+const int MAX_PICTURE_NAMES = 256;  // as many as the inventory window reads (h9_arpinv.cpp)
+const int MAX_PICTURE_BITMAPS = 160;
+
+struct PictureName
+{
+	char name[40];
+	int frame;
+};
+PictureName s_pictureNames[MAX_PICTURE_NAMES];
+int s_numPictureNames = 0;
+bool s_bPicturesTried = false;
+unsigned char* s_pictureSheet = nullptr; // the sprite file, kept for the life of the client: a frame is read from it when it is wanted
+int s_pictureSheetLen = 0;
+int s_pictureFrames = 0;
+
+// The names and the sheet, read once. A sheet that is not a version 2 sprite of 256 colours, or a name list without it, is none.
+void LoadPictures()
+{
+	if (s_bPicturesTried)
+		return;
+	s_bPicturesTried = true;
+
+	int len = 0;
+	unsigned char* file = gEngfuncs.COM_LoadFile("sprites/h9_arpicons.spr", 5, &len);
+	if (!file)
+		return;
+	if (len > 830 && 0 == memcmp(file, "IDSP", 4) && Int32At(file + 4) == 2 && (file[40] | (file[41] << 8)) == 256 && Int32At(file + 28) >= 1)
+	{
+		s_pictureSheet = new unsigned char[len];
+		memcpy(s_pictureSheet, file, len);
+		s_pictureSheetLen = len;
+		s_pictureFrames = Int32At(file + 28);
+	}
+	gEngfuncs.COM_FreeFile(file);
+	if (!s_pictureSheet)
+		return;
+
+	unsigned char* txt = gEngfuncs.COM_LoadFile("sprites/h9_arpicons.txt", 5, &len);
+	if (!txt)
+		return;
+	const int total = H9Min(len, 65536);
+	for (int p = 0; p < total && s_numPictureNames < MAX_PICTURE_NAMES;)
+	{
+		char line[96];
+		int l = 0;
+		while (p < total && txt[p] != '\n' && txt[p] != '\r')
+		{
+			if (l < (int)sizeof(line) - 1)
+				line[l++] = (char)txt[p];
+			p++;
+		}
+		line[l] = 0;
+		while (p < total && (txt[p] == '\n' || txt[p] == '\r'))
+			p++;
+		char* bar = strchr(line, '|');
+		if (!bar || line[0] == '/' || line[0] == '#')
+			continue;
+		*bar = 0;
+		PictureName& n = s_pictureNames[s_numPictureNames];
+		strncpy(n.name, line, sizeof(n.name) - 1);
+		n.name[sizeof(n.name) - 1] = 0;
+		n.frame = atoi(bar + 1);
+		s_numPictureNames++;
+	}
+	gEngfuncs.COM_FreeFile(txt);
+}
+
+// A frame of the sheet as RGBA, PICTURE_PX square: the palette's index 255 is transparent in an alpha-test sprite. False for a frame that is
+// not there or not of that size.
+bool PictureFrameRGBA(int frame, unsigned char* out)
+{
+	if (!s_pictureSheet || frame < 0 || frame >= s_pictureFrames)
+		return false;
+	const unsigned char* file = s_pictureSheet;
+	const int format = Int32At(file + 12);
+	const unsigned char* pal = file + 42;
+	int off = 810;
+	for (int f = 0; f <= frame; f++)
+	{
+		if (off + 20 > s_pictureSheetLen || Int32At(file + off) != 0)
+			return false;
+		const int w = Int32At(file + off + 12), h = Int32At(file + off + 16);
+		if (w != PICTURE_PX || h != PICTURE_PX || off + 20 + w * h > s_pictureSheetLen)
+			return false;
+		if (f == frame)
+		{
+			const unsigned char* px = file + off + 20;
+			for (int i = 0; i < w * h; i++)
+			{
+				const int v = px[i];
+				out[i * 4] = pal[v * 3];
+				out[i * 4 + 1] = pal[v * 3 + 1];
+				out[i * 4 + 2] = pal[v * 3 + 2];
+				out[i * 4 + 3] = (format == 3 && v == 255) ? 0 : 255;
+			}
+			return true;
+		}
+		off += 20 + w * h;
+	}
+	return false;
+}
+
+// A frame at a whole number of times its size, nearest neighbour (it is pixel art).
+class CH9PictureBitmap : public vgui::Bitmap
+{
+public:
+	CH9PictureBitmap(const unsigned char* rgba, int times)
+	{
+		const int side = PICTURE_PX * times;
+		setSize(side, side);
+		setColor(vgui::Color(255, 255, 255, 0));
+		for (int y = 0; y < side; y++)
+		{
+			for (int x = 0; x < side; x++)
+			{
+				const unsigned char* p = rgba + ((y / times) * PICTURE_PX + (x / times)) * 4;
+				setRGBA(x, y, p[0], p[1], p[2], p[3]);
+			}
+		}
+	}
+	void SetAlpha(int alpha) { setColor(vgui::Color(255, 255, 255, 255 - H9Clamp(alpha, 0, 255))); }
+};
+
+// Each bitmap is kept for the life of the client, as the art's are: VGUI1 frees no texture.
+struct PictureSlot
+{
+	int frame, times;
+	CH9PictureBitmap* bitmap;
+};
+PictureSlot s_pictureBitmaps[MAX_PICTURE_BITMAPS];
+int s_numPictureBitmaps = 0;
+
+CH9PictureBitmap* PictureBitmap(int frame, int times)
+{
+	for (int i = 0; i < s_numPictureBitmaps; i++)
+	{
+		if (s_pictureBitmaps[i].frame == frame && s_pictureBitmaps[i].times == times)
+			return s_pictureBitmaps[i].bitmap;
+	}
+	unsigned char rgba[PICTURE_PX * PICTURE_PX * 4];
+	if (s_numPictureBitmaps >= MAX_PICTURE_BITMAPS || !PictureFrameRGBA(frame, rgba))
+		return nullptr;
+	PictureSlot& slot = s_pictureBitmaps[s_numPictureBitmaps++];
+	slot.frame = frame;
+	slot.times = times;
+	slot.bitmap = new CH9PictureBitmap(rgba, times);
+	return slot.bitmap;
+}
 } // namespace
 
 // ---- CH9Art -----------------------------------------------------------------------------------
@@ -218,6 +377,13 @@ CH9ArtBitmap::CH9ArtBitmap(const CH9Art* art, int wide, int tall, float scale)
 	const int c = H9Max(1, H9Min(art->corner, H9Min(art->wide, art->tall) / 2));
 	const int dcx = H9Clamp(H9Round(c * scale), 1, H9Max(1, wide / 2));
 	const int dcy = H9Clamp(H9Round(c * scale), 1, H9Max(1, tall / 2));
+
+	// In the player's colour (h9_theme.h). The art has a few colours, so the last few moved are kept in a small table.
+	h9theme::Generation();
+	int seen[32];
+	unsigned char moved[32][3];
+	for (int i = 0; i < 32; i++)
+		seen[i] = -1;
 	for (int y = 0; y < tall; y++)
 	{
 		const int sy = SliceMap(y, tall, dcy, c, art->tall);
@@ -225,7 +391,25 @@ CH9ArtBitmap::CH9ArtBitmap(const CH9Art* art, int wide, int tall, float scale)
 		{
 			const int sx = SliceMap(x, wide, dcx, c, art->wide);
 			const unsigned char* p = art->rgba + (sy * art->wide + sx) * 4;
-			setRGBA(x, y, p[0], p[1], p[2], p[3]);
+			int r = p[0], g = p[1], b = p[2];
+			if (p[3] != 0)
+			{
+				const int key = (r << 16) | (g << 8) | b;
+				const int slot = (r * 7 + g * 13 + b * 29) & 31;
+				if (seen[slot] != key)
+				{
+					int mr = r, mg = g, mb = b;
+					h9theme::TintHeld(mr, mg, mb);
+					seen[slot] = key;
+					moved[slot][0] = (unsigned char)mr;
+					moved[slot][1] = (unsigned char)mg;
+					moved[slot][2] = (unsigned char)mb;
+				}
+				r = moved[slot][0];
+				g = moved[slot][1];
+				b = moved[slot][2];
+			}
+			setRGBA(x, y, r, g, b, p[3]);
 		}
 	}
 }
@@ -239,6 +423,32 @@ CH9ArtBitmap* H9ArtBitmap(const CH9Art* art, int wide, int tall, float scale)
 {
 	if (!art || wide < 4 || tall < 4 || wide > 4096 || tall > 4096)
 		return nullptr;
+
+	// A new colour for the panels makes every size again (the old bitmaps are dropped from the table, and stay with the engine).
+	const int colour = h9theme::Generation();
+	if (colour != s_bitmapColour)
+	{
+		const bool first = s_bitmapColour < 0;
+		s_bitmapColour = colour;
+		if (!first)
+		{
+			if (s_numRecoloured >= MAX_RECOLOURS)
+			{
+				if (!s_bRecolourFull)
+				{
+					s_bRecolourFull = true;
+					gEngfuncs.Con_Printf("H9 VGUI: the panels' art has been made again in a new colour %d times; it keeps the colour it has until the game is restarted\n",
+						MAX_RECOLOURS);
+				}
+			}
+			else
+			{
+				s_numRecoloured++;
+				s_numBitmaps = 0;
+				s_bBitmapsFull = false;
+			}
+		}
+	}
 	const int s100 = H9Round(scale * 100.0f);
 	for (int i = 0; i < s_numBitmaps; i++)
 	{
@@ -296,12 +506,44 @@ int H9FontTall(vgui::Font* font)
 	return font ? H9Max(1, font->getTall()) : 12;
 }
 
+// A text's width in the font. The VGUI font measures a byte above 127 (the credit sign Apollo RP shows for money, the title's
+// guillemets, in a Latin-1 view) as nothing, reading it as a negative character, though the surface draws it, so each is
+// counted as the width of an "o". A text with none is measured whole, as before.
 int H9TextWide(vgui::Font* font, const char* text)
 {
 	if (!font || !text || !text[0])
 		return 0;
-	int wide = 0, tall = 0;
-	font->getTextSize(text, wide, tall);
+	char run[256];
+	int n = 0, wide = 0, tall = 0, high = -1;
+	for (const char* p = text;; p++)
+	{
+		const unsigned char c = (unsigned char)*p;
+		if (c >= 128 || c == 0 || n == (int)sizeof(run) - 1)
+		{
+			if (n > 0)
+			{
+				int w = 0;
+				run[n] = 0;
+				font->getTextSize(run, w, tall);
+				wide += w;
+				n = 0;
+			}
+			if (c == 0)
+				break;
+			if (c >= 128)
+			{
+				if (high < 0)
+				{
+					int w = 0;
+					font->getTextSize("o", w, tall);
+					high = w;
+				}
+				wide += high;
+				continue;
+			}
+		}
+		run[n++] = (char)c;
+	}
 	return wide;
 }
 
@@ -374,6 +616,7 @@ void CH9Surface::Text(vgui::Font* font, int x, int y, const char* text, int r, i
 {
 	if (!font || !text || !text[0])
 		return;
+	h9theme::Tint(r, g, b); // every colour of the panels is taken in the player's colour (h9_theme.h)
 	drawSetTextFont(font);
 	drawSetTextColor(r, g, b, 255 - m_iAlpha);
 	drawSetTextPos(x, y);
@@ -383,6 +626,7 @@ void CH9Surface::Text(vgui::Font* font, int x, int y, const char* text, int r, i
 void CH9Surface::Box(int x0, int y0, int x1, int y1, int r, int g, int b, int alpha)
 {
 	const int a = alpha * m_iAlpha / 255;
+	h9theme::Tint(r, g, b);
 	drawSetColor(r, g, b, 255 - H9Clamp(a, 0, 255));
 	drawFilledRect(x0, y0, x1, y1);
 }
@@ -390,8 +634,52 @@ void CH9Surface::Box(int x0, int y0, int x1, int y1, int r, int g, int b, int al
 void CH9Surface::Frame(int x0, int y0, int x1, int y1, int r, int g, int b, int alpha)
 {
 	const int a = alpha * m_iAlpha / 255;
+	h9theme::Tint(r, g, b);
 	drawSetColor(r, g, b, 255 - H9Clamp(a, 0, 255));
 	drawOutlinedRect(x0, y0, x1, y1);
+}
+
+// ---- the pictures of items --------------------------------------------------------------------
+
+int H9ItemPicture(const char* itemName)
+{
+	LoadPictures();
+	if (!itemName || !itemName[0])
+		return -1;
+	for (int i = 0; i < s_numPictureNames; i++)
+	{
+		if (0 == strcmp(s_pictureNames[i].name, itemName))
+			return s_pictureNames[i].frame;
+	}
+	return -1;
+}
+
+CH9PicturePanel::CH9PicturePanel() : m_iFrame(-1), m_iTimes(1), m_iSide(PICTURE_PX)
+{
+	m_bPlainBox = false;
+	setSize(m_iSide, m_iSide);
+}
+
+bool CH9PicturePanel::SetPicture(int frame, int times)
+{
+	times = H9Clamp(times, 1, 6);
+	if (!PictureBitmap(frame, times))
+		return false;
+	m_iFrame = frame;
+	m_iTimes = times;
+	m_iSide = PICTURE_PX * times;
+	setSize(m_iSide, m_iSide);
+	return true;
+}
+
+void CH9PicturePanel::paint()
+{
+	CH9PictureBitmap* bitmap = PictureBitmap(m_iFrame, m_iTimes);
+	if (!bitmap)
+		return;
+	bitmap->SetAlpha(m_iAlpha);
+	bitmap->setPos(0, 0);
+	bitmap->doPaint(this);
 }
 
 // ---- CH9MenuPanel -----------------------------------------------------------------------------

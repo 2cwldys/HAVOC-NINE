@@ -196,9 +196,10 @@
                lives left", "WAVE IN Ns -- REINFORCE ..." ...... BANNER line
    16305-16306 show_waiting_list() 0.74/0.26 ch 0, the Officer, 1.2 s:
                "WAITING FOR A WAVE (n)" and names ..................... STAYS
-   11824-11825 task_hover_info()   -1/0.56 ch 1, per player, 0.4 s, four
+   task_hover_info()               -1/0.56 ch 1, per player, 0.4 s, four
                times a second: the teammate under the crosshair, his
-               class and health ......................................... STAYS
+               class and health ..... BAR (4j) for an H9 game (tsm_hover_plaque),
+                                     the green text for any other
    12819-12825 plant_bar()         -1/0.47 ch 3, the planter, 0.25 s:
                "PLANTING THE SATCHEL / [====      ]" ...................... BAR
    21117-21118 show_spectator_hud() -1/0.72 ch 3, each watcher, every
@@ -431,7 +432,7 @@
  its own, because what the client does with it is Apollo RP's, and its switches are the player's. A player whose game keeps the
  userinfo key _h9arphud at 1 (cl_h9_arphud 1 and cl_h9_vgui 1; the server also needs arp_hud_panel 1, h9_vgui 1 and a game with
  _h9vgui) is sent each of ARP's four HUDs (HUD_PRIM to HUD_QUAT) as lines with their kinds (HUDK_TITLE, _WALLET, _BANK,
- _PAYDAY, _SALARY, _JOB, _STATUS, _EXTRA; ARP_AddHudItemKind) instead of the one hudmessage text, reliably, when the lines
+ _PAYDAY, _SALARY, _JOB, _STATUS, _EXTRA, _NEED; ARP_AddHudItemKind) instead of the one hudmessage text, reliably, when the lines
  change and every arp_hud_refresh seconds (10); every other player is sent the text as ever. A HUD longer than a message
  (188 bytes) is sent in parts of one content, and the client changes what it holds only when the last part has come. The client
  draws HUDs 1 to 3 on the tsm_panel art (the "#panel" art, a quarter under the menus' scale: 0.40 x the screen height over 480 x
@@ -439,9 +440,24 @@
  art is. The text is in the "H9 Text 1-4" ladder (the stock Primary Button Text and the schemes under it where a textscheme
  file lacks it), stepped down while the rows do not fit, in the scheme's Primary Button Text colour 223 213 245; the first line
  is a heading in the rail's lit purple 182 145 234 with a line of the rail's purple 133 98 178 under it, as a menu's title is; a
- "label: value" line has its label in 166 154 192. The server's own colours (arp_hudN_r, _g, _b) are not used. Where: the safe
+ "label: value" line has its label in 166 154 192. An item's picture (the kind HUDK_ICON, 9; the text "icon:<the item's name>", in the notice HUD) is
+ not a row: the picture the sheet sprites/h9_arpicons.spr has for the item stands above the notice's box (cl_h9_arphud_icon). A PLAQUE is a notice HUD with a line of kind 10 to 16
+(HUDK_PLAQUE heading, _ROW a "<Label>: <value>" field, _TAG the affiliation, _OPEN and _SEALED the status, _WARN a restriction, _HINT a hint; what a player looks at: a property door, an NPC, a
+player): the client draws it, with cl_h9_arphud_plaque 1, as one plate on the "#panel" art at 0.45, in the notice's place and held 2.5 seconds (the notice 3), of one width
+for the screen (26 percent of it, 200 px to 45 percent), its heading and labels and values in upper case, the heading in 182 145 234 with the rail under it, a label in 166 154 192, the
+affiliation and the status as a framed wash (the rail's purple, or the dim purple for CIVILIAN; green 96 200 120 for OPEN, yellow 236 204 84 for SEALED), a restriction in red 236 96 96,
+a hint dim; a game without it draws the lines as the plain notice they read as (docs\APOLLO_RP.txt, 2). A need (the kind HUDK_NEED, 8; the text "<label>: <0 to 100>%"; ARP_AddNeedItem
+ adds one) is a row of its own in any HUD but the notice: the label (the widest label sets the column, at most two fifths of the
+ room), a bar on a dark track (alpha 160) with the rail's frame, filled to the value in a colour that is green 96 200 120 at 0,
+ yellow 236 204 84 half way to 75 and red 236 96 96 from 75, a light mark across it at 75 and at 90, and the number at the right
+ (red from 75); the run of needs that opens the second or third HUD is headed "Needs"; a status line (HUDK_STATUS) in those two
+ HUDs is a red row; and a second or third HUD that holds a need is not shown while the player is dead or spectating. The
+ server's own colours (arp_hudN_r, _g, _b) are not used. Where: the safe
  area (4c), by the place arp_hudN_x and _y give, to the nearest of three columns and three rows: the left column 16 px in, its top
- row from 32 px (under the powerup label), the right column's top row from 104 px (under the kill feed and the round time), the
+ row from 32 px (under the powerup label) and under TS's weapon select bar (8 px below the lowest cell of the bar over the columns
+ the panel covers, taken as the bar is drawn with the select open, shut or not, so the panel does not move when the select opens;
+ CHudTSWeaponBar::DrawnBottom; it slides, a fifth of a second, when that changes, and is held in the safe area when it cannot fit),
+ the right column's top row from 104 px (under the kill feed and the round time), the
  middle column's top row beneath the top stack (H9Vgui_StackBottom), the bottom row on the bottom band, the middle row at the
  height asked, panels of one column stacking one under another, the middle column off the crosshair box. A panel is at most 24%
  of the width (the notice 40%) and 55% of the height; its width never narrows (a few sizes of art are made, not one for each
@@ -449,7 +465,8 @@
  a panel at the left whose bottom is below a quarter of the height, while a menu is open there. Every HUD but the notice is
  dropped after 150 seconds with no message; a notice after 3; a map change clears them.
  The switches: cl_h9_arphud (the master), cl_h9_arphud_left, _top, _side and _notice (HUD 1 to 4), and for the lines of the first
- HUD _title, _wallet, _bank, _payday, _salary, _job, _status and _extra, each 1 or 0 and saved; cl_h9_arphud_list prints them,
+ HUD _title, _wallet, _bank, _payday, _salary, _job, _status and _extra, and _needs for the needs (a second or third HUD that holds
+ one), each 1 or 0 and saved; cl_h9_arphud_list prints them,
  what the game has had of the server (messages, when) and for each HUD what it holds and why it is or is not shown. On the
  server, arp_hudstate says who is sent what.
 
@@ -825,9 +842,16 @@
 
  How a client says it can draw them: userinfo _h9vgui, the protocol
  version: "1" for all but STATUS, "2" with it (the client of
- 2026-11-03's match bar build), "3" with MARK too (2026-11-05). A plugin
+ 2026-11-03's match bar build), "3" with MARK too (2026-11-05), "4" when
+ the game also reads H9Buy, the loadout rework's buy window (2026-11-09): not
+ an H9Vgui op but a message of its own that has no key, because a client's
+ userinfo is full (docs\LOADOUT_REWORK.txt section 12; ts_matchmode sends it
+ to a game of protocol 4 or more), "5" when it also reads H9Look (2026-11-10, section 4j), "6" when it also draws Apollo RP's inventory and exchange windows (H9Inv and H9Trade, docs\ARP_INVENTORY.txt; a game that keeps the text inventory says 5), "7" when it also draws the credit sign (the
+ cent sign Apollo RP shows for money with arp_h9_credits 1: the single byte 0xA2 in a panel's or the HUD font's text, U+00A2 as UTF-8 in
+ console, chat and centre text; include\h9_vgui.inc H9VGUI_CREDIT_PROTOCOL), "8" when it also draws the search of a handcuffed player (H9Search, docs\ARP_INVENTORY_WINDOW.txt, 3.4; ARP_Inventory
+carries the constant until include\h9_vgui.inc has it), "9" when it also takes money from the player searched (H9Search op 5, MONEY; H9VGUI_SEARCHMONEY_PROTOCOL, carried by ARP_Inventory likewise). A plugin
  sends a STATUS only to a game of protocol 2 or more (h9vgui_status says
- whether it did) and a MARK only to a game of protocol 3 (h9vgui_mark), and
+ whether it did) and a MARK only to a game of protocol 3 or more (h9vgui_mark), and
  the rest keep the hudmessage or what the plugin gives them instead. The client registers it as a FCVAR_USERINFO cvar; FWGS puts
  such a cvar into the userinfo as soon as it exists (engine\common\
  cvar.c:463, from pfnCvar_RegisterClientVariable at engine\client\
@@ -1117,6 +1141,8 @@
                          scheme fonts and colours, text of any length
                          (not CommandButton's 32), a number key's label
        CH9Notice         the banner, flash and bar notices
+   h9_theme_math.h, h9_theme.h, tests\test_theme.cpp
+       the colour a player gives the panels (4k)
  Existing files that change:
    hud.cpp            HOOK_MESSAGE(H9Vgui) with H9Board's (313-317); the
                       cvars beside cl_h9_linkicons (327-330)
@@ -1276,6 +1302,45 @@
  in include\h9_vgui.inc; it sends nothing to a game of protocol 2 or less and says so, and
  h9_marks.inc gives that game TS's own Objective marker instead (a compass icon and the label
  text at the point, drawn where TS draws objectives). No game gets both.
+
+ 4j. The aim names (H9Look, protocol 5)
+ TS draws the name of the player the crosshair is on in the middle of the screen: red for anyone who is not on your side, green for a teammate
+ (CHudTSStatus, TS_AimNames in reTS\cl_dll\ts_reticle.cpp). Two things want that name left out, and the server says which in a message of
+ its own, H9Look, registered by ts_matchmode in plugin_precache and sent to a game of protocol 5 or more once a second:
+     byte 1 (the op), byte flags
+     flags bit 0   no teammate's name: the server draws the teammate as a plaque, a notice in the slot "aim" over a bar of his health
+                   (his name, his class, his health and armour, and that he carries an objective; task_hover_info, tsm_hover_plaque).
+                   Set in a live round while tsm_hover_info and tsm_hover_plaque are 1.
+     flags bit 1   no name at all: a roleplay map, where Apollo RP says who anyone is (arp_h9_hidenames, g_map_rp).
+ The client keeps the word for 15 seconds and forgets it at a new map; cl_h9_aimplaque 0 draws TS's names always and shows no "aim" notice.
+ A game that has no H9 VGUI gets the teammate's readout as the green text it always was, and TS's names.
+ Check, in a game with the new client.dll and server: in a live round aim at a teammate (a bot will do): a purple plaque with his name, class,
+ health and armour over a bar of his health, in the colour of how well he is, and no green name over it; aim at an enemy: TS's red name as
+ ever. cl_h9_aimplaque 0: the green name and no plaque. On a roleplay map no name over anyone; arp_h9_hidenames 0 on the server brings TS's
+ names back within a second or two.
+
+ 4k. The colour of the panels (cl_h9_vgui_r, _g, _b, cl_h9_vgui_color)
+ The panels are purple, and a player who does not want the purple, or the pink it reads as, gives them another colour with three saved cvars,
+ cl_h9_vgui_r, cl_h9_vgui_g and cl_h9_vgui_b (0 to 255). The colour they name is the colour of the highlight band: 138 66 196 as shipped, which
+ changes nothing. cl_h9_vgui_color sets the three in one command (r g b, #rrggbb, or default) and prints them with no argument.
+ What follows the colour: every colour that H9's drawing takes through CH9Surface (the menus, the notices, the match bar, the panels of
+ Apollo RP's HUD, the chat bubbles) and through the inventory window's canvas (h9_arpinv.cpp), and the art (sprites/tsm_panel.spr and
+ tsm_banner.spr), which is made in the colour when a size is first drawn. A colour of H9's that is one of its purples (a hue from 248 to 284
+ degrees that is not a grey: the art, the rails, the headings, the highlights and the text colour of the scheme) is moved to the hue of
+ the player's colour and its saturation multiplied by the player's over the shipped one's, at its own lightness (h9_theme_math.h). Each
+ purple keeps its distance from the band's hue (the art's run from 255 to 275 degrees), and the dark greys of the art keep their faint cast in the new
+ hue. A grey (or white or black) player's colour takes the colour out. What is not a purple is left as it is: a warning's red, the green,
+ yellow and red of a need's bar, a team's colour, the pictures of items, a notice's white. TS's own menus (the team and class menus, the
+ scoreboard) take their colours from the text scheme files and are not changed.
+ The cvars are read through a settle time of 0.4 seconds, so a colour typed as three commands is one change, and a change is made once
+ (h9theme::Generation counts them). VGUI1 frees no texture, so the old art stays with the engine when a new colour makes it again: no more than twelve
+ colours do that in one game, and then the art keeps the colour it has until the game is restarted (the rest follows the cvars as ever).
+ Check, in a game with the new client.dll: cl_h9_vgui_color 40 160 255 and open a menu, take a notice (a mode's banner), look at Apollo RP's
+ HUD and the inventory window: all blue, the art and the text and the rails, the red warning rows still red, the need bars still green to
+ red. cl_h9_vgui_color default: the purple again. cl_h9_vgui_color 128 128 128: grey. cl_h9_vgui_color with no argument prints what it is.
+ reTS\cl_dll\tests\test_theme.cpp checks the arithmetic without the game (1363 checks: the shipped colour moves nothing, every purple of H9's becomes
+ a green, a blue, a grey of its own lightness, what is not a purple is left alone, the edges of the hue range, no value out of 0 to 255): build and run
+ it with cl /std:c++17 /EHsc test_theme.cpp in that folder.
 
  5. ORDER OF WORK
  ----------------

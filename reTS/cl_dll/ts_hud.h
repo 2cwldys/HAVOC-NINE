@@ -53,7 +53,12 @@ void TSHud_Panel(int x, int y, int w, int h);
 // Draw a coloured string clipped to maxX, per-character — a faithful port of the
 // original FUN_10021ce0 (pfnDrawCharacter advancing by SCREENINFO charWidths, stops
 // before any glyph that would cross maxX). Returns the ending x.
+// The byte 0xA2 is the credit sign Apollo RP shows for money with arp_h9_credits 1 (H9VGUI_CREDIT_PROTOCOL). The HUD font has
+// ASCII only, so it is drawn as a "c" with the font's own "|" through it, as wide as the "c".
 int TSHud_DrawString(int x, int y, int maxX, const char* str, int r, int g, int b);
+
+// The width TSHud_DrawString gives a string up to its first line break (the credit sign counted as a "c").
+int TSHud_StringWidth(const char* str);
 
 // The HUD number (client.dll 0x1004c290) in the hud.txt number sprites; flags below. x,y top-left;
 // returns the x past the last digit.

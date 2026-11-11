@@ -24,10 +24,10 @@ C. With H9's client on h9_tsrp_hive.
       Job under, each label dimmer than its value. cl_h9_arphud_list in the console: key "1", messages read > 0, HUD 1 shown.
       If arp_hudstate says PANEL and messages were sent but cl_h9_arphud_list says "0 message(s) read": the message does not reach the
       game (hook or network); if it says some read but "no lines held" or another reason, the reason is the thing to read.
-   3. Earn or spend money: Wallet changes within two seconds. Walk into another zone: Location changes. Eat or starve (hunger on): the line
-      appears. Wait on the spot a minute: the panel does not blink (the refresh sends the same lines and changes nothing).
+   3. Earn or spend money: Wallet changes within two seconds. Walk into another zone: Location changes. Eat or starve (hunger on): the Needs panel
+      at the top right changes (13). Wait on the spot a minute: the panel does not blink (the refresh sends the same lines and changes nothing).
    4. Each switch: cl_h9_arphud_wallet 0 (the wallet line goes, the rest stay), _title 0 (the heading and the blank go, no empty heading),
-      _job 0, _status 0 then die (only the heading is left of the panel while dead, the line that says so is gone), _extra 0 (hunger, location go),
+      _job 0, _status 0 then die (only the heading is left of the panel while dead, the line that says so is gone), _extra 0 (location goes),
       every kind 0 (the panel goes), then back to 1. cl_h9_arphud_left 0: the whole panel goes and no text takes its place.
    5. cl_h9_arphud 0: within two seconds arp_hudstate says TEXT HUD ("_h9arphud is 0"), the panel is gone and the text HUD (if the game
       draws it at all) returns; 1: the panel is back within two seconds. cl_h9_vgui 0 does the same. arp_hud_panel 0 on the server: everyone
@@ -44,5 +44,110 @@ C. With H9's client on h9_tsrp_hive.
        The default title's guillemets: shown as quotation marks if the font has them, else left out (unverified).
    11. Other plugins' lines: jail someone (Jailed: No Salary, Cuffed), drink (Blood Alcohol Level): they are _extra lines.
    12. Web client: the same, with its own cl_h9_arphud_list.
+   13. The needs (hunger). With the live database backed up, on the server arp_hunger_enabled 1 (the shipped arp.cfg has 1; if the server has set it
+      to 0, set it in the server console and change the map) and join on h9_tsrp_hive as a living player. Within a few seconds a purple panel headed "Needs" at
+      the top right (from about 104 px down, clear of the round time and the kill feed) with one row: Hunger, a bar and the number. A new
+      character starts at 0%: the bar is empty and the number has the normal text colour. cl_h9_arphud_list names cl_h9_arphud_needs, and
+      arp_hudstate shows "HUD 2: sent ...: Hunger: 0%". Hunger rises by 1 about every 90 seconds, so to see the rest set it
+      in the database: stop the server, back up data\sqlite3\arp.sq3, UPDATE arp_users SET hunger = 400 WHERE authid = '<yours>' (the
+      column is tenths of a per cent: 400 is 40%), start the server and join. 40%: the bar filled two fifths in a yellow-green. 74%
+      (740): nearly red, the number still normal. 75% (750): the bar red, the number red, the chat says you are starting to get very
+      hungry and you walk slower. 90% (900): a red row "Starving" under the bar a second or two after the join (the very hungry message comes first), a chat line, no salary at the payday. 100%
+      (1000): the bar full. Two thin light marks cross the bar at three quarters and nine tenths. Eat (/items: the Steak heals 80, the
+      Soda 5): the bar falls by 5 each second and the colour goes back with it, within two seconds of each change.
+      Thirst: with arp_thirst_enabled 1 on the server (the shipped arp.cfg has 1) a second row, Thirst, stands under Hunger. It rises by 1 about
+      every 45 seconds and is not stored (a player who joins starts at 0, and one who dies starts again at 0, as hunger does). A Soda or a Milk lowers it by
+      35 or 30 when it is finished, also with no hunger to heal. From 90 a red row "Dehydrated" stands under the bars. It changes nothing else: no
+      slowdown, no message, no salary. Let it climb, die (or have an admin kill you) and respawn: both rows are back at 0%.
+      Dropped items: drop an item (/items, or the inventory window) and look at it from a few steps: the notice names it ("Soda x3"), and its picture
+      stands above the notice, the same picture as its tile in the inventory window. cl_h9_arphud_icon 0 takes the picture away and leaves the notice;
+      with arp_h9_itemhover 0 on the server nothing is said of the item at all. A game that says _h9vgui 5 gets the text without the picture.
+      A. arp_hunger_enabled 0 on the server: the panel is gone within two seconds (arp_hudstate says "HUD 2: taken down"), and no empty panel is left.
+      B. cl_h9_arphud_needs 0: the panel goes at once and nothing takes its place (not as text); 1 brings it back. cl_h9_arphud_top 0 does
+         the same, and cl_h9_arphud_left 0 does not touch it.
+      C. Die, or spectate: the panel is gone (the first panel says you are dead); respawn: it returns.
+      D. cl_h9_arphud 0 (the text HUD): "Hunger: 40%" flush right at the top of the screen in the second HUD's colour, not among the lines
+         at the left, and from 90 "Starving" under it. cl_h9_arphud 1: the panel again.
+      E. cl_h9_vgui_scale 0.5 and 2, 640x480 and 1920x1080: the label is whole, the bar keeps a width, nothing runs out of the panel.
+      Wrong: the panel with no bar (a line of text "Hunger: 40%" in the panel: the game is older than the server), the bar green at 80, a
+      panel with nothing in it, the panel still there after death or after arp_hunger_enabled 0.
+   14. The weapon bar and the left panel. With the default cl_showequipment 1 (a faint row of the weapons carried at the top left of the
+      screen, five columns: melee and grenades, pistols, sub machine guns, rifles and shotguns, akimbo guns) the first panel starts
+      under the lowest weapon over the columns it covers, with a small gap: carry a pistol and a rifle and it stands just under their row.
+      Pick up more guns of one kind (the pistols are the second column from the left): the panel slides down a row as you pick them up,
+      and back up when you drop them. Open the weapon select (the mouse wheel, or a key 1 to 5): the panel does not move but is drawn smaller (a
+      smaller font, three quarters of the art; cl_h9_arphud_shrink 0 leaves its size), and does not move when the select closes, where it
+      has its size again. cl_showequipment 2 and 3: the same. cl_showequipment 0 (no bar until the select opens): the panel
+      stands at the top, slides down within a fifth of a second of the select opening, clear of the bright bar, and back up when it shuts.
+      Dead, spectating, nohud 1 or the buy menu: the bar is gone and the panel slides to the top. The panels at the right (the needs,
+      the chat) never move with the bar. With so many weapons that the panel cannot stand under the bar, or on a low screen (at 640x480
+      the safe area is about 300 px tall), the panel is held inside the safe area, 60 px and seven lines of text above the bottom edge, and
+      covers the bar's lowest rows: that is the rule. Wrong: a jump of more than a few pixels in one frame, the panel moving when the
+      select opens with cl_showequipment 1 to 3, the panel over the weapons' pictures while there is room under them, a panel running
+      off the bottom of the screen, the panel at its full size while the select is open (with cl_h9_arphud_shrink 1), or still small
+      after the select has shut.
 
-D. What to send back if it fails: the AMX log lines "[ARP] HUD ...", arp_hudstate, cl_h9_arphud_list, and ts\logs\h9_overflow.log.
+E. THE ADDITIONS OF 2026-11-11 (a full server restart first: the new cvars; a map change after arp_h9_restraints)
+  1. The handcuff symbol: as police (arp_setjob "<you>" "Cadet") say /cuff at a second player within 200 units. A handcuff picture floats over his head (everybody sees it,
+     he does not see his own); it stays over him as he walks and crouches, and goes when the cuffs come off (/cuff again), when he dies and when he leaves.
+     arp_h9_cuffsprite 0: no symbol. Wrong: the picture at his waist, on the floor, or dark in a dark room.
+  2. Cuffs, Tape and Rope are items (arp_itemlist): the Ministry Quartermaster, the Black Market and the Hardware Counter list them with prices and no longer say BAD ITEM ID. A
+     civilian with one Cuffs (arp_createitems "<him>" "Cuffs" 1) cuffs another civilian by using the item (inventory window) or /cuff: his count goes down by one; whoever frees
+     the prisoner gets it back (but not when police cuffed him). Police need none. Tape: used at a player within 100 units, his chat and team chat are refused ("Your mouth is
+     taped"), nobody hears his voice (arp_voice 1); /removetape frees him; death and leaving free him. Rope: used on a player, he is pulled along when you walk more than 150
+     units from him (arp_h9_rope_length), flat on the floor; /untie, or the rope used on him again, frees him; the rope snaps at 600 units and ends with either's death.
+     arp_h9_restraints 0 and a map change: the three are gone.
+  3. Popups: buy a Soda at a shop, try to buy with no money, use an item: each "[ARP] ..." line shows as a panel over the crosshair that holds a few seconds and fades, the
+     latest lowest, up to three; a refusal in a warm colour; no copy in the chat (arp_h9_toast 2 gives both, 0 only the chat). A game that does not draw H9 panels still gets chat.
+  4. /me opens a door (or any action) on a roleplay map: the other players near you read it in the chat as before, and over your head a RED "*opens a door*" floats (the one
+     your crosshair is on, as the chat bubbles do). /action and /m the same. On a map that is not a roleplay one /me does nothing new.
+  5. The panel colour: cl_h9_vgui_color 40 160 255 recolours the menus, notices, ARP's HUD panels, chat bubbles and the inventory windows; cl_h9_vgui_color default is the purple
+     again (docs\H9_VGUI.txt, 4k; COMMANDS.txt, H9XASH CLIENT).
+
+   15. The look-at plaque (docs\APOLLO_RP.txt 2; arp_h9_plaque 1, arp_hud4_type 2, a game with the panels; each map's .sql has put its properties in the database at the map's
+      start: the log line says "[ARP] map SQL: 267 statements, 0 errors, jobs now 26, properties now 91, doors now 155" on the hive (the 91 are the 90 of the file and the jail's;
+      90 and 151 on a database that does not have the jail's yet) and "149 statements ... properties now 30, doors now 93" on h9_tsrp_newbyzantium; arp_hud_panel 1; a game with
+      the new client.dll). What a plaque shows is the lines the core sent (arp_hudstate shows the start of what HUD 4 was last sent), drawn as a plate: the heading in upper
+      case with a rail under it, OWNER and the other fields with a dim label, AFFILIATION and STATUS as badges.
+      A. h9_tsrp_hive, a citizen (Unemployed or Citizen), one door at a time, the crosshair on the door within about 100 units:
+         Gear Guys' front door (pc_techromagna, the west front of the red shop, x 1772, y 2443 to 2499, floor -322): GEAR GUYS, OWNER STATE PROPERTY, AFFILIATION CIVILIAN (a plain
+         outline), STATUS OPEN (green). Nothing else: no restriction line.
+         The Civil Protection gate (xe_xenoncpgate, the concourse's north end, y 661, x -63 to 65, behind the dais): XENON CITY CIVIL PROTECTION, AFFILIATION MINISTRY OF DEFENSE
+         (the purple badge), STATUS SEALED (amber), and RESTRICTED MINISTRY OF DEFENSE ONLY in red. As an ARP admin give yourself the job Cadet (arp_setjob, docs\ARP_ADMINS.txt, 8)
+         and look again: the red line is gone and the rest is the same; as M-Cadet the red line is back (the Medical Division has no police letter).
+         The Midgar lab gate (al_midgar.lab.gate.one, Alexandria, x -800 to -576, y -664, floor -2360): MIDGAR LAB, MEDICAL DIVISION, SEALED, RESTRICTED MEDICAL DIVISION ONLY; M-Cadet
+         loses the red line, Cadet keeps it. Romagna Clinic's ward doors (pc_lwrromgoff2, x 2439, y 1657, floor -564) say the same under ROMAGNA CLINIC.
+         Paradise Flat 1 (pc_resident1, x -2675, y 479 to 551, floor -984, south west): FOR SALE, $2400 (the cent sign for a game that is shown it), AFFILIATION CIVILIAN, SEALED,
+         RESTRICTED KEYHOLDERS ONLY, and "Say /buy to purchase". Give yourself bank money (arp_createbank "<you>" 5000, docs\ARP_ADMINS.txt, 8) and say /buy: the plaque turns to OWNER <your name>,
+         with no price, and the use key opens the door for you and for nobody else; /sell 3000 puts it up again (your name, FOR SALE $3000), /lock unlocks it (OPEN).
+         A jail panel (al_jail1act, the Alexandria jail, x -1936 to -1920, y -288 to -272, z -3320 to -3304): JAIL, STATE PROPERTY, MINISTRY OF DEFENSE, SEALED, RESTRICTED.
+         The Paradise Cafe's doors (pc_cafe1door, x 958, y 1095 to 1151, floor -306), the Sky Bar (xe_skyb_gate, x 49 to 121, y -725, floor 2271) and the steak house (al_edssteak) say FOR SALE
+         at their price and SEALED (the Sky Bar's gate starts open and stays open, with SEALED on its plaque); the K-Line's south door (al_klinedoor) says STATE PROPERTY, SEALED, RESTRICTED
+         KEYHOLDERS ONLY; the Gear Guys, Uncle Pikkys, Green Dragon, Xenon City Gear, Cafe Fortress, Guns n Stuff, Cybernetics and bank front doors say OPEN.
+         All the doors of a building give its one heading, and its lock is the property's: Uncle Pikkys' other door (pc_unclepikkyse, x -1585 to -1535, y 445, floor -984) says UNCLE PIKKYS
+         PIZZERIA, STATE PROPERTY, SEALED, RESTRICTED KEYHOLDERS ONLY where its front door (pc_unclepikkysentra, x -1862, y 159 to 304) says OPEN; Guns n Stuff's back door (xe_gunshop1, x -373
+         to -301, y -875, floor 979) says GUNS N STUFF, SEALED; Paradise Flat 2's two doors (pc_resident2, x -3506, y -1811 to -1739, and pc_resident2park, x -3848 to -3776, y -1906, floor -984)
+         both say FOR SALE $3000; the SkyTech gate and lab door (pc_skytechgate, x -453 to -397, y 898, floor -91; pc_labdoor1sky, x -78, y 355 to 411, floor 98)
+         both say SKYTECH, SEALED; Pawn Prawn's staff door and the hatch under it (pc_noodles1, x -952, y 1779 to 1835, floor -298; pc_pphideout1, x -1048 to -965, y 1896 to 1984, floor -305) both
+         say PAWN PRAWN STAFF ROOM, SEALED. Paradise Flat 5 (pc_resident5, x -1737, y -2210 to -2138, floor -984) says FOR SALE $2400. A door that is in no property (the train door
+         pc_traindoor1, x -3103, y 724 to 836, floor -1131; a lift; an estate gate) says nothing and leaves the screen as it was.
+      B. h9_tsrp_newbyzantium: the north precinct's front desk door (precinct_n_desk, x -336 to -328, y 2768 to 2832, floor 0): NORTH PRECINCT, MINISTRY OF DEFENSE, SEALED,
+         RESTRICTED. The cells in its row and the checkpoints' doors say their own names. The shops, bars, clinics and the bank have no plaque at their shutters (their doors have no name;
+         docs\ARP_CONTENT.txt, 9); their NPCs have one.
+      C. NPCs: Gear Guys Arms Dealer (hive, x 1900, y 2324): GEAR GUYS ARMS DEALER, ROLE GUN SHOP, and "Press use (default e) to use". The ATM Droid says ROLE ATM, the bank teller
+         ROLE BANK, a Medical Officer ROLE DOCTOR, a shop clerk ROLE SHOP.
+      D. Players: with a second player, his name, JOB and AFFILIATION: a Captain MINISTRY OF DEFENSE, an M-Ensign MEDICAL DIVISION, a Merchant CIVILIAN, the Administrator ADMINISTRATION.
+         Nothing is shown of a dead player.
+      E. The plaque does not flicker: look steadily at the CP gate for ten seconds, and slowly across the gate and the shield behind it (xe_pdshield) and the wall beside: the plate
+         stays, with no blink every second or two and no fade between the gate and the shield (the same property, the same lines); at the Gear Guys' door and its neighbour (a door
+         of another property) the plate changes in place. Look away: it goes after about two seconds and fades. Die with it up: it is gone at once.
+      F. Switches: cl_h9_arphud_plaque 0 (the same lines as a plain centred banner: "Gear Guys", "Owner: State property", "Affiliation: Civilian", "Status: Unlocked");
+         arp_h9_plaque 0 on the server (read live): the old text, "Gear Guys" and "Status: Unlocked", with no affiliation; arp_hud4_type 1: the same text in the middle of the screen with
+         the Affiliation line; cl_h9_arphud 0: the text HUD's fourth line. cl_h9_arphud_list names cl_h9_arphud_plaque. At 640x480 and at 1920x1080, with cl_h9_vgui_scale 0.5 and 2:
+         the plate is whole, its text inside it, its badges round their words, nothing runs off the screen, and it keeps off the crosshair.
+      Wrong: the old banner of white lines where the plate should be (the game has the old client.dll, or cl_h9_arphud_plaque is 0); a plaque for a door that is another building; two doors of one building under
+      different headings; the plaque blinking while you look steadily; a status OPEN on a door that is shut and locked; "Property" as a heading (a property with no external name); text outside its plate;
+      the other panels moving when a plaque appears.
+
+D. What to send back if it fails: the AMX log lines "[ARP] HUD ...", arp_hudstate, cl_h9_arphud_list, and ts\logs\h9_overflow.log (for a plaque also the map SQL log line and what
+   arp_query SELECT * FROM arp_property_<map> says).

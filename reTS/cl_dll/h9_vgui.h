@@ -11,7 +11,8 @@
 // and ESC closes the newest one.
 #pragma once
 
-#define H9V_PROTOCOL 3 // 3: MARK (2: STATUS)
+#define H9V_PROTOCOL 9 // 9: reads H9Search op 5 (MONEY) and offers to take money from the player searched; 8: reads H9Search, the window that searches a handcuffed player (h9_arpinv_*.h); 7: draws the credit sign Apollo RP shows for money (arp_h9_credits): the byte 0xA2 in a panel or HUD-font text, U+00A2 as UTF-8 in console, chat and centre text (6: reads H9Inv and H9Trade, Apollo RP's inventory and exchange windows; 5: H9Look, the aim plaque and the aim names; 4: H9Buy, the loadout rework's buy window; 3: MARK; 2: STATUS)
+#define H9V_PROTOCOL_NO_INVENTORY 5 // what a game says when cl_h9_arpinv or cl_h9_arpvgui is 0: it keeps the text inventory
 
 // Limits (docs\H9_VGUI.txt, 4d).
 #define H9V_ID_LEN 24       // an id: 1-23 characters of a-z 0-9 . _ -
@@ -204,4 +205,11 @@ void H9Vgui_SafeArea(int& x0, int& y0, int& x1, int& y1);
 // anchored along the top) this frame, 0 while it shows nothing there: on a server whose match mode
 // draws it, CHudTSMessage::Draw puts TS's own top notices beneath it.
 int H9Vgui_StackBottom();
+
+// LOOK (protocol 5): what the server says of the name TS draws over a player the crosshair is on (green for a teammate, red for anyone
+// else). The H9Look message (ts_matchmode) carries two flags: the teammate's name is left out because the server shows the teammate as a
+// plaque of its own (a notice in the slot "aim": his class, his health), and every name is left out (a roleplay map: Apollo RP says who
+// anyone is). The server says it again every few seconds; one that goes quiet is not believed. cl_h9_aimplaque 0 draws TS's names always
+// and shows no "aim" notice. From TS_AimNames (ts_reticle.cpp): true when the name of this aimed player is not drawn.
+bool H9Look_HideAimName(bool teammate);
 // ---- end H9 VGUI ------------------------------------------------------------------------------
