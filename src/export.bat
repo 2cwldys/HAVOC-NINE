@@ -795,7 +795,8 @@ REM Apollo RP's models and sounds, which its plugins precache on a roleplay map.
 if exist "%~dp0apollo-rp\base\models\arp" (
     xcopy /y /i /q "%~dp0apollo-rp\base\models\arp\*.mdl" "%EX%\ts\models\arp\" >nul
     xcopy /y /i /q "%~dp0apollo-rp\base\sound\arp\*.wav" "%EX%\ts\sound\arp\" >nul
-    echo   ts\models\arp\ + ts\sound\arp\ ^(Apollo RP^)
+    xcopy /y /i /q "%~dp0apollo-rp\base\sound\arp\*.wav.original" "%EX%\ts\sound\arp\" >nul
+    echo   ts\models\arp\ + ts\sound\arp\ ^(Apollo RP, and the stock sounds it replaced as <name>.wav.original^)
 )
 
 REM The export-map pipeline travels whole as export-map\, in the repo-exportmap-block below; the
