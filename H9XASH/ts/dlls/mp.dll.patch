@@ -16,15 +16,15 @@ Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 2026-11-02 are target hl alone (changes 7 and 8; the client is built
                 apart, its own client.dll.patch); the build of 2026-11-03 is both
                 (change 9); the build of 2026-11-04 is target hl alone (change 10); the build of 2026-11-05 is both (change 11);
-                the build of 2026-11-09 04:45 is both (changes 12 to 14); the build of 2026-11-09 05:49 is target hl alone (change 15); the build of 2026-11-09 07:42 is target hl alone (change 16)
-Size          : 999936 bytes
-SHA256        : 782043F5CDBAF7F2134E9985EEDA3FF4F5419AEF4D898CAF1DE8B1B91BA5FDE9
-client.dll    : 864256 bytes (its own client.dll.patch)
-SHA256        : 1CF932AC4D79FD3B3E91B1C1A0DDF685BD8FF1DC529EE8E4F541DD6A102729F9
+                the build of 2026-11-09 04:45 is both (changes 12 to 14); the build of 2026-11-09 05:49 is target hl alone (change 15); the build of 2026-11-09 07:42 is target hl alone (change 16); the build of 2026-11-10 01:16 is target hl alone (change 17)
+Size          : 1009664 bytes
+SHA256        : 36D5AF5B49482EC97D2F5E6FD14D184FF45295D86E9C8067750DD7DEDC6709A8
+client.dll    : 935424 bytes (its own client.dll.patch)
+SHA256        : 8FA885BE1F272CCC70B3A3607AE29B35FCDF1236DA328D8C5FF1AD12BBD41BE2
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
                 plus the 128-slot build below (2026-11-01), changes 7 and 8
                 (2026-11-02), change 9 (2026-11-03), change 10 (2026-11-04), change 11 (2026-11-05) and changes 12 to 16
-                (2026-11-09)
+                (2026-11-09) and change 17 (2026-11-10)
 
 Both DLLs are also in reTS\binaries\ts\ (the staging folder xash.bat's assemble step and
 export.bat's GoldSrc block copy from), in H9XASH\ts\, export\H9XASH\ts\, and the GoldSrc
@@ -282,6 +282,23 @@ What the source build contains, beyond the release DLL
    stays); a kill of his leaves no spectacular slow-motion bubble (CTSSlowMotionPoint) and sends no killer blur (TSMotionBlur). A
    human's kill, a grenade's bubble and every pickup are unchanged; The One mode is not covered. tsm_bot_powerups 1 gives the
    old behaviour. The mp.dll this replaced is kept as mp.dll.bak_prebotawards in reTS\binaries\ts\dlls\.
+
+17. The Mech rocket launcher fires a salvo, with a bigger and harder blast; its numbers reach the client
+
+   dlls\ts_gun.cpp, ts_gun.h (CTSGun::MechRocketFire, MechRocketShot, MechRocketSalvoStep, WeaponIdle), ts_weapon_info.h/.cpp, ts_mechrocket.h/.cpp, game.cpp/.h,
+   TS_gamerulesclass.cpp (InitHUD): a trigger pull launches a salvo of h9_mechrocket_salvo (4) rockets h9_mechrocket_stagger (0.12) s apart. The first rocket sets the
+   count still to leave in CTSGun::m_burstOrPhase (the burst slot, already carried by the prediction as clientdata vuser2.x); WeaponIdle sends the rest once the primary
+   timer (set to the stagger) has run out, so the client predicts the salvo and no button is needed after the pull. Each rocket spends a round and plays the fire
+   event; a short clip launches what it holds. The salvo ends on holster, death, an empty clip or water; Reload refuses while it is up; a pull is refused while it
+   leaves. The aim kick comes once, after the last rocket. The first rocket goes along the aim, the others stray up to h9_mechrocket_spread (2.5) degrees from the aim
+   they find when they leave, on CHAN_AUTO at 0.85 and pitch +-4. Row: clip 4 (was 1), reload 3.0 s (was 2.5), the 1.5 s shot rate counts from a salvo's last rocket,
+   two new s_weapon_info fields (iSalvo, flStagger), row damage 200. Cvars: h9_mechrocket_damage 150 -> 200, _radius 200 -> 260, _clip 1 -> 4, new _salvo (4), _stagger
+   (0.12), _spread (2.5), _reload (3.0). One rocket now kills a 100 hp player up to 162 units from the blast (was 100); four together to 236; armour takes none of a
+   blast. TSMechRocketSyncCvars (every rules think) puts clip, rate, reload, salvo and stagger in the server row through TS_ApplyMechRocketSetting (clamped) and sends
+   changes to everyone as SrvSett ids 5 to 9 (BYTE id, SHORT value; milliseconds for the times); InitHUD sends all five to a joiner; TS 3.0 clients drop ids above 3.
+   The client keeps the values and puts them in the row again whenever it builds the table. Pairs with client.dll change 32 (client.dll.patch). Described in
+   reTS\reference\DEVIATIONS.md. The mp.dll this replaced is kept as mp.dll.bak_prebatch in reTS\binaries\ts\dlls\. (Items 12 and 15 state the launcher as of their
+   builds.)
 
 
 Building and deploying
