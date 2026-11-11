@@ -27,22 +27,26 @@ export const faceSpan = (pixels, k) => [pixels.slice(0, k).reduce((a, b) => a + 
 /**
  * The gauntlet: the arm's armoured forearm, an octagon tube from far behind the eye (so that the melee thrust never shows
  * its rear end) to the wrist. Its zone's width is shared by `rings`: [[s, u]] with s the distance from the first station.
+ * `caps`: [rear, front], each false (open: the neighbouring part covers it) or a zone.
  */
-export function gauntlet(M, Z, g) {
+export function gauntlet(M, Z, g, caps = open8.caps) {
   const r = r8(g.up, g.side);
   const path = g.stations.map((x) => [x, g.cy, g.cz, r]);
   const first = g.stations[0];
   return M.tube(path, Z.FORE, {
-    name: "m60_fore", ...open8, smooth: 35,
+    name: "m60_fore", ...open8, caps, smooth: 35,
     places: { rings: g.stations.map((x, i) => [x - first, g.u[i]]), round: roundOf(g.facePx) },
   });
 }
 
-/** A hydraulic piston: a cylinder with a bright rod running out of it into a bracket. */
-export function piston(M, Z, name, y, z, x0, x1, x2, r = 0.42) {
+/**
+ * A hydraulic piston: a cylinder with a bright rod running out of it into a bracket. The rod's end on the cylinder is left
+ * open unless `closed`.
+ */
+export function piston(M, Z, name, y, z, x0, x1, x2, r = 0.42, closed = false) {
   M.turn([{ s: x0, r: r - 0.1 }, { s: x0 + 0.12, r, crease: true }, { s: x1 - 0.12, r, crease: true }, { s: x1, r: r - 0.1, crease: true }], Z.PISTON,
     { name: `${name}_body`, sides: 12, at: (s, a, b) => [s, y + a, z + b], seam: Math.PI * 0.5, caps: [Z.CAPS, Z.CAPS], smooth: 35 });
-  M.turn([[x1, r * 0.48], [x2, r * 0.48]], Z.ROD, { name: `${name}_rod`, sides: 8, at: (s, a, b) => [s, y + a, z + b], seam: Math.PI * 0.5, caps: [false, Z.CAPS] });
+  M.turn([[x1, r * 0.48], [x2, r * 0.48]], Z.ROD, { name: `${name}_rod`, sides: 8, at: (s, a, b) => [s, y + a, z + b], seam: Math.PI * 0.5, caps: [closed ? Z.CAPS : false, Z.CAPS] });
 }
 
 /** A hose: a ribbed black tube along a path of [x, y, z] points. */

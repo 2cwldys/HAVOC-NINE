@@ -3,6 +3,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { K } from "./common.mjs";
 import { zones as mgZones } from "./minigun.mjs";
+import { sameGeometry } from "./check-solid.mjs";
 
 const [dir, weapon] = process.argv.slice(2);
 const Z = mgZones(512).BAND;
@@ -30,4 +31,10 @@ for (const [a, b] of [["msr", "default"], ["insurgent", "default"]]) {
     }
   }
   console.log(`${a} vs ${b}: ${n} pixels differ, ${outside} outside the band zone, box ${box.join(",")}`);
+}
+// the sets are one shape with three pictures: everything in the file before the picture's pixels is the same
+for (const s of ["msr", "insurgent"]) {
+  const differs = sameGeometry(readFileSync(fileOf("default")), readFileSync(fileOf(s)));
+  console.log(`${s} vs default: same shape, only the picture differs: ${differs ? `NO, ${differs}` : "yes"}`);
+  if (differs) process.exitCode = 1;
 }

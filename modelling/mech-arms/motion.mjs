@@ -42,3 +42,26 @@ export function kick(stock, names, amount) {
     seq.frames.forEach((frame, f) => { frame[m60][1] += amount * profile(f); });
   }
 }
+
+/**
+ * A part that slides along a straight line while an animation plays: bone `bone` (added with addBones, at rest where it is wanted) moves
+ * `distance` units along `direction` (a vector in the idle pose's space: +x forward, +y left, +z up), the share `ease(frame)` (0 to 1) of it at
+ * each frame of the named animations. Everything else in those animations is kept. The bone's stored values are its rest position plus the
+ * slide taken into its parent's own axes (a child's position is read in them).
+ */
+export function slide(stock, names, bone, direction, distance, ease) {
+  const b = boneIndex(stock, bone);
+  const R = poses(stock).idle[stock.bones[b].parent];
+  const local = [0, 1, 2].map((c) => R[0][c] * direction[0] + R[1][c] * direction[1] + R[2][c] * direction[2]);
+  const rest = stock.bones[b].pos;
+  for (const name of names) {
+    const seq = stock.seqs.find((s) => s.name === name);
+    seq.frames.forEach((frame, f) => {
+      const t = distance * ease(f);
+      frame[b] = [rest[0] + local[0] * t, rest[1] + local[1] * t, rest[2] + local[2] * t, ...frame[b].slice(3)];
+    });
+  }
+}
+
+/** 0 at frame 0, 1 from frame `end` on, smooth at both ends: a slide that rests exactly on a whole step. */
+export const settle = (end) => (f) => { const t = Math.min(1, Math.max(0, f / end)); return t * t * (3 - 2 * t); };

@@ -3,8 +3,8 @@
     python make-preview.py <game folder shaped like H9XASH\\ts> <out.png> [scratch folder]
 
 Row 1 the minigun, row 2 the rocket launcher (first person idle and firing with the crosshair marked, a close-up, what another
-player sees, the floor model), row 3 the three side sets of both view models. The minigun has no p_ or w_ of its own: the stock
-M60's are shown and labelled as such.
+player sees, the floor model), row 3 the three side sets of both view models. The minigun has no p_ model: the stock M60's is
+shown and labelled as such; its floor model is w_mechminigun.mdl.
 """
 import os
 import subprocess
@@ -37,7 +37,7 @@ tiles = {
     "mg_shoot": render(M("v_mechminigun.mdl"), "mg_shoot", *FIRST, "--seq", "shoot", "--frame", "2"),
     "mg_close": render(M("v_mechminigun.mdl"), "mg_close", *ORBIT, "--zoom", "1.9", "--seq", "idle"),
     "mg_p": render(f"{STOCK}/p_m60.mdl", "mg_p", "--view", "side", "--pitch", "0", "--zoom", "1.2", "--width", "640", "--height", "480"),
-    "mg_w": render(f"{STOCK}/w_m60.mdl", "mg_w", *ORBIT),
+    "mg_w": render(M("w_mechminigun.mdl"), "mg_w", *ORBIT),
     "rk_idle": render(M("v_mechrocket.mdl"), "rk_idle", *FIRST, "--seq", "idle"),
     "rk_shoot": render(M("v_mechrocket.mdl"), "rk_shoot", *FIRST, "--seq", "shoot", "--frame", "2"),
     "rk_close": render(M("v_mechrocket.mdl"), "rk_close", *ORBIT, "--zoom", "1.9", "--seq", "idle"),
@@ -75,7 +75,7 @@ rows = [
         ("mg_shoot", "View model: firing", None, True),
         ("mg_close", "View model: close-up", None, False),
         ("mg_p", "In another player's hands (p_)", "stock M60: no model of its own", False),
-        ("mg_w", "On the floor (w_)", "stock M60: no model of its own", False),
+        ("mg_w", "On the floor (w_)", None, False),
         (None, "", None, False),
     ]),
     ("MECH ROCKET LAUNCHER  (v_ p_ w_mechrocket: a four-tube pod on the Mech's arm)", ACC2, [
