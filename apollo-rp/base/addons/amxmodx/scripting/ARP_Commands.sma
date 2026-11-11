@@ -1,4 +1,6 @@
 #include <amxmodx>
+// H9: before amxmisc.inc, so that show_activity (a stock that calls client_print) shows the credit sign too
+#include <ApolloRP_Credits>
 #include <amxmisc>
 #include <ApolloRP>
 #include <ApolloRP_Chat>

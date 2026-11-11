@@ -1,0 +1,154 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_HungerMod.sma b/base/addons/amxmodx/scripting/ARP_HungerMod.sma
+index a7d44f7..9f0a654 100644
+--- a/base/addons/amxmodx/scripting/ARP_HungerMod.sma
++++ b/base/addons/amxmodx/scripting/ARP_HungerMod.sma
+@@ -13,6 +13,9 @@ new g_Pasta
+ new g_Steak
+ 
+ new p_HungerEnabled
++new p_ThirstEnabled
++
++new g_Thirst[MAX_PLAYERS + 1]	// 0 (quenched) to 100, kept while the player is in the game and not stored: a player who joins or dies starts at 0
+ 
+ new g_Starving[MAX_PLAYERS + 1]
+ new g_Eating[MAX_PLAYERS + 1]
+@@ -22,11 +25,13 @@ public ARP_Init()
+ 	ARP_RegisterPlugin("Hunger Mod",ARP_VERSION,"The Apollo RP Team","Creates hunger-related items and settings")
+ 	
+ 	p_HungerEnabled = register_cvar("arp_hunger_enabled","1")
++	p_ThirstEnabled = register_cvar("arp_thirst_enabled","1")
+ 	
+ 	ARP_RegisterEvent("HUD_Render","EventHudRender")
+ 	
+ 	set_task(15.0,"SetHunger",_,_,_,"b")
+ 	set_task(1.0,"CheckHunger",_,_,_,"b")
++	set_task(15.0,"SetThirst",_,_,_,"b")
+ }
+ 
+ public plugin_init() register_event("DeathMsg","EventDeathMsg","a")
+@@ -82,8 +87,35 @@ public SetHunger()
+ 	}
+ }
+ 
++// Thirst is a second need beside hunger, and only a meter: it rises faster than hunger and only a drink quenches it; it changes nothing else.
++// Switched by arp_thirst_enabled.
++public SetThirst()
++{
++	if(!get_pcvar_num(p_ThirstEnabled) || random_num(0,2)) return
++
++	new Players[MAX_PLAYERS],Playersnum,id
++	get_players(Players,Playersnum)
++
++	for(new Count;Count < Playersnum;Count++)
++	{
++		id = Players[Count]
++		if(!is_user_alive(id)) continue
++
++		if(g_Thirst[id] < 100) g_Thirst[id]++
++	}
++}
++
++public client_putinserver(id)
++	g_Thirst[id] = 0
++
+ public EventDeathMsg()
+-	client_disconnect(read_data(2))
++{
++	new id = read_data(2)
++
++	// a death quenches the thirst, as ARP_Core's own death handler feeds the hunger
++	g_Thirst[id] = 0
++	client_disconnect(id)
++}
+ 
+ public client_disconnect(id)
+ 	g_Starving[id] = g_Eating[id] = 0
+@@ -95,24 +127,29 @@ public ARP_Salary(id)
+ 	return PLUGIN_CONTINUE
+ }
+ 
+-// The second HUD: a living player's hunger as a need (a bar in an H9 player's panel at the top right, the text "Hunger: 42%" for every other
+-// player) and, from 90, the status line under it. Nothing while the need is off or the account is still loading.
++// The second HUD: a living player's hunger and thirst as needs (a bar each in an H9 player's panel at the top right, the text "Hunger: 42%" for
++// every other player) and, from 90 of a need, a status line under them (Starving, Dehydrated). Nothing of a need that is off, or while the account
++// is still loading.
+ public EventHudRender(Name[],Data[],Len)
+ {
+ 	new id = Data[0]
+-	if(!is_user_alive(id) || Data[1] != HUD_SEC || !get_pcvar_num(p_HungerEnabled) || ARP_SqlHandle() == Empty_Handle || !ARP_PlayerReady(id))
++	if(!is_user_alive(id) || Data[1] != HUD_SEC || ARP_SqlHandle() == Empty_Handle || !ARP_PlayerReady(id))
+ 		return
+ 	
+-	ARP_AddNeedItem(id,"Hunger",ARP_GetUserHunger(id))
++	new Hungry = get_pcvar_num(p_HungerEnabled),Thirsty = get_pcvar_num(p_ThirstEnabled)
+ 	
+-	if(g_Starving[id] == 2) ARP_AddHudItemKind(id,HUD_SEC,0,HUDK_STATUS,"Starving: No Salary")
++	if(Hungry) ARP_AddNeedItem(id,"Hunger",ARP_GetUserHunger(id))
++	if(Thirsty) ARP_AddNeedItem(id,"Thirst",g_Thirst[id])
++	
++	if(Hungry && g_Starving[id] == 2) ARP_AddHudItemKind(id,HUD_SEC,0,HUDK_STATUS,"Starving")
++	if(Thirsty && g_Thirst[id] >= 90) ARP_AddHudItemKind(id,HUD_SEC,0,HUDK_STATUS,"Dehydrated")
+ }
+ 
+ public ARP_RegisterItems()
+ {
+-	g_Soda = ARP_RegisterItem("Soda","_Food","A can of soda, heals 5 hunger.",1)
++	g_Soda = ARP_RegisterItem("Soda","_Food","A can of soda, heals 5 hunger and, with thirst on, 35 thirst.",1)
+ 	g_Fries = ARP_RegisterItem("Fries","_Food","A bag of fries, heals 10 hunger.",1)
+-	g_Milk = ARP_RegisterItem("Milk","_Food","A box of milk, heals 15 hunger.",1)
++	g_Milk = ARP_RegisterItem("Milk","_Food","A box of milk, heals 15 hunger and, with thirst on, 30 thirst.",1)
+ 	g_Hotdog = ARP_RegisterItem("Hotdog","_Food","A weiner wrapped in bread, heals 25 hunger.",1)
+ 	g_Pizza = ARP_RegisterItem("Pizza","_Food","A slice of pepperoni pizza, heals 30 hunger.",1)
+ 	g_Hamburger = ARP_RegisterItem("Hamburger","_Food","A hamburger made of beef, heals 40 hunger.",1)
+@@ -161,7 +198,8 @@ public _Food(id,ItemId)
+ 	
+ 	CurArray[3] = Msg[0] == 'e' ? 1 : 0
+ 	
+-	if(ARP_GetUserHunger(id) < CurArray[2])
++	// a drink also quenches thirst, so a thirsty player may drink with no hunger to heal
++	if(ARP_GetUserHunger(id) < CurArray[2] && !(get_pcvar_num(p_ThirstEnabled) && g_Thirst[id] > 0 && (ItemId == g_Soda || ItemId == g_Milk)))
+ 	{
+ 		ARP_SetUserItemNum(id,ItemId,ARP_GetUserItemNum(id,ItemId) + 1)
+ 		return client_print(id,print_chat,"[ARP] You don't feel like %s this right now.",Msg)
+@@ -200,6 +238,9 @@ public Eat(CurArray[4])
+ 	{
+ 		ARP_SetUserHunger(id,Hunger - Food)
+ 		
++		if(CurArray[1] == g_Soda) g_Thirst[id] = max(g_Thirst[id] - 35,0)
++		else if(CurArray[1] == g_Milk) g_Thirst[id] = max(g_Thirst[id] - 30,0)
++		
+ 		new ItemName[33]
+ 		ARP_GetItemName(CurArray[1],ItemName,32)
+ 		
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc b/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
+index 50ae6b8..ad0a323 100644
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
+@@ -31,9 +31,9 @@ native ARP_AddHudItemKind(id,channel,refresh,kind,const item[],{Float,Sql,Result
+ // A need's line for the second HUD (HUD_SEC, at the top right in the stock arp.cfg). An H9 player's game draws the needs of a HUD as a panel
+ // with the heading "Needs" and a row for each: the label, a bar and the number; every other player gets the line as text, "<label>: <value>%",
+ // in the place arp_hud2_x and arp_hud2_y give. Call it from a HUD_Render handler when Data[1] is HUD_SEC, for a living player whose account is
+-// loaded, and only while the need is switched on (ARP_HungerMod does, for "Hunger"). The value is how bad the need is, 0 (satisfied) to 100:
++// loaded, and only while the need is switched on (ARP_HungerMod does, for "Hunger" and "Thirst"). The value is how bad the need is, 0 (satisfied) to 100:
+ // the bar goes from green through yellow to red at 75 and has a mark at 75 and at 90. A line under it of kind HUDK_STATUS in the same HUD (for
+-// instance "Starving: No Salary") is drawn as a warning.
++// instance "Starving") is drawn as a warning.
+ stock ARP_AddNeedItem(id,const label[],value)
+ 	ARP_AddHudItemKind(id,HUD_SEC,0,HUDK_NEED,"%s: %d%%",label,clamp(value,0,100))
+ 
+diff --git a/base/addons/amxmodx/configs/arp/arp.cfg b/base/addons/amxmodx/configs/arp/arp.cfg
+index 7c16366..9948571 100644
+--- a/base/addons/amxmodx/configs/arp/arp.cfg
++++ b/base/addons/amxmodx/configs/arp/arp.cfg
+@@ -89,7 +89,10 @@ arp_sql_backup_db "backup"
+ //////////////////
+ 
+ // Whether or not hunger is enabled
+-arp_hunger_enabled "0"
++arp_hunger_enabled "1"
++
++// Whether or not thirst is enabled: a second need beside hunger, quenched only by drinks (Soda and Milk)
++arp_thirst_enabled "1"
+ 
+ ////////////
+ // ARP NPCS

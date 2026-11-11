@@ -1,0 +1,1041 @@
+diff --git a/base/addons/amxmodx/configs/arp/arp.cfg b/base/addons/amxmodx/configs/arp/arp.cfg
+index c830d5f..e43278d 100644
+--- a/base/addons/amxmodx/configs/arp/arp.cfg
++++ b/base/addons/amxmodx/configs/arp/arp.cfg
+@@ -150,6 +150,11 @@ arp_h9_cuffsprite "1"
+ // that draws H9 panels (it needs arp_h9_vgui 1; the three latest show, the newest lowest). 0: chat as stock ARP; 1: the popup in place of the chat line; 2: both.
+ arp_h9_toast "1"
+ 
++// What a player looks at says what it is: a property door (the establishment, its owner or that it is for sale, its affiliation from the access letters, sealed or open, and
++// restricted when the player may not use it), an NPC (its name and role) and a player (his name, job and affiliation). A game that draws H9 panels gets a plaque panel (it needs
++// arp_hud4_type 2, set above); every other game gets the text it always had with an Affiliation line. 0: stock ARP's text, with no Affiliation line and no panel.
++arp_h9_plaque "1"
++
+ //////////////
+ // ARP CONFIG
+ //////////////
+diff --git a/base/addons/amxmodx/configs/arp/maps/h9_tsrp_hive/h9_tsrp_hive.sql b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_hive/h9_tsrp_hive.sql
+index dd5565d..bddbc65 100644
+--- a/base/addons/amxmodx/configs/arp/maps/h9_tsrp_hive/h9_tsrp_hive.sql
++++ b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_hive/h9_tsrp_hive.sql
+@@ -1,10 +1,10 @@
+--- Apollo RP on h9_tsrp_hive: the Ministry of Defense ranks and the civilian jobs. ARP_CONTENT.txt (docs) says what each is.
++-- Apollo RP on h9_tsrp_hive: the Ministry of Defense ranks and the civilian jobs, then the properties and doors. ARP_CONTENT.txt (docs) says what each is.
+ -- Run by ARP_Core itself at every start of this map (arp_mapsql_autoload 1 in arp.cfg), after the tables are made and before the
+--- jobs are read, so the rows are there in the same map load. An ARP admin can also run it by hand: console arp_config, entry 3
+--- "Load Map SQL Data". Written against ARP's default table names (arp_jobs); the loader swaps in this map's own jobs table,
+--- arp_jobs_h9_tsrp_hive.
++-- jobs, properties and doors are read, so the rows are there in the same map load. An ARP admin can also run it by hand: console arp_config, entry 3
++-- "Load Map SQL Data". Written against ARP's default table names (arp_jobs, arp_property, arp_doors); the loader swaps in this map's own tables
++-- (arp_jobs_h9_tsrp_hive, arp_property_h9_tsrp_hive, arp_doors_h9_tsrp_hive).
+ -- Every row is INSERT OR IGNORE: running the file again changes nothing, and a row an admin edited stays as edited.
+--- To be run by itself every statement must be  INSERT OR IGNORE INTO arp_jobs VALUES (...);  one to a line, the table name in
++-- To be run by itself every statement must be  INSERT OR IGNORE INTO arp_jobs (or arp_property, arp_doors) VALUES (...);  one to a line, the table name in
+ -- lower case, nothing after the ;  (docs\ARP_CONTENT.txt, section 2, has the whole rule). A line that starts with - ; or # is skipped.
+ -- Columns: name, salary paid every 60 seconds into the bank, access letters (a police, b medical, z ARP admin: the
+ -- Administrator job only; c d e f are the hiring tiers and g is the Lord Minister's own letter: see ARP_CONTENT.txt, section 4).
+@@ -47,3 +47,354 @@ INSERT OR IGNORE INTO arp_jobs VALUES ('Administrator',0,'z');
+ -- INSERT OR IGNORE INTO arp_jobs VALUES ('M-Sergeant 1',45,'bd');
+ -- INSERT OR IGNORE INTO arp_jobs VALUES ('M-Sergeant 2',50,'bd');
+ -- INSERT OR IGNORE INTO arp_jobs VALUES ('M-Lieutenant',60,'bd');
++
++-- ==== Properties and doors (docs\ARP_CONTENT.txt, section 9): the Ministry's posts, clinics, shops, businesses and homes ====
++-- A property is a building or a place the look-at plaque names; its doors are func_door entities of this map, one row each, by their targetname
++-- (t|<targetname>), every one an entity of the compiled map. Property columns: internalname, externalname (what the plaque shows), ownername,
++-- ownerauth, price, locked, access letters, profit. No owner and price 0 is state property; a price and no owner is for sale (say /buy).
++-- locked 1 keeps a door as the map has it and leaves it to the owner, a key holder or the access letters (a Ministry of Defense, b Medical
++-- Division, g the Lord Minister's own); locked 0 is open to anyone. The affiliation the plaque shows comes from the access letters.
++-- A property may have several doors, but its lock is one: a shop whose front door starts open and whose back door is shut is two properties with one name.
++-- Doors the map did not name cannot be bound here (docs\ARP_CONTENT.txt, section 9). The four wall panels of the jails (h9_jail) are made by
++-- ARP_JailMod, not by this file.
++
++-- Gear Guys: front door of the red wood shop (Gear Guys Arms Dealer, Gear Guys Ammunition Counter inside)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_gear_guys','Gear Guys','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_techromagna','h9_pc_gear_guys');
++-- Uncle Pikkys Pizzeria: entrance doors of the pizzeria (Uncle Pikkys Pizzeria NPC inside)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_pikkys','Uncle Pikkys Pizzeria','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_unclepikkysentra','h9_pc_pikkys');
++-- Cybernetics: the machine door of the Cybernetics lane's rear chamber (the Black Market NPC stands inside)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_cybernetics','Cybernetics','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_cybernetc','h9_pc_cybernetics');
++-- Paradise Bank: the bank building's automatic glass doors (opened by their own trigger, so not locked)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_bank','Paradise Bank','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_bankdoor','h9_pc_bank');
++-- Pawn Prawn Staff Room: the staff door behind the Pawn Prawn bar counter; also the hatch in the floor of the chamber behind the staff door, the hideout under it and its far door: the flood fill of the map's space joins the staff door, the chamber, the hatch and the hideout, and the doors are named pp
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_pawn_prawn','Pawn Prawn Staff Room','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_noodles1','h9_pc_pawn_prawn');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_pphideout1','h9_pc_pawn_prawn');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_pphideout','h9_pc_pawn_prawn');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_pphideout3','h9_pc_pawn_prawn');
++-- Romagna Clinic: the ward doors of the white waiting hall (Romagna Clinic Medical Officer outside them)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_romagna_clinic','Romagna Clinic','','',0,1,'b',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_lwrromgoff2','h9_pc_romagna_clinic');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_lwrromgoff3','h9_pc_romagna_clinic');
++-- Ministry of Defense Facility: the gate and the office door of the Ministry of Defense facility (south west); also the facility's elevator screen (the md prefix, inside the same closed complex as the gate, the office and the armoury)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_md_facility','Ministry of Defense Facility','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdfacgate','h9_pc_md_facility');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_msrmdoffice1','h9_pc_md_facility');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdelescreen1','h9_pc_md_facility');
++-- Ministry of Defense Armoury: the facility's armoury door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_md_armoury','Ministry of Defense Armoury','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdarmorydoor','h9_pc_md_armoury');
++-- Ministry of Defense Detention: the four cells in the facility's basement
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_md_cells','Ministry of Defense Detention','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdcell1','h9_pc_md_cells');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdcell2','h9_pc_md_cells');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdcell3','h9_pc_md_cells');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdcell4','h9_pc_md_cells');
++-- Paradise Cafe: the cafe on the plaza (no NPC): a business to run; cafe1door is the entrance and cafe2door an inner door of one closed complex, and the only AVALON sign hangs 740 units east, not here
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_cafe_avalon','Paradise Cafe','','',12000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_cafe1door','h9_pc_cafe_avalon');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_cafe2door','h9_pc_cafe_avalon');
++-- Paradise Flat 1: a residence door in the south west blocks
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_res1','Paradise Flat 1','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident1','h9_pc_flat_res1');
++-- Paradise Flat 2: a residence with a street door and a park door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_res2','Paradise Flat 2','','',3000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident2','h9_pc_flat_res2');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident2park','h9_pc_flat_res2');
++-- Paradise Flat 3: a residence with a street door and a park door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_res3','Paradise Flat 3','','',3000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident3','h9_pc_flat_res3');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident3park','h9_pc_flat_res3');
++-- Guns n Stuff: front door of the gun shop (Guns n Stuff Arms Dealer, Ammunition Counter inside)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_guns_n_stuff','Guns n Stuff','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_gunshop','h9_xe_guns_n_stuff');
++-- Green Dragon: front door of the restaurant (Green Dragon Cantina inside)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_green_dragon','Green Dragon','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_processedfood1','h9_xe_green_dragon');
++-- Xenon City Gear: front door of the store (Xenon City Gear General Store inside)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_city_gear','Xenon City Gear','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_gearshop','h9_xe_city_gear');
++-- Xenon City Civil Protection: the CP gate at the north end of the concourse and the shield behind it; also the two help alcoves on the concourse's west wall (xe_cp_ prefix: Civil Protection's)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_post','Xenon City Civil Protection','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_xenoncpgate','h9_xe_cp_post');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_pdshield','h9_xe_cp_post');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_help','h9_xe_cp_post');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_help1','h9_xe_cp_post');
++-- XCCP Armoury: the armoury's two doors
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_armoury','XCCP Armoury','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_armory','h9_xe_cp_armoury');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_armory1','h9_xe_cp_armoury');
++-- XCCP Barracks: the barracks door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_barracks','XCCP Barracks','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_barracks','h9_xe_cp_barracks');
++-- XCCP Control Room: the control room door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_control','XCCP Control Room','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_control','h9_xe_cp_control');
++-- XCCP Detention: the six prison cells
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_cells','XCCP Detention','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_prison1','h9_xe_cp_cells');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_prison2','h9_xe_cp_cells');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_prison3','h9_xe_cp_cells');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_prison4','h9_xe_cp_cells');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_prison5','h9_xe_cp_cells');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_prison6','h9_xe_cp_cells');
++-- Xenon Clinic: the clinic's office, operating room, rest room and wing (upper level, the XENON CLINIC sign)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_clinic','Xenon Clinic','','',0,1,'b',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_clinic_off','h9_xe_clinic');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_clinic_op','h9_xe_clinic');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_clinic_rest','h9_xe_clinic');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_clinic_wing','h9_xe_clinic');
++-- Sky Bar: the bar of the upper level (the gate starts open): a place to run; also the drawer of the bar's counter (xe_skyb_ prefix, inside the bar); locked whole: a bar for sale is sealed until bought (its gate starts open and stays open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_sky_bar','Sky Bar','','',9600,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_skyb_gate','h9_xe_sky_bar');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_skyb_door1','h9_xe_sky_bar');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_skyb_door2','h9_xe_sky_bar');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_skyb_drawer','h9_xe_sky_bar');
++-- Xenon Apartment 1: upper level apartment, two doors
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_apt1','Xenon Apartment 1','','',4800,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door1a','h9_xe_apt1');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door1b','h9_xe_apt1');
++-- Xenon Apartment 2: upper level apartment, two doors
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_apt2','Xenon Apartment 2','','',4800,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door2a','h9_xe_apt2');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door2b','h9_xe_apt2');
++-- Xenon Apartment 3: upper level apartment, two doors
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_apt3','Xenon Apartment 3','','',4800,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door3a','h9_xe_apt3');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door3b','h9_xe_apt3');
++-- Xenon Luxury Apartment A: luxury apartment, entrance and bath door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_lux_a','Xenon Luxury Apartment A','','',9600,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_lux_apt_a','h9_xe_lux_a');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_lux_apt_abath','h9_xe_lux_a');
++-- Cafe Fortress (H&C Coffee): the two doors of the cafe on the main street (H&C Coffee Cantina inside)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_cafe_fortress','Cafe Fortress (H&C Coffee)','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_cafe.fortress','h9_al_cafe_fortress');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_cafefortress','h9_al_cafe_fortress');
++-- K-Line Super Store: the south door of the supermarket (the open side is the park)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_kline','K-Line Super Store','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_klinedoor','h9_al_kline');
++-- Midgar Lab: the lab gate (the console al_labentbutton opens it; Midgar Lab Medical Officer inside); also the console itself, al_labentbutton, a use-only door brush whose target is al_midgar.lab.gate.one
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_midgar_lab','Midgar Lab','','',0,1,'b',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_midgar.lab.gate.one','h9_al_midgar_lab');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_labentbutton','h9_al_midgar_lab');
++-- Ministry Detention Facility: the prison gate and the armoury gate of the detention block (the cells' wall panels are h9_jail)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_detention','Ministry Detention Facility','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_prisongate','h9_al_detention');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_armorygate','h9_al_detention');
++-- Throne Room: the throne room: the Lord Minister's own letter g
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_throne_room','Throne Room','','',0,1,'g',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_throneroom','h9_al_throne_room');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_thronegate','h9_al_throne_room');
++-- Ed's Steak House: the steak house of the lower level, entrance and exit: a place to run
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_steakhouse','Ed''s Steak House','','',12000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_edssteak','h9_al_steakhouse');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_steakexit','h9_al_steakhouse');
++-- Golgotha Apartment 1: an apartment of the Golgotha block
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_golgotha1','Golgotha Apartment 1','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgoapartment1','h9_al_golgotha1');
++-- Golgotha Apartment 2: an apartment of the Golgotha block
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_golgotha2','Golgotha Apartment 2','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgoapartment2','h9_al_golgotha2');
++-- Golgotha Apartment 3: an apartment of the Golgotha block
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_golgotha3','Golgotha Apartment 3','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgo.apt3.1','h9_al_golgotha3');
++
++-- More properties, by city. A lock belongs to a property, so a shop whose front door starts open and whose back, side or staff door is shut is two properties with one name:
++-- the front one unlocked, the one of the shut doors locked. Homes and businesses for sale are locked whole, at the price of their kind (docs\ARP_CONTENT.txt, 9).
++
++-- Paradise City
++-- Uncle Pikkys Pizzeria: the east door and the oven door of the pizzeria (unclepikky prefix, the kitchen on its north side; both shut in the map)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_pikkys_back','Uncle Pikkys Pizzeria','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_unclepikkyse','h9_pc_pikkys_back');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_oven_door','h9_pc_pikkys_back');
++-- Gear Guys (South West): front door of the second Gear Guys, south west (a GEARGUYS sign hangs over it; it starts open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_gear_guys_sw','Gear Guys (South West)','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_gearshop1','h9_pc_gear_guys_sw');
++-- Gear Guys (South West): the shop's side door and pc_edenoffice2, an Eden office door of the same walled compound (the compound's other office door, pc_edenoffice1, wears the same name as the back office of the first Gear Guys and cannot be bound)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_gear_guys_sw_back','Gear Guys (South West)','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_gearshop2','h9_pc_gear_guys_sw_back');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_edenoffice2','h9_pc_gear_guys_sw_back');
++-- Eden News: front door of the news office (a PCN sign hangs by it; a button works it, it starts open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_eden_news','Eden News','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_edennews','h9_pc_eden_news');
++-- Eden News: the newsroom door behind it (the two doors bound one closed complex)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_eden_news_back','Eden News','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_newsroom1','h9_pc_eden_news_back');
++-- Tartec: the automatic front doors (a trigger opens them) of the Tartec building, two halves of one name
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_tartec','Tartec','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_tartec_frt','h9_pc_tartec');
++-- SkyTech: the SkyTech building: its gates, the two lab doors on the upper floor, the computer core hatch and the operating room (the flood fill joins them through skytechgate4); pc_skytechgate2 shares its name with a door elsewhere and is not bound
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_skytech','SkyTech','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_skytechgate','h9_pc_skytech');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_skytechgate1','h9_pc_skytech');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_skytechgate3','h9_pc_skytech');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_skytechgate4','h9_pc_skytech');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_labdoor1sky','h9_pc_skytech');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_labdoor2sky','h9_pc_skytech');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_computercore','h9_pc_skytech');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_operatingroom1','h9_pc_skytech');
++-- Paradise Flat 4: a flat of the lower level (its door starts open and stays open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_res4','Paradise Flat 4','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident4','h9_pc_flat_res4');
++-- Paradise Flat 4A: named 4a, 1,100 units from pc_resident4 and a floor lower: a flat of its own, not a second door of flat 4
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_res4a','Paradise Flat 4A','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident4a','h9_pc_flat_res4a');
++-- Paradise Flat 5: a residence door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_res5','Paradise Flat 5','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident5','h9_pc_flat_res5');
++-- Paradise Flat 6: a residence door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_res6','Paradise Flat 6','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident6','h9_pc_flat_res6');
++-- Paradise Flat 7: a flat of the lower level
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_res7','Paradise Flat 7','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident7','h9_pc_flat_res7');
++-- Paradise Flat 8: a residence door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_res8','Paradise Flat 8','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident8','h9_pc_flat_res8');
++-- Paradise Flat 9: a residence door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_res9','Paradise Flat 9','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_resident9','h9_pc_flat_res9');
++-- Paradise Citizen Flat 1: a citizen's flat east of the Romagna hall
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_cit1','Paradise Citizen Flat 1','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_citizen1','h9_pc_flat_cit1');
++-- Paradise Citizen Flat 2: a citizen's flat east of the Romagna hall
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_cit2','Paradise Citizen Flat 2','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_citizen2','h9_pc_flat_cit2');
++-- Paradise Citizen Flat 3: a flat with a street door (starts open) and an upper door (the flood fill joins them)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_cit3','Paradise Citizen Flat 3','','',3000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_citizen3','h9_pc_flat_cit3');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_citizen3a','h9_pc_flat_cit3');
++-- Paradise Citizen Flat 4: a citizen's flat
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_cit4','Paradise Citizen Flat 4','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_citizen4','h9_pc_flat_cit4');
++-- Paradise Citizen Flat 5: a citizen's flat
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_cit5','Paradise Citizen Flat 5','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_citizen5','h9_pc_flat_cit5');
++-- Paradise Citizen Flat 6: a citizen's flat
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_flat_cit6','Paradise Citizen Flat 6','','',2400,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_citizen6','h9_pc_flat_cit6');
++-- K Tower Suite: the suite door inside K Tower (luxury tier)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_ktower_suite','K Tower Suite','','',9600,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_ktowersuite','h9_pc_ktower_suite');
++-- Storage Unit 1: one of four equal unit doors in a row (137 apart) on the lower level; an hour's pay
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_storage1','Storage Unit 1','','',1200,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_storage1','h9_pc_storage1');
++-- Storage Unit 2: a storage unit
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_storage2','Storage Unit 2','','',1200,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_storage2','h9_pc_storage2');
++-- Storage Unit 3: a storage unit
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_storage3','Storage Unit 3','','',1200,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_storage3','h9_pc_storage3');
++-- Storage Unit 4: a storage unit
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_storage4','Storage Unit 4','','',1200,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_storage4','h9_pc_storage4');
++-- Storage Gate: the gate of the storage corridor (state)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_storage_gate','Storage Gate','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_storagegate','h9_pc_storage_gate');
++
++-- Xenon City
++-- Guns n Stuff: the back door at the end of the back hall (shut in the map)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_guns_n_stuff_back','Guns n Stuff','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_gunshop1','h9_xe_guns_n_stuff_back');
++-- Green Dragon: the side door of the restaurant (shut in the map; a dragon sign hangs by it)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_green_dragon_side','Green Dragon','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_processedfood2','h9_xe_green_dragon_side');
++-- Xenon City Gear: the back door of the store (shut in the map; the flood fill joins it to the shop)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_city_gear_back','Xenon City Gear','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_gearshop1','h9_xe_city_gear_back');
++-- Xenon Clinic: the clinic's entrance gate (the XENON CLINIC sign hangs 56 units from it; the flood fill joins it to the clinic doors; it starts open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_clinic_gate','Xenon Clinic','','',0,0,'b',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_broth_gate','h9_xe_clinic_gate');
++-- Uncle Elzos: front gate of the restaurant (an UNCLE ELZOS sign hangs by it; it starts open; the door is named enzos)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_elzos','Uncle Elzos','','',0,0,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_enzos_gate','h9_xe_elzos');
++-- Uncle Elzos: the oven door and the uez entrance, where the other UNCLE ELZOS sign hangs (as Uncle Pikkys has its oven door)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_elzos_back','Uncle Elzos','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_oven_door','h9_xe_elzos_back');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_uez_entrance1','h9_xe_elzos_back');
++-- Electronics Store: the store's door (the name is cut at gam); a business to run
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_electronics','Electronics Store','','',12000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_electronicsstoregam','h9_xe_electronics');
++-- Xenon Apartment 4: upper level apartment, two doors (the flood fill joins them)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_apt4','Xenon Apartment 4','','',4800,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door4a','h9_xe_apt4');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door4b','h9_xe_apt4');
++-- Xenon Apartment 5: upper level apartment, two doors
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_apt5','Xenon Apartment 5','','',4800,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door5a','h9_xe_apt5');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door5b','h9_xe_apt5');
++-- Xenon Apartment 6: upper level apartment, two doors
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_apt6','Xenon Apartment 6','','',4800,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door6a','h9_xe_apt6');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_apartment_door6b','h9_xe_apt6');
++-- Xenon Luxury Apartment B: luxury apartment, entrance and bath door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_lux_b','Xenon Luxury Apartment B','','',9600,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_lux_apt_b','h9_xe_lux_b');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_lux_apt_bbath','h9_xe_lux_b');
++-- Xenon Luxury Apartment C: luxury apartment, entrance and bath door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_lux_c','Xenon Luxury Apartment C','','',9600,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_lux_apt_c','h9_xe_lux_c');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_lux_apt_cbath','h9_xe_lux_c');
++-- Xenon Luxury Apartment D: luxury apartment, entrance and bath door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_lux_d','Xenon Luxury Apartment D','','',9600,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_lux_apt_d','h9_xe_lux_d');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_lux_apt_dbath','h9_xe_lux_d');
++
++-- Alexandria
++-- Cafe Fortress (H&C Coffee): the door from the cafe hall to the room east of it (the flood fill joins it to the cafe; an H&C COFFEE sign hangs there; it is shut in the map)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_cafe_fortress_back','Cafe Fortress (H&C Coffee)','','',0,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgocafed1','h9_al_cafe_fortress_back');
++-- Catacombs: the catacomb bar: its entrance (starts open) and the door to its back room (the flood fill joins them); a business to run
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_catacombs','Catacombs','','',12000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_catacombone','h9_al_catacombs');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_catacombstwo','h9_al_catacombs');
++-- Xaelem Ribs: the ribs restaurant of the Xaelem street (a RIBS sign hangs 236 units from the door); a business to run
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_ribs','Xaelem Ribs','','',12000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_xaelemribs','h9_al_ribs');
++-- Golgotha Club: the night club: gate (starts open), booth, cocktail bar and boss office, one hall (the flood fill puts gate, booth and bar on the same hall); a business to run
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_golgotha_club','Golgotha Club','','',12000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_clubgate','h9_al_golgotha_club');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgoclubbooth','h9_al_golgotha_club');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgoclubbar','h9_al_golgotha_club');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_clubboss','h9_al_golgotha_club');
++-- Golgotha Apartment 4: an apartment of the Golgotha block, two doors (the flood fill joins them)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_golgotha4','Golgotha Apartment 4','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgoaptfour','h9_al_golgotha4');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgofourdoor','h9_al_golgotha4');
++-- Golgotha Apartment 5: an apartment of the Golgotha block
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_golgotha5','Golgotha Apartment 5','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgoaptfive','h9_al_golgotha5');
++-- Golgotha Apartment 6: an apartment of the Golgotha block
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_golgotha6','Golgotha Apartment 6','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgapartment6','h9_al_golgotha6');
++-- Xaelem Apartment 2: a flat of the Xaelem block
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_xaelem2','Xaelem Apartment 2','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_xaelemapttwo','h9_al_xaelem2');
++-- Xaelem Apartment 4: a flat of the Xaelem block
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_xaelem4','Xaelem Apartment 4','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_xaelemaptfour','h9_al_xaelem4');
++-- Xaelem Apartment 5: a flat of the Xaelem block (the door is named apt five xae)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_xaelem5','Xaelem Apartment 5','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_aptfivexae','h9_al_xaelem5');
++-- Xaelem Apartment 6: a flat of the Xaelem block (the door is named apt six xael)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_xaelem6','Xaelem Apartment 6','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_aptsixxael','h9_al_xaelem6');
++-- Cosmos Apartment: a flat (cosmosapt)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_cosmos','Cosmos Apartment','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_cosmosapt','h9_al_cosmos');
++-- Eskimo Home: a home (eskimohome)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_eskimo','Eskimo Home','','',6000,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_eskimohome','h9_al_eskimo');
++-- Midgar House One: a house of Midgar: its entrance and two inner doors (one closed complex)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_midgar_house1','Midgar House One','','',9600,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_midgarhouseone','h9_al_midgar_house1');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_midgarhone2','h9_al_midgar_house1');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_midgarhone3','h9_al_midgar_house1');
++-- Midgar House Two: a house of Midgar: its entrance and its bedroom door (one closed complex)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_al_midgar_house2','Midgar House Two','','',9600,1,'',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_midgahousetwo','h9_al_midgar_house2');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|al_midgahousetwobed','h9_al_midgar_house2');
+diff --git a/base/addons/amxmodx/configs/arp/maps/h9_tsrp_newbyzantium/h9_tsrp_newbyzantium.sql b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_newbyzantium/h9_tsrp_newbyzantium.sql
+index ad0211b..9d40106 100644
+--- a/base/addons/amxmodx/configs/arp/maps/h9_tsrp_newbyzantium/h9_tsrp_newbyzantium.sql
++++ b/base/addons/amxmodx/configs/arp/maps/h9_tsrp_newbyzantium/h9_tsrp_newbyzantium.sql
+@@ -1,10 +1,10 @@
+--- Apollo RP on h9_tsrp_newbyzantium: the Ministry of Defense ranks and the civilian jobs. ARP_CONTENT.txt (docs) says what each is.
++-- Apollo RP on h9_tsrp_newbyzantium: the Ministry of Defense ranks and the civilian jobs, then the properties and doors. ARP_CONTENT.txt (docs) says what each is.
+ -- Run by ARP_Core itself at every start of this map (arp_mapsql_autoload 1 in arp.cfg), after the tables are made and before the
+--- jobs are read, so the rows are there in the same map load. An ARP admin can also run it by hand: console arp_config, entry 3
+--- "Load Map SQL Data". Written against ARP's default table names (arp_jobs); the loader swaps in this map's own jobs table,
+--- arp_jobs_h9_tsrp_newbyzantium.
++-- jobs, properties and doors are read, so the rows are there in the same map load. An ARP admin can also run it by hand: console arp_config, entry 3
++-- "Load Map SQL Data". Written against ARP's default table names (arp_jobs, arp_property, arp_doors); the loader swaps in this map's own tables
++-- (arp_jobs_h9_tsrp_newbyzantium, arp_property_h9_tsrp_newbyzantium, arp_doors_h9_tsrp_newbyzantium).
+ -- Every row is INSERT OR IGNORE: running the file again changes nothing, and a row an admin edited stays as edited.
+--- To be run by itself every statement must be  INSERT OR IGNORE INTO arp_jobs VALUES (...);  one to a line, the table name in
++-- To be run by itself every statement must be  INSERT OR IGNORE INTO arp_jobs (or arp_property, arp_doors) VALUES (...);  one to a line, the table name in
+ -- lower case, nothing after the ;  (docs\ARP_CONTENT.txt, section 2, has the whole rule). A line that starts with - ; or # is skipped.
+ -- Columns: name, salary paid every 60 seconds into the bank, access letters (a police, b medical, z ARP admin: the
+ -- Administrator job only; c d e f are the hiring tiers and g is the Lord Minister's own letter: see ARP_CONTENT.txt, section 4).
+@@ -47,3 +47,166 @@ INSERT OR IGNORE INTO arp_jobs VALUES ('Administrator',0,'z');
+ -- INSERT OR IGNORE INTO arp_jobs VALUES ('M-Sergeant 1',45,'bd');
+ -- INSERT OR IGNORE INTO arp_jobs VALUES ('M-Sergeant 2',50,'bd');
+ -- INSERT OR IGNORE INTO arp_jobs VALUES ('M-Lieutenant',60,'bd');
++
++-- ==== Properties and doors (docs\ARP_CONTENT.txt, section 9): the precincts, checkpoints and the headquarters ====
++-- A property is a building or a place the look-at plaque names; its doors are func_door entities of this map, one row each, by their targetname
++-- (t|<targetname>), every one an entity of the compiled map. Property columns: internalname, externalname (what the plaque shows), ownername,
++-- ownerauth, price, locked, access letters, profit. No owner and price 0 is state property; a price and no owner is for sale (say /buy).
++-- locked 1 keeps a door as the map has it and leaves it to the owner, a key holder or the access letters (a Ministry of Defense, b Medical
++-- Division, g the Lord Minister's own); locked 0 is open to anyone. The affiliation the plaque shows comes from the access letters.
++-- Doors the map did not give a name cannot be bound here (docs\ARP_CONTENT.txt, section 9). The four wall panels of the jails (h9_jail) are made by
++-- ARP_JailMod, not by this file.
++
++-- North Precinct: the front desk, core door and cells of the north precinct
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_precinct_n','North Precinct','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_n_desk','h9_nb_precinct_n');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_n_coredoor','h9_nb_precinct_n');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_n_0','h9_nb_precinct_n');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_n_1','h9_nb_precinct_n');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_n_2','h9_nb_precinct_n');
++-- East Precinct: the front desk, core door and cells of the east precinct
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_precinct_e','East Precinct','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_e_desk','h9_nb_precinct_e');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_e_coredoor','h9_nb_precinct_e');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_e_0','h9_nb_precinct_e');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_e_1','h9_nb_precinct_e');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_e_2','h9_nb_precinct_e');
++-- South Precinct: the front desk, core door and cells of the south precinct
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_precinct_s','South Precinct','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_s_desk','h9_nb_precinct_s');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_s_coredoor','h9_nb_precinct_s');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_s_0','h9_nb_precinct_s');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_s_1','h9_nb_precinct_s');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_s_2','h9_nb_precinct_s');
++-- West Precinct: the front desk, core door and cells of the west precinct
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_precinct_w','West Precinct','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_w_desk','h9_nb_precinct_w');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_w_coredoor','h9_nb_precinct_w');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_w_0','h9_nb_precinct_w');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_w_1','h9_nb_precinct_w');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_w_2','h9_nb_precinct_w');
++-- North-East Precinct: the front desk, core door and cells of the north-east precinct
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_precinct_en','North-East Precinct','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_en_desk','h9_nb_precinct_en');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_en_coredoor','h9_nb_precinct_en');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_en_0','h9_nb_precinct_en');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_en_1','h9_nb_precinct_en');
++-- South-East Precinct: the front desk, core door and cells of the south-east precinct
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_precinct_es','South-East Precinct','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_es_desk','h9_nb_precinct_es');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_es_coredoor','h9_nb_precinct_es');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_es_0','h9_nb_precinct_es');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_es_1','h9_nb_precinct_es');
++-- South-West Precinct: the front desk, core door and cells of the south-west precinct
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_precinct_ws','South-West Precinct','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_ws_desk','h9_nb_precinct_ws');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_ws_coredoor','h9_nb_precinct_ws');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_ws_0','h9_nb_precinct_ws');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_ws_1','h9_nb_precinct_ws');
++-- North-West Precinct: the front desk, core door and cells of the north-west precinct
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_precinct_wn','North-West Precinct','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_wn_desk','h9_nb_precinct_wn');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|precinct_wn_coredoor','h9_nb_precinct_wn');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_wn_0','h9_nb_precinct_wn');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_wn_1','h9_nb_precinct_wn');
++-- North Sewer Checkpoint: the door and cell of the north sewer checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_sewer_n','North Sewer Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_sewer_n_door','h9_nb_sewer_n');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_sewer_n','h9_nb_sewer_n');
++-- East Sewer Checkpoint: the door and cell of the east sewer checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_sewer_e','East Sewer Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_sewer_e_door','h9_nb_sewer_e');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_sewer_e','h9_nb_sewer_e');
++-- South Sewer Checkpoint: the door and cell of the south sewer checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_sewer_s','South Sewer Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_sewer_s_door','h9_nb_sewer_s');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_sewer_s','h9_nb_sewer_s');
++-- West Sewer Checkpoint: the door and cell of the west sewer checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_sewer_w','West Sewer Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_sewer_w_door','h9_nb_sewer_w');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_sewer_w','h9_nb_sewer_w');
++-- North-East Sewer Checkpoint: the door and cell of the north-east sewer checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_sewer_en','North-East Sewer Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_sewer_en_door','h9_nb_sewer_en');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_sewer_en','h9_nb_sewer_en');
++-- South-East Sewer Checkpoint: the door and cell of the south-east sewer checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_sewer_es','South-East Sewer Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_sewer_es_door','h9_nb_sewer_es');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_sewer_es','h9_nb_sewer_es');
++-- South-West Sewer Checkpoint: the door and cell of the south-west sewer checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_sewer_ws','South-West Sewer Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_sewer_ws_door','h9_nb_sewer_ws');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_sewer_ws','h9_nb_sewer_ws');
++-- North-West Sewer Checkpoint: the door and cell of the north-west sewer checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_sewer_wn','North-West Sewer Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_sewer_wn_door','h9_nb_sewer_wn');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_sewer_wn','h9_nb_sewer_wn');
++-- North Ward Checkpoint: the doors and cell of the north ward checkpoint
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_ward_n','North Ward Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_ward_n_door','h9_nb_ward_n');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_ward_n_wing','h9_nb_ward_n');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_ward_n','h9_nb_ward_n');
++-- East Ward Checkpoint: the doors and cell of the east ward checkpoint
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_ward_e','East Ward Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_ward_e_door','h9_nb_ward_e');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_ward_e_wing','h9_nb_ward_e');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_ward_e','h9_nb_ward_e');
++-- South Ward Checkpoint: the doors and cell of the south ward checkpoint
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_ward_s','South Ward Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_ward_s_door','h9_nb_ward_s');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_ward_s_wing','h9_nb_ward_s');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_ward_s','h9_nb_ward_s');
++-- West Ward Checkpoint: the doors and cell of the west ward checkpoint
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_ward_w','West Ward Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_ward_w_door','h9_nb_ward_w');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_ward_w_wing','h9_nb_ward_w');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_ward_w','h9_nb_ward_w');
++-- North Mese Checkpoint: the door and cell of the north Mese checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_mese_n','North Mese Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_mese_n_door','h9_nb_mese_n');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_mese_n','h9_nb_mese_n');
++-- East Mese Checkpoint: the door and cell of the east Mese checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_mese_e','East Mese Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_mese_e_door','h9_nb_mese_e');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_mese_e','h9_nb_mese_e');
++-- South Mese Checkpoint: the door and cell of the south Mese checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_mese_s','South Mese Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_mese_s_door','h9_nb_mese_s');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_mese_s','h9_nb_mese_s');
++-- West Mese Checkpoint: the door and cell of the west Mese checkpoint (the gate is left open)
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_mese_w','West Mese Checkpoint','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|checkpoint_mese_w_door','h9_nb_mese_w');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_mese_w','h9_nb_mese_w');
++-- Ministry Headquarters: the lobby stair door and the front desk of the headquarters in the Nexus
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_hq','Ministry Headquarters','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|hq_stair_lobby','h9_nb_hq');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|hq_desk','h9_nb_hq');
++-- Headquarters Armoury: the armoury door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_hq_armoury','Headquarters Armoury','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|hq_armory_door','h9_nb_hq_armoury');
++-- Interrogation Room: the interrogation room door
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_hq_interrogation','Interrogation Room','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|hq_interrogation_door','h9_nb_hq_interrogation');
++-- Headquarters Garage: the garage shutter
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_hq_garage','Headquarters Garage','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|hq_garage_shutter','h9_nb_hq_garage');
++-- Headquarters Jail: the jail door and its twelve cells
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_hq_jail','Headquarters Jail','','',0,1,'a',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|jail_hq_door','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_0','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_1','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_2','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_3','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_4','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_5','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_6','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_7','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_8','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_9','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_10','h9_nb_hq_jail');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|cell_hq_11','h9_nb_hq_jail');
++-- Commander's Office: the commander's office, its stair and its tunnel door: the Lord Minister's own letter g
++INSERT OR IGNORE INTO arp_property VALUES ('h9_nb_commander','Commander''s Office','','',0,1,'g',0);
++INSERT OR IGNORE INTO arp_doors VALUES ('t|commander_office','h9_nb_commander');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|commander_stair','h9_nb_commander');
++INSERT OR IGNORE INTO arp_doors VALUES ('t|commander_tunnel','h9_nb_commander');
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+index 0636c3f..e857567 100644
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -150,6 +150,7 @@ new p_Welcome[3]
+ new p_HoverMessage
+ new p_H9ItemHover	// H9: arp_h9_itemhover, 1 gives the look-at line of a dropped item (GetMsg), 0 none
+ new p_Toast	// H9: arp_h9_toast, 0 chat as stock, 1 [ARP] chat lines as popups over the crosshair, 2 both (H9_Toast)
++new p_H9Plaque	// H9: arp_h9_plaque, 1 says what a property door, an NPC and a player is when it is looked at (GetMsg, H9_Plaque*), 0 is stock ARP's text
+ //new p_CharacterSheet
+ 
+ enum _:HUD_CVARS
+@@ -213,6 +214,17 @@ new g_PanelText[HUDP_MAX_LINES][HUDP_LINE_LEN]
+ new g_PanelKind[HUDP_MAX_LINES]
+ new g_PanelNum
+ 
++// H9: the plaque (arp_h9_plaque): what a player looks at, built as the lines of the notice HUD, each with its kind (HUDK_PLAQUE and the others of
++// include\ApolloRP_HUD.inc). A player who keeps looking at the same thing is left alone for PLAQUE_REBUILD seconds, then it is built again.
++#define PLAQUE_LINES 8
++#define PLAQUE_REBUILD 0.25
++#define H9_ACCESS_G (1<<6)     // the access letter g, the Lord Minister's own
++new g_PlaqueKind[PLAQUE_LINES]
++new g_PlaqueText[PLAQUE_LINES][HUDP_LINE_LEN]
++new g_PlaqueNum
++new g_PlaqueKey[MAX_PLAYERS + 1]
++new Float:g_PlaqueAt[MAX_PLAYERS + 1]
++
+ new g_Time
+ 
+ new g_ItemsArray
+@@ -990,6 +1002,10 @@ public plugin_precache()
+ 	// H9: what Apollo RP prints in chat (the lines that start with [ARP]) as a popup over the crosshair that fades, to the games that draw H9 panels:
+ 	// 0 chat as stock ARP, 1 the popup in place of the chat line, 2 both
+ 	p_Toast = register_cvar("arp_h9_toast","1")
++	// H9: what a player looks at (a property door, an NPC, a player) says what it is: the establishment, its owner or that it is for sale, its affiliation
++	// (from the access letters), whether it is locked and whether the player may use it. A game that draws the HUD as panels (arp_hud4_type 2) gets a plaque
++	// panel, every other game the text with an Affiliation line. 0 is stock ARP's text.
++	p_H9Plaque = register_cvar("arp_h9_plaque","1")
+ 	// H9: 1 sends the HUD as a panel to the games that draw it, 0 sends everyone the text HUD; the seconds before a HUD that
+ 	// has not changed is sent again (5 to 60)
+ 	p_HudPanel = register_cvar("arp_hud_panel","1")
+@@ -2822,6 +2838,232 @@ H9_AimedItem(id)
+ 	return Best
+ }
+ 
++// H9: the plaque. A line of it is added with its kind and a text that reads on its own; H9_PlaqueSend puts the lines in the notice HUD (HUD_QUAT), where the game
++// draws them as a plaque panel (a game that does not know the kinds draws them as plain lines).
++H9_PlaqueAdd(Kind,const Text[],{Float,Sql,Result,_}:...)
++{
++	if(g_PlaqueNum >= PLAQUE_LINES)
++		return
++
++	vformat(g_PlaqueText[g_PlaqueNum],HUDP_LINE_LEN - 1,Text,3)
++	g_PlaqueKind[g_PlaqueNum++] = Kind
++}
++
++// the letters one of the three access cvars names (arp_police_access, arp_medical_access, arp_admin_access), as the bits ARP_AccessToInt makes
++H9_AccessMask(const Cvar[])
++{
++	new Letters[JOB_ACCESSES + 1]
++	get_cvar_string(Cvar,Letters,JOB_ACCESSES)
++
++	return ARP_AccessToInt(Letters)
++}
++
++// The affiliation of a set of access letters (a property's, or a player's job's): the police letter or the Lord Minister's g is the Ministry of Defense, the medical
++// letter the Medical Division, both say both, the admin letter alone Administration, anything else Civilian.
++H9_Affiliation(Access,Out[],Len)
++{
++	Out[0] = 0
++
++	if(Access & (H9_AccessMask(g_PoliceAccessCvar) | H9_ACCESS_G))
++		copy(Out,Len,"Ministry of Defense")
++
++	if(Access & H9_AccessMask(g_MedicalAccessCvar))
++	{
++		if(Out[0])
++			add(Out,Len," / ")
++		add(Out,Len,"Medical Division")
++	}
++
++	if(!Out[0] && (Access & H9_AccessMask(g_AdminAccessCvar)))
++		copy(Out,Len,"Administration")
++
++	if(!Out[0])
++		copy(Out,Len,"Civilian")
++}
++
++// Who a locked property asks for, for the Restricted line: its access letters in words, "keyholders" for a property that names none.
++H9_AccessWho(Access,Out[],Len)
++{
++	Out[0] = 0
++
++	if(Access & H9_AccessMask(g_PoliceAccessCvar))
++		copy(Out,Len,"Ministry of Defense")
++
++	if(Access & H9_AccessMask(g_MedicalAccessCvar))
++	{
++		if(Out[0])
++			add(Out,Len," / ")
++		add(Out,Len,"Medical Division")
++	}
++
++	if(!Out[0] && (Access & H9_ACCESS_G))
++		copy(Out,Len,"the Lord Minister")
++
++	if(!Out[0] && Access)
++		copy(Out,Len,"authorised personnel")
++
++	if(!Out[0])
++		copy(Out,Len,"keyholders")
++}
++
++// The job of a property's owner, when he is in the game and has one that is not Unemployed; Rank is empty otherwise.
++H9_OwnerRank(const OwnerAuth[],Rank[],Len)
++{
++	Rank[0] = 0
++	if(!OwnerAuth[0])
++		return
++
++	new Players[MAX_PLAYERS],Playersnum,Player,Key[36]
++	get_players(Players,Playersnum)
++
++	for(new Count;Count < Playersnum;Count++)
++	{
++		Player = Players[Count]
++
++		ArpKey(Player,Key,35)
++		if(!equali(Key,OwnerAuth))
++			continue
++
++		if(UTIL_ARP_ValidJobId(g_JobId[Player]))
++			array_get_string(array_get_int(g_JobsArray,g_JobId[Player]),1,Rank,Len)
++
++		if(equali(Rank,"Unemployed"))
++			Rank[0] = 0
++
++		return
++	}
++}
++
++// The owner and the affiliation of a property, as plaque lines: Owner: <name> (<job>), "For sale: $N" for an owner who has put it up, Owner: For sale, $N for none, or
++// Owner: State property for none and no price; then Affiliation: from its access letters.
++H9_PlaqueOwner(CurArray)
++{
++	static OwnerName[40],OwnerAuth[36],Rank[33],Affil[96]
++	array_get_string(CurArray,2,OwnerName,39)
++	array_get_string(CurArray,3,OwnerAuth,35)
++	new Price = array_get_int(CurArray,4)
++
++	if(OwnerName[0])
++	{
++		H9_OwnerRank(OwnerAuth,Rank,32)
++
++		if(Rank[0])
++			H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Owner: %s (%s)",OwnerName,Rank)
++		else
++			H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Owner: %s",OwnerName)
++
++		if(Price)
++			H9_PlaqueAdd(HUDK_PLAQUE_ROW,"For sale: $%d",Price)
++	}
++	else if(Price)
++		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Owner: For sale, $%d",Price)
++	else
++		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Owner: State property")
++
++	H9_Affiliation(array_get_int(CurArray,6),Affil,95)
++	H9_PlaqueAdd(HUDK_PLAQUE_TAG,"Affiliation: %s",Affil)
++}
++
++// A property door: the establishment, owner, affiliation, status, and the Restricted line when the property is locked and the viewer has neither a key, the property
++// nor the access letters (the test the use key makes, client_PreThink), and the buy hint when it has a price.
++H9_PlaqueDoor(id,Property)
++{
++	static Name[64],OwnerAuth[36],Key[36],Who[96]
++	new CurArray = array_get_int(g_PropertyArray,Property)
++	array_get_string(CurArray,1,Name,63)
++	array_get_string(CurArray,3,OwnerAuth,35)
++	new Price = array_get_int(CurArray,4),Locked = array_get_int(CurArray,5),Access = array_get_int(CurArray,6)
++
++	g_PlaqueNum = 0
++	if(Name[0])
++		H9_PlaqueAdd(HUDK_PLAQUE,"%s",Name)
++	else
++		H9_PlaqueAdd(HUDK_PLAQUE,"Property")
++
++	H9_PlaqueOwner(CurArray)
++
++	if(Locked)
++		H9_PlaqueAdd(HUDK_PLAQUE_SEALED,"Status: Locked")
++	else
++		H9_PlaqueAdd(HUDK_PLAQUE_OPEN,"Status: Unlocked")
++
++	if(Locked)
++	{
++		ArpKey(id,Key,35)
++		if(!H9_HasKey(CurArray,id) && !equali(Key,OwnerAuth) && !(Access & g_Access[id]))
++		{
++			H9_AccessWho(Access,Who,95)
++			H9_PlaqueAdd(HUDK_PLAQUE_WARN,"Restricted: %s only",Who)
++		}
++	}
++
++	if(Price)
++		H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Say /buy to purchase")
++}
++
++// An NPC: its name, its role from the handler its plugin gave it (ARP_NPCs: shop, bank, doctor, gun shop, ATM), the owner and affiliation of the property its npcs.ini
++// block names, and how to use it.
++H9_PlaqueNpc(Index)
++{
++	static Name[33],Handler[32],Role[16],Property[64]
++	entity_get_string(Index,EV_SZ_noise1,Name,32)
++	entity_get_string(Index,EV_SZ_noise,Handler,31)
++	entity_get_string(Index,EV_SZ_noise2,Property,63)
++
++	Role[0] = 0
++	if(equal(Handler,"EdekaHandle"))
++		copy(Role,15,"Shop")
++	else if(equal(Handler,"BankHandle"))
++		copy(Role,15,"Bank")
++	else if(equal(Handler,"DoctorHandle"))
++		copy(Role,15,"Doctor")
++	else if(equal(Handler,"GunshopHandle"))
++		copy(Role,15,"Gun shop")
++	else if(equal(Handler,"AtmHandle"))
++		copy(Role,15,"ATM")
++
++	g_PlaqueNum = 0
++	H9_PlaqueAdd(HUDK_PLAQUE,"%s",Name)
++
++	if(Role[0])
++		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Role: %s",Role)
++
++	new Linked = Property[0] ? UTIL_ARP_MatchProperty(Property) : -1
++	if(Linked != -1)
++		H9_PlaqueOwner(array_get_int(g_PropertyArray,Linked))
++
++	H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Press use (default e) to use")
++}
++
++// A player: his name, his job (the rank) when he has one, and the affiliation of his job's access letters.
++H9_PlaquePlayer(Index)
++{
++	static Name[33],JobName[33],Affil[96]
++	get_user_name(Index,Name,32)
++
++	JobName[0] = 0
++	if(UTIL_ARP_ValidJobId(g_JobId[Index]))
++		array_get_string(array_get_int(g_JobsArray,g_JobId[Index]),1,JobName,32)
++
++	g_PlaqueNum = 0
++	H9_PlaqueAdd(HUDK_PLAQUE,"%s",Name)
++
++	if(JobName[0])
++		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Job: %s",JobName)
++
++	H9_Affiliation(g_Access[Index],Affil,95)
++	H9_PlaqueAdd(HUDK_PLAQUE_TAG,"Affiliation: %s",Affil)
++}
++
++// The plaque as the notice HUD of a game that draws the HUD as panels, in place of the one text line (the last line renders the HUD)
++H9_PlaqueSend(id)
++{
++	TravTrieClear(TravTrie:g_HudArray[id][HUD_QUAT])
++
++	for(new Count;Count < g_PlaqueNum;Count++)
++		UTIL_ARP_AddHudItem(id,HUD_QUAT,g_PlaqueText[Count],(Count == g_PlaqueNum - 1 && !g_HudPending) ? 1 : 0,g_PlaqueKind[Count])
++}
++
+ GetMsg(id,Index)
+ {
+ 	if(!is_valid_ent(Index))
+@@ -2885,60 +3127,127 @@ GetMsg(id,Index)
+ 	}
+ 	
+ 	if(!Index)
++	{
++		g_PlaqueKey[id] = 0
+ 		return
+-	
++	}
++
+ 	entity_get_string(Index,EV_SZ_classname,Classname,32)
+-	
++
++	// H9: the plaque (arp_h9_plaque). A game that draws the HUD as panels (arp_hud4_type 2) is sent it as the lines of the notice HUD; every other game gets the text it
++	// always had, with an Affiliation line. A panel player who keeps looking at the same thing is left alone for PLAQUE_REBUILD seconds: his game holds what it was
++	// sent, and the core sends the same lines again only every HUDP_NOTICE_GAP seconds.
++	new bool:Plaque = get_pcvar_num(p_H9Plaque) != 0
++	new bool:Panel = Plaque && get_pcvar_num(p_AuxType) == 2 && g_HudPanel[id]
++
++	if(Panel && g_PlaqueKey[id] == Index && get_gametime() < g_PlaqueAt[id] + PLAQUE_REBUILD)
++		return
++
++	g_PlaqueKey[id] = 0
++
+ 	if(equal(Classname,g_NpcClassname))
+ 	{
+-		entity_get_string(Index,EV_SZ_noise1,Name,32)
+-		
+-		format(Message,127,"%s^nPress use (default e) to use",Name)
+-		
+-		UTIL_ARP_ClientPrint(id,"%s",Message)
++		if(Panel)
++		{
++			H9_PlaqueNpc(Index)
++			H9_PlaqueSend(id)
++
++			g_PlaqueKey[id] = Index
++			g_PlaqueAt[id] = get_gametime()
++		}
++		else
++		{
++			entity_get_string(Index,EV_SZ_noise1,Name,32)
++
++			format(Message,127,"%s^nPress use (default e) to use",Name)
++
++			UTIL_ARP_ClientPrint(id,"%s",Message)
++		}
+ 	}
+ 	else if(equali(Classname,"func_door") || equali(Classname,"func_door_rotating"))
+ 	{
+-		static Targetname[33],CurTargetname[33]
++		static CurTargetname[33]
+ 		entity_get_string(Index,EV_SZ_targetname,CurTargetname,32)
+-		
+-		for(new Count;Count < g_DoorNum;Count++)
+-		{			
+-			array_get_string(array_get_int(g_DoorArray,Count),0,Targetname,32)
+-			if((CurTargetname[0] && Targetname[0] && equali(Targetname,CurTargetname)) || (Index == array_get_int(array_get_int(g_DoorArray,Count),1) && is_valid_ent(Index)))
++
++		new Property = UTIL_ARP_GetProperty(CurTargetname,Index)
++		if(Property == -1)
++		{
++			// a door of no property says nothing; a panel player is not looked up again for a moment
++			if(Panel)
+ 			{
+-				static Ownername[33],Purchase[64]
+-				
+-				new Property = UTIL_ARP_GetProperty(Targetname,Index)
+-				if(Property == -1)
+-					return
+-				
+-				new CurArray = array_get_int(g_PropertyArray,Property)
+-				array_get_string(CurArray,1,Name,32)
+-				array_get_string(CurArray,2,Ownername,32)
+-				new Price = array_get_int(CurArray,4)
+-				
+-				format(Message,127,"^nOwner: %s",Ownername)
+-				format(Purchase,63,"^nPrice: $%d. Say /buy to purchase.",Price)
+-				
+-				UTIL_ARP_ClientPrint(id,"%s%s%s^nStatus: %s",Name[0] ? Name : "",Ownername[0] ? Message : "", Price ? Purchase : "",array_get_int(CurArray,5) ? "Locked" : "Unlocked")
++				g_PlaqueKey[id] = Index
++				g_PlaqueAt[id] = get_gametime()
+ 			}
++
++			return
++		}
++
++		if(Panel)
++		{
++			H9_PlaqueDoor(id,Property)
++			H9_PlaqueSend(id)
++
++			g_PlaqueKey[id] = Index
++			g_PlaqueAt[id] = get_gametime()
++		}
++		else
++		{
++			static Ownername[33],Purchase[64],Affil[96],AffilLine[112]
++
++			new CurArray = array_get_int(g_PropertyArray,Property)
++			array_get_string(CurArray,1,Name,32)
++			array_get_string(CurArray,2,Ownername,32)
++			new Price = array_get_int(CurArray,4)
++
++			format(Message,127,"^nOwner: %s",Ownername)
++			format(Purchase,63,"^nPrice: $%d. Say /buy to purchase.",Price)
++
++			AffilLine[0] = 0
++			if(Plaque)
++			{
++				H9_Affiliation(array_get_int(CurArray,6),Affil,95)
++				formatex(AffilLine,111,"^nAffiliation: %s",Affil)
++			}
++
++			UTIL_ARP_ClientPrint(id,"%s%s%s%s^nStatus: %s",Name[0] ? Name : "",Ownername[0] ? Message : "", Price ? Purchase : "",AffilLine,array_get_int(CurArray,5) ? "Locked" : "Unlocked")
+ 		}
+ 	}
+ 	else if(get_pcvar_num(p_HoverMessage) && equali(Classname,"player"))
+ 	{
+-		static JobName[33],Name[33]
+-		get_user_name(Index,Name,32)
+-		JobName[0] = 0
+-		if(UTIL_ARP_ValidJobId(g_JobId[Index]))   // H9: never the job array of a job that is not there
+-			array_get_string(array_get_int(g_JobsArray,g_JobId[Index]),1,JobName,32)
+-		
+-		UTIL_ARP_ClientPrint(id,"Name: %s^nJob: %s",Name,JobName)
+-		
+-		//if(g_HudPending)
+-		//	client_print(id,print_chat,"Hud Added")
++		if(Panel)
++		{
++			// a player who is not alive (his body is not the player's edict, but a spectator may be aimed at) is not described
++			if(is_user_alive(Index))
++			{
++				H9_PlaquePlayer(Index)
++				H9_PlaqueSend(id)
++			}
++
++			g_PlaqueKey[id] = Index
++			g_PlaqueAt[id] = get_gametime()
++		}
++		else
++		{
++			static JobName[33],Name[33],Affil[96],AffilLine[112]
++			get_user_name(Index,Name,32)
++			JobName[0] = 0
++			if(UTIL_ARP_ValidJobId(g_JobId[Index]))   // H9: never the job array of a job that is not there
++				array_get_string(array_get_int(g_JobsArray,g_JobId[Index]),1,JobName,32)
++
++			AffilLine[0] = 0
++			if(Plaque)
++			{
++				H9_Affiliation(g_Access[Index],Affil,95)
++				formatex(AffilLine,111,"^nAffiliation: %s",Affil)
++			}
++
++			UTIL_ARP_ClientPrint(id,"Name: %s^nJob: %s%s",Name,JobName,AffilLine)
++
++			//if(g_HudPending)
++			//	client_print(id,print_chat,"Hud Added")
++		}
+ 	}
+-	
++
+ 	if(!g_HudPending)
+ 	{
+ 		g_Display[id] = 0
+diff --git a/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc b/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
+index e0ab09b..8371881 100644
+--- a/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
++++ b/base/addons/amxmodx/scripting/include/ApolloRP_HUD.inc
+@@ -28,6 +28,17 @@ native ARP_AddHudItem(id,channel,refresh,const item[],{Float,Sql,Result,_}:...)
+                          // its picture (sprites/h9_arpicons.spr) above the notice's box and shows no text for the line. Sent by the core alone (ARP_AddHudItemKind keeps a
+                          // plugin's kind to HUDK_EXTRA to HUDK_NEED), and only to a game that draws it
+ 
++// H9: the plaque, what a player looks at (a property door, an NPC, a player) as the notice HUD's lines. Sent by the core alone, like HUDK_ICON, when
++// arp_h9_plaque is 1 and arp_hud4_type is 2. Each line's text reads on its own, so a game that does not know the kinds draws them as plain lines
++// ("Owner: State property"); the kind says how the plaque panel draws it. A line that has a label is "<Label>: <value>".
++#define HUDK_PLAQUE         10   // the heading: the establishment's, NPC's or player's name. Its presence makes the notice a plaque
++#define HUDK_PLAQUE_ROW     11   // "<Label>: <value>" (Owner, Role, Job, For sale)
++#define HUDK_PLAQUE_TAG     12   // "Affiliation: <name>": drawn as a badge
++#define HUDK_PLAQUE_OPEN    13   // "Status: Open": the property is not locked
++#define HUDK_PLAQUE_SEALED  14   // "Status: Sealed": the property is locked
++#define HUDK_PLAQUE_WARN    15   // "Restricted: <who>": the viewer lacks the access the door asks for
++#define HUDK_PLAQUE_HINT    16   // a hint under the rows ("Say /buy to purchase", "Press use (default e) to use")
++
+ // ARP_AddHudItem for a line of a given kind (a HUDK_ value; any other is HUDK_EXTRA)
+ native ARP_AddHudItemKind(id,channel,refresh,kind,const item[],{Float,Sql,Result,_}:...)
+ 

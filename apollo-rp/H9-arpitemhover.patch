@@ -1,0 +1,87 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+index c9c165d..5fe01ef 100644
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -251,6 +251,7 @@ new g_ItemsOptions[] = "ARP_ItemsOptions"
+ 
+ new g_ItemClassname[] = "arp_item"
+ new g_ItemModel[] = "models/arp/w_backpack.mdl"
++new Float:g_H9ItemScan[MAX_PLAYERS + 1]	// H9: when a player's look at the dropped items was last tried (GetMsg)
+ 
+ new TravTrie:g_ClassArray
+ 
+@@ -2638,6 +2639,43 @@ public client_PreThink(id)
+ 		GetMsg(id,Index)
+ }
+ 
++// H9: the dropped item the player looks toward, in view and within 120 units, or 0. An item's box is too small for the crosshair to hit it
++// (get_user_aiming finds the floor behind it), so it is a cone of about 14 degrees from the eye; the one nearest the middle of it wins.
++H9_AimedItem(id)
++{
++	new Float:Eye[3],Float:View[3],Float:Angles[3],Float:Forward[3]
++	entity_get_vector(id,EV_VEC_origin,Eye)
++	entity_get_vector(id,EV_VEC_view_ofs,View)
++	Eye[0] += View[0]
++	Eye[1] += View[1]
++	Eye[2] += View[2]
++
++	entity_get_vector(id,EV_VEC_v_angle,Angles)
++	angle_vector(Angles,ANGLEVECTOR_FORWARD,Forward)
++
++	new Ent,Best,Float:BestDot = 0.97,Float:Origin[3],Float:Length,Float:Dot
++	while((Ent = find_ent_by_class(Ent,g_ItemClassname)))
++	{
++		entity_get_vector(Ent,EV_VEC_origin,Origin)
++		Origin[0] -= Eye[0]
++		Origin[1] -= Eye[1]
++		Origin[2] -= Eye[2]
++
++		Length = vector_length(Origin)
++		if(Length < 1.0 || Length > 120.0)
++			continue
++
++		Dot = (Origin[0] * Forward[0] + Origin[1] * Forward[1] + Origin[2] * Forward[2]) / Length
++		if(Dot > BestDot && fm_is_ent_visible(id,Ent))
++		{
++			BestDot = Dot
++			Best = Ent
++		}
++	}
++
++	return Best
++}
++
+ GetMsg(id,Index)
+ {
+ 	if(!is_valid_ent(Index))
+@@ -2664,6 +2702,30 @@ GetMsg(id,Index)
+ 		break
+ 	}
+ 	
++	// H9: a dropped item says what it is and how many to the player who looks toward it from within 120 units (tried four times a second)
++	if(!Index && get_gametime() >= g_H9ItemScan[id])
++	{
++		g_H9ItemScan[id] = get_gametime() + 0.25
++		
++		new Item = H9_AimedItem(id)
++		if(Item)
++		{
++			static ItemName[33]
++			entity_get_string(Item,EV_SZ_noise,ItemName,32)
++			new Quantity = entity_get_int(Item,EV_INT_iuser2)
++			
++			if(Quantity > 1)
++				format(Message,127,"%s x%d",ItemName,Quantity)
++			else
++				copy(Message,127,ItemName)
++			
++			if(get_entity_distance(id,Item) <= 50)
++				add(Message,127,"^nPress use (default e) to pick up")
++			
++			UTIL_ARP_ClientPrint(id,"%s",Message)
++		}
++	}
++	
+ 	if(!Index)
+ 		return
+ 	

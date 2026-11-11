@@ -78,7 +78,8 @@ new g_GunStats[TS_MAX_WEAPONS][WEAPON] =
 	{80,TSA_LASERSIGHT|TSA_SCOPE},
 	{0,0},
 	{0,0},
-	// H9: 39 the PPSh-41 (H9's reTS), not sold here
+	// H9: 39 the PPSh-41 and 40 the laser rifle (H9's reTS): no attachments, so the item gives the gun at once
+	{0,0},
 	{0,0}
 }
 
@@ -124,7 +125,8 @@ new g_WeaponAmmo[TS_MAX_WEAPONS] =
 	35,//"contender" (H9: 36)
 	300,//"askorpion" (H9: 37, the akimbo Skorpions, as the Skorpion)
 	0,//"tknife" (H9: 38)
-	213//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
+	213,//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
+	90//"laserrifle" (H9: 40, a copy of the M4A1's row)
 }
 
 new g_AmmoTypes[TS_MAX_WEAPONS] =
@@ -169,7 +171,8 @@ new g_AmmoTypes[TS_MAX_WEAPONS] =
 	13,//"contender" (H9: 36)
 	12,//"askorpion" (H9: 37, .32 ACP as the Skorpion)
 	0,//"tknife" (H9: 38)
-	0//"ppsh41" (H9: 39, 7.62 x 25mm: no ARP ammo item is this one)
+	0,//"ppsh41" (H9: 39, 7.62 x 25mm: no ARP ammo item is this one)
+	0//"laserrifle" (H9: 40, plasma cells: no ARP ammo item either)
 }
 
 new Handle:g_SqlHandle
@@ -267,7 +270,8 @@ public ARP_RegisterItems()
 		{"G2 Contender","Handgun; Prohibited; 7.62mm NATO"},
 		{"",""},
 		{"",""},
-		{"",""}
+		{"PPSh-41","Sub-machine Gun; Prohibited; 7.62 x 25mm"},
+		{"Laser Rifle","Rifle; Prohibited; Plasma cell"}
 	}
 	
 	for(new Count;Count < TS_MAX_WEAPONS;Count++)
@@ -531,7 +535,20 @@ public AttachMenuHandle(id,Key)
 }	
 
 GiveWeapon(id)
+{
+	// H9: the PPSh-41 and the laser rifle are weapons of H9's reTS, there only while the server's h9_customweapons is 1. Without them the gun cannot be
+	// made. The core takes the item as this handler returns (neither has an attachment menu, so GiveWeapon runs inside it), so it is put back here, as
+	// _Ammo does for a round that fits no weapon, and the player is told.
+	if(g_Cell[id] >= 39 && !(cvar_exists("h9_customweapons") && get_cvar_num("h9_customweapons")))
+	{
+		new Item = g_GunStats[g_Cell[id]][ITEMID]
+		ARP_SetUserItemNum(id,Item,ARP_GetUserItemNum(id,Item) + 1)
+		ARP_ClientPrint(id,"This server does not have that weapon (h9_customweapons is 0).")
+		return
+	}
+	
 	ts_giveweapon(id,g_Cell[id],250,g_Attachments[id])
+}
 
 public _Ammo(id,ItemId)
 {

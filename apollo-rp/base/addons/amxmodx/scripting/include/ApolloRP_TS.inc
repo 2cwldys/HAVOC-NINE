@@ -4,7 +4,7 @@
 
 #define _ApolloRP_TS_included
 
-#define TS_MAX_WEAPONS 40
+#define TS_MAX_WEAPONS 41   // H9: 40 is the laser rifle of H9's reTS (39 the PPSh-41), after TS 3.0's own
 
 stock ts_giveweapon(id,weapon,clip,extra)
 {

@@ -1,0 +1,129 @@
+THE ARP INVENTORY -- TO CHECK (docs\ARP_INVENTORY.txt says what it is, docs\APOLLO_RP.txt 9 and 10 the short form and the table of switches)
+=====================================================================================================================================
+
+(nothing here has been seen in a game; each step names what to look at. The server half was run on a private headless server against a Python model of the cells and a
+decoder of its messages; the window itself is the client's and has not been seen by the server half.)
+
+A. Deploy (the lead's builds): build.bat apollo (ARP_Core, ARP_NPCs, ARP_JailMod, ARP_Inventory, and every ARP plugin whose include changed: ApolloRP_VGui.inc, ApolloRP_Items.inc), the
+   client.dll with the window (it reports _h9vgui 6; the search of a handcuffed player, G, needs one that reports 8 and
+   include\h9_vgui.inc with H9VGUI_SEARCH_PROTOCOL 8: until it has it the plugin uses its own define of 8), the web client through webclient-sync. The user messages (H9Inv, H9Trade, H9Search) are registered in plugin_precache, so change the map (or
+   restart the server) after the plugins are in place. Back up data\sqlite3\arp.sq3 first: nothing is migrated and no row of any ARP table changes, but one table is added, arp_h9_cells (made when
+   it is first needed; dropping it takes the feature back out), and a character's items are read and written as ever. arp.cfg is copied by the build; it already holds the eleven switches (arp_h9_vgui, arp_h9_itemhover, arp_h9_inv_window, arp_h9_inv_slots,
+   arp_h9_inv_stack, arp_h9_inv_persist, arp_h9_credits, arp_h9_trade_range, arp_h9_trade_timeout,
+   arp_h9_search, arp_h9_search_range).
+
+B. Server only, nobody at a screen.
+   1. The AMX Mod X log on h9_tsrp_hive: no ARP error, no "native not found", and a line "[ARP] inventory: inventory.ini names 0 stack limits" (the shipped file is all
+      comments). amx_plugins lists fourteen ARP plugins running, ARP_Inventory among them.
+   2. A player joins with any client: after a few seconds arp_h9_inv_dump <name> says "DUMP id=N on=1 slots=32 shown=32 used=..." (on=0 for a bot: bots are never given
+      an arrangement) and arp_h9_inv_check <name> says "CHECK id=N OK". Whatever he buys or finds shows in the dump as cells, "C 0:<item>:<count> ...", kinds in item order
+      after he joins again.
+   3. An ARP admin gives him 45 of an item, arp_createitems <name> <item> 45 (arp_help lists it): the dump has 20, 20 and 5; the check is OK.
+   4. arp_h9_inv_slots 8 while a player carries more than 8 kinds: the log has no line, the player loses nothing (arp_h9_inv_check OK, every count as before), and
+      arp_h9_inv_dump says shown=24 (or more) for him: he is over capacity. 32 again: shown=32.
+
+C. With H9's client on h9_tsrp_hive (a character with a few items, bought at a shop NPC).
+   1. /inventory, /items, the key bound to cl_h9_inventory and the Inventory entry of /menu each open the window, the cursor appears, and ESC, the X and the key close it.
+      The grid is 8 columns by 4 rows; each tile has the item's picture, its name and its count; the header says INVENTORY <cells used> / 32 and the wallet and the bank
+      in CREDITS (arp_h9_credits 1) or CASH (0), the player's name and his job.
+   1a. A NEW character with NOTHING: /inventory opens the window all the same, an empty grid, "INVENTORY 0 / 32", and the chat does not say "You have no items in your
+      inventory." That line stays for a player whose game has no window (another client, cl_h9_arpvgui 0, arp_h9_vgui 0, arp_h9_inv_window 0): they get the text menu or
+      the line as before.
+   2. Move: drag a tile onto an empty cell and it moves. Drag it onto a tile of the same item: as many go as fit under the stack limit (20) and the rest stays; onto another
+      item: the two swap. A full tile onto the same item: nothing moves and the status row says "That stack is full." TIDY merges and packs to the front in item order.
+   3. Stacks: buy 25 Soda (a shop that sells it): 20 and 5 in two cells. SPLIT (the right-click menu, or shift) 2 off the 5: 3 and 2 in two cells. arp_h9_inv_stack 5 in the
+      server console: within a second the cells split into stacks of 5 and nothing is lost; 20 again and TIDY merges them.
+   4. The right-click menu on a tile: USE (Soda: the eating state and the hunger bar act as from the text menu; a second Use while eating answers "You are already using
+      another item."), DROP ONE and DROP ALL (a pack lies on the floor, "Soda x3", and the hover line names it from 120 units away while arp_h9_itemhover is 1), GIVE TO ...
+      (the players near, 200 units), SHOW TO ... (the players near, 150 units), INFO (the item's description in the status row). Dragging a tile out of the window onto the
+      world drops it all; with shift, one.
+   5. SHOW TO a player: he sees a banner for six seconds, "<YOUR NAME> SHOWS YOU", the item, its description, and chat says "<YOUR NAME> shows you his Soda."; you get "You show
+      <NAME> your Soda." and nothing is taken from you. Too far (over 150 units), behind a wall, a bot, yourself: the status row refuses. The same for a license or a card.
+   6. Full: arp_h9_inv_slots 8 with a full grid (eight kinds). A shop NPC: buying an item you do not have says "[ARP] Your inventory is full." and your money does not move.
+      Use (E) on a pack of an item you have a partial stack of: "[ARP] Your inventory is full: you took 3 of 5 Soda." and the pack says "Soda x2" afterwards; on a pack of
+      something else: "[ARP] Your inventory is full." and the pack is untouched. An admin add of an item you have no room for: it falls at your feet ("4 Soda fell at your
+      feet"). GIVE to a player whose cells are full: "<NAME>'s inventory is full." and nothing moves.
+   7. Over capacity: carry twelve kinds, then arp_h9_inv_slots 8: nothing disappears, the window shows the twelve (the header says 12 / 8 or the like), nothing new can be picked
+      up or bought, and as soon as drops bring you under 8 cells it is normal again. arp_h9_inv_slots 0: nothing is ever refused and the grid grows in rows of 8.
+   8. Credits: arp_h9_credits 0 in the server console: within a second the header says CASH and the amounts read "$ 1,250"; 1: CREDITS and "1,250 CR". (The credit sign
+      in the rest of Apollo RP is checked in E.)
+   9. arp_h9_vgui 0: every ARP menu, /items among them, is the AMX Mod X text menu; the window cannot be opened; 1 gives it back (the window that was open is closed at once).
+      arp_h9_inv_window 0 does the same for the inventory alone.
+   10. Death closes the window. Join with cl_h9_arpvgui 0: the text menu as before, and the same rules (a full inventory refuses a purchase).
+   11. The text menu for a player who has no window: /items lists one line for each kind with the total; Use, Give, Drop, Show work as before, with these changes: Drop with
+      arp_performance 10 or less drops nothing and says so (it used to destroy the items), and Use of an item you no longer have says "You do not have any of this item.".
+   12. A plugin that hooks Item_Use (a cop's cuffs hold ARP_ItemSet; JailMod): a cuffed player's Use from the window is refused as from the text menu.
+   13. Web client: the same.
+
+D. The exchange of goods, with H9's client on h9_tsrp_hive: TWO players, each with the window, each carrying a few items and some money (docs\ARP_INVENTORY.txt, 6).
+   1. Look at the other player from under 100 units and press the use key: you are told "Exchange offered to <NAME>."; he sees "<YOUR NAME> OFFERS YOU AN EXCHANGE" for 12
+      seconds. He presses the use key on you (or the ACCEPT button): the exchange window opens for both, each with an empty offer. Declined, or left alone for 12 seconds:
+      nothing happens, both are free, and the same two can try again after 2 seconds. A third player who presses the use key on either of them is told it is busy.
+   2. Offer: drag a tile (or the count wanted) into your offer. The other player sees the entry with the item's name and the count; on your side the tile is HELD: using,
+      dropping, giving, showing or moving it says "That is in your exchange.", and TIDY leaves it where it is. The same tile offered again adds to its entry. 12 entries at most
+      ("Your offer is full."). Take an entry back: the tile is free again. Money: an amount from the wallet (the bank does not count: more than the wallet is refused).
+   3. Seal: every change by either side (an entry put in or taken back, another amount) breaks BOTH seals, and both seal buttons are dead for 3 seconds (a countdown). With
+      nothing offered by either side the seal is refused ("Nothing is offered."). Seal on both sides: the swap happens at once, both windows show what each received (the
+      summary: "<NAME> RECEIVES: Soda x5, 100 credits"), the items and the money have moved (check /items and the header), and the AMX Mod X log has one line
+      "[ARP] exchange completed on h9_tsrp_hive: ..." with both names, both authids, the items and the money.
+   4. Refusals: a player whose inventory cannot take the other's items cannot be sealed with ("Your inventory is full." / "<NAME>'s inventory is full."), nothing moves; two
+      full inventories CAN swap one full cell for another; offering more money than the wallet is refused; an item used up some other way while it is in the offer cannot happen
+      (it is held), and if a plugin changed a count the swap closes with "the check failed" and moves nothing.
+   5. Breaking off: walk away to over 250 units (within a second the window closes, "out of range"); get killed; get cuffed (a cop's cuffs) or jailed; disconnect; stand idle for
+      two minutes. Each closes both windows with its reason and frees the held cells; nothing moved. A cuffed or jailed player is neither invited nor can he invite.
+   6. Not possible: with a bot (a roaming citizen too), with a player whose game has no window, with oneself, twice at once. Pressing the use key on a door, a pack or an NPC
+      does what it did: only a living player who is looked at starts an exchange.
+   7. The switches: arp_h9_inv_window 0 in the server console: an open exchange closes and the use key on a player does nothing; 1 gives it back. arp_h9_trade_range 100: an
+      exchange at 150 units closes within a second.
+   8. Afterwards arp_h9_inv_check <name> says OK for both players and the AMX Mod X log has no runtime error.
+
+E. The credit sign (the owner's request; docs\ARP_INVENTORY.txt, 7): with the new client.dll (it says _h9vgui 7 when cl_h9_arpinv 1 and cl_h9_arpvgui 1), arp_h9_credits 1.
+   1. Everywhere Apollo RP showed "$" and a number you see the sign (the cent sign) and the number: the HUD panel ("Wallet: <sign>1250", "Bank: <sign>700", "Salary: <sign>x/hr", the
+      "Price: <sign>x. Say /buy" line at a property); an NPC shop's menu (each row's price, "Price: <sign>25"); the bank's menu ("Buy ATM Card (<sign>10)") and the ATM's amounts; the
+      chat: /menu -> My money and job ("[ARP] Wallet: <sign>1250  Bank: <sign>700"), /givemoney and the bank transfers ("[ARP] You have given X <sign>50"), the shop's "You do not have
+      enough money for this. (<sign>25)"; an admin's arp_createmoney in the console ("You have added <sign>50 to X's wallet") and its activity line in the chat; the result lines
+      of an exchange ("NAME RECEIVES: Soda x5, <sign>100").
+   2. A player on an older game (it says 6) or a stock client sees "$" everywhere, and "100 credits" in the result lines of an exchange. A bot has no screen.
+   3. arp_h9_credits 0 in the server console: every player sees "$" in all of those places (the window says CASH); 1 brings the sign back within a second (the HUD at its next
+      refresh, a menu when it is opened again).
+   4. These keep "$" on purpose: the text menus drawn in the HUD font (a player with cl_h9_arpvgui 0), the text HUD (cl_h9_arphud 0), the server log and the AMX Mod X log (the lines
+      of the exchange say "100 credits"), the server console, and what players type in the chat ("I paid $50").
+   5. If the sign shows as a box, a question mark or two odd characters in one of these places, say which place: chat, console and centre text are sent as UTF-8, the HUD panel, the
+      menus and the exchange window as the single byte 0xA2.
+
+F. The arrangement is kept (docs\ARP_INVENTORY.txt, 8), with H9's client on h9_tsrp_hive, one character with a few items, arp_h9_inv_persist 1.
+   1. Open the inventory and rearrange it: move two stacks to cells far from the others (the bottom row), split one, merge two. Wait ten seconds (the cells are written three seconds after
+      you stop), then leave the server (or change the map) and come back. The inventory opens with the cells exactly where you left them, the header says the same INVENTORY n / 32, and
+      the status row is quiet. Do it once more but leave within a second of the last move: it is also kept (the disconnect writes it).
+   2. A character who never arranged anything and joins as always gets the packed cells (kinds in item order); his row, when he has one, appears only after he has moved something.
+   3. While you are away something changes: an admin takes some of an item (arp_removeitems) and gives you another (arp_createitems). You come back to your layout with the lower count
+      clipped, the item you no longer have gone from its cell, and the new item in an empty cell; arp_h9_inv_check <you> says OK and the total of every item is what ARP says.
+   4. arp_h9_inv_slots 16 in the server console while you are away: you come back with the cells that were beyond 16 pulled into empty cells inside it, and nothing missing.
+      arp_h9_inv_stack 5: the stacks of 20 come back as stacks of 5 and the rest in the cells that are free.
+   5. An exchange of goods with another player, then both leave and return: both have the cells the exchange made.
+   6. arp_h9_inv_persist 0 in the server console, then join: the cells are packed as before whatever was saved, and nothing you do is saved. 1 again: it works as in 1 for the next visit.
+   7. The row, if you want to see it, on a copy of data\sqlite3\arp.sq3: select * from arp_h9_cells; (the cells as "cell:count:item name|..." and the time). If the database is down
+      the server log says so once and everybody gets the packed cells, as before.
+
+G. The search of a handcuffed player (docs\ARP_INVENTORY.txt, 9): TWO players with H9's client that says _h9vgui 8 (the client with its inventory window wanted and the search window),
+   one of them carrying a few items; a way to handcuff the other (the police job's cuffs, or ARP_JailMod's jail).
+   1. Handcuff the first player. The second presses the use key on him, within reach and aiming at him: the inventory window opens on the second player's screen with the cuffed
+      player's cells beside his own (the cells where the cuffed player sees them in his own window), and the cuffed player's chat says "[ARP] <NAME> is searching you." No exchange
+      is offered to him. The same press on a player who is NOT handcuffed is an invitation to an exchange, as ever.
+   2. Take a whole stack from his cells into yours: it moves at once, both windows follow, the status row says "You took 20 Soda.", the cuffed player's chat says "[ARP] <NAME> took
+      20 Soda from you." and the server's log has "[ARP] search on <map>: <name><authid> took 20 Soda from <name><authid>". Take part of a stack (as the window lets you take one).
+      Fill your inventory (arp_h9_inv_slots 8 in the server console helps) and take more than fits: the status row says "You took 5 of 12 Soda. Your inventory is full." and the rest
+      stays in his cell; nothing is on the floor; with no room at all: "Your inventory is full." and nothing moves.
+   3. While you search, the cuffed player moves a stack in his own window or drops something: your view of his cells follows within a moment. After any number of takes,
+      arp_h9_inv_check <either player> says OK and what the two own together is what they owned.
+   4. Walk away from him (more than 150 units): the window closes. Free him: it closes within a second. Kill him (admin command), or let him leave the server: it closes at once.
+      Handcuff yourself, or die: it closes. Close your own inventory window: the search window closes with it.
+   5. A third player presses the use key on the cuffed player while you search him: "Somebody is already searching him." and your search goes on. Press the use key on another
+      handcuffed player while you search: the window shows the new one.
+   6. Search a cuffed player who owns nothing: the window opens with "He has nothing on him.".
+   7. arp_h9_search 0 in the server console: the use key on a handcuffed player says "That player cannot make an exchange now.", and a window that is open closes within a second.
+      1 again: it works as in 1. A player whose game says less than 8 (the previous client.dll) gets the same refusal at any setting.
+   8. While you search, press the use key on a free player: "Finish your search first." and nothing is offered.
+
+H. What to send back if it fails: the AMX log lines with "inventory", "exchange" or "ARP", arp_h9_inv_dump <name> and arp_h9_inv_check <name> at the moment it looked wrong, what the
+   client's own console says about the window (if it has such a command), and what was on the screen.

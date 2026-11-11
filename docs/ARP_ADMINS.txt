@@ -1,0 +1,126 @@
+===============================================================================
+ GIVING APOLLO RP ADMIN TO A PLAYER (BY HIS XASH PLAYER ID OR HIS HAVOC9.ORG ACCOUNT)
+===============================================================================
+
+ Apollo RP (ARP) has an idea of an admin of its own, apart from AMX Mod X's. This is how to give it to one person: to the player who
+ is in the game now, to one who is not, or by the havoc9.org account he plays under. For the owner of a roleplay server; nothing here
+ is secret, and nothing secret may be put in it.
+
+ CONTENTS
+    1. What an ARP admin is
+    2. The first one: you
+    3. A player who is in the game now
+    4. A player who is not (his xash player id, or his account)
+    5. The Administrator job, on H9's own maps
+    6. Taking it away
+    7. Checking it, and when it does not work
+    8. Giving yourself money, items and a job (testing)
+
+ 1. WHAT AN ARP ADMIN IS
+ -----------------------
+ ARP's rights are 26 letters, a to z. A character holds two sets of them, and has both: its own, which arp_setaccess sets and which is
+ saved with the character (the access column of the table arp_users), and its job's (the access column of arp_jobs, or of the map's own
+ jobs table). The letter that makes an ARP admin is the one in arp_admin_access, in configs\arp\arp.cfg: z as shipped. A character
+ that holds it may run every command marked (ADMIN) in ARP and the arp_config menu.
+   * The server's console, rcon, and the player of a listen server (the game started from the menu is player 1) need no letter: they
+     are always let in.
+   * Never empty arp_admin_access. With no letter named there, ARP lets every player run its admin commands.
+   * AMX Mod X's own admins (configs\users.ini) are not ARP admins, and ARP admins are not AMX Mod X's. The two exceptions are
+     arp_addjob and arp_deletejob, which test both, and which are for a player in the game: the server's console is refused with
+     an error in the AMX log. Everything else in this guide works from the server console.
+
+ 2. THE FIRST ONE: YOU
+ ---------------------
+ A dedicated server: from its console, or from your game over rcon (rcon_password <password>, then "rcon <command>"; an rcon command is
+ the server console's). A listen server: from the console of your own game. Join the server, and in the server's console:
+     status
+ lists each player with his name, his userid (a small number, good for this visit only) and his uniqueid, his id on this server:
+ "ID_" and 32 letters and digits (section 4). A line looks like this; the userid is the number right after the quoted name (3 here),
+ not the "# 1" at the far left, which is only his slot:
+     #      name userid uniqueid frag time ping loss adr
+     # 1 "Ann" 3 ID_0123456789abcdef0123456789abcdef   0 02:10   35    0 192.168.1.5:27005
+ Then:
+     arp_setaccess #<your userid> z
+ You are an ARP admin from that moment, and the letter is saved with your character: after 30 seconds (arp_save_interval) or when you
+ leave. A listen server's player 1 is let in without it, but the letter keeps the rights if the same character joins a dedicated one.
+
+ 3. A PLAYER WHO IS IN THE GAME NOW
+ ----------------------------------
+ From the server's console, or from the console of any ARP admin:
+     arp_setaccess "<his name>" z          (a part of the name will do, if it is only his)
+     arp_setaccess #<his userid> z         (the number "status" shows)
+ What it sets is the whole of his own set of letters, not one to add: "arp_setaccess #5 bz" gives b as well as z, and "arp_setaccess #5
+ z" takes a b that he had. His job's letters are not touched. It takes effect at once. AMX Mod X refuses the command on a player whose
+ AMX Mod X flags include immunity (a), unless he runs it himself.
+
+ 4. A PLAYER WHO IS NOT (HIS XASH PLAYER ID, OR HIS ACCOUNT)
+ ------------------------------------------------------------
+ Two ids name a player for good; the userid that "status" shows is for one visit only:
+   * His xash player id on this server: the "ID_" and 32 characters H9XASH makes for him, MD5 of his own random id and this server's
+     IPv4 address (docs\CUSTOM_XASH_USERID.txt). It is the key of his character in the database, the authid column of arp_users, and
+     it changes when the server's address does. "status" prints it as the uniqueid while he is in the game.
+   * His havoc9.org account number, accounts.id: the number in front of his name in the account list (the admin panel's ACCOUNTS tab,
+     or the list command of docs\H9WEB_ADMIN.txt, section 4). It never changes. ARP knows it only for a player whose game is linked to
+     the account and proved it to the server (h9_presence; apollo-rp\ARP_IDS.txt): the table arp_ids lists the xash
+     ids each account has played under here, and the first of them is the key of the account's character, whatever address the
+     server has now.
+ The grant is a row of arp_users, and the server's console does it with arp_query, which runs one SQL statement and prints nothing.
+ Do it for a character that is NOT in the game: a character in the game is saved over it within 30 seconds. With his xash id:
+     arp_query UPDATE arp_users SET access='z' WHERE authid='ID_0123456789abcdef0123456789abcdef'
+ With his account number, say 417, first the key that account's character is under (the server stopped, or on a copy: arp_query shows no
+ rows; data\sqlite3\arp.sq3 opens in any SQLite tool, python's sqlite3 module will do):
+     SELECT authid FROM arp_ids WHERE acct=417 ORDER BY id LIMIT 1
+ and then the same UPDATE with that authid. No row means he has not played here with his account proved: he joins once (the game
+ links his account in the main menu, "Link your Account"), the HUD says his account is loading for a moment, and then the account's
+ character is the one to give it to, in the game, as in section 3. A character with no row in arp_users yet gets one at his first
+ join, and the UPDATE of an id with no row changes nothing: make him join once, then give it.
+ Back up data\sqlite3\arp.sq3 first (copy the file with the server stopped).
+
+ 5. THE ADMINISTRATOR JOB, ON H9'S OWN MAPS
+ ------------------------------------------
+ The jobs of h9_tsrp_hive and h9_tsrp_newbyzantium include one named Administrator, with the letter z and no salary
+ (docs\ARP_CONTENT.txt, section 3). An admin gives it as any job:
+     arp_setjob #<userid> "Administrator"
+ He is an ARP admin for as long as he holds it, and no rank in the roleplay has z, so nobody else can offer it. It is the map's: a
+ map whose jobs table has no such job answers "Could not find a job id matching what you said", and the letter in section 3 is the
+ way there. A job of any map can carry z: arp_addjob "<name>" <salary> z, by a player in the game with AMX Mod X rights (section 1).
+
+ 6. TAKING IT AWAY
+ -----------------
+     arp_setaccess #<userid> ""            (no letters of his own; his job's stay)
+     arp_setjob #<userid> "Unemployed"     (when it came with the Administrator job)
+ For a character not in the game, UPDATE arp_users SET access='' WHERE authid='<his id>' as in section 4. Both are saved with the
+ character. Anyone else who has a letter z, in his job or his own, is an admin: look at the jobs table (arp_query is blind; read it
+ with an SQLite tool) and at the access column of arp_users.
+
+ 7. CHECKING IT, AND WHEN IT DOES NOT WORK
+ -----------------------------------------
+ He types arp_hudstate in his console: an admin gets a list of the players and the HUD each is sent, anyone else a refusal (no
+ access). Every (ADMIN) command is the same test. If it fails:
+   * The letter is not the one arp_admin_access names: arp_admin_access in the server's console prints it.
+   * The grant was made to the wrong character: the one in the game is the one under "status", and a player whose havoc9.org account
+     is proved while another is not may be a different character from the one he had yesterday (apollo-rp\ARP_IDS.txt).
+   * It was written to a character that was in the game, and saved over: make it in the game (section 3), not with arp_query.
+   * ARP is not running on this map: ARP stands down on a map that is not a roleplay one (apollo-rp\ORIGIN.txt, 1), and its
+     commands are not there. The logs in addons\amxmodx\logs record the admin commands that were run ("Cmd: ..." lines) and the
+     errors a command raised.
+
+
+ 8. GIVING YOURSELF MONEY, ITEMS AND A JOB (TESTING)
+ ---------------------------------------------------
+ An ARP admin (section 1) can give himself what he needs to try something, from the server's console or from his own console. <you> is your name or
+ #<your userid> (the number after your name in "status", section 2).
+   Money      arp_createmoney "<you>" 5000        adds to your wallet        arp_setmoney "<you>" 5000        sets it
+              arp_createbank "<you>" 20000        adds to your bank          arp_setbank "<you>" 20000        sets it
+   Items      arp_createitems "<you>" "Laser Rifle" 1        arp_createitems "<you>" "Cuffs" 2        arp_createitems "<you>" "Rope" 1
+              arp_removeitems "<you>" "Rope" 1               arp_setitems "<you>" "Soda" 5
+              The item is a number or a part of its name; arp_itemlist prints them all. A part that fits two items is refused ("Bug" is also
+              "Bug Scanner"): say more of the name, or give the number.
+   A job      arp_setjob "<you>" "Cadet"          police rights (/cuff, /fine, jail) at once;  "Administrator" on H9's maps; arp_joblist lists jobs
+   Rights     arp_setaccess "<you>" z             your own rights (section 3); arp_setaccess "<you>" ""  takes them away
+ A worked example, to try cuffing and searching: two players are in the game. The first runs arp_setjob "<first>" "Cadet" and arp_createmoney
+ "<second>" 500. The first looks at the second, within 200 units, and says /cuff: the second is cuffed (a red glow, a handcuff symbol over his head).
+ The first presses the use key (E) on him: the search window opens with the second's items and his wallet, and TAKE 10, TAKE 100 and TAKE ALL take
+ money. To try the Cuffs item with no police job: arp_createitems "<civilian>" "Cuffs" 1, and he uses it (inventory window, or /cuff) on another
+ civilian; a cop cannot be cuffed.
+ docs\ARP_COMMANDS.txt lists every command.
