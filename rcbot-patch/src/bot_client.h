@@ -270,6 +270,20 @@ public:
 	void execute(void* p, int iIndex) override; // override base function
 };
 
+// A player's HUD is reset at every respawn, and the weapons of the new life are announced again (WStatus, WeaponInfo) right after
+// it. A Mech bot forgets what it knew of its two weapons (rcbot-patch CHANGE 13).
+class BotClient_TS_ResetHUD : public CBotNetMessage
+{
+public:
+	BotClient_TS_ResetHUD()
+	{
+		setName("ResetHUD");
+		setMod(MOD_TS);
+	}
+
+	void execute(void* p, int iIndex) override; // override base function
+};
+
 class BotClient_TS_WeaponInfo : public CBotNetMessage
 {
 public:

@@ -182,6 +182,95 @@ namespace
 		return g_Powerups.bAllowed;
 	}
 
+	// Mech weapons (CHANGE 13): the settings of a Mech bot's play with its M60 and its rocket launcher, read once a second. MECH
+	// WEAPONS, over CBot::MechPlay, says what a bot does with them. The tsm_ ones belong to ts_matchmode and the server, the h9_ ones to
+	// the game library (they say what a rocket and a pull of the trigger do). A cvar that does not exist reads as its default, so
+	// without the plugin the bots play as the defaults say.
+	//   tsm_bot_mech_rocket   0: a Mech bot plays its two weapons as any other bot does (default 1)
+	//   tsm_bot_mech_dwell    seconds a Mech bot keeps the weapon it chose before it chooses the other (default 3)
+	//   tsm_bot_mech_near     the nearest target it pulls the launcher at, in units (default 400)
+	//   h9_mechrocket         0: the game library has no launcher (default 1)
+	//   h9_mechrocket_speed, _radius, _rate, _reload, _clip, _salvo, _stagger, _selfdamage
+	//   tsm_enabled, tsm_friendlyfire, mp_friendlyfire   whether a blast may hurt a teammate
+	constexpr float MECH_LEAD_CAP = 1.5f;       // the longest lead on a moving target, in seconds of its walk
+	constexpr float MECH_FOOT_RISE = 6.0f;      // the aim point above the floor under a standing target
+	constexpr float MECH_FLOOR_SLACK = 48.0f;   // a line that ends this near the aim point has met the floor under it, not a wall
+	constexpr float MECH_WALL_NEAR = 96.0f;     // a rocket that would burst nearer than this to the bot is not fired
+	constexpr float MECH_WATCH_FROM = 0.03f;    // the rocket of a pull is looked for from this long after the pull
+	constexpr float MECH_WATCH_UNTIL = 0.6f;    // and the pull is counted as launching nothing after this
+	constexpr float MECH_GROUP_EVERY = 0.5f;    // the enemies near the target are counted this often
+	constexpr float MECH_LOOK_EVERY = 0.1f;     // the situation is worked out this often
+	constexpr float MECH_AIM_OFFSET = 0.35f;    // the share of the usual aim error that a rocket gets (its blast covers the rest)
+	constexpr int MECH_ROCKET_SCAN = 256;       // rockets looked at when the one of a pull is looked for (a salvo is four of them)
+	constexpr int MECH_LOG_FIRST = 40;          // lines logged without the debug level, a map
+
+	struct MechSettings
+	{
+		bool bOn = true;
+		bool bLauncher = true;
+		mech::Tuning tune;
+		float fSpeed = 900.0f;
+		float fRadius = 200.0f;
+		float fRate = 1.5f;
+		float fReload = 2.5f;
+		int iClip = 1;
+		int iSalvo = 1;
+		float fStagger = 0.12f;
+		bool bSelfDamage = false;
+		bool bFriendlyFire = false;
+		float fNextRead = 0.0f;
+	};
+
+	MechSettings g_Mech;
+
+	float MechCvar(const char* szName, const float fDefault)
+	{
+		const cvar_t* pCvar = CVAR_GET_POINTER(szName);
+
+		return pCvar != nullptr ? pCvar->value : fDefault;
+	}
+
+	const MechSettings& MechNow()
+	{
+		// the clock starts again at each map, so a read due far ahead of it is due now
+		if (g_Mech.fNextRead <= gpGlobals->time || g_Mech.fNextRead > gpGlobals->time + 2.0f)
+		{
+			const mech::Tuning stock;
+
+			g_Mech.fNextRead = gpGlobals->time + 1.0f;
+
+			g_Mech.bOn = MechCvar("tsm_bot_mech_rocket", 1.0f) > 0.0f;
+			g_Mech.bLauncher = MechCvar("h9_mechrocket", 1.0f) != 0.0f;
+
+			const float fDwell = MechCvar("tsm_bot_mech_dwell", 0.0f);
+			const float fNear = MechCvar("tsm_bot_mech_near", 0.0f);
+
+			g_Mech.tune.dwell = fDwell > 0.0f ? std::min(std::max(fDwell, 0.5f), 30.0f) : stock.dwell;
+			g_Mech.tune.minFire = fNear > 0.0f ? std::min(std::max(fNear, 128.0f), 1500.0f) : stock.minFire;
+
+			g_Mech.fSpeed = std::min(std::max(MechCvar("h9_mechrocket_speed", 900.0f), 100.0f), 4000.0f);
+			g_Mech.fRadius = std::min(std::max(MechCvar("h9_mechrocket_radius", 200.0f), 32.0f), 1000.0f);
+			g_Mech.fRate = std::min(std::max(MechCvar("h9_mechrocket_rate", 1.5f), 0.1f), 30.0f);
+			g_Mech.fReload = std::min(std::max(MechCvar("h9_mechrocket_reload", 2.5f), 0.5f), 30.0f);
+			g_Mech.iClip = static_cast<int>(std::min(std::max(MechCvar("h9_mechrocket_clip", 1.0f), 1.0f), 30.0f));
+			g_Mech.iSalvo = static_cast<int>(std::min(std::max(MechCvar("h9_mechrocket_salvo", 1.0f), 1.0f), 8.0f));
+			g_Mech.fStagger = std::min(std::max(MechCvar("h9_mechrocket_stagger", 0.12f), 0.03f), 1.0f);
+			g_Mech.bSelfDamage = MechCvar("h9_mechrocket_selfdamage", 0.0f) != 0.0f;
+
+			// a dry launcher that stays in hand is loaded again a salvo, an idle wait and a reload after the pull: the bot waits for it
+			// that long, and counts it as loaded a little after
+			g_Mech.tune.reloadAssume = mech::salvoTime(g_Mech.iSalvo, g_Mech.fStagger) + mech::reloadSeconds(g_Mech.fReload) + 1.5f;
+			g_Mech.tune.reloadWait = g_Mech.tune.reloadAssume + 1.0f;
+
+			// the plugin undoes a teammate's damage while its match mode is on and tsm_friendlyfire is 0; the game's own switch
+			// stands where no match mode runs
+			g_Mech.bFriendlyFire = MechCvar("tsm_enabled", 0.0f) > 0.0f ? MechCvar("tsm_friendlyfire", 0.0f) > 0.0f :
+				MechCvar("mp_friendlyfire", 0.0f) > 0.0f;
+		}
+
+		return g_Mech;
+	}
+
 	// Objective play (CHANGE 11): whether the bots play the objectives of the map's mode, what they know of them, and the
 	// post objplan::plan (bot_objective.h) gives each of them, all worked out together once a second. BOT OBJECTIVES, over
 	// CBot::ObjPlay, says what a bot does with its post.
@@ -2611,6 +2700,9 @@ void CBot::SpawnInit(const bool bInit)
 	m_fRoamHurtTime = 0.0f;
 	m_fRoamNextFists = 0.0f;
 
+	// The Mech's weapons are announced again with the next life's ResetHUD (CHANGE 13).
+	m_Mech.reset();
+
 	// Nothing of the objective post it had in its last life (CHANGE 11).
 	if (!bInit && m_pEdict != nullptr)
 		ObjForgetBot(ENTINDEX(m_pEdict));
@@ -4052,6 +4144,10 @@ void CBot::Think()
 	//	BugMessage(NULL,"GOTCHA!!!! (update visibles)");
 	//}
 
+	// A Mech picks between its M60 and its rocket launcher (CHANGE 13)
+	if (m_Mech.isMech())
+		MechThink();
+
 	// if no new buttons pressed before this statement
 	// reset buttons
 	if (m_iLastButtons == pev->button)
@@ -4965,6 +5061,467 @@ bool CBot::RoamHoldsMelee() const
 	const int iId = m_pCurrentWeapon->GetID();
 
 	return iId == 36 || iId == 25 || iId == 34 || iId == 35;
+}
+
+// MECH WEAPONS (CHANGE 13)
+//
+// A Mech carries two weapons, the M60 (weapon 32) and the rocket launcher (weapon 41, H9's own: reTS ts_mechrocket.cpp). Stock rcbot
+// chooses no weapon in a TS fight: it presses attack with whatever the game put in hand. A bot that holds both alternates now. What it
+// knows of its arsenal comes from the game's own messages (WStatus, WeaponInfo and ResetHUD, bot_client.cpp; bot_mech.h, mech::State),
+// so it does not depend on any plugin, and mech::decide is the rule that picks the weapon:
+//   - Looking (MechThink, ten times a second): the target, how far its aim point is, whether a rocket flies the line to it, how many
+//     enemies a blast on it would take. The answer is a weapon, asked for with the game's own select command ("weapon_32",
+//     "weapon_41") at most once every cmdGap seconds, and once every dwell (3 s and up to half as much again, a different one each
+//     time) unless the situation forces it.
+//   - The M60 is the default. The launcher comes out for a target that is far enough, in clear sight of a rocket, and has held so
+//     for half a second, or for one of a group (a group is let in nearer); it fires its salvo; the M60 takes over again while a
+//     target is in sight. The M60 is also for a near target, for a target a rocket is no use against (a door), and whenever the
+//     launcher is empty, spent or refused. A switch is never made while a salvo is leaving. The game reloads a dry launcher only
+//     while it is in hand and a switch throws the reload away, so an emptied launcher is reloaded in the quiet (no target for
+//     two seconds) and put away loaded; it is waited on in hand only when the target is too far for the M60 to matter.
+//   - Shooting (MechFire): with the launcher in hand the stock press is not used. The launcher is pulled once, when it is out,
+//     loaded, ready and aimed: the line ahead of the bot meets the target's feet, no wall is in front of the bot, no teammate is in
+//     the line, and none is near the blast when friendly fire is on. Then it is left alone for h9_mechrocket_rate and the salvo
+//     (h9_mechrocket_salvo rockets, h9_mechrocket_stagger apart). The trigger is never held. A pull whose rocket never appears is
+//     counted, and two in a row leave the launcher alone for a while.
+//   - Aiming (GetAimVector, MechRocketAim): at the target's feet when he stands on the floor, led by the rocket's flight time.
+//   - Not a Mech (the bot lacks one of the two), a roaming citizen, tsm_bot_mech_rocket 0, h9_mechrocket 0: nothing here runs.
+// The debug aid is the server console command "rcbot debug mech 1" (0 puts it off): every look that changes the answer, every switch
+// and every pull go to the server log with the reason. Without it the first MECH_LOG_FIRST lines of a map are logged anyway.
+
+bool CBot::MechPlay() const
+{
+	return gBotGlobals.IsMod(MOD_TS) && m_Mech.isMech() && !IsRoamer() && MechNow().bOn && MechNow().bLauncher;
+}
+
+// A player or a sentry turret is a target for a rocket, a door or a window is not.
+bool CBot::MechFit(const edict_t* pEnemy) const
+{
+	if (pEnemy == nullptr || FNullEnt(pEnemy))
+		return false;
+
+	if (pEnemy->v.flags & FL_CLIENT)
+		return true;
+
+	return std::strcmp(STRING(pEnemy->v.classname), "turret") == 0;
+}
+
+bool CBot::MechAimsRocket(const edict_t* pEnemy) const
+{
+	return m_Mech.wielded == mech::WPN_LAUNCHER && MechFit(pEnemy) && MechPlay();
+}
+
+// Where to aim a rocket at a target whose middle is vCenter: where he will be when it gets there, at his feet if he stands on the
+// floor and the line to them is open.
+Vector CBot::MechRocketAim(const edict_t* pEnemy, const Vector& vCenter) const
+{
+	const MechSettings& cfg = MechNow();
+	const Vector vGun = GetGunPosition();
+	const float fLead = mech::leadTime((vCenter - vGun).Length(), cfg.fSpeed, MECH_LEAD_CAP);
+
+	TraceResult tr;
+
+	// his walk along the floor for as long as the rocket flies; a wall on the way stops the lead there
+	Vector vWalk = pEnemy->v.velocity;
+	vWalk.z = 0.0f;
+
+	Vector vAim = vCenter + vWalk * fLead;
+
+	if (vWalk.Length() > 1.0f)
+	{
+		UTIL_TraceLine(vCenter, vAim, ignore_monsters, m_pEdict, &tr);
+
+		if (tr.flFraction < 1.0f)
+			vAim = vCenter + (vAim - vCenter) * std::max(0.0f, tr.flFraction - 0.05f);
+	}
+
+	if (pEnemy->v.flags & FL_ONGROUND)
+	{
+		const Vector vFeet(vAim.x, vAim.y, vAim.z - pEnemy->v.size.z * 0.5f + MECH_FOOT_RISE);
+
+		UTIL_TraceLine(vGun, vFeet, ignore_monsters, m_pEdict, &tr);
+
+		if (tr.flFraction >= 0.97f)
+			vAim = vFeet;
+	}
+
+	return vAim;
+}
+
+// Whether a rocket flies from the gun to the aim point: nothing but the target (or another enemy) in the way, and no wall near the bot.
+bool CBot::MechPathClear(const Vector& vAim, const edict_t* pTarget)
+{
+	const Vector vGun = GetGunPosition();
+	TraceResult tr;
+
+	UTIL_TraceLine(vGun, vAim, dont_ignore_monsters, dont_ignore_glass, m_pEdict, &tr);
+
+	if (tr.flFraction >= 1.0f)
+		return true;
+
+	edict_t* pHit = tr.pHit;
+
+	if (pHit != nullptr && !FNullEnt(pHit))
+	{
+		if (pHit == pTarget)
+			return true;
+
+		// another enemy in the line takes the rocket as well; a teammate, a door or a window does not
+		return MechFit(pHit) && IsEnemy(pHit);
+	}
+
+	// the world: the floor under the aim point is no wall
+	return (tr.vecEndPos - vAim).Length() <= MECH_FLOOR_SLACK && (tr.vecEndPos - vGun).Length() >= MECH_WALL_NEAR;
+}
+
+// Whether a rocket fired now, along the bot's view, bursts where it should: near the aim point, not in a wall in front of the bot, with
+// no teammate in the line and none near the blast when friendly fire is on.
+bool CBot::MechAimedAt(const Vector& vAim, const edict_t* pTarget)
+{
+	const MechSettings& cfg = MechNow();
+	const Vector vGun = GetGunPosition();
+	const float fDist = (vAim - vGun).Length();
+
+	UTIL_MakeVectors(pev->v_angle);
+
+	const Vector vEnd = vGun + gpGlobals->v_forward * (fDist + 128.0f);
+	TraceResult tr;
+
+	UTIL_TraceLine(vGun, vEnd, dont_ignore_monsters, dont_ignore_glass, m_pEdict, &tr);
+
+	const Vector vImpact = tr.vecEndPos;
+	edict_t* pHit = tr.pHit;
+	const bool bSomeone = pHit != nullptr && !FNullEnt(pHit);
+
+	// on the target: it is in the line, or the line ends close to the aim point
+	if (!(bSomeone && pHit == pTarget) && (vImpact - vAim).Length() > mech::aimTolerance(cfg.fRadius))
+		return false;
+
+	// a teammate (or the other side's sentry's own side) in the line
+	if (bSomeone && pHit != pTarget && MechFit(pHit) && !IsEnemy(pHit))
+		return false;
+
+	// and the blast must not reach the bot when the game lets it hurt him, nor a wall right in front of him
+	if ((vImpact - vGun).Length() < (cfg.bSelfDamage ? cfg.fRadius * 1.4f : MECH_WALL_NEAR))
+		return false;
+
+	return !(cfg.bFriendlyFire && MechAlliesNear(vImpact, cfg.fRadius));
+}
+
+// Whether a teammate is alive within a blast of this point.
+bool CBot::MechAlliesNear(const Vector& vPoint, const float fRadius)
+{
+	const int iLast = std::min(static_cast<int>(gpGlobals->maxClients), static_cast<int>(MAX_PLAYERS));
+
+	for (int i = 1; i <= iLast; i++)
+	{
+		edict_t* pPlayer = INDEXENT(i);
+
+		if (pPlayer == nullptr || pPlayer->free || pPlayer == m_pEdict || !(pPlayer->v.flags & FL_CLIENT))
+			continue;
+
+		if (!EntityIsAlive(pPlayer) || IsEnemy(pPlayer))
+			continue;
+
+		if ((EntityOrigin(pPlayer) - vPoint).Length() < fRadius * 1.1f)
+			return true;
+	}
+
+	return false;
+}
+
+// How many enemies a blast on the target would take: the target and the enemies within a blast of him.
+int CBot::MechGroupAt(const edict_t* pTarget, const float fRadius)
+{
+	const int iLast = std::min(static_cast<int>(gpGlobals->maxClients), static_cast<int>(MAX_PLAYERS));
+	const Vector vTarget = EntityOrigin(pTarget);
+	int iCount = 1;
+
+	for (int i = 1; i <= iLast; i++)
+	{
+		edict_t* pPlayer = INDEXENT(i);
+
+		if (pPlayer == nullptr || pPlayer->free || pPlayer == m_pEdict || pPlayer == pTarget || !(pPlayer->v.flags & FL_CLIENT))
+			continue;
+
+		if (!EntityIsAlive(pPlayer) || !IsEnemy(pPlayer))
+			continue;
+
+		if ((EntityOrigin(pPlayer) - vTarget).Length() < fRadius)
+			iCount++;
+	}
+
+	return iCount;
+}
+
+// Whether a rocket of this bot's is in flight: the game names the entity h9_mechrocket and makes the shooter its owner.
+bool CBot::MechRocketInFlight() const
+{
+	edict_t* pRocket = nullptr;
+
+	for (int i = 0; i < MECH_ROCKET_SCAN; i++)
+	{
+		pRocket = UTIL_FindEntityByClassname(pRocket, "h9_mechrocket");
+
+		if (pRocket == nullptr)
+			break;
+
+		if (pRocket->v.owner == m_pEdict)
+			return true;
+	}
+
+	return false;
+}
+
+void CBot::MechLog(const char* fmt, ...) const
+{
+	// The first lines of a map are logged unasked, so that a run can be checked without a console; the debug level (rcbot debug mech 1)
+	// logs them all. The clock starts again at each map.
+	static int s_iLogged = 0;
+	static float s_fLastLog = 0.0f;
+
+	if (gpGlobals->time < s_fLastLog)
+		s_iLogged = 0;
+
+	s_fLastLog = gpGlobals->time;
+
+	if (!gBotGlobals.IsDebugLevelOn(BOT_DEBUG_MECH_LEVEL))
+	{
+		if (s_iLogged >= MECH_LOG_FIRST)
+			return;
+
+		s_iLogged++;
+	}
+
+	char szText[256];
+	va_list argptr;
+
+	va_start(argptr, fmt);
+	vsnprintf(szText, sizeof(szText), fmt, argptr);
+	va_end(argptr);
+
+	UTIL_LogPrintf("[RCBOT MECH] %s: %s\n", pev != nullptr ? STRING(pev->netname) : "?", szText);
+}
+
+// Asks the game for a weapon with its own select command and waits for its WeaponInfo to say it is in hand. The dwell before the next
+// choice is drawn here; after a switch the situation forced it is longer, so that a target at the edge of the range does not send the
+// bot back and forth.
+void CBot::MechSelect(const int iType, const bool bForced)
+{
+	const MechSettings& cfg = MechNow();
+	const float fNow = gpGlobals->time;
+
+	FakeClientCommand(m_pEdict, "weapon_%d", iType);
+
+	m_Mech.pending = iType;
+	m_Mech.pendingAt = fNow;
+	m_Mech.lastSwitch = fNow;
+	m_Mech.dwell = cfg.tune.dwell * (1.0f + RANDOM_FLOAT(0.0f, cfg.tune.dwellJitter)) * (bForced ? cfg.tune.forcedDwell : 1.0f);
+}
+
+// A Mech bot's look at its fight, ten times a second, while it is alive: which weapon should be in its hand.
+void CBot::MechThink()
+{
+	if (!MechPlay())
+	{
+		// tsm_bot_mech_rocket was turned off with the launcher out: the M60 is what a stock bot has in hand, so the bot goes back to it
+		if (m_Mech.wielded == mech::WPN_LAUNCHER && m_Mech.own60 && m_Mech.pending == 0 && gBotGlobals.IsMod(MOD_TS) && !IsRoamer() &&
+			!MechNow().bOn && gpGlobals->time - m_Mech.lastSwitch >= MechNow().tune.cmdGap)
+			MechSelect(mech::WPN_M60, true);
+
+		return;
+	}
+
+	const MechSettings& cfg = MechNow();
+	const float fNow = gpGlobals->time;
+
+	m_Mech.fixClocks(fNow);
+
+	// the first sign, for whoever checks that the game's messages reach the bot
+	if (!m_Mech.announced)
+	{
+		m_Mech.announced = true;
+		MechLog("carries the M60 and the launcher: Mech play is on (in hand %d, launcher %d/%d)", m_Mech.wielded, m_Mech.clipRl,
+			m_Mech.reserveRl);
+	}
+
+	// A select command that the game never answered with a WeaponInfo was refused: the weapon is not the bot's, or cannot be wielded
+	// now. The launcher is left alone for a while; an M60 that cannot be selected is none the bot has.
+	if (m_Mech.pending != 0 && fNow - m_Mech.pendingAt > cfg.tune.switchWait)
+	{
+		MechLog("weapon_%d got no answer in %.1f s: refused", m_Mech.pending, cfg.tune.switchWait);
+
+		if (m_Mech.pending == mech::WPN_LAUNCHER)
+			m_Mech.refusedUntil = fNow + cfg.tune.refusal;
+		else
+			m_Mech.own60 = false;
+
+		m_Mech.pending = 0;
+		return;
+	}
+
+	// The rocket of the last pull: found, or never launched. Two pulls in a row that launch nothing mean the launcher is not ready or
+	// not wanted, whatever the clip says.
+	if (m_Mech.watching && fNow - m_Mech.lastPull >= MECH_WATCH_FROM)
+	{
+		if (MechRocketInFlight())
+		{
+			m_Mech.watching = false;
+			m_Mech.dud = 0;
+		}
+		else if (fNow - m_Mech.lastPull > MECH_WATCH_UNTIL)
+		{
+			m_Mech.watching = false;
+			m_Mech.dud++;
+			m_Mech.clipRl = 0;
+			MechLog("the pull launched no rocket (%d in a row)", m_Mech.dud);
+
+			if (m_Mech.dud >= 2)
+			{
+				m_Mech.dud = 0;
+				m_Mech.refusedUntil = fNow + cfg.tune.refusal;
+				MechLog("the launcher is left alone for %.0f s", cfg.tune.refusal);
+			}
+		}
+	}
+
+	// The game reloads an empty launcher in hand, and a resupply fills a spent one, without a word to the bot.
+	m_Mech.ageClip(fNow, cfg.tune.reloadAssume, cfg.tune.spentRecheck);
+
+	const float fOut = std::max(m_Mech.lastPull, m_Mech.wieldedAt);
+
+	if (fNow < m_Mech.nextLook)
+		return;
+
+	m_Mech.nextLook = fNow + MECH_LOOK_EVERY;
+
+	mech::Look look;
+
+	look.own60 = m_Mech.own60;
+	look.ownRl = m_Mech.ownRl;
+	look.wielded = m_Mech.wielded;
+	look.clipRl = m_Mech.clipRl;
+	look.reserveRl = m_Mech.reserveRl;
+	look.refused = m_Mech.refusedUntil > fNow;
+	look.pending = m_Mech.pending != 0;
+	look.sinceSwitch = fNow - m_Mech.lastSwitch;
+	look.dwell = m_Mech.dwell;
+	look.sincePull = fNow - m_Mech.lastPull;
+	look.sinceOut = fNow - fOut;
+	look.afterPull = m_Mech.lastPull >= m_Mech.wieldedAt;
+	look.salvoTime = mech::salvoTime(cfg.iSalvo, cfg.fStagger);
+
+	edict_t* pEnemy = m_pEnemy;
+
+	if (pEnemy != nullptr && !FNullEnt(pEnemy) && !pEnemy->free && HasCondition(BOT_CONDITION_SEE_ENEMY) && EntityIsAlive(pEnemy))
+	{
+		m_Mech.seenTarget = fNow;
+
+		look.target = true;
+		look.fit = MechFit(pEnemy);
+
+		const Vector vAim = MechRocketAim(pEnemy, EntityOrigin(pEnemy));
+
+		look.dist = (vAim - GetGunPosition()).Length();
+
+		if (look.fit)
+		{
+			look.clear = MechPathClear(vAim, pEnemy);
+
+			// a group is counted for a target that is far enough for the count to matter
+			if (look.dist >= cfg.tune.floorFire && fNow - m_Mech.groupAt >= MECH_GROUP_EVERY)
+			{
+				m_Mech.group = MechGroupAt(pEnemy, cfg.fRadius);
+				m_Mech.groupAt = fNow;
+			}
+
+			look.group = m_Mech.group;
+		}
+
+		look.need = mech::fireRange(cfg.tune, cfg.fRadius, cfg.bSelfDamage, look.group >= 2);
+	}
+
+	// how long the target has been one for the launcher to come out for
+	if (mech::farEnough(cfg.tune, look))
+	{
+		if (m_Mech.farSince == mech::LONG_AGO)
+			m_Mech.farSince = fNow;
+
+		look.farFor = fNow - m_Mech.farSince;
+	}
+	else
+	{
+		m_Mech.farSince = mech::LONG_AGO;
+	}
+
+	look.sinceTarget = fNow - m_Mech.seenTarget;
+
+	const mech::Decision dec = mech::decide(cfg.tune, look);
+
+	if (dec.pick != mech::KEEP)
+	{
+		MechLog("%s -> %s: %s (target %s, %.0f units, line %s, group %d, launcher %d/%d)",
+			m_Mech.wielded == mech::WPN_LAUNCHER ? "launcher" : (m_Mech.wielded == mech::WPN_M60 ? "m60" : "other"),
+			dec.pick == mech::TO_LAUNCHER ? "launcher" : "m60", mech::whyName(dec.why), look.target ? (look.fit ? "yes" : "unfit") : "none",
+			look.dist, look.clear ? "clear" : "blocked", look.group, m_Mech.clipRl, m_Mech.reserveRl);
+	}
+	else if ((dec.why != m_Mech.lastWhy || dec.pick != m_Mech.lastPick) && gBotGlobals.IsDebugLevelOn(BOT_DEBUG_MECH_LEVEL))
+	{
+		MechLog("keeps the %s: %s (target %s, %.0f units, line %s, group %d, launcher %d/%d)",
+			m_Mech.wielded == mech::WPN_LAUNCHER ? "launcher" : (m_Mech.wielded == mech::WPN_M60 ? "m60" : "other"),
+			mech::whyName(dec.why), look.target ? (look.fit ? "yes" : "unfit") : "none", look.dist, look.clear ? "clear" : "blocked",
+			look.group, m_Mech.clipRl, m_Mech.reserveRl);
+	}
+
+	m_Mech.lastWhy = static_cast<int>(dec.why);
+	m_Mech.lastPick = static_cast<int>(dec.pick);
+
+	if (dec.pick != mech::KEEP && fNow - m_Mech.lastSwitch >= cfg.tune.cmdGap)
+		MechSelect(dec.pick == mech::TO_LAUNCHER ? mech::WPN_LAUNCHER : mech::WPN_M60, dec.forced);
+}
+
+// The trigger of a Mech with the launcher in hand. True: it is the Mech code's this frame (pressed or deliberately left alone), and the
+// stock press is skipped. False: the M60 or anything else is in hand, or the bot is no Mech, and the stock press stands.
+bool CBot::MechFire()
+{
+	if (m_Mech.wielded != mech::WPN_LAUNCHER || !MechPlay())
+		return false;
+
+	const MechSettings& cfg = MechNow();
+	const float fNow = gpGlobals->time;
+	edict_t* pEnemy = m_pEnemy;
+
+	// not while a switch is on its way, nor at a target a rocket is no use against
+	if (m_Mech.pending != 0 || pEnemy == nullptr || FNullEnt(pEnemy) || pEnemy->free || !MechFit(pEnemy))
+		return true;
+
+	// the launcher's own delay, its draw, a refusal, an empty clip
+	if (!m_Mech.mayPull(fNow, cfg.tune.deploy))
+		return true;
+
+	const Vector vAim = MechRocketAim(pEnemy, EntityOrigin(pEnemy));
+	const float fDist = (vAim - GetGunPosition()).Length();
+
+	if (fDist < mech::fireRange(cfg.tune, cfg.fRadius, cfg.bSelfDamage, m_Mech.group >= 2) || fDist > cfg.tune.maxFire)
+		return true;
+
+	if (!MechAimedAt(vAim, pEnemy))
+		return true;
+
+	// one press: the salvo leaves by itself, and the button is not held (it is not pressed at all while the bot reloads)
+	if (pev->button & IN_RELOAD)
+		return true;
+
+	pev->button |= IN_ATTACK;
+
+	const int iClipWas = m_Mech.clipRl;
+
+	m_Mech.onPull(fNow, cfg.iSalvo, cfg.iClip, mech::pullCooldown(cfg.fRate, cfg.iSalvo, cfg.fStagger));
+
+	MechLog("pulls the launcher at %.0f units (clip %d, spare %d, salvo %d, next pull in %.1f s)", fDist, iClipWas, m_Mech.reserveRl,
+		cfg.iSalvo, m_Mech.nextPull - fNow);
+
+	return true;
 }
 
 // BOT OBJECTIVES (CHANGE 11)
@@ -8235,6 +8792,7 @@ Vector CBot::GetAimVector(const edict_t* pBotEnemy)
 //
 {
 	Vector vEnemyOrigin;
+	bool bMechRocket = false;
 
 	if (/*gBotGlobals.IsMod(MOD_SVENCOOP) &&*/ gBotGlobals.IsMod(MOD_GEARBOX) && pBotEnemy->v.flags & FL_MONSTER)
 	{
@@ -8314,6 +8872,14 @@ Vector CBot::GetAimVector(const edict_t* pBotEnemy)
 		break;
 	case MOD_NS:
 		break;
+	case MOD_TS:
+		// the Mech's rocket launcher: at the target's feet, led (CHANGE 13)
+		if (MechAimsRocket(pBotEnemy))
+		{
+			vEnemyOrigin = MechRocketAim(pBotEnemy, vEnemyOrigin);
+			bMechRocket = true;
+		}
+		break;
 	default:
 		break;
 	}
@@ -8374,7 +8940,8 @@ Vector CBot::GetAimVector(const edict_t* pBotEnemy)
 		m_fGetAimVectorTime = gpGlobals->time + RANDOM_FLOAT(m_Profile.m_fAimTime - 0.2f, m_Profile.m_fAimTime + 0.2f) * fSpeed;
 	}
 
-	return vEnemyOrigin + m_vOffsetVector;
+	// a rocket's blast covers most of the error the offset stands for, and the lead already counts the target's walk
+	return vEnemyOrigin + m_vOffsetVector * (bMechRocket ? MECH_AIM_OFFSET : 1.0f);
 }
 
 float CBot::DistanceFrom(const Vector& vOrigin, const bool twoD) const
@@ -16571,7 +17138,8 @@ if ( !HasUser4Mask(MASK_UPGRADE_9) )
 					if (m_pCurrentWeapon)
 						iweapid = m_pCurrentWeapon->GetID();
 
-					weap_id = static_cast<float>(iweapid) / static_cast<float>(MAX_WEAPONS);
+					// the stunt decision was learned against TS 3.0's 37 weapon ids, whatever size the weapon tables are
+					weap_id = static_cast<float>(iweapid) / 37.0f;
 
 					// a citizen fighting its attacker back fights with its hands, whatever it carries (CHANGE 8)
 					if (!m_pCurrentWeapon || (IsRoamer() && !RoamNow().bHostile) || (m_pCurrentWeapon->GetID() == 34 || m_pCurrentWeapon->GetID() == 35 || m_pCurrentWeapon->GetID() == 36 || m_pCurrentWeapon->GetID() == 25))
@@ -16649,7 +17217,14 @@ if ( !HasUser4Mask(MASK_UPGRADE_9) )
 							m_pTSWeaponSelect->set(8+iweapid,0.5f);
 						*/
 
-						if (m_pCurrentWeapon->NeedToReload())
+						// a Mech with the launcher in hand pulls it, or leaves it, itself (CHANGE 13)
+						const bool bMechTrigger = MechFire();
+
+						if (bMechTrigger)
+						{
+							// pressed or left alone by MechFire
+						}
+						else if (m_pCurrentWeapon->NeedToReload())
 						{
 							RunForCover(vEnemyOrigin);
 							Reload(); // reload the weapon [APG]RoboCop[CL]
@@ -17931,6 +18506,10 @@ bool CBot::PrimaryAttack() const
 	}*/
 	// Can't shoot while reloading
 	if (pev->button & IN_RELOAD)
+		return false;
+
+	// the Mech's launcher is pulled by MechFire alone: no other task presses the trigger on it (CHANGE 13)
+	if (m_Mech.wielded == mech::WPN_LAUNCHER && MechPlay())
 		return false;
 
 	if (m_pCurrentWeapon && gBotGlobals.IsNS())

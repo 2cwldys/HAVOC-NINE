@@ -30,6 +30,11 @@ with this install -- with additive changes:
      tsm_bot_stockobjectives is not 0, the bots fetch the other side's briefcase, carry it to their own
      base, bring their own back, escort the carrier, guard their base and hunt the other side's carrier,
      and know their own side from the other (see CHANGE 12)
+ 11. Mech weapons: a bot that carries the M60 and the Mech rocket launcher (weapon 41) alternates between
+     them in a fight -- the launcher for a far target in clear sight of a rocket, or a group, the M60 for
+     a near one and for an emptied launcher -- and aims and fires the launcher itself: one press, at the
+     target's feet, led. Weapons 37 to 63, H9's 39 to 41 among them, have a place in the weapon tables
+     (stock rcbot writes a bot's weapon 41 past the end of its table; see CHANGE 13)
 
 Win32, MetaMod Release, MSVC v145.
 
@@ -586,6 +591,148 @@ ts_matchmode.amxx's tsm_briefcase_bots, or a tsm_bots line in the map's mapconfi
 
 
 ===============================================================================
+CHANGE 13: THE MECH'S TWO WEAPONS (rcbot-ts-mech.patch)
+===============================================================================
+
+    MECH WEAPONS, bot.cpp (over CBot::MechPlay); dlls\bot_mech.h; BotClient_TS_WStatus, BotClient_TS_WeaponInfo and
+    BotClient_TS_ResetHUD, bot_client.cpp; GetAimVector and PrimaryAttack, bot.cpp; MAX_WEAPONS, cdll_dll.h; CBotWeapons,
+    bot_weapons.h and .cpp; BOT_DEBUG_MECH_LEVEL, bot_const.h; the "mech" level of rcbot debug, bot_commands.cpp and .h
+
+A Mech (class 9 of ts_matchmode; every bot of Mech Warrior plays one) carries two weapons: the M60 (TS weapon 32, which a Mech
+sees as a minigun) and the Mech rocket launcher (H9's weapon 41, reTS ts_mechrocket.cpp): one press of the trigger launches a
+salvo of rockets (h9_mechrocket_salvo of them, 4, h9_mechrocket_stagger, 0.12 s, apart; the clip holds 4), and the launcher then
+waits h9_mechrocket_rate (1.5 s) from the salvo's last rocket. Stock rcbot chooses no weapon in a TS fight. Its attack code
+presses the trigger on whatever the game put in the bot's hand, which for a Mech is the M60, and it never takes the launcher out.
+A bot that holds both now alternates between them, and fires the launcher itself.
+
+What the bot knows. Only what the game's own user messages tell it, so no plugin is needed:
+
+    WStatus     (type, owned, clip)         whenever the player starts or stops owning a weapon type
+    WeaponInfo  (type, clip, reserve, ...)  when the wielded type, or its caliber's reserve, changes
+    ResetHUD                                at every respawn; the weapons of the new life are announced again right after it
+
+ClipInfo is registered by the game library and never sent, so the launcher's clip is worked out from what the bot did (a pull
+takes a salvo out of it) and corrected by every WeaponInfo while the launcher is in hand. A bot is a Mech when it owns weapons 32
+and 41 (mech::State, dlls\bot_mech.h). pev->fuser4, which the plugin sets on a Mech, is not used. SpawnInit and ResetHUD forget
+all of it, and a new map's clock starts it again (State::fixClocks).
+
+Changing weapon. TS wields a weapon on the client command "weapon_<type>" (TSSelectWeaponType; a type the player owns); the
+usercmd weaponselect that RCBot's SwitchWeapon sends is ignored by the game library. The bot sends "weapon_32" or "weapon_41"
+with FakeClientCommand, as CHANGE 8 sends "weapon_0", and waits for the WeaponInfo of that type. A command the game never answers
+in 1.5 seconds was refused: the launcher is then left alone for 20 seconds, and an M60 that cannot be selected is no longer
+counted as owned. The game reloads a dry clip only while that weapon is in hand, and a switch throws a reload away
+(CTSGun::HolsterWeapon); that shapes the rule below.
+
+The rule. mech::decide, ten times a second while the bot lives and is a Mech (tested by rcbot-patch\test\test_bot_mech.cpp, which
+also plays the bot against a model of the game's launcher). "Pull line" is tsm_bot_mech_near (400 units), raised to 1.4 times the
+blast radius when h9_mechrocket_selfdamage is 1, and lowered to 0.7 of it (not under 256) for a group: the target and another enemy
+within a blast of him. "Far" is 1.35 pull lines.
+
+    in hand       situation                                                              answer
+    -----------   --------------------------------------------------------------------   ----------------------------------
+    -             the bot holds only one of the two, or is a roaming citizen, or         stock play, nothing here runs
+                  tsm_bot_mech_rocket 0 or h9_mechrocket 0                               (a launcher that is out goes away)
+    either        a select command is in flight                                          keep
+    launcher      a salvo is leaving (the gaps of the salvo, h9_mechrocket_stagger       keep
+                  apiece, and 0.35 s: 0.71 s for four rockets 0.12 s apart)
+    M60           target far, a player or a turret, a rocket flies the line to him,      launcher
+                  and it has been so for 0.5 s; launcher loaded (or clip not known)     (after the dwell)
+                  and not refused
+    M60           anything else, the launcher empty, spent or refused included           keep the M60
+    launcher      refused; spent (no clip, no spare rounds); target is a door            M60 at once
+    launcher      target nearer than 0.75 pull lines                                     M60 at once
+    launcher      emptied by a pull, target within 1500 units                            M60 at once
+    launcher      empty after a pull, target beyond 1500 units, or empty because it      keep and reload, as long as a reload
+                  came out to reload and the target is not inside the pull line          takes and a second more (9.2 s with the
+                                                                                         shipped numbers), then M60
+    launcher      loaded, target inside the pull line / no clear line / beyond 1800      M60 (after the dwell)
+    launcher      loaded, target in the range and in clear sight                         keep (it is pulled, once: see below)
+    launcher      no target for 1 s, loaded or spent                                     M60
+    launcher      no target, empty with spare rounds                                     keep (it reloads in hand)
+    M60           no target for 2 s, launcher empty with spare rounds                    launcher (to reload it)
+    something     a target in sight (bare hands, any other weapon)                       M60
+    else
+
+The dwell is tsm_bot_mech_dwell (3 seconds) and up to half as much again, drawn anew at each switch, and twice as long after a
+switch the situation forced (the launcher refused, spent or empty, a target at the bot's feet), so that a target at the edge of
+the range does not send the bot back and forth. Two commands are never less than 0.6 seconds apart. A dead launcher with no
+spare rounds is looked at again after 90 seconds, in case a resupply has filled it. The waits that follow the launcher come from
+its cvars, read once a second: a salvo takes (h9_mechrocket_salvo - 1) times h9_mechrocket_stagger to leave; the game reloads a dry
+launcher in hand 2 seconds after its last rocket (3 seconds after it was drawn) and the reload takes h9_mechrocket_reload; the bot
+waits for that and a second more before it gives the launcher up, and counts an empty one in hand as loaded 1.5 seconds after
+the reload should be over (8.2 s from the pull with the shipped numbers; the next pull tells).
+
+With the shipped numbers (salvo 4, stagger 0.12, rate 1.5, clip 4, reload 3.0) a volley goes like this, from the pull:
+
+    0.00 s   the pull: the first rocket leaves (the clip reads 3)
+    0.12 s, 0.24 s, 0.36 s   the other three leave. A switch of weapon would end the salvo, so the rule makes none until 0.71 s
+    0.71 s   the rule may choose again. The clip is empty and a target is within 1500 units: the M60 comes back, and the dwell
+             (twice 3 s, and up to half again) keeps the launcher in the pack. A launcher kept in hand instead (a target too far
+             for the M60) is reloaded by the game 2.36 s after the pull and is full at 5.36 s; the bot hears it by WeaponInfo
+    quiet    a launcher put away empty is not reloaded by the game. The bot takes it out when no target has been in sight for 2 s:
+             drawn (0.5 s), idle for 3 s, reloaded for 3 s, put away a second after WeaponInfo says it is loaded
+    next pull   the launcher takes a pull again 1.5 s after the salvo's last rocket (1.86 s after the pull); with a clip of one
+             salvo that is the reload, with h9_mechrocket_clip 8 it is a second salvo
+
+Shooting (MechFire). With the launcher in hand the stock "press attack 9 times in 10" is not used, and CBot::PrimaryAttack refuses
+for a Mech with the launcher in hand, so no other task can pull it: the trigger is MechFire's alone. The launcher is pulled once
+when it is out for a second, loaded, past its own delay, and aimed: the line ahead of the bot, along its view, meets the target
+or ends within 0.4 of the blast radius of the aim point; no wall is nearer than 96 units in front of the bot (1.4 blast radii
+when h9_mechrocket_selfdamage is 1); no teammate or teammate's turret is in the line; and, when friendly fire is on (the
+plugin's tsm_friendlyfire while the match mode is on, the game's mp_friendlyfire otherwise), no teammate is within a blast of
+the burst. The press is one frame, never held: the salvo leaves by itself (CTSGun::MechRocketSalvoStep sends the rest, each along
+the aim the bot has then), and the launcher is semi automatic, so a held button would fire nothing more. Then the launcher is left
+alone until the game takes a pull again: the gaps of the salvo, then h9_mechrocket_rate from its last rocket (the game refuses a
+pull while a salvo leaves, and inside the delay), plus 0.2 s. The bot looks for the rocket entity (h9_mechrocket, owned by the
+shooter) in the next 0.6 seconds: a pull that launched none is counted, and two in a row leave the launcher alone for 20 seconds.
+
+Aiming (GetAimVector, MechRocketAim). With the launcher in hand the bot aims at the target's feet when he stands on the floor and
+the line to them is open, and leads him by his walk over the rocket's flight time at h9_mechrocket_speed (at most 1.5 seconds).
+Its usual aim error is cut to 0.35: the blast covers the rest.
+
+Settings, read once a second. A cvar that does not exist reads as its default, so the bots play as the defaults say until
+ts_matchmode.sma registers the first three (three register_cvar lines beside tsm_bot_stockobjectives: "tsm_bot_mech_rocket" "1",
+"tsm_bot_mech_dwell" "3.0", "tsm_bot_mech_near" "400"), which the console needs to set them. The h9_ ones are the game library's,
+and a library that lacks the salvo ones fires one rocket a pull. The numbers the bot uses are the game's own after its clamps.
+Turning tsm_bot_mech_rocket to 0 while a bot has the launcher out sends that bot back to the M60 (once; nothing else runs).
+
+    tsm_bot_mech_rocket   1     0: a Mech bot plays its two weapons as any bot does
+    tsm_bot_mech_dwell    3     seconds a Mech bot keeps the weapon it chose before it chooses the other (0.5 to 30)
+    tsm_bot_mech_near     400   the pull line, in units (128 to 1500)
+    h9_mechrocket         1     0: no launcher in the game library, nothing here runs
+    h9_mechrocket_speed, _radius, _rate, _reload, _clip, _salvo, _stagger, _selfdamage
+
+Debugging. "rcbot debug mech 1" on the server console (0 puts it off) logs every change of the rule's answer, every switch and
+every pull, with the reason, to the server log:
+
+    [RCBOT MECH] Mech-bot: m60 -> launcher: far target, clear line (target yes, 912 units, line clear, group 1, launcher 4/3)
+    [RCBOT MECH] Mech-bot: pulls the launcher at 874 units (clip 4, spare 3, salvo 4, next pull in 2.1 s)
+    [RCBOT MECH] Mech-bot: launcher -> m60: launcher empty (target yes, 861 units, line clear, group 1, launcher 0/3)
+
+Without it the first 40 lines of a map are logged anyway. "launcher 4/3" is the clip and the spare rounds as the bot knows them,
+-1 for not known. The wording after "launcher -> m60:" is the rule's reason (mech::whyName).
+
+The weapon tables. TS 3.0 numbers its weapons 1 to 37 and H9 adds 39 (PPSh-41), 40 (laser rifle) and 41 (the launcher). Stock
+rcbot's weapon tables hold MAX_WEAPONS = 37 entries, and BotClient_TS_WeaponInfo adds the weapon it is told about to the bot's
+table without looking at the id. CBotWeapons::AddWeapon(41) therefore writes a CBotWeapon (32 bytes) just past the end of the
+table: over the bot's m_pCurrentWeapon, its whole A* open list and the first of the path nodes that follow them in CBot, every
+time a bot takes the launcher in hand or its spare rounds change. Ids 37 to 40 write over the table's ammo array. The global
+table (CWeapons::AddWeapon) turns such an id down, so a Mech's launcher, a PPSh-41 and a laser rifle also have no weapon entry,
+and IsMelee() reads true for them in the places that ask: no avoiding of entities, and no squad following while attacking.
+MAX_WEAPONS is now 64, so ids 37 to 63 are registered like any other TS weapon (not melee, any range, no preset needed);
+CBotWeapons::AddWeapon, UpdateWeapon and RemoveWeapon ignore an id past the table; TSWeapon names the three H9 weapons; and the
+stunt decision, which divides the weapon id by the table size, divides by 37 as it always did. Left alone: weapon 36, which
+RCBot takes for bare hands (WeaponInfo id 0 is mapped to it), so a Contender is played as kung fu.
+
+Not touched: the stock attack code of any other weapon (a Mech with the M60 in hand is exactly the stock bot), the fight, the
+path finder, CHANGE 3's squads, CHANGE 8's citizens, CHANGE 11 and 12's objectives, SwitchWeapon and the weapon-learning data.
+Needs a game library with weapon 41 (reTS ts_mechrocket.cpp); the salvo cvars are optional. The tests are rcbot-patch\test\test_bot_mech.cpp
+(cl /std:c++17 /EHsc /I<the rcbot dlls folder> test_bot_mech.cpp; it needs no HL SDK): the state a bot builds from the game's messages,
+the rule, and the bot played against a model of the launcher as ts_gun.cpp runs it, which fails on a press the game would refuse, a click
+on an empty launcher, a pull that launches nothing, and a salvo or a reload cut by a switch of weapon.
+
+
+===============================================================================
 REBUILDING
 ===============================================================================
 
@@ -602,12 +749,13 @@ REBUILDING
     git apply rcbot-ts-powerups.patch
     git apply rcbot-ts-objectives.patch
     git apply rcbot-ts-briefcase.patch
+    git apply rcbot-ts-mech.patch
     MSBuild dlls\HPB_bot.vcxproj /p:Configuration="MetaMod Release" /p:Platform=Win32
 
-In this order. The ten together give, file for file, the source in src\;
+In this order. The eleven together give, file for file, the source in src\;
 without the third the tree does not compile. On a clone with core.autocrlf true, apply
 with --index. The shipped rcbot_mm.dll (and rcbot_mm.dll.patch) is the build of
-all ten.
+the first ten; a build of all eleven is what carries CHANGE 13.
 
 Output lands at
     dlls\HPB_bot___Win32_MetaMod_Release\HPB_bot.dll

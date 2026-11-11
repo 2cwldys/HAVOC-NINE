@@ -130,6 +130,7 @@ void SetupNetMessages()
 	gBotGlobals.m_NetEntityMessages.AddNetMessage(new BotClient_TS_ClipInfo());
 	gBotGlobals.m_NetEntityMessages.AddNetMessage(new BotClient_TS_WeaponInfo());
 	gBotGlobals.m_NetEntityMessages.AddNetMessage(new BotClient_TS_WStatus());
+	gBotGlobals.m_NetEntityMessages.AddNetMessage(new BotClient_TS_ResetHUD());
 
 	gBotGlobals.m_NetEntityMessages.AddNetMessage(new BotClient_Generic_WeaponList());
 	gBotGlobals.m_NetEntityMessages.AddNetMessage(new BotClient_Generic_CurrentWeapon());
@@ -322,6 +323,10 @@ void BotClient_TS_Objective::execute(void* p, const int iIndex)
 
 void BotClient_TS_WStatus::execute(void* p, const int iIndex)
 {
+	// the three bytes of the message: the weapon type, whether the player owns it, the rounds in its clip
+	static int s_iType;
+	static int s_iOwned;
+
 	if (p == nullptr || iIndex == -1)
 	{
 		return;
@@ -329,7 +334,12 @@ void BotClient_TS_WStatus::execute(void* p, const int iIndex)
 
 	switch (gBotGlobals.m_iCurrentMessageState++)
 	{
+	case 0:
+		s_iType = *static_cast<int*>(p);
+		break;
 	case 1:
+		s_iOwned = *static_cast<int*>(p);
+
 		if (!*static_cast<int*>(p))
 		{
 			CBot* pBot = &gBotGlobals.m_Bots[iIndex];
@@ -337,7 +347,22 @@ void BotClient_TS_WStatus::execute(void* p, const int iIndex)
 			//ALERT(at_console,"%s lost a weapon!!!\n",gBotGlobals.m_Bots[iIndex].m_szBotName);
 		}
 		break;
+	case 2:
+		// what a Mech bot knows of its M60 and its rocket launcher (CHANGE 13)
+		if (iIndex >= 0 && iIndex < MAX_PLAYERS)
+			gBotGlobals.m_Bots[iIndex].m_Mech.onWStatus(s_iType, s_iOwned, *static_cast<int*>(p));
+		break;
 	}
+}
+
+void BotClient_TS_ResetHUD::execute(void* p, const int iIndex)
+{
+	if (p == nullptr || iIndex < 0 || iIndex >= MAX_PLAYERS)
+	{
+		return;
+	}
+
+	gBotGlobals.m_Bots[iIndex].m_Mech.onResetHUD();
 }
 
 void BotClient_TS_ClipInfo::execute(void* p, const int iIndex)
@@ -544,6 +569,10 @@ void BotClient_TS_WeaponInfo::execute(void* p, const int iIndex)
 		pBot->m_pCurrentWeapon->setHasWeapon(true);
 		pBot->m_pCurrentWeapon->setReserve(ammo);
 		pBot->m_pCurrentWeapon->checkMaxClip(clip);
+
+		// the weapon in hand, and with the Mech's launcher its clip and its spare rounds (CHANGE 13)
+		if (iIndex >= 0 && iIndex < MAX_PLAYERS)
+			pBot->m_Mech.onWeaponInfo(id, clip, ammo, gpGlobals->time);
 
 		if (!ammo && !clip)
 		{				// drop weapon

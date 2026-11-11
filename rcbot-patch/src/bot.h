@@ -58,6 +58,7 @@
 #include "bot_const.h"
 #include "bot_menu.h"
 #include "bot_weapons.h"
+#include "bot_mech.h"
 #include "bot_client.h"
 #include "megahal.h"
 #include "bot_ga.h"
@@ -3196,6 +3197,25 @@ public:
 	int m_iRoamAttackerId;      // his userid: a slot someone else takes later is not him
 	float m_fRoamHurtTime;      // when he last hurt it
 	float m_fRoamNextFists;     // when it next asks for its fists while fighting him back
+
+	// Mech weapons (rcbot-patch CHANGE 13, bot.cpp, MECH WEAPONS): a bot that carries the M60 and the Mech rocket launcher
+	// alternates between them in a fight, and fires the launcher itself: one press, at the target's feet, led.
+	bool MechPlay() const;
+	void MechThink();
+	bool MechFire();
+	bool MechFit(const edict_t* pEnemy) const;
+	bool MechAimsRocket(const edict_t* pEnemy) const;
+	Vector MechRocketAim(const edict_t* pEnemy, const Vector& vCenter) const;
+	bool MechPathClear(const Vector& vAim, const edict_t* pTarget);
+	bool MechAimedAt(const Vector& vAim, const edict_t* pTarget);
+	bool MechAlliesNear(const Vector& vPoint, float fRadius);
+	int MechGroupAt(const edict_t* pTarget, float fRadius);
+	bool MechRocketInFlight() const;
+	void MechSelect(int iType, bool bForced);
+	void MechLog(const char* fmt, ...) const;
+
+	// what it knows of its two weapons, and its own clocks for them (reset at each spawn, SpawnInit)
+	mech::State m_Mech;
 
 	// Objective play (rcbot-patch CHANGE 11, bot.cpp, BOT OBJECTIVES): while tsm_bot_objectives is 1 on a map that
 	// ts_assault, ts_uplink or ts_ctf runs, a bot goes to the capture points, fetches and carries the uplink and the
