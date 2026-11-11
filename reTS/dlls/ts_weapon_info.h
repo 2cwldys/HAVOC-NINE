@@ -79,6 +79,21 @@ inline bool TS_IsEnergyWeapon(int t) { return t == TSW_LASERRIFLE; }
 // (13, 7.62 x 51mm): all sixteen calibers of the ammo table are taken.
 #define TS_CALIBER_MECHROCKET 13
 inline bool TS_IsRocketWeapon(int t) { return t == TSW_MECHROCKET; }
+// The launcher's tunables that the weapon table carries, and how they travel: SrvSett (a BYTE id and a SHORT value; a reTS addition,
+// TS 3.0's client drops an id above 3). The server applies what its cvars say and sends it (TSMechRocketSyncCvars on a change,
+// TSMechRocketTellClient to a joiner); the client applies what it hears, and keeps the last values to put in the row again when its
+// table is built again (a new map), so that its prediction of the launcher runs the server's numbers.
+enum
+{
+	TS_SETT_MR_CLIP = 5,    // rockets in a clip, 1 to 30
+	TS_SETT_MR_RATE = 6,    // milliseconds from the last rocket of a salvo to the next pull, 100 to 30000
+	TS_SETT_MR_RELOAD = 7,  // milliseconds a reload takes, 500 to 30000
+	TS_SETT_MR_SALVO = 8,   // rockets one pull launches, 1 to 8
+	TS_SETT_MR_STAGGER = 9, // milliseconds between two rockets of a salvo, 30 to 1000
+	TS_SETT_MR_COUNT = 5
+};
+int TS_ClampMechRocketSetting(int id, int value);  // the nearest value a setting can take (ts_weapon_info.cpp)
+void TS_ApplyMechRocketSetting(int id, int value); // clamps it, keeps it and puts it in the launcher's table row
 // The weapons H9 adds to TS 3.0's roster (ids 0..38) are the ids from TSW_PPSH41 on, and every one of them is behind the
 // server's h9_customweapons cvar: a weapon added later takes the next id and is gated with no change here.
 inline bool TS_IsCustomWeapon(int t) { return t >= TSW_PPSH41 && t < TSW_COUNT; }
@@ -240,6 +255,12 @@ struct s_weapon_info
 	// units) — pump.sc / the fire core eject from attachment − fwd*setback.
 	const char *pszShellModel; // +0xe8
 	int iShellSetback;         // +0x34c
+	// The Mech rocket launcher's salvo (TSW_MECHROCKET only, 0 in every other row): the rockets one trigger pull launches, and the
+	// seconds between two rockets of one salvo. With iClip, flFireRate and flReloadTime they come from the server's h9_mechrocket_*
+	// cvars (ts_mechrocket.cpp) and reach the client's copy of the table through SrvSett (TS_ApplyMechRocketSetting below), so that
+	// the client's prediction of a salvo runs the server's numbers.
+	int   iSalvo;
+	float flStagger;
 };
 
 // Per-caliber ammo: the 16 calibers, the mag/magazine size, and the max reserve (rounds),

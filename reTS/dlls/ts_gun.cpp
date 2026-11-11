@@ -1233,25 +1233,67 @@ void CTSGun::ShotgunFire(const s_weapon_info *wi)
 	m_fInSpecialReload = (m_fireMode == TSFM_PUMP) ? 1 : 0;
 }
 
-// The Mech rocket launcher's shot (TSW_MECHROCKET): one rocket a pull, h9_mechrocket_rate apart. The fire event is the
-// ordinary one (viewmodel animation, muzzle flash and gun smoke on the clients; EV_TSFire fires no bullet for this
-// weapon). The rocket, its launch sound and its blast are the server's, so the prediction only spends the round, kicks
-// the view and holds the fire timer.
+// The Mech rocket launcher's shot (TSW_MECHROCKET): a trigger pull launches a SALVO, wi->iSalvo rockets (what a partial clip
+// holds, if that is fewer) wi->flStagger seconds apart, and the clip pays for each rocket as it leaves. This is the pull's
+// first rocket; the rest are WeaponIdle's (MechRocketSalvoStep), counted down in m_burstOrPhase, the slot the burst uses, so
+// the client predicts the whole salvo and the server's count reaches it every frame. The salvo asks nothing more of the
+// trigger (a bot presses once), a reload waits for it (Reload refuses while the count is up), and a switch of weapon, a death,
+// an empty clip or the water ends it; the rockets that did not leave stay in the clip. A pull is refused while a salvo is
+// still leaving.
 void CTSGun::MechRocketFire(const s_weapon_info *wi)
 {
+	if (m_burstOrPhase > 0)
+		return;
+	int salvo = (wi->iSalvo > 1) ? wi->iSalvo : 1;
+	if (!InfiniteClips(m_pPlayer) && salvo > m_iClip)
+		salvo = (m_iClip > 1) ? m_iClip : 1;
+	m_burstOrPhase = salvo - 1; // the rockets still to leave after this one
+	MechRocketShot(wi, false);
+}
+
+// One rocket of the salvo. The fire event is the ordinary one (viewmodel animation, muzzle flash and gun smoke on the clients;
+// EV_TSFire fires no bullet for this weapon) and plays for every rocket. The rocket, its launch sound and its blast are the
+// server's, so the prediction only spends the round, holds the timers and, after the salvo's last rocket, kicks the view: a
+// kick between the rockets would walk the aim up and the next rockets would fly over the target. The wait after a rocket
+// is the stagger, or after the last one of the salvo the shot rate (m_burstOrPhase counts the rockets still to leave).
+void CTSGun::MechRocketShot(const s_weapon_info *wi, bool bFollow)
+{
+	const bool bLast = (m_burstOrPhase < 1);
 	m_iClip--;
 	m_pPlayer->pev->effects |= EF_MUZZLEFLASH;
 	PLAYBACK_EVENT_FULL(FEV_NOTHOST, m_pPlayer->edict(), m_usFire, 0.0, g_vecZero, g_vecZero,
 		0.0, 0.0, m_weaponType, m_items[m_weaponType].attach, (m_iClip == 0) ? 1 : 0,
 		m_pPlayer->random_seed);
 #ifdef CLIENT_DLL
-	TS_AddViewRecoil(wi->flViewKick, wi->iFireType, false, DoubleFireRate(m_pPlayer), gpGlobals->time);
+	(void)bFollow;
+	if (bLast)
+		TS_AddViewRecoil(wi->flViewKick, wi->iFireType, false, DoubleFireRate(m_pPlayer), gpGlobals->time);
 #else
-	TSMechRocketLaunch(m_pPlayer, m_pPlayer->GetGunPosition(), gpGlobals->v_forward, TSSlowPitch(m_pPlayer));
+	TSMechRocketLaunch(m_pPlayer, m_pPlayer->GetGunPosition(), gpGlobals->v_forward, TSSlowPitch(m_pPlayer), bFollow);
 #endif
-	VKickback(wi->flViewKick, wi->iFireType);
-	m_flNextPrimaryAttack = UTIL_WeaponTimeBase() + ((wi->flFireRate > 0.0f) ? wi->flFireRate : 1.5f);
+	if (bLast)
+		VKickback(wi->flViewKick, wi->iFireType);
+	const float flRate = (wi->flFireRate > 0.0f) ? wi->flFireRate : 1.5f;
+	const float flStagger = (wi->flStagger > 0.0f) ? wi->flStagger : 0.12f;
+	m_flNextPrimaryAttack = UTIL_WeaponTimeBase() + (bLast ? flRate : flStagger);
 	m_flTimeWeaponIdle = UTIL_WeaponTimeBase() + 2.0f;
+}
+
+// WeaponIdle's part of a salvo (a count is up in m_burstOrPhase): once the stagger has run out, the next rocket, along the aim
+// the player has now. A salvo that cannot go on (under water, an empty clip) ends there.
+void CTSGun::MechRocketSalvoStep()
+{
+	if (m_flNextPrimaryAttack > UTIL_WeaponTimeBase())
+		return;
+	if (m_pPlayer->pev->waterlevel == 3 || (!InfiniteClips(m_pPlayer) && m_iClip < 1))
+	{
+		m_burstOrPhase = 0;
+		return;
+	}
+	UTIL_MakeVectors(m_pPlayer->pev->v_angle);
+	m_burstOrPhase--;
+	MechRocketShot(m_pActiveInfo, true);
+	m_pPlayer->m_TSAnim.Animate(m_pPlayer, TSA_FIRE); // as Fire does after a shot (Fire plays it for the pull's first rocket)
 }
 
 // @ ScaleSpread__6CTSGun (@0x802a8) — TS dynamic accuracy. Folds the per-player spread accumulator
@@ -2813,6 +2855,8 @@ void CTSGun::CCombatIdle()
 //    routes back into ShotgunReload) — this is the machine's per-frame driver;
 //  - the BURST machine: fire-mode 2 with the primary timer clear — fire the next queued round
 //    and decrement (this is how a tapped burst completes after release);
+//  - the Mech launcher's SALVO, which the same count (m_burstOrPhase) drives: the next rocket
+//    once the stagger has run out (MechRocketSalvoStep);
 //  - on the idle timer: the grenade cook check (GrenadeIdle(0)), AUTO-RELOAD a dry clip (unless
 //    InfiniteClips), or the idle anim — the stance block's [0] — with idle re-armed +3.0.
 // (The original also mirrors item->clip into the client-clip cache and re-points item+0x28 at
@@ -2839,6 +2883,8 @@ void CTSGun::WeaponIdle()
 			m_burstOrPhase--;
 		}
 	}
+	if (TS_IsRocketWeapon(m_weaponType) && m_burstOrPhase > 0)
+		MechRocketSalvoStep();
 	if (m_flTimeWeaponIdle <= UTIL_WeaponTimeBase())
 	{
 		if (m_pActiveInfo->iFireType == TSFT_GRENADE)

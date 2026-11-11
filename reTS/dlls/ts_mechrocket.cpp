@@ -1,11 +1,13 @@
 /***
 *  ts_mechrocket.cpp -- the rocket of the Mech rocket launcher (weapon 41, TSW_MECHROCKET).
 *
-*  CTSGun::MechRocketFire (ts_gun.cpp) calls TSMechRocketLaunch once per shot. The rocket flies straight at
+*  CTSGun::MechRocketShot (ts_gun.cpp) calls TSMechRocketLaunch once per rocket: a trigger pull launches a salvo
+*  (h9_mechrocket_salvo rockets, h9_mechrocket_stagger seconds apart). The rocket flies straight at
 *  h9_mechrocket_speed with a smoke trail behind it (TE_BEAMFOLLOW) and goes off on the first thing it
 *  touches, or when its flight time is up: TSExplosion's blast (h9_mechrocket_damage at the middle, nothing
 *  past h9_mechrocket_radius), with the explosion sprite where it lands, and a push (h9_mechrocket_push along
-*  the ground, h9_mechrocket_lift up) for the players the blast leaves alive.
+*  the ground, h9_mechrocket_lift up) for the players the blast leaves alive. Every rocket of a salvo is a
+*  rocket entity and a blast of its own.
 *
 *  The weapon's art is not part of reTS. Each file is looked up on disk before it is precached (a precache of
 *  a file that is not there stops the map), and what is missing is replaced by stock assets.
@@ -23,6 +25,9 @@
 #include "ts_mechrocket.h"
 
 #include <string.h>
+#include <math.h>
+
+extern int gmsgTSServerSetting; // "SrvSett" (TS_gamerulesclass.cpp): a BYTE id and a SHORT value
 
 static const char *const kViewModel = "models/h9/v_mechrocket.mdl";
 static const char *const kPlayerModel = "models/h9/p_mechrocket.mdl";
@@ -120,13 +125,65 @@ void TSMechRocketResolveAssets()
 		PRECACHE_SOUND((char *)kLaunchSound);
 }
 
+// A cvar's value as a whole number of thousandths (or of ones), cut to a range no cvar can overflow.
+static int MechRocketWhole(float flValue, float flScale)
+{
+	if (!(flValue > 0.0f))
+		flValue = 0.0f;
+	else if (flValue > 1000.0f)
+		flValue = 1000.0f;
+	return (int)(flValue * flScale + 0.5f);
+}
+
+// The setting (TS_SETT_MR_*, ts_weapon_info.h) the cvars give for one id, in the range a client can be told.
+static int MechRocketCvarSetting(int id)
+{
+	switch (id)
+	{
+	case TS_SETT_MR_CLIP:    return TS_ClampMechRocketSetting(id, MechRocketWhole(h9_mechrocket_clip.value, 1.0f));
+	case TS_SETT_MR_RATE:    return TS_ClampMechRocketSetting(id, MechRocketWhole(h9_mechrocket_rate.value, 1000.0f));
+	case TS_SETT_MR_RELOAD:  return TS_ClampMechRocketSetting(id, MechRocketWhole(h9_mechrocket_reload.value, 1000.0f));
+	case TS_SETT_MR_SALVO:   return TS_ClampMechRocketSetting(id, MechRocketWhole(h9_mechrocket_salvo.value, 1.0f));
+	case TS_SETT_MR_STAGGER: return TS_ClampMechRocketSetting(id, MechRocketWhole(h9_mechrocket_stagger.value, 1000.0f));
+	default: return 0;
+	}
+}
+
+// The setting last sent to everyone, per id (-1 = none yet).
+static int s_iSettingSent[TS_SETT_MR_COUNT] = {-1, -1, -1, -1, -1};
+
 void TSMechRocketSyncCvars()
 {
-	s_weapon_info *wi = (s_weapon_info *)get_weapon_info(TSW_MECHROCKET);
-	const int clip = (int)h9_mechrocket_clip.value;
-	wi->iClip = (clip < 1) ? 1 : ((clip > 30) ? 30 : clip);
-	const float rate = h9_mechrocket_rate.value;
-	wi->flFireRate = (rate < 0.1f) ? 0.1f : rate;
+	for (int k = 0; k < TS_SETT_MR_COUNT; k++)
+	{
+		const int id = TS_SETT_MR_CLIP + k;
+		const int value = MechRocketCvarSetting(id);
+		TS_ApplyMechRocketSetting(id, value); // the server's own row, exactly as the clients will have it
+		if (value == s_iSettingSent[k])
+			continue;
+		s_iSettingSent[k] = value;
+		if (gmsgTSServerSetting != 0)
+		{
+			MESSAGE_BEGIN(MSG_ALL, gmsgTSServerSetting);
+			WRITE_BYTE(id);
+			WRITE_SHORT(value);
+			MESSAGE_END();
+		}
+	}
+}
+
+void TSMechRocketTellClient(CBasePlayer *pPlayer)
+{
+	if (!pPlayer || gmsgTSServerSetting == 0)
+		return;
+	for (int k = 0; k < TS_SETT_MR_COUNT; k++)
+	{
+		const int id = TS_SETT_MR_CLIP + k;
+		MESSAGE_BEGIN(MSG_ONE, gmsgTSServerSetting, NULL, pPlayer->edict());
+		WRITE_BYTE(id);
+		WRITE_SHORT(MechRocketCvarSetting(id));
+		MESSAGE_END();
+	}
 }
 
 bool TSMechRocketNoDrop()
@@ -375,11 +432,31 @@ void CMechRocket::Detonate()
 }
 
 //============================================================================
-// TSMechRocketLaunch -- called by CTSGun::MechRocketFire for each shot.
+// A direction within h9_mechrocket_spread degrees of the aim: a random point of a disc around it, across the aim's
+// own right and up (gpGlobals->v_right and v_up, which the caller made from the same aim).
 //============================================================================
-void TSMechRocketLaunch(CBasePlayer *pPlayer, const Vector &vecSrc, const Vector &vecDir, int iPitch)
+static Vector MechRocketScatter(const Vector &vecAim)
 {
-	// the rocket starts 24 units out along the aim, or at the wall that is nearer
+	float flSpread = h9_mechrocket_spread.value;
+	if (!(flSpread > 0.0f))
+		return vecAim;
+	if (flSpread > 15.0f)
+		flSpread = 15.0f;
+	const float flAngle = RANDOM_FLOAT(0.0f, 6.2831853f);
+	const float flReach = tanf(flSpread * (3.14159265f / 180.0f)) * sqrtf(RANDOM_FLOAT(0.0f, 1.0f));
+	const Vector vecAside = gpGlobals->v_right * (flReach * cosf(flAngle)) + gpGlobals->v_up * (flReach * sinf(flAngle));
+	return (vecAim + vecAside).Normalize();
+}
+
+//============================================================================
+// TSMechRocketLaunch -- called by CTSGun::MechRocketShot for each rocket of a salvo.
+//============================================================================
+void TSMechRocketLaunch(CBasePlayer *pPlayer, const Vector &vecSrc, const Vector &vecAim, int iPitch, bool bFollow)
+{
+	// the first rocket of a pull goes along the aim, the others stray from it
+	const Vector vecDir = bFollow ? MechRocketScatter(vecAim) : Vector(vecAim);
+
+	// the rocket starts 24 units out along its way, or at the wall that is nearer
 	Vector vecStart = vecSrc + vecDir * 24.0f;
 	TraceResult tr;
 	UTIL_TraceLine(vecSrc, vecStart, dont_ignore_monsters, ENT(pPlayer->pev), &tr);
@@ -388,6 +465,17 @@ void TSMechRocketLaunch(CBasePlayer *pPlayer, const Vector &vecSrc, const Vector
 
 	CMechRocket::Create(pPlayer->pev, vecStart, vecDir);
 
-	if (s_bLaunchSound)
+	if (!s_bLaunchSound)
+		return;
+	if (!bFollow)
 		EMIT_SOUND_DYN(ENT(pPlayer->pev), CHAN_WEAPON, kLaunchSound, VOL_NORM, ATTN_NORM, 0, iPitch);
+	else
+	{
+		// CHAN_AUTO: the sound is 0.43 s long and the rockets 0.12 s apart, so on CHAN_WEAPON each would cut the one before
+		// it short; a little off the pitch keeps the layered copies from sounding as one
+		int iFollowPitch = iPitch + RANDOM_LONG(-4, 4);
+		if (iFollowPitch < 1)
+			iFollowPitch = 1;
+		EMIT_SOUND_DYN(ENT(pPlayer->pev), CHAN_AUTO, kLaunchSound, 0.85f, ATTN_NORM, 0, iFollowPitch);
+	}
 }

@@ -1378,7 +1378,8 @@ const char *CTSGameRules::GetIndexedTeamName(int teamIndex)
 // "SrvSett" (3) — BYTE setting id + SHORT value. Ids: 0 realbullet, 1 usecash (bool on the
 // wire), 2 ammocount, 3 weaponrestriction bitmask, and (reTS addition) 4 h9_customweapons. InitHUD pushes ALL FIVE to a
 // joiner (MSG_ONE); Think broadcasts ids 0-2 and 4 on cvar change (MSG_ALL); cmd_weaponrestriction
-// broadcasts id 3 on change. star_SrvSett.md (decompile-settled).
+// broadcasts id 3 on change. star_SrvSett.md (decompile-settled). Also a reTS addition, ids 5 to 9: the Mech rocket launcher's
+// clip, shot rate, reload time, salvo and stagger (ts_mechrocket.cpp), sent to a joiner by InitHUD and to everyone on a change.
 int gmsgTSServerSetting = 0;
 
 void CTSGameRules::InitHUD(CBasePlayer *pPlayer)
@@ -1430,6 +1431,8 @@ void CTSGameRules::InitHUD(CBasePlayer *pPlayer)
 	WRITE_BYTE(4);
 	WRITE_SHORT(H9_CustomWeaponsOn() ? 1 : 0);
 	MESSAGE_END();
+	// reTS addition (ids 5 to 9): the Mech rocket launcher's clip, shot rate, reload time, salvo and stagger
+	TSMechRocketTellClient(pPlayer);
 
 	// Sent once, as the original (@0x691fe..0x69316); nothing sends them again to a joiner.
 

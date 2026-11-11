@@ -185,6 +185,24 @@ MECH WARRIOR  (ts_mechwarrior.amxx, configs\ts_mechwarrior.cfg)
                off. In every mode that has a Mech, not only this one.
   Laser rifle  does tsm_mech_laser_mult (1.15) times its damage to a Mech, before the Mech's
                armour takes its share: a marginal bonus, 1.0 turns it off. In every mode.
+  Rocket       a Mech's second weapon (weapon 41 of the game library) fires a salvo of four
+  launcher     rockets, 0.12 s apart, on one pull of the trigger; its clip holds the four and
+               the ammo box reads "Missile". Each rocket's blast does 200 at the middle and
+               falls to nothing 260 units out (armour takes none of it). He is armed with a
+               full clip and three spare. In every mode; the h9_mechrocket_* cvars of the
+               game library set it (COMMANDS.txt, CVAR REFERENCE).
+  M60 shots    every shot of a Mech's M60 sends a large muzzle flash at the end of the barrels and a
+               bullet tracer from there to where the bullet lands, whoever pulls the trigger, a bot
+               or a person (tsm_mech_flash, tsm_mech_flash_scale, tsm_mech_trails, tsm_mech_trail_width
+               and tsm_mech_trail_life, COMMANDS.txt). The tracer is the laser rifle's streak
+               (sprites/laserrifle_trail.spr); TS's own bullet trail is too dim to see.
+  Bot Mechs    a bot that carries the M60 and the launcher alternates between them in a fight
+               (rcbot_mm.dll, CHANGE 13): the M60 is its default; the launcher comes out for a
+               target far off (1.35 x tsm_bot_mech_near, 400 units) and in clear sight of a rocket,
+               nearer for a group, and fires one salvo at the target's feet; then the M60 has the
+               fight, and the near targets. The emptied launcher is reloaded in a quiet moment.
+               tsm_bot_mech_rocket 0 leaves the bots with whatever the game put in their hand
+               (COMMANDS.txt, RCBOT and CVAR REFERENCE).
   Switch       tsm_mechwarrior_mode 1. Browser name: tsm_gamedesc_mechwarrior "Mech
                Warrior".
   Admin        amx_tsm_mw (the state).

@@ -299,6 +299,50 @@ int TSDefaultFireMode(int modeMask)
 	return TSFM_SEMI;
 }
 
+// ---- The Mech rocket launcher's tunables (TS_SETT_MR_*, ts_weapon_info.h) ------------------------------------------------
+// The values the server's cvars give, or the client last heard through SrvSett (0 = none yet). The launcher's row takes them
+// whenever the table is built, so that a table the client builds after the server's message keeps them.
+static int g_mechRocketSetting[TS_SETT_MR_COUNT];
+
+static void PutMechRocketSetting(int id, int value)
+{
+	s_weapon_info &r = g_weaponInfo[TSW_MECHROCKET];
+	switch (id)
+	{
+	case TS_SETT_MR_CLIP:    r.iClip = value; break;
+	case TS_SETT_MR_RATE:    r.flFireRate = (float)value * 0.001f; break;
+	case TS_SETT_MR_RELOAD:  r.flReloadTime = (float)value * 0.001f; break;
+	case TS_SETT_MR_SALVO:   r.iSalvo = value; break;
+	case TS_SETT_MR_STAGGER: r.flStagger = (float)value * 0.001f; break;
+	default: break;
+	}
+}
+
+int TS_ClampMechRocketSetting(int id, int value)
+{
+	int lo = value, hi = value;
+	switch (id)
+	{
+	case TS_SETT_MR_CLIP:    lo = 1;   hi = 30;    break;
+	case TS_SETT_MR_RATE:    lo = 100; hi = 30000; break;
+	case TS_SETT_MR_RELOAD:  lo = 500; hi = 30000; break;
+	case TS_SETT_MR_SALVO:   lo = 1;   hi = 8;     break;
+	case TS_SETT_MR_STAGGER: lo = 30;  hi = 1000;  break;
+	default: break;
+	}
+	return (value < lo) ? lo : ((value > hi) ? hi : value);
+}
+
+void TS_ApplyMechRocketSetting(int id, int value)
+{
+	if (id < TS_SETT_MR_CLIP || id >= TS_SETT_MR_CLIP + TS_SETT_MR_COUNT)
+		return;
+	value = TS_ClampMechRocketSetting(id, value);
+	g_mechRocketSetting[id - TS_SETT_MR_CLIP] = value;
+	get_weapon_info(TSW_MECHROCKET); // the table exists (if it is built just now, the row takes the value itself)
+	PutMechRocketSetting(id, value);
+}
+
 // @ compile_weapons_info__Fv — populate the weapon table (indices == tsweapon_t).
 // ⚠ SPARTA TWO-STAGE: the per-row dmg/spread/recoil literals below are the Write_-stage values,
 // kept byte-faithful to the original init order — Sparta() OVERWRITES them for every firearm
@@ -972,10 +1016,14 @@ void compile_weapons_info()
   // not bullets. The row starts as the M4A1's, whole, so its animation blocks and its draw, fire and reload sequences are
   // the M4A1's (models/h9/{v,p,w}_mechrocket.mdl keep that layout; a server without the files gives the row the M4A1's
   // models). What is the launcher's own is set below: name, models, no fire sound (the launch sound is the server's), no
-  // shell, a one-rocket clip, 1.5 s between shots, single shots only, the Contender's caliber for the reserve, a light
-  // weight so that it fits beside the M60E3, no price (it is not in the buy menus), no scope or attachment, no right-click
-  // stance, no gunbash, and the combat feel (Sparta: a heavy view kick and no spread; the damage is the cvar
-  // h9_mechrocket_damage's, this is its default). Fire type 0 is in no weapon restriction category.
+  // shell, a four-rocket clip that one pull empties (a salvo of four rockets 0.12 s apart, 1.5 s from a salvo to the next
+  // pull, 3.0 s to reload, the length of the viewmodel's reload sequence), single shots only, the Contender's caliber for
+  // the reserve, a light weight so that it fits beside the M60E3, no price (it is not in the buy menus), no scope or
+  // attachment, no right-click stance, no gunbash, and the combat feel (Sparta: a heavy view kick and no spread; the
+  // damage is the cvar h9_mechrocket_damage's, this is its default). The clip, the rates and the salvo are the defaults of
+  // the h9_mechrocket_* cvars too: the server's row takes its cvars (TSMechRocketSyncCvars), the client's what SrvSett
+  // tells it (TS_ApplyMechRocketSetting, put in the row again at the end of this block). Fire type 0 is in no weapon
+  // restriction category.
   {
     s_weapon_info &r = g_weaponInfo[TSW_MECHROCKET];
     r = g_weaponInfo[TSW_M4];
@@ -988,7 +1036,7 @@ void compile_weapons_info()
     r.pszAltSound = nullptr;
     r.pszShellModel = nullptr;
     r.iShellSetback = 0;
-    r.iClip = 1;
+    r.iClip = 4;
     r.iFireType = TSFT_SEMI;
     r.flFireRate = 1.5f;
     r.iFireModes = 2;
@@ -996,7 +1044,9 @@ void compile_weapons_info()
     r.bUsesSpread = 0;
     r.slotCost = 10;
     r.iPrice = 0;
-    r.flReloadTime = 2.5f;
+    r.flReloadTime = 3.0f;
+    r.iSalvo = 4;
+    r.flStagger = 0.12f;
     r.zoomFov1 = 0;
     r.zoomFov2 = 0;
     r.attachSupported = 0;
@@ -1016,7 +1066,10 @@ void compile_weapons_info()
     r.iIdleAnimHold = -1;
     r.iAkimboType = -1;
     r.iSingleType = TSW_MECHROCKET;
-    SetSpartaWeapon(TSW_MECHROCKET, 0.0f, 6.0f, 0.0f, 150.0f);
+    SetSpartaWeapon(TSW_MECHROCKET, 0.0f, 6.0f, 0.0f, 200.0f);
+    for (int k = 0; k < TS_SETT_MR_COUNT; k++)
+      if (g_mechRocketSetting[k] != 0)
+        PutMechRocketSetting(TS_SETT_MR_CLIP + k, g_mechRocketSetting[k]);
   }
 
   // the original chains the ammo table + the falloff LUT off the weapon-table build:

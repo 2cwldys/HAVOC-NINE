@@ -53,14 +53,22 @@ cvar_t h9_laserrifle = {"h9_laserrifle", "1", FCVAR_SERVER};
 cvar_t h9_customweapons = {"h9_customweapons", "1", FCVAR_SERVER};
 // reTS addition, not in TS 3.0 (reference/DEVIATIONS.md): present and 1 when this game library has the Mech rocket
 // launcher (weapon 41), so a plugin can give a library without it another gun. The others tune it: the damage at the
-// middle of the blast, the radius of the blast, the rocket's speed in units a second, the seconds between shots, the
-// rounds in a clip, whether the launcher is deleted instead of dropped, and whether the thrower is hurt by its own blast.
+// middle of one rocket's blast, the radius of the blast, the rocket's speed in units a second, the seconds from a salvo
+// to the next pull, the rounds in a clip, the rockets one pull launches (the salvo), the seconds between two rockets of
+// a salvo, how far in degrees the rockets after the first may stray from the aim, the seconds a reload takes, whether the
+// launcher is deleted instead of dropped, and whether the thrower is hurt by its own blast. The clip, the rate, the reload
+// time, the salvo and the stagger are also in the weapon table, which the client's prediction reads: the server tells the
+// clients what they are (SrvSett ids 5 to 9, TSMechRocketSyncCvars).
 cvar_t h9_mechrocket = {"h9_mechrocket", "1", FCVAR_SERVER};
-cvar_t h9_mechrocket_damage = {"h9_mechrocket_damage", "150", FCVAR_SERVER};
-cvar_t h9_mechrocket_radius = {"h9_mechrocket_radius", "200", FCVAR_SERVER};
+cvar_t h9_mechrocket_damage = {"h9_mechrocket_damage", "200", FCVAR_SERVER};
+cvar_t h9_mechrocket_radius = {"h9_mechrocket_radius", "260", FCVAR_SERVER};
 cvar_t h9_mechrocket_speed = {"h9_mechrocket_speed", "900", FCVAR_SERVER};
 cvar_t h9_mechrocket_rate = {"h9_mechrocket_rate", "1.5", FCVAR_SERVER};
-cvar_t h9_mechrocket_clip = {"h9_mechrocket_clip", "1", FCVAR_SERVER};
+cvar_t h9_mechrocket_clip = {"h9_mechrocket_clip", "4", FCVAR_SERVER};
+cvar_t h9_mechrocket_salvo = {"h9_mechrocket_salvo", "4", FCVAR_SERVER};
+cvar_t h9_mechrocket_stagger = {"h9_mechrocket_stagger", "0.12", FCVAR_SERVER};
+cvar_t h9_mechrocket_spread = {"h9_mechrocket_spread", "2.5", FCVAR_SERVER};
+cvar_t h9_mechrocket_reload = {"h9_mechrocket_reload", "3.0", FCVAR_SERVER};
 cvar_t h9_mechrocket_nodrop = {"h9_mechrocket_nodrop", "1", FCVAR_SERVER};
 cvar_t h9_mechrocket_selfdamage = {"h9_mechrocket_selfdamage", "0", FCVAR_SERVER};
 cvar_t h9_mechrocket_push = {"h9_mechrocket_push", "400", FCVAR_SERVER};
@@ -286,6 +294,10 @@ void GameDLLInit()
 	CVAR_REGISTER(&h9_mechrocket_speed);
 	CVAR_REGISTER(&h9_mechrocket_rate);
 	CVAR_REGISTER(&h9_mechrocket_clip);
+	CVAR_REGISTER(&h9_mechrocket_salvo);
+	CVAR_REGISTER(&h9_mechrocket_stagger);
+	CVAR_REGISTER(&h9_mechrocket_spread);
+	CVAR_REGISTER(&h9_mechrocket_reload);
 	CVAR_REGISTER(&h9_mechrocket_nodrop);
 	CVAR_REGISTER(&h9_mechrocket_selfdamage);
 	CVAR_REGISTER(&h9_mechrocket_push);

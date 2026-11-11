@@ -108,15 +108,25 @@ Its row (`dlls/ts_weapon_info.cpp`, after the laser rifle) is the M4A1's taken w
 reload 1, draw 2, shots 3 and 4, the last-round shot 4) and its draw, shot and reload sequences are the M4A1's;
 `models/h9/{v,p,w}_mechrocket.mdl` keep that layout. A server that does not find all three files on disk gives the row
 the M4A1's models (`TSMechRocketResolveAssets`, run at the head of both weapon precache lists). The row's own values: the
-name "Mech Rocket", no fire sound, no shell, a one-rocket clip, 1.5 s between shots, fire modes 2 (single only), fire type 0
-(in no weapon restriction category), caliber 13 (the Contender's, 7.62 x 51mm: all sixteen calibers are taken, so the
-reserve is that pool), weight 10 (it fits beside the M60E3's 70), price 0 and no buy menu row, no scope, attachment,
-right-click stance or gunbash, and the combat feel 6.0 view kick, no spread.
+name "Mech Rocket", no fire sound, no shell, a four-rocket clip (one salvo), 1.5 s from a salvo to the next pull, 3.0 s to
+reload (the length of the viewmodel's reload sequence), a salvo of four rockets 0.12 s apart (`iSalvo`, `flStagger`: two
+fields at the end of `s_weapon_info`, 0 in every other row), fire modes 2 (single only), fire type 0 (in no weapon
+restriction category), caliber 13 (the Contender's, 7.62 x 51mm: all sixteen calibers are taken, so the reserve is that
+pool; the client's ammo box names it "Missile" for this weapon), weight 10 (it fits beside the M60E3's 70), price 0 and no
+buy menu row, no scope, attachment, right-click stance or gunbash, and the combat feel 6.0 view kick, no spread.
 
-A shot (`CTSGun::MechRocketFire`) spends the round, plays the ordinary fire event (the viewmodel animation, a large muzzle
-flash `sprites/h9_rocket_flash.spr` and the gun smoke; `EV_TSFire` draws no brass and fires no bullet for this weapon) and,
-on the server, launches `CMechRocket` (`dlls/ts_mechrocket.cpp`) from the eye along the aim with the launch sound
-`weapons/rocketfire1.wav` at the player's pitch. The rocket flies straight (MOVETYPE_FLY) at `h9_mechrocket_speed` with a
+A pull (`CTSGun::MechRocketFire`) launches a salvo: `iSalvo` rockets (what a partial clip holds, if that is fewer),
+`flStagger` seconds apart. Every rocket (`MechRocketShot`) spends a round, plays the ordinary fire event (the viewmodel
+animation, a large muzzle flash `sprites/h9_rocket_flash.spr` and the gun smoke; `EV_TSFire` draws no brass and fires no
+bullet for this weapon) and, on the server, launches `CMechRocket` (`dlls/ts_mechrocket.cpp`) from the eye along the aim
+with the launch sound `weapons/rocketfire1.wav` at the player's pitch. The first rocket of a pull goes along the aim, the
+others stray up to `h9_mechrocket_spread` degrees from the aim they find when they leave, and sound on `CHAN_AUTO` (the sound
+is 0.43 s long; on `CHAN_WEAPON` each would cut the one before it). The rockets after the first are `WeaponIdle`'s
+(`MechRocketSalvoStep`): the number still to leave is `m_burstOrPhase`, the slot the burst uses, which the prediction
+already carries (clientdata `vuser2.x`), so the client predicts the whole salvo; the next rocket leaves when the primary
+timer, set to the stagger, has run out. The salvo asks nothing more of the trigger, ends if the player holsters, dies, runs
+out of rounds or goes under water, and `Reload` refuses while it is up. The aim kick (`TS_AddViewRecoil`, `VKickback`) comes
+once, after the last rocket, so that the rockets leave along the aim the pull found. The rocket flies straight (MOVETYPE_FLY) at `h9_mechrocket_speed` with a
 `TE_BEAMFOLLOW` smoke trail (`sprites/h9_rocket_smoke.spr`) and goes off on the first thing it touches or after 10 s: a
 `TSExplosion` of `h9_mechrocket_damage` at the middle, full out to a quarter of `h9_mechrocket_radius` and nothing past the
 radius, the explosion sprite (`sprites/h9_rocket_boom.spr`) and TS's own explosion effect and sound. A rocket that reaches
@@ -132,12 +142,18 @@ kill feed names it "Mech Rocket". A file the art needs that is not on disk is re
 precached. The weapon is deleted, not dropped, when its owner dies, drops it or is disarmed (`h9_mechrocket_nodrop`, 1).
 
 The cvars (`dlls/game.cpp`): `h9_mechrocket` (1, read-only in effect: a plugin tells a library with the weapon from one
-without), `h9_mechrocket_damage` (150), `_radius` (200), `_speed` (900), `_rate` (1.5), `_clip` (1), `_nodrop` (1),
-`_selfdamage` (0), `_push` (400) and `_lift` (250). The clip and the rate are copied into the weapon table every rules think (`TSMechRocketSyncCvars`); the
-client's predicted table keeps the defaults, and the server's clip, timers and reserve overwrite the prediction every frame.
+without), `h9_mechrocket_damage` (200), `_radius` (260), `_speed` (900), `_rate` (1.5, from a salvo's last rocket to the
+next pull), `_clip` (4), `_salvo` (4), `_stagger` (0.12), `_spread` (2.5 degrees), `_reload` (3.0), `_nodrop` (1),
+`_selfdamage` (0), `_push` (400) and `_lift` (250). The clip, rate, reload, salvo and stagger are copied into the weapon table
+every rules think (`TSMechRocketSyncCvars`, through `TS_ApplyMechRocketSetting`, which clamps them) and, when one
+changes, sent to every client as `SrvSett` ids 5 to 9 (clip, rate in ms, reload in ms, salvo, stagger in ms; to a joiner
+by `InitHUD`), because the client's prediction reads its own copy of the table: its reload fills the clip to `iClip`, its
+salvo counts down `iSalvo` rockets at `flStagger`. The client keeps what it heard and puts it in the row again whenever it
+builds the table (`compile_weapons_info`, the first prediction of every map). The server's clip, timers and reserve still
+overwrite the prediction every frame.
 
-What it breaks, against the original and plugins built for it: the original client has no id 41 (see the PPSh-41);
-`CTSGun::m_items` has one more element; a plugin or module that sizes a table by the weapon count must know 41 (H9's TSX
+What it breaks, against the original and plugins built for it: the original client has no id 41 (see the PPSh-41) and
+drops the `SrvSett` ids above 3 (harmless); `s_weapon_info` has two more fields; `CTSGun::m_items` has one more element; a plugin or module that sizes a table by the weapon count must know 41 (H9's TSX
 keeps kung fu's own stats slot at 41 and must move it to 42).
 
 ### h9_customweapons (the PPSh-41 and the laser rifle, on or off)
