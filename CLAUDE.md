@@ -47,6 +47,25 @@ work of your own:
    go stale against a committed one without anyone touching the tracked
    patch file at all -- that's exactly what happened on 2026-10-23.
 
+## Parity comes last, once
+
+The web client and the Linux build are heavy builds (the web sync compiles the engine and the client library for about 4 minutes and
+tests the result in a headless browser; the Linux sync runs several steps in WSL2 and packs three ZIPs), and the credits they cost are
+spent once a batch, not once a feature. The owner's order, 2026-11-10: "the parity is done after all features are implemented". A batch of
+features is finished in this order:
+
+1. Write every feature of the batch, in the owner's order: the plugin and client source, the docs, `COMMANDS.txt` and the configs.
+   `build.bat` builds and exports the plugins for the game, and the Windows `client.dll` is deployed with the game closed. Neither
+   touches the web client, `H9XASH-linux\` or the ZIPs.
+2. Check each feature on the Windows game as far as it can be checked without the owner's game (tests, headless servers, renders).
+3. Then, once, after the last feature: `node tools\webclient-sync.mjs`, then `build-linux.cmd -Stage`, which stages the three ZIPs.
+   `docs\H9_RELEASE.txt`, 2, has the same order for a release.
+4. Report the batch with its parity state. While features are still being written, say plainly that the web client, `H9XASH-linux\`
+   and the ZIPs are behind on purpose and what they will pick up, and never call a ZIP current before step 3.
+
+The two sections below say what the last step must cover, and a batch is not done before it has run. A single change with no batch
+behind it (an engine fix, say) is a batch of one and ends with the syncs, as the sections say.
+
 ## The web client moves with the engine
 
 The browser build (`webclient-bin`, `webclient-build\stage`, the page in `havoc9.org\webclient`) is made from the same
@@ -55,7 +74,8 @@ Both patch sets, the builds and the page are in git. A change that reaches the n
 same piece of work, or the web client silently falls behind: the server browser's chain and the scoreboard's pictures were
 native-only for days before anyone saw it.
 
-1. **Finish every engine, client-library or page change with `node tools\webclient-sync.mjs`.** It covers `xash3d-fwgs`,
+1. **Finish every batch of engine, client-library or page changes with `node tools\webclient-sync.mjs`, once, at the end of the batch
+   ("Parity comes last, once", above).** It covers `xash3d-fwgs`,
    `xash3d-h9-patches\patches`, `webassembly-patch`, `reTS`, `build-webclient.ps1`, `tools\make_webclient_*` and
    `havoc9.org\webclient`. When the engine or the client library changed it builds them (about 4 minutes, below-normal priority);
    otherwise it takes seconds. It lays out the stage, copies `webclient-bin`, the stage, the web tools and the page into the

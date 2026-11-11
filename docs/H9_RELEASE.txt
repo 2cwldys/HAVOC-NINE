@@ -36,6 +36,11 @@ compares as text (older sorts first). To make a new release, edit that file and 
     build.bat <the plugins>    writes include\h9_release.inc from the file (H9_RELEASE) and builds the plugins with it
     export.bat                 lays the file into H9XASH, the export and the git copy
     node tools\webclient-sync.mjs
+    build-linux.cmd -Stage     the Linux build, and the three ZIPs in dist\ staged again
+
+The whole of it is run ONCE, after the last feature that is to be in the release has been written and has had its Windows build and
+checks: the web client, the Linux build and the ZIPs come last, not after each feature (CLAUDE.md, "Parity comes last, once"). Until
+then they are behind on purpose, and a report says so.
 
 tools\release-check.mjs says whether the build (VERSION in ts_matchmode.sma) and the release agree everywhere they
 are stated: the site's download page (--write puts the build there), the game folder's h9_release.txt and the plugins'

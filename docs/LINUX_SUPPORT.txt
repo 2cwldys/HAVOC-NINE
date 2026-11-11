@@ -53,6 +53,13 @@
    client, and a Wine client with no SAPI voice, are silent and are sent nothing, while the
    web client speaks: docs\TEXT_TO_SPEECH.txt, 3); the WebView2 MOTD page; Discord
    presence.
+   The loadout rework's buy window (docs\LOADOUT_REWORK.txt, section 12) is plain engine-API code in cl_dll,
+   with nothing platform specific: the Wine package's client.dll and the web client have it, a native client
+   would build it with the rest of cl_dll, and the Linux server's plugin sends it to them.
+   The same holds for Apollo RP's client side (the HUD panels, the inventory and exchange windows, the item pictures, the credit sign, and the
+   colour a player gives H9's panels with cl_h9_vgui_r, _g and _b: docs\APOLLO_RP.txt, docs\ARP_INVENTORY_WINDOW.txt, docs\H9_VGUI.txt 4k): plain
+   engine-API and VGUI code in cl_dll, the colour arithmetic a header with no platform file. The Wine package's client.dll has it, the web client
+   once it is rebuilt, a native client would build it with the rest of cl_dll, and the Linux server's ARP plugins send it to them.
    Known oddity: at load AMX Mod X logs "Unable to load library engine (gameconf
    common.games)" five times. It finds an engine function by opening the engine's file as
    a library; xashds is a program (a PIE executable), which glibc will not dlopen and which
