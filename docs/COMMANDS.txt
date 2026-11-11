@@ -371,7 +371,9 @@
      it flips. Remembered through setinfo, so it survives a reconnect. Off also
      silences the round-start anthems. The queue plays every track once before
      any plays again, never one twice in a row, and keeps its place from map to
-     map; an admin's tsm_music_skip moves it on for everyone.
+     map; an admin's tsm_music_skip moves it on for everyone. A roleplay
+     map plays the queue too (tsm_music_rp), and tsm_music 0 mutes it there as
+     anywhere else.
 
  .rtv
      Rock the vote: you want a new map. Once 60% of the people on the server
@@ -504,6 +506,19 @@
      tsm_halt_on_leave (1 = on), tsm_halt_delay (grace period before the
      sides are counted, so rcbot can refill one first) and tsm_halt_bypass
      (1 = never halt at all).
+
+ tsm_deathsounds 0|1           (console)
+     The death voices and the machines' hit sounds of a roleplay map
+     (tsm_rp_sounds) on or off, for you alone, as tsm_music does for the music;
+     on by default, and with no number it flips. Remembered through setinfo, so
+     it survives a reconnect when the game's userinfo has room (it is 256 bytes
+     for every key, docs\CUSTOM_XASH_USERID.txt, the budget note; this key is 18
+     bytes and is sent only once you have typed the command; with no room it
+     holds for the visit). On a roleplay map each of those sounds is played to
+     every player separately, quieter the farther the body is and gone past
+     tsm_rp_sound_range, which is what lets one player leave them out; where the
+     match mode runs they are emitted into the world as ever and this does
+     nothing.
 
  tsm_music_skip
      The ambient music's next track, now, for everyone listening. The queue
@@ -663,12 +678,16 @@
      this is how the effect is looked at: cloak a bot and watch it.
 
  amx_tsm_loadout [target]
-     The loadout rework (tsm_loadoutrework), for one player: his class and
-     whether the rework covers it, his cash, whether his buy window is open (and
-     how long a respawn wave's has left), the loadout kept for him this match
-     with the cost, the apply the menu is sending now and why the last one was
-     refused, and for a Mech what the guard watches. Without a target it is you;
-     from the server console a target is required.
+     The loadout rework (tsm_loadoutrework), for one player: the rework's
+     switches (tsm_lr_kitfallback, tsm_lr_lock, tsm_lr_slotcap), the match state
+     and whether a covered player on no side may buy in it, his class, side and
+     whether the rework covers the class, his cash and slot cap, whether his buy
+     window is open (and how long a respawn wave's has left) and whether his
+     loadout is final, whether his game reads the window message (H9Buy) and was
+     told it is open, the loadout kept for him with the cost and what he holds at
+     the arm (the set, his fists or the class kit), the apply the menu is sending
+     now and why the last one was refused, and for a Mech what the guard watches.
+     Without a target it is you; from the server console a target is required.
 
  amx_tsm_menu <side|class>
      Force a menu up and report why it might not have shown (built or not,
@@ -794,8 +813,9 @@
      With tsm_loadoutrework 1 a player whose class the rework covers is not
      refused: while his buy window is open the plugin reads rst_cfg, tkw and tki
      itself (tka is ignored: the weapon's ammunition is part of its price),
-     prices them, and hands the weapons over. Outside the window they are still
-     refused, with a line telling him when it opens. See LOADOUT REWORK.
+     prices them, and keeps the loadout for the match (it is handed over at his
+     arm). Outside the window, or once his loadout is final, they are still
+     refused, with a line telling him why. See LOADOUT REWORK.
 
  changeteam
      Refused while tsm_block_teamvgui is 1. It is the only thing that opens
@@ -1310,37 +1330,65 @@
  is handed its kit and the buy menu is refused (NO ECONOMY, above). With 1:
 
  WHO. Every class except the Mech and the Heavy: a class with the Mech perk, the
- regeneration perk (the Heavy) or the M60 in its kit is left as it is. Bots are
- left as they are too: they take the class kit.
+ regeneration perk (the Heavy) or the M60 in its kit is left as it is and keeps
+ its fixed kit. Bots are left as they are too: they take the class kit.
 
- WHEN. The equipment menu works in the freeze before every round (the whole of
- tsm_freezetime; the freeze that opens a match, where the class is picked and
- the first loadout bought, lasts at least tsm_lr_freeze) and for
- tsm_lr_buy_seconds after a respawn wave puts the player
- back on his feet, for ONE change. Never in warmup or ready-up (nothing is
- held then, and what was bought would be cleared when the match starts). A
- weapon cannot be dropped while a window is open, which keeps buy-then-drop shut
- as before.
+ NO CLASS KIT. A player the rework covers is never handed the class kit: he holds
+ what he bought. A player who bought nothing holds TS's own default, his fists,
+ and is told so (tsm_lr_kitfallback 1 hands him the class kit instead).
+
+ WHEN. The equipment menu works in warmup and ready-up (on a side or on none:
+ what is bought is kept, nothing is handed over yet) and in the freeze before every
+ round (the whole of tsm_freezetime; the freeze that opens a match, where the
+ class is picked, lasts at least tsm_lr_freeze). What a player holds when the
+ round first goes live for him is his loadout for the ENTIRE match
+ (tsm_lr_lock 1, the default): the arm and every respawn wave hand it over again,
+ and later freezes and waves sell him nothing. A player who gets a side after
+ the match has begun (through a halted match) and has no loadout can still buy
+ until his own first go-live. With tsm_lr_lock 0 a player can re-buy in every
+ freeze and, for ONE change, for tsm_lr_buy_seconds after a respawn wave puts
+ him back on his feet. A weapon cannot be dropped while a live window is open,
+ which keeps buy-then-drop shut as before.
+
+ THE MENU. A player on no side is a spectator, and TS's own client opens the
+ equipment menu for him (the first open of a map comes up on a random loadout:
+ 4 = Reset Config first). On a side the player is alive, which TS's client does
+ not allow. An H9 client (the reTS client of this build; it says so with
+ _h9vgui 4) is told by the server when his window opens and when it ends: the
+ buy key (B by default, the command "buy") opens and closes the menu whenever a
+ window is open, and the menu comes up by itself when a freeze begins -- except
+ for a player who has bought a loadout already, and in the first freeze of a
+ match until he has picked his class (the pick brings it up). When the window
+ ends the menu goes down by itself. cl_h9_buyauto 0 stops the menu coming up by
+ itself. Any other client is sent nothing: it buys before it joins a side, and
+ not afterwards, and its chat lines say so.
 
  WHAT. The menu is TS's own: Buy, Remove Item, Reset Config, Random. What it
  sends is priced by the plugin with the menu's own prices (weapon, attachments,
  kevlar 1900; the stealth shoes are never sold) against the class's cash:
- tsm_lr_cash, or tsm_lr_cash_<n> for class n. A loadout that costs more than
- that, holds a weapon on tsm_lr_deny or has more than 8 entries is refused AS
- A WHOLE and the player keeps what he had. The 81 slots a player carries are
- checked only for the Heavy and the Mech, whose limits are raised. Ammunition
- is part of the weapon: tsm_lr_clips spare
- magazines each (tsm_clip_bonus and tsm_clip_max apply as for a class kit). The
- menu's own money bar is 30000, not the plugin's: the menu will let a player
- build a loadout the plugin then turns down for its price, and says so in chat.
+ tsm_lr_cash, or tsm_lr_cash_<n> for class n (the default class's until he has
+ picked one). A loadout that costs more than that, holds a weapon on
+ tsm_lr_deny, weighs more than tsm_lr_slotcap slots or has more than 8 entries
+ is refused AS A WHOLE and the player keeps what he had. Ammunition is part of
+ the weapon: tsm_lr_clips spare magazines each (tsm_clip_bonus and tsm_clip_max
+ apply as for a class kit). The menu's own money bar is 30000, not the plugin's:
+ the menu will let a player build a loadout the plugin then turns down for its
+ price, and says so in chat. With the class kit gone, a Marksman cannot have a
+ Barrett and an Officer a laser rifle or a katana unless tsm_lr_deny lets them.
 
- KEPT. Once bought, the loadout is the player's for the match: it is handed over
- again at every round's arm and at every respawn wave in place of the class kit,
- and the buy menu can replace it in any later window. What he really holds when
- a window closes is what is kept (a weapon the game would not give is dropped
- from it). An apply that buys nothing, or a player who never buys, means the
- class kit. The record is cleared when a match starts or ends, when the player
- leaves, and is void for a class or side other than the one it was bought for.
+ THE SLOTS. A covered class carries at most tsm_lr_slotcap slots (81, which is
+ TS's own limit; 0 is no limit), and handing its loadout over does not raise the
+ room TS allows a player. The Heavy, the Mech, bots and a class kit are given
+ room past 81 as they always were. (If more than 81 is what you want for the
+ covered classes, tsm_lr_slotcap 0 is exactly that.)
+
+ KEPT. The loadout is the player's for the match and follows the player, not a
+ class or a side. Picking a class fits it to that class's cash (what does not
+ fit is left out, he is told which); the Heavy and the Mech ignore it. What he
+ really holds when his first round goes live is what is kept (a weapon the game
+ would not give is left out of it, and he is told). The record is cleared when a
+ match ends or is cancelled, when the player leaves, and when he reconnects; one
+ bought in warmup or ready-up survives the match's start.
 
  CASH. The figure in the player's TS wallet is what is left of the class's cash
  while his window is open, and 0 otherwise (tsm_nocash 1 holds the wallet).
@@ -1349,10 +1397,10 @@
 
  THE MECH. With tsm_loadoutrework 1 the Mech cannot drop its weapon, cannot take
  a weapon off the floor (the use key does nothing while one is within reach, and
- touching one does nothing), and a disarm is undone: the weapon the game threw
+ touching one does nothing), and a disarm is refused by the game library of
+ this build and undone by the plugin if it happens: the weapon the game threw
  is removed and the Mech is handed it again at once, with the spare rounds it
- had. The game DLL performs the disarm; see newfiles\reTS-proposals for the
- change that stops it.
+ had.
 
  amx_tsm_loadout [target] prints all of it for one player.
 
@@ -1395,6 +1443,7 @@
  rcbot autowaypoint <0|1|2>           drop waypoints as you walk
  rcbot waypoint on|off|add|delete     manual waypointing
  rcbot pathwaypoint ...               path editing
+ rcbot debug mech 1|0                 log a Mech bot's weapon choices and pulls, with the reason (server console)
 
  Waypoints live in  half-life/rcbot/waypoints/ts/<mapname>.rcw  and are
  REQUIRED -- bots will not navigate a map without them. 45 TS maps ship with
@@ -1466,6 +1515,31 @@
  the bots must be put on the map: tsm_briefcase_bots N, or a tsm_bots line in the map's
  own mapconfig. tsm_bot_stockobjectives 0 puts the bots back as rcbot's stock game has
  them, which on these maps means every player an enemy.
+
+ MECH WEAPONS (rcbot-patch CHANGE 13, rcbot-ts-mech.patch). A bot that carries the M60 and the
+ Mech rocket launcher (weapon 41 of the game library) alternates between them in a fight; every
+ bot of Mech Warrior is one. The M60 is the default. The launcher comes out for a target that is
+ far (1.35 times tsm_bot_mech_near, 400 units) and in clear sight of a rocket, nearer for a group
+ of enemies within a blast of each other. It fires its salvo: one press of the trigger, aimed at
+ the target's feet and led, never at a wall in front of the bot or with a teammate in the line
+ (nor with one near the blast when friendly fire is on). The button is pressed once, never held:
+ the rest of the salvo leaves by itself, the bot changes no weapon while it does, and it pulls
+ again only when the launcher's own delay (h9_mechrocket_rate, from the last rocket) and its
+ reload are over; h9_mechrocket_salvo, _stagger, _rate and _reload are read for those waits.
+ Then the M60 takes over, and has the near targets, the targets a rocket is no use against (a
+ door), and the fight while the launcher is empty, spent or refused. The game reloads a
+ launcher only while it is in hand, so an emptied one is reloaded in a quiet moment (no target
+ for two seconds) and put away loaded; it stays in hand for a target too far for the M60 (1500
+ units). A bot keeps a weapon for tsm_bot_mech_dwell seconds (3, and up to half again). RCBot
+ reads the cvars once a second and learns what its bot carries from the game's own messages
+ (WStatus, WeaponInfo, ResetHUD), so no plugin is needed for the play itself. The plugin side
+ is three register_cvar lines beside tsm_bot_stockobjectives (rcbot-patch README, CHANGE 13);
+ until they are in, the defaults apply and the console cannot set the cvars.
+ tsm_bot_mech_rocket 0 puts the bots back to stock play (a launcher that is out goes back to
+ the M60). "rcbot debug mech 1" logs every switch and pull to the server log. The same patch
+ gives weapons 37 to 63 a place in rcbot's weapon tables: stock rcbot writes a bot's weapon 39,
+ 40 or 41 past the end of them. Needs rcbot_mm.dll built from all eleven patches and a game
+ library with weapon 41.
 
  tsm_bots IS A COUNT: the plugin keeps that many bots on the server, adding one
  every two seconds through rcbot (rcbot's own fill is switched off, max_bots -1)
@@ -1691,7 +1765,7 @@
 
  FILES. build.bat builds ARP_Core, ARP_Commands, ARP_Config, ARP_HUD,
  ARP_HungerMod, ARP_Items, ARP_JailMod, ARP_NPCs, ARP_RobMod, ARP_TalkArea,
- ARP_Zones and ARP_TS, lists them in plugins.ini with ARP_Core first, and
+ ARP_Zones, ARP_TS, ARP_H9Menu and ARP_Inventory, lists them in plugins.ini with ARP_Core first, and
  installs configs\arp\ (arp.ini, arp.cfg, the maps' folders), models\arp and
  sound\arp. Edit them in apollo-rp\ in TSM: build.bat copies them over the
  game's. "build.bat apollo" builds Apollo RP alone.
@@ -1700,18 +1774,19 @@
  /menu, /items, the shops, the doctor, the gunshop, the bank and ATM, the phone, the jail, the lock
  pick, the fine and job offers, the gun attachments, arp_config -- as a panel on H9's purple art, with
  the same number keys, pages (8 Back, 9 More, 0 Exit) and handlers; any other player gets the TS text
- menu as before. include\ApolloRP_VGui.inc, docs\H9_VGUI.txt 1e lists them. h9_vgui is the server's switch, and
- cl_h9_arpvgui 0 the player's, for Apollo RP's menus alone.
+ menu as before. include\ApolloRP_VGui.inc, docs\H9_VGUI.txt 1e lists them. h9_vgui is the server's switch for every H9 panel,
+ arp_h9_vgui (default 1) its switch for Apollo RP's menus alone, and cl_h9_arpvgui 0 the player's.
 
  ITS HUD. The HUD at the left of the screen -- the title with the city's name,
  the wallet, the bank, the payday, the salary, the job, and the lines other
- plugins add (hunger, jail status, the zone) -- is an AMX Mod X text HUD for
+ plugins add (jail status, the zone) -- is an AMX Mod X text HUD for
  every player but one whose game draws H9 VGUI: that player is sent it as
  panels on H9's purple art, in the game's fonts, in a user message, H9ArpHud
- (docs\APOLLO_RP.txt, 2). The second and third HUDs (arp_hud2 and arp_hud3: the
- out-of-character chat is the third) and the short notice (arp_hud4: what you
- look at, ammo loaded up) are panels too, each where arp_hudN_x and _y put the
- text HUD, to the nearest corner or side. arp_hud_panel is the server's switch:
+ (docs\APOLLO_RP.txt, 2). The second and third HUDs (arp_hud2: the needs, below;
+ arp_hud3: the out-of-character chat) and the short notice (arp_hud4: what you
+ look at, ammo loaded up; what you look at is the plaque, below) are panels too, each where arp_hudN_x and _y put the
+ text HUD, to the nearest corner or side; the top panel of the left column
+ stands under TS's weapon select bar. arp_hud_panel is the server's switch:
  1 (the default) sends the panels to the games that draw them, 0 sends everyone
  the text HUD. The player's cl_h9_arphud 0 (or cl_h9_vgui 0) gives that player
  the text HUD whatever the server says; the server's 0 gives it to everyone
@@ -1726,6 +1801,24 @@
  ARP_AddHudItemKind (include\ApolloRP_HUD.inc: HUDK_TITLE, _WALLET, _BANK,
  _PAYDAY, _SALARY, _JOB, _STATUS; ARP_HUD does; ARP_AddHudItem is HUDK_EXTRA),
  which is what a player's cl_h9_arphud_<kind> switches act on.
+ THE NEEDS. A need is a line of kind HUDK_NEED, the text "<label>: <0 to 100>%",
+ in the second HUD: a plugin that owns one adds it from its HUD_Render handler
+ with ARP_AddNeedItem(id, "Hunger", value). A player with panels sees a panel
+ headed Needs, at the top right in the stock arp.cfg, with a row for each: the
+ label, a bar (green at 0, yellow, red from 75, marks at 75 and 90) and the
+ number; every other player has the line as text, "Hunger: 42%", in the second
+ HUD's place, and "Starving" (a HUDK_STATUS line) under it from 90.
+ ARP_HungerMod adds hunger while arp_hunger_enabled is 1 and thirst while
+ arp_thirst_enabled is 1 (the plugin's defaults, which the shipped arp.cfg
+ keeps), a row each, for a living player whose character has loaded. Thirst is a
+ meter and nothing more: it rises about twice as fast as hunger (a point about
+ every 45 seconds), is kept while the player is in the game and not stored (a
+ player who joins starts at 0, and one who dies starts again at 0, as with
+ hunger), and only a drink quenches it: Soda by 35 and
+ Milk by 30, which still heal their hunger (a thirsty player may drink with no
+ hunger to heal). It slows nobody and costs no salary; from 90 a status line
+ "Dehydrated" shows under the bars, and hunger's effects at 75 and 90 are
+ hunger's alone.
 
  ITS PLAYERS. A character (wallet, bank, job, items, keys, the property it owns) is kept under a key, the player's
  authid. On H9XASH the authid is made per server (ID_ and an MD5 of the player's id and the server's IPv4 address),
@@ -1742,8 +1835,129 @@
  ITS JOBS, BY MAP. The jobs are shared by every roleplay map unless a map names a table of its own: configs\arp\maps\<map>\
  arp.ini with the line  arp_table_jobs "arp_jobs_<map>"  (read after the server's configs\arp\arp.ini; H9's two maps do
  this, so the Ministry of Defense ranks are theirs alone). Jobs go into it with arp_addjob <name> <salary> <access> on that
- map or with the map's own SQL file (loaded by an admin: arp_config, "Load Map SQL Data"). A character whose job a map does
- not have is Unemployed there and keeps his saved job for the map that has it. docs\APOLLO_RP.txt, section 8.
+ map or with the map's own SQL file (run by ARP itself at map start, below). arp_joblist [first] (a player's console; 30 jobs to
+ a page, then it says which number to type next) lists the map's jobs: number, JOBID, name, salary, access letters; /menu has it
+ as Jobs on this map. A character whose job a map does not have is Unemployed there and keeps his saved job for the map that
+ has it. docs\APOLLO_RP.txt, section 8.
+
+ ITS MAP SQL. configs\arp\maps\<map>\<map>.sql is run by ARP_Core at every start of that map, after the tables are made and
+ before the jobs, properties and doors are read: the rows are there in the same map load, with no admin step and no reload.
+   arp_mapsql_autoload  (cvar, default 1; configs\arp\arp.cfg)
+       1: run the file at map start. 0: leave it to arp_config (below). The core reads arp.cfg's line itself, because the server
+       executes that file after the core has started, so the first map of a server run obeys it as well.
+   Only SQLite, and only a file in which every statement is  INSERT OR IGNORE INTO arp_jobs | arp_property | arp_doors VALUES
+   (...);  is run: the default table names in lower case, which become the map's own (arp_jobs_<map> where the map's arp.ini names
+   one); one statement to a line of at most 1000 characters, at most 4000 of them; nothing after the closing ; (which may be left
+   off); no other ; outside a text, no comment, no quoted name; the table's name once. A file with any other line is not run at
+   all and the log says which line and why (the upstream maps' files, plain INSERTs, are such files). The rows already there keep
+   their place and a start adds only the rows a table lacks, so it never duplicates and never overwrites. The log has one line
+   for each start, [ARP] map SQL: N statements, E errors, jobs now J, properties now P, doors now D  (or why the file was not
+   run: none, arp_mapsql_autoload is 0, not SQLite, line L ... is not an INSERT OR IGNORE INTO statement), and a line for each
+   statement SQLite refuses (line L failed: ...). Players are told nothing. docs\ARP_CONTENT.txt, section 2 has the rule in full.
+   arp_config  (a console command of a player who is an ARP admin, or an AMX Mod X admin with the ban flag)
+       Opens the config menu. Entry 3, Load Map SQL Data, runs the map's .sql by hand whatever it holds (every line as it stands,
+       the default table names swapped for the map's own); what it adds is read at the next map start. Entry 1 makes the admin an
+       ARP admin, entry 2 changes the database connection.
+
+ ITS COMMANDS. docs\ARP_COMMANDS.txt lists every Apollo RP command and what it does: chat (/items, /buy, /me, /shout, /cuff, /fine, /sell, /lock and the rest), police,
+ property, the admin commands of the console (arp_createmoney, arp_createitems, arp_setjob ...) and the database commands (arp_backup, arp_restore, arp_delete, which DROPS
+ TABLES), and the switches of arp.cfg. docs\ARP_ADMINS.txt says how to become an ARP admin and, in section 8, how to give yourself money, items and a job to test with.
+ The colour of every H9 panel, ARP's included, is the player's own: cl_h9_vgui_color (and _r, _g, _b), under H9XASH CLIENT below.
+
+ ITS H9 SWITCHES. Every addition H9 made to stock Apollo RP has a server cvar named arp_h9_* (or one of the older ones:
+ arp_hud_panel, arp_hover_message, arp_hunger_enabled, arp_thirst_enabled, arp_mapsql_autoload), set in configs\arp\arp.cfg;
+ with all of them off the server plays stock ARP. docs\APOLLO_RP.txt has the table of every addition and what its switch off gives.
+   arp_h9_vgui  (cvar, default 1; configs\arp\arp.cfg)
+       1: Apollo RP's menus are H9 VGUI panels for the games that draw them (ITS MENUS, above), and the inventory and exchange
+       windows are available. 0: every Apollo RP menu is the classic AMX Mod X text menu, whatever the player's game and his
+       cl_h9_arpvgui. Read by include\ApolloRP_VGui.inc (arpvgui_wanted), so every plugin that shows a menu obeys it.
+   arp_h9_itemhover  (cvar, default 1; configs\arp\arp.cfg)
+       1: a dropped item (classname arp_item) that a player looks toward from within 120 units is named on the notice HUD, "Soda x3",
+       and "Press use (default e) to pick up" from within 50 units; a game of _h9vgui 7 with the HUD as panels is sent the item's
+       picture too (a HUDK_ICON line, include\ApolloRP_HUD.inc), which its panel draws above the notice (cl_h9_arphud_icon).
+       0: stock ARP, which says nothing of it.
+   arp_h9_plaque  (cvar, default 1; configs\arp\arp.cfg)
+       1: what a player looks at says what it is. A property door: the establishment, OWNER (the owner and his job, STATE PROPERTY, or FOR SALE with the price), AFFILIATION (from
+       the property's access letters: a or g Ministry of Defense, b Medical Division, none Civilian), STATUS (sealed or open) and, for a locked property the player may not use,
+       RESTRICTED and who may. An NPC: its name and ROLE. A player: his name, job and affiliation. A game that draws the HUD as panels with arp_hud4_type 2 gets a PLAQUE (a plate in
+       the notice's place; include\ApolloRP_HUD.inc, HUDK_PLAQUE to HUDK_PLAQUE_HINT, 10 to 16); every other game gets the text it always had with an "Affiliation:" line.
+       0: stock ARP's text, no affiliation line and no plaque. The properties of H9's maps are in docs\ARP_CONTENT.txt, 9; the plaque is docs\APOLLO_RP.txt, 2.
+
+ ITS INVENTORY. ARP_Inventory (docs\ARP_INVENTORY.txt) arranges each player's items in cells: a number of cells, each empty or holding one kind of
+ item up to a stack limit. A player whose game has the window (H9's client, _h9vgui 6) is given it by /items and /inventory (and the key he binds
+ to cl_h9_inventory) in place of the text menu: tiles to click and drag, stacks to combine and split, and a right-click menu (Use, Drop one, Drop all,
+ Give to, Show to, Info), all through ARP's own item paths, so a plugin that hooks Item_Use, Item_Give, Item_Drop or Item_Show keeps working. Every
+ other player keeps the text menu, and the cell rules are the server's: they apply to all. What is stored is what ARP always stored (the table
+ arp_items); the arrangement lives while the player is in the game. When the inventory is full a pick-up takes what fits and leaves the rest in the pack,
+ a shop refuses before it takes the money, a give is refused when the other player has no room for all of it, and an add that nothing asked about
+ (a reward, an admin command) falls at the player's feet. Dropping makes the pack first and takes the items after, so none is ever destroyed.
+ THE EXCHANGE OF GOODS. A player who presses the use key on another offers him an exchange (the event Player_Use); when he accepts, both see a window with an
+ offer each, up to 12 entries (a cell and a count) and an amount of money (the wallet, never the bank). The cells offered are held, any change by either side
+ breaks both seals and the seal button is dead for 3 seconds, and when both have sealed the server checks it all again and swaps atomically and logs it.
+ Never with a bot, a player who is cuffed or in jail, or a game without the window. docs\ARP_INVENTORY.txt, 6.
+ THE SEARCH OF A HANDCUFFED PLAYER. The use key on a player who is handcuffed or in jail (ARP_JailMod's H9_Restrained) opens a window on the searcher's screen, a game that
+ says _h9vgui 8, with the other player's cells beside his own; what he takes (h9inv s take <cell> <n>) goes from the one's inventory to the other's at once, as much as fits, with
+ nothing made or lost and one log line for each take. The other player is told in chat. It ends when he is freed, dies or leaves, when the searcher goes more than 150 units away,
+ dies, is handcuffed or closes his window, or when the switch goes off. One searcher at a time for a player, never while either is in an exchange. A game that says less than 8
+ gets "That player cannot make an exchange now.". The event Player_Search (searcher, target) can be vetoed by a plugin. docs\ARP_INVENTORY.txt, 9.
+   arp_h9_inv_window  (cvar, default 1; configs\arp\arp.cfg)
+       1: the window for the games that have it (it needs arp_h9_vgui 1). 0: /items is the text menu for everybody.
+   arp_h9_inv_slots  (cvar, default 32; configs\arp\arp.cfg)
+       The cells a player has, 8 to 96, in a grid of 8 columns. 0 is no limit, as stock ARP: nothing is refused and the grid grows to what is needed.
+       Lowering it takes nothing from a player: he keeps his cells, and the window says he is over capacity, until he is back under it. Read once a
+       second.
+   arp_h9_inv_stack  (cvar, default 20; configs\arp\arp.cfg)
+       The count of one kind of item in one cell, 1 to 999. configs\arp\inventory.ini names a limit for an item, one line "item name|limit" (1: it
+       does not stack); the file is read when a map starts, and a map's own folder may hold its own. Read once a second.
+   arp_h9_inv_persist  (cvar, default 1; configs\arp\arp.cfg)
+       1: where a player put his items is kept in the database, in a table of its own, arp_h9_cells (made with CREATE TABLE IF NOT EXISTS the first time it is needed; one row for each
+       character, under the key arp_items uses: the cells as text, "<cell>:<count>:<item name>|...", and a time; going back is dropping the table). It is written three seconds after
+       the cells last changed (never one write for each click) and with ARP's own save of the character (arp_save_interval, at disconnect, at a map change), and read when the
+       character loads: the saved cells are laid over what he owns (a count that is lower is clipped, an item he no longer has is left out, arp_h9_inv_slots and arp_h9_inv_stack
+       are obeyed, whatever he owns that no saved cell took is added to his cells). A missing or unreadable row, a database that is down and any error leave the packed cells. 0: the
+       cells are packed at every join and nothing is read or written. The counts are ARP's: nothing of arp_items changes. docs\ARP_INVENTORY.txt, 8.
+   arp_h9_credits  (cvar, default 1; configs\arp\arp.cfg)
+       What the money is called in the inventory and exchange windows and in the messages ARP_Inventory prints: 1 credits ("1,250 credits"), 0 cash
+       ("$1,250"). With 1 it also sets the SIGN: a player whose game says _h9vgui 7 or more (the client with its inventory window wanted) is shown the cent sign (U+00A2)
+       in place of the "$" of every amount that any Apollo RP plugin prints for him: chat, console and centre text (client_print, show_activity) as UTF-8, the HUD panel,
+       the H9 menus and the result lines of an exchange as the single byte A2 (include\ApolloRP_Credits.inc). A player whose game says less, a bot, every log, the classic
+       text menus and the hudmessages (HUD font) keep "$"; with 0 every plugin sends what stock ARP sends. The wallet and the bank are ARP's: only the words and the sign
+       change. docs\ARP_INVENTORY.txt, 7.
+   arp_h9_trade_range  (cvar, default 250; configs\arp\arp.cfg)
+       The distance, in units, at which an open exchange of goods is cancelled; looked at every second. Offering one needs the use key's own range, 100.
+   arp_h9_trade_timeout  (cvar, default 120; configs\arp\arp.cfg)
+       The seconds without a change to an offer after which an open exchange of goods is cancelled.
+   arp_h9_search  (cvar, default 1; configs\arp\arp.cfg)
+       1: the use key on a handcuffed or jailed player is a search (THE SEARCH, above; needs arp_h9_vgui 1 and arp_h9_inv_window 1, and a searcher whose game says _h9vgui 8).
+       0: stock behaviour: the use key on a handcuffed player says "That player cannot make an exchange now."; a window that is open is closed within a second.
+   arp_h9_search_range  (cvar, default 150; configs\arp\arp.cfg)
+       The distance, in units, beyond which an open search is closed; looked at every second. Starting one needs the use key's own range, 100.
+   arp_h9_search_money  (cvar, default 1; configs\arp\arp.cfg)
+       1: the search window shows the wallet of the player searched and buttons that take 10, 100 or all of it (a searcher whose game says _h9vgui 9; a game that says 8 searches
+       items only). The money moves from his wallet to the searcher's at once, as much as he holds (the bank is never touched), with one log line and a chat line to him.
+       0: items only.
+   arp_h9_restraints  (cvar, default 1; configs\arp\arp.cfg; read from the file when the items are registered, so a change needs a map change)
+       1: Cuffs, Tape and Rope are items. Police cuff with the chat command /cuff and need no item; anyone else cuffs with one Cuffs (using the item, or /cuff), which the
+       cuffing uses up and which goes back to whoever frees him unless police took them off. Tape (/removetape) gags a mouth: chat, team chat and, with arp_voice 1, voice;
+       one roll is used up when it gags somebody. Rope ties the person looked at to the user (the rope stays an item); /untie, or the rope used on him again, frees him; it ends
+       with the death or leaving of either. 0: stock ARP: none of them exists.
+   arp_h9_rope_length  (cvar, default 150; configs\arp\arp.cfg)
+       The slack of a rope in units: a tied player is pulled toward the one who holds it when he is further than this; it snaps at four times as far.
+   arp_h9_cuffsprite  (cvar, default 1; configs\arp\arp.cfg)
+       1: a handcuff symbol (sprites\h9_cuffed.spr) floats over the head of a handcuffed player, for everybody who sees him, until the cuffs come off or he dies or leaves.
+       0: none, as stock ARP.
+   arp_h9_toast  (cvar, default 1; configs\arp\arp.cfg)
+       What Apollo RP prints in chat (the lines that start with [ARP]) as a popup over the crosshair that holds and then fades, to a game that draws H9 panels (needs arp_h9_vgui 1;
+       the three latest show, the newest lowest; a refusal in a warm colour). 0: chat as stock ARP. 1: the popup in place of the chat line. 2: both.
+   h9inv <op> <args>  (a client command the window sends; not for typing)
+       open, close, tidy, move <from> <to>, split <cell> <n> [<to>], use <cell>, drop <cell> <n>, give <cell> <n> <player>, show <cell> <player>,
+       info <item>, for the exchange of goods x accept, x decline, x cancel, x seal, x unseal, x offer <cell> <n> [<entry>], x take <entry> and x money <amount>, and for
+       the search of a handcuffed player s take <cell> <n>, s money <n> and s close.
+       At most ten a second from a player; every argument is checked and a refusal is answered in the window. docs\ARP_INVENTORY.txt, 5, 6 and 9.
+   arp_h9_inv_dump <player>, arp_h9_inv_check <player>  (console commands: the server's, or an ARP admin's, whose job has arp_admin_access)
+       The arrangement of a player (his number or a part of his name): "DUMP" and "C <cell>:<item>:<count>" lines, then a "DB" line (persist, whether he has a key, whether the
+       database holds what his cells are, whether a read is on its way, and the writes, reads and laid-over arrangements since the map began), a "SEARCH" line (the player he
+       is searching and the player searching him, or 0); and whether his cells agree with his items ("CHECK id=N OK", or what is wrong). The tests use them.
 
 
 ===============================================================================
@@ -1945,6 +2159,28 @@
  other map without teams reads "Free for all". The match mode stays off
  there all the same.
 
+ Four things of the match mode reach a roleplay map nonetheless, each with a
+ cvar of its own and each on by default:
+   - the ambient music queue (tsm_music_rp), which the match mode alone plays
+     elsewhere;
+   - the death sounds (tsm_rp_sounds): a player or bot taken out of play sounds
+     the voice its model calls for (death/male1..6.wav, death/fem1..6.wav; a
+     name with robo, droid or bot in it, the Mechs among them, detonates with
+     the frag grenade's boom, the droid power-down and an explosion sprite), and a
+     machine that is hit clangs on every damaging hit, to its wearer on his own
+     client too. No count, no report and no Officer's announcement: those are
+     the match's;
+   - the hands by the model a player wears (tsm_rp_hands): a name with repu or
+     rh_ in it (tsm_rp_hands_msr) gets the msr hands, one with xccp or ins_ in
+     it (tsm_rp_hands_ins) the insurgent hands, a droid the metal arms of its
+     type (the insurgent droid, insdroid_bot, the tan ones, any other droid the
+     msr droid's light white-blue ones; tsm_rp_hands_droid 0 gives every droid
+     the msr droid's), and a Mech (mech_msr_bot, mech_ins_bot) the hands of the
+     side its name gives and, for its M60, the minigun built into the arm. Any
+     other model keeps the default hands. The model is read again every half
+     second, so a job that changes it changes the hands with it.
+ h9_customhands 0 takes all of the hands away again.
+
 
 ===============================================================================
  CAPTURE THE UPLINK  (ts_uplink.amxx)
@@ -2052,6 +2288,13 @@
  in its ammo bay, loaded into the reserve as the Mech uses it up ("Ammo bay:
  +100 rounds" on its screen). The laser rifle does tsm_mech_laser_mult times
  its damage to a Mech, before the Mech's armour.
+
+ A Mech's second weapon is the rocket launcher (weapon 41 of the game
+ library, behind h9_mechrocket and h9_customweapons): one pull of the trigger
+ launches a salvo of four rockets, 0.12 seconds apart, out of a clip of four
+ ("Missile" in the ammo box), and each rocket's blast does 200 at the middle
+ and falls to nothing 260 units out. The h9_mechrocket_* cvars in the cvar
+ reference set it.
 
 
 ===============================================================================
@@ -2261,6 +2504,23 @@
  cl_h9_vgui_scale <0.5-2>        the panels' size (1; the panels are a quarter
                                  smaller than they were before 2026-11-05, and
                                  1.33 is that size again)
+ cl_h9_vgui_r <0-255>            the colour of H9's panels in place of the
+ cl_h9_vgui_g <0-255>            purple (138 66 196, the highlight band's):
+ cl_h9_vgui_b <0-255>            the art, the headings, the rails and the text
+                                 of the menus, the notices, Apollo RP's HUD,
+                                 the chat bubbles and the inventory window all
+                                 take its hue; a grey makes them grey. A
+                                 warning's red, a need's bar, a team's colour
+                                 and the pictures of items keep theirs, and TS's
+                                 own menus (the text scheme files) are not
+                                 changed. A new colour is taken after a moment,
+                                 so three commands are one change, and the art
+                                 is made again no more than twelve times in a
+                                 game. Saved. H9's client.dll (docs\H9_VGUI.txt 4k)
+ cl_h9_vgui_color r g b          sets the three at once: cl_h9_vgui_color 40 160
+                                 255, cl_h9_vgui_color #28a0ff, cl_h9_vgui_color
+                                 default (the purple again); with no argument it
+                                 prints the colour
  cl_h9_marks 0|1                 the marks a server shows through the walls (1):
                                  Assault's capture points, Capture the
                                  Uplink's zones and uplink, Capture the
@@ -2284,10 +2544,16 @@
  cl_h9_arphud_left 0|1           the panel of ARP's first HUD, the main one at
                                  the top left: the title, wallet, bank, payday,
                                  salary, job and the lines other plugins add
-                                 (1); 0 draws none of them, not as text either
+                                 (1); 0 draws none of them, not as text either.
+                                 It starts under TS's weapon select bar (the
+                                 weapons carried, cl_showequipment 1 to 3, or
+                                 the select open): 8 pixels below its lowest
+                                 weapon over the columns the panel covers
  cl_h9_arphud_top 0|1            the panel of the second HUD (1), the top right
-                                 in the stock arp.cfg; the HUD names are the
-                                 stock places, arp_hud2_x and _y move it
+                                 in the stock arp.cfg: the needs -- hunger, and
+                                 thirst where a server has it -- as rows with a
+                                 bar; the HUD names are the stock places,
+                                 arp_hud2_x and _y move it
  cl_h9_arphud_side 0|1           the panel of the third HUD (1), the right side
                                  in the stock arp.cfg: the out-of-character chat
  cl_h9_arphud_notice 0|1         the short notice (1), the fourth HUD: what you
@@ -2297,9 +2563,34 @@
  cl_h9_arphud_bank 0|1           wallet, the bank, the payday countdown, the
  cl_h9_arphud_payday 0|1         salary, the job, the dead / account loading /
  cl_h9_arphud_salary 0|1         server malfunction lines (_status), and what
- cl_h9_arphud_job 0|1            other plugins add -- hunger, jail status, the
- cl_h9_arphud_status 0|1         zone, any other (_extra). A panel with no line
- cl_h9_arphud_extra 0|1          left is not shown. Saved
+ cl_h9_arphud_job 0|1            other plugins add -- jail status, the zone,
+ cl_h9_arphud_status 0|1         any other (_extra). A panel with no line left
+ cl_h9_arphud_extra 0|1          is not shown. Saved
+ cl_h9_arphud_needs 0|1          the needs (1): the second panel, with hunger as
+                                 a bar, and the line under it when starving; 0
+                                 hides the panel, not as text either. Hidden
+                                 for the dead and spectating whatever it is.
+                                 H9's client.dll; saved
+ cl_h9_arphud_icon 0|1           the picture of an item lying on the floor,
+                                 above the notice that names it (1); 0 leaves
+                                 the notice as it was, text alone. A game that
+                                 says _h9vgui 7 and has the HUD as panels is
+                                 sent it (arp_h9_itemhover 1). H9's client.dll;
+                                 saved (docs\ARP_INVENTORY_WINDOW.txt, 4)
+ cl_h9_arphud_plaque 0|1         what you look at -- a property door, an NPC, a
+                                 player -- as a plaque (1): a plate of one width
+                                 in the notice's place, its heading and fields
+                                 in upper case, the affiliation and the status
+                                 as badges, a restriction in red; it stays 2.5
+                                 seconds and is hidden while dead or spectating.
+                                 0 draws the same lines as the plain notice they
+                                 read as (arp_h9_plaque 1 on the server sends
+                                 them). H9's client.dll; saved (docs\APOLLO_RP.txt, 2)
+ cl_h9_arphud_shrink 0|1         the first panel in a smaller size while TS's
+                                 weapon select (the five columns at the top
+                                 left) is open (1), its own size again when the
+                                 select shuts; 0 leaves it as it is all the
+                                 while. H9's client.dll; saved
  cl_h9_arphud_list               prints every one of these with its value, the
                                  key the game sends the server, how many H9ArpHud
                                  messages came and the last time, and for each of
@@ -2310,6 +2601,32 @@
                                  0. A game without the key, or whose userinfo has
                                  no room for it (256 bytes in all), is sent the
                                  text HUD
+ cl_h9_arpinv 0|1               Apollo RP's inventory, the exchange of goods
+                                 and the search of a handcuffed player as
+                                 windows you click and drag (1); 0 keeps the
+                                 text inventory, and the game tells servers so
+                                 (_h9vgui 5 instead of 8). Needs cl_h9_arpvgui 1
+                                 as well. H9's client.dll; saved
+                                 (docs\ARP_INVENTORY_WINDOW.txt)
+ cl_h9_inventory                 opens the inventory window, or closes it
+                                 (bind i cl_h9_inventory; the stock client
+                                 config binds i). The cursor is the player's
+                                 until the window is closed: its X, ESC, or
+                                 this key again
+ cl_h9_trade_accept              answer an exchange offered to you (E at the
+ cl_h9_trade_decline             one who offered accepts as well); bind them
+                                 if the mouse is not at hand
+ cl_h9_arpinv_state              what this game has read of the inventory, the
+                                 exchange and the search (messages, cells,
+                                 wallet), for
+                                 finding out why a window did not come up
+ cl_h9_aimplaque 0|1             the teammate under the crosshair as a plaque
+                                 (his name, class, health and armour over a
+                                 bar), with TS's own green name left out, on a
+                                 server that sends it (tsm_hover_plaque; 1); 0
+                                 keeps TS's green name and shows no plaque; the
+                                 red and green names on a roleplay map as well
+                                 (arp_h9_hidenames). H9's client.dll; saved
  ts_intro 0|1                    the intro video (the original Specialists
                                  intro, 21 s) before the main menu shows (1);
                                  0 goes straight to the menu. Any key or mouse
@@ -2334,7 +2651,8 @@
                                  h9_texttospeech 1, what players near you say
                                  is read out by your own voices (Windows SAPI;
                                  the browser's in the web client). 0: silence
-                                 for you, and the game tells servers in
+                                 for you at once (what plays fades out, what
+                                 waits goes), and the game tells servers in
                                  _h9tts so none is sent. H9's client.dll
                                  (docs\TEXT_TO_SPEECH.txt)
  cl_h9_tts_volume <0-2>          how loud those voices are (1)
@@ -2344,8 +2662,8 @@
  cl_h9_tts_voice_bot N           the man's). Saved
  cl_h9_tts_voices                lists the voices on this machine, numbered
  cl_h9_tts_test <kind> [muffled] <words>
-                                 speaks the words as a man, woman, mech or bot,
-                                 with your picks and as you sound to others
+                                 speaks the words as a man, woman, mech, bot or
+                                 droid, with your picks and as you sound to others
                                  (cl_h9_tts_myvoice and _mydepth); muffled puts
                                  a gas mask on it
  cl_h9_tts_robot 0|1             a Mech's and a bot's voice through a robot
@@ -2358,10 +2676,13 @@
  cl_h9_tts_pan 0|1               1 puts each voice in the ear it comes from (1;
                                  Windows, in stereo), 0 plays them all in the
                                  middle. Saved
- cl_h9_tts_maxvoices <1-3>       voices at once (2); when that many are
-                                 playing, a voice louder than the quietest by a
-                                 fifth (the nearer speaker) takes its place and
-                                 a quieter one is not spoken. Saved
+ cl_h9_tts_maxvoices <1-8>       voices that speak at once (4). A line that
+                                 comes when that many are playing waits for a
+                                 voice (4 lines, 8 s at most) and no line that
+                                 is playing is cut off. Windows only: the
+                                 browser speaks one voice at a time whatever
+                                 this says. Saved (a saved value stays as it
+                                 was)
  cl_h9_tts_individual 0|1        1 gives a speaker who asked for no voice of his
                                  own one from his slot: another voice of his
                                  kind and a small step off its pitch (1), so a
@@ -2372,12 +2693,54 @@
                                  server as it asks and when it changes. Saved
  cl_h9_tts_mydepth <-10..10>     how deep (below 0) or high (above 0) others
                                  hear you (0). Saved
+ cl_h9_tts_engine system|auto|kokoro
+                                 which voices speak chat (system). system: the
+                                 machine's own (Windows SAPI; the browser's in
+                                 the web client). auto: the Kokoro voices, neural
+                                 ones made by a helper program the game starts
+                                 (ts\h9tts\bin\h9kokoro64.exe, Windows only),
+                                 with the system voice, at once, for a line the
+                                 helper cannot start within 3 s of its arrival
+                                 (or while it is not ready); a line the game has
+                                 made ahead of time (the bots' fixed chat) is
+                                 heard at once. kokoro: those only, a line they
+                                 cannot start in time is dropped. Saved
+                                 (docs\TEXT_TO_SPEECH.txt, 3e)
+ cl_h9_tts_threads <0-16>        the threads the Kokoro helper makes a line with
+                                 (0: the game chooses, the machine's logical
+                                 processors up to 8, and no helper under auto on
+                                 a machine with fewer than 4 of them; it lowers
+                                 the number by one, never below 2, when the
+                                 game's frames get longer while a line is
+                                 made). The helper starts again when it changes.
+                                 Saved
+ cl_h9_tts_state                 prints which voices speak and the state of the
+                                 Kokoro helper: starting, ready or failed and
+                                 why, its threads, the times of the last line,
+                                 the frame watch and the thread cap
+ cl_h9_tts_reload                stops the Kokoro helper and starts it again (it
+                                 also lifts a thread cap, a rest after late
+                                 lines and a "given up")
  _h9tts                          1 while this game speaks chat (cl_h9_tts 1 and
-                                 a voice on the machine), else 0: set by the
-                                 game, sent to servers
- _h9vgui                         the panel protocol this game draws, 3, or 0
-                                 with cl_h9_vgui 0: set by the game, sent to
-                                 servers
+                                 a voice on the machine, or the Kokoro voices
+                                 with cl_h9_tts_engine auto or kokoro), else 0:
+                                 set by the game, sent to servers
+ _h9vgui                         the panel protocol this game draws (1 to 8),
+                                 or 0 with cl_h9_vgui 0: set by the game, sent
+                                 to servers. 4 also says this game reads H9Buy,
+                                 the loadout rework's buy window; 5 H9Look; 6
+                                 Apollo RP's inventory and exchange windows; 7
+                                 the credit sign; 8 the search window
+                                 (docs\H9_VGUI.txt)
+ cl_h9_buyauto 0|1               the equipment menu comes up by itself when
+                                 the server opens a buy window (1), in the
+                                 freeze of a round under tsm_loadoutrework 1;
+                                 0: only the buy key (bind one to "buy")
+                                 opens it. Saved. H9's client.dll
+                                 (docs\LOADOUT_REWORK.txt section 12)
+ cl_h9_buywindow                 prints whether a buy window is open for this
+                                 game and for how long, the menu, and the last
+                                 H9Buy message read
  cl_h9_servers 0|1               the server browser's chains (1): H9XASH asks
                                  havoc9.org which servers are authenticated
                                  (a green chain) and which are not (a red
@@ -2508,17 +2871,41 @@
  h9_mechrocket             1          present and 1 when the game library has the
                                       Mech rocket launcher (weapon 41), so a
                                       plugin can give a library without it
-                                      another gun. The nine below tune it; the
+                                      another gun. The thirteen below tune it; the
                                       launcher is in no buy menu and is behind
                                       h9_customweapons like the other weapons H9
-                                      adds
- h9_mechrocket_damage      150        damage at the middle of a rocket's blast;
-                                      it falls to nothing at the radius
- h9_mechrocket_radius      200        radius of the blast, in units
+                                      adds. A trigger pull launches a salvo of
+                                      rockets. The clip, rate, reload, salvo and
+                                      stagger are also sent to every client as
+                                      they change, since the client predicts the
+                                      launcher
+ h9_mechrocket_damage      200        damage at the middle of one rocket's blast
+                                      (full out to a quarter of the radius, then
+                                      falling to nothing at the radius; armour
+                                      takes none of it). A salvo is that many
+                                      blasts, one for each rocket
+ h9_mechrocket_radius      260        radius of the blast, in units
  h9_mechrocket_speed       900        speed of the rocket, in units a second
- h9_mechrocket_rate        1.5        seconds between two shots (never under
-                                      0.1); a clip of one is also reloaded
- h9_mechrocket_clip        1          rockets in a clip (1 to 30)
+ h9_mechrocket_rate        1.5        seconds from the last rocket of a salvo to
+                                      the next pull (never under 0.1). It matters
+                                      only when the clip holds more than one
+                                      salvo: a clip of one salvo is empty after
+                                      it and waits for the reload
+ h9_mechrocket_clip        4          rockets in a clip (1 to 30): one salvo
+ h9_mechrocket_salvo       4          rockets one trigger pull launches (1 to 8); a
+                                      clip with fewer launches what it holds. 1: a
+                                      single rocket a pull
+ h9_mechrocket_stagger     0.12       seconds between two rockets of a salvo (0.03
+                                      to 1). The salvo leaves by itself after the
+                                      pull, and ends when the Mech dies, puts the
+                                      launcher away, runs dry or goes under water;
+                                      a reload waits for it. Each rocket takes a
+                                      round from the clip as it leaves
+ h9_mechrocket_spread      2.5        degrees the rockets after the first may stray
+                                      from the aim (0 to 15); the first goes
+                                      straight, so a salvo of one is exact
+ h9_mechrocket_reload      3.0        seconds a reload takes (0.5 to 30): the
+                                      length of the launcher's reload animation
  h9_mechrocket_nodrop      1          1: a Mech's launcher is deleted where a drop
                                       would have made a gun on the floor (death,
                                       the drop key, a disarm); anyone else drops
@@ -2531,7 +2918,9 @@
                                       like the damage. Whoever the blast may hurt
                                       is pushed (friendly fire off spares a
                                       teammate); a wall in between stops it. 0
-                                      with h9_mechrocket_lift 0: no push
+                                      with h9_mechrocket_lift 0: no push. The
+                                      pushes of a salvo's rockets add up, to no
+                                      more than 1000 units a second
  h9_mechrocket_lift        250        how much it throws them up, in units a
                                       second, with the same falloff
 
@@ -2670,12 +3059,21 @@
 
  -- the Mech's weapons  (the launcher is weapon 41 of H9's reTS: it needs the
     game library's h9_mechrocket and h9_customweapons 1; it is in no buy menu
-    and tsm_class9 names it, e.g. 41:3 for one in the tube and three spare)
+    and tsm_class9 names it, e.g. 41:3 for a full clip (four rockets) and three spare)
  tsm_mech_nodrop           1          1: a Mech cannot drop his M60 or his rocket
                                       launcher (the T key and the weapon bar's
                                       drop are refused), and what he throws as he
                                       dies is taken out of the world at once. A
                                       disarm is not stopped. 0: as TS
+ tsm_mech_nopickup         1          1: a Mech takes no weapon from the floor,
+                                      neither one another player dropped nor one
+                                      lying on the map: the use key does nothing
+                                      while one is within reach (he is told) and
+                                      touching one gives him nothing. His own M60,
+                                      minigun or launcher may be taken up again,
+                                      so a disarm never leaves him bare-handed.
+                                      0: as TS. With tsm_loadoutrework 1 he takes
+                                      no weapon at all, whatever this says
  tsm_mech_rocket_flash     1          the launcher's muzzle flash (a sprite and a
                                       light at the muzzle): 0 off, 1 the size the
                                       sprite was made for, more or less to scale it
@@ -2733,6 +3131,22 @@
  tsm_model_verify          0          seconds between re-checking a player's
                                       model; 0 never
  tsm_model_fallback_class  1          the class a blank model field borrows from
+ tsm_rp_hands              1          on a roleplay map the hands follow the
+                                      model worn: the msr, insurgent and droid
+                                      sets are precached there (about 86 MB
+                                      more than the default set alone); 0 the
+                                      default hands only. Set in server.cfg: a
+                                      change takes a map change
+ tsm_rp_hands_msr          repu,rh_   words (commas, any case) of a player model
+                                      name that give the msr hands on a
+                                      roleplay map; read at once
+ tsm_rp_hands_ins          xccp,ins_  the same for the insurgent hands
+ tsm_rp_hands_droid        1          1 a droid wears the metal arms of its
+                                      type (insdroid_bot the insurgent droid's,
+                                      any other droid the msr droid's); 0 every
+                                      droid the msr droid's, and 21 MB less to
+                                      download. Set in server.cfg: a change
+                                      takes a map change
  h9_customhands            1          custom first-person hands and kicking legs:
                                       1 a black glove and sleeve, by side in a
                                       match (MSR a blue cuff, the Insurgents
@@ -2756,6 +3170,16 @@
  tsm_hover_info            1          aim at a teammate to see their class and
                                       health
  tsm_hover_range           640        how far that reaches
+ tsm_hover_plaque          1          on an H9 game the readout is a plaque (a notice
+                                      over a bar of his health, in the colour of how
+                                      well he is) and TS's own green name over the
+                                      teammate is left out; 0: the green text as
+                                      before. Any other game gets the green text
+ arp_h9_hidenames          1          on a roleplay map (Apollo RP in use) an H9 game
+                                      draws none of the names TS puts over the player
+                                      the crosshair is on (red for anyone there, there
+                                      being no sides); 0: TS's names as before. Read
+                                      within a second [cfg 1]
  tsm_listen_guard          1          a game with maxplayers 1 is single-player, where
                                       the fire click of "Press Fire To Play"
                                       restarts the map in a loop: 1 refuses the
@@ -2779,19 +3203,36 @@
  tsm_nocash                1          economy on, wallet held at 0: no buying
  tsm_block_buy             1          refuse TS's buy-menu commands
  tsm_loadoutrework         0          1: every class but the Mech and the Heavy buys
-                                      its loadout with TS's equipment menu (see
-                                      LOADOUT REWORK); the Mech cannot be
-                                      disarmed, drop or take a weapon
+                                      its loadout with TS's equipment menu, in
+                                      warmup, ready-up and the freeze, and keeps
+                                      it for the match; no class kit (see LOADOUT
+                                      REWORK); the Mech cannot be disarmed, drop
+                                      or take a weapon
                                       [cfg: line commented out]
  tsm_lr_cash               8500       cash each such class has to spend: a rifle,
                                       a pistol, a knife and kevlar (1900)
  tsm_lr_cash_1..9          (empty)    one class's cash, in place of tsm_lr_cash
- tsm_lr_buy_seconds        20         seconds after a respawn wave that the menu
-                                      stays open, for one change (the freeze
-                                      is open throughout)
+ tsm_lr_lock               1          1: a player's loadout is final from the
+                                      first time a round goes live for him: later
+                                      freezes and respawn waves sell him nothing.
+                                      0: a re-buy in every freeze and, for one
+                                      change, after a wave
+                                      [cfg: line commented out]
+ tsm_lr_kitfallback        0          0: a player who bought nothing holds his
+                                      fists. 1: he is handed his class kit
+                                      [cfg: line commented out]
+ tsm_lr_slotcap            81         the most slots a covered class's loadout may
+                                      weigh: 81 is TS's own limit, and the
+                                      hand-over does not raise the room. 0: no
+                                      limit (the room is raised). The Heavy and
+                                      the Mech are given room past 81 whatever
+                                      this says [cfg: line commented out]
+ tsm_lr_buy_seconds        20         tsm_lr_lock 0 only: seconds after a respawn
+                                      wave that the menu stays open, for one
+                                      change (the freeze is open throughout)
  tsm_lr_freeze             30         seconds of the FIRST freeze of a match (the
                                       one the live gate opens) while the rework
-                                      is on: the class pick and the first buy;
+                                      is on: the class pick and the last buy;
                                       later rounds are tsm_freezetime long
                                       [cfg: line commented out]
  tsm_lr_deny               32,18,40,34  weapon ids that cannot be bought; the
@@ -2805,6 +3246,18 @@
                                       mode is on (RCBot and mp.dll read it);
                                       1: bots like everyone else, under
                                       nopowerup and tsm_no_powerups
+ tsm_bot_mech_rocket       1          0: a bot that carries the M60 and the Mech
+                                      rocket launcher plays them as any bot does
+                                      (a launcher that is out goes back to the
+                                      M60); 1: it alternates between them in a
+                                      fight (RCBot reads it; absent reads as 1)
+ tsm_bot_mech_dwell        3.0        seconds such a bot keeps a weapon before
+                                      it chooses the other, 0.5 to 30; up to
+                                      half again is added at random
+ tsm_bot_mech_near         400        the nearest target such a bot pulls the
+                                      launcher at, in units, 128 to 1500; it
+                                      takes the launcher out for one 1.35 times
+                                      as far
  tsm_no_weapons            0          1 sweeps every weapon off the map, once a
                                       second (set per map in its mapconfig)
  tsm_sweep_drops           1          remove what players dropped, at each round's
@@ -2876,10 +3329,27 @@
  (msr blue, insurgent green, default hazard yellow); everyone else's M60 stays stock. The Mech's rocket
  launcher (weapon 41) is a pod on the same arm. The Mech sees the one he holds in first person; no weapon is
  drawn in a Mech's hands for the other players, since the guns are part of his model (the pod's p_ model
- shows only in the hands of a player who is not a Mech).
+ shows only in the hands of a player who is not a Mech). An M60 a Mech throws to the floor (a disarm,
+ or tsm_mech_nodrop 0) lies there as the same cannon, models/h9/w_mechminigun.mdl, when that file exists and
+ h9_customhands is on; any other player's M60 stays stock. The minigun has no p_ model.
+ The ammunition belt on the left of the minigun is fed into the gun as the Mech fires: it slides one round into the feed
+ throat at each shot (every shot starts the fire animation again) and rests between bursts, and it is long enough that its end
+ stays out of the picture up to fov 120 on any screen shape. Both models come from modelling/mech-arms (its README.txt).
+ The Mech's M60 shots have sounds of their own, played by the client from its fire event: sound/h9/mechminigun/start.wav
+ on the first shot of a burst (the motor spinning up) and fire.wav on every shot after it; each shot cuts the tail of the
+ one before, so while the trigger is held it is one buzz and the last shot's tail plays out as the spin-down. They are
+ made by tools/make-mechminigun-sound.py, play at normal speed (the game's own fire sounds are pitched up four times)
+ and are optional: without the files the M60's sound plays. Any other player's M60 sounds as before.
+ Every shot of a Mech's M60 also sends a large muzzle flash (sprites/h9_minigun_flash.spr, else TS's muzzle flash) at the
+ end of the barrels and a bullet tracer from there to where the bullet lands, to everyone who can see him. A shot is the
+ weapon's clip going down between two frames, so it works for a bot as for a person. The tracer is the laser rifle's streak
+ (sprites/laserrifle_trail.spr): TS's own bullet trail (bullet_trail.spr) is too dim to see and is only the fallback. It is
+ 1.4 units wide and lasts 0.2 s by default.
  tsm_mech_flash            1          a large muzzle flash at the Mech's barrels on every shot
  tsm_mech_flash_scale      0.3        its size, as a sprite scale (0.3 is about 40 units across)
  tsm_mech_trails           1          a bullet tracer from the barrels to where the shot lands
+ tsm_mech_trail_width      14         the tracer's width in tenths of a unit (14 is 1.4 units)
+ tsm_mech_trail_life       2          how long a tracer stays, in tenths of a second
 
  -- Breacher
  tsm_breach_entities       func_door,func_door_rotating,func_wall_toggle,
@@ -2980,6 +3450,19 @@
  tsm_startsound            1          each side's own stinger one second into a
                                       round
  tsm_music_volume          0.5        the background music's volume [cfg 0.6]
+ tsm_music_rp              1          the ambient music on a roleplay map too,
+                                      where the match mode is off; 0 only
+                                      where the match mode plays. Read at once:
+                                      the queue stops, or starts within ten
+                                      seconds, when it changes
+ tsm_rp_sounds             1          on a roleplay map the death sounds
+                                      (a voice by model, a machine's burst) and
+                                      a machine's clang when hit; 0 none. Read
+                                      at once. Each player can leave them out
+                                      with tsm_deathsounds 0
+ tsm_rp_sound_range        1200       how far those sounds are heard on a
+                                      roleplay map, in units: quieter with the
+                                      distance, gone at the range (100 at least)
 
  -- bots (rcbot)
  tsm_bots                  0          how many bots; 0 kicks them all [cfg 10].
@@ -3004,6 +3487,17 @@
                                       they only fight [cfg: line commented out]
  tsm_briefcase_bots        0          how many bots a ctb_ or ctf_ map gets (the match
                                       mode stays out there); 0 none [cfg 0]
+ tsm_handoff               1          1: a player's use key on a bot of his own side that
+                                      carries the uplink, a flag or TS's briefcase makes
+                                      it let go (a bot cannot type dropflag); 0: a bot
+                                      lets go only by dying [cfg: line commented out]
+ tsm_handoff_secs          8          seconds that bot keeps its hands off what it let go
+                                      of, so that the player can take it (1 and up)
+                                      [cfg: line commented out]
+ tsm_handoff_test <bot>        (server console) that bot lets go of what it
+                                      carries, as if a player had pressed the use
+                                      key on it: for trying the hand-off with bots
+                                      alone
  tsm_bot_loadout           0          arm bots from their class
  tsm_bot_ready             1          count bots as ready
  tsm_bot_return            6.0        seconds bots sit out after a match
@@ -3401,7 +3895,8 @@
 
  fc_enabled                1          float chat on: typing bubbles and words over
                                       heads; 0 off for everyone
- fc_range                  900        how far away a talker's words still show
+ fc_range                  1100       how far away a talker's words still show: a line
+                                      is hidden past it, whatever is left of its hold
  fc_hold                   5.0        seconds a line stays over a head, and 0.04
                                       more for each character of it
  fc_rise                   24.0       how far above the eyes the bubble sits
@@ -3430,6 +3925,10 @@
                                       hudmessage
  h9_floatchat_words        1          0: no words over heads for any client
                                       (the typing bubble has its own switch)
+                                      On a roleplay map Apollo RP's /me <action>
+                                      is drawn over the speaker's head in RED, as
+                                      well as shown in chat by ARP, for a game
+                                      that draws the words (h9_floatchat_bubble 1)
  h9_floatchat_hud          1          0: a client that cannot draw the words
                                       itself is sent none
  h9_floatchat_typing       1          0: the typing bubble sprite is never shown
@@ -3542,6 +4041,11 @@
                                       the name and the pointer
  cl_h9_chatbubble_pointer     1       1: a pointer from the box to the head
  cl_h9_chatbubble_fade        1       1: fade out over the last 0.8 s of a line
+ cl_h9_chatbubble_linger      0.35    seconds a box stays where its speaker was when
+                                      he stops qualifying for a moment (a missed
+                                      packet, a wall, a crosshair that drifts, a step
+                                      past the range), then it fades out over 0.3 s;
+                                      0: it goes at once
  cl_h9_chatbubble_lines       3       most lines of words in a box (1 to 5); the
                                       rest is cut with "..."
  cl_h9_chatbubble_hold        0       seconds a line stays (1 to 30); 0: the
@@ -3579,6 +4083,15 @@
  h9_tts_self               1          1: the speaker hears his own line too (one
                                       player alone can tell it works); 0: only
                                       the others do
+ h9_tts_global             0          1: a line is heard by every player with
+                                      text to speech, wherever he is, alive or
+                                      not, at full volume and from no direction
+                                      (say_team: the speaker's team); never by
+                                      more players than the text reaches. On a
+                                      roleplay map (rp_ / tsrp_ names) it does
+                                      nothing: the talk area decides. 0: the
+                                      players within h9_tts_range. A server
+                                      cvar (FCVAR_SERVER)
  h9_texttospeech [0|1]     (command)  in a player's console: prints the state
  h9_tts [0|1]                         (the server's switch; whether this game can
                                       speak, _h9tts; whether he hears himself); an
@@ -3597,18 +4110,22 @@
 
  Heard by living human players whose game says it can speak (_h9tts 1; see the
  client cvars cl_h9_tts and cl_h9_tts_volume), within h9_tts_range of the
- speaker, the speaker himself while h9_tts_self is 1; say_team by his team only. Never spoken: a line that starts with .
+ speaker (with h9_tts_global 1: by every human whose game speaks, wherever he
+ is, dead or alive), the speaker himself while h9_tts_self is 1; say_team by
+ his team only. Never spoken: a line that starts with .
  / ! or @, the chat of a muted account (h9_presence), of a player who is dead
  or not drawn, and a line with nothing to say in it. The server sends the
  line as an H9Tts user message (byte slot, byte voice, byte volume 0 to 100,
- byte flags, string words, byte variant, char depth, char pan), reliably, to
- each listener: one line every 0.3 s at the most, from all speakers together.
+ byte flags (bit 0 a gas mask, bit 2 a global line), string words, byte
+ variant, char depth, char pan, byte droid), reliably, to each listener: 4
+ lines at once, then one every 0.3 s, from all speakers together.
 
  THE VOICE is decided by the speaker's model name alone (the userinfo key
  "model"), never by a match mode, a class or a team, so it is the same on a
  plain TS server: a name with mech or ed209 in it is a Mech's (slower, lower);
- droid, robo or _bot a bot's (faster, higher); fem, woman, women, girl or
- lady a woman's; anything else a man's.
+ droid, robo or _bot a bot's (faster, higher; with droid in the name the last
+ byte of the message says so, and the Kokoro voices speak it as a droid);
+ fem, woman, women, girl or lady a woman's; anything else a man's.
 
  h9_tts_gasmask.cfg    the models that wear a gas mask, one name a line in any
                        case (a // line is a comment; name* is every model whose
