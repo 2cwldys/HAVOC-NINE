@@ -2629,7 +2629,7 @@ public cmd_status(id, level, cid)
 		g_n_spawns, g_n_placed, g_n_place_failed, g_n_touch_refused, g_n_dropped, g_n_swept, g_n_model_writes);
 	new flag[8];
 	get_pcvar_string(g_cv_admin_flag, flag, charsmax(flag));
-	console_print(id, "  defend %d (%d s)  talk %d%% within %d  murmurs %d installed  insurgency %d (team %d, drop %d)  commands %d (flag %s)",
+	console_print(id, "  defend %d (%d s)  talk %d pct within %d  murmurs %d installed  insurgency %d (team %d, drop %d)  commands %d (flag %s)",
 		get_pcvar_num(g_cv_defend), get_pcvar_num(g_cv_defend_time), get_pcvar_num(g_cv_talk),
 		get_pcvar_num(g_cv_talk_range), g_murmur_count, get_pcvar_num(g_cv_insurgency), get_pcvar_num(g_cv_ins_team),
 		get_pcvar_num(g_cv_ins_drop), get_pcvar_num(g_cv_commands), flag[0] ? flag : "none");

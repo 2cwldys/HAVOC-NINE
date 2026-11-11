@@ -375,4 +375,12 @@ forward tsm_life_lost(id, left);
  */
 forward tsm_match_forfeit(winner);
 
+/**
+ * A player pressed the use key on a bot of his own side and asks it to let go of what it carries. A mode that has that bot carry an
+ * objective drops it (as dropuplink or dropflag would for a person), keeps that bot off it for secs seconds so that the player can take
+ * it, and returns PLUGIN_HANDLED; a mode whose bot carries nothing returns PLUGIN_CONTINUE. Sent whether or not a mode has claimed the
+ * map. TS's own briefcase is handled by the core and sends no forward of its own.
+ */
+forward tsm_handoff_drop(id, Float:secs);
+
 #endif

@@ -8,6 +8,7 @@
 #include <hamsandwich>
 #include <xs>
 #include <ApolloRP_VGui>
+#include <ApolloRP_H9Cfg>
 
 #define ALCOHOL_MULTIPLE 10
 
@@ -33,8 +34,11 @@ enum SMOKING
 new g_Smoking[MAX_PLAYERS + 1][SMOKING]
 new g_Alcohol[MAX_PLAYERS + 1]
 
+// H9: the restraints (arp_h9_restraints): a taped mouth, and the rope a player is tied with to the one who holds it
 new g_Taped[MAX_PLAYERS + 1]
-new g_Roped[MAX_PLAYERS + 1]
+new g_RopedBy[MAX_PLAYERS + 1]
+new g_RopeHeld[MAX_PLAYERS + 1]
+new p_RopeLength
 
 new g_Smoke
 new g_Lightning
@@ -110,6 +114,9 @@ public plugin_init()
 	//register_clcmd("say","CmdSay")
 	//ARP_RegisterEvent("Player_Say","CmdSay")
 	ARP_AddChat(_,"CmdSay")
+	register_clcmd("say_team","CmdTapedTeam")
+	register_cvar("arp_h9_restraints","1")
+	p_RopeLength = register_cvar("arp_h9_rope_length","150")
 	
 	if(module_exists("tsfun") || module_exists("tsx")) g_Mod = TS
 	// No such module
@@ -154,6 +161,7 @@ public NativeFilter(const Name[],Index,Trap)
 
 public client_disconnect(id)
 {
+	H9_ClearRestraints(id)
 	g_Tazered[id] = 0
 
 	g_LastTazer[id] = 0.0
@@ -228,10 +236,12 @@ public ARP_RegisterItems()
 	ARP_RegisterItem("Debit Card","_Debit","A card used to allow you to withdraw money anywhere.")
 	
 	ARP_RegisterItem("Chlorofoam","_Chlorofoam","Puts a person to sleep in an instant.",1)
-#if 0 // Hawk552
-	ARP_RegisterItem("Tape","_Tape","Keeps a person from talking",1)
-	ARP_RegisterItem("Rope","_Rope","Lets the user drag a person on a rope",0)
-#endif
+// H9: Tape and Rope exist unless arp_h9_restraints is 0 (read from arp.cfg: the server runs it after the core's precache, where items are registered)
+	if(h9_cfg_num("arp_h9_restraints",1))
+	{
+		ARP_RegisterItem("Tape","_Tape","Tapes the mouth of the person you look at, so that he cannot talk. /removetape takes it off.",0)
+		ARP_RegisterItem("Rope","_Rope","Ties the person you look at to you: he is pulled along when you walk away. /untie frees him.",0)
+	}
 	
 	ARP_RegisterItem("Assassin Knife","_AssassinKnife","Makes next attack an instant kill",0)
 }
@@ -239,6 +249,7 @@ public ARP_RegisterItems()
 public EventDeathMsg()
 {
 	new id = read_data(2)
+	H9_ClearRestraints(id)
 	
 	g_Tazered[id] = 0
 	g_LastTazer[id] = 0.0
@@ -265,21 +276,16 @@ public CmdSay(id,Mode,Args[])
 
 	if(equali(Args,"/removetape",11))
 	{
-		client_print(id,print_chat,"[ARP] You removed the tape on the person's mouth.^n")
-		g_Taped[Index] = 0
-		
+		H9_RemoveTape(id)
+
 		return PLUGIN_HANDLED
 	}
-#if 0 // Hawk552
-	else if(equali(Args,"/rope",5))
+	else if(equali(Args,"/untie",6))
 	{
-		g_Roped[Index] = 0
-		client_print(id,print_chat,"[ARP] You removed the rope on the player!^n")
-		client_print(Index,print_chat,"[ARP] The rope was removed on you!^n")
-		
+		H9_Untie(id)
+
 		return PLUGIN_HANDLED
 	}
-#endif
 	else if(equali(Args,"/tazer",6))
 	{
 		ARP_GetUserItemNum(id,g_Tazer) ? _Tazer(id,g_Tazer) : client_print(id,print_chat,"[ARP] You don't have any tazers.")
@@ -1336,131 +1342,220 @@ public DoorEffect(Params[4],Index)
 public ReturnOrigin(Params[3],Ent)
 	entity_set_origin(Ent,Float:Params)
 
-// Hawk552: Written by wonsae. Needs to be rewritten/fixed but I don't want to.
-public _Chlorofoam(id,ItemId)
+// H9: the restraints. The user's target is the living player he looks at within Range units, never himself
+H9_RestraintTarget(id,Range)
 {
-	new Index, Body
-	get_user_aiming(id,Index,Body,50)
-	
-	if(!Index)
-		client_print(id,print_chat,"[ARP] You're not close enough to put a user to sleep!^n")
-	else
-	{
-		SleepUser(Index)
-		client_print(id,print_chat,"[ARP] You made the person take a sniff of chlorofoam and put him/her to sleep.^n")
-	}
+	if(!is_user_alive(id))
+		return 0
+
+	new Index,Body
+	get_user_aiming(id,Index,Body,Range)
+	if(Index < 1 || Index > MAX_PLAYERS || Index == id || !is_user_alive(Index))
+		return 0
+
+	return Index
 }
 
-SleepUser(Index)
+H9_RestraintLog(const What[],id,Index)
 {
-	client_print(Index,print_chat,"[ARP] You were put to sleep by a person!^n")
-	
-	client_cmd(Index,"+duck")
-	
-	set_user_maxspeed(Index, 0.0)
-	
-	set_user_rendering(Index, kRenderFxGlowShell, 0, 255, 0, kRenderTransAlpha, 25)
-	message_begin(MSG_ONE, get_user_msgid(g_Mod == TS ? "TSFade" : "ScreenFade"), {0,0,0}, Index)
-	write_short(~0)
-	write_short(~0)
-	write_short(1<<12)
-	write_byte(0)
-	write_byte(0)
-	write_byte(0)
-	write_byte(255)
-	message_end()
-	
-	client_cmd(Index,"spk %s",g_HeartSound)
-	
-	set_task(40.0,"FinishSleep",Index)
+	new Name[33],TargetName[33],Authid[36],TargetAuthid[36]
+	get_user_name(id,Name,32)
+	get_user_name(Index,TargetName,32)
+	get_user_authid(id,Authid,35)
+	get_user_authid(Index,TargetAuthid,35)
+	ARP_Log("Restraint: ^"%s<%d><%s><>^" %s ^"%s<%d><%s><>^"",Name,get_user_userid(id),Authid,What,TargetName,get_user_userid(Index),TargetAuthid)
 }
 
-public FinishSleep(Index)
-{
-	client_print(Index,print_chat,"[ARP] You woke up!^n")
-	
-	client_cmd(Index,"-duck")
-	
-	set_user_maxspeed(Index, 320.0)
-	
-	set_user_rendering(Index, kRenderFxNone, 0, 0, 0, kRenderNormal, 0)
-	message_begin(MSG_ONE, get_user_msgid(g_Mod == TS ? "TSFade" : "ScreenFade"), {0,0,0}, Index)
-	write_short(~0)
-	write_short(~0)
-	write_short(1<<12)
-	write_byte(0)
-	write_byte(0)
-	write_byte(0)
-	write_byte(0)
-	message_end()
-}
-
-// Hawk552: Written by wonsae. Needs to be rewritten/fixed but I don't want to.
+// the Tape: one roll is used up when it gags somebody
 public _Tape(id,ItemId)
 {
-	new Index, Body
-	get_user_aiming(id,Index,Body,50)
-	
-	client_print(id,print_chat,"[ARP] You taped a person's mouth!^n")
-	
-	client_print(Index,print_chat,"[ARP] Your mouth is taped; you can't talk now!^n")
-	
-	g_Taped[Index]++
-}
-
-public _Rope(id,ItemId)
-{
-	new Index, Body
-	get_user_aiming(id,Index,Body,50)
-	
+	new Index = H9_RestraintTarget(id,100)
 	if(!Index)
 	{
-		client_print(id,print_chat,"[ARP] You have to be aiming at someone!^n")
+		client_print(id,print_chat,"[ARP] You have to be looking at someone.")
+
 		return
 	}
-	
-	client_print(id,print_chat,"[ARP] You roped a person!^n")
-	
-	client_print(Index,print_chat,"[ARP] You've been roped!^n")
-	
-	g_Roped[Index]++
-	
-	new Params[2]
-	Params[0] = id
-	Params[1] = Index
-	set_task(0.1,"Follow",_,Params,2)
+
+	if(g_Taped[Index])
+	{
+		client_print(id,print_chat,"[ARP] His mouth is taped already.")
+
+		return
+	}
+
+	new Name[33]
+	get_user_name(id,Name,32)
+	g_Taped[Index] = 1
+	ARP_H9Gag(Index,1)
+	ARP_SetUserItemNum(id,ItemId,ARP_GetUserItemNum(id,ItemId) - 1)
+
+	get_user_name(Index,Name,32)
+	client_print(id,print_chat,"[ARP] You taped %s's mouth.",Name)
+	get_user_name(id,Name,32)
+	client_print(Index,print_chat,"[ARP] %s taped your mouth: you cannot talk.",Name)
+	H9_RestraintLog("taped the mouth of",id,Index)
 }
 
-public Follow(Params[2])
+H9_RemoveTape(id)
 {
-	new id = Params[0], Index = Params[1]
-	
-	new Float:Origin[3], Float:IndexOrigin[3]
-	entity_get_vector(id,EV_VEC_origin,Origin)
-	entity_get_vector(Index,EV_VEC_origin,IndexOrigin)
-	
-	new Float:Distance = vector_distance(Origin,IndexOrigin)
-	if(Distance > 100.0 && g_Roped[Index])
+	new Index = H9_RestraintTarget(id,100)
+	if(!Index || !g_Taped[Index])
 	{
-		new Float:Velocity[3],Float:Factor
-		
-		for(new Count;Count < 3;Count++)
-		{
-			Velocity[Count] = 20.0 * (Origin[Count] - IndexOrigin[Count])
-			
-			if(floatabs(Velocity[Count]) > 280.0 && floatabs(Velocity[Count]) >= floatabs(Velocity[0]) && floatabs(Velocity[Count]) >= floatabs(Velocity[1]) && floatabs(Velocity[Count]) >= floatabs(Velocity[2]))
-				Factor = floatabs(Velocity[Count]) / 280.0
-		}
-		
-		if(Factor)
-			for(new Count;Count < 3;Count++)
-				Velocity[Count] /= Factor
-			
-		if(Velocity[2] > 0.0)
-			Velocity[2] = -floatabs(Velocity[2])
-			
-		entity_set_vector(Index,EV_VEC_velocity,Velocity)
+		client_print(id,print_chat,"[ARP] You are not looking at anyone with a taped mouth.")
+
+		return
 	}
+
+	g_Taped[Index] = 0
+	ARP_H9Gag(Index,0)
+
+	new Name[33]
+	get_user_name(Index,Name,32)
+	client_print(id,print_chat,"[ARP] You took the tape off %s's mouth.",Name)
+	get_user_name(id,Name,32)
+	client_print(Index,print_chat,"[ARP] %s took the tape off your mouth.",Name)
+	H9_RestraintLog("took the tape off",id,Index)
+}
+
+// A taped player cannot use team chat either (the chat of ARP_AddChat is refused in CmdSay)
+public CmdTapedTeam(id)
+{
+	if(!g_Taped[id])
+		return PLUGIN_CONTINUE
+
+	client_print(id,print_chat,"[ARP] Your mouth is taped, you can't talk!")
+
+	return PLUGIN_HANDLED
+}
+
+// the Rope: it ties the person looked at to the user, and the item stays; used on somebody who is tied, it frees him
+public _Rope(id,ItemId)
+{
+	new Index = H9_RestraintTarget(id,100)
+	if(!Index)
+	{
+		client_print(id,print_chat,"[ARP] You have to be looking at someone.")
+
+		return
+	}
+
+	if(g_RopedBy[Index])
+	{
+		H9_Untie(id)
+
+		return
+	}
+
+	if(g_RopeHeld[id] && g_RopedBy[g_RopeHeld[id]] == id)
+	{
+		client_print(id,print_chat,"[ARP] You already have somebody on a rope: say /untie to free him.")
+
+		return
+	}
+
+	new Name[33]
+	g_RopedBy[Index] = id
+	g_RopeHeld[id] = Index
+
+	get_user_name(Index,Name,32)
+	client_print(id,print_chat,"[ARP] You tied %s with a rope.",Name)
+	get_user_name(id,Name,32)
+	client_print(Index,print_chat,"[ARP] %s tied you with a rope: you are pulled along behind him.",Name)
+	H9_RestraintLog("tied with a rope",id,Index)
+}
+
+// /untie: frees the person looked at within 100 units from his rope, no item needed
+H9_Untie(id)
+{
+	new Index = H9_RestraintTarget(id,100)
+	if(!Index || !g_RopedBy[Index])
+	{
+		client_print(id,print_chat,"[ARP] You are not looking at anyone who is tied.")
+
+		return
+	}
+
+	new Name[33]
+	get_user_name(Index,Name,32)
+	client_print(id,print_chat,"[ARP] You freed %s from the rope.",Name)
+	get_user_name(id,Name,32)
+	client_print(Index,print_chat,"[ARP] %s freed you from the rope.",Name)
+	H9_RestraintLog("freed from a rope",id,Index)
+	H9_DropRope(Index)
+}
+
+H9_DropRope(Index)
+{
+	new Holder = g_RopedBy[Index]
+	g_RopedBy[Index] = 0
+	if(Holder >= 1 && Holder <= MAX_PLAYERS && g_RopeHeld[Holder] == Index)
+		g_RopeHeld[Holder] = 0
+}
+
+// everything a player is held by goes when he dies or leaves: the tape, the rope he is tied with and the person he holds
+H9_ClearRestraints(id)
+{
+	if(id < 1 || id > MAX_PLAYERS)
+		return
+
+	if(g_Taped[id])
+	{
+		g_Taped[id] = 0
+		ARP_H9Gag(id,0)
+	}
+
+	H9_DropRope(id)
+	g_RopeHeld[id] = 0
+}
+
+// The rope pulls the tied player toward the one who holds it when he is further than arp_h9_rope_length units, flat on the floor and a step up where the
+// holder stands higher; it snaps at four times that length, and with the death or leaving of either
+public client_PreThink(id)
+{
+	new Holder = g_RopedBy[id]
+	if(!Holder)
+		return
+
+	if(!is_user_alive(id) || !is_user_connected(Holder) || !is_user_alive(Holder))
+	{
+		H9_DropRope(id)
+
+		return
+	}
+
+	new Float:Origin[3],Float:HolderOrigin[3]
+	entity_get_vector(id,EV_VEC_origin,Origin)
+	entity_get_vector(Holder,EV_VEC_origin,HolderOrigin)
+
+	new Float:Length = get_pcvar_float(p_RopeLength),Float:Distance = vector_distance(Origin,HolderOrigin)
+	if(Distance > Length * 4.0)
+	{
+		client_print(id,print_chat,"[ARP] The rope snapped.")
+		client_print(Holder,print_chat,"[ARP] The rope snapped.")
+		H9_DropRope(id)
+
+		return
+	}
+
+	if(Distance <= Length)
+		return
+
+	new Float:Dx = HolderOrigin[0] - Origin[0],Float:Dy = HolderOrigin[1] - Origin[1],Float:Flat = floatsqroot(Dx * Dx + Dy * Dy)
+	if(Flat < 1.0)
+		return
+
+	new Float:Pull = 100.0 + (Distance - Length) * 6.0
+	if(Pull > 300.0)
+		Pull = 300.0
+
+	new Float:Velocity[3]
+	entity_get_vector(id,EV_VEC_velocity,Velocity)
+	Velocity[0] = Dx / Flat * Pull
+	Velocity[1] = Dy / Flat * Pull
+	if(HolderOrigin[2] - Origin[2] > 20.0 && (entity_get_int(id,EV_INT_flags) & FL_ONGROUND))
+		Velocity[2] = 200.0
+	entity_set_vector(id,EV_VEC_velocity,Velocity)
 }
 
 // the dot product is performed in 2d, making the view cone infinitely tall

@@ -1189,6 +1189,26 @@ public cmd_drop(id)
 	return PLUGIN_HANDLED;
 }
 
+/// A player's use key on a bot of his side asks it to let go of the flag it carries (ts_matchmode, tsm_handoff): the flag drops where the bot
+/// stands, and that bot stays off it for secs seconds, long enough for the player to take it.
+public tsm_handoff_drop(id, Float:secs)
+{
+	if (!g_active)
+	{
+		return PLUGIN_CONTINUE;
+	}
+	for (new f = 1; f <= 2; f++)
+	{
+		if (g_flag_state[f] == CF_CARRIED && g_flag_carrier[f] == id)
+		{
+			drop_flag(f, "handed over");
+			g_flag_dropped_at[f] = get_gametime() + secs - CF_DROP_GRACE;
+			return PLUGIN_HANDLED;
+		}
+	}
+	return PLUGIN_CONTINUE;
+}
+
 /// .drop in chat: only the carrier's line is taken; anyone else's goes out as normal.
 public cmd_drop_say(id)
 {

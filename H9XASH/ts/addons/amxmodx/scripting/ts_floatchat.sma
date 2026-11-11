@@ -129,7 +129,8 @@ new g_fw_afp = -1;                 // the AddToFullPack pre hook: only while som
  * chat never fills a reliable channel.
  *
  *   byte    the speaker's slot
- *   byte    flags: bit 0 (FC_MSG_F_TEAM) says it was a team line
+ *   byte    flags: bit 0 (FC_MSG_F_TEAM) says it was a team line; bit 1 (FC_MSG_F_ACTION) that it is an action, ARP's /me
+ *           on a roleplay map, which the client draws in red
  *   short   how long the line stays, in tenths of a second; 0 takes the speaker's line down
  *   short   how far away it shows, in units (fc_range)
  *   byte    the top of the speaker's head above his origin standing, in units (head_tops)
@@ -152,6 +153,7 @@ new g_fw_afp = -1;                 // the AddToFullPack pre hook: only while som
  * own line on.
  */
 #define FC_MSG_F_TEAM        1
+#define FC_MSG_F_ACTION      2
 #define FC_BUBBLE_RAW        152    // the most bytes of words sent in one H9Say
 #define FC_BUBBLE_MAXCHARS_MAX 150
 #define FC_BUBBLE_HOLD_MAX   30.0
@@ -293,7 +295,7 @@ public plugin_init()
 	}
 
 	g_cv_on     = register_cvar("fc_enabled",  "1");
-	g_cv_range  = register_cvar("fc_range",    "900");
+	g_cv_range  = register_cvar("fc_range",    "1100");
 	g_cv_hold   = register_cvar("fc_hold",     "5.0");
 	g_cv_rise   = register_cvar("fc_rise",     "24.0");   // above the eyes (WHERE IT SITS)
 	g_cv_scale  = register_cvar("fc_scale",    "0.20");
@@ -973,6 +975,31 @@ public cmd_say(id)
 	remove_quotes(said);
 	trim(said);
 
+	// ARP's /me on a roleplay map: the action floats over his head in red for a game that draws the words (ARP's talk area
+	// shows it in chat, as ever). A line that is not that is a command below.
+	new skip = 0;
+	if (said[0] == '/')
+	{
+		// ARP_TalkArea's three spellings of the action command
+		skip = equali(said, "/me ", 4) ? 4 : (equali(said, "/action ", 8) ? 8 : (equali(said, "/m ", 3) ? 3 : 0));
+	}
+	if (skip && fc_roleplay_map())
+	{
+		if (get_pcvar_num(g_cv_bubble) && get_pcvar_num(g_cv_words))
+		{
+			new rest[192], act[FC_BUBBLE_RAW + 4], wrapped[FC_BUBBLE_RAW + 8], alines, awidth;
+			copy(rest, charsmax(rest), said[skip]);
+			trim(rest);
+			fc_tidy(rest, act, charsmax(act), alines, awidth, clamp(get_pcvar_num(g_cv_bubble_maxchars), FC_MAXCHARS_MIN, FC_BUBBLE_MAXCHARS_MAX) - 2, false);
+			if (act[0])
+			{
+				formatex(wrapped, charsmax(wrapped), "*%s*", act);
+				send_bubble_words(id, wrapped, false, true);
+			}
+		}
+		return PLUGIN_CONTINUE;
+	}
+
 	// Commands are not conversation. ts_matchmode's .ready, .team and the rest start with
 	// a dot and would otherwise be broadcast over the speaker's head.
 	if (!said[0] || said[0] == '.' || said[0] == '/')
@@ -1009,6 +1036,16 @@ public cmd_say(id)
 		}
 	}
 	return PLUGIN_CONTINUE;
+}
+
+/// Whether this map is a roleplay one, by the rule ts_matchmode and ARP_Core use: rp_ or tsrp_ at the start of its name, or
+/// _rp_ or _tsrp_ inside it, in any case.
+bool:fc_roleplay_map()
+{
+	new map[40];
+	get_mapname(map, charsmax(map));
+	strtolower(map);
+	return (equal(map, "rp_", 3) || equal(map, "tsrp_", 5) || contain(map, "_rp_") != -1 || contain(map, "_tsrp_") != -1) ? true : false;
 }
 
 /// What the player said, made fit to float over a head, into out, cut to maxc characters; lines is 1 or 2 and
@@ -1263,7 +1300,7 @@ send_bubble_clear(talker)
 }
 
 /// A talker's words, sent once to every viewer whose game draws them itself (THE WORDS, FOR A CLIENT THAT DRAWS THEM).
-send_bubble_words(talker, const words[], bool:team_line)
+send_bubble_words(talker, const words[], bool:team_line, bool:action = false)
 {
 	if (!g_msg_say || talker < 1 || talker >= MAXPL)
 	{
@@ -1293,7 +1330,7 @@ send_bubble_words(talker, const words[], bool:team_line)
 	new stand = clamp(floatround(tops[0]), 1, 255);
 	new duck = clamp(floatround(tops[1]), 1, 255);
 
-	new flags = team_line ? FC_MSG_F_TEAM : 0;
+	new flags = (team_line ? FC_MSG_F_TEAM : 0) | (action ? FC_MSG_F_ACTION : 0);
 	new team = get_user_team(talker);
 
 	new players[MAX_PLAYERS], pnum;

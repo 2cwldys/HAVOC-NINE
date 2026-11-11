@@ -1737,6 +1737,19 @@ public cmd_drop(id)
 	return PLUGIN_HANDLED;
 }
 
+/// A player's use key on a bot of his side asks it to let go of the uplink (ts_matchmode, tsm_handoff): it drops where the bot stands, and
+/// that bot stays off it for secs seconds, long enough for the player to take it.
+public tsm_handoff_drop(id, Float:secs)
+{
+	if (!g_active || g_carrier != id)
+	{
+		return PLUGIN_CONTINUE;
+	}
+	drop_uplink("handed over");
+	g_dropped_at = get_gametime() + secs - UPL_DROP_GRACE;
+	return PLUGIN_HANDLED;
+}
+
 /// .drop in chat: only the carrier's line is taken; anyone else's goes out as normal.
 public cmd_drop_say(id)
 {

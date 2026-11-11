@@ -150,12 +150,25 @@ public ARP_Init()
 
 public plugin_natives()
 {
+	register_native("ARP_H9Gag","_ARP_H9Gag")
 	g_SayTrie = TravTrieCreate()
 	g_SayTeamTrie = TravTrieCreate()
 	
 	register_library("arp_chat")
 	register_native("ARP_AddChat","_ARP_AddChat")
 	register_native("ARP_AddTeamChat","_ARP_AddTeamChat")
+}
+
+new g_Gagged[MAX_PLAYERS + 1]
+
+// H9: ARP_H9Gag(id,gag): a gagged player's voice is heard by nobody
+public _ARP_H9Gag(Plugin,Params)
+{
+	new id = get_param(1)
+	if(id >= 1 && id <= MAX_PLAYERS)
+		g_Gagged[id] = get_param(2) ? 1 : 0
+
+	return SUCCEEDED
 }
 
 public _ARP_AddChat(Plugin,Params)
@@ -219,7 +232,7 @@ public ForwardPlayerThink(id)
 		
 		pev(Player,pev_origin,tOrigin)
 		
-		set_client_listen(id,Player,(get_distance_f(tOrigin,pOrigin) < BASE_DISTANCE * get_pcvar_float(p_Range) && is_user_alive(id)) ? 1 : 0)
+		set_client_listen(id,Player,(!g_Gagged[Player] && get_distance_f(tOrigin,pOrigin) < BASE_DISTANCE * get_pcvar_float(p_Range) && is_user_alive(id)) ? 1 : 0)
 	}
 }
 
@@ -269,6 +282,7 @@ public EventDeathMsg()
 
 public client_disconnect(id)
 {
+	g_Gagged[id] = 0
 	BreakLine(id," has disconnected. The phone has been hung up.")
 	
 	arrayset(g_Bugged[id],0,sizeof g_Bugged[])

@@ -148,6 +148,9 @@ new p_Log
 new p_GameName
 new p_Welcome[3]
 new p_HoverMessage
+new p_H9ItemHover	// H9: arp_h9_itemhover, 1 gives the look-at line of a dropped item (GetMsg), 0 none
+new p_Toast	// H9: arp_h9_toast, 0 chat as stock, 1 [ARP] chat lines as popups over the crosshair, 2 both (H9_Toast)
+new p_H9Plaque	// H9: arp_h9_plaque, 1 says what a property door, an NPC and a player is when it is looked at (GetMsg, H9_Plaque*), 0 is stock ARP's text
 //new p_CharacterSheet
 
 enum _:HUD_CVARS
@@ -211,6 +214,17 @@ new g_PanelText[HUDP_MAX_LINES][HUDP_LINE_LEN]
 new g_PanelKind[HUDP_MAX_LINES]
 new g_PanelNum
 
+// H9: the plaque (arp_h9_plaque): what a player looks at, built as the lines of the notice HUD, each with its kind (HUDK_PLAQUE and the others of
+// include\ApolloRP_HUD.inc). A player who keeps looking at the same thing is left alone for PLAQUE_REBUILD seconds, then it is built again.
+#define PLAQUE_LINES 8
+#define PLAQUE_REBUILD 0.25
+#define H9_ACCESS_G (1<<6)     // the access letter g, the Lord Minister's own
+new g_PlaqueKind[PLAQUE_LINES]
+new g_PlaqueText[PLAQUE_LINES][HUDP_LINE_LEN]
+new g_PlaqueNum
+new g_PlaqueKey[MAX_PLAYERS + 1]
+new Float:g_PlaqueAt[MAX_PLAYERS + 1]
+
 new g_Time
 
 new g_ItemsArray
@@ -251,6 +265,13 @@ new g_ItemsOptions[] = "ARP_ItemsOptions"
 
 new g_ItemClassname[] = "arp_item"
 new g_ItemModel[] = "models/arp/w_backpack.mdl"
+new Float:g_H9ItemScan[MAX_PLAYERS + 1]	// H9: when a player's look at the dropped items was last tried (GetMsg)
+
+// H9: the forwards ARP_Inventory implements when it is loaded (include\ApolloRP_Items.inc); with none loaded each answers 0 and the core is stock ARP
+new g_H9FwdCount
+new g_H9FwdRoom
+new g_H9FwdUse
+new g_H9FwdNote
 
 new TravTrie:g_ClassArray
 
@@ -270,6 +291,9 @@ new g_Joined[MAX_PLAYERS + 1]
 new Float:g_MaxSpeed[MAX_PLAYERS + 1]
 
 new g_ConfigsDir[128]
+
+// H9: 1 runs a map's own SQL file at map start when every statement in it can be run again and again (LoadMapSql)
+new p_MapSqlAuto
 
 new g_Version[] = ARP_VERSION
 
@@ -297,6 +321,11 @@ public plugin_init()
 	g_Presence = LibraryExists("h9_presence",LibType_Library)
 	
 	arpvgui_init("arpcore")
+
+	g_H9FwdCount = CreateMultiForward("ARP_InvOnCount",ET_STOP2,FP_CELL,FP_CELL,FP_CELL,FP_CELL)
+	g_H9FwdRoom = CreateMultiForward("ARP_InvOnRoom",ET_STOP2,FP_CELL,FP_CELL,FP_CELL)
+	g_H9FwdUse = CreateMultiForward("ARP_InvOnUse",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL)
+	g_H9FwdNote = CreateMultiForward("ARP_InvOnNote",ET_STOP2,FP_CELL,FP_CELL,FP_STRING)
 	
 	register_menucmd(register_menuid(g_ItemsMenu),g_Keys,"ItemsHandle")
 	register_menucmd(register_menuid(g_ItemsOptions),g_Keys,"ItemsOptions")
@@ -968,12 +997,24 @@ public plugin_precache()
 	p_Log = register_cvar("arp_log","1")
 	p_GameName = register_cvar("arp_gamename","")
 	p_HoverMessage = register_cvar("arp_hover_message","1")
+	// H9: 1 names a dropped item the player looks toward (H9_AimedItem); 0 is stock ARP, which says nothing of it
+	p_H9ItemHover = register_cvar("arp_h9_itemhover","1")
+	// H9: what Apollo RP prints in chat (the lines that start with [ARP]) as a popup over the crosshair that fades, to the games that draw H9 panels:
+	// 0 chat as stock ARP, 1 the popup in place of the chat line, 2 both
+	p_Toast = register_cvar("arp_h9_toast","1")
+	// H9: what a player looks at (a property door, an NPC, a player) says what it is: the establishment, its owner or that it is for sale, its affiliation
+	// (from the access letters), whether it is locked and whether the player may use it. A game that draws the HUD as panels (arp_hud4_type 2) gets a plaque
+	// panel, every other game the text with an Affiliation line. 0 is stock ARP's text.
+	p_H9Plaque = register_cvar("arp_h9_plaque","1")
 	// H9: 1 sends the HUD as a panel to the games that draw it, 0 sends everyone the text HUD; the seconds before a HUD that
 	// has not changed is sent again (5 to 60)
 	p_HudPanel = register_cvar("arp_hud_panel","1")
 	p_HudRefresh = register_cvar("arp_hud_refresh","10")
 	// H9: seconds a join may wait for a havoc9.org account (arp_ids); 0: no account is waited for, used or recorded
 	p_AcctWait = register_cvar("arp_account_wait","30")
+	// H9: 1 runs the map's own SQL file (configs/arp/maps/<map>/<map>.sql) at map start when every statement in it can be run
+	// again and again; 0 leaves it to arp_config, entry 3
+	p_MapSqlAuto = register_cvar("arp_mapsql_autoload","1")
 	//p_CharacterSheet = register_cvar("arp_character_sheet","1")
 	
 	p_Welcome[0] = register_cvar("arp_welcome_msg1","This server is running Apollo RP (http://ApolloRP.org).")
@@ -1270,6 +1311,301 @@ LoadConfigFile(File)
 	fclose(File)
 }
 
+// H9: a map's own SQL file, configs/arp/maps/<map>/<map>.sql, is run at map start (LoadMapSql), after the tables are made and
+// before the jobs, properties and doors are read, so its rows are there in the same map load and nobody runs arp_config. It
+// is run only when every statement in it can be run again and again; any other file is left to arp_config, entry 3, and the
+// log says why. The rule, for each line (a blank line and a line that starts with - ; or # are passed over):
+//     INSERT OR IGNORE INTO <table> VALUES (...);
+// <table> is arp_jobs, arp_property or arp_doors, in lower case, and the map's own table takes its place; the name of an
+// ARP table comes up nowhere else in the statement. One statement to a line of at most 1000 characters, nothing after its
+// ";" (which may be left off), no other ";", no comment, no quoted name, every ' closed; at most 4000 statements.
+#define H9_MAPSQL_LINE 1000
+#define H9_MAPSQL_MAX 4000
+#define H9_MAPSQL_JOBS 1
+#define H9_MAPSQL_PROPERTY 2
+#define H9_MAPSQL_DOORS 3
+
+new g_MapSqlAsk			// statements handed to the database
+new g_MapSqlGot			// statements it has answered
+new g_MapSqlErr			// answers that were errors
+new bool:g_MapSqlSent		// every statement has been handed over
+new bool:g_MapSqlLogged		// the line for this map has been written
+
+// The next statement line of the file in Line, trimmed: 1 a line, 0 the end of the file, -1 a line too long to be a statement.
+// Number counts the lines read.
+H9_MapSqlRead(File,Line[],Len,&Number)
+{
+	while(!feof(File))
+	{
+		Line[0] = 0
+		fgets(File,Line,Len)
+		Number++
+
+		new Last = strlen(Line) - 1
+		if(Last >= Len - 1 && Line[Last] != '^n')
+			return -1
+
+		trim(Line)
+		if(strlen(Line) > H9_MAPSQL_LINE)
+			return -1
+
+		if(Line[0] == ';' || Line[0] == '#' || Line[0] == '-' || strlen(Line) < 3)
+			continue
+
+		return 1
+	}
+
+	return 0
+}
+
+// Is Line a statement the rule allows? The table it adds to (H9_MAPSQL_JOBS, _PROPERTY or _DOORS), or 0 with what is wrong with
+// it in Why. After is where the statement goes on after the table's name.
+H9_MapSqlCheck(const Line[],Why[],WhyLen,&After)
+{
+	static const Prefix[] = "INSERT OR IGNORE INTO "
+	static const Targets[][] = {"arp_jobs","arp_property","arp_doors"}
+	static const Names[][] = {"arp_users","arp_jobs","arp_property","arp_doors","arp_keys","arp_items","arp_data"}
+
+	if(!equali(Line,Prefix,charsmax(Prefix)))
+	{
+		copy(Why,WhyLen,"is not an INSERT OR IGNORE INTO statement")
+		return 0
+	}
+
+	new Table,Count
+	for(Count = 0;Count < sizeof Targets && !Table;Count++)
+	{
+		After = charsmax(Prefix) + strlen(Targets[Count])
+		if(equal(Line[charsmax(Prefix)],Targets[Count],strlen(Targets[Count])) && equali(Line[After]," VALUES",7) && (Line[After + 7] == ' ' || Line[After + 7] == '('))
+			Table = Count + 1
+	}
+
+	if(!Table)
+	{
+		copy(Why,WhyLen,"does not add VALUES to arp_jobs, arp_property or arp_doors (lower case)")
+		return 0
+	}
+
+	for(Count = 0;Count < sizeof Names;Count++)
+		if(containi(Line[After],Names[Count]) != -1)
+		{
+			copy(Why,WhyLen,"names a table of ARP's a second time")
+			return 0
+		}
+
+	new Len = strlen(Line),bool:Text
+	for(Count = After;Count < Len;Count++)
+	{
+		if(Line[Count] == 39)
+		{
+			Text = !Text
+			continue
+		}
+
+		if(Text)
+			continue
+
+		if(Line[Count] == ';' && Count < Len - 1)
+		{
+			copy(Why,WhyLen,"has a semicolon before its end")
+			return 0
+		}
+
+		if(Line[Count] == '"' || Line[Count] == '`')
+		{
+			copy(Why,WhyLen,"quotes a name")
+			return 0
+		}
+
+		if((Line[Count] == '-' && Line[Count + 1] == '-') || (Line[Count] == '/' && Line[Count + 1] == '*'))
+		{
+			copy(Why,WhyLen,"has a comment in it")
+			return 0
+		}
+	}
+
+	if(Text)
+	{
+		copy(Why,WhyLen,"has a quote that is never closed")
+		return 0
+	}
+
+	return Table
+}
+
+// The statement to run for a line that passed H9_MapSqlCheck: this map's own table in the place of the default one, and the
+// closing ";" left off.
+H9_MapSqlBuild(const Line[],Table,After,Statement[],Len)
+{
+	new Name[64]
+
+	switch(Table)
+	{
+		case H9_MAPSQL_JOBS:
+			copy(Name,sizeof Name - 1,g_JobsTable)
+		case H9_MAPSQL_PROPERTY:
+			copy(Name,sizeof Name - 1,g_PropertyTable)
+		default:
+			copy(Name,sizeof Name - 1,g_DoorsTable)
+	}
+
+	format(Statement,Len,"INSERT OR IGNORE INTO %s%s",Name,Line[After])
+
+	new Last = strlen(Statement) - 1
+	if(Statement[Last] == ';')
+		Statement[Last] = 0
+}
+
+// Whether the map's SQL file is to be run: arp_mapsql_autoload as arp.cfg sets it. This plugin reads arp.cfg itself for it,
+// because the server executes that file only after this plugin's precache, so on a server's first map the cvar is still its
+// default here; when arp.cfg does not name it, the cvar as it stands is the answer.
+H9_MapSqlWanted()
+{
+	new Wanted = get_pcvar_num(p_MapSqlAuto),Path[128]
+	get_configsdir(Path,sizeof Path - 1)
+	add(Path,sizeof Path - 1,"/arp/arp.cfg")
+
+	new Fp = fopen(Path,"r")
+	if(!Fp)
+		return Wanted
+
+	new Line[256],Left[48],Right[16]
+	while(!feof(Fp))
+	{
+		Line[0] = 0
+		fgets(Fp,Line,sizeof Line - 1)
+		trim(Line)
+
+		if(!Line[0] || Line[0] == '/' || Line[0] == ';')
+			continue
+
+		Left[0] = 0
+		Right[0] = 0
+		parse(Line,Left,sizeof Left - 1,Right,sizeof Right - 1)
+
+		if(equali(Left,"arp_mapsql_autoload"))
+			Wanted = str_to_num(Right)
+	}
+
+	fclose(Fp)
+
+	return Wanted
+}
+
+// Runs the map's SQL file. The whole file is read against the rule first and a file with one line the rule does not allow is
+// not run at all; then every statement goes to the database in the file's order. With nobody in the game each runs in line and
+// its answer is in before the next goes; with players the module's one worker keeps the order, so the reads in SqlInit see the
+// rows, and the answers, which come back in any order, are only counted (MapSqlAnswer, H9_MapSqlReport).
+LoadMapSql()
+{
+	if(g_SqlHandle == Empty_Handle)
+		return
+
+	new MapName[64],Path[160]
+	get_mapname(MapName,sizeof MapName - 1)
+	format(Path,sizeof Path - 1,"%s/%s.sql",g_ConfigsDir,MapName)
+
+	if(!file_exists(Path))
+	{
+		log_amx("[ARP] map SQL: none, %s is not there.",Path)
+		return
+	}
+
+	if(!H9_MapSqlWanted())
+	{
+		log_amx("[ARP] map SQL: %s.sql is not run, arp_mapsql_autoload is 0 (arp_config, entry 3, runs it by hand).",MapName)
+		return
+	}
+
+	if(g_SqlMode != SQLITE)
+	{
+		log_amx("[ARP] map SQL: %s.sql is not run, the database is not SQLite (arp_config, entry 3, runs it by hand).",MapName)
+		return
+	}
+
+	static Line[H9_MAPSQL_LINE + 100],Statement[H9_MAPSQL_LINE + 200],Why[128],Bad[256]
+	new Fp = fopen(Path,"r"),Read,Number,Table,After,Statements
+
+	if(!Fp)
+	{
+		log_amx("[ARP] map SQL: %s could not be opened.",Path)
+		return
+	}
+
+	Bad[0] = 0
+	while(!Bad[0] && (Read = H9_MapSqlRead(Fp,Line,sizeof Line - 1,Number)) != 0)
+	{
+		if(Read < 0)
+			format(Bad,sizeof Bad - 1,"line %d is longer than %d characters",Number,H9_MAPSQL_LINE)
+		else if(!H9_MapSqlCheck(Line,Why,sizeof Why - 1,After))
+		{
+			Line[60] = 0
+			format(Bad,sizeof Bad - 1,"line %d (%s) %s",Number,Line,Why)
+		}
+		else if(++Statements > H9_MAPSQL_MAX)
+			format(Bad,sizeof Bad - 1,"it has more than %d statements",H9_MAPSQL_MAX)
+	}
+	fclose(Fp)
+
+	if(Bad[0])
+	{
+		log_amx("[ARP] map SQL: %s.sql is not run: %s. arp_config, entry 3, runs it by hand.",MapName,Bad)
+		return
+	}
+
+	Fp = fopen(Path,"r")
+	if(!Fp)
+	{
+		log_amx("[ARP] map SQL: %s could not be opened.",Path)
+		return
+	}
+
+	new Data[1]
+
+	Number = 0
+	while(H9_MapSqlRead(Fp,Line,sizeof Line - 1,Number) > 0)
+	{
+		Table = H9_MapSqlCheck(Line,Why,sizeof Why - 1,After)
+		if(!Table)
+			continue
+
+		H9_MapSqlBuild(Line,Table,After,Statement,sizeof Statement - 1)
+
+		Data[0] = Number
+		g_MapSqlAsk++
+		UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"MapSqlAnswer",Statement,Data,1)
+	}
+	fclose(Fp)
+
+	g_MapSqlSent = true
+}
+
+public MapSqlAnswer(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
+{
+	g_MapSqlGot++
+
+	if(FailState != TQUERY_SUCCESS || Errcode)
+	{
+		g_MapSqlErr++
+		log_amx("[ARP] map SQL: line %d failed: %s",DataSize ? Data[0] : 0,Error)
+	}
+
+	H9_MapSqlReport()
+
+	return PLUGIN_CONTINUE
+}
+
+// The one line for this map's load, once every statement has been handed over and answered. SqlInit asks for it after the reads
+// too, so that the jobs, properties and doors it names are the ones read after the file.
+H9_MapSqlReport()
+{
+	if(!g_MapSqlSent || g_MapSqlLogged || g_MapSqlGot < g_MapSqlAsk)
+		return
+
+	g_MapSqlLogged = true
+	log_amx("[ARP] map SQL: %d statements, %d errors, jobs now %d, properties now %d, doors now %d",g_MapSqlAsk,g_MapSqlErr,g_JobsNum,g_PropertyNum,g_DoorNum)
+}
+
 public SqlInit()
 {
 	new Type[64]
@@ -1381,6 +1717,9 @@ public SqlInit()
 	}
 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"IgnoreHandle",g_Query)
 	
+	// H9: the map's own SQL file, run here so that its rows are in the tables when they are read below
+	LoadMapSql()
+
 	format(g_Query,4095,"SELECT * FROM %s",g_JobsTable)
 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchJobs",g_Query)
 	
@@ -1389,6 +1728,8 @@ public SqlInit()
 	
 	format(g_Query,4095,"SELECT * FROM %s",g_DoorsTable)
 	UTIL_ARP_CleverQuery(g_Plugin,g_SqlHandle,"FetchDoors",g_Query)
+
+	H9_MapSqlReport()
 	
 	new Forward = CreateMultiForward("ARP_Init",ET_IGNORE),Return
 	if(Forward <= 0 || !ExecuteForward(Forward,Return))
@@ -1987,25 +2328,7 @@ public ItemsOptions(id,Key)
 	switch(Key)
 	{
 		case 0 :
-		{
-			if(g_ItemUse[id])
-			{
-				client_print(id,print_chat,"[ARP] You are already using another item.")
-				return
-			}
-			
-			new Name[33]
-			UTIL_ARP_GetItemName(g_CurItem[id],Name,32)
-			
-			new Data[2]
-			Data[0] = id
-			Data[1] = g_CurItem[id]
-			
-			if(_CallEvent("Item_Use",Data,2))
-				return
-			
-			ItemUse(id,g_CurItem[id],1)
-		}
+			H9_UserUse(id,g_CurItem[id],0)
 		
 		case 1 :
 		{
@@ -2042,21 +2365,7 @@ public ItemsOptions(id,Key)
 			if(!Index || !is_user_alive(Index))
 				return
 			
-			new Data[3]
-			Data[0] = id
-			Data[1] = Index
-			Data[2] = g_CurItem[id]
-			if(_CallEvent("Item_Show",Data,3))
-				return
-	
-			new Names[2][33],ItemId = g_CurItem[id],ItemName[33]//_ARP_GetItemIdCell(0,g_UserItemIds[id][g_CurItem[id]])
-			get_user_name(id,Names[0],32)
-			get_user_name(Index,Names[1],32)
-			
-			UTIL_ARP_GetItemName(ItemId,ItemName,32)
-			
-			client_print(id,print_chat,"[ARP] You show %s your %s.",Names[1],ItemName)
-			client_print(Index,print_chat,"[ARP] %s shows you his %s.",Names[0],ItemName)
+			H9_UserShow(id,Index,g_CurItem[id],0)
 		}
 		
 		case 4 :
@@ -2095,37 +2404,7 @@ public ItemsGive(id,Key)
 			Num = abs(array_get_int(g_UserItemArray[id],g_CurItem[id]))
 	}
 	
-	if(ARP_GetUserItemNum(id,ItemId) < Num)
-	{
-		client_print(id,print_chat,"[ARP] You do not have enough of this item.")		
-		return
-	}
-	
-	new Data[4]
-	Data[0] = id
-	Data[1] = Index
-	Data[2] = ItemId
-	Data[3] = Num
-	
-	if(_CallEvent("Item_Give",Data,4))
-		return
-	
-	if(!UTIL_ARP_SetUserItemNum(Index,ItemId,UTIL_ARP_GetUserItemNum(Index,ItemId) + Num))
-	{
-		client_print(id,print_chat,"[ARP] Sorry, that user cannot accept items right now.")
-		return
-	}
-		
-	UTIL_ARP_SetUserItemNum(id,ItemId,UTIL_ARP_GetUserItemNum(id,ItemId) - Num)
-			
-	new Names[2][33],ItemName[33]//= _ARP_GetItemIdCell(0,g_UserItemIds[id][g_CurItem[id]])
-	get_user_name(id,Names[0],32)
-	get_user_name(Index,Names[1],32)
-	
-	UTIL_ARP_GetItemName(ItemId,ItemName,32)
-	
-	client_print(id,print_chat,"[ARP] You have given %s %d %s%s.",Names[1],Num,ItemName,Num == 1 ? "" : "s")
-	client_print(Index,print_chat,"[ARP] %s has given you %d %s%s.",Names[0],Num,ItemName,Num == 1 ? "" : "s")
+	H9_UserGive(id,Index,ItemId,Num,0)
 }	
 
 public ItemsDrop(id,Key)
@@ -2150,46 +2429,245 @@ public ItemsDrop(id,Key)
 			Num = ItemNum
 	}
 	
-	if(ItemNum < Num)
+	H9_UserDrop(id,ItemId,Num,0)
+}
+
+// H9: the three actions of the item menu as functions. The text menu above and the inventory window (the natives ARP_UserUseItem, ARP_UserGiveItem
+// and ARP_UserDropItem) run this same code, so an item event handler (Item_Use, Item_Give, Item_Drop), the g_ItemUse mutex and the item's own plugin
+// behave the same for both. Each returns an ARP_ITEM_ code (include\ApolloRP_Items.inc); Quiet 1 leaves the refusals out of the chat, the window words them.
+H9_UserUse(id,ItemId,Quiet)
+{
+	if(!UTIL_ARP_ValidItemId(ItemId) || !is_user_connected(id))
+		return ARP_ITEM_INVALID
+
+	if(UTIL_ARP_GetUserItemNum(id,ItemId) < 1)
 	{
-		client_print(id,print_chat,"[ARP] You do not have enough of this item.")		
-		return
+		if(!Quiet)
+			client_print(id,print_chat,"[ARP] You do not have any of this item.")
+
+		return ARP_ITEM_NONE
 	}
-	
+
+	if(g_ItemUse[id])
+	{
+		if(!Quiet)
+			client_print(id,print_chat,"[ARP] You are already using another item.")
+
+		return ARP_ITEM_BUSY
+	}
+
+	new Data[2]
+	Data[0] = id
+	Data[1] = ItemId
+
+	if(_CallEvent("Item_Use",Data,2))
+		return ARP_ITEM_VETOED
+
+	ItemUse(id,ItemId,1)
+
+	return ARP_ITEM_OK
+}
+
+H9_UserGive(id,Index,ItemId,Num,Quiet)
+{
+	if(!UTIL_ARP_ValidItemId(ItemId) || Num < 1 || !is_user_connected(id) || Index == id || Index < 1 || Index > MAX_PLAYERS || !is_user_alive(Index))
+		return ARP_ITEM_INVALID
+
+	if(UTIL_ARP_GetUserItemNum(id,ItemId) < Num)
+	{
+		if(!Quiet)
+			client_print(id,print_chat,"[ARP] You do not have enough of this item.")
+
+		return ARP_ITEM_NONE
+	}
+
+	new Data[4]
+	Data[0] = id
+	Data[1] = Index
+	Data[2] = ItemId
+	Data[3] = Num
+
+	if(_CallEvent("Item_Give",Data,4))
+		return ARP_ITEM_VETOED
+
+	new Names[2][33],ItemName[33]
+	get_user_name(id,Names[0],32)
+	get_user_name(Index,Names[1],32)
+
+	// H9: all of it or none: the other player's inventory must have room for all of it (arp_h9_inv_slots)
+	if(H9_InvRoom(Index,ItemId,Num) < Num)
+	{
+		if(!Quiet)
+			client_print(id,print_chat,"[ARP] %s's inventory is full.",Names[1])
+
+		return ARP_ITEM_FULL
+	}
+
+	if(!UTIL_ARP_SetUserItemNum(Index,ItemId,UTIL_ARP_GetUserItemNum(Index,ItemId) + Num))
+	{
+		if(!Quiet)
+			client_print(id,print_chat,"[ARP] Sorry, that user cannot accept items right now.")
+
+		return ARP_ITEM_VETOED
+	}
+
+	UTIL_ARP_SetUserItemNum(id,ItemId,UTIL_ARP_GetUserItemNum(id,ItemId) - Num)
+
+	UTIL_ARP_GetItemName(ItemId,ItemName,32)
+
+	client_print(id,print_chat,"[ARP] You have given %s %d %s%s.",Names[1],Num,ItemName,Num == 1 ? "" : "s")
+	client_print(Index,print_chat,"[ARP] %s has given you %d %s%s.",Names[0],Num,ItemName,Num == 1 ? "" : "s")
+
+	return ARP_ITEM_OK
+}
+
+H9_UserDrop(id,ItemId,Num,Quiet)
+{
+	if(!UTIL_ARP_ValidItemId(ItemId) || Num < 1 || !is_user_connected(id))
+		return ARP_ITEM_INVALID
+
+	if(UTIL_ARP_GetUserItemNum(id,ItemId) < Num)
+	{
+		if(!Quiet)
+			client_print(id,print_chat,"[ARP] You do not have enough of this item.")
+
+		return ARP_ITEM_NONE
+	}
+
 	new Data[3]
 	Data[0] = id
 	Data[1] = ItemId
 	Data[2] = Num
-	
+
 	if(_CallEvent("Item_Drop",Data,3))
-		return
-	
+		return ARP_ITEM_VETOED
+
+	// H9: the pack is made first and the items leave the player after it: nothing is destroyed without a pack on the floor
+	if(!H9_MakePack(id,ItemId,Num))
+	{
+		if(!Quiet)
+			client_print(id,print_chat,"[ARP] You cannot drop items right now.")
+
+		return ARP_ITEM_NOPACK
+	}
+
 	UTIL_ARP_SetUserItemNum(id,ItemId,UTIL_ARP_GetUserItemNum(id,ItemId) - Num)
-	
+
+	return ARP_ITEM_OK
+}
+
+// H9: Show, the fourth action of the item menu: the item is shown to a player and nothing changes hands. The Item_Show event first (a plugin may give
+// an item, a license or a card, its own readout and take the show), then the chat lines the item menu has always printed.
+H9_UserShow(id,Index,ItemId,Quiet)
+{
+	if(!UTIL_ARP_ValidItemId(ItemId) || !is_user_connected(id) || Index == id || Index < 1 || Index > MAX_PLAYERS || !is_user_alive(Index))
+		return ARP_ITEM_INVALID
+
+	if(UTIL_ARP_GetUserItemNum(id,ItemId) < 1)
+	{
+		if(!Quiet)
+			client_print(id,print_chat,"[ARP] You do not have any of this item.")
+
+		return ARP_ITEM_NONE
+	}
+
+	new Data[3]
+	Data[0] = id
+	Data[1] = Index
+	Data[2] = ItemId
+
+	if(_CallEvent("Item_Show",Data,3))
+		return ARP_ITEM_VETOED
+
+	new Names[2][33],ItemName[33]
+	get_user_name(id,Names[0],32)
+	get_user_name(Index,Names[1],32)
+
+	UTIL_ARP_GetItemName(ItemId,ItemName,32)
+
+	client_print(id,print_chat,"[ARP] You show %s your %s.",Names[1],ItemName)
+	client_print(Index,print_chat,"[ARP] %s shows you his %s.",Names[0],ItemName)
+
+	return ARP_ITEM_OK
+}
+
+// H9: a pack of Num of an item on the floor at the player's feet (classname arp_item, which the use key picks up: what a drop makes, and the overflow of
+// an add that does not fit); the entity, or 0 when none can be made (arp_performance 10 or less, or no entity left)
+H9_MakePack(id,ItemId,Num)
+{
+	if(get_pcvar_num(p_Performance) <= 10 || Num < 1 || !UTIL_ARP_ValidItemId(ItemId))
+		return 0
+
 	new Name[33]
 	UTIL_ARP_GetItemName(ItemId,Name,32)
-	
-	if(get_pcvar_num(p_Performance) > 10)
-	{
-		new Ent = create_entity("info_target"),Float:Origin[3]
-		if(!Ent)
-			return
-		
-		// Hawk552: Starting with v1.2, you can make premade items on your maps
-		//	using this because it stores the info using names rather than ids
-		entity_get_vector(id,EV_VEC_origin,Origin)
-		entity_set_string(Ent,EV_SZ_classname,g_ItemClassname)
-		entity_set_model(Ent,g_ItemModel)
-		entity_set_origin(Ent,Origin)
-		entity_set_string(Ent,EV_SZ_noise,Name)
-		//entity_set_int(Ent,EV_INT_iuser1,ItemId)
-		entity_set_int(Ent,EV_INT_iuser2,Num)
-		entity_set_size(Ent,Float:{-2.5,-2.5,-2.5},Float:{2.5,2.5,2.5})
 
-		entity_set_origin(id,Float:{0.0,0.0,0.0})
-		drop_to_floor(Ent)
-		entity_set_origin(id,Origin)
+	new Ent = create_entity("info_target"),Float:Origin[3]
+	if(!Ent)
+		return 0
+
+	// Hawk552: Starting with v1.2, you can make premade items on your maps
+	//	using this because it stores the info using names rather than ids
+	entity_get_vector(id,EV_VEC_origin,Origin)
+	entity_set_string(Ent,EV_SZ_classname,g_ItemClassname)
+	entity_set_model(Ent,g_ItemModel)
+	entity_set_origin(Ent,Origin)
+	entity_set_string(Ent,EV_SZ_noise,Name)
+	//entity_set_int(Ent,EV_INT_iuser1,ItemId)
+	entity_set_int(Ent,EV_INT_iuser2,Num)
+	entity_set_size(Ent,Float:{-2.5,-2.5,-2.5},Float:{2.5,2.5,2.5})
+
+	entity_set_origin(id,Float:{0.0,0.0,0.0})
+	drop_to_floor(Ent)
+	entity_set_origin(id,Origin)
+
+	return Ent
+}
+
+// H9: the use key on a pack on the floor: the player takes what his inventory has room for (arp_h9_inv_slots), and the rest stays in the pack
+H9_PickUp(id,Ent)
+{
+	new Data[3],Quantity = entity_get_int(Ent,EV_INT_iuser2),ItemName[33]
+	entity_get_string(Ent,EV_SZ_noise,ItemName,32)
+
+	new ItemId = UTIL_ARP_FindItemId(ItemName)
+
+	Data[0] = id
+	Data[1] = ItemId
+	Data[2] = Quantity
+
+	if(_CallEvent("Item_Pickup",Data,3))
+		return
+
+	new Take = Quantity
+	if(Quantity > 0 && UTIL_ARP_ValidItemId(ItemId))
+		Take = H9_InvRoom(id,ItemId,Quantity)
+
+	if(Take < Quantity)
+	{
+		new Text[128]
+
+		if(Take < 1)
+			copy(Text,127,"Your inventory is full.")
+		else
+		{
+			UTIL_ARP_SetUserItemNum(id,ItemId,UTIL_ARP_GetUserItemNum(id,ItemId) + Take)
+			entity_set_int(Ent,EV_INT_iuser2,Quantity - Take)
+
+			UTIL_ARP_GetItemName(ItemId,ItemName,32)
+			format(Text,127,"Your inventory is full: you took %d of %d %s.",Take,Quantity,ItemName)
+		}
+
+		H9_Note(id,1,Text)
+
+		return
 	}
+
+	UTIL_ARP_SetUserItemNum(id,ItemId,UTIL_ARP_GetUserItemNum(id,ItemId) + Quantity)
+	UTIL_ARP_GetItemName(ItemId,ItemName,32)
+
+	client_print(id,print_chat,"[ARP] You have picked up %d %s%s.",Quantity,ItemName,Quantity == 1 ? "" : "s")
+
+	remove_entity(Ent)
 }
 
 public client_PostThink(id)
@@ -2223,6 +2701,7 @@ public client_PreThink(id)
 	
 	new Index,Body,EntList[50]
 	get_user_aiming(id,Index,Body,100)
+	new Aimed = Index
 	
 	static Classname[33],Data[3]
 	
@@ -2267,26 +2746,7 @@ public client_PreThink(id)
 		
 		if(find_sphere_class(id,g_ItemClassname,50.0,EntList,1))
 		{
-			new Ent = EntList[0]
-			
-			new Quantity = entity_get_int(Ent,EV_INT_iuser2),ItemName[33]//,Cell = _ARP_GetItemIdCell(0,ItemId)
-			entity_get_string(Ent,EV_SZ_noise,ItemName,32)
-			
-			new ItemId = UTIL_ARP_FindItemId(ItemName)
-	
-			Data[0] = id
-			Data[1] = ItemId
-			Data[2] = Quantity
-			
-			if(_CallEvent("Item_Pickup",Data,3))
-				return
-			
-			UTIL_ARP_SetUserItemNum(id,ItemId,UTIL_ARP_GetUserItemNum(id,ItemId) + Quantity)
-			UTIL_ARP_GetItemName(ItemId,ItemName,32)
-	
-			client_print(id,print_chat,"[ARP] You have picked up %d %s%s.",Quantity,ItemName,Quantity == 1 ? "" : "s")
-			
-			remove_entity(Ent)
+			H9_PickUp(id,EntList[0])
 			
 			return
 		}
@@ -2326,10 +2786,282 @@ public client_PreThink(id)
 				
 			NpcUse(Handler,Plugin,id,Index)
 		}
+		
+		// H9: the use key on a player (the one aimed at, within 100 units): the event Player_Use (id, the player), which ARP_Inventory takes for an exchange of goods
+		if(Aimed >= 1 && Aimed <= MAX_PLAYERS && is_user_alive(Aimed))
+		{
+			Data[0] = id
+			Data[1] = Aimed
+			
+			_CallEvent("Player_Use",Data,2)
+		}
 	}	
 	
 	if(g_Display[id] && !is_user_bot(id))
 		GetMsg(id,Index)
+}
+
+// H9: the dropped item the player looks toward, in view and within 120 units, or 0. An item's box is too small for the crosshair to hit it
+// (get_user_aiming finds the floor behind it), so it is a cone of about 14 degrees from the eye; the one nearest the middle of it wins.
+H9_AimedItem(id)
+{
+	new Float:Eye[3],Float:View[3],Float:Angles[3],Float:Forward[3]
+	entity_get_vector(id,EV_VEC_origin,Eye)
+	entity_get_vector(id,EV_VEC_view_ofs,View)
+	Eye[0] += View[0]
+	Eye[1] += View[1]
+	Eye[2] += View[2]
+
+	entity_get_vector(id,EV_VEC_v_angle,Angles)
+	angle_vector(Angles,ANGLEVECTOR_FORWARD,Forward)
+
+	new Ent,Best,Float:BestDot = 0.97,Float:Origin[3],Float:Length,Float:Dot
+	while((Ent = find_ent_by_class(Ent,g_ItemClassname)))
+	{
+		entity_get_vector(Ent,EV_VEC_origin,Origin)
+		Origin[0] -= Eye[0]
+		Origin[1] -= Eye[1]
+		Origin[2] -= Eye[2]
+
+		Length = vector_length(Origin)
+		if(Length < 1.0 || Length > 120.0)
+			continue
+
+		Dot = (Origin[0] * Forward[0] + Origin[1] * Forward[1] + Origin[2] * Forward[2]) / Length
+		if(Dot > BestDot && fm_is_ent_visible(id,Ent))
+		{
+			BestDot = Dot
+			Best = Ent
+		}
+	}
+
+	return Best
+}
+
+// H9: the plaque. A line of it is added with its kind and a text that reads on its own; H9_PlaqueSend puts the lines in the notice HUD (HUD_QUAT), where the game
+// draws them as a plaque panel (a game that does not know the kinds draws them as plain lines).
+H9_PlaqueAdd(Kind,const Text[],{Float,Sql,Result,_}:...)
+{
+	if(g_PlaqueNum >= PLAQUE_LINES)
+		return
+
+	vformat(g_PlaqueText[g_PlaqueNum],HUDP_LINE_LEN - 1,Text,3)
+	g_PlaqueKind[g_PlaqueNum++] = Kind
+}
+
+// the letters one of the three access cvars names (arp_police_access, arp_medical_access, arp_admin_access), as the bits ARP_AccessToInt makes
+H9_AccessMask(const Cvar[])
+{
+	new Letters[JOB_ACCESSES + 1]
+	get_cvar_string(Cvar,Letters,JOB_ACCESSES)
+
+	return ARP_AccessToInt(Letters)
+}
+
+// The affiliation of a set of access letters (a property's, or a player's job's): the police letter or the Lord Minister's g is the Ministry of Defense, the medical
+// letter the Medical Division, both say both, the admin letter alone Administration, anything else Civilian.
+H9_Affiliation(Access,Out[],Len)
+{
+	Out[0] = 0
+
+	if(Access & (H9_AccessMask(g_PoliceAccessCvar) | H9_ACCESS_G))
+		copy(Out,Len,"Ministry of Defense")
+
+	if(Access & H9_AccessMask(g_MedicalAccessCvar))
+	{
+		if(Out[0])
+			add(Out,Len," / ")
+		add(Out,Len,"Medical Division")
+	}
+
+	if(!Out[0] && (Access & H9_AccessMask(g_AdminAccessCvar)))
+		copy(Out,Len,"Administration")
+
+	if(!Out[0])
+		copy(Out,Len,"Civilian")
+}
+
+// Who a locked property asks for, for the Restricted line: its access letters in words, "keyholders" for a property that names none.
+H9_AccessWho(Access,Out[],Len)
+{
+	Out[0] = 0
+
+	if(Access & H9_AccessMask(g_PoliceAccessCvar))
+		copy(Out,Len,"Ministry of Defense")
+
+	if(Access & H9_AccessMask(g_MedicalAccessCvar))
+	{
+		if(Out[0])
+			add(Out,Len," / ")
+		add(Out,Len,"Medical Division")
+	}
+
+	if(!Out[0] && (Access & H9_ACCESS_G))
+		copy(Out,Len,"the Lord Minister")
+
+	if(!Out[0] && Access)
+		copy(Out,Len,"authorised personnel")
+
+	if(!Out[0])
+		copy(Out,Len,"keyholders")
+}
+
+// The job of a property's owner, when he is in the game and has one that is not Unemployed; Rank is empty otherwise.
+H9_OwnerRank(const OwnerAuth[],Rank[],Len)
+{
+	Rank[0] = 0
+	if(!OwnerAuth[0])
+		return
+
+	new Players[MAX_PLAYERS],Playersnum,Player,Key[36]
+	get_players(Players,Playersnum)
+
+	for(new Count;Count < Playersnum;Count++)
+	{
+		Player = Players[Count]
+
+		ArpKey(Player,Key,35)
+		if(!equali(Key,OwnerAuth))
+			continue
+
+		if(UTIL_ARP_ValidJobId(g_JobId[Player]))
+			array_get_string(array_get_int(g_JobsArray,g_JobId[Player]),1,Rank,Len)
+
+		if(equali(Rank,"Unemployed"))
+			Rank[0] = 0
+
+		return
+	}
+}
+
+// The owner and the affiliation of a property, as plaque lines: Owner: <name> (<job>), "For sale: $N" for an owner who has put it up, Owner: For sale, $N for none, or
+// Owner: State property for none and no price; then Affiliation: from its access letters.
+H9_PlaqueOwner(CurArray)
+{
+	static OwnerName[40],OwnerAuth[36],Rank[33],Affil[96]
+	array_get_string(CurArray,2,OwnerName,39)
+	array_get_string(CurArray,3,OwnerAuth,35)
+	new Price = array_get_int(CurArray,4)
+
+	if(OwnerName[0])
+	{
+		H9_OwnerRank(OwnerAuth,Rank,32)
+
+		if(Rank[0])
+			H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Owner: %s (%s)",OwnerName,Rank)
+		else
+			H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Owner: %s",OwnerName)
+
+		if(Price)
+			H9_PlaqueAdd(HUDK_PLAQUE_ROW,"For sale: $%d",Price)
+	}
+	else if(Price)
+		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Owner: For sale, $%d",Price)
+	else
+		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Owner: State property")
+
+	H9_Affiliation(array_get_int(CurArray,6),Affil,95)
+	H9_PlaqueAdd(HUDK_PLAQUE_TAG,"Affiliation: %s",Affil)
+}
+
+// A property door: the establishment, owner, affiliation, status, and the Restricted line when the property is locked and the viewer has neither a key, the property
+// nor the access letters (the test the use key makes, client_PreThink), and the buy hint when it has a price.
+H9_PlaqueDoor(id,Property)
+{
+	static Name[64],OwnerAuth[36],Key[36],Who[96]
+	new CurArray = array_get_int(g_PropertyArray,Property)
+	array_get_string(CurArray,1,Name,63)
+	array_get_string(CurArray,3,OwnerAuth,35)
+	new Price = array_get_int(CurArray,4),Locked = array_get_int(CurArray,5),Access = array_get_int(CurArray,6)
+
+	g_PlaqueNum = 0
+	if(Name[0])
+		H9_PlaqueAdd(HUDK_PLAQUE,"%s",Name)
+	else
+		H9_PlaqueAdd(HUDK_PLAQUE,"Property")
+
+	H9_PlaqueOwner(CurArray)
+
+	if(Locked)
+		H9_PlaqueAdd(HUDK_PLAQUE_SEALED,"Status: Locked")
+	else
+		H9_PlaqueAdd(HUDK_PLAQUE_OPEN,"Status: Unlocked")
+
+	if(Locked)
+	{
+		ArpKey(id,Key,35)
+		if(!H9_HasKey(CurArray,id) && !equali(Key,OwnerAuth) && !(Access & g_Access[id]))
+		{
+			H9_AccessWho(Access,Who,95)
+			H9_PlaqueAdd(HUDK_PLAQUE_WARN,"Restricted: %s only",Who)
+		}
+	}
+
+	if(Price)
+		H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Say /buy to purchase")
+}
+
+// An NPC: its name, its role from the handler its plugin gave it (ARP_NPCs: shop, bank, doctor, gun shop, ATM), the owner and affiliation of the property its npcs.ini
+// block names, and how to use it.
+H9_PlaqueNpc(Index)
+{
+	static Name[33],Handler[32],Role[16],Property[64]
+	entity_get_string(Index,EV_SZ_noise1,Name,32)
+	entity_get_string(Index,EV_SZ_noise,Handler,31)
+	entity_get_string(Index,EV_SZ_noise2,Property,63)
+
+	Role[0] = 0
+	if(equal(Handler,"EdekaHandle"))
+		copy(Role,15,"Shop")
+	else if(equal(Handler,"BankHandle"))
+		copy(Role,15,"Bank")
+	else if(equal(Handler,"DoctorHandle"))
+		copy(Role,15,"Doctor")
+	else if(equal(Handler,"GunshopHandle"))
+		copy(Role,15,"Gun shop")
+	else if(equal(Handler,"AtmHandle"))
+		copy(Role,15,"ATM")
+
+	g_PlaqueNum = 0
+	H9_PlaqueAdd(HUDK_PLAQUE,"%s",Name)
+
+	if(Role[0])
+		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Role: %s",Role)
+
+	new Linked = Property[0] ? UTIL_ARP_MatchProperty(Property) : -1
+	if(Linked != -1)
+		H9_PlaqueOwner(array_get_int(g_PropertyArray,Linked))
+
+	H9_PlaqueAdd(HUDK_PLAQUE_HINT,"Press use (default e) to use")
+}
+
+// A player: his name, his job (the rank) when he has one, and the affiliation of his job's access letters.
+H9_PlaquePlayer(Index)
+{
+	static Name[33],JobName[33],Affil[96]
+	get_user_name(Index,Name,32)
+
+	JobName[0] = 0
+	if(UTIL_ARP_ValidJobId(g_JobId[Index]))
+		array_get_string(array_get_int(g_JobsArray,g_JobId[Index]),1,JobName,32)
+
+	g_PlaqueNum = 0
+	H9_PlaqueAdd(HUDK_PLAQUE,"%s",Name)
+
+	if(JobName[0])
+		H9_PlaqueAdd(HUDK_PLAQUE_ROW,"Job: %s",JobName)
+
+	H9_Affiliation(g_Access[Index],Affil,95)
+	H9_PlaqueAdd(HUDK_PLAQUE_TAG,"Affiliation: %s",Affil)
+}
+
+// The plaque as the notice HUD of a game that draws the HUD as panels, in place of the one text line (the last line renders the HUD)
+H9_PlaqueSend(id)
+{
+	TravTrieClear(TravTrie:g_HudArray[id][HUD_QUAT])
+
+	for(new Count;Count < g_PlaqueNum;Count++)
+		UTIL_ARP_AddHudItem(id,HUD_QUAT,g_PlaqueText[Count],(Count == g_PlaqueNum - 1 && !g_HudPending) ? 1 : 0,g_PlaqueKind[Count])
 }
 
 GetMsg(id,Index)
@@ -2358,61 +3090,164 @@ GetMsg(id,Index)
 		break
 	}
 	
+	// H9: a dropped item says what it is and how many to the player who looks toward it from within 120 units (tried four times a second;
+	// arp_h9_itemhover 0 leaves it out)
+	if(!Index && get_pcvar_num(p_H9ItemHover) && get_gametime() >= g_H9ItemScan[id])
+	{
+		g_H9ItemScan[id] = get_gametime() + 0.25
+		
+		new Item = H9_AimedItem(id)
+		if(Item)
+		{
+			static ItemName[33]
+			entity_get_string(Item,EV_SZ_noise,ItemName,32)
+			new Quantity = entity_get_int(Item,EV_INT_iuser2)
+			
+			if(Quantity > 1)
+				format(Message,127,"%s x%d",ItemName,Quantity)
+			else
+				copy(Message,127,ItemName)
+			
+			if(get_entity_distance(id,Item) <= 50)
+				add(Message,127,"^nPress use (default e) to pick up")
+			
+			// H9: a game that draws the HUD as a panel and says _h9vgui 7 is sent the item's picture as well, a line of kind HUDK_ICON that the panel
+			// draws above the notice (docs\ARP_INVENTORY_WINDOW.txt, 4); every other game gets the text alone
+			if(get_pcvar_num(p_AuxType) == 2 && g_HudPanel[id] && h9vgui_protocol(id) >= H9VGUI_CREDIT_PROTOCOL)
+			{
+				static Icon[40]
+				formatex(Icon,39,"icon:%s",ItemName)
+				TravTrieClear(TravTrie:g_HudArray[id][HUD_QUAT])
+				UTIL_ARP_AddHudItem(id,HUD_QUAT,Icon,0,HUDK_ICON)
+				UTIL_ARP_AddHudItem(id,HUD_QUAT,Message,!g_HudPending,HUDK_EXTRA)
+			}
+			else
+				UTIL_ARP_ClientPrint(id,"%s",Message)
+		}
+	}
+	
 	if(!Index)
+	{
+		g_PlaqueKey[id] = 0
 		return
-	
+	}
+
 	entity_get_string(Index,EV_SZ_classname,Classname,32)
-	
+
+	// H9: the plaque (arp_h9_plaque). A game that draws the HUD as panels (arp_hud4_type 2) is sent it as the lines of the notice HUD; every other game gets the text it
+	// always had, with an Affiliation line. A panel player who keeps looking at the same thing is left alone for PLAQUE_REBUILD seconds: his game holds what it was
+	// sent, and the core sends the same lines again only every HUDP_NOTICE_GAP seconds.
+	new bool:Plaque = get_pcvar_num(p_H9Plaque) != 0
+	new bool:Panel = Plaque && get_pcvar_num(p_AuxType) == 2 && g_HudPanel[id]
+
+	if(Panel && g_PlaqueKey[id] == Index && get_gametime() < g_PlaqueAt[id] + PLAQUE_REBUILD)
+		return
+
+	g_PlaqueKey[id] = 0
+
 	if(equal(Classname,g_NpcClassname))
 	{
-		entity_get_string(Index,EV_SZ_noise1,Name,32)
-		
-		format(Message,127,"%s^nPress use (default e) to use",Name)
-		
-		UTIL_ARP_ClientPrint(id,"%s",Message)
+		if(Panel)
+		{
+			H9_PlaqueNpc(Index)
+			H9_PlaqueSend(id)
+
+			g_PlaqueKey[id] = Index
+			g_PlaqueAt[id] = get_gametime()
+		}
+		else
+		{
+			entity_get_string(Index,EV_SZ_noise1,Name,32)
+
+			format(Message,127,"%s^nPress use (default e) to use",Name)
+
+			UTIL_ARP_ClientPrint(id,"%s",Message)
+		}
 	}
 	else if(equali(Classname,"func_door") || equali(Classname,"func_door_rotating"))
 	{
-		static Targetname[33],CurTargetname[33]
+		static CurTargetname[33]
 		entity_get_string(Index,EV_SZ_targetname,CurTargetname,32)
-		
-		for(new Count;Count < g_DoorNum;Count++)
-		{			
-			array_get_string(array_get_int(g_DoorArray,Count),0,Targetname,32)
-			if((CurTargetname[0] && Targetname[0] && equali(Targetname,CurTargetname)) || (Index == array_get_int(array_get_int(g_DoorArray,Count),1) && is_valid_ent(Index)))
+
+		new Property = UTIL_ARP_GetProperty(CurTargetname,Index)
+		if(Property == -1)
+		{
+			// a door of no property says nothing; a panel player is not looked up again for a moment
+			if(Panel)
 			{
-				static Ownername[33],Purchase[64]
-				
-				new Property = UTIL_ARP_GetProperty(Targetname,Index)
-				if(Property == -1)
-					return
-				
-				new CurArray = array_get_int(g_PropertyArray,Property)
-				array_get_string(CurArray,1,Name,32)
-				array_get_string(CurArray,2,Ownername,32)
-				new Price = array_get_int(CurArray,4)
-				
-				format(Message,127,"^nOwner: %s",Ownername)
-				format(Purchase,63,"^nPrice: $%d. Say /buy to purchase.",Price)
-				
-				UTIL_ARP_ClientPrint(id,"%s%s%s^nStatus: %s",Name[0] ? Name : "",Ownername[0] ? Message : "", Price ? Purchase : "",array_get_int(CurArray,5) ? "Locked" : "Unlocked")
+				g_PlaqueKey[id] = Index
+				g_PlaqueAt[id] = get_gametime()
 			}
+
+			return
+		}
+
+		if(Panel)
+		{
+			H9_PlaqueDoor(id,Property)
+			H9_PlaqueSend(id)
+
+			g_PlaqueKey[id] = Index
+			g_PlaqueAt[id] = get_gametime()
+		}
+		else
+		{
+			static Ownername[33],Purchase[64],Affil[96],AffilLine[112]
+
+			new CurArray = array_get_int(g_PropertyArray,Property)
+			array_get_string(CurArray,1,Name,32)
+			array_get_string(CurArray,2,Ownername,32)
+			new Price = array_get_int(CurArray,4)
+
+			format(Message,127,"^nOwner: %s",Ownername)
+			format(Purchase,63,"^nPrice: $%d. Say /buy to purchase.",Price)
+
+			AffilLine[0] = 0
+			if(Plaque)
+			{
+				H9_Affiliation(array_get_int(CurArray,6),Affil,95)
+				formatex(AffilLine,111,"^nAffiliation: %s",Affil)
+			}
+
+			UTIL_ARP_ClientPrint(id,"%s%s%s%s^nStatus: %s",Name[0] ? Name : "",Ownername[0] ? Message : "", Price ? Purchase : "",AffilLine,array_get_int(CurArray,5) ? "Locked" : "Unlocked")
 		}
 	}
 	else if(get_pcvar_num(p_HoverMessage) && equali(Classname,"player"))
 	{
-		static JobName[33],Name[33]
-		get_user_name(Index,Name,32)
-		JobName[0] = 0
-		if(UTIL_ARP_ValidJobId(g_JobId[Index]))   // H9: never the job array of a job that is not there
-			array_get_string(array_get_int(g_JobsArray,g_JobId[Index]),1,JobName,32)
-		
-		UTIL_ARP_ClientPrint(id,"Name: %s^nJob: %s",Name,JobName)
-		
-		//if(g_HudPending)
-		//	client_print(id,print_chat,"Hud Added")
+		if(Panel)
+		{
+			// a player who is not alive (his body is not the player's edict, but a spectator may be aimed at) is not described
+			if(is_user_alive(Index))
+			{
+				H9_PlaquePlayer(Index)
+				H9_PlaqueSend(id)
+			}
+
+			g_PlaqueKey[id] = Index
+			g_PlaqueAt[id] = get_gametime()
+		}
+		else
+		{
+			static JobName[33],Name[33],Affil[96],AffilLine[112]
+			get_user_name(Index,Name,32)
+			JobName[0] = 0
+			if(UTIL_ARP_ValidJobId(g_JobId[Index]))   // H9: never the job array of a job that is not there
+				array_get_string(array_get_int(g_JobsArray,g_JobId[Index]),1,JobName,32)
+
+			AffilLine[0] = 0
+			if(Plaque)
+			{
+				H9_Affiliation(g_Access[Index],Affil,95)
+				formatex(AffilLine,111,"^nAffiliation: %s",Affil)
+			}
+
+			UTIL_ARP_ClientPrint(id,"Name: %s^nJob: %s%s",Name,JobName,AffilLine)
+
+			//if(g_HudPending)
+			//	client_print(id,print_chat,"Hud Added")
+		}
 	}
-	
+
 	if(!g_HudPending)
 	{
 		g_Display[id] = 0
@@ -2508,6 +3343,17 @@ public plugin_natives()
 	register_native("ARP_ForceUseItem","_ARP_ForceUseItem")
 	register_native("ARP_ItemSet","_ARP_ItemSet")
 	register_native("ARP_ItemDone","_ARP_ItemDone")
+	register_native("ARP_H9Toast","_ARP_H9Toast")
+
+	// H9: the item menu's paths for the inventory window, and what it needs of the core
+	register_native("ARP_UserUseItem","_ARP_UserUseItem")
+	register_native("ARP_UserGiveItem","_ARP_UserGiveItem")
+	register_native("ARP_UserDropItem","_ARP_UserDropItem")
+	register_native("ARP_UserShowItem","_ARP_UserShowItem")
+	register_native("ARP_DropPack","_ARP_DropPack")
+	register_native("ARP_GetItemInfo","_ARP_GetItemInfo")
+	register_native("ARP_InvRoom","_ARP_InvRoom")
+	register_native("ARP_SaveUser","_ARP_SaveUser")
 	
 	register_native("ARP_AddCommand","_ARP_AddCommand")
 	
@@ -3261,10 +4107,13 @@ public ClassSaveHandle(FailState,Handle:Query,Error[],Errcode,Data[],DataSize)
 		return UTIL_ARP_ThrowError(0,0,g_Query,0)
 	}
 	
-	new LastQuery,TravTrie:CurTrie = TravTrie:Data[1]
-	TravTrieGetHCell(CurTrie,"/lastquery",LastQuery)
+	// H9: "/lastquery" counts the answers still to come, and the save is done when the count is spent: the SQL module hands
+	// over the answers that finished in one frame last in, first out, so the numbers of the queries are no order of the answers
+	new Pending,TravTrie:CurTrie = TravTrie:Data[1]
+	TravTrieGetHCell(CurTrie,"/lastquery",Pending)
+	TravTrieSetHCell(CurTrie,"/lastquery",--Pending)
 	
-	if(Data[0] == LastQuery /*&& g_SqlMode != SQLITE*/)
+	if(Pending <= 0)
 	{
 		TravTrieSetHCell(CurTrie,"/saving",0)
 	
@@ -4620,7 +5469,7 @@ public _ARP_AddHudItemKind(Plugin,Params)
 		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
 	}
 
-	if(Kind < HUDK_EXTRA || Kind > HUDK_STATUS)
+	if(Kind < HUDK_EXTRA || Kind > HUDK_NEED)
 		Kind = HUDK_EXTRA
 
 	vdformat(g_Query,4095,5,6)
@@ -5382,6 +6231,91 @@ public _ARP_SetUserItemNum(Plugin,Params)
 	return SUCCEEDED*/
 }
 
+// ---------------------------------------------------------------------------------------------------------------------- H9: popups for the chat lines
+//
+// Every Apollo RP plugin's client_print goes through arp_client_print (ApolloRP_Credits.inc), which gives a print_chat line that starts with [ARP] to ARP_H9Toast
+// first. The popup is a notice of the H9 panels (h9vgui_notice: it holds, then fades, over the crosshair); the three latest are shown, the newest lowest. The state of
+// the panels (h9vgui_supported) is this plugin's own, which is why the call comes here and not from the plugin that printed.
+new g_ToastText[MAX_PLAYERS + 1][3][192]
+new Float:g_ToastEnd[MAX_PLAYERS + 1][3]
+new g_ToastWarn[MAX_PLAYERS + 1][3]
+
+// whether the line is a refusal or a warning: shown in the warm colour
+H9_ToastWarns(const Text[])
+{
+	new Words[][] = {"cannot","can't","do not","don't","not enough","refused","full","invalid","must","broken","no money"}
+	for(new i;i < sizeof Words;i++)
+		if(containi(Text,Words[i]) != -1)
+			return 1
+
+	return 0
+}
+
+// 0: not a popup, print the chat line; 1: a popup was sent, print nothing; 2: a popup was sent, and print the chat line too
+H9_Toast(id,const Text[])
+{
+	new Mode = get_pcvar_num(p_Toast)
+	if(!Mode || id < 1 || id > MAX_PLAYERS || !is_user_connected(id) || is_user_bot(id) || !equal(Text,"[ARP] ",6))
+		return 0
+
+	if(!arpvgui_wanted(id) || !h9vgui_supported(id))
+		return 0
+
+	static Body[192],Panel[192]
+	copy(Body,191,Text[6])
+	new Len = strlen(Body)
+	while(Len > 0 && (Body[Len - 1] == '^n' || Body[Len - 1] == ' '))
+		Body[--Len] = 0
+	if(!Len)
+		return 0
+
+	new Warn = H9_ToastWarns(Body)
+	if(arp_credit_panel_text(id,Body,Panel,192))
+		copy(Body,191,Panel)
+
+	new Float:Now = get_gametime()
+	for(new i = 2;i > 0;i--)
+	{
+		copy(g_ToastText[id][i],191,g_ToastText[id][i - 1])
+		g_ToastEnd[id][i] = g_ToastEnd[id][i - 1]
+		g_ToastWarn[id][i] = g_ToastWarn[id][i - 1]
+	}
+	copy(g_ToastText[id][0],191,Body)
+	new Float:Hold = 4.0 + 0.03 * float(Len)
+	if(Hold > 7.0)
+		Hold = 7.0
+	g_ToastEnd[id][0] = Now + Hold + 1.0
+	g_ToastWarn[id][0] = Warn
+
+	for(new i;i < 3;i++)
+	{
+		new Float:Left = g_ToastEnd[id][i] - Now - 1.0
+		if(Left <= 0.0 || !g_ToastText[id][i][0])
+			continue
+
+		new Slot[16]
+		formatex(Slot,15,"arptoast%d",i)
+		h9vgui_notice(id,Slot,H9V_NOTICE_BANNER,g_ToastText[id][i],Left,1.0,g_ToastWarn[id][i] ? 255 : 225,g_ToastWarn[id][i] ? 200 : 225,g_ToastWarn[id][i] ? 120 : 255,-1.0,0.36 - 0.04 * float(i))
+	}
+
+	return Mode == 2 ? 2 : 1
+}
+
+public _ARP_H9Toast(Plugin,Params)
+{
+	if(Params != 2)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 2, Found: %d",Params)
+
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	static Text[512]
+	get_string(2,Text,511)
+
+	return H9_Toast(get_param(1),Text)
+}
+
 public _ARP_ItemDone(Plugin,Params)
 {
 	if(Params != 1)
@@ -5400,6 +6334,120 @@ public _ARP_ItemDone(Plugin,Params)
 	if(g_ItemUse[id] == Plugin)
 		g_ItemUse[id] = 0
 		
+	return SUCCEEDED
+}
+
+public _ARP_UserUseItem(Plugin,Params)
+{
+	if(Params != 2)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 2, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	return H9_UserUse(get_param(1),get_param(2),1)
+}
+
+public _ARP_UserGiveItem(Plugin,Params)
+{
+	if(Params != 4)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 4, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	return H9_UserGive(get_param(1),get_param(2),get_param(3),get_param(4),1)
+}
+
+public _ARP_UserDropItem(Plugin,Params)
+{
+	if(Params != 3)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 3, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	return H9_UserDrop(get_param(1),get_param(2),get_param(3),1)
+}
+
+public _ARP_UserShowItem(Plugin,Params)
+{
+	if(Params != 3)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 3, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	return H9_UserShow(get_param(1),get_param(2),get_param(3),1)
+}
+
+public _ARP_DropPack(Plugin,Params)
+{
+	if(Params != 3)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 3, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	new id = get_param(1)
+	if(!is_user_connected(id))
+		return 0
+
+	return H9_MakePack(id,get_param(2),get_param(3))
+}
+
+public _ARP_GetItemInfo(Plugin,Params)
+{
+	if(Params != 6)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 6, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	new ItemId = get_param(1)
+	if(!UTIL_ARP_ValidItemId(ItemId))
+		return FAILED
+
+	new Name[33],Description[64],CurArray = array_get_int(g_ItemsArray,ItemId)
+	array_get_string(CurArray,1,Name,32)
+	array_get_string(CurArray,4,Description,63)
+
+	set_string(2,Name,get_param(3))
+	set_string(4,Description,get_param(5))
+	set_param_byref(6,array_get_int(CurArray,5))
+
+	return SUCCEEDED
+}
+
+public _ARP_InvRoom(Plugin,Params)
+{
+	if(Params != 3)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 3, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	new ItemId = get_param(2),Qty = get_param(3)
+	if(!UTIL_ARP_ValidItemId(ItemId))
+		return Qty
+
+	return H9_InvRoom(get_param(1),ItemId,Qty)
+}
+
+public _ARP_SaveUser(Plugin,Params)
+{
+	if(Params != 1)
+	{
+		format(g_Query,4095,"Parameters do not match. Expected: 1, Found: %d",Params)
+		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,Plugin)
+	}
+
+	new id = get_param(1)
+	if(!is_user_connected(id) || g_GotInfo[id] < STD_USER_QUERIES)
+		return FAILED
+
+	SaveUserData(id,0)
+
 	return SUCCEEDED
 }
 
@@ -5850,6 +6898,10 @@ RenderHud(id,Hud)
 	
 	g_PanelNum = 0
 	
+	// H9: a player who is shown the credit sign (ApolloRP_Credits.inc) is sent it in the panel's lines, as the single byte the panel draws; the text HUD
+	// keeps "$" (the HUD font has no such glyph) and so does everything that parses a line
+	new bool:Sign = g_HudPanel[id] && arp_credit_sign(id)
+	
 	new travTrieIter:Iter = GetTravTrieIterator(g_HudArray[id][Hud]),Kind,Ticker
 	while(MoreTravTrie(Iter))
 	{
@@ -5861,6 +6913,8 @@ RenderHud(id,Hud)
 		{
 			g_PanelKind[g_PanelNum] = Kind
 			copy(g_PanelText[g_PanelNum],HUDP_LINE_LEN - 1,Temp)
+			if(Sign)
+				arp_credit_convert(g_PanelText[g_PanelNum],HUDP_LINE_LEN,false)
 			g_PanelNum++
 		}
 		
@@ -6130,6 +7184,9 @@ ArpHudSend(id,Hud)
 	for(new Count;Count < Num && Len < 94;Count++)
 		Len += formatex(g_HudLast[id][Hud][Len],95 - Len,"%s%s",Count ? "|" : "",g_PanelText[Count])
 	
+	// H9: a console shows "$" (the credit sign is only for the panel)
+	replace_all(g_HudLast[id][Hud],95,"^xA2;","$")
+	
 	if(!g_HudFirstLogged[id])
 	{
 		g_HudFirstLogged[id] = 1
@@ -6379,8 +7436,12 @@ ItemUse(id,ItemId,UseUp)
 		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,0)
 	}
 	
+	// H9: the inventory knows which unit is in use until the item is used up: a handler may give it back (the food, the ammunition)
+	H9_InvUse(id,ItemId,1)
+	
 	if(!ExecuteForward(Forward,Return,id,ItemId))
 	{
+		H9_InvUse(id,ItemId,0)
 		format(g_Query,4095,"Function ^"%s^" does not exist in plugin %d.",Handler,Plugin)
 		return UTIL_ARP_ThrowError(AMX_ERR_NATIVE,0,g_Query,0)
 	}
@@ -6388,6 +7449,8 @@ ItemUse(id,ItemId,UseUp)
 	// if disposable
 	if(UseUp && array_get_int(array_get_int(g_ItemsArray,ItemId),5))
 		UTIL_ARP_SetUserItemNum(id,ItemId,UTIL_ARP_GetUserItemNum(id,ItemId) - 1)
+	
+	H9_InvUse(id,ItemId,0)
 	
 	DestroyForward(Forward)
 	
@@ -6476,6 +7539,10 @@ UTIL_ARP_FindItemId(ItemName[])
 
 UTIL_ARP_SetUserItemNum(id,ItemId,Num)
 {
+	// H9: ARP_Inventory (when loaded) arranges the player's items in cells and answers the count to keep
+	if(UTIL_ARP_ValidItemId(ItemId))
+		Num = H9_InvCount(id,ItemId,Num)
+	
 	if(UTIL_ARP_ValidItemId(ItemId))
 		Num ? array_set_int(g_UserItemArray[id],ItemId,Num) : array_delete(g_UserItemArray[id],ItemId)
 	
@@ -6502,6 +7569,57 @@ UTIL_ARP_SetUserItemNum(id,ItemId,Num)
 UTIL_ARP_GetUserItemNum(id,ItemId)
 	return array_isfilled(g_UserItemArray[id],ItemId) ? abs(array_get_int(g_UserItemArray[id],ItemId)) : 0
 		
+
+// H9: a count of a player's items is about to become Num. ARP_Inventory (when loaded) arranges the items in cells and answers the count to keep:
+// what fits of an add (the rest is made a pack at his feet), and never below 0. Its answer is the count plus one, so that 0 is no answer.
+H9_InvCount(id,ItemId,Num)
+{
+	if(g_H9FwdCount <= 0 || id < 1 || id > MAX_PLAYERS || !is_user_connected(id))
+		return Num
+
+	new Old = UTIL_ARP_GetUserItemNum(id,ItemId)
+	if(Num == Old)
+		return Num
+
+	new Return
+	if(!ExecuteForward(g_H9FwdCount,Return,id,ItemId,Old,Num) || Return < 1)
+		return Num
+
+	return Return - 1
+}
+
+// H9: how many of Qty of an item the player's inventory has room for: all of it unless ARP_Inventory (when loaded) says less
+H9_InvRoom(id,ItemId,Qty)
+{
+	if(g_H9FwdRoom <= 0 || Qty < 1 || id < 1 || id > MAX_PLAYERS || !is_user_connected(id))
+		return Qty
+
+	new Return
+	if(!ExecuteForward(g_H9FwdRoom,Return,id,ItemId,Qty) || Return < 1)
+		return Qty
+
+	return min(Return - 1,Qty)
+}
+
+// H9: an item of the player's is being used: begin 1 before its handler runs, 0 after the item is used up
+H9_InvUse(id,ItemId,Begin)
+{
+	if(g_H9FwdUse <= 0 || id < 1 || id > MAX_PLAYERS)
+		return
+
+	new Return
+	ExecuteForward(g_H9FwdUse,Return,id,ItemId,Begin)
+}
+
+// H9: a line for a player about his items: ARP_Inventory shows it in its window when that is open, and otherwise it is chat, "[ARP] <text>"
+H9_Note(id,Level,const Text[])
+{
+	new Return
+	if(g_H9FwdNote > 0 && ExecuteForward(g_H9FwdNote,Return,id,Level,Text) && Return)
+		return
+
+	client_print(id,print_chat,"[ARP] %s",Text)
+}
 
 UTIL_ARP_GetItemName(ItemId,ItemName[],Len)
 {

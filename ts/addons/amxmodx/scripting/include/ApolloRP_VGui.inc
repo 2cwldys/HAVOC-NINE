@@ -25,6 +25,9 @@
  *
  * In a paged menu an item named "<name> - $<price>" or "<name> x <count>" is drawn as the name with
  * "$<price>" or "x <count>" after it, in the smaller font; a name is cut to 31 characters on the panel.
+ *
+ * A player who is shown the credit sign (ApolloRP_Credits.inc: arp_h9_credits 1 and a game that says _h9vgui 7) gets it in the panel's text, in place of
+ * each "$" that a digit follows, as the single byte 0xA2 that a panel draws; the text menu sent with the panel carries the same text.
  */
 
 #if defined _ApolloRP_VGui_included
@@ -36,6 +39,7 @@
 #include <amxmodx>
 #include <fakemeta>
 #include <h9_vgui>
+#include <ApolloRP_Credits>
 
 #if defined ARPVGUI_PAGED
 
@@ -51,6 +55,8 @@ stock g_av_handler[MAX_PLAYERS + 1][32];  // the menu's handler, called with (id
 
 #endif
 
+stock g_av_cvar;                          // arp_h9_vgui: 0 gives every player the classic AMX Mod X text menu
+
 /// In plugin_precache: registers H9Vgui, so every game learns it at connect.
 stock arpvgui_precache()
 {
@@ -61,16 +67,26 @@ stock arpvgui_precache()
 stock arpvgui_init(const ns[])
 {
 	h9vgui_init(ns);
+	g_av_cvar = get_cvar_pointer("arp_h9_vgui");
+	if (!g_av_cvar)
+	{
+		g_av_cvar = register_cvar("arp_h9_vgui", "1");
+	}
 #if defined ARPVGUI_PAGED
 	formatex(g_av_menuname, charsmax(g_av_menuname), "ARP_Paged_%s", ns);
 	register_menucmd(register_menuid(g_av_menuname), 1023, "__arpvgui_paged_key");
 #endif
 }
 
-/// Whether the player wants Apollo RP's menus as panels: his game's cl_h9_arpvgui, which it keeps in the private
-/// userinfo key _h9arpvgui ("0" off, "1" on). A game without the key (an older client) wants them.
+/// Whether the player is given Apollo RP's menus as panels: the server's arp_h9_vgui must be 1, and his game's cl_h9_arpvgui,
+/// which it keeps in the private userinfo key _h9arpvgui ("0" off, "1" on), must not be 0. A game without the key (an older
+/// client) wants them. With arp_h9_vgui 0 nobody does: every menu is the classic text menu.
 stock bool:arpvgui_wanted(id)
 {
+	if (g_av_cvar && !get_pcvar_num(g_av_cvar))
+	{
+		return false;
+	}
 	if (id < 1 || id > MAX_PLAYERS || !is_user_connected(id))
 	{
 		return true;
@@ -85,7 +101,15 @@ stock arpvgui_show_menu(id, keys, const text[], time, const amx[], const panel[]
 {
 	if (arpvgui_wanted(id))
 	{
-		h9vgui_show_menu(id, keys, text, time, amx, panel, title);
+		static shown[1024];
+		if (arp_credit_panel_text(id, text, shown, sizeof shown))
+		{
+			h9vgui_show_menu(id, keys, shown, time, amx, panel, title);
+		}
+		else
+		{
+			h9vgui_show_menu(id, keys, text, time, amx, panel, title);
+		}
 	}
 	else
 	{
@@ -122,7 +146,7 @@ stock __arpvgui_split(const name[], label[], labellen, detail[], detaillen)
 		{
 			continue;
 		}
-		if (name[i + 1] == '-' && name[i + 2] == ' ' && name[i + 3] == '$')
+		if (name[i + 1] == '-' && name[i + 2] == ' ' && (name[i + 3] == '$' || (name[i + 3] & 0xFF) == ARP_CREDIT_BYTE))
 		{
 			cut = i;
 			skip = 3;
@@ -170,6 +194,7 @@ stock __arpvgui_page(id)
 	}
 
 	h9vgui_menu_begin(g_av_panel[id], title);
+	new bool:credit = arp_credit_sign(id);
 	new text[640];
 	new pos = formatex(text, charsmax(text), "\y%s^n^n", title);
 	new keys = MENU_KEY_0;
@@ -178,6 +203,10 @@ stock __arpvgui_page(id)
 		new access, callback, info[2], name[64], label[32], detail[32];
 		menu_item_getinfo(menu, first + k, access, info, charsmax(info), name, charsmax(name), callback);
 		__arpvgui_split(name, label, charsmax(label), detail, charsmax(detail));
+		if (credit)
+		{
+			arp_credit_convert(detail, sizeof detail, false);
+		}
 		h9vgui_menu_row(k + 1, 0, label, detail);
 		if (detail[0])
 		{

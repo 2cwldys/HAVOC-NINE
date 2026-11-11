@@ -24,6 +24,9 @@ public EventMenuDisplay(Name[],Data[],Len)
 	ARP_AddMenuItem(id,"My money and job","MenuAccount")
 	ARP_AddMenuItem(id,"Jobs on this map","MenuJobs")
 	ARP_AddMenuItem(id,"Commands","MenuCommands")
+
+	// a handler's return value is the event's veto: a non-zero one stops the core showing the menu it has just been given
+	return PLUGIN_CONTINUE
 }
 
 public MenuInventory(id)

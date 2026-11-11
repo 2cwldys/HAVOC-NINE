@@ -1,0 +1,103 @@
+# The pictures of Apollo RP's inventory window (sprites/h9_arpicons.spr): an item's name, a bar, its frame.
+# Made by modelling/arpicons/make_arpicons.py; an item that is not here is drawn as a monogram.
+Akimbo Beretta 92Fs|0
+Barrett M82A1|1
+Benelli M3|2
+Colt M16A4|3
+Colt M4A1|4
+Combat Knife|5
+Daewoo USAS-12|6
+FN Five-seveN Tactical|7
+G2 Contender|8
+GLOCK-18|9
+GLOCK-20C|10
+Golden Colt 1911A1s|11
+H&K MP5K|12
+H&K MP5SDA5|13
+H&K MP7|14
+H&K SOCOM MK23|15
+H&K UMP|16
+IMI Desert Eagle|17
+Kalashnikova AK-47|18
+Katana|19
+M61 Grenade|20
+Mini-Uzi|21
+Mossberg 500|22
+Ruger MK1|23
+Sawed-Off Shotgun|24
+Seal Knife|25
+SPAS-12|26
+Steyr AUG|27
+Taurus Raging Bull|28
+U.S. Ordnance M60E3|29
+vz. 61 "Skorpion"|30
+.22 Hornet Ammo|31
+.32 ACP Ammo|32
+.45 ACP Ammo|33
+.454 Casull Ammo|34
+.50 AE Ammo|35
+.50 BMG Ammo|36
+10mm Auto Ammo|37
+12 Gauge Shells Ammo|38
+5.56mm NATO Ammo|39
+5.7mm FN Ammo|40
+7.62mm NATO Ammo|41
+7.62mm Soviet Ammo|42
+9mm Parabellum Ammo|43
+Bug|44
+Bug Scanner|45
+Motorola RAZR|46
+Nokia 6820|47
+Phone Prepaid Card|48
+Phone Subscription|49
+Sony Ericsson|50
+ATM Card|51
+Debit Card|52
+Permitted License|53
+Restricted License|54
+Beer|55
+Fries|56
+Gin|57
+Hamburger|58
+Hawk Miller Light|59
+Hotdog|60
+Milk|61
+Pasta|62
+Pizza|63
+Soda|64
+Steak|65
+Vodka|66
+Whiskey|67
+First Aid Kit|68
+Chlorofoam|69
+Rope|70
+Tape|71
+Assassin Knife|72
+Flashbang|73
+Tazer|74
+Acid|75
+Cigarette|76
+Cocaine|77
+Crack|78
+Cuban Cigar|79
+Heroin|80
+Lighter|81
+Mushroom|82
+PCP|83
+Tobacco Pipe|84
+Zippo Lighter|85
+Door C2|86
+Electric Lockpick|87
+Flashlight|88
+Lockpick|89
+Spray Can|90
+Steel Axe|91
+PPSh-41|92
+Laser Rifle|93
+Cuffs|94
+PPSH-41|92
+PPSh41|92
+PPSH41|92
+LASER RIFLE|93
+Laser rifle|93
+LaserRifle|93

@@ -39,8 +39,8 @@ enum SELLING
 	LICENSE
 }
 
-// H9: H9's TSX numbers 0 to 39 (tsconst.inc), the throwing knife 38 and H9's reTS PPSh-41 39
-#define MAX_WEAPONS 40
+// H9: H9's TSX numbers 0 to 40 (tsconst.inc), the throwing knife 38, H9's reTS PPSh-41 39 and laser rifle 40
+#define MAX_WEAPONS 41
 new g_WeaponAmmo[MAX_WEAPONS] =
 {
 	0,//"kung_fu" (H9: 0 in H9's TSX)
@@ -83,7 +83,8 @@ new g_WeaponAmmo[MAX_WEAPONS] =
 	35,//"contender" (H9: 36)
 	210,//"askorpion" (H9: 37, the akimbo Skorpions, as the Skorpion here)
 	0,//"tknife" (H9: 38)
-	213//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
+	213,//"ppsh41" (H9: 39, 7.62 x 25mm: three 71-round drums)
+	90//"laserrifle" (H9: 40, a copy of the M4A1's row)
 }
 
 // the max possible in any given area is 44 assuming
@@ -476,6 +477,13 @@ public EdekaMenuHandle(id,Menu,Item)
 	
 	ARP_GetItemName(g_Selling[g_CurNpc[id]][Item][ITEMID],ItemName,32)
 	
+	// H9: an item that does not fit in the player's inventory (arp_h9_inv_slots) is not sold: no money moves for it
+	if(ARP_InvRoom(id,g_Selling[g_CurNpc[id]][Item][ITEMID],1) < 1)
+	{
+		client_print(id,print_chat,"[ARP] Your inventory is full.")
+		return
+	}
+	
 	ARP_SetUserItemNum(id,g_Selling[g_CurNpc[id]][Item][ITEMID],ARP_GetUserItemNum(id,g_Selling[g_CurNpc[id]][Item][ITEMID]) + 1)
 	ARP_SetUserWallet(id,UserCash - g_Selling[g_CurNpc[id]][Item][COST])
 	
@@ -523,6 +531,13 @@ public BankMenuHandle(id,Key)
 				return
 			}
 			
+			// H9: an item that does not fit in the player's inventory (arp_h9_inv_slots) is not sold: no money moves for it
+			if(ARP_InvRoom(id,Results[0],1) < 1)
+			{
+				client_print(id,print_chat,"[ARP] Your inventory is full.")
+				return
+			}
+	
 			ARP_SetUserItemNum(id,Results[0],ARP_GetUserItemNum(id,Results[0]) + 1)
 			ARP_SetUserWallet(id,Cash - 10)
 			
@@ -548,6 +563,13 @@ public BankMenuHandle(id,Key)
 				return
 			}
 			
+			// H9: an item that does not fit in the player's inventory (arp_h9_inv_slots) is not sold: no money moves for it
+			if(ARP_InvRoom(id,Results[0],1) < 1)
+			{
+				client_print(id,print_chat,"[ARP] Your inventory is full.")
+				return
+			}
+	
 			ARP_SetUserItemNum(id,Results[0],ARP_GetUserItemNum(id,Results[0]) + 1)
 			ARP_SetUserWallet(id,Cash - 100)
 			
@@ -807,6 +829,13 @@ public DoctorMenuHandle(id,Menu,Item)
 	}
 	
 	ARP_GetItemName(g_Selling[g_CurNpc[id]][Item][ITEMID],ItemName,32)
+	
+	// H9: an item that does not fit in the player's inventory (arp_h9_inv_slots) is not sold: no money moves for it
+	if(ARP_InvRoom(id,g_Selling[g_CurNpc[id]][Item][ITEMID],1) < 1)
+	{
+		client_print(id,print_chat,"[ARP] Your inventory is full.")
+		return
+	}
 	
 	ARP_SetUserItemNum(id,g_Selling[g_CurNpc[id]][Item][ITEMID],ARP_GetUserItemNum(id,g_Selling[g_CurNpc[id]][Item][ITEMID]) + 1)
 	ARP_SetUserWallet(id,Cash - g_Selling[g_CurNpc[id]][Item][COST])
@@ -1145,6 +1174,13 @@ public GunshopUseMenuHandle(id,Menu,Item)
 	}
 	
 	ARP_GetItemName(ItemId,ItemName,32)
+	// H9: an item that does not fit in the player's inventory (arp_h9_inv_slots) is not sold: no money moves for it
+	if(ARP_InvRoom(id,ItemId,1) < 1)
+	{
+		client_print(id,print_chat,"[ARP] Your inventory is full.")
+		return
+	}
+	
 	ARP_SetUserItemNum(id,ItemId,ARP_GetUserItemNum(id,ItemId) + 1)
 	
 	client_print(id,print_chat,"[ARP] You have purchased a %s.",ItemName)
