@@ -1,36 +1,36 @@
 {
  "format": 1,
- "builtAt": "2026-11-10T02:37:54.696Z",
+ "builtAt": "2026-11-11T15:16:16.972Z",
  "inputs": {
   "engine": "5cc8877810231ebc95976c88d193c2855434f53d83a9950c3a5f6f9638c86c7f",
-  "client": "c96ec5debf6b38c3d50c0bcd46c96e823eaf92671f148bff86afc3516acf817d",
+  "client": "d1d304c07c56c54d32a3da19fca12c556bc80456209eb3a36fbfb0d80f358add",
   "patches": "d820402756d274ffb578f46a815c7b72b26b78c6954cef70ccfed7349ead5ed3",
   "builder": "70f0e86b45975b540613ad7718c5b82ae283b8a09db2984dbec2070437f65651",
-  "stager": "45925c7a0bcc9e74bfe8b2338662543ed4c768e35ab1c70978a054a7fa7b9cbb",
+  "stager": "f669044b0ed6745364f06fd83ef0607cbf1336ea902ed391366c4f2c1d549c47",
   "pages": "676dca62ff18d326f60db999918dd745058a010531c6fec0aa1c437b7bbf27a3"
  },
  "counts": {
   "engine": 7038,
-  "client": 1150,
+  "client": 1174,
   "patches": 59
  },
  "outputs": {
   "engine/xash.wasm": "83533c853ee7",
   "engine/xash.js": "ff0263da5ecf",
-  "cl_dll/client_emscripten_wasm32.wasm": "d8ee85cca577",
+  "cl_dll/client_emscripten_wasm32.wasm": "4b466f395059",
   "3rdparty/mainui/libmenu.wasm": "7f603d32f440"
  },
  "smoke": {
   "ok": true,
   "checks": 6,
-  "at": "2026-11-10T02:37:54.710Z",
+  "at": "2026-11-11T15:16:16.990Z",
   "perf": {
    "fps": 60,
    "frameMs": {
     "p50": 16.7,
     "p95": 16.8,
-    "p99": 17,
-    "max": 17
+    "p99": 16.9,
+    "max": 17.4
    },
    "longTasks": {
     "count": 0,

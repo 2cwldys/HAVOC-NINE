@@ -1,6 +1,6 @@
 H9 web client builds -- what each file in this folder is, and what it was built from
 
-Written by tools/make_webclient_bin.py, 2026-11-10 02:37 UTC.
+Written by tools/make_webclient_bin.py, 2026-11-11 15:15 UTC.
 tools/make_webclient_game.py takes these files from this folder (havoc9.org/webclient/DEPLOY.txt,
 section 3). Only the builds are here: the game's files come from the repository's H9XASH.
 
@@ -78,7 +78,7 @@ Patches applied, in xash.bat's order (SHA-1 of each patch file):
     8ec071f23a01  engine-h9-glowfix.patch
 
 Client library: reTS (the reconstruction of TS 3.0's client and server, CMake), as in TSM\reTS,
-its cl_dll/CMakeLists.txt with the block marked "H9 web client" (SHA-1 4894bb98c1d8), which compiles
+its cl_dll/CMakeLists.txt with the block marked "H9 web client" (SHA-1 3537e333e990), which compiles
 xash3d-fwgs/3rdparty/freevgui into the client (VGUI with H9's scheme, the browser font backend).
     emcmake cmake -S reTS -B reTS-wasm -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=<dir>/ts
     cmake --build reTS-wasm --target client
@@ -96,5 +96,5 @@ Files (bytes, SHA-1):
         the main menu, mainui with H9's patches (side module)
     3rdparty/extras/extras.pk3                1689094  881a344d5300ecfc3bb395a7fb583e8c7b373c0a
         FWGS's extras package (not a build: made by the engine build)
-    cl_dll/client_emscripten_wasm32.wasm       958329  dcd2ad8b5cda37ea027a8a819bc74a493709a861
+    cl_dll/client_emscripten_wasm32.wasm      1093907  8b9dbe2a447e0e2a327851142de4d2602f1e32eb
         the game's client library, reTS's cl_dll with freevgui inside (side module)
