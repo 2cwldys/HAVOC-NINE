@@ -28,6 +28,7 @@
 #include "parsemsg.h"
 #include "ts_hud.h"
 #include "demo_api.h"
+#include "h9_buywindow.h" // H9BuyWindow_KeepsMenu
 #include "../dlls/ts_weapon_info.h" // get_weapon_info: names, clip sizes, carry caps
 
 #include <stdio.h>
@@ -471,9 +472,14 @@ bool CHudTSWeaponBar::Draw(float flTime)
 	if (TSHud_NoHud() || TSHud_PlayerPartsHidden())
 		return true;
 	// Alive and playing with the buy menu up anywhere but its change team level, the weapon bar Draw
-	// closes it (0x1004d42f).
+	// closes it (0x1004d42f). A menu a buy window put up (h9_buywindow.cpp) stays while the window is open, and has the top of the
+	// screen: the bar is not drawn over its loadout columns.
 	if (gHUD.m_TSBuyMenu.IsUp() && !gHUD.m_TSBuyMenu.AtChangeTeam())
+	{
+		if (H9BuyWindow_KeepsMenu())
+			return true;
 		gHUD.m_TSBuyMenu.Close();
+	}
 	DrawBar(!m_selecting || 0 != gEngfuncs.pDemoAPI->IsPlayingback());
 	return true;
 }

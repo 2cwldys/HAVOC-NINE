@@ -21,7 +21,7 @@ public:
 	bool Draw(float flTime) override;
 	void Reset() override;
 
-	void Open();
+	void Open(bool forWindow = false); // forWindow: a buy window put it up (h9_buywindow.cpp): no random first loadout, and a mouse button already down is not a click
 	void Close();
 	bool IsUp() const { return m_active; }
 	bool AtChangeTeam() const { return m_level == LVL_CHANGETEAM; }
@@ -79,6 +79,7 @@ private:
 	bool m_firstOpen = true;             // obj+0x2f10 : first open per map -> randomize ("Use New Config")
 
 	int m_prevButtons = 0; // obj+0x2f18 : mouse-button edge tracking
+	int m_ignoreButtons = 0; // buttons that were down when a buy window put the menu up: their release is not a click
 
 	// preview sprites (the bought-weapon icons in the header, FUN_10036af0) — same files the
 	// weapon-select bar loads (sprites/weapons/<name>.spr).

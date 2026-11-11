@@ -362,7 +362,10 @@ bool CHudTSAmmo::Draw(float flTime)
 		TSHud_DrawString(x + 2, y, SW, CHudTextMessage::BufferedLocaliseTextString(s_mode[mode]), tr, tg, tb);
 		y -= LINEH;
 		FillRGBA(x, y, 0x80, LINEH - 1, hr, hg, hb, 0x0f);
-		TSHud_DrawString(x + 2, y, SW, get_ammo_info(wi->iCaliber)->szName, tr, tg, tb);
+		// The caliber's name; the Mech's launcher keeps its rockets in the Contender's caliber (the only one left in the ammo
+		// table), so the row names what it holds instead.
+		const char* ammoName = TS_IsRocketWeapon(m_iWeaponType) ? "Missile" : get_ammo_info(wi->iCaliber)->szName;
+		TSHud_DrawString(x + 2, y, SW, ammoName, tr, tg, tb);
 	}
 
 	// The name row, alpha 0x23: the weapon table's name (weapon info +0x44).

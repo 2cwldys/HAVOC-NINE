@@ -181,6 +181,7 @@ target_sources(client PRIVATE
 	GameStudioModelRenderer.cpp
 	geiger.cpp
 	h9_arphud.cpp
+	h9_buywindow.cpp
 	h9_chatbubble.cpp
 	h9_tts.cpp
 	h9_tts_web.cpp
@@ -287,6 +288,7 @@ target_sources(client PRIVATE
 	eventscripts.h
 	GameStudioModelRenderer.h
 	h9_arphud.h
+	h9_buywindow.h
 	h9_chatbubble.h
 	h9_tts.h
 	h9_tts_platform.h

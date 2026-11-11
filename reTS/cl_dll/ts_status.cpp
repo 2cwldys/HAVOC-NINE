@@ -171,7 +171,9 @@ bool CHudTSStatus::MsgFunc_TSPAward(const char* pszName, int iSize, void* pbuf)
 // SrvSett (client.dll 0x1004b840): BYTE id, SHORT value. Id 0 is realbullet (0x1018d16c: the client
 // bullet simulation, ts_bullets.cpp), 1 the cash economy (0x1018d170: the credits box), 2 the ammo
 // count mode through the shared Set_ammo_count, 3 the weapon restriction mask (0x1018d174: the buy
-// menu's restriction test 0x100365e0); other ids change nothing.
+// menu's restriction test 0x100365e0), 4 whether the weapons H9 adds are in play, and 5 to 9 the Mech rocket launcher's clip,
+// shot rate, reload time, salvo and stagger (the weapon table's row, which the prediction reads: TS_ApplyMechRocketSetting);
+// other ids change nothing.
 int g_iTSRealBullet = 0;         // id 0 — bullets-are-projectiles mode
 int g_iTSUseCash = 0;            // id 1 — the cash economy toggle (bool on the wire)
 int g_iTSCustomWeapons = 0;        // id 4 (reTS addition) - the server plays the weapons H9 adds (0 until it says so)
@@ -189,6 +191,9 @@ bool CHudTSStatus::MsgFunc_SrvSett(const char* pszName, int iSize, void* pbuf)
 	case 2: Set_ammo_count(val); break; // the shared max-carry column (both libs, like the original)
 	case 3: g_iTSWeaponRestriction = val; break;
 	case 4: g_iTSCustomWeapons = val; break; // reTS addition: h9_customweapons
+	case TS_SETT_MR_CLIP: case TS_SETT_MR_RATE: case TS_SETT_MR_RELOAD: case TS_SETT_MR_SALVO: case TS_SETT_MR_STAGGER:
+		TS_ApplyMechRocketSetting(id, val); // reTS addition: the launcher's numbers (h9_mechrocket_*)
+		break;
 	default: break; // TS 3.0's client drops the ids above 3 (the jump table at 0x1004b867 covers 0..3)
 	}
 	m_iFlags |= HUD_ACTIVE;
