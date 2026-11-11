@@ -1,5 +1,5 @@
 // ---- H9 text to speech on Windows -------------------------------------------------------------------------------
-// A line is rendered to memory by SAPI, shaped, and played through waveOut:
+// A line is rendered to memory by SAPI, shaped, and mixed with the other voices into ONE waveOut stream:
 //
 //   voice    SAPI voice by gender: the best installed one (a Natural or Neural voice ahead of a plain one, US then UK
 //            English ahead of other languages), the man's, the woman's; a speaker who asked for a variant gets the n-th
@@ -11,12 +11,17 @@
 //   muffled  a gas mask: a fourth-order low-pass at 1800 Hz / (1 + cl_h9_tts_muffle), a resonant bump at 700 Hz, then
 //            the line brought back to 85% of the loudness it had, so the mask is heard as dullness and not as distance
 //   volume   the distance volume (and cl_h9_tts_volume) multiplied into the samples
-//   pan      the speaker's direction, from the server: a constant-power pan into the ears, stereo from here on
+//   pan      the speaker's direction, from the server: a constant-power pan into the ears, stereo from here on; a line the
+//            server marks global (heard from anywhere) has none
 //
-// All of it runs on one worker thread of its own, with its own COM apartment, so the render thread only ever queues a
-// line and never waits for a voice. A speaker has one line at a time: his new line stops his older one, queued or
-// playing. At most cl_h9_tts_maxvoices voices play together (kSlots at the most); a line louder than the quietest
-// one playing takes its place, a quieter one is not spoken.
+// Two threads of their own, so the game's thread only ever queues a line and never waits for a voice or for the sound card.
+// The speech thread (its own COM apartment) takes the queued lines one at a time: SAPI renders a line to memory, the samples
+// are shaped, and the result is handed to the mixer. The audio thread owns the sound card: one waveOut device, opened when
+// there is something to say and let go of after kIdleCloseMs of silence, fed block by block from the mixer (h9_tts_mix.h),
+// which sums every voice that is playing. SAPI is called from the speech thread only and the sound card from the audio thread
+// only; they meet in the mixer, under s_mixMtx. Voices of different speakers play together up to cl_h9_tts_maxvoices
+// (h9tts::kMixMaxVoices at the most). A line beyond that waits for a voice (4 lines, 8 seconds at the most) and nothing that
+// is playing is cut off for it; a speaker's own lines follow one another.
 //
 // The text is spoken with SPF_IS_NOT_XML, so nothing a player types can be taken for SAPI markup (an <audio> or a
 // <voice> tag). Nothing from the client's headers is used here, and the wave-format GUID is defined below instead of
@@ -44,12 +49,18 @@
 #include <string.h>
 
 #include "h9_tts_platform.h"
+#include "h9_tts_mix.h"
+#include "h9_tts_kokoro.h"
 
 namespace
 {
-const int kRate = 22050;                // the rate SAPI renders at
-const int kSlots = 3;                   // voices playing together
-const int kQueue = 8;                   // lines waiting for the worker
+const int kRate = h9tts::kMixRate;      // the rate SAPI renders at and the mixer plays at
+const int kQueue = 8;                   // lines waiting for the speech thread
+const int kBuffers = 4;                 // blocks of sound queued at the sound card
+const int kBlockFrames = 880;           // frames in a block: 40 ms
+const int kIdleCloseMs = 2500;          // the sound card is let go of after this much silence
+const int kRetryMs = 1000;              // a sound card that would not open is tried again no sooner than this
+const int kJobMaxAgeMs = h9tts::kMixMaxWaitMs; // a line that waited this long for the speech thread is not spoken any more
 const int kTextBytes = H9TTS_TEXT_MAX + 1;
 const int kMaxBytes = kRate * 2 * 30;   // a line is cut to 30 seconds
 const double kMaskHz = 1800.0;          // the gas mask's low-pass is kMaskHz / (1 + strength): 900 Hz at the standard strength
@@ -66,6 +77,7 @@ const double kRobotMechHz = 38.0;       // the hum it is modulated with: a Mech'
 const double kRobotBotHz = 62.0;        // and a bot's
 const int kMaxVoices = 24;              // voices listed for a player's pick
 const double kHeadroom = 0.6;           // SAPI renders close to full scale: a volume of 1 leaves 4 dB of headroom
+const double kLinePeak = 32000.0;       // a shaped line is scaled down to this if its peak would pass it
 
 // SPDFID_WaveFormatEx, the id of a WAVEFORMATEX stream. sapi.h declares it and sapi.lib defines it.
 const GUID kWaveFormatEx = { 0xC31ADBAE, 0x527F, 0x4FF5, { 0xA2, 0x30, 0xF6, 0x2B, 0xB6, 0x1F, 0xF7, 0x0C } };
@@ -76,43 +88,47 @@ struct Job
 	int voice;
 	bool muffled;
 	bool robot;
+	bool global;
 	int choice;
 	int variant;
 	int depth;
 	int maxVoices;
+	bool droid;        // the bot voice is the droid kind (the Kokoro voices tell it from a bot)
+	int engine;        // cl_h9_tts_engine: 0 the system voice only, 1 Kokoro when it is ready, 2 Kokoro only
+	int threads;       // cl_h9_tts_threads
+	int epoch;         // s_epoch when the line was queued: a Stop since then makes it stale
+	unsigned arrived;  // GetTickCount() when the line was queued
+	signed char inPack; // ServeWaiting's look at the line pack: 0 not yet, 1 the pack holds the line, 2 it does not
 	float muffle;
 	float pan;
 	float volume;
 	char text[kTextBytes];
 };
 
-struct Slot
-{
-	HWAVEOUT hwo;
-	WAVEHDR hdr;
-	short* pcm;
-	int speaker; // 0 while the slot is free
-	float level; // the volume the line was started at: the quietest voice is the one a louder line takes the place of
-	DWORD started;
-};
-
-// Shared with the render thread, under s_mtx.
+// The lines waiting for the speech thread, under s_mtx.
 std::mutex s_mtx;
 std::condition_variable s_cv;
-std::thread* s_pThread = nullptr;
+std::thread* s_pThread = nullptr;   // the speech thread
 bool s_bQuit = false;
 Job s_queue[kQueue];
 int s_iQueued = 0;
-bool s_bPurge[256]; // a speaker whose playing line is to stop
-std::atomic<bool> s_bBroken(false); // set by the worker once it knows there is no SAPI voice to be had
+std::atomic<int> s_epoch(0);        // raised by Stop
+std::atomic<bool> s_bBroken(false); // set by the speech thread once it knows there is no SAPI voice to be had
+std::atomic<int> s_iEngine(0);      // cl_h9_tts_engine as the game last said it: 0 the system voice only
 
-// The worker's own.
-Slot s_slots[kSlots];
+// The mixer, and the audio thread that plays it, under s_mixMtx.
+std::mutex s_mixMtx;
+std::condition_variable s_mixCv;
+h9tts::Mixer s_mixer;
+std::thread* s_pAudio = nullptr;    // the audio thread
+bool s_bAudioQuit = false;
+
+// The speech thread's own.
 ISpVoice* s_pVoice[2] = { nullptr, nullptr }; // the man's, the woman's
 bool s_bVoiceTried[2] = { false, false };
 bool s_bWomanIsMan = false;                   // no female voice is installed: the woman is the man's, higher
 
-// The voices SAPI has installed, listed once by the worker; a player's cl_h9_tts_voice_* is a place in this list, from 1.
+// The voices SAPI has installed, listed once by the speech thread; a player's cl_h9_tts_voice_* is a place in this list, from 1.
 struct VoiceEntry
 {
 	char name[96];
@@ -562,13 +578,13 @@ short Clip(double v)
 	return (short)v;
 }
 
-// The line as it will be heard: the samples (mono) through the robot filter and the gas mask, multiplied by the volume (under
-// kHeadroom) and put into the ears by the pan (constant power: the two gains are the cosine and sine of an angle). Returns new
-// stereo samples, count frames of them (malloc'd; the caller frees them), or null when there is no memory.
-short* Shape(const short* pcm, int count, const Job& job)
+// The line as it will be mixed: the samples (mono) through the robot filter and the gas mask, scaled down if the peak would pass
+// kLinePeak. Returns new samples (count of them, malloc'd; the caller frees them), or null when there is no memory. The volume and
+// the pan are not applied here: the mixer multiplies them in (Gains).
+short* ShapeMono(const short* pcm, int count, const Job& job)
 {
 	double* x = (double*)malloc((size_t)count * sizeof(double));
-	short* out = (short*)malloc((size_t)count * 4);
+	short* out = (short*)malloc((size_t)count * 2);
 	if (!x || !out)
 	{
 		free(x);
@@ -588,22 +604,33 @@ short* Shape(const short* pcm, int count, const Job& job)
 	if (job.muffled && job.muffle > 0.01f)
 		Mask(x, count, (double)job.muffle);
 
-	double pan = (double)job.pan;
+	double peak = 0.0;
+	for (int i = 0; i < count; i++)
+	{
+		const double a = x[i] < 0.0 ? -x[i] : x[i];
+		if (a > peak)
+			peak = a;
+	}
+	const double scale = peak > kLinePeak ? kLinePeak / peak : 1.0;
+	for (int i = 0; i < count; i++)
+		out[i] = Clip(x[i] * scale);
+	free(x);
+	return out;
+}
+
+// What each ear's samples are multiplied by: the volume (under kHeadroom) and a constant-power pan (the two gains are the cosine and
+// sine of an angle). A line the server marked global has no direction.
+void Gains(const Job& job, float& left, float& right)
+{
+	double pan = job.global ? 0.0 : (double)job.pan;
 	if (pan > 1.0)
 		pan = 1.0;
 	else if (pan < -1.0)
 		pan = -1.0;
 	const double theta = (pan * kPanRange + 1.0) * 3.14159265358979323846 / 4.0;
 	const double gain = (double)job.volume * kHeadroom * kPanGain;
-	const double left = gain * cos(theta);
-	const double right = gain * sin(theta);
-	for (int i = 0; i < count; i++)
-	{
-		out[2 * i] = Clip(x[i] * left);
-		out[2 * i + 1] = Clip(x[i] * right);
-	}
-	free(x);
-	return out;
+	left = (float)(gain * cos(theta));
+	right = (float)(gain * sin(theta));
 }
 
 // How fast the line is played: a Mech's slower and lower, a bot's faster and higher, a woman's with no woman's
@@ -646,71 +673,131 @@ void Resample(short*& pcm, int& count, double speed)
 	count = length;
 }
 
-// ---- the sound card ---------------------------------------------------------------------------------------------
+// ---- the mixer and the sound card -------------------------------------------------------------------------------
 
-// Stops a slot's line, if it has one, and lets go of its device and buffer.
-void StopSlot(Slot& slot)
+// Hands a rendered line (mono samples, taken over) to the mixer and wakes the audio thread. A line rendered before a Stop is let go. A line
+// that is still being made has a stream number and open: the rest of it comes through the mixer's Append.
+void SubmitClip(const Job& job, short* pcm, int frames, int stream = 0, bool open = false)
 {
-	if (!slot.speaker)
-		return;
-	waveOutReset(slot.hwo);
-	waveOutUnprepareHeader(slot.hwo, &slot.hdr, sizeof(WAVEHDR));
-	waveOutClose(slot.hwo);
-	free(slot.pcm);
-	memset(&slot, 0, sizeof(slot));
+	h9tts::Clip clip;
+	memset(&clip, 0, sizeof(clip));
+	clip.speaker = job.speaker;
+	clip.pcm = pcm;
+	clip.frames = frames;
+	Gains(job, clip.gainL, clip.gainR);
+	clip.priority = job.volume;
+	clip.limit = job.maxVoices;
+	clip.arrived = job.arrived;
+	clip.stream = stream;
+	clip.open = open;
+	{
+		std::lock_guard<std::mutex> lock(s_mixMtx);
+		if (job.epoch != s_epoch)
+			free(pcm);
+		else
+			s_mixer.Submit(clip, GetTickCount());
+	}
+	s_mixCv.notify_one();
 }
 
-// Frees the slots whose line has played out.
-void Reap()
-{
-	for (int i = 0; i < kSlots; i++)
-	{
-		if (s_slots[i].speaker && (s_slots[i].hdr.dwFlags & WHDR_DONE))
-			StopSlot(s_slots[i]);
-	}
-}
+std::atomic<int> s_streamCounter(0); // the number each line made in pieces is known by in the mixer
 
-// Plays the samples (stereo, frames of them), taking them over: they are freed with the slot, or here when they cannot be played.
-// His older line goes first. If as many voices as the player allows are playing already, this line takes the place of the
-// quietest one when it is louder (by a fifth, so two equals do not keep cutting each other off), and is not spoken when it is not.
-void Start(const Job& job, short* pcm, int frames)
+void ServeWaiting(int busySpeaker);
+
+// The Kokoro voices hand a line over piece by piece (h9_tts_kokoro.h). A line that comes whole goes to the mixer as a clip of the speaker. A line
+// made in pieces is submitted open with its first piece and given the others through Append, so that it is heard while the rest is made; when
+// the mixer has dropped it (a newer line of the speaker, a stop) the sink says so and the maker stops.
+class MixSink : public h9tts::kokoro::Sink
 {
-	for (int i = 0; i < kSlots; i++)
+public:
+	explicit MixSink(const Job& job) : m_job(job), m_stream(0), m_gone(false) {}
+
+	void Chunk(const int16_t* pcm, int frames, bool first, bool last) override
 	{
-		if (s_slots[i].speaker == job.speaker)
-			StopSlot(s_slots[i]);
-	}
-	int playing = 0;
-	Slot* freeSlot = nullptr;
-	Slot* quietest = nullptr;
-	for (int i = 0; i < kSlots; i++)
-	{
-		if (!s_slots[i].speaker)
+		if (m_gone)
+			return;
+		short* copy = nullptr;
+		if (frames > 0)
 		{
-			if (!freeSlot)
-				freeSlot = &s_slots[i];
-			continue;
+			if (frames < 2)
+				return;
+			copy = (short*)malloc((size_t)frames * 2);
+			if (!copy)
+				return;
+			memcpy(copy, pcm, (size_t)frames * 2);
 		}
-		playing++;
-		if (!quietest || s_slots[i].level < quietest->level)
-			quietest = &s_slots[i];
+		if (first && last)
+		{
+			if (copy)
+				SubmitClip(m_job, copy, frames);
+			return;
+		}
+		if (first)
+		{
+			if (!copy)
+				return;
+			m_stream = ++s_streamCounter;
+			SubmitClip(m_job, copy, frames, m_stream, true);
+			return;
+		}
+		if (m_stream == 0)
+		{
+			free(copy);
+			return;
+		}
+		{
+			std::lock_guard<std::mutex> lock(s_mixMtx);
+			if (m_job.epoch != s_epoch)
+			{
+				free(copy);
+				m_gone = true;
+			}
+			else if (!s_mixer.Append(m_job.speaker, m_stream, copy, frames, last))
+				m_gone = true;
+		}
+		s_mixCv.notify_one();
 	}
-	const int limit = job.maxVoices < 1 ? 1 : (job.maxVoices > kSlots ? kSlots : job.maxVoices);
-	Slot* use = nullptr;
-	if (freeSlot && playing < limit)
+
+	bool Cancelled() override
 	{
-		use = freeSlot;
+		return m_gone || m_job.epoch != s_epoch;
 	}
-	else if (quietest && job.volume > quietest->level * 1.2f)
+
+	void Idle() override
 	{
-		StopSlot(*quietest);
-		use = quietest;
+		ServeWaiting(m_job.speaker);
 	}
-	if (!use)
+
+private:
+	const Job& m_job;
+	int m_stream;
+	bool m_gone;
+};
+
+// Mixes the next block into one of the sound card's buffers and queues it. Returns the voices that were playing at the start of it.
+// quit says the thread was asked to stop.
+int FillBlock(HWAVEOUT hwo, WAVEHDR& header, bool& quit)
+{
+	int sounding;
 	{
-		free(pcm);
-		return;
+		std::lock_guard<std::mutex> lock(s_mixMtx);
+		quit = s_bAudioQuit;
+		sounding = s_mixer.Mix((short*)header.lpData, kBlockFrames, GetTickCount());
 	}
+	if (waveOutWrite(hwo, &header, sizeof(WAVEHDR)) != MMSYSERR_NOERROR)
+		return -1;
+	return sounding;
+}
+
+short s_blocks[kBuffers][kBlockFrames * 2]; // the audio thread's: stereo frames, one block for each buffer
+
+// Opens the sound card and keeps it fed from the mixer until the mixer has been silent for kIdleCloseMs, then lets go of it. False
+// when the card would not open or would not take a block.
+bool PlaySession()
+{
+	HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+	if (!event)
+		return false;
 
 	WAVEFORMATEX format;
 	memset(&format, 0, sizeof(format));
@@ -721,38 +808,125 @@ void Start(const Job& job, short* pcm, int frames)
 	format.nBlockAlign = 4;
 	format.wBitsPerSample = 16;
 
-	memset(use, 0, sizeof(*use));
-	if (waveOutOpen(&use->hwo, WAVE_MAPPER, &format, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR)
+	HWAVEOUT hwo = nullptr;
+	if (waveOutOpen(&hwo, WAVE_MAPPER, &format, (DWORD_PTR)event, 0, CALLBACK_EVENT) != MMSYSERR_NOERROR)
 	{
-		free(pcm);
-		return;
+		CloseHandle(event);
+		return false;
 	}
-	use->hdr.lpData = (LPSTR)pcm;
-	use->hdr.dwBufferLength = (DWORD)frames * 4;
-	if (waveOutPrepareHeader(use->hwo, &use->hdr, sizeof(WAVEHDR)) != MMSYSERR_NOERROR)
+
+	WAVEHDR headers[kBuffers];
+	memset(headers, 0, sizeof(headers));
+	int prepared = 0;
+	for (int i = 0; i < kBuffers; i++)
 	{
-		waveOutClose(use->hwo);
-		free(pcm);
-		memset(use, 0, sizeof(*use));
-		return;
+		headers[i].lpData = (LPSTR)s_blocks[i];
+		headers[i].dwBufferLength = (DWORD)(kBlockFrames * 4);
+		if (waveOutPrepareHeader(hwo, &headers[i], sizeof(WAVEHDR)) != MMSYSERR_NOERROR)
+			break;
+		prepared++;
 	}
-	if (waveOutWrite(use->hwo, &use->hdr, sizeof(WAVEHDR)) != MMSYSERR_NOERROR)
+
+	bool ok = prepared == kBuffers;
+	bool quit = false;
+	DWORD lastSound = GetTickCount();
+	for (int i = 0; ok && i < kBuffers; i++)
 	{
-		waveOutUnprepareHeader(use->hwo, &use->hdr, sizeof(WAVEHDR));
-		waveOutClose(use->hwo);
-		free(pcm);
-		memset(use, 0, sizeof(*use));
-		return;
+		const int sounding = FillBlock(hwo, headers[i], quit);
+		if (sounding < 0)
+			ok = false;
+		else if (sounding > 0)
+			lastSound = GetTickCount();
 	}
-	use->pcm = pcm;
-	use->speaker = job.speaker;
-	use->level = job.volume;
-	use->started = GetTickCount();
+
+	while (ok && !quit)
+	{
+		WaitForSingleObject(event, 20);
+		for (int i = 0; ok && !quit && i < kBuffers; i++)
+		{
+			if (!(headers[i].dwFlags & WHDR_DONE))
+				continue;
+			const int sounding = FillBlock(hwo, headers[i], quit);
+			if (sounding < 0)
+				ok = false;
+			else if (sounding > 0)
+				lastSound = GetTickCount();
+		}
+		if (ok && !quit && (int)(GetTickCount() - lastSound) >= kIdleCloseMs)
+		{
+			std::lock_guard<std::mutex> lock(s_mixMtx);
+			if (s_mixer.Idle())
+				break;
+			lastSound = GetTickCount();
+		}
+	}
+
+	waveOutReset(hwo);
+	for (int i = 0; i < prepared; i++)
+		waveOutUnprepareHeader(hwo, &headers[i], sizeof(WAVEHDR));
+	waveOutClose(hwo);
+	CloseHandle(event);
+	return ok;
 }
 
-// ---- the worker -------------------------------------------------------------------------------------------------
+void AudioMain()
+{
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+	for (;;)
+	{
+		{
+			std::unique_lock<std::mutex> lock(s_mixMtx);
+			s_mixCv.wait(lock, [] { return s_bAudioQuit || !s_mixer.Idle(); });
+			if (s_bAudioQuit)
+				break;
+		}
+		if (!PlaySession())
+		{
+			// no sound card, or one that would not take a block: what waits is let go, and the next line tries the card again
+			std::unique_lock<std::mutex> lock(s_mixMtx);
+			s_mixer.Clear();
+			s_mixCv.wait_for(lock, std::chrono::milliseconds(kRetryMs), [] { return s_bAudioQuit; });
+		}
+	}
+}
 
-void SpeakJob(const Job& job)
+// ---- the speech thread ------------------------------------------------------------------------------------------
+
+// The Kokoro line a job is.
+void LineOf(const Job& job, h9tts::kokoro::Line& line, bool packOnly)
+{
+	memset(&line, 0, sizeof(line));
+	line.packOnly = packOnly;
+	line.voice = job.voice;
+	line.droid = job.droid;
+	line.variant = job.variant;
+	line.depth = job.depth;
+	line.muffled = job.muffled;
+	line.muffle = job.muffle;
+	line.robot = job.robot;
+	line.engine = job.engine;
+	line.threads = job.threads;
+	line.arrived = job.arrived;
+	line.text = job.text;
+}
+
+// A line for the Kokoro voices, when the player has them on. True when it is dealt with: spoken, cancelled, or dropped because the
+// player wants Kokoro only. False leaves it to the system voice (cl_h9_tts_engine auto, and Kokoro cannot give this line now).
+bool SpeakKokoro(const Job& job, bool packOnly = false)
+{
+	if (job.engine == h9tts::kokoro::kEngineSystem)
+		return false;
+	h9tts::kokoro::Line line;
+	LineOf(job, line, packOnly);
+	MixSink sink(job);
+	const h9tts::kokoro::Outcome r = h9tts::kokoro::Speak(line, sink);
+	if (r == h9tts::kokoro::kSpoken || r == h9tts::kokoro::kCancelled)
+		return true;
+	return job.engine == h9tts::kokoro::kEngineKokoro;
+}
+
+// The line by the system voice.
+void SpeakSystem(const Job& job)
 {
 	short* pcm = nullptr;
 	int count = 0;
@@ -767,85 +941,119 @@ void SpeakJob(const Job& job)
 	const double speed = PlaybackSpeed(job.voice) * pow(kDepthStep, (double)job.depth);
 	if (speed < 0.999 || speed > 1.001)
 		Resample(pcm, count, speed);
-	short* stereo = Shape(pcm, count, job);
+	short* mono = ShapeMono(pcm, count, job);
 	free(pcm);
-	if (!stereo)
+	if (!mono)
 		return;
-	Start(job, stereo, count);
+	SubmitClip(job, mono, count);
+}
+
+void SpeakJob(const Job& job)
+{
+	if (SpeakKokoro(job))
+		return;
+	SpeakSystem(job);
+}
+
+// The speech thread makes one line at a time, and a line the Kokoro helper is making takes seconds. While it waits for the helper's next piece it
+// looks at the lines that wait behind it: a line of the pack is played at once, and a line that has nearly used up the time it may take to start
+// (cl_h9_tts_engine auto) is given to the system voice now, not when the helper is done. One line a time, and none of the speaker whose line is being
+// made: a speaker's lines follow one another. kServeAfterMs leaves the system voice's render (0.1 to 0.3 s) inside the start budget.
+const int kServeAfterMs = h9tts::kokoro::kStartBudgetMs - 700;
+
+void ServeWaiting(int busySpeaker)
+{
+	Job job;
+	bool pack = false, found = false;
+	{
+		std::lock_guard<std::mutex> lock(s_mtx);
+		const unsigned now = GetTickCount();
+		for (int i = 0; i < s_iQueued && !found; i++)
+		{
+			Job& q = s_queue[i];
+			if (q.speaker == busySpeaker || q.epoch != s_epoch || q.engine == h9tts::kokoro::kEngineSystem)
+				continue;
+			const int age = (int)(now - q.arrived);
+			if (age > kJobMaxAgeMs)
+				continue;
+			if (q.inPack == 0)
+			{
+				h9tts::kokoro::Line line;
+				LineOf(q, line, true);
+				q.inPack = h9tts::kokoro::InPack(line) ? 1 : 2;
+			}
+			pack = q.inPack == 1;
+			if (!pack && !(q.engine == h9tts::kokoro::kEngineAuto && age >= kServeAfterMs))
+				continue;
+			job = q;
+			memmove(&s_queue[i], &s_queue[i + 1], sizeof(Job) * (size_t)(s_iQueued - 1 - i));
+			s_iQueued--;
+			found = true;
+		}
+	}
+	if (!found)
+		return;
+	if (pack)
+	{
+		SpeakKokoro(job, true);
+		return;
+	}
+	SpeakSystem(job);
+	h9tts::kokoro::NoteSystemVoice();
 }
 
 void WorkerMain()
 {
-	if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)))
-	{
+	// The Kokoro voices need no COM: their data is read first, a few small files, so that it is known soon whether they can speak.
+	h9tts::kokoro::Init(kRate);
+
+	// Without COM there is no SAPI, but a line the Kokoro voices can give is still spoken.
+	const bool com = SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED));
+	if (com)
+		ListVoices();
+	else
 		s_bBroken = true;
-		return;
-	}
-	memset(s_slots, 0, sizeof(s_slots));
-	ListVoices();
 
 	for (;;)
 	{
 		Job job;
-		bool have = false;
-		bool purge[256];
 		{
 			std::unique_lock<std::mutex> lock(s_mtx);
-			bool playing = false;
-			for (int i = 0; i < kSlots; i++)
-			{
-				if (s_slots[i].speaker)
-					playing = true;
-			}
-			if (playing)
-				s_cv.wait_for(lock, std::chrono::milliseconds(30));
-			else
-				s_cv.wait(lock, [] { return s_bQuit || s_iQueued > 0; });
+			s_cv.wait(lock, [] { return s_bQuit || s_iQueued > 0; });
 			if (s_bQuit)
 				break;
-
-			memcpy(purge, s_bPurge, sizeof(purge));
-			memset(s_bPurge, 0, sizeof(s_bPurge));
-			if (s_iQueued > 0)
-			{
-				job = s_queue[0];
-				memmove(&s_queue[0], &s_queue[1], sizeof(Job) * (size_t)(s_iQueued - 1));
-				s_iQueued--;
-				have = true;
-			}
+			job = s_queue[0];
+			memmove(&s_queue[0], &s_queue[1], sizeof(Job) * (size_t)(s_iQueued - 1));
+			s_iQueued--;
 		}
+		// a line that waited too long for its turn, or that a Stop has overtaken, is not spoken
+		if (job.epoch != s_epoch || (int)(GetTickCount() - job.arrived) > kJobMaxAgeMs)
+			continue;
+		SpeakJob(job);
+	}
 
-		for (int i = 0; i < kSlots; i++)
+	if (com)
+	{
+		if (s_pVoice[1] && s_pVoice[1] != s_pVoice[0])
+			s_pVoice[1]->Release();
+		if (s_pVoice[0])
+			s_pVoice[0]->Release();
+		s_pVoice[0] = s_pVoice[1] = nullptr;
+		for (int i = 0; i < kMaxVoices; i++)
 		{
-			if (s_slots[i].speaker && purge[s_slots[i].speaker & 255])
-				StopSlot(s_slots[i]);
+			if (s_pTokenVoice[i])
+				s_pTokenVoice[i]->Release();
+			s_pTokenVoice[i] = nullptr;
 		}
-		Reap();
-		if (have)
-			SpeakJob(job);
+		for (int i = 0; i < s_nVoices; i++)
+		{
+			if (s_voices[i].token)
+				s_voices[i].token->Release();
+			s_voices[i].token = nullptr;
+		}
+		s_nVoices = 0;
+		CoUninitialize();
 	}
-
-	for (int i = 0; i < kSlots; i++)
-		StopSlot(s_slots[i]);
-	if (s_pVoice[1] && s_pVoice[1] != s_pVoice[0])
-		s_pVoice[1]->Release();
-	if (s_pVoice[0])
-		s_pVoice[0]->Release();
-	s_pVoice[0] = s_pVoice[1] = nullptr;
-	for (int i = 0; i < kMaxVoices; i++)
-	{
-		if (s_pTokenVoice[i])
-			s_pTokenVoice[i]->Release();
-		s_pTokenVoice[i] = nullptr;
-	}
-	for (int i = 0; i < s_nVoices; i++)
-	{
-		if (s_voices[i].token)
-			s_voices[i].token->Release();
-		s_voices[i].token = nullptr;
-	}
-	s_nVoices = 0;
-	CoUninitialize();
 }
 } // namespace
 
@@ -859,16 +1067,27 @@ bool H9TtsPlat_Init()
 		std::lock_guard<std::mutex> lock(s_mtx);
 		s_bQuit = false;
 		s_iQueued = 0;
-		memset(s_bPurge, 0, sizeof(s_bPurge));
+	}
+	{
+		std::lock_guard<std::mutex> lock(s_mixMtx);
+		s_bAudioQuit = false;
+		s_mixer.Clear();
 	}
 	s_bBroken = false;
 	s_pThread = new std::thread(WorkerMain);
+	s_pAudio = new std::thread(AudioMain);
 	return true;
+}
+
+// Whether a line can be spoken now: by SAPI, or by the Kokoro voices when the player has them on and they have their data.
+static bool CanSpeak()
+{
+	return s_pThread != nullptr && (!s_bBroken || (s_iEngine != 0 && h9tts::kokoro::Usable()));
 }
 
 bool H9TtsPlat_Available()
 {
-	return s_pThread != nullptr && !s_bBroken;
+	return CanSpeak();
 }
 
 void H9TtsPlat_Shutdown()
@@ -879,10 +1098,21 @@ void H9TtsPlat_Shutdown()
 		std::lock_guard<std::mutex> lock(s_mtx);
 		s_bQuit = true;
 	}
+	{
+		std::lock_guard<std::mutex> lock(s_mixMtx);
+		s_bAudioQuit = true;
+	}
 	s_cv.notify_all();
+	s_mixCv.notify_all();
 	s_pThread->join();
 	delete s_pThread;
 	s_pThread = nullptr;
+	s_pAudio->join();
+	delete s_pAudio;
+	s_pAudio = nullptr;
+	h9tts::kokoro::Shutdown();
+	std::lock_guard<std::mutex> lock(s_mixMtx);
+	s_mixer.Clear();
 }
 
 int H9TtsPlat_VoiceCount()
@@ -905,12 +1135,12 @@ void H9TtsPlat_Speak(const H9TtsLine& line)
 {
 	const int speaker = line.speaker;
 	const char* text = line.text;
-	if (!s_pThread || s_bBroken || !text || !text[0] || speaker < 1 || speaker > 255)
+	if (!CanSpeak() || !text || !text[0] || speaker < 1 || speaker > 255)
 		return;
 	{
 		std::lock_guard<std::mutex> lock(s_mtx);
 
-		// his older line, if it is still waiting, goes
+		// a newer line of his replaces his older one that still waits for the speech thread (a line of his that is playing is left to finish)
 		int keep = 0;
 		for (int i = 0; i < s_iQueued; i++)
 		{
@@ -918,10 +1148,18 @@ void H9TtsPlat_Speak(const H9TtsLine& line)
 				s_queue[keep++] = s_queue[i];
 		}
 		s_iQueued = keep;
-		// a full queue gives up its oldest line
+		// a full queue gives up its quietest line, the oldest of equals, which was never heard: or this one, if it is the quietest
 		if (s_iQueued == kQueue)
 		{
-			memmove(&s_queue[0], &s_queue[1], sizeof(Job) * (size_t)(kQueue - 1));
+			int victim = 0;
+			for (int i = 1; i < s_iQueued; i++)
+			{
+				if (s_queue[i].volume < s_queue[victim].volume)
+					victim = i;
+			}
+			if (line.volume < s_queue[victim].volume)
+				return;
+			memmove(&s_queue[victim], &s_queue[victim + 1], sizeof(Job) * (size_t)(kQueue - 1 - victim));
 			s_iQueued--;
 		}
 
@@ -930,10 +1168,17 @@ void H9TtsPlat_Speak(const H9TtsLine& line)
 		job.voice = line.voice;
 		job.muffled = line.muffled;
 		job.robot = line.robot && (line.voice == H9TTS_VOICE_MECH || line.voice == H9TTS_VOICE_BOT);
+		job.global = line.global;
 		job.choice = (line.choice >= 1 && line.choice <= kMaxVoices) ? line.choice : 0;
 		job.variant = line.variant > 0 ? line.variant : 0;
 		job.depth = line.depth < -H9TTS_DEPTH_MAX ? -H9TTS_DEPTH_MAX : (line.depth > H9TTS_DEPTH_MAX ? H9TTS_DEPTH_MAX : line.depth);
 		job.maxVoices = line.maxVoices;
+		job.droid = line.droid;
+		job.engine = line.engine < 0 ? 0 : (line.engine > 2 ? 2 : line.engine);
+		job.threads = line.threads;
+		job.epoch = s_epoch;
+		job.arrived = GetTickCount();
+		job.inPack = 0;
 		job.muffle = line.muffle;
 		job.pan = line.pan;
 		job.volume = line.volume;
@@ -941,11 +1186,43 @@ void H9TtsPlat_Speak(const H9TtsLine& line)
 		for (; text[n] && n < kTextBytes - 1; n++)
 			job.text[n] = text[n];
 		job.text[n] = 0;
-
-		// and the one of his that is playing stops at once
-		s_bPurge[speaker] = true;
 	}
 	s_cv.notify_one();
+}
+
+void H9TtsPlat_Stop()
+{
+	if (!s_pThread)
+		return;
+	{
+		std::lock_guard<std::mutex> lock(s_mtx);
+		s_iQueued = 0;
+		s_epoch++;
+	}
+	std::lock_guard<std::mutex> lock(s_mixMtx);
+	s_mixer.StopAll();
+}
+
+void H9TtsPlat_KokoroStart(int engine, int threads, bool wanted)
+{
+	s_iEngine = engine < 0 ? 0 : (engine > 2 ? 2 : engine);
+	if (s_iEngine != 0 && wanted && s_pThread)
+		h9tts::kokoro::Start(threads);
+}
+
+void H9TtsPlat_KokoroFrame(double dt)
+{
+	h9tts::kokoro::Frame(dt);
+}
+
+int H9TtsPlat_KokoroState(char* out, int size)
+{
+	return h9tts::kokoro::Describe(out, size);
+}
+
+void H9TtsPlat_KokoroReload()
+{
+	h9tts::kokoro::Reload();
 }
 
 #endif // _WIN32 && !__EMSCRIPTEN__

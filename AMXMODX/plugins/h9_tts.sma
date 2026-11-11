@@ -9,12 +9,22 @@
  *   byte    the speaker's slot
  *   byte    the voice: 0 a man, 1 a woman, 2 a Mech, 3 a bot
  *   byte    the volume, 0 to 100: full within a quarter of h9_tts_range, fading to nothing at the range
- *   byte    flags: bit 0 (1) says a gas mask muffles the voice
+ *   byte    flags: bit 0 (1) says a gas mask muffles the voice; bit 2 (4) says the line is global
  *   string  the words, at most h9_tts_maxchars of them
+ *   byte    the variant the speaker asked others to hear him with   } the tail: a game that does not know
+ *   char    the depth he asked for                                  } it reads the message as it was
+ *   char    the pan: where he is in the listener's ears             }
+ *   byte    1 when the bot voice is a droid's (a model with droid in its name); only the Kokoro voices tell a droid from a bot
  *
  * A LISTENER is a living human whose game says it can speak: the userinfo key _h9tts is 1 (H9's client
  * sets it while cl_h9_tts is 1 and the machine has a voice). A game without the key is sent nothing.
  * Walls do not matter, distance does. say_team is heard by the speaker's team only.
+ *
+ * GLOBAL (h9_tts_global 1): a line is heard by every human whose game speaks, wherever he is and alive or not, at full volume
+ * and from no direction (flag bit 2 says so). It changes whom the SPEECH is sent to and nothing about the chat text, and
+ * never to more players than the text reaches: say_team stays with the speaker's team, the speaker's own rules (alive, not
+ * muted, drawn, not a command) hold, and a roleplay map keeps its talk area (ARP_TalkArea decides who sees a line there,
+ * after this plugin has run), so global does nothing on one.
  *
  * THE VOICE comes from the speaker's model name alone (the userinfo key "model"), never from a match
  * mode, a class or a perk, so it is the same on a plain TS server: a name with "mech" or "ed209" in it
@@ -30,7 +40,7 @@
 #include <h9_community>
 
 #define PLUGIN  "H9 Text To Speech"
-#define VERSION "1.0"
+#define VERSION "1.2"
 #define AUTHOR  "H9"
 
 // The voices of the H9Tts message, and its flags.
@@ -39,6 +49,8 @@
 #define TTS_MECH       2
 #define TTS_BOT        3
 #define TTS_F_MUFFLED  1
+#define TTS_F_GLOBAL   4        // bit 1 (2) is the hello message's
+#define TTS_F_DROID    128      // not sent: voice_of says the bot is a droid (the tail byte)
 
 #define TTS_EF_NODRAW  128      // From the HL SDK.
 #define TTS_RAW_LEN    192      // what is read of a line
@@ -46,16 +58,18 @@
 #define TTS_CUT_BACK   12       // a cut line is taken back to a space this near the end
 #define TTS_MASK_FILE  "h9_tts_gasmask.cfg"
 #define TTS_MASK_PREFIXES 24    // the most name starts (repuheavy*) the mask list may hold
-#define TTS_LISTENER_GAP 0.3    // seconds between two lines sent to one listener, from all speakers together
+#define TTS_LISTENER_GAP 0.3    // seconds that give a listener one more line to be sent, from all speakers together
+#define TTS_LISTENER_BURST 4    // lines a listener may be sent at once before that rate holds
 #define TTS_VARIANT_MAX 99      // the highest voice variant a speaker may ask for
 #define TTS_DEPTH_MAX  10       // how far, either way, a speaker may move his voice
 
 new const g_mech_words[][]  = { "mech", "ed209" };
 new const g_bot_words[][]   = { "droid", "robo", "_bot" };
+new const g_droid_words[][] = { "droid" };
 new const g_woman_words[][] = { "fem", "woman", "women", "girl", "lady" };
 
 new g_msg;                              // the H9Tts user message
-new g_cv_on, g_cv_range, g_cv_maxchars, g_cv_gap, g_cv_self;
+new g_cv_on, g_cv_range, g_cv_maxchars, g_cv_gap, g_cv_self, g_cv_global;
 new Float:g_last[MAX_PLAYERS + 1];      // when each player was last spoken
 new Trie:g_masked;                      // the gas-masked model names, lower case
 new Trie:g_unmasked;                    // the models the mask list takes out again (a line !name)
@@ -63,7 +77,9 @@ new g_mask_prefix[TTS_MASK_PREFIXES][32]; // the starts of model names that are 
 new g_mask_prefixes;
 new g_pref_variant[MAX_PLAYERS + 1];    // the voice variant each speaker asked others to hear him with (h9_ttsvoice); 0 leaves it to them
 new g_pref_depth[MAX_PLAYERS + 1];      // how deep (below 0) or high (above 0) each speaker asked to sound
-new Float:g_heard_at[MAX_PLAYERS + 1];  // when each listener was last sent a line
+new Float:g_credit[MAX_PLAYERS + 1];    // lines each listener may still be sent at once (up to TTS_LISTENER_BURST); one comes back every TTS_LISTENER_GAP
+new Float:g_credit_at[MAX_PLAYERS + 1]; // when g_credit was last worked out
+new bool:g_roleplay;                    // this map is a roleplay map (roleplay_map), where the talk area decides who hears
 new bool:g_have_presence = true;        // h9_presence's natives are bound (native_filter)
 new g_maxplayers;
 
@@ -110,6 +126,9 @@ public plugin_init()
 	g_cv_gap      = register_cvar("h9_tts_gap", "1.5");
 	// 1: the speaker hears his own line too, which is how one player alone can tell it works. 0: only the others.
 	g_cv_self     = register_cvar("h9_tts_self", "1");
+	// 1: a line is heard by every human with text to speech, wherever he is, at full volume and from no direction (never by more than
+	// the text reaches: say_team stays with the speaker's team, and a roleplay map keeps its talk area). 0: the players within the range.
+	g_cv_global   = register_cvar("h9_tts_global", "0", FCVAR_SERVER);
 
 	register_clcmd("say",      "cmd_say");
 	register_clcmd("say_team", "cmd_say");
@@ -120,8 +139,18 @@ public plugin_init()
 	// From a player's game: how he asks others to hear him (cl_h9_tts_myvoice and cl_h9_tts_mydepth, sent as the game starts and when they change).
 	register_clcmd("h9_ttsvoice",    "cmd_ttsvoice", ADMIN_ALL, "[variant 0-99] [depth -10..10] - the voice others hear you with");
 
+	new map[64];
+	get_mapname(map, charsmax(map));
+	g_roleplay = roleplay_map(map);
+
 	g_masked = TrieCreate();
 	g_unmasked = TrieCreate();
+}
+
+/// A roleplay map by its name: rp_ or tsrp_ at the start, or _rp_ or _tsrp_ anywhere in it (the rule ts_matchmode and ARP_Core use).
+bool:roleplay_map(const name[])
+{
+	return equali(name, "rp_", 3) || equali(name, "tsrp_", 5) || containi(name, "_rp_") != -1 || containi(name, "_tsrp_") != -1;
 }
 
 public plugin_cfg()
@@ -143,7 +172,8 @@ public client_putinserver(id)
 	if (id >= 1 && id <= MAX_PLAYERS)
 	{
 		g_last[id] = 0.0;
-		g_heard_at[id] = 0.0;
+		g_credit[id] = float(TTS_LISTENER_BURST);
+		g_credit_at[id] = 0.0;
 		g_pref_variant[id] = 0;
 		g_pref_depth[id] = 0;
 		// a few seconds on, when the game is up, it is asked for its voice picks (h9_ttsvoice)
@@ -341,9 +371,18 @@ public cmd_tts(id)
 	new vflags, model[40];
 	new vkind = voice_of(id, vflags);
 	get_user_info(id, "model", model, charsmax(model));
-	console_print(id, "[TTS] Your model %s speaks with %s voice%s (variant %d, depth %d).", model, kinds[vkind],
+	console_print(id, "[TTS] Your model %s speaks with %s voice%s (variant %d, depth %d).", model, (vflags & TTS_F_DROID) ? "a droid's" : kinds[vkind],
 		(vflags & TTS_F_MUFFLED) ? ", muffled by a gas mask" : ", not muffled (the model is not on h9_tts_gasmask.cfg)", g_pref_variant[id], g_pref_depth[id]);
-	console_print(id, "[TTS] You hear your own lines: %s (h9_tts_self %d). A line is spoken to living players within %d units.", get_pcvar_num(g_cv_self) ? "yes" : "no", get_pcvar_num(g_cv_self), get_pcvar_num(g_cv_range));
+	console_print(id, "[TTS] You hear your own lines: %s (h9_tts_self %d).", get_pcvar_num(g_cv_self) ? "yes" : "no", get_pcvar_num(g_cv_self));
+	if (get_pcvar_num(g_cv_global) && !g_roleplay)
+	{
+		console_print(id, "[TTS] Global (h9_tts_global 1): a line is spoken to every player with text to speech, wherever he is, at full volume (say_team: his team).");
+	}
+	else
+	{
+		console_print(id, "[TTS] A line is spoken to living players within %d units of the speaker%s.", get_pcvar_num(g_cv_range),
+			(get_pcvar_num(g_cv_global) && g_roleplay) ? " (h9_tts_global is 1, but on a roleplay map the talk area decides, so it does nothing here)" : "");
+	}
 	return PLUGIN_HANDLED;
 }
 
@@ -504,6 +543,10 @@ voice_of(id, &flags)
 	else if (has_word(key, g_bot_words, sizeof g_bot_words))
 	{
 		voice = TTS_BOT;
+		if (has_word(key, g_droid_words, sizeof g_droid_words))
+		{
+			flags |= TTS_F_DROID;
+		}
 	}
 	else if (has_word(key, g_woman_words, sizeof g_woman_words))
 	{
@@ -552,18 +595,53 @@ bool:hears(id)
 	return v[0] == '1';
 }
 
-/// Sends the line to every listener within h9_tts_range of the speaker: full volume within a quarter of
-/// it, fading to nothing at the range. Reliable, because on a big map the engine drops an unreliable message
-/// together with the datagram it cannot fit ("Datagram overflowed" in ts\logs\h9_overflow.log), and every
-/// message a roleplay map sends ends up there; the reliable channel is spared by sending a listener at most one
-/// line every TTS_LISTENER_GAP seconds from all speakers together. After the words come the speaker's
-/// variant and depth (h9_ttsvoice) and where he is in the listener's ears (the pan), which a game that does not
-/// know them leaves unread. Begun with fakemeta's
+/// Whether this listener may be sent another line now, and takes one of his credits when he may: he may be sent
+/// TTS_LISTENER_BURST lines at once, then one every TTS_LISTENER_GAP seconds, from all speakers together. Speakers
+/// that talk at the same moment are all heard (up to the burst); the reliable channel is spared on a busy server.
+bool:listener_credit(p, Float:now)
+{
+	new Float:since = now - g_credit_at[p];
+	if (since < 0.0)
+	{
+		since = 0.0;
+	}
+	new Float:credit = g_credit[p] + since / TTS_LISTENER_GAP;
+	if (credit > float(TTS_LISTENER_BURST))
+	{
+		credit = float(TTS_LISTENER_BURST);
+	}
+	g_credit_at[p] = now;
+	if (credit < 1.0)
+	{
+		g_credit[p] = credit;
+		return false;
+	}
+	g_credit[p] = credit - 1.0;
+	return true;
+}
+
+/// Sends the line to its listeners. Local (h9_tts_global 0): the living humans within h9_tts_range of the speaker, at full
+/// volume within a quarter of it and fading to nothing at the range, placed in their ears by where the speaker is. Global
+/// (h9_tts_global 1, and not a roleplay map): every connected human whose game speaks, wherever he is, alive or not, at full
+/// volume and from no direction, flagged TTS_F_GLOBAL; a roleplay map is left out because ARP_TalkArea decides who sees a
+/// line there and global must not reach further than the text. For say_team only a player of the speaker's team, in both.
+/// Reliable, because on a big map the engine drops an unreliable message together with the datagram it cannot fit
+/// ("Datagram overflowed" in ts\logs\h9_overflow.log), and every message a roleplay map sends ends up there; the reliable
+/// channel is spared by listener_credit. After the words come the speaker's variant and depth (h9_ttsvoice) and where he is in
+/// the listener's ears (the pan), which a game that does not know them leaves unread. Begun with fakemeta's
 /// EngFunc_MessageBegin, as every plugin message is (Metamod-R records only the game DLL's own).
 speak_near(id, const text[], bool:team_only)
 {
 	new flags;
 	new voice = voice_of(id, flags);
+	new detail = (flags & TTS_F_DROID) ? 1 : 0;
+	flags &= ~TTS_F_DROID;
+
+	new bool:global = get_pcvar_num(g_cv_global) != 0 && !g_roleplay;
+	if (global)
+	{
+		flags |= TTS_F_GLOBAL;
+	}
 
 	new Float:range = get_pcvar_float(g_cv_range);
 	if (range < 50.0)
@@ -578,7 +656,11 @@ speak_near(id, const text[], bool:team_only)
 
 	for (new p = 1; p <= g_maxplayers; p++)
 	{
-		if ((p == id && !get_pcvar_num(g_cv_self)) || !is_user_alive(p) || is_user_bot(p))
+		if ((p == id && !get_pcvar_num(g_cv_self)) || !is_user_connected(p) || is_user_bot(p))
+		{
+			continue;
+		}
+		if (!global && !is_user_alive(p))
 		{
 			continue;
 		}
@@ -591,36 +673,36 @@ speak_near(id, const text[], bool:team_only)
 			continue;
 		}
 
-		pev(p, pev_origin, there);
-		new Float:dist = get_distance_f(org, there);
-		if (dist >= range)
-		{
-			continue;
-		}
-		new Float:now = get_gametime();
-		if (now - g_heard_at[p] < TTS_LISTENER_GAP)
-		{
-			continue;
-		}
 		new vol = 100;
-		if (dist > close)
+		new pan = 0;
+		if (!global)
 		{
-			vol = floatround(100.0 * (1.0 - (dist - close) / (range - close)));
+			pev(p, pev_origin, there);
+			new Float:dist = get_distance_f(org, there);
+			if (dist >= range)
+			{
+				continue;
+			}
+			if (dist > close)
+			{
+				vol = floatround(100.0 * (1.0 - (dist - close) / (range - close)));
+			}
+			if (vol < 4)
+			{
+				continue;
+			}
+			if (p != id)
+			{
+				new Float:view[3];
+				pev(p, pev_v_angle, view);
+				pan = pan_of(org, there, view, dist);
+			}
 		}
-		if (vol < 4)
+
+		if (!listener_credit(p, get_gametime()))
 		{
 			continue;
 		}
-
-		new pan = 0;
-		if (p != id)
-		{
-			new Float:view[3];
-			pev(p, pev_v_angle, view);
-			pan = pan_of(org, there, view, dist);
-		}
-
-		g_heard_at[p] = now;
 		engfunc(EngFunc_MessageBegin, MSG_ONE, g_msg, Float:{0.0, 0.0, 0.0}, p);
 		write_byte(id);
 		write_byte(voice);
@@ -630,6 +712,7 @@ speak_near(id, const text[], bool:team_only)
 		write_byte(g_pref_variant[id]);
 		write_char(g_pref_depth[id]);
 		write_char(pan);
+		write_byte(detail);
 		message_end();
 	}
 }

@@ -9,14 +9,18 @@
    * What it is: when a player types in chat (say or say_team), the players
      near him HEAR it, at once, in a voice for his model: a man's, a woman's,
      a Mech's or a bot's, quieter the farther away he is, and muffled when his
-     model wears a gas mask. It is not voice chat: no sound travels on the
-     network, only the text the chat already shows. Each listener's own
-     machine speaks it, with the voices installed on that machine.
+     model wears a gas mask. With h9_tts_global 1 every player who has text to
+     speech hears it instead, wherever he is, at full volume (section 2). It is
+     not voice chat: no sound travels on the network, only the text the chat
+     already shows. Each listener's own machine speaks it, with the voices
+     installed on that machine, and speakers who talk at the same moment are
+     heard together, mixed (section 5).
    * It is off. A server turns it on with h9_texttospeech 1 (default 0).
    * It needs H9's client.dll or the H9 web client (Windows SAPI on a native
-     game, the browser's speech synthesis in the web client). A game without
-     it is sent nothing and notices nothing. A player turns it off for
-     himself with cl_h9_tts 0.
+     game, the browser's speech synthesis in the web client; a native game
+     can also use the Kokoro neural voices, which each player turns on for
+     himself, section 3e). A game without it is sent nothing and notices
+     nothing. A player turns it off for himself with cl_h9_tts 0.
    * The server is h9_tts.amxx; its settings are configs\h9_tts.cfg and the
      list of gas-masked models configs\h9_tts_gasmask.cfg. COMMANDS.txt has the
      cvars (TEXT TO SPEECH); this file is the rest.
@@ -46,10 +50,15 @@
        h9_tts_self       1     1: the speaker hears his own line too, so one
                                player alone can tell it works. 0: only the
                                others hear it
+       h9_tts_global     0     1: a line is heard by every player with text to
+                               speech, wherever he is, at full volume and from
+                               no direction; never by more players than the
+                               text reaches (section 2). 0: only the players
+                               within h9_tts_range
 
-     The first line is commented out in the shipped file; remove the // or put
-     the cvar in server.cfg. A change of h9_texttospeech takes effect with
-     the next line anyone says, no restart.
+     The first and the last line are commented out in the shipped file; remove
+     the // or put the cvar in server.cfg. A change of h9_texttospeech or
+     h9_tts_global takes effect with the next line anyone says, no restart.
 
      From a player's console, h9_texttospeech (or h9_tts) prints the state: the
      server's switch, whether this game can speak (_h9tts) and whether he hears
@@ -71,15 +80,41 @@
    character. One line per h9_tts_gap seconds counts; the ones in between are
    only written.
 
-   A listener: a living human whose game says it speaks (the userinfo key
-   _h9tts is 1), within h9_tts_range units of the speaker, who is himself one
-   while h9_tts_self is 1,
-   walls or no walls. For say_team, only a player of the speaker's team
-   (get_user_team). The volume sent is 100 within a quarter of the range
-   (200 units at 800) and falls in a straight line to 0 at the range; under
-   4 is not sent. A listener is sent one line every 0.3 s at the most, from
-   all speakers together (the reliable channel is spared; the client then
-   plays the nearest voices first, section 5).
+   A listener, with h9_tts_global 0: a living human whose game says it speaks
+   (the userinfo key _h9tts is 1), within h9_tts_range units of the speaker,
+   who is himself one while h9_tts_self is 1, walls or no walls. For
+   say_team, only a player of the speaker's team (get_user_team). The volume
+   sent is 100 within a quarter of the range (200 units at 800) and falls in a
+   straight line to 0 at the range; under 4 is not sent. A listener is sent up
+   to 4 lines at once and then one every 0.3 s, from all speakers together
+   (the reliable channel is spared), so speakers who talk at the same moment
+   are all heard.
+
+   With h9_tts_global 1 the speaker's rules above are the same and the
+   listener is every connected human whose game speaks, wherever he is, the
+   speaker too while h9_tts_self is 1. The line goes out at volume 100, pan 0
+   and flag bit 2 (section 4), so it is heard at full volume from no direction.
+   It changes whom the SPEECH is sent to and nothing about the chat text. Case
+   by case:
+
+       a line from ...                      with h9_tts_global 1
+       say                                  every human with _h9tts 1, alive or not
+       say_team                             only the speaker's team (the text goes no further), alive or not
+       a dead, hidden or muted speaker      not spoken, as with global 0
+       a gagged player                      not spoken: the line never reaches the plugin (plugins.ini order)
+       a command (. / ! @), or no words     not spoken, as with global 0
+       a listener with cl_h9_tts 0          nothing is sent to him: his own switch decides
+       any line on a roleplay map           global 0 applies: the talk area decides (below)
+
+   A roleplay map is one whose name starts rp_ or tsrp_ or has _rp_ or _tsrp_
+   in it (the rule ts_matchmode and ARP_Core use). There ARP_TalkArea answers
+   every line after this plugin has run and shows it only to the living
+   players within its talk range (300 units, times arp_message_range, and 450
+   for a line that ends with !; a plain line said on the phone goes to the
+   other end only), so a global line could only reach further than the text.
+   On a roleplay map h9_tts_global therefore does nothing and the range rule
+   above applies, as before. A line that starts with / (/shout, /w, /ooc, /me,
+   /com, //) is a command and is never spoken, on any map.
 
    Match mode, classes, perks and teams of the match play no part: the plugin
    uses no tsm_ native. It behaves the same on a plain TS server.
@@ -100,7 +135,9 @@
    woman's the 32 with fem in the name (fem_nh_*, bfem_nh_*, prole_fem,
    prole_bfem, ins_prole_fem, ins_medic_fem, ins_medic_bfem, repuheavy_fem*,
    repuheavy_bfem_*, ...); the rest, 111, a man's. The tables are at the top
-   of h9_tts.sma.
+   of h9_tts.sma. A model with droid in its name is a bot's voice for every
+   engine; the server also sends it as a droid (section 4) so that the Kokoro
+   voices (3e) can speak it with the droid sound they have.
 
    What each platform does with it:
 
@@ -204,8 +241,9 @@
        cl_h9_tts_volume 1          how loud (0 to 2)
        cl_h9_tts_muffle 1          how strongly a gas mask muffles (0 off, 2 heavy; 3a)
        cl_h9_tts_pan 1             1 puts each voice in the ear it comes from (Windows, stereo); 0 plays them in the middle
-       cl_h9_tts_maxvoices 2       how many voices at once (1 to 3). When that many are playing, a voice louder than the
-                                   quietest by a fifth (the nearer speaker) takes its place and a quieter one is not spoken
+       cl_h9_tts_maxvoices 4       how many voices speak at once (1 to 8). A line that comes when that many are playing waits for
+                                   a voice (section 5) and no line that is playing is cut off. The value is saved with the
+                                   player's config, so a player keeps what he has whatever the default is
        cl_h9_tts_individual 1      a speaker who asked for no voice of his own gets one from his slot: the n-th voice of his
                                    kind and a small step off its pitch, so a room of players does not all sound alike (0: all alike)
 
@@ -238,8 +276,298 @@
                license before installing it. Other SAPI 5 voices (commercial or free) work the same way.
      browser   Edge offers "Microsoft ... Online (Natural)" voices to a page, Chrome the Google ones; the web client
                prefers a Natural or Neural name, then a local voice, in the page's language.
-     later     a voice H9 ships itself (a small neural model such as Piper's, run by a helper process) would need its own
-               license check and a few tens of megabytes per voice; it is not done.
+     Kokoro    a neural voice H9 ships itself, run by a helper process, that each player turns on with cl_h9_tts_engine
+               (section 3e). It is not a SAPI voice and is not picked from cl_h9_tts_voices.
+
+ 3e. THE KOKORO VOICES (Windows, optional, off by default)
+ ---------------------------------------------------------
+
+   Kokoro is a neural text to speech model (82 million parameters, Apache 2.0,
+   made by hexgrad) that sounds a good deal more like a person than SAPI's
+   Desktop voices. H9 ships it with the game in a folder of its own, ts\h9tts
+   (135 MB, of which 20 MB are a pack of ready-made lines), and a player who
+   wants it turns it on for himself. The model runs in a helper program,
+   h9kokoro64.exe (64-bit; client.dll is 32-bit and never loads the model),
+   which client.dll starts, talks to over a private pipe, watches and stops
+   itself. A player who leaves cl_h9_tts_engine at system gets exactly what
+   he had, and nothing starts on a server that does not use text to speech.
+
+       cl_h9_tts_engine system|auto|kokoro   which voices speak (saved)
+           system   the default: the voices of section 3, as before; the
+                    helper is never started
+           auto     Kokoro when it can start the line in time; else the
+                    system voice of section 3, at once
+           kokoro   Kokoro only: a line it cannot start in time is not spoken
+       cl_h9_tts_threads N    the processor threads the helper makes a line
+                              with: 0 (default) lets the game choose, as many
+                              as the machine has logical processors and 8 at
+                              the most (8 on a machine with 8 or more), and
+                              none on a machine with fewer than 4 (engine auto
+                              then speaks with the system voices; engine
+                              kokoro uses 2); 1 to 16 sets it. A new value
+                              restarts the helper
+       cl_h9_tts_state        prints which voices speak, the state of the
+                              helper, the counters and the last line's times
+       cl_h9_tts_reload       stops the helper and starts it again and forgets
+                              its failures (a helper that gave up, a helper
+                              that was replaced)
+
+   The helper starts when the server asks the game for its voice picks (a
+   server with h9_tts.amxx does, as a player joins), so a player on any other
+   server never has it running. It ends with the game. After 20 minutes
+   without a line it is let go of (its model takes about 270 MB) and the next
+   line starts it again.
+
+   WHAT A LINE DOES
+
+   1. Who speaks. The kinds of section 3 and one more: a model with droid in
+      its name is a droid (the server sends it in the tail of the message,
+      section 4). The system voices speak a droid as they speak a bot; Kokoro
+      has a sound of its own for it. Kokoro has 12 men, 12 women, 3 Mechs,
+      3 bots and 3 droids (ts\h9tts\voices.txt): each is a blend of Kokoro's
+      voices at a speed, with a depth of its own, and a Mech, a bot or a droid
+      has a sound chain (ts\h9tts\chains.txt) on top.
+   2. Which one, and how it is shaped. The same cvars as for the system
+      voices decide, and reach the Kokoro path like this:
+        cl_h9_tts_myvoice N    the speaker's pick (3c, sent by the server in
+                               each line about him) is variant ((N - 1) mod
+                               the kind's count) + 1 of his kind
+        cl_h9_tts_individual   a speaker who asked for none gets a variant
+                               and a step of depth from his slot
+        cl_h9_tts_mydepth      with the slot's step and the variant's own
+                               depth: one sum, limited to -12 to 12, one
+                               resample (2.5 percent of pitch and tempo a
+                               step), together with the kind's own pitch and
+                               tempo
+        cl_h9_tts_muffle       a man's or a woman's gas mask is the variant's
+                               mask chain at that strength (0 off, 2 heavy)
+        cl_h9_tts_robot        a Mech's, bot's or droid's chain; at 0 only its
+                               pitch and tempo
+        cl_h9_tts_volume, _pan, _maxvoices   in the mixer, after the voice,
+                               for every engine
+      The listener's own voice picks (cl_h9_tts_voice_man, _woman, _mech,
+      _bot) are places in the machine's system voices and do not apply to
+      Kokoro: its variants are picked by the speaker and by the slot rule.
+      A line is shaped the same whatever made it, so a line of the pack and
+      a line the helper made sound alike. (The shaping is tested bit for bit
+      against a reference: every variant of every kind, with and without a
+      mask or the machine sound, at three depths.)
+   3. Where the sound comes from. A line the line pack holds (lines\lines.h9pk:
+      the bots' fixed chat, in every variant a bot can get) is played at once,
+      without the helper: 1854 clips, 20 MB. Any other line is made by the
+      helper phrase by phrase and each phrase is played as soon as it is made,
+      so the first words sound after the first phrase (about 1.6 s of speech,
+      cut at a pause of the speech when one is near), not after the whole
+      line; the later phrases are about as long, so that the next is ready as
+      the one before it ends. A line the helper made before comes back from
+      its cache (24 MB) in about 15 ms.
+   4. The start rule. A line must START to sound within 3 seconds of its
+      arrival in the client (kStartBudgetMs, h9_tts_kokoro.h); the time it
+      waited for the speech thread counts. When the helper cannot do it:
+        * its first piece is not there in the time that is left (less 0.25 s
+          for the system voice's own render): the line is cancelled at the
+          helper (which stays up: slow is not dead), whatever it still sends
+          for the line is thrown away, and the system voice speaks the line
+          at once (engine auto; engine kokoro drops it). With less than 1.2 s
+          left the helper is not asked at all
+        * the helper has worked more than half of the last 10 seconds: it
+          declines the line (DONE busy) and the system voice speaks it at once.
+          A line that has been started is never paused between its phrases
+        * the helper was late with three lines in a row: it is too slow for
+          this machine just now, and it is not asked for a minute
+          (cl_h9_tts_state says it is resting), so that a slow machine hears
+          the system voice at once and not 3 s late. cl_h9_tts_reload ends
+          the rest
+        * the helper is not ready (loading its model, 2 to 3.5 seconds after
+          the server's hello; restarting after a failure): the system voice
+        * a line waits for the speech thread, which makes one line at a time:
+          while the helper makes a line, the speech thread looks at the
+          lines that wait behind it every 10 ms. A line of the pack is played
+          at once, and a line that has waited 2.3 seconds goes to the system
+          voice (engine auto) without waiting for the helper to be done. Not
+          the speaker's own next line: a speaker's lines follow one another
+      The system voice itself needs 0.1 to 0.3 seconds for a line (Desktop
+      voices; the first line of a voice more), and the lines are rendered one
+      after the other, so in a crowd (the queue holds 8) the last line of a
+      burst can start later than 3 seconds.
+
+   5. When the helper is not there. Nothing here stops the game or the
+      speech: the line is the system voice's (engine auto) or dropped (engine
+      kokoro), and cl_h9_tts_state says why.
+
+       no ts\h9tts folder, or a voices.txt that does not parse   system voice
+       no helper files (bin\h9kokoro64.exe, manifest.txt)         the pack's
+                              lines only; any other line is the system voice's
+       a file of the helper changed (its SHA-256 is not the one in
+       manifest.txt)          the helper is not started; the state names the file
+       the helper is loading its model, or restarting              system voice
+       the helper dies, is late after its first piece, or sends what it
+       should not             the line ends where it was (its voice is closed,
+                              not left waiting), the helper is killed and
+                              started again after 4 s, then 8, 16 ... 120 s;
+                              after 5 failures in a row it stays off until
+                              cl_h9_tts_reload. (A late FIRST piece is not a
+                              failure: see the start rule)
+       a machine with fewer than 4 logical processors   the helper is not
+                              started by engine auto (the pack still plays);
+                              engine kokoro starts it with 2 threads
+       the web client and every other platform   the browser's voice, or none;
+                              nothing of this exists there
+
+   THE HELPER'S RULES (the client never trusts it)
+
+       * it is a program the client runs, so before it starts the client
+         checks the SHA-256 of bin\h9kokoro64.exe and bin\onnxruntime.dll (and
+         the providers DLL when manifest.txt lists it); the manifest has to be
+         made again with every helper build (tools\h9tts\stage_h9tts.py)
+       * the pipe is made by the client, named for this run, open to the
+         owner and the system only, no remote client; the helper only connects
+       * it runs hidden, below normal priority, no CPU pinning, in a job object
+         that ends it with the game (kill on close), with a memory limit of
+         1.5 GB; ONNX Runtime does not spin its threads while idle, uses the
+         given number of threads inside one call and one call at a time
+       * every frame it sends is checked: magic, type, size, the line it
+         belongs to, the piece's number, the sample rate; a wrong one ends the
+         conversation. Deadlines: the first piece within the start budget (a
+         miss cancels the line, it does not kill the helper), each next piece
+         and the end within 9 s, the connection within 30 s (the helper loads
+         its model before it connects: 92 MB from the disk), READY within
+         45 s. A helper that misses a later deadline, or does not answer a
+         cancel for 3 s, is killed. A start that fails (a first start under an
+         antivirus scan, a machine that is busy) is tried again after 4 s,
+         and the state says why, with the helper's exit code
+       * it makes no new line while it has worked more than half of the last
+         10 s (DONE busy); queues at most 3 lines, the oldest pushed out
+       * the game's frame time is watched: while the helper makes a line the
+         frames are compared with those before it, and when three of the last
+         five lines made them more than 10 percent longer the helper is
+         started again with one thread fewer (never fewer than 2); the cap and
+         the decisions are in cl_h9_tts_state, cl_h9_tts_reload forgets it
+       * it ends when the pipe closes, when the game's process is gone (it
+         watches it), and on SHUTDOWN
+
+   WHAT IT COSTS
+
+   Measured on the author's machine (AMD Ryzen 7 2700, 8 cores, 16 logical
+   processors, Windows 10, nothing else of note running), with the client's
+   own Kokoro code and the real helper: 40 chat lines of 2 to 21 words, none
+   in the pack, one every 6 s. Each cell is the time from the line's arrival
+   to its first sound in milliseconds, median / 95th percentile (ten lines
+   make a class, so its 95th is its slowest line). The last column counts
+   the lines whose first piece came later than 2.75 s: the 3 s start rule
+   hands those to the system voice (0.25 s is kept for its own render).
+
+       helper                 2 words     4-5 words   9-11 words  17-21 words   all lines   > 2.75 s
+       2 threads               1525/1852   2049/2868   2004/2390   2028/2278    1954/2339   1 of 40
+       4 threads               999/1101    1364/1501   1399/1602   1416/1524    1380/1524   0 of 40
+       6 threads               831/972     1117/1244   1266/1320   1215/1364    1153/1318   0 of 40
+       8 threads (the default) 730/841     975/1076    1033/1151   1034/1246    988/1128    0 of 40
+       8, game-like load (*)   821/926     1131/1220   1143/1475   1163/1193    1131/1304   0 of 20
+       4, game-like load       1126/1220   1541/1706   1541/1757   1637/2078    1541/1737   0 of 40
+       2, game-like load       1697/1917   2294/2538   2371/2705   2328/2511    2292/2597   0 of 40
+       1 thread (*)            2204/2624   2955/3205   3020/3412   3243/3641    2955/3412   15 of 20
+
+   (*) the 20 lines of the first set (five of each length), not 40. A game-like
+   load is a thread that does a game's work (60 Hz frames, 8 ms of work each)
+   and four more busy threads at normal priority; the helper runs below normal.
+   A machine with fewer processors than this one is slower: the 2 and 1 thread
+   rows show what a helper with that few threads gives, and at 1 thread most
+   lines miss the start rule.
+
+   Around those numbers:
+
+     * A line of the pack starts 2 to 16 ms after it arrives, even while the
+       helper is making another line; a line the helper made before comes
+       back from its cache 11 to 16 ms after it arrives.
+     * The helper loads its model 2 to 3.4 s after it is started (92 MB from
+       the disk; a cold disk takes longer). A line that comes before it is
+       ready is the system voice's.
+     * Speech that stands still: a line made in several phrases stops for a
+       moment between two of them when the next is not ready as the one before
+       it ends. For lines of 17 to 21 words the silence in a line was, on
+       average, 0.00 s at 8 threads, 0.03 s at 6, 0.39 s at 4 (1.26 s at the
+       most) and 1.63 s at 2; at 4 threads with the game-like load beside it
+       0.86 s. (The first plan of the phrases, a short first phrase and all the
+       rest in one, stood still for 1.9 s on average at 4 threads.)
+     * CPU: while it makes a line the helper keeps 3.0 of the 16 logical
+       processors busy at 4 threads and 4.7 at 8 (5.4 at the most), for about
+       as long as the line lasts; between lines it does nothing. It runs below
+       normal priority.
+     * Memory and disk: about 270 MB of memory while it runs (24 MB more for
+       its line cache at most); 135 MB on disk.
+     * The game's frame time: next to the game-like load the frames of the
+       game-like thread are the same while the helper makes lines as while it
+       is idle. At 8 threads: mean 17.96 ms idle and 17.94 ms while it makes
+       lines, 0.1 percent of the frames over 20 ms in both; at 4 threads the
+       same (17.87 ms in both, 0.2 and 0.3 percent).
+     * A busy chat (the whole speech layer, the real helper, 8 threads, a
+       volume nobody can hear): six speakers type six lines of ten words, one
+       a second: the first sounds come 0.6 to 2.6 s after the lines, three of
+       the six made by Kokoro and three given to the system voice. A long line
+       and four short ones within 2.5 s: the long line 1.0 s, a line of the
+       pack 16 ms, the short lines 1.5 to 2.5 s (two by the system voice, one
+       by Kokoro).
+
+
+   FILES, TOOLS, TESTS
+
+       ts\h9tts\README.txt lists the folder; NOTICE.txt and LICENSE-*.txt carry
+       the credits: Kokoro and its voices (hexgrad, Apache 2.0; the model card
+       lists CC BY recordings among its training data, credited there), the
+       pronunciation data and the algorithm of the phonemiser (misaki, hexgrad,
+       Apache 2.0; the lexicon was converted to a binary file, no entry
+       changed; partly derived from CMUdict), ONNX Runtime (Microsoft, MIT).
+       espeak-ng (GPL) is not used.
+       Client:  reTS\cl_dll\h9_tts_kokoro.h, h9_tts_kokoro.cpp (the voices,
+                the shaping, the pack, the start rule), h9_tts_kokoro_link.h,
+                h9_tts_kokoro_link.cpp (the process, the pipe, the checks),
+                h9_tts_proto.h (the wire protocol), h9_tts_pack.h (the line
+                pack), h9_tts_catalogue.h, h9_tts_chains.h, h9_tts_fx.h (the
+                catalogue, the chains and the sound effects, shared with the
+                helper), h9_tts_sha256.h, h9_tts_framewatch.h; h9_tts_mix.h
+                streams a line that arrives in pieces; h9_tts_win.cpp
+                speaks with Kokoro first and serves the lines that wait
+       Helper:  tools\h9kokoro64 (build_helper.bat; src: the phonemiser,
+                the model host, the server)
+       Data:    h9tts\ (the masters: voices.txt, chains.txt, the notices),
+                tools\h9tts\stage_h9tts.py (puts the folder together and
+                writes manifest.txt), prerender_lines.py and h9pk.cpp (the
+                line pack), make_g2p_data.py and export_lts.py (the
+                pronunciation files)
+       Tests:   tools\h9kokoro64\tests: g2p_parity.py (the C++ phonemiser
+                against the Python reference, line by line: the 707 lines of
+                the corpus and 3000 random lines of numbers, symbols, URLs,
+                emoticons, typographic and CJK characters, identical),
+                client_fuzz.py (the client's link against helpers that
+                misbehave in 18 ways, a cancel, a late first piece and three
+                tampered folders: 23 checks), helper_fuzz.exe (the
+                helper against a client that sends what it should not),
+                parent_death.py; tools\h9tts\tests: shape_parity.py (the
+                shaping against a numpy reference: 342 cases, no difference
+                at all in the 16-bit samples), pack_fuzz,
+                mixer_test, framewatch_test; tools\h9tts\lab: kokoro_lab.exe
+                (the client's Kokoro code run outside the game: the latency
+                tables, the crash and burst tests) and plat_test.exe (the
+                whole Windows speech layer with the real helper, at a volume
+                nobody can hear)
+
+   WHAT IT DOES NOT DO
+
+       * It speaks English. Words the lexicon does not have are guessed by
+         letter-to-sound trees (about half of them right); numbers, symbols and
+         emoticons are read by rules. Other languages are read as English
+       * Each call of the model begins and ends with about 0.8 s of near
+         silence of the model's own. It is trimmed, but the time to make it is
+         spent: a short line takes at least about 0.7 s on this machine at
+         8 threads (0.9 s at 4), and a line made in pieces can stand still
+         for a moment between two of them when the helper has fewer threads
+         or the machine is busy
+       * The web client keeps the browser's voice, and so does every other
+         platform: the helper is a Windows program. A native Linux build of it
+         is not made
+       * Lines are made one at a time. A busy chat is partly spoken by the
+         system voice (see the start rule), so two speakers in a quick
+         exchange can sound like two different engines
 
  4. THE PROTOCOL
  ---------------
@@ -253,24 +581,28 @@
    2026-11-09: on a big map the engine drops an unreliable message together
    with the datagram that cannot hold it ("Datagram overflowed" in
    ts\logs\h9_overflow.log), and on the roleplay maps that was every line. The
-   reliable channel is spared by sending a listener one line every 0.3 s at
-   most, from all speakers together.
+   reliable channel is spared by sending a listener up to 4 lines at once and
+   then one every 0.3 s at most, from all speakers together.
 
        byte     the speaker's slot (1 to 128)
        byte     the voice: 0 man, 1 woman, 2 Mech, 3 bot
        byte     the volume, 0 to 100
-       byte     flags: bit 0 (1), a gas mask muffles the voice; the rest 0
+       byte     flags: bit 0 (1), a gas mask muffles the voice; bit 2 (4), the line is global (section 2):
+                volume 100, pan 0, heard from no direction; bit 1 (2) is the hello message's; the rest 0
        string   the words, at most h9_tts_maxchars (150 at the most), NUL ended
        byte     the variant the speaker asked others to hear him with (0 none, 1 to 99)    } the tail: a client reads
        char     the depth he asked for, -10 to 10                                          } it only when the message
        char     the pan: -100 his voice in the listener's left ear, 100 right, 0 the       } is long enough for it, so
                 middle; from the speaker's direction and the listener's yaw, fading to     } an older client takes the
                 0 within 160 units                                                         } message as it was
+       byte     1 when the bot voice is a droid's (a model with droid in its name),        } one more byte after the pan,
+                else 0; only the Kokoro voices (3e) tell a droid from a bot                } read the same way
 
-   About 100 bytes at the default, 158 at the most; the client takes no more
+   About 100 bytes at the default, 159 at the most; the client takes no more
    than 192. A message with slot 0, voice 0, volume 0, flags 2 and no words is
    the server asking this game for its h9_ttsvoice (3c); it is sent once, a few
-   seconds after a player joins.
+   seconds after a player joins. A client that does not know flag bit 2 plays a
+   global line as what it is, a full-volume line from the middle.
 
    A game says it can speak with the userinfo key _h9tts, as it says it draws
    H9 VGUI with _h9vgui: "1" while cl_h9_tts is not 0 and the machine has a
@@ -279,45 +611,92 @@
    nothing. Were a message to reach a game that does not know it anyway, the
    engine drops a user message nobody hooked, harmlessly.
 
- 5. THE CLIENT (reTS cl_dll\h9_tts.cpp, h9_tts_win.cpp, h9_tts_web.cpp)
- ----------------------------------------------------------------------
+ 5. THE CLIENT (reTS cl_dll\h9_tts.cpp, h9_tts_mix.h, h9_tts_win.cpp, h9_tts_web.cpp)
+ ---------------------------------------------------------------------------------------
 
    Client cvars, all archived: cl_h9_tts (1; 0 is silence for this player,
    and the game tells servers by _h9tts 0) and cl_h9_tts_volume (1; 0 to 2;
    the distance volume is multiplied by it); the voice picks, cl_h9_tts_voice_man,
    _woman, _mech and _bot, cl_h9_tts_robot, _muffle, _pan, _maxvoices and
-   _individual (section 3b), cl_h9_tts_myvoice and _mydepth (3c); the commands
-   cl_h9_tts_voices and cl_h9_tts_test.
+   _individual (section 3b), cl_h9_tts_myvoice and _mydepth (3c),
+   cl_h9_tts_engine and cl_h9_tts_threads (3e); the commands cl_h9_tts_voices,
+   cl_h9_tts_test, cl_h9_tts_state and cl_h9_tts_reload.
 
    A server is untrusted. Whatever a message says, the client's own limits
    hold: a line is cleaned the same way and cut to 160 bytes; at most 8 lines
    a second from everyone together are read, and no speaker's lines come
    closer than 0.3 s; whom a line is sent to is the server's say (the speaker
    too while h9_tts_self is 1). A speaker has
-   ONE line at a time: his newer line replaces his older one, at once.
+   ONE voice: his newer line waits until his older one has finished, and
+   replaces a line of his that still waits; the one being spoken is never cut
+   off for it. cl_h9_tts 0 silences what is playing and what waits at once.
 
-   Windows. One worker thread of its own (its own COM apartment) does it all,
-   so the render thread only ever queues a line (8 waiting at most, the oldest
-   dropped): SAPI renders the line to memory (22050 Hz, 16 bit, mono), as
-   PLAIN TEXT (SPF_IS_NOT_XML); a Mech, a bot and the speaker's depth are
-   resampled; a gas mask runs the filter of 3a over it; the volume is
-   multiplied into the samples, with 4 dB of headroom at a volume of 1, and a
-   constant-power pan puts the voice in the ear it comes from; and waveOut
-   plays it (stereo). At most cl_h9_tts_maxvoices voices play together (1 to
-   3): when they are all busy a line louder than the quietest by a fifth takes
-   its place, a quieter one is not spoken. A line is cut to 30 seconds.
+   Windows. Two threads of its own, so the game's own thread only ever queues
+   a line and never waits for a voice or the sound card.
+   The speech thread (its own COM apartment) takes the queued lines one at a
+   time, 8 at most waiting, a speaker's older one replaced and, when it is
+   full, the quietest dropped: SAPI renders the line to memory (22050 Hz, 16
+   bit, mono), as PLAIN TEXT (SPF_IS_NOT_XML); a Mech, a bot and the speaker's
+   depth are resampled; a gas mask runs the filter of 3a over it; the line is
+   handed to the mixer. SAPI is called from this thread only (an ISpVoice is
+   never shared between threads), and a line is cut to 30 seconds.
+   The audio thread owns the sound card: ONE waveOut device, opened when there
+   is something to say and let go of after 2.5 s of silence, fed in blocks of
+   40 ms (4 queued) from the mixer (h9_tts_mix.h), which sums every voice that
+   is playing: the volume is multiplied into the samples, with 4 dB of
+   headroom at a volume of 1, a constant-power pan puts each voice in the ear
+   it comes from, and the sum goes through a soft limiter (untouched below 80
+   percent of full scale, never past it), so several voices do not clip.
+   The mixer's rules:
+     * voices of different speakers play TOGETHER, up to cl_h9_tts_maxvoices
+       (1 to 8, 4 by default). No line that is playing is ever cut off to make
+       room for another.
+     * a line that comes when that many are playing WAITS for a voice. At most
+       4 lines wait, none longer than 8 seconds after it arrived (it is dropped
+       then, being too late to mean anything); when the list is full the
+       quietest line goes, the oldest of equals, before it was ever heard.
+     * a speaker's lines follow one another: a line of his that comes while he
+       is speaking waits for his voice to end, and replaces a line of his that
+       still waits. This is the choice because a person does not say two
+       sentences at once, and because cutting his first sentence short loses
+       what he said, while the server's h9_tts_gap already keeps one speaker
+       from piling lines up.
+     * a voice fades in and out over 5 ms, so a line starts and ends without a
+       click; cl_h9_tts 0 fades everything out over 30 ms.
    client.dll links ole32 and winmm and NOT sapi.lib: SAPI
    is reached through COM at run time, so a machine without it (Wine) still loads
-   client.dll and says _h9tts 0.
+   client.dll and says _h9tts 0. SAPI renders one line after another. The Desktop
+   voices render far faster than they speak (Microsoft David and Zira: 4.8 seconds of
+   speech in 31 to 203 ms, the first line of a voice being the slow one), so two
+   simultaneous lines start together. A voice that renders at about its speaking speed
+   (some Natural voices) delays the second line by the time the first took to render,
+   and the two overlap only while the first is still playing then.
+
+   Kokoro (3e). With cl_h9_tts_engine auto or kokoro the speech thread asks
+   the Kokoro layer first: the line pack, then the helper, a second process.
+   While the thread waits for the helper's pieces (it looks every 10 ms) it
+   serves the lines that queue behind the one being made: a line of the pack
+   at once, and, with engine auto, a line that has waited 2.3 s by the system
+   voice. A line made in pieces goes to the mixer as an open voice: the first
+   piece starts it, the others are appended as they come, a late piece leaves
+   it silent for a moment, the last piece closes it, and a line that ends early
+   (the helper died) is closed so that its speaker's voice is not left waiting.
 
    Web client. The same source, compiled for the browser, calls the page's
    speechSynthesis through the one script function installed with
-   emscripten_run_script (EM_JS is not resolved in a side module); lines wait in
-   a queue of three and are spoken one at a time, because speechSynthesis has
-   one voice; a speaker's newer line replaces his older one, cancelling it if
-   it is the one being spoken. No page file changes: the code runs in the
-   page that hosts the game, and a browser without speechSynthesis makes the
-   game say _h9tts 0.
+   emscripten_run_script (EM_JS is not resolved in a side module). THE BROWSER
+   CANNOT OVERLAP VOICES: a page's speechSynthesis speaks one utterance at a time and
+   gives the page no audio to mix, so in the web client two speakers are heard one
+   after the other, never together (cl_h9_tts_maxvoices is not read there). The
+   game does not cut anyone off for it: lines wait their turn in a queue of 4, none
+   longer than 8 seconds after it arrived, the quietest line (the oldest of equals)
+   going when it is full; a speaker's newer line replaces his older one that still
+   waits, and follows the one being spoken. Nothing is cancelled except by
+   cl_h9_tts 0, or a line that has been going for 20 seconds without the browser
+   saying it ended. The page keeps a reference to the utterance being spoken, which
+   some browsers need so that they do not discard it before its end. No page file
+   changes: the code runs in the page that hosts the game, and a browser without
+   speechSynthesis makes the game say _h9tts 0.
 
    Any other platform: the message is hooked and ignored, and _h9tts is 0.
 
@@ -328,12 +707,21 @@
                     160 bytes (client)
      a speaker      one spoken line every 1.5 s (server, h9_tts_gap); 0.3 s
                     (client)
-     a listener     one line every 0.3 s from all speakers together (server)
+     a listener     4 lines at once, then one every 0.3 s, from all speakers
+                    together (server)
      the client     8 lines a second in all; cl_h9_tts_maxvoices voices at
-                    once on Windows (2 by default, 3 at the most), one at a
-                    time in the browser; 8 lines waiting on Windows, 3 in the
-                    browser
+                    once on Windows (4 by default, 8 at the most), one at a
+                    time in the browser; on Windows 8 lines waiting for the
+                    speech thread and 4 for a voice, in the browser 4 waiting;
+                    a line that waited more than 8 s is not spoken
      a message      about 100 bytes, reliable, to listeners within range only
+                    (every listener with h9_tts_global 1)
+     kokoro         a line must start to sound within 3 s of its arrival, else
+                    the system voice speaks it (engine kokoro: nothing); one
+                    line is made at a time, 3 wait at the helper; no new line
+                    while the helper has worked more than half of the last
+                    10 s; the helper is let go of after 20 minutes without a
+                    line; 192 bytes of a line go to the helper
 
  7. PRIVACY AND ABUSE
  --------------------
@@ -355,7 +743,7 @@
    * What a server can do about a player who abuses it: mute his account
      (h9web; his chat is not spoken or written), gag or kick him with the
      tools it has; take away what he can reach with h9_tts_range (smaller),
-     h9_tts_gap (longer) and h9_tts_maxchars (shorter); or turn the whole thing
+     h9_tts_global 0, h9_tts_gap (longer) and h9_tts_maxchars (shorter); or turn the whole thing
      off with h9_texttospeech 0, which takes effect with the next line. A
      player can always turn it off for himself with cl_h9_tts 0 (and then no
      message is sent to him), or lower cl_h9_tts_volume.
@@ -391,8 +779,9 @@
       (still heard).
    6. The rate limit. A types two lines within a second: only the first is
       spoken, both are written. Set h9_tts_gap 0.2 and type two lines 0.5 s
-      apart: the second cuts the first off. Three speakers at once: three
-      voices, a fourth takes the oldest.
+      apart: the second waits for the first to end and then speaks. Three
+      speakers at once: three voices together (cl_h9_tts_maxvoices 4); a fifth
+      waits for a free voice and nobody is cut off.
    7. B's cl_h9_tts 0: silence, and _h9tts reads 0; back to 1 and _h9tts reads
       1. cl_h9_tts_volume 0.3 and 2: quieter, louder.
    8. h9_texttospeech 0 and 1: nothing at 0, speech at 1, from one line to
@@ -409,11 +798,13 @@
   13. The web client: the first speech may need a click on the page first
       (browsers do not speak before the page has been used); a Mech and a bot
       are lower and slower, higher and faster; a muffled voice is quieter and
-      slightly lower; one voice at a time; a new line from the same speaker
-      cuts his old one off.
+      slightly lower; one voice at a time (the browser cannot overlap), the
+      lines of two speakers one after the other; a new line from the same
+      speaker waits for his old one and cuts nothing off.
   14. A crowd: ten bots chatting. No frame hitch; at most cl_h9_tts_maxvoices
-      voices at once, the nearest speakers' first; the server log shows
-      nothing from [TTS] but its start lines.
+      voices at once, the rest waiting at most 8 s and then not spoken; no line
+      cut off mid-word; the server log shows nothing from [TTS] but its start
+      lines.
   15. The gas mask. A wears repuheavy_fem (it was not on the list before): A
       types h9_tts at the console and reads that the model is masked; B
       hears a dull boxy woman; cl_h9_tts_muffle 0, 1, 2 on B: clear, muffled,
@@ -432,6 +823,78 @@
       "Unknown command" line appears at the console.
   19. A native Linux client or a Wine client with no SAPI voice: the game
       loads, _h9tts is 0, nothing is sent.
+  20. Global. h9_tts_global 1 (rcon or the cfg; being FCVAR_SERVER, the engine
+      tells every player when it changes). A and B 3000 units
+      apart, on a big map, behind walls: A types a line and B hears it at
+      full volume in the middle of his head, whichever way he faces; with
+      h9_tts_global 0 he hears nothing (past h9_tts_range). B dead or
+      spectating still hears A's line with global 1, and not with 0. A types
+      say_team: B on the other team hears nothing, a teammate anywhere hears
+      it. C with cl_h9_tts 0 hears nothing. On a roleplay map (h9_tsrp_*)
+      global 1 changes nothing: a player 600 units away hears the line quietly
+      as with 0, and h9_tts at the console says so.
+  21. Overlap. Three players type a line within a second of each other (global
+      1 is the easy way, or stand together): the listener hears all three at
+      once, none cut off, each to its end. A fourth and a fifth line within
+      the same few seconds: with cl_h9_tts_maxvoices 4 the fifth waits until a
+      voice is free and then speaks whole; type cl_h9_tts_maxvoices 2 and
+      the third waits instead. One speaker typing two lines 2 s apart: the
+      second begins when the first has ended. cl_h9_tts 0 while lines play:
+      they fade out and nothing waiting is spoken afterwards.
+  22. Kokoro off. With cl_h9_tts_engine system (the default) play a whole
+      session with chat on a server that has the plugin: no h9kokoro64.exe is
+      ever in the task manager, the voices are SAPI's as before, and
+      cl_h9_tts_state says the engine is system. (Tests 22 to 30 are the ones
+      only a game can show: the numbers, the start rule, the fallbacks and the
+      helper's safety of 3e were run outside the game, with the real helper,
+      the client's own code and the speech layer at a volume nobody can hear;
+      no voice has been heard in a game.)
+  23. Data and start. cl_h9_tts_engine auto, join a server with h9_tts.amxx:
+      cl_h9_tts_state says "kokoro: data ok, 33 voice variants, 5 chains,
+      1854 lines in the pack" and, within 2 to 4 s of the join, "kokoro helper:
+      ready (ready), 8 thread(s) ..." (8 on a machine with 8 or more logical
+      processors; h9kokoro64.exe is in the task manager, below normal
+      priority, about 270 MB). A wrong result: "not usable (no
+      h9tts folder ...)", "failed (... does not match h9tts\manifest.txt)" (a
+      file was changed after the manifest was made) or "did not connect".
+  24. The pack. A bot says one of its fixed lines (bot_chat.ini): it is
+      heard at once, within a fifth of a second of the chat line, in a
+      neural voice; cl_h9_tts_state counts it as "from the pack". Say the same
+      with engine system for the difference.
+  25. The helper. Type a line of 8 to 11 words that is not a bot's: the first
+      words sound within about 1 s (1.4 s with 4 threads, 2 s with 2; never
+      more than 3), the rest follows with no pause worth the name on 8
+      threads (0.4 s on average at 4); type the same line again:
+      it sounds within 0.1 s (the helper's cache). A wrong result: nothing for
+      3 s and then the system voice (cl_h9_tts_state: "came late"), a line
+      spoken twice, a clipped start, or a long silence in the middle of a line.
+  26. The start rule. Two players type long lines one right after the other:
+      the first is Kokoro, the second is the system voice about 2.5 s after it
+      was typed (not 5 s or more). A bot's fixed line during a long line plays
+      at once. Look at the speakers: a speaker's own two lines in a row
+      follow one another whatever made them.
+  27. The cost. While lines are made, the game's frame rate does not change
+      noticeably (cl_showfps, or the scoreboard's fps), and cl_h9_tts_state's
+      frame watch says "lowered 0 time(s)"; on a slow machine it may lower the
+      thread cap ("thread cap 3"), which is shown there too. Task manager:
+      h9kokoro64.exe uses up to cl_h9_tts_threads processors for a few seconds
+      a line and nothing between lines.
+  28. Failure and end. With a line playing, end h9kokoro64.exe in the task
+      manager: the line ends where it was (no hang, no click), the next line is
+      the system voice's, the helper is back after about 4 s (cl_h9_tts_state:
+      "started 2 time(s)"). Close the game: the helper is gone within a second.
+      Delete the folder ts\h9tts (or take bin\h9kokoro64.exe out): the game
+      speaks with the system voice as it did, and cl_h9_tts_state says why.
+  29. The voices. cl_h9_tts_test man|woman|mech|bot|droid Hello there
+      sounds like five different speakers (a droid is not a bot); with
+      cl_h9_tts_myvoice 1 to 12 on a man, 12 different men; cl_h9_tts_mydepth
+      -10 and 10: deeper and higher; a gas-mask model: cl_h9_tts_muffle 0, 1
+      and 2 clear, muffled, heavy; cl_h9_tts_robot 0 and 1 for a Mech. The
+      listener's cl_h9_tts_voice_man and the others change nothing while the
+      engine is kokoro.
+  30. Threads. cl_h9_tts_threads 2, then 6, then 0: the helper starts again
+      each time (cl_h9_tts_state: "started N time(s)" and the thread count),
+      and the time to the first sound changes as the table in 3e says.
 
  9. THE FILES
  ------------
@@ -439,9 +902,15 @@
    Server:  h9_tts.sma (-> h9_tts.amxx)   h9_tts.cfg   h9_tts_gasmask.cfg
             (all in the TSM folder; build.bat copies the cfgs to configs\)
    Client:  reTS\cl_dll\h9_tts.cpp, h9_tts.h, h9_tts_platform.h,
-            h9_tts_win.cpp, h9_tts_web.cpp; CMakeLists.txt lists them and
+            h9_tts_mix.h (the mixer: no platform code), h9_tts_win.cpp,
+            h9_tts_web.cpp; CMakeLists.txt lists them and
             links ole32 and winmm on Windows; hud.cpp calls H9Tts_Init after
             H9Vgui_Init; input.cpp's HUD_Shutdown calls H9Tts_Shutdown.
+   Kokoro:  section 3e lists the files: h9_tts_kokoro*.h/.cpp, h9_tts_proto.h,
+            h9_tts_pack.h and the others in reTS\cl_dll, tools\h9kokoro64 (the
+            helper), h9tts\ (the data masters), tools\h9tts (the tools and the
+            tests).
    Docs:    this file; COMMANDS.txt (TEXT TO SPEECH, cl_h9_tts,
-            cl_h9_tts_volume, _h9tts); reTS\binaries\ts\cl_dlls\client.dll.patch
-            (the item for the new client.dll).
+            cl_h9_tts_volume, _h9tts, cl_h9_tts_engine, _threads, _state,
+            _reload); reTS\binaries\ts\cl_dlls\client.dll.patch (the item for
+            the new client.dll).

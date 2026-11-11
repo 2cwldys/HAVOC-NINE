@@ -4,11 +4,13 @@
 //   byte    the speaker's slot, 1 to 255 (0: the server asking for this game's voice picks, see flags)
 //   byte    the voice: 0 man, 1 woman, 2 Mech, 3 bot
 //   byte    the volume, 0 to 100, from the distance to the speaker
-//   byte    flags: bit 0, a gas mask muffles the voice; bit 1, with slot 0: send h9_ttsvoice (cl_h9_tts_myvoice and _mydepth)
+//   byte    flags: bit 0, a gas mask muffles the voice; bit 1, with slot 0: send h9_ttsvoice (cl_h9_tts_myvoice and _mydepth);
+//           bit 2, the line is global: sent to everyone whatever the distance, so it is heard from no direction
 //   string  the words
 //   byte    the variant the speaker asked others to hear him with (0: none)         } after the words, from a server that
 //   char    the depth he asked for, -10 deeper to 10 higher                          } has them; an older message ends
 //   char    the pan, -100 (his voice in your left ear) to 100, from where he is     } at the words
+//   byte    1: the bot voice is a droid's (only the Kokoro voices tell a droid from a bot)  } after the pan, from a server that has it
 //
 // The speaking is the platform's (h9_tts_win.cpp, h9_tts_web.cpp); here the message is checked and the words cleaned.
 
@@ -25,6 +27,8 @@
 #define H9TTS_MIN_GAP 0.3f    // seconds between two lines of one speaker
 #define H9TTS_MAX_RATE 8      // lines a second, from everyone together
 #define H9TTS_MAX_VOLUME 2.0f // cl_h9_tts_volume's ceiling
+#define H9TTS_MAX_VOICES 8    // cl_h9_tts_maxvoices' ceiling
+#define H9TTS_DEF_VOICES 4    // and its default
 
 namespace
 {
@@ -35,12 +39,15 @@ cvar_t* s_cvVoice[4]; // cl_h9_tts_voice_man, _woman, _mech, _bot: the place in 
 cvar_t* s_cvRobot;   // cl_h9_tts_robot: 1 puts a Mech's and a bot's voice through the robot filter (where the platform can)
 cvar_t* s_cvMuffle;  // cl_h9_tts_muffle: how strongly a gas mask muffles a voice, 0 not at all, 1 the standard, 2 heavy
 cvar_t* s_cvPan;     // cl_h9_tts_pan: 1 places each voice in the ear it comes from (Windows), 0 plays them in the middle
-cvar_t* s_cvMaxVoices; // cl_h9_tts_maxvoices: 1 to 3 voices at a time; a nearer speaker takes the quietest one's place
+cvar_t* s_cvMaxVoices; // cl_h9_tts_maxvoices: 1 to 8 voices at a time; a line beyond them waits for a voice and cuts none off
 cvar_t* s_cvIndividual; // cl_h9_tts_individual: 1 gives each speaker who asked for no voice of his own one of his own, from his slot
 cvar_t* s_cvMyVoice; // cl_h9_tts_myvoice: the variant of the voice others hear from this player, 0 leaving it to their games
 cvar_t* s_cvMyDepth; // cl_h9_tts_mydepth: how deep (below 0) or high (above 0) others hear him, -10 to 10
+cvar_t* s_cvEngine;  // cl_h9_tts_engine: system (the machine's own voices), auto (the Kokoro voices when they are ready), kokoro (those only)
+cvar_t* s_cvThreads; // cl_h9_tts_threads: the threads the Kokoro helper synthesises with, 0 leaving it to the game
 
 bool s_bInited = false;
+bool s_bWasEnabled = true; // cl_h9_tts as the last frame had it: turning it off stops what is playing
 float s_flLast[256]; // client time of each speaker's last line
 float s_flRateStart = 0.0f;
 int s_iRateCount = 0;
@@ -98,12 +105,38 @@ int MyDepth()
 	return ClampInt((int)CvarValue(s_cvMyDepth, 0.0f), -10, 10);
 }
 
+// cl_h9_tts_engine as a number: 0 system (the default), 1 auto, 2 kokoro. The first letter decides, and 0, 1 and 2 are taken as they are.
+int EngineMode()
+{
+	const char* s = (s_cvEngine && s_cvEngine->string) ? s_cvEngine->string : "system";
+	switch (s[0])
+	{
+	case 'a':
+	case 'A':
+	case '1':
+		return 1;
+	case 'k':
+	case 'K':
+	case '2':
+		return 2;
+	default:
+		return 0;
+	}
+}
+
+int ThreadsSetting()
+{
+	return ClampInt((int)CvarValue(s_cvThreads, 0.0f), 0, 16);
+}
+
 // Fills in the shared part of a line: the cvars that do not depend on who speaks.
 void FillSettings(H9TtsLine& line)
 {
 	line.muffle = ClampFloat(CvarValue(s_cvMuffle, 1.0f), 0.0f, 2.0f);
-	line.maxVoices = ClampInt((int)CvarValue(s_cvMaxVoices, 2.0f), 1, 3);
+	line.maxVoices = ClampInt((int)CvarValue(s_cvMaxVoices, (float)H9TTS_DEF_VOICES), 1, H9TTS_MAX_VOICES);
 	line.robot = Robot();
+	line.engine = EngineMode();
+	line.threads = ThreadsSetting();
 }
 
 // A speaker who asked for no voice of his own (variant 0) still gets one: the n-th voice of his kind, n from his slot, and a
@@ -209,6 +242,7 @@ int __MsgFunc_H9Tts(const char* pszName, int iSize, void* pbuf)
 	int variant = 0;
 	int depth = 0;
 	int pan = 0;
+	int detail = 0;
 	const int used = 4 + (int)strlen(words) + 1;
 	if (iSize - used >= 3)
 	{
@@ -216,6 +250,8 @@ int __MsgFunc_H9Tts(const char* pszName, int iSize, void* pbuf)
 		depth = ClampInt(READ_CHAR(), -10, 10);
 		pan = ClampInt(READ_CHAR(), -100, 100);
 	}
+	if (iSize - used >= 4)
+		detail = READ_BYTE(); // 1: the bot voice is a droid's
 
 	// the server decides who is sent a line (the speaker too while h9_tts_self is 1); one speaker's lines come no closer than H9TTS_MIN_GAP
 	if (now >= s_flLast[slot] && now - s_flLast[slot] < H9TTS_MIN_GAP)
@@ -244,9 +280,11 @@ int __MsgFunc_H9Tts(const char* pszName, int iSize, void* pbuf)
 	FillSettings(line);
 	line.speaker = slot;
 	line.voice = voice;
+	line.droid = voice == H9TTS_VOICE_BOT && detail == 1;
 	line.muffled = (flags & 1) != 0;
+	line.global = (flags & 4) != 0;
 	line.volume = level;
-	line.pan = (CvarValue(s_cvPan, 1.0f) != 0.0f) ? pan / 100.0f : 0.0f;
+	line.pan = (!line.global && CvarValue(s_cvPan, 1.0f) != 0.0f) ? pan / 100.0f : 0.0f;
 	line.text = text;
 	line.choice = Choice(voice);
 	line.variant = variant;
@@ -304,6 +342,7 @@ void CmdTest()
 	const int argc = gEngfuncs.Cmd_Argc();
 	const char* kinds[4] = { "man", "woman", "mech", "bot" };
 	int voice = -1;
+	bool droid = false;
 	bool muffled = false;
 	int first = 2;
 	if (argc >= 2)
@@ -313,6 +352,11 @@ void CmdTest()
 			if (SameWord(gEngfuncs.Cmd_Argv(1), kinds[i]))
 				voice = i;
 		}
+		if (SameWord(gEngfuncs.Cmd_Argv(1), "droid"))
+		{
+			voice = H9TTS_VOICE_BOT;
+			droid = true;
+		}
 	}
 	if (voice >= 0 && argc >= 3 && SameWord(gEngfuncs.Cmd_Argv(2), "muffled"))
 	{
@@ -321,7 +365,7 @@ void CmdTest()
 	}
 	if (voice < 0 || argc <= first)
 	{
-		gEngfuncs.Con_Printf("usage: cl_h9_tts_test <man|woman|mech|bot> [muffled] <words>   (cl_h9_tts_voices lists the voices)\n");
+		gEngfuncs.Con_Printf("usage: cl_h9_tts_test <man|woman|mech|bot|droid> [muffled] <words>   (cl_h9_tts_voices lists the voices)\n");
 		return;
 	}
 	if (!H9TtsPlat_Available())
@@ -352,13 +396,35 @@ void CmdTest()
 	FillSettings(line);
 	line.speaker = 255;
 	line.voice = voice;
+	line.droid = droid;
 	line.muffled = muffled;
 	line.volume = user;
 	line.text = text;
 	line.choice = Choice(voice);
 	line.variant = MyVariant();
 	line.depth = MyDepth();
+	H9TtsPlat_KokoroStart(line.engine, line.threads, true);
 	H9TtsPlat_Speak(line);
+}
+
+// cl_h9_tts_state: which voices speak, and the state of the Kokoro helper.
+void CmdState()
+{
+	static const char* names[3] = { "system", "auto", "kokoro" };
+	gEngfuncs.Con_Printf("text to speech: cl_h9_tts %d, cl_h9_tts_engine %s, cl_h9_tts_threads %d (0: the game chooses), the system voice %s\n",
+		Enabled() ? 1 : 0, names[EngineMode()], ThreadsSetting(), H9TtsPlat_Available() ? "can speak" : "cannot speak here");
+	char out[2048];
+	if (H9TtsPlat_KokoroState(out, sizeof(out)) > 0)
+		gEngfuncs.Con_Printf("%s", out);
+	else
+		gEngfuncs.Con_Printf("this platform has no Kokoro voices\n");
+}
+
+// cl_h9_tts_reload: the Kokoro helper is stopped and started again (a changed thread setting, a helper that was replaced).
+void CmdReload()
+{
+	H9TtsPlat_KokoroReload();
+	gEngfuncs.Con_Printf("text to speech: the Kokoro helper is restarted\n");
 }
 
 // _h9tts is what the server reads: 1 while this game will speak a line it is sent, else 0. It follows cl_h9_tts and
@@ -412,6 +478,14 @@ public:
 	{
 		SyncUserinfo();
 		SyncVoicePrefs();
+		// the Kokoro voices: the engine the player chose, and the helper started ahead of the first line on a server that speaks
+		H9TtsPlat_KokoroStart(Enabled() ? EngineMode() : 0, ThreadsSetting(), s_bServerAsked);
+		H9TtsPlat_KokoroFrame(gHUD.m_flTimeDelta);
+		// cl_h9_tts 0 is silence now: what is playing fades out and what waits goes
+		const bool enabled = Enabled();
+		if (s_bWasEnabled && !enabled)
+			H9TtsPlat_Stop();
+		s_bWasEnabled = enabled;
 	}
 };
 CHudH9Tts s_Hud;
@@ -433,15 +507,19 @@ void H9Tts_Init()
 	s_cvRobot = CVAR_CREATE("cl_h9_tts_robot", "1", FCVAR_ARCHIVE);
 	s_cvMuffle = CVAR_CREATE("cl_h9_tts_muffle", "1.0", FCVAR_ARCHIVE);
 	s_cvPan = CVAR_CREATE("cl_h9_tts_pan", "1", FCVAR_ARCHIVE);
-	s_cvMaxVoices = CVAR_CREATE("cl_h9_tts_maxvoices", "2", FCVAR_ARCHIVE);
+	s_cvMaxVoices = CVAR_CREATE("cl_h9_tts_maxvoices", "4", FCVAR_ARCHIVE);
 	s_cvIndividual = CVAR_CREATE("cl_h9_tts_individual", "1", FCVAR_ARCHIVE);
 	s_cvMyVoice = CVAR_CREATE("cl_h9_tts_myvoice", "0", FCVAR_ARCHIVE);
 	s_cvMyDepth = CVAR_CREATE("cl_h9_tts_mydepth", "0", FCVAR_ARCHIVE);
+	s_cvEngine = CVAR_CREATE("cl_h9_tts_engine", "system", FCVAR_ARCHIVE);
+	s_cvThreads = CVAR_CREATE("cl_h9_tts_threads", "0", FCVAR_ARCHIVE);
 	H9TtsPlat_Init();
 	s_cvInfo = CVAR_CREATE("_h9tts", (Enabled() && H9TtsPlat_Available()) ? "1" : "0", FCVAR_USERINFO);
 	gEngfuncs.pfnHookUserMsg("H9Tts", __MsgFunc_H9Tts);
 	gEngfuncs.pfnAddCommand("cl_h9_tts_voices", CmdVoices);
 	gEngfuncs.pfnAddCommand("cl_h9_tts_test", CmdTest);
+	gEngfuncs.pfnAddCommand("cl_h9_tts_state", CmdState);
+	gEngfuncs.pfnAddCommand("cl_h9_tts_reload", CmdReload);
 	s_Hud.Init();
 	gHUD.AddHudElem(&s_Hud);
 }
@@ -452,6 +530,23 @@ void H9Tts_Shutdown()
 		return;
 	H9TtsPlat_Shutdown();
 }
+
+// A platform without the Kokoro voices (the browser keeps its own): nothing to start, nothing to report.
+#if !H9TTS_HAVE_KOKORO
+void H9TtsPlat_KokoroStart(int, int, bool)
+{
+}
+void H9TtsPlat_KokoroFrame(double)
+{
+}
+int H9TtsPlat_KokoroState(char*, int)
+{
+	return 0;
+}
+void H9TtsPlat_KokoroReload()
+{
+}
+#endif
 
 // A platform with no speech: the message is read and ignored, and _h9tts stays 0.
 #ifndef H9TTS_HAVE_SPEECH
@@ -475,6 +570,9 @@ bool H9TtsPlat_VoiceInfo(int, char*, int, char*)
 	return false;
 }
 void H9TtsPlat_Speak(const H9TtsLine&)
+{
+}
+void H9TtsPlat_Stop()
 {
 }
 #endif

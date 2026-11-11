@@ -185,6 +185,8 @@ target_sources(client PRIVATE
 	h9_buywindow.cpp
 	h9_chatbubble.cpp
 	h9_tts.cpp
+	h9_tts_kokoro.cpp
+	h9_tts_kokoro_link.cpp
 	h9_tts_web.cpp
 	h9_tts_win.cpp
 	h9_vgui.cpp
@@ -296,7 +298,17 @@ target_sources(client PRIVATE
 	h9_buywindow.h
 	h9_chatbubble.h
 	h9_tts.h
+	h9_tts_catalogue.h
+	h9_tts_chains.h
+	h9_tts_fx.h
+	h9_tts_framewatch.h
+	h9_tts_kokoro.h
+	h9_tts_kokoro_link.h
+	h9_tts_mix.h
+	h9_tts_pack.h
 	h9_tts_platform.h
+	h9_tts_proto.h
+	h9_tts_sha256.h
 	h9_vgui.h
 	health.h
 	hud.h

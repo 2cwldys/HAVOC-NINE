@@ -85,7 +85,7 @@ NEVER_EXT = (".key", ".env", ".pem")
 # Under ts\ and valve\: folders that are the server's, a player's own (saves, the engine's font
 # cache of the PC's Windows fonts), or replaced by the browser build.
 TS_SKIP_DIRS = {"addons", "dlls", "cl_dlls", "mapconfigs", "logs", "save", "screenshots",
-                "ts_downloads", "vault", ".fontcache", "userconfig.d", "downloads"}
+                "ts_downloads", "vault", ".fontcache", "userconfig.d", "downloads", "h9tts"}
 SKIP_NAMES = {"config.cfg", "video.cfg", "opengl.cfg", "vfs.cfg", "server.cfg", "listenserver.cfg",
               "game.cfg", "liblist.gam", "gameinfo.txt", "console_history.txt", "custom.hpk",
               "voice_ban.dt", "tsstats.dat", "vault.ini", "xashcomm.lst", "mapcycle.txt", "motd.txt",

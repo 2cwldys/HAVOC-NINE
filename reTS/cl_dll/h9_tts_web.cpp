@@ -15,8 +15,11 @@
 //   depth     the speaker's depth: the pitch x (1 + 0.05 for each step)
 //   gas mask  volume x (1 - 0.3 s), pitch x (1 - 0.1 s), rate x (1 - 0.05 s), s being cl_h9_tts_muffle (1 by default)
 //   pan       none: the Web Speech API cannot place a voice in an ear
-//   queue     speechSynthesis speaks one utterance at a time, so lines wait in a queue of three (the oldest is dropped),
-//             and a speaker's new line replaces his older one: queued, or cancelled if it is the one being spoken
+//   queue     the browser speaks one utterance at a time and cannot overlap two, whatever the page does, so lines wait their
+//             turn: at most four wait, none longer than eight seconds after it arrived, and a full queue lets the quietest
+//             go (the oldest of equals), before it was ever heard. A speaker's lines follow one another: a newer line of his
+//             replaces his older one that still waits, and a line that is being spoken is left to finish. Nothing is cancelled
+//             but by cl_h9_tts 0, or when a line has been going for 20 seconds (a voice that never reports its end)
 //   absent    no speechSynthesis (or no SpeechSynthesisUtterance) and Module.h9ttsOk() is 0: _h9tts stays 0 and nothing
 //             is sent; nothing in the page throws
 
@@ -35,9 +38,13 @@ static const char* H9_TTS_JS = R"JS(Module.h9tts = (function() {
 		Utter = window.SpeechSynthesisUtterance || null;
 	} catch (e) {}
 	var ok = !!(synth && Utter);
+	var MAX_WAITING = 4;      // lines that wait for the voice
+	var MAX_WAIT_MS = 8000;   // a line that has waited this long since it arrived is not worth saying
+	var MAX_SPEAK_MS = 20000; // a line still going after this long is abandoned
 	var voices = [];
-	var queue = [];
-	var current = null;
+	var queue = [];           // the lines that wait, oldest first
+	var current = null;       // the line being spoken; it holds its utterance, so the browser cannot collect it before it ends
+	var holdUntil = 0;        // after a cancel the browser is given a moment before the next utterance
 	var FEMALE = /female|woman|zira|hazel|susan|samantha|victoria|karen|moira|tessa|fiona|allison|ava|serena|kate|jenny|aria|sonia|libby|emma|amy|joanna|salli|kimberly|ivy|nicole|raveena|natasha|hedda|helena|katja|paulina|monica|sabina/i;
 	var MALE = /(^|[^a-z])male|david|mark|james|daniel|alex|fred|george|guy|ryan|thomas|oliver|arthur|ralph|rishi|eric|christopher|brian|matthew|joey|justin|kevin|russell|davis|jason|tony|stefan|hans|jorge|diego|pablo/i;
 
@@ -69,9 +76,7 @@ static const char* H9_TTS_JS = R"JS(Module.h9tts = (function() {
 		return found[variant > 0 ? (variant - 1) % found.length : 0].voice;
 	}
 
-	function pump() {
-		if (current || !queue.length) return;
-		var line = queue.shift();
+	function start(line) {
 		var u;
 		try { u = new Utter(line.text); } catch (e) { return; }
 		var female = line.voice === 1;
@@ -93,30 +98,53 @@ static const char* H9_TTS_JS = R"JS(Module.h9tts = (function() {
 		var done = function() { if (current === line) { current = null; pump(); } };
 		u.onend = done;
 		u.onerror = done;
-		line.at = Date.now();
+		line.utter = u;
+		line.began = Date.now();
 		current = line;
 		try { synth.speak(u); } catch (e) { current = null; }
 	}
 
+	function pump() {
+		var wait = holdUntil - Date.now();
+		if (wait > 0) { if (!current && queue.length) setTimeout(pump, wait + 10); return; }
+		while (!current && queue.length) {
+			var line = queue.shift();
+			if (Date.now() - line.arrived > MAX_WAIT_MS) continue;
+			start(line);
+		}
+	}
+
+	function cancel() {
+		try { synth.cancel(); } catch (e) {}
+		current = null;
+		holdUntil = Date.now() + 250;
+	}
+
 	function add(speaker, text, voice, muffled, volume, choice, variant, depth, muffle) {
 		if (!ok) return 0;
-		if (current && Date.now() - current.at > 15000) current = null;
+		var now = Date.now();
+		if (current && now - current.began > MAX_SPEAK_MS) cancel();
 		for (var i = queue.length - 1; i >= 0; i--) {
 			if (queue[i].speaker === speaker) queue.splice(i, 1);
 		}
-		var replaced = current && current.speaker === speaker ? current : null;
 		queue.push({ speaker: speaker, text: text, voice: voice, muffled: muffled !== 0, volume: volume, choice: choice | 0,
-			variant: variant | 0, depth: Math.max(-12, Math.min(12, depth | 0)), muffle: muffle, at: 0 });
-		while (queue.length > 3) queue.shift();
-		if (replaced) {
-			try { synth.cancel(); } catch (e) {}
-			setTimeout(function() { if (current === replaced) { current = null; pump(); } }, 400);
-		} else {
-			pump();
+			variant: variant | 0, depth: Math.max(-12, Math.min(12, depth | 0)), muffle: muffle, arrived: now, began: 0, utter: null });
+		while (queue.length > MAX_WAITING) {
+			var victim = 0;
+			for (var j = 1; j < queue.length; j++) {
+				if (queue[j].volume < queue[victim].volume) victim = j;
+			}
+			queue.splice(victim, 1);
 		}
+		pump();
 		return 1;
 	}
 
+	Module.h9ttsStop = function() {
+		if (!ok) return;
+		queue.length = 0;
+		cancel();
+	};
 	Module.h9ttsVoiceCount = function() { return ok ? (refresh(), voices.length) : 0; };
 	Module.h9ttsVoiceName = function(i) {
 		var v = voices[i - 1];
@@ -172,7 +200,7 @@ bool H9TtsPlat_VoiceInfo(int index, char* name, int size, char* gender)
 }
 
 // The browser gives no audio to filter, so robot has nothing to act on here: a Mech and a bot keep their pitch and rate. It has no
-// pan either, and speaks one line at a time, so maxVoices is not read.
+// pan either, so global is not read, and it speaks one line at a time whatever the page does, so maxVoices is not read.
 void H9TtsPlat_Speak(const H9TtsLine& line)
 {
 	char call[192];
@@ -182,6 +210,12 @@ void H9TtsPlat_Speak(const H9TtsLine& line)
 		line.muffled ? 1 : 0, (double)line.volume, line.choice > 0 ? line.choice : 0, line.variant > 0 ? line.variant : 0, line.depth,
 		(double)line.muffle);
 	emscripten_run_script(call);
+}
+
+void H9TtsPlat_Stop()
+{
+	if (s_bReady)
+		emscripten_run_script("Module.h9ttsStop()");
 }
 
 #endif // __EMSCRIPTEN__
