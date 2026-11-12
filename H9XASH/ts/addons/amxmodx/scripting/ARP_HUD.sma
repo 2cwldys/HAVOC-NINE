@@ -4,6 +4,7 @@
 
 new p_HudTitle
 new p_Hostname
+new p_Credits  // H9: arp_h9_credits, which ARP_Inventory registers: 1 words the wallet line Credits, 0 is stock ARP's Wallet
 
 public ARP_Error(const Reason[])
 	pause("d")
@@ -47,7 +48,13 @@ public EventHudRender(Name[],Data[],Len)
 	{
 		new JobID = ARP_GetUserJobId(id)
 		
-		ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_WALLET,"Wallet: $%d",ARP_GetUserWallet(id))
+		if(!p_Credits)
+				p_Credits = get_cvar_pointer("arp_h9_credits")
+
+			if(p_Credits && get_pcvar_num(p_Credits))
+				ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_WALLET,"Credits: $%d",ARP_GetUserWallet(id))
+			else
+				ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_WALLET,"Wallet: $%d",ARP_GetUserWallet(id))
 		ARP_AddHudItemKind(id,HUD_PRIM,0,HUDK_BANK,"Bank: $%d",ARP_GetUserBank(id))
 		
 		if(ARP_ValidJobId(JobID))

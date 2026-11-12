@@ -72,7 +72,7 @@
 #include <h9_vgui>
 
 #define PLUGIN  "TS Match Mode"
-#define VERSION "1.60"
+#define VERSION "1.61"
 #define AUTHOR  "tsm"
 
 // Player slots this plugin is built for: AMX Mod X's MAX_PLAYERS (amxconst.inc), which
@@ -417,30 +417,38 @@ new g_cv_tpad, g_cv_tpad_per, g_cv_tpad_cd, g_cv_tpad_hp, g_cv_tpad_resist;
  * The custom hands. The game's own models/v_*.mdl are left exactly as they ship, so
  * h9_customhands 0 is TS's own hands; the custom ones are separate copies under
  * models/matchmode/<set>/ that ts_matchmode points the client's viewmodel at while
- * h9_customhands is on. There are five sets, made by modelling/team-hands.mjs: msr for
+ * h9_customhands is on. There are eight sets, made by modelling/team-hands.mjs: msr for
  * side 1 (the Middle Sea Republic, a blue cuff), insurgent for side 2 (a green cuff), and
  * default, with no stripe at all, for normal TS play (the match mode off) and for a player
- * on neither side; and msrdroid and insdroid, metal arms and (in the kicks) metal legs, worn
+ * on neither side; msrdroid and insdroid, metal arms and (in the kicks) metal legs, worn
  * in place of the set of his side by a player who wears that droid player model (see
- * droid_hand_set). TSM_HANDS is the number of stock viewmodels those sets cover. A roleplay map
+ * droid_hand_set); and prole, prolehealthy and prolefem, the hands, sleeves and (in the
+ * kicks) trousers and shoes of the proletarian player models (modelling/team-proles.mjs),
+ * worn on a roleplay map by the models the lists tsm_rp_hands_prole, _prolehealthy and
+ * _prolefem name. TSM_HANDS is the number of stock viewmodels those sets cover. A roleplay map
  * has no sides: there the model a player wears picks the set (tsm_rp_hands, rp_note_hands).
  *
  * The droid sets add as much to a client's download as the other three together (about 40 MB
  * against about 60 raw), so they are precached only on a map that plays the match and only for
  * a side whose class table lists a droid model (see precache_hands). Where one is missing, or
- * not precached, the droid wears his side's set.
+ * not precached, the droid wears his side's set. The proletarian sets are 40 models and about
+ * 21 MB raw each, precached only on a roleplay map and only while their list is not empty;
+ * a proletarian whose set is not there wears the default hands.
  *
  * TSM_HAND_INDEX is Xash3D's protocol MAX_MODELS (12 model bits): a model index past
  * it cannot be mapped, and the stock hand is left in place instead.
  */
 #define TSM_HANDS           42
 #define TSM_HAND_INDEX      4096
-#define TSM_HAND_SETS       5
+#define TSM_HAND_SETS       8
 #define TSM_HAND_MSR        0
 #define TSM_HAND_INSURGENT  1
 #define TSM_HAND_DEFAULT    2
 #define TSM_HAND_MSRDROID   3
 #define TSM_HAND_INSDROID   4
+#define TSM_HAND_PROLE      5
+#define TSM_HAND_PROLEHEALTHY 6
+#define TSM_HAND_PROLEFEM   7
 // The class perks (TSM_PERK_*) are in include\tsm_api.inc, which mode plugins share.
 
 // The regeneration tick's task id. A server-wide task, so it needs an id that cannot
@@ -823,9 +831,10 @@ new const g_boom_snd[3][] = { TSM_OBJ_BOOM_A, TSM_OBJ_BOOM_B, TSM_OBJ_BOOM_C };
 new g_shake_msg;
 new g_cv_musicvol, g_cv_startsound;   // tsm_startsound gates the round-start anthems
 // The roleplay maps, where the match mode is off. g_map_rp is the map's name (roleplay_map), decided at precache. tsm_music_rp plays the
-// ambient queue there, tsm_rp_sounds the elimination voices and the machines' hit sounds, tsm_rp_hands and its two lists (tsm_rp_hands_msr,
-// tsm_rp_hands_ins) the hands by the model a player wears.
+// ambient queue there, tsm_rp_sounds the elimination voices and the machines' hit sounds, tsm_rp_hands and its lists (tsm_rp_hands_msr,
+// tsm_rp_hands_ins, and the proletarians': tsm_rp_hands_prole, _prolehealthy, _prolefem) the hands by the model a player wears.
 new g_cv_music_rp, g_cv_rp_sounds, g_cv_rp_hands, g_cv_rp_hands_msr, g_cv_rp_hands_ins, g_cv_rp_hands_droid;
+new g_cv_rp_hands_prole, g_cv_rp_hands_prolehealthy, g_cv_rp_hands_prolefem;
 new g_cv_rp_range;            // tsm_rp_sound_range: how far a death or machine sound of a roleplay map is heard, in units
 new bool:g_dsnd_off[MAXPL];   // tsm_deathsounds 0: this player has the death and machine sounds of a roleplay map switched off
 new bool:g_map_rp;
@@ -985,7 +994,8 @@ new g_model_ok[MAXPL];        // whether that name resolved to a file on disk
 /*
  * The matchmode hand swap, by stock viewmodel index: g_hand_swap[set][stock] is the
  * model index the client is told to draw instead, or 0 for "leave it alone"; set is
- * TSM_HAND_MSR, TSM_HAND_INSURGENT, TSM_HAND_DEFAULT, TSM_HAND_MSRDROID or TSM_HAND_INSDROID.
+ * TSM_HAND_MSR, TSM_HAND_INSURGENT, TSM_HAND_DEFAULT, TSM_HAND_MSRDROID, TSM_HAND_INSDROID,
+ * TSM_HAND_PROLE, TSM_HAND_PROLEHEALTHY or TSM_HAND_PROLEFEM.
  * Built once in precache_hands(); read every frame in fw_updateclientdata_post.
  */
 new g_hand_swap[TSM_HAND_SETS][TSM_HAND_INDEX];
@@ -1057,14 +1067,16 @@ new bool:g_turret_ok;     // its models and sounds are all there and precached
 new g_turret_boom;        // the explosion sprite's index
 new g_turret_blood, g_turret_bloodspray;   // the blood sprites a hit shows, 0 when the game has none
 new g_turret_flash;   // TS's own muzzle flash sprite, 0 when the game has none
-new g_turret_trail, bool:g_turret_bullet;   // TS's slow-motion bullet trail and its bullet model, 0/false when missing
+new g_turret_trail, bool:g_turret_bullet;   // TS's slow-motion bullet trail and its bullet model (the turret's shots and a Mech's), 0/false when missing
 new g_m60_view_idx, g_mech_gun_view_idx;   // model indexes of the stock M60 viewmodel and the Mech's minigun one, 0 when not precached
 new g_mech_gun_world_idx;                  // model index of the Mech's cannon lying in the world (TSM_MECHGUN_WMODEL), 0 when not precached
-new g_mech_flash_spr, g_mech_trail_spr;    // the Mech's muzzle flash and tracer sprites, 0 when the game has none
-new g_cv_mech_flash, g_cv_mech_flash_scale, g_cv_mech_trails, g_cv_mech_trail_width, g_cv_mech_trail_life;
+new g_mech_flash_spr;                      // the Mech's muzzle flash sprite, 0 when the game has none
+new g_cv_mech_flash, g_cv_mech_flash_scale, g_cv_mech_trails, g_cv_mech_trail_max;
 new g_mech_clip[MAXPL];                    // the clip the Mech's weapon showed last frame, -1 when not read
 new g_mech_clip_wpn[MAXPL];                // the weapon that clip belonged to
-new Float:g_mech_fx_at[MAXPL];             // gametime of the last flash and tracer
+new Float:g_mech_fx_at[MAXPL];             // gametime of the last flash and bullet
+#define TSM_MECH_BULLETS 16                // the most bullets one Mech can have in the air at once: the ceiling of tsm_mech_trail_max
+new Float:g_mech_bullet_end[MAXPL][TSM_MECH_BULLETS];   // when each of a Mech's bullets in the air lands; a place whose time is not in the future is free
 new g_cv_turret_resist;   // the share of every hit its armour turns aside
 new g_cv_turret, g_cv_turret_per_team, g_cv_turret_hp, g_cv_turret_range, g_cv_turret_dmg;
 new g_cv_turret_rate, g_cv_turret_spread, g_cv_turret_repair, g_cv_turret_repaircd;
@@ -1115,6 +1127,10 @@ new g_door_touch_hits;        // every Touch on a door that fw_door_touch has se
 new g_door_touch_refused;     // of those, the ones on a Use Only door it turned away
 new g_cv_forcedoor;           // amx_tsm_forcedoor: tsm_opendoor works only while this is 1
 new bool:g_locked_out[MAXPL];  // joined mid-match; sits out until the match ends
+new bool:g_late[MAXPL];        // took a side after the match began (tsm_latejoin) and waits to be let in at his side's next respawn; locked out until then
+new Float:g_late_at[MAXPL];    // when he took it
+new g_late_pick[MAXPL];        // the side he took by hand through his userinfo mid-match, until task_late_native acts on it: 0 none
+new g_class_next[MAXPL];       // the class asked for, to go on at his next respawn (tsm_classchange; a late joiner's first pick): 0 none
 new bool:g_forfeit[MAXPL];     // has typed .forfeit this match
 new g_last_use[MAXPL];
 new bool:g_in_userinfo[MAXPL];
@@ -1207,6 +1223,7 @@ new g_fw_round_start = -1, g_fw_round_live = -1, g_fw_round_end = -1, g_fw_timeo
 new g_fw_wave = -1, g_fw_loadout = -1, g_fw_armed = -1;
 new g_fw_match_complete = -1;   // tsm_match_complete: a match played to its end (task_match_end)
 new g_fw_life_lost = -1;        // tsm_life_lost: a claimed mode may word a death's lives line itself
+new g_fw_late_wait = -1;        // tsm_late_wait: a claimed mode may word what a waiting late joiner is told
 new g_fw_match_forfeit = -1;    // tsm_match_forfeit: a match a side forfeited (match_forfeited)
 new g_fw_handoff = -1;          // tsm_handoff_drop: a player's use key asks a bot of his side to let go of the objective it carries
 new g_cv_handoff, g_cv_handoff_secs;
@@ -1348,6 +1365,7 @@ new g_cv_defaultspec;
 new g_cv_cleandrops;
 new g_cv_friendlyfire;
 new g_cv_autofill;
+new g_cv_latejoin, g_cv_classchange;   // tsm_latejoin, tsm_classchange: 0 off, 1 every mode, 2 the modes whose claim asks (TSM_MODE_LATE_JOIN, TSM_MODE_CLASS_CHANGE)
 new g_cv_deathdelay;
 new Float:g_elim_at[MAXPL];   // when this player was eliminated
 new g_cv_sweepdrops;
@@ -1477,6 +1495,14 @@ new Float:g_gate_deadline;    // when the LIVE gate stops waiting and forces go-
  */
 #define TSM_SIDE_MENU  "TSM Side"
 #define TSM_CLASS_MENU "TSM Class"
+
+// Seconds TS holds a player who has changed team before it lets him spawn: a late joiner the round's start would spawn sooner than that waits for the next one.
+#define TSM_LATE_GATE  5.5
+
+// How a class pick made now would count (class_pick_mode).
+#define TSM_PICK_NO    0   // no pick can be taken now
+#define TSM_PICK_NOW   1   // the freeze countdown: it is his class at once, and the arm that follows dresses him in it
+#define TSM_PICK_NEXT  2   // held for his next respawn, or until a late joiner is let in
 new g_side_menuid, g_class_menuid;
 new g_team_menu_text[256];   // the side menu as sent, rebuilt with the team names
 new g_team_menu_keys;
@@ -1746,6 +1772,82 @@ side_respawns(side)
 		return 1;
 	}
 	return get_pcvar_num(g_cv_respawns) ? 1 : 0;
+}
+
+/// 1 when a feature behind a 0/1/2 cvar is on for the mode this map plays: 1 is every mode, 2 the modes whose claim carries `flag`, 0 is off. With
+/// tsm_enabled 0 the match mode stands down and so do they.
+bool:mode_feature_on(cvar, flag)
+{
+	if (!get_pcvar_num(g_cv_enabled))
+	{
+		return false;
+	}
+	new v = get_pcvar_num(cvar);
+	if (v <= 0)
+	{
+		return false;
+	}
+	if (v == 1)
+	{
+		return true;
+	}
+	return (mode_flag(flag) != 0) ? true : false;
+}
+
+/// tsm_latejoin: a person who arrives after the match began, or leaves the spectators, may take a side, and is let in at his side's next respawn.
+bool:late_join_on()
+{
+	return mode_feature_on(g_cv_latejoin, TSM_MODE_LATE_JOIN);
+}
+
+/// tsm_classchange: a person who has a class may ask for another, which goes on at his next respawn.
+bool:class_change_on()
+{
+	return mode_feature_on(g_cv_classchange, TSM_MODE_CLASS_CHANGE);
+}
+
+/// A person may take this side now, with the match under way: tsm_latejoin is on for the mode, a round is in progress (frozen, live, or just over when
+/// another round follows) and the side has a moment to let him in -- a respawn wave of its own, or a round to come. A mode whose first round is the
+/// whole match (or whose run is the match) has no round to come.
+bool:late_join_open(team)
+{
+	if (!late_join_on() || (team != 1 && team != 2))
+	{
+		return false;
+	}
+	new bool:last = (mode_flag(TSM_MODE_ONE_RUN) || mode_flag(TSM_MODE_ONE_ROUND)) ? true : false;
+	switch (g_state)
+	{
+		case ST_FREEZE, ST_LIVE:
+		{
+			return (side_respawns(team) != 0 || !last) ? true : false;
+		}
+		case ST_ROUNDEND:
+		{
+			return !last;
+		}
+	}
+	return false;
+}
+
+/// What a waiting late joiner comes in with: "the next wave" on a side that has respawn waves, "the next round" on one that has none. Team 0 is the
+/// side the people play, where the bots have the other.
+late_when(team, out[], len)
+{
+	if (team != 1 && team != 2)
+	{
+		team = mode_flag(TSM_MODE_SIDE2_BOTS) ? human_side() : 1;
+	}
+	copy(out, len, side_respawns(team) ? "the next wave" : "the next round");
+}
+
+/// A late joiner's waiting state put away: he waits for no respawn and asked for no class. What he is in TS, and the side he holds, are not touched here.
+late_join_forget(id)
+{
+	g_late[id] = false;
+	g_late_at[id] = 0.0;
+	g_late_pick[id] = 0;
+	g_class_next[id] = 0;
 }
 
 /// Fires a mode forward that takes one number, while a mode has claimed the map. The answer is not wanted.
@@ -3517,7 +3619,8 @@ count_class_on_team(cls, team)
 	get_players(players, pnum, g_pf);
 	for (new i = 0; i < pnum; i++)
 	{
-		if (g_player_class[players[i]] == cls && tsm_live_team_of(players[i]) == team)
+		// A class asked for at the next respawn holds its slot from the pick, and the one he plays holds his until the switch.
+		if ((g_player_class[players[i]] == cls || g_class_next[players[i]] == cls) && tsm_live_team_of(players[i]) == team)
 		{
 			n++;
 		}
@@ -3545,8 +3648,8 @@ bool:class_open_for(id, cls, team)
 	{
 		return true;
 	}
-	// Already his: re-picking what he is holding is not a second slot.
-	if (g_player_class[id] == cls)
+	// Already his: re-picking what he is holding, or what he has asked for, is not a second slot.
+	if (g_player_class[id] == cls || g_class_next[id] == cls)
 	{
 		return true;
 	}
@@ -3565,14 +3668,93 @@ bool:class_open_for(id, cls, team)
 	return true;            // nothing is open anywhere: the limits give way
 }
 
+/// How a class pick made now would count: TSM_PICK_NOW in the freeze countdown (where issue_armament dresses him in it), TSM_PICK_NEXT where it is held
+/// for his next respawn -- a player's pick under tsm_classchange in a round that is live or just over, and a late joiner's pick until he is let in --
+/// and TSM_PICK_NO where none can be taken.
+class_pick_mode(id)
+{
+	if (may_pick_class(id))
+	{
+		return TSM_PICK_NOW;
+	}
+	if (!is_user_connected(id) || !g_class_count || !g_class_menu || !get_pcvar_num(g_cv_classes))
+	{
+		return TSM_PICK_NO;
+	}
+	if (g_late[id])
+	{
+		return TSM_PICK_NEXT;
+	}
+	if (g_locked_out[id] || !tsm_live_team_of(id))
+	{
+		return TSM_PICK_NO;
+	}
+	if (class_change_on() && (g_state == ST_LIVE || g_state == ST_ROUNDEND))
+	{
+		return TSM_PICK_NEXT;
+	}
+	return TSM_PICK_NO;
+}
+
+/// A class pick that is held for his next respawn (class_pick_mode answered TSM_PICK_NEXT). It takes its slot from now on and replaces any pick he made
+/// before it; it goes on when his side next lets him in. The class he already plays is no pick: choosing it drops the one that was waiting.
+class_pick_next(id, cls)
+{
+	new team = tsm_live_team_of(id);
+	new when[24];
+	copy(when, charsmax(when), side_respawns(team) ? "your next respawn" : "the next round");
+
+	new cur = resolved_class(id);
+	if (!g_late[id] && cur == cls)
+	{
+		if (g_class_next[id])
+		{
+			match_chat(id, "[MATCH] You stay %s: the pick you made for %s is dropped.", g_class_name[cls - 1], when);
+		}
+		else
+		{
+			match_chat(id, "[MATCH] You are already %s.", g_class_name[cls - 1]);
+		}
+		center_tell(id, "You stay %s.", g_class_name[cls - 1]);
+		g_class_next[id] = 0;
+		if (!g_player_class[id])
+		{
+			g_player_class[id] = cls;
+		}
+		return;
+	}
+	if (g_class_next[id] == cls)
+	{
+		match_chat(id, "[MATCH] %s is already your pick for %s.", g_class_name[cls - 1], when);
+		center_tell(id, "%s is already your pick.", g_class_name[cls - 1]);
+		return;
+	}
+
+	g_class_next[id] = cls;
+	if (g_late[id])
+	{
+		match_chat(id, "[MATCH] You come in as %s.", g_class_name[cls - 1]);
+		center_tell(id, "You come in as %s.", g_class_name[cls - 1]);
+	}
+	else
+	{
+		match_chat(id, "[MATCH] You come back as %s at %s. You are %s until then.", g_class_name[cls - 1], when, g_class_name[cur - 1]);
+		center_tell(id, "Next respawn: %s.", g_class_name[cls - 1]);
+	}
+	tlog("[TSM] class pick held: %d asked for class %d at %s (plays %d)", id, cls, when, cur);
+}
+
 /// A class picked from the menu, 0 being the first. class_menu_key() reads the key press.
 pick_class(id, item)
 {
 	if (item >= 0 && item < g_class_count)
 	{
+		new mode = class_pick_mode(id);
+
 		// Locked for the rest of the match: the class IS the loadout, so swapping it
-		// mid-match would be the economy this replaced.
-		if (g_player_class[id] && g_state != ST_WARMUP && g_state != ST_READYUP)
+		// mid-match would be the economy this replaced. tsm_classchange lifts it: a pick
+		// is then held for his next respawn (class_pick_next), or is the class at once in the freeze.
+		if (g_player_class[id] && !class_change_on() && g_state != ST_WARMUP && g_state != ST_READYUP)
 		{
 			match_chat(id, "[MATCH] You are already %s for this match.",
 				g_class_name[g_player_class[id] - 1]);
@@ -3596,11 +3778,31 @@ pick_class(id, item)
 			center_tell(id, "%s is full: %d a side.", g_class_name[item], class_limit_of(item + 1));
 			show_class_menu(id);
 		}
+		else if (mode == TSM_PICK_NEXT)
+		{
+			class_pick_next(id, item + 1);
+		}
+		else if (g_player_class[id] == item + 1)
+		{
+			// The class he has, chosen again in the countdown: nothing changes, and a pick that waited for a respawn is dropped.
+			g_class_next[id] = 0;
+			match_chat(id, "[MATCH] You are already %s.", g_class_name[item]);
+			center_tell(id, "You are already %s.", g_class_name[item]);
+		}
 		else
 		{
+			g_class_next[id] = 0;
 			g_player_class[id] = item + 1;
-			match_chat(id, "[MATCH] You are %s. That is your class for the whole match.",
-				g_class_name[item]);
+			if (class_change_on())
+			{
+				match_chat(id, "[MATCH] You are %s. Type .class to change it: a new pick takes effect at your next respawn.",
+					g_class_name[item]);
+			}
+			else
+			{
+				match_chat(id, "[MATCH] You are %s. That is your class for the whole match.",
+					g_class_name[item]);
+			}
 			center_tell(id, "You are %s.", g_class_name[item]);
 			lr_class_picked(id);
 
@@ -3652,16 +3854,26 @@ pick_side(id, item)
 {
 	if (item == 0 || item == 1)
 	{
-		// Sides are fixed for the duration of a match. A late joiner waits it out.
+		// Sides are fixed for the duration of a match. A late joiner waits it out, or, where tsm_latejoin lets him, waits for his side's next respawn.
+		new bool:late = false;
 		if (g_state != ST_WARMUP && g_state != ST_READYUP)
 		{
 			if (stranded_recover(id, "side menu"))
 			{
 				return;   // back in warmup: the side menu is offered to everyone in a moment
 			}
-			match_chat(id, "[MATCH] A match is already in progress -- join when it finishes.");
-			center_tell(id, "A match is in progress: join the next one.");
-			return;
+			// Whoever plays a side keeps it; a person who waits on one may change it.
+			if (!late_join_open(item + 1) || ((g_match_team[id] == 1 || g_match_team[id] == 2) && !g_late[id]))
+			{
+				match_chat(id, "[MATCH] A match is already in progress -- join when it finishes.");
+				center_tell(id, "A match is in progress: join the next one.");
+				return;
+			}
+			if (g_late[id] && g_match_team[id] == item + 1)
+			{
+				return;   // the side he already waits on: his client's jointeam comes back as a second ask
+			}
+			late = true;
 		}
 
 		new team = item + 1;
@@ -3698,6 +3910,12 @@ pick_side(id, item)
 		{
 			new n1 = count_on_team(1);
 			new n2 = count_on_team(2);
+
+			// A late joiner changing sides is counted off the one he leaves.
+			if (g_late[id])
+			{
+				if (g_match_team[id] == 1) { n1--; } else if (g_match_team[id] == 2) { n2--; }
+			}
 
 			// Their own arrival counts towards the gap.
 			if (team == 1) { n1++; } else { n2++; }
@@ -3741,6 +3959,11 @@ pick_side(id, item)
 		 * index 0 and is silently ignored, which is why picking a side did nothing.
 		 */
 		set_ts_team(id, team);
+		if (late)
+		{
+			late_join_take(id, team);
+			return;
+		}
 		match_chat(id, "[MATCH] Joining %s...", shown);
 		center_tell(id, "Joining %s.", shown);
 		lr_prematch_hint(id);
@@ -3757,6 +3980,7 @@ pick_side(id, item)
 	}
 	else
 	{
+		late_join_cancel(id);
 		g_spectator[id] = true;
 		set_ts_spectator(id);
 		set_spectator_model(id);
@@ -3898,7 +4122,7 @@ show_team_menu(id)
 	// could never switch -- including off an over-full team the balance check was
 	// complaining about.
 	if ((g_match_team[id] == 1 || g_match_team[id] == 2)
-		&& g_state != ST_WARMUP && g_state != ST_READYUP)
+		&& g_state != ST_WARMUP && g_state != ST_READYUP && !g_late[id])
 	{
 		return;
 	}
@@ -4138,7 +4362,7 @@ show_class_menu(id)
 	// Everything funnels through here, so this is where the state rule lives. The
 	// routes that a player drives say WHY they were refused; this one is the backstop
 	// and stays silent.
-	if (!may_pick_class(id))
+	if (class_pick_mode(id) == TSM_PICK_NO)
 	{
 		return;
 	}
@@ -4147,9 +4371,10 @@ show_class_menu(id)
 	{
 		return;
 	}
-	// Locked once picked. The freeze is the only state that reaches here now, so there
-	// is no warmup exemption to make: a class is chosen once per match.
-	if (g_player_class[id])
+	// Locked once picked, unless tsm_classchange lets him ask for another. The freeze is the
+	// only state that reaches here without it, so there is no warmup exemption to make: a
+	// class is chosen once per match.
+	if (g_player_class[id] && !class_change_on())
 	{
 		return;
 	}
@@ -4179,10 +4404,22 @@ show_class_menu(id)
 		class_menu_info(i + 1, info, charsmax(info));
 		keys |= (1 << i);
 
+		// The class he plays, and the one he has asked for.
+		new tag[12];
+		tag[0] = 0;
+		if (i + 1 == g_class_next[id])
+		{
+			copy(tag, charsmax(tag), "  (next)");
+		}
+		else if (i + 1 == g_player_class[id])
+		{
+			copy(tag, charsmax(tag), "  (yours)");
+		}
+
 		if (!class_limit_of(i + 1))
 		{
-			len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp, %s]\y^n",
-				key, g_class_name[i], g_class_hp[i], info);
+			len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp, %s]\y%s^n",
+				key, g_class_name[i], g_class_hp[i], info, tag);
 		}
 		else
 		{
@@ -4200,13 +4437,13 @@ show_class_menu(id)
 			{
 				// Still listed, and still pressable: pick_class() says no and says why. Hiding it
 				// would leave the numbers beside the other classes meaning nothing.
-				len += formatex(text[len], charsmax(text) - len, "\d%d. %s  [%d hp, %s]  (full)\y^n",
-					key, g_class_name[i], g_class_hp[i], info);
+				len += formatex(text[len], charsmax(text) - len, "\d%d. %s  [%d hp, %s]  (full)\y%s^n",
+					key, g_class_name[i], g_class_hp[i], info, tag);
 			}
 			else
 			{
-				len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp, %s]  \y(%d left)^n",
-					key, g_class_name[i], g_class_hp[i], info, free);
+				len += formatex(text[len], charsmax(text) - len, "\y%d. %s  \d[%d hp, %s]  \y(%d left)%s^n",
+					key, g_class_name[i], g_class_hp[i], info, free, tag);
 			}
 		}
 	}
@@ -4233,7 +4470,7 @@ show_class_menu(id)
  */
 public class_menu_key(id, key)
 {
-	if (key < g_class_count && may_pick_class(id))
+	if (key < g_class_count && class_pick_mode(id) != TSM_PICK_NO)
 	{
 		pick_class(id, key);
 	}
@@ -4422,21 +4659,26 @@ new const g_hand_files[TSM_HANDS][] =
 };
 
 // The sets: their folders under models/matchmode/, in the order of TSM_HAND_MSR, TSM_HAND_INSURGENT, TSM_HAND_DEFAULT,
-// TSM_HAND_MSRDROID, TSM_HAND_INSDROID.
+// TSM_HAND_MSRDROID, TSM_HAND_INSDROID, TSM_HAND_PROLE, TSM_HAND_PROLEHEALTHY, TSM_HAND_PROLEFEM.
 new const g_hand_sets[TSM_HAND_SETS][] =
 {
 	"msr",
 	"insurgent",
 	"default",
 	"msrdroid",
-	"insdroid"
+	"insdroid",
+	"prole",
+	"prolehealthy",
+	"prolefem"
 };
 
 /*
  * Precaches the custom hand sets and fills g_hand_swap: msr, insurgent and default on a map that
  * plays the match mode (g_map_h9), only the default on any other; none when h9_customhands is 0.
  * A roleplay map (tsm_rp_hands 1) gets the msr, insurgent and default sets and the msr droid's, and with
- * tsm_rp_hands_droid 1 the insurgent droid's: the droid models there wear the set of their type.
+ * tsm_rp_hands_droid 1 the insurgent droid's: the droid models there wear the set of their type. It gets
+ * the proletarian sets too (prole, prolehealthy, prolefem), each while its list (tsm_rp_hands_prole,
+ * _prolehealthy, _prolefem) is not empty; they are about 21 MB each and never go to a match map.
  * A droid set (msrdroid, insdroid) only on a match map, and only for a side whose class table
  * lists a droid model (g_droid_listed, filled by precache_class_models, which runs first): about
  * 20 MB each, for players who can be handed one. The class table is read from the config FILE
@@ -4468,7 +4710,7 @@ precache_hands()
 	new stockpath[64], path[96], base, idx;
 
 	// A roleplay map has no sides, but the model a player wears there calls for a set (rp_note_hands): the msr, the insurgent and the default
-	// hands, the msr droid's, and with tsm_rp_hands_droid the insurgent droid's.
+	// hands, the msr droid's, and with tsm_rp_hands_droid the insurgent droid's, and each proletarian set whose list is not empty.
 	new bool:rp = (!g_map_h9 && g_map_rp && get_pcvar_num(g_cv_rp_hands) != 0);
 	new bool:rp_set[TSM_HAND_SETS];
 	if (rp)
@@ -4478,6 +4720,9 @@ precache_hands()
 		rp_set[TSM_HAND_DEFAULT] = true;
 		rp_set[TSM_HAND_MSRDROID] = true;
 		rp_set[TSM_HAND_INSDROID] = (get_pcvar_num(g_cv_rp_hands_droid) != 0);
+		rp_set[TSM_HAND_PROLE] = rp_list_set(g_cv_rp_hands_prole);
+		rp_set[TSM_HAND_PROLEHEALTHY] = rp_list_set(g_cv_rp_hands_prolehealthy);
+		rp_set[TSM_HAND_PROLEFEM] = rp_list_set(g_cv_rp_hands_prolefem);
 	}
 
 	for (new i = 0; i < TSM_HANDS; i++)
@@ -4529,6 +4774,12 @@ precache_hands()
 				continue;
 			}
 
+			// a proletarian set only where a roleplay map's models wear it (never on a match map), and without the Mech's view models
+			if (set >= TSM_HAND_PROLE && (!rp_set[set] || equal(g_hand_files[i], "h9/v_mech", 9)))
+			{
+				continue;
+			}
+
 			formatex(path, charsmax(path), "models/matchmode/%s/%s", g_hand_sets[set], g_hand_files[i]);
 			if (!file_exists(path, true))
 			{
@@ -4555,8 +4806,14 @@ precache_hands()
 		log_amx("[TSM] matchmode hands: %d msr droid and %d insurgent droid models missing; those weapons give a droid his side's hands.",
 			missing[TSM_HAND_MSRDROID], missing[TSM_HAND_INSDROID]);
 	}
-	tlog("[TSM] matchmode hands: %d msr + %d insurgent + %d default + %d msr droid + %d insurgent droid models precached.",
-		found[TSM_HAND_MSR], found[TSM_HAND_INSURGENT], found[TSM_HAND_DEFAULT], found[TSM_HAND_MSRDROID], found[TSM_HAND_INSDROID]);
+	if (missing[TSM_HAND_PROLE] || missing[TSM_HAND_PROLEHEALTHY] || missing[TSM_HAND_PROLEFEM])
+	{
+		log_amx("[TSM] matchmode hands: %d prole, %d prolehealthy and %d prolefem models missing; those weapons give a proletarian the default hands.",
+			missing[TSM_HAND_PROLE], missing[TSM_HAND_PROLEHEALTHY], missing[TSM_HAND_PROLEFEM]);
+	}
+	tlog("[TSM] matchmode hands: %d msr + %d insurgent + %d default + %d msr droid + %d insurgent droid + %d prole + %d prolehealthy + %d prolefem models precached.",
+		found[TSM_HAND_MSR], found[TSM_HAND_INSURGENT], found[TSM_HAND_DEFAULT], found[TSM_HAND_MSRDROID], found[TSM_HAND_INSDROID],
+		found[TSM_HAND_PROLE], found[TSM_HAND_PROLEHEALTHY], found[TSM_HAND_PROLEFEM]);
 }
 
 /*
@@ -5021,15 +5278,21 @@ public plugin_precache()
 	/*
 	 * The roleplay maps' extras, registered here for the same reason: precache_hands() reads tsm_rp_hands and tsm_rp_hands_droid, so a
 	 * server that sets "tsm_rp_hands 0" in its server.cfg leaves a roleplay map without the hand sets the models there would call for
-	 * (about 86 MB of download for the four), and either way a change takes a map change. The two lists are words that appear in a
-	 * player model's name, separated by commas, in any case: the models of the first get the msr hands, of the second the insurgent
-	 * hands. tsm_rp_hands_droid 1 gives each droid the set of its type (an insdroid the insurgent droid's, any other droid the msr
-	 * droid's); 0 gives every droid the msr droid's and leaves the insurgent droid's set out of the download.
+	 * (about 86 MB of download for the msr, insurgent and droid sets, and 64 MB more for the proletarian ones), and either way a change
+	 * takes a map change. The lists are words that appear in a player model's name, separated by commas, in any case: the models of the
+	 * first get the msr hands, of the second the insurgent hands. tsm_rp_hands_droid 1 gives each droid the set of its type (an insdroid
+	 * the insurgent droid's, any other droid the msr droid's); 0 gives every droid the msr droid's and leaves the insurgent droid's set
+	 * out of the download. The proletarian models have their own hands, one list for each set: _prolehealthy (proletarian_healthy),
+	 * _prolefem (prole_, the fem models) and _prole (proletarian: proletarian_dirty too), asked in that order and after the msr and
+	 * insurgent lists, so ins_proletarian keeps the insurgent hands. A list set empty leaves its set (21 MB) out of the download.
 	 */
 	g_cv_rp_hands = register_cvar("tsm_rp_hands", "1");
 	g_cv_rp_hands_msr = register_cvar("tsm_rp_hands_msr", "repu,rh_");
 	g_cv_rp_hands_ins = register_cvar("tsm_rp_hands_ins", "xccp,ins_");
 	g_cv_rp_hands_droid = register_cvar("tsm_rp_hands_droid", "1");
+	g_cv_rp_hands_prole = register_cvar("tsm_rp_hands_prole", "proletarian");
+	g_cv_rp_hands_prolehealthy = register_cvar("tsm_rp_hands_prolehealthy", "proletarian_healthy");
+	g_cv_rp_hands_prolefem = register_cvar("tsm_rp_hands_prolefem", "prole_");
 	g_cv_rp_sounds = register_cvar("tsm_rp_sounds", "1");
 	g_cv_rp_range = register_cvar("tsm_rp_sound_range", "1200");
 	g_cv_music_rp = register_cvar("tsm_music_rp", "1");
@@ -5352,16 +5615,17 @@ public plugin_precache()
 		{
 			g_turret_flash = precache_model("sprites/ts_muzzleflash1.spr");
 		}
-		if (file_exists("sprites/bullet_trail.spr", true) && file_exists("models/bullet.mdl", true))
-		{
-			g_turret_trail = precache_model("sprites/bullet_trail.spr");
-			precache_model("models/bullet.mdl");
-			g_turret_bullet = true;
-		}
 	}
 
-	// The Mech's muzzle flash (H9's own, else TS's) and its tracer's sprite: the laser rifle's streak, which is bright. TS's own bullet
-	// trail is a faint wash (its brightest texel is 24 of 255) and is only the fallback.
+	// TS's bullet in slow motion, for the turret's shots and a Mech's: its model and the sprite of its trail, where the game has both.
+	if (file_exists("sprites/bullet_trail.spr", true) && file_exists("models/bullet.mdl", true))
+	{
+		g_turret_trail = precache_model("sprites/bullet_trail.spr");
+		precache_model("models/bullet.mdl");
+		g_turret_bullet = true;
+	}
+
+	// The Mech's muzzle flash: H9's own, else TS's.
 	if (file_exists("sprites/h9_minigun_flash.spr", true))
 	{
 		g_mech_flash_spr = precache_model("sprites/h9_minigun_flash.spr");
@@ -5369,14 +5633,6 @@ public plugin_precache()
 	else if (file_exists("sprites/ts_muzzleflash1.spr", true))
 	{
 		g_mech_flash_spr = precache_model("sprites/ts_muzzleflash1.spr");
-	}
-	if (file_exists("sprites/laserrifle_trail.spr", true))
-	{
-		g_mech_trail_spr = precache_model("sprites/laserrifle_trail.spr");
-	}
-	else if (file_exists("sprites/bullet_trail.spr", true))
-	{
-		g_mech_trail_spr = precache_model("sprites/bullet_trail.spr");
 	}
 
 	/*
@@ -5906,6 +6162,16 @@ public plugin_init()
 	g_cv_autofill  = register_cvar("tsm_autofill",       "1");
 
 	/*
+	 * Late joiners and class changes, in every mode, each read live.
+	 *
+	 * 0 = off: the match plays as it always has (a person arriving mid-match waits for the next one, a class is locked once picked)
+	 * 1 = on in every mode
+	 * 2 = on in the modes whose claim asks for it (TSM_MODE_LATE_JOIN, TSM_MODE_CLASS_CHANGE): Wave Survival does, no other mode (DEFAULT)
+	 */
+	g_cv_latejoin    = register_cvar("tsm_latejoin",    "2");
+	g_cv_classchange = register_cvar("tsm_classchange", "2");
+
+	/*
 	 * Seconds a body stays visible after being eliminated.
 	 *
 	 * Removal from play hides the player outright, and doing that the instant they die
@@ -6262,6 +6528,8 @@ public plugin_init()
 	g_fw_match_forfeit = CreateMultiForward("tsm_match_forfeit", ET_IGNORE, FP_CELL);
 	// The use key on a bot of one's own side: a mode that has it carry an objective drops it and answers PLUGIN_HANDLED.
 	g_fw_handoff = CreateMultiForward("tsm_handoff_drop", ET_STOP, FP_CELL, FP_FLOAT);
+	// A person has taken a side mid-match and waits to be let in: a mode that words it itself answers PLUGIN_HANDLED.
+	g_fw_late_wait = CreateMultiForward("tsm_late_wait", ET_STOP, FP_CELL);
 
 	// Refuse team changes once a match is under way. Deliberately its own cvar and
 	// not part of tsm_block_spectator, so turning that off for a model test cannot
@@ -6340,12 +6608,12 @@ public plugin_init()
 	g_cv_turret_repair   = register_cvar("tsm_turret_repair",          "100");
 	g_cv_turret_repaircd = register_cvar("tsm_turret_repair_cooldown", "30");
 
-	// The Mech's M60: a large muzzle flash and a bullet tracer on every shot.
+	// The Mech's M60: a large muzzle flash and a bullet flown in slow motion, as the turret's are, on every shot; one Mech has up to
+	// tsm_mech_trail_max of them in the air.
 	g_cv_mech_flash       = register_cvar("tsm_mech_flash",            "1");
 	g_cv_mech_flash_scale = register_cvar("tsm_mech_flash_scale",      "0.3");
 	g_cv_mech_trails      = register_cvar("tsm_mech_trails",           "1");
-	g_cv_mech_trail_width = register_cvar("tsm_mech_trail_width",      "14");
-	g_cv_mech_trail_life  = register_cvar("tsm_mech_trail_life",       "2");
+	g_cv_mech_trail_max   = register_cvar("tsm_mech_trail_max",        "6");
 
 	// The use key on a bot of one's own side that carries the uplink, a flag or TS's briefcase makes it let go, and keeps it off for
 	// the seconds, so that the player can take it.
@@ -8302,6 +8570,13 @@ force_spectator(id)
 		return;
 	}
 
+	// Whoever waited to be let in leaves the queue.
+	if (g_late[id])
+	{
+		g_side[id] = 0;
+		late_join_forget(id);
+	}
+
 	if (!on_spectator_team(id))
 	{
 		if (live_spectator_index() <= 0)
@@ -9163,9 +9438,10 @@ dump_player_state(viewer, target, const when[])
 	new line3[192], wl[32], wn;
 	get_user_weapons(target, wl, wn);
 	formatex(line3, charsmax(line3),
-		"[%s] %s: deadflag=%d iuser1=%d weapons=%d lives=%d pending=%d refused=%d",
+		"[%s] %s: deadflag=%d iuser1=%d weapons=%d lives=%d pending=%d refused=%d late=%d class=%d next=%d",
 		when, who, pev(target, pev_deadflag), pev(target, pev_iuser1), wn,
-		g_lives_left[target], g_revive_pending[target] ? 1 : 0, g_revive_refused[target]);
+		g_lives_left[target], g_revive_pending[target] ? 1 : 0, g_revive_refused[target],
+		g_late[target] ? 1 : 0, g_player_class[target], g_class_next[target]);
 
 	dbg("%s", line1);
 	dbg("%s", line2);
@@ -9671,6 +9947,12 @@ public cmd_listen_respawn(id)
 	static Float:s_next_note;
 	static bool:s_logged;
 
+	// A late joiner waiting for his side's respawn does not play by pressing fire: he comes in with the wave.
+	if (g_late[id])
+	{
+		return PLUGIN_HANDLED;
+	}
+
 	if (get_maxplayers() > 1 || !get_cvar_num("tsm_listen_guard"))
 	{
 		return PLUGIN_CONTINUE;
@@ -9735,13 +10017,14 @@ public cmd_blockbuy(id)
  * A MECH DOES NOT DROP HIS WEAPONS (tsm_mech_nodrop).
  *
  * The Mech carries an M60 and the rocket launcher (weapon 41 of H9's reTS), and neither is dropped: the T key and the
- * weapon bar's right click are refused for them, and what a Mech throws as he dies is taken out of the world in the
+ * weapon bar's right click are refused for them here, and the game library (CBasePlayer::DropWeapon, for a player marked in
+ * pev fuser4 by lr_arm_begin) refuses every other route itself while tsm_mech_nodrop is on: a disarm (a Mech hit with a
+ * blade until his weapon would be knocked from his hands) does nothing to him, and his death throws none of them. A game
+ * library without that refusal still throws them, and what a Mech throws as he dies is taken out of the world in the
  * frame it was thrown. TS throws every weapon as a "WorldGun" entity whose owner (pev owner) is the thrower until it
  * lands, so that frame is the only one in which it can still be told as his; DeathMsg comes after the throws, in the same
  * frame, which is why the death hook finds them. A gun TS has slowed (pev fuser1 under 1, in someone's bullet time) is
  * left alone, for TS holds a pointer to it, and the sweep is run again a few times while it may still be in the air.
- * A disarm (a Mech hit with a blade until his weapon is knocked from his hands) is not stopped: the weapon is his to
- * pick up again, as in TS.
  */
 
 /// 1 when this weapon of this player may not be dropped: tsm_mech_nodrop and the match mode are on, he is a Mech by
@@ -9780,8 +10063,8 @@ mech_drop_told(id)
  *
  * His kit is fixed, so a gun another player dropped (or one lying on the map) is not his to take: TS picks a weapon up when
  * a player touches it with the use key held, or uses it, and both are refused for a Mech by class (lr_touch_refused for the
- * touch, lr_mech_prethink for the use key). His own gear is the exception, so that a disarm, which tsm_mech_nodrop does not
- * stop, never leaves him bare-handed for good: the M60, the minigun that stands for it on a Mech, and the launcher may be
+ * touch, lr_mech_prethink for the use key). His own gear is the exception, so that a game library that lets a disarm through
+ * never leaves him bare-handed for good: the M60, the minigun that stands for it on a Mech, and the launcher may be
  * taken up again. With tsm_loadoutrework on the rework's own guard refuses every weapon (it hands a disarmed Mech his gun
  * back itself) and the game library refuses a dropped one too.
  */
@@ -9866,7 +10149,8 @@ public task_mech_gear(taskid)
  * A MECH'S M60 ON THE FLOOR IS HIS CANNON.
  *
  * The game library gives every M60 thrown into the world the M60's world model (models/w_m60.mdl), whoever throws it. A
- * Mech's M60 is the cannon built into his arm (fw_updateclientdata_post), so one he throws (a disarm, or tsm_mech_nodrop 0)
+ * Mech's M60 is the cannon built into his arm (fw_updateclientdata_post), so one he throws (tsm_mech_nodrop 0, or a game
+ * library that does not refuse a drop for him)
  * lies there as models/h9/w_mechminigun.mdl when the game has that file (g_mech_gun_world_idx). The gun is his only while it
  * is in the air, for its pev owner is the thrower until it lands (see above). FM_SetModel tells that the library has just
  * given an M60 its model, which starts a few looks at the guns in the world, and a "WorldGun" whose owner is a Mech and
@@ -10102,6 +10386,13 @@ public cmd_watch_join(id)
 		{
 			return PLUGIN_HANDLED;
 		}
+		// Where tsm_latejoin lets a person take a side now, the console's jointeam is the same ask as the side menu's.
+		new lt = str_to_num(arg);
+		if ((lt == 1 || lt == 2) && late_join_open(lt))
+		{
+			pick_side(id, lt - 1);
+			return PLUGIN_HANDLED;
+		}
 		match_chat(id, "[MATCH] A match is already in progress -- join when it finishes.");
 		center_tell(id, "A match is in progress: join the next one.");
 		return PLUGIN_HANDLED;
@@ -10226,7 +10517,7 @@ public legend_menu_handler(id, menu, item)
 				g_team_menu_at[id] = 0.0;
 				show_team_menu(id);
 			}
-			else if (!may_pick_class(id))
+			else if (class_pick_mode(id) == TSM_PICK_NO)
 			{
 				match_chat(id, "[MATCH] Classes are picked during the countdown before a round, not now.");
 				center_tell(id, "Classes are picked in the countdown before a round.");
@@ -10339,6 +10630,21 @@ public cmd_team(id)
 		{
 			return PLUGIN_HANDLED;
 		}
+		// Where tsm_latejoin lets a person take a side now, .team offers him the menu; so it does a late joiner who waits on one, to change it.
+		if ((late_join_open(1) || late_join_open(2)) && ((g_match_team[id] != 1 && g_match_team[id] != 2) || g_late[id]))
+		{
+			if (!g_team_menu)
+			{
+				match_chat(id, "[MATCH] Team names are not configured yet.");
+				center_tell(id, "Team names are not configured yet.");
+				return PLUGIN_HANDLED;
+			}
+			g_spectator[id] = false;
+			remove_task(id + 1000);   // cancel any pending spectator parking
+			g_team_menu_at[id] = 0.0;
+			show_team_menu(id);
+			return PLUGIN_HANDLED;
+		}
 		match_chat(id, "[MATCH] A match is already in progress -- join when it finishes.");
 		center_tell(id, "A match is in progress: join the next one.");
 		return PLUGIN_HANDLED;
@@ -10367,7 +10673,7 @@ public cmd_class(id)
 		center_tell(id, "No classes are configured on this server.");
 		return PLUGIN_HANDLED;
 	}
-	if (g_player_class[id])
+	if (g_player_class[id] && !class_change_on())
 	{
 		match_chat(id, "[MATCH] You are %s for this match. Classes are locked once picked.",
 			g_class_name[g_player_class[id] - 1]);
@@ -10377,7 +10683,8 @@ public cmd_class(id)
 
 	// Say why, rather than opening a menu whose answer would be thrown away. A class
 	// picked outside the freeze never reached the loadout and begin_match() cleared it.
-	if (!may_pick_class(id))
+	new pmode = class_pick_mode(id);
+	if (pmode == TSM_PICK_NO)
 	{
 		if (!get_pcvar_num(g_cv_classes))
 		{
@@ -10402,6 +10709,12 @@ public cmd_class(id)
 		return PLUGIN_HANDLED;
 	}
 
+	// A pick that waits for a respawn says so before the menu does.
+	if (pmode == TSM_PICK_NEXT && !g_late[id])
+	{
+		match_chat(id, "[MATCH] You are %s. The class you pick now goes on at %s.", g_class_name[resolved_class(id) - 1],
+			side_respawns(tsm_live_team_of(id)) ? "your next respawn" : "the next round");
+	}
 	show_class_menu(id);
 	return PLUGIN_HANDLED;
 }
@@ -10801,6 +11114,233 @@ apply_class(id)
 	dbgv("apply_class done for %d", id);
 	dbg("armed %d as '%s' team %d (%d weapons, %dhp)",
 		id, g_class_name[ci], team, g_class_wcount[ci][team], g_class_hp[ci]);
+}
+
+/* ---- late joiners and class changes: the moment a side lets them in ------------------------------------ */
+
+/// The class he asked for goes on: it is his class from now, and what follows from a class is done for it -- the model, the loadout rework's fit, the
+/// squad an Officer led. The kit, health, armour, speed and scale come with the respawn or the arm that follows, which read resolved_class() as they do
+/// for a first pick. True when his class changed.
+bool:class_switch_apply(id)
+{
+	new cls = g_class_next[id];
+	if (cls < 1)
+	{
+		return false;
+	}
+	g_class_next[id] = 0;
+	if (cls > g_class_count || !class_offered(cls) || cls == g_player_class[id])
+	{
+		return false;
+	}
+
+	new old = g_player_class[id];
+	if (old >= 1 && old <= g_class_count && g_class_perk[old - 1] == TSM_PERK_OFFICER)
+	{
+		disband_squad(id);
+	}
+	g_player_class[id] = cls;
+	g_class_menu_at[id] = 0.0;
+	match_chat(id, "[MATCH] You are %s now.", g_class_name[cls - 1]);
+	center_tell(id, "You are %s now.", g_class_name[cls - 1]);
+	lr_class_picked(id);
+
+	new bool:cwas = g_in_userinfo[id];
+	g_in_userinfo[id] = true;
+	set_class_model(id, cls - 1);
+	g_in_userinfo[id] = cwas;
+	tlog("[TSM] class change: %d is class %d now (was %d)", id, cls, old);
+	return true;
+}
+
+/// A waiting late joiner's class, settled as he is let in: the one he asked for, else the default class, and where that has no room the first class that
+/// has (he is told). It is his class from then on, so it holds its slot.
+late_class_settle(id)
+{
+	if (!g_class_count || !get_pcvar_num(g_cv_classes))
+	{
+		g_class_next[id] = 0;
+		return;
+	}
+	new team = g_match_team[id];
+	new cls = g_class_next[id];
+	if (cls < 1 || cls > g_class_count || !class_offered(cls))
+	{
+		cls = default_class();
+	}
+	if (!class_open_for(id, cls, team))
+	{
+		new want = cls;
+		for (new c = 1; c <= g_class_count; c++)
+		{
+			if (class_offered(c) && class_open_for(id, c, team))
+			{
+				cls = c;
+				break;
+			}
+		}
+		match_chat(id, "[MATCH] %s is full -- you come in as %s.", g_class_name[want - 1], g_class_name[cls - 1]);
+	}
+	g_class_next[id] = 0;
+	g_player_class[id] = cls;
+	lr_class_picked(id);
+
+	new bool:cwas = g_in_userinfo[id];
+	g_in_userinfo[id] = true;
+	set_class_model(id, cls - 1);
+	g_in_userinfo[id] = cwas;
+}
+
+/// Lets a waiting late joiner in. His class is settled, he is no longer locked out, and the side counts him as one of its own. By a wave: the revive of
+/// the side's respawn wave takes him as it takes a fallen player, with his class's lives, and puts him on his feet, placed and armed. At a round's start:
+/// he is a player of the round, which the round's own start puts on his feet, places and arms. Nothing is drawn from a pool and no score is touched.
+late_admit(id, bool:by_wave)
+{
+	g_late[id] = false;
+	g_late_at[id] = 0.0;
+	g_late_pick[id] = 0;
+	g_locked_out[id] = false;
+	g_saved[id] = false;
+	late_class_settle(id);
+
+	new as[48];
+	as[0] = 0;
+	new ci = resolved_class(id) - 1;
+	if (g_class_count && get_pcvar_num(g_cv_classes) && ci >= 0 && ci < g_class_count)
+	{
+		formatex(as, charsmax(as), " as %s", g_class_name[ci]);
+	}
+	if (by_wave)
+	{
+		g_lives_left[id] = lives_for(id);
+		g_revive_pending[id] = true;
+		g_revive_refused[id] = 0;
+		g_died_at[id] = 0.0;
+		match_chat(id, "[MATCH] The respawn wave brings you in%s.", as);
+		center_tell(id, "The wave brings you in%s.", as);
+	}
+	else
+	{
+		g_elim[id] = false;
+		g_elim_at[id] = 0.0;
+		match_chat(id, "[MATCH] The round starts: you are in%s.", as);
+		center_tell(id, "The round starts: you are in%s.", as);
+	}
+	tlog("[TSM] late join: %d let in %s as class %d on side %d", id, by_wave ? "by a wave" : "at a round's start", g_player_class[id], g_match_team[id]);
+}
+
+/// A respawn wave of this side is firing: everyone waiting to come in on it is let in with it. Nobody is let in during sudden death; he waits for the next
+/// round. How many were let in.
+late_admit_side(team)
+{
+	if (g_sudden)
+	{
+		return 0;
+	}
+	new n = 0;
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (g_late[id] && g_match_team[id] == team && is_user_connected(id))
+		{
+			late_admit(id, true);
+			n++;
+		}
+	}
+	return n;
+}
+
+/// A round is starting: everyone waiting to come in is let in as a member of the side he took, and every class asked for goes on. TS lets a player who changed
+/// team spawn only after TSM_LATE_GATE seconds, and the round's start spawns him at once: one who took his side more recently than that is let in at the next
+/// round (or wave), not put on his feet half-way.
+late_admit_round()
+{
+	new Float:now = get_gametime();
+	for (new id = 1; id <= g_maxplayers; id++)
+	{
+		if (!is_user_connected(id))
+		{
+			continue;
+		}
+		if (g_late[id])
+		{
+			if (now - g_late_at[id] >= TSM_LATE_GATE)
+			{
+				late_admit(id, false);
+			}
+		}
+		else if (g_class_next[id])
+		{
+			class_switch_apply(id);
+		}
+	}
+}
+
+/// tsm_late_wait: a claimed mode may word what a waiting late joiner is told. True when it did.
+bool:late_wait_said(id)
+{
+	if (g_fw_late_wait == -1 || !g_mode_name[0])
+	{
+		return false;
+	}
+	new ret = PLUGIN_CONTINUE;
+	ExecuteForward(g_fw_late_wait, ret, id);
+	return ret == PLUGIN_HANDLED;
+}
+
+/// A person has taken a side after the match began (pick_side, once TS has moved him): he is a ghost on it, locked out, until his side's next respawn lets
+/// him in -- a respawn wave of its own, or the start of the next round. He is counted as neither standing nor waiting meanwhile, so he keeps nothing of the
+/// round open, and he holds a class slot only through a class he picked.
+late_join_take(id, team)
+{
+	new bool:again = g_late[id];
+	g_late[id] = true;
+	g_late_at[id] = get_gametime();
+	g_late_pick[id] = 0;
+	g_locked_out[id] = true;
+	g_elim[id] = true;
+	g_revive_pending[id] = false;
+	g_lives_left[id] = 0;
+	g_player_class[id] = 0;
+	g_class_menu_at[id] = 0.0;
+	remove_task(id + 1000);
+	remove_task(id + 11000);
+	remove_task(id + 11500);
+	remove_task(TSM_TASK_REVIVE + id);
+
+	// A class he asked for is held only where his side still has room for it.
+	if (g_class_next[id] && !class_open_for(id, g_class_next[id], team))
+	{
+		match_chat(id, "[MATCH] %s is full on that side -- pick your class again.", g_class_name[g_class_next[id] - 1]);
+		g_class_next[id] = 0;
+	}
+	remove_from_play(id);
+
+	new shown[48], when[24];
+	team_display(team, shown, charsmax(shown));
+	late_when(team, when, charsmax(when));
+	tlog("[TSM] late join: %d took side %d and waits for %s%s", id, team, when, again ? " (changed sides)" : "");
+	if (!late_wait_said(id))
+	{
+		match_chat(id, "[MATCH] You are on %s. You come in with %s; until then you watch.", shown, when);
+	}
+	center_tell(id, "You come in with %s.", when);
+	if (g_class_count && get_pcvar_num(g_cv_classes) && !again)
+	{
+		set_task(0.8, "task_offer_class_menu", id + 14000);
+	}
+}
+
+/// A waiting late joiner leaves the queue: he spectates, or a side he asked for was refused. He is benched as a spectator is, with no side and no class asked for.
+late_join_cancel(id)
+{
+	if (!g_late[id])
+	{
+		return;
+	}
+	g_side[id] = 0;
+	late_join_forget(id);
+	set_ts_spectator(id);
+	set_spectator_model(id);
 }
 
 /*
@@ -15531,6 +16071,11 @@ reward_lives(side)
 			continue;
 		}
 
+		// A fallen player comes back as the class he asked for, so it is on him before his lives are counted from it.
+		if (g_elim[id])
+		{
+			class_switch_apply(id);
+		}
 		g_lives_left[id] = lives_for(id);
 		if (g_elim[id])
 		{
@@ -17504,9 +18049,10 @@ turret_seek(t, Float:muzzle[3])
 /*
  * A shot seen as TS draws a bullet in slow motion, at any speed of play: its bullet model flying from
  * the barrel to where the round went, TS's bullet_trail along its line. Only a picture: the round itself
- * landed when it was fired. A plain tracer where the game has no such files.
+ * landed when it was fired. A plain tracer where the game has no such files. The answer is the
+ * seconds the bullet is in the air, 0.0 for a picture that holds no entity (the plain tracer).
  */
-turret_trail(Float:from[3], Float:to[3])
+Float:turret_trail(Float:from[3], Float:to[3])
 {
 	new Float:dir[3];
 	for (new k = 0; k < 3; k++)
@@ -17530,7 +18076,7 @@ turret_trail(Float:from[3], Float:to[3])
 		write_coord(floatround(to[1]));
 		write_coord(floatround(to[2]));
 		message_end();
-		return;
+		return 0.0;
 	}
 	// No faster than the engine's own cap (sv_maxvelocity, 2000 unless told): a full 1000-unit shot
 	// is half a second in the air.
@@ -17577,6 +18123,7 @@ turret_trail(Float:from[3], Float:to[3])
 	message_end();
 
 	set_task(life > 0.1 ? life : 0.1, "remove_ent", b);
+	return life;
 }
 
 /*
@@ -19263,7 +19810,7 @@ pool_start()
 	for (new i = 0; i < pnum; i++)
 	{
 		id = players[i];
-		if (g_match_team[id] == 1 || g_match_team[id] == 2)
+		if ((g_match_team[id] == 1 || g_match_team[id] == 2) && !g_late[id])
 		{
 			count[g_match_team[id]]++;
 		}
@@ -19499,7 +20046,7 @@ start_wave_clocks()
 	for (new i = 0; i < pnum; i++)
 	{
 		id = players[i];
-		g_lives_left[id] = lives_for(id);
+		g_lives_left[id] = g_late[id] ? 0 : lives_for(id);   // a late joiner who waits is given his lives as he is let in
 		g_revive_pending[id] = false;
 		g_revive_refused[id] = 0;
 		remove_task(TSM_TASK_REVIVE + id);
@@ -19684,6 +20231,9 @@ fire_wave(team, bool:forced)
 	{
 		return 0;
 	}
+
+	// Everyone waiting to come in on this side comes in with the wave, as a fallen player does.
+	late_admit_side(team);
 
 	new Float:now = get_gametime();
 	new Float:minwait = get_pcvar_float(g_cv_respsecs);
@@ -19952,17 +20502,20 @@ public task_wave_tick()
 
 		// A mode that announces its own waves (Wave Survival) shows no Officer line and no shared countdown: only a player who is waiting for
 		// the side's respawn wave, with a life to come back with, is shown its timer and the list of who is waiting.
+		// A late joiner waits for the wave too, with no life to count yet.
+		new bool:joining = (g_late[id] && side_respawns(team)) ? true : false;
+
 		if (mode_flag(TSM_MODE_NO_REINFORCE))
 		{
 			new lives_now = mode_flag(TSM_MODE_LIFE_POOL) ? team_lives_left(team) : g_lives_left[id];
-			if (!g_revive_pending[id] || (lives_now < 1 && !side_endless(team)))
+			if ((!g_revive_pending[id] && !joining) || (lives_now < 1 && !joining && !side_endless(team)))
 			{
 				wait_panel_close(id);
 				continue;
 			}
 		}
 
-		new bool:waiting = g_revive_pending[id];
+		new bool:waiting = g_revive_pending[id] || joining;
 		new bool:officer = (class_is_officer(id) && is_user_alive(id) && !g_elim[id]);
 		// tsm_show_reinforce: a living player of a side that has a wave clock sees it too, as the Officer does, and so does a teammate
 		// waiting for the wave: the countdown and the list of who is waiting.
@@ -19981,13 +20534,18 @@ public task_wave_tick()
 		new text[96];
 		if (waiting || everyone)
 		{
-			// The side's pool where the lives are one, else this player's own count; a side that never runs out has none to tell.
-			new left = mode_flag(TSM_MODE_LIFE_POOL) ? team_lives_left(team) : g_lives_left[id];
+			// The side's pool where the lives are one, else this player's own count: a waiting player's is the lives he comes back with, a living
+			// player's the lives he has beyond the one he is playing. A side that never runs out has none to tell.
+			new left = mode_flag(TSM_MODE_LIFE_POOL) ? team_lives_left(team) : (waiting ? g_lives_left[id] : max(g_lives_left[id] - 1, 0));
 			new noun[16];
 			life_noun(left, noun, charsmax(noun));
 			new lead[16];
 			copy(lead, charsmax(lead), waiting ? "RESPAWN WAVE" : "NEXT WAVE");
-			if (side_endless(team))
+			if (joining)
+			{
+				formatex(text, charsmax(text), "WAVE IN %ds -- YOU COME IN WITH IT", floatround(g_wave_left[team]));
+			}
+			else if (side_endless(team))
 			{
 				formatex(text, charsmax(text), "%s IN %ds", lead, floatround(g_wave_left[team]));
 			}
@@ -20037,6 +20595,9 @@ revive_player(id)
 		g_revive_pending[id] = false;
 		return;
 	}
+
+	// The class he asked for goes on before anything is given for it (the kit, health and armour, speed and height follow from it in task_revive_arm).
+	class_switch_apply(id);
 
 	if (!g_revive_washed[id])
 	{
@@ -20131,8 +20692,8 @@ revive_player(id)
 	g_was_alive[id] = true;
 	g_revive_tries[id] = 0;
 	set_task(0.3, "task_revive_arm", TSM_TASK_REVIVE_ARM + id);
-	// The side's pool where the lives are one, else this player's own count.
-	new left = mode_flag(TSM_MODE_LIFE_POOL) ? team_lives_left(g_match_team[id]) : g_lives_left[id];
+	// The side's pool where the lives are one, else the lives this player has beyond the one he is back in (g_lives_left counts it).
+	new left = mode_flag(TSM_MODE_LIFE_POOL) ? team_lives_left(g_match_team[id]) : max(g_lives_left[id] - 1, 0);
 	new noun[16];
 	life_noun(left, noun, charsmax(noun));
 	if (side_endless(g_match_team[id]))
@@ -21269,13 +21830,45 @@ bool:rp_name_has(const name[], const words[])
 	return false;
 }
 
+/// Whether a model list cvar (tsm_rp_hands_prole ...) has a word in it: an empty list leaves its set out of the precache.
+bool:rp_list_set(pcvar)
+{
+	new words[96];
+	get_pcvar_string(pcvar, words, charsmax(words));
+	return words[0] != 0;
+}
+
+/// The proletarian hand set a model name calls for: the lists of tsm_rp_hands_prolehealthy, _prolefem and _prole, the narrowest first, or
+/// TSM_HAND_DEFAULT when no list names it.
+rp_prole_set(const name[])
+{
+	new words[96];
+	get_pcvar_string(g_cv_rp_hands_prolehealthy, words, charsmax(words));
+	if (rp_name_has(name, words))
+	{
+		return TSM_HAND_PROLEHEALTHY;
+	}
+	get_pcvar_string(g_cv_rp_hands_prolefem, words, charsmax(words));
+	if (rp_name_has(name, words))
+	{
+		return TSM_HAND_PROLEFEM;
+	}
+	get_pcvar_string(g_cv_rp_hands_prole, words, charsmax(words));
+	if (rp_name_has(name, words))
+	{
+		return TSM_HAND_PROLE;
+	}
+	return TSM_HAND_DEFAULT;
+}
+
 /*
  * What the model a player wears on a roleplay map calls for in his hands (tsm_rp_hands). There are no sides there, so the model decides:
  * a name with a word of tsm_rp_hands_msr in it (repu, rh_) gets the msr hands, one with a word of tsm_rp_hands_ins in it (xccp) the
  * insurgent hands, a Mech (mech_msr_..., mech_ins_...) the hands of the side its name gives, and a droid (any name with droid in it) the
  * metal arms of its type: an insdroid the insurgent droid's, any other droid the msr droid's (tsm_rp_hands_droid 0: every droid the msr
- * droid's). Any other model keeps the default hands. The Mech's own viewmodels (the minigun in place of the M60) come with the Mech by its
- * name (wears_mech), as everywhere.
+ * droid's). A proletarian model (rp_prole_set) wears the hands of its own: a name with a word of tsm_rp_hands_prolehealthy, _prolefem or
+ * _prole in it, in that order, after the msr and insurgent words. Any other model keeps the default hands. The Mech's own viewmodels (the
+ * minigun in place of the M60) come with the Mech by its name (wears_mech), as everywhere.
  * The answer is kept as the set plus one in g_rp_hand (0 for none) and the droid set plus one in g_rp_droid (0 for no droid);
  * fw_updateclientdata_post reads them and asks again every half second, so no string work happens per frame.
  */
@@ -21324,6 +21917,10 @@ rp_note_hands(id)
 			{
 				set = TSM_HAND_INSURGENT;
 			}
+			else
+			{
+				set = rp_prole_set(mdl);
+			}
 		}
 	}
 	g_rp_hand[id] = set + 1;
@@ -21340,7 +21937,8 @@ rp_note_hands(id)
  * which have no stripe at all. A player who wears a droid model (droid_hand_set) gets his
  * droid's set instead of his side's, where that set has this weapon; a droid set missing or
  * not precached leaves the side's set to answer. On a roleplay map there are no sides: the model he
- * wears decides (rp_note_hands), a droid wearing the msr droid's set. The table was built in precache_hands():
+ * wears decides (rp_note_hands), a droid wearing the msr droid's set and a proletarian his own (a proletarian
+ * set that was not precached leaves him the default hands). The table was built in precache_hands():
  * stock index in, per-set custom index out, so this is one array lookup, no string work and no
  * pev_viewmodel2 fight with TS.
  *
@@ -21411,6 +22009,10 @@ public fw_updateclientdata_post(id, sendweapons, cd_handle)
 	{
 		want = g_hand_swap[set][idx];
 	}
+	if (want <= 0 && set >= TSM_HAND_PROLE)
+	{
+		want = g_hand_swap[TSM_HAND_DEFAULT][idx];
+	}
 	if (want > 0 && want != idx)
 	{
 		set_cd(cd_handle, CD_ViewModel, want);
@@ -21419,16 +22021,24 @@ public fw_updateclientdata_post(id, sendweapons, cd_handle)
 	return FMRES_IGNORED;
 }
 
+/// 1 while the engine has room for another effect entity: a bullet is made only while more than 64 places are free of its limit,
+/// so that a field of Mechs never uses the last of them.
+entity_room()
+{
+	return (engfunc(EngFunc_NumberOfEntities) + 64 < global_get(glb_maxEntities)) ? 1 : 0;
+}
+
 /*
- * The Mech's M60 shot: a large muzzle flash at the barrels' end and a tracer from there to where the
- * bullet lands. A shot is the weapon's clip going down between two frames, which is the one thing a
- * TS gun does that no reload, switch or pickup does. At most one flash a 0.06 s, the M60's fire rate
- * being far above what a viewer can tell apart.
+ * The Mech's M60 shot: a large muzzle flash at the barrels' end and a bullet flown in slow motion from
+ * there to where the round lands, as the turret's are (turret_trail), of which one Mech has up to
+ * tsm_mech_trail_max in the air at once. A shot is the weapon's clip going down between two frames,
+ * which is the one thing a TS gun does that no reload, switch or pickup does. At most one flash a
+ * 0.06 s, the M60's fire rate being far above what a viewer can tell apart.
  */
 mech_gun_fx(id)
 {
 	new flash = get_pcvar_num(g_cv_mech_flash) && g_mech_flash_spr;
-	new trails = get_pcvar_num(g_cv_mech_trails) && g_mech_trail_spr;
+	new trails = get_pcvar_num(g_cv_mech_trails);
 	if ((!flash && !trails) || !wears_mech(id))
 	{
 		g_mech_clip[id] = -1;
@@ -21495,35 +22105,30 @@ mech_gun_fx(id)
 
 	if (trails)
 	{
-		new Float:dest[3];
-		for (new k = 0; k < 3; k++)
+		// One Mech has up to tsm_mech_trail_max bullets in the air: a place is free once its bullet has landed.
+		new places = clamp(get_pcvar_num(g_cv_mech_trail_max), 1, TSM_MECH_BULLETS);
+		new place = -1;
+		for (new p = 0; p < places; p++)
 		{
-			dest[k] = eye[k] + dir[k] * 4096.0;
+			if (g_mech_bullet_end[id][p] <= now)
+			{
+				place = p;
+				break;
+			}
 		}
-		engfunc(EngFunc_TraceLine, eye, dest, DONT_IGNORE_MONSTERS, id, 0);
-		new Float:endpos[3];
-		get_tr2(0, TR_vecEndPos, endpos);
+		if (place >= 0 && entity_room())
+		{
+			new Float:dest[3];
+			for (new k = 0; k < 3; k++)
+			{
+				dest[k] = eye[k] + dir[k] * 4096.0;
+			}
+			engfunc(EngFunc_TraceLine, eye, dest, DONT_IGNORE_MONSTERS, id, 0);
+			new Float:endpos[3];
+			get_tr2(0, TR_vecEndPos, endpos);
 
-		message_begin_f(MSG_PVS, SVC_TEMPENTITY, muzzle);
-		write_byte(TE_BEAMPOINTS);
-		write_coord(floatround(muzzle[0]));
-		write_coord(floatround(muzzle[1]));
-		write_coord(floatround(muzzle[2]));
-		write_coord(floatround(endpos[0]));
-		write_coord(floatround(endpos[1]));
-		write_coord(floatround(endpos[2]));
-		write_short(g_mech_trail_spr);
-		write_byte(0);     // first frame
-		write_byte(10);    // frame rate
-		write_byte(clamp(get_pcvar_num(g_cv_mech_trail_life), 1, 255));    // life, tenths of a second
-		write_byte(clamp(get_pcvar_num(g_cv_mech_trail_width), 1, 255));   // width, tenths of a unit
-		write_byte(0);     // no noise: a straight line
-		write_byte(255);
-		write_byte(225);
-		write_byte(150);
-		write_byte(255);   // brightness
-		write_byte(0);     // scroll
-		message_end();
+			g_mech_bullet_end[id][place] = now + turret_trail(muzzle, endpos);
+		}
 	}
 }
 
@@ -21878,6 +22483,28 @@ public task_park_spectator(taskid)
 	park_spectator(id, "A match is in progress -- you are benched until it finishes.");
 }
 
+/// A person took a side by hand mid-match (fw_userinfo) where tsm_latejoin lets him: the side menu's pick is made for him. A pick that is refused leaves
+/// TS with him on the side he set, so he is benched as the park does it; the refusal itself was told him.
+public task_late_native(taskid)
+{
+	new id = taskid - 11500;
+	new lt = g_late_pick[id];
+	g_late_pick[id] = 0;
+	if (!is_user_connected(id) || (lt != 1 && lt != 2) || g_match_team[id] == 1 || g_match_team[id] == 2)
+	{
+		return;
+	}
+	pick_side(id, lt - 1);
+	if (g_match_team[id] != lt)
+	{
+		g_locked_out[id] = true;
+		g_elim[id] = true;
+		remove_from_play(id);
+		set_ts_spectator(id);
+		set_spectator_model(id);
+	}
+}
+
 public fw_userinfo(id, buffer)
 {
 	if (!get_pcvar_num(g_cv_enabled))
@@ -21941,10 +22568,22 @@ public fw_userinfo(id, buffer)
 
 		if (got[0] && (equali(got, t1) || equali(got, t2)))
 		{
-			g_locked_out[id] = true;
-			remove_task(id + 11000);
-			set_task(0.2, "task_park_spectator", id + 11000);
-			dbgv("late join refused: %d tried to take '%s' mid-match", id, got);
+			new lt = equali(got, t1) ? 1 : 2;
+			if (late_join_open(lt))
+			{
+				// Where tsm_latejoin lets him take it, this is the same ask as the side menu's, answered once this forward has returned.
+				g_late_pick[id] = lt;
+				remove_task(id + 11500);
+				set_task(0.2, "task_late_native", id + 11500);
+				dbgv("late join: %d took '%s' by hand mid-match", id, got);
+			}
+			else
+			{
+				g_locked_out[id] = true;
+				remove_task(id + 11000);
+				set_task(0.2, "task_park_spectator", id + 11000);
+				dbgv("late join refused: %d tried to take '%s' mid-match", id, got);
+			}
 		}
 	}
 
@@ -23771,7 +24410,7 @@ classicons_publish()
 			if (is_user_connected(p) && g_class_count > 0)
 			{
 				new pt = tsm_live_team_of(p);
-				if (pt && (p == v || !competitive || vt == pt))
+				if (pt && !g_late[p] && (p == v || !competitive || vt == pt))
 				{
 					value = icon_frame_for(resolved_class(p) - 1, pt) + 1;
 				}
@@ -24677,6 +25316,7 @@ clear_match_state()
 	{
 		g_locked_out[i] = false;
 		g_player_class[i] = 0;
+		late_join_forget(i);
 		g_class_menu_at[i] = 0.0;
 		g_team_menu_at[i] = 0.0;
 		g_eng_used[i] = 0.0;
@@ -25366,6 +26006,9 @@ start_round()
 	// and a map change or an rcon set in between would have put them back.
 	kill_ts_cash_cvars();
 
+	// Whoever waited to be let in is let in as the round starts, and every class asked for goes on, before anything counts the sides or the classes.
+	late_admit_round();
+
 	// Even the sides up before anything else reads them -- a disconnect mid-match
 	// would otherwise leave the rest of the match short-handed.
 	autofill_teams();
@@ -25390,7 +26033,7 @@ start_round()
 	for (new i = 0; i < pnum; i++)
 	{
 		id = players[i];
-		g_elim[id] = false;
+		g_elim[id] = g_late[id];   // a late joiner still waiting for his turn stays a ghost
 		g_spec_target[id] = 0;
 		g_last_buttons[id] = 0;
 		g_elim_at[id] = 0.0;
@@ -25511,6 +26154,12 @@ finish_round_start()
 		id = players[i];
 		g_placed[id] = false;
 		g_place_n[id] = 0;
+
+		// A late joiner who still waits for his turn is not spawned, placed or armed: the round does not take him yet.
+		if (g_late[id])
+		{
+			continue;
+		}
 
 		if (!is_user_alive(id))
 		{
@@ -26208,7 +26857,7 @@ public task_freeze_tick()
 		// plus anyone who joined during the countdown. Without this they play the
 		// round from wherever TS dropped them, which on a deathmatch map can be
 		// inside the other team.
-		if (!g_placed[fid] && is_user_alive(fid))
+		if (!g_placed[fid] && is_user_alive(fid) && !g_late[fid])
 		{
 			if (g_match_team[fid] < 1)
 			{
@@ -26295,6 +26944,13 @@ spec_notice_show(id, const side[], const followed[])
 {
 	new text[144];
 	formatex(text, charsmax(text), "Your side: %s^nWatching: %s^nAttack to switch player", side, followed);
+	if (g_late[id])
+	{
+		new when[24];
+		late_when(g_match_team[id], when, charsmax(when));
+		new tl = strlen(text);
+		formatex(text[tl], charsmax(text) - tl, "^nYou come in with %s", when);
+	}
 
 	// Blue and red are the two sides' colours in every other notice.
 	new r = 186, g = 116, b = 255;
@@ -26414,9 +27070,17 @@ show_spectator_hud()
 
 		// Channel 3, which the live round does not otherwise use -- the round timer is
 		// on 1 and transient banners on 4.
+		new joining[40];
+		joining[0] = 0;
+		if (g_late[id])
+		{
+			new when[24];
+			late_when(g_match_team[id], when, charsmax(when));
+			formatex(joining, charsmax(joining), "^nYou come in with %s", when);
+		}
 		set_hudmessage(200, 200, 200, -1.0, 0.72, 0, 0.0, 1.5, 0.0, 0.0, 3);
-		show_hudmessage(id, "Your side: %s^nWatching: %s^nAttack to switch player",
-			side, watching_name);
+		show_hudmessage(id, "Your side: %s^nWatching: %s^nAttack to switch player%s",
+			side, watching_name, joining);
 	}
 }
 
@@ -27030,8 +27694,9 @@ public task_go_live()
 
 		// THE FALL-THROUGH'S OWN DEFAULT PICK: identical to the wash's, for whatever
 		// slipped past it whole. Without this an unpicked straggler keeps the empty
-		// armament the wash wrote and goes live holding nothing.
-		if (g_player_class[id] == 0)
+		// armament the wash wrote and goes live holding nothing. A late joiner who took his side in
+		// the countdown and waits to be let in has no class yet: it is settled as he is let in.
+		if (g_player_class[id] == 0 && !g_late[id])
 		{
 			g_player_class[id] = resolved_class(id);
 			match_chat(id, "[MATCH] No class picked -- you are %s for this match.",
@@ -27039,7 +27704,7 @@ public task_go_live()
 			center_tell(id, "No class picked: you are %s.", g_class_name[g_player_class[id] - 1]);
 		}
 
-		if (g_armed[id] || !is_user_alive(id))
+		if (g_armed[id] || g_late[id] || !is_user_alive(id))
 		{
 			continue;
 		}
@@ -27696,6 +28361,11 @@ public native_side_of(plugin, params)
 	{
 		return 0;
 	}
+	// A late joiner belongs to no side yet: the rounds a match counts for a person (h9_compete) are the ones he is let into.
+	if (g_late[id])
+	{
+		return 0;
+	}
 	if (g_match_team[id] == 1 || g_match_team[id] == 2)
 	{
 		return g_match_team[id];
@@ -28044,6 +28714,10 @@ reseat_classes()
 		{
 			g_player_class[id] = is_user_bot(id) ? default_class() : 0;
 		}
+		if (g_class_next[id] && !class_offered(g_class_next[id]))
+		{
+			g_class_next[id] = 0;
+		}
 	}
 }
 
@@ -28232,6 +28906,7 @@ begin_match()
 	for (new i = 1; i <= g_maxplayers; i++)
 	{
 		g_player_class[i] = 0;
+		g_class_next[i] = 0;
 		g_class_menu_at[i] = 0.0;
 		lr_match_begin(i);
 	}
@@ -28763,6 +29438,7 @@ restore_all()
 		g_elim[players[i]] = false;
 		g_spec_target[players[i]] = 0;
 		g_locked_out[players[i]] = false;
+		g_late[players[i]] = false;   // a halt or a cancel lets a waiting joiner stand as a member of the side he took, and the round's start takes what he asked for
 		// Back to normal height. Only the drawn scale is cleared here and NOT the class
 		// itself: restore_all() is called from six places, not just a cancel or a restart,
 		// and resume_match() after a halt deliberately leaves classes alone -- so wiping
@@ -28795,6 +29471,7 @@ match_end_reset()
 		g_spec_target[id] = 0;
 		spec_notice_close(id);
 		g_locked_out[id] = false;
+		g_late[id] = false;
 		g_elim_at[id] = 0.0;
 		g_pending_elim[id] = 0.0;
 		remove_task(id + 7000);
@@ -28841,6 +29518,7 @@ public client_putinserver(id)
 	g_depart_side[id] = 0;   // a previous player's departure must not follow the new one
 
 	g_player_class[id] = 0;
+	late_join_forget(id);
 	g_eng_used[id] = 0.0;
 	g_medic_at[id] = 0.0;
 	g_last_use[id] = 0;
@@ -29374,6 +30052,11 @@ public task_late_join(id)
 	{
 		return;
 	}
+	// He took a side before this ran: he waits on it.
+	if (g_late[id])
+	{
+		return;
+	}
 	// Mirrored into g_side, which elimination does not clear: see g_side. Every route
 	// that puts somebody on a side has to set it, or they stop counting toward that
 	// side the moment they are benched and the match forfeits itself.
@@ -29386,8 +30069,18 @@ public task_late_join(id)
 	{
 		g_elim[id] = true;
 		remove_from_play(id);
-		match_chat(id, "[MATCH] A match is in progress -- you are in once it finishes.");
-		center_tell(id, "A match is in progress: you play the next one.");
+		if (late_join_open(1) || late_join_open(2))
+		{
+			new when[24];
+			late_when(0, when, charsmax(when));
+			match_chat(id, "[MATCH] A match is in progress. Pick a side and you come in with %s.", when);
+			center_tell(id, "A match is in progress: pick a side to join.");
+		}
+		else
+		{
+			match_chat(id, "[MATCH] A match is in progress -- you are in once it finishes.");
+			center_tell(id, "A match is in progress: you play the next one.");
+		}
 	}
 }
 
@@ -29441,6 +30134,7 @@ player_left(id)
 	g_class_menu_at[id] = 0.0;
 	g_team_menu_at[id] = 0.0;
 	g_player_class[id] = 0;
+	late_join_forget(id);
 	g_eng_used[id] = 0.0;
 	g_stim_used[id] = false;
 	g_forfeit[id] = false;
@@ -30955,8 +31649,9 @@ lr_arm_begin(id)
 {
 	g_lr_arm_at[id] = get_gametime();
 	g_lr_mech_have[id] = 0;
-	// the game library reads this mark: it deletes a Mech's rocket launcher where a drop would have left it on the floor, and
-	// while tsm_loadoutrework is on it also refuses a Mech's disarm and its pickup of a dropped weapon
+	// the game library reads this mark: it deletes a Mech's rocket launcher where a drop would have left it on the floor, with
+	// tsm_mech_nodrop on it lets a Mech go of no weapon (no disarm, no drop, no death scatter), and while tsm_loadoutrework is on
+	// it also refuses a Mech's pickup of a dropped weapon
 	set_pev(id, pev_fuser4, (get_pcvar_num(g_cv_enabled) && lr_is_mech(id)) ? 1.0 : 0.0);
 	if (lr_active_set(id) && g_lr_set_kev[id])
 	{

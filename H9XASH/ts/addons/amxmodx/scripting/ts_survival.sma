@@ -16,6 +16,13 @@
  * the run goes on until the people's side is wiped out -- nobody standing, no lives left, nobody waiting
  * -- and then the match is over, chat says how far they got, and it is back to warmup.
  *
+ * LATE JOINERS AND CLASS CHANGES. The claim asks ts_matchmode for both (tsm_latejoin 2 and tsm_classchange 2,
+ * their defaults): a person who arrives while a run is going takes the people's side from the side menu, waits
+ * as a ghost like a fallen survivor and comes in with the next respawn wave of the people's side, the one that
+ * comes with each cleared wave of mutants included. A player may type .class at any time for another class,
+ * which he has on when he next comes back from a death. A late joiner is not counted as standing or waiting, so
+ * he never keeps a lost run open.
+ *
  * THE WAVES GROW. Each mutant spawns with its class's health plus tsm_ws_hp_per_wave percent
  * for every wave after the first, and rolls a gun or a blade by tsm_ws_gun_odds: 40% armed
  * at first, 60% from wave 16, every one of them from wave 25. After wave tsm_ws_kungfu_after
@@ -208,7 +215,8 @@ public task_claim()
 			log_amx("[SURVIVAL] tsm_ws_human_side 2 is set but the core did not move the bots to side 1 (core too old?): the people play side 1.");
 		}
 		if (tsm_mode_claim("survival", desc,
-			TSM_MODE_NO_SUDDEN | TSM_MODE_NO_CLOCK | TSM_MODE_SIDE2_BOTS | TSM_MODE_SIDE2_ENDLESS | TSM_MODE_ONE_RUN | TSM_MODE_NO_REINFORCE | TSM_MODE_NO_ROUNDS))
+			TSM_MODE_NO_SUDDEN | TSM_MODE_NO_CLOCK | TSM_MODE_SIDE2_BOTS | TSM_MODE_SIDE2_ENDLESS | TSM_MODE_ONE_RUN | TSM_MODE_NO_REINFORCE | TSM_MODE_NO_ROUNDS
+			| TSM_MODE_LATE_JOIN | TSM_MODE_CLASS_CHANGE))
 		{
 			g_active = true;
 		}
@@ -838,6 +846,20 @@ public tsm_life_lost(id, left)
 	{
 		mode_chat(id, "[MATCH] You are down, with no lives left. If your side clears this wave of mutants, you come back for the next one.");
 	}
+	return PLUGIN_HANDLED;
+}
+
+/*
+ * A person has taken the people's side while the run goes on. He comes in with the next respawn wave of his side, which is the
+ * side's own countdown (on his screen) or the wave that follows when every mutant of this one has fallen, whichever is first.
+ */
+public tsm_late_wait(id)
+{
+	if (!g_active)
+	{
+		return PLUGIN_CONTINUE;
+	}
+	mode_chat(id, "[MATCH] You are in the run. You come in at your side's next respawn (the countdown on your screen) or when this wave of mutants is cleared. Pick your class with .class.");
 	return PLUGIN_HANDLED;
 }
 
