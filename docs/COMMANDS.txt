@@ -3594,8 +3594,10 @@
  and are optional: without the files the M60's sound plays. Any other player's M60 sounds as before.
  Every shot of a Mech's M60 also sends a large muzzle flash (sprites/h9_minigun_flash.spr, else TS's muzzle flash) at the
  end of the barrels, and flies a bullet from there to where the round lands, in slow motion as the .turret turret's are:
- TS's bullet model (models/bullet.mdl) at 2000 units a second with TS's bullet trail (bullet_trail.spr) along its line,
- seen by everyone. A shot is the weapon's clip going down between two frames, so it works for a bot as for a person.
+ TS's bullet model (models/bullet.mdl) at 2000 units a second with a bright line along its path (the laser rifle's streak,
+ sprites/laserrifle_trail.spr, 1.4 units wide, the turret's bullets have it too; TS's own bullet_trail.spr is too faint to
+ show as a line and stays only where the streak is missing), seen by everyone. A shot is the game library's fire event for
+ a round of the M60, which it plays for a bot as for a person.
  One Mech can have up to tsm_mech_trail_max bullets in the air at once (each is an entity while it flies): a shot fired
  while all of them are still flying shows its flash and no bullet, and none is made within 64 places of the engine's
  entity limit. Where the game lacks the bullet files the picture is a plain tracer line.
