@@ -134,7 +134,8 @@ private:
 	float m_flEntered = 0;
 	float m_flNextReport = 0; // developer 1: what the car sees, twice a second
 	float m_flLastHit = 1;
-	bool m_bLastStartSolid = false;
+	int m_iHitBy = -1, m_iLastHitBy = -1; // which trace stopped it: 0 the hull, 1-6 the bumper rays
+	float m_flLastHitTime = -1;
 	char m_szLastHit[32] = "";
 	float m_flWheelGround[4] = {0, 0, 0, 0}; // each wheel's ground, the frame before: its trace starts over it
 	float m_flFrontGround = 0, m_flRearGround = 0; // under each axle: the bumper rays go at a height over it
@@ -404,9 +405,12 @@ void CH9Car::Steer(CBasePlayer* pDriver, float dt)
 // traces from the corners that lead, at a wheel's climb over the ground and at the body's middle.
 bool CH9Car::Blocked(const Vector& from, const Vector& move, TraceResult& hit)
 {
+	memset(&hit, 0, sizeof(hit));
 	hit.flFraction = 1;
-	if (move.Length() < 0.01f)
+	m_iHitBy = -1;
+	if (move.Length() < 0.001f)
 		return false;
+	const Vector way = move.Normalize();
 	UTIL_MakeVectors(Vector(0, m_flYaw, 0));
 	const Vector forward = gpGlobals->v_forward, right = gpGlobals->v_right;
 	const float ahead = DotProduct(move, forward) >= 0 ? 1 : -1;
@@ -417,21 +421,30 @@ bool CH9Car::Blocked(const Vector& from, const Vector& move, TraceResult& hit)
 	// in something (a wall it already touches on a turn) says nothing, and the rays below do the work
 	const Vector lift = Vector(0, 0, 32 + m_flMaxStep + 12); // large_hull is 64 tall, centred
 	UTIL_TraceHull(from + lift, from + lift + move, dont_ignore_monsters, large_hull, edict(), &tr);
-	if (!tr.fStartSolid && tr.flFraction < hit.flFraction)
+	if (!tr.fStartSolid && tr.flFraction < hit.flFraction && DotProduct(tr.vecPlaneNormal, way) < -0.1f)
+	{
 		hit = tr;
+		m_iHitBy = 0;
+	}
 
 	const float halfLength = m_flLength / 2, halfWidth = m_flWidth / 2;
 	// the rays at heights over the ground under the leading axle, so that they follow a slope instead of meeting it
 	const float base = (ahead > 0 ? m_flFrontGround : m_flRearGround) - from.z;
 	const float heights[] = {base + m_flMaxStep + 2, base + m_flHeight / 2};
-	for (float z : heights)
+	for (int level = 0; level < 2; level++)
 	{
+		const float z = heights[level];
 		for (int side = -1; side <= 1; side++)
 		{
 			const Vector corner = from + forward * (halfLength * ahead) + right * (halfWidth * side * 0.95f) + Vector(0, 0, z);
 			UTIL_TraceLine(corner, corner + move + lead, dont_ignore_monsters, edict(), &tr);
-			if (tr.flFraction < hit.flFraction)
+			// a ray that starts inside something (a bumper already in a ramp's side) or meets a face it moves away from
+			// says nothing: only a face that stands against the way it goes stops it
+			if (!tr.fStartSolid && !tr.fAllSolid && tr.flFraction < hit.flFraction && DotProduct(tr.vecPlaneNormal, way) < -0.1f)
+			{
 				hit = tr;
+				m_iHitBy = 1 + level * 3 + (side + 1); // 1-3 the low rays (left, middle, right), 4-6 the high ones
+			}
 		}
 	}
 	return hit.flFraction < 1;
@@ -444,11 +457,12 @@ bool CH9Car::Move(float dt)
 	Vector move = gpGlobals->v_forward * (m_flSpeed * dt);
 	TraceResult hit;
 	const bool blocked = Blocked(pev->origin, move, hit);
-	if (move.Length() > 0.01f)
+	if (blocked) // the last real stop, kept for the report
 	{
 		m_flLastHit = hit.flFraction;
-		m_bLastStartSolid = hit.fStartSolid != 0;
-		snprintf(m_szLastHit, sizeof(m_szLastHit), "%s", hit.flFraction < 1 && hit.pHit ? STRING(hit.pHit->v.classname) : "");
+		m_iLastHitBy = m_iHitBy;
+		snprintf(m_szLastHit, sizeof(m_szLastHit), "%s", hit.pHit ? STRING(hit.pHit->v.classname) : "?");
+		m_flLastHitTime = gpGlobals->time;
 	}
 	if (!blocked)
 	{
@@ -663,9 +677,10 @@ void CH9Car::Step(const char* by)
 		{
 			m_flNextReport = gpGlobals->time + 0.5f;
 			char line[256];
-			snprintf(line, sizeof(line), "h9_car (%s): buttons %x speed %.0f steer %.1f yaw %.0f grounded %d trace %.2f%s %s z %.1f pitch %.1f\n", by,
-				pDriver->pev->button, m_flSpeed, m_flSteer, m_flYaw, m_bGrounded ? 1 : 0, m_flLastHit,
-				m_bLastStartSolid ? " startsolid" : "", m_szLastHit, pev->origin.z, m_flPitch);
+			snprintf(line, sizeof(line), "h9_car (%s): buttons %x speed %.0f steer %.1f yaw %.0f grounded %d last stop %.1fs ago by %d on %s at %.2f; z %.1f pitch %.1f ground %.1f/%.1f\n", by,
+				pDriver->pev->button, m_flSpeed, m_flSteer, m_flYaw, m_bGrounded ? 1 : 0,
+				m_flLastHitTime < 0 ? -1.0f : gpGlobals->time - m_flLastHitTime, m_iLastHitBy, m_szLastHit, m_flLastHit,
+				pev->origin.z, m_flPitch, m_flFrontGround, m_flRearGround);
 			ClientPrint(pDriver->pev, HUD_PRINTCONSOLE, line);
 		}
 	}
