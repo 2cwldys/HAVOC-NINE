@@ -74,7 +74,7 @@ INSERT OR IGNORE INTO arp_jobs VALUES ('Liberator',130,'in');
 -- ==== Properties and doors (docs\ARP_CONTENT.txt, section 9): the Ministry's posts, clinics, shops, businesses and homes ====
 -- A property is a building or a place the look-at plaque names; its doors are func_door entities of this map, one row each, by their targetname
 -- (t|<targetname>), every one an entity of the compiled map. Property columns: internalname, externalname (what the plaque shows), ownername,
--- ownerauth, price, locked, access letters, profit. No owner and price 0 is state property; a price and no owner is for sale (say /buy). Every property of this map has a price: each is for sale until somebody has it.
+-- ownerauth, price, locked, access letters, profit. No owner and price 0 is state property; a price and no owner is for sale (say /buy). Every property of this map has a price but the guard posts and the throne room, which are state property (price 0) that belongs to the guards: each of the others is for sale until somebody has it.
 -- locked 1 keeps a door as the map has it and leaves it to the owner, a key holder or the access letters (a Ministry of Defense, b Medical
 -- Division, g the Lord Minister's own); locked 0 is open to anyone. The affiliation the plaque shows comes from the access letters.
 -- A property may have several doors, but its lock is one: a shop whose front door starts open and whose back door is shut is two properties with one name.
@@ -104,15 +104,15 @@ INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_romagna_clinic','Romagna Clini
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_lwrromgoff2','h9_pc_romagna_clinic');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_lwrromgoff3','h9_pc_romagna_clinic');
 -- Ministry of Defense Facility: the gate and the office door of the Ministry of Defense facility (south west); also the facility's elevator screen (the md prefix, inside the same closed complex as the gate, the office and the armoury)
-INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_md_facility','Ministry of Defense Facility','','',9600,1,'a',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_md_facility','Ministry of Defense Facility','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdfacgate','h9_pc_md_facility');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_msrmdoffice1','h9_pc_md_facility');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdelescreen1','h9_pc_md_facility');
 -- Ministry of Defense Armoury: the facility's armoury door
-INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_md_armoury','Ministry of Defense Armoury','','',9600,1,'a',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_md_armoury','Ministry of Defense Armoury','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdarmorydoor','h9_pc_md_armoury');
 -- Ministry of Defense Detention: the four cells in the facility's basement
-INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_md_cells','Ministry of Defense Detention','','',9600,1,'a',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_pc_md_cells','Ministry of Defense Detention','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdcell1','h9_pc_md_cells');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdcell2','h9_pc_md_cells');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|pc_mdcell3','h9_pc_md_cells');
@@ -142,23 +142,23 @@ INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_processedfood1','h9_xe_green_drago
 INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_city_gear','Xenon City Gear','','',4800,0,'',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_gearshop','h9_xe_city_gear');
 -- Xenon City Civil Protection: the CP gate at the north end of the concourse and the shield behind it; also the two help alcoves on the concourse's west wall (xe_cp_ prefix: Civil Protection's)
-INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_post','Xenon City Civil Protection','','',38000,1,'a',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_post','Xenon City Civil Protection','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_xenoncpgate','h9_xe_cp_post');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_pdshield','h9_xe_cp_post');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_help','h9_xe_cp_post');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_help1','h9_xe_cp_post');
 -- XCCP Armoury: the armoury's two doors
-INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_armoury','XCCP Armoury','','',19000,1,'a',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_armoury','XCCP Armoury','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_armory','h9_xe_cp_armoury');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_armory1','h9_xe_cp_armoury');
 -- XCCP Barracks: the barracks door
-INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_barracks','XCCP Barracks','','',4800,1,'a',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_barracks','XCCP Barracks','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_barracks','h9_xe_cp_barracks');
 -- XCCP Control Room: the control room door
-INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_control','XCCP Control Room','','',19000,1,'a',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_control','XCCP Control Room','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_control','h9_xe_cp_control');
 -- XCCP Detention: the six prison cells
-INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_cells','XCCP Detention','','',4800,1,'a',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_xe_cp_cells','XCCP Detention','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_prison1','h9_xe_cp_cells');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_prison2','h9_xe_cp_cells');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|xe_cp_prison3','h9_xe_cp_cells');
@@ -205,11 +205,11 @@ INSERT OR IGNORE INTO arp_property VALUES ('h9_al_midgar_lab','Midgar Lab','',''
 INSERT OR IGNORE INTO arp_doors VALUES ('t|al_midgar.lab.gate.one','h9_al_midgar_lab');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|al_labentbutton','h9_al_midgar_lab');
 -- Ministry Detention Facility: the prison gate and the armoury gate of the detention block (the cells' wall panels are h9_jail)
-INSERT OR IGNORE INTO arp_property VALUES ('h9_al_detention','Ministry Detention Facility','','',9600,1,'a',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_al_detention','Ministry Detention Facility','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|al_prisongate','h9_al_detention');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|al_armorygate','h9_al_detention');
 -- Throne Room: the throne room: the Lord Minister's own letter g
-INSERT OR IGNORE INTO arp_property VALUES ('h9_al_throne_room','Throne Room','','',9600,1,'g',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_al_throne_room','Throne Room','','',0,1,'g',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|al_throneroom','h9_al_throne_room');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|al_thronegate','h9_al_throne_room');
 -- Ed's Steak House: the steak house of the lower level, entrance and exit: a place to run
@@ -533,7 +533,7 @@ INSERT OR IGNORE INTO arp_doors VALUES ('t|al_stashofash','h9_al_stash');
 INSERT OR IGNORE INTO arp_property VALUES ('h9_al_golgotha_hideout','Golgotha Hideout','','',9600,1,'',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgohideout','h9_al_golgotha_hideout');
 -- Golgotha Armoury: the armour room off the Golgotha hall, a closed room of about 28k square units; sealed to the Ministry of Defense
-INSERT OR IGNORE INTO arp_property VALUES ('h9_al_golgotha_armoury','Golgotha Armoury','','',2400,1,'a',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_al_golgotha_armoury','Golgotha Armoury','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|al_golgomen1armr','h9_al_golgotha_armoury');
 -- Xaelem Industrial Unit: the industrial unit of the Xaelem block, a closed room of about 138k square units; for sale
 INSERT OR IGNORE INTO arp_property VALUES ('h9_al_xaelem_industrial','Xaelem Industrial Unit','','',4800,1,'',0);
@@ -558,7 +558,7 @@ INSERT OR IGNORE INTO arp_doors VALUES ('t|al_midgarrouting','h9_al_routing_offi
 INSERT OR IGNORE INTO arp_property VALUES ('h9_al_routing_depot','Routing Depot','','',4800,1,'',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|al_routingdoor','h9_al_routing_depot');
 -- Shores Detention: the two cell doors of the Shores, south of the arrival hall; sealed to the Ministry of Defense
-INSERT OR IGNORE INTO arp_property VALUES ('h9_al_shores_cells','Shores Detention','','',19000,1,'a',0);
+INSERT OR IGNORE INTO arp_property VALUES ('h9_al_shores_cells','Shores Detention','','',0,1,'a',0);
 INSERT OR IGNORE INTO arp_doors VALUES ('t|al_shorescell','h9_al_shores_cells');
 INSERT OR IGNORE INTO arp_doors VALUES ('t|al_shorestwoc','h9_al_shores_cells');
 -- Tech Vault: the vault gate east of the park (a rotating grate door, 154 wide, at 1720 1711 -2308); room not measured; a vault for sale

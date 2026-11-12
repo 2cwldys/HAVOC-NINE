@@ -630,11 +630,11 @@ new Float:g_mech_rocket_next[MAXPL];   // gametime when next rocket is allowed
 new g_mech_rockets_used[MAXPL];        // rockets fired this life (max 4)
 
 // The Mech's rocket launcher (weapon 41): its cvars, the effect sprites' precache indexes (0 where the file is not on
-// disk), the clip last seen on a Mech holding it, and the rockets in flight that are being followed
+// disk), and the rockets in flight that are being followed, each with whether the flash of its launch has been drawn
 new g_cv_mech_nodrop, g_cv_mech_nopickup, g_cv_rk_flash, g_cv_rk_smoke, g_cv_rk_boom;
 new g_rk_flash_spr, g_rk_smoke_spr, g_rk_boom_spr;
-new g_rk_clip[MAXPL];
 new g_rk_ent[TSM_ROCKET_TRACK];
+new bool:g_rk_flashed[TSM_ROCKET_TRACK];
 new g_rk_n;
 new Float:g_rk_org[TSM_ROCKET_TRACK][3];
 
@@ -1067,13 +1067,12 @@ new bool:g_turret_ok;     // its models and sounds are all there and precached
 new g_turret_boom;        // the explosion sprite's index
 new g_turret_blood, g_turret_bloodspray;   // the blood sprites a hit shows, 0 when the game has none
 new g_turret_flash;   // TS's own muzzle flash sprite, 0 when the game has none
-new g_turret_trail, bool:g_turret_bullet;   // TS's slow-motion bullet trail and its bullet model (the turret's shots and a Mech's), 0/false when missing
+new g_turret_trail, bool:g_turret_bullet;   // the sprite of the line along a slow-motion bullet and the bullet's model (the turret's shots and a Mech's), 0/false when missing
 new g_m60_view_idx, g_mech_gun_view_idx;   // model indexes of the stock M60 viewmodel and the Mech's minigun one, 0 when not precached
 new g_mech_gun_world_idx;                  // model index of the Mech's cannon lying in the world (TSM_MECHGUN_WMODEL), 0 when not precached
 new g_mech_flash_spr;                      // the Mech's muzzle flash sprite, 0 when the game has none
 new g_cv_mech_flash, g_cv_mech_flash_scale, g_cv_mech_trails, g_cv_mech_trail_max;
-new g_mech_clip[MAXPL];                    // the clip the Mech's weapon showed last frame, -1 when not read
-new g_mech_clip_wpn[MAXPL];                // the weapon that clip belonged to
+new g_ev_fire;                             // the game library's fire event (events/fire.sc: one for every round of a TS gun), 0 when it has none
 new Float:g_mech_fx_at[MAXPL];             // gametime of the last flash and bullet
 #define TSM_MECH_BULLETS 16                // the most bullets one Mech can have in the air at once: the ceiling of tsm_mech_trail_max
 new Float:g_mech_bullet_end[MAXPL][TSM_MECH_BULLETS];   // when each of a Mech's bullets in the air lands; a place whose time is not in the future is free
@@ -5617,10 +5616,18 @@ public plugin_precache()
 		}
 	}
 
-	// TS's bullet in slow motion, for the turret's shots and a Mech's: its model and the sprite of its trail, where the game has both.
+	// TS's bullet in slow motion, for the turret's shots and a Mech's: its model and the sprite of the line along it, where the game has the model and TS's trail. TS's own trail
+	// (bullet_trail.spr) peaks at a tenth of full brightness, which no width makes a line to be seen, so the line is the laser rifle's streak where the game has it.
 	if (file_exists("sprites/bullet_trail.spr", true) && file_exists("models/bullet.mdl", true))
 	{
-		g_turret_trail = precache_model("sprites/bullet_trail.spr");
+		if (file_exists("sprites/laserrifle_trail.spr", true))
+		{
+			g_turret_trail = precache_model("sprites/laserrifle_trail.spr");
+		}
+		else
+		{
+			g_turret_trail = precache_model("sprites/bullet_trail.spr");
+		}
 		precache_model("models/bullet.mdl");
 		g_turret_bullet = true;
 	}
@@ -5634,6 +5641,9 @@ public plugin_precache()
 	{
 		g_mech_flash_spr = precache_model("sprites/ts_muzzleflash1.spr");
 	}
+
+	// The game library's event for a round, found by the name it precaches it under: the Mech's M60 flash and bullet follow it (fw_mech_shot).
+	g_ev_fire = engfunc(EngFunc_PrecacheEvent, 1, "events/fire.sc");
 
 	/*
 	 * MECH STEP AND LOOP SOUNDS: mechwalk / mechwalk2 alternate on footsteps,
@@ -7064,9 +7074,9 @@ public plugin_init()
 	register_forward(FM_EmitSound, "fw_emit_sound");
 
 	// The Mech's weapons that are not dropped (tsm_mech_nodrop), the weapons he does not pick up (tsm_mech_nopickup) and the
-	// effects of his rocket launcher, weapon 41 of H9's reTS: its launch is told by the shooter's ClipInfo message, its rocket
-	// is found by its model, its end by the entity being gone. Each effect is its own cvar: 0 off, 1 the size the sprites were
-	// made for, more or less to scale it.
+	// effects of his rocket launcher, weapon 41 of H9's reTS: its rocket is found by its model, the flash of its launch is drawn the
+	// frame after the rocket appears, its end where the entity is gone. Each effect is its own cvar: 0 off, 1 the size the sprites
+	// were made for, more or less to scale it.
 	g_cv_mech_nodrop = register_cvar("tsm_mech_nodrop", "1");
 	g_cv_mech_nopickup = register_cvar("tsm_mech_nopickup", "1");
 	g_cv_rk_flash    = register_cvar("tsm_mech_rocket_flash", "1");
@@ -7075,13 +7085,14 @@ public plugin_init()
 	register_event("DeathMsg", "ev_mech_gear_death", "a");
 	if (g_has_mechrocket)
 	{
-		new msg_clipinfo = get_user_msgid("ClipInfo");
-		if (msg_clipinfo)
-		{
-			register_message(msg_clipinfo, "msg_clipinfo");
-		}
 		register_forward(FM_SetModel, "fw_rocket_setmodel");
 		register_forward(FM_StartFrame, "fw_rocket_frame");
+	}
+
+	// The Mech's M60 shots, from the game library's fire event for each round (fw_mech_shot).
+	if (g_ev_fire > 0)
+	{
+		register_forward(FM_PlaybackEvent, "fw_mech_shot");
 	}
 
 	// The M60 a Mech throws to the floor is drawn as his cannon (mech_gun_world), when the game has that model.
@@ -13402,8 +13413,8 @@ cmd_mech_rocket(id)
  * _smoke and _boom: 0 off, 1 the size the sprites were made for, more or less to scale it), so that a game library
  * that draws one of them itself is not drawn over.
  *
- *   the launch   the shooter's clip falls (TS tells him with ClipInfo) while the launcher is in his hand
  *   the rocket   an entity given the model models/h9/mechrocket.mdl (FM_SetModel); the trail is a follow beam on it
+ *   the launch   the frame after a rocket appears, its flash at the muzzle of the shooter who owns it: one for each rocket of a volley
  *   the end      the rocket's entity is gone: it went off where it was last seen
  *
  * The sprites are sprites/h9_rocket_flash.spr (4 frames), h9_rocket_smoke.spr (the trail's ribbon) and
@@ -13463,33 +13474,6 @@ rocket_flash(id)
 	message_end();
 }
 
-/// A shot of the launcher. TS tells the shooter his clip with ClipInfo; a clip that falls while the launcher is in his
-/// hand is a launch. The clip is remembered only while he holds it, so a clip of another weapon is never compared.
-public msg_clipinfo(msg_id, msg_dest, msg_entity)
-{
-	new id = msg_entity;
-	if (id < 1 || id > g_maxplayers)
-	{
-		return PLUGIN_CONTINUE;
-	}
-
-	new clip, ammo, mode, extra;
-	if (ts_getuserwpn(id, clip, ammo, mode, extra) != TSM_WPN_ROCKET)
-	{
-		g_rk_clip[id] = -1;
-		return PLUGIN_CONTINUE;
-	}
-
-	new now = get_msg_arg_int(1);
-	new was = g_rk_clip[id];
-	g_rk_clip[id] = now;
-	if (was >= 0 && now < was)
-	{
-		rocket_flash(id);
-	}
-	return PLUGIN_CONTINUE;
-}
-
 /// A rocket is in the air: its smoke trail starts, and it is followed until it is gone.
 rocket_track(ent)
 {
@@ -13510,6 +13494,7 @@ rocket_track(ent)
 		return;
 	}
 	g_rk_ent[free] = ent;
+	g_rk_flashed[free] = false;
 	g_rk_n++;
 	pev(ent, pev_origin, g_rk_org[free]);
 
@@ -13540,7 +13525,7 @@ public fw_rocket_setmodel(ent, const model[])
 	return FMRES_IGNORED;
 }
 
-/// Every frame a rocket is in the air: where it is, and once it is gone the explosion where it was last seen.
+/// Every frame a rocket is in the air: the flash of its launch in the first, where it is, and once it is gone the explosion where it was last seen.
 public fw_rocket_frame()
 {
 	if (!g_rk_n)
@@ -13570,6 +13555,16 @@ public fw_rocket_frame()
 		}
 		if (flying)
 		{
+			// The game library gives a rocket its owner after it has made it, so the flash of its launch waits for the frame after.
+			if (!g_rk_flashed[i])
+			{
+				g_rk_flashed[i] = true;
+				new owner = pev(ent, pev_owner);
+				if (owner >= 1 && owner <= g_maxplayers && is_user_connected(owner))
+				{
+					rocket_flash(owner);
+				}
+			}
 			continue;
 		}
 
@@ -18048,9 +18043,10 @@ turret_seek(t, Float:muzzle[3])
 
 /*
  * A shot seen as TS draws a bullet in slow motion, at any speed of play: its bullet model flying from
- * the barrel to where the round went, TS's bullet_trail along its line. Only a picture: the round itself
+ * the barrel to where the round went, a bright line along its path (g_turret_trail: the laser rifle's
+ * streak, else TS's bullet_trail, which is faint). Only a picture: the round itself
  * landed when it was fired. A plain tracer where the game has no such files. The answer is the
- * seconds the bullet is in the air, 0.0 for a picture that holds no entity (the plain tracer).
+ * seconds the bullet's entity stays in the world, 0.0 for a picture that holds no entity (the plain tracer).
  */
 Float:turret_trail(Float:from[3], Float:to[3])
 {
@@ -18113,17 +18109,19 @@ Float:turret_trail(Float:from[3], Float:to[3])
 	write_byte(0);     // first frame
 	write_byte(10);    // frame rate
 	write_byte(tenths);   // life, tenths of a second
-	write_byte(3);     // width
+	write_byte(14);    // width, tenths of a unit: 1.4 units
 	write_byte(0);     // no noise: a straight line
-	write_byte(255);
-	write_byte(255);
-	write_byte(255);
-	write_byte(180);   // brightness
-	write_byte(30);    // scroll
+	write_byte(255);   // r
+	write_byte(240);   // g
+	write_byte(200);   // b: a warm white
+	write_byte(255);   // brightness
+	write_byte(0);     // scroll: the streak is the same along its length
 	message_end();
 
-	set_task(life > 0.1 ? life : 0.1, "remove_ent", b);
-	return life;
+	// The entity goes when its task fires, which is never sooner than 0.1 s from now: that is how long it holds its place.
+	new Float:stays = (life > 0.1) ? life : 0.1;
+	set_task(stays, "remove_ent", b);
+	return stays;
 }
 
 /*
@@ -22031,34 +22029,18 @@ entity_room()
 /*
  * The Mech's M60 shot: a large muzzle flash at the barrels' end and a bullet flown in slow motion from
  * there to where the round lands, as the turret's are (turret_trail), of which one Mech has up to
- * tsm_mech_trail_max in the air at once. A shot is the weapon's clip going down between two frames,
- * which is the one thing a TS gun does that no reload, switch or pickup does. At most one flash a
- * 0.06 s, the M60's fire rate being far above what a viewer can tell apart.
+ * tsm_mech_trail_max in the air at once. A shot is the game library's fire event for a round of the
+ * M60 (fw_mech_shot): it plays one for every round, for a bot as for a person. The clip the weapon
+ * natives report is only what the library last sent in WeaponInfo, which it does when the weapon or
+ * its reserve changes and never for a round (and the engine sends a bot no client data at all), so
+ * it cannot say a shot was fired. At most one flash a 0.06 s, the M60's fire rate being far above
+ * what a viewer can tell apart.
  */
 mech_gun_fx(id)
 {
 	new flash = get_pcvar_num(g_cv_mech_flash) && g_mech_flash_spr;
 	new trails = get_pcvar_num(g_cv_mech_trails);
 	if ((!flash && !trails) || !wears_mech(id))
-	{
-		g_mech_clip[id] = -1;
-		return;
-	}
-
-	// ts_getuserwpn aborts its caller when no weapon is in hand
-	if (get_user_weapon(id) <= 0)
-	{
-		g_mech_clip[id] = -1;
-		return;
-	}
-
-	new clip, ammo, mode, extra;
-	new wpn = ts_getuserwpn(id, clip, ammo, mode, extra);
-	new last = g_mech_clip[id];
-	new lastwpn = g_mech_clip_wpn[id];
-	g_mech_clip[id] = clip;
-	g_mech_clip_wpn[id] = wpn;
-	if (wpn != TSM_M60_WPN || lastwpn != wpn || last < 0 || clip >= last)
 	{
 		return;
 	}
@@ -22127,9 +22109,22 @@ mech_gun_fx(id)
 			new Float:endpos[3];
 			get_tr2(0, TR_vecEndPos, endpos);
 
-			g_mech_bullet_end[id][place] = now + turret_trail(muzzle, endpos);
+			// The entity goes when its removal task has run, which is after the shots of the frame it is due in: the place is held for a tenth of a second more.
+			new Float:stays = turret_trail(muzzle, endpos);
+			g_mech_bullet_end[id][place] = (stays > 0.0) ? now + stays + 0.1 : 0.0;
 		}
 	}
+}
+
+/// The game library plays events/fire.sc for every round of every TS gun, with the weapon's id as its first integer parameter: a round of the M60
+/// from a player in a mech model is a Mech's shot.
+public fw_mech_shot(flags, invoker, eventindex, Float:delay, const Float:origin[3], const Float:angles[3], Float:fparam1, Float:fparam2, iparam1, iparam2, bparam1, bparam2)
+{
+	if (eventindex == g_ev_fire && iparam1 == TSM_M60_WPN && invoker >= 1 && invoker <= g_maxplayers)
+	{
+		mech_gun_fx(invoker);
+	}
+	return FMRES_IGNORED;
 }
 
 public fw_postthink_post(id)
@@ -22171,8 +22166,6 @@ public fw_postthink_post(id)
 	{
 		return FMRES_IGNORED;
 	}
-
-	mech_gun_fx(id);
 
 	/*
 	 * Defense in depth for the warmup/freeze hold. apply_freeze() (fw_prethink, the PRE
