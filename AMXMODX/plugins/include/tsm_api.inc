@@ -41,6 +41,14 @@
                                     // (tsm_class_cost) from its side's pool and the player waits for a wave; a death with the pool
                                     // empty is final. The pool is sized as a round goes live (tsm_pool_base + tsm_pool_perplayer
                                     // a player), shown on the scoreboard, and tsm_pool_set / tsm_pool_add change it
+#define TSM_MODE_LATE_JOIN     1024 // the mode asks for tsm_latejoin 2 to mean it: a person who arrives after the match began, or leaves
+                                    // the spectators, may take a side, and is let in at his side's next respawn (the next respawn
+                                    // wave where the side has waves, else the start of the next round). Nobody is let in during
+                                    // sudden death. Never the bots' side of a TSM_MODE_SIDE2_BOTS mode. A joiner draws no life and no
+                                    // reinforcement on the way in, and adds nothing to a pool. tsm_latejoin 1 gives it to every mode
+#define TSM_MODE_CLASS_CHANGE  2048 // the mode asks for tsm_classchange 2 to mean it: a person who has a class may ask for another (.class)
+                                    // at any time, and has it from his next respawn (a revive of a wave, else the next round's start);
+                                    // in the freeze countdown the pick is the class at once. tsm_classchange 1 gives it to every mode
 
 /* ---- match states, as tsm_state() returns them ---------------------------------------- */
 
@@ -366,6 +374,13 @@ forward tsm_match_complete(winner);
  * next wave"), and with none left the core says nothing.
  */
 forward tsm_life_lost(id, left);
+
+/**
+ * A person has taken a side after the match began (tsm_latejoin) and waits to be let in at his side's next respawn. Return PLUGIN_HANDLED once you
+ * have told him in your own words (Wave Survival's wave is the mutants' own, so it says when he comes in); PLUGIN_CONTINUE lets the core say its
+ * own line. Sent only while a mode claims the map. tsm_side_of answers 0 for him until he is let in.
+ */
+forward tsm_late_wait(id);
 
 /**
  * A match a side forfeited: all of its people voted .forfeit, or it was left with no players
