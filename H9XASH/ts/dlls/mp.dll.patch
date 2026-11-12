@@ -18,7 +18,7 @@ Built by      : reTS\scripts\build-win32-dropin.ps1 with RETS_REBUILD=1
                 (change 9); the build of 2026-11-04 is target hl alone (change 10); the build of 2026-11-05 is both (change 11);
                 the build of 2026-11-09 04:45 is both (changes 12 to 14); the build of 2026-11-09 05:49 is target hl alone (change 15); the build of 2026-11-09 07:42 is target hl alone (change 16); the build of 2026-11-10 01:16 is target hl alone (change 17)
 Size          : 1009664 bytes
-SHA256        : 36D5AF5B49482EC97D2F5E6FD14D184FF45295D86E9C8067750DD7DEDC6709A8
+SHA256        : 605442C2BF214D53A9371056B2AD4103E31BB74EECCF4FE1DFC778462CA2DA87
 client.dll    : 935424 bytes (its own client.dll.patch)
 SHA256        : 8FA885BE1F272CCC70B3A3607AE29B35FCDF1236DA328D8C5FF1AD12BBD41BE2
 Source base   : goldsrc-net/the-specialists main through bd3f6c3c1aa3 (2026-10-29),
@@ -300,6 +300,28 @@ What the source build contains, beyond the release DLL
    reTS\reference\DEVIATIONS.md. The mp.dll this replaced is kept as mp.dll.bak_prebatch in reTS\binaries\ts\dlls\. (Items 12 and 15 state the launcher as of their
    builds.)
 
+
+18. A marked Mech lets go of no weapon by any route while tsm_mech_nodrop is on
+
+   dlls\ts_gun.cpp (CBasePlayer::DropWeapon): change 14 refused a marked Mech's disarm and drops only while the server cvar tsm_loadoutrework was on, so with the rework off (the
+   default) a melee hit past the disarm pressure knocked his M60 or his launcher out of his hands. The refusal now also holds while tsm_mech_nodrop (a cvar of ts_matchmode, 1 by
+   default) is on: a player whose pev->fuser4 is set is not disarmed (type -2), lets go of no weapon with the drop key or drop_<n>, and throws none in the death scatter (types 1
+   to 41). The CTF briefcase (drop_0) and the flag dropped bare-handed are no weapons and still go. The refusal of a dropped weapon's pickup (PickUpWeapon) stays with
+   tsm_loadoutrework. A player the plugin does not mark, or tsm_mech_nodrop 0, leaves every drop as TS has it; both cvars are read only for a marked player. The plugin's own
+   guard (lr_mech_guard) cannot stand in for this: it reads the item bits of pev->weapons, which stop at weapon 31, and the Mech's M60 is 32 and his launcher 41. Described in
+   reTS\reference\DEVIATIONS.md; tsm_mech_nodrop in COMMANDS.txt, docs\LOADOUT_REWORK.txt. The mp.dll this replaced (1009664 bytes, SHA256
+   36D5AF5B49482EC97D2F5E6FD14D184FF45295D86E9C8067750DD7DEDC6709A8) is kept as mp.dll.bak_premechnodrop in reTS\binaries\ts\dlls\. The build of 2026-11-11 at 20:19 is target hl alone.
+
+19. The Mech rocket launcher: a reserve of its own, a Volley and a Single fire mode, faster rockets
+
+   dlls\ts_weapon_info.h, ts_weapon_info.cpp, ts_gun.cpp, game.cpp. (a) The launcher's reserve was caliber 13 (7.62 x 51mm), which the Mech's M60E3 belt uses too, so every reload took
+   its rockets from the belt's pool and a Mech had far more rockets than its class line gave. TS_CALIBER_MECHROCKET is now 8, the Barrett's 50BMG, which nothing else in a Mech's kit
+   uses; the figure after the colon of the class line (tsm_class9, 41:8) reaches the reserve as wextraclip, in rounds, so the Mech carries four loaded and eight spare. (b) iFireModes is
+   burst and semi: burst is the volley and the default (TSDefaultFireMode prefers it, so the bots and the old behaviour keep it), semi is one rocket a pull (CTSGun::MechRocketFire: a salvo
+   of one; the next pull waits 0.4 of h9_mechrocket_rate, MECHROCKET_SINGLE_WAIT). The generic burst machine (the press arming a three-round burst, WeaponIdle firing the queued rounds)
+   skips the launcher, whose burst is its salvo. The fire mode key switches them; the client's ammo box says Volley and Single for this weapon (cl_dll\ts_ammo.cpp). (c)
+   h9_mechrocket_speed 900 -> 1100. The client's weapon table is the same code: this pairs with client.dll change 40, and the two are deployed together. Described in
+   reTS\reference\DEVIATIONS.md, COMMANDS.txt, docs\WEAPON_DAMAGES.txt, docs\GAME_MODES.txt.
 
 Building and deploying
 ----------------------
