@@ -144,6 +144,13 @@ WAVE SURVIVAL  (ts_survival.amxx, configs\ts_survival.cfg)
                respawn-wave countdown; nobody else is shown one.
   The run      ends when the survivors' side is wiped out: chat says how far they got (and the best on
                this map), the match is over, and it is back to warmup.
+  Late joiners a person who arrives while a run is going takes the survivors' side from the side
+               menu and comes in with the side's next respawn wave: its own countdown, or the wave that
+               comes when every mutant has fallen, whichever is first. Until then he is a ghost, not
+               counted as standing or waiting, so he never keeps a lost run open. A player may ask
+               for another class with .class at any time and has it from his next respawn. Both are
+               on in a survival run with no setting (tsm_latejoin 2, tsm_classchange 2; section
+               LATE JOINERS AND CLASS CHANGES below).
   It grows     health +tsm_ws_hp_per_wave (5) percent per wave; guns by tsm_ws_gun_odds
                (40% at first, 60% from wave 16, all from wave 25); the kung fu powerup after
                wave tsm_ws_kungfu_after (30).
@@ -185,17 +192,20 @@ MECH WARRIOR  (ts_mechwarrior.amxx, configs\ts_mechwarrior.cfg)
                off. In every mode that has a Mech, not only this one.
   Laser rifle  does tsm_mech_laser_mult (1.15) times its damage to a Mech, before the Mech's
                armour takes its share: a marginal bonus, 1.0 turns it off. In every mode.
-  Rocket       a Mech's second weapon (weapon 41 of the game library) fires a salvo of four
-  launcher     rockets, 0.12 s apart, on one pull of the trigger; its clip holds the four and
-               the ammo box reads "Missile". Each rocket's blast does 200 at the middle and
-               falls to nothing 260 units out (armour takes none of it). He is armed with a
-               full clip and three spare. In every mode; the h9_mechrocket_* cvars of the
-               game library set it (COMMANDS.txt, CVAR REFERENCE).
-  M60 shots    every shot of a Mech's M60 sends a large muzzle flash at the end of the barrels and a
-               bullet tracer from there to where the bullet lands, whoever pulls the trigger, a bot
-               or a person (tsm_mech_flash, tsm_mech_flash_scale, tsm_mech_trails, tsm_mech_trail_width
-               and tsm_mech_trail_life, COMMANDS.txt). The tracer is the laser rifle's streak
-               (sprites/laserrifle_trail.spr); TS's own bullet trail is too dim to see.
+  Rocket       a Mech's second weapon (weapon 41 of the game library) has two fire modes, which
+  launcher     the fire mode key switches (the HUD says Volley or Single): the volley, the
+               default, is four rockets 0.12 s apart on one pull of the trigger; Single is one
+               rocket a pull. Its clip holds the four and the ammo box reads "Missile". Each
+               rocket's blast does 200 at the middle and falls to nothing 260 units out (armour
+               takes none of it), and the rockets fly 1100 units a second. He is armed with a
+               full clip and eight spare rockets, a reserve of their own (the Barrett's caliber,
+               not the M60's belt). In every mode; the h9_mechrocket_* cvars of the game library
+               set it (COMMANDS.txt, CVAR REFERENCE).
+  M60 shots    every shot of a Mech's M60 sends a large muzzle flash at the end of the barrels and
+               flies a bullet in slow motion from there to where the round lands, as the .turret
+               turret's are, whoever pulls the trigger, a bot or a person (tsm_mech_flash,
+               tsm_mech_flash_scale, tsm_mech_trails and tsm_mech_trail_max, COMMANDS.txt). One Mech
+               can have up to six bullets in the air at once.
   Bot Mechs    a bot that carries the M60 and the launcher alternates between them in a fight
                (rcbot_mm.dll, CHANGE 13): the M60 is its default; the launcher comes out for a
                target far off (1.35 x tsm_bot_mech_near, 400 units) and in clear sight of a rocket,
@@ -331,6 +341,65 @@ CAPTURE THE FLAG  (ts_ctf.amxx, configs\ts_ctf.cfg)
   Admin        amx_tsm_ctf (the state). To test: amx_tsm_cf_give <flag side> <0|1|2> (hand a
                flag to a side's first player, or put it home with 0) and amx_tsm_cf_tp <side>
                <pad> (a person of that side walks onto a pad).
+
+LATE JOINERS AND CLASS CHANGES  (ts_matchmode.amxx; tsm_latejoin, tsm_classchange)
+  Core behaviour in every mode, each behind a cvar read live: 0 is off everywhere (the match
+  plays exactly as it always has: a person who arrives mid-match waits for the next one, a class
+  is locked once picked), 1 is on in every mode, 2 (the default) is on in the modes that ask for
+  it. Wave Survival asks for both (its claim carries TSM_MODE_LATE_JOIN and TSM_MODE_CLASS_CHANGE,
+  include\tsm_api.inc); no other mode does, so with the defaults every other mode plays as before
+  until the server sets 1. A ranked or competitive server keeps 2, or 0, on purpose (the
+  presets carry 2).
+  The rule     a person comes in, or comes back as his new class, at the NEXT RESPAWN OF HIS
+               SIDE. Where the side has respawn waves (tsm_respawns 1, a side a mode made
+               endless: Wave Survival, Capture the Flag, the modes that run waves) that is the
+               next wave of any kind: the side's own countdown, the Officer's .reinforce, a
+               mode's wave, an admin's amx_tsm_wave. Where it has none (tsm_respawns 0, a mode
+               that eliminates) it is the start of the next round. Never mid-round in a mode
+               with neither, and never in sudden death: a wave in sudden death lets nobody in,
+               he waits for the next round. A mode whose first round, or whose run, is the whole
+               match and has no waves has no next round, so a late pick is refused there as before.
+  A joiner     picks a side from the side menu (.team, or TS's own team menu: jointeam) like
+               anyone before a match. The bots' side of a survival run is still refused, and so is
+               a side that would break tsm_balance_gap (tsm_balance_mode block), exactly as in
+               warmup. He may change the side he waits on with .team, or spectate. Until he is let
+               in he is a ghost on his side: locked out of the fight as every arrival mid-match is,
+               watching his side's players, told when he comes in. He counts as neither standing
+               nor waiting, so he keeps no round open, and tsm_side_of, tsm_in_play and tsm_side_alive
+               know nothing of him: no kill, death or round is his that he did not play, and h9_compete
+               counts for him only the rounds he is let into. He leaves nothing behind when he
+               disconnects first or the match ends first.
+               When he is let in a wave takes him as it takes a fallen player: with his class's
+               lives (tsm_class_lives; in Assault, where a side's lives are one pool, one life and
+               nothing drawn from the pool or added to it), at the side's spawn points with spawn
+               protection, the class's kit, health and armour, and the Officer's kung fu. At a round's
+               start he is simply a player of the round, put on his feet, placed and armed by the
+               round's own start; TS holds a player who changed team for five seconds before it lets him
+               spawn, so a side taken in the five seconds before a round starts is let in at the round
+               after (a wave needs no such wait: it asks TS again until TS lets him spawn).
+  His class    the class menu is offered to him as soon as he has a side; the pick is held and goes
+               on as he is let in. No pick: the default class (tsm_default_class); a class that is
+               full by then gives him the first class with room, and he is told. A pick holds its
+               class's slot from the moment it is made, so two people cannot both take the last Medic;
+               a pick that would break a limit is refused with the usual message.
+  A class      a player who has a class types .class for the menu again, at any time during a live
+  change       round (and between rounds): his class is marked (yours), a pick already made (next).
+               The class he picks goes on at his NEXT RESPAWN: the revive of a wave after a death, or
+               the next round's start. Everything follows from the new class as from a first pick: the
+               kit, health and armour, speed and height, the model, the perk (an Officer's squad is
+               disbanded when he stops being the Officer), the class's lives (where a wave sets them, as
+               Wave Survival's does, they are counted from the class he comes back as; a wave that only
+               brings back what is waiting leaves the count he has), the scoreboard's class column, and
+               the loadout rework's fit of
+               what he bought to the new class (lr_fit: what no longer fits is left out, and a class the
+               rework leaves out takes its own kit). He keeps playing his class until then. The pick
+               holds the new class's slot at once and the old class's slot only until it goes on;
+               picking again replaces it and picking the class he plays drops it. In the freeze
+               countdown a pick is the class at once, as a first pick is. Bots have no menu and are not
+               affected.
+  Settings     tsm_latejoin and tsm_classchange, 0, 1 or 2 (ts_matchmode.cfg and the presets; the
+               other rows of COMMANDS.txt). amx_tsm_whystuck <target> shows a player's late and
+               held-class state (late=, class=, next=).
 
 3. SETTING UP A MAP
 -------------------

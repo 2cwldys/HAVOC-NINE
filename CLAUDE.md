@@ -176,6 +176,11 @@ called from a map generator with `generateForMap()` (same guide, section 7).
   the `.amxx` files (the workflow `preset-hash.yml` fails otherwise) and have an admin import
   it into the site (`docs\H9_PRESENCE.txt` 4d). The build's version is `VERSION` in
   `ts_matchmode.sma` (what the plugin registers, so what the site lists): bump it with the update.
+  `stage-h9xash.ps1` does the bump and the hashes itself when it packs the ZIPs
+  (`tools\release-prepare.mjs`, `docs\H9_RELEASE.txt` 5): a changed plugin or module since the last
+  staged package raises the build by one, runs `build.bat` and `export.bat` under the heavy-job
+  lock and writes the presets; `-NoPrepare` skips it, `-DryRun` only says what it would do. The
+  join gate's release date (`h9_release.txt`) is never touched by it.
 - `ts_matchmode.sma` changes build+deploy via `build.bat`; confirm `Deployed:
   N Failed: 0`. Engine changes build via `xash3d-h9-patches\xash.bat` (full
   rebuild, applies/verifies the whole patch chain above), then `export.bat`

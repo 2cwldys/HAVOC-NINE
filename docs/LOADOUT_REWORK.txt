@@ -363,15 +363,35 @@
 
  EDGE CASES
   late join        A player who connects while a match runs is benched until it
-                   ends (g_locked_out) and cannot buy. One who gets a side
-                   through a halted match (ready-up with the score kept) has no
-                   set and is not final: he buys in the ready-up and in his
-                   first freeze, and is made final at his first go-live.
-  class change     The class is picked once, in the first freeze, and locked.
-                   A pick of another covered class refits the set to its cash
-                   (a line to him); a pick of the Heavy or the Mech ignores the
-                   set (a line to him) and hands the kit. An admin tool that
-                   changes a class later is refitted at the next arm.
+                   ends (g_locked_out) and cannot buy, unless tsm_latejoin lets
+                   him in (Wave Survival's default; docs\GAME_MODES.txt). He then
+                   takes a side and waits as a ghost, out of play and with no
+                   window, and is let in at his side's next respawn. A wave
+                   brings him as it brings a fallen player: the revive window
+                   opens (tsm_lr_buy_seconds), and opens again at every later
+                   revive, because he has been through no go-live and his
+                   loadout is not final; he has bought nothing, so he comes with
+                   his fists (the class kit with tsm_lr_kitfallback 1) until he
+                   buys. A round's start lets him in as a player of the round:
+                   the freeze is his window and the go-live makes it final.
+                   One who gets a side through a halted match (ready-up with the
+                   score kept) has no set and is not final: he buys in the
+                   ready-up and in his first freeze, and is made final at his
+                   first go-live.
+  class change     The class is picked once, in the first freeze, and locked,
+                   unless tsm_classchange lets him ask for another (Wave
+                   Survival's default). A pick outside the freeze is held and
+                   goes on at his next respawn (a wave's revive, else the next
+                   round's start), and what the first pick did is done then,
+                   before the kit is handed: a pick of another covered class
+                   refits the set to its cash (a line to him: what no longer
+                   fits is left out, and a later switch to a richer class does
+                   not bring it back); a pick of the Heavy or the Mech ignores
+                   the set (a line to him) and hands the kit. In the freeze a
+                   pick is the class at once, as before. A late joiner's first
+                   pick is held the same way and settled as he is let in. An
+                   admin tool that changes a class later is refitted at the next
+                   arm.
   side change      Sides change in warmup and ready-up only; the set follows the
                    player, so a side change costs him nothing.
   reconnect        His set and his lock are gone (a new player in the slot);
@@ -432,19 +452,27 @@
     is removed. The DLL performs the disarm and nothing in a plugin can refuse
     it, so he is bare-handed for up to a quarter second. Any strip of a living
     Mech in a live round is undone the same way (the plugin's own strips are of
-    eliminated players, who are skipped).
+    eliminated players, who are skipped). The guard reads the item bits of
+    pev->weapons (user_carries), which stop at weapon 31: the Mech's M60 (32) and
+    launcher (41) are not among them, so for those two it sees nothing and hands
+    nothing back, and it is the refusal in the game library (below) that stops a
+    disarm of them.
  The game library of this build makes the same refusals itself for a player the
  plugin marks in pev->fuser4 (lr_arm_begin) while tsm_loadoutrework is on:
  CBasePlayer::DropWeapon (dlls\ts_gun.cpp) neither disarms him nor lets him
  drop, and PickUpWeapon (dlls\ts_player.cpp) takes no dropped weapon for him.
  The plugin's guard above is what backs that up, and what a mp.dll without it
- relies on.
+ relies on. With tsm_mech_nodrop on (default 1) CBasePlayer::DropWeapon also
+ refuses a marked Mech's disarm, the drop key, drop_<n> and the death scatter of
+ his weapons whatever the rework says (the CTF flag still drops with the key when
+ his hands are bare); the refusal of a dropped weapon's pickup stays with the
+ rework.
 
  The floor guard and the touch refusal above do not need the rework: tsm_mech_nopickup
  (default 1, independent of tsm_loadoutrework) makes them apply to a Mech by class
  whatever the rework says, except that his own gear (the M60, the minigun that
- replaces it, the rocket launcher) may still be taken up, so that a disarm, which
- tsm_mech_nodrop does not stop, never leaves him bare-handed. With the rework on the
+ replaces it, the rocket launcher) may still be taken up, so that a game library
+ that lets a disarm through never leaves him bare-handed. With the rework on the
  guard refuses every weapon, as described, because the rework hands a disarmed
  Mech his gun back itself and the game library refuses a dropped weapon too.
  He is told once in a few seconds ("A Mech does not pick up weapons.") when the use

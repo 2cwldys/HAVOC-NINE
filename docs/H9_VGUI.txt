@@ -445,7 +445,7 @@
 (HUDK_PLAQUE heading, _ROW a "<Label>: <value>" field, _TAG the affiliation, _OPEN and _SEALED the status, _WARN a restriction, _HINT a hint; what a player looks at: a property door, an NPC, a
 player): the client draws it, with cl_h9_arphud_plaque 1, as one plate on the "#panel" art at 0.45, in the notice's place and held 2.5 seconds (the notice 3), of one width
 for the screen (26 percent of it, 200 px to 45 percent), its heading and labels and values in upper case, the heading in 182 145 234 with the rail under it, a label in 166 154 192, the
-affiliation and the status as a framed wash (the rail's purple, or the dim purple for CIVILIAN; green 96 200 120 for OPEN, yellow 236 204 84 for SEALED), a restriction in red 236 96 96,
+affiliation and the status as a framed wash (the rail's purple, or the dim purple for CIVILIAN and PROLETARIAN; green 96 200 120 for OPEN, yellow 236 204 84 for SEALED), a restriction in red 236 96 96,
 a hint dim; a game without it draws the lines as the plain notice they read as (docs\APOLLO_RP.txt, 2). A need (the kind HUDK_NEED, 8; the text "<label>: <0 to 100>%"; ARP_AddNeedItem
  adds one) is a row of its own in any HUD but the notice: the label (the widest label sets the column, at most two fifths of the
  room), a bar on a dark track (alpha 160) with the rail's frame, filled to the value in a colour that is green 96 200 120 at 0,
