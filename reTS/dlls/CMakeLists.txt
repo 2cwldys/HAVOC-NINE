@@ -81,6 +81,7 @@ target_sources(hl PRIVATE
 	ts_func_break.cpp
 	ts_gun.cpp
 	ts_mechrocket.cpp
+	h9_car.cpp
 	ts_deadcorpse.cpp
 	TS_combat.cpp
 	TS_entities.cpp
