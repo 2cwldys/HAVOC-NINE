@@ -17,14 +17,15 @@
 *  Use(USE_OFF), and every PostThink asks OnControls() whether he is still at the wheel (Use(USE_SET, 2)).
 *  So nothing in player.cpp changes.
 *
-*  The model's bone controller 0, if it has one, turns the front wheels (degrees of steer) and controller 1 rolls
-*  every wheel (degrees, wrapping at 360). A model with neither still drives.
+*  The model's bone controllers 0 and 1 turn the left and the right front wheel (degrees of steer: one controller
+*  turns one bone), and its sequence 0 rolls every wheel once a cycle: it is played at the wheels' turns a second,
+*  backwards when the car reverses. A model with neither still drives (h9-maps art/h9-car.mjs makes car.mdl so).
 *
 *  Keys (units are Half-Life's; speeds in units a second):
 *    model          the studio model (default models/h9/car.mdl); a car whose model is not on disk is removed
 *    maxspeed 900   backspeed 300   accel 450   brake 1200   coast 150 (the slowing with nothing pressed)
 *    maxturn 32     (the front wheels' greatest angle, degrees)   turnrate 120 (degrees a second)
-*    frontdist 75   reardist 75   (the axles from the origin)   track 80 (between the wheels of one axle)
+*    frontdist 75   reardist 75   (the axles from the origin)   track 88 (between the wheels of one axle)
 *    length 200   width 100   height 64   (the body, for collision; the origin is on the ground, at the middle)
 *    radius 20      (the wheels')   maxstep 12 (the highest rise the wheels climb)
 *    enginesnd      the engine's loop (default plats/ttrain2.wav, pitched by speed)
@@ -107,7 +108,7 @@ private:
 	// tuning (keys)
 	float m_flMaxSpeed = 900, m_flBackSpeed = 300, m_flAccel = 450, m_flBrake = 1200, m_flCoast = 150;
 	float m_flMaxTurn = 32, m_flTurnRate = 120;
-	float m_flFrontDist = 75, m_flRearDist = 75, m_flTrack = 80;
+	float m_flFrontDist = 75, m_flRearDist = 75, m_flTrack = 88;
 	float m_flLength = 200, m_flWidth = 100, m_flHeight = 64;
 	float m_flRadius = 20, m_flMaxStep = 12;
 	string_t m_iszEngine = 0;
@@ -121,7 +122,6 @@ private:
 	float m_flPitch = 0;     // nose up, degrees
 	float m_flRoll = 0;
 	float m_flFall = 0;      // the vertical speed while off the ground (negative down)
-	float m_flWheelSpin = 0; // the wheels' roll, degrees
 	float m_flLastThink = 0;
 	float m_flNextSound = 0;
 	bool m_bEngineOn = false;
@@ -200,6 +200,7 @@ void CH9Car::Spawn()
 	pev->solid = SOLID_BBOX;
 	pev->takedamage = DAMAGE_NO;
 	pev->sequence = 0;
+	ResetSequenceInfo();
 	pev->frame = 0;
 	pev->framerate = 0;
 	m_flYaw = pev->angles.y;
@@ -572,9 +573,14 @@ void CH9Car::DriveThink()
 		Move(dt);
 		Settle(dt);
 		FitBox();
-		m_flWheelSpin = UTIL_AngleMod(m_flWheelSpin + m_flSpeed * dt / (m_flRadius > 1 ? m_flRadius : 1) * (180 / M_PI));
 		SetBoneController(0, m_flSteer);
-		SetBoneController(1, m_flWheelSpin);
+		SetBoneController(1, m_flSteer);
+		// the roll: one cycle is one turn of the wheels, so the rate is turns a second times the cycle's length
+		const float cycle = m_flFrameRate > 0 ? 256.0f / m_flFrameRate : 1.0f;
+		pev->framerate = m_flSpeed / (2 * M_PI * (m_flRadius > 1 ? m_flRadius : 1)) * cycle;
+		StudioFrameAdvance(dt);
+		if (pev->frame < 0) // StudioFrameAdvance wraps a loop only forwards
+			pev->frame += 256 * (1 + (int)(-pev->frame / 256));
 	}
 
 	if (pDriver)
