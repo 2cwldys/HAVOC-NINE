@@ -13,9 +13,12 @@
 *  falls. Gravity along the slope slows it uphill.
 *
 *  It takes the player's controls through CBasePlayer::m_pTank, the hook func_tank uses: while it is set the
-*  player's weapons do nothing (ItemPostFrame), his death and his respawn call Use(USE_OFF), +use calls
-*  Use(USE_OFF), and every PostThink asks OnControls() whether he is still at the wheel (Use(USE_SET, 2)).
-*  So nothing in player.cpp changes.
+*  player's weapons do nothing (ItemPostFrame), his death and his respawn call Use(USE_OFF), and every PostThink
+*  asks OnControls() whether he is still at the wheel (Use(USE_SET, 2)). So nothing in player.cpp changes.
+*  TS calls PlayerUse from ImpulseCommands, inside ItemPostFrame, which returns at once while m_pTank is set: the
+*  player code never sees +use in the car, so the car reads it itself (a press, after the one that got him in).
+*  While he drives, the driver is SOLID_NOT and the car is his owner, so that the car's traces pass through him
+*  (he rides inside it, and TS gives a player back his solid each frame).
 *
 *  The model's bone controllers 0 and 1 turn the left and the right front wheel (degrees of steer: one controller
 *  turns one bone), and its sequence 0 rolls every wheel once a cycle: it is played at the wheels' turns a second,
@@ -126,6 +129,8 @@ private:
 	float m_flNextSound = 0;
 	bool m_bEngineOn = false;
 	bool m_bGrounded = true;
+	int m_iLastButtons = 0; // the driver's, the frame before: a +use press gets him out
+	float m_flEntered = 0;
 };
 LINK_ENTITY_TO_CLASS(h9_car, CH9Car);
 
@@ -263,7 +268,10 @@ void CH9Car::TakeWheel(CBasePlayer* pPlayer)
 	pPlayer->pev->movetype = MOVETYPE_NOCLIP;
 	pPlayer->pev->velocity = g_vecZero;
 	pPlayer->pev->takedamage = DAMAGE_NO;
+	pPlayer->pev->owner = edict(); // the car's traces pass through him
 	UTIL_SetOrigin(pPlayer->pev, pev->origin + Vector(0, 0, 40));
+	m_iLastButtons = pPlayer->pev->button;
+	m_flEntered = gpGlobals->time;
 
 	if (!m_hCamera)
 	{
@@ -318,6 +326,8 @@ void CH9Car::LeaveWheel(CBasePlayer* pPlayer)
 	if (!ExitSpot(pPlayer, spot))
 		spot = pev->origin + Vector(0, 0, m_flHeight + 38); // on the roof, the last resort
 	pPlayer->pev->effects &= ~EF_NODRAW;
+	if (pPlayer->pev->owner == edict())
+		pPlayer->pev->owner = NULL;
 	pPlayer->pev->solid = SOLID_SLIDEBOX;
 	pPlayer->pev->movetype = MOVETYPE_WALK;
 	pPlayer->pev->velocity = g_vecZero;
@@ -567,6 +577,19 @@ void CH9Car::DriveThink()
 		m_bEngineOn = false;
 	}
 
+	if (pDriver) // +use gets him out: a fresh press, not the one that got him in
+	{
+		const int buttons = pDriver->pev->button;
+		const bool pressed = (buttons & IN_USE) != 0 && (m_iLastButtons & IN_USE) == 0;
+		m_iLastButtons = buttons;
+		if (pressed && gpGlobals->time > m_flEntered + 0.3f)
+		{
+			pDriver->m_pTank = NULL;
+			LeaveWheel(pDriver);
+			pDriver = NULL;
+		}
+	}
+
 	if (dt > 0)
 	{
 		Steer(pDriver, dt);
@@ -588,6 +611,8 @@ void CH9Car::DriveThink()
 		pDriver->pev->weaponmodel = 0;
 		pDriver->pev->viewmodel = 0;
 		pDriver->pev->velocity = g_vecZero;
+		pDriver->pev->solid = SOLID_NOT;
+		pDriver->pev->owner = edict();
 		UTIL_SetOrigin(pDriver->pev, pev->origin + Vector(0, 0, 40)); // he rides inside: the sounds and the PVS follow
 		PlaceCamera(dt);
 		Sound();
