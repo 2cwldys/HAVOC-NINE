@@ -1,0 +1,72 @@
+THE ARP PROPERTY TAX -- TO CHECK (docs\APOLLO_RP.txt 11 says what it is, 10 the table of switches)
+====================================================================================================
+
+(nothing here has been seen in a game. The server half was run on a private headless server, a copy of the game folder with the real core and the real SQLite module: the roaming citizens
+of h9_tsrp_hive were the players that make ARP use its threaded queries, and a test build counted some of them as persons, with characters, banks and properties made by a test command. The
+statements and the arithmetic were also run in Python on SQLite against exact decimal arithmetic. What no test could show is the client's: the popup over the crosshair, the credit sign in it,
+and a real join. Each step names what to look at.)
+
+A. Deploy (the lead's builds): build.bat apollo (ARP_PropertyTax is the last of ARP_TARGETS; the build lists it in plugins.ini after ARP_Inventory), with the four switches in
+   configs\arp\arp.cfg (arp_h9_tax, arp_h9_tax_minutes, arp_h9_tax_percent, arp_h9_tax_flat). Change the map, or restart the server: a new cvar registers only then. Back up
+   data\sqlite3\arp.sq3 first: nothing is migrated and no row of any ARP table is added, but two tables are made when first needed, arp_h9_tax and arp_h9_taxbase (dropping them takes the
+   feature back out). The plugin needs ARP_TalkArea (say /tax goes through it), which comes before it in plugins.ini.
+
+B. Server only, nobody at a screen (the server's console or rcon).
+   1. The AMX Mod X log on h9_tsrp_hive: no ARP error, no "native not found"; amx_plugins lists fifteen ARP plugins running, ARP_PropertyTax among them. arp_h9_tax_dump says
+      "TAX on=1 minutes=15.0 percent=1.00 flat=0.00 (as counted: 100 hundredths of a per cent, 0.00) next=<under 900> tolls=0", "DB made=1 loaded=1 prices=<n> failed=0 ..." and
+      "TABLES users=arp_users properties=arp_property_h9_tsrp_hive record=arp_h9_tax prices=arp_h9_taxbase". (made=0 until a second after the map starts.)
+   2. arp_h9_tax 0 (in arp.cfg, then change the map): the dump says on=0 and made=0, the database file has neither table, the log has nothing of the plugin, and say /tax is plain chat.
+   3. A toll with nobody in the game. With the server stopped and data\sqlite3\arp.sq3 backed up, give a character who has a row in arp_users a property, with any SQLite tool:
+      UPDATE arp_property_h9_tsrp_hive SET ownerauth='<his authid>',ownername='Test' WHERE internalname='h9_pc_flat_res4';  (properties are read when the map starts). Start the server,
+      arp_h9_tax_value h9_pc_flat_res4 2400 and arp_h9_tax_minutes 1: within two minutes the log has "[ARP] property tax: toll 1: 1 owners, 0 in the game ($0 taken, $0 unpaid), 1 away ($24
+      asked of the database), 0 left out"; in a copy of the database his bank (arp_users) is 24 lower and arp_h9_tax has a row: taken 24, unpaid 0, tolls 1, props 1. The next toll makes it 48
+      and tolls 2, one row. A character who is not in arp_users is not added to it and gets no row.
+   4. A bank that cannot pay: with the server stopped, UPDATE arp_users SET bankmoney=5 WHERE authid='<his authid>'; then the next toll: his bank is 0, the row says taken +5 and unpaid +19. A
+      bank already below 0 is left as it is (unpaid grows).
+   5. The settings are read at every toll: arp_h9_tax_percent 2.0 makes the next toll 48 for that flat; arp_h9_tax_flat 10 adds 10; arp_h9_tax_minutes 5 puts the next toll five minutes after
+      the last, and a number shorter than the time since the last toll tolls at the next second, once. arp_h9_tax_dump says each in its first line and the last toll in its second
+      ("LAST owners=... in_game=... taken=... unpaid=... away=... asked=... left_out=... cut_keys=..."). cut_keys is how many owners have a key of 32 to 34 characters: with the core as it is,
+      every H9XASH owner (the core's natives cut the 35 characters of the key; the plugin allows for it, docs\APOLLO_RP.txt 11).
+   6. arp_h9_tax_value <internal name> <price> with a name that does not exist, or a price that is not a whole number, says so and writes nothing; with arp_h9_tax 0 it says the tax does
+      nothing. Every use is in ARP's log ("Cmd: ...").
+   7. A restart: the clock starts again (tolls=0, next just under the interval), nobody's bank changed, the prices come back (arp_h9_tax_dump: prices=<n>).
+   8. A database that fails (with the server running, a second connection renames arp_h9_tax: ALTER TABLE arp_h9_tax RENAME TO arp_h9_tax_x): at the next toll the log says once "[ARP] property
+      tax: the database failed (...)", no bank of an owner who is away changes (the bank's statement waits for the row's), the owners that could not be reached are "left_out" in the dump
+      until a minute is past, and the tolls work again once the table is back and the minute is over.
+
+C. With H9's client on h9_tsrp_hive: one character with money in his bank (an ARP admin gives it: arp_createbank <player> 5000, docs\ARP_ADMINS.txt 8).
+   1. Buy a property that is for sale: look at its door (the plaque says FOR SALE and the price; Paradise Flat 4 is 2400) and say /buy. arp_h9_tax_dump says one price more, and
+      select * from arp_h9_taxbase on a copy of the database has a row: the map's property table, the property, 2400. (ARP sets the property's price to 0 at the sale: the plaque says
+      OWNER <his name> and no price.)
+   2. say /tax: a popup (a line in chat on a game without panels): "Property tax: $24 at each toll, every 15 minutes, for 1 property; the next toll is in <n> minutes." and the console has
+      "Property tax, every 15 minutes (the next toll is in <n> minutes):", "  Paradise Flat 4: $24" and "  Total: $24". With no property: "You own no property, so you pay no property tax."
+   3. arp_h9_tax_minutes 1: within two minutes a popup "Property tax: $24 taken from your bank for Paradise Flat 4.", the credit sign in place of the "$" on the new client with
+      arp_h9_credits 1, and the Bank line of the HUD is 24 lower at once. Not the warm colour (that is for a refusal). One popup for each toll, however many properties he owns.
+   4. A bank that cannot pay: arp_setbank <player> 5: the next toll's popup is in the warm colour, "Property tax: $5 taken from your bank for Paradise Flat 4; $19 could not be taken (not enough
+      in your bank).", and his bank is 0; the toll after says "Property tax for Paradise Flat 4: $24 could not be taken (not enough in your bank)." and nothing else happens to him: no eviction,
+      the door is still his.
+   5. Four properties: the line names three and says "and 1 more"; a long name is cut at 20 characters and ends in "..". The tax is the sum: say /tax lists each one in the console.
+   6. arp_h9_toast 0: the same lines in chat for everybody; 2: both.
+
+D. Away and back (the owner of C leaves the server, or the map is changed and he stays out).
+   1. arp_h9_tax_minutes 1 and two or three minutes pass. In a copy of the database arp_h9_tax has his row (taken 24 a toll, tolls n) and his bank is lower. He joins: once his HUD is up
+      and he has been alive for a few seconds (not while he picks a class or watches), ONE popup: "While you were away, property tax took $72 from your bank (3 tolls on 1 property)." The
+      row is gone from arp_h9_tax. He leaves at once and joins again: nothing more. The bank on his HUD is what the database held after the tolls.
+   2. He joins and stays in the class menu or as a spectator: no popup until he is alive, and then four seconds later. If he dies in those four seconds the wait starts again.
+   3. A bank that was empty while he was away: "While you were away, property tax came to $72 (3 tolls on 1 property) and none of it could be taken (not enough in your bank)."; part of
+      it: "... took $30 from your bank (...); $42 could not be taken (not enough in your bank)."
+   4. One more toll while he is away again, and back: the popup counts that toll only ("1 toll on 1 property"), not the ones he has been told of.
+   5. He is in the game when the toll comes: no row is made for him, whatever else is going on. A character that is still loading (the HUD says the account is loading) is left out of that toll
+      (the dump's left_out), and his bank in the database is not touched.
+
+E. The rest.
+   1. A property is sold between two tolls (the owner sells it: /sell <price> at his door, another player says /buy): the next toll charges the new owner, 1 percent of the price he paid; the
+      old owner is credited the price by ARP as ever and pays nothing more.
+   2. A property an admin gave to a player with arp_setproperty (never bought, price 0): it costs the flat sum only, so with arp_h9_tax_flat 0 nothing and no popup; arp_h9_tax_value gives
+      it a price and the next toll charges it. A property nobody owns (the Ministry's posts, the clinics) is never charged.
+   3. arp_h9_tax 0 while the server runs: no toll comes, nothing in the database changes, say /tax is chat; 1 again: the clock starts again, the first toll an interval later.
+   4. A map with its own users table (its arp.ini names arp_table_users): the tolls and the rows are that table's (arp_h9_tax_<table name>), the other maps' characters are not touched.
+   5. Other plugins: ARP_Inventory and the rest behave as ever; the amx log has no run time error with "ARP_PropertyTax" in it.
+
+F. What to send back if it fails: the AMX Mod X log lines with "property tax", arp_h9_tax_dump at the moment it looked wrong, and from a COPY of data\sqlite3\arp.sq3: select * from arp_h9_tax,
+   select * from arp_h9_taxbase, and the player's row of arp_users.

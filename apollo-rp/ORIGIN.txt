@@ -23,11 +23,12 @@ H9's changes (H9.patch, H9-menus.patch and H9-arpfix.patch, beside this file, ar
 --------------------------------------------------------------------------------------------------------------------------
 H9.patch is the diff against the commit above as of 2026-11-03 (items 1 to 13); H9-menus.patch (item 14, 2026-11-08) and
 H9-arpfix.patch (items 15 to 17, 2026-11-09) hold the later changes, each a diff against the files as they stood before it;
-H9-arpcontent.patch (the two plugin changes of item 19, 2026-11-09), H9-arphud.patch (item 21) and H9-arpaudit.patch (items 22 and 23, 2026-11-09) and H9-arpneeds.patch (item 26, 2026-11-10), H9-arpthirst.patch (item 27), H9-arpitemhover.patch (item 28), H9-arpinventory.patch (items 29 to 33, 35 and 36, 2026-11-10), H9-arpitemicon.patch (item 28's picture, 2026-11-10), H9-arpweapons.patch (item 34, 2026-11-10) and H9-arpplaque.patch (item 41, 2026-11-11) come after
+H9-arpcontent.patch (the two plugin changes of item 19, 2026-11-09), H9-arphud.patch (item 21) and H9-arpaudit.patch (items 22 and 23, 2026-11-09) and H9-arpneeds.patch (item 26, 2026-11-10), H9-arpthirst.patch (item 27), H9-arpitemhover.patch (item 28), H9-arpinventory.patch (items 29 to 33, 35 and 36, 2026-11-10), H9-arpitemicon.patch (item 28's picture, 2026-11-10), H9-arpweapons.patch (item 34, 2026-11-10), H9-arpplaque.patch (item 41, 2026-11-11), H9-arpitemworld.patch (item 28's picture in the world and its look-at branch, 2026-11-11), H9-arpcuff.patch (item 39's lighting, 2026-11-11), H9-arpowner.patch (item 42's owner keys, 2026-11-11), H9-arpiconfix.patch (items 28 and 39: the pictures unlit,
+room in the entity table, 2026-11-11) and H9-arpteams.patch (item 43, 2026-11-11) come after
 (item 20 is a default in arp.cfg and ARP_Core.sma, in no patch).
 In base\addons\amxmodx\scripting, only in the set H9 builds for The Specialists: ARP_Core,
 ARP_Commands, ARP_Config, ARP_HUD, ARP_HungerMod, ARP_Items, ARP_JailMod, ARP_NPCs, ARP_RobMod,
-ARP_TalkArea, ARP_Zones, ARP_TS, ARP_H9Menu (H9's own, in no patch) and ARP_Inventory (items 31, 32). ARP_CS, ARP_TFC, ARP_BCompat and extra\ are not built. And two
+ARP_TalkArea, ARP_Zones, ARP_TS, ARP_H9Menu (H9's own, in no patch), ARP_Inventory (items 31, 32) and ARP_PropertyTax (item 42, H9's own, in no patch). ARP_CS, ARP_TFC, ARP_BCompat and extra\ are not built. And two
 folders of H9's own maps under base\addons\amxmodx\configs\arp\maps (item 13).
 
 1. Roleplay maps only (ARP_Core, plugin_precache). On a map whose name is not a roleplay one -- rp_
@@ -236,7 +237,7 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    two rows of the needs panel (ARP_AddNeedItem(id, "Thirst", value), item 26), Hunger first. Nothing in the core changed. H9-arpthirst.patch is the
    plugin and arp.cfg changes against the files as item 26 left them.
 
-28. Dropped items name themselves (ARP_Core.sma, GetMsg and H9_AimedItem; H9-arpitemhover.patch). An item dropped on the floor (classname arp_item, the
+28. Dropped items name themselves (ARP_Core.sma, GetMsg and H9_AimedItem; H9-arpitemhover.patch, H9-arpitemworld.patch). An item dropped on the floor (classname arp_item, the
    backpack model; its name in the noise string, its number in iuser2) looked the same whatever it was, and its box (5 units) is too small for
    get_user_aiming, which finds the floor behind it. GetMsg now tries, when nothing else is aimed at (Index 0) and at most every 0.25 s for a
    player, the dropped items within 120 units that are in view (fm_is_ent_visible), takes the one nearest the middle of a cone of about 14 degrees
@@ -248,6 +249,24 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    notice HUD, of the new kind HUDK_ICON (9, include\ApolloRP_HUD.inc), "icon:<the item's name>"; the client draws the picture it has for that item above the
    notice's box (cl_h9_arphud_icon) and shows no text for the line; every other game gets the text alone. H9-arpitemicon.patch is that change (ARP_Core.sma
    and ApolloRP_HUD.inc) against the files as the exchange (item 32) and the credit sign left them.
+   The look-at ran nowhere (2026-11-11): GetMsg returned at is_valid_ent(Index) for Index 0 (the crosshair on the world, which is where a pack on the floor is looked at), and AMX Mod X's
+   engine module refuses entity numbers below 1, so the branch was never reached. GetMsg now calls H9_ItemLook first when Index is 0 or the pack itself (H9_IsItemPack), and last, as
+   the else of the NPC, the door and the player, for anything else the crosshair is on (a wall, a prop, a door of no property): such an entity does not hide an item the player looks toward.
+   The item's picture in the world (2026-11-11, arp_h9_itemicon, arp_h9_itemicon_max, arp_h9_itemicon_scale; H9_ItemIconPrecache, H9_ItemIconMake, H9_ItemIconRemove, H9_ItemIconOf,
+   H9_ItemIconSweep): over each pack H9_MakePack makes a second entity, an info_target of the class arp_item_icon with the model sprites/h9_arpicons.spr (the sheet the inventory window
+   draws with: precached when it and sprites/h9_arpicons.txt are there and arp.cfg does not say arp_h9_itemicon 0; the list, "<name>|<frame>", is read into a trie by lower case name,
+   and a frame the sheet's header does not have is left out). The sheet's type is SPR_FWD_PARALLEL, a billboard that faces the viewer, and its format SPR_ALPHTEST with the middle of each
+   frame at the origin, so no second sheet is needed; the frame is the entity's frame (the entity state sends it in 10 bits, divisor 4: up to 255), the scale arp_h9_itemicon_scale
+   (0.6: 19 units across), the origin the pack's 16 + 16 x scale + 4 units up. It is drawn solid (kRenderNormal) and unlit, with renderamt 0 and renderfx kRenderFxNoDissipation: the client lights an alpha-test sprite
+   (r_sprite_lighting, on by default) when the renderamt is above 127, sets the renderamt of a kRenderNormal entity whose renderfx is none to 255 (CL_LinkPacketEntities), and keeps
+   the 0 under a renderfx that does nothing to a sprite that is not a glow (H9-arpiconfix.patch); the picture is to read in a dark corridor. EF_FULLBRIGHT is not the way: it is bit 27 and the entity delta
+   (delta.lst, effects in 8 bits) clamps it to 255, so a client would be told EF_NODRAW. No icon is made while the entity table has fewer than 100 edicts to spare (the engine stops the server when it has none), arp_h9_itemicon_max 0
+   makes none, and the log says so when the feature is on and the sheet or its list is not there (H9-arpiconfix.patch). The pack keeps its icon in iuser3, the icon its pack in iuser1 and the number it was made in in
+   iuser2. The icon goes with the pack: H9_PickUp removes it before the pack (a partial pick up leaves the pack and its icon: the item does not change), and every five seconds a
+   task takes down an icon whose pack is gone, is another or does not name it back (a pack removed by something that knows nothing of icons, a reused entity number), and enforces
+   the limit. At most arp_h9_itemicon_max (64, at most 128) icons stand: with that many up, the oldest makes way for the new one, so ARP's packs, which have no limit and no timeout
+   of their own (H9_MakePack only needs an entity and arp_performance above 10), add at most that many entities. An item with no picture in the list has no icon. arp_h9_itemicon 0 is
+   stock ARP: nothing is precached or made, and a change to 0 takes the icons down within five seconds.
 
 29. Switches (include\ApolloRP_VGui.inc, ARP_Core.sma, configs\arp\arp.cfg; H9-arpinventory.patch). Every H9 addition to Apollo RP is to be switched by a server cvar, and with
    all of them off the server plays stock ARP (docs\APOLLO_RP.txt, 10, is the table). Two additions had none. arp_h9_vgui (1): ApolloRP_VGui.inc's arpvgui_init registers it
@@ -292,7 +311,7 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    going away, the map changing and idleness (arp_h9_trade_timeout, 120). ARP_JailMod gets one public function, H9_Restrained(id): 1 for a cuffed player (its g_MaxSpeed, the HUD's
    "Cuffed" test) or one in jail (the HUD's "Jailed" test); ARP_Inventory calls it with callfunc, so with no JailMod nobody is restrained.
 
-33. The credit sign (include\ApolloRP_Credits.inc (new), ApolloRP.inc, ApolloRP_VGui.inc, ApolloRP_Chat.inc, ARP_Core.sma, ARP_Commands.sma, ARP_Inventory.sma; docs\ARP_INVENTORY.txt, 7;
+33. The credit sign (include\ApolloRP_Credits.inc (new), ApolloRP.inc, ApolloRP_VGui.inc, ApolloRP_Chat.inc, ARP_Core.sma, ARP_Commands.sma, ARP_Inventory.sma, ARP_HUD.sma; docs\ARP_INVENTORY.txt, 7;
    H9-arpinventory.patch). With arp_h9_credits 1 a player whose game says _h9vgui 7 (H9VGUI_CREDIT_PROTOCOL in include\h9_vgui.inc) is shown the cent sign (U+00A2) in place of the "$" of
    every amount that an Apollo RP plugin prints for him: in chat, console and centre text as UTF-8 (C2 A2), in the HUD panel, in the H9 menus and in the result lines of an exchange as
    the single byte A2. Nothing else changes: a player whose game says less, a bot, every log and the classic text menus and hudmessages (HUD font) keep "$", and with arp_h9_credits 0
@@ -303,6 +322,8 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    redirected too; ApolloRP_Chat.inc sends what players type with arp_print_plain, unchanged. ARP_Core converts the lines of the HUD panel it sends to a player who is shown the sign
    (arp_hudstate still shows "$"); ApolloRP_VGui.inc converts the text of arpvgui_show_menu and the price of a paged row; ARP_Inventory's inv_money words the money for the player it is
    for, so the summary of an exchange is each player's own. ARP_Inventory.sma (the plugin) and the H9-arpinventory.patch carry all of it.
+   The HUD's money line is worded by ARP_HUD.sma: it reads "Credits: $<n>" where stock ARP says "Wallet: $<n>" while arp_h9_credits is 1, whatever the player's game says (the cvar is looked up
+   when the line is built, so a change shows at the next HUD update); with 0, or on a server where ARP_Inventory (which registers the cvar) is not loaded, it is stock ARP's line.
 
 34. The PPSh-41 and the laser rifle as items (ARP_TS.sma, ARP_NPCs.sma, include\ApolloRP_TS.inc; H9-arpweapons.patch). H9's reTS adds two weapons to the game's own 0 to 38:
    39 the PPSh-41 and 40 the laser rifle, both behind the server's h9_customweapons. ARP_TS registers each as an item, "PPSh-41" and "Laser Rifle" (TS_MAX_WEAPONS is 41; both
@@ -348,8 +369,9 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    holder stands higher, and the rope snaps at four times that); /untie or the rope used again frees him; death, leaving and a holder who died or left end it. Every use is logged ("Restraint: ...").
 
 39. The handcuff symbol (ARP_JailMod.sma H9_CuffIconShow/Hide; sprites\h9_cuffed.spr made by modelling\arpicons\make_cuffed_sprite.py). An info_target with the sprite, MOVETYPE_FOLLOW on the cuffed player,
-   scale 0.7 and EF_FULLBRIGHT, shown while he is cuffed and removed with the cuffs, his death and his leaving. A following sprite is drawn at its aiment's origin (the game library does not send the origin of a
-   follow entity), so the height is in the sprite's own frame: type SPR_FACING_UPRIGHT, alpha-test, the frame's top edge 98 pixels over the origin, its bottom 66 (46 units at scale 0.7). Switch arp_h9_cuffsprite (1).
+   scale 0.7 and renderamt 0 under renderfx kRenderFxNoDissipation (drawn solid and unlit: the effects field travels in 8 bits, so EF_FULLBRIGHT, bit 27, arrived as 255 and EF_NODRAW is in that, and
+   the client sets the renderamt of a kRenderNormal entity whose renderfx is none to 255, which lights it; item 28; H9-arpcuff.patch, H9-arpiconfix.patch), shown while he is cuffed and removed with the cuffs, his death and his leaving. A following sprite is drawn at its aiment's origin (the game library does not send the origin of a
+   follow entity), so the height is in the sprite's own frame: type SPR_FACING_UPRIGHT, alpha-test, the frame's top edge 98 pixels over the origin, its bottom 66 (46 units at scale 0.7). Switch arp_h9_cuffsprite (1; 0 leaves the sprite out of the precache too, read from arp.cfg, so a client needs no such file).
 
 40. Popups for the chat lines (ARP_Core.sma H9_Toast, native ARP_H9Toast; include\ApolloRP_Credits.inc). Every Apollo RP plugin's client_print already goes through arp_client_print; a print_chat line that starts with
    [ARP] is first offered to ARP_Core, which, for a game that draws H9 panels and arpvgui_wanted, sends it as a notice (h9vgui_notice) over the crosshair, three at most (slots arptoast0 to 2, the newest lowest), held
@@ -365,11 +387,11 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    can draw. The lines are built by H9_PlaqueDoor, H9_PlaqueNpc and H9_PlaquePlayer: a door says its property's external name, OWNER (the owner's name, with his job in brackets when
    he is in the game and has one that is not Unemployed; STATE PROPERTY for no owner and no price; "Owner: For sale, $N" for no owner and a price; "For sale: $N" under the name of an
    owner who has put it up), AFFILIATION from the property's access letters (the police letter or g: Ministry of Defense; the medical letter: Medical Division; both: both; the admin letter
-   alone: Administration; else Civilian; the letters are read from the cvars arp_police_access, arp_medical_access and arp_admin_access, g is the Lord Minister's own), STATUS (Locked or Unlocked; the
+   alone: Administration; a letter of arp_h9_insurgent_access (i): Insurgency; else Civilian, or Proletarian while H9's team play runs (H9_CivilianWord); the letters are read from the cvars arp_police_access, arp_medical_access, arp_admin_access and arp_h9_insurgent_access, g is the Lord Minister's own), STATUS (Locked or Unlocked; the
    panel words it SEALED or OPEN by the kind), RESTRICTED when the property is locked and the viewer has neither its key (H9_HasKey), nor the property (the owner's key), nor a letter of its access
    (the test client_PreThink makes before it uses the door), and the buy hint when it has a price; an NPC says its name, a ROLE from the handler its plugin gave it (EdekaHandle shop, BankHandle,
    DoctorHandle, GunshopHandle gun shop, AtmHandle ATM), the owner and affiliation of the property its npcs.ini block names (the noise2 of its entity; none of H9's does) and the hint; a player his
-   name, job and the affiliation of his job's letters (g_Access). Every other game (no panels, cl_h9_arphud 0, arp_hud4_type 1) gets the stock text with an "Affiliation:" line before the status (a door) or after
+   name, job and the affiliation of his job's letters (g_Access; H9_PlayerAffiliation: Middle Sea Republic for the police letter, the medical letter or g, Insurgency for a letter of arp_h9_insurgent_access, Administration for the admin letter alone, else Civilian). Every other game (no panels, cl_h9_arphud 0, arp_hud4_type 1) gets the stock text with an "Affiliation:" line before the status (a door) or after
    the job (a player); an NPC's text is unchanged. A panel player who keeps looking at the same thing is built again at most every 0.25 s (g_PlaqueKey, g_PlaqueAt) and the core sends the same lines again every
    HUDP_NOTICE_GAP (1.5 s), the game holding what it has for 2.5 s; the door branch looks the property up once (UTIL_ARP_GetProperty) where it scanned the door rows and printed for each. The one text the
    core sent before is unchanged for arp_h9_plaque 0. The client (reTS cl_dll\h9_arphud.cpp, client.dll.patch) draws kinds 10 to 16 on the notice's panel as a plate of one width, in upper case,
@@ -378,3 +400,48 @@ doors, properties, NPCs or zones until one is made; H9's two have theirs (item 1
    151 door names, New Byzantium 30 with 93, every door by its name in the compiled map. A hive property is a whole building: all its named doors show one plaque and share one lock (a shop whose front
    door starts open and whose back door is shut is two properties with one heading); they are the Ministry's posts, the clinics, the shops, and the flats, rooms and businesses for sale, and the 122 doors
    of lifts, passages, offices and hideouts the file leaves out are listed in section 9. New Byzantium's shops, bars, clinics and bank have doors with no name and so no row. H9-arpplaque.patch is the ARP_Core.sma, ApolloRP_HUD.inc, arp.cfg and .sql changes against the files as they stood before it.
+
+42. The property tax (new plugin ARP_PropertyTax.sma, H9's own, in no patch; ARP_Core.sma's two owner key natives, H9-arpowner.patch; configs\arp\arp.cfg; build.bat; docs\APOLLO_RP.txt, 11; docs\ARP_TAX_CHECKS.txt). Every arp_h9_tax_minutes minutes (15)
+   each property that has an owner costs its owner arp_h9_tax_flat (0) plus arp_h9_tax_percent (1.0) per cent of what the property cost him, rounded up to a whole number (the percent and the flat sum
+   count to the hundredth and the sum is worked out in whole numbers: a float of 32 bits cannot tell 9.0001 from 9), taken from his bank and never below 0 (what could not be taken is told to him and
+   forgotten: no debt, no eviction). The core changes in two natives only (below). An owner in the game whose character has loaded (ARP_PlayerReady) is charged in the core's memory (ARP_GetUserBank, ARP_SetUserBank) and told
+   in one [ARP] line (the popups of item 40; the "$" of the line is the credit sign of item 33); one whose character has not loaded is left out of the toll; one who is away is charged in the database, in
+   the users table of the map (ARP_GetTable): two statements for the module's one worker (ARP_CleverQuery), the first adding the toll to his row in the table arp_h9_tax (authid, taken, unpaid, tolls,
+   props, updated; it reads the bank as it is, so what the bank holds is "taken" and the rest "unpaid"), the second taking it from his bank, never below 0, and only when that row is there, so a
+   statement that fails leaves the bank alone and nothing is tried again in its place. At Player_Ready the row is read; once the player has been alive for four seconds it is deleted by a statement that
+   waits and, only if that removed it, he is shown ONE popup of what was taken while he was away (never twice). The percent is taken of the price the property was bought at, because CmdBuy sets a
+   property's price to 0 at a sale: the plugin keeps it from the event Property_Buy, which CmdBuy calls first, in a second table, arp_h9_taxbase (tbl: the map's property table, name, price); a property
+   with no such row counts as its own price (0 unless it is for sale) and pays the flat sum alone, and arp_h9_tax_value <internal name> <price> gives one. Two natives cut an owner's key, and
+   H9XASH's authids are 35 characters ("ID_" and 32 digits): ARP_PropertyGetOwnerAuth hands it back in 33 (_ARP_PropertyGetOwnerAuth: OwnerAuth[33], array_get_string(...,33)) and
+   ARP_PropertySetOwnerAuth, which an admin's arp_setproperty uses, keeps 32 (get_string(2,OwnerAuth,32)); so an owner's key of 32 to 34 characters is taken as the beginning of a character's key,
+   in the game and in the database (SUBSTR(authid,1,n)), the texts of one character's properties are one owner, and a key of 35 is matched whole (the same two natives made the stock
+   ARP_PropertyGetOwner fail for an H9XASH owner, so /sell, /lock, /changename, /addaccess, /delaccess, /profit and /changeowner refused him: they hold the whole key now, OwnerAuth[36] and
+   35 characters in both, H9-arpowner.patch; the plugin matches a cut key as well, for rows saved before the fix). Commands: say /tax (ARP_RegisterChat: the line in chat or as a popup, the
+   list in the console), arp_h9_tax_value and arp_h9_tax_dump (the server's console or an ARP admin's). Switches: arp_h9_tax (1; 0 is stock Apollo RP: nothing is read or written and no command is
+   answered), arp_h9_tax_minutes (15, 1 to 10080), arp_h9_tax_percent (1.0), arp_h9_tax_flat (0), all read at every toll. The clock starts with the map, so a restart or a map change starts it again
+   and nobody is charged for the downtime. The two tables are made with CREATE TABLE IF NOT EXISTS when first needed (a query that waits, as arp_h9_cells is); no row of an ARP table is added, and going
+   back is dropping them.
+
+43. Team play (ARP_Core.sma H9_TeamsPrecache, H9_TeamsHook, H9_TeamOfAccess, H9_PlayerTeam, H9_TeamAffiliation, H9_AffiliationOfPlayer and the natives ARP_H9_TeamOf and ARP_H9_TeamName; ARP_TS.sma, the Team* functions; include\ApolloRP_H9Teams.inc (new);
+   configs\arp\arp.cfg; ts\game.cfg; tsrp_roambots.sma 1.5; rcbot-patch CHANGE 14; the Insurrection's jobs in the two maps' .sql files; docs\ARP_CONTENT.txt, 3 and 4; H9-arpteams.patch). A roleplay map on The Specialists can play on TS's team
+   rules with three teams, Middle Sea Republic, Insurrection and Proletarians (TS's team numbers 1, 2 and 3; the client colours a team by its number: blue, red, yellow), friendly fire on, and every player on the team of his job. TS decides whether teams work, and reads its team list, once, as a map loads, straight
+   after ts\game.cfg, so the work has two halves. ARP_Core's precache (after ts_matchmode's, which has set mp_teamplay for the map's name) reads arp_teamplay from configs\arp\arp.cfg and from the map's mapconfig by file (the server executes them
+   later; a line mp_teamplay 0 in the mapconfig keeps the map off team play), and for a roleplay map on The Specialists that asks for it sets mp_teamplay 1 and mp_teammodels_force 0 (TS never writes a player model: each keeps the one he chose) and
+   remembers it; it registers the server command h9_arp_teams on every map, and ts\game.cfg runs it after the match mode's team lines: for a map that asked it writes mp_teamlist "Middle Sea Republic;Insurrection;Proletarians", mp_friendlyfire 1 and
+   mp_teammodels_force 0 over the match mode's lines, and anywhere else it does nothing, so no other map's list changes (a plugin's own precache write would be overwritten by game.cfg, which runs after it). ARP_TS then watches TeamInfo (a
+   player's team, the one reading of it that is right on every platform) and TeamNames (the list TS runs, as it holds it) and judges from the first TeamNames whether TS runs ARP's list (the cvar arp_teamplay_on becomes 1 and the log says so) or
+   another list or none (the log says why, once, and ARP touches no team on that map; a team's name alone cannot say it, the Middle Sea Republic is the first team of the match mode's list too). It leaves mp_defaultteam at 0 (with any other
+   value TS puts every player back on the first team at each spawn: CBasePlayer::Spawn asks SetDefaultPlayerTeam, which then answers team_names[0], so no other team would hold; a joiner gets the team with the fewest players and ARP moves him
+   by his job), leaves out TS's own join line "* assigned to team X" (MsgSayText), which names the team it gave him by the count, keeps mp_friendlyfire, mp_teammodels_force and the live mp_teamlist right for the first minute of the
+   map (the server's own files run after the plugins and set them back), and once a second puts each real player whose character is loaded on the team ARP_Core's H9_PlayerTeam gives him: TS's own jointeam, run for him with engclient_cmd as the match
+   mode moves a player, and the team field of his entity (what RCBot reads), not while his body is dying; a team change takes a player out of play for respawntime and he presses fire to return (TS's rule, and the only cost of a move; a join is free).
+   Nothing is moved before TS has reported the teams. A player cannot move himself: jointeam and changeteam, which opens TS's team panel, are refused while the teams run. The one rule that maps a job to a team is H9_TeamOfAccess (the police
+   letter, the medical letter or g: Middle Sea Republic; a letter of arp_h9_insurgent_access: Insurrection; else Proletarians), which the plaque's H9_PlayerAffiliation asks as well, so the plaque and the team cannot disagree; the one table of the names is
+   g_H9TeamNames (the plaque's own words, Civilian and Insurgency, are separate). The one place that says where a player's team comes from is H9_PlayerTeam (for a bot, its team field, which tsrp_roambots sets): the natives answer it and ARP_TS asks nothing else, so a later system in which a player joins a team
+   replaces it alone. ARP_H9_TeamChanged(id, oldteam, newteam) is called once for every placement (oldteam 0 for the first after a join, whether or not TS had to move him) and never for a bot. The plaque of a bot (a citizen) reads its team field
+   while the teams run: Proletarian, or Insurgency during an insurgency. The commands: arp_teams (console) shows what TS reports and every player's team by his job, by TS and by his entity. The jobs: fourteen Insurrection ranks after the Administrator
+   (JOBID 27 to 40: Recruit to Partisan with the letters ij, Squad Leader to Section Leader ik, Colonel and Marshal il, Tribune to Hetman im, Liberator in), whose job rights j, jk, jkl and jklm work as the Ministry's c, cd, cde and cdef do and
+   share no letter with a Ministry job (docs\ARP_CONTENT.txt, 3 and 4; the rows are in a text block for each map, appended after the last job row). tsrp_roambots 1.5: with the teams running a citizen is a Proletarian and, in an insurgency,
+   of the Insurrection (a bot joins onto the team with the fewest players and the plugin moves it to its team before it spawns; the team field of every citizen at once, TS's team as each takes up arms: jointeam, so TS takes it out of play for its respawn time and RCBot respawns it, and it comes back armed in another district), .civilians moves them back,
+   and every bot has a faction (citizen or guard) that .insurgency and .civilians act on only for citizens; rcbot-patch CHANGE 14: with the teams in use an insurgent roamer's enemies are every player and every bot that is not on its own team (the Proletarian and Middle Sea Republic players, and the Republic's guards when there are any) and never one that is. Switch: arp_teamplay (0: stock ARP,
+   which touches no team and sets nothing of TS's; read at the precache, so a change needs a map change). H9-arpteams.patch is the ARP_Core.sma, ARP_TS.sma, ApolloRP_H9Teams.inc and arp.cfg changes against the files as they stood before it.

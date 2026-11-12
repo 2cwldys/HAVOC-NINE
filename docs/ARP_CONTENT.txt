@@ -2,7 +2,7 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
 ====================================================================================================
 
   Apollo RP builds every menu from content (docs\APOLLO_RP.txt, section 2). This is the content of H9's two roleplay
-  maps: the Ministry of Defense ranks as jobs, a civilian layer, and the NPCs that open the shops, the banks, the
+  maps: the Ministry of Defense ranks as jobs, the Insurrection's ranks, a civilian layer, and the NPCs that open the shops, the banks, the
   ATMs, the doctors and the gun shops, standing where section 6 puts them. Nothing here has been run in a game yet
   (section 8).
 
@@ -11,7 +11,7 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
 ----------------
 
   Per map, in apollo-rp\base\addons\amxmodx\configs\arp\maps\<map>\:
-    <map>.sql   the jobs (26 rows of INSERT OR IGNORE INTO arp_jobs) and the properties and doors (section 9). ARP runs it by itself at every start of the map (section 2).
+    <map>.sql   the jobs (40 rows of INSERT OR IGNORE INTO arp_jobs) and the properties and doors (section 9). ARP runs it by itself at every start of the map (section 2).
     npcs.ini    the NPCs: ARP_NPCs reads it when the map loads (hive: 21 NPCs, New Byzantium: 32).
     arp.ini     (already there) arp_table_jobs "arp_jobs_<map>": the jobs are the map's own, in their own table.
 
@@ -26,7 +26,7 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   reads the jobs, properties and doors, so the rows are there in the same map load, with no admin step and no reload. The file is
   configs\arp\maps\<map>\<map>.sql of the map that is loading. Its statements run in the file's order (so the jobs come in that
   order, JOBID 1 on in arp_joblist), each on the map's own table: the file says arp_jobs and the statement runs on arp_jobs_<map>.
-  The log has one line for each start: [ARP] map SQL: N statements, 0 errors, jobs now 26, properties now P, doors now D (the hive: 267, 91 and 155 on a database that has
+  The log has one line for each start: [ARP] map SQL: N statements, 0 errors, jobs now 40, properties now P, doors now D (the hive: 369, 131 and 217 on a database that has
   the jail's property and its four doors; New Byzantium: 149, 30 and 93). A
   statement SQLite refuses is counted and logged (line L failed: ...) and the others still run. Players are told nothing.
 
@@ -55,6 +55,11 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   property that has an owner keeps him. The rows a table already has keep their place and new rows follow them, so a job's number
   (JOBID) does not change under a player; a player's saved job is a name, found again in the map's table when he joins.
   (Checked on a copy of the live database: two starts give 26 rows with 0 errors each time.)
+
+  A NEW INSTALL. The client package carries no database: stage-h9xash leaves data\sqlite3 (Apollo RP's arp.sq3) and any .sq3, .sqlite
+  or .db file out and ships the folder empty, and H9XASH-Updater never touches them. A new player's first start of a roleplay map
+  makes arp.sq3 and the map's tables, and runs the map's SQL file into them: the default jobs, properties and doors, with no
+  player, bank or inventory in them.
 
   BY HAND. A file the rule refuses (the upstream maps' files are plain INSERTs), arp_mapsql_autoload 0 and a MySQL server (which
   needs  INSERT IGNORE  where the file says  INSERT OR IGNORE ) keep the old way. Back up data\sqlite3\arp.sq3 with the server stopped
@@ -101,13 +106,35 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   24     Lord Commander       120  abf     High command          f
   25     Lord Minister        150  abg     Head of the Ministry  (an admin only)
   26     Administrator          0  z       ARP administration    (an admin only)
+  27     Recruit               15  ij      Junior                j
+  28     Rebel 1               20  ij      Junior                j
+  29     Rebel 2               25  ij      Junior                j
+  30     Rebel 3               30  ij      Junior                j
+  31     Partisan              35  ij      Junior                j
+  32     Squad Leader          40  ik      NCO                   k
+  33     Cell Leader           45  ik      NCO                   k
+  34     Section Leader        50  ik      NCO                   k
+  35     Colonel               60  il      Officer               l
+  36     Marshal               70  il      Officer               l
+  37     Tribune               80  im      High command          m
+  38     Strategist            90  im      High command          m
+  39     Hetman               100  im      High command          m
+  40     Liberator            130  in      Head of the Insurrection  (an admin only)
 
-  Access letters (configs\arp\arp.cfg names the first three; the others are this content's own):
+  Jobs 27 to 40 are the Insurrection's, in the maps' .sql files after the Administrator, so the jobs above keep their numbers on a database that has them already. They
+  mirror the Ministry's ladder: junior ranks, NCOs, officers, high command and a head that only an admin can give. The Insurrection has no medical branch and no police
+  powers: its ranks carry the faction letter i and one tier letter, and a, b and g are the Ministry's.
+
+  Access letters (configs\arp\arp.cfg names the first three and i; the others are this content's own):
     a  police     arp_police_access. Cuffs, the jail menu and panels, the door breakers (Steel Axe, Door C2), /com; a cop cannot be tazered or cuffed.
     b  medical    arp_medical_access. Counted as medical by ARP_IsMed (the /911 call reaches it).
     z  ARP admin  arp_admin_access. Every (ADMIN) command and arp_config. Only the Administrator job has it; no rank does.
     g  Lord Minister's own: no job right holds it, so only an admin can offer the job (section 4).
     c d e f       hiring tiers. They open no door and give no power; they say who may offer or take away the job (section 4).
+    i             the Insurrection (arp_h9_insurgent_access, i). Every Insurrection job holds it. A player whose job has it is on the Insurrection team of ARP's team play
+                  (arp_teamplay 1) and shows as Insurgency on the look-at plaque. No job right holds it.
+    j k l m       the Insurrection's hiring tiers, as c d e f are the Ministry's: j the junior ranks, k the NCOs, l the officers, m the high command.
+    n             the Liberator's own, as g is the Lord Minister's: no job right holds it, so only an admin can offer the job (section 4).
   The M- ranks are the Medical Division: b and no a, the same salary as the rank beside them. From Captain up the division is not
   named (the museum: medical designations are dropped around Captain), so Captain to Lord Minister hold both a and b.
   No rank holds z. A rank is a role in the roleplay and never an ARP admin; administration is the Administrator job (26), which an
@@ -132,6 +159,16 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
     Guardian, Legate                        cde     and Captain, Major
     Lord Commander                          cdef    and Guardian, Legate, Lord Commander
     Lord Minister                           cdef    the same as a Lord Commander; the Lord Minister and the Administrator are an admin's to give
+  The Insurrection hires from below the same way, with letters of its own. Give these job rights, and never i, n or a letter of the Ministry (a job right of i would let its holder
+  offer every Insurrection job, and a right of n or of a, b, c, d, e, f, g or z the Liberator, a Ministry job or the Administrator):
+    Squad Leader, Cell Leader, Section Leader   j       can offer and take Recruit to Partisan
+    Colonel, Marshal                            jk      and Squad Leader to Section Leader
+    Tribune, Strategist                         jkl     and Colonel, Marshal
+    Hetman                                      jklm    and Tribune, Strategist, Hetman
+    Liberator                                   jklm    the same as a Hetman; the Liberator and the Administrator are an admin's to give
+  A right works on a job when they share a letter, and the two ladders share none: no Ministry right (c, cd, cde, cdef) can offer or take an Insurrection job, and no
+  Insurrection right (j to jklm) a Ministry job, the Lord Minister or the Administrator. Checked by script against the maps' .sql files: the names are unique and none of the
+  fourteen is inside another job's name or has another inside it, so every name finds its own job, and no property of either map carries a letter from i to n.
   A job whose name is inside another's (Cadet inside M-Cadet) is still the job you name: arp_employ <player> "Cadet" offers Cadet.
   That needs H9-arpcontent.patch (ARP_Commands: an exact name wins). Without it ARP answers "more than one job matching your input"
   for Cadet, Enforcer 1 to 3 and Ensign, and the JOBID works instead. The same patch (ARP_Core) stops a short name that matches
@@ -245,8 +282,8 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
     Paradise City -- the shops north and east of the plaza, the clinic hall and the back alley
     Amoeba Music Tech Counter        shop     prole_bfem                   -196 2766 -270    200      Amoeba Music, back cross-aisle by the record bins
     Gear Guys Arms Dealer            gunshop  merc                         1900 2324 -286    180      Gear Guys, behind the wood counter
-    Gear Guys Ammunition Counter     shop     seal                         1849 2552 -286    225      Gear Guys, entrance lobby by the terminal
-    Romagna Clinic Medical Officer   doctor   ins_medic                    2400 1590 -528    180      Romagna clinic hall, by the reception island
+    Gear Guys Ammunition Counter     shop     seal                         1900 2264 -286   180      Gear Guys, behind the wood counter beside the arms dealer
+    Romagna Clinic Medical Officer   doctor   ins_medic                    2396 1688 -528   250      Romagna clinic hall, behind the reception desk
     Black Market                     shop     proletarian_dirty            2364 2012 -528    135      Cybernetics lane, rear chamber
 
     Paradise City -- south west, one level down
@@ -259,9 +296,9 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
     Xenon City Gear General Store    shop     proletarian_healthy          772 -795 1015     180      Xenon City Gear, back of the fridge room
     ATM Droid                        atm      msrdroid_bot                 -130 -500 1015    90       concourse south wall beside the gun shop door
 
-    Xenon City -- the Civil Protection lobby at the concourse's north end (floor 1016)
-    XCCP Quartermaster               shop     XCCPsgts_helmet_off          -70 552 1052      270      Civil Protection lobby, dais before the CP gate
-    XCCP Licensing Clerk             shop     agent                        50 560 1052       270      Civil Protection lobby, dais beside the quartermaster
+    Xenon City -- the Civil Protection post, the hall behind the CP gate at the concourse's north end (floor 1016)
+    XCCP Quartermaster               shop     XCCPsgts_helmet_off          -48 752 1052     270      Civil Protection post, the hall behind the CP gate, facing the gate
+    XCCP Licensing Clerk             shop     agent                        48 752 1052      270      Civil Protection post, the hall behind the CP gate, beside the quartermaster
 
     Alexandria -- the main street by the park (floor -2544)
     K-Line Super Store               shop     proletarian_healthy          1134 1035 -2508   90       K-Line Super Store, behind the checkout counter
@@ -274,10 +311,18 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
     The places, read from the map (the work folder's BUILDINGS.txt has the evidence for each, its shots the pictures): Pawn Prawn is a noodle bar (a counter with five stools and plates
     before it, a back door named pc_noodles1, "restuarlasar" in the entity names); the BANK kiosk is the map's own bank sign over a terminal; Snack Archive, Amoeba Music, Gear Guys,
     Guns n Stuff, Xenon City Gear, the Green Dragon, Uncle Pikkys, the K-Line Super Store and the Cafe Fortress are signed shops and restaurants (a front door, where there is one, starts open; the back
-    doors never open); the Romagna clinic is the white waiting hall of the lower Romagna offices (teal benches, numbered ward lights, a reception island); the Black Market's place is the
-    dead-end chamber at the back of the red Cybernetics lane; the XCCP lobby is Xenon City Civil Protection's stepped dais before its gate; the Midgar lab is the cyan lab chamber behind
+    doors never open); the Romagna clinic is the white waiting hall of the lower Romagna offices (teal benches, numbered ward lights, a reception desk whose staff side is the pocket the doctor stands in); the Black Market's place is the
+    dead-end chamber at the back of the red Cybernetics lane; the XCCP post is the hall behind Xenon City Civil Protection's gate (the stepped dais before the gate is the concourse's, outside it); the Midgar lab is the cyan lab chamber behind
     the gate that a console opens. Read from textures and names, not seen in the game, and so open to correction: that PAWN PRAWN is a bar and not a pawn shop, that the white hall is a
     clinic, that the Cybernetics chamber suits a black market, that the Midgar lab suits the Medical Division.
+    Behind a counter: Pawn Prawn (the bar), Gear Guys (the dealer and the ammunition counter side by side behind the wood counter, which is 160 long, 60 apart), the K-Line (the checkout's pocket) and the
+    Romagna doctor (the reception desk's pocket). Where a shop has no counter to stand behind, the NPC stands in the shop: Amoeba Music, Uncle Pikkys (its kitchen pass-through has no floor behind it),
+    the Black Market, Guns n Stuff (its wall shelf is 16 deep), Xenon City Gear, the Green Dragon, the Cafe Fortress (a shelf on the wall), the Midgar lab. The Snack Archive's cashier stands in the niche
+    beside the checkout counter and faces the aisle (across the counter, 64 thick with a register on it, a customer is 102 units from him and the register hides his chest). The BANK kiosk is a free-standing
+    terminal, not a counter, and the bank's real counter is in the sealed bank. The XCCP pair stand in the hall behind the CP gate (h9_xe_cp_post: locked, access a), so only a Ministry of Defense job opens
+    the way to them; the stepped dais before the gate is the concourse's. A customer cell in front of each is standing floor that joins the walked network with the gate open, and is a closed room with it shut.
+    Licenses are for sale at the gun shops and at the Black Market as well, so civilians do not need the clerk behind the gate.
+
     Gone from the first layout, for want of a reachable building that fits: Xenon's bank teller, doctor and black market, Paradise's quartermaster, Alexandria's quartermaster, licensing clerk
     and bank teller. The Paradise bank building (door pc_bankdoor, north east, floor -5) and Xenon's upper floors (the Xenon Clinic and Sky Bar signs) cannot be reached from the walked
     floor, and the Ministry of Defense facility (south west, gate pc_mdfacgate) never opens, so the teller stands by the BANK kiosk and the Ministry's counters are the XCCP's.
@@ -397,9 +442,9 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
     * Both .sql files, loaded the way ARP_Core's loader loads them (a Python port of it, after the core's own table creation) into a copy
       of the live arp.sq3: its 26 job statements, 0 errors; a second load changes no row; every other table of the copy is unchanged; every
       job is found by its own name; the rows are the same ones arp_config's own load gives. ARP_Core with the loader compiles (14 baseline warnings).
-    * The properties and doors of both .sql files (section 9), loaded the same way into the same copy: 267 statements on the hive (26 jobs, 90 properties, 151 doors) and 149 on
+    * The properties and doors of both .sql files (section 9), loaded the same way into the same copy: 369 statements on the hive (26 jobs, 130 properties, 213 doors) and 149 on
       New Byzantium (26, 30, 93), 0 errors, a second load changes no row, every door row names a property that is there and every property has a door, the jail's h9_jail rows are
-      kept, every door name is a func_door or func_door_rotating of the compiled BSP the game loads (H9XASH\ts\maps), and every one of the hive's 277 door names is either bound or
+      kept, every door name is a func_door or func_door_rotating of the compiled BSP the game loads (H9XASH\ts\maps), and every one of the hive's 276 door names is either bound or
       listed with its reason, checked by script. The hive's file was also loaded on a copy that had already run an earlier hive file: every row that file made is still there byte for
       byte, the new rows are added, a second load changes nothing, and the two rows that differ are the ones the migration in section 9 changes (run as written, the two arp_query
       lines make that copy equal to a fresh one, and so do the two arp_setproperty lines through a port of CmdSetProperty).
@@ -410,7 +455,10 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
       button, ladder, water, hurt or travel-zone brush or a wall brush (21 of 21; 8 stand within 52 of one, 25 to 48 from the origin and 9 to 45 from the body, in a niche or beside an
       open shop door on purpose, so only 13 of 21 clear the earlier 52); 56 from every team spawn point (the nearest 58, the bank teller beside the BANK kiosk) and 80 from every other start point or arrival; 40 from every bot waypoint;
       a customer cell in front that is standing floor, whose flood fill (shut doors shut, steps of 18, drops, ladders) reaches a waypoint of the deployed h9_tsrp_hive.rcw, from which the
-      NPC's chest is seen, at most 95 units from its box (use reaches 100); 120 or more between NPCs of one floor. Each NPC was drawn with its model from where a player stands (shots\).
+      NPC's chest is seen, at most 95 units from its box (use reaches 100); 120 or more between NPCs of one floor (the Gear Guys pair, since 2026-11-11 side by side behind their counter, stand 60 apart; the check's own minimum is 56). Each NPC was drawn with its model from where a player stands (shots\).
+    * The hive after the 2026-11-11 batch (the map rebuilt by merge.mjs, its geometry compiled with the Xash tools, no leak): the SQL file loaded into SQLite as the core loads it, twice: 369 statements, 0 errors, 26 jobs, 130
+      properties, 213 doors, the second load changes no row; every door row names a func_door or func_door_rotating of the rebuilt BSP; the standing checker finds no violation of the loader's rule. All 21 NPC spots
+      run through the same checks again on the rebuilt map: 21 of 21 (the XCCP pair's customer cells join the walked network with xe_xenoncpgate open, which is the point; with it shut the hall is a closed room).
     * The two plugin changes compile (ARP_Core with its 14 baseline warnings, ARP_Commands with none).
   h9_tsrp_newbyzantium (2026-11-10: the NPCs were moved into rooms; for that map this replaces the bullet about hub spots above):
     * Every origin was proved against the compiled map the game loads, H9XASH\ts\maps\h9_tsrp_newbyzantium.bsp (47,032,270 bytes, MD5
@@ -441,7 +489,7 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   section 2) names the property of the door a player looks at: the external name as its heading, OWNER (the owner's name, with his job while he is in
   the game; STATE PROPERTY when there is no owner and no price; FOR SALE and the price when there is a price), AFFILIATION, STATUS (SEALED when the
   property is locked, OPEN when not) and a RESTRICTED line when the player may not use the door. Both maps' .sql files carry the rows (section 2 says
-  how they are loaded): the hive 90 properties with 151 door names, New Byzantium 30 with 93.
+  how they are loaded): the hive 130 properties with 213 door names, New Byzantium 30 with 93.
 
   THE FIELDS (the order VALUES takes them in arp_property): internalname (a slug, h9_<city>_<thing>), externalname (at most 32 characters, what the plaque shows),
   ownername and ownerauth (both empty: no owner), price (0: not for sale), locked (0 or 1), access (letters), profit (0; the NPCs of npcs.ini that name this property
@@ -450,13 +498,13 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   AFFILIATION is read from the access letters, and is documented here because the plaque asks for it: the police letter (arp_police_access, a) or g
   (the Lord Minister's own, which only that job holds) is the MINISTRY OF DEFENSE; the medical letter (arp_medical_access, b) is the MEDICAL
   DIVISION; a property with both says both ("Ministry of Defense / Medical Division"); the admin letter alone is ADMINISTRATION; no letter is
-  CIVILIAN. The plaque of a player reads the same letters from his job (docs\ARP_CONTENT.txt, section 3: a Cadet to a Lord Commander are Ministry of
+  CIVILIAN (PROLETARIAN while arp_teamplay's team play runs). The plaque of a player reads the same letters from his job (docs\ARP_CONTENT.txt, section 3: a Cadet to a Lord Commander are Ministry of
   Defense, the M- ranks Medical Division, a Merchant Civilian). The c d e f letters are hiring tiers and open no door, so no property uses them.
 
   ALL THE DOORS OF A BUILDING. A property is the whole establishment: every named door of its building is bound to it (front, back, side, staff,
   office, store room, roof, bathroom, stair and inner doors), and all of them show the same plaque and obey the same lock, because the lock is the
   property's (below). The hive's doors were taken from the compiled map the game loads (H9XASH\ts\maps\h9_tsrp_hive.bsp: 294 door entities with 277
-  names, every one of them named) by where each door stands, by the closed rooms the map's space model makes when every door is shut (doors that open
+  names, every one of them named; 293 and 276 after the clandestine vent was made a breakable) by where each door stands, by the closed rooms the map's space model makes when every door is shut (doors that open
   into one closed set of rooms belong to one building), by the sign that hangs by a door and by the pattern of the names (pc_ Paradise City, xe_
   Xenon City, al_ Alexandria; unclepikky, enzos, cp_, skyb, golgo, midgar and so on). Three rules hold for every row: a door is bound only if it is a
   named door of the BSP; no door is in two properties; and a name that two doors of different buildings wear is not bound, because a door row binds
@@ -475,111 +523,297 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   which a trigger of their own opens. ARP's lock cannot take the use key from the game's own handling of a door that has the use-only flag
   (spawnflags 256: every named door of New Byzantium); the plaque says what ARP holds.
 
-  PRICES are hours of a Merchant's pay (docs\ARP_CONTENT.txt, section 3: 20 a minute, paid every 60 seconds, so 1,200 an hour; a Citizen's hour is
-  600; a new character starts with 500): a storage unit 1 hour (1,200); a flat in Paradise City 2 hours (2,400, 3,000 with a second door); an
-  apartment of Xenon City 4 hours (4,800); a flat of Alexandria's Golgotha and Xaelem blocks, the Cosmos Apartment and the Eskimo Home 5 hours
-  (6,000); a luxury apartment, the K Tower suite, a Midgar house and the Sky Bar 8 hours (9,600); a cafe, a restaurant, a bar, a club or a store 10
-  hours (12,000). Everything else is state property, no owner and price 0. A buyer pays from the bank (/buy, looking at a door of it) and becomes the
-  owner with the door: locked, it is his and his key holders'.
+  PRICES are one geometric scale: price = round(1200 * 2^tier), to two significant figures and a whole number, tier 0 to 5: 1,200  2,400  4,800  9,600  19,000  38,000. Every tier doubles the one before. The base,
+  1,200, is two hours of a Citizen's pay (docs\ARP_CONTENT.txt, section 3: a Citizen 10 a minute, paid every 60 seconds, so 600 an hour; a Merchant's hour is 1,200) and is what the smallest property
+  costs. The dearest, 38,000, is 4.2 hours of a Lord Minister's pay (150 a minute, 9,000 an hour) and 6.3 of a Legate's (100 a minute): a rank that has served a while can buy it; a Citizen needs 63 hours of pay. The
+  property tax that is coming takes 1 percent of the price from the owner's bank every 15 minutes (4 percent an hour, arp_h9_tax_percent): tier 0 costs 48 an hour (8 percent of a Citizen's pay), tier 3 (9,600) 384
+  (a third of a Merchant's), tier 5 1,520 (17 percent of a Lord Minister's). A property's tier is its kind's base plus a step for its floor area, plus 1 when it has four or more doors, at most 5:
+    kind base:   stall (a storage unit, a kiosk, a stash) 0 and pod 0 (a pod or a stall is tier 0 whatever its size: one small room);  a flat, a house, an apartment 1;
+                 a workroom (an office, a hideout, a vault, a plant) 1;  a luxury residence 2;  a shop, a cafe, a bar, a club, a restaurant, a distillery 2
+                 Every property is for sale, so the rows that began as state or public ones are priced the same way: a shop, a bank, a clinic or a corporation's front is a business; the back, side and
+                 staff doors of a shop, a clinic's gate, an office, a post, an armoury, a cell block, a lab, a vault and a store room are workrooms (their rooms are the front's, one kind lower); the Throne
+                 Room is luxury; the public gates, the lift, the level doors and the core console, which a whole city uses, are public: always tier 5, because one buyer's lock would shut them
+    area step:   under 60k square units of closed floor behind the doors 0;  60k to 150k 1;  150k to 250k 2;  250k and over 3;  not measured (the room behind the door could not be closed
+                 by the flood fill of the room analysis) 1, the middle step
+  The floor area is the closed rooms behind a property's doors (the room analysis of the plaque work, 16 x 16 unit cells; the work folder's rooms_complexes.json), in thousands of square units.
 
-  h9_tsrp_hive: 90 properties, 151 door names (155 entities; the jails' four wall panels, al_jail1act to 4act, are h9_jail's and are not in the file)
-  13 of the properties are open to anyone (the public fronts of the shops, the bank, Tartec, the clinic's gate), 25 are state property sealed to the
-  Ministry of Defense, the Medical Division and keyholders, and 52 are homes and businesses for sale, sealed until bought.
+  property                  kind       area   doors  tier  price   (was: the price in the earlier file, 0 for a property that was not for sale; new: a property this batch adds)
+  ------------------------  ---------  -----  -----  ----  ------  ------
+  h9_pc_storage1            stall          -      1     0    1200  1200
+  h9_pc_storage2            stall          -      1     0    1200  1200
+  h9_pc_storage3            stall          -      1     0    1200  1200
+  h9_pc_storage4            stall          -      1     0    1200  1200
+  h9_xe_hex_pod1            pod          11k      1     0    1200  new
+  h9_xe_hex_pod2            pod           5k      1     0    1200  new
+  h9_xe_hex_pod3            pod          29k      1     0    1200  new
+  h9_xe_rect_pod1           pod          29k      1     0    1200  new
+  h9_xe_rect_pod2           pod          33k      1     0    1200  new
+  h9_xe_rect_pod3           pod          33k      1     0    1200  new
+  h9_xe_rect_pod4           pod            -      1     0    1200  new
+  h9_xe_rect_pod5           pod            -      1     0    1200  new
+  h9_xe_rect_pod6           pod            -      1     0    1200  new
+  h9_al_midgar_kiosk        stall        38k      1     0    1200  new
+  h9_al_stash               stall        12k      1     0    1200  new
+  h9_pc_flat_cit4           residence    54k      1     1    2400  2400
+  h9_pc_flat_cit5           residence    45k      1     1    2400  2400
+  h9_pc_flat_cit6           residence    42k      1     1    2400  2400
+  h9_pc_flat_res2           residence    51k      2     1    2400  3000
+  h9_pc_flat_res4           residence     4k      1     1    2400  2400
+  h9_pc_flat_res5           residence    24k      1     1    2400  2400
+  h9_xe_city_gear_back      workroom     30k      1     1    2400  0
+  h9_xe_cyber_lab           workroom     10k      2     1    2400  0
+  h9_xe_elzos_back          workroom      2k      2     1    2400  0
+  h9_xe_gang_hideout        workroom     32k      2     1    2400  new
+  h9_xe_generator           workroom     16k      2     1    2400  0
+  h9_xe_green_dragon_side   workroom     52k      1     1    2400  0
+  h9_xe_guns_n_stuff_back   workroom     43k      1     1    2400  0
+  h9_xe_office              workroom     38k      3     1    2400  new
+  h9_al_aurora_maps         workroom     29k      1     1    2400  0
+  h9_al_cosmos              residence    19k      1     1    2400  6000
+  h9_al_cult_gate           workroom     47k      1     1    2400  new
+  h9_al_golgotha_armoury    workroom     28k      1     1    2400  0
+  h9_al_klines_safe         workroom     38k      1     1    2400  0
+  h9_al_midgar_lab          workroom     36k      2     1    2400  0
+  h9_al_routing_office      workroom     49k      1     1    2400  new
+  h9_pc_eden_news_back      workroom    106k      1     2    4800  0
+  h9_pc_flat_cit1           residence    64k      1     2    4800  2400
+  h9_pc_flat_cit2           residence    65k      1     2    4800  2400
+  h9_pc_flat_cit3           residence   116k      2     2    4800  3000
+  h9_pc_flat_res1           residence      -      1     2    4800  2400
+  h9_pc_flat_res3           residence    64k      2     2    4800  3000
+  h9_pc_flat_res4a          residence      -      1     2    4800  2400
+  h9_pc_flat_res6           residence      -      1     2    4800  2400
+  h9_pc_flat_res7           residence      -      1     2    4800  2400
+  h9_pc_flat_res8           residence   106k      1     2    4800  2400
+  h9_pc_flat_res9           residence      -      1     2    4800  2400
+  h9_pc_pikkys_back         workroom       -      2     2    4800  0
+  h9_pc_storage_gate        workroom       -      1     2    4800  0
+  h9_xe_apt1                residence    91k      2     2    4800  4800
+  h9_xe_apt2                residence    84k      2     2    4800  4800
+  h9_xe_apt3                residence    83k      2     2    4800  4800
+  h9_xe_apt4                residence    79k      2     2    4800  4800
+  h9_xe_apt5                residence    80k      2     2    4800  4800
+  h9_xe_apt6                residence    68k      2     2    4800  4800
+  h9_xe_city_gear           business     30k      1     2    4800  0
+  h9_xe_city_office         workroom       -      3     2    4800  new
+  h9_xe_clinic_gate         workroom     94k      1     2    4800  0
+  h9_xe_cp_barracks         workroom       -      1     2    4800  0
+  h9_xe_cp_cells            workroom     58k      6     2    4800  0
+  h9_xe_data_centre         workroom    106k      3     2    4800  0
+  h9_xe_green_dragon        business     52k      1     2    4800  0
+  h9_xe_guns_n_stuff        business     32k      1     2    4800  0
+  h9_xe_lab_control         workroom       -      2     2    4800  0
+  h9_xe_ug_data_room        workroom     90k      1     2    4800  new
+  h9_xe_ug_hideout          workroom     94k      1     2    4800  new
+  h9_al_aurora_annex        workroom     69k      1     2    4800  0
+  h9_al_eskimo              residence   100k      1     2    4800  6000
+  h9_al_fabrication         workroom       -      1     2    4800  new
+  h9_al_golgotha2           residence   146k      1     2    4800  6000
+  h9_al_golgotha6           residence   126k      1     2    4800  6000
+  h9_al_routing_depot       workroom       -      1     2    4800  new
+  h9_al_tech_vault          workroom       -      1     2    4800  new
+  h9_al_xaelem2             residence      -      1     2    4800  6000
+  h9_al_xaelem4             residence   145k      1     2    4800  6000
+  h9_al_xaelem_industrial   workroom    138k      1     2    4800  new
+  h9_pc_bank                business    111k      1     3    9600  0
+  h9_pc_cafe_avalon         business     67k      2     3    9600  12000
+  h9_pc_cybernetics         business    124k      1     3    9600  0
+  h9_pc_eden_news           business    106k      1     3    9600  0
+  h9_pc_gear_guys           business       -      1     3    9600  0
+  h9_pc_md_armoury          workroom    170k      1     3    9600  0
+  h9_pc_md_cells            workroom    119k      4     3    9600  0
+  h9_pc_md_facility         workroom    170k      3     3    9600  0
+  h9_pc_pawn_prawn          workroom    133k      4     3    9600  0
+  h9_pc_pikkys              business       -      1     3    9600  0
+  h9_pc_romagna_clinic      business    124k      2     3    9600  0
+  h9_pc_tartec              business       -      1     3    9600  0
+  h9_xe_electronics         business       -      1     3    9600  12000
+  h9_xe_elzos               business       -      1     3    9600  0
+  h9_xe_sky_bar             business     35k      4     3    9600  9600
+  h9_xe_ug_distillery       business     70k      1     3    9600  new
+  h9_al_detention           workroom    243k      2     3    9600  0
+  h9_al_golgotha1           residence   192k      1     3    9600  6000
+  h9_al_golgotha4           residence   216k      2     3    9600  6000
+  h9_al_golgotha_hideout    workroom    197k      1     3    9600  new
+  h9_al_kline               business       -      1     3    9600  0
+  h9_al_midgar_house1       residence   209k      3     3    9600  9600
+  h9_al_midgar_house2       residence   176k      2     3    9600  9600
+  h9_al_midgar_office       workroom    196k      2     3    9600  new
+  h9_al_ribs                business    121k      1     3    9600  12000
+  h9_al_steakhouse          business    122k      2     3    9600  12000
+  h9_al_throne_room         luxury         -      2     3    9600  0
+  h9_al_xaelem6             residence   161k      1     3    9600  6000
+  h9_pc_gear_guys_sw_back   workroom    258k      2     4   19000  0
+  h9_xe_clinic              business     94k      4     4   19000  0
+  h9_xe_cp_armoury          workroom    344k      2     4   19000  0
+  h9_xe_cp_control          workroom    338k      1     4   19000  0
+  h9_al_cafe_fortress_back  workroom    281k      1     4   19000  0
+  h9_al_golgotha3           residence   259k      1     4   19000  6000
+  h9_al_golgotha5           residence   268k      1     4   19000  6000
+  h9_al_golgotha_club       business     99k      4     4   19000  12000
+  h9_al_shores_cells        workroom    414k      2     4   19000  0
+  h9_al_xaelem5             residence   283k      1     4   19000  6000
+  h9_pc_gear_guys_sw        business    258k      1     5   38000  0
+  h9_pc_ktower_suite        luxury      344k      1     5   38000  9600
+  h9_pc_skytech             workroom    401k      8     5   38000  0
+  h9_xe_cp_post             workroom    355k      4     5   38000  0
+  h9_xe_elevator            public       27k      3     5   38000  0
+  h9_xe_level_doors         public      131k      4     5   38000  0
+  h9_xe_lux_a               luxury      292k      2     5   38000  9600
+  h9_xe_lux_b               luxury      277k      2     5   38000  9600
+  h9_xe_lux_c               luxury      278k      2     5   38000  9600
+  h9_xe_lux_d               luxury      259k      2     5   38000  9600
+  h9_xe_ug_commercial       public         -      2     5   38000  0
+  h9_xe_ug_public           public         -      2     5   38000  0
+  h9_al_aurora_labs         workroom    272k      4     5   38000  0
+  h9_al_cafe_fortress       business    281k      2     5   38000  0
+  h9_al_catacombs           business    305k      2     5   38000  12000
+  h9_al_core_controls       public         -      1     5   38000  0
+
+  All 130 properties are for sale until somebody has one: tier 0 15, tier 1 21, tier 2 40, tier 3 28, tier 4 10, tier 5 16. A shop front stays open to anyone until it is bought, and a property sealed to the Ministry of Defense or the Medical Division
+  keeps those letters after a sale. INSERT OR IGNORE does not change a price a database already has, so a hive database that loaded an earlier file takes the new prices with one line for each changed,
+  unowned property (87 of them, in price_migration.txt beside the .sql file, which an ARP admin runs a line at a time in the console):
+    arp_query UPDATE arp_property_h9_tsrp_hive SET price=<price> WHERE internalname='<internal>' AND ownerauth=''
+  A property with an owner keeps the price its owner set. The prices apply at the next map start.
+
+  h9_tsrp_hive: 130 properties, 213 door names (217 entities; the jails' four wall panels, al_jail1act to 4act, are h9_jail's and are not in the file)
+  Every one is for sale until somebody has it. 18 stand open to anyone until then (the public fronts of the shops, the bank, Tartec, the clinic's gate, and the underground gates, the elevator, the level doors and
+  the core controls), 35 are sealed to the Ministry of Defense, the Medical Division and keyholders (their letters keep opening the doors after a sale), and 77 are homes and businesses sealed until bought.
 
   property                  plaque heading                 doors (targetnames)                                                         price  locked  access
   ------------------------  -----------------------------  --------------------------------------------------------------------------  -----  ------  ------
-  h9_pc_gear_guys           Gear Guys                      pc_techromagna                                                              -      no      -
-  h9_pc_pikkys              Uncle Pikkys Pizzeria          pc_unclepikkysentra                                                         -      no      -
-  h9_pc_cybernetics         Cybernetics                    pc_cybernetc                                                                -      no      -
-  h9_pc_bank                Paradise Bank                  pc_bankdoor                                                                 -      no      -
-  h9_pc_pawn_prawn          Pawn Prawn Staff Room          pc_noodles1, pc_pphideout1, pc_pphideout, pc_pphideout3                     -      yes     -
-  h9_pc_romagna_clinic      Romagna Clinic                 pc_lwrromgoff2, pc_lwrromgoff3                                              -      yes     b
-  h9_pc_md_facility         Ministry of Defense Facility   pc_mdfacgate, pc_msrmdoffice1, pc_mdelescreen1                              -      yes     a
-  h9_pc_md_armoury          Ministry of Defense Armoury    pc_mdarmorydoor                                                             -      yes     a
-  h9_pc_md_cells            Ministry of Defense Detention  pc_mdcell1, pc_mdcell2, pc_mdcell3, pc_mdcell4                              -      yes     a
-  h9_pc_cafe_avalon         Paradise Cafe                  pc_cafe1door, pc_cafe2door                                                  12000  yes     -
-  h9_pc_flat_res1           Paradise Flat 1                pc_resident1                                                                2400   yes     -
-  h9_pc_flat_res2           Paradise Flat 2                pc_resident2, pc_resident2park                                              3000   yes     -
-  h9_pc_flat_res3           Paradise Flat 3                pc_resident3, pc_resident3park                                              3000   yes     -
-  h9_xe_guns_n_stuff        Guns n Stuff                   xe_gunshop                                                                  -      no      -
-  h9_xe_green_dragon        Green Dragon                   xe_processedfood1                                                           -      no      -
-  h9_xe_city_gear           Xenon City Gear                xe_gearshop                                                                 -      no      -
-  h9_xe_cp_post             Xenon City Civil Protection    xe_xenoncpgate, xe_pdshield, xe_cp_help, xe_cp_help1                        -      yes     a
-  h9_xe_cp_armoury          XCCP Armoury                   xe_cp_armory, xe_cp_armory1                                                 -      yes     a
-  h9_xe_cp_barracks         XCCP Barracks                  xe_cp_barracks                                                              -      yes     a
-  h9_xe_cp_control          XCCP Control Room              xe_cp_control                                                               -      yes     a
-  h9_xe_cp_cells            XCCP Detention                 xe_cp_prison1, xe_cp_prison2, xe_cp_prison3, xe_cp_prison4, xe_cp_prison5,  -      yes     a
+  h9_pc_gear_guys           Gear Guys                      pc_techromagna                                                               9600  no      -
+  h9_pc_pikkys              Uncle Pikkys Pizzeria          pc_unclepikkysentra                                                          9600  no      -
+  h9_pc_cybernetics         Cybernetics                    pc_cybernetc                                                                 9600  no      -
+  h9_pc_bank                Paradise Bank                  pc_bankdoor                                                                  9600  no      -
+  h9_pc_pawn_prawn          Pawn Prawn Staff Room          pc_noodles1, pc_pphideout1, pc_pphideout, pc_pphideout3                      9600  yes     -
+  h9_pc_romagna_clinic      Romagna Clinic                 pc_lwrromgoff2, pc_lwrromgoff3                                               9600  yes     b
+  h9_pc_md_facility         Ministry of Defense Facility   pc_mdfacgate, pc_msrmdoffice1, pc_mdelescreen1                               9600  yes     a
+  h9_pc_md_armoury          Ministry of Defense Armoury    pc_mdarmorydoor                                                              9600  yes     a
+  h9_pc_md_cells            Ministry of Defense Detention  pc_mdcell1, pc_mdcell2, pc_mdcell3, pc_mdcell4                               9600  yes     a
+  h9_pc_cafe_avalon         Paradise Cafe                  pc_cafe1door, pc_cafe2door                                                   9600  yes     -
+  h9_pc_flat_res1           Paradise Flat 1                pc_resident1                                                                 4800  yes     -
+  h9_pc_flat_res2           Paradise Flat 2                pc_resident2, pc_resident2park                                               2400  yes     -
+  h9_pc_flat_res3           Paradise Flat 3                pc_resident3, pc_resident3park                                               4800  yes     -
+  h9_xe_guns_n_stuff        Guns n Stuff                   xe_gunshop                                                                   4800  no      -
+  h9_xe_green_dragon        Green Dragon                   xe_processedfood1                                                            4800  no      -
+  h9_xe_city_gear           Xenon City Gear                xe_gearshop                                                                  4800  no      -
+  h9_xe_cp_post             Xenon City Civil Protection    xe_xenoncpgate, xe_pdshield, xe_cp_help, xe_cp_help1                        38000  yes     a
+  h9_xe_cp_armoury          XCCP Armoury                   xe_cp_armory, xe_cp_armory1                                                 19000  yes     a
+  h9_xe_cp_barracks         XCCP Barracks                  xe_cp_barracks                                                               4800  yes     a
+  h9_xe_cp_control          XCCP Control Room              xe_cp_control                                                               19000  yes     a
+  h9_xe_cp_cells            XCCP Detention                 xe_cp_prison1, xe_cp_prison2, xe_cp_prison3, xe_cp_prison4, xe_cp_prison5,   4800  yes     a
                                                            xe_cp_prison6
-  h9_xe_clinic              Xenon Clinic                   xe_clinic_off, xe_clinic_op, xe_clinic_rest, xe_clinic_wing                 -      yes     b
+  h9_xe_clinic              Xenon Clinic                   xe_clinic_off, xe_clinic_op, xe_clinic_rest, xe_clinic_wing                 19000  yes     b
   h9_xe_sky_bar             Sky Bar                        xe_skyb_gate, xe_skyb_door1, xe_skyb_door2, xe_skyb_drawer                  9600   yes     -
   h9_xe_apt1                Xenon Apartment 1              xe_apartment_door1a, xe_apartment_door1b                                    4800   yes     -
   h9_xe_apt2                Xenon Apartment 2              xe_apartment_door2a, xe_apartment_door2b                                    4800   yes     -
   h9_xe_apt3                Xenon Apartment 3              xe_apartment_door3a, xe_apartment_door3b                                    4800   yes     -
-  h9_xe_lux_a               Xenon Luxury Apartment A       xe_lux_apt_a, xe_lux_apt_abath                                              9600   yes     -
-  h9_al_cafe_fortress       Cafe Fortress (H&C Coffee)     al_cafe.fortress, al_cafefortress                                           -      no      -
-  h9_al_kline               K-Line Super Store             al_klinedoor                                                                -      yes     -
-  h9_al_midgar_lab          Midgar Lab                     al_midgar.lab.gate.one, al_labentbutton                                     -      yes     b
-  h9_al_detention           Ministry Detention Facility    al_prisongate, al_armorygate                                                -      yes     a
-  h9_al_throne_room         Throne Room                    al_throneroom, al_thronegate                                                -      yes     g
-  h9_al_steakhouse          Ed's Steak House               al_edssteak, al_steakexit                                                   12000  yes     -
-  h9_al_golgotha1           Golgotha Apartment 1           al_golgoapartment1                                                          6000   yes     -
-  h9_al_golgotha2           Golgotha Apartment 2           al_golgoapartment2                                                          6000   yes     -
-  h9_al_golgotha3           Golgotha Apartment 3           al_golgo.apt3.1                                                             6000   yes     -
-  h9_pc_pikkys_back         Uncle Pikkys Pizzeria          pc_unclepikkyse, pc_oven_door                                               -      yes     -
-  h9_pc_gear_guys_sw        Gear Guys (South West)         pc_gearshop1                                                                -      no      -
-  h9_pc_gear_guys_sw_back   Gear Guys (South West)         pc_gearshop2, pc_edenoffice2                                                -      yes     -
-  h9_pc_eden_news           Eden News                      pc_edennews                                                                 -      no      -
-  h9_pc_eden_news_back      Eden News                      pc_newsroom1                                                                -      yes     -
-  h9_pc_tartec              Tartec                         pc_tartec_frt                                                               -      no      -
-  h9_pc_skytech             SkyTech                        pc_skytechgate, pc_skytechgate1, pc_skytechgate3, pc_skytechgate4,          -      yes     -
+  h9_xe_lux_a               Xenon Luxury Apartment A       xe_lux_apt_a, xe_lux_apt_abath                                              38000  yes     -
+  h9_al_cafe_fortress       Cafe Fortress (H&C Coffee)     al_cafe.fortress, al_cafefortress                                           38000  no      -
+  h9_al_kline               K-Line Super Store             al_klinedoor                                                                 9600  yes     -
+  h9_al_midgar_lab          Midgar Lab                     al_midgar.lab.gate.one, al_labentbutton                                      2400  yes     b
+  h9_al_detention           Ministry Detention Facility    al_prisongate, al_armorygate                                                 9600  yes     a
+  h9_al_throne_room         Throne Room                    al_throneroom, al_thronegate                                                 9600  yes     g
+  h9_al_steakhouse          Ed's Steak House               al_edssteak, al_steakexit                                                    9600  yes     -
+  h9_al_golgotha1           Golgotha Apartment 1           al_golgoapartment1                                                           9600  yes     -
+  h9_al_golgotha2           Golgotha Apartment 2           al_golgoapartment2                                                           4800  yes     -
+  h9_al_golgotha3           Golgotha Apartment 3           al_golgo.apt3.1                                                             19000  yes     -
+  h9_pc_pikkys_back         Uncle Pikkys Pizzeria          pc_unclepikkyse, pc_oven_door                                                4800  yes     -
+  h9_pc_gear_guys_sw        Gear Guys (South West)         pc_gearshop1                                                                38000  no      -
+  h9_pc_gear_guys_sw_back   Gear Guys (South West)         pc_gearshop2, pc_edenoffice2                                                19000  yes     -
+  h9_pc_eden_news           Eden News                      pc_edennews                                                                  9600  no      -
+  h9_pc_eden_news_back      Eden News                      pc_newsroom1                                                                 4800  yes     -
+  h9_pc_tartec              Tartec                         pc_tartec_frt                                                                9600  no      -
+  h9_pc_skytech             SkyTech                        pc_skytechgate, pc_skytechgate1, pc_skytechgate3, pc_skytechgate4,          38000  yes     -
                                                            pc_labdoor1sky, pc_labdoor2sky, pc_computercore, pc_operatingroom1
   h9_pc_flat_res4           Paradise Flat 4                pc_resident4                                                                2400   yes     -
-  h9_pc_flat_res4a          Paradise Flat 4A               pc_resident4a                                                               2400   yes     -
+  h9_pc_flat_res4a          Paradise Flat 4A               pc_resident4a                                                                4800  yes     -
   h9_pc_flat_res5           Paradise Flat 5                pc_resident5                                                                2400   yes     -
-  h9_pc_flat_res6           Paradise Flat 6                pc_resident6                                                                2400   yes     -
-  h9_pc_flat_res7           Paradise Flat 7                pc_resident7                                                                2400   yes     -
-  h9_pc_flat_res8           Paradise Flat 8                pc_resident8                                                                2400   yes     -
-  h9_pc_flat_res9           Paradise Flat 9                pc_resident9                                                                2400   yes     -
-  h9_pc_flat_cit1           Paradise Citizen Flat 1        pc_citizen1                                                                 2400   yes     -
-  h9_pc_flat_cit2           Paradise Citizen Flat 2        pc_citizen2                                                                 2400   yes     -
-  h9_pc_flat_cit3           Paradise Citizen Flat 3        pc_citizen3, pc_citizen3a                                                   3000   yes     -
+  h9_pc_flat_res6           Paradise Flat 6                pc_resident6                                                                 4800  yes     -
+  h9_pc_flat_res7           Paradise Flat 7                pc_resident7                                                                 4800  yes     -
+  h9_pc_flat_res8           Paradise Flat 8                pc_resident8                                                                 4800  yes     -
+  h9_pc_flat_res9           Paradise Flat 9                pc_resident9                                                                 4800  yes     -
+  h9_pc_flat_cit1           Paradise Citizen Flat 1        pc_citizen1                                                                  4800  yes     -
+  h9_pc_flat_cit2           Paradise Citizen Flat 2        pc_citizen2                                                                  4800  yes     -
+  h9_pc_flat_cit3           Paradise Citizen Flat 3        pc_citizen3, pc_citizen3a                                                    4800  yes     -
   h9_pc_flat_cit4           Paradise Citizen Flat 4        pc_citizen4                                                                 2400   yes     -
   h9_pc_flat_cit5           Paradise Citizen Flat 5        pc_citizen5                                                                 2400   yes     -
   h9_pc_flat_cit6           Paradise Citizen Flat 6        pc_citizen6                                                                 2400   yes     -
-  h9_pc_ktower_suite        K Tower Suite                  pc_ktowersuite                                                              9600   yes     -
+  h9_pc_ktower_suite        K Tower Suite                  pc_ktowersuite                                                              38000  yes     -
   h9_pc_storage1            Storage Unit 1                 pc_storage1                                                                 1200   yes     -
   h9_pc_storage2            Storage Unit 2                 pc_storage2                                                                 1200   yes     -
   h9_pc_storage3            Storage Unit 3                 pc_storage3                                                                 1200   yes     -
   h9_pc_storage4            Storage Unit 4                 pc_storage4                                                                 1200   yes     -
-  h9_pc_storage_gate        Storage Gate                   pc_storagegate                                                              -      yes     -
-  h9_xe_guns_n_stuff_back   Guns n Stuff                   xe_gunshop1                                                                 -      yes     -
-  h9_xe_green_dragon_side   Green Dragon                   xe_processedfood2                                                           -      yes     -
-  h9_xe_city_gear_back      Xenon City Gear                xe_gearshop1                                                                -      yes     -
-  h9_xe_clinic_gate         Xenon Clinic                   xe_broth_gate                                                               -      no      b
-  h9_xe_elzos               Uncle Elzos                    xe_enzos_gate                                                               -      no      -
-  h9_xe_elzos_back          Uncle Elzos                    xe_oven_door, xe_uez_entrance1                                              -      yes     -
-  h9_xe_electronics         Electronics Store              xe_electronicsstoregam                                                      12000  yes     -
+  h9_pc_storage_gate        Storage Gate                   pc_storagegate                                                               4800  yes     -
+  h9_xe_guns_n_stuff_back   Guns n Stuff                   xe_gunshop1                                                                  2400  yes     -
+  h9_xe_green_dragon_side   Green Dragon                   xe_processedfood2                                                            2400  yes     -
+  h9_xe_city_gear_back      Xenon City Gear                xe_gearshop1                                                                 2400  yes     -
+  h9_xe_clinic_gate         Xenon Clinic                   xe_broth_gate                                                                4800  no      b
+  h9_xe_elzos               Uncle Elzos                    xe_enzos_gate                                                                9600  no      -
+  h9_xe_elzos_back          Uncle Elzos                    xe_oven_door, xe_uez_entrance1                                               2400  yes     -
+  h9_xe_electronics         Electronics Store              xe_electronicsstoregam                                                       9600  yes     -
   h9_xe_apt4                Xenon Apartment 4              xe_apartment_door4a, xe_apartment_door4b                                    4800   yes     -
   h9_xe_apt5                Xenon Apartment 5              xe_apartment_door5a, xe_apartment_door5b                                    4800   yes     -
   h9_xe_apt6                Xenon Apartment 6              xe_apartment_door6a, xe_apartment_door6b                                    4800   yes     -
-  h9_xe_lux_b               Xenon Luxury Apartment B       xe_lux_apt_b, xe_lux_apt_bbath                                              9600   yes     -
-  h9_xe_lux_c               Xenon Luxury Apartment C       xe_lux_apt_c, xe_lux_apt_cbath                                              9600   yes     -
-  h9_xe_lux_d               Xenon Luxury Apartment D       xe_lux_apt_d, xe_lux_apt_dbath                                              9600   yes     -
-  h9_al_cafe_fortress_back  Cafe Fortress (H&C Coffee)     al_golgocafed1                                                              -      yes     -
-  h9_al_catacombs           Catacombs                      al_catacombone, al_catacombstwo                                             12000  yes     -
-  h9_al_ribs                Xaelem Ribs                    al_xaelemribs                                                               12000  yes     -
-  h9_al_golgotha_club       Golgotha Club                  al_clubgate, al_golgoclubbooth, al_golgoclubbar, al_clubboss                12000  yes     -
-  h9_al_golgotha4           Golgotha Apartment 4           al_golgoaptfour, al_golgofourdoor                                           6000   yes     -
-  h9_al_golgotha5           Golgotha Apartment 5           al_golgoaptfive                                                             6000   yes     -
-  h9_al_golgotha6           Golgotha Apartment 6           al_golgapartment6                                                           6000   yes     -
-  h9_al_xaelem2             Xaelem Apartment 2             al_xaelemapttwo                                                             6000   yes     -
-  h9_al_xaelem4             Xaelem Apartment 4             al_xaelemaptfour                                                            6000   yes     -
-  h9_al_xaelem5             Xaelem Apartment 5             al_aptfivexae                                                               6000   yes     -
-  h9_al_xaelem6             Xaelem Apartment 6             al_aptsixxael                                                               6000   yes     -
-  h9_al_cosmos              Cosmos Apartment               al_cosmosapt                                                                6000   yes     -
-  h9_al_eskimo              Eskimo Home                    al_eskimohome                                                               6000   yes     -
+  h9_xe_lux_b               Xenon Luxury Apartment B       xe_lux_apt_b, xe_lux_apt_bbath                                              38000  yes     -
+  h9_xe_lux_c               Xenon Luxury Apartment C       xe_lux_apt_c, xe_lux_apt_cbath                                              38000  yes     -
+  h9_xe_lux_d               Xenon Luxury Apartment D       xe_lux_apt_d, xe_lux_apt_dbath                                              38000  yes     -
+  h9_al_cafe_fortress_back  Cafe Fortress (H&C Coffee)     al_golgocafed1                                                              19000  yes     -
+  h9_al_catacombs           Catacombs                      al_catacombone, al_catacombstwo                                             38000  yes     -
+  h9_al_ribs                Xaelem Ribs                    al_xaelemribs                                                                9600  yes     -
+  h9_al_golgotha_club       Golgotha Club                  al_clubgate, al_golgoclubbooth, al_golgoclubbar, al_clubboss                19000  yes     -
+  h9_al_golgotha4           Golgotha Apartment 4           al_golgoaptfour, al_golgofourdoor                                            9600  yes     -
+  h9_al_golgotha5           Golgotha Apartment 5           al_golgoaptfive                                                             19000  yes     -
+  h9_al_golgotha6           Golgotha Apartment 6           al_golgapartment6                                                            4800  yes     -
+  h9_al_xaelem2             Xaelem Apartment 2             al_xaelemapttwo                                                              4800  yes     -
+  h9_al_xaelem4             Xaelem Apartment 4             al_xaelemaptfour                                                             4800  yes     -
+  h9_al_xaelem5             Xaelem Apartment 5             al_aptfivexae                                                               19000  yes     -
+  h9_al_xaelem6             Xaelem Apartment 6             al_aptsixxael                                                                9600  yes     -
+  h9_al_cosmos              Cosmos Apartment               al_cosmosapt                                                                 2400  yes     -
+  h9_al_eskimo              Eskimo Home                    al_eskimohome                                                                4800  yes     -
   h9_al_midgar_house1       Midgar House One               al_midgarhouseone, al_midgarhone2, al_midgarhone3                           9600   yes     -
   h9_al_midgar_house2       Midgar House Two               al_midgahousetwo, al_midgahousetwobed                                       9600   yes     -
+  h9_xe_ug_public           Underground Public Gate        xe_ug_pub_1, xe_ug_pub_2                                                    38000  no      -
+  h9_xe_ug_commercial       Underground Commercial Gate    xe_ug_com_1, xe_ug_com_2                                                    38000  no      -
+  h9_xe_elevator            Xenon Elevator                 xe_third_gate, xe_fourth_gate, xe_fifth_gate                                38000  no      -
+  h9_xe_level_doors         Xenon Level Doors              xe_secondfloor, xe_thirdfloor, xe_fourthfloor, xe_fifthfloor                38000  no      -
+  h9_xe_ug_data_room        Underground Data Room          xe_ug_data                                                                   4800  yes     -
+  h9_xe_ug_distillery       Underground Distillery         xe_ug_distil                                                                 9600  yes     -
+  h9_xe_ug_hideout          Underground Hideout            xe_ug_hideout                                                                4800  yes     -
+  h9_xe_gang_hideout        Gang Hideout                   xe_gang_hideout, xe_gang_hideout1                                            2400  yes     -
+  h9_xe_hex_pod1            Hex Pod 1                      xe_hex_1                                                                     1200  yes     -
+  h9_xe_hex_pod2            Hex Pod 2                      xe_hex_2                                                                     1200  yes     -
+  h9_xe_hex_pod3            Hex Pod 3                      xe_hex_3                                                                     1200  yes     -
+  h9_xe_rect_pod1           Rect Pod 1                     xe_rect_1                                                                    1200  yes     -
+  h9_xe_rect_pod2           Rect Pod 2                     xe_rect_2                                                                    1200  yes     -
+  h9_xe_rect_pod3           Rect Pod 3                     xe_rect_3                                                                    1200  yes     -
+  h9_xe_rect_pod4           Rect Pod 4                     xe_rect_4                                                                    1200  yes     -
+  h9_xe_rect_pod5           Rect Pod 5                     xe_rect_5                                                                    1200  yes     -
+  h9_xe_rect_pod6           Rect Pod 6                     xe_rect_6                                                                    1200  yes     -
+  h9_xe_city_office         Xenon City Office              xe_cityoffice_gate, xe_city_office_door1, xe_city_office_door2               4800  yes     -
+  h9_xe_office              Xenon Office                   xe_office_gate, xe_office_door1, xe_office_door2                             2400  yes     -
+  h9_xe_cyber_lab           Cyber Lab                      xe_cyblab_gate, xe_cyblab_door                                               2400  yes     a
+  h9_xe_data_centre         Data Center                    xe_datacom_gate, xe_datacom_door1, xe_datacom_door2                          4800  yes     a
+  h9_xe_generator           Generator Station 5            xe_gen5_gate, xe_gen5_door                                                   2400  yes     a
+  h9_xe_lab_control         Lab Control                    xe_lcon_gate, xe_lcon_door                                                   4800  yes     a
+  h9_al_aurora_labs         Aurora Laboratories            al_auroraslabone, al_auroraslabtwo, al_auroraslabthree, al_labentrance      38000  yes     a
+  h9_al_aurora_maps         Aurora Map Room                al_auroramaps                                                                2400  yes     a
+  h9_al_aurora_annex        Aurora Annex                   al_auroranever                                                               4800  yes     a
+  h9_al_cult_gate           Cult Gate                      al_cultgate                                                                  2400  yes     -
+  h9_al_stash               Stash of Ash                   al_stashofash                                                                1200  yes     -
+  h9_al_golgotha_hideout    Golgotha Hideout               al_golgohideout                                                              9600  yes     -
+  h9_al_golgotha_armoury    Golgotha Armoury               al_golgomen1armr                                                             2400  yes     a
+  h9_al_xaelem_industrial   Xaelem Industrial Unit         al_industrialinxae                                                           4800  yes     -
+  h9_al_klines_safe         K-Line Safe                    al_klinesafe                                                                 2400  yes     -
+  h9_al_midgar_office       Midgar Office                  al_midgaroffice, al_theofficedoormid                                         9600  yes     -
+  h9_al_midgar_kiosk        Midgar Kiosk                   al_midgarkiosk                                                               1200  yes     -
+  h9_al_fabrication         Midgar Fabrication Shop        al_fabricatdoor                                                              4800  yes     -
+  h9_al_routing_office      Midgar Routing Office          al_midgarrouting                                                             2400  yes     -
+  h9_al_routing_depot       Routing Depot                  al_routingdoor                                                               4800  yes     -
+  h9_al_shores_cells        Shores Detention               al_shorescell, al_shorestwoc                                                19000  yes     a
+  h9_al_tech_vault          Tech Vault                     al_techvaultgate                                                             4800  yes     -
+  h9_al_core_controls       Maintenance Core Controls      al_corekillswitch                                                           38000  no      -
 
   Why each (each door's box and closed room, and the sign by it, are in the work folder's hive_ledger.json, rooms_complexes.json and hive2_ledger.txt; none of this was seen in a game):
     h9_pc_gear_guys: front door of the red wood shop (Gear Guys Arms Dealer, Gear Guys Ammunition Counter inside).
@@ -684,44 +918,85 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
     h9_al_eskimo: a home (eskimohome).
     h9_al_midgar_house1: a house of Midgar: its entrance and two inner doors (one closed complex).
     h9_al_midgar_house2: a house of Midgar: its entrance and its bedroom door (one closed complex).
+    h9_xe_ug_public: two of the four blast doors of the underground (216 x 177, they rise into the lintel); the public pair, an open property for sale so
+    the door opens to a touch or the use key.
+    h9_xe_ug_commercial: the other two blast doors of the underground, the commercial pair; an open property for sale.
+    h9_xe_elevator: the shaft gates of the main elevator at its three stops (the concourse, the fourth level, the fifth level); nothing in the map
+    opened them, so the car was reachable by nobody.
+    h9_xe_level_doors: the four level doors of the top hall (LEVEL I, II, III signs, one closed set of rooms behind them); an open property for sale.
+    h9_xe_ug_data_room: the data room of the underground: one rotating door into a closed room of about 90k square units; a workroom for sale.
+    h9_xe_ug_distillery: the distillery of the underground: one rotating door into a closed room of about 70k square units; a business for sale.
+    h9_xe_ug_hideout: a hideout of the underground: one rotating door into a closed room of about 94k square units; for sale.
+    h9_xe_gang_hideout: the gang's hideout of the lower level: its gate (a closed room of about 32k square units) and the grate hatch named for it
+    (room not measured); for sale.
+    h9_xe_hex_pod1: a hex pod of the lower level, one door into a room of about 11k square units.
+    h9_xe_hex_pod2: a hex pod of the lower level, one door into a room of about 5k square units.
+    h9_xe_hex_pod3: a hex pod of the lower level, one door into a room of about 29k square units.
+    h9_xe_rect_pod1: a rect pod of the lower level, one door into a room of about 29k square units.
+    h9_xe_rect_pod2: a rect pod of the lower level, one door into a room of about 33k square units.
+    h9_xe_rect_pod3: a rect pod of the lower level, one door into a room of about 33k square units.
+    h9_xe_rect_pod4: a rect pod of the south row of the lower level (room not measured); a pod is one small room.
+    h9_xe_rect_pod5: a rect pod of the south row of the lower level (room not measured); a pod is one small room.
+    h9_xe_rect_pod6: a rect pod of the south row of the lower level (room not measured); a pod is one small room.
+    h9_xe_city_office: the office of the top level: its blast gate and the pair of glass doors behind it (room not measured); an office for sale.
+    h9_xe_office: the second office of the top level: its blast gate and the pair of glass doors behind it (a closed room of about 38k square units);
+    an office for sale.
+    h9_xe_cyber_lab: the cyber lab of the top level: gate and inner door; sealed to the Ministry of Defense.
+    h9_xe_data_centre: the data center of the top level: gate and two inner doors; sealed to the Ministry of Defense.
+    h9_xe_generator: the fifth generator station of the top level: gate and inner door; sealed to the Ministry of Defense.
+    h9_xe_lab_control: the lab control room of the top level: gate and inner door; sealed to the Ministry of Defense.
+    h9_al_aurora_labs: the three labs of the Aurora and the lab entrance, one closed set of rooms of about 270k square units at the foot of the city;
+    sealed to the Ministry of Defense.
+    h9_al_aurora_maps: the map room of the Aurora: one door into a closed room of about 29k square units; sealed to the Ministry of Defense.
+    h9_al_aurora_annex: a vault door of the Aurora into a closed room of about 69k square units; sealed to the Ministry of Defense.
+    h9_al_cult_gate: the gate of a hall of about 47k square units in the lower Golgotha lanes; for sale.
+    h9_al_stash: a stash room of about 12k square units; a stall for sale.
+    h9_al_golgotha_hideout: the hideout under the Golgotha block, one door into a closed room of about 197k square units; for sale.
+    h9_al_golgotha_armoury: the armour room off the Golgotha hall, a closed room of about 28k square units; sealed to the Ministry of Defense.
+    h9_al_xaelem_industrial: the industrial unit of the Xaelem block, a closed room of about 138k square units; for sale.
+    h9_al_klines_safe: the vault door of the K-Line's safe, a closed room of about 38k square units; sealed, like the store.
+    h9_al_midgar_office: the office of Midgar: its two doors bound one closed set of rooms of about 196k square units; an office for sale.
+    h9_al_midgar_kiosk: the kiosk window of Midgar, a closed room of about 38k square units; a stall for sale.
+    h9_al_fabrication: the fabricating room of Midgar, a rotating door of the east block (room not measured); a workroom for sale.
+    h9_al_routing_office: the routing office of Midgar, a closed room of about 49k square units; for sale.
+    h9_al_routing_depot: the routing door of the lower east block of Midgar (room not measured); a workroom for sale.
+    h9_al_shores_cells: the two cell doors of the Shores, south of the arrival hall; sealed to the Ministry of Defense.
+    h9_al_tech_vault: the vault gate east of the park (a rotating grate door, 154 wide, at 1720 1711 -2308); room not measured; a vault for sale.
+    h9_al_core_controls: the core kill switch console, a door that moves nowhere and fires the maintenance core's first gate; an open property for sale
+    so the use key works it.
 
-  NOT IN ANY PROPERTY. The hive has 277 door names; 151 are bound above, the jails' four wall panels are h9_jail's, and the other 122 are left out.
-  Each is a real named door of the map, and arp_adddoor can bind one to a property by hand.
-    JAIL DOORS (12): the cage doors of the four cells, al_cell1 to 4 and al_cell1d to 4d, which ARP_JailMod drives (jailmod.ini), and the jails' four
-    wall panels, al_jail1act to 4act, which are h9_jail's and which ARP_JailMod binds in the database.
-      (al_cell1, al_cell2, al_cell3, al_cell4, al_cell1d, al_cell2d, al_cell3d, al_cell4d, al_jail1act, al_jail2act, al_jail3act, al_jail4act)
-    TWO NAMES TWO BUILDINGS WEAR (2): pc_edenoffice1 (the back office of the first Gear Guys, and a door of the south west Gear Guys compound, 6,000
-    units apart) and pc_skytechgate2 (SkyTech, and a door east of the Romagna hall). A door row binds by name, so it would take both doors; neither
-    is bound.
+  NOT IN ANY PROPERTY. The hive has 276 door names; 213 are bound above, the jails' four wall panels are h9_jail's, and the other 59 are left out. Each is a real named door of the map,
+  and arp_adddoor can bind one to a property by hand. A door a button, a manager or a switch of the map opens needs no property (nothing in this file shuts it either); a door with none of those
+  and no use flag is shut to everyone and to the bots' walk until a property or a flag gives it a way open; every such door of Xenon and Alexandria is in a property above.
+    JAIL DOORS (8): the cage doors of the four cells, al_cell1 to 4 and al_cell1d to 4d, which ARP_JailMod drives (jailmod.ini); the jails' four wall panels, al_jail1act to 4act, are h9_jail's.
+      (al_cell1, al_cell2, al_cell3, al_cell4, al_cell1d, al_cell2d, al_cell3d, al_cell4d)
+    TWO NAMES TWO BUILDINGS WEAR (2): pc_edenoffice1 (the back office of the first Gear Guys, and a door of the south west Gear Guys compound, 6,000 units apart) and pc_skytechgate2
+    (SkyTech, and a door east of the Romagna hall). A door row binds by name, so it would take both doors; neither is bound.
       (pc_edenoffice1, pc_skytechgate2)
-    LIFTS AND SHAFTS (21): the elevators and the gates and floor doors of their shafts, the city's way up and down; ARP's touch hook on a property
-    door could block or toggle one.
-      (al_lift, al_main.elev.1.door, al_main.elev.2, al_main.elev.2.door, al_golgo.ele.1, al_golgo.ele.2, al_golgo.ele.3, al_midgar.elev.offices,
-      al_midgar.hq.1.ele, al_researc.fac.elev, al_golgohideelev, pc_sewerelegate, pc_1orghq1elescreen1, pc_SkyTech_Elevator, xe_third_gate,
-      xe_fourth_gate, xe_fifth_gate, xe_secondfloor, xe_thirdfloor, xe_fourthfloor, xe_fifthfloor)
-    WAYS THROUGH (25): the MSR gates (pc_MSRGATE*), the estate gates (pc_estategate*), the heaven's gate, the train doors, the blast doors and
-    maintenance gates, and the underground and sewer passages and exits; the city is not fenced in.
-      (pc_MSRGATEUP, pc_MSRGATEDOWN, pc_MSRGATEKEY, pc_estategatep1, pc_estategatep2, pc_estategatep3, pc_estategatep4, pc_estategatekey,
-      pc_estategatekey2, pc_traindoor1, pc_traindoor2, pc_heavensgate, al_ug.blast.1, al_ug.blast.2, al_maint.core.gate.1, al_maint.core.gate.2,
-      al_corekillswitch, al_midgar.sewer.exit, al_xaelfivesexit, xe_ug_com_1, xe_ug_com_2, xe_ug_pub_1, xe_ug_pub_2, xe_ug_data, xe_ug_distil)
-    HIDEOUTS (6): the hideouts, the secret and underground rooms. They are real names and can be given a property with arp_adddoor if one is wanted.
-      (pc_undergroundhideout, pc_trainhideoutsecret, xe_gang_hideout, xe_gang_hideout1, xe_ug_hideout, al_golgohideout)
-    THE CLUB DOORS (4): the map names these club and makeout doors, but they open on halls 700 to 900 units apart on two levels, and no sign or room
-    says which establishment each belongs to; none is guessed.
-      (pc_clubdoor1, pc_clubdoor4, pc_clubdoor6, pc_makeoutgate)
-    THE K-LINE'S SAFE (1): named for the K-Line, but the door of a closed vault room 800 units west of the supermarket, opening on another hall; not
-    the store's.
-      (al_klinesafe)
-    OFFICES, LABS, VAULTS AND UTILITY DOORS (55): names that give no establishment (the labs of the Aurora and the Shores, the offices of Xenon
-    City's upper levels and of Midgar, the Org headquarters, the pods xe_hex and xe_rect, the vaults, the routing and fabricating rooms).
-      (al_auroramaps, al_auroranever, al_auroraslabone, al_auroraslabtwo, al_auroraslabthree, al_lab_door2, al_lab_door3, al_labentrance,
-      al_lab_radio_wall, al_clabshores, al_shoresclab, al_shorescell, al_shorestwoc, al_clandesarmory, al_cultgate, al_stashofash, al_golgomen1armr,
-      al_golgos.apt.arm.door, al_golgomatcore, al_techvaultgate, al_fabricatdoor, al_routingdoor, al_midgarrouting, al_midgaroffice,
-      al_theofficedoormid, al_midgarkiosk, al_industrialinxae, pc_orghqroma1, pc_orghqroma2, pc_orghqroma3, xe_city_office_door1,
-      xe_city_office_door2, xe_cityoffice_gate, xe_office_door1, xe_office_door2, xe_office_gate, xe_gen5_door, xe_gen5_gate, xe_datacom_door1,
-      xe_datacom_door2, xe_datacom_gate, xe_cyblab_door, xe_cyblab_gate, xe_lcon_door, xe_lcon_gate, xe_labcell, xe_hex_1, xe_hex_2, xe_hex_3,
-      xe_rect_1, xe_rect_2, xe_rect_3, xe_rect_4, xe_rect_5, xe_rect_6)
+    LIFTS AND SHAFTS, opened by their own buttons and managers (14): the elevators and the doors of their shafts; ARP's touch hook on a property door could block or toggle one.
+      (al_lift, al_main.elev.1.door, al_main.elev.2, al_main.elev.2.door, al_golgo.ele.1, al_golgo.ele.2, al_golgo.ele.3, al_midgar.elev.offices, al_midgar.hq.1.ele,
+      al_researc.fac.elev, al_golgohideelev, pc_sewerelegate, pc_1orghq1elescreen1, pc_SkyTech_Elevator)
+    WAYS THROUGH OPENED BY THE MAP'S OWN MECHANISMS (15): the MSR gates and the estate gates (managers), the heaven's gate (buttons), the train doors (managers), the club's make-out gate (starts open),
+    Alexandria's underground blast doors and the maintenance core's gates (multisources), the sewer exit's grate (a button).
+      (pc_MSRGATEUP, pc_MSRGATEDOWN, pc_estategatep1, pc_estategatep2, pc_estategatep3, pc_estategatep4, pc_heavensgate, pc_traindoor1, pc_traindoor2, pc_makeoutgate, al_ug.blast.1,
+      al_ug.blast.2, al_maint.core.gate.1, al_maint.core.gate.2, al_midgar.sewer.exit)
+    MECHANISM DOORS (7): the lab's doors and wall that their own buttons work, the golgotha cores' and arms' doors that a breakable or a button opens, and the two doors of the blue car under the meeting
+    room, which the use key works (merge.mjs made them usable).
+      (al_lab_door2, al_lab_door3, al_lab_radio_wall, al_golgomatcore, al_golgos.apt.arm.door, al_clabshores, al_shoresclab)
+    PARADISE'S DEAD DOORS (11): the three key readers (3 x 16 x 18 panels that fire nothing), the three club doors and the three Org headquarters doors (700 to 900 units apart on two levels, and no
+    sign or room says which establishment each belongs to), and two hideouts. Paradise's own file was left as it was.
+      (pc_estategatekey, pc_estategatekey2, pc_MSRGATEKEY, pc_clubdoor1, pc_clubdoor4, pc_clubdoor6, pc_orghqroma1, pc_orghqroma2, pc_orghqroma3, pc_trainhideoutsecret, pc_undergroundhideout)
+    A VENT THAT IS A DOOR (1): al_xaelfivesexit, a grate of 44 x 4 x 48 far from any building. It carries the Specialists' break keys (maxdamage 50), but ARP's arp_goddoors (1 in arp.cfg) makes every func_door
+    unbreakable, and nothing opens it, so it stays shut. The clandestine armory's vent is a func_breakable for that reason (below); this one is left as it is.
+      (al_xaelfivesexit)
+    A LAB CELL (1): xe_labcell, which its own manager (xe_labcell_seq) opens.
+      (xe_labcell)
+    The clandestine armory's vent grille, al_clandesarmory, is a func_breakable of metal with 50 health (merge.mjs makes it one). As a func_door it could never be shot: ARP's GodEnts (arp_goddoors 1)
+    sets takedamage 0 on every func_door and func_door_rotating whatever their maxdamage says, while a func_breakable stays breakable (arp_godwindows 0). A shot or a blow breaks it, and the puzzle's manager
+    still breaks it by name.
     Also not in the file: the shops with no door at all (SNACK ARCHIVE, AMOEBA MUSIC, the BANK kiosk).
+
+  The prices follow the same rule: a database that has the old rows keeps their old prices (the paragraph on PRICES above gives the line that sets one).
 
   A hive database that loaded this file before it had its present rows keeps its old rows (INSERT OR IGNORE) and takes the new ones at its next start; two of the old rows differ and are
   changed by hand as an ARP admin: Paradise Cafe's heading (the old row says Cafe Avalon, a name no sign near the doors supports) and the Sky Bar's lock (the old row is unlocked, which
@@ -830,4 +1105,8 @@ ARP CONTENT ON HAVOC 9 -- the jobs, items, shops and NPCs of h9_tsrp_hive and h9
   real rooms behind their doors; that a buyer is let through the door of the flat he bought; that the one plaque each building shows from all its
   doors is the right one where a complex of closed rooms may join two establishments; that a shop's back and side doors, which the file locks, stay
   shut for a player who has no key. The doors the file leaves out (above) have no plaque.
+  NOT CHECKED either, of the 2026-11-11 additions: that the underground's four blast doors, the elevator's gates, the level doors and the core controls (open state properties) open to a touch and to the
+  use key and rise clear of a player; that the elevator's car, called by its button, stops at the three gates and the gates let a player on and off (the lift's path corners fire nothing); that the vent
+  of the clandestine armory breaks when shot, once the dumpster in front of it is pulled out of the alley's corner; that the pods, hideouts, offices and workrooms are rooms a player can use once he
+  has bought them; that the plaque names the new properties as the table says; that a bank balance can carry the prices of the dearer tiers (and the property tax, when it runs).
 

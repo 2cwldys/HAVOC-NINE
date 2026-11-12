@@ -42,6 +42,29 @@ INSERT OR IGNORE INTO arp_jobs VALUES ('Lord Commander',120,'abf');
 INSERT OR IGNORE INTO arp_jobs VALUES ('Lord Minister',150,'abg');
 -- ARP administration: the one job with z. An admin gives it with arp_setjob; nobody's job right holds z, so no one can offer it
 INSERT OR IGNORE INTO arp_jobs VALUES ('Administrator',0,'z');
+-- The Insurrection: the junior ranks, the NCOs, the officers, the high command and the head, lowest rank first, after the jobs above. Every job holds i (arp_h9_insurgent_access: the
+-- Insurrection team of ARP's team play, the Insurgency on the plaque) and one tier letter of its own: j the junior ranks, k the NCOs, l the officers, m the high command, n the head. No
+-- job right holds i or n, so only an admin can offer the Liberator; a right of j, jk, jkl or jklm (arp_setjobright) offers and takes the ranks below it as the Ministry's c, cd, cde and cdef do,
+-- and none of them shares a letter with a Ministry job. See docs\ARP_CONTENT.txt, sections 3 and 4.
+-- Insurrection: recruits, rebels and partisans
+INSERT OR IGNORE INTO arp_jobs VALUES ('Recruit',15,'ij');
+INSERT OR IGNORE INTO arp_jobs VALUES ('Rebel 1',20,'ij');
+INSERT OR IGNORE INTO arp_jobs VALUES ('Rebel 2',25,'ij');
+INSERT OR IGNORE INTO arp_jobs VALUES ('Rebel 3',30,'ij');
+INSERT OR IGNORE INTO arp_jobs VALUES ('Partisan',35,'ij');
+-- Insurrection: squad, cell and section leaders
+INSERT OR IGNORE INTO arp_jobs VALUES ('Squad Leader',40,'ik');
+INSERT OR IGNORE INTO arp_jobs VALUES ('Cell Leader',45,'ik');
+INSERT OR IGNORE INTO arp_jobs VALUES ('Section Leader',50,'ik');
+-- Insurrection: officers
+INSERT OR IGNORE INTO arp_jobs VALUES ('Colonel',60,'il');
+INSERT OR IGNORE INTO arp_jobs VALUES ('Marshal',70,'il');
+-- Insurrection: high command
+INSERT OR IGNORE INTO arp_jobs VALUES ('Tribune',80,'im');
+INSERT OR IGNORE INTO arp_jobs VALUES ('Strategist',90,'im');
+INSERT OR IGNORE INTO arp_jobs VALUES ('Hetman',100,'im');
+-- Insurrection: the head. No job right holds n, so only an admin can offer this job
+INSERT OR IGNORE INTO arp_jobs VALUES ('Liberator',130,'in');
 
 -- Optional, the Medical Division above the Ensign (the museum's list stops at M-Ensign). Remove the leading "-- " to use a line.
 -- INSERT OR IGNORE INTO arp_jobs VALUES ('M-Sergeant 1',45,'bd');

@@ -3,7 +3,7 @@ APOLLO RP ON HAVOC 9 -- what it is, what a player sees, what it needs
 
 Apollo RP (ARP) is a roleplay plugin set for AMX Mod X: a wallet, a bank, jobs with salaries, items, shops, jails and
 a HUD. H9 carries it whole in apollo-rp\ (apollo-rp\ORIGIN.txt says where it came from and lists every change H9 made
-to it, items 1 to 41), builds fourteen of its plugins for The Specialists and lists them in plugins.ini, ARP_Core first.
+to it, items 1 to 43), builds fifteen of its plugins for The Specialists and lists them in plugins.ini, ARP_Core first.
 
 
 1. WHERE IT RUNS
@@ -76,10 +76,16 @@ to it, items 1 to 41), builds fourteen of its plugins for The Specialists and li
     them in the fourth HUD (the notice banner for a player with panels, the centre text for any other): "Soda x3", and under it "Press use
     (default e) to pick up" from within 50 units, where use picks it up. The item's box is too small for the crosshair to hit, so the look is a
     cone of about 14 degrees from the eye, tried four times a second; the item nearest the middle of it wins, and nothing shows while the crosshair
-    is on a player, an NPC or a door (they name themselves). The same for the items a map has put on the floor (ARP_Core.sma, H9_AimedItem, GetMsg).
+    is on a player, an NPC or a property door (they name themselves): the world, a wall or a prop the crosshair is on does not hide it. The same for the items a map has
+    put on the floor (ARP_Core.sma, H9_AimedItem, GetMsg).
     A game that says _h9vgui 7 and has the HUD as panels is also sent the item's picture, a line of the kind HUDK_ICON ("icon:<the item's name>"),
     and draws it above the notice (the sheet sprites/h9_arpicons.spr: docs\ARP_INVENTORY_WINDOW.txt, 4; cl_h9_arphud_icon 0 leaves it out).
     arp_h9_itemhover (1 by default) switches it: 0 is stock Apollo RP, which says nothing of a dropped item.
+  * A DROPPED ITEM CARRIES ITS PICTURE (arp_h9_itemicon, 1 by default). Over each pack the picture the sheet has for its item floats in the world, a camera-facing sprite that
+    everybody who sees the pack sees from a distance (ARP_Core.sma, H9_ItemIconMake; ORIGIN 28). It goes with the pack when it is picked up, at most arp_h9_itemicon_max (64) stand at
+    a time (the oldest makes way; 0 makes none) and an item the list sprites/h9_arpicons.txt has no picture for has none. The picture is drawn unlit, so it reads in a dark corridor,
+    and none is made while the server has fewer than 100 free entity slots; the log says so when the feature is on and the sheet or its list is not on the server.
+    arp_h9_itemicon 0 is stock Apollo RP.
   * WHAT A PLAYER LOOKS AT, THE PLAQUE (arp_h9_plaque, 1 by default). A property door, an NPC and a player each say what they are, within 100 units, as the look-at line always
     did. ARP_Core's GetMsg builds it each time the look-at runs and sends it in the notice HUD. A player with panels (arp_hud4_type 2, which the shipped arp.cfg sets) sees a
     PLAQUE: a plate of one width on H9's purple art in the notice's place (the middle of the screen, low, clear of the crosshair), its heading in upper case with a rail under it,
@@ -87,14 +93,16 @@ to it, items 1 to 41), builds fourteen of its plugins for The Specialists and li
     - A PROPERTY DOOR. The establishment (the property's external name) is the heading. OWNER: the owner's name, with his job in brackets while he is in the game and has one
       (Unemployed is none); STATE PROPERTY when there is no owner and no price; FOR SALE and the price when there is a price and no owner (a property its owner has put up
       shows his name, and FOR SALE with the price under it). AFFILIATION, from the property's access letters: the police letter (arp_police_access, a) or g (the Lord
-      Minister's own) is the MINISTRY OF DEFENSE, the medical letter (arp_medical_access, b) the MEDICAL DIVISION, both "Ministry of Defense / Medical Division", the admin letter
-      alone ADMINISTRATION, no letter CIVILIAN. STATUS: SEALED when the property is locked, OPEN when it is not. RESTRICTED, in red, says who may when the property is locked and
+      Minister's own) is the MINISTRY OF DEFENSE, the medical letter (arp_medical_access, b) the MEDICAL DIVISION, both "Ministry of Defense / Medical Division", a letter of arp_h9_insurgent_access (i)
+      the INSURGENCY, the admin letter alone ADMINISTRATION, no letter CIVILIAN (PROLETARIAN while team play runs). STATUS: SEALED when the property is locked, OPEN when it is not. RESTRICTED, in red, says who may when the property is locked and
       the player has neither a key of it, nor the property, nor a letter in common with its access (the test the use key makes): MINISTRY OF DEFENSE, MEDICAL DIVISION, THE LORD
       MINISTER, AUTHORISED PERSONNEL, or KEYHOLDERS for a property that names no letter. With a price the hint "Say /buy to purchase" ends it. A door of no property says nothing.
     - AN NPC. Its name is the heading, then ROLE (SHOP, BANK, DOCTOR, GUN SHOP or ATM, from the handler its plugin gave it), the owner and affiliation of the property its
       npcs.ini block names with a property line (none of H9's does), and the hint "Press use (default e) to use".
-    - A PLAYER (arp_hover_message, 1). His name, JOB (his rank) when he has one, and AFFILIATION from the access letters of his job by the same rule (a Cadet to a Lord Commander
-      are the Ministry of Defense, the M- ranks the Medical Division, an Administrator Administration, anyone else Civilian). A player who is not alive is not described.
+    - A PLAYER (arp_hover_message, 1). His name, JOB (his rank) when he has one, and AFFILIATION from the access letters of his job: MIDDLE SEA REPUBLIC for a job with the police letter, the medical letter or g (a Cadet to the Lord
+      Minister, the M- ranks too), INSURGENCY for a letter of arp_h9_insurgent_access (i: the Insurrection's ranks hold it), ADMINISTRATION for the admin letter alone (an
+      Administrator), anyone else CIVILIAN (PROLETARIAN while team play runs). A player who is not alive is not described. A bot, a roaming citizen of tsrp_roambots, has no job: while team play runs (below) its team field gives
+      the line, PROLETARIAN for a citizen and INSURGENCY while an insurgency lasts; without team play it reads CIVILIAN as it always did.
     - STABILITY. A player who keeps looking at the same thing is left alone for a quarter of a second at a time, and the core sends the same lines again only every 1.5 seconds; every
       door of one property gives the same lines, so looking from one part of a door, or from one door of a property to another, changes nothing on the screen. A plaque that changes
       (another property, an owner who has just bought) is drawn again in place and does not fade out between. It stays 2.5 seconds after the last message and then fades. The game
@@ -106,6 +114,20 @@ to it, items 1 to 41), builds fourteen of its plugins for The Specialists and li
       text it always had, no Affiliation line and no plaque.
     - THE DATA. docs\ARP_CONTENT.txt, section 9, is the properties of H9's two maps (each door by its name in the map; a property has all the doors of its building, which show one
       plaque and share one lock). A door the map did not name cannot be bound by the file.
+  * TEAM PLAY (arp_teamplay, 0 by default). With 1 a roleplay map plays on TS's team rules with three teams, which the scoreboard shows as three groups in this order: MIDDLE SEA REPUBLIC (team 1,
+    blue), INSURRECTION (2, red) and PROLETARIANS (3, yellow); the client colours a team by its number. A player is on the team of his job and cannot pick one (the team panel and jointeam are
+    refused: "Your team follows your job"): a job with the police letter, the medical letter or g (a Cadet to the Lord Minister, the M- ranks too) puts him on the Middle Sea Republic, a letter of
+    arp_h9_insurgent_access (i: the Insurrection's ranks, ARP_CONTENT.txt, 3) on the Insurrection, every other job, Unemployed and an Administrator on the Proletarians. TS gives a joiner the
+    team with the fewest players (mp_defaultteam stays 0: any other value puts a player back on the first team at every spawn), and he is put on his own team as soon as his character is loaded,
+    and moved when his job changes (arp_setjob, arp_employ accepted, arp_fire): TS takes a player who changes team out of play for 5 seconds (respawntime in server.cfg) and he presses fire to
+    come back at a spawn point with the hands TS gives, so a promotion into or out of the Ministry or the Insurrection costs a respawn and a change between jobs of one team costs nothing; a
+    join costs nothing. Friendly fire is on (mp_friendlyfire 1), so a player can hurt one of his own team, and TS counts a kill of a teammate as a team kill: three within thirty seconds kick
+    the killer (banfortk 0) or ban him for banfortk minutes. TS writes no player model (mp_teammodels_force 0): each player keeps the one he chose. The roaming citizens (tsrp_roambots) are
+    Proletarians, and Insurrection while an admin's .insurgency lasts; an insurgent citizen sets itself on every player who is not on the Insurrection team (and, once the Republic has guards,
+    on every guard) and never on a player of the Insurrection team, and a citizen that a player of any team hurts still fights back.
+    The teams are set up as the map loads: arp_teamplay 1 in arp.cfg (or a line in the map's own mapconfig, which wins) and a map change. ts\game.cfg runs the command h9_arp_teams, which writes the
+    team list of a roleplay map that asked for team play and leaves every other map's as it was; arp_teams in the console shows what TS reports. arp_teamplay 0 is stock Apollo RP: no team is touched,
+    and the plaque, the citizens and the jobs are as they were. COMMANDS.txt (arp_teamplay) has the details; section 6, 8, is how to check it.
   * No names over players (arp_h9_hidenames, 1 by default; ts_matchmode): TS draws the name of the player the crosshair is on, red for anyone there
     being no sides on a roleplay map. An H9 game leaves those names out while Apollo RP is in use (the H9Look message, docs\H9_VGUI.txt 4j), so a
     player is known only by what Apollo RP says of him; 0 keeps TS's names. cl_h9_aimplaque 0 draws them regardless.
@@ -172,9 +194,9 @@ to it, items 1 to 41), builds fourteen of its plugins for The Specialists and li
 ------------------------------------------------------------------------
 
   1. Start on h9_tsrp_hive with the live database backed up. The AMX Mod X log has no ARP error and no "stand-down" line
-     for the map; amx_plugins lists the fourteen ARP plugins running.
-  1a. The same log has one line "[ARP] map SQL: 267 statements, 0 errors, jobs now 26, properties now 91, doors now 155" for the
-     start (the file's 26 jobs, 90 properties and 151 doors, and the jail's property and four doors the database has already; the same line at every later start
+     for the map; amx_plugins lists the fifteen ARP plugins running.
+  1a. The same log has one line "[ARP] map SQL: 369 statements, 0 errors, jobs now 26, properties now 131, doors now 217" for the
+     start (the file's 26 jobs, 130 properties and 213 doors, and the jail's property and four doors the database has already; the same line at every later start
      of the map: nothing is added twice), and arp_joblist lists 26 jobs, Unemployed first, in the order of the map's .sql file. h9_tsrp_newbyzantium the same,
      its jobs table made by the start, with 149 statements, properties now 30 and doors now 93.
   2. Join: within a few seconds the HUD is at the top left (title, wallet, bank, payday, salary, job) and two ARP
@@ -195,12 +217,19 @@ to it, items 1 to 41), builds fourteen of its plugins for The Specialists and li
      once the proof is in. arp_account_wait 0: no wait and no arp_ids writes.
   6. On a map that is not a roleplay one: the stand-down line, and no ARP traffic.
   7. The inventory and the exchange of goods (section 9): docs\ARP_INVENTORY_CHECKS.txt.
+  8. Team play (section 2; ARP_CONTENT.txt, 3 and 4). Set arp_teamplay "1" in configs\arp\arp.cfg and change to h9_tsrp_hive. The AMX Mod X log has "[ARP] arp_teamplay is 1: ...", "[ARP] game.cfg ran
+     h9_arp_teams: mp_teamlist is ^"Middle Sea Republic;Insurrection;Proletarians^", mp_friendlyfire 1" and, once somebody is in the game, "[ARP] team play runs on h9_tsrp_hive: TS reports the teams Middle Sea
+     Republic;Insurrection;Proletarians". arp_teams lists every player with his team by his job, by TS and by his entity. The scoreboard has the three groups, blue, red and yellow, and the citizens are
+     under Proletarians. arp_setjob <you> "Cadet" puts you on the Middle Sea Republic (out of play for 5 seconds: press fire), "Recruit" on the Insurrection, "Citizen" back on the Proletarians; another
+     player's plaque says his affiliation; typing jointeam 2, or opening the team panel, answers "Your team follows your job". As an admin type .insurgency: the citizens leave one by one and come back
+     armed, in another district, under Insurrection on the scoreboard with Insurgency on their plaque, and they fire on a Proletarian or Ministry player but not on a player whose job is an Insurrection
+     one; .civilians puts them back. Hurt a citizen as a Proletarian: it fights back. arp_teamplay 0 and a map change give back the map as it was.
 
 
 7. WHERE THINGS ARE
 -------------------
 
-  apollo-rp\ORIGIN.txt        what H9 changed, items 1 to 36
+  apollo-rp\ORIGIN.txt        what H9 changed, items 1 to 42
   reTS\cl_dll\h9_arphud.cpp   the client's panels for the HUD (client.dll.patch, 30)
   apollo-rp\ARP_IDS.txt       the account key: design, migration, limits, going back
   apollo-rp\H9.patch, H9-menus.patch, H9-arpfix.patch, H9-arpcontent.patch, H9-arphud.patch, H9-arpaudit.patch, H9-arpjobs.patch,
@@ -210,6 +239,8 @@ to it, items 1 to 41), builds fourteen of its plugins for The Specialists and li
   docs\H9_VGUI.txt, 1e        the panels
   docs\ARP_INVENTORY.txt      the inventory: cells and stacks, the rules, the hooks, the protocol of the window
   docs\ARP_INVENTORY_CHECKS.txt  what to look at in a game (the inventory and the exchange of goods)
+  docs\ARP_TAX_CHECKS.txt  what to look at in a game (the property tax)
+  modelling\arpicons\README.txt  the tools that make the item pictures, and how to add one
   docs\ARP_INVENTORY_WINDOW.txt the inventory window's client half: its layout, the pictures of the items, the colours
   docs\ARP_ADMINS.txt        giving ARP admin to a player: by his xash player id, his havoc9.org account, or a job; giving yourself money, items and a job to test
   docs\ARP_COMMANDS.txt      every ARP command and what it does: chat, police, property, admin, database, and the switches of arp.cfg
@@ -303,7 +334,7 @@ to it, items 1 to 41), builds fourteen of its plugins for The Specialists and li
     lost, one log line for each take, the other player told in chat. It ends when the cuffs come off, the other dies or leaves, the searcher goes beyond arp_h9_search_range (150),
     dies, is handcuffed or closes his window. One searcher at a time for a player, never while either is in an exchange. A plugin can veto it (the event Player_Search: "police
     only", a cooldown). A game that says less than 8 gets "That player cannot make an exchange now."; arp_h9_search 0 is that for everybody.
-  * CREDITS. arp_h9_credits (1) words the money of the window and of this plugin's messages as credits ("1,250 credits"); 0 words it as cash ("$1,250").
+  * CREDITS. arp_h9_credits (1) words the money of the window and of this plugin's messages as credits ("1,250 credits"); 0 words it as cash ("$1,250"). The HUD's money line says "Credits:" with 1 where stock ARP says "Wallet:".
     The wallet and the bank are ARP's: only the words change.
   * THE CREDIT SIGN. With arp_h9_credits 1 a player whose game says _h9vgui 7 (the client with its inventory window wanted) is shown the cent sign instead of the "$" of
     every amount that any Apollo RP plugin prints for him: in chat, console and centre text, in the HUD panel, in the H9 menus (the shops' prices, the bank, the ATM) and in
@@ -349,8 +380,15 @@ to it, items 1 to 41), builds fourteen of its plugins for The Specialists and li
     the credit sign for every amount (33)            arp_h9_credits (1); a game that says   "$" for everybody, as stock
                                                      _h9vgui 7
     the dropped item's look-at line (28, 29)         arp_h9_itemhover (1)                   stock: nothing is said of a dropped item
+    the dropped item's picture over its pack (28)    arp_h9_itemicon (1), arp_h9_itemicon_max (64), arp_h9_itemicon_scale (0.6)   stock: the pack is the backpack alone
     the look-at plaque of a door, an NPC and a       arp_h9_plaque (1), needs arp_hud4_type 2 stock: the text lines, with no Affiliation line and no
     player (41)                                      for the panel                          plaque
+    the property tax (42)                            arp_h9_tax (1), arp_h9_tax_minutes     0: stock: nothing is read or written, nobody is
+                                                     (15), arp_h9_tax_percent (1.0),        charged, and /tax is chat like any other line
+                                                     arp_h9_tax_flat (0)
+    team play: TS's team rules, three teams, a       arp_teamplay (0), a map change         stock: ARP touches no team and sets nothing of TS's: the map's rules,
+    player on the team of his job (43)               arp_teamplay_on is its state, set by   team list and friendly fire stay as the server has them; the plaque
+                                                     ARP_TS (not a switch)                  reads the job's letters alone, a citizen reads Civilian
     the HUD as panels, the needs and notice (21, 26) arp_hud_panel (1)                      the text HUD (hudmessages) for everybody
     hunger (stock ARP) as a needs panel (26)         arp_hunger_enabled (1)                 no hunger
     thirst (27)                                      arp_thirst_enabled (1)                 no thirst
@@ -367,3 +405,58 @@ to it, items 1 to 41), builds fourteen of its plugins for The Specialists and li
   the SQL driver (3), 128 slots (4, 10), TS ammunition and weapon numbers (5, 6, 7), jobs and bots (8, 9, 17), the jails (11), the HUD's channels (12),
   H9's two maps' own files (13), SQL quoting (16), the trie lists and the saves (22, 23), the OOC ping (24), and in this inventory work the drop order, the
   refusal to use an item the player no longer has (30).
+
+11. THE PROPERTY TAX
+--------------------
+
+  ARP_PropertyTax (ORIGIN item 42) makes a property that has an owner cost its owner money, taken from his bank every few minutes, and tells him each time: a popup on an H9 game
+  (the popups of ORIGIN item 40; the cent sign of item 33 stands in for each "$"), a chat line on any other. docs\ARP_TAX_CHECKS.txt says what to look at in a game.
+
+  * THE TOLL. Every arp_h9_tax_minutes minutes (15; 1 to 10080) each property that has an owner costs its owner arp_h9_tax_flat (0) plus arp_h9_tax_percent (1.0) per cent of what the
+    property cost him, rounded up to a whole number, so at least 1 when the sum is above 0. The percent and the flat sum count to the hundredth and the sum is worked out in whole
+    numbers, never in floats: 0.15 per cent of 2667 is 5, not 4. The minutes, the percent and the flat sum are read at every toll, so a change needs no restart; an interval made shorter
+    than the time since the last toll tolls at the next second. It comes out of the BANK, never the wallet, and the bank never goes below 0: what is there is taken, and what could not
+    be ("$40 could not be taken") is told to the owner and forgotten: no debt and no eviction. The owner of the moment pays: a property sold or given away since the last toll is its new
+    owner's. The clock starts with the map, so a restart or a map change starts it again and nobody is charged for the time the server was down (a map changed more often than the
+    interval never tolls), and the first toll of a map comes one whole interval after it starts.
+  * WHAT IT COST. Apollo RP sets a property's price to 0 when it is bought (a price is what an owner asks while the property is for sale), so a percent of the price would find 0 on every
+    owned property. The plugin keeps the price of each sale, from the event Property_Buy that ARP calls before the price is cleared, in a table of its own, arp_h9_taxbase (the map's
+    property table, the property and the price), and takes the percent of that. A property it has no price for (one that was owned before the plugin, one an admin gave away) counts as
+    its own price, which is 0 unless it is for sale: with arp_h9_tax_flat 0 it pays nothing, until an ARP admin gives it a price with  arp_h9_tax_value <internal name> <price>  (0 forgets
+    it again) or it is bought again. A property that has no owner is never charged, whatever it costs: the Ministry's posts and the clinics are nobody's.
+  * AN OWNER IN THE GAME whose character has loaded is charged at once, in his bank in the core's memory (ARP saves it as it saves the rest), and told in one line for the toll, however many
+    properties he has: "[ARP] Property tax: $204 taken from your bank for Flat A1, Flat A2 and Shop A3." (three names at most, then "and 4 more"; a name is cut at 20 characters and
+    ends in ".."; a line that would be too long for a popup names no property, only how many: "for 5 properties"). A bank that holds only part of it says so: "... $10 taken from your bank
+    for Flat O3; $50 could not be taken (not enough in your bank)." (the warm colour of a refusal), and an empty bank: "[ARP] Property tax for Flat O3: $60 could not be taken (not enough
+    in your bank)." An owner whose character has not loaded yet is left out of that toll: his bank in the database is not touched while he is connected, because the bank in memory is the
+    truth and the core writes it.
+  * AN OWNER WHO IS AWAY is charged too, in the database, in the bank of his character (the users table of the map: ARP_GetTable). What was taken is added to his row in arp_h9_tax:
+    authid, taken, unpaid (what could not be taken), tolls and props (how many properties the last toll counted), updated (the time). The next time he joins, once ARP has loaded him
+    (the event Player_Ready) and he has been alive for four seconds (not while he picks a class or watches), he is shown ONE popup: "[ARP] While you were away, property tax took $450
+    from your bank (3 tolls on 2 properties); $120 could not be taken (not enough in your bank)." The row is deleted first, by a statement that waits, and he is told only when that
+    statement removed it: a row that is not gone is never shown (a database that fails leaves him waiting), and a row somebody else removed is not shown twice. A toll that came since
+    he was read has another time and stays for his next visit. A player who owns nothing is never charged and never told.
+  * SAY /TAX tells an owner what each of his properties costs at a toll, the total, and the minutes to the next toll: a line in chat (a popup), and the list in the console. With
+    arp_h9_tax 0 it is not a command: the line is chat, as stock ARP would print it. It is in arp_help.
+  * THE DATABASE. Two tables, made with CREATE TABLE IF NOT EXISTS the first time they are needed (a query that waits, as ARP_Inventory's is); no row of any ARP table is added and going
+    back is dropping them. arp_h9_tax (authid VARCHAR(36), taken INT(11), unpaid INT(11), tolls INT(11), props INT(11), updated INT(11), UNIQUE authid): one row for each character that
+    has been charged while away and not told yet, under the key ARP keeps his rows under (ARP_GetUserKey). It follows the users table of the map: a map whose own arp.ini names another
+    users table (arp_table_users) gets arp_h9_tax_<that name>, so characters kept apart keep their rows apart. arp_h9_taxbase (tbl VARCHAR(66), name VARCHAR(66), price INT(11), UNIQUE
+    tbl and name): one row for each property that was bought, tbl being the map's property table (arp_property_<map>). An owner who is away is charged by two statements that the
+    module's one worker runs back to back: the first adds the toll to his row (what the bank holds of it is "taken", the rest "unpaid": it reads the bank as it is), the second takes it
+    from his bank, never below 0, and only when the row with this time is there. So a statement that fails leaves the bank alone, and nothing is ever tried again in its place: a failed
+    query is said once in the AMX Mod X log, the plugin leaves the database alone for a minute, and the owners it could not reach are not charged for that toll. (The one failure that leaves
+    a row without the money is the second statement failing after the first succeeded; the log says so, with the sum.) A toll with nobody in the game runs its statements in line, one
+    with players on the module's thread; the result is the same.
+  * STOCK APOLLO RP. arp_h9_tax 0: the plugin reads nothing, writes nothing, tolls nobody, learns no price and answers no command (arp_h9_tax_dump says what it holds); with the plugin
+    not listed in plugins.ini the server is stock ARP. Prices of sales made while it is 0 are not learned: those properties pay the flat sum until their price is given by hand.
+  * COMMANDS (an ARP admin's console, or the server's): arp_h9_tax_value <internal name> <price> sets what a property counts as having cost; arp_h9_tax_dump prints the switches, the clock, the
+    last toll (owners, how many in the game and away, what was taken, what was asked of the database) and the database (tables, prices known, failures, reads and writes).
+  * TWO THINGS ABOUT THE CORE THIS PLUGIN WORKS AROUND. (1) ARP_Core sets the price to 0 at a sale (CmdBuy), described above. (2) Two natives cut an owner's key, and H9XASH's authids are 35
+    characters ("ID_" and 32 digits): ARP_PropertyGetOwnerAuth hands it back in 33 (ARP_Core.sma, _ARP_PropertyGetOwnerAuth: OwnerAuth[33], array_get_string(..., 33)) and
+    ARP_PropertySetOwnerAuth keeps 32 (get_string(2, OwnerAuth, 32); an admin's arp_setproperty and ARP_PropertySetOwner use it). A property that is bought keeps the whole key (CmdBuy stores
+    it without the native) but is handed back in 33; one an admin gave to a player is kept in 32. So the stock ARP_PropertyGetOwner (include\ApolloRP_Properties.inc) never finds an H9XASH
+    owner among the players, and /sell, /lock, /changename, /changeowner, /addaccess, /delaccess and /profit of ARP_Commands answer "You are not the owner of this property." to him.
+    The plugin takes an owner's key of 32 to 34 characters as the beginning of a character's key, in the game and in the database (SUBSTR(authid,1,n)), takes the several texts of one
+    character's properties for one owner, and matches a key of 35 whole, so it works with the core as it is and with the two natives mended (the fix is a few characters in each native; it
+    is in the edits of this plugin and not part of it). arp_h9_tax_dump counts the owners whose key it had to take that way (cut_keys).

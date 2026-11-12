@@ -1,0 +1,149 @@
+diff --git a/base/addons/amxmodx/scripting/ARP_Core.sma b/base/addons/amxmodx/scripting/ARP_Core.sma
+--- a/base/addons/amxmodx/scripting/ARP_Core.sma
++++ b/base/addons/amxmodx/scripting/ARP_Core.sma
+@@ -272,9 +272,11 @@ new Float:g_H9ItemScan[MAX_PLAYERS + 1]	// H9: when a player's look at the dropp
+ // H9: the picture of a dropped item over its pack (arp_h9_itemicon, H9_ItemIconMake). A sprite entity of the class arp_item_icon floats over the pack and shows the item's frame of
+ // sprites/h9_arpicons.spr, the sheet the inventory window's tiles are drawn from; sprites/h9_arpicons.txt names the frames (read at precache: an item's name in lower case, then its
+ // frame). The sheet is a sprite of type SPR_FWD_PARALLEL, which faces the viewer whichever way he looks, and of format SPR_ALPHTEST, with the middle of each frame at the entity's
+-// origin. The icon is drawn solid (kRenderNormal) with a renderamt of 0: the client lights an alpha-test sprite (r_sprite_lighting) when its renderamt is above 127, and the picture
+-// is to read in a dark corridor as it does in the window. (EF_FULLBRIGHT is no way to that here: it is bit 27, the entity state carries the effects in 8 bits, and the client would
+-// be sent 255, which has EF_NODRAW in it.) The pack keeps its icon's entity in iuser3; the icon keeps its pack in iuser1 and the number it was made in in iuser2.
++// origin. The icon is drawn solid (kRenderNormal) and unlit: the client lights an alpha-test sprite (r_sprite_lighting) when its renderamt is above 127, and the picture is to read
++// in a dark corridor as it does in the window. The renderamt is 0 under a renderfx that is not none (kRenderFxNoDissipation, which does nothing to a sprite that is not a glow): the
++// client sets the renderamt of every kRenderNormal entity whose renderfx is none to 255 (CL_LinkPacketEntities). EF_FULLBRIGHT is no way to unlit: it is bit 27, the entity state
++// carries the effects in 8 bits, and the client would be sent 255, which has EF_NODRAW in it. The pack keeps its icon's entity in iuser3; the icon keeps its pack in iuser1 and
++// the number it was made in in iuser2.
+ new g_ItemIconSheet[] = "sprites/h9_arpicons.spr"
+ new g_ItemIconList[] = "sprites/h9_arpicons.txt"
+ new g_ItemIconClassname[] = "arp_item_icon"
+@@ -285,6 +287,7 @@ new p_H9ItemIcon
+ new p_H9ItemIconMax
+ new p_H9ItemIconScale
+ #define H9_ITEMICON_MAX 128	// the most icons arp_h9_itemicon_max can allow
++#define H9_ITEMICON_SPARE 100	// the edicts left free for the engine and the other plugins: no icon is made when fewer are left
+ 
+ // H9: the forwards ARP_Inventory implements when it is loaded (include\ApolloRP_Items.inc); with none loaded each answers 0 and the core is stock ARP
+ new g_H9FwdCount
+@@ -1021,8 +1024,8 @@ public plugin_precache()
+ 	p_HoverMessage = register_cvar("arp_hover_message","1")
+ 	// H9: 1 names a dropped item the player looks toward (H9_AimedItem); 0 is stock ARP, which says nothing of it
+ 	p_H9ItemHover = register_cvar("arp_h9_itemhover","1")
+-	// H9: 1 shows the picture of a dropped item over its pack (H9_ItemIconMake); 0 is stock ARP. arp_h9_itemicon_max is the most icons that stand at a time (the oldest makes way),
+-	// arp_h9_itemicon_scale the size of one (1.0 is 32 units across)
++	// H9: 1 shows the picture of a dropped item over its pack (H9_ItemIconMake); 0 is stock ARP. arp_h9_itemicon_max is the most icons that stand at a time (the oldest makes way; 0
++	// makes none), arp_h9_itemicon_scale the size of one (1.0 is 32 units across)
+ 	p_H9ItemIcon = register_cvar("arp_h9_itemicon","1")
+ 	p_H9ItemIconMax = register_cvar("arp_h9_itemicon_max","64")
+ 	p_H9ItemIconScale = register_cvar("arp_h9_itemicon_scale","0.6")
+@@ -3139,9 +3142,15 @@ H9_ItemIconPrecache()
+ {
+ 	g_ItemIconIdx = 0
+ 
+-	if(!h9_cfg_num("arp_h9_itemicon",1) || !file_exists(g_ItemIconSheet) || !file_exists(g_ItemIconList))
++	if(!h9_cfg_num("arp_h9_itemicon",1))
+ 		return
+ 
++	if(!file_exists(g_ItemIconSheet) || !file_exists(g_ItemIconList))
++	{
++		log_amx("[ARP] arp_h9_itemicon is 1 but %s or %s is not on this server: no picture stands over a dropped item.",g_ItemIconSheet,g_ItemIconList)
++		return
++	}
++
+ 	new Sheet = fopen(g_ItemIconSheet,"rb"),Frames
+ 	if(!Sheet)
+ 		return
+@@ -3181,6 +3190,8 @@ H9_ItemIconPrecache()
+ 
+ 	if(TrieGetSize(g_ItemIconFrames))
+ 		g_ItemIconIdx = precache_model(g_ItemIconSheet)
++	else
++		log_amx("[ARP] %s names no frame of %s: no picture stands over a dropped item.",g_ItemIconList,g_ItemIconSheet)
+ }
+ 
+ // H9: the oldest icon that stands, and in Count how many do
+@@ -3233,7 +3244,7 @@ H9_ItemIconOf(Pack)
+ }
+ 
+ // H9: the picture of an item over its pack: the icon's entity, or 0 when there is none (arp_h9_itemicon is 0, the sheet or its list is not there, the item has no picture in the list,
+-// the server has no entity left). With arp_h9_itemicon_max icons standing, the oldest makes way, so the packs dropped last keep theirs.
++// arp_h9_itemicon_max is 0, the entity table has no room to spare). With arp_h9_itemicon_max icons standing, the oldest makes way, so the packs dropped last keep theirs.
+ H9_ItemIconMake(Pack,const ItemName[])
+ {
+ 	if(!g_ItemIconIdx || !get_pcvar_num(p_H9ItemIcon))
+@@ -3247,10 +3258,18 @@ H9_ItemIconMake(Pack,const ItemName[])
+ 	if(!TrieGetCell(g_ItemIconFrames,Key,Frame))
+ 		return 0
+ 
++	new Max = clamp(get_pcvar_num(p_H9ItemIconMax),0,H9_ITEMICON_MAX)
++	if(Max < 1)
++		return 0
++
+ 	new Count,Oldest = H9_ItemIconOldest(Count)
+-	if(Count >= clamp(get_pcvar_num(p_H9ItemIconMax),1,H9_ITEMICON_MAX))
++	if(Count >= Max)
+ 		H9_ItemIconRemove(Oldest,0)
+ 
++	// the engine stops the server when it has no edict left, and create_entity cannot say so: an icon is made only while the table has room to spare
++	if(entity_count() + H9_ITEMICON_SPARE >= get_global_int(GL_maxEntities))
++		return 0
++
+ 	new Ent = create_entity("info_target")
+ 	if(!Ent)
+ 		return 0
+@@ -3272,6 +3291,7 @@ H9_ItemIconMake(Pack,const ItemName[])
+ 	entity_set_int(Ent,EV_INT_movetype,MOVETYPE_NONE)
+ 	entity_set_int(Ent,EV_INT_solid,SOLID_NOT)
+ 	entity_set_int(Ent,EV_INT_rendermode,kRenderNormal)
++	entity_set_int(Ent,EV_INT_renderfx,kRenderFxNoDissipation)
+ 	entity_set_float(Ent,EV_FL_renderamt,0.0)
+ 	entity_set_float(Ent,EV_FL_scale,Scale)
+ 	entity_set_float(Ent,EV_FL_frame,float(Frame))
+@@ -3296,7 +3316,7 @@ public H9_ItemIconSweep()
+ 			H9_ItemIconRemove(Icon,0)
+ 	}
+ 
+-	new Count,Oldest = H9_ItemIconOldest(Count),Max = clamp(get_pcvar_num(p_H9ItemIconMax),1,H9_ITEMICON_MAX)
++	new Count,Oldest = H9_ItemIconOldest(Count),Max = clamp(get_pcvar_num(p_H9ItemIconMax),0,H9_ITEMICON_MAX)
+ 	for(new Guard;Count > Max && Oldest && Guard < H9_ITEMICON_MAX;Guard++)
+ 	{
+ 		H9_ItemIconRemove(Oldest,0)
+@@ -3494,8 +3514,8 @@ GetMsg(id,Index)
+ 			//	client_print(id,print_chat,"Hud Added")
+ 		}
+ 	}
+-	// H9: a wall, a prop or a door of no property is not what the player looks at: the dropped item toward which he looks says what it is (the crosshair on the world or on the
+-	// pack itself is dealt with at the top of this function)
++	// H9: the crosshair is on something none of the branches above names (a prop; a player, while arp_hover_message is 0): the dropped item toward which he looks says what it is (the
++	// crosshair on the world or on the pack itself is dealt with at the top of this function; a door of no property and an NPC return or print above)
+ 	else
+ 		H9_ItemLook(id)
+ 
+
+diff --git a/base/addons/amxmodx/scripting/ARP_JailMod.sma b/base/addons/amxmodx/scripting/ARP_JailMod.sma
+--- a/base/addons/amxmodx/scripting/ARP_JailMod.sma
++++ b/base/addons/amxmodx/scripting/ARP_JailMod.sma
+@@ -61,7 +61,9 @@ new p_CuffSprite
+ public plugin_precache()
+ {
+ 	arpvgui_precache()
+-	if(file_exists(g_CuffIconModel))
++	// H9: the symbol's sprite is precached unless arp.cfg says arp_h9_cuffsprite 0 (read from the file: the server executes arp.cfg after the precache, so a change to 1 needs a
++	// map change): a client needs the file only when the symbol is on
++	if(h9_cfg_num("arp_h9_cuffsprite",1) && file_exists(g_CuffIconModel))
+ 		g_CuffIconIdx = precache_model(g_CuffIconModel)
+ }
+ 
+@@ -157,8 +159,11 @@ H9_CuffIconShow(id)
+ 	entity_set_int(Ent,EV_INT_solid,SOLID_NOT)
+ 	entity_set_edict(Ent,EV_ENT_aiment,id)
+ 	entity_set_int(Ent,EV_INT_rendermode,kRenderNormal)
+-	// the client lights an alpha-test sprite whose renderamt is above 127, and the symbol is to read in a dark cell: 0 is drawn solid and unlit. EF_FULLBRIGHT is no way to
+-	// that: it is bit 27, the entity state carries the effects in 8 bits, and the client would be sent 255, which has EF_NODRAW in it
++	// the client lights an alpha-test sprite whose renderamt is above 127, and the symbol is to read in a dark cell. It is drawn solid and unlit with a renderamt of 0 under a renderfx
++	// that is not none: the client sets the renderamt of every kRenderNormal entity whose renderfx is none to 255 (CL_LinkPacketEntities), and kRenderFxNoDissipation does nothing to
++	// a sprite that is not a glow. EF_FULLBRIGHT is no way to unlit: it is bit 27, the entity state carries the effects in 8 bits, and the client would be sent 255, which has
++	// EF_NODRAW in it
++	entity_set_int(Ent,EV_INT_renderfx,kRenderFxNoDissipation)
+ 	entity_set_float(Ent,EV_FL_renderamt,0.0)
+ 	entity_set_float(Ent,EV_FL_scale,0.7)
+ 	g_CuffIcon[id] = Ent

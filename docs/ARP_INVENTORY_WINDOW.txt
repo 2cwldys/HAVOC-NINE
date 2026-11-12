@@ -18,10 +18,11 @@ top right of the window, with ESC, or with the key again. The window closes by i
 and at a new map. While it is up the player can still walk; the mouse is not the view.
 
 The window. Eight cells across, four rows (a server may give more cells: the grid scrolls with the wheel or the arrows beside it). Each
-tile shows the item's picture (section 4; a monogram where it has none), the number in the stack at the top right, and its name. A cell
+tile shows the item's picture (section 4; a monogram where it has none), the number in the stack at the top right, and its name, centred under the picture on as many lines as the tile has room for (section 4). A cell
 another exchange holds says HELD and cannot be used or dropped. The title says INVENTORY, how many cells are used of how many
-(FULL when none is free), the character's name, job, wallet and bank. The money is called credits (the credit sign and 1,250) or cash
-($ 1,250): the server says which (arp_h9_credits). The row under the grid says what the server answered to the last click (a refusal is yellow).
+(FULL when none is free), the character's name, job, wallet and bank. The wallet is named CREDITS with the credit sign (CREDITS <sign> 1,250) where the money is credits, as the HUD's
+wallet line says it, and WALLET with the dollar sign (WALLET $ 1,250) as stock Apollo RP has it: the server says which (arp_h9_credits). The row under the grid says what the server
+answered to the last click (a refusal is yellow).
   * Left-click selects; the panel on the right shows its name, how many are in hand and its description, and the buttons USE, DROP ONE,
     DROP ALL, SPLIT ..., SHOW TO ... Double-click uses it.
   * Right-click a tile: the same as a menu (and INFO, and OFFER while an exchange is open).
@@ -176,14 +177,27 @@ A tile shows its item's picture: a 32 x 32 frame of sprites/h9_arpicons.spr (HL 
 with SPR_DrawHoles) named in sprites/h9_arpicons.txt, one line a picture:
     Soda|64
     First Aid Kit|68
-(the item's name as ARP_RegisterItem has it, exactly, a bar, the frame). The client reads both at a map's start. An item that is not in the
-text file is a monogram in a colour of its name.
+(the item's name as ARP_RegisterItem has it, exactly, a bar, the frame). The client reads both whenever the HUD's VidInit runs, a map's start or a restart of the video: the
+inventory element's VidInit does it, and CHud::VidInit calls it by name (H9ArpInv_VidInit), because the H9 elements register through AddHudElem, are not members of CHud, and
+CHud::VidInit does not walk the list of elements (Think, Draw and InitHUDData are walked). A name whose frame the sheet does not have is left out. An item that is not in the
+text file is a monogram in a colour of its name. The tile grows with the screen so that a name has room under the picture: 96 pixels on a screen 1000 pixels high or more (three lines of the game's 19 pixel font
+under the picture), 80 pixels from 700 pixels (two lines), and the 48 pixel tile of a smaller screen, or a font too tall for a line, holds the picture alone, the name
+then being in the panel of the selected item (the status row in the exchange and the search). The name is broken at spaces into the lines the tile has, each line centred
+under the picture and no wider than the tile less 3 pixels a side; a name that needs more lines, or a word wider than that, ends in "..." and is never cut off without a
+sign. All 101 names the game ships fit whole on the 96 pixel tile (86 of them on the 80 pixel tile). The other player's offer in an exchange is drawn under the name the
+server sent with it, so that its picture is found for an item this player's catalog does not hold.
+
+Why a tile shows a monogram: cl_h9_arpinv_state prints "pictures:" first (the sheet is a sprite number with its frames, or NONE and why, and how many times it was read since the game
+started: 0 means VidInit has not run), the room a tile has (for the picture, and how many lines of the name), the items the server has named that have no picture, the first tiles' frames, and for a name typed after it
+(cl_h9_arpinv_state Flashlight) the frame, or that the list spells it otherwise (names are compared exactly) or has no such name. cl_h9_arpinv_test draws a window of
+sixteen tiles for twelve seconds with no server and no item: fifteen names the sheet has and one it has not. python reTS\cl_dll\tests\check_arpicons.py checks the sheet as
+the engine reads it and every name the plugins register against the list, and says which items have no picture.
 
 The sheet has the 92 items of Apollo RP's plugins (ARP_TS, ARP_Items, ARP_HungerMod, ARP_TalkArea). The 31 weapons are rendered from their
 world models in TS's models folder (w_*.mdl) with SMAK's software renderer, the weapon laid on the diagonal; Apollo RP gives every other
 item the one backpack as its world model, so those are DRAWN, flat colours with a dark edge (modelling\arpicons\arpicons_art.py). Every
 picture gets a thin light edge so that a dark thing shows on the dark tile. To make the sheet again, after changing a drawing or adding an
-item (add its name to ICONS in arpicons_art.py):
+item (a drawn one goes at the end of LATER in arpicons_art.py; modelling\arpicons\README.txt says it step by step):
     node modelling\arpicons\bake_final.mjs modelling\arpicons\weapons_final.json modelling\arpicons\baked 32      (the weapons; once)
     python modelling\arpicons\make_arpicons.py [a tab separated list of item names to check against]
 which writes modelling\arpicons\out\h9_arpicons.spr and .txt, modelling\arpicons\preview.png (a sheet to look at) and h9_arpicons_atlas.png
@@ -206,6 +220,10 @@ panel (h9_arphud.cpp) draws that item's frame above the banner, centred, two or 
 below the banner when the top of the screen leaves no room, fading with it. The panel reads the sheet itself (vgui_H9Panel.cpp, H9ItemPicture
 and CH9PicturePanel: the frame's RGBA as a VGUI bitmap, kept for the life of the client). cl_h9_arphud_icon 0 hides it.
 
+The same sheet also stands in the world, over the pack itself, for everybody who sees the pack (arp_h9_itemicon on the server, docs\APOLLO_RP.txt, 2, and apollo-rp\ORIGIN.txt, 28):
+a camera-facing sprite of the item's frame, 19 units across, over the backpack. It needs no client change: the sheet is a sprite the engine draws, its type SPR_FWD_PARALLEL faces
+the viewer, and the server precaches it (a client that lacks the file has it sent). A client of an older build shows it as well.
+
 5. TESTS
 --------
 
@@ -214,9 +232,17 @@ range, no terminator, negative, huge), the layout at seven screen sizes with and
 the windows stay on the screen), select, double-click, the menu, split, drag (move, combine, split, drop, offer, take back), show,
 the exchange (seal lock, money field, quick buttons, ESC), the search (its messages decoded and refused, the layout at seven screens and three grid lengths, select,
 double-click, the buttons, the right-click menu and the TAKE box, a drag onto the inventory, ESC and the X, the wheel and the arrows, my own window beside it),
-scrolling. Build and run: cl /std:c++17 /EHsc /I.. test_arpinv.cpp.
-reTS\cl_dll\tests\render_arpinv.cpp and tools\render_arpinv.py draw the windows for twenty-three situations (15 to 23 are the search: four screens, the menu,
-the TAKE box, a drag, nothing on him, a long grid over capacity) into pictures with the very drawing the game uses (python tools\render_arpinv.py <folder of
+scrolling, the header's words (CREDITS with the credit sign and WALLET with $, at three screens), the picture of a tile at the layouts the game has (the 96 and 80 pixel tiles with the game's
+19 pixel font and a smaller one, the 48 pixel tile that holds the picture alone, a font too tall for a line under the picture, the offers, the other player's offer under the
+name the server sent), the names under the pictures (every name the game ships whole on the 96 pixel tile, most of them on the 80 pixel tile and the rest ending in dots, each
+line centred), the reading of the picture list (IconList in
+h9_arpinv_icons.h: comments, CRLF, a name too long, a list too long, a frame the sheet does not have; and the shipped sprites\h9_arpicons.txt against the shipped sheet), and
+a check of the source that CHud::VidInit calls H9ArpInv_VidInit and that this reads the pictures.
+Build and run: cl /std:c++17 /EHsc /I.. test_arpinv.cpp. The checks of the pictures and of the names read H9XASH\ts\sprites\h9_arpicons.txt and .spr and H9XASH\valve\gfx.wad
+(the game's own font, its lump CREDITSFONT) and print SKIP when they are not beside the tests.
+reTS\cl_dll\tests\render_arpinv.cpp and tools\render_arpinv.py draw the windows for twenty-seven situations (15 to 23 are the search: four screens, the menu,
+the TAKE box, a drag, nothing on him, a long grid over capacity; 29 to 32 are the owner's 1920 x 1080 screen, an 800 x 600 one and an exchange, measured and cut with the game's own
+font: the engine's creditsfont, 19 pixels high, read from valve\gfx.wad) into pictures with the very drawing the game uses (python tools\render_arpinv.py <folder of
 the .json files>): the layout, not the glyphs.
 The model was also checked against the server engineer's own strict decoders and client models, which were written from the contract alone (D:\temp\wf\arpinv-server\test5;
 they are not in the repository): random valid H9Inv and H9Search traffic from an encoder written for the purpose, accepted by those decoders, replayed through
@@ -240,7 +266,9 @@ h9_arpinv_model.h by a small C++ program, agreed after every message (25 seeds: 
   7. The weapons: in the server's console (or as an ARP admin) arp_createitems "<your name>" "PPSh-41" 1 and the same with "Laser Rifle": both tiles show
      their picture. Use one: the gun is in your hands at once (no attachment menu). Then h9_customweapons 0 on the server and a map change: using the item
      says the server does not have the weapon, and the tile is still there with the count it had.
-  8. Drag a tile out of the window and look at the pack from a few steps: its picture stands above the banner that names it (cl_h9_arphud_icon 0 takes it away).
+  8. Drag a tile out of the window and look at the pack from a few steps: its picture stands above the banner that names it (cl_h9_arphud_icon 0 takes it away), and the same picture
+     floats in the world over the pack (arp_h9_itemicon 1; look from across the room: it faces you whichever way you turn). Pick the pack up: the icon goes with it. Drop two
+     different items and pick one up: only its icon goes. Look at a pack that lies on a table or behind a prop the crosshair is on: it is named all the same.
   9. The colour: cl_h9_vgui_color 40 160 255. The window, the HUD panels, a notice, a chat bubble and a menu take the colour (the art, the text, the rails); a
      red warning row and the need bars keep theirs, and the item pictures do not change. cl_h9_vgui_color default: the purple. Typing
      cl_h9_vgui_r 40, _g 160 and _b 255 as three commands makes one change after a moment. docs\H9_VGUI.txt, 4k.
@@ -262,3 +290,12 @@ h9_arpinv_model.h by a small C++ program, agreed after every message (25 seeds: 
      handcuffed player money (arp_createmoney "<him>" 300) and take 10, then all: your wallet goes up, his down, the row says "You took ...", he reads "[ARP] <you> took ... from you."
      in the chat, the log has a "took N from the wallet of" line. With nothing in his wallet the buttons are dead. arp_h9_search_money 0 on the server: no row. A client that
      says 8 has no row either.
+ 17. The pictures, and the header (the client.dll of 2026-11-11 after the VidInit fix). Join a roleplay map and type cl_h9_arpinv_state in the console: the line "pictures:" says
+     the sheet is a sprite with 95 frames of 32 x 32 and the list names 101 items, read once or more. cl_h9_arpinv_test: a window of tiles shows pictures, the last tile (No Such
+     Item) a monogram, and its header says CREDITS with the credit sign. Open the real window (i): every tile of an item with a picture shows it (the Flashlight too), the name is
+     under it, and the header says CREDITS <sign> and BANK <sign>. Set arp_h9_credits 0 on the server and rejoin: the same window says WALLET $ and BANK $, and the HUD's line says Wallet.
+     cl_h9_arpinv_state Flashlight says frame 88. On a screen under 700 pixels high (800 x 600) the tiles hold the picture alone.
+ 18. The names under the pictures (the client.dll with the larger tiles, 2026-11-11 evening). On a 1920 x 1080 screen the tiles are 96 pixels and every item's whole name is
+     under its picture, centred, on up to three lines (Phone Prepaid Card on two); on 1280 x 720 or 1024 x 768 they are 80 pixels with two lines, and a name that needs more, or
+     a word wider than the tile, ends in "..."; on 800 x 600 the 48 pixel tiles hold the picture alone. In an exchange the other player offers an item you do not carry: the
+     tile of THEIR OFFER shows that item's picture, not two letters.

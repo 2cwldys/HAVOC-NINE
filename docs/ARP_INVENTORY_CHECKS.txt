@@ -14,7 +14,7 @@ A. Deploy (the lead's builds): build.bat apollo (ARP_Core, ARP_NPCs, ARP_JailMod
 
 B. Server only, nobody at a screen.
    1. The AMX Mod X log on h9_tsrp_hive: no ARP error, no "native not found", and a line "[ARP] inventory: inventory.ini names 0 stack limits" (the shipped file is all
-      comments). amx_plugins lists fourteen ARP plugins running, ARP_Inventory among them.
+      comments). amx_plugins lists fifteen ARP plugins running, ARP_Inventory among them.
    2. A player joins with any client: after a few seconds arp_h9_inv_dump <name> says "DUMP id=N on=1 slots=32 shown=32 used=..." (on=0 for a bot: bots are never given
       an arrangement) and arp_h9_inv_check <name> says "CHECK id=N OK". Whatever he buys or finds shows in the dump as cells, "C 0:<item>:<count> ...", kinds in item order
       after he joins again.
@@ -29,6 +29,8 @@ C. With H9's client on h9_tsrp_hive (a character with a few items, bought at a s
    1a. A NEW character with NOTHING: /inventory opens the window all the same, an empty grid, "INVENTORY 0 / 32", and the chat does not say "You have no items in your
       inventory." That line stays for a player whose game has no window (another client, cl_h9_arpvgui 0, arp_h9_vgui 0, arp_h9_inv_window 0): they get the text menu or
       the line as before.
+   1b. The names under the pictures: on a 1920 x 1080 screen the tiles are 96 pixels and each item's whole name is centred under its picture, on up to three lines; on 1280 x 720
+      the tiles are 80 pixels with two lines, and a name that does not fit ends in "...".
    2. Move: drag a tile onto an empty cell and it moves. Drag it onto a tile of the same item: as many go as fit under the stack limit (20) and the rest stays; onto another
       item: the two swap. A full tile onto the same item: nothing moves and the status row says "That stack is full." TIDY merges and packs to the front in item order.
    3. Stacks: buy 25 Soda (a shop that sells it): 20 and 5 in two cells. SPLIT (the right-click menu, or shift) 2 off the 5: 3 and 2 in two cells. arp_h9_inv_stack 5 in the
@@ -45,7 +47,7 @@ C. With H9's client on h9_tsrp_hive (a character with a few items, bought at a s
       feet"). GIVE to a player whose cells are full: "<NAME>'s inventory is full." and nothing moves.
    7. Over capacity: carry twelve kinds, then arp_h9_inv_slots 8: nothing disappears, the window shows the twelve (the header says 12 / 8 or the like), nothing new can be picked
       up or bought, and as soon as drops bring you under 8 cells it is normal again. arp_h9_inv_slots 0: nothing is ever refused and the grid grows in rows of 8.
-   8. Credits: arp_h9_credits 0 in the server console: within a second the header says CASH and the amounts read "$ 1,250"; 1: CREDITS and "1,250 CR". (The credit sign
+   8. Credits: arp_h9_credits 0 in the server console: within a second the header says CASH and the amounts read "$ 1,250"; 1: CREDITS and "1,250 CR"; the HUD's money line says "Wallet:" with 0 and "Credits:" with 1 at its next refresh. (The credit sign
       in the rest of Apollo RP is checked in E.)
    9. arp_h9_vgui 0: every ARP menu, /items among them, is the AMX Mod X text menu; the window cannot be opened; 1 gives it back (the window that was open is closed at once).
       arp_h9_inv_window 0 does the same for the inventory alone.

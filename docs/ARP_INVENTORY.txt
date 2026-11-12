@@ -268,6 +268,9 @@ WHO. A player is shown the sign when arp_h9_credits is 1 and his game says _h9vg
   every log (ARP_Log, log_amx, the server console) and anything a plugin parses keep "$"; so does arp_h9_credits 0, and a server where ARP_Inventory (which registers the
   cvar) is not loaded. In ARP_Inventory's own sentences a player in credits mode who is not shown the sign reads "1,250 credits", cash mode reads "$1,250" (inv_money).
 
+THE HUD LABEL. The HUD's money line says "Credits: $<n>" while arp_h9_credits is 1 and "Wallet: $<n>" while it is 0, as stock ARP does (ARP_HUD.sma looks the cvar up when it builds
+  the line). It follows the server's switch alone, whatever the player's game says; the sign in it is the player's own (WHO, above).
+
 HOW IT IS SPELLED. By where the text ends:
   chat, console and centre text (client_print)       the UTF-8 bytes C2 A2 (the engine decodes UTF-8 there)
   the text of an H9 panel                            the single byte A2 (Latin-1; the panels draw a byte above 127 as that character)

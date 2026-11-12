@@ -110,8 +110,8 @@ E. THE ADDITIONS OF 2026-11-11 (a full server restart first: the new cvars; a ma
       the new client.dll). What a plaque shows is the lines the core sent (arp_hudstate shows the start of what HUD 4 was last sent), drawn as a plate: the heading in upper
       case with a rail under it, OWNER and the other fields with a dim label, AFFILIATION and STATUS as badges.
       A. h9_tsrp_hive, a citizen (Unemployed or Citizen), one door at a time, the crosshair on the door within about 100 units:
-         Gear Guys' front door (pc_techromagna, the west front of the red shop, x 1772, y 2443 to 2499, floor -322): GEAR GUYS, OWNER STATE PROPERTY, AFFILIATION CIVILIAN (a plain
-         outline), STATUS OPEN (green). Nothing else: no restriction line.
+         Gear Guys' front door (pc_techromagna, the west front of the red shop, x 1772, y 2443 to 2499, floor -322): GEAR GUYS, FOR SALE $9600, AFFILIATION CIVILIAN, or PROLETARIAN while team play runs (a plain
+         outline), STATUS OPEN (green), and "Say /buy to purchase". No restriction line: the shop is open until somebody buys it.
          The Civil Protection gate (xe_xenoncpgate, the concourse's north end, y 661, x -63 to 65, behind the dais): XENON CITY CIVIL PROTECTION, AFFILIATION MINISTRY OF DEFENSE
          (the purple badge), STATUS SEALED (amber), and RESTRICTED MINISTRY OF DEFENSE ONLY in red. As an ARP admin give yourself the job Cadet (arp_setjob, docs\ARP_ADMINS.txt, 8)
          and look again: the red line is gone and the rest is the same; as M-Cadet the red line is back (the Medical Division has no police letter).
@@ -122,21 +122,21 @@ E. THE ADDITIONS OF 2026-11-11 (a full server restart first: the new cvars; a ma
          with no price, and the use key opens the door for you and for nobody else; /sell 3000 puts it up again (your name, FOR SALE $3000), /lock unlocks it (OPEN).
          A jail panel (al_jail1act, the Alexandria jail, x -1936 to -1920, y -288 to -272, z -3320 to -3304): JAIL, STATE PROPERTY, MINISTRY OF DEFENSE, SEALED, RESTRICTED.
          The Paradise Cafe's doors (pc_cafe1door, x 958, y 1095 to 1151, floor -306), the Sky Bar (xe_skyb_gate, x 49 to 121, y -725, floor 2271) and the steak house (al_edssteak) say FOR SALE
-         at their price and SEALED (the Sky Bar's gate starts open and stays open, with SEALED on its plaque); the K-Line's south door (al_klinedoor) says STATE PROPERTY, SEALED, RESTRICTED
-         KEYHOLDERS ONLY; the Gear Guys, Uncle Pikkys, Green Dragon, Xenon City Gear, Cafe Fortress, Guns n Stuff, Cybernetics and bank front doors say OPEN.
+         at their price and SEALED (the Sky Bar's gate starts open and stays open, with SEALED on its plaque); the K-Line's south door (al_klinedoor) says FOR SALE $9600, SEALED, RESTRICTED
+         KEYHOLDERS ONLY; the Gear Guys, Uncle Pikkys, Green Dragon, Xenon City Gear, Cafe Fortress, Guns n Stuff, Cybernetics and bank front doors say FOR SALE at their price and OPEN.
          All the doors of a building give its one heading, and its lock is the property's: Uncle Pikkys' other door (pc_unclepikkyse, x -1585 to -1535, y 445, floor -984) says UNCLE PIKKYS
-         PIZZERIA, STATE PROPERTY, SEALED, RESTRICTED KEYHOLDERS ONLY where its front door (pc_unclepikkysentra, x -1862, y 159 to 304) says OPEN; Guns n Stuff's back door (xe_gunshop1, x -373
-         to -301, y -875, floor 979) says GUNS N STUFF, SEALED; Paradise Flat 2's two doors (pc_resident2, x -3506, y -1811 to -1739, and pc_resident2park, x -3848 to -3776, y -1906, floor -984)
-         both say FOR SALE $3000; the SkyTech gate and lab door (pc_skytechgate, x -453 to -397, y 898, floor -91; pc_labdoor1sky, x -78, y 355 to 411, floor 98)
-         both say SKYTECH, SEALED; Pawn Prawn's staff door and the hatch under it (pc_noodles1, x -952, y 1779 to 1835, floor -298; pc_pphideout1, x -1048 to -965, y 1896 to 1984, floor -305) both
-         say PAWN PRAWN STAFF ROOM, SEALED. Paradise Flat 5 (pc_resident5, x -1737, y -2210 to -2138, floor -984) says FOR SALE $2400. A door that is in no property (the train door
+         PIZZERIA, FOR SALE $4800, SEALED, RESTRICTED KEYHOLDERS ONLY where its front door (pc_unclepikkysentra, x -1862, y 159 to 304) says FOR SALE $9600, OPEN; Guns n Stuff's back door (xe_gunshop1, x -373
+         to -301, y -875, floor 979) says GUNS N STUFF, FOR SALE $2400, SEALED; Paradise Flat 2's two doors (pc_resident2, x -3506, y -1811 to -1739, and pc_resident2park, x -3848 to -3776, y -1906, floor -984)
+         both say FOR SALE $2400; the SkyTech gate and lab door (pc_skytechgate, x -453 to -397, y 898, floor -91; pc_labdoor1sky, x -78, y 355 to 411, floor 98)
+         both say SKYTECH, FOR SALE $38000, SEALED; Pawn Prawn's staff door and the hatch under it (pc_noodles1, x -952, y 1779 to 1835, floor -298; pc_pphideout1, x -1048 to -965, y 1896 to 1984, floor -305) both
+         say PAWN PRAWN STAFF ROOM, FOR SALE $9600, SEALED. Paradise Flat 5 (pc_resident5, x -1737, y -2210 to -2138, floor -984) says FOR SALE $2400. A door that is in no property (the train door
          pc_traindoor1, x -3103, y 724 to 836, floor -1131; a lift; an estate gate) says nothing and leaves the screen as it was.
       B. h9_tsrp_newbyzantium: the north precinct's front desk door (precinct_n_desk, x -336 to -328, y 2768 to 2832, floor 0): NORTH PRECINCT, MINISTRY OF DEFENSE, SEALED,
          RESTRICTED. The cells in its row and the checkpoints' doors say their own names. The shops, bars, clinics and the bank have no plaque at their shutters (their doors have no name;
          docs\ARP_CONTENT.txt, 9); their NPCs have one.
       C. NPCs: Gear Guys Arms Dealer (hive, x 1900, y 2324): GEAR GUYS ARMS DEALER, ROLE GUN SHOP, and "Press use (default e) to use". The ATM Droid says ROLE ATM, the bank teller
          ROLE BANK, a Medical Officer ROLE DOCTOR, a shop clerk ROLE SHOP.
-      D. Players: with a second player, his name, JOB and AFFILIATION: a Captain MINISTRY OF DEFENSE, an M-Ensign MEDICAL DIVISION, a Merchant CIVILIAN, the Administrator ADMINISTRATION.
+      D. Players: with a second player, his name, JOB and AFFILIATION: a Captain MINISTRY OF DEFENSE, an M-Ensign MEDICAL DIVISION, a Merchant CIVILIAN (PROLETARIAN while team play runs), the Administrator ADMINISTRATION.
          Nothing is shown of a dead player.
       E. The plaque does not flicker: look steadily at the CP gate for ten seconds, and slowly across the gate and the shield behind it (xe_pdshield) and the wall beside: the plate
          stays, with no blink every second or two and no fade between the gate and the shield (the same property, the same lines); at the Gear Guys' door and its neighbour (a door
