@@ -27,7 +27,7 @@
 *  Keys (units are Half-Life's; speeds in units a second):
 *    model          the studio model (default models/h9/car.mdl); a car whose model is not on disk is removed
 *    maxspeed 900   backspeed 300   accel 450   brake 1200   coast 150 (the slowing with nothing pressed)
-*    maxturn 32     (the front wheels' greatest angle, degrees)   turnrate 120 (degrees a second)
+*    maxturn 35     (the front wheels' greatest angle, degrees)   turnrate 150 (degrees a second)
 *    frontdist 75   reardist 75   (the axles from the origin)   track 88 (between the wheels of one axle)
 *    length 200   width 100   height 64   (the body, for collision; the origin is on the ground, at the middle)
 *    radius 20      (the wheels')   maxstep 12 (the highest rise the wheels climb)
@@ -111,7 +111,7 @@ private:
 
 	// tuning (keys)
 	float m_flMaxSpeed = 900, m_flBackSpeed = 300, m_flAccel = 450, m_flBrake = 1200, m_flCoast = 150;
-	float m_flMaxTurn = 32, m_flTurnRate = 120;
+	float m_flMaxTurn = 35, m_flTurnRate = 150;
 	float m_flFrontDist = 75, m_flRearDist = 75, m_flTrack = 88;
 	float m_flLength = 200, m_flWidth = 100, m_flHeight = 64;
 	float m_flRadius = 20, m_flMaxStep = 12;
@@ -135,6 +135,9 @@ private:
 	float m_flNextReport = 0; // developer 1: what the car sees, twice a second
 	float m_flLastHit = 1;
 	bool m_bLastStartSolid = false;
+	char m_szLastHit[32] = "";
+	float m_flWheelGround[4] = {0, 0, 0, 0}; // each wheel's ground, the frame before: its trace starts over it
+	float m_flFrontGround = 0, m_flRearGround = 0; // under each axle: the bumper rays go at a height over it
 };
 LINK_ENTITY_TO_CLASS(h9_car, CH9Car);
 
@@ -213,6 +216,9 @@ void CH9Car::Spawn()
 	pev->frame = 0;
 	pev->framerate = 0;
 	m_flYaw = pev->angles.y;
+	for (float& z : m_flWheelGround)
+		z = pev->origin.z;
+	m_flFrontGround = m_flRearGround = pev->origin.z;
 	m_flMaxTurn = H9Clamp(m_flMaxTurn, 1, 60);
 	m_flMaxStep = H9Clamp(m_flMaxStep, 0, 32);
 	FitBox();
@@ -380,7 +386,7 @@ void CH9Car::Steer(CBasePlayer* pDriver, float dt)
 	m_flSpeed = H9Clamp(m_flSpeed, -m_flBackSpeed, m_flMaxSpeed);
 
 	// less lock at speed, as a driver gives it
-	const float lock = m_flMaxTurn * (1 - 0.6f * H9Clamp(fabsf(m_flSpeed) / m_flMaxSpeed, 0, 1));
+	const float lock = m_flMaxTurn * (1 - 0.45f * H9Clamp(fabsf(m_flSpeed) / m_flMaxSpeed, 0, 1));
 	const float target = left == right ? 0 : (left ? lock : -lock);
 	m_flSteer = H9Approach(target, m_flSteer, m_flTurnRate * (target == 0 ? 1.5f : 1.0f) * dt);
 
@@ -407,13 +413,17 @@ bool CH9Car::Blocked(const Vector& from, const Vector& move, TraceResult& hit)
 	const Vector lead = move.Normalize() * 4; // a margin, so it stops short of the wall rather than in it
 
 	TraceResult tr;
-	const Vector lift = Vector(0, 0, 32 + m_flMaxStep + 1); // large_hull is 64 tall, centred
+	// a hull through the middle, its foot well over the wheels' climb (a slope rises under its ends); one that starts
+	// in something (a wall it already touches on a turn) says nothing, and the rays below do the work
+	const Vector lift = Vector(0, 0, 32 + m_flMaxStep + 12); // large_hull is 64 tall, centred
 	UTIL_TraceHull(from + lift, from + lift + move, dont_ignore_monsters, large_hull, edict(), &tr);
-	if (tr.flFraction < hit.flFraction)
+	if (!tr.fStartSolid && tr.flFraction < hit.flFraction)
 		hit = tr;
 
 	const float halfLength = m_flLength / 2, halfWidth = m_flWidth / 2;
-	const float heights[] = {m_flMaxStep + 2, m_flHeight / 2};
+	// the rays at heights over the ground under the leading axle, so that they follow a slope instead of meeting it
+	const float base = (ahead > 0 ? m_flFrontGround : m_flRearGround) - from.z;
+	const float heights[] = {base + m_flMaxStep + 2, base + m_flHeight / 2};
 	for (float z : heights)
 	{
 		for (int side = -1; side <= 1; side++)
@@ -438,6 +448,7 @@ bool CH9Car::Move(float dt)
 	{
 		m_flLastHit = hit.flFraction;
 		m_bLastStartSolid = hit.fStartSolid != 0;
+		snprintf(m_szLastHit, sizeof(m_szLastHit), "%s", hit.flFraction < 1 && hit.pHit ? STRING(hit.pHit->v.classname) : "");
 	}
 	if (!blocked)
 	{
@@ -476,7 +487,8 @@ void CH9Car::Settle(float dt)
 	float sum = 0;
 	for (int i = 0; i < 4; i++)
 	{
-		const Vector wheel = pev->origin + forward * along[i] + right * across[i];
+		Vector wheel = pev->origin + forward * along[i] + right * across[i];
+		wheel.z = m_flWheelGround[i]; // from its own ground: on a slope a wheel is well above or below the middle
 		TraceResult tr;
 		UTIL_TraceLine(wheel + Vector(0, 0, m_flMaxStep + 1), wheel - Vector(0, 0, m_flRadius * 2 + 8), ignore_monsters,
 			edict(), &tr);
@@ -529,6 +541,11 @@ void CH9Car::Settle(float dt)
 	}
 	UTIL_SetOrigin(pev, origin);
 	pev->angles = Vector(m_flPitch, m_flYaw, m_flRoll);
+	// the next frame's wheel traces start over these; a wheel in the air hangs from the body
+	for (int i = 0; i < 4; i++)
+		m_flWheelGround[i] = touching[i] ? ground[i] : origin.z;
+	m_flFrontGround = (m_flWheelGround[0] + m_flWheelGround[1]) / 2;
+	m_flRearGround = (m_flWheelGround[2] + m_flWheelGround[3]) / 2;
 }
 
 // The bounding box: a box stays square to the world in the engine, so it is the one that holds the turned body.
@@ -645,10 +662,10 @@ void CH9Car::Step(const char* by)
 		if (CVAR_GET_FLOAT("developer") > 0 && gpGlobals->time >= m_flNextReport)
 		{
 			m_flNextReport = gpGlobals->time + 0.5f;
-			char line[192];
-			snprintf(line, sizeof(line), "h9_car (%s): buttons %x speed %.0f steer %.1f yaw %.0f grounded %d trace %.2f%s z %.1f\n", by,
+			char line[256];
+			snprintf(line, sizeof(line), "h9_car (%s): buttons %x speed %.0f steer %.1f yaw %.0f grounded %d trace %.2f%s %s z %.1f pitch %.1f\n", by,
 				pDriver->pev->button, m_flSpeed, m_flSteer, m_flYaw, m_bGrounded ? 1 : 0, m_flLastHit,
-				m_bLastStartSolid ? " startsolid" : "", pev->origin.z);
+				m_bLastStartSolid ? " startsolid" : "", m_szLastHit, pev->origin.z, m_flPitch);
 			ClientPrint(pDriver->pev, HUD_PRINTCONSOLE, line);
 		}
 	}
