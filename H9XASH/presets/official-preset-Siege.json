@@ -59,7 +59,7 @@
     {
       "kind": "amxx",
       "file": "ARP_Core.amxx",
-      "sha256": "036e2024925110e2881d953d68160f04e4e78c458229b028d3b89448db06ffdc",
+      "sha256": "9caf5b6e721642d8af5ea2b9359266010dca34348066b23e04c707619d106f59",
       "note": "build 1.61"
     },
     {
@@ -269,7 +269,7 @@
     {
       "kind": "amxx",
       "file": "ts_matchmode.amxx",
-      "sha256": "cecc32dd4e5776010b92cd223c2d6f020980040a946590f0b48bb07a2745e816",
+      "sha256": "93aab171697535defc8e532868f8a0756d1310f8738502227261b1622814615a",
       "note": "build 1.61"
     },
     {
