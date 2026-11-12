@@ -1838,3 +1838,19 @@ reverse check fails once a later patch changes a line inside its hunk there. Mad
 ### 2026-11-09 -- engine-h9-presence.patch (changed): a CL_Presence_Frame stub for the dedicated build
 
 `Host_Frame` (`host.c`) calls `CL_Presence_Frame()`, which `cl_presence.c` defines in the client; the dedicated build (`waf configure -d`, `linux/build-linux.sh engine`) has no client code and stopped at the link with `undefined reference to CL_Presence_Frame`. `engine/common/dedicated.c`, where the dedicated build keeps its client stubs, now has an empty `CL_Presence_Frame` after the `CL_Disconnect` stub: one hunk added to this patch, and no other patch touches `dedicated.c`. The file is compiled only into the `-d` build, so `HAVOC 9.exe`, `xash.dll` and the browser engine are unchanged by it.
+
+### 2026-11-11 -- engine-h9-framesize.patch (new): a client's frame is built in 48 KB
+
+`SV_SendClientDatagram` (`sv_frame.c`) wrote a client's whole update for one frame (the time, the clientdata, the entities in view and the unreliable data queued for the client) into a
+`MAX_DATAGRAM` buffer of 16,384 bytes, and a frame that passed it was cleared and not sent: "Datagram overflowed for <name>". The first update after a spawn holds every entity in view
+whole, about 10 bytes each and a player about 30, so a spawn that sees 1,500 map entities (the open parts of New Byzantium, the plazas of the hive) passed it: the client got no update and no
+delta base, and the next update was whole again. The owner's `logs\h9_overflow.log` has it at his spawns on h9_tsrp_newbyzantium (2026-11-08) and h9_tsrp_hive (2026-11-11), and in the
+game it is a model that keeps running its legs while the view does not update. The netchan is not what limits it: `SV_GetFragmentSize( FRAGSIZE_UNRELIABLE )` is `NET_MAX_MESSAGE` (about
+192 KB), `Netchan_TransmitBits` splits the datagram into packets, and a client puts a split packet back together up to `NET_MAX_FRAGMENT` (65,535 bytes; `XASH_LOW_MEMORY` is 0 on every
+H9 build, the browser's too). The buffer is now `SV_H9_FRAME_MAX`, three times `MAX_DATAGRAM` (49,152 bytes: the most a frame holds is 2,048 entities (`MAX_VISIBLE_PACKET`) at 12 bytes,
+a player in each of 128 slots at 40 and a full client queue of 16 KB, about 46 KB), with a compile-time check that it stays under `NET_MAX_FRAGMENT`. `cl->datagram` and `sv.datagram`,
+the queues the game and the plugins write unreliable messages into, keep their 16 KB. engine-h9-entbudget.patch (spreading the entities new to a client over several updates) stays a
+proposal (`xash3d-h9-patches\proposals`). One hunk in `sv_frame.c` at `SV_SendClientDatagram`, made from a copy of the file as the chain leaves it (`git apply --check` clean), built
+2026-11-11 15:30. Added to the end of the chain in `xash.bat` and to the `xash.dll` description line (that line is 8,159 of cmd's 8,191 characters now: the line is ONE cmd command, its fifth
+argument counts too, and the text about the menu's video lost words for room). A dedicated server on Linux carries it with its next engine build. Not tried in a game: a spawn that sees more
+than 16 KB should now get its first update.

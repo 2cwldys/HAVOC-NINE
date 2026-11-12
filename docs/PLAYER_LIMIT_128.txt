@@ -1782,15 +1782,21 @@
    * "<name> overflowed", the client dropped: its reliable stream passed
      MAX_INIT_MSG, 192 KB (net_ws.h:41, sv_frame.c). Find what floods it; do not
      raise it (every client shares the size).
-   * "Datagram overflowed for <name>": a client's unreliable data or a whole
-     frame's packet passed MAX_DATAGRAM, 16 KB (net_ws.h:34, sv_frame.c). The
-     rates do not change that size. The whole frame is dropped, so the client
-     gets no delta base and its next update is a full one again. On a big
-     open map the entities in view fill it: about 10 bytes each when new to a
-     client, 600 to 1,500 in view on New Byzantium. h9_msgstats shows which it
-     is (COMMANDS.txt, DATAGRAM OVERFLOW); h9_staticprops takes the map's
-     props out of the update; engine-h9-entbudget.patch (a proposal) holds the
-     entities new to a client to a budget, so no update can pass 16 KB.
+   * "Datagram overflowed for <name>": a client's unreliable data (MAX_DATAGRAM,
+     16 KB, net_ws.h:34) or a whole frame's packet passed its buffer. A frame is
+     built in 48 KB, three times MAX_DATAGRAM (sv_frame.c, SV_H9_FRAME_MAX,
+     engine-h9-framesize.patch: the netchan carries up to NET_MAX_MESSAGE and
+     splits a frame into packets, and a client puts one back together up to
+     NET_MAX_FRAGMENT, 64 KB). The rates do not change that size. The whole frame
+     is dropped, so the client gets no delta base and its next update is a full
+     one again. On a big open map the entities in view fill it: about 10 bytes
+     each when new to a client, 600 to 1,500 in view on New Byzantium, so the
+     first update after a spawn passed the old 16 KB (logs\h9_overflow.log has it
+     at the owner's spawns on h9_tsrp_newbyzantium and h9_tsrp_hive). h9_msgstats
+     shows which it is (COMMANDS.txt, DATAGRAM OVERFLOW); h9_staticprops (off by
+     default, not yet tried in a game) takes the map's props out of the update;
+     engine-h9-entbudget.patch (a proposal) holds the entities new to a client to
+     a budget.
    * "sv.reliable_datagram overflowed, its messages dropped": the shared 16 KB,
      dropped whole (engine-h9-reliableburst.patch). A server-only raise.
    * "pfnMessageEnd: X has overflow multicast buffer" (8 KB) and "X too long

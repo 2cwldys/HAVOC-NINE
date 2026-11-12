@@ -144,3 +144,6 @@ Built:    branch h9 at 17c23c81, Mon 11/09/2026  9:05:48.02
 Built:    branch h9 at 17c23c81, Mon 11/09/2026  9:17:56.53
           engine-h9-serverauth.patch, engine-h9-webwarm.patch,
           engine-h9-intro.patch and engine-h9-glowfix.patch
+Built:    branch h9 at 17c23c81, Wed 11/11/2026 15:30:41.06
+          engine-h9-intro.patch, engine-h9-glowfix.patch and
+          engine-h9-framesize.patch
