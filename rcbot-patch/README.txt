@@ -35,6 +35,11 @@ with this install -- with additive changes:
      a near one and for an emptied launcher -- and aims and fires the launcher itself: one press, at the
      target's feet, led. Weapons 37 to 63, H9's 39 to 41 among them, have a place in the weapon tables
      (stock rcbot writes a bot's weapon 41 past the end of its table; see CHANGE 13)
+ 12. Teams in an insurgency: with the teams in use an insurgent roamer's enemies are every player and
+     every bot that is not on its own team, and never one that is; a client with no team yet is nobody's
+     (RoamIsEnemy compares team fields: tsrp_roambots puts every citizen on the Insurrection team, 2,
+     while an insurgency lasts, and Apollo RP's ARP_TS puts a player on the team of his job); its
+     attacker stays an enemy whatever team he is on (see CHANGE 14)
 
 Win32, MetaMod Release, MSVC v145.
 
@@ -733,6 +738,56 @@ on an empty launcher, a pull that launches nothing, and a salvo or a reload cut 
 
 
 ===============================================================================
+CHANGE 14: ROAMING CITIZENS AND TEAMS (rcbot-ts-roam-teams.patch)
+===============================================================================
+
+    CBot::RoamIsEnemy, bot.cpp (CHANGE 8's test of an enemy)
+
+A roamer's enemies are its attacker and, in an insurgency (tsrp_roambots_insurgency), the players
+tsrp_roambots_insurgent_team names (0: every player who is not a bot). With Apollo RP's team play
+(arp_teamplay 1) a roleplay map has three teams -- 1 Middle Sea Republic, 2 Insurrection, 3 Proletarians --
+and every player and every bot has one in pev->team: ARP_TS puts a player on the team of his job,
+tsrp_roambots puts a citizen on 3 and, while an insurgency lasts, on 2, all of them at once. After the
+attacker is answered and the insurgency's settings are read, the test is:
+
+        if (pev->team > 0)
+        {
+            if (pEntity->v.team <= 0 || pEntity->v.team == pev->team)
+                return false;
+        }
+        else if (pEntity->v.flags & FL_FAKECLIENT)
+            return false;
+
+so with the teams in use an insurgent roamer's enemies are every player AND every bot that is not on its
+own team, and never one that is, whatever tsrp_roambots_insurgent_team says: an insurgent citizen (team 2)
+is set on the Proletarians and on the Middle Sea Republic's players and on a bot of the Republic's team (the
+guards a later job adds), and leaves the Insurrection's players and the other insurgents alone. A client
+no team is set on yet (pev->team 0: a player ARP has not placed) is nobody's enemy until it has one. The
+cvar still narrows the hunt, in the line that ends the function as before: 0 does not, a team number
+leaves only that team's players and bots. Every citizen is on team 2 from the moment an insurgency
+starts (the plugin sets the team fields at once; TS's own move, a quarter-second step each, comes after),
+so no insurgent is ever set on a citizen that has not moved yet. With no teams in use (arp_teamplay 0)
+the roamer's team reads 0, a bot is nobody's enemy and nothing changes: only a player is an enemy, as in
+CHANGE 8. The test comes after the attacker's, so a citizen that a player hurts fights him back whatever
+team he is on: with friendly fire on (team play sets mp_friendlyfire 1) a Proletarian player's blow lands on
+a citizen of his own team and it answers it, with its hands, as before. (A bot is never an attacker: RoamNoteAttacker
+takes players only, so a guard's blow makes no attacker, and one fight starts no brawl.)
+
+This is the insurgents' rule, and every roamer is a citizen so far. A roamer of another kind -- a guard,
+on the Middle Sea Republic's team, which fights the insurgents -- must not run it: it takes its own
+rule in RoamIsEnemy ahead of this one, told by its team field, and needs the insurgents' team number
+for it (a cvar the plugin sets, or a constant).
+
+Every other way a roamer picks a target goes through IsEnemy, and so through RoamIsEnemy: the scan of
+what it sees, the attack task (which asks again as it runs, and drops a target that is no enemy) and the
+events of a death seen (which can set a priority attack on a dead player's entity, only for the task to
+drop it at once). A roamer of a team that needs another rule adds its test to RoamIsEnemy, before the
+test above: it is the only test of an enemy that a roamer makes.
+
+Not touched: the stock attack code, CHANGE 8's attacker (RoamNoteAttacker, RoamAttacker), the cvars.
+
+
+===============================================================================
 REBUILDING
 ===============================================================================
 
@@ -750,12 +805,13 @@ REBUILDING
     git apply rcbot-ts-objectives.patch
     git apply rcbot-ts-briefcase.patch
     git apply rcbot-ts-mech.patch
+    git apply rcbot-ts-roam-teams.patch
     MSBuild dlls\HPB_bot.vcxproj /p:Configuration="MetaMod Release" /p:Platform=Win32
 
-In this order. The eleven together give, file for file, the source in src\;
+In this order. The twelve together give, file for file, the source in src\;
 without the third the tree does not compile. On a clone with core.autocrlf true, apply
 with --index. The shipped rcbot_mm.dll (and rcbot_mm.dll.patch) is the build of
-the first ten; a build of all eleven is what carries CHANGE 13.
+all twelve, CHANGE 14 and CHANGE 13 included.
 
 Output lands at
     dlls\HPB_bot___Win32_MetaMod_Release\HPB_bot.dll

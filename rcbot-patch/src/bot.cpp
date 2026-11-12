@@ -4747,8 +4747,10 @@ void CBot::Think()
 //   tsrp_roambots_defend_time      how long, in seconds, it goes on without being hurt again
 //                                  before it lets him be (ROAM_DEFEND_TIME without the cvar)
 //   tsrp_roambots_insurgency       1: the citizens are insurgents, hostile to players
-//   tsrp_roambots_insurgent_team   0: insurgents are set on every player who is not a bot; a team
-//                                  number: only on the players of that team (pev->team)
+//   tsrp_roambots_insurgent_team   0: insurgents are set on every player who is not a bot (with the
+//                                  teams in use, on every bot of another team too); a team number:
+//                                  only on the players of that team (pev->team), and with the teams
+//                                  in use on its bots
 // They are read once a second. A cvar that does not exist reads 0, so a server without the
 // plugin has no roamers and nothing here changes how its bots play.
 //
@@ -4779,7 +4781,8 @@ void CBot::Think()
 //
 // INSURGENTS. While tsrp_roambots_insurgency is on, the plugin dresses and arms the citizens, and
 // every roamer also takes the players tsrp_roambots_insurgent_team names for enemies and fights
-// them with what it carries.
+// them with what it carries. With the teams in use (CHANGE 14) that is every player and every bot
+// that is not on the roamer's own team, and the ones of its own team are never enemies.
 //
 // THE PLUGIN'S HOLD. While two citizens stop to talk, the plugin holds them with FL_FROZEN and
 // turns them to face each other: a roamer with FL_FROZEN stands, presses nothing and leaves its
@@ -5024,8 +5027,8 @@ edict_t* CBot::RoamAttacker() const
 }
 
 // Whom a roamer fights: its attacker, and, while the citizens are insurgents, every player who is
-// not a bot -- or only the players of tsrp_roambots_insurgent_team. Never anything else, not even
-// a door in its way.
+// not a bot -- or only the players of tsrp_roambots_insurgent_team -- and, with the teams in use,
+// every bot of another team as well (CHANGE 14). Never anything else, not even a door in its way.
 bool CBot::RoamIsEnemy(edict_t* pEntity) const
 {
 	if (pEntity == nullptr || pEntity == m_pEdict || !(pEntity->v.flags & FL_CLIENT))
@@ -5039,8 +5042,27 @@ bool CBot::RoamIsEnemy(edict_t* pEntity) const
 
 	const RoamSettings& roam = RoamNow();
 
-	if (!roam.bHostile || (pEntity->v.flags & FL_FAKECLIENT))
+	if (!roam.bHostile)
 		return false;
+
+	// The teams are in use when the server gives the roamer a team in pev->team: tsrp_roambots puts every citizen on team 2 while an
+	// insurgency lasts (3 otherwise), and Apollo RP's ARP_TS puts a player on the team of his job, 2 for an insurgent's. With none in use both read 0.
+	// Then only a player is an enemy, as in CHANGE 8. With the teams in use the insurgent fights everyone who is on another team,
+	// players and bots alike (the guards of the Middle Sea Republic are bots), and never one of its own team, whoever the roamer is
+	// set on: a client no team is set on yet (a player ARP has not placed) is nobody's enemy until it is. Its attacker stays an
+	// enemy: it is answered above, whatever team he is on.
+	//
+	// This is the insurgents' rule, and every roamer is a citizen so far. A roamer of another kind (a guard, on the Middle Sea
+	// Republic's team, which fights the insurgents) takes its own rule here, ahead of this one, told by its team.
+	if (pev->team > 0)
+	{
+		if (pEntity->v.team <= 0 || pEntity->v.team == pev->team)
+			return false;
+	}
+	else if (pEntity->v.flags & FL_FAKECLIENT)
+	{
+		return false;
+	}
 
 	return roam.iHostileTeam <= 0 || pEntity->v.team == roam.iHostileTeam;
 }
