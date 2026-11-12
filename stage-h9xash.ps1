@@ -12,6 +12,12 @@
     - a player's own files: config.cfg (any folder), video.cfg, opengl.cfg, the console
       history, the server history and favorites, saves, screenshots, demos, downloads,
       the font cache, the spray cache, AMXX stats and vaults, RCBot's player-name list;
+    - databases: Apollo RP's SQLite database (ts\addons\amxmodx\data\sqlite3\arp.sq3: a server's accounts,
+      wallets and inventories) and any other *.sq3, *.sqlite or *.db file, with its -journal, -wal and
+      -shm files. The sqlite3 folder goes in empty, so a new install makes its own database on its first
+      Apollo RP map and loads that map's SQL file into it. The SQL files themselves
+      (ts\addons\amxmodx\configs\arp\maps\<map>\<map>.sql: the default jobs, properties and doors)
+      are game data and stay in;
     - logs, process ids, backups (*.bak*), temporary and junk files.
   A new player then starts from the stock files a fresh install would have:
     - ts\config.cfg from TS 3.0: H9XASH\ts\config.stock.cfg, or reTS\game\ts or ts3.0\ts
@@ -68,6 +74,15 @@
   here is changed there as well: stage_h9xash_test.py builds a small fake H9XASH, runs both
   scripts on it and compares the ZIPs, the staged files, the report and the stop conditions.
 
+  Before anything is copied this script prepares the release, with tools\release-prepare.mjs of the
+  source tree (D:\Downloads\TSM, or -Tsm, or the folder H9_TSM names; docs\H9_RELEASE.txt, 5): when a
+  plugin or module differs from the ones of the package staged last (dist\.release-state.json), the
+  build (VERSION in ts_matchmode.sma) goes up by one, build.bat and export.bat run so the plugins carry
+  it, and the official presets (the AMX Mod X plugins' hashes) are written from what H9XASH holds; with
+  nothing changed the build stays. After the ZIPs are written the package's build and hashes are
+  recorded. A machine with no source tree, or no node, skips it with a warning and stages what is in
+  H9XASH. stage_h9xash.py does not do this step: it is for the machine that builds.
+
 .PARAMETER Source
   The H9XASH folder to pack. Default: H9XASH beside this script.
 
@@ -111,6 +126,18 @@
 .PARAMETER NoWebFiles
   Publish no web files for H9XASH-Updater.
 
+.PARAMETER NoPrepare
+  Do not prepare the release first (no bump of the build, no rebuild, no preset hashes written, nothing
+  recorded): stage what H9XASH holds.
+
+.PARAMETER Tsm
+  The source tree that holds tools\release-prepare.mjs. Default: the folder H9_TSM names, else
+  D:\Downloads\TSM, else TSM beside the repository.
+
+.PARAMETER VersionedName
+  Name the ZIPs <Name>-<build> (H9XASH-1.61.zip, H9XASH-1.61-linux.zip) when -Name is not given. The
+  default names are the ones the downloads page links.
+
 .EXAMPLE
   .\stage-h9xash.ps1
   .\stage-h9xash.ps1 -DryRun
@@ -118,6 +145,8 @@
   .\stage-h9xash.ps1 -NoLinux
   .\stage-h9xash.ps1 -LinuxNative D:\build\H9XASH-linux
   .\stage-h9xash.ps1 -NoWebFiles
+  .\stage-h9xash.ps1 -NoPrepare            (stage what is there: no new build number, no rebuild)
+  .\stage-h9xash.ps1 -VersionedName        (H9XASH-<build>.zip)
   ./stage-h9xash.sh --dry-run        (Linux; the options are written --dry-run, --no-linux ...)
 #>
 [CmdletBinding()]
@@ -133,6 +162,9 @@ param(
     [string]$LinuxNative,
     [string]$FilesDir,
     [switch]$NoWebFiles,
+    [switch]$NoPrepare,
+    [string]$Tsm,
+    [switch]$VersionedName,
     [ValidateSet('Optimal', 'Fastest')][string]$Compression = 'Optimal'
 )
 
@@ -154,8 +186,10 @@ $SkipDirNames = @('logs', 'save', 'screenshots', 'scrshots', 'ts_downloads', 'do
     '.fontcache', 'userconfig.d', '__pycache__', '.venv', 'venv', '.git', 'node_modules')
 # Folders left out at this path under H9XASH. Each is made again, empty, when $RecreateDirs lists it.
 # webview2\data is the splash MOTD's embedded browser's own files; webview2\runtime a player's own WebView2 runtime.
-$SkipDirPaths = @('presets\backup', 'ts\addons\amxmodx\data\vault', 'webview2\data', 'webview2\runtime')
-$RecreateDirs = @('ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\logs')
+# data\sqlite3 holds a server's databases (Apollo RP's arp.sq3: its accounts, wallets and inventories): a new install makes its own on
+# its first roleplay map and loads that map's SQL file, which ships, into it.
+$SkipDirPaths = @('presets\backup', 'ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\data\sqlite3', 'webview2\data', 'webview2\runtime')
+$RecreateDirs = @('ts\addons\amxmodx\data\vault', 'ts\addons\amxmodx\data\sqlite3', 'ts\addons\amxmodx\logs')
 
 # Files left out wherever they are (lower case).
 $SkipNames = @(
@@ -167,9 +201,10 @@ $SkipNames = @(
     'listip.cfg', 'banned.cfg', 'mail.env', 'accounts.json', 'networking.ini',
     'thumbs.db', 'desktop.ini', '.ds_store')
 $SkipExt = @('.log', '.pid', '.tmp', '.new', '.orig', '.rej', '.dmp', '.mdmp', '.dem', '.env', '.key', '.sav')
-# File names matched by pattern: backups, files h9xash.bat writes per launch, stray build output.
+# File names matched by pattern: backups, files h9xash.bat writes per launch, stray build output, and any database file with its journal,
+# write-ahead log and shared-memory files (SQLite's .sq3, .sqlite, .sqlite3 or .db).
 $SkipPatterns = @('\.bak($|[._-])', '_resolved\.cfg$', '^user_id\.ini', '^device_id\.ini',
-    '^h9_presence.*\.(key|cfg\.bak.*)$', 'downloadstsm')
+    '^h9_presence.*\.(key|cfg\.bak.*)$', 'downloadstsm', '\.(sq3|sqlite3?|db)(-journal|-wal|-shm)?$')
 # A Wine prefix someone keeps inside H9XASH (its drive_c and dosdevices folders and its
 # registry files), and git's attribute file: never in a package.
 $SkipDirNames += @('drive_c', 'dosdevices')
@@ -505,6 +540,27 @@ if (-not (Test-Path -LiteralPath $lfsCheck)) { throw "No $lfsCheck beside this s
 & $lfsCheck -Path $Source
 if ($LASTEXITCODE -ne 0) { throw 'H9XASH holds Git LFS pointers or cut-short game files (listed above); no ZIP was written.' }
 
+# ---- the release is prepared: the build number, the plugins' hashes (tools\release-prepare.mjs of the source tree) ------
+
+$prepareJs = $null
+$stateFile = Join-Path $OutDir '.release-state.json'
+if (-not $NoPrepare) {
+    foreach ($cand in @($Tsm, $env:H9_TSM, 'D:\Downloads\TSM', (Join-Path (Split-Path $Here -Parent) 'TSM'))) {
+        if ($cand -and (Test-Path -LiteralPath (Join-Path $cand 'tools\release-prepare.mjs'))) { $prepareJs = Join-Path $cand 'tools\release-prepare.mjs'; break }
+    }
+    $nodeExe = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $prepareJs -or -not $nodeExe) {
+        $prepareJs = $null
+        Write-Host '  [WARN] the release is not prepared: no source tree with tools\release-prepare.mjs (-Tsm, or H9_TSM) or no node; the build number and the presets are as the last build left them' -ForegroundColor Yellow
+    } else {
+        Write-Host "release-prepare: $prepareJs"
+        $prepArgs = @($prepareJs, '--auto', '--state', $stateFile, '--repo', $Root)
+        if ($DryRun) { $prepArgs += '--dry' }
+        & node @prepArgs
+        if ($LASTEXITCODE -ne 0) { throw "tools\release-prepare.mjs stopped (exit $LASTEXITCODE, above); no ZIP was written. -NoPrepare stages what H9XASH holds." }
+    }
+}
+
 $build = 'local'
 $versionFile = Join-Path $Root 'VERSION.txt'
 if (Test-Path -LiteralPath $versionFile) {
@@ -512,7 +568,7 @@ if (Test-Path -LiteralPath $versionFile) {
     if ($vm) { $build = $vm.Matches[0].Groups[1].Value }
 }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
-if (-not $Name) { $Name = 'H9XASH' }
+if (-not $Name) { $Name = if ($VersionedName) { "H9XASH-$build" } else { 'H9XASH' } }
 $zipPath = Join-Path $OutDir "$Name.zip"
 $linuxZip = Join-Path $OutDir "$Name-linux.zip"
 $reportPath = Join-Path $OutDir "$Name.report.txt"
@@ -891,6 +947,12 @@ if (Test-Path -LiteralPath $page) {
         if (-not $html.Contains($want)) { Warn "the downloads page ($page) has no $want" }
     }
     if (-not $html.Contains("Version $build<")) { Warn "the downloads page does not show Version $build; update its two download notes" }
+}
+
+# What this package holds is what the next one is compared with.
+if ($prepareJs -and -not $DryRun) {
+    & node $prepareJs --record --state $stateFile
+    if ($LASTEXITCODE -ne 0) { Warn "the package's build and hashes were not recorded in $stateFile (exit $LASTEXITCODE): the next stage will bump the build again" }
 }
 
 if ($KeepStage) { Say "  stage kept: $stage" }

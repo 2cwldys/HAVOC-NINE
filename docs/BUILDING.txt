@@ -122,8 +122,17 @@
    only: the native build in H9XASH-linux\ or -LinuxNative <folder> laid over the
    game's data; with no native build yet, the Wine/Proton package, with a
    warning). A build with only xashds also writes dist\H9XASH-linux-server.zip.
+   stage-h9xash.ps1 first prepares the release: the build number goes up when a
+   plugin changed since the last package and the plugins' hashes (the official
+   presets) are written (docs\H9_RELEASE.txt, 5; -NoPrepare skips it).
    -NoLinux writes the Windows ZIP alone; -DryRun stages without zipping and
-   lists in the report what each package leaves out.
+   lists in the report what each package leaves out. What belongs to one
+   player or one server stays out: ids, secrets, settings, saves, logs and
+   the databases (data\sqlite3, with Apollo RP's arp.sq3, and any .sq3,
+   .sqlite or .db file, journals included). The sqlite3 folder goes in
+   empty, so a new install makes its own database on its first Apollo RP
+   map and loads that map's shipped SQL file into it (docs\ARP_CONTENT.txt,
+   2): the default jobs, properties and doors, with no player in them.
    On Linux, or anywhere with Python 3.8 or newer, the same packages are
    built by stage-h9xash.sh, which starts stage_h9xash.py: a port of
    stage-h9xash.ps1 with the same rules, the same report, the same stop

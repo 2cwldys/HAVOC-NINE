@@ -64,9 +64,9 @@ class UpdaterError(Exception):
 SKIP_DIR_NAMES = ['logs', 'save', 'screenshots', 'scrshots', 'ts_downloads', 'downloads',
                   '.fontcache', 'userconfig.d', '__pycache__', '.venv', 'venv', '.git', 'node_modules',
                   'drive_c', 'dosdevices', STATE_DIR]
-SKIP_DIR_PATHS = ['presets\\backup', 'ts\\addons\\amxmodx\\data\\vault', 'webview2\\data',
+SKIP_DIR_PATHS = ['presets\\backup', 'ts\\addons\\amxmodx\\data\\vault', 'ts\\addons\\amxmodx\\data\\sqlite3', 'webview2\\data',
                   'webview2\\runtime']
-RECREATE_DIRS = ['ts\\addons\\amxmodx\\data\\vault', 'ts\\addons\\amxmodx\\logs']
+RECREATE_DIRS = ['ts\\addons\\amxmodx\\data\\vault', 'ts\\addons\\amxmodx\\data\\sqlite3', 'ts\\addons\\amxmodx\\logs']
 SKIP_NAMES = ['console_history.txt', 'history_servers.lst', 'favorite_servers.lst', 'xashcomm.lst',
               'user_id.ini', 'device_id.ini', '.xash_id',
               'config.cfg', 'video.cfg', 'opengl.cfg', 'custom.hpk', 'voice_ban.dt', 'tempdecal.wad',
@@ -77,7 +77,7 @@ SKIP_NAMES = ['console_history.txt', 'history_servers.lst', 'favorite_servers.ls
               '.gitattributes', 'system.reg', 'user.reg', 'userdef.reg', '.update-timestamp']
 SKIP_EXT = ['.log', '.pid', '.tmp', '.new', '.orig', '.rej', '.dmp', '.mdmp', '.dem', '.env', '.key', '.sav']
 SKIP_PATTERNS = [r'\.bak($|[._-])', r'_resolved\.cfg$', r'^user_id\.ini', r'^device_id\.ini',
-                 r'^h9_presence.*\.(key|cfg\.bak.*)$', r'downloadstsm']
+                 r'^h9_presence.*\.(key|cfg\.bak.*)$', r'downloadstsm', r'\.(sq3|sqlite3?|db)(-journal|-wal|-shm)?$']
 
 _PS_LIST = re.compile(r'^[ \t]*\$(SkipDirNames|SkipDirPaths|SkipNames|SkipExt|SkipPatterns)[ \t]*\+?=[ \t]*@\(',
                       re.M | re.I)
