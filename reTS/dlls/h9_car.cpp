@@ -94,6 +94,7 @@ public:
 	bool OnControls(entvars_t* pevTest) override;
 
 	void EXPORT DriveThink();
+	void Step(const char* by);
 
 private:
 	CBasePlayer* Driver();
@@ -131,6 +132,9 @@ private:
 	bool m_bGrounded = true;
 	int m_iLastButtons = 0; // the driver's, the frame before: a +use press gets him out
 	float m_flEntered = 0;
+	float m_flNextReport = 0; // developer 1: what the car sees, twice a second
+	float m_flLastHit = 1;
+	bool m_bLastStartSolid = false;
 };
 LINK_ENTITY_TO_CLASS(h9_car, CH9Car);
 
@@ -246,8 +250,12 @@ void CH9Car::Use(CBaseEntity* pActivator, CBaseEntity* pCaller, USE_TYPE useType
 			LeaveWheel(pPlayer);
 		return;
 	}
-	if (useType == USE_SET && value == 2) // the per-frame "still at the controls" call
+	if (useType == USE_SET && value == 2) // the per-frame "still at the controls" call: the car drives on it too
+	{
+		if (pPlayer == pDriver)
+			Step("postthink");
 		return;
+	}
 	if (pDriver || !pPlayer->IsAlive() || pPlayer->m_pTank != NULL)
 		return;
 	TakeWheel(pPlayer);
@@ -285,6 +293,7 @@ void CH9Car::TakeWheel(CBasePlayer* pPlayer)
 	SET_VIEW(pPlayer->edict(), m_hCamera->edict());
 	pPlayer->m_hViewEntity = m_hCamera;
 
+	ClientPrint(pPlayer->pev, HUD_PRINTCENTER, "W/S drive, A/D steer, jump brakes, use gets out");
 	EMIT_SOUND_DYN(edict(), CHAN_ITEM, "plats/vehicle_ignition.wav", 0.8, ATTN_NORM, 0, PITCH_NORM);
 	EMIT_SOUND_DYN(edict(), CHAN_STATIC, STRING(m_iszEngine), 0.6, ATTN_NORM, 0, 70);
 	m_bEngineOn = true;
@@ -423,7 +432,13 @@ bool CH9Car::Move(float dt)
 	UTIL_MakeVectors(Vector(0, m_flYaw, 0));
 	Vector move = gpGlobals->v_forward * (m_flSpeed * dt);
 	TraceResult hit;
-	if (!Blocked(pev->origin, move, hit))
+	const bool blocked = Blocked(pev->origin, move, hit);
+	if (move.Length() > 0.01f)
+	{
+		m_flLastHit = hit.flFraction;
+		m_bLastStartSolid = hit.fStartSolid != 0;
+	}
+	if (!blocked)
 	{
 		UTIL_SetOrigin(pev, pev->origin + move);
 		return false;
@@ -557,6 +572,16 @@ void CH9Car::Sound()
 
 void CH9Car::DriveThink()
 {
+	Step("think");
+	CBasePlayer* pDriver = Driver();
+	// every frame while it moves or is driven; at rest, ten times a second
+	const bool resting = !pDriver && m_flSpeed == 0 && m_bGrounded && m_flFall == 0;
+	pev->nextthink = gpGlobals->time + (resting ? 0.1f : 0.01f);
+}
+
+// One frame of the car: from its think, and from its driver's PostThink (a frame's second call finds dt 0).
+void CH9Car::Step(const char* by)
+{
 	float dt = gpGlobals->time - m_flLastThink;
 	m_flLastThink = gpGlobals->time;
 	dt = H9Clamp(dt, 0, 0.1f);
@@ -616,9 +641,14 @@ void CH9Car::DriveThink()
 		UTIL_SetOrigin(pDriver->pev, pev->origin + Vector(0, 0, 40)); // he rides inside: the sounds and the PVS follow
 		PlaceCamera(dt);
 		Sound();
+		if (CVAR_GET_FLOAT("developer") > 0 && gpGlobals->time >= m_flNextReport)
+		{
+			m_flNextReport = gpGlobals->time + 0.5f;
+			char line[192];
+			snprintf(line, sizeof(line), "h9_car (%s): buttons %x speed %.0f steer %.1f yaw %.0f grounded %d trace %.2f%s z %.1f\n", by,
+				pDriver->pev->button, m_flSpeed, m_flSteer, m_flYaw, m_bGrounded ? 1 : 0, m_flLastHit,
+				m_bLastStartSolid ? " startsolid" : "", pev->origin.z);
+			ClientPrint(pDriver->pev, HUD_PRINTCONSOLE, line);
+		}
 	}
-
-	// every frame while it moves or is driven; at rest, ten times a second
-	const bool resting = !pDriver && m_flSpeed == 0 && m_bGrounded && m_flFall == 0;
-	pev->nextthink = gpGlobals->time + (resting ? 0.1f : 0.01f);
 }
