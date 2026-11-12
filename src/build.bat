@@ -317,7 +317,7 @@ REM they stay loaded and do nothing there. Its configs (configs\arp\), models\ar
 REM sound\arp come along. Upstream's own plugins-arp.ini and modules.ini are not
 REM installed. Built by a plain build.bat, by "build.bat all" and by "build.bat apollo".
 set "ARP_SRC=%SRC%apollo-rp\base"
-set "ARP_TARGETS=ARP_Core ARP_Commands ARP_Config ARP_HUD ARP_HungerMod ARP_Items ARP_JailMod ARP_NPCs ARP_RobMod ARP_TalkArea ARP_Zones ARP_TS ARP_H9Menu ARP_Inventory"
+set "ARP_TARGETS=ARP_Core ARP_Commands ARP_Config ARP_HUD ARP_HungerMod ARP_Items ARP_JailMod ARP_NPCs ARP_RobMod ARP_TalkArea ARP_Zones ARP_TS ARP_H9Menu ARP_Inventory ARP_PropertyTax"
 set "BUILD_ARP="
 if "%~1"=="" set "BUILD_ARP=1"
 for %%a in (%*) do (
@@ -364,7 +364,7 @@ if defined BUILD_ARP if exist "%ARP_SRC%\addons\amxmodx\scripting\ARP_Core.sma" 
     echo   synced models\arp\
     xcopy /y /i /q "%ARP_SRC%\sound\arp\*.wav" "%TSROOT%\..\..\sound\arp\" >nul
     xcopy /y /i /q "%ARP_SRC%\sound\arp\*.wav.original" "%TSROOT%\..\..\sound\arp\" >nul
-    echo   synced sound\arp\ ^(and the stock sounds this set replaced, as <name>.wav.original^)
+    echo   synced sound\arp\ ^(and the stock sounds this set replaced, as ^<name^>.wav.original^)
     for %%n in (!ARP_TARGETS!) do (
         if exist "%PLUGINS%\%%n.amxx" (
             findstr /i /c:"%%n.amxx" "%CONFIGS%\plugins.ini" >nul 2>&1
