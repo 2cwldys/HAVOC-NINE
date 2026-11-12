@@ -42,7 +42,7 @@
      Opens the side menu (MSR / Insurrectionists / Spectate).
      During warmup this also RELEASES your current side first, so you can
      switch. Once a match is running it refuses -- sides are locked -- unless
-     tsm_latejoin is on for the mode (Wave Survival's default): a person who
+     tsm_latejoin is on for the mode (every mode by default): a person who
      arrived late, or leaves the spectators, then picks a side as usual and is
      let in at his side's next respawn (the next wave, else the next round);
      until then he watches, and .team lets him change the side he waits on.
@@ -70,7 +70,7 @@
      intact, so "we are in ready-up" does not mean no match is running. Picks
      are refused there too.
 
-     tsm_classchange (on in Wave Survival, 1 for every mode) lets you ask for
+     tsm_classchange (on in every mode by default; 2 is Wave Survival alone) lets you ask for
      another class at any time: .class opens the menu again, your class marked
      (yours) and a pick marked (next). A pick made outside the freeze countdown
      is held, and goes on at your NEXT RESPAWN -- the revive of a wave after a
@@ -2403,9 +2403,9 @@
  when the wave of mutants is cleared included; until then he watches, and the
  mode tells him so through ts_matchmode's tsm_late_wait forward. A player may
  ask for another class with .class at any time and has it from his next
- respawn. Both are on in a survival run with no setting: tsm_latejoin and
- tsm_classchange (cvar table, beside tsm_autofill) at their default 2 mean the
- modes that ask, and Wave Survival asks.
+ respawn. Both are on in a survival run with no setting, as in every mode:
+ tsm_latejoin and tsm_classchange (cvar table, beside tsm_autofill) at their
+ default 1 mean every mode, at 2 the modes that ask, and Wave Survival asks.
 
  Score: every survivor still in play when a wave is cleared gets
  tsm_score_wave (ts_matchmode's SCORE).
@@ -3158,20 +3158,21 @@
  tsm_force_spawn           1          respawn anyone still dead as a round starts
  tsm_autofill              1          fill a short side at a round's start: 0 never,
                                       1 from late joiners, 2 spectators too
- tsm_latejoin              2          a person arriving after the match began (or
+ tsm_latejoin              1          a person arriving after the match began (or
                                       leaving the spectators) may pick a side and
                                       is let in at his side's next respawn: the
                                       next respawn wave, else the start of the
                                       next round, never in sudden death. 0 off in
-                                      every mode, 1 every mode, 2 the modes that
-                                      ask (Wave Survival)
- tsm_classchange           2          a player may ask for another class with
+                                      every mode, 1 every mode (the default), 2 only
+                                      the modes that ask (Wave Survival)
+ tsm_classchange           1          a player may ask for another class with
                                       .class at any time and has it from his next
                                       respawn (a wave's revive, else the next
                                       round's start); in the freeze countdown it
                                       is the class at once. 0 off (a class is
-                                      locked once picked), 1 every mode, 2 the
-                                      modes that ask (Wave Survival)
+                                      locked once picked), 1 every mode (the
+                                      default), 2 only the modes that ask (Wave
+                                      Survival)
  tsm_warmup_hold           1          hold everyone, frozen and unhurt, through
                                       warmup and ready-up, and from a match's
                                       end until warmup

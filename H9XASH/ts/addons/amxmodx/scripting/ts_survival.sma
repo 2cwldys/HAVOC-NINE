@@ -16,8 +16,8 @@
  * the run goes on until the people's side is wiped out -- nobody standing, no lives left, nobody waiting
  * -- and then the match is over, chat says how far they got, and it is back to warmup.
  *
- * LATE JOINERS AND CLASS CHANGES. The claim asks ts_matchmode for both (tsm_latejoin 2 and tsm_classchange 2,
- * their defaults): a person who arrives while a run is going takes the people's side from the side menu, waits
+ * LATE JOINERS AND CLASS CHANGES. The claim asks ts_matchmode for both, which is what tsm_latejoin 2 and tsm_classchange 2
+ * mean (their default, 1, gives every mode both): a person who arrives while a run is going takes the people's side from the side menu, waits
  * as a ghost like a fallen survivor and comes in with the next respawn wave of the people's side, the one that
  * comes with each cleared wave of mutants included. A player may type .class at any time for another class,
  * which he has on when he next comes back from a death. A late joiner is not counted as standing or waiting, so

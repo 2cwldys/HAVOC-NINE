@@ -6165,11 +6165,11 @@ public plugin_init()
 	 * Late joiners and class changes, in every mode, each read live.
 	 *
 	 * 0 = off: the match plays as it always has (a person arriving mid-match waits for the next one, a class is locked once picked)
-	 * 1 = on in every mode
-	 * 2 = on in the modes whose claim asks for it (TSM_MODE_LATE_JOIN, TSM_MODE_CLASS_CHANGE): Wave Survival does, no other mode (DEFAULT)
+	 * 1 = on in every mode (DEFAULT)
+	 * 2 = on in the modes whose claim asks for it (TSM_MODE_LATE_JOIN, TSM_MODE_CLASS_CHANGE): Wave Survival does, no other mode
 	 */
-	g_cv_latejoin    = register_cvar("tsm_latejoin",    "2");
-	g_cv_classchange = register_cvar("tsm_classchange", "2");
+	g_cv_latejoin    = register_cvar("tsm_latejoin",    "1");
+	g_cv_classchange = register_cvar("tsm_classchange", "1");
 
 	/*
 	 * Seconds a body stays visible after being eliminated.

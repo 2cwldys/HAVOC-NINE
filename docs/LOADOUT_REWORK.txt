@@ -364,7 +364,7 @@
  EDGE CASES
   late join        A player who connects while a match runs is benched until it
                    ends (g_locked_out) and cannot buy, unless tsm_latejoin lets
-                   him in (Wave Survival's default; docs\GAME_MODES.txt). He then
+                   him in (on by default; docs\GAME_MODES.txt). He then
                    takes a side and waits as a ghost, out of play and with no
                    window, and is let in at his side's next respawn. A wave
                    brings him as it brings a fallen player: the revive window
@@ -379,8 +379,8 @@
                    ready-up and in his first freeze, and is made final at his
                    first go-live.
   class change     The class is picked once, in the first freeze, and locked,
-                   unless tsm_classchange lets him ask for another (Wave
-                   Survival's default). A pick outside the freeze is held and
+                   unless tsm_classchange lets him ask for another (on by
+                   default). A pick outside the freeze is held and
                    goes on at his next respawn (a wave's revive, else the next
                    round's start), and what the first pick did is done then,
                    before the kit is handed: a pick of another covered class

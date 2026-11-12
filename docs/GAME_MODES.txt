@@ -149,7 +149,7 @@ WAVE SURVIVAL  (ts_survival.amxx, configs\ts_survival.cfg)
                comes when every mutant has fallen, whichever is first. Until then he is a ghost, not
                counted as standing or waiting, so he never keeps a lost run open. A player may ask
                for another class with .class at any time and has it from his next respawn. Both are
-               on in a survival run with no setting (tsm_latejoin 2, tsm_classchange 2; section
+               on in a survival run with no setting, and by default in every mode (tsm_latejoin 1, tsm_classchange 1; section
                LATE JOINERS AND CLASS CHANGES below).
   It grows     health +tsm_ws_hp_per_wave (5) percent per wave; guns by tsm_ws_gun_odds
                (40% at first, 60% from wave 16, all from wave 25); the kung fu powerup after
@@ -345,11 +345,10 @@ CAPTURE THE FLAG  (ts_ctf.amxx, configs\ts_ctf.cfg)
 LATE JOINERS AND CLASS CHANGES  (ts_matchmode.amxx; tsm_latejoin, tsm_classchange)
   Core behaviour in every mode, each behind a cvar read live: 0 is off everywhere (the match
   plays exactly as it always has: a person who arrives mid-match waits for the next one, a class
-  is locked once picked), 1 is on in every mode, 2 (the default) is on in the modes that ask for
+  is locked once picked), 1 (the default) is on in every mode, 2 is on in the modes that ask for
   it. Wave Survival asks for both (its claim carries TSM_MODE_LATE_JOIN and TSM_MODE_CLASS_CHANGE,
-  include\tsm_api.inc); no other mode does, so with the defaults every other mode plays as before
-  until the server sets 1. A ranked or competitive server keeps 2, or 0, on purpose (the
-  presets carry 2).
+  include\tsm_api.inc); no other mode does, so at 2 every other mode plays as it always did. A
+  ranked or competitive server that wants the match as it was set up sets 2, or 0.
   The rule     a person comes in, or comes back as his new class, at the NEXT RESPAWN OF HIS
                SIDE. Where the side has respawn waves (tsm_respawns 1, a side a mode made
                endless: Wave Survival, Capture the Flag, the modes that run waves) that is the
