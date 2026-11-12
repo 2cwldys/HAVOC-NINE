@@ -4,8 +4,9 @@
 // cursor, the mouse, the keys and the commands.
 //
 // An item's tile shows its picture: a 32 x 32 frame of sprites/h9_arpicons.spr named in sprites/h9_arpicons.txt (one line a picture: the
-// item's name, a bar, the frame number; modelling/arpicons/make_arpicons.py makes both). An item with no picture there is a monogram in a
-// colour of its name.
+// item's name, a bar, the frame number; modelling/arpicons/make_arpicons.py makes both; h9_arpinv_icons.h reads the list). An item with no
+// picture there is a monogram in a colour of its name. The list and the sheet are read in this element's VidInit, which CHud::VidInit calls by
+// name (H9ArpInv_VidInit): the elements that register through AddHudElem are not members of CHud, and its VidInit does not walk the list.
 
 #include "hud.h"
 #include "cl_util.h"
@@ -16,6 +17,7 @@
 #include "player_info.h"
 #include "h9_arpinv.h"
 #include "h9_arpinv_draw.h"
+#include "h9_arpinv_icons.h"
 #include "h9_theme.h" // the colour the player gives H9's panels in place of the purple
 
 #include <stdio.h>
@@ -49,47 +51,31 @@ int s_iDescAsked = 0;
 float s_flDescAt = -100.0f;
 
 // the pictures of items, where there are any
-HSPRITE s_hIcons = 0;
-struct IconName
-{
-	char name[NAME_LEN];
-	int frame;
-};
-IconName s_icons[256];
-int s_nIcons = 0;
+const char* const ICONS_SHEET = "sprites/h9_arpicons.spr";
+const char* const ICONS_LIST = "sprites/h9_arpicons.txt";
+HSPRITE s_hIcons = 0;    // the sheet; 0 when it, or the list that names its frames, could not be had
+IconList s_icons;        // the names of the frames
+int s_iIconsBytes = -1;  // the size of the list's file, -1 when it could not be read
+int s_iIconFrames = 0;   // the frames the engine says the sheet has
+int s_iIconsRead = 0;    // times the list and the sheet have been asked for since the game started: a map's start, a restart of the video
 
+// Reads the list and the sheet. A name whose frame is not one of the sheet's is not kept (its tile is a monogram), and a list with no sheet gives no
+// picture at all.
 void LoadIcons()
 {
+	s_iIconsRead++;
 	s_hIcons = 0;
-	s_nIcons = 0;
-	byte* data = gEngfuncs.COM_LoadFile((char*)"sprites/h9_arpicons.txt", 5, nullptr);
+	s_iIconFrames = 0;
+	s_iIconsBytes = -1;
+	s_icons.Clear();
+	int len = 0;
+	byte* data = gEngfuncs.COM_LoadFile((char*)ICONS_LIST, 5, &len);
 	if (!data)
 		return;
-	s_hIcons = SPR_Load("sprites/h9_arpicons.spr");
-	const char* p = (const char*)data;
-	while (*p && s_nIcons < (int)(sizeof(s_icons) / sizeof(s_icons[0])))
-	{
-		char line[96];
-		int l = 0;
-		while (*p && *p != '\n' && *p != '\r')
-		{
-			if (l < (int)sizeof(line) - 1)
-				line[l++] = *p;
-			p++;
-		}
-		line[l] = 0;
-		while (*p == '\n' || *p == '\r')
-			p++;
-		char* bar = strchr(line, '|');
-		if (!bar || line[0] == '/' || line[0] == '#')
-			continue;
-		*bar = 0;
-		IconName& ic = s_icons[s_nIcons];
-		strncpy(ic.name, line, NAME_LEN - 1);
-		ic.name[NAME_LEN - 1] = 0;
-		ic.frame = atoi(bar + 1);
-		s_nIcons++;
-	}
+	s_iIconsBytes = len;
+	s_hIcons = SPR_Load(ICONS_SHEET);
+	s_iIconFrames = s_hIcons ? SPR_Frames(s_hIcons) : 0;
+	s_icons.Parse((const char*)data, s_iIconFrames > 0 ? s_iIconFrames : -1);
 	gEngfuncs.COM_FreeFile(data);
 }
 
@@ -117,15 +103,7 @@ struct EngineCanvas : InvCanvas
 	int CharH() override { return gHUD.m_scrinfo.iCharHeight > 0 ? gHUD.m_scrinfo.iCharHeight : 12; }
 	int Width() override { return ScreenWidth; }
 	int Height() override { return ScreenHeight; }
-	int IconFrame(const char* name) override
-	{
-		if (s_hIcons == 0)
-			return -1;
-		for (int i = 0; i < s_nIcons; i++)
-			if (0 == strcmp(s_icons[i].name, name))
-				return s_icons[i].frame;
-		return -1;
-	}
+	int IconFrame(const char* name) override { return s_hIcons == 0 ? -1 : s_icons.Find(name); }
 	void Icon(int frame, int x, int y) override
 	{
 		SPR_Set(s_hIcons, 255, 255, 255);
@@ -308,6 +286,24 @@ int NearPlayers(Near* out, int max)
 	return n;
 }
 
+// ---- the test window --------------------------------------------------------------------------------------------------------------
+
+// cl_h9_arpinv_test draws, for a few seconds and by the very painter the window is drawn with, a window of tiles of a handful of items and one of an item
+// that has no picture: what the pictures look like in this engine, with no server and no item needed.
+struct TestWindow
+{
+	Model md;
+	Ui ui;
+	float until;
+};
+TestWindow* s_pTest = nullptr;
+
+void EndTest()
+{
+	delete s_pTest;
+	s_pTest = nullptr;
+}
+
 // ---- the HUD element --------------------------------------------------------------------------------------------------------------
 
 class CHudH9ArpInv : public CHudBase
@@ -322,6 +318,7 @@ public:
 	{
 		// a new map is a new server: no window carries over, and the catalog is forgotten (the server sends it again on open)
 		const bool wasOpen = s_md.open;
+		EndTest();
 		s_md.Clear();
 		s_ui.Reset();
 		s_iPrevButtons = 0;
@@ -380,6 +377,18 @@ public:
 	{
 		InvPainter p(s_Canvas, s_md, s_ui, flTime);
 		p.DrawAll();
+		if (s_pTest)
+		{
+			if (flTime >= s_pTest->until || s_md.open)
+			{
+				EndTest();
+			}
+			else
+			{
+				InvPainter t(s_Canvas, s_pTest->md, s_pTest->ui, flTime);
+				t.DrawAll();
+			}
+		}
 		return true;
 	}
 };
@@ -410,10 +419,126 @@ void CmdDecline()
 	SendNow("h9inv x decline");
 }
 
+bool SameNoCase(const char* a, const char* b)
+{
+	for (; *a && *b; a++, b++)
+	{
+		if (tolower((unsigned char)*a) != tolower((unsigned char)*b))
+			return false;
+	}
+	return *a == *b;
+}
+
+// What the window knows of the pictures: whether the list and the sheet were had, the room a tile gives a picture, which of the items the server has named
+// have one, the first tiles of the window, and, for a name the command was given, how that name comes out.
+void PrintPictures(const char* asked)
+{
+	if (s_iIconsRead == 0)
+		gEngfuncs.Con_Printf("  pictures: not read yet: the list and the sheet are read when a map starts (the HUD's VidInit), and that has not run\n");
+	else if (s_iIconsBytes < 0)
+		gEngfuncs.Con_Printf("  pictures: NONE: %s could not be read, so every tile is a monogram (read %d time(s))\n", ICONS_LIST, s_iIconsRead);
+	else if (s_hIcons == 0)
+		gEngfuncs.Con_Printf("  pictures: NONE: %s (%d bytes) was read but the sheet %s could not be loaded, so every tile is a monogram (read %d time(s))\n", ICONS_LIST,
+			s_iIconsBytes, ICONS_SHEET, s_iIconsRead);
+	else
+		gEngfuncs.Con_Printf("  pictures: %s is sprite %d with %d frame(s) of %d x %d; %s (%d bytes) names %d item(s), %d refused; read %d time(s)\n", ICONS_SHEET, (int)s_hIcons,
+			s_iIconFrames, SPR_Width(s_hIcons, 0), SPR_Height(s_hIcons, 0), ICONS_LIST, s_iIconsBytes, s_icons.count, s_icons.refused, s_iIconsRead);
+
+	const int ch = s_Canvas.CharH();
+	const InvMetrics m = MetricsFor(ScreenHeight, ch);
+	const IRect tile(0, 0, m.tile, m.tile);
+	const int lines = NameLines(tile, ch);
+	const IRect beside = PictureArea(tile, ch, lines);
+	const int layout = PictureLayout(tile, ch, true);
+	gEngfuncs.Con_Printf("  a tile is %d px on this %d x %d screen and the HUD font %d px high: %d x %d is left for a picture over %d line(s) of the name and %d x %d without them (it needs %d x %d): %s\n",
+		m.tile, ScreenWidth, ScreenHeight, ch, beside.w, beside.h, lines, PictureArea(tile, ch, 0).w, PictureArea(tile, ch, 0).h, ICON_PX - 4, ICON_PX - 8,
+		layout == PIC_WITH_NAME ? "the picture stands over the name" : (layout == PIC_ALONE ? "the picture stands alone, the name is left out" : "no room: a monogram"));
+
+	char list[200];
+	list[0] = 0;
+	int named = 0, without = 0;
+	for (int i = 0; i < MAX_KINDS; i++)
+	{
+		const Kind& k = s_md.kinds[i];
+		if (!k.used)
+			continue;
+		named++;
+		if (s_Canvas.IconFrame(k.name) >= 0)
+			continue;
+		without++;
+		if (strlen(list) + strlen(k.name) + 3 < sizeof(list))
+		{
+			if (list[0])
+				strcat(list, ", ");
+			strcat(list, k.name);
+		}
+	}
+	if (named)
+		gEngfuncs.Con_Printf("  the server has named %d item(s) on this map: %d with a picture, %d without%s%s\n", named, named - without, without, without ? ": " : "", list);
+
+	char tiles[200];
+	tiles[0] = 0;
+	int shown = 0;
+	for (int i = 0; i < s_md.slots && i < MAX_CELLS && shown < 5; i++)
+	{
+		if (s_md.cells[i].kind == 0)
+			continue;
+		const char* nm = s_md.KindName(s_md.cells[i].kind);
+		const int f = s_Canvas.IconFrame(nm);
+		const size_t used = strlen(tiles);
+		if (used + 48 >= sizeof(tiles))
+			break;
+		if (f >= 0)
+			snprintf(tiles + used, sizeof(tiles) - used, "%s%s -> frame %d", shown ? ", " : "", nm, f);
+		else
+			snprintf(tiles + used, sizeof(tiles) - used, "%s%s -> none", shown ? ", " : "", nm);
+		shown++;
+	}
+	if (shown)
+		gEngfuncs.Con_Printf("  the first tiles: %s\n", tiles);
+
+	if (asked[0])
+	{
+		const int frame = s_Canvas.IconFrame(asked);
+		if (frame >= 0)
+		{
+			gEngfuncs.Con_Printf("  \"%s\": frame %d of %d, so its tile shows that picture\n", asked, frame, s_iIconFrames);
+		}
+		else
+		{
+			char mono[3];
+			Monogram(asked, mono);
+			const char* spelled = nullptr;
+			for (int i = 0; i < s_icons.count; i++)
+			{
+				if (SameNoCase(s_icons.entries[i].name, asked))
+					spelled = s_icons.entries[i].name;
+			}
+			if (s_hIcons == 0)
+				gEngfuncs.Con_Printf("  \"%s\": no picture, because none are loaded; its tile is the monogram \"%s\"\n", asked, mono);
+			else if (spelled)
+				gEngfuncs.Con_Printf("  \"%s\": no picture, the list spells it \"%s\" and compares names exactly; its tile is the monogram \"%s\"\n", asked, spelled, mono);
+			else
+				gEngfuncs.Con_Printf("  \"%s\": no picture, the list has no such name; its tile is the monogram \"%s\"\n", asked, mono);
+		}
+	}
+}
+
+// cl_h9_arpinv_state [item name]
 void CmdState()
 {
 	gEngfuncs.Con_Printf("ARP inventory: %s; cl_h9_arpinv %d; %d H9Inv, %d H9Trade and %d H9Search message(s) read, %d refused\n", s_md.open ? "OPEN" : "closed",
 		s_cvWant ? (int)s_cvWant->value : 1, s_md.msgsInv, s_md.msgsTrade, s_md.msgsSearch, s_md.msgsBad);
+	char asked[NAME_LEN];
+	asked[0] = 0;
+	for (int i = 1; i < gEngfuncs.Cmd_Argc(); i++)
+	{
+		const size_t used = strlen(asked);
+		if (used + 2 >= sizeof(asked))
+			break;
+		snprintf(asked + used, sizeof(asked) - used, "%s%s", used ? " " : "", gEngfuncs.Cmd_Argv(i));
+	}
+	PrintPictures(asked);
 	if (s_md.msgsInv == 0)
 		gEngfuncs.Con_Printf("  no H9Inv message has been read on this map (the server has no inventory window: arp_h9_inv_window or arp_h9_vgui is 0, or this is not a roleplay map)\n");
 	else
@@ -424,6 +549,41 @@ void CmdState()
 	if (s_md.search.open)
 		gEngfuncs.Con_Printf(" (%d cells, %d with something%s)", s_md.search.cells, s_md.SearchUsed(), s_md.search.over ? ", over capacity" : "");
 	gEngfuncs.Con_Printf("; last H9Search op %d\n", s_md.lastOpSearch);
+}
+
+// cl_h9_arpinv_test [seconds]: see TestWindow
+void CmdTest()
+{
+	if (s_md.open)
+	{
+		gEngfuncs.Con_Printf("cl_h9_arpinv_test: close the inventory window first\n");
+		return;
+	}
+	float seconds = 12.0f;
+	if (gEngfuncs.Cmd_Argc() > 1)
+		seconds = (float)atof(gEngfuncs.Cmd_Argv(1));
+	seconds = seconds < 2.0f ? 2.0f : (seconds > 60.0f ? 60.0f : seconds);
+	EndTest();
+	s_pTest = new TestWindow;
+	Model& md = s_pTest->md;
+	md.open = true;
+	md.credits = true;
+	md.slots = 16;
+	md.wallet = 1250;
+	md.bank = 3130;
+	snprintf(md.name, sizeof(md.name), "ICON TEST");
+	snprintf(md.job, sizeof(md.job), "cl_h9_arpinv_test");
+	static const char* const names[16] = {"Flashlight", "Soda", "Pizza", "Colt M4A1", "Cuffs", "Rope", "First Aid Kit", "Zippo Lighter", "9mm Parabellum Ammo", "Laser Rifle",
+		"PPSh-41", "Door C2", "Lockpick", "Beer", "ATM Card", "No Such Item"};
+	for (int i = 0; i < 16; i++)
+	{
+		md.SetKind(i + 1, 20, names[i]);
+		md.cells[i].kind = i + 1;
+		md.cells[i].n = (i % 3 == 1) ? i + 1 : 1;
+	}
+	s_pTest->until = gHUD.m_flTime + seconds;
+	gEngfuncs.Con_Printf("cl_h9_arpinv_test: a window of 16 tiles for %.0f seconds; the last is an item with no picture and shows its monogram (cl_h9_arpinv_state says what is loaded)\n",
+		seconds);
 }
 } // namespace
 
@@ -444,8 +604,14 @@ void H9ArpInv_Init()
 	gEngfuncs.pfnAddCommand("cl_h9_trade_accept", CmdAccept);
 	gEngfuncs.pfnAddCommand("cl_h9_trade_decline", CmdDecline);
 	gEngfuncs.pfnAddCommand("cl_h9_arpinv_state", CmdState);
+	gEngfuncs.pfnAddCommand("cl_h9_arpinv_test", CmdTest);
 	s_Hud.Init();
 	gHUD.AddHudElem(&s_Hud);
+}
+
+void H9ArpInv_VidInit()
+{
+	s_Hud.VidInit();
 }
 
 bool H9ArpInv_IsUp()

@@ -25,6 +25,60 @@ struct InvCanvas
 
 const int ICON_PX = 32; // the side of a picture of sprites/h9_arpicons.spr (modelling/arpicons/make_arpicons.py)
 
+// What a tile leaves for its picture: the tile less a margin of 5, and less the lines of the font for the name when the tile has some (nameLines of them,
+// and 4 more under the picture). A picture is drawn when that holds it (a little under its size: it is centred and may touch the margin).
+inline IRect PictureArea(const IRect& tile, int charH, int nameLines)
+{
+	return IRect(tile.x + 5, tile.y + 5, tile.w - 10, tile.h - 10 - (nameLines > 0 ? nameLines * charH + 4 : 0));
+}
+inline bool PictureFits(const IRect& area)
+{
+	return area.w >= ICON_PX - 4 && area.h >= ICON_PX - 8;
+}
+
+// The width a line of a tile's name may have: the tile less 3 pixels on each side. The lines are centred under the picture.
+inline int NameRoom(const IRect& tile)
+{
+	return tile.w - 6;
+}
+
+// The lines of the font a tile can give to the name of its item and still hold the item's picture: three on the 96 pixel tile of a screen 1000 pixels high or
+// more, two on the 80 pixel tile (700 and more), none on the 48 pixel tile of a smaller screen or when the font is taller than the tile can spare.
+inline int NameLines(const IRect& tile, int charH)
+{
+	int n = 0;
+	while (n < 6 && PictureFits(PictureArea(tile, charH, n + 1)))
+		n++;
+	return n;
+}
+
+// How a tile holds the picture of its item: over the name's lines, alone when the tile is too small for both (the 48 pixel tile of a screen under 700
+// pixels high, or a font taller than the tile can spare; the name is then in the panel of the selected item and the status row), or not at all, when even
+// the picture alone does not fit: a monogram.
+enum
+{
+	PIC_NONE = 0,
+	PIC_ALONE = 1,
+	PIC_WITH_NAME = 2
+};
+inline int PictureLayout(const IRect& tile, int charH, bool showName)
+{
+	if (showName && NameLines(tile, charH) > 0)
+		return PIC_WITH_NAME;
+	if (PictureFits(PictureArea(tile, charH, 0)))
+		return PIC_ALONE;
+	return PIC_NONE;
+}
+
+// The two letters of a monogram: the name's first letter and the first of its second word, else its second letter.
+inline void Monogram(const char* name, char out[3])
+{
+	const char* second = strchr(name, ' ');
+	out[0] = (char)toupper((unsigned char)name[0]);
+	out[1] = (char)(second && second[1] ? toupper((unsigned char)second[1]) : (strlen(name) > 1 ? tolower((unsigned char)name[1]) : 0));
+	out[2] = 0;
+}
+
 struct Col
 {
 	int r, g, b;
@@ -114,6 +168,38 @@ struct InvPainter
 		return n;
 	}
 
+	// Shortens a line until it and "..." after it fit room pixels, and ends it in the dots.
+	void Ellipsize(char* line, int room)
+	{
+		int len = (int)strlen(line);
+		char trial[112];
+		for (;;)
+		{
+			while (len > 0 && line[len - 1] == ' ')
+				len--;
+			snprintf(trial, sizeof(trial), "%.*s...", len, line);
+			if (len == 0 || cv.TextW(trial) <= room)
+				break;
+			len--;
+		}
+		strncpy(line, trial, 99);
+		line[99] = 0;
+	}
+
+	// An item's name for a tile: broken at spaces into at most maxLines lines no wider than room pixels. A line that is still wider (one word) and the last line of
+	// a name that needs more lines end in "...": a name is never cut off without a sign. lines holds maxLines + 1 lines.
+	int WrapName(const char* name, int room, int maxLines, char lines[][100])
+	{
+		int n = Wrap(name, room, lines, maxLines + 1);
+		const bool more = n > maxLines;
+		if (more)
+			n = maxLines;
+		for (int i = 0; i < n; i++)
+			if ((more && i == n - 1) || cv.TextW(lines[i]) > room)
+				Ellipsize(lines[i], room);
+		return n;
+	}
+
 	// ---- boxes
 	void FillBox(const IRect& r, const Col& c, int a)
 	{
@@ -161,8 +247,9 @@ struct InvPainter
 	}
 
 	// ---- items
-	// A tile: the item's picture or monogram, its count, its name. reserved is the count a cell's open exchange holds.
-	void DrawTile(const IRect& r, int kindId, int n, int reserved, bool selected, bool hot, bool showName)
+	// A tile: the item's picture or monogram, its count, its name. reserved is the count a cell's open exchange holds. A name the server sent with the item (the
+	// other player's offer: a kind this player's catalog may not hold) is the tile's name, else the catalog's.
+	void DrawTile(const IRect& r, int kindId, int n, int reserved, bool selected, bool hot, bool showName, const char* sentName = nullptr)
 	{
 		FillBox(r, DARK, 235);
 		if (kindId == 0)
@@ -172,13 +259,23 @@ struct InvPainter
 		}
 		const Col* pal[8] = {&LIT, &OKC, &WARN, &RAIL, &BAD, &DET, &TXT, &LIT};
 		const Col hue = *pal[(kindId * 7 + 3) % 8];
-		const char* name = md.KindName(kindId);
+		const char* name = sentName && sentName[0] ? sentName : md.KindName(kindId);
 
 		const int ch = cv.CharH();
-		const int nameH = showName ? ch + 4 : 0;
-		const IRect icon(r.x + 5, r.y + 5, r.w - 10, r.h - 10 - nameH);
 		const int frame = cv.IconFrame(name);
-		if (frame >= 0 && icon.w >= ICON_PX - 4 && icon.h >= ICON_PX - 8)
+		const int layout = frame >= 0 ? PictureLayout(r, ch, showName) : PIC_NONE;
+		const bool nameShown = showName && layout != PIC_ALONE;
+		// the name has every line the tile can spare under the picture (NameLines), and one at least when the tile has a monogram: the name is then the only
+		// thing that says what the tile holds
+		int nameLines = 0;
+		if (nameShown)
+		{
+			nameLines = NameLines(r, ch);
+			if (nameLines < 1)
+				nameLines = 1;
+		}
+		const IRect icon = PictureArea(r, ch, nameLines);
+		if (layout != PIC_NONE)
 		{
 			cv.Icon(frame, icon.x + (icon.w - ICON_PX) / 2, icon.y + (icon.h - ICON_PX) / 2);
 		}
@@ -186,15 +283,25 @@ struct InvPainter
 		{
 			FillBox(icon, hue, 55);
 			FrameBox(icon, hue, 150);
-			char mono[3] = {0, 0, 0};
-			mono[0] = (char)toupper((unsigned char)name[0]);
-			const char* second = strchr(name, ' ');
-			mono[1] = (char)(second && second[1] ? toupper((unsigned char)second[1]) : (strlen(name) > 1 ? tolower((unsigned char)name[1]) : 0));
+			char mono[3];
+			Monogram(name, mono);
 			TxtCentre(icon, mono, TXT);
 			TxtCentre(IRect(icon.x + 1, icon.y, icon.w, icon.h), mono, TXT);
 		}
-		if (showName)
-			Txt(r.x + 3, r.B() - ch - 2, name, DET, r.R() - 2);
+		if (nameShown)
+		{
+			// the lines are centred under the picture, each in the room NameRoom gives, the block ending 2 pixels above the tile's edge
+			char nl[8][100];
+			const int n = WrapName(name, NameRoom(r), nameLines, nl);
+			const int top = r.B() - 2 - nameLines * ch;
+			for (int i = 0; i < n; i++)
+			{
+				int x = r.x + (r.w - cv.TextW(nl[i])) / 2;
+				if (x < r.x + 3)
+					x = r.x + 3;
+				Txt(x, top + i * ch, nl[i], DET, r.R() - 3);
+			}
+		}
 		if (n > 1)
 		{
 			char cnt[12];
@@ -244,14 +351,16 @@ struct InvPainter
 			snprintf(count, sizeof(count), "%d", used);
 		else
 			snprintf(count, sizeof(count), "%d / %d", used, md.slots);
-		// who he is and what he has, as much as fits to the right of that
+		// who he is and what he has, as much as fits to the right of that. The wallet is CREDITS where the money is credits (arp_h9_credits 1), as the HUD says
+		// it, and WALLET with the dollar sign as stock Apollo RP has it.
+		const char* money = md.credits ? "CREDITS" : "WALLET";
 		char r0[160], r1[160], r2[96], r3[64], wal[32], bank[32];
 		FormatMoney(wal, sizeof(wal), md.wallet, md.credits);
 		FormatMoney(bank, sizeof(bank), md.bank, md.credits);
-		snprintf(r0, sizeof(r0), "%s  |  %s  |  WALLET %s  BANK %s", md.name, md.job, wal, bank);
-		snprintf(r1, sizeof(r1), "%s  |  WALLET %s  BANK %s", md.name, wal, bank);
-		snprintf(r2, sizeof(r2), "WALLET %s  BANK %s", wal, bank);
-		snprintf(r3, sizeof(r3), "WALLET %s", wal);
+		snprintf(r0, sizeof(r0), "%s  |  %s  |  %s %s  BANK %s", md.name, md.job, money, wal, bank);
+		snprintf(r1, sizeof(r1), "%s  |  %s %s  BANK %s", md.name, money, wal, bank);
+		snprintf(r2, sizeof(r2), "%s %s  BANK %s", money, wal, bank);
+		snprintf(r3, sizeof(r3), "%s %s", money, wal);
 		const char* ropts[4] = {md.job[0] ? r0 : r1, r1, r2, r3};
 		const int titleEnd = L.win.x + m.pad + cv.TextW("INVENTORY") + 14 + cv.TextW(count) + 16;
 		DrawTitle(L.win, L.xBtn, "INVENTORY", FitText(ropts, 4, L.xBtn.x - 12 - titleEnd));
@@ -446,7 +555,7 @@ struct InvPainter
 				const Offer& o = side == 0 ? t.mine[i] : t.theirs[i];
 				const IRect r = L.OfferRect(side, i);
 				const bool hot = side == 0 && i == L.OfferAt(0, ui.mx, ui.my, t.cells);
-				DrawTile(r, o.kind, o.n, 0, false, hot, false);
+				DrawTile(r, o.kind, o.n, 0, false, hot, false, o.name);
 			}
 		}
 

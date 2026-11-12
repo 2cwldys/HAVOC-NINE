@@ -10,9 +10,14 @@
 // client asks for nothing the server did not say it has.
 #pragma once
 
-// From CHud::Init: hooks H9Inv and H9Trade, registers cl_h9_arpinv, cl_h9_inventory and cl_h9_arpinv_state, and adds the HUD element that
-// draws the window.
+// From CHud::Init: hooks H9Inv and H9Trade, registers cl_h9_arpinv, cl_h9_inventory, cl_h9_arpinv_state and cl_h9_arpinv_test, and adds the HUD element
+// that draws the window.
 void H9ArpInv_Init();
+
+// From CHud::VidInit, by name: a map starts or the video restarts. The window and the catalog of the last map are forgotten and the item pictures
+// (sprites/h9_arpicons.spr and .txt) are read again, as every client sprite is. The elements that register through AddHudElem are not members of CHud,
+// and CHud::VidInit does not walk their list (Think, Draw and InitHUDData are walked), so an element that has a VidInit needs a call of its own.
+void H9ArpInv_VidInit();
 
 // True while the inventory window is open: the cursor is up and the clicks are the window's.
 bool H9ArpInv_IsUp();

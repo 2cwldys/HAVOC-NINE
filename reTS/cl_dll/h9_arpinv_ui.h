@@ -53,7 +53,10 @@ inline InvMetrics MetricsFor(int sh, int charH)
 {
 	InvMetrics m;
 	const bool big = sh >= 700;
-	m.tile = big ? 64 : 48;
+	// The cell grows with the screen, so that the name under the picture has the room it needs (h9_arpinv_draw.h, NameLines): the game's font is 19 pixels high
+	// and about 7 wide, and a name is 77 pixels long on average. 96 pixels (three lines of the name) from 1000 pixels of height, 80 (two lines) from 700, and the 48
+	// pixel cell of a smaller screen holds the picture alone.
+	m.tile = sh >= 1000 ? 96 : (big ? 80 : 48);
 	m.offerTile = big ? 52 : 40;
 	m.gap = big ? 6 : 5;
 	m.pad = big ? 16 : 12;

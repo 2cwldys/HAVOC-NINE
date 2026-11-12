@@ -602,6 +602,7 @@ void CHud::VidInit()
 	m_TSReticle.VidInit();
 	m_TSDebris.VidInit();
 	m_TSObjectives.VidInit();
+	H9ArpInv_VidInit(); // H9: the inventory window forgets the last map and reads the item pictures; the H9 elements are not members, and this does not walk the list (h9_arpinv.cpp)
 	TSParticles_Reset();     // drop stale per-map sprite handles (impact particle pool)
 	TSBullets_Reset();       // no round carries across a map (client.dll clears them on the FX root's first frame, 0x10056de3)
 	TS_Attachments_VidInit(); // drop stale per-map laser/flashlight sprite handles

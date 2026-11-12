@@ -1017,8 +1017,8 @@ void compile_weapons_info()
   // the M4A1's (models/h9/{v,p,w}_mechrocket.mdl keep that layout; a server without the files gives the row the M4A1's
   // models). What is the launcher's own is set below: name, models, no fire sound (the launch sound is the server's), no
   // shell, a four-rocket clip that one pull empties (a salvo of four rockets 0.12 s apart, 1.5 s from a salvo to the next
-  // pull, 3.0 s to reload, the length of the viewmodel's reload sequence), single shots only, the Contender's caliber for
-  // the reserve, a light weight so that it fits beside the M60E3, no price (it is not in the buy menus), no scope or
+  // pull, 3.0 s to reload, the length of the viewmodel's reload sequence), two fire modes (the volley, the default, and one rocket a pull), the Barrett's caliber for
+  // the reserve (the M60E3's belt is another, so the two never share one), a light weight so that it fits beside the M60E3, no price (it is not in the buy menus), no scope or
   // attachment, no right-click stance, no gunbash, and the combat feel (Sparta: a heavy view kick and no spread; the
   // damage is the cvar h9_mechrocket_damage's, this is its default). The clip, the rates and the salvo are the defaults of
   // the h9_mechrocket_* cvars too: the server's row takes its cvars (TSMechRocketSyncCvars), the client's what SrvSett
@@ -1039,7 +1039,7 @@ void compile_weapons_info()
     r.iClip = 4;
     r.iFireType = TSFT_SEMI;
     r.flFireRate = 1.5f;
-    r.iFireModes = 2;
+    r.iFireModes = (1 << TSFM_BURST) | (1 << TSFM_SEMI); // burst is the volley and the default (TSDefaultFireMode prefers it), semi one rocket a pull
     r.iCaliber = TS_CALIBER_MECHROCKET;
     r.bUsesSpread = 0;
     r.slotCost = 10;

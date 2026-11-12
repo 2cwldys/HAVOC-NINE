@@ -970,7 +970,7 @@ void CTSGun::PrimaryAttack()
 	//  - semi (1) and free semi (4): a fresh press, or held with the double fire rate powerup;
 	//  - auto (0) and free full (5): every call (ItemPostFrame calls with the trigger held);
 	//  - burst (2): a fresh press with no burst queued arms it (3 rounds, 2 for the MAC-10) and fires
-	//    nothing; WeaponIdle fires the queued rounds;
+	//    nothing; WeaponIdle fires the queued rounds. The Mech launcher's burst is its volley: the press fires it (MechRocketFire);
 	//  - pump (3): while the trigger is held;
 	//  - anything else: nothing.
 	const bool held = (m_pPlayer->pev->button & IN_ATTACK) != 0;
@@ -987,6 +987,11 @@ void CTSGun::PrimaryAttack()
 		fire = true;
 		break;
 	case TSFM_BURST:
+		if (TS_IsRocketWeapon(m_weaponType))
+		{
+			fire = pressed || DoubleFireRate(m_pPlayer);
+			break;
+		}
 		if (pressed && m_burstOrPhase == 0)
 			m_burstOrPhase = (m_weaponType != TSW_MAC10) + 2;
 		return;
@@ -1233,18 +1238,21 @@ void CTSGun::ShotgunFire(const s_weapon_info *wi)
 	m_fInSpecialReload = (m_fireMode == TSFM_PUMP) ? 1 : 0;
 }
 
-// The Mech rocket launcher's shot (TSW_MECHROCKET): a trigger pull launches a SALVO, wi->iSalvo rockets (what a partial clip
-// holds, if that is fewer) wi->flStagger seconds apart, and the clip pays for each rocket as it leaves. This is the pull's
+// The Mech rocket launcher's shot (TSW_MECHROCKET): in burst mode (its default) a trigger pull launches a SALVO, wi->iSalvo rockets (what a
+// partial clip holds, if that is fewer) wi->flStagger seconds apart, in semi mode ONE rocket, and the clip pays for each rocket as it leaves. This is the pull's
 // first rocket; the rest are WeaponIdle's (MechRocketSalvoStep), counted down in m_burstOrPhase, the slot the burst uses, so
 // the client predicts the whole salvo and the server's count reaches it every frame. The salvo asks nothing more of the
 // trigger (a bot presses once), a reload waits for it (Reload refuses while the count is up), and a switch of weapon, a death,
 // an empty clip or the water ends it; the rockets that did not leave stay in the clip. A pull is refused while a salvo is
 // still leaving.
+// After a single rocket (semi mode) the next pull waits this fraction of the volley's wait (wi->flFireRate): 0.6 s at the default 1.5.
+static const float MECHROCKET_SINGLE_WAIT = 0.4f;
+
 void CTSGun::MechRocketFire(const s_weapon_info *wi)
 {
 	if (m_burstOrPhase > 0)
 		return;
-	int salvo = (wi->iSalvo > 1) ? wi->iSalvo : 1;
+	int salvo = (m_fireMode == TSFM_BURST && wi->iSalvo > 1) ? wi->iSalvo : 1;
 	if (!InfiniteClips(m_pPlayer) && salvo > m_iClip)
 		salvo = (m_iClip > 1) ? m_iClip : 1;
 	m_burstOrPhase = salvo - 1; // the rockets still to leave after this one
@@ -1273,7 +1281,9 @@ void CTSGun::MechRocketShot(const s_weapon_info *wi, bool bFollow)
 #endif
 	if (bLast)
 		VKickback(wi->flViewKick, wi->iFireType);
-	const float flRate = (wi->flFireRate > 0.0f) ? wi->flFireRate : 1.5f;
+	float flRate = (wi->flFireRate > 0.0f) ? wi->flFireRate : 1.5f;
+	if (m_fireMode != TSFM_BURST)
+		flRate *= MECHROCKET_SINGLE_WAIT; // one rocket a pull (semi mode): a short wait
 	const float flStagger = (wi->flStagger > 0.0f) ? wi->flStagger : 0.12f;
 	m_flNextPrimaryAttack = UTIL_WeaponTimeBase() + (bLast ? flRate : flStagger);
 	m_flTimeWeaponIdle = UTIL_WeaponTimeBase() + 2.0f;
@@ -2853,7 +2863,7 @@ void CTSGun::CCombatIdle()
 // tail), not just on the idle timer. Bare hands -> CCombatIdle. Then, for a wielded item:
 //  - the PUMP-RELOAD continuation: fire-type 1 with the phase machine armed -> Reload() (which
 //    routes back into ShotgunReload) — this is the machine's per-frame driver;
-//  - the BURST machine: fire-mode 2 with the primary timer clear — fire the next queued round
+//  - the BURST machine (not the Mech launcher's: its volley is the salvo below): fire-mode 2 with the primary timer clear — fire the next queued round
 //    and decrement (this is how a tapped burst completes after release);
 //  - the Mech launcher's SALVO, which the same count (m_burstOrPhase) drives: the next rocket
 //    once the stagger has run out (MechRocketSalvoStep);
@@ -2873,7 +2883,7 @@ void CTSGun::WeaponIdle()
 		Reload(); // the shell-by-shell continuation (-> ShotgunReload)
 		return;
 	}
-	if (m_fireMode == TSFM_BURST && m_flNextPrimaryAttack <= UTIL_WeaponTimeBase())
+	if (m_fireMode == TSFM_BURST && !TS_IsRocketWeapon(m_weaponType) && m_flNextPrimaryAttack <= UTIL_WeaponTimeBase())
 	{
 		if (m_burstOrPhase < 1)
 			m_burstOrPhase = 0;
@@ -3195,10 +3205,21 @@ bool CBasePlayer::DropWeapon(int type, float flDamage)
 	if (!pGun)
 		return false;
 
-	// tsm_loadoutrework: the plugin marks a Mech in pev->fuser4. It is neither disarmed (-2) nor lets go of a weapon
-	// on its own (the drop key, drop_<n>).
-	if (pev->fuser4 != 0.0f && CVAR_GET_FLOAT("tsm_loadoutrework") != 0.0f)
-		return false;
+	// The plugin marks a Mech in pev->fuser4 (lr_arm_begin). With tsm_loadoutrework on he is neither disarmed (-2) nor lets go of
+	// anything on his own (the drop key, drop_<n>). With tsm_mech_nodrop on he lets go of no weapon by any route: not disarmed by a
+	// melee hit, not by the drop key or the weapon bar, and the death scatter throws none of them (the CTF flag is no weapon of
+	// his: the drop key still lets go of it when his hands are bare).
+	if (pev->fuser4 != 0.0f)
+	{
+		if (CVAR_GET_FLOAT("tsm_loadoutrework") != 0.0f)
+			return false;
+		if (CVAR_GET_FLOAT("tsm_mech_nodrop") != 0.0f)
+		{
+			const int held = (type < 0) ? pGun->m_weaponType : type;
+			if (type == -2 || (held >= 1 && held < TSW_COUNT))
+				return false;
+		}
+	}
 
 	// disarm (-2) can't take the flag or bare hands
 	if ((pGun->m_weaponType == TSW_FLAG || pGun->m_weaponType < 1) && type == -2)

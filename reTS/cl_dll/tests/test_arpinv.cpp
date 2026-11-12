@@ -1,7 +1,8 @@
 // Tests of the ARP inventory window's model and clicks (h9_arpinv_model.h, h9_arpinv_ui.h). They need no game:
 //   cl /std:c++17 /EHsc /I.. test_arpinv.cpp && test_arpinv.exe
 // (g++ -std=c++17 -I.. test_arpinv.cpp works too). Exit 0: every check passed.
-#include "../h9_arpinv_ui.h"
+#include "../h9_arpinv_draw.h"
+#include "../h9_arpinv_icons.h"
 
 #include <stdio.h>
 #include <string>
@@ -1590,11 +1591,12 @@ static void TestWindowDrag()
 		const int tx = L0.twin.x + 30, ty = L0.twin.y + 10;
 		CHECK(ui.TitleAt(L0, tx, ty) == 1);
 		CHECK(ui.TitleAt(L0, L0.tx.x + 2, L0.tx.y + 2) == -1);
-		DragWindow(ui, md, tx, ty, tx + 70, ty + 25);
+		// to the left: the pair of windows fills the screen's width, so the exchange window has no room to move to the right
+		DragWindow(ui, md, tx, ty, tx - 70, ty + 25);
 		InvLayout L1 = Lay(md, ui);
-		CHECK(L1.twin.x == L0.twin.x + 70 && L1.twin.y == L0.twin.y + 25);
+		CHECK(L1.twin.x == L0.twin.x - 70 && L1.twin.y == L0.twin.y + 25);
 		CHECK(L1.win.x == L0.win.x && L1.win.y == L0.win.y);
-		CHECK(L1.sealBtn.x == L0.sealBtn.x + 70 && L1.offerMine.y == L0.offerMine.y + 25 && L1.quick[3].x == L0.quick[3].x + 70);
+		CHECK(L1.sealBtn.x == L0.sealBtn.x - 70 && L1.offerMine.y == L0.offerMine.y + 25 && L1.quick[3].x == L0.quick[3].x - 70);
 		int cx, cy;
 		Center(L1.OfferRect(0, 2), cx, cy);
 		CHECK(L1.OfferAt(0, cx, cy, 12) == 2);
@@ -1762,8 +1764,455 @@ static void TestSearchMoney()
 	}
 }
 
+// ---- the drawing: a canvas that counts what the painter asks of it
+
+struct CountCanvas : InvCanvas
+{
+	int w, h, ch;
+	bool pictures; // IconFrame has a frame for every name
+	int icons;
+	std::vector<std::string> texts;
+	CountCanvas(int W, int H, int CH, bool pics) : w(W), h(H), ch(CH), pictures(pics), icons(0) {}
+	void Fill(int, int, int, int, int, int, int, int) override {}
+	void Text(int, int, int, const char* s, int, int, int) override { texts.push_back(s); }
+	int TextW(const char* s) override { return (int)strlen(s) * 8; }
+	int CharH() override { return ch; }
+	int Width() override { return w; }
+	int Height() override { return h; }
+	int IconFrame(const char*) override { return pictures ? 5 : -1; }
+	void Icon(int, int, int) override { icons++; }
+	bool Has(const char* needle) const
+	{
+		for (const std::string& t : texts)
+			if (t.find(needle) != std::string::npos)
+				return true;
+		return false;
+	}
+};
+
+// The header of the inventory window words the money as the server does: CREDITS with the credit sign where the money is credits (arp_h9_credits 1), WALLET
+// with the dollar sign as stock Apollo RP has it.
+static void TestHeaderWords()
+{
+	const int screens[3][2] = {{1920, 1080}, {800, 600}, {640, 480}};
+	for (int s = 0; s < 3; s++)
+	{
+		for (int credits = 0; credits < 2; credits++)
+		{
+			Model md;
+			Open(md, 32, credits ? 4 : 0);
+			Catalog(md, {{SOUP, "Soda"}, {PIZZA, "Pizza"}});
+			Slots(md, 0, {{SOUP, 6}, {PIZZA, 2}});
+			Ui ui;
+			CountCanvas cv(screens[s][0], screens[s][1], 19, false);
+			InvPainter p(cv, md, ui, 6.0f);
+			p.DrawAll();
+			CHECK(cv.Has(credits ? "CREDITS" : "WALLET"));
+			CHECK(!cv.Has(credits ? "WALLET" : "CREDITS"));
+			if (screens[s][0] >= 1920)
+			{
+				CHECK(cv.Has(credits ? "CREDITS \xA2 500  BANK \xA2 1,250" : "WALLET $ 500  BANK $ 1,250"));
+			}
+		}
+	}
+}
+
+// The tile's picture, in the layouts the game has: the 96 pixel tile of a screen 1000 pixels high or more, the 80 pixel tile of one 700 pixels high or more,
+// the 48 pixel tile of a smaller one, with the font of the game (19 pixels: the engine's creditsfont) and a smaller and a taller one. lines is the lines of
+// the font the tile gives to the name under the picture.
+static void TestPictures()
+{
+	struct Case
+	{
+		int w, h, ch, tile, layout, lines;
+	};
+	const Case cases[] = {
+		{1920, 1080, 19, 96, PIC_WITH_NAME, 3}, // the owner's screen
+		{2560, 1440, 19, 96, PIC_WITH_NAME, 3},
+		{1280, 1024, 19, 96, PIC_WITH_NAME, 3},
+		{1600, 900, 19, 80, PIC_WITH_NAME, 2},
+		{1280, 720, 19, 80, PIC_WITH_NAME, 2},
+		{1280, 720, 12, 80, PIC_WITH_NAME, 3},
+		{1024, 768, 19, 80, PIC_WITH_NAME, 2},
+		{1920, 1080, 12, 96, PIC_WITH_NAME, 4},
+		{800, 600, 19, 48, PIC_ALONE, 0},       // a tile too small for a picture and a line of the font
+		{800, 600, 12, 48, PIC_ALONE, 0},
+		{640, 480, 19, 48, PIC_ALONE, 0},
+		{1280, 720, 48, 80, PIC_ALONE, 0},      // a font taller than the tile can spare
+		{1920, 1080, 30, 96, PIC_WITH_NAME, 1}, // and one that leaves a line only
+	};
+	for (const Case& c : cases)
+	{
+		const InvMetrics m = MetricsFor(c.h, c.ch);
+		CHECK(m.tile == c.tile);
+		const IRect tile(0, 0, m.tile, m.tile);
+		CHECK(NameLines(tile, c.ch) == c.lines);
+		CHECK(PictureLayout(tile, c.ch, true) == c.layout);
+		CHECK(PictureLayout(tile, c.ch, false) == PIC_ALONE);
+		const IRect offer(0, 0, m.offerTile, m.offerTile);
+		CHECK(PictureLayout(offer, c.ch, false) == PIC_ALONE);
+
+		// the whole window: every tile that holds an item draws its picture, and with no picture in the list none does (a monogram)
+		for (int pics = 0; pics < 2; pics++)
+		{
+			Model md = Stocked();
+			Ui ui;
+			CountCanvas cv(c.w, c.h, c.ch, pics != 0);
+			InvPainter p(cv, md, ui, 6.0f);
+			p.DrawAll();
+			const int filled = md.Used();
+			CHECK(cv.icons == (pics ? filled : 0));
+			// the name of a tile is drawn beside a picture and left out of a tile that holds it alone
+			CHECK(cv.Has("Pizza") == (c.layout == PIC_WITH_NAME || !pics));
+		}
+	}
+	// an exchange: the offers hold pictures too
+	{
+		Model md = Stocked();
+		Msg m;
+		m.Byte(TR_OPEN).Str("KANE, MARCUS").Long(500).Byte(12).Byte(1);
+		CHECK(md.OnTrade(m.data(), m.size(), 5.0f));
+		Msg a;
+		a.Byte(TR_OFFER).Byte(0).Byte(0).Short(SOUP).Short(4).Str("");
+		md.OnTrade(a.data(), a.size(), 5.0f);
+		Ui ui;
+		CountCanvas cv(1920, 1080, 19, true);
+		InvPainter p(cv, md, ui, 6.0f);
+		p.DrawAll();
+		CHECK(cv.icons == md.Used() + 1);
+	}
+	// an exchange: the other player's offer of an item this player's catalog does not hold is drawn under the name the server sent with it, so that its picture
+	// is found; with no name sent it is a monogram
+	{
+		struct NamedCanvas : CountCanvas
+		{
+			NamedCanvas(int W, int H, int CH) : CountCanvas(W, H, CH, true) {}
+			int IconFrame(const char* name) override { return strcmp(name, "ITEM") == 0 ? -1 : 5; }
+		};
+		for (int sent = 0; sent < 2; sent++)
+		{
+			Model md = Stocked();
+			Msg m;
+			m.Byte(TR_OPEN).Str("KANE, MARCUS").Long(500).Byte(12).Byte(1);
+			CHECK(md.OnTrade(m.data(), m.size(), 5.0f));
+			Msg a;
+			a.Byte(TR_OFFER).Byte(1).Byte(0).Short(777).Short(2).Str(sent ? "Flashlight" : "");
+			md.OnTrade(a.data(), a.size(), 5.0f);
+			Ui ui;
+			NamedCanvas cv(1920, 1080, 19);
+			InvPainter p(cv, md, ui, 6.0f);
+			p.DrawAll();
+			CHECK(cv.icons == md.Used() + (sent ? 1 : 0));
+		}
+	}
+}
+
+// sprites/h9_arpicons.txt as the engine part reads it (IconList), the file the game ships: every name has a frame of the sheet, and the names
+// the plugins register resolve.
+static std::string ReadFile(const char* const* paths, int n, std::string* found = nullptr)
+{
+	for (int i = 0; i < n; i++)
+	{
+		FILE* f = fopen(paths[i], "rb");
+		if (!f)
+			continue;
+		std::string s;
+		char buf[4096];
+		size_t got;
+		while ((got = fread(buf, 1, sizeof(buf), f)) > 0)
+			s.append(buf, got);
+		fclose(f);
+		if (found)
+			*found = paths[i];
+		return s;
+	}
+	return std::string();
+}
+
+static void TestIconList()
+{
+	// the reading of the text
+	{
+		IconList l;
+		l.Parse("# the pictures\n// a comment|3\nSoda|64\r\nFirst Aid Kit|68\n\nno bar here\n.50 AE Ammo|35\nbad|-4\nvz. 61 \"Skorpion\"|30");
+		CHECK(l.count == 4 && l.refused == 1);
+		CHECK(l.Find("Soda") == 64 && l.Find("First Aid Kit") == 68 && l.Find(".50 AE Ammo") == 35 && l.Find("vz. 61 \"Skorpion\"") == 30);
+		CHECK(l.Find("soda") == -1 && l.Find("Soda ") == -1 && l.Find("") == -1 && l.Find(nullptr) == -1 && l.Find("bad") == -1);
+		// a frame the sheet does not have is not kept: its tile is a monogram, not the sheet's last frame
+		l.Parse("A|0\nB|94\nC|95\nD|200", 95);
+		CHECK(l.count == 2 && l.refused == 2 && l.Find("B") == 94 && l.Find("C") == -1);
+		l.Parse("A|0\nB|94\nC|95\nD|200", -1);
+		CHECK(l.count == 4);
+		// a name longer than a name is cut as the client's names are, and the list holds no more than it can
+		l.Parse("A name that is much longer than thirty two characters|7\n");
+		CHECK(l.count == 1 && l.Find("A name that is much longer than") == -1);
+		CHECK(strlen(l.entries[0].name) == NAME_LEN - 1);
+		std::string big;
+		for (int i = 0; i < ICON_NAMES_MAX + 5; i++)
+			big += "n" + std::to_string(i) + "|1\n";
+		l.Parse(big.c_str());
+		CHECK(l.count == ICON_NAMES_MAX && l.refused == 5);
+		l.Parse(nullptr);
+		CHECK(l.count == 0);
+	}
+	// the file the game ships
+	const char* const txts[] = {"../../../H9XASH/ts/sprites/h9_arpicons.txt", "D:/Downloads/TSM/H9XASH/ts/sprites/h9_arpicons.txt"};
+	const char* const sheets[] = {"../../../H9XASH/ts/sprites/h9_arpicons.spr", "D:/Downloads/TSM/H9XASH/ts/sprites/h9_arpicons.spr"};
+	std::string where;
+	const std::string txt = ReadFile(txts, 2, &where);
+	const std::string sheet = ReadFile(sheets, 2);
+	if (txt.empty() || sheet.size() < 830)
+	{
+		printf("SKIP the shipped picture list: sprites/h9_arpicons.txt and .spr not found beside the tests\n");
+		return;
+	}
+	const int frames = (int)((unsigned char)sheet[28] | ((unsigned char)sheet[29] << 8) | ((unsigned char)sheet[30] << 16) | ((unsigned char)sheet[31] << 24));
+	CHECK(frames > 0 && frames <= 256 && sheet.compare(0, 4, "IDSP") == 0);
+	IconList l;
+	l.Parse(txt.c_str(), frames);
+	CHECK(l.count > 0 && l.refused == 0);
+	CHECK(l.Find("Flashlight") >= 0 && l.Find("Flashlight") < frames);
+	CHECK(l.Find("Soda") >= 0 && l.Find("Cuffs") >= 0 && l.Find("Rope") >= 0 && l.Find("Tape") >= 0);
+	CHECK(l.Find("PPSh-41") == l.Find("PPSH-41") && l.Find("Laser Rifle") == l.Find("LASER RIFLE") && l.Find("Laser Rifle") >= 0);
+	CHECK(l.Find("vz. 61 \"Skorpion\"") >= 0);
+	// the first frame of the sheet is a frame of 32 x 32, and the sheet is as long as its frames say
+	const int ox = 810;
+	CHECK(sheet.size() == (size_t)ox + (size_t)frames * (20 + ICON_PX * ICON_PX));
+	printf("the shipped list (%s): %d names for %d frames\n", where.c_str(), l.count, frames);
+}
+
+// ---- the names under the pictures, in the game's own font
+
+// The HUD font of the game, the engine's creditsfont (valve/gfx.wad, lump CREDITSFONT: 19 pixels high, a width for each character), to measure and cut text
+// as the game does. Without the file the font is 7 pixels wide and 19 high, and the checks that need the real widths are skipped.
+static int g_fontW[256];
+static int g_fontH = 19;
+static bool g_fontReal = false;
+
+static void LoadGameFont()
+{
+	for (int i = 0; i < 256; i++)
+		g_fontW[i] = 7;
+	g_fontH = 19;
+	g_fontReal = false;
+	const char* const paths[] = {"../../../H9XASH/valve/gfx.wad", "D:/Downloads/TSM/H9XASH/valve/gfx.wad"};
+	const std::string b = ReadFile(paths, 2);
+	if (b.size() < 12 || b.compare(0, 4, "WAD3") != 0)
+		return;
+	auto i32 = [&](size_t o) { return (int)((unsigned)(unsigned char)b[o] | ((unsigned)(unsigned char)b[o + 1] << 8) | ((unsigned)(unsigned char)b[o + 2] << 16) | ((unsigned)(unsigned char)b[o + 3] << 24)); };
+	const int n = i32(4), table = i32(8);
+	for (int k = 0; k < n && (size_t)table + (size_t)(k + 1) * 32 <= b.size(); k++)
+	{
+		const size_t e = (size_t)table + (size_t)k * 32;
+		char name[17] = {0};
+		memcpy(name, &b[e + 16], 16);
+		if (strcmp(name, "CREDITSFONT") != 0)
+			continue;
+		const size_t at = (size_t)i32(e);
+		if (at + 16 + 256 * 4 > b.size())
+			continue;
+		g_fontH = i32(at + 12);
+		for (int c = 0; c < 256; c++)
+			g_fontW[c] = (int)(short)((unsigned char)b[at + 16 + c * 4 + 2] | ((unsigned char)b[at + 16 + c * 4 + 3] << 8));
+		g_fontReal = g_fontH > 0;
+		return;
+	}
+}
+
+// A canvas that measures and cuts text with that font: cut holds what each call of Text puts on the screen, which stops before the glyph that crosses its edge.
+struct FontCanvas : CountCanvas
+{
+	std::vector<std::string> cut;
+	std::vector<int> xs; // where each of them starts
+	FontCanvas(int W, int H) : CountCanvas(W, H, g_fontH, true) {}
+	static int GlyphW(const char* p) { return g_fontW[(unsigned char)*p == 0xA2 ? 'c' : (unsigned char)*p]; }
+	int TextW(const char* s) override
+	{
+		int n = 0;
+		for (const char* p = s; *p && *p != '\n'; p++)
+			n += GlyphW(p);
+		return n;
+	}
+	void Text(int x, int, int maxX, const char* s, int, int, int) override
+	{
+		std::string t;
+		int cx = x;
+		for (const char* p = s; *p && *p != '\n'; p++)
+		{
+			if (cx + GlyphW(p) > maxX)
+				break;
+			t += *p;
+			cx += GlyphW(p);
+		}
+		cut.push_back(t);
+		xs.push_back(x);
+		texts.push_back(s);
+	}
+	bool Shows(const char* line) const
+	{
+		for (const std::string& t : cut)
+			if (t == line)
+				return true;
+		return false;
+	}
+};
+
+// The room a tile gives its name: the whole name on the tile of a 1080 pixel screen for every name the game ships, and at least most of them on the tile of a
+// 720 pixel screen, where a name that does not fit ends in "..." and is never cut off without a sign.
+static void TestNamesFit()
+{
+	LoadGameFont();
+	const char* const txts[] = {"../../../H9XASH/ts/sprites/h9_arpicons.txt", "D:/Downloads/TSM/H9XASH/ts/sprites/h9_arpicons.txt"};
+	const std::string txt = ReadFile(txts, 2);
+	IconList l;
+	l.Parse(txt.c_str());
+	if (!g_fontReal || l.count == 0)
+	{
+		printf("SKIP the names under the pictures: valve/gfx.wad or sprites/h9_arpicons.txt not found beside the tests\n");
+	}
+	else
+	{
+		struct Screen
+		{
+			int w, h, lines;
+			bool all;
+		};
+		const Screen screens[] = {{1920, 1080, 3, true}, {2560, 1440, 3, true}, {1280, 720, 2, false}, {1024, 768, 2, false}};
+		for (const Screen& s : screens)
+		{
+			Model md;
+			Ui ui;
+			FontCanvas cv(s.w, s.h);
+			InvPainter p(cv, md, ui, 0.0f);
+			const IRect tile(0, 0, p.L.m.tile, p.L.m.tile);
+			const int room = NameRoom(tile);
+			CHECK(NameLines(tile, cv.CharH()) == s.lines);
+			int whole = 0;
+			for (int i = 0; i < l.count; i++)
+			{
+				char nl[8][100];
+				const int n = p.WrapName(l.entries[i].name, room, s.lines, nl);
+				CHECK(n >= 1 && n <= s.lines);
+				std::string joined;
+				bool fits = true, dots = false;
+				for (int k = 0; k < n; k++)
+				{
+					joined += (k ? " " : "") + std::string(nl[k]);
+					if (cv.TextW(nl[k]) > room)
+						fits = false;
+					const size_t len = strlen(nl[k]);
+					if (len >= 3 && strcmp(nl[k] + len - 3, "...") == 0)
+						dots = true;
+				}
+				if (joined == l.entries[i].name && fits)
+					whole++;
+				else
+					CHECK(dots && fits);
+			}
+			if (s.all)
+			{
+				CHECK(whole == l.count);
+			}
+			else
+			{
+				CHECK(whole * 100 >= l.count * 80);
+			}
+			printf("a %dx%d screen: tile %d, %d lines, %d of %d names whole\n", s.w, s.h, tile.w, s.lines, whole, l.count);
+		}
+	}
+
+	// the painter: a name of three words has a line each under the picture, cut by no edge; a tile that holds no picture names its item in the same lines
+	for (int pics = 0; pics < 2; pics++)
+	{
+		Model md;
+		Open(md, 32);
+		Catalog(md, {{SOUP, "9mm Parabellum Ammo"}, {PIZZA, "Pizza"}});
+		Slots(md, 0, {{SOUP, 3}, {PIZZA, 1}});
+		Ui ui;
+		FontCanvas cv(1920, 1080);
+		cv.pictures = pics != 0;
+		InvPainter p(cv, md, ui, 6.0f);
+		p.DrawAll();
+		CHECK(cv.Has("Pizza"));
+		if (g_fontReal)
+		{
+			CHECK(cv.Shows("9mm") && cv.Shows("Parabellum") && cv.Shows("Ammo") && cv.Shows("Pizza"));
+		}
+		// each line is centred under the picture: it starts where half the tile's spare width puts it, and the lines of one name are each centred
+		const IRect cell1 = p.L.CellRect(1), cell0 = p.L.CellRect(0);
+		bool centred = false, centred0 = true;
+		int lines0 = 0;
+		for (size_t i = 0; i < cv.cut.size(); i++)
+		{
+			if (cv.cut[i] == "Pizza" && cv.xs[i] == cell1.x + (cell1.w - cv.TextW("Pizza")) / 2)
+				centred = true;
+			const bool inCell0 = cv.xs[i] >= cell0.x && cv.xs[i] < cell0.R();
+			if (inCell0 && (cv.cut[i] == "9mm" || cv.cut[i] == "Parabellum" || cv.cut[i] == "Ammo"))
+			{
+				lines0++;
+				if (cv.xs[i] != cell0.x + (cell0.w - cv.TextW(cv.cut[i].c_str())) / 2)
+					centred0 = false;
+			}
+		}
+		CHECK(centred);
+		if (g_fontReal)
+		{
+			CHECK(lines0 == 3 && centred0);
+		}
+	}
+	// the 80 pixel tile gives two lines, and a name that needs more ends in dots
+	{
+		Model md;
+		Open(md, 32);
+		Catalog(md, {{SOUP, "12 Gauge Shells Ammo Pack Box"}});
+		Slots(md, 0, {{SOUP, 3}});
+		Ui ui;
+		FontCanvas cv(1280, 720);
+		InvPainter p(cv, md, ui, 6.0f);
+		p.DrawAll();
+		bool dots = false;
+		for (const std::string& t : cv.cut)
+			if (t.size() > 3 && t.compare(t.size() - 3, 3, "...") == 0)
+				dots = true;
+		CHECK(dots);
+	}
+}
+
+// CHud::VidInit calls its members by name and does not walk the list of HUD elements. A check of the source: CHud::VidInit calls H9ArpInv_VidInit, which calls the
+// element's VidInit, which reads the pictures.
+static void TestVidInitBridge()
+{
+	const char* const hudPaths[] = {"../hud.cpp", "D:/Downloads/TSM/reTS/cl_dll/hud.cpp"};
+	const char* const invPaths[] = {"../h9_arpinv.cpp", "D:/Downloads/TSM/reTS/cl_dll/h9_arpinv.cpp"};
+	const char* const hdrPaths[] = {"../h9_arpinv.h", "D:/Downloads/TSM/reTS/cl_dll/h9_arpinv.h"};
+	const std::string hud = ReadFile(hudPaths, 2), inv = ReadFile(invPaths, 2), hdr = ReadFile(hdrPaths, 2);
+	if (hud.empty() || inv.empty() || hdr.empty())
+	{
+		printf("SKIP the VidInit bridge: the client sources are not beside the tests\n");
+		return;
+	}
+	const size_t start = hud.find("void CHud::VidInit()");
+	CHECK(start != std::string::npos);
+	const size_t end = start == std::string::npos ? start : hud.find("\n}\n", start);
+	const std::string body = start == std::string::npos || end == std::string::npos ? std::string() : hud.substr(start, end - start);
+	CHECK(body.find("H9ArpInv_VidInit();") != std::string::npos);
+	CHECK(hdr.find("void H9ArpInv_VidInit();") != std::string::npos);
+	const size_t def = inv.find("void H9ArpInv_VidInit()");
+	CHECK(def != std::string::npos);
+	CHECK(def != std::string::npos && inv.find("s_Hud.VidInit();", def) != std::string::npos);
+	// the element's VidInit reads the pictures
+	const size_t vid = inv.find("bool VidInit() override");
+	CHECK(vid != std::string::npos);
+	CHECK(vid != std::string::npos && inv.find("LoadIcons();", vid) != std::string::npos && inv.find("LoadIcons();", vid) < inv.find("InitHUDData", vid));
+}
+
 int main()
 {
+	TestHeaderWords();
+	TestPictures();
+	TestIconList();
+	TestNamesFit();
+	TestVidInitBridge();
 	TestWire();
 	TestTradeWire();
 	TestLayout();

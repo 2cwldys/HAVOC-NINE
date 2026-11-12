@@ -1195,7 +1195,7 @@ void CH9ArpHudPanel::PaintPlaque()
 			int fr = RAIL_R, fg = RAIL_G, fb = RAIL_B;
 			if (r.kind == KIND_PLQ_TAG)
 			{
-				const bool civilian = 0 == strcmp(r.text, "CIVILIAN");
+				const bool civilian = 0 == strcmp(r.text, "CIVILIAN") || 0 == strcmp(r.text, "PROLETARIAN");
 				vr = civilian ? DET_R : LIT_R;
 				vg = civilian ? DET_G : LIT_G;
 				vb = civilian ? DET_B : LIT_B;

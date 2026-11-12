@@ -75,9 +75,10 @@ enum tsweapon_t
 #define TS_CALIBER_PLASMA 15
 inline bool TS_IsEnergyWeapon(int t) { return t == TSW_LASERRIFLE; }
 // The Mech rocket launcher fires a rocket entity, not bullets: the client draws no brass, bullet trace or impact for it,
-// and a large muzzle flash; the launch sound and the blast are the server's. Its reserve is the Contender's caliber
-// (13, 7.62 x 51mm): all sixteen calibers of the ammo table are taken.
-#define TS_CALIBER_MECHROCKET 13
+// and a large muzzle flash; the launch sound and the blast are the server's. Its reserve is the Barrett's caliber
+// (8, 50BMG): all sixteen calibers of the ammo table are taken, and this one is the Mech's alone, for the M60E3's belt is
+// caliber 13 and a reserve the two shared would hand the launcher the whole belt.
+#define TS_CALIBER_MECHROCKET 8
 inline bool TS_IsRocketWeapon(int t) { return t == TSW_MECHROCKET; }
 // The launcher's tunables that the weapon table carries, and how they travel: SrvSett (a BYTE id and a SHORT value; a reTS addition,
 // TS 3.0's client drops an id above 3). The server applies what its cvars say and sends it (TSMechRocketSyncCvars on a change,
