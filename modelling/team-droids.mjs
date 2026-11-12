@@ -100,7 +100,7 @@ const metalAt = (look, t, x, y, amp = 0.05, seed = 7) => look.metal(t + grain(x,
 
 // ---- the arms ----------------------------------------------------------------------------------------------------------------
 /** The stock arms picture of a viewmodel read for painting: coverage, glove run of every column, finger gaps. */
-function armInfo(game, file) {
+export function armInfo(game, file) {
   const mdl = readFileSync(join(game, "models", file));
   const tex = K.textureOf(mdl, "arms256.bmp");
   const W = tex.width, H = tex.height;
@@ -321,7 +321,7 @@ function forearmTexel(look, w, L, x, y, S, un, hw, u) {
 }
 
 /** Grows the painted texels outwards `rings` texels into the margin (the nearest colours), so a filtered edge is metal, and darkens the rest. */
-function bleed(rgb, covered, W, H, rings) {
+export function bleed(rgb, covered, W, H, rings) {
   const ring = new Uint8Array(W * H);
   let frontier = Uint8Array.from(covered);
   const have = Uint8Array.from(covered);

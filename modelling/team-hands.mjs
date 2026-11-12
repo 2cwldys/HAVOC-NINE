@@ -1,8 +1,8 @@
 // The first-person hands (and the kicking legs), one set for each side: MSR, the Insurgents, and a default for anyone on neither,
-// and one for each droid player model.
+// one for each droid player model, and one for each look of the proletarian player models.
 //
 // WHAT IT MAKES. For every viewmodel in the game (the v_*.mdl in models/, and the ones H9 adds in models/h9/:
-// the PPSh-41 and the laser rifle) and for each of the five sets, a copy of that model with the hands picture
+// the PPSh-41 and the laser rifle) and for each of the eight sets, a copy of that model with the hands picture
 // (`arms256.bmp`, inside the model: GoldSrc keeps a model's pictures in the .mdl) replaced by the set's picture. The
 // copies go to models/matchmode/<set>/<the model's own path>, e.g.
 //     models/matchmode/msr/v_ak47.mdl            models/matchmode/insurgent/h9/v_ppsh41.mdl
@@ -38,6 +38,14 @@
 // match and whose class table lists a droid model for that side, since they add as much to the download as the other three together
 // (the plugin's h9_customhands block says how much). A model that is not here falls back to the player's side set.
 //
+// THE PROLETARIANS. A player on a roleplay map who wears one of the proletarian player models (proletarian, proletarian_healthy,
+// prole_fem, prole_bfem) sees that model's own hands and sleeves in every viewmodel and its trousers and shoes in the kicks: three more
+// sets, prole, prolehealthy and prolefem, made by team-proles.mjs from the player models' own colours (hands/ holds no file for them
+// either). One set for each look of the arms, not for each model: prole is the bare mottled brown hand of proletarian, prolehealthy the
+// pale hand of proletarian_healthy, prolefem the dark glove of prole_fem and prole_bfem (whose arms, gloves and legs are the same
+// texels), each with the model's navy sleeve and its cuff. ts_matchmode.sma picks the set by the model name (tsm_rp_hands_prole,
+// tsm_rp_hands_prolehealthy, tsm_rp_hands_prolefem) and only on a roleplay map.
+//
 // A WEAPON ADDED TO THE GAME needs its model found here and named in ts_matchmode.sma's g_hand_files. Nothing to edit in
 // this file: it takes every v_*.mdl in models/ and models/h9/. Run it again, then build the plugin.
 //
@@ -46,18 +54,19 @@
 // painted by modelling/mech-arms/ (build-minigun.mjs and build-pod.mjs write all three sets). This generator would write a
 // glove picture over a texture those models do not have, so it skips every v_mech*.mdl, here and in models/h9/.
 //
-// Nothing in it is random, and every picture comes from the stock models, hands/ and the droid player models: running it again
-// gives the same bytes, and a copy already on disk with those bytes is left alone.
+// Nothing in it is random, and every picture comes from the stock models, hands/ and the droid and proletarian player models: running
+// it again gives the same bytes, and a copy already on disk with those bytes is left alone.
 //
 //   node modelling/team-hands.mjs                  build every set into the game's models/matchmode, checking each (the hands
 //                                                  picture, the body picture, the size, GoldSrc's own checks)
 //   node modelling/team-hands.mjs --dry            build and check, write nothing
 //   node modelling/team-hands.mjs --only v_ak47,v_ppsh41 --preview     a few models and a picture of the three sets
-//   node modelling/team-hands.mjs --only v_melee --preview             the kicks as the player sees them, stock + the five sets
+//   node modelling/team-hands.mjs --only v_melee --preview             the kicks as the player sees them, stock + the eight sets
 //                                                  (out/team-hands/legs.png), and the body pictures (legs-<set>.bmp)
 //   node modelling/team-hands.mjs --only v_ak47,v_mk23,v_m3,v_katana --preview     also out/team-hands/arms.png: those weapons'
-//                                                  arms, stock + the five sets, as the player sees them
+//                                                  arms, stock + the eight sets, as the player sees them
 //   node modelling/team-droids.mjs --sample msrdroid_bot       the droid's plating colours (what team-droids.mjs paints with)
+//   node modelling/team-proles.mjs --sample proletarian        the proletarian's hand, sleeve, trouser and shoe colours (what team-proles.mjs paints with)
 //   node modelling/team-hands.mjs --extract <set-dir> <msr|insurgent>   one-time: read the set's pictures out of an
 //                                                  existing set folder into modelling/hands (how the first ones were taken)
 //
@@ -69,6 +78,7 @@ import { createHash } from "node:crypto";
 import { K, OUT } from "./lib.mjs";
 import { legPictures, kickSheet, BODY } from "./team-legs.mjs";
 import { droidHandPictures, droidBodyPictures, DROID_SETS } from "./team-droids.mjs";
+import { proleHandPictures, proleBodyPictures, PROLE_SETS } from "./team-proles.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GAME = resolve(process.env.H9_GAME ?? join(HERE, "..", "H9XASH", "ts"));
@@ -77,7 +87,7 @@ const SETS_AT = join(MODELS, "matchmode");
 const HANDS = join(HERE, "hands");
 const REPORT = join(OUT, "team-hands");
 const TARGET = "arms256.bmp";
-const SETS = ["msr", "insurgent", "default", ...DROID_SETS];
+const SETS = ["msr", "insurgent", "default", ...DROID_SETS, ...PROLE_SETS];
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => {
@@ -243,6 +253,18 @@ for (const set of DROID_SETS) {
     console.log(`${set}-${size}: painted from ${r.plating} plating texels of the droid model, ${r.colours} colours, mean error ${r.error} levels`);
   }
 }
+// and so are the proletarians' (team-proles.mjs), from the colours of the player models themselves
+const proleHands = proleHandPictures(GAME);
+for (const set of PROLE_SETS) {
+  for (const size of [256, 512]) {
+    pictures[`${set}-${size}`] = proleHands[`${set}-${size}`];
+    const r = proleHands.report[`${set}-${size}`];
+    console.log(`${set}-${size}: painted from the hand (${r.hand} texels) and sleeve (${r.sleeve}) of ${r.from}, ${r.colours} colours, mean error ${r.error} levels`);
+    if (size === 256) {
+      for (const a of r.also) console.log(`  ${a.player} wears it too: its colours are at most ${Math.max(...Object.values(a.apart))} levels from ${r.from}'s (${Object.entries(a.apart).map(([k, v]) => `${k} ${v}`).join(", ")})`);
+    }
+  }
+}
 
 // ---- the models -----------------------------------------------------------------------------------------------------
 const found = [];
@@ -283,6 +305,9 @@ for (const m of found) {
       const droidLegs = droidBodyPictures(GAME, src);
       for (const set of DROID_SETS) legs[set] = droidLegs[set];
       Object.assign(legs.report, droidLegs.report);
+      const proleLegs = proleBodyPictures(GAME, src);
+      for (const set of PROLE_SETS) legs[set] = proleLegs[set];
+      Object.assign(legs.report, proleLegs.report);
     } catch (e) {
       failures.push(`${m.rel}: ${BODY}: ${e.message}`);
       continue;
@@ -347,11 +372,11 @@ if (preview) {
     writeFileSync(join(REPORT, "sets.png"), K.png(img.width, img.height, img.rgba));
     console.log(`preview: ${join(REPORT, "sets.png")}`);
   }
-  // the kicks, as the player sees them: the stock model, then the three sets
+  // the kicks, as the player sees them: the stock model, then every set
   const melee = found.find((m) => /^v_melee\.mdl$/i.test(m.rel));
   if (melee) {
     const kicks = [["stock", readFileSync(melee.file)]];
-    for (const set of ["default", "msr", "insurgent", ...DROID_SETS]) {
+    for (const set of ["default", "msr", "insurgent", ...DROID_SETS, ...PROLE_SETS]) {
       const b = built.find((p) => p.rel === melee.rel && p.set === set);
       if (b) kicks.push([set, b.out]);
     }
@@ -362,7 +387,7 @@ if (preview) {
   // the arms of a few weapons as the player sees them: a row for each weapon, the stock model and then each set
   const shots = [];
   const names = [];
-  const sets = ["default", "msr", "insurgent", ...DROID_SETS];
+  const sets = ["default", "msr", "insurgent", ...DROID_SETS, ...PROLE_SETS];
   for (const m of found.filter((f) => /^(v_ak47|v_mk23|v_m3|v_katana)\.mdl$/i.test(f.rel))) {
     const row = [["stock", readFileSync(m.file)]];
     for (const set of sets) {

@@ -54,7 +54,8 @@
  NOTHING is ever written there. Output goes to out\ and is installed by hand.
 
  team-hands.mjs   the first-person hands, three sets by side (msr, insurgent, default
-                  with no stripe at all; and the two droid sets, see team-droids.mjs)
+                  with no stripe at all; the two droid sets, see team-droids.mjs; and
+                  the three proletarian sets, see team-proles.mjs)
                   for every viewmodel in the game: models/v_*.mdl
                   and models/h9/v_*.mdl (the PPSh-41, the laser rifle). Its pictures are
                   hands\*.bmp (the default is the msr picture with the cuff taken out,
@@ -81,6 +82,19 @@
                   team-droids.mjs --sample <droid model> prints the colours it samples.
                   ts_matchmode.sma gives the set to a player who wears a droid model, and
                   precaches it only on a match map whose class lines name a droid.
+
+ team-proles.mjs  the proletarian player models' first-person hands: three more sets,
+                  prole, prolehealthy and prolefem, which team-hands.mjs writes beside
+                  the others for every viewmodel (the model's own bare hand, or glove,
+                  in its navy sleeve with the cuff; in v_melee its trousers, the cargo
+                  straps taken out, and its shoes). One set for each look of the arms,
+                  not for each model: prole_fem and prole_bfem share one. Painted over
+                  the stock arms and body layouts from the player models' own colours
+                  (models/player/proletarian, proletarian_healthy, prole_fem); node
+                  team-proles.mjs --sample <player model> prints the colours it samples.
+                  ts_matchmode.sma gives a set to a player on a roleplay map by the model
+                  he wears (tsm_rp_hands_prole, _prolehealthy, _prolefem) and precaches
+                  it only there.
 
  ..\test\ts-trial\originals\ holds thirteen of them copied out, with twenty
  variants made from them and the scripts that did it. That folder is an EXAMPLE
