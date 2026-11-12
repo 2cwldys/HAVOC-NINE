@@ -270,7 +270,8 @@ void CH9Car::TakeWheel(CBasePlayer* pPlayer)
 	pPlayer->pev->weaponmodel = 0;
 	pPlayer->pev->viewmodel = 0;
 	pPlayer->m_iHideHUD |= HIDEHUD_WEAPONS;
-	pPlayer->EnableControl(false);
+	// Not FL_FROZEN (EnableControl(false)): Xash's SV_ParseClientMove zeroes a frozen player's buttons, and the car
+	// drives on them. He is held by being put back inside the car every frame instead.
 	pPlayer->pev->effects |= EF_NODRAW;
 	pPlayer->pev->solid = SOLID_NOT;
 	pPlayer->pev->movetype = MOVETYPE_NOCLIP;
