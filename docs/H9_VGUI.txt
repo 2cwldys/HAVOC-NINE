@@ -424,6 +424,9 @@
  ARP_TS (ns arpts)
    ARP <gun> Attachments RAW  a gun item with attachments: flashlight, lasersight, scope, suppressor
                               arpts.attach     AttachMenuHandle
+ ARP_PropertyTax (ns arptax)
+   ARP Property Tax    RAW    say /renew, /paytax facing a door of the player's property (arp_h9_tax_manual 1): what it costs and owes, 1 Pay, 2 Automatic payment
+                              ON or OFF, 0 Close                              arptax.pay     TaxMenuHandle
  ARP_HUD, ARP_HungerMod, ARP_RobMod and ARP_Zones show no menu. ARP_CS and ARP_TFC are not built, and
  the author's extra\ plugins are not shipped. ARP is paused on a map that is not a roleplay map
  (apollo-rp\ORIGIN.txt 1), so none of this runs there.

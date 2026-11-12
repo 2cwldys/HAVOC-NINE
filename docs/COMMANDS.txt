@@ -2068,12 +2068,19 @@
    arp_h9_toast  (cvar, default 1; configs\arp\arp.cfg)
        What Apollo RP prints in chat (the lines that start with [ARP]) as a popup over the crosshair that holds and then fades, to a game that draws H9 panels (needs arp_h9_vgui 1;
        the three latest show, the newest lowest; a refusal in a warm colour). 0: chat as stock ARP. 1: the popup in place of the chat line. 2: both.
- ITS PROPERTY TAX. ARP_PropertyTax (docs\APOLLO_RP.txt, section 11) makes a property that has an owner cost its owner money, taken from his bank (never the wallet) every arp_h9_tax_minutes minutes:
- arp_h9_tax_flat plus arp_h9_tax_percent per cent of what the property cost him, rounded up to a whole number. An owner in the game is charged at once and told in one [ARP] line (a popup on a game that
- draws H9 panels, chat on any other); an owner who is away is charged in the database too, and is shown one popup of what was taken in all, over how many tolls and for how many properties, when he is back.
- The bank never goes below 0: what could not be taken is told to him and forgotten (no debt, no eviction). The clock starts with the map, so a restart starts it again and nobody is charged for the
- downtime. Apollo RP sets a property's price to 0 when it is bought, so the plugin keeps the price of each sale in a table of its own (arp_h9_taxbase); a property it has no price for pays the flat
- sum alone. A property that has no owner is never charged. say /tax tells an owner what each of his properties costs at a toll, the total and the minutes to the next one.
+ ITS PROPERTY TAX. ARP_PropertyTax (docs\APOLLO_RP.txt, section 11) makes a property that has an owner cost its owner money every arp_h9_tax_minutes minutes: arp_h9_tax_flat plus arp_h9_tax_percent
+ per cent of what the property cost him, rounded up to a whole number. With arp_h9_tax_manual 0 (the plugin's own default) it is taken from his bank (never the wallet) at once: an owner in the game is
+ told in one [ARP] line (a popup on a game that draws H9 panels, chat on any other), an owner who is away is charged in the database too and is shown one popup of what was taken in all, over how many
+ tolls and for how many properties, when he is back; the bank never goes below 0: what could not be taken is told to him and forgotten (no debt, no eviction). With arp_h9_tax_manual 1 (what
+ configs\arp\arp.cfg ships) the tax is PAID BY HAND: a toll takes nothing from a bank by itself, it adds the property's amount to what the property OWES, and the owner pays with the chat command /renew
+ (also /paytax) while he looks at a door of the property: a menu with what it costs, what it owes and how long it has, 1. pay what it owes (the bank first, the rest from the wallet), 2. automatic
+ payment for that property on or off (an opt-in for each property: its owner's bank is then charged at each toll, in the game or away, what the property owes plus the toll's amount, all or nothing for
+ his automatic properties together), 0. close; a property with many doors owes one tax and has one menu. With arp_h9_tax_evict 1 the SERVER takes back a property that has owed for
+ arp_h9_tax_evict_tolls tolls in a row, or whose debt has reached arp_h9_tax_evict_debt, even while its owner is away: its owner, key and keyholders are cleared, its price goes back to what the owner
+ paid, its lock to what it was before he bought it, and he is told at once, or in his next login popup; an owner in the game is warned when a property passes half and three quarters of its allowance.
+ The clock starts with the map, so a restart starts it again and nobody is charged for the downtime. Apollo RP sets a property's price to 0 when it is bought, so the plugin keeps the price of each
+ sale in a table of its own (arp_h9_taxbase); a property it has no price for pays the flat sum alone. A property that has no owner is never charged. say /tax tells an owner what each of his
+ properties costs at a toll, what it owes, who pays it and how long it has, and the minutes to the next toll.
    arp_h9_tax  (cvar, default 1; configs\arp\arp.cfg)
        1: the tax. 0: stock Apollo RP: the plugin reads nothing, writes nothing and answers no command. Read at every toll.
    arp_h9_tax_minutes  (cvar, default 15; configs\arp\arp.cfg)
@@ -2082,12 +2089,32 @@
        Per cent of what a property cost, 0 to 100, to the hundredth. 1.0 every 15 minutes is 4 per cent of the price in an hour and 96 per cent of it in a day.
    arp_h9_tax_flat  (cvar, default 0; configs\arp\arp.cfg)
        Money added for each property whatever it cost, 0 to 10000000, to the hundredth.
+   arp_h9_tax_manual  (cvar, plugin default 0; configs\arp\arp.cfg ships 1)
+       1: the tax is paid by hand (above): a toll adds to what each property owes and /renew pays it. A property with automatic payment on is charged from its owner's bank instead, at each toll: what
+       it owes plus the toll's amount, all or nothing for each owner, in the game (his bank in memory) or away (one statement, UPDATE <users table> SET bankmoney=bankmoney-N WHERE <his key> AND
+       bankmoney>=N, whose rows affected say whether it went through); what could not be taken is owed. 0: every owner is charged from his bank, the rest is forgiven, and /renew is
+       chat like any other line. Read at every toll.
+   arp_h9_tax_evict  (cvar, plugin default 0; configs\arp\arp.cfg ships 1)
+       1: the server takes back a property that has owed too long or too much (arp_h9_tax_evict_tolls, arp_h9_tax_evict_debt), at a toll, whether or not its owner is in the game, and never in the first
+       toll after a map began. It needs arp_h9_tax_manual 1: with 0 nothing can owe, so nothing is taken back. 0: a property is never taken back. Read at every toll.
+   arp_h9_tax_evict_tolls  (cvar, default 96; configs\arp\arp.cfg)
+       The tolls a property may owe in a row before it is taken back, counted from the first toll it was not paid at: 96 tolls of 15 minutes are 24 hours of the server's own time. 0: no such limit.
+       An owner in the game is warned at half and three quarters of it. Lowering it takes back, at the next toll after the first of a map and while the database can be used, every property that already owes for more tolls than the new limit, with no warning. Read at every toll.
+   arp_h9_tax_evict_debt  (cvar, default 0; configs\arp\arp.cfg)
+       The money a property may owe before it is taken back, 0 to 100000000; 0: no such limit. A property is taken back when it reaches either limit. Lowering it does the same for a debt that is already over it. Read at every toll.
    /tax  (chat)
-       A line (a popup) with the total each toll takes from the player, how often, and when the next toll is; the console lists each of his properties and what it costs.
+       A line (a popup) with the total each toll costs the player, how often, and when the next toll is; with arp_h9_tax_manual 1 a second line says what his properties owe and how long each has
+       (the nearest to being taken back first), and the console lists each of his properties: what it costs a toll, what it owes, whether it pays automatically, and how long it has.
+   /renew, /paytax  (chat; with arp_h9_tax_manual 0 they are chat like any other line)
+       Facing a door of one of his properties (within 200 units; any door of a building gives its property): the menu of that property, 1. pay what it owes, from the bank and, when the bank holds
+       less, from the wallet (nothing is taken when both together hold less), 2. automatic payment for it on or off, 0. close. Facing another door, or nothing: says so and lists what he owes in all.
    arp_h9_tax_value <internal name> <price>, arp_h9_tax_dump  (console commands: the server's, or an ARP admin's, whose job has arp_admin_access)
        The first gives a property the price the percent is taken of (0 forgets it): for a property the plugin never saw sold (one that was owned before it, one an admin gave away). The second
        prints the switches, the clock, the last toll (owners, in the game and away, what was taken, what was asked of the database) and the database (the tables, the prices it knows, failures).
-       The tables arp_h9_tax (one row for each character charged while away and not told yet: taken, unpaid, tolls, props, updated) and arp_h9_taxbase (the price of each sale) are made when first needed.
+       With arp_h9_tax_manual 1 arp_h9_tax_dump also prints what the properties owe (the lines HAND, HANDLAST and HANDDB: rows, how many owe and how much, automatic payments, the last toll by hand).
+       The tables arp_h9_tax (one row for each character charged while away and not told yet: taken, unpaid, tolls, props, updated) and arp_h9_taxbase (the price of each sale) are made when first needed;
+       with arp_h9_tax_manual 1 two more are: arp_h9_taxdue (what each property owes: its owner, the due, the tolls, whether it pays automatically, the lock it had before it was first bought) and
+       arp_h9_taxnote (a notice for each property taken back from a character who was away, deleted when he is shown it). Going back is dropping them.
    h9inv <op> <args>  (a client command the window sends; not for typing)
        open, close, tidy, move <from> <to>, split <cell> <n> [<to>], use <cell>, drop <cell> <n>, give <cell> <n> <player>, show <cell> <player>,
        info <item>, for the exchange of goods x accept, x decline, x cancel, x seal, x unseal, x offer <cell> <n> [<entry>], x take <entry> and x money <amount>, and for

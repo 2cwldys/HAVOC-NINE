@@ -33,7 +33,8 @@
    /items, /inventory     your items: the inventory window in an H9 game, a text menu in any other. docs\ARP_INVENTORY.txt.
    /menu, arp_menu        ARP's client menu.
    /buy                   buys the property (door) you are looking at, if it is for sale; it takes the price from your BANK.
-   /tax                   what each of your properties costs in property tax at a toll, the total, and the minutes to the next toll (a line in chat or a popup, the list in your console).
+   /tax                   what each of your properties costs in property tax at a toll, what it owes, how long it has, and the minutes to the next toll (a line in chat or a popup, the list in your console).
+   /renew, /paytax        the property tax of the property whose door you look at (arp_h9_tax_manual 1): a menu to pay what it owes and to turn its automatic payment on or off.
    /givemoney <amount>    gives that much of your wallet to the player you are looking at.
    /withdraw <amount>     takes money out of your bank into your wallet: facing a banker NPC, or anywhere if you carry a Debit Card.
    /deposit <amount>      puts wallet money into the bank, facing a banker.
@@ -158,7 +159,8 @@
                 handcuff symbol over a cuffed head; a change to 1 needs a map change), arp_h9_toast 1 (the [ARP] chat lines as popups over the crosshair that fade: 0 chat as stock,
                 1 popup instead of chat, 2 both), arp_h9_plaque 1 (what you look at, a property door, an NPC or a player, is a plaque on an H9 client: its name, owner
                 or FOR SALE and the price, affiliation, and OPEN or SEALED; docs\APOLLO_RP.txt 2, docs\ARP_CONTENT.txt 9; the player's own switch is cl_h9_arphud_plaque).
-                arp_h9_tax 1, arp_h9_tax_minutes 15, arp_h9_tax_percent 1.0, arp_h9_tax_flat 0 (the property tax: every owned property costs its owner money from his bank every
-                arp_h9_tax_minutes minutes, arp_h9_tax_flat plus arp_h9_tax_percent per cent of what it cost; an owner who is away is charged too and is shown one popup when he is
-                back; 0 is stock; docs\APOLLO_RP.txt 11).
+                arp_h9_tax 1, arp_h9_tax_minutes 15, arp_h9_tax_percent 1.0, arp_h9_tax_flat 0 (the property tax: every owned property costs its owner money every arp_h9_tax_minutes minutes,
+                arp_h9_tax_flat plus arp_h9_tax_percent per cent of what it cost; 0 is stock; docs\APOLLO_RP.txt 11), arp_h9_tax_manual 1 (the tax is paid by hand with /renew, automatic
+                payment an opt-in for each property; 0 takes it from the bank at once), arp_h9_tax_evict 1, arp_h9_tax_evict_tolls 96, arp_h9_tax_evict_debt 0 (the server takes back
+                a property that has owed too long or too much, even while its owner is away).
    A server must be restarted fully (not an amxx reload) for a new cvar to register.

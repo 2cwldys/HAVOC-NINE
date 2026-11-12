@@ -391,6 +391,12 @@ to it, items 1 to 43), builds fifteen of its plugins for The Specialists and lis
     the property tax (42)                            arp_h9_tax (1), arp_h9_tax_minutes     0: stock: nothing is read or written, nobody is
                                                      (15), arp_h9_tax_percent (1.0),        charged, and /tax is chat like any other line
                                                      arp_h9_tax_flat (0)
+    the tax paid by hand, with automatic             arp_h9_tax_manual (1; the plugin's     0: every owner is charged from his bank at each toll and what the bank cannot pay is forgiven;
+    payment an opt-in for each property (44)         own default is 0)                      /renew and /paytax are chat like any other line
+    a property the server takes back when            arp_h9_tax_evict (1; the               0: a property is never taken back (it needs arp_h9_tax_manual 1:
+    its tax is not paid (44)                         plugin's own default is 0),            with 0 nothing can owe); the two limits are then only numbers
+                                                     arp_h9_tax_evict_tolls (96),
+                                                     arp_h9_tax_evict_debt (0)
     team play: TS's team rules, three teams, a       arp_teamplay (0), a map change         stock: ARP touches no team and sets nothing of TS's: the map's rules,
     player on the team of his job (43)               arp_teamplay_on is its state, set by   team list and friendly fire stay as the server has them; the plaque
                                                      ARP_TS (not a switch)                  reads the job's letters alone, a citizen reads Civilian
@@ -414,14 +420,16 @@ to it, items 1 to 43), builds fifteen of its plugins for The Specialists and lis
 11. THE PROPERTY TAX
 --------------------
 
-  ARP_PropertyTax (ORIGIN item 42) makes a property that has an owner cost its owner money, taken from his bank every few minutes, and tells him each time: a popup on an H9 game
-  (the popups of ORIGIN item 40; the cent sign of item 33 stands in for each "$"), a chat line on any other. docs\ARP_TAX_CHECKS.txt says what to look at in a game.
+  ARP_PropertyTax (ORIGIN items 42 and 44) makes a property that has an owner cost its owner money every few minutes. The money can be taken from his bank at once, and he is told each time
+  (arp_h9_tax_manual 0: a popup on an H9 game, the popups of ORIGIN item 40, with the cent sign of item 33 for each "$", a chat line on any other), or it can be owed until he pays it by hand
+  (arp_h9_tax_manual 1, the setting configs\arp\arp.cfg ships), and the server can take back a property that is not paid (arp_h9_tax_evict 1). The paragraphs below say which holds for which.
+  docs\ARP_TAX_CHECKS.txt says what to look at in a game.
 
   * THE TOLL. Every arp_h9_tax_minutes minutes (15; 1 to 10080) each property that has an owner costs its owner arp_h9_tax_flat (0) plus arp_h9_tax_percent (1.0) per cent of what the
     property cost him, rounded up to a whole number, so at least 1 when the sum is above 0. The percent and the flat sum count to the hundredth and the sum is worked out in whole
     numbers, never in floats: 0.15 per cent of 2667 is 5, not 4. The minutes, the percent and the flat sum are read at every toll, so a change needs no restart; an interval made shorter
-    than the time since the last toll tolls at the next second. It comes out of the BANK, never the wallet, and the bank never goes below 0: what is there is taken, and what could not
-    be ("$40 could not be taken") is told to the owner and forgotten: no debt and no eviction. The owner of the moment pays: a property sold or given away since the last toll is its new
+    than the time since the last toll tolls at the next second. With arp_h9_tax_manual 0 it comes out of the BANK, never the wallet, and the bank never goes below 0: what is there is taken, and what could not
+    be ("$40 could not be taken") is told to the owner and forgotten: no debt and no eviction; with arp_h9_tax_manual 1 it is owed (PAYMENT BY HAND, below). The owner of the moment pays: a property sold or given away since the last toll is its new
     owner's. The clock starts with the map, so a restart or a map change starts it again and nobody is charged for the time the server was down (a map changed more often than the
     interval never tolls), and the first toll of a map comes one whole interval after it starts.
   * WHAT IT COST. Apollo RP sets a property's price to 0 when it is bought (a price is what an owner asks while the property is for sale), so a percent of the price would find 0 on every
@@ -429,19 +437,20 @@ to it, items 1 to 43), builds fifteen of its plugins for The Specialists and lis
     property table, the property and the price), and takes the percent of that. A property it has no price for (one that was owned before the plugin, one an admin gave away) counts as
     its own price, which is 0 unless it is for sale: with arp_h9_tax_flat 0 it pays nothing, until an ARP admin gives it a price with  arp_h9_tax_value <internal name> <price>  (0 forgets
     it again) or it is bought again. A property that has no owner is never charged, whatever it costs: the Ministry's posts and the clinics are nobody's.
-  * AN OWNER IN THE GAME whose character has loaded is charged at once, in his bank in the core's memory (ARP saves it as it saves the rest), and told in one line for the toll, however many
+  * WITH arp_h9_tax_manual 0, AN OWNER IN THE GAME whose character has loaded is charged at once, in his bank in the core's memory (ARP saves it as it saves the rest), and told in one line for the toll, however many
     properties he has: "[ARP] Property tax: $204 taken from your bank for Flat A1, Flat A2 and Shop A3." (three names at most, then "and 4 more"; a name is cut at 20 characters and
     ends in ".."; a line that would be too long for a popup names no property, only how many: "for 5 properties"). A bank that holds only part of it says so: "... $10 taken from your bank
     for Flat O3; $50 could not be taken (not enough in your bank)." (the warm colour of a refusal), and an empty bank: "[ARP] Property tax for Flat O3: $60 could not be taken (not enough
     in your bank)." An owner whose character has not loaded yet is left out of that toll: his bank in the database is not touched while he is connected, because the bank in memory is the
     truth and the core writes it.
-  * AN OWNER WHO IS AWAY is charged too, in the database, in the bank of his character (the users table of the map: ARP_GetTable). What was taken is added to his row in arp_h9_tax:
+  * WITH arp_h9_tax_manual 0, AN OWNER WHO IS AWAY is charged too, in the database, in the bank of his character (the users table of the map: ARP_GetTable). What was taken is added to his row in arp_h9_tax:
     authid, taken, unpaid (what could not be taken), tolls and props (how many properties the last toll counted), updated (the time). The next time he joins, once ARP has loaded him
     (the event Player_Ready) and he has been alive for four seconds (not while he picks a class or watches), he is shown ONE popup: "[ARP] While you were away, property tax took $450
     from your bank (3 tolls on 2 properties); $120 could not be taken (not enough in your bank)." The row is deleted first, by a statement that waits, and he is told only when that
     statement removed it: a row that is not gone is never shown (a database that fails leaves him waiting), and a row somebody else removed is not shown twice. A toll that came since
     he was read has another time and stays for his next visit. A player who owns nothing is never charged and never told.
-  * SAY /TAX tells an owner what each of his properties costs at a toll, the total, and the minutes to the next toll: a line in chat (a popup), and the list in the console. With
+  * SAY /TAX tells an owner what each of his properties costs at a toll, the total, and the minutes to the next toll: a line in chat (a popup), and the list in the console; with arp_h9_tax_manual 1 the list also says what each
+    property owes, who pays it and how long it has, and a second line names what is owed, the nearest to being taken back first. With
     arp_h9_tax 0 it is not a command: the line is chat, as stock ARP would print it. It is in arp_help.
   * THE DATABASE. Two tables, made with CREATE TABLE IF NOT EXISTS the first time they are needed (a query that waits, as ARP_Inventory's is); no row of any ARP table is added and going
     back is dropping them. arp_h9_tax (authid VARCHAR(36), taken INT(11), unpaid INT(11), tolls INT(11), props INT(11), updated INT(11), UNIQUE authid): one row for each character that
@@ -453,15 +462,59 @@ to it, items 1 to 43), builds fifteen of its plugins for The Specialists and lis
     query is said once in the AMX Mod X log, the plugin leaves the database alone for a minute, and the owners it could not reach are not charged for that toll. (The one failure that leaves
     a row without the money is the second statement failing after the first succeeded; the log says so, with the sum.) A toll with nobody in the game runs its statements in line, one
     with players on the module's thread; the result is the same.
+  * PAYMENT BY HAND (arp_h9_tax_manual 1; 0, the plugin's own default, is everything above). A toll takes nothing from a bank by itself. What each owned property costs at it is added to what THAT
+    PROPERTY OWES (its tax due), and the number of tolls it has owed in a row counts up. A property that costs nothing at a toll (no price to count and arp_h9_tax_flat 0: one an admin gave away) owes
+    nothing and is never taken back. The owner pays by logging in, going to the property and saying /renew (also /paytax) while he looks at one of its doors. What a property owes is its own: a row
+    whose owner is not the property's owner of the moment (a sale, a gift, an admin's change of owner) starts again, so one owner's debt, and his automatic payment, are never the next one's. It is
+    kept in memory and in the table arp_h9_taxdue, so it survives a restart or a map change; the clock starts again with the map, so nobody owes for the time the server was down.
+  * THE MENU. /renew facing a door of one of his properties (the test /sell and /lock make: within 200 units; ARP finds the property by the door, and every named door of a building is bound to ONE
+    property, so any door of it gives the same menu) opens ONE menu for that property: its name, the tax at a toll, what it owes with the tolls it has owed, how many tolls it has left before the
+    server takes it back and about how long that is, his bank and his wallet, then 1. Pay what it owes (the bank first and, when the bank holds less, the rest from the wallet; nothing is taken
+    when both together hold less, and it says so), 2. Automatic payment ON or OFF (a toggle, kept for that property), 0. Close. It is an H9 panel on a game that draws them and the classic text
+    menu on any other, or where arp_h9_vgui is 0 (ApolloRP_VGui.inc, as ARP's other menus). Facing a door that is not his property, or nothing, /renew says so and lists what he owes in all, as
+    say /tax does.
+  * AUTOMATIC PAYMENT is an opt-in for each property (the second key of the menu). At each toll the properties that have it are charged, from their owner's bank, what each owes plus this toll's
+    amount, ALL OR NOTHING for each owner (the sum of his automatic properties together). An owner in the game whose character has loaded is charged in the bank in memory when it holds the sum,
+    and told in one [ARP] line. An owner who is away is charged by ONE statement, UPDATE <users table> SET bankmoney=bankmoney-N WHERE <his key> AND bankmoney>=N, whose callback reads
+    SQL_AffectedRows: it went through when it affected a row, with no read first and no race. What it took goes in his row of arp_h9_tax and he is shown it when he is back, as above. What could not
+    be taken becomes tax due on those properties exactly as for a property paid by hand. An owner whose character has not loaded yet is not charged (his bank in memory is the truth): it is owed, and that toll does not take his property back, whatever its allowance (the
+    next toll judges him). The answer of a statement that is on its way is waited for, however long it takes: the properties it is for are left out of the tolls that come (the log says how many have
+    waited more than two minutes), so that nothing is charged twice, and a property that was sold or given to another meanwhile is its new owner's: what the old owner owed ends with the change, and
+    nothing is accrued or taken back from the new one.
+  * EVICTION BY THE SERVER (arp_h9_tax_evict 1, with arp_h9_tax_manual 1: something has to be able to owe; with 0 every owner is charged at once and the rest is forgiven, so nothing is taken back). At a
+    toll a property is taken back when it has owed for arp_h9_tax_evict_tolls tolls in a row (96: 24 hours at 15 minutes; 0: no such limit) or when what it owes has reached arp_h9_tax_evict_debt
+    (0: no such limit): either one. It is the server's own act, so it works for an owner who is away. Taking it back clears its owner's name and key (ARP_PropertySetOwnerName and
+    ARP_PropertySetOwnerAuth with ""), clears its keyholders (ARP_PropertyClearAccess, see the last paragraph), sets its price back to what the owner paid (arp_h9_taxbase: a property with no such
+    record keeps the price it has, so one an admin gave away stays a state property until an admin prices it), sets its lock back to what it was before he bought it (the lock is noted at the event
+    Property_Buy when the property has no owner: a shop front that starts open goes back open and a home that starts locked goes back locked; a property bought from another player keeps the note of
+    the first sale; one whose lock was never noted is sealed), deletes its row, and writes one line to the AMX Mod X log. Its profit stays with it, as at any sale. The ex-owner is told at once, in
+    one line, when he is in the game and his character has loaded; otherwise a row of arp_h9_taxnote waits for his next login, and he is shown ONE popup once he has been alive for a few seconds, and
+    the row is deleted with the showing. Warnings come before: an owner in the game gets one line when a property of his passes half, and again at three quarters, of its allowance (the tolls and
+    the money count alike: the further one wins), and his login popup says how long each of his properties has left, the nearest to being taken back first. Nothing is taken back in the first toll
+    after a map began (the clock starts with the map), nor before what each property owes has been read from the database (a toll waits for it), nor while the database cannot be used (the ex-owner's
+    notice is written to it): the property goes at a later toll. Switching arp_h9_tax_evict on, or lowering arp_h9_tax_evict_tolls or arp_h9_tax_evict_debt, takes back, at the next toll after the first, every property that is already over its allowance, with no warning: lower a limit only while nothing is owed.
+  * MANY DOORS. A property owes one tax and is taken back as one, whatever its number of doors: the doors of a building are bound to its property by name (arp_doors), so clearing the owner clears
+    it for all of them, and the menu opens from any of them (h9_pc_skytech has eight).
+  * THE TABLES OF PAYMENT BY HAND are made with CREATE TABLE IF NOT EXISTS the first time they are needed while arp_h9_tax_manual is 1, in SQLite and in MySQL: arp_h9_taxdue (tbl: the map's property
+    table, name: the property's internal name, ownerkey, due, tolls, autopay, locked: the lock noted at its first sale, -1 when not known; one row for each property that owes, pays automatically or
+    has a lock noted) and arp_h9_taxnote (authid, tbl, name, shown, tolls, due, why, updated: one row for each property taken back from a character who was not in the game, why being 1 for the period
+    and 2 for the ceiling; it follows the users table like arp_h9_tax: arp_h9_taxnote_<table> for a map whose own arp.ini names another users table). No row of an ARP table is added; dropping the
+    two takes the feature back out. A write or a delete of a row that fails is sent again, with every other row, as soon as the database may be used again (it is left alone for a minute after a failure, and a map change inside that minute leaves the row as it is: a debt that was paid comes back at the next map). A notice, a price or a record that fails is said in the log and not sent again, and a payment that is answered after its property was sold and a later toll has come is not recorded for the popup of the owner who paid it.
   * STOCK APOLLO RP. arp_h9_tax 0: the plugin reads nothing, writes nothing, tolls nobody, learns no price and answers no command (arp_h9_tax_dump says what it holds); with the plugin
-    not listed in plugins.ini the server is stock ARP. Prices of sales made while it is 0 are not learned: those properties pay the flat sum until their price is given by hand.
+    not listed in plugins.ini the server is stock ARP. Prices of sales made while it is 0 are not learned: those properties pay the flat sum until their price is given by hand. With arp_h9_tax 1, arp_h9_tax_manual 0 and
+    arp_h9_tax_evict 0 (the plugin's own defaults) the tax is what it was before payment by hand: the two tables of payment by hand are not made, /renew and /paytax are chat like any
+    other line, nothing is owed and nothing is taken back.
+  * CHAT COMMANDS: say /tax (above) and, with arp_h9_tax_manual 1, say /renew and say /paytax (the same command; PAYMENT BY HAND, above). All are in arp_help.
   * COMMANDS (an ARP admin's console, or the server's): arp_h9_tax_value <internal name> <price> sets what a property counts as having cost; arp_h9_tax_dump prints the switches, the clock, the
-    last toll (owners, how many in the game and away, what was taken, what was asked of the database) and the database (tables, prices known, failures, reads and writes).
-  * TWO THINGS ABOUT THE CORE THIS PLUGIN WORKS AROUND. (1) ARP_Core sets the price to 0 at a sale (CmdBuy), described above. (2) Two natives cut an owner's key, and H9XASH's authids are 35
-    characters ("ID_" and 32 digits): ARP_PropertyGetOwnerAuth hands it back in 33 (ARP_Core.sma, _ARP_PropertyGetOwnerAuth: OwnerAuth[33], array_get_string(..., 33)) and
-    ARP_PropertySetOwnerAuth keeps 32 (get_string(2, OwnerAuth, 32); an admin's arp_setproperty and ARP_PropertySetOwner use it). A property that is bought keeps the whole key (CmdBuy stores
-    it without the native) but is handed back in 33; one an admin gave to a player is kept in 32. So the stock ARP_PropertyGetOwner (include\ApolloRP_Properties.inc) never finds an H9XASH
-    owner among the players, and /sell, /lock, /changename, /changeowner, /addaccess, /delaccess and /profit of ARP_Commands answer "You are not the owner of this property." to him.
-    The plugin takes an owner's key of 32 to 34 characters as the beginning of a character's key, in the game and in the database (SUBSTR(authid,1,n)), takes the several texts of one
-    character's properties for one owner, and matches a key of 35 whole, so it works with the core as it is and with the two natives mended (the fix is a few characters in each native; it
-    is in the edits of this plugin and not part of it). arp_h9_tax_dump counts the owners whose key it had to take that way (cut_keys).
+    last toll (owners, how many in the game and away, what was taken, what was asked of the database) and the database (tables, prices known, failures, reads and writes) and, with arp_h9_tax_manual 1, what the
+    properties owe (the lines HAND, HANDLAST and HANDDB: rows, how many owe and how much, how many pay automatically, the last toll by hand, the tables).
+  * TWO THINGS ABOUT THE CORE THIS PLUGIN WORKS AROUND. (1) ARP_Core sets the price to 0 at a sale (CmdBuy), described above. (2) H9XASH's authids are 35 characters ("ID_" and 32 digits), and
+    stock ARP's two natives for an owner's key cut them: ARP_PropertyGetOwnerAuth handed it back in 33 and ARP_PropertySetOwnerAuth kept 32 (an admin's arp_setproperty and ARP_PropertySetOwner use
+    it), so that the stock ARP_PropertyGetOwner (include\ApolloRP_Properties.inc) never found an H9XASH owner among the players, and /sell, /lock, /changename, /changeowner, /addaccess, /delaccess
+    and /profit of ARP_Commands answered "You are not the owner of this property." to him. The core of this repository has both mended (ORIGIN item 42, H9-arpowner.patch: the whole key), but a
+    property row that was saved while they cut it still holds 32 or 33 characters, and the plugin reads it as it was saved: it takes an owner's key of 32 to 34 characters as the beginning of a
+    character's key, in the game and in the database (SUBSTR(authid,1,n)), takes the several texts of one character's properties for one owner, and matches a key of 35 whole.
+    arp_h9_tax_dump counts the owners whose key it had to take that way (cut_keys).
+  * A THIRD THING ABOUT THE CORE. ARP_PropertyClearAccess (ARP_Core.sma, UTIL_ARP_PropertyClearAccess) clears the keys that players in the game hold, but deletes the rows of the keys table only when one
+    of them holds a key (H9_AnyKeys): the rows of keyholders who are away stay, and come back to them at their next login. Taking the H9_AnyKeys test out of that function makes it delete them
+    whoever is in the game; no other plugin calls the native.
